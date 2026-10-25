@@ -2967,6 +2967,67 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
               `gui/utils` ⇒ **705 passed / 26 skipped / 2 failed**（失败对仍是既有 `pib_exit_safety` 那对）；
               术语门禁 **0 个文件**；CI 钉版 ruff **0.15.12** 全绿；两个改动文件编译通过。
 
+74. ✅ **文本里引用的路径同样是断言：普查发现 9 处引用指向已不存在的文件，其中一处指向一个从未存在过的测试**（2026-10-26）：
+     - **口径（补既有守卫看不见的通道）**：`test_python_invocation_paths_in_docs_and_docstrings_are_tracked`
+              只认 `python <path>.py` 这种**指令**。本条管更宽的通道：**任何被引号包裹的 `src/` / `scripts/` /
+              `tests/` 下 `.py` 路径**，扫 `src/` 与 `scripts/` 的**全部字符串字面量**（报告生成器往读者会照着
+              走的表格里写路径）加活文档的行。`CHANGELOG.md` 与 `_HISTORICAL_DOCS` 排除 —— changelog 的职责正是
+              写下它删掉了什么。
+     - **普查量与分类**：可解析引用 **361** 条 ⇒ 指向索引外 **20** 条 ⇒ 其中 **11 条是自我声明的历史**
+              （`docs/issues_report.md` 3 条 = 第 72 条那份冻结记录；`generate_inverse_design_report.py` 2 条已在
+              `_removed_note()` 里写明实验作废；`generate_fouriergsnet_pipeline_report.py` 3 条是自带日期的
+              2026-09-22 快照，其测试已在 `baefba2d` 删除；`fbef1926` 删除的运行器 1 条；`pib_exit_safety` 家族
+              2 条 = 让 provenance 守卫长期红的那条根因），**9 条是真失效引用**。
+     - **9 条的性质：搬过家**（不是删除）：`algorithm/differentiable_shaping.py` → `algorithm/`
+              下的 `signal_processing/`（`bbb3820b`，3 处引用）；`optimizer/wfless/slm_zernike_shaping.py` →
+              `slm_zernike_pib.py`（`8792ced1` 删的是零导入方的重导出 shim）；`tools/slm/` 的三个
+              `slm_zernike_*` → `tools/wfs/` 与 `tools/zernike/`（`699f149f` 那次按探测目标重组，以及后续一趟）；
+              `tests/ao_shaping/runners/test_gsnet_cache.py` → `tests/ao_shaping/ml/gsnet_debug/`。
+     - **最严重的一条不是过时，是伪造**：`square_shaping.py` 为「DM → HIO 退化（Elser 2003）」这个
+              数学论断写了一句「数值验证见 `tests/ao_shaping/algorithm/test_square_shaping_fienup_variants.py`」
+              —— 该测试**从未存在**（没有任何删除记录，全仓无一处提及），而今天也没有**任何**测试断言那条退化
+              等式（只有 `test_invalid_hio_fraction` 与按 `GS_METHODS` 的参数化覆盖）。前者让读者扑空，后者让
+              代码**声称有一条并不存在的数值证据**，审阅者据此少查一步 —— 与第 70 / 71 条同族的「未经检查的
+              转述」。
+     - **处置方式的选择（刻意保守）**：删掉虚假的证据指向、把**缺口写明白**（变体本身由
+              `test_square_shaping.py` 按 `GS_METHODS` 参数化覆盖，但退化等式本身无数值验证），**不是**顺手补一条
+              断言去把这句话坐实 —— 补断言是另一件事，需要单独决定 beta/gamma 的取值口径。
+     - **同一文件还藏着一个不可运行的指令**：`generate_diff_shaping_report.py` 的 §7 用一个 bash 围栏块让读者
+              执行 `main.py diff-shaping …`，而 `README.md` 与 `docs/user/cli-reference.md` 都写明该命令已移除。
+              参数表保留（那是实验结论），命令行不再重述，并就地写明命令与其运行器已在 `fbef1926` 移除、功能并入
+              `slm-gsnet` 与 `algorithm/signal_processing/`（引文档原话，**不自造** successor 的 flag）。
+     - **新守卫** `test_quoted_source_paths_in_live_text_exist_in_the_git_index`：豁免表
+              `_QUOTED_PY_PATH_HISTORICAL` 以 **(引用文件, 被引路径)** 为键，每条必须写删除 commit 或该记录自身的
+              免责声明 ⇒ **单纯「过时」不能进豁免表，只能改指向**；地板 `_MIN_QUOTED_PY_PATH_CLAIMS = 250`
+              （实测 361）。`tests/` 目录的 .py 刻意不扫（测试的 docstring 不会误导读者production 代码在哪）。
+     - **自审抓到一条假豁免**：我为 `diff_shaping_runner.py` 写的豁免理由是「文本已声明其被删除」，
+              而登记豁免时文本**还没**声明 ⇒ 豁免必须在同一次改动里让自己说的那话成真，否则守卫绿灯掩盖一个
+              假前提。已同步补文本。
+     - **工具自错（本条三次）**：① AST 推导式里把 `isinstance` 过滤写在 `n.keywords` 之后 ⇒ 对
+              `Module` 节点取 `.keywords` 当场崩；② 正则 `[A-Za-z0-9_./-]+` 把**人类写的省略号占位**
+              `tests/.../test_x.py` 当成可解析路径（2 条假阳性，现按含 `...` 直接跳过）；③ 正则经「heredoc 套
+              heredoc」落进文件成了 `\.py`（原始串里=字面反斜杠），提取器解析到 **0** 条 ⇒ **地板断言当场把空转
+              的守卫判红**（这正是地板存在的意义）。改用编辑工具直接写 `r"""…\.py…"""`。规则再重申：
+              **含反斜杠 / 引号的内容不走嵌套 heredoc**（第 24、26 次自错同属 bash 引号族）。
+     - **基线纠正（本条最有价值的产出）**：我长期把既有红记成 **2** 条。本次首次把
+              `tests/ao_shaping/scripts` 纳入选择并用 `git stash` 在 HEAD 上做 A/B ⇒ **另有 4 条在 HEAD 上就已红**：
+              `test_every_test_area_is_sharded`、`test_sync_check_reports_no_drift`、
+              `test_registry_script_paths_exist[report/slm/pib_exit_safety/…]`、
+              `test_header_script_links_resolve[…同一份…]` ⇒ **既有红是 6 条**，先前只因选择里没有这几个目录而
+              看不见。另：`test_python_invocation_paths…` **没有**被本条修好 —— 我一度以为移除死命令行会让它转绿，
+              **按名字逐条核对后确认仍红**（按数量比对会漏判）。
+     - **验证**：守卫 RED 点名 9 条（11 条豁免）⇒ 修复后 1 passed；差分控制只把 1 条指回旧路径 ⇒ 红且
+              **只点 1 条**，`git diff` 确认该文件只有那一行改动。宽跑 `test_conventions` +
+              `algorithm/signal_processing` + `scripts` + `optimizer/wf` ⇒ **2833 passed / 66 skipped / 6 failed**
+              （6 即纠正后的既有红集）。`tests/ao_shaping/ml/gsnet_debug` 带改动与 stash 后**输出逐字符相同**
+              （48 s，进度停在 53% 后无 summary，属该目录既有的重 I/O / 发现排除问题）⇒ 与本条无关，不纳入结论。
+              `main.py <命令>` 调用复测：57 条调用、**0** 条指向未注册命令。CI 钉版 ruff **0.15.12** 全绿；
+              六个改动文件 AST 解析通过。
+     - **遗留（待你拍板）**：11 条自我声明的历史引用要不要整体归入 `_HISTORICAL_DOCS`
+              （`docs/issues_report.md`、fouriergsnet 内嵌快照）；`generate_fouriergsnet_pipeline_report.py` 的
+              自带日期快照要不要加「其中测试已删除」注记（加注记等于改动一份有日期的记录）；`pib_exit_safety`
+              家族缺的究竟是脚本还是报告，只有原作者能定。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

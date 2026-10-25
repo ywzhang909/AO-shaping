@@ -760,9 +760,9 @@ def write_markdown(out: Path, ctx: dict, fig_prefix: str = "figures") -> str:
         md.append(f"| 多尺寸扫描报告 | `{ctx['scan_report']}` |")
     if ctx["raw_scan"]:
         md.append(f"| 多尺寸原始扫描 | `{ctx['raw_scan']}` |")
-    md.append("| 标定工具 | `src/ao_shaping/tools/slm/slm_zernike_response.py` |")
-    md.append("| 三阶段工具 | `src/ao_shaping/tools/slm/slm_zernike_correction.py` |")
-    md.append("| 共享模块 | `src/ao_shaping/tools/slm/slm_zernike_common.py` |")
+    md.append("| 标定工具 | `src/ao_shaping/tools/wfs/zernike_response.py` |")
+    md.append("| 三阶段工具 | `src/ao_shaping/tools/wfs/zernike_correction.py` |")
+    md.append("| 共享模块 | `src/ao_shaping/tools/zernike/common.py` |")
     md.append("")
 
     body = "\n".join(md)

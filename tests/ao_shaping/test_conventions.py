@@ -4004,6 +4004,130 @@ _ENV_ALLOWLIST: tuple[str, ...] = ()
 #: so the parse has to be loud about its own scope.
 _MIN_ENV_NAMES_READ = 15
 
+_QUOTED_PY_PATH = re.compile(
+    r"""[`'"]((?:src|scripts|tests)/[A-Za-z0-9_./-]+\.py)(?::\d+)?[`'"]"""
+)
+
+#: Citations whose referring text declares the target gone. Each key is
+#: (citing file, cited path) and each value states the deletion commit or the record's own
+#: self-disclaimer -- a bare stale path never belongs here, it gets repointed. Sized from the
+#: census that found 11 of the 22 citations in this class, so the exemption is the minority.
+_QUOTED_PY_PATH_HISTORICAL: dict[tuple[str, str], str] = {
+    ("docs/issues_report.md", "src/ao_shaping/utils/wfs_utils.py"):
+        "frozen 2026-05 snapshot whose own header declares the cited line numbers invalid",
+    ("docs/issues_report.md", "src/ao_shaping/utils/pattern_helper.py"):
+        "same frozen snapshot",
+    ("docs/issues_report.md", "src/ao_shaping/drivers/ccd/miicam_driver.py"):
+        "same frozen snapshot",
+    ("scripts/ml/generate_inverse_design_report.py", "scripts/crosstalk_augmentation_train.py"):
+        "emitted inside _removed_note(): the experiment is declared void and the script was "
+        "deleted in 6b85858a, so naming it is the record",
+    ("scripts/ml/generate_inverse_design_report.py", "scripts/inverse_crosstalk_check.py"):
+        "same _removed_note() annotation",
+    ("scripts/slm/generate_fouriergsnet_pipeline_report.py",
+     "tests/ao_shaping/drivers/sim/test_sim_fouriergsnet_pipeline.py"):
+        "self-dated (2026-09-22) frozen run snapshot; those tests were deleted in baefba2d -- "
+        "annotating or regenerating this snapshot is an owner call",
+    ("scripts/slm/generate_fouriergsnet_pipeline_report.py",
+     "tests/ao_shaping/runners/test_fouriergsnet_optimize.py"):
+        "same frozen snapshot",
+    ("scripts/slm/generate_diff_shaping_report.py", "src/ao_shaping/runners/diff_shaping_runner.py"):
+        "the runner was deleted in fbef1926 and the text says so, mirroring AGENTS.md's own "
+        "convention for that entry",
+    ("scripts/slm/verify_pib_exit_safety_hw.py", "scripts/slm/generate_pib_exit_safety_report.py"):
+        "phantom pib_exit_safety family: the script was never committed, so only its author can "
+        "say whether the sibling script or the report is missing; already red under "
+        "test_reproduce_commands_in_live_docs_name_tracked_scripts",
+    ("scripts/README.md", "tests/ao_shaping/scripts/test_verify_pib_exit_safety_hw.py"):
+        "same phantom family and the same known-red guard",
+}
+
+#: The census resolved 362 claims; a floor this far below catches an extractor that stopped
+#: matching without silently checking nothing.
+_MIN_QUOTED_PY_PATH_CLAIMS = 250
+
+
+def test_quoted_source_paths_in_live_text_exist_in_the_git_index() -> None:
+    """A quoted repo path is an existence claim: the file must be in the next clone.
+
+    ``test_python_invocation_paths_in_docs_and_docstrings_are_tracked`` covers ``python <path>.py``
+    instructions in module docstrings and live markdown. This covers the wider channel it cannot
+    see: a path quoted as text -- in any string literal of ``src/`` and ``scripts/`` (which is where
+    report generators write the tables their readers follow) and in live markdown. A census over 361
+    such claims found 9 pointing at files that had moved or been deleted while the text still
+    presented them as present: ``algorithm/differentiable_shaping.py`` (relocated into
+    ``algorithm/signal_processing/`` in bbb3820b, three citations), ``optimizer/wfless/
+    slm_zernike_shaping.py`` (the zero-importer re-export shim deleted in 8792ced1),
+    ``tools/slm/slm_zernike_{response,correction,common}.py`` (regrouped into ``tools/wfs/`` and
+    ``tools/zernike/`` in 699f149f and a later pass), ``tests/ao_shaping/runners/test_gsnet_cache.py``
+    (moved under ``tests/ao_shaping/ml/``), and one citation in ``square_shaping.py`` to a
+    ``test_square_shaping_fienup_variants.py`` that has never existed at all -- that last one was not
+    a stale pointer but a claimed numerical verification with no test behind it.
+    """
+    import subprocess
+
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"], capture_output=True, cwd=str(REPO), check=False
+    ).stdout
+    tracked = {t.decode("utf-8", errors="replace") for t in listing.split(b"\0") if t}
+
+    offenders: list[str] = []
+    checked = 0
+    exempt = 0
+    for rel in sorted(tracked):
+        path = REPO / rel
+        if not path.is_file():
+            continue
+        claims: list[tuple[int, str]] = []
+        if rel.endswith(".py"):
+            # tests/ is left out on purpose: a test docstring cannot mislead a reader about where
+            # production code lives, and this mirrors the scope of the invocation guard.
+            if not (rel.startswith("src/") or rel.startswith("scripts/")):
+                continue
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"))
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    for match in _QUOTED_PY_PATH.finditer(node.value):
+                        claims.append((node.lineno, match.group(1)))
+        elif rel.endswith(".md") and rel != "CHANGELOG.md" and not _is_historical(path):
+            # A changelog's job is to name the files it removed, so it is out of scope even though
+            # _is_historical() does not list it.
+            for lineno, line in enumerate(
+                path.read_text(encoding="utf-8", errors="replace").splitlines(), 1
+            ):
+                for match in _QUOTED_PY_PATH.finditer(line):
+                    claims.append((lineno, match.group(1)))
+        else:
+            continue
+        for lineno, cited in claims:
+            # "tests/.../test_x.py" is a placeholder a human wrote, not a resolvable claim.
+            if "..." in cited:
+                continue
+            checked += 1
+            if cited in tracked:
+                continue
+            reason = _QUOTED_PY_PATH_HISTORICAL.get((rel, cited))
+            if reason is not None:
+                exempt += 1
+                continue
+            offenders.append(f"{rel}:{lineno} -> {cited!r} (not in the git index)")
+
+    assert checked >= _MIN_QUOTED_PY_PATH_CLAIMS, (
+        f"resolved only {checked} quoted-path claim(s), below the floor "
+        f"{_MIN_QUOTED_PY_PATH_CLAIMS} -- the grammar stopped matching the repo's citation style, "
+        "so a pass here would mean nothing was checked."
+    )
+    assert not offenders, (
+        f"{len(offenders)} quoted path(s) name a file that is not in the git index "
+        f"({exempt} exempted as self-declared history):\n  " + "\n  ".join(offenders[:20])
+        + "\nRepoint each to where the file actually lives (git log --follow shows the move), or, "
+        "if it really was deleted, make the text say so and register the exemption with the commit."
+    )
+
+
 
 def _env_names_read_by_code() -> tuple[dict[str, list[str]], list[str], int]:
     """Collect every literal environment variable name read under ``src/`` and ``scripts/``."""

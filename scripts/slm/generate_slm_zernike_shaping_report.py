@@ -1,7 +1,7 @@
 """Offline report generator for the SLM-Zernike shaping optimizer.
 
 Reads the debug artifact bundles written by
-``src/ao_shaping/optimizer/wfless/slm_zernike_shaping.py`` when ``debug=True``
+``src/ao_shaping/optimizer/wfless/slm_zernike_pib.py`` when ``debug=True``
 (PKL + JSON sidecar + PNG) and produces:
 
 * ``report/slm_zernike_shaping/figures/*.png`` — per-run figures (objective
