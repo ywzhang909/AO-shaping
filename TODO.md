@@ -1311,6 +1311,40 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       ③ **迁移与重构意图**。故 76 条是**待业主确认的线索清单**，不是删除清单。本轮**未改任何代码**；
       真要动某一条，按「先立失败测试 → 删 → 全量分片复验」单独开条目。
 
+29. ✅ **CLI 清单与代码对齐：命令数 20→19、幽灵命令 `spgd-square`、`main.py` 自述的三个不存在命令**（2026-10-25）：
+    - **四源基准（现已一致，自检脚本按差集断言相等）**：`main.py` 里 `cli.add_command(...)` 的名字 = **19**；
+      `tests/ao_shaping/runners/test_cli_contract_freeze.py::EXPECTED_COMMANDS` = **19**；
+      `tests/ao_shaping/runners/cli_help_golden.json` 的顶层 key = **19**；`main.py` docstring 命令表 = **19**。
+    - **修掉的六处偏差**：
+      ① `AGENTS.md` 写"main.py 注册 20 个命令"，实为 **19**（多的那 1 就是 ② 的幽灵）；
+      ② `spgd-square` 被当**顶层命令**写满 8 处（CLI 树 / bash 示例 / `WHERE TO LOOK` / 策略↔runner
+        对照表 / 三层架构图 / 两条"未注册 Runner"行 / Entry Points 注释）—— 它其实是 `slm-pib`
+        **命令组**的子命令（`run.add_command(square, name="square")`），正确写法 `slm-pib square`；
+      ③ `main.py` **自己的 docstring** 列了三个**不存在**的命令 `gs` / `gs-square` / `diff-beam`
+        （`add_command` 与 `EXPECTED_COMMANDS` 均零命中），又漏列 9 个真命令；Examples 里的
+        `--debug gs …` 同样不可跑 ⇒ 已改为 `slm-pib spgd`。照 `--help` 抄的人第一次就会失败；
+      ④ `hadamard_matrix_runner` 在"未注册"注里仍标「正在注册」⇒ 实为**已注册**（已进入
+        `EXPECTED_COMMANDS` 与 help golden），移出该行；`slm_offset_runner` 仍未注册，保留；
+      ⑤ `ao-train = ml.train:cli`（`pyproject.toml [project.scripts]` 里**唯一**随包安装的入口）
+        原先在文档中**完全没写**，已补进 Entry Points；
+      ⑥ 命令树补全 19 条并标出**真实模块与 attr**（读自 `runners/__init__.py` 的 `_LAZY_RUNNERS` /
+        `_IMPORT_ATTRS`，不猜）：`zernike-matrix` 与 `closed-loop` 同模块、`ga-`/`greedy-zernike` 同模块、
+        `alt-`/`full-voltage` 同模块、`dm-`/`hadamard-matrix` 同模块 ⇒ **一个模块导出多个命令时必须显式
+        给 attr**，否则落到默认 attr `run` 会取回**错误的命令**。
+    - **一次自我纠正（比修六处更值钱）**：我第一轮把 `combined` / `hadamard-matrix` 写成 `main.py:113` /
+      `:120` 这样的**行号锚**，而**同一轮**扩写 docstring 让注册块整体下移 7 行 ⇒ 引用**当场失效**。
+      已全部换成**符号锚**（如 `cli.add_command(combined_run, name="combined")`），并加两条自检：
+      文档引用的锚必须在 `main.py` 里**逐字存在**；`main.py:<数字>` 型引用必须**清零**。
+      理由与守卫基线同一条：**行号会腐，符号不会**（守卫只用计数、不用 `path:line` 白名单）。
+    - **验收**：容器 **725 passed / 1 skipped**；唯一红是
+      `test_cli_contract_freeze.py::test_help_text_matches_golden` 里 `slm-gsnet` 的 usage 形状
+      （`[COMMAND]` 可选），它**在干净 `HEAD` 上同样复现**，且两份 help golden 都**不含组级帮助**
+      （`cli_help_golden.json` 无裸 `main` key；`_cli_help_golden.json` 零个裸 key；我的 docstring
+      文本在 golden 值中零命中）⇒ 属 wt-193 在 `runners-gui-misc` **advisory** 分片的既存红，不动。
+    - **留作下一轮的候选**（本轮不做，避免把口径判断当重构做）：把"四源相等"做成**常驻守卫**
+      （解析 CLI 树与 `EXPECTED_COMMANDS` 取差集），这样文档与注册面再漂移会当场红；需先解决
+      子命令行（`slm-pib square`）与顶层命令名的解析口径，否则误报。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

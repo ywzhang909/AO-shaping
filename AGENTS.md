@@ -101,7 +101,7 @@ AO-shaping/
 | Wavefront optimizers | `src/ao_shaping/optimizer/wf/` | RMS optimization |
 | Zernike response matrix | `src/ao_shaping/optimizer/wf/zernike_response_matrix.py` | SLM→WFS Zernike校准 |
 | PIB optimizers | `src/ao_shaping/optimizer/wfless/` | Power-in-bucket |
-| SLM Zernike PIB / 方形整形 (同一模块) | `src/ao_shaping/optimizer/wfless/slm_zernike_pib.py` + `slm_square_shaping.py` + `runners/slm/slm_shaping_runner.py` | `slm_shaping_runner` 一个 click 组装下两个家族: `slm-pib`(`spgd`/`heuristic`) → `slm_zernike_pib.py`; `spgd-square`(同 `square` 子命令) → `slm_square_shaping.py`。`--cam-type sim` 在两半都走数字孪生 (`runner_common.patch_sim_*_shaping`) |
+| SLM Zernike PIB / 方形整形 (同一模块) | `src/ao_shaping/optimizer/wfless/slm_zernike_pib.py` + `slm_square_shaping.py` + `runners/slm/slm_shaping_runner.py` | `slm_shaping_runner` 一个 click 组装下两个家族: `slm-pib`(`spgd`/`heuristic`) → `slm_zernike_pib.py`; `slm-pib square`(`square` 子命令，不是顶层命令) → `slm_square_shaping.py`。`--cam-type sim` 在两半都走数字孪生 (`runner_common.patch_sim_*_shaping`) |
 | SLM方形光斑整形 (SPGD, freeform) | `src/ao_shaping/optimizer/wfless/slm_square_shaping.py` + `runners/slm/gsnet_runner.py` | SPGD 优化 Zernike 系数 → 均匀方形远场 (CLI: `slm-gsnet`) |
 | GS 预整形 + 自由相位 SPGD 细化 (硬件) | `src/ao_shaping/optimizer/wfless/slm_gs_refine.py` + `runners/slm/gs_refine_runner.py` | 仿真 `iterative_zernike_shaping.py` 的硬件移植: GS 开环预矫正 (仅当实测优于平场才采用) + 无感知 SPGD 细化 (CLI: `slm-gs-refine`) |
 | 正向模型闭环校正 + 反复迭代 (硬件) | `src/ao_shaping/optimizer/wfless/slm_model_in_loop.py` + `runners/slm/model_in_loop_runner.py` | 仿真 `model_in_loop_shaping.simulate_iterative_shaping` 的硬件移植: 每轮用强随机探针重拟合正向模型的 Zernike 像差 (Step A), 再冻结该像差合成目标方斑相位 (Step B), 用 trust region + 逐轮验收抑制两者相互耦合振荡 (CLI: `slm-model-in-loop`) |
@@ -111,7 +111,7 @@ AO-shaping/
 | Simulation | `src/ao_shaping/drivers/sim/` | Digital twin devices |
 | **2f 数字孪生（可复用）** | `src/ao_shaping/drivers/sim/bench_twin.py` | 参数化 2f 实验系统：把物理非理想因素注入传播链 —— SLM 的 LUT 非线性+量化、面板静态相差（Zernike+粗糙度）、装调（相机离焦/光路倾斜/透镜像差）。口径=瞳面区域→CCD 远场（与 region/padding/像元标度约定一致），默认全零误差=理想系统。与既有 `slm_pib_sim.py`（面板级 FFT 仿真）、`fouriergsnet_env.py`（带真实 λ/f/像元节距的傅里叶环境）并存，互不替代 |
 | Utilities | `src/ao_shaping/utils/{io,image,wavefront,slm}/` + root `cli_params.py` | 4 子包: io/, image/, wavefront/, slm/ (spots_calc, wavefront_calc, zernike_calc, display 等) + 零导入叶子 `cli_params.py` |
-| Standalone runners (未注册) | `src/ao_shaping/runners/` | `slm_offset_runner` 计划迁移至 `tools/slm/`。⚠️ `slm_shaping_runner` **曾经**在此列 (2026-10-05 前它未注册); 现已注册为 `slm-pib` + `spgd-square`, 不再属于本行 |
+| Standalone runners (未注册) | `src/ao_shaping/runners/` | `slm_offset_runner` 计划迁移至 `tools/slm/`。⚠️ `slm_shaping_runner` **曾经**在此列 (2026-10-05 前它未注册); 现以 `slm-pib` **命令组**注册（子命令 `spgd` / `heuristic` / `square`）；⚠️ 无 `spgd-square` 顶层命令 ⇒ 写 `slm-pib square` |
 | ML training | `src/ml/` (standalone, not inside `ao_shaping/`) | U-Net+GAN, trainer, wandb_logger |
 | 硬件相位→相机图像 DataLoader | `src/ml/hwdataset/` | `data/debug` 全量转 PyTorch Dataset: 输入=SLM 相位+曝光, 输出=CCD 画面 (见 `硬件调试转 Dataset` 节) |
 | **Zernike 系数→远场强度 Dataset** | `src/ml/hwdataset/zernike_dataset.py` | 输入=136 维 Noll 序系数 (弧度), 输出=归一化远场强度; **绕过 `materialise()` 的瞳面重建**, 实测 136 → 10.5 ms/item 且输出逐位一致 |
@@ -150,7 +150,7 @@ AO-shaping/
 | `combined` | `optimizer.combined_optimizer:optimize_pib()` | wfless | AdaMOD + SPGD 混合 PIB | DM + CCD |
 | `slm-pib` (`spgd`) | `optimizer.wfless.slm_zernike_pib:optimize_slm_zernike_pib()` | wfless | Zernike 系数 SPGD 梯度 (PIB / RMS / Pearson… 目标形状) | SLM + CCD |
 | `slm-pib` (`heuristic`) | 同上 (`algorithm=ga/pso/sa/hc/rs/cem/de`) | wfless | 黑盒启发式搜索 | SLM + CCD |
-| `spgd-square` | `optimizer.wfless.slm_square_shaping:optimize_slm_square()` | wfless | 均匀方形远场 (CV + EE + AR 综合质量分) | SLM + CCD |
+| `slm-pib square` | `optimizer.wfless.slm_square_shaping:optimize_slm_square()` | wfless | 均匀方形远场 (CV + EE + AR 综合质量分) | SLM + CCD |
 | `slm-gs-refine` | `optimizer.wfless.slm_gs_refine:optimize_slm_gs_refine()` | wfless | GS 预矫正 (对比择优) + 自由相位 SPGD 细化 | SLM + CCD |
 | `slm-model-in-loop` | `optimizer.wfless.slm_model_in_loop:optimize_slm_model_in_loop()` | wfless | 探针 refit 正向模型 (Step A) + 目标光斑相位合成 (Step B), 带 trust region 与逐轮验收 | SLM + CCD |
 
@@ -218,7 +218,7 @@ CLI (main.py Click 命令)
   ├─ rms-zernike ────→ runners/rms_zernike_runner.py ──→ optimizer/wf/rms_by_zernike.py ──→ algorithm: Adam/AdaMOD
   ├─ ga-zernike ─────→ runners/zernike_search_runner.py ──→ optimizer/wf/ga_zernike.py ──→ algorithm: GA
   ├─ slm-pib ─────────→ runners/slm/slm_shaping_runner.py ──→ optimizer/wfless/slm_zernike_pib.py ──→ algorithm: Adam/AdaMOD/GA/PSO…
-  ├─ spgd-square ─────→ runners/slm/slm_shaping_runner.py (square) ──→ optimizer/wfless/slm_square_shaping.py ──→ algorithm: SPGD (同名 click 组)
+  ├─ slm-pib square ──→ runners/slm/slm_shaping_runner.py (square 子命令) ──→ optimizer/wfless/slm_square_shaping.py ──→ algorithm: SPGD (同名 click 组)
   └─ combined ────────→ runners/combined_runner.py ──→ optimizer/combined_optimizer.py ──→ algorithm: AdaMOD/SPGD
 
 runners/       硬件编排层  — Click CLI, 设备生命周期 (open/close), 结果保存
@@ -245,8 +245,8 @@ algorithm/     算法基础层  — 纯数学优化器 (update/grad), 无硬件�
 
 | 类型 | 说明 |
 |------|------|
-| 已注册 CLI 命令 | main.py 注册 20 个命令 (含 `slm-gsnet`, `combined` 等), 见 Entry Points 节 |
-| 独立 Runner (未注册) | 需直接运行 `python -m ao_shaping.runners.xxx` 或 standalone 脚本; `slm_offset_runner` 计划迁移至 `tools/slm/`。⚠️ `slm_shaping_runner` **曾经**在此列 (2026-10-05 前它未注册); 现已注册为 `slm-pib` + `spgd-square`, 不再属于本行 |
+| 已注册 CLI 命令 | main.py 注册 **19** 个命令（逐个 `cli.add_command`，见 `main.py` 的 `# Register subcommands` 段；名单由 `tests/ao_shaping/runners/test_cli_contract_freeze.py::EXPECTED_COMMANDS` 冻结），见 Entry Points 节 |
+| 独立 Runner (未注册) | 需直接运行 `python -m ao_shaping.runners.xxx` 或 standalone 脚本; `slm_offset_runner` 计划迁移至 `tools/slm/`。⚠️ `slm_shaping_runner` **曾经**在此列 (2026-10-05 前它未注册); 现以 `slm-pib` **命令组**注册（子命令 `spgd` / `heuristic` / `square`）；⚠️ 无 `slm-pib` 之外的 `spgd-square` 顶层命令 ⇒ 写 `slm-pib square` |
 
 ### 共享辅助
 
@@ -695,32 +695,45 @@ python src/ao_shaping/main.py zernike-matrix
 python src/ao_shaping/main.py rms-zernike
 python src/ao_shaping/main.py ga-zernike
 python src/ao_shaping/main.py slm-pib spgd          # SLM Zernike PIB (SLM + CCD)
-python src/ao_shaping/main.py spgd-square           # SLM 方形远场整形 (同上模块的 square 子命令)
-python src/ao_shaping/main.py combined
+python src/ao_shaping/main.py slm-pib square        # 方形远场整形 (slm-pib 的子命令；无 spgd-square 顶层命令)
+python src/ao_shaping/main.py combined              # legacy AdaMOD+SPGD 混合 PIB
+python src/ao_shaping/main.py hadamard-matrix       # Hadamard 响应矩阵
 ```
+
+**Console script (`pyproject.toml [project.scripts]`):** `ao-train = ml.train:cli` —— 唯一随包安装的入口，指向独立包 `src/ml/`（不在 `main.py` 的 click 组里）。
 
 **CLI Structure (main.py 注册关系):**
 ```
-main (click.group)
-├── wf             ← wf_runner.run        [Wavefront RMS via DM电压 + WFS]
-├── pib            ← axis_beam_runner.run  [Power-in-Bucket via DM电压 + CCD]
-├── pipeline       ← pipeline_runner.run   [Serial WF RMS → PIB]
-├── zernike-matrix ← zernike_matrix_runner.run [Zernike响应矩阵标定 + 闭环优化 (closed_loop_run)]
-├── rms-zernike    ← rms_zernike_runner.run    [SLM Zernike RMS]
-├── ga-zernike     ← ga_zernike_runner.run     [GA Zernike]
-├── slm-pib         ← slm_pib_run                [SLM Zernike PIB (spgd / heuristic 子命令)]
-├── spgd-square     ← slm_square_run             [SLM 方形远场均匀性整形 (slm_shaping_runner 的 square 子命令)]
-├── slm-gsnet      ← slm_gsnet_run             [SLM方形光斑 SPGD 整形 (freeform)]
-├── slm-gs-refine  ← slm_gs_refine_run         [GS 预矫正 + 自由相位 SPGD 细化]
-├── slm-model-in-loop ← slm_model_in_loop_run   [正向模型闭环校正 + 目标光斑相位合成]
-└── combined       ← combined_runner.run       [AdaMOD+SPGD 混合 PIB]
+main (click.group)                                  # 19 个命令，逐个由 cli.add_command 注册
+├── wf                ← runners.nlight_dm.wf_runner
+├── pib               ← runners.nlight_dm.axis_beam_runner
+├── pipeline          ← runners.nlight_dm.pipeline_runner
+├── zernike-matrix    ← runners.slm.zernike_matrix_runner      (attr `run`)
+├── closed-loop       ← runners.slm.zernike_matrix_runner      (attr `closed_loop_run`)
+├── rms-zernike       ← runners.slm.rms_zernike_runner
+├── ga-zernike        ← runners.zernike_search_runner          (attr `ga_zernike_run`)
+├── greedy-zernike    ← runners.zernike_search_runner          (attr `greedy_zernike_run`)
+├── dm-matrix         ← runners.matrix_runner                  (attr `dm_matrix_run`)
+├── hadamard-matrix   ← runners.matrix_runner                  (attr `hadamard_matrix_run`)
+├── alt-voltage       ← runners.micro_drive.voltage_runner     (同模块两命令，靠 attr 区分)
+├── full-voltage      ← runners.micro_drive.voltage_runner
+├── combined          ← runners.nlight_dm.combined_runner      [legacy]
+├── slm-pib           ← runners.slm.slm_shaping_runner         (click 组: spgd / heuristic / square)
+├── slm-gsnet         ← runners.slm.gsnet_runner
+├── slm-gs-refine     ← runners.slm.gs_refine_runner
+├── slm-model-in-loop ← runners.slm.model_in_loop_runner
+├── slm-lut           ← tools.slm.calibration.lut_runner       (来自 tools/，不经 _LAZY_RUNNERS)
+└── slm-diagnose      ← tools.slm.panel.diagnose               (同上)
+# 一个模块导出多个命令时必须显式给出 attr（`_IMPORT_ATTRS`），
+# 否则落到默认 attr `run` 会取回错误的命令。
 ```
 
-**Note:** `combined` 命令仍注册于 main.py (main.py:106) 且功能可用, 作为 legacy 保留。`pipeline_runner.py` 是推荐的 WF→PIB 串行方案。
+**Note:** `combined` 命令仍注册于 main.py（cli.add_command(combined_run, name="combined")）且功能可用, 作为 legacy 保留。`pipeline_runner.py` 是推荐的 WF→PIB 串行方案。
 
 > **未注册到 main.py 的独立 Runner** (需直接运行 `python -m ao_shaping.runners.xxx` 或 standalone 脚本):
-> `slm_offset_runner` (计划迁移至 `tools/slm/`), `hadamard_matrix_runner` (正在注册为 `hadamard-matrix` 命令)。
-> ⚠️ `slm_shaping_runner` 曾列于此 (2026-10-05 前未注册), 现已注册为 `slm-pib` + `spgd-square`。
+> `slm_offset_runner` (计划迁移至 `tools/slm/`)。
+> ⚠️ `hadamard_matrix_runner` 曾在此列并标注「正在注册」—— 2026-10-25 实测**已注册**（cli.add_command(hadamard_matrix_run, name="hadamard-matrix")，已进入 `EXPECTED_COMMANDS` 与 help golden），故移出本行。
+> ⚠️ `slm_shaping_runner` 曾列于此 (2026-10-05 前未注册), 现以 `slm-pib` **命令组**注册（其 `square` 子命令即方形整形）。
 
 **Refactoring Notes:**
 - All runner scripts now use centralized config from `config.py` (DM_N_ACTUATORS, PATHS, DEFAULTS)
@@ -1104,7 +1117,7 @@ VS Code settings in `.vscode/settings.json` (machine-local, untracked) set PYTHO
 | `as any`, `@ts-ignore` | Never suppress type errors |
 | Empty catch blocks | Always handle exceptions or log |
 | Deleting failing tests | Fix the code, not the test |
-| `combined_runner.py` with main CLI | Prefer `pipeline_runner.py` for new serial flows; `combined` remains registered as legacy (main.py:106) |
+| `combined_runner.py` with main CLI | Prefer `pipeline_runner.py` for new serial flows; `combined` remains registered as legacy (cli.add_command(combined_run, name="combined")) |
 | Passing uint16 grayscale through `create_phase_from_array()` | `create_phase_from_array()` treats input as **radians** (mod 2π → grayscale = rad/2π × 1023). uint16 grayscale values get silently corrupted. Use `np.full((h,w), gray, dtype=np.uint16)` for flat phase or direct grayscale patterns. |
 | SLM 相位生成函数自行 `np.mod(phase, 2π)` (2026-09 raw-only 契约) | All phase generators must return **raw unwrapped radians** — the only mod-2π wrap lives in the driver `Santec.create_phase_from_array()` on radian→grayscale conversion (`santec/driver.py` L1382). Generators that self-wrap duplicate the driver contract and hide the true phase. Convert via `utils/slm/phase_display.phase_to_slm_grayscale(phase, slm=slm)` (hardware) or the pure fallback (offline/tests). Exception: `_zernike_phase_radians` keeps a wrapped output **only** as a test-only reference. |
 | Consecutive `write_phase` + `display_memory` to the **same** memory slot | Santec SLM firmware treats `display_memory(slot)` as a no-op when that slot is already being displayed — the LCOS panel does **not** refresh. Consecutive writes must ALWAYS target different slots. Preferred pattern (used by diff-shaping runner): pick a **random slot in 2..125** each write, excluding the currently displayed slot — this also survives process restarts (`get_displayed_memory_number()` before the first write). Older tools rotate a small pool like `itertools.cycle([3,4,5])` — works within one process only. The built-in `display_data()` cycles through all 127 slots. |
