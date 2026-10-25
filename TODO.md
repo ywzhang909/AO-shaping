@@ -2088,6 +2088,42 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       忠实读取（该方法不使用 `self`），跑完当场删除。教训：**测不出数据的 F 不是证据**；
       先让数据打印出来，再决定要不要断言。
 
+48. ✅ **驱动把未初始化内存交给调用方，经由一个「文档说不使用」的数组槽位 —— `get_zernike` 的返回缓冲改 `zeros`；4 处同类点明确不动，且不建守卫**（2026-10-25）：
+    - **缺陷本体**：`ThorlabWFS.get_zernike`（`drivers/wfs/thorlab_wfs.py:1520`）用 `np.empty` 分配
+      **返回给调用方**的系数缓冲，而 DLL 只填 `coeff[1..N]`、`index 0` 不写 —— 这一点仓库内三处文档一致
+      （`tools/wfs/zernike_response.py:15`、`tools/wfs/zernike_correction.py:25`、
+      `tools/zernike/common.py:8`）。默认路径 `excluded_piston=True` 会 `response[start_idx:]` 丢掉 0 号槽
+      （`optimizer/wf/zernike_response_matrix.py:359-366`），所以**默认不发作**；但 `excluded_piston=False`
+      是**受支持的参数**，那条路径就把未写入内存当作「测到的 piston」交出去 —— 而
+      `zernike_response.py:27` 早已写明 piston 不可矫正也不该出现非零假值 ⇒ 假值**看起来合理**，不会报错。
+    - **改法**：两处分配改 `np.zeros`（`:1520` 的返回缓冲、`:1536` 错误路径的 `np.empty_like`），并留一行
+      不变量注释说明「DLL 只填 `coeff[1..N]`，0 号槽是否定义取决于这里的初始化；孪生侧对同一数组也用
+      zeros」。成本 67 个 float，可忽略；**没有**碰图像路径。
+    - **纠正我自己上一轮的判断**：我曾说错误路径「会把未初始化内存交出去」。实测
+      `handle_error(err)` 默认 `no_raise=False` 会 **raise**（`thorlab_wfs.py:632-633`），因此那行
+      `return` 今天是**死代码**。改它的理由是「别留隐患」（若将来有人传 `no_raise=True` 就变成活的），
+      **不是**修一个现行 bug —— 按现行 bug 记账就是虚报。
+    - **明确不动的 4 处**（普查数字留在此，防止无据改动）：`drivers/sim/oopao_backend.py:214
+      make_screens → out`、`thorlab_wfs.py:1185 get_spotfiled_image → image_buf`
+      （**每帧 ~2.5 MB**，无据置零等于在相机热路径上加一次 memset）、`thorlab_wfs.py:1212
+      get_spots_statics → spots_center_x / spots_center_y / spots_intensities`、`thorlab_wfs.py:1380
+      get_wavefront → wavefront`（返回的是重排后的二维波前，原始 `MAX_SPOTS` 缓冲是否被完整写入未证实）。
+      判据缺口：**这些缓冲是被 DLL 完整写入，还是只写 `n_spots` 前缀再由调用方截断** —— 在 AST/静态层
+      **不可判定**，需要 DLL 契约或硬件实测。
+    - **因此不建守卫**：按「驱动返回 `np.empty` 分配的缓冲」建零容忍守卫，会在上述 **4** 处**未证实**的点
+      变红；用棘轮把它们登记进去等于把「未验证」洗成「已接受」。精确谓词（该槽位**永远**不会被写）
+      静态不可判定 ⇒ 留作**具名开放项**，不预先建仪表。
+    - **验证**：`parses OK` + ruff 干净；四个消费方目录（`optimizer/wf` + `tools/wfs` + `drivers/wfs` +
+      `drivers/sim`）**640 passed / 14 skipped**，与改动前**逐位同数**；术语门禁 0 文件、
+      `sync_report_provenance.py --check` clean、双夹注仅 `AGENTS.md` 与术语表两行许可。
+      ⚠️ **诚实边界**：`get_zernike` 只有硬件路径能执行（需要 `_lib` 与 DLL），本次修复**没有离线测试
+      覆盖** —— 能证明的只是「不破坏既有契约、不引入回归」，不能证明「那条假 piston 已被消除」，
+      后者要等硬件会话。
+    - **再记一次自伤（第八处）**：批量替换脚本的第二条锚点我写成 `handle_error(err)`，实际是
+      `self.handle_error(err)` ⇒ `count == 0` 断言在**写盘之前**中止，文件一字未改（`git status` 证实）。
+      这正是本会话把「先断言、后写盘」写进脚本的原因；连带一个更阴的坑：随后我跑的 `parses OK` 与 `ruff`
+      是对**未改动的文件**跑的，差点被当成改动的验证 —— **验证必须在确认改动已落地之后跑**。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

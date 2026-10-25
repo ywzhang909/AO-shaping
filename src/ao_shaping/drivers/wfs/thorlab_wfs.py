@@ -1517,7 +1517,9 @@ class ThorlabWFS(BaseWFS):
         roc_mm = c_double()
         coeff_num = self.calc_n_zernike_terms(zernike_order)
         zernike_order_c = c_int32(zernike_order)
-        zernike_um = np.empty((coeff_num,), c_float)
+        # DLL 只填 coeff[1..N]: 0 号槽不会被写入, 所以这里的初始化决定了「读到 index 0」
+        # 时拿到的是定义值还是未写入内存 (孪生侧对同一数组也用 zeros)。
+        zernike_um = np.zeros((coeff_num,), c_float)
         zernike_orders_rms_um = np.empty((zernike_order + 1,), c_float)
 
         if res := self._lib.WFS_CalcSpotToReferenceDeviations(
@@ -1533,7 +1535,7 @@ class ThorlabWFS(BaseWFS):
             byref(roc_mm),
         ):
             self.handle_error(err)
-            return np.empty_like(zernike_um)
+            return np.zeros_like(zernike_um)
         return zernike_um
 
     # ==================== 斑点偏差 ====================
