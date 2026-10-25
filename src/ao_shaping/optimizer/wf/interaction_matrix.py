@@ -262,7 +262,48 @@ class ZernikeSLMResponseMatrixResult:
         variance_matrix: np.ndarray,
         pinv_matrix: np.ndarray | None = None,
     ) -> "ZernikeSLMResponseMatrixResult":
-        """Create from dictionary and loaded arrays."""
+        """Create from dictionary and loaded arrays.
+
+        The matrices arrive from three separate ``.npy`` sidecars and the metadata from a fourth
+        file, so nothing in the load path otherwise proves they came from the same calibration:
+        one sidecar regenerated, or copied in from another run, would silently be multiplied
+        against a matrix it does not describe.
+
+        Declared shapes in the metadata are checked **only when present**, so files written
+        before those fields existed keep loading.
+        """
+        if variance_matrix.shape != matrix.shape:
+            raise ValueError(
+                f"variance_matrix shape {variance_matrix.shape} does not match matrix shape "
+                f"{matrix.shape}: the .variance.npy and .matrix.npy sidecars are not a pair"
+            )
+
+        if pinv_matrix is not None:
+            expected_pinv = (matrix.shape[1], matrix.shape[0])
+            if pinv_matrix.shape != expected_pinv:
+                raise ValueError(
+                    f"pinv_matrix shape {pinv_matrix.shape} is not the pseudoinverse of a matrix "
+                    f"shaped {matrix.shape} (expected {expected_pinv})"
+                )
+
+        declared = d.get("matrix_shape")
+        if declared is not None and tuple(declared) != tuple(matrix.shape):
+            raise ValueError(
+                f"metadata matrix_shape {tuple(declared)} disagrees with the loaded matrix "
+                f"{tuple(matrix.shape)}: the .json describes a different calibration"
+            )
+
+        for key, expected in (
+            ("n_spots", matrix.shape[0] // 2),
+            ("n_modes", matrix.shape[1]),
+        ):
+            value = d.get(key)
+            if value is not None and int(value) != expected:
+                raise ValueError(
+                    f"metadata {key} = {value} disagrees with the loaded matrix "
+                    f"{tuple(matrix.shape)} (expected {expected})"
+                )
+
         return cls(
             matrix=matrix,
             variance_matrix=variance_matrix,
@@ -275,6 +316,19 @@ class ZernikeSLMResponseMatrixResult:
             timestamp=d["timestamp"],
             pinv_matrix=pinv_matrix,
         )
+
+
+def _single_shot_slopes(wfs: WFSManager, n_averages: int) -> np.ndarray:
+    """One acquisition in which the driver itself averages ``n_averages`` frames.
+
+    Deliberately **not** the same as ``dm_response_matrix._measure_averaged_slopes``: a
+    single ``take_image(n_sample=n_averages)`` yields one deviation pair, so there is no
+    per-frame sample for a truncated mean to discard, and ``cancel_tile`` stays at its
+    default rather than being passed per reading.
+    """
+    wfs.take_image(n_sample=n_averages)
+    x_dev, y_dev = wfs.get_spot_deviation()
+    return flatten_slopes(x_dev, y_dev)
 
 
 def calculate_zernike_slm_response_matrix(
@@ -343,10 +397,7 @@ def calculate_zernike_slm_response_matrix(
     # Function to measure slopes with averaging
     def measure_slopes() -> np.ndarray:
         """Measure WFS slopes, averaging over n_averages frames."""
-        wfs.take_image(n_sample=n_averages)
-        x_dev, y_dev = wfs.get_spot_deviation()
-        slopes = flatten_slopes(x_dev, y_dev)
-        return slopes
+        return _single_shot_slopes(wfs, n_averages)
 
     # Reset SLM to flat
     zero_phase = np.zeros(slm_resolution, dtype=np.float64)
@@ -547,10 +598,7 @@ def _apply_zernike_correction_single(
     apply_correction: bool,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Single-shot Zernike correction (original behavior)."""
-    # Measure current slopes
-    wfs.take_image(n_sample=n_averages)
-    x_dev, y_dev = wfs.get_spot_deviation()
-    g = np.concatenate([x_dev.flatten(), y_dev.flatten()])
+    g = _single_shot_slopes(wfs, n_averages)
 
     # Compute Zernike coefficients: a_hat = pinv @ g
     a_hat = pinv @ g
@@ -608,10 +656,7 @@ def _apply_zernike_correction_pid(
     current_correction = np.zeros(slm_resolution, dtype=np.float64)
 
     for iteration in range(max_iterations):
-        # Measure current slopes
-        wfs.take_image(n_sample=n_averages)
-        x_dev, y_dev = wfs.get_spot_deviation()
-        g = np.concatenate([x_dev.flatten(), y_dev.flatten()])
+        g = _single_shot_slopes(wfs, n_averages)
 
         # Compute Zernike coefficients from slopes
         a_hat = pinv @ g

@@ -2174,8 +2174,470 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     - **验证**：容器把 `test_conventions.py` + `drivers/wfs` + `drivers/sim` + `tools/wfs` + `optimizer/wf`
       合在同一次运行 ⇒ **692 passed / 15 skipped**（skip 全是硬件与可选 `rl` 组）；术语门禁 0 文件、
       `ruff check .` 全绿、`sync_report_provenance.py --check` clean、双夹注仅 `AGENTS.md` 与术语表两行。
-      ⚠️ 诚实边界：枚举正确性依据是**手册引文 + 既有实测**，本次**没有重新上实验系统** —— 「14/14 强对角」
-      是引用，不是本次复现。
+       ⚠️ 诚实边界：枚举正确性依据是**手册引文 + 既有实测**，本次**没有重新上实验系统** —— 「14/14 强对角」
+       是引用，不是本次复现。
+50. ✅ **第 49 项的孪生/驱动索引分歧按「不改语义」收尾，但「不改」不等于「看不见」——把口径声明到对象上，并让统一动作必须弄红一条守卫**（2026-10-25）：
+     - **口径是问出来的，不是我选的**：三条候选（仅文档 / 声明到对象 + 守卫 / 直接统一语义）里选了
+       中间那条。直接统一需要先拿到 DLL 契约与既有落盘语料的口径，那属设备侧决定。
+     - **机制**：`drivers/wfs/base.py` 新增 `WfsZernikeLayout` 两成员 `NOLL_ZERO_BASED` /
+       `DLL_ONE_BASED_SEQUENTIAL_M`；`BaseWFS.zernike_layout: WfsZernikeLayout | None = None`；
+       孪生声明前者、驱动声明后者，且放在与 `manufacturer` / `model` 同一个属性块里（两个驱动形状
+       一致，读代码的人不必猜哪套）。**没有任何调用方按它分支 ⇒ 语义零改动**，它是可读边界与护栏。
+     - **守卫** `test_every_wfs_driver_declares_its_zernike_index_layout`：按**名字与形状**判定 ——
+       每个 `BaseWFS` 子类必须在类体里把 `zernike_layout` 绑到 `WfsZernikeLayout.<成员>`；合法成员
+       集合从枚举的 AST 现取，**不写字符串白名单**（白名单自己会腐烂，是本会话反复防的那类）；
+       地板 `scanned >= 60`（实测 85 个驱动文件）与 `declared >= 2`；最后一条断言要求两侧声明
+       **互不相同**。
+     - **为什么把「互不相同」也钉住**：它是统一动作的护栏 —— 真要统一必须同一个提交里同时改
+       `drivers/wfs/AGENTS.md` 与这条守卫，否则测试判失败。「无声统一」从此变成显式违约。
+     - **差分四连**（守卫能红才叫守卫）：(1) 未跟踪探针放两个类（一个完全不声明、一个声明裸字符串
+       `"noll_zero_based"`）⇒ 两条拒绝路径都被点名；(2) 删探针 ⇒ 绿；(3) 把驱动声明折成与孪生同一
+       成员 ⇒ 命中「SAME layout」断言并打印两侧字典；(4) 复原 ⇒ 绿。
+     - **仪表自伤（本会话第 10 处，同类第 2 次）**：撤销第 (3) 步的实验改动时我用了
+       `git checkout -- src/ao_shaping/drivers/wfs/thorlab_wfs.py`，而该文件当时带着**未提交**的
+       本项改动（import 与标记）—— 未 `add` 时索引等于 HEAD，于是 checkout 把我的工作一并回滚，
+       差分 (4) 随之变红（第 43 项已记过同类一次）。规则：**撤销实验改动只用锚定的反向替换，
+       绝不对带未提交改动的文件用 `git checkout --`**。补做的脚本因 `assert` 前置检查在写入前
+       中止（报「import lost too」），assert-before-write 再次挡住了半成品。
+     - **验证**：`test_conventions.py` 52 → **53 passed / 1 skipped**；`drivers/wfs` + `drivers/sim` +
+       `tools/wfs` + `optimizer/wf` 同一次运行 **640 passed / 14 skipped**（扩展 import 在运行期
+       可解析，不只是 AST 里存在）；`test_lazy_driver_loading.py` 10 passed；术语门禁 0 文件、
+       `ruff check .` 全绿。⚠️ 一次 `oxpy` 导入自检失败是**我用错工具**：沙箱只有标准库，
+       `base.py → zernike_calc → scipy` 必然 `ModuleNotFoundError`，运行期证明只能在容器里做。
+     - **有意不做的两处**：`__all__` 不加该枚举（消费方从定义模块 import，与两个驱动同路径，
+       不扩公开符号面）；统一到哪一侧与 `drivers/slm/AGENTS.md:131` 的 Noll2/Noll3 轴标签仍留设备侧。
+51. ✅ **合入远端 88 提交后我自己写的三条护栏变红：先用差分确认「是我坏还是世界坏」，再分别结清（一条解析器过期、一处术语、一处记为待决）**（2026-10-25）：
+     - **三条红的归属是一次差分定的，不是猜的**：把 47654e0b 与 7ece2334 各跑一次 `test_conventions.py`
+       ⇒ 同样 3 条 FAILED（49 → 50 passed，多出的那条正是第 50 项的新守卫）⇒ 第 50 项无罪，红来自合入的
+       内容。**先差分再动手**省掉一次「去修自己没写坏的东西」。
+     - **红因一（我的解析器过期，已修 `63ec25ef`）**：`503d58ca` 把两份 `--help` 快照合成一份，键式变成
+       `main:<cmd>` 加伴生 `main:<cmd>:exit`，探针工具另贡献 `tools.*` 键；而 `_cli_command_inventory`
+       按「不含冒号」筛键 ⇒ golden 解析成空集，五源对比实际在比空集。抓它的是**地板**（"parsed to almost
+       nothing"）而不是结论断言。修：只取 `main:` 前缀的两段键、排除 `:exit` 与 `tools.*` ⇒ 19 == 19 转绿。
+       教训：**护栏的解析规则本身也是契约**，上游换 schema 时它先以地板形式报警。
+     - **红因二（术语门禁，按官方 `--apply` 结清）**：合入的两个新文件把「按组合划分」的验证集口语化
+       表述写进了正文，共 5 行 ⇒ 门禁报 2 文件 5 行；`--apply` 后 0 文件。我另做**数据守恒证明**（不靠
+       肉眼）：数字多重集 366/366 与 275/275 完全相同、行数与位置不变、每一处差异恰为「该口语词 →
+       规范词」的一次替换（具体串见提交与 diff）。**报告与其生成器一起改**
+       才不留反向漂移（只改 `.md` 会在下次再生时被覆盖）。
+     - **自伤三处（本会话第 11、12、13 处）**：(1) 我用 `^  <path>` 正则在 dry-run 输出里取文件名，而该行
+       **行首是计数** ⇒ 循环零次，空输出差点被读成「没有文件」；(2) 在 `oxpy` 里调 `git show` 做守恒证明
+       ⇒ `FileNotFoundError: git`（沙箱无 git 早在本会话记过）⇒ 宿主取 blob、沙箱只做比较；
+       **空输出必须先问「是真 0 还是我没匹配到」**；(3) 我记述这次术语统一时把被替换的口语词**原文引进
+       了 TODO.md**，于是 `--apply` 之后门禁又为我自己新写的 2 行变红。⚠️ 这种记述性正文**不能再跑
+       `--apply`** —— 它会把我引用的源词一起换掉，把「A → B」变成「B → B」的自指错句。正确处置是改写
+       正文、不引原文。**别把违规串当引文写进正文**：合规文档的记述本身也在门禁范围内。
+     - **红因三：记为待决，我不删别人在途的文档**：`scripts/README.md:865-867/3216-3219` 与
+       `provenance.py:228-234` 注册了 `pib_exit_safety` 报告家族的 4 条路径（报告 md、生成器、硬件验证
+       脚本、其测试），但这 4 条在 index、磁盘、以及**逐 ref 的 `ls-tree` 全查不到**（引入提交 `7b485041`）。
+       同一个根因让 master 上**四条测试判红**：`test_conventions.py` 两条（散文里的调用路径、围栏里的复现
+       命令），`test_report_provenance.py` 两条（`test_registry_script_paths_exist`、
+       `test_header_script_links_resolve`）。结清只有两条路 —— 补交缺失文件，或删文档与注册项 —— 取决于
+       作者是半途未完还是笔误，**这个判断不在我手上**，已问用户。
+     - **我在这条上写错一句并已推到 master（本会话第 14 处自伤：记述性断言先于查证）**：我先写下
+       「provenance 没有存在性校验、缺口待补」，**之后**才去跑 `tests/ao_shaping/scripts` —— 结果存在性
+       守卫**早就在**：`test_report_provenance.py:265` 与 `:306`（在 `05a2335b` 上就有，不是本次新增），
+       它们正是被这四条幽灵路径判红的。站得住的窄说法只是：`sync_report_provenance.py --check` 对缺失目标
+       走 `continue`（98/101/106 行）所以它报 clean —— **抓这类缺陷的是 pytest 守卫，不是那个 `--check`**。
+       教训：断言「没有守卫」之前必须先跑该套件的现存测试，**没跑过就等于没查过**；错句已入库只能追加更正，
+       不能改写历史。
+     - **验证（都在合并树上重跑）**：第 50 项守卫 1 passed；`drivers/wfs` + `drivers/sim` + `tools/wfs` +
+       `optimizer/wf` **640 passed / 14 skipped**（与合并前逐位同数）；`test_lazy_driver_loading.py`
+       10 passed；修解析器后 conventions **51 passed / 1 skipped / 2 failed**（那 2 条即红因三，非本次
+       引入）；术语门禁 0 文件、双夹注仅 2 行、`ruff check .` 全绿、`sync_report_provenance.py --check`
+       clean。
+52. ✅ **孪生/驱动索引分歧的半径普查：`[1:]` 流水会响亮失败，按槽位取单点读数会静默读到零 —— 顺带挖出 `measure_tilt_defocus` 把像散当离焦**（2026-10-25）：
+     - **半径先测清楚，再谈统一**：41 个带 Zernike↔WFS 信号的文件里，**同时**「按类型解析传感器」
+       与「消费系数向量」的生产代码只有 `runners/slm/zernike_matrix_runner.py`（4 处）。
+       `optimizer/wf/` 的 `rms.py` / `ga_zernike.py` / `greedy_zernike.py` / `rms_by_zernike.py`
+       虽解析 WFS，但只读 `get_wavefront()` / `get_spot_deviation()` / `get_spots_statics()`
+       （斜率与统计量），**不碰系数向量** —— 它们不在这条分歧的射程内。
+     - **两种失效方式性质相反**：整数组 `[1:]` 是**响亮**的 —— 矩阵行数钉成
+       `calc_n_zernike_terms(10)=66`，孪生 66 长经 `[1:]` 得 65，填列时形状直接错（该处注释
+       自记过一次 65-vs-66 广播失败）。按槽位取单点读数是**静默**的 —— 容器实测注入 0.70 rad
+       离焦：按孪生口径 `z[3]` 读回 `+0.7043`，按驱动槽位（`z[1:][4]` 或裸 `z[5]`）读回
+       **`-0.0000`**，一个干净的零，既不是噪声也不是异常。
+     - **普查反过来咬到一处真缺陷**：`tools/zernike/common.py` 的 `measure_tilt_defocus` 在
+       **未切片的原始读数**上取 `z_um[4]` 并注释「Noll 4 = defocus」，而槽位 4 是 `(2,-2)` 像散、
+       离焦在槽位 5。同一函数里 tip/tilt 取 `z_um[2:4]` 是对的 —— **Noll 序号与 DLL 槽位只在
+       1..3 重合、从 4 起分岔**，所以这个偏移只污染 n≥2 的读数，数值看上去仍然合理，故长期未被察觉。
+     - **先红后绿**：新测试用逐槽赋不同值的存根读数（离焦槽 0、像散槽 9.0）。修前
+       `defocus=+16.9173`（正是 9.0/0.532 = 像散），修后 `+3.0`；另一条把离焦槽置 NaN，修前
+       旧守卫只查 `[2:5]` 而放行使整帧有效。**守卫语义随之收窄**：有效性判据现在覆盖
+       **真正读到的三个槽位**，不再因为一个未被读的像散槽非有限而丢帧。
+     - **修法是从权威表现取槽位，而不是把 4 改成 5**：新增 `_require_dll_slot()` 与
+       `TILT_DLL_SLOTS` / `DEFOCUS_DLL_SLOT`，槽位由 `DLL_ZERNIKE_ORDER` 现算（表里缺项即
+       `KeyError`，不让 `None` 溜进下标）。写死字面量在枚举被改动时会以同样方式腐烂。
+     - **污染面是查过的，不是推的**：该原语只经 `calibration.py` 的 `diagnose_radius` 与
+       `main_shift_calib` 可达，其报告默认落 `data/calibration/…`，而 `.gitignore` 的 `data/*`
+       把它排除；`scripts/` 里没有任何生成器引用这两个入口或该原语 ⇒ **入库报告无一携带这个错值**
+       （`report/slm/zernike_wfs_report/report.md` 的表列本就写 `[5] defocus(λ)`，用的是正确槽位）。
+     - **顺带挖到的另一处，本次不动**：`runners/slm/offset_runner.py:46` 读
+       `statics["zernike_coeffs"]` 是**死分支** —— 驱动的统计量字典只有
+       `min/max/diff/mean/rms/wighted_rms`，全树无处写入该键，故 `measure_defocus_coefficient()`
+       恒返回 `0.0`；改数据源还是删功能属行为决定，已写进 `drivers/wfs/AGENTS.md` 待用户裁定。
+       另两处**确认不是缺陷**：`zernike_response.py` 与报告脚本里的 `w[4]`（在已切片的 66 通道
+       数组上，索引 4 ↔ 槽位 5）、`focus_preflight.py` 的 `coeffs[3]`（来自 `ZernikeGenerator.fit()`
+       自有基且 `noll = index+1`）—— 先查清来源再判，避免把正确写法当 bug 改掉。
+     - **仪表自伤四处**：(1) 我做过一次「按名字闭包」的传递性普查，闭包膨胀到 4060 个函数、
+       把整棵树卷进来（`main` / `run` / `write_report` 这类名字跨文件重名），**正控制直接识破**：
+       它把只读斜率的 `rms.py` 也算成 Zernike 消费者 ⇒ 作废，改回有界一跳；(2) `awk|cut` 取函数名
+       取到空串，于是 `git grep -n ""` 匹配全树、吐出一千多行噪声；(3) 用 `importlib` 载入
+       `provenance.py` 查生成器，`@dataclass(frozen=True)` 在 `exec_module` 期炸 `AttributeError`
+       （未先把模块注册进 `sys.modules`）—— 但另一条 grep 已独立给出答案，**不重跑不补证**；
+       (4) 我又一次在结果之前先写下「^ empty = …」的解说，而那批输出**并不空**（第 12 处复发）。
+     - **验证**：`test_slm_zernike_common.py` **10 passed**（原 8 + 新 2）；`tools/slm` 全目录
+       **812 passed / 4 skipped**（三个调用方都在其中）；`drivers/wfs`+`drivers/sim`+`tools/wfs`+
+       `optimizer/wf` **640 passed / 14 skipped**（与本项改动前逐位同数）；`ruff check .` 全绿。
+       ⚠️ 诚实边界：错值的影响面是**代码可达性与入库产物**两层的实测结论，本次**没有上实验系统**
+       复现该错读 —— 它由存根读数的容器测试证明，不新建守卫（单点普查不足以钉死约定）。
+53. ✅ **同一份「WFS 波前向量规范化」在两个消费方各写一遍，且错误路径已经漂移 —— 收敛为单一入口，并否证两种守卫写法**（2026-10-25）：
+     - **重复的是五步链，不是五行代码**：`tools/wfs/zernike_response.py` 的导出命令与
+       `scripts/slm/verify_correction_csv.py` 各自实现「解包字典 → 丢 0 号填充槽 → 校验长度 →
+       piston 置零 → 伪逆」。两份**已经漂移**：一份用 `ClickException` 并守 `None`，另一份用裸
+       `assert`（`python -O` 下直接失效），且字典缺那三个键时会先炸成 `TypeError`。
+     - **收敛到一处**：新入口 `wfs_channels_lambda` 落在 `tools/zernike/common.py` —— 该模块本就是
+       索引枚举与 µm↔λ 单位纪律的所在；两个消费方改为调用它，`tools/zernike/__init__.py` 的模块
+       docstring 同步写明 runner 与脚本不得重写这条链。
+     - **我自己写错、被自己的测试抓住**：第一版把「比期望多一个元素」写成绝对长度常量
+       （`n_modes_upto(WFS_ZERNIKE_ORDER)+1` = 67），于是 5 通道 / 6 长的玩具测试当场判红 ——
+       填充槽与阶数无关，规则必须**相对于期望通道数**。绝对常量随后删除（已无生产消费方）。
+     - **删掉一个没有牙齿的测试**：`assert 常量 == n_modes_upto(…) + 1` 只是复述定义，任何错误实现
+       都不会让它红。换成在生产尺寸上验行为：66 长与 67 长规范化结果必须相同，68 长仍被拒。
+     - **两种被否证的守卫写法**（先量再否证，不是猜）：(a)「代码里不许出现字面量 67」—— AST 普查
+       `src`+`scripts` 的比较式里 67 已是 **0/669**，但 67 在别处是合法数字，这类守卫是
+       **假缺陷发生器**；(b)「同时出现 `w`/`w_before`/`wavefront` 三个键即算重复」—— 含三键的 3 个
+       文件里 `zernike_matrix_runner.py` 是**生产者**（`h5py.File(path, "w")` 的模式串、
+       `create_dataset("wavefront")`、`"w_before": w0.tolist()` 落盘），按键名判等会误伤它。
+       最终指纹是 **`.get` 的 OR 链**（≥2 个），实测全仓唯一（`common.py:148`）。
+     - **新守卫** `test_wfs_wavefront_unwrap_is_not_reimplemented`：定义处必须恰好一个且在
+       `common.py`，含该链的文件必须就是定义处；扫描地板 600（实测 669）；**解析失败单列报错**，
+       否则不可解析的文件会被误报成重复实现。差分：未跟踪探针重写该链 ⇒ 红并点名该文件；删除 ⇒ 绿。
+     - **有意不动的两处**：(1) **设备在线读数**路径（`zernike_matrix_runner.py:839/889` 与
+       `zernike_correction.py:356/407` 的 `um_to_waves(z[1:])`）不并入该入口 —— 它做的是 µm→λ 的
+       设备读数，与「加载已存向量」是两件事，合并会改在线闭环语义；(2) 第 52 项保留的 `/0.532`
+       字面量换算不动（bugfix 不顺带重构），已记为后续。
+     - **验证**：`test_slm_zernike_common.py` **19 passed**（原 8 + 槽位 2 + 入口 9）；
+       `tools/wfs` + 该文件 25 passed；`tests/ao_shaping/scripts` **2442 passed / 64 skipped /
+       2 failed**（仍是 `pib_exit_safety` 那对既有失败，与本项无关）；conventions
+       **52 passed / 1 skipped / 2 failed**（新守卫使 passed 由 51 升到 52，失败对不变）；
+       两个改动模块在容器里可导入；`ruff check .` 全绿。
+
+54. ✅ **倾斜/离焦槽位改由枚举常量派生，并查明「并进 `um_to_waves`」不是风格整理而是数值变更 —— 顺带撞上一个冻结探针字面量的护栏**（2026-10-25）：
+     - **槽位常量化是逐位等价的**：`added_tilt` 的 `z[2:4]` 与半径诊断的 `z[5]` 改用
+       `TILT_DLL_SLICE` / `DEFOCUS_DLL_SLOT`，两者都由第 52 项的 `_require_dll_slot` 从 (n,m)
+       枚举派生。动手前先在容器里验 `DEFOCUS_DLL_SLOT == 5`、`TILT_DLL_SLOTS == (2, 3)`，并确认
+       **两种写法在同一数组上逐位相同** —— 先证等价，再换写法。
+     - **一次被否证的「顺手统一」**：把现存 14 处 `x / 0.532` 并进 `um_to_waves` 不是整理。
+       canonical 实现是**乘倒数** `UM_TO_WAVES = 1 / 0.532`，在 0~2 步长 0.001 的 2001 个采样值里
+       **768 个末位不同**。同一次普查也确认这 14 处**全是** µm→λ 的除法、无一处反向混用，即文档里
+       记过的 1.88× 过驱动缺陷**当前不在树上**。因此合并是**设备侧数值决定**（须先重定基准），
+       记为待决；代码里只留结论与测量，不做未授权的数值改动。
+     - **新撞到的护栏**：`tests/ao_shaping/tools/slm/test_probe_flags.py` **冻结每个探针函数体内的字符串字面量**（计数 + sha256）。第 53 项把两条错误消息与 `w`/`w_before`/`wavefront` 三个键搬进入口，净 −5，于是该守卫对 `slm_zernike_response` 判红。**它不是假警报**：这条守卫的存在理由正是防止文本重写把 dict key 或日志格式悄悄改坏。
+     - **我的流程失误（在案）**：第 53 项推送前只跑了 `tools/wfs` 与 `tests/ao_shaping/scripts`，
+       于是用上一项的 `812 passed / 4 skipped` **代替重跑该目录**，把两条红留在了 `origin/master`。
+       引用旧基线不等于重跑：目录级守卫必须按目录重跑才算数。
+     - **重新基线只用守卫自己的函数**：经 `_golden_entry`（它自带的字面量扫描器与哈希）重算，不另写一份
+       扫描逻辑。写回前先断言爆炸半径：只有一个探针、只有 `body_literals` 与 `body_literals_sha256`
+       两个字段动、`help`/`declared` 逐字节不变（287 → 282）。写回后与 HEAD blob 逐行比较只差 **2 行**，
+       且文件仍与守卫的序列化格式逐字节可往返。
+     - **容器环境事实**：CI 容器把仓库挂成**只读**（写 golden 得 `Errno 30`），且它的 `/tmp` 是容器私有
+       —— 既不能在容器内写回，也不能借 `/tmp` 递给宿主。正解是让容器把重算值打到 stdout，
+       宿主侧按唯一锚点打补丁。
+     - **验证**：`test_probe_flags.py` **127 passed / 1 skipped**（skip 是 ~9 分钟的 opt-in 渲染）；
+       `tests/ao_shaping/tools/slm` **821 passed / 4 skipped**（旧 812 + 本循环新增 9 项，失败 0）；
+       `tools/wfs` + `test_slm_zernike_common.py` 25 passed；conventions **52 passed / 1 skipped /
+       2 failed**（不变，仍是 `pib_exit_safety` 那对既有失败）；术语门 **0 个文件**、双重夹注 2 行、
+       provenance `--check` clean（142 份）；ruff 用 CI 钉版 **0.15.12** 全绿（宿主另有 0.16.0，
+       钉版才是门禁）。
+
+55. ✅ **倾斜槽位字面量的最后一处重复收敛到 `TILT_DLL_SLICE`，并实测出旧标定路径的排除算术差一个槽位 —— 但这一条里我否证了自己两个猜测**（2026-10-25）：
+     - **改动本身逐位等价**：`tools/wfs/wfs_reference.py:94-95` 的两处 `z[2:4] / 0.532` 改用 `common.py`
+       的 `TILT_DLL_SLICE`。动手前先确认两件事：该模块**本就**从 `tools/zernike/common.py` 导入（无新增
+       依赖、无环），且 `measure_tilt(wfs: ThorlabWFS, …)` 是**具体驱动类型**而非 `BaseWFS` —— 若 `wfs`
+       可能是孪生，`TILT_DLL_SLICE` 就是错的（孪生无占位槽，tip/tilt 不在 2、3）。
+     - **改到探针覆盖的模块，就跑整个目录**：`wfs_reference` 出现在 `probe_help_golden.json` 里，即它正是
+       第 53 项踩过的那条字面量冻结守卫的 parametrized 目标。本次没有新增字符串字面量（常量名不是
+       字面量），但**不再靠推理**：`tools/slm` + `tools/wfs` + conventions 全跑。
+     - **实测到的缺陷（记录，未修）**：`optimizer/wf/zernike_response_matrix.py` 裁剪 WFS 读数用
+       `start_idx += 1`（piston）/`+= 2`（tip-tilt），是把 **0 基 Noll** 算术套在 **DLL 1 基**向量上。
+       四种组合实测保留槽位：`(去piston, 留tiptilt) → 1..66`（**piston 其实还在**）、`(两者都去) → 3..66`
+       （**去掉了 tip 却留着 tilt**）、`(不去piston, 去tiptilt) → 2..66`、`(都不去) → 0..66`；
+       且每种组合都 **rows − cols = 1**。
+     - **它为什么不广播失败**：`BaseWFS.calc_n_zernike_terms` 返回的是**项数 +1**（占位槽），把同一个偏移
+       同时加进了行数 ⇒ 长度永远自洽，只有行的**身份**偏一格，连带元数据与 `zernike_debug_viewer.py`
+       的行标签。与第 52 项「按槽位取单点读数会静默出错」同族。
+     - **不改的理由是消费方目前自洽**：`tools/wfs/zernike_correction.py` 取 `z[1:]` = 66 = 行数，两边同样
+       偏一格 ⇒ 现下**不坏**。按槽位身份裁剪会让矩阵 66 → 65 行，使已存盘矩阵与查看器的行解释失配，
+       属设备侧数值决定。在线 CLI 路径已正确：`runners/slm/zernike_matrix_runner.py` 的 `_mode_ids` 按
+       **身份**去 piston（`i != 1`），其注释自记过同一个误减。
+     - **我否证掉的两个猜测（留案防重犯）**：(a) 我断言 65 行 vs 66 通道会广播失败 —— 读 `base.py` 才知
+       那个 +1 是为占位槽刻意保留，两边自洽；(b) 我断言 `WFSManager` 是不存在的类（`git grep
+       'class WFSManager'` 零命中）—— 实为 `zernike_response_matrix.py:49` 在 `TYPE_CHECKING` 下的
+       `ThorlabWFS as WFSManager` **别名**，按类名 grep 查不出别名。
+     - **测量工具自身的错（第 19 次自伤）**：第一版存根返回**静态**读数，而该函数算的是
+       `(plus − minus) / (2·magnitude)` ⇒ 相减归零，打印出「所有槽位都是 0」。改成让存根按
+       `send_zernike` 实际收到的**带符号**系数决定读数符号，槽位身份才在差分后存活。另：`git grep`
+       基本正则里 `|` 不是析取，静默零命中（已第三次踩）。
+     - **已知未收敛的重复**：同一套偏移算术手抄在 4 处（`zernike_response_matrix.py:196` 与 `:509-514`、
+       `gui/zernike/zernike_response_matrix_ui.py:405-411` 自称 "same logic"、
+       `zernike_debug_viewer.py:363-379`），已记进 `drivers/wfs/AGENTS.md` 作为红线上的已知重复。
+     - **验证**：`tools/slm` + `tools/wfs` + conventions **879 passed / 5 skipped / 2 failed**（仍是既有那对，
+       字面量守卫无新增红）；CI 钉版 ruff **0.15.12** 全绿；术语门 **0 个文件**、双重夹注 2 行。
+
+56. ✅ **同一个「排除了几个模式」的偏移算术手抄在三处 —— 收敛为唯一实现，并把自动寻幅里一条会改硬件数值的耦合锁进测试**（2026-10-25）：
+     - **三处手抄是同一个量**：自动寻幅里写死的 `noll_offset = 3`、标定环的 `if/elif/else`（1 或 3）、
+       GUI 交互回调里自称 "same logic as calibrate_zernike_response_matrix" 的第三份副本。它们算的都是
+       **0 基 Noll 系数数组**里第 `mode_idx` 个待标定模式的下标偏移 = 被排除的模式个数。
+     - **旧注释与代码其实都对，只是混写**：注释里的 `i+2` / `i+4` 是 **Noll 编号**，代码里的
+       `i+1` / `i+3` 是**数组下标**（`index 0 = piston`，权威见 `zernike_dm._noll_to_dict` 的
+       `Noll j = idx + 1`）。混在一句话里写会让人以为差一个，故把这个区分写进 docstring。
+     - **收敛**：唯一实现 `slm_mode_slot(mode_idx, *, excluded_piston, excluded_tip_tilt)`，三处改为调用它。
+     - **测试不重抄常数**：改用 canonical 枚举反查 `noll_to_nm(slot + 1)` —— 不排除 → `(0, 0)`；只排
+       piston → `n = 1`（tip/tilt）；再排 tip/tilt → **`(2, 0)` = Noll 4 = defocus**。差分控制：把实现里的
+       `+2` 改成 `+1` ⇒ 该测试报 `assert (1, -1) == (2, 0)`，即**离焦变成像散** —— 正是这条收敛要挡的
+       模式错位，而不是一个常数不相等。
+     - **顺带实测出一条没写下来的耦合**：自动寻幅把 `excluded_piston=True, excluded_tip_tilt=True`
+       写死在它自己的两次 `measure_zernike_mode_response` 调用里，而标定默认只排 piston ⇒ 寻幅探针的
+       模式与被比对的 WFS 行集合，都和它所服务的那一列标定不一致。模块 doctest 省略 `magnitude`
+       就会触发这条路，因此它不是死代码。
+     - **本项不修数值，但把它显式化并锁死**：两个 `excluded_*` 改成**必填**参数（不能再隐式继承默认），
+       调用点显式写 `True, True` 并注明未转发；新增
+       `TestAmplitudeProbeKeepsItsOwnExclusions` 断言现状。差分控制：把调用点改成转发 ⇒ 该测试立即变红并
+       打印 `[(0, True, False), (1, True, False), …]` 指明是哪一项配置变了。转发会同时改变**被探针的
+       模式**与**被比对的行集合** ⇒ 只有实验系统能重定的数值，记为设备侧决定。
+     - **夹具与生产的口径差（记录，未动）**：`_configure_mock_wfs` 的 `calc_n_zernike_terms` 返回 **66**
+       （canonical 项数），真实驱动返回 **67**（含 0 号占位）。现有测试把 `measure_zernike_mode_response`
+       整体打桩 ⇒ 两边形状从不相遇，所以该差异目前无害；但任何**不**打桩它的形状测试都会先把错误几何
+       编进断言。
+     - **我自己的流程错误（第 20 次）**：做差分控制时把 `-k "SlmModeSlot"` 写成**两个** token，CI 包装脚本
+       把 `SlmModeSlot` 当路径 ⇒ `no tests ran`；而我偏先用 grep 过滤输出，于是把「根本没跑」读成了
+       「没有失败」。「过滤器必须是单 token `-k=`」这条规则早就在案，是执行时没守住；**过滤输出会同时
+       掩盖没跑与跑失败**，控制实验必须读完整尾部。
+     - **纠正上一项自己写下的文档**：第 55 项我在 `drivers/wfs/AGENTS.md` 记「该算术手抄 4 处、尚未收敛」，
+       本项收敛后那句立即过期 ⇒ 已改写为「唯一实现 + 剩余两处是**不同的量**」（查看器的 WFS 行解释、
+       寻幅的未转发耦合），并改用**符号名**替代行号 —— 本会话已因行号漂移咬过引用。
+     - **验证**：`optimizer/wf` + `gui/zernike` **160 passed / 1 skipped**；两条差分控制各自变红并给出
+       可读断言；CI 钉版 ruff **0.15.12** 全绿；两个改动文件 stdlib 语法编译通过；`noll_offset` 全树
+       **零**残留引用。
+
+57. ✅ **闭环载入响应矩阵时不校验「矩阵与它的伪逆是不是同一份标定」—— 把 numpy 深处的形状错提前到构造期**（2026-10-25）：
+     - **读码在先，否掉了我自己刚写的守卫**（第 21 次自伤）：我原本推断「GUI 产出的矩阵行数是
+       `67 − 排除个数`，闭环喂 66 通道 ⇒ 勾掉 tip/tilt 就会广播失败」，并已按此写了一个断言
+       「行数必须等于 66」的测试。**读消费方即否证**：模态分支的 `mask_indices = arange(D.shape[0])`
+       是**从矩阵自己**导出的，实测向量总是被裁到矩阵行数 —— 那个崩溃不可能发生。草稿测试当场删除，
+       **没有**把它调参调到通过。**编造出来的不变量比没有守卫更糟**：它会把一个不存在的关系钉成契约。
+     - **实测到的真缺陷**：`runners/slm/zernike_matrix_runner.py::from_response_matrix` 的模态分支从
+       同一个 h5 取 `matrix` 与 `pinv_matrix`，**从不校验后者是不是前者的伪逆**。容器探针（值可识别的
+       合成矩阵）实测：一致时 `D=(66,65)`、`pinv=(65,66)`、`mask_len=66`、`s_ref=(66,)` 自洽；把
+       一次 64 行标定算出的伪逆配到 66 行矩阵上 ⇒ **构造期静默接受**，并立即把不一致固化成
+       `mask_len=66` 与 `s_ref_len=64` 两个当场就不等的量。
+     - **失败为什么难查**：它不在构造处报，而要等到闭环迭代里的 matmul 才以
+       `matmul: Input operand 1 has a mismatch in its core dimension 0 … (size 66 is different from 64)`
+       的形式暴露 —— 只报两个 shape，不说是矩阵行还是伪逆列、也不带矩阵自己的排除元数据。
+     - **修法是最小的形状契约**：构造期要求 `pinv.shape == (D.shape[1], D.shape[0])`，否则
+       `ValueError` 带上三方 shape；并让 `s_ref` 与 `mask_indices` **同源**（都由 matrix 行数决定，
+       不再从 `pinv.shape[1]` 反推）。对任何由本仓产出的合法文件都是**空操作**，只改变已损坏文件的路径。
+     - **RED 在先**：`test_pinv_from_another_calibration_is_rejected_at_construction` 先跑 ⇒
+       `Failed: DID NOT RAISE ValueError`（日志同时印出 `pinv shape=(65, 64)` 被接受）；实现后 2 passed。
+     - **另一条只读码确认、刻意未修**：同一条回退分支把 `_measure_wfs_step` 的**斜率**样本喂给
+       **Zernike** 响应矩阵的伪逆（`mask_indices = arange(D.shape[0])` 取的是前 N 个斜率样本）。
+       维度自洽所以永不报错，空间不自洽。它只在 h5 **缺** `deviation_response_matrix` /
+       `subaperture_mask` 时才被走到；改它等于改闭环控制语义 ⇒ 设备侧决定，已记进
+       `drivers/wfs/AGENTS.md`。
+     - **验证**：新守卫 **2 passed**；`tests/ao_shaping/runners` + `optimizer/wf` **675 passed /
+       26 skipped**；CI 钉版 ruff **0.15.12** 全绿；探针文件与草稿测试均已删除，工作树只含预期改动。
+
+58. ✅ **闭环读斜率向量的行序契约没有错位（假设被普查否证）—— 但同一份拼接被手写复制了两遍，收敛后钉上守卫**（2026-10-25）：
+     - **先记录被否证的猜测**：我假设 `from_response_matrix` 用 `mask_2n = concatenate([mask, mask])` 选行、
+       而在线测量走 `flatten_slopes`，两边行序若不同就会**静默**读错行。普查否证：
+       `utils/wavefront/wfs_utils.py` 的实现正是 `concatenate([dev_x.flatten(), dev_y.flatten()])`
+       （x 块在前、y 块在后），标定侧填 `deviation_response_matrix` 也经**同一**函数
+       （`zernike_response_matrix.py:362`）⇒ 与 `mask_2n` 的假设一致，**没有缺陷**。「看起来必然错」的
+       推断只能靠读两侧实现来处置，不能靠推理定罪。
+     - **普查真正抓到的是复制**：`interaction_matrix.py:553` 与 `:614` 各写一遍
+       `np.concatenate([x_dev.flatten(), y_dev.flatten()])`，与 canonical 实现**同式**；而该文件 `:30`
+       **早已** import `flatten_slopes`、`:348` 本来就在用它。两处改为调用它 —— 无新增依赖、无新边、
+       逐位等价（表达式完全相同）。
+     - **这一类重复为什么特别危险**：行序是生产方与消费方之间的隐式契约，而两种行序**形状相同** ⇒
+       换成 `[y; x]` 不会报错，只会把 y 分量当成 x 喂给伪逆 —— 与第 57 项「维度自洽、空间不自洽」同族。
+     - **新守卫** `test_slope_flattening_is_not_reimplemented`：指纹是**单参数**的 `concatenate`/`hstack`，
+       其参数为 2 个 `.flatten()` 调用组成的列表或元组；`flatten_slopes` 的定义处必须**恰好一个**；
+       解析失败单列报错；扫描地板**复用** `_MIN_WFS_UNWRAP_SCANNED` —— 同一扫描范围不另设第二个地板，
+       否则两个地板会各自漂移而悄悄放宽约束。
+     - **先红后绿，红的两次都是真代码**：守卫先写好即红，点名 `interaction_matrix.py:553` 与 `:614`；
+       改完即绿。差分控制：在 `scripts/` 植入一份**新的**手写拼接 ⇒ 守卫点名
+       `scripts/_common/zz_probe_tmp.py:5`；删除 ⇒ 绿。conventions 的 passed 由 **52 升到 53**
+       （增量即新守卫自身）。
+     - **验证**：`optimizer/wf` **133 passed / 1 skipped**；conventions **53 passed / 1 skipped /
+       2 failed**（失败对仍是既有 `pib_exit_safety` 那对）；CI 钉版 ruff **0.15.12** 全绿；植入的探针
+       已删除，工作树只含预期改动。
+
+59. ✅ **按「消费者读一个没人写的键」这一缺陷类普查 WFS 统计字典：活路径没有实例，但抓到一处更隐蔽的默认值掩盖型，并测清了一次改名的边界**（2026-10-25）：
+     - **普查否证了自己的假设**：预期会在 WFS 统计字典上抓到第二例键名漂移。**在用的读路径没有**
+       —— `rms.py`、`rms_zernike_runner.py`、`zernike_matrix_runner.py` 读的键都落在生产者键集内。
+     - **两条中间结论被我自己后续测量推翻（在案）**：(a) 我断言「没有测试钉住这个键集」—— 实有
+       `tests/ao_shaping/drivers/sim/test_simulated_wfs.py` 断言
+       `set(stats) == {min, max, diff, mean, rms, wighted_rms}`；(b) 我断言「错拼键**从未落盘**」——
+       也不成立：`rms.py:137/197` 把**整份** `statics` 放进 recorder 的 `_statics` 列，而
+       `save_history` 写 CSV ⇒ 该键以**字符串文本**形式存在于历史工件；同时 `save_history_hdf5`
+       对非标量列直接 `logger.warning("skip mixed/non-scalar column")` 跳过 ⇒ 它**不是结构化字段**。
+       正确结论是「改名不打断任何**读取**路径」，而不是「改名无代价」。
+     - **确实抓到一处，且形态更隐蔽**：`runners/slm/offset_runner.py` 搜索环里两处
+       `statics.get("total_intensity", 1e6)`，而 `total_intensity` 只由 **CCD** 分析路径
+       (`utils/image/target/ccd.py`) 写入、WFS 侧从不写 ⇒ **默认值无条件生效**，被打印并参与比较的
+       「强度」其实是个常数。与同文件已记录的 `zernike_coeffs` 硬下标死读相比，这一处**带默认值**，
+       把本该抛出的 `KeyError` 抹成静默 —— 同一缺陷类里更难发现的那一档。
+     - **为什么本项不动代码**：(1) `model/quantities.py::WavefrontStatistics.from_legacy` 全树
+       **零调用方**，给未进入数据通路的 API 加防御属凭猜；(2) `offset_runner` 两处要改的是**取哪一路
+       数据源**（WFS 还是 CCD 强度）或删功能，且该 runner 未注册、已计划迁入 `tools/slm/` ⇒ 行为决定；
+       (3) 错拼键改名是**对外契约**决定。本项产出是契约边界与文档，不是代码。
+     - **已记进 `drivers/wfs/AGENTS.md`**：`offset_runner` 的两处死读（含第二处的默认值形态），以及
+       「同一统计量两种拼写 + 桥接垫片零调用」的改名边界；并把该段里已漂移的**行号引用换成符号名**
+       （`measure_defocus_coefficient()`、搜索环）—— 本会话已因行号漂移误判过一次定位。
+     - **验证**：无代码改动；conventions **53 passed / 1 skipped / 2 failed**（与改文档前一致，失败对
+       仍是既有 `pib_exit_safety` 那对）；术语门 **0 个文件**、双重夹注 2 行；CI 钉版 ruff 全绿。
+
+60. ✅ **同一条「截尾平均」规则在两个标定器里手写复制了 7 遍、门槛写在三个不同量上 —— 收敛为唯一入口，并用差分测试锁死逐位等价**（2026-10-25）：
+     - **7 处、跨 4 个调用点**：`dm_response_matrix.py` 的 `measure_slopes_with_averaging` 与
+       `measure_pattern_slopes`、`zernike_response_matrix.py` 的 `responses` 与 `deviations`，
+       各自重写一遍 `np.sort(..., axis=0)` → `[1:-1]` → `np.mean(..., axis=0)`，门槛分别挂在
+       `n_averages`、`len(responses)`、`len(deviations)` 三个不同的量上。
+     - **文档先于行为漂移**：只有 `dm_response_matrix.py` 的 docstring 写明「n_averages > 5 时截尾」，
+       Zernike 那两处**没有任何解释** ⇒ 即便数值仍一致，契约层面已经分叉。
+     - **收敛**：唯一实现 `utils/wavefront/wfs_utils.py::truncated_mean`（叶子层；两个标定器**本就**
+       import 该模块的 `flatten_slopes` ⇒ 无新依赖边、无环）。
+     - **门槛不做成参数（否证自己的第一版）**：我先写成 `gate: int = 5`，随即改掉 —— 四个调用点用的是
+       同一个 5，做成参数等于把刚拆掉的「各站点自己决定门槛」重新开放。改为模块级常量
+       `_TRUNCATED_MEAN_GATE = 5`，并把理由写在常量注释里（≤5 行时丢弃两个样本删的是真实读数而非离群值）。
+     - **逐位等价是证出来的**：测试文件除语义测试外还有**差分测试** —— 对 `(67,)`、`(8, 8)`、`(4, 6)`
+       三种真实读数形状、`n ∈ {6, 7, 11, 40}`，用 `assert_array_equal`（**不是** approx）比对 helper 与
+       被替换的原式；`n ∈ {1, 3, 5}` 比对普通平均分支；另测 Zernike 站点传**列表**的情形（原 `else`
+       就是 `np.mean(list, axis=0)`）。helper 也刻意**不做 dtype 强转**，以免把逐位等价变成 dtype 变更。
+     - **等价前提单独核过**：dm 的门槛原本挂在 `n_averages`、helper 挂在行数 —— 先读循环确认
+       `for _ in range(n_averages)` 每轮恰 append 一条 ⇒ `shape[0] == n_averages`，两者才等价。
+       不读这一层，就会把一次「看起来一样」的替换当成等价。
+     - **新守卫** `test_truncated_mean_is_not_reimplemented`：指纹是 **`mean()` 的第一个实参为
+       `[1:-1]` 下标**（正是 helper 自身的形状），不是裸 `[1:-1]` —— 后者会误伤
+       `utils/image/exposure_fusion.py` 里**没有求平均**的核对窗裁剪；扫描地板**复用**
+       `_MIN_WFS_UNWRAP_SCANNED`（同一范围不设第二个地板）。差分控制：植入
+       `scripts/_common/zz_probe_tmp.py` ⇒ 点名其 `:6`；删除 ⇒ 绿；conventions passed **53 → 54**
+       （增量即新守卫自身）。
+     - **我自己的操作错误（第 22 次）**：插入 helper 时 `oldString` 覆盖了 `unflatten_slopes` docstring
+       的首行而 `newString` 未含它 ⇒ 等于删掉了那一行，`wfs_utils.py` 当场变成
+       `SyntaxError: unterminated triple-quoted string`。靠**编辑后立即编译**发现，一次编辑修复，并要求
+       `git diff` 必须是**纯新增**（16 insertions / 0 deletions）才算修好 —— 只检查「我的新函数在不在」
+       是不够的，还得看增删构成。
+     - **验证**：`utils/wavefront` + `optimizer/wf` **153 passed / 1 skipped**；`runners` +
+       `optimizer/wf` + `utils/wavefront` **751 passed / 26 skipped**；`gui/zernike` + `tools/wfs` +
+       `utils/wavefront` **109 passed**；conventions **54 passed / 1 skipped / 2 failed**（失败对不变）；
+       三个改动文件 stdlib 编译通过；CI 钉版 ruff **0.15.12** 全绿；两个标定器里 `[1:-1]` 残留 **0**。
+
+61. ✅ **两处「取 N 次读数平均」的采集协议各自重复多遍 —— 组内收敛为唯一 helper，组间刻意不统一，因为它们的采集轨迹实测不同**（2026-10-25）：
+     - **普查先分组**：`dm_response_matrix.py` 的两处内函数用**逐帧采集**协议 —— 每轮
+       `take_image(n_sample=1)` + `get_spot_deviation(cancel_tile=cancel_tile)`，再 `truncated_mean`；
+       `interaction_matrix.py` 的三处用**单次采集**协议 —— 一次 `take_image(n_sample=n_averages)` +
+       `get_spot_deviation()`（不传 `cancel_tile`）。两者文字上都叫「平均 N 次」，语义并不相同。
+     - **组内收敛**：`_measure_averaged_slopes`（dm，2 处改为调用它）与 `_single_shot_slopes`
+       （interaction，3 处改为调用它）。dm 那两处内函数体除缩进外逐字符相同 ⇒ 用**带计数断言的锚点
+       替换**分别处理，不靠缩进敏感的模糊匹配；命名与该模块既有的 `_` 前缀私有 helper 一致。
+     - **组间刻意不合并（写进 docstring）**：逐帧协议每帧是独立样本 ⇒ 截尾平均能丢掉**单帧异常**
+       （实测给第 4 帧某通道 +50，截尾后该通道均值仍 < 20）；单次采集由驱动内部把帧混合，
+       **无逐帧样本可丢**。统一两者等于改**测量语义** ⇒ 设备侧决定。两个 helper 的 docstring 互相
+       点名并注明「不可互换」。
+     - **新测试锁的是采集轨迹，不只是数值**：`tests/ao_shaping/optimizer/wf/test_wfs_reading_protocols.py`
+       用记录调用的存根 WFS 断言 dm 的取图序列为 `[1]*7` 且 `cancel_tile` **逐帧转发**，interaction
+       为单次 `[9]` 且 `cancel_tile` 取默认 `False`；并断言同一请求下两者序列**不同**。
+     - **差分控制的确切结论（不过度声称）**：把 dm helper 的 `take_image(n_sample=1)` 改成
+       `n_sample=n_averages` ⇒ **只有**采集轨迹那条测试变红（1 failed / 6 passed）。数值类测试没有反应
+       是**预期**：存根按 `get_spot_deviation` 的调用次数出样本，只改 `take_image` 的参数不会改变样本流。
+       ⇒ 轨迹断言才是这次改动的守门人。恢复用 `cp` 回备份（该文件带未提交改动，**不能** `git checkout`），
+       `cmp` 确认逐字节相同后 7 passed。
+     - **我自己的普查错误（在案）**：收敛之后统计 `take_image(n_sample=n_averages)` 的出现次数时，
+       数字从预期的 1 变成 2，我一度判定「有一处漏替换」。带上下文重新 grep 才发现多出来的两处是
+       **我刚写的 helper docstring 里对该式子的引用**。普查计数必须排除自己新写的说明文字，否则会自证。
+     - **等价前提**：dm 的内函数体是**整段搬移**（采集循环 → 堆叠成数组 → `truncated_mean` →
+       `flatten_slopes` → 同样的三元返回），参数与顺序都不变；interaction 三处同理，只把
+       `slopes` / `g` 的右式换成 helper 调用。
+     - **验证**：`optimizer/wf` **140 passed / 1 skipped**（含新协议测试 7 条）；`runners` + conventions
+       **596 passed / 26 skipped / 2 failed**；`scripts` **2442 passed / 64 skipped / 2 failed**（失败对
+       仍是既有 `pib_exit_safety` 那对）；CI 钉版 ruff **0.15.12** 全绿；术语门 **0 个文件**。
+
+62. ✅ **两个标定结果的 `to_dict` 声称可 JSON 序列化却做不到：`amplitude_optimization` 分支是「自己赋值给自己」的空操作，转换根本没发生**（2026-10-26）：
+     - **先记录失败的普查工具（第三次同类错误）**：我试图用 AST 统计 h5 中「读到但从未写入」与
+       「写入但从未读取」的键名，两遍都不可信。第一遍漏 `create_group`，并把普通 dict 的 `.get()` /
+       下标当成 h5 句柄，捏造约 60 个键名；第二遍报「零命中」，却漏掉了两个加载器里以**局部变量**
+       为基名的读取（`opt_grp[...]`、`act_grp["test_voltages"][:]`），于是把 `amplitude_optimization`、
+       `test_amps`、`responses`、`linearity` 误判成「只写不读」。逐行读 `load_dm_response_matrix` 才确认它
+       **确实**恢复这些诊断，并把 `best_idx` / `optimal_voltage` 转成 `int` / `float` ⇒ h5 两条往返是对称的，
+       **普查结论作废，也不据它加守卫**。
+     - **站得住的是 dict/JSON 这条路径**：`ZernikeResponseMatrixResult.to_dict` 的 docstring 写
+       「转换为字典用于JSON序列化」，`DMResponseMatrixResult.to_dict` 写 "JSON-serializable dict
+       (ndarrays -> lists)"，两者对每个矩阵字段都 `.tolist()`，唯独 `amplitude_optimization` 分支写成
+       `d["amplitude_optimization"] = d["amplitude_optimization"]`：形状与上面的真转换一致，**什么都没转**。
+     - **RED 先行（改动前实测）**：新测试先跑出 **3 failed / 2 passed** —— `json.dumps` 抛
+       `TypeError: Object of type ndarray is not JSON serializable`、`0:test_amps stayed an array`、往返后
+       整数键变成字符串；**通过的两条**是「内存往返」与「None 保持 None」，所以修复必须保住它们，
+       而不是把现有行为改坏。
+     - **修复落在叶子层，只有一份实现**：`utils/wavefront/wfs_utils.py` 新增 `encode_amplitude_diagnostics` /
+       `decode_amplitude_diagnostics`（两个模块本来就从该模块 import，不新增依赖边），四个站点（两模块的
+       `to_dict` 与 `from_dict`）改为调用它们；numpy 标量也一并 `.item()`，因为 `json.dumps` 拒绝标量与拒绝
+       数组是同一件事。解码端把数组形状的字段还原为 ndarray、把 `best_idx` / `optimal_*` 转成 `int` /
+       `float`、把 JSON 变成字符串的索引键还原成 `int`，**与 h5 加载器已有口径对齐**。
+     - **新守卫用 `ast.unparse` 指纹**：`test_no_self_assignment_subscript` 冻结 `x[k] = x[k]` 这种
+       「看起来像转换」的语句。差分控制：植入 `scripts/_common/zz_probe_tmp.py` ⇒ 精确点名其中一处；
+       删除 ⇒ 绿。指纹必须是 `ast.unparse(target) == ast.unparse(value)`：我最初手写的（基名, 切片名）
+       比较把 `ast.JoinedStr` 折叠成空串，于是把 `gui/r50/r50_tabs.py` 里三条合法的
+       `st.session_state[f"{p}_mode"] = st.session_state[f"{p}_mode_input"]` 误报成自赋值 ⇒
+       **全树真实自赋值只有被我修掉的那 2 处**。
+     - **下游没被改到（实测）**：`amplitude_optimization` 的唯一外部消费者
+       `gui/zernike/zernike_response_matrix_ui.py` 读的是**内存里的结果对象**，不经 `to_dict`；树内没有
+       任何调用方对这两个类做 `json.dump`（此前 grep 命中的 `json.dump(result.to_dict())` 属于
+       cartographer 的另一个结果类）。所以这次是把一条**尚未被使用但已写坏**的公开契约修正正确，
+       不是改变任何现有行为。
+     - **验证**：`optimizer/wf` + `runners` + `utils/wavefront` + conventions **823 passed / 27 skipped /
+       2 failed**（失败对仍是既有 `pib_exit_safety` 那对）；新测试
+       `tests/ao_shaping/optimizer/wf/test_matrix_dict_json_safety.py` 两个类各 5 条全绿；改动文件编译通过；
+       CI 钉版 ruff **0.15.12** 全绿（先前那条 F401 正是 dm `to_dict` 漏改的证据）；全树自赋值残留 **0**。
+
+63. ✅ **四个 npy+JSON 附属文件之间没有任何一致性检查：`to_dict` 声明的形状字段写了但从不读，混装的一套文件能静默加载**（2026-10-26）：
+     - **先记下被推翻的假设（我一开始找错了东西）**：顺着第 62 条我怀疑 `ZernikeSLMResponseMatrixResult`
+       也有同一个 JSON 缺陷，因为 `save_zernike_slm_response_matrix` 里有一个**活的**
+       `json.dump(result.to_dict(), f, indent=2)`。读完整对保存/加载后**假设作废**：这个 `to_dict` 是
+       **刻意只写元数据**的（矩阵走三个 `.npy` 附属文件，`from_dict` 再显式接收数组），且
+       `matrix_shape` 是 tuple —— `json.dumps` 会把 tuple 当列表，根本不会抛。既有测试还把 tuple 拼写
+       钉住了（`d["matrix_shape"] == (100, 10)`），所以**不应**把它「统一」成 list。
+     - **真正站住的是跨文件一致性**：一次标定落盘四个文件，但加载路径从不互相校验，且
+       `to_dict` 写出的 `matrix_shape` / `n_spots` / `n_modes` **没有任何读取方**。后果具体且严重：
+       `apply_zernike_correction` 用 `pinv_matrix` 乘斜率向量，而 `pinv_matrix` 来自独立的
+       `.pinv.npy` —— 一个重新生成或从别次标定拷来的附属文件会被**无声**接受。这与第 57 条
+       `from_response_matrix` 的形状守卫是同一族问题。
+     - **RED 先行，并把兼容性当作前置需求写进测试**：先跑新测试得 **4 failed（全部
+       `DID NOT RAISE`）/ 2 passed**。通过的这两条不是巧合，而是我**动手前就写下**的约束：一致的一套
+       必须照常加载；**元数据里没有声明形状字段的旧文件也必须照常加载**（所以修复只对
+       「字段存在时」做校验，不是必填）。
+     - **修复落在 `from_dict`（唯一由元数据构造的入口，加载器与直接调用方都覆盖）**：
+       `variance_matrix` 形状必须等于 `matrix`；`pinv_matrix` 形状必须等于
+       `(matrix.shape[1], matrix.shape[0])`（口径取自 `utils/wavefront/matrix_utils.py:compute_pinv`
+       的文档：`(m, n) -> (n, m)`）；声明字段 `matrix_shape` / `n_spots` / `n_modes` **存在即校验**。
+       报错一律把涉及的全部形状写进消息，沿用第 57 条的口径。
+     - **差分控制证明三组检查各自受力、测试之间不耦合**：只删声明字段那一段（18 行）⇒
+       **恰好**两条声明字段测试变红，`variance` 与 `pinv` 两条仍绿（2 failed / 4 passed）。
+     - **我自己的操作错误（第 23 次）**：做差分控制前我**在打补丁之前**备份了文件，于是
+       `cp` 回滚把**整个修复**一起抹掉了，而 `cmp` 与备份「一致」看起来像成功。唯一暴露它的是我在
+       恢复后顺手打印的 `git diff --stat` —— **输出为空**。规则：差分控制的还原点必须是**修复后**的
+       状态（这次另存 `/tmp/im_FIXED.py`），且恢复后要凭 diff 构成确认修复仍在，不能只看「文件存在」。
+       重新打上守卫后复验 diff 为 **42 insertions / 1 deletion**，那 1 行删除是我用多行 docstring
+       替换掉原先那一行单行 docstring，**不是**连带损伤。
+     - **改动面实测收敛**：树内引用该类与这套附属文件的只有 `interaction_matrix.py` 自己
+       （GUI / scripts / runners 都不读这套附属文件），且仓库**没有**提交任何 `.npy` / `.json` 样例，
+       所以收紧加载器不会破坏任何在库调用方。**没有为这一条新加 conventions 守卫**：「加载时校验形状」
+       无法在不针对具体落盘格式的情况下指纹化，锁它的就是这 6 条测试本身。
+     - **验证**：`optimizer/wf` + `runners` + `utils/wavefront` + conventions
+       **829 passed / 27 skipped / 2 failed**（失败对仍是既有 `pib_exit_safety` 那对）；新测试
+       `tests/ao_shaping/optimizer/wf/test_zernike_slm_sidecar_consistency.py` 6 条全绿，与既有
+       `test_interaction_matrix_zernike.py` 合跑 **23 passed / 1 skipped**（该 skip 是既有的 mock 接口
+       不足）；改动文件编译通过；CI 钉版 ruff **0.15.12** 全绿。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

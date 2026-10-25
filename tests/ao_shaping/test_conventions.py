@@ -2262,8 +2262,14 @@ def _cli_command_inventory() -> dict[str, set[str]]:
     golden_path = REPO / "tests/ao_shaping/runners/cli_help_golden.json"
     if golden_path.exists():
         import json
-        keys = json.loads(golden_path.read_text(encoding="utf-8"))
-        golden = {k for k in keys if ":" not in k}          # module-scoped keys carry ':'
+        # Schema of the merged snapshot (built by ``runners/cli_help_snapshot.py``): every key
+        # is ``<module>:<name>`` with a companion ``<key>:exit``, and the probe tools add
+        # ``tools.*`` entries. Only the ``main:`` group's names are top-level CLI commands.
+        golden = {
+            parts[1]
+            for parts in (k.split(":") for k in json.loads(golden_path.read_text(encoding="utf-8")))
+            if len(parts) == 2 and parts[0] == "main"
+        }
 
     docstring = ast.get_docstring(ast.parse(main_src)) or ""
     in_docstring = _docstring_commands(docstring)
@@ -3395,4 +3401,382 @@ def test_term_count_entry_point_is_not_reimplemented() -> None:
         + f"\nInherit from ``BaseWFS`` (whose own copy delegates) or call "
         f"``{_TERM_COUNT_CANON}`` directly; a body that re-derives ``(n+1)(n+2)//2`` can "
         "disagree with the canonical count by the padding slot and nothing will raise."
+    )
+
+
+#: The two WFS producers hand back Zernike coefficient vectors under index conventions that
+#: are NOT interchangeable. Measured 2026-10-25, offline: defocus (2,0) lands at index 3 on
+#: the twin and at slot 5 on the driver, with lengths 66 and 67 at order 10. The convention
+#: is therefore declared on the class (``BaseWFS.zernike_layout``) so a caller can branch on
+#: it instead of guessing. Validation is against the enum's own members -- not a hand-written
+#: string list, which is the kind of allowlist that rots.
+_WFS_BASE_NAME = "BaseWFS"
+_WFS_LAYOUT_ATTR = "zernike_layout"
+_WFS_LAYOUT_ENUM = "WfsZernikeLayout"
+_WFS_BASE_FILE = "src/ao_shaping/drivers/wfs/base.py"
+_MIN_WFS_DRIVERS = 2
+_MIN_WFS_DRIVER_FILES = 60
+
+
+def test_every_wfs_driver_declares_its_zernike_index_layout() -> None:
+    """Each concrete WFS driver states which Zernike index layout ``get_zernike`` returns.
+
+    A consumer that assumes one convention on the other device's vector does not crash: it
+    silently reads a different mode (``w[1:]`` on the twin drops a real coefficient, ``w[5]``
+    for defocus reads astigmatism). The declaration is only useful if it cannot be forgotten,
+    left untyped, or quietly collapsed to one value.
+    """
+    base_tree = ast.parse((REPO / _WFS_BASE_FILE).read_text(encoding="utf-8-sig"))
+
+    members: set[str] = set()
+    base_declares_layout = False
+    for node in ast.walk(base_tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        if node.name == _WFS_LAYOUT_ENUM:
+            for st in node.body:
+                if isinstance(st, ast.Assign):
+                    members |= {t.id for t in st.targets if isinstance(t, ast.Name)}
+        elif node.name == _WFS_BASE_NAME:
+            for st in node.body:
+                if isinstance(st, ast.AnnAssign) and isinstance(st.target, ast.Name):
+                    if st.target.id == _WFS_LAYOUT_ATTR:
+                        base_declares_layout = True
+
+    assert len(members) >= 2, (
+        f"``{_WFS_LAYOUT_ENUM}`` defines {len(members)} member(s); the guard validates "
+        f"declarations against them, so an empty or single-member enum proves nothing."
+    )
+    assert base_declares_layout, (
+        f"``{_WFS_BASE_NAME}`` no longer declares ``{_WFS_LAYOUT_ATTR}``, so the attribute "
+        "reads as unset on drivers that do not override it -- exactly the silent default this "
+        "guard exists to prevent."
+    )
+
+    offenders: list[str] = []
+    declared: dict[str, str] = {}
+    scanned = 0
+    for path in sorted((SRC / "ao_shaping" / "drivers").rglob("*.py")):
+        rel = path.relative_to(REPO).as_posix()
+        scanned += 1
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"))
+        except SyntaxError:
+            offenders.append(f"{rel}: <unparseable>")
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            bases = {
+                b.id if isinstance(b, ast.Name) else getattr(b, "attr", "")
+                for b in node.bases
+            }
+            if _WFS_BASE_NAME not in bases:
+                continue
+            value: ast.expr | None = None
+            for st in node.body:
+                if isinstance(st, ast.Assign) and any(
+                    isinstance(t, ast.Name) and t.id == _WFS_LAYOUT_ATTR for t in st.targets
+                ):
+                    value = st.value
+                elif isinstance(st, ast.AnnAssign) and isinstance(st.target, ast.Name):
+                    if st.target.id == _WFS_LAYOUT_ATTR:
+                        value = st.value
+            if (
+                not isinstance(value, ast.Attribute)
+                or not isinstance(value.value, ast.Name)
+                or value.value.id != _WFS_LAYOUT_ENUM
+                or value.attr not in members
+            ):
+                offenders.append(
+                    f"{rel}:{node.lineno}: class {node.name} declares no "
+                    f"``{_WFS_LAYOUT_ENUM}.<member>`` as ``{_WFS_LAYOUT_ATTR}``"
+                )
+                continue
+            declared[node.name] = value.attr
+
+    assert scanned >= _MIN_WFS_DRIVER_FILES, (
+        f"scanned {scanned} file(s) under ``src/ao_shaping/drivers``, below the floor "
+        f"{_MIN_WFS_DRIVER_FILES} -- the scope stopped matching the tree."
+    )
+    assert len(declared) >= _MIN_WFS_DRIVERS, (
+        f"only {len(declared)} WFS driver(s) declare a layout, below the floor "
+        f"{_MIN_WFS_DRIVERS} -- the finder stopped matching ``{_WFS_BASE_NAME}`` subclasses."
+    )
+    assert not offenders, (
+        f"{len(offenders)} WFS driver(s) without a valid ``{_WFS_LAYOUT_ATTR}`` "
+        "declaration:\n  " + "\n  ".join(offenders[:15])
+        + f"\nPick one ``{_WFS_LAYOUT_ENUM}.<member>`` that describes what ``get_zernike()`` "
+        "actually returns; do not invent a string."
+    )
+    assert len(set(declared.values())) >= 2, (
+        f"every WFS driver now declares the SAME layout ({declared}). They were measured to "
+        "differ -- defocus sits at index 3 on the twin and slot 5 on the driver (66 vs 67 "
+        "entries at order 10). Collapsing the declarations unifies a device-side boundary by "
+        "accident: if that unification is deliberate, update ``drivers/wfs/AGENTS.md`` and "
+        "ledger 8.9 items 49-50 in the same commit."
+    )
+
+
+#: Measured 2026-10-25 over 669 files: the ``w``/``w_before``/``wavefront`` unwrap existed
+#: in two consumers, and the copies disagreed on their error path (one raised a
+#: ``ClickException``, the other used a bare ``assert`` that ``python -O`` removes). The
+#: fingerprint is the OR-chain of ``.get`` calls, NOT the key names: producers legitimately
+#: write those keys, and ``h5py.File(path, "w")`` also contains ``"w"``.
+_WFS_UNWRAP_KEYS = frozenset({"w", "w_before", "wavefront"})
+_WFS_CHANNELS_MODULE = "src/ao_shaping/tools/zernike/common.py"
+_MIN_WFS_UNWRAP_SCANNED = 600
+
+
+def test_wfs_wavefront_unwrap_is_not_reimplemented() -> None:
+    """Loading a saved WFS wavefront unwraps in exactly one place.
+
+    ``wfs_channels_lambda`` owns the padding-slot rule, the length check and the piston
+    zeroing; a second copy of the unwrap means a second opinion on all three.
+    """
+    chains: list[str] = []
+    defining: list[str] = []
+    unparsed: list[str] = []
+    scanned = 0
+    for path in (
+        sorted((SRC / "ao_shaping").rglob("*.py")) + sorted((REPO / "scripts").rglob("*.py"))
+    ):
+        rel = path.relative_to(REPO).as_posix()
+        scanned += 1
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"))
+        except SyntaxError:
+            unparsed.append(rel)
+            continue
+        nodes = list(ast.walk(tree))
+        for node in nodes:
+            if not isinstance(node, ast.BoolOp) or not isinstance(node.op, ast.Or):
+                continue
+            keys = [
+                call.args[0].value
+                for call in node.values
+                if isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and call.func.attr == "get"
+                and call.args
+                and isinstance(call.args[0], ast.Constant)
+                and call.args[0].value in _WFS_UNWRAP_KEYS
+            ]
+            if len(keys) >= 2:
+                chains.append(rel)
+                break
+        if any(
+            isinstance(n, ast.FunctionDef) and n.name == "wfs_channels_lambda" for n in nodes
+        ):
+            defining.append(rel)
+
+    assert not unparsed, (
+        f"{len(unparsed)} file(s) could not be parsed, so this guard saw nothing inside them: "
+        f"{unparsed}"
+    )
+    assert scanned >= _MIN_WFS_UNWRAP_SCANNED, (
+        f"scanned {scanned} file(s), below the floor {_MIN_WFS_UNWRAP_SCANNED} -- the scope "
+        "stopped matching the tree."
+    )
+    assert defining == [_WFS_CHANNELS_MODULE], (
+        f"``wfs_channels_lambda`` is defined in {defining}; it must have exactly one home."
+    )
+    offenders = sorted(set(chains) - set(defining))
+    assert not offenders, (
+        f"{len(offenders)} file(s) re-implement the WFS wavefront unwrap: {offenders}. Call "
+        "``wfs_channels_lambda`` instead -- the duplicated copies had already drifted apart "
+        "in how they reported a bad input."
+    )
+
+
+_SLOPE_FLATTEN_MODULE = "src/ao_shaping/utils/wavefront/wfs_utils.py"
+
+
+def test_slope_flattening_is_not_reimplemented() -> None:
+    """Stacking ``[dev_x; dev_y]`` into one slope vector happens in exactly one place.
+
+    ``flatten_slopes`` owns the row order. Both sides of the closed loop read that order as a
+    contract: a calibrated deviation matrix is filled through it, and ``from_response_matrix``
+    expands its validity mask with ``np.concatenate([mask, mask])`` -- x rows first, then y
+    rows. A hand-written stack is therefore a second opinion on the row order, and the two
+    orderings have **identical shapes**: swapping x for y never raises, it silently feeds the
+    pseudoinverse the wrong component of the measurement.
+
+    The fingerprint is a one-argument ``concatenate``/``hstack`` over a 2-element sequence of
+    ``.flatten()`` calls -- the shape the canonical helper itself compiles to, so anything
+    matching it outside the helper is a duplicate rather than a different computation.
+    """
+    offenders: list[str] = []
+    unparsed: list[str] = []
+    defining: list[str] = []
+    scanned = 0
+    for path in (
+        sorted((SRC / "ao_shaping").rglob("*.py")) + sorted((REPO / "scripts").rglob("*.py"))
+    ):
+        rel = path.relative_to(REPO).as_posix()
+        scanned += 1
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"))
+        except SyntaxError:
+            unparsed.append(rel)
+            continue
+        nodes = list(ast.walk(tree))
+        if any(
+            isinstance(n, ast.FunctionDef) and n.name == "flatten_slopes" for n in nodes
+        ):
+            defining.append(rel)
+        if rel == _SLOPE_FLATTEN_MODULE:
+            continue
+        for node in nodes:
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not (isinstance(func, ast.Attribute) and func.attr in {"concatenate", "hstack"}):
+                continue
+            if len(node.args) != 1 or not isinstance(node.args[0], ast.List | ast.Tuple):
+                continue
+            parts = node.args[0].elts
+            if len(parts) == 2 and all(
+                isinstance(part, ast.Call)
+                and isinstance(part.func, ast.Attribute)
+                and part.func.attr == "flatten"
+                for part in parts
+            ):
+                offenders.append(f"{rel}:{node.lineno}")
+
+    assert not unparsed, (
+        f"{len(unparsed)} file(s) could not be parsed, so this guard saw nothing inside them: "
+        f"{unparsed}"
+    )
+    assert scanned >= _MIN_WFS_UNWRAP_SCANNED, (
+        f"scanned {scanned} file(s), below the floor {_MIN_WFS_UNWRAP_SCANNED} -- the scope "
+        "stopped matching the tree."
+    )
+    assert defining == [_SLOPE_FLATTEN_MODULE], (
+        f"``flatten_slopes`` is defined in {defining}; the row order must have one home."
+    )
+    assert not offenders, (
+        f"{len(offenders)} hand-written x/y slope stack(s): {offenders}. Call "
+        "``flatten_slopes`` instead -- a duplicate here changes the row order silently, "
+        "because both orderings have the same shape."
+    )
+
+
+_TRUNCATED_MEAN_MODULE = "src/ao_shaping/utils/wavefront/wfs_utils.py"
+
+
+def test_truncated_mean_is_not_reimplemented() -> None:
+    """Dropping the extreme readings and averaging the rest happens in exactly one place.
+
+    The rule was inlined seven times across the two matrix calibrators, gated on three
+    different quantities (``n_averages``, ``len(responses)``, ``len(deviations)``) and explained
+    in prose in only one of the two files -- the copies agreed numerically while their docs did
+    not, which is how such a rule starts to disagree with itself.
+
+    The fingerprint is a ``mean`` whose first argument is a ``[1:-1]`` slice: that is the shape
+    of the helper's own body. A ``[1:-1]`` slice that is never averaged -- kernel trimming in
+    ``exposure_fusion`` -- is deliberately **not** a match, so the guard does not tax unrelated
+    slicing.
+    """
+    offenders: list[str] = []
+    unparsed: list[str] = []
+    defining: list[str] = []
+    scanned = 0
+    for path in (
+        sorted((SRC / "ao_shaping").rglob("*.py")) + sorted((REPO / "scripts").rglob("*.py"))
+    ):
+        rel = path.relative_to(REPO).as_posix()
+        scanned += 1
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"))
+        except SyntaxError:
+            unparsed.append(rel)
+            continue
+        nodes = list(ast.walk(tree))
+        if any(isinstance(n, ast.FunctionDef) and n.name == "truncated_mean" for n in nodes):
+            defining.append(rel)
+        if rel == _TRUNCATED_MEAN_MODULE:
+            continue
+        for node in nodes:
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not (isinstance(func, ast.Attribute) and func.attr == "mean"):
+                continue
+            if not node.args or not isinstance(node.args[0], ast.Subscript):
+                continue
+            sl = node.args[0].slice
+            if (
+                isinstance(sl, ast.Slice)
+                and isinstance(sl.lower, ast.Constant)
+                and sl.lower.value == 1
+                and isinstance(sl.upper, ast.UnaryOp)
+                and isinstance(sl.upper.op, ast.USub)
+                and isinstance(sl.upper.operand, ast.Constant)
+                and sl.upper.operand.value == 1
+            ):
+                offenders.append(f"{rel}:{node.lineno}")
+
+    assert not unparsed, (
+        f"{len(unparsed)} file(s) could not be parsed, so this guard saw nothing inside them: "
+        f"{unparsed}"
+    )
+    assert scanned >= _MIN_WFS_UNWRAP_SCANNED, (
+        f"scanned {scanned} file(s), below the floor {_MIN_WFS_UNWRAP_SCANNED} -- the scope "
+        "stopped matching the tree."
+    )
+    assert defining == [_TRUNCATED_MEAN_MODULE], (
+        f"``truncated_mean`` is defined in {defining}; the truncation rule must have one home."
+    )
+    assert not offenders, (
+        f"{len(offenders)} inline truncated-mean averaging site(s): {offenders}. Call "
+        "``truncated_mean`` instead -- the copies had already drifted in how they expressed "
+        "the gate and in which file explained it."
+    )
+def test_no_self_assignment_subscript() -> None:
+    """A statement of the shape ``x[k] = x[k]`` is a conversion that converts nothing.
+
+    Both matrix calibration results carried exactly that inside ``from_dict``, written right
+    after real ``.tolist()`` conversions so it read like one of them -- while ``to_dict``
+    went on advertising JSON output that ``json.dumps`` rejected, because the nested
+    per-mode diagnostics kept their numpy arrays.
+
+    The comparison is ``ast.unparse(target) == ast.unparse(value)``, not a (base, slice)
+    tuple: an earlier hand-rolled key function collapsed ``ast.JoinedStr`` slices to an empty
+    string and reported three legitimate GUI redirects of the form
+    ``st.session_state[f"{p}_mode"] = st.session_state[f"{p}_mode_input"]`` as self-assignments.
+    """
+    offenders: list[str] = []
+    unparsed: list[str] = []
+    scanned = 0
+    for path in (
+        sorted((SRC / "ao_shaping").rglob("*.py")) + sorted((REPO / "scripts").rglob("*.py"))
+    ):
+        rel = path.relative_to(REPO).as_posix()
+        scanned += 1
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"))
+        except SyntaxError:
+            unparsed.append(rel)
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+                continue
+            target, value = node.targets[0], node.value
+            if not (isinstance(target, ast.Subscript) and isinstance(value, ast.Subscript)):
+                continue
+            if ast.unparse(target) == ast.unparse(value):
+                offenders.append(f"{rel}:{node.lineno} {ast.unparse(node)}")
+
+    assert not unparsed, (
+        f"{len(unparsed)} file(s) could not be parsed, so this guard saw nothing inside them: "
+        f"{unparsed}"
+    )
+    assert scanned >= _MIN_WFS_UNWRAP_SCANNED, (
+        f"scanned {scanned} file(s), below the floor {_MIN_WFS_UNWRAP_SCANNED} -- the scope "
+        "stopped matching the tree."
+    )
+    assert not offenders, (
+        f"{len(offenders)} self-assignment site(s): {offenders}. A ``x[k] = x[k]`` statement "
+        "either duplicates the conversion above it or hides the fact that none is happening."
     )

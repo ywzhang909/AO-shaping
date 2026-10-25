@@ -66,10 +66,80 @@ WFS 家族曾是**唯一没有共享基类**的设备家族: `ThorlabWFS` 直接
 ⇒ 同一模式在两侧落在**不同槽位** (defocus: 孪生 3 / 驱动 5), 所以为驱动写的
 `w[1:]`、`w[5]` 这类下标用到孪生上会取到**另一个模式**, 且不报错。统一到哪一侧是
 **设备侧口径**决定 (需要 DLL 契约与既有落盘语料的口径), 本次**未改动**。
+
+**口径现已在对象上声明** (2026-10-25, 语义未改): `BaseWFS.zernike_layout` 取
+`WfsZernikeLayout` 枚举, 孪生声明 `NOLL_ZERO_BASED`、驱动声明
+`DLL_ONE_BASED_SEQUENTIAL_M`; 守卫
+`tests/ao_shaping/test_conventions.py::test_every_wfs_driver_declares_its_zernike_index_layout`
+要求每个具体驱动都声明该标记, 且两侧声明**互不相同** —— 若真要统一, 必须在同一个提交里
+同时改动这里的口径与那条守卫, 否则测试判失败。当前没有任何调用方按该标记分支, 它是
+可读的边界与护栏, 不是控制流。
+
+**半径与两种失效方式** (2026-10-25 普查): 同时「按类型解析传感器」与「消费 Zernike 向量」的
+生产代码只有 `runners/slm/zernike_matrix_runner.py` (4 处); `optimizer/wf/` 的 `rms.py` /
+`ga_zernike.py` / `greedy_zernike.py` / `rms_by_zernike.py` 虽解析 WFS, 只读
+`get_wavefront()` / `get_spot_deviation()` / `get_spots_statics()`, 不碰系数向量。
+
+- **整数组 `[1:]` 路径会响亮失败**: 矩阵行数钉成 `calc_n_zernike_terms(10)=66`, 孪生 66 长经
+  `[1:]` 得 65, 填列时形状错误 (`zernike_matrix_runner.py:630-634` 的注释自记过一次 65-vs-66)。
+- **按槽位取单点读数会静默出错**: 对孪生向量套用驱动的 1 基约定读 defocus, 容器实测注入
+  0.70 rad 时按孪生口径读回 `+0.7043`、按驱动槽位读回 `-0.0000` —— 一个干净的零, 既不是噪声
+  也不是异常。
+
+⇒ 该静默类已咬到过 `measure_tilt_defocus`: 它把槽位 4 (=(2,-2) 像散) 当离焦读, 而 Noll 序号与
+DLL 槽位只在 1..3 重合、从 4 起分岔。现由 `tools/zernike/common.py` 的 `TILT_DLL_SLOTS` /
+`DEFOCUS_DLL_SLOT` 从 `DLL_ZERNIKE_ORDER` 现取槽位, 回归测试在
+`tests/ao_shaping/tools/slm/test_slm_zernike_common.py` (逐槽不同值的存根读数)。
+⚠️ `runners/slm/offset_runner.py` 有**两处**读 WFS 统计字典里**无人写入**的键 (键名漂移类):
+- `measure_defocus_coefficient()` 硬下标读 `statics["zernike_coeffs"]` —— 驱动统计字典只有
+  `min/max/diff/mean/rms/wighted_rms`, 全树无处写该键, 故该函数恒返回 `0.0`;
+- 搜索环里两处 `statics.get("total_intensity", 1e6)` —— `total_intensity` 只由 **CCD** 分析路径
+  (`utils/image/target/ccd.py`) 写入, WFS 侧从不写 ⇒ **默认值 1e6 无条件生效**, 于是被打印并参与
+  比较的"强度"实际是个常数。默认值把本该抛出的 `KeyError` 变成静默, **比硬下标那一处更难发现**。
+两处同属"改数据源还是删功能"的行为决定 (该 runner 未注册且计划迁入 `tools/slm/`), 本次只记录。
+
+⚠️ **同一个统计量在仓库里有两种拼写**: 字典键是错拼 `wighted_rms` (驱动与孪生都写它,
+`optimizer/wf/rms.py` 还硬下标读它), 而模型层 `model/quantities.py::WavefrontStatistics` 的字段是
+正确拼写 `weighted_rms`, 两者靠一个**零调用方**的 `from_legacy` 桥接。改名边界已实测: 键集由
+`tests/ao_shaping/drivers/sim/test_simulated_wfs.py` 钉住 (少键会被测试抓到); 该键**不作为结构化
+字段落盘** —— `save_history` 写 CSV (整份字典以字符串形式出现在 `_statics` 列), 而
+`save_history_hdf5` 直接**跳过**非标量列。⇒ 改名不打断任何**读取**路径, 但历史工件里的文本拼写会
+与新版不一致。是否统一属契约决定, 未单方面改动。
 ⚠️ 该未决项**不波及** `runners/slm/zernike_matrix_runner.py:839/889` 的 `z0[1:]`: 那里的
 `z0` 来自 `measure_zernike`, 它正是 `tools/zernike/common.py` 的入口 (runner `:94` 导入),
 返回的是原始 67 长数组 (index 0 未用), 因此 `[1:]` 是**正确**用法。风险在别处: 新代码若按
 0 基 Noll 去索引驱动读数 (拿 defocus=`[3]`), 就会在硬件上取到另一个模式。
+
+⚠️ **同一类静默偏移仍在旧标定路径 `optimizer/wf/zernike_response_matrix.py` 里** (容器实测, **未修**):
+它按 `start_idx += 1` 去 piston、`+= 2` 去 tip/tilt 裁剪 WFS 读数 —— 这是 **0 基 Noll** 的算术, 而读数
+是 **DLL 1 基** (index 0 是不写的占位, piston 在槽位 1)。四种组合实测保留的槽位:
+`(去 piston, 留 tip/tilt) → 1..66` (**piston 其实还在**)、`(两者都去) → 3..66` (**去掉了 tip 却留着 tilt**)、
+`(不去 piston, 去 tip/tilt) → 2..66`、`(都不去) → 0..66`; 且**每种组合都是 rows − cols = 1**。
+它**从不广播失败**: `BaseWFS.calc_n_zernike_terms` 本身就是**项数 +1**, 把同一个偏移同时加进了行数,
+所以只会让行集合与声明的模式集合差一个槽位 (元数据与调试查看器的行标签跟着偏)。
+- **为什么不顺手改**: 当前消费方与此**自洽** (`tools/wfs/zernike_correction.py` 取 `z[1:]` = 66 = 行数);
+  改成按槽位身份裁剪会让矩阵**行数 66 → 65**, 使已存盘的矩阵与 `gui/zernike/zernike_debug_viewer.py`
+  的行解释失配, 而这是只有实验系统才能重定的数值 ⇒ **设备侧决定**, 本次只记录。在线 CLI 路径不受影响:
+  `runners/slm/zernike_matrix_runner.py` 的 `_mode_ids` 已按**身份**去 piston (`i != 1`), 其注释自记过同一个误减。
+- SLM 侧该偏移算术已收敛为**唯一实现** `optimizer/wf/zernike_response_matrix.py::slm_mode_slot`
+  (原先手抄 3 处: 自动寻幅、标定环的 `if/elif/else`、`gui/zernike/zernike_response_matrix_ui.py`
+  的交互回调)。系数数组是 **0 基 Noll** (`index 0 = piston`, 权威见 `zernike_dm._noll_to_dict` 的
+  `Noll j = idx + 1`), 故下标偏移 = **被排除的模式个数**。旧注释里的 `i+2` / `i+4` 说的是
+  **Noll 编号**, 代码里的 `i+1` / `i+3` 是**数组下标** —— 两者都对, 但混写会让人以为差一个。
+- ⚠️ **仍是两处不同的量, 未合并**: (a) `gui/zernike/zernike_debug_viewer.py` 的 `wfs_start_idx` 解释的是
+  **WFS 行**, 与 SLM 列偏移不是同一个东西 (上面那条 `start_idx` 未决项就是它); (b) 自动寻幅
+  `_optimize_perturbation_amplitude` 的 `excluded_*` 目前由调用点**显式**写死为「两者都排除」,
+  **没有**跟随本次标定的排除选择 —— 转发会同时改变被探针的模式与被比对的行集合, 属只有实验系统
+  才能重定的数值, 故由 `tests/ao_shaping/optimizer/wf/test_zernike_response_matrix.py` 的
+  `TestAmplitudeProbeKeepsItsOwnExclusions` 锁死现状; 要改必须连同设备侧基准一起重定。
+- ⚠️ **模态空间回退把「斜率样本」喂给「Zernike 响应矩阵的伪逆」** (读码确认, **未修**):
+  `runners/slm/zernike_matrix_runner.py::from_response_matrix` 优先用 `deviation_response_matrix`
+  (斜率空间, 与 `_measure_wfs_step` 的 `get_spot_deviation` 同空间 ⇒ 正确); 只有当已存盘的 h5 **缺**
+  `deviation_response_matrix` 或 `subaperture_mask` 时才回退到 `D = result.matrix` (行 = WFS Zernike
+  通道) 且 `mask_indices = arange(D.shape[0])`, 而测量侧**始终**取斜率 —— 于是实际取的是「前 N 个斜率
+  样本」去乘 Zernike 空间的伪逆。**维度自洽所以不会报错, 空间不自洽**。改它等于改闭环控制语义
+  ⇒ 设备侧决定, 本次只做构造期校验: `pinv.shape == (D.shape[1], D.shape[0])` 必须成立, 且 `s_ref` 与
+  `mask_indices` 同源于 matrix 行数 (守卫测试 `tests/ao_shaping/runners/slm/test_from_response_matrix_guard.py`)。
 
 ## 惰性加载 (2026-10-01)
 

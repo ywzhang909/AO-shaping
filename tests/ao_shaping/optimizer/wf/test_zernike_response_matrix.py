@@ -846,3 +846,109 @@ class TestMatrixShapeCorrectness:
         # 排除piston后的项数
         assert calc_n_zernike_terms(4) - 1 == 14   # n_max=4, 排除piston
         assert calc_n_zernike_terms(10) - 1 == 65  # n_max=10, 排除piston
+
+class TestSlmModeSlot:
+    """``slm_mode_slot`` 是三处手抄 if/elif 链的唯一实现: 钉住等价性与枚举语义。"""
+
+    def test_matches_the_branch_chain_it_replaced(self):
+        from ao_shaping.optimizer.wf.zernike_response_matrix import slm_mode_slot
+
+        assert slm_mode_slot(0, excluded_piston=True, excluded_tip_tilt=True) == 3
+        assert slm_mode_slot(0, excluded_piston=True, excluded_tip_tilt=False) == 1
+        assert slm_mode_slot(0, excluded_piston=False, excluded_tip_tilt=True) == 2
+        assert slm_mode_slot(0, excluded_piston=False, excluded_tip_tilt=False) == 0
+
+    def test_slot_plus_one_is_a_canonical_noll_number(self):
+        """用 canonical 枚举反查, 而不是把链里的常数再抄一遍。
+
+        系数数组是 **0 基 Noll** (``index 0 = piston``, 权威见 ``zernike_dm._noll_to_dict``
+        的 ``Noll j = idx + 1``), 所以「排除了几个模式」直接等于下标偏移: 排 piston 后
+        mode 0 落在 n=1 (tip/tilt), 再排 tip/tilt 后落在 (2,0) = Noll 4 = defocus。
+        """
+        from ao_shaping.optimizer.wf.zernike_response_matrix import slm_mode_slot
+        from ao_shaping.utils.wavefront.zernike_calc import noll_to_nm
+
+        none_excluded = slm_mode_slot(
+            0, excluded_piston=False, excluded_tip_tilt=False
+        ) + 1
+        piston_only = slm_mode_slot(0, excluded_piston=True, excluded_tip_tilt=False) + 1
+        both = slm_mode_slot(0, excluded_piston=True, excluded_tip_tilt=True) + 1
+
+        assert noll_to_nm(none_excluded) == (0, 0)
+        assert noll_to_nm(piston_only)[0] == 1
+        assert noll_to_nm(both) == (2, 0)
+
+
+class TestAmplitudeProbeKeepsItsOwnExclusions:
+    """已知未修的耦合, 用测试**钉住现状**: 寻幅子路径不跟随本次标定的排除选择。
+
+    ``calibrate_zernike_response_matrix`` 调 ``_optimize_perturbation_amplitude`` 时显式
+    传 ``excluded_piston=True, excluded_tip_tilt=True``, 而本次标定默认只排 piston。
+    转发两者会同时改变「被探针的 SLM 模式」与「被比对的 WFS 行集合」, 是只有实验系统
+    能重定的数值 ⇒ 本条断言故意锁死现状; 真要改必须连同设备侧基准一起重定, 并更新
+    ``drivers/wfs/AGENTS.md``。
+    """
+
+    def test_caller_exclusions_are_not_forwarded(self):
+        from unittest.mock import MagicMock, patch
+
+        from ao_shaping.optimizer.wf.zernike_response_matrix import (
+            calibrate_zernike_response_matrix,
+            calc_n_zernike_terms,
+        )
+
+        n_max = 4
+        mock_zslm = MagicMock()
+        mock_zslm.wavelength = 1064
+        mock_zslm._slm = MagicMock()
+        mock_wfs = MagicMock()
+        _, n_dev = _configure_mock_wfs(mock_wfs, n_max)
+        n_terms = calc_n_zernike_terms(n_max) - 1
+
+        seen: list[tuple[int, bool, bool]] = []
+
+        def _record(zslm, wfs, mode_idx, test_amps, **kwargs):
+            seen.append(
+                (mode_idx, kwargs["excluded_piston"], kwargs["excluded_tip_tilt"])
+            )
+            return 0.3, {"optimal_amplitude": 0.3}
+
+        with patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix"
+            "._optimize_perturbation_amplitude",
+            new=_record,
+        ), patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix"
+            ".measure_zernike_mode_response"
+        ) as mock_measure, patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.set_slm_flat"
+        ), patch(
+            "ao_shaping.optimizer.wf.zernike_response_matrix.time"
+        ):
+            mock_measure.return_value = (
+                np.zeros(n_terms),
+                np.zeros(n_terms),
+                np.zeros(n_dev),
+                np.zeros(n_dev),
+            )
+            calibrate_zernike_response_matrix(
+                zslm=mock_zslm,
+                wfs=mock_wfs,
+                n_max=n_max,
+                magnitude=None,
+                n_cycles=1,
+                n_averages=1,
+                wait_time=0.0,
+                excluded_piston=True,
+                excluded_tip_tilt=False,
+                compute_inverses=False,
+                verbose=False,
+            )
+
+        assert seen, "自动寻幅路径没有被触发"
+        assert len(seen) == n_terms
+        mismatched = [c for c in seen if (c[1], c[2]) != (True, True)]
+        assert not mismatched, (
+            f"寻幅的排除配置已改变: {mismatched[:3]} —— 若确认改为转发本次标定的 "
+            "excluded_*, 需连同设备侧基准一起重定, 并更新 drivers/wfs/AGENTS.md"
+        )

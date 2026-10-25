@@ -64,6 +64,9 @@ def require_wfs_exposure_within_safety_ceiling(exp_ms: float, *, source: str = "
 #   `get_zernike()` 返回**µm**; 响应矩阵必须与矫正时的 `w` 用**同一单位**。
 #   曾因矩阵用原始 µm 构建、而矫正用 `w = z/0.532` (λ), 反解系数被放大 1/0.532 = 1.88×,
 #   矫正过驱动 88% → 实测闭环仅 19.7% (离线最优可达 75%)。**一律经 `um_to_waves` 换算。**
+#   ⚠️ 但 `um_to_waves` 是乘 1/0.532 的倒数, 与直接 `/0.532` **不是逐位相同** (0~2 步长 0.001
+#   的 2001 个采样值里 768 个末位不同)。现存 14 处直接除 (普查: 全部是 µm→λ, 无反向混用);
+#   把它们并进 `um_to_waves` 是**数值变更**而非风格整理, 需先重定既有基准, 属设备侧决定。
 # `LAMBDA_UM` / `UM_TO_WAVES` / `um_to_waves` 的 canonical 实现在 zernike_utils
 # (设备无关纯数学, 2026-09 收敛), 此处 re-export 保持 10+ 调用方导入路径不变。
 
@@ -112,6 +115,56 @@ def name_of(index: int) -> str:
 def n_modes_upto(n_max: int) -> int:
     """含 piston 的模式总数 (n_max=4 → 15)."""
     return calc_n_zernike_terms(n_max)
+
+
+def _require_dll_slot(nm: tuple[int, int]) -> int:
+    """(n, m) → 读数槽位; 表里缺该项时立刻失败, 而不是让 ``None`` 溜进下标。"""
+    slot = index_of(nm)
+    if slot is None:
+        raise KeyError(f"DLL_ZERNIKE_ORDER 缺少模式 {nm}, 无法确定读数槽位")
+    return slot
+
+
+#: ``get_zernike()`` 原始读数的槽位 (1 基; 0 号是不写的填充槽)。
+#: Noll 序号与 DLL 槽位只在 piston/tip/tilt (1..3) 重合, 从 4 号起分岔:
+#: [4]=(2,-2) 是像散, [5]=(2,0) 才是离焦 —— 所以离焦必须按模式查表取槽位。
+TILT_DLL_SLOTS: tuple[int, int] = (_require_dll_slot((1, -1)), _require_dll_slot((1, 1)))
+DEFOCUS_DLL_SLOT: int = _require_dll_slot((2, 0))
+
+#: tip/tilt 的连续槽位切片 (即 z[2:4]); 与上面的槽位常量同源, 免得各处再写死下标。
+TILT_DLL_SLICE: slice = slice(TILT_DLL_SLOTS[0], TILT_DLL_SLOTS[1] + 1)
+
+
+def wfs_channels_lambda(
+    w_raw: Any, n_channels: int, *, source: str = "w"
+) -> np.ndarray:
+    """把一份 WFS 波前读数规范成 ``n_channels`` 个 λ 通道, 并把 piston 置零。
+
+    接受三种形态: 已去填充槽的 ``n_channels`` 长数组; 比它多一个元素、0 号是 DLL 未写
+    填充槽的原始读数 (``n_channels + 1`` 长); 或含 ``w`` / ``w_before`` / ``wavefront``
+    任一键的字典。返回**新数组** (调用方原地置零不会写回输入)。
+
+    「多一个」按 ``n_channels`` 判定而非写死长度: 填充槽的存在与阶数无关, 写死 67 会让
+    其它阶数的读数被当成长度不符。
+
+    piston 置零的理由: 它是 WFS 参考面的整体偏置, 既不可矫正也会通过伪逆污染
+    整个反解 (见 ``runners/slm/zernike_matrix_runner.py`` 同一处理)。
+    """
+    if isinstance(w_raw, dict):
+        w_raw = w_raw.get("w") or w_raw.get("w_before") or w_raw.get("wavefront")
+    if w_raw is None:
+        raise ValueError(
+            f"{source}: 需要 {n_channels} 长通道向量 (或 {n_channels + 1} 长、0 号是未写"
+            "填充槽的原始读数), 或含 w/w_before/wavefront 键的字典"
+        )
+    w = np.asarray(w_raw, dtype=float).reshape(-1)
+    if w.size == n_channels + 1:
+        w = w[1:]                               # 0 号是 DLL 未写的填充槽
+    if w.size != n_channels:
+        raise ValueError(f"{source}: 波前长度 {w.size} ≠ 期望通道数 {n_channels}")
+    w = np.array(w, dtype=float, copy=True)
+    w[0] = 0.0
+    return w
 
 
 # ─────────────────────────── 设备参数采集 ───────────────────────────
@@ -427,8 +480,8 @@ def measure_wavefront(wfs: ThorlabWFS, n_avg: int = 3) -> tuple[np.ndarray, dict
 
 def added_tilt(z: np.ndarray, base: np.ndarray) -> tuple[float, np.ndarray]:
     """相对基线的附加倾斜 (λ): DLL [2],[3] 两分量, 返回 (范数, 分量)."""
-    t = z[2:4] / 0.532
-    b = base[2:4] / 0.532
+    t = z[TILT_DLL_SLICE] / 0.532
+    b = base[TILT_DLL_SLICE] / 0.532
     d = t - b
     return float(np.linalg.norm(d)), d
 
@@ -436,7 +489,7 @@ def added_tilt(z: np.ndarray, base: np.ndarray) -> tuple[float, np.ndarray]:
 def measure_tilt_defocus(
     wfs: ThorlabWFS, n_avg: int = 3, zernike_order: int = 10
 ) -> tuple[np.ndarray | None, float | None]:
-    """多帧中位数聚合, 返回 ``(z_tilt[2] (λ, Noll 2/3), z_defocus (λ, Noll 4))``.
+    """多帧中位数聚合, 返回 ``(z_tilt (λ, DLL [2]=(1,-1) 与 [3]=(1,1)), z_defocus (λ, DLL [5]=(2,0)))``.
 
     Verbatim from ``calibration.measure_tilt`` (shift 标定共用原语)。
     单帧失败不致命, 交由中位数容忍。
@@ -459,10 +512,16 @@ def measure_tilt_defocus(
         except Exception as e:  # 单帧失败不致命, 交由中位数容忍
             logger.debug("get_zernike 失败: {}", e)
             continue
-        if z_um is None or not np.isfinite(z_um[2:5]).all():
+        if z_um is None:
             continue
-        tips.append(np.asarray(z_um[2:4], dtype=float) / 0.532)  # Noll 2,3 = tip/tilt
-        defoci.append(float(z_um[4]) / 0.532)  # Noll 4 = defocus
+        read = np.asarray(
+            [z_um[TILT_DLL_SLOTS[0]], z_um[TILT_DLL_SLOTS[1]], z_um[DEFOCUS_DLL_SLOT]],
+            dtype=float,
+        )
+        if not np.isfinite(read).all():
+            continue
+        tips.append(read[:2] / 0.532)   # DLL [2]=(1,-1), [3]=(1,1) = tip/tilt
+        defoci.append(float(read[2]) / 0.532)  # DLL [5]=(2,0) = defocus
     if not tips:
         return None, None
     return np.median(np.array(tips), axis=0), float(np.median(defoci))
@@ -494,7 +553,7 @@ def diagnose_beam_radius(slm: Santec, wfs: ThorlabWFS, ph: PatternHelper,
             if verbose:
                 logger.debug(f"   R={r:5.0f}px  无有效读数")
             continue
-        d = float(z[5]) / 0.532           # DLL [5] = (2,0) defocus
+        d = float(z[DEFOCUS_DLL_SLOT]) / 0.532   # DLL [5] = (2,0) defocus
         out.append({"radius": float(r), "defocus_lam": d})
         if verbose:
             logger.debug(f"   R={r:5.0f}px  defocus[5]={d:+.4f}λ")

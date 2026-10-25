@@ -38,6 +38,7 @@ from ao_shaping.optimizer.wf.zernike_response_matrix import (
     calibrate_zernike_response_matrix,
     load_zernike_response_matrix,
     save_zernike_response_matrix,
+    slm_mode_slot,
 )
 from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
@@ -402,18 +403,15 @@ def _send_current_zernike_phase_interactive(coeff: float = 1.0) -> None:
     # Get coefficient from session state
     coeff = st.session_state.zrm_interactive_current_coeff if "zrm_interactive_current_coeff" in st.session_state else 1.0
 
-    # Noll offset: same logic as calibrate_zernike_response_matrix
-    if excluded_piston and excluded_tip_tilt:
-        noll_offset = 3
-    elif excluded_piston:
-        noll_offset = 1
-    else:
-        noll_offset = 0
+    # 系数数组是 0 基 Noll: 下标 = mode_idx + 被排除的模式个数 (唯一实现: slm_mode_slot)
+    slot = slm_mode_slot(
+        mode_idx, excluded_piston=excluded_piston, excluded_tip_tilt=excluded_tip_tilt
+    )
 
     full_terms = calc_n_zernike_terms(DEFAULT_N_MAX)
     coeffs = np.zeros(full_terms, dtype=np.float64)
-    coeffs[mode_idx + noll_offset] = coeff * magnitude
-    noll_index = mode_idx + noll_offset + 1  # 1-based Noll for logging
+    coeffs[slot] = coeff * magnitude
+    noll_index = slot + 1  # 1-based Noll for logging
 
     st.session_state.zrm_interactive_call_seq += 1
     seq = st.session_state.zrm_interactive_call_seq
@@ -422,7 +420,7 @@ def _send_current_zernike_phase_interactive(coeff: float = 1.0) -> None:
         logger.debug(
             f"[INT#{seq:04d}] SLM.send_zernike — "
             f"mode_idx={mode_idx}, noll=Z{noll_index}, coeff={coeff:+.4f}, "
-            f"magnitude={magnitude:.4f}λ, coeffs[active]={coeffs[mode_idx + noll_offset]:.4f}"
+            f"magnitude={magnitude:.4f}λ, coeffs[active]={coeffs[slot]:.4f}"
         )
         slm.send_zernike(coeffs)
         st.session_state.zrm_interactive_phase_sent = True

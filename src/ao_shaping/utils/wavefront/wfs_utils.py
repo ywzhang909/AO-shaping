@@ -28,6 +28,93 @@ def flatten_slopes(dev_x: np.ndarray, dev_y: np.ndarray) -> np.ndarray:
     return np.concatenate([dev_x.flatten(), dev_y.flatten()])
 
 
+#: More than this many readings must be available before dropping the extreme value of every
+#: column is worth it: at five rows or fewer, discarding two samples per column removes real
+#: readings rather than outliers.
+_TRUNCATED_MEAN_GATE = 5
+
+
+def encode_amplitude_diagnostics(
+    diagnostics: "dict | None",
+) -> "dict | None":
+    """Copy per-mode amplitude diagnostics so the result survives ``json.dumps``.
+
+    ``to_dict`` is documented as JSON-bound and converts every matrix field with
+    ``.tolist()``, but these nested per-mode arrays are numpy arrays until now: leaving them
+    in place makes the whole payload unserializable. Scalars are converted too because a
+    numpy scalar is just as unserializable as an array.
+    """
+    if diagnostics is None:
+        return None
+    encoded: dict = {}
+    for key, entry in diagnostics.items():
+        out: dict = {}
+        for field, value in (entry or {}).items():
+            if isinstance(value, dict):
+                out[field] = encode_amplitude_diagnostics(value)
+            elif isinstance(value, np.ndarray) or isinstance(value, (list, tuple)):
+                out[field] = np.asarray(value).tolist()
+            elif isinstance(value, np.generic):
+                out[field] = value.item()
+            else:
+                out[field] = value
+        encoded[key] = out
+    return encoded
+
+
+def decode_amplitude_diagnostics(
+    diagnostics: "dict | None",
+    *,
+    int_fields: tuple[str, ...] = ("best_idx",),
+    float_fields: tuple[str, ...] = ("optimal_amplitude", "optimal_voltage"),
+) -> "dict | None":
+    """Rebuild per-mode diagnostics loaded from JSON or ``to_dict``.
+
+    Mirrors what the HDF5 loaders already do: array-shaped fields become arrays again and the
+    index/score fields are cast to ``int``/``float``, so a JSON round-trip cannot hand back a
+    numpy integer where callers expect a Python one. Mode keys are coerced to ``int`` because
+    JSON turns object keys into strings.
+    """
+    if diagnostics is None:
+        return None
+    decoded: dict = {}
+    for key, entry in diagnostics.items():
+        try:
+            out_key = int(key)
+        except (TypeError, ValueError):
+            out_key = key
+        out: dict = {}
+        for field, value in (entry or {}).items():
+            if field in int_fields and isinstance(value, np.generic):
+                out[field] = int(value)
+            elif field in float_fields and isinstance(value, np.generic):
+                out[field] = float(value)
+            elif isinstance(value, np.ndarray) or isinstance(value, (list, tuple)):
+                out[field] = np.asarray(value)
+            else:
+                out[field] = value
+        decoded[out_key] = out
+    return decoded
+
+
+def truncated_mean(values: np.ndarray | list) -> np.ndarray:
+    """Column-wise mean of repeated readings, dropping each column's extremes.
+
+    Readings stack along axis 0 (one reading per row). With more than :data:`_TRUNCATED_MEAN_GATE`
+    rows, the smallest and largest value of **every column** are dropped before averaging, so one
+    bad frame can only contaminate the columns it actually touched; dropping whole rows instead
+    would leave an outlier standing in the other columns. At or below that many rows nothing is
+    dropped.
+
+    The threshold is deliberately not a parameter: a caller-chosen gate would reintroduce the
+    per-site disagreement this helper exists to remove.
+    """
+    arr = np.asarray(values)
+    if arr.shape[0] > _TRUNCATED_MEAN_GATE:
+        return np.mean(np.sort(arr, axis=0)[1:-1], axis=0)
+    return np.mean(arr, axis=0)
+
+
 def unflatten_slopes(slopes: np.ndarray, nx: int, ny: int) -> tuple[np.ndarray, np.ndarray]:
     """Unflatten slope vector back to x/y deviation arrays.
 

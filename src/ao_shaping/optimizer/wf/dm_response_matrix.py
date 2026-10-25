@@ -40,7 +40,12 @@ from loguru import logger
 from tqdm import tqdm
 
 from ao_shaping.utils.wavefront.matrix_utils import compute_lstsq, compute_pinv
-from ao_shaping.utils.wavefront.wfs_utils import flatten_slopes
+from ao_shaping.utils.wavefront.wfs_utils import (
+    decode_amplitude_diagnostics,
+    encode_amplitude_diagnostics,
+    flatten_slopes,
+    truncated_mean,
+)
 
 if TYPE_CHECKING:
     from ao_shaping.drivers.dm.base import DM
@@ -205,8 +210,7 @@ class DMResponseMatrixResult:
             d["pinv_matrix"] = self.pinv_matrix.tolist()
         if self.lstsq_matrix is not None:
             d["lstsq_matrix"] = self.lstsq_matrix.tolist()
-        if self.amplitude_optimization is not None:
-            d["amplitude_optimization"] = self.amplitude_optimization
+        d["amplitude_optimization"] = encode_amplitude_diagnostics(self.amplitude_optimization)
         return d
 
     @classmethod
@@ -227,44 +231,35 @@ class DMResponseMatrixResult:
             d["lstsq_matrix"] = np.array(d["lstsq_matrix"])
         else:
             d["lstsq_matrix"] = None
-        if "amplitude_optimization" in d and d["amplitude_optimization"] is not None:
-            d["amplitude_optimization"] = d["amplitude_optimization"]
-        else:
-            d["amplitude_optimization"] = None
+        d["amplitude_optimization"] = decode_amplitude_diagnostics(
+            d.get("amplitude_optimization")
+        )
         return cls(**d)
 
 
-def _averaged_spot_deviation(
+def _measure_averaged_slopes(
     wfs: ThorlabWFS, n_averages: int, cancel_tile: bool
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Take n_averages WFS readings and return truncated-mean slopes.
+    """Take ``n_averages`` **separate** WFS readings and average them per channel.
 
-    Shared by the sequential (``measure_actuator_response``) and Hadamard
-    (``calibrate_dm_response_matrix``) paths, which each carried this body as
-    a private closure -- one bench measurement, one implementation.
+    Every reading is its own acquisition (``n_sample=1``), which is what lets
+    :func:`truncated_mean` discard a single bad frame per channel. Returns the flattened
+    slopes plus the two component arrays, which callers reuse for diagnostics.
+
+    Not interchangeable with ``interaction_matrix._single_shot_slopes``: that one issues a
+    single ``take_image(n_sample=n_averages)`` and leaves ``cancel_tile`` at its default.
     """
-    all_dev_x = []
-    all_dev_y = []
+    all_dev_x: list[np.ndarray] = []
+    all_dev_y: list[np.ndarray] = []
     for _ in range(n_averages):
         wfs.take_image(n_sample=1)
         dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=cancel_tile)
         all_dev_x.append(dev_x)
         all_dev_y.append(dev_y)
 
-    dev_x_arr = np.array(all_dev_x)
-    dev_y_arr = np.array(all_dev_y)
-
-    if n_averages > 5:
-        sorted_x = np.sort(dev_x_arr, axis=0)
-        sorted_y = np.sort(dev_y_arr, axis=0)
-        mean_dev_x = np.mean(sorted_x[1:-1], axis=0)
-        mean_dev_y = np.mean(sorted_y[1:-1], axis=0)
-    else:
-        mean_dev_x = np.mean(dev_x_arr, axis=0)
-        mean_dev_y = np.mean(dev_y_arr, axis=0)
-
-    slopes = flatten_slopes(mean_dev_x, mean_dev_y)
-    return slopes, mean_dev_x, mean_dev_y
+    mean_dev_x = truncated_mean(np.array(all_dev_x))
+    mean_dev_y = truncated_mean(np.array(all_dev_y))
+    return flatten_slopes(mean_dev_x, mean_dev_y), mean_dev_x, mean_dev_y
 
 
 def measure_actuator_response(
@@ -326,7 +321,7 @@ def measure_actuator_response(
     for cycle in range(n_cycles):
         # --- Positive perturbation ---
         apply_actuator_voltage(+disturb_voltage)
-        slopes_plus, dev_x_plus, dev_y_plus = _averaged_spot_deviation(
+        slopes_plus, dev_x_plus, dev_y_plus = _measure_averaged_slopes(
             wfs, n_averages, cancel_tile
         )
 
@@ -345,7 +340,7 @@ def measure_actuator_response(
 
         # --- Negative perturbation ---
         apply_actuator_voltage(-disturb_voltage)
-        slopes_minus, dev_x_minus, dev_y_minus = _averaged_spot_deviation(
+        slopes_minus, dev_x_minus, dev_y_minus = _measure_averaged_slopes(
             wfs, n_averages, cancel_tile
         )
 
@@ -716,7 +711,7 @@ def calibrate_dm_response_matrix(
             for r in range(order):
                 # --- Positive perturbation ---
                 dm.send_voltages(+disturb_voltage * patterns_full[r], wait_time)
-                slopes_plus, dev_x_plus, dev_y_plus = _averaged_spot_deviation(
+                slopes_plus, dev_x_plus, dev_y_plus = _measure_averaged_slopes(
                     wfs, n_averages, cancel_tile
                 )
 
@@ -735,7 +730,7 @@ def calibrate_dm_response_matrix(
 
                 # --- Negative perturbation ---
                 dm.send_voltages(-disturb_voltage * patterns_full[r], wait_time)
-                slopes_minus, dev_x_minus, dev_y_minus = _averaged_spot_deviation(
+                slopes_minus, dev_x_minus, dev_y_minus = _measure_averaged_slopes(
                     wfs, n_averages, cancel_tile
                 )
 
