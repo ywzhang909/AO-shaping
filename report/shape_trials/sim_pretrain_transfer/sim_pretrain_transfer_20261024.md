@@ -4,6 +4,7 @@
 > **生成脚本**: [`scripts/slm/generate_sim_pretrain_transfer_report.py`](../../../scripts/slm/generate_sim_pretrain_transfer_report.py)
 > **复现命令**: `python scripts/slm/generate_sim_pretrain_transfer_report.py`
 > **数据/关联脚本**: [`scripts/slm/reproduce_transfer_block_without_gs.py`](../../../scripts/slm/reproduce_transfer_block_without_gs.py)
+> **数据/关联脚本**: [`scripts/slm/generate_transfer_no_gs_gif.py`](../../../scripts/slm/generate_transfer_no_gs_gif.py)
 > **数据/关联脚本**: [`src/ao_shaping/tools/slm/transfer/pretrain.py`](../../../src/ao_shaping/tools/slm/transfer/pretrain.py)
 > **数据/关联脚本**: [`src/ao_shaping/tools/slm/transfer/workflow.py`](../../../src/ao_shaping/tools/slm/transfer/workflow.py)
 > **数据/关联脚本**: [`src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py`](../../../src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py)
@@ -157,6 +158,28 @@
 - 没有重新采集任何帧，因此没有新的噪声估计；接受判决沿用存档的 A–B–B–A 漂移阈值。
 - 没有验证检查点本身的物理正确性（离焦方向检验在本轮之前就没有通过），所以「复现成功」是**算法等价**，不是**模型正确**。
 
+### 3.7 远场演化的两张动画
+
+![模型预测的远场演化](images/no_gs_model_iterations_20261024.gif)
+
+![存档实测远场 A1→B1→B2→A2](images/no_gs_measured_abba_20261024.gif)
+
+两张动画来自同一次离线复现（`scripts/slm/generate_transfer_no_gs_gif.py`，复用 `reproduce_shape` 的同一条更新循环，`gs_seed()` 调用 0 次），但画的**不是同一件事**：
+
+| | 模型预测动画（上） | 实测存档动画（下） |
+|---|---|---|
+| 帧 | 11 帧 = 种子相位 + 10 次更新 | 4 帧 = A1 / B1 / B2 / A2 |
+| 像素来源 | `FrozenDefocusForward.predict` | 存档 `raw_frames` 按 `camera_xy` 采样 ÷ `exposure_ms` |
+| 读数的含义 | 模型绝对量，**不是** CCD 读数 | 相机真实读数 |
+| CV 走向 | 上升（正方形 0.272→0.300、三角形 0.265→0.320） | 下降（B1/B2 的 ΔCV 为 −0.045 ~ −0.096，A2 回到 ±0.002 内） |
+
+上表的「CV 走向」两列方向相反，就是 §3.4 那个现象的**可视化**：模型预测的绝对标度与 CCD 差着一整套加性背景（杂散光）项，所以模型动画只能读**形态演化**，不能读「好/坏」；判据仍然只有锚定代理与实测两项。
+
+两条渲染约定，避免把动画看成比数字更强的证据：
+
+- **面板内共用同一显示尺度**（该面板全部帧的 99.5 分位），所以亮度变化是真实的，不是逐帧归一化造出来的假变化；跨面板不共用尺度（四个形状的绝对亮度本来就不同）。
+- 实测那组的**宏观形态变化比数字看起来更弱**：CV 从 0.681 降到 0.607（约 11%），画面仍是弥散团块，动的只是内部斑纹与环晕。动画让过程可见，不替代 §3.3 的逐位判据与 §3.4 的三路读数。
+
 ## 4 复现命令
 
 ```bash
@@ -166,6 +189,8 @@ python scripts/slm/reproduce_transfer_block_without_gs.py --block 0 --seed-sourc
 # 块 1：种子取存档 A1 实际显示的相位（块 0 已接受的相位继续往下走）
 python scripts/slm/reproduce_transfer_block_without_gs.py --block 1 --seed-source a1 \
     --out data/debug/transfer_repro_no_gs/block1
+# §3.7 的两张动画（离线，不开设备）
+python scripts/slm/generate_transfer_no_gs_gif.py
 # 本报告
 python scripts/slm/generate_sim_pretrain_transfer_report.py
 ```

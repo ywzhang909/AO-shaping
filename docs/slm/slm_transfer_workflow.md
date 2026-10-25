@@ -2,6 +2,8 @@
 
 统一入口为 `python -m ao_shaping.tools.slm.transfer`。它在一个会话目录中管理探针采集、物理模型迁移、GS 初始化、曝光响应诊断、展宽校准、CCD 锚定可微优化及原始数据验收。实验结果与适用范围见 [实验复现报告](../../report/shape_trials/multishape_capability/physical_multishape_reproduction_20261023.md)，本页说明操作方法。
 
+已有接受相位、希望跳过 GS 并继续匀化时，直接使用 §10–§11 的历史相位迁移入口。
+
 ## 1. 准备环境
 
 在仓库根目录执行：
@@ -39,7 +41,7 @@ Daheng 绑定优先使用已安装的 `gxipy`；设备操作时若未安装，�
 `run` 不带 `--execute` 或 `--offline` 时只打印计划，不创建会话、不访问设备。默认流程为：
 
 1. 当前光路采集：平相位参考、双轴正负倾斜和 24 个分组随机探针，每组 3 帧。
-2. 物理参数迁移：60 次拟合，训练与验证相位分离。
+2. 物理参数迁移：历史检查点默认先进行最多 30 次位置适配，验证不足时增加最多 60 次完整拟合；没有检查点时直接完整拟合。训练与验证相位分离，验证集用于选择阶段。
 3. 正方形、长方形、三角形 GS 初始化与模型模式配对测试，每种 2 块。
 4. 固定相位曝光阶梯诊断，以及有效展宽/共享辐射尺度校准。
 5. 以上一步接受相位启动 CCD 锚定优化，每种 4 块，每块 10 次模型更新。
@@ -47,7 +49,7 @@ Daheng 绑定优先使用已安装的 `gxipy`；设备操作时若未安装，�
 
 可以指定 `--count`、`--iterations`、`--blocks`、`--updates`、`--frames`、`--camera`、`--cam-id`、`--slm-number`、`--side`、`--period`。减少块数是短时流程验证，不应当作默认流程性能结论。改变目标后必须使用新目录。
 
-完整校准需要正方形、三角形用于拟合，长方形用于验证。只测试一个形状时显式跳过此阶段：
+完整校准需要正方形、三角形用于拟合，长方形用于验证。只测试一个形状时自动跳过此阶段，也可显式指定 `--skip-calibration`：
 
 ```powershell
 & $py -m ao_shaping.tools.slm.transfer run --out $out --checkpoint $checkpoint --shapes square --skip-calibration --execute
@@ -102,7 +104,7 @@ $run = 'data/debug/validate_transfer_shapes/anchored_20261023_2002'
 | `journal.json` | 各阶段开始/结束/失败状态，失败原因随即落盘 |
 | `capture/` | 当前探针、原始帧、曝光搜索帧、相位和几何 |
 | `initial/` | 冷启动名义模型及来源，仅省略检查点时生成 |
-| `fit/` | 逐次参数/预测、训练验证指标和冻结检查点 |
+| `fit/` | 逐次参数/预测、训练验证指标、自动模式的 `adaptation.json` 与 `alignment/`、可选 `full/` 子阶段、最终冻结检查点 |
 | `model/` | GS 种子与模型模式配对记录 |
 | `response/`、`response_analysis/` | 曝光阶梯与诊断，尚未自动施加逐像元反响应 LUT |
 | `blur/` | 有效展宽及辐射尺度校准 |
@@ -118,3 +120,124 @@ $run = 'data/debug/validate_transfer_shapes/anchored_20261023_2002'
 可复用实现位于 `src/ao_shaping/tools/slm/transfer/`；数值模型位于 `algorithm/signal_processing/physical_forward_fit.py`，形状目标/GS/锚定函数位于 `algorithm/signal_processing/multishape_objective.py`，曝光响应位于 `utils/image/exposure_response.py`。这些 `src` 模块不依赖 `scripts`。
 
 原有 `scripts/slm/transfer_multishape_experiment.py` 等九个命令保留兼容入口，既有命令与报告不用修改；新工作优先使用包入口。报告图片生成器继续位于 `scripts/slm/`，只承担离线呈现。
+
+## 7. 小幅变化后一键重新生成形状
+
+保留最近接受的 `frozen_parameters.json`，每次使用新输出目录。相位无需手动重新分析，程序重新采集当前光路。正方形、长方形、三角形一起执行：
+
+```powershell
+& $py -m ao_shaping.tools.slm.transfer run --out $out --checkpoint $checkpoint --adaptation auto --execute
+```
+
+只生成选定形状，例如五角星：
+
+```powershell
+& $py -m ao_shaping.tools.slm.transfer run --out $out --checkpoint $checkpoint --shapes star --execute
+```
+
+单形状模式保留自动曝光、几何重测、迁移与 CCD 配对验收，但跳过曝光阶梯和跨形状展宽校准；它依赖已有曝光响应和展宽模型仍然适用。五角星是已实现的目标，尚无本次设备实验结果。当前仅支持这四种形状，不能把任意文字图案直接当作 CLI 输入。
+
+```mermaid
+flowchart TD
+    A[历史冻结检查点与期望形状] --> B[当前相位探针与逐帧自动曝光]
+    B --> C[双轴正负倾斜重新测量几何]
+    C --> D[共享增益和加性背景拟合]
+    D --> E[小幅位置适配: 入射中心与CCD光轴原点]
+    E --> F{验证相位预测是否仍有明显偏差}
+    F -->|是| G[解冻离焦 光束宽度 静态像差并完整拟合]
+    F -->|否| H[比较初值与微调候选]
+    G --> H
+    H --> I[冻结验证分数最佳的模型]
+    I --> J[GS初始化与短块可微相位优化]
+    J --> K[CCD锚定与A B B A配对验收]
+    K --> L[保存接受相位 原始帧 参数与时间戳]
+```
+
+`--adaptation auto` 是有历史检查点时的默认行为。第一阶段最多 30 次更新，只调整入射振幅中心 2 个参数、CCD 光轴原点 2 个参数；共享增益和非负加性背景（杂散光）项使用训练帧 NNLS 求解。离焦、振幅宽度和 Noll 5–11 像差保持历史值。功率变化优先由增益吸收，不以调整像差解释亮度。输入相位与相机图像的曝光毫秒数共同构成样本，不能用相机显示亮度代替曝光读回值。
+
+阶段选择使用验证相位平均 `1 − correlation + relative_l2`。若相关性低于 0.85 或相对 L2 高于 0.25，自动增加完整参数拟合，再比较全部候选及各自零次光学更新的基线。阈值是可读的升级启发式，不是光路通用精度保证，也不阻止后续 CCD 验收。`fit/adaptation.json` 保存候选分数和选择原因；每级逐次原始预测、参数及时间仍在子目录中。
+
+这里的验证集用于选择阶段，不能再称为独立测试集。最终结论必须来自后续实际 CCD 配对测量。若所有候选都差，自动选择只是“候选中误差较低”，不等于模型已准确。不存在历史检查点时，统一入口直接完整拟合。显式 `--adaptation alignment` 可只调整位置与强度，`--adaptation full` 可恢复旧版完整拟合路径。
+
+执行结束会恢复平相位并释放设备；接受相位保存在 `anchored/<shape>_best.npy`，对应 CCD 图像在同目录。当前命令负责生成和验收，不会在退出后保持目标相位显示。
+
+## 8. 如何通过仿真训练和验证
+
+当前工程入口使用少参数物理模型，不需要先训练 U-Net。这里“仿真训练”是对已知参数生成的多相位数据重新拟合物理参数，验证参数可辨识性、曝光归一化和计算链。它不是从合成图像中学习一个可直接通用于任意光路的网络。
+
+第一步生成确定随机种子的合成相位—图像样本，设入射功率乘 1.2，入射中心在 SLM 面板坐标中移动 `(12, −8)` 像元：
+
+```powershell
+$synthetic = "data/debug/slm_transfer/sim_$tag"
+& $py -m ao_shaping.tools.slm.transfer simulate --out $synthetic --power 1.2 --shift 12 -8 --count 24 --seed 102419
+```
+
+仿真保存 `nominal.json`、`truth.json`、`manifest.json` 和逐相位 NPZ。使用线性、无噪声相机，并故意交替 0.5、1、1.5 ms 曝光；32×32 相位网格和 256 FFT 用于快速回归。数据不是设备采集，倾斜几何是真值。这里的 `--shift` 是入射光在 SLM 上的移动，不能解释为 CCD 平移。
+
+第二步执行与实验同入口的参数迁移和目标相位优化：
+
+```powershell
+& $py -m ao_shaping.tools.slm.transfer run --out "${synthetic}_fit" --dataset $synthetic --checkpoint "$synthetic/nominal.json" --adaptation auto --offline --iterations 30 --updates 10
+```
+
+检查 `fit/adaptation.json`，将冻结参数与 `truth.json` 对比；查看各形状的 `*_offline_seed.npz` 与 `*_offline_iterations.json`。只有合成预测改善不足以证明实验改善。再分别用 0.8/1/1.2 倍功率、正负入射位移以及新的 `--seed` 执行新目录，检验跨相位族适应性；避免只对训练相位检查相关性。
+
+若需要神经网络辅助快速初始化，建议使用物理传播生成广泛参数组合，以相位族和光路参数组合同时分组划分训练、验证和测试集，训练小型参数估计器或物理模型残差，而不是直接替换全部传播。当前生成器只注入功率和位置变化；噪声、非线性曝光、LUT、零级光、强离焦等随机化须使用既有 `drivers/sim/bench_twin.py` 扩展数据生产，并先确认与当前模型的单位、面板支撑域和采样一致。此类网络训练尚未纳入本统一入口，不应把它描述成已实现功能。
+
+## 9. 光路误差的迁移学习与故障定位
+
+| 观测变化 | 优先调整 | 验证依据与后续动作 |
+|---|---|---|
+| 整体亮度变化，形状大致一致 | 自动曝光、共享增益与加性背景 | 同相位多曝光应在已标定线性范围内给出一致的曝光归一化预测；不改像差补偿亮度 |
+| 入射光小幅移动 | 入射振幅中心；重新探测几何、CCD 原点 | `alignment` 冻结离焦和宽度；检查验证相位预测和最终目标位置 |
+| 光束大小变化、截光 | 振幅宽度及中心，必要时重新面板扫描 | 使用 `full`，明显截光时不能依靠两个高斯宽度完整解释 |
+| CCD 轴向位置改变、峰宽持续不符 | 离焦、像差；必要时传播采样和像元积分 | 先验证采样收敛，再完整拟合；不能只用有效展宽掩盖离焦 |
+| 所有相位都出现固定热点 | 零级光和加性背景、载波及目标位置 | 固定掩膜下报告排除/不排除零级的口径，避免将热点当作可调制场 |
+| 相关性较好但 CV 偏差大 | 像元积分、曝光偏置、剩余峰宽误差 | 相同相位和曝光比较，检查曝光阶梯；整幅图相关性不能替代目标核心 CV |
+| 自动微分与差分一致，但 CCD 更新反向 | 正向模型局部 Jacobian 的迁移误差 | 用已有正负方向探针检查，不反复增加逆向迭代数 |
+
+推荐顺序为“历史检查点 → 当前多相位采集 → 少量位置/强度微调 → 验证不充分时完整微调 → 冻结参数 → 可微相位生成 → CCD 锚定短块验收”。采集过程中持续变化的光路不等于会话间的小幅变化：当前流程不保证动态跟踪，若参考相位明显漂移、图像饱和或目标出界，应保留数据、结束本轮，再以新会话重新探测。曝光非线性尚无通用自动反演，不能仅除以曝光就宣称跨曝光完全一致。
+
+## 10. 从历史接受相位继续迁移与优化：本轮零 GS 调用
+
+指定 `--seed-run` 后，初始相位来自历史运行的 `<shape>_final` 记录。`--seed-policy transfer` 根据新旧模型的静态像差差值和完整二维几何修正该相位，支持当前 CCD 定位变化；`strict` 则要求历史与当前网格、目标逐项相同。控制网格和目标尺寸必须兼容，历史目录中必须包含每个请求形状的最终接受相位。
+
+```powershell
+$seedRun = 'data/debug/transfer_integration/live_20261023/anchored'
+& $py -m ao_shaping.tools.slm.transfer run --out $out --checkpoint $checkpoint `
+  --seed-run $seedRun --seed-policy transfer --skip-calibration `
+  --shapes square rectangle triangle --count 12 --iterations 30 `
+  --blocks 4 --updates 10 --execute
+```
+
+这条命令先采集当前相位探针、迁移物理模型，再直接进入 CCD 锚定优化。每个更新块从当前接受相位继续优化并进行 A–B–B–A 验收。`--skip-calibration` 使本轮复用已有响应/展宽模型，省略模型模式预优化和曝光阶梯诊断。采集中的平相位是定位和强度参考；整形优化的初值仍是迁移后的历史接受相位。
+
+```mermaid
+flowchart TD
+    A[历史接受相位和历史物理模型] --> T[计算静态相位与载波修正]
+    B[当前探针曝光及几何测量] --> M[迁移当前物理模型]
+    M --> T
+    T --> O[CCD锚定短块可微优化]
+    O --> V[固定曝光A B B A验收]
+    V -->|接受| O
+    V -->|结束| S[保存最终相位与全部原始数据]
+    S --> R[恢复平相位并释放设备]
+```
+
+修正采用 `phi_new = phi_accepted + static_old − static_new + 2π delta_q · panel_xy`，其中 `q = inverse(ramp_matrix) @ (target_xy − origin_xy)`。入射中心的变化通过新物理模型的振幅与 Jacobian 处理；本修正不保证复杂入射分布或强截光下的初值质量，因此第一组 CCD 测量及后续配对接受判据仍必需。
+
+`anchored/config.json` 记录 `gs_iterations: 0`，并在 `seed_provenance` 中保存每个形状的来源、载波增量和静态修正 RMS。历史接受相位可能来自更早的 GS 实验，这不代表本轮又执行 GS。若希望完全不同的初值来源，需要另行提供与模型控制网格一致的已接受相位。
+
+## 11. 优先改善均匀度的运行方式
+
+在已有目标形状下继续匀化，可将图像优化目标和实际接受指标都设为 CV：
+
+```powershell
+& $py -m ao_shaping.tools.slm.transfer run --out $out --checkpoint $checkpoint `
+  --seed-run $seedRun --seed-policy transfer --skip-calibration `
+  --objective cv --accept-metric cv --execute
+```
+
+`--objective cv` 以固定目标核心内的 CV 平方作为图像优化项，沿用现有相位增量限制；EE 和形状误差继续记录，但不参与图像目标。`--accept-metric cv` 使用实测 CV 做 A–B–B–A 判定：候选平均 CV 必须小于参考平均 CV 减去前后参考 CV 的差值绝对值。这样，EE 增加而 CV 退化的候选不能仅凭综合目标下降而被接受。
+
+原始数据审计按配置中的目标与接受指标分别重算，支持旧版综合目标记录。该模式适合对已有形状进行局部匀化；最终应同时查看光斑图和 EE，以判断匀化伴随的能量变化。设备恢复后的实验结果见复现报告新增实验记录。

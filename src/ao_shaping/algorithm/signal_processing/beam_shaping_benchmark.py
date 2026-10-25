@@ -42,6 +42,7 @@ from ao_shaping.utils.image.beam_metrics import compute_shaping_metrics
 from ao_shaping.utils.image.targets import create_target_shape
 from ao_shaping.optimizer import train_beam_shaping
 from ao_shaping.algorithm.signal_processing.gerchberg_saxton import gerchberg_saxton
+from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M
 
 # ---------------------------------------------------------------------------
 # 常量 / 默认值
@@ -49,7 +50,7 @@ from ao_shaping.algorithm.signal_processing.gerchberg_saxton import gerchberg_sa
 DEFAULT_GRID: tuple[int, int] = (128, 128)
 DEFAULT_CELL_SPACING: float = 8e-6
 DEFAULT_DISTANCE: float = 0.1
-DEFAULT_WAVELENGTH: float = 1064e-9
+DEFAULT_WAVELENGTH: float = LASER_WAVELENGTH_M
 DEFAULT_TARGET_AREA: int = 256
 DEFAULT_ITERATIONS: int = 100
 DEFAULT_MAX_FRAMES: int = 40

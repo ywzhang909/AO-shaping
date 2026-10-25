@@ -33,6 +33,7 @@ from loguru import logger
 
 from ao_shaping.utils.image.target.metrics import DIFFERENTIABLE_SHAPE_CHOICES
 from ao_shaping.utils.image.target.patterns import TargetShape, create_target_shape
+from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M
 
 if TYPE_CHECKING:  # pragma: no cover – type-only imports
     from typing import Any
@@ -660,7 +661,7 @@ def train_beam_shaping(
     w_smoothness: float = 0.0,
     cell_spacing: float = 8e-6,
     distance: float = 0.1,
-    wavelength: float = 1064e-9,
+    wavelength: float = LASER_WAVELENGTH_M,
     device: str | None = None,
     seed: int | None = None,
     progress_callback: Callable[[int, float], None] | None = None,

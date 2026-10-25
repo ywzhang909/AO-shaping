@@ -68,6 +68,7 @@ from ao_shaping.utils.image.frame_analysis import spot_fwhm
 # ``_linear_slope`` was a verbatim copy of the canonical leaf kernel; alias it so the
 # fitting math keeps one home (utils/math/fitting.py, R-49/#65) and the two cannot drift.
 from ao_shaping.utils.math.fitting import fit_linear_slope as _linear_slope
+from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
 from ao_shaping.utils.io.recorder_keys import (
     RECORD_COEFFS,
@@ -1506,7 +1507,7 @@ def load_bench_geometry(path: str | Path) -> BenchGeometry:
 def calibrate_bench_geometry(
     records: Sequence[CalibrationRecord],
     *,
-    wavelength: float = 1064e-9,
+    wavelength: float = LASER_WAVELENGTH_M,
     focal_length: float = 0.125,
     slm_pitch: float = 8e-6,
     camera_pixel: float = 2.2e-6,
@@ -1934,7 +1935,7 @@ def calibrate_bench_geometry_from_sweep(
     aperture_m: float | None = None,
     camera_pixel_m: float | None = 2.2e-6,
     focal_length_m: float | None = 0.125,
-    wavelength_m: float = 1064e-9,
+    wavelength_m: float = LASER_WAVELENGTH_M,
     dropped: dict[str, str] | None = None,
 ) -> BenchGeometry:
     """Calibrate the bench from a tilt + defocus sweep instead of speckle.

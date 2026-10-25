@@ -64,7 +64,16 @@ def _sampled(payload: dict, xy: np.ndarray) -> np.ndarray:
 
 def reproduce_shape(*, shape: str, block: int, updates: int, checkpoint: Path,
                     seed_run: Path, target_run: Path, lr: float,
-                    step_rms_cap: float, seed_from_run: bool = True) -> dict:
+                    step_rms_cap: float, seed_from_run: bool = True,
+                    capture_frames: bool = False) -> dict:
+    """Reproduce one block's candidate phase without calling ``gs_seed()``.
+
+    ``capture_frames=True`` additionally returns ``model_frames`` (``updates + 1``
+    model predictions: the seed state plus every post-update state) and
+    ``measured_frames`` (the four archived CCD frames). Those keys hold numpy
+    arrays and therefore are NOT JSON serialisable -- ``main()`` leaves the flag
+    off so ``result.json`` keeps its exact shape.
+    """
     import torch
 
     from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
@@ -110,9 +119,12 @@ def reproduce_shape(*, shape: str, block: int, updates: int, checkpoint: Path,
     optimizer = DifferentiableUniformityOptimizer(forward, objective, seed_phase, lr=lr,
                                                   step_rms_cap=step_rms_cap, device="cpu")
     losses = []
+    model_frames: list[np.ndarray] = []
     for _ in range(updates):
         with torch.no_grad():
             current = forward.predict(optimizer.current_phase)[0].numpy()
+        if capture_frames:
+            model_frames.append(np.asarray(current, dtype=np.float64))
         optimizer.update(anchored_intensity(anchor, current, anchor_prediction))
         losses.append(float(optimizer.loss_history[-1]["loss"]))
     candidate = np.asarray(optimizer.current_phase)
@@ -137,7 +149,7 @@ def reproduce_shape(*, shape: str, block: int, updates: int, checkpoint: Path,
     baseline = 0.5 * (float(a1_row["loss"]) + float(a2_row["loss"]))
     proposed = 0.5 * (float(b1_row["loss"]) + float(b2_row["loss"]))
     drift = abs(float(a2_row["loss"]) - float(a1_row["loss"]))
-    return dict(
+    result = dict(
         shape=shape, block=block, updates=updates, gs_calls=0,
         seed_source=f"{seed_run.name}/{shape}_final" if seed_from_run else "archived A1 phase",
         seed_exposure_ms=float(seed_row["exposure_ms"]),
@@ -158,6 +170,16 @@ def reproduce_shape(*, shape: str, block: int, updates: int, checkpoint: Path,
         acceptance=dict(baseline=baseline, proposed=proposed, drift=drift,
                         accepted_archived=bool(proposed < baseline - drift)),
     )
+    if capture_frames:
+        model_frames.append(np.asarray(predicted_candidate, dtype=np.float64))
+        result["model_frames"] = model_frames
+        result["target"] = np.asarray(a1["target"], dtype=np.float64)
+        result["measured_frames"] = {
+            name: _sampled(payload, xy) / float(row["exposure_ms"])
+            for name, row, payload in (("A1", a1_row, a1), ("B1", b1_row, b1),
+                                       ("B2", b2_row, b2), ("A2", a2_row, a2))
+        }
+    return result
 
 
 def main() -> None:

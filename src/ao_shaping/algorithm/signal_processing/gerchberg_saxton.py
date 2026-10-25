@@ -21,6 +21,7 @@ import numpy as np
 import numpy.typing as npt
 from numpy.fft import fft2, fftshift, ifft2, ifftshift
 from loguru import logger
+from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M
 
 
 @dataclass
@@ -110,7 +111,7 @@ def gerchberg_saxton(
     iterations: int = 50,
     cell_spacing: float = 8e-6,
     distance: float = 0.1,
-    wavelength: float = 1064e-9,
+    wavelength: float = LASER_WAVELENGTH_M,
     error_threshold: float | None = None,
     progress_callback: Callable[[int, float], None] | None = None,
     phase_callback: Callable[[int, npt.NDArray[np.floating]], None] | None = None,
@@ -306,7 +307,7 @@ def adaptive_gerchberg_saxton(
     inner_iterations: int = 30,
     cell_spacing: float = 8e-6,
     distance: float = 0.1,
-    wavelength: float = 1064e-9,
+    wavelength: float = LASER_WAVELENGTH_M,
     feedback_weight: float = 0.3,
 ) -> GSResult:
     """带实验反馈的自适应 Gerchberg-Saxton。
@@ -392,7 +393,7 @@ def calculate_reconstruction_error(
     target_amplitude: npt.NDArray[np.floating],
     cell_spacing: float = 8e-6,
     distance: float = 0.1,
-    wavelength: float = 1064e-9,
+    wavelength: float = LASER_WAVELENGTH_M,
 ) -> dict[str, float]:
     """计算衡量 GS 重建质量的各种误差指标。
 
