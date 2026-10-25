@@ -22,6 +22,13 @@ import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder
 from st_aggrid.shared import JsCode
 
+from ao_shaping.gui.ceramic_data import (
+    CellInfo,
+    check_conflict,
+    load_enriched_data,
+    write_summary_csv,
+)
+
 # =============================================================================
 # Configuration
 # =============================================================================
@@ -56,33 +63,6 @@ class Config:
 # =============================================================================
 # Data Structures
 # =============================================================================
-
-@dataclass
-class CellInfo:
-    """单个陶瓷单元的数据。"""
-    row: int
-    col: int
-    position: int
-    ip_group: int
-    seq: int
-    group: str
-    pin: int
-    connector: str
-
-    @classmethod
-    def from_df(cls, df: pd.DataFrame, row: int, col: int) -> CellInfo | None:
-        """从 DataFrame 按 [row, col] 查找并构造 CellInfo。"""
-        cell = df[(df["36×36行"] == row) & (df["36×36列"] == col)]
-        if cell.empty:
-            return None
-        c = cell.iloc[0]
-        pos = row * Config.GRID_SIZE + col + 1
-        return cls(
-            row=row, col=col, position=pos,
-            ip_group=int(c["IP组"]), seq=int(c["序号"]),
-            group=c["组"], pin=int(c["引脚编号"]), connector=c["连接器"],
-        )
-
 
 @dataclass
 class ConflictInfo:
@@ -125,20 +105,6 @@ def _current_csv_path() -> Path:
     return Config.DATA_DIR / st.session_state.cv_csv_filename
 
 
-# =============================================================================
-# Data Loading
-# =============================================================================
-
-@st.cache_data
-def load_enriched_data(csv_path: str) -> pd.DataFrame:
-    """加载已处理的 1300 陶瓷单元数据。"""
-    path = Path(csv_path)
-    if not path.exists():
-        st.error(f"数据文件不存在: {path}")
-        st.info("请先运行 scripts/dm/process_1300_data.py 生成数据文件")
-        return pd.DataFrame()
-    df = pd.read_csv(path)
-    return df
 
 
 # =============================================================================
@@ -164,14 +130,6 @@ def _apply_edit(df: pd.DataFrame, row: int, col: int, new_ip: int, new_seq: int)
     st.session_state.cv_dirty = True
 
 
-def _check_conflict(df: pd.DataFrame, row: int, col: int,
-                    ip_val: int, seq_val: int) -> pd.DataFrame:
-    """Return rows where (ip_val, seq_val) already exists at a different position."""
-    return df[
-        (df["IP组"] == ip_val)
-        & (df["序号"] == seq_val)
-        & ~((df["36×36行"] == row) & (df["36×36列"] == col))
-    ]
 
 
 def _render_conflict_section(df: pd.DataFrame, current_row: int, current_col: int) -> None:
@@ -210,7 +168,7 @@ def _render_conflict_section(df: pd.DataFrame, current_row: int, current_col: in
 
 def _render_cell_editor(df: pd.DataFrame, sel_row: int, sel_col: int, position_num: int) -> None:
     """Show cell details + editable IP组/序号 + save button with conflict detection."""
-    info = CellInfo.from_df(df, sel_row, sel_col)
+    info = CellInfo.from_df(df, sel_row, sel_col, Config.GRID_SIZE)
     if info is None:
         st.info(f"位置 [{sel_row}, {sel_col}] (序号 {position_num}) 无对应数据")
         return
@@ -257,7 +215,7 @@ def _render_cell_editor(df: pd.DataFrame, sel_row: int, sel_col: int, position_n
         changed = (new_ip != info.ip_group) or (new_seq != info.seq)
         if st.button("💾 保存修改", type="primary", use_container_width=True,
                      disabled=not changed, key=f"cv_save{key_suffix}"):
-            conflicts = _check_conflict(df, sel_row, sel_col, new_ip, new_seq)
+            conflicts = check_conflict(df, sel_row, sel_col, new_ip, new_seq)
             if not conflicts.empty:
                 st.session_state.cv_conflict_info = {
                     "row": sel_row, "col": sel_col,
@@ -646,8 +604,7 @@ def _save_to_csv() -> None:
         return
     path = _current_csv_path()
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(path, index=False)
+        write_summary_csv(df, path)
         st.session_state.cv_dirty = False
         st.success(f"✅ 已保存到 `{path}`")
     except Exception as e:
