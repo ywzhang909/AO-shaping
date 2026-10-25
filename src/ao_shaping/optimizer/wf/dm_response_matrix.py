@@ -234,6 +234,31 @@ class DMResponseMatrixResult:
         return cls(**d)
 
 
+def _measure_averaged_slopes(
+    wfs: ThorlabWFS, n_averages: int, cancel_tile: bool
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Take ``n_averages`` **separate** WFS readings and average them per channel.
+
+    Every reading is its own acquisition (``n_sample=1``), which is what lets
+    :func:`truncated_mean` discard a single bad frame per channel. Returns the flattened
+    slopes plus the two component arrays, which callers reuse for diagnostics.
+
+    Not interchangeable with ``interaction_matrix._single_shot_slopes``: that one issues a
+    single ``take_image(n_sample=n_averages)`` and leaves ``cancel_tile`` at its default.
+    """
+    all_dev_x: list[np.ndarray] = []
+    all_dev_y: list[np.ndarray] = []
+    for _ in range(n_averages):
+        wfs.take_image(n_sample=1)
+        dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=cancel_tile)
+        all_dev_x.append(dev_x)
+        all_dev_y.append(dev_y)
+
+    mean_dev_x = truncated_mean(np.array(all_dev_x))
+    mean_dev_y = truncated_mean(np.array(all_dev_y))
+    return flatten_slopes(mean_dev_x, mean_dev_y), mean_dev_x, mean_dev_y
+
+
 def measure_actuator_response(
     dm: "DM",
     wfs: ThorlabWFS,
@@ -282,22 +307,7 @@ def measure_actuator_response(
 
     def measure_slopes_with_averaging() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Take n_averages WFS readings and return truncated-mean slopes."""
-        all_dev_x = []
-        all_dev_y = []
-        for _ in range(n_averages):
-            wfs.take_image(n_sample=1)
-            dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=cancel_tile)
-            all_dev_x.append(dev_x)
-            all_dev_y.append(dev_y)
-
-        dev_x_arr = np.array(all_dev_x)
-        dev_y_arr = np.array(all_dev_y)
-
-        mean_dev_x = truncated_mean(dev_x_arr)
-        mean_dev_y = truncated_mean(dev_y_arr)
-
-        slopes = flatten_slopes(mean_dev_x, mean_dev_y)
-        return slopes, mean_dev_x, mean_dev_y
+        return _measure_averaged_slopes(wfs, n_averages, cancel_tile)
 
     def apply_actuator_voltage(voltage: float) -> None:
         """Set a single actuator to voltage, all others to zero."""
@@ -690,22 +700,7 @@ def calibrate_dm_response_matrix(
 
         def measure_pattern_slopes() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
             """Take n_averages WFS readings and return truncated-mean slopes."""
-            all_dev_x = []
-            all_dev_y = []
-            for _ in range(n_averages):
-                wfs.take_image(n_sample=1)
-                dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=cancel_tile)
-                all_dev_x.append(dev_x)
-                all_dev_y.append(dev_y)
-
-            dev_x_arr = np.array(all_dev_x)
-            dev_y_arr = np.array(all_dev_y)
-
-            mean_dev_x = truncated_mean(dev_x_arr)
-            mean_dev_y = truncated_mean(dev_y_arr)
-
-            slopes = flatten_slopes(mean_dev_x, mean_dev_y)
-            return slopes, mean_dev_x, mean_dev_y
+            return _measure_averaged_slopes(wfs, n_averages, cancel_tile)
 
         # Per-cycle decoded responses: (n_cycles, n_slopes, n_valid)
         cycle_decoded: list[np.ndarray] = []

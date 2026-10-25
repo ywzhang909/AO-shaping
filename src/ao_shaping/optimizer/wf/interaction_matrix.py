@@ -277,6 +277,19 @@ class ZernikeSLMResponseMatrixResult:
         )
 
 
+def _single_shot_slopes(wfs: WFSManager, n_averages: int) -> np.ndarray:
+    """One acquisition in which the driver itself averages ``n_averages`` frames.
+
+    Deliberately **not** the same as ``dm_response_matrix._measure_averaged_slopes``: a
+    single ``take_image(n_sample=n_averages)`` yields one deviation pair, so there is no
+    per-frame sample for a truncated mean to discard, and ``cancel_tile`` stays at its
+    default rather than being passed per reading.
+    """
+    wfs.take_image(n_sample=n_averages)
+    x_dev, y_dev = wfs.get_spot_deviation()
+    return flatten_slopes(x_dev, y_dev)
+
+
 def calculate_zernike_slm_response_matrix(
     slm: Santec,
     wfs: WFSManager,
@@ -343,10 +356,7 @@ def calculate_zernike_slm_response_matrix(
     # Function to measure slopes with averaging
     def measure_slopes() -> np.ndarray:
         """Measure WFS slopes, averaging over n_averages frames."""
-        wfs.take_image(n_sample=n_averages)
-        x_dev, y_dev = wfs.get_spot_deviation()
-        slopes = flatten_slopes(x_dev, y_dev)
-        return slopes
+        return _single_shot_slopes(wfs, n_averages)
 
     # Reset SLM to flat
     zero_phase = np.zeros(slm_resolution, dtype=np.float64)
@@ -547,10 +557,7 @@ def _apply_zernike_correction_single(
     apply_correction: bool,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Single-shot Zernike correction (original behavior)."""
-    # Measure current slopes
-    wfs.take_image(n_sample=n_averages)
-    x_dev, y_dev = wfs.get_spot_deviation()
-    g = flatten_slopes(x_dev, y_dev)
+    g = _single_shot_slopes(wfs, n_averages)
 
     # Compute Zernike coefficients: a_hat = pinv @ g
     a_hat = pinv @ g
@@ -608,10 +615,7 @@ def _apply_zernike_correction_pid(
     current_correction = np.zeros(slm_resolution, dtype=np.float64)
 
     for iteration in range(max_iterations):
-        # Measure current slopes
-        wfs.take_image(n_sample=n_averages)
-        x_dev, y_dev = wfs.get_spot_deviation()
-        g = flatten_slopes(x_dev, y_dev)
+        g = _single_shot_slopes(wfs, n_averages)
 
         # Compute Zernike coefficients from slopes
         a_hat = pinv @ g

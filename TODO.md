@@ -2533,6 +2533,36 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
        `utils/wavefront` **109 passed**；conventions **54 passed / 1 skipped / 2 failed**（失败对不变）；
        三个改动文件 stdlib 编译通过；CI 钉版 ruff **0.15.12** 全绿；两个标定器里 `[1:-1]` 残留 **0**。
 
+61. ✅ **两处「取 N 次读数平均」的采集协议各自重复多遍 —— 组内收敛为唯一 helper，组间刻意不统一，因为它们的采集轨迹实测不同**（2026-10-25）：
+     - **普查先分组**：`dm_response_matrix.py` 的两处内函数用**逐帧采集**协议 —— 每轮
+       `take_image(n_sample=1)` + `get_spot_deviation(cancel_tile=cancel_tile)`，再 `truncated_mean`；
+       `interaction_matrix.py` 的三处用**单次采集**协议 —— 一次 `take_image(n_sample=n_averages)` +
+       `get_spot_deviation()`（不传 `cancel_tile`）。两者文字上都叫「平均 N 次」，语义并不相同。
+     - **组内收敛**：`_measure_averaged_slopes`（dm，2 处改为调用它）与 `_single_shot_slopes`
+       （interaction，3 处改为调用它）。dm 那两处内函数体除缩进外逐字符相同 ⇒ 用**带计数断言的锚点
+       替换**分别处理，不靠缩进敏感的模糊匹配；命名与该模块既有的 `_` 前缀私有 helper 一致。
+     - **组间刻意不合并（写进 docstring）**：逐帧协议每帧是独立样本 ⇒ 截尾平均能丢掉**单帧异常**
+       （实测给第 4 帧某通道 +50，截尾后该通道均值仍 < 20）；单次采集由驱动内部把帧混合，
+       **无逐帧样本可丢**。统一两者等于改**测量语义** ⇒ 设备侧决定。两个 helper 的 docstring 互相
+       点名并注明「不可互换」。
+     - **新测试锁的是采集轨迹，不只是数值**：`tests/ao_shaping/optimizer/wf/test_wfs_reading_protocols.py`
+       用记录调用的存根 WFS 断言 dm 的取图序列为 `[1]*7` 且 `cancel_tile` **逐帧转发**，interaction
+       为单次 `[9]` 且 `cancel_tile` 取默认 `False`；并断言同一请求下两者序列**不同**。
+     - **差分控制的确切结论（不过度声称）**：把 dm helper 的 `take_image(n_sample=1)` 改成
+       `n_sample=n_averages` ⇒ **只有**采集轨迹那条测试变红（1 failed / 6 passed）。数值类测试没有反应
+       是**预期**：存根按 `get_spot_deviation` 的调用次数出样本，只改 `take_image` 的参数不会改变样本流。
+       ⇒ 轨迹断言才是这次改动的守门人。恢复用 `cp` 回备份（该文件带未提交改动，**不能** `git checkout`），
+       `cmp` 确认逐字节相同后 7 passed。
+     - **我自己的普查错误（在案）**：收敛之后统计 `take_image(n_sample=n_averages)` 的出现次数时，
+       数字从预期的 1 变成 2，我一度判定「有一处漏替换」。带上下文重新 grep 才发现多出来的两处是
+       **我刚写的 helper docstring 里对该式子的引用**。普查计数必须排除自己新写的说明文字，否则会自证。
+     - **等价前提**：dm 的内函数体是**整段搬移**（采集循环 → 堆叠成数组 → `truncated_mean` →
+       `flatten_slopes` → 同样的三元返回），参数与顺序都不变；interaction 三处同理，只把
+       `slopes` / `g` 的右式换成 helper 调用。
+     - **验证**：`optimizer/wf` **140 passed / 1 skipped**（含新协议测试 7 条）；`runners` + conventions
+       **596 passed / 26 skipped / 2 failed**；`scripts` **2442 passed / 64 skipped / 2 failed**（失败对
+       仍是既有 `pib_exit_safety` 那对）；CI 钉版 ruff **0.15.12** 全绿；术语门 **0 个文件**。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
