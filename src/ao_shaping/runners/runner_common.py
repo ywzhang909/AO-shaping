@@ -1689,7 +1689,7 @@ class PibRunnerParams:
     cam_id: Annotated[
         str,
         option("--cam-id", help="远场光斑CCD设备ID (default: Far_Cam_ID/0)"),
-    ] = cast(str, lambda: os.environ.get("FAR_CAM_ID", "0"))
+    ] = cast(str, lambda: os.environ.get("Far_Cam_ID", "0"))
     cam_type: Annotated[
         str,
         option(
@@ -1872,7 +1872,7 @@ class PibOpticalParams:
     """PIB 相机测量和目标区域设置。"""
 
     cam_id: Annotated[str, option("--cam-id", help="远场光斑CCD设备ID")] = cast(
-        str, lambda: os.environ.get("FAR_CAM_ID", "0")
+        str, lambda: os.environ.get("Far_Cam_ID", "0")
     )
     cam_type: Annotated[
         str,

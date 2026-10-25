@@ -2932,6 +2932,41 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
               `docs/issues_report.md` 归入 `_HISTORICAL_DOCS` —— 那是豁免清单的治理决定，留给你拍板
               （与第 66-67 条对术语表 / 统一引擎的同一处置口径：我不动单一事实源的登记流程）。
 
+73. ✅ **同一个环境变量有两种大小写拼法，而代码里三处读的正是那个没有任何地方会设置的名字 —— 它一直静默地忽略配置**（2026-10-26）：
+     - **来路（同一族问题换个方向问）**：§8.9 早前那条普查问的是「`.env` 声明的键有没有读者」（文档 →
+              代码）。本条问反方向：**代码读的键名，有没有人设得进来**。分裂拼法这族问题本仓不是第一次见
+              （第 59 条的 `wighted_rms` / `weighted_rms` 就是同一形状）。
+     - **先量改动面**：AST 收集 `src/` 与 `scripts/` 里所有字面量环境变量名 ⇒ **22 个**；按大小写
+              不敏感分组 ⇒ **恰好 1 组**碰撞。所以这道判定今天**零误报**，是量出来的，不是猜的。
+     - **哪一个是真的**：`.env` 与 `.env.example` 都写 `Far_Cam_ID`；`AGENTS.md` 两处、
+              `docs/user/cli-reference.md` 两处也都写「由环境变量 `Far_Cam_ID` 决定」。而 `FAR_CAM_ID` 在
+              **全仓没有任何写入点**、CI 里也没有 ⇒ 它在那些站点永远只能走 fallback。
+     - **最刺眼的一处自相矛盾**：`runner_common.py:1691` 的 help 文案写着
+              `(default: Far_Cam_ID/0)`，紧接着一行 1692 读的却是 `FAR_CAM_ID` —— 同一个声明内部，
+              文档与代码相反。`git grep` 另确认**没有任何测试钉住大写拼法** ⇒ 这是修 bug，不是改契约。
+     - **后果（不是洁癖）**：三处读错名字的站点是 `PibRunnerParams`、`PibOpticalParams` 与 CCD
+              目标形状 GUI 里 import 期求值的模块级 `_DEFAULT_CAM_ID` —— 它们**永远**取默认值 `0`。
+              今天看不出来，只因为 `.env` 里恰好是 `Far_Cam_ID=0`；把那一行改成别的 id，这些路径仍会去开
+              0 号相机。同一文件的另外两处（1971 / 2026）读的才是对的名字。
+     - **修法（最小）**：只改这 3 处的**键名**，向文档拼法对齐；默认值一个字未动 ⇒ 在当前 `.env`
+              下行为完全不变。
+     - **同批量到、刻意不动（待你拍板）**：① 四处 `--cam-id` 的默认值类型不一致 —— 1692 / 1875 是
+              字符串 `"0"`，1971 / 2026 是整数 `0`（注解却是 `str`）；改它属于 CLI 契约（
+              `cli_help_golden.json` 正在钉 help），不在本条里顺手改。② `optimizer/rl/envs.py:21-22` 的
+              默认值是**反的**：`Far_Cam_ID` 默认 `'1'`、`Near_Cam_ID` 默认 `'0'`，与 `config.py:210-211`
+              的 0 / 1 相反 ⇒ RL 环境语义，设备侧决定。③ `src` / `scripts` 内**没有任何 dotenv 加载点**
+              （grep 为空），`.env` 靠编辑器 / 终端环境注入 ⇒ 拼错的键名不会被任何加载器纠正或警告。
+     - **新守卫** `test_env_names_read_by_code_have_no_case_collisions`：从 AST 抽取
+              `os.environ.get` / `os.getenv` / `setdefault` / `os.environ[...]` 的字面量键名，大小写不敏感
+              分组，一组多于一个就红；地板 `_MIN_ENV_NAMES_READ = 15`（实测 22）防空转；故意保留两种拼法必须
+              登记进 `_ENV_ALLOWLIST` 并给理由。失败消息把涉及的**文件**全列出来。
+     - **RED 与差分控制**：修复前守卫红，点名 `['FAR_CAM_ID', 'Far_Cam_ID']` 与 4 个读取文件；
+              修复后 1 passed。控制实验：**只**把 GUI 那一处改回大写 ⇒ 立刻红；从**修复后**的备份 `cp` 回来
+              （`cmp` 逐字节一致）⇒ 再绿。
+     - **验证**：宽跑 `runners` + `test_config` + `conventions` + `gui/slm/test_bench_settings` +
+              `gui/utils` ⇒ **705 passed / 26 skipped / 2 failed**（失败对仍是既有 `pib_exit_safety` 那对）；
+              术语门禁 **0 个文件**；CI 钉版 ruff **0.15.12** 全绿；两个改动文件编译通过。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

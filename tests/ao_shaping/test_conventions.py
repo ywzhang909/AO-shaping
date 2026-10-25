@@ -3992,3 +3992,78 @@ def test_cli_inventory_tables_in_docs_track_the_registered_commands() -> None:
             f"{rel} states {wrong} command(s) while main.py registers {len(registered)} -- "
             "restate the count in the same commit that changes the CLI"
         )
+#: Environment variables are read by name and set by name, and the two ends never meet in a
+#: type checker, so a casing slip produces a knob that silently does nothing. Measured on
+#: 2026-10-26: production code reads 22 distinct names, and exactly one pair collided --
+#: ``Far_Cam_ID`` (the spelling in ``.env``, ``.env.example``, ``AGENTS.md`` and the CLI
+#: reference) and ``FAR_CAM_ID`` (read in three sites, set nowhere in the repo or CI). Those
+#: three sites therefore ignored the configured camera id and always used their fallback.
+#: A deliberate second spelling has to be registered in the allowlist below, with a reason.
+_ENV_ALLOWLIST: tuple[str, ...] = ()
+#: Measured 22 names read. A guard that parses nothing passes vacuously (TODO 8.9 #32/#34),
+#: so the parse has to be loud about its own scope.
+_MIN_ENV_NAMES_READ = 15
+
+
+def _env_names_read_by_code() -> tuple[dict[str, list[str]], list[str], int]:
+    """Collect every literal environment variable name read under ``src/`` and ``scripts/``."""
+    found: dict[str, list[str]] = {}
+    unparsed: list[str] = []
+    scanned = 0
+    for path in sorted(SRC.rglob("*.py")) + sorted((REPO / "scripts").rglob("*.py")):
+        rel = path.relative_to(REPO).as_posix()
+        scanned += 1
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"), filename=rel)
+        except SyntaxError:
+            unparsed.append(rel)
+            continue
+        for node in ast.walk(tree):
+            name: str | None = None
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if node.func.attr in ("get", "getenv", "setdefault"):
+                    base = node.func.value
+                    base_name = base.id if isinstance(base, ast.Name) else getattr(base, "attr", "")
+                    if base_name in ("os", "environ") and node.args and isinstance(node.args[0], ast.Constant):
+                        name = node.args[0].value
+            elif isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute):
+                if node.value.attr == "environ" and isinstance(node.slice, ast.Constant):
+                    name = node.slice.value
+            if isinstance(name, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+                found.setdefault(name, []).append(rel)
+    return found, unparsed, scanned
+
+
+def test_env_names_read_by_code_have_no_case_collisions() -> None:
+    """No two environment variable names read by production code may differ only in case.
+
+    A split spelling does not fail: the un-set name just keeps returning its default, so the
+    code looks configured while honoring nothing. The camera id is the concrete case -- three
+    sites read ``FAR_CAM_ID`` while ``.env`` sets ``Far_Cam_ID``, and one of those very
+    declarations advertises ``Far_Cam_ID`` in its own ``--help`` text.
+    """
+    found, unparsed, scanned = _env_names_read_by_code()
+
+    assert not unparsed, (
+        f"{len(unparsed)} file(s) could not be parsed, so this guard saw nothing inside them: "
+        f"{unparsed}"
+    )
+    assert len(found) >= _MIN_ENV_NAMES_READ, (
+        f"only {len(found)} environment name(s) parsed over {scanned} file(s), below the floor "
+        f"{_MIN_ENV_NAMES_READ} -- the extractor stopped matching how this repo reads env vars"
+    )
+
+    groups: dict[str, list[str]] = {}
+    for name in found:
+        groups.setdefault(name.upper(), []).append(name)
+    collisions = {k: sorted(v) for k, v in groups.items() if len(v) > 1 and k not in _ENV_ALLOWLIST}
+
+    assert not collisions, (
+        f"{len(collisions)} env-name case collision(s): "
+        + "; ".join(
+            f"{names} read by {sorted(set().union(*(found[n] for n in names)))}"
+            for names in sorted(collisions.values())
+        )
+        + " -- one spelling is settable and the other silently is not: pick the documented "
+        "spelling, or register the pair in _ENV_ALLOWLIST with a reason."
+    )
