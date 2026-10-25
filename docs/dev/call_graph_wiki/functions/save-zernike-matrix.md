@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: function
 tags: [calibration,io]
-source: src/ao_shaping/optimizer/wf/zernike_response_matrix.py:624
+source: src/ao_shaping/optimizer/wf/zernike_response_matrix.py:627
 ---
 
 ## 签名

@@ -3876,3 +3876,61 @@ def test_call_graph_wiki_cli_registry_tracks_main() -> None:
     assert int(head.group(1)) == len(registered), (
         f"entry/cli.md states {head.group(1)} command(s) but main.py registers {len(registered)}"
     )
+#: Every generated wiki page carries a ``source: <repo-relative>:<lineno>`` line, and the dev
+#: handbook is read as fact. Two independent ways that line went wrong: the generator invented
+#: one for a command that no longer exists (TODO 8.9 item 69), and a hand-written page pinned a
+#: literal that drifted 43 lines behind the class it named (item 70). A citation is only worth
+#: trusting if it lands on a definition's header -- decorator through ``def``/``class``.
+_WIKI_DIR2 = REPO / "docs" / "dev" / "call_graph_wiki"
+_WIKI_SOURCE = re.compile(r"^source:\s*(\S+?):(\d+)\s*$", re.MULTILINE)
+#: Measured 2026-10-26: 42 citations across 50 pages. A guard that parses nothing passes
+#: vacuously, so a front-matter format change has to be loud.
+_MIN_WIKI_CITATIONS = 40
+
+
+def test_wiki_source_citations_land_on_definitions() -> None:
+    """Every ``source:`` citation in the call-graph wiki names a tracked file, at a definition.
+
+    Citing a line inside a body is not merely imprecise: it points a reader at unrelated code,
+    which is how a fabricated entry survived a whole review cycle -- the phantom page's citation
+    was in range, so range checks alone could not have caught it.
+    """
+    offenders: list[str] = []
+    checked = 0
+    headers: dict[str, set[int]] = {}
+
+    for page in sorted(_WIKI_DIR2.rglob("*.md")):
+        rel_page = page.relative_to(REPO).as_posix()
+        text = page.read_text(encoding="utf-8-sig", errors="replace")
+        for match in _WIKI_SOURCE.finditer(text):
+            checked += 1
+            target, lineno = match.group(1), int(match.group(2))
+            path = REPO / target
+            if not path.is_file():
+                offenders.append(f"{rel_page}: cited file {target} is not in the tree")
+                continue
+            if target not in headers:
+                tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"), filename=target)
+                good: set[int] = set()
+                for node in ast.walk(tree):
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                        start = min([node.lineno] + [d.lineno for d in node.decorator_list])
+                        good.update(range(start, node.lineno + 1))
+                headers[target] = good
+            if lineno not in headers[target]:
+                offenders.append(
+                    f"{rel_page}: {target}:{lineno} is not a definition header "
+                    f"(headers here: {sorted(headers[target])[:6]}...)"
+                )
+
+    assert checked >= _MIN_WIKI_CITATIONS, (
+        f"parsed {checked} citation(s), below the floor {_MIN_WIKI_CITATIONS} -- the "
+        "front-matter format stopped matching, so this guard is checking nothing"
+    )
+    assert not offenders, (
+        f"{len(offenders)} wiki citation(s) point away from a definition:\n  "
+        + "\n  ".join(offenders[:20])
+        + "\nRegenerate with scripts/call_graph/build_call_graph.py + finalize_graph.py + "
+        "gen_wiki_pages.py; if a page is hand-written, derive its citation instead of "
+        "pinning a literal."
+    )

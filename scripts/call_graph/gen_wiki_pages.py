@@ -456,6 +456,25 @@ def cmd_page(name, desc):
             body += f"- {wiki_link(a)}\n"
     return f"commands/{name}.md", body
 
+def definition_source(mod_name: str, sym_name: str) -> str:
+    """Locate a symbol's definition line by AST, for the pages written by hand.
+
+    ``func_page_recorder`` pinned ``utils/io/file.py:426`` as a literal in its front-matter,
+    and the class it names has since moved to 469 -- 43 lines of drift that no check noticed,
+    because the citation was prose rather than data. The asset cannot answer either: its
+    ``Recorder`` node is unresolved (``None``), which is exactly why that page is hand-written.
+    """
+    rel = f"src/{mod_name.replace('.', '/')}.py"
+    tree = ast.parse((REPO / rel).read_text(encoding="utf-8-sig"), filename=rel)
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and node.name == sym_name
+        ):
+            return f"{rel}:{node.lineno}"
+    raise LookupError(f"{mod_name}.{sym_name}: no definition found in {rel}")
+
+
 def func_page_recorder():
     body = (
         "---\n"
@@ -464,7 +483,7 @@ def func_page_recorder():
         f"updated: {DATE}\n"
         "type: class\n"
         "tags: [io, recorder, utils]\n"
-        "source: src/ao_shaping/utils/io/file.py:426\n"
+        f"source: {definition_source("ao_shaping.utils.io.file", "Recorder")}\n"
         "---\n\n"
         "# Recorder（优化过程记录器）\n\n"
         "## 职责\n\n"

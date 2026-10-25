@@ -2842,6 +2842,40 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
        既有 `pib_exit_safety`）；wiki 页面数 19 == `main.py` 注册数 19；生成器互校 drift 为空；
        改动文件编译通过；CI 钉版 ruff **0.15.12** 全绿；改动面 = 生成器 + 5 处 wiki 产物 + 守卫 + 本条。
 
+70. ✅ **生成式 wiki 每条页面都带 `source:` 行号引用，其中一条手写页漂了 43 行、还落在函数体中间 —— 改为按 AST 取，并给全部引用加守卫**（2026-10-26）：
+     - **来路**：第 69 条里幽灵页的 `source:` 指向一个无关文件。本条顺着它普查该 wiki 全部
+              `source: <path>:<lineno>` 引用（实测 42 条）。
+     - **先记我的两次普查错误（第 6 次同类）**：① 第一版把「引用行不等于 AST 的 def 行」当缺陷，
+              报了 **21 条** —— 但装饰器行也属于定义头部（AST 的 `lineno` 指 `def`，不是装饰器），
+              正确口径是 `min(装饰器, def)` 到 `def` 这一段；改完真实缺陷只剩 1 条。
+              ② 探针崩过一次：资产里未解析的节点值是 `None`（`Recorder` 正是），dict 探针必须 None-safe。
+     - **范围先排除两类假警报**：42 条引用**全部**指向被跟踪文件、行号**全部**在文件行数内 ⇒
+              第 69 条那种「编造的映射」光靠范围检查抓不到，必须问它是否落在**定义头部**。
+     - **真缺陷两类**。① 我自己造成的漂移：第 60-62 条改过 `dm_response_matrix.py` 与
+              `zernike_response_matrix.py` ⇒ 引用被推后 3 行（495→498、809→812、624→627）；上游改
+              `gsnet_runner.py` ⇒ 395→396。**改源码就会让已提交 wiki 的行号引用变陈旧**，这条得记住。
+     - **② 手写页的字面量**：`functions/recorder.md` 文档 `Recorder` 类，引用却落在
+              `utils/io/file.py:426` —— 那行在 `save_history_hdf5` 的**函数体中间**，类实际在 469，
+              **漂了 43 行**。
+     - **为什么会漂**：生成器对这页走特判 —— `gen_wiki_pages.py` 把 `functions/recorder` 分派给
+              `func_page_recorder()`，其 frontmatter 是手写字符串，不参与资产刷新；而它之所以是手写页，
+              是因为该节点在资产里**未解析**（值为 `None`）。
+     - **修法**：新增 `definition_source(mod, sym)`，按 AST 在 `src/<模块路径>.py` 里找同名 def/class 的
+              行号，找不到就 `LookupError`；该页引用改成调用它 ⇒ 重跑后是 469，与 `class Recorder:` 对上。
+              再按 `SCHEMA.md:87-88` 写明的既有流程重跑 `build_call_graph.py` + `finalize_graph.py` +
+              `gen_wiki_pages.py`（幂等，`source` 行号会更新）⇒ diff 只有 5 页 + 2 个资产。
+     - **新守卫** `test_wiki_source_citations_land_on_definitions`：每条引用必须 ① 文件在树内、
+              ② 行号落在某个 def/class 的头部区域；地板 `_MIN_WIKI_CITATIONS = 40`（实测 42）防空转；
+              失败消息直接给重跑命令。范围仍只钉生成式 wiki，不重开第 30 条已否决的全仓散文守卫。
+     - **差分控制**：修复后守卫 **1 passed**；把 426 那个字面量放回去 ⇒ 红并点名该条引用；从
+              **修复后**的备份 `cp` 回来（`cmp` 逐字节一致）⇒ 再绿。备份取在修复之后，是第 63-64 条的教训。
+     - **未闭环的一处（记录）**：改 src 会让已提交 wiki 的行号引用变陈旧，仓内只有「重跑」流程、
+              没有新鲜度守卫；本条的守卫只保证陈旧引用不会落在函数体中间。是否给 CI 加 wiki 新鲜度检查，
+              列为待决。
+     - **验证**：conventions + #167 形状守卫 + CLI 契约冻结 + 术语门禁守卫合跑
+              **111 passed / 1 skipped / 2 failed**（失败对仍是既有 `pib_exit_safety`）；普查 **42/42**
+              落在定义头部、elsewhere **0**；术语门禁 **0 个文件**；CI 钉版 ruff **0.15.12** 全绿。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

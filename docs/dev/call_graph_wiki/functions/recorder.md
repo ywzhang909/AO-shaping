@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: class
 tags: [io, recorder, utils]
-source: src/ao_shaping/utils/io/file.py:426
+source: src/ao_shaping/utils/io/file.py:469
 ---
 
 # Recorder（优化过程记录器）

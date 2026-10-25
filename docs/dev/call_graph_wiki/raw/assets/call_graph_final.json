@@ -1135,8 +1135,8 @@
    "qualname": "save_zernike_response_matrix",
    "module": "ao_shaping.optimizer.wf.zernike_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/zernike_response_matrix.py",
-   "lineno": 624,
-   "end": 683,
+   "lineno": 627,
+   "end": 686,
    "args": [
     "result",
     "path",
@@ -1883,8 +1883,8 @@
    "qualname": "make_actuator_debug_callback",
    "module": "ao_shaping.utils.wavefront.wfs_utils",
    "file": "src/ao_shaping/utils/wavefront/wfs_utils.py",
-   "lineno": 271,
-   "end": 315,
+   "lineno": 334,
+   "end": 378,
    "args": [
     "debug_data_dir"
    ],
@@ -1926,8 +1926,8 @@
    "qualname": "calibrate_dm_response_matrix",
    "module": "ao_shaping.optimizer.wf.dm_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
-   "lineno": 495,
-   "end": 806,
+   "lineno": 498,
+   "end": 809,
    "args": [
     "dm",
     "wfs",
@@ -1957,8 +1957,8 @@
    "qualname": "save_dm_response_matrix",
    "module": "ao_shaping.optimizer.wf.dm_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
-   "lineno": 809,
-   "end": 877,
+   "lineno": 812,
+   "end": 880,
    "args": [
     "result",
     "path",
@@ -1972,8 +1972,8 @@
    "qualname": "_build_device_config",
    "module": "ao_shaping.optimizer.wf.dm_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
-   "lineno": 452,
-   "end": 492,
+   "lineno": 455,
+   "end": 495,
    "args": [
     "dm",
     "wfs"
@@ -1986,8 +1986,8 @@
    "qualname": "_hadamard_matrix",
    "module": "ao_shaping.optimizer.wf.dm_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
-   "lineno": 82,
-   "end": 102,
+   "lineno": 87,
+   "end": 107,
    "args": [
     "order"
    ],
@@ -2026,8 +2026,8 @@
    "qualname": "measure_actuator_response",
    "module": "ao_shaping.optimizer.wf.dm_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
-   "lineno": 262,
-   "end": 377,
+   "lineno": 265,
+   "end": 380,
    "args": [
     "dm",
     "wfs",
@@ -2047,8 +2047,8 @@
    "qualname": "_next_hadamard_order",
    "module": "ao_shaping.optimizer.wf.dm_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
-   "lineno": 62,
-   "end": 79,
+   "lineno": 67,
+   "end": 84,
    "args": [
     "n_valid"
    ],
@@ -2056,27 +2056,12 @@
    "doc": "Smallest power of two >= n_valid.\n\n    Args:\n        n_valid: Number of valid actuators (must be >= 1).\n\n    Returns:\n        Smallest power of two that is greater than or equal to n_valid.\n\n    Raises:\n        ValueError: If n_valid < 1.\n    ",
    "decorators": []
   },
-  "_measure_averaged_slopes": {
-   "qualname": "_measure_averaged_slopes",
-   "module": "ao_shaping.optimizer.wf.dm_response_matrix",
-   "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
-   "lineno": 237,
-   "end": 259,
-   "args": [
-    "wfs",
-    "n_averages",
-    "cancel_tile"
-   ],
-   "returns": "tuple[np.ndarray, np.ndarray, np.ndarray]",
-   "doc": "Take ``n_averages`` **separate** WFS readings and average them per channel.\n\n    Every reading is its own acquisition (``n_sample=1``), which is what lets\n    :func:`truncated_mean` discard a single bad frame per channel. Returns the flattened\n    slopes plus the two component arrays, which callers reuse for diagnostics.\n\n    Not interchangeable with ``interaction_matrix._single_shot_slopes``: that one issues a\n    single ``take_image(n_sample=n_averages)`` and leaves ``cancel_tile`` at its default.\n    ",
-   "decorators": []
-  },
   "_optimize_perturbation_voltage": {
    "qualname": "_optimize_perturbation_voltage",
    "module": "ao_shaping.optimizer.wf.dm_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
-   "lineno": 380,
-   "end": 449,
+   "lineno": 383,
+   "end": 452,
    "args": [
     "dm",
     "wfs",
@@ -2089,12 +2074,27 @@
    "doc": "Find optimal perturbation voltage for a DM actuator.\n\n    Tests multiple voltage levels on one actuator and measures the response\n    linearity (second derivative of response magnitude vs voltage). The optimal\n    voltage is where the response is most linear (minimum second derivative).\n\n    Args:\n        dm: NLight DM instance.\n        wfs: WFSManager instance.\n        actuator_idx: Actuator index to test.\n        test_voltages: Array of voltage levels to test.\n        n_avg: WFS readings per measurement.\n        cancel_tile: If True, remove tip/tilt from WFS deviations.\n\n    Returns:\n        tuple: (optimal_voltage, diagnostics_dict)\n            - optimal_voltage: Best voltage found (float).\n            - diagnostics: dict with test_voltages, responses, linearity scores,\n              best_idx, optimal_voltage.\n    ",
    "decorators": []
   },
+  "_measure_averaged_slopes": {
+   "qualname": "_measure_averaged_slopes",
+   "module": "ao_shaping.optimizer.wf.dm_response_matrix",
+   "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
+   "lineno": 240,
+   "end": 262,
+   "args": [
+    "wfs",
+    "n_averages",
+    "cancel_tile"
+   ],
+   "returns": "tuple[np.ndarray, np.ndarray, np.ndarray]",
+   "doc": "Take ``n_averages`` **separate** WFS readings and average them per channel.\n\n    Every reading is its own acquisition (``n_sample=1``), which is what lets\n    :func:`truncated_mean` discard a single bad frame per channel. Returns the flattened\n    slopes plus the two component arrays, which callers reuse for diagnostics.\n\n    Not interchangeable with ``interaction_matrix._single_shot_slopes``: that one issues a\n    single ``take_image(n_sample=n_averages)`` and leaves ``cancel_tile`` at its default.\n    ",
+   "decorators": []
+  },
   "_decode_hadamard_responses": {
    "qualname": "_decode_hadamard_responses",
    "module": "ao_shaping.optimizer.wf.dm_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
-   "lineno": 105,
-   "end": 124,
+   "lineno": 110,
+   "end": 129,
    "args": [
     "row_responses",
     "hadamard"
@@ -2107,8 +2107,8 @@
    "qualname": "save_debug_data",
    "module": "ao_shaping.utils.wavefront.wfs_utils",
    "file": "src/ao_shaping/utils/wavefront/wfs_utils.py",
-   "lineno": 173,
-   "end": 208,
+   "lineno": 236,
+   "end": 271,
    "args": [
     "base_dir",
     "idx",
@@ -2528,8 +2528,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.gsnet_runner",
    "file": "src/ao_shaping/runners/slm/gsnet_runner.py",
-   "lineno": 395,
-   "end": 407,
+   "lineno": 396,
+   "end": 408,
    "args": [
     "ctx",
     "run"
@@ -3270,7 +3270,7 @@
   {
    "from": "ao_shaping.optimizer.wf.dm_response_matrix.calibrate_dm_response_matrix",
    "to": "_measure_averaged_slopes",
-   "calls": 1
+   "calls": 2
   },
   {
    "from": "ao_shaping.optimizer.wf.dm_response_matrix.calibrate_dm_response_matrix",
