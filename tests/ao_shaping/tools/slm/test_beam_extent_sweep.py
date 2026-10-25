@@ -92,10 +92,12 @@ def stub_devices(monkeypatch):
         "ao_shaping.drivers.ccd.common.create_camera", lambda *a, **k: cam
     )
     # Deterministic scoring: the flat reference scores 1.0, and each swept frame
-    # scores whatever the stub camera says next.
+    # scores whatever the stub camera says next. Both stubs record the acquisition
+    # keywords, so the fixed-budget policy is observable (see
+    # TestAcquisitionPolicy) without a device.
     monkeypatch.setattr(
         be, "measure_flat_reference",
-        lambda cam, slm, n_frames, panel_shape: (
+        lambda cam, slm, n_frames, panel_shape, **kwargs: (
             np.full((64, 64), 200, dtype=np.uint8),
             type("F", (), {
                 "centroid_x": 32.0, "centroid_y": 32.0, "peak": 200.0,
@@ -110,7 +112,7 @@ def stub_devices(monkeypatch):
     monkeypatch.setattr(be, "core_fraction", _score)
     monkeypatch.setattr(
         be, "display_and_average",
-        lambda cam, slm, phase, n_frames: cam.get_numpy_image(),
+        lambda cam, slm, phase, n_frames, **kwargs: cam.get_numpy_image(),
     )
     return slm, cam
 
@@ -247,3 +249,54 @@ class TestResultShape:
         assert isinstance(result.positions_px, tuple)
         assert len(result.profile_rel) == len(result.positions_px)
         assert result.axis == "x"
+
+
+class TestAcquisitionPolicy:
+    """Every write goes through the fixed frame budget, not the settle gate.
+
+    The gate waits on peak **and centroid** **and** width agreeing; this probe
+    reads ``core_fraction`` at a *frozen* centroid, so a moving centroid is
+    irrelevant to the answer while it holds the gate shut. Measured 2026-10-24:
+    61 writes, 8.1 s each, every one of them ``settled=False (timeout)``.
+    """
+
+    def test_every_write_uses_the_fixed_budget_policy(self, monkeypatch) -> None:
+        slm = _StubSLM()
+        cam = _StubCamera(profile=[1.0] * 8)
+        seen: list[dict] = []
+
+        monkeypatch.setattr(
+            "ao_shaping.drivers.slm.santec.Santec", lambda *a, **k: slm
+        )
+        monkeypatch.setattr(
+            "ao_shaping.drivers.ccd.common.create_camera", lambda *a, **k: cam
+        )
+
+        def _flat(cam, slm, n_frames, panel_shape, **kwargs):
+            seen.append(dict(kwargs, n_frames=n_frames))
+            return np.full((64, 64), 200, dtype=np.uint8), type("F", (), {
+                "centroid_x": 32.0, "centroid_y": 32.0, "peak": 200.0,
+                "as_row": staticmethod(lambda: "flat"),
+            })()
+
+        def _sweep(cam, slm, phase, n_frames, **kwargs):
+            seen.append(dict(kwargs, n_frames=n_frames))
+            return cam.get_numpy_image()
+
+        monkeypatch.setattr(be, "measure_flat_reference", _flat)
+        monkeypatch.setattr(be, "display_and_average", _sweep)
+        monkeypatch.setattr(be, "core_fraction", lambda img, cx, cy, r: 1.0)
+
+        # frames=2 must not lower the budget below the measured 7.
+        _run(steps=3, frames=2)
+
+        assert len(seen) == 4  # one flat reference + three boundary positions
+        for call in seen:
+            policy = call["policy"]
+            assert policy.mode == "frames"
+            assert policy.n_discard == 2
+            assert policy.n_frames == 7
+            assert policy.combine == "median"
+            # The driver's own flip estimate replaces the unconditional 0.5 s
+            # sleep; the min-wait floor plus the 2 discarded frames cover it.
+            assert call["wait_time_s"] is None

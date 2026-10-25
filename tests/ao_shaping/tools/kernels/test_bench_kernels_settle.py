@@ -33,6 +33,7 @@ from loguru import logger
 from ao_shaping.tools.kernels.bench_kernels import (
     DEFAULT_MIN_WAIT_S,
     DEFAULT_N_STABLE,
+    ProbePolicy,
     capture_settled,
     capture_settled_report,
     display_and_average,
@@ -498,3 +499,162 @@ class TestDefaults:
         cam = FakeCamera(sigmas=[4.92])
         with pytest.raises(ValueError, match="n_stable"):
             wait_for_settle(cam, n_stable=0)
+
+
+#: The fixed budget the energy-ratio probes use (panel locate, beam extent).
+FIXED_BUDGET = ProbePolicy(mode="frames", n_frames=7, n_discard=2, combine="median")
+
+
+class TestFixedBudgetPolicy:
+    """``ProbePolicy(mode="frames")``: a budget instead of a criterion.
+
+    Why this exists (measured 2026-10-24, 61 phase writes / 493 s = 8.1 s each):
+    the settle criterion never opened because the **centroid** moved 1.2 px
+    against a 0.8 px tolerance, while peak (1.4%) and fwhm (0.8%) were already
+    inside ``stable_tol``. An energy-ratio probe never reads the centroid, so it
+    pays 8 s per write for a term it does not use -- then ``acquire_settled``
+    averaged 4 frames anyway and threw the answer away.
+    """
+
+    def test_frames_mode_reads_exactly_the_budget_and_never_settles(
+        self, monkeypatch
+    ) -> None:
+        import ao_shaping.tools.kernels.bench_kernels as bk
+
+        def _boom(*_a, **_k):
+            raise AssertionError("frames mode must not run the settle criterion")
+
+        monkeypatch.setattr(bk, "wait_for_settle", _boom)
+
+        cam = FakeCamera(sigmas=list(RELAXING_SIGMAS))
+        slm = FakeSlm(cam)
+        result = capture_settled_report(
+            cam,
+            slm,
+            np.zeros((8, 8)),
+            wait_time_s=0.0,
+            min_wait_s=0.0,
+            policy=FIXED_BUDGET,
+        )
+
+        # 2 discarded + 7 kept, and not one probe beyond that.
+        assert cam.reads == FIXED_BUDGET.n_discard + FIXED_BUDGET.n_frames
+        assert result.settle.n_probes == cam.reads
+        assert result.settle.reason == "fixed_budget"
+        assert result.settle.settled is False
+        assert result.settle.n_stable == 0
+
+    def test_a_corrupted_frame_does_not_reach_the_combined_frame(self) -> None:
+        """One bright outlier among 7 is rejected by the per-pixel median.
+
+        The 2026-10-24 outliers were *corrupted frames*, not a settling trend:
+        peak 14 / fwhm 32.5 against peak 72 / fwhm 13.3 carry the same
+        ``peak*fwhm**2``, i.e. the energy was redistributed inside the frame.
+        Waiting does not fix that; rejection does.
+        """
+        # Frames 0-1 are discarded, frame 3 (the 4th read) is corrupted.
+        peaks = [200.0, 200.0, 200.0, 2000.0, 200.0, 200.0, 200.0, 200.0, 200.0]
+        cam = FakeCamera(peaks=peaks, sigmas=[FINAL_SIGMA])
+        slm = FakeSlm(cam)
+
+        result = capture_settled_report(
+            cam,
+            slm,
+            np.zeros((8, 8)),
+            wait_time_s=0.0,
+            min_wait_s=0.0,
+            policy=FIXED_BUDGET,
+        )
+
+        clean = _render(200.0, FINAL_SIGMA, CX, CY)
+        assert np.allclose(result.frame, clean, rtol=0.0, atol=1e-12), (
+            "the combined frame must equal the median of the clean frames"
+        )
+        # A mean would have carried the corruption into the answer.
+        assert measure_spot(result.frame).peak == pytest.approx(200.0, rel=0.01)
+        assert np.mean(peaks[2:]) > 2.0 * measure_spot(result.frame).peak
+
+    def test_rel_sigma_is_reported_and_fixed_budget_is_not_a_warning(self) -> None:
+        # Frames 0-1 are discarded; the kept ones scatter in peak by ~7% (MAD).
+        peaks = [180.0, 220.0, 190.0, 210.0, 200.0, 230.0, 170.0, 205.0, 195.0]
+        cam = FakeCamera(peaks=peaks, sigmas=[FINAL_SIGMA])
+        slm = FakeSlm(cam)
+
+        messages: list[str] = []
+        # loguru, not caplog: ``logger`` never reaches stdlib logging, so caplog
+        # sees nothing (the same reason the other warning tests use a sink).
+        sink_id = logger.add(messages.append, level="WARNING")
+        try:
+            result = capture_settled_report(
+                cam,
+                slm,
+                np.zeros((8, 8)),
+                wait_time_s=0.0,
+                min_wait_s=0.0,
+                policy=FIXED_BUDGET,
+            )
+        finally:
+            logger.remove(sink_id)
+
+        assert result.settle.rel_sigma is not None
+        assert result.settle.rel_sigma > 0.0
+        assert "rel_sigma=" in result.settle.as_row()
+        assert not any("settle criterion not met" in m for m in messages), messages
+
+    def test_the_frames_mode_silence_holds_for_the_numpy_entry_point(self) -> None:
+        cam = FakeCamera(sigmas=[FINAL_SIGMA])
+        slm = FakeSlm(cam)
+        messages: list[str] = []
+        sink_id = logger.add(messages.append, level="WARNING")
+        try:
+            frame = capture_settled(
+                cam,
+                slm,
+                np.zeros((8, 8)),
+                wait_time_s=0.0,
+                min_wait_s=0.0,
+                policy=FIXED_BUDGET,
+            )
+        finally:
+            logger.remove(sink_id)
+        assert frame.shape == SHAPE
+        assert not any("settle criterion not met" in m for m in messages), messages
+
+    def test_frames_mode_still_honours_the_min_wait_floor(self) -> None:
+        cam = FakeCamera(sigmas=[FINAL_SIGMA])
+        slm = FakeSlm(cam)
+        t0 = time.monotonic()
+        capture_settled(
+            cam,
+            slm,
+            np.zeros((8, 8)),
+            wait_time_s=0.0,
+            min_wait_s=0.2,
+            policy=FIXED_BUDGET,
+        )
+        assert time.monotonic() - t0 >= 0.2
+
+    def test_policy_none_takes_the_settle_path(self) -> None:
+        """The default must not quietly become the fixed budget."""
+        cam = FakeCamera(sigmas=list(RELAXING_SIGMAS))
+        slm = FakeSlm(cam)
+        result = capture_settled_report(
+            cam,
+            slm,
+            np.zeros((8, 8)),
+            n_frames=4,
+            n_discard=3,
+            wait_time_s=0.0,
+            min_wait_s=0.0,
+        )
+        assert result.settle.reason == "stable"
+        assert result.settle.n_probes >= 10
+        assert result.settle.rel_sigma is None
+
+    def test_an_invalid_policy_is_rejected_at_construction(self) -> None:
+        with pytest.raises(ValueError, match="combine"):
+            ProbePolicy(mode="frames", combine="sum")
+        with pytest.raises(ValueError, match="mode"):
+            ProbePolicy(mode="burst")
+        with pytest.raises(ValueError, match="n_frames"):
+            ProbePolicy(n_frames=0)

@@ -242,8 +242,8 @@
     ]
   },
   "slm_beam_extent": {
-    "body_literals": 16,
-    "body_literals_sha256": "2f5ff502845cb226",
+    "body_literals": 19,
+    "body_literals_sha256": "8a7ec9ff2826eebc",
     "declared": [
       "--axis",
       "--cam-id",
@@ -257,7 +257,7 @@
       "--slm-wavelength",
       "--steps"
     ],
-    "help": "Usage: python -m ao_shaping.tools.slm.panel.beam_extent [OPTIONS]\n\n  用半平面随机相位边界扫描测光斑在面板上的中心与半径。\n\nOptions:\n  --slm-number INTEGER      SLM 设备编号 (默认 1)\n  --slm-wavelength INTEGER  SLM 波长 nm (默认 1064)\n  --cam-type TEXT           相机类型 (daheng/miicam, 默认 daheng)\n  --cam-id INTEGER          相机 ID (默认 0)\n  --exposure-ms FLOAT       相机曝光 ms (默认 3.0)\n  --axis [x|y]              扫描轴 (默认 x)\n  --steps INTEGER           边界位置数 (默认 12)\n  --frames INTEGER          每帧平均张数 (默认 4)\n  --repeats INTEGER         每个边界重复次数 (默认 2)\n  --core-radius FLOAT       中心盘半径 px (默认 40)\n  --seed INTEGER            随机相位种子 (默认 2024)\n  --help                    Show this message and exit.",
+    "help": "Usage: python -m ao_shaping.tools.slm.panel.beam_extent [OPTIONS]\n\n  用半平面随机相位边界扫描测光斑在面板上的中心与半径。\n\nOptions:\n  --slm-number INTEGER      SLM 设备编号 (默认 1)\n  --slm-wavelength INTEGER  SLM 波长 nm (默认 1064)\n  --cam-type TEXT           相机类型 (daheng/miicam, 默认 daheng)\n  --cam-id INTEGER          相机 ID (默认 0)\n  --exposure-ms FLOAT       相机曝光 ms (默认 3.0)\n  --axis [x|y]              扫描轴 (默认 x)\n  --steps INTEGER           边界位置数 (默认 12)\n  --frames INTEGER          中值合并保留的帧数 (默认 7, 最少 7)\n  --repeats INTEGER         每个边界重复次数 (默认 2)\n  --core-radius FLOAT       中心盘半径 px (默认 40)\n  --seed INTEGER            随机相位种子 (默认 2024)\n  --help                    Show this message and exit.",
     "help_flags": [
       "--axis",
       "--cam-id",
@@ -526,8 +526,8 @@
     ]
   },
   "slm_panel_locate": {
-    "body_literals": 126,
-    "body_literals_sha256": "6d2b86ae2270153c",
+    "body_literals": 141,
+    "body_literals_sha256": "85e76b3288b37dd5",
     "declared": [
       "--cam-id",
       "--cam-type",
@@ -542,7 +542,7 @@
       "--slm-number",
       "--slm-wavelength"
     ],
-    "help": "Usage: python -m ao_shaping.tools.slm.panel.panel_locate [OPTIONS]\n\n  在面板坐标上定位光斑 (扫描随机相位圆盘, 取 0 阶能量变化最大的位置)。\n\nOptions:\n  --slm-number INTEGER            SLM 设备编号 (默认 1)\n  --slm-wavelength INTEGER        SLM 波长 nm (默认 1064)\n  --cam-type TEXT                 相机类型 (daheng/miicam, 默认 daheng)\n  --cam-id INTEGER                相机 ID (默认 0)\n  --exposure-ms [default|auto|FLOAT]\n                                  相机曝光 ms (默认 0.1)。'auto' = 探测曝光上限并在其下工作(env\n                                  AO_DAHENG_MAX_EXPOSURE_MS 优先, 否则按画面倍增探测);\n                                  'default' = 完全不动曝光 (不探测/不重置/不钳位), 延用相机当前值; 0\n                                  不再等价于 auto, 会被拒绝\n  --patch-radius INTEGER          随机相位圆盘半径 (面板 px, 默认 450=实测光斑半径)\n  --grid-xs TEXT                  候选 x (面板 px, 逗号分隔)\n  --grid-ys TEXT                  候选 y (面板 px, 逗号分隔)\n  --frames INTEGER                每帧平均张数 (默认 4)\n  --seed INTEGER                  随机相位种子 (默认 7)\n  --debug-dir TEXT                Save raw CCD frames and scan parameters.\n  --max-flat-drift FLOAT          Maximum relative change between paired\n                                  flats.\n  --help                          Show this message and exit.",
+    "help": "Usage: python -m ao_shaping.tools.slm.panel.panel_locate [OPTIONS]\n\n  在面板坐标上定位光斑 (扫描随机相位圆盘, 取 0 阶能量变化最大的位置)。\n\nOptions:\n  --slm-number INTEGER            SLM 设备编号 (默认 1)\n  --slm-wavelength INTEGER        SLM 波长 nm (默认 1064)\n  --cam-type TEXT                 相机类型 (daheng/miicam, 默认 daheng)\n  --cam-id INTEGER                相机 ID (默认 0)\n  --exposure-ms [default|auto|FLOAT]\n                                  相机曝光 ms (默认 0.1)。'auto' = 探测曝光上限并在其下工作(env\n                                  AO_DAHENG_MAX_EXPOSURE_MS 优先, 否则按画面倍增探测);\n                                  'default' = 完全不动曝光 (不探测/不重置/不钳位), 延用相机当前值; 0\n                                  不再等价于 auto, 会被拒绝\n  --patch-radius INTEGER          随机相位圆盘半径 (面板 px, 默认 450=实测光斑半径)\n  --grid-xs TEXT                  候选 x (面板 px, 逗号分隔)\n  --grid-ys TEXT                  候选 y (面板 px, 逗号分隔)\n  --frames INTEGER                中值合并保留的帧数 (默认 7, 最少 7)\n  --seed INTEGER                  随机相位种子 (默认 7)\n  --debug-dir TEXT                Save raw CCD frames and scan parameters.\n  --max-flat-drift FLOAT          Maximum relative change between paired\n                                  flats.\n  --help                          Show this message and exit.",
     "help_flags": [
       "--cam-id",
       "--cam-type",

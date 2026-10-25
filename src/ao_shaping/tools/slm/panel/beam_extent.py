@@ -23,6 +23,23 @@ before any write is the previous run's speckle. That single mistake made the bea
 look four times dimmer than it is between runs and sent the first version of this
 measurement down a dead end.
 
+Acquisition policy
+------------------
+The flat reference and every boundary position are taken with
+``ProbePolicy(mode="frames")``: a fixed budget of frames combined **per pixel**
+by median, no settle criterion. The criterion (peak, centroid and width all
+steady) serves measurements that read position and shape; this one reads a *core
+fraction*, i.e. an energy ratio at a frozen centroid, so a varying centroid is
+irrelevant to it and a settling gate that waits on one can never open.
+
+A median rather than a mean because a transient frame biases ``core_fraction``
+**downward only** -- light scattered out of the core is not compensated by any
+frame that had extra light in it -- and a downward bias inflates the reported
+width. Rejection removes that failure mode where averaging would bake it in.
+
+``--frames`` is the kept-frame budget's floor: a median needs enough samples to
+reject one corrupted frame, so the probe never keeps fewer than seven.
+
 Usage
 -----
 ::
@@ -43,12 +60,29 @@ from loguru import logger
 from ao_shaping.tools.kernels.bench_kernels import (
     SLM_PANEL_H,
     SLM_PANEL_W,
+    ProbePolicy,
     core_fraction,
     display_and_average,
     measure_flat_reference,
     random_phase,
 )
 from ao_shaping.utils.cli.params import option, with_params
+
+#: Mounted frames after the write (LCOS flip) before the kept ones.
+_PROBE_DISCARD = 2
+#: Measured kept-frame budget -- see the module docstring. ``--frames`` may raise
+#: it, never lower it.
+_PROBE_FRAMES = 7
+
+
+def _probe_policy(frames: int) -> ProbePolicy:
+    """Fixed-budget acquisition for an energy-ratio measurement."""
+    return ProbePolicy(
+        mode="frames",
+        n_frames=max(int(frames), _PROBE_FRAMES),
+        n_discard=_PROBE_DISCARD,
+        combine="median",
+    )
 
 
 @dataclass
@@ -82,7 +116,9 @@ class BeamExtentParams:
         option("--axis", type=click.Choice(["x", "y"]), help="扫描轴 (默认 x)"),
     ] = "x"
     steps: Annotated[int, option("--steps", help="边界位置数 (默认 12)")] = 12
-    frames: Annotated[int, option("--frames", help="每帧平均张数 (默认 4)")] = 4
+    frames: Annotated[
+        int, option("--frames", help="中值合并保留的帧数 (默认 7, 最少 7)")
+    ] = 7
     repeats: Annotated[
         int, option("--repeats", help="每个边界重复次数 (默认 2)")
     ] = 2
@@ -154,12 +190,16 @@ def sweep_axis(
     positions = np.linspace(0, span, int(steps) + 1)[1:]
     base_rand = random_phase(panel, seed=int(seed))
     yy, xx = np.mgrid[0 : panel[0], 0 : panel[1]]
+    policy = _probe_policy(frames)
 
     with Santec(
         slm_number=slm_number, wavelength=slm_wavelength, video_mode=0
     ) as slm, create_camera(cam_type, cam_id, exposure_time_ms=exposure_ms) as cam:
         cam.reset_exposure_time(float(exposure_ms))
-        ref, flat = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
+        ref, flat = measure_flat_reference(
+            cam, slm, n_frames=frames, panel_shape=panel,
+            policy=policy, wait_time_s=None,
+        )
         f0 = core_fraction(ref, flat.centroid_x, flat.centroid_y, core_radius)
         logger.info(
             "flat reference: {}  core_fraction={:.4f}", flat.as_row(), f0
@@ -176,7 +216,10 @@ def sweep_axis(
             fracs: list[float] = []
             for _ in range(int(repeats)):
                 phase = np.where(mask, base_rand, 0.0)
-                img = display_and_average(cam, slm, phase, n_frames=frames)
+                img = display_and_average(
+                    cam, slm, phase, n_frames=frames,
+                    policy=policy, wait_time_s=None,
+                )
                 fracs.append(
                     core_fraction(img, flat.centroid_x, flat.centroid_y, core_radius)
                 )

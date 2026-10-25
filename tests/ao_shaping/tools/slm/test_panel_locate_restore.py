@@ -58,6 +58,20 @@ def test_paired_flat_rejects_power_step():
                       np.full((2, 2), 0.1), box, 0.2)
 
 
+def _candidate(frame, rel_sigma=0.01):
+    """Stand-in for ``capture_settled_report``: a frame plus its noise verdict.
+
+    ``scan_panel`` takes the candidate frame through ``capture_settled_report``
+    (not ``display_and_average``) so the per-point ``rel_sigma`` reaches the
+    artefact; the stub keeps exactly the ``frame`` / ``settle.rel_sigma`` surface
+    the scan reads.
+    """
+    return SimpleNamespace(
+        frame=np.asarray(frame, dtype=np.float64),
+        settle=SimpleNamespace(rel_sigma=rel_sigma),
+    )
+
+
 @pytest.mark.parametrize("last_flat, expected_error", [(100.0, None), (110.0, None)])
 def test_scan_reports_session_drift_and_rejects_unstable_run(
     monkeypatch, tmp_path, last_flat, expected_error,
@@ -108,8 +122,8 @@ def test_scan_reports_session_drift_and_rejects_unstable_run(
     monkeypatch.setattr(panel_locate, "SLM_PANEL_W", 16)
     monkeypatch.setattr(panel_locate, "measure_flat_reference", flat_reference)
     monkeypatch.setattr(
-        panel_locate, "display_and_average",
-        lambda *_a, **_k: np.full((8, 8), 80.0),
+        panel_locate, "capture_settled_report",
+        lambda *_a, **_k: _candidate(np.full((8, 8), 80.0)),
     )
     params = PanelLocateParams(
         grid_xs="4,8,12", grid_ys="4,8,12", patch_radius=2,
@@ -134,6 +148,79 @@ def test_scan_reports_session_drift_and_rejects_unstable_run(
         abs(last_flat - 100) / ((last_flat + 100) / 2)
     )
     assert summary["session_shift_px"] == 0.0
+    # Winner's-curse bookkeeping is always recorded, so `response` can be
+    # falsified instead of merely read. The candidate frame's relative scatter is
+    # 0.01, and delta = (E_cand - E_ref) / E_ref, so the winner's ratio
+    # uncertainty is sigma_delta = 0.01 * |1 + delta|.
+    assert summary["response_sigma"] == pytest.approx(
+        0.01 * abs(1.0 + summary["response"])
+    )
+    assert summary["top2_gap"] is not None
+    assert summary["top2_gap"] >= 0.0
+    measurements = json.loads((tmp_path / "scan" / "measurements.json").read_text())
+    assert all("rel_sigma" in item for item in measurements)
+    assert measurements[0]["rel_sigma"] == pytest.approx(0.01)
+
+
+def test_the_winning_response_is_reported_with_its_own_noise(
+    monkeypatch, tmp_path
+):
+    """``response`` is the max of 20 noisy ratios -- so report the noise too.
+
+    Without ``response_sigma`` / ``top2_gap`` the artefact cannot distinguish "the
+    beam is here" from "two patches tied and the winner is noise", which is
+    exactly the failure a 5x4 grid of box-energy ratios invites.
+    """
+    from ao_shaping.drivers.ccd import common as camera_common
+    from ao_shaping.drivers.slm import santec
+
+    class Device:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return None
+
+        def reset_exposure_time(self, value):
+            return value
+
+        def get_numpy_image(self, n_sample: int):
+            return np.full((8, 8), 10, dtype=np.uint8)
+
+    def flat_reference(*_args, **_kwargs):
+        return np.full((8, 8), 100.0), SimpleNamespace(
+            centroid_x=4, centroid_y=4, as_row=lambda: "flat"
+        )
+
+    # Distinct deltas so the top two are separated: candidate energies 70 / 90.
+    energies = iter([70.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0])
+
+    monkeypatch.setattr(camera_common, "create_camera", lambda *_a, **_k: Device())
+    monkeypatch.setattr(santec, "Santec", lambda **_k: Device())
+    monkeypatch.setattr(panel_locate, "_restore_slm_display", lambda _slm: nullcontext())
+    monkeypatch.setattr(panel_locate, "SLM_PANEL_H", 16)
+    monkeypatch.setattr(panel_locate, "SLM_PANEL_W", 16)
+    monkeypatch.setattr(panel_locate, "measure_flat_reference", flat_reference)
+    monkeypatch.setattr(
+        panel_locate, "capture_settled_report",
+        lambda *_a, **_k: _candidate(np.full((8, 8), next(energies)), rel_sigma=0.02),
+    )
+    params = PanelLocateParams(
+        grid_xs="4,8,12", grid_ys="4,8,12", patch_radius=2,
+        exposure_ms=0.02, frames=2, max_flat_drift=0.2,
+        debug_dir=str(tmp_path / "scan"),
+    )
+
+    result = scan_panel(params, strict=True, max_session_drift=0.05)
+
+    # delta_1 = (70-100)/100 = -0.3, delta_2 = (90-100)/100 = -0.1 => gap = 0.2
+    assert result.response == pytest.approx(-0.3)
+    assert result.top2_gap == pytest.approx(0.2)
+    # sigma_delta = rel_sigma * |1 + delta| = 0.02 * 0.7
+    assert result.response_sigma == pytest.approx(0.014)
+    summary = json.loads((tmp_path / "scan" / "summary.json").read_text())
+    assert summary["response_sigma"] == pytest.approx(0.014)
+    assert summary["top2_gap"] == pytest.approx(0.2)
 
 
 def test_the_spot_measurement_field_name_is_what_the_scanner_reads():
@@ -210,8 +297,8 @@ def test_the_shift_limit_scales_with_the_spot_size(
     monkeypatch.setattr(panel_locate, "SLM_PANEL_W", 16)
     monkeypatch.setattr(panel_locate, "measure_flat_reference", flat_reference)
     monkeypatch.setattr(
-        panel_locate, "display_and_average",
-        lambda *_a, **_k: np.full((8, 8), 80.0),
+        panel_locate, "capture_settled_report",
+        lambda *_a, **_k: _candidate(np.full((8, 8), 80.0)),
     )
     params = PanelLocateParams(
         grid_xs="4,8,12", grid_ys="4,8,12", patch_radius=2,
@@ -277,8 +364,8 @@ def test_scan_rejects_a_beam_that_moved(monkeypatch, tmp_path):
     monkeypatch.setattr(panel_locate, "SLM_PANEL_W", 16)
     monkeypatch.setattr(panel_locate, "measure_flat_reference", flat_reference)
     monkeypatch.setattr(
-        panel_locate, "display_and_average",
-        lambda *_a, **_k: np.full((8, 8), 80.0),
+        panel_locate, "capture_settled_report",
+        lambda *_a, **_k: _candidate(np.full((8, 8), 80.0)),
     )
     params = PanelLocateParams(
         grid_xs="4,8,12", grid_ys="4,8,12", patch_radius=2,

@@ -23,6 +23,35 @@ tried and both failed:
 * the 0-order box energy is **not** monotone in patch size, because a disc both
   scatters light out of the box and redistributes light into it.
 
+Acquisition policy
+------------------
+Every one of the three frames per grid point (flat before, candidate, flat after)
+is taken with ``ProbePolicy(mode="frames")``: a fixed budget of frames combined
+**per pixel** by median, and no settle criterion. The criterion is for
+measurements that read *position and shape*; this probe reads a **box-energy
+ratio** at a frozen box, so the centroid -- the quantity that held the gate shut
+-- is not part of its answer at all.
+
+Measured 2026-10-24: 61 phase writes took 493 s (8.1 s each) and every single one
+logged ``settle criterion not met after 7.06-8.91 s``, then discarded the answer
+and averaged 4 frames anyway. Peak varied 1.4% and FWHM 0.8% -- both inside
+``stable_tol=0.02`` -- while the centroid moved 1.2 px against a 0.8 px
+tolerance. Median, not mean, because the deep outliers were *corrupted frames*
+(peak 14 / fwhm 32.5 against peak 72 / fwhm 13.3, same ``peak*fwhm**2``), which a
+median rejects and a mean smears into the ratio.
+
+``--frames`` is the kept-frame budget's floor: a median needs enough samples to
+reject one corrupted frame, so the probe never keeps fewer than seven.
+
+Winner's curse
+--------------
+``response`` is the maximum of 20 noisy ratios, so on its own it is not
+falsifiable -- the winner is partly the noise. The summary therefore also records
+``response_sigma`` (the winner's box-energy ratio uncertainty, propagated from
+the per-frame noise of its candidate frame) and ``top2_gap`` (``|delta_1| -
+|delta_2|``): a gap inside the noise band means the located centre is a coin
+flip between two patches, not a measurement.
+
 Usage
 -----
 ::
@@ -56,10 +85,28 @@ from ao_shaping.tools.kernels.bench_kernels import (
     BEAM_RADIUS_PANEL,
     SLM_PANEL_H,
     SLM_PANEL_W,
-    display_and_average,
+    ProbePolicy,
+    capture_settled_report,
     measure_flat_reference,
 )
 from ao_shaping.utils.cli.params import option, with_params
+
+#: Mounted frames after the write (LCOS flip) before the kept ones.
+_PROBE_DISCARD = 2
+#: Measured kept-frame budget: enough samples for the median to reject one
+#: corrupted frame, and the count the 2026-10-24 run showed sufficient (peak
+#: sigma 1.4%). ``--frames`` may raise it, never lower it.
+_PROBE_FRAMES = 7
+
+
+def _probe_policy(frames: int) -> ProbePolicy:
+    """Fixed-budget acquisition for an energy-ratio measurement."""
+    return ProbePolicy(
+        mode="frames",
+        n_frames=max(int(frames), _PROBE_FRAMES),
+        n_discard=_PROBE_DISCARD,
+        combine="median",
+    )
 
 
 def _box_mask(shape: tuple[int, int], cx: int, cy: int, r: int) -> np.ndarray:
@@ -136,7 +183,9 @@ class PanelLocateParams:
         str,
         option("--grid-ys", help="候选 y (面板 px, 逗号分隔)"),
     ] = "220,480,720,980"
-    frames: Annotated[int, option("--frames", help="每帧平均张数 (默认 4)")] = 4
+    frames: Annotated[
+        int, option("--frames", help="中值合并保留的帧数 (默认 7, 最少 7)")
+    ] = 7
     seed: Annotated[int, option("--seed", help="随机相位种子 (默认 7)")] = 7
     debug_dir: Annotated[
         str, option("--debug-dir", help="Save raw CCD frames and scan parameters.")
@@ -157,6 +206,18 @@ class PanelLocateResult:
     #: invalidates a locate. ``session_drift`` is an intensity ratio that the
     #: per-point pairing already cancels, so it is reported, not enforced.
     session_shift_px: float = 0.0
+    #: ``response`` is a **maximum** over the scanned patches, so it is biased
+    #: high (winner's curse). ``response_sigma`` is the winner's own ratio
+    #: uncertainty, propagated from the per-frame noise of its candidate frame:
+    #: ``sigma_delta ~ rel_sigma * (1 + delta)``, because
+    #: ``delta = (E_cand - E_ref) / E_ref``. Compare it against ``response``
+    #: before believing the winner: a response inside its own noise band is not
+    #: a located beam.
+    response_sigma: float | None = None
+    #: ``|delta|`` of the strongest patch minus that of the runner-up. A gap
+    #: inside ``response_sigma`` means the centre is a coin flip between two
+    #: patches rather than a measurement.
+    top2_gap: float | None = None
 
 
 def _centroid(flat: Any) -> tuple[float, float]:
@@ -197,6 +258,9 @@ def scan_panel(
     grid_xs = params.grid_xs
     grid_ys = params.grid_ys
     frames = params.frames
+    # Fixed budget: energy-ratio frames do not need a *stable* frame, and the
+    # settle criterion cannot converge for them (see the module docstring).
+    policy = _probe_policy(frames)
     seed = params.seed
     max_flat_drift = params.max_flat_drift
     debug_dir = Path(params.debug_dir) if params.debug_dir else None
@@ -258,7 +322,10 @@ def scan_panel(
                 actual_ms = cam.reset_exposure_time(float(exposure_ms))
             else:
                 actual_ms = cam.reset_exposure_time(float(exposure_ms))
-        ref, flat = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
+        ref, flat = measure_flat_reference(
+            cam, slm, n_frames=frames, panel_shape=panel,
+            policy=policy, wait_time_s=None,
+        )
         box = _box_mask(ref.shape, int(round(flat.centroid_x)),
                         int(round(flat.centroid_y)), 60)
         base = float(ref[box].sum())
@@ -307,9 +374,18 @@ def scan_panel(
                 yy, xx = np.mgrid[0 : panel[0], 0 : panel[1]]
                 m = (yy - py) ** 2 + (xx - px) ** 2 <= int(patch_radius) ** 2
                 phase[m] = rng.uniform(0.0, 2.0 * np.pi, int(m.sum()))
-                before, _flat = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
-                img = display_and_average(cam, slm, phase, n_frames=frames)
-                after, _ = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
+                before, _flat = measure_flat_reference(
+                    cam, slm, n_frames=frames, panel_shape=panel,
+                    policy=policy, wait_time_s=None,
+                )
+                candidate = capture_settled_report(
+                    cam, slm, phase, wait_time_s=None, policy=policy
+                )
+                img = candidate.frame
+                after, _ = measure_flat_reference(
+                    cam, slm, n_frames=frames, panel_shape=panel,
+                    policy=policy, wait_time_s=None,
+                )
                 if debug_dir is not None:
                     np.savez_compressed(debug_dir / f"frame_x{px}_y{py}.npz",
                                         flat_before=before, image=img, flat_after=after)
@@ -332,6 +408,7 @@ def scan_panel(
                     results.append((abs(delta), py, px, delta))
                 measurements.append({"x": px, "y": py, "delta": delta if np.isfinite(delta) else None,
                                      "flat_drift": drift if np.isfinite(drift) else None,
+                                     "rel_sigma": candidate.settle.rel_sigma,
                                      "flat_before_energy": float(before[box].sum()),
                                      "candidate_energy": float(img[box].sum()),
                                      "flat_after_energy": float(after[box].sum()),
@@ -393,6 +470,31 @@ def scan_panel(
         )
     else:
         flat_fwhm_px = flat_fwhm_px if flat_fwhm_px > 0 else 0.0
+    # Winner's curse: ``response`` is the maximum of every scanned ratio, so it is
+    # biased high by construction. Two numbers make it falsifiable -- the winner's
+    # own noise, propagated from its candidate frame's per-frame scatter, and how
+    # far it beat the runner-up. A gap inside ``response_sigma`` means the reported
+    # centre is a coin flip between two patches.
+    ranked = sorted(results, reverse=True)
+    response_sigma: float | None = None
+    top2_gap: float | None = None
+    if ranked:
+        if len(ranked) > 1:
+            top2_gap = ranked[0][0] - ranked[1][0]
+        _, wy, wx, wdelta = ranked[0]
+        winner_rel_sigma = next(
+            (
+                item.get("rel_sigma")
+                for item in measurements
+                if item["x"] == wx and item["y"] == wy
+            ),
+            None,
+        )
+        if winner_rel_sigma is not None:
+            # delta = (E_cand - E_ref) / E_ref, so a relative scatter ``s`` on the
+            # candidate frame propagates to delta as ``s * (E_cand / E_ref)`` =
+            # ``s * (1 + delta)``.
+            response_sigma = abs(1.0 + float(wdelta)) * float(winner_rel_sigma)
     if debug_dir is not None:
         (debug_dir / "summary.json").write_text(
             json.dumps({"session_drift": session_drift, "max_pair_drift": max_pair_drift,
@@ -400,6 +502,9 @@ def scan_panel(
                         "session_shift_limit_px": shift_limit_px,
                         "flat_fwhm_px": flat_fwhm_px,
                         "rejected_count": rejected_count,
+                        "response": ranked[0][3] if ranked else None,
+                        "response_sigma": response_sigma,
+                        "top2_gap": top2_gap,
                         "max_flat_drift": max_flat_drift,
                         "max_session_drift": max_session_drift,
                         "max_session_shift_px": max_session_shift_px,
@@ -451,9 +556,15 @@ def scan_panel(
         "paired-normalised), beam shift {:.2f} cam px",
         max_pair_drift, session_drift, session_shift_px,
     )
+    logger.info(
+        "response uncertainty: winner sigma={} (per-frame scatter of its own "
+        "candidate frame), gap to runner-up={}",
+        "n/a" if response_sigma is None else f"{response_sigma:.4f}",
+        "n/a" if top2_gap is None else f"{top2_gap:.4f}",
+    )
     return PanelLocateResult(
         (bx, by), results[0][3], max_pair_drift, session_drift, rejected_count,
-        session_shift_px,
+        session_shift_px, response_sigma=response_sigma, top2_gap=top2_gap,
     )
 
 

@@ -41,6 +41,32 @@ reinvents them wrong.
    frames until several consecutive readings agree *on peak, position and
    shape* -- see the "Settle criterion" section below, which is shared by
    every acquisition path in this module.
+
+Which acquisition policy a measurement needs
+--------------------------------------------
+Two kinds of measurement share this module, and they do **not** need the same
+thing from a phase write:
+
+* **Geometry** (where is the spot, how wide is the beam) needs a *stable* frame,
+  because it reads position and shape. It keeps the settle criterion
+  (:data:`ProbePolicy` ``mode="settle"``, the default everywhere), including
+  :func:`wait_for_settle` and its ``stable_tol``/``n_stable``.
+* **Energy-ratio probes** (panel locate, beam extent) read the *ratio* of two
+  box energies and need a *low-noise* frame, not a stable one. On the 2026-10-24
+  calibration run those probes paid **8.1 s per phase write** and still timed
+  out: peak varied 1.4% and fwhm 0.8% (well inside ``stable_tol=0.02``) while the
+  **centroid** moved 1.2 px against a 0.8 px tolerance -- and the centroid is the
+  one quantity neither :mod:`ao_shaping.tools.slm.panel.panel_locate` (box-energy
+  ratio) nor :mod:`ao_shaping.tools.slm.panel.beam_extent` (core fraction at a
+  frozen centroid) uses. The gate was held shut by an irrelevant term.
+
+  So those probes pass ``ProbePolicy(mode="frames")``: no settle loop at all,
+  a fixed budget of ``n_discard + n_frames`` frames combined **per pixel** by
+  median, and a ``rel_sigma`` noise verdict in place of a settle verdict. A
+  median is the right combiner because the outliers on that run were *corrupted
+  frames*, not a settling trend: peak 14 / fwhm 32.5 against peak 72 / fwhm 13.3
+  carry the same ``peak * fwhm**2`` (14.8k vs 12.7k), i.e. the energy was
+  redistributed within the frame. Rejection fixes that; waiting does not.
 """
 
 from __future__ import annotations
@@ -100,6 +126,7 @@ __all__ = [
     "SLM_PANEL_H",
     "SLM_PANEL_W",
     "SLM_PITCH_M",
+    "ProbePolicy",
     "SettleReport",
     "SettledAcquisition",
     "SpotMeasurement",
@@ -219,19 +246,65 @@ _CENTROID_TOL_PX = 40.0
 
 
 @dataclass(frozen=True)
+class ProbePolicy:
+    """How one phase write becomes one measurement.
+
+    ``mode="settle"`` is the historical path: wait until the settle criterion is
+    met, then average ``n_frames`` fresh frames. ``mode="frames"`` is the
+    fixed-budget path for energy-ratio probes -- see "Which acquisition policy a
+    measurement needs" in the module docstring.
+    """
+
+    #: ``"settle"`` (criterion-gated) or ``"frames"`` (fixed budget).
+    mode: str = "settle"
+    #: Frames kept (``mode="frames"``) -- they are combined per pixel.
+    n_frames: int = 7
+    #: Frames thrown away after the write, before the kept ones.
+    n_discard: int = 2
+    #: ``"median"`` (rejects a corrupted frame) or ``"mean"``.
+    combine: str = "median"
+
+    def __post_init__(self) -> None:
+        if self.mode not in ("settle", "frames"):
+            raise ValueError(f'mode must be "settle" or "frames", got {self.mode!r}')
+        if self.combine not in ("median", "mean"):
+            raise ValueError(
+                f'combine must be "median" or "mean", got {self.combine!r}'
+            )
+        if int(self.n_frames) < 1:
+            raise ValueError(f"n_frames must be >= 1, got {self.n_frames!r}")
+        if int(self.n_discard) < 0:
+            raise ValueError(f"n_discard must be >= 0, got {self.n_discard!r}")
+
+    @property
+    def is_fixed_budget(self) -> bool:
+        """``True`` when this policy skips the settle criterion."""
+        return self.mode == "frames"
+
+
+@dataclass(frozen=True)
 class SettleReport:
     """What the settle criterion concluded for one phase write.
 
     Attributes:
         settled: ``True`` only when the criterion was met.
-        reason: ``"stable"`` or ``"timeout"``.
-        n_probes: Number of stability probes taken.
-        n_stable: Consecutive agreeing readings the criterion demands.
+        reason: ``"stable"``, ``"timeout"``, or ``"fixed_budget"`` (a
+            ``ProbePolicy(mode="frames")`` acquisition, which does not run the
+            criterion at all -- that is the chosen policy, not a failure).
+        n_probes: Number of stability probes taken (frames mode: every frame
+            read for this write, discarded ones included).
+        n_stable: Consecutive agreeing readings the criterion demands. ``0`` in
+            ``frames`` mode, where no agreement test is applied.
         waited_s: Seconds from the phase write to the end of the criterion.
-        peak: Peak of the last reading.
-        fwhm_px: FWHM of the last reading.
+        peak: Peak of the last reading (``frames`` mode: of the combined frame).
+        fwhm_px: FWHM of the last reading (``frames`` mode: of the combined frame).
         centroid_x: Centroid x of the last reading.
         centroid_y: Centroid y of the last reading.
+        rel_sigma: Relative MAD-based sigma of the per-frame peak across the
+            **kept** frames (``frames`` mode only; ``None`` otherwise, and
+            ``None`` for a single kept frame, where a scatter estimate would be
+            vacuous). This is the noise verdict that replaces the settle verdict
+            for an energy-ratio probe.
     """
 
     settled: bool
@@ -243,14 +316,18 @@ class SettleReport:
     fwhm_px: float
     centroid_x: float
     centroid_y: float
+    rel_sigma: float | None = None
 
     def as_row(self) -> str:
         """One-line summary for a log line."""
-        return (
+        text = (
             f"settled={self.settled} ({self.reason}) probes={self.n_probes} "
             f"peak={self.peak:.0f} fwhm={self.fwhm_px:.1f}px "
             f"c=({self.centroid_x:.1f},{self.centroid_y:.1f})"
         )
+        if self.rel_sigma is not None:
+            text += f" rel_sigma={self.rel_sigma:.2%}"
+        return text
 
 
 @dataclass(frozen=True)
@@ -409,8 +486,12 @@ def _warn_if_unsettled(settle: SettleReport) -> None:
     entry points keep their historical signature, so the verdict is carried by
     this warning -- and by :func:`acquire_settled` for callers that want it
     programmatically.
+
+    ``reason="fixed_budget"`` is **silent**: the caller asked for a fixed frame
+    budget instead of the criterion (:class:`ProbePolicy`), so not running the
+    criterion is the policy working, not a measurement failure.
     """
-    if settle.settled:
+    if settle.settled or settle.reason == "fixed_budget":
         return
     logger.warning(
         "settle criterion not met after {:.2f} s ({} probes, n_stable={}): {} "
@@ -420,6 +501,90 @@ def _warn_if_unsettled(settle: SettleReport) -> None:
         settle.n_stable,
         settle.as_row(),
     )
+
+
+def _combine_stacked(stack: np.ndarray, combine: str) -> np.ndarray:
+    """Combine a ``(n, h, w)`` frame stack per pixel.
+
+    Median by default: on the bench the deep outliers were *corrupted* frames
+    (energy redistributed inside the frame), which a median rejects and a mean
+    smears into the answer.
+    """
+    if combine == "median":
+        return np.median(stack, axis=0)
+    return np.mean(stack, axis=0)
+
+
+def _rel_peak_sigma(stack: np.ndarray) -> float | None:
+    """Relative MAD-based sigma of the per-frame peak across a frame stack.
+
+    One array op (:meth:`numpy.ndarray.max` over the frame axes). The peak is the
+    scalar ``measure_spot`` already reports, so the number means the same thing
+    as ``SettleReport.peak``.
+
+    Returns ``None`` for a single frame: the MAD of one sample is not a scatter
+    estimate, and reporting ``0.0`` there would read as "noiseless".
+    """
+    if stack.shape[0] < 2:
+        return None
+    peaks = stack.max(axis=(1, 2))
+    median = float(np.median(peaks))
+    if not math.isfinite(median) or median <= 0.0:
+        return None
+    mad = float(np.median(np.abs(peaks - median)))
+    return 1.4826 * mad / median
+
+
+def _acquire_fixed_budget(
+    cam,
+    *,
+    policy: ProbePolicy,
+    min_wait_s: float,
+    t_write: float,
+) -> tuple[np.ndarray, SettleReport]:
+    """Fixed frame budget: discard, grab, combine per pixel, report the noise."""
+    # The floor still applies: an automatic flip-time estimate can be 0.0 ms, so
+    # reading immediately after the write would record the previous pattern.
+    remaining = float(min_wait_s) - (time.monotonic() - float(t_write))
+    if remaining > 0.0:
+        time.sleep(remaining)
+
+    for _ in range(int(policy.n_discard)):
+        cam.get_numpy_image(n_sample=1)
+
+    kept = [
+        np.asarray(cam.get_numpy_image(n_sample=1), dtype=np.float64)
+        for _ in range(int(policy.n_frames))
+    ]
+    stack = np.stack(kept, axis=0)
+    frame = _combine_stacked(stack, policy.combine)
+    rel_sigma = _rel_peak_sigma(stack)
+
+    try:
+        measurement = measure_spot(frame)
+        peak, cx, cy, width = (
+            measurement.peak,
+            measurement.centroid_x,
+            measurement.centroid_y,
+            measurement.fwhm_px,
+        )
+    except (ValueError, FloatingPointError) as exc:
+        logger.debug("spot measurement failed on the combined frame: {}", exc)
+        peak, cx, cy, width = 0.0, 0.0, 0.0, float("nan")
+
+    report = SettleReport(
+        settled=False,
+        reason="fixed_budget",
+        n_probes=int(policy.n_discard) + int(policy.n_frames),
+        n_stable=0,
+        waited_s=time.monotonic() - float(t_write),
+        peak=peak,
+        fwhm_px=width,
+        centroid_x=cx,
+        centroid_y=cy,
+        rel_sigma=rel_sigma,
+    )
+    return frame, report
 
 
 def acquire_settled(
@@ -434,6 +599,7 @@ def acquire_settled(
     stable_tol: float = 0.02,
     max_wait_s: float = 6.0,
     n_stable: int = DEFAULT_N_STABLE,
+    policy: ProbePolicy | None = None,
 ) -> SettledAcquisition:
     """Display ``phase_rad``, wait for the panel to settle, average the frames.
 
@@ -441,6 +607,13 @@ def acquire_settled(
     ``display_data()`` (no ``memory_number``, so the slot rotates itself --
     fact 3 in the module docstring), applies the shared settle criterion, and
     averages ``n_frames`` fresh frames afterwards.
+
+    ``policy=ProbePolicy(mode="frames")`` switches to the fixed-budget path used
+    by energy-ratio probes: **no** :func:`wait_for_settle` call, ``n_discard``
+    frames thrown away, ``policy.n_frames`` kept and combined per pixel by
+    ``policy.combine`` (median), and a ``rel_sigma`` noise verdict instead of a
+    settle verdict. ``policy=None`` (default) is the historical behaviour, byte
+    for byte.
 
     Args:
         cam: An open camera exposing ``get_numpy_image(n_sample=...)``.
@@ -455,6 +628,9 @@ def acquire_settled(
         stable_tol: Relative agreement required between readings.
         max_wait_s: Cap on the wait for stability.
         n_stable: Consecutive agreeing readings required.
+        policy: Acquisition policy; ``None`` means ``mode="settle"`` with the
+            keyword arguments above. In ``frames`` mode ``policy.n_frames`` /
+            ``policy.n_discard`` / ``policy.combine`` govern instead.
 
     Returns:
         A :class:`SettledAcquisition`: the averaged frame plus the verdict.
@@ -462,6 +638,12 @@ def acquire_settled(
     gray = slm.create_phase_from_array(phase_rad)
     t_write = time.monotonic()
     slm.display_data(gray, wait_time_s)
+    if policy is not None and policy.is_fixed_budget:
+        frame, settle = _acquire_fixed_budget(
+            cam, policy=policy, min_wait_s=min_wait_s, t_write=t_write
+        )
+        return SettledAcquisition(frame=frame, settle=settle)
+
     settle = wait_for_settle(
         cam,
         n_discard=n_discard,
@@ -483,6 +665,9 @@ def measure_flat_reference(
     slm,
     n_frames: int = 4,
     panel_shape: tuple[int, int] = (SLM_PANEL_H, SLM_PANEL_W),
+    *,
+    policy: ProbePolicy | None = None,
+    wait_time_s: float | None = 0.5,
 ) -> tuple[np.ndarray, SpotMeasurement]:
     """Write flat phase first, then average ``n_frames`` frames.
 
@@ -491,7 +676,14 @@ def measure_flat_reference(
 
     Returns the averaged frame and its spot measurement.
     """
-    frame = display_and_average(cam, slm, np.zeros(panel_shape), n_frames=n_frames)
+    frame = display_and_average(
+        cam,
+        slm,
+        np.zeros(panel_shape),
+        n_frames=n_frames,
+        wait_time_s=wait_time_s,
+        policy=policy,
+    )
     return frame, measure_spot(frame)
 
 
@@ -500,6 +692,9 @@ def measure_flat_reference_report(
     slm,
     n_frames: int = 4,
     panel_shape: tuple[int, int] = (SLM_PANEL_H, SLM_PANEL_W),
+    *,
+    policy: ProbePolicy | None = None,
+    wait_time_s: float | None = 0.5,
 ) -> tuple[np.ndarray, SpotMeasurement, SettleReport]:
     """Same flat reference as :func:`measure_flat_reference`, **with** the verdict.
 
@@ -511,7 +706,12 @@ def measure_flat_reference_report(
         The averaged frame, its spot measurement, and the settle verdict.
     """
     result = acquire_settled(
-        cam, slm, np.zeros(panel_shape), n_frames=n_frames
+        cam,
+        slm,
+        np.zeros(panel_shape),
+        n_frames=n_frames,
+        wait_time_s=wait_time_s,
+        policy=policy,
     )
     _warn_if_unsettled(result.settle)
     return result.frame, measure_spot(result.frame), result.settle
@@ -529,6 +729,7 @@ def display_and_average(
     *,
     min_wait_s: float = DEFAULT_MIN_WAIT_S,
     n_stable: int = DEFAULT_N_STABLE,
+    policy: ProbePolicy | None = None,
 ) -> np.ndarray:
     """Display ``phase_rad`` and return an averaged frame once the spot settles.
 
@@ -549,6 +750,11 @@ def display_and_average(
     ``n_stable`` consecutive readings agree with *each other* on peak, position
     **and width** to ``stable_tol``, capped at ``max_wait_s``.
 
+    Energy-ratio probes pass ``policy=ProbePolicy(mode="frames")``: the settle
+    criterion is skipped entirely and a fixed frame budget is combined per pixel
+    by median. See the module docstring for why the criterion cannot converge
+    for them (the binding term is the centroid, which they never use).
+
     The verdict is **not** folded into the return value -- this function keeps
     its historical ``np.ndarray`` contract -- but an unsettled outcome is logged
     as a warning, and :func:`acquire_settled` exposes it programmatically.
@@ -565,6 +771,7 @@ def display_and_average(
         max_wait_s: Cap on the wait for stability.
         min_wait_s: Floor on the delay between the write and the first probe.
         n_stable: Consecutive agreeing readings required.
+        policy: Acquisition policy (see :func:`acquire_settled`).
     """
     result = acquire_settled(
         cam,
@@ -577,6 +784,7 @@ def display_and_average(
         stable_tol=stable_tol,
         max_wait_s=max_wait_s,
         n_stable=n_stable,
+        policy=policy,
     )
     _warn_if_unsettled(result.settle)
     return result.frame
@@ -819,6 +1027,7 @@ def capture_settled(
     max_wait_s: float = 6.0,
     min_wait_s: float = DEFAULT_MIN_WAIT_S,
     n_stable: int = DEFAULT_N_STABLE,
+    policy: ProbePolicy | None = None,
 ) -> np.ndarray:
     """Display one phase and return the averaged far-field frame once settled.
 
@@ -842,6 +1051,7 @@ def capture_settled(
         max_wait_s: Cap on the wait for stability.
         min_wait_s: Floor on the delay between the write and the first probe.
         n_stable: Consecutive agreeing readings required.
+        policy: Acquisition policy; ``None`` runs the settle criterion.
 
     Returns:
         The averaged frame.
@@ -857,6 +1067,7 @@ def capture_settled(
         stable_tol=stable_tol,
         max_wait_s=max_wait_s,
         n_stable=n_stable,
+        policy=policy,
     )
     _warn_if_unsettled(result.settle)
     return result.frame
@@ -874,6 +1085,7 @@ def capture_settled_report(
     max_wait_s: float = 6.0,
     min_wait_s: float = DEFAULT_MIN_WAIT_S,
     n_stable: int = DEFAULT_N_STABLE,
+    policy: ProbePolicy | None = None,
 ) -> SettledAcquisition:
     """Same acquisition as :func:`capture_settled`, but **with** the verdict.
 
@@ -894,6 +1106,7 @@ def capture_settled_report(
         max_wait_s: Cap on the wait for stability.
         min_wait_s: Floor on the delay between the write and the first probe.
         n_stable: Consecutive agreeing readings required.
+        policy: Acquisition policy; ``None`` runs the settle criterion.
 
     Returns:
         The averaged frame plus the settle verdict.
@@ -909,4 +1122,5 @@ def capture_settled_report(
         stable_tol=stable_tol,
         max_wait_s=max_wait_s,
         n_stable=n_stable,
+        policy=policy,
     )
