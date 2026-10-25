@@ -2230,11 +2230,17 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
      - **红因三：记为待决，我不删别人在途的文档**：`scripts/README.md:865-867/3216-3219` 与
        `provenance.py:228-234` 注册了 `pib_exit_safety` 报告家族的 4 条路径（报告 md、生成器、硬件验证
        脚本、其测试），但这 4 条在 index、磁盘、以及**逐 ref 的 `ls-tree` 全查不到**（引入提交 `7b485041`）。
-       两条护栏判红是真缺陷，但结清只有两条路 —— 补交缺失文件，或删文档与注册项 —— 取决于作者是半途
-       未完还是笔误，**这个判断不在我手上**，已问用户。
-     - **顺带量到的基础设施缺口（有意未修，因为它会立刻红）**：`sync_report_provenance.py` 对缺失目标走
-       `continue`（98/101/106 行），所以注册了不存在的路径时 `--check` 仍报 clean —— 「报告 → 脚本唯一
-       映射源」**没有存在性校验**。补这条守卫的前提是先结清红因三，否则新守卫一入库就红。
+       同一个根因让 master 上**四条测试判红**：`test_conventions.py` 两条（散文里的调用路径、围栏里的复现
+       命令），`test_report_provenance.py` 两条（`test_registry_script_paths_exist`、
+       `test_header_script_links_resolve`）。结清只有两条路 —— 补交缺失文件，或删文档与注册项 —— 取决于
+       作者是半途未完还是笔误，**这个判断不在我手上**，已问用户。
+     - **我在这条上写错一句并已推到 master（本会话第 14 处自伤：记述性断言先于查证）**：我先写下
+       「provenance 没有存在性校验、缺口待补」，**之后**才去跑 `tests/ao_shaping/scripts` —— 结果存在性
+       守卫**早就在**：`test_report_provenance.py:265` 与 `:306`（在 `05a2335b` 上就有，不是本次新增），
+       它们正是被这四条幽灵路径判红的。站得住的窄说法只是：`sync_report_provenance.py --check` 对缺失目标
+       走 `continue`（98/101/106 行）所以它报 clean —— **抓这类缺陷的是 pytest 守卫，不是那个 `--check`**。
+       教训：断言「没有守卫」之前必须先跑该套件的现存测试，**没跑过就等于没查过**；错句已入库只能追加更正，
+       不能改写历史。
      - **验证（都在合并树上重跑）**：第 50 项守卫 1 passed；`drivers/wfs` + `drivers/sim` + `tools/wfs` +
        `optimizer/wf` **640 passed / 14 skipped**（与合并前逐位同数）；`test_lazy_driver_loading.py`
        10 passed；修解析器后 conventions **51 passed / 1 skipped / 2 failed**（那 2 条即红因三，非本次
