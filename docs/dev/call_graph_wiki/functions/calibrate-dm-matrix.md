@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: function
 tags: [calibration,dm,matrix]
-source: src/ao_shaping/optimizer/wf/dm_response_matrix.py:491
+source: src/ao_shaping/optimizer/wf/dm_response_matrix.py:495
 ---
 
 ## 签名
@@ -62,11 +62,11 @@ Calibrate DM actuator response matrix.
 - `_build_device_config`
 - `_decode_hadamard_responses`
 - `_hadamard_matrix`
+- `_measure_averaged_slopes`
 - `_next_hadamard_order`
 - `_optimize_perturbation_voltage`
 - `ao_shaping.utils.wavefront.matrix_utils.compute_lstsq`
 - [[functions/matrix-utils|`compute_pinv`]]
-- `ao_shaping.utils.wavefront.wfs_utils.flatten_slopes`
 - `measure_actuator_response`
 
 ## 谁调用它（入边）

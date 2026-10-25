@@ -33,7 +33,7 @@ run(ctx, params, wfs, wfs_drv)
     调试模式 (--debug):
         保存每次测量的原始WFS deviation数据。
 
-    TODO (实机待测试清单 —— sequential/hadamard 双模式尚未上设备实测):
+    TODO (实验待测试清单 —— sequential/hadamard 双模式尚未上设备实测):
         [ ] sequential 模式真实 DM+WFS n=5 重跑 (n-averages 10) + 自动电压优化:
             矩阵形状/条件数与仿真一致, 平均方差正常 (无死执行器误报)
         [ ] hadamard 模式自动阶数实测: 与 sequential 矩阵一致性 (相关性/条件数
@@ -54,6 +54,7 @@ run(ctx, params, wfs, wfs_drv)
 - `_build_device_config`
 - `_decode_hadamard_responses`
 - `_hadamard_matrix`
+- `_measure_averaged_slopes`
 - `_next_hadamard_order`
 - `_optimize_perturbation_voltage`
 - [[functions/calibrate-dm-matrix|`calibrate_dm_response_matrix`]]

@@ -33,19 +33,20 @@ source: scripts/call_graph/build_similarity.py
 
 | 簇 | 成员 |
 |---|---|
-| [[commands/pipeline|`run`]] — [[commands/wf|`run`]] |
+| [[functions/runner-common|`build_gs_refine_config`]] — [[functions/runner-common|`build_model_in_loop_config`]] |
+| [[commands/pib|`run`]] — [[commands/combined|`run`]] |
 | [[functions/optimize-pib-combined|`optimize_pib`]] — [[functions/optimize-pib-wfless|`optimize_pib`]] |
 | [[functions/slm-lut|`depth_pattern`]] — [[functions/slm-lut|`offset_pattern`]] |
-| [[commands/pib|`run`]] — [[commands/combined|`run`]] |
 
 ## 全部相似对（≥ 链接阈值，按得分降序）
 
 | 得分 | 函数 A | 函数 B | 判定理由 |
 |---|---|---|---|
-| 0.444 | [[commands/wf|`run`]] | [[commands/pipeline|`run`]] | 同名 `run`；共享 7 个被调函数（调用结构高度相似）（同调 0.88 / 共享 7 个被调） |
-| 0.425 | [[functions/optimize-pib-wfless|`optimize_pib`]] | [[functions/optimize-pib-combined|`optimize_pib`]] | 同名 `optimize_pib`；共享 12 个被调函数（调用结构高度相似）（同调 0.50 / 共享 12 个被调） |
+| 0.438 | [[functions/runner-common|`build_gs_refine_config`]] | [[functions/runner-common|`build_model_in_loop_config`]] | 共享 3 个被调函数；同文件 runner_common.py（同调 0.75 / 共享 3 个被调） |
+| 0.396 | [[commands/pib|`run`]] | [[commands/combined|`run`]] | 同名 `run`；共享 10 个被调函数（调用结构高度相似）（同调 0.77 / 共享 10 个被调） |
+| 0.384 | [[functions/optimize-pib-wfless|`optimize_pib`]] | [[functions/optimize-pib-combined|`optimize_pib`]] | 同名 `optimize_pib`；共享 9 个被调函数（调用结构高度相似）（同调 0.41 / 共享 9 个被调） |
 | 0.375 | [[functions/slm-lut|`depth_pattern`]] | [[functions/slm-lut|`offset_pattern`]] | 同文件 slm_lut.py；调用方高度重叠（同调 1.00 / 共享 1 个被调） |
-| 0.350 | [[commands/pib|`run`]] | [[commands/combined|`run`]] | 同名 `run`；共享 6 个被调函数（调用结构高度相似）（同调 0.67 / 共享 6 个被调） |
+| 0.336 | [[commands/wf|`run`]] | [[commands/pipeline|`run`]] | 同名 `run`；共享 7 个被调函数（调用结构高度相似）（同调 0.64 / 共享 7 个被调） |
 | 0.325 | [[functions/path-dirs|`get_date_dir_name`]] | [[functions/path-dirs|`get_timestamp_str`]] | 同文件 cli_helpers.py（同调 1.00 / 共享 1 个被调） |
 
 ## 使用建议

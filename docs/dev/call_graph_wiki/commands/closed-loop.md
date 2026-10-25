@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: command
 tags: [command]
-source: src/ao_shaping/runners/slm/zernike_matrix_runner.py:1565
+source: src/ao_shaping/runners/slm/zernike_matrix_runner.py:1572
 ---
 
 ## 一句话
@@ -13,7 +13,7 @@ source: src/ao_shaping/runners/slm/zernike_matrix_runner.py:1565
 
 ## 入口函数
 
-`runners.slm.zernike_matrix_runner.closed_loop_run`（`src/ao_shaping/runners/slm/zernike_matrix_runner.py:1565`）
+`runners.slm.zernike_matrix_runner.closed_loop_run`（`src/ao_shaping/runners/slm/zernike_matrix_runner.py:1572`）
 
 ```python
 closed_loop_run(ctx, params)

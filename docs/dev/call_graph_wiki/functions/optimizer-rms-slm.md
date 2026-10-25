@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: function
 tags: [optimizer,zernike,slm]
-source: src/ao_shaping/optimizer/wf/rms_by_zernike.py:433
+source: src/ao_shaping/optimizer/wf/rms_by_zernike.py:439
 ---
 
 ## 签名

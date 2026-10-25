@@ -36,7 +36,7 @@ run(ctx, params, slm_params, wfs_driver, wfs_params)
         - WFS Zernike系数 (averaging前)
 
     标定内核 (2026-09-16 按已验证的 tools/slm/slm_zernike_response.py 重写):
-        - 直控链路: Santec + PatternHelper (与原 ZernikeSLM 链路不同; 旧链路实机原生崩溃)
+        - 直控链路: Santec + PatternHelper (与原 ZernikeSLM 链路不同; 旧链路实验原生崩溃)
         - 矩阵单位 **λ/λ**: 列 = Δ(WFS λ) / Δ(SLM 幅度 λ); 幅度 λ = rad/(2π)
         - make_phase **透传 n_max** (不再硬编码 4 → n≥5 模式不再被截断)
         - 测完矩阵后自动执行 offline_correction_test():
@@ -45,7 +45,7 @@ run(ctx, params, slm_params, wfs_driver, wfs_params)
             → export_correction_csv 保存施加的矫正相位
               (文件名含 序列号/波长/shift/半径/时间 + sidecar JSON)
 
-    TODO (实机待测试清单 —— 重写后尚未上设备实测):
+    TODO (实验待测试清单 —— 重写后尚未上设备实测):
         [ ] 重标响应矩阵, 检查主导系数: [5](2,0)defocus [9](3,1)coma [13](4,0)spherical
             应与理论形状对应; n≥5 模式不再被截断 (旧 bug: 硬编码 n_max=4)
         [ ] 矩阵量纲: cond_eff 应仍 ≈8 量级; 反解系数幅值与推拉幅度 (λ) 同量级

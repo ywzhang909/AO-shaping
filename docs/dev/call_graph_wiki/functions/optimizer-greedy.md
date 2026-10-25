@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: function
 tags: [optimizer,zernike,greedy]
-source: src/ao_shaping/optimizer/wf/greedy_zernike.py:73
+source: src/ao_shaping/optimizer/wf/greedy_zernike.py:78
 ---
 
 ## 签名

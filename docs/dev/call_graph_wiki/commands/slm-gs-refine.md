@@ -1,19 +1,19 @@
 ---
-title: slm-gs-refine（GS 预整形 + 自由相位 SPGD 细化）
+title: slm-gs-refine（GS 预整形 + 全频随机相位 SPGD 细化）
 created: 2026-10-13
 updated: 2026-10-13
 type: command
 tags: [command]
-source: src/ao_shaping/runners/slm/gs_refine_runner.py:85
+source: src/ao_shaping/runners/slm/gs_refine_runner.py:115
 ---
 
 ## 一句话
 
-GS 预整形 + 自由相位 SPGD 细化
+GS 预整形 + 全频随机相位 SPGD 细化
 
 ## 入口函数
 
-`runners.slm.gs_refine_runner.run`（`src/ao_shaping/runners/slm/gs_refine_runner.py:85`）
+`runners.slm.gs_refine_runner.run`（`src/ao_shaping/runners/slm/gs_refine_runner.py:115`）
 
 ```python
 run(ctx, params)
@@ -22,10 +22,13 @@ run(ctx, params)
 ## docstring（原文节选）
 
 ```
-SLM GS 预整形 + 自由相位 SPGD 细化 (SLM + CCD 闭环)。
+SLM GS 预整形 + 全频随机相位 SPGD 细化 (SLM + CCD 闭环)。
 
-    把远场光斑整形为均匀方形。先用 GS 算一个开环预整形相位 (只在实测优于平场时
-    采用), 再用无感知 SPGD 细化自由相位。
+    把远场光斑整形为 ``--target-shape`` 指定的形状 (默认方斑)。先用 GS 算一个
+    开环预整形相位 (只在实测优于平场时采用), 再用无感知 SPGD 细化全频随机相位。
+
+    形状同时作用于**两处**: GS 的目标, 以及 PIB/CV 的评分掩膜 —— 否则会出现
+    「用方框给圆形打分」这种把框内空白算进分母的口径错误。
 
     目标函数与仿真一致: ``0.5*PIB + 0.5/(1+CV)``, 读取真实 CCD 帧计算。
 ```
@@ -38,6 +41,7 @@ SLM GS 预整形 + 自由相位 SPGD 细化 (SLM + CCD 闭环)。
 
 ## 直接调用（1 级，按调用次数）
 
+- `_shape_params_line`
 - [[functions/runner-common|`build_gs_refine_config`]]
 - [[functions/runner-common|`save_gs_refine_results`]]
 - `ao_shaping.utils.cli.exposure.resolve_exposure`
