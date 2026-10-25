@@ -53,7 +53,7 @@ from ml.sim2f.schema import (
     SPLIT_VAL,
     validate_cache,
 )
-from ml.sim2f.targets import draw_target
+from ml.sim2f.targets import TargetSample, draw_target
 from ml.sim2f.teacher import Teacher
 
 __all__ = ["build_pairs", "load_pairs"]
@@ -127,10 +127,7 @@ def build_pairs(
     for index in range(count):
         kind = kinds[index]
         seed_value = int(seeds[index])
-        rng = np.random.default_rng(seed_value)
-        sample = draw_target(
-            kind, ccd_px, rng, size_frac=tuple(synth_cfg.size_frac)
-        )
+        sample = _draw_sample(kind, ccd_px, seed_value, synth_cfg)
         result = teacher.optimise(
             torch.as_tensor(sample.intensity)[None],
             support=torch.as_tensor(sample.support),
@@ -237,6 +234,46 @@ def load_pairs(path: str | Path) -> tuple[dict[str, np.ndarray], dict]:
         validate_cache(stored, grid=int(grid), ccd_px=int(ccd_px))
         arrays = {name: stored[name] for name in stored.files}
     return arrays, meta
+
+
+def _draw_sample(
+    kind: str, ccd_px: int, seed_value: int, synth_cfg: SynthConfig
+) -> TargetSample:
+    """Draw one target, refusing an unreachable one instead of caching it.
+
+    The corpus is the teacher's training signal, so a target the bench physically
+    cannot produce (a feature thinner than ``1.5 x`` the measured PSF FWHM) must
+    stop the build **here**: a cached unreachable pair teaches the network an
+    optimum that does not exist, and it cannot be told apart from a hard sample
+    afterwards.  There is no silent resampling -- the error propagates with the
+    kind, the seed, the measured thin feature and the floor.
+
+    Args:
+        kind: Shape family of this sample.
+        ccd_px: Camera grid side, pixels.
+        seed_value: This sample's own seed (recorded in the archive).
+        synth_cfg: Corpus config, source of ``size_frac`` / ``min_feature_px``.
+
+    Returns:
+        The drawn target.
+
+    Raises:
+        ValueError: If the geometry cannot clear the feature floor.
+    """
+    rng = np.random.default_rng(seed_value)
+    try:
+        return draw_target(
+            kind,
+            ccd_px,
+            rng,
+            size_frac=tuple(synth_cfg.size_frac),
+            min_feature_px=float(synth_cfg.min_feature_px),
+        )
+    except ValueError as error:
+        raise ValueError(
+            f"cannot draw an achievable {kind!r} target for seed {seed_value} "
+            f"at ccd_px={ccd_px}: {error}"
+        ) from error
 
 
 def _assign_splits(

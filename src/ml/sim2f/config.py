@@ -755,6 +755,18 @@ class SynthConfig:
         target_kinds: Shape families to draw from; must be a subset of
             :data:`TARGET_KINDS`.
         size_frac: ``(min, max)`` target size as a fraction of ``ccd_px``.
+        min_feature_px: Floor on a target's **thinnest bright feature**, camera
+            pixels on the reference window (``ccd_px = 256``).  ``24`` is not a
+            taste knob: the calibrated twin's PSF FWHM is **16.0 CCD px /
+            35.2 um** (measured, ``report/shape_trials/sim_vs_hw/``), so a
+            feature below ``1.5 x FWHM`` is a delta function to this bench, not a
+            shape.  Measured with the 800-iteration teacher
+            (:func:`ml.sim2f.losses.objective_terms`): ``line`` -- drawn at
+            1.5-3.0 px, i.e. 0.12 x FWHM -- stalls at L1 1.62 / NCC 0.38 while
+            ``gaussian`` reaches 0.029.  :func:`ml.sim2f.targets.draw_target`
+            therefore grows each family until its thinnest feature clears this
+            floor and raises otherwise (no silent resampling, no unreachable
+            pair in the cache).
         train_frac: Fraction of pairs in the training split.
         val_frac: Fraction of pairs in the validation split.  The remainder is
             the test split.
@@ -766,6 +778,7 @@ class SynthConfig:
     seed: int = 20261024
     target_kinds: tuple[str, ...] = TARGET_KINDS
     size_frac: tuple[float, float] = (0.16, 0.44)
+    min_feature_px: float = 24.0
     train_frac: float = 0.8
     val_frac: float = 0.1
     batch_size: int = 8
@@ -783,6 +796,10 @@ class SynthConfig:
         low, high = (float(self.size_frac[0]), float(self.size_frac[1]))
         if not (0.0 < low <= high < 1.0):
             raise ValueError(f"size_frac must satisfy 0 < low <= high < 1, got {self.size_frac!r}")
+        if not math.isfinite(float(self.min_feature_px)) or float(self.min_feature_px) <= 0.0:
+            raise ValueError(
+                f"min_feature_px must be finite and > 0, got {self.min_feature_px!r}"
+            )
         if not (0.0 < float(self.train_frac) < 1.0):
             raise ValueError(f"train_frac must be in (0, 1), got {self.train_frac!r}")
         if not (0.0 <= float(self.val_frac) < 1.0):
@@ -802,6 +819,7 @@ class SynthConfig:
             "seed": int(self.seed),
             "target_kinds": list(self.target_kinds),
             "size_frac": [float(v) for v in self.size_frac],
+            "min_feature_px": float(self.min_feature_px),
             "train_frac": float(self.train_frac),
             "val_frac": float(self.val_frac),
             "batch_size": int(self.batch_size),

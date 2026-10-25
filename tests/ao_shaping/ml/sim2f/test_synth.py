@@ -176,3 +176,45 @@ def test_build_pairs_returns_the_output_directory(tmp_path) -> None:
     )
     assert directory == tmp_path / "out"
     assert (directory / CACHE_FILE).is_file()
+
+
+def test_metadata_records_the_feature_floor(tmp_path) -> None:
+    """The floor is part of the corpus identity, so ``meta.json`` carries it."""
+    assert SYNTH.min_feature_px == pytest.approx(24.0)
+    _, _, meta = _build(tmp_path)
+    assert meta["synth"]["min_feature_px"] == pytest.approx(SYNTH.min_feature_px)
+
+
+def test_unreachable_target_stops_the_build(tmp_path) -> None:
+    """A target thinner than the bench can shape fails the build, loudly.
+
+    ``line`` needs ``3 x floor`` of length to stay a line, and this toy bench is
+    64 px wide, so the reference floor of 24 px is impossible here: the build must
+    raise instead of caching a pair whose label the optics cannot produce.
+    """
+    unbuildable = SynthConfig(count=2, seed=1234, target_kinds=("line",))
+    with pytest.raises(ValueError) as excinfo:
+        build_pairs(
+            SIM, unbuildable, TEACHER, out_dir=tmp_path / "broken", device="cpu"
+        )
+    message = str(excinfo.value)
+    assert "line" in message
+    assert "24.00px feature floor" in message
+    assert not (tmp_path / "broken" / CACHE_FILE).is_file()
+
+
+def test_draw_error_carries_the_kind_and_the_seed(tmp_path, monkeypatch) -> None:
+    """The synth-level error names the sample; the guard's numbers are preserved."""
+    def _reject(*args, **kwargs):
+        raise ValueError(
+            "unreachable 'square' target: its thinnest feature is 2.00px, below the "
+            "24.00px floor"
+        )
+
+    monkeypatch.setattr("ml.sim2f.synth.draw_target", _reject)
+    with pytest.raises(ValueError) as excinfo:
+        build_pairs(SIM, SYNTH, TEACHER, out_dir=tmp_path / "rejected", device="cpu")
+    message = str(excinfo.value)
+    assert "'square'" in message
+    assert "seed" in message
+    assert "2.00px" in message and "24.00px floor" in message

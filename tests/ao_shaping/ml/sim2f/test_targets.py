@@ -13,10 +13,20 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ml.sim2f.config import TARGET_KINDS
-from ml.sim2f.targets import TargetSample, draw_target
+from ml.sim2f.config import TARGET_KINDS, Sim2fConfig, SynthConfig
+from ml.sim2f.targets import (
+    DEFAULT_MIN_FEATURE_PX,
+    REFERENCE_CCD_PX,
+    TargetSample,
+    draw_target,
+    thin_feature_px,
+)
 
 CCD = 64
+
+#: The measured PSF FWHM of the calibrated twin, camera pixels -- the basis of the
+#: feature floor (``report/shape_trials/sim_vs_hw/``).
+PSF_FWHM_PX = 16.0
 
 
 def _ncc(first: np.ndarray, second: np.ndarray) -> float:
@@ -150,4 +160,121 @@ def test_tiny_frame_still_produces_a_valid_target() -> None:
     assert sample.intensity.shape == (16, 16)
     assert int(sample.support.sum()) >= 16
     assert float(sample.intensity.sum()) == pytest.approx(1.0, rel=1e-5)
+
+
+def test_feature_floor_is_single_sourced_from_the_config() -> None:
+    """The floor is the config's number, and it is 1.5 x the measured PSF FWHM."""
+    assert DEFAULT_MIN_FEATURE_PX == SynthConfig().min_feature_px
+    assert REFERENCE_CCD_PX == Sim2fConfig().ccd_px
+    assert DEFAULT_MIN_FEATURE_PX == pytest.approx(1.5 * PSF_FWHM_PX)
+    # A floor of 0 (or a negative one) is not a floor: the config rejects it.
+    with pytest.raises(ValueError, match="min_feature_px"):
+        SynthConfig(min_feature_px=0.0)
+
+
+@pytest.mark.parametrize("kind", TARGET_KINDS)
+def test_every_family_clears_the_feature_floor_on_the_reference_grid(kind: str) -> None:
+    """Every family's thinnest feature is >= the floor at the corpus geometry.
+
+    ``ccd_px=256`` with the configured floor is the path the corpus takes, and the
+    thinnest feature is *measured back* from the reported geometry -- not compared
+    against the draw range -- so a family that forgets to grow a dimension fails
+    here.
+    """
+    floor = SynthConfig().min_feature_px
+    for seed in range(8):
+        sample = draw_target(
+            kind, Sim2fConfig().ccd_px, np.random.default_rng(seed), min_feature_px=floor
+        )
+        thin = thin_feature_px(kind, sample.geometry)
+        assert thin >= floor, f"{kind} seed {seed}: {thin:.2f}px < {floor}px"
+        assert thin >= 1.5 * PSF_FWHM_PX
+        # The reported number is the checked number, so a cache description can be
+        # compared without re-deriving the geometry.
+        assert sample.geometry["thin_px"] == pytest.approx(thin)
+        assert sample.geometry["thin_px"] >= floor
+
+
+def test_line_is_a_line_above_the_floor() -> None:
+    """``line`` width sits in ``[floor, 1.6 x floor]`` and the bar stays long.
+
+    The old draw range (1.5-3.0 px) was 0.12 x PSF FWHM: a delta function, which
+    the 800-iteration teacher measurably cannot shape (L1 1.62 / NCC 0.38).
+    """
+    floor = SynthConfig().min_feature_px
+    for seed in range(24):
+        sample = draw_target(
+            "line",
+            Sim2fConfig().ccd_px,
+            np.random.default_rng(seed),
+            min_feature_px=floor,
+        )
+        width = sample.geometry["width_px"]
+        length = sample.geometry["length_px"]
+        assert floor <= width <= 1.6 * floor + 1e-9
+        assert length >= 3.0 * width - 1e-9, (length, width)
+        assert sample.geometry["thin_px"] == pytest.approx(width)
+
+
+@pytest.mark.parametrize(
+    ("kind", "params"),
+    [
+        ("line", {"width_px": 2.0, "length_px": 100.0}),
+        ("square", {"edge_px": 2.0}),
+        ("rect", {"width_px": 100.0, "height_px": 2.0}),
+        ("disc", {"radius_px": 1.0}),
+        ("ring", {"outer_radius_px": 40.0, "inner_radius_px": 38.0}),
+        ("cross", {"arm_width_px": 2.0}),
+        ("two_spot", {"radius_px": 1.0}),
+        ("gaussian", {"sigma_px": 0.5}),
+    ],
+)
+def test_guard_rejects_a_sub_floor_target(kind: str, params: dict[str, float]) -> None:
+    """A synthetic sub-floor geometry is refused, with the numbers in the message."""
+    floor = SynthConfig().min_feature_px
+    measured = thin_feature_px(kind, params)
+    assert measured < floor
+
+    with pytest.raises(ValueError) as excinfo:
+        thin_feature_px(kind, params, floor_px=floor)
+    message = str(excinfo.value)
+    assert kind in message
+    assert f"{measured:.2f}px" in message
+    assert f"{floor:.2f}px" in message
+    assert "PSF FWHM" in message
+
+
+def test_guard_is_silent_when_no_floor_is_given() -> None:
+    """``thin_feature_px`` only measures unless a floor is passed."""
+    assert thin_feature_px("line", {"width_px": 2.0}) == pytest.approx(2.0)
+    assert thin_feature_px("line", {"width_px": 40.0}, floor_px=24.0) == pytest.approx(40.0)
+
+
+@pytest.mark.parametrize("kind", TARGET_KINDS)
+def test_default_floor_is_capped_on_a_toy_grid(kind: str) -> None:
+    """On grids below the reference the default floor is the same *fraction*.
+
+    A 24 px feature cannot be a target in a 64 px window -- it would be the frame --
+    so the default floor is capped at ``24 / 256`` of the window while an explicit
+    floor is honoured verbatim (which is what the corpus passes).
+    """
+    floor = DEFAULT_MIN_FEATURE_PX / REFERENCE_CCD_PX * CCD
+    sample = draw_target(kind, CCD, np.random.default_rng(2))
+    assert thin_feature_px(kind, sample.geometry) >= floor
+    assert sample.geometry["thin_px"] >= floor
+
+
+@pytest.mark.parametrize("kind", ["line", "ring"])
+def test_explicit_floor_is_not_silently_relaxed(kind: str) -> None:
+    """A floor the window cannot hold is an error, not a quietly thinner target.
+
+    ``line`` needs ``3 x floor`` of length and ``ring`` needs ``3 x floor`` of
+    diameter (outer radius ``1.5 x floor``), so the reference floor of 24 px does
+    not fit a 64 px frame: the draw must stop instead of shrinking the feature.
+    """
+    with pytest.raises(ValueError) as excinfo:
+        draw_target(kind, CCD, np.random.default_rng(2), min_feature_px=24.0)
+    message = str(excinfo.value)
+    assert kind in message
+    assert "24.00px feature floor" in message
 
