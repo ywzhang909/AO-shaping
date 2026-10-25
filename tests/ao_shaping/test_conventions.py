@@ -2020,15 +2020,15 @@ _MD_ENTRY = re.compile(r'"([^"]+\.md)":\s*ReportProvenance\(')
 # as hand-written (measured: models_report/report.md, 4 offenders mis-bucketed).
 _MD_SCRIPT_FIELD = re.compile(r'script\s*=\s*(HANDWRITTEN|"[^"]+")')
 
-# 24 at first measurement, then -5 during the generator sweep (TODO 8.9 item 27): two
-# tables had a wrong DELIMITER row rather than wrong cells -- generate_models_report
-# declared 7 columns against an 8-column header (4 flagged rows) and generate_pib_bench
-# declared 10 against a 9-column header (1 flagged row). One line each cleared all five,
-# which is why this count moves in steps that are not row-shaped.
-# The remaining 19 are cells built by generators that hand-write row strings instead of
-# calling markdown_table, plus the three committed hw_defocus artifacts whose emitter is
-# already fixed. May only go DOWN, never up.
-_MD_GENERATED_SPLIT_BASELINE = 19
+# 24 at first measurement -> 19 (two wrong DELIMITER rows, see TODO 8.9 item 27) -> 7.
+# The 12 just cleared: 8 hand-written row literals escaped in their emitting generator
+# (inverse_design 3, oopao_vs_numpy 1, asm_vs_fraunhofer 3, zernike_farfield_sim 1) so a
+# regeneration emits what the artifact now says, plus 3 hw_defocus artifacts whose emitter
+# markdown_table already fixed, plus 1 hand-added zernike_amp row with no emitter at all.
+# The remaining 7 are miicam probe rows; that report's .md is written by
+# scripts/ccd/miicam_auto_exposure_probe.py, which needs a real camera to regenerate.
+# This number may only go DOWN, never up.
+_MD_GENERATED_SPLIT_BASELINE = 7
 
 
 def _unfenced_md_lines(text: str) -> list[tuple[int, str]]:
@@ -2127,6 +2127,18 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
                         f"{rel}:{lineno}: delimiter declares {declared - 1} cell(s), "
                         f"this row writes {written - 1}: {line[:70]}"
                     )
+            # Zero tolerance, both directions: an escaped OUTER pipe means the row lost
+            # its closing (or opening) delimiter. The arity rule above cannot see that --
+            # a row with a missing closing pipe simply writes FEWER cells, which GFM
+            # pads and this guard deliberately allows. It is the signature of a bad
+            # mechanical escape, not of content.
+            for lineno, line in block:
+                body = line.rstrip()
+                if body.endswith("\\|") or body.startswith("\\|"):
+                    offenders.append(
+                        f"{rel}:{lineno}: the row's outer delimiter was escaped, so the "
+                        f"row lost its closing/opening pipe: {line[:70]}"
+                    )
     return offenders, blocks
 
 
@@ -2145,6 +2157,10 @@ def test_markdown_table_rows_never_write_more_cells_than_declared() -> None:
     header: 14 cells against a 12-cell body), so a header-relative check blamed the
     wrong rows on those three files. Rows writing fewer cells than declared are legal
     -- GFM pads short rows and the trailing ``|`` is optional -- and are not flagged.
+    Because that padding is legal, an arity rule alone cannot see a row that LOST its
+    closing pipe, so the outer-delimiter escape is checked separately with zero
+    tolerance -- a mechanical escaping pass once did exactly that, and only the header
+    (which must match the delimiter exactly) betrayed it.
 
     Generated reports are counted against a baseline rather than excluded, so a new
     split cannot arrive silently: 19 rows across 9 generated reports are baselined.
@@ -2153,7 +2169,8 @@ def test_markdown_table_rows_never_write_more_cells_than_declared() -> None:
     the same rule (TODO 8.9 item 27). Hand-written files, hand-written reports
     included, must stay at zero.
 
-    Measured 2026-10-25: 0 hand-written offenders, 19 generated rows, 1487 table blocks.
+    Measured 2026-10-25: 0 hand-written offenders, 7 generated rows, 1487 table blocks,
+    and 0 rows whose outer delimiter is escaped.
     The block bound is a measured magnitude on purpose: an inverted fence test once
     blanked every real table and scanned 0 blocks, which a ``blocks > 0`` check would
     have reported as a passing guard.

@@ -694,7 +694,7 @@ python -m pytest tests/ao_shaping/scripts/test_compare_models_cv.py -q  # 19
 | **SPGD** | Stochastic Parallel Gradient Descent | 无感知优化算法。通过比较带正负扰动的两次测量估计梯度，每次迭代需 2 次相机读数。 |
 | **GS** | Gerchberg-Saxton | 迭代相位恢复算法。用于没有 WFS 的闭环校正，仓库实现见 `algorithm/signal_processing/gerchberg_saxton.py`。 |
 | **PIB** | Power-in-Bucket | 桶内功率: 落在目标半径内的光功率总和。整形质量的一个指标。 |
-| **piston** | Zernike Noll 1 (0,0) | 常数相位项。远场强度不受 piston 影响 (`|FFT(e^{iφ₀}U)| = |FFT(U)|`), 因此从可学习参数中排除。 |
+| **piston** | Zernike Noll 1 (0,0) | 常数相位项。远场强度不受 piston 影响 (`\|FFT(e^{iφ₀}U)\| = \|FFT(U)\|`), 因此从可学习参数中排除。 |
 | **far_field_padding** | -- | FFT 网格相对于瞳面网格的 padding 倍数。标定物理尺度以匹配相机视场。默认 10 (适用于 248 px fov)。详见 §3.1。 |
 | **zfrac** | Zernike energy fraction | 合成相位中落在 Zernike 张成空间的能量占比。衡量相位是否"出流形"。 |
 | **wfs** | Wavefront Sensor | 波前传感器。Thorlabs 模块，详见 `drivers/wfs/`。 |
