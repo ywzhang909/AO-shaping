@@ -2351,6 +2351,40 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
        provenance `--check` clean（142 份）；ruff 用 CI 钉版 **0.15.12** 全绿（宿主另有 0.16.0，
        钉版才是门禁）。
 
+55. ✅ **倾斜槽位字面量的最后一处重复收敛到 `TILT_DLL_SLICE`，并实测出旧标定路径的排除算术差一个槽位 —— 但这一条里我否证了自己两个猜测**（2026-10-25）：
+     - **改动本身逐位等价**：`tools/wfs/wfs_reference.py:94-95` 的两处 `z[2:4] / 0.532` 改用 `common.py`
+       的 `TILT_DLL_SLICE`。动手前先确认两件事：该模块**本就**从 `tools/zernike/common.py` 导入（无新增
+       依赖、无环），且 `measure_tilt(wfs: ThorlabWFS, …)` 是**具体驱动类型**而非 `BaseWFS` —— 若 `wfs`
+       可能是孪生，`TILT_DLL_SLICE` 就是错的（孪生无占位槽，tip/tilt 不在 2、3）。
+     - **改到探针覆盖的模块，就跑整个目录**：`wfs_reference` 出现在 `probe_help_golden.json` 里，即它正是
+       第 53 项踩过的那条字面量冻结守卫的 parametrized 目标。本次没有新增字符串字面量（常量名不是
+       字面量），但**不再靠推理**：`tools/slm` + `tools/wfs` + conventions 全跑。
+     - **实测到的缺陷（记录，未修）**：`optimizer/wf/zernike_response_matrix.py` 裁剪 WFS 读数用
+       `start_idx += 1`（piston）/`+= 2`（tip-tilt），是把 **0 基 Noll** 算术套在 **DLL 1 基**向量上。
+       四种组合实测保留槽位：`(去piston, 留tiptilt) → 1..66`（**piston 其实还在**）、`(两者都去) → 3..66`
+       （**去掉了 tip 却留着 tilt**）、`(不去piston, 去tiptilt) → 2..66`、`(都不去) → 0..66`；
+       且每种组合都 **rows − cols = 1**。
+     - **它为什么不广播失败**：`BaseWFS.calc_n_zernike_terms` 返回的是**项数 +1**（占位槽），把同一个偏移
+       同时加进了行数 ⇒ 长度永远自洽，只有行的**身份**偏一格，连带元数据与 `zernike_debug_viewer.py`
+       的行标签。与第 52 项「按槽位取单点读数会静默出错」同族。
+     - **不改的理由是消费方目前自洽**：`tools/wfs/zernike_correction.py` 取 `z[1:]` = 66 = 行数，两边同样
+       偏一格 ⇒ 现下**不坏**。按槽位身份裁剪会让矩阵 66 → 65 行，使已存盘矩阵与查看器的行解释失配，
+       属设备侧数值决定。在线 CLI 路径已正确：`runners/slm/zernike_matrix_runner.py` 的 `_mode_ids` 按
+       **身份**去 piston（`i != 1`），其注释自记过同一个误减。
+     - **我否证掉的两个猜测（留案防重犯）**：(a) 我断言 65 行 vs 66 通道会广播失败 —— 读 `base.py` 才知
+       那个 +1 是为占位槽刻意保留，两边自洽；(b) 我断言 `WFSManager` 是不存在的类（`git grep
+       'class WFSManager'` 零命中）—— 实为 `zernike_response_matrix.py:49` 在 `TYPE_CHECKING` 下的
+       `ThorlabWFS as WFSManager` **别名**，按类名 grep 查不出别名。
+     - **测量工具自身的错（第 19 次自伤）**：第一版存根返回**静态**读数，而该函数算的是
+       `(plus − minus) / (2·magnitude)` ⇒ 相减归零，打印出「所有槽位都是 0」。改成让存根按
+       `send_zernike` 实际收到的**带符号**系数决定读数符号，槽位身份才在差分后存活。另：`git grep`
+       基本正则里 `|` 不是析取，静默零命中（已第三次踩）。
+     - **已知未收敛的重复**：同一套偏移算术手抄在 4 处（`zernike_response_matrix.py:196` 与 `:509-514`、
+       `gui/zernike/zernike_response_matrix_ui.py:405-411` 自称 "same logic"、
+       `zernike_debug_viewer.py:363-379`），已记进 `drivers/wfs/AGENTS.md` 作为红线上的已知重复。
+     - **验证**：`tools/slm` + `tools/wfs` + conventions **879 passed / 5 skipped / 2 failed**（仍是既有那对，
+       字面量守卫无新增红）；CI 钉版 ruff **0.15.12** 全绿；术语门 **0 个文件**、双重夹注 2 行。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

@@ -98,6 +98,21 @@ DLL 槽位只在 1..3 重合、从 4 起分岔。现由 `tools/zernike/common.py
 返回的是原始 67 长数组 (index 0 未用), 因此 `[1:]` 是**正确**用法。风险在别处: 新代码若按
 0 基 Noll 去索引驱动读数 (拿 defocus=`[3]`), 就会在硬件上取到另一个模式。
 
+⚠️ **同一类静默偏移仍在旧标定路径 `optimizer/wf/zernike_response_matrix.py` 里** (容器实测, **未修**):
+它按 `start_idx += 1` 去 piston、`+= 2` 去 tip/tilt 裁剪 WFS 读数 —— 这是 **0 基 Noll** 的算术, 而读数
+是 **DLL 1 基** (index 0 是不写的占位, piston 在槽位 1)。四种组合实测保留的槽位:
+`(去 piston, 留 tip/tilt) → 1..66` (**piston 其实还在**)、`(两者都去) → 3..66` (**去掉了 tip 却留着 tilt**)、
+`(不去 piston, 去 tip/tilt) → 2..66`、`(都不去) → 0..66`; 且**每种组合都是 rows − cols = 1**。
+它**从不广播失败**: `BaseWFS.calc_n_zernike_terms` 本身就是**项数 +1**, 把同一个偏移同时加进了行数,
+所以只会让行集合与声明的模式集合差一个槽位 (元数据与调试查看器的行标签跟着偏)。
+- **为什么不顺手改**: 当前消费方与此**自洽** (`tools/wfs/zernike_correction.py` 取 `z[1:]` = 66 = 行数);
+  改成按槽位身份裁剪会让矩阵**行数 66 → 65**, 使已存盘的矩阵与 `gui/zernike/zernike_debug_viewer.py`
+  的行解释失配, 而这是只有实验系统才能重定的数值 ⇒ **设备侧决定**, 本次只记录。在线 CLI 路径不受影响:
+  `runners/slm/zernike_matrix_runner.py` 的 `_mode_ids` 已按**身份**去 piston (`i != 1`), 其注释自记过同一个误减。
+- 该偏移算术目前**手抄在 4 处** (`zernike_response_matrix.py:196` 与 `:509-514`、
+  `gui/zernike/zernike_response_matrix_ui.py:405-411` 自称"same logic"、`zernike_debug_viewer.py:363-379`),
+  属单一事实源红线上的已知重复, 尚未收敛。
+
 ## 惰性加载 (2026-10-01)
 
 `ThorlabWFS.__init__` 曾在**构造期**直接调用 `load_dll()`, 导致任何未安装

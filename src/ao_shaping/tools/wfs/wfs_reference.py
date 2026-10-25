@@ -37,6 +37,7 @@ from ao_shaping.drivers.wfs import ThorlabWFS
 from ao_shaping.tools.zernike.common import (
     DEFAULT_EXPOSURE_MS,
     SETTLE_REDUNDANCY_S,
+    TILT_DLL_SLICE,
     WFS_EXPOSURE_SAFETY_MAX_MS,
     collect_device_info,
     flat_gray,
@@ -91,8 +92,8 @@ def measure_tilt(wfs: ThorlabWFS, n_avg: int, zernike_order: int) -> dict:
             z = wfs.get_zernike(zernike_order=zernike_order)
         except Exception:
             z = None
-        if z is not None and np.isfinite(z[2:4]).all():
-            ztilts.append(np.asarray(z[2:4], dtype=float) / 0.532)
+        if z is not None and np.isfinite(z[TILT_DLL_SLICE]).all():
+            ztilts.append(np.asarray(z[TILT_DLL_SLICE], dtype=float) / 0.532)
     if not fits:
         raise RuntimeError("measure_tilt: 无有效波前")
     aggr: dict[str, Any] = {k: float(np.median([f[k] for f in fits]))
