@@ -2895,9 +2895,15 @@ def _cell_short(cell: dict[str, Any]) -> str:
 
 
 def render_farfield_section(
-    run: Run, payload: dict[str, Any], figures: Sequence[Path]
+    run: Run, payload: dict[str, Any], figures: Sequence[Path],
+    *, residual_pointer: bool = False,
 ) -> tuple[list[str], list[Table]]:
-    """§12 CCD 远场光斑图。数字与配置全部来自 ``payload`` (它由 CSV 与帧路径算出)。"""
+    """§12 CCD 远场光斑图。数字与配置全部来自 ``payload`` (它由 CSV 与帧路径算出)。
+
+    ``residual_pointer`` 为真时在开头加一句指引 —— 指向 §13.8 的
+    「Zernike 残差 × 同配置远场」图。那个图依赖相位文件, 只有整轮原子重扫那一批
+    落了 `pupil_phase.npy`, 所以本节自己画不出来。
+    """
     tables: list[Table] = []
     out: list[str] = []
 
@@ -2919,6 +2925,13 @@ def render_farfield_section(
         "两者任一不符就报错退出 —— 否则拼图会张冠李戴。"
     )
     add()
+    if residual_pointer:
+        add(
+            "本节只摆**远场画面**。把 **Zernike 截断的相位残差**与同配置远场并排的那张图"
+            "在 §13.8 —— 它需要每个配置的 `pupil_phase.npy`，而只有整轮原子重扫那一批落了"
+            "相位文件（基线批没有）。"
+        )
+        add()
 
     add("### 12.1 显示了哪些配置")
     add()
@@ -3351,9 +3364,366 @@ def fig_atomic_blaze(atomic: RetestRun) -> Path:
     return path
 
 
+# ---------------------------------------------------------------------------
+# §13.8 Zernike 截断残差 × 同配置 CCD 远场 (fig12)
+# ---------------------------------------------------------------------------
+
+#: 残差图的列 (n_max 降序)。只画 CSV 里**实际存在**、且落了 `pupil_phase.npy` 的配置。
+RESIDUAL_PANEL_ORDER: tuple[int, ...] = (30, 19, 12, 7)
+
+#: 残差色标的半幅 (rad)。固定 ±π: 面板施加的相位就是 mod 2π 的, 四列因此可直接横比。
+RESIDUAL_VLIM = math.pi
+
+#: 残差图 / 基准相位的色图 (写死, 不随数据或 matplotlib 默认值变)。
+RESIDUAL_CMAP = "RdBu_r"
+BASE_CMAP = "twilight"
+
+#: §13.8 的自检容差, 与 `logs/check_zernike_phase_residual.py` 同一口径。
+RESIDUAL_RMS_RTOL = 0.02
+RESIDUAL_RECON_ATOL = 1e-9
+
+#: 「可见结构」描述里的高频判据 (cyc / fit-grid px): 0.25 对应周期 4 个拟合格。
+RESIDUAL_HIGH_FREQ = 0.25
+
+
+def base_phase_path(root: Path, metrics: dict[str, Any]) -> Path:
+    """GS 基准相位 (512², raw rad) 的路径。
+
+    🔴 **基准不在 `<stage>/nmax_<N>/` 里**。每个 zernike 配置目录的 `pupil_phase.npy`
+    是**该阶数的重构相位**; 拿它当基准会得到残差恒为 0 (踩过)。真正的基准是边长段
+    选定那一格的相位 `<root>/sides/side_<S>/pupil_phase.npy`, 路径优先取 `metrics`
+    里记的 `base_phase_info.side_dir` (绝对路径), 否则按 `selected_side_px` 反推。
+    """
+    candidates: list[Path] = []
+    side_dir = (metrics.get("base_phase_info") or {}).get("side_dir")
+    if side_dir:
+        candidates.append(Path(str(side_dir)) / "pupil_phase.npy")
+        candidates.append(root / str(side_dir) / "pupil_phase.npy")
+    side = int(float(metrics.get("selected_side_px") or 0))
+    if side:
+        candidates.append(root / "sides" / f"side_{side}" / "pupil_phase.npy")
+    for cand in candidates:
+        if cand.exists():
+            return cand
+    raise FileNotFoundError(
+        f"找不到 GS 基准相位 (selected_side_px={side}, "
+        f"base_phase_info={metrics.get('base_phase_info')!r}) —— 残差不能算"
+    )
+
+
+@dataclass
+class ResidualPanel:
+    """fig12 的一列: 一个 ``n_max`` 的残差相位 + 它的结构描述量。"""
+
+    n_max: int
+    config: str
+    row: dict[str, str]
+    modes: float
+    #: `metrics.json` / CSV 的记录值 (§13.8 表格与图标题用的就是它们)。
+    rms_recorded: float
+    explained: float
+    #: 现场重算值 (与记录值对拍, 容差见 :data:`RESIDUAL_RMS_RTOL`)。
+    rms_recomputed: float
+    recon_delta: float
+    #: 残差相位 (fit_grid², 已卷到 ±π, 单位圆外 0) 与它的统计掩码。
+    residual: np.ndarray
+    mask: np.ndarray
+    #: 结构描述量 (全部现场算, 见 :meth:`structure_note`)。
+    mean_freq: float
+    high_share: float
+    radial_ratio: float
+    m4_share: float
+
+    def structure_note(self) -> str:
+        """「残差里的可见结构」一句话 (纯数据派生, 不含任何手写判断)。"""
+        return (
+            f"细颗粒高频（平均 {self.mean_freq:.2f} cyc/px，"
+            f"{self.high_share:.0%} 能量在 >{RESIDUAL_HIGH_FREQ:g} cyc/px）、"
+            f"径向近均匀（外缘/中心 RMS {self.radial_ratio:.2f}）、"
+            f"m=4 对称仅 {self.m4_share:.1%}"
+        )
+
+
+@dataclass
+class ResidualSet:
+    """§13.8 的全部输入: 一张基准相位 + 每列一个 :class:`ResidualPanel`。"""
+
+    base: np.ndarray
+    base_path: Path
+    fit_grid: int
+    panels: list[ResidualPanel]
+
+
+def _residual_structure(residual: np.ndarray, mask: np.ndarray) -> dict[str, float]:
+    """残差相位的三个结构量 (径向分布 / 空间频率 / 方位向 4 重对称)。"""
+    grid = int(residual.shape[0])
+    centre = (grid - 1) / 2.0
+    yy, xx = np.mgrid[0:grid, 0:grid]
+    radius = np.hypot(yy - centre, xx - centre) / (grid / 2.0)
+    inner = mask & (radius <= 0.35)
+    outer = mask & (radius > 0.70)
+    rms_in = float(np.sqrt(np.mean(residual[inner] ** 2))) if inner.any() else float("nan")
+    rms_out = float(np.sqrt(np.mean(residual[outer] ** 2))) if outer.any() else float("nan")
+
+    spectrum = np.abs(np.fft.fftshift(np.fft.fft2(residual))) ** 2
+    freq = np.fft.fftshift(np.fft.fftfreq(grid))
+    ky, kx = np.meshgrid(freq, freq, indexing="ij")
+    krad = np.hypot(ky, kx)
+    total = float(spectrum.sum())
+    mean_freq = float((spectrum * krad).sum() / total) if total > 0 else float("nan")
+    high_share = float(spectrum[krad > RESIDUAL_HIGH_FREQ].sum() / total) if total > 0 else float("nan")
+
+    power = np.where(mask, residual ** 2, 0.0)
+    theta = np.arctan2(yy - centre, xx - centre)
+    m4 = float(np.abs((power * np.exp(4j * theta)).sum()) / power.sum()) if power.sum() > 0 else float("nan")
+    return {
+        "mean_freq": mean_freq,
+        "high_share": high_share,
+        "radial_ratio": (rms_out / rms_in) if rms_in else float("nan"),
+        "m4_share": m4,
+    }
+
+
+def compute_residuals(atomic: RetestRun) -> ResidualSet | None:
+    """逐配置重算「前 N 阶重构 − GS 基准相位」, 并算结构描述量。
+
+    口径 (与 `logs/check_zernike_phase_residual.py` 逐行一致)::
+
+        base      = <root>/sides/side_<S>/pupil_phase.npy        # 512², raw rad
+        reference = upsample_bilinear_to_shape(base, (fit_grid, fit_grid))
+        recon     = generate_noll(coeffs[:modes_for_order(n_max)])  # 高阶置零
+        residual  = recon − reference   (只统计 ZernikeGenerator.mask 内)
+
+    Zernike 数学**全部复用** `scripts/slm/hw_gs_square_scans.py` 与
+    `ao_shaping.utils.wavefront.zernike_calc`, 本函数不自己算任何基函数。那两个模块
+    是**延迟导入**的: 它们会连带 import 驱动包, 而本脚本的模块级 import 必须保持
+    「不 import 任何驱动」, 好在没有产物时也能跑。
+
+    Returns:
+        :class:`ResidualSet`; 该批**没有任何** `pupil_phase.npy` 时返回 ``None``
+        (基线批就是这样 —— 那时完全不渲染 §13.8)。
+    """
+    from ao_shaping.utils.image.resample import upsample_bilinear_to_shape
+    from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator
+    from scripts.slm.hw_gs_square_scans import ZernikeFit, reconstruct_from_fit
+
+    stage = atomic.stages["zernike"]
+    stage_dir = atomic.root / "zernike"
+    wanted = [
+        cfg for cfg in stage.configs
+        if int(round(cfg.value)) in set(RESIDUAL_PANEL_ORDER)
+        and (stage_dir / cfg.config / "pupil_phase.npy").exists()
+    ]
+    if not wanted:
+        return None
+    wanted.sort(key=lambda cfg: -cfg.value)
+
+    base_path = base_phase_path(atomic.root, wanted[0].metrics)
+    base = np.asarray(np.load(base_path), dtype=np.float64)
+    generators: dict[tuple[int, int], Any] = {}
+    panels: list[ResidualPanel] = []
+    for cfg in wanted:
+        other = base_phase_path(atomic.root, cfg.metrics)
+        if other.resolve() != base_path.resolve():
+            raise ValueError(
+                f"{cfg.config} 的基准相位 {_rel(other)} 与首列的 {_rel(base_path)} 不同 —— "
+                "同一张图里的残差必须共用一个基准"
+            )
+        grid = int(cfg.metrics["fit_grid"])
+        order = int(cfg.metrics["fit_max_order"])
+        reference = upsample_bilinear_to_shape(base, (grid, grid))
+        key = (grid, order)
+        if key not in generators:
+            generators[key] = ZernikeGenerator((grid, grid), radius=grid / 2.0, n_orders=order)
+        gen = generators[key]
+        fit = ZernikeFit(
+            coefficients=np.asarray(cfg.metrics["fit_coefficients_noll"], dtype=np.float64),
+            fit_grid=grid,
+            max_order=order,
+            reference=reference,
+            mask=np.asarray(gen.mask, dtype=bool),
+        )
+        n_max = int(round(cfg.value))
+        recon, stats = reconstruct_from_fit(fit, n_max, generator=gen)
+        mask = np.asarray(fit.mask, dtype=bool)
+        saved = np.asarray(np.load(stage_dir / cfg.config / "pupil_phase.npy"), dtype=np.float64)
+        # 显示用的是**卷到 ±π** 的残差: 面板施加的相位就是 mod 2π 的, 卷过之后 ±π 的
+        # 色标才逐格有意义。统计量仍取 reconstruct_from_fit 的**未卷**差值 (与记录值同口径)。
+        residual = np.where(mask, np.mod(recon - reference + math.pi, 2.0 * math.pi) - math.pi, 0.0)
+        panels.append(
+            ResidualPanel(
+                n_max=n_max,
+                config=cfg.config,
+                row=cfg.row,
+                modes=float(cfg.row["zernike_modes_used"]),
+                rms_recorded=float(cfg.row["zernike_rms_residual_rad"]),
+                explained=float(cfg.row["zernike_explained_fraction"]),
+                rms_recomputed=float(stats["zernike_rms_residual_rad"]),
+                recon_delta=float(np.abs(recon - saved).max()),
+                residual=residual,
+                mask=mask,
+                **_residual_structure(residual, mask),
+            )
+        )
+    return ResidualSet(base=base, base_path=base_path, fit_grid=int(panels[0].mask.shape[0]),
+                       panels=panels)
+
+
+def check_residuals(residuals: ResidualSet | None) -> list[str]:
+    """§13.8 的自检: 重算残差 RMS 与记录值一致、重算相位与存盘相位逐点一致。
+
+    **两种模式 (生成 / ``--check``) 都跑** —— 它只读产物, 与画不画图无关。
+    返回问题清单 (空 = 通过); 每条都同时打印重算值与记录值。
+    """
+    problems: list[str] = []
+    if residuals is None:
+        return problems
+    for panel in residuals.panels:
+        rel = abs(panel.rms_recomputed - panel.rms_recorded) / max(abs(panel.rms_recorded), 1e-12)
+        if rel >= RESIDUAL_RMS_RTOL:
+            problems.append(
+                f"n_max={panel.n_max}: 重算残差 RMS {panel.rms_recomputed:.9f} rad != "
+                f"metrics.json 记录 {panel.rms_recorded:.9f} rad (相对误差 {rel:.2%}, "
+                f"容差 {RESIDUAL_RMS_RTOL:.0%})"
+            )
+        if panel.recon_delta >= RESIDUAL_RECON_ATOL:
+            problems.append(
+                f"n_max={panel.n_max}: 重算相位与 {panel.config}/pupil_phase.npy 最大偏差 "
+                f"{panel.recon_delta:.3e} (重算 vs 存盘; 容差 {RESIDUAL_RECON_ATOL:.0e})"
+            )
+    return problems
+
+
+def residual_figure_name(atomic: RetestRun) -> str:
+    """fig12 的文件名 —— 正文、`--check` 与 artifacts 三处共用同一份拼装。"""
+    return f"fig12_zernike_phase_residual_{batch_tag(atomic)}.png"
+
+
+def fig_zernike_residual(atomic: RetestRun, residuals: ResidualSet) -> Path:
+    """fig12: 左上 = GS 基准相位, 第 1 行 = 残差相位, 第 2 行 = 同配置 CCD 远场。
+
+    **列间共用同一尺度**: 残差行固定 ``±π`` (一个色标), 远场行共用一个
+    ``LogNorm(vmin=1, vmax=四列最大峰值)`` —— 同一行内的颜色因此可直接横比。
+    行间 / 基准列与残差列之间各加一条细线, 把「两种量」分开。
+    """
+    from matplotlib.colors import LogNorm
+    from matplotlib.lines import Line2D
+
+    setup_matplotlib()
+    panels = residuals.panels
+    ncols = len(panels) + 1
+    fig = plt.figure(figsize=(2.85 * ncols + 1.1, 6.6))
+    grid = fig.add_gridspec(2, ncols + 1, hspace=0.24, wspace=0.10,
+                            width_ratios=[1.0] * ncols + [0.05])
+
+    ax_base = fig.add_subplot(grid[0, 0])
+    im_base = ax_base.imshow(residuals.base, cmap=BASE_CMAP, vmin=-RESIDUAL_VLIM,
+                             vmax=RESIDUAL_VLIM, interpolation="nearest")
+    ax_base.set_title("GS 基准相位 (raw rad)", fontsize=8.5)
+    ax_base.set_xticks([])
+    ax_base.set_yticks([])
+    # 基准相位的色标占 (1,0) 格: 用子网格把它做窄, 否则会占满整格宽度
+    cax_base = fig.add_subplot(grid[1, 0].subgridspec(1, 5, wspace=0.0)[0, 2])
+    cb_base = fig.colorbar(im_base, cax=cax_base)
+    cb_base.set_label("基准相位 (rad)", fontsize=7.5)
+    cb_base.ax.tick_params(labelsize=6.5)
+
+    residual_axes = []
+    residual_image = None
+    for k, panel in enumerate(panels):
+        ax = fig.add_subplot(grid[0, k + 1])
+        residual_image = ax.imshow(
+            np.ma.masked_where(~panel.mask, panel.residual),
+            cmap=RESIDUAL_CMAP, vmin=-RESIDUAL_VLIM, vmax=RESIDUAL_VLIM,
+            interpolation="nearest",
+        )
+        ax.set_title(
+            f"n_max={panel.n_max}  残差 RMS={panel.rms_recorded:.3f} rad\n"
+            f"解释={panel.explained * 100:.2f}%",
+            fontsize=8.0,
+        )
+        ax.set_xticks([])
+        ax.set_yticks([])
+        residual_axes.append(ax)
+    cax_res = fig.add_subplot(grid[0, ncols])
+    cb_res = fig.colorbar(residual_image, cax=cax_res)
+    cb_res.set_label("残差 (rad)", fontsize=7.5)
+    cb_res.set_ticks([-math.pi, -math.pi / 2.0, 0.0, math.pi / 2.0, math.pi])
+    cb_res.set_ticklabels(["-π", "-π/2", "0", "π/2", "π"])
+    cb_res.ax.tick_params(labelsize=6.5)
+
+    stage_dir = atomic.root / "zernike"
+    headers = atomic.stages["zernike"].headers
+    frame_vmax = max(float(p.row["frame_peak"]) for p in panels)
+    ccd_axes = []
+    for k, panel in enumerate(panels):
+        ax = fig.add_subplot(grid[1, k + 1])
+        ccd_axes.append(ax)
+        pick = CellPick(stage="zernike", row=panel.row, role="残差列")
+        ref = locate_frames(stage_dir, panel.row, headers)
+        if not ref.paths:
+            ax.axis("off")
+            ax.text(0.5, 0.5, "缺帧", ha="center", va="center", fontsize=9, color="#d62728")
+            continue
+        _check_frame_params("zernike", pick, ref)
+        image = load_frame_mean(ref.paths)
+        if abs(float(image.max()) - float(panel.row["frame_peak"])) > 1e-3:
+            raise ValueError(
+                f"zernike/{panel.config}: 帧最大值 {float(image.max()):.6g} 与 CSV "
+                f"frame_peak {panel.row['frame_peak']} 不一致 —— 帧与 CSV 行对不上"
+            )
+        x0, x1, y0, y1, _ = _crop_box(panel.row, image.shape, CROP_FACTOR)
+        shown = image[y0:y1, x0:x1]
+        ax.imshow(shown, cmap="inferno",
+                  norm=LogNorm(vmin=1.0, vmax=max(frame_vmax, 1.0 + 1e-6)),
+                  interpolation="nearest")
+        _annotate_cell(ax, pick, crop=(x0, x1, y0, y1))
+        peak = float(panel.row["frame_peak"])
+        sat = "  饱和" if peak >= SATURATION_COUNTS else ""
+        ax.set_title(
+            f"CV={float(panel.row['cv']):.3f}  PIB={float(panel.row['pib']):.3f}  "
+            f"peak={peak:.0f}{sat}",
+            fontsize=8.0,
+        )
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.text(0.98, 0.02, f"×{len(ref.paths)} 帧均值", transform=ax.transAxes,
+                fontsize=7.0, color="white", ha="right", va="bottom",
+                bbox=dict(fc="black", ec="none", alpha=0.45, pad=1.2))
+        del image, shown
+
+    fig.suptitle(
+        f"Zernike 截断残差 × 同配置 CCD 远场（{batch_tag(atomic)}, {atomic.exposure_ms:g} ms）",
+        fontsize=11,
+    )
+    # 不用 tight_layout: 色标轴是 subgridspec 造出来的, tight_layout 会报
+    # "Axes that are not compatible" 并给出错位的间距 —— 这里显式定边距。
+    fig.subplots_adjust(left=0.012, right=0.985, top=0.90, bottom=0.025,
+                        hspace=0.30, wspace=0.08)
+    # 分隔线必须在 layout 定稿后按**实际**轴位置画 (否则与格子的间距对不上)
+    fig.canvas.draw()
+    if residual_axes and ccd_axes:
+        boxes_top = [ax.get_position() for ax in residual_axes]
+        boxes_bottom = [ax.get_position() for ax in ccd_axes]
+        y_line = 0.5 * (min(b.y0 for b in boxes_top) + max(b.y1 for b in boxes_bottom))
+        fig.add_artist(Line2D([min(b.x0 for b in boxes_top), max(b.x1 for b in boxes_top)],
+                              [y_line, y_line], transform=fig.transFigure,
+                              color="#999999", lw=0.7, zorder=5))
+        x_line = 0.5 * (ax_base.get_position().x1 + boxes_top[0].x0)
+        y_lo = min(b.y0 for b in boxes_top + boxes_bottom)
+        y_hi = max(b.y1 for b in boxes_top + boxes_bottom)
+        fig.add_artist(Line2D([x_line, x_line], [y_lo, y_hi], transform=fig.transFigure,
+                              color="#999999", lw=0.7, zorder=5))
+
+    path = FIG_DIR / residual_figure_name(atomic)
+    savefig(fig, path)
+    return path
+
+
 def render_atomic_section(
     run: Run, f: Findings, atomic: RetestRun, af: AtomicFindings,
     retest: RetestRun | None, figures: Sequence[Path],
+    residuals: ResidualSet | None = None,
 ) -> tuple[list[str], list[Table]]:
     """§13 整轮原子重扫。数字全部从该批 CSV / metrics.json 现读。"""
     tables: list[Table] = []
@@ -3663,6 +4033,132 @@ def render_atomic_section(
         "本轮 score 是平台而不是单点，追加一格会误导）。"
     )
     add()
+
+    # -- 13.8 相位残差 × 同配置远场 -----------------------------------------
+    if residuals is None or not residuals.panels:
+        return out, tables
+
+    panels = residuals.panels
+    first = panels[0]      # n_max 最大
+    last = panels[-1]      # n_max 最小
+    rms_drop = 1.0 - first.rms_recorded / last.rms_recorded
+    max_explained = max(p.explained for p in panels)
+    unrepresented = 1.0 - max_explained
+    max_rel = max(abs(p.rms_recomputed - p.rms_recorded) / max(abs(p.rms_recorded), 1e-12)
+                  for p in panels)
+    cvs = [float(p.row["cv"]) for p in panels]
+    pibs = [float(p.row["pib"]) for p in panels]
+    freqs = [p.mean_freq for p in panels]
+    highs = [p.high_share for p in panels]
+    ratios = [p.radial_ratio for p in panels]
+    m4s = [p.m4_share for p in panels]
+
+    add("### 13.8 相位残差 × 同配置远场")
+    add()
+    add(
+        "本节把**被 Zernike 截断掉的那部分相位**与同配置的相机画面并排摆出来。"
+        "只有这一批落了相位文件（`zernike/nmax_*/pupil_phase.npy`），基线批没有 ⇒ "
+        "这张图只能放在这里（§12 只有远场画面）。"
+    )
+    add()
+    add("口径（与采集脚本的生产路径逐行一致）：")
+    add()
+    add(f"- 基准相位：`{_rel(residuals.base_path)}`（512², raw rad；边长由 `sides/selected.json` 决定）；")
+    add(
+        f"- `reference` = `upsample_bilinear_to_shape(base, ({residuals.fit_grid}, "
+        f"{residuals.fit_grid}))`，`fit_grid` = {residuals.fit_grid}；"
+    )
+    add("- `recon` = `generate_noll(coeffs[:modes_for_order(n_max)])` —— 高阶系数**置零**，"
+        "所以「第 N 阶重构」严格是「把高阶丢掉」，不是另一个模型的解；")
+    add("- `residual` = `recon − reference`，只统计单位圆内（`ZernikeGenerator.mask`）。")
+    add()
+    add(
+        "⚠ 每个 `zernike/nmax_<N>/pupil_phase.npy` 是**该阶数的重构相位**，不是基准；"
+        "拿它当基准残差恒为 0。基准在边长段的 `side_<S>/pupil_phase.npy`。"
+    )
+    add()
+
+    residual_figure = residual_figure_name(atomic)
+    if residual_figure in drawn:
+        add(f"![Zernike 截断残差 × 同配置 CCD 远场](figures/{residual_figure})")
+        add()
+        add(
+            "*第一行 = 残差相位（`RdBu_r`，固定 ±π，**四列共用同一色标**，单位圆外没有光"
+            "所以不画）；第二行 = 同配置 CCD 远场（对数显示 `LogNorm(vmin=1, vmax=四列最大峰值)`、"
+            f"裁剪 `box_side × {CROP_FACTOR}`、叠加目标框/预测框心/实测质心、右下角 `×N 帧均值`）；"
+            "左上角 = GS 基准相位（`twilight`，±π）。残差在图上已卷到 ±π（面板施加的本来就是 "
+            "mod 2π 的相位），而标题与表里的 RMS 取的是**未卷**差值 —— 与 `metrics.json` 同口径。*"
+        )
+        add()
+
+    res_tbl = Table(
+        ("n_max", "模式数", "残差 RMS (rad)", "解释比例", "CV", "PIB",
+         "残差里的可见结构（一句话）"),
+        [(cell_of(p.row, "n_max", 0), cell_of(p.row, "zernike_modes_used", 0),
+          cell_of(p.row, "zernike_rms_residual_rad", 6),
+          # 解释比例按 % 显示: 与图标题、与正文的百分比是同一个表示, 免得读者
+          # 在 0.032515 与 3.25% 之间换算 (CSV 里存的是分数)。
+          derived(float(p.row["zernike_explained_fraction"]) * 100.0, 3, "%"),
+          cell_of(p.row, "cv", 4), cell_of(p.row, "pib", 4),
+          p.structure_note())
+         for p in panels],
+    )
+    tables.append(res_tbl)
+    add(res_tbl.render())
+    add()
+    add(
+        "前三列与 §13.3 同源（同一批 CSV 列；解释比例在这里按 % 显示，CSV 里存的是分数），"
+        "新增的只有最后一列 —— 它是从**残差数组**现场算出来的四个量：平均空间频率、"
+        "`>0.25 cyc/px`（周期 4 个拟合格）的能量占比、外缘（`r > 0.7`）与中心"
+        "（`r ≤ 0.35`）的 RMS 比，以及方位向 `m = 4` 分量的占比。"
+    )
+    add()
+    add(
+        "**残差不是「拟合误差」，也不是噪声 —— 它是被这个基截断掉的高频结构。** "
+        f"判据是残差随阶数的走向：模式数从 {last.modes:.0f}（`n_max = {last.n_max}`）加到 "
+        f"{first.modes:.0f}（`n_max = {first.n_max}`），残差 RMS 只从 "
+        f"{last.rms_recorded:.4f} 降到 {first.rms_recorded:.4f} rad（{rms_drop:.1%}），"
+        f"解释比例从 {last.explained:.2%} 升到 {first.explained:.2%}。"
+        "若残差是「没拟合好」，多给 "
+        f"{first.modes - last.modes:.0f} 个自由度应该让它大幅下降；它几乎不动，"
+        f"说明方斑所需的相位里有 {unrepresented:.1%} 根本不在前 {first.n_max} 阶张成的空间里。"
+    )
+    add()
+    add(
+        "**它在图上长什么样，以及看不到什么。** 四列是同一片细颗粒：平均空间频率 "
+        f"{min(freqs):.2f}–{max(freqs):.2f} cyc/px（周期约 4 个拟合格，已经是 "
+        f"{residuals.fit_grid} 网格能表示的最细尺度），{min(highs):.0%}–{max(highs):.0%} 的"
+        "能量在 `>0.25 cyc/px`；径向几乎不衰减（外缘/中心 RMS 比 "
+        f"{min(ratios):.2f}–{max(ratios):.2f}），方位向也没有方斑该有的 4 重对称"
+        f"（`m = 4` 只占 {min(m4s):.1%}–{max(m4s):.1%}）。所以**方斑的「边缘与角」不在这张"
+        "相位图上** —— 它们不是画在瞳面上的轮廓：目标是均匀方斑（远场幅度是二维 sinc 型，"
+        "边与角全在高频里），要把圆盘照明变成它，瞳面相位必须携带同样高频的结构，而这些"
+        "结构恰好是 Zernike 截断丢掉的那一层。这一点可以当场验证：把残差相位单独做一次"
+        "傅里叶变换，得到的仍是一个**方形**的均匀区域，而不是亮核（这项检查不在图里，"
+        "它的用处是把「高频结构」与「噪声」分开 —— 噪声的变换不会保持方形的边）。"
+    )
+    add()
+    add(
+        "**远场这一行就是「塌」的样子。** 第二行与 §12 拼图 2 是同一件事的两面："
+        f"前 N 阶重构的远场是一个亮核（CV {min(cvs):.3f}–{max(cvs):.3f}，"
+        f"PIB {min(pibs):.3f}–{max(pibs):.3f}），而同框的 GS 基准远场是方斑"
+        "（§12 拼图 2 最后一格）。CV 在四列之间只差 "
+        f"{(max(cvs) - min(cvs)) / min(cvs):.1%} —— 阶数加了四倍画面几乎没变，"
+        "这正是 §13.3「基不适配」在相位侧的对应物：改的是相位的高频内容，远场却基本不动，"
+        "因为那部分内容根本没有被表示出来。"
+    )
+    add()
+    add(
+        "**自检（生成与 `--check` 两条路径都跑，不只是生成时）。** 重算的残差 RMS 必须与 "
+        "`metrics.json` 的 `zernike_rms_residual_rad` 相对误差 < "
+        f"{RESIDUAL_RMS_RTOL:.0%}，重算相位必须与存盘的 `pupil_phase.npy` 最大偏差 < "
+        # `:.0e` 会印成 1e-09; 这里只要值对, 顺手去掉指数里的前导零
+        f"{format(RESIDUAL_RECON_ATOL, '.0e').replace('e-0', 'e-')} —— "
+        "任一不满足就打印两边值并非零退出。"
+        f"本轮 {len(panels)} 个配置全部通过（最大相对误差 {max_rel:.2%}，"
+        f"最大偏差 {max(p.recon_delta for p in panels):.1e}）。"
+    )
+    add()
     return out, tables
 
 
@@ -3677,6 +4173,7 @@ def render_report(
     atomic: RetestRun | None = None,
     af: AtomicFindings | None = None,
     atomic_figures: Sequence[Path] = (),
+    residuals: ResidualSet | None = None,
 ) -> tuple[str, list[Table]]:
     """渲染正文。返回 (markdown, 需要回读校验的表)。
 
@@ -4718,14 +5215,15 @@ def render_report(
     # -- 12. CCD 远场光斑图 --------------------------------------------------
     if farfield is not None and farfield.get("mosaics"):
         farfield_lines, farfield_tables = render_farfield_section(
-            run, farfield, farfield_figures)
+            run, farfield, farfield_figures,
+            residual_pointer=bool(residuals is not None and residuals.panels))
         out.extend(farfield_lines)
         tables.extend(farfield_tables)
 
     # -- 13. 整轮原子重扫 ----------------------------------------------------
     if atomic is not None and af is not None:
         atomic_lines, atomic_tables = render_atomic_section(
-            run, f, atomic, af, retest, atomic_figures)
+            run, f, atomic, af, retest, atomic_figures, residuals)
         out.extend(atomic_lines)
         tables.extend(atomic_tables)
 
@@ -5072,6 +5570,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     atomic_selection: dict[str, list[CellPick]] = {}
     atomic_farfield: dict[str, Any] = {"mosaics": []}
     atomic_figures: list[Path] = []
+    residuals: ResidualSet | None = None
+    residual_figure: Path | None = None
     if args.atomic_root:
         atomic_root = Path(args.atomic_root)
         if not atomic_root.is_absolute():
@@ -5093,10 +5593,31 @@ def main(argv: Sequence[str] | None = None) -> int:
             FIG_DIR / f"fig10_atomic_sides_{batch_tag(atomic)}.png",
             FIG_DIR / f"fig11_atomic_blaze_shift_{batch_tag(atomic)}.png",
         ]
+        # §13.8 的残差只读产物重算 (延迟 import 驱动链, 见 compute_residuals)
+        residuals = compute_residuals(atomic)
+        if residuals is not None:
+            residual_figure = FIG_DIR / residual_figure_name(atomic)
+            atomic_figures.append(residual_figure)
+
+    # -- 自检 0: §13.8 的残差必须与记录值 / 存盘相位对得上 --------------------
+    residual_problems = check_residuals(residuals)
+    if residual_problems:
+        print("§13.8 残差自检失败:", file=sys.stderr)
+        for problem in residual_problems:
+            print(f"  - {problem}", file=sys.stderr)
+        return 1
+    if residuals is not None:
+        pairs = ", ".join(
+            f"n_max={p.n_max} 记录 {p.rms_recorded:.6f} / 重算 {p.rms_recomputed:.6f}"
+            for p in residuals.panels
+        )
+        print(f"§13.8 残差自检: {len(residuals.panels)} 个配置, {pairs}; "
+              f"recon 与存盘相位最大偏差 "
+              f"{max(p.recon_delta for p in residuals.panels):.1e}")
 
     markdown, tables = render_report(run, findings, retest, rf, prior,
                                      farfield, farfield_figures,
-                                     atomic, af, atomic_figures)
+                                     atomic, af, atomic_figures, residuals)
 
     # -- 自检 1: 表里的值与 CSV 逐值一致 -----------------------------------
     problems: list[str] = []
@@ -5180,6 +5701,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                     drift.append(f"正文没有引用: figures/{path.name}")
             drift.extend(_check_farfield(atomic, atomic_farfield, atomic_mosaics,
                                          artifact_dir=ATOMIC_ARTIFACT_DIR))
+            if residual_figure is not None:
+                if not residual_figure.exists():
+                    drift.append(f"图缺失: {_rel(residual_figure)}")
+                elif residual_figure.stat().st_size == 0:
+                    drift.append(f"图为空文件: {_rel(residual_figure)}")
+                elif f"figures/{residual_figure.name}" not in markdown:
+                    drift.append(f"正文没有引用: figures/{residual_figure.name}")
+                copy = ATOMIC_ARTIFACT_DIR / residual_figure.name
+                if not copy.exists():
+                    drift.append(f"图副本缺失: {_rel(copy)}")
+                elif _sha256(copy) != _sha256(residual_figure):
+                    drift.append(f"图与 artifacts 副本不一致: {residual_figure.name}")
         if drift:
             print("--check 失败 (存在漂移):", file=sys.stderr)
             for item in drift:
@@ -5188,8 +5721,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         n_mosaic = len([m for m in farfield.get("mosaics", [])])
         extra = ""
         if atomic is not None:
-            extra = (f"; §13 另有 2 张曲线 + {len(atomic_mosaics)} 张拼图与 "
-                     f"`artifacts/{ATOMIC_ARTIFACT_DIR.name}/`")
+            extra = (f"; §13 另有 2 张曲线 + {len(atomic_mosaics)} 张拼图"
+                     + (" + fig12 残差图" if residual_figure is not None else "")
+                     + f" 与 `artifacts/{ATOMIC_ARTIFACT_DIR.name}/`")
         print(f"--check 通过: {_rel(out_md)} 与现场渲染逐字节一致, "
               f"artifacts 副本与源一致, {len(figure_names)} 张指标图 + "
               f"{n_mosaic} 张远场拼图齐备 (含 frames_selection.json){extra}")
@@ -5203,6 +5737,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             render_farfield(atomic, atomic_selection, atomic_farfield)
             fig_atomic_sides(run, atomic)
             fig_atomic_blaze(atomic)
+        if atomic is not None and residuals is not None:
+            fig_zernike_residual(atomic, residuals)
     out_md.parent.mkdir(parents=True, exist_ok=True)
     out_md.write_text(markdown, encoding="utf-8")
     print(f"报告已写到: {_rel(out_md)}")
