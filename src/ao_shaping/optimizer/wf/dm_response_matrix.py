@@ -234,6 +234,39 @@ class DMResponseMatrixResult:
         return cls(**d)
 
 
+def _averaged_spot_deviation(
+    wfs: ThorlabWFS, n_averages: int, cancel_tile: bool
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Take n_averages WFS readings and return truncated-mean slopes.
+
+    Shared by the sequential (``measure_actuator_response``) and Hadamard
+    (``calibrate_dm_response_matrix``) paths, which each carried this body as
+    a private closure -- one bench measurement, one implementation.
+    """
+    all_dev_x = []
+    all_dev_y = []
+    for _ in range(n_averages):
+        wfs.take_image(n_sample=1)
+        dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=cancel_tile)
+        all_dev_x.append(dev_x)
+        all_dev_y.append(dev_y)
+
+    dev_x_arr = np.array(all_dev_x)
+    dev_y_arr = np.array(all_dev_y)
+
+    if n_averages > 5:
+        sorted_x = np.sort(dev_x_arr, axis=0)
+        sorted_y = np.sort(dev_y_arr, axis=0)
+        mean_dev_x = np.mean(sorted_x[1:-1], axis=0)
+        mean_dev_y = np.mean(sorted_y[1:-1], axis=0)
+    else:
+        mean_dev_x = np.mean(dev_x_arr, axis=0)
+        mean_dev_y = np.mean(dev_y_arr, axis=0)
+
+    slopes = flatten_slopes(mean_dev_x, mean_dev_y)
+    return slopes, mean_dev_x, mean_dev_y
+
+
 def measure_actuator_response(
     dm: "DM",
     wfs: ThorlabWFS,
@@ -280,31 +313,6 @@ def measure_actuator_response(
     """
     total_actuators = dm.DM_NUM if hasattr(dm, "DM_NUM") else 64
 
-    def measure_slopes_with_averaging() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Take n_averages WFS readings and return truncated-mean slopes."""
-        all_dev_x = []
-        all_dev_y = []
-        for _ in range(n_averages):
-            wfs.take_image(n_sample=1)
-            dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=cancel_tile)
-            all_dev_x.append(dev_x)
-            all_dev_y.append(dev_y)
-
-        dev_x_arr = np.array(all_dev_x)
-        dev_y_arr = np.array(all_dev_y)
-
-        if n_averages > 5:
-            sorted_x = np.sort(dev_x_arr, axis=0)
-            sorted_y = np.sort(dev_y_arr, axis=0)
-            mean_dev_x = np.mean(sorted_x[1:-1], axis=0)
-            mean_dev_y = np.mean(sorted_y[1:-1], axis=0)
-        else:
-            mean_dev_x = np.mean(dev_x_arr, axis=0)
-            mean_dev_y = np.mean(dev_y_arr, axis=0)
-
-        slopes = flatten_slopes(mean_dev_x, mean_dev_y)
-        return slopes, mean_dev_x, mean_dev_y
-
     def apply_actuator_voltage(voltage: float) -> None:
         """Set a single actuator to voltage, all others to zero."""
         vs = np.zeros(total_actuators, dtype=np.float64)
@@ -318,7 +326,9 @@ def measure_actuator_response(
     for cycle in range(n_cycles):
         # --- Positive perturbation ---
         apply_actuator_voltage(+disturb_voltage)
-        slopes_plus, dev_x_plus, dev_y_plus = measure_slopes_with_averaging()
+        slopes_plus, dev_x_plus, dev_y_plus = _averaged_spot_deviation(
+            wfs, n_averages, cancel_tile
+        )
 
         if debug_data_callback is not None:
             debug_data_callback(
@@ -335,7 +345,9 @@ def measure_actuator_response(
 
         # --- Negative perturbation ---
         apply_actuator_voltage(-disturb_voltage)
-        slopes_minus, dev_x_minus, dev_y_minus = measure_slopes_with_averaging()
+        slopes_minus, dev_x_minus, dev_y_minus = _averaged_spot_deviation(
+            wfs, n_averages, cancel_tile
+        )
 
         if debug_data_callback is not None:
             debug_data_callback(
@@ -694,31 +706,6 @@ def calibrate_dm_response_matrix(
             "debug_data_callback receives negative actuator_idx sentinels per pattern row."
         )
 
-        def measure_pattern_slopes() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-            """Take n_averages WFS readings and return truncated-mean slopes."""
-            all_dev_x = []
-            all_dev_y = []
-            for _ in range(n_averages):
-                wfs.take_image(n_sample=1)
-                dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=cancel_tile)
-                all_dev_x.append(dev_x)
-                all_dev_y.append(dev_y)
-
-            dev_x_arr = np.array(all_dev_x)
-            dev_y_arr = np.array(all_dev_y)
-
-            if n_averages > 5:
-                sorted_x = np.sort(dev_x_arr, axis=0)
-                sorted_y = np.sort(dev_y_arr, axis=0)
-                mean_dev_x = np.mean(sorted_x[1:-1], axis=0)
-                mean_dev_y = np.mean(sorted_y[1:-1], axis=0)
-            else:
-                mean_dev_x = np.mean(dev_x_arr, axis=0)
-                mean_dev_y = np.mean(dev_y_arr, axis=0)
-
-            slopes = flatten_slopes(mean_dev_x, mean_dev_y)
-            return slopes, mean_dev_x, mean_dev_y
-
         # Per-cycle decoded responses: (n_cycles, n_slopes, n_valid)
         cycle_decoded: list[np.ndarray] = []
 
@@ -729,7 +716,9 @@ def calibrate_dm_response_matrix(
             for r in range(order):
                 # --- Positive perturbation ---
                 dm.send_voltages(+disturb_voltage * patterns_full[r], wait_time)
-                slopes_plus, dev_x_plus, dev_y_plus = measure_pattern_slopes()
+                slopes_plus, dev_x_plus, dev_y_plus = _averaged_spot_deviation(
+                    wfs, n_averages, cancel_tile
+                )
 
                 if debug_data_callback is not None:
                     debug_data_callback(
@@ -746,7 +735,9 @@ def calibrate_dm_response_matrix(
 
                 # --- Negative perturbation ---
                 dm.send_voltages(-disturb_voltage * patterns_full[r], wait_time)
-                slopes_minus, dev_x_minus, dev_y_minus = measure_pattern_slopes()
+                slopes_minus, dev_x_minus, dev_y_minus = _averaged_spot_deviation(
+                    wfs, n_averages, cancel_tile
+                )
 
                 if debug_data_callback is not None:
                     debug_data_callback(

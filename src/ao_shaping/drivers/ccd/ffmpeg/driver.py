@@ -21,6 +21,10 @@ from ao_shaping.drivers.ccd.base import AveragedFrame, BaseCamera, CameraError
 from ao_shaping.utils.io.file import logger
 from ao_shaping.utils.io.timestamp import TimestampParser
 
+#: Auto-exposure state reported by the file-backed cameras below: they have no
+#: exposure hardware to query, so the contract answer is a fresh copy of this.
+_UNSUPPORTED_AUTO_EXPOSURE = {"enabled": False, "mode": 0, "target": 0}
+
 
 class FFmpegCameraError(CameraError):
     """FFmpeg 相机错误异常。"""
@@ -335,11 +339,7 @@ class FFmpegCamera(BaseCamera):
         返回:
             dict: 始终指示禁用状态。
         """
-        return {
-            "enabled": False,
-            "mode": 0,
-            "target": 0,
-        }
+        return dict(_UNSUPPORTED_AUTO_EXPOSURE)
 
     def set_auto_exposure_range(
         self,
@@ -722,11 +722,7 @@ class ImageFolderCamera(BaseCamera):
         返回:
             dict: 始终指示禁用状态。
         """
-        return {
-            "enabled": False,
-            "mode": 0,
-            "target": 0,
-        }
+        return dict(_UNSUPPORTED_AUTO_EXPOSURE)
 
     def set_auto_exposure_range(
         self,

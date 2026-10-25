@@ -1635,15 +1635,6 @@ def calibrate_bench_geometry(
             )
         return None
 
-    def amplitude(waist_model_px: float, semi_axis_model_px: int) -> np.ndarray:
-        """Gaussian illumination masked to the aperture inscribed in the grid."""
-        yy, xx = np.mgrid[0:region, 0:region]
-        r = int(min(int(semi_axis_model_px), region // 2))
-        r2 = (xx - region / 2.0) ** 2 + (yy - region / 2.0) ** 2
-        amp = np.exp(-r2 / (2.0 * max(float(waist_model_px), 1e-6) ** 2))
-        amp[r2 > float(r) ** 2] = 0.0
-        return amp
-
     best: tuple[float, BenchGeometry] | None = None
     # (disc, waist) are searched jointly against the correlation. Matching a
     # spot *size* first was tried and abandoned: the FWHM of a speckle cut
@@ -1667,7 +1658,9 @@ def calibrate_bench_geometry(
         )
         zeros = np.zeros(opt.n_coefficients)
         for waist_grid in waist_grid_candidates:
-            model = opt.forward_intensity(zeros, grid, amplitude(waist_grid, semi_axis))
+            model = opt.forward_intensity(
+                zeros, grid, _pupil_amplitude(region, waist_grid, semi_axis)
+            )
             window = _model_window(model, reference.shape, camera_px_per_model_px)
             if window.shape != reference.shape:
                 # Real frames are 250x248, not square, so the window is resampled
