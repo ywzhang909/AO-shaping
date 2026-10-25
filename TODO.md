@@ -2448,6 +2448,31 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
      - **验证**：新守卫 **2 passed**；`tests/ao_shaping/runners` + `optimizer/wf` **675 passed /
        26 skipped**；CI 钉版 ruff **0.15.12** 全绿；探针文件与草稿测试均已删除，工作树只含预期改动。
 
+58. ✅ **闭环读斜率向量的行序契约没有错位（假设被普查否证）—— 但同一份拼接被手写复制了两遍，收敛后钉上守卫**（2026-10-25）：
+     - **先记录被否证的猜测**：我假设 `from_response_matrix` 用 `mask_2n = concatenate([mask, mask])` 选行、
+       而在线测量走 `flatten_slopes`，两边行序若不同就会**静默**读错行。普查否证：
+       `utils/wavefront/wfs_utils.py` 的实现正是 `concatenate([dev_x.flatten(), dev_y.flatten()])`
+       （x 块在前、y 块在后），标定侧填 `deviation_response_matrix` 也经**同一**函数
+       （`zernike_response_matrix.py:362`）⇒ 与 `mask_2n` 的假设一致，**没有缺陷**。「看起来必然错」的
+       推断只能靠读两侧实现来处置，不能靠推理定罪。
+     - **普查真正抓到的是复制**：`interaction_matrix.py:553` 与 `:614` 各写一遍
+       `np.concatenate([x_dev.flatten(), y_dev.flatten()])`，与 canonical 实现**同式**；而该文件 `:30`
+       **早已** import `flatten_slopes`、`:348` 本来就在用它。两处改为调用它 —— 无新增依赖、无新边、
+       逐位等价（表达式完全相同）。
+     - **这一类重复为什么特别危险**：行序是生产方与消费方之间的隐式契约，而两种行序**形状相同** ⇒
+       换成 `[y; x]` 不会报错，只会把 y 分量当成 x 喂给伪逆 —— 与第 57 项「维度自洽、空间不自洽」同族。
+     - **新守卫** `test_slope_flattening_is_not_reimplemented`：指纹是**单参数**的 `concatenate`/`hstack`，
+       其参数为 2 个 `.flatten()` 调用组成的列表或元组；`flatten_slopes` 的定义处必须**恰好一个**；
+       解析失败单列报错；扫描地板**复用** `_MIN_WFS_UNWRAP_SCANNED` —— 同一扫描范围不另设第二个地板，
+       否则两个地板会各自漂移而悄悄放宽约束。
+     - **先红后绿，红的两次都是真代码**：守卫先写好即红，点名 `interaction_matrix.py:553` 与 `:614`；
+       改完即绿。差分控制：在 `scripts/` 植入一份**新的**手写拼接 ⇒ 守卫点名
+       `scripts/_common/zz_probe_tmp.py:5`；删除 ⇒ 绿。conventions 的 passed 由 **52 升到 53**
+       （增量即新守卫自身）。
+     - **验证**：`optimizer/wf` **133 passed / 1 skipped**；conventions **53 passed / 1 skipped /
+       2 failed**（失败对仍是既有 `pib_exit_safety` 那对）；CI 钉版 ruff **0.15.12** 全绿；植入的探针
+       已删除，工作树只含预期改动。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

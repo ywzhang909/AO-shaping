@@ -3587,3 +3587,76 @@ def test_wfs_wavefront_unwrap_is_not_reimplemented() -> None:
         "``wfs_channels_lambda`` instead -- the duplicated copies had already drifted apart "
         "in how they reported a bad input."
     )
+
+
+_SLOPE_FLATTEN_MODULE = "src/ao_shaping/utils/wavefront/wfs_utils.py"
+
+
+def test_slope_flattening_is_not_reimplemented() -> None:
+    """Stacking ``[dev_x; dev_y]`` into one slope vector happens in exactly one place.
+
+    ``flatten_slopes`` owns the row order. Both sides of the closed loop read that order as a
+    contract: a calibrated deviation matrix is filled through it, and ``from_response_matrix``
+    expands its validity mask with ``np.concatenate([mask, mask])`` -- x rows first, then y
+    rows. A hand-written stack is therefore a second opinion on the row order, and the two
+    orderings have **identical shapes**: swapping x for y never raises, it silently feeds the
+    pseudoinverse the wrong component of the measurement.
+
+    The fingerprint is a one-argument ``concatenate``/``hstack`` over a 2-element sequence of
+    ``.flatten()`` calls -- the shape the canonical helper itself compiles to, so anything
+    matching it outside the helper is a duplicate rather than a different computation.
+    """
+    offenders: list[str] = []
+    unparsed: list[str] = []
+    defining: list[str] = []
+    scanned = 0
+    for path in (
+        sorted((SRC / "ao_shaping").rglob("*.py")) + sorted((REPO / "scripts").rglob("*.py"))
+    ):
+        rel = path.relative_to(REPO).as_posix()
+        scanned += 1
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"))
+        except SyntaxError:
+            unparsed.append(rel)
+            continue
+        nodes = list(ast.walk(tree))
+        if any(
+            isinstance(n, ast.FunctionDef) and n.name == "flatten_slopes" for n in nodes
+        ):
+            defining.append(rel)
+        if rel == _SLOPE_FLATTEN_MODULE:
+            continue
+        for node in nodes:
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not (isinstance(func, ast.Attribute) and func.attr in {"concatenate", "hstack"}):
+                continue
+            if len(node.args) != 1 or not isinstance(node.args[0], ast.List | ast.Tuple):
+                continue
+            parts = node.args[0].elts
+            if len(parts) == 2 and all(
+                isinstance(part, ast.Call)
+                and isinstance(part.func, ast.Attribute)
+                and part.func.attr == "flatten"
+                for part in parts
+            ):
+                offenders.append(f"{rel}:{node.lineno}")
+
+    assert not unparsed, (
+        f"{len(unparsed)} file(s) could not be parsed, so this guard saw nothing inside them: "
+        f"{unparsed}"
+    )
+    assert scanned >= _MIN_WFS_UNWRAP_SCANNED, (
+        f"scanned {scanned} file(s), below the floor {_MIN_WFS_UNWRAP_SCANNED} -- the scope "
+        "stopped matching the tree."
+    )
+    assert defining == [_SLOPE_FLATTEN_MODULE], (
+        f"``flatten_slopes`` is defined in {defining}; the row order must have one home."
+    )
+    assert not offenders, (
+        f"{len(offenders)} hand-written x/y slope stack(s): {offenders}. Call "
+        "``flatten_slopes`` instead -- a duplicate here changes the row order silently, "
+        "because both orderings have the same shape."
+    )

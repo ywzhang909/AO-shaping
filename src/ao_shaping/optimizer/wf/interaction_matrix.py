@@ -550,7 +550,7 @@ def _apply_zernike_correction_single(
     # Measure current slopes
     wfs.take_image(n_sample=n_averages)
     x_dev, y_dev = wfs.get_spot_deviation()
-    g = np.concatenate([x_dev.flatten(), y_dev.flatten()])
+    g = flatten_slopes(x_dev, y_dev)
 
     # Compute Zernike coefficients: a_hat = pinv @ g
     a_hat = pinv @ g
@@ -611,7 +611,7 @@ def _apply_zernike_correction_pid(
         # Measure current slopes
         wfs.take_image(n_sample=n_averages)
         x_dev, y_dev = wfs.get_spot_deviation()
-        g = np.concatenate([x_dev.flatten(), y_dev.flatten()])
+        g = flatten_slopes(x_dev, y_dev)
 
         # Compute Zernike coefficients from slopes
         a_hat = pinv @ g
