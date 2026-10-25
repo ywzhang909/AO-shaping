@@ -494,3 +494,30 @@ def save_evaluation_artifacts(results: dict[str, object], output_dir: Path, pref
     summary = {k: v for k, v in results.items() if k != "trajectories"}
     with (output_dir / f"{prefix}_evaluation.json").open("w", encoding="utf-8") as fh:
         json.dump(summary, fh, indent=2, ensure_ascii=False)
+
+
+def build_nature_cnn_extractor(observation_space, features_dim: int) -> nn.Sequential:
+    """Nature-CNN image tower + linear head, sized by one dry-run forward.
+
+    ``lr`` and ``lr_wfs`` each carried this as a private staticmethod on
+    their (same-named) combine extractor; the bench CNN is one thing, so it
+    lives here once.
+    """
+    n_input_channels = observation_space.shape[0]
+    cnn = nn.Sequential(
+        nn.Conv2d(n_input_channels, 32, kernel_size=8, stride=4, padding=0),
+        nn.ReLU(),
+        nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=0),
+        nn.ReLU(),
+        nn.Flatten(),
+    )
+
+    # Compute shape by doing one forward pass
+    with torch.no_grad():
+        n_flatten = cnn(
+            torch.as_tensor(observation_space.sample()[None]).float()
+        ).shape[1]
+
+    linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
+
+    return nn.Sequential(cnn, linear)

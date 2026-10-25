@@ -19,6 +19,7 @@ from stable_baselines3.common.logger import Image, Figure
 from gymnasium import spaces
 
 from ao_shaping.optimizer.rl.envs import LaserCastEnv
+from ao_shaping.optimizer.rl.sac_common import build_nature_cnn_extractor
 
 class TensorboardCallback(BaseCallback):
     def __init__(self, verbose=0):
@@ -126,24 +127,8 @@ class CustomCombineImageAndVetorExtractor(BaseFeaturesExtractor):
 
     @staticmethod
     def _build_img_extractor(observation_space, features_dim):
-        n_input_channels = observation_space.shape[0]
-        cnn = nn.Sequential(
-            nn.Conv2d(n_input_channels, 32, kernel_size=8, stride=4, padding=0),
-            nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=0),
-            nn.ReLU(),
-            nn.Flatten(),
-        )
-
-        # Compute shape by doing one forward pass
-        with th.no_grad():
-            n_flatten = cnn(
-                th.as_tensor(observation_space.sample()[None]).float()
-            ).shape[1]
-
-        linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
-
-        return nn.Sequential(cnn, linear)
+        """Thin wrapper over the shared Nature-CNN tower (``sac_common``)."""
+        return build_nature_cnn_extractor(observation_space, features_dim)
 
 
 if __name__ == "__main__":
