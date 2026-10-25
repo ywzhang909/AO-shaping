@@ -55,7 +55,7 @@ PowerShell script for building Cython extensions and creating a standalone execu
 
 **Usage:**
 ```powershell
-.\scripts\build.ps1
+.\scripts\build\build.ps1
 ```
 
 **What it does:**
@@ -63,12 +63,17 @@ PowerShell script for building Cython extensions and creating a standalone execu
 2. Builds Cython extensions using `uv run setup.py build_ext --build-lib ../ao_shaping/algorithm`
 3. Creates a standalone executable using Nuitka with specific options for the DM_cam.py script
 
+> ⚠️ **2026-10-25**：本脚本只有在仓库恰好位于 `d:\workspace\AO-shaping` 时才能运行 ——
+> 首行硬编码了那个绝对路径。而且第 3 步的 Nuitka 入口 `src\ao_shaping\wf-less\DM_cam.py`
+> 已在 `44867a71` 连同 `wf-less` 目录一起删除 ⇒ 第 3 步在任何机器上都不可执行。
+> 要恢复它得先决定打包入口应指向哪里：被测应用已被移除，这不是路径笔误。
+
 ### build_cython.bat
 Batch file for building Cython extensions.
 
 **Usage:**
 ```cmd
-.\scripts\build_cython.bat
+.\scripts\build\build_cython.bat
 ```
 
 **What it does:**
@@ -97,7 +102,7 @@ Bash counterpart of `setup_pytorch.py` for CUDA-version-matched PyTorch installs
 
 **Usage:**
 ```bash
-bash scripts/setup_pytorch.sh
+bash scripts/build/setup_pytorch.sh
 ```
 
 **What it does:**
@@ -315,7 +320,7 @@ trainer.
 
 **Usage:**
 ```powershell
-.\scripts\train_ml.ps1 [args...]
+.\scripts\ml\train_ml.ps1 [args...]
 ```
 
 **What it does:**
@@ -3639,7 +3644,7 @@ Hardware smoke test for the Thorlabs WFS driver (needs hardware: Thorlabs WFS).
 
 **Usage:**
 ```powershell
-.venv\Scripts\python.exe scripts\wfs_driver_hw_test.py
+.venv\Scripts\python.exe scripts\wfs\wfs_driver_hw_test.py
 ```
 
 **What it does:**

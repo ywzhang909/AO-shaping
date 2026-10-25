@@ -1725,6 +1725,52 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       ⚠️ `refactor/190-fmt-dedup` 的分支尖端是 master 的祖先，但这**只说明该分支陈旧**，不说明修复已落地 ——
       判据是守卫的颜色，不是祖先关系。第 33 项的附录守卫仍在该片内，故今日仍只报警、不能拦停；本项守卫在
       root-guards（blocking），所以从落地起就有牙。
+40. ✅ **脚本索引里 5 条复现命令仍指向 `569ea514` 重组前的旧路径；补「活文档 shell 代码块里的脚本路径必须在 git 索引里」守卫**（2026-10-25）：
+    - **由头**：`569ea514`（group the 139 flat scripts by what they process）把平铺脚本按处理对象归入子包。
+      章节标题只写**裸文件名**，所以标题照样解析得到；但 **Usage 代码块里的完整路径没跟着改** ⇒ 五条命令
+      照抄即失败。其中一处正是第 39 项刚修过本体的 `scripts/ml/train_ml.ps1` —— 本体的死路径修好了，
+      文档里教它的那条调用路径仍是旧的 `.\scripts\train_ml.ps1`。
+    - **五处已修**（`scripts/README.md`，各按其代码块自身的分隔符风格）：58 `.\scripts\build.ps1` →
+      `scripts\build\build.ps1`；71 `.\scripts\build_cython.bat` → `scripts\build\…`；
+      100 `scripts/setup_pytorch.sh` → `scripts/build/…`；318 `.\scripts\train_ml.ps1` → `scripts\ml\…`；
+      3642 `scripts\wfs_driver_hw_test.py` → `scripts\wfs\…`。
+    - **守卫** `test_reproduce_commands_in_live_docs_name_tracked_scripts`（`tests/ao_shaping/test_conventions.py`，
+      root-guards 片，blocking）：只扫**带 shell 语言标签**（bash / sh / shell / powershell / ps1 / cmd /
+      batch / console）代码块内、以 `scripts|src` 开头且以 `.py .sh .ps1 .bat` 结尾的路径，要求把反斜杠
+      归一化后落在 git 索引里；含 `*` `<` `>` 的模板名跳过。零容忍，反空转下限
+      `_MIN_CMD_SCRIPT_CLAIMS = 200`（实测 297）。
+    - **范围为何不含正文**（与第 32、36 项同一堵墙）：把活文档的正文与代码块合起来普查，416 条路径声明里
+      6 条不解析，但**其中 5 条是合法的** —— `docs/issues_report.md:27/29/101` 是登记当时确实正确的旧路径
+      （日期化记录），`docs/drivers_architecture.md:822` 的 `src/ao_shaping/drivers/ccd/newbrand.py` 是
+      「如何新增驱动」的**假设文件名**。把它们纳入守卫等于逼人篡改正确记录 ⇒ 本守卫只管**可执行声明**
+      （shell 代码块里的路径），正文一概不管。
+    - **一条被自己测量否证的假设（没有按错理由改代码）**：我原以为第 39 项的 `_INVOCATION` 漏掉这五条是
+      因为它只认正斜杠，于是把语法放宽到 `[/\\]` 重测：**claims=238 / offenders=0，与放宽前完全一致** ⇒
+      假设作废，**没有**据此去改 `_INVOCATION`。真正原因是 3642 行写的是
+      `.venv\Scripts\python.exe scripts\…`：**解释器本身是个路径**，`python[ \t]+` 在那里根本不成匹配。
+      因此新守卫刻意**不看解释器怎么拼**，只看代码块里的路径。
+    - **两次仪表化自伤（都是先前踩过的同形坑）**：(1) 我第一版左边界写成 `(?<![\w/\\])`，**把前导反斜杠
+      排除在外**，于是 `.\scripts\…` 这类 Windows 形式全体隐身：语料 297→292、缺陷 5→2 —— 一条用来抓
+      「路径写错」的守卫自己漏掉三类缺陷，而且它当时**显示为通过**。是并排比较两种语法才暴露的。
+      (2) 代码块语言标签用了非捕获 `(?:…)`，却又调 `open_match.group(1)` ⇒ `IndexError: no such group`；
+      上线前先在容器外用 stdlib 探针跑一遍才发现，改法是**不记语言名**，只保留 `in_fence / shell_fence`
+      两个状态。另记：探针里我把 `[\w-]` 写进**非 raw** 的字典键，触发 `SyntaxWarning: invalid escape
+      sequence` —— 与同日修掉的 `test_exposure_states.py` 属同一类错误。
+    - **顺带核实：`scripts/build/build.ps1` 本身已半废弃（不擅自「修」）**：其第 3 步的 Nuitka 入口
+      `src/ao_shaping/wf-less/DM_cam.py` 已在 `44867a71`（连同 `wf-less` 目录）删除，首行又硬编码
+      `d:\workspace\AO-shaping`，而 `.gitignore:38` 至今仍在忽略 `DM_cam.*`。我**没有**替它挑一个新的打包
+      入口 —— 那是在猜产品意图（该应用是被有意当作 obsolete 删除的）。改为在 `scripts/README.md` 里加
+      **日期化 ⚠️ 说明**：整脚本只有在仓库恰好位于那个绝对路径时才能运行，第 3 步在任何机器上都不可执行，
+      恢复它得先决定入口应指向何处。⚠️ 我第一版说明写的是「前两步仍然有效」，核对首行后判定**不实**
+      （硬编码路径使第 1 步就失败）并改写 —— 文档里的能力声明同样要经得起逐行核对。
+    - **差分（三段，归因不靠注入）**：守卫先上线、文档不动 ⇒ **红**，点名 5 条并各附「同名文件在索引里的
+      位置」；改好文档 ⇒ **绿**（1 passed / 47 deselected）；把一致状态（守卫 + README + 文档）拷进 HEAD
+      worktree ⇒ **绿**；再往 `docs/user/cli-reference.md` 的 bash 块注入一条假命令 ⇒ **红**，点名
+      `scripts/no_such_tool_never_existed.sh`（并提示该 basename 无任何跟踪文件）。
+    - **验收**：容器 `test_conventions.py` 全量 + provenance + shard 覆盖 **614 passed / 1 skipped**
+      （skip 是沙箱里没有 ruff 在 PATH，已由仓库根 `ruff check .` 单独通过）；术语门禁
+      `合计: 0 个文件, 0 行`；新增行无禁用词；`scripts/README.md` 强调配对与 HEAD 持平（1→1）；ruff 全绿。
+
 
 
 

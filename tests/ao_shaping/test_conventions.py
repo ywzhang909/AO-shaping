@@ -2883,3 +2883,88 @@ def test_declared_dotenv_keys_are_read_by_tracked_code() -> None:
         "`.env.example` (and any `AGENTS.md` mirror). A commented line does not count "
         "as declared."
     )
+
+
+#: A reproduce command inside a fenced shell block is an instruction a reader pastes,
+#: so its script path must exist. Prose and dated logs stay out on purpose: an issue log
+#: naming a path that was correct when written, or a template name like ``<brand>.py``,
+#: is not an executable claim -- that is the wall TODO 8.9 items 32 and 36 hit. Unlike
+#: ``_INVOCATION`` this rule ignores how the interpreter is spelled, which matters:
+#: ``.venv\Scripts\python.exe scripts\…`` hid from that guard no matter how its path
+#: grammar was widened, because nothing there matches a bare ``python`` + space.
+_SHELL_FENCE_OPEN = re.compile(
+    r"^```[ \t]*(?:bash|sh|shell|powershell|ps1|cmd|batch|console)\b", re.IGNORECASE
+)
+#: The left boundary is load-bearing and must NOT exclude a backslash: the Windows fences
+#: spell ``.\scripts\build.ps1``, and a lookbehind that rejects ``\`` silently drops every
+#: one of those claims (measured: 292 claims / 2 offenders instead of 297 / 5).
+_CMD_SCRIPT = re.compile(
+    r"(?<![\w-])((?:scripts|src)[/\\][\w./\\*-]+\.(?:py|sh|ps1|bat))(?![\w.])"
+)
+#: Floor on checked claims. Measured 297; a fence parser that stopped matching would
+#: otherwise pass by verifying nothing (TODO 8.9 items 32, 34, 38).
+_MIN_CMD_SCRIPT_CLAIMS = 200
+
+
+def test_reproduce_commands_in_live_docs_name_tracked_scripts() -> None:
+    """Every script path in a live doc's shell fence must be in the git index.
+
+    ``569ea514`` regrouped 139 flat scripts into subpackages. Section headings survived
+    because they name a bare basename, but the fenced reproduce commands kept the old
+    flat paths, so five of them now describe invocations that cannot run -- including the
+    ``train_ml.ps1`` launcher whose dead body item 37 repaired while its documented call
+    path stayed stale. When a claim misses, the report shows where that basename *is*
+    tracked, because repointing the path is the whole repair.
+    """
+    import subprocess
+
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"], capture_output=True, cwd=str(REPO), check=False
+    ).stdout
+    tracked = {t.decode("utf-8", errors="replace") for t in listing.split(b"\0") if t}
+
+    offenders: list[str] = []
+    checked = 0
+    for rel in sorted(tracked):
+        if not rel.endswith(".md") or _is_historical(REPO / rel):
+            continue
+        in_fence, shell_fence = False, False
+        for lineno, line in enumerate(
+            (REPO / rel).read_text(encoding="utf-8", errors="replace").splitlines(), 1
+        ):
+            stripped = line.strip()
+            if stripped.startswith("```"):
+                if not in_fence:
+                    in_fence = True
+                    shell_fence = bool(_SHELL_FENCE_OPEN.match(stripped))
+                else:
+                    in_fence = shell_fence = False
+                continue
+            if not shell_fence:
+                continue
+            for token in _CMD_SCRIPT.findall(line):
+                checked += 1
+                if any(ch in token for ch in "*<>"):
+                    continue
+                norm = token.replace("\\", "/")
+                if norm in tracked:
+                    continue
+                base = norm.rsplit("/", 1)[-1]
+                alt = sorted(t for t in tracked if t.rsplit("/", 1)[-1] == base)[:3]
+                offenders.append(
+                    f"{rel}:{lineno} -> {token!r}"
+                    + (f" [same basename tracked at: {', '.join(alt)}]" if alt
+                       else " [no tracked file has this basename]")
+                )
+
+    assert checked >= _MIN_CMD_SCRIPT_CLAIMS, (
+        f"checked only {checked} fenced command path(s), below the floor "
+        f"{_MIN_CMD_SCRIPT_CLAIMS} -- the fence or path grammar stopped matching, so a "
+        "pass here would mean nothing was verified."
+    )
+    assert not offenders, (
+        f"{len(offenders)} fenced reproduce command(s) name a script that is not tracked:\n  "
+        + "\n  ".join(offenders[:20])
+        + "\nA moved script leaves its old path behind in the usage fence; repoint the "
+        "command at the tracked location, keeping the fence's own separator style."
+    )
