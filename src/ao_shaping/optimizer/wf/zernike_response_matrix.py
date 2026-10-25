@@ -160,6 +160,20 @@ class ZernikeResponseMatrixResult:
         return cls(**d)
 
 
+def slm_mode_slot(
+    mode_idx: int, *, excluded_piston: bool, excluded_tip_tilt: bool
+) -> int:
+    """第 ``mode_idx`` 个待标定模式在 SLM 系数数组里的下标 (唯一实现)。
+
+    系数数组是 **0 基 Noll** (``index 0 = piston``; 权威见
+    ``drivers/dm/zernike_dm.py`` 的 ``_noll_to_dict`` → ``Noll j = idx + 1``), 所以偏移就是
+    「被排除的模式个数」: 去 piston → 1, 再去 tip/tilt → +2。
+    ⚠️ 这与 **Noll 编号** 不是一回事 (去 piston 时 mode 0 的 Noll 编号是 2, 数组下标是 1);
+    旧注释里的 ``i+2`` / ``i+4`` 说的是 Noll 编号, 代码里的 ``i+1`` / ``i+3`` 是数组下标。
+    """
+    return mode_idx + (1 if excluded_piston else 0) + (2 if excluded_tip_tilt else 0)
+
+
 def set_slm_flat(slm) -> None:
     """设置SLM为平相位"""
     zero_phase = np.zeros((slm.Panel_Res[1], slm.Panel_Res[0]), dtype=np.uint16)
@@ -171,6 +185,8 @@ def _optimize_perturbation_amplitude(
     wfs: WFSManager,
     mode_idx: int,
     test_amps: np.ndarray,
+    excluded_piston: bool,
+    excluded_tip_tilt: bool,
     n_avg: int = 20,
     zernike_order: int = 10,
     cancel_tile: bool = False,
@@ -193,10 +209,12 @@ def _optimize_perturbation_amplitude(
             - optimal_amplitude: Best amplitude found
             - diagnostics: dict with test_amps, responses, linearity scores, best_idx
     """
-    noll_offset = 3  # exclude piston + tip/tilt
+    slot = slm_mode_slot(
+        mode_idx, excluded_piston=excluded_piston, excluded_tip_tilt=excluded_tip_tilt
+    )
     n_full = wfs.calc_n_zernike_terms(zernike_order)
     coeffs = np.zeros(n_full, dtype=np.float64)
-    coeffs[mode_idx + noll_offset] = 1.0
+    coeffs[slot] = 1.0
 
     responses = []
     for a in test_amps:
@@ -205,7 +223,8 @@ def _optimize_perturbation_amplitude(
 
         s_pos = measure_zernike_mode_response(
             zslm, wfs, coeffs * a, a, n_averages=n_avg, n_cycles=1,
-            excluded_piston=True, excluded_tip_tilt=True, zernike_order=zernike_order,
+            excluded_piston=excluded_piston, excluded_tip_tilt=excluded_tip_tilt,
+            zernike_order=zernike_order,
             mode_index=mode_idx, cancel_tile=cancel_tile,
         )[0]
 
@@ -214,7 +233,8 @@ def _optimize_perturbation_amplitude(
 
         s_neg = measure_zernike_mode_response(
             zslm, wfs, coeffs * (-a), a, n_averages=n_avg, n_cycles=1,
-            excluded_piston=True, excluded_tip_tilt=True, zernike_order=zernike_order,
+            excluded_piston=excluded_piston, excluded_tip_tilt=excluded_tip_tilt,
+            zernike_order=zernike_order,
             mode_index=mode_idx, cancel_tile=cancel_tile,
         )[0]
 
@@ -441,6 +461,11 @@ def calibrate_zernike_response_matrix(
                 opt_amp, diagnostics = _optimize_perturbation_amplitude(
                     zslm, wfs, mode_idx, test_amps, n_avg=optimize_n_avg, zernike_order=n_max,
                     cancel_tile=cancel_tile,
+                    # 已知未决 (见 drivers/wfs/AGENTS.md): 这里沿用「两者都排除」, **没有**
+                    # 转发本次标定的 excluded_* 选择。转发会同时改变寻幅探针的模式与比对的
+                    # 行集合, 是只有实验系统能重定的数值 ⇒ 显式写出而非隐式继承。
+                    excluded_piston=True,
+                    excluded_tip_tilt=True,
                 )
                 amplitude_optimization[mode_idx] = diagnostics
             magnitude = float(np.mean([v["optimal_amplitude"] for v in amplitude_optimization.values()]))
@@ -503,17 +528,10 @@ def calibrate_zernike_response_matrix(
         coeffs_full = np.zeros(n_full, dtype=np.float64)
         coeff_value = magnitude
 
-        # Calculate which Noll index this mode corresponds to
-        if excluded_piston and excluded_tip_tilt:
-            # Skip piston (1) + tip/tilt (2) = 3 terms
-            noll_offset = 3
-        elif excluded_piston:
-            # Skip piston (1) = 1 term
-            noll_offset = 1
-        else:
-            noll_offset = 0
-
-        coeffs_full[i + noll_offset] = coeff_value
+        slot = slm_mode_slot(
+            i, excluded_piston=excluded_piston, excluded_tip_tilt=excluded_tip_tilt
+        )
+        coeffs_full[slot] = coeff_value
 
         mean_resp, var_resp, mean_dev, var_dev = measure_zernike_mode_response(
             zslm=zslm,
@@ -556,7 +574,7 @@ def calibrate_zernike_response_matrix(
 
         # Update display if provided
         if display is not None:
-            noll_index = i + noll_offset + 1  # Noll index is 1-based
+            noll_index = slot + 1  # Noll index is 1-based
             mode_name = f"Z{noll_index}"
             continue_flag = display.update(
                 mode_index=i,
@@ -835,4 +853,5 @@ __all__ = [
     "measure_zernike_mode_response",
     "plot_response_matrix",
     "save_zernike_response_matrix",
+    "slm_mode_slot",
 ]

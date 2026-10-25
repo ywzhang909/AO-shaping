@@ -109,9 +109,17 @@ DLL 槽位只在 1..3 重合、从 4 起分岔。现由 `tools/zernike/common.py
   改成按槽位身份裁剪会让矩阵**行数 66 → 65**, 使已存盘的矩阵与 `gui/zernike/zernike_debug_viewer.py`
   的行解释失配, 而这是只有实验系统才能重定的数值 ⇒ **设备侧决定**, 本次只记录。在线 CLI 路径不受影响:
   `runners/slm/zernike_matrix_runner.py` 的 `_mode_ids` 已按**身份**去 piston (`i != 1`), 其注释自记过同一个误减。
-- 该偏移算术目前**手抄在 4 处** (`zernike_response_matrix.py:196` 与 `:509-514`、
-  `gui/zernike/zernike_response_matrix_ui.py:405-411` 自称"same logic"、`zernike_debug_viewer.py:363-379`),
-  属单一事实源红线上的已知重复, 尚未收敛。
+- SLM 侧该偏移算术已收敛为**唯一实现** `optimizer/wf/zernike_response_matrix.py::slm_mode_slot`
+  (原先手抄 3 处: 自动寻幅、标定环的 `if/elif/else`、`gui/zernike/zernike_response_matrix_ui.py`
+  的交互回调)。系数数组是 **0 基 Noll** (`index 0 = piston`, 权威见 `zernike_dm._noll_to_dict` 的
+  `Noll j = idx + 1`), 故下标偏移 = **被排除的模式个数**。旧注释里的 `i+2` / `i+4` 说的是
+  **Noll 编号**, 代码里的 `i+1` / `i+3` 是**数组下标** —— 两者都对, 但混写会让人以为差一个。
+- ⚠️ **仍是两处不同的量, 未合并**: (a) `gui/zernike/zernike_debug_viewer.py` 的 `wfs_start_idx` 解释的是
+  **WFS 行**, 与 SLM 列偏移不是同一个东西 (上面那条 `start_idx` 未决项就是它); (b) 自动寻幅
+  `_optimize_perturbation_amplitude` 的 `excluded_*` 目前由调用点**显式**写死为「两者都排除」,
+  **没有**跟随本次标定的排除选择 —— 转发会同时改变被探针的模式与被比对的行集合, 属只有实验系统
+  才能重定的数值, 故由 `tests/ao_shaping/optimizer/wf/test_zernike_response_matrix.py` 的
+  `TestAmplitudeProbeKeepsItsOwnExclusions` 锁死现状; 要改必须连同设备侧基准一起重定。
 
 ## 惰性加载 (2026-10-01)
 

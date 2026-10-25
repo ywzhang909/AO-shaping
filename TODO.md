@@ -2385,6 +2385,42 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
      - **验证**：`tools/slm` + `tools/wfs` + conventions **879 passed / 5 skipped / 2 failed**（仍是既有那对，
        字面量守卫无新增红）；CI 钉版 ruff **0.15.12** 全绿；术语门 **0 个文件**、双重夹注 2 行。
 
+56. ✅ **同一个「排除了几个模式」的偏移算术手抄在三处 —— 收敛为唯一实现，并把自动寻幅里一条会改硬件数值的耦合锁进测试**（2026-10-25）：
+     - **三处手抄是同一个量**：自动寻幅里写死的 `noll_offset = 3`、标定环的 `if/elif/else`（1 或 3）、
+       GUI 交互回调里自称 "same logic as calibrate_zernike_response_matrix" 的第三份副本。它们算的都是
+       **0 基 Noll 系数数组**里第 `mode_idx` 个待标定模式的下标偏移 = 被排除的模式个数。
+     - **旧注释与代码其实都对，只是混写**：注释里的 `i+2` / `i+4` 是 **Noll 编号**，代码里的
+       `i+1` / `i+3` 是**数组下标**（`index 0 = piston`，权威见 `zernike_dm._noll_to_dict` 的
+       `Noll j = idx + 1`）。混在一句话里写会让人以为差一个，故把这个区分写进 docstring。
+     - **收敛**：唯一实现 `slm_mode_slot(mode_idx, *, excluded_piston, excluded_tip_tilt)`，三处改为调用它。
+     - **测试不重抄常数**：改用 canonical 枚举反查 `noll_to_nm(slot + 1)` —— 不排除 → `(0, 0)`；只排
+       piston → `n = 1`（tip/tilt）；再排 tip/tilt → **`(2, 0)` = Noll 4 = defocus**。差分控制：把实现里的
+       `+2` 改成 `+1` ⇒ 该测试报 `assert (1, -1) == (2, 0)`，即**离焦变成像散** —— 正是这条收敛要挡的
+       模式错位，而不是一个常数不相等。
+     - **顺带实测出一条没写下来的耦合**：自动寻幅把 `excluded_piston=True, excluded_tip_tilt=True`
+       写死在它自己的两次 `measure_zernike_mode_response` 调用里，而标定默认只排 piston ⇒ 寻幅探针的
+       模式与被比对的 WFS 行集合，都和它所服务的那一列标定不一致。模块 doctest 省略 `magnitude`
+       就会触发这条路，因此它不是死代码。
+     - **本项不修数值，但把它显式化并锁死**：两个 `excluded_*` 改成**必填**参数（不能再隐式继承默认），
+       调用点显式写 `True, True` 并注明未转发；新增
+       `TestAmplitudeProbeKeepsItsOwnExclusions` 断言现状。差分控制：把调用点改成转发 ⇒ 该测试立即变红并
+       打印 `[(0, True, False), (1, True, False), …]` 指明是哪一项配置变了。转发会同时改变**被探针的
+       模式**与**被比对的行集合** ⇒ 只有实验系统能重定的数值，记为设备侧决定。
+     - **夹具与生产的口径差（记录，未动）**：`_configure_mock_wfs` 的 `calc_n_zernike_terms` 返回 **66**
+       （canonical 项数），真实驱动返回 **67**（含 0 号占位）。现有测试把 `measure_zernike_mode_response`
+       整体打桩 ⇒ 两边形状从不相遇，所以该差异目前无害；但任何**不**打桩它的形状测试都会先把错误几何
+       编进断言。
+     - **我自己的流程错误（第 20 次）**：做差分控制时把 `-k "SlmModeSlot"` 写成**两个** token，CI 包装脚本
+       把 `SlmModeSlot` 当路径 ⇒ `no tests ran`；而我偏先用 grep 过滤输出，于是把「根本没跑」读成了
+       「没有失败」。「过滤器必须是单 token `-k=`」这条规则早就在案，是执行时没守住；**过滤输出会同时
+       掩盖没跑与跑失败**，控制实验必须读完整尾部。
+     - **纠正上一项自己写下的文档**：第 55 项我在 `drivers/wfs/AGENTS.md` 记「该算术手抄 4 处、尚未收敛」，
+       本项收敛后那句立即过期 ⇒ 已改写为「唯一实现 + 剩余两处是**不同的量**」（查看器的 WFS 行解释、
+       寻幅的未转发耦合），并改用**符号名**替代行号 —— 本会话已因行号漂移咬过引用。
+     - **验证**：`optimizer/wf` + `gui/zernike` **160 passed / 1 skipped**；两条差分控制各自变红并给出
+       可读断言；CI 钉版 ruff **0.15.12** 全绿；两个改动文件 stdlib 语法编译通过；`noll_offset` 全树
+       **零**残留引用。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
