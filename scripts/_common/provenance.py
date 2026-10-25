@@ -1343,7 +1343,7 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         extra_scripts=(
             "scripts/slm/run_multishape_capability.py",
-            "src/ao_shaping/algorithm/signal_processing/target_masks.py",
+            "src/ao_shaping/utils/image/target/masks.py",
         ),
     ),
     "report/shape_trials/multishape_capability/capability_rectangle_20261023_191444.md": ReportProvenance(
@@ -1358,7 +1358,7 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         extra_scripts=(
             "scripts/slm/run_multishape_capability.py",
-            "src/ao_shaping/algorithm/signal_processing/target_masks.py",
+            "src/ao_shaping/utils/image/target/masks.py",
         ),
     ),
     "report/shape_trials/multishape_capability/capability_triangle_20261023_191105.md": ReportProvenance(
@@ -1373,7 +1373,7 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         extra_scripts=(
             "scripts/slm/run_multishape_capability.py",
-            "src/ao_shaping/algorithm/signal_processing/target_masks.py",
+            "src/ao_shaping/utils/image/target/masks.py",
         ),
     ),
     "report/shape_trials/multishape_capability/capability_star_20261023_191213.md": ReportProvenance(
@@ -1388,7 +1388,7 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         extra_scripts=(
             "scripts/slm/run_multishape_capability.py",
-            "src/ao_shaping/algorithm/signal_processing/target_masks.py",
+            "src/ao_shaping/utils/image/target/masks.py",
         ),
     ),
     "report/shape_trials/multishape_capability/shape_comparison_20261023.md": ReportProvenance(

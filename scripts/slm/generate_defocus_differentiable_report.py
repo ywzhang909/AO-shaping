@@ -563,9 +563,9 @@ def main() -> None:
     from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
         FrozenDefocusForward,
         UniformityObjective,
-        build_masks,
         load_frozen_parameters,
     )
+    from ao_shaping.utils.image.target.masks import build_box_core_masks
 
     checkpoint = args.checkpoint
     with np.load(checkpoint / "inputs.npz") as payload:
@@ -573,7 +573,7 @@ def main() -> None:
     parameters = load_frozen_parameters(checkpoint)
     forward = FrozenDefocusForward(parameters, camera_xy, device="cpu")
     col, row = forward.sample_grid_index(1432.0, 968.0)
-    box, core = build_masks(camera_xy.shape[:2], (col, row), 60, 3, forward.sample_step_ccd())
+    box, core = build_box_core_masks(camera_xy.shape[:2], (col, row), 60, 3, forward.sample_step_ccd())
     objective = UniformityObjective(box, core, w_phase=0.01)
 
     replays = {}

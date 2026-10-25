@@ -5,6 +5,10 @@ package so each concern lives in a focused module:
 
 * :mod:`~ao_shaping.utils.image.target.patterns` - parametric target patterns
   on the SLM / image grid (``create_target_shape`` etc.).
+* :mod:`~ao_shaping.utils.image.target.geometry` - pure shape geometry
+  primitives (vertices / area / point-in-polygon / erosion).
+* :mod:`~ao_shaping.utils.image.target.masks` - area-normalised target masks
+  for the physical-forward tooling (``build_polygon_masks`` etc.).
 * :mod:`~ao_shaping.utils.image.target.metrics` - objective / metric
   computations on CCD frames (ROI PIB, RMS, RMSE, shape metrics, stage weights).
 * :mod:`~ao_shaping.utils.image.target.square` - square beam-shaping target
@@ -30,6 +34,18 @@ from ao_shaping.utils.image.target.ccd import (
     crop_resize_to_grid,
     generate_target_mask,
     square_target_from_measurement,
+)
+from ao_shaping.utils.image.target.geometry import (
+    ShapeName,
+    points_in_polygon,
+    polygon_area,
+    shape_vertices,
+)
+from ao_shaping.utils.image.target.masks import (
+    SHAPES,
+    build_box_core_masks,
+    build_polygon_masks,
+    shift_mask,
 )
 from ao_shaping.utils.image.target.metrics import (
     DIFFERENTIABLE_SHAPE_CHOICES,
@@ -92,6 +108,15 @@ __all__ = [
     "create_target_shape",
     "create_target_mask",
     "load_target_image",
+    # geometry / masks (issue #199 R1+P2: single shape->mask geometry)
+    "ShapeName",
+    "shape_vertices",
+    "polygon_area",
+    "points_in_polygon",
+    "SHAPES",
+    "build_polygon_masks",
+    "build_box_core_masks",
+    "shift_mask",
     # shapes
     "TargetShape",
     "TARGET_SHAPE_LABELS",

@@ -1,17 +1,23 @@
-"""多形状目标掩膜（正方形 / 长方形 / 三角形 / 五角星），按**面积**归一。
+"""形状→掩膜的纯几何原语（顶点 / 面积 / 包含判定 / 腐蚀）。
 
-为什么单独一个模块：`differentiable_defocus_uniformity.build_masks` 只支持方框，
-而非方形目标若仍用外接方框做 CV，框内会混进大量形状外的背景，读数没有意义。
-这里只做**掩膜几何**（顶点 → 栅格化 → 内缩核心），不 import torch / 驱动 / GUI，
-供优化器、runner 与离线报告共用。
+Part of the :mod:`ao_shaping.utils.image.target` package (split by type).
+
+本模块从 ``ao_shaping.algorithm.signal_processing.target_masks`` 上移而来
+（issue #199 P2：掩膜几何属于 target 层，不该躺在 algorithm 层），并吸收
+``patterns.create_target_shape`` 的三角/星形光栅化算式，成为**唯一**的
+形状几何实现（issue #199 R1：曾经有 5 份）。
 
 坐标约定（与相机栅格一致）：
-* 顶点列序 ``(x, y)``，相对掩膜中心；
+* 顶点列序 ``(x, y)``，相对形状中心；
 * 栅格下标 ``(row, col) = (y, x)``；
+* 顶点用数学角（``+90°`` 在标准数学平面是"上"），但栅格化的图像数组
+  ``row`` 向下增长，所以**尖朝上**的三角形首顶点在 ``-90°``
+  （``shape_vertices`` 与 ``patterns.create_target_shape`` 同向）；
 * ``step_ccd_px = (step_y, step_x)``：每个栅格格子在相机像元上的尺寸。
 
-面积归一是**必须**的：不同形状只比较"面积相同"的目标才有意义（同一条零级能量
-分到相同面积上）。因此本模块接受 ``area_px2``，把单位形状缩放到该面积。
+依赖约束：本模块只 import numpy（包的叶子层测试见
+``tests/ao_shaping/utils/test_target_package.py::TestLeafLayer``），
+因此 :mod:`patterns` 可以在模块级引用它而不成环。
 """
 
 from __future__ import annotations
@@ -23,8 +29,6 @@ import numpy.typing as npt
 
 ShapeName = Literal["square", "rectangle", "triangle", "star"]
 
-SHAPES: tuple[str, ...] = ("square", "rectangle", "triangle", "star")
-
 
 def _regular_polygon(n: int, *, start_deg: float = 90.0) -> npt.NDArray[np.floating]:
     """单位外接圆正多边形顶点，列序 ``(x, y)``，``start_deg`` 处为首个顶点。"""
@@ -33,12 +37,21 @@ def _regular_polygon(n: int, *, start_deg: float = 90.0) -> npt.NDArray[np.float
 
 
 def _star_polygon(n_points: int = 5) -> npt.NDArray[np.floating]:
-    """单位外接圆五角星：外顶点与内顶点交替，内半径 = sin(18°)/sin(54°)。"""
+    """单位外接圆五角星：外顶点与内顶点交替，内半径 = sin(36°)/sin(54°)。
+
+    外环首顶点在 ``-90°``（图像坐标里"尖朝上"），与
+    :func:`~ao_shaping.utils.image.target.patterns.create_target_shape`
+    的星形同向。注意内半径比（0.7265，transfer 侧历史口径；原 docstring
+    误写为 sin(18°)/sin(54°)）与 patterns 的 ``0.42`` 是**两套历史参数**，
+    本模块保持 transfer 侧的口径不变（能力报告的历史星形数据即此口径）。
+    """
     inner = np.sin(np.deg2rad(180.0 / n_points)) / np.sin(
         np.deg2rad(3.0 * 180.0 / (2.0 * n_points))
     )
-    outer = _regular_polygon(n_points)
-    inner_pts = inner * _regular_polygon(n_points, start_deg=90.0 + 180.0 / n_points)
+    outer = _regular_polygon(n_points, start_deg=-90.0)
+    inner_pts = inner * _regular_polygon(
+        n_points, start_deg=-90.0 + 180.0 / n_points
+    )
     vertices = np.empty((2 * n_points, 2))
     vertices[0::2] = outer
     vertices[1::2] = inner_pts
@@ -69,6 +82,12 @@ def shape_vertices(
 
     Returns:
         ``(N, 2)`` 顶点数组，列序 ``(x, y)``。
+
+    Note:
+        三角/星形尖朝上（图像坐标）。上移前 ``target_masks`` 的首顶点在
+        ``+90°``，在向下增长的 row 上实际尖朝下，与其 docstring 相反；统一到
+        ``patterns`` 的口径（issue #199 R1）。轴对齐正方形/长方形不受影响
+        （正方形顶点集在 180° 旋转下不变）。
     """
     if shape == "square":
         unit = _regular_polygon(4, start_deg=45.0)  # 轴对齐正方形
@@ -81,7 +100,7 @@ def shape_vertices(
             [[-0.5 * aspect, -0.5], [0.5 * aspect, -0.5], [0.5 * aspect, 0.5], [-0.5 * aspect, 0.5]]
         )
     elif shape == "triangle":
-        unit = _regular_polygon(3)  # 尖朝上正三角形
+        unit = _regular_polygon(3, start_deg=-90.0)  # 尖朝上正三角形
     elif shape == "star":
         unit = _star_polygon(5)
     else:  # pragma: no cover - 参数层已限制
@@ -101,16 +120,29 @@ def points_in_polygon(
     yy: npt.NDArray[np.floating],
     vertices: npt.NDArray[np.floating],
 ) -> npt.NDArray[np.bool_]:
-    """偶奇交叉规则的多边形包含判定（向量化，任意简单多边形）。"""
+    """偶奇交叉规则的多边形包含判定（向量化，任意简单多边形）。
+
+    Args:
+        xx: 待判定点的 x 坐标（图像 col），任意可与 ``yy`` 广播的形状。
+        yy: 待判定点的 y 坐标（图像 row）。
+        vertices: ``(N, 2)`` 顶点数组，列序 ``(x, y)``，按边界顺序排列。
+
+    Returns:
+        与 ``np.broadcast(xx, yy)`` 同形状的布尔数组。
+
+    Note:
+        算式与 ``patterns.create_target_shape`` 的三角/星形分支逐位一致
+        （同一交叉代数、同一 ``1e-12`` 防护），因此 patterns 委托本函数后
+        输出不变；本函数即 R1 收敛后的唯一光栅化包含判定。
+    """
     inside = np.zeros(np.broadcast(xx, yy).shape, dtype=bool)
     n = len(vertices)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        for i in range(n):
-            x1, y1 = vertices[i]
-            x2, y2 = vertices[(i + 1) % n]
-            crosses = (y1 > yy) != (y2 > yy)
-            x_cross = x1 + (yy - y1) * (x2 - x1) / (y2 - y1)
-            inside ^= crosses & (xx < x_cross)
+    for i in range(n):
+        x1, y1 = vertices[i]
+        x2, y2 = vertices[(i + 1) % n]
+        crosses = (y1 > yy) != (y2 > yy)
+        x_cross = (x2 - x1) * (yy - y1) / (y2 - y1 + 1e-12) + x1
+        inside ^= crosses & (xx < x_cross)
     return inside
 
 
@@ -129,43 +161,3 @@ def _erode(mask: npt.NDArray[np.bool_], iterations: int) -> npt.NDArray[np.bool_
         shifted[:, -1] = False
         out = shifted
     return out
-
-
-def build_polygon_masks(
-    grid_shape: tuple[int, int],
-    centre_ij: tuple[int, int],
-    vertices: npt.NDArray[np.floating],
-    *,
-    inner_shrink_px: float,
-    step_ccd_px: tuple[float, float],
-) -> tuple[npt.NDArray[np.bool_], npt.NDArray[np.bool_]]:
-    """把形状顶点栅格化成 ``(box, core)`` 两张布尔掩膜。
-
-    Args:
-        grid_shape: 采样窗口 ``(rows, cols)``。
-        centre_ij: 形状中心在窗口内的栅格下标 ``(col, row)``。
-        vertices: ``shape_vertices`` 的输出（相机像元，相对中心）。
-        inner_shrink_px: 核心掩膜相对外框的内缩量（相机像元），用于避开边缘软过渡。
-        step_ccd_px: ``(step_y, step_x)``，每格对应多少相机像元。
-
-    Returns:
-        ``(box, core)``：``box`` 为整个形状，``core`` 为内缩后的形状（口径更严）。
-    """
-    col, row = centre_ij
-    step_y, step_x = float(step_ccd_px[0]), float(step_ccd_px[1])
-    yy, xx = np.mgrid[: grid_shape[0], : grid_shape[1]].astype(float)
-
-    # 顶点从相机像元换算到栅格单位，再平移到中心
-    verts = np.empty_like(vertices, dtype=float)
-    verts[:, 0] = vertices[:, 0] / step_x + col
-    verts[:, 1] = vertices[:, 1] / step_y + row
-
-    box = points_in_polygon(xx, yy, verts)
-    shrink_cells = int(round(inner_shrink_px / (0.5 * (step_x + step_y))))
-    core = _erode(box, max(1, shrink_cells)) if shrink_cells > 0 else box.copy()
-    return box, core
-
-
-def shift_mask(mask: npt.NDArray[np.bool_], dy: int, dx: int) -> npt.NDArray[np.bool_]:
-    """整体平移掩膜（用于载波把光斑挪走后在**新位置**取同一形状的读数）。"""
-    return np.roll(np.roll(mask, int(dy), axis=0), int(dx), axis=1)

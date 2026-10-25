@@ -19,9 +19,9 @@ from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity im
     DifferentiableUniformityOptimizer,
     FrozenDefocusForward,
     UniformityObjective,
-    build_masks,
     load_frozen_parameters,
 )
+from ao_shaping.utils.image.target.masks import build_box_core_masks
 
 ROOT = Path(__file__).resolve().parents[3]
 CHECKPOINT = ROOT / "data/debug/physical_forward_defocus/uniformity_refit_20261022_r1"
@@ -70,8 +70,8 @@ def test_uniformity_objective_analytic_values():
     assert float(objective2.cv(pattern)) == pytest.approx(float(expected), rel=1e-6)
 
 
-def test_build_masks_uses_frozen_geometry():
-    box, core = build_masks((121, 121), (96, 33), box_px=60, inner_shrink_px=3, step_ccd_px=(2.0, 2.0))
+def test_build_box_core_masks_uses_frozen_geometry():
+    box, core = build_box_core_masks((121, 121), (96, 33), box_px=60, inner_shrink_px=3, step_ccd_px=(2.0, 2.0))
     assert int(box.sum()) == 31 * 31
     assert int(core.sum()) == 27 * 27
     assert box[33, 96] and core[33, 96]
@@ -93,7 +93,7 @@ def test_coordinate_transform_round_trip_and_verdict():
 
 def test_increment_projection_respects_illumination_weighted_rms(checkpoint, forward):
     col, row = forward.sample_grid_index(1432.0, 968.0)
-    box, core = build_masks(forward.camera_xy.shape[:2], (col, row), 60, 3, forward.sample_step_ccd())
+    box, core = build_box_core_masks(forward.camera_xy.shape[:2], (col, row), 60, 3, forward.sample_step_ccd())
     objective = UniformityObjective(box, core, w_phase=0.0)
     seed = checkpoint["phases"][0].astype(np.float32)
     optimizer = DifferentiableUniformityOptimizer(forward, objective, seed, lr=0.5, step_rms_cap=1e-4,
@@ -108,7 +108,7 @@ def test_optimizer_removes_piston_and_tilt(checkpoint, forward):
     import torch
 
     col, row = forward.sample_grid_index(1432.0, 968.0)
-    box, core = build_masks(forward.camera_xy.shape[:2], (col, row), 60, 3, forward.sample_step_ccd())
+    box, core = build_box_core_masks(forward.camera_xy.shape[:2], (col, row), 60, 3, forward.sample_step_ccd())
     objective = UniformityObjective(box, core, w_phase=0.0)
     optimizer = DifferentiableUniformityOptimizer(forward, objective, checkpoint["phases"][0], lr=0.5,
                                                  step_rms_cap=0.5, device="cpu")
@@ -131,7 +131,7 @@ def test_optimizer_removes_piston_and_tilt(checkpoint, forward):
 
 def test_optimizer_decreases_cv_on_model_prediction(checkpoint, forward):
     col, row = forward.sample_grid_index(1432.0, 968.0)
-    box, core = build_masks(forward.camera_xy.shape[:2], (col, row), 60, 3, forward.sample_step_ccd())
+    box, core = build_box_core_masks(forward.camera_xy.shape[:2], (col, row), 60, 3, forward.sample_step_ccd())
     objective = UniformityObjective(box, core, w_phase=0.0)
     optimizer = DifferentiableUniformityOptimizer(forward, objective, checkpoint["phases"][0], lr=0.02,
                                                  step_rms_cap=0.05, device="cpu")

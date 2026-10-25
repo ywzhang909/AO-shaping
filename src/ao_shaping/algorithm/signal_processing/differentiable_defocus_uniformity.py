@@ -325,19 +325,6 @@ def recentre_window(centre_xy: tuple[float, float], *, half_span_px: float = 120
     return np.stack([xx, yy], axis=-1)
 
 
-def build_masks(shape: tuple[int, int], centre_ij: tuple[int, int], box_px: int,
-                inner_shrink_px: int, step_ccd_px: tuple[float, float]) -> tuple[npt.NDArray[np.bool_], npt.NDArray[np.bool_]]:
-    """按 CCD 像元尺寸构造方框/核心掩膜（冻结用一次）。"""
-    col, row = centre_ij
-    half_step = 0.5 * (step_ccd_px[0] + step_ccd_px[1])
-    half = max(1, int(round(box_px / 2.0 / half_step)))
-    inner = max(1, half - int(round(inner_shrink_px / half_step)))
-    yy, xx = np.mgrid[: shape[0], : shape[1]]
-    box = (np.abs(xx - col) <= half) & (np.abs(yy - row) <= half)
-    core = (np.abs(xx - col) <= inner) & (np.abs(yy - row) <= inner)
-    return box, core
-
-
 @dataclass
 class CoordinateTransform:
     """面板↔相机的**实测**线性映射（带方向标记）。

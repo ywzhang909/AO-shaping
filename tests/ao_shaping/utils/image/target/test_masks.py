@@ -1,4 +1,4 @@
-"""`target_masks` 的纯几何约定测试（无 torch / 无设备）。
+"""``utils.image.target.masks`` 的纯几何约定测试（无 torch / 无设备）。
 
 这些断言锁的是**口径**：四种形状必须同面积、外接框与几何一致、核心掩膜严格
 落在外框内、旋转只换外接框方向。口径一变，跨形状的 CV 就不可比了。
@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.algorithm.signal_processing.target_masks import (
+from ao_shaping.utils.image.target.masks import (
     SHAPES,
     build_polygon_masks,
     points_in_polygon,

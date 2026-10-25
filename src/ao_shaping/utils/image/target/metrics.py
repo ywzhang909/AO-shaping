@@ -69,7 +69,7 @@ TARGET_SHAPE_CHOICES: tuple[str, ...] = (
 
 #: Polygon family accepted by the physical-forward transfer tooling. Subset view
 #: of :data:`TARGET_SHAPE_CHOICES` (order preserved); the single source for
-#: ``target_masks`` / transfer CLI choices / blur calibration.
+#: ``utils.image.target.masks`` / transfer CLI choices / blur calibration.
 POLYGON_SHAPE_CHOICES: tuple[str, ...] = tuple(
     s for s in TARGET_SHAPE_CHOICES if s in {"square", "rectangle", "triangle", "star"}
 )

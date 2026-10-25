@@ -4,7 +4,7 @@
 > **生成脚本**: [`scripts/slm/generate_capability_report.py`](../../../scripts/slm/generate_capability_report.py)
 > **复现命令**: `python scripts/slm/generate_capability_report.py --run-dir data/debug/multishape_forward/rectangle08_20261023_191444`
 > **数据/关联脚本**: [`scripts/slm/run_multishape_capability.py`](../../../scripts/slm/run_multishape_capability.py)
-> **数据/关联脚本**: [`src/ao_shaping/algorithm/signal_processing/target_masks.py`](../../../src/ao_shaping/algorithm/signal_processing/target_masks.py)
+> **数据/关联脚本**: [`src/ao_shaping/utils/image/target/masks.py`](../../../src/ao_shaping/utils/image/target/masks.py)
 > **运行环境**: 离线（读设备运行落盘产物）
 > **说明**: 长方形 120×60（面积 7200 px²）0.8 ms 下的同一协议运行；首块 Δ −0.03737（3.45σ），载波使零点能量占比 3.23%→0.17%
 <!-- provenance:end -->

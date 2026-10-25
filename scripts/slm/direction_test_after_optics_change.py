@@ -49,8 +49,9 @@ def main() -> None:
     torch.set_num_threads(4)
 
     from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
-        FrozenDefocusForward, UniformityObjective, build_masks, load_frozen_parameters, recentre_window,
+        FrozenDefocusForward, UniformityObjective, load_frozen_parameters, recentre_window,
     )
+    from ao_shaping.utils.image.target.masks import build_box_core_masks
 
     params = load_frozen_parameters(args.checkpoint)
     xy = recentre_window((args.spot_xy[0], args.spot_xy[1]), half_span_px=args.window_half_span_px,
@@ -64,7 +65,7 @@ def main() -> None:
     seed[:rows] = seed_panel[: rows * pitch].reshape(rows, pitch, params.grid_size, pitch).mean(axis=(1, 3))
 
     centre = forward.sample_grid_index(args.spot_xy[0], args.spot_xy[1])
-    box, core = build_masks(xy.shape[:2], centre, args.target_side_px, 3.0, forward.sample_step_ccd())
+    box, core = build_box_core_masks(xy.shape[:2], centre, args.target_side_px, 3.0, forward.sample_step_ccd())
     objective = UniformityObjective(box, core, w_phase=0.01)
     print(f"[window] centre={centre} box={int(box.sum())} core={int(core.sum())} "
           f"d={params.defocus_diopter:+.4f}", flush=True)

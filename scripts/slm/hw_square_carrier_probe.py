@@ -6,7 +6,7 @@
 * **载波**：给总相位叠加一维线性斜坡（闪耀光栅），把目标搬到离 0 级 Δx 处。
   斜坡与位移预测一律走 canonical
   :mod:`ao_shaping.utils.wavefront.zero_order_overlay`（issue #199 R5：脚本
-  曾经自带一份 1D ramp 和朴素的 ``λf/(p·period)`` 公式，而实测台架常数是
+  曾经自带一份 1D ramp 和朴素的 ``λf/(p·period)`` 公式，而该实验系统的实测常数是
   ``TILT_SHIFT_SCALE``，且面板↔相机轴相差 90°）。
 * **不开窗**：整帧 1944×2592 采（不调 `reset_window`），0 级与目标同帧可见、可分别度量。
 """
@@ -27,6 +27,7 @@ import sys
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "libs"))
 
+from ao_shaping.utils.image.target.patterns import create_target_shape
 from ao_shaping.utils.wavefront.zero_order_overlay import (
     OverlayParams,
     apply_zero_order_overlay,
@@ -35,18 +36,21 @@ from ao_shaping.utils.wavefront.zero_order_overlay import (
 
 
 def square_target(size_grid: int, side_px: float, centre: tuple[int, int]) -> np.ndarray:
-    """在模型网格上做归一化方形目标强度（0/1）。"""
-    yy, xx = np.mgrid[:size_grid, :size_grid]
-    half = side_px / 2.0
-    mask = (np.abs(xx - centre[1]) <= half) & (np.abs(yy - centre[0]) <= half)
-    return mask.astype(np.float32)
+    """在模型网格上做归一化方形目标强度（0/1）。
+
+    委托 canonical :func:`create_target_shape`（issue #199 R1）：本脚本曾经
+    自带第五份形状→掩膜几何。``centre`` 是 ``(row, col)``，工厂要 ``(x, y)``。
+    """
+    return create_target_shape(
+        "square", size=size_grid, side=side_px, center=(centre[1], centre[0])
+    )
 
 
 def carrier_overlay_params(period_px: float, axis: str) -> OverlayParams:
     """载波 overlay 参数（canonical 实现，issue #199 R5）。
 
     ``axis="x"`` 是沿面板 x 的斜坡，即 overlay 约定的 ``"vertical"`` 竖条纹；
-    ``axis="y"`` 对应 ``"horizontal"``。位移大小由实测台架常数
+    ``axis="y"`` 对应 ``"horizontal"``。位移大小由本实验系统的实测常数
     ``TILT_SHIFT_SCALE`` 决定（``predicted_shift_px``），面板 x 向斜坡按 90°
     轴交换搬到相机 y 向。
     """
@@ -101,8 +105,9 @@ def main() -> None:
     torch.set_num_threads(4)
 
     from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
-        FrozenDefocusForward, UniformityObjective, build_masks, load_frozen_parameters, recentre_window,
+        FrozenDefocusForward, UniformityObjective, load_frozen_parameters, recentre_window,
     )
+    from ao_shaping.utils.image.target.masks import build_box_core_masks
 
     params = load_frozen_parameters(args.checkpoint)
     grid = params.grid_size
@@ -119,8 +124,8 @@ def main() -> None:
     forward = FrozenDefocusForward(params, recentre_window((args.spot_xy[0], args.spot_xy[1]),
                                                           half_span_px=400.0, step_px=2.0), device="cpu")
     centre = forward.sample_grid_index(args.spot_xy[0], args.spot_xy[1])
-    box, core = build_masks(forward.camera_xy.shape[:2], centre, args.target_side_px, 3.0,
-                            forward.sample_step_ccd())
+    box, core = build_box_core_masks(forward.camera_xy.shape[:2], centre, args.target_side_px, 3.0,
+                                     forward.sample_step_ccd())
     objective = UniformityObjective(box, core, w_phase=0.01)
 
     record = dict(recorded_utc=datetime.now(timezone.utc).isoformat(timespec="microseconds"),
@@ -150,7 +155,7 @@ def main() -> None:
     panel = apply_zero_order_overlay(panel, overlay)
     np.save(args.out / "phase_panel_rad.npy", panel)
 
-    # 载波带来的远场平移（实测台架常数 TILT_SHIFT_SCALE，含面板↔相机 90° 轴交换）
+    # 载波带来的远场平移（实验系统实测常数 TILT_SHIFT_SCALE，含面板↔相机 90° 轴交换）
     shift_dx, shift_dy = predicted_shift_px(overlay)
     record["carrier_shift_px_theory"] = [float(shift_dx), float(shift_dy)]
     print(f"[carrier] period {args.carrier_period_px} px ⇒ 远场平移理论 "
@@ -196,7 +201,7 @@ def main() -> None:
         slm.close()
 
     zero_row, zero_col = np.unravel_index(int(np.argmax(shots["flat"])), shots["flat"].shape)
-    # 目标应在 0 级 + 载波位移处；预测位移来自实测台架常数（含 90° 轴交换），
+    # 目标应在 0 级 + 载波位移处；预测位移来自实验系统实测常数（含 90° 轴交换），
     # 两个方向都试，取更亮的那个作为"目标已成形"的证据
     candidates = []
     for sign in (+1, -1):

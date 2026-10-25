@@ -33,13 +33,13 @@ import sys
 
 sys.path.insert(0, str(ROOT / "src"))
 
-from ao_shaping.algorithm.signal_processing.target_masks import (
-    build_polygon_masks,
-    shape_vertices,
-)
 from ao_shaping.utils.image.displacement import (
     measure_displacement,
     shift_axis_label,
+)
+from ao_shaping.utils.image.target.masks import (
+    build_polygon_masks,
+    shape_vertices,
 )
 
 DEFAULT_OUT_DIR = "report/shape_trials/multishape_capability"

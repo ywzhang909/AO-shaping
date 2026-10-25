@@ -40,8 +40,10 @@
 在**开设备后、正式采集前**，用 ``TargetSizeCalibration.load(path, limits=当前
 光路的 OpticalLimits)`` 读 ``target_size_calibration.json``（签名不匹配会被
 显式拒绝并要求重标定），``cal.recommend(target_type)`` 取出推荐边长（相机
-像元），再把这个值直接作为 ``build_masks(shape, centre_ij, box_px,
-inner_shrink_px, step_ccd_px)`` 的 ``box_px`` 冻结方框/核心掩膜。
+像元），再把这个值直接作为
+``ao_shaping.utils.image.target.masks.build_box_core_masks(grid_shape,
+centre_ij, box_px, inner_shrink_px, step_ccd_px)`` 的 ``box_px``
+冻结方框/核心掩膜。
 
 术语
 ----

@@ -9,6 +9,8 @@ from typing import Literal, cast
 
 import numpy as np
 
+from ao_shaping.utils.image.target.geometry import points_in_polygon
+
 
 #: Every shape accepted by :func:`create_target_shape`. Kept as a named alias
 #: so callers that forward a runtime ``str`` (e.g. the differentiable-shaping
@@ -148,11 +150,14 @@ def create_target_shape(
             inside &= cross >= 0
         pattern = inside.astype(np.float32)
     elif shape in {"triangle", "star"}:
-        # Even-odd (crossing-number) rasteriser, ported verbatim in behaviour
-        # from ``differentiable_shaping.create_target_mask`` so the two
-        # factories agree pixel-for-pixel. Triangle is point-up; the star is a
-        # 5-pointed star with alternating outer/inner radii (inner = 0.42 *
-        # outer, matching the source's ``size * 0.21`` against ``size / 2``).
+        # Even-odd (crossing-number) rasteriser through the shared primitive
+        # ``geometry.points_in_polygon`` (issue #199 R1: one rasteriser for the
+        # whole repo -- the formula below is bit-identical to the loop this
+        # replaces, so patterns' output does not move). Triangle is point-up;
+        # the star is a 5-pointed star with alternating outer/inner radii
+        # (inner = 0.42 * outer, the differentiable family's historical
+        # parameterisation; the transfer-side ``masks`` star keeps its own
+        # historical ratio, sin(36°)/sin(54°) ≈ 0.727).
         if shape == "triangle":
             angles = np.deg2rad([-90.0, 30.0, 150.0])
             radii = np.full(3, radius)
@@ -162,11 +167,7 @@ def create_target_shape(
         vertices = np.column_stack(
             (cx + radii * np.cos(angles), cy + radii * np.sin(angles))
         )
-        inside = np.zeros((height, width), dtype=bool)
-        for (x0, y0), (x1, y1) in zip(vertices, np.roll(vertices, -1, axis=0), strict=True):
-            crossing = (y0 > y) != (y1 > y)
-            edge_x = (x1 - x0) * (y - y0) / (y1 - y0 + 1e-12) + x0
-            inside ^= crossing & (x < edge_x)
+        inside = points_in_polygon(x, y, vertices)
         pattern = inside.astype(np.float32)
     else:
         raise ValueError(

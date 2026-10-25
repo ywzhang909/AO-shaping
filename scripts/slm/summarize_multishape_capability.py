@@ -20,11 +20,11 @@ import sys
 
 sys.path.insert(0, str(ROOT / "src"))
 
-from ao_shaping.algorithm.signal_processing.target_masks import shape_vertices
 from ao_shaping.utils.image.displacement import (
     measure_displacement,
     shift_axis_label,
 )
+from ao_shaping.utils.image.target.masks import shape_vertices
 
 SHAPE_ORDER = ("square", "rectangle", "triangle", "star")
 SHAPE_NAMES = {"square": "正方形", "rectangle": "长方形", "triangle": "三角形", "star": "五角星"}

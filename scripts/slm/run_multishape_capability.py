@@ -5,7 +5,8 @@
   （此前"先按历史 spot 算方向、再在设备侧重定中心"会差 20–80 px）；
 * **闭环不加倾斜**：最优化在零级位置上做目标形状；倾斜只在**最终展示**时叠加，
   使整形光斑与零级分离（零级由未调制光直接透过，仍留在原位）；
-* **形状按面积归一**：四种形状共用 ``--area-px2``，读数才可比（见 ``target_masks``）；
+* **形状按面积归一**：四种形状共用 ``--area-px2``，读数才可比（见
+  ``ao_shaping.utils.image.target.masks``）；
 * **判据用当次实测的掩膜地板 3σ**（``--noise-floor``），不借用历史值；
 * 曝光必须**不饱和**：载波帧会比无载波帧亮得多，先按无载波帧调到 peak ≲ 200。
 
@@ -113,7 +114,7 @@ def main() -> None:
         load_frozen_parameters,
         recentre_window,
     )
-    from ao_shaping.algorithm.signal_processing.target_masks import (
+    from ao_shaping.utils.image.target.masks import (
         build_polygon_masks,
         shape_vertices,
         shift_mask,

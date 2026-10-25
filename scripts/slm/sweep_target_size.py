@@ -8,8 +8,8 @@
 :mod:`ao_shaping.tools.slm.panel.target_size` 的解析界限 + 峰值窗口 + 单峰拟合
 落到**冻结物理前向**（``data/debug/physical_forward_defocus/uniformity_refit_20261022_r1``
 检查点，调用 :mod:`ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity`
-的 ``load_frozen_parameters`` / ``FrozenDefocusForward`` / ``build_masks`` /
-``DifferentiableUniformityOptimizer``，只调用不修改）上：
+的 ``load_frozen_parameters`` / ``FrozenDefocusForward`` /
+``build_box_core_masks`` / ``DifferentiableUniformityOptimizer``，只调用不修改）上：
 
 1. 对每个候选边长（``--sizes`` 显式 px 列表优先；否则
    ``OpticalLimits.candidate_sizes_px`` 默认 0.05–0.80 × 实用上限）用**同一份**
@@ -46,8 +46,9 @@
 在**开设备后、正式采集前**，用 ``TargetSizeCalibration.load(path)`` 读
 ``target_size_calibration.json``（签名不匹配会被显式拒绝并要求重标定），
 ``cal.recommend("square")``（默认 ``constraint="largest_valid"`` = 最大有效
-尺寸）取出推荐边长（相机像元），直接作为 ``build_masks(shape, centre_ij,
-box_px, inner_shrink_px, step_ccd_px)`` 的 ``box_px`` 冻结方框/核心掩膜。
+尺寸）取出推荐边长（相机像元），直接作为
+``build_box_core_masks(grid_shape, centre_ij, box_px, inner_shrink_px,
+step_ccd_px)`` 的 ``box_px`` 冻结方框/核心掩膜。
 
 🔴 **默认 dry-run：只跑模型侧扫描，绝不 import 或 open 任何设备。**
 ``--execute`` 分支才 import 驱动（Santec SLM + Daheng 相机），流程：
@@ -424,8 +425,8 @@ def run_model_sweep(
         DifferentiableUniformityOptimizer,
         FrozenDefocusForward,
         UniformityObjective,
-        build_masks,
     )
+    from ao_shaping.utils.image.target.masks import build_box_core_masks
 
     parameters, ckpt_camera_xy = load_checkpoint(args.checkpoint)
     cam_xy = camera_xy if camera_xy is not None else ckpt_camera_xy
@@ -483,7 +484,7 @@ def run_model_sweep(
     images: dict[float, np.ndarray] = {}
     losses: dict[float, float] = {}
     for size in candidates:
-        box, core = build_masks(
+        box, core = build_box_core_masks(
             cam_xy.shape[:2], centre, int(round(size)), args.inner_shrink_px, step
         )
         objective = UniformityObjective(box, core, w_phase=0.01)
@@ -1068,9 +1069,9 @@ def run_execute(args: argparse.Namespace) -> int:
     from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
 
     from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
-        build_masks,
         recentre_window,
     )
+    from ao_shaping.utils.image.target.masks import build_box_core_masks
 
     setup_cjk_font()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -1179,7 +1180,7 @@ def run_execute(args: argparse.Namespace) -> int:
             hw_points: list[dict[str, Any]] = []
             for point in result.points:
                 size = float(point.size_px)
-                box, core = build_masks(
+                box, core = build_box_core_masks(
                     (side, side),
                     (centre_i, centre_i),
                     int(round(size)),

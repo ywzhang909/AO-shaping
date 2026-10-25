@@ -1,8 +1,8 @@
 """Structure, shim-fidelity and leaf-layer guards for the split ``target`` package.
 
 The former flat ``ao_shaping.utils.image.targets`` module was split by type into
-``ao_shaping.utils.image.target.{patterns,metrics,square,ccd,objective}`` and
-``targets`` became a backward-compatible shim. These tests pin:
+``ao_shaping.utils.image.target.{patterns,geometry,masks,metrics,square,ccd,
+objective}`` and ``targets`` became a backward-compatible shim. These tests pin:
 
 * every submodule exports its expected symbols;
 * the package re-exports the full former surface;
@@ -32,6 +32,13 @@ PACKAGE_DIR = Path(target_pkg.__file__).resolve().parent
 # module -> symbols that MUST be defined in that submodule
 EXPECTED_EXPORTS: dict[str, tuple[str, ...]] = {
     "patterns": ("create_target_shape", "create_target_mask", "load_target_image"),
+    "geometry": ("ShapeName", "shape_vertices", "polygon_area", "points_in_polygon"),
+    "masks": (
+        "SHAPES",
+        "build_polygon_masks",
+        "build_box_core_masks",
+        "shift_mask",
+    ),
     "metrics": (
         "TARGET_SHAPE_CHOICES",
         "TargetShape",

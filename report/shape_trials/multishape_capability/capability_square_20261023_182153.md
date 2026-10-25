@@ -4,7 +4,7 @@
 > **生成脚本**: [`scripts/slm/generate_capability_report.py`](../../../scripts/slm/generate_capability_report.py)
 > **复现命令**: `python scripts/slm/generate_capability_report.py --run-dir data/debug/multishape_forward/square_20261023_182153`
 > **数据/关联脚本**: [`scripts/slm/run_multishape_capability.py`](../../../scripts/slm/run_multishape_capability.py)
-> **数据/关联脚本**: [`src/ao_shaping/algorithm/signal_processing/target_masks.py`](../../../src/ao_shaping/algorithm/signal_processing/target_masks.py)
+> **数据/关联脚本**: [`src/ao_shaping/utils/image/target/masks.py`](../../../src/ao_shaping/utils/image/target/masks.py)
 > **运行环境**: 离线（读设备运行落盘产物）
 > **说明**: 正方形目标（面积 7200 px²）0.8 ms 下的 5 块闭环 + 末尾 best/best+载波对比；模型方向未验证，报告只陈述实测
 <!-- provenance:end -->
