@@ -14,8 +14,9 @@ These tests pin the new contract so a simulated WFS can be a genuine drop-in:
 * Every method the optimizers/runners actually call is part of the contract, so
   a partial implementation fails loudly at instantiation.
 * The shared WFS parameters are registered by the base, not re-declared per driver.
-* ``calc_n_zernike_terms`` keeps its documented piston offset instead of
-  silently diverging from the canonical ``zernike_calc`` helper.
+* ``calc_n_zernike_terms`` keeps its documented one-slot offset (the DLL fills
+  ``coeff[1..N]`` 1-based, so index 0 is allocated but unused) instead of silently
+  diverging from the canonical ``zernike_calc`` term count.
 """
 
 from __future__ import annotations
@@ -153,24 +154,25 @@ class TestSharedParameters:
 
 
 class TestZernikeTermCountDivergence:
-    """Pin the +1 piston offset so it cannot drift silently.
+    """Pin the +1 array-slot offset so it cannot drift silently.
 
-    ``ThorlabWFS.calc_n_zernike_terms`` counts **with** piston; the canonical
-    ``zernike_calc.calc_n_zernike_terms`` counts **without**. Both are correct
-    for their own consumers, but the two must not be confused — so the
-    relationship is asserted rather than left implicit.
+    The WFS-side number is an array **length**: the DLL fills ``coeff[1..N]`` 1-based,
+    so index 0 is allocated but never written. The canonical number is a **term
+    count**, which already includes piston. Both are correct for their own consumers,
+    but the two must not be confused — so the relationship is asserted rather than
+    left implicit.
     """
 
     @pytest.mark.parametrize("n", [0, 1, 2, 4, 6, 10])
-    def test_wfs_counts_include_piston(self, n):
+    def test_wfs_count_is_terms_plus_one_slot(self, n):
         assert ThorlabWFS.calc_n_zernike_terms(n) == (n + 1) * (n + 2) // 2 + 1
 
     @pytest.mark.parametrize("n", [0, 1, 2, 4, 6, 10])
-    def test_canonical_excludes_piston(self, n):
+    def test_canonical_count_is_the_term_total(self, n):
         assert canonical_calc_n_zernike_terms(n) == (n + 1) * (n + 2) // 2
 
     @pytest.mark.parametrize("n", [0, 1, 2, 4, 6, 10])
-    def test_offset_is_exactly_piston(self, n):
+    def test_offset_is_exactly_one_slot(self, n):
         assert ThorlabWFS.calc_n_zernike_terms(n) == canonical_calc_n_zernike_terms(
             n
         ) + 1

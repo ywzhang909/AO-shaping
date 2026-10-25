@@ -3309,9 +3309,10 @@ def test_concrete_update_methods_return_a_value() -> None:
     )
 
 
-#: ``calc_n_zernike_terms`` legitimately has TWO counts in this repo: the canonical one
-#: (piston-excluded) and the WFS family's ``+1`` (piston-included, because slope fitting
-#: carries that term). Both are documented as single implementations -- ``drivers/wfs/base.py``
+#: ``calc_n_zernike_terms`` legitimately has TWO numbers in this repo: the canonical term
+#: count (which INCLUDES piston -- its own docstring says so) and the WFS family's array
+#: length, one slot larger because the DLL fills ``coeff[1..N]`` 1-based and index 0 is
+#: never written. The extra slot is padding, not a coefficient. Both are single implementations -- ``drivers/wfs/base.py``
 #: keeps "只保留唯一一份实现" and ``drivers/wfs/AGENTS.md`` pins the ``+1`` relation
 #: "防止两套实现无声漂移". ``ThorlabWFS`` nevertheless carried a third copy that re-derived the
 #: arithmetic instead of inheriting ``BaseWFS``; that copy is deleted in the same commit that
@@ -3329,9 +3330,10 @@ _MIN_TERM_COUNT_DEFS = 3
 def test_term_count_entry_point_is_not_reimplemented() -> None:
     """Every ``calc_n_zernike_terms`` outside the canonical module delegates to it.
 
-    A copied body drifts in silence: the WFS count and the canonical count differ by exactly
-    one piston term, so a duplicate that keeps or drops that term silently changes coefficient
-    vector sizes -- the same class of defect that produced the documented 1.88x unit bug.
+    A copied body drifts in silence: the WFS array length and the canonical term count
+    differ by exactly one padding slot, so a duplicate that keeps or drops it silently
+    changes coefficient vector sizes -- the same class of defect that produced the
+    documented 1.88x unit bug.
     """
     files = sorted(
         p.relative_to(REPO).as_posix()
@@ -3392,5 +3394,5 @@ def test_term_count_entry_point_is_not_reimplemented() -> None:
         "to the canonical module:\n  " + "\n  ".join(offenders[:15])
         + f"\nInherit from ``BaseWFS`` (whose own copy delegates) or call "
         f"``{_TERM_COUNT_CANON}`` directly; a body that re-derives ``(n+1)(n+2)//2`` can "
-        "disagree with the canonical count by the piston term and nothing will raise."
+        "disagree with the canonical count by the padding slot and nothing will raise."
     )

@@ -2047,6 +2047,47 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       两个数值**都已有测试各自钉住**，且它紧邻硬件系数向量的尺寸（正是当年 1.88× 单位 bug 的那条边界）
       ⇒ 这需要设备侧口径的判断，不是我能靠最小改动替它决定的。
 
+47. ✅ **`calc_n_zernike_terms` 的 `+1` 被多处文档讲成「piston 项」，实测是 DLL 1 基填充留下的 0 号空槽 —— 改掉 10 处措辞（含我上一条提交里自己抄来的那句），孪生与驱动差一格的分歧记为待决**（2026-10-25）：
+    - **触发点是我自己**：第 46 项守卫的注释里我写了「canonical 不含 piston / WFS 的 `+1` 是
+      slope 拟合带上的那一项」—— 那是**照抄** `base.py` 与 `drivers/wfs/AGENTS.md` 的说法，
+      没有验证。⇒ 本会话第六次仪表自伤，形态是**把文档当事实**。
+    - **实测（容器、无硬件，四个量并列）**：
+      | order | canonical | `BaseWFS` | `ThorlabWFS` | 孪生 `_n_modes` |
+      |---|---:|---:|---:|---:|
+      | 0 | 1 | 2 | 2 | 1 |
+      | 2 | 6 | 7 | 7 | 6 |
+      | 4 | 15 | 16 | 16 | 15 |
+      | 10 | 66 | 67 | 67 | 66 |
+    - **「piston 说」站不住（三条仓库内独立证据）**：(1) canonical **自己的 docstring** 写着
+      `Number of Zernike terms (including piston)`（`zernike_calc.py:85`）；(2) 消费者把同一公式
+      标为 `# 含 piston`（`tools/wfs/zernike_response.py:430`）；(3) 驱动多出的那一格被写明
+      **不使用** —— 「返回 67 长数组，DLL 填 `coeff[1..66]`（index 0 未用）」
+      （`tools/wfs/zernike_response.py:15`、`tools/wfs/zernike_correction.py:25`、
+      `tools/zernike/common.py:8`），而 `zernike_response.py:219` 正是据此切 `w = w[1:]`。
+      ⇒ `+1` 属于**数组长度**层面的 1 基填充空槽，不是第 67 个系数。
+    - **危险的不是注释而是测试名字**：`test_base_wfs.py` 的 `test_canonical_excludes_piston` /
+      `test_wfs_counts_include_piston` / `test_offset_is_exactly_piston` 断言的**数值关系全对**，
+      错的是名字讲的故事 —— 名字会被复制、会被当作复用依据。⇒ 只改名
+      （`test_canonical_count_is_the_term_total` / `test_wfs_count_is_terms_plus_one_slot` /
+      `test_offset_is_exactly_one_slot`），断言一字未动 ⇒ 同容器 **38 passed**。
+    - **改动面**：4 个文件 / **10** 处措辞 —— `drivers/wfs/base.py` 不变量 docstring（1）、
+      `drivers/wfs/AGENTS.md` 该小节标题与正文（1）、`test_base_wfs.py`（5：模块 docstring 1 +
+      类 docstring 1 + 测试名 3）、`test_conventions.py`（3：我上一条提交的守卫注释 2 + 失败消息 1）。
+      替换按**内容锚点 + `count == 1` 断言**执行，命中数不为 1 就在写盘前中止（本会话早期按行号
+      改文件咬过一次）。
+    - **顺带证实第 46 项的删除**：上表里 `BaseWFS` 与 `ThorlabWFS` 现在**逐阶相等**（2 / 7 / 16 / 67），
+      这正是「只剩一份实现」的可观测后果。
+    - **未被我说服、也没有被我改掉的发现（留给设备侧口径）**：孪生 `_n_modes(10) = 66`（0 基、
+      无空槽），驱动缓冲区 67（1 基、0 号空槽）⇒ 两侧对 `index 0` 的**含义**不一致，风险是具体的：
+      `w[1:]` 在硬件上丢掉空槽，在孪生上丢掉**真的 0 号模式**。我没有统一它 —— 统一到哪一侧取决于
+      DLL 与既有落盘语料的口径，属硬件侧决定而非最小修复；已作为 ⚠️ 待决写进
+      `drivers/wfs/AGENTS.md` 该小节末尾。
+    - **再记一处探针仪表错（第七处）**：第一版探针把实例方法 `SimulatedWFS._n_modes` 当**未绑定函数**
+      调用（少了 `self`），`TypeError` 落在**断言**行上 ⇒ 表格**一行未印**就 FAIL，我差点把那个
+      「F」当作结论。处置：改成**只打印不断言**的探针，第二版以 `SimulatedWFS._n_modes(None, order)`
+      忠实读取（该方法不使用 `self`），跑完当场删除。教训：**测不出数据的 F 不是证据**；
+      先让数据打印出来，再决定要不要断言。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

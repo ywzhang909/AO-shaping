@@ -47,12 +47,17 @@ WFS 家族曾是**唯一没有共享基类**的设备家族: `ThorlabWFS` 直接
 13.8% → **42.1%**。**仿真 WFS 必须复刻同一单位**, 内部可用弧度, 但边界转换必须让
 仓库既有的 `um_to_waves()` → `×2π` 链路**精确还原**原始弧度相位。
 
-### `calc_n_zernike_terms` 的 piston 偏移
+### `calc_n_zernike_terms` 的 +1: DLL 的 1 基填充留出的 0 号空槽
 
-`BaseWFS.calc_n_zernike_terms(n)` = `zernike_calc.calc_n_zernike_terms(n) + 1` ——
-**含 piston**, 而 canonical `zernike_calc` 版本**不含**。两者各自对消费者正确, 但
-绝不能混用; 该 +1 关系已由 `tests/ao_shaping/drivers/wfs/test_base_wfs.py` 钉死,
-防止两套实现无声漂移。
+`BaseWFS.calc_n_zernike_terms(n)` = `zernike_calc.calc_n_zernike_terms(n) + 1` —— 但多出来的
+那一项**不是系数**: canonical 数的是**项数**且已含 piston, WFS 侧数的是**数组长度**, 因为 DLL
+按 1 基填 `coeff[1..N]` (@n=10: 66 项 + 0 号空槽 = 67), `index 0` 不写也不用; 消费侧的
+`w = w[1:]` 正是这个约定 (`tools/wfs/zernike_response.py`)。两者各自对消费者正确, 但绝不能
+混用; 该 +1 关系已由 `tests/ao_shaping/drivers/wfs/test_base_wfs.py` 钉死, 防止无声漂移。
+
+⚠️ **仍未决 (2026-10-25 实测, 无硬件)**: 孪生侧 `SimulatedWFS._n_modes(n)` =
+`len(list_zernike_modes(n))` = **66** (@n=10, 0 基、无空槽), 而驱动侧缓冲区是 **67** —— 两者对
+`index 0` 的含义并不一致。把它统一成哪一侧是**设备侧口径**决定, 本次**未改动**。
 
 ## 惰性加载 (2026-10-01)
 
