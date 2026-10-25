@@ -2200,3 +2200,138 @@ def test_markdown_table_rows_never_write_more_cells_than_declared() -> None:
         "generator, so fix the emitter rather than the artifact (TODO 8.9 item 26):\n"
         "  " + "\n  ".join(split_gen)
     )
+
+
+# ---------------------------------------------------------------------------
+# CLI command inventory -- five sources that must name the same command set
+# ---------------------------------------------------------------------------
+
+#: Floor for every parsed set. Measured 19 (2026-10-25); the floor is deliberately far
+#: below that so a legitimate new command cannot trip it, while a parse that silently
+#: returns an empty set still cannot compare equal to a real set.
+_MIN_CLI_COMMANDS = 8
+
+
+def _docstring_commands(docstring: str) -> set[str]:
+    """Command names from ``main.py``'s own ``Commands:`` block.
+
+    The header may wrap, so scanning does not stop at the first unindented line until
+    at least one entry has been seen -- otherwise a wrapped header yields an empty set,
+    and an empty set equals another empty set.
+    """
+    lines = docstring.splitlines()
+    try:
+        start = next(i for i, l in enumerate(lines) if l.strip().startswith("Commands"))
+    except StopIteration:
+        return set()
+    found: set[str] = set()
+    seen_entry = False
+    for line in lines[start + 1:]:
+        m = re.match(r"^ {4}([a-z][a-z-]+)\s{2,}\S", line)
+        if m:
+            found.add(m.group(1))
+            seen_entry = True
+        elif not line.strip():
+            continue
+        elif seen_entry and not line.startswith(" "):
+            break                                  # next top-level section (Examples:)
+    return found
+
+
+def _cli_command_inventory() -> dict[str, set[str]]:
+    """The five places that enumerate the top-level CLI commands."""
+    main_path = SRC / "ao_shaping" / "main.py"
+    main_src = main_path.read_text(encoding="utf-8")
+
+    registered = set(re.findall(
+        r'cli\.add_command\(\s*\w+\s*,\s*name="([a-z][a-z-]+)"\s*\)', main_src))
+
+    frozen: set[str] = set()
+    contract = REPO / "tests/ao_shaping/runners/test_cli_contract_freeze.py"
+    if contract.exists():
+        for node in ast.parse(contract.read_text(encoding="utf-8")).body:
+            if (isinstance(node, ast.Assign)
+                    and getattr(node.targets[0], "id", "") == "EXPECTED_COMMANDS"
+                    and isinstance(node.value, (ast.Tuple, ast.List))):
+                frozen = {e.value for e in node.value.elts if isinstance(e, ast.Constant)}
+
+    golden: set[str] = set()
+    golden_path = REPO / "tests/ao_shaping/runners/cli_help_golden.json"
+    if golden_path.exists():
+        import json
+        keys = json.loads(golden_path.read_text(encoding="utf-8"))
+        golden = {k for k in keys if ":" not in k}          # module-scoped keys carry ':'
+
+    docstring = ast.get_docstring(ast.parse(main_src)) or ""
+    in_docstring = _docstring_commands(docstring)
+
+    tree: set[str] = set()
+    agents = (REPO / "AGENTS.md").read_text(encoding="utf-8")
+    at = agents.find("main (click.group)")
+    if at >= 0:
+        block = agents[at:agents.index("```", at)]
+        # Only the first token of each branch row: subcommands are named later in the
+        # same line (inside parentheses), and are NOT top-level commands.
+        tree = set(re.findall(r"[├└]── ([a-z][a-z-]+)", block))
+
+    return {"main.py add_command": registered, "EXPECTED_COMMANDS": frozen,
+            "cli_help_golden.json": golden, "main.py docstring": in_docstring,
+            "AGENTS.md tree": tree}
+
+
+def test_cli_command_inventory_agrees_across_its_five_sources() -> None:
+    """Every enumeration of the CLI command set must name the same commands.
+
+    Measured 2026-10-25 (TODO 8.9 item 29): ``AGENTS.md`` claimed 20 commands while
+    ``main.py`` registers 19, and it listed ``spgd-square`` as a top-level command when
+    that is the ``square`` subcommand of the ``slm-pib`` group. ``main.py``'s own
+    docstring advertised three commands that do not exist at all (``gs``, ``gs-square``,
+    ``diff-beam``) and omitted nine -- so the text a reader copies from ``--help``
+    fails on the first attempt. None of that is visible to any test, because nothing
+    used to compare the enumerations against the registration.
+
+    The stated count inside ``AGENTS.md`` is checked too, but only when present: a stale
+    number must not survive, while dropping the number entirely stays legal.
+    """
+    sources = _cli_command_inventory()
+    empty = [name for name, names in sources.items() if len(names) < _MIN_CLI_COMMANDS]
+    assert not empty, (
+        f"{len(empty)} CLI inventory source(s) parsed to almost nothing: {empty}. "
+        "Either the command set really collapsed or a parser stopped matching the "
+        "format -- both mean this guard is no longer comparing what it claims to."
+    )
+    reference = sources["main.py add_command"]
+    disagreeing = {n: sorted(s ^ reference) for n, s in sources.items() if s != reference}
+    assert not disagreeing, (
+        "the CLI command inventory disagrees across sources; main.py registration is "
+        f"the truth ({len(reference)} commands):\n"
+        + "\n".join(f"  {name}: {sorted(diff)}" for name, diff in disagreeing.items())
+    )
+
+    agents = (REPO / "AGENTS.md").read_text(encoding="utf-8")
+    stated = re.search(r"main\.py 注册 \*\*(\d+)\*\* 个命令", agents)
+    assert not stated or int(stated.group(1)) == len(reference), (
+        f"AGENTS.md states {stated.group(1)} registered commands but main.py registers "
+        f"{len(reference)} -- update the number or drop it"
+    )
+
+
+def test_agents_md_never_pins_main_py_by_line_number() -> None:
+    """``AGENTS.md`` cites ``main.py`` by symbol, never by line number.
+
+    Not style: writing this very unit's first pass cited ``main.py:113`` / ``:120``, then
+    growing ``main.py``'s docstring shifted the registration block by seven lines and the
+    citations were stale on contact. ``main.py`` has no code above the registration that
+    a reader needs a line number for, so an anchor like
+    ``cli.add_command(combined_run, name="combined")`` is equally precise and cannot rot.
+
+    Measured 2026-10-25: 0 such citations. Count-based baseline, so the rule can be
+    relaxed deliberately by raising it -- never by leaving one behind.
+    """
+    agents = (REPO / "AGENTS.md").read_text(encoding="utf-8")
+    pinned = re.findall(r"main\.py:\d+(?:-\d+)?", agents)
+    assert not pinned, (
+        f"{len(pinned)} absolute main.py line citation(s) in AGENTS.md: {sorted(set(pinned))}. "
+        'Cite the symbol instead (e.g. `cli.add_command(..., name="...")`); line numbers '
+        "here move on every docstring edit, which is how they were already wrong once."
+    )

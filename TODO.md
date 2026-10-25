@@ -1341,9 +1341,20 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       （`[COMMAND]` 可选），它**在干净 `HEAD` 上同样复现**，且两份 help golden 都**不含组级帮助**
       （`cli_help_golden.json` 无裸 `main` key；`_cli_help_golden.json` 零个裸 key；我的 docstring
       文本在 golden 值中零命中）⇒ 属 wt-193 在 `runners-gui-misc` **advisory** 分片的既存红，不动。
-    - **留作下一轮的候选**（本轮不做，避免把口径判断当重构做）：把"四源相等"做成**常驻守卫**
-      （解析 CLI 树与 `EXPECTED_COMMANDS` 取差集），这样文档与注册面再漂移会当场红；需先解决
-      子命令行（`slm-pib square`）与顶层命令名的解析口径，否则误报。
+    - **已兑现（同日下一轮）：四源核对升级为常驻守卫**，落在 `tests/ao_shaping/test_conventions.py`：
+      `test_cli_command_inventory_agrees_across_its_five_sources` 与
+      `test_agents_md_never_pins_main_py_by_line_number`。口径最终是**五源**（`main.py` 的
+      `cli.add_command`、`EXPECTED_COMMANDS`、help golden 的**裸 key**、`main.py` docstring 命令表、
+      `AGENTS.md` 命令树），实测各 **19** 且取差集相等，以注册面为基准。
+      当时担心的子命令行歧义这样解决：命令树**只取分支符后的第一个 token**，子命令写在同行括号内
+      （`slm-pib … (click 组: spgd / heuristic / square)`）因而不会被误当顶层命令。
+    - **守卫的两条自身防线（都有实测）**：① `_MIN_CLI_COMMANDS = 8` 的**反空转下限**——把
+      `main.py` docstring 的段名改成 `Sub-commands` 让解析器返回空集后，守卫报
+      `parsed to almost nothing: ['main.py docstring']` 而不是"空集 == 空集"的**假通过**；
+      ② `_docstring_commands` 里的 `seen_entry` 标志：docstring 的段名会**折行**（续行在 0 缩进），
+      没有这个标志解析器会直接返回空集 ⇒ 同样落入假通过。③ 另两处注入分别被点名：
+      把 `AGENTS.md` 的数字改成 20 ⇒ `states 20 … registers 19`；补一条 `main.py:106` ⇒
+      `1 absolute main.py line citation(s)`。**未触发过的守卫等于没有守卫**。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
