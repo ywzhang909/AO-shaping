@@ -1,7 +1,7 @@
 """Tests for the Zernike basis used by ``spgd-square`` CLI.
 
 Verifies that the Zernike basis generated for
-``python src/ao_shaping/main.py spgd-square -e 2000 -n 4 --target-side 20``
+``python src/ao_shaping/main.py slm-pib square -e 2000 -n 4 --target-side 20``
 is a circular aperture that fully utilises every SLM pixel — i.e. the
 aperture is the panel-inscribed circle (touching the top/bottom edges), not a
 cropped or shrunk central region. No camera/CCD is opened.

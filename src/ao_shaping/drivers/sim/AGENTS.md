@@ -184,7 +184,7 @@ SimulatedDevice (Device)
 
 | runner | 驱动量 | 仿真下是否有物理意义 |
 |--------|--------|---------------------|
-| `slm-pib` / `slm-gsnet` / `spgd-square` | SLM 相位 | **有** —— `set_phase_rad` 直接改变远场 |
+| `slm-pib` / `slm-gsnet` / `slm-pib square` | SLM 相位 | **有** —— `set_phase_rad` 直接改变远场 |
 | `pib` / `combined` | DM 电压 | **有** —— `SimulateDM.send_voltages` → `SimDmOptics` → `far_field()` |
 
 实现要点:
