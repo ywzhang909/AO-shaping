@@ -2811,9 +2811,9 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
        `source:` 竟然指向 `src/ao_shaping/tools/slm/panel/diagnose.py:314` —— 一个与方形整形无关的文件。
        文档不仅列了不存在的命令，还**为它编造了实现**。
      - **根因是三份同逻辑副本漂移（R-25 类）**：`reg()` 循环用显式 `if/elif` 放行两个 tools 命令；
-       而 `entry/cli.md` 表格与 `cmd_page()` 两处写成 `cmd.get(key) or (lut if name == "slm-lut" else
-       diagnose.main)` 的示意形式 —— 结尾那个**兜底 else** 让任何在资产 `cmd_entries`（实测 17 键）
-       里查不到的命令
+       而 `entry/cli.md` 表格与 `cmd_page()` 两处写成「查不到就取兜底值」的形式，即
+       `cmd.get(key) or (lut if name == "slm-lut" else diagnose.main)`
+       —— 结尾那个**兜底 else** 让任何在资产 `cmd_entries`（实测 17 键）里查不到的命令
        都拿到 diagnose 的入口。地面事实：`slm_square_run` 根本不在 `cmd_entries` 里，于是幽灵顺着 else
        被发布成页面 / 表行 / 索引行 / 图节点。
      - **修法**：三处收敛成唯一解析器 `cmd_qualifier`，两个 tools 命令由显式 `_TOOL_ENTRIES` 兜住，
