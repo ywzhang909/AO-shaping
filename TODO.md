@@ -1356,6 +1356,33 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       把 `AGENTS.md` 的数字改成 20 ⇒ `states 20 … registers 19`；补一条 `main.py:106` ⇒
       `1 absolute main.py line citation(s)`。**未触发过的守卫等于没有守卫**。
 
+30. ✅ **把 `AGENTS.md` 纳入 `python -m` 入口守卫：根文档此前是唯一不被核查的活文档**（2026-10-25）：
+    - **缺口**：`_LIVE_DOCS` 覆盖 `README.md` + `src/**.md` + `scripts/*.md` + `docs/*.md`，**唯独不含根
+      `AGENTS.md`** —— 而它是本仓阅读量最大的操作文档。故第 23、24、29 项里它的失效引用**全靠人工发现**，
+      没有任何守卫兜底。本轮补上（不是重写第 23/24 项，而是让它不再复发）。
+    - **三处必须一起放宽，缺一处就是假通过**：
+      ① `_LIVE_DOCS` 加入根 `AGENTS.md`；
+      ② `_module_inventory()` 原来只走 `src/ao_shaping`，而 `src/ml` 是**独立顶层包**
+        （`python -m ml.hwdataset.inspect`）⇒ 只放宽①会让每个**合法**的 `ml` 入口被判"无此模块"；
+      ③ `_PY_M` / `_MD_M` 的前缀由 `ao_shaping[\w.]*` 放宽为 `(?:ao_shaping|ml)[\w.]*`。
+      顺序上 ② 先于 ③：正则与清单覆盖面不一致时，守卫会**误报**而非漏报。
+    - **不扩白名单，改文档**：`AGENTS.md` 两处 `python -m ao_shaping.runners.xxx` 本就**跑不通**
+      （没有名为 `xxx` 的模块）。守卫已豁免 `...<name>` 模板形式，故把占位符改成 `<name>` 与既有约定一致，
+      **而不是**把 `ao_shaping.runners.xxx` 塞进 `_ALLOWED_UNRESOLVED`（那张表的语义是"确实坏的"）。
+    - **放宽前先算代价**（先测后改）：对全部活文档 + `.py` 文档串跑一遍解析，**未解析项恰为 1**
+      （`ao_shaping.runners`，来自 `utils/io/cli_helpers.py` 把 `python -m ao_shaping.runners...` 当
+      "某个 runner"的通配说法，已在 `_ALLOWED_UNRESOLVED` 里有理由）⇒ 基线**不必增长**，
+      `set(problems) == set(_ALLOWED_UNRESOLVED)` 仍成立。顺带暴露：`AGENTS.md` 里 4 条 `python -m ml.*`
+      与 `README.md` 里若干条**一直没人核查**。
+    - **验收**：容器 `test_conventions.py` **40 passed / 1 skipped**（含两条入口守卫与基线双向核查）。
+      **咬合证明**（注入到 scratch worktree，且先断言放宽真在副本里，否则"通过"只说明守卫不存在）：
+      往 `AGENTS.md` 注入 `python -m ml.probe_does_not_exist` 与 `ao_shaping.runners.probe_does_not_exist`
+      ⇒ `documented python -m targets that do not run: {...(no such module)...}` 且基线守卫并报
+      `newly broken: [...]`，**2 failed**。两条新覆盖轴各自都能被抓住。
+    - **本轮没做**（避免把口径判断当重构做）：`_HISTORICAL_DOCS` 仍把 `docs/dev/`、`report/` 等排除在外，
+      这是**有意**的（历史文档里的旧路径是记录，不是错误指引）；要不要给历史文档单独一条"只警告不失败"的
+      检查，属口径决定，另议。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

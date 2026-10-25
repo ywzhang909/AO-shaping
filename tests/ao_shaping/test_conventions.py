@@ -106,7 +106,7 @@ _PY_MODULE_DOCS = sorted(SRC.rglob("*.py")) + sorted((REPO / "scripts").glob("*.
 #: Documents that carry *current* instructions, so every ``python -m`` target in
 #: them must resolve. ``report/`` is deliberately absent -- see _HISTORICAL_DOCS.
 _LIVE_DOCS = (
-    [REPO / "README.md"]
+    [REPO / "README.md", REPO / "AGENTS.md"]
     + sorted(SRC.rglob("*.md"))
     + sorted((REPO / "scripts").glob("*.md"))
     + sorted((REPO / "docs").glob("*.md"))
@@ -157,7 +157,10 @@ def _dotted(name: str) -> str:
 def _module_inventory() -> dict[str, tuple[bool, bool]]:
     """``{module: (has __main__ guard, declares a click command)}``."""
     out: dict[str, tuple[bool, bool]] = {}
-    for path in sorted((SRC / "ao_shaping").rglob("*.py")):
+    # Two package roots, not one: ``src/ml`` is a standalone top-level package
+    # (``python -m ml.hwdataset.inspect``), so an inventory scoped to ``ao_shaping``
+    # reads every documented ``ml`` entry point as a non-existent module.
+    for path in sorted(p for root in (SRC / "ao_shaping", SRC / "ml") for p in root.rglob("*.py")):
         try:
             text = path.read_text(encoding="utf-8-sig")
             tree = ast.parse(text)
@@ -288,8 +291,8 @@ def test_the_deferred_forms_still_exist_so_the_guard_is_not_vacuous() -> None:
 # 3. `python -m` documentation matches reality
 # ---------------------------------------------------------------------------
 
-_PY_M = re.compile(r"python\s+-m\s+(ao_shaping[\w.]*)")
-_MD_M = re.compile(r"python\s+-m\s+(ao_shaping[\w.]*)")
+_PY_M = re.compile(r"python\s+-m\s+((?:ao_shaping|ml)[\w.]*)")
+_MD_M = re.compile(r"python\s+-m\s+((?:ao_shaping|ml)[\w.]*)")
 
 #: References that legitimately do not resolve. Each needs a reason, because an
 #: unexplained baseline entry is just a suppressed failure.
