@@ -129,6 +129,38 @@ TILT_DLL_SLOTS: tuple[int, int] = (_require_dll_slot((1, -1)), _require_dll_slot
 DEFOCUS_DLL_SLOT: int = _require_dll_slot((2, 0))
 
 
+def wfs_channels_lambda(
+    w_raw: Any, n_channels: int, *, source: str = "w"
+) -> np.ndarray:
+    """把一份 WFS 波前读数规范成 ``n_channels`` 个 λ 通道, 并把 piston 置零。
+
+    接受三种形态: 已去填充槽的 ``n_channels`` 长数组; 比它多一个元素、0 号是 DLL 未写
+    填充槽的原始读数 (``n_channels + 1`` 长); 或含 ``w`` / ``w_before`` / ``wavefront``
+    任一键的字典。返回**新数组** (调用方原地置零不会写回输入)。
+
+    「多一个」按 ``n_channels`` 判定而非写死长度: 填充槽的存在与阶数无关, 写死 67 会让
+    其它阶数的读数被当成长度不符。
+
+    piston 置零的理由: 它是 WFS 参考面的整体偏置, 既不可矫正也会通过伪逆污染
+    整个反解 (见 ``runners/slm/zernike_matrix_runner.py`` 同一处理)。
+    """
+    if isinstance(w_raw, dict):
+        w_raw = w_raw.get("w") or w_raw.get("w_before") or w_raw.get("wavefront")
+    if w_raw is None:
+        raise ValueError(
+            f"{source}: 需要 {n_channels} 长通道向量 (或 {n_channels + 1} 长、0 号是未写"
+            "填充槽的原始读数), 或含 w/w_before/wavefront 键的字典"
+        )
+    w = np.asarray(w_raw, dtype=float).reshape(-1)
+    if w.size == n_channels + 1:
+        w = w[1:]                               # 0 号是 DLL 未写的填充槽
+    if w.size != n_channels:
+        raise ValueError(f"{source}: 波前长度 {w.size} ≠ 期望通道数 {n_channels}")
+    w = np.array(w, dtype=float, copy=True)
+    w[0] = 0.0
+    return w
+
+
 # ─────────────────────────── 设备参数采集 ───────────────────────────
 
 def collect_device_info(slm: Santec, wfs: ThorlabWFS | None = None,

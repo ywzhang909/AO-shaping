@@ -50,6 +50,7 @@ from ao_shaping.tools.zernike.common import (
     PANEL_H,
     PANEL_W,
     make_phase,
+    wfs_channels_lambda,
 )
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
@@ -120,15 +121,11 @@ def main() -> None:
     ids = dc.get("slm_mode_ids_dll") or list(range(2, r.matrix.shape[1] + 2))
     nm_list = dc.get("slm_mode_nm") or [list(DLL_ZERNIKE_ORDER[i - 1]) for i in ids]
     radius = float(dc.get("zernike_radius_px") or 300.0)
-    w_raw = json.loads(wj.read_text(encoding="utf-8"))
-    if isinstance(w_raw, dict):
-        w_raw = w_raw.get("w") or w_raw.get("w_before") or w_raw.get("wavefront")
-    w = np.asarray(w_raw, dtype=float).reshape(-1)
-    if w.size == 67:
-        w = w[1:]
-    assert w.size == r.pinv_matrix.shape[1], (w.size, r.pinv_matrix.shape[1])
-    w = w.copy()
-    w[0] = 0.0
+    w = wfs_channels_lambda(
+        json.loads(wj.read_text(encoding="utf-8")),
+        r.pinv_matrix.shape[1],
+        source="--w",
+    )
     c_waves = -r.pinv_matrix @ w
     ph = PatternHelper(resolution=(PANEL_W, PANEL_H))
     coeff = {

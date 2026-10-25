@@ -16,6 +16,7 @@ from ao_shaping.tools.zernike.common import (
     nm_of,
     safe_pinv,
     um_to_waves,
+    wfs_channels_lambda,
 )
 
 
@@ -204,3 +205,68 @@ def test_measure_tilt_defocus_drops_a_frame_whose_defocus_slot_is_not_finite() -
         "the only frame was invalid, so the wrapper must report no measurement "
         f"(got tilt={z_tilt!r}, defocus={z_defocus!r})"
     )
+
+
+#: A channel vector whose index 0 is the uncorrectable piston offset.
+_CHANNELS = [5.0, 7.0, 11.0, 13.0, 17.0]
+
+
+def test_wfs_channels_lambda_zeroes_piston_and_keeps_the_rest() -> None:
+    w = wfs_channels_lambda(list(_CHANNELS), len(_CHANNELS))
+
+    assert w == pytest.approx([0.0, 7.0, 11.0, 13.0, 17.0])
+
+
+def test_wfs_channels_lambda_drops_the_leading_padding_slot() -> None:
+    raw = [999.0, *_CHANNELS]                      # 0 号是未写的填充槽
+    w = wfs_channels_lambda(raw, len(_CHANNELS))
+
+    assert w.size == len(_CHANNELS)
+    assert w == pytest.approx([0.0, 7.0, 11.0, 13.0, 17.0]), (
+        "slot 0 is padding, so the piston is the ORIGINAL index 1 -- and it is the value zeroed"
+    )
+
+
+@pytest.mark.parametrize("key", ["w", "w_before", "wavefront"])
+def test_wfs_channels_lambda_accepts_each_saved_dict_key(key: str) -> None:
+    """The corpus writes this vector under three different names over time."""
+    w = wfs_channels_lambda({key: list(_CHANNELS)}, len(_CHANNELS))
+
+    assert w == pytest.approx([0.0, 7.0, 11.0, 13.0, 17.0])
+
+
+def test_wfs_channels_lambda_reports_the_source_when_input_is_unusable() -> None:
+    for bad, why in (({"other": [1.0]}, "no recognized key"), ([1.0, 2.0], "wrong length")):
+        with pytest.raises(ValueError, match="--w-file") as exc:
+            wfs_channels_lambda(bad, len(_CHANNELS), source="--w-file")
+        assert str(exc.value), why
+
+
+def test_wfs_channels_lambda_never_aliases_the_caller_buffer() -> None:
+    """A slice is a VIEW, so the copy is what keeps piston-zeroing local to the result."""
+    source = np.asarray(_CHANNELS, dtype=float)
+
+    w = wfs_channels_lambda(source, len(_CHANNELS))
+    w[1] = 99.0
+
+    assert source == pytest.approx(_CHANNELS), "the caller's vector was mutated"
+    assert not np.shares_memory(w, source)
+
+
+def test_wfs_channels_lambda_treats_one_extra_slot_as_padding_at_the_real_length() -> None:
+    """The rule is "one longer than the matrix expects", not a hardcoded width.
+
+    The response-matrix h5 stores 66 WFS channels, so a 67-long saved reading is the same
+    wavefront plus the slot the DLL never writes -- and the same reasoning holds at any
+    other order, where a fixed 67 would reject a legitimate file.
+    """
+    channels = np.arange(1.0, 67.0)
+    raw = np.concatenate(([0.0], channels))
+
+    assert len(channels) == 66 and len(raw) == 67
+    assert wfs_channels_lambda(raw, 66) == pytest.approx(wfs_channels_lambda(channels, 66))
+
+
+def test_wfs_channels_lambda_rejects_a_length_beyond_one_padding_slot() -> None:
+    with pytest.raises(ValueError, match="波前长度 68"):
+        wfs_channels_lambda(np.arange(1.0, 69.0), 66)

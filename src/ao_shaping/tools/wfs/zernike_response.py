@@ -79,6 +79,7 @@ from ao_shaping.tools.zernike.common import (
     save_driver_correction_csv,
     show_phase,
     um_to_waves,
+    wfs_channels_lambda,
     wfs_validity,
 )
 from ao_shaping.utils.cli.params import option, with_params
@@ -209,19 +210,14 @@ def export_driver_correction(h5_path: str | Path,
     # 矫正偏移, 用 998 会使幅度被缩放 1023/998 ≈ 1.025×。
     max_gray = get_max_grayscale()
 
-    w_raw = json.loads(Path(w_file).read_text(encoding="utf-8"))
-    if isinstance(w_raw, dict):
-        w_raw = w_raw.get("w") or w_raw.get("w_before") or w_raw.get("wavefront")
-    if w_raw is None:
-        raise click.ClickException("--w-file 需为 66 长数组或含 w/w_before 键的字典")
-    w = np.asarray(w_raw, dtype=float).reshape(-1)
-    if w.size == 67:
-        w = w[1:]                               # 67 长: index 0 未用
-    if w.size != r.pinv_matrix.shape[1]:
-        raise click.ClickException(
-            f"波前长度 {w.size} ≠ matrix 列数 {r.pinv_matrix.shape[1]}")
-    w = w.copy()
-    w[0] = 0.0                                  # piston 不可矫正
+    try:
+        w = wfs_channels_lambda(
+            json.loads(Path(w_file).read_text(encoding="utf-8")),
+            r.pinv_matrix.shape[1],
+            source="--w-file",
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
 
     c_waves = -r.pinv_matrix @ w                # (n_modes,) λ — 矫正相位 = −反解 (抵消像差)
     ph = PatternHelper(resolution=(PANEL_W, PANEL_H))

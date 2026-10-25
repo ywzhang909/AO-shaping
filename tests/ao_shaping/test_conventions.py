@@ -3516,3 +3516,74 @@ def test_every_wfs_driver_declares_its_zernike_index_layout() -> None:
         "accident: if that unification is deliberate, update ``drivers/wfs/AGENTS.md`` and "
         "ledger 8.9 items 49-50 in the same commit."
     )
+
+
+#: Measured 2026-10-25 over 669 files: the ``w``/``w_before``/``wavefront`` unwrap existed
+#: in two consumers, and the copies disagreed on their error path (one raised a
+#: ``ClickException``, the other used a bare ``assert`` that ``python -O`` removes). The
+#: fingerprint is the OR-chain of ``.get`` calls, NOT the key names: producers legitimately
+#: write those keys, and ``h5py.File(path, "w")`` also contains ``"w"``.
+_WFS_UNWRAP_KEYS = frozenset({"w", "w_before", "wavefront"})
+_WFS_CHANNELS_MODULE = "src/ao_shaping/tools/zernike/common.py"
+_MIN_WFS_UNWRAP_SCANNED = 600
+
+
+def test_wfs_wavefront_unwrap_is_not_reimplemented() -> None:
+    """Loading a saved WFS wavefront unwraps in exactly one place.
+
+    ``wfs_channels_lambda`` owns the padding-slot rule, the length check and the piston
+    zeroing; a second copy of the unwrap means a second opinion on all three.
+    """
+    chains: list[str] = []
+    defining: list[str] = []
+    unparsed: list[str] = []
+    scanned = 0
+    for path in (
+        sorted((SRC / "ao_shaping").rglob("*.py")) + sorted((REPO / "scripts").rglob("*.py"))
+    ):
+        rel = path.relative_to(REPO).as_posix()
+        scanned += 1
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"))
+        except SyntaxError:
+            unparsed.append(rel)
+            continue
+        nodes = list(ast.walk(tree))
+        for node in nodes:
+            if not isinstance(node, ast.BoolOp) or not isinstance(node.op, ast.Or):
+                continue
+            keys = [
+                call.args[0].value
+                for call in node.values
+                if isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and call.func.attr == "get"
+                and call.args
+                and isinstance(call.args[0], ast.Constant)
+                and call.args[0].value in _WFS_UNWRAP_KEYS
+            ]
+            if len(keys) >= 2:
+                chains.append(rel)
+                break
+        if any(
+            isinstance(n, ast.FunctionDef) and n.name == "wfs_channels_lambda" for n in nodes
+        ):
+            defining.append(rel)
+
+    assert not unparsed, (
+        f"{len(unparsed)} file(s) could not be parsed, so this guard saw nothing inside them: "
+        f"{unparsed}"
+    )
+    assert scanned >= _MIN_WFS_UNWRAP_SCANNED, (
+        f"scanned {scanned} file(s), below the floor {_MIN_WFS_UNWRAP_SCANNED} -- the scope "
+        "stopped matching the tree."
+    )
+    assert defining == [_WFS_CHANNELS_MODULE], (
+        f"``wfs_channels_lambda`` is defined in {defining}; it must have exactly one home."
+    )
+    offenders = sorted(set(chains) - set(defining))
+    assert not offenders, (
+        f"{len(offenders)} file(s) re-implement the WFS wavefront unwrap: {offenders}. Call "
+        "``wfs_channels_lambda`` instead -- the duplicated copies had already drifted apart "
+        "in how they reported a bad input."
+    )

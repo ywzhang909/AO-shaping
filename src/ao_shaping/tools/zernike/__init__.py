@@ -8,7 +8,11 @@ Modules:
 - ``common`` — shared constants and measurement primitives for the SLM Zernike
   tools. Fixes the ``ThorlabWFS.get_zernike()`` index convention (67-long array,
   ``coeff[1..66]`` valid, **sequential-m** enumeration, not standard Noll 1976)
-  and the µm↔waves unit discipline.
+  and the µm↔waves unit discipline. A saved wavefront vector is loaded through the
+  single entry point ``wfs_channels_lambda`` (dict-unwrap, the unwritten slot-0
+  padding rule, the length check and the piston zeroing); runners and scripts must
+  not re-implement that chain — two independent copies had already drifted apart
+  in how they reported a bad input.
 - ``sweep_probe`` — smooth-Zernike bench sweep (ramp + tilt + defocus + astig +
   coma + spherical, 42 points) with a settled read and Recorder output; owns
   ``capture_settled`` and ``DEFAULT_PANEL_SHAPE``.

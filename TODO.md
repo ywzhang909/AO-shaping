@@ -2291,6 +2291,37 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
        `optimizer/wf` **640 passed / 14 skipped**（与本项改动前逐位同数）；`ruff check .` 全绿。
        ⚠️ 诚实边界：错值的影响面是**代码可达性与入库产物**两层的实测结论，本次**没有上实验系统**
        复现该错读 —— 它由存根读数的容器测试证明，不新建守卫（单点普查不足以钉死约定）。
+53. ✅ **同一份「WFS 波前向量规范化」在两个消费方各写一遍，且错误路径已经漂移 —— 收敛为单一入口，并否证两种守卫写法**（2026-10-25）：
+     - **重复的是五步链，不是五行代码**：`tools/wfs/zernike_response.py` 的导出命令与
+       `scripts/slm/verify_correction_csv.py` 各自实现「解包字典 → 丢 0 号填充槽 → 校验长度 →
+       piston 置零 → 伪逆」。两份**已经漂移**：一份用 `ClickException` 并守 `None`，另一份用裸
+       `assert`（`python -O` 下直接失效），且字典缺那三个键时会先炸成 `TypeError`。
+     - **收敛到一处**：新入口 `wfs_channels_lambda` 落在 `tools/zernike/common.py` —— 该模块本就是
+       索引枚举与 µm↔λ 单位纪律的所在；两个消费方改为调用它，`tools/zernike/__init__.py` 的模块
+       docstring 同步写明 runner 与脚本不得重写这条链。
+     - **我自己写错、被自己的测试抓住**：第一版把「比期望多一个元素」写成绝对长度常量
+       （`n_modes_upto(WFS_ZERNIKE_ORDER)+1` = 67），于是 5 通道 / 6 长的玩具测试当场判红 ——
+       填充槽与阶数无关，规则必须**相对于期望通道数**。绝对常量随后删除（已无生产消费方）。
+     - **删掉一个没有牙齿的测试**：`assert 常量 == n_modes_upto(…) + 1` 只是复述定义，任何错误实现
+       都不会让它红。换成在生产尺寸上验行为：66 长与 67 长规范化结果必须相同，68 长仍被拒。
+     - **两种被否证的守卫写法**（先量再否证，不是猜）：(a)「代码里不许出现字面量 67」—— AST 普查
+       `src`+`scripts` 的比较式里 67 已是 **0/669**，但 67 在别处是合法数字，这类守卫是
+       **假缺陷发生器**；(b)「同时出现 `w`/`w_before`/`wavefront` 三个键即算重复」—— 含三键的 3 个
+       文件里 `zernike_matrix_runner.py` 是**生产者**（`h5py.File(path, "w")` 的模式串、
+       `create_dataset("wavefront")`、`"w_before": w0.tolist()` 落盘），按键名判等会误伤它。
+       最终指纹是 **`.get` 的 OR 链**（≥2 个），实测全仓唯一（`common.py:148`）。
+     - **新守卫** `test_wfs_wavefront_unwrap_is_not_reimplemented`：定义处必须恰好一个且在
+       `common.py`，含该链的文件必须就是定义处；扫描地板 600（实测 669）；**解析失败单列报错**，
+       否则不可解析的文件会被误报成重复实现。差分：未跟踪探针重写该链 ⇒ 红并点名该文件；删除 ⇒ 绿。
+     - **有意不动的两处**：(1) **设备在线读数**路径（`zernike_matrix_runner.py:839/889` 与
+       `zernike_correction.py:356/407` 的 `um_to_waves(z[1:])`）不并入该入口 —— 它做的是 µm→λ 的
+       设备读数，与「加载已存向量」是两件事，合并会改在线闭环语义；(2) 第 52 项保留的 `/0.532`
+       字面量换算不动（bugfix 不顺带重构），已记为后续。
+     - **验证**：`test_slm_zernike_common.py` **19 passed**（原 8 + 槽位 2 + 入口 9）；
+       `tools/wfs` + 该文件 25 passed；`tests/ao_shaping/scripts` **2442 passed / 64 skipped /
+       2 failed**（仍是 `pib_exit_safety` 那对既有失败，与本项无关）；conventions
+       **52 passed / 1 skipped / 2 failed**（新守卫使 passed 由 51 升到 52，失败对不变）；
+       两个改动模块在容器里可导入；`ruff check .` 全绿。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
