@@ -98,11 +98,17 @@ def test_it_drives_the_canonical_gerchberg_saxton() -> None:
 
 def test_no_module_scope_algorithm_import() -> None:
     """``display/`` must not depend on ``algorithm/`` at import time."""
-    tree = ast.parse((_DISPLAY / "gs_visualization.py").read_text(encoding="utf-8-sig"))
-    for node in tree.body:
+    path = _DISPLAY / "gs_visualization.py"
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+    imports = [n for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom))]
+    assert imports, (
+        f"{path.name} declares no module-scope import: the scan below would pass "
+        "without examining anything"
+    )
+    for node in imports:
         if isinstance(node, ast.ImportFrom):
             assert not (node.module or "").startswith("ao_shaping.algorithm"), (
                 f"module-scope algorithm import at line {node.lineno}"
             )
-        elif isinstance(node, ast.Import):
+        else:
             assert all(not a.name.startswith("ao_shaping.algorithm") for a in node.names)

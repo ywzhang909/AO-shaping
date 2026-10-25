@@ -54,7 +54,7 @@ python -m ao_shaping.tools.slm.calibration --skip-align   # 沿用已有窗口
 
 ## 离线测试
 
-`tests/ao_shaping/tools/slm/test_slm_calibration_windowed.py` (12 例, 无硬件):
+`tests/ao_shaping/tools/slm/test_slm_calibration_windowed.py` (13 例, 无硬件; 2026-10-24 复核, `92dbe716` 新增 `test_apply_stored_window_out_of_range_degrades` 回归测试):
 `FakeWindowedCCD` 镜像 Daheng `reset_window`/`get_numpy_image` 契约 (center=(x,y)、
 size=(0,0) 全幅、inc 向下取整、offset≥0 断言、返回 `((w,h),(cx-x0,cy-y0))`),
 `FakeSLM` + 光学链路把 SLM 相位映射为 CCD 衍射图案 (flat/blaze x/y + 0级/±1级),

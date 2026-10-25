@@ -331,13 +331,19 @@ class ThorlabWFS(BaseWFS):
 
     def _register_parameters(self) -> None:
         """注册 WFS 专有参数。"""
+        # 注册值域含 0.0 = 自动曝光哨兵 (open() 里把非零越界值重置回 0.0),
+        # 所以 min_value 不能写成硬件下限 EXP_TIME_LOW。
         self.register_parameter(
             "exposure_time_ms",
             default_value=0.0,
-            min_value=EXP_TIME_LOW,
+            min_value=0.0,
             max_value=EXP_TIME_HIGH,
             unit="ms",
-            description="Camera exposure time in milliseconds",
+            description=(
+                "Camera exposure time in ms; 0 selects auto exposure. Non-zero "
+                f"manual values are range-checked by the driver against "
+                f"[{EXP_TIME_LOW}, {EXP_TIME_HIGH}]."
+            ),
         )
         self.register_parameter(
             "master_gain",
@@ -443,9 +449,10 @@ class ThorlabWFS(BaseWFS):
             return
 
         # 检查 WFS 是否被占用, 未被占用则连接设备
-        assert not device_in_use, (
-            "Wavefront sensor currently in use.... closing program"
-        )
+        # Explicit raise, not `assert`: `python -O` strips asserts, and a
+        # WFS held by another process must not be opened half-connected.
+        if device_in_use:
+            raise WfsError("Wavefront sensor currently in use.... closing program")
 
         self._lib.WFS_init(
             resource_name, c_bool(False), c_bool(True), byref(self._instrument_handle)
@@ -541,6 +548,28 @@ class ThorlabWFS(BaseWFS):
         """
         return self._instrument_handle.value > 0 and self._state == DeviceState.READY
 
+    def _ensure_open(self) -> None:
+        """确保设备已打开: 未打开时显式抛错, 而不是把空句柄交给 DLL。
+
+        异常:
+            WfsError: 仪器句柄为空 (从未 ``open()``, 或已经 ``close()``)。
+
+        注意:
+            只校验**句柄非空**, 不校验 ``DeviceState.READY``: ``open()`` 自身在置
+            READY 之前就要调用 ``select_mla`` / ``set_ref_plane`` /
+            ``exposure_time`` / ``pupil``, 那些调用发生在 CONNECTING 态。
+            句柄为 0 时 DLL 调用**不保证**失败 —— ``select_mla`` 丢弃返回码,
+            ``take_image`` 的自动曝光分支同样忽略错误码, 因此未打开的调用会
+            静默返回垃圾数据。调用方此前只能靠 ``assert wfs.is_connected()``
+            拦截, 而 ``assert`` 在 ``python -O`` 下会被剥掉。
+        """
+        if self._instrument_handle.value == 0:
+            raise WfsError(
+                f"WFS device {self.device_id} is not open: instrument handle is "
+                "null; call open() first (the DLL does not reliably report an "
+                "error for a null handle, it just returns unusable data)"
+            )
+
     def get_hardware_info(self) -> dict:
         """获取硬件相关信息。
 
@@ -614,6 +643,7 @@ class ThorlabWFS(BaseWFS):
         注意:
             这会重置相机配置并更新 num_spots_x/y。
         """
+        self._ensure_open()
         self._lib.WFS_SelectMla(self._instrument_handle, 0)
         num_spots_x = c_int32()
         num_spots_y = c_int32()
@@ -656,6 +686,7 @@ class ThorlabWFS(BaseWFS):
         参数:
             custom: 为 True 时加载自定义用户参考文件, 否则使用默认参考。
         """
+        self._ensure_open()
         _select = 1 if custom else 0
         if err := self._lib.WFS_SetReferencePlane(
             self._instrument_handle, c_int32(_select)
@@ -700,6 +731,7 @@ class ThorlabWFS(BaseWFS):
         返回:
             成功返回 True, 失败返回 False。
         """
+        self._ensure_open()
         if err := self._lib.WFS_CreateDefaultUserReference(self._instrument_handle):
             self.handle_error(err, no_raise=True)
             logger.error("Failed to create default user reference")
@@ -723,6 +755,7 @@ class ThorlabWFS(BaseWFS):
         返回:
             MLA 名称字符串 (如 ``"MLA150M-5C"``); DLL 调用失败时返回空字符串。
         """
+        self._ensure_open()
         mla_name_buffer = create_string_buffer(256)
         err = self._lib.WFS_GetMlaData(
             self._instrument_handle,
@@ -894,6 +927,7 @@ class ThorlabWFS(BaseWFS):
         返回:
             带时间戳的备份文件路径; 失败时返回 None。
         """
+        self._ensure_open()
         if backup_dir is None:
             backup_dir = Path("data/calibration")
         else:
@@ -986,6 +1020,7 @@ class ThorlabWFS(BaseWFS):
         返回:
             成功返回 True, 失败返回 False。
         """
+        self._ensure_open()
         # 调试: 打印当前系统信息
         import platform
 
@@ -1071,7 +1106,11 @@ class ThorlabWFS(BaseWFS):
             tuple[float, float, float, float]: 光束质心 x、光束质心 y、
                 光束直径 x、光束直径 y
         """
-        assert not self.enable_high_speed, "turn off high speed mode first"
+        self._ensure_open()
+        # Explicit raise, not `assert`: `python -O` strips asserts, and the
+        # DLL returns stale centroids in high-speed mode instead of failing.
+        if self.enable_high_speed:
+            raise WfsError("turn off high speed mode first")
         self._lib.WFS_CalcSpotsCentrDiaIntens(
             self._instrument_handle, c_int32(1), c_int32(1)
         )
@@ -1120,6 +1159,7 @@ class ThorlabWFS(BaseWFS):
             采集成功后把 self._image_captured 标志置为 True。
             固定曝光时只拍一张; 自动曝光时迭代 n_sample 次。
         """
+        self._ensure_open()
         if self._explosure_time > 0:
             if err := self._lib.WFS_TakeSpotfieldImage(self._instrument_handle):
                 self.handle_error(err)
@@ -1151,6 +1191,7 @@ class ThorlabWFS(BaseWFS):
         异常:
             RuntimeError: WFS_GetSpotfieldImageCopy 失败。
         """
+        self._ensure_open()
         # 按手册给出的最大图像尺寸分配缓冲区
         # (CAM_MAXPIX_X * CAM_MAXPIX_Y; 1280×1024 是最大的 MLA)
         max_h, max_w = 1024, 1280
@@ -1181,7 +1222,11 @@ class ThorlabWFS(BaseWFS):
             要求已关闭高速模式。
             活动光瞳区域之外的斑点值为 NaN。
         """
-        assert not self.enable_high_speed, "turn off high speed mode first"
+        self._ensure_open()
+        # Explicit raise, not `assert`: `python -O` strips asserts, and the
+        # DLL returns stale centroids in high-speed mode instead of failing.
+        if self.enable_high_speed:
+            raise WfsError("turn off high speed mode first")
         spots_intensities = np.empty(MAX_SPOTS, dtype=np.float32)
         spots_center_x = np.empty(MAX_SPOTS, dtype=np.float32)
         spots_center_y = np.empty(MAX_SPOTS, dtype=np.float32)
@@ -1222,6 +1267,7 @@ class ThorlabWFS(BaseWFS):
                 - mask_bool: 形状 (num_spots_x, num_spots_y) 的二维布尔数组
                 - valid_indices_flat: 有效子孔径展平索引构成的一维数组
         """
+        self._ensure_open()
         from scipy import ndimage
 
         intensities = []
@@ -1346,6 +1392,7 @@ class ThorlabWFS(BaseWFS):
             使用实测波前 (type=0); 若光瞳已定义, 则带自适应光瞳补偿。
             stable_sample_enable 为 True 时采集多个稳定样本并返回其均值。
         """
+        self._ensure_open()
         # 若启用了稳定采样则使用它
         if self.stable_sample_enable:
             stable_wfs = self._get_stable_samples(
@@ -1440,18 +1487,6 @@ class ThorlabWFS(BaseWFS):
             else float(np.std(wavefront)),
         }
 
-    @staticmethod
-    def calc_n_zernike_terms(n: int) -> int:
-        """计算给定阶数下的 Zernike 项数。
-
-        参数:
-            n: Zernike 阶数。
-
-        返回:
-            Zernike 项数。
-        """
-        return (n + 1) * (n + 2) // 2 + 1
-
     @require_take_image
     def get_zernike(self, zernike_order: int = 10) -> np.ndarray:
         """由斑点偏差计算 Zernike 多项式系数。
@@ -1469,16 +1504,25 @@ class ThorlabWFS(BaseWFS):
             - 结果依赖 pupil 正确性: 调用前必须 ``wfs.pupil = wfs.optimize_pupil()``。
               硬编码 pupil 与光束不符时, 边界无效子孔径会污染 LSF 拟合, 产生巨大的
               假 tip/tilt 系数 (2026-09 实测: |z|=4.6~12.8λ → pupil 修正后 ≤0.22λ)。
-            - 系数为 Noll 1976 约定 (索引 1 起, 前 66 项), 输出单位 µm (µm/0.532 = λ @532nm),
-              RoC = coeff[5]。
+            - 排序为**顺序 m 枚举** (``m = -n..+n``, 索引 1 起、前 66 项), **不是标准 Noll 1976**;
+              官方手册与硬件实测双重确认, 权威表述见
+              :mod:`ao_shaping.tools.zernike.common` (defocus=(2,0) 落在 ``coeff[5]``,
+              故 RoC = coeff[5]; 标准 Noll 里 5 号是 (2,-2) 像散, 与该式矛盾)。
+            - 输出单位 µm (µm/0.532 = λ @532nm)。
         """
-        assert zernike_order <= 10, (
-            f"zernike order must be less than or equal to 10, got {zernike_order}"
-        )
+        self._ensure_open()
+        # Explicit raise, not `assert`: `python -O` strips asserts, and an
+        # out-of-range order would otherwise be handed to the DLL as-is.
+        if zernike_order > 10:
+            raise WfsError(
+                f"zernike order must be less than or equal to 10, got {zernike_order}"
+            )
         roc_mm = c_double()
         coeff_num = self.calc_n_zernike_terms(zernike_order)
         zernike_order_c = c_int32(zernike_order)
-        zernike_um = np.empty((coeff_num,), c_float)
+        # DLL 只填 coeff[1..N]: 0 号槽不会被写入, 所以这里的初始化决定了「读到 index 0」
+        # 时拿到的是定义值还是未写入内存 (孪生侧对同一数组也用 zeros)。
+        zernike_um = np.zeros((coeff_num,), c_float)
         zernike_orders_rms_um = np.empty((zernike_order + 1,), c_float)
 
         if res := self._lib.WFS_CalcSpotToReferenceDeviations(
@@ -1494,7 +1538,7 @@ class ThorlabWFS(BaseWFS):
             byref(roc_mm),
         ):
             self.handle_error(err)
-            return np.empty_like(zernike_um)
+            return np.zeros_like(zernike_um)
         return zernike_um
 
     # ==================== 斑点偏差 ====================
@@ -1515,6 +1559,7 @@ class ThorlabWFS(BaseWFS):
         注意:
             stable_sample_enable 为 True 时采集多个稳定样本并返回其均值。
         """
+        self._ensure_open()
         # 若启用了稳定采样则使用它
         if self.stable_sample_enable:
             stable_x_list = []
@@ -1620,6 +1665,7 @@ class ThorlabWFS(BaseWFS):
                 形状为 (num_spots_x, num_spots_y) 的数组。
                 强度 < 阈值的子孔径偏差 = 0。
         """
+        self._ensure_open()
         # 第 1 步: 计算强度与质心
         spots_intensities = np.empty(MAX_SPOTS, dtype=np.float32)
         if res := self._lib.WFS_CalcSpotsCentrDiaIntens(
@@ -1689,6 +1735,7 @@ class ThorlabWFS(BaseWFS):
         注意:
             不会改动设备设置; 调用方应自行应用返回值。
         """
+        self._ensure_open()
         lib, instrument_handle = self._lib, self._instrument_handle
         # 连续拍图直到有一张可用; 每拍一张后检查设备状态以判定是否可用
         actual_exposure = c_double()
@@ -1722,6 +1769,7 @@ class ThorlabWFS(BaseWFS):
         注意:
             若此前已取过则返回缓存值; 首次调用时才查询硬件。
         """
+        self._ensure_open()
         if hasattr(self, "_exposure_time_range"):
             return self._exposure_time_range
 
@@ -1757,6 +1805,7 @@ class ThorlabWFS(BaseWFS):
     @property
     def exposure_time(self) -> float:
         """获取当前曝光时间, 单位毫秒。"""
+        self._ensure_open()
         actual_exposure = c_double()
         self._lib.WFS_GetExposureTime(self._instrument_handle, byref(actual_exposure))
         return actual_exposure.value
@@ -1771,6 +1820,7 @@ class ThorlabWFS(BaseWFS):
         异常:
             WfsError: value 超出合法范围 [0.002, 86] ms。
         """
+        self._ensure_open()
         # Explicit raise, not `assert`: `python -O` strips asserts, and a
         # silently-accepted out-of-range exposure is sent straight to the SDK.
         if not EXP_TIME_LOW <= value <= EXP_TIME_HIGH:
@@ -1790,6 +1840,7 @@ class ThorlabWFS(BaseWFS):
         返回:
             tuple[float, float, float, float]: (centroid_x, centroid_y, diameter_x, diameter_y), 单位 mm。
         """
+        self._ensure_open()
         beam_centroid_x = c_double()
         beam_centroid_y = c_double()
         beam_diameter_x = c_double()
@@ -1820,6 +1871,7 @@ class ThorlabWFS(BaseWFS):
             硬编码 pupil 与真实光束不符时, 边界无效子孔径会污染 WFS_ZernikeLsf
             全孔径 LSF 拟合 → 巨大的假 tip/tilt (2026-09 实测)。
         """
+        self._ensure_open()
         c_x, c_y, d_x, d_y = center_and_diameter
         # 防御性检查 (2026-09 实测固化): SDK 约束 中心 ±5.0mm / 直径 0.1~10.0mm;
         # 越界 pupil 只能拟合出垃圾 Zernike 系数. 只报警, 不改行为.
@@ -1853,6 +1905,7 @@ class ThorlabWFS(BaseWFS):
         返回:
             bool: 高速模式生效时为 True。
         """
+        self._ensure_open()
         enable_high_speed = self._lib.WFS_CheckHighspeedCentroids(
             self._instrument_handle
         ).value
@@ -1869,6 +1922,7 @@ class ThorlabWFS(BaseWFS):
             高速模式只支持 512x512 分辨率, 且要求自动曝光。
             启用后会自动重新优化光瞳。
         """
+        self._ensure_open()
         if self.device_name.upper() == "WFS40-5C":
             logger.warning(f"{self.device_name} not support high speed mode!")
             return

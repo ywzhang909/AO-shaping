@@ -1,4 +1,4 @@
-"""ONLINE test: the three exposure states against real cameras (Daheng + MiiCam).
+r"""ONLINE test: the three exposure states against real cameras (Daheng + MiiCam).
 
 This file is **not** part of a default ``pytest`` run: it lives under
 ``tests/ao_shaping/drivers/``, which ``pyproject.toml``'s ``addopts`` passes to
@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import os
 
+import click
 import pytest
 
 # 硬件门控: 与 test_ccd.py 同款 (README v0.12.0 约定). 未设 AO_RUN_HARDWARE=1
@@ -102,7 +103,7 @@ def cam(request):
 
 def test_bare_zero_is_rejected_at_the_parse_layer(cam) -> None:
     """Offline claim, re-pinned here so a hardware run cannot pass a broken resolver."""
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(click.BadParameter) as excinfo:
         resolve_exposure("0", param_hint="--exposure-time-ms")
     assert "auto" in str(excinfo.value)
     assert cam is not None  # the parse layer needs no device; this one does

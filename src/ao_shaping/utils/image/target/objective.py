@@ -586,7 +586,7 @@ class ShapingObjective:
             )
 
         logger.info(
-            "Shaping objective armed: objective=%s mode=%s (%s)",
+            "Shaping objective armed: objective={} mode={} ({})",
             params.objective,
             params.mode.value,
             "maximizing" if params.mode.maximizing else "minimizing",

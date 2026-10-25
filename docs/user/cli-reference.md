@@ -15,7 +15,7 @@ python src/ao_shaping/main.py --help
 python src/ao_shaping/main.py wf --help
 ```
 
-当前共 **20 个命令**：
+当前共 **19 个命令**：
 
 | 命令 | 一句话用途 | 详情章节 |
 |---|---|---|
@@ -34,11 +34,10 @@ python src/ao_shaping/main.py wf --help
 | `combined` | AdaMOD 综合 PIB 优化器 | 15 |
 | `slm-lut` | SLM gray-to-phase LUT 标定 | 16 |
 | `slm-diagnose` | SLM 硬件自检，逐级定位「面板不调制光」类故障 | 17 |
-| `spgd-square` | SLM 方形光斑整形优化器（Zernike 系数 + 相机反馈） | 18 |
-| `slm-gsnet` | freeform 相位方形远场整形，group，含 `train` 离线训练 | 19 |
-| `slm-pib` | Santec SLM 的 Zernike 系数整形，group | 20 |
-| `slm-gs-refine` | SLM GS 预整形 + 全频随机相位 SPGD 细化 | 21 |
-| `slm-model-in-loop` | SLM model-in-the-loop 方形整形闭环 | 22 |
+| `slm-gsnet` | freeform 相位方形远场整形，group，含 `train` 离线训练 | 18 |
+| `slm-pib` | Santec SLM 的 Zernike 系数整形，group（含 `spgd` / `heuristic` / `square` 子命令，`square` 即方形光斑整形） | 19 |
+| `slm-gs-refine` | SLM GS 预整形 + 全频随机相位 SPGD 细化 | 20 |
+| `slm-model-in-loop` | SLM model-in-the-loop 方形整形闭环 | 21 |
 
 历史沿革：`gs` / `gs-square` / `diff-shaping` / `diff-beam` 已从 CLI 移除，其功能并入 `slm-gsnet` 与 `algorithm/signal_processing/`。
 
@@ -51,9 +50,9 @@ python src/ao_shaping/main.py --dir data wf
 python src/ao_shaping/main.py wf -d data
 ```
 
-⚠️ **flag 命名本身不一致**。源码里下划线与连字符混用，例如 `slm-gs-refine` 同时有 `--w-pib`（下划线）与 `--w-unif`（连字符）；`spgd-square` 用 `--w-uniformity`，而 `slm-gsnet` 的子命令用 `--w-uniformity`；`pib` 用 `--shrink-iter`，`rms-zernike` 用 `--lr-schedule`。**flag 必须从 `--help` 逐字复制，不要凭记忆或推测**，写错一个字符 Click 会直接报错。
+⚠️ **flag 命名本身不一致**。源码里下划线与连字符混用，例如 `slm-gs-refine` 同时有 `--w-pib`（下划线）与 `--w-unif`（连字符）；`slm-pib square` 用 `--w-uniformity`，而 `slm-gsnet` 的子命令用 `--w-uniformity`；`pib` 用 `--shrink-iter`，`rms-zernike` 用 `--lr-schedule`。**flag 必须从 `--help` 逐字复制，不要凭记忆或推测**，写错一个字符 Click 会直接报错。
 
-⚠️ **调试模式有三条等价路径**：`main.py --debug <cmd>` / `<cmd> --debug` / 环境变量 `DEBUG=1`；真值为 `1` / `true` / `yes`，不区分大小写。并非每个命令都自带 `--debug` 选项，`wf` / `pipeline` / `ga-zernike` / `spgd-square` / `slm-lut` / `slm-diagnose` / `slm-gs-refine` 的选项表里没有 `--debug`，这几个命令要开调试只能走组级 `--debug` 或 `DEBUG=1`。
+⚠️ **调试模式有三条等价路径**：`main.py --debug <cmd>` / `<cmd> --debug` / 环境变量 `DEBUG=1`；真值为 `1` / `true` / `yes`，不区分大小写。并非每个命令都自带 `--debug` 选项，`wf` / `pipeline` / `ga-zernike` / `slm-pib square` / `slm-lut` / `slm-diagnose` / `slm-gs-refine` 的选项表里没有 `--debug`，这几个命令要开调试只能走组级 `--debug` 或 `DEBUG=1`。
 
 ℹ️ 每个命令的选项表都不再重复列出通用的 `--help`（每个命令都有，用来打印帮助并退出）。
 

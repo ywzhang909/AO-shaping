@@ -1136,7 +1136,7 @@ def write_report(
     add(
         '| `ee_r4` | 圆心取 `argmax` (仓库"0 级 = argmax"约定)、半径 `4 × 衍射极限 FWHM` 的包围能量占比 |'
     )
-    add("| `energy_frac` | `Σ|propagate 输出|² / Σ|输入场|²` (角谱能量守恒比) |")
+    add("| `energy_frac` | `Σ\\|propagate 输出\\|² / Σ\\|输入场\\|²` (角谱能量守恒比) |")
     add("")
     add(
         "**播种与确定性**: 每个仿真后端分支都 (a) 向 `turbulence_phase` 显式传 "

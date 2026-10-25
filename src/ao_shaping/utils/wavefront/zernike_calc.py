@@ -369,9 +369,9 @@ class ZernikeGenerator:
         Uses the aotools RZern library for conversion, which follows the
         standard Noll indexing convention (Noll 1976). Supports any Noll index.
 
-        NOTE: This convention differs from the hardcoded lookup table in
-        `optimizer/wf/ga_zernike.py` and `optimizer/wf/rms_by_zernike.py`.
-        The aotools version is the canonical implementation.
+        NOTE: this module is the single source of the Noll <-> (n, m) mapping: the
+        ``optimizer/wf/`` Zernike consumers import :func:`zernike_modes` from here
+        rather than carrying their own lookup table.
 
         Args:
             j: Noll index (1-based).

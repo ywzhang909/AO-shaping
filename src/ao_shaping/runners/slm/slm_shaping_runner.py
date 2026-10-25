@@ -19,8 +19,7 @@ on the other. One module, one set of shared helpers, one sim patch.
 Usage:
     python src/ao_shaping/main.py slm-pib spgd [OPTIONS]         # PIB, SPGD
     python src/ao_shaping/main.py slm-pib heuristic [OPTIONS]    # PIB, black-box
-    python src/ao_shaping/main.py spgd-square [OPTIONS]          # square shaping
-    python src/ao_shaping/main.py slm-pib square [OPTIONS]       # same command
+    python src/ao_shaping/main.py slm-pib square [OPTIONS]       # square shaping
 
 Without a subcommand ``slm-pib`` runs the SPGD (gradient) search.
 
@@ -28,7 +27,7 @@ Offline dry-run (no hardware) — ``--cam-type sim`` covers **both** devices, so
 neither command can reach for hardware on that path:
 
     python src/ao_shaping/main.py slm-pib spgd --cam-type sim -e 3
-    python src/ao_shaping/main.py spgd-square --cam-type sim -e 3
+    python src/ao_shaping/main.py slm-pib square --cam-type sim -e 3
 
 ``spgd-square`` additionally exposes ``--slm-type`` for symmetry with the other
 SLM runners; it must accompany ``--cam-type sim`` (a simulated SLM only exists

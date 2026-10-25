@@ -54,8 +54,29 @@ mkdir -p "$SCRATCH"
 SEED_DATA="${AO_TEST_DATA_SEED:-$HOME/ao-testdata}"
 if [ "${AO_TEST_DATA_REFRESH:-1}" = "1" ]; then
     "$REPO/scripts/build/stage_test_data.sh" >/dev/null
+    # 清理必须真的生效。容器以 root 运行，上一轮会在 scratch/data 里留下 root 属主
+    # 的目录，普通用户的 rm -rf 删不掉；原先写成 `rm -rf … || true` 把失败吞掉，
+    # 随后的 cp 就在**仍存在**的目标目录里嵌套出一份 data/ao-testdata/，夹具因此全部
+    # "消失"，表现是十几个 r50 测试报 "CSV not found: …/1300-5-enriched.csv"，与被测
+    # 代码毫无关系（2026-10-24 实测踩过）。删不掉就用一次性 root 容器删；再不行就
+    # 大声失败，绝不带着被污染的 stage 继续跑。
     rm -rf "$SCRATCH/data" 2>/dev/null || true
-    cp -r "$SEED_DATA" "$SCRATCH/data"
+    if [ -e "$SCRATCH/data" ]; then
+        docker run --rm -v "$SCRATCH/data:/victim" --entrypoint sh "$IMAGE" \
+            -c 'rm -rf /victim/* /victim/.[!.]*' \
+            || { echo "FATAL: cannot clean $SCRATCH/data (root-owned leftovers?)" >&2; exit 1; }
+    fi
+    mkdir -p "$SCRATCH/data"
+    # `src/.` -> `dst/`：把**内容**拷进目录，与 dst 是否存在无关（`cp -r src dst`
+    # 在 dst 已存在时会嵌套成 dst/src，这正是上面那次假红的机制）。
+    cp -a "$SEED_DATA/." "$SCRATCH/data/"
+    seed_n=$(find "$SEED_DATA" -maxdepth 1 -mindepth 1 | wc -l)
+    staged_n=$(find "$SCRATCH/data" -maxdepth 1 -mindepth 1 | wc -l)
+    if [ "$staged_n" -ne "$seed_n" ] || [ "$staged_n" -eq 0 ]; then
+        echo "FATAL: staged $staged_n entries into $SCRATCH/data but $SEED_DATA has" \
+             "$seed_n -- fixtures would silently be missing inside the container." >&2
+        exit 1
+    fi
 fi
 # --tmpfs /workspace/logs 在这里行不通：/workspace 是 ro bind，docker 建
 # tmpfs 挂载点要在底层 overlay 上 mkdir，ro 下必报 "read-only file system"
@@ -139,15 +160,85 @@ fi
 # 65 GB hwdataset corpus, and its multiproc + mmap has hung full-tree runs
 # before. Re-state them as absolute paths so they still exclude.
 #
-# The same three areas are excluded, for the same reasons, as in pyproject:
+# Only two areas are excluded here and in pyproject's addopts, and the two lists
+# must stay in sync -- pinned by
+# tests/ao_shaping/test_conventions.py::test_pytest_excludes_match_across_configs
+# (they drifted apart once already: pyproject was narrowed while this list still
+# carried the whole drivers tree, which silently kept the narrowed discovery off).
 #   (1) the only real Streamlit AppTest (needs web automation or it hangs),
-#   (2) hardware drivers (SLM/CCD SDK waits have no timeout protection),
-#   (3) ml (65 GB hwdataset heavy I/O + torch).
+#   (2) ml (65 GB hwdataset heavy I/O + torch).
+# drivers/ is fully INCLUDED now, per container measurement: ccd 204 passed /
+# 25 skipped, sim 394 / 2 in 63.33 s, wfs 110 / 11, slm 158 / 127 in 7.95 s,
+# adc 49 in 2.84 s, hardware 37 skipped in 0.06 s, dm 139 / 5 in 40.22 s.
+# dm had looked disqualifying at 560.83 s, but that was an unenforced `hardware`
+# mark (the skip hook lived only in the slm/ and hardware/ conftests) letting a
+# fixture sweep 26 unreachable controllers -- 260 s of setup per test. Enforcing
+# the mark in drivers/conftest.py fixed both the cost and 2 spurious failures.
+# Excluding drivers/ wholesale is what let drivers/ccd rot to 6 failed + 1 error
+# without CI seeing it (rot fixed in 29001826).
 EXCLUDES=(
     "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/gui/slm/test_zernike_abort_repro.py"
-    "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/drivers"
     "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/ml"
 )
+
+# Interpreter and options are kept in separate arrays on purpose: the per-file mode
+# re-invokes pytest *inside* the container, and if the interpreter words were part of
+# the options array the inner call would become `python -m pytest python -m pytest …`
+# (pytest then treats `python`, `-m`, `pytest` as targets -> "no tests collected").
+PYTEST_INTERP=( python -m pytest )
+PYTEST_OPTS=(
+    -p no:cacheprovider
+    --rootdir "$WORKDIR_IN_CONTAINER"
+    "${EXCLUDES[@]}"
+)
+
+# AO_TEST_PER_FILE=1 gives every test file its own pytest process.
+#
+# Why the mode exists (measured 2026-10-24, not assumed): optimizer/wfless -- 1074
+# items -- is SIGKILLed (exit 137) as a single process at BOTH 6g and 12g, yet every
+# one of its 55 files passes alone inside 4g. The symptom is in-process accumulation
+# across files, so raising the ceiling does not help and a hand-maintained grouping
+# would silently stop covering any file someone adds later. The list is therefore
+# produced by --collect-only, which already respects EXCLUDES.
+#
+# PASSTHROUGH flags are not forwarded in this mode (the per-file runs use -q).
+if [ "${AO_TEST_PER_FILE:-0}" = "1" ]; then
+    CONTAINER_CMD=(
+        bash -c '
+            set -u
+            base=()
+            while [ $# -gt 0 ] && [ "$1" != "--" ]; do base+=("$1"); shift; done
+            [ $# -gt 0 ] && shift
+            collected=$(python -m pytest "${base[@]}" "$@" --collect-only -q) || {
+                printf "FATAL: --collect-only failed; refusing to run an unknown set.\n" >&2
+                printf "%s\n" "$collected" >&2
+                exit 1
+            }
+            files=$(printf "%s\n" "$collected" | sed -n "s/::.*//p" | sort -u | grep .)
+            count=$(printf "%s\n" "$files" | grep -c . || true)
+            if [ "$count" -eq 0 ]; then
+                printf "FATAL: per-file mode collected 0 test files -- a shard that runs\n" >&2
+                printf "nothing must never look green.\n" >&2
+                exit 1
+            fi
+            printf "[ao-pytest-ci] per-file mode: %d test file(s), one process each\n" "$count"
+            status=0
+            for f in $files; do
+                # --collect-only prints paths relative to --rootdir, but CWD here is the
+                # scratch dir, so a relative path resolves to nothing. Re-anchor it.
+                case "$f" in
+                    /*) path="$f" ;;
+                    *)  path="$AO_PYTEST_ROOT/$f" ;;
+                esac
+                python -m pytest "${base[@]}" -q "$path" || status=1
+            done
+            exit $status
+        '
+        _ "${PYTEST_OPTS[@]}" -- "${TARGETS[@]}"
+    )
+else
+    CONTAINER_CMD=( "${PYTEST_INTERP[@]}" "${PYTEST_OPTS[@]}" "${PASSTHROUGH[@]}" "${TARGETS[@]}" )
+fi
 
 exec docker run --rm \
     --name ao-pytest-ci \
@@ -176,9 +267,4 @@ exec docker run --rm \
     -e GIT_CONFIG_VALUE_1="*" \
     -w "$SCRATCH" \
     "$IMAGE" \
-    python -m pytest \
-        -p no:cacheprovider \
-        --rootdir "$WORKDIR_IN_CONTAINER" \
-        "${EXCLUDES[@]}" \
-        "${PASSTHROUGH[@]}" \
-        "${TARGETS[@]}"
+    "${CONTAINER_CMD[@]}"

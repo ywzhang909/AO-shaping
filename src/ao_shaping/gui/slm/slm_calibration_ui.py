@@ -14,7 +14,9 @@ Usage:
 from __future__ import annotations
 
 import json
+import queue
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -225,8 +227,18 @@ def _calibration_worker(
     target_min: int,
     target_max: int,
     progress_file: str,
+    camera,
+    stop_event: threading.Event,
+    out_q: queue.Queue,
 ) -> None:
-    """Run calibration in background thread with progress updates via JSON file."""
+    """Run calibration in background thread with progress updates via JSON file.
+
+    Thread-boundary contract (AGENTS.md "Streamlit background threads"): the
+    camera handle, a parameter snapshot, ``stop_event`` and ``out_q`` arrive as
+    arguments; st.session_state is touched only by the main thread. The result
+    travels back as a ``("result", obj)`` queue item, errors as ``("error", msg)``,
+    and the ``finally`` self-sets ``stop_event`` for main-thread reconciliation.
+    """
     try:
         progress_path = Path(progress_file)
 
@@ -238,7 +250,7 @@ def _calibration_worker(
             except Exception as e:
                 logger.warning(f"Failed to write progress file: {e}")
 
-        if auto_exposure and st.session_state.slm_cal_camera is not None:
+        if auto_exposure and camera is not None:
             result = calib.calibrate_with_auto_exposure(
                 grayscale_range=grayscale_range,
                 step=step,
@@ -262,7 +274,7 @@ def _calibration_worker(
                 measure_background=measure_background,
             )
 
-        st.session_state.slm_cal_result = result
+        out_q.put(("result", result))
         write_progress(
             {
                 "status": "complete",
@@ -273,11 +285,10 @@ def _calibration_worker(
 
     except Exception as e:
         logger.exception(f"Calibration error: {e}")
-        st.session_state.slm_cal_progress["status"] = "error"
-        st.session_state.slm_cal_progress["message"] = f"Calibration failed: {e}"
+        out_q.put(("error", f"Calibration failed: {e}"))
 
     finally:
-        st.session_state.slm_cal_running = False
+        stop_event.set()
 
 
 def render_sidebar() -> None:
@@ -514,6 +525,24 @@ def _calibration_progress_fragment() -> None:
     parent re-enables the 开始标定 button and renders the result
     statically (S4/S5).
     """
+    # Drain the worker queue: only this main-thread fragment writes session_state.
+    out_q = st.session_state.get("slm_cal_queue")
+    if out_q is not None:
+        progress = st.session_state.slm_cal_progress
+        while True:
+            try:
+                kind, payload = out_q.get_nowait()
+            except queue.Empty:
+                break
+            if kind == "result":
+                st.session_state.slm_cal_result = payload
+            elif kind == "error":
+                progress["status"] = "error"
+                progress["message"] = str(payload)
+    stop_event = st.session_state.get("slm_cal_stop_event")
+    if stop_event is not None and stop_event.is_set():
+        st.session_state.slm_cal_running = False
+
     if not st.session_state.slm_cal_running:
         # 完成检测: 触发一次全应用 rerun, 重新启用「开始标定」按钮
         if st.session_state.slm_cal_result is not None:
@@ -667,8 +696,11 @@ def render_calibration() -> None:
             ),
         )
 
-        # Run calibration in background thread
-        import threading
+        # Run calibration in background thread (Event/Queue built on the main thread)
+        stop_event = threading.Event()
+        out_q: queue.Queue = queue.Queue()
+        st.session_state.slm_cal_stop_event = stop_event
+        st.session_state.slm_cal_queue = out_q
 
         thread = threading.Thread(
             target=_calibration_worker,
@@ -688,6 +720,9 @@ def render_calibration() -> None:
                 st.session_state.slm_cal_target_min,
                 st.session_state.slm_cal_target_max,
                 str(progress_file),
+                st.session_state.slm_cal_camera,
+                stop_event,
+                out_q,
             ),
             daemon=True,
         )

@@ -149,7 +149,7 @@
 ### 8.1 Top-3 最佳运行 (按 mean_final_strehl)
 
 | 排名 | run | 家族 | 提取器 | total_timesteps | mean_final_strehl | mean_best_pib | mean_reward |
-|---|---|---|---:|---:|---:|---:|
+|---|---|---|---|---:|---:|---:|---:|
 | 1 | `sac_turb_mamba_multiscale_smoke` | 冒烟/架构对比实验 | MambaCrossAttentionTemporalAOExtractor | 24 | 0.9680 | 2117968 | -2.61 |
 | 2 | `sac_turb_mamba_smoke` | 冒烟/架构对比实验 | MambaCrossAttentionTemporalAOExtractor | 24 | 0.9526 | 2121966 | -6.12 |
 | 3 | `sac_turb_crossattn_smoke2` | 冒烟/架构对比实验 | CrossAttentionTemporalAOExtractor | 16 | 0.9439 | 2135605 | -5.32 |

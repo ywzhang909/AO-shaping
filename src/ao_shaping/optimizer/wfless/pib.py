@@ -218,7 +218,7 @@ def optimize_pib(
     shrink_ratio: float = 0.9,
     cam_id=0,
     show: bool = False,
-    init_v=[],
+    init_v: list[float] | None = None,
     cam_size=250,
     target_max_brightness=40,
     dm_unit_mask=None,

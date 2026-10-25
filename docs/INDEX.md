@@ -1,7 +1,7 @@
 # AO-Shaping 文档总索引
 
 > 本文件是 `docs/` 的**入口索引**：按主题分域，每个文件一句话说明"这里能查到什么"。
-> 共 146 个 Markdown 文档（2026-10-23 盘点）。新文档请在本索引登记后再提交。
+> 共 147 个 Markdown 文档（2026-10-23 盘点）。新文档请在本索引登记后再提交。
 >
 > 阅读路径建议：
 > 1. 第一次接触仓库 → `dev/call_graph_wiki/index.md`（调用图 + 逐函数手册，含全局调用图/类图）
@@ -72,7 +72,7 @@
 | `wfs/greedy_zernike.md` | 贪婪局部搜索（内部可选 SPGD/GA/PSO/SA/HC/RS/CEM/DE） |
 | `wfs/closed_loop.md` | 基于已存 Zernike 响应矩阵的闭环波前优化（回放矩阵，免实时测量） |
 
-## SLM 空间光调制器 — 20 篇
+## SLM 空间光调制器 — 21 篇
 
 | 文档 | 说明 |
 |---|---|
@@ -96,6 +96,7 @@
 | `slm/slm_gui_operation_map.md` | SLM 控制器操作路线图：27 个操作按时效（T0–T4）分类的界面重设计 (v1.0) |
 | `slm/align_windowed.md` | SLM+CCD 装配对准（相机 ROI 开窗自动 0级/±1级 对准） |
 | `slm/slm_patterns/shaping.md` | SLM 整形图案说明 |
+| `slm/slm_transfer_workflow.md` | 三形状（方/三角/星）物理模型整形统一入口 `python -m ao_shaping.tools.slm.transfer`：规划、物理迁移、GS 初始化、曝光响应、展宽校准、CCD 锚定可微优化与原始数据验收 |
 
 ## GUI 前端（Streamlit）— 18 篇
 

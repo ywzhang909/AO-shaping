@@ -370,6 +370,34 @@ def test_apply_stored_window_no_calib_returns_false() -> None:
     assert ccd.window_size == (0, 0)
 
 
+def test_apply_stored_window_out_of_range_degrades(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """越界窗口必须走 docstring 承诺的降级路径(返回 False, 相机保持全幅)。
+
+    `MIICamera.reset_window` 对越界 offset 抛 **ValueError** —— 它原先是
+    `assert x_offset >= 0 and y_offset >= 0`, 而 `assert` 在 `python -O` 下整条
+    消失, 所以调用点原先的 `except AssertionError` 窄处理器从转换那一刻起就失效:
+    异常会直接穿出 `apply_stored_window`, 标定流程被一个"可降级"的存储窗口配置
+    打断。这里锁定降级契约, 使窄处理器与驱动异常类型必须保持一致。
+    """
+    geo, _slm, ccd = _make_calibrator()
+    geo.calib = {
+        "align_window_center_xy": np.array([100.0, 100.0]),
+        "align_window_size_xy": np.array([652.0, 652.0]),
+    }
+
+    def _out_of_range(center, size) -> tuple[tuple[int, int], tuple[int, int]]:
+        raise ValueError(
+            f"Window center position: {center} must be within image, window size: {size}"
+        )
+
+    monkeypatch.setattr(ccd, "reset_window", _out_of_range)
+
+    assert geo.apply_stored_window() is False
+    assert ccd.window_size == (0, 0)  # 未被强行开窗, 相机保持全幅
+
+
 # =====================================================================
 # calibrate 保留 align keys
 # =====================================================================

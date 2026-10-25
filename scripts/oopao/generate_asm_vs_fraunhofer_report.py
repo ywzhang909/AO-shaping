@@ -124,10 +124,6 @@ def measure() -> dict[str, object]:
         _random_field(), DX, z_gs, 633e-9, band_limit=False
     )
     gs_shape = canonical.shape
-    out["gs_shift_is_exact_ifftshift"] = bool(
-        np.allclose(old, np.fft.ifftshift(old))
-        or True  # informational: the identity checked is between the two builders
-    )
     from ao_shaping.algorithm.signal_processing.angular_spectrum import (
         _build_propagator_numpy,
     )
@@ -159,8 +155,8 @@ BODY = """\
 
 | 检验 | 实测 |
 |---|---|
-| torch 与 numpy 入口一致 (`64x64`, `z=0.05`) | `max|Δ| = {torch_vs_numpy:.3e}` |
-| GPU 与 CPU 一致 | `max|Δ| = {gpu_vs_cpu:.3e}`（{gpu_name}） |
+| torch 与 numpy 入口一致 (`64x64`, `z=0.05`) | `max\\|Δ\\| = {torch_vs_numpy:.3e}` |
+| GPU 与 CPU 一致 | `max\\|Δ\\| = {gpu_vs_cpu:.3e}`（{gpu_name}） |
 | Parseval，`band_limit=False` | `{parseval_False:.9f}` |
 | Parseval，`band_limit=True` | `{parseval_True:.1f}` |
 
@@ -184,7 +180,7 @@ BODY = """\
 
 | | FFT | ASM @ `z = f` |
 |---|---|---|
-| `max|out|` | `{bench_fft_absmax:.1f}` | `{bench_asm_absmax:.4f}` |
+| `max\\|out\\|` | `{bench_fft_absmax:.1f}` | `{bench_asm_absmax:.4f}` |
 | 峰值位置 | `{bench_fft_argmax}`（阵列中心） | `{bench_asm_argmax}`（**瞳面位置**） |
 
 纯相位瞳面的入射模长就是 `{bench_input_absmax:.0f}`。也就是说 ASM 的输出几乎就是

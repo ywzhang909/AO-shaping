@@ -2626,7 +2626,7 @@ def _run_bench(
                 "resid_y": float(raw.get("resid_y", float("nan"))),
             }
             logger.warning(
-                "几何用的是**存档** %s (Kx=%.1f, Ky=%.1f, rot=%+.2f°); "
+                "几何用的是**存档** {} (Kx={:.1f}, Ky={:.1f}, rot={:+.2f}°); "
                 "存档可能与当前光路对不上 —— 结论按「存档口径」解读",
                 args.geometry_npz,
                 geometry["kx"],

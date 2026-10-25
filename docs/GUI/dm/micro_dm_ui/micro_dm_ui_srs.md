@@ -246,5 +246,5 @@ sequenceDiagram
 ## 8. 相关文档
 
 - 用户手册: [`micro_dm_ui_user_manual.md`](./micro_dm_ui_user_manual.md)
-- 驱动参考: [`ao_shaping/drivers/dm/micro/`](../../../../../drivers/dm/micro/)
+- 驱动参考: [`src/ao_shaping/drivers/dm/micro/`](../../../../src/ao_shaping/drivers/dm/micro/)
 - GUI 索引: [`docs/gui.md`](../../../gui.md)

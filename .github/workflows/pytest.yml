@@ -1,0 +1,130 @@
+name: Pytest (containerised, sharded)
+
+# Hard test gate, added 2026-10-24.
+#
+# Why the old single whole-suite job in ci.yml could not work: the suite does not
+# fit one pytest process. Measured in the same container the harness uses --
+# `run_pytest_ci.sh` with no target (all 9311 collected items) is SIGKILLed at 34%
+# with exit 137 under a 16g ceiling, and `optimizer/wfless` alone dies at **both**
+# 6g and 12g while every one of its 55 files passes alone inside 4g. The limit is
+# in-process accumulation across files, not one large case, so raising the ceiling
+# cannot fix it and ubuntu-latest (4 vCPU / 16 GB, with the runner itself holding
+# some RAM) cannot host it either.
+#
+# What this does instead: one image build, then one harness invocation per shard,
+# each a separate pytest process. `AO_TEST_PER_FILE=1` (see
+# scripts/build/run_pytest_ci.sh) goes one file per process where even that is not
+# enough; its coverage was checked to be identical -- optimizer/wfless reports
+# 1072 passed / 2 skipped = the same 1074 items a single process collects.
+#
+# Every shard's memory fit below was measured at AO_CPUS=4 / AO_MEMORY=6g, i.e. the
+# same core count as ubuntu-latest with deliberate headroom.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  pytest:
+    name: Pytest (containerised, sharded)
+    runs-on: ubuntu-latest
+    # The image build pulls the CPU torch stack; the ruff job in ci.yml stays the
+    # fast hard gate. This job is the regression gate for behaviour.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `oopao` is a hard dependency (pyproject [tool.uv.sources] -> path
+          # libs/OOPAO, editable). Without the submodule the image build fails with
+          # "libs/OOPAO does not appear to be a Python project".
+          submodules: recursive
+
+      - name: Build the CPU test image
+        # The GPU image (docker/Dockerfile.test) is unusable here: a runner has no
+        # GPU and the CUDA wheels are multi-GB.
+        run: docker build -f docker/Dockerfile.test.cpu -t ao-shaping-test:cpu .
+
+      - name: Run shards
+        # Each shard is its own pytest process, which is what keeps peak RSS bounded.
+        # `advisory` marks a shard that is red on arrival for a pre-existing reason
+        # tracked in TODO.md and already being fixed by another worktree; it is reported
+        # but does not fail the job, and flips to blocking once that lands. NO shard is
+        # advisory as of 2026-10-25: `scripts` was the last one, nominally waiting on the
+        # `_fmt` dedup in wt-190 -- that dedup DID land (741ea0e5 is an ancestor of
+        # master), but 273181e6 re-introduced a local `def _fmt`, so the guard was still
+        # red on master. The copy is routed back through scripts/_common in TODO.md 8.9
+        # item 44; measured green over the whole shard at AO_CPUS=4 / AO_MEMORY=6g:
+        # 2423 passed, 64 skipped, 0 failed (the same shard was 2422 passed / 1 failed
+        # before -- the +1 is exactly that guard). `runners-gui-misc` was advisory for
+        # the `slm-gsnet` --help golden (wt-193) and turned blocking on 2026-10-25, after
+        # the golden was re-baselined upstream in c5cd68a9 -- measured green at the same
+        # envelope: 1149 passed, 30 skipped, 0 failed. Nothing here hides a failure: the
+        # summary prints every status.
+        env:
+          AO_CPUS: "4"
+          AO_CPU_THREADS: "4"
+          AO_MEMORY: "6g"
+        run: |
+          set -u
+          FAILURES=0
+          FIRST=1
+
+          run_shard() {
+            name="$1"; per_file="$2"; blocking="$3"; shift 3
+            echo "::group::$name"
+            # Stage once per job: the harness re-copies data/ on every refresh, and
+            # the shards share one scratch dir.
+            if [ "$FIRST" = "1" ]; then export AO_TEST_DATA_REFRESH=1; FIRST=0;
+            else export AO_TEST_DATA_REFRESH=0; fi
+
+            if [ "$per_file" = "1" ]; then export AO_TEST_PER_FILE=1
+            else unset AO_TEST_PER_FILE; fi
+
+            if ./scripts/build/run_pytest_ci.sh "$@" -q --tb=short; then
+              echo "$name: PASS" >> "$GITHUB_STEP_SUMMARY"
+              echo "::notice::$name PASS"
+            else
+              code=$?
+              if [ "$blocking" = "1" ]; then
+                echo "$name: FAIL (exit $code)" >> "$GITHUB_STEP_SUMMARY"
+                echo "::error::$name failed (blocking)"
+                FAILURES=$((FAILURES + 1))
+              else
+                echo "$name: FAIL (exit $code) -- ADVISORY (pre-existing, owner noted below)" \
+                     >> "$GITHUB_STEP_SUMMARY"
+                echo "::warning::$name failed (advisory, pre-existing)"
+              fi
+            fi
+            echo "::endgroup::"
+          }
+
+          # Shards are whole directories, never file lists: a list silently stops
+          # covering any test file added later. `optimizer` uses per-file mode because
+          # it cannot fit one process even at 12g (measured), and per-file coverage was
+          # verified identical (1259 passed + 3 skipped == 1262 collected).
+          #
+          # Keep every invocation on ONE line: tests/ao_shaping/scripts/
+          # test_pytest_workflow_shards_cover_tree.py parses these lines to prove the
+          # shards cover the whole test tree, and it cannot follow line continuations.
+          run_shard "algorithm" 0 1 tests/ao_shaping/algorithm
+          run_shard "utils" 0 1 tests/ao_shaping/utils
+          run_shard "drivers" 0 1 tests/ao_shaping/drivers
+          run_shard "tools" 0 1 tests/ao_shaping/tools
+          run_shard "optimizer" 1 1 tests/ao_shaping/optimizer
+          run_shard "root-guards" 0 1 tests/ao_shaping/test_config.py tests/ao_shaping/test_conventions.py tests/ao_shaping/test_import_purity.py
+          run_shard "runners-gui-misc" 0 1 tests/ao_shaping/runners tests/ao_shaping/gui tests/ao_shaping/model tests/ao_shaping/display tests/ao_shaping/report tests/ao_shaping/ao
+          run_shard "scripts" 0 1 tests/ao_shaping/scripts
+
+          echo "blocking shard failures: $FAILURES" >> "$GITHUB_STEP_SUMMARY"
+          echo ""
+          echo "blocking shard failures: $FAILURES"
+          [ "$FAILURES" -eq 0 ]
+
+      - name: Fail fast if the harness could not run at all
+        if: failure()
+        run: |
+          echo "A blocking shard failed. Run it locally with:"
+          echo "  AO_CPUS=4 AO_CPU_THREADS=4 AO_MEMORY=6g ./scripts/build/run_pytest_ci.sh tests/ao_shaping/<domain> -q"
+          echo "For the memory-bound domain use AO_TEST_PER_FILE=1."
+          exit 1

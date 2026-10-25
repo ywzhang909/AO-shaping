@@ -36,7 +36,7 @@ graph TD
 ### 细化在硬件上换了形式
 - 仿真：torch autograd 穿过解析远场 FFT 求梯度
 - 硬件：唯一的前向模型就是测量本身、不可微 → 改为**无感知 (SPGD)**
-- 与既有 `spgd-square` / `slm-gsnet` 一致
+- 与既有 `slm-pib square` / `slm-gsnet` 一致
 - GS 是开环计算 (只需模型、不需测量)，原样移植
 
 ### 目标函数与仿真同一个

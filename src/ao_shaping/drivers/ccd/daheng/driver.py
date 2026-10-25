@@ -525,7 +525,8 @@ class DahengCamera(BaseCamera):
         返回:
         np.ndarray: 单帧保留原始整数类型，多帧平均为 float32 原始灰度值。
         """
-        assert n_sample > 0, "Sample count must be > 0"
+        if n_sample <= 0:
+            raise ValueError("Sample count must be > 0")
         if skip_first:
             self.__take_one_shot()
         first_img = self.__take_one_shot()
@@ -582,7 +583,8 @@ class DahengCamera(BaseCamera):
             np.ndarray: 调整后采集到的图像 (uint8)。
         """
         self._ensure_open()
-        assert tolerance > 0, "tolerance must be > 0"
+        if tolerance <= 0:
+            raise ValueError("tolerance must be > 0")
 
         target_val = float(target_max)
         low = int(max(target_val - tolerance, 10))

@@ -16,12 +16,87 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
-pytestmark = pytest.mark.skip(reason="Requires Streamlit runtime and live SLM/WFS hardware")
+import ast
+
+_UI_SOURCE = (
+    Path(__file__).resolve().parents[4]
+    / "src" / "ao_shaping" / "gui" / "zernike" / "zernike_response_matrix_ui.py"
+)
+_UI_TREE = ast.parse(_UI_SOURCE.read_text(encoding="utf-8-sig"))
+_WIDGET_CALLS = ("number_input", "checkbox", "selectbox", "text_input", "slider", "toggle")
+
+
+def _widget_call(key: str):
+    """The Streamlit widget call whose value lands in ``st.session_state.<key>``.
+
+    Asserted on the parsed UI tree rather than on source text: a string check keeps
+    passing after the widget is deleted, as long as the label survives in a comment.
+    Covers the two-hop form too (``new_exp = st.number_input(...)`` and only then
+    ``st.session_state.zrm_wfs_exp_time = new_exp``).
+    """
+    hops: set[str] = set()
+    for node in ast.walk(_UI_TREE):
+        if not isinstance(node, ast.Assign):
+            continue
+        bound = any(
+            isinstance(t, ast.Attribute)
+            and t.attr == key
+            and isinstance(t.value, ast.Attribute)
+            and t.value.attr == "session_state"
+            for t in node.targets
+        )
+        if not bound:
+            continue
+        value = node.value
+        if (
+            isinstance(value, ast.Call)
+            and isinstance(value.func, ast.Attribute)
+            and value.func.attr in _WIDGET_CALLS
+        ):
+            return value
+        if isinstance(value, ast.Name):
+            hops.add(value.id)
+    for node in ast.walk(_UI_TREE):
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
+            continue
+        func = node.value.func
+        if not isinstance(func, ast.Attribute) or func.attr not in _WIDGET_CALLS:
+            continue
+        if any(isinstance(t, ast.Name) and t.id in hops for t in node.targets):
+            return node.value
+    return None
+
+
+def _label_of(call) -> str:
+    """First positional argument of a widget call; '' when the label is dynamic."""
+    if call is not None and call.args and isinstance(call.args[0], ast.Constant):
+        return str(call.args[0].value)
+    return ""
+
+
+def _call_names(attr: str) -> list:
+    return [
+        node
+        for node in ast.walk(_UI_TREE)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == attr
+    ]
+
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
+
+def _function(name: str):
+    """A FunctionDef from the UI module, so assertions bind to the right scope."""
+    return next(
+        (n for n in ast.walk(_UI_TREE)
+         if isinstance(n, ast.FunctionDef) and n.name == name),
+        None,
+    )
 
 
 class TestSLMShiftParameters:
@@ -77,16 +152,15 @@ class TestSLMShiftParameters:
             assert mock_state.zrm_shift_y == 0, "zrm_shift_y should default to 0"
 
     def test_shift_inputs_in_slm_settings(self):
-        """Test that shift_x and shift_y number_inputs exist in SLM Settings"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "zernike" / "zernike_response_matrix_ui.py"
-
-        with open(ui_file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        assert "zrm_shift_x" in content, "zrm_shift_x should be used in st.number_input"
-        assert "zrm_shift_y" in content, "zrm_shift_y should be used in st.number_input"
-        assert '"SLM Shift X"' in content, "Should have 'SLM Shift X' input label"
-        assert '"SLM Shift Y"' in content, "Should have 'SLM Shift Y' input label"
+        """shift_x / shift_y must be real widgets bound to their session keys."""
+        for key, label in (("zrm_shift_x", "SLM Shift X (像素)"),
+                           ("zrm_shift_y", "SLM Shift Y (像素)")):
+            call = _widget_call(key)
+            assert call is not None, f"{key} must be bound by a Streamlit widget"
+            assert call.func.attr == "number_input", f"{key} should be an st.number_input"
+            assert _label_of(call) == label, (
+                f"{key} label should be {label!r}, got {_label_of(call)!r}"
+            )
 
     def test_zernikeslm_receives_shift_params(self):
         """Test that ZernikeSLM constructor receives shift_x and shift_y"""
@@ -95,7 +169,7 @@ class TestSLMShiftParameters:
         mock_zernikeslm.return_value = mock_instance
 
         mock_state = self._create_mock_session_state(
-            zrm_slm_number=1,
+            zrm_slm_selection=1,
             zrm_slm_wavelength=532,
             zrm_slm_n_max=10,
             zrm_shift_x=50,
@@ -138,7 +212,7 @@ class TestSLMShiftParameters:
         mock_zernikeslm.return_value = mock_instance
 
         mock_state = self._create_mock_session_state(
-            zrm_slm_number=1,
+            zrm_slm_selection=1,
             zrm_slm_wavelength=532,
             zrm_slm_n_max=10,
             zrm_shift_x=0,
@@ -207,24 +281,18 @@ class TestWFSSettings:
             _initialize_state()
 
             assert mock_state.zrm_wfs_mla_res == "768", "zrm_wfs_mla_res should default to '768'"
-            assert mock_state.zrm_wfs_exp_time == 0.0, "zrm_wfs_exp_time should default to 0.0"
+            assert mock_state.zrm_wfs_exp_time == 0.01, "zrm_wfs_exp_time should default to 0.01"
             assert mock_state.zrm_wfs_pupil_diameter == 2.0, "zrm_wfs_pupil_diameter should default to 2.0"
             assert mock_state.zrm_wfs_pupil_center_x == 0.0, "zrm_wfs_pupil_center_x should default to 0.0"
             assert mock_state.zrm_wfs_pupil_center_y == 0.0, "zrm_wfs_pupil_center_y should default to 0.0"
 
     def test_wfs_settings_section_exists(self):
-        """Test that WFS设置 section exists in sidebar"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "zernike" / "zernike_response_matrix_ui.py"
-
-        with open(ui_file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        assert "WFS设置" in content, "Should have 'WFS设置' subheader"
-        assert "zrm_wfs_mla_res" in content, "zrm_wfs_mla_res should be used in UI"
-        assert "zrm_wfs_exp_time" in content, "zrm_wfs_exp_time should be used in UI"
-        assert "zrm_wfs_pupil_diameter" in content, "zrm_wfs_pupil_diameter should be used in UI"
-        assert "zrm_wfs_pupil_center_x" in content, "zrm_wfs_pupil_center_x should be used in UI"
-        assert "zrm_wfs_pupil_center_y" in content, "zrm_wfs_pupil_center_y should be used in UI"
+        """The WFS section needs a real subheader and widget-driven keys."""
+        headers = {_label_of(node) for node in _call_names("subheader")}
+        assert "WFS参数" in headers, "the WFS section needs st.subheader('WFS参数')"
+        for key in ("zrm_wfs_mla_res", "zrm_wfs_exp_time", "zrm_wfs_pupil_diameter",
+                    "zrm_wfs_pupil_center_x", "zrm_wfs_pupil_center_y"):
+            assert _widget_call(key) is not None, f"{key} should be driven by a widget"
 
     def test_wfsmanager_receives_parameters(self):
         """Test that WFSManager receives WFS parameters"""
@@ -258,19 +326,22 @@ class TestWFSSettings:
                 assert call_args.kwargs.get("pupil_center") == (1.5, -0.5), "pupil_center should be (1.5, -0.5)"
 
     def test_mla_res_options(self):
-        """Test that MLA resolution selectbox has correct options"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "zernike" / "zernike_response_matrix_ui.py"
-
-        with open(ui_file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        # Check that the MLA resolution options exist in the selectbox
-        assert "1280x1024" in content, "Should have 1280x1024 option"
-        assert "1024x1024" in content, "Should have 1024x1024 option"
-        assert "768x768" in content, "Should have 768x768 option"
-        assert "512x512" in content, "Should have 512x512 option"
-        assert "320x320" in content, "Should have 320x320 option"
-        assert "options=[0, 1, 2, 3, 4]" in content, "Should have 5 MLA resolution options"
+        """Five resolutions on offer, each displayed as WxH through format_func."""
+        call = _widget_call("zrm_wfs_mla_res")
+        assert call is not None and call.func.attr == "selectbox", (
+            "zrm_wfs_mla_res should be an st.selectbox"
+        )
+        options = next((k for k in call.keywords if k.arg == "options"), None)
+        assert options is not None and len(options.value.elts) == 5, (
+            "the selectbox must offer exactly 5 MLA resolutions"
+        )
+        fmt = next((k for k in call.keywords if k.arg == "format_func"), None)
+        assert fmt is not None, "resolutions are shown through format_func"
+        shown = {n.value for n in ast.walk(fmt.value)
+                 if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+        assert {"1280x1024", "1024x1024", "768x768", "512x512", "320x320"} <= shown, (
+            f"every option must map to a WxH label, got {sorted(shown)}"
+        )
 
 
 class TestCalibrationParameters:
@@ -346,34 +417,28 @@ class TestCalibrationParameters:
             assert mock_state.zrm_verbose is True, "zrm_verbose should default to True"
 
     def test_excluded_piston_checkbox_exists(self):
-        """Test that excluded_piston checkbox exists in Calibration Parameters"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "zernike" / "zernike_response_matrix_ui.py"
-
-        with open(ui_file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        assert "zrm_excluded_piston" in content, "zrm_excluded_piston should be used in st.checkbox"
-        assert ("排除Piston" in content or "excluded_piston" in content), "Should have checkbox for excluding piston"
+        """The piston flag must be a checkbox wired to its session key."""
+        call = _widget_call("zrm_excluded_piston")
+        assert call is not None and call.func.attr == "checkbox", (
+            "zrm_excluded_piston should be an st.checkbox"
+        )
+        assert "Piston" in _label_of(call), (
+            f"label should name Piston, got {_label_of(call)!r}"
+        )
 
     def test_compute_inverses_checkbox_exists(self):
-        """Test that compute_inverses checkbox exists"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "zernike" / "zernike_response_matrix_ui.py"
-
-        with open(ui_file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        assert "zrm_compute_inverses" in content, "zrm_compute_inverses should be used in st.checkbox"
-        assert "compute_inverses" in content, "Should have checkbox for computing inverses"
+        """The inverse-matrix flag must be a checkbox wired to its session key."""
+        call = _widget_call("zrm_compute_inverses")
+        assert call is not None and call.func.attr == "checkbox", (
+            "zrm_compute_inverses should be an st.checkbox"
+        )
 
     def test_verbose_checkbox_exists(self):
-        """Test that verbose checkbox exists (optional)"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "zernike" / "zernike_response_matrix_ui.py"
-
-        with open(ui_file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        assert "zrm_verbose" in content, "zrm_verbose should be used in st.checkbox"
-        assert "verbose" in content, "Should have checkbox for verbose output"
+        """The verbose flag must be a checkbox wired to its session key."""
+        call = _widget_call("zrm_verbose")
+        assert call is not None and call.func.attr == "checkbox", (
+            "zrm_verbose should be an st.checkbox"
+        )
 
     def test_calibrate_receives_parameters(self):
         """Test that calibrate_zernike_response_matrix receives excluded_piston, compute_inverses, verbose"""
@@ -418,17 +483,14 @@ class TestCalibrationParameters:
                                                 with patch.object(st, 'divider'):
                                                     with patch("matplotlib.pyplot.subplots"):
                                                         with patch.object(st, 'pyplot'):
-                                                            try:
-                                                                render_calibrate_mode()
-                                                            except Exception:
-                                                                pass  # Ignore errors from mocks
+                                                            render_calibrate_mode()
 
                 # Check that calibrate_zernike_response_matrix was called with correct parameters
-                if mock_calibrate.called:
-                    call_args = mock_calibrate.call_args
-                    assert call_args.kwargs.get("excluded_piston") is True, "excluded_piston should be True"
-                    assert call_args.kwargs.get("compute_inverses") is True, "compute_inverses should be True"
-                    assert call_args.kwargs.get("verbose") is True, "verbose should be True"
+                mock_calibrate.assert_called_once()
+                call_args = mock_calibrate.call_args
+                assert call_args.kwargs.get("excluded_piston") is True, "excluded_piston should be True"
+                assert call_args.kwargs.get("compute_inverses") is True, "compute_inverses should be True"
+                assert call_args.kwargs.get("verbose") is True, "verbose should be True"
 
 
 class TestProgressVisualization:
@@ -485,16 +547,18 @@ class TestProgressVisualization:
             assert mock_state.zrm_calibration_running is False, "zrm_calibration_running should default to False"
 
     def test_progress_bar_placeholder_exists(self):
-        """Test that progress_bar = st.empty() is created"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "zernike" / "zernike_response_matrix_ui.py"
-
-        with open(ui_file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        # Check that st.empty() is used for progress_bar placeholder
-        assert "progress_bar = st.empty()" in content, "Should create progress_bar placeholder with st.empty()"
-        assert "status_text = st.empty()" in content, "Should create status_text placeholder with st.empty()"
-        assert "plot_placeholder = st.empty()" in content, "Should create plot_placeholder with st.empty()"
+        """Progress UI must create its placeholders through st.empty()."""
+        names = {
+            t.id
+            for node in ast.walk(_UI_TREE)
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Attribute)
+            and node.value.func.attr == "empty"
+            for t in node.targets if isinstance(t, ast.Name)
+        }
+        assert {"progress_bar", "status_text"} <= names, (
+            f"progress placeholders need st.empty(); got {sorted(names)}"
+        )
 
     def test_callback_creates_json_file(self):
         """Test that the callback writes progress to JSON file"""
@@ -521,7 +585,7 @@ class TestProgressVisualization:
                     "timestamp": "2026-04-28T10:00:00",
                 }
 
-                _progress_callback(test_data)
+                _progress_callback(progress_file, test_data)
 
                 # Verify JSON file was created with correct data
                 with open(progress_file, "r") as f:
@@ -538,73 +602,41 @@ class TestProgressVisualization:
                 Path(progress_file).unlink()
 
     def test_polling_displays_updates(self):
-        """Test that polling loop reads JSON and updates plots"""
-        import tempfile
-        import json
-        import time
+        """The polling fragment must read the progress JSON and move the bar.
 
-        # Create a temporary progress file with test data
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
-            progress_file = f.name
+        Scoped to the function that has to do it. The previous version read the
+        whole module as text, so ``zrm_progress_file`` anywhere in the file
+        satisfied it -- ``_progress_callback`` and the session-state init both
+        mention it -- while ~45 lines of mock scaffolding ended in ``pass``,
+        exercising nothing. JSON decoding is matched as load/loads so a
+        refactor of the spelling stays green.
+        """
+        fn = _function("_render_calibration_polling")
+        assert fn is not None, "the polling fragment _render_calibration_polling must exist"
 
-        try:
-            # Write initial progress data
-            progress_data = {
-                "current_mode": 3,
-                "total_modes": 15,
-                "mode_name": "Defocus",
-                "percent": 20.0,
-                "message": "Calibrating mode 3/15: Defocus",
-                "timestamp": datetime.now().isoformat(),
-            }
+        session_reads = {
+            n.args[0].value
+            for n in ast.walk(fn)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "get" and n.args and isinstance(n.args[0], ast.Constant)
+        }
+        assert "zrm_progress_file" in session_reads, (
+            "polling must read the progress-file path out of session state"
+        )
 
-            with open(progress_file, "w") as f:
-                json.dump(progress_data, f)
+        decoded = [
+            n for n in ast.walk(fn)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and n.func.attr in {"load", "loads"}
+        ]
+        assert decoded, "polling must decode the progress JSON"
 
-            # Mock session state with progress file
-            mock_state = self._create_mock_session_state(
-                zrm_progress_file=progress_file,
-                zrm_calibration_running=True,
-                zrm_calibration_result=None,
-            )
-
-            # Mock st.empty() to return mock placeholders
-            mock_progress_bar = MagicMock()
-            mock_status_text = MagicMock()
-            mock_plot_placeholder = MagicMock()
-
-            with patch.object(st, 'session_state', mock_state):
-                with patch.object(st, 'empty', side_effect=[mock_progress_bar, mock_status_text, mock_plot_placeholder]):
-                    with patch.object(st, 'rerun'):
-                        with patch("time.sleep"):
-                            from ao_shaping.gui.zernike.zernike_response_matrix_ui import render_calibrate_mode
-
-                            # Mock file exists check
-                            with patch("pathlib.Path.exists", return_value=True):
-                                with patch("builtins.open", create=True) as mock_open:
-                                    # Simulate reading progress file
-                                    mock_open.return_value.__enter__ = MagicMock()
-                                    mock_open.return_value.__exit__ = MagicMock()
-                                    mock_open.return_value.read.return_value = json.dumps(progress_data)
-
-                                    # The function should attempt to read the progress file
-                                    # We can't fully test the rendering without a Streamlit context,
-                                    # but we can verify the file reading logic exists
-                                    pass
-
-            # Verify the UI file contains polling logic
-            ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "zernike" / "zernike_response_matrix_ui.py"
-            with open(ui_file_path, "r", encoding="utf-8") as f:
-                content = f.read()
-
-            assert "zrm_progress_file" in content, "Should reference zrm_progress_file"
-            assert "json.load" in content, "Should load JSON progress data"
-            assert "progress_bar.progress" in content, "Should update progress bar"
-
-        finally:
-            # Clean up
-            if Path(progress_file).exists():
-                Path(progress_file).unlink()
+        moved = [
+            n for n in ast.walk(fn)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "progress"
+        ]
+        assert moved, "polling must update the progress bar"
 
     def test_threading_for_calibration(self):
         """Test that calibration runs in background thread"""
@@ -652,17 +684,14 @@ class TestProgressVisualization:
                                                 with patch.object(st, 'rerun'):
                                                     with patch("pathlib.Path.mkdir"):
                                                         with patch("pathlib.Path.exists", return_value=False):
-                                                            try:
-                                                                render_calibrate_mode()
-                                                            except Exception:
-                                                                pass  # Ignore errors from mocks
+                                                            render_calibrate_mode()
 
                 # Verify that Thread was called with correct target
-                if mock_threading.Thread.called:
-                    call_args = mock_threading.Thread.call_args
-                    assert call_args.kwargs.get("target") is not None, "Thread should have a target function"
-                    assert call_args.kwargs.get("daemon") is True, "Thread should be daemon=True"
-                    assert "args" in call_args.kwargs, "Thread should have args"
+                mock_threading.Thread.assert_called_once()
+                call_args = mock_threading.Thread.call_args
+                assert call_args.kwargs.get("target") is not None, "Thread should have a target function"
+                assert call_args.kwargs.get("daemon") is True, "Thread should be daemon=True"
+                assert "args" in call_args.kwargs, "Thread should have args"
 
     def test_progress_callback_format(self):
         """Test that progress callback writes correct JSON format"""
@@ -689,7 +718,7 @@ class TestProgressVisualization:
                     "result_path": "/path/to/results",
                 }
 
-                _progress_callback(completion_data)
+                _progress_callback(progress_file, completion_data)
 
                 with open(progress_file, "r") as f:
                     saved_data = json.load(f)
@@ -706,7 +735,7 @@ class TestProgressVisualization:
                     "status": "error",
                 }
 
-                _progress_callback(error_data)
+                _progress_callback(progress_file, error_data)
 
                 with open(progress_file, "r") as f:
                     saved_data = json.load(f)

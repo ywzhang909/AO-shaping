@@ -379,29 +379,13 @@ def _compute_response_matrix_from_debug(debug_data: dict, magnitude: float):
                         wfs_start_idx : wfs_start_idx + n_to_copy
                     ]
 
-        # Compute derived properties
-        float(np.mean(variance_matrix)) if variance_matrix.size > 0 else 0.0
-        float(np.max(variance_matrix)) if variance_matrix.size > 0 else 0.0
-
+        # mean_variance/max_variance are derived on ZernikeResponseMatrixResult, not stored here
         # Try to compute pseudo-inverse if we have enough data
         pinv_matrix = None
         lstsq_matrix = None
         if response_matrix.size > 0 and min(response_matrix.shape) > 0:
             try:
                 pinv_matrix = np.linalg.pinv(response_matrix)
-                # For consistency with the original code, we might want to use SVD-based pinv
-                # But numpy's pinv is fine for now
-                # Try to compute condition number
-                if np.linalg.matrix_rank(response_matrix) == min(response_matrix.shape):
-                    try:
-                        # Condition number = ||A|| * ||A^+||
-                        np.linalg.norm(response_matrix, ord=2) * np.linalg.norm(
-                            pinv_matrix, ord=2
-                        )
-                    except Exception:
-                        pass
-                else:
-                    pass  # Singular matrix
             except Exception:
                 pinv_matrix = None
                 lstsq_matrix = None

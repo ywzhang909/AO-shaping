@@ -106,7 +106,7 @@ _PY_MODULE_DOCS = sorted(SRC.rglob("*.py")) + sorted((REPO / "scripts").glob("*.
 #: Documents that carry *current* instructions, so every ``python -m`` target in
 #: them must resolve. ``report/`` is deliberately absent -- see _HISTORICAL_DOCS.
 _LIVE_DOCS = (
-    [REPO / "README.md"]
+    [REPO / "README.md", REPO / "AGENTS.md"]
     + sorted(SRC.rglob("*.md"))
     + sorted((REPO / "scripts").glob("*.md"))
     + sorted((REPO / "docs").glob("*.md"))
@@ -157,7 +157,10 @@ def _dotted(name: str) -> str:
 def _module_inventory() -> dict[str, tuple[bool, bool]]:
     """``{module: (has __main__ guard, declares a click command)}``."""
     out: dict[str, tuple[bool, bool]] = {}
-    for path in sorted((SRC / "ao_shaping").rglob("*.py")):
+    # Two package roots, not one: ``src/ml`` is a standalone top-level package
+    # (``python -m ml.hwdataset.inspect``), so an inventory scoped to ``ao_shaping``
+    # reads every documented ``ml`` entry point as a non-existent module.
+    for path in sorted(p for root in (SRC / "ao_shaping", SRC / "ml") for p in root.rglob("*.py")):
         try:
             text = path.read_text(encoding="utf-8-sig")
             tree = ast.parse(text)
@@ -288,8 +291,8 @@ def test_the_deferred_forms_still_exist_so_the_guard_is_not_vacuous() -> None:
 # 3. `python -m` documentation matches reality
 # ---------------------------------------------------------------------------
 
-_PY_M = re.compile(r"python\s+-m\s+(ao_shaping[\w.]*)")
-_MD_M = re.compile(r"python\s+-m\s+(ao_shaping[\w.]*)")
+_PY_M = re.compile(r"python\s+-m\s+((?:ao_shaping|ml)[\w.]*)")
+_MD_M = re.compile(r"python\s+-m\s+((?:ao_shaping|ml)[\w.]*)")
 
 #: References that legitimately do not resolve. Each needs a reason, because an
 #: unexplained baseline entry is just a suppressed failure.
@@ -917,6 +920,64 @@ def test_the_ruf100_gate_is_measured_with_the_project_select_set() -> None:
     )
 
 
+#: Config files that install or require ruff, each of which must name exactly one
+#: version. A second occurrence -- typically a commented-out old pin -- fails the
+#: "exactly one" check on purpose, because that is how a stale version survives a
+#: bump and gets copied back in later.
+_RUFF_PIN_SITES = (
+    ".github/workflows/ci.yml",
+    ".github/workflows/ruff.yml",
+    "pyproject.toml",
+)
+_RUFF_EXACT_PIN_SITES = (".github/workflows/ci.yml", ".github/workflows/ruff.yml")
+
+
+def test_all_ruff_pins_agree_and_are_exact() -> None:
+    """Every ruff pin names one exact, identical version.
+
+    Two workflows both run ``ruff check .`` as a hard gate, and they used to
+    install *different* ruffs: ``ci.yml`` pinned ``==0.11.10`` while ``ruff.yml``
+    asked for ``>=0.15.12``. That is not one gate but two non-equivalent ones.
+    Measured on the project config: ``PLC0415`` yielded **0** findings under
+    0.11.10 (it is a preview rule there, and ruff itself prints "Selection
+    `PLC0415` has no effect because preview is not enabled") against **1476** under
+    0.15.12 where it is stable, and ``SLF001`` differed by 2 findings.
+
+    The pin also used to sit **below** the dev-group floor in ``pyproject.toml``
+    (``ruff>=0.15.12``), so CI ran a ruff that no developer reproduces locally --
+    the failure a contributor sees and the failure CI reports are different tools.
+
+    ``>=`` is rejected for the gate itself: a floating bound lets a new ruff
+    release flip a hard gate red with no code change between two pushes, which is
+    the non-reproducibility that made the discrepancy above expensive to diagnose.
+    Bumping ruff is therefore a single-number change across three files, and this
+    test fails if any of them falls out of step.
+    """
+    pin_re = re.compile(
+        r"ruff\s*(?P<op>===|==|>=|<=|~=)\s*(?P<version>\d+(?:\.\d+)+)"
+    )
+    pins: dict[str, list[re.Match[str]]] = {}
+    for rel in _RUFF_PIN_SITES:
+        pins[rel] = list(pin_re.finditer((REPO / rel).read_text(encoding="utf-8")))
+        assert len(pins[rel]) == 1, (
+            f"{rel} must name exactly one ruff version; found {len(pins[rel])}: "
+            f"{[m.group(0) for m in pins[rel]]}"
+        )
+
+    versions = {m.group("version") for m in (p[0] for p in pins.values())}
+    assert len(versions) == 1, (
+        "ruff pins disagree -- bump all of them together: "
+        + ", ".join(f"{rel}={pins[rel][0].group(0)}" for rel in _RUFF_PIN_SITES)
+    )
+
+    for rel in _RUFF_EXACT_PIN_SITES:
+        operator = pins[rel][0].group("op")
+        assert operator == "==", (
+            f"{rel} installs ruff with `{operator}`; a hard gate must pin an exact "
+            "version, otherwise a new ruff release can flip it with no code change"
+        )
+
+
 # ---------------------------------------------------------------------------
 # 8. CCD device-readiness guards survive `python -O`
 # ---------------------------------------------------------------------------
@@ -980,4 +1041,2358 @@ def test_ccd_drivers_never_assert_on_device_state() -> None:
         "`assert` on self.cam / self._cap / self._folder_path is back under "
         "src/ao_shaping/drivers/ccd/ -- use BaseCamera._ensure_open() "
         f"(or _ensure_recording) so the check survives `python -O`: {offenders}"
+    )
+
+
+#: Methods of ``ThorlabWFS`` allowed to touch the DLL handle without guarding.
+#: ``__init__`` / ``open`` establish it and ``close`` releases it, so they must
+#: run unguarded; ``is_connected`` is the pure query; ``handle_error`` serves the
+#: open/close error paths; the two private helpers are reachable only from
+#: already-guarded callers (``get_mla_name`` and ``get_wavefront``).
+_WFS_GUARD_EXEMPT = frozenset({
+    "__init__", "open", "close", "is_connected", "handle_error", "_ensure_open",
+    "_try_get_mla_name_fallback", "_get_stable_samples",
+})
+
+
+def _wfs_unguarded_dll_methods(path: Path) -> list[str]:
+    """``ThorlabWFS`` methods that use the DLL handle without guarding it first.
+
+    The check is structural rather than a grep for ``_ensure_open``: a method
+    counts as unguarded only if its **first statement after the docstring** is not
+    ``self._ensure_open()``, which is what actually orders the guard before the
+    handle reaches the DLL.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+    cls = next(
+        n for n in tree.body
+        if isinstance(n, ast.ClassDef) and n.name == "ThorlabWFS"
+    )
+    offenders: list[str] = []
+    for fn in cls.body:
+        if not isinstance(fn, ast.FunctionDef) or fn.name in _WFS_GUARD_EXEMPT:
+            continue
+        if not any(
+            isinstance(sub, ast.Attribute) and sub.attr == "_instrument_handle"
+            for sub in ast.walk(fn)
+        ):
+            continue
+        body = [
+            s for s in fn.body
+            if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant))
+        ]
+        if not body or ast.unparse(body[0]) != "self._ensure_open()":
+            offenders.append(f"{fn.name}:{fn.lineno}")
+    return offenders
+
+
+def test_wfs_driver_guards_every_dll_entry_point() -> None:
+    """``ThorlabWFS`` must refuse a null handle in the driver, not in callers.
+
+    Unlike the CCD drivers, the WFS driver had **no** open-state check at all:
+    every public method handed ``self._instrument_handle`` to ``WFS_64.dll``, and
+    a null handle is not a reliable failure there -- ``select_mla`` discards its
+    return codes and the auto-exposure branch of ``take_image`` ignores the error
+    code -- so an unopened call returned garbage rather than raising. The only
+    thing preventing that was ``assert wfs.is_connected()`` spelled out at each
+    call site, which ``python -O`` strips.
+
+    So the mechanism now lives in the driver (``_ensure_open`` raising
+    ``WfsError``, mirroring ``BaseCamera._ensure_open`` and
+    ``Santec._ensure_open``) and the callers are free of device asserts -- which
+    ``test_cartographer_never_asserts_on_device_state`` pins from the other side.
+    The class is also required to hold **no** ``assert`` at all, since every one
+    of its former asserts guarded either device readiness or a parameter bound
+    that is handed to the DLL.
+
+    Placed here for the same reason as the CCD guard: ``pyproject`` ``addopts
+    --ignore`` prunes ``tests/ao_shaping/drivers/**`` from default discovery.
+    """
+    path = SRC / "ao_shaping" / "drivers" / "wfs" / "thorlab_wfs.py"
+    rel = path.relative_to(REPO).as_posix()
+
+    unguarded = _wfs_unguarded_dll_methods(path)
+    assert not unguarded, (
+        f"{rel}: ThorlabWFS methods reach self._instrument_handle without "
+        f"calling self._ensure_open() first: {unguarded}"
+    )
+
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+    cls = next(
+        n for n in tree.body
+        if isinstance(n, ast.ClassDef) and n.name == "ThorlabWFS"
+    )
+    asserts = [n.lineno for n in ast.walk(cls) if isinstance(n, ast.Assert)]
+    assert not asserts, (
+        f"{rel}: `assert` is back inside ThorlabWFS at {asserts} -- it is "
+        "stripped under `python -O`, so raise WfsError instead"
+    )
+
+
+#: Handlers that legitimately catch ``AssertionError`` because the assertion comes
+#: from a **third-party** library inside the protected expression, not from this
+#: repo. Keyed by ``<path>: <sorted handler names>`` rather than by line number, so
+#: line drift cannot hide a new one and a changed handler turns the entry stale.
+_CATCH_ASSERTION_ALLOWLIST = frozenset({
+    # torch's own CUDA probe raises AssertionError on a broken driver stack; the
+    # documented contract here is to degrade to ``pin_memory=False`` ("driver
+    # hiccup"). ``src/ml/`` contains no driver asserts of ours, so this cannot be
+    # one of the conversions this rule protects against.
+    "src/ml/hwdataset/dataset.py: ('AssertionError', 'RuntimeError')",
+})
+
+
+def test_production_code_never_catches_assertion_error() -> None:
+    """Nothing under ``src/`` or ``scripts/`` may have an ``except AssertionError``.
+
+    Catching an assertion converts a programmer invariant into runtime control flow,
+    and it fails twice over. Under ``python -O`` the assert that produced the
+    exception no longer exists, so the handler is dead code -- and when a driver
+    assert is converted to an explicit raise (what 8.9 asks for), a handler written
+    against ``AssertionError`` **stops firing silently**, in the hardware-only paths
+    that no container test executes. That is not hypothetical: converting
+    ``assert x_offset >= 0`` to ``ValueError`` bypassed the narrow handler in
+    ``calibration.py::apply_stored_window``, so an out-of-range stored window crashed
+    the calibration step instead of degrading to the full frame its own docstring
+    promises; converting the high-speed assert to ``WfsError`` dropped
+    ``wfs_probe.py``'s actionable hint and turned it into a traceback. Both shipped
+    green because the handlers sit on untestable paths -- which is exactly why this
+    is a structural rule rather than something to catch by running tests.
+
+    This is why the scan is AST-based and not a grep: the first grep for
+    ``except AssertionError`` reported zero while three tuple-form handlers
+    (``except (RuntimeError, ValueError, AssertionError)``) were present. Grep
+    cannot see them; ``ast.ExceptHandler`` walks every name in the tuple.
+
+    ``tests/`` is exempt on purpose: there ``pytest.raises(AssertionError)`` documents
+    an intentional internal-invariant contract (8.9's "keep ``assert``" row), and a
+    test may legitimately assert that an invariant still trips.
+    """
+    found: set[str] = set()
+    for root in (SRC, REPO / "scripts"):
+        for path in sorted(root.rglob("*.py")):
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+            except (OSError, SyntaxError):
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ExceptHandler) or node.type is None:
+                    continue
+                names = sorted(
+                    {
+                        sub.id
+                        for sub in ast.walk(node.type)
+                        if isinstance(sub, ast.Name)
+                    }
+                )
+                if "AssertionError" in names:
+                    rel = path.relative_to(REPO).as_posix()
+                    found.add(f"{rel}: {tuple(names)}")
+
+    new = sorted(found - _CATCH_ASSERTION_ALLOWLIST)
+    stale = sorted(_CATCH_ASSERTION_ALLOWLIST - found)
+    assert not new and not stale, (
+        f"{new = } -- `except AssertionError` is dead under `python -O` and detaches "
+        "silently when a driver assert becomes an explicit raise; catch what the "
+        f"callee actually raises. {stale = } -- no longer present, drop from the "
+        "allowlist."
+    )
+
+
+#: Attribute reads that mean "is the device usable?" -- i.e. a device-state
+#: precondition. `Panel_Res` counts because it is a driver **class constant**, so
+#: asserting on it can only ever fire on a fake object.
+_DEVICE_STATE_READS = (".is_open", ".is_connected(", ".Panel_Res")
+
+
+def _cartographer_device_state_asserts(path: Path) -> list[int]:
+    """Line numbers of ``assert`` statements testing device readiness or a driver constant."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+    except (OSError, SyntaxError):
+        return []
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assert)
+        and any(read in ast.unparse(node.test) for read in _DEVICE_STATE_READS)
+    ]
+
+
+def test_cartographer_never_asserts_on_device_state() -> None:
+    """The cartographer must not re-implement device readiness checks.
+
+    It carried 9 ``assert self.slm.is_open`` / ``assert self.wfs.is_connected()``
+    sites. Those ask the driver a question the driver is supposed to answer itself,
+    and ``python -O`` deletes the answer -- after which an unopened WFS hands a null
+    handle to ``WFS_64.dll``, which (for ``select_mla`` and the auto-exposure branch
+    of ``take_image``) reports no error at all and yields garbage numbers instead.
+
+    The checks now live in the drivers -- ``Santec._ensure_open``,
+    ``ThorlabWFS._ensure_open`` and ``BaseCamera._ensure_open`` -- so removing them
+    here loses nothing. The 4 asserts that remain in this package guard **internal**
+    state (``self.lut``, ``self._reference_saved``, ``self._last_measurement``),
+    which is what ``assert`` is for under 8.9's own rule.
+    """
+    offenders: list[str] = []
+    for path in sorted(
+        (SRC / "ao_shaping" / "tools" / "slm" / "cartographer").rglob("*.py")
+    ):
+        for lineno in _cartographer_device_state_asserts(path):
+            offenders.append(f"{path.relative_to(REPO).as_posix()}:{lineno}")
+    assert not offenders, (
+        "device-readiness `assert` is back in the cartographer -- the drivers guard "
+        f"this now (Santec/ThorlabWFS._ensure_open): {offenders}"
+    )
+
+
+def test_pytest_excludes_match_across_configs() -> None:
+    """`run_pytest_ci.sh` re-states pyproject's `--ignore` list -- they must agree.
+
+    The duplication is deliberate, not accidental: the runner starts pytest from a
+    scratch directory, so pyproject's *relative* excludes (``tests/ao_shaping/ml``)
+    resolve against that CWD and match nothing, which would pull the 65 GB hwdataset
+    corpus and the hardware domains back into CI runs. So the script re-states them as
+    absolute paths.
+
+    Two lists that must mean the same thing is exactly how this repo has been bitten
+    before, and it happened while this guard was being written: pyproject was narrowed
+    to ``drivers/dm`` while the script still carried the whole ``drivers`` tree, so the
+    narrowed discovery silently stayed off and every driver domain looked "excluded"
+    even though the ledger said otherwise.
+    """
+    script = REPO / "scripts" / "build" / "run_pytest_ci.sh"
+    shell_ignores = {
+        match.removeprefix("$WORKDIR_IN_CONTAINER/")
+        for match in re.findall(r'"--ignore=([^"]+)"', script.read_text(encoding="utf-8"))
+    }
+    addopts = (
+        tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
+        .get("tool", {})
+        .get("pytest", {})
+        .get("ini_options", {})
+        .get("addopts", [])
+    )
+    pyproject_ignores = {
+        entry.split("=", 1)[1]
+        for entry in addopts
+        if isinstance(entry, str) and entry.startswith("--ignore=")
+    }
+    assert shell_ignores == pyproject_ignores, (
+        "pytest excludes drifted between pyproject.toml addopts and "
+        f"scripts/build/run_pytest_ci.sh EXCLUDES -- only pyproject: "
+        f"{sorted(pyproject_ignores - shell_ignores)}; only the script: "
+        f"{sorted(shell_ignores - pyproject_ignores)}"
+    )
+
+
+#: The complete set of ``assert`` statements allowed anywhere under ``drivers/``,
+#: as ``<path under drivers/>: <expression>``. Each one tests an **internal**
+#: invariant that no external input or device state can reach, which is precisely
+#: the only thing Python's guidance reserves ``assert`` for.
+#:
+#: Matched on the parsed expression rather than the line number so that inserting
+#: code above an allowed assert cannot take it off the allowlist, and adding a new
+#: one cannot hide behind a shifted line.
+_DRIVERS_ASSERT_ALLOWLIST = frozenset({
+    "ccd/daheng/driver.py: width_val is not None and height_val is not None",
+    "dm/micro/driver.py: isinstance(result, np.ndarray)",
+    "dm/micro/driver.py: entry.physical_position is not None",
+    "sim/wfs/simulated_wfs.py: self._raw is not None and self._flux is not None",
+    "slm/santec/driver.py: max_grayscale is not None",
+})
+
+
+def _drivers_asserts() -> dict[str, list[int]]:
+    """Every ``assert`` under ``drivers/``, keyed by path + parsed expression."""
+    drivers = SRC / "ao_shaping" / "drivers"
+    found: dict[str, list[int]] = {}
+    for path in sorted(drivers.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        except (OSError, SyntaxError):
+            continue
+        rel = path.relative_to(drivers).as_posix()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assert):
+                found.setdefault(f"{rel}: {ast.unparse(node.test)}", []).append(node.lineno)
+    return found
+
+
+def test_drivers_only_assert_internal_invariants() -> None:
+    """Under ``drivers/``, ``assert`` may only guard internal invariants.
+
+    A driver sits on the boundary with the outside world, so what it checks there
+    is either device state (did the SDK actually hand us a live handle?) or a
+    caller-supplied argument (``n_sample > 0``). ``python -O`` strips every
+    ``assert`` in the file, after which an unguarded driver either drives the SDK
+    through a null handle or silently accepts a nonsense count. Each of the three
+    driver domains now raises instead, through one entry point per concern:
+    ``BaseCamera._ensure_open`` (29001826 / de5b9ccd), ``Santec._ensure_open``,
+    ``ThorlabWFS._ensure_open`` (e4868b54), ``DeviceNotFoundError`` in the DM and
+    TM drivers, and ``ValueError`` for argument bounds.
+
+    The comparison is deliberately **two-way**: a new assert fails the test, and so
+    does an allowlist entry whose assert has since been converted or deleted. A
+    stale allowlist is how a guard quietly stops protecting anything, and this repo
+    has been bitten repeatedly by stale entries in its own ledger.
+    """
+    found = _drivers_asserts()
+    new = sorted(set(found) - _DRIVERS_ASSERT_ALLOWLIST)
+    stale = sorted(_DRIVERS_ASSERT_ALLOWLIST - set(found))
+    assert not new and not stale, (
+        f"{new = } -- raise explicitly instead of asserting (stripped under "
+        f"`python -O`); {stale = } -- no longer present, drop from the allowlist"
+    )
+
+
+def _numeric_registry_bounds(tree: ast.Module) -> dict[str, list[int]]:
+    """Map ``file: param`` -> line numbers where a registered default is out of range.
+
+    Only fully resolvable numeric declarations are judged: a bare literal, or a
+    name bound to a numeric literal at module level (``EXP_TIME_LOW``). Anything
+    dynamic is skipped rather than guessed at, so the guard cannot invent findings.
+    """
+    consts: dict[str, object] = {}
+    for node in tree.body:
+        targets = node.targets if isinstance(node, ast.Assign) else ([node.target] if isinstance(node, ast.AnnAssign) else [])
+        for target in targets:
+            if isinstance(target, ast.Name):
+                try:
+                    consts[target.id] = ast.literal_eval(node.value)
+                except (ValueError, TypeError):
+                    pass
+
+    def resolve(expr: ast.expr | None) -> float | None:
+        if expr is None:
+            return None
+        try:
+            value = ast.literal_eval(expr)
+        except (ValueError, TypeError):
+            if isinstance(expr, ast.Name):
+                value = consts.get(expr.id)
+            else:
+                return None
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        return float(value)
+
+    found: dict[str, list[int]] = {}
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "register_parameter"
+        ):
+            continue
+        kwargs = {kw.arg: kw.value for kw in node.keywords if kw.arg}
+        positional = list(node.args)
+        default = resolve(kwargs.get("default_value", positional[1] if len(positional) > 1 else None))
+        if default is None:
+            continue
+        low = resolve(kwargs.get("min_value", positional[2] if len(positional) > 2 else None))
+        high = resolve(kwargs.get("max_value", positional[3] if len(positional) > 3 else None))
+        if (low is not None and default < low) or (high is not None and default > high):
+            name = positional[0] if positional and isinstance(positional[0], ast.Constant) else kwargs.get("name")
+            label = name.value if isinstance(name, ast.Constant) else "<dynamic>"
+            found.setdefault(label, []).append(node.lineno)
+    return found
+
+
+def test_registered_parameter_defaults_satisfy_declared_bounds() -> None:
+    """A ``register_parameter`` default must lie inside that same call's bounds.
+
+    The registry is a *declaration*, and a declaration that contradicts itself is
+    worse than no declaration: it reads like an enforced contract while nothing
+    enforces it. ``ThorlabWFS._register_parameters`` registered
+    ``exposure_time_ms`` with ``min_value=EXP_TIME_LOW`` (0.002) and
+    ``default_value=0.0`` -- its own default outside its own floor. The driver is
+    not wrong; ``open()`` treats 0.0 as the legal "auto exposure" sentinel and
+    resets any non-zero out-of-range value back to it, so the accepted domain is
+    ``{0.0} u [EXP_TIME_LOW, EXP_TIME_HIGH]`` and the registry has to declare the
+    floor as 0.0 to stay truthful about the value it ships with.
+
+    Scanned every ``register_parameter`` call under ``src/``: 62 sites, 1 offender
+    before the fix, 0 after. No allowlist -- there is no legitimate way for a
+    default to violate its own declared range, so a future hit is a real defect.
+    """
+    offenders: list[str] = []
+    for path in sorted(SRC.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        except (OSError, SyntaxError):
+            continue
+        rel = path.relative_to(REPO).as_posix()
+        for label, lines in _numeric_registry_bounds(tree).items():
+            for line in lines:
+                offenders.append(f"{rel}:{line} {label}")
+    assert not offenders, (
+        f"{offenders = } -- a registered default sits outside its own declared "
+        "min/max; declare the range the driver actually accepts (including any "
+        "sentinel it documents) or move the bound to where it is enforced."
+    )
+
+
+#: GUI-level hardware limits that must be imported, never re-typed as literals.
+#: ``SINE_AMP_MAX`` is excluded: it is derived from these two, not duplicated.
+_GUI_DRIVER_BOUNDS = ("HW_VOLTAGE_MIN", "HW_VOLTAGE_MAX")
+
+
+def _numeric_literal(node: ast.expr | None) -> float | None:
+    """Return the number a literal expresses, **including a leading unary minus**.
+
+    ``-20.0`` parses as ``UnaryOp(USub, Constant(20.0))``, so an
+    ``isinstance(node, ast.Constant)`` test silently reports a negative bound as
+    "not a literal" -- the same blind spot as grepping for one spelling of a
+    form that has several.
+    """
+    if (
+        isinstance(node, ast.Constant)
+        and not isinstance(node.value, bool)
+        and isinstance(node.value, (int, float))
+    ):
+        return float(node.value)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+        inner = _numeric_literal(node.operand)
+        if inner is None:
+            return None
+        return -inner if isinstance(node.op, ast.USub) else inner
+    return None
+
+
+def test_gui_never_redeclares_driver_voltage_bounds() -> None:
+    """``gui/`` must take R50Power voltage limits from the driver, not restate them.
+
+    The limits exist once, in ``drivers/dm/micro/micro_constants.py`` (VOLTAGE_MIN
+    / VOLTAGE_MAX, from the R50Power datasheet), and ``gui/r50/r50_channel_select.py``
+    already binds ``HW_VOLTAGE_MIN: float = VOLTAGE_MIN`` through the PEP-562 lazy
+    re-export. ``gui/dm/micro_dm_ui.py`` instead re-typed ``-20.0``/``120.0``, and
+    the copy drifted in the only direction that matters: its sine-amplitude widget
+    allowed ``max_value=140.0``, 20 V past the hardware ceiling. Nothing downstream
+    complained because the driver clips silently, so the panel accepts a setting the
+    hardware cannot produce. Amplitude is now ``SINE_AMP_MAX``: with ``offset +/- amp``
+    both required to stay in range, adding the two inequalities gives
+    ``2*amp <= VOLTAGE_MAX - VOLTAGE_MIN``, so 70.0 is the exact ceiling and every
+    larger value only reached the truncation warning.
+
+    Judged on the AST, not the text: the offending form is an assignment whose
+    *value* is a numeric constant, which covers both module level and the ``Cfg``
+    dataclass body, and survives a rename of the driver constant it should use.
+    """
+    offenders: list[str] = []
+    for path in sorted((SRC / "ao_shaping" / "gui").rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        except (OSError, SyntaxError):
+            continue
+        rel = path.relative_to(REPO).as_posix()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                targets, value = node.targets, node.value
+            elif isinstance(node, ast.AnnAssign):
+                targets, value = [node.target], node.value
+            else:
+                continue
+            literal = _numeric_literal(value)
+            if literal is None:
+                continue
+            for target in targets:
+                if isinstance(target, ast.Name) and target.id in _GUI_DRIVER_BOUNDS:
+                    offenders.append(
+                        f"{rel}:{node.lineno} {target.id} = {literal!r}"
+                    )
+    assert not offenders, (
+        f"{offenders = } -- voltage limits are declared in "
+        "`drivers/dm/micro/micro_constants.py`; import them so the GUI cannot drift "
+        "away from what the driver enforces."
+    )
+
+
+#: Thread bodies in ``gui/`` that still reach ``st.session_state``. Each entry is
+#: recorded debt: the guard fails if it grows, **and** if it stops being true, so a
+#: fix cannot quietly leave a stale exemption behind.
+_GUI_THREAD_SS_ALLOWLIST: set[str] = set()
+
+
+def _scan_thread_func(
+    func: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> tuple[bool, set[str], set[str]]:
+    """Return (touches session_state directly, names called, Thread targets spawned)."""
+    touches = False
+    called: set[str] = set()
+    targets: set[str] = set()
+    for node in ast.walk(func):
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr == "session_state"
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "st"
+        ):
+            touches = True
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name):
+            called.add(node.func.id)
+        elif isinstance(node.func, ast.Attribute):
+            if node.func.attr == "Thread":
+                target_kw = next(
+                    (kw.value for kw in node.keywords if kw.arg == "target"), None
+                )
+                if isinstance(target_kw, ast.Name):
+                    targets.add(target_kw.id)
+                elif node.args and isinstance(node.args[0], ast.Name):
+                    targets.add(node.args[0].id)
+            called.add(node.func.attr)
+    return touches, called, targets
+
+
+def _gui_thread_body_offenders() -> set[str]:
+    """``file::function`` for every ``Thread(target=...)`` body that reaches session_state.
+
+    Reachability is transitive and resolved to a fixpoint over same-module calls,
+    because that is how the violations actually happened: ``_matrix_continuous_loop``
+    wrote session_state through ``set_tab2_feedback``, and the single-unit loops
+    wrote it through ``_single_send_v``. A scan that only inspects the thread body's
+    own attribute accesses reports all three as clean while shipping the race.
+    """
+    for path in sorted((SRC / "ao_shaping" / "gui").rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        except (OSError, SyntaxError):
+            continue
+        rel = path.relative_to(REPO).as_posix()
+
+        direct: set[str] = set()           # bodies with their own session_state access
+        graph: dict[str, set[str]] = {}    # function -> names it calls
+        thread_targets: set[str] = set()
+
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            touches, called, targets = _scan_thread_func(node)
+            if touches:
+                direct.add(node.name)
+            graph.setdefault(node.name, set()).update(called)
+            thread_targets.update(targets)
+
+        reaching = set(direct)
+        changed = True
+        while changed:
+            changed = False
+            for caller, callees in graph.items():
+                if caller in reaching:
+                    continue
+                if any(callee in reaching for callee in callees):
+                    reaching.add(caller)
+                    changed = True
+
+        for target in thread_targets & reaching:
+            yield f"{rel}::{target}"
+
+
+def test_gui_thread_bodies_never_reach_session_state() -> None:
+    """No ``Thread(target=...)`` body under ``gui/`` may touch ``st.session_state``.
+
+    AGENTS.md states the rule and the approved shape (parameter snapshot in a
+    plain dict, ``threading.Event`` for stop, ``queue.Queue`` drained by the main
+    thread on rerun), but until now nothing enforced it. ``st.session_state`` is
+    keyed off Streamlit's ``ScriptRunContext``; touching it from a hand-spawned
+    thread produces the ``missing ScriptRunContext`` path and races the rerun that
+    is reading the same value. The three loops in ``gui/dm/micro_dm_ui.py`` polled
+    ``mdm_single_running`` / ``mdm_matrix_continuous_running`` **as the loop
+    condition, every tick**, and appended to the history deques every tick -- the
+    widest possible window -- while ``disconnect_dm`` never stopped the matrix
+    thread at all, leaving it driving an already-closed device until an exception
+    tripped it.
+
+    The allowlist is two-way on purpose (same convention as
+    ``test_drivers_only_assert_internal_invariants``): the remaining two offenders
+    are real but pre-date this change and are tracked as debt in TODO.md 8.9.
+    """
+    found = set(_gui_thread_body_offenders())
+    new = sorted(found - _GUI_THREAD_SS_ALLOWLIST)
+    stale = sorted(_GUI_THREAD_SS_ALLOWLIST - found)
+    assert not new and not stale, (
+        f"{new = } -- thread bodies must receive their device handle, a parameter "
+        "snapshot, a threading.Event and a queue.Queue as arguments; only the main "
+        "thread touches st.session_state (AGENTS.md, 'Streamlit background threads'). "
+        f"{stale = } -- fixed; drop it from the allowlist."
+    )
+
+
+_LOGURU_LEVELS = {
+    "debug",
+    "info",
+    "success",
+    "warning",
+    "error",
+    "critical",
+    "exception",
+    "log",
+}
+_PERCENT_SPEC = re.compile(r"%[-+ #0]*\d*(?:\.\d+)?[sdifge]")
+_LOGURU_IMPORT = re.compile(r"^\s*from loguru import logger\b", re.M)
+_LOGGER_REEXPORT = re.compile(r"^\s*from ao_shaping[\w.]* import [^(]*\blogger\b", re.M)
+_STDLIB_LOGGER = re.compile(r"logging\.getLogger\(")
+
+
+def _uses_loguru_logger(text: str) -> bool:
+    """Whether this module's ``logger`` is loguru's -- by import, or by re-export.
+
+    ``ao_shaping.utils`` re-exports the loguru logger, so filtering on the literal
+    ``from loguru import logger`` alone leaves ~20 modules unscanned; a guard whose
+    reach is narrower than its name is the 8.10 failure mode.
+    """
+    if _STDLIB_LOGGER.search(text):
+        return False
+    return bool(_LOGURU_IMPORT.search(text) or _LOGGER_REEXPORT.search(text))
+
+
+def _dropped_arg_loguru_calls() -> list[str]:
+    """Every loguru call that passes %-style arguments (which loguru discards).
+
+    Covers ``src/``, ``tests/`` and ``scripts/`` -- the same claim the test name makes.
+
+    Scoped to modules whose ``logger`` is loguru's (see :func:`_uses_loguru_logger`):
+    under the stdlib ``logging`` module ``%``-args are the correct form, and
+    ``gui/utils/phase_overlay.py`` uses that module -- flagging it would be wrong,
+    not merely noisy.
+    """
+    offenders: list[str] = []
+    roots = (SRC, REPO / "tests", REPO / "scripts")
+    for path in sorted(p for root in roots for p in root.rglob("*.py")):
+        text = path.read_text(encoding="utf-8-sig")
+        if not _uses_loguru_logger(text):
+            continue
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:  # ruff owns syntax errors
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            if node.func.attr not in _LOGURU_LEVELS:
+                continue
+            receiver = node.func.value
+            name = (
+                receiver.id
+                if isinstance(receiver, ast.Name)
+                else getattr(receiver, "attr", "")
+            )
+            if "logger" not in str(name).lower():
+                continue
+            # logger.log(level, msg, ...) keeps the message in args[1], not args[0].
+            msg_at = 1 if node.func.attr == "log" else 0
+            if len(node.args) < msg_at + 2:
+                continue
+            msg = node.args[msg_at]
+            if not isinstance(msg, ast.Constant) or not isinstance(msg.value, str):
+                continue
+            if "{" in msg.value:  # already slot-formatted
+                continue
+            if _PERCENT_SPEC.search(msg.value):
+                offenders.append(f"{path.relative_to(REPO)}:{node.lineno}")
+    return offenders
+
+
+def test_loguru_calls_never_pass_percent_style_arguments() -> None:
+    """A loguru message using ``%s`` loses every argument it was given.
+
+    loguru interpolates with ``str.format``, so ``logger.info("x %s", v)`` prints
+    the literal ``x %s`` and drops ``v`` -- a diagnostic that reports no values at
+    all, which is the same unattributable-failure class as a swallowed exception.
+    Measured **19 pre-existing** calls in 3 loguru modules (16 in the training-data
+    collector, plus its zero-order-freeze line); the runtime proof is a captured log
+    reading exactly ``零阶定位（冻结）：(%.1f, %.1f)``. 21 were converted in total, the
+    extra 2 having been introduced by the fix that uncovered the problem -- i.e. the
+    first version of that fix reproduced the very defect it was curing. Converted with
+    precision preserved (``%.1f`` -> ``{:.1f}``). Non-vacuity: this guard reports those
+    19 sites against the pre-fix tree and 0 after (TODO.md 8.9 item 7).
+    """
+    offenders = _dropped_arg_loguru_calls()
+    assert not offenders, (
+        f"{len(offenders)} loguru call(s) pass %-style arguments that loguru silently "
+        f"discards: {offenders}. Use brace slots instead -- '{{}}' for a plain value, "
+        "'{:.1f}' to keep precision."
+    )
+
+
+def test_the_loguru_guard_follows_the_logger_not_one_spelling_of_its_import() -> None:
+    """The scan must cover re-exported loggers, and skip stdlib ``logging`` files.
+
+    ``ao_shaping.utils`` re-exports the loguru logger, so filtering on the literal
+    import line left ~20 modules unscanned -- this guard's reach first came up short of
+    its own name. ``phase_overlay.py`` is the opposite case: it uses stdlib ``logging``,
+    where ``%``-args are correct, so it must stay out of the scan rather than be
+    converted. Each side of that boundary is pinned here, because a filter that quietly
+    narrows turns a hard gate into a no-op.
+    """
+    reexport = (
+        SRC / "ao_shaping" / "optimizer" / "combined_optimizer.py"
+    ).read_text(encoding="utf-8-sig")
+    stdlib = (SRC / "ao_shaping" / "gui" / "utils" / "phase_overlay.py").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert "from loguru import logger" not in reexport, (
+        "combined_optimizer now imports loguru directly -- this test's premise moved, "
+        "so the re-export half of the filter is no longer being exercised"
+    )
+    assert _uses_loguru_logger(reexport), "a re-exported logger escaped the scan"
+    assert not _uses_loguru_logger(stdlib), (
+        "stdlib logging is being scanned -- % formatting is correct there, so this "
+        "would report working code as a defect"
+    )
+
+
+# Measured 2026-10-25 by the same AST rule used below. Each of these handlers was read
+# in context and judged legitimate (TODO.md 8.9 items 5-10); the number is a floor to
+# defend, not an endorsement.
+_BLIND_SILENT_BASELINE = 61
+
+
+def _blind_silent_handlers(root: Path) -> list[str]:
+    """Blind ``except`` / ``except Exception`` handlers whose body only ignores.
+
+    A handler that logs, re-raises, or runs recovery is **not** counted: the defect
+    being pinned is an *unattributable* failure, not broad matching on its own -- most
+    broad handlers in this tree are correct (teardown, enumeration control flow,
+    retry-then-raise) and were individually confirmed as such.
+    """
+    found: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        except (SyntaxError, UnicodeDecodeError):  # ruff owns these
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ExceptHandler):
+                continue
+            blind = node.type is None or (
+                isinstance(node.type, ast.Name)
+                and node.type.id in {"Exception", "BaseException"}
+            )
+            if not blind:
+                continue
+            if all(isinstance(stmt, (ast.Pass, ast.Continue)) for stmt in node.body):
+                found.append(f"{path.relative_to(REPO)}:{node.lineno}")
+    return found
+
+
+def test_blind_silent_exception_handlers_in_src_do_not_grow() -> None:
+    """No new blind handler may swallow a failure in the production tree.
+
+    Five sweeps read every such handler in ``src/``, ``tests/`` and ``scripts/`` in
+    context (TODO.md 8.9 items 5-10) and the verdict was consistent: the count is not
+    the target, the question is whether the swallow makes a wrong number or a lost
+    measurement unattributable. Real defects found that way include an MIICAM frame
+    callback that dropped frames with zero trace, a training-data collector that could
+    lose a record from the persisted corpus, a lost ADC sample series, a swallowed DM
+    zero-voltage safety reset, and a hardware report that silently published simulation
+    numbers as device evidence.
+
+    This ratchet keeps that verdict from decaying. It is deliberately **count-based
+    rather than an allowlist of ``path:line``**: line pins drift on every unrelated
+    insertion (this repo has already had to re-pin stale ones), so a pin list would rot
+    while a count cannot. The offender list is printed so a regression stays diffable.
+
+    Scope is ``src/`` only, matching the claim in the name: in ``tests/`` a swallow
+    risks a vacuously green assertion and in ``scripts/`` a missing report row, but both
+    also contain legitimate harness teardown, and folding them in would make the guard
+    cry wolf on ordinary test churn.
+    """
+    offenders = _blind_silent_handlers(SRC)
+    if len(offenders) > _BLIND_SILENT_BASELINE:
+        raise AssertionError(
+            f"blind silent exception handlers in src/ grew: "
+            f"{len(offenders)} > baseline {_BLIND_SILENT_BASELINE}. Judge the new one in "
+            "context first: if a failure it hides could make a number wrong or a "
+            "measurement lost, report it (log with the reason and a count) instead of "
+            f"silencing it. Current set:\n  " + "\n  ".join(sorted(offenders))
+        )
+    assert len(offenders) == _BLIND_SILENT_BASELINE, (
+        f"count fell to {len(offenders)} < baseline {_BLIND_SILENT_BASELINE} -- good "
+        "news, but lower the baseline deliberately so it stays a measured fact rather "
+        "than a number nobody re-derives."
+    )
+
+
+#: Names that belong to a device's own lifecycle. An ``assert`` about one of these is a
+#: precondition on hardware state, not an invariant about a locally computed value.
+_DEVICE_STATE_NAMES = (
+    "is_open", "is_connected", "is_ready", "_instrument_handle", "_dll", "_handle",
+    "_device_open", "_ensure_open", "_sdk", "_miicam", "_session",
+)
+
+
+def _device_state_asserts_outside_drivers() -> list[str]:
+    found: list[str] = []
+    for path in sorted(SRC.rglob("*.py")):
+        rel = path.relative_to(SRC)
+        if rel.parts[:2] == ("ao_shaping", "drivers"):  # pinned separately
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        except (SyntaxError, UnicodeDecodeError):  # ruff owns these
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assert):
+                continue
+            test = ast.unparse(node.test).lower()
+            if any(name in test for name in _DEVICE_STATE_NAMES):
+                found.append(
+                    f"{rel}:{node.lineno}: assert {ast.unparse(node.test)[:60]}"
+                )
+    return found
+
+
+def test_no_assert_on_device_state_outside_the_drivers_tree() -> None:
+    """Device preconditions must be explicit raises, never ``assert``.
+
+    Two independent reasons, both already paid for in this tree: an ``assert`` is
+    stripped whole by ``python -O``, and even unstripped it raises the wrong class --
+    callers cannot narrow on it, which is exactly the defect 92dbe716 chased through
+    ``except AssertionError`` handlers. A guard that decides whether a device may be
+    touched has to survive both.
+
+    Measured 2026-10-25, whole ``src/``: 36 asserts, of which 5 live in ``drivers/``
+    (all internal invariants, pinned by :data:`_DRIVERS_ASSERT_ALLOWLIST`) and 31
+    elsewhere -- the last 31 guard values the calling function just computed
+    (``img.ndim == 2``, ``G.ndim >= 2``, ``self.lut is not None``, shape equality) and
+    **stay** ``assert`` per 8.10. Zero of them touch device state, so the baseline here
+    is empty by measurement rather than by decree.
+
+    Deliberately narrow: it fires on device-lifecycle identifiers only. Broadening it to
+    "any assert in production" would re-litigate the 8.10 decision to keep internal
+    invariants as asserts, which cost nothing and read better than a raise.
+    """
+    offenders = _device_state_asserts_outside_drivers()
+    assert not offenders, (
+        f"{len(offenders)} assert(s) outside drivers/ guard device state, which "
+        "`python -O` deletes and which raises a type callers cannot catch. Move the "
+        "check into the driver as an explicit raise of its own error class "
+        "(CameraError / WfsError / DeviceError):\n  " + "\n  ".join(offenders)
+    )
+
+
+def _thread_boundary_capture_handlers() -> list[str]:
+    """Handlers that stash a caught exception so another thread can re-raise it.
+
+    The re-raise may be a name (``raise error[0]`` from a list) or a subscript
+    (``raise box["error"]``); matching only the name form misses the second shape,
+    and a guard that misses one of the three sites would enforce less than it claims.
+    """
+    found: list[str] = []
+    for root in (SRC, REPO / "scripts", REPO / "tests"):
+        for path in sorted(root.rglob("*.py")):
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+            except (SyntaxError, UnicodeDecodeError):  # ruff owns these
+                continue
+            for fn in ast.walk(tree):
+                if not isinstance(fn, ast.FunctionDef):
+                    continue
+                if not any(
+                    isinstance(c, ast.Call) and getattr(c.func, "attr", "") == "Thread"
+                    for c in ast.walk(fn)
+                ):
+                    continue
+                for handler in ast.walk(fn):
+                    if not isinstance(handler, ast.ExceptHandler) or not handler.name:
+                        continue
+                    containers: set[str] = set()
+                    for stmt in handler.body:
+                        for node in ast.walk(stmt):
+                            if isinstance(node, ast.Assign) and isinstance(
+                                node.value, ast.Name
+                            ) and node.value.id == handler.name:
+                                for tgt in node.targets:
+                                    if isinstance(tgt, ast.Name):
+                                        containers.add(tgt.id)
+                                    elif isinstance(tgt, ast.Subscript) and isinstance(
+                                        tgt.value, ast.Name
+                                    ):
+                                        containers.add(tgt.value.id)
+                            if (
+                                isinstance(node, ast.Call)
+                                and getattr(node.func, "attr", "") == "append"
+                                and isinstance(node.func.value, ast.Name)
+                                and any(
+                                    isinstance(a, ast.Name) and a.id == handler.name
+                                    for a in node.args
+                                )
+                            ):
+                                containers.add(node.func.value.id)
+                    if not containers:
+                        continue
+                    re_raised = any(
+                        isinstance(r, ast.Raise)
+                        and r.exc is not None
+                        and any(
+                            n.id in containers
+                            for n in ast.walk(r.exc)
+                            if isinstance(n, ast.Name)
+                        )
+                        for r in ast.walk(fn)
+                    )
+                    if re_raised:
+                        kind = (
+                            ast.unparse(handler.type) if handler.type else "bare except"
+                        )
+                        found.append(
+                            f"{path.relative_to(REPO)}:{handler.lineno}: {kind}"
+                        )
+    return found
+
+
+def test_thread_boundary_exception_capture_keeps_base_exception() -> None:
+    """A worker thread's caught exception must be re-raisable in full, not just Exception.
+
+    These handlers exist to move an exception across a thread boundary so the calling
+    thread can re-raise it (``call_with_timeout`` and its script copies). Narrowing one
+    to ``except Exception`` compiles, tests keep passing, and the behaviour change is
+    silent: the worker's ``KeyboardInterrupt``/``SystemExit`` is never stored, so the
+    caller sees a completed call instead of an interrupt -- the timeout helper returns
+    ``None`` as if the SDK call had succeeded. 8.7 records this as forbidden prose;
+    this pins it mechanically.
+
+    Measured 2026-10-25: 3 such handlers, all already ``BaseException``, so the
+    baseline is empty. The premise (that the scan finds any at all) is asserted too --
+    a scan matching nothing would pass trivially.
+    """
+    handlers = _thread_boundary_capture_handlers()
+    assert handlers, (
+        "no thread-boundary exception-capture handler found anywhere: the shape this "
+        "guard is about has changed, so it is enforcing nothing"
+    )
+    narrowed = [h for h in handlers if not h.endswith(": BaseException")]
+    assert not narrowed, (
+        f"{len(narrowed)} thread-boundary handler(s) narrowed below BaseException -- "
+        "an interrupt inside the worker would then vanish and the caller would treat "
+        f"the call as successful:\n  " + "\n  ".join(sorted(narrowed))
+    )
+
+
+def _ctypes_imports_in_utils() -> list[str]:
+    """Files under ``utils/`` binding a native SDK through ``ctypes``."""
+    found: list[str] = []
+    for path in sorted((SRC / "ao_shaping" / "utils").rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        except (SyntaxError, UnicodeDecodeError):  # ruff owns these
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                if any(a.name == "ctypes" or a.name.startswith("ctypes.") for a in node.names):
+                    found.append(f"{path.relative_to(REPO)}:{node.lineno}")
+            elif isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "ctypes":
+                found.append(f"{path.relative_to(REPO)}:{node.lineno}")
+    return found
+
+
+def test_the_utils_leaf_layer_never_binds_a_native_sdk() -> None:
+    """``utils/`` is the leaf layer: no ``ctypes``, so no vendored driver bindings.
+
+    ``utils/wavefront/vi.py`` (188 lines of ctypes VISA) was deleted in bbb3820b,
+    which left the invariant behind as prose only -- nothing stopped the same shape
+    from coming back under a new filename. Native SDK binding belongs in
+    ``drivers/``, which is where the lazy-import contract, the ``hardware`` gate and
+    the device error classes live; a ``ctypes`` import in ``utils/`` silently breaks
+    the "import utils without a device or SDK" property the offline probes rely on.
+
+    Measured 2026-10-25: 0 such imports in ``src/ao_shaping/utils/``. The baseline is
+    an empty set, not a ``file:line`` allowlist, so there is nothing to re-pin.
+    """
+    offenders = _ctypes_imports_in_utils()
+    assert not offenders, (
+        f"{len(offenders)} file(s) under utils/ import ctypes. That layer is the "
+        "import-light leaf the offline probes and tools depend on; move the binding "
+        "into drivers/ (lazy registration in drivers/_lazy.py) instead:\n  "
+        + "\n  ".join(sorted(offenders))
+    )
+
+
+_MD_SKIP = re.compile(
+    r"(^|/)(call_graph_wiki|node_modules|\.venv|__pycache__|\.git)(/|$)"
+)
+_MD_FENCE = re.compile(r"^\s*(```|~~~)")
+_MD_SEP_ROW = re.compile(r"^\|[\s:|-]*-[\s:|-]*\|?\s*$")
+_MD_ENTRY = re.compile(r'"([^"]+\.md)":\s*ReportProvenance\(')
+# The entry's OWN script field: a fixed window past the key spills into the next
+# entry, and a neighbouring script=HANDWRITTEN then reclassifies a generated report
+# as hand-written (measured: models_report/report.md, 4 offenders mis-bucketed).
+_MD_SCRIPT_FIELD = re.compile(r'script\s*=\s*(HANDWRITTEN|"[^"]+")')
+
+# Driven to zero in three stages (TODO 8.9 item 27): 24 -> 19 by correcting two wrong
+# DELIMITER rows (generate_models_report declared 7 for an 8-column header,
+# generate_pib_bench 10 for a 9-column header -- one line each cleared five rows);
+# 19 -> 7 by escaping 8 hand-written row literals in the emitting generators so a
+# regeneration matches the artifact; 7 -> 0 by wiring the miicam probe's render path.
+# Kept as a SEPARATE bucket from the hand-written one even though both are empty, so a
+# future split in a generated file names the generator as the place to fix, not the .md.
+# This number may only go DOWN -- and it cannot, since DOWN from 0 is a failure.
+_MD_GENERATED_SPLIT_BASELINE = 0
+
+
+def _unfenced_md_lines(text: str) -> list[tuple[int, str]]:
+    """Markdown lines with fenced bodies blanked, original line numbers kept.
+
+    Table-shaped text inside a fence must not be read as a table: this repo documents
+    row formats inside fenced blocks, and parsing those would report defects no
+    renderer ever shows. A line is kept only while the fence is CLOSED -- inverted
+    once already, which is why the caller bounds the block count by a measured
+    magnitude instead of ``> 0``.
+    """
+    lines: list[tuple[int, str]] = []
+    open_fence: str | None = None
+    for lineno, line in enumerate(text.splitlines(), 1):
+        mark = _MD_FENCE.match(line)
+        if mark:
+            if open_fence is None:
+                open_fence = mark.group(1)
+            elif mark.group(1) == open_fence:
+                open_fence = None
+            lines.append((lineno, ""))
+            continue
+        lines.append((lineno, line if open_fence is None else ""))
+    return lines
+
+
+def _md_pipe_count(line: str) -> int:
+    """Cell delimiters in a table row: every ``|`` that is not GFM-escaped."""
+    return len(re.findall(r"(?<!\\)\|", line))
+
+
+def _generated_report_paths() -> tuple[set[str], set[str]]:
+    """Report files split into generated vs hand-written, per provenance.REPORTS.
+
+    The repo already records which report a script owns and which are 人工撰写, so the
+    split reuses that single source instead of treating everything under report/ as
+    generated: hand-written summaries live there too, and a directory-keyed exclusion
+    would have protected their split cells forever.
+    """
+    text = (REPO / "scripts" / "_common" / "provenance.py").read_text(encoding="utf-8")
+    generated: set[str] = set()
+    handwritten: set[str] = set()
+    for match in _MD_ENTRY.finditer(text):
+        field = _MD_SCRIPT_FIELD.search(text, match.end())
+        if field is None:
+            continue  # no script field: unknown, falls into the must-be-zero bucket
+        if field.group(1) == "HANDWRITTEN":
+            handwritten.add(match.group(1))
+        else:
+            generated.add(match.group(1))
+    return generated, handwritten
+
+
+def _markdown_table_cell_splits() -> tuple[list[str], int]:
+    """Rows writing more cells than their own separator row declares."""
+    offenders: list[str] = []
+    blocks = 0
+    for path in sorted(REPO.rglob("*.md")):
+        rel = path.relative_to(REPO).as_posix()
+        if _MD_SKIP.search(rel):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:  # ruff owns encoding failures
+            continue
+        rows: list[tuple[int, str]] = []
+        table_blocks: list[list[tuple[int, str]]] = []
+        for lineno, line in _unfenced_md_lines(text):
+            if line.startswith("|"):
+                rows.append((lineno, line))
+            elif rows:
+                table_blocks.append(rows)
+                rows = []
+        if rows:
+            table_blocks.append(rows)
+        blocks += len(table_blocks)
+        for block in table_blocks:
+            if len(block) < 2 or not _MD_SEP_ROW.match(block[1][1]):
+                continue  # no separator row: prose shaped like a table
+            declared = _md_pipe_count(block[1][1])
+            # The header is checked in BOTH directions: a header/delimiter mismatch is
+            # not a cosmetic wobble, GFM refuses to see the table at all.
+            header = _md_pipe_count(block[0][1])
+            if header != declared:
+                offenders.append(
+                    f"{rel}:{block[0][0]}: header writes {header - 1} cell(s), the "
+                    f"delimiter row declares {declared - 1} -- the block is not parsed "
+                    f"as a table at all: {block[0][1][:60]}"
+                )
+            # Data rows only in ONE direction: GFM pads a short row and the trailing
+            # pipe is optional, so fewer cells is legal and must not be flagged.
+            for lineno, line in block[2:]:
+                written = _md_pipe_count(line)
+                if written > declared:
+                    offenders.append(
+                        f"{rel}:{lineno}: delimiter declares {declared - 1} cell(s), "
+                        f"this row writes {written - 1}: {line[:70]}"
+                    )
+            # Zero tolerance, both directions: an escaped OUTER pipe means the row lost
+            # its closing (or opening) delimiter. The arity rule above cannot see that --
+            # a row with a missing closing pipe simply writes FEWER cells, which GFM
+            # pads and this guard deliberately allows. It is the signature of a bad
+            # mechanical escape, not of content.
+            for lineno, line in block:
+                body = line.rstrip()
+                if body.endswith("\\|") or body.startswith("\\|"):
+                    offenders.append(
+                        f"{rel}:{lineno}: the row's outer delimiter was escaped, so the "
+                        f"row lost its closing/opening pipe: {line[:70]}"
+                    )
+    return offenders, blocks
+
+
+def test_markdown_table_rows_never_write_more_cells_than_declared() -> None:
+    """Every markdown table row keeps the column count its separator declares.
+
+    A bare ``|`` splits a cell and inline code does not protect it: ``|E|``,
+    ``[spgd|ga]``, ``--protocol(file|objective)`` and a bare ``|Δz|`` each silently
+    added a column. Two further shapes trip the same count -- two rows fused onto one
+    physical line by a missing newline, and a note parked in a fifth cell of a
+    four-column table -- so the count is a detector, not a diagnosis: each hit needs
+    its cause read before choosing escape / split-line / merge-cell.
+
+    The separator row, not the header, is the arity reference. A header can be the
+    defective line itself (the hw_defocus_zernike reports put ``max|c| (rad)`` in the
+    header: 14 cells against a 12-cell body), so a header-relative check blamed the
+    wrong rows on those three files. Rows writing fewer cells than declared are legal
+    -- GFM pads short rows and the trailing ``|`` is optional -- and are not flagged.
+    Because that padding is legal, an arity rule alone cannot see a row that LOST its
+    closing pipe, so the outer-delimiter escape is checked separately with zero
+    tolerance -- a mechanical escaping pass once did exactly that, and only the header
+    (which must match the delimiter exactly) betrayed it.
+
+    Generated reports get their own bucket rather than an exclusion, so a split cannot
+    arrive silently there either. That bucket is now empty: the emitting side was fixed
+    (``markdown_table`` escapes cells; the generators that hand-write row strings
+    escape their literals; the miicam probe escapes at render time -- TODO 8.9 item 27),
+    so the baseline is zero tolerance. Hand-written files, hand-written reports
+    included, are also held at zero.
+
+    Measured 2026-10-25: 0 offenders of either kind over 1487 table blocks,
+    and 0 rows whose outer delimiter is escaped.
+    The block bound is a measured magnitude on purpose: an inverted fence test once
+    blanked every real table and scanned 0 blocks, which a ``blocks > 0`` check would
+    have reported as a passing guard.
+    """
+    offenders, blocks = _markdown_table_cell_splits()
+    generated, handwritten = _generated_report_paths()
+    assert len(generated) >= 20 and len(handwritten) >= 5, (
+        f"provenance parse found {len(generated)} generated / {len(handwritten)} "
+        "hand-written reports -- the map layout changed, so the two buckets below are "
+        "not the buckets they claim to be"
+    )
+    assert blocks > 1000, (
+        f"only {blocks} markdown table blocks scanned -- the file set or the skip "
+        "pattern has stopped matching, so this guard is enforcing nothing"
+    )
+    split_gen = sorted(o for o in offenders if o.split(":")[0] in generated)
+    split_hand = sorted(o for o in offenders if o.split(":")[0] not in generated)
+    assert not split_hand, (
+        f"{len(split_hand)} hand-written markdown table row(s) write more cells than "
+        "their separator declares. Escape the pipe as backslash-| (inline code "
+        "included), or merge the overflow back into the last cell if a note outgrew "
+        "the schema:\n  " + "\n  ".join(split_hand)
+    )
+    assert len(split_gen) <= _MD_GENERATED_SPLIT_BASELINE, (
+        f"{len(split_gen)} generated-report rows split cells, above the baseline of "
+        f"{_MD_GENERATED_SPLIT_BASELINE}. A generated .md is re-written by its "
+        "generator, so fix the emitter rather than the artifact (TODO 8.9 item 26):\n"
+        "  " + "\n  ".join(split_gen)
+    )
+
+
+# ---------------------------------------------------------------------------
+# CLI command inventory -- five sources that must name the same command set
+# ---------------------------------------------------------------------------
+
+#: Floor for every parsed set. Measured 19 (2026-10-25); the floor is deliberately far
+#: below that so a legitimate new command cannot trip it, while a parse that silently
+#: returns an empty set still cannot compare equal to a real set.
+_MIN_CLI_COMMANDS = 8
+
+
+def _docstring_commands(docstring: str) -> set[str]:
+    """Command names from ``main.py``'s own ``Commands:`` block.
+
+    The header may wrap, so scanning does not stop at the first unindented line until
+    at least one entry has been seen -- otherwise a wrapped header yields an empty set,
+    and an empty set equals another empty set.
+    """
+    lines = docstring.splitlines()
+    try:
+        start = next(i for i, l in enumerate(lines) if l.strip().startswith("Commands"))
+    except StopIteration:
+        return set()
+    found: set[str] = set()
+    seen_entry = False
+    for line in lines[start + 1:]:
+        m = re.match(r"^ {4}([a-z][a-z-]+)\s{2,}\S", line)
+        if m:
+            found.add(m.group(1))
+            seen_entry = True
+        elif not line.strip():
+            continue
+        elif seen_entry and not line.startswith(" "):
+            break                                  # next top-level section (Examples:)
+    return found
+
+
+def _cli_command_inventory() -> dict[str, set[str]]:
+    """The five places that enumerate the top-level CLI commands."""
+    main_path = SRC / "ao_shaping" / "main.py"
+    main_src = main_path.read_text(encoding="utf-8")
+
+    registered = set(re.findall(
+        r'cli\.add_command\(\s*\w+\s*,\s*name="([a-z][a-z-]+)"\s*\)', main_src))
+
+    frozen: set[str] = set()
+    contract = REPO / "tests/ao_shaping/runners/test_cli_contract_freeze.py"
+    if contract.exists():
+        for node in ast.parse(contract.read_text(encoding="utf-8")).body:
+            if (isinstance(node, ast.Assign)
+                    and getattr(node.targets[0], "id", "") == "EXPECTED_COMMANDS"
+                    and isinstance(node.value, (ast.Tuple, ast.List))):
+                frozen = {e.value for e in node.value.elts if isinstance(e, ast.Constant)}
+
+    golden: set[str] = set()
+    golden_path = REPO / "tests/ao_shaping/runners/cli_help_golden.json"
+    if golden_path.exists():
+        import json
+        keys = json.loads(golden_path.read_text(encoding="utf-8"))
+        golden = {k for k in keys if ":" not in k}          # module-scoped keys carry ':'
+
+    docstring = ast.get_docstring(ast.parse(main_src)) or ""
+    in_docstring = _docstring_commands(docstring)
+
+    tree: set[str] = set()
+    agents = (REPO / "AGENTS.md").read_text(encoding="utf-8")
+    at = agents.find("main (click.group)")
+    if at >= 0:
+        block = agents[at:agents.index("```", at)]
+        # Only the first token of each branch row: subcommands are named later in the
+        # same line (inside parentheses), and are NOT top-level commands.
+        tree = set(re.findall(r"[├└]── ([a-z][a-z-]+)", block))
+
+    return {"main.py add_command": registered, "EXPECTED_COMMANDS": frozen,
+            "cli_help_golden.json": golden, "main.py docstring": in_docstring,
+            "AGENTS.md tree": tree}
+
+
+def test_cli_command_inventory_agrees_across_its_five_sources() -> None:
+    """Every enumeration of the CLI command set must name the same commands.
+
+    Measured 2026-10-25 (TODO 8.9 item 29): ``AGENTS.md`` claimed 20 commands while
+    ``main.py`` registers 19, and it listed ``spgd-square`` as a top-level command when
+    that is the ``square`` subcommand of the ``slm-pib`` group. ``main.py``'s own
+    docstring advertised three commands that do not exist at all (``gs``, ``gs-square``,
+    ``diff-beam``) and omitted nine -- so the text a reader copies from ``--help``
+    fails on the first attempt. None of that is visible to any test, because nothing
+    used to compare the enumerations against the registration.
+
+    The stated count inside ``AGENTS.md`` is checked too, but only when present: a stale
+    number must not survive, while dropping the number entirely stays legal.
+    """
+    sources = _cli_command_inventory()
+    empty = [name for name, names in sources.items() if len(names) < _MIN_CLI_COMMANDS]
+    assert not empty, (
+        f"{len(empty)} CLI inventory source(s) parsed to almost nothing: {empty}. "
+        "Either the command set really collapsed or a parser stopped matching the "
+        "format -- both mean this guard is no longer comparing what it claims to."
+    )
+    reference = sources["main.py add_command"]
+    disagreeing = {n: sorted(s ^ reference) for n, s in sources.items() if s != reference}
+    assert not disagreeing, (
+        "the CLI command inventory disagrees across sources; main.py registration is "
+        f"the truth ({len(reference)} commands):\n"
+        + "\n".join(f"  {name}: {sorted(diff)}" for name, diff in disagreeing.items())
+    )
+
+    agents = (REPO / "AGENTS.md").read_text(encoding="utf-8")
+    stated = re.search(r"main\.py 注册 \*\*(\d+)\*\* 个命令", agents)
+    assert not stated or int(stated.group(1)) == len(reference), (
+        f"AGENTS.md states {stated.group(1)} registered commands but main.py registers "
+        f"{len(reference)} -- update the number or drop it"
+    )
+
+
+def test_agents_md_never_pins_main_py_by_line_number() -> None:
+    """``AGENTS.md`` cites ``main.py`` by symbol, never by line number.
+
+    Not style: writing this very unit's first pass cited ``main.py:113`` / ``:120``, then
+    growing ``main.py``'s docstring shifted the registration block by seven lines and the
+    citations were stale on contact. ``main.py`` has no code above the registration that
+    a reader needs a line number for, so an anchor like
+    ``cli.add_command(combined_run, name="combined")`` is equally precise and cannot rot.
+
+    Measured 2026-10-25: 0 such citations. Count-based baseline, so the rule can be
+    relaxed deliberately by raising it -- never by leaving one behind.
+    """
+    agents = (REPO / "AGENTS.md").read_text(encoding="utf-8")
+    pinned = re.findall(r"main\.py:\d+(?:-\d+)?", agents)
+    assert not pinned, (
+        f"{len(pinned)} absolute main.py line citation(s) in AGENTS.md: {sorted(set(pinned))}. "
+        'Cite the symbol instead (e.g. `cli.add_command(..., name="...")`); line numbers '
+        "here move on every docstring edit, which is how they were already wrong once."
+    )
+
+
+#: ``CHANGELOG.md`` is the one live document whose backticked hex tokens are commit
+#: citations by convention -- batches like ``(``26d01013``, `fdc0696c``, ...)`` sitting
+#: next to the issue numbers they close. Measured 2026-10-25: 71 such citations, one of
+#: which was a one-character typo (``fdc0696c`` for ``fdc0696f``, "lift the T1/T2
+#: composite into a shared _common.shaping_score (#154)") -- and #154 was the only item in
+#: that batch no listed hash covered, which is how the typo was identifiable at all.
+_CHANGELOG = REPO / "CHANGELOG.md"
+
+#: A markdown link label names a *file*, not a commit. The CHANGELOG's only non-commit hex
+#: tokens are link labels (``[`20261014`](./report/.../model_in_loop_live_20261014.md)``),
+#: so they are excluded by CONTEXT and never by digit shape: 37 commits in this history
+#: have all-digit short hashes (``91209176`` is one, and it resolves), so "all digits means
+#: a date" would silently excuse a genuinely broken citation.
+_MD_LINK_LABEL = re.compile(r"\[[^\]]*\]\([^)]*\)")
+
+#: A floor, not an exact count -- citations grow with every entry. The point is to fail when
+#: the grammar stops matching the file: a guard that parses 0 tokens passes vacuously, which
+#: is how the markdown-table arity guard nearly shipped (it scanned 0 blocks, caught only by
+#: an unrelated magnitude bound). Measured 71; floor 50 leaves room to reformat, none to vanish.
+_MIN_CHANGELOG_CITATIONS = 50
+
+
+def test_backticked_hex_citations_in_the_changelog_resolve_to_commits() -> None:
+    """Every backticked hex token in ``CHANGELOG.md`` names a commit that exists.
+
+    A citation to an unreachable commit voids its own evidence: the batch line reads as
+    verified while one of its six hashes matches nothing. Same rot class as a stale path
+    citation (TODO 8.9 items 23/24/29/30), same remedy -- resolve mechanically instead of
+    trusting the prose.
+
+    Scoped to ``CHANGELOG.md`` deliberately. The identical grammar over every ``*.md`` in
+    the repo returned 185 candidates with 16 false positives in four shapes: dates, device
+    serial numbers (``22030102``), upstream OOPAO revisions (OOPAO is a separate editable
+    install, ``oopao = { path = "libs/OOPAO" }``, so its revs are legitimately absent from
+    this object database), and recorded-checksum prefixes in test write-ups. A repo-wide
+    rule would have to hard-code all four exemptions, and would then be measuring its own
+    regex rather than the repository.
+    """
+    import subprocess
+
+    text = _MD_LINK_LABEL.sub("", _CHANGELOG.read_text(encoding="utf-8"))
+    citations = {token for token in re.findall(r"`([0-9a-f]{7,40})`", text)}
+    assert len(citations) >= _MIN_CHANGELOG_CITATIONS, (
+        f"parsed only {len(citations)} citation(s) from CHANGELOG.md, below the floor "
+        f"{_MIN_CHANGELOG_CITATIONS}: the token grammar no longer matches the file's format, "
+        "so a pass here would mean nothing was actually checked."
+    )
+
+    broken: list[str] = []
+    for cite in sorted(citations):
+        probe = subprocess.run(
+            ["git", "cat-file", "-t", cite],
+            capture_output=True,
+            text=True,
+            cwd=str(REPO),
+            check=False,
+        )
+        kind = probe.stdout.strip()
+        if kind == "commit":
+            continue
+        # `cat-file -t` is the one call that separates the three document defects, reporting an
+        # ambiguous abbreviation on stderr rather than through an option. An earlier draft used
+        # `git rev-parse --disambiguate <token>` as two argv entries, which git rejects (it needs
+        # `--disambiguate=<token>`): rev-parse echoed the unknown option AND the token itself to
+        # stdout, so a filtered scan matched the typo against its own text and labelled a
+        # nonexistent hash "names a non-commit object" -- a wrong diagnosis shipped inside a
+        # guard whose whole purpose is diagnosis.
+        if kind:
+            why = f"names a {kind}, not a commit"
+        elif "ambiguous" in probe.stderr:
+            why = "prefix not unique"
+        else:
+            why = "no such object"
+        broken.append(f"{cite} ({why})")
+    assert not broken, (
+        f"{len(broken)} CHANGELOG.md citation(s) do not resolve to a commit: {broken}. "
+        "For a typo, `git rev-parse --disambiguate=<prefix>` usually shows the intended "
+        "commit next to the batch's issue number (the case this guard was written for: "
+        "`fdc0696c` -> `fdc0696f`, batch item #154). If history was rewritten under the "
+        "citation, re-verify against `git log` and correct the entry -- never delete the "
+        "claim just to go green."
+    )
+
+#: Generated reports whose FINAL section is emitted by nobody: the heading stem appears in
+#: no tracked emitter source while the owning script rewrites the whole file. Regenerating
+#: such a report deletes that section -- these are hand-pasted findings (pitfalls, follow-up
+#: ordering), i.e. exactly the content worth keeping. Measured 2026-10-25 over 85 generated
+#: reports. Pinned rather than repaired because these generators cannot be run here (环境=硬件,
+#: or data/debug which scripts/build/stage_test_data.sh excludes): moving prose into a
+#: generator nobody can execute swaps one unverifiable claim for another. Each entry is
+#: removed by moving the section into its owner and re-running that owner, not by editing
+#: this dict -- a stale entry fails the guard.
+_UNEMITTED_FINAL_SECTIONS: dict[str, str] = {
+    'report/diff_beam/diff_beam_frame_analysis/README.md': '## 9. 关联',
+    'report/shape_trials/gui_closed_loop_shaping/gui_closed_loop_shaping_20261014.md': '## 10. 相关文档',
+    'report/slm/differentiable_opt/differentiable_opt_animation_20261022.md': '## 6. 落盘数据与复现',
+    'report/slm/diffraction_efficiency/hw_blaze_20261023/report.md': '## 衍射效率算法 (如何找出 0 级与 ±1 级)',
+    'report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md': '## 与 slm-model-in-loop 的关系',
+    'report/slm/zernike_wfs_report/report.md': '## 4. 结论与注意',
+    'report/slm_pib_bench/pib_bench_report/EXPERIMENT_REPORT.md': '## 7. 复现方式',
+    'report/slm_pib_bench/pib_bench_report/report.md': '### 7.3 ROI 必须一次定位后冻结',
+    'report/slm_pib_heuristic_hw/slm_pib_heuristic_hw_report/report.md': '### 5. 原始产物',
+    'report/slm_zernike_shaping/slm_zernike_shaping_report/report.md': '## 4. SPGD',
+    'report/zernike_r2_baseline/pod_ridge/report.md': '### 若仍要继续,建议的顺序',
+}
+
+
+def _report_owners() -> dict[str, str]:
+    """``{artifact: generating script}`` for every report provenance marks generated.
+
+    ``REPORTS`` is a dict literal whose values are ``ReportProvenance(...)`` calls, so the map
+    is read off the call keywords: ``literal_eval`` over the whole literal raises on a Call node,
+    and the assignment is annotated (``ast.AnnAssign``) rather than a plain ``ast.Assign``.
+    ``script=HANDWRITTEN`` is a bare name, not a string, so both shapes count as 'generated'.
+    """
+    text = (REPO / "scripts" / "_common" / "provenance.py").read_text(encoding="utf-8")
+    literal = None
+    for node in ast.walk(ast.parse(text)):
+        target = node.target if isinstance(node, ast.AnnAssign) else (
+            node.targets[0] if isinstance(node, ast.Assign) else None
+        )
+        if target is not None and getattr(target, "id", "") == "REPORTS":
+            literal = node.value
+    assert isinstance(literal, ast.Dict), (
+        "REPORTS is no longer a dict literal -- this parser and provenance.py have diverged."
+    )
+    owners: dict[str, str] = {}
+    for key, value in zip(literal.keys, literal.values):
+        if not isinstance(key, ast.Constant) or not isinstance(value, ast.Call):
+            continue
+        script = None
+        for kw in value.keywords:
+            if kw.arg == "script":
+                script = kw.value.value if isinstance(kw.value, ast.Constant) else getattr(kw.value, "id", None)
+        if isinstance(script, str) and script != "HANDWRITTEN":
+            owners[str(key.value)] = script
+    return owners
+
+
+def test_generated_reports_do_not_end_with_a_section_nobody_emits() -> None:
+    """No generated report may finish on prose that its generator cannot reproduce.
+
+    The oracle is content-level -- the heading stem must appear in some tracked emitter -- not
+    the declared owner, because provenance's ``script`` is the *reproduce entry point*: the
+    MiiCam probe report names a hardware test that shells out to the script which actually
+    writes the file (its ``运行后状态`` section is emitted there). Auditing through that field
+    reports a clean section as drift. A heading is only a proxy, which is why the check is
+    limited to the final section -- a repo-wide heading sweep flagged 346 of 1019 headings,
+    nearly all of them composed from data inside a loop and therefore never literals.
+    """
+    import subprocess
+
+    owners = _report_owners()
+    generated, _handwritten = _generated_report_paths()
+    assert set(owners) == generated, (
+        f"the two provenance readers disagree ({len(set(owners) - generated)} / "
+        f"{len(generated - set(owners))}): {sorted(set(owners) ^ generated)[:4]} -- one of them "
+        "has stopped matching provenance.py's schema."
+    )
+
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z"], capture_output=True, cwd=str(REPO), check=False
+    ).stdout.split(b"\0")
+    emitters: dict[str, str] = {}
+    self_rel = Path(__file__).relative_to(REPO).as_posix()
+    for raw in tracked:
+        rel = raw.decode("utf-8", errors="replace")
+        # Only code and templates can emit prose: another report quoting a heading, or the
+        # report/README.md index listing a title, is not evidence the section is reproducible.
+        # This module is skipped as well -- its baseline dict quotes every baselined heading,
+        # so counting it would let each recorded section look emitted by the guard recording it.
+        if (
+            rel != self_rel
+            and rel.startswith(("scripts/", "src/", "tests/"))
+            and (REPO / rel).is_file()
+        ):
+            emitters[rel] = (REPO / rel).read_text(encoding="utf-8", errors="replace")
+    assert len(emitters) > 500, (
+        f"only {len(emitters)} emitter file(s) scanned -- the corpus is empty or git ls-files "
+        "failed, so 'emitted by nobody' would be measuring nothing."
+    )
+
+    scanned = 0
+    orphans: dict[str, str] = {}
+    for path in sorted(owners):
+        artifact = REPO / path
+        if not artifact.is_file():
+            continue
+        text = artifact.read_text(encoding="utf-8", errors="replace")
+        heads = [ln.strip() for ln in text.splitlines() if re.match(r"^#{2,3} ", ln)]
+        if not heads:
+            continue
+        scanned += 1
+        last = heads[-1]
+        stem = re.sub(r"^#+\s*", "", last)
+        if not any(stem in src for src in emitters.values()):
+            orphans[path] = last
+    assert scanned >= 60, (
+        f"only {scanned} generated report(s) scanned; provenance lists "
+        f"{len(owners)} -- the sweep stopped covering the corpus."
+    )
+
+    fresh = {p: h for p, h in orphans.items() if p not in _UNEMITTED_FINAL_SECTIONS}
+    assert not fresh, (
+        f"{len(fresh)} generated report(s) end on a section no emitter can reproduce: {fresh}. "
+        "Write the section in the generating script and re-run it; pasting it into the "
+        "artifact loses it the next time anyone regenerates that report."
+    )
+    stale = {p: h for p, h in _UNEMITTED_FINAL_SECTIONS.items() if orphans.get(p) != h}
+    assert not stale, (
+        f"{len(stale)} baselined section(s) are no longer in that state: {stale}. Either the "
+        "section was moved into its generator (good -- drop the entry) or the artifact was "
+        "rewritten behind the baseline; check which before touching the dict."
+    )
+
+
+#: A link target that resolves against the *git index*, not the working tree. Targets are
+#: skipped when they are URLs, bare anchors, or contain a template marker; a trailing
+#: ``:NNN`` is stripped because ``[x](file.py:120)`` is a citation style used in these docs.
+_LINK_TARGET = re.compile(r"!?\[((?:[^\[\]]|\n)*?)\]\(([^)\s]+)[^)]*\)")
+_LINK_SKIP = re.compile(r"^(?:https?://|mailto:|#|data:|//)")
+_LINK_LINE_CITE = re.compile(r":\d+(?:-\d+)?$")
+#: Floor on the number of link targets actually resolved. A guard that parses nothing passes
+#: vacuously, which is how the table-arity guard nearly shipped (it had scanned 0 blocks).
+_MIN_LIVE_DOC_LINKS = 200
+
+
+def _live_docs_link_targets() -> tuple[list[str], int]:
+    """``(offenders, checked)`` for relative links in live docs, resolved against the index.
+
+    Resolution uses the tracked file list rather than ``Path.exists()`` on purpose: ``logs/``
+    and ``data/`` are gitignored, so a link into them is real on the author's machine and dead
+    on every fresh clone -- which is the failure this found (16 links, several pointing at
+    ``../logs/mamba_curriculum_*/report.md`` while the label already named the committed
+    report). Historical docs are excluded by the repo's own marker list: dated records cite
+    machine-local run artefacts by design.
+    """
+    import subprocess
+
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"],
+        capture_output=True,
+        cwd=str(REPO),
+        check=False,
+    ).stdout
+    tracked = {t.decode("utf-8", errors="replace") for t in listing.split(b"\0") if t}
+    tracked_dirs = {
+        "/".join(t.split("/")[:k]) for t in tracked for k in range(1, len(t.split("/")))
+    }
+
+    offenders: list[str] = []
+    checked = 0
+    for rel in sorted(tracked):
+        if not rel.endswith(".md"):
+            continue
+        path = REPO / rel
+        if not path.is_file() or _is_historical(path):
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for lineno, line in _unfenced_md_lines(text):
+            # Blank inline code before matching: a link written as literal text inside a
+            # code span is documentation, not a link. Fences are already handled by
+            # _unfenced_md_lines -- doing this the other way round lets a span swallow the
+            # fence marker and unmask the block it was meant to hide.
+            blanked = re.sub(r"`+[^`\n]*`+", lambda m: " " * len(m.group(0)), line)
+            for match in _LINK_TARGET.finditer(blanked):
+                target = match.group(2).strip()
+                if _LINK_SKIP.match(target) or "<" in target:
+                    continue
+                target = target.split("#")[0].split("?")[0]
+                target = _LINK_LINE_CITE.sub("", target)
+                if not target:
+                    continue
+                checked += 1
+                base = REPO / target.lstrip("/") if target.startswith("/") else path.parent / target
+                try:
+                    rp = base.resolve().relative_to(REPO).as_posix()
+                except ValueError:
+                    offenders.append(f"{rel}:{lineno} escapes the repo: {target!r}")
+                    continue
+                if rp in tracked or rp in tracked_dirs:
+                    continue
+                if any(t == rp or t.startswith(rp.rstrip("/") + "/") for t in tracked):
+                    continue
+                here = (REPO / rp).exists()
+                offenders.append(
+                    f"{rel}:{lineno} not in the git index: {target!r}"
+                    + (" (exists locally but is untracked -- dead on a fresh clone)" if here else "")
+                )
+    return offenders, checked
+
+
+def test_relative_links_in_live_docs_point_at_tracked_paths() -> None:
+    """Every relative link in a live doc resolves to a path the next clone will actually have.
+
+    Measured 2026-10-25: 0 offenders over 289 resolved targets, after 16 fixes. The two shapes
+    found were a wrong ``../`` depth in ``docs/GUI/**`` (docs sit 4 levels down; the links
+    climbed 5 or 6, leaving the repository entirely) and links into gitignored ``logs/`` which
+    resolve on one machine and nowhere else.
+    """
+    offenders, checked = _live_docs_link_targets()
+    assert checked >= _MIN_LIVE_DOC_LINKS, (
+        f"resolved only {checked} link target(s) across live docs, below the floor "
+        f"{_MIN_LIVE_DOC_LINKS} -- the grammar stopped matching the docs' format, so a pass "
+        "here would mean nothing was checked."
+    )
+    assert not offenders, (
+        f"{len(offenders)} link(s) in live docs point at something a fresh clone will not "
+        "have:\n  " + "\n  ".join(offenders[:25])
+        + "\nFix the path (relative to the *document*, and check the depth), or link the "
+        "committed artefact the label already names -- never leave a link into gitignored "
+        "logs/ or data/."
+    )
+
+
+#: An invocation claim -- ``python <repo-relative>.py`` inside a module docstring or a live
+#: doc -- is an instruction, so a target missing from the git index is a command that cannot
+#: run. The trailing ``(?![\w.])`` is load-bearing: without it ``src/calculators/gerchberg_
+#: saxton.pyx`` (a tracked Cython module) matches as ``…/gerchberg_saxton.py`` and the guard
+#: reports a real file as a defect. Historical docs are skipped by the repo's own marker list:
+#: a dated record quoting a command that ran at the time is a record, not an instruction.
+_INVOCATION = re.compile(
+    r"(?:^|[\s(>])(?:uv run )?python3?[ \t]+((?:src|scripts|tests|libs)/[\w./-]+\.py)(?![\w.])"
+)
+#: Floor on resolved claims. Measured 533; guards that parse nothing pass vacuously (TODO 8.9
+#: items 32 and 34), so a grammar break has to be loud.
+_MIN_INVOCATION_CLAIMS = 400
+
+
+def test_python_invocation_paths_in_docs_and_docstrings_are_tracked() -> None:
+    """Every ``python <path>.py`` instruction names a file the next clone will have.
+
+    Item 30 pinned ``python -m <module>`` claims; file-path invocations were the sibling hole,
+    and the hole was self-perpetuating -- ``scripts/ml/train_ml.ps1`` ran
+    ``python src/ao_shaping/ml/train.py`` while ``src/ml/train.py``'s own docstring taught the
+    same dead path in five usage lines, and ``scripts/README.md`` quoted the launcher. The
+    package is ``src/ml/`` (console script ``ao-train = ml.train:cli``), so all six now use
+    ``python -m ml.train``, whose CWD-independent form was verified in the container: the fixed
+    invocation prints its usage (exit 0) and the old file form fails with ``can't open file``
+    (exit 2).
+    """
+    import subprocess
+
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"], capture_output=True, cwd=str(REPO), check=False
+    ).stdout
+    tracked = {t.decode("utf-8", errors="replace") for t in listing.split(b"\0") if t}
+
+    offenders: list[str] = []
+    checked = 0
+    for rel in sorted(tracked):
+        path = REPO / rel
+        if not path.is_file():
+            continue
+        if rel.endswith(".py"):
+            text = path.read_text(encoding="utf-8-sig", errors="replace")
+            try:
+                tree = ast.parse(text)
+            except SyntaxError:
+                continue
+            doc = ast.get_docstring(tree)
+            if doc is None:
+                continue
+            lines = doc.splitlines()
+            # Line numbers are relative to the docstring, not the file: the claim's location,
+            # not a file offset. Stating that beats printing a number that jumps on any edit.
+            where = f"{rel} (docstring line)"
+        elif rel.endswith(".md") and not _is_historical(path):
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            where = rel
+        else:
+            continue
+        for lineno, line in enumerate(lines, 1):
+            for match in _INVOCATION.finditer(line):
+                checked += 1
+                if match.group(1) not in tracked:
+                    offenders.append(f"{where}:{lineno} -> {match.group(1)!r}")
+
+    assert checked >= _MIN_INVOCATION_CLAIMS, (
+        f"resolved only {checked} invocation claim(s), below the floor "
+        f"{_MIN_INVOCATION_CLAIMS} -- the grammar stopped matching the repo's usage style, "
+        "so a pass here would mean nothing was checked."
+    )
+    assert not offenders, (
+        f"{len(offenders)} invocation claim(s) name a file that is not in the git index:\n  "
+        + "\n  ".join(offenders[:20])
+        + "\nPoint them at the real module (prefer the CWD-independent `python -m <pkg.mod>` "
+        "form -- `PYTHONPATH=src` plus a relative file path breaks as soon as the caller "
+        "changes directory)."
+    )
+
+
+#: Reports whose generator carries no runtime data dependency -- the body is a
+#: literal template, and it imports only the standard library. For those, the
+#: registered reproduce command must produce byte-identical content, because
+#: nothing about the machine or the corpus can legitimately change the output.
+#: Every other generated report reads ``data/`` or ``logs/`` (gitignored) and
+#: cannot be re-run here, so this list is deliberately short and explicit
+#: (TODO 8.9 item 38).
+_FROZEN_REPRODUCIBLE_REPORTS: dict[str, str] = {
+    "report/fouriergsnet_pipeline/fouriergsnet_pipeline_report/report.md":
+        "scripts/slm/generate_fouriergsnet_pipeline_report.py",
+}
+
+#: ``sync_report_provenance.py`` injects this block into the artifact; the
+#: generator itself never emits it, so the comparison strips it from the
+#: committed side.
+_PROVENANCE_BLOCK = re.compile(
+    r"<!-- provenance:start -->.*?<!-- provenance:end -->\n\n", re.S
+)
+
+
+def test_frozen_reports_reproduce_their_committed_artifact(tmp_path: Path) -> None:
+    """Re-run an offline generator and require the committed artifact byte-for-byte.
+
+    A ``script=`` registration is a claim that the named generator produces the
+    artifact. When the generator's template has drifted from the committed file,
+    that claim is false in both directions: the registered reproduce command no
+    longer yields the artifact, and the artifact holds conclusions the generator
+    cannot emit. The fouriergsnet pipeline report was exactly that -- its
+    committed copy carries a 2026-10-01 review that *retracts* the generator's
+    central finding (the ``phi.detach()`` bug was fixed at the source, and eight
+    line numbers had drifted), so re-running the registered command would have
+    overwritten a corrected record with a stale one.
+    """
+    import difflib
+
+    for art_rel, script_rel in sorted(_FROZEN_REPRODUCIBLE_REPORTS.items()):
+        art_path = REPO / art_rel
+        assert art_path.is_file(), f"registered artifact {art_rel} is missing"
+        artifact = art_path.read_text(encoding="utf-8")
+        committed_body = _PROVENANCE_BLOCK.sub("", artifact, count=1)
+        assert len(committed_body) > 1000, (
+            f"{art_rel}: stripped body is only {len(committed_body)} chars -- the "
+            "block regex matched more than the provenance header, so this comparison "
+            "would be vacuous."
+        )
+
+        # ``-o`` takes a directory; an absolute path escapes ``_REPO_ROOT`` (pathlib
+        # replaces on an absolute operand), so the repo is never written to.
+        out_dir = tmp_path / art_rel.replace("/", "_")
+        subprocess.run(
+            [sys.executable, str(REPO / script_rel), "-o", str(out_dir)],
+            check=True, cwd=str(REPO), capture_output=True,
+        )
+        emitted = (out_dir / "report.md").read_text(encoding="utf-8")
+
+        diff = list(difflib.unified_diff(
+            emitted.splitlines(), committed_body.splitlines(),
+            fromfile=f"{script_rel} (generated)", tofile=art_rel, lineterm="",
+        ))
+        assert emitted == committed_body, (
+            f"{script_rel} does not reproduce {art_rel}: "
+            f"{sum(1 for d in diff if d.startswith('+') and not d.startswith('+++'))} "
+            f"line(s) only in the artifact, "
+            f"{sum(1 for d in diff if d.startswith('-') and not d.startswith('---'))} "
+            f"only in the generator.\n" + "\n".join(diff[:40])
+            + "\nThe generator owns the registration, so its template must match the "
+            "committed record; fold any dated review note into the template rather "
+            "than editing the artifact alone."
+        )
+
+
+#: ``.env`` and ``.env.example`` reach Python through the editor's terminal
+#: environment: there is no dotenv in the tree and no CI step loads ``.env``, so a
+#: declared key that no tracked code reads is a knob the guide advertises and
+#: nothing honours. ``CENTER=577,655`` was exactly that -- declared in both files and
+#: mirrored twice in ``AGENTS.md``, yet the literal ``"CENTER"`` appears in no tracked
+#: file and never has (introduced in ``546bb610``, and ``git log -S'"CENTER"' -- '*.py'``
+#: is empty), while the centre actually comes from the runner option ``-c/--center``.
+_ENV_DECL = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=")
+#: Read by the interpreter or the OS rather than by repo code, so a literal search
+#: cannot judge them. Only variables whose consumer is a tool belong here.
+_ENV_TOOL_CONSUMED = frozenset({"PYTHONPATH", "PATH"})
+#: Code extensions only. Report artifacts echo variable names in ``plan_*.json``, so a
+#: corpus that accepted ``.json`` would let a phantom key validate itself from an output.
+_ENV_CODE_GLOBS = ("*.py", "*.pyx", "*.sh", "*.ps1", "*.yml", "*.yaml", "*.toml", "*.cfg", "*.ini")
+#: Floors: with only a handful of declared keys, a parse that found none would pass
+#: vacuously (TODO 8.9 items 32, 34, 38).
+_MIN_ENV_KEYS_DECLARED = 4
+_MIN_ENV_FILES_SCANNED = 1000
+
+
+def test_declared_dotenv_keys_are_read_by_tracked_code() -> None:
+    """Every key declared in ``.env``/``.env.example`` must be read by tracked code.
+
+    These two files are the repo's configuration contract -- ``AGENTS.md`` mirrors them,
+    and a reader who sets a key expects behaviour. A key nothing reads is worse than an
+    absent one: it looks authoritative, and the guide repeats it. The scan searches the
+    quoted literal, so an indirection that builds the name at runtime would not count as
+    a consumer; that is deliberate, because such a key is not discoverable either.
+    """
+    declared: dict[str, str] = {}
+    for name in (".env", ".env.example"):
+        path = REPO / name
+        if not path.is_file():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.lstrip().startswith("#"):
+                continue
+            match = _ENV_DECL.match(line)
+            if match:
+                declared.setdefault(match.group(1), name)
+    assert len(declared) >= _MIN_ENV_KEYS_DECLARED, (
+        f"parsed {len(declared)} declared key(s), below the floor "
+        f"{_MIN_ENV_KEYS_DECLARED} -- the parser stopped matching these files, so a "
+        "pass would mean nothing was checked."
+    )
+
+    listing = subprocess.run(
+        ["git", "ls-files", *("*.py", "*.pyx", "*.sh", "*.ps1", "*.yml", "*.yaml",
+                             "*.toml", "*.cfg", "*.ini")],
+        capture_output=True, cwd=str(REPO), check=False,
+    ).stdout.decode("utf-8", errors="replace").splitlines()
+    assert len(listing) >= _MIN_ENV_FILES_SCANNED, (
+        f"corpus is only {len(listing)} file(s), below the floor "
+        f"{_MIN_ENV_FILES_SCANNED} -- the search would be near-vacuous."
+    )
+
+    # Self-exclusion is load-bearing: this file quotes the keys it hunts, so an
+    # unfiltered search is satisfied by the hunt itself (the first version passed on a
+    # HEAD that still declared ``CENTER``, its only hit being this module).
+    self_rel = str(Path(__file__).resolve().relative_to(REPO.resolve()))
+
+    unread: list[str] = []
+    for key, where in sorted(declared.items()):
+        if key in _ENV_TOOL_CONSUMED:
+            continue
+        found = subprocess.run(
+            ["git", "grep", "-l", "-E", f'"{key}"|\'{key}\'', "--", *_ENV_CODE_GLOBS],
+            capture_output=True, cwd=str(REPO), check=False,
+        ).stdout.decode("utf-8", errors="replace").strip()
+        consumers = [h for h in found.splitlines() if h and h != self_rel]
+        if not consumers:
+            unread.append(f"{key} (declared in {where})")
+
+    assert not unread, (
+        f"{len(unread)} declared env key(s) are read by no tracked code:\n  "
+        + "\n  ".join(unread)
+        + "\nEither read the key in code, or drop the declaration from both `.env` and "
+        "`.env.example` (and any `AGENTS.md` mirror). A commented line does not count "
+        "as declared."
+    )
+
+
+#: A reproduce command inside a fenced shell block is an instruction a reader pastes,
+#: so its script path must exist. Prose and dated logs stay out on purpose: an issue log
+#: naming a path that was correct when written, or a template name like ``<brand>.py``,
+#: is not an executable claim -- that is the wall TODO 8.9 items 32 and 36 hit. Unlike
+#: ``_INVOCATION`` this rule ignores how the interpreter is spelled, which matters:
+#: ``.venv\Scripts\python.exe scripts\…`` hid from that guard no matter how its path
+#: grammar was widened, because nothing there matches a bare ``python`` + space.
+_SHELL_FENCE_OPEN = re.compile(
+    r"^```[ \t]*(?:bash|sh|shell|powershell|ps1|cmd|batch|console)\b", re.IGNORECASE
+)
+#: The left boundary is load-bearing and must NOT exclude a backslash: the Windows fences
+#: spell ``.\scripts\build.ps1``, and a lookbehind that rejects ``\`` silently drops every
+#: one of those claims (measured: 292 claims / 2 offenders instead of 297 / 5).
+_CMD_SCRIPT = re.compile(
+    r"(?<![\w-])((?:scripts|src)[/\\][\w./\\*-]+\.(?:py|sh|ps1|bat))(?![\w.])"
+)
+#: Floor on checked claims. Measured 297; a fence parser that stopped matching would
+#: otherwise pass by verifying nothing (TODO 8.9 items 32, 34, 38).
+_MIN_CMD_SCRIPT_CLAIMS = 200
+
+
+def test_reproduce_commands_in_live_docs_name_tracked_scripts() -> None:
+    """Every script path in a live doc's shell fence must be in the git index.
+
+    ``569ea514`` regrouped 139 flat scripts into subpackages. Section headings survived
+    because they name a bare basename, but the fenced reproduce commands kept the old
+    flat paths, so five of them now describe invocations that cannot run -- including the
+    ``train_ml.ps1`` launcher whose dead body item 37 repaired while its documented call
+    path stayed stale. When a claim misses, the report shows where that basename *is*
+    tracked, because repointing the path is the whole repair.
+    """
+    import subprocess
+
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"], capture_output=True, cwd=str(REPO), check=False
+    ).stdout
+    tracked = {t.decode("utf-8", errors="replace") for t in listing.split(b"\0") if t}
+
+    offenders: list[str] = []
+    checked = 0
+    for rel in sorted(tracked):
+        if not rel.endswith(".md") or _is_historical(REPO / rel):
+            continue
+        in_fence, shell_fence = False, False
+        for lineno, line in enumerate(
+            (REPO / rel).read_text(encoding="utf-8", errors="replace").splitlines(), 1
+        ):
+            stripped = line.strip()
+            if stripped.startswith("```"):
+                if not in_fence:
+                    in_fence = True
+                    shell_fence = bool(_SHELL_FENCE_OPEN.match(stripped))
+                else:
+                    in_fence = shell_fence = False
+                continue
+            if not shell_fence:
+                continue
+            for token in _CMD_SCRIPT.findall(line):
+                checked += 1
+                if any(ch in token for ch in "*<>"):
+                    continue
+                norm = token.replace("\\", "/")
+                if norm in tracked:
+                    continue
+                base = norm.rsplit("/", 1)[-1]
+                alt = sorted(t for t in tracked if t.rsplit("/", 1)[-1] == base)[:3]
+                offenders.append(
+                    f"{rel}:{lineno} -> {token!r}"
+                    + (f" [same basename tracked at: {', '.join(alt)}]" if alt
+                       else " [no tracked file has this basename]")
+                )
+
+    assert checked >= _MIN_CMD_SCRIPT_CLAIMS, (
+        f"checked only {checked} fenced command path(s), below the floor "
+        f"{_MIN_CMD_SCRIPT_CLAIMS} -- the fence or path grammar stopped matching, so a "
+        "pass here would mean nothing was verified."
+    )
+    assert not offenders, (
+        f"{len(offenders)} fenced reproduce command(s) name a script that is not tracked:\n  "
+        + "\n  ".join(offenders[:20])
+        + "\nA moved script leaves its old path behind in the usage fence; repoint the "
+        "command at the tracked location, keeping the fence's own separator style."
+    )
+
+
+#: A boolean short-circuit containing a *dominant* constant throws away its own check:
+#: ``x or True`` is always true and ``x and False`` is always false, however the rest
+#: evaluates. Three were live -- a hardware tool gate, an assertion in a test, and a
+#: generator metric whose key was never even rendered. Only dominant constants are
+#: flagged: ``x or False`` and ``x and True`` are redundant but do not silence anything.
+#: Scope is the repo's own trees; the vendored SDK code under ``libs/`` is not ours to
+#: edit, which is the same boundary ``ruff.toml`` draws.
+_TAUTOLOGY_SCOPE = ("src/", "scripts/", "tests/")
+#: Floor on parsed files. Measured 1223; a scan that silently parsed nothing would
+#: otherwise pass by verifying nothing (TODO 8.9 items 32, 34, 38, 40).
+_MIN_TAUTOLOGY_FILES = 1000
+
+
+def test_no_boolean_short_circuit_discards_its_own_check() -> None:
+    """No tracked source file may neutralize a condition with ``or True`` / ``and False``.
+
+    A guard written that way cannot fail, so it reports confidence the code never
+    established. The test file case was worse than dead code: an assertion carrying
+    ``or True`` looks like coverage while asserting nothing, and the correct assertion
+    already sat on the next line.
+    """
+    import subprocess
+
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"], capture_output=True, cwd=str(REPO), check=False
+    ).stdout
+    files = [
+        t.decode("utf-8", errors="replace")
+        for t in listing.split(b"\0")
+        if t and t.decode("utf-8", errors="replace").endswith(".py")
+        and t.decode("utf-8", errors="replace").startswith(_TAUTOLOGY_SCOPE)
+    ]
+
+    offenders: list[str] = []
+    unparsed: list[str] = []
+    for rel in sorted(files):
+        text = (REPO / rel).read_text(encoding="utf-8-sig", errors="replace")
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            # A file this repo's ruff gate parses must parse here too; skipping a
+            # failure quietly would shrink the corpus the assertion speaks for.
+            unparsed.append(rel)
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.BoolOp):
+                continue
+            dominant = True if isinstance(node.op, ast.Or) else False
+            if any(isinstance(v, ast.Constant) and v.value is dominant
+                   for v in node.values):
+                seg = ast.get_source_segment(text, node) or ""
+                offenders.append(f"{rel}:{node.lineno}: {' '.join(seg.split())[:100]}")
+
+    assert not unparsed, (
+        f"{len(unparsed)} file(s) failed to parse: {unparsed[:5]} -- the corpus the "
+        "count below describes is smaller than the tree."
+    )
+    assert len(files) >= _MIN_TAUTOLOGY_FILES, (
+        f"scanned {len(files)} file(s), below the floor {_MIN_TAUTOLOGY_FILES} -- the "
+        "scope filter stopped matching the repo's own trees, so a pass would mean "
+        "nothing was checked."
+    )
+    assert not offenders, (
+        f"{len(offenders)} self-neutralizing boolean condition(s):\n  "
+        + "\n  ".join(offenders[:15])
+        + "\nDelete the dead operand (and the wrapper it disables) rather than leaving "
+        "a check that can never fail."
+    )
+
+
+#: A list/dict/set literal, or a bare ``list()``/``dict()``/``set()``, in a parameter
+#: default is constructed **once at def time** and then shared by every call that omits
+#: that argument, so a future mutation leaks from one run into the next. ruff cannot see
+#: this: the rule is B006, which lives in flake8-bugbear and is not installed here, so
+#: the class needs its own check. ``default_factory`` is deliberately not flagged -- it
+#: exists precisely to avoid this bug. The scanned trees are the same repo-owned
+#: scope as the short-circuit guard above (_TAUTOLOGY_SCOPE) -- one definition, not two.
+_MUTABLE_DEFAULT_CALLS = frozenset({"list", "dict", "set"})
+#: Floor on scanned files; measured 1223. Guards that parse nothing pass vacuously
+#: (TODO 8.9 items 32, 34, 38, 40, 41).
+_MIN_MUTABLE_DEFAULT_FILES = 1000
+
+
+def test_no_mutable_default_arguments() -> None:
+    """No tracked source file may default a parameter to a mutable literal.
+
+    All four occurrences found were read-only inside their bodies, so none was
+    misbehaving yet -- the point is that a shared empty list is a trap primed for the
+    first ``append``. The optimizers in the wavefront and PIB paths were the ones
+    holding them, i.e. the layer whose whole contract is that two runs in one process
+    must not share state.
+    """
+    import subprocess
+
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"], capture_output=True, cwd=str(REPO), check=False
+    ).stdout
+    files = [
+        t.decode("utf-8", errors="replace")
+        for t in listing.split(b"\0")
+        if t and t.decode("utf-8", errors="replace").endswith(".py")
+        and t.decode("utf-8", errors="replace").startswith(_TAUTOLOGY_SCOPE)
+    ]
+
+    offenders: list[str] = []
+    unparsed: list[str] = []
+    for rel in sorted(files):
+        text = (REPO / rel).read_text(encoding="utf-8-sig", errors="replace")
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            unparsed.append(rel)
+            continue
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                continue
+            defaults = list(fn.args.defaults) + list(fn.args.kw_defaults)
+            for d in defaults:
+                if d is None:
+                    continue
+                mutable = isinstance(d, (ast.List, ast.Dict, ast.Set)) or (
+                    isinstance(d, ast.Call) and isinstance(d.func, ast.Name)
+                    and d.func.id in _MUTABLE_DEFAULT_CALLS
+                )
+                if mutable:
+                    name = getattr(fn, "name", None) or "<lambda>"
+                    offenders.append(f"{rel}:{d.lineno}: {name}() defaults to {ast.unparse(d)!r}")
+
+    assert not unparsed, (
+        f"{len(unparsed)} file(s) failed to parse: {unparsed[:5]} -- the corpus the count "
+        "below describes is smaller than the tree."
+    )
+    assert len(files) >= _MIN_MUTABLE_DEFAULT_FILES, (
+        f"scanned {len(files)} file(s), below the floor {_MIN_MUTABLE_DEFAULT_FILES} -- "
+        "the scope filter stopped matching the repo's own trees."
+    )
+    assert not offenders, (
+        f"{len(offenders)} mutable default argument(s):\n  " + "\n  ".join(offenders[:15])
+        + "\nDefaults are evaluated once at import time, so the object is shared across "
+        "calls. Use an immutable literal (tuple / frozenset), ``None`` with a body-level "
+        "fallback, or ``field(default_factory=...)`` in a dataclass."
+    )
+
+
+#: ``pytest.raises(Exception)`` accepts *any* error, so the test keeps passing when the
+#: code under test fails for an unrelated reason -- a ``TypeError`` from a refactor or an
+#: ``AttributeError`` from a rename would both satisfy it. This is not a house style worth
+#: preserving: the repo already names the exception almost everywhere (643 ``ValueError``,
+#: 55 ``RuntimeError``, 37 ``TypeError``, 12 ``click.BadParameter``), leaving two bare
+#: outliers. A tuple of specific exceptions is fine and is not flagged.
+_RAISES_BARE_TYPES = frozenset({"Exception", "BaseException"})
+#: Floor on collected ``pytest.raises`` call sites: measured 978 across 507 test files,
+#: of which these 2 are bare -- outliers, not a house style. A finder that matched
+#: nothing would otherwise pass by checking nothing (TODO 8.9 items 32, 34, 38, 40-42).
+_MIN_PYTEST_RAISES_CALLS = 400
+
+
+def test_pytest_raises_names_a_specific_exception() -> None:
+    """Every ``pytest.raises`` in the suite must name a concrete exception type.
+
+    The two bare sites were provable from the code they test: ``_reject`` returns
+    ``click.BadParameter`` and every rejection path in ``resolve_exposure`` raises it,
+    while ``ObjectiveResult`` is ``@dataclass(frozen=True)``, whose assignment raises
+    ``FrozenInstanceError``. Both replacements were therefore derived, not guessed --
+    which matters because one of the two tests needs real hardware to run.
+    """
+    import subprocess
+
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"], capture_output=True, cwd=str(REPO), check=False
+    ).stdout
+    files = [
+        t.decode("utf-8", errors="replace")
+        for t in listing.split(b"\0")
+        if t and t.decode("utf-8", errors="replace").endswith(".py")
+        and t.decode("utf-8", errors="replace").startswith("tests/")
+    ]
+
+    offenders: list[str] = []
+    unparsed: list[str] = []
+    calls = 0
+    for rel in sorted(files):
+        text = (REPO / rel).read_text(encoding="utf-8-sig", errors="replace")
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            unparsed.append(rel)
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = node.func
+            if not (isinstance(fn, ast.Attribute) and fn.attr == "raises"
+                    and isinstance(fn.value, ast.Name) and fn.value.id == "pytest"):
+                continue
+            calls += 1
+            for arg in node.args:
+                if isinstance(arg, ast.Name) and arg.id in _RAISES_BARE_TYPES:
+                    offenders.append(f"{rel}:{node.lineno}: pytest.raises({arg.id})")
+
+    assert not unparsed, (
+        f"{len(unparsed)} test file(s) failed to parse: {unparsed[:5]} -- the corpus the "
+        "count below describes is smaller than the suite."
+    )
+    assert calls >= _MIN_PYTEST_RAISES_CALLS, (
+        f"found only {calls} pytest.raises call site(s), below the floor "
+        f"{_MIN_PYTEST_RAISES_CALLS} -- the finder stopped matching the suite's own idiom, "
+        "so a pass here would mean nothing was checked."
+    )
+    assert not offenders, (
+        f"{len(offenders)} pytest.raises site(s) accept any exception:\n  "
+        + "\n  ".join(offenders[:15])
+        + "\nName the exception the code actually raises (its own docstring, ``Raises:`` "
+        "block or return annotation usually states it); a tuple of specific types is also "
+        "acceptable."
+    )
+
+
+#: The class-based optimizer convention (AGENTS.md "Class-based Optimizer Convention",
+#: ``src/ao_shaping/algorithm/README.md``) states that ``update()`` performs one step
+#: **and returns the next state/solution**. The first half is used everywhere; the
+#: second half was enforced nowhere, while 36 call sites assign its result -- a concrete
+#: ``update()`` that forgets to return hands ``None`` to every one of them. Measured
+#: corpus: 89 files, 20 ``update`` methods, 17 value-returning, 3 interface stubs,
+#: 0 violations, so this guard is preventive rather than a bug fix.
+_UPDATE_SCOPE = (SRC / "ao_shaping" / "algorithm", SRC / "ao_shaping" / "optimizer")
+_MIN_UPDATE_SCOPE_FILES = 60
+_MIN_UPDATE_METHODS = 15
+
+
+def _is_interface_stub(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """Exempt by shape: ``@abstractmethod`` / ``@overload``, or docstring + ``pass``/``...``.
+
+    Deliberately NOT "the enclosing class derives from ``ABC``": an ABC may hold a fully
+    concrete ``update()``, and excusing a method by class ancestry is how a real
+    violation hides. All three current stubs are caught by shape alone.
+    """
+    for dec in fn.decorator_list:
+        name = dec.id if isinstance(dec, ast.Name) else getattr(dec, "attr", "")
+        if name in ("abstractmethod", "overload"):
+            return True
+
+    body = list(fn.body)
+    if (
+        body
+        and isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+        and isinstance(body[0].value.value, str)
+    ):
+        body = body[1:]
+    if not body:
+        return True
+    return all(
+        isinstance(stmt, ast.Pass)
+        or (
+            isinstance(stmt, ast.Expr)
+            and isinstance(stmt.value, ast.Constant)
+            and stmt.value.value is Ellipsis
+        )
+        for stmt in body
+    )
+
+
+def _returns_a_value(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """A ``Return``/``Yield`` owned by *fn*, not by a nested function.
+
+    ``ast.walk(fn)`` descends into inner closures, where a single ``return`` would
+    falsely exempt an outer ``update()`` that itself returns nothing.
+    """
+    stack: list[ast.AST] = [fn]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, ast.Return):
+            if node.value is not None:
+                return True
+        elif isinstance(node, ast.Yield):
+            return True
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                continue
+            stack.append(child)
+    return False
+
+
+def test_concrete_update_methods_return_a_value() -> None:
+    """Every concrete ``update()`` in algorithm/ and optimizer/ returns a value.
+
+    Callers in the wavefront, PIB and shaping loops all write
+    ``update = optimizer.update(gradient)``, so an implicit ``None`` propagates without
+    failing until something downstream indexes it.
+    """
+    files = sorted({p for root in _UPDATE_SCOPE for p in root.rglob("*.py")})
+
+    offenders: list[str] = []
+    unparsed: list[str] = []
+    methods = 0
+    for path in files:
+        rel = path.relative_to(REPO).as_posix()
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"))
+        except SyntaxError:
+            unparsed.append(rel)
+            continue
+        for owner in (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)):
+            for fn in owner.body:
+                if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                if fn.name != "update":
+                    continue
+                methods += 1
+                if _is_interface_stub(fn):
+                    continue
+                if not _returns_a_value(fn):
+                    offenders.append(
+                        f"{rel}:{fn.lineno}: class {owner.name}.update() returns nothing"
+                    )
+
+    assert not unparsed, (
+        f"{len(unparsed)} file(s) failed to parse: {unparsed[:5]} -- the corpus the counts "
+        "below describe is smaller than the scope."
+    )
+    assert len(files) >= _MIN_UPDATE_SCOPE_FILES, (
+        f"scanned {len(files)} file(s) in the update() scope, below the floor "
+        f"{_MIN_UPDATE_SCOPE_FILES} -- the scope stopped matching the repo's own trees, so "
+        "a pass here would mean nothing was checked."
+    )
+    assert methods >= _MIN_UPDATE_METHODS, (
+        f"found only {methods} ``update`` method(s), below the floor "
+        f"{_MIN_UPDATE_METHODS} -- the finder stopped matching the convention's own shape."
+    )
+    assert not offenders, (
+        f"{len(offenders)} concrete ``update()`` method(s) return nothing:\n  "
+        + "\n  ".join(offenders[:15])
+        + "\n``update()`` must return the next state/solution (AGENTS.md class-based "
+        "optimizer convention); callers assign its result, so an implicit ``None`` "
+        "propagates silently. Interface stubs are exempt by shape, not by name."
+    )
+
+
+#: ``calc_n_zernike_terms`` legitimately has TWO numbers in this repo: the canonical term
+#: count (which INCLUDES piston -- its own docstring says so) and the WFS family's array
+#: length, one slot larger because the DLL fills ``coeff[1..N]`` 1-based and index 0 is
+#: never written. The extra slot is padding, not a coefficient. Both are single implementations -- ``drivers/wfs/base.py``
+#: keeps "只保留唯一一份实现" and ``drivers/wfs/AGENTS.md`` pins the ``+1`` relation
+#: "防止两套实现无声漂移". ``ThorlabWFS`` nevertheless carried a third copy that re-derived the
+#: arithmetic instead of inheriting ``BaseWFS``; that copy is deleted in the same commit that
+#: adds this guard. So the rule is structural, not a name allowlist: any definition of the
+#: entry point outside the canonical module must *call* it, which is exactly what a
+#: backward-compat shim does. Measured: 716 files in scope, 3 definitions
+#: (1 canonical + 2 delegating). ``tests/`` is out of scope by design -- a test-local
+#: re-derivation is an independent oracle, not a second production implementation.
+_TERM_COUNT_NAME = "calc_n_zernike_terms"
+_TERM_COUNT_CANON = "src/ao_shaping/utils/wavefront/zernike_calc.py"
+_MIN_TERM_COUNT_SCOPE_FILES = 600
+_MIN_TERM_COUNT_DEFS = 3
+
+
+def test_term_count_entry_point_is_not_reimplemented() -> None:
+    """Every ``calc_n_zernike_terms`` outside the canonical module delegates to it.
+
+    A copied body drifts in silence: the WFS array length and the canonical term count
+    differ by exactly one padding slot, so a duplicate that keeps or drops it silently
+    changes coefficient vector sizes -- the same class of defect that produced the
+    documented 1.88x unit bug.
+    """
+    files = sorted(
+        p.relative_to(REPO).as_posix()
+        for root in (SRC, REPO / "scripts")
+        for p in root.rglob("*.py")
+        if "__pycache__" not in p.parts
+    )
+
+    unparsed: list[str] = []
+    defs: list[tuple[str, int, bool]] = []
+    for rel in files:
+        try:
+            tree = ast.parse((REPO / rel).read_text(encoding="utf-8-sig", errors="replace"))
+        except SyntaxError:
+            unparsed.append(rel)
+            continue
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if fn.name != _TERM_COUNT_NAME:
+                continue
+            delegates = any(
+                isinstance(call, ast.Call)
+                and (
+                    (isinstance(call.func, ast.Name)
+                     and call.func.id.endswith(_TERM_COUNT_NAME))
+                    or (isinstance(call.func, ast.Attribute)
+                        and call.func.attr.endswith(_TERM_COUNT_NAME))
+                )
+                for call in ast.walk(fn)
+            )
+            defs.append((rel, fn.lineno, delegates))
+
+    offenders = [
+        f"{rel}:{line}"
+        for rel, line, delegates in defs
+        if rel != _TERM_COUNT_CANON and not delegates
+    ]
+
+    assert not unparsed, (
+        f"{len(unparsed)} file(s) failed to parse: {unparsed[:5]} -- the corpus the counts "
+        "below describe is smaller than the scope."
+    )
+    assert len(files) >= _MIN_TERM_COUNT_SCOPE_FILES, (
+        f"scanned {len(files)} file(s), below the floor {_MIN_TERM_COUNT_SCOPE_FILES} -- the "
+        "scope stopped matching the repo's own trees."
+    )
+    assert len(defs) >= _MIN_TERM_COUNT_DEFS, (
+        f"found only {len(defs)} definition(s) of ``{_TERM_COUNT_NAME}``, below the floor "
+        f"{_MIN_TERM_COUNT_DEFS} -- the finder stopped matching the entry point's own shape."
+    )
+    assert any(rel == _TERM_COUNT_CANON for rel, _, _ in defs), (
+        f"no ``{_TERM_COUNT_NAME}`` definition in {_TERM_COUNT_CANON} -- the canonical entry "
+        "point moved or was renamed, so this guard is checking nothing it claims to."
+    )
+    assert not offenders, (
+        f"{len(offenders)} re-implementation(s) of ``{_TERM_COUNT_NAME}`` that do not delegate "
+        "to the canonical module:\n  " + "\n  ".join(offenders[:15])
+        + f"\nInherit from ``BaseWFS`` (whose own copy delegates) or call "
+        f"``{_TERM_COUNT_CANON}`` directly; a body that re-derives ``(n+1)(n+2)//2`` can "
+        "disagree with the canonical count by the padding slot and nothing will raise."
     )

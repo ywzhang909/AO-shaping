@@ -350,8 +350,15 @@ def optimize_pib(
                 window.close()
             try:
                 dm.send_voltages(np.zeros(dm.DM_Num))  # type: ignore[union-attr]
-            except Exception:
-                pass
+            except Exception as exc:
+                # Teardown only: raising here would mask whatever ended the run.
+                # Silent is worse -- the mirror keeps its last (possibly large)
+                # voltages and nobody at the bench can tell.
+                logger.error(
+                    "DM 归零失败 ({}): {} —— 变形镜仍停留在最后一组电压",
+                    type(exc).__name__,
+                    exc,
+                )
             if bench.owns_dm:
                 bench.dm.close()
 

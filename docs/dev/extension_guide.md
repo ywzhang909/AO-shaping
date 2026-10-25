@@ -381,8 +381,9 @@ AO_IMAGE=ao-shaping-test:cpu ./scripts/build/run_pytest_ci.sh
 ```
 
 裸 `pytest` 会被 `conftest.py` 拒绝（宿主机 384 核，无限线程池会拖死机器）。
-默认排除 `tests/ao_shaping/drivers`、`tests/ao_shaping/ml` 与一个会挂起的 GUI 测试；
-显式指定路径时仍会收集。
+默认排除 `tests/ao_shaping/ml`（65 GB hwdataset 重 I/O + torch）与一个会挂起的
+Streamlit AppTest 测试（2026-10-24 起 `tests/ao_shaping/drivers` 已**不再排除**，
+见 `AGENTS.md` 常规测试默认排除一节）；显式指定路径时仍会收集。
 
 测试要求：
 

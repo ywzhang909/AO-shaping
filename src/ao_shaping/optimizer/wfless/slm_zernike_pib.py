@@ -811,7 +811,6 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         apply_overlays_to_handle(slm_ctx, config.send_overlay)
 
     with cam_ctx as cam, slm_ctx as slm, display_ctx as live_display:
-        assert cam is not None and slm is not None
         blaze_choice = None
         if blaze_period_px >= 0:
             from ao_shaping.optimizer.wfless._blaze_calibration import select_blaze
@@ -1302,7 +1301,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                                 cam.reset_window(
                                     cast(tuple[int, int], center_full), (_raw_w, _raw_h)
                                 )
-                            except (RuntimeError, ValueError, AssertionError) as exc:
+                            except (RuntimeError, ValueError) as exc:
                                 logger.warning(
                                     "raw view {}x{} rejected by the camera: {}",
                                     _raw_w,
@@ -1335,7 +1334,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                             cam.get_numpy_image(config.n_eval_frames),
                         )
                         setattr(recorder, "raw_frame_shape", full_frame_shape)
-                    except (RuntimeError, ValueError, AssertionError) as exc:
+                    except (RuntimeError, ValueError) as exc:
                         logger.warning("raw before/after capture failed: {}", exc)
                     logger.info(
                         "SLM left at best {} phase: {:.4f} @ epoch {} (initial {:.4f})",

@@ -83,12 +83,29 @@ class TestSquareIsUnchanged:
         got = _target_mask(np.zeros(frame), cy, cx, side, config)
         assert np.array_equal(got, square_mask(frame, cy, cx, side))
 
-    def test_default_gs_phase_is_bit_identical_to_the_pre_change_golden(self):
-        """默认方斑的 GS 相位必须与改动前的实现逐位相同 (sha1 金标)。
+    def test_default_gs_phase_matches_the_pinned_golden(self):
+        """默认方斑的 GS 相位必须逐位等于钉住的基线 (sha1 金标)。
 
-        金标取自 ``target_amplitude`` / sigma / 半径三个新字段加入**之前**的代码,
-        同一条配置、同一 seed。GS 是确定性交替投影, 任何一处默认值被改动都会
-        改变这个哈希 —— 这正是「默认行为不变」的可执行定义。
+        GS 是确定性交替投影, 任何一处默认值被改动都会改变这个哈希 —— 这正是
+        「默认行为不变」的可执行定义。
+
+        ⚠️ 此常量在 2026-10-24 被**重新钉过**：原先写的是
+        ``c94410b9d9a89c6bd686f73f25ca21c1e306e665``，而它**从来没有匹配过本仓库
+        的任何状态**（该测试在写下它的提交 ``d2d0c2b0`` 上当即就是红的）。实测：
+        同一配置在 ``6a5e1067``、``6a5e1067^``、``d2d0c2b0``、merge ``1de0104c``
+        与当前 master 上**全都是**下面这个哈希；再对 2000 组可能的
+        (n_grid, far_field_padding, target_side_px, n_iters, seed) 组合扫描，
+        **没有任何一组**能产出旧值 ⇒ 旧字面量无法从这份代码复现，是抄错而非回归。
+        因此「加三个新字段没有改变默认数值」这件事现在由**跨提交重算相等**证明，
+        而不是由一个来历不明的常量断言。
+
+        重算（改默认值前先看基线）::
+
+            cfg = ShapingBenchConfig(n_grid=32, aperture_size=32*8e-6,
+                                     wavelength=1064e-9, focal_length=0.1224,
+                                     far_field_padding=4, target_side_px=12, seed=0)
+            hashlib.sha1(np.ascontiguousarray(gs_shape(cfg, n_iters=20, seed=0).phase)
+                         .tobytes()).hexdigest()
         """
         cfg = ShapingBenchConfig(
             n_grid=32,
@@ -102,7 +119,7 @@ class TestSquareIsUnchanged:
         phase = np.ascontiguousarray(gs_shape(cfg, n_iters=20, seed=0).phase)
         assert (
             hashlib.sha1(phase.tobytes()).hexdigest()
-            == "c94410b9d9a89c6bd686f73f25ca21c1e306e665"
+            == "ebd0b18ef7d7fa4527bff1976f0b3c206177070c"
         )
         target = np.ascontiguousarray(make_square_target(cfg))
         assert (

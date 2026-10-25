@@ -65,6 +65,9 @@ for _candidate in (ROOT, ROOT / "src", ROOT / "libs", ROOT / "libs" / "OOPAO"):
     if _text not in sys.path:
         sys.path.insert(0, _text)
 
+#: 仓库根进了 sys.path 才能导入 scripts._common: 直接以 python scripts/slm/... 运行时只有脚本目录在路径里。
+from scripts._common import fmt_general
+
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]
 plt.rcParams["axes.unicode_minus"] = False
 
@@ -383,10 +386,6 @@ def build_model(rounds_json: list | None) -> dict:
     }
 
 
-def _fmt(value: float | None) -> str:
-    return _NA if value is None else f"{value:.5f}"
-
-
 def _rounds_over_3sigma(rounds: list[dict]) -> list[int]:
     out = []
     for r in rounds:
@@ -429,12 +428,12 @@ def render_md(
         lines.append(
             "| {round} | {base} | {cand} | {delta} | {dsigma} | {drift} | {replay} |".format(
                 round=r["round"],
-                base=_fmt(r["baseline_cv"]),
-                cand=_fmt(r["candidate_cv"]),
-                delta=_fmt(r["delta"]),
-                dsigma=_fmt(r.get("delta_over_3sigma")),
-                drift=_fmt(r["drift"]),
-                replay=_fmt(r["replay_b2_minus_b1"]),
+                base=fmt_general(r["baseline_cv"], ".5f", missing_none=_NA),
+                cand=fmt_general(r["candidate_cv"], ".5f", missing_none=_NA),
+                delta=fmt_general(r["delta"], ".5f", missing_none=_NA),
+                dsigma=fmt_general(r.get("delta_over_3sigma"), ".5f", missing_none=_NA),
+                drift=fmt_general(r["drift"], ".5f", missing_none=_NA),
+                replay=fmt_general(r["replay_b2_minus_b1"], ".5f", missing_none=_NA),
             )
         )
     lines.append("")

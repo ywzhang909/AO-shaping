@@ -55,7 +55,7 @@ PowerShell script for building Cython extensions and creating a standalone execu
 
 **Usage:**
 ```powershell
-.\scripts\build.ps1
+.\scripts\build\build.ps1
 ```
 
 **What it does:**
@@ -63,12 +63,17 @@ PowerShell script for building Cython extensions and creating a standalone execu
 2. Builds Cython extensions using `uv run setup.py build_ext --build-lib ../ao_shaping/algorithm`
 3. Creates a standalone executable using Nuitka with specific options for the DM_cam.py script
 
+> ⚠️ **2026-10-25**：本脚本只有在仓库恰好位于 `d:\workspace\AO-shaping` 时才能运行 ——
+> 首行硬编码了那个绝对路径。而且第 3 步的 Nuitka 入口 `src\ao_shaping\wf-less\DM_cam.py`
+> 已在 `44867a71` 连同 `wf-less` 目录一起删除 ⇒ 第 3 步在任何机器上都不可执行。
+> 要恢复它得先决定打包入口应指向哪里：被测应用已被移除，这不是路径笔误。
+
 ### build_cython.bat
 Batch file for building Cython extensions.
 
 **Usage:**
 ```cmd
-.\scripts\build_cython.bat
+.\scripts\build\build_cython.bat
 ```
 
 **What it does:**
@@ -97,7 +102,7 @@ Bash counterpart of `setup_pytorch.py` for CUDA-version-matched PyTorch installs
 
 **Usage:**
 ```bash
-bash scripts/setup_pytorch.sh
+bash scripts/build/setup_pytorch.sh
 ```
 
 **What it does:**
@@ -315,12 +320,12 @@ trainer.
 
 **Usage:**
 ```powershell
-.\scripts\train_ml.ps1 [args...]
+.\scripts\ml\train_ml.ps1 [args...]
 ```
 
 **What it does:**
 - Sets `PYTHONPATH` to `src;libs` and switches to the script directory
-- Forwards all arguments to `uv run python src/ao_shaping/ml/train.py $args`
+- Forwards all arguments to `uv run python -m ml.train $args`
 
 ## Analysis and Tuning Scripts
 
@@ -2945,18 +2950,23 @@ python scripts/slm/generate_slm_zernike_shaping_report.py --debug-root data/debu
 ### generate_fouriergsnet_pipeline_report.py
 
 Generates the FourierGSNet pipeline integration-test report. **Fully offline** —
-pure markdown, no hardware, no figures.
+pure markdown, no hardware, no figures. The body **and its generation stamp** are
+re-emitted verbatim: this is a frozen record of a 2026-09-22 experiment, so the
+generator never re-dates it, and `REPORT` must stay byte-identical to the
+committed artifact (pinned by
+`test_frozen_reports_reproduce_their_committed_artifact`).
 
 **Usage:**
 ```bash
 python scripts/slm/generate_fouriergsnet_pipeline_report.py
-python scripts/slm/generate_fouriergsnet_pipeline_report.py -o report/fouriergsnet_pipeline
 ```
 
 **What it does** (writes `report/fouriergsnet_pipeline/fouriergsnet_pipeline_report/report.md`):
-- Documents the 5 integration tests in
-  `tests/ao_shaping/drivers/sim/test_sim_fouriergsnet_pipeline.py` that drive
-  the REAL standalone `fouriergsnet_optimize.py` pipeline
+- Records the 5 integration tests that drove the standalone
+  `fouriergsnet_optimize.py` pipeline — **both since deleted** (`fouriergsnet_optimize.py`
+  in `f19dced5`, `test_sim_fouriergsnet_pipeline.py` and `test_fouriergsnet_optimize.py`
+  in `baefba2d`), so the paths and line numbers below are the 2026-09-22 state, not
+  current code
   (ShapingSystem → adaptive_gs_init → closed_loop → _append_final_record)
   through `SimFourierGSNetEnv` with no hardware and no pipeline modification
 - Harness decisions: narrow beam `BeamParams(region=256, w0=1.0)` (default
@@ -3113,7 +3123,7 @@ corpus, no hardware.
 
 | Script | Purpose |
 |---|---|
-| `train_coeff.py` (module entry: `python -m ml.zernike.train_coeff`) | Train `ZernikeCoeffConvNet`/`ZernikeCoeffMLP` with `--protocol(file|objective)`, `--fold`, `--held-out-path`, `--input-terms`, `--w-ellipse`, W&B. R² selects checkpoints. |
+| `train_coeff.py` (module entry: `python -m ml.zernike.train_coeff`) | Train `ZernikeCoeffConvNet`/`ZernikeCoeffMLP` with `--protocol(file\|objective)`, `--fold`, `--held-out-path`, `--input-terms`, `--w-ellipse`, W&B. R² selects checkpoints. |
 | `sweep_coeff_models.py` | Sweep width/depth × n_max × lr × optimizer across folds. |
 | `forward_search.py` | Forward-model search: physics × U-Net residual × loss × normalization × n_max. Writes `report/loss_defects/forward_search.json`. |
 | `forward_search_extra.py` | Expanded forward search with additional loss/augmentation combinations. |
@@ -3335,7 +3345,7 @@ it, display it, and measure the result (needs hardware: Santec SLM-200 + camera)
 
 > The sweep acquisition kernel (`zernike_panel`, `capture_settled`, the Recorder
 > bookkeeping) now lives in the reusable tool
-> `src/ao_shaping/tools/slm/slm_zernike_sweep_probe.py`, and this runbook imports
+> `src/ao_shaping/tools/zernike/sweep_probe.py`, and this runbook imports
 > it. `--stage sweep` keeps only the calibration-protocol specifics (ABBA tilt
 > interleaving, phase-correlation shifts, per-point frame dumps).
 >
@@ -3719,7 +3729,7 @@ Hardware smoke test for the Thorlabs WFS driver (needs hardware: Thorlabs WFS).
 
 **Usage:**
 ```powershell
-.venv\Scripts\python.exe scripts\wfs_driver_hw_test.py
+.venv\Scripts\python.exe scripts\wfs\wfs_driver_hw_test.py
 ```
 
 **What it does:**

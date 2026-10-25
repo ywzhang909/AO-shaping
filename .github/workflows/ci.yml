@@ -17,9 +17,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install uv
         uses: astral-sh/setup-uv@v5
-      - name: Install ruff (pinned to the version used locally)
-        run: uv tool install ruff==0.11.10
-      - name: Run ruff (enforced E+F gate from ruff.toml)
+      - name: Install ruff (exact pin, shared with ruff.yml and the dev-group floor)
+        # One version gates the repo. Pinned exactly, not `>=`: a floating bound
+        # lets a new ruff release flip this hard gate red with no code change in
+        # between. Kept equal to ruff.yml and to pyproject's `ruff>=` floor so CI
+        # runs the ruff developers actually install.
+        # Pinned by tests/ao_shaping/test_conventions.py::
+        # test_all_ruff_pins_agree_and_are_exact
+        run: uv tool install ruff==0.15.12
+      - name: Run ruff (enforced gate from ruff.toml)
         run: ruff check .
 
   terminology:
@@ -35,32 +41,13 @@ jobs:
       - name: Glossary gate (exit 1 on non-canonical terms)
         run: python3 scripts/_common/term_unify_20261016.py --check
 
-  pytest:
-    name: Pytest (containerised)
-    # The suite runs inside a container, not on the runner. The numeric stack
-    # sizes every thread pool at the core count it can see, so an
-    # unconstrained run saturates the machine; the caps here are what keep it
-    # survivable. `conftest.py` refuses a host run outright, so this job
-    # cannot silently regress to one.
-    #
-    # Still `continue-on-error`: the image build pulls torch and the whole
-    # scientific stack, and the ruff job above is the hard gate. This job
-    # surfaces test regressions without blocking merges.
-    continue-on-error: true
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # `oopao` is a hard dep (pyproject [tool.uv.sources] -> path libs/OOPAO,
-          # editable). Without this the submodule dir is empty on the runner and
-          # the image build fails: "libs/OOPAO does not appear to be a Python project".
-          submodules: recursive
-      - name: Build the CPU test image
-        # The GPU image (docker/Dockerfile.test) is unusable here: a runner has
-        # no GPU and the CUDA wheels are multi-GB. The CPU variant carries the
-        # same thread caps, which is the part that matters.
-        run: docker build -f docker/Dockerfile.test.cpu -t ao-shaping-test:cpu .
-      - name: Run pytest in the container
-        # Default subset; the hardware/ml/gui-hang areas are excluded by
-        # pyproject's addopts. The container caps CPU, memory and pids.
-        run: ./scripts/build/run_pytest_ci.sh
+  # Tests moved to .github/workflows/pytest.yml (2026-10-24): a hard gate that runs
+  # the suite in measured shards, one pytest process each.
+  #
+  # The whole-suite invocation that used to live here cannot pass on a runner. The
+  # suite does not fit one pytest process: `run_pytest_ci.sh` with no target is
+  # SIGKILLed (exit 137) at 34% under a 16g ceiling, and ubuntu-latest has 16 GB
+  # total with the runner itself holding some of it. `optimizer` alone dies at both
+  # 6g and 12g while each of its 68 files passes alone under 4g, so the limit is
+  # in-process accumulation, not one large case -- hence shards, and per-file
+  # isolation where sharding still is not enough.

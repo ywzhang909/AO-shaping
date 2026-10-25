@@ -11,7 +11,7 @@
 | 类 | 单位与用途 |
 |---|---|
 | `PhaseMap`, `OPDMap` | 未包裹相位 (rad) 与光程差 (m)，用明确的波长相互转换 |
-| `AmplitudeMap`, `ComplexField`, `PSFImage` | 场振幅 `|E|`、复电场与焦面强度；强度转振幅使用平方根 |
+| `AmplitudeMap`, `ComplexField`, `PSFImage` | 场振幅 `\|E\|`、复电场与焦面强度；强度转振幅使用平方根 |
 | `WfsSlopes` | 分开的 `sx`/`sy`，单位为 `arcsec` 或 `rad`，支持 `to_units()` |
 | `DmCommands` | 电压数组、致动器数量和允许范围，支持 `clipped()` |
 | `ZernikeCoefficients` | 带显式 Noll 索引的 `rad`/`waves` 系数 |
@@ -77,7 +77,7 @@ AO-shaping/
 ├── src/
 │   ├── ao_shaping/               # 主程序包
 │   │   ├── __init__.py
-│   │   ├── main.py               # CLI入口点 (Click-based), 注册 20 个命令
+│   │   ├── main.py               # CLI入口点 (Click-based), 注册 19 个命令
 │   │   ├── config.py             # 中央配置 (DM_N_ACTUATORS, DEFAULTS, PATHS, ao_config)
 │   │   ├── runners/              # 运行器包 (硬件编排层: Click CLI, 设备生命周期)
 │   │   │   ├── __init__.py       # Lazy imports + re-exports (via __getattr__)
@@ -99,7 +99,7 @@ AO-shaping/
 │   │   │   └── slm/                       # SLM 相关 runner
 │   │   │       ├── rms_zernike_runner.py     # SLM Zernike RMS (rms-zernike)
 │   │   │       ├── zernike_matrix_runner.py  # Zernike响应矩阵 (zernike-matrix) + closed-loop
-│   │   │       ├── slm_shaping_runner.py     # SLM Zernike PIB (slm-pib) + 方形整形 (spgd-square)
+│   │   │       ├── slm_shaping_runner.py     # SLM Zernike PIB (slm-pib 命令组) + 方形整形 (square 子命令)
 │   │   │       ├── gsnet_runner.py           # SLM自由相位方形整形 (slm-gsnet)
 │   │   │       ├── gs_refine_runner.py       # GS 预矫正 + SPGD 细化 (slm-gs-refine)
 │   │   │       ├── model_in_loop_runner.py   # 正向模型闭环校正 (slm-model-in-loop)

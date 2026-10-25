@@ -26,29 +26,29 @@
 | `device_expo_matches_request` | 通过 | frame-info expotime not provided by this camera/SDK (flag lacks MIICAM_FRAMEINFO_FLAG_EXPOTIME=0x04, field reads 0); device-side exposure readback unavailable, requested exposure taken from the driver cache |
 | `frame_seq_advances` | 通过 | 17.0 us: [1, 1, 1, 1, 1, 1, 1]; 20.0 us: [1, 1, 1, 1, 1, 1, 1] |
 | `frame_timestamps_advance` | 通过 | 17.0 us: [12572, 12572, 12572, 12572, 12572, 12572, 12572]; 20.0 us: [12572, 12572, 12572, 12572, 12572, 12572, 12572] |
-| `frames_not_duplicated` | 通过 | 17.0 us: mean|diff|=1.91 counts, exact duplicates=0; 20.0 us: mean|diff|=2.07 counts, exact duplicates=0 |
+| `frames_not_duplicated` | 通过 | 17.0 us: mean\|diff\|=1.91 counts, exact duplicates=0; 20.0 us: mean\|diff\|=2.07 counts, exact duplicates=0 |
 | `switch_step_deterministic` | 通过 | 16.0 us: mean 30.37 (spread 0.4%); 17.0 us: mean 30.43 (spread 3.9%); 18.0 us: mean 40.78 (spread 0.7%); 19.0 us: mean 40.76 (spread 0.8%) |
 | `switch_no_lag` | 通过 | 17.0->18.0 us: lag 0%; 19.0->16.0 us: lag 0%; 17.0->18.0 us: lag 1%; 19.0->16.0 us: lag 1%; 17.0->18.0 us: lag 2% |
 | `sdk_auto_exposure_disabled` | 通过 | state={'enabled': False, 'mode': 0, 'target': 120} |
 | `exposure_readback_consistent` | 通过 | readback=0.0110 ms, last applied=0.0110 ms |
 | `converged[target=220_tol12_n1_twice1_conv]` | 通过 | band contains a response rung: final peak 221 in [208, 232], exp 0.0200 ms, 0 reset(s) |
 | `returned_matches_last[target=220_tol12_n1_twice1_conv]` | 通过 | returned peak 221 vs last measured 221.0 |
-| `frames_fresh[target=220_tol12_n1_twice1_conv]` | 通过 | at 0.0200 ms: peaks ['221', '221', '221'], mean|diff|=2.08 counts, duplicates=0, peak spread 0.0% |
+| `frames_fresh[target=220_tol12_n1_twice1_conv]` | 通过 | at 0.0200 ms: peaks ['221', '221', '221'], mean\|diff\|=2.08 counts, duplicates=0, peak spread 0.0% |
 | `converged[target=240_tol15_n1_twice1_conv]` | 通过 | band contains a response rung: final peak 244 in [225, 254], exp 0.0260 ms, 3 reset(s) |
 | `returned_matches_last[target=240_tol15_n1_twice1_conv]` | 通过 | returned peak 244 vs last measured 244.0 |
-| `frames_fresh[target=240_tol15_n1_twice1_conv]` | 通过 | at 0.0260 ms: peaks ['243', '243', '242'], mean|diff|=2.18 counts, duplicates=0, peak spread 0.4% |
+| `frames_fresh[target=240_tol15_n1_twice1_conv]` | 通过 | at 0.0260 ms: peaks ['243', '243', '242'], mean\|diff\|=2.18 counts, duplicates=0, peak spread 0.4% |
 | `deadzone_bounded[target=200_tol10_n1_twice1_dead]` | 通过 | band between rungs: terminated after 20 reset(s) of max 20, converged=False, final peak 221 at 0.0182 ms |
 | `returned_matches_last[target=200_tol10_n1_twice1_dead]` | 通过 | returned peak 221 vs last measured 221.0 |
-| `frames_fresh[target=200_tol10_n1_twice1_dead]` | 通过 | at 0.0182 ms: peaks ['222', '223', '222'], mean|diff|=2.08 counts, duplicates=0, peak spread 0.5% |
+| `frames_fresh[target=200_tol10_n1_twice1_dead]` | 通过 | at 0.0182 ms: peaks ['222', '223', '222'], mean\|diff\|=2.08 counts, duplicates=0, peak spread 0.5% |
 | `deadzone_bounded[target=200_tol5_n1_twice1_dead]` | 通过 | band between rungs: terminated after 20 reset(s) of max 20, converged=False, final peak 189 at 0.0169 ms |
 | `returned_matches_last[target=200_tol5_n1_twice1_dead]` | 通过 | returned peak 189 vs last measured 189.0 |
-| `frames_fresh[target=200_tol5_n1_twice1_dead]` | 通过 | at 0.0169 ms: peaks ['191', '189', '193'], mean|diff|=1.91 counts, duplicates=0, peak spread 2.1% |
+| `frames_fresh[target=200_tol5_n1_twice1_dead]` | 通过 | at 0.0169 ms: peaks ['191', '189', '193'], mean\|diff\|=1.91 counts, duplicates=0, peak spread 2.1% |
 | `boundary_exit[target=40_tol5_n1_twice1_bound]` | 通过 | target below the lowest response rung: final exp 0.0110 ms (min boundary), 1 reset(s) of max 20 iterations, returned peak 224 |
 | `returned_matches_last[target=40_tol5_n1_twice1_bound]` | 通过 | returned peak 224 vs last measured 224.0 |
-| `frames_fresh[target=40_tol5_n1_twice1_bound]` | 通过 | at 0.0110 ms: peaks ['190', '189', '191'], mean|diff|=1.91 counts, duplicates=0, peak spread 1.1% |
+| `frames_fresh[target=40_tol5_n1_twice1_bound]` | 通过 | at 0.0110 ms: peaks ['190', '189', '191'], mean\|diff\|=1.91 counts, duplicates=0, peak spread 1.1% |
 | `boundary_exit[target=120_tol10_n3_twice1_bound]` | 通过 | target below the lowest response rung: final exp 0.0110 ms (min boundary), 1 reset(s) of max 20 iterations, returned peak 222 |
 | `returned_matches_last[target=120_tol10_n3_twice1_bound]` | 通过 | returned peak 222 vs last measured 222.0 |
-| `frames_fresh[target=120_tol10_n3_twice1_bound]` | 通过 | at 0.0110 ms: peaks ['190', '190', '192'], mean|diff|=1.92 counts, duplicates=0, peak spread 1.1% |
+| `frames_fresh[target=120_tol10_n3_twice1_bound]` | 通过 | at 0.0110 ms: peaks ['190', '190', '192'], mean\|diff\|=1.92 counts, duplicates=0, peak spread 1.1% |
 
 ![四联图：响应图 / 台阶扫描 / 切换测试 / 迭代轨迹](figures/auto_exposure_probe.png)
 

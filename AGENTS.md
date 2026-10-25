@@ -101,7 +101,7 @@ AO-shaping/
 | Wavefront optimizers | `src/ao_shaping/optimizer/wf/` | RMS optimization |
 | Zernike response matrix | `src/ao_shaping/optimizer/wf/zernike_response_matrix.py` | SLM→WFS Zernike校准 |
 | PIB optimizers | `src/ao_shaping/optimizer/wfless/` | Power-in-bucket |
-| SLM Zernike PIB / 方形整形 (同一模块) | `src/ao_shaping/optimizer/wfless/slm_zernike_pib.py` + `slm_square_shaping.py` + `runners/slm/slm_shaping_runner.py` | `slm_shaping_runner` 一个 click 组装下两个家族: `slm-pib`(`spgd`/`heuristic`) → `slm_zernike_pib.py`; `spgd-square`(同 `square` 子命令) → `slm_square_shaping.py`。`--cam-type sim` 在两半都走数字孪生 (`runner_common.patch_sim_*_shaping`) |
+| SLM Zernike PIB / 方形整形 (同一模块) | `src/ao_shaping/optimizer/wfless/slm_zernike_pib.py` + `slm_square_shaping.py` + `runners/slm/slm_shaping_runner.py` | `slm_shaping_runner` 一个 click 组装下两个家族: `slm-pib`(`spgd`/`heuristic`) → `slm_zernike_pib.py`; `slm-pib square`(`square` 子命令，不是顶层命令) → `slm_square_shaping.py`。`--cam-type sim` 在两半都走数字孪生 (`runner_common.patch_sim_*_shaping`) |
 | SLM方形光斑整形 (SPGD, freeform) | `src/ao_shaping/optimizer/wfless/slm_square_shaping.py` + `runners/slm/gsnet_runner.py` | SPGD 优化 Zernike 系数 → 均匀方形远场 (CLI: `slm-gsnet`) |
 | GS 预整形 + 自由相位 SPGD 细化 (硬件) | `src/ao_shaping/optimizer/wfless/slm_gs_refine.py` + `runners/slm/gs_refine_runner.py` | 仿真 `iterative_zernike_shaping.py` 的硬件移植: GS 开环预矫正 (仅当实测优于平场才采用) + 无感知 SPGD 细化 (CLI: `slm-gs-refine`) |
 | 正向模型闭环校正 + 反复迭代 (硬件) | `src/ao_shaping/optimizer/wfless/slm_model_in_loop.py` + `runners/slm/model_in_loop_runner.py` | 仿真 `model_in_loop_shaping.simulate_iterative_shaping` 的硬件移植: 每轮用强随机探针重拟合正向模型的 Zernike 像差 (Step A), 再冻结该像差合成目标方斑相位 (Step B), 用 trust region + 逐轮验收抑制两者相互耦合振荡 (CLI: `slm-model-in-loop`) |
@@ -112,7 +112,7 @@ AO-shaping/
 | Simulation | `src/ao_shaping/drivers/sim/` | Digital twin devices |
 | **2f 数字孪生（可复用）** | `src/ao_shaping/drivers/sim/bench_twin.py` | 参数化 2f 实验系统：把物理非理想因素注入传播链 —— SLM 的 LUT 非线性+量化、面板静态相差（Zernike+粗糙度）、装调（相机离焦/光路倾斜/透镜像差）。口径=瞳面区域→CCD 远场（与 region/padding/像元标度约定一致），默认全零误差=理想系统。与既有 `slm_pib_sim.py`（面板级 FFT 仿真）、`fouriergsnet_env.py`（带真实 λ/f/像元节距的傅里叶环境）并存，互不替代 |
 | Utilities | `src/ao_shaping/utils/{io,image,wavefront,slm}/` + root `cli_params.py` | 4 子包: io/, image/, wavefront/, slm/ (spots_calc, wavefront_calc, zernike_calc, display 等) + 零导入叶子 `cli_params.py` |
-| Standalone runners (未注册) | `src/ao_shaping/runners/` | `slm_offset_runner` 计划迁移至 `tools/slm/`。⚠️ `slm_shaping_runner` **曾经**在此列 (2026-10-05 前它未注册); 现已注册为 `slm-pib` + `spgd-square`, 不再属于本行 |
+| Standalone runners (未注册) | `src/ao_shaping/runners/` | `slm_offset_runner` 计划迁移至 `tools/slm/`。⚠️ `slm_shaping_runner` **曾经**在此列 (2026-10-05 前它未注册); 现以 `slm-pib` **命令组**注册（子命令 `spgd` / `heuristic` / `square`）；⚠️ 无 `spgd-square` 顶层命令 ⇒ 写 `slm-pib square` |
 | ML training | `src/ml/` (standalone, not inside `ao_shaping/`) | U-Net+GAN, trainer, wandb_logger |
 | 硬件相位→相机图像 DataLoader | `src/ml/hwdataset/` | `data/debug` 全量转 PyTorch Dataset: 输入=SLM 相位+曝光, 输出=CCD 画面 (见 `硬件调试转 Dataset` 节) |
 | **Zernike 系数→远场强度 Dataset** | `src/ml/hwdataset/zernike_dataset.py` | 输入=136 维 Noll 序系数 (弧度), 输出=归一化远场强度; **绕过 `materialise()` 的瞳面重建**, 实测 136 → 10.5 ms/item 且输出逐位一致 |
@@ -151,7 +151,7 @@ AO-shaping/
 | `combined` | `optimizer.combined_optimizer:optimize_pib()` | wfless | AdaMOD + SPGD 混合 PIB | DM + CCD |
 | `slm-pib` (`spgd`) | `optimizer.wfless.slm_zernike_pib:optimize_slm_zernike_pib()` | wfless | Zernike 系数 SPGD 梯度 (PIB / RMS / Pearson… 目标形状) | SLM + CCD |
 | `slm-pib` (`heuristic`) | 同上 (`algorithm=ga/pso/sa/hc/rs/cem/de`) | wfless | 黑盒启发式搜索 | SLM + CCD |
-| `spgd-square` | `optimizer.wfless.slm_square_shaping:optimize_slm_square()` | wfless | 均匀方形远场 (CV + EE + AR 综合质量分) | SLM + CCD |
+| `slm-pib square` | `optimizer.wfless.slm_square_shaping:optimize_slm_square()` | wfless | 均匀方形远场 (CV + EE + AR 综合质量分) | SLM + CCD |
 | `slm-gs-refine` | `optimizer.wfless.slm_gs_refine:optimize_slm_gs_refine()` | wfless | GS 预矫正 (对比择优) + 自由相位 SPGD 细化 | SLM + CCD |
 | `slm-model-in-loop` | `optimizer.wfless.slm_model_in_loop:optimize_slm_model_in_loop()` | wfless | 探针 refit 正向模型 (Step A) + 目标光斑相位合成 (Step B), 带 trust region 与逐轮验收 | SLM + CCD |
 | （工具入口，非 main.py 命令） | `ao_shaping.tools.slm.transfer.workflow:run_session()` | tools | 少参数物理正向模型 + 当前光路重测几何 + 检查点迁移 + CCD 锚定 A–B–B–A 验收 | SLM + CCD |
@@ -220,7 +220,7 @@ CLI (main.py Click 命令)
   ├─ rms-zernike ────→ runners/rms_zernike_runner.py ──→ optimizer/wf/rms_by_zernike.py ──→ algorithm: Adam/AdaMOD
   ├─ ga-zernike ─────→ runners/zernike_search_runner.py ──→ optimizer/wf/ga_zernike.py ──→ algorithm: GA
   ├─ slm-pib ─────────→ runners/slm/slm_shaping_runner.py ──→ optimizer/wfless/slm_zernike_pib.py ──→ algorithm: Adam/AdaMOD/GA/PSO…
-  ├─ spgd-square ─────→ runners/slm/slm_shaping_runner.py (square) ──→ optimizer/wfless/slm_square_shaping.py ──→ algorithm: SPGD (同名 click 组)
+  ├─ slm-pib square ──→ runners/slm/slm_shaping_runner.py (square 子命令) ──→ optimizer/wfless/slm_square_shaping.py ──→ algorithm: SPGD (同名 click 组)
   └─ combined ────────→ runners/combined_runner.py ──→ optimizer/combined_optimizer.py ──→ algorithm: AdaMOD/SPGD
 
 runners/       硬件编排层  — Click CLI, 设备生命周期 (open/close), 结果保存
@@ -247,8 +247,8 @@ algorithm/     算法基础层  — 纯数学优化器 (update/grad), 无硬件�
 
 | 类型 | 说明 |
 |------|------|
-| 已注册 CLI 命令 | main.py 注册 20 个命令 (含 `slm-gsnet`, `combined` 等), 见 Entry Points 节 |
-| 独立 Runner (未注册) | 需直接运行 `python -m ao_shaping.runners.xxx` 或 standalone 脚本; `slm_offset_runner` 计划迁移至 `tools/slm/`。⚠️ `slm_shaping_runner` **曾经**在此列 (2026-10-05 前它未注册); 现已注册为 `slm-pib` + `spgd-square`, 不再属于本行 |
+| 已注册 CLI 命令 | main.py 注册 **19** 个命令（逐个 `cli.add_command`，见 `main.py` 的 `# Register subcommands` 段；名单由 `tests/ao_shaping/runners/test_cli_contract_freeze.py::EXPECTED_COMMANDS` 冻结），见 Entry Points 节 |
+| 独立 Runner (未注册) | 需直接运行 `python -m ao_shaping.runners.<name>` 或 standalone 脚本; `slm_offset_runner` 计划迁移至 `tools/slm/`。⚠️ `slm_shaping_runner` **曾经**在此列 (2026-10-05 前它未注册); 现以 `slm-pib` **命令组**注册（子命令 `spgd` / `heuristic` / `square`）；⚠️ 无 `slm-pib` 之外的 `spgd-square` 顶层命令 ⇒ 写 `slm-pib square` |
 
 ### 共享辅助
 
@@ -265,9 +265,9 @@ Utility functions for image processing and calculations, organized into 4 subpac
 | Subpackage | Contents | Notes |
 |------|---------|-------|
 | `utils/io/` | `file`, `timestamp`, `cli_helpers`, `device_config`, `network`, `handler` | `handler` becomes a backward-compat shim to `display/` |
-| `utils/image/` | `spots_calc`, `beam_metrics`, `targets`, `resample`, `display`, `hardware_utils` | `gs_visualization` 已迁至 `display/`（2026-10-03）；`utils/hardware_utils.py` 别名 shim 已删（2026-10-03）。**仍开放**: `display.py` 本身仍是 utils 里的渲染器，需连同 `ImageVoltagesDisplay` / `plot_funcs` / `VOLT_HEIGHT` 的 re-export 一起搬 |
-| `utils/wavefront/` | `zernike_calc`, `zernike_utils`, `wavefront_calc`, `wfs_utils`, `phase_unwrap`, `hadamard_calc`, `matrix_utils`, `zero_order_overlay`, `model_error_terms`, `calibration_terms` | `zero_order_overlay` (2026-10-15 新增): 2f 实验系统零级衍射叠加 (BLAZE/FRESNEL 模式), 用实测 `TILT_SHIFT_SCALE` 预测光斑位移, 不 import drivers/gui/algorithm; `model_error_terms` (2026-10-22 新增, 跟进 `3d8ef224`): model-in-loop 正向模型误差项 `ModelErrorTerms` / `load_error_terms` / `save_error_terms` (LUT γ / 相机离焦 / 倾斜 / 面板相位), 孪生 `bench_twin` 与 MIL 优化器共用同一份误差口径; `calibration_terms` (2026-10-22 新增, 跟进 `7e1a2716`): 自标定量 瞳面平面内仿射 τ_θ (6 标量 amp_x/amp_y/off_x/off_y/rot/grid) + 逐模式族行程缩放 γ, 依据 GRAPHYCS (Cho 等 2026) 思路, 供 `slm_model_in_loop` Step A 自标定 (CLI `--selfcal-affine` / `--selfcal-travel`); torch 走函数内延迟导入, 保持 utils 叶子层零 torch 依赖 |
-| `utils/slm/` | `pattern_helper`, `slm_lut`, `phase_display` | |
+| `utils/image/` | `spots_calc`, `beam_metrics`, `targets` (+ `target/`), `resample`, `hardware_utils`, `displacement`, `exposure_control`, `exposure_fusion`, `exposure_response`, `frame_analysis`, `hdr` | `gs_visualization` 已迁至 `display/`（2026-10-03）；`utils/hardware_utils.py` 别名 shim 已删（2026-10-03）；`display.py` 亦已迁至 `display/image_display.py`（2026-10-09, `a9236e9`）⇒ 旧路径**无 compat shim**，由 `test_utils_leaf_no_rendering_import.py` 钉住（2026-10-25 实测：`utils/image/display.py` 已不存在）|
+| `utils/wavefront/` | `zernike_calc`, `zernike_utils`, `wavefront_calc`, `wfs_utils`, `phase_unwrap`, `hadamard_calc`, `matrix_utils`, `zero_order_overlay`, `model_error_terms`, `calibration_terms`, `pattern_helper`, `beam_amplitude`, `fraunhofer` | `zero_order_overlay` (2026-10-15 新增): 2f 实验系统零级衍射叠加 (BLAZE/FRESNEL 模式), 用实测 `TILT_SHIFT_SCALE` 预测光斑位移, 不 import drivers/gui/algorithm; `model_error_terms` (2026-10-22 新增, 跟进 `3d8ef224`): model-in-loop 正向模型误差项 `ModelErrorTerms` / `load_error_terms` / `save_error_terms` (LUT γ / 相机离焦 / 倾斜 / 面板相位), 孪生 `bench_twin` 与 MIL 优化器共用同一份误差口径; `calibration_terms` (2026-10-22 新增, 跟进 `7e1a2716`): 自标定量 瞳面平面内仿射 τ_θ (6 标量 amp_x/amp_y/off_x/off_y/rot/grid) + 逐模式族行程缩放 γ, 依据 GRAPHYCS (Cho 等 2026) 思路, 供 `slm_model_in_loop` Step A 自标定 (CLI `--selfcal-affine` / `--selfcal-travel`); torch 走函数内延迟导入, 保持 utils 叶子层零 torch 依赖 |
+| `utils/slm/` | `slm_lut`, `phase_display`, `bench_constants`, `panel_geometry`, `phase_disturbance`, `phase_embed`, `phase_uniformity`, `gs_debug_optics` | `pattern_helper` 实际在 `utils/wavefront/`（2026-10-25 `ls` 实测，已移到上面那行）；本行原写 `utils/slm/pattern_helper.py` 的引用同属误标 |
 | `utils/cli/params.py` (`utils/cli/` 子包) | `option`, `with_params`, `ClickGroup` | **零 `ao_shaping` 导入**（2026-10-03 从 `runners/runner_common.py` 抽出，TODO R-36）。见下方红线 |
 
 > **注意**: legacy top-level `ao_shaping.utils.X` paths remain importable via shims.
@@ -637,7 +637,8 @@ Near_Cam_ID=1
 
 # Optical parameters
 IDEAL_SPOT_RADIUS=7
-CENTER=577,655
+# CENTER is not an env knob -- no code has ever read it. The analysis centre
+# comes from the runner option -c/--center (auto = locate the 0-order by argmax).
 
 # Camera protection exposure ceiling (ms). Optical-path dependent, set per
 # session; unset or 0 = code probes the CCD image (doubling ladder to saturation)
@@ -697,32 +698,45 @@ python src/ao_shaping/main.py zernike-matrix
 python src/ao_shaping/main.py rms-zernike
 python src/ao_shaping/main.py ga-zernike
 python src/ao_shaping/main.py slm-pib spgd          # SLM Zernike PIB (SLM + CCD)
-python src/ao_shaping/main.py spgd-square           # SLM 方形远场整形 (同上模块的 square 子命令)
-python src/ao_shaping/main.py combined
+python src/ao_shaping/main.py slm-pib square        # 方形远场整形 (slm-pib 的子命令；无 spgd-square 顶层命令)
+python src/ao_shaping/main.py combined              # legacy AdaMOD+SPGD 混合 PIB
+python src/ao_shaping/main.py hadamard-matrix       # Hadamard 响应矩阵
 ```
+
+**Console script (`pyproject.toml [project.scripts]`):** `ao-train = ml.train:cli` —— 唯一随包安装的入口，指向独立包 `src/ml/`（不在 `main.py` 的 click 组里）。
 
 **CLI Structure (main.py 注册关系):**
 ```
-main (click.group)
-├── wf             ← wf_runner.run        [Wavefront RMS via DM电压 + WFS]
-├── pib            ← axis_beam_runner.run  [Power-in-Bucket via DM电压 + CCD]
-├── pipeline       ← pipeline_runner.run   [Serial WF RMS → PIB]
-├── zernike-matrix ← zernike_matrix_runner.run [Zernike响应矩阵标定 + 闭环优化 (closed_loop_run)]
-├── rms-zernike    ← rms_zernike_runner.run    [SLM Zernike RMS]
-├── ga-zernike     ← ga_zernike_runner.run     [GA Zernike]
-├── slm-pib         ← slm_pib_run                [SLM Zernike PIB (spgd / heuristic 子命令)]
-├── spgd-square     ← slm_square_run             [SLM 方形远场均匀性整形 (slm_shaping_runner 的 square 子命令)]
-├── slm-gsnet      ← slm_gsnet_run             [SLM方形光斑 SPGD 整形 (freeform)]
-├── slm-gs-refine  ← slm_gs_refine_run         [GS 预矫正 + 自由相位 SPGD 细化]
-├── slm-model-in-loop ← slm_model_in_loop_run   [正向模型闭环校正 + 目标光斑相位合成]
-└── combined       ← combined_runner.run       [AdaMOD+SPGD 混合 PIB]
+main (click.group)                                  # 19 个命令，逐个由 cli.add_command 注册
+├── wf                ← runners.nlight_dm.wf_runner
+├── pib               ← runners.nlight_dm.axis_beam_runner
+├── pipeline          ← runners.nlight_dm.pipeline_runner
+├── zernike-matrix    ← runners.slm.zernike_matrix_runner      (attr `run`)
+├── closed-loop       ← runners.slm.zernike_matrix_runner      (attr `closed_loop_run`)
+├── rms-zernike       ← runners.slm.rms_zernike_runner
+├── ga-zernike        ← runners.zernike_search_runner          (attr `ga_zernike_run`)
+├── greedy-zernike    ← runners.zernike_search_runner          (attr `greedy_zernike_run`)
+├── dm-matrix         ← runners.matrix_runner                  (attr `dm_matrix_run`)
+├── hadamard-matrix   ← runners.matrix_runner                  (attr `hadamard_matrix_run`)
+├── alt-voltage       ← runners.micro_drive.voltage_runner     (同模块两命令，靠 attr 区分)
+├── full-voltage      ← runners.micro_drive.voltage_runner
+├── combined          ← runners.nlight_dm.combined_runner      [legacy]
+├── slm-pib           ← runners.slm.slm_shaping_runner         (click 组: spgd / heuristic / square)
+├── slm-gsnet         ← runners.slm.gsnet_runner
+├── slm-gs-refine     ← runners.slm.gs_refine_runner
+├── slm-model-in-loop ← runners.slm.model_in_loop_runner
+├── slm-lut           ← tools.slm.calibration.lut_runner       (来自 tools/，不经 _LAZY_RUNNERS)
+└── slm-diagnose      ← tools.slm.panel.diagnose               (同上)
+# 一个模块导出多个命令时必须显式给出 attr（`_IMPORT_ATTRS`），
+# 否则落到默认 attr `run` 会取回错误的命令。
 ```
 
-**Note:** `combined` 命令仍注册于 main.py (main.py:106) 且功能可用, 作为 legacy 保留。`pipeline_runner.py` 是推荐的 WF→PIB 串行方案。
+**Note:** `combined` 命令仍注册于 main.py（cli.add_command(combined_run, name="combined")）且功能可用, 作为 legacy 保留。`pipeline_runner.py` 是推荐的 WF→PIB 串行方案。
 
-> **未注册到 main.py 的独立 Runner** (需直接运行 `python -m ao_shaping.runners.xxx` 或 standalone 脚本):
-> `slm_offset_runner` (计划迁移至 `tools/slm/`), `hadamard_matrix_runner` (正在注册为 `hadamard-matrix` 命令)。
-> ⚠️ `slm_shaping_runner` 曾列于此 (2026-10-05 前未注册), 现已注册为 `slm-pib` + `spgd-square`。
+> **未注册到 main.py 的独立 Runner** (需直接运行 `python -m ao_shaping.runners.<name>` 或 standalone 脚本):
+> `slm_offset_runner` (计划迁移至 `tools/slm/`)。
+> ⚠️ `hadamard_matrix_runner` 曾在此列并标注「正在注册」—— 2026-10-25 实测**已注册**（cli.add_command(hadamard_matrix_run, name="hadamard-matrix")，已进入 `EXPECTED_COMMANDS` 与 help golden），故移出本行。
+> ⚠️ `slm_shaping_runner` 曾列于此 (2026-10-05 前未注册), 现以 `slm-pib` **命令组**注册（其 `square` 子命令即方形整形）。
 
 **Refactoring Notes:**
 - All runner scripts now use centralized config from `config.py` (DM_N_ACTUATORS, PATHS, DEFAULTS)
@@ -783,21 +797,39 @@ docker build -f docker/Dockerfile.test.cpu -t ao-shaping-test:cpu .
 ./scripts/build/run_pytest_ci.sh
 ```
 
-### 常规测试默认排除（pytest addopts，2026-10-16）
+### 常规测试默认排除（pytest addopts，2026-10-16；2026-10-24 按实测撤销 drivers 排除）
 
-`pyproject.toml` 的 `addopts` 默认 `--ignore` 三类**会阻塞**（挂死、无输出）的测试，
+`pyproject.toml` 的 `addopts` 默认 `--ignore` 两类**会阻塞**（挂死、无输出）的测试，
 容器里的 `pytest` / `pytest tests` 不再踩到它们（从仓库根目录运行）：
 
 | 排除 | 原因 |
 |---|---|
 | `tests/ao_shaping/gui/slm/test_zernike_abort_repro.py` | 唯一跑**真 `AppTest`** streamlit 运行时的测试，需网页自动化配合，否则挂死；其余 GUI 测试只把 `streamlit` 当命名空间 mock，安全 |
-| `tests/ao_shaping/drivers` | 硬件测试：SLM/相机 SDK 等待无超时保护（见反模式「diff-shaping 硬件闭环挂起」）；SLM 的 USB 句柄与运行中的 Streamlit 应用互斥（错误码 -10003「USB设备已打开」） |
 | `tests/ao_shaping/ml` | 65 GB hwdataset 重 I/O + torch：多进程/mmap 曾把整树 `pytest tests` 挂死 |
+| ~~`tests/ao_shaping/drivers`~~ **已撤销** | **原排除整棵 drivers 树过度保守一个量级，且造成了真实的可见性事故**：`drivers/ccd` 曾烂到 **6 failed + 1 error** 而 CI 毫无察觉（`29001826` 修）。逐域实测后全部恢复进发现集：`ccd` 204/25、`sim` 394/2（63.33 s）、`wfs` 110/11、`slm` 158/127（7.95 s）、`adc` 49（2.84 s）、`hardware` 37 skipped（0.06 s）、`dm` 139/5（**40.22 s**）、根文件 13/9；整棵 `drivers` 单 session **1067 passed / 216 skipped / 124.43 s** |
 
-⚠️ `--ignore` 只作用于 **discovery**（从 `testpaths` 发现的裸 `pytest`，实测 8218 →
-5774）；**显式指定的路径不受影响**——`pytest tests/ao_shaping/drivers` 照常收集
-1035 个，无需任何覆盖（先确认没有别的进程占着 SLM/相机）。要连 discovery 也全部
-恢复：
+🔴 **`drivers/` 的 `--hardware` 门必须在 `drivers/conftest.py`**：跳过钩子原先只存在于
+`drivers/slm/conftest.py` 与 `drivers/hardware/conftest.py`，而 `pytest_collection_modifyitems`
+是**会话级**钩子 ⇒ 某条 `@pytest.mark.hardware` 测试是否被跳过，取决于**同会话里还收集了哪棵无关子树**
+（`pytest drivers/dm drivers/slm` 会跳过，单独 `pytest drivers/dm` 不跳过）。后果不是观感问题：
+`dm` 域曾因 `TestMicroDMReport` 的标记无人执行，fixture 把 26 个不可达控制器逐个扫到底 ——
+**每测试 260 s 的 setup，520 s 占掉该域 560 s 的绝大部分**。新增 `drivers/conftest.py`
+（复用 `drivers/_hardware_gate.py` 单源）后 `dm` 变 **40.22 s / 0 failed**。
+⇒ 判"某域慢/挂起"必须先用 `--durations` 归因，不要按域整体归因。
+
+🔴 **排除清单有两份，必须同步**：`scripts/build/run_pytest_ci.sh` 的 `EXCLUDES` 把同样的路径
+重述成**绝对路径**（因为该脚本从 scratch 目录启动 pytest，pyproject 里的**相对**排除在那种 CWD 下
+匹配不到任何东西，会把 65 GB 语料与硬件域放回 CI）。这份重复已在 2026-10-24 实际漂移过一次：
+pyproject 已收窄到 `drivers/dm`，脚本仍是整棵 `drivers`，于是"收窄发现集"静默失效。
+现由 `tests/ao_shaping/test_conventions.py::test_pytest_excludes_match_across_configs` 钉住
+（比较两处 `--ignore` 集合，差集非空即失败）。**改任一处都必须改另一处。**
+
+⚠️ `--ignore` 只作用于 **discovery**（从 `testpaths` 发现的裸 `pytest`）。2026-10-24 实测：
+裸 `pytest` 收集 **9293**；被排除的是 `ml` **1415** + AppTest **3**（两者亦实测）。
+撤销 drivers 排除前为 **8011**，即整棵 drivers 树原本藏了 **1286** 个测试。
+⚠️ **显式指定的路径不受 `--ignore` 影响**——实测 `pytest tests/ao_shaping/drivers/dm`
+在该路径正被排除时仍收集 **144** 个（现已不排除，此性质仍成立）。要在实验系统上运行
+硬件域，用 `--hardware` 打开标记门，而不是改 `addopts`。要连 discovery 也全部恢复：
 
 ```bash
 ./run_pytest.sh -- -o "addopts=-ra --strict-markers"
@@ -1055,7 +1087,7 @@ Configuration via `.env` file:
 Far_Cam_ID=0
 Near_Cam_ID=1
 IDEAL_SPOT_RADIUS=7
-CENTER=577,655
+# CENTER 不是环境变量: 分析中心由 runner 选项 -c/--center 给出。
 # Daheng 保护曝光上限 (ms), 随光路按会话设置; 缺省/0 = 由画面探测 (倍增阶梯到饱和)
 # AO_DAHENG_MAX_EXPOSURE_MS=0.6
 ```
@@ -1088,18 +1120,18 @@ VS Code settings in `.vscode/settings.json` (machine-local, untracked) set PYTHO
 | `as any`, `@ts-ignore` | Never suppress type errors |
 | Empty catch blocks | Always handle exceptions or log |
 | Deleting failing tests | Fix the code, not the test |
-| `combined_runner.py` with main CLI | Prefer `pipeline_runner.py` for new serial flows; `combined` remains registered as legacy (main.py:106) |
+| `combined_runner.py` with main CLI | Prefer `pipeline_runner.py` for new serial flows; `combined` remains registered as legacy (cli.add_command(combined_run, name="combined")) |
 | Passing uint16 grayscale through `create_phase_from_array()` | `create_phase_from_array()` treats input as **radians** (mod 2π → grayscale = rad/2π × 1023). uint16 grayscale values get silently corrupted. Use `np.full((h,w), gray, dtype=np.uint16)` for flat phase or direct grayscale patterns. |
 | SLM 相位生成函数自行 `np.mod(phase, 2π)` (2026-09 raw-only 契约) | All phase generators must return **raw unwrapped radians** — the only mod-2π wrap lives in the driver `Santec.create_phase_from_array()` on radian→grayscale conversion (`santec/driver.py` L1382). Generators that self-wrap duplicate the driver contract and hide the true phase. Convert via `utils/slm/phase_display.phase_to_slm_grayscale(phase, slm=slm)` (hardware) or the pure fallback (offline/tests). Exception: `_zernike_phase_radians` keeps a wrapped output **only** as a test-only reference. |
 | Consecutive `write_phase` + `display_memory` to the **same** memory slot | Santec SLM firmware treats `display_memory(slot)` as a no-op when that slot is already being displayed — the LCOS panel does **not** refresh. Consecutive writes must ALWAYS target different slots. Preferred pattern (used by diff-shaping runner): pick a **random slot in 2..125** each write, excluding the currently displayed slot — this also survives process restarts (`get_displayed_memory_number()` before the first write). Older tools rotate a small pool like `itertools.cycle([3,4,5])` — works within one process only. The built-in `display_data()` cycles through all 127 slots. |
-| Opening the SLM in DVI mode (`video_mode=1`) for diagnostics | `Santec(..., video_mode=1).open()` can **hang** (observed 120s/300s timeouts), and a hung controller then also hangs memory-mode `open()` until a **physical power cycle**. Never auto-try DVI mode; use memory mode (`video_mode=0`) only. See `tools/slm/slm_diagnose.py` |
+| Opening the SLM in DVI mode (`video_mode=1`) for diagnostics | `Santec(..., video_mode=1).open()` can **hang** (observed 120s/300s timeouts), and a hung controller then also hangs memory-mode `open()` until a **physical power cycle**. Never auto-try DVI mode; use memory mode (`video_mode=0`) only. See `tools/slm/panel/diagnose.py` |
 | Treating `get_displayed_memory_number` error-code 1 as a fault | In `set_grayscale` mode there is no memory slot being displayed, so `SLM_Ctrl_ReadDS` returns error-code 1 — this is **normal**, not a failure. Slots only exist in memory mode. |
 | Re-writing a **cached displayed phase** back through `write_phase` | Cached phases (`get_displayed_phase()`) already contain base overlay + wavefront correction; `write_phase` re-applies both → corrected **twice**. Rewriting shifted phases must go through the driver-level `Santec.apply_shift()` (raw write via `_write_to_memory` + slot rotation + config save), which is the single public entry point for shift-and-redisplay (identical semantics to the multi-SLM controller "应用平移" button). Shift math's only implementation is the static `Santec.shift_phase()`. See `src/ao_shaping/drivers/slm/AGENTS.md`. |
 | Assuming the 0-order spot sits at the camera frame center | In the 2f Fourier bench the optical axis (0-order = frame **global maximum**) lands at the camera center only by luck. Observed: frame center (1344,760) vs 0-order spot (1441-1443, 705-706). Always locate 0-order by `argmax`, never by geometry. |
-| diff-shaping 硬件闭环挂起（日志止于 `成功打开SLM #1`） | 2026-09-08 实测 (与相机无关): SLM open() 成功后, 首次 `camera.get_numpy_image()` 前无任何日志输出即无限阻塞 (900s 超时被强杀; 分步探针脚本同挂)。`WaitImageV3` 的原生等待由 SDK 内部驱动, 不受 Python 侧超时保护。处置: 强杀后先确认无残留 python 进程 (Get-Process python*)；重跑前 SLM memory 模式 open() 若超过数秒无日志, 对 SLM 控制器物理断电重置 (与 DVI 挂起同一处置)。见 `diff_shaping_runner.py` SLM 连接段注释与 `report/slm/slm_shaping_diff/readme.md` 故障排查。 |
+| diff-shaping 硬件闭环挂起（日志止于 `成功打开SLM #1`） | 2026-09-08 实测 (与相机无关): SLM open() 成功后, 首次 `camera.get_numpy_image()` 前无任何日志输出即无限阻塞 (900s 超时被强杀; 分步探针脚本同挂)。`WaitImageV3` 的原生等待由 SDK 内部驱动, 不受 Python 侧超时保护。处置: 强杀后先确认无残留 python 进程 (Get-Process python*)；重跑前 SLM memory 模式 open() 若超过数秒无日志, 对 SLM 控制器物理断电重置 (与 DVI 挂起同一处置)。故障排查与处置记录见 `report/slm/slm_shaping_diff/readme.md`（该条目当时引用的 `diff_shaping_runner.py` 已在 `fbef1926` 删除，仅存回归测试 `tests/ao_shaping/runners/test_diff_shaping_runner.py`；挂起结论本身仍然成立）。 |
 | Generating SLM phase via **min-max normalisation** | It **min-max normalises** the phase (`(p-pmin)/(pmax-pmin)*1023`) instead of `mod 2π` radians→grayscale, making the pattern **scale-invariant** (coefficients ×1 and ×4 produce byte-identical patterns; verified `np.array_equal == True`). Always convert radian phase through the SLM driver `slm.create_phase_from_array()` (2π=993 + wavefront correction + LUT). See `README.md`. ⚠️ 历史例子: `PatternHelper._zernike_to_uint16` 与 `ZernikeDM.generate_phase` —— **两者已于 2026-09 修复/删除**, 本行保留为反模式记录。 |
 | **`ZernikeDM.generate_phase` min-max normalises the phase** (same anti-pattern, still live) | `drivers/dm/zernike_dm.py:106-129` does `(raw−min)/(max−min)` then `×2π` (rad) / `×max_val` (gray) → output is **scale-invariant**: coefficients ×1 and ×4 give **byte-identical** phases (verified `np.array_equal == True`, PV always 2π). Since `ZernikeSLM.send_zernike` routes through it, **the Zernike coefficient amplitude is uncontrollable** for every consumer (`zernike-matrix`, `rms-zernike`, `ga-zernike`, `greedy-zernike`, `runners/zernike_matrix_runner.py`, `runners/rms_zernike_runner.py`, `gui/zernike/`). Fix: drop the normalisation (treat coefficients as radians) — note this intentionally changes those callers' behaviour. See `report/slm/report2.md` §2.3. |
-| **Mixing units across the WFS→SLM correction loop** | The WFS `get_zernike()` returns **µm**; the response matrix must be built in the **same unit** as the correction's `w` (λ). Two real bugs (2026-09-16): matrix built in µm vs `w` in λ → coefficients inflated **1/0.532 = 1.88×**; and the solved coefficients are in **λ (waves)** but `make_phase`/`generate_zernike_polynomial` take **radians** → applied phase shrunk **2π = 6.28×**. Both fixed → closed-loop RMS improvement 13.8% → **42.1%**. Always route through `tools/slm/slm_zernike_common.um_to_waves()` and multiply λ→rad by `2π` before `make_phase`. See `report/slm/report2.md` §0. |
+| **Mixing units across the WFS→SLM correction loop** | The WFS `get_zernike()` returns **µm**; the response matrix must be built in the **same unit** as the correction's `w` (λ). Two real bugs (2026-09-16): matrix built in µm vs `w` in λ → coefficients inflated **1/0.532 = 1.88×**; and the solved coefficients are in **λ (waves)** but `make_phase`/`generate_zernike_polynomial` take **radians** → applied phase shrunk **2π = 6.28×**. Both fixed → closed-loop RMS improvement 13.8% → **42.1%**. Always route through the canonical `utils/wavefront/zernike_utils.py::um_to_waves`（`tools/zernike/common.py:36` 只做 re-export，并注明 canonical 在 zernike_utils；原写法指向的 `tools/slm/slm_zernike_common.py` 已不存在，2026-10-25 实测） and multiply λ→rad by `2π` before `make_phase`. See `report/slm/report2.md` §0. |
 | **Full-frame centre leaking into window-local metrics** (`slm_zernike_pib.py`) | `cam.reset_window(...)` returns the window centre in **full-frame sensor coordinates**, but every downstream metric (`rms_pib_terms`, `ImageTargetFunc.radius`, `spot_waist_sigma`, `reference_center`) operates on the **re-windowed** image and needs **window-local** coordinates. Hardware-verified bug (2026-09-23): the runner's `-c auto` probe locates the 0-order on the un-windowed camera (e.g. (633,934) on 1944×2592) → optimizer used it directly as window-local → every metric read **0** (pib=0, r_bucket pinned at 0.9 = 1px radius × shrink 0.9) across the whole heuristic matrix. Fix: after capturing the re-windowed `init_img`, re-locate `reference_center = zero_order_center(init_img)` and use `reference_center` (NOT the post-`reset_window` `center`) for the r-bucket radius too (L1396/L1441). Rule: whenever a centre is handed to a metric/ROI builder, verify which coordinate frame it belongs to first. |
 | Square shaping with low-order Zernike (n≤4) | Zernike modes are a **circularly symmetric smooth** basis; they physically cannot synthesise a square far-field (needs 2D-sinc-like near field / high spatial frequencies). Use full-pixel phase freedom (GS / differentiable / free-form), not Zernike. |
 | Optimising `-CV` alone as the SPGD objective for square shaping | With no energy term the optimizer **empties the target box** to minimise CV (hardware observed EE→0.002). The objective must include encircled energy (use the combined quality score). |
@@ -1113,10 +1145,10 @@ VS Code settings in `.vscode/settings.json` (machine-local, untracked) set PYTHO
 | Report generation inside `algorithm/` | `signal_processing/beam_shaping_benchmark` writes CSV/MD/GIF reports — report generation MUST live in `scripts/` (see scripts/README.md), not in the algorithm layer. |
 | Pygame/viz code inside `utils/` | Visualization code belongs in `display/`, not the leaf utils layer. **Done for `gs_visualization`** (moved to `display/gs_visualization.py`, 2026-10-03; re-exported from `ao_shaping.display`) **and done for `display.py`** (moved to `display/image_display.py`, 2026-10-09, commit `a9236e9`; `utils/__init__.py` re-exports re-pointed to `ao_shaping.display.image_display`). No compat shim left — the old `ao_shaping.utils.image.display` path now raises `ImportError` (guarded by `test_utils_leaf_no_rendering_import.py::test_old_display_path_raises`). |
 | Re-implementing the GS loop | `gs_visualization.gerchberg_saxton_with_visualization` must drive the canonical `gerchberg_saxton` via a callback, not duplicate the loop. |
-| Dead vendored ctypes VISA code | `utils/wavefront/vi.py` is dead vendored ctypes VISA code — remove it or move it out of utils. |
+| Native SDK binding inside `utils/` | `utils/` is the import-light leaf layer — it must not `import ctypes` to reach a device SDK; that binding belongs in `drivers/` (lazy registration via `drivers/_lazy.py`). The old `utils/wavefront/vi.py` (188 lines of ctypes VISA) was deleted in `bbb3820b`, which left the rule as prose only; it is now pinned by `test_conventions.py::test_the_utils_leaf_layer_never_binds_a_native_sdk` (measured baseline 0, no allowlist). |
 | Min-max scale-invariant phase conversion | Min-max normalising the phase makes patterns scale-invariant (coefficients ×1 and ×4 → byte-identical). Use `utils/slm/phase_display.phase_to_slm_grayscale(phase, slm=slm)` instead. ⚠️ 历史例子 `PatternHelper._zernike_to_uint16` 已删除。 |
-| Vector-beam demo `sim.py` living in `algorithm/` | The vector-beam demo `sim.py` lives in `algorithm/` — it belongs in `scripts/`. |
-| `utils/slm/pattern_helper.py` importing `from ao_shaping.algorithm.phase_wrap` at module top level | utils is the leaf layer and must not depend on `algorithm/` at import time — use deferred function-local imports. |
+| Relocating `algorithm/signal_processing/sim.py` into `scripts/` | **Obsolete instruction (verified 2026-10-25)** — the vector-beam demo already lives in `scripts/`: `14b1cda` moved the `__main__` body to `scripts/signal_processing/demo_wavefront_sim.py` (+ `demo_wavefront_reconstruction.py`), leaving `sim.py` as an import-only library (`numpy` / `matplotlib.colors` / `loguru`; no `__main__`, `argparse` or `plt.show`). That script imports 4 symbols from it, so moving the module itself would break the import. The split is already correct: library in `algorithm/`, demo in `scripts/`. |
+| `utils/**` 模块级 import `algorithm/`（原例：`pattern_helper` 曾 top-level import `ao_shaping.algorithm.phase_wrap`） | utils is the leaf layer and must not depend on `algorithm/` at import time — use deferred function-local imports. **原例已合规**（2026-10-25 AST 实测：该文件模块级只有 `__future__` / `typing` / `numpy` / `utils.wavefront.phase_unwrap:8` / `utils.wavefront.zernike_calc:13`，`algorithm` 全部延迟到函数内 `:20/:36/:92/:98/:837/:854/:871/:890/:903`）⇒ 由 `test_conventions.py::test_utils_has_no_module_scope_import_of_a_higher_layer` 钉住，其非空性由 `test_the_deferred_forms_still_exist_so_the_guard_is_not_vacuous` 守住（现 14 处延迟形式）。另：本行原写 `utils/slm/pattern_helper.py` 系误标，文件在 `utils/wavefront/`（见上方结构表）。 |
 | 脚本/runner/tools/GUI 内**重复实现 Zernike 数学** (Noll↔(n,m) 查表、多项式求值、相位生成) | Canonical 入口唯一: `utils/wavefront/zernike_utils.py` (API 层) + `utils/wavefront/zernike_calc.py` (引擎层), 单向依赖 `zernike_utils → zernike_calc`。2026-09 去重重构前 `gui/slm/`、`optimizer/wfless/`、`tools/slm/` 各有一套, 已全数收敛。新代码一律 `from ao_shaping.utils.wavefront.zernike_utils import ...`, 禁止 `import aotools`/自写 `RZern`/自写 `noll2nm` 表。详见 README `## Zernike 使用指南` 与 AGENTS `## Zernike 使用规范`。 |
 | **配对检验只在"变化的轴"上配对** — 拿 N 折当 N 个独立样本 | 全部折共用同一个 `seed` 时, 各折共享**同一条权重初始化随机流**, 于是 N 折是"同一对初始化"被测了 N 次, **不是**该对比的 N 次独立采样; sign-flip 检验仍按独立处理, p 值**偏保守 (过于乐观)**。实测: `input_terms` 136→78 的 18 折配对给出 `p = 0.0144`, 但固定一折只换 seed 后**符号翻转**、差值量级小 30 倍 ⇒ 那是初始化噪声不是效应。规则: **换 seed 就对 seed 配对, 换折就对折配对**, 两者不可互相冒充; 判定前跑 `scripts/ml/seed_sensitivity_coeff.py`。另: `min_attainable_pvalue(n) = 2/2**n`, 故 4 折协议**结构上**到不了 p<0.05, 那里只报效应量不报结论。统计实现唯一入口 `ml/zernike/eval_stats.py` |
 | 用 **MSE/PSNR/SSIM** 给 `normalization` 选开关 | 任何含 `sum` 归一化的指标都在度量**归一化本身**而不是拟合质量。实测同一配置: `normalization="sum"` 给 PSNR **72.1 dB** / SSIM 0.9996, 而 R² 反而**更差**于 `peak`。判据只看 **R² / corr / 光斑域指标** |
@@ -1140,7 +1172,7 @@ VS Code settings in `.vscode/settings.json` (machine-local, untracked) set PYTHO
 - **Streamlit background threads**: Any background loop that drives hardware must never touch `st.session_state` directly — it causes `missing ScriptRunContext` warnings and race conditions. Use the R50 `run_loop` pattern: pass a snapshot of parameters as a plain `dict`, communicate state changes via `threading.Event` for stop signals and mutable containers (e.g. `list`) for live-updated values like frequency, and drain feedback through a `queue.Queue`. The main thread reads/writes `st.session_state` only on rerun. See `src/ao_shaping/gui/r50/r50_voltage_send.py:run_loop` and `src/ao_shaping/gui/slm/multi_slm_controller.py:_toggle_phases_task` for implementations.
 - **Timing in background loops**: Prefer `time.time()` wall-clock deltas over counters for state machines. Example: `int(elapsed * 2.0 * freq) % 2 == 0` toggles at exactly the requested frequency without drift, instead of sleeping fixed half-periods and accumulating error.
 - **2f Fourier bench geometry** (SLM front focus → f=125mm lens → CCD back focus): the lens Fourier-transforms the SLM field, so CCD coordinates represent **spatial frequency** — the +1 orders of an upper-half-grating and a lower-half-grating land on the **same CCD row (optical-axis row)**, differing only in x-offset. Expected diffraction offset `Δx_px = λ·f/(d_SLM·p_cam) ≈ 5021/Λ` (P64→78px, P32→157px, P96→52, P40→126). Do NOT assume half-screen gratings separate in y. 0-order = frame global max (`argmax`), re-check its location after any bench change.
-- **SLM panel "not modulating" diagnostic chain** (2026-09, encoded in `tools/slm/slm_diagnose.py`): ① freeze check — write flat/full-grating/top-half/bottom-half to **rotated memory slots**, frames must differ (all-identical ⇒ LCOS frozen); ② modulation check — `set_grayscale` sweep 0..1023, 0-order bucket must vary with ~993-gray period (flat ⇒ no amplitude coupling ⇒ panel not modulating); ③ linearity check — exposure ×4, ×20 must grow peak brightness (constant peak incl. at 0.1ms/2ms ⇒ light is >100× weaker than the known ~0.02ms near-saturation baseline). Verdict thresholds: freeze ≥2/3 frames differ, modulation bucket rel-spread >15%, linearity growth >2×.
+- **SLM panel "not modulating" diagnostic chain** (2026-09, encoded in `tools/slm/panel/diagnose.py`): ① freeze check — write flat/full-grating/top-half/bottom-half to **rotated memory slots**, frames must differ (all-identical ⇒ LCOS frozen); ② modulation check — `set_grayscale` sweep 0..1023, 0-order bucket must vary with ~993-gray period (flat ⇒ no amplitude coupling ⇒ panel not modulating); ③ linearity check — exposure ×4, ×20 must grow peak brightness (constant peak incl. at 0.1ms/2ms ⇒ light is >100× weaker than the known ~0.02ms near-saturation baseline). Verdict thresholds: freeze ≥2/3 frames differ, modulation bucket rel-spread >15%, linearity growth >2×.
 - **Class-based optimizer convention**: optimizers in ao_shaping/algorithm expose __init__ (validate + set state), update() (one step → next state), optional run() → result dataclass; the one-shot function stays a thin wrapper. Simulation-first (torch/numpy) tests before hardware. Canonical example: DifferentiableBeamOptimizer. See src/ao_shaping/algorithm/README.md.
 - **Report generation lives in `scripts/`**: any functionality that writes markdown/illustrated reports MUST live in `scripts/` (naming `generate_*_report.py`, e.g. `generate_zernike_wfs_report.py`, `generate_zernike_response_matrix_report.py`, `generate_diff_shaping_report.py`) — NEVER under `src/ao_shaping/tools/`, which is reserved for hardware-interaction tools (CLI + driver orchestration). Scripts follow the repo script conventions: `matplotlib.use("Agg")` BEFORE importing pyplot, `sys.path` bootstrap (`ROOT = Path(__file__).resolve().parents[1]`), CJK font rcParams (`Microsoft YaHei`/`SimHei` + `axes.unicode_minus = False`), output under `report/<topic>/<子目录>/` or `logs/<timestamp>/`, and MUST be documented in `scripts/README.md`. Prefer **offline** report generators (read saved artefacts) so a report can be regenerated without hardware.
 - **`docs/` vs `report/` (2026-10-05 拆分, 红线)**: 文档分两类，**不可混放** —
@@ -1164,7 +1196,27 @@ VS Code settings in `.vscode/settings.json` (machine-local, untracked) set PYTHO
   **2026-10-21 恢复入库**（`1d33d078`，现 `.github/workflows/ci.yml`：ruff 硬门禁
   + best-effort pytest 作业 `continue-on-error`），新克隆重新自带 CI 工作流 ——
   本地 `ruff check .` 仍须保持全绿。
-  仍缺：pytest 硬门禁（现为 continue-on-error）与类型检查门禁。
+  ✅ **2026-10-24：pytest 已成硬门禁**（`.github/workflows/pytest.yml`，push + PR）：
+  一次镜像构建 + **8 个分片**，每片一个 pytest 进程，`AO_CPUS=4 / AO_MEMORY=6g`
+  （ubuntu-latest 4 vCPU / 16 GB，留头寸）。`ci.yml` 里那个整目录单进程的
+  `continue-on-error` 作业已删除 —— 它在 runner 上**不可能通过**（实测无目标参数的
+  `run_pytest_ci.sh` 在 16g 上限下 34% 处 SIGKILL，exit 137）。分片清单只列**目录**、
+  不列文件（文件清单会在新增测试时静默失盖），由
+  `tests/ao_shaping/scripts/test_pytest_workflow_shards_cover_tree.py` 两向钉住：
+  每个顶层测试区必须被某片覆盖、每个分片目标必须存在、且至少要有一个阻塞分片
+  （否则"永远红不了的作业"等于没有门禁）。`optimizer` 片用 `AO_TEST_PER_FILE=1`
+  （见下），实测覆盖率与单进程一致（1259 passed + 3 skipped == 1262 collected）。
+   **2026-10-25 起 8 片全部 blocking，无 advisory**：最后一片 `scripts` 的名义原因是
+   wt-190 的 `_fmt` 去重 —— 该去重**已入库**（`741ea0e5` 是 master 祖先），但 `273181e6`
+   又**重新引入**一份本地 `def _fmt`，守卫在 master 上**仍红**；本账本 §8.9 第 44 项把该
+   副本改走 `scripts/_common` 的 `fmt_general` 后实测整片全绿
+   （**2423 passed / 64 skipped / 0 failed**，`AO_CPUS=4 / AO_MEMORY=6g`），当日转 blocking。
+   `runners-gui-misc` 曾因 `slm-gsnet --help` 基线红而挂 advisory（wt-193 在办），
+  **2026-10-25 已转 blocking**：基线由上游 `c5cd68a9` 重做后实测整片全绿
+  （1149 passed / 30 skipped / 0 failed，`AO_CPUS=4 / AO_MEMORY=6g`）。
+  ⚠️ 门禁是 **fail-closed** 的：镜像构建失败会让整个作业变红，这是有意取舍
+  （宁可红也不允许"没跑测试却绿"）。
+  仍缺：类型检查门禁（mypy / pyright 未配置）。
   注：本机工作树还残留两个未跟踪的 `ruff.yml`/`pylint.yml`（2026-10-19 移出跟踪的
   本地遗留，现已被 `ci.yml` 取代）—— 属本机状态，勿提交。
   ⚠️ **pytest 门禁必须分片跑，不能单进程整目录跑。** 2026-10-20 实测：sim 后端
@@ -1175,17 +1227,29 @@ VS Code settings in `.vscode/settings.json` (machine-local, untracked) set PYTHO
   同时跑就会互相拖成「假挂起」（实测进程 99% user CPU、页错误 0、可用内存 36 GB
   —— 是分配抖动，不是死锁）。分片（按文件）跑则每个文件都在秒级～分钟级完成，
   全部文件合计约 20–25 分钟。
+  ⇒ 该口径已进机器：`scripts/build/run_pytest_ci.sh` 的 `AO_TEST_PER_FILE=1` 就是它，
+  **每文件一个 pytest 进程**，清单由 `--collect-only` 现生成（自动遵守 EXCLUDES，不会因
+  新增文件而静默漏测），**收集到 0 个文件即 FATAL** —— 一片「什么都没跑却绿」比红更糟。
   ⚠️ 另：**别把「日志里点数停在某个位置」当成挂起** —— `Tee-Object`/`Select-Object`
   管道会缓冲，实测「停在 216」的那次运行其实以 28 点/分钟正常推进，点数是缓冲
   量化出来的假象。判据要看进程 CPU 与内存，而不是日志末尾的点数。
-- **Linting**: ruff 已配置（`ruff.toml`，`select = [E, F]`，`libs/**` 与
+- **Linting**: ruff 已配置（`ruff.toml`，`select = [E, F, RUF100, B023, PLR0124]`，
+  `libs/**` 与
   `notebooks/**` 显式排除，守卫见
   `tests/ao_shaping/ml/test_train_cli_runnable.py::test_ruff_excludes_nothing_under_src`）；
   mypy / flake8 未配置。
+  🔴 **ruff 版本只有一把**：`ci.yml`、`ruff.yml` 与 `pyproject.toml` 的 dev 组下限必须
+  同为一个**精确版**（现 `0.15.12`），由
+  `tests/ao_shaping/test_conventions.py::test_all_ruff_pins_agree_and_are_exact` 钉住。
+  此前两处不一致（`ci.yml==0.11.10` vs `ruff.yml>=0.15.12`）实测**不等价**：`PLC0415`
+  在 0.11.10 是 preview 规则（**0** 命中，ruff 自己会打印 "Selection `PLC0415` has no
+  effect because preview is not enabled"），在 0.15.12 已稳定（**1476** 命中）；
+  `SLF001` 差 2 条。硬门禁不得写 `>=`（新版本能在两次推送之间无代码变化地把门禁翻红）。
 - **machine-local 开发工具配置**: `.mcp.json`、`.pre-commit-config.yaml`、`opencode.jsonc`、`pyrightconfig.json`、`skills-lock.json` 已移出 git 跟踪并加入根 `.gitignore`（2026-10-19，仅保留在开发者本机，不再入库）；同日 7 个 machine-local 目录整体移出跟踪并忽略：`.auto_doc_review`/`.claude`/`.codegraph`/`.slim`/`.streamlit`/`.vscode`/`_scripts`（本地副本保留，不随仓库分发）。**注意 `.github/` 不在其列**：它 2026-10-19 曾一并移出，2026-10-21 已恢复入库（见上文 CI 条，`1d33d078`），根 `.gitignore` 中 `.github` 的忽略行同日删除。
 - **No requirements.txt**: Only `pyproject.toml` and `uv.lock`
 
-Consider adding: pytest 硬门禁（当前 `ci.yml` 的 pytest 作业仍为 `continue-on-error`，等 CI 依赖解析加固后转正）与类型检查门禁。ruff 门禁已入库（见上文 CI 条），无需重新提交工作流文件。
+Consider adding: 类型检查门禁（mypy / pyright 未配置）。pytest 硬门禁已于
+2026-10-24 入库（见上文 CI 条），ruff 门禁已入库，无需重新提交工作流文件。
 
 ---
 

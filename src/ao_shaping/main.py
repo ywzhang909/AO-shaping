@@ -5,25 +5,32 @@
 Usage:
     python main.py [OPTIONS] COMMAND [ARGS]...
 
-Commands:
-    wf              波前RMS优化器
-    pib             轴向光束PIB优化器
-    pipeline        串行WF→PIB流水线优化器
-    gs              Gerchberg-Saxton全息图生成器
-    gs-square       GS闭环光束整形优化器
-    diff-beam       可微光束整形优化器 (backprop/GS)
-    zernike-matrix  Zernike响应矩阵校准
-    rms-zernike     Zernike RMS优化器
-    ga-zernike      GA Zernike优化器
-    greedy-zernike  贪婪局部搜索Zernike优化器
-    slm-pib         SLM Zernike PIB优化器 (runners/slm/slm_shaping_runner.py)
-    slm-gs-refine   GS 预矫正 + 全频随机相位 SPGD 细化
+Commands (19; the authoritative list is `main --help`, frozen by
+tests/ao_shaping/runners/test_cli_contract_freeze.py::EXPECTED_COMMANDS):
+    wf                 波前RMS优化器
+    pib                轴向光束PIB优化器
+    pipeline           串行WF→PIB流水线优化器
+    zernike-matrix     Zernike响应矩阵校准
+    closed-loop        Zernike响应矩阵闭环优化
+    rms-zernike        Zernike RMS优化器
+    ga-zernike         GA Zernike优化器
+    greedy-zernike     贪婪局部搜索Zernike优化器
+    dm-matrix          DM响应矩阵测量
+    hadamard-matrix    Hadamard响应矩阵测量
+    alt-voltage        R50 交替电压下发
+    full-voltage       R50 全通道电压下发
+    combined           AdaMOD+SPGD 混合 PIB (legacy)
+    slm-pib            SLM Zernike PIB 命令组 (子命令 spgd / heuristic / square)
+    slm-gsnet          SLM 方形光斑 SPGD 整形 (freeform)
+    slm-gs-refine      GS 预矫正 + 全频随机相位 SPGD 细化
     slm-model-in-loop  正向模型闭环校正 + 目标光斑相位合成 (反复迭代)
+    slm-lut            SLM LUT 校准 (tools/)
+    slm-diagnose       SLM 面板诊断 (tools/)
 
 Examples:
     python main.py --debug wf --epochs 10000
     python main.py --debug pib --cam-id 1 --epochs 5000
-    python main.py --debug gs --target-shape gaussian --use-hardware
+    python main.py --debug slm-pib spgd --epochs 100
     python main.py --debug zernike-matrix --n-max 10
 """
 

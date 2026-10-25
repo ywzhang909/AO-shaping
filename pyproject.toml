@@ -8,18 +8,28 @@ testpaths = ["tests"]
 addopts = [
     "-ra",
     "--strict-markers",
-    # 2026-10-16 default exclusions: three test areas that can BLOCK a plain
-    # `pytest` (hang with no output), so a regular run must not touch them:
+    # 2026-10-16 exclusions, NARROWED AWAY 2026-10-24 by measurement. Only two
+    # areas remain, each backed by a container number:
     #   (1) the only real Streamlit AppTest (needs web automation or it hangs),
-    #   (2) hardware drivers (SLM/CCD SDK waits have no timeout protection; the
-    #       SLM's USB handle is exclusive with a running Streamlit app),
-    #   (3) ml (65 GB hwdataset heavy I/O + torch; multiprocess/mmap has hung
+    #   (2) ml (65 GB hwdataset heavy I/O + torch; multiprocess/mmap has hung
     #       full-tree runs before).
-    # The ignores only prune DISCOVERY from testpaths: a bare `pytest` skips
-    # these areas (5774 of 8218 tests), but explicitly named paths still collect
-    # as usual (`pytest tests/ao_shaping/drivers` works unchanged).
+    # drivers/ used to be excluded wholesale -- "SLM/CCD SDK waits have no timeout
+    # protection". Measured domain by domain, that was over-broad by an order of
+    # magnitude and it cost visibility: drivers/ccd rotted to 6 failed + 1 error
+    # for months without CI ever collecting the tree (rot fixed in 29001826).
+    # Now DISCOVERED, with the container numbers behind each:
+    #   ccd 204 / 25, sim 394 / 2 in 63.33 s, wfs 110 / 11, slm 158 / 127 in
+    #   7.95 s, adc 49 in 2.84 s, hardware 37 skipped in 0.06 s, dm 139 / 5 in
+    #   40.22 s, drivers root files 13 / 9.
+    # dm was the last holdout at 560.83 s. That cost was not hardware latency: the
+    # `hardware` mark on TestMicroDMReport was unenforced under dm/ (the skip hook
+    # lived only in the slm/ and hardware/ conftests), so its fixture swept 26
+    # unreachable controllers -- 260 s of *setup* per test. Enforcing the mark where
+    # the tests live (drivers/conftest.py) made dm green and 14x cheaper.
+    # The ignores only prune DISCOVERY from testpaths; explicitly named paths
+    # always collect (measured: `pytest tests/ao_shaping/drivers/dm` still
+    # collects all 144 while that exact path is listed here).
     "--ignore=tests/ao_shaping/gui/slm/test_zernike_abort_repro.py",
-    "--ignore=tests/ao_shaping/drivers",
     "--ignore=tests/ao_shaping/ml",
     # 2026-10-21: 全局超时，避免未被忽略区域的测试在 CI / 本地无限挂起
     # （硬件驱动 SDK 等待、Streamlit AppTest 等曾有挂起先例；超过阈值即判失败而非卡死）。

@@ -91,9 +91,10 @@ ignore = [
 "__init__.py" = ["PLC0415", "PLR0911", "PLR0912", "F401", "E402"]
 
 # E402 exemptions (R-63 step 2b) -- 843 findings that are structure, not misplaced
-# imports. Measured with the project config; identical under the two pinned ruffs
-# (ci.yml `ruff==0.11.10` and ruff.yml `ruff>=0.15.12`), so this block is not a
-# version artifact.
+# imports. Measured with the project config; identical under both ruffs the repo
+# used to pin (0.11.10 and 0.15.12), so this block is not a version artifact.
+# The pins are now unified to one exact version (0.15.12) in both workflows and in
+# pyproject's dev-group floor.
 #
 # What ruff does and does not treat as an import-context statement, probed on both
 # versions: direct `sys.path.insert(...)`, `os.environ[k] = ...`, `os.environ.setdefault(...)`

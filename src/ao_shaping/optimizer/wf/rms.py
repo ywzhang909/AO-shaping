@@ -50,7 +50,7 @@ def schedule_lr_delta(rms):
 def optimizer_rms_dm(
     epochs,
     wfs_res: str = "768",
-    init_v: Sequence[float | int] = [],
+    init_v: Sequence[float | int] | None = None,
     pupil_center: tuple[float, float] = (0, 0),
     pupil_diameter: float = 2.24,
     early_stop_threshold: float = 0.12,

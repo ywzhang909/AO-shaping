@@ -363,7 +363,7 @@ def align_reference_to_model(
     return out
 
 
-def compute_metrics(
+def compute_size_metrics(
     arr: np.ndarray,
     base_arr: np.ndarray,
     box: np.ndarray,
@@ -505,7 +505,7 @@ def run_model_sweep(
         if image.ndim == 3:
             image = image[0]
         arr = image.detach().cpu().numpy()
-        m = compute_metrics(arr, flat_image, box, core, zero_disk, ref_mask, noise_floor, args.valid_k)
+        m = compute_size_metrics(arr, flat_image, box, core, zero_disk, ref_mask, noise_floor, args.valid_k)
         fidelity = None
         if ref_aligned is not None:
             fidelity = pearson_correlation(arr, ref_aligned)
@@ -1194,8 +1194,8 @@ def run_execute(args: argparse.Namespace) -> int:
                     frame=np.asarray(frame_b, dtype=np.float32),
                 )
                 crop = prepare_frame(crop_window(frame_b, centre_rc, half_px))
-                m = compute_metrics(crop, crop_a, box, core, zero_disk_hw, ref_mask_hw, noise_floor_hw, args.valid_k)
-                m_a = compute_metrics(crop_a, crop_a, box, core, zero_disk_hw, ref_mask_hw, noise_floor_hw, args.valid_k)
+                m = compute_size_metrics(crop, crop_a, box, core, zero_disk_hw, ref_mask_hw, noise_floor_hw, args.valid_k)
+                m_a = compute_size_metrics(crop_a, crop_a, box, core, zero_disk_hw, ref_mask_hw, noise_floor_hw, args.valid_k)
                 model_image = result.model_images[size]
                 # 模型窗 (121 采样, 2 px 步长) ↔ 实测窗 (241 像元, 1 px):
                 # 采样 i ↔ 像素 2i, 偶数步长下采样后逐点对齐 (121×121 = 121×121)

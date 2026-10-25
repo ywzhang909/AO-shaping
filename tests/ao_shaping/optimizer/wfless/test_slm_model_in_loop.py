@@ -1658,11 +1658,28 @@ class TestSimEndToEnd:
             assert row["rejection_streak"] == streak
             streak = 0 if row["accepted"] else streak + 1
 
-    def test_every_rejection_names_a_machine_readable_reason(self) -> None:
-        """A rejection with an empty reason cannot be triaged from the log."""
-        for row in _sim_result()["history"][1:]:
-            if not row["accepted"]:
-                assert row["reason"] and isinstance(row["reason"], str)
+    def test_every_history_row_names_a_machine_readable_reason(self) -> None:
+        """A round whose reason is empty cannot be triaged from the log.
+
+        The rejection branches themselves are covered directly against
+        ``acceptance_verdict`` below; what only an end-to-end run can prove is that the
+        verdict's reason actually reaches the recorded history row. Kept unconditional
+        over every row on purpose: this run accepts all its rounds, so an assertion
+        gated on ``not row["accepted"]`` would have checked nothing.
+        """
+        history = _sim_result()["history"]
+        assert history
+        for row in history:
+            reason = row.get("reason")
+            assert isinstance(reason, str) and reason, (
+                f"round {row.get('round')} recorded reason={reason!r}; "
+                f"accepted={row.get('accepted')}"
+            )
+        rejected = [row for row in history if not row["accepted"]]
+        for row in rejected:
+            assert row["reason"] != "accepted", (
+                f"round {row['round']} was rejected but tagged 'accepted'"
+            )
 
     def test_baseline_score_is_self_consistent(self) -> None:
         """The bake-off needs the flat score recorded before and after identically."""

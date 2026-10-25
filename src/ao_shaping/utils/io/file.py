@@ -1142,10 +1142,21 @@ class DeviceConfigManager:
         self.device_config_dir = (
             self.config_dir / device_type if device_type else self.config_dir
         )
-        self.device_config_dir.mkdir(parents=True, exist_ok=True)
+        # 构造期不碰磁盘: 本类被五个模块级单例 (WFS_CONFIG / SLM_CONFIG / CCD_CONFIG /
+        # NLIGHT_CONFIG / MICRO_DM_CONFIG) 在 import 时实例化, 这里的 mkdir 或读文件会
+        # 破掉 "import 子包不得做磁盘 I/O" 契约 (只读挂载下直接 OSError 30)。
+        # 目录只在写盘前建, 默认配置延迟到首次读。
+        self._default_config: dict | None = None
 
-        # 加载默认配置
-        self._default_config = self._load_default_config()
+    def _ensure_config_dir(self, path: Path) -> None:
+        """写盘前创建目录; 这是全类唯一的 mkdir 点。"""
+        path.mkdir(parents=True, exist_ok=True)
+
+    def _get_default_config(self) -> dict:
+        """首次访问时才读 defaults.json。"""
+        if self._default_config is None:
+            self._default_config = self._load_default_config()
+        return self._default_config
 
     def _load_default_config(self) -> dict:
         """加载全局默认配置文件 defaults.json"""
@@ -1181,7 +1192,7 @@ class DeviceConfigManager:
         config_file = self._get_config_file(serial)
 
         # 从默认配置开始
-        config = dict(self._default_config)
+        config = dict(self._get_default_config())
 
         if not config_file.exists():
             logger.info(f"未找到{self.device_type}设备({serial})配置文件，使用默认参数")
@@ -1214,6 +1225,7 @@ class DeviceConfigManager:
         config_with_serial["serial_number"] = serial
 
         try:
+            self._ensure_config_dir(self.device_config_dir)
             with open(config_file, "w", encoding="utf-8") as f:
                 json.dump(config_with_serial, f, indent=2, ensure_ascii=False)
             logger.info(f"配置已保存: {config_file}")
@@ -1279,11 +1291,12 @@ class DeviceConfigManager:
         """
         default_file = self.config_dir / "defaults.json"
         try:
+            self._ensure_config_dir(self.config_dir)
             with open(default_file, "w", encoding="utf-8") as f:
                 json.dump(defaults, f, indent=2, ensure_ascii=False)
             logger.info(f"默认配置已保存: {default_file}")
-            # 重新加载
-            self._default_config = self._load_default_config()
+            # 下次读取时重新加载 (构造期不做磁盘 I/O)
+            self._default_config = None
         except OSError as e:
             logger.error(f"保存默认配置失败: {e}")
 

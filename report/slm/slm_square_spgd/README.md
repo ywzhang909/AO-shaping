@@ -41,7 +41,7 @@
 入口（等价）:
 
 ```powershell
-python src/ao_shaping/main.py spgd-square --target-side 20 --center shape
+python src/ao_shaping/main.py slm-pib square --target-side 20 --center shape
 python -m ao_shaping.runners.slm.slm_shaping_runner square --target-side 20 --center shape
 ```
 

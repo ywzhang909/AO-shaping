@@ -700,7 +700,7 @@ def build_report(runs: list[RunData], out_md: Path) -> None:
     L.append("### 8.1 Top-3 最佳运行 (按 mean_final_strehl)")
     L.append("")
     L.append("| 排名 | run | 家族 | 提取器 | total_timesteps | mean_final_strehl | mean_best_pib | mean_reward |")
-    L.append("|---|---|---|---:|---:|---:|---:|")
+    L.append("|---|---|---|---|---:|---:|---:|---:|")
     for i, r in enumerate(top3, 1):
         L.append(
             f"| {i} | `{r.run}` | {r.family} | {r.extractor} | "

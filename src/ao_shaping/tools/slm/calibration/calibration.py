@@ -1779,8 +1779,6 @@ def main_shift_calib(params: ShiftCalibParams) -> int:
 
         slm.display_data(flat, wait_time_s=0.5)
 
-    except AssertionError as e:
-        click.echo(f"[FAIL] 断言失败: {e}")
     except Exception as e:
         logger.exception("标定失败")
         click.echo(f"[FAIL] {type(e).__name__}: {e}")
@@ -2202,9 +2200,12 @@ class SLMCCDCalibrator:
             self.ccd.reset_window(
                 (int(round(center[0])), int(round(center[1]))), (sx, sy)
             )
-        except AssertionError:
+        except ValueError as exc:
             logger.warning(
-                "存储窗口超出传感器范围, 保持全幅: size={} center={}", size, center
+                "存储窗口超出传感器范围, 保持全幅: size={} center={} ({})",
+                size,
+                center,
+                exc,
             )
             return False
         logger.info(

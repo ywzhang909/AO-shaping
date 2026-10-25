@@ -50,6 +50,7 @@ class _CallbackSession:
             self._owner._callback_buffer = None
             self._owner._callback_frame_info = None
             self._owner._callback_new_frame = threading.Event()
+            self._owner._callback_error_count = 0
             self._owner.cam.StartPullModeWithCallback(
                 self._owner._frame_callback, self._owner
             )
@@ -181,6 +182,7 @@ class MIICamera(BaseCamera):
         self._max_bit_depth = 8  # 稍后从相机更新
         self._capture_mode = capture_mode
         self._callback_mode_active: bool = False
+        self._callback_error_count: int = 0
 
         # 曝光上下限 (ms) —— SDK 的硬件约束
         self._min_exposure_ms = MIICamera.MIN_EXPOSURE_MS
@@ -570,7 +572,8 @@ class MIICamera(BaseCamera):
             np.ndarray: 调整后采集到的图像 (uint8/uint16, 取决于位深)。
         """
         self._ensure_open()
-        assert tolerance > 0, "tolerance must be > 0"
+        if tolerance <= 0:
+            raise ValueError("tolerance must be > 0")
 
         target_val = float(target_max)
         low = int(max(target_val - tolerance, 10))
@@ -767,9 +770,10 @@ class MIICamera(BaseCamera):
             x_offset = max(0, center[0] - (width // 2))
             y_offset = max(0, center[1] - (height // 2))
 
-        assert x_offset >= 0 and y_offset >= 0, (
-            f"Window center position: {center} must be within image, window size: {size}"
-        )
+        if x_offset < 0 or y_offset < 0:
+            raise ValueError(
+                f"Window center position: {center} must be within image, window size: {size}"
+            )
 
         try:
             self.cam.put_Size(width, height)
@@ -819,7 +823,8 @@ class MIICamera(BaseCamera):
         返回:
             处理后的平均图像。
         """
-        assert n_sample > 0, "Sample count must be > 0"
+        if n_sample <= 0:
+            raise ValueError("Sample count must be > 0")
 
         first_img = self.__take_one_shot()
 
@@ -857,6 +862,28 @@ class MIICamera(BaseCamera):
         self._callback_session.stop()
         logger.info("Callback mode stopped")
 
+    def _note_frame_loss(self, n_event: int, exc: BaseException) -> None:
+        """记录一次 SDK 回调取帧失败 (计数 + 限流日志), 不向外抛。
+
+        这个 handler 原先是 `except Exception: pass`。在回调线程里抛出会毁掉厂商
+        SDK 的线程, 但静默吞掉会把「这一帧被丢了」变成只有 ``get_callback_frame``
+        超时时才看得见、且完全无从归因的现象 —— 与本项目多次踩过的「指标静默读出
+        0/空」同一类。计数同时让上层能区分「没有帧」与「帧到了但解不出来」。
+
+        限流是必需的: 回调按帧率触发, 若每帧失败都记 warning, 30 fps 就是每分钟
+        1800 条。首帧失败与其后每 100 次记 warning, 其余记 debug。
+        """
+        self._callback_error_count += 1
+        count = self._callback_error_count
+        message = (
+            f"MIICAM 回调取帧失败 (nEvent={n_event}, 累计第 {count} 次): "
+            f"{type(exc).__name__}: {exc}"
+        )
+        if count == 1 or count % 100 == 0:
+            logger.warning(message)
+        else:
+            logger.debug(message)
+
     def _frame_callback(
         self,
         nEvent: int,
@@ -881,8 +908,8 @@ class MIICamera(BaseCamera):
                         self._callback_buffer = img
                         self._callback_frame_info = frame_info
                         self._callback_new_frame.set()
-            except Exception:
-                pass
+            except Exception as exc:
+                self._note_frame_loss(nEvent, exc)
         elif nEvent == miicam.MIICAM_EVENT_STILLIMAGE:
             try:
                 bufsize, bits, dtype = self._get_buffer_params()
@@ -899,8 +926,8 @@ class MIICamera(BaseCamera):
                         self._callback_buffer = img
                         self._callback_frame_info = frame_info
                         self._callback_new_frame.set()
-            except Exception:
-                pass
+            except Exception as exc:
+                self._note_frame_loss(nEvent, exc)
 
     def get_callback_frame(
         self, timeout: float = 1.0

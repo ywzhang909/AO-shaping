@@ -459,7 +459,7 @@ def write_report(
             "",
             "| run | objective | epochs | guard | dec | late % | best % | "
             "sustained % | 溯源 |",
-            "|---|---|---|---|---|---|---|---|---|---|",
+            "|---|---|---|---|---|---|---|---|---|",
         ]
         for r in sorted(runs, key=lambda r: r["sustained_pct"], reverse=True):
             lines.append(

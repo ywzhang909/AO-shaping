@@ -469,7 +469,8 @@ REPORTS: dict[str, ReportProvenance] = {
         script="scripts/slm/generate_fouriergsnet_pipeline_report.py",
         command="python scripts/slm/generate_fouriergsnet_pipeline_report.py",
         environment="离线",
-        note="5 项集成测试的结果记录",
+        note="2026-09-22 集成测试记录（冻结：正文与生成时间逐字重发；"
+             "被测脚本已在 f19dced5 删除，测试已在 baefba2d 删除）",
     ),
     "report/fouriergsnet_pipeline/hardware_run_20261001.md": ReportProvenance(
         script=HANDWRITTEN,
@@ -550,7 +551,7 @@ REPORTS: dict[str, ReportProvenance] = {
         script="scripts/slm/measure_shape_sensitivity.py",
         command="python scripts/slm/measure_shape_sensitivity.py",
         environment="硬件",
-        note="整形目标函数灵敏度 (噪声地板) 实测；测量内核已下沉到 tools/slm/slm_snr_probe.py",
+        note="整形目标函数灵敏度 (噪声地板) 实测；测量内核已下沉到 src/ao_shaping/tools/kernels/sweep_analysis.py",
     ),
     "report/slm_pib_online/slm_pib_online_report/report.md": ReportProvenance(
         script="scripts/slm/generate_slm_pib_online_report.py",
@@ -964,7 +965,7 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线",
         note="GUI 闭环整形实验验证正文为人工实测记录 (SLM 22030108 + 大恒 FJB24112232)；"
         "图表与汇总由本脚本从 data/debug/slm_gs_refine/20261014_{100441,104105,143035}/ "
-        "离线重算，三次会话的交错重放数值由 scripts/replay_gs_refine_hw.py 实验采集；"
+        "离线重算，三次会话的交错重放数值由 scripts/slm/replay_gs_refine_hw.py 实验采集；"
         "原 fig4 中心剖面（flat 与 best 共用一条强度轴、峰值相差约 13 倍）已由 "
         "scripts/slm/generate_shape_trial_profiles.py 的逐帧 X/Y 光强截面取代",
         extra_scripts=(

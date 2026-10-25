@@ -23,8 +23,8 @@
 
 | 检验 | 实测 |
 |---|---|
-| torch 与 numpy 入口一致 (`64x64`, `z=0.05`) | `max|Δ| = 4.226e-16` |
-| GPU 与 CPU 一致 | `max|Δ| = 4.215e-16`（NVIDIA GeForce GTX 1070 with Max-Q Design） |
+| torch 与 numpy 入口一致 (`64x64`, `z=0.05`) | `max\|Δ\| = 4.226e-16` |
+| GPU 与 CPU 一致 | `max\|Δ\| = 4.215e-16`（NVIDIA GeForce GTX 1070 with Max-Q Design） |
 | Parseval，`band_limit=False` | `1.000000119` |
 | Parseval，`band_limit=True` | `170.2` |
 
@@ -48,7 +48,7 @@
 
 | | FFT | ASM @ `z = f` |
 |---|---|---|
-| `max|out|` | `4057.0` | `1.1160` |
+| `max\|out\|` | `4057.0` | `1.1160` |
 | 峰值位置 | `(128, 128)`（阵列中心） | `(30, 33)`（**瞳面位置**） |
 
 纯相位瞳面的入射模长就是 `1`。也就是说 ASM 的输出几乎就是

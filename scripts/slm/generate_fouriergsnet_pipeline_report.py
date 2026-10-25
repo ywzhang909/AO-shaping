@@ -1,30 +1,38 @@
-"""Generate the FourierGSNet pipeline integration-test report.
+"""Generate the FourierGSNet pipeline integration-test report (frozen record).
 
-Documents the offline integration tests in
-``tests/ao_shaping/drivers/sim/test_sim_fouriergsnet_pipeline.py``: the 5
-tests drive the REAL standalone ``fouriergsnet_optimize.py`` pipeline
-(ShapingSystem -> adaptive_gs_init -> closed_loop -> _append_final_record)
-through ``SimFourierGSNetEnv`` with no hardware and no pipeline modification.
+This report documents an offline integration experiment from 2026-09-22. Its
+subjects are no longer in the tree -- the root-level pipeline script
+``fouriergsnet_optimize.py`` was deleted in ``f19dced5``, and the tests it
+exercised (``test_sim_fouriergsnet_pipeline.py``,
+``test_fouriergsnet_optimize.py``) were deleted in ``baefba2d``. The dated review
+annotations inside the body are part of the record: they retract the original bug
+finding, list the line numbers that had already drifted, and note the deletions.
 
-Fully offline — pure markdown, no hardware, no figures. Writes
-``report/fouriergsnet_pipeline/report.md``.
+Both the body and its generation stamp are re-emitted verbatim rather than
+recomputed. A generator that re-stamped on every run could never equal the
+committed artifact, and it would rewrite when the experiment was written down.
+The body is a raw literal because the run block ends lines with a backslash
+continuation that a non-raw string would swallow. ``REPORT`` must stay identical
+to the committed artifact minus its provenance block; that equality is pinned by
+``test_frozen_reports_reproduce_their_committed_artifact``.
 
-Usage:
-    python scripts/slm/generate_fouriergsnet_pipeline_report.py
-    python scripts/slm/generate_fouriergsnet_pipeline_report.py -o report/fouriergsnet_pipeline
+Fully offline -- standard library only, no hardware, no figures.
 """
 
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-REPORT = """# FourierGSNet 管线集成测试报告
+_REPORT_DIR = "report/fouriergsnet_pipeline/fouriergsnet_pipeline_report"
 
-**生成时间**: {date}
+REPORT = r"""# FourierGSNet 管线集成测试报告
+
+**本轮结论**：FourierGSNet 离线管线通过全部 5 项端到端集成测试与 21 项回归测试（≈29 s），结论：(1) 管线在数字孪生环境（K_px=256、窄束 w0=1.0）下功能自洽——自适应 GS 初始化、闭环记录结构、静态像差下闭环精修（均匀度 +0.03）、OU 湍流逐帧跟踪均验证通过；(2) 测试暴露并修复了管线自身 bug：`closed_loop` 对带梯度张量调用 `.numpy()`（已于 2026-10-01 在源头修复，`phi.detach()`）；(3) 两项实验系统隐患被仿真掩盖，实验前必须处理：**PANEL_RES 转置不匹配**（真实驱动 (宽,高)=(1920,1200)，管线按 (h,w) 使用，仿真侧恰好抵消）与均匀度指标对"未填满 ROI"的固有低估（测试 3/4 因此改用确定性断言）；(4) 默认宽束配置在 K_px=256 下远场退化为亚像素点导致"工作区无信号"，窄束配置为必要前提。
+
+**生成时间**: 2026-09-22 12:13:32
 
 ## 1. 概述
 
@@ -58,33 +66,46 @@ test_sim_fouriergsnet_turbulence.py + test_fouriergsnet_optimize.py)。
 - 管线自洽: `gauss_amp_from_farfield` 从宽光斑估计出窄 A_src (w0 裁剪到 0.2),
   与宽远场一致, GS 可正常整形。
 
-### 2.2 torch.no_grad() 包裹 closed_loop — 规避 L938 真实 bug
+### 2.2 torch.no_grad() 包裹 closed_loop — 规避真实 bug ✅ 已修复
 
-`closed_loop` L938 对 `requires_grad` 的 `phi` 调用 `phi.cpu().numpy()` 会抛
+> ⚠️ **2026-10-01 复核：此 bug 已在源头修复。** `fouriergsnet_optimize.py:943`
+> 现在是 `phi.detach().cpu().numpy()`。下文 §3.1「修复方向」已完成，
+> **不必再靠 `torch.no_grad()` 包裹绕过**（脚本里的 workaround 仍无害，但已非必需）。
+
+`closed_loop` 曾对 `requires_grad` 的 `phi` 调用 `phi.cpu().numpy()`，会抛
 `RuntimeError: Can't call numpy() on Tensor that requires grad` (网络前向输出
-`phi` 经可训练卷积层, 带梯度)。**真实 CLI `run()` (L1135) 同样受影响** ——
+`phi` 经可训练卷积层, 带梯度)。当时**真实 CLI `run()` 同样受影响** ——
 这是管线自身的 bug, 非测试引入。
 
-测试用 `replay=False` (跳过全部训练/微调), 因此 `torch.no_grad()` 包裹安全,
-且不改动管线内部。`scripts/slm/fouriergsnet_sim_train.py` 采用同一 workaround。
+`scripts/slm/fouriergsnet_sim_train.py` 曾用 `replay=False` + `torch.no_grad()` 绕过。
 
 ### 2.3 SETTLE_S=0.0
+
+> ⚠️ 2026-10-01：主脚本现为 `fouriergsnet_optimize.py:88 SETTLE_S = 0.2`，
+> 0.0 只是测试里 pin 的值。
 
 `_display_grayscale` 的 `time.sleep(settle_s)` 在 SETTLE_S=0.0 下为 no-op;
 SimSLM 内部无 sleep, 无需全局 monkeypatch `time.sleep`。
 
 ## 3. 发现 (供后续修复参考)
 
-### 3.1 L938 真实 bug (影响实验 CLI)
+> ⚠️ **2026-10-01：本节全部行号已漂移**（原文均基于旧版本 `fouriergsnet_optimize.py`）。
+> 已核对并更新：`closed_loop` L936-938 → **L941-943**；`run()` L1135 → **L1105**；
+> `_metrics` L905-910 → **L910-913**；`place_on_panel` L450 → **L445**；
+> `fouriergsnet_env.py` `configure_turbulence` L282 → **L309**、`advance_time` L320 → **L347**；
+> `utils/io/file.py` `Recorder` L221 → **L362**。
+> §3.3 的签名不匹配与 §3.4 的转置风险**仍然成立**（已复核 `slm200_constants.py:13`
+> 与 `fouriergsnet_env.py:67-68` 仍为 `(1920,1200)`，两个文件混用 `(宽,高)` 与
+> `(PANEL_H, PANEL_W)`）。
 
-`closed_loop` L936-938:
+### 3.1 `phi.detach()` bug — 影响实验 CLI ✅ 已修复
+
 ```python
-recorder.append({{"step": step, "uniformity": uni, "encircled": ee,
+recorder.append({"step": step, "uniformity": uni, "encircled": ee,
                  "inference_ms": dt, "ccd": I.cpu().numpy(),
-                 "phase": phi.cpu().numpy()}})
+                 "phase": phi.detach().cpu().numpy()})   # ← 2026-10-01 已修复
 ```
-`phi` 来自 `net(...)` 前向输出 (requires_grad=True)。`replay=True` (默认, 真实
-CLI) 下同样崩溃。修复方向: `phi.detach().cpu().numpy()`。
+`replay=True` (默认, 真实 CLI) 下曾同样崩溃。**现已修复，勿按旧描述再修一遍。**
 
 ### 3.2 均匀度恒为 0 的根因 (窄束下)
 
@@ -111,13 +132,18 @@ CLI) 下同样崩溃。修复方向: `phi.detach().cpu().numpy()`。
 
 ## 4. 运行方式
 
+> ⚠️ **2026-10-25：本节命令已不可运行。** `fouriergsnet_optimize.py`（仓库根独立脚本）已在
+> `f19dced5` 删除，`test_sim_fouriergsnet_pipeline.py` 与
+> `tests/ao_shaping/runners/test_fouriergsnet_optimize.py` 已在 `baefba2d` 删除。
+> §1 与 §5 的文件路径按 2026-09-22 当时的状态记录，保留为历史记录，不是现存代码。
+
 ```bash
 # 集成测试
 .venv/bin/python -m pytest tests/ao_shaping/drivers/sim/test_sim_fouriergsnet_pipeline.py -q
 
 # 回归集
-.venv/bin/python -m pytest tests/ao_shaping/drivers/sim/test_sim_fouriergsnet.py \\
-    tests/ao_shaping/drivers/sim/test_sim_fouriergsnet_turbulence.py \\
+.venv/bin/python -m pytest tests/ao_shaping/drivers/sim/test_sim_fouriergsnet.py \
+    tests/ao_shaping/drivers/sim/test_sim_fouriergsnet_turbulence.py \
     tests/ao_shaping/runners/test_fouriergsnet_optimize.py -q
 ```
 
@@ -136,18 +162,15 @@ CLI) 下同样崩溃。修复方向: `phi.detach().cpu().numpy()`。
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "-o", "--output-dir", default="report/fouriergsnet_pipeline",
-        help="输出目录 (默认: report/fouriergsnet_pipeline)",
+        "-o", "--output-dir", default=_REPORT_DIR,
+        help="输出目录 (默认: " + _REPORT_DIR + ")",
     )
     args = parser.parse_args()
 
     out_dir = (_REPO_ROOT / args.output_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     out_file = out_dir / "report.md"
-    out_file.write_text(
-        REPORT.format(date=datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-        encoding="utf-8",
-    )
+    out_file.write_text(REPORT, encoding="utf-8")
     print(f"Report written to {out_file}")
 
 

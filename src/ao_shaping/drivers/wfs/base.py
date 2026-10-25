@@ -65,11 +65,14 @@ class BaseWFS(Device, ABC):
 
     @staticmethod
     def calc_n_zernike_terms(n: int) -> int:
-        """到径向阶次 ``n`` (含 piston) 为止的 Zernike 项数。
+        """WFS 系数数组的**长度**: 径向阶次 ``n`` 以内的全部 Zernike 项, 再加一个空槽。
 
-        与 :func:`~ao_shaping.utils.wavefront.zernike_calc.calc_n_zernike_terms`
-        恰好相差 piston 项: WFS 的 slope 拟合带着这一项, 而 canonical 辅助函数不计。
-        这里只保留唯一一份实现, 避免两者在无人察觉的情况下各自漂移。
+        DLL 按 **1 基** 填充 ``coeff[1..N]``, ``index 0`` 既不写入也不使用 (消费侧的
+        ``w = w[1:]`` 就是这个约定, 见 ``tools/wfs/zernike_response.py``), 所以该长度比
+        :func:`~ao_shaping.utils.wavefront.zernike_calc.calc_n_zernike_terms` 的**项数**多 1。
+        多出来的那一个**不是系数** —— canonical 的项数本身已含 piston —— 而是 0 号空槽。
+        两个量各自对自己的消费者正确, 但绝不能混用。这里只保留唯一一份实现,
+        避免在无人察觉的情况下各自漂移。
         """
         return _canonical_calc_n_zernike_terms(n) + 1
 

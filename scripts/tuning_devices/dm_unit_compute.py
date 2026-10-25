@@ -82,7 +82,12 @@ def visualize_with_pygame(title="Image Visualization"):
     wfs.pupil = wfs.optimize_pupil()
 
     try:
-        assert running
+        # Explicit exit, not `assert running`: `python -O` strips the assert, which
+        # would leave this generator running forever and never reach the finally
+        # that closes the WFS. A generator `return` ends iteration and still runs
+        # the finally.
+        if not running:
+            return
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -117,8 +122,6 @@ def visualize_with_pygame(title="Image Visualization"):
         pygame.display.flip()
         clock.tick(30)  # 30 FPS
         yield
-    except AssertionError:
-        pass
     finally:
         wfs.close()
         pygame.quit()

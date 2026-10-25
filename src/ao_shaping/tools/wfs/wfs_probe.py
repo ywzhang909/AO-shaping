@@ -36,7 +36,7 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.slm import Santec
-from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
+from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS, WfsError
 from ao_shaping.tools.zernike.common import (
     WFS_EXPOSURE_SAFETY_MAX_MS,
     require_wfs_exposure_within_safety_ceiling,
@@ -123,7 +123,7 @@ def main(params: WfsProbeParams) -> int:
         wfs.take_image(n_sample=1, dynamicNoiseCut=True)
         try:
             intensity, (cent_x, cent_y) = wfs.get_spots_statics()
-        except AssertionError:
+        except WfsError:
             logger.error("get_spots_statics 需要关闭 high speed mode")
             raise
         arr = np.asarray(intensity, dtype=float)
@@ -159,8 +159,6 @@ def main(params: WfsProbeParams) -> int:
             click.echo("[INFO] --no-save: pupil 未写回")
 
         ok = True
-    except AssertionError as e:
-        click.echo(f"[FAIL] 断言失败: {e}")
     except Exception as e:
         logger.exception("探针失败")
         click.echo(f"[FAIL] {type(e).__name__}: {e}")

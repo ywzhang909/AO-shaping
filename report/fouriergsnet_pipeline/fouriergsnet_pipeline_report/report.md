@@ -4,7 +4,7 @@
 > **生成脚本**: [`scripts/slm/generate_fouriergsnet_pipeline_report.py`](../../../scripts/slm/generate_fouriergsnet_pipeline_report.py)
 > **复现命令**: `python scripts/slm/generate_fouriergsnet_pipeline_report.py`
 > **运行环境**: 离线
-> **说明**: 5 项集成测试的结果记录
+> **说明**: 2026-09-22 集成测试记录（冻结：正文与生成时间逐字重发；被测脚本已在 f19dced5 删除，测试已在 baefba2d 删除）
 <!-- provenance:end -->
 
 **本轮结论**：FourierGSNet 离线管线通过全部 5 项端到端集成测试与 21 项回归测试（≈29 s），结论：(1) 管线在数字孪生环境（K_px=256、窄束 w0=1.0）下功能自洽——自适应 GS 初始化、闭环记录结构、静态像差下闭环精修（均匀度 +0.03）、OU 湍流逐帧跟踪均验证通过；(2) 测试暴露并修复了管线自身 bug：`closed_loop` 对带梯度张量调用 `.numpy()`（已于 2026-10-01 在源头修复，`phi.detach()`）；(3) 两项实验系统隐患被仿真掩盖，实验前必须处理：**PANEL_RES 转置不匹配**（真实驱动 (宽,高)=(1920,1200)，管线按 (h,w) 使用，仿真侧恰好抵消）与均匀度指标对"未填满 ROI"的固有低估（测试 3/4 因此改用确定性断言）；(4) 默认宽束配置在 K_px=256 下远场退化为亚像素点导致"工作区无信号"，窄束配置为必要前提。
@@ -108,6 +108,11 @@ recorder.append({"step": step, "uniformity": uni, "encircled": ee,
   h,w 约定) 匹配管线 → **仿真掩盖了实验上的转置不匹配**。
 
 ## 4. 运行方式
+
+> ⚠️ **2026-10-25：本节命令已不可运行。** `fouriergsnet_optimize.py`（仓库根独立脚本）已在
+> `f19dced5` 删除，`test_sim_fouriergsnet_pipeline.py` 与
+> `tests/ao_shaping/runners/test_fouriergsnet_optimize.py` 已在 `baefba2d` 删除。
+> §1 与 §5 的文件路径按 2026-09-22 当时的状态记录，保留为历史记录，不是现存代码。
 
 ```bash
 # 集成测试

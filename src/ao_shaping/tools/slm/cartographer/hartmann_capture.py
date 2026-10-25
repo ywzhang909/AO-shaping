@@ -153,8 +153,6 @@ class HartmannCapture:
 
     def configure_wfs(self) -> None:
         """Apply configuration to WFS device."""
-        assert self._wfs.is_connected(), "WFS device must be opened first"
-
         # Set exposure time (0 = auto)
         if self.config.exposure_time_ms > 0:
             self._wfs.exposure_time = self.config.exposure_time_ms
@@ -195,7 +193,6 @@ class HartmannCapture:
         Returns:
             HartmannMeasurement with saved reference centroids.
         """
-        assert self._wfs.is_connected(), "WFS device must be opened first"
         logger.info(f"Capturing reference Hartmann spots: {label}")
 
         # Capture spots with averaging
@@ -249,7 +246,6 @@ class HartmannCapture:
         Returns:
             HartmannMeasurement with displacements and optional wavefront.
         """
-        assert self._wfs.is_connected(), "WFS device must be opened first"
         assert self._reference_saved, "Call capture_reference() first"
 
         logger.info(f"Capturing measurement Hartmann spots: {label}")
@@ -265,17 +261,16 @@ class HartmannCapture:
         wavefront = None
         wavefront_stats: dict[str, float] = {}
 
-        if wavefront_device is not None or True:
-            wfs_for_wf = wavefront_device if wavefront_device else self._wfs
-            try:
-                wf, stats = wfs_for_wf.get_wavefront(
-                    cancel_tile=self.config.cancel_tilt
-                )
-                wavefront = wf
-                wavefront_stats = {k: float(v) for k, v in stats.items()}
-                logger.debug(f"Wavefront RMS: {wavefront_stats.get('rms', 'N/A')}")
-            except Exception as e:
-                logger.warning(f"Wavefront reconstruction failed: {e}")
+        wfs_for_wf = wavefront_device if wavefront_device else self._wfs
+        try:
+            wf, stats = wfs_for_wf.get_wavefront(
+                cancel_tile=self.config.cancel_tilt
+            )
+            wavefront = wf
+            wavefront_stats = {k: float(v) for k, v in stats.items()}
+            logger.debug(f"Wavefront RMS: {wavefront_stats.get('rms', 'N/A')}")
+        except Exception as e:
+            logger.warning(f"Wavefront reconstruction failed: {e}")
 
         measurement = HartmannMeasurement(
             timestamp=time.strftime("%Y-%m-%dT%H:%M:%S"),

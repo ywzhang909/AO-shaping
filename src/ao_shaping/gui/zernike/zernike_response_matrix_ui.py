@@ -13,7 +13,9 @@ Usage:
 from __future__ import annotations
 
 import json
+import queue
 import sys
+import threading
 import time
 import types
 from datetime import datetime
@@ -634,10 +636,12 @@ def _display_calibration_result_summary(result) -> None:
 # ── Progress callback ────────────────────────────────────────────────────────
 
 
-def _progress_callback(progress_data: dict) -> None:
+def _progress_callback(progress_file: str | None, progress_data: dict) -> None:
     """Write progress data to JSON file for UI polling.
 
     Args:
+        progress_file: Progress JSON path handed in by the calling thread; this
+            callback runs off the main thread and must not touch st.session_state.
         progress_data: Dictionary containing progress information with keys like:
             - current_mode: Current Zernike mode being calibrated
             - total_modes: Total number of modes to calibrate
@@ -646,7 +650,6 @@ def _progress_callback(progress_data: dict) -> None:
             - timestamp: ISO format timestamp
     """
     try:
-        progress_file = st.session_state.get("zrm_progress_file")
         if progress_file:
             with open(progress_file, "w") as f:
                 json.dump(progress_data, f)
@@ -668,11 +671,17 @@ def _run_calibration_thread(
     compute_inverses,
     verbose,
     save_path,
+    progress_file: str | None,
+    stop_event: threading.Event,
+    out_q: queue.Queue,
 ) -> None:
     """Run calibration in a background thread and update progress.
 
     This function runs the calibration in a separate thread, writing progress
-    updates to a JSON file that the UI can poll.
+    updates to a JSON file that the UI can poll. It never touches
+    st.session_state: the result travels back on ``out_q`` as a
+    ``("result", obj)`` tuple and ``stop_event`` is self-set in the ``finally``
+    so the main thread can reconcile the terminal state.
     """
     try:
         total_modes = calc_n_zernike_terms(n_max) - (1 if excluded_piston else 0) - (2 if excluded_tip_tilt else 0)
@@ -681,7 +690,7 @@ def _run_calibration_thread(
         def callback(mode_index: int, total_modes: int, mean_resp: np.ndarray, var_resp: np.ndarray) -> None:
             # Calculate progress percentage
             percent = ((mode_index + 1) / total_modes) * 100.0
-            _progress_callback({
+            _progress_callback(progress_file, {
                 "current_mode": mode_index,
                 "total_modes": total_modes,
                 "percent": percent,
@@ -712,7 +721,7 @@ def _run_calibration_thread(
         save_zernike_response_matrix(result, str(save_path))
 
         # Write completion status
-        _progress_callback({
+        _progress_callback(progress_file, {
             "current_mode": total_modes,
             "total_modes": total_modes,
             "percent": 100.0,
@@ -722,19 +731,19 @@ def _run_calibration_thread(
             "result_path": str(save_path),
         })
 
-        # Store result in session state (will be picked up on next rerun)
-        st.session_state.zrm_calibration_result = result
+        # Hand the result to the main thread via the queue (picked up on next rerun)
+        out_q.put(("result", result))
 
     except Exception as e:
         logger.exception(f"Calibration thread error: {e}")
-        _progress_callback({
+        _progress_callback(progress_file, {
             "percent": -1,
             "message": f"Calibration failed: {e}",
             "timestamp": datetime.now().isoformat(),
             "status": "error",
         })
     finally:
-        st.session_state.zrm_calibration_running = False
+        stop_event.set()
 
 
 @st.fragment(run_every=0.5)
@@ -749,6 +758,20 @@ def _render_calibration_polling() -> None:
     progress_bar = st.empty()
     status_text = st.empty()
     status_text.warning("校准进行中...")
+
+    # Drain the worker queue: only this main-thread fragment writes session_state.
+    out_q = st.session_state.get("zrm_calib_queue")
+    if out_q is not None:
+        while True:
+            try:
+                kind, payload = out_q.get_nowait()
+            except queue.Empty:
+                break
+            if kind == "result":
+                st.session_state.zrm_calibration_result = payload
+    stop_event = st.session_state.get("zrm_calib_stop_event")
+    if stop_event is not None and stop_event.is_set():
+        st.session_state.zrm_calibration_running = False
 
     # Read progress from JSON file
     progress_file = st.session_state.get("zrm_progress_file")
@@ -1193,8 +1216,11 @@ def render_calibrate_mode() -> None:
         st.session_state.zrm_calibration_running = True
         st.session_state.zrm_calib_full_rerun_done = False
 
-        # Start calibration in background thread
-        import threading
+        # Start calibration in background thread (Event/Queue built on the main thread)
+        stop_event = threading.Event()
+        out_q: queue.Queue = queue.Queue()
+        st.session_state.zrm_calib_stop_event = stop_event
+        st.session_state.zrm_calib_queue = out_q
 
         calibration_thread = threading.Thread(
             target=_run_calibration_thread,
@@ -1212,6 +1238,9 @@ def render_calibrate_mode() -> None:
                 st.session_state.zrm_compute_inverses,
                 st.session_state.zrm_verbose,
                 save_path,
+                st.session_state.zrm_progress_file,
+                stop_event,
+                out_q,
             ),
             daemon=True,
         )

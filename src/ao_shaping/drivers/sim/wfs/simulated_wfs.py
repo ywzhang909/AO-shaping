@@ -396,6 +396,11 @@ class SimulatedWFS(BaseWFS):
 
         微米是 WFS 的历史契约。调用方在做任何 waves 相关的运算之前, 必须先用
         ``zernike_utils.um_to_waves()`` 换算。piston 报为零, 因为传感器测不到它。
+
+        ⚠️ 这里的**排序与长度与硬件驱动并不相同**: 本仿真按 0 基 **Noll** 序返回
+        ``calc_n_zernike_terms(n)`` 长 (defocus 落在 ``[3]``), 而 ``ThorlabWFS`` 按 1 基
+        **顺序 m** 序返回多一个空槽 (defocus 落在 ``[5]``)。为驱动写的 ``w[1:]`` / ``w[5]``
+        用到这里会取到别的模式。统一到哪一侧见 ``drivers/wfs/AGENTS.md`` 的未决条目。
         """
         fit_rad = self._zernike_radians(zernike_order)
         n_all = self._n_modes(zernike_order)

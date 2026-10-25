@@ -79,6 +79,14 @@ from pathlib import Path
 import numpy as np
 from loguru import logger
 
+# `scripts._common` lives under the repo root, so the root -- not just this
+# package directory -- has to be importable for a bare `python scripts/ccd/<name>.py`.
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from scripts._common import escape_md_cell
+
 # Tolerances for the checks (see module docstring).
 PREMISE_PEAK_MIN = 100.0  # counts; scene must be clearly lit
 LIT_FRACTION_MIN = 0.5  # "basically all pixels have light"
@@ -1013,7 +1021,11 @@ def _write_report(path: Path, results: dict, config: dict,
     for c in results["checks"]:
         verdict = ("记录" if c["passed"] is None
                    else ("通过" if c["passed"] else "**未通过**"))
-        lines.append(f"| `{c['check']}` | {verdict} | {c['detail']} |")
+        # Escaped at RENDER time only. The identical detail text is stored raw in
+        # results.json, and a backslash there would corrupt the data artifact; and the
+        # text carries `mean|diff|=`, which splits a GFM cell if left bare.
+        lines.append(f"| `{escape_md_cell(c['check'])}` | {verdict} | "
+                     f"{escape_md_cell(c['detail'])} |")
     lines.append("")
     lines.append(f"![四联图：响应图 / 台阶扫描 / 切换测试 / 迭代轨迹]({fig_rel})")
     lines.append("")

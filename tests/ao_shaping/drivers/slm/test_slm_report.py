@@ -311,9 +311,14 @@ class TestSLMReport:
             print(f"\nReport saved to: {report.report_path}")
 
 
-def test_slm_standalone_report():
-    """Standalone test that can run without pytest (simulation mode)."""
-    with TestReport("slm-200") as report:
+def test_slm_standalone_report(tmp_path: Path):
+    """Standalone test that can run without pytest (simulation mode).
+
+    ``device_dir`` overrides the harness default ``docs/<device>/``: this test is
+    simulation-only, so writing its artifact into the checkout would litter the
+    working tree and fail outright wherever the repo is mounted read-only.
+    """
+    with TestReport("slm-200", device_dir=str(tmp_path)) as report:
         report.add_section("SLM-200 Simulation Test", 2)
         report.add_text("This test runs without hardware using simulated data.")
 

@@ -2,19 +2,19 @@
 
 Usage:
     # Train phase map prediction (U-Net+GAN)
-    uv run python src/ao_shaping/ml/train.py train --data-dir data/slm_capture --epochs 100 --output-mode phase
+    uv run python -m ml.train train --data-dir data/slm_capture --epochs 100 --output-mode phase
 
     # Train Zernike coefficient prediction
-    uv run python src/ao_shaping/ml/train.py train --data-dir data/slm_capture --epochs 100 --output-mode coeffs --input-mode combined
+    uv run python -m ml.train train --data-dir data/slm_capture --epochs 100 --output-mode coeffs --input-mode combined
 
     # Train with specific input mode
-    uv run python src/ao_shaping/ml/train.py train --data-dir data/slm_capture --input-mode focus --output-mode coeffs
+    uv run python -m ml.train train --data-dir data/slm_capture --input-mode focus --output-mode coeffs
 
     # Run wandb sweep
-    uv run python src/ao_shaping/ml/train.py sweep --data-dir data/slm_capture --output-mode coeffs
+    uv run python -m ml.train sweep --data-dir data/slm_capture --output-mode coeffs
 
     # Inference
-    uv run python src/ao_shaping/ml/train.py predict --checkpoint checkpoints/best.pt --data-dir data/slm_capture
+    uv run python -m ml.train predict --checkpoint checkpoints/best.pt --data-dir data/slm_capture
 
 Note:
     - UNet: phase map output (requires --target-phase-dir for training data)

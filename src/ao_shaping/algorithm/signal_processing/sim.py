@@ -183,5 +183,3 @@ class VectorAdaptiveOptics:
             Ey = Ey - 0.1 * dEy
 
         return Ex, Ey
-
-# ================== 6. 主程序 ==================

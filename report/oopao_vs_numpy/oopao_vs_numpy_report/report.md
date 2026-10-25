@@ -76,7 +76,7 @@ focal  = focal_plane(field, cfg, f)           # ← 后端不变
 | `strehl` | `clip(max(I_focal) / max(I_ideal), 0, 1)`, 理想值每场景只算一次 (与仿真后端分支无关) |
 | `fwhm_px` | 过峰值的**行剖面 / 列剖面**各求半高宽 (阈值交点线性插值) 后取平均 |
 | `ee_r4` | 圆心取 `argmax` (仓库"0 级 = argmax"约定)、半径 `4 × 衍射极限 FWHM` 的包围能量占比 |
-| `energy_frac` | `Σ|propagate 输出|² / Σ|输入场|²` (角谱能量守恒比) |
+| `energy_frac` | `Σ\|propagate 输出\|² / Σ\|输入场\|²` (角谱能量守恒比) |
 
 **播种与确定性**: 每个仿真后端分支都 (a) 向 `turbulence_phase` 显式传 `rng=np.random.default_rng(seed)`, (b) 在切换仿真后端分支时执行 `np.random.seed(seed)` —— 遗留 numpy 路径在 `rng=None` 时回落到全局 RNG, 而 `TraditionalAOSystem._sample_turbulence_phase` 恰好不传 rng。两个仿真后端分支的相位屏**不会**相同 (生成器不同), 这是预期且正确的, 不做任何"对齐"处理。
 
