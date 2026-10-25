@@ -2262,8 +2262,14 @@ def _cli_command_inventory() -> dict[str, set[str]]:
     golden_path = REPO / "tests/ao_shaping/runners/cli_help_golden.json"
     if golden_path.exists():
         import json
-        keys = json.loads(golden_path.read_text(encoding="utf-8"))
-        golden = {k for k in keys if ":" not in k}          # module-scoped keys carry ':'
+        # Schema of the merged snapshot (built by ``runners/cli_help_snapshot.py``): every key
+        # is ``<module>:<name>`` with a companion ``<key>:exit``, and the probe tools add
+        # ``tools.*`` entries. Only the ``main:`` group's names are top-level CLI commands.
+        golden = {
+            parts[1]
+            for parts in (k.split(":") for k in json.loads(golden_path.read_text(encoding="utf-8")))
+            if len(parts) == 2 and parts[0] == "main"
+        }
 
     docstring = ast.get_docstring(ast.parse(main_src)) or ""
     in_docstring = _docstring_commands(docstring)
