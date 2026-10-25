@@ -9,6 +9,21 @@ GPU is visible, and GPU float32 does not match CPU float32 bit for bit -- the
 golden would then only reproduce on machines with the same GPU. Pinning the
 device keeps the trace reproducible everywhere.
 
+The loss history is compared with a tolerance, not bit for bit. It was compared
+exactly when the golden was written, on the claim that it "agreed to the last
+digit across library versions" -- measured, that claim does not hold: on
+torch 2.14.0 / numpy 2.4.4 iteration 3 comes out as 3.176971197128296 against
+the pinned 3.176970958709717, i.e. 7.5e-8 relative, exactly one float32 ULP
+(2.38e-7 absolute at that magnitude). It is not a threading artefact -- the
+value is identical for torch.set_num_threads(1/2/4/8/16) -- so it is the FFT /
+BLAS kernel differing between library builds. An exact compare therefore makes
+the golden red on any machine whose torch build differs in one kernel, which
+pins less, not more. The tolerance is calibrated against the mutation this
+golden exists to catch (Adam ``lr * 1.01``, the mutation used when the golden
+was written): that moves the trace by 2.6e-4 relative, 3456x more than the
+cross-build drift. So ``LOSS_REL_TOL = 1e-6`` sits 13x above the drift and 259x
+below the mutation.
+
 The golden is regenerated with::
 
     AO_DIFF_SHAPING_GOLDEN_UPDATE=1 pytest tests/ao_shaping/algorithm/test_differentiable_shaping_golden.py
@@ -30,6 +45,10 @@ from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
 
 GOLDEN = Path(__file__).with_name("differentiable_shaping_golden.json")
 UPDATE = os.environ.get("AO_DIFF_SHAPING_GOLDEN_UPDATE") == "1"
+
+#: See the module docstring: 13x the measured cross-build drift (7.5e-8),
+#: 259x below the lr*1.01 mutation this golden is meant to catch (2.6e-4).
+LOSS_REL_TOL = 1e-6
 
 
 def _square_target(size: int = 16) -> np.ndarray:
@@ -94,9 +113,20 @@ def test_numeric_trace_matches_the_golden() -> None:
         )
         expected = json.loads(GOLDEN.read_text(encoding="utf-8"))
 
-    # The loss history is compared exactly: it is the sequence the split must
-    # not move, and it agreed to the last digit across library versions.
-    assert trace["loss_history"] == expected["loss_history"]
+    # The loss history is the sequence the split must not move. Compared with a
+    # calibrated tolerance, not bit for bit -- see the module docstring for the
+    # measurement (1 float32 ULP of drift between torch builds, 3456x less than
+    # the lr*1.01 mutation). Length and ordering stay exact: a split that drops
+    # or reorders an iteration must still fail here.
+    assert len(trace["loss_history"]) == len(expected["loss_history"]), (
+        f"loss history length moved: {len(trace['loss_history'])} != "
+        f"{len(expected['loss_history'])}"
+    )
+    for i, (got, want) in enumerate(zip(trace["loss_history"], expected["loss_history"])):
+        assert abs(got - want) <= LOSS_REL_TOL * max(1.0, abs(want)), (
+            f"loss_history[{i}] moved: {got} != {want} "
+            f"(rel {abs(got - want) / max(1.0, abs(want)):.3e} > {LOSS_REL_TOL:.0e})"
+        )
     assert trace["iterations"] == expected["iterations"]
     assert trace["converged"] == expected["converged"]
 
