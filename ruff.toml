@@ -141,6 +141,9 @@ ignore = [
 "tests/ao_shaping/scripts/*" = ["E402"]
 "tests/ao_shaping/algorithm/test_gs_runner_shapes.py" = ["E402"]
 "tests/ao_shaping/algorithm/test_gs_viz.py" = ["E402"]
+# optional-dependency gate: `torch = pytest.importorskip("torch")` must run
+# before the imports it protects (same pattern as test_differentiable_shaping).
+"tests/ao_shaping/algorithm/test_metric_layers_agree.py" = ["E402"]
 "tests/ao_shaping/optimizer/wfless/test_adaptive_trust_region.py" = ["E402"]
 "tests/ao_shaping/optimizer/wfless/test_slm_model_in_loop_loop_invariants.py" = ["E402"]
 "tests/ao_shaping/optimizer/wfless/test_slm_model_in_loop_uncertainty.py" = ["E402"]

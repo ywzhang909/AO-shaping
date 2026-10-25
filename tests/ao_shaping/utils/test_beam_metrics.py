@@ -4,7 +4,8 @@ Pins the exact current behavior of the pure-NumPy beam-shaping metrics
 (compute_beam_metrics, compute_shaping_metrics, compute_square_metrics,
 compute_quality_score, measure_bright_span, clamp_side,
 measure_spot_diameter_cam, intensity_to_amplitude, normalize_pattern,
-zero_order_center, median_zero_order_center).
+zero_order_center, median_zero_order_center, and the issue #199 R3 shared
+primitives masked_cv / masked_energy_fraction).
 
 These tests are intentionally read-only anchors: they describe what the
 source does today so future refactors of callers can be verified against
@@ -32,6 +33,8 @@ from ao_shaping.utils.image.beam_metrics import (
     m2_from_focus_stack,
     m2_marechal_crosscheck,
     m2_reference_relative,
+    masked_cv,
+    masked_energy_fraction,
     measure_bright_span,
     measure_spot_diameter_cam,
     median_zero_order_center,
@@ -305,6 +308,76 @@ class TestComputeSquareMetrics:
         assert m["encircled_energy"] == 0.0
         assert m["flatness_factor"] == 0.0
         assert m["aspect_ratio"] == 1.0  # single bright pixel -> 1x1
+
+
+class TestMaskedMetricPrimitives:
+    """issue #199 R3 的单一事实来源: ``masked_cv`` / ``masked_energy_fraction``。
+
+    四个历史消费者 (``compute_square_metrics`` / ``compute_shaping_metrics`` /
+    ``image_metrics`` / ``_metrics_at`` 非方路径 / 探针 ``metrics``) 的退化
+    策略与下限防护保留在各自调用点; 这里只钉原语自身的定义与边界。
+    """
+
+    def test_cv_is_std_over_mean(self):
+        values = np.array([[1.0, 2.0], [3.0, 4.0]])
+        # mean = 2.5, std = sqrt(1.25)
+        assert masked_cv(values) == pytest.approx(math.sqrt(1.25) / 2.5)
+
+    def test_cv_accepts_boolean_mask_and_basic_index(self):
+        frame = np.arange(16, dtype=float).reshape(4, 4)
+        mask = np.zeros((4, 4), dtype=bool)
+        mask[1:3, 1:3] = True
+        expected = float(np.std(frame[1:3, 1:3]) / np.mean(frame[1:3, 1:3]))
+        assert masked_cv(frame, mask) == pytest.approx(expected)
+        assert masked_cv(frame, (slice(1, 3), slice(1, 3))) == pytest.approx(expected)
+
+    def test_cv_empty_mask_returns_zero(self):
+        assert masked_cv(np.ones((4, 4)), np.zeros((4, 4), dtype=bool)) == 0.0
+
+    def test_cv_non_positive_or_nan_mean_returns_zero(self):
+        assert masked_cv(np.zeros((4, 4))) == 0.0
+        assert masked_cv(np.full((4, 4), -3.0)) == 0.0
+        assert masked_cv(np.array([[np.nan, 1.0]])) == 0.0
+
+    def test_cv_floor_is_a_denominator_guard_only(self):
+        # 复现 compute_square_metrics 的 max(mean, 1e-10): 均值低于 floor 时
+        # 分母取 floor, 而不是退化为 0。
+        varying = np.array([[0.0, 2e-12]], dtype=np.float64)
+        assert masked_cv(varying, floor=1e-10) == pytest.approx(1e-12 / 1e-10)
+        assert masked_cv(varying) == pytest.approx(1.0)
+
+    def test_cv_float32_input_keeps_float32_arithmetic(self):
+        """image_metrics 的调用方传 float32 相机帧, 历史行为是 float32 除法。"""
+        values = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+        expected = float(np.float32(values.std()) / np.float32(values.mean()))
+        assert masked_cv(values) == expected
+
+    def test_ee_zero_or_negative_total_returns_zero(self):
+        mask = np.ones((3, 3), dtype=bool)
+        assert masked_energy_fraction(np.zeros((3, 3)), mask) == 0.0
+        assert masked_energy_fraction(np.full((3, 3), -1.0), mask) == 0.0
+
+    def test_ee_mask_selects_numerator_only(self):
+        frame = np.array([[1.0, 2.0], [3.0, 4.0]])
+        mask = np.array([[True, False], [False, False]])
+        assert masked_energy_fraction(frame, mask) == pytest.approx(1.0 / 10.0)
+        assert masked_energy_fraction(frame) == 1.0
+
+    def test_ee_floor_reproduces_the_historical_denominators(self):
+        frame = np.full((4, 4), 1e-12)  # total 16e-12
+        assert masked_energy_fraction(frame, floor=1e-10) == pytest.approx(16e-12 / 1e-10)
+        assert masked_energy_fraction(frame, floor=1.0) == pytest.approx(16e-12 / 1.0)
+        assert masked_energy_fraction(frame) == 1.0
+
+    def test_ee_nonnegative_clips_numerator_and_denominator(self):
+        frame = np.array([[-5.0, 5.0]])
+        assert masked_energy_fraction(frame, nonnegative=True) == 1.0
+        assert masked_energy_fraction(frame) == 0.0
+
+    def test_ee_nan_total_propagates(self):
+        """NaN 原样传播: 旧 ``_metrics_at`` 的 0.0 掩蔽不再保留 (预处理帧契约为
+        有限值; 其余三个 R3 站点在 R3 前本就返回 NaN)。"""
+        assert math.isnan(masked_energy_fraction(np.array([[np.nan, 1.0]])))
 
 
 class TestComputeQualityScore:

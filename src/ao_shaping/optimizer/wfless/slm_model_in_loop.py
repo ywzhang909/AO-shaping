@@ -2149,11 +2149,20 @@ def _metrics_at(
 
     Returns:
         The metric dict from
-        :func:`~ao_shaping.utils.image.beam_metrics.compute_square_metrics`.
+        :func:`~ao_shaping.utils.image.beam_metrics.compute_square_metrics`
+        (square path). The non-square path builds the same keys itself; its
+        ``uniformity_cv`` / ``encircled_energy`` share the definition with the
+        square path via
+        :func:`~ao_shaping.utils.image.beam_metrics.masked_cv` /
+        :func:`~ao_shaping.utils.image.beam_metrics.masked_energy_fraction`
+        (issue #199 R3), keeping only its own mask geometry and degenerate
+        policy.
     """
     from ao_shaping.utils.image.beam_metrics import (
         compute_shape_iou,
         compute_square_metrics,
+        masked_cv,
+        masked_energy_fraction,
     )
 
     if target_shape == "square":
@@ -2179,15 +2188,13 @@ def _metrics_at(
         (int(center[1]) - image.shape[0] // 2, int(center[0]) - image.shape[1] // 2),
         axis=(0, 1),
     )
-    values = image[target > 0.5]
-    total = float(np.maximum(image, 0).sum())
+    support = target > 0.5
+    values = image[support]
     mean = float(np.mean(values)) if values.size else 0.0
     return {
-        "uniformity_cv": float(np.std(values) / mean) if mean > 0 else 0.0,
-        "encircled_energy": float(np.maximum(values, 0).sum() / total)
-        if total > 0
-        else 0.0,
-        "shape_iou": compute_shape_iou(image, target > 0.5),
+        "uniformity_cv": masked_cv(image, support),
+        "encircled_energy": masked_energy_fraction(image, support, nonnegative=True),
+        "shape_iou": compute_shape_iou(image, support),
         "intensity_max": float(image.max()),
         "intensity_mean": mean,
     }

@@ -271,7 +271,15 @@ class UniformityObjective:
             raise ValueError("weights must be non-negative")
 
     def cv(self, image, mask=None):
-        """掩膜内变异系数平方（对 ``image`` 可微）。"""
+        """掩膜内变异系数**平方** (对 ``image`` 可微)。
+
+        定义 = :func:`~ao_shaping.utils.image.beam_metrics.masked_cv` 的平方
+        (issue #199 R3 两层结构: numpy 原语是唯一口径, 本方法是保持可微的
+        torch 薄封装; 一致性契约见
+        ``tests/ao_shaping/algorithm/test_metric_layers_agree.py``)。均值经
+        ``clamp_min(eps)`` 防护, 因此均值低于 ``eps`` 时与原语的 ``0.0``
+        退化策略**有意**不同 —— 优化器需要有限的梯度。
+        """
         torch = _torch()
         mask_t = torch.as_tensor(mask if mask is not None else self.mask_core, device=image.device)
         values = image[mask_t]

@@ -1836,3 +1836,56 @@ golden 浮点噪声）、脚本 smoke import、square_target 逐位一致；ruff
   golden 浮点噪声，与基线一致）。
 
 ---
+
+### 5.41 CV/EE 指标收敛到 numpy 原语 + torch 薄封装（issue #199 step 5，2026-10-25）
+
+**问题**（R3）：同一"框内 CV + ROI 能量"有四份口径——
+`multishape_objective.ShapeObjective`（torch）/ `image_metrics`（numpy）、
+`differentiable_defocus_uniformity.UniformityObjective.cv`（torch 损失）、
+`hw_square_carrier_probe.metrics`（自带内联盒/核，CV 用
+`sqrt(mean((v/m-1)²))`、EE 用 `max(total, 1.0)`）、
+`beam_metrics.compute_square_metrics`（区域切片 + `max(., 1e-10)` 下限）。
+transfer 判定与 bench 指标若漂移，报告数字不可比。
+
+**改动**：
+- `utils/image/beam_metrics.py` 新增两个 numpy 原语（R3 的唯一口径）：
+  `masked_cv(intensity, mask=None, *, floor=0.0)`（`std/mean`；空选或均值
+  非正 → `0.0`）与 `masked_energy_fraction(intensity, mask=None, *,
+  floor=0.0, nonnegative=False)`（掩膜能量/全帧能量；总能量非正 →
+  `0.0`）。`mask` 接受布尔数组或基础索引元组（半开盒切片）；**不转换
+  dtype**（float32 调用方保持 float32 累计与相除，复现 `image_metrics`
+  的历史行为）。`floor` / `nonnegative` 复现各调用点的历史下限/截断口径；
+  退化策略（`0.0` / `None` / `nan`）保留在调用点——那是消费者契约，不是
+  指标定义。
+- 消费者改薄封装：`compute_square_metrics`（1e-10 下限）、
+  `compute_shaping_metrics`（同模块内存量，一并收敛）、`image_metrics`
+  （`None` 退化 + 1e-9 下限）、`_metrics_at` 非方路径（非负截断；issue
+  清单之外的同定义存量，顺手收敛）、探针 `metrics`（`nan` 退化 + 1.0
+  下限）。
+- 探针盒/核几何委托 `build_box_core_masks`。**关键细节**：`_erode` 除盒
+  边界外还腐蚀**数组**边界，而旧内联公式只相对中心内缩；因此按内缩量
+  （3 px）边衬后再委托、裁回画幅，"盒被画幅裁剪"才不与"内缩"叠加，两者
+  逐位一致。
+- torch 侧（`UniformityObjective.cv` / `ShapeObjective` 的 `cv2`）公式不
+  动、保持可微，只补两层结构文档；一致性由契约测试钉住
+  （`torch == numpy²`，float32 容差 1e-4 / float64 1e-9）。
+
+**验证（逐位）**：前后比对脚本内嵌 R3 前的四份内联实现作参照，1091 例合成
+输入（float32/float64/uint16/int64/均匀/全零/单像素/NaN/画幅裁剪/半整数
+中心/边外中心/边长 2~84.85）全部逐位一致。唯一差异：① 探针 CV 的数学形式
+`sqrt(mean((v/m-1)²))` → `std/mean`（代数等价，ULP 级）；② 边长 < 8 px 时
+旧 `max(1, half-3)` 钳位不再保留（实际量级 PSF FWHM 24 px）——均在提交信息
+与 `test_metric_layers_agree.py` 中显式记录。
+- 新测试：`test_metric_layers_agree.py`（torch==numpy 契约；`image_metrics` /
+  探针 `metrics` 的 R3 前内联孪生参照；边衬委派与旧盒核逐位一致；小边长
+  分歧在案）+ `test_beam_metrics.py::TestMaskedMetricPrimitives`。
+- 套件：utils 1410 passed；algorithm 776 passed（仅存量
+  differentiable-shaping golden index-2 浮点噪声）；tools 与 wfless 直接
+  消费者通过；`test_device_mutex` 父进程判定失败在未改动 HEAD 的只读克隆
+  上同样复现（沙箱进程树环境问题，非本次引入）。
+- 不在 R3 范围（不同退化策略/层，保持独立，已在提交信息记录）：
+  `square_shaping.uniformity_cv` / `power_in_bucket`（+inf 退化、仿真
+  canonical）、`slm_square_shaping.square_encircled_energy`（<1e-10 守卫）、
+  `ml/gsnet/evaluate.py` 自带指标、`transfer/fit.py::metrics`（全帧 CV）。
+
+---

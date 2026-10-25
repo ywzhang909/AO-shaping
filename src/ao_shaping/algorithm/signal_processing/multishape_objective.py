@@ -19,7 +19,12 @@ def target_at(xy, shape, centre, side):
 
 
 class ShapeObjective:
-    """CV plus shape fidelity and window energy, on one frozen camera grid."""
+    """CV plus shape fidelity and window energy, on one frozen camera grid.
+
+    ``cv2`` 是 :func:`~ao_shaping.utils.image.beam_metrics.masked_cv` 的**平方**
+    (issue #199 R3: numpy 指标层 + torch 薄封装两层; 两层的一致性由
+    ``tests/ao_shaping/algorithm/test_metric_layers_agree.py`` 钉住)。
+    """
 
     def __init__(self, target, *, cv_only=False):
         self.cv_only = bool(cv_only)
@@ -34,6 +39,8 @@ class ShapeObjective:
 
         target = torch.as_tensor(self.target, device=image.device)
         core = image[torch.as_tensor(self.core, device=image.device)]
+        # CV^2 == masked_cv(image, self.core)**2 (R3 两层结构); clamp_min 让
+        # 均值趋零时损失有限、梯度不炸 (与 numpy 原语的 0.0 退化策略有意不同)。
         cv2 = ((core/core.mean().clamp_min(1e-9)-1)**2).mean()
         total = image.sum().clamp_min(1e-9)
         energy = image[torch.as_tensor(self.box, device=image.device)].sum()/total
@@ -46,11 +53,22 @@ class ShapeObjective:
 
 
 def image_metrics(image, objective):
-    core = np.asarray(image)[objective.core]
-    mean = float(core.mean())
-    return dict(cv=float(core.std()/mean) if mean > 0 else None, mean=mean,
-                ee_roi=float(image[objective.box].sum()/max(float(image.sum()), 1e-9)),
-                target_peak=float(image[objective.box].max()))
+    """实测帧在目标区域上的指标 (issue #199 R3: 委托 beam_metrics 原语)。
+
+    本函数曾是 "框内 CV + ROI 能量" 的四份内联口径之一; 现 CV/EE 走
+    :func:`~ao_shaping.utils.image.beam_metrics.masked_cv` /
+    :func:`~ao_shaping.utils.image.beam_metrics.masked_energy_fraction`。
+    ``cv`` 的退化策略保持 ``None`` (transfer 的种子判定把"无功率"与"完全
+    均匀"区分开), 与原语的 ``0.0`` 不同 —— 这是调用点契约, 不是指标定义。
+    """
+    from ao_shaping.utils.image.beam_metrics import masked_cv, masked_energy_fraction
+
+    frame = np.asarray(image)
+    core_values = frame[objective.core]
+    mean = float(core_values.mean())
+    return dict(cv=masked_cv(frame, objective.core) if mean > 0 else None, mean=mean,
+                ee_roi=masked_energy_fraction(frame, objective.box, floor=1e-9),
+                target_peak=float(frame[objective.box].max()))
 
 
 def anchored_intensity(measured, prediction, baseline_prediction):

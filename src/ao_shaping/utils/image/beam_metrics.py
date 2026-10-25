@@ -6,6 +6,8 @@
 兼容重新导出这些名称。
 
 - 二维强度图上的光斑 / 光束测量。
+- 掩码指标原语 ``masked_cv`` / ``masked_energy_fraction`` —— issue #199 R3 后
+  全仓 "框内 CV + ROI 能量" 口径的单一事实来源 (torch 侧为可微软封装)。
 - 掩码感知整形指标 (均匀度变异系数, 环围能量)。
 - 方形光束指标 + 组合质量评分。
 - 图案归一化 / 振幅转换。
@@ -15,9 +17,10 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
+import numpy.typing as npt
 from loguru import logger
 
 from ao_shaping.utils.image.spots_calc import centroid, radius
@@ -29,6 +32,8 @@ __all__ = [
     "compute_beam_metrics",
     "compute_shaping_metrics",
     "compute_shape_iou",
+    "masked_cv",
+    "masked_energy_fraction",
     "zero_order_exclusion_mask",
     "compute_square_metrics",
     "compute_quality_score",
@@ -172,6 +177,90 @@ def compute_beam_metrics(
     return {"mse": mse, "correlation": corr, "efficiency": efficiency}
 
 
+# ---------------------------------------------------------------------------
+# 掩码指标原语: issue #199 R3 的全仓唯一口径
+# ---------------------------------------------------------------------------
+def _masked_values(
+    intensity: np.ndarray,
+    mask: npt.NDArray[np.bool_] | tuple[Any, ...] | None,
+) -> np.ndarray:
+    """按 ``mask`` 选值: ``None`` = 全体; 布尔数组; 基础索引元组 (如切片)。"""
+    image = np.asarray(intensity)
+    return image if mask is None else image[mask]
+
+
+def masked_cv(
+    intensity: np.ndarray,
+    mask: npt.NDArray[np.bool_] | tuple[Any, ...] | None = None,
+    *,
+    floor: float = 0.0,
+) -> float:
+    """掩膜内强度的变异系数 ``std / mean`` (issue #199 R3 的唯一口径)。
+
+    R3 之前 "框内 CV" 有四份实现 —— :func:`compute_square_metrics` 的区域版、
+    ``multishape_objective.image_metrics``、
+    ``slm_model_in_loop._metrics_at`` 的非方路径、
+    ``hw_square_carrier_probe.metrics`` —— 分子分母与退化策略各不相同; 现全部
+    收敛到本函数。各自的退化策略 (``0.0`` / ``None`` / ``nan``) 保留在调用点:
+    那是消费者契约, 不是指标定义。
+
+    Args:
+        intensity: 二维强度数组。**不转换 dtype**: float32 输入即按 float32
+            累计与相除 (``image_metrics`` 的调用方传 float32 相机帧, 其历史
+            行为就是 float32 除法)。
+        mask: ``None`` = 对 ``intensity`` 全体统计; 布尔数组按掩码选; 也接受
+            基础索引元组 (如 ``(slice(y0, y1), slice(x0, x1))``), 供半开盒
+            区域使用 (:func:`compute_square_metrics`)。
+        floor: 均值分母的下限防护, 复现调用点的历史口径
+            (:func:`compute_square_metrics` 用 ``max(mean, 1e-10)``)。
+
+    Returns:
+        变异系数; 掩膜为空或均值非正 (含 NaN) 时返回 ``0.0``, 绝不返回
+        NaN/inf。
+    """
+    values = _masked_values(intensity, mask)
+    if values.size == 0:
+        return 0.0
+    mean = values.mean()
+    if not mean > 0:
+        return 0.0
+    return float(values.std() / max(mean, floor))
+
+
+def masked_energy_fraction(
+    intensity: np.ndarray,
+    mask: npt.NDArray[np.bool_] | tuple[Any, ...] | None = None,
+    *,
+    floor: float = 0.0,
+    nonnegative: bool = False,
+) -> float:
+    """掩膜内能量占全帧能量的比例 (issue #199 R3 的唯一口径)。
+
+    与 :func:`masked_cv` 同源: R3 之前 EE 有 ``max(total, 1e-10)`` /
+    ``max(total, 1e-9)`` / ``max(total, 1.0)`` / 非负截断四种口径, 现由
+    ``floor`` 与 ``nonnegative`` 两个开关复现, 定义本身只有一条。
+
+    Args:
+        intensity: 二维强度数组 (同样不转换 dtype)。
+        mask: 同 :func:`masked_cv`。
+        floor: 分母下限防护 (各调用点的历史口径: 1e-10 / 1e-9 / 1.0 / 无)。
+        nonnegative: 分子分母都先把负强度截断为 0
+            (``slm_model_in_loop._metrics_at`` 非方路径的口径: 读噪声的负计数
+            不计入能量)。
+
+    Returns:
+        能量占比; 全帧总能量非正时返回 ``0.0``。
+    """
+    image = np.asarray(intensity)
+    if nonnegative:
+        image = np.maximum(image, 0.0)
+    total = float(image.sum())
+    if total <= 0.0:
+        return 0.0
+    values = image if mask is None else image[mask]
+    return float(values.sum() / max(total, floor))
+
+
 def compute_shaping_metrics(
     intensity: np.ndarray,
     mask: np.ndarray,
@@ -226,17 +315,11 @@ def compute_shaping_metrics(
             "in_mask_mean": 0.0,
         }
 
-    in_mask = intensity[mask]
-    in_mask_mean = float(in_mask.mean())
-    in_mask_std = float(in_mask.std())
-    uniformity_cv = in_mask_std / in_mask_mean if in_mask_mean > 0 else 0.0
-    encircled_energy = float(in_mask.sum()) / total
-
     return {
-        "uniformity_cv": float(uniformity_cv),
-        "encircled_energy": float(encircled_energy),
+        "uniformity_cv": masked_cv(intensity, mask),
+        "encircled_energy": masked_energy_fraction(intensity, mask),
         "peak": float(intensity.max()),
-        "in_mask_mean": in_mask_mean,
+        "in_mask_mean": float(intensity[mask].mean()),
     }
 
 
@@ -324,7 +407,9 @@ def compute_square_metrics(
     Returns:
         包含 ``aspect_ratio``, ``squareness``, ``uniformity_cv``,
         ``encircled_energy``, ``flatness_factor``, ``intensity_max``,
-        ``intensity_mean`` 的字典。
+        ``intensity_mean`` 的字典。``uniformity_cv`` / ``encircled_energy``
+        走 :func:`masked_cv` / :func:`masked_energy_fraction`
+        (issue #199 R3 的唯一口径)。
     """
     intensity = np.asarray(intensity, dtype=np.float64)
     total = float(np.sum(intensity))
@@ -360,12 +445,14 @@ def compute_square_metrics(
     y1 = min(cy + half, h)
     x0 = max(cx - half, 0)
     x1 = min(cx + half, w)
-    region = intensity[y0:y1, x0:x1]
-    region_mean = float(np.mean(region))
-    region_std = float(np.std(region))
-    uniformity_cv = region_std / max(region_mean, 1e-10) if region_mean > 0 else 0.0
-
-    encircled_energy = float(np.sum(region)) / max(total, 1e-10)
+    # 半开盒切片 (取整到整像元) —— 与闭合盒的目标几何 (R1 收敛后的
+    # build_box_core_masks) 是两套口径, 此处保持实测帧上的历史行为。
+    region = (slice(y0, y1), slice(x0, x1))
+    region_mean = float(np.mean(intensity[region]))
+    # CV/EE 走 issue #199 R3 的共享原语; ``max(., 1e-10)`` 下限是本函数的
+    # 历史口径, 由 ``floor`` 复现。
+    uniformity_cv = masked_cv(intensity, region, floor=1e-10)
+    encircled_energy = masked_energy_fraction(intensity, region, floor=1e-10)
     flatness_factor = region_mean / max(peak, 1e-10) if peak > 0 else 0.0
 
     return {

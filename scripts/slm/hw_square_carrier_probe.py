@@ -27,12 +27,19 @@ import sys
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "libs"))
 
+from ao_shaping.utils.image.beam_metrics import masked_cv, masked_energy_fraction
+from ao_shaping.utils.image.target.masks import build_box_core_masks
 from ao_shaping.utils.image.target.patterns import create_target_shape
 from ao_shaping.utils.wavefront.zero_order_overlay import (
     OverlayParams,
     apply_zero_order_overlay,
     predicted_shift_px,
 )
+
+
+#: 目标框 CV 的内缩量 (CCD px)。``metrics`` 委托 ``build_box_core_masks``
+#: 时用它同时作边衬宽度与内缩量, 两者一致才能复现旧距离公式的语义。
+_INNER_SHRINK_PX = 3.0
 
 
 def square_target(size_grid: int, side_px: float, centre: tuple[int, int]) -> np.ndarray:
@@ -63,21 +70,39 @@ def carrier_overlay_params(period_px: float, axis: str) -> OverlayParams:
 
 def metrics(frame: np.ndarray, centre_xy: tuple[float, float], side_px: float,
             zero_xy: tuple[float, float]) -> dict:
-    """整帧上算：目标框 CV/EE/均值/峰值 + 与 0 级的距离与峰值比。"""
+    """整帧上算：目标框 CV/EE/均值/峰值 + 与 0 级的距离与峰值比。
+
+    CV/EE 委托 canonical
+    :func:`~ao_shaping.utils.image.beam_metrics.masked_cv` /
+    :func:`~ao_shaping.utils.image.beam_metrics.masked_energy_fraction`
+    (issue #199 R3：本函数曾经自带第四份口径)，盒/核几何委托
+    :func:`~ao_shaping.utils.image.target.masks.build_box_core_masks`。
+    退化策略保持 ``nan`` —— 硬件探索脚本要把"无功率"显式区别于"完全均匀"。
+
+    几何委派细节: 内缩核经 ``_INNER_SHRINK_PX`` 边衬后构造再裁回画幅。
+    ``_erode`` 除了腐蚀盒边界还会腐蚀**数组**边界, 而旧内联公式只相对中心
+    内缩、不在画幅边缘额外腐蚀; 边衬让"盒被画幅裁剪"与"内缩 3 px"不叠加,
+    两者因此逐位一致。唯一保留的行为差异: 边长 < 8 px 时旧的
+    ``max(1, half-3)`` 钳位不再保留 (内缩核为空 ⇒ ``mean``/``cv`` 为
+    ``nan``); 本探针的实际目标量级是 PSF FWHM 24 px。
+    """
     height, width = frame.shape
     col, row = centre_xy
-    half = side_px / 2.0
-    yy, xx = np.mgrid[:height, :width]
-    box = (np.abs(xx - col) <= half) & (np.abs(yy - row) <= half)
-    inner = (np.abs(xx - col) <= max(1.0, half - 3.0)) & (np.abs(yy - row) <= max(1.0, half - 3.0))
+    pad = int(_INNER_SHRINK_PX)
+    box_padded, inner_padded = build_box_core_masks(
+        (height + 2 * pad, width + 2 * pad), (col + pad, row + pad), side_px, _INNER_SHRINK_PX, (1.0, 1.0)
+    )
+    box = box_padded[pad : pad + height, pad : pad + width]
+    inner = inner_padded[pad : pad + height, pad : pad + width]
     values = frame[inner]
     mean = float(values.mean()) if values.size else float("nan")
-    cv = float(np.sqrt((((values / mean) - 1) ** 2).mean())) if mean > 0 else float("nan")
+    cv = masked_cv(frame, inner) if mean > 0 else float("nan")
     zero_col, zero_row = zero_xy
+    yy, xx = np.mgrid[:height, :width]
     zero_box = (np.abs(xx - zero_col) <= 8) & (np.abs(yy - zero_row) <= 8)
     return dict(
         target_mean=mean, target_peak=float(frame[box].max()) if box.any() else float("nan"),
-        cv=float(cv), ee=float(frame[box].sum() / max(frame.sum(), 1.0)),
+        cv=float(cv), ee=masked_energy_fraction(frame, box, floor=1.0),
         zero_peak=float(frame[zero_box].max()) if zero_box.any() else float("nan"),
         separation_px=float(np.hypot(col - zero_col, row - zero_row)),
         zero_in_target=float(frame[box & zero_box].sum() / max(frame[box].sum(), 1.0)),
@@ -107,7 +132,6 @@ def main() -> None:
     from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
         FrozenDefocusForward, UniformityObjective, load_frozen_parameters, recentre_window,
     )
-    from ao_shaping.utils.image.target.masks import build_box_core_masks
 
     params = load_frozen_parameters(args.checkpoint)
     grid = params.grid_size
