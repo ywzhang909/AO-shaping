@@ -91,6 +91,7 @@ from ao_shaping.utils.wavefront.zernike_calc import (
 )
 from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
 from ml.sim2f.config import AberrationConfig, Sim2fConfig
+from ml.sim2f._device import _resolve_device
 
 __all__ = [
     "AberrationState",
@@ -113,23 +114,6 @@ DEFAULT_COVARIANCE_PATH = (
 #: Floor used when reducing a ``(cos, sin)`` pair to an angle, so an exactly zero
 #: phasor resolves to angle 0 instead of NaN.
 _PHASOR_EPS = 1e-12
-
-
-def _resolve_device(device: str | torch.device) -> torch.device:
-    """Resolve ``"auto"`` to CUDA when available.
-
-    Args:
-        device: ``"auto"``, a device string (``"cpu"``, ``"cuda:1"``) or a
-            :class:`torch.device`.
-
-    Returns:
-        The concrete :class:`torch.device`.
-    """
-    if isinstance(device, torch.device):
-        return device
-    if device == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return torch.device(device)
 
 
 def _overlap_matrix(pixels: int, cells: int, ratio: float) -> np.ndarray:

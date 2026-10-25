@@ -55,11 +55,11 @@ from ml.sim2f.losses import (
     shaping_metrics,
     to_phasor,
 )
+from ml.sim2f._device import _resolve_device
 from ml.sim2f.model import build_unet, network_input
 from ml.sim2f.schema import CACHE_FILE
 from ml.sim2f.train import (
     _build_sim,
-    _resolve_device,
     load_corpus,
 )
 

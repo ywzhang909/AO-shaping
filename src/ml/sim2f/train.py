@@ -64,6 +64,7 @@ from loguru import logger
 from torch import Tensor
 
 from ml.sim2f.config import OpticsErrors, Sim2fConfig, TeacherConfig, TrainConfig
+from ml.sim2f._device import _resolve_device
 from ml.sim2f.losses import (
     piston_free_phasor_l1,
     physics_loss,
@@ -515,22 +516,6 @@ def seed_everything(seed: int) -> None:
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(value)
     logger.debug("seeded python/numpy/torch with {}", value)
-
-
-def _resolve_device(spec: str | torch.device) -> torch.device:
-    """Resolve ``"auto"`` to CUDA when available.
-
-    Args:
-        spec: ``"auto"``, ``"cuda"``, ``"cpu"`` or a device.
-
-    Returns:
-        A concrete :class:`torch.device`.
-    """
-    if isinstance(spec, torch.device):
-        return spec
-    if str(spec) == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return torch.device(str(spec))
 
 
 def _apply_determinism(enabled: bool) -> None:

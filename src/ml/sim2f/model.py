@@ -49,6 +49,7 @@ from loguru import logger
 from torch import Tensor
 
 from ml.sim2f.config import Sim2fConfig, TrainConfig
+from ml.sim2f._device import _resolve_device
 from ml.sim2f.losses import as_frame, forward_image
 
 __all__ = ["Sim2fUNet", "build_unet", "network_input"]
@@ -338,22 +339,6 @@ class Sim2fUNet(nn.Module):
         real = raw[:, 0:1] * mask + (1.0 - mask)
         imag = raw[:, 1:2] * mask
         return torch.cat([real, imag], dim=1)
-
-
-def _resolve_device(spec: str | torch.device) -> torch.device:
-    """Resolve ``"auto"`` to CUDA when available.
-
-    Args:
-        spec: ``"auto"``, ``"cuda"``, ``"cpu"`` or a device.
-
-    Returns:
-        A concrete :class:`torch.device`.
-    """
-    if isinstance(spec, torch.device):
-        return spec
-    if str(spec) == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return torch.device(str(spec))
 
 
 def build_unet(

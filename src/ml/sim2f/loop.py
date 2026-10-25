@@ -72,6 +72,7 @@ from loguru import logger
 from torch import Tensor
 
 from ml.sim2f.config import AberrationConfig, LoopConfig, Sim2fConfig, TeacherConfig
+from ml.sim2f._device import _resolve_device
 from ml.sim2f.fit import (
     DEFAULT_LADDER_EXPOSURES,
     FitConfig,
@@ -126,22 +127,6 @@ _GEOMETRY_FIELDS: tuple[str, ...] = (
 # ----------------------------------------------------------------------
 # Setup helpers
 # ----------------------------------------------------------------------
-def _resolve_device(spec: str | torch.device) -> torch.device:
-    """Resolve ``"auto"`` to CUDA when available.
-
-    Args:
-        spec: ``"auto"``, a device string or a :class:`torch.device`.
-
-    Returns:
-        A concrete device.
-    """
-    if isinstance(spec, torch.device):
-        return spec
-    if str(spec) == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return torch.device(str(spec))
-
-
 def _check_geometry(label: Sim2fConfig, bench: Sim2fConfig) -> None:
     """Require the loop bench to share the corpus' geometry.
 
