@@ -2600,6 +2600,45 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
        `tests/ao_shaping/optimizer/wf/test_matrix_dict_json_safety.py` 两个类各 5 条全绿；改动文件编译通过；
        CI 钉版 ruff **0.15.12** 全绿（先前那条 F401 正是 dm `to_dict` 漏改的证据）；全树自赋值残留 **0**。
 
+63. ✅ **四个 npy+JSON 附属文件之间没有任何一致性检查：`to_dict` 声明的形状字段写了但从不读，混装的一套文件能静默加载**（2026-10-26）：
+     - **先记下被推翻的假设（我一开始找错了东西）**：顺着第 62 条我怀疑 `ZernikeSLMResponseMatrixResult`
+       也有同一个 JSON 缺陷，因为 `save_zernike_slm_response_matrix` 里有一个**活的**
+       `json.dump(result.to_dict(), f, indent=2)`。读完整对保存/加载后**假设作废**：这个 `to_dict` 是
+       **刻意只写元数据**的（矩阵走三个 `.npy` 附属文件，`from_dict` 再显式接收数组），且
+       `matrix_shape` 是 tuple —— `json.dumps` 会把 tuple 当列表，根本不会抛。既有测试还把 tuple 拼写
+       钉住了（`d["matrix_shape"] == (100, 10)`），所以**不应**把它「统一」成 list。
+     - **真正站住的是跨文件一致性**：一次标定落盘四个文件，但加载路径从不互相校验，且
+       `to_dict` 写出的 `matrix_shape` / `n_spots` / `n_modes` **没有任何读取方**。后果具体且严重：
+       `apply_zernike_correction` 用 `pinv_matrix` 乘斜率向量，而 `pinv_matrix` 来自独立的
+       `.pinv.npy` —— 一个重新生成或从别次标定拷来的附属文件会被**无声**接受。这与第 57 条
+       `from_response_matrix` 的形状守卫是同一族问题。
+     - **RED 先行，并把兼容性当作前置需求写进测试**：先跑新测试得 **4 failed（全部
+       `DID NOT RAISE`）/ 2 passed**。通过的这两条不是巧合，而是我**动手前就写下**的约束：一致的一套
+       必须照常加载；**元数据里没有声明形状字段的旧文件也必须照常加载**（所以修复只对
+       「字段存在时」做校验，不是必填）。
+     - **修复落在 `from_dict`（唯一由元数据构造的入口，加载器与直接调用方都覆盖）**：
+       `variance_matrix` 形状必须等于 `matrix`；`pinv_matrix` 形状必须等于
+       `(matrix.shape[1], matrix.shape[0])`（口径取自 `utils/wavefront/matrix_utils.py:compute_pinv`
+       的文档：`(m, n) -> (n, m)`）；声明字段 `matrix_shape` / `n_spots` / `n_modes` **存在即校验**。
+       报错一律把涉及的全部形状写进消息，沿用第 57 条的口径。
+     - **差分控制证明三组检查各自受力、测试之间不耦合**：只删声明字段那一段（18 行）⇒
+       **恰好**两条声明字段测试变红，`variance` 与 `pinv` 两条仍绿（2 failed / 4 passed）。
+     - **我自己的操作错误（第 23 次）**：做差分控制前我**在打补丁之前**备份了文件，于是
+       `cp` 回滚把**整个修复**一起抹掉了，而 `cmp` 与备份「一致」看起来像成功。唯一暴露它的是我在
+       恢复后顺手打印的 `git diff --stat` —— **输出为空**。规则：差分控制的还原点必须是**修复后**的
+       状态（这次另存 `/tmp/im_FIXED.py`），且恢复后要凭 diff 构成确认修复仍在，不能只看「文件存在」。
+       重新打上守卫后复验 diff 为 **42 insertions / 1 deletion**，那 1 行删除是我用多行 docstring
+       替换掉原先那一行单行 docstring，**不是**连带损伤。
+     - **改动面实测收敛**：树内引用该类与这套附属文件的只有 `interaction_matrix.py` 自己
+       （GUI / scripts / runners 都不读这套附属文件），且仓库**没有**提交任何 `.npy` / `.json` 样例，
+       所以收紧加载器不会破坏任何在库调用方。**没有为这一条新加 conventions 守卫**：「加载时校验形状」
+       无法在不针对具体落盘格式的情况下指纹化，锁它的就是这 6 条测试本身。
+     - **验证**：`optimizer/wf` + `runners` + `utils/wavefront` + conventions
+       **829 passed / 27 skipped / 2 failed**（失败对仍是既有 `pib_exit_safety` 那对）；新测试
+       `tests/ao_shaping/optimizer/wf/test_zernike_slm_sidecar_consistency.py` 6 条全绿，与既有
+       `test_interaction_matrix_zernike.py` 合跑 **23 passed / 1 skipped**（该 skip 是既有的 mock 接口
+       不足）；改动文件编译通过；CI 钉版 ruff **0.15.12** 全绿。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

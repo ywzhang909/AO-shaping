@@ -262,7 +262,48 @@ class ZernikeSLMResponseMatrixResult:
         variance_matrix: np.ndarray,
         pinv_matrix: np.ndarray | None = None,
     ) -> "ZernikeSLMResponseMatrixResult":
-        """Create from dictionary and loaded arrays."""
+        """Create from dictionary and loaded arrays.
+
+        The matrices arrive from three separate ``.npy`` sidecars and the metadata from a fourth
+        file, so nothing in the load path otherwise proves they came from the same calibration:
+        one sidecar regenerated, or copied in from another run, would silently be multiplied
+        against a matrix it does not describe.
+
+        Declared shapes in the metadata are checked **only when present**, so files written
+        before those fields existed keep loading.
+        """
+        if variance_matrix.shape != matrix.shape:
+            raise ValueError(
+                f"variance_matrix shape {variance_matrix.shape} does not match matrix shape "
+                f"{matrix.shape}: the .variance.npy and .matrix.npy sidecars are not a pair"
+            )
+
+        if pinv_matrix is not None:
+            expected_pinv = (matrix.shape[1], matrix.shape[0])
+            if pinv_matrix.shape != expected_pinv:
+                raise ValueError(
+                    f"pinv_matrix shape {pinv_matrix.shape} is not the pseudoinverse of a matrix "
+                    f"shaped {matrix.shape} (expected {expected_pinv})"
+                )
+
+        declared = d.get("matrix_shape")
+        if declared is not None and tuple(declared) != tuple(matrix.shape):
+            raise ValueError(
+                f"metadata matrix_shape {tuple(declared)} disagrees with the loaded matrix "
+                f"{tuple(matrix.shape)}: the .json describes a different calibration"
+            )
+
+        for key, expected in (
+            ("n_spots", matrix.shape[0] // 2),
+            ("n_modes", matrix.shape[1]),
+        ):
+            value = d.get(key)
+            if value is not None and int(value) != expected:
+                raise ValueError(
+                    f"metadata {key} = {value} disagrees with the loaded matrix "
+                    f"{tuple(matrix.shape)} (expected {expected})"
+                )
+
         return cls(
             matrix=matrix,
             variance_matrix=variance_matrix,
