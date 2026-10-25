@@ -40,7 +40,12 @@ from loguru import logger
 from tqdm import tqdm
 
 from ao_shaping.utils.wavefront.matrix_utils import compute_lstsq, compute_pinv
-from ao_shaping.utils.wavefront.wfs_utils import flatten_slopes, truncated_mean
+from ao_shaping.utils.wavefront.wfs_utils import (
+    decode_amplitude_diagnostics,
+    encode_amplitude_diagnostics,
+    flatten_slopes,
+    truncated_mean,
+)
 
 if TYPE_CHECKING:
     from ao_shaping.drivers.dm.base import DM
@@ -205,8 +210,7 @@ class DMResponseMatrixResult:
             d["pinv_matrix"] = self.pinv_matrix.tolist()
         if self.lstsq_matrix is not None:
             d["lstsq_matrix"] = self.lstsq_matrix.tolist()
-        if self.amplitude_optimization is not None:
-            d["amplitude_optimization"] = self.amplitude_optimization
+        d["amplitude_optimization"] = encode_amplitude_diagnostics(self.amplitude_optimization)
         return d
 
     @classmethod
@@ -227,10 +231,9 @@ class DMResponseMatrixResult:
             d["lstsq_matrix"] = np.array(d["lstsq_matrix"])
         else:
             d["lstsq_matrix"] = None
-        if "amplitude_optimization" in d and d["amplitude_optimization"] is not None:
-            d["amplitude_optimization"] = d["amplitude_optimization"]
-        else:
-            d["amplitude_optimization"] = None
+        d["amplitude_optimization"] = decode_amplitude_diagnostics(
+            d.get("amplitude_optimization")
+        )
         return cls(**d)
 
 

@@ -3733,3 +3733,50 @@ def test_truncated_mean_is_not_reimplemented() -> None:
         "``truncated_mean`` instead -- the copies had already drifted in how they expressed "
         "the gate and in which file explained it."
     )
+def test_no_self_assignment_subscript() -> None:
+    """A statement of the shape ``x[k] = x[k]`` is a conversion that converts nothing.
+
+    Both matrix calibration results carried exactly that inside ``from_dict``, written right
+    after real ``.tolist()`` conversions so it read like one of them -- while ``to_dict``
+    went on advertising JSON output that ``json.dumps`` rejected, because the nested
+    per-mode diagnostics kept their numpy arrays.
+
+    The comparison is ``ast.unparse(target) == ast.unparse(value)``, not a (base, slice)
+    tuple: an earlier hand-rolled key function collapsed ``ast.JoinedStr`` slices to an empty
+    string and reported three legitimate GUI redirects of the form
+    ``st.session_state[f"{p}_mode"] = st.session_state[f"{p}_mode_input"]`` as self-assignments.
+    """
+    offenders: list[str] = []
+    unparsed: list[str] = []
+    scanned = 0
+    for path in (
+        sorted((SRC / "ao_shaping").rglob("*.py")) + sorted((REPO / "scripts").rglob("*.py"))
+    ):
+        rel = path.relative_to(REPO).as_posix()
+        scanned += 1
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"))
+        except SyntaxError:
+            unparsed.append(rel)
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+                continue
+            target, value = node.targets[0], node.value
+            if not (isinstance(target, ast.Subscript) and isinstance(value, ast.Subscript)):
+                continue
+            if ast.unparse(target) == ast.unparse(value):
+                offenders.append(f"{rel}:{node.lineno} {ast.unparse(node)}")
+
+    assert not unparsed, (
+        f"{len(unparsed)} file(s) could not be parsed, so this guard saw nothing inside them: "
+        f"{unparsed}"
+    )
+    assert scanned >= _MIN_WFS_UNWRAP_SCANNED, (
+        f"scanned {scanned} file(s), below the floor {_MIN_WFS_UNWRAP_SCANNED} -- the scope "
+        "stopped matching the tree."
+    )
+    assert not offenders, (
+        f"{len(offenders)} self-assignment site(s): {offenders}. A ``x[k] = x[k]`` statement "
+        "either duplicates the conversion above it or hides the fact that none is happening."
+    )

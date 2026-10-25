@@ -2563,6 +2563,43 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
        **596 passed / 26 skipped / 2 failed**；`scripts` **2442 passed / 64 skipped / 2 failed**（失败对
        仍是既有 `pib_exit_safety` 那对）；CI 钉版 ruff **0.15.12** 全绿；术语门 **0 个文件**。
 
+62. ✅ **两个标定结果的 `to_dict` 声称可 JSON 序列化却做不到：`amplitude_optimization` 分支是「自己赋值给自己」的空操作，转换根本没发生**（2026-10-26）：
+     - **先记录失败的普查工具（第三次同类错误）**：我试图用 AST 统计 h5 中「读到但从未写入」与
+       「写入但从未读取」的键名，两遍都不可信。第一遍漏 `create_group`，并把普通 dict 的 `.get()` /
+       下标当成 h5 句柄，捏造约 60 个键名；第二遍报「零命中」，却漏掉了两个加载器里以**局部变量**
+       为基名的读取（`opt_grp[...]`、`act_grp["test_voltages"][:]`），于是把 `amplitude_optimization`、
+       `test_amps`、`responses`、`linearity` 误判成「只写不读」。逐行读 `load_dm_response_matrix` 才确认它
+       **确实**恢复这些诊断，并把 `best_idx` / `optimal_voltage` 转成 `int` / `float` ⇒ h5 两条往返是对称的，
+       **普查结论作废，也不据它加守卫**。
+     - **站得住的是 dict/JSON 这条路径**：`ZernikeResponseMatrixResult.to_dict` 的 docstring 写
+       「转换为字典用于JSON序列化」，`DMResponseMatrixResult.to_dict` 写 "JSON-serializable dict
+       (ndarrays -> lists)"，两者对每个矩阵字段都 `.tolist()`，唯独 `amplitude_optimization` 分支写成
+       `d["amplitude_optimization"] = d["amplitude_optimization"]`：形状与上面的真转换一致，**什么都没转**。
+     - **RED 先行（改动前实测）**：新测试先跑出 **3 failed / 2 passed** —— `json.dumps` 抛
+       `TypeError: Object of type ndarray is not JSON serializable`、`0:test_amps stayed an array`、往返后
+       整数键变成字符串；**通过的两条**是「内存往返」与「None 保持 None」，所以修复必须保住它们，
+       而不是把现有行为改坏。
+     - **修复落在叶子层，只有一份实现**：`utils/wavefront/wfs_utils.py` 新增 `encode_amplitude_diagnostics` /
+       `decode_amplitude_diagnostics`（两个模块本来就从该模块 import，不新增依赖边），四个站点（两模块的
+       `to_dict` 与 `from_dict`）改为调用它们；numpy 标量也一并 `.item()`，因为 `json.dumps` 拒绝标量与拒绝
+       数组是同一件事。解码端把数组形状的字段还原为 ndarray、把 `best_idx` / `optimal_*` 转成 `int` /
+       `float`、把 JSON 变成字符串的索引键还原成 `int`，**与 h5 加载器已有口径对齐**。
+     - **新守卫用 `ast.unparse` 指纹**：`test_no_self_assignment_subscript` 冻结 `x[k] = x[k]` 这种
+       「看起来像转换」的语句。差分控制：植入 `scripts/_common/zz_probe_tmp.py` ⇒ 精确点名其中一处；
+       删除 ⇒ 绿。指纹必须是 `ast.unparse(target) == ast.unparse(value)`：我最初手写的（基名, 切片名）
+       比较把 `ast.JoinedStr` 折叠成空串，于是把 `gui/r50/r50_tabs.py` 里三条合法的
+       `st.session_state[f"{p}_mode"] = st.session_state[f"{p}_mode_input"]` 误报成自赋值 ⇒
+       **全树真实自赋值只有被我修掉的那 2 处**。
+     - **下游没被改到（实测）**：`amplitude_optimization` 的唯一外部消费者
+       `gui/zernike/zernike_response_matrix_ui.py` 读的是**内存里的结果对象**，不经 `to_dict`；树内没有
+       任何调用方对这两个类做 `json.dump`（此前 grep 命中的 `json.dump(result.to_dict())` 属于
+       cartographer 的另一个结果类）。所以这次是把一条**尚未被使用但已写坏**的公开契约修正正确，
+       不是改变任何现有行为。
+     - **验证**：`optimizer/wf` + `runners` + `utils/wavefront` + conventions **823 passed / 27 skipped /
+       2 failed**（失败对仍是既有 `pib_exit_safety` 那对）；新测试
+       `tests/ao_shaping/optimizer/wf/test_matrix_dict_json_safety.py` 两个类各 5 条全绿；改动文件编译通过；
+       CI 钉版 ruff **0.15.12** 全绿（先前那条 F401 正是 dm `to_dict` 漏改的证据）；全树自赋值残留 **0**。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
