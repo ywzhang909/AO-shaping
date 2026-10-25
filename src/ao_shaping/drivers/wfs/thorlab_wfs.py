@@ -30,7 +30,7 @@ from loguru import logger
 
 from ao_shaping.drivers.device_base import DeviceState, DeviceType
 from ao_shaping.drivers.wfs._registry import register_wfs
-from ao_shaping.drivers.wfs.base import BaseWFS
+from ao_shaping.drivers.wfs.base import BaseWFS, WfsZernikeLayout
 from ao_shaping.drivers.wfs._thorlab_wfs import (
     MAX_SPOTS,
     VI_NULL,
@@ -211,6 +211,7 @@ class ThorlabWFS(BaseWFS):
     manufacturer = "Thorlabs"
     model = "WFS"
     version = "1.0.0"
+    zernike_layout = WfsZernikeLayout.DLL_ONE_BASED_SEQUENTIAL_M
 
     @classmethod
     def from_params(cls, params: Any, **overrides: Any) -> Self:

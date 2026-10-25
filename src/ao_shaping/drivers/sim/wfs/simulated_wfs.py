@@ -57,7 +57,7 @@ from ao_shaping.drivers.sim import _oopao_compat as oopao
 from ao_shaping.drivers.sim.dm_optics import SimDmOptics
 from ao_shaping.drivers.sim.disturbance import DisturbanceConfig, SimDisturbance
 from ao_shaping.drivers.wfs._registry import register_wfs
-from ao_shaping.drivers.wfs.base import BaseWFS
+from ao_shaping.drivers.wfs.base import BaseWFS, WfsZernikeLayout
 from ao_shaping.utils.wavefront.zernike_utils import (
     generate_zernike_phase,
     list_zernike_modes,
@@ -101,6 +101,7 @@ class SimulatedWFS(BaseWFS):
 
     manufacturer = "Simulated"
     model = "SimulatedWFS"
+    zernike_layout = WfsZernikeLayout.NOLL_ZERO_BASED
 
     def __init__(
         self,

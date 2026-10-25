@@ -3396,3 +3396,117 @@ def test_term_count_entry_point_is_not_reimplemented() -> None:
         f"``{_TERM_COUNT_CANON}`` directly; a body that re-derives ``(n+1)(n+2)//2`` can "
         "disagree with the canonical count by the padding slot and nothing will raise."
     )
+
+
+#: The two WFS producers hand back Zernike coefficient vectors under index conventions that
+#: are NOT interchangeable. Measured 2026-10-25, offline: defocus (2,0) lands at index 3 on
+#: the twin and at slot 5 on the driver, with lengths 66 and 67 at order 10. The convention
+#: is therefore declared on the class (``BaseWFS.zernike_layout``) so a caller can branch on
+#: it instead of guessing. Validation is against the enum's own members -- not a hand-written
+#: string list, which is the kind of allowlist that rots.
+_WFS_BASE_NAME = "BaseWFS"
+_WFS_LAYOUT_ATTR = "zernike_layout"
+_WFS_LAYOUT_ENUM = "WfsZernikeLayout"
+_WFS_BASE_FILE = "src/ao_shaping/drivers/wfs/base.py"
+_MIN_WFS_DRIVERS = 2
+_MIN_WFS_DRIVER_FILES = 60
+
+
+def test_every_wfs_driver_declares_its_zernike_index_layout() -> None:
+    """Each concrete WFS driver states which Zernike index layout ``get_zernike`` returns.
+
+    A consumer that assumes one convention on the other device's vector does not crash: it
+    silently reads a different mode (``w[1:]`` on the twin drops a real coefficient, ``w[5]``
+    for defocus reads astigmatism). The declaration is only useful if it cannot be forgotten,
+    left untyped, or quietly collapsed to one value.
+    """
+    base_tree = ast.parse((REPO / _WFS_BASE_FILE).read_text(encoding="utf-8-sig"))
+
+    members: set[str] = set()
+    base_declares_layout = False
+    for node in ast.walk(base_tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        if node.name == _WFS_LAYOUT_ENUM:
+            for st in node.body:
+                if isinstance(st, ast.Assign):
+                    members |= {t.id for t in st.targets if isinstance(t, ast.Name)}
+        elif node.name == _WFS_BASE_NAME:
+            for st in node.body:
+                if isinstance(st, ast.AnnAssign) and isinstance(st.target, ast.Name):
+                    if st.target.id == _WFS_LAYOUT_ATTR:
+                        base_declares_layout = True
+
+    assert len(members) >= 2, (
+        f"``{_WFS_LAYOUT_ENUM}`` defines {len(members)} member(s); the guard validates "
+        f"declarations against them, so an empty or single-member enum proves nothing."
+    )
+    assert base_declares_layout, (
+        f"``{_WFS_BASE_NAME}`` no longer declares ``{_WFS_LAYOUT_ATTR}``, so the attribute "
+        "reads as unset on drivers that do not override it -- exactly the silent default this "
+        "guard exists to prevent."
+    )
+
+    offenders: list[str] = []
+    declared: dict[str, str] = {}
+    scanned = 0
+    for path in sorted((SRC / "ao_shaping" / "drivers").rglob("*.py")):
+        rel = path.relative_to(REPO).as_posix()
+        scanned += 1
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"))
+        except SyntaxError:
+            offenders.append(f"{rel}: <unparseable>")
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            bases = {
+                b.id if isinstance(b, ast.Name) else getattr(b, "attr", "")
+                for b in node.bases
+            }
+            if _WFS_BASE_NAME not in bases:
+                continue
+            value: ast.expr | None = None
+            for st in node.body:
+                if isinstance(st, ast.Assign) and any(
+                    isinstance(t, ast.Name) and t.id == _WFS_LAYOUT_ATTR for t in st.targets
+                ):
+                    value = st.value
+                elif isinstance(st, ast.AnnAssign) and isinstance(st.target, ast.Name):
+                    if st.target.id == _WFS_LAYOUT_ATTR:
+                        value = st.value
+            if (
+                not isinstance(value, ast.Attribute)
+                or not isinstance(value.value, ast.Name)
+                or value.value.id != _WFS_LAYOUT_ENUM
+                or value.attr not in members
+            ):
+                offenders.append(
+                    f"{rel}:{node.lineno}: class {node.name} declares no "
+                    f"``{_WFS_LAYOUT_ENUM}.<member>`` as ``{_WFS_LAYOUT_ATTR}``"
+                )
+                continue
+            declared[node.name] = value.attr
+
+    assert scanned >= _MIN_WFS_DRIVER_FILES, (
+        f"scanned {scanned} file(s) under ``src/ao_shaping/drivers``, below the floor "
+        f"{_MIN_WFS_DRIVER_FILES} -- the scope stopped matching the tree."
+    )
+    assert len(declared) >= _MIN_WFS_DRIVERS, (
+        f"only {len(declared)} WFS driver(s) declare a layout, below the floor "
+        f"{_MIN_WFS_DRIVERS} -- the finder stopped matching ``{_WFS_BASE_NAME}`` subclasses."
+    )
+    assert not offenders, (
+        f"{len(offenders)} WFS driver(s) without a valid ``{_WFS_LAYOUT_ATTR}`` "
+        "declaration:\n  " + "\n  ".join(offenders[:15])
+        + f"\nPick one ``{_WFS_LAYOUT_ENUM}.<member>`` that describes what ``get_zernike()`` "
+        "actually returns; do not invent a string."
+    )
+    assert len(set(declared.values())) >= 2, (
+        f"every WFS driver now declares the SAME layout ({declared}). They were measured to "
+        "differ -- defocus sits at index 3 on the twin and slot 5 on the driver (66 vs 67 "
+        "entries at order 10). Collapsing the declarations unifies a device-side boundary by "
+        "accident: if that unification is deliberate, update ``drivers/wfs/AGENTS.md`` and "
+        "ledger 8.9 items 49-50 in the same commit."
+    )

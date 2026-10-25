@@ -13,6 +13,7 @@ WFS 家族曾是唯一没有共享基类的设备家族: 真实驱动直接继�
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from enum import Enum
 
 import numpy as np
 
@@ -22,10 +23,26 @@ from ao_shaping.utils.wavefront.zernike_calc import (
 )
 
 
+class WfsZernikeLayout(Enum):
+    """``get_zernike()`` 返回向量的索引约定 —— 在对象上声明, 不靠调用方记忆。
+
+    两套约定都在用且**不可互换** (2026-10-25 实测, 见 ``drivers/wfs/AGENTS.md``):
+
+    * ``NOLL_ZERO_BASED``: 0 基、标准 Noll 序, 长度 = 项数, defocus 落在 ``[3]``。
+    * ``DLL_ONE_BASED_SEQUENTIAL_M``: 1 基、顺序 m 枚举, 长度 = 项数 + 1
+      (``[0]`` 不写不用), defocus 落在 ``[5]``。
+    """
+
+    NOLL_ZERO_BASED = "noll_zero_based"
+    DLL_ONE_BASED_SEQUENTIAL_M = "dll_one_based_sequential_m"
+
+
 class BaseWFS(Device, ABC):
     """波前传感器 (真实或仿真) 的抽象基类。"""
 
     device_type: DeviceType = DeviceType.WFS
+    #: 具体驱动必须覆盖它; 守卫见 ``tests/ao_shaping/test_conventions.py``。
+    zernike_layout: WfsZernikeLayout | None = None
     manufacturer: str = "Unknown"
     model: str = "BaseWFS"
 

@@ -66,6 +66,14 @@ WFS 家族曾是**唯一没有共享基类**的设备家族: `ThorlabWFS` 直接
 ⇒ 同一模式在两侧落在**不同槽位** (defocus: 孪生 3 / 驱动 5), 所以为驱动写的
 `w[1:]`、`w[5]` 这类下标用到孪生上会取到**另一个模式**, 且不报错。统一到哪一侧是
 **设备侧口径**决定 (需要 DLL 契约与既有落盘语料的口径), 本次**未改动**。
+
+**口径现已在对象上声明** (2026-10-25, 语义未改): `BaseWFS.zernike_layout` 取
+`WfsZernikeLayout` 枚举, 孪生声明 `NOLL_ZERO_BASED`、驱动声明
+`DLL_ONE_BASED_SEQUENTIAL_M`; 守卫
+`tests/ao_shaping/test_conventions.py::test_every_wfs_driver_declares_its_zernike_index_layout`
+要求每个具体驱动都声明该标记, 且两侧声明**互不相同** —— 若真要统一, 必须在同一个提交里
+同时改动这里的口径与那条守卫, 否则测试判失败。当前没有任何调用方按该标记分支, 它是
+可读的边界与护栏, 不是控制流。
 ⚠️ 该未决项**不波及** `runners/slm/zernike_matrix_runner.py:839/889` 的 `z0[1:]`: 那里的
 `z0` 来自 `measure_zernike`, 它正是 `tools/zernike/common.py` 的入口 (runner `:94` 导入),
 返回的是原始 67 长数组 (index 0 未用), 因此 `[1:]` 是**正确**用法。风险在别处: 新代码若按

@@ -2174,8 +2174,38 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     - **验证**：容器把 `test_conventions.py` + `drivers/wfs` + `drivers/sim` + `tools/wfs` + `optimizer/wf`
       合在同一次运行 ⇒ **692 passed / 15 skipped**（skip 全是硬件与可选 `rl` 组）；术语门禁 0 文件、
       `ruff check .` 全绿、`sync_report_provenance.py --check` clean、双夹注仅 `AGENTS.md` 与术语表两行。
-      ⚠️ 诚实边界：枚举正确性依据是**手册引文 + 既有实测**，本次**没有重新上实验系统** —— 「14/14 强对角」
-      是引用，不是本次复现。
+       ⚠️ 诚实边界：枚举正确性依据是**手册引文 + 既有实测**，本次**没有重新上实验系统** —— 「14/14 强对角」
+       是引用，不是本次复现。
+50. ✅ **第 49 项的孪生/驱动索引分歧按「不改语义」收尾，但「不改」不等于「看不见」——把口径声明到对象上，并让统一动作必须弄红一条守卫**（2026-10-25）：
+     - **口径是问出来的，不是我选的**：三条候选（仅文档 / 声明到对象 + 守卫 / 直接统一语义）里选了
+       中间那条。直接统一需要先拿到 DLL 契约与既有落盘语料的口径，那属设备侧决定。
+     - **机制**：`drivers/wfs/base.py` 新增 `WfsZernikeLayout` 两成员 `NOLL_ZERO_BASED` /
+       `DLL_ONE_BASED_SEQUENTIAL_M`；`BaseWFS.zernike_layout: WfsZernikeLayout | None = None`；
+       孪生声明前者、驱动声明后者，且放在与 `manufacturer` / `model` 同一个属性块里（两个驱动形状
+       一致，读代码的人不必猜哪套）。**没有任何调用方按它分支 ⇒ 语义零改动**，它是可读边界与护栏。
+     - **守卫** `test_every_wfs_driver_declares_its_zernike_index_layout`：按**名字与形状**判定 ——
+       每个 `BaseWFS` 子类必须在类体里把 `zernike_layout` 绑到 `WfsZernikeLayout.<成员>`；合法成员
+       集合从枚举的 AST 现取，**不写字符串白名单**（白名单自己会腐烂，是本会话反复防的那类）；
+       地板 `scanned >= 60`（实测 85 个驱动文件）与 `declared >= 2`；最后一条断言要求两侧声明
+       **互不相同**。
+     - **为什么把「互不相同」也钉住**：它是统一动作的护栏 —— 真要统一必须同一个提交里同时改
+       `drivers/wfs/AGENTS.md` 与这条守卫，否则测试判失败。「无声统一」从此变成显式违约。
+     - **差分四连**（守卫能红才叫守卫）：(1) 未跟踪探针放两个类（一个完全不声明、一个声明裸字符串
+       `"noll_zero_based"`）⇒ 两条拒绝路径都被点名；(2) 删探针 ⇒ 绿；(3) 把驱动声明折成与孪生同一
+       成员 ⇒ 命中「SAME layout」断言并打印两侧字典；(4) 复原 ⇒ 绿。
+     - **仪表自伤（本会话第 10 处，同类第 2 次）**：撤销第 (3) 步的实验改动时我用了
+       `git checkout -- src/ao_shaping/drivers/wfs/thorlab_wfs.py`，而该文件当时带着**未提交**的
+       本项改动（import 与标记）—— 未 `add` 时索引等于 HEAD，于是 checkout 把我的工作一并回滚，
+       差分 (4) 随之变红（第 43 项已记过同类一次）。规则：**撤销实验改动只用锚定的反向替换，
+       绝不对带未提交改动的文件用 `git checkout --`**。补做的脚本因 `assert` 前置检查在写入前
+       中止（报「import lost too」），assert-before-write 再次挡住了半成品。
+     - **验证**：`test_conventions.py` 52 → **53 passed / 1 skipped**；`drivers/wfs` + `drivers/sim` +
+       `tools/wfs` + `optimizer/wf` 同一次运行 **640 passed / 14 skipped**（扩展 import 在运行期
+       可解析，不只是 AST 里存在）；`test_lazy_driver_loading.py` 10 passed；术语门禁 0 文件、
+       `ruff check .` 全绿。⚠️ 一次 `oxpy` 导入自检失败是**我用错工具**：沙箱只有标准库，
+       `base.py → zernike_calc → scipy` 必然 `ModuleNotFoundError`，运行期证明只能在容器里做。
+     - **有意不做的两处**：`__all__` 不加该枚举（消费方从定义模块 import，与两个驱动同路径，
+       不扩公开符号面）；统一到哪一侧与 `drivers/slm/AGENTS.md:131` 的 Noll2/Noll3 轴标签仍留设备侧。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
