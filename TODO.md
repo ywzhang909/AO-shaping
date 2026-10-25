@@ -1813,12 +1813,42 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       起点设在门那一行导致 body 为空，一次对**类方法内部**带缩进的片段直接 `ast.parse` ⇒ `IndentationError`，
       须先 `textwrap.dedent`）—— 两次都在写盘**之前**抛出，`git diff --stat` 证明没有留下半成品；
       (4) 教训同上：**同一量只允许一种推导式**，且写盘类脚本要在改动前把断言全部前置。
-
-
-
-
-
-
+42. ✅ **优化器层 4 个可变默认参数（`[]` 在 def 期只求值一次、被所有调用共享）；补 AST 守卫 —— 这类 ruff 看不见，因为 B006 在未安装的 bugbear 里**（2026-10-25）：
+    - **普查**：限定 `src/ scripts/ tests/` 的 **1223** 个 `.py`（跟踪的 `.py` 共 1238，另 15 个在 `libs/` 等
+      范围外），命中 **4** 处，且全部在
+      `optimizer/` 层 —— 而这一层的契约恰恰是「同一进程内两次 run 不得共享状态」，所以类别选得中。
+    - **定性是潜在，不是现行**：逐函数 AST 检查显示这些参数在体内**只有 load**（没有 `.append`/`update`
+      之类变异，也没有重绑定），且所有静态可见调用点都**显式传参**。另有两处经 `**kwargs` 转发，静态无法证明，
+      因此我按「无法证明」记录，而不是宣称「从未被使用」。
+    - **改法用的是仓库既有约定，不是我发明的风格**：`optimizer_rms_dm` 与 `optimize_pib` 的 `init_v` 改为
+      `... | None = None`，依据是 `optimizer/combined_optimizer.py:95` 早已写成
+      `init_v: list[float] | None = None`，且下游 `optimizer/spid_pib_loop.py:224` 本来就写
+      `if init_v is None or len(init_v) == 0:` —— 在该路径上 `None` 与空**同义**；`rms.py` 侧的判据是
+      `if not init_v:`，`None` 与 `[]` 同假。`grid_search_lr_delta` 的两个扫描列表改**元组**（体内只用
+      `len()` 与 `for`，元组等价且不可变）。
+    - **新守卫** `test_no_mutable_default_arguments`（`tests/ao_shaping/test_conventions.py`，root-guards 片，
+      blocking）：遍历函数/lambda 的 `defaults` 与 `kw_defaults`，命中 `List/Dict/Set` 字面量以及
+      `list()/dict()/set()`；**`field(default_factory=...)` 不命中** —— 它正是为规避本缺陷而存在的写法。
+      解析失败**收集并断言为空**，不再静默跳过（否则下面的计数就替一个被悄悄缩小的语料背书）。扫描范围**复用**
+      第 41 项的 `_TAUTOLOGY_SCOPE`：一份定义而不是两份 —— 本仓已被 `_fmt` 那种「两处实现各自漂移」咬过。
+      下限 `_MIN_MUTABLE_DEFAULT_FILES = 1000`（实测 1223）。
+    - **差分**：守卫先上线、代码不动 ⇒ **红**，逐条点名 4 处（**没有一处是我注入的**），失败消息里直接给出三种
+      合法改法；修完 ⇒ **绿**（conventions 全量与 8 个受影响测试文件同跑 **103 passed / 1 skipped**）。
+    - **已知边界，量过再声明**：数组类默认（`np.zeros(64)` 同样只求值一次并共享）不在本守卫内。普查
+      `np./torch./cp.` 开头的默认只有 **1** 处 —— `src/ao_shaping/drivers/sim/oopao_backend.py:452` 的
+      `np.dtype(np.complex64)`，而 dtype 对象**不可变**，不是缺陷。故该边界之内目前没有真实样本，不是我把类别
+      封死了。
+    - **三条被数值否证的候选守卫**（记下数字，免得将来重蹈）：(a) 把第 41 项的短路守卫扩到「常量条件」会命中
+      **20** 处 `while True:`，全是有意的轮询/事件循环 ⇒ 20 个假缺陷；(b) `except X: pass` 有 **111** 处，多数是
+      可选后端的刻意兜底 ⇒ 硬建守卫等于逼出 111 次意图裁定，不建；(c) `assert (tuple)` **0** 处、裸 `except:`
+      **0** 处（后者已由 ruff 选中的 `E` 里的 E722 覆盖）—— 归零的两类直接不建，避免重复劳动。
+    - **另记一次测量教训（先归因错了一次）**：三次宽范围容器跑都断在进度行、**没有 summary 行**。我最初写成
+      「撞上墙上时钟」—— **不对**：补测退出码是 **137 = SIGKILL**（真超时应当是 124），即在
+      `AO_CPUS=8 / AO_MEMORY=8g` 档位下被 cgroup 杀掉。再用**不含本次改动**的 HEAD worktree 重跑同一条命令，
+      同样 137 断在 41%（并核对 `init_v ... | None = None` 计数为 0，确认改动确实不在场）⇒ 这是**既有环境
+      特性**，不是本次回归，也不是该目录的缺陷。结论：这种档位下宽范围跑给不出判据，正确做法是把证据打在
+      变更的爆炸半径上 —— 只跑受影响的 9 个文件，**33 s** 即得 103 passed / 1 skipped。另注：
+      `pyproject.toml` 已因同类原因把 `tests/ao_shaping/ml` 排除出裸跑默认，`optimizer/` 没有这层保护。
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

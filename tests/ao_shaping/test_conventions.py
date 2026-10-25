@@ -3038,3 +3038,77 @@ def test_no_boolean_short_circuit_discards_its_own_check() -> None:
         + "\nDelete the dead operand (and the wrapper it disables) rather than leaving "
         "a check that can never fail."
     )
+
+
+#: A list/dict/set literal, or a bare ``list()``/``dict()``/``set()``, in a parameter
+#: default is constructed **once at def time** and then shared by every call that omits
+#: that argument, so a future mutation leaks from one run into the next. ruff cannot see
+#: this: the rule is B006, which lives in flake8-bugbear and is not installed here, so
+#: the class needs its own check. ``default_factory`` is deliberately not flagged -- it
+#: exists precisely to avoid this bug. The scanned trees are the same repo-owned
+#: scope as the short-circuit guard above (_TAUTOLOGY_SCOPE) -- one definition, not two.
+_MUTABLE_DEFAULT_CALLS = frozenset({"list", "dict", "set"})
+#: Floor on scanned files; measured 1223. Guards that parse nothing pass vacuously
+#: (TODO 8.9 items 32, 34, 38, 40, 41).
+_MIN_MUTABLE_DEFAULT_FILES = 1000
+
+
+def test_no_mutable_default_arguments() -> None:
+    """No tracked source file may default a parameter to a mutable literal.
+
+    All four occurrences found were read-only inside their bodies, so none was
+    misbehaving yet -- the point is that a shared empty list is a trap primed for the
+    first ``append``. The optimizers in the wavefront and PIB paths were the ones
+    holding them, i.e. the layer whose whole contract is that two runs in one process
+    must not share state.
+    """
+    import subprocess
+
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"], capture_output=True, cwd=str(REPO), check=False
+    ).stdout
+    files = [
+        t.decode("utf-8", errors="replace")
+        for t in listing.split(b"\0")
+        if t and t.decode("utf-8", errors="replace").endswith(".py")
+        and t.decode("utf-8", errors="replace").startswith(_TAUTOLOGY_SCOPE)
+    ]
+
+    offenders: list[str] = []
+    unparsed: list[str] = []
+    for rel in sorted(files):
+        text = (REPO / rel).read_text(encoding="utf-8-sig", errors="replace")
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            unparsed.append(rel)
+            continue
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                continue
+            defaults = list(fn.args.defaults) + list(fn.args.kw_defaults)
+            for d in defaults:
+                if d is None:
+                    continue
+                mutable = isinstance(d, (ast.List, ast.Dict, ast.Set)) or (
+                    isinstance(d, ast.Call) and isinstance(d.func, ast.Name)
+                    and d.func.id in _MUTABLE_DEFAULT_CALLS
+                )
+                if mutable:
+                    name = getattr(fn, "name", None) or "<lambda>"
+                    offenders.append(f"{rel}:{d.lineno}: {name}() defaults to {ast.unparse(d)!r}")
+
+    assert not unparsed, (
+        f"{len(unparsed)} file(s) failed to parse: {unparsed[:5]} -- the corpus the count "
+        "below describes is smaller than the tree."
+    )
+    assert len(files) >= _MIN_MUTABLE_DEFAULT_FILES, (
+        f"scanned {len(files)} file(s), below the floor {_MIN_MUTABLE_DEFAULT_FILES} -- "
+        "the scope filter stopped matching the repo's own trees."
+    )
+    assert not offenders, (
+        f"{len(offenders)} mutable default argument(s):\n  " + "\n  ".join(offenders[:15])
+        + "\nDefaults are evaluated once at import time, so the object is shared across "
+        "calls. Use an immutable literal (tuple / frozenset), ``None`` with a body-level "
+        "fallback, or ``field(default_factory=...)`` in a dataclass."
+    )

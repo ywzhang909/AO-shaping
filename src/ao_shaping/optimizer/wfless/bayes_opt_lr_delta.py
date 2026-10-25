@@ -133,8 +133,8 @@ def bayesian_optimize_lr_delta(
 
 
 def grid_search_lr_delta(
-    lr_values=[0.1, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0],
-    delta_values=[0.1, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0],
+    lr_values=(0.1, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0),
+    delta_values=(0.1, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0),
     center=None,
     epochs=100,
     exposure_time_ms=80,
