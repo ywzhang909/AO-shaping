@@ -6,7 +6,7 @@
 > **数据/关联脚本**: [`scripts/slm/replay_gs_refine_hw.py`](../../../scripts/slm/replay_gs_refine_hw.py)
 > **数据/关联脚本**: [`scripts/slm/generate_shape_trial_profiles.py`](../../../scripts/slm/generate_shape_trial_profiles.py)
 > **运行环境**: 离线
-> **说明**: GUI 闭环整形实验验证正文为人工实测记录 (SLM 22030108 + 大恒 FJB24112232)；图表与汇总由本脚本从 data/debug/slm_gs_refine/20261014_{100441,104105,143035}/ 离线重算，三次会话的交错重放数值由 scripts/replay_gs_refine_hw.py 实验采集；原 fig4 中心剖面（flat 与 best 共用一条强度轴、峰值相差约 13 倍）已由 scripts/slm/generate_shape_trial_profiles.py 的逐帧 X/Y 光强截面取代
+> **说明**: GUI 闭环整形实验验证正文为人工实测记录 (SLM 22030108 + 大恒 FJB24112232)；图表与汇总由本脚本从 data/debug/slm_gs_refine/20261014_{100441,104105,143035}/ 离线重算，三次会话的交错重放数值由 scripts/slm/replay_gs_refine_hw.py 实验采集；原 fig4 中心剖面（flat 与 best 共用一条强度轴、峰值相差约 13 倍）已由 scripts/slm/generate_shape_trial_profiles.py 的逐帧 X/Y 光强截面取代
 <!-- provenance:end -->
 
 **本轮结论**：多 SLM 控制器 GUI 的整形功能已从「开环相位图案生成」整体替换为闭环管线

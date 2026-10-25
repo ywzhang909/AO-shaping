@@ -2653,3 +2653,80 @@ def test_relative_links_in_live_docs_point_at_tracked_paths() -> None:
         "committed artefact the label already names -- never leave a link into gitignored "
         "logs/ or data/."
     )
+
+
+#: An invocation claim -- ``python <repo-relative>.py`` inside a module docstring or a live
+#: doc -- is an instruction, so a target missing from the git index is a command that cannot
+#: run. The trailing ``(?![\w.])`` is load-bearing: without it ``src/calculators/gerchberg_
+#: saxton.pyx`` (a tracked Cython module) matches as ``…/gerchberg_saxton.py`` and the guard
+#: reports a real file as a defect. Historical docs are skipped by the repo's own marker list:
+#: a dated record quoting a command that ran at the time is a record, not an instruction.
+_INVOCATION = re.compile(
+    r"(?:^|[\s(>])(?:uv run )?python3?[ \t]+((?:src|scripts|tests|libs)/[\w./-]+\.py)(?![\w.])"
+)
+#: Floor on resolved claims. Measured 533; guards that parse nothing pass vacuously (TODO 8.9
+#: items 32 and 34), so a grammar break has to be loud.
+_MIN_INVOCATION_CLAIMS = 400
+
+
+def test_python_invocation_paths_in_docs_and_docstrings_are_tracked() -> None:
+    """Every ``python <path>.py`` instruction names a file the next clone will have.
+
+    Item 30 pinned ``python -m <module>`` claims; file-path invocations were the sibling hole,
+    and the hole was self-perpetuating -- ``scripts/ml/train_ml.ps1`` ran
+    ``python src/ao_shaping/ml/train.py`` while ``src/ml/train.py``'s own docstring taught the
+    same dead path in five usage lines, and ``scripts/README.md`` quoted the launcher. The
+    package is ``src/ml/`` (console script ``ao-train = ml.train:cli``), so all six now use
+    ``python -m ml.train``, whose CWD-independent form was verified in the container: the fixed
+    invocation prints its usage (exit 0) and the old file form fails with ``can't open file``
+    (exit 2).
+    """
+    import subprocess
+
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"], capture_output=True, cwd=str(REPO), check=False
+    ).stdout
+    tracked = {t.decode("utf-8", errors="replace") for t in listing.split(b"\0") if t}
+
+    offenders: list[str] = []
+    checked = 0
+    for rel in sorted(tracked):
+        path = REPO / rel
+        if not path.is_file():
+            continue
+        if rel.endswith(".py"):
+            text = path.read_text(encoding="utf-8-sig", errors="replace")
+            try:
+                tree = ast.parse(text)
+            except SyntaxError:
+                continue
+            doc = ast.get_docstring(tree)
+            if doc is None:
+                continue
+            lines = doc.splitlines()
+            # Line numbers are relative to the docstring, not the file: the claim's location,
+            # not a file offset. Stating that beats printing a number that jumps on any edit.
+            where = f"{rel} (docstring line)"
+        elif rel.endswith(".md") and not _is_historical(path):
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            where = rel
+        else:
+            continue
+        for lineno, line in enumerate(lines, 1):
+            for match in _INVOCATION.finditer(line):
+                checked += 1
+                if match.group(1) not in tracked:
+                    offenders.append(f"{where}:{lineno} -> {match.group(1)!r}")
+
+    assert checked >= _MIN_INVOCATION_CLAIMS, (
+        f"resolved only {checked} invocation claim(s), below the floor "
+        f"{_MIN_INVOCATION_CLAIMS} -- the grammar stopped matching the repo's usage style, "
+        "so a pass here would mean nothing was checked."
+    )
+    assert not offenders, (
+        f"{len(offenders)} invocation claim(s) name a file that is not in the git index:\n  "
+        + "\n  ".join(offenders[:20])
+        + "\nPoint them at the real module (prefer the CWD-independent `python -m <pkg.mod>` "
+        "form -- `PYTHONPATH=src` plus a relative file path breaks as soon as the caller "
+        "changes directory)."
+    )

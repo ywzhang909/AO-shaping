@@ -1,4 +1,4 @@
-"""ONLINE test: the three exposure states against real cameras (Daheng + MiiCam).
+r"""ONLINE test: the three exposure states against real cameras (Daheng + MiiCam).
 
 This file is **not** part of a default ``pytest`` run: it lives under
 ``tests/ao_shaping/drivers/``, which ``pyproject.toml``'s ``addopts`` passes to

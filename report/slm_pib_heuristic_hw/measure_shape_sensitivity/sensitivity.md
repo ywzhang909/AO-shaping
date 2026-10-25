@@ -4,7 +4,7 @@
 > **生成脚本**: [`scripts/slm/measure_shape_sensitivity.py`](../../../scripts/slm/measure_shape_sensitivity.py)
 > **复现命令**: `python scripts/slm/measure_shape_sensitivity.py`
 > **运行环境**: 硬件
-> **说明**: 整形目标函数灵敏度 (噪声地板) 实测；测量内核已下沉到 tools/slm/slm_snr_probe.py
+> **说明**: 整形目标函数灵敏度 (噪声地板) 实测；测量内核已下沉到 src/ao_shaping/tools/kernels/sweep_analysis.py
 <!-- provenance:end -->
 
 **本轮结论**：在曝光 3 ms、开窗 320 px 条件下实测噪声地板 ΔJ_noise=0.00040，三档扰动幅度的差分响应 SNR 为：Δa=0.05 rad→0.27（不可用）、0.1 rad→0.69（不可用）、**0.2 rad→2.77（可用）**。结论：本实验系统整形目标下 SPGD 的最小可分辨扰动为 Δa≈0.2 rad；判据 `ΔJ_signal ≥ 2~3×ΔJ_noise` 未满足时须加大 Δa 或对 ±Δa 多帧平均。该实测直接约束了 `delta` 的可用下限，与 delta 扫描系列"小 delta 全部随机游走"的观察定量一致。

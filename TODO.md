@@ -1584,6 +1584,57 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       第 30 项的五源互校已经钉住（golden 19 键、其中无 `spgd-square`，与 `main.py` 注册集一致）。
     - 另记一次仪表化自伤：grep 模式里的**反引号放在双引号内**会触发命令替换
       （`寻找匹配的 `` EOF`）。自此含反引号/反斜杠的一律先写成文件再执行。
+37. ✅ **入口调用路径全是断的：启动器、被启动模块自己的 docstring、脚本索引三处都在教同一条不存在的路径；补「`python <路径>.py` 必须在 git 索引里」守卫**（2026-10-25）：
+    - **由头**：`scripts/ml/train_ml.ps1` 跑的是 `python src/ao_shaping/ml/train.py`，而**该文件不存在**
+      （包是 `src/ml/`，console script `ao-train = ml.train:cli`）。更糟的是这条死路径的**源头是
+      被启动模块自己**：`src/ml/train.py` 的 docstring 五行用法全写 `uv run python src/ao_shaping/ml/train.py`，
+      `scripts/README.md` 又引用这个启动器 —— 文档把缺陷当规范传给下一位读者。
+    - **启动器其实是三个 bug 叠在一起**，不止路径写错：(1) 文件路径不存在；(2) `Set-Location $PSScriptRoot`
+      把 CWD 设在 `scripts/ml/`，于是 `PYTHONPATH = "src;libs"` 这个**相对**值解析到
+      `scripts/ml/src`；(3) 同一 CWD 让 `--data-dir` / `--output-dir` 的相对默认值落在错的树里。
+      修法：`Set-Location "$PSScriptRoot\..\.."`（回到仓库根，`src;libs` 遂成立）+ 改用
+      与 CWD 无关的 `python -m ml.train $args`。
+    - **两侧证明（容器）**：修好的调用形态 `PYTHONPATH=src python -m ml.train --help`（仓库根）
+      **rc=0** 并打印 `Usage: python -m ml.train [OPTIONS] COMMAND [ARGS]...`；旧的 file-path 形态
+      **rc=2** `can't open file '/workspace/scripts/ml/sr…'`。⚠️ **诚实边界**：PowerShell 本身没执行过
+      （本机无 Windows 也无 `pwsh`），验证的是**调用语义**而非那层 shell。
+    - **顺带修的两处同族陈旧引用**：`scripts/README.md` 里 `src/ao_shaping/tools/slm/slm_zernike_sweep_probe.py`
+      → 实际是 `src/ao_shaping/tools/zernike/sweep_probe.py`；`docs/paper_gs_refine_experiment.md`
+      复现命令 `python scripts/replay_gs_refine_hw.py` → `python scripts/slm/replay_gs_refine_hw.py`。
+      另修 `scripts/_common/provenance.py` 两条 `note` 里的陈旧路径，并重跑
+      `scripts/sync_report_provenance.py`（更新 2 处 header，`--check` 报 `check: clean`）。
+    - **守卫** `test_python_invocation_paths_in_docs_and_docstrings_are_tracked`（补第 30 项
+      `python -m <模块>` 守卫的姊妹缺口 —— 文件路径形态此前无人核查）：语法
+      `(?:^|[\s(>])(?:uv run )?python3?[ \t]+((?:src|scripts|tests|libs)/[\w./-]+\.py)(?![\w.])`，
+      扫**跟踪 .py 的模块 docstring** 与**非历史活文档**，零容忍。
+      ⚠️ 右侧 `(?![\w.])` 是**必需**的：去掉它 `src/calculators/gerchberg_saxton.pyx`（已跟踪的
+      Cython 模块）会被当成 `…/gerchberg_saxton.py` 报成缺陷 —— 即守卫把真实文件判成错误。
+    - **先 dry-run 再决定豁免**：本普查先前手工排除了 `CHANGELOG.md`，但守卫用的是仓库自己的
+      `_is_historical()`，而它**不豁免** CHANGELOG ⇒ 有可能一落地就红。于是从守卫文件里
+      `ast` 读出 `_HISTORICAL_DOCS` 原样 dry-run（避免我的 dry-run 与上线守卫在范围上漂移）：
+      **533 条调用声明 / 0 缺陷** ⇒ 不需要凭空发明豁免。反空转下限取 `_MIN_INVOCATION_CLAIMS = 400`。
+    - **验收（两侧差分，数目精确对上）**：把**改过的守卫**拷进**未修的 HEAD worktree**
+      ⇒ 报**恰好 7 条**：5 条来自 `src/ml/train.py` 的 docstring、2 条来自活文档
+      （`scripts/README.md`、`docs/paper_gs_refine_experiment.md`）—— 一次运行同时证明
+      **docstring 与文档两个面都有牙**；修后工作树 **0 条**。再注入一条全新假路径
+      ⇒ **8 条**且指名，证明它不是在复述历史。全量 `test_conventions.py` **44 passed / 1 skipped**。
+    - **顺手挖出一个未来会炸的语法错误**：新守卫 `ast.parse` 全部 **1238** 个跟踪 .py，
+      于是暴露 `tests/ao_shaping/drivers/ccd/test_exposure_states.py:9` 的 docstring 里
+      Windows 路径 `.venv\Scripts\python.exe …` 含 `\S` / `\p` —— **invalid escape sequence**
+      （3.13 报 SyntaxWarning，未来 Python 会变 SyntaxError），且它会随 root-guards 片每次运行
+      污染 CI 输出，被误读成守卫自身的问题。修法只有**一个字符**：docstring 加 `r` 前缀。
+      机器化确认**文本逐字符不变**（`docstring text identical: True`，1849 字符），复扫
+      1238 个文件 ⇒ **emitters 0**，容器守卫运行不再有 `warnings summary`。
+    - **再记三次仪表化自伤**：(1) `ast.Assign` 的属性是 **`targets`（复数）**，我写了 `.target`
+      （那是 `AnnAssign` 的）⇒ dry-run 首跑 `AttributeError`；(2) shell 里 `echo` 想输出含
+      `'S'` 的字面量，引号套叠造成 `寻找匹配的 '' 时遇到了未预期的 EOF`，**吞掉了同一条命令里
+      后面的两段**；(3) 沙箱无 `git` ⇒ 要比对 HEAD 版本必须先在 host 侧 `git show … > /tmp/…` 再读。
+    - **仍开放（命名，不假装已修）**：`scripts/ml/generate_fouriergsnet_pipeline_report.py`
+      与其注册产物不一致 —— 脚本引用一个在 `baefba2d` 删掉的测试文件与一个在 `f19dced5`
+      删掉的 CLI；默认 `-o report/fouriergsnet_pipeline` 并**不写**注册表里的产物路径；
+      已提交产物里有 **22 行**生成器从不发射。该生成器纯 stdlib、可离线跑，所以这条产物
+      **能**端到端复现，但重新生成会删掉手写结论（属第 33 项那一类取舍）⇒ 需先裁定归属再动，另立一项。
+
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

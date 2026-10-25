@@ -734,7 +734,7 @@ FourierGSNet 数字孪生（`drivers/sim/fouriergsnet_env.py`）上的闭环矩�
 交错重放命令示例：
 
 ```bash
-python scripts/replay_gs_refine_hw.py data/debug/slm_gs_refine/20261012_180222 \
+python scripts/slm/replay_gs_refine_hw.py data/debug/slm_gs_refine/20261012_180222 \
   --exposure-ms <在线确定值> --slm-serial 23020027 \
   --expected-wavelength 1064 --cam-center <全帧零级x,y>
 ```

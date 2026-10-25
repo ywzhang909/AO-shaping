@@ -320,7 +320,7 @@ trainer.
 
 **What it does:**
 - Sets `PYTHONPATH` to `src;libs` and switches to the script directory
-- Forwards all arguments to `uv run python src/ao_shaping/ml/train.py $args`
+- Forwards all arguments to `uv run python -m ml.train $args`
 
 ## Analysis and Tuning Scripts
 
@@ -3250,7 +3250,7 @@ it, display it, and measure the result (needs hardware: Santec SLM-200 + camera)
 
 > The sweep acquisition kernel (`zernike_panel`, `capture_settled`, the Recorder
 > bookkeeping) now lives in the reusable tool
-> `src/ao_shaping/tools/slm/slm_zernike_sweep_probe.py`, and this runbook imports
+> `src/ao_shaping/tools/zernike/sweep_probe.py`, and this runbook imports
 > it. `--stage sweep` keeps only the calibration-protocol specifics (ABBA tilt
 > interleaving, phase-correlation shifts, per-point frame dumps).
 >

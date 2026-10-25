@@ -500,7 +500,7 @@ REPORTS: dict[str, ReportProvenance] = {
         script="scripts/slm/measure_shape_sensitivity.py",
         command="python scripts/slm/measure_shape_sensitivity.py",
         environment="硬件",
-        note="整形目标函数灵敏度 (噪声地板) 实测；测量内核已下沉到 tools/slm/slm_snr_probe.py",
+        note="整形目标函数灵敏度 (噪声地板) 实测；测量内核已下沉到 src/ao_shaping/tools/kernels/sweep_analysis.py",
     ),
     "report/slm_pib_online/slm_pib_online_report/report.md": ReportProvenance(
         script="scripts/slm/generate_slm_pib_online_report.py",
@@ -914,7 +914,7 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线",
         note="GUI 闭环整形实验验证正文为人工实测记录 (SLM 22030108 + 大恒 FJB24112232)；"
         "图表与汇总由本脚本从 data/debug/slm_gs_refine/20261014_{100441,104105,143035}/ "
-        "离线重算，三次会话的交错重放数值由 scripts/replay_gs_refine_hw.py 实验采集；"
+        "离线重算，三次会话的交错重放数值由 scripts/slm/replay_gs_refine_hw.py 实验采集；"
         "原 fig4 中心剖面（flat 与 best 共用一条强度轴、峰值相差约 13 倍）已由 "
         "scripts/slm/generate_shape_trial_profiles.py 的逐帧 X/Y 光强截面取代",
         extra_scripts=(
