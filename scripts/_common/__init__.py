@@ -21,11 +21,13 @@ every branch):
 from __future__ import annotations
 
 import math
+import re
 from typing import Any, Sequence
 
 import numpy as np
 
 __all__ = [
+    "escape_md_cell",
     "fmt_fixed",
     "fmt_general",
     "fmt_metric",
@@ -250,12 +252,34 @@ def savefig(fig: Any, path: Any, dpi: int = 150) -> None:
     plt.close(fig)
 
 
+#: A pipe that is not already escaped. Inside a GFM table cell a bare ``|`` splits the
+#: cell -- inline code does NOT protect it -- so metric labels like ``max|c| (rad)``
+#: silently add a column and the whole block stops parsing as a table.
+_BARE_PIPE = re.compile(r"(?<!\\)\|")
+
+
+def escape_md_cell(value: Any) -> str:
+    """Stringify one table cell and escape every bare ``|`` in it.
+
+    Idempotent: an existing ``\\|`` is left alone, so a caller that already escaped by
+    hand does not end up with a visible backslash-pipe pair.
+    """
+    text = str(value)
+    return _BARE_PIPE.sub(r"\\|", text) if "|" in text else text
+
+
 def markdown_table(headers: Sequence[Any], rows: Sequence[Sequence[Any]]) -> str:
-    """Render a GitHub-flavoured markdown table from an iterable of rows."""
-    lines = ["| " + " | ".join(str(h) for h in headers) + " |"]
+    """Render a GitHub-flavoured markdown table from an iterable of rows.
+
+    Headers and cells go through :func:`escape_md_cell`, so every emitted row writes
+    exactly as many cells as the delimiter row declares -- the invariant
+    ``tests/ao_shaping/test_conventions.py::test_markdown_table_rows_never_write_more_cells_than_declared``
+    checks across the rendered reports.
+    """
+    lines = ["| " + " | ".join(escape_md_cell(h) for h in headers) + " |"]
     lines.append("|" + "|".join(["---"] * len(headers)) + "|")
     for r in rows:
-        lines.append("| " + " | ".join(str(x) for x in r) + " |")
+        lines.append("| " + " | ".join(escape_md_cell(x) for x in r) + " |")
     return "\n".join(lines)
 
 

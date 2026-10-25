@@ -19,11 +19,13 @@ Provenance of each pinned behaviour:
 from __future__ import annotations
 
 import math
+import re
 
 import numpy as np
 import pytest
 
 from scripts._common import (
+    escape_md_cell,
     fmt_fixed,
     fmt_general,
     fmt_metric,
@@ -361,3 +363,36 @@ def test_savefig_passes_dpi_through(tmp_path) -> None:
     savefig(fig, low, dpi=40)
     assert low.exists()
     plt.close("all")
+
+# ---------------------------------------------------------------------------
+# escape_md_cell / pipe-safe markdown_table -- NEW behaviour (2026-10-25), not a
+# recorded copy. A bare `|` inside a table cell splits it in GFM even inside inline
+# code, which is how `max|c| (rad)` reached three generated reports as a 14-cell
+# header over a 12-cell delimiter row. Pinned here so call sites never have to
+# hand-escape again.
+# ---------------------------------------------------------------------------
+
+def test_escape_md_cell_escapes_bare_pipes() -> None:
+    assert escape_md_cell("max|c| (rad)") == "max\\|c\\| (rad)"
+
+
+def test_escape_md_cell_is_idempotent() -> None:
+    assert escape_md_cell("max\\|c\\|") == "max\\|c\\|"
+    assert escape_md_cell("a\\|b|c") == "a\\|b\\|c"
+
+
+def test_escape_md_cell_passes_pipe_free_text_through() -> None:
+    assert escape_md_cell("PIB 后") == "PIB 后"
+    assert escape_md_cell(None) == "None"          # recorded stringification, unchanged
+    assert escape_md_cell(1.5) == "1.5"
+
+
+def test_markdown_table_keeps_a_pipe_bearing_header_in_one_cell() -> None:
+    out = markdown_table(["n_max", "max|c| (rad)"], [[3, 0.31]])
+    assert out.splitlines()[0] == "| n_max | max\\|c\\| (rad) |"
+
+
+def test_markdown_table_rows_all_declare_the_same_cell_count() -> None:
+    out = markdown_table(["a|b", "c"], [["x|y|z", 1]]).splitlines()
+    cells = {len(re.findall(r"(?<!\\)\|", line)) for line in out}
+    assert len(cells) == 1, f"arity drifted across the block: {out}"
