@@ -1680,6 +1680,52 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       字节比较 False；若沿用「两种推导各测一次」的老写法就会漏掉。教训：**同一量只允许一种推导式**。
     - **仍开放**：该报告 §1/§5 与 `scripts/README.md` 里的 `L814` / `L938` 一类**行号**引用，按第 32 项
       结论仍不可判定，保留原样；`report/**` 内指向已删除代码的路径按第 35 项的历史分界不入守卫。
+39. ✅ **`.env` 里有一个从未被任何代码读取的配置键；补「声明的环境变量必须被跟踪代码读取」守卫（守卫自己差点替它背书）**（2026-10-25）：
+    - **普查**：`.env` 与 `.env.example` 共声明 6 个键，5 个确有读者（`Far_Cam_ID` / `Near_Cam_ID` /
+      `IDEAL_SPOT_RADIUS` / `PATH` / `PYTHONPATH`），**`CENTER=577,655` 没有任何代码读取**：带引号的字面量
+      `"CENTER"` 在全仓跟踪文件里出现 0 次，`git log -S'"CENTER"' -- '*.py'` 也为空 ⇒ 它不是重构残留，是
+      **生来就死**（在 `546bb610`「unify config and CLI helpers」中加入）。分析中心真正的来源一直是 runner
+      选项 `-c/--center`（`src/ao_shaping/runners/runner_common.py:240`）。
+    - **为什么值得拦**：这两个文件是仓库的配置契约，`AGENTS.md` 还把该 env 块**镜像了两遍**。读者照文档设一个
+      没人读的键，得到的不是行为而是沉默 —— 一个「看着权威却无效」的键比缺这个键更坏。
+    - **语义前提（先核实，别建在假设上）**：全仓**没有 dotenv**，且 `.github` 与 `scripts/build` 里**没有任何
+      步骤加载 `.env`** ⇒ 这些键是经编辑器终端环境进入 Python 的。所以「没有代码读」等价于「设了也无效果」，
+      不是 CI 另有注入通道造成的假阳性。
+    - **守卫** `test_declared_dotenv_keys_are_read_by_tracked_code`（`tests/ao_shaping/test_conventions.py`，
+      root-guards 片，**blocking**）：解析两个 `.env*` 的**非注释**赋值行，要求每个键在跟踪代码里以带引号
+      字面量出现。语料只收 `*.py *.pyx *.sh *.ps1 *.yml *.yaml *.toml *.cfg *.ini`，**故意不收 `.json`** ——
+      `report/**/plan_*.json` 会回显 `AO_DAHENG_MAX_EXPOSURE_MS` 这类别名，收进来等于让**产物给缺陷作证**。
+      `PYTHONPATH` / `PATH` 走显式豁免（读它们的是解释器、OS 与工具链，不是本仓库代码）。反空转下限
+      `_MIN_ENV_KEYS_DECLARED = 4`（实测 5–6）、`_MIN_ENV_FILES_SCANNED = 1000`（实测 1256）。
+    - **守卫差点自证清白（第 31 类自伤）**：第一版在**仍声明 `CENTER` 的 HEAD worktree** 上报 **GREEN**。
+      临时探针把中间量打出来才看清：`key=CENTER hits=1 ['tests/ao_shaping/test_conventions.py']` —— 全语料里
+      唯一的 `"CENTER"` 命中是**这条守卫自己的注释**。搜索一个名字，会被「提到这个名字的文件」满足 ⇒
+      修法是**只把本模块从命中里剔除**（`self_rel`），**不是**把整个 `tests/` 剔除（`Far_Cam_ID` 的合法消费者
+      里就有 `tests/ao_shaping/test_config.py`）。这是第 34 项「基线字典自引用」的同一形状。
+    - **差分（三段，归因不靠注入）**：HEAD worktree（仍声明 `CENTER`）⇒ **红**，点名
+      `CENTER (declared in .env)`；修好的工作区 ⇒ **绿**；HEAD 上再注入一个假键 ⇒ **红**且同时点名 `CENTER`
+      与 `PHANTOM_KNOB_XYZ`。第一段就是真实缺陷，无需我制造。
+    - **改动**：`CENTER=577,655` 从 `.env`、`.env.example` 删除（连上面那行说明注释一并删，否则文件仍在描述
+      一个不存在的键）；`AGENTS.md` 两处镜像改为**指针**而非静默删除（英文块
+      `CENTER is not an env knob … comes from -c/--center`，中文块「`CENTER` 不是环境变量：分析中心由 runner
+      选项 `-c/--center` 给出」），沿用该文件对 `MAX_GRAYSCALE_VALUE` 已有的「不再是环境变量」写法，防止再次
+      被加回来。改后全仓**再无任何 `CENTER=` 声明**：唯一残留的 `CENTER=` 出现是在守卫自己的注释里引述这个
+      键名 —— 那正是第 31 类自指的来源，所以守卫必须剔除本模块。
+    - **再记两次仪表化自伤**：(a) 我把一条 `git grep` 输出经 `| head -14` 截断后当**完整**结论读，据此宣称
+      「`AO_DAHENG_MAX_EXPOSURE_MS` 不在任何 `.py` 里」—— 它在 `src/ao_shaping/utils/image/exposure_control.py:25`
+      以常量 `DAHENG_EXPOSURE_LIMIT_ENV` 定义、由 `configured_daheng_exposure_limit()` 读取，跨 40+ 处使用。
+      **截断的普查当完整普查读会凭空造出缺陷**，与「0 命中当干净」是对称的两种错法；(b)
+      `git grep -n -- 'pat' -- pathspec` 里**第二个 `--` 不是分隔符**，pathspec 被当成了模式，返回空被我读成
+      「无匹配」—— 那是**假阴性**，正例控制当场作废。另：把守卫改紧时我误删缩进层级、又复制出一行重复的
+      `for`，`IndentationError` 让三次差分**全部无输出**；若非我核对「必须先看到 passed/failed 行」，这会被读成
+      「没有缺陷」。**过滤后的 grep 只有在 collection 被证明发生后才有意义。**
+    - **仍欠（复测，不假装兑现）**：第 36 项的 `scripts` 片转 blocking 仍未兑现。本轮在 master 上整片复测
+      **2422 passed / 1 failed**，唯一失败仍是
+      `test_no_generator_redefines_an_extracted_helper[_fmt]`（wt-190 在办，其产物一致性属它的范围，不抢）。
+      ⚠️ `refactor/190-fmt-dedup` 的分支尖端是 master 的祖先，但这**只说明该分支陈旧**，不说明修复已落地 ——
+      判据是守卫的颜色，不是祖先关系。第 33 项的附录守卫仍在该片内，故今日仍只报警、不能拦停；本项守卫在
+      root-guards（blocking），所以从落地起就有牙。
+
 
 
 

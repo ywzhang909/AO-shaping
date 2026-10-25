@@ -2801,3 +2801,85 @@ def test_frozen_reports_reproduce_their_committed_artifact(tmp_path: Path) -> No
             "committed record; fold any dated review note into the template rather "
             "than editing the artifact alone."
         )
+
+
+#: ``.env`` and ``.env.example`` reach Python through the editor's terminal
+#: environment: there is no dotenv in the tree and no CI step loads ``.env``, so a
+#: declared key that no tracked code reads is a knob the guide advertises and
+#: nothing honours. ``CENTER=577,655`` was exactly that -- declared in both files and
+#: mirrored twice in ``AGENTS.md``, yet the literal ``"CENTER"`` appears in no tracked
+#: file and never has (introduced in ``546bb610``, and ``git log -S'"CENTER"' -- '*.py'``
+#: is empty), while the centre actually comes from the runner option ``-c/--center``.
+_ENV_DECL = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=")
+#: Read by the interpreter or the OS rather than by repo code, so a literal search
+#: cannot judge them. Only variables whose consumer is a tool belong here.
+_ENV_TOOL_CONSUMED = frozenset({"PYTHONPATH", "PATH"})
+#: Code extensions only. Report artifacts echo variable names in ``plan_*.json``, so a
+#: corpus that accepted ``.json`` would let a phantom key validate itself from an output.
+_ENV_CODE_GLOBS = ("*.py", "*.pyx", "*.sh", "*.ps1", "*.yml", "*.yaml", "*.toml", "*.cfg", "*.ini")
+#: Floors: with only a handful of declared keys, a parse that found none would pass
+#: vacuously (TODO 8.9 items 32, 34, 38).
+_MIN_ENV_KEYS_DECLARED = 4
+_MIN_ENV_FILES_SCANNED = 1000
+
+
+def test_declared_dotenv_keys_are_read_by_tracked_code() -> None:
+    """Every key declared in ``.env``/``.env.example`` must be read by tracked code.
+
+    These two files are the repo's configuration contract -- ``AGENTS.md`` mirrors them,
+    and a reader who sets a key expects behaviour. A key nothing reads is worse than an
+    absent one: it looks authoritative, and the guide repeats it. The scan searches the
+    quoted literal, so an indirection that builds the name at runtime would not count as
+    a consumer; that is deliberate, because such a key is not discoverable either.
+    """
+    declared: dict[str, str] = {}
+    for name in (".env", ".env.example"):
+        path = REPO / name
+        if not path.is_file():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.lstrip().startswith("#"):
+                continue
+            match = _ENV_DECL.match(line)
+            if match:
+                declared.setdefault(match.group(1), name)
+    assert len(declared) >= _MIN_ENV_KEYS_DECLARED, (
+        f"parsed {len(declared)} declared key(s), below the floor "
+        f"{_MIN_ENV_KEYS_DECLARED} -- the parser stopped matching these files, so a "
+        "pass would mean nothing was checked."
+    )
+
+    listing = subprocess.run(
+        ["git", "ls-files", *("*.py", "*.pyx", "*.sh", "*.ps1", "*.yml", "*.yaml",
+                             "*.toml", "*.cfg", "*.ini")],
+        capture_output=True, cwd=str(REPO), check=False,
+    ).stdout.decode("utf-8", errors="replace").splitlines()
+    assert len(listing) >= _MIN_ENV_FILES_SCANNED, (
+        f"corpus is only {len(listing)} file(s), below the floor "
+        f"{_MIN_ENV_FILES_SCANNED} -- the search would be near-vacuous."
+    )
+
+    # Self-exclusion is load-bearing: this file quotes the keys it hunts, so an
+    # unfiltered search is satisfied by the hunt itself (the first version passed on a
+    # HEAD that still declared ``CENTER``, its only hit being this module).
+    self_rel = str(Path(__file__).resolve().relative_to(REPO.resolve()))
+
+    unread: list[str] = []
+    for key, where in sorted(declared.items()):
+        if key in _ENV_TOOL_CONSUMED:
+            continue
+        found = subprocess.run(
+            ["git", "grep", "-l", "-E", f'"{key}"|\'{key}\'', "--", *_ENV_CODE_GLOBS],
+            capture_output=True, cwd=str(REPO), check=False,
+        ).stdout.decode("utf-8", errors="replace").strip()
+        consumers = [h for h in found.splitlines() if h and h != self_rel]
+        if not consumers:
+            unread.append(f"{key} (declared in {where})")
+
+    assert not unread, (
+        f"{len(unread)} declared env key(s) are read by no tracked code:\n  "
+        + "\n  ".join(unread)
+        + "\nEither read the key in code, or drop the declaration from both `.env` and "
+        "`.env.example` (and any `AGENTS.md` mirror). A commented line does not count "
+        "as declared."
+    )

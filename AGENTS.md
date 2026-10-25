@@ -635,7 +635,8 @@ Near_Cam_ID=1
 
 # Optical parameters
 IDEAL_SPOT_RADIUS=7
-CENTER=577,655
+# CENTER is not an env knob -- no code has ever read it. The analysis centre
+# comes from the runner option -c/--center (auto = locate the 0-order by argmax).
 
 # Camera protection exposure ceiling (ms). Optical-path dependent, set per
 # session; unset or 0 = code probes the CCD image (doubling ladder to saturation)
@@ -1084,7 +1085,7 @@ Configuration via `.env` file:
 Far_Cam_ID=0
 Near_Cam_ID=1
 IDEAL_SPOT_RADIUS=7
-CENTER=577,655
+# CENTER 不是环境变量: 分析中心由 runner 选项 -c/--center 给出。
 # Daheng 保护曝光上限 (ms), 随光路按会话设置; 缺省/0 = 由画面探测 (倍增阶梯到饱和)
 # AO_DAHENG_MAX_EXPOSURE_MS=0.6
 ```
