@@ -40,7 +40,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from ao_shaping.utils.wavefront.matrix_utils import compute_lstsq, compute_pinv
-from ao_shaping.utils.wavefront.wfs_utils import flatten_slopes
+from ao_shaping.utils.wavefront.wfs_utils import flatten_slopes, truncated_mean
 
 if TYPE_CHECKING:
     from ao_shaping.drivers.dm.base import DM
@@ -293,14 +293,8 @@ def measure_actuator_response(
         dev_x_arr = np.array(all_dev_x)
         dev_y_arr = np.array(all_dev_y)
 
-        if n_averages > 5:
-            sorted_x = np.sort(dev_x_arr, axis=0)
-            sorted_y = np.sort(dev_y_arr, axis=0)
-            mean_dev_x = np.mean(sorted_x[1:-1], axis=0)
-            mean_dev_y = np.mean(sorted_y[1:-1], axis=0)
-        else:
-            mean_dev_x = np.mean(dev_x_arr, axis=0)
-            mean_dev_y = np.mean(dev_y_arr, axis=0)
+        mean_dev_x = truncated_mean(dev_x_arr)
+        mean_dev_y = truncated_mean(dev_y_arr)
 
         slopes = flatten_slopes(mean_dev_x, mean_dev_y)
         return slopes, mean_dev_x, mean_dev_y
@@ -707,14 +701,8 @@ def calibrate_dm_response_matrix(
             dev_x_arr = np.array(all_dev_x)
             dev_y_arr = np.array(all_dev_y)
 
-            if n_averages > 5:
-                sorted_x = np.sort(dev_x_arr, axis=0)
-                sorted_y = np.sort(dev_y_arr, axis=0)
-                mean_dev_x = np.mean(sorted_x[1:-1], axis=0)
-                mean_dev_y = np.mean(sorted_y[1:-1], axis=0)
-            else:
-                mean_dev_x = np.mean(dev_x_arr, axis=0)
-                mean_dev_y = np.mean(dev_y_arr, axis=0)
+            mean_dev_x = truncated_mean(dev_x_arr)
+            mean_dev_y = truncated_mean(dev_y_arr)
 
             slopes = flatten_slopes(mean_dev_x, mean_dev_y)
             return slopes, mean_dev_x, mean_dev_y

@@ -2498,6 +2498,41 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
      - **验证**：无代码改动；conventions **53 passed / 1 skipped / 2 failed**（与改文档前一致，失败对
        仍是既有 `pib_exit_safety` 那对）；术语门 **0 个文件**、双重夹注 2 行；CI 钉版 ruff 全绿。
 
+60. ✅ **同一条「截尾平均」规则在两个标定器里手写复制了 7 遍、门槛写在三个不同量上 —— 收敛为唯一入口，并用差分测试锁死逐位等价**（2026-10-25）：
+     - **7 处、跨 4 个调用点**：`dm_response_matrix.py` 的 `measure_slopes_with_averaging` 与
+       `measure_pattern_slopes`、`zernike_response_matrix.py` 的 `responses` 与 `deviations`，
+       各自重写一遍 `np.sort(..., axis=0)` → `[1:-1]` → `np.mean(..., axis=0)`，门槛分别挂在
+       `n_averages`、`len(responses)`、`len(deviations)` 三个不同的量上。
+     - **文档先于行为漂移**：只有 `dm_response_matrix.py` 的 docstring 写明「n_averages > 5 时截尾」，
+       Zernike 那两处**没有任何解释** ⇒ 即便数值仍一致，契约层面已经分叉。
+     - **收敛**：唯一实现 `utils/wavefront/wfs_utils.py::truncated_mean`（叶子层；两个标定器**本就**
+       import 该模块的 `flatten_slopes` ⇒ 无新依赖边、无环）。
+     - **门槛不做成参数（否证自己的第一版）**：我先写成 `gate: int = 5`，随即改掉 —— 四个调用点用的是
+       同一个 5，做成参数等于把刚拆掉的「各站点自己决定门槛」重新开放。改为模块级常量
+       `_TRUNCATED_MEAN_GATE = 5`，并把理由写在常量注释里（≤5 行时丢弃两个样本删的是真实读数而非离群值）。
+     - **逐位等价是证出来的**：测试文件除语义测试外还有**差分测试** —— 对 `(67,)`、`(8, 8)`、`(4, 6)`
+       三种真实读数形状、`n ∈ {6, 7, 11, 40}`，用 `assert_array_equal`（**不是** approx）比对 helper 与
+       被替换的原式；`n ∈ {1, 3, 5}` 比对普通平均分支；另测 Zernike 站点传**列表**的情形（原 `else`
+       就是 `np.mean(list, axis=0)`）。helper 也刻意**不做 dtype 强转**，以免把逐位等价变成 dtype 变更。
+     - **等价前提单独核过**：dm 的门槛原本挂在 `n_averages`、helper 挂在行数 —— 先读循环确认
+       `for _ in range(n_averages)` 每轮恰 append 一条 ⇒ `shape[0] == n_averages`，两者才等价。
+       不读这一层，就会把一次「看起来一样」的替换当成等价。
+     - **新守卫** `test_truncated_mean_is_not_reimplemented`：指纹是 **`mean()` 的第一个实参为
+       `[1:-1]` 下标**（正是 helper 自身的形状），不是裸 `[1:-1]` —— 后者会误伤
+       `utils/image/exposure_fusion.py` 里**没有求平均**的核对窗裁剪；扫描地板**复用**
+       `_MIN_WFS_UNWRAP_SCANNED`（同一范围不设第二个地板）。差分控制：植入
+       `scripts/_common/zz_probe_tmp.py` ⇒ 点名其 `:6`；删除 ⇒ 绿；conventions passed **53 → 54**
+       （增量即新守卫自身）。
+     - **我自己的操作错误（第 22 次）**：插入 helper 时 `oldString` 覆盖了 `unflatten_slopes` docstring
+       的首行而 `newString` 未含它 ⇒ 等于删掉了那一行，`wfs_utils.py` 当场变成
+       `SyntaxError: unterminated triple-quoted string`。靠**编辑后立即编译**发现，一次编辑修复，并要求
+       `git diff` 必须是**纯新增**（16 insertions / 0 deletions）才算修好 —— 只检查「我的新函数在不在」
+       是不够的，还得看增删构成。
+     - **验证**：`utils/wavefront` + `optimizer/wf` **153 passed / 1 skipped**；`runners` +
+       `optimizer/wf` + `utils/wavefront` **751 passed / 26 skipped**；`gui/zernike` + `tools/wfs` +
+       `utils/wavefront` **109 passed**；conventions **54 passed / 1 skipped / 2 failed**（失败对不变）；
+       三个改动文件 stdlib 编译通过；CI 钉版 ruff **0.15.12** 全绿；两个标定器里 `[1:-1]` 残留 **0**。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

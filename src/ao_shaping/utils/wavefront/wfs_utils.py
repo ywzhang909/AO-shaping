@@ -28,6 +28,30 @@ def flatten_slopes(dev_x: np.ndarray, dev_y: np.ndarray) -> np.ndarray:
     return np.concatenate([dev_x.flatten(), dev_y.flatten()])
 
 
+#: More than this many readings must be available before dropping the extreme value of every
+#: column is worth it: at five rows or fewer, discarding two samples per column removes real
+#: readings rather than outliers.
+_TRUNCATED_MEAN_GATE = 5
+
+
+def truncated_mean(values: np.ndarray | list) -> np.ndarray:
+    """Column-wise mean of repeated readings, dropping each column's extremes.
+
+    Readings stack along axis 0 (one reading per row). With more than :data:`_TRUNCATED_MEAN_GATE`
+    rows, the smallest and largest value of **every column** are dropped before averaging, so one
+    bad frame can only contaminate the columns it actually touched; dropping whole rows instead
+    would leave an outlier standing in the other columns. At or below that many rows nothing is
+    dropped.
+
+    The threshold is deliberately not a parameter: a caller-chosen gate would reintroduce the
+    per-site disagreement this helper exists to remove.
+    """
+    arr = np.asarray(values)
+    if arr.shape[0] > _TRUNCATED_MEAN_GATE:
+        return np.mean(np.sort(arr, axis=0)[1:-1], axis=0)
+    return np.mean(arr, axis=0)
+
+
 def unflatten_slopes(slopes: np.ndarray, nx: int, ny: int) -> tuple[np.ndarray, np.ndarray]:
     """Unflatten slope vector back to x/y deviation arrays.
 

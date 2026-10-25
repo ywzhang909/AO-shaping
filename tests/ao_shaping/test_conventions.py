@@ -3660,3 +3660,76 @@ def test_slope_flattening_is_not_reimplemented() -> None:
         "``flatten_slopes`` instead -- a duplicate here changes the row order silently, "
         "because both orderings have the same shape."
     )
+
+
+_TRUNCATED_MEAN_MODULE = "src/ao_shaping/utils/wavefront/wfs_utils.py"
+
+
+def test_truncated_mean_is_not_reimplemented() -> None:
+    """Dropping the extreme readings and averaging the rest happens in exactly one place.
+
+    The rule was inlined seven times across the two matrix calibrators, gated on three
+    different quantities (``n_averages``, ``len(responses)``, ``len(deviations)``) and explained
+    in prose in only one of the two files -- the copies agreed numerically while their docs did
+    not, which is how such a rule starts to disagree with itself.
+
+    The fingerprint is a ``mean`` whose first argument is a ``[1:-1]`` slice: that is the shape
+    of the helper's own body. A ``[1:-1]`` slice that is never averaged -- kernel trimming in
+    ``exposure_fusion`` -- is deliberately **not** a match, so the guard does not tax unrelated
+    slicing.
+    """
+    offenders: list[str] = []
+    unparsed: list[str] = []
+    defining: list[str] = []
+    scanned = 0
+    for path in (
+        sorted((SRC / "ao_shaping").rglob("*.py")) + sorted((REPO / "scripts").rglob("*.py"))
+    ):
+        rel = path.relative_to(REPO).as_posix()
+        scanned += 1
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"))
+        except SyntaxError:
+            unparsed.append(rel)
+            continue
+        nodes = list(ast.walk(tree))
+        if any(isinstance(n, ast.FunctionDef) and n.name == "truncated_mean" for n in nodes):
+            defining.append(rel)
+        if rel == _TRUNCATED_MEAN_MODULE:
+            continue
+        for node in nodes:
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not (isinstance(func, ast.Attribute) and func.attr == "mean"):
+                continue
+            if not node.args or not isinstance(node.args[0], ast.Subscript):
+                continue
+            sl = node.args[0].slice
+            if (
+                isinstance(sl, ast.Slice)
+                and isinstance(sl.lower, ast.Constant)
+                and sl.lower.value == 1
+                and isinstance(sl.upper, ast.UnaryOp)
+                and isinstance(sl.upper.op, ast.USub)
+                and isinstance(sl.upper.operand, ast.Constant)
+                and sl.upper.operand.value == 1
+            ):
+                offenders.append(f"{rel}:{node.lineno}")
+
+    assert not unparsed, (
+        f"{len(unparsed)} file(s) could not be parsed, so this guard saw nothing inside them: "
+        f"{unparsed}"
+    )
+    assert scanned >= _MIN_WFS_UNWRAP_SCANNED, (
+        f"scanned {scanned} file(s), below the floor {_MIN_WFS_UNWRAP_SCANNED} -- the scope "
+        "stopped matching the tree."
+    )
+    assert defining == [_TRUNCATED_MEAN_MODULE], (
+        f"``truncated_mean`` is defined in {defining}; the truncation rule must have one home."
+    )
+    assert not offenders, (
+        f"{len(offenders)} inline truncated-mean averaging site(s): {offenders}. Call "
+        "``truncated_mean`` instead -- the copies had already drifted in how they expressed "
+        "the gate and in which file explained it."
+    )
