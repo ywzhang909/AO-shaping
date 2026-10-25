@@ -2246,6 +2246,51 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
        10 passed；修解析器后 conventions **51 passed / 1 skipped / 2 failed**（那 2 条即红因三，非本次
        引入）；术语门禁 0 文件、双夹注仅 2 行、`ruff check .` 全绿、`sync_report_provenance.py --check`
        clean。
+52. ✅ **孪生/驱动索引分歧的半径普查：`[1:]` 流水会响亮失败，按槽位取单点读数会静默读到零 —— 顺带挖出 `measure_tilt_defocus` 把像散当离焦**（2026-10-25）：
+     - **半径先测清楚，再谈统一**：41 个带 Zernike↔WFS 信号的文件里，**同时**「按类型解析传感器」
+       与「消费系数向量」的生产代码只有 `runners/slm/zernike_matrix_runner.py`（4 处）。
+       `optimizer/wf/` 的 `rms.py` / `ga_zernike.py` / `greedy_zernike.py` / `rms_by_zernike.py`
+       虽解析 WFS，但只读 `get_wavefront()` / `get_spot_deviation()` / `get_spots_statics()`
+       （斜率与统计量），**不碰系数向量** —— 它们不在这条分歧的射程内。
+     - **两种失效方式性质相反**：整数组 `[1:]` 是**响亮**的 —— 矩阵行数钉成
+       `calc_n_zernike_terms(10)=66`，孪生 66 长经 `[1:]` 得 65，填列时形状直接错（该处注释
+       自记过一次 65-vs-66 广播失败）。按槽位取单点读数是**静默**的 —— 容器实测注入 0.70 rad
+       离焦：按孪生口径 `z[3]` 读回 `+0.7043`，按驱动槽位（`z[1:][4]` 或裸 `z[5]`）读回
+       **`-0.0000`**，一个干净的零，既不是噪声也不是异常。
+     - **普查反过来咬到一处真缺陷**：`tools/zernike/common.py` 的 `measure_tilt_defocus` 在
+       **未切片的原始读数**上取 `z_um[4]` 并注释「Noll 4 = defocus」，而槽位 4 是 `(2,-2)` 像散、
+       离焦在槽位 5。同一函数里 tip/tilt 取 `z_um[2:4]` 是对的 —— **Noll 序号与 DLL 槽位只在
+       1..3 重合、从 4 起分岔**，所以这个偏移只污染 n≥2 的读数，数值看上去仍然合理，故长期未被察觉。
+     - **先红后绿**：新测试用逐槽赋不同值的存根读数（离焦槽 0、像散槽 9.0）。修前
+       `defocus=+16.9173`（正是 9.0/0.532 = 像散），修后 `+3.0`；另一条把离焦槽置 NaN，修前
+       旧守卫只查 `[2:5]` 而放行使整帧有效。**守卫语义随之收窄**：有效性判据现在覆盖
+       **真正读到的三个槽位**，不再因为一个未被读的像散槽非有限而丢帧。
+     - **修法是从权威表现取槽位，而不是把 4 改成 5**：新增 `_require_dll_slot()` 与
+       `TILT_DLL_SLOTS` / `DEFOCUS_DLL_SLOT`，槽位由 `DLL_ZERNIKE_ORDER` 现算（表里缺项即
+       `KeyError`，不让 `None` 溜进下标）。写死字面量在枚举被改动时会以同样方式腐烂。
+     - **污染面是查过的，不是推的**：该原语只经 `calibration.py` 的 `diagnose_radius` 与
+       `main_shift_calib` 可达，其报告默认落 `data/calibration/…`，而 `.gitignore` 的 `data/*`
+       把它排除；`scripts/` 里没有任何生成器引用这两个入口或该原语 ⇒ **入库报告无一携带这个错值**
+       （`report/slm/zernike_wfs_report/report.md` 的表列本就写 `[5] defocus(λ)`，用的是正确槽位）。
+     - **顺带挖到的另一处，本次不动**：`runners/slm/offset_runner.py:46` 读
+       `statics["zernike_coeffs"]` 是**死分支** —— 驱动的统计量字典只有
+       `min/max/diff/mean/rms/wighted_rms`，全树无处写入该键，故 `measure_defocus_coefficient()`
+       恒返回 `0.0`；改数据源还是删功能属行为决定，已写进 `drivers/wfs/AGENTS.md` 待用户裁定。
+       另两处**确认不是缺陷**：`zernike_response.py` 与报告脚本里的 `w[4]`（在已切片的 66 通道
+       数组上，索引 4 ↔ 槽位 5）、`focus_preflight.py` 的 `coeffs[3]`（来自 `ZernikeGenerator.fit()`
+       自有基且 `noll = index+1`）—— 先查清来源再判，避免把正确写法当 bug 改掉。
+     - **仪表自伤四处**：(1) 我做过一次「按名字闭包」的传递性普查，闭包膨胀到 4060 个函数、
+       把整棵树卷进来（`main` / `run` / `write_report` 这类名字跨文件重名），**正控制直接识破**：
+       它把只读斜率的 `rms.py` 也算成 Zernike 消费者 ⇒ 作废，改回有界一跳；(2) `awk|cut` 取函数名
+       取到空串，于是 `git grep -n ""` 匹配全树、吐出一千多行噪声；(3) 用 `importlib` 载入
+       `provenance.py` 查生成器，`@dataclass(frozen=True)` 在 `exec_module` 期炸 `AttributeError`
+       （未先把模块注册进 `sys.modules`）—— 但另一条 grep 已独立给出答案，**不重跑不补证**；
+       (4) 我又一次在结果之前先写下「^ empty = …」的解说，而那批输出**并不空**（第 12 处复发）。
+     - **验证**：`test_slm_zernike_common.py` **10 passed**（原 8 + 新 2）；`tools/slm` 全目录
+       **812 passed / 4 skipped**（三个调用方都在其中）；`drivers/wfs`+`drivers/sim`+`tools/wfs`+
+       `optimizer/wf` **640 passed / 14 skipped**（与本项改动前逐位同数）；`ruff check .` 全绿。
+       ⚠️ 诚实边界：错值的影响面是**代码可达性与入库产物**两层的实测结论，本次**没有上实验系统**
+       复现该错读 —— 它由存根读数的容器测试证明，不新建守卫（单点普查不足以钉死约定）。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

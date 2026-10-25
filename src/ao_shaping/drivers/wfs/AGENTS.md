@@ -74,6 +74,25 @@ WFS 家族曾是**唯一没有共享基类**的设备家族: `ThorlabWFS` 直接
 要求每个具体驱动都声明该标记, 且两侧声明**互不相同** —— 若真要统一, 必须在同一个提交里
 同时改动这里的口径与那条守卫, 否则测试判失败。当前没有任何调用方按该标记分支, 它是
 可读的边界与护栏, 不是控制流。
+
+**半径与两种失效方式** (2026-10-25 普查): 同时「按类型解析传感器」与「消费 Zernike 向量」的
+生产代码只有 `runners/slm/zernike_matrix_runner.py` (4 处); `optimizer/wf/` 的 `rms.py` /
+`ga_zernike.py` / `greedy_zernike.py` / `rms_by_zernike.py` 虽解析 WFS, 只读
+`get_wavefront()` / `get_spot_deviation()` / `get_spots_statics()`, 不碰系数向量。
+
+- **整数组 `[1:]` 路径会响亮失败**: 矩阵行数钉成 `calc_n_zernike_terms(10)=66`, 孪生 66 长经
+  `[1:]` 得 65, 填列时形状错误 (`zernike_matrix_runner.py:630-634` 的注释自记过一次 65-vs-66)。
+- **按槽位取单点读数会静默出错**: 对孪生向量套用驱动的 1 基约定读 defocus, 容器实测注入
+  0.70 rad 时按孪生口径读回 `+0.7043`、按驱动槽位读回 `-0.0000` —— 一个干净的零, 既不是噪声
+  也不是异常。
+
+⇒ 该静默类已咬到过 `measure_tilt_defocus`: 它把槽位 4 (=(2,-2) 像散) 当离焦读, 而 Noll 序号与
+DLL 槽位只在 1..3 重合、从 4 起分岔。现由 `tools/zernike/common.py` 的 `TILT_DLL_SLOTS` /
+`DEFOCUS_DLL_SLOT` 从 `DLL_ZERNIKE_ORDER` 现取槽位, 回归测试在
+`tests/ao_shaping/tools/slm/test_slm_zernike_common.py` (逐槽不同值的存根读数)。
+⚠️ 仍未决之外的一处新发现: `runners/slm/offset_runner.py:46` 读 `statics["zernike_coeffs"]`
+是**死分支** —— 驱动的统计量字典只有 `min/max/diff/mean/rms/wighted_rms`, 全树无处写入该键,
+故 `measure_defocus_coefficient()` 恒返回 `0.0`; 改数据源还是删功能属行为决定, 本次未动。
 ⚠️ 该未决项**不波及** `runners/slm/zernike_matrix_runner.py:839/889` 的 `z0[1:]`: 那里的
 `z0` 来自 `measure_zernike`, 它正是 `tools/zernike/common.py` 的入口 (runner `:94` 导入),
 返回的是原始 67 长数组 (index 0 未用), 因此 `[1:]` 是**正确**用法。风险在别处: 新代码若按

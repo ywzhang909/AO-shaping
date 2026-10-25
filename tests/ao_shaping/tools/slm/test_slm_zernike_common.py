@@ -12,6 +12,7 @@ from ao_shaping.tools.zernike.common import (
     flat_gray,
     index_of,
     make_phase,
+    measure_tilt_defocus,
     nm_of,
     safe_pinv,
     um_to_waves,
@@ -145,3 +146,61 @@ def test_collect_device_info_records_available_fields() -> None:
     assert info["slm"]["panel_res"] == [6, 8]
     assert info["wfs"]["serial_number"] == "WFS-1"
     assert info["wfs"]["pupil_center_mm"] == [1.0, 2.0]
+
+
+class _SlotProbeWFS:
+    """A WFS stub returning one fixed driver-shaped reading (67 long, index 0 dead).
+
+    Every slot carries a different value so any off-by-one in the reader is visible
+    instead of hiding inside a plausible-looking number.
+    """
+
+    def __init__(self, vector: np.ndarray) -> None:
+        self._vector = vector
+
+    def take_image(self, n_sample: int = 1, dynamicNoiseCut: bool = True) -> None:
+        return None
+
+    def get_zernike(self, zernike_order: int = 10) -> np.ndarray:
+        return self._vector.copy()
+
+
+def _driver_shaped_reading() -> np.ndarray:
+    z = np.zeros(67, dtype=float)
+    z[2], z[3] = 0.532, -1.064      # (1,-1), (1,1)  -> +1.0 λ, -2.0 λ
+    z[4], z[5] = 9.000, 1.596       # (2,-2) astig, (2,0) defocus -> 3.0 λ
+    return z
+
+
+def test_measure_tilt_defocus_reads_the_slots_its_own_table_documents() -> None:
+    """Defocus is the (2,0) slot, which is 5 -- not the Noll number 4.
+
+    Noll numbering and the driver's 1-based sequential-m enumeration agree for piston,
+    tip and tilt and diverge from slot 4 onward, so a literal ``[4]`` here reads
+    astigmatism and still looks like a sane coefficient.
+    """
+    assert index_of((2, 0)) == 5 and nm_of(4) == (2, -2), (
+        "the enumeration changed; this test's literals must follow the authoritative map"
+    )
+
+    z_tilt, z_defocus = measure_tilt_defocus(cast(Any, _SlotProbeWFS(_driver_shaped_reading())), n_avg=1)
+
+    assert z_tilt is not None and z_defocus is not None
+    assert z_tilt == pytest.approx([1.0, -2.0])
+    assert z_defocus == pytest.approx(3.0), (
+        "defocus must come from the (2,0) slot; the astigmatism slot would give 9.0/0.532 "
+        f"= {9.0 / 0.532:.4f}"
+    )
+
+
+def test_measure_tilt_defocus_drops_a_frame_whose_defocus_slot_is_not_finite() -> None:
+    """A non-finite defocus slot cannot slip past the guard into the median."""
+    z = _driver_shaped_reading()
+    z[5] = np.nan
+
+    z_tilt, z_defocus = measure_tilt_defocus(cast(Any, _SlotProbeWFS(z)), n_avg=1)
+
+    assert z_tilt is None and z_defocus is None, (
+        "the only frame was invalid, so the wrapper must report no measurement "
+        f"(got tilt={z_tilt!r}, defocus={z_defocus!r})"
+    )

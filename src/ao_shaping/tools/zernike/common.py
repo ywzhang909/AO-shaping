@@ -114,6 +114,21 @@ def n_modes_upto(n_max: int) -> int:
     return calc_n_zernike_terms(n_max)
 
 
+def _require_dll_slot(nm: tuple[int, int]) -> int:
+    """(n, m) → 读数槽位; 表里缺该项时立刻失败, 而不是让 ``None`` 溜进下标。"""
+    slot = index_of(nm)
+    if slot is None:
+        raise KeyError(f"DLL_ZERNIKE_ORDER 缺少模式 {nm}, 无法确定读数槽位")
+    return slot
+
+
+#: ``get_zernike()`` 原始读数的槽位 (1 基; 0 号是不写的填充槽)。
+#: Noll 序号与 DLL 槽位只在 piston/tip/tilt (1..3) 重合, 从 4 号起分岔:
+#: [4]=(2,-2) 是像散, [5]=(2,0) 才是离焦 —— 所以离焦必须按模式查表取槽位。
+TILT_DLL_SLOTS: tuple[int, int] = (_require_dll_slot((1, -1)), _require_dll_slot((1, 1)))
+DEFOCUS_DLL_SLOT: int = _require_dll_slot((2, 0))
+
+
 # ─────────────────────────── 设备参数采集 ───────────────────────────
 
 def collect_device_info(slm: Santec, wfs: ThorlabWFS | None = None,
@@ -436,7 +451,7 @@ def added_tilt(z: np.ndarray, base: np.ndarray) -> tuple[float, np.ndarray]:
 def measure_tilt_defocus(
     wfs: ThorlabWFS, n_avg: int = 3, zernike_order: int = 10
 ) -> tuple[np.ndarray | None, float | None]:
-    """多帧中位数聚合, 返回 ``(z_tilt[2] (λ, Noll 2/3), z_defocus (λ, Noll 4))``.
+    """多帧中位数聚合, 返回 ``(z_tilt (λ, DLL [2]=(1,-1) 与 [3]=(1,1)), z_defocus (λ, DLL [5]=(2,0)))``.
 
     Verbatim from ``calibration.measure_tilt`` (shift 标定共用原语)。
     单帧失败不致命, 交由中位数容忍。
@@ -459,10 +474,16 @@ def measure_tilt_defocus(
         except Exception as e:  # 单帧失败不致命, 交由中位数容忍
             logger.debug("get_zernike 失败: {}", e)
             continue
-        if z_um is None or not np.isfinite(z_um[2:5]).all():
+        if z_um is None:
             continue
-        tips.append(np.asarray(z_um[2:4], dtype=float) / 0.532)  # Noll 2,3 = tip/tilt
-        defoci.append(float(z_um[4]) / 0.532)  # Noll 4 = defocus
+        read = np.asarray(
+            [z_um[TILT_DLL_SLOTS[0]], z_um[TILT_DLL_SLOTS[1]], z_um[DEFOCUS_DLL_SLOT]],
+            dtype=float,
+        )
+        if not np.isfinite(read).all():
+            continue
+        tips.append(read[:2] / 0.532)   # DLL [2]=(1,-1), [3]=(1,1) = tip/tilt
+        defoci.append(float(read[2]) / 0.532)  # DLL [5]=(2,0) = defocus
     if not tips:
         return None, None
     return np.median(np.array(tips), axis=0), float(np.median(defoci))
