@@ -3157,6 +3157,18 @@ by before — put new statistics there, not in a script. Pinned by
 > p < 0.05 no matter how large the effect, so report effect sizes there instead of a
 > verdict.
 
+## ml.sim2f — 2f 孪生上的整形闭环
+
+The `ml.sim2f` lane measures amortisation + closed-loop estimation on a **torch twin of
+the calibrated 2f bench**, so its only report is rendered from artefacts already on
+disk (`runs/sim2f_fair/`) with numpy + matplotlib — no torch, no GPU, no device. The
+report carries the ablation that attributes the net-vs-flat reversal to the camera
+defocus rather than the 0-order light, and the three conclusions it overturned.
+
+| Script | Purpose |
+|---|---|
+| `generate_sim2f_shaping_report.py` | Render `report/sim2f_shaping/closed_loop_20261025/report.md` + 9 figures from `runs/sim2f_fair/**` (teacher-vs-flat per family, bench transfer, four-variant ablation, noise ladder, determinism). `--run-dir` re-points it at another lane; a missing artefact renders `未测`, never a placeholder. |
+
 ## Verification Scripts
 
 ### verify_pib_exit_safety_hw.py

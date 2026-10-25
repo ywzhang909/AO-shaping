@@ -86,6 +86,30 @@ class ReportProvenance:
 #:   ``硬件``   -- needs a real bench (SLM / CCD / WFS / DM / micro-DM).
 #:   ``离线+硬件`` -- renders offline, but the numbers were measured on hardware.
 REPORTS: dict[str, ReportProvenance] = {
+    # -- sim2f 闭环归因 (ml.sim2f) -------------------------------------------
+    "report/sim2f_shaping/closed_loop_20261025/report.md": ReportProvenance(
+        script="scripts/ml/generate_sim2f_shaping_report.py",
+        command="python scripts/ml/generate_sim2f_shaping_report.py",
+        environment="离线（只读 runs/sim2f_fair 的 JSON/npz 产物；无 torch / 无 GPU / 无硬件）",
+        note=(
+            "2f 实验系统数字孪生 (ml.sim2f) 上的整形闭环: 语料可行性下限 (24 px 特征底线, "
+            "line 族从不可达变为可达)、U-Net 在标签实验系统上 48/48 + 8/8 胜过零相位、"
+            "换到标定实验系统后五路读数全输给零相位 (net_open 0/7 族)、teacher 对照证明"
+            "差别在实验系统而不在摊销、四变体消融把差异归到 10.0847 mm 相机离焦而非 0 级、"
+            "噪声阶梯的拒测档位与重跑的逐字段确定性; 含 §8 三条被推翻的结论"
+        ),
+        extra_scripts=(
+            "src/ml/sim2f/loop.py",
+            "src/ml/sim2f/train.py",
+            "src/ml/sim2f/teacher.py",
+            "src/ml/sim2f/optics.py",
+            "src/ml/sim2f/synth.py",
+            "src/ml/sim2f/losses.py",
+            "src/ao_shaping/drivers/sim/bench_twin.py",
+            "tests/ao_shaping/ml/sim2f/test_twin_parity.py",
+        ),
+    ),
+
     "report/shape_trials/sim_pretrain_transfer/sim_pretrain_transfer_20261024.md": ReportProvenance(
         script="scripts/slm/generate_sim_pretrain_transfer_report.py",
         command="python scripts/slm/generate_sim_pretrain_transfer_report.py",
