@@ -858,8 +858,8 @@
     ]
   },
   "slm_zernike_response": {
-    "body_literals": 287,
-    "body_literals_sha256": "872fdf36f99aabe6",
+    "body_literals": 282,
+    "body_literals_sha256": "6691b78060f60bc1",
     "declared": [
       "--amplitude-rad",
       "--exclude-tip-tilt",
