@@ -48,53 +48,26 @@ def _shards() -> list[dict[str, object]]:
         match = SHARD_RE.match(line)
         if match is None:
             continue
-        tokens = match.group("targets").split()
         shards.append(
             {
                 "name": match.group("name"),
                 "per_file": match.group("per_file") == "1",
                 "blocking": match.group("blocking") == "1",
-                "envs": [t for t in tokens if "=" in t],
-                "targets": [t for t in tokens if "=" not in t],
+                "targets": match.group("targets").split(),
             }
         )
     return shards
 
 
-def _expected_areas() -> set[str]:
-    """Top-level test areas and root-level test modules that must be sharded."""
-    areas: set[str] = set()
-    for child in TESTS_ROOT.iterdir():
-        if child.name in NOT_SHARDED:
-            continue
-        if child.is_dir():
-            areas.add(child.name)
-        elif child.is_file() and child.name.startswith("test_") and child.suffix == ".py":
-            areas.add(child.name)
-    return areas
-
-
-def _subareas(area: str) -> set[str]:
-    """The children of a directory area: sub-directories plus its test modules."""
-    root = TESTS_ROOT / area
+def _test_files(root: Path) -> set[str]:
+    """Every collected test module under ``root``, relative to ``tests/ao_shaping``."""
     units: set[str] = set()
-    for child in root.iterdir():
-        if child.name in NOT_SHARDED:
+    for path in root.rglob("test_*.py"):
+        rel = path.relative_to(TESTS_ROOT)
+        if any(part in NOT_SHARDED for part in rel.parts):
             continue
-        if child.is_dir():
-            units.add(f"{area}/{child.name}")
-        elif child.is_file() and child.name.startswith("test_") and child.suffix == ".py":
-            units.add(f"{area}/{child.name}")
+        units.add(str(rel).replace("\\", "/"))
     return units
-
-
-def _covered(shards: list[dict[str, object]]) -> set[str]:
-    covered: set[str] = set()
-    for shard in shards:
-        for target in shard["targets"]:  # type: ignore[attr-defined]
-            rel = target.removeprefix("tests/ao_shaping/")
-            covered.add(rel)
-    return covered
 
 
 def test_workflow_exists_and_has_shards() -> None:
@@ -108,41 +81,28 @@ def test_workflow_exists_and_has_shards() -> None:
 
 
 def test_every_test_area_is_sharded() -> None:
-    """A directory area is covered by its own shard, or by a shard for every subarea.
+    """Every test module under ``tests/ao_shaping`` must fall inside some shard.
 
-    The second form is what lets one subarea carry a different memory envelope, but it
-    is only safe if *all* the siblings are named -- otherwise an unlisted subdirectory
-    is silently never collected, which is the failure mode the file-list exception used
-    to have.
+    Coverage is proved per file rather than per area: naming an area directory covers
+    its whole subtree, and an area split across shards -- which is what an area that
+    does not fit one container needs -- must name the rest file by file. Either way a
+    module added later turns the job red instead of going uncollected, which is the
+    failure mode a hand-maintained list is prone to.
     """
-    shards = _shards()
-    covered = _covered(shards)
-    missing: list[str] = []
-    for area in sorted(_expected_areas()):
-        if area in covered:
-            continue
-        children = _subareas(area)
-        uncovered = sorted(children - covered)
-        if children and uncovered:
-            missing.extend(uncovered)
-    assert not missing, (
-        f"{missing} live under tests/ao_shaping but appear in no shard of "
-        f"{WORKFLOW.relative_to(REPO)}; the job would go green without running them. "
-        f"Add a run_shard line (one per line, no continuations)."
+    targets = [
+        t.removeprefix("tests/ao_shaping/") for shard in _shards() for t in shard["targets"]
+    ]
+    uncovered = sorted(
+        unit
+        for unit in _test_files(TESTS_ROOT)
+        if not any(unit == t or unit.startswith(t.rstrip("/") + "/") for t in targets)
     )
-
-
-def test_shard_env_tokens_are_well_formed() -> None:
-    """A per-shard envelope is only auditable if it is spelled predictably."""
-    bad: list[str] = []
-    for shard in _shards():
-        for token in shard["envs"]:  # type: ignore[index]
-            name, _, value = token.partition("=")
-            if not name.startswith("AO_") or not name.replace("_", "").isalnum():
-                bad.append(f"{shard['name']}: {token}")
-            elif name == "AO_MEMORY" and not re.fullmatch(r"\d+[mg]", value):
-                bad.append(f"{shard['name']}: {token} (expected e.g. 8g)")
-    assert not bad, f"malformed per-shard env tokens: {bad}"
+    assert not uncovered, (
+        f"{uncovered[:12]} live under tests/ao_shaping but fall in no shard of "
+        f"{WORKFLOW.relative_to(REPO)}; the job would go green without running them. "
+        f"Name the area, or the files, in a run_shard line (one per line, no "
+        f"continuations)."
+    )
 
 
 def test_advisory_shards_state_their_flip_condition() -> None:

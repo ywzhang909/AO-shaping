@@ -3472,6 +3472,15 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 验证：守卫 **12 passed**（原 10 + 新 2；我一度把辅助函数 `_subareas` 误计为测试而预期 13，核对后更正——台账以此为准）；**三控制各自精确炸掉对应检查**：删去一个 ml 兄弟目标 ⇒ `test_every_test_area_is_sharded` 红；把标记写成 `AO_MEMORY=8GiB` ⇒ 形状检查红；删掉 advisory 说明块 ⇒ advisory 检查红；还原后回到 12 passed。**用桩件执行 workflow 的 `run:` 块原文**（临时目录里放一个打印 env 与参数的假 harness）证明 bash 装配无误：只有 `ml-gsnet-debug` 得到 `AO_MEMORY=8g`，且 env 标记**不会**漏进 pytest 的目标参数；按 CI 形态实跑该分片（`AO_TEST_PER_FILE=1`, 8g）= **exit 0、4 份摘要、22 / 78 / 80 passed+7 skipped / 83**；收项等价性：父目标 `tests/ao_shaping/ml` = **1716**，兄弟 1446 + `gsnet_debug` 270 = **1716** ⇒ 拆分不重叠也不遗漏；`run_pytest_ci.sh` 与抽取出的 workflow `run` 块 `bash -n` 均干净；`ruff check .` 全仓 0。
 - 至此 ml 全域进入 CI：blocking 1446 + advisory 270 = **1716**（本系列起点是 ml 在 CI 里 **0 项**）；harness 豁免清单为空，但守卫仍看守其规则——未来若要再豁免，必须逐条带理由、必须是子路径而非整区域、且分片级 env 与 advisory 翻转条件都要写清。
 
+109. ✅ **闭合 108 未做完的门禁纳入：`ml/gsnet_debug` 由 8g advisory 改为两条 6g blocking 分片（拆容器而非抬内存），并移除随之成为死代码的分片级 env 机制**（2026-10-27）
+- 为什么要重做：108 落地后该区域的 270 项处于 `blocking=0` 的 advisory 状态，而 advisory 不拦任何东西；它又押在 8g 这个本机无法观测的执行机包络上，翻转条件要去看 Actions 页面，而 Actions 列表是客户端渲染、HTML 里取不到 run 记录 ⇒ "纳入门禁"当时并未完成。
+- 决定性观测（不需要 CI 可观测性）：108 那次 4 文件同容器 6g 的运行里，`cache(22)` / `dataset(78)` / `train(83)` 三份摘要正常产出，只有 `test_gsnet_offline.py` 被杀；而该文件在单独容器、同样 6g 下是 80 passed / 7 skipped ⇒ 需要的是分容器，不是抬内存。
+- 做法：把一条 advisory 分片换成 `run_shard "ml-gsnet-debug-offline" 1 1 …/test_gsnet_offline.py` 与 `run_shard "ml-gsnet-debug-rest" 1 1 …/test_gsnet_cache.py …/test_gsnet_dataset.py …/test_gsnet_train.py`，两者均为 6g、per-file、`blocking=1`。108 为那次 hedge 引入的分片级 env 机制（`run_shard` 吞 `NAME=value` 的前置循环、`env "${envs[@]}"` 前缀、守卫的形状检查）此后无人使用，按死代码移除。
+- 守卫加强（按文件拆分的前置条件）：把一个目录拆成文件目标，正是本仓库长期禁止"手工文件清单"的原因（新增文件会被静默漏收），所以 `test_every_test_area_is_sharded` 改为逐个测试文件判覆盖：新增 `_test_files()` 递归 `rglob("test_*.py")`，目录目标覆盖其整个子树，拆分区域必须逐个点名 ⇒ 日后新增模块会让作业变红，而不是不被收集。
+- 本项两处自造缺陷，均由验证当场抓到（留档防重犯）：① 新覆盖检查把"相对 `tests/ao_shaping` 的路径"与"仓库相对目标串"直接比较，缺了同一基准归一化，结果整棵树被判未覆盖（首批误报就是 `algorithm/test_adam.py` 等）。修法是目标侧去掉 `tests/ao_shaping/` 前缀——旧 `_covered()` 里本就有这一步，重写时丢了。② 清理死代码时用了"从 `def _expected_areas` 到 `def _test_files`"的语义跨度删除，连带毁掉 `_covered()` 与 `test_workflow_exists_and_has_shards()`（看守每条 `run_shard` 必须单行、不得续行的早铃）。发现方式是守卫报告 10 条而不是预期的 11 条，而不是"全绿"。已按 `git show HEAD:` 取原文精确复原；注意 `oxpy` 沙箱里没有 `git`，必须先在宿主把 HEAD 文本写到临时文件再拼接。规则固化：删代码只用精确锚点，不用语义跨度；改守卫必须核对测试条数，不能只看是否全绿。
+- 验证：守卫 11 passed。四条控制各自精确咬合且可还原：删去一个 `gsnet_debug` 文件目标 ⇒ 覆盖检查红；在 `tests/ao_shaping/ml/gsnet_debug/` 放一个新增测试文件（模拟清单走样）⇒ 覆盖检查红；删去整区域目标 `tests/ao_shaping/utils` ⇒ 覆盖检查红；给 `run_shard` 写续行 ⇒ `test_every_shard_target_exists` 把一个孤立的行继续反斜杠当作未知目标而红；四处还原 ⇒ 回到 11 passed。按 CI 形态实跑两个新分片（`AO_TEST_PER_FILE=1`，6g）：`-offline` exit=0、80 passed、7 skipped；`-rest` exit=0、22 / 78 / 83。workflow 双层结构校验：抽出 `run:` 块做 `bash -n` 干净；用一次性安装的 pyyaml 解析得 11 条 `run_shard`、env 标记为 none（pyyaml 仅用于本次校验，未引入仓库依赖，守卫仍按设计用正则解析）。
+- 覆盖账（本系列主线闭合）：ml blocking = 主分片 1446 + `-offline` 87 + `-rest` 183 = 1716，即整棵 `tests/ao_shaping/ml` 树；harness `EXCLUDES` 为 0 条，且不再有 advisory 分片。起点是 ml 在 CI 里 0 项（104 之前）。108 台账里的"advisory 翻转条件"已被本项取代，不再需要。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

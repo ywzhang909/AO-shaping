@@ -72,12 +72,6 @@ jobs:
 
           run_shard() {
             name="$1"; per_file="$2"; blocking="$3"; shift 3
-            # Optional NAME=value tokens before the targets: a shard's own envelope.
-            # Memory is per-shard because the areas differ (measured): ml/gsnet_debug
-            # is killed at 6g inside one container and green at 8g, while the other
-            # shards fit 6g, and raising every shard risks the runner itself.
-            envs=()
-            while [ $# -gt 0 ] && [ "${1#*=}" != "$1" ]; do envs+=("$1"); shift; done
             echo "::group::$name"
             # Stage once per job: the harness re-copies data/ on every refresh, and
             # the shards share one scratch dir.
@@ -87,12 +81,7 @@ jobs:
             if [ "$per_file" = "1" ]; then export AO_TEST_PER_FILE=1
             else unset AO_TEST_PER_FILE; fi
 
-            if [ "${#envs[@]}" -gt 0 ]; then
-              run_pytest=(env "${envs[@]}" ./scripts/build/run_pytest_ci.sh)
-            else
-              run_pytest=(./scripts/build/run_pytest_ci.sh)
-            fi
-            if "${run_pytest[@]}" "$@" -q --tb=short; then
+            if ./scripts/build/run_pytest_ci.sh "$@" -q --tb=short; then
               echo "$name: PASS" >> "$GITHUB_STEP_SUMMARY"
               echo "::notice::$name PASS"
             else
@@ -112,11 +101,11 @@ jobs:
 
           # Shards are whole directories, never file lists: a list silently stops
           # covering any test file added later. The exception is `ml`, which is split
-          # into its subareas: one of them needs a larger memory envelope than the rest,
-          # and nesting a child shard inside a parent `ml` shard would either double-run
-          # it or silently empty the child. The shard-coverage guard now proves every
-          # subarea of a split area is named, so a newly added ml subdirectory cannot go
-          # uncovered the way a stale file list would. `optimizer` uses per-file mode
+          # into its subareas because one of them does not fit one container at 6g, and
+          # nesting a child shard inside a parent `ml` shard would either double-run it
+          # or silently empty the child. Splitting by file is allowed only because the
+          # coverage guard proves completeness file by file: a newly added test module
+          # under tests/ao_shaping/ml turns the job red rather than going uncollected. `optimizer` uses per-file mode
           # because it cannot fit one process even at 12g (measured), and per-file
           # coverage was verified identical (1259 passed + 3 skipped == 1262 collected).
           #
@@ -132,12 +121,14 @@ jobs:
           run_shard "runners-gui-misc" 0 1 tests/ao_shaping/runners tests/ao_shaping/gui tests/ao_shaping/model tests/ao_shaping/display tests/ao_shaping/report tests/ao_shaping/ao
           run_shard "scripts" 0 1 tests/ao_shaping/scripts
           run_shard "ml" 1 1 tests/ao_shaping/ml/gsnet tests/ao_shaping/ml/hwdataset tests/ao_shaping/ml/shaping tests/ao_shaping/ml/sim2f tests/ao_shaping/ml/zernike tests/ao_shaping/ml/test_csv_io.py tests/ao_shaping/ml/test_train_cli_runnable.py
-          # advisory: blocking=0 for exactly one cycle. 8g is measured inside the local
-          # test container (at 6g the invocation dies after 3 of 4 summaries; at 8g and
-          # 12g all four run: 22 / 78 / 80 passed + 7 skipped / 83), but the runner's own
-          # RAM envelope has never been observed from here. flip: set blocking=1 on the
-          # first run where ml-gsnet-debug reports PASS.
-          run_shard "ml-gsnet-debug" 1 0 AO_MEMORY=8g tests/ao_shaping/ml/gsnet_debug
+          # ml/gsnet_debug gets two containers rather than one bigger one. Measured at
+          # 6g, four files in one container yield three summaries (cache 22 / dataset 78
+          # / train 83) and test_gsnet_offline.py is killed; that same file is green
+          # (80 passed, 7 skipped) in a container of its own at the same 6g. So the
+          # ceiling is not what needs raising -- splitting the area is enough, and the
+          # shards stay blocking at the envelope every other shard was measured against.
+          run_shard "ml-gsnet-debug-offline" 1 1 tests/ao_shaping/ml/gsnet_debug/test_gsnet_offline.py
+          run_shard "ml-gsnet-debug-rest" 1 1 tests/ao_shaping/ml/gsnet_debug/test_gsnet_cache.py tests/ao_shaping/ml/gsnet_debug/test_gsnet_dataset.py tests/ao_shaping/ml/gsnet_debug/test_gsnet_train.py
 
           echo "blocking shard failures: $FAILURES" >> "$GITHUB_STEP_SUMMARY"
           echo ""
