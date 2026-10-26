@@ -9,17 +9,21 @@ dm/
 ├── base.py              # DM 抽象基类 (DM/ABC)
 ├── hadamard_dm.py       # Hadamard DM
 ├── zernike_dm.py        # Zernike DM
+├── MicroDM.py           # re-export shim → micro/
+├── NLight.py            # re-export shim → nlight/
+├── asyn_micro_dm.py     # re-export shim → micro/asyn_driver.py
 ├── _adjacency.py        # 致动器邻接矩阵单一加载器
 ├── _registry.py         # DM 注册表
 ├── __init__.py
-├── Drv_UDPST/           # NLight SDK (x64/x86, Debug/Release)
 ├── micro/               # Micro-DM (R50Power) 子包
+│   ├── __init__.py
 │   ├── driver.py            # MicroDM / R50Controller / voltages_to_payload
 │   ├── asyn_driver.py       # AsyncMicroDM (asyncio 版本)
 │   ├── constants.py         # 帧协议 / 电压→载荷编码
 │   ├── micro_constants.py   # 型号专属硬件规格
 │   └── wiring_map.py        # 接线表类型化 JSON schema
 └── nlight/              # NLight 子包
+    ├── __init__.py
     ├── driver.py            # NLight / NLightParams / NLIGHT_CONFIG
     ├── constants.py         # 驱动层常量 (协议 / 编码 / 端点)
     ├── nlight_constants.py  # 型号专属硬件规格

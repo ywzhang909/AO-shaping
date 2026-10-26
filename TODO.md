@@ -3266,6 +3266,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     - **验证**：守卫 2 passed；ruff（钉版 0.15.12）干净；术语门禁合计 0；provenance `--check` clean；PAR 计数本条为 84。
     - **范围**：algorithm 表 4 行文档修正 + 1 行注解重写 + 守卫推广，无源行为 / 导入面变化；`sim.py` 迁 `scripts/` 属代码重构，另立条目。
 
+85. ✅ **drivers 家族 7 份 AGENTS.md 文档树与磁盘逐名对齐（5 份改动：清 3 幻影 / 补 15 漏登 / 删 `__pycache__/` 噪声；`slm/`、`tm/` 自证零 drift）+ 新守卫 `test_drivers_doc_tree.py`**（2026-10-26）：
+- 延续 82/83/84 的普查，对象是 drivers 家族 root + `ccd/dm/slm/wfs/tm/sim` 共 7 份 `AGENTS.md` 的「结构/目录结构」围栏树；守卫按缩进解析树块，双向对账磁盘——完整性只统计 `.py` + 目录（排除 `__pycache__`），其余文件仅在文档列出时校验存在。
+- 幻影 3：`ccd/ffmpeg.py`（`FFmpegCamera`/`ImageFolderCamera` 实际在 `ffmpeg/driver.py`，关键类表 2 行同步改指）、`ccd/gxipy/`（SDK 实际在 `libs/`）、`dm/Drv_UDPST/`（仅树行删除；正文对 `Drv_UDPST.dll` SDK 的表述保留）。
+- 漏登 15：drivers 根 `__init__.py` + `_lazy.py`（惰性契约主角文件）；dm 顶层 3 个 shim（`MicroDM.py` / `NLight.py` / `asyn_micro_dm.py`，此前只在正文提及）+ `micro/`、`nlight/` 的 `__init__.py`；wfs `_registry.py`；ccd `daheng/constants.py`；sim 顶层 5 个（`fouriergsnet_env.py`、`nonideal.py`、`_oopao_compat.py`、`sim_bench_patch.py`、`slm_shaping_bench.py`）；`sim/dm/simulated_micro_dm.py`（守卫让它现形）。
+- 归属修正：sim 文档原注称 `simulated_dm.py` 兼有 SimulateDM+SimMicroDM，实测 `SimulateDM` 在 `simulated_dm.py`（L29）而 `SimMicroDM` 独在 `simulated_micro_dm.py`（L23，`sim/dm/__init__` L7 re-export）——两行注各自改对；「各子包文档」表补 `adc/` 行（无独立文档）。
+- 证据：born-red 单条信息精确点名 19 处差异；control（删 wfs `_registry.py` 树行）变红 → `cmp` 逐字节还原 → 再绿；term gate 合计 0；ledger parity 85 条 / 13 已知；provenance `--check` clean；ruff 0.15.12 clean。
+- 教训：(a) 守卫初版两处解析 bug——目录名尾 `/` 让 `count("/")==0` 口径失效、内层子项比较漏取 basename（首版 born-red 全量误报），修正后才得到可信红；(b) 修复脚本收尾自设禁词正则曾扫整文件，被 `ccd/AGENTS.md` L124 存量词（term gate 豁免段）误伤——改为只查本次插入 fragment，整文件交 `scripts/_common/term_unify_20261016.py --check` 仲裁；(c) `dm/XuWeiDM64_UnitsPos.txt` 全仓零 loader 命中，不在 `.py`/目录完整性规则内，留盘未录。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
