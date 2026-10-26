@@ -55,6 +55,7 @@ from ao_shaping.utils.image.beam_metrics import zero_order_center
 from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts
 from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
 from ao_shaping.utils.wavefront import zernike_calc
+from ao_shaping.utils.io.recorder_keys import (RECORD_COEFFS, RECORD_EPOCH, RECORD_IMAGE, RECORD_PHASE)
 
 # 语料家族前缀（最长前缀匹配，顺序极为关键：slm_pib_online 必须排在 slm_pib 之前）
 # 参见：src/ml/hwdataset/index.py:200-210
@@ -624,8 +625,8 @@ def acquire(
             "spot_cx": float(spot.centroid_x),
             "spot_cy": float(spot.centroid_y),
             "exp_t": float(p.exposure_ms),
-            "_epoch": int(p.index),
-            "_img": img_arr,
+            RECORD_EPOCH: int(p.index),
+            RECORD_IMAGE: img_arr,
         }
         if pupil_arr is not None:
             record["pupil"] = pupil_arr
@@ -644,7 +645,7 @@ def acquire(
                 j = int(noll) - 1  # Noll 1-based -> 0-based
                 if 0 <= j < n_terms:
                     c_vec[j] = float(val)
-            record["_c"] = c_vec
+            record[RECORD_COEFFS] = c_vec
         elif p.mode == "freeform" and p.phase_grid is not None:
             # freeform: 长度 = grid**2 (完全平方) -> 判为 FREEFORM。
             # 24 -> 576。注意 grid=6 时 36 同时是三角数, 只有落在
@@ -655,7 +656,7 @@ def acquire(
                 params.seed + p.index if params.seed is not None else None
             )
             base = rng.normal(0.0, 0.2, size=(g, g)).astype(np.float32)
-            record["_c"] = base.reshape(-1).astype(np.float32)
+            record[RECORD_COEFFS] = base.reshape(-1).astype(np.float32)
         if _effective_store_panel(params):
             # 保存 uint16 全面板 `_phase`。
             #
@@ -670,7 +671,7 @@ def acquire(
             # records.py 的 _ZERNIKE_APERTURE_RADIUS 一致 (默认 300)。
             try:
                 gray = phase_to_slm_grayscale(phase_rad, slm=slm)
-                record["_phase"] = np.asarray(gray, dtype=np.uint16)
+                record[RECORD_PHASE] = np.asarray(gray, dtype=np.uint16)
             except Exception as e:
                 logger.warning(
                     "未能保存 _phase 面板 (第 {} 条): {} —— 该条记录将只有 _c, "
@@ -919,7 +920,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return True
             batch = Recorder(mark="J", mode="max")
             batch.history = list(rows)
-            point = plan[rows[-1]["_epoch"]] if 0 <= rows[-1]["_epoch"] < len(plan) else plan[0]
+            point = plan[rows[-1][RECORD_EPOCH]] if 0 <= rows[-1][RECORD_EPOCH] < len(plan) else plan[0]
             save_recorder_debug_artifacts(
                 res=batch,
                 root_dir=str(params.root_dir),
