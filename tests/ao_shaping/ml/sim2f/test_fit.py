@@ -155,6 +155,22 @@ def _measure(bench: LinearSensorBench, truth: np.ndarray):
 
 _TRUTH = np.array([0.2, -0.1, 0.3, 0.05, -0.25, 0.15])
 
+#: Measured on ``LinearSensorBench`` at the budget these tests set (120 Adam steps,
+#: ``fit_lr = 0.05``).  ``mse`` is smooth, so the polish lands on the exact solution:
+#: residual 1.05e-6 and max |c - truth| 7.8e-4, and that maxerr holds for every lr
+#: from 0.02 to 0.2.  The bounds below are those measurements with ~2.5x margin.
+_MSE_RESIDUAL = 1e-5
+_MSE_MAXERR = 2e-3
+
+#: The same bench under ``l1`` -- the production default, because a real speckle
+#: frame carries outliers.  The objective is a sum of absolute values, so it has a
+#: kink at zero and Adam oscillates instead of converging: residual 0.0236 and
+#: max |c - truth| 0.0228 after 120 steps, and 4000 steps still leave 0.0127.  The
+#: band below brackets the 120-step value and the asymptote, so a change that made
+#: l1 actually converge would have to update this test on purpose.
+_L1_RESIDUAL_BAND = (0.010, 0.030)
+_L1_MAXERR_BAND = (0.010, 0.030)
+
 
 class TestConfiguration:
     """The budget must come from the dataclasses, never from a literal here."""
@@ -220,17 +236,64 @@ class TestProbeAlgebra:
         # bias, and the reason the linear step is evidence rather than the answer.
         assert response.linear_residual < 0.6
 
-    def test_probe_returns_the_truth(self):
+    def test_probe_recovers_the_truth_under_the_smooth_metric(self):
+        """On a linear sensor the response matrix is exact, so the algebra inverts.
+
+        ``mse`` is differentiable everywhere, which is what makes the claim
+        testable: inside this test's own budget the polish lands on the injected
+        coefficients to 7.8e-4 (see :data:`_MSE_MAXERR`).
+        """
         bench = LinearSensorBench()
-        result = probe(bench, _cfg(), measure=_measure(bench, _TRUTH))
+        result = probe(
+            bench,
+            _cfg(),
+            measure=_measure(bench, _TRUTH),
+            fit_cfg=FitConfig.from_aberration(_cfg(), metric="mse"),
+        )
         assert result.ok, result.reason
         assert result.rank == 4
-        np.testing.assert_allclose(result.coeffs, _TRUTH, atol=0.02)
+        np.testing.assert_allclose(result.coeffs, _TRUTH, atol=_MSE_MAXERR)
         # The probe stage fits tip/tilt too (only piston is frozen): on a flat spot
         # the spot shift *is* the tilt information.
         assert result.free_noll == (2, 3, 4, 5, 6, 7)
         assert len(result.history) == result.iterations == 120
-        assert result.residual < 0.01 < result.residual_start
+        assert result.residual < _MSE_RESIDUAL < result.residual_start
+
+    def test_the_l1_default_stalls_at_a_measured_floor(self):
+        """``l1`` -- the default metric -- cannot resolve even this exactly linear case.
+
+        A sum of absolute values has a kink where the residual crosses zero, so near
+        the optimum Adam's gradient keeps flipping sign and the fit oscillates
+        instead of converging.  Measured here at 120 steps (TODO.md 8.9 item 102):
+        residual 0.0236, max |c - truth| 0.0228 on tip, and 4000 steps still leave
+        0.0127 -- the floor is a property of the objective, not of the budget.  A
+        smaller lr does better (0.02 gives 0.0033 / 0.0028), which is the other half
+        of the same signature and is asserted below so the relationship cannot drift
+        unnoticed.
+        """
+        bench = LinearSensorBench()
+        measure = _measure(bench, _TRUTH)
+
+        calibrated = probe(bench, _cfg(), measure=measure)
+        assert calibrated.ok, calibrated.reason
+        assert calibrated.rank == 4
+        low_lr = probe(bench, _cfg(fit_lr=0.02), measure=measure)
+        assert low_lr.ok, low_lr.reason
+
+        residual = calibrated.residual
+        maxerr = float(np.abs(calibrated.coeffs - _TRUTH).max())
+        assert _L1_RESIDUAL_BAND[0] < residual < _L1_RESIDUAL_BAND[1], residual
+        assert _L1_MAXERR_BAND[0] < maxerr < _L1_MAXERR_BAND[1], maxerr
+        assert float(np.argmax(np.abs(calibrated.coeffs - _TRUTH))) == 0, (
+            "tip is the mode l1 leaves furthest from the truth on this bench; if "
+            "another mode takes over, the oscillation changed shape"
+        )
+        assert low_lr.residual < residual and (
+            float(np.abs(low_lr.coeffs - _TRUTH).max()) < maxerr
+        ), (
+            "a smaller lr used to beat the calibrated 0.05 under l1; if that "
+            "reversed, either the metric or the lr was retuned -- re-measure both"
+        )
 
     def test_rank_deficient_bank_is_a_documented_failure(self):
         bench = DuplicateModeBench()
@@ -256,13 +319,26 @@ class TestProbeAlgebra:
         np.testing.assert_allclose(result.coeffs, 0.0)
 
     def test_measured_frame_can_be_passed_explicitly(self):
+        """Handing ``probe`` an already captured frame changes nothing but the capture.
+
+        The explicit frame is the same prepared array the internal capture produces,
+        so the two runs must agree bit-for-bit -- which is the part of this test that
+        carries information.  The metric is pinned to ``mse`` because the claim is
+        about the plumbing, and only the smooth metric resolves this bench exactly
+        (:meth:`test_probe_recovers_the_truth_under_the_smooth_metric`).
+        """
         bench = LinearSensorBench()
-        frame = _measure(bench, _TRUTH)(_command(bench))
-        result = probe(
-            bench, _cfg(), measure=_measure(bench, _TRUTH), measured=frame
-        )
-        assert result.ok, result.reason
-        np.testing.assert_allclose(result.coeffs, _TRUTH, atol=0.02)
+        measure = _measure(bench, _TRUTH)
+        frame = measure(_command(bench))
+        fit_cfg = FitConfig.from_aberration(_cfg(), metric="mse")
+
+        explicit = probe(bench, _cfg(), measure=measure, measured=frame, fit_cfg=fit_cfg)
+        implicit = probe(bench, _cfg(), measure=measure, fit_cfg=fit_cfg)
+
+        assert explicit.ok, explicit.reason
+        np.testing.assert_allclose(explicit.coeffs, _TRUTH, atol=_MSE_MAXERR)
+        np.testing.assert_array_equal(explicit.coeffs, implicit.coeffs)
+        assert explicit.residual == implicit.residual
 
 
 class TestRefine:
