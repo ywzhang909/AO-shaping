@@ -84,6 +84,18 @@ from ao_shaping.gui.slm.bench_settings import (
     CAM_TYPE_OPTIONS,
     MIL_TARGET_SIDE_MIN_PX,
 )
+from ao_shaping.gui.slm.link_design_assist import (
+    DEFAULT_FAR_SIDE,
+    FAR_UNITS,
+    LINK_FIELDS,
+    build_params,
+    compute_link_summary,
+    compute_reverse,
+    far_side_to_m,
+    format_ccd_length,
+    format_far_length,
+    summary_rows,
+)
 from ao_shaping.gui.slm.pattern_controls import refresh_phase_preview
 from ao_shaping.gui.utils.phase_overlay import apply_overlays_to_handle
 from ao_shaping.utils.io.timestamp import format_ts
@@ -1036,6 +1048,10 @@ class ShapingMethod(ABC):
         窗内。这里**不再**用 ``cam_size_min = max(16, target_side)`` 去反向夹
         窗口：侧栏先渲染，拿不到主区的目标边长，而 Streamlit 对「min 变化后越界」
         是抛异常而不是夹取 —— 所以那个交叉校验挪到 :meth:`validate`（运行前）。
+
+        控件**之前**先渲染 :meth:`render_link_assist` 的「远场尺寸换算」popover：
+        它紧挨着目标方边长，换算结果一键就能填进来（填写走 pending-flush，见该
+        方法的 docstring）。
         """
         # 上界取当前窗口边长（关窗 = 传感器短边），因为目标方斑必须整个落在读出
         # 窗内。但窗口可以比目标默认边长**小**（操作员刚把窗口调小，或窗口默认值
@@ -1044,6 +1060,7 @@ class ShapingMethod(ABC):
         # 挪到 :meth:`validate` 是同一个理由，只是那条只管 min/hi，管不到 value。
         window_side = max(int(lo), bench_settings.bench_window_side())
         default = max(int(lo), min(int(default), window_side))
+        self.render_link_assist(lo=lo, window_side=window_side, current_side=default)
         value = self.num_input(
             "target_side", "目标方边长", default, lo, window_side, step, help=help
         )
@@ -1054,6 +1071,138 @@ class ShapingMethod(ABC):
                 "目标框在读出噪声里没有意义"
             )
         return side
+
+    def link_wkey(self, name: str) -> str:
+        """换算 popover 自己的 widget key（统一 ``link_`` 前缀）。
+
+        与算法参数键分开：这个 popover 是换算器，不是优化器输入。将来某个参数
+        若与本助手的字段同名（``wavelength_nm`` 之类），也不会互相覆盖。
+        """
+        return self.wkey(f"link_{name}")
+
+    def render_link_assist(
+        self, *, lo: int, window_side: int, current_side: int
+    ) -> None:
+        """「远场尺寸换算」popover：望远镜远场光斑 ↔ 诊断相机像素。
+
+        操作员手上通常只有望远镜一侧的指标（1 km 处 10 cm 光斑），而这里要填的
+        是诊断相机上的像素数。这个助手把两者连起来，并能一键把换算结果填进
+        :meth:`render_target_side` 的目标方边长。
+
+        换算**全部**走 :mod:`ao_shaping.utils.wavefront.link_design`（issue #204
+        的单一事实源，见 :mod:`ao_shaping.gui.slm.link_design_assist`）；本方法
+        只摆控件、显示结果、处理「填入」与「恢复锁定参数」。
+
+        为什么「填入」不直接写 widget key：Streamlit 只允许在控件实例化**之前**
+        写它的 key，而按钮被点击时 ``target_side`` 早已在本次运行里创建。所以两个
+        按钮都走本模块既有的 pending-flush —— :func:`queue_widget_writes` 排队 +
+        ``st.rerun()``，下一次 :meth:`render_inputs` 的第一行
+        :func:`flush_pending_widgets` 在任何控件之前把值写进 key（与「预算预设」
+        同一条路径）。
+
+        Args:
+            lo: 目标方边长的下界（GS 允许 0 = 由照明瞳自动推导）。
+            window_side: 当前读出窗边长，也是目标方边长的上界。
+            current_side: 目标方边长控件的当前值（反向换算的默认值）。
+        """
+        state = st.session_state
+        fields = {
+            field.name: float(state.get(self.link_wkey(field.name), field.default))
+            for field in LINK_FIELDS
+        }
+        params = build_params(**fields)
+        current_px = int(state.get(self.wkey("target_side"), current_side))
+
+        with st.popover(
+            "远场尺寸换算",
+            help="把目标处的远场光斑边长换算成诊断相机上的像素，可直接填入目标方边长。",
+        ):
+            st.caption(
+                "远场边长 ↔ 相机上的方斑边长。换算用 f_eff = f_c·M_t，口径取出瞳直径。"
+            )
+            unit_col, value_col = st.columns([1, 2])
+            unit = unit_col.selectbox(
+                "单位",
+                options=list(FAR_UNITS),
+                index=list(FAR_UNITS).index(str(DEFAULT_FAR_SIDE["unit"])),
+                key=self.link_wkey("far_unit"),
+                label_visibility="collapsed",
+            )
+            far_value = value_col.number_input(
+                "远场边长",
+                min_value=0.001,
+                value=bench_settings.widget_default(
+                    self.link_wkey("far_value"), float(DEFAULT_FAR_SIDE["value"])
+                ),
+                step=1.0,
+                key=self.link_wkey("far_value"),
+            )
+            far_side_m = far_side_to_m(float(far_value), str(unit))
+
+            summary = compute_link_summary(
+                far_side_m, window_side_px=window_side, params=params
+            )
+            for label, text in summary_rows(summary):
+                st.markdown(f"- **{label}**：{text}")
+            st.caption(f"换算系数 L/(f_c·M_t) = {summary['scale']:.0f}")
+
+            px = int(round(summary["ccd_side_px"]))
+            filled = min(max(px, int(lo)), int(window_side))
+            if filled != px:
+                st.warning(
+                    f"远场 {format_far_length(far_side_m)} 换算得 {px} px，"
+                    f"超出当前读出窗能容纳的 {int(lo)}–{int(window_side)} px；"
+                    f"已夹到 {filled} px。这个物理边长超出相机视场："
+                    "要完整覆盖它，得先开大读出窗或提高望远镜放大率。"
+                )
+            if st.button("填入目标方边长", key=self.link_wkey("apply"), type="primary"):
+                # 走本模块既有的 pending-flush（``queue_widget_writes`` →
+                # ``flush_pending_widgets``），而不是在这一帧直接写 widget key：
+                # 排队 + rerun 后，下一次 ``render_inputs`` 的第一行在任何控件
+                # 实例化之前把值写进 key，与「预算预设」是同一条路径。
+                queue_widget_writes(self, {"target_side": int(filled)})
+                st.rerun()
+
+            st.divider()
+            st.caption("反向：相机像素 → 远场")
+            rev_px = st.number_input(
+                "CCD 边长 (px)",
+                min_value=1,
+                value=bench_settings.widget_default(
+                    self.link_wkey("rev_px"), max(1, current_px)
+                ),
+                step=1,
+                key=self.link_wkey("rev_px"),
+            )
+            rev = compute_reverse(float(rev_px), params=params)
+            st.caption(
+                f"{int(rev_px)} px = {format_ccd_length(rev['ccd_side_m'])}"
+                f" → 远场 {format_far_length(rev['far_side_m'])}"
+            )
+
+            with st.expander("光路参数"):
+                st.caption("默认值 = issue #204 的锁定设计点；改动只影响本助手的换算。")
+                left, right = st.columns(2)
+                for index, field in enumerate(LINK_FIELDS):
+                    cell = left if index % 2 == 0 else right
+                    cell.number_input(
+                        field.label,
+                        min_value=field.lo,
+                        max_value=field.hi,
+                        value=bench_settings.widget_default(
+                            self.link_wkey(field.name), field.default
+                        ),
+                        step=field.step,
+                        key=self.link_wkey(field.name),
+                    )
+                if st.button("恢复锁定参数", key=self.link_wkey("reset")):
+                    # queue_widget_writes 自己加 ``wkey`` 前缀，所以这里传的键名
+                    # 要与 :meth:`link_wkey` 的前缀一致（``link_<字段>``）。
+                    queue_widget_writes(
+                        self,
+                        {f"link_{field.name}": field.default for field in LINK_FIELDS},
+                    )
+                    st.rerun()
 
     def common_param_values(self, values: Mapping[str, Any]) -> dict[str, Any]:
         """所有优化器参数对象共有的光路字段（一个映射，三份参数对象共用）。
