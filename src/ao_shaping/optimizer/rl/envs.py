@@ -18,8 +18,11 @@ from ao_shaping.drivers.sim.compat import (
 )
 
 
-Far_Cam_ID = int(os.environ.get('Far_Cam_ID', '1'))
-Near_Cam_ID = int(os.environ.get('Near_Cam_ID', '0'))
+# Canonical fallback: config.DeviceConfig, .env and .env.example all read
+# Far=0 / Near=1 when the env is unset; the old inverted '1' fallback made an
+# env-unset import drive the far camera as device 1. The former Near_Cam_ID
+# module constant was read but consumed by nothing (TODO 8.9 item 80).
+Far_Cam_ID = int(os.environ.get('Far_Cam_ID', '0'))
 
 
 class LaserCastEnv(gym.Env):

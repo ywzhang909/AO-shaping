@@ -215,7 +215,7 @@ def _body(
     lines.append("## 0. 实验目的")
     lines.append("")
     lines.append(
-        "把 GS 方形相位当作**上界**——即「若正向模型完全准确，纯相位 SLM 最多能"
+        "把 GS 方形相位当作**上界**——即「若物理预测模型完全准确，纯相位 SLM 最多能"
         "达到什么」。硬件运行可以据此读出自己离光学允许的上限还有多远。"
     )
     lines.append("")
@@ -299,7 +299,7 @@ def _body(
             f"{fmt_metric(flat['uniformity_cv'])} 降到 {fmt_metric(best['uniformity_cv'])}。"
         )
         lines.append(
-            "> ⚠️ **这是关于仿真的陈述，不是硬件预期。** 仿真里正向模型按构造是精确的，"
+            "> ⚠️ **这是关于仿真的陈述，不是硬件预期。** 仿真里物理预测模型按构造是精确的，"
             "GS 因此几乎必然占优。硬件上仓库记录的结论相反：GS 反复**输给平相位**"
             "（`report/shape_trials/README.md`：候选未能战胜平相，SLM 被退回平相位），"
             "逆向整形包也记录 GS 单独使用在 90/90 次中为负。"

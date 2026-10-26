@@ -636,7 +636,7 @@ class WavefrontCorrection:
     ) -> np.ndarray:
         """默认 calc 实现：异常点检测、余弦拟合与矫正映射图计算
 
-        基于物理模型:
+        基于物理预测模型:
           B(g) = A·cos(2π·g/MAX_GRAY + φ_pixel) + C
         其中 B(g) 是灰度 g 下的亮度测量值，φ_pixel 是每像素的固有相位偏移。
 
@@ -725,7 +725,7 @@ class WavefrontCorrection:
 
         # ============================================================
         # Step 2a: 数据归一化 → cos(θ) 估计
-        # 物理模型: B = C + A·cos(θ), θ = 2π·g_ref/MAX + φ
+        # 物理预测模型: B = C + A·cos(θ), θ = 2π·g_ref/MAX + φ
         # cos_target = (B - B_min)/(B_max - B_min) ∈ [0, 1]
         #
         # 数据在余弦上的位置由 θ_ref = 2π·g_ref/MAX 决定:

@@ -23,7 +23,7 @@ tests/ao_shaping/runners/test_cli_contract_freeze.py::EXPECTED_COMMANDS):
     slm-pib            SLM Zernike PIB 命令组 (子命令 spgd / heuristic / square)
     slm-gsnet          SLM 方形光斑 SPGD 整形 (freeform)
     slm-gs-refine      GS 预矫正 + 全频随机相位 SPGD 细化
-    slm-model-in-loop  正向模型闭环校正 + 目标光斑相位合成 (反复迭代)
+    slm-model-in-loop  物理预测模型闭环校正 + 目标光斑相位合成 (反复迭代)
     slm-lut            SLM LUT 校准 (tools/)
     slm-diagnose       SLM 面板诊断 (tools/)
 

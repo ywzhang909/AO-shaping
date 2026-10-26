@@ -217,7 +217,7 @@ class SimulatedWFS(BaseWFS):
 
         通过把每个 Zernike 模式推过传感器来数值标定, 这与 ``zernike-matrix`` 命令在硬件
         上所执行的流程相同。它在构造上就是自洽的: 不假设任何灵敏度, 不依赖外部标定文件,
-        且不可能与正向模型发生漂移。
+        且不可能与物理预测模型发生漂移。
         """
         key = self._matrix_key(order)
         cached = _MATRIX_CACHE.get(key)

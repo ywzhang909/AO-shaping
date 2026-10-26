@@ -1,4 +1,4 @@
-# 正向模型闭环整形 (slm-model-in-loop)
+# 物理预测模型闭环整形 (slm-model-in-loop)
 
 > **生成脚本**: [`scripts/slm/generate_model_in_loop_report.py`](../../scripts/slm/generate_model_in_loop_report.py)
 > **复现命令**: `python scripts/slm/generate_model_in_loop_report.py`
@@ -7,9 +7,9 @@
 
 ## 1. 这条命令做什么
 
-每轮交替两步，用实测数据在闭环里持续修正正向模型，再用修正后的模型合成相位：
+每轮交替两步，用实测数据在闭环里持续修正物理预测模型，再用修正后的模型合成相位：
 
-1. **Step A —— 拟合正向模型**：显示若干个**强随机探针**相位，把每个探针的远场实测帧与正向模型的预测对比，重拟合**一个共享的 Zernike 像差向量**。
+1. **Step A —— 拟合物理预测模型**：显示若干个**强随机探针**相位，把每个探针的远场实测帧与物理预测模型的预测对比，重拟合**一个共享的 Zernike 像差向量**。
 2. **Step B —— 合成方形**：**冻结**刚拟合出的像差，优化**全像素 SLM 相位**逼近方形目标，下发实测；本轮相位成为下一轮的热启动。
 
 两个守卫 (§6) 抑制两步相互耦合振荡；最终相位只有**实测优于平场基线**才提交。
@@ -73,7 +73,7 @@ graph TD
 `update` 连续 30 步无改善会锁存 (`PLATEAU_PATIENCE`)，无东西清锁存 → re-arm 必须绕**当前**系数重建优化器。
 
 ### Step B 只在最后测一次
-Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「真实测量」。
+Step B 是纯计算 (可微物理预测模型过 FFT)，硬件上不可微的只有「真实测量」。
 实测只在末尾做一次，交给验收测试。因此 `step_b_iterations=600` 不产生 600 次设备往返。
 
 ### 冻结 Noll 1,2,3 (piston/tip/tilt)
@@ -94,7 +94,7 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 | `--n-orders` | 拟合 Zernike 阶数 | 10 |
 | `--step-b-iterations` / `--step-b-lr` | Step B Adam 步数/学习率 | 600 / 0.05 |
 | `--frozen-modes` | 冻结的 1-based Noll 序号 | 1,2,3 |
-| `--region` / `--far-field-padding` | 正向模型瞳面网格 / 远场补零倍数 | 64 / 8 |
+| `--region` / `--far-field-padding` | 物理预测模型瞳面网格 / 远场补零倍数 | 64 / 8 |
 | `--pupil-oversampling` | 瞳面双线性过采样 (Step A/B 子像素插值, 放大瞳面后按匹配远场采样再裁回 `--region`, 视场不变只提采样率) | 1 (可选 1/2/4) |
 | `--panel-span-px` / `--pupil-center` | 探针覆盖面板宽度 / 光斑面板坐标 | 900 / (960,600) |
 | `--camera-pixel-um` / `--slm-pixel-um` / `--focal-length-m` | 光路模型测量锚点 | 2.2 / 8.0 / 0.0 |
@@ -183,7 +183,7 @@ python -m ao_shaping.tools.zernike.abba_probe --exposure-ms <当前曝光>
 
 见 [`pre_run_characterization.md`](pre_run_characterization.md)。
 
-若实验系统无法被正向模型描述 (对比择优 失败)，改用 `slm-gs-refine`。
+若实验系统无法被物理预测模型描述 (对比择优 失败)，改用 `slm-gs-refine`。
 
 ## 11. 输出契约
 

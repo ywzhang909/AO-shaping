@@ -6,7 +6,7 @@
 2f 实验系统下，方形目标边长存在**最优区间**：太小 ⇒ 零级泄漏 / 盒装不满；
 太大 ⇒ 衍射与高频丢失，能量摊不满大盒。本脚本把
 :mod:`ao_shaping.tools.slm.panel.target_size` 的解析界限 + 峰值窗口 + 单峰拟合
-落到**冻结物理前向**（``data/debug/physical_forward_defocus/uniformity_refit_20261022_r1``
+落到**冻结物理预测**（``data/debug/physical_forward_defocus/uniformity_refit_20261022_r1``
 检查点，调用 :mod:`ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity`
 的 ``load_frozen_parameters`` / ``FrozenDefocusForward`` /
 ``build_box_core_masks`` / ``DifferentiableUniformityOptimizer``，只调用不修改）上：

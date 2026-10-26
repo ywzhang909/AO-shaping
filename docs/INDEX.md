@@ -1,7 +1,7 @@
 # AO-Shaping 文档总索引
 
 > 本文件是 `docs/` 的**入口索引**：按主题分域，每个文件一句话说明"这里能查到什么"。
-> 共 146 个 Markdown 文档（2026-10-23 盘点，2026-10-26 重钉：`spgd-square` 幽灵页删除后 147→146）。新文档请在本索引登记后再提交。
+> 共 147 个 Markdown 文档（2026-10-23 盘点，2026-10-26 重钉：`spgd-square` 幽灵页删除后 147→146，新增相差光路多方案整形对比实验方案后 146→147）。新文档请在本索引登记后再提交。
 >
 > 阅读路径建议：
 > 1. 第一次接触仓库 → `dev/call_graph_wiki/index.md`（调用图 + 逐函数手册，含全局调用图/类图）
@@ -23,8 +23,9 @@
 | `tabu_search_algorithm.md` | 禁忌搜索算法实现说明（英文，`algorithm/tabu`） |
 | `zernike_usage.md` | Zernike 两层入口用法（模式编号/系数换算入口） |
 | `terminology_glossary.md` | **术语规范表**（唯一权威）：150+ 条口语→规范对照 + DO-NOT-TOUCH 保留清单 + T-60/T-61 新词登记 |
-| `paper_gs_refine_experiment.md` | 实验论文（GS 预矫正 + 随机平行梯度下降两级整形）：v4.7（2026-10-26 修订：正文只保留实验，仿真与数字孪生内容集中入附录 C），含 MIL 正向模型 + 可微光学框架综述 |
+| `paper_gs_refine_experiment.md` | 实验论文（GS 预矫正 + 随机平行梯度下降两级整形）：v4.7（2026-10-26 修订：正文只保留实验，仿真与数字孪生内容集中入附录 C），含 MIL 物理预测模型 + 可微光学框架综述 |
 | `自适应 SPGD 光束整形闭环：完整方案总结.md` | 自适应 SPGD 方案：PPO 可信域思想 + 均匀化复合目标 + 自适应权重 + 历史信息复用 |
+| `相差光路多方案整形对比实验方案_v1.0.md` | 相差光路多方案整形对比实验方案 v1.0：6 方案 × 7 档像差，效果（composite/PIB/CV）+ 效率（收敛帧数/墙钟/收益成本比/帕累托）双维度对比 + 每类像差绑定独立工程路线 |
 
 ## CLI / 用户
 
@@ -80,15 +81,15 @@
 | `slm/spgd_square.md` | SLM 方形远场均匀度整形（SPGD，CV/EE/AR 目标） |
 | `slm/slm_gsnet.md` | FREEFORM 全频随机相位方形整形 + FourierGSNet 训练 |
 | `slm/slm_gs_refine.md` | GS 开环预矫正（0.662→0.812）+ SPGD 细化（→0.849）硬件移植 |
-| `slm/slm_model_in_loop.md` | 正向模型闭环整形（每轮用实测数据修正模型再合成相位） |
+| `slm/slm_model_in_loop.md` | 物理预测模型闭环整形（每轮用实测数据修正模型再合成相位） |
 | `slm/model_in_loop_algorithm.md` | 同上命令的**结构与算法**详解（调用关系/计算时序） |
 | `slm/model_in_loop_handoff.md` | Model-in-loop 跨光路交接手册（换光路/功率/衰减片/相机/入射光时的交接清单） |
-| `slm/model_in_loop_workflow_faq.md` | 跨光路 model-in-loop：探测、物理模型迁移学习、可微优化与 FAQ |
+| `slm/model_in_loop_workflow_faq.md` | 跨光路 model-in-loop：探测、物理预测模型迁移学习、可微优化与 FAQ |
 | `slm/slm_alignment_probe.md` | 整形前的聚焦、彗差校正与 CCD 中心定位 |
 | `slm/zernike_matrix.md` | SLM Zernike 响应矩阵标定 + 离线矫正自检 |
 | `slm/rms_zernike.md` | SLM Zernike RMS 优化（SPGD/Adam/AdaMOD） |
 | `slm/slm_lut.md` | 灰度-相位 LUT 标定（半屏参考/测试光栅，±1 级衍射效率比值） |
-| `slm/闭环光束整形_文献与优化建议_20261014.md` | 闭环整形文献×实验×优化建议（GS/SPGD/正向模型/freeform，24 条 DOI 已核实） |
+| `slm/闭环光束整形_文献与优化建议_20261014.md` | 闭环整形文献×实验×优化建议（GS/SPGD/物理预测模型/freeform，24 条 DOI 已核实） |
 | `slm/slm_diagnose.md` | SLM+相机逐级硬件自检（2026-09 三步证据链固化） |
 | `slm/pre_run_characterization.md` | 实验系统开机表征指南（先量实验系统的必要性） |
 | `slm/slm_pattern_helper.md` | `PatternHelper` 相位图案生成工具类指南 |
@@ -96,7 +97,7 @@
 | `slm/slm_gui_operation_map.md` | SLM 控制器操作路线图：27 个操作按时效（T0–T4）分类的界面重设计 (v1.0) |
 | `slm/align_windowed.md` | SLM+CCD 装配对准（相机 ROI 开窗自动 0级/±1级 对准） |
 | `slm/slm_patterns/shaping.md` | SLM 整形图案说明 |
-| `slm/slm_transfer_workflow.md` | 三形状（方/三角/星）物理模型整形统一入口 `python -m ao_shaping.tools.slm.transfer`：规划、物理迁移、GS 初始化、曝光响应、展宽校准、CCD 锚定可微优化与原始数据验收 |
+| `slm/slm_transfer_workflow.md` | 三形状（方/三角/星）物理预测模型整形统一入口 `python -m ao_shaping.tools.slm.transfer`：规划、物理迁移、GS 初始化、曝光响应、展宽校准、CCD 锚定可微优化与原始数据验收 |
 
 ## GUI 前端（Streamlit）— 18 篇
 

@@ -255,17 +255,54 @@ def test_every_report_carries_a_provenance_block(path: Path) -> None:
     )
 
 
+_MAX_PENDING_REPORTS = 1
+
+
+def _pending_report_keys() -> list[str]:
+    """Registry keys whose report file does not exist yet.
+
+    Derived with the exact rule render_index() applies when it lists entries
+    under the index's pending section, so this guard and report/README.md
+    cannot drift apart about what "pending" means.
+    """
+    return sorted(k for k in REPORTS if not (REPO / k).is_file())
+
+
 @pytest.mark.parametrize("key", sorted(REPORTS), ids=lambda k: k[-55:])
 def test_registry_script_paths_exist(key: str) -> None:
     """A registry entry naming a script that does not exist is worse than none."""
     prov = REPORTS[key]
+    pending = not (REPO / key).is_file()
     for script in (prov.script, *prov.extra_scripts):
         if not script:
             continue
-        assert (REPO / script).is_file(), (
-            f"{key} names {script}, which does not exist. Either the generator was "
-            "renamed or the registry is stale."
+        tail = (
+            " -- the report itself is also pending, so this entry waits on the "
+            "author landing both the generator and the report (TODO 8.9 items 77/79)"
+            if pending
+            else ". Either the generator was renamed or the registry is stale."
         )
+        assert (REPO / script).is_file(), f"{key} names {script}, which does not exist{tail}"
+
+
+def test_pending_registry_entries_are_bounded_and_justified() -> None:
+    """The pending state is a deliberate hole -- keep it small and explained.
+
+    render_index() lists any registry entry whose report file is absent under
+    the index's pending section. Legitimate for author-declared cases; it must
+    never become a place where phantom entries quietly accumulate.
+    """
+    pending = _pending_report_keys()
+    for key in pending:
+        assert REPORTS[key].note, (
+            f"{key} is pending (report file absent) but its registry note is "
+            "empty -- add one saying what it is waiting on"
+        )
+    assert len(pending) <= _MAX_PENDING_REPORTS, (
+        f"{len(pending)} registry entries point at reports that do not exist "
+        f"(max {_MAX_PENDING_REPORTS}): {pending}. Either generate the reports "
+        "or prune the entries."
+    )
 
 
 def test_every_generating_script_lives_under_scripts_or_tests() -> None:
@@ -296,6 +333,11 @@ def test_header_script_links_resolve(key: str) -> None:
     Depth is supplied by the caller, so this also pins that a report nested more
     deeply than the registry author assumed gets a link matching its own depth.
     """
+    if key in _pending_report_keys():
+        pytest.skip(
+            f"{key}: report not yet generated (the index lists it as pending), "
+            "so there is no header whose links could resolve"
+        )
     path = REPO / key
     depth = len(path.relative_to(REPO).parts) - 1
     prov = REPORTS[key]

@@ -55,7 +55,7 @@ field = ComplexField.from_maps(phase, amplitude)  # 检查形状和像素间距
 
 ## 2f-Fourier 整形实验系统的唯一入口
 
-前向模型、目标函数指标与参考优化器**只在** `drivers/sim/slm_shaping_bench.py`。
+物理预测模型、目标函数指标与参考优化器**只在** `drivers/sim/slm_shaping_bench.py`。
 `optimizer/wfless/slm_shaping_bench.py` 是**向后兼容 re-export shim**。
 
 > ⚠️ **不要再手抄第二份实现**。2026-10-01 的 merge 曾在两个模块各留一份

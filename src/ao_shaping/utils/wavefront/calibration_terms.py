@@ -1,9 +1,9 @@
 """自标定量: 瞳面仿射 τ_θ 与行程缩放 γ。
 
 依据 GRAPHYCS (Cho 等 2026, "Graph-based modeling of optical system enables
-adaptive optics on dynamic samples with self-calibration") 的思路: 前向模型是
-**经典 Fourier 光学物理模型** (可微计算图), 可学习量除物体与像差系数外,
-还有两类**自标定量** —— 它们嵌在正向模型**内部**, 不直接进损失:
+adaptive optics on dynamic samples with self-calibration") 的思路: 物理预测模型是
+**经典 Fourier 光学物理预测模型** (可微计算图), 可学习量除物体与像差系数外,
+还有两类**自标定量** —— 它们嵌在物理预测模型**内部**, 不直接进损失:
 
 1. **行程缩放 γ** (逐模式族): 作用在**指令**相位上, 不作用在待估像差上。
    论文写作 ``scale = 1 + γ``, 并逐步 clamp ``γ ≥ −1`` (即缩放因子非负)。
@@ -456,7 +456,7 @@ def apply_pupil_affine(
     amplitude: Any,
     params: Any,
 ) -> tuple[Any, Any]:
-    """把 τ_θ 作用在正向模型上, 返回 (总相位, 振幅包络)。
+    """把 τ_θ 作用在物理预测模型上, 返回 (总相位, 振幅包络)。
 
     作用顺序 (与论文的语义逐项对应):
 

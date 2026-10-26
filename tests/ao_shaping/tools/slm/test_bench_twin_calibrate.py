@@ -211,7 +211,7 @@ class TestSyntheticTruthRecovery:
         fitted = result.config.errors.lut_table
         assert fitted is not None
         np.testing.assert_array_equal(fitted, table)
-        # LUT 表存在时正向模型只看表 (不再看 Gamma) ⇒ Gamma 是**不可辨识**方向。
+        # LUT 表存在时物理预测模型只看表 (不再看 Gamma) ⇒ Gamma 是**不可辨识**方向。
         phase = _command_phases()[1]
         with_table = BenchTwin(config).far_field(phase)
         other_gamma = _base_config(

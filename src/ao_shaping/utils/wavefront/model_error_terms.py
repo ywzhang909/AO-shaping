@@ -1,8 +1,8 @@
-"""正向模型的误差项容器 (命令相位 → 实际相位 的 LUT 非线性 + 装调误差)。
+"""物理预测模型的误差项容器 (命令相位 → 实际相位 的 LUT 非线性 + 装调误差)。
 
 数字孪生 (:mod:`ao_shaping.drivers.sim.bench_twin`) 把实验系统的非理想因素
 分成三族: SLM 的 LUT 非线性、面板静态相差、装调 (离焦 / 倾斜)。model-in-the-loop
-(MIL) 的正向模型 (:class:`~ao_shaping.algorithm.signal_processing.
+(MIL) 的物理预测模型 (:class:`~ao_shaping.algorithm.signal_processing.
 zernike_coefficient_optimizer.ZernikeCoefficientOptimizer`) 只描述了**理想**
 系统 —— 「命令相位 = 实际相位」。本模块把孪生有、MIL 没有的那几级误差搬进
 MIL, 并给出一个可序列化的容器, 让标定产物能被装载、被复用。
@@ -49,7 +49,7 @@ DEFAULT_PHI_MAX_RAD = 2.0 * math.pi
 
 @dataclass(frozen=True)
 class ModelErrorTerms:
-    """MIL 正向模型的误差项。
+    """MIL 物理预测模型的误差项。
 
     Attributes:
         lut_gamma: **命令相位 → 实际相位** 的 Gamma 指数。``1.0`` = 理想线性
@@ -66,7 +66,7 @@ class ModelErrorTerms:
             离焦与倾斜都在焦面网格上评价, 所以需要它。
 
     默认值 = **理想系统**: ``lut_gamma = 1`` 且三项装调误差为 0。此时
-    :attr:`is_identity` 为 ``True``, 正向模型与本模块引入前的输出**逐位相同**
+    :attr:`is_identity` 为 ``True``, 物理预测模型与本模块引入前的输出**逐位相同**
     (γ = 1 时 LUT 是恒等映射, 连 2π 包裹都不引入 —— 包裹会改变最后几个比特,
     而既有输出必须一字节不差)。
     """

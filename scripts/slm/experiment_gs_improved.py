@@ -75,7 +75,7 @@ H4 的做法 (「小倾斜移开晕斑」怎么落地)
 ----------------------------------------
 
 * 传播: :func:`~ao_shaping.algorithm.signal_processing.angular_spectrum.angular_spectrum_propagate`
-* 正向模型 / GS 骨架 / 光学常量 / 度量: **import 复用**
+* 物理预测模型 / GS 骨架 / 光学常量 / 度量: **import 复用**
   :mod:`scripts.slm.experiment_gs_defocus_offocus` 的 :class:`OffFocusBench`
   (本文件只 :meth:`TwoComponentBench.gs_phase_eta` 重写了投影链, 其余全部继承)。
 * 加权 / HIO 的现成参数与更新式: :class:`~ao_shaping.algorithm.signal_processing.square_shaping.UniformSquareShaper`
@@ -197,7 +197,7 @@ from ao_shaping.optimizer.wfless import slm_gs_refine as gs_refine
 from ao_shaping.utils.image.beam_metrics import measure_spot_diameter_cam
 
 # ---------------------------------------------------------------------------
-# 复用兄弟实验的正向模型 / 光学常量 (不重写)
+# 复用兄弟实验的物理预测模型 / 光学常量 (不重写)
 # ---------------------------------------------------------------------------
 def _load_sibling() -> Any:
     """import ``scripts/slm/experiment_gs_defocus_offocus.py`` 里的已验证件。

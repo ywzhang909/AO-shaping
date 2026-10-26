@@ -856,6 +856,15 @@ python scripts/slm/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts>
 
 ### generate_pib_exit_safety_report.py
 
+> ⚠️ **Status (2026-10-26): this section records design intent — the script was
+> never committed.** The generator named in this heading exists on no ref (no
+> commit in the full history adds it), and neither do its report
+> `report/slm/pib_exit_safety/pib_exit_safety_20261025.md` nor its unit test; the
+> read-only harness `scripts/slm/verify_pib_exit_safety_hw.py` in the
+> Verification Scripts section below *is* real and tracked. Evidence in TODO.md
+> 8.9 items 77/79. Do not run the commands below as written until the generator
+> lands.
+
 Renders the **issue #145 (H-28) exit-safety acceptance report** from the
 artefacts `scripts/slm/verify_pib_exit_safety_hw.py` already wrote.
 **Fully offline** — it never constructs a camera or an SLM, so the evidence can
@@ -871,12 +880,10 @@ refresh the panel, so a cleanup can "restore the best phase" into empty space.
 The gated predicates are read from each record's `verdict_keys`, so the report's
 acceptance table cannot disagree with what the harness actually gated.
 
-**Usage:**
-```powershell
-python scripts/slm/generate_pib_exit_safety_report.py                 # newest run_* with summary.json
-python scripts/slm/generate_pib_exit_safety_report.py --run-dir report/slm/pib_exit_safety/artifacts/run_20261025_120000
-python scripts/slm/generate_pib_exit_safety_report.py --no-figures
-```
+**Planned CLI (not runnable — see the status note above):** default picks the
+newest `run_*` directory carrying a `summary.json`; `--run-dir <dir>` selects
+one; `--no-figures` skips the figures.
+
 Every number comes from `summary.json` / the `.npz` crops; with no artefact run
 it exits non-zero and points at the harness instead of writing a placeholder.
 The generator re-stamps its own provenance block (`insert_header`), because it
@@ -3447,7 +3454,7 @@ python scripts/slm/hw_focus_gate_verification.py --execute --wait-until-idle 180
 ### hw_differentiable_phase_opt.py
 
 **正向调优模型 + 反向可微优化 SLM 相位的完整实验**（硬件）: 在 2f 实验系统上把
-「用可微前向模型反向传播出最优相位 → 上屏 → 采 CCD 远场 → 与模型对照」整条链
+「用可微物理预测模型反向传播出最优相位 → 上屏 → 采 CCD 远场 → 与模型对照」整条链
 走一遍，并把**全过程**记录下来 (SLM 相位 / 梯度场 / 损失与梯度范数史 / CCD 远场 /
 模型与实测的对照 / 全部参数)。
 
@@ -4162,7 +4169,7 @@ the report never recomputes it.
 几个变体 (基线 / 傅里叶域损失 / 瞳面仿射 τ_θ / 行程缩放 γ / 图像域 L1) 在
 **验证集探针**上的残差 (SSIM / Pearson r / 能量比 / 峰值归一化 MSE)。
 
-依据 GRAPHYCS (Cho 等 2026) 的思路: 前向模型仍是经典 Fourier 光学物理模型,
+依据 GRAPHYCS (Cho 等 2026) 的思路: 物理预测模型仍是经典 Fourier 光学物理预测模型,
 可学习量里多了两类**自标定量** —— 行程缩放 γ (逐模式族, 只作用在**指令**相位上)
 与瞳面平面内仿射 τ_θ (6 个标量)。论文给了结构但**没有**给「加 / 不加傅里叶项
 × 低探针数」的消融数字, 所以这里自己测。
@@ -4195,7 +4202,7 @@ python scripts/slm/model_in_loop_selfcal_bakeoff.py \
   「不可分辨」—— 抖动主导的末段上按斜率外推外推的是噪声。统计**按迭代预算分档**
   (80 / 200 / 600 步), 因为不同预算的收敛程度差一个量级。
 * **假设 B (模型失配)**: 用落盘的 `fitted_coefficients.npy` + `source_amplitude.npy`
-  + `run_config.json` 离线复算正向模型预测 (与 MIL 内的 `forward_intensity` 同一实现),
+  + `run_config.json` 离线复算物理预测模型预测 (与 MIL 内的 `forward_intensity` 同一实现),
   再用落盘 `prediction` 逐像素校验; **校验不通过的轮次一律排除** (被回滚 / 多轮时
   落盘系数只对应末轮)。把「预测 vs 实测」的差异拆成**能量尺度 / 宽度(模糊) /
   位置(平移) / 形状**四类, 并在相机域复算 CV / EE / IoU / 复合分数做偏差配对。

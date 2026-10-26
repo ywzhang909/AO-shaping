@@ -63,7 +63,7 @@ plt.rcParams["axes.unicode_minus"] = False
 FIGURES = ROOT / "report" / "zernike_phase2amp" / "figures"
 MODELS = ("physics", "hybrid", "unet")
 LABELS = {
-    "physics": "物理模型 physics",
+    "physics": "物理预测模型 physics",
     "hybrid": "混合 hybrid",
     "unet": "U-Net",
 }
@@ -123,7 +123,7 @@ def fig_training_curves(history_path: Path) -> str:
     ax.grid(alpha=0.3)
 
     fig.suptitle(
-        f"物理模型训练历史（n_max={data['n_max']}, K={data['n_modes']}, "
+        f"物理预测模型训练历史（n_max={data['n_max']}, K={data['n_modes']}, "
         f"{data['seconds']:.1f}s, grad_norm {data['grad_norm_first']:.2e} → {data['grad_norm_last']:.2e}）",
         fontsize=11,
     )
@@ -158,7 +158,7 @@ def fig_physics_grid(sweep: dict) -> str:
         else:
             ax.set_ylim(0.68, 0.79)
         ax.set_ylabel(METRIC_LABEL[metric])
-        ax.set_title(f"物理模型：({metric_label_cn(metric)}) 随 (n_max, lr) 变化")
+        ax.set_title(f"物理预测模型：({metric_label_cn(metric)}) 随 (n_max, lr) 变化")
         ax.legend(fontsize=8)
         ax.grid(alpha=0.3, axis="y")
     fig.suptitle("联合扫描才有意义 —— lr=0.02 单独用无效，配 n_max=20 才是最优点", fontsize=11)
@@ -631,7 +631,7 @@ GLOSSARY_APPENDIX = r"""
 | **SSIM** | Structural Similarity Index | 结构相似性指标。衡量亮度、对比度、结构三个维度的相似度。注意: SSIM 在散斑场上偏弱，详见 §9 局限。 |
 | **PSNR** | Peak Signal-to-Noise Ratio | 峰值信噪比: `PSNR = 10 · log10(MAX² / MSE)`。图像质量指标，单位 dB。 |
 | **NRMSE** | Normalized RMSE | 归一化均方根误差: `RMSE / (max - min)`。 |
-| **DOF** | Degrees of Freedom | 可优化参数的维度。物理模型: 135 (Zernike 系数); U-Net: 7,778,465; Freeform: 4,096 (64×64 网格)。 |
+| **DOF** | Degrees of Freedom | 可优化参数的维度。物理预测模型: 135 (Zernike 系数); U-Net: 7,778,465; Freeform: 4,096 (64×64 网格)。 |
 | **FOV** | Field of View | 视场角 / 相机视野范围。各 family 的 `fov_px` 不同: 64 / 248 / 320 / 1944 px。详见 §2 数据管线。 |
 | **Zernike** | Zernike polynomials | 圆形瞳面上的正交多项式基。Noll 1976 约定 (Noll 4 = defocus, Noll 5 = astigmatism x²−y²)。 |
 | **FFT** | Fast Fourier Transform | 快速傅里叶变换。用于 Fraunhofer 远场传播: `fftshift(fft2(ifftshift(field)))`。 |
@@ -665,7 +665,7 @@ def build_report(
     fig_ref = lambda name: f"figures/{name}" if name else ""
 
     hybrid_verdict = (
-        f"在物理模型的最优 lr 下，hybrid 反而**显著更差**"
+        f"在物理预测模型的最优 lr 下，hybrid 反而**显著更差**"
         f"（R² {paired_ph['r2']['mean_diff']:+.4f}，p = {paired_ph['r2']['p_signflip']:.4f}）；"
         f"而在较温和的 lr=0.01 下它与 physics 统计不可区分。"
         f"零初始化残差只保证**起点**与 physics 相同，并不保证提高 lr 后仍然中性 ——"
@@ -719,7 +719,7 @@ def build_report(
 
 ## 1. 模型是什么
 
-`src/ml/zernike/models.py` 实现了一个可微的瞳面 → 远场前向模型，唯一可训练参数是一个
+`src/ml/zernike/models.py` 实现了一个可微的瞳面 → 远场物理预测模型，唯一可训练参数是一个
 **全局** Zernike 向量 `Z`：
 
 ```
@@ -922,7 +922,7 @@ Cohen's `d_z`、以及跨模型×指标族的 Holm–Bonferroni 校正。
 
 1. **U-Net 显著更好**：R² {paired_pu['r2']['mean_diff']:+.4f}（p = {paired_pu['r2']['p_signflip']:.4f}），
    SSIM {paired_pu['ssim']['mean_diff']:+.4f}（p = {paired_pu['ssim']['p_signflip']:.4f}）。
-   注意这是在**物理模型调优之后**的对比。
+   注意这是在**物理预测模型调优之后**的对比。
 2. **hybrid 不会更好**：{hybrid_verdict}
    ⇒ **不提升为训练入口的模型选项**，只作为已记录的反面结果保留。
 
@@ -930,13 +930,13 @@ Cohen's `d_z`、以及跨模型×指标族的 Holm–Bonferroni 校正。
 
 ![按目标分解]({fig_ref(figures.get("per_objective"))})
 
-物理模型在 `roi_pib` 这个孤立目标上反而最好（该目标分布最"窄"，方差最低），
+物理预测模型在 `roi_pib` 这个孤立目标上反而最好（该目标分布最"窄"，方差最低），
 在 `rms_pib` / `rmse_out` 上最难 —— 这也解释了为什么池化 R² 对目标配比如此敏感。
 
 ### 两者用途不可互换
 
 U-Net 出的是**图像**，反解成可下发的 SLM 相位是另一个反问题。就"要下发什么相位"这个
-用途而言，230 参数的物理模型是唯一能**闭式给出可实现相位**的（`Σ Z_k B_k`，
+用途而言，230 参数的物理预测模型是唯一能**闭式给出可实现相位**的（`Σ Z_k B_k`，
 230 个可解释弧度），参数少 34000×、墙钟少 40%。U-Net 的 {s_unet['r2']['mean']:+.4f}
 买的是更高的拟合度，不是可下发性。
 
@@ -1056,7 +1056,7 @@ CV 0.168 进一步到 {s_cv:.4f}，EE 也从 0.887 升到 {s_ee:.4f}。
 | 独立训练的 U-Net 代理 | {s_x_flat_cv} | **{s_x_cv}** |
 
 U-Net 也看到光斑变均匀（{s_x_flat_cv} → {s_x_cv}），所以这个相位**不是纯粹的
-物理模型伪影**；但两个代理相差 {s_gap:.1f} 倍（图中第三、四幅可以直接看出：一个说
+物理预测模型伪影**；但两个代理相差 {s_gap:.1f} 倍（图中第三、四幅可以直接看出：一个说
 "完美方斑"，另一个说"一个中心亮斑"）。
 
 **关键在于这个分歧有多少来自外推。** 语料相位是 `n_max` 限定的 Zernike 相位，
@@ -1116,10 +1116,10 @@ self-confirmation bias 直接量化出来了。
 ![参数化与迭代]({fig_ref(figures.get("parametrization"))})
 
 所以"把模型迭代得更好"**不是**做出更好方斑相位的杠杆。杠杆是一个**可信的、散斑敏感的**
-前向模型，而那需要硬件 —— 学习到的回归器按定义就把散斑抹平了。第 2 节那个 {s_gap:.1f} 倍
+物理预测模型，而那需要硬件 —— 学习到的回归器按定义就把散斑抹平了。第 2 节那个 {s_gap:.1f} 倍
 的分歧、以及这里 {s_noise_ratio:.0f} 倍的模型间噪声，都指向同一件事。
 
-> **这条结论只到"代理空间"为止。** 物理模型在验证集 pickle 上 R² ≈ 0.88，
+> **这条结论只到"代理空间"为止。** 物理预测模型在验证集 pickle 上 R² ≈ 0.88，
 > 一个把代理优化到 CV 0.17 的相位，并不因此在实验系统上也是 CV 0.17。
 > **必须在硬件上验证**；上面的 U-Net 交叉检验是硬件不可用时能做的最强旁证，
 > 而它的结论是"有改善但远不如代理声称的"。
@@ -1130,7 +1130,7 @@ self-confirmation bias 直接量化出来了。
 
 | 版本 | 结论 | 为什么错 |
 |---|---|---|
-| v1 | "U-Net R² 高 +0.022；SSIM 是真实且区间不重叠的差距" | 方向对、证据错：单 seed，且 U-Net 只给 25 epoch 而物理模型第 13 epoch 就收敛 |
+| v1 | "U-Net R² 高 +0.022；SSIM 是真实且区间不重叠的差距" | 方向对、证据错：单 seed，且 U-Net 只给 25 epoch 而物理预测模型第 13 epoch 就收敛 |
 | v2 | "两者打平，无任何指标能区分" | **过度纠正**：把折间方差当成了模型差异 |
 | v3 | "U-Net 显著更好；hybrid 不会更好，且在调优 lr 下更差" | 分组 CV + 配对精确检验，4 折与 10 折均成立 |
 | d1 | "目标均值图互相预测 R² = −0.670，比常数还差" | **算错**：分母量纲不一致。重算后全表为正（最低 +0.54） |

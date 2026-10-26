@@ -333,7 +333,7 @@ H5 ──> H12 基半径扫描
 
 ## 8. 明确**不**在本次实验范围内
 
-- 仿真 GS 前向模型标定（已确认 OOM：GS bench FFT 网格会到 7200²–14400²）。
+- 仿真 GS 物理预测模型标定（已确认 OOM：GS bench FFT 网格会到 7200²–14400²）。
 - 自由像素 GS / 可微分整形（Zernike 低阶基**物理上无法**合成方形远场，见仓库 ANTI-PATTERNS）。
 - 复核上游 blaze（`--blaze-period-px`）路径；本计划默认 blaze 关闭（`blaze_period_px=-1`，
   仿真下开启会直接抛错）。

@@ -11,16 +11,17 @@ drivers/
 ├── device_base.py           # Device 基类 (Device, DeviceState, DeviceType)
 ├── device_registry.py       # 设备注册与管理
 ├── mock_devices.py          # Mock 设备 (简单测试)
+├── _lazy.py                 # 包级惰性装置 (install_lazy_attrs, PEP 562)
+├── __init__.py              # 包入口 (__getattr__; 禁止 eager import SDK)
 ├── ccd/                     # 相机驱动 → [ccd/AGENTS.md](ccd/AGENTS.md)
 ├── dm/                      # 变形镜驱动 → [dm/AGENTS.md](dm/AGENTS.md)
 ├── slm/                     # SLM 驱动 → [slm/AGENTS.md](slm/AGENTS.md)
 ├── wfs/                     # 波前传感器驱动 → [wfs/AGENTS.md](wfs/AGENTS.md)
 ├── tm/                      # 定时模块驱动 → [tm/AGENTS.md](tm/AGENTS.md)
 ├── sim/                     # 模拟设备/数字孪生 → [sim/AGENTS.md](sim/AGENTS.md)
-├── adc/                     # ADC 驱动
+└── adc/                     # ADC 驱动
 │   ├── driver.py
 │   └── __init__.py
-└── __pycache__/
 ```
 
 ## 各子包文档
@@ -33,6 +34,7 @@ drivers/
 | `wfs/` | [wfs/AGENTS.md](wfs/AGENTS.md) | 波前传感器 (Thorlab WFS) |
 | `tm/` | [tm/AGENTS.md](tm/AGENTS.md) | 定时模块 (串口 FSM) |
 | `sim/` | [sim/AGENTS.md](sim/AGENTS.md) | 模拟设备/数字孪生仿真 |
+| `adc/` | —（无独立文档） | ADC 驱动 (driver.py) |
 
 ## 核心基类
 

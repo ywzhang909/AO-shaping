@@ -9,7 +9,7 @@
 与 ``data/debug/physical_forward_defocus/alignment_20261022_1812/focus.json``:
 ``best_focal_mm = 1783.54``, ``gain_vs_flat = 31.36``)。
 
-在**未矫正焦面**的实验系统上拟合正向模型, 模型会把光斑预测得**更散**
+在**未矫正焦面**的实验系统上拟合物理预测模型, 模型会把光斑预测得**更散**
 (宽度比 1.328), CV 偏差 −0.3009 且 51/51 同向 —— 那不是模型误差, 是
 **实验系统离焦**被模型当成了像差 (见
 ``report/shape_trials/experiment_summary_20261022.md`` §2)。所以焦面标定

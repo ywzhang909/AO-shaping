@@ -1,10 +1,10 @@
-"""从历史硬件运行里挖「相位 → 实测 CCD 远场」配对, 离线预标定正向模型的系统误差。
+"""从历史硬件运行里挖「相位 → 实测 CCD 远场」配对, 离线预标定物理预测模型的系统误差。
 
 **纯离线**: 只读落盘数据, 不打开任何设备。
 
 要回答的问题
 ------------
-MIL 闭环的瓶颈被审计判定为**正向模型失配** (宽度比 1.328 / 质心偏移 1.498 模型格),
+MIL 闭环的瓶颈被审计判定为**物理预测模型失配** (宽度比 1.328 / 质心偏移 1.498 模型格),
 于是问题是: **能不能用历史数据替代大部分实验采集**?
 
 做法
@@ -33,7 +33,7 @@ MIL 闭环的瓶颈被审计判定为**正向模型失配** (宽度比 1.328 / �
   ``scripts/slm.analyze_model_in_loop_loss.decompose_mismatch``。
 * 指标: ``ao_shaping.utils.image.beam_metrics`` 的 canonical 入口
   (``prepare_frame`` / ``zero_order_center``)。
-* B1 / B2 的正向模型与相机映射: ``scripts/slm.fit_defocus_forward_dataset``
+* B1 / B2 的物理预测模型与相机映射: ``scripts/slm.fit_defocus_forward_dataset``
   (``load_observations`` / ``ramp_matrix`` / ``PhysicalForwardFit``)。
 * 误差项的物理作用: ``zernike_coefficient_optimizer.apply_model_error_terms``
   (离焦 / 倾斜作用在焦面复场上)。
@@ -633,7 +633,7 @@ def mine_history_sessions(
             basis = np.asarray(optimizer.generate_basis(), dtype=np.float64)
         except Exception as exc:  # pragma: no cover - 依赖 torch 后端
             exclusions.append(
-                Exclusion("session", stamp, "optimizer_failed", f"正向模型构造失败: {exc}")
+                Exclusion("session", stamp, "optimizer_failed", f"物理预测模型构造失败: {exc}")
             )
             continue
         # 瞳面掩膜: piston 基在瞳面内为 1、外面为 0 (与孪生的 NaN 出瞳面约定同源)。
@@ -890,7 +890,7 @@ def _config_for(run: RunData) -> Any | None:
 
 
 # ---------------------------------------------------------------------------
-# 正向模型 (numpy 复算 + canonical 误差项)
+# 物理预测模型 (numpy 复算 + canonical 误差项)
 # ---------------------------------------------------------------------------
 
 
@@ -1751,7 +1751,7 @@ def capture_geometry(
         slm_pixel_um: SLM 面板像元节距 (µm)。
         ccd_pixel_um: 相机像元节距 (µm)。
         wavelength_m: 波长 (m)。
-        far_field_size: 正向模型的补零后远场网格边长。
+        far_field_size: 物理预测模型的补零后远场网格边长。
         pupil_pitch_px: 瞳面网格每格覆盖的面板像元数。
 
     Returns:
@@ -1783,7 +1783,7 @@ def validate_capture_groups(
 
     口径复用 ``scripts/slm/fit_defocus_forward_dataset.py``:
     ``load_observations`` (曝光归一化 = 除以曝光时间)、``ramp_matrix`` (相机映射)、
-    ``PhysicalForwardFit`` (共享物理正向模型)。**before** = 落盘的共享物理模型
+    ``PhysicalForwardFit`` (共享物理预测模型)。**before** = 落盘的共享物理预测模型
     直接与实测比; **after** = 把历史预标定出的 (焦距尺度 / 瞳面中心 / 增益)
     作用在同一个预测上 —— 与 MIL 线用的是**同一个**标定算子, 所以「历史预标定
     能否泛化到独立日期的数据」是可比的。
@@ -1791,7 +1791,7 @@ def validate_capture_groups(
     Args:
         calibration: 历史预标定结果。
         sessions: 历史会话 (取几何常数)。
-        iterations: 正向模型拟合迭代数。
+        iterations: 物理预测模型拟合迭代数。
         out: 结果字典 (原地写入)。
     """
     import torch
@@ -2202,7 +2202,7 @@ def write_summary(path: Path, payload: dict[str, Any]) -> None:
     acquisition = payload["acquisition"]
 
     lines: list[str] = []
-    lines.append("# 历史数据离线预标定正向模型系统误差")
+    lines.append("# 历史数据离线预标定物理预测模型系统误差")
     lines.append("")
     lines.append(f"- 生成时间: `{payload['timestamp']}`")
     lines.append(f"- 产物目录: `{payload['output_dir']}`")
@@ -2822,7 +2822,7 @@ def _limitations(
         "**回滚族**: 审计已判定 `20261019_103208` 一族的落盘系数被回滚、不可复算, 本产物排除该族; "
         "此外每一轮还要逐像素校验 (相对偏差 ≤ 1e-5), 校验不过的轮次整轮排除。",
         "**验证组的模型不同**: B1/B2 用的是 `fit_defocus_forward_dataset.PhysicalForwardFit` "
-        "(共享物理模型, 相机是整幅传感器), 与 MIL 的 Zernike 系数模型**不是同一个模型**, "
+        "(共享物理预测模型, 相机是整幅传感器), 与 MIL 的 Zernike 系数模型**不是同一个模型**, "
         "所以两组的「宽度比」等数字口径不同, 只能在**各自组内**比较标定前 / 后。",
         "**B1/B2 的几何换算不可靠**: 由斜坡矩阵反推的等效焦距 (~19 mm) 与 `focus.json` 自记的 "
         "「FOV 交叉核对差 152%」矛盾, 所以 B1/B2 的质心偏移换算成「模型格」只作参考, "
@@ -2860,7 +2860,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--train-fraction", type=float, default=SESSION_SPLIT_FRACTION, help="训练会话占比"
     )
     parser.add_argument(
-        "--capture-iterations", type=int, default=150, help="验证组的正向模型拟合迭代数"
+        "--capture-iterations", type=int, default=150, help="验证组的物理预测模型拟合迭代数"
     )
     parser.add_argument(
         "--physical-scan-pairs",

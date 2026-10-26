@@ -574,7 +574,7 @@ def _section_4(add, cfg, rows, meta, total, stage_totals, floors) -> None:
 
 
 def _section_5(add, cfg, rows, meta, total, stage_totals, floors) -> None:
-    add("## 5. 物理前向模型：可微的「预测相位 → 相机图像」")
+    add("## 5. 物理预测模型：可微的「预测相位 → 相机图像」")
     add("")
     add(
         "监督项只要求网络输出「像语料里的相位」；物理项要求「把预测相位真的传一遍光路，"
@@ -604,7 +604,7 @@ def _section_5(add, cfg, rows, meta, total, stage_totals, floors) -> None:
         "初始化时 `correction ≡ 0`（实测 `|correction|max = 0`），即起步是纯 Fraunhofer 模型。"
     )
     add("")
-    add("**关键语义：这是一个「实验系统前向模型」，不是生成器。** 它的公式是")
+    add("**关键语义：这是一个「实验系统物理预测模型」，不是生成器。** 它的公式是")
     add("")
     add("```")
     add("field = measured_phasor · exp(i·correction)")
@@ -795,7 +795,7 @@ def _section_6(add, cfg, rows, meta, total, stage_totals, floors) -> None:
     )
     add(
         "- `ForwardBank` 的**模型参数是冻结的**（`requires_grad_(False)`），"
-        "但梯度仍流到**输入相位** —— 这正是 `L_phy` 需要的：不训练前向模型，只用它约束预测。"
+        "但梯度仍流到**输入相位** —— 这正是 `L_phy` 需要的：不训练物理预测模型，只用它约束预测。"
     )
     add(
         "- 前向 bank 可能与网络不在同一 device（它默认偏爱 CUDA），"

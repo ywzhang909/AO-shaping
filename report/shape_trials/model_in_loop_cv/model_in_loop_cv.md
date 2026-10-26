@@ -26,7 +26,7 @@
 | 项 | 值 |
 |---|---|
 | 后端 | `sim`（数字孪生，**不打开任何设备**：无相机、无 SLM） |
-| 前向模型瞳面网格 `region` | 32 |
+| 物理预测模型瞳面网格 `region` | 32 |
 | 相机窗口 `cam_size` | 128 |
 | 远场补零 `far_field_padding` | 4 |
 | 目标边长 `target_side` | 64 px（相机像素） |
@@ -62,7 +62,7 @@
 被测的优化器**本身没有改**：跑的是生产用的 `optimize_slm_model_in_loop`，Step A 不在本报告里重跑、也不重拟合。改的是让它**可测**的两处：
 
 1. **两个默认关闭的开关**（`SlmModelInLoopConfig`，`src/ao_shaping/optimizer/wfless/slm_model_in_loop.py`）：
-   - `holdout_on_sim`（默认 `False`）—— 在 `cam_type="sim"` 上也**测量**验证集探针。默认关闭时仿真路径根本不测验证集，`holdout_correlation` 恒为 NaN，正向模型失配守卫也就永远不触发；打开后每轮多 `holdout_probe_count` 次探针往返。
+   - `holdout_on_sim`（默认 `False`）—— 在 `cam_type="sim"` 上也**测量**验证集探针。默认关闭时仿真路径根本不测验证集，`holdout_correlation` 恒为 NaN，物理预测模型失配守卫也就永远不触发；打开后每轮多 `holdout_probe_count` 次探针往返。
    - `probe_split_hook`（默认 `None`）—— 用外部给定的 `(train, holdout)` 种子对替换固定偏移算术。`None` 时保持历史行为**逐位不变**；hook 必须给出恰好请求的条数，且训练/验证两侧不得有交集（否则验证集相关性会退化成样本内相关性）。
 
    两个开关都**只改「测什么 / 从哪取种子」**，不改 Step A / Step B 的优化逻辑。

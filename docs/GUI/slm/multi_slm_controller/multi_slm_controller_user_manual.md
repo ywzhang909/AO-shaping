@@ -2,7 +2,7 @@
 
 ## 1. 概述
 
-`multi_slm_controller.py` 是 Santec SLM-200 空间光调制器的 Streamlit 前端页面。支持最多两台 SLM，每台可独立连接、配置和相位编程，并内置闭环远场光束整形（GS+SPGD 与正向模型闭环）。
+`multi_slm_controller.py` 是 Santec SLM-200 空间光调制器的 Streamlit 前端页面。支持最多两台 SLM，每台可独立连接、配置和相位编程，并内置闭环远场光束整形（GS+SPGD 与物理预测模型闭环）。
 
 启动方式：
 
@@ -52,7 +52,7 @@ CSV 格式要求：1200×1920，值 0~1023，首行/首列为 Y/X 索引。
 | 方法 | 代码路径（与 CLI 等价） | 说明 |
 |------|-------------------------|------|
 | **GS+SPGD 闭环整形（已验证配方）** | `SlmGsRefineParams` → `build_gs_refine_config` → `optimize_slm_gs_refine` → `save_gs_refine_results`（同 CLI `slm-gs-refine`） | 默认值即交替重放验证过的配方 |
-| **正向模型闭环整形（前沿）** | `SlmModelInLoopParams` → `build_model_in_loop_config` → `optimize_slm_model_in_loop`（同 CLI `slm-model-in-loop`） | 需要 torch |
+| **物理预测模型闭环整形（前沿）** | `SlmModelInLoopParams` → `build_model_in_loop_config` → `optimize_slm_model_in_loop`（同 CLI `slm-model-in-loop`） | 需要 torch |
 
 ### 3.1 GS+SPGD 闭环整形（已验证配方）
 
@@ -65,9 +65,9 @@ GUI 默认值取自交替重放验证过的配方（[`report/shape_trials/gs_ref
 - `gs_iters=12`、`far_field_padding=3`、`phase_grid=12`、`epochs=12`、`seed=0`、`confirm_best` 开、`gs_method=plain`
 - 验证结果：**flat 0.527 → plain GS 0.775 → SPGD best 0.780**（两次一致的交替重放）
 
-### 3.2 正向模型闭环整形（前沿）
+### 3.2 物理预测模型闭环整形（前沿）
 
-每轮用强随机探针重拟合正向模型的 Zernike 像差（Step A），再冻结该像差合成目标方斑相位（Step B），带 trust region 与逐轮验收。
+每轮用强随机探针重拟合物理预测模型的 Zernike 像差（Step A），再冻结该像差合成目标方斑相位（Step B），带 trust region 与逐轮验收。
 
 需 `torch`。目前最佳均匀度 **CV 0.643 / EE 0.786**，但尚未成为被接受的均匀方形，见 [`report/shape_trials/model_in_loop/model_in_loop_live_20261013.md`](../../../../report/shape_trials/model_in_loop/model_in_loop_live_20261013.md)。
 
@@ -97,7 +97,7 @@ GUI 默认值取自交替重放验证过的配方（[`report/shape_trials/gs_ref
 
 原因：在本 2f-Fourier 实验系统上，用未标定实验系统参数做开环方形整形已被实测证明行不通 —— Zernike SPGD 与未标定 GS 从未产出过均匀方形，见 [`report/shape_trials/README.md`](../../../../README.md) 与 [`report/shape_trials/gs_refine/online_20261010.md`](../../../../report/shape_trials/gs_refine/online_20261010.md)。
 
-取而代之的是上方第 3 节「闭环整形」区（GS+SPGD 闭环 / 正向模型闭环，均走已验证的闭环管线）。
+取而代之的是上方第 3 节「闭环整形」区（GS+SPGD 闭环 / 物理预测模型闭环，均走已验证的闭环管线）。
 
 ---
 
@@ -575,4 +575,4 @@ sequenceDiagram
 - SLM GUI 操作时长分类与路线图: [`docs/slm/slm_gui_operation_map.md`](../../../slm/slm_gui_operation_map.md)
 - GUI 索引: [`docs/gui.md`](../../../gui.md)
 - 闭环整形实测报告: [`report/shape_trials/gs_refine/gs_refine_live_20261012.md`](../../../../report/shape_trials/gs_refine/gs_refine_live_20261012.md)
-- 正向模型闭环实测报告: [`report/shape_trials/model_in_loop/model_in_loop_live_20261013.md`](../../../../report/shape_trials/model_in_loop/model_in_loop_live_20261013.md)
+- 物理预测模型闭环实测报告: [`report/shape_trials/model_in_loop/model_in_loop_live_20261013.md`](../../../../report/shape_trials/model_in_loop/model_in_loop_live_20261013.md)

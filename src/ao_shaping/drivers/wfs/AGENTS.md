@@ -11,6 +11,7 @@ wfs/
 ├── base.py              # BaseWFS 抽象基类 (WFS/ABC) —— 真实与仿真驱动的共享契约
 ├── thorlab_wfs.py       # ThorlabWFS 主驱动
 ├── _thorlab_wfs.py      # ThorlabWFS 内部实现 (load_dll 等)
+├── _registry.py         # WFS 注册表 (惰性解析接入点)
 └── __init__.py
 ```
 

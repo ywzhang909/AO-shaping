@@ -20,7 +20,8 @@ sim/
 │   ├── screens.py           # SimulatedTurbulentScreen, SimulatedThermalScreen, SimulatedATP
 │   └── __init__.py
 ├── dm/                  # 模拟 DM
-│   ├── simulated_dm.py      # SimulateDM, SimMicroDM
+│   ├── simulated_dm.py      # SimulateDM
+│   ├── simulated_micro_dm.py # SimMicroDM (sim/dm/__init__ re-export)
 │   └── __init__.py
 ├── wfs/                 # 模拟波前传感器
 │   ├── simulated_wfs.py     # SimulatedWFS (OOPAO Shack-Hartmann, 瞳面 slope 模型)
@@ -28,11 +29,16 @@ sim/
 ├── beam_backend.py      # 光束后端 (numpy/legacy ↔ OOPAO 路由层)
 ├── beam_simulation.py   # 光束仿真
 ├── compat.py            # 兼容层
+├── nonideal.py          # 非理想效应建模
 ├── disturbance.py       # 波前干扰: 湍流 + 热晕 (static/dynamic), 供 slm_pib_sim 使用
 ├── dm_optics.py         # DM 电压 → 瞳孔相位耦合 (可分离高斯影响力函数)
 ├── oopao_backend.py     # OOPAO 后端实现 (湍流相位屏 + ASM 传播)
+├── _oopao_compat.py     # OOPAO 兼容层 (internal)
+├── fouriergsnet_env.py  # GSNet Fourier 数字孪生 env
 ├── slm_pib_sim.py       # SLM-PIB 2f-Fourier 数字孪生 (SimPibSystem/SimSLMPib/SimPibCCD)
 ├── bench_twin.py        # 2f 数字孪生核心: 参数化误差注入 (LUT/面板相差/装调), 口径=瞳面区域→CCD 远场
+├── sim_bench_patch.py   # 数字孪生运行时补丁 (patch_sim_*_shaping)
+├── slm_shaping_bench.py # SLM 整形 2f 数字孪生基准
 ├── wave.py              # 波前处理
 └── __init__.py
 ```

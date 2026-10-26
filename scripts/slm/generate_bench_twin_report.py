@@ -106,7 +106,7 @@ class Probe:
         phase: 下发到 SLM 的瞳面命令相位 (raw 弧度, ``region × region``)。
         frame: 实测处理后帧 (相机像元)。
         stored_grid: 探针里落盘的模型网格 (仅验证集探针有), 用于核对换算。
-        stored_prediction: MIL 自己的正向模型在同一相位上的预测 (1024² 远场
+        stored_prediction: MIL 自己的物理预测模型在同一相位上的预测 (1024² 远场
             网格), 用于同口径对拍。
     """
 
@@ -328,7 +328,7 @@ def _pearson(a: np.ndarray, b: np.ndarray) -> float:
 def _mil_run_summary(run_dir: Path) -> dict:
     """读 MIL 自己落盘的运行小结 (状态 + 验证集相关), 供同口径对拍。
 
-    MIL 的 recorder pkl 里每一轮都带 ``holdout_correlation`` (它自己的正向模型
+    MIL 的 recorder pkl 里每一轮都带 ``holdout_correlation`` (它自己的物理预测模型
     在验证集上的相关), json 里带最终状态; 本脚本把它们读出来, 好让孪生的数字
     与**同一套实验系统、同一批验证集**上的既有数字直接比。
     """
@@ -923,10 +923,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         _fidelity(fitted_twin, holdout_samples) if fit_result is not None else None
     )
 
-    # ---------------- 与 MIL 自己的正向模型同口径对拍 ----------------
+    # ---------------- 与 MIL 自己的物理预测模型同口径对拍 ----------------
     # MIL 的判定口径是「1024² 远场网格 vs 落盘的 model_grid」上的 Pearson 相关
     # (见 slm_model_in_loop._prediction_correlation)。孪生也用同一张网格、同一
-    # 指标算一遍, 于是「孪生 vs MIL 正向模型」是同口径的, 且能与 MIL 自己落盘的
+    # 指标算一遍, 于是「孪生 vs MIL 物理预测模型」是同口径的, 且能与 MIL 自己落盘的
     # holdout_correlation 直接对照。
     full_ideal = BenchTwin(
         _build_config(
@@ -1422,16 +1422,16 @@ def _render_report(**kw: Any) -> str:
         )
         add("")
 
-    # -- 4.2 与 MIL 自己的正向模型同口径对拍 ---------------------------
+    # -- 4.2 与 MIL 自己的物理预测模型同口径对拍 ---------------------------
     bench_rows = kw.get("bench_rows") or []
     mil_summary = kw.get("mil_summary") or {}
     if bench_rows:
-        add("### 4.2 与 MIL 自己的正向模型同口径对拍")
+        add("### 4.2 与 MIL 自己的物理预测模型同口径对拍")
         add("")
         add(
             "MIL 的判定口径是「1024² 远场网格 vs 落盘的 `model_grid`」上的 Pearson "
             "相关 (`slm_model_in_loop._prediction_correlation`)。孪生用**同一张网格、"
-            "同一指标**算一遍, 于是三者 (MIL 自己的正向模型 / 理想孪生 / 拟合孪生) "
+            "同一指标**算一遍, 于是三者 (MIL 自己的物理预测模型 / 理想孪生 / 拟合孪生) "
             "是同口径的, 可以直接比。"
         )
         add("")
@@ -1447,7 +1447,7 @@ def _render_report(**kw: Any) -> str:
             )
         add(
             markdown_table(
-                ["验证集探针", "MIL 正向模型", "理想孪生", "拟合孪生"],
+                ["验证集探针", "MIL 物理预测模型", "理想孪生", "拟合孪生"],
                 rows,
             )
         )
@@ -1458,7 +1458,7 @@ def _render_report(**kw: Any) -> str:
         ]
         if mil_values:
             add(
-                f"平均: MIL 正向模型 {fmt_metric(float(np.mean(mil_values)))} / "
+                f"平均: MIL 物理预测模型 {fmt_metric(float(np.mean(mil_values)))} / "
                 f"理想孪生 "
                 f"{fmt_metric(float(np.mean([r['twin_ideal'] for r in bench_rows])))} / "
                 + (
@@ -1658,14 +1658,14 @@ def _render_report(**kw: Any) -> str:
         if mil_values and twin_values:
             add(
                 "3. **同口径对拍 (§4.2)**: 验证集相关 (1024² 网格上的 Pearson) —— "
-                f"MIL 自己的正向模型 {fmt_metric(float(np.mean(mil_values)))} / "
+                f"MIL 自己的物理预测模型 {fmt_metric(float(np.mean(mil_values)))} / "
                 f"理想孪生 {fmt_metric(float(np.mean(twin_values)))}"
                 + (
                     f" / 拟合孪生 {fmt_metric(float(np.mean(fitted_values)))}。"
                     if fitted_values
                     else "。"
                 )
-                + " 换句话说, **这个实验系统上, 孪生与 MIL 的正向模型是同一量级的"
+                + " 换句话说, **这个实验系统上, 孪生与 MIL 的物理预测模型是同一量级的"
                 "解释力**, 而 MIL 那次运行自己判的是 "
                 + (
                     f"`{mil_summary.get('status', '未知')}`"
@@ -1696,7 +1696,7 @@ def _render_report(**kw: Any) -> str:
     )
     add("")
     add(
-        "1. **瞳面照明模型不同**: MIL 的正向模型把入射振幅限制在**内切圆**内 "
+        "1. **瞳面照明模型不同**: MIL 的物理预测模型把入射振幅限制在**内切圆**内 "
         "(`gaussian_grid` 自带圆孔掩膜), 而 `bench_twin` 的 `pupil_amplitude()` 是"
         "**无掩膜高斯** (角上有光)。两者在瞳面边缘的场分布不同, 这是孪生与 MIL 模型"
         "在同一相位上给出不同远场的一个来源。"

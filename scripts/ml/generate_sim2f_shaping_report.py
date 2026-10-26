@@ -1476,7 +1476,7 @@ def section_limits(data: Payloads) -> list[str]:
     eta = f"{bench['zero_order_eta']:.2f}" if bench else MISSING
     drawn = len(loop["per_kind"]) if loop is not None else None
     lines += [
-        "1. **这是匹配模型结果，不是 sim-to-real。** teacher、net、闭环共用同一个正向模型，"
+        "1. **这是匹配模型结果，不是 sim-to-real。** teacher、net、闭环共用同一个物理预测模型，"
         "所以测到的只是「摊销（amortisation）+ 闭环估计」这一层的预算，不包含模型失配。"
         "孪生自身对实验系统的残差见 "
         "[`../sim_vs_hw/sim_vs_hw_20261023.md`](../../shape_trials/sim_vs_hw/sim_vs_hw_20261023.md)"

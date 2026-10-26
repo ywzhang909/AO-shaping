@@ -47,7 +47,7 @@ class TestDefaultCalc:
         offset: float = 128.0,
         noise_std: float = 0.0,
     ) -> np.ndarray:
-        """生成符合物理模型的合成测量数据: B = A·cos(2π·g/MAX + φ) + C"""
+        """生成符合物理预测模型的合成测量数据: B = A·cos(2π·g/MAX + φ) + C"""
         amp = amplitude
         off = offset
 

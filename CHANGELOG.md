@@ -4,9 +4,9 @@
 
 ## v0.19.0 (v0.18.0 末 `e51ed38d` 之后 → 2026-10-19, 387 个提交, `e51ed38d..HEAD`)
 
-**正向模型在环（model-in-loop）闭环成型 + GS→Zernike 阶数扫描立项 + scripts/ 重组 + ruff 硬门禁**
+**物理预测模型在环（model-in-loop）闭环成型 + GS→Zernike 阶数扫描立项 + scripts/ 重组 + ruff 硬门禁**
 
-- **model-in-loop 正向模型闭环** (`080e0ac9`, `4c09a5d1`, `89494ea9`, `eb125df6`): 不确定性采样 Step A 探针（R-82/R-86, #134，替代盲加随机探针）；warm-start 复用上一轮已验收 `fitted_coefficients`（#92）；`pupil_oversampling` 透传到正向模型；freeform holdout 探针 + 阶数无关 probe-set loss。实验报告：[`report/shape_trials/model_in_loop/model_in_loop_live_20261013.md`](./report/shape_trials/model_in_loop/model_in_loop_live_20261013.md)、[`20261014`](./report/shape_trials/model_in_loop/model_in_loop_live_20261014.md)、[`20261015`](./report/shape_trials/model_in_loop/model_in_loop_live_20261015.md)、[`20261016`](./report/shape_trials/model_in_loop/model_in_loop_live_20261016.md)、[`20261019`](./report/shape_trials/model_in_loop/model_in_loop_live_20261019.md)（五种目标形状、交错重放、warm/cold 对比、oracle 复核）。
+- **model-in-loop 物理预测模型闭环** (`080e0ac9`, `4c09a5d1`, `89494ea9`, `eb125df6`): 不确定性采样 Step A 探针（R-82/R-86, #134，替代盲加随机探针）；warm-start 复用上一轮已验收 `fitted_coefficients`（#92）；`pupil_oversampling` 透传到物理预测模型；freeform holdout 探针 + 阶数无关 probe-set loss。实验报告：[`report/shape_trials/model_in_loop/model_in_loop_live_20261013.md`](./report/shape_trials/model_in_loop/model_in_loop_live_20261013.md)、[`20261014`](./report/shape_trials/model_in_loop/model_in_loop_live_20261014.md)、[`20261015`](./report/shape_trials/model_in_loop/model_in_loop_live_20261015.md)、[`20261016`](./report/shape_trials/model_in_loop/model_in_loop_live_20261016.md)、[`20261019`](./report/shape_trials/model_in_loop/model_in_loop_live_20261019.md)（五种目标形状、交错重放、warm/cold 对比、oracle 复核）。
 - **model-in-loop 实验验收增强** (`3ddef179`, `07a4a560`, `3a1f8711`): 几何门槛补目检（拦住相关性看不见的离焦失配）；工作精度默认 float32（float64 的精度到不了面板）；报告补 SLM 相位图 + CCD 远场图与 X/Y 截面。
 - **GS → Zernike → SPGD 阶数扫描立项** (`9d079cf1`, `b366a634`, `f79a5f84`, `07d5ea23`): Zernike 拟合模块 + 阶数扫描驱动 + 离线报告（仿真：拟合残差 8 阶 0.0719→0.0385 rad 单调不增、`n_max=25` 不触发 `ZERNIKE_CLIP`）；硬件实验计划 [`report/shape_trials/gs_refine/gs_refine_zernike_hardware_plan.md`](./report/shape_trials/gs_refine/gs_refine_zernike_hardware_plan.md)（H0~H12，两个 P0 门：GS 对比择优 + 噪声地板 σ）。
 - **GS 细化缺陷修复** (`540d51b2`): #140 — `best_phase` 改为保存收敛迭代点而非胜出随机探针（原报告增益 +0.0126 含选择偏差）。
@@ -38,11 +38,11 @@
 
 ## v0.17.0 (2026-10-06)
 
-**Zernike 系数→远场前向模型训练** (15 个提交 `0694a0e` → `493ef1e`):
+**Zernike 系数→远场物理预测模型训练** (15 个提交 `0694a0e` → `493ef1e`):
 
-- **物理-optical 前向模型** (`ml/zernike/models.py`): `ZernikeAmpModel` —— 用单个全局 Zernike 系数向量 (raw 弧度, Noll 1 piston 排除) 表示整个台面的波到远场的确定性映射: `phasor(cos,sin) → complex pupil → exp(i·Σc_k·Z_k) → centre-pad + fftshift(fft2(ifftshift)) → |F|² (intensity)`。可观测量 `intensity` (默认) / `amplitude`, 归一化 `peak`/`sum`/`none`。默认 `n_max=15` (135 系数), `grid=64`, `observable="intensity"`, `normalization="peak"`。详见 [`report/zernike_coeff2amp/zernike_coeff_report/report.md`](./report/zernike_coeff2amp/zernike_coeff_report/report.md)。
+- **物理-optical 物理预测模型** (`ml/zernike/models.py`): `ZernikeAmpModel` —— 用单个全局 Zernike 系数向量 (raw 弧度, Noll 1 piston 排除) 表示整个台面的波到远场的确定性映射: `phasor(cos,sin) → complex pupil → exp(i·Σc_k·Z_k) → centre-pad + fftshift(fft2(ifftshift)) → |F|² (intensity)`。可观测量 `intensity` (默认) / `amplitude`, 归一化 `peak`/`sum`/`none`。默认 `n_max=15` (135 系数), `grid=64`, `observable="intensity"`, `normalization="peak"`。详见 [`report/zernike_coeff2amp/zernike_coeff_report/report.md`](./report/zernike_coeff2amp/zernike_coeff_report/report.md)。
 
-- **可微前向模型** (`ml/zernike/forward_model.py`): `ZernikeCoeffConvNet` (coefficient projection → conv decoder) + `ZernikeCoeffMLP` (baseline)。两者都输出 raw unbounded 单通道图像, peak-normalize 由 caller 完成。ConvNet 拥有空间局部性优势 (移形/尺度), MLP 作为对照变体。
+- **可微物理预测模型** (`ml/zernike/forward_model.py`): `ZernikeCoeffConvNet` (coefficient projection → conv decoder) + `ZernikeCoeffMLP` (baseline)。两者都输出 raw unbounded 单通道图像, peak-normalize 由 caller 完成。ConvNet 拥有空间局部性优势 (移形/尺度), MLP 作为对照变体。
 
 - **训练器** (`ml/zernike/train_coeff.py`): `CoeffTrainConfig` (冻结 dataclass, `--input-terms`/`--protocol`/`--fold`/`--held-out-path`, W&B 集成, `--w-ellipse`). 两种折叠协议: `"file"` (18 折 leave-one-pickle-out) / `"objective"` (4 折 leave-one-objective-out). R² 选择 checkpoint (PSNR/SSIM/MSE 仅作诊断 —— 它们在 per-frame peak-normalised 目标上是退化的)。`--input-terms` 修剪输入到前 N 项 (语料最长向量 78 项, 136 维中 58 维恒为 0)。
 
@@ -84,7 +84,7 @@
 - **分层方向修正**: `drivers/dm/__init__.py` 曾 import `drivers.sim.dm` (硬件 → 仿真，方向反了) 形成循环，该循环此前靠 `drivers/__init__.py` 的 eager 导入顺序侥幸未暴露 —— 一旦改成惰性就立刻炸。
 - **`--disturbance-cn2`** 注入像差 (经 `SimDisturbance` 注入**瞳面**，默认 0 = 不注入)；`wf` 新增 `--lr`/`--delta` 覆盖。
 - 修复: `far_field_noisy` 的 `clip(img, 0, None)` **整流**读出噪声、造出与像素数成正比的 DC 地板 (read noise 地板/信号 **4598×**)，使 `pib`/`combined` 停在 0.0145。改为不再逐帧裁剪 (真实探测器的本底在阈值**之下**，只在量化时裁剪一次)。
-- 修复 (review): merge 残留的 `pipeline_runner` 引用未定义的 `wfs`(应为 `wfs_params`)；`sim/slm_shaping_bench.py` 的 `differentiable_shape` 在 torch import 被删后残留 19 处 `F821`；`optimizer/wfless/slm_shaping_bench.py` 是一份**手抄副本**且用的是**未加零填充的旧前向模型** —— 现改为对 canonical 实现的 re-export shim (同一方法此前按 import 来源返回不同指标)；`iterative_zernike_shaping` 的 `_zernike_basis` 调用了已被删除的 `_zernike_radial`(3 个测试失败) —— 现直接返回 canonical `ZernikeGenerator` 预计算的基。
+- 修复 (review): merge 残留的 `pipeline_runner` 引用未定义的 `wfs`(应为 `wfs_params`)；`sim/slm_shaping_bench.py` 的 `differentiable_shape` 在 torch import 被删后残留 19 处 `F821`；`optimizer/wfless/slm_shaping_bench.py` 是一份**手抄副本**且用的是**未加零填充的旧物理预测模型** —— 现改为对 canonical 实现的 re-export shim (同一方法此前按 import 来源返回不同指标)；`iterative_zernike_shaping` 的 `_zernike_basis` 调用了已被删除的 `_zernike_radial`(3 个测试失败) —— 现直接返回 canonical `ZernikeGenerator` 预计算的基。
 - 规模: 93 文件 / +7232 −547。
 
 ## v0.14.0 (2026-10-01)

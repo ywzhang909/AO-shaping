@@ -166,7 +166,7 @@ def main() -> int:
              f"corr={geometry.correlation:.4f}")
         if geometry.correlation < float(config.min_geometry_correlation):
             _log(f"!! 几何相关 {geometry.correlation:.4f} < "
-                 f"{config.min_geometry_correlation} —— 本实验系统不在正向模型描述范围内, "
+                 f"{config.min_geometry_correlation} —— 本实验系统不在物理预测模型描述范围内, "
                  f"验证集相关性不可信, 中止")
             meta["status"] = "geometry_rejected"
             meta["geometry_correlation"] = float(geometry.correlation)
@@ -206,7 +206,7 @@ def main() -> int:
         amp[(yy - c) ** 2 + (xx - c) ** 2 <= c ** 2] = 1.0
         opt_probe.set_source_amplitude(amp)
         n_coeffs = int(np.asarray(opt_probe.coefficients).size)
-        _log(f"正向模型 n_coeffs={n_coeffs} region={args.region} "
+        _log(f"物理预测模型 n_coeffs={n_coeffs} region={args.region} "
              f"far_field={geometry.far_field_size}")
 
         # 共享验证集探针: 固定随机, **各变体完全相同**

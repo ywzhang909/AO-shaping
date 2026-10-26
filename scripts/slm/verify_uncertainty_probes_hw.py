@@ -221,7 +221,7 @@ def main() -> int:
                  f"x={flat['zero_order_yx'][1]})")
             meta["flat"] = flat
 
-            # ---- 正向模型 (系数全零 = 线上循环第 0 轮) ----------------
+            # ---- 物理预测模型 (系数全零 = 线上循环第 0 轮) ----------------
             source_amp = np.zeros((args.region, args.region), dtype=np.float64)
             yy, xx = np.mgrid[0:args.region, 0:args.region]
             c = (args.region - 1) / 2.0
@@ -239,7 +239,7 @@ def main() -> int:
             )
             opt.set_source_amplitude(source_amp)
             n_fit = int(np.asarray(opt.coefficients).size)
-            _log(f"正向模型: n_orders={args.n_orders} n_coeffs={n_fit} "
+            _log(f"物理预测模型: n_orders={args.n_orders} n_coeffs={n_fit} "
                  f"region={args.region} radius={args.region // 2} "
                  f"far_field={args.region * args.far_field_padding} "
                  f"(源振幅=单位圆盘)")

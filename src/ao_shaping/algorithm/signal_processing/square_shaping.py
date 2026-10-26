@@ -9,7 +9,7 @@
 * **analytic_amplitude_target** (:func:`analytic_amplitude_target`) — 纯幅度
   单板基线 (不可达, 但给出纯相位器件的上界参考)。
 
-正向模型与 :mod:`ao_shaping.drivers.sim.iterative_zernike_shaping` 一致:
+物理预测模型与 :mod:`ao_shaping.drivers.sim.iterative_zernike_shaping` 一致:
 
     field = gauss_pupil * exp(1j*phase)
     far_field = fftshift(fft2(ifftshift(pad(field))))
@@ -64,9 +64,9 @@ __all__ = [
 class SquareShapingConfig:
     """2f 傅里 Fourier SLM 整形实验系统的算法参数。
 
-    该配置**不依赖任何 sim / 驱动模块** —— Gaussian 瞳面和正向模型都在算法层内联
+    该配置**不依赖任何 sim / 驱动模块** —— Gaussian 瞳面和物理预测模型都在算法层内联
     计算。它镜像 :class:`ao_shaping.drivers.sim.slm_shaping_bench.ShapingBenchConfig`
-    的算法相关字段: ``cn2``/``l_max``/``l_min`` 等大气参数在本模块的前向模型中是
+    的算法相关字段: ``cn2``/``l_max``/``l_min`` 等大气参数在本模块的物理预测模型中是
     **死配置** (永不路由), 因此不携带。
 
     Attributes:
@@ -273,7 +273,7 @@ class ShapingResult:
 
 
 # ---------------------------------------------------------------------------
-# 正向模型 (2f 傅里叶)
+# 物理预测模型 (2f 傅里叶)
 # ---------------------------------------------------------------------------
 
 # 远场网格上的归一化坐标范围

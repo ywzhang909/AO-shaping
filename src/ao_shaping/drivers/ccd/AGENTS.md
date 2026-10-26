@@ -10,12 +10,11 @@ ccd/
 ├── common.py            # 通用工具
 ├── daheng/              # 大恒相机 (GigE)
 │   ├── driver.py
+│   ├── constants.py     # 大恒驱动常量
 │   └── __init__.py
 ├── ffmpeg/              # FFmpeg 相机
 │   ├── driver.py
 │   └── __init__.py
-├── ffmpeg.py            # FFmpegCamera / ImageFolderCamera
-├── gxipy/               # 国光像机 SDK 绑定
 ├── miicam/              # MiiCam SDK
 │   ├── driver.py
 │   ├── _sdk_setup.py
@@ -32,8 +31,8 @@ ccd/
 | `MIICamera` | `miicam/driver.py` | MiiCam 相机 |
 | `MIICAMError` | `miicam/driver.py` | MiiCam 特定异常 |
 | `DahengCamera` | `daheng/driver.py` | 大恒相机管理器 |
-| `FFmpegCamera` | `ffmpeg.py` | FFmpeg 相机 |
-| `ImageFolderCamera` | `ffmpeg.py` | 图片文件夹相机 |
+| `FFmpegCamera` | `ffmpeg/driver.py` | FFmpeg 相机 |
+| `ImageFolderCamera` | `ffmpeg/driver.py` | 图片文件夹相机 |
 
 ## 相机类型注册表 (common.py)
 

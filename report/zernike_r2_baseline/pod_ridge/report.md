@@ -1,4 +1,4 @@
-# Zernike 前向模型:验证 R² 被"常数基线"吞掉了
+# Zernike 物理预测模型:验证 R² 被"常数基线"吞掉了
 
 <!-- provenance:start -->
 > **生成脚本**: [`scripts/ml/diagnose_pod_ridge.py`](../../../scripts/ml/diagnose_pod_ridge.py)

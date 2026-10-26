@@ -36,7 +36,7 @@ python -c "from ao_shaping.drivers.sim import SimTurbulenceAOEnv; env = SimTurbu
 
 ## 2f-Fourier 整形实验系统的唯一入口
 
-前向模型、目标函数指标与参考优化器**只在** `drivers/sim/slm_shaping_bench.py`。
+物理预测模型、目标函数指标与参考优化器**只在** `drivers/sim/slm_shaping_bench.py`。
 `optimizer/wfless/slm_shaping_bench.py` 是**向后兼容 re-export shim**。
 
 > ⚠️ **不要再手抄第二份实现**。2026-10-01 的 merge 曾在两个模块各留一份
@@ -46,7 +46,7 @@ python -c "from ao_shaping.drivers.sim import SimTurbulenceAOEnv; env = SimTurbu
 > 且不报任何错。拆分模块时只加 re-export，不要复制函数体。
 > （2026-10-21 新增的 `bench_twin.py` 不违反本条：它是**参数化误差注入**的孪生系统，
 > 与 `slm_shaping_bench.py` 并存、互不替代 —— 前者注入 LUT/面板相差/装调误差供反演与
-> 预补偿，后者是整形前向模型+目标函数+参考优化器的唯一入口。）
+> 预补偿，后者是整形物理预测模型+目标函数+参考优化器的唯一入口。）
 
 ## DM→相位耦合已接入仿真 (2026-10-01)
 

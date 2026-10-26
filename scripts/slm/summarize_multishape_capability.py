@@ -221,7 +221,7 @@ def make_comparison_figures(runs: dict, root: Path, fig_dir: Path) -> dict:
     * ``shape_comparison_ccd_farfield.png``：各形状 × (best | best+载波) 的 CCD 远场
       （对数色标，目标形状轮廓 + 零级圈；CV / 零点占比标注取自 ``final.measured``）；
     * ``shape_comparison_phase.png``：各形状 × (展开 | 包裹) 的 SLM 面板总相位；
-    * ``shape_comparison_metrics.png``：逐块 |Δ|/3σ、实测候选 CV、零点占比、冻结前向模型 CV
+    * ``shape_comparison_metrics.png``：逐块 |Δ|/3σ、实测候选 CV、零点占比、冻结物理预测模型 CV
       前→后的跨形状叠加。
 
     返回 ``{key: 相对报告目录的路径}``；缺帧/缺相位时对应格子跳过，整图无数据则不生成，
@@ -360,7 +360,7 @@ def make_comparison_figures(runs: dict, root: Path, fig_dir: Path) -> dict:
                     label=f"{SHAPE_NAMES[shape]} 前")
             ax.plot(xs(shape), ys(shape, "model_after"), "s--", color=SHAPE_COLORS[shape],
                     alpha=0.55, label=f"{SHAPE_NAMES[shape]} 后")
-        ax.set_title("冻结前向模型 CV（前→后；未验证，仅对照）")
+        ax.set_title("冻结物理预测模型 CV（前→后；未验证，仅对照）")
         ax.set_xlabel("块")
         ax.set_ylabel("模型 CV")
         ax.legend(fontsize=7, ncol=2)
@@ -400,7 +400,7 @@ def figures_section(figs: dict) -> str:
             f"![逐块指标对比]({figs['metrics']})",
             "",
             "*四形状逐块叠加：首块 |Δ|/3σ 越 3σ 线（点线）、第 2 块起进平台；实测候选 CV 与零点能量占比；"
-            "冻结前向模型 CV 前→后——模型继续下降而硬件不跟随的直观体现。*",
+            "冻结物理预测模型 CV 前→后——模型继续下降而硬件不跟随的直观体现。*",
             "",
         ]
     if figs.get("phase"):
@@ -512,7 +512,7 @@ def build_text(runs: dict[str, dict], root: Path, exposure_ms: float | None,
 
 1. **单次运行、单初值、单 seed**：每个形状只跑了一次，没有重复；`Δ÷3σ` 不构成显著性检验，
    跨会话比较需要独立重复。
-2. **模型方向未验证**：本报告只陈述实测，不声称冻结前向模型的梯度方向正确。
+2. **模型方向未验证**：本报告只陈述实测，不声称冻结物理预测模型的梯度方向正确。
 3. **零级未逐帧扣除**：目标掩膜内始终含零级贡献，纯形状均匀度需另做扣除后再报。
 4. **载波帧接近/达到饱和**：0.8 ms 下 `best+carrier` 的 peak 为 254（正方形/三角形），
    该帧的绝对值读数只能定性；零点能量占比是比值，受影响较小但不为零。

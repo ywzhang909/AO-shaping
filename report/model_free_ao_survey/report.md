@@ -3,7 +3,7 @@
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
 > **运行环境**: 人工调研
-> **说明**: 无模型 AO 综述 (Selim 等 2026, J. Optics) × 本项目 model-free 栈 (SPGD/GS/RL/ML/正向模型) 逐条映射 + 6 条可借鉴清单 (自适应增益 / TIE / Cn² 自适应超参 / scintillation index / hybrid 调度 / RL 动态基准); 与 zotero_objectives 与 beam_shaping 文献调研互补, 不重复目标函数公式
+> **说明**: 无模型 AO 综述 (Selim 等 2026, J. Optics) × 本项目 model-free 栈 (SPGD/GS/RL/ML/物理预测模型) 逐条映射 + 6 条可借鉴清单 (自适应增益 / TIE / Cn² 自适应超参 / scintillation index / hybrid 调度 / RL 动态基准); 与 zotero_objectives 与 beam_shaping 文献调研互补, 不重复目标函数公式
 <!-- provenance:end -->
 
 **本文档结论**（无模型 AO 综述 × 本项目映射）：Selim 等 2026 综述（DOI `10.1007/s12596-025-03011-z`）与本项目 model-free 栈逐条映射后，筛出 **6 条可借鉴路线**：自适应增益、TIE 相位测量、Cn² 自适应超参、scintillation index 代理、hybrid 调度器（组合已有 GS/SPGD/model-in-loop，不重写 GS 循环）、RL 动态基准。全部 6 条均为**加法**（新增开关/模块），不改现有默认行为；实施依赖序为增益→scintillation→Cn² 超参→TIE→hybrid，验收统一走数字孪生 `--cam-type sim`，硬件后验另列。
@@ -60,7 +60,7 @@
 ## 2. 论文方法 × 本项目现状（逐条映射）
 
 > 本项目 model-free 栈 = `optimizer/wfless/`（SPGD/PIB/方形/GS-refine/model-in-loop）
-> + `optimizer/rl/`（SAC、LR-WFS）+ `ml/`（U-Net+GAN、Zernike 前向模型、FourierGSNet、hwdataset）
+> + `optimizer/rl/`（SAC、LR-WFS）+ `ml/`（U-Net+GAN、Zernike 物理预测模型、FourierGSNet、hwdataset）
 > + `algorithm/signal_processing/`（GS、DifferentiableBeamOptimizer）+ 数字孪生 `drivers/sim/`。
 
 | # | 论文方法 | 本项目对应 | 状态 |
@@ -68,9 +68,9 @@
 | 1 | SPGD 盲优化（Hu [43]） | `optimizer/spgd.py::spgd_gradient` + `slm_zernike_pib`/`slm_square_shaping`/`gs_refine` 的 SPGD 循环 | ✅ 已覆盖 |
 | 2 | AdamSPGD（Zhang [44]，少 ~50% 迭代） | SPGD + `algorithm/gradient/adam.py`（默认 `optimizer_type="adamod"`，另有 adam/adamw/muno/munow/muon/adamns/sgd） | ✅ 已覆盖（Adam 族 + AdaMOD） |
 | 3 | GS 相位恢复（Li [45]） | `algorithm/signal_processing/gerchberg_saxton.py` + GS warm-start（`gs_refine` Stage 1） | ✅ 已覆盖 |
-| 4 | Pre-distortion（DLR [46]） | `slm_model_in_loop.py`（正向模型闭环 + 目标相位合成，trust region + 逐轮验收） | ✅ 已覆盖（且更工程化） |
+| 4 | Pre-distortion（DLR [46]） | `slm_model_in_loop.py`（物理预测模型闭环 + 目标相位合成，trust region + 逐轮验收） | ✅ 已覆盖（且更工程化） |
 | 5 | 无传感 RL（Strehl 静态 >55%） | `optimizer/rl/`（SAC、LR-WFS） | ✅ 已覆盖 |
-| 6 | ML PSF→波前（CNN RMSE 0.1263 waves） | `ml/phase/`（U-Net+GAN 相位预测）+ `ml/zernike/`（前向模型，10 折 CV，U-Net 胜） | ✅ 已覆盖（且做了配对统计验证） |
+| 6 | ML PSF→波前（CNN RMSE 0.1263 waves） | `ml/phase/`（U-Net+GAN 相位预测）+ `ml/zernike/`（物理预测模型，10 折 CV，U-Net 胜） | ✅ 已覆盖（且做了配对统计验证） |
 | 7 | ZOLA/PHASENET（ML 波前重建，RMSE 0.012 μm） | `optimizer/wf/zernike_response_matrix.py` + WFS 闭环 | ✅ 已覆盖（WFS 响应矩阵路线） |
 | 8 | 自适应增益 γ = γ0/J + C | SPGD 用 `delta`（实测噪声地板设 0.2 rad）+ `lr` + `shrink_iter/shrink_ratio` 衰减 | ⚠️ **部分借鉴**（见 §3.1） |
 | 9 | **TIE 无侵入相位测量** | 无（本项目 WFS = Thorlabs Shack-Hartmann） | 🆕 **可借鉴**（见 §3.2） |
@@ -151,7 +151,7 @@
 
 - **论文**：明确 GS 在弱湍流好、强湍流差；SPGD 在强湍流鲁棒但慢；**hybrid 最稳**。
 - **本项目现状**：`slm_gs_refine` 已经做了 **GS warm-start + 对比择优**（GS 赢了才采用）+ SPGD 细化；
-  `slm_model_in_loop` 做了正向模型 + SPGD。但两者是**分离的命令**，没有统一的"按湍流强度自动选 hybrid 配方"。
+  `slm_model_in_loop` 做了物理预测模型 + SPGD。但两者是**分离的命令**，没有统一的"按湍流强度自动选 hybrid 配方"。
 - **借鉴**：把 §3.1 + §3.3 的信号接进来，让一个**调度器**根据在线 Cn² 代理自动选择：
   - 弱 → GS 主导（快）；
   - 中 → GS warm-start + SPGD；
@@ -181,8 +181,8 @@
 - **GS warm-start**：`slm_gs_refine` Stage 1 + 对比择优。论文的"GS 弱湍流好"被本项目的
   "GS 赢才采用" 直接消解，**无风险**。
 - **Pre-distortion / model-in-loop**：`slm_model_in_loop.py` 已是"模型在环"，比 DLR 的静态
-  pre-distortion 更动态（每轮重拟合正向模型）。
-- **ML 波前/相位预测**：`ml/phase`（U-Net+GAN）+ `ml/zernike`（前向模型）+ `ml/hwdataset`
+  pre-distortion 更动态（每轮重拟合物理预测模型）。
+- **ML 波前/相位预测**：`ml/phase`（U-Net+GAN）+ `ml/zernike`（物理预测模型）+ `ml/hwdataset`
   （硬件相位→相机图 DataLoader）。论文的 CNN PSF→波前（RMSE 0.1263 waves）是**单篇**结果；
   本项目做了 **10 折分组 CV + 配对 sign-flip 检验**（`compare_models_cv.py`），统计上更严格。
   **本项目领先**，无需借鉴算法，可借鉴的是论文 Table 4 的"ML 吃训练数据"这一定性风险

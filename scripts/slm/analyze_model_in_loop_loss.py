@@ -22,7 +22,7 @@ MIL 闭环里正向仿真与实测 CCD 画面差异明显, 整形成绩压不过
    与 ``coeff_step_l2``), 以及撞满时损失是否仍在下降。
 3. **模型失配** —— 逐 run / 逐轮把**模型预测**与**实测**配对。预测由落盘的
    ``fitted_coefficients.npy`` + ``source_amplitude.npy`` + ``run_config.json``
-   正向模型离线复算 (与 MIL 内的 ``forward_intensity`` 同一实现), 并用落盘的
+   物理预测模型离线复算 (与 MIL 内的 ``forward_intensity`` 同一实现), 并用落盘的
    ``prediction`` 逐像素校验; **校验不通过的轮次一律排除**并如实标注
    (被回滚 / 多轮时落盘系数只对应最后一轮)。
    偏差分解成四类可解释量: **能量尺度 / 宽度(模糊) / 位置(平移) / 形状**。
@@ -369,7 +369,7 @@ def _trace_from_csv_columns(rows: Sequence[dict[str, str]]) -> tuple[Trace, Trac
 
 
 def load_run(campaign: str, run_dir: Path) -> RunData:
-    """把一次 MIL 运行读成 :class:`RunData` (不构造正向模型)。"""
+    """把一次 MIL 运行读成 :class:`RunData` (不构造物理预测模型)。"""
     config = _read_json(run_dir / "run_config.json")
     geometry = _read_json(run_dir / "bench_geometry.json")
     csv_paths = sorted(run_dir.glob("*.csv"))
@@ -877,7 +877,7 @@ def analyse_mismatch(run: RunData) -> dict[str, Any]:
         return out
     config = _config_for(run)
     if config is None:
-        out["note"] = f"{MISSING}（无法重建正向模型配置）"
+        out["note"] = f"{MISSING}（无法重建物理预测模型配置）"
         return out
     geometry = run.geometry
     far_field_size = int(geometry.get("far_field_size", 0) or 0)
@@ -903,7 +903,7 @@ def analyse_mismatch(run: RunData) -> dict[str, Any]:
     try:
         optimizer = _make_optimizer(config, None, run.source_amplitude)
     except Exception as exc:  # pragma: no cover - 依赖 torch 后端
-        out["note"] = f"{MISSING}（正向模型构造失败：{exc}）"
+        out["note"] = f"{MISSING}（物理预测模型构造失败：{exc}）"
         return out
 
     gain, leakage = _gain_leakage(run)
@@ -2613,7 +2613,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--no-mismatch",
         action="store_true",
-        help="跳过模型失配复算（不加载正向模型，纯轨迹 / 信任域审计）。",
+        help="跳过模型失配复算（不加载物理预测模型，纯轨迹 / 信任域审计）。",
     )
     args = parser.parse_args(argv)
 

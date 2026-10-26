@@ -51,7 +51,7 @@
  | H-23 | ✅ **已实施（2026-10-14）**：三处协调改动全部落地。①`slm_shaping_runner.py::_square_json_payload` 增记 `active_modes`（用 `_active_zernike_modes(n_max, mask)`）+ `n_terms_total`；②`index.py` 增 `_Verdict.active_modes`/`HwRecordRef.active_modes` + **规则 4b**（规则 5 之前，仅当 sidecar 声明且 `len(_c)==len(active)` 才收），`_CACHE_VERSION` 2→3 且缓存 encode/decode 都带上该字段；③`transforms.py::expand_active_modes_to_noll` 用 canonical `noll_indices` 把活动模式散射回全长 Noll 向量，`records.py` 在 `zernike_coeffs_to_panel` 前调用。实测散射后 panel 与「手搭全长向量」**逐位一致**；**无 sidecar 声明的旧语料仍按 `ODD_COEFFICIENT_LENGTH` 排除**（不追溯重解释）。新增 20 测试（`tests/ao_shaping/ml/hwdataset/test_active_modes.py`），`hwdataset/` 380 passed | [#40](https://github.com/ywzhang909/AO-shaping/issues/40)（**本 commit `Closes`**） |
 | H-24 | 方形家族进 `hwdataset` 会换 `fov_px` ⇒ `far_field_padding` 标定必须重扫 | [#41](https://github.com/ywzhang909/AO-shaping/issues/41) |
 | **H-32** | **`--w-loggrad` 结构项已落地但未实验验收**。离线全绿（`utils/` 992、`wfless/` 626、sim 端到端 `J≠shape`）；6 类候选里只落地这 1 类，2 类早已存在、3 类否决（附实测数字）⇒ [`report/pib_loss_terms/README.md`](report/pib_loss_terms/README.md)。**⚠️ 它不能修复不收敛**（H-14 已证瓶颈是慢漂移），故默认 `0.0`。验收请在 **δ=0.05** 这类「有信号但被漂移污染」的档位做，**勿用 0.0005**（梯度信号本身在噪声下）。**待开 issue** | — |
-| **H-33** | 🔴 **GS → Zernike 拟合 → SPGD 匀化阶数扫描：代码已就绪并合入 `banckend`，但「多少阶 Zernike 才能复现 GS 整形」只能在实验系统回答**。采集 [`scripts/slm/run_gs_refine_zernike_sweep.py`](scripts/slm/run_gs_refine_zernike_sweep.py)（Stage A 跑一次 `slm_gs_refine` 留全历史 → Stage B 按 `n_max` 拟合 GS 最优相位 → Stage C 在系数上跑 SPGD，逐阶独立记录）；计划 **H0~H12** 见 [`report/shape_trials/gs_refine/gs_refine_zernike_hardware_plan.md`](./report/shape_trials/gs_refine/gs_refine_zernike_hardware_plan.md)。**仿真已确立（硬件无关）**：拟合残差随 `n_max` 单调不增（8 阶 0.0719→0.0385 rad，−46.5%）、`n_max=25`（351 模）不触发 `ZERNIKE_CLIP`、`--lr 0` 复现步长拒绝失效、能量守卫非瓶颈。**仿真答不了本条**：数字孪生 GS 前向模型未标定 ⇒ `best_phase`≈平场（`max\|c\|` 各阶恒 0.0142 rad），且阶数间**不可排序**（跨阶 PIB 极差 0.0046 / CV 极差 0.0039 ≈ 单轮 SPGD 抖动 0.0010~0.0035）⇒ 报告据此**拒绝**给出「最优阶数」。**两个 P0 硬门**：① GS 对比择优 —— GS 打不过平场即**停止**，先查 `--camera-pixel-um` / `--beam-radius-px` / 面板配准；② 噪声地板 σ —— 它是后续一切判据的分母，σ 与阶数差同量级则排序**物理上不可判**，须如实报告。核心科学项 = **H6**（Zernike 在**远场**复现了多少 GS 效果，`fit_rms` 只是相位空间代理）。⚠️ `fit_rms` **只在同一次 run 内跨阶可比**（换 `--n-max` / `--max-energy-loss` 会改变 Stage A 相位 0.008~0.012 rad，根因未查明）。**已知未做**：SPGD 预算放大（E1）在仿真下需 300 epoch 被砍，「不改善是预算不足还是物理上限」未答 → 列为 H-7 项 | — 待开 issue（正文已提交于 `report/shape_trials/gs_refine/gs_refine_zernike_hardware_plan.issue.md`；**API 被网络中间人拦截，无法从本机创建**，见 H-14 下方同类记录） |
+| **H-33** | 🔴 **GS → Zernike 拟合 → SPGD 匀化阶数扫描：代码已就绪并合入 `banckend`，但「多少阶 Zernike 才能复现 GS 整形」只能在实验系统回答**。采集 [`scripts/slm/run_gs_refine_zernike_sweep.py`](scripts/slm/run_gs_refine_zernike_sweep.py)（Stage A 跑一次 `slm_gs_refine` 留全历史 → Stage B 按 `n_max` 拟合 GS 最优相位 → Stage C 在系数上跑 SPGD，逐阶独立记录）；计划 **H0~H12** 见 [`report/shape_trials/gs_refine/gs_refine_zernike_hardware_plan.md`](./report/shape_trials/gs_refine/gs_refine_zernike_hardware_plan.md)。**仿真已确立（硬件无关）**：拟合残差随 `n_max` 单调不增（8 阶 0.0719→0.0385 rad，−46.5%）、`n_max=25`（351 模）不触发 `ZERNIKE_CLIP`、`--lr 0` 复现步长拒绝失效、能量守卫非瓶颈。**仿真答不了本条**：数字孪生 GS 物理预测模型未标定 ⇒ `best_phase`≈平场（`max\|c\|` 各阶恒 0.0142 rad），且阶数间**不可排序**（跨阶 PIB 极差 0.0046 / CV 极差 0.0039 ≈ 单轮 SPGD 抖动 0.0010~0.0035）⇒ 报告据此**拒绝**给出「最优阶数」。**两个 P0 硬门**：① GS 对比择优 —— GS 打不过平场即**停止**，先查 `--camera-pixel-um` / `--beam-radius-px` / 面板配准；② 噪声地板 σ —— 它是后续一切判据的分母，σ 与阶数差同量级则排序**物理上不可判**，须如实报告。核心科学项 = **H6**（Zernike 在**远场**复现了多少 GS 效果，`fit_rms` 只是相位空间代理）。⚠️ `fit_rms` **只在同一次 run 内跨阶可比**（换 `--n-max` / `--max-energy-loss` 会改变 Stage A 相位 0.008~0.012 rad，根因未查明）。**已知未做**：SPGD 预算放大（E1）在仿真下需 300 epoch 被砍，「不改善是预算不足还是物理上限」未答 → 列为 H-7 项 | — 待开 issue（正文已提交于 `report/shape_trials/gs_refine/gs_refine_zernike_hardware_plan.issue.md`；**API 被网络中间人拦截，无法从本机创建**，见 H-14 下方同类记录） |
 
 > ⚠️ **H 编号说明（2026-10-19 复核）**：上两条原为 H-25/H-26，已重编为 **H-32/H-33**。
 > 2026-10-16 的硬件验收批次在 GitHub 上**已占用** H-25~H-31 号段
@@ -3182,6 +3182,133 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
      - **验证**：宽跑 `test_conventions` + `scripts` ⇒ **2525 passed / 65 skipped / 4 failed**，这 4 条即第 77 条
               归并后的同一根因（`pib_exit_safety` 家族），新增守卫让 passed 比上一条基线多 1；CI 钉版 ruff
               **0.15.12** 全绿；术语门禁 **0 个文件**（引擎已不在 import 期扫描，见第 77 条）。
+
+79. ✅ **四个常驻红灯一分为三：两档是守卫自身逻辑错、一档是 README 对从未提交的脚本下指令 —— 修掉前两档，只留一个诚实的**（2026-10-26）：
+              - **来路（第 77 条归并后的同一根因分三档）**：4 条红灯同指 pib_exit_safety 幻影家族，但性质不同：
+                       `scripts/README.md` 用 3 行可运行指令描述一个从未存在的生成器（第 75 条守卫逮到，属文档缺陷）；
+                       `test_header_script_links_resolve` 对**报告文件不存在**的 registry key 也要求「报告头里的链接可解析」
+                       —— 文件不存在就没有 header，此谓守卫自身逻辑上不可满足（第 77 条已记录该不连贯）；
+                       `test_registry_script_paths_exist` 报「generator 不存在」—— 唯一实质性的、等作者落地的事实陈述。
+              - **取证补全**：遍历全部 16 个 worktree，幻影三件套（generator / 报告 / 配套测试）在每个 worktree 都缺席；
+                       `git log --all --diff-filter=A` 对该报告目录为空 ⇒ 是 registry 指向一次从未落地的实验，不是未推送分支。
+              - **裁决**：删 registry = 抹作者意图，代写 generator = 编造实验 —— 都不做（与第 77 条一致）。但 4 条里有
+                       2 条**不是作者数据的问题，而是守卫自身的问题**，属本会话职责；README 那档是活文档对不可运行命令下指令，
+                       按第 74/75 条先例（标注状态、撤回指令形式、保留设计记录）也应修。
+              - **修守卫**：`provenance.py::render_index` 把「报告文件缺失」列为**一等 pending 状态**
+                       （渲染出索引里那条尚未生成产物的章节），守卫此前无视该设计。改动四条：新增 `_pending_report_keys()`
+                       用与 render_index **完全相同**的规则派生（明文防两处漂移）；`test_header_script_links_resolve`
+                       对 pending key **skip 且带理由**（在 `-rs` 里显式可见，非静默变绿）；新守卫
+                       `test_pending_registry_entries_are_bounded_and_justified` 设 `_MAX_PENDING_REPORTS = 1` 上限
+                       + 每个 pending entry 必须带非空 `note`（说明在等什么）⇒ 把开放式漏洞收编成有界且有解释；
+                       registry 路径守卫对 pending key 的失败消息**精确化**（点名「报告本身也 pending，等作者把
+                       generator 与报告一起落地」），保留红灯但信号变准。
+              - **修 README**：在生成器小节段首加状态注（英文，与全文一致）：脚本从未提交于任何 ref、报告与配套测试
+                       同样不存在、下方只读 harness 是真实且被跟踪的，并明令不要照抄下述命令；把 3 行 powershell 调用栅栏
+                       改为「计划中的调用面」散文（默认挑最新带 `summary.json` 的 `run_*`、`--run-dir <dir>` 选目录、
+                       `--no-figures` 跳过配图）—— 不可运行的指令形式撤回，CLI 设计记录保留。刻意不再把幻影 generator
+                       的 .py 路径放进反引号，避免触发第 74 条引用路径守卫。
+              - **控制实验**：header-links 的 skip 在 `-rs` 里显式报出且理由为 pending（仅 1 个 skip）；有界守卫把一个
+                       **真实 registry 报告**移出 `report/` ⇒ pending 变 2 ⇒ 红且断言上限失败，移回后 `git status` 干净
+                       （逐字节原状）⇒ 再绿；README 两守卫的 RED→GREEN 转变即精度证据（修前红点名那 3 行，修后通过）。
+              - **验证**：宽跑 test_conventions + scripts ⇒ **1 failed / 2528 passed / 66 skipped**（基线 4 failed /
+                       2525 passed / 65 skipped：+3 passed = README 两守卫转绿 + 新有界守卫，+1 skipped =
+                       header-links 的显式 pending skip），唯一天红即 registry 路径守卫对 pib_exit_safety 那条；
+                       CI 钉版 ruff 0.15.12 干净；provenance `--check` clean（registry 与索引未动）。
+              - **净效果**：master 常驻失败从「4 红 = 1 幻影」改为「1 红 = 幻影」，且该红的消息从泛泛的「registry 陈旧」
+                       升级为指向作者决策的精确陈述 —— 这正是本轮把红灯当登记系统用的本意。
+80. ✅ **RL 环境的相机回退与全仓相反已结清：Far 回退 '1' → '0' 与 DeviceConfig 对齐，从未被消费的 Near_Cam_ID 死读删除，并用 AST 守卫钉死两源必须一致**（2026-10-26）：
+    - **来路**：第 73 条建立 env 名普查时顺手记录的待决面——`optimizer/rl/envs.py:21-22` 的 `Far_Cam_ID` 回退 `'1'`／`Near_Cam_ID` 回退 `'0'`，与规范源相反。
+    - **取证**：规范事实四方一致——config.py 的 `DeviceConfig.__init__`（`far_cam_id` 回退 `0`／`near_cam_id` 回退 `1`）、`.env`、`.env.example`、AGENTS.md 的 .env 样例，全部 `Far=0/Near=1`；唯一偏离者就是 envs.py。消费点全文件唯一：`envs.py:35` 的 `MIICamera(cam_id=Far_Cam_ID, ...)`；`Near_Cam_ID` 在 922 行里只出现赋值一次——import 期读取、零消费的死读（与第 73 条删过的死读同族）。
+    - **为什么是真缺陷**：envs.py 按第 78 条口径属模块作用域（import 期）求值。当进程环境未设该名字（例如不经 .env 的直接 import）时才落到回退默认——那一次 RL 环境会把 1 号设备当 far 相机打开，而同进程里 config 驱动的消费方都用 0 号：同一个 env 名两套默认，且错的孤例正是接触物理设备的那一侧。
+    - **修复（最小，bugfix 规则不重构）**：`Far_Cam_ID` 回退改为与 DeviceConfig 一致的 `'0'`，注释指向规范源；`Near_Cam_ID` 死读整行删除。模块作用域读取本身保留（那是第 78 条登记过的 import 期阀门设计）。
+    - **防漂移守卫**：新 `tests/ao_shaping/optimizer/rl/test_envs_camera_id_fallbacks.py` 三测——路径深度自检（parents[4] 错位会大声失败，防假绿）；`test_far_cam_fallback_matches_device_config` 用 AST 分别解析两源比对回退字面量（不 import envs——它拖 gymnasium 与驱动包）；`test_near_cam_is_not_a_dead_module_read` 防死读复活。
+    - **控制**：cp 备份 → 把回退临时翻回 `'1'` → 守卫红且点名两侧值（envs `'1'` vs DeviceConfig `0`）→ cmp 逐字节还原 → 再绿。
+    - **验证**：新守卫 3 passed；tests/ao_shaping/optimizer/rl + tests/ao_shaping/test_config.py 合跑 45 passed / 1 skipped（skip 为容器缺 gymnasium 的既有恒量）；第 73 条 env 名大小写碰撞守卫绿；ruff（钉版 0.15.12）对两改动文件干净。
+    - **范围外仍挂账**：`runners/runner_common.py` 四处 `--cam-id` 默认同值不同型（字符串 `"0"` vs 整数 `0`）仍按第 73 条的决定留在待决面（CLI 合约，cli_help_golden.json 管辖）。
+81. ✅ **四处 --cam-id 环境默认的 "0"/0 分裂与唯一一处急切 import 期读取已收编：统一为惰性读取 + 字符串字面量，并用 AST 守卫钉死形态**（2026-10-26）：
+    - **来路**：第 73 条建立 env 名普查时留下的待决面——`runners/runner_common.py` 四处 `--cam-id` 默认同值不同型（`"0"` 字符串 vs `0` 整数），且四处的读取时机也不一致。
+    - **取证**：`utils/cli/params.py::_patch_defaults` 把 dataclass 字段默认**原样**注入 click option（default 是唯一事实源，无隐式转换点）；四处注解全是 `str`；golden（cli_help_golden.json）只钉渲染后的 help 文本（形如 `--cam-id TEXT`），不存原始默认值。容器一次性探针（临时文件已删）实测：click STRING 对默认值同样做类型转换，`type=str, default=0` 与 `default="0"` 解析结果同为字符串 '0' ⇒ 解析层面 str/int 分裂不可见；真正的分叉是 import 期读取时机与 env 未设语境下 dataclass 默认值的落盘类型（整数 0 vs 字符串 "0"）。
+    - **剖析**：1692/1875 已是惰性 + `"0"`（规范形态）；1971（PipelineRunnerParams）惰性但回退是整数 `0`；2026（PipelineDeviceParams）是四处中唯一 import 期急切读取——cast(str, os.environ.get(...)) 在 runner_common import 时就摸一次 env（第 78 条登记过的 import 期阀门同类），回退同样整数 `0`。
+    - **修复（最小）**：1971 回退 `0`→`"0"`；2026 改成与其余三处同族的惰性形态 cast(str, lambda: os.environ.get("Far_Cam_ID", "0"))。golden 与解析行为零变化（探针证据）。
+    - **防漂移守卫**：新 `tests/ao_shaping/runners/test_cam_id_env_defaults.py`（纯 AST，不 import runner_common——它拖硬件关联包）两测：路径自检 + 形态契约——恰好 4 处 `Far_Cam_ID` 读取；四处外层 dataclass 字段都是 `cam_id`；四处全部包在 `lambda` 里（防急切读取回潮）；回退字面量全是字符串 `"0"`（防整数回潮）。
+    - **守卫自纠**：首版守卫把含注解的 dataclass 字段当 ast.Assign 查——实测注解字段是 ast.AnnAssign，守卫对**正确的源文件**也红；定性为守卫自身 bug 而非源文件回潮，修成两型通吃后才走控制（验证协议当场拦截，没有放水）。
+    - **控制**：把 PipelineDeviceParams 站点（最后一段匹配行）临时翻回急切 int 形态 → 守卫红，红点是 Far_Cam_ID 读取 "is eager (import-time), not lambda"；cp 备份 + cmp 逐字节还原 → 再绿。
+    - **验证**：守卫单独跑 2 passed；tests/ao_shaping/runners 全量 544 passed / 25 skipped（skip 为既有恒量，其中 2 条来自 diff_shaping_runner 早已删除）；ruff（钉版 0.15.12）对两改动文件干净；golden 与契约冻结原样通过。
+    - **范围**：config.py 的 DeviceConfig 0/1 是配置层标准默认（整数域且已 int() 转换），不在 CLI 合约范围；gui/ccd/target_shape_helper.py 的 `_DEFAULT_CAM_ID` 回退 "0" 已是规范形态；optimizer/rl/envs.py 已在第 80 条收编。第 73 条的挂账至此结清。
+82. ✅ **AGENTS.md 的 utils/wavefront 清单追上 issue #204 新增的 link_design：13→14 补齐带日期注解，并钉守卫防目录与文档清单漂移**（2026-10-26）：
+    - **来路**：第 81 条落地后的普查——抽查 sibling issue #204 批次的 `link_design.py` 是否守住 Zernike 红线。结论是干净的：顶层只 import numpy（无自写 Noll/(n,m)/多项式代码），消费方仅 `gui/slm/link_design_assist.py` 与 `gui/slm/shaping_controls.py` 复用本模块，docstring 自述与 `fraunhofer` 同物理、纯 numpy 保 utils 叶子层零 torch，golden 验收值与 `tests/ao_shaping/utils/test_link_design_param_sweep.py` 成对钉死。
+    - **发现**：目录里 14 个 .py 模块，AGENTS.md 的 utils/wavefront 行只登记 13 个——其余每个都带日期注解，link_design（`d10bb483`, 2026-10-26, 引入语 "import link_design from 659c93db (issue #204 single source of truth)"）唯一漏登；该行是后续普查的发现面，漏登会让已登记模块被误判为未登记新品。
+    - **修复（纯文档）**：行内模块格追加 `link_design`；注解格按既有分号接续格式追加带日期与来源的说明（望远镜链路 M_t=10、f_eff 换算口径、纯 numpy DFT 远场引擎与 fraunhofer 同物理、utils 叶子层零 torch、测试与消费方指针）。无行为变化。
+    - **先红后绿**：守卫在行补齐前运行即红，差集点名 link_design；补齐行后转绿。
+    - **防漂移守卫**：新 `tests/ao_shaping/test_wavefront_inventory_doc.py` 两测：行存在自检（该行缺失或结构异常时大声失败）+ 模块名格 token 集与目录 .py 模块集合双向精确相等（少登、错登都会点名差集）。
+    - **控制**：把行内 link_design 项临时删除 → 守卫红且差集仍点名 link_design；cp 备份 + cmp 逐字节还原 → 再绿。
+    - **验证**：守卫单独 2 passed；ruff（钉版 0.15.12）干净；术语门禁合计 0；provenance `--check` clean。
+    - **范围**：一次文档补登 + 一条守卫，无源行为与导入面变化。
+83. ✅ **AGENTS.md 的 utils/io 与 utils/image 行同样漏登（recorder_keys / npz_summary / centroid），inventory 守卫推广到全部四个 utils 管道行**（2026-10-26）：
+    - **来路**：把 item 82 的同款探针扫向其余 utils 行——`utils/slm/`（L270）与 `utils/wavefront/`（L269，item 82 修后）干净，`utils/io/`（L267）与 `utils/image/`（L268）漂移。
+    - **发现 io**：目录 8 个模块，行只列 6——`recorder_keys`（`1a11e60e`, 2026-10-20, #130 item 2）与 `npz_summary`（`d14d9dc0`, 2026-10-25）漏登。本体取证：`recorder_keys` 是零导入叶子，11 个 `RECORD_*` 值成一份盘面列契约，被全仓 runners/optimizer/tools/ml 广泛 import，`tests/ao_shaping/utils/test_recorder_keys.py` 钉住；`npz_summary` 收拢 `abba_probe`/`floor_probe` 一字不差的两份 summary 写盘副本（27 行，`save_summary_npz`，域内旧名留薄封装）。
+    - **发现 image**：目录 12 个模块，行只列 11 个外加装饰 token——`centroid`（`124444e6`, 2026-10-24, issue #199 R6）漏登：窗口内强度加权质心原语 `windowed_centroid`，`frame_analysis`/`displacement` 三份副本单一来源；`targets` (+ `target/`) 已在列，`target/` 是子包目录（8 个模块），不是漏登。
+    - **修复（纯文档）**：io 行名格追加 `recorder_keys`, `npz_summary`；image 行名格追加 `centroid`；两行注解格按既有分号接续格式补带日期与来源的说明。
+    - **守卫推广**：重写 `tests/ao_shaping/test_wavefront_inventory_doc.py` 为四行统一钉（io/image/wavefront/slm）：行存在自检 + 名格 token（剥反引号、剥 " (" 起尾注，兼容 `targets` (+ `target/`) 装饰写法）与目录 .py stem 集**双向精确相等**，collective 单断言一次点名全部差集；`utils/cli/` 不入表（独立红线节，有意为之），不强加行。
+    - **先红后绿**：推广后的守卫在修行之前运行即红，一条信息同时点名 io 少登与 image 少登；三处补齐后转绿。
+    - **控制**：从 image 行临时删 `centroid` → 红且点名；cp 备份 + cmp 逐字节还原 → 再绿。
+    - **验证**：守卫 2 passed；ruff（钉版 0.15.12）干净；术语门禁合计 0；provenance `--check` clean。
+    - **范围**：两行文档补登 + 一条守卫推广，无源行为与导入面变化。
+84. ✅ **AGENTS.md 的 algorithm/ 子包表同款漂移：heuristic 行别名 token、signal_processing 行登 9 而盘上 19、tabu 行纯散文、goal_functions 行登从未存在的 image_metrics；四行逐一修正 + 守卫推广成九行套件**（2026-10-26）：
+    - **来路**：item 83 把 utils 四行钉死后，把同款探针推向 algorithm 子包表——`gradient/` 行干净 (2=2)，heuristic / signal_processing / tabu / goal_functions 四行形态各异的漂移；取证背书：cross_entropy/simulated_annealing 等 8 个全名模块全仓 import 均用全名，`image_metrics` 在 git 历史零出现，10 个 signal_processing 模块人人带引入提交。
+    - **修 heuristic 行**：模块格 7 个别名 token → 10 个真模块，注解格落别名消歧 + `heuristic_base`/`gm`/`search` 补登说明（基类 / 引导变异 / 共享黑盒驱动 `heuristic_algorithm_choices`）。
+    - **修 signal_processing 行**：模块格 9 → 19，注解格逐 module 落引入提交：`sim`、`iterative_zernike_shaping`、`zernike_coefficient_optimizer`、`angular_spectrum`、`square_shaping`、`uncertainty_probe_selector`、`differentiable_defocus_uniformity`、`multishape_objective`、`physical_forward_fit`、`defocus_forward_core`（2026-09-18 ~ 2026-10-25，issue #199 相关 batch）；`sim.py` 为向量光束演示，反模式表已注记应迁 `scripts/`——本条只落册，代码迁移另立条目。
+    - **修 tabu row 行**：纯散文模块格 "Tabu 搜索" 改 `tabu_search`（582 LOC，该子包唯一模块）。
+    - **修 goal_functions 行**：删幻影 `image_metrics`（文件从未存在，`--follow` 零历史；import 全走 `goal_functions.target_func` 的 `ImageTargetFunc`），改 `target_func` + 注解格说明。
+    - **入门注解重写**：L207 老 note「top-level `algorithm/*.py` 是 *-re-export shims」早已过时——顶层现仅存 `__init__` 与 `base`，顶层 shims 已于 `bbb3820b`（2026-09-20, "Refactor imports to align with new module structure"）删除，改写成现口径。
+    - **守卫推广**：`tests/ao_shaping/test_wavefront_inventory_doc.py` 的 SUBPACKAGES 4 → 9 行（utils/io|image|wavefront|slm + algorithm/gradient|heuristic|signal_processing|tabu|goal_functions），一律双色断言（行存在自检 / 行格与目录 stem 双向精确相等）后再收集成单条 diff 信息。
+    - **先红后绿**：推广守卫在修行之前运行即红，一条信息同时点名四行差集（heur 缺 8 / 多 5 别名，sp 缺 10，tabu 缺 1，gf 多 1 幻影）；四行修齐后转绿；控制：从 heuristic 行临时删 `cross_entropy` → 红点名；cmp 逐字节还原 → 再绿。
+    - **验证**：守卫 2 passed；ruff（钉版 0.15.12）干净；术语门禁合计 0；provenance `--check` clean；PAR 计数本条为 84。
+    - **范围**：algorithm 表 4 行文档修正 + 1 行注解重写 + 守卫推广，无源行为 / 导入面变化；`sim.py` 迁 `scripts/` 属代码重构，另立条目。
+
+85. ✅ **drivers 家族 7 份 AGENTS.md 文档树与磁盘逐名对齐（5 份改动：清 3 幻影 / 补 15 漏登 / 删 `__pycache__/` 噪声；`slm/`、`tm/` 自证零 drift）+ 新守卫 `test_drivers_doc_tree.py`**（2026-10-26）：
+- 延续 82/83/84 的普查，对象是 drivers 家族 root + `ccd/dm/slm/wfs/tm/sim` 共 7 份 `AGENTS.md` 的「结构/目录结构」围栏树；守卫按缩进解析树块，双向对账磁盘——完整性只统计 `.py` + 目录（排除 `__pycache__`），其余文件仅在文档列出时校验存在。
+- 幻影 3：`ccd/ffmpeg.py`（`FFmpegCamera`/`ImageFolderCamera` 实际在 `ffmpeg/driver.py`，关键类表 2 行同步改指）、`ccd/gxipy/`（SDK 实际在 `libs/`）、`dm/Drv_UDPST/`（仅树行删除；正文对 `Drv_UDPST.dll` SDK 的表述保留）。
+- 漏登 15：drivers 根 `__init__.py` + `_lazy.py`（惰性契约主角文件）；dm 顶层 3 个 shim（`MicroDM.py` / `NLight.py` / `asyn_micro_dm.py`，此前只在正文提及）+ `micro/`、`nlight/` 的 `__init__.py`；wfs `_registry.py`；ccd `daheng/constants.py`；sim 顶层 5 个（`fouriergsnet_env.py`、`nonideal.py`、`_oopao_compat.py`、`sim_bench_patch.py`、`slm_shaping_bench.py`）；`sim/dm/simulated_micro_dm.py`（守卫让它现形）。
+- 归属修正：sim 文档原注称 `simulated_dm.py` 兼有 SimulateDM+SimMicroDM，实测 `SimulateDM` 在 `simulated_dm.py`（L29）而 `SimMicroDM` 独在 `simulated_micro_dm.py`（L23，`sim/dm/__init__` L7 re-export）——两行注各自改对；「各子包文档」表补 `adc/` 行（无独立文档）。
+- 证据：born-red 单条信息精确点名 19 处差异；control（删 wfs `_registry.py` 树行）变红 → `cmp` 逐字节还原 → 再绿；term gate 合计 0；ledger parity 85 条 / 13 已知；provenance `--check` clean；ruff 0.15.12 clean。
+- 教训：(a) 守卫初版两处解析 bug——目录名尾 `/` 让 `count("/")==0` 口径失效、内层子项比较漏取 basename（首版 born-red 全量误报），修正后才得到可信红；(b) 修复脚本收尾自设禁词正则曾扫整文件，被 `ccd/AGENTS.md` L124 存量词（term gate 豁免段）误伤——改为只查本次插入 fragment，整文件交 `scripts/_common/term_unify_20261016.py --check` 仲裁；(c) `dm/XuWeiDM64_UnitsPos.txt` 全仓零 loader 命中，不在 `.py`/目录完整性规则内，留盘未录。
+
+86. ✅ **`signal_processing/sim.py` 拆分终态核实 + AGENTS 注化终结 + 微守卫 `test_sim_library_split.py`**（2026-10-26）：
+- 84 挂账的 `algorithm/signal_processing/sim.py` 迁 `scripts/` 在 probe 阶段即被推翻——代码迁移不再需要：`14b1cda`（#90）已把 `__main__` 演示体抽出为 `scripts/signal_processing/demo_wavefront_sim.py`（+ `demo_wavefront_reconstruction.py`）；实测 `sim.py` 为 import-only 库（numpy / matplotlib.colors / loguru，无 `__main__`、argparse、`plt.show`），demo 只 import 4 个符号（`VectorAdaptiveOptics` / `VectorBeamPropagator` / `calculate_stokes_rgb` / `create_gaussian_field`），搬模块本身反而会破坏 import——与 root `AGENTS.md` 反模式表「Obsolete instruction (verified 2026-10-25)」行的终态判定一致。
+- 残留矛盾唯一一处：84 在 signal_processing 行写的注化（「反模式表已注记其应迁 `scripts/`，本条只落册不动码」）与终态判定自相矛盾 → 改写为忠实终态（`14b1cda` 迁出演示体 + 本体保留 import-only 库 + 拆分即终态）。
+- 新守卫 `tests/ao_shaping/algorithm/test_sim_library_split.py` 锁定终态：sim 无入口件；demo 的 import 块恰为上述 4 符号且都在 sim 里；两个 demo 脚本存在；AGENTS 注化含 `14b1cda` 迁出记录且不再含两处旧措辞。born-red 单条正中注化断言；control（删 `14b1cda` token）变红 → `cmp` 逐字节还原 → 再绿；ruff clean。
+- gates：term gate 合计 0；ledger parity 86 条 / 13 已知；provenance `--check` clean。
+
+87. ✅ **root AGENTS.md runners 叙述全量对齐（6 行 stale 路径 / 结构树重写 / 漏登 4 补录 / `slm_offset_runner` 实名化）+ 新守卫 `test_runners_doc_paths.py`**（2026-10-26）：
+- 普查对象是 root `AGENTS.md` 对 `runners/`（17 个 .py：顶层 4 + `nlight_dm/` 4 + `micro_drive/` 1 + `slm/` 8）与 `optimizer/`（49 个 .py）的全部叙述；`optimizer/` 路径化引用 10 个全部命中磁盘（零漂移，守卫正面锁定），漂移集中在 runners 叙述。
+- 路径漂移 8 处 / 7 行：三层架构图的 `wf`/`pib`/`pipeline`/`combined` 四行把 4 个 runner 写在顶层（实际在 `runners/nlight_dm/`）；`zernike-matrix`/`rms-zernike` 两行加 `ZernikeDM` 反模式行（L1156）共 4 处 `zernike_matrix_runner.py`/`rms_zernike_runner.py` 写在顶层（实际在 `runners/slm/`）。测试路径（`runners/test_cli_contract_freeze.py`、`runners/test_diff_shaping_runner.py`）经 `tests/ao_shaping/` 回退命中，无漂移。
+- 结构树重写：原 6 行过期树（顶层 `wf/axis/pipeline/zernike-matrix` 4 个 + 过期注释）换成全量 17 文件三子包树；补漏登 4 个——`matrix_runner.py`（提供 `dm-matrix` + `hadamard-matrix`）、`voltage_runner.py`（`alt-voltage` / `full-voltage`）、`model_in_loop_session.py`（硬件 session 预检）、`offset_runner.py`（未注册）；专名 `slm_offset_runner` ×3 改为真实文件 `runners/slm/offset_runner.py`。注册口径以 `tests/ao_shaping/runners/test_cli_contract_freeze.py::EXPECTED_COMMANDS`（19 个已注册命令）为准；`hadamard-matrix` 2026-10-25 已注册（L738 已记，未动）。
+- 证据链：born-red（守卫三轮纠偏：ROOT 深度、树切片边界、子串假消解）单条信息点名 6 个未消解路径 + 4 个漏登文件 + 树 9 个 sentinel 全缺；`optimizer/` 路径消解测试首跑即绿（正面锁定零漂移）；control 首版曾假绿——删树内 `matrix_runner.py` 行后 `zernike_matrix_runner.py` 仍以子串满足两条匹配，守卫两侧匹配改负向后视 `(?<![A-Za-z0-9_])` 后同一 control 正确变红（双断言正中）→ `cmp` 逐字节还原 → 再绿；ruff clean。
+- gates 与教训：term gate 合计 0；ledger parity 87 条 / 13 已知；provenance `--check` clean。教训三则：子串匹配两侧皆坑——提及覆盖与树 sentinel 都会被长名吞并（`matrix_runner.py` ⊂ `zernike_matrix_runner.py`），守卫与 control 都必须用负向后视 `(?<![A-Za-z0-9_])` 限定名边界（本条 control 首版假绿即实证）；守卫 `ROOT` 深度按自身嵌套定（`tests/ao_shaping` 直下 = `parents[2]`，进一层子包 = `parents[3]`），容器挂载下首跑 `FileNotFoundError` 顶格暴露；顶层总览树本就是缩略视图——只做 phantom/sentinel + basename 覆盖检查，不做 drivers 式逐名全镜像，强镜像必然满屏假红。
+
+88. ✅ **optimizer/ 逐名叙述普查：49 模块中 32 个零提及已补录 + 覆盖守卫**（2026-10-26）
+- 普查口径与位置：`optimizer/` 全部 49 个 `.py` 模块按文件名以负向后视（`(?<![A-Za-z0-9_])`，防 `matrix_runner` ⊂ `zernike_matrix_runner` 一类子串假匹配）逐一对照 root AGENTS.md —— **32 个零提及**（顶级 4 / `rl/` 8 / `wf/` 3 / `wfless/` 17）；补录为 `optimizer/ Module` 章节内新增 `### optimizer/ 模块逐名登记 (2026-10-26 普查)` 表（32 行 4 分组 + 1 尾注），插在子包 bullet 列与 `### 优化策略与 Runner 对应关系` 之间（锚唯一性在 fix 脚本内断言，count==1）。
+- 取证口径：32 个中 22 个直接取模块 docstring 首句；**10 个无 docstring 的按 import/class 面与引用方向定句**：`adc_dm_adam` ← `drivers/adc/driver.py` 文档行指名参考实现（L6）；`pib_sim_eval` ← `eval_pib_hybrid_sim` / `generate_heuristic_pib_report` 消费；`gready_cam` ← `MIICamera`+`NlightDM`+`KEEP_VOLTAGE_WHEN_EXIT`；`lr` / `lr_wfs` / `rl_wfs` ← class 面（`LaserCastEnv` / `WFSLaserCastEnv` / `LSTMEncoder` / 组合提取器）；`envs` ← `gym.spaces`（湍流环境有专测消费）；`bayes_*` ← skopt `gp_minimize`；`adaptive_spgd_core` ← `AdaptiveSpgdConfig` frozen dataclass —— 全程零猜测，无一句来自推断。
+- 链条（与 87 同型）：守卫 `tests/ao_shaping/test_optimizer_doc_coverage.py`（1 test，lookbehind 名面全量锁定；`ROOT=parents[2]`，87 的深度教训直接复用）born-red —— 红名单与普查清单**逐名一致（32 全中）** → patch → 新守卫绿 + `test_runners_doc_paths.py` 4 tests 无回归双绿 → control 删 `_measure.py` 表行 → 恰 1 失败且检举同一模块 → `cmp` 逐字节还原 → 再绿 → ruff 干净。
+- 登记不行动：`lr.py` / `lr_wfs.py` / `rl_wfs.py` 三个训练竖切复写同款脚手架（回调 / 编码器 / 组合提取器）与模块名 `gready` 的现状拼写 —— 均为代码级变更，不混入本条 doc census，另行条目。
+- gates：TERM 合计 0 / 对账 88 条 13 violations（standing 不变）/ 溯源 clean；提交仅 `AGENTS.md`+`TODO.md`+新守卫三文件。
+
+89. ✅ **utils/ + display/ 逐名叙述普查：65+6 模块双合同名面——7+2 真实缺口补录 + 6 撞词假覆盖补录 + 覆盖守卫落位**（2026-10-26）
+- 普查口径与结果：合同分两支——`name.py` 全名提及（前视限定）**或**裸干 stem token（词尾排除字母数字与点号 `(?![A-Za-z0-9_.])`）：点号排除使 `exposure.npy` 这类缓存名**不能**覆盖 `exposure.py` 模块；点号结尾的全名形式（`cli_params.py`）由名面分支兜住。utils 65 个中 43 个 stem 命中逐一核对为子包表行的真实列举（io 行 8 / image 行 12 / wavefront 行 14 / slm 行 8）+ 树注释（`spots_calc`, `wavefront_calc`, `frames`），**7 个零提及**：`image/target/masks.py`, `image/target/shapes.py`, `math/array_shape.py`, `math/fitting.py`, `math/stability.py`, `numba_compat.py`, `objective_direction.py`；display 6 个中 `beam_profile.py` / `windows.py` 零提及、`frames.py` 仅有树注释级提及。
+- 撞词假覆盖 6 个（通过 token 合同但**不是**模块引用，仍一并补录）：`cli/exposure.py` 仅命中 `exposure.npy` / `exposure_ms` / env 注记 "exposure ceiling"；`target/` 五叶的 stem 撞 drivers 树与反普通词（`ccd` → drivers 树注释, `geometry` / `objective` / `patterns` / `square` → 文献词与树词）。补录载体：`optimizer/` 章节同型的 `### utils/ 模块逐名登记 (2026-10-26 普查)`——13 行 4 分组表（`target/` 7 / `math/` 3 / 顶级 2 / `cli/` 1），插在 `## Zernike 使用规范` 之前（锚 count==1 断言）；WHERE-TO-LOOK Visualization 行单元格扩写：`windows.py`（旧注记 `Windows` 的实现文件, 无 docstring, 头部 ABC 类面）/ `frames.py` / `beam_profile.py` 渲染器全集（display 两个零提及收口）。
+- 取证口径：13 行职责全部来自模块 docstring 原句或类面，**零猜测**——按面积归一的多形状掩膜与其单独成模块理由（外接方框 CV 的背景污染）、canonical 形状词表、CCD 帧驱动目标管线、纯几何原语、目标选择+自适应 `rms_pib` 权重+指标面板、参数化目标图样、GS 式方形 sizing+振幅掩膜、精确形状数组拟合、最小二乘助手、settle/drift/linear 序列判据、算法+utils 共享可选 numba 垫片、目标名→搜索方向单一事实源、`--exposure-time-ms`/`--exposure-ms` 一旗标三状态一解析器（旗标声明 7+1 处的 0 值双义收口）、远场/SLM 相位/XY 截面单一渲染实现。消费方佐证：`target/` ← 5 个 wfless 优化器 + `slm_shaping_runner`；`numba_compat` / `objective_direction` ← `algorithm/gradient/__init__`, `pib`, `slm_zernike_pib`, `adc_dm_adam`, `spots_calc`。
+- 链条（与 87/88 同型）：守卫 `tests/ao_shaping/test_utils_display_doc_coverage.py`（2 tests, `ROOT=parents[2]`, token 合同 docstring 化）born-red —— **恰 9**（utils 7 + display 2, 红名单与普查名单逐名一致）→ patch → 三守卫无回归三绿（新守卫 2 + runners 4 + optimizer 1）→ control 删 `stability.py` 表行 → 恰 utils test 失败且点题同一模块 → `cmp` 逐字节还原 → 再绿 → ruff 三守卫全干净。
+- 登记不行动：`targets.py` compat shim 的 docstring 叶枚举已过时（写了盘面不存在的 `metrics`、缺 `geometry`/`masks`/`shapes` 三叶）——代码级修正另行条目；`tools/` 家族普查（86 模块、约 47 个名面未列, `probes`/`response`/`simulation`/`bootstrap` 撞普通词的边界裁定）为下一 item 专办。
+- gates：TERM 合计 0 / 对账 89 条 13 violations（standing 不变）/ 溯源 clean；提交仅 `AGENTS.md` + `TODO.md` + 新守卫三文件。
+
+90. ✅ **tools/ 逐名叙述普查：86 模块名面未列 58——46 真零提及补录 + 4 撞词假命中 + 1 包路径 token 特例（51 行 11 分组表）+ 覆盖守卫落位**（2026-10-26）
+- 普查口径：合同与 89 同源——`name.py` 全名提及（负向后视 `(?<![A-Za-z0-9_])`）**或**裸干 stem token（词尾+点号排除 `(?![A-Za-z0-9_.])`）；`tools/` 全部 86 个 `.py` 中名面未列 58 = **46 真零提及**（顶级 1 / `ccd/` 3 / `kernels/` 3 / `micro_dm/` 1 / `slm/` 根 7 / `slm/calibration/` 3 / `slm/cartographer/` 6 / `slm/panel/` 12 / `slm/transfer/` 5 / `wfs/` 4 / `zernike/` 1）+ 12 个 stem 命中逐一裁定：4 真命中（`floor_probe`/`abba_probe` ← io 行收拢注记、`lut_runner` ← 注册映射树、`panel_locate` ← 89 轮 `cli/exposure` 行注记）、3 个 `__main__.py` 通用 token 按 `__init__.py` 前例 floor 通过、4 撞普通词假命中（`bootstrap` ← scripts 序言、`probes` ← env 注记、`response` ← UI 树、`simulation` ← drivers 树）、1 特例 `calibration.py` 只被包目录路径串 `tools/slm/calibration/` 命中（token 合同通过但非模块引用）。
+- 补录载体：AGENTS.md 新增 `## tools/ 模块逐名登记 (2026-10-26 普查)` 节——51 行 11 分组表（46 真零 + 4 假命中 + `calibration.py`；分组求和 1+3+3+1+7+4+6+12+9+4+1=51），插在 `## Zernike 使用规范` 之前（与 89 的 utils 表同锚邻接，锚 count==1 断言）。
+- 取证口径：51 行职责全部取自模块 docstring 原句改写；唯顶级 `train_data_collect.py` 无 docstring，由 `slm/calibration/train_data_collect.py` 的对标句背书（DM+WFS 训练数据采集器）——零猜测。
+- 链条（与 87/88/89 同型）：守卫 `tests/ao_shaping/test_tools_doc_coverage.py`（1 test，合同与深度 `ROOT=parents[2]` 同 89）born-red 恰 **46**（红名单与普查清单逐名一致）→ patch → 四守卫无回归 **8 绿**（新 1 + runners 4 + optimizer 1 + utils/display 2）→ control 删 `sweep_probe.py` 表行 → 恰 1 失败且点题同一模块 → `cmp` 逐字节还原 → 再绿 → ruff 干净。
+- 登记不行动：3 个 `__main__.py` 通用 token 通过按 floor 合同不单列；`slm/transfer/` 家族 docstring 本就极简（如 `summary.py` 仅一句配对汇总），职责行照录原文未扩写。
+- gates：TERM 合计 0 / 对账 90 条 13 violations（standing 不变）/ 溯源 clean；提交仅 `AGENTS.md` + `TODO.md` + 新守卫三文件。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

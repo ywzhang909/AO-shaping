@@ -1,4 +1,4 @@
-# 正向模型闭环整形 (slm-model-in-loop) —— 调用关系 / 计算时序 / 算法说明
+# 物理预测模型闭环整形 (slm-model-in-loop) —— 调用关系 / 计算时序 / 算法说明
 
 > **生成脚本**: [`scripts/slm/generate_model_in_loop_report.py`](../../scripts/slm/generate_model_in_loop_report.py)
 > **复现命令**: `python scripts/slm/generate_model_in_loop_report.py`
@@ -15,10 +15,10 @@
 
 ## 1. 这条命令做什么
 
-每轮交替两步, 用实测数据在闭环里持续修正正向模型, 再用修正后的模型合成相位:
+每轮交替两步, 用实测数据在闭环里持续修正物理预测模型, 再用修正后的模型合成相位:
 
-1. **Step A —— 拟合正向模型.** 显示若干个**强随机探针**相位, 把每个探针的远场实测帧
-   与正向模型的预测对比, 重拟合**一个共享的 Zernike 像差向量**。
+1. **Step A —— 拟合物理预测模型.** 显示若干个**强随机探针**相位, 把每个探针的远场实测帧
+   与物理预测模型的预测对比, 重拟合**一个共享的 Zernike 像差向量**。
 2. **Step B —— 合成方形.** **冻结**刚拟合出的像差, 优化**全像素 SLM 相位**逼近方形目标,
    下发实测; 本轮相位成为下一轮的热启动。
 
@@ -242,7 +242,7 @@ sequenceDiagram
 (`PLATEAU_PATIENCE`), 且没有任何东西清这个锁存 —— `reset()` 会把系数倒回 `__init__` 的值, 所以
 re-arm 必须绕着**当前**系数重建优化器。
 
-**Step B 只在最后测一次, 不在每次迭代里测.** Step B 是纯计算 (可微前向模型过 FFT),
+**Step B 只在最后测一次, 不在每次迭代里测.** Step B 是纯计算 (可微物理预测模型过 FFT),
 硬件上不可微的只有「真实测量」本身, 所以梯度来自模型而不是测量; 实测只在末尾做一次,
 交给验收测试。因此 `step_b_iterations=600` 不产生 600 次设备往返。
 
@@ -289,7 +289,7 @@ re-arm 必须绕着**当前**系数重建优化器。
 ## 5. Step B 详细: 冻结像差下的全像素相位合成
 
 `shape_phase_with_frozen_aberration(optimizer, clamped, target, warm_start, step_b_cfg)`:
-像差 `clamped` 作为**固定**的物理项进入正向模型, 自由变量是**整个 region×region 的相位网格**。
+像差 `clamped` 作为**固定**的物理项进入物理预测模型, 自由变量是**整个 region×region 的相位网格**。
 梯度穿过相干传播 + FFT 解析求出 (torch autograd), 所以这 600 步是纯 GPU/CPU 计算。
 
 **为什么必须是全像素而不是低阶 Zernike.** Zernike 是圆对称光滑基, 物理上无法合成方形远场
@@ -359,7 +359,7 @@ stateDiagram-v2
 
 ## 8. 正向预测模型的结构 (前处理 / 深度模块 / 后处理)
 
-本仓有**三个**都叫「正向模型」的东西, 用途完全不同。先分清, 再讲结构 —— 混淆这三者
+本仓有**三个**都叫「物理预测模型」的东西, 用途完全不同。先分清, 再讲结构 —— 混淆这三者
 本项目已经付出过代价: 离线 checkpoint 的 piston 约定与闭环约定差一位 (§9)。
 
 | 模型 | 模块 | 形态 | 谁在用 |
@@ -890,7 +890,7 @@ python src/ao_shaping/main.py --debug slm-model-in-loop \
 > (`Error: No such option`, 2026-10-20 实测)。抄命令时以
 > `main.py slm-model-in-loop --help` 为准。
 
-### 15.9 正向模型描述不了这台实验系统时的退路
+### 15.9 物理预测模型描述不了这台实验系统时的退路
 
 改用 `slm-gs-refine`。它不做像差拟合, 只做 GS 开环预矫正(带 对比择优, 实测不优于平场就丢弃)
 + GS 逐像素相位 SPGD 细化, 所以它不需要"随机瞳面相位 ⇒ 远场散斑"这个前提。

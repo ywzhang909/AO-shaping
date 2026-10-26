@@ -313,5 +313,5 @@ python scripts/slm/replay_gs_refine_hw.py data/debug/slm_gs_refine/<时间戳> \
 - [README.md](../README.md) —— 本目录索引与 2026-10-09 Zernike 基失败记录
 - [online_20261010.md](../gs_refine/online_20261010.md) —— 在线复测；SPGD 梯度不可分辨
 - [gs_refine_live_20261012.md](../gs_refine/gs_refine_live_20261012.md) —— GS+SPGD 配方的交错重放验收
-- [model_in_loop_live_20261014.md](../model_in_loop/model_in_loop_live_20261014.md) —— 正向模型闭环实验复核
+- [model_in_loop_live_20261014.md](../model_in_loop/model_in_loop_live_20261014.md) —— 物理预测模型闭环实验复核
 - [model_in_loop_live_20261013.md](../model_in_loop/model_in_loop_live_20261013.md) —— 前沿方法与其验收门槛

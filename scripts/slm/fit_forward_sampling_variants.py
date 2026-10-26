@@ -816,7 +816,7 @@ def render_summary(context: dict) -> str:
     primary = datasets[0]["name"]
     convergence = context["convergence"]
     lines = []
-    lines.append("# 物理正向模型的采样变体网格评估")
+    lines.append("# 物理预测模型的采样变体网格评估")
     lines.append("")
     lines.append(f"- 生成时间（UTC）：{context['generated_utc']}")
     lines.append(f"- 迭代预算：{context['settings']['iterations']}；随机种子：{context['settings']['seed']}")
@@ -969,7 +969,7 @@ def render_figure(context: dict, path: Path) -> None:
             axis.set_title(f"分支 {branch}")
             axis.grid(alpha=.3)
     axes[0][0].legend(fontsize=8)
-    fig.suptitle("物理正向模型：采样变体网格的测试集指标（面板采样固定）")
+    fig.suptitle("物理预测模型：采样变体网格的测试集指标（面板采样固定）")
     fig.tight_layout()
     fig.savefig(path, dpi=160)
     plt.close(fig)

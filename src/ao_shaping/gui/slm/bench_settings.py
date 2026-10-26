@@ -845,7 +845,7 @@ def build_send_overlay(
 
     # 载波与离焦同为弧度域叠加，直接相加。它们都是「光路里真实存在的相位」，
     # 因此和离焦一样必须经过矫正/LUT（与底相位的灰度域语义不同）。
-    # ``include_carrier=False`` 用于**相位本身已经含载波**的发送：迁移模型闭环
+    # ``include_carrier=False`` 用于**相位本身已经含载波**的发送：迁移学习闭环
     # （``tools/slm/transfer``）把载波写进它的 ``ramp_matrix`` 并烘焙进接受相位
     # （见 ``transfer.validate.run`` 里的 ``to_panel`` 与 ``set_phase_overlay(None)``），
     # 再叠一次就是两份倾斜、0 级跑两倍远。
@@ -1384,7 +1384,7 @@ def measure_illuminated_radius(
     为什么取较小值：扫描量到的是「远边界」，半径 = 远边界 − **已测中心**，而中心
     来自 ``panel_locate``（本函数优先从会话里取，取不到才用 ``centre_hint``）。
     两轴独立扫描时各自的步进与饱和判据有差异，取较小的一轴给出**不会高估**
-    照明口径的值 —— 而这个量最终要喂给正向模型的 ``aperture_m`` 交叉校验，
+    照明口径的值 —— 而这个量最终要喂给物理预测模型的 ``aperture_m`` 交叉校验，
     高估会让校验形同虚设。
 
     这个量原先没有实测来源：``model_in_loop_hw_runbook --stage fit`` 用 sweep

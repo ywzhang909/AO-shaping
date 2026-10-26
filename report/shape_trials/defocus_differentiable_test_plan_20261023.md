@@ -8,12 +8,12 @@
 > **数据/关联脚本**: [`scripts/slm/validate_defocus_exposure.py`](../../scripts/slm/validate_defocus_exposure.py)
 > **数据/关联脚本**: [`scripts/slm/fit_forward_sampling_variants.py`](../../scripts/slm/fit_forward_sampling_variants.py)
 > **运行环境**: 离线
-> **说明**: 结合可微实验、离焦正向模型及曝光诊断制定探索性短块整形协议；本方案没有新增设备测量。
+> **说明**: 结合可微实验、离焦物理预测模型及曝光诊断制定探索性短块整形协议；本方案没有新增设备测量。
 <!-- provenance:end -->
 
 ## 1. 目的与本次范围
 
-目标是在相机保持当前离焦位置的条件下，验证现有最佳物理正向模型给出的相位更新
+目标是在相机保持当前离焦位置的条件下，验证现有最佳物理预测模型给出的相位更新
 能否降低真实 CCD 方形目标区域的 CV。此次仅分析历史报告、检查实现并制定方案，
 没有连接设备、加载相位或产生新实验数据。
 
@@ -32,7 +32,7 @@ U 分支：不预叠聚焦补偿，由包含离焦的模型直接合成同一 CC
 来源为 [可微实验主报告](../slm/differentiable_opt/differentiable_opt_report.md)、
 [过程动画报告](../slm/differentiable_opt/differentiable_opt_animation_20261022.md)、
 [焦点判定验证](../slm/differentiable_opt/focus_gate_verification_20261022.md)，以及
-[离焦物理模型实验](model_in_loop/physical_forward_defocus_live_20261022.md)、
+[离焦物理预测模型实验](model_in_loop/physical_forward_defocus_live_20261022.md)、
 [采样与曝光响应诊断](model_in_loop/physical_forward_sampling_20261022_r2.md)。
 
 | 证据 | 可使用的结论 | 本方案的处理 |
@@ -59,14 +59,14 @@ U 分支：不预叠聚焦补偿，由包含离焦的模型直接合成同一 CC
 5. 过程动画复算的最大相对偏差 `1.06e-07` 与相位差 `6.29e-05 rad`
    支持数值近似复现，不属于逐位相同。缺失的第二步 CCD 帧不能补造。
 
-## 3. 正向模型、总相位与坐标
+## 3. 物理预测模型、总相位与坐标
 
 起始候选采用 `uniformity_refit_20261022_r1/` 中训练目标选出的冻结检查点。
 如果 `fit_forward_sampling_variants.py` 的已有结果提供更好的候选，必须按预先
 记录的训练/开发验证选择规则选取，保存确切 JSON、参数和 SHA256；不能只因某个
 历史测试分支 CV 较低而替换。历史测试集已经参与诊断，本次另采新局部相位验证。
 
-沿用现有离焦物理模型的坐标、输入振幅、共享像差、增益、加性背景（杂散光）项
+沿用现有离焦物理预测模型的坐标、输入振幅、共享像差、增益、加性背景（杂散光）项
 及有效强度展宽；有效展宽只是经验偏差项，不称为独立测得的器件 PSF。
 输入振幅、几何及模型参数在每个优化块内冻结，避免同时变化造成不可解释结果。
 
@@ -186,7 +186,7 @@ UTC 微秒格式时间戳及 `perf_counter_ns` 起止；帧时间、显示时间
 它默认随机初值、简单 FFT、全图峰值 MSE；闭环只存最后三步 CCD，且报告生成会
 写入既有固定报告名。它可以作为设备生命周期和绘图参考，不能原样重跑后宣称完成本方案。
 
-- [ ] 将冻结物理模型、GS/文件初值和固定掩膜 CV 接入同一可微类；保留现有公开 API 的兼容性。
+- [ ] 将冻结物理预测模型、GS/文件初值和固定掩膜 CV 接入同一可微类；保留现有公开 API 的兼容性。
 - [ ] 坐标变换同时作用于模型、CCD 和反传路径；先做已知非对称图案及方向导数的离线验证。
 - [ ] 仿真验证 CV 目标、零信号判定、相位增量限制和接受/拒绝恢复，然后才使用实验设备。
 - [ ] 增加 U/C 显式分支、正负方向检验、A-B-B-A 重放、逐步原始帧与时间记录。
@@ -197,7 +197,7 @@ UTC 微秒格式时间戳及 `perf_counter_ns` 起止；帧时间、显示时间
 | 入口 | 用途 |
 | --- | --- |
 | `scripts/slm/capture_defocus_forward_dataset.py` | 已有 U/C 相位探针采集与记录格式 |
-| `scripts/slm/refit_defocus_uniformity_model.py` | 当前联合强度/CV 的正向模型检查点 |
+| `scripts/slm/refit_defocus_uniformity_model.py` | 当前联合强度/CV 的物理预测模型检查点 |
 | `scripts/slm/diagnose_defocus_sampling.py` | 物理坐标、采样及 CCD 积分参考 |
 | `scripts/slm/validate_defocus_exposure.py` | 曝光档位及重复档验证 |
 | `scripts/slm/fit_forward_sampling_variants.py` | 已有采样和物理变体结果的离线比较，不能按最终实验帧选模型 |

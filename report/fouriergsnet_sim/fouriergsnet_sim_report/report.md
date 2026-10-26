@@ -263,7 +263,7 @@
 | 模块 | 文件 | 职责 |
 |---|---|---|
 | 数字孪生环境 | `src/ao_shaping/drivers/sim/fouriergsnet_env.py` | 2f Fourier 光路的物理仿真: SLM 前焦面 → 透镜 (f=0.125 m) → CCD 后焦面; 含 CCD 泊松/读出噪声与标定噪声注入 |
-| 物理前向 | `fouriergsnet_optimize.py:prop` | 归一化傅里叶对 `fftshift(fft2(ifftshift(U),norm="ortho"))`, 0 级在画面中心 |
+| 物理预测 | `fouriergsnet_optimize.py:prop` | 归一化傅里叶对 `fftshift(fft2(ifftshift(U),norm="ortho"))`, 0 级在画面中心 |
 | 几何标定 | `SLMCCDCalibrator` (A) | 0 级质心 / K-尺度 / 旋转 / 光束位置 / workzone 取窗 |
 | LUT 标定 | `SLMLUTCalibrator` (B) | 灰度↔相位曲线 (本仿真用理想 2π, 256 点线性) |
 | 神经网络 | `FourierGSNetLite` (C) | GS 物理展开 + CNN 残差回归 (见 5.4) |

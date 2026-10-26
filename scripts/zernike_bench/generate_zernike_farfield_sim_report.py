@@ -1,7 +1,7 @@
 """Generate the Zernike far-field spot morphology simulation report.
 
 基于项目仿真环境 (2f-Fourier 模型, 与 ``drivers/sim/slm_pib_sim.py`` 的
-``SimPibSystem.far_field()`` 同一物理模型, 纯 numpy 实现 — 省去设备生命周期与
+``SimPibSystem.far_field()`` 同一物理预测模型, 纯 numpy 实现 — 省去设备生命周期与
 灰度量化, 适合批量模式×幅度扫描), 对每个 Zernike 模式 × 系数幅度 (waves) 仿真
 远场光斑形貌, 生成图文报告:
 

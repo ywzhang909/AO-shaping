@@ -1,6 +1,6 @@
-"""离焦光路下的可微均匀度优化（冻结物理前向 + 固定掩膜 CV）。
+"""离焦光路下的可微均匀度优化（冻结物理预测 + 固定掩膜 CV）。
 
-把**已拟合的冻结物理前向模型**装成可微 torch 模块，并在其上提供均匀度目标与一个
+把**已拟合的冻结物理预测模型**装成可微 torch 模块，并在其上提供均匀度目标与一个
 类式优化器。约束来自 `report/shape_trials/defocus_differentiable_test_plan_20261023.md`
 §3–§5：前向数学与检查点拟合口径逐项一致（实测复现存档预测相对 L1 9.976e-08）、
 面板相位始终 raw 未包裹弧度、损失用固定掩膜内的 CV（不用全图峰值归一化 MSE）、
@@ -151,7 +151,7 @@ def load_frozen_parameters(checkpoint_dir: str | Path, *, fft_size: int = 1024,
 
 
 class FrozenDefocusForward:
-    """冻结物理前向：128 控制网格相位 → 相机采样网格上的强度。
+    """冻结物理预测：128 控制网格相位 → 相机采样网格上的强度。
 
     数学与 ``PhysicalForwardFit.prediction()`` + refit 后处理（高斯展宽 / 增益 /
     加性背景）逐项一致；两者共用的面板几何、高斯幅度、相机采样网格与 FFT
@@ -443,7 +443,7 @@ class CoordinateTransform:
 
 
 class DifferentiableUniformityOptimizer(IterativeOptimizer):
-    """在**冻结**物理前向上做可微均匀度优化（类式 API：``update()`` 一步）。
+    """在**冻结**物理预测上做可微均匀度优化（类式 API：``update()`` 一步）。
 
     一步顺序（方案 §5）：合成总相位 → 前向 → 损失（模型或实测锚定）→ 反传 → Adam →
     把增量投影到照明加权 RMS ≤ cap → 去 piston → 去整体倾斜 → 记录。

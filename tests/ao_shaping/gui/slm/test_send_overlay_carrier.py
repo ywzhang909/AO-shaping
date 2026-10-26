@@ -235,7 +235,7 @@ class TestShapingDoesNotDoubleApply:
 
 
 class TestTransferSkipsTheSendOverlay:
-    """迁移模型的相位自带 ``ramp_matrix`` 载波，所以它**不接**侧栏发送叠加层。
+    """迁移学习的相位自带 ``ramp_matrix`` 载波，所以它**不接**侧栏发送叠加层。
 
     接了这一层就是把同一个倾斜加两遍（0 级会跑两倍远），而且 ``transfer.validate.run``
     在测量期间还会主动清掉驱动叠加层 —— 运行期与下发期的口径必须一致。

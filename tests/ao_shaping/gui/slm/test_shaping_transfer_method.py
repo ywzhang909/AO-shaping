@@ -1,4 +1,4 @@
-"""Offline contract tests for :class:`TransferMethod` (迁移模型闭环整形).
+"""Offline contract tests for :class:`TransferMethod` (迁移学习闭环整形).
 
 The adapter is deliberately thin — ``TransferSession`` is the canonical parameter
 object and ``run_session`` the canonical orchestrator, exactly as the CLI uses
