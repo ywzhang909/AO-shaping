@@ -3560,6 +3560,18 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 回归面是先枚举再执行、并逐位比对改前基线：grep 确认消费者为 `algorithm/signal_processing/square_shaping.py`、`drivers/ccd/base.py`、`utils/image/target/metrics.py`，对应跑 `tests/ao_shaping/algorithm`（777 passed / 16 skipped，改前 260.15 s、改后 274.85 s）、`tests/ao_shaping/utils` 加 `test_conventions.py`（1539 passed / 5 skipped）、`tests/ao_shaping/drivers/ccd/test_capture_fused.py`（29 passed）——三条与改前完全一致。
 - 覆盖账（实测）：目标文件 12 → 3；`src` 全域 673 → 664（差值 9 与提升点数一致）。预检还确认了 116 期取的 HEAD 快照与当前文件逐字节相同，故 spec 里的行号仍然有效——跨批次复用快照时必须重新 `cmp`，不能假定未变。
 
+120. ✅ **#173 续批且先收敛定义点：`ao_shaping.utils.image` 的秩约定汇聚到新 `ranks.py`，`beam_metrics` 11 → 0、`target/metrics` 16 → 8**（2026-10-27）
+- 本批是 119 的直接延续而非普通换文件扫红：`beam_metrics.py`（11 处）与 `target/metrics.py` 的秩判定与 119 刚定义的 `NDIM_SINGLE_CHANNEL` 是**同一惯用法**，而三者同在 `src/ao_shaping/utils/image/` 包内。若在各消费方就地新建同名常量，等于在同一包内造出第二、第三定义点——正是 116 立令禁止的那类漂移。故先建汇聚点 `ranks.py`，把 119 落在 `exposure_fusion.py` 里的两个秩常量一并搬进去（`NDIM_SINGLE_CHANNEL = 2`、`NDIM_SPATIAL_STACK = 3`），三个消费方改为 import。
+- 汇聚的边界要说清：`ml.sim2f.config` 那组 `NDIM_*`（116）**不并入**本包汇聚点。`ao_shaping` 不得依赖可选包 `ml`（依赖方向只能是 `ml → ao_shaping.utils`），单一定义点纪律是**包内**纪律，跨包强行汇聚会破坏可选依赖分组与 import 纯度。
+- 提升时按语义拆，不按字面值合：`beam_metrics` 的 11 处全是 `x.ndim != 2`（含 300、1129 两行各有两处），提为 `NDIM_SINGLE_CHANNEL`；`target/metrics` 提 8 处后**刻意保留 2 处同值 `2`**——`len(image_shape) != 2` 问的是"形状元组有两个分量"（配对计数），`min(arr.shape) < 2` 问的是"最小边长下限"，与"有几个轴"无关；`ranks.py` 的注释里明确写了不得借用该常量回答这两类问题。
+- 又踩到并已固化进工具的缺陷（与 112/113/116 同一族：按行号定位而忽略改写点）：我在跑提升**之前**先插了 hub import，HEAD 相对的 spec 行号整体下移一行，于是 ruff 探针在改动后的文件上找不到计划站点（`row 300 value 2: not flagged by ruff`）。无半成品状态由两条独立证据证明：撤销后 `cmp` 显示两文件与 HEAD 快照逐字节相同，随后的提升因此行号有效。固化：`plr_lift_generic.py` 增加入场断言——**文件必须与其 HEAD 快照逐字节相同**，把"先改后提升"的顺序错误变成当场失败。
+- 控制电池（跨模块消费形态，定义在 hub、使用在多处）：A 改 hub 定义值、C 改 hub 字面量类型（断言类型确实变了且数值不变，替换掉我先写的一条永真断言 `... != base or True`）、D 删 hub 定义、F **在消费方新增第二定义点**（证明报"重复定义"，即本次收敛要防的那类回归）、B 改使用处，外加"声称提过刻意保留行"的分组反向控制，全部咬。同时**如实标注一处证明局限**：搬家证明两侧都用从 hub 取回的同一值做归一化，因此对 hub 的绝对数值**按设计失明**（打印为 `BLIND BY DESIGN`），数值监督改由下面的守卫测试承担——不是没抓到，而是要说清它抓不到什么。
+- 新增守卫 `tests/ao_shaping/utils/image/test_rank_constants_single_source.py`（4 条，纯 AST、不 import numpy/设备，任何环境可跑）：包内 `NDIM_*` 只允许由 `ranks.py` 定义、两个值必须等于 2/3、消费方不得本地定义且必须从 `ao_shaping.utils.image.ranks` import。四个种植各自精确咬：消费方再声明 ⇒ 2 红；hub 值漂移 ⇒ 1 红；hub 定义被删 ⇒ 2 红；去掉 import 别名保留使用 ⇒ 1 红；每次还原均以备份 + `cmp` 证明逐字节一致（三个源文件都带本批未提交改动，禁用 `git checkout`）。
+- 顺带修文档说谎：`ranks.py` 里 `NDIM_SPATIAL_STACK` 的注释仍写 "in this module"（搬来之前的措辞），改为点名 `exposure_fusion` 的滤波函数——注释里的"这里"在搬家后指代不明。
+- 基线是怎么丢的、又怎么补的：optimizer 域第一次量基线用 `tail -1` 只截到进度点、第二次 grep 无命中，真因是 `timeout 1500` 把整域单进程跑法杀在半路（没有摘要行即没有基线）。该域在 CI 里是 `run_shard "optimizer" 1 1`（**per-file**），于是按同形态重跑并加日志聚合器，得到可比指纹 `{72 files, 1208 passed, 3 skipped, 0 failed}`；改后重跑指纹与之完全相同。教训：基线必须是**同一执行形态**下的可比数字，且要落盘，否则等于没量。
+- 回归（改前基线均在本树未改动状态先量）：`tests/ao_shaping/utils` + `test_conventions.py` 由 1539 passed / 5 skipped 增至 1543 / 5，增量正是本批新增守卫的 4 条；`tests/ao_shaping/algorithm` 777 passed / 16 skipped 不变；`tests/ao_shaping/drivers/ccd/test_capture_fused.py` 29 passed 不变；optimizer 聚合指纹不变。分片覆盖守卫 11 passed，证明新测试文件落在 `utils` 分片目标内。`ruff check .` 全仓归零。
+- 覆盖账（实测）：`beam_metrics` 11 → 0、`target/metrics` 16 → 8、`exposure_fusion` 维持 119 的 3 处；`src` 全域 664 → 645（差值 19 与两处提升点数 11 + 8 一致）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

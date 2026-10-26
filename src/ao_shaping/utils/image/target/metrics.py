@@ -12,6 +12,7 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.utils.image.exposure_fusion import _gaussian_kernel_1d
+from ao_shaping.utils.image.ranks import NDIM_SINGLE_CHANNEL
 from ao_shaping.utils.image.target.patterns import TargetShape, create_target_shape
 
 __all__ = [
@@ -198,7 +199,7 @@ def spot_waist_sigma(
     a target box of ``2 * w0`` is the waist diameter.
     """
     frame = np.asarray(img, dtype=np.float64)
-    if frame.ndim != 2:
+    if frame.ndim != NDIM_SINGLE_CHANNEL:
         raise ValueError(f"img must be 2D, got {frame.ndim}D")
     peak = float(frame.max())
     if not np.isfinite(peak) or peak <= 0.0:
@@ -255,7 +256,7 @@ def roi_pib_metric(
       "put as much light as possible into the target" objective.
     """
     frame = np.asarray(img, dtype=np.float64)
-    if frame.ndim != 2:
+    if frame.ndim != NDIM_SINGLE_CHANNEL:
         raise ValueError(f"img must be 2D, got {frame.ndim}D")
     height, width = frame.shape
     roi = target_shape_roi(
@@ -293,7 +294,7 @@ def rms_pib_terms(
     (see :func:`_update_dynamic_weights`).
     """
     frame = np.asarray(img, dtype=np.float64)
-    if frame.ndim != 2:
+    if frame.ndim != NDIM_SINGLE_CHANNEL:
         raise ValueError(f"img must be 2D, got {frame.ndim}D")
     height, width = frame.shape
     size = float(target_size) if target_size is not None else float(min(height, width))
@@ -344,7 +345,7 @@ def rmse_shape_metric(
     returns a strong penalty ``(1e3, 0.0)`` so the search never adopts it.
     """
     frame = np.asarray(img, dtype=np.float64)
-    if frame.ndim != 2:
+    if frame.ndim != NDIM_SINGLE_CHANNEL:
         raise ValueError(f"img must be 2D, got {frame.ndim}D")
     height, width = frame.shape
     roi = target_shape_roi(
@@ -432,7 +433,7 @@ def pearson_shape_metric(
     adopts it.
     """
     frame = np.asarray(img, dtype=np.float64)
-    if frame.ndim != 2:
+    if frame.ndim != NDIM_SINGLE_CHANNEL:
         raise ValueError(f"img must be 2D, got {frame.ndim}D")
     height, width = frame.shape
     roi = target_shape_roi(
@@ -503,7 +504,7 @@ def shape_tile_coverage(img: np.ndarray, roi: np.ndarray, bins: int = 5) -> floa
     """
     frame = np.asarray(img, dtype=np.float64)
     mask = np.asarray(roi, dtype=bool)
-    if frame.ndim != 2 or mask.shape != frame.shape:
+    if frame.ndim != NDIM_SINGLE_CHANNEL or mask.shape != frame.shape:
         raise ValueError("img and roi must be 2D arrays of the same shape")
     if bins < 1:
         raise ValueError(f"bins must be positive, got {bins}")
@@ -574,7 +575,7 @@ def shape_metric(
             Zero preserves the existing score.
     """
     frame = np.asarray(img, dtype=np.float64)
-    if frame.ndim != 2:
+    if frame.ndim != NDIM_SINGLE_CHANNEL:
         raise ValueError(f"img must be 2D, got {frame.ndim}D")
     height, width = frame.shape
     if reference_center is None:
@@ -724,7 +725,7 @@ def _sanitize_frame(frame: np.ndarray, name: str) -> np.ndarray:
     failure mode. Shape/eps/sigma mistakes still raise - those are caller bugs.
     """
     arr = np.asarray(frame, dtype=np.float64)
-    if arr.ndim != 2:
+    if arr.ndim != NDIM_SINGLE_CHANNEL:
         raise ValueError(f"{name} must be 2D, got {arr.ndim}D")
     return np.where(np.isfinite(arr), arr, 0.0)
 

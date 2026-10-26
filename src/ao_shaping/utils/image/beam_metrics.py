@@ -23,6 +23,7 @@ import numpy as np
 import numpy.typing as npt
 from loguru import logger
 
+from ao_shaping.utils.image.ranks import NDIM_SINGLE_CHANNEL
 from ao_shaping.utils.image.spots_calc import centroid, radius
 
 #: Zero-variance guard for Pearson correlation in :func:`compute_beam_metrics`.
@@ -297,7 +298,7 @@ def compute_shaping_metrics(
     """
     intensity = np.asarray(intensity, dtype=np.float64)
     mask = np.asarray(mask, dtype=bool)
-    if intensity.ndim != 2 or mask.ndim != 2:
+    if intensity.ndim != NDIM_SINGLE_CHANNEL or mask.ndim != NDIM_SINGLE_CHANNEL:
         raise ValueError("intensity and mask must both be 2D arrays")
 
     # 将掩码区域裁剪到强度边界内 (居中重叠)。
@@ -344,7 +345,7 @@ def compute_shape_iou(
     """
     image = np.asarray(intensity, dtype=np.float64)
     target = np.asarray(mask, dtype=bool)
-    if image.ndim != 2 or image.shape != target.shape:
+    if image.ndim != NDIM_SINGLE_CHANNEL or image.shape != target.shape:
         raise ValueError("intensity and target mask must have the same 2D shape")
     if not 0 < peak_fraction < 1:
         raise ValueError("peak_fraction must lie in (0, 1)")
@@ -377,7 +378,7 @@ def zero_order_exclusion_mask(
 
     flat = np.asarray(flat_frame, dtype=np.float64)
     support = np.asarray(target, dtype=bool)
-    if flat.ndim != 2 or flat.shape != support.shape or not support.any():
+    if flat.ndim != NDIM_SINGLE_CHANNEL or flat.shape != support.shape or not support.any():
         raise ValueError("flat_frame and nonempty target must have the same 2D shape")
     if not 0 < threshold_fraction < 1 or margin_px < 0:
         raise ValueError("invalid zero-order threshold or margin")
@@ -584,7 +585,7 @@ def threshold_spot_center(img: np.ndarray) -> tuple[int, int]:
     Returns ``(x, y)`` in pixels (project convention).
     """
     frame = np.asarray(img)
-    if frame.ndim != 2 or frame.size == 0:
+    if frame.ndim != NDIM_SINGLE_CHANNEL or frame.size == 0:
         raise ValueError(f"img must be a non-empty 2D array, got shape {frame.shape}")
     height, width = frame.shape
     if float(frame.max()) <= 0.0:
@@ -708,7 +709,7 @@ def zero_order_center(
         ``(x, y)`` 像素坐标 (项目约定)。全暗帧返回帧中心。
     """
     frame = np.asarray(frame)
-    if frame.ndim != 2 or frame.size == 0:
+    if frame.ndim != NDIM_SINGLE_CHANNEL or frame.size == 0:
         raise ValueError(f"frame must be a non-empty 2D array, got shape {frame.shape}")
     height, width = frame.shape
     if float(frame.max()) <= 0.0:
@@ -763,7 +764,7 @@ def smart_zero_order_center(
         ``(x, y)`` 像素坐标。全暗帧返回帧中心。
     """
     frame = np.asarray(img)
-    if frame.ndim != 2 or frame.size == 0:
+    if frame.ndim != NDIM_SINGLE_CHANNEL or frame.size == 0:
         raise ValueError(f"img must be a non-empty 2D array, got shape {frame.shape}")
     height, width = frame.shape
     if float(frame.max()) <= 0.0:
@@ -863,7 +864,7 @@ def locate_peak(frame: np.ndarray, finite: bool = True) -> tuple[int, int]:
 def _clean_frame(frame: np.ndarray, name: str) -> np.ndarray:
     """Return a finite, 2D float64 copy of *frame* (NaN/Inf -> 0)."""
     arr = np.asarray(frame, dtype=np.float64)
-    if arr.ndim != 2:
+    if arr.ndim != NDIM_SINGLE_CHANNEL:
         raise ValueError(f"{name} must be 2D, got shape {arr.shape}")
     return np.where(np.isfinite(arr), arr, 0.0)
 
@@ -965,7 +966,7 @@ def ideal_peak_from_pupil(
         ValueError: if *amplitude* is not 2D or *far_field_padding* < 1.
     """
     amp = np.asarray(amplitude, dtype=np.complex128)
-    if amp.ndim != 2:
+    if amp.ndim != NDIM_SINGLE_CHANNEL:
         raise ValueError(f"amplitude must be 2D, got shape {amp.shape}")
     pad = float(far_field_padding)
     if not math.isfinite(pad) or pad < 1.0:
@@ -1126,7 +1127,7 @@ def m2_reference_relative(
     """
     amp = np.asarray(field, dtype=np.complex128)
     ref = np.asarray(ideal_field, dtype=np.complex128)
-    if amp.ndim != 2 or ref.ndim != 2:
+    if amp.ndim != NDIM_SINGLE_CHANNEL or ref.ndim != NDIM_SINGLE_CHANNEL:
         raise ValueError(
             f"field and ideal_field must be 2D, got {amp.shape} and {ref.shape}"
         )

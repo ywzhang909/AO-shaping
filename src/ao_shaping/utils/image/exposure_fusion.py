@@ -39,6 +39,11 @@ import numpy as np
 
 from loguru import logger
 
+from ao_shaping.utils.image.ranks import (
+    NDIM_SINGLE_CHANNEL,
+    NDIM_SPATIAL_STACK,
+)
+
 __all__ = [
     "DETECTOR_FULL_SCALE",
     "compute_fusion_weights",
@@ -78,16 +83,6 @@ LAPLACIAN_KERNEL_2D: np.ndarray = np.array(
 #: is small enough that the low-pass stays close to the Burt-Adelson identity
 #: used to validate the band construction.
 PYRAMID_SIGMA: float = 1.0
-
-#: numpy rank of a spatial stack in this module, i.e. ``(C, H, W)``. Every filter here takes
-#: either that rank or a bare map, and the rank test is how the two are told apart -- it
-#: counts axes, not channels.
-NDIM_SPATIAL_STACK = 3
-
-#: numpy rank of a single-channel map, i.e. ``(H, W)``. Luminance measures, fusion weights
-#: and per-level corrections are computed on this rank. Kept separate from
-#: NDIM_SPATIAL_STACK rather than merged into one rank constant.
-NDIM_SINGLE_CHANNEL = 2
 
 
 #: Width of the hard weight-map blur used by the ``"gaussian_smoothed"`` blend,
