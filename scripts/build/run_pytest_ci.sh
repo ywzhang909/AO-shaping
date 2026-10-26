@@ -160,13 +160,19 @@ fi
 # 65 GB hwdataset corpus, and its multiproc + mmap has hung full-tree runs
 # before. Re-state them as absolute paths so they still exclude.
 #
-# Only two areas are excluded here and in pyproject's addopts, and the two lists
+# Only one area is excluded here and in pyproject's addopts, and the two lists
 # must stay in sync -- pinned by
 # tests/ao_shaping/test_conventions.py::test_pytest_excludes_match_across_configs
 # (they drifted apart once already: pyproject was narrowed while this list still
 # carried the whole drivers tree, which silently kept the narrowed discovery off).
-#   (1) the only real Streamlit AppTest (needs web automation or it hangs),
-#   (2) ml (65 GB hwdataset heavy I/O + torch).
+#   (1) ml (65 GB hwdataset heavy I/O + torch).
+# The real Streamlit AppTest (tests/ao_shaping/gui/slm/test_zernike_abort_repro.py)
+# is NOT excluded any more: it was excluded as "the only real AppTest, needs web
+# automation or it hangs", but that is no longer true -- it is a browserless
+# AppTest over the real GUI functions and it passes in ~2 s (3 passed, measured
+# 2026-10-26). It had been reproducing a Zernike-selectbox abort that the current
+# code no longer hits. It is the only test that renders the real GUI runtime
+# end-to-end, so excluding it cost real coverage.
 # drivers/ is fully INCLUDED now, per container measurement: ccd 204 passed /
 # 25 skipped, sim 394 / 2 in 63.33 s, wfs 110 / 11, slm 158 / 127 in 7.95 s,
 # adc 49 in 2.84 s, hardware 37 skipped in 0.06 s, dm 139 / 5 in 40.22 s.
@@ -177,7 +183,6 @@ fi
 # Excluding drivers/ wholesale is what let drivers/ccd rot to 6 failed + 1 error
 # without CI seeing it (rot fixed in 29001826).
 EXCLUDES=(
-    "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/gui/slm/test_zernike_abort_repro.py"
     "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/ml"
 )
 

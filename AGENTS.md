@@ -797,16 +797,16 @@ docker build -f docker/Dockerfile.test.cpu -t ao-shaping-test:cpu .
 ./scripts/build/run_pytest_ci.sh
 ```
 
-### 常规测试默认排除（pytest addopts，2026-10-16；2026-10-24 按实测撤销 drivers 排除）
+### 常规测试默认排除（pytest addopts，2026-10-16；2026-10-24 按实测撤销 drivers 排除；2026-10-26 按实测撤销 AppTest 排除）
 
-`pyproject.toml` 的 `addopts` 默认 `--ignore` 两类**会阻塞**（挂死、无输出）的测试，
+`pyproject.toml` 的 `addopts` 默认 `--ignore` 一类**会阻塞**（挂死、无输出）的测试，
 容器里的 `pytest` / `pytest tests` 不再踩到它们（从仓库根目录运行）：
 
 | 排除 | 原因 |
 |---|---|
-| `tests/ao_shaping/gui/slm/test_zernike_abort_repro.py` | 唯一跑**真 `AppTest`** streamlit 运行时的测试，需网页自动化配合，否则挂死；其余 GUI 测试只把 `streamlit` 当命名空间 mock，安全 |
 | `tests/ao_shaping/ml` | 65 GB hwdataset 重 I/O + torch：多进程/mmap 曾把整树 `pytest tests` 挂死 |
 | ~~`tests/ao_shaping/drivers`~~ **已撤销** | **原排除整棵 drivers 树过度保守一个量级，且造成了真实的可见性事故**：`drivers/ccd` 曾烂到 **6 failed + 1 error** 而 CI 毫无察觉（`29001826` 修）。逐域实测后全部恢复进发现集：`ccd` 204/25、`sim` 394/2（63.33 s）、`wfs` 110/11、`slm` 158/127（7.95 s）、`adc` 49（2.84 s）、`hardware` 37 skipped（0.06 s）、`dm` 139/5（**40.22 s**）、根文件 13/9；整棵 `drivers` 单 session **1067 passed / 216 skipped / 124.43 s** |
+| ~~`tests/ao_shaping/gui/slm/test_zernike_abort_repro.py`~~ **已撤销** | 原排除理由是「唯一跑**真 `AppTest`** 的测试，需网页自动化配合，否则挂死」—— **该理由不成立**：它是**无浏览器**的 AppTest，跑真实 GUI 函数（`ZernikeControl.render` / `render_pattern_controls`），2026-10-26 实测 **2.06 s / 3 passed**。它当初是「复现」Zernike 切换时的 abort，而现在的代码已不会触发。作为**唯一**端到端渲染真实 GUI 运行时的测试，排除它等于白丢覆盖率 |
 
 🔴 **`drivers/` 的 `--hardware` 门必须在 `drivers/conftest.py`**：跳过钩子原先只存在于
 `drivers/slm/conftest.py` 与 `drivers/hardware/conftest.py`，而 `pytest_collection_modifyitems`
