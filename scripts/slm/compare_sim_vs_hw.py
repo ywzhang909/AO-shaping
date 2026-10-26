@@ -125,6 +125,20 @@ PEAK_COUNTS_PER_MS = 133.5
 READ_SIGMA_COUNTS = 0.5
 SHOT_K = 0.0
 QUANTIZE_BITS = 8
+#: Tolerance for treating two recorded optical parameters (a defocus step, a
+#: diopter) as the same grid value when picking the matching row or point. It is a
+#: matching question, not a degeneracy question, so it stays separate from the floors
+#: below even though one of them is the same magnitude.
+VALUE_MATCH_TOLERANCE = 1e-9
+
+#: A defocus coordinate counts as zero -- the nominal plane -- within this tolerance.
+#: Used both to find the base row and to count rows sitting on that plane.
+ZERO_DEFOCUS_TOLERANCE = 1e-12
+
+#: Magnitude below which a measured or derived quantity is treated as zero, so a ratio
+#: built on it is undefined and the point is skipped instead of divided by. Distinct from
+#: ZERO_DEFOCUS_TOLERANCE: that one identifies a plane, this one protects a division.
+NONZERO_FLOOR = 1e-12
 
 #: 采集参数 —— 与第三轮一致。
 EXPOSURE_MS = 0.2
@@ -183,7 +197,7 @@ class ProbeGroup:
     def row_at_dz(self, dz_mm: float) -> dict[str, Any] | None:
         """按 Δz (mm) 找一行; 找不到返回 ``None``。"""
         for row in self.rows:
-            if abs(float(row.get("dz_mm", float("nan"))) - float(dz_mm)) < 1e-9:
+            if abs(float(row.get("dz_mm", float("nan"))) - float(dz_mm)) < VALUE_MATCH_TOLERANCE:
                 return row
         return None
 
@@ -368,7 +382,7 @@ def relative_diff(hw: float | None, sim: float | None) -> float | None:
         return None
     if not math.isfinite(hw) or not math.isfinite(sim):
         return None
-    if abs(hw) < 1e-12:
+    if abs(hw) < NONZERO_FLOOR:
         return None
     return (sim - hw) / abs(hw)
 
@@ -640,7 +654,7 @@ def _focus_value(focus: dict[str, Any], key: str) -> float | None:
         for point in points:
             if _get(point, "diopter_m1") is None:
                 continue
-            if abs(float(point["diopter_m1"]) - best_diopter) < 1e-9:
+            if abs(float(point["diopter_m1"]) - best_diopter) < VALUE_MATCH_TOLERANCE:
                 best_point = point
                 break
     if not best_point and points:
@@ -962,8 +976,8 @@ def _normalised_curve(
         for r in rows
     ]
     values = [(dz, v) for dz, v in values if v is not None]
-    base = next((v for dz, v in values if abs(dz) < 1e-12), None)
-    if base is None or abs(base) < 1e-12:
+    base = next((v for dz, v in values if abs(dz) < ZERO_DEFOCUS_TOLERANCE), None)
+    if base is None or abs(base) < NONZERO_FLOOR:
         return []
     return sorted(((dz, v / base) for dz, v in values), key=lambda item: item[0])
 
@@ -997,7 +1011,7 @@ def _curve_shape_note(
         if abs(dz) >= 5.0:
             hw_far.append(value)
             sim_far.append(sim_value)
-        rel = (sim_value - value) / value if abs(value) > 1e-12 else None
+        rel = (sim_value - value) / value if abs(value) > NONZERO_FLOOR else None
         if rel is not None and abs(rel) > abs(worst):
             worst = rel
             worst_dz = dz
@@ -2663,7 +2677,7 @@ def _run_sim_side(
     dz_points = sorted({float(r.get("dz_mm", 0.0)) for r in hw_bundle.dz_scan.rows})
     # 噪声组: 实测是「同相位重复 9 次 + 1 个基线行」, 仿真照抄这个结构。
     noise_points = [0.0] * max(
-        1, len([r for r in hw_bundle.dz_noise.rows if abs(float(r.get("dz_mm", 0.0))) < 1e-12]) - 1
+        1, len([r for r in hw_bundle.dz_noise.rows if abs(float(r.get("dz_mm", 0.0))) < ZERO_DEFOCUS_TOLERANCE]) - 1
     )
     gs_phase = _resolve_gs_phase(args.gs_phase)
 
