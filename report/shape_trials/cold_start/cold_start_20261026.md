@@ -63,6 +63,10 @@ flowchart TD
 
 ![local_continuation metrics](figures/cold_start_local_continuation_iteration_metrics.png)
 
+### 迭代过程动画
+
+![迭代过程动画](figures/cold_start_local_continuation_process.gif)
+
 
 
 ## plane
@@ -82,6 +86,10 @@ flowchart TD
 **迭代过程 metrics**：
 
 ![plane metrics](figures/cold_start_plane_iteration_metrics.png)
+
+### 迭代过程动画
+
+![迭代过程动画](figures/cold_start_plane_process.gif)
 
 
 
@@ -103,6 +111,10 @@ flowchart TD
 
 ![plane_formation metrics](figures/cold_start_plane_formation_iteration_metrics.png)
 
+### 迭代过程动画
+
+![迭代过程动画](figures/cold_start_plane_formation_process.gif)
+
 
 
 ## random_formation
@@ -122,6 +134,10 @@ flowchart TD
 **迭代过程 metrics**：
 
 ![random_formation metrics](figures/cold_start_random_formation_iteration_metrics.png)
+
+### 迭代过程动画
+
+![迭代过程动画](figures/cold_start_random_formation_process.gif)
 
 
 
