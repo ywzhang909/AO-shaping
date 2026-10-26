@@ -3526,6 +3526,16 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 回归面是先枚举再执行的，不是猜的：grep 全仓确认 import 该模块的测试只有 `tests/ao_shaping/ml/sim2f` 子树与 `tests/ao_shaping/scripts/test_measure_sim2f_kl_basis.py` 一个文件。并且**首次进入该回归面时先量改前基线**：用保存的改后副本与 HEAD 原文来回切，同一命令两侧均为 301 passed / 6 skipped（改前 124.19 s、改后 132.61 s），还原后经 `cmp` 证实与改后副本逐字节相同。只报"0 failed"不足以证明零回归，必须有改前基线可比。
 - 覆盖账（实测）：目标文件 16 → 3；`src` 全域 697 → 684。生产代码因此批属 `src/`，回归用 ml 分片形态（6g、`AO_TEST_DATA_REFRESH=0`）而非 scripts 分片。
 
+116. ✅ **#173 续批且先收敛定义点：秩常量汇聚到 `ml.sim2f.config`，`losses.py` 12 → 1，并加一条单一定义点守卫**（2026-10-27）
+- 为什么先收敛再提升：115 把秩常量放在了 `optics.py`，而 `losses.py` 的 12 处命中问的是**同一族**语义（`ndim==2` 未加批图、`ndim==3` 批+两空间、`ndim==4` 批+通道+两空间）。若在 `losses` 再写一份 `NDIM_* = …`，就是本仓库反复被咬的"第二处定义会漂移"。按明文纪律——import 是正常消费，**定义**才是重复——把 4 个秩常量移到既有的汇聚点 `config.py`（stdlib-only 叶子，`optics` 本来就 import 它，故不新增任何依赖边，也无环），两个模块都改为消费。反向的过度共享同样要避免：`NPAIR_COMPONENTS` 只 optics 关心（数平面向量的标量分量），刻意留在原处不上移。
+- 提升结果：`losses.py` 12 处提 11 处（117/225 → `NDIM_BARE_MAP`；119/175/227 → `NDIM_BATCH_MAP`；122/173/195/229/533/658 → `NDIM_BATCHED_MAP`），留 1 处——201 行的 `phasor.shape[1] != 2` 是 cos/sin 通道数、仅一处，与 115 在 optics 里的同类保留保持一致。为支持"同一行有两个被报字面量"，spec 的键升级为 `row:value`（195 行同时有 `4` 与 `2`，只提 `4`）。
+- 工具链自身去重（同一类缺陷不能只挡生产代码）：`plr_lift_generic.py` 里原本内嵌了一份 AST 恒等实现，与 `plr_proof_generic.py` 是两处定义、会各自漂移——已改为提升器只调用证明工具。证明工具同时升级三点：从 `defs_from` 跨文件取值；**同一个名字在多个源文件里被定义即判失败**（把这次收敛变成机器可强制的性质）；把被跟踪名字的 import 别名从两侧剥掉，否则"定义搬家"会被误判成行为改动。搬家一侧单独证明：`optics.py` 只失去 4 个定义、多出 4 个别名，判恒等。
+- 新增守卫测试 `tests/ao_shaping/ml/sim2f/test_rank_constants_single_source.py`（4 条，纯 AST、不 import torch，因而在任何环境可跑）：每个秩名字只能由 `config` 定义、四个值必须等于文档里的 2/2/3/4、消费方不得本地定义且必须 import。三条种植各自精确咬到对应失效面——在 `optics` 再定义 `NDIM_BATCH_MAP` ⇒ 2 条红；把 `config` 的值改成 4 ⇒ 1 条红；删掉 `losses` 的一个 import 别名但保留使用 ⇒ 1 条红。还原用"备份 + `cmp` 逐字节核验"而非 `git checkout`（三个文件都带着本批未提交改动），还原后回到 4 passed。
+- 证明的盲区这次测准了：第一版控制是**设错的空靶**——它把 `NDIM_BARE_MAP` 换成了 `NDIM_MATRIX`，而后者不在该批 spec 的跟踪名单里，证明是"偶然抓到"而非抓到同值互换。重做在 `optics.py` 上（`NDIM_MATRIX` 与 `NDIM_BARE_MAP` 都被跟踪且同为 2）：恒等证明判 `True`，即**同值常量的使用处互换，AST 恒等在原理上就看不见**；只有按内容定位的分组校验报"期望行不存在"。结论固化：一旦存在等值常量，恒等证明不再足以监督"名字放对了没有"，分组校验是必选项而不是补充项。
+- 验证与回归：`losses.py` 提升 11 处全部由 ruff 真实命中且判恒等；分组校验正向 OK；`ruff check .` 全仓归零。回归两段——`tests/ao_shaping/ml/sim2f` 加 `tests/ao_shaping/scripts/test_measure_sim2f_kl_basis.py` 为 305 passed / 6 skipped，比 115 基线的 301 多出 4，增量正是本批新增守卫测试的 4 条（差值有解释才算可比，不是默认真）；`tests/ao_shaping/scripts` 分片 2556 passed / 65 skipped / 0 failed，与 110–115 基线逐位一致。`config` 是否引入 import 环，由带 torch 的 CI 环境实跑判定（沙箱无 torch，`import ml.*` 必失败），不以沙箱冒烟为准。
+- 过程教训：`oxpy -c` 里嵌套引号本会话已两次炸掉（一次 SyntaxError、一次字符串未闭合）。规则：改文件一律用编辑工具或落成脚本，不拼单行引号。
+- 覆盖账（实测）：`losses.py` 12 → 1；`src` 全域 684 → 673；`scripts` 全域 501（本批未动）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

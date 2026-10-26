@@ -90,7 +90,14 @@ from ao_shaping.utils.wavefront.zernike_calc import (
     calc_n_zernike_terms,
 )
 from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
-from ml.sim2f.config import AberrationConfig, Sim2fConfig
+from ml.sim2f.config import (
+    NDIM_BARE_MAP,
+    NDIM_BATCHED_MAP,
+    NDIM_BATCH_MAP,
+    NDIM_MATRIX,
+    AberrationConfig,
+    Sim2fConfig,
+)
 from ml.sim2f._device import _resolve_device
 
 __all__ = [
@@ -114,25 +121,13 @@ DEFAULT_COVARIANCE_PATH = (
 #: Floor used when reducing a ``(cos, sin)`` pair to an angle, so an exactly zero
 #: phasor resolves to angle 0 instead of NaN.
 _PHASOR_EPS = 1e-12
-#: Rank of a two-axis array read as a matrix: a coefficient table, or a square
-#: covariance. These checks ask whether the argument is a matrix at all, not whether a
-#: batch axis still has to be added.
-NDIM_MATRIX = 2
 
-#: Rank of an unbatched spatial map, i.e. ``(grid, grid)``. An input at this rank gets an
-#: axis prepended before it reaches the pipeline. Separate from NDIM_MATRIX even though the
-#: number is the same: one shape is promoted, the other is only validated.
-NDIM_BARE_MAP = 2
 
 #: How many scalars a two-component vector carries -- an x/y offset, or a pair of
 #: coefficients. This counts elements of a flat vector, never tensor axes.
 NPAIR_COMPONENTS = 2
 
-#: Rank of a batched spatial map with no channel axis: ``(B, grid, grid)``.
-NDIM_BATCH_MAP = 3
 
-#: Rank of a batched map carrying an explicit channel axis: ``(B, C, n, n)``.
-NDIM_BATCHED_MAP = 4
 
 
 def _overlap_matrix(pixels: int, cells: int, ratio: float) -> np.ndarray:
