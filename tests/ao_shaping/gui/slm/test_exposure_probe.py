@@ -249,6 +249,101 @@ class TestProbeSessionExposure:
         assert evidence["ceiling_source"] == "env"
 
 
+class _UnboundedStubCamera(_StubCamera):
+    """A dark bench: the sensor integrates to 0.5 ms but never saturates there.
+
+    ``255 * ms / 1.0`` means clipping would need 1 ms, past the camera's own
+    maximum, so the ladder has **no** measured saturation point at all -- the
+    camera maximum is the only bound available.
+    """
+
+    SATURATES_AT = 1.0
+
+    def get_exposure_range(self) -> tuple[float, float]:
+        return 0.02, 0.5
+
+
+def _install_camera(monkeypatch, cam) -> None:
+    """Route ``create_camera`` to ``cam`` and leave the env ceiling unset."""
+    monkeypatch.delenv(ec.DAHENG_EXPOSURE_LIMIT_ENV, raising=False)
+    monkeypatch.setattr(
+        "ao_shaping.drivers.ccd.common.create_camera", lambda *a, **k: cam
+    )
+
+
+class TestCameraMaximumBoundsTheCeiling:
+    """The GUI path must ask the camera how far it can integrate.
+
+    ``probe_exposure_ceiling_ms`` caps at ``hard_max_ms``, but the sidebar probe
+    used to call it without one, so on a bench that never saturates inside the
+    camera's reachable range the reported ceiling could exceed the camera
+    maximum.  ``working_exposure_ms`` would then hand the driver an exposure it
+    silently clamps, and the measured peak would not belong to the requested
+    exposure.
+    """
+
+    def test_the_probe_is_capped_at_the_cameras_maximum_exposure(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        cam = _UnboundedStubCamera()
+        _install_camera(monkeypatch, cam)
+        _, evidence = bs.probe_session_exposure_ms(debug_dir=tmp_path / "probe")
+        # The fit alone extrapolates to ~0.90 ms, well past the 0.5 ms maximum.
+        assert evidence["fit_ms"] > 0.5
+        assert evidence["ceiling_ms"] == pytest.approx(0.5 * 0.9)
+        assert evidence["bound_ms"] == pytest.approx(0.5)
+        assert evidence["camera_max_ms"] == pytest.approx(0.5)
+        assert max(cam.applied) <= 0.5 + 1e-9
+
+    def test_a_saturation_below_the_camera_maximum_is_still_measured(
+        self, stub_camera, monkeypatch, tmp_path
+    ) -> None:
+        """The cap must not cost the saturation measurement.
+
+        The walk breaks on the first frame at the saturation fraction *before*
+        it can reach the cap, so passing ``hard_max_ms`` cannot hide a
+        saturation the ladder can actually see: here the 0.32 ms rung is the
+        first at 90 % of full scale, on a camera that goes to 1000 ms.
+        """
+        stub_camera.get_exposure_range = lambda: (0.02, 1000.0)
+        _, evidence = bs.probe_session_exposure_ms(debug_dir=tmp_path / "probe")
+        assert evidence["camera_max_ms"] == pytest.approx(1000.0)
+        assert evidence["saturated_ms"] == pytest.approx(0.32)
+        # Stopped on the saturation, far short of the cap -- not at the cap.
+        assert max(stub_camera.applied) == pytest.approx(0.32)
+
+    def test_a_configured_ceiling_is_still_capped_by_the_camera(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The env value stays the tighter of (operator decision, sensor limit)."""
+        cam = _UnboundedStubCamera()
+        _install_camera(monkeypatch, cam)
+        monkeypatch.setenv(ec.DAHENG_EXPOSURE_LIMIT_ENV, "5.0")
+        working, evidence = bs.probe_session_exposure_ms(debug_dir=tmp_path / "probe")
+        assert evidence["ceiling_source"] == "env"
+        assert evidence["ceiling_ms"] == pytest.approx(0.5)
+        assert evidence["camera_max_ms"] == pytest.approx(0.5)
+        assert working == pytest.approx(0.25)
+
+    def test_a_camera_without_a_range_leaves_the_probe_unbounded(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """A backend that cannot report its range must not fail the probe."""
+        cam = _UnboundedStubCamera()
+
+        def no_range() -> tuple[float, float]:
+            raise NotImplementedError("this backend has no exposure range")
+
+        cam.get_exposure_range = no_range
+        _install_camera(monkeypatch, cam)
+        _, evidence = bs.probe_session_exposure_ms(debug_dir=tmp_path / "probe")
+        assert evidence["camera_max_ms"] is None
+        # Uncapped, exactly as before: the ceiling runs past the 0.5 ms the
+        # camera would have imposed had it reported a range.
+        assert evidence["ceiling_ms"] > 0.5 * 0.9
+
+
+
 class TestSidebarButtonWiring:
     """The button has to behave like the pixel-size probe next to it."""
 

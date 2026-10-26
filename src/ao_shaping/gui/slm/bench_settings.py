@@ -1134,17 +1134,26 @@ def probe_session_exposure_ms(
 
     探测用**倍增阶梯**找饱和上限（``probe_exposure_ceiling_ms``：曝光翻倍直到
     峰值达到 ``saturation_fraction``×满量程），再用 ``working_exposure_ms`` 取
-    ``work_fraction``×上限作为工作曝光。上限是「峰值将达满量程 90%」的那一档，
-    所以工作曝光下峰值约在 45%——既能拿到足够原始计数，又留有余量防截断。
+    ``work_fraction``×上限作为工作曝光。上限取「峰值将达满量程 90%」的那一档
+    再乘 0.9 余量（≈81%），所以工作曝光下峰值约在 40%——既能拿到足够原始
+    计数，又留有余量防截断。
 
     失败时抛 :class:`ExposureProbeFailure`：曝光是**光路属性**，不随传感器变，
     所以宁可中止也不能给一个猜的值。若 ``AO_DAHENG_MAX_EXPOSURE_MS`` 有配置则
     优先用它（不探测），这是既有契约，此处不改变优先级。
 
+    上限一律再受**相机自己的曝光上限**约束：相机最大值是「传感器还能积分多久」，
+    不是「何时饱和」，所以它只是上限而不是一次测量——但超过它的曝光根本设不下去
+    （驱动会静默钳位，于是实测峰值与请求曝光对不上）。相机报不出范围的后端按
+    **无上限**处理，与旧行为一致。
+
     相机在函数内打开并关闭；``debug_dir`` 给定时把阶梯每一档的
     ``(曝光, 峰值)`` 写成 JSON，便于复盘「当时画面到底多亮」。
     """
-    from ao_shaping.drivers.ccd.common import create_camera
+    from ao_shaping.drivers.ccd.common import (
+        create_camera,
+        get_camera_exposure_range,
+    )
     from ao_shaping.utils.image.exposure_control import probe_exposure_ceiling_ms
 
     if cam_type.lower() != "daheng":
@@ -1153,11 +1162,24 @@ def probe_session_exposure_ms(
             f"曝光自动探测目前只支持大恒（daheng），当前相机类型为 {cam_type!r}。"
             "请在「会话曝光」直接填入实测值。"
         )
+    camera_max_ms: float | None = None
     try:
         with create_camera(cam_type, int(cam_id), exposure_time_ms=floor_ms) as cam:
             # ``n_sample=1`` 返回整数原始帧；取 n>1 会得到 float32 平均帧，
             # 而阶梯判定要求整数帧（见 docs/slm/slm_model_in_loop.md 实测记录）。
             #
+            # 相机上限先问设备要：拿不到（后端不支持 / 调用失败）就按无上限
+            # 继续，绝不让「读不到范围」把一次可用的探测变成失败。
+            try:
+                _, camera_max_ms = get_camera_exposure_range(cam)
+            except Exception as exc:  # 后端没有范围查询不是探测失败
+                logger.debug("相机曝光范围不可用，本次探测按无上限处理: {}", exc)
+                camera_max_ms = None
+            if camera_max_ms is not None and (
+                not np.isfinite(camera_max_ms) or camera_max_ms <= 0
+            ):
+                camera_max_ms = None
+
             # Walk the ladder **once**: letting ``resolve_daheng_exposure_limit``
             # probe and then probing again here would cost a second walk and
             # could contradict itself on a bench whose light drifts (measured
@@ -1166,13 +1188,17 @@ def probe_session_exposure_ms(
             # without touching the camera, exactly as the shared resolver does.
             configured = configured_daheng_exposure_limit()
             if configured > 0:
+                # 操作员的取值压过探测，但不压过传感器：取二者中更紧的那个。
                 ceiling = float(configured)
+                if camera_max_ms is not None:
+                    ceiling = min(ceiling, camera_max_ms)
                 estimate = None
             else:
                 estimate = probe_exposure_ceiling_ms(
                     cam.reset_exposure_time,
                     lambda: np.asarray(cam.get_numpy_image(n_sample=1)),
                     start_ms=floor_ms,
+                    hard_max_ms=camera_max_ms,
                 )
                 ceiling = float(estimate.ceiling_ms)
 
@@ -1213,6 +1239,28 @@ def probe_session_exposure_ms(
         "ladder_peak_fractions": (
             [] if estimate is None else [float(v) for v in estimate.peak_fractions]
         ),
+        # How the ceiling was reached, so the next probe can be replayed: the
+        # per-rung extrapolations (the old ``min`` of these) with their
+        # exposures, the fitted saturation exposure, and the measured bound
+        # that clamped it.  ``ladder_peak_fractions`` has one entry per rung;
+        # ``ladder_estimates_ms`` only one per rung that carried signal, so zip
+        # it with ``ladder_estimate_exposures_ms``.
+        "ladder_estimates_ms": (
+            [] if estimate is None else [float(v) for v in estimate.estimates_ms]
+        ),
+        "ladder_estimate_exposures_ms": (
+            []
+            if estimate is None
+            else [float(v) for v in estimate.estimate_exposures_ms]
+        ),
+        "fit_ms": None if estimate is None else estimate.fit_ms,
+        "fit_points": 0 if estimate is None else int(estimate.fit_points),
+        "bound_ms": None if estimate is None else estimate.bound_ms,
+        "first_clipped_ms": None if estimate is None else estimate.first_clipped_ms,
+        # 相机自己报的曝光上限（None = 后端报不出，按无上限处理）。探测路径下它
+        # 已被 ``probe_exposure_ceiling_ms`` 用作 ``hard_max_ms``，所以命中时
+        # ``bound_ms`` 与它相等；env 路径没有 ``estimate``，这个键是唯一的记录。
+        "camera_max_ms": camera_max_ms,
     }
     target = Path(debug_dir) if debug_dir is not None else EXPOSURE_PROBE_DEBUG_DIR
     try:
