@@ -205,3 +205,4 @@ none
 /.workbuddy/
 *.pt
 .history/*
+runs/*

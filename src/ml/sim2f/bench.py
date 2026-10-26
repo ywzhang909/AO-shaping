@@ -479,6 +479,13 @@ class SimInstrument:
             else bench
         )
         self.detector = bool(detector)
+        #: Accepted and recorded, but **ignored**: this path never builds a panel
+        #: (the twin's grid *is* the illuminated 900 px region), so there is no
+        #: placement to correct.  The attribute exists so
+        #: :func:`calibrate_pupil_center` can drive every instrument through one
+        #: interface -- on the twin the sweep then comes out flat, which is the
+        #: documented "not decisive" case rather than an error.
+        self.pupil_center_xy: tuple[int, int] | None = None
         self._measurer = _Measurer(
             self.bench, aberration, illumination, detector=self.detector, seed=int(seed)
         )
@@ -505,6 +512,18 @@ class SimInstrument:
     def twin(self, phase_rad: Tensor | np.ndarray) -> np.ndarray:
         """The twin's prediction: this bench, this state, this command."""
         return self.capture(phase_rad)
+
+    def sent_grayscale(self, phase_rad: Tensor | np.ndarray) -> np.ndarray:
+        """The panel grayscale the *equivalent* hardware command would send.
+
+        There is no panel on this path (see the class docstring), so the value is
+        :func:`recorded_grayscale` of the same command -- the panel embedding plus
+        the pure-math radians-to-grayscale conversion (``slm=None``, 2*pi = 1023).
+        It is recorded so a twin session's ``_phase`` column has the same shape
+        and meaning as a hardware session's, which is what lets one analysis read
+        both.
+        """
+        return recorded_grayscale(phase_rad)
 
     def close(self) -> None:
         """Nothing to release: the twin owns no device."""
@@ -886,6 +905,76 @@ class HwInstrument:
         with torch.no_grad():
             frame = self._twin_bench.forward(tensor, detector=False)
         return frame[0, 0].detach().cpu().numpy()
+
+    # -- pupil centre (auto-calibration) ---------------------------------
+    @property
+    def pupil_center_xy(self) -> tuple[int, int]:
+        """Centre of the **illuminated pupil** currently used for embedding."""
+        return pupil_center(self._panel_shape, self._pupil_center_xy)
+
+    @pupil_center_xy.setter
+    def pupil_center_xy(self, value: tuple[int, int]) -> None:
+        """Move the 900 px phase square, refusing a placement that runs off.
+
+        The placement is validated with the same rule :func:`build_panel_phase`
+        applies, so a candidate from :func:`calibrate_pupil_center` cannot leave
+        the instrument in a state whose next write raises.
+
+        Args:
+            value: New centre ``(x, y)``, panel pixels.
+
+        Raises:
+            ValueError: If the pupil square would not fit at ``value``.
+        """
+        candidate = (int(value[0]), int(value[1]))
+        side = int(round(2.0 * self._radius_px))
+        x0, y0 = panel_corner(self._panel_shape, self._radius_px, candidate)
+        height, width = int(self._panel_shape[0]), int(self._panel_shape[1])
+        if x0 < 0 or y0 < 0 or x0 + side > width or y0 + side > height:
+            raise ValueError(
+                f"pupil square {side} px at centre {candidate} runs off the "
+                f"{height}x{width} panel (corner ({x0}, {y0}))"
+            )
+        self._pupil_center_xy = candidate
+
+    def sent_grayscale(self, phase_rad: Tensor | np.ndarray) -> np.ndarray:
+        """The display-ready uint16 panel this instrument's write path sends.
+
+        Read this as "what the panel got", and note *why* it is exact rather than
+        approximate.  :meth:`capture` calls
+        :func:`ao_shaping.utils.slm.phase_display.display_phase`, whose whole body
+        is ``slm.display_phase(phase_rad, memory_number=slot)``; the driver
+        (``drivers/slm/santec/driver.py``) turns that into
+        ``create_phase_from_array`` -> ``display_data``.  Everything the panel
+        applies -- the 2*pi = device ``_max_gray`` scaling, the wavefront
+        correction map, the gamma LUT, the grayscale base-phase overlay, the
+        ``(shift_x, shift_y)`` translation and the final ``mod max_gray`` -- lives
+        inside ``create_phase_from_array``.  ``display_data`` adds exactly one
+        thing on top: a hard clamp to ``MAX_GRAYSCALE_VALUE`` (1023), which is a
+        no-op because ``create_phase_from_array`` already returns
+        ``mod _max_gray <= 1023``.  Its other jobs (slot rotation, the pixel-flip
+        wait) do not change the numbers.
+
+        So ``phase_to_slm_grayscale(panel, slm=self._slm)`` -- the call below, with
+        the live device -- reproduces the written array bit-for-bit.  The
+        alternative, ``get_displayed_phase()``, returns the *cached copy of the very
+        same array* for the slot just written (its docstring says a slot with no
+        cache "cannot be read back from the device"), so it would cost an SDK
+        round-trip per row and tell us nothing new.
+
+        Args:
+            phase_rad: ``(grid, grid)`` command phase, radians.
+
+        Returns:
+            ``(panel_h, panel_w)`` uint16 grayscale.
+        """
+        return recorded_grayscale(
+            phase_rad,
+            slm=self._slm,
+            panel_shape=self._panel_shape,
+            radius_px=self._radius_px,
+            center_xy=self._pupil_center_xy,
+        )
 
     def close(self) -> None:
         """Close the camera and the SLM, independently and idempotently."""

@@ -69,14 +69,6 @@ Santec SLM #1、1064 nm、Daheng Mono12，满量程 4095。目标边长 1200 原
 
 ![同曝光 CCD 图像](figures/common_ccd_20261026.png)
 
-**严格组迭代过程**：
-
-![迭代过程动画](figures/square1200_strict_process.gif)
-
-**非单调探索组迭代过程**：
-
-![迭代过程动画](figures/square1200_nonmonotone_process.gif)
-
 ## 结论与后续选择
 
 本次按 50/100 ms 原生核心 CV 的算术平均选择 `nonmonotone_square_final`；该相位已导出为原始弧度 `best_model_phase.npy` 和完整面板 `best_panel_phase.npy`。这两档曝光数据参与选择，不是新的独立测试集。
