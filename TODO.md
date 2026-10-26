@@ -3274,6 +3274,12 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 证据：born-red 单条信息精确点名 19 处差异；control（删 wfs `_registry.py` 树行）变红 → `cmp` 逐字节还原 → 再绿；term gate 合计 0；ledger parity 85 条 / 13 已知；provenance `--check` clean；ruff 0.15.12 clean。
 - 教训：(a) 守卫初版两处解析 bug——目录名尾 `/` 让 `count("/")==0` 口径失效、内层子项比较漏取 basename（首版 born-red 全量误报），修正后才得到可信红；(b) 修复脚本收尾自设禁词正则曾扫整文件，被 `ccd/AGENTS.md` L124 存量词（term gate 豁免段）误伤——改为只查本次插入 fragment，整文件交 `scripts/_common/term_unify_20261016.py --check` 仲裁；(c) `dm/XuWeiDM64_UnitsPos.txt` 全仓零 loader 命中，不在 `.py`/目录完整性规则内，留盘未录。
 
+86. ✅ **`signal_processing/sim.py` 拆分终态核实 + AGENTS 注化终结 + 微守卫 `test_sim_library_split.py`**（2026-10-26）：
+- 84 挂账的 `algorithm/signal_processing/sim.py` 迁 `scripts/` 在 probe 阶段即被推翻——代码迁移不再需要：`14b1cda`（#90）已把 `__main__` 演示体抽出为 `scripts/signal_processing/demo_wavefront_sim.py`（+ `demo_wavefront_reconstruction.py`）；实测 `sim.py` 为 import-only 库（numpy / matplotlib.colors / loguru，无 `__main__`、argparse、`plt.show`），demo 只 import 4 个符号（`VectorAdaptiveOptics` / `VectorBeamPropagator` / `calculate_stokes_rgb` / `create_gaussian_field`），搬模块本身反而会破坏 import——与 root `AGENTS.md` 反模式表「Obsolete instruction (verified 2026-10-25)」行的终态判定一致。
+- 残留矛盾唯一一处：84 在 signal_processing 行写的注化（「反模式表已注记其应迁 `scripts/`，本条只落册不动码」）与终态判定自相矛盾 → 改写为忠实终态（`14b1cda` 迁出演示体 + 本体保留 import-only 库 + 拆分即终态）。
+- 新守卫 `tests/ao_shaping/algorithm/test_sim_library_split.py` 锁定终态：sim 无入口件；demo 的 import 块恰为上述 4 符号且都在 sim 里；两个 demo 脚本存在；AGENTS 注化含 `14b1cda` 迁出记录且不再含两处旧措辞。born-red 单条正中注化断言；control（删 `14b1cda` token）变红 → `cmp` 逐字节还原 → 再绿；ruff clean。
+- gates：term gate 合计 0；ledger parity 86 条 / 13 已知；provenance `--check` clean。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
