@@ -969,9 +969,11 @@ CI 按 `.github/workflows/pytest.yml` 的 `run_shard` 目标**显式收集**这�
 逐路径相等（脚本从 scratch 目录启动 pytest，pyproject 的**相对**排除在那种 CWD 下匹配不到任何
 东西），该等式在 CI 开始有意收集 `ml` 之后即作废：强行相等就等于把整区 `--ignore` 塞回 harness，
 让 CI 重新对该树变盲——那正是 2026-10-24 那次漂移与 TODO.md 8.9 items 102–109 的成因。
-现由 `tests/ao_shaping/scripts/test_pytest_workflow_shards_cover_tree.py::test_pyproject_pruned_areas_are_collected_by_ci`
-钉住方向（**凡被本地剪除的路径，必须有 `run_shard` 目标收集它**）；harness 自身的 `EXCLUDES` 由同
-文件里那组守卫逐条审（不得悬空、必须带理由、不得整区豁免）。
+现由 `tests/ao_shaping/scripts/test_pytest_workflow_shards_cover_tree.py::test_every_test_area_is_sharded`
+逐文件钉住（`tests/ao_shaping` 下每个测试模块都必须落在某条 `run_shard` 目标里，被本地剪除的 `ml`
+树因而仍由 CI 收集）；harness 自身的 `EXCLUDES` 由同文件的
+`tests/ao_shaping/scripts/test_pytest_workflow_shards_cover_tree.py::test_no_harness_ignore_blanks_a_whole_test_area`
+与其同伴守卫逐条审（不得悬空、必须带理由、不得整区豁免、解析器不得空洞）。
 
 ⚠️ `--ignore` 只作用于 **discovery**（从 `testpaths` 发现的裸 `pytest`）。2026-10-24 实测：
 裸 `pytest` 收集 **9293**；被排除的是 `ml` **1415** + AppTest **3**（两者亦实测）。

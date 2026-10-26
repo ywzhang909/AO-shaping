@@ -3544,6 +3544,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 术语自查：改写 AGENTS.md 时我先用了一个未登记的口语词（"裸跑"），按"新词须先登记"的规矩不该引入——已就地改成"本地默认的发现集"，TERM 门禁合计 0 个文件。
 - 本批未含 `exposure_fusion` 提升：它改名为下一批（item 118），本批顺手量好的两条基线可直接复用（上述 utils 1537 / 5 与 drivers fused 29）。
 
+118. ✅ **修 117 留下的文档指针腐化（AGENTS.md 指向已被撤掉的守卫），并把该缺陷类别做成守卫**（2026-10-27）
+- 缺陷是我上一批自己造的：117 撤掉了替代守卫 `test_pyproject_pruned_areas_are_collected_by_ci`，但同批改写的 AGENTS.md 段落仍指向它。三门禁（TERM / PAR / PROV）与 `ruff check .` 全绿，却没有任何东西校验"文档引用的守卫是否还存在"——文档因此宣称了一种已不存在的保护。修法是改指到真正生效的 `test_every_test_area_is_sharded`（逐文件覆盖已蕴含"被本地剪除的 `ml` 树仍由 CI 收集"）与 `test_no_harness_ignore_blanks_a_whole_test_area`。
+- 取证时的假阳性要记清，否则会误修：用"AGENTS.md 里出现的 `test_\w+` 是否在 `tests/` 里有定义"粗扫得 20 条，其中绝大多数是**模块名**（`test_conventions`、`test_spots_calc`、`test_report_provenance` 这类 `.py` 文件名）被当成了测试函数名。精确口径是文档实际使用的 `` `module.py::test_name` `` 形式：按此重扫真实引用 7 条，其中只有 1 条真腐化，正是我造成那条。
+- 新守卫 `test_agents_md_guard_pointers_resolve` + 非空洞对照加在 `tests/ao_shaping/test_conventions.py`（模块级测试 63 → 65，pytest 条目 65 → 67：64 → 66 passed，1 skipped 不变）。
+- **第一版守卫近乎空洞，且是被控制实验而不是被审阅发现的**：正则写成 `[\w.-]+\.py`，不含 `/`，而文档 7 条引用里 5 条用仓库相对路径写法，于是种一条全路径假指针后守卫仍报 66 passed。更难看的是我那条非空洞对照当时只喂短文件名写法——它复刻了自己要防的缺陷，因而自证通过。修三处：正则放宽到 `[\w./-]+\.py`；解析先按仓库相对路径直取文件，取不到再按文件名在 `tests/` 下检索；对照同时喂三种情形（短名保留 / 短名失效 / 路径失效 / 模块不存在），并对真实文档断言 `len(findings) >= 5`，让"解析器与文档写法脱节"本身变成失败条件。规则固化：**非空洞对照必须覆盖解析器自称支持的每一种写法，并对真实内容断言最小匹配数**，否则它可以在解析器全盲的情况下绿灯。
+- 修正后的控制链（每步都先断言工件确实被改动）：种全路径假指针 ⇒ 1 failed / 65 passed / 1 skipped；种短名假指针 ⇒ 同样红；两处还原均以备份 + `cmp` 证明逐字节一致（AGENTS.md 与 test_conventions.py 都带本批未提交改动，禁用 `git checkout`）；还原后 66 passed / 1 skipped。第一次种植还暴露一个流程缺陷：锚点 `## Zernike 使用规范` 计数不为 1（该标题带后缀且目录里再现），断言当场中止，于是紧随其后的 "66 passed" 是未种植状态的读数、不可作为证据——改为追加到文件末尾的无锚点种植并断言文本已变。
+- 回归：`tests/ao_shaping/utils` + `tests/ao_shaping/test_conventions.py` 为 1539 passed / 5 skipped / 0 failed，即 117 基线 1537 加本批新增 2 条，增量可解释；分片覆盖守卫仍 11 passed；`ruff check .` 归零。另记 117 的术语自查：改写段落时我先引入了未登记的口语词，按"新词须先登记"就地改掉后 TERM 门禁合计 0。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
