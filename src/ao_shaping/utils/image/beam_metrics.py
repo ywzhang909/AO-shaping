@@ -17,13 +17,23 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 import numpy as np
 import numpy.typing as npt
 from loguru import logger
 
 from ao_shaping.utils.image.spots_calc import centroid, radius
+
+#: Zero-variance guard for Pearson correlation in :func:`compute_beam_metrics`.
+_STD_EPS: Final[float] = 1e-8
+
+#: Smallest odd median kernel ``despike_frame`` can apply; below it the frame
+#: is returned untouched (a 1x1 or 2x2 "median" is not despiking).
+_DESPIKE_MIN_K: Final[int] = 3
+
+#: M^2 needs at least this many distinct focal planes to be absolute.
+_M2_MIN_PLANES: Final[int] = 3
 
 __all__ = [
     "intensity_to_amplitude",
@@ -163,7 +173,7 @@ def compute_beam_metrics(
 
     # Pearson 相关系数 (防止零方差)
     mf, tf = m.flatten(), t.flatten()
-    if mf.std() > 1e-8 and tf.std() > 1e-8:
+    if mf.std() > _STD_EPS and tf.std() > _STD_EPS:
         corr = float(np.corrcoef(mf, tf)[0, 1])
     else:
         corr = 1.0 if np.allclose(mf, tf) else 0.0
@@ -600,7 +610,7 @@ def threshold_spot_center(img: np.ndarray) -> tuple[int, int]:
     return (width // 2, height // 2)
 
 
-def despike_frame(img: np.ndarray, k: int = 3) -> np.ndarray:
+def despike_frame(img: np.ndarray, k: int = _DESPIKE_MIN_K) -> np.ndarray:
     """Replace isolated hot/cold pixels with a ``k x k`` median.
 
     A box blur alone is not enough against a *single* hot pixel: a 5000-count
@@ -618,7 +628,7 @@ def despike_frame(img: np.ndarray, k: int = 3) -> np.ndarray:
     """
     frame = np.asarray(img, dtype=np.float64)
     k = int(k)
-    if k < 3:
+    if k < _DESPIKE_MIN_K:
         return frame
     pad = k // 2
     p = np.pad(frame, pad, mode="edge")
@@ -704,7 +714,7 @@ def zero_order_center(
     if float(frame.max()) <= 0.0:
         return (width // 2, height // 2)
 
-    search = despike_frame(frame, despike_k) if despike_k >= 3 else frame
+    search = despike_frame(frame, despike_k) if despike_k >= _DESPIKE_MIN_K else frame
     anchor_y, anchor_x = np.unravel_index(int(np.argmax(search)), frame.shape)
     if not refine:
         return (int(anchor_x), int(anchor_y))
@@ -1046,7 +1056,7 @@ def m2_from_focus_stack(
             f"fields ({len(fields)}) and z_positions_m ({len(z_positions_m)}) "
             "must have the same length"
         )
-    if len(fields) < 3:
+    if len(fields) < _M2_MIN_PLANES:
         raise ValueError(
             "M^2 cannot be measured absolutely from fewer than 3 focal planes; "
             "use m2_reference_relative for a single plane"
@@ -1058,7 +1068,7 @@ def m2_from_focus_stack(
     if not math.isfinite(pitch) or pitch <= 0.0:
         raise ValueError(f"pixel_pitch_m must be positive, got {pixel_pitch_m!r}")
     z = np.asarray(z_positions_m, dtype=np.float64)
-    if len(np.unique(z)) < 3:
+    if len(np.unique(z)) < _M2_MIN_PLANES:
         raise ValueError("z_positions_m must contain at least 3 distinct values")
     w = np.array(
         [beam_radius_second_moment(f, pixel_pitch_m=pitch) for f in fields],

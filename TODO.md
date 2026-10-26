@@ -3334,6 +3334,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - #130 状态：正文五步全部落地，**代码级剩余清零**（issue 可按此收口；R-37 的旗标迁移基线自此以重钉后的 golden 为起点）。
 - gates：TERM 合计 0 / 对账 93 条 13 violations（standing 不变）/ 溯源 clean。
 
+94. ✅ **issue #173 新一批：核心指标面 10 处重复阈值提具名常量（`beam_metrics` 6 + `slm_square_shaping` 4）+ 内联回写的 AST 恒等证明，PLR2004 两文件 32→22**（2026-10-26）
+- 口径：#173 的 bench 常量批（`8d6c7bee`）与收敛诊断阈值族批（`2ceb288f`）已在树。本批按 issue 的判据——**只提有复现意义的重复值**——处理当前热点里的核心指标文件：`utils/image/beam_metrics.py`（Pearson 零方差门 `1e-8`×2、`despike_frame` 最小奇数核 `3`×2 含默认参、M² 绝对测量最少焦面数 `3`×2）与 `optimizer/wfless/slm_square_shaping.py`（退化统计量判据 `1e-10`×4 → `_DEGENERATE_EPS`），共 **10 处**。
+- **不提**的同类热点（判定留档）：计数 top 的 `2` 绝大多数是数组形状 / 中心索引 / `k//2`；跨文件的 `+1e-10` 是各家公式里的除零保护（`closed_loop` 的 dB 换算、`sim_spgd` 的功率归一、`adc_dm_adam` 的 Adam 分母），语义互不相同——把它们并成一个"通用 eps"恰是 issue 警告的**假单源化**。
+- 证明（内联回写，不是断言）：把新树里的 `_STD_EPS` / `_DESPIKE_MIN_K` / `_M2_MIN_PLANES` / `_DEGENERATE_EPS` 名字**内联回原数值**、删掉新增定义行，再与 `HEAD` 版本**逐函数**比 `ast.dump`——**31 + 22 个函数全部逐字节相同**。`ruff --select PLR2004` 两文件合计 **32 → 22**，差值恰为 10 处替换。
+- 回归（容器）：`tests/ao_shaping/utils` **1473 passed / 4 skipped**；`optimizer/wfless` 整片 **1081 passed / 3 skipped**（与改动前同数；该片须 48g，6g/16g 会在 ~21% 处 SIGKILL）；`ruff check` 干净。
+- #173 状态：仍开放——issue 自列的报告生成器批（`scripts/slm` 541 处）与长尾未清；本轮只收核心指标面这一片。
+- gates：TERM 合计 0 / 对账 94 条 13 violations（standing 不变）/ 溯源 clean；提交 = 两源文件 + `TODO.md`。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
