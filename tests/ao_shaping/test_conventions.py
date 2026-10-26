@@ -1246,46 +1246,6 @@ def test_cartographer_never_asserts_on_device_state() -> None:
     )
 
 
-def test_pytest_excludes_match_across_configs() -> None:
-    """`run_pytest_ci.sh` re-states pyproject's `--ignore` list -- they must agree.
-
-    The duplication is deliberate, not accidental: the runner starts pytest from a
-    scratch directory, so pyproject's *relative* excludes (``tests/ao_shaping/ml``)
-    resolve against that CWD and match nothing, which would pull the 65 GB hwdataset
-    corpus and the hardware domains back into CI runs. So the script re-states them as
-    absolute paths.
-
-    Two lists that must mean the same thing is exactly how this repo has been bitten
-    before, and it happened while this guard was being written: pyproject was narrowed
-    to ``drivers/dm`` while the script still carried the whole ``drivers`` tree, so the
-    narrowed discovery silently stayed off and every driver domain looked "excluded"
-    even though the ledger said otherwise.
-    """
-    script = REPO / "scripts" / "build" / "run_pytest_ci.sh"
-    shell_ignores = {
-        match.removeprefix("$WORKDIR_IN_CONTAINER/")
-        for match in re.findall(r'"--ignore=([^"]+)"', script.read_text(encoding="utf-8"))
-    }
-    addopts = (
-        tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
-        .get("tool", {})
-        .get("pytest", {})
-        .get("ini_options", {})
-        .get("addopts", [])
-    )
-    pyproject_ignores = {
-        entry.split("=", 1)[1]
-        for entry in addopts
-        if isinstance(entry, str) and entry.startswith("--ignore=")
-    }
-    assert shell_ignores == pyproject_ignores, (
-        "pytest excludes drifted between pyproject.toml addopts and "
-        f"scripts/build/run_pytest_ci.sh EXCLUDES -- only pyproject: "
-        f"{sorted(pyproject_ignores - shell_ignores)}; only the script: "
-        f"{sorted(shell_ignores - pyproject_ignores)}"
-    )
-
-
 #: The complete set of ``assert`` statements allowed anywhere under ``drivers/``,
 #: as ``<path under drivers/>: <expression>``. Each one tests an **internal**
 #: invariant that no external input or device state can reach, which is precisely

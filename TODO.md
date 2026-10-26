@@ -3536,6 +3536,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 过程教训：`oxpy -c` 里嵌套引号本会话已两次炸掉（一次 SyntaxError、一次字符串未闭合）。规则：改文件一律用编辑工具或落成脚本，不拼单行引号。
 - 覆盖账（实测）：`losses.py` 12 → 1；`src` 全域 684 → 673；`scripts` 全域 501（本批未动）。
 
+117. ✅ **修我自己造成的 CI 回归：作废"两份排除清单必须相等"的守卫（它已在 master 上红），契约改为单向"本地剪除区必须由 CI 分片收集"**（2026-10-27）
+- 触发方式说明了两条纪律的必要性：本批为 `exposure_fusion` 提升量改前基线时跑了 `tests/ao_shaping/utils` 加 `tests/ao_shaping/test_conventions.py`，结果在**完全干净的工作树**上出现 1 failed——`test_pytest_excludes_match_across_configs`。根因是 item 109：我把 harness 的 `EXCLUDES` 清成 0 条，而 `pyproject.toml` 仍保留 `--ignore=tests/ao_shaping/ml`（只为剪本地默认发现集），该守卫要求两侧 `--ignore` 集合逐路径相等，于是必然红。109 当时我只跑了分片覆盖守卫（11 passed），**没有跑 root-guards**，所以这条回归被推到了 master。规则固化：改 CI 配置或改守卫之后，必须跑**全部**守卫套件（root-guards + scripts 两侧），只跑"相关那条"不算验证；且首次进入某个回归面必须先量改前基线。
+- 判定是"契约过期"而不是"配置写错"：把整区 `--ignore=tests/ao_shaping/ml` 塞回 harness 会直接与既有守卫 `test_no_harness_ignore_blanks_a_whole_test_area` 冲突，让 CI 对整棵 ml 重新变盲——正是 items 102–109 终结的那个失效模式。故删掉等式守卫，并把 AGENTS.md 里"两份清单必须同步、改任一处必须改另一处"那段改写为单向契约：本地剪除只作用于 `testpaths` 发现，CI 由 `run_shard` 目标显式收集；两侧清单**不必相等**但必须同向。
+- 我先写了一条替代守卫再**主动撤掉**，理由全在控制实验里：新加的 `test_pyproject_pruned_areas_are_collected_by_ci`（外加解析器非空洞对照）在种植 1（删掉 `run_shard "ml"` 行）下**没有咬**——咬住的是既有的逐文件守卫 `test_every_test_area_is_sharded`，因为两条 `ml-gsnet-debug-*` 分片仍点名 ml 子路径，我的谓词因此仍为真。这说明它被既有的逐文件覆盖守卫蕴含（只要被剪区含测试文件），是冗余；且其谓词会把**合法的子区剪除**误判为未收集——`--ignore=tests/ao_shaping/drivers/dm` 由祖先目标 `drivers` 覆盖，却既不等于 `drivers/dm` 也不以 `drivers/dm/` 开头。撤掉后再种植同一合法剪除，只靠既有守卫仍全绿（75 passed / 1 skipped），确认没有覆盖损失。撤销前核验该文件的未提交增量为纯追加（删除行 0），才用 `git checkout --`，避免连带回退 109 的成果。
+- 条数核对（不看是否全绿）：`test_conventions.py` 由 66 项（1 failed / 64 passed / 1 skipped）变 65 项（0 failed / 64 passed / 1 skipped）；分片覆盖守卫维持 11 passed（曾短暂 13，撤掉冗余守卫后回到 11）；`tests/ao_shaping/utils` 加 `test_conventions.py` 由 1543 项含 1 failed 变为 1537 passed / 5 skipped / 0 failed；`tests/ao_shaping/drivers/ccd/test_capture_fused.py` 保持 29 passed。
+- 术语自查：改写 AGENTS.md 时我先用了一个未登记的口语词（"裸跑"），按"新词须先登记"的规矩不该引入——已就地改成"本地默认的发现集"，TERM 门禁合计 0 个文件。
+- 本批未含 `exposure_fusion` 提升：它改名为下一批（item 118），本批顺手量好的两条基线可直接复用（上述 utils 1537 / 5 与 drivers fused 29）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

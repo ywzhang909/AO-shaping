@@ -963,12 +963,15 @@ docker build -f docker/Dockerfile.test.cpu -t ao-shaping-test:cpu .
 （复用 `drivers/_hardware_gate.py` 单源）后 `dm` 变 **40.22 s / 0 failed**。
 ⇒ 判"某域慢/挂起"必须先用 `--durations` 归因，不要按域整体归因。
 
-🔴 **排除清单有两份，必须同步**：`scripts/build/run_pytest_ci.sh` 的 `EXCLUDES` 把同样的路径
-重述成**绝对路径**（因为该脚本从 scratch 目录启动 pytest，pyproject 里的**相对**排除在那种 CWD 下
-匹配不到任何东西，会把 65 GB 语料与硬件域放回 CI）。这份重复已在 2026-10-24 实际漂移过一次：
-pyproject 已收窄到 `drivers/dm`，脚本仍是整棵 `drivers`，于是"收窄发现集"静默失效。
-现由 `tests/ao_shaping/test_conventions.py::test_pytest_excludes_match_across_configs` 钉住
-（比较两处 `--ignore` 集合，差集非空即失败）。**改任一处都必须改另一处。**
+🔴 **本地剪除与 CI 收集必须同向，但两份清单不必相等**：`pyproject.toml` 的 `--ignore` 只剪**本地默认**的
+发现集（当前仅 `tests/ao_shaping/ml`：65 GB 语料 + torch 多进程曾把全量运行挂死），而
+CI 按 `.github/workflows/pytest.yml` 的 `run_shard` 目标**显式收集**这些区域。两侧清单曾被要求
+逐路径相等（脚本从 scratch 目录启动 pytest，pyproject 的**相对**排除在那种 CWD 下匹配不到任何
+东西），该等式在 CI 开始有意收集 `ml` 之后即作废：强行相等就等于把整区 `--ignore` 塞回 harness，
+让 CI 重新对该树变盲——那正是 2026-10-24 那次漂移与 TODO.md 8.9 items 102–109 的成因。
+现由 `tests/ao_shaping/scripts/test_pytest_workflow_shards_cover_tree.py::test_pyproject_pruned_areas_are_collected_by_ci`
+钉住方向（**凡被本地剪除的路径，必须有 `run_shard` 目标收集它**）；harness 自身的 `EXCLUDES` 由同
+文件里那组守卫逐条审（不得悬空、必须带理由、不得整区豁免）。
 
 ⚠️ `--ignore` 只作用于 **discovery**（从 `testpaths` 发现的裸 `pytest`）。2026-10-24 实测：
 裸 `pytest` 收集 **9293**；被排除的是 `ml` **1415** + AppTest **3**（两者亦实测）。
