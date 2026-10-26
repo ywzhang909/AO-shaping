@@ -34,6 +34,7 @@ def _synthetic_corpus(tmp_path, *, n_train: int = 12, n_val: int = 4, grid: int 
     """
     import pickle
 
+    from ao_shaping.utils.io.recorder_keys import RECORD_IMAGE, RECORD_PHASE
     from ml.hwdataset.index import build_hw_index
 
     rng = np.random.default_rng(0)
@@ -47,17 +48,41 @@ def _synthetic_corpus(tmp_path, *, n_train: int = 12, n_val: int = 4, grid: int 
         image[rr <= grid / 4.0] = 1.0
         image = np.roll(image, int(rng.integers(-1, 2)), axis=0)
         return {
-            "phase": phase.astype(np.float32),
-            "image": image * np.float32(0.5 + 0.5 * rng.random()),
-            "exposure_ms": np.float32(1.0),
+            RECORD_PHASE: phase.astype(np.float32),
+            RECORD_IMAGE: image * np.float32(0.5 + 0.5 * rng.random()),
+            # A Python float: ``_as_float`` rejects numpy scalars, and an unresolved
+            # exposure makes index.filter(require_exposure=True) drop every record,
+            # which then reads as an empty corpus.
+            "exposure_ms": 1.0,
         }
 
     root = tmp_path / "debug"
     root.mkdir()
-    with (root / "synthetic_family_20260101_000000.pkl").open("wb") as fh:
-        pickle.dump([_one() for _ in range(n_train + n_val)], fh)
+    # Two pickles: ``_select_records`` stratifies the train/val split by file, so one
+    # pickle cannot serve both sides ("cannot split 1 file(s) across objectives").
+    #
+    # The stem has to carry a registered family prefix (``_FAMILY_PREFIXES`` in
+    # ``ml/hwdataset/index.py``): an unrecognised name yields an index with no
+    # families, and ``train`` would then scan ``DEFAULT_ROOTS`` -- the real corpus --
+    # instead.  The payload is ``dict[int, dict]`` (the shape ``_payload_records``
+    # accepts) and the keys go through the recorder constants, because a hand-written
+    # key is a key the classifier never looks at.
+    for stamp, count in (("20260101_000000", n_train), ("20260101_000001", n_val)):
+        with (root / f"slm_zernike_shaping_{stamp}.pkl").open("wb") as fh:
+            pickle.dump({i: _one() for i in range(count)}, fh)
 
     index = build_hw_index(roots=[root], index_cache=None)
+    # Fail here rather than let a fallback to the real corpus go unnoticed: an unusable
+    # fixture is a fixture that tests the wrong data.
+    assert index.families, (
+        "the synthetic corpus matched no family, so train() would fall back to the "
+        "real data/debug tree and this test is not hermetic"
+    )
+    assert index.files_usable == 2, f"expected 2 usable pickles, got {index.files_usable}"
+    assert len(index) == n_train + n_val, (
+        f"only {len(index)} of {n_train + n_val} synthetic records were usable: "
+        f"{dict(index.excluded)}"
+    )
     return index
 
 
@@ -75,6 +100,13 @@ def _base_cfg(index, tmp_path, **overrides):
         max_val=4,
         val_fraction=0.25,
         device="cpu",
+        # Point train at the tree this fixture wrote, keep the on-disk index cache
+        # (which describes the real corpus) out of it, and match the panel geometry to
+        # the synthetic 16x16 panel so the materialiser's ROI still intersects.
+        roots=(str(tmp_path / "debug"),),
+        index_cache=None,
+        panel_center=(8, 8),
+        panel_radius=8.0,  # half of the grid=16 panel above
         out_dir=str(tmp_path / "out"),
         use_wandb=False,
         save_checkpoint=False,
@@ -224,16 +256,27 @@ def test_model_output_is_intensity_and_matches_the_lost_reference_shape():
 # Regenerate ONLY together with a deliberate decision to move the crop, the objective,
 # or the train/val split.
 #
-# Note this anchor is sensitive to the corpus, not just to the loss: `train()` reads the
-# shared `data/hw_index_cache.json`, so a corpus change can move it too.
+# 4. 2026-10-27: the fixture became **hermetic** (TODO.md 8.9 item 107) -- ``train`` now
+#    scans the pickle tree this file writes (``AmpTrainConfig.roots``) instead of
+#    ``DEFAULT_ROOTS`` + the shared ``data/hw_index_cache.json``, and the materialiser
+#    gets the fixture's own panel geometry. Until then this anchor silently encoded
+#    whichever corpus the machine happened to hold, which is why it survived on a
+#    corpus machine and turned red on a corpus-free runner without any code change.
+#
+# The values below were captured from this file's own fixture (seed 0, two pickles of
+# 12 + 4 records, grid 16, epochs 2, batch 4, lr 0.01, ``train(amp_train_config)`` with
+# seed 0 and ``num_workers=0``); re-run the capture on any machine with no corpus at all
+# and they reproduce. What can still move them is the numeric stack itself (torch build /
+# BLAS reduction order), not the corpus -- so a version bump is a deliberate, reviewable
+# re-pin, not a corpus drift.
 _MSE_REFERENCE_COEFFICIENTS = [
-    -0.02199922315776348,
-    0.13554176688194275,
-    -0.058381348848342896,
-    -0.12868881225585938,
-    -0.1273084282875061,
-    -0.046100467443466187,
-    0.1534813791513443,
-    -0.07752775400876999,
-    0.1470145881175995,
+    -0.014974758960306644,
+    -0.014934703707695007,
+    -0.015005748718976974,
+    -0.007806715555489063,
+    0.014445310458540916,
+    -0.01493570301681757,
+    -0.0149796511977911,
+    -0.012253230437636375,
+    -0.011611846275627613,
 ]

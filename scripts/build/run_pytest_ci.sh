@@ -206,35 +206,6 @@ EXCLUDES=(
     # 107); the runner's own RAM is why 6g was chosen for the shards in the first
     # place, so the fix is a narrower envelope, not a global raise.
     "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/ml/gsnet_debug"
-    # 17 of tests/ao_shaping/ml/zernike read the 65 GB data/debug tree even though the
-    # test file writes its own pickle corpus: the synthetic corpus yields no usable
-    # record, so the family filter comes back empty and train() -- which builds its
-    # index from DEFAULT_ROOTS and ignores any caller-supplied tree -- scans the real
-    # corpus instead. Green on a machine that holds the corpus, red on one that does
-    # not. Measured corpus-free: 17 failed / 509 passed / 2 skipped, all seventeen
-    # raising "HwPhaseImageDataset: the corpus has no usable records after filtering
-    # (families=[], files_scanned=0, files_usable=0)".
-    #
-    # Skipping when the corpus is absent would be the wrong fix: it buys a green job by
-    # deleting 17 assertions that hold the checkpoint reader/writer contract and every
-    # hard rule of check_geometry. What the fixture actually gets wrong was measured by
-    # fixing one thing at a time until the next failure surfaced (TODO.md 8.9 item 105):
-    #   1. the pickle stem carries no _FAMILY_PREFIXES name, so family_of matches
-    #      nothing and index.families is empty;
-    #   2. the payload is a list, while _payload_records accepts dict[int, dict] (the
-    #      shape almost the whole corpus uses) or a Recorder with .history;
-    #   3. the record keys are "phase"/"image" instead of the constants the classifier
-    #      reads, RECORD_PHASE ("_phase") and RECORD_IMAGE ("_img");
-    #   4. exposure_ms is np.float32, which _as_float rejects (isinstance(value,
-    #      (int, float))), so index.filter(require_exposure=True) drops every record;
-    #   5. the arrays are grid-sized (16x16) while the materialiser crops panel_center
-    #      (960, 600) with panel_radius 500, so reduction raises "ROI centre (960, 600)
-    #      with radius 500.0 does not intersect the 16x16 panel";
-    #   6. one pickle is too few, because train_amp._select_records stratifies the
-    #      train/val split by file and exits "cannot split 1 file(s) across objectives".
-    # Retiring this entry needs the fixture to meet all six, plus a roots passthrough
-    # on AmpTrainConfig (train_amp.py builds the index from DEFAULT_ROOTS today).
-    "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/ml/zernike"
 )
 
 # Interpreter and options are kept in separate arrays on purpose: the per-file mode

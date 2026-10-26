@@ -235,9 +235,12 @@ def test_reason_check_is_not_vacuous() -> None:
         if not (opener < i < closer and line.lstrip().startswith("#"))
     ]
     stripped = "\n".join(planted) + "\n"
-    assert "tests/ao_shaping/ml/zernike" in stripped, (
-        "the planted file lost an entry; the control no longer tests anything"
-    )
+    # Compare against the real entry set rather than naming one entry: this control
+    # polices the exemption list, so it must not hard-code a member of it -- a member
+    # can legitimately disappear, and when it did the control failed on its own.
+    assert [target for _, target in _ignores_from(stripped)] == [
+        target for _, target in _harness_ignores()
+    ], "the planted file lost an entry; the control no longer tests anything"
     assert _reason_gaps(stripped), (
         "the reason check passed with every comment inside the EXCLUDES block removed "
         "-- it is vacuous"

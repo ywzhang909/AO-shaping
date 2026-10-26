@@ -36,6 +36,7 @@ def _synthetic_corpus(tmp_path, *, n_train: int = 12, n_val: int = 4, grid: int 
     """
     import pickle
 
+    from ao_shaping.utils.io.recorder_keys import RECORD_IMAGE, RECORD_PHASE
     from ml.hwdataset.index import build_hw_index
 
     rng = np.random.default_rng(0)
@@ -49,17 +50,42 @@ def _synthetic_corpus(tmp_path, *, n_train: int = 12, n_val: int = 4, grid: int 
         image[rr <= grid / 4.0] = 1.0
         image = np.roll(image, int(rng.integers(-1, 2)), axis=0)
         return {
-            "phase": phase.astype(np.float32),
-            "image": image * np.float32(0.5 + 0.5 * rng.random()),
-            "exposure_ms": np.float32(1.0),
+            RECORD_PHASE: phase.astype(np.float32),
+            RECORD_IMAGE: image * np.float32(0.5 + 0.5 * rng.random()),
+            # A Python float: ``_as_float`` rejects numpy scalars, and an
+            # unresolved exposure makes index.filter(require_exposure=True) drop
+            # every record, which reads as an empty corpus.
+            "exposure_ms": 1.0,
         }
 
     root = tmp_path / "debug"
     root.mkdir()
-    with (root / "synthetic_family_20260101_000000.pkl").open("wb") as fh:
-        pickle.dump([_one() for _ in range(n_train + n_val)], fh)
+    # Two pickles: ``_select_records`` stratifies the train/val split by file, so one
+    # pickle cannot serve both sides ("cannot split 1 file(s) across objectives").
+    #
+    # The stem has to carry a registered family prefix (``_FAMILY_PREFIXES`` in
+    # ``ml/hwdataset/index.py``): an unrecognised name yields an index with no
+    # families, and ``train`` would then scan ``DEFAULT_ROOTS`` -- the real corpus --
+    # instead, green on a machine that holds it and red on one that does not.  The
+    # payload is ``dict[int, dict]`` (what ``_payload_records`` accepts for the corpus
+    # shape) and the keys go through the recorder constants, because a hand-written
+    # key is a key the classifier never looks at.
+    for stamp, count in (("20260101_000000", n_train), ("20260101_000001", n_val)):
+        with (root / f"slm_zernike_shaping_{stamp}.pkl").open("wb") as fh:
+            pickle.dump({i: _one() for i in range(count)}, fh)
 
     index = build_hw_index(roots=[root], index_cache=None)
+    # Fail here rather than let the fallback to the real corpus go unnoticed: an
+    # unusable fixture is a fixture that tests the wrong data.
+    assert index.families, (
+        "the synthetic corpus matched no family, so train() would fall back to the "
+        "real data/debug tree and this test is not hermetic"
+    )
+    assert index.files_usable == 2, f"expected 2 usable pickles, got {index.files_usable}"
+    assert len(index) == n_train + n_val, (
+        f"only {len(index)} of {n_train + n_val} synthetic records were usable: "
+        f"{dict(index.excluded)}"
+    )
     return index
 
 
@@ -77,6 +103,13 @@ def _base_cfg(index, tmp_path, **overrides):
         max_val=4,
         val_fraction=0.25,
         device="cpu",
+        # Point train at the tree this fixture wrote, keep the on-disk index cache
+        # (which describes the real corpus) out of it, and shrink the panel geometry
+        # to the synthetic 16x16 panel so the materialiser's ROI still intersects.
+        roots=(str(tmp_path / "debug"),),
+        index_cache=None,
+        panel_center=(8, 8),
+        panel_radius=8.0,  # half of the grid=16 panel above
         out_dir=str(tmp_path / "out"),
         use_wandb=False,
         save_checkpoint=False,
