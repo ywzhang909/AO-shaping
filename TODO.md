@@ -3225,6 +3225,16 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     - **控制**：cp 备份 → 把回退临时翻回 `'1'` → 守卫红且点名两侧值（envs `'1'` vs DeviceConfig `0`）→ cmp 逐字节还原 → 再绿。
     - **验证**：新守卫 3 passed；tests/ao_shaping/optimizer/rl + tests/ao_shaping/test_config.py 合跑 45 passed / 1 skipped（skip 为容器缺 gymnasium 的既有恒量）；第 73 条 env 名大小写碰撞守卫绿；ruff（钉版 0.15.12）对两改动文件干净。
     - **范围外仍挂账**：`runners/runner_common.py` 四处 `--cam-id` 默认同值不同型（字符串 `"0"` vs 整数 `0`）仍按第 73 条的决定留在待决面（CLI 合约，cli_help_golden.json 管辖）。
+81. ✅ **四处 --cam-id 环境默认的 "0"/0 分裂与唯一一处急切 import 期读取已收编：统一为惰性读取 + 字符串字面量，并用 AST 守卫钉死形态**（2026-10-26）：
+    - **来路**：第 73 条建立 env 名普查时留下的待决面——`runners/runner_common.py` 四处 `--cam-id` 默认同值不同型（`"0"` 字符串 vs `0` 整数），且四处的读取时机也不一致。
+    - **取证**：`utils/cli/params.py::_patch_defaults` 把 dataclass 字段默认**原样**注入 click option（default 是唯一事实源，无隐式转换点）；四处注解全是 `str`；golden（cli_help_golden.json）只钉渲染后的 help 文本（形如 `--cam-id TEXT`），不存原始默认值。容器一次性探针（临时文件已删）实测：click STRING 对默认值同样做类型转换，`type=str, default=0` 与 `default="0"` 解析结果同为字符串 '0' ⇒ 解析层面 str/int 分裂不可见；真正的分叉是 import 期读取时机与 env 未设语境下 dataclass 默认值的落盘类型（整数 0 vs 字符串 "0"）。
+    - **剖析**：1692/1875 已是惰性 + `"0"`（规范形态）；1971（PipelineRunnerParams）惰性但回退是整数 `0`；2026（PipelineDeviceParams）是四处中唯一 import 期急切读取——cast(str, os.environ.get(...)) 在 runner_common import 时就摸一次 env（第 78 条登记过的 import 期阀门同类），回退同样整数 `0`。
+    - **修复（最小）**：1971 回退 `0`→`"0"`；2026 改成与其余三处同族的惰性形态 cast(str, lambda: os.environ.get("Far_Cam_ID", "0"))。golden 与解析行为零变化（探针证据）。
+    - **防漂移守卫**：新 `tests/ao_shaping/runners/test_cam_id_env_defaults.py`（纯 AST，不 import runner_common——它拖硬件关联包）两测：路径自检 + 形态契约——恰好 4 处 `Far_Cam_ID` 读取；四处外层 dataclass 字段都是 `cam_id`；四处全部包在 `lambda` 里（防急切读取回潮）；回退字面量全是字符串 `"0"`（防整数回潮）。
+    - **守卫自纠**：首版守卫把含注解的 dataclass 字段当 ast.Assign 查——实测注解字段是 ast.AnnAssign，守卫对**正确的源文件**也红；定性为守卫自身 bug 而非源文件回潮，修成两型通吃后才走控制（验证协议当场拦截，没有放水）。
+    - **控制**：把 PipelineDeviceParams 站点（最后一段匹配行）临时翻回急切 int 形态 → 守卫红，红点是 Far_Cam_ID 读取 "is eager (import-time), not lambda"；cp 备份 + cmp 逐字节还原 → 再绿。
+    - **验证**：守卫单独跑 2 passed；tests/ao_shaping/runners 全量 544 passed / 25 skipped（skip 为既有恒量，其中 2 条来自 diff_shaping_runner 早已删除）；ruff（钉版 0.15.12）对两改动文件干净；golden 与契约冻结原样通过。
+    - **范围**：config.py 的 DeviceConfig 0/1 是配置层标准默认（整数域且已 int() 转换），不在 CLI 合约范围；gui/ccd/target_shape_helper.py 的 `_DEFAULT_CAM_ID` 回退 "0" 已是规范形态；optimizer/rl/envs.py 已在第 80 条收编。第 73 条的挂账至此结清。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
