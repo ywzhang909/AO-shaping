@@ -3371,6 +3371,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 回归：`tests/ao_shaping/scripts` **2547 passed / 65 skipped / 0 failed**；`test_script_imports_resolve` 586 passed；ruff（默认规则与 `--select PLR2004`）干净；`py_compile` 通过。
 - gates：TERM 合计 0 / 对账 98 条 13 violations（standing 不变）/ 溯源 clean；提交 = 该脚本 + `TODO.md`。
 
+99. ✅ **#173 报告生成器批第二片：两份 `generate_hw_*` 报告脚本的 28 处浮点容差按语义拆成 10 个具名常量（PLR2004 62→34，与 `HEAD` 的 AST 恒等）**（2026-10-26）
+- 对象与数量：`scripts/slm/generate_hw_defocus_zernike_report.py` **10 处 → 3 个常量**（`ZERO_DEFOCUS_DZ_MM` 零档判定 / `ROW_MATCH_ATOL` 浮点键回查该行 / `SLOPE_NONZERO_ATOL` 退化读数排除），`scripts/slm/generate_hw_gs_square_scans_report.py` **18 处 → 7 个常量**（`ROW_MATCH_ATOL`、`PARAM_NPZ_CSV_ATOL`、`SIDE_PX_NPZ_CSV_ATOL`、`SCORE_IDENTITY_ATOL`、`AREA_IDENTITY_ATOL`、`EXPOSURE_MATCH_ATOL`、`PEAK_MATCH_ATOL`）。合计 28 处、10 个名字（`ROW_MATCH_ATOL` 在两文件各定义一次，同语义不同模块）。
+- 为什么必须拆开而不是给一个 `EPS`：同一个 `1e-9` 在这两份脚本里至少承担**四种**判据 —— 浮点表示容差、零档分档、退化读数排除、除零下限；`1e-6` / `1e-3` 也不是「精度高低」的阶梯而是不同量纲：`SCORE_IDENTITY_ATOL=1e-6`（0.5·PIB+0.5/(1+CV) 恒等复算）与 `AREA_IDENTITY_ATOL=1e-3`（`side² = area + clipped`，`side` 可达千余 px，float 噪声随量级放大）必须差三个数量级；`PARAM_NPZ_CSV_ATOL=1e-6` 与 `SIDE_PX_NPZ_CSV_ATOL=1e-9` 更在**同一个校验函数**里挨着——前者是测量量走十进制文本往返、后者是整数语义下发值只有 float 往返，两者**故意不同**，显名化正是为了防止将来被顺手统一掉。
+- **不动**的部分（证据口径诚实）：`np.maximum(frame, 0.001)` ×8、`max(fwhm, 1e-9)`、`max(abs(rms_recorded), 1e-12)` ×2 是**函数实参**，PLR2004 本就不命中它们，本轮不碰 ⇒ 计数下降值恰等于替换处数（62→34，−28），没有拿「顺手改名」凑数。defocus 那 8 处对数下限语义一致，若要收口应按「重复下限」单独口径处理，留下一批。
+- 证明（不是断言）：按 (行号, 字面量值) 双条件定位替换点（每行断言恰有一个该值的 `Constant`），再把 10 个名字**内联回原字面量**、删掉新增定义，与 `HEAD` 版本比 `ast.dump` ⇒ **67 + 142 个函数逐字节相同**；同时断言每个新常量在模块里恰好定义一次且取值与计划一致、无顶层重名。PLR2004：34→24 与 28→10。
+- 回归：`tests/ao_shaping/scripts` **2547 passed / 65 skipped / 0 failed**；`py_compile` 通过；ruff 干净。
+- gates：TERM 合计 0 / 对账 99 条 13 violations（standing 不变）/ 溯源 clean；提交 = 两份脚本 + `TODO.md`。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

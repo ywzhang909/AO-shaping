@@ -317,6 +317,19 @@ LOCATE_JITTER_TOL_PX = 2.0
 #: ``zernike_stage_a_1`` 的 ``w0_px`` 5.742078 → 5.807177 (``target_side`` 同比例)。
 #: 阈值取它的一半不到, 好让这种差异**被报出来**, 而不是被当成噪声吞掉。
 CONTINUOUS_REL_DIFF_TOL = 0.005
+#: 判「这一行是零离焦」的 ``dz_mm`` 阈值: |dz_mm| 小于它就是 0 档 (扫描网格上
+#: 0 档是**下发**的精确零, 落盘成 float 后与邻居档只差表示, 故阈值取到浮点表示
+#: 噪声这一级, 不是光学容差)。
+ZERO_DEFOCUS_DZ_MM = 1e-9
+
+#: 按浮点键回查某一行的匹配容差 (``dz_mm`` / ``diopter_m1`` 等): 写入与回读之间
+#: 只剩 float 往返误差, 所以这是**表示**容差, 与上面同一量级但判的是另一件事
+#: (这行是不是 0 档 vs 这行是不是我要的那一档)。
+ROW_MATCH_ATOL = 1e-9
+
+#: 转向斜率算不算「真的为零」的判据: 与上面两个同数量级, 但用途是把**退化读数**
+#: 从图与正文里排除掉, 不是匹配也不是分档。
+SLOPE_NONZERO_ATOL = 1e-9
 
 #: 各像素坐标字段所在的**坐标系**。同一个坐标系之间才谈得上「偏差多少」:
 #:
@@ -1297,7 +1310,7 @@ def is_noise_group(run: dict[str, Any]) -> bool:
     rows = [r for r in run["rows"] if not r.get("frame_missing")]
     if not rows:
         return False
-    return all(abs(float(r["dz_mm"])) < 1e-9 for r in rows)
+    return all(abs(float(r["dz_mm"])) < ZERO_DEFOCUS_DZ_MM for r in rows)
 
 
 def pick_closest_noise(
@@ -1591,7 +1604,7 @@ def defocus_group_section(
     )
 
     # --- 与仿真对拍 ---------------------------------------------------------
-    zero_rows = [r for r in rows if abs(float(r["dz_mm"])) < 1e-9]
+    zero_rows = [r for r in rows if abs(float(r["dz_mm"])) < ZERO_DEFOCUS_DZ_MM]
     base_hw = float(
         zero_rows[0].get("score_frozen", zero_rows[0].get("score", math.nan))
     )
@@ -1660,7 +1673,7 @@ def defocus_group_section(
     zero_scan = [
         r
         for r in rows
-        if abs(float(r["dz_mm"])) < 1e-9 and float(r["chirp_sign"]) != 0.0
+        if abs(float(r["dz_mm"])) < ZERO_DEFOCUS_DZ_MM and float(r["chirp_sign"]) != 0.0
     ]
     if zero_rows and zero_scan:
         base_pairs = f"{fmt_metric(abs(float(zero_rows[0].get('score_frozen', zero_rows[0].get('score', 0))) - float(zero_scan[0].get('score_frozen', 0))), 4)}"
@@ -2085,7 +2098,7 @@ def render_farfield_grid(
                     linewidth=1.0,
                 )
             )
-        row = next(r for r in run["rows"] if abs(float(r["dz_mm"]) - dz) < 1e-9)
+        row = next(r for r in run["rows"] if abs(float(r["dz_mm"]) - dz) < ROW_MATCH_ATOL)
         ax.set_title(
             f"Δz = {dz:+.2f} mm\n"
             f"CV {fmt_metric(row.get('cv_frozen', row.get('cv')), 2)}  "
@@ -2274,7 +2287,7 @@ def matched_box_side(run: dict[str, Any]) -> int:
     不是实验系统的问题。第二轮起目标框改为**预先登记**的该相位自己的成形目标。
     """
     frames = _scan_frames_by_dz(run)
-    zeros = [dz for dz in frames if abs(dz) < 1e-9]
+    zeros = [dz for dz in frames if abs(dz) < ZERO_DEFOCUS_DZ_MM]
     if not zeros:
         return 0
     base_dz = min(zeros, key=lambda z: abs(z))
@@ -2387,7 +2400,7 @@ def defocus_response_table(
     legacy = int(cfg["target_side_px"])
     if not frames:
         return "", {}
-    zeros = [dz for dz in frames if abs(dz) < 1e-9]
+    zeros = [dz for dz in frames if abs(dz) < ZERO_DEFOCUS_DZ_MM]
     ref_dz = min(zeros, key=lambda z: abs(z)) if zeros else min(frames)
     ref_raw = frames[ref_dz]
     ref_frame = prepare_frame(ref_raw.astype(np.float64))
@@ -2752,7 +2765,7 @@ def focus_best_point(focus: dict[str, Any]) -> dict[str, Any]:
         if p.get("status") not in ("dim", "clipped")
     ]
     for p in usable:
-        if abs(float(p.get("diopter_m1", 0.0)) - best_d) < 1e-9:
+        if abs(float(p.get("diopter_m1", 0.0)) - best_d) < ROW_MATCH_ATOL:
             return p
     return {}
 
@@ -2961,12 +2974,12 @@ def build_markdown(
     steer_slope = float(steer.get("slope_local_px_per_mm", float("nan")))
     steer_dz = (
         (hw_side / 2.0) / abs(steer_slope)
-        if not math.isnan(steer_slope) and abs(steer_slope) > 1e-9
+        if not math.isnan(steer_slope) and abs(steer_slope) > SLOPE_NONZERO_ATOL
         else float("nan")
     )
     steer_dz_matched = (
         (matched_side / 2.0) / abs(steer_slope)
-        if not math.isnan(steer_slope) and abs(steer_slope) > 1e-9
+        if not math.isnan(steer_slope) and abs(steer_slope) > SLOPE_NONZERO_ATOL
         else float("nan")
     )
     if math.isnan(steer_slope):
@@ -3286,7 +3299,7 @@ def build_markdown(
     for grp in scan_groups:
         rw = [x for x in grp["run"]["rows"] if not x.get("frame_missing")]
         by_dz = {round(float(x["dz_mm"]), 4): x for x in rw}
-        base = [x for x in rw if abs(float(x["dz_mm"])) < 1e-9]
+        base = [x for x in rw if abs(float(x["dz_mm"])) < ZERO_DEFOCUS_DZ_MM]
         b0 = float(base[0].get("score_frozen", math.nan)) if base else math.nan
         r15 = float(by_dz.get(round(1.5007, 4), {}).get("score_frozen", math.nan))
         a = abs(
