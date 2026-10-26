@@ -153,6 +153,47 @@ AO-shaping/
   - `wfless/`: 无波前传感器优化 (PIB via DM电压, SPGD, 模拟 SPGD, 微分波束整形, SLM 方形光斑 SPGD)
   - `rl/`: 强化学习优化 (SAC, LR-WFS)
 
+### optimizer/ 模块逐名登记 (2026-10-26 普查)
+
+49 个模块逐一对照本文件叙述：此前有 32 个零提及 (顶级 4 / `rl/` 8 / `wf/` 3 / `wfless/` 17)，全部补录如下；其余 17 个已由职责表、调用链与 runner 对应表叙述覆盖。全量覆盖由守卫 `tests/ao_shaping/test_optimizer_doc_coverage.py` 锁定。
+
+| 分组 | 模块 | 职责 (据 docstring 或 import/class 面) |
+|---|---|---|
+| 顶级共享 | `_camera_inject.py` | 无波前传感器 PIB 优化器的单一共享相机注入点 |
+| 顶级共享 | `constants.py` | optimizer 包共享常量集中定义 (如 `KEEP_VOLTAGE_WHEN_EXIT`) |
+| 顶级共享 | `spgd.py` | SPGD 梯度符号共享助手 (扰动成对评估 → 差分定号) |
+| 顶级共享 | `spid_pib_loop.py` | 两条 `optimize_pib` 路径 (`wfless/pib.py` 等) 共享的 bench + SPGD-epoch 机制 |
+| `rl/` | `device_registry.py` | AO RL 训练的设备注册表 (虚拟 + 物理设备) |
+| `rl/` | `envs.py` | Gymnasium RL 训练环境集 (`sac_train` / `sac_turbulence_train` 消费, 湍流环境有专测) |
+| `rl/` | `lr.py` | SAC+LSTM 训练竖切: `TensorboardCallback` / `BinomialActionNoise` / `LSTMEncoder` / 图像+向量组合提取器 |
+| `rl/` | `lr_wfs.py` | LR-WFS 训练竖切: `WFS` 类 + `LaserCastEnv` (gym.Env) + 同款训练配套 |
+| `rl/` | `rl_wfs.py` | RL-WFS 训练竖切: `WFSLaserCastEnv` (gym.Env) + 波前+向量组合提取器 |
+| `rl/` | `sac_common.py` | AO 仿真训练的 SAC 共享工具 |
+| `rl/` | `sac_train.py` | SAC 训练入口: 校正随机静态 Zernike 像差 |
+| `rl/` | `sac_turbulence_train.py` | SAC 训练入口: 缓慢漂移湍流下的闭环 AO 校正 |
+| `wf/` | `dm_response_matrix.py` | DM 致动器响应矩阵标定 (推-拉激励逐致动器实测) |
+| `wf/` | `greedy_zernike.py` | 贪婪局部搜索: SLM Zernike 系数控制 |
+| `wf/` | `interaction_matrix.py` | 斜率法交互矩阵 (响应矩阵) 获取 |
+| `wfless/` | `_blaze_calibration.py` | SLM 整形会话的离轴载波选择实测 (私有辅助) |
+| `wfless/` | `_convergence_diagnostics.py` | 动态 LR/delta 调度的共享收敛诊断阈值族 (三个 wfless 调度器共用) |
+| `wfless/` | `_measure.py` | SLM+CCD 闭环测量辅助 (私有) |
+| `wfless/` | `adaptive_spgd_core.py` | 自适应 SPGD 核 (`AdaptiveSpgdConfig` frozen dataclass) |
+| `wfless/` | `adaptive_trust_region.py` | model-in-the-loop 轮循的自适应信任域半径策略 |
+| `wfless/` | `adc_dm_adam.py` | ADC 驱动族的参考实现 (`drivers/adc/driver.py` 文档指名引用): Adam + numba 加速 + pandas 记录 |
+| `wfless/` | `bayes_hyperparam.py` | skopt `gp_minimize` 贝叶斯超参搜索工具 |
+| `wfless/` | `bayes_opt_lr_delta.py` | 对 `wfless/pib.optimize_pib` 的 LR/delta 做贝叶斯选型 |
+| `wfless/` | `defocus_uniformity_shaping.py` | 离焦可微整形块级策略: 初值 / 方向检验 / A-B-B-A 重放 / 接受-拒绝 (纯逻辑, 硬件 I/O 由协议脚本注入) |
+| `wfless/` | `differentiable_shaping.py` | 可微光束整形优化器封装 (闭环实现的薄 re-export) |
+| `wfless/` | `gready_cam.py` | 相机+DM 贪婪搜索 (`MIICamera` + `NlightDM` + `KEEP_VOLTAGE_WHEN_EXIT`; 模块名 `gready` 为现状拼写) |
+| `wfless/` | `gs_refine_zernike_fit.py` | 把 GS-refine SLM 相位拟合为 Noll 序 Zernike 系数 |
+| `wfless/` | `model_in_loop_shaping.py` | SLM 方形整形 model-in-the-loop 迭代校正 (仅仿真; Step A 波前拟合 / Step B 交替) |
+| `wfless/` | `pib_sim_eval.py` | PIB 仿真离线评估 (`eval_pib_hybrid_sim` / heuristic PIB 报告脚本消费) |
+| `wfless/` | `sim_spgd.py` | 基于 `ao_shaping.sim` 的 SPGD 仿真优化 |
+| `wfless/` | `slm_zernike_primitives.py` | SLM+Zernike 闭环共享原语 (`slm_zernike_pib` 与 `slm_zernike_shaping` 两目标族共用) |
+| `wfless/` | `strehl_sim_eval.py` | DM 电压 Strehl 景观离线基准评估 (封装离线物理仿真) |
+
+`lr.py` / `lr_wfs.py` / `rl_wfs.py` 三个训练竖切复写同款脚手架 (回调 / 编码器 / 组合提取器)，此处如实登记现状；脚手架去重与 `gready` 拼写属代码级变更，另行条目。
+
 ### 优化策略与 Runner 对应关系
 
 | Runner (main.py 命令) | Optimizer 函数 | 子包 | 优化方式 | 硬件 |

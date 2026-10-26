@@ -3287,6 +3287,13 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 证据链：born-red（守卫三轮纠偏：ROOT 深度、树切片边界、子串假消解）单条信息点名 6 个未消解路径 + 4 个漏登文件 + 树 9 个 sentinel 全缺；`optimizer/` 路径消解测试首跑即绿（正面锁定零漂移）；control 首版曾假绿——删树内 `matrix_runner.py` 行后 `zernike_matrix_runner.py` 仍以子串满足两条匹配，守卫两侧匹配改负向后视 `(?<![A-Za-z0-9_])` 后同一 control 正确变红（双断言正中）→ `cmp` 逐字节还原 → 再绿；ruff clean。
 - gates 与教训：term gate 合计 0；ledger parity 87 条 / 13 已知；provenance `--check` clean。教训三则：子串匹配两侧皆坑——提及覆盖与树 sentinel 都会被长名吞并（`matrix_runner.py` ⊂ `zernike_matrix_runner.py`），守卫与 control 都必须用负向后视 `(?<![A-Za-z0-9_])` 限定名边界（本条 control 首版假绿即实证）；守卫 `ROOT` 深度按自身嵌套定（`tests/ao_shaping` 直下 = `parents[2]`，进一层子包 = `parents[3]`），容器挂载下首跑 `FileNotFoundError` 顶格暴露；顶层总览树本就是缩略视图——只做 phantom/sentinel + basename 覆盖检查，不做 drivers 式逐名全镜像，强镜像必然满屏假红。
 
+88. ✅ **optimizer/ 逐名叙述普查：49 模块中 32 个零提及已补录 + 覆盖守卫**（2026-10-26）
+- 普查口径与位置：`optimizer/` 全部 49 个 `.py` 模块按文件名以负向后视（`(?<![A-Za-z0-9_])`，防 `matrix_runner` ⊂ `zernike_matrix_runner` 一类子串假匹配）逐一对照 root AGENTS.md —— **32 个零提及**（顶级 4 / `rl/` 8 / `wf/` 3 / `wfless/` 17）；补录为 `optimizer/ Module` 章节内新增 `### optimizer/ 模块逐名登记 (2026-10-26 普查)` 表（32 行 4 分组 + 1 尾注），插在子包 bullet 列与 `### 优化策略与 Runner 对应关系` 之间（锚唯一性在 fix 脚本内断言，count==1）。
+- 取证口径：32 个中 22 个直接取模块 docstring 首句；**10 个无 docstring 的按 import/class 面与引用方向定句**：`adc_dm_adam` ← `drivers/adc/driver.py` 文档行指名参考实现（L6）；`pib_sim_eval` ← `eval_pib_hybrid_sim` / `generate_heuristic_pib_report` 消费；`gready_cam` ← `MIICamera`+`NlightDM`+`KEEP_VOLTAGE_WHEN_EXIT`；`lr` / `lr_wfs` / `rl_wfs` ← class 面（`LaserCastEnv` / `WFSLaserCastEnv` / `LSTMEncoder` / 组合提取器）；`envs` ← `gym.spaces`（湍流环境有专测消费）；`bayes_*` ← skopt `gp_minimize`；`adaptive_spgd_core` ← `AdaptiveSpgdConfig` frozen dataclass —— 全程零猜测，无一句来自推断。
+- 链条（与 87 同型）：守卫 `tests/ao_shaping/test_optimizer_doc_coverage.py`（1 test，lookbehind 名面全量锁定；`ROOT=parents[2]`，87 的深度教训直接复用）born-red —— 红名单与普查清单**逐名一致（32 全中）** → patch → 新守卫绿 + `test_runners_doc_paths.py` 4 tests 无回归双绿 → control 删 `_measure.py` 表行 → 恰 1 失败且检举同一模块 → `cmp` 逐字节还原 → 再绿 → ruff 干净。
+- 登记不行动：`lr.py` / `lr_wfs.py` / `rl_wfs.py` 三个训练竖切复写同款脚手架（回调 / 编码器 / 组合提取器）与模块名 `gready` 的现状拼写 —— 均为代码级变更，不混入本条 doc census，另行条目。
+- gates：TERM 合计 0 / 对账 88 条 13 violations（standing 不变）/ 溯源 clean；提交仅 `AGENTS.md`+`TODO.md`+新守卫三文件。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
