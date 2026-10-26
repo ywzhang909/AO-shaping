@@ -3435,6 +3435,15 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 回归：`tests/ao_shaping/scripts` 分片 2555 passed、65 skipped、0 failed（含同样解析 harness 的 `test_ci_scratch_staging.py` 与 `test_conventions.py`）；`ruff check .` 全仓 0 错误。
 - 另立两项：105（`ml/zernike` 语料门控：无 `data/debug` 时应 skip 而非 raise，修好即删该豁免）、106（`ml/gsnet_debug` 的跨文件累积与 5 条红，修好即删该豁免）。
 
+105. ✅ **纠正 item 104 对 `ml/zernike` 17 条红的错误定性并留下完整配方：它们不是"语料缺席该 skip"，而是自带合成语料却从未生效、实际在读 65 GB 语料**（2026-10-27）
+- 触发点：item 104 我在 `run_pytest_ci.sh` 的 `ml/zernike` 豁免理由里写下"语料缺席时抛异常而非 skip，是真缺陷；加语料门控即可删本豁免（留 105）"。**这个处方是错的**，本项把它改正并把真正根因写进同一处（CI 让路的唯一权威说明点）。本项**零代码改动**，只重写该注释。
+- 决定性事实：`test_amp_checkpoint.py` 与 `test_train_amp_loss.py` 各自定义 `_synthetic_corpus(tmp_path)`，把合成 pickle 写到 `tmp_path/debug/` 再 `build_hw_index(roots=[root])` ⇒ 本意完全不依赖语料。但 `src/ml/zernike/train_amp.py` 的建索引处是 `build_hw_index(index_cache=cfg.index_cache or None, progress_every=0)`——**不接 roots**，而 `AmpTrainConfig` 也没有 roots 字段 ⇒ 测试自建的索引只被用来取 `index.families` 这串名字，真实数据永远来自 `DEFAULT_ROOTS = ("data/debug",)`（`ml/hwdataset/index.py:201`）。该文件注释甚至自陈"index.families 对合成语料为空，所以 train 在真实索引语料上训练"——合成 fixture 从未生效，测试悄悄依赖语料：有语料的机器上绿，CI 无语料即红。
+- 六处独立缺陷（逐一植入实测，修掉一处才露出下一处；报错文本均为原样）：① pickle 文件名 `synthetic_family_*` 不匹配 `_FAMILY_PREFIXES` 任何前缀 ⇒ `family_of` 认不出、`index.families` 为空；② payload 写成 `list[dict]`，而 `_payload_records` 只认 `dict[int, dict]`（绝大多数语料的形态）或带 `.history` 的 Recorder ⇒ `ExclusionReason.NO_RECORDS`；③ 记录键写成 `phase`/`image`，而分类器读的是 `RECORD_PHASE="_phase"` / `RECORD_IMAGE="_img"`（`utils/io/recorder_keys.py`，即 item 93 收敛出的那组常量）；④ `exposure_ms=np.float32(1.0)` 被 `_as_float` 拒（`isinstance(value, (int, float))`，而 `np.float32` 不是 Python `float` 子类）⇒ `index.filter(require_exposure=True)` 丢光记录；⑤ 相位/图像数组是 `grid×grid`(16×16)，而 materialiser 按 `MaterialiserConfig.panel_center=(960, 600)`、`panel_radius=500` 裁 ROI ⇒ `ROI centre (960, 600) with radius 500.0 does not intersect the 16x16 panel`；⑥ 只有 1 份 pickle，而 `train_amp._select_records` 的划分是**按文件做 objective 分层** ⇒ `SystemExit: cannot split 1 file(s) across objectives`。
+- 为什么不能按原计划加 skip 门控：这 17 条守的是 checkpoint 读写契约与 `check_geometry` 的每条硬规则（含"未记录字段永不进 errors"这类不变量），用 skip 换绿等于把 17 条断言请出门禁——与 item 102/103/104 一路坚持的"不靠放宽/静默换绿"直接矛盾。正解是 fixture 同时满足上述六条，并给 `AmpTrainConfig` 加 `roots`（默认仍 `DEFAULT_ROOTS`，生产行为不变）；但 fixture 因此需写面板尺寸数组（1200×1920 float32，每条 9.2 MB），是一次有成本的真修复，不该塞进措辞级改动里半途做。
+- 探索性实现的处置（按 item 103 立的规则）：我已实现 ①–⑥ 与 `roots` 透传并在容器里跑到暴露 ⑤/⑥，但为避免把未跑绿的改动留在树上，回退前先 `git status --short` 确认未提交改动**恰好**是本次实验的 3 个文件（`src/ml/zernike/train_amp.py` 与两个测试），回退后 `git status --porcelain` 计数为 0，并复现 HEAD 基线红 **17 failed / 509 passed / 2 skipped**（与 item 104 测得逐字一致）⇒ 确认回退只撤销实验、未撤销任何已验证工作。
+- 验证（本项只改注释 ⇒ 必须证明行为未变）：`bash -n run_pytest_ci.sh` 干净；守卫 `test_pytest_workflow_shards_cover_tree.py` **10 passed**（豁免条目仍自带紧邻的理由注释，新的六条配方都在条目之内）；`--collect-only` 下 ml 分片收项仍 **918**、`ml/zernike` 仍 **0**（豁免依旧生效，CI 行为与本项之前完全一致）；`ruff check .` 全仓 0 错误。
+- 遗留（105 续，配方已完备可直接开工）：按六条修 fixture + `AmpTrainConfig.roots` 透传 ⇒ 删除该豁免 ⇒ ml 分片收项从 918 增至约 **1444**（`ml/zernike` 的 526 项入门禁）；`ml/gsnet_debug` 同理由 item 106 处理（6g 下跨文件累积致 SIGKILL + 已跑部分 5 条红）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
