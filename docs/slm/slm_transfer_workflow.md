@@ -275,6 +275,34 @@ $out = "data/debug/slm_transfer/$(Get-Date -Format 'yyyyMMdd_HHmmss')"
 
 ## 13. 运行中曝光与可选配对
 
+大尺寸目标可使用独立验证入口 `python -m ao_shaping.tools.slm.transfer.validate` 的 `--side`、`--window-span`（半视场，CCD 原生 px）、`--window-step`（采样步长）和 `--core-margin`（核心边缘腐蚀，CCD 原生 px）。`--initial-phase transport` 用入射能量的累积分布生成非 GS 方形初相位；仅支持 square，且检查控制网格 Nyquist 带宽。`geometric_seed` 模块可将已拟合参数导出到更密控制网格，并用 `--geometry-dataset` 更新正负光栅矩阵；这不是新的模型拟合，仍需 CCD 验证。
+
+`--bit-depth 12` 在 Daheng 请求 Mono12，原始数据保留 uint16 容器的 12 bit 值，满量程为 4095。当前物理检查点使用 Mono8 等效 counts/ms 时，锚定图像按 counts/16 对齐码值尺度；这不代替各模式的曝光响应标定。`--zero-radius` 固定排除定位零级的核心圆盘；`--meter-target` 仅对目标核心测光，允许核心外饱和并保留完整原始帧。此时原始 EE 不适合精确效率比较。`--ccd-check --accept-metric cv` 显式启用同曝光 A/B 顺序检查，拒绝核心 CV 恶化的候选；默认仍关闭，不具有 A–B–B–A 的漂移抵消能力。实验结果与尺寸口径见[1200 像元方形报告](../../report/shape_trials/square1200/square1200_20261026.md)。
+
+### SLM 偏离透镜前焦面的适配
+
+冻结模型支持检查点字段 `slm_axial_offset_m`（默认 `0`）。它表示相对当前标称传播模型的输入平面传播距离修正，正值增加 SLM 到透镜的距离。令标称有效曲率为 `q=defocus_diopter`，校正遵循 `s=1+q*offset`、`q_new=q/s`、`ramp_matrix_new=ramp_matrix*s`、`gain_new=gain/s²`；背景及曝光偏置不缩放。相位合成和再拟合之前使用 `effective_parameters()` 吸收校正，避免重复叠加。
+
+应通过 `axial_reference_curvature_diopter` 指定光学传播的 `A/B` 曲率，入射波前的其余二次相位保持不变。字段缺省时假设全部 `defocus_diopter` 来自传播，属于条件诊断假设，不能当作已测出的距离。尤其在 CCD 后焦面，该字段应为 `0`，不能将入射波前曲率误当作传播离焦。
+
+可用 `python -m ao_shaping.tools.slm.transfer.axial --checkpoint ... --capture ... --out ...` 对 `replay_phases` 保存的数据扫描条件偏移。相同相位的不同曝光按相位哈希分组，NNLS 响应参数只在训练集拟合；每个候选预测、参数和时间戳均保留。输出 `candidate_parameters.json` 为条件最优候选；`frozen_parameters.json` 仅在候选为扫描内点、验证相对 L2 改善超过 0.5% 且 CV 误差降低时采用偏移，否则保留零偏移基线。该阈值是显式工程选择，验证集参与采用判断，仍需独立 CCD 验收。
+
+CCD 恰在后焦面且不存在截光时，SLM 轴向位置不改变远场强度。CCD 离焦时该位置才耦合到有效曲率与图像尺度；若二者都自由拟合，实际 SLM 距离不可唯一辨识。这个近轴校正不包含透镜有限口径、截光及透镜空间像差。若这些因素显著，需要另行测量口径和传播距离，不能将条件拟合值当作实际距离。使用方法和当前实验依据见[轴向平面校正报告](../../report/shape_trials/axial_plane/axial_plane_20261026.md)。
+
+### 可选的非单调 CV 探索
+
+严格拒绝每次 CV 恶化可能限制跨越局部障碍，但停滞也可能来自模型梯度误差和实验漂移。独立验证 CLI 提供显式探索：`--exploration-temperature .03 --exploration-budget .25 --exploration-window 4 --random-seed 20261026`。对 CV 上升量 Δ，按 `exp(-Δ/T)` 接受；候选还须不超过历史最佳 CV 的 `1+budget` 倍。每 `window` 块恢复历史最佳相位，结束时也恢复该相位；探索轨迹不会直接覆盖最终最佳导出。
+
+此模式要求 `--no-abba --ccd-check --accept-metric cv`、块间固定曝光，并禁止 `--adaptive-exposure`。`--fixed-exposure-ms` 可指定当前会话允许范围内的曝光；数值应按当前画面选择，不是永久设备限制。温度默认 `0`，保持严格验收兼容；这些选项属于独立 `transfer.validate` CLI，尚未添加到 GUI 或 `run_session`。每块记录概率、随机数、恶化量和最佳值，审计会重放随机序列并检查最终导出的相位。`transfer.replay_phases --include-best` 可额外重放历史最低的已接受顺序候选；最终选择应依据当前同曝光重放，而不是运行中一次最低读数。
+
+### 曝光协变量与检查点兼容
+
+`transfer.fit` 默认在 counts/ms 空间使用 `gain*optical + background + bias_counts/exposure_ms`，只在训练相位上拟合三个非负系数。`background` 表示随曝光积累的加性背景（杂散光）项，`bias_counts` 表示曝光无关的 counts 偏置；后者的具体来源仍需独立暗场或响应测量确认。需要多档曝光才能区分两项，单档曝光不能独立识别它们。`--radiometry shared` 可复现旧的两个系数模型。
+
+旧检查点缺省 `bias_counts=0`。新检查点该项非零时，`FrozenDefocusForward.predict(..., exposure_ms=...)` 必须获得当前曝光读回值，也可通过 `forward.exposure_ms` 设置会话协变量；支持单个曝光或每个相位一个曝光。统一验证入口在每块自动测光后更新曝光，离线合成结果同步保存曝光。不要将新模型直接当成与曝光无关的预测器。
+
+整体窗口与目标核心 CV 必须分别检查；模型选择数据不能再次称为独立测试集。修正依据与适用边界见[冷启动 CV 诊断](../../report/shape_trials/cold_start/cv_diagnosis_20261026.md)。
+
 自 2026-10-26 起，统一入口、独立验证 CLI 和 GUI 的 A–B–B–A 均默认关闭，显式 `--abba` 才启用；`--no-abba` 保留兼容。关闭时 `acceptance=model_only`，不能将“模型接受”表述为“通过 CCD 配对验收”。较早段落中的配对流程描述适用于显式启用的情况。GUI 中已有会话保留操作者选择，新会话使用关闭默认值。
 
 使用 `--adaptive-exposure` 或 GUI「运行中自动调整 CCD 曝光（块间）」允许每块前重新测光。启用配对时 A1/B1/B2/A2 使用同一曝光；关闭配对时每块仍先取得新的 CCD 锚定图像。每次测光保存搜索原始帧、相位、时间和曝光读回值。模型锚定图像按每帧读回曝光归一化，但这仍依赖相机响应近似线性，不代表曝光响应已经校准。

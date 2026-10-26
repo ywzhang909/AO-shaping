@@ -1,0 +1,5235 @@
+{
+  "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_20261026_1350",
+  "stages": [
+    {
+      "name": "transport_cv_r2",
+      "config": {
+        "checkpoint": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_20261026_1350\\model640\\frozen_parameters.json",
+        "zero_xy": [
+          1224.0,
+          962.0
+        ],
+        "target_xy": [
+          1225.55595611424,
+          903.8583141840896
+        ],
+        "shapes": [
+          "square"
+        ],
+        "period": 128.0,
+        "side": 1200.0,
+        "window_span": 820.0,
+        "window_step": 4.0,
+        "zero_radius": 60.0,
+        "meter_target": true,
+        "checkpoint_sha256": "6858548d23ade0b42989663b69a6c373741a9bdeb9e542b315a3c6dfc75d0e3a",
+        "script_sha256": "4816affc3329d62fc405f6a71aca7147b803aea55e8e82a7ffc43027b59ee371",
+        "gs_iterations": 0,
+        "initial_phase": "transport",
+        "abba": false,
+        "acceptance": "model_only",
+        "device": "cuda",
+        "device_requested": "cuda",
+        "accept_metric": "loss",
+        "objective": "cv",
+        "seed_provenance": {
+          "square": {
+            "kind": "transport",
+            "gs_calls": 0,
+            "historical_phase": false,
+            "static_correction": true,
+            "side_ccd_px": 1200.0
+          }
+        },
+        "phase_lr": 0.03,
+        "phase_rms_cap": 0.25,
+        "adaptive_step": true,
+        "exposure_policy": "per_block",
+        "camera": "daheng",
+        "cam_id": 0,
+        "slm_number": 1,
+        "wavelength_nm": 1064,
+        "mode": "anchored",
+        "seed_run": null,
+        "blocks": 4,
+        "updates": 15,
+        "frames": 3,
+        "timestamp_utc": "2026-10-26T05:56:39.146307+00:00",
+        "monotonic_ns": 227262251249600
+      },
+      "audit": {
+        "run": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_20261026_1350\\transport_cv_r2",
+        "captures": 8,
+        "raw_frames": 24,
+        "maximum_peak": 255.0,
+        "shapes": [
+          "square"
+        ],
+        "blocks": 4,
+        "accepted_blocks": 4,
+        "acceptance_scopes": [
+          "model_only"
+        ],
+        "exposure_ms": {
+          "square": 59.486
+        },
+        "exposure_history_ms": {
+          "square": [
+            59.486,
+            121.893
+          ]
+        },
+        "file_sha256": {
+          "capture_0000.npz": "65e1ee5d1cbcc6afe23351269e417e90cb6e8c47379fd64aaf2d676dc87c4d93",
+          "capture_0001.npz": "1ac440da7095cc9c3613938192ef0c60d26778c79e9f00efaca396bb87e327e3",
+          "capture_0002.npz": "7dc6fd0d1932ca38c76fb8d94ee4f71168efe977d4ccb234b1c2ea8b32cbe2f9",
+          "capture_0003.npz": "00f2df387d6534d54ccd898e1e2747c2fb79c23f603aa7a01b7e1c7906e0acdc",
+          "capture_0004.npz": "2dc465cf46385fbc86fa01c9bc4512d8a60c6b425bb767e62a9a373e1a59cf27",
+          "capture_0005.npz": "4bee1204eb79ee3ce6ed94f83c0373398c6162a589d5c6aefcf54243895feea9",
+          "capture_0006.npz": "209cacccc4bfc6e80a811a9047c7811f5fa868755edb9f42d3bfc21d52375819",
+          "capture_0007.npz": "7991e23bfc0d4ee43bdc279e5e2e8dc64541c36ab0c9b04e444e8af77db2c3a3"
+        },
+        "status": "passed",
+        "timestamp_scope": "host calls, not sensor exposure triggers"
+      },
+      "measurements": [
+        {
+          "label": "square_seed",
+          "file": "capture_0000.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T05:57:03.664834+00:00",
+              "monotonic_ns": 227286769859800,
+              "end_monotonic_ns": 227286775342200,
+              "exposure_ms": 59.486
+            },
+            {
+              "timestamp_utc": "2026-10-26T05:57:03.673591+00:00",
+              "monotonic_ns": 227286778605500,
+              "end_monotonic_ns": 227286784083100,
+              "exposure_ms": 59.486
+            },
+            {
+              "timestamp_utc": "2026-10-26T05:57:03.684122+00:00",
+              "monotonic_ns": 227286789141100,
+              "end_monotonic_ns": 227286842167100,
+              "exposure_ms": 59.486
+            }
+          ],
+          "metrics": {
+            "cv": 1.4247508774451627,
+            "mean": 3.7613617621902344,
+            "ee_roi": 0.7836827966649238,
+            "target_peak": 255.0
+          },
+          "per_frame": [
+            {
+              "cv": 1.4276663062664379,
+              "mean": 3.757741033518589,
+              "ee_roi": 0.7842998959674149,
+              "target_peak": 255.0
+            },
+            {
+              "cv": 1.4282585858185148,
+              "mean": 3.758178282531902,
+              "ee_roi": 0.7843854948038326,
+              "target_peak": 255.0
+            },
+            {
+              "cv": 1.4256492327111887,
+              "mean": 3.768165970520211,
+              "ee_roi": 0.7823696956806785,
+              "target_peak": 255.0
+            }
+          ],
+          "peak": 255.0,
+          "core_peak": 95.66666666666667,
+          "saturation_pixels": 937,
+          "exposure_ms": 59.486,
+          "timestamp_utc": "2026-10-26T05:57:03.890330+00:00",
+          "monotonic_ns": 227286995339600,
+          "loss": 2.0299148559570312
+        },
+        {
+          "label": "square_0_A1",
+          "file": "capture_0001.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T05:57:06.890144+00:00",
+              "monotonic_ns": 227289995178300,
+              "end_monotonic_ns": 227290000169500,
+              "exposure_ms": 59.486
+            },
+            {
+              "timestamp_utc": "2026-10-26T05:57:06.900292+00:00",
+              "monotonic_ns": 227290005318100,
+              "end_monotonic_ns": 227290059323900,
+              "exposure_ms": 59.486
+            },
+            {
+              "timestamp_utc": "2026-10-26T05:57:06.959567+00:00",
+              "monotonic_ns": 227290064597800,
+              "end_monotonic_ns": 227290118811300,
+              "exposure_ms": 59.486
+            }
+          ],
+          "metrics": {
+            "cv": 1.4147708270160895,
+            "mean": 3.79125578683727,
+            "ee_roi": 0.7745777741948486,
+            "target_peak": 255.0
+          },
+          "per_frame": [
+            {
+              "cv": 1.4182747254663302,
+              "mean": 3.7952178765807125,
+              "ee_roi": 0.7746611352374049,
+              "target_peak": 255.0
+            },
+            {
+              "cv": 1.417226431018641,
+              "mean": 3.790511696411106,
+              "ee_roi": 0.774665410967781,
+              "target_peak": 255.0
+            },
+            {
+              "cv": 1.4161257871220514,
+              "mean": 3.7880377875199924,
+              "ee_roi": 0.7744066203558657,
+              "target_peak": 255.0
+            }
+          ],
+          "peak": 255.0,
+          "core_peak": 97.66666666666667,
+          "saturation_pixels": 932,
+          "exposure_ms": 59.486,
+          "timestamp_utc": "2026-10-26T05:57:07.147135+00:00",
+          "monotonic_ns": 227290252170300,
+          "loss": 2.0015761852264404
+        },
+        {
+          "label": "square_1_A1",
+          "file": "capture_0002.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T05:57:17.872336+00:00",
+              "monotonic_ns": 227300977395900,
+              "end_monotonic_ns": 227300980170900,
+              "exposure_ms": 59.486
+            },
+            {
+              "timestamp_utc": "2026-10-26T05:57:17.877936+00:00",
+              "monotonic_ns": 227300982978300,
+              "end_monotonic_ns": 227301020712000,
+              "exposure_ms": 59.486
+            },
+            {
+              "timestamp_utc": "2026-10-26T05:57:17.919938+00:00",
+              "monotonic_ns": 227301024973100,
+              "end_monotonic_ns": 227301080106800,
+              "exposure_ms": 59.486
+            }
+          ],
+          "metrics": {
+            "cv": 1.2193976827785855,
+            "mean": 3.708485315720636,
+            "ee_roi": 0.7785699235168215,
+            "target_peak": 255.0
+          },
+          "per_frame": [
+            {
+              "cv": 1.221544809790637,
+              "mean": 3.7122211099221007,
+              "ee_roi": 0.7787595909628862,
+              "target_peak": 255.0
+            },
+            {
+              "cv": 1.2229660026698268,
+              "mean": 3.7064103006662292,
+              "ee_roi": 0.7786754799315477,
+              "target_peak": 255.0
+            },
+            {
+              "cv": 1.2225427490683023,
+              "mean": 3.7068245365735786,
+              "ee_roi": 0.7782746214893778,
+              "target_peak": 255.0
+            }
+          ],
+          "peak": 255.0,
+          "core_peak": 78.66666666666667,
+          "saturation_pixels": 956,
+          "exposure_ms": 59.486,
+          "timestamp_utc": "2026-10-26T05:57:18.044574+00:00",
+          "monotonic_ns": 227301149614100,
+          "loss": 1.4869304895401
+        },
+        {
+          "label": "square_2_A1",
+          "file": "capture_0003.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T05:57:28.483829+00:00",
+              "monotonic_ns": 227311588925800,
+              "end_monotonic_ns": 227311592312300,
+              "exposure_ms": 121.893
+            },
+            {
+              "timestamp_utc": "2026-10-26T05:57:28.490016+00:00",
+              "monotonic_ns": 227311595086800,
+              "end_monotonic_ns": 227311626239100,
+              "exposure_ms": 121.893
+            },
+            {
+              "timestamp_utc": "2026-10-26T05:57:28.525362+00:00",
+              "monotonic_ns": 227311630428300,
+              "end_monotonic_ns": 227311747941300,
+              "exposure_ms": 121.893
+            }
+          ],
+          "metrics": {
+            "cv": 1.1621804393699857,
+            "mean": 6.561999225225432,
+            "ee_roi": 0.8029278982708832,
+            "target_peak": 255.0
+          },
+          "per_frame": [
+            {
+              "cv": 1.16355503382085,
+              "mean": 6.563625484713544,
+              "ee_roi": 0.8030114272098131,
+              "target_peak": 255.0
+            },
+            {
+              "cv": 1.1630822698808891,
+              "mean": 6.561485265858907,
+              "ee_roi": 0.8026654272542137,
+              "target_peak": 255.0
+            },
+            {
+              "cv": 1.1644890728582857,
+              "mean": 6.560886925103847,
+              "ee_roi": 0.8031070356681889,
+              "target_peak": 255.0
+            }
+          ],
+          "peak": 255.0,
+          "core_peak": 144.0,
+          "saturation_pixels": 1902,
+          "exposure_ms": 121.893,
+          "timestamp_utc": "2026-10-26T05:57:28.723205+00:00",
+          "monotonic_ns": 227311828290900,
+          "loss": 1.350663423538208
+        },
+        {
+          "label": "square_3_A1",
+          "file": "capture_0004.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T05:57:35.377535+00:00",
+              "monotonic_ns": 227318482630700,
+              "end_monotonic_ns": 227318485235700,
+              "exposure_ms": 121.893
+            },
+            {
+              "timestamp_utc": "2026-10-26T05:57:35.383822+00:00",
+              "monotonic_ns": 227318488912000,
+              "end_monotonic_ns": 227318578031100,
+              "exposure_ms": 121.893
+            },
+            {
+              "timestamp_utc": "2026-10-26T05:57:35.476622+00:00",
+              "monotonic_ns": 227318581701800,
+              "end_monotonic_ns": 227318701101100,
+              "exposure_ms": 121.893
+            }
+          ],
+          "metrics": {
+            "cv": 1.036408377674416,
+            "mean": 6.33545821011733,
+            "ee_roi": 0.7931373419547274,
+            "target_peak": 255.0
+          },
+          "per_frame": [
+            {
+              "cv": 1.0373347294239712,
+              "mean": 6.336865845098783,
+              "ee_roi": 0.7931821253388665,
+              "target_peak": 255.0
+            },
+            {
+              "cv": 1.0381534383650228,
+              "mean": 6.337245561347188,
+              "ee_roi": 0.7931098444799525,
+              "target_peak": 255.0
+            },
+            {
+              "cv": 1.0390087910234862,
+              "mean": 6.332263223906015,
+              "ee_roi": 0.7931200451874922,
+              "target_peak": 255.0
+            }
+          ],
+          "peak": 255.0,
+          "core_peak": 133.33333333333334,
+          "saturation_pixels": 1854,
+          "exposure_ms": 121.893,
+          "timestamp_utc": "2026-10-26T05:57:35.651618+00:00",
+          "monotonic_ns": 227318756703600,
+          "loss": 1.074142336845398
+        },
+        {
+          "label": "square_final_adaptive",
+          "file": "capture_0005.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T05:57:39.316143+00:00",
+              "monotonic_ns": 227322421263500,
+              "end_monotonic_ns": 227322423695000,
+              "exposure_ms": 121.893
+            },
+            {
+              "timestamp_utc": "2026-10-26T05:57:39.322309+00:00",
+              "monotonic_ns": 227322427397700,
+              "end_monotonic_ns": 227322481357800,
+              "exposure_ms": 121.893
+            },
+            {
+              "timestamp_utc": "2026-10-26T05:57:39.379986+00:00",
+              "monotonic_ns": 227322485073800,
+              "end_monotonic_ns": 227322603539000,
+              "exposure_ms": 121.893
+            }
+          ],
+          "metrics": {
+            "cv": 0.879014816011998,
+            "mean": 6.195676604492927,
+            "ee_roi": 0.792502984451888,
+            "target_peak": 255.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.8814243967213404,
+              "mean": 6.196129195576881,
+              "ee_roi": 0.7925359984469794,
+              "target_peak": 255.0
+            },
+            {
+              "cv": 0.8814574499890303,
+              "mean": 6.192585177258449,
+              "ee_roi": 0.7925180278258082,
+              "target_peak": 255.0
+            },
+            {
+              "cv": 0.8805730583684538,
+              "mean": 6.198315440643446,
+              "ee_roi": 0.7924549552605796,
+              "target_peak": 255.0
+            }
+          ],
+          "peak": 255.0,
+          "core_peak": 107.33333333333333,
+          "saturation_pixels": 1850,
+          "exposure_ms": 121.893,
+          "timestamp_utc": "2026-10-26T05:57:39.555487+00:00",
+          "monotonic_ns": 227322660575800,
+          "loss": 0.7726671695709229
+        },
+        {
+          "label": "square_seed_replay",
+          "file": "capture_0006.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T05:57:42.154872+00:00",
+              "monotonic_ns": 227325260000500,
+              "end_monotonic_ns": 227325263007500,
+              "exposure_ms": 59.486
+            },
+            {
+              "timestamp_utc": "2026-10-26T05:57:42.161201+00:00",
+              "monotonic_ns": 227325266302200,
+              "end_monotonic_ns": 227325310239300,
+              "exposure_ms": 59.486
+            },
+            {
+              "timestamp_utc": "2026-10-26T05:57:42.208773+00:00",
+              "monotonic_ns": 227325313869700,
+              "end_monotonic_ns": 227325370066800,
+              "exposure_ms": 59.486
+            }
+          ],
+          "metrics": {
+            "cv": 1.4331036331963358,
+            "mean": 3.745179713179989,
+            "ee_roi": 0.7802360045162543,
+            "target_peak": 255.0
+          },
+          "per_frame": [
+            {
+              "cv": 1.4364873971671304,
+              "mean": 3.7458202446293165,
+              "ee_roi": 0.7801184101982276,
+              "target_peak": 255.0
+            },
+            {
+              "cv": 1.436030905095821,
+              "mean": 3.745256423533202,
+              "ee_roi": 0.7800203490301033,
+              "target_peak": 255.0
+            },
+            {
+              "cv": 1.434096137927965,
+              "mean": 3.7444624713774495,
+              "ee_roi": 0.780569551318947,
+              "target_peak": 255.0
+            }
+          ],
+          "peak": 255.0,
+          "core_peak": 104.66666666666667,
+          "saturation_pixels": 858,
+          "exposure_ms": 59.486,
+          "timestamp_utc": "2026-10-26T05:57:42.324806+00:00",
+          "monotonic_ns": 227325429909000,
+          "loss": 2.053786277770996
+        },
+        {
+          "label": "square_final",
+          "file": "capture_0007.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T05:57:44.862458+00:00",
+              "monotonic_ns": 227327967592300,
+              "end_monotonic_ns": 227327971058900,
+              "exposure_ms": 59.486
+            },
+            {
+              "timestamp_utc": "2026-10-26T05:57:44.868156+00:00",
+              "monotonic_ns": 227327973262100,
+              "end_monotonic_ns": 227327992544300,
+              "exposure_ms": 59.486
+            },
+            {
+              "timestamp_utc": "2026-10-26T05:57:44.891204+00:00",
+              "monotonic_ns": 227327996317800,
+              "end_monotonic_ns": 227328052293000,
+              "exposure_ms": 59.486
+            }
+          ],
+          "metrics": {
+            "cv": 0.8201150405787859,
+            "mean": 3.2739288358053242,
+            "ee_roi": 0.7484368942814541,
+            "target_peak": 255.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.8248284081204856,
+              "mean": 3.2756279701289883,
+              "ee_roi": 0.7484379559227454,
+              "target_peak": 255.0
+            },
+            {
+              "cv": 0.8258881350425781,
+              "mean": 3.27330364642664,
+              "ee_roi": 0.7483868943916528,
+              "target_peak": 255.0
+            },
+            {
+              "cv": 0.8257297218463326,
+              "mean": 3.2728548908603448,
+              "ee_roi": 0.7484858506393344,
+              "target_peak": 255.0
+            }
+          ],
+          "peak": 255.0,
+          "core_peak": 60.0,
+          "saturation_pixels": 886,
+          "exposure_ms": 59.486,
+          "timestamp_utc": "2026-10-26T05:57:45.024099+00:00",
+          "monotonic_ns": 227328129207300,
+          "loss": 0.672588586807251
+        }
+      ],
+      "endpoints": [
+        {
+          "label": "square_seed_replay",
+          "exposure_ms": 59.486,
+          "sparse_cv": 1.4331036331963358,
+          "full_resolution_cv": 1.433443632459402,
+          "native_mean": 3.744514250865868,
+          "native_peak": 106.66666666666667,
+          "full_resolution_pixels": 1390512,
+          "bit_depth": 8,
+          "saturated_core_pixels": 0,
+          "model_core_cv": 0.00406675785779953,
+          "model_core_mean_equivalent_counts_per_ms": 0.5585101246833801,
+          "measured_core_mean_equivalent_counts_per_ms": 0.06295901074504909,
+          "model_core_correlation": -0.023591935366298205
+        },
+        {
+          "label": "square_final",
+          "exposure_ms": 59.486,
+          "sparse_cv": 0.8201150405787859,
+          "full_resolution_cv": 0.8192181938708314,
+          "native_mean": 3.2704246109826207,
+          "native_peak": 61.666666666666664,
+          "full_resolution_pixels": 1390512,
+          "bit_depth": 8,
+          "saturated_core_pixels": 0,
+          "model_core_cv": 0.05767134577035904,
+          "model_core_mean_equivalent_counts_per_ms": 0.5575767159461975,
+          "measured_core_mean_equivalent_counts_per_ms": 0.05503696392101209,
+          "model_core_correlation": -0.33818188650170894,
+          "zero_exclusion_sensitivity": {
+            "0": 1.6095118572129248,
+            "20": 0.8841901324982577,
+            "40": 0.8178251127251094,
+            "60": 0.8192030399494232,
+            "80": 0.8207816085140617
+          }
+        }
+      ],
+      "iterations": 60
+    },
+    {
+      "name": "mono12_cv",
+      "config": {
+        "checkpoint": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_20261026_1350\\model640\\frozen_parameters.json",
+        "zero_xy": [
+          1224.0,
+          962.0
+        ],
+        "target_xy": [
+          1225.55595611424,
+          903.8583141840896
+        ],
+        "shapes": [
+          "square"
+        ],
+        "period": 128.0,
+        "side": 1200.0,
+        "window_span": 820.0,
+        "window_step": 4.0,
+        "zero_radius": 60.0,
+        "meter_target": true,
+        "bit_depth": 12,
+        "full_scale": 4095.0,
+        "counts_scale": 16.0,
+        "checkpoint_sha256": "6858548d23ade0b42989663b69a6c373741a9bdeb9e542b315a3c6dfc75d0e3a",
+        "script_sha256": "c41c2494ade31670d47f6f615de6b1bb816871d8976e153aa849f83b28158a31",
+        "gs_iterations": 0,
+        "initial_phase": "gs",
+        "abba": false,
+        "acceptance": "model_only",
+        "device": "cuda",
+        "device_requested": "cuda",
+        "accept_metric": "cv",
+        "objective": "cv",
+        "seed_provenance": {
+          "square": {
+            "policy": "strict",
+            "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_20261026_1350\\transport_cv_r2",
+            "label": "square_final",
+            "gs_calls": 0
+          }
+        },
+        "phase_lr": 0.025,
+        "phase_rms_cap": 0.2,
+        "adaptive_step": true,
+        "exposure_policy": "per_block",
+        "camera": "daheng",
+        "cam_id": 0,
+        "slm_number": 1,
+        "wavelength_nm": 1064,
+        "mode": "anchored",
+        "seed_run": "data\\debug\\slm_transfer\\square1200_20261026_1350\\transport_cv_r2",
+        "blocks": 8,
+        "updates": 20,
+        "frames": 3,
+        "timestamp_utc": "2026-10-26T06:01:03.134539+00:00",
+        "monotonic_ns": 227526240156000
+      },
+      "audit": {
+        "run": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_20261026_1350\\mono12_cv",
+        "captures": 20,
+        "raw_frames": 60,
+        "maximum_peak": 4095.0,
+        "shapes": [
+          "square"
+        ],
+        "blocks": 8,
+        "accepted_blocks": 8,
+        "acceptance_scopes": [
+          "sequential_ccd"
+        ],
+        "exposure_ms": {
+          "square": 102.498
+        },
+        "exposure_history_ms": {
+          "square": [
+            102.498,
+            187.938
+          ]
+        },
+        "file_sha256": {
+          "capture_0000.npz": "0ef5baddd88900dda5c7b776d5d45225eaab676bc5375a26a96c0b93485014f9",
+          "capture_0001.npz": "78189812e10a19b400077ff7312201faa4c60b3fea31132c9582e743d5362526",
+          "capture_0002.npz": "641b40509a4deaabe17e242e712ce1a70ec18fd368ccd12feaf465e7b4ebb5b7",
+          "capture_0003.npz": "198bd4433f45dbb97cc8c57dbd91b8844fd0b059259bccc3e7873b61983f7eed",
+          "capture_0004.npz": "b97d231c2bcdc717e600833b5b3cc54e9564901c7f74ec6375002b999f6d91b3",
+          "capture_0005.npz": "e5d0e2ed435aa9669b068ce1b875a1d37ad9ff2abf55255d1345972e37fda7c2",
+          "capture_0006.npz": "c3d43b749f9748728775ac281939668aa553723a1b0f4d3c5830b63c49c3fc97",
+          "capture_0007.npz": "09d14d47ee3ccdc084b12cc9b943793d83117f043f2118ed1d143ce2167725ae",
+          "capture_0008.npz": "2313ef97836382b687722174acdbeca9e8dbdf5b0553f4e6a9766a45b5891d51",
+          "capture_0009.npz": "259fe644ba3cd4f1883f276b7dc2d79caf20b59b8c111bf9c43887a1c5487398",
+          "capture_0010.npz": "b5e1efdec30c1f6311332203353db1555db52196e03483af663e3004e10a7ae6",
+          "capture_0011.npz": "44719a3088732a9b21c1cf59cd687172e89905d7e2a38f88d86441822cdd93fe",
+          "capture_0012.npz": "9c4f3a1787ad94f9c29b6165ce6c388ed15fef1f146643c92043f91ca605fcca",
+          "capture_0013.npz": "4a0fd991388b78109ce2337c5d85c065a2324f66cfad29c8d5f5352d4f3ac3ab",
+          "capture_0014.npz": "99e4fd1d12851f7c16d55b78fe0cdba1867b850387166f857f7731ca5409bca8",
+          "capture_0015.npz": "8ad948326d05b41d045ad0b8da782de95b6742544ac5e654996d07d83dc8dc50",
+          "capture_0016.npz": "7ca3b5bd649e663821a3b5b53df2420f4a40c4d468b50b4135434d09ce5ba0e1",
+          "capture_0017.npz": "d8b8ef69893a079c172b7e54b6a0c9d1b37ab442c0cf3d6c7e7416f32121a47c",
+          "capture_0018.npz": "d795fcf7dc56ea72ea79aaa880083a50372d2f4721bc4ce95b9e3ae1d9bdc8b5",
+          "capture_0019.npz": "442b98d42a122df9c3191a10249054a416fb0bda8d86cf3bcedb1043bdead252"
+        },
+        "status": "passed",
+        "timestamp_scope": "host calls, not sensor exposure triggers"
+      },
+      "measurements": [
+        {
+          "label": "square_seed",
+          "file": "capture_0000.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:01:29.517680+00:00",
+              "monotonic_ns": 227552623371900,
+              "end_monotonic_ns": 227552628115800,
+              "exposure_ms": 102.498
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:01:29.525135+00:00",
+              "monotonic_ns": 227552630826100,
+              "end_monotonic_ns": 227552654183100,
+              "exposure_ms": 102.498
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:01:29.552155+00:00",
+              "monotonic_ns": 227552657844400,
+              "end_monotonic_ns": 227552757304800,
+              "exposure_ms": 102.498
+            }
+          ],
+          "metrics": {
+            "cv": 0.8657805617479545,
+            "mean": 99.21923435396458,
+            "ee_roi": 0.7719349643934015,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.867289947272873,
+              "mean": 99.13846985858446,
+              "ee_roi": 0.7719709501328378,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.8670987616026901,
+              "mean": 99.24762102017098,
+              "ee_roi": 0.7719379865208413,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.8671992551014891,
+              "mean": 99.2716121831383,
+              "ee_roi": 0.7718960014677481,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1748.6666666666667,
+          "saturation_pixels": 1441,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 102.498,
+          "timestamp_utc": "2026-10-26T06:01:29.725037+00:00",
+          "monotonic_ns": 227552830729100,
+          "loss": 0.7495759129524231
+        },
+        {
+          "label": "square_0_A1",
+          "file": "capture_0001.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:01:32.998281+00:00",
+              "monotonic_ns": 227556104004000,
+              "end_monotonic_ns": 227556108844400,
+              "exposure_ms": 102.498
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:01:33.005978+00:00",
+              "monotonic_ns": 227556111673900,
+              "end_monotonic_ns": 227556142138500,
+              "exposure_ms": 102.498
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:01:33.039984+00:00",
+              "monotonic_ns": 227556145680600,
+              "end_monotonic_ns": 227556244326300,
+              "exposure_ms": 102.498
+            }
+          ],
+          "metrics": {
+            "cv": 0.8666610016462147,
+            "mean": 99.23723443834598,
+            "ee_roi": 0.7718075685911264,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.8683903691867906,
+              "mean": 99.25920811902378,
+              "ee_roi": 0.7719407417583628,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.8674846578968837,
+              "mean": 99.25312115249635,
+              "ee_roi": 0.7719486652220778,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.8682036988299476,
+              "mean": 99.19937404351778,
+              "ee_roi": 0.7715333016517715,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1736.0,
+          "saturation_pixels": 1461,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 102.498,
+          "timestamp_utc": "2026-10-26T06:01:33.205644+00:00",
+          "monotonic_ns": 227556311342300,
+          "loss": 0.7511011958122253
+        },
+        {
+          "label": "square_0_B",
+          "file": "capture_0002.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:01:39.344771+00:00",
+              "monotonic_ns": 227562450495100,
+              "end_monotonic_ns": 227562455500400,
+              "exposure_ms": 102.498
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:01:39.352624+00:00",
+              "monotonic_ns": 227562458371400,
+              "end_monotonic_ns": 227562503191000,
+              "exposure_ms": 102.498
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:01:39.401178+00:00",
+              "monotonic_ns": 227562506891800,
+              "end_monotonic_ns": 227562605593500,
+              "exposure_ms": 102.498
+            }
+          ],
+          "metrics": {
+            "cv": 0.7060615012598891,
+            "mean": 94.92848677321734,
+            "ee_roi": 0.7623846318309246,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.7074884151104353,
+              "mean": 94.93108725419127,
+              "ee_roi": 0.7623561841613434,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.7079687030991473,
+              "mean": 94.96725235021344,
+              "ee_roi": 0.7623584071614595,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.7075240304458214,
+              "mean": 94.88712071524733,
+              "ee_roi": 0.7624393377771773,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1480.3333333333333,
+          "saturation_pixels": 1437,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 102.498,
+          "timestamp_utc": "2026-10-26T06:01:39.579867+00:00",
+          "monotonic_ns": 227562685587900,
+          "loss": 0.4985228478908539
+        },
+        {
+          "label": "square_1_A1",
+          "file": "capture_0003.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:01:47.218614+00:00",
+              "monotonic_ns": 227570324353900,
+              "end_monotonic_ns": 227570329735500,
+              "exposure_ms": 102.498
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:01:47.226929+00:00",
+              "monotonic_ns": 227570332660800,
+              "end_monotonic_ns": 227570402331400,
+              "exposure_ms": 102.498
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:01:47.300743+00:00",
+              "monotonic_ns": 227570406478900,
+              "end_monotonic_ns": 227570505271400,
+              "exposure_ms": 102.498
+            }
+          ],
+          "metrics": {
+            "cv": 0.7041805189955572,
+            "mean": 94.32657131569763,
+            "ee_roi": 0.761758548723979,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.7057639582484574,
+              "mean": 94.31770743438388,
+              "ee_roi": 0.7617807330050154,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.7062549224138222,
+              "mean": 94.33960440470848,
+              "ee_roi": 0.7617208314574436,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.7053502268142513,
+              "mean": 94.3224021080005,
+              "ee_roi": 0.761774096763215,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1480.0,
+          "saturation_pixels": 1426,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 102.498,
+          "timestamp_utc": "2026-10-26T06:01:47.468433+00:00",
+          "monotonic_ns": 227570574184300,
+          "loss": 0.4958702325820923
+        },
+        {
+          "label": "square_1_B",
+          "file": "capture_0004.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:01:52.369119+00:00",
+              "monotonic_ns": 227575474891400,
+              "end_monotonic_ns": 227575482823300,
+              "exposure_ms": 102.498
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:01:52.380263+00:00",
+              "monotonic_ns": 227575486052700,
+              "end_monotonic_ns": 227575534412100,
+              "exposure_ms": 102.498
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:01:52.432743+00:00",
+              "monotonic_ns": 227575538498100,
+              "end_monotonic_ns": 227575636694100,
+              "exposure_ms": 102.498
+            }
+          ],
+          "metrics": {
+            "cv": 0.590470278847714,
+            "mean": 92.21557910563399,
+            "ee_roi": 0.7599046884181898,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.5926824573659006,
+              "mean": 92.15606337809382,
+              "ee_roi": 0.7599455928483407,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5919799085008168,
+              "mean": 92.22124800073642,
+              "ee_roi": 0.7595804981093041,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5927917141000044,
+              "mean": 92.26942593807173,
+              "ee_roi": 0.7601880839183646,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1127.0,
+          "saturation_pixels": 1510,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 102.498,
+          "timestamp_utc": "2026-10-26T06:01:52.645010+00:00",
+          "monotonic_ns": 227575750774600,
+          "loss": 0.3486551344394684
+        },
+        {
+          "label": "square_2_A1",
+          "file": "capture_0005.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:02:01.161441+00:00",
+              "monotonic_ns": 227584267219800,
+              "end_monotonic_ns": 227584272245900,
+              "exposure_ms": 102.498
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:02:01.169096+00:00",
+              "monotonic_ns": 227584274868500,
+              "end_monotonic_ns": 227584355909600,
+              "exposure_ms": 102.498
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:02:01.253608+00:00",
+              "monotonic_ns": 227584359382700,
+              "end_monotonic_ns": 227584458700300,
+              "exposure_ms": 102.498
+            }
+          ],
+          "metrics": {
+            "cv": 0.5872906086276514,
+            "mean": 92.15129199412398,
+            "ee_roi": 0.7589852817782398,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.5893246870425475,
+              "mean": 92.16667241994315,
+              "ee_roi": 0.7590679964535034,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5896988383853878,
+              "mean": 92.16432508313484,
+              "ee_roi": 0.7589634792564682,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5888182410074536,
+              "mean": 92.12287847929396,
+              "ee_roi": 0.758924356093989,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1051.3333333333333,
+          "saturation_pixels": 1503,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 102.498,
+          "timestamp_utc": "2026-10-26T06:02:01.426608+00:00",
+          "monotonic_ns": 227584532398000,
+          "loss": 0.34491026401519775
+        },
+        {
+          "label": "square_2_B",
+          "file": "capture_0006.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:02:06.452097+00:00",
+              "monotonic_ns": 227589557886700,
+              "end_monotonic_ns": 227589562492500,
+              "exposure_ms": 102.498
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:02:06.458936+00:00",
+              "monotonic_ns": 227589564721200,
+              "end_monotonic_ns": 227589587219000,
+              "exposure_ms": 102.498
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:02:06.485377+00:00",
+              "monotonic_ns": 227589591159400,
+              "end_monotonic_ns": 227589690446100,
+              "exposure_ms": 102.498
+            }
+          ],
+          "metrics": {
+            "cv": 0.5140688205150307,
+            "mean": 90.97346205330602,
+            "ee_roi": 0.7627987431511573,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.5162273675304381,
+              "mean": 91.00177200915921,
+              "ee_roi": 0.762865133130019,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5163334883091606,
+              "mean": 90.9530877834927,
+              "ee_roi": 0.7627558134651946,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5164304556086065,
+              "mean": 90.96552636726616,
+              "ee_roi": 0.7627752615106586,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 970.0,
+          "saturation_pixels": 1459,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 102.498,
+          "timestamp_utc": "2026-10-26T06:02:06.646216+00:00",
+          "monotonic_ns": 227589752002200,
+          "loss": 0.2642667889595032
+        },
+        {
+          "label": "square_3_A1",
+          "file": "capture_0007.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:02:17.176129+00:00",
+              "monotonic_ns": 227600281957300,
+              "end_monotonic_ns": 227600286285500,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:02:17.182678+00:00",
+              "monotonic_ns": 227600288486800,
+              "end_monotonic_ns": 227600305992400,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:02:17.203871+00:00",
+              "monotonic_ns": 227600309693000,
+              "end_monotonic_ns": 227600494026600,
+              "exposure_ms": 187.938
+            }
+          ],
+          "metrics": {
+            "cv": 0.5693878221026109,
+            "mean": 153.07831359959496,
+            "ee_roi": 0.7882056782856607,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.5704663284219117,
+              "mean": 153.03586592564466,
+              "ee_roi": 0.7881387786909455,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5711220506815947,
+              "mean": 153.00124270772204,
+              "ee_roi": 0.7882128295998705,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5705860015524388,
+              "mean": 153.19783216541822,
+              "ee_roi": 0.7882653718537445,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 2185.3333333333335,
+          "saturation_pixels": 2707,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 187.938,
+          "timestamp_utc": "2026-10-26T06:02:17.449136+00:00",
+          "monotonic_ns": 227600554949000,
+          "loss": 0.32420244812965393
+        },
+        {
+          "label": "square_3_B",
+          "file": "capture_0008.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:02:22.263197+00:00",
+              "monotonic_ns": 227605369022700,
+              "end_monotonic_ns": 227605374057900,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:02:22.270550+00:00",
+              "monotonic_ns": 227605376370700,
+              "end_monotonic_ns": 227605382608500,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:02:22.280266+00:00",
+              "monotonic_ns": 227605386092000,
+              "end_monotonic_ns": 227605570626500,
+              "exposure_ms": 187.938
+            }
+          ],
+          "metrics": {
+            "cv": 0.5230721157690428,
+            "mean": 152.8347850767679,
+            "ee_roi": 0.7967015530395819,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.5249580444615534,
+              "mean": 152.87063182482424,
+              "ee_roi": 0.7967093859433376,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5244093875724968,
+              "mean": 152.80002761572715,
+              "ee_roi": 0.7965342076201414,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5255563619119433,
+              "mean": 152.83369578975226,
+              "ee_roi": 0.7968610895165824,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 2277.3333333333335,
+          "saturation_pixels": 2685,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 187.938,
+          "timestamp_utc": "2026-10-26T06:02:22.529413+00:00",
+          "monotonic_ns": 227605635254600,
+          "loss": 0.2736043930053711
+        },
+        {
+          "label": "square_4_A1",
+          "file": "capture_0009.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:02:29.574744+00:00",
+              "monotonic_ns": 227612680635100,
+              "end_monotonic_ns": 227612684897800,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:02:29.581253+00:00",
+              "monotonic_ns": 227612687093300,
+              "end_monotonic_ns": 227612715231300,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:02:29.612599+00:00",
+              "monotonic_ns": 227612718441300,
+              "end_monotonic_ns": 227612903222100,
+              "exposure_ms": 187.938
+            }
+          ],
+          "metrics": {
+            "cv": 0.528943412121177,
+            "mean": 153.0797634252707,
+            "ee_roi": 0.7962831752091145,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.5306566318722035,
+              "mean": 153.14964272152991,
+              "ee_roi": 0.7964314015193544,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5297838118312364,
+              "mean": 153.0850564396424,
+              "ee_roi": 0.7962263936845314,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5311518614292101,
+              "mean": 153.0045911146398,
+              "ee_roi": 0.796191640220114,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 2311.6666666666665,
+          "saturation_pixels": 2715,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 187.938,
+          "timestamp_utc": "2026-10-26T06:02:29.860747+00:00",
+          "monotonic_ns": 227612966593100,
+          "loss": 0.27978116273880005
+        },
+        {
+          "label": "square_4_B",
+          "file": "capture_0010.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:02:35.171600+00:00",
+              "monotonic_ns": 227618277466100,
+              "end_monotonic_ns": 227618282541000,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:02:35.179386+00:00",
+              "monotonic_ns": 227618285241000,
+              "end_monotonic_ns": 227618356339300,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:02:35.255295+00:00",
+              "monotonic_ns": 227618361159100,
+              "end_monotonic_ns": 227618543947100,
+              "exposure_ms": 187.938
+            }
+          ],
+          "metrics": {
+            "cv": 0.5076816407790417,
+            "mean": 153.01277227380993,
+            "ee_roi": 0.8039035795121046,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.5087053063754903,
+              "mean": 153.1888685606453,
+              "ee_roi": 0.8041210986576827,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5093420364856752,
+              "mean": 152.9807035106493,
+              "ee_roi": 0.8038934491547232,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5100994862329373,
+              "mean": 152.8687447501352,
+              "ee_roi": 0.8036958386509614,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 2213.0,
+          "saturation_pixels": 2674,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 187.938,
+          "timestamp_utc": "2026-10-26T06:02:35.505017+00:00",
+          "monotonic_ns": 227618610881300,
+          "loss": 0.2577406167984009
+        },
+        {
+          "label": "square_5_A1",
+          "file": "capture_0011.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:02:42.618921+00:00",
+              "monotonic_ns": 227625724806500,
+              "end_monotonic_ns": 227625729922000,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:02:42.629033+00:00",
+              "monotonic_ns": 227625734906700,
+              "end_monotonic_ns": 227625876639800,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:02:42.774220+00:00",
+              "monotonic_ns": 227625880098400,
+              "end_monotonic_ns": 227626064408100,
+              "exposure_ms": 187.938
+            }
+          ],
+          "metrics": {
+            "cv": 0.5126319081405334,
+            "mean": 153.29369709382829,
+            "ee_roi": 0.8045025569960247,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.5142791119774522,
+              "mean": 153.20739411094618,
+              "ee_roi": 0.8045266050581283,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5145832900227649,
+              "mean": 153.38603334599054,
+              "ee_roi": 0.8045572616842466,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5146367764527633,
+              "mean": 153.28766382454808,
+              "ee_roi": 0.8044237904905425,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 2207.0,
+          "saturation_pixels": 2707,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 187.938,
+          "timestamp_utc": "2026-10-26T06:02:43.017615+00:00",
+          "monotonic_ns": 227626123508200,
+          "loss": 0.2627914249897003
+        },
+        {
+          "label": "square_5_B",
+          "file": "capture_0012.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:02:48.714585+00:00",
+              "monotonic_ns": 227631820485700,
+              "end_monotonic_ns": 227631826475600,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:02:48.722790+00:00",
+              "monotonic_ns": 227631828684800,
+              "end_monotonic_ns": 227631894043000,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:02:48.791510+00:00",
+              "monotonic_ns": 227631897406200,
+              "end_monotonic_ns": 227632081686900,
+              "exposure_ms": 187.938
+            }
+          ],
+          "metrics": {
+            "cv": 0.4905416595906536,
+            "mean": 153.32214512831726,
+            "ee_roi": 0.8082979717824175,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.492165445194525,
+              "mean": 153.25274143624793,
+              "ee_roi": 0.8082516707849867,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.49257010250406125,
+              "mean": 153.32943261187245,
+              "ee_roi": 0.8084041703449545,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.49186647618335116,
+              "mean": 153.38426133683132,
+              "ee_roi": 0.8082380906139303,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 2046.0,
+          "saturation_pixels": 2645,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 187.938,
+          "timestamp_utc": "2026-10-26T06:02:49.041667+00:00",
+          "monotonic_ns": 227632147564000,
+          "loss": 0.24063105881214142
+        },
+        {
+          "label": "square_6_A1",
+          "file": "capture_0013.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:02:56.594378+00:00",
+              "monotonic_ns": 227639700304600,
+              "end_monotonic_ns": 227639706254800,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:02:56.602822+00:00",
+              "monotonic_ns": 227639708733800,
+              "end_monotonic_ns": 227639789657400,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:02:56.687312+00:00",
+              "monotonic_ns": 227639793225800,
+              "end_monotonic_ns": 227639977990500,
+              "exposure_ms": 187.938
+            }
+          ],
+          "metrics": {
+            "cv": 0.49550589592263816,
+            "mean": 153.80288891190202,
+            "ee_roi": 0.8085416222152049,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.4967583079204734,
+              "mean": 153.7419540428274,
+              "ee_roi": 0.8084552769460013,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.49702997825206224,
+              "mean": 153.83301690312632,
+              "ee_roi": 0.8085314816909075,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.49730376052831005,
+              "mean": 153.83369578975226,
+              "ee_roi": 0.808638082582531,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 2078.3333333333335,
+          "saturation_pixels": 2675,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 187.938,
+          "timestamp_utc": "2026-10-26T06:02:56.935413+00:00",
+          "monotonic_ns": 227640041334300,
+          "loss": 0.24552610516548157
+        },
+        {
+          "label": "square_6_B",
+          "file": "capture_0014.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:03:03.247826+00:00",
+              "monotonic_ns": 227646353764400,
+              "end_monotonic_ns": 227646359221600,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:03:03.257210+00:00",
+              "monotonic_ns": 227646363144500,
+              "end_monotonic_ns": 227646371573200,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:03:03.269720+00:00",
+              "monotonic_ns": 227646375652400,
+              "end_monotonic_ns": 227646559392800,
+              "exposure_ms": 187.938
+            }
+          ],
+          "metrics": {
+            "cv": 0.4866196028419328,
+            "mean": 154.1925775062231,
+            "ee_roi": 0.8125696385427452,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.488242591026923,
+              "mean": 154.04696974927222,
+              "ee_roi": 0.8125459474656898,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4879200638723371,
+              "mean": 154.19664699046106,
+              "ee_roi": 0.8125470940480207,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.48839281189140527,
+              "mean": 154.3341157789361,
+              "ee_roi": 0.8126158135694918,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1938.6666666666667,
+          "saturation_pixels": 2584,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 187.938,
+          "timestamp_utc": "2026-10-26T06:03:03.528096+00:00",
+          "monotonic_ns": 227646634034500,
+          "loss": 0.23679865896701813
+        },
+        {
+          "label": "square_7_A1",
+          "file": "capture_0015.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:03:10.584415+00:00",
+              "monotonic_ns": 227653690370300,
+              "end_monotonic_ns": 227653694865300,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:03:10.591434+00:00",
+              "monotonic_ns": 227653697382600,
+              "end_monotonic_ns": 227653703056700,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:03:10.600475+00:00",
+              "monotonic_ns": 227653706421300,
+              "end_monotonic_ns": 227653891243100,
+              "exposure_ms": 187.938
+            }
+          ],
+          "metrics": {
+            "cv": 0.48716030888773065,
+            "mean": 154.08079517952143,
+            "ee_roi": 0.8130589674590807,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.4889941273265687,
+              "mean": 154.1115330180538,
+              "ee_roi": 0.8130591028501584,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4887729914638126,
+              "mean": 154.0726293624219,
+              "ee_roi": 0.8129671040680294,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.48876951298237087,
+              "mean": 154.05822315808854,
+              "ee_roi": 0.8131507150567798,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1947.0,
+          "saturation_pixels": 2587,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 187.938,
+          "timestamp_utc": "2026-10-26T06:03:10.844569+00:00",
+          "monotonic_ns": 227653950526100,
+          "loss": 0.23732517659664154
+        },
+        {
+          "label": "square_7_B",
+          "file": "capture_0016.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:03:16.922795+00:00",
+              "monotonic_ns": 227660028768300,
+              "end_monotonic_ns": 227660033437300,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:03:16.929751+00:00",
+              "monotonic_ns": 227660035715600,
+              "end_monotonic_ns": 227660096774400,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:03:16.994767+00:00",
+              "monotonic_ns": 227660100736400,
+              "end_monotonic_ns": 227660283861000,
+              "exposure_ms": 187.938
+            }
+          ],
+          "metrics": {
+            "cv": 0.4681003777949236,
+            "mean": 154.42135462812738,
+            "ee_roi": 0.8145391896893871,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.4698470665029036,
+              "mean": 154.34045588962914,
+              "ee_roi": 0.8145116062209152,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4695226451149914,
+              "mean": 154.3142439619363,
+              "ee_roi": 0.8145564356595532,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.469823361635784,
+              "mean": 154.6093640328167,
+              "ee_roi": 0.8145495146061692,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1588.3333333333333,
+          "saturation_pixels": 2511,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 187.938,
+          "timestamp_utc": "2026-10-26T06:03:17.238131+00:00",
+          "monotonic_ns": 227660344100700,
+          "loss": 0.21911796927452087
+        },
+        {
+          "label": "square_final_adaptive",
+          "file": "capture_0017.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:03:20.302344+00:00",
+              "monotonic_ns": 227663408328800,
+              "end_monotonic_ns": 227663413999100,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:03:20.311411+00:00",
+              "monotonic_ns": 227663417395800,
+              "end_monotonic_ns": 227663481938800,
+              "exposure_ms": 187.938
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:03:20.379445+00:00",
+              "monotonic_ns": 227663485425400,
+              "end_monotonic_ns": 227663668711500,
+              "exposure_ms": 187.938
+            }
+          ],
+          "metrics": {
+            "cv": 0.4679451200436477,
+            "mean": 154.6736664863973,
+            "ee_roi": 0.8148274939827559,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.47004206423454,
+              "mean": 154.67367415743266,
+              "ee_roi": 0.8148595771706295,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.46992840631588545,
+              "mean": 154.6283958714488,
+              "ee_roi": 0.8148545133384498,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.46950794799307727,
+              "mean": 154.71892943031057,
+              "ee_roi": 0.8147684266133225,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1621.0,
+          "saturation_pixels": 2520,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 187.938,
+          "timestamp_utc": "2026-10-26T06:03:20.632335+00:00",
+          "monotonic_ns": 227663738320700,
+          "loss": 0.21897262334823608
+        },
+        {
+          "label": "square_seed_replay",
+          "file": "capture_0018.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:03:24.729492+00:00",
+              "monotonic_ns": 227667835484300,
+              "end_monotonic_ns": 227667840094700,
+              "exposure_ms": 102.498
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:03:24.737798+00:00",
+              "monotonic_ns": 227667843785000,
+              "end_monotonic_ns": 227667848547700,
+              "exposure_ms": 102.498
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:03:24.745790+00:00",
+              "monotonic_ns": 227667851773200,
+              "end_monotonic_ns": 227667943275900,
+              "exposure_ms": 102.498
+            }
+          ],
+          "metrics": {
+            "cv": 0.8629330933201846,
+            "mean": 99.59496166400096,
+            "ee_roi": 0.7689862870451374,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.864101258979418,
+              "mean": 99.44858296800028,
+              "ee_roi": 0.7686089813891007,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.8639883234027392,
+              "mean": 99.61455348821154,
+              "ee_roi": 0.7690424098804565,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.8645956193827733,
+              "mean": 99.72174853579114,
+              "ee_roi": 0.7693068824227862,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1373.0,
+          "saturation_pixels": 1477,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 102.498,
+          "timestamp_utc": "2026-10-26T06:03:24.903131+00:00",
+          "monotonic_ns": 227668009121800,
+          "loss": 0.7446534037590027
+        },
+        {
+          "label": "square_final",
+          "file": "capture_0019.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:03:28.056372+00:00",
+              "monotonic_ns": 227671162377000,
+              "end_monotonic_ns": 227671166889900,
+              "exposure_ms": 102.498
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:03:28.064011+00:00",
+              "monotonic_ns": 227671170005700,
+              "end_monotonic_ns": 227671226033400,
+              "exposure_ms": 102.498
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:03:28.123827+00:00",
+              "monotonic_ns": 227671229851500,
+              "end_monotonic_ns": 227671328749500,
+              "exposure_ms": 102.498
+            }
+          ],
+          "metrics": {
+            "cv": 0.4322621290942306,
+            "mean": 91.71796671537774,
+            "ee_roi": 0.7856674443584127,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.4350268388132989,
+              "mean": 91.71061019250463,
+              "ee_roi": 0.7856744174873224,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4352439989307352,
+              "mean": 91.73608570080661,
+              "ee_roi": 0.7857020324672643,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4350223450126652,
+              "mean": 91.70720425282198,
+              "ee_roi": 0.7856258763717967,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 818.6666666666666,
+          "saturation_pixels": 1324,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 102.498,
+          "timestamp_utc": "2026-10-26T06:03:28.297780+00:00",
+          "monotonic_ns": 227671403779600,
+          "loss": 0.18685054779052734
+        }
+      ],
+      "endpoints": [
+        {
+          "label": "square_seed_replay",
+          "exposure_ms": 102.498,
+          "sparse_cv": 0.8629330933201846,
+          "full_resolution_cv": 0.8613857398550934,
+          "native_mean": 99.54006054364626,
+          "native_peak": 1391.6666666666667,
+          "full_resolution_pixels": 1390512,
+          "bit_depth": 12,
+          "saturated_core_pixels": 0,
+          "model_core_cv": 0.05811765789985657,
+          "model_core_mean_equivalent_counts_per_ms": 0.553294837474823,
+          "measured_core_mean_equivalent_counts_per_ms": 0.06072982013307635,
+          "model_core_correlation": 0.01794275464433422
+        },
+        {
+          "label": "square_final",
+          "exposure_ms": 102.498,
+          "sparse_cv": 0.4322621290942306,
+          "full_resolution_cv": 0.43216543703222704,
+          "native_mean": 91.72839237153893,
+          "native_peak": 827.0,
+          "full_resolution_pixels": 1390512,
+          "bit_depth": 12,
+          "saturated_core_pixels": 0,
+          "model_core_cv": 0.08235207945108414,
+          "model_core_mean_equivalent_counts_per_ms": 0.5510264039039612,
+          "measured_core_mean_equivalent_counts_per_ms": 0.055926680712902764,
+          "model_core_correlation": -0.27657689144266145,
+          "zero_exclusion_sensitivity": {
+            "0": 1.0732933323867009,
+            "20": 0.5325858924039013,
+            "40": 0.4331243571429727,
+            "60": 0.4321644001668414,
+            "80": 0.43175045440928433
+          }
+        }
+      ],
+      "iterations": 160
+    },
+    {
+      "name": "mono12_continue",
+      "config": {
+        "checkpoint": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_20261026_1350\\model640\\frozen_parameters.json",
+        "zero_xy": [
+          1224.0,
+          962.0
+        ],
+        "target_xy": [
+          1225.55595611424,
+          903.8583141840896
+        ],
+        "shapes": [
+          "square"
+        ],
+        "period": 128.0,
+        "side": 1200.0,
+        "window_span": 820.0,
+        "window_step": 4.0,
+        "zero_radius": 60.0,
+        "meter_target": true,
+        "bit_depth": 12,
+        "full_scale": 4095.0,
+        "counts_scale": 16.0,
+        "checkpoint_sha256": "6858548d23ade0b42989663b69a6c373741a9bdeb9e542b315a3c6dfc75d0e3a",
+        "script_sha256": "c41c2494ade31670d47f6f615de6b1bb816871d8976e153aa849f83b28158a31",
+        "gs_iterations": 0,
+        "initial_phase": "gs",
+        "abba": false,
+        "acceptance": "model_only",
+        "device": "cuda",
+        "device_requested": "cuda",
+        "accept_metric": "cv",
+        "objective": "cv",
+        "seed_provenance": {
+          "square": {
+            "policy": "strict",
+            "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_20261026_1350\\mono12_cv",
+            "label": "square_final",
+            "gs_calls": 0
+          }
+        },
+        "phase_lr": 0.02,
+        "phase_rms_cap": 0.15,
+        "adaptive_step": true,
+        "exposure_policy": "per_block",
+        "camera": "daheng",
+        "cam_id": 0,
+        "slm_number": 1,
+        "wavelength_nm": 1064,
+        "mode": "anchored",
+        "seed_run": "data\\debug\\slm_transfer\\square1200_20261026_1350\\mono12_cv",
+        "blocks": 12,
+        "updates": 15,
+        "frames": 3,
+        "timestamp_utc": "2026-10-26T06:04:33.673080+00:00",
+        "monotonic_ns": 227736779217600
+      },
+      "audit": {
+        "run": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_20261026_1350\\mono12_continue",
+        "captures": 28,
+        "raw_frames": 84,
+        "maximum_peak": 4095.0,
+        "shapes": [
+          "square"
+        ],
+        "blocks": 12,
+        "accepted_blocks": 11,
+        "acceptance_scopes": [
+          "sequential_ccd"
+        ],
+        "exposure_ms": {
+          "square": 155.52
+        },
+        "exposure_history_ms": {
+          "square": [
+            155.52,
+            283.747
+          ]
+        },
+        "file_sha256": {
+          "capture_0000.npz": "2676b1a110ef4d4c5c0652ba62a8308b1bbc218e4af91147cd2988a80e05c36e",
+          "capture_0001.npz": "6d9d099db7c52a2b6a6d38847c2038a74831e797c0150401546046f00a53afb6",
+          "capture_0002.npz": "64ad55131dc23dcb0993308fa6ea856c363ab6339522e04550a992dfe3fef346",
+          "capture_0003.npz": "c56dd4c1cbaaaf3f88fa23e505654dfd838fb629254a45fbb81635c515299cd7",
+          "capture_0004.npz": "ea29632f9fb94bb4365e5b9012933178e3500e3a0f68440dd8c50d53239b8687",
+          "capture_0005.npz": "268853110a55c1dfc65664b35f88fea02f9363836b18fcfa099447d3fc7d1b3f",
+          "capture_0006.npz": "a1d838a56fbf95955459e8ed929e07b07fb04b7750301b127fa5ea217bff99ed",
+          "capture_0007.npz": "ef3823e008ee573f4fca44f3219cce551d3240d68b674596596709f534ac4192",
+          "capture_0008.npz": "26d71fff42a18067c388d3713411827e87ec2a392eefb3dadccdb70496fae84f",
+          "capture_0009.npz": "37f0ebe011cb3423b5e7c9e590196df1715fe08995abdbf3febb6a24add0565c",
+          "capture_0010.npz": "bd7b01886c6c84d0d8bc3bf4a7b0801125ecc5d0382c144a78e6596ef4627aa5",
+          "capture_0011.npz": "31a9d7645a27eef8c35e3ca640bc04373105f4ce89293f86bcf0b5aa78973ab3",
+          "capture_0012.npz": "aedadc1d2f1840b7a05ce1ec0a1ad4fd39ba780b1855cca11d13e1ccdcd530a7",
+          "capture_0013.npz": "f40711d902e294e7a7b5d0b93e09b04dcd5349575ee17ef6741961f7a443467e",
+          "capture_0014.npz": "034450ab2295585d309b60740ef1b70b01a906de54aa5a1ec8952aa2eb50d05c",
+          "capture_0015.npz": "2e2b2e67cd0705ec158036c8a22948bcfbb2faa62900bad49892ddb6ca283cb7",
+          "capture_0016.npz": "77716a617f15f902d5d270dfa1d8c1ee4f2dfd6749f6ca396370be45e03a83a8",
+          "capture_0017.npz": "ff2b044af4d9cf475596c2e5752637554b0b5446f46b4dc74f86f339c3608af6",
+          "capture_0018.npz": "55db421e4f5d96ae2b3d8ae2bbdfb5d8f233c4e497de5e22f619350c3f44119b",
+          "capture_0019.npz": "383f61d79bbd672b5dede12072dc80b37cae54cd91db50e924ecaa08169cba89",
+          "capture_0020.npz": "7c1ecc4f869fe0426a5e2189e151d0ab8aa197a5930c5505cbcfcace80f4ec28",
+          "capture_0021.npz": "f50ad7af66ba157fc9a2c01e4f038dcaf1d48d0885bd31c1f4294dd6d09c0a1e",
+          "capture_0022.npz": "4cdd26017a5ed466d0625444f0d1919ce980c32d7f03be01ff45d0af1ec86397",
+          "capture_0023.npz": "b041cb96857630c2f5b729b584ea74944e80bff6ff144138208ddbbf785289ae",
+          "capture_0024.npz": "6e70f87a669cb86dcdc023d825668825c493e35efef65166f174195fa7c94873",
+          "capture_0025.npz": "db5fa8f8884e914941442ee93e1047f13d74eeab98b00d80a90c5f096be956bc",
+          "capture_0026.npz": "2252c57b4616f8bfbb737cb8bb52e74f98338305c3b4ddc323667508bdef886b",
+          "capture_0027.npz": "86b2fe3c3478ecee97d633305bb20a49d2e20e224bdc9b9b0fef328c181fcfa3"
+        },
+        "status": "passed",
+        "timestamp_scope": "host calls, not sensor exposure triggers"
+      },
+      "measurements": [
+        {
+          "label": "square_seed",
+          "file": "capture_0000.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:04:58.928352+00:00",
+              "monotonic_ns": 227762034566400,
+              "end_monotonic_ns": 227762039180400,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:04:58.935577+00:00",
+              "monotonic_ns": 227762041752000,
+              "end_monotonic_ns": 227762099677300,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:04:58.997460+00:00",
+              "monotonic_ns": 227762103651300,
+              "end_monotonic_ns": 227762255459900,
+              "exposure_ms": 155.52
+            }
+          ],
+          "metrics": {
+            "cv": 0.46200035215682705,
+            "mean": 131.06757415014516,
+            "ee_roi": 0.8065082724982003,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.46518444933977077,
+              "mean": 131.07388357669694,
+              "ee_roi": 0.8065510785460901,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.46438125741628694,
+              "mean": 131.0615485519003,
+              "ee_roi": 0.8065000987875182,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4645897864491868,
+              "mean": 131.0672903218383,
+              "ee_roi": 0.8064736388526781,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1340.6666666666667,
+          "saturation_pixels": 2161,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 155.52,
+          "timestamp_utc": "2026-10-26T06:04:59.218021+00:00",
+          "monotonic_ns": 227762324203600,
+          "loss": 0.21344435214996338
+        },
+        {
+          "label": "square_0_A1",
+          "file": "capture_0001.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:05:02.363647+00:00",
+              "monotonic_ns": 227765469841500,
+              "end_monotonic_ns": 227765474824400,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:05:02.371776+00:00",
+              "monotonic_ns": 227765477961100,
+              "end_monotonic_ns": 227765523767400,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:05:02.421611+00:00",
+              "monotonic_ns": 227765527796000,
+              "end_monotonic_ns": 227765679326400,
+              "exposure_ms": 155.52
+            }
+          ],
+          "metrics": {
+            "cv": 0.4657618606903474,
+            "mean": 131.664764249907,
+            "ee_roi": 0.8071310510598988,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.4673562106408683,
+              "mean": 131.6560231051584,
+              "ee_roi": 0.8070741039215311,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.46783008408086135,
+              "mean": 131.703372570679,
+              "ee_roi": 0.8071748352363373,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.46802120586059914,
+              "mean": 131.63489707388356,
+              "ee_roi": 0.8071442030523103,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1346.3333333333333,
+          "saturation_pixels": 2159,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 155.52,
+          "timestamp_utc": "2026-10-26T06:05:02.636949+00:00",
+          "monotonic_ns": 227765743135800,
+          "loss": 0.21693411469459534
+        },
+        {
+          "label": "square_0_B",
+          "file": "capture_0002.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:05:10.515236+00:00",
+              "monotonic_ns": 227773621454000,
+              "end_monotonic_ns": 227773627282200,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:05:10.525240+00:00",
+              "monotonic_ns": 227773631450700,
+              "end_monotonic_ns": 227773771721600,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:05:10.669402+00:00",
+              "monotonic_ns": 227773775604400,
+              "end_monotonic_ns": 227773926614000,
+              "exposure_ms": 155.52
+            }
+          ],
+          "metrics": {
+            "cv": 0.44960397106157124,
+            "mean": 129.8973922315425,
+            "ee_roi": 0.8049116791055849,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.4513460169793278,
+              "mean": 129.90067543466003,
+              "ee_roi": 0.8048404751613013,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4515591603968048,
+              "mean": 129.9513618005454,
+              "ee_roi": 0.8050007193024614,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4517379473496897,
+              "mean": 129.84013945942215,
+              "ee_roi": 0.8048938186299657,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1277.0,
+          "saturation_pixels": 2163,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 155.52,
+          "timestamp_utc": "2026-10-26T06:05:10.885160+00:00",
+          "monotonic_ns": 227773991364900,
+          "loss": 0.20214375853538513
+        },
+        {
+          "label": "square_1_A1",
+          "file": "capture_0003.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:05:17.839615+00:00",
+              "monotonic_ns": 227780945859300,
+              "end_monotonic_ns": 227780953892000,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:05:17.852731+00:00",
+              "monotonic_ns": 227780958942500,
+              "end_monotonic_ns": 227781085335700,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:05:17.982550+00:00",
+              "monotonic_ns": 227781088766700,
+              "end_monotonic_ns": 227781241288800,
+              "exposure_ms": 155.52
+            }
+          ],
+          "metrics": {
+            "cv": 0.4529820894537766,
+            "mean": 129.7846433543903,
+            "ee_roi": 0.8048254998827276,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.45467567354465815,
+              "mean": 129.73867467522754,
+              "ee_roi": 0.8047610620074371,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.455013926266412,
+              "mean": 129.80422750756557,
+              "ee_roi": 0.8048418641775069,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.45522449351790567,
+              "mean": 129.81102788037788,
+              "ee_roi": 0.8048735461443121,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1238.3333333333333,
+          "saturation_pixels": 2159,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 155.52,
+          "timestamp_utc": "2026-10-26T06:05:18.202386+00:00",
+          "monotonic_ns": 227781308600900,
+          "loss": 0.20519275963306427
+        },
+        {
+          "label": "square_1_B",
+          "file": "capture_0004.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:05:22.444181+00:00",
+              "monotonic_ns": 227785550416400,
+              "end_monotonic_ns": 227785555456400,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:05:22.452259+00:00",
+              "monotonic_ns": 227785558483100,
+              "end_monotonic_ns": 227785598149000,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:05:22.495982+00:00",
+              "monotonic_ns": 227785602205400,
+              "end_monotonic_ns": 227785754135300,
+              "exposure_ms": 155.52
+            }
+          ],
+          "metrics": {
+            "cv": 0.4456575963962174,
+            "mean": 128.42445756191486,
+            "ee_roi": 0.8036216977351421,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.44763665859688995,
+              "mean": 128.36468869020908,
+              "ee_roi": 0.8036858150347209,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4477961834385402,
+              "mean": 128.458294498717,
+              "ee_roi": 0.8035927245802725,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.44757488029185866,
+              "mean": 128.45038949681845,
+              "ee_roi": 0.8035865960029691,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1334.0,
+          "saturation_pixels": 2131,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 155.52,
+          "timestamp_utc": "2026-10-26T06:05:22.715233+00:00",
+          "monotonic_ns": 227785821461400,
+          "loss": 0.19861072301864624
+        },
+        {
+          "label": "square_2_A1",
+          "file": "capture_0005.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:05:29.600759+00:00",
+              "monotonic_ns": 227792707005400,
+              "end_monotonic_ns": 227792711720600,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:05:29.608650+00:00",
+              "monotonic_ns": 227792714886300,
+              "end_monotonic_ns": 227792757062300,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:05:29.654808+00:00",
+              "monotonic_ns": 227792761044900,
+              "end_monotonic_ns": 227792911996200,
+              "exposure_ms": 155.52
+            }
+          ],
+          "metrics": {
+            "cv": 0.4478451039841689,
+            "mean": 128.74514519352104,
+            "ee_roi": 0.8037003864407314,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.45008002016635684,
+              "mean": 128.68820693384882,
+              "ee_roi": 0.8036877074573349,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4496503946341566,
+              "mean": 128.7308041929879,
+              "ee_roi": 0.8036925891842732,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4497586161700033,
+              "mean": 128.8164244537264,
+              "ee_roi": 0.8037208460589924,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1304.0,
+          "saturation_pixels": 2137,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 155.52,
+          "timestamp_utc": "2026-10-26T06:05:29.869260+00:00",
+          "monotonic_ns": 227792975499400,
+          "loss": 0.20056529343128204
+        },
+        {
+          "label": "square_2_B",
+          "file": "capture_0006.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:05:34.414860+00:00",
+              "monotonic_ns": 227797521128000,
+              "end_monotonic_ns": 227797526377400,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:05:34.423905+00:00",
+              "monotonic_ns": 227797530149600,
+              "end_monotonic_ns": 227797580952400,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:05:34.478373+00:00",
+              "monotonic_ns": 227797584623400,
+              "end_monotonic_ns": 227797736381200,
+              "exposure_ms": 155.52
+            }
+          ],
+          "metrics": {
+            "cv": 0.43718832440736377,
+            "mean": 127.5789292001795,
+            "ee_roi": 0.8030488306330146,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.4389425514796387,
+              "mean": 127.54313231385274,
+              "ee_roi": 0.803077850413437,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4395404034768862,
+              "mean": 127.56522489557803,
+              "ee_roi": 0.8029728050366708,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4393009515287418,
+              "mean": 127.62843039110774,
+              "ee_roi": 0.8030958265249989,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1133.6666666666667,
+          "saturation_pixels": 2102,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 155.52,
+          "timestamp_utc": "2026-10-26T06:05:34.693007+00:00",
+          "monotonic_ns": 227797799255200,
+          "loss": 0.19113364815711975
+        },
+        {
+          "label": "square_3_A1",
+          "file": "capture_0007.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:05:41.952020+00:00",
+              "monotonic_ns": 227805058287600,
+              "end_monotonic_ns": 227805062783900,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:05:41.960582+00:00",
+              "monotonic_ns": 227805066841400,
+              "end_monotonic_ns": 227805207331900,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:05:42.105019+00:00",
+              "monotonic_ns": 227805211282200,
+              "end_monotonic_ns": 227805362367000,
+              "exposure_ms": 155.52
+            }
+          ],
+          "metrics": {
+            "cv": 0.4384619120463638,
+            "mean": 127.66364427875007,
+            "ee_roi": 0.8029685751135427,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.4403378533030666,
+              "mean": 127.70613414339466,
+              "ee_roi": 0.8029713997220391,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4406732382991443,
+              "mean": 127.64146731563625,
+              "ee_roi": 0.8029975728345149,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.440403193769893,
+              "mean": 127.64333137721933,
+              "ee_roi": 0.8029367553436841,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1126.6666666666667,
+          "saturation_pixels": 2109,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 155.52,
+          "timestamp_utc": "2026-10-26T06:05:42.327779+00:00",
+          "monotonic_ns": 227805434050400,
+          "loss": 0.19224883615970612
+        },
+        {
+          "label": "square_3_B",
+          "file": "capture_0008.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:05:47.137396+00:00",
+              "monotonic_ns": 227810243676400,
+              "end_monotonic_ns": 227810248934600,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:05:47.147242+00:00",
+              "monotonic_ns": 227810253511900,
+              "end_monotonic_ns": 227810342071800,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:05:47.239175+00:00",
+              "monotonic_ns": 227810345445500,
+              "end_monotonic_ns": 227810497080300,
+              "exposure_ms": 155.52
+            }
+          ],
+          "metrics": {
+            "cv": 0.4330117398171708,
+            "mean": 126.90188362272315,
+            "ee_roi": 0.8025075684708288,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.4353031253956858,
+              "mean": 126.89549748581817,
+              "ee_roi": 0.8024326300066419,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.43515626106096694,
+              "mean": 126.85490236689795,
+              "ee_roi": 0.8024985413415993,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4348680249795774,
+              "mean": 126.9552510154533,
+              "ee_roi": 0.8025915108036553,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1012.3333333333334,
+          "saturation_pixels": 2114,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 155.52,
+          "timestamp_utc": "2026-10-26T06:05:47.452555+00:00",
+          "monotonic_ns": 227810558828400,
+          "loss": 0.18749918043613434
+        },
+        {
+          "label": "square_4_A1",
+          "file": "capture_0009.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:05:58.054669+00:00",
+              "monotonic_ns": 227821160967800,
+              "end_monotonic_ns": 227821165712100,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:05:58.064832+00:00",
+              "monotonic_ns": 227821171120500,
+              "end_monotonic_ns": 227821383064100,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:05:58.280679+00:00",
+              "monotonic_ns": 227821386970200,
+              "end_monotonic_ns": 227821667156700,
+              "exposure_ms": 283.747
+            }
+          ],
+          "metrics": {
+            "cv": 0.4711147524724976,
+            "mean": 218.37017348046376,
+            "ee_roi": 0.8245981545613079,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.47172070314674036,
+              "mean": 218.64867041780295,
+              "ee_roi": 0.8246578068931723,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4725609515775384,
+              "mean": 218.20199753759766,
+              "ee_roi": 0.824517459983156,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.47267062148499395,
+              "mean": 218.25985248599076,
+              "ee_roi": 0.8246190780296322,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1585.3333333333333,
+          "saturation_pixels": 3561,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 283.747,
+          "timestamp_utc": "2026-10-26T06:05:58.623807+00:00",
+          "monotonic_ns": 227821730101100,
+          "loss": 0.22194908559322357
+        },
+        {
+          "label": "square_4_B",
+          "file": "capture_0010.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:06:03.862644+00:00",
+              "monotonic_ns": 227826968954100,
+              "end_monotonic_ns": 227826974929300,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:06:03.871533+00:00",
+              "monotonic_ns": 227826977834900,
+              "end_monotonic_ns": 227827059964600,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:06:03.957712+00:00",
+              "monotonic_ns": 227827064013500,
+              "end_monotonic_ns": 227827343878600,
+              "exposure_ms": 283.747
+            }
+          ],
+          "metrics": {
+            "cv": 0.4612545952754848,
+            "mean": 216.6791666187227,
+            "ee_roi": 0.8245045638323518,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.46244456911274107,
+              "mean": 216.64731264455108,
+              "ee_roi": 0.8244287829210587,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.46255111089669465,
+              "mean": 216.78392994810545,
+              "ee_roi": 0.8245692293870057,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4625925135643436,
+              "mean": 216.60625726351157,
+              "ee_roi": 0.8245156570434051,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1545.3333333333333,
+          "saturation_pixels": 3550,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 283.747,
+          "timestamp_utc": "2026-10-26T06:06:04.304827+00:00",
+          "monotonic_ns": 227827411132000,
+          "loss": 0.21275579929351807
+        },
+        {
+          "label": "square_5_A1",
+          "file": "capture_0011.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:06:11.007583+00:00",
+              "monotonic_ns": 227834113906800,
+              "end_monotonic_ns": 227834119504300,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:06:11.015440+00:00",
+              "monotonic_ns": 227834121766600,
+              "end_monotonic_ns": 227834156111200,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:06:11.053248+00:00",
+              "monotonic_ns": 227834159561500,
+              "end_monotonic_ns": 227834438907600,
+              "exposure_ms": 283.747
+            }
+          ],
+          "metrics": {
+            "cv": 0.4685524404954274,
+            "mean": 218.31580501762423,
+            "ee_roi": 0.8253040235809326,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.4691500683923323,
+              "mean": 218.27630685675493,
+              "ee_roi": 0.8252677614299324,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.47000664624349286,
+              "mean": 218.1997537597662,
+              "ee_roi": 0.825268341951443,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4701141133048613,
+              "mean": 218.4713544363515,
+              "ee_roi": 0.8253759094513794,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1451.0,
+          "saturation_pixels": 3554,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 283.747,
+          "timestamp_utc": "2026-10-26T06:06:11.402054+00:00",
+          "monotonic_ns": 227834508386300,
+          "loss": 0.21954138576984406
+        },
+        {
+          "label": "square_5_B",
+          "file": "capture_0012.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:06:16.199646+00:00",
+              "monotonic_ns": 227839305987600,
+              "end_monotonic_ns": 227839311759200,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:06:16.210058+00:00",
+              "monotonic_ns": 227839316378700,
+              "end_monotonic_ns": 227839547887400,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:06:16.445218+00:00",
+              "monotonic_ns": 227839551548900,
+              "end_monotonic_ns": 227839832209400,
+              "exposure_ms": 283.747
+            }
+          ],
+          "metrics": {
+            "cv": 0.45795321876793443,
+            "mean": 216.842333375524,
+            "ee_roi": 0.8236351360559273,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.458923569701911,
+              "mean": 216.65306592104204,
+              "ee_roi": 0.823553020164558,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.45921361760112994,
+              "mean": 216.95156891849908,
+              "ee_roi": 0.8236118721421554,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.45945214883086144,
+              "mean": 216.92236528703097,
+              "ee_roi": 0.8237404518289239,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1401.3333333333333,
+          "saturation_pixels": 3471,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 283.747,
+          "timestamp_utc": "2026-10-26T06:06:16.791896+00:00",
+          "monotonic_ns": 227839898223800,
+          "loss": 0.2097211331129074
+        },
+        {
+          "label": "square_6_A1",
+          "file": "capture_0013.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:06:23.764164+00:00",
+              "monotonic_ns": 227846870510600,
+              "end_monotonic_ns": 227846875473400,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:06:23.771657+00:00",
+              "monotonic_ns": 227846877994200,
+              "end_monotonic_ns": 227846929407600,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:06:23.826609+00:00",
+              "monotonic_ns": 227846932949800,
+              "end_monotonic_ns": 227847212484000,
+              "exposure_ms": 283.747
+            }
+          ],
+          "metrics": {
+            "cv": 0.46127810396066254,
+            "mean": 216.70142412770736,
+            "ee_roi": 0.82373748531504,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.46260175523761043,
+              "mean": 216.74389865028132,
+              "ee_roi": 0.8237144686644566,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4625401271822858,
+              "mean": 216.7439216633873,
+              "ee_roi": 0.8237831935005366,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.46241491873141943,
+              "mean": 216.61645206945354,
+              "ee_roi": 0.823714785405645,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1387.6666666666667,
+          "saturation_pixels": 3453,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 283.747,
+          "timestamp_utc": "2026-10-26T06:06:24.176281+00:00",
+          "monotonic_ns": 227847282623200,
+          "loss": 0.2127775102853775
+        },
+        {
+          "label": "square_6_B",
+          "file": "capture_0014.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:06:29.199362+00:00",
+              "monotonic_ns": 227852305720300,
+              "end_monotonic_ns": 227852310642000,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:06:29.207112+00:00",
+              "monotonic_ns": 227852313459700,
+              "end_monotonic_ns": 227852320340300,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:06:29.217731+00:00",
+              "monotonic_ns": 227852324081000,
+              "end_monotonic_ns": 227852605192700,
+              "exposure_ms": 283.747
+            }
+          ],
+          "metrics": {
+            "cv": 0.4508554872679379,
+            "mean": 214.90343317185804,
+            "ee_roi": 0.8220732396133923,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.452105032981845,
+              "mean": 214.96260370280876,
+              "ee_roi": 0.8220699298418555,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4520557478846911,
+              "mean": 214.8458352031482,
+              "ee_roi": 0.8220622480825637,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.45228031704147836,
+              "mean": 214.9018606096172,
+              "ee_roi": 0.8220875399464466,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1441.3333333333333,
+          "saturation_pixels": 3449,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 283.747,
+          "timestamp_utc": "2026-10-26T06:06:29.560634+00:00",
+          "monotonic_ns": 227852666986100,
+          "loss": 0.20327062904834747
+        },
+        {
+          "label": "square_7_A1",
+          "file": "capture_0015.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:06:36.315387+00:00",
+              "monotonic_ns": 227859421757000,
+              "end_monotonic_ns": 227859426985500,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:06:36.324761+00:00",
+              "monotonic_ns": 227859431126400,
+              "end_monotonic_ns": 227859700165600,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:06:36.597441+00:00",
+              "monotonic_ns": 227859703806100,
+              "end_monotonic_ns": 227859984016200,
+              "exposure_ms": 283.747
+            }
+          ],
+          "metrics": {
+            "cv": 0.45291672343653144,
+            "mean": 214.58170227944814,
+            "ee_roi": 0.8218600546378793,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.4542079677225227,
+              "mean": 214.59880101717928,
+              "ee_roi": 0.8218709685860013,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.45430614354499477,
+              "mean": 214.7150172022967,
+              "ee_roi": 0.8219022299987011,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.45413981010765264,
+              "mean": 214.43128861886845,
+              "ee_roi": 0.8218069063956664,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1474.6666666666667,
+          "saturation_pixels": 3444,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 283.747,
+          "timestamp_utc": "2026-10-26T06:06:36.945371+00:00",
+          "monotonic_ns": 227860051737400,
+          "loss": 0.2051335722208023
+        },
+        {
+          "label": "square_7_B",
+          "file": "capture_0016.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:06:42.239842+00:00",
+              "monotonic_ns": 227865346221200,
+              "end_monotonic_ns": 227865350921200,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:06:42.247233+00:00",
+              "monotonic_ns": 227865353606700,
+              "end_monotonic_ns": 227865377334700,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:06:42.274401+00:00",
+              "monotonic_ns": 227865380790000,
+              "end_monotonic_ns": 227865660708600,
+              "exposure_ms": 283.747
+            }
+          ],
+          "metrics": {
+            "cv": 0.44508183471648355,
+            "mean": 212.5052258928126,
+            "ee_roi": 0.8202918756594594,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.4466834998175026,
+              "mean": 212.61150425167133,
+              "ee_roi": 0.8203306790932655,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4463751404077486,
+              "mean": 212.5630731701704,
+              "ee_roi": 0.8203515287642721,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4461664715453991,
+              "mean": 212.34110025659612,
+              "ee_roi": 0.820193331821572,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1373.6666666666667,
+          "saturation_pixels": 3387,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 283.747,
+          "timestamp_utc": "2026-10-26T06:06:42.615799+00:00",
+          "monotonic_ns": 227865722175700,
+          "loss": 0.1980978548526764
+        },
+        {
+          "label": "square_8_A1",
+          "file": "capture_0017.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:06:49.344068+00:00",
+              "monotonic_ns": 227872450464500,
+              "end_monotonic_ns": 227872455333100,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:06:49.351949+00:00",
+              "monotonic_ns": 227872458352500,
+              "end_monotonic_ns": 227872472966100,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:06:49.370108+00:00",
+              "monotonic_ns": 227872476507700,
+              "end_monotonic_ns": 227872757281300,
+              "exposure_ms": 283.747
+            }
+          ],
+          "metrics": {
+            "cv": 0.4485512239305752,
+            "mean": 213.2323671664346,
+            "ee_roi": 0.8204278621035174,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.44971061177912314,
+              "mean": 213.1695835778476,
+              "ee_roi": 0.8204498189782705,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4498330380319275,
+              "mean": 213.1016603955953,
+              "ee_roi": 0.82038536896272,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.44992841967283853,
+              "mean": 213.42585752586098,
+              "ee_roi": 0.8204483640659819,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1402.6666666666667,
+          "saturation_pixels": 3402,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 283.747,
+          "timestamp_utc": "2026-10-26T06:06:49.719925+00:00",
+          "monotonic_ns": 227872826316000,
+          "loss": 0.20119819045066833
+        },
+        {
+          "label": "square_8_B",
+          "file": "capture_0018.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:06:54.951814+00:00",
+              "monotonic_ns": 227878058227300,
+              "end_monotonic_ns": 227878065690300,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:06:54.962058+00:00",
+              "monotonic_ns": 227878068457100,
+              "end_monotonic_ns": 227878149829400,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:06:55.046990+00:00",
+              "monotonic_ns": 227878153389900,
+              "end_monotonic_ns": 227878432540300,
+              "exposure_ms": 283.747
+            }
+          ],
+          "metrics": {
+            "cv": 0.44163162461728594,
+            "mean": 211.7004767548452,
+            "ee_roi": 0.8189579543399016,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.4428874299730189,
+              "mean": 211.5822430874383,
+              "ee_roi": 0.8189269370766845,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.44295614068778844,
+              "mean": 211.65816332401303,
+              "ee_roi": 0.8189565641563411,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.44300619399219154,
+              "mean": 211.86102385308433,
+              "ee_roi": 0.8189903239571827,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1507.6666666666667,
+          "saturation_pixels": 3369,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 283.747,
+          "timestamp_utc": "2026-10-26T06:06:55.387503+00:00",
+          "monotonic_ns": 227878493919100,
+          "loss": 0.19503849744796753
+        },
+        {
+          "label": "square_9_A1",
+          "file": "capture_0019.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:07:02.435818+00:00",
+              "monotonic_ns": 227885542258400,
+              "end_monotonic_ns": 227885547595800,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:07:02.445049+00:00",
+              "monotonic_ns": 227885551462500,
+              "end_monotonic_ns": 227885813424400,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:07:02.710559+00:00",
+              "monotonic_ns": 227885816977100,
+              "end_monotonic_ns": 227886096617500,
+              "exposure_ms": 283.747
+            }
+          ],
+          "metrics": {
+            "cv": 0.4447034347226043,
+            "mean": 211.86708397098815,
+            "ee_roi": 0.818994131360294,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.44574311995369004,
+              "mean": 211.78074263292945,
+              "ee_roi": 0.8189698426228333,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4461550423907975,
+              "mean": 211.93571288849,
+              "ee_roi": 0.819034855644743,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.44611666691530516,
+              "mean": 211.884796391545,
+              "ee_roi": 0.8189776793917983,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1518.0,
+          "saturation_pixels": 3357,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 283.747,
+          "timestamp_utc": "2026-10-26T06:07:03.057508+00:00",
+          "monotonic_ns": 227886163925600,
+          "loss": 0.1977611482143402
+        },
+        {
+          "label": "square_9_B",
+          "file": "capture_0020.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:07:08.603808+00:00",
+              "monotonic_ns": 227891710238700,
+              "end_monotonic_ns": 227891714866900,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:07:08.610769+00:00",
+              "monotonic_ns": 227891717196600,
+              "end_monotonic_ns": 227891773122800,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:07:08.670653+00:00",
+              "monotonic_ns": 227891777078400,
+              "end_monotonic_ns": 227892057129300,
+              "exposure_ms": 283.747
+            }
+          ],
+          "metrics": {
+            "cv": 0.44057228293169387,
+            "mean": 210.25892812623454,
+            "ee_roi": 0.8170680710132646,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.44265846022471433,
+              "mean": 210.50987837573498,
+              "ee_roi": 0.817098277869381,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4421961814161315,
+              "mean": 210.21548321769248,
+              "ee_roi": 0.8170688948056692,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.44235837549728435,
+              "mean": 210.0514227852762,
+              "ee_roi": 0.8170369739131685,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1452.6666666666667,
+          "saturation_pixels": 3362,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 283.747,
+          "timestamp_utc": "2026-10-26T06:07:09.015731+00:00",
+          "monotonic_ns": 227892122158400,
+          "loss": 0.1941039115190506
+        },
+        {
+          "label": "square_10_A1",
+          "file": "capture_0021.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:07:15.788635+00:00",
+              "monotonic_ns": 227898895088800,
+              "end_monotonic_ns": 227898901993000,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:07:15.800945+00:00",
+              "monotonic_ns": 227898907383400,
+              "end_monotonic_ns": 227899152540000,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:07:16.049854+00:00",
+              "monotonic_ns": 227899156309900,
+              "end_monotonic_ns": 227899437615700,
+              "exposure_ms": 283.747
+            }
+          ],
+          "metrics": {
+            "cv": 0.44244691541088266,
+            "mean": 209.9863455571281,
+            "ee_roi": 0.8171148669223331,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.4437356030116883,
+              "mean": 209.9327672109266,
+              "ee_roi": 0.8171106042686771,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4436231406879183,
+              "mean": 210.01226598547873,
+              "ee_roi": 0.8171370858308361,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4439115468967627,
+              "mean": 210.014003474979,
+              "ee_roi": 0.8170969103844823,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1427.0,
+          "saturation_pixels": 3337,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 283.747,
+          "timestamp_utc": "2026-10-26T06:07:16.396519+00:00",
+          "monotonic_ns": 227899502962200,
+          "loss": 0.19575928151607513
+        },
+        {
+          "label": "square_10_B",
+          "file": "capture_0022.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:07:22.777549+00:00",
+              "monotonic_ns": 227905884006300,
+              "end_monotonic_ns": 227905888498100,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:07:22.784724+00:00",
+              "monotonic_ns": 227905891175300,
+              "end_monotonic_ns": 227905964275700,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:07:22.861676+00:00",
+              "monotonic_ns": 227905968128100,
+              "end_monotonic_ns": 227906249322300,
+              "exposure_ms": 283.747
+            }
+          ],
+          "metrics": {
+            "cv": 0.44155779328586015,
+            "mean": 208.7813678223081,
+            "ee_roi": 0.8162677326267915,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.4430441272731272,
+              "mean": 208.65872714510914,
+              "ee_roi": 0.8162308498584135,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.44288616732501757,
+              "mean": 208.79289355287835,
+              "ee_roi": 0.8162853882174801,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.44287322298624565,
+              "mean": 208.8924827689369,
+              "ee_roi": 0.8162869338655137,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1550.0,
+          "saturation_pixels": 3335,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 283.747,
+          "timestamp_utc": "2026-10-26T06:07:23.205781+00:00",
+          "monotonic_ns": 227906312236200,
+          "loss": 0.19497327506542206
+        },
+        {
+          "label": "square_11_A1",
+          "file": "capture_0023.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:07:29.958756+00:00",
+              "monotonic_ns": 227913065221700,
+              "end_monotonic_ns": 227913070151100,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:07:29.967446+00:00",
+              "monotonic_ns": 227913073909200,
+              "end_monotonic_ns": 227913344492100,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:07:30.241390+00:00",
+              "monotonic_ns": 227913347853900,
+              "end_monotonic_ns": 227913628131900,
+              "exposure_ms": 283.747
+            }
+          ],
+          "metrics": {
+            "cv": 0.44388624123459913,
+            "mean": 209.6964954875135,
+            "ee_roi": 0.816312499834109,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.4454385621019564,
+              "mean": 209.90212526033577,
+              "ee_roi": 0.8164351247536681,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.44535003068854734,
+              "mean": 209.5593220338983,
+              "ee_roi": 0.8162577747941555,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.44507454904323385,
+              "mean": 209.62803916830634,
+              "ee_roi": 0.8162444441139922,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1538.6666666666667,
+          "saturation_pixels": 3341,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 283.747,
+          "timestamp_utc": "2026-10-26T06:07:30.590768+00:00",
+          "monotonic_ns": 227913697233100,
+          "loss": 0.19703492522239685
+        },
+        {
+          "label": "square_11_B",
+          "file": "capture_0024.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:07:37.118668+00:00",
+              "monotonic_ns": 227920225178300,
+              "end_monotonic_ns": 227920231131300,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:07:37.129809+00:00",
+              "monotonic_ns": 227920236288200,
+              "end_monotonic_ns": 227920441005400,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:07:37.338401+00:00",
+              "monotonic_ns": 227920444886200,
+              "end_monotonic_ns": 227920724933600,
+              "exposure_ms": 283.747
+            }
+          ],
+          "metrics": {
+            "cv": 0.4450792224664305,
+            "mean": 209.83134078190866,
+            "ee_roi": 0.8167604398997529,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.4465245976814342,
+              "mean": 209.9236770340709,
+              "ee_roi": 0.8167452319369612,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.44619439379678316,
+              "mean": 209.81778222697827,
+              "ee_roi": 0.8167494394454343,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4465855400472219,
+              "mean": 209.75256308467672,
+              "ee_roi": 0.8167866646079252,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1418.6666666666667,
+          "saturation_pixels": 3348,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 283.747,
+          "timestamp_utc": "2026-10-26T06:07:37.690323+00:00",
+          "monotonic_ns": 227920796810600,
+          "loss": 0.19809551537036896
+        },
+        {
+          "label": "square_final_adaptive",
+          "file": "capture_0025.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:07:41.155810+00:00",
+              "monotonic_ns": 227924262305700,
+              "end_monotonic_ns": 227924267956700,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:07:41.165461+00:00",
+              "monotonic_ns": 227924271949200,
+              "end_monotonic_ns": 227924414048600,
+              "exposure_ms": 283.747
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:07:41.311123+00:00",
+              "monotonic_ns": 227924417613700,
+              "end_monotonic_ns": 227924699010400,
+              "exposure_ms": 283.747
+            }
+          ],
+          "metrics": {
+            "cv": 0.44799075824428713,
+            "mean": 210.88640730896245,
+            "ee_roi": 0.8166698689419886,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.4488569023008151,
+              "mean": 210.8768338568815,
+              "ee_roi": 0.8166535238869898,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.448906182944341,
+              "mean": 210.66949727870022,
+              "ee_roi": 0.8166072459684467,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4504521585466231,
+              "mean": 211.11289079130566,
+              "ee_roi": 0.8167486987389374,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1516.3333333333333,
+          "saturation_pixels": 3339,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 283.747,
+          "timestamp_utc": "2026-10-26T06:07:41.674359+00:00",
+          "monotonic_ns": 227924780855800,
+          "loss": 0.20069576799869537
+        },
+        {
+          "label": "square_seed_replay",
+          "file": "capture_0026.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:07:46.178001+00:00",
+              "monotonic_ns": 227929284535200,
+              "end_monotonic_ns": 227929288765600,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:07:46.186151+00:00",
+              "monotonic_ns": 227929292647200,
+              "end_monotonic_ns": 227929403775900,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:07:46.301034+00:00",
+              "monotonic_ns": 227929407530700,
+              "end_monotonic_ns": 227929559496200,
+              "exposure_ms": 155.52
+            }
+          ],
+          "metrics": {
+            "cv": 0.5940399461417557,
+            "mean": 143.34022192305187,
+            "ee_roi": 0.8183011603767352,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.5955757407817664,
+              "mean": 143.32883427111742,
+              "ee_roi": 0.8183294176739565,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5952635914454867,
+              "mean": 143.32866167282268,
+              "ee_roi": 0.8182099742278288,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5954027508535752,
+              "mean": 143.36316982521546,
+              "ee_roi": 0.8183640910645434,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1136.6666666666667,
+          "saturation_pixels": 1843,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 155.52,
+          "timestamp_utc": "2026-10-26T06:07:46.517189+00:00",
+          "monotonic_ns": 227929623688900,
+          "loss": 0.3528834581375122
+        },
+        {
+          "label": "square_final",
+          "file": "capture_0027.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:07:49.841762+00:00",
+              "monotonic_ns": 227932948271700,
+              "end_monotonic_ns": 227932953723700,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:07:49.850194+00:00",
+              "monotonic_ns": 227932956697300,
+              "end_monotonic_ns": 227932982258000,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:07:49.879543+00:00",
+              "monotonic_ns": 227932986045500,
+              "end_monotonic_ns": 227933138192300,
+              "exposure_ms": 155.52
+            }
+          ],
+          "metrics": {
+            "cv": 0.419491628299952,
+            "mean": 122.50403304682017,
+            "ee_roi": 0.7952585508447623,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.4217044261349111,
+              "mean": 122.56171539691854,
+              "ee_roi": 0.7953310037294418,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4217387876069358,
+              "mean": 122.48969588180469,
+              "ee_roi": 0.7953266184554639,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.42166585693463987,
+              "mean": 122.46068786173726,
+              "ee_roi": 0.7951180001950359,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 871.3333333333334,
+          "saturation_pixels": 1852,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 155.52,
+          "timestamp_utc": "2026-10-26T06:07:50.097798+00:00",
+          "monotonic_ns": 227933204304100,
+          "loss": 0.17597322165966034
+        }
+      ],
+      "endpoints": [
+        {
+          "label": "square_seed_replay",
+          "exposure_ms": 155.52,
+          "sparse_cv": 0.5940399461417557,
+          "full_resolution_cv": 0.5944457715259313,
+          "native_mean": 143.31948999121667,
+          "native_peak": 1181.0,
+          "full_resolution_pixels": 1390512,
+          "bit_depth": 12,
+          "saturated_core_pixels": 0,
+          "model_core_cv": 0.0826549306511879,
+          "model_core_mean_equivalent_counts_per_ms": 0.5490074753761292,
+          "measured_core_mean_equivalent_counts_per_ms": 0.05760522035873675,
+          "model_core_correlation": 0.11670810123406168
+        },
+        {
+          "label": "square_final",
+          "exposure_ms": 155.52,
+          "sparse_cv": 0.419491628299952,
+          "full_resolution_cv": 0.41980945581301854,
+          "native_mean": 122.46019212107961,
+          "native_peak": 875.6666666666666,
+          "full_resolution_pixels": 1390512,
+          "bit_depth": 12,
+          "saturated_core_pixels": 0,
+          "model_core_cv": 0.0875135213136673,
+          "model_core_mean_equivalent_counts_per_ms": 0.5474978685379028,
+          "measured_core_mean_equivalent_counts_per_ms": 0.04923162336308037,
+          "model_core_correlation": -0.24430561710779877,
+          "zero_exclusion_sensitivity": {
+            "0": 0.9356620725335378,
+            "20": 0.5336312580870598,
+            "40": 0.4252571362473307,
+            "60": 0.41978395918682126,
+            "80": 0.41948624796165956
+          }
+        }
+      ],
+      "iterations": 180
+    },
+    {
+      "name": "mono12_dense",
+      "config": {
+        "checkpoint": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_20261026_1350\\model_wide640\\frozen_parameters.json",
+        "zero_xy": [
+          1224.0,
+          962.0
+        ],
+        "target_xy": [
+          1225.55595611424,
+          903.8583141840896
+        ],
+        "shapes": [
+          "square"
+        ],
+        "period": 128.0,
+        "side": 1200.0,
+        "window_span": 820.0,
+        "window_step": 2.0,
+        "zero_radius": 60.0,
+        "meter_target": true,
+        "bit_depth": 12,
+        "full_scale": 4095.0,
+        "counts_scale": 16.0,
+        "core_margin": 8.0,
+        "checkpoint_sha256": "6ee1654f88d57a7488f01dc3abb025d69075c21e631313777d01a7c1d307a395",
+        "script_sha256": "60c53e3f5c2faca2ae425730a8e3b2ef81ea7552b093af264bc56f980e749349",
+        "gs_iterations": 0,
+        "initial_phase": "gs",
+        "abba": false,
+        "acceptance": "model_only",
+        "device": "cuda",
+        "device_requested": "cuda",
+        "accept_metric": "cv",
+        "objective": "cv",
+        "seed_provenance": {
+          "square": {
+            "policy": "transfer",
+            "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_20261026_1350\\mono12_continue",
+            "label": "square_final",
+            "old_checkpoint": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_20261026_1350\\model640\\frozen_parameters.json",
+            "carrier_delta_cycles_per_panel_pixel": [
+              -6.700301800057623e-05,
+              8.307680258615624e-05
+            ],
+            "static_correction_rms_rad": 0.0,
+            "gs_calls": 0
+          }
+        },
+        "phase_lr": 0.015,
+        "phase_rms_cap": 0.12,
+        "adaptive_step": true,
+        "exposure_policy": "per_block",
+        "camera": "daheng",
+        "cam_id": 0,
+        "slm_number": 1,
+        "wavelength_nm": 1064,
+        "mode": "anchored",
+        "seed_run": "data\\debug\\slm_transfer\\square1200_20261026_1350\\mono12_continue",
+        "blocks": 4,
+        "updates": 20,
+        "frames": 3,
+        "timestamp_utc": "2026-10-26T06:12:34.093530+00:00",
+        "monotonic_ns": 228217200585900
+      },
+      "audit": {
+        "run": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_20261026_1350\\mono12_dense",
+        "captures": 12,
+        "raw_frames": 36,
+        "maximum_peak": 4095.0,
+        "shapes": [
+          "square"
+        ],
+        "blocks": 4,
+        "accepted_blocks": 4,
+        "acceptance_scopes": [
+          "sequential_ccd"
+        ],
+        "exposure_ms": {
+          "square": 155.52
+        },
+        "exposure_history_ms": {
+          "square": [
+            155.52,
+            331.311
+          ]
+        },
+        "file_sha256": {
+          "capture_0000.npz": "2e22e3805fd32dc36bcbd0adcc404c2ca73d4b20b5ec086c3b73538ddd3cd8cd",
+          "capture_0001.npz": "60d1c2560221cb1b32e9e4746418ab47b991baa0bbbaf965a4e36a61bc8fd670",
+          "capture_0002.npz": "20736ac2466518bcc023be7534a62674b6fd42bde5d1bf31ada5a331190e6431",
+          "capture_0003.npz": "26c5edf4258f410874f1a9f8bd0e8e3cd7307b3e359812a901123bcb60ba031f",
+          "capture_0004.npz": "4df80f9f7c6ed021a01a6a8bea3ead1394a6512f685673713806dc8d9d83ff4f",
+          "capture_0005.npz": "9e8fa71fbe3e19f14040381b8635fab485137d8efddd9c7c104cb8516591fc24",
+          "capture_0006.npz": "d2baaef1c20c244171f31f837c0141626688d6233f4ac88561653e0cca6ec569",
+          "capture_0007.npz": "54029b2c12e7d75171a3ea29d30f2ab68bdc31d9dfee93ad3caab2bc4008e307",
+          "capture_0008.npz": "bf1a0b511d6fce7bbf64bcd3f0892f86cbe7eed06bcb8112de6930c7002b185a",
+          "capture_0009.npz": "a8e4ab1aee9cc48a8233ac9cb19a3df5c61fefd502a8058397f3859b50248ec7",
+          "capture_0010.npz": "c5d65b80a4830f62b4ff36200fa9f3df4ed66a1262273461c8fb5595d94d3ee7",
+          "capture_0011.npz": "1665fe8e3ea3128d42bd3add7afaf4c0d026b3334660fc3b80aba1e0013c358a"
+        },
+        "status": "passed",
+        "timestamp_scope": "host calls, not sensor exposure triggers"
+      },
+      "measurements": [
+        {
+          "label": "square_seed",
+          "file": "capture_0000.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:12:56.473195+00:00",
+              "monotonic_ns": 228239580290600,
+              "end_monotonic_ns": 228239585569500,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:12:56.480889+00:00",
+              "monotonic_ns": 228239587971700,
+              "end_monotonic_ns": 228239612752900,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:12:56.509353+00:00",
+              "monotonic_ns": 228239616436200,
+              "end_monotonic_ns": 228239768155600,
+              "exposure_ms": 155.52
+            }
+          ],
+          "metrics": {
+            "cv": 0.5937890572944117,
+            "mean": 152.46457375363596,
+            "ee_roi": 0.8230731413390954,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.5952621724533949,
+              "mean": 152.54166236655314,
+              "ee_roi": 0.8231172567677969,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5954009487774518,
+              "mean": 152.42119611957756,
+              "ee_roi": 0.8230670512533704,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.595133763023446,
+              "mean": 152.43086277477727,
+              "ee_roi": 0.823035089759695,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1066.6666666666667,
+          "saturation_pixels": 1919,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 155.52,
+          "timestamp_utc": "2026-10-26T06:12:56.748281+00:00",
+          "monotonic_ns": 228239855372200,
+          "loss": 0.35258546471595764
+        },
+        {
+          "label": "square_0_A1",
+          "file": "capture_0001.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:12:59.812100+00:00",
+              "monotonic_ns": 228242919215000,
+              "end_monotonic_ns": 228242923353600,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:12:59.820352+00:00",
+              "monotonic_ns": 228242927442200,
+              "end_monotonic_ns": 228243036377900,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:12:59.933037+00:00",
+              "monotonic_ns": 228243040133100,
+              "end_monotonic_ns": 228243191652300,
+              "exposure_ms": 155.52
+            }
+          ],
+          "metrics": {
+            "cv": 0.5909168930851647,
+            "mean": 152.56292786129555,
+            "ee_roi": 0.8228691218865013,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.5923973067775237,
+              "mean": 152.5272340523123,
+              "ee_roi": 0.8228440125366261,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5920178073286376,
+              "mean": 152.58689096058802,
+              "ee_roi": 0.8228909023819104,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5923018354140686,
+              "mean": 152.5746585709863,
+              "ee_roi": 0.8228724443365848,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1011.0,
+          "saturation_pixels": 1885,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 155.52,
+          "timestamp_utc": "2026-10-26T06:13:00.169738+00:00",
+          "monotonic_ns": 228243276844700,
+          "loss": 0.34918269515037537
+        },
+        {
+          "label": "square_0_B",
+          "file": "capture_0002.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:13:07.883184+00:00",
+              "monotonic_ns": 228250990322700,
+              "end_monotonic_ns": 228250997581800,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:13:07.895509+00:00",
+              "monotonic_ns": 228251002626600,
+              "end_monotonic_ns": 228251129650500,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:13:08.026189+00:00",
+              "monotonic_ns": 228251133295600,
+              "end_monotonic_ns": 228251283755200,
+              "exposure_ms": 155.52
+            }
+          ],
+          "metrics": {
+            "cv": 0.5262902903666813,
+            "mean": 149.19070334567945,
+            "ee_roi": 0.8196517803719755,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.5279378780379098,
+              "mean": 149.27133142981643,
+              "ee_roi": 0.8197256234802537,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.52759652087,
+              "mean": 149.1161948008761,
+              "ee_roi": 0.8196429722419553,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5278737296413767,
+              "mean": 149.1845838063458,
+              "ee_roi": 0.819586710313188,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 920.0,
+          "saturation_pixels": 1862,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 155.52,
+          "timestamp_utc": "2026-10-26T06:13:08.265588+00:00",
+          "monotonic_ns": 228251372699200,
+          "loss": 0.2769814729690552
+        },
+        {
+          "label": "square_1_A1",
+          "file": "capture_0003.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:13:18.498976+00:00",
+              "monotonic_ns": 228261606115000,
+              "end_monotonic_ns": 228261611418900,
+              "exposure_ms": 331.311
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:13:18.507222+00:00",
+              "monotonic_ns": 228261614346800,
+              "end_monotonic_ns": 228261626975700,
+              "exposure_ms": 331.311
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:13:18.523559+00:00",
+              "monotonic_ns": 228261630684100,
+              "end_monotonic_ns": 228261958776200,
+              "exposure_ms": 331.311
+            }
+          ],
+          "metrics": {
+            "cv": 0.5632044433456599,
+            "mean": 303.8454835429877,
+            "ee_roi": 0.842964785373331,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.5637163239682225,
+              "mean": 303.8008330753265,
+              "ee_roi": 0.8429543683053897,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5639601808889106,
+              "mean": 303.87687341612485,
+              "ee_roi": 0.8429583750416988,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5643203981109053,
+              "mean": 303.8587441375119,
+              "ee_roi": 0.8429816120932211,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1923.6666666666667,
+          "saturation_pixels": 3612,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 331.311,
+          "timestamp_utc": "2026-10-26T06:13:18.938999+00:00",
+          "monotonic_ns": 228262046129800,
+          "loss": 0.31719931960105896
+        },
+        {
+          "label": "square_1_B",
+          "file": "capture_0004.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:13:24.039152+00:00",
+              "monotonic_ns": 228267146327700,
+              "end_monotonic_ns": 228267154084600,
+              "exposure_ms": 331.311
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:13:24.051780+00:00",
+              "monotonic_ns": 228267158916300,
+              "end_monotonic_ns": 228267260476300,
+              "exposure_ms": 331.311
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:13:24.156735+00:00",
+              "monotonic_ns": 228267263874000,
+              "end_monotonic_ns": 228267592435600,
+              "exposure_ms": 331.311
+            }
+          ],
+          "metrics": {
+            "cv": 0.5129762857446275,
+            "mean": 295.8387820549574,
+            "ee_roi": 0.8381900834864591,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.5136984540668309,
+              "mean": 295.9357247698006,
+              "ee_roi": 0.8382849890555808,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5139201493810707,
+              "mean": 295.93424839749105,
+              "ee_roi": 0.8381808930513572,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5139762447257967,
+              "mean": 295.64637299758044,
+              "ee_roi": 0.8381043071985695,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1568.0,
+          "saturation_pixels": 3657,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 331.311,
+          "timestamp_utc": "2026-10-26T06:13:24.567230+00:00",
+          "monotonic_ns": 228267674372500,
+          "loss": 0.26314467191696167
+        },
+        {
+          "label": "square_2_A1",
+          "file": "capture_0005.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:13:30.821772+00:00",
+              "monotonic_ns": 228273928935800,
+              "end_monotonic_ns": 228273934885500,
+              "exposure_ms": 331.311
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:13:30.832400+00:00",
+              "monotonic_ns": 228273939547400,
+              "end_monotonic_ns": 228274219688700,
+              "exposure_ms": 331.311
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:13:31.116559+00:00",
+              "monotonic_ns": 228274223710300,
+              "end_monotonic_ns": 228274551720600,
+              "exposure_ms": 331.311
+            }
+          ],
+          "metrics": {
+            "cv": 0.5192207514187857,
+            "mean": 296.2129932230211,
+            "ee_roi": 0.8379820433844561,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.5196494631718671,
+              "mean": 296.19246161431994,
+              "ee_roi": 0.8379787614332669,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5200921619955804,
+              "mean": 296.2065344525096,
+              "ee_roi": 0.838002428138759,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5204531532712539,
+              "mean": 296.2399836022338,
+              "ee_roi": 0.8379649434312578,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1512.3333333333333,
+          "saturation_pixels": 3677,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 331.311,
+          "timestamp_utc": "2026-10-26T06:13:31.526672+00:00",
+          "monotonic_ns": 228274633826300,
+          "loss": 0.2695901691913605
+        },
+        {
+          "label": "square_2_B",
+          "file": "capture_0006.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:13:36.207566+00:00",
+              "monotonic_ns": 228279314752600,
+              "end_monotonic_ns": 228279322385400,
+              "exposure_ms": 331.311
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:13:36.219443+00:00",
+              "monotonic_ns": 228279326605100,
+              "end_monotonic_ns": 228279522743000,
+              "exposure_ms": 331.311
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:13:36.419356+00:00",
+              "monotonic_ns": 228279526517300,
+              "end_monotonic_ns": 228279854636100,
+              "exposure_ms": 331.311
+            }
+          ],
+          "metrics": {
+            "cv": 0.47981564679820965,
+            "mean": 286.26622385053184,
+            "ee_roi": 0.8321606350378925,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.48063590162123837,
+              "mean": 286.35529544646647,
+              "ee_roi": 0.8321612387481284,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.48065149447174355,
+              "mean": 286.14591718554703,
+              "ee_roi": 0.8321464956847563,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.48094910293317095,
+              "mean": 286.29745891958214,
+              "ee_roi": 0.8321741635631933,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1454.6666666666667,
+          "saturation_pixels": 3750,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 331.311,
+          "timestamp_utc": "2026-10-26T06:13:36.834118+00:00",
+          "monotonic_ns": 228279941295700,
+          "loss": 0.23022305965423584
+        },
+        {
+          "label": "square_3_A1",
+          "file": "capture_0007.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:13:43.053349+00:00",
+              "monotonic_ns": 228286160553700,
+              "end_monotonic_ns": 228286168480300,
+              "exposure_ms": 331.311
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:13:43.066133+00:00",
+              "monotonic_ns": 228286173305100,
+              "end_monotonic_ns": 228286482013500,
+              "exposure_ms": 331.311
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:13:43.378713+00:00",
+              "monotonic_ns": 228286485888800,
+              "end_monotonic_ns": 228286812845800,
+              "exposure_ms": 331.311
+            }
+          ],
+          "metrics": {
+            "cv": 0.4851593806474357,
+            "mean": 287.69999923553536,
+            "ee_roi": 0.8322191921487776,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.485933293338068,
+              "mean": 287.466840391253,
+              "ee_roi": 0.8321529141692678,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.48605198744928696,
+              "mean": 287.78682617221097,
+              "ee_roi": 0.8322491930520893,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.48621610051606257,
+              "mean": 287.84633114314215,
+              "ee_roi": 0.8322553959956641,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1547.6666666666667,
+          "saturation_pixels": 3785,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 331.311,
+          "timestamp_utc": "2026-10-26T06:13:43.788878+00:00",
+          "monotonic_ns": 228286896055800,
+          "loss": 0.23537959158420563
+        },
+        {
+          "label": "square_3_B",
+          "file": "capture_0008.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:13:48.791675+00:00",
+              "monotonic_ns": 228291898865600,
+              "end_monotonic_ns": 228291903043700,
+              "exposure_ms": 331.311
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:13:48.800105+00:00",
+              "monotonic_ns": 228291907287000,
+              "end_monotonic_ns": 228292115225500,
+              "exposure_ms": 331.311
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:13:49.011663+00:00",
+              "monotonic_ns": 228292118850400,
+              "end_monotonic_ns": 228292447149200,
+              "exposure_ms": 331.311
+            }
+          ],
+          "metrics": {
+            "cv": 0.45612926115702,
+            "mean": 279.2823378092737,
+            "ee_roi": 0.8266037235223646,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.4569670181944424,
+              "mean": 279.2363686401321,
+              "ee_roi": 0.8265771347418575,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4571395868053336,
+              "mean": 279.1957354340821,
+              "ee_roi": 0.8266092519682647,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4573139245466075,
+              "mean": 279.41490935360696,
+              "ee_roi": 0.8266247720584824,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1549.3333333333333,
+          "saturation_pixels": 3794,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 331.311,
+          "timestamp_utc": "2026-10-26T06:13:49.423009+00:00",
+          "monotonic_ns": 228292530196800,
+          "loss": 0.20805387198925018
+        },
+        {
+          "label": "square_final_adaptive",
+          "file": "capture_0009.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:13:52.198739+00:00",
+              "monotonic_ns": 228295305949900,
+              "end_monotonic_ns": 228295312423000,
+              "exposure_ms": 331.311
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:13:52.210383+00:00",
+              "monotonic_ns": 228295317570200,
+              "end_monotonic_ns": 228295429349200,
+              "exposure_ms": 331.311
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:13:52.325841+00:00",
+              "monotonic_ns": 228295433033100,
+              "end_monotonic_ns": 228295762555300,
+              "exposure_ms": 331.311
+            }
+          ],
+          "metrics": {
+            "cv": 0.45787162069017456,
+            "mean": 279.3248477759813,
+            "ee_roi": 0.8266227339949881,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.45862125371548973,
+              "mean": 279.2635310238857,
+              "ee_roi": 0.82661405139415,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.45886238172206617,
+              "mean": 279.43491921520064,
+              "ee_roi": 0.8266148772622289,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.459097623281248,
+              "mean": 279.2760930888575,
+              "ee_roi": 0.826639277404406,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1576.3333333333333,
+          "saturation_pixels": 3806,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 331.311,
+          "timestamp_utc": "2026-10-26T06:13:52.738440+00:00",
+          "monotonic_ns": 228295845635000,
+          "loss": 0.20964647829532623
+        },
+        {
+          "label": "square_seed_replay",
+          "file": "capture_0010.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:13:56.706459+00:00",
+              "monotonic_ns": 228299813674900,
+              "end_monotonic_ns": 228299818729100,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:13:56.715183+00:00",
+              "monotonic_ns": 228299822381100,
+              "end_monotonic_ns": 228299949041200,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:13:56.845437+00:00",
+              "monotonic_ns": 228299952637700,
+              "end_monotonic_ns": 228300103463000,
+              "exposure_ms": 155.52
+            }
+          ],
+          "metrics": {
+            "cv": 0.5702553272793858,
+            "mean": 153.795580247763,
+            "ee_roi": 0.8196280768075038,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.5715064238695985,
+              "mean": 153.92493721834256,
+              "ee_roi": 0.819651840159721,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5716643234266433,
+              "mean": 153.814074558235,
+              "ee_roi": 0.8196264033168807,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.5716442603109774,
+              "mean": 153.64772896671138,
+              "ee_roi": 0.8196059465608663,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 1037.6666666666667,
+          "saturation_pixels": 2062,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 155.52,
+          "timestamp_utc": "2026-10-26T06:13:57.079274+00:00",
+          "monotonic_ns": 228300186511000,
+          "loss": 0.3251911699771881
+        },
+        {
+          "label": "square_final",
+          "file": "capture_0011.npz",
+          "frames": [
+            {
+              "timestamp_utc": "2026-10-26T06:14:00.357684+00:00",
+              "monotonic_ns": 228303464898200,
+              "end_monotonic_ns": 228303469638600,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:14:00.365090+00:00",
+              "monotonic_ns": 228303472294900,
+              "end_monotonic_ns": 228303527362900,
+              "exposure_ms": 155.52
+            },
+            {
+              "timestamp_utc": "2026-10-26T06:14:00.423845+00:00",
+              "monotonic_ns": 228303531052100,
+              "end_monotonic_ns": 228303683895500,
+              "exposure_ms": 155.52
+            }
+          ],
+          "metrics": {
+            "cv": 0.42711412558554823,
+            "mean": 139.11780495449526,
+            "ee_roi": 0.803027317488769,
+            "target_peak": 4095.0
+          },
+          "per_frame": [
+            {
+              "cv": 0.42910212994671854,
+              "mean": 139.19695666632265,
+              "ee_roi": 0.8030676330576781,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4289852586172026,
+              "mean": 139.13332931989405,
+              "ee_roi": 0.8030058180708072,
+              "target_peak": 4095.0
+            },
+            {
+              "cv": 0.4290318589421143,
+              "mean": 139.02312887726902,
+              "ee_roi": 0.8030084706204936,
+              "target_peak": 4095.0
+            }
+          ],
+          "peak": 4095.0,
+          "core_peak": 728.6666666666666,
+          "saturation_pixels": 2053,
+          "bit_depth": 12,
+          "counts_scale": 16.0,
+          "full_scale": 4095.0,
+          "exposure_ms": 155.52,
+          "timestamp_utc": "2026-10-26T06:14:00.660595+00:00",
+          "monotonic_ns": 228303767805000,
+          "loss": 0.18242645263671875
+        }
+      ],
+      "endpoints": [
+        {
+          "label": "square_seed_replay",
+          "exposure_ms": 155.52,
+          "sparse_cv": 0.5702553272793858,
+          "full_resolution_cv": 0.5705331591616345,
+          "native_mean": 153.76242923924303,
+          "native_peak": 1058.3333333333333,
+          "full_resolution_pixels": 1395312,
+          "bit_depth": 12,
+          "saturated_core_pixels": 0,
+          "model_core_cv": 0.08716786652803421,
+          "model_core_mean_equivalent_counts_per_ms": 0.5471398830413818,
+          "measured_core_mean_equivalent_counts_per_ms": 0.061806994376833756,
+          "model_core_correlation": 0.2749412676865608
+        },
+        {
+          "label": "square_final",
+          "exposure_ms": 155.52,
+          "sparse_cv": 0.42711412558554823,
+          "full_resolution_cv": 0.42731446093518366,
+          "native_mean": 139.10864451821527,
+          "native_peak": 728.6666666666666,
+          "full_resolution_pixels": 1395312,
+          "bit_depth": 12,
+          "saturated_core_pixels": 0,
+          "model_core_cv": 0.0809643417596817,
+          "model_core_mean_equivalent_counts_per_ms": 0.5464334487915039,
+          "measured_core_mean_equivalent_counts_per_ms": 0.05590832567937212,
+          "model_core_correlation": -0.025609940390149,
+          "zero_exclusion_sensitivity": {
+            "0": 0.8634579274189099,
+            "20": 0.5181902880435975,
+            "40": 0.4278668393004611,
+            "60": 0.4268325335221391,
+            "80": 0.426471318970386
+          }
+        }
+      ],
+      "iterations": 80
+    }
+  ],
+  "scale_check": {
+    "matrix": [
+      [
+        199.162382622726,
+        7540.142375611926
+      ],
+      [
+        -7442.135784436528,
+        132.64554512515133
+      ]
+    ],
+    "per_period_matrices": {
+      "x": [
+        [
+          165.09989270607912,
+          -7463.250635612563
+        ],
+        [
+          233.22487253937288,
+          -7421.020933260494
+        ]
+      ],
+      "y": [
+        [
+          7522.893708251213,
+          109.15721053930974
+        ],
+        [
+          7557.391042972638,
+          156.13387971099291
+        ]
+      ]
+    },
+    "ccd_pixel_um": 2.2,
+    "side_ccd_px": 1200,
+    "side_mm": 2.64,
+    "wide_matrix": [
+      [
+        129.53744151966112,
+        7503.6941991364465
+      ],
+      [
+        -7509.485573491114,
+        144.36014840862026
+      ]
+    ],
+    "wide_per_period": {
+      "x": [
+        [
+          141.43570406594336,
+          -7502.350502553667
+        ],
+        [
+          117.63917897337888,
+          -7516.620644428562
+        ]
+      ],
+      "y": [
+        [
+          7502.895649946564,
+          138.1515921037244
+        ],
+        [
+          7504.492748326329,
+          150.56870471351613
+        ]
+      ]
+    },
+    "relative_matrix_difference": 0.009829207811853096
+  },
+  "camera_formats": {
+    "formats": {
+      "Mono8": 17301505,
+      "Mono12": 17825797
+    },
+    "observations": [
+      {
+        "file": "mono8_0.npy",
+        "format": [
+          17301505,
+          "Mono8"
+        ],
+        "dtype": "uint8",
+        "shape": [
+          1944,
+          2592
+        ],
+        "peak": 12,
+        "exposure_ms": 0.02,
+        "timestamp_utc": "2026-10-26T05:59:18.519642+00:00",
+        "monotonic_ns": 227421624991200
+      },
+      {
+        "file": "mono8_1.npy",
+        "format": [
+          17301505,
+          "Mono8"
+        ],
+        "dtype": "uint8",
+        "shape": [
+          1944,
+          2592
+        ],
+        "peak": 11,
+        "exposure_ms": 0.02,
+        "timestamp_utc": "2026-10-26T05:59:18.617240+00:00",
+        "monotonic_ns": 227421722585100
+      },
+      {
+        "file": "mono8_2.npy",
+        "format": [
+          17301505,
+          "Mono8"
+        ],
+        "dtype": "uint8",
+        "shape": [
+          1944,
+          2592
+        ],
+        "peak": 11,
+        "exposure_ms": 0.02,
+        "timestamp_utc": "2026-10-26T05:59:18.627851+00:00",
+        "monotonic_ns": 227421733197100
+      },
+      {
+        "file": "mono12_0.npy",
+        "format": [
+          17825797,
+          "Mono12"
+        ],
+        "dtype": "uint16",
+        "shape": [
+          1944,
+          2592
+        ],
+        "peak": 183,
+        "exposure_ms": 0.02,
+        "timestamp_utc": "2026-10-26T05:59:19.082910+00:00",
+        "monotonic_ns": 227422188259100
+      },
+      {
+        "file": "mono12_1.npy",
+        "format": [
+          17825797,
+          "Mono12"
+        ],
+        "dtype": "uint16",
+        "shape": [
+          1944,
+          2592
+        ],
+        "peak": 185,
+        "exposure_ms": 0.02,
+        "timestamp_utc": "2026-10-26T05:59:19.187879+00:00",
+        "monotonic_ns": 227422293225200
+      },
+      {
+        "file": "mono12_2.npy",
+        "format": [
+          17825797,
+          "Mono12"
+        ],
+        "dtype": "uint16",
+        "shape": [
+          1944,
+          2592
+        ],
+        "peak": 190,
+        "exposure_ms": 0.02,
+        "timestamp_utc": "2026-10-26T05:59:19.281319+00:00",
+        "monotonic_ns": 227422386666500
+      }
+    ],
+    "timestamp_utc": "2026-10-26T05:59:18.254737+00:00",
+    "monotonic_ns": 227421360087600
+  },
+  "common_replay": [
+    {
+      "label": "transport_cv_r2_square_seed",
+      "file": "replay_0000.npz",
+      "exposure_ms": 50.0,
+      "full_scale": 4095,
+      "bit_depth": 12,
+      "counts_scale": 16.0,
+      "frames": [
+        {
+          "timestamp_utc": "2026-10-26T06:18:32.061760+00:00",
+          "monotonic_ns": 228575169501200,
+          "end_monotonic_ns": 228575175102900,
+          "exposure_ms": 50.0
+        },
+        {
+          "timestamp_utc": "2026-10-26T06:18:32.069350+00:00",
+          "monotonic_ns": 228575177071200,
+          "end_monotonic_ns": 228575182063600,
+          "exposure_ms": 50.0
+        },
+        {
+          "timestamp_utc": "2026-10-26T06:18:32.077877+00:00",
+          "monotonic_ns": 228575185597100,
+          "end_monotonic_ns": 228575277310900,
+          "exposure_ms": 50.0
+        }
+      ],
+      "metrics": {
+        "cv": 1.268303815287812,
+        "mean": 61.56770647550447,
+        "ee_roi": 0.7564168598144202,
+        "target_peak": 4095.0
+      },
+      "core_peak": 1389.3333333333333,
+      "timestamp_utc": "2026-10-26T06:18:34.163579+00:00",
+      "monotonic_ns": 228577271304600,
+      "full_resolution_cv": 1.2683771322634945,
+      "saturated_core_pixels": 0,
+      "cv_reduction_vs_initial": 0.0
+    },
+    {
+      "label": "transport_cv_r2_square_final",
+      "file": "replay_0001.npz",
+      "exposure_ms": 50.0,
+      "full_scale": 4095,
+      "bit_depth": 12,
+      "counts_scale": 16.0,
+      "frames": [
+        {
+          "timestamp_utc": "2026-10-26T06:18:35.289683+00:00",
+          "monotonic_ns": 228578397425500,
+          "end_monotonic_ns": 228578403431100,
+          "exposure_ms": 50.0
+        },
+        {
+          "timestamp_utc": "2026-10-26T06:18:35.298143+00:00",
+          "monotonic_ns": 228578405902900,
+          "end_monotonic_ns": 228578477227300,
+          "exposure_ms": 50.0
+        },
+        {
+          "timestamp_utc": "2026-10-26T06:18:35.373181+00:00",
+          "monotonic_ns": 228578480908100,
+          "end_monotonic_ns": 228578571218500,
+          "exposure_ms": 50.0
+        }
+      ],
+      "metrics": {
+        "cv": 0.74893619015026,
+        "mean": 57.35752777873665,
+        "ee_roi": 0.7302231524564451,
+        "target_peak": 4095.0
+      },
+      "core_peak": 656.3333333333334,
+      "timestamp_utc": "2026-10-26T06:18:37.416269+00:00",
+      "monotonic_ns": 228580524003300,
+      "full_resolution_cv": 0.7480950096708285,
+      "saturated_core_pixels": 0,
+      "cv_reduction_vs_initial": 0.40949780240130684
+    },
+    {
+      "label": "mono12_cv_square_final",
+      "file": "replay_0002.npz",
+      "exposure_ms": 50.0,
+      "full_scale": 4095,
+      "bit_depth": 12,
+      "counts_scale": 16.0,
+      "frames": [
+        {
+          "timestamp_utc": "2026-10-26T06:18:38.538422+00:00",
+          "monotonic_ns": 228581646168400,
+          "end_monotonic_ns": 228581652090800,
+          "exposure_ms": 50.0
+        },
+        {
+          "timestamp_utc": "2026-10-26T06:18:38.546530+00:00",
+          "monotonic_ns": 228581654262800,
+          "end_monotonic_ns": 228581676412700,
+          "exposure_ms": 50.0
+        },
+        {
+          "timestamp_utc": "2026-10-26T06:18:38.572176+00:00",
+          "monotonic_ns": 228581679908000,
+          "end_monotonic_ns": 228581771341000,
+          "exposure_ms": 50.0
+        }
+      ],
+      "metrics": {
+        "cv": 0.40389579414589394,
+        "mean": 54.631890028037624,
+        "ee_roi": 0.7437068175732757,
+        "target_peak": 4095.0
+      },
+      "core_peak": 445.0,
+      "timestamp_utc": "2026-10-26T06:18:40.673849+00:00",
+      "monotonic_ns": 228583781586500,
+      "full_resolution_cv": 0.4040707577347784,
+      "saturated_core_pixels": 0,
+      "cv_reduction_vs_initial": 0.6815464959756199
+    },
+    {
+      "label": "mono12_continue_square_final",
+      "file": "replay_0003.npz",
+      "exposure_ms": 50.0,
+      "full_scale": 4095,
+      "bit_depth": 12,
+      "counts_scale": 16.0,
+      "frames": [
+        {
+          "timestamp_utc": "2026-10-26T06:18:41.800290+00:00",
+          "monotonic_ns": 228584908043500,
+          "end_monotonic_ns": 228584914276000,
+          "exposure_ms": 50.0
+        },
+        {
+          "timestamp_utc": "2026-10-26T06:18:41.808994+00:00",
+          "monotonic_ns": 228584916750800,
+          "end_monotonic_ns": 228584971835500,
+          "exposure_ms": 50.0
+        },
+        {
+          "timestamp_utc": "2026-10-26T06:18:41.867525+00:00",
+          "monotonic_ns": 228584975264700,
+          "end_monotonic_ns": 228585065318200,
+          "exposure_ms": 50.0
+        }
+      ],
+      "metrics": {
+        "cv": 0.4038805101973242,
+        "mean": 54.25623942835445,
+        "ee_roi": 0.7430450479936724,
+        "target_peak": 4095.0
+      },
+      "core_peak": 278.0,
+      "timestamp_utc": "2026-10-26T06:18:43.913589+00:00",
+      "monotonic_ns": 228587021336600,
+      "full_resolution_cv": 0.40397742342683396,
+      "saturated_core_pixels": 0,
+      "cv_reduction_vs_initial": 0.6815585466754487
+    },
+    {
+      "label": "mono12_dense_square_final",
+      "file": "replay_0004.npz",
+      "exposure_ms": 50.0,
+      "full_scale": 4095,
+      "bit_depth": 12,
+      "counts_scale": 16.0,
+      "frames": [
+        {
+          "timestamp_utc": "2026-10-26T06:18:45.033819+00:00",
+          "monotonic_ns": 228588141575400,
+          "end_monotonic_ns": 228588147741700,
+          "exposure_ms": 50.0
+        },
+        {
+          "timestamp_utc": "2026-10-26T06:18:45.042084+00:00",
+          "monotonic_ns": 228588149828400,
+          "end_monotonic_ns": 228588170714100,
+          "exposure_ms": 50.0
+        },
+        {
+          "timestamp_utc": "2026-10-26T06:18:45.066690+00:00",
+          "monotonic_ns": 228588174436500,
+          "end_monotonic_ns": 228588265162800,
+          "exposure_ms": 50.0
+        }
+      ],
+      "metrics": {
+        "cv": 0.3864963593403681,
+        "mean": 53.83073860563591,
+        "ee_roi": 0.7381638475095197,
+        "target_peak": 4095.0
+      },
+      "core_peak": 238.66666666666666,
+      "timestamp_utc": "2026-10-26T06:18:47.115419+00:00",
+      "monotonic_ns": 228590223170700,
+      "full_resolution_cv": 0.3862339828148697,
+      "saturated_core_pixels": 0,
+      "cv_reduction_vs_initial": 0.6952651606960105
+    },
+    {
+      "label": "transport_cv_r2_square_seed",
+      "file": "replay_0005.npz",
+      "exposure_ms": 100.0,
+      "full_scale": 4095,
+      "bit_depth": 12,
+      "counts_scale": 16.0,
+      "frames": [
+        {
+          "timestamp_utc": "2026-10-26T06:18:48.452273+00:00",
+          "monotonic_ns": 228591560035500,
+          "end_monotonic_ns": 228591565374500,
+          "exposure_ms": 100.0
+        },
+        {
+          "timestamp_utc": "2026-10-26T06:18:48.460379+00:00",
+          "monotonic_ns": 228591568129900,
+          "end_monotonic_ns": 228591637285400,
+          "exposure_ms": 100.0
+        },
+        {
+          "timestamp_utc": "2026-10-26T06:18:48.533571+00:00",
+          "monotonic_ns": 228591641323500,
+          "end_monotonic_ns": 228591737371000,
+          "exposure_ms": 100.0
+        }
+      ],
+      "metrics": {
+        "cv": 1.3997684767869683,
+        "mean": 107.63909696572198,
+        "ee_roi": 0.7946622898428751,
+        "target_peak": 4095.0
+      },
+      "core_peak": 2722.3333333333335,
+      "timestamp_utc": "2026-10-26T06:18:50.562659+00:00",
+      "monotonic_ns": 228593670416200,
+      "full_resolution_cv": 1.3992934423768906,
+      "saturated_core_pixels": 0,
+      "cv_reduction_vs_initial": 0.0
+    },
+    {
+      "label": "transport_cv_r2_square_final",
+      "file": "replay_0006.npz",
+      "exposure_ms": 100.0,
+      "full_scale": 4095,
+      "bit_depth": 12,
+      "counts_scale": 16.0,
+      "frames": [
+        {
+          "timestamp_utc": "2026-10-26T06:18:51.688967+00:00",
+          "monotonic_ns": 228594796735300,
+          "end_monotonic_ns": 228594802162700,
+          "exposure_ms": 100.0
+        },
+        {
+          "timestamp_utc": "2026-10-26T06:18:51.697071+00:00",
+          "monotonic_ns": 228594804830800,
+          "end_monotonic_ns": 228594839680500,
+          "exposure_ms": 100.0
+        },
+        {
+          "timestamp_utc": "2026-10-26T06:18:51.735671+00:00",
+          "monotonic_ns": 228594843435000,
+          "end_monotonic_ns": 228594940180000,
+          "exposure_ms": 100.0
+        }
+      ],
+      "metrics": {
+        "cv": 0.8690312468388319,
+        "mean": 100.23813962051388,
+        "ee_roi": 0.7680768169151502,
+        "target_peak": 4095.0
+      },
+      "core_peak": 1405.3333333333333,
+      "timestamp_utc": "2026-10-26T06:18:53.890170+00:00",
+      "monotonic_ns": 228596997940400,
+      "full_resolution_cv": 0.8685610161179103,
+      "saturated_core_pixels": 0,
+      "cv_reduction_vs_initial": 0.3791607246123957
+    },
+    {
+      "label": "mono12_cv_square_final",
+      "file": "replay_0007.npz",
+      "exposure_ms": 100.0,
+      "full_scale": 4095,
+      "bit_depth": 12,
+      "counts_scale": 16.0,
+      "frames": [
+        {
+          "timestamp_utc": "2026-10-26T06:18:55.013009+00:00",
+          "monotonic_ns": 228598120781700,
+          "end_monotonic_ns": 228598126219600,
+          "exposure_ms": 100.0
+        },
+        {
+          "timestamp_utc": "2026-10-26T06:18:55.021741+00:00",
+          "monotonic_ns": 228598129508600,
+          "end_monotonic_ns": 228598142561000,
+          "exposure_ms": 100.0
+        },
+        {
+          "timestamp_utc": "2026-10-26T06:18:55.038208+00:00",
+          "monotonic_ns": 228598145974000,
+          "end_monotonic_ns": 228598242602700,
+          "exposure_ms": 100.0
+        }
+      ],
+      "metrics": {
+        "cv": 0.45732003493507034,
+        "mean": 93.71313396312533,
+        "ee_roi": 0.7877930209681172,
+        "target_peak": 4095.0
+      },
+      "core_peak": 901.0,
+      "timestamp_utc": "2026-10-26T06:18:57.217265+00:00",
+      "monotonic_ns": 228600325037300,
+      "full_resolution_cv": 0.45748003427498707,
+      "saturated_core_pixels": 0,
+      "cv_reduction_vs_initial": 0.673288802742005
+    },
+    {
+      "label": "mono12_continue_square_final",
+      "file": "replay_0008.npz",
+      "exposure_ms": 100.0,
+      "full_scale": 4095,
+      "bit_depth": 12,
+      "counts_scale": 16.0,
+      "frames": [
+        {
+          "timestamp_utc": "2026-10-26T06:18:58.340971+00:00",
+          "monotonic_ns": 228601448764400,
+          "end_monotonic_ns": 228601455858600,
+          "exposure_ms": 100.0
+        },
+        {
+          "timestamp_utc": "2026-10-26T06:18:58.350843+00:00",
+          "monotonic_ns": 228601458614000,
+          "end_monotonic_ns": 228601546341400,
+          "exposure_ms": 100.0
+        },
+        {
+          "timestamp_utc": "2026-10-26T06:18:58.442057+00:00",
+          "monotonic_ns": 228601549829600,
+          "end_monotonic_ns": 228601646220700,
+          "exposure_ms": 100.0
+        }
+      ],
+      "metrics": {
+        "cv": 0.4819096991776491,
+        "mean": 94.86876009220585,
+        "ee_roi": 0.7903023276971732,
+        "target_peak": 4095.0
+      },
+      "core_peak": 574.3333333333334,
+      "timestamp_utc": "2026-10-26T06:19:00.475249+00:00",
+      "monotonic_ns": 228603583025200,
+      "full_resolution_cv": 0.4820407254969516,
+      "saturated_core_pixels": 0,
+      "cv_reduction_vs_initial": 0.6557218517423498
+    },
+    {
+      "label": "mono12_dense_square_final",
+      "file": "replay_0009.npz",
+      "exposure_ms": 100.0,
+      "full_scale": 4095,
+      "bit_depth": 12,
+      "counts_scale": 16.0,
+      "frames": [
+        {
+          "timestamp_utc": "2026-10-26T06:19:01.596111+00:00",
+          "monotonic_ns": 228604703900100,
+          "end_monotonic_ns": 228604709047400,
+          "exposure_ms": 100.0
+        },
+        {
+          "timestamp_utc": "2026-10-26T06:19:01.603951+00:00",
+          "monotonic_ns": 228604711734200,
+          "end_monotonic_ns": 228604748233200,
+          "exposure_ms": 100.0
+        },
+        {
+          "timestamp_utc": "2026-10-26T06:19:01.644213+00:00",
+          "monotonic_ns": 228604751990200,
+          "end_monotonic_ns": 228604849244500,
+          "exposure_ms": 100.0
+        }
+      ],
+      "metrics": {
+        "cv": 0.4450454614786057,
+        "mean": 93.080415463273,
+        "ee_roi": 0.7826443403973222,
+        "target_peak": 4095.0
+      },
+      "core_peak": 464.6666666666667,
+      "timestamp_utc": "2026-10-26T06:19:03.620498+00:00",
+      "monotonic_ns": 228606728279100,
+      "full_resolution_cv": 0.4451456711802256,
+      "saturated_core_pixels": 0,
+      "cv_reduction_vs_initial": 0.6820578053735258
+    }
+  ],
+  "released": {
+    "status": "camera and SLM contexts closed",
+    "timestamp_utc": "2026-10-26T06:19:04.646309+00:00",
+    "monotonic_ns": 228607754095700
+  },
+  "counts": {
+    "phase_updates": 480,
+    "shaping_raw_frames": 204,
+    "replay_raw_frames": 30,
+    "fit_parameter_updates": 60
+  }
+}

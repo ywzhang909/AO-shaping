@@ -46,6 +46,7 @@ report/<topic>/
 | `online_recal_efficiency/` | `scripts/slm/generate_online_recal_efficiency_report.py` | `online_recal_efficiency.md` |
 | `gui_closed_loop_shaping/` | `scripts/generate_gui_shaping_hw_report.py` | `gui_closed_loop_shaping_20261014.md` |
 | `fast_recal_adapter/` | `scripts/ml/exp_fast_recal_adapter_report.py` | `fast_recal_adapter.md` |
+| `sim_pretrain_transfer/` | `scripts/slm/generate_sim_pretrain_transfer_report.py` | `sim_pretrain_transfer_20261024.md` |
 | `gs_refine/` | 手工撰写（GS 系列） | `gs_issue_live_20261015.md` 等 9 份 |
 | `model_in_loop/` | 手工撰写（MIL 系列） | `model_in_loop_live_20261013.md` 等 9 份 |
 
