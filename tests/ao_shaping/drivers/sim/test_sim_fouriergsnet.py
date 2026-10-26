@@ -1,6 +1,6 @@
 """FourierGSNet 仿真环境的物理回归测试 (TDD)。
 
-验证 ``SimFourierGSNetEnv`` 的 2f 傅里叶实验系统物理模型:
+验证 ``SimFourierGSNetEnv`` 的 2f 傅里叶实验系统物理预测模型:
 
 * **K 定律** —— 周期 ``P_slm`` 个 SLM 像素的闪耀光栅, 其 +1 级恰好落在距 0 级
   ``K_px / P_slm`` 个 CCD 像素处;
@@ -14,7 +14,7 @@
 部分完全确定性。
 
 与其他模块的关系: 被测对象是 ``drivers/sim/fouriergsnet_env.py``; 其 FFT 口径被
-``algorithm/signal_processing/zernike_coefficient_optimizer.py`` 的正向模型共享,
+``algorithm/signal_processing/zernike_coefficient_optimizer.py`` 的物理预测模型共享,
 故这里的 K 定律/包络断言同时是那条 model-in-the-loop 拟合链的前置条件。
 """
 from __future__ import annotations

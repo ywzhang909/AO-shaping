@@ -4,10 +4,10 @@
 > **生成脚本**: [`scripts/slm/model_in_loop_hw_runbook.py`](../../../scripts/slm/model_in_loop_hw_runbook.py)
 > **复现命令**: `python scripts/slm/model_in_loop_hw_runbook.py --stage all --target-cam-px 40`
 > **运行环境**: 硬件
-> **说明**: 正向模型实验系统几何标定；runbook 采集 + 本文档结论
+> **说明**: 物理预测模型实验系统几何标定；runbook 采集 + 本文档结论
 <!-- provenance:end -->
 
-**本轮结论**：本轮（2026-09-29 至 10-01）在 SLM-200（1064 nm）+ Daheng 相机真实 2f-Fourier 实验系统上完成正向模型几何标定与 model-in-the-loop 验证，六项核心结论：(1) 面板有效相位分辨率远粗于单像素——逐像素随机相位对远场无可测影响（core40 0.0261→0.0247），散斑相关标定路线在本实验系统不可实现（相关系数上限 ~0.07），正式放弃；(2) 平滑 Zernike 倾斜扫频是唯一可靠的几何标定途径，k_tilt = 3.411 cam px/rad（三次重复 ~3%），光栅斜坡（7615）与 Zernike 倾斜（7579）两条独立路线在 0.5% 内一致；(3) 束腰参数在无 WFS 条件下不可辨识（六模式联合拟合残差 14.5%、离焦响应不对称 +70%），标定器按设计拒绝输出并显式标注；(4) 零像差模型 MSE 已达 0.0068，任何拟合系数均使一致性变差，确认本实验系统无低阶像差可拟合，残差为散斑级模型失配；(5) 在硬件有效采样（far_field_size=4096）下，Step B 150 步将均匀度 CV 从 13.83 改善至 0.651（21 倍）且能量无损失（EE 保持 1.0000），验证数字孪生闭环在真实尺度下有效；(6) 撤回"面板冻结"误诊——该结论由三个独立测量错误叠加造成（全帧归一化 L2 度量、无平滑 argmax、固定 memory_number 固件空操作），并固化三条测量纪律。注意：焦面标定常数在三处文档存在未收口冲突（TODO.md H-11/H-16），引用前须确认所用基准。
+**本轮结论**：本轮（2026-09-29 至 10-01）在 SLM-200（1064 nm）+ Daheng 相机真实 2f-Fourier 实验系统上完成物理预测模型几何标定与 model-in-the-loop 验证，六项核心结论：(1) 面板有效相位分辨率远粗于单像素——逐像素随机相位对远场无可测影响（core40 0.0261→0.0247），散斑相关标定路线在本实验系统不可实现（相关系数上限 ~0.07），正式放弃；(2) 平滑 Zernike 倾斜扫频是唯一可靠的几何标定途径，k_tilt = 3.411 cam px/rad（三次重复 ~3%），光栅斜坡（7615）与 Zernike 倾斜（7579）两条独立路线在 0.5% 内一致；(3) 束腰参数在无 WFS 条件下不可辨识（六模式联合拟合残差 14.5%、离焦响应不对称 +70%），标定器按设计拒绝输出并显式标注；(4) 零像差模型 MSE 已达 0.0068，任何拟合系数均使一致性变差，确认本实验系统无低阶像差可拟合，残差为散斑级模型失配；(5) 在硬件有效采样（far_field_size=4096）下，Step B 150 步将均匀度 CV 从 13.83 改善至 0.651（21 倍）且能量无损失（EE 保持 1.0000），验证数字孪生闭环在真实尺度下有效；(6) 撤回"面板冻结"误诊——该结论由三个独立测量错误叠加造成（全帧归一化 L2 度量、无平滑 argmax、固定 memory_number 固件空操作），并固化三条测量纪律。注意：焦面标定常数在三处文档存在未收口冲突（TODO.md H-11/H-16），引用前须确认所用基准。
 
 Measured constants and known failure modes for running
 `ZernikeCoefficientOptimizer` (Step A) and the A→B loop against the **real**
@@ -688,4 +688,4 @@ model's far-field propagation.
 
 ## 与 slm-model-in-loop 的关系
 
-slm-model-in-loop 复用了本文件所述的实验系统几何自校准流程：通过 calibrate_bench_geometry 拟合几何参数，并在运行时检查实测远场与模型预测的相关性（--min-geometry-correlation）。当相关性低于阈值时，命令会拒绝整形并提示改用 slm-gs-refine。此外，它在 Step A 中交替拟合单个共享 Zernike 像差以校正正向模型，再在 Step B 中冻结该像差并合成目标光斑相位，从而避免两步互相抵消。
+slm-model-in-loop 复用了本文件所述的实验系统几何自校准流程：通过 calibrate_bench_geometry 拟合几何参数，并在运行时检查实测远场与模型预测的相关性（--min-geometry-correlation）。当相关性低于阈值时，命令会拒绝整形并提示改用 slm-gs-refine。此外，它在 Step A 中交替拟合单个共享 Zernike 像差以校正物理预测模型，再在 Step B 中冻结该像差并合成目标光斑相位，从而避免两步互相抵消。

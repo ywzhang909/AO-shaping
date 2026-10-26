@@ -1,4 +1,4 @@
-"""硬件实验脚本: 前向模型 + 反向传播可微分相位优化 (默认 dry-run)。
+"""硬件实验脚本: 物理预测模型 + 反向传播可微分相位优化 (默认 dry-run)。
 
 要验证什么
 ----------
@@ -6,7 +6,7 @@
 在真实实验系统 (2f 傅里叶光路: Santec SLM-200 → f=125mm 透镜 → Daheng CCD)
 上把两件事一次做完, 并把**全过程**记录下来:
 
-1. **前向模型**: 由 SLM 瞳面 (pupil) 振幅与相位经一次傅里叶变换预测远场
+1. **物理预测模型**: 由 SLM 瞳面 (pupil) 振幅与相位经一次傅里叶变换预测远场
    强度 (即仓库唯一的公开 API
    :class:`~ao_shaping.algorithm.signal_processing.differentiable_beam.DifferentiableBeamOptimizer`
    内部用的那个模型);
@@ -46,7 +46,7 @@
 
 退出码: 0 = 正常; 2 = 设备挂死/超时 (:func:`guarded` 硬退出); 3 = dry-run 违约
 (:func:`assert_no_drivers`); 4 = 光路受阻; 5 = **不在焦, 拒绝测量**;
-6 = 几何标定或前向模型这一步失败; 7 = 设备被别的会话占用, 等不到空闲
+6 = 几何标定或物理预测模型这一步失败; 7 = 设备被别的会话占用, 等不到空闲
 (``--wait-until-idle`` 走 :func:`run_hw_sweep_groups.wait_until_idle` 的公平仲裁:
 先看别的会话有没有在用设备, 没有才探针 —— **本脚本不抢设备**)。
 
@@ -229,7 +229,7 @@ DEFAULT_FOCUS_POINTS = 13
 DEFAULT_FOCUS_DIOPTER_RANGE = 6.0
 DEFAULT_FOCUS_REFINE = 7
 
-#: 前向模型网格
+#: 物理预测模型网格
 DEFAULT_MODEL_PUPIL_SAMPLES = 256
 DEFAULT_MODEL_PADDING = 4
 DEFAULT_BEAM_W0_PX = 260.0
@@ -269,7 +269,7 @@ def setup_cjk_font() -> None:
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class ModelSpec:
-    """前向模型的网格几何。
+    """物理预测模型的网格几何。
 
     Attributes:
         n_pupil: 瞳面采样数 ``N`` (瞳面占中央 ``N×N`` 块)。
@@ -742,7 +742,7 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
             "3": "dry-run 违约 (驱动包被 import)",
             "4": "光路受阻",
             "5": "不在焦 —— 拒绝测量",
-            "6": "几何标定或前向模型这一步失败",
+            "6": "几何标定或物理预测模型这一步失败",
             "7": "设备被别的会话占用, 等不到空闲 (本脚本不抢设备)",
         },
         "safety": {
@@ -796,7 +796,7 @@ def print_plan(plan: dict[str, Any]) -> None:
     add(f"  得到     = {g['gives']}")
     add(f"  K 取法   = {g['k_choice']}")
     add("")
-    add("阶段 3: 前向模型 + 反向传播优化 (纯模型, 硬件不在环里)")
+    add("阶段 3: 物理预测模型 + 反向传播优化 (纯模型, 硬件不在环里)")
     m = plan["model"]
     for key in (
         "grid",
@@ -1627,17 +1627,17 @@ def write_report(
     else:
         blind_area_text = "「目标块面积 / 网格面积」(本轮几何缺失, 无法给出)"
 
-    body = f"""# 可微分相位优化 (前向模型 + 反向传播) 硬件验证报告
+    body = f"""# 可微分相位优化 (物理预测模型 + 反向传播) 硬件验证报告
 
 ## 摘要
 
-本轮在 2f 傅里叶实验系统上做了一件此前没做过的事: 把**前向模型**与**反向传播
+本轮在 2f 傅里叶实验系统上做了一件此前没做过的事: 把**物理预测模型**与**反向传播
 可微分相位优化**放在一起, 并把全过程 (SLM 相位、CCD 远场光斑、模型梯度变化、
 全部参数) 记录下来。
 
 * **在焦判定**: 测量之前先用焦面扫描判实验系统在不在焦。判定不通过时脚本
   **拒绝测量** (退出码 {EXIT_NOT_IN_FOCUS}), 一帧测量数据都不写。
-* **前向模型**: pupil（瞳面）被离散成 {model.get("n_pupil")}×{model.get("n_pupil")}
+* **物理预测模型**: pupil（瞳面）被离散成 {model.get("n_pupil")}×{model.get("n_pupil")}
   采样, 嵌在 {model.get("m_grid")}×{model.get("m_grid")} 的零填充网格中央, 一次
   傅里叶变换给出远场强度。
 * **反向传播优化**: {model.get("iters")} 次 Adam 迭代, 损失是峰值归一化远场强度与
@@ -1651,7 +1651,7 @@ def write_report(
 
 ### 0.1 实验目的
 
-本轮把**前向模型**与**反向传播可微优化**第一次放进同一条实验系统链路里，
+本轮把**物理预测模型**与**反向传播可微优化**第一次放进同一条实验系统链路里，
 并把全过程留痕。要回答三个问题：
 
 1. **模型侧的梯度方向对不对？** 纯模型上跑 {params.get("iters")} 次 Adam，
@@ -1682,7 +1682,7 @@ def write_report(
 * **实验系统**：2f 傅里叶实验系统（SLM 前焦 → 傅里叶透镜 → CCD 后焦），真实设备。
   本脚本除 `--execute` 分支外**不 import 任何驱动**（`--dry-run` 在没有硬件的机器上
   也必须能跑完）。
-* **软件**：反向传播用 `torch.autograd`；前向模型是零填充 + `fftshift` 的规范傅里叶
+* **软件**：反向传播用 `torch.autograd`；物理预测模型是零填充 + `fftshift` 的规范傅里叶
   传播，几何来自 `SLMCCDCalibrator`（±1 级光栅）。
 * **产物**：运行目录 `{params.get("out_dir")}`（原始 npz/npy + csv/json + figures/），
   报告子目录 `report/slm/differentiable_opt/`（figures/ 与 artifacts/）。
@@ -1726,7 +1726,7 @@ def write_report(
 |---|---|
 {param_rows}
 
-## 3. 前向模型
+## 3. 物理预测模型
 
 | 项 | 值 |
 |---|---|
@@ -1877,7 +1877,7 @@ mirror = {geom.get("mirror")}.
    `optimizer/wfless/slm_gs_refine.py` 的思路。
 2. **换损失**：改成对目标块**加权**的损失形式，而不是全图 MSE，否则"把远场摊平"
    永远是最优解。
-3. **显式建模面板响应**：把点扩散函数（PSF）与面板像元孔径写进前向模型，否则模型
+3. **显式建模面板响应**：把点扩散函数（PSF）与面板像元孔径写进物理预测模型，否则模型
    的分辨率永远追不上硬件。
 4. **单独标定轴映射**：用带标记图案标定面板↔相机轴映射，不要靠「转置 / 不转置」的
    对比择优来定。
@@ -2677,7 +2677,7 @@ def _run_bench(
         geometry["mirror"],
     )
 
-    # ---- P4: 前向模型 + 反向传播优化 --------------------------------------
+    # ---- P4: 物理预测模型 + 反向传播优化 --------------------------------------
     try:
         spec = build_model_spec(
             pupil_radius=pupil_radius,
@@ -2695,14 +2695,14 @@ def _run_bench(
             delta_spot_px=float(args.delta_spot_px),
         )
     except Exception as exc:  # 模型构建失败 ⇒ 退出码 6
-        logger.exception("前向模型构建失败")
+        logger.exception("物理预测模型构建失败")
         write_abort_config({"reason": "model_build_failed", "error": str(exc)})
-        print(f"\n[中止] 前向模型构建失败: {exc}", flush=True)
+        print(f"\n[中止] 物理预测模型构建失败: {exc}", flush=True)
         return EXIT_MODEL_FAILED
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     logger.info(
-        "[P4] 前向模型: N={} M={} dp={:.4f} 远场采样 {:.4f} CCD px, 覆盖 {:.0f} CCD px, 目标 {} ({}), 设备 {}",
+        "[P4] 物理预测模型: N={} M={} dp={:.4f} 远场采样 {:.4f} CCD px, 覆盖 {:.0f} CCD px, 目标 {} ({}), 设备 {}",
         spec.n_pupil,
         spec.m_grid,
         spec.dp,

@@ -15,8 +15,8 @@ closed-loop pipeline the CLI runners drive:
 - **Model-in-loop** (``slm-model-in-loop``): the frontier method
   (``report/shape_trials/model_in_loop_live_20261013.md``), best uniformity so
   far but not yet an accepted uniform square; needs torch.
-- **迁移模型** (``slm_transfer`` / ``ao_shaping.tools.slm.transfer``): 少参数物理
-  正向模型 + 当前光路重测几何 + 检查点迁移，再用 CCD 锚定短块与 A–B–B–A 配对
+- **迁移学习** (``slm_transfer`` / ``ao_shaping.tools.slm.transfer``): 少参数物理
+  物理预测模型 + 当前光路重测几何 + 检查点迁移，再用 CCD 锚定短块与 A–B–B–A 配对
   验收（``report/shape_trials/multishape_capability/``）；同样需要 torch。
 
 Architecture — why adapters + decorators
@@ -241,7 +241,7 @@ MIL_PUPIL_CENTER_FALLBACK: str = bench_settings.PUPIL_CENTER_FALLBACK
 #: so switching the algorithm never means re-learning what the score means.
 _OBJECTIVE_CAPTION = (
     "目标与评分（相机像素；复合分数 = w_pib·PIB + w_unif·1/(1+CV)）。"
-    "GS 的权重是 w_pib / w_unif，正向模型的是 w_eff / w_uni，迁移模型的是形状 + "
+    "GS 的权重是 w_pib / w_unif，物理预测模型的是 w_eff / w_uni，迁移学习的是形状 + "
     "目标尺寸。"
 )
 
@@ -257,13 +257,13 @@ _PROBE_SPREAD_HELP = (
     "量化本底两个数量级才良态）"
 )
 
-#: 正向模型瞳面网格 / 远场补零的耗时与内存提示。
+#: 物理预测模型瞳面网格 / 远场补零的耗时与内存提示。
 _MIL_REGION_HELP = (
-    "正向模型瞳面网格边长，必须是 8 的倍数。网格边长 ×8 = 远场采样点 ×64，"
+    "物理预测模型瞳面网格边长，必须是 8 的倍数。网格边长 ×8 = 远场采样点 ×64，"
     "内存与耗时随之上升（本实验系统 64 网格可跑）。"
 )
 _MIL_PADDING_HELP = (
-    "远场补零倍数。正向模型默认 8（docs/slm/slm_model_in_loop.md §5），"
+    "远场补零倍数。物理预测模型默认 8（docs/slm/slm_model_in_loop.md §5），"
     "与 GS 验证值 3 **不合并** —— 两者是各自标定产物的一部分。"
 )
 
@@ -924,7 +924,7 @@ class ShapingMethod(ABC):
     def _phase_send_overlay(self, slm: Any) -> Iterator[None]:
         """下发最佳相位期间的发送叠加层。
 
-        只有 ``phase_carries_carrier`` 的方法（迁移模型）需要临时摘掉侧栏载波层；
+        只有 ``phase_carries_carrier`` 的方法（迁移学习）需要临时摘掉侧栏载波层；
         换层成功与否都不许丢相位，且退出时立刻恢复完整叠加层，否则操作员之后的
         每一次手动下发都会丢掉载波。
         """
@@ -1710,10 +1710,10 @@ class ModelInLoopMethod(ShapingMethod):
     """
 
     key: ClassVar[str] = "model-in-loop"
-    label: ClassVar[str] = "正向模型闭环整形（前沿，需 torch）"
-    action: ClassVar[str] = "开始正向模型闭环整形"
+    label: ClassVar[str] = "物理预测模型闭环整形（前沿，需 torch）"
+    action: ClassVar[str] = "开始物理预测模型闭环整形"
     blurb: ClassVar[str] = (
-        "每轮重拟合正向模型 Zernike 像差（Step A）后冻结并合成目标相位（Step B），"
+        "每轮重拟合物理预测模型 Zernike 像差（Step A）后冻结并合成目标相位（Step B），"
         "带 trust region 与逐轮验收。需 torch；目前最佳 CV 0.643 / EE 0.786，"
         "尚未达到验收的均匀方斑口径。"
     )
@@ -1835,7 +1835,7 @@ class ModelInLoopMethod(ShapingMethod):
             0.01,
             help="验证集探针相关度低于此值即判定拟合失败（实测 speckle 路线 corr≈0.07）",
         )
-        st.caption("正向模型几何")
+        st.caption("物理预测模型几何")
         for cell, (key, label, lo, hi, step, help_) in zip(
             st.columns(2),
             (
@@ -1944,7 +1944,7 @@ class ModelInLoopMethod(ShapingMethod):
             config.debug_dir = str(debug_run_dir(Path("data"), "slm_model_in_loop"))
         super().prepare_config(config, values)
         st.info(
-            f"正向模型闭环运行中：{config.n_rounds} 轮 × (Step A "
+            f"物理预测模型闭环运行中：{config.n_rounds} 轮 × (Step A "
             f"{config.step_a_iterations} 步拟合 + Step B {config.step_b_iterations} "
             "步优化)，耗时较长，请勿断开设备。"
         )
@@ -1971,7 +1971,7 @@ class ModelInLoopMethod(ShapingMethod):
 
     def validate(self, values: Mapping[str, Any]) -> str | None:
         error = (
-            validate_torch("正向模型闭环")
+            validate_torch("物理预测模型闭环")
             or validate_exposure(values, fixed=False)
             or validate_target_fits_window(values)
             or self._validate_holdout(values)
@@ -1998,7 +1998,7 @@ class ModelInLoopMethod(ShapingMethod):
         )
 
     def _require_session_geometry(self, values: Mapping[str, Any]) -> str | None:
-        """硬件上正向模型没有 sweep 几何就跑不起来，且**不再**在运行时替操作员测。
+        """硬件上物理预测模型没有 sweep 几何就跑不起来，且**不再**在运行时替操作员测。
 
         无 ``geometry_file`` 时优化器回落到 speckle 求解 —— 在本实验系统是实测
         失败（相关度 ≈0.07，低于 0.50 门槛），要等几分钟才中止。所以运行前就拒绝，
@@ -2009,7 +2009,7 @@ class ModelInLoopMethod(ShapingMethod):
         if str(values.get("geometry_file", "") or "").strip():
             return None
         return (
-            "没有可复用的 sweep 几何：正向模型闭环不再在运行时自动标定。"
+            "没有可复用的 sweep 几何：物理预测模型闭环不再在运行时自动标定。"
             f"请在左侧「CCD参数设置」的「SLM {self.slm_num} · 光路几何与标定」点一次"
             f"「标定 SLM {self.slm_num} 光路」（入射定位 → 曝光探测 → sweep 几何，"
             "约 1–3 分钟），之后每次运行直接复用那次结果；"
@@ -2076,7 +2076,7 @@ TRANSFER_STAGE_LABELS: dict[str, str] = {
     "capture": "当前光路采集（探针 + 逐帧自动曝光）",
     "reuse_capture": "复用已有采集",
     "nominal_initialization": "名义模型初始化（冷启动，未标定）",
-    "fit": "物理模型迁移 / 拟合",
+    "fit": "物理预测模型迁移 / 拟合",
     "CCD_model_blocks": "CCD 模型配对块",
     "exposure_response_capture": "曝光阶梯诊断",
     "exposure_response_analysis": "曝光响应分析",
@@ -2255,14 +2255,14 @@ class TransferMethod(ShapingMethod):
     """
 
     key: ClassVar[str] = "transfer"
-    label: ClassVar[str] = "迁移模型闭环整形（物理模型，需 torch）"
-    action: ClassVar[str] = "开始迁移模型闭环整形"
+    label: ClassVar[str] = "迁移学习闭环整形（物理预测模型，需 torch）"
+    action: ClassVar[str] = "开始迁移学习闭环整形"
     #: 本方法的相位自带载波（``ramp_matrix``），且 ``validate.run`` 测量期间会
     #: 清掉驱动叠加层 —— 所以运行时不接侧栏叠加层。
     applies_send_overlay: ClassVar[bool] = False
     phase_carries_carrier: ClassVar[bool] = True
     blurb: ClassVar[str] = (
-        "少参数物理正向模型 + 当前光路重测几何 + 检查点迁移，再用 CCD 锚定短块与 "
+        "少参数物理预测模型 + 当前光路重测几何 + 检查点迁移，再用 CCD 锚定短块与 "
         "A–B–B–A 配对验收生成目标相位。与 CLI ``-m ao_shaping.tools.slm.transfer`` "
         "同一入口；配方与验收见 "
         "report/shape_trials/multishape_capability/physical_multishape_reproduction_20261023.md。"
@@ -2313,7 +2313,7 @@ class TransferMethod(ShapingMethod):
                 4.0,
                 1024.0,
                 8.0,
-                help="去零级载波的斜率光栅周期，写进物理模型的 ramp_matrix；"
+                help="去零级载波的斜率光栅周期，写进物理预测模型的 ramp_matrix；"
                 "必须让目标整个落在测量窗内，否则运行前即拒绝",
             )
         st.caption(
@@ -2494,13 +2494,13 @@ class TransferMethod(ShapingMethod):
         means the run button is disabled instead of the operator losing several
         minutes to a device stage that was going to fail anyway.
         """
-        error = validate_torch("迁移模型闭环")
+        error = validate_torch("迁移学习闭环")
         if error is not None:
             return error
         cam_type = str(values.get("cam_type", ""))
         if cam_type != "daheng":
             return (
-                f"迁移模型闭环目前只对大恒相机做过实验验证（相机类型 {cam_type!r}）。"
+                f"迁移学习闭环目前只对大恒相机做过实验验证（相机类型 {cam_type!r}）。"
                 "其他后端仅有接口支持；请先在左侧「CCD参数设置」把相机类型设为 daheng"
             )
         if not values.get("shapes"):
@@ -2593,7 +2593,7 @@ def render_closed_loop_shaping(slm_num: int) -> None:
     st.subheader("闭环整形 (SLM + CCD)")
     st.caption(
         "开环整形（旧 GS方形整形/稳像法）在本实验系统已被实测证伪；此处复用 CLI "
-        "`slm-gs-refine` / `slm-model-in-loop` / 迁移模型工具入口的闭环管线，默认值即 "
+        "`slm-gs-refine` / `slm-model-in-loop` / 迁移学习工具入口的闭环管线，默认值即 "
         "[report/shape_trials](../../../../report/shape_trials/README.md) 的"
         "交错重放验证配方。运行期间本页阻塞，且 SLM 句柄临时交给优化器"
         "（另一台 SLM 不受影响）。"

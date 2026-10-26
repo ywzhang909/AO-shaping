@@ -126,7 +126,7 @@
 ### 5.1 口径（图是怎么画的）
 
 - **真值** = 探针的实测帧（`probes/*.npz` 的 `frame`，按 0.02 ms 参考曝光归一化）。
-- **预测** = 正向模型对该探针相位的远场强度（1024² 模型网格）。验证集探针与整形帧的预测是 runner 落盘的（npz 的 `prediction`）；**训练探针与平场探针 runner 不落盘预测**，本报告用运行目录里落盘的系数（`fitted_coefficients.npy`）与源面振幅（`source_amplitude.npy`）**离线重算同一套正向模型**（`ZernikeCoefficientOptimizer`，CPU，配置取自 `run_config.json`），再按 recorder 记录的增益与加性背景（杂散光）项系数合成到相机的量纲上。
+- **预测** = 物理预测模型对该探针相位的远场强度（1024² 模型网格）。验证集探针与整形帧的预测是 runner 落盘的（npz 的 `prediction`）；**训练探针与平场探针 runner 不落盘预测**，本报告用运行目录里落盘的系数（`fitted_coefficients.npy`）与源面振幅（`source_amplitude.npy`）**离线重算同一套物理预测模型**（`ZernikeCoefficientOptimizer`，CPU，配置取自 `run_config.json`），再按 recorder 记录的增益与加性背景（杂散光）项系数合成到相机的量纲上。
 - **映射到相机网格** = 本脚本既有的 `prediction_to_camera`：按该次运行的 `bench_geometry.json`（`camera_px_per_model_px`）把模型远场裁到相机看到的范围、重采样到 300×300，再按硬件路径的 90° 旋转转回相机朝向；随后按该次运行**冻结的光轴**（`stage.log` 的 `frozen ROI centre`）平移，使预测与实测逐像素可比 —— 与 §3 的动画用的是同一套对齐。
 - **r** = 实测帧与对齐后的预测之间的 Pearson 相关系数（相机网格）。另给出模型网格上的 r（实测重采样到 1024² 与预测之比）—— 那正是 runner 自己记的 `holdout_correlation`，用来交叉核对。
 - **SSIM** = peak 归一化后的结构相似度（`scikit-image`，7×7 高斯窗，`data_range=1`）。

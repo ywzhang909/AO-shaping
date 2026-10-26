@@ -84,7 +84,7 @@ CMD_ORDER = [
     ("slm-pib", "SLM Zernike 整形（spgd/heuristic 子命令）"),
     ("slm-gsnet", "SLM freeform 方形整形（spgd/heuristic/train）"),
     ("slm-gs-refine", "GS 预整形 + 全频随机相位 SPGD 细化"),
-    ("slm-model-in-loop", "正向模型闭环方形整形（反复迭代）"),
+    ("slm-model-in-loop", "物理预测模型闭环方形整形（反复迭代）"),
     ("slm-lut", "SLM 灰度-相位 LUT 标定（衍射效率反演）"),
     ("slm-diagnose", "SLM 面板硬件自检（逐级定位）"),
 ]

@@ -99,7 +99,7 @@ def render_unet_prediction_montage() -> Path:
             ax.axis("off")
 
     fig.suptitle(
-        "真实 CCD 同帧 U-Net vs 物理模型对比 (0.4 ms, 36×36 目标框)",
+        "真实 CCD 同帧 U-Net vs 物理预测模型对比 (0.4 ms, 36×36 目标框)",
         fontsize=14,
         y=1.02,
     )

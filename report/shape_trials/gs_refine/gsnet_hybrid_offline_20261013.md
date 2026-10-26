@@ -32,7 +32,7 @@
 
 ## 动机与实现
 
-`report/zernike_coeff2amp/zernike_coeff_report/report.md` 表明系数到图像的学习式前向代理在文件级划分下容易被共同背景抬高指标；`report/zernike_phase2amp/zernike_amp_report/report.md` 的分组交叉验证还表明旧 hybrid 并不必然优于物理模型。因此本轮不把网络训练 loss 当成硬件收益。
+`report/zernike_coeff2amp/zernike_coeff_report/report.md` 表明系数到图像的学习式前向代理在文件级划分下容易被共同背景抬高指标；`report/zernike_phase2amp/zernike_amp_report/report.md` 的分组交叉验证还表明旧 hybrid 并不必然优于物理预测模型。因此本轮不把网络训练 loss 当成硬件收益。
 
 `ml.gsnet.hybrid_phase.HybridPupilPhase` 使用项目规范的 `ZernikeGenerator` 生成 Noll 序 8 阶基底，排除不可观测的 piston，共 44 个弧度系数。独立的 16×16 可训练残差双线性插值到输出网格；两部分与 GS 初相位相加后都由显式偏心圆瞳掩膜约束，瞳面外恒为零。`HybridPhaseOptimizer.from_gsnet` 可冻结已训练 `FourierGSNet` 的预测作为基底，再用 `update()` / `run()` 细化系数与残差。该链路已接到离线推理，尚未接入实验下发或重训 `FourierGSNet` 本体。代码位于 `src/ml/gsnet/hybrid_phase.py` 与 `src/ml/gsnet/hybrid_infer.py`。
 
@@ -65,14 +65,14 @@
 ## 实验前的验证边界
 
 - 合成网格的偏心坐标不是 1920×1200 SLM 上 `(960,690)` 的缩放测量。真实入射振幅、瞳面半径和 CCD 角尺度仍需在设备恢复后重新校准。
-- `FourierGSNet` 输出已能在模型网格进入此参数化，但拟合的 Zernike 正向模型、网格到物理面板的映射及 SLM 灰度 LUT 尚未组成经验证的硬件下发链。当前不能把 `best_phase_grid_rad.npy` 当成可直接加载的面板文件。
+- `FourierGSNet` 输出已能在模型网格进入此参数化，但拟合的 Zernike 物理预测模型、网格到物理面板的映射及 SLM 灰度 LUT 尚未组成经验证的硬件下发链。当前不能把 `best_phase_grid_rad.npy` 当成可直接加载的面板文件。
 - 后续实验应重新测平场与曝光回读，Daheng 始终不超过 `0.4 ms`，并将候选相位与 GS 基线同会话交错重放；原始 CCD 帧、面板相位、曝光和评分仍保存到 `data/debug/`。
 
 现有 `slm-gsnet spgd` / `heuristic` 硬件入口已加调用前检查：Daheng 必须显式传 `(0, 0.4] ms` 的固定曝光，`0` 自动曝光和超限值均在设备打开前拒绝；`sim` 不受此实验系统限制。此防线只约束旧硬件搜索入口，**不代表混合候选相位已经完成实验验证**。
 
 ## GS 仿真与 CCD 的配对核查
 
-用 `data/debug/slm_gs_refine/20261012_180222/` 的同一条记录 `_phase` 和 `_img` 作离线配对。把面板灰度按理想线性 1023 灰度/2π 转回相位，截取以 `(960,690)` 为中心、半径 450 px 的 900×900 瞳面，乘以该 GS 实现的高斯入射振幅（`w0=900/3.5`），零填充 3 倍 FFT。用本次设备波长 1064 nm、记录焦距 0.122406 m、面板像素 8 µm、CCD 像素 2.2 µm 把远场插值到保存的 250×248 CCD 窗口；两幅图分别按窗口总能量归一，框内指标使用记录器的固定 `(126,126)` 中心及 100×100 目标框。这仍是**未标定**的前向模型：真实入射振幅、灰度 LUT、残余像差、相机背景及像素响应未知，坐标平移也未拟合。可复算入口为 `python scripts/slm/compare_gs_refine_forward.py data/debug/slm_gs_refine/20261012_180222 --pupil-center 960,690 --keys 0 1 27 --output data/debug/slm_gs_refine/20261012_180222/forward_diagnostic.json`。
+用 `data/debug/slm_gs_refine/20261012_180222/` 的同一条记录 `_phase` 和 `_img` 作离线配对。把面板灰度按理想线性 1023 灰度/2π 转回相位，截取以 `(960,690)` 为中心、半径 450 px 的 900×900 瞳面，乘以该 GS 实现的高斯入射振幅（`w0=900/3.5`），零填充 3 倍 FFT。用本次设备波长 1064 nm、记录焦距 0.122406 m、面板像素 8 µm、CCD 像素 2.2 µm 把远场插值到保存的 250×248 CCD 窗口；两幅图分别按窗口总能量归一，框内指标使用记录器的固定 `(126,126)` 中心及 100×100 目标框。这仍是**未标定**的物理预测模型：真实入射振幅、灰度 LUT、残余像差、相机背景及像素响应未知，坐标平移也未拟合。可复算入口为 `python scripts/slm/compare_gs_refine_forward.py data/debug/slm_gs_refine/20261012_180222 --pupil-center 960,690 --keys 0 1 27 --output data/debug/slm_gs_refine/20261012_180222/forward_diagnostic.json`。
 
 | 同次记录 | 模拟/CCD Pearson | 归一化强度重叠 `sum(min)` | CCD 框内 PIB/CV | 模拟框内 PIB/CV |
 |---|---:|---:|---:|---:|

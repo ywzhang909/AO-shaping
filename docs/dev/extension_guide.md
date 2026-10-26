@@ -103,7 +103,7 @@ python src/ao_shaping/main.py slm-pib square --cam-type sim -e 3
 | 相位→SLM 灰度 | `utils/slm/phase_display.py::phase_to_slm_grayscale` |
 | 目标方向（max/min） | `utils/objective_direction.py::objective_direction` |
 | 复合整形质量分 | `algorithm/signal_processing/square_shaping.py::shaping_score` |
-| 2f-Fourier 前向模型 | `drivers/sim/slm_shaping_bench.py` |
+| 2f-Fourier 物理预测模型 | `drivers/sim/slm_shaping_bench.py` |
 | 报告溯源映射 | `scripts/_common/provenance.py::REPORTS` |
 | 统计检验 | `ml/zernike/eval_stats.py` |
 

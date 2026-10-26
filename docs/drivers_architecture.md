@@ -130,7 +130,7 @@ Device (ABC)                          DeviceRegistry
 
 ### 2.3 设备 ↔ 仿真 孪生映射表
 
-| 设备类型 | 硬件实现 | 仿真实现 | 物理模型 |
+| 设备类型 | 硬件实现 | 仿真实现 | 物理预测模型 |
 |----------|----------|----------|----------|
 | **相机 (CCD)** | `DahengCamera` (Daheng)<br>`MIICamera` (MiiCam) | `SimulatedCCD` | 噪声叠加<br>高斯斑点生成<br>曝光响应 |
 | **变形镜 (DM)** | `NLightDM` (UDP) | `SimulateDM` | 电压→变形矩阵<br>邻接耦合<br>电压爬升限制 |
@@ -393,7 +393,7 @@ def get_rms(self) -> float: ...
 
 ### 6.2 仿真层 vs Mock 设备 vs 硬件
 
-| 类型 | 前缀 | 用途 | 物理模型 | API 兼容性 |
+| 类型 | 前缀 | 用途 | 物理预测模型 | API 兼容性 |
 |------|------|------|----------|-----------|
 | **硬件** | 无 | 真实设备控制 | 实际光学系统 | 完整 |
 | **Simulated** | `Simulated` | 集成测试/数字孪生 | 基于物理 ✨ | 兼容硬件 API |
@@ -591,7 +591,7 @@ with slm:
 
 #### 6.3.4 其他仿真设备
 
-| 设备类 | 仿真物理模型 | 对应硬件 |
+| 设备类 | 仿真物理预测模型 | 对应硬件 |
 |--------|-------------|----------|
 | `SimulatedLaser` | 功率衰减、模式 | 激光器 |
 | `SimulatedTurbulentScreen` | 大气湍流相位屏 | 模拟湍流 |
@@ -1081,8 +1081,8 @@ cache-miss 分支叠加；DM 电压变化通过 `dm_optics.version` 使远场缓
 （`load_gray_from_csv` → `csv_to_phase` → `display_phase`）与弧度导出
 （`save_phase_to_csv`，数据区为弧度、不可回灌灰度管线）共用同一入口。
 
-### 14.6 前向模型唯一入口
+### 14.6 物理预测模型唯一入口
 
-2f-Fourier 实验系统的前向模型/指标/参考优化器只在 `drivers/sim/slm_shaping_bench.py`；
+2f-Fourier 实验系统的物理预测模型/指标/参考优化器只在 `drivers/sim/slm_shaping_bench.py`；
 `optimizer/wfless/slm_shaping_bench.py` 为 re-export shim。曾因双实现导致同一方法按
 import 来源返回不同指标（零填充差异）。拆分模块只加 re-export，禁止复制函数体。

@@ -1,10 +1,10 @@
-"""正向模型的误差项: LUT 非线性 (gamma) + 相机离焦 + 光路倾斜。
+"""物理预测模型的误差项: LUT 非线性 (gamma) + 相机离焦 + 光路倾斜。
 
 被测对象:
 
 * ``ao_shaping/utils/wavefront/model_error_terms.py`` —— 误差项容器与装载器;
 * ``ao_shaping/algorithm/signal_processing/zernike_coefficient_optimizer.py``
-  —— 误差项在正向模型里的**作用位置**与数值;
+  —— 误差项在物理预测模型里的**作用位置**与数值;
 * ``ao_shaping/optimizer/wfless/model_in_loop_shaping.py`` —— Step B 与 Step A
   共用同一个前向, 以及 gamma 的拟合。
 

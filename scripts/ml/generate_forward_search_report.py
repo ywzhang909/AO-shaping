@@ -192,7 +192,7 @@ def main() -> None:
     ax2.set_title("结构相似度", fontsize=11)
     ax2.grid(alpha=0.3, axis="x")
     fig.suptitle(
-        "正向模型搜索：没有一个 arm 显著提升 R²\n"
+        "物理预测模型搜索：没有一个 arm 显著提升 R²\n"
         "误差棒 = 配对差值的标准误；括号内 = 3 个 seed 中胜过基线的个数",
         fontsize=12,
     )

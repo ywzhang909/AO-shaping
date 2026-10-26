@@ -4,7 +4,7 @@
 SLM 面板按 Santec SLM200 的 1920×1200 建, CCD 远场即 SLM 场的夫琅禾费衍射图样,
 按 CCD 像元格采样。
 
-物理模型
+物理预测模型
 ---------
 * 夫琅禾费传播采用归一化 FFT 约定 (0 级落在画面正中)::
 
@@ -43,7 +43,7 @@ SLM 面板按 Santec SLM200 的 1920×1200 建, CCD 远场即 SLM 场的夫琅�
 本模块是 **纯仿真层**, 不 import 任何硬件驱动, 因此可被离线训练/评估直接消费:
 
 * 上游物理口径唯一: FFT 约定与 K 定律同时被
-  ``algorithm/signal_processing/zernike_coefficient_optimizer.py`` 的正向模型采用,
+  ``algorithm/signal_processing/zernike_coefficient_optimizer.py`` 的物理预测模型采用,
   两边逐位可比 —— 这是 model-in-the-loop 拟合结果可直接与注入真值比较的前提。
 * 下游主要消费者:
   - ``optimizer/wfless/model_in_loop_shaping.py`` — 仅仿真, 用 ``BeamParams(native=True)``

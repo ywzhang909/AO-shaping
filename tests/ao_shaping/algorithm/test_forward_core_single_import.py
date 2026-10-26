@@ -1,6 +1,6 @@
-"""物理前向核心单一导入守卫（issue #199 R2+P5）。
+"""物理预测核心单一导入守卫（issue #199 R2+P5）。
 
-R2/P5 把两份物理前向（``differentiable_defocus_uniformity`` 与
+R2/P5 把两份物理预测（``differentiable_defocus_uniformity`` 与
 ``physical_forward_fit``）的公共核心抽到
 :mod:`ao_shaping.algorithm.signal_processing.defocus_forward_core`。本守卫
 钉住这个结构不再漂移：

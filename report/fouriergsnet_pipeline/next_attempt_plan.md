@@ -121,7 +121,7 @@ python src/ao_shaping/main.py --dir data slm-gsnet spgd \
 
 ### C4. FourierGSNet 实验系统 `run`（最后做，H-3~H-6）
 
-前置：C2 增益可复现化或 C3 收敛——证明实验系统前向模型与测量链可信后，网络微调（collect+finetune，域随机化 N_PERTURB=240）才有意义；否则是在污染的数据上拟合。执行按 `TODO.md` §4 命令，含 `--debug` 产物归档（H-24：方形家族进 hwdataset 会换 `fov_px`，`far_field_padding` 标定需重扫）。
+前置：C2 增益可复现化或 C3 收敛——证明实验系统物理预测模型与测量链可信后，网络微调（collect+finetune，域随机化 N_PERTURB=240）才有意义；否则是在污染的数据上拟合。执行按 `TODO.md` §4 命令，含 `--debug` 产物归档（H-24：方形家族进 hwdataset 会换 `fov_px`，`far_field_padding` 标定需重扫）。
 
 ## 6. 红线（违反即停，AGENTS.md）
 

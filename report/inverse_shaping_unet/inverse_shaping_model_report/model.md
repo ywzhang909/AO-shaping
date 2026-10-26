@@ -4,7 +4,7 @@
 > **生成脚本**: [`scripts/ml/generate_inverse_shaping_model_report.py`](../../../scripts/ml/generate_inverse_shaping_model_report.py)
 > **复现命令**: `python scripts/ml/generate_inverse_shaping_model_report.py`
 > **运行环境**: 离线
-> **说明**: PhasorUNet 模型详解: 逐阶段形状/参数量由脚本现场 introspection 真实模型得到; 含 phasor 表示理由/unit_phasor/物理前向 FOV 分桶/损失/unit-vs-non-unit L1 下界实测
+> **说明**: PhasorUNet 模型详解: 逐阶段形状/参数量由脚本现场 introspection 真实模型得到; 含 phasor 表示理由/unit_phasor/物理预测 FOV 分桶/损失/unit-vs-non-unit L1 下界实测
 <!-- provenance:end -->
 
 **本文档结论**（PhasorUNet 模型规格基准）：逆向模型确定为 **7,778,482 参数（约 7.78M）的 U-Net**——输入 `(2, 64, 64)`（远场图像 + 标准化对数曝光），输出 `(2, 64, 64)` 连续 phasor 场 `(cos, sin)` 并经 `unit_phasor` 投影到单位圆；训练目标为"监督 phasor L1 + 可微物理往返 L1"。phasor 表示与 unit 投影的必要性由 L1 下界实测支撑（unit vs non-unit），全部形状/参数量来自脚本对真实模型的现场 introspection，本文档与代码不可能不一致——后续训练与消融（`report/inverse_shaping_unet/inverse_shaping_report/report.md`）均以本文档为架构基准。
@@ -102,7 +102,7 @@ cos, sin  = where(dark, 1.0, cos), where(dark, 0.0, sin)
 - **为什么不用 `raw/(mag+eps)`**：那在零输入处恰好得 0，不是合法 phasor；这里改为 `clamp` 分母，并把阈下格**显式停靠**在 `(1, 0)`（相位 0）。
 - **可微性**：`hypot`/除法/`where` 均可微，梯度对**所有有信息的格**正常回传；暗格被 `where` 选中后不产生梯度（其相位本就无定义）。
 
-## 5. 物理前向模型：可微的「预测相位 → 相机图像」
+## 5. 物理预测模型：可微的「预测相位 → 相机图像」
 
 监督项只要求网络输出「像语料里的相位」；物理项要求「把预测相位真的传一遍光路，得到的远场要像语料里的那张图」。后者是这套模型**唯一的物理约束来源**。实现位于 `ml/shaping/physics.py`，它**不重新实现**前向光学，而是组装并按 FOV 分派给 `ml.zernike.models.ZernikeAmpModel`。
 
@@ -123,7 +123,7 @@ cos, sin  = where(dark, 1.0, cos), where(dark, 0.0, sin)
 
 其中 `correction = Σ_k c_k·Z_k` 有 **K = 14 个 Zernike 系数**（Noll 1 活塞被排除 —— 活塞不改变远场强度，留着只会留下一个近零空间列）。初始化时 `correction ≡ 0`（实测 `|correction|max = 0`），即起步是纯 Fraunhofer 模型。
 
-**关键语义：这是一个「实验系统前向模型」，不是生成器。** 它的公式是
+**关键语义：这是一个「实验系统物理预测模型」，不是生成器。** 它的公式是
 
 ```
 field = measured_phasor · exp(i·correction)
@@ -218,7 +218,7 @@ L_total = 1.0·L_sup + 1.0·L_phy + 0.0·L_smooth
 ### 6.4 梯度流
 
 - `unit_phasor` 全程可微，梯度对所有有信息的格回传（暗格被 `where` 旁路）。
-- `ForwardBank` 的**模型参数是冻结的**（`requires_grad_(False)`），但梯度仍流到**输入相位** —— 这正是 `L_phy` 需要的：不训练前向模型，只用它约束预测。
+- `ForwardBank` 的**模型参数是冻结的**（`requires_grad_(False)`），但梯度仍流到**输入相位** —— 这正是 `L_phy` 需要的：不训练物理预测模型，只用它约束预测。
 - 前向 bank 可能与网络不在同一 device（它默认偏爱 CUDA），所以 `L_phy` 在 bank 的 device 上算完后被搬回 `pred_raw` 的 device，保证 `total` 是单 device 求和。
 
 ## 7. 参数量构成与一个不可约的 L1 下界

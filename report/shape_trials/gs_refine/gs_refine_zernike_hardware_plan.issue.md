@@ -95,4 +95,4 @@ python scripts/slm/run_gs_refine_zernike_sweep.py \
 
 - **E1（SPGD 预算放大到 60 epoch）被砍**：仿真下需 300 epoch，并发下不切实际。
   "SPGD 不改善是预算不足还是物理上限"这个问题**未答**，已列为实验项 H7。
-- 仿真 GS 前向模型标定未做（已确认 OOM：GS bench FFT 网格会到 7200²–14400²）。
+- 仿真 GS 物理预测模型标定未做（已确认 OOM：GS bench FFT 网格会到 7200²–14400²）。

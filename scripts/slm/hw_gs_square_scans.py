@@ -912,10 +912,10 @@ def measure_box(
 
 
 def model_box_metrics(result: GSResult, side_cam_px: float, bench: Bench) -> dict[str, float]:
-    """GS 前向模型侧的同一组指标 (``model_*``), 供与实测对照。
+    """GS 物理预测模型侧的同一组指标 (``model_*``), 供与实测对照。
 
     ``GSResult.amplitude`` 是 GS 自己在**模型网格**上的远场幅度, 所以这一组数字
-    不花额外 FFT, 也不需要重新实现正向模型。它与实测的差正是「模型 vs 实验系统」
+    不花额外 FFT, 也不需要重新实现物理预测模型。它与实测的差正是「模型 vs 实验系统」
     的全部内容 (模型不知道 LUT、面板相差、装调)。
 
     纳入 ``model_*`` 的只有 ``cv/pib/score``: ``ee`` (方形整形优化器那一套) 需要

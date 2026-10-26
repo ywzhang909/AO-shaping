@@ -5,11 +5,11 @@
 * ``"gs"`` —— :func:`~ao_shaping.algorithm.gerchberg_saxton.gerchberg_saxton`
 * ``"backprop"`` —— :func:`~ao_shaping.algorithm.differentiable_shaping.train_beam_shaping`
 * ``"spgd-sim"`` —— 一个紧凑的自包含 SPGD 循环, 跑在另外两者所用的同一个
-  夫琅禾费 (FFT) 正向模型上, 使三个优化器看到完全相同的传播物理。
+  夫琅禾费 (FFT) 物理预测模型上, 使三个优化器看到完全相同的传播物理。
 
 每个算法产出一个 SLM 相位图, 随后用**同一个** FFT 传播子把它转回仿真远场
 强度, 所以这个基准是公平的正面对比: 各列之间唯一的差别是优化策略,
-绝不是正向模型。
+绝不是物理预测模型。
 
 曝光 / 亮度不变量指标遵循项目规则 —— 所有强度比较都做归一化, 使绝对尺度
 无关紧要。
@@ -64,7 +64,7 @@ SUITE_ALGORITHMS: tuple[str, ...] = tuple(sorted(_ALGORITHMS))
 
 
 # ---------------------------------------------------------------------------
-# 正向模型 (所有算法共用)
+# 物理预测模型 (所有算法共用)
 # ---------------------------------------------------------------------------
 def _propagate_far_field(
     phase: npt.NDArray[np.floating],
@@ -293,7 +293,7 @@ def _run_spgd_sim(
     iterations: int,
     seed: int,
 ) -> npt.NDArray[np.floating]:
-    """跑在同一个 FFT 正向模型上的自包含 SPGD 循环。
+    """跑在同一个 FFT 物理预测模型上的自包含 SPGD 循环。
 
     SPGD (Stochastic Parallel Gradient Descent) 用与 GS/backprop 相同的
     :func:`_propagate_far_field` 模型, 直接对目标强度优化 SLM 相位图。

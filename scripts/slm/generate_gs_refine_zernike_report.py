@@ -481,7 +481,7 @@ def scan_verdict(orders: list[dict], baselines: dict, summary: dict) -> str:
             0,
             (
                 "- ⚠️ **本次仿真运行不能回答本实验的科学问题** "
-                "(需要多少阶 Zernike 才能复现 GS 整形)。原因见局限 3: 数字孪生里 GS 前向模型"
+                "(需要多少阶 Zernike 才能复现 GS 整形)。原因见局限 3: 数字孪生里 GS 物理预测模型"
                 "未经标定 ⇒ 送入拟合的相位≈平场。上表验证的是**管线正确性**, 不是物理结论。"
             ),
         )

@@ -9,7 +9,7 @@
   SLM 相位, 使远场与方形目标相匹配。
 * **A↔B 迭代**: 交替执行 A 与 B (提前停止), 直至方斑收敛。
 
-正向模型是带零填充的夫琅禾费 FFT (float64):
+物理预测模型是带零填充的夫琅禾费 FFT (float64):
 
     field = gauss_pupil · exp(1j·(zernike_phase + slm_phase))
     far_field = fftshift(fft2(ifftshift(pad(field))))
@@ -155,7 +155,7 @@ def _torch() -> Any:
 class IterativeZernikeShapingOptimizer:
     """两阶段迭代式 Zernike + 纯相位 SLM 光束整形优化器。
 
-    正向模型为:
+    物理预测模型为:
 
         field = gauss_pupil · exp(1j·(zernike_phase + slm_phase))
         far_field = fftshift(fft2(ifftshift(pad(field))))   (float64)
@@ -284,7 +284,7 @@ class IterativeZernikeShapingOptimizer:
         return self._basis
 
     # ------------------------------------------------------------------
-    # 正向模型
+    # 物理预测模型
     # ------------------------------------------------------------------
     def _far_field(self, zernike_coeffs: Any, slm_phase: Any) -> Any:
         """由 Zernike 相位 + SLM 相位算出远场强度。

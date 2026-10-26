@@ -221,7 +221,7 @@ def main() -> int:
         "- `analytic_amplitude_target` 是纯振幅基线（理想上界）；`unshaped_zero_phase` 是无整形基线。",
         "",
         "> 本报告由 `scripts/slm/generate_beam_shaping_papers_report.py` 生成，仿真基于 "
-        "`ao_shaping.drivers.sim.slm_shaping_bench` 的前向模型和 "
+        "`ao_shaping.drivers.sim.slm_shaping_bench` 的物理预测模型和 "
         "`ao_shaping.drivers.sim.slm_shaping_bench` 的优化方法。",
     ]
     (OUT_DIR / "beam_shaping_papers.md").write_text("\n".join(md), encoding="utf-8")

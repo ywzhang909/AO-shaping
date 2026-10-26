@@ -175,7 +175,7 @@ def figure_forward(index, path: Path, checkpoint: Path | None = None) -> dict:
     axes[3].grid(alpha=0.3)
 
     fig.suptitle(
-        "正向模型：pred vs true —— 模型能否预测一次真实测量"
+        "物理预测模型：pred vs true —— 模型能否预测一次真实测量"
         + (
             f"（已训练 n_max={blob['n_max']}, pad={blob['far_field_padding']}）"
             if trained
@@ -368,7 +368,7 @@ GLOSSARY = """
 
 | 术语 | 英文 / 符号 | 含义 |
 |---|---|---|
-| 正向模型 | forward model | 给定**实测**的瞳面相位，预测相机拍到的远场。`ZernikeAmpModel.forward(phase_cos, phase_sin)` |
+| 物理预测模型 | forward model | 给定**实测**的瞳面相位，预测相机拍到的远场。`ZernikeAmpModel.forward(phase_cos, phase_sin)` |
 | 逆向整形 | inverse design / shaping | 给定**想要的**远场目标，反解出一块瞳面相位。对应 `correction_far_field()` |
 | pred | prediction | 模型给出的图 |
 | true | ground truth | 独立来源的参照图：正向用 CCD 实测帧，逆向用独立仿真 |
@@ -580,7 +580,7 @@ def build_report(stats: dict, figures_ok: bool) -> str:
         "",
         "## 1. 一句话结论",
         "",
-        "正向模型**可以**预测实测帧；逆向整形**可以**把远场整成方形。"
+        "物理预测模型**可以**预测实测帧；逆向整形**可以**把远场整成方形。"
         "但两件事都要用**独立来源**验证——用模型自己给自己打分是不成立的，"
         "这一点有实测证据（见 §5）。",
         "",
@@ -726,7 +726,7 @@ def _tail_section_5():
 def _tail_section_6(search_rows, combined_rows):
     """§6 小节。"""
     return [
-        "## 6. 正向模型的改进尝试：逐项贡献",
+        "## 6. 物理预测模型的改进尝试：逐项贡献",
         "",
         "![各 arm 对 R² 的贡献](figures/forward_search_summary.png)",
         "",
@@ -874,7 +874,7 @@ def _tail_section_10(taxonomy_rows):
         "`image_mode='abs255'` 加上模型的 `normalization='peak'` 已经把总量除掉了，"
         "这个「光路损耗告警」几乎没有可告警的东西。",
         "* **physics-informed 已经存在**，就是 `slm_model_in_loop` 本身：它每轮重新拟合"
-        "正向模型的像差，也就是清单里「定期重新标定 F_err」那一条，已经按轮做了。",
+        "物理预测模型的像差，也就是清单里「定期重新标定 F_err」那一条，已经按轮做了。",
         "* **冷启动配方（physics-informed + MSE）已经被否**：合成强相位增强 "
         "C4 +strong 25% 实测 **−0.0211，0/3 配对**。原因见下。",
         "* **峰值惩罚退化不安全**：空 ROI 天然没有热像素，所以它可以靠把光打空取胜。",

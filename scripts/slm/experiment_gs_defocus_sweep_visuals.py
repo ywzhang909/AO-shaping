@@ -76,7 +76,7 @@ d=50mm、f=122.4mm 时会把 chirp 弱化 1.408 倍)。:func:`self_check_no_magn
 复用仓库已验证件 (不自写)
 --------------------------
 
-* **正向模型 / GS 骨架**: 直接 import
+* **物理预测模型 / GS 骨架**: 直接 import
   :class:`scripts.slm.experiment_gs_defocus_offocus.OffFocusBench` 与
   :class:`~ao_shaping.algorithm.signal_processing.square_shaping.SquareShapingConfig`
   (它已过自检: GS 镜像 ``max|Δphase| = 6.7e-15``)。本文件只补它没有的那一件事:

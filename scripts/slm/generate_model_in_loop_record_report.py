@@ -29,7 +29,7 @@
         model_error_terms.json    注入的误差参数（若本次带了 --error-params）
         handoff_summary.json      summarize_session 的验收结论
 
-**帧网格口径（本脚本最要紧的一步）**。实测帧是 300×300 **相机像素**窗口，正向模型
+**帧网格口径（本脚本最要紧的一步）**。实测帧是 300×300 **相机像素**窗口，物理预测模型
 输出的是 1024² **远场采样点**网格，两者必须先落到同一张网格上才能逐像素比较：
 
 1. 相机像元 ↔ 远场采样点的换算用 ``bench_geometry.json`` 的**实测**标定
@@ -55,7 +55,7 @@
 ``gradient_norm`` 之类的键），找不到就写「未记录」。**每迭代的模型远场**找不到时，
 过程动画降级为「逐探针的实测 / 预测」。
 
-**一致性检查的口径**。正向模型的瞳面相位是 ``命令相位 + 像差``（见
+**一致性检查的口径**。物理预测模型的瞳面相位是 ``命令相位 + 像差``（见
 ``zernike_coefficient_optimizer._far_field_intensity``），所以**抵消像差**的命令相位
 是 ``-像差``。本报告因此给出「最佳相位 **减去**（-像差）」=「最佳相位 + 像差」
 的残余瞳面相位 RMS：若 Step B 只是做像差抵消（不整形），该值应当接近 0。
@@ -761,7 +761,7 @@ def _read_json_list(path: Path) -> list[dict[str, Any]]:
 
 
 def _recompute_predictions(bundle: RunBundle) -> None:
-    """用本次运行的正向模型离线复算缺预测的探针（并用落盘预测校验复算可信）。
+    """用本次运行的物理预测模型离线复算缺预测的探针（并用落盘预测校验复算可信）。
 
     复算只在**能与落盘预测对上**时才采用：判据是验证集 / 整形探针上的最大绝对
     偏差。对不上就放弃复算，缺预测的探针一律写「未记录」。
@@ -798,7 +798,7 @@ def _recompute_predictions(bundle: RunBundle) -> None:
             error_terms=None,
         )
     except Exception as exc:
-        bundle.recompute_note = f"未复算（正向模型构造失败：{exc}）"
+        bundle.recompute_note = f"未复算（物理预测模型构造失败：{exc}）"
         return
     optimizer.set_source_amplitude(bundle.source_amplitude)
 
@@ -846,7 +846,7 @@ def _recompute_predictions(bundle: RunBundle) -> None:
         )
         return
     bundle.recompute_note = (
-        f"已用本次运行的正向模型离线复算（与落盘预测的最大绝对偏差 "
+        f"已用本次运行的物理预测模型离线复算（与落盘预测的最大绝对偏差 "
         f"{deviation:.3g}，{checked} 条探针）"
     )
     for probe in bundle.probes:
@@ -1026,7 +1026,7 @@ def _probe_order(bundle: RunBundle) -> list[ProbeEntry]:
 def _consistency(bundle: RunBundle) -> dict[str, Any]:
     """最佳相位与拟合像差的一致性检查。
 
-    正向模型的瞳面相位是「命令相位 + 像差」，所以抵消像差的命令相位是 ``-像差``；
+    物理预测模型的瞳面相位是「命令相位 + 像差」，所以抵消像差的命令相位是 ``-像差``；
     「最佳相位减去（-像差）」= 「最佳相位 + 像差」就是**残余瞳面相位**。
     若 Step B 只做像差抵消（不做整形），残余应当接近 0。
     """
@@ -2377,7 +2377,7 @@ def build_report(
     lines.append("### 5.1 与 Step A 拟合像差的关系（一致性检查）")
     lines.append("")
     lines.append(
-        "正向模型的瞳面相位是「**命令相位 + 像差**」，所以抵消像差的命令相位是 `-像差`。"
+        "物理预测模型的瞳面相位是「**命令相位 + 像差**」，所以抵消像差的命令相位是 `-像差`。"
         "于是「最佳相位 **减去**（-像差）」= 「最佳相位 + 像差」就是**残余瞳面相位**；"
         "若 Step B 只做像差抵消（不做整形），它应当接近平坦（残余 RMS ≈ 0）。"
     )
@@ -2421,7 +2421,7 @@ def build_report(
     lines.append("## 6. CCD 远场光斑：平场 / 整形后 / 模型预测 / 差值")
     lines.append("")
     lines.append(
-        "**帧网格口径**。实测帧是 300×300 **相机像元**窗口，正向模型输出的是 1024² "
+        "**帧网格口径**。实测帧是 300×300 **相机像元**窗口，物理预测模型输出的是 1024² "
         "**远场采样点**网格。实测帧落到远场网格用 MIL 自己那套已验证的实现"
         "（`slm_model_in_loop._to_model_grid`），**旋转象限不写死** —— "
         "拿探针里落盘的 `model_grid` 逐像素反推（4 个象限里挑最吻合的），"
@@ -2488,7 +2488,7 @@ def build_report(
         lines.append(
             "**读法**：三行分别是「平场（实测）」「模型预测的整形结果」「整形后实测」。"
             "**模型预测那行高于平场、实测那行低于平场** —— 也就是说，"
-            "正向模型以为它把光斑整成了矩形（§6 的第三格确实是个矩形），"
+            "物理预测模型以为它把光斑整成了矩形（§6 的第三格确实是个矩形），"
             "而实验系统给回的是一团更散的光。"
             "这就是 §1 判定「没有打赢平场」的物理原因："
             "**不是优化器没找到更好的相位，而是它找到的相位只对模型成立。**"

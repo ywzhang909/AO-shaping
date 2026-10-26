@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "report" / "loss_defects" / "forward_search_report.md"
 
-BODY = """# 正向模型改进尝试：逐项贡献、术语与图解读
+BODY = """# 物理预测模型改进尝试：逐项贡献、术语与图解读
 
 > **生成脚本**: `scripts/ml/generate_forward_search_report.py`（图）+ `scripts/ml/forward_search.py`（数据）
 > **复现命令**: `python scripts/ml/forward_search.py` 然后 `python scripts/ml/generate_forward_search_report.py`

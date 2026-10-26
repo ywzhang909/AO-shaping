@@ -355,7 +355,7 @@ def _section_0_1_setup(
             "后端",
             f"`{config_kwargs['cam_type']}`（数字孪生，**不打开任何设备**：无相机、无 SLM）",
         ],
-        ["前向模型瞳面网格 `region`", str(config_kwargs["region"])],
+        ["物理预测模型瞳面网格 `region`", str(config_kwargs["region"])],
         ["相机窗口 `cam_size`", str(config_kwargs["cam_size"])],
         ["远场补零 `far_field_padding`", str(config_kwargs["far_field_padding"])],
         ["目标边长 `target_side`", f"{config_kwargs['target_side']} px（相机像素）"],
@@ -429,7 +429,7 @@ def _section_0_2_algorithm() -> list[str]:
         "`src/ao_shaping/optimizer/wfless/slm_model_in_loop.py`）：",
         '   - `holdout_on_sim`（默认 `False`）—— 在 `cam_type="sim"` 上也**测量**'
         "验证集探针。默认关闭时仿真路径根本不测验证集，`holdout_correlation` 恒为 "
-        "NaN，正向模型失配守卫也就永远不触发；打开后每轮多 "
+        "NaN，物理预测模型失配守卫也就永远不触发；打开后每轮多 "
         "`holdout_probe_count` 次探针往返。",
         "   - `probe_split_hook`（默认 `None`）—— 用外部给定的 `(train, holdout)` "
         "种子对替换固定偏移算术。`None` 时保持历史行为**逐位不变**；hook 必须给出"

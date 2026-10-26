@@ -105,7 +105,7 @@ min=-2.128、max=99.24、float64），朴素 `np.log` 产生 **51046 个 NaN**�
 | **朴素加权 MSE** | ❌ 否决 | 仓库已量化：峰值归一 MSE 是 `O(0.003)`，物理项是 `O(1)`，`w_mse=1.0` 只贡献「约 0.2% 的梯度，无法锚定任何东西」（`src/ml/zernike/losses.py:439-442`）。仓库自己的答案是 `poisson_nll`（同文件 `:392`）。 |
 | **峰值强度惩罚** | ✅ 已存在 | `shape_metric` 的 `pk_term`（`metrics.py:497`），有界 `(peak-1)/(peak+1)`，默认 `w_peak=0.5`；方形路径另有 `square_peak_to_background_ratio` + `w_pbr`。 |
 | **能量守恒** | ✅ 部分已存在 | `roi_energy_loss`（`metrics.py:159`）+ `rms_pib` 第三项 + `max_roi_energy_loss` 门。注意它是**单侧 ROI 亏空**，非真正的总功率守恒约束。 |
-| **物理前向模型残差** | ⏸ 不放叶子层 | 存在但都是 torch 且在 `utils/` 之外（`ml/zernike/models.py::ZernikeAmpModel`）。叶子层禁 torch（`test_target_package.py:122-128`）；若要做只能由 optimizer **注入**依赖。 |
+| **物理预测模型残差** | ⏸ 不放叶子层 | 存在但都是 torch 且在 `utils/` 之外（`ml/zernike/models.py::ZernikeAmpModel`）。叶子层禁 torch（`test_target_package.py:122-128`）；若要做只能由 optimizer **注入**依赖。 |
 
 ### 4.1 峰值安全：已实现为**可行性门**（不是投影，也不是软惩罚）
 

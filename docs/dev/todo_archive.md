@@ -1801,7 +1801,7 @@ golden 浮点噪声）、脚本 smoke import、square_target 逐位一致；ruff
 
 ---
 
-### 5.40 物理前向核心抽取：两份前向共享同一套几何（issue #199 step 4，2026-10-25）
+### 5.40 物理预测核心抽取：两份前向共享同一套几何（issue #199 step 4，2026-10-25）
 
 **问题**：`FrozenDefocusForward`（冻结推理）与 `PhysicalForwardFit`（拟合）
 各自内联实现同一套物理——面板网格、高斯照明幅度、相机采样网格、FFT 辐照度

@@ -776,7 +776,7 @@ def load_forward_model(stage: StageData) -> ForwardModel:
     run = stage.run
     model = ForwardModel()
     if run.run_dir is None:
-        model.note = "该变体没有运行目录，无法重建正向模型"
+        model.note = "该变体没有运行目录，无法重建物理预测模型"
         return model
     coefficients = load_npy(run.run_dir / "fitted_coefficients.npy")
     amplitude = load_npy(run.run_dir / "source_amplitude.npy")
@@ -792,7 +792,7 @@ def load_forward_model(stage: StageData) -> ForwardModel:
         )
         from ao_shaping.optimizer.wfless.slm_model_in_loop import _to_model_grid
     except Exception as exc:  # pragma: no cover - torch is an optional extra
-        model.note = f"正向模型不可用 ({type(exc).__name__})"
+        model.note = f"物理预测模型不可用 ({type(exc).__name__})"
         return model
 
     region = int(config.get("region", 128) or 128)
@@ -812,7 +812,7 @@ def load_forward_model(stage: StageData) -> ForwardModel:
         )
         optimizer.set_source_amplitude(amplitude)
     except Exception as exc:  # pragma: no cover - torch is an optional extra
-        model.note = f"正向模型初始化失败 ({type(exc).__name__})"
+        model.note = f"物理预测模型初始化失败 ({type(exc).__name__})"
         return model
 
     geometry = run.geometry or run.session_geometry
@@ -2922,11 +2922,11 @@ def _truth_section(
         "- **真值** = 探针的实测帧（`probes/*.npz` 的 `frame`，按 0.02 ms 参考曝光归一化）。"
     )
     lines.append(
-        "- **预测** = 正向模型对该探针相位的远场强度（1024² 模型网格）。"
+        "- **预测** = 物理预测模型对该探针相位的远场强度（1024² 模型网格）。"
         "验证集探针与整形帧的预测是 runner 落盘的（npz 的 `prediction`）；"
         "**训练探针与平场探针 runner 不落盘预测**，本报告用运行目录里落盘的"
         "系数（`fitted_coefficients.npy`）与源面振幅（`source_amplitude.npy`）"
-        "**离线重算同一套正向模型**（`ZernikeCoefficientOptimizer`，CPU，"
+        "**离线重算同一套物理预测模型**（`ZernikeCoefficientOptimizer`，CPU，"
         "配置取自 `run_config.json`），再按 recorder 记录的增益与"
         "加性背景（杂散光）项系数合成到相机的量纲上。"
     )

@@ -131,7 +131,7 @@ def main(argv: list[str] | None = None) -> int:
     body: list[str] = []
     body.append("# Zernike 系数 -> 远场强度 前向网络 —— 开发报告\n")
     body.append(
-        "本报告记录一个**学习出来的**前向模型：输入 Noll 序 Zernike 系数"
+        "本报告记录一个**学习出来的**物理预测模型：输入 Noll 序 Zernike 系数"
         "（弧度），输出归一化的 CCD 远场强度。物理上这条链路是确定的"
         "（系数 → 瞳面相位 → FFT → |F|²），网络的作用是把它变成一个"
         "可微、可微分的快速代理，供闭环整形使用。\n"

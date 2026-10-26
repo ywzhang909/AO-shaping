@@ -1,17 +1,17 @@
-"""闭环 SLM 远场整形仿真实验系统 —— 重新导出 + sim 前向模型。
+"""闭环 SLM 远场整形仿真实验系统 —— 重新导出 + sim 物理预测模型。
 
 本模块作为 **数字孪生 (数字双胞胎)** 层的门面:
 
 * **算法实现** (GS、WeightedGS/HIO、可微分、SPGD、analytic-amplitude) 已迁移到
   :mod:`ao_shaping.algorithm.signal_processing.square_shaping` —— 算法层不
   导入任何驱动 / sim 代码, 保持纯数学。
-* **sim-specific 前向模型** (``forward_intensity``) 与其物理参数
+* **sim-specific 物理预测模型** (``forward_intensity``) 与其物理参数
   ``ShapingBenchConfig`` 保留在这里, 封装 2f 傅里 Fourier 实验系统的物理。
 * **ShapingBenchConfig** 继承自 ``SquareShapingConfig``, 增加 ``cn2`` /
   ``l_max`` / ``l_min`` 与 ``make_beam_config()`` —— 这些是 sim-only 的大
-  时湍流参数, 算法层不需要 (算法层的正向模型是纯 FFT, 不路由 ``cn2``)。
+  时湍流参数, 算法层不需要 (算法层的物理预测模型是纯 FFT, 不路由 ``cn2``)。
 
-关于物理模型的说明
+关于物理预测模型的说明
 ------------------
 2f 傅里 Fourier 实验系统 (SLM 前焦面 → f 透镜 → 相机后焦面) 把 SLM 瞳面场映射到
 它的**傅里叶变换** (透镜相位 + 传播到 ``z=f``, 除一个全局相位外就等于夫琅
@@ -108,7 +108,7 @@ class ShapingBenchConfig(SquareShapingConfig):
     增加 sim-only 的大气湍流参数 (``cn2`` / ``l_max`` / ``l_min``) 与
     :meth:`make_beam_config` (桥接到 ``beam_backend``)。
 
-    这些额外字段在算法层的前向模型中是**死配置** (永不路由), 但保留它们
+    这些额外字段在算法层的物理预测模型中是**死配置** (永不路由), 但保留它们
     是为了 ``ShapingBenchConfig`` 仍可用于需要湍流程径 (如 ``turbulence_phase``)
     的 sim 场景。
     """
@@ -131,7 +131,7 @@ class ShapingBenchConfig(SquareShapingConfig):
 
 
 # ---------------------------------------------------------------------------
-# sim 前向模型 (2f 傅里 Fourier) —— 留在 sim 层
+# sim 物理预测模型 (2f 傅里 Fourier) —— 留在 sim 层
 # ---------------------------------------------------------------------------
 
 

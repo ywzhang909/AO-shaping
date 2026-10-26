@@ -198,7 +198,7 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
         click.echo("")
         click.echo("!" * 68)
         click.echo(f"运行中止, 设备已释放: {exc}")
-        click.echo("该实验系统不在正向模型描述范围内; 改用 slm-gs-refine。")
+        click.echo("该实验系统不在物理预测模型描述范围内; 改用 slm-gs-refine。")
         click.echo("!" * 68)
         raise SystemExit(2) from exc
 
@@ -269,7 +269,7 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
     if result.status in ("aborted_unidentifiable", "aborted_rejection_streak"):
         click.echo("")
         click.echo("!" * 68)
-        click.echo("该实验系统无法被当前正向模型描述, 已保留平场/最优已验证相位。")
+        click.echo("该实验系统无法被当前物理预测模型描述, 已保留平场/最优已验证相位。")
         click.echo("建议改用: python src/ao_shaping/main.py slm-gs-refine ...")
         click.echo("!" * 68)
         raise SystemExit(2)

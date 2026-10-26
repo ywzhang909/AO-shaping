@@ -1,4 +1,4 @@
-# 正向模型改进尝试：逐项贡献、术语与图解读
+# 物理预测模型改进尝试：逐项贡献、术语与图解读
 
 <!-- provenance:start -->
 > **生成脚本**: [`scripts/ml/generate_forward_search_report.py`](../../../scripts/ml/generate_forward_search_report.py)
@@ -8,7 +8,7 @@
 > **数据/关联脚本**: [`scripts/ml/probe_device_metadata.py`](../../../scripts/ml/probe_device_metadata.py)
 > **数据/关联脚本**: [`scripts/ml/check_ellipse_term.py`](../../../scripts/ml/check_ellipse_term.py)
 > **运行环境**: 离线
-> **说明**: 正向模型改进尝试: 设备参数/椭圆loss/attention/U-Net/图像增强, 3 seed 配对
+> **说明**: 物理预测模型改进尝试: 设备参数/椭圆loss/attention/U-Net/图像增强, 3 seed 配对
 <!-- provenance:end -->
 
 > **生成脚本**: `scripts/ml/generate_forward_search_report.py`（图）+ `scripts/ml/forward_search.py`（数据）

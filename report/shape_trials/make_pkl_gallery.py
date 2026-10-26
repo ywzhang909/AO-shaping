@@ -423,7 +423,7 @@ html.append(
  .row{margin-bottom:18px;}
  .chart img{width:100%;border:1px solid #e5e7eb;border-radius:8px;}
 </style></head><body>
-<header><h1>相机主动离焦 · 物理正向模型 PKL 可视化画廊</h1>
+<header><h1>相机主动离焦 · 物理预测模型 PKL 可视化画廊</h1>
 <p>数据根目录：<code>data/debug/physical_forward_defocus/</code> · 对应报告 <code>physical_forward_defocus_live_20261022.md</code> 与 <code>physical_forward_sampling_20261022_r2.md</code> 的"接续"目录表。</p></header>
 <main>"""
 )
@@ -474,7 +474,7 @@ html.append('</section>')
 # uniformity_refit
 html.append(
     '<section><h2>uniformity_refit_20261022_r1</h2>'
-    '<p class="desc">联合强度 / CV 目标的物理模型微调，共 151 个迭代快照（含初值）。'
+    '<p class="desc">联合强度 / CV 目标的物理预测模型微调，共 151 个迭代快照（含初值）。'
     'iterations.pkl 记录 loss / nmse / cv_mse 与全部物理参数。</p>'
 )
 html.append('<div class="row chart"><img src="%s"></div>' % rel(ur_loss_png))

@@ -4,7 +4,7 @@
 
 ### 1.1 文档目的
 
-本文件定义 `src/ao_shaping/gui/slm/multi_slm_controller.py` 的功能需求、非功能需求、接口规范与关键设计约束。本模块是 Santec SLM-200 空间光调制器的 Streamlit 前端页面，支持最多两台 SLM，每台可独立连接、配置和相位编程，并内置闭环远场光束整形（GS+SPGD 与正向模型闭环）。
+本文件定义 `src/ao_shaping/gui/slm/multi_slm_controller.py` 的功能需求、非功能需求、接口规范与关键设计约束。本模块是 Santec SLM-200 空间光调制器的 Streamlit 前端页面，支持最多两台 SLM，每台可独立连接、配置和相位编程，并内置闭环远场光束整形（GS+SPGD 与物理预测模型闭环）。
 
 ### 1.2 启动方式
 
@@ -25,7 +25,7 @@ streamlit run src/ao_shaping/gui/slm/multi_slm_controller.py
 ### 1.4 用户画像
 
 - 光学实验操作员：连接 SLM、下发相位图案、进行远场图像观测
-- 闭环整形用户：运行 GS+SPGD 或正向模型闭环整形，获取最佳相位与远场均匀度
+- 闭环整形用户：运行 GS+SPGD 或物理预测模型闭环整形，获取最佳相位与远场均匀度
 
 ---
 
@@ -81,7 +81,7 @@ streamlit run src/ao_shaping/gui/slm/multi_slm_controller.py
 | ID | 需求 | 优先级 |
 |----|------|--------|
 | FR-5.1 | 支持 GS+SPGD 闭环整形（已验证配方），与 CLI `slm-gs-refine` 同一代码路径 | 必须 |
-| FR-5.2 | 支持正向模型闭环整形（前沿，需 torch） | 可选 |
+| FR-5.2 | 支持物理预测模型闭环整形（前沿，需 torch） | 可选 |
 | FR-5.3 | 运行期间暂时释放目标 SLM 句柄，结束后重新获取（Santec SDK 句柄不可重入） | 必须 |
 | FR-5.4 | 运行期间停止后台周期切换线程，避免冲突 | 必须 |
 | FR-5.5 | 结束后把最佳相位（raw 弧度）经常规 `display_phase` 路径下发显示 | 必须 |
@@ -285,7 +285,7 @@ classDiagram
 | `SLMConfigManager` | 设备配置 JSON 持久化 |
 | `BackgroundToggle` | 后台周期切换线程，通过 `threading.Event` 停止，通过可变列表传快照 |
 | `ShapingMethod` (抽象) | 闭环整形适配器基类，统一 `execute` / `save` 接口 |
-| `GsRefineMethod` / `ModelInLoopMethod` | GS+SPGD 与正向模型闭环整形适配器 |
+| `GsRefineMethod` / `ModelInLoopMethod` | GS+SPGD 与物理预测模型闭环整形适配器 |
 | `ShapingOutcome` | 标准化闭环整形结果，平坦 UI 与优化器特定类型的解耦 |
 | `ShapingSessionDecorator` | 装饰器，负责设备生命周期（释放/重新获取 SLM 句柄）与错误隔离 |
 
@@ -651,7 +651,7 @@ sequenceDiagram
     PC->>PC: st.rerun()
 ```
 
-### 6.16 闭环整形（GS+SPGD / 正向模型）
+### 6.16 闭环整形（GS+SPGD / 物理预测模型）
 
 ```mermaid
 sequenceDiagram
@@ -1093,7 +1093,7 @@ sequenceDiagram
 |----------|----------|----------|
 | 相位图案生成与下发 | — | `pattern_controls.generate_phase_gray` → `Santec.create_phase_from_array` |
 | GS+SPGD 闭环整形 | `slm-gs-refine` | `SlmGsRefineParams` → `build_gs_refine_config` → `optimize_slm_gs_refine` → `save_gs_refine_results` |
-| 正向模型闭环整形 | `slm-model-in-loop` | `SlmModelInLoopParams` → `build_model_in_loop_config` → `optimize_slm_model_in_loop` → `save_model_in_loop_results` |
+| 物理预测模型闭环整形 | `slm-model-in-loop` | `SlmModelInLoopParams` → `build_model_in_loop_config` → `optimize_slm_model_in_loop` → `save_model_in_loop_results` |
 
 ---
 ## 13. 相关文档
@@ -1102,4 +1102,4 @@ sequenceDiagram
 - SLM GUI 操作时长分类与路线图: [`docs/slm/slm_gui_operation_map.md`](../../../slm/slm_gui_operation_map.md)
 - GUI 索引: [`docs/gui.md`](../../../gui.md)
 - 闭环整形实测报告: [`report/shape_trials/gs_refine/gs_refine_live_20261012.md`](../../../../report/shape_trials/gs_refine/gs_refine_live_20261012.md)
-- 正向模型闭环实测报告: [`report/shape_trials/model_in_loop/model_in_loop_live_20261013.md`](../../../../report/shape_trials/model_in_loop/model_in_loop_live_20261013.md)
+- 物理预测模型闭环实测报告: [`report/shape_trials/model_in_loop/model_in_loop_live_20261013.md`](../../../../report/shape_trials/model_in_loop/model_in_loop_live_20261013.md)

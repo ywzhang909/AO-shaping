@@ -211,7 +211,7 @@ def plot_blocks(run: dict, path: Path) -> dict:
     ax2.plot(x, model_after, "s--", color="#17becf", label="模型 CV（块候选）")
     ax2.set_xlabel("块")
     ax2.set_ylabel("模型 CV（同一掩膜）")
-    ax2.set_title("冻结前向模型的预测（未验证，仅对照）")
+    ax2.set_title("冻结物理预测模型的预测（未验证，仅对照）")
     ax2.legend(loc="upper right", fontsize=9)
     ax2.grid(alpha=0.3)
     fig.tight_layout()
@@ -588,7 +588,7 @@ def build_report_text(run: dict, run_dir: Path, out_dir: Path, stamp: str,
         "分离后的读数（§3）才是“方斑离开零级”的状态。",
         f"5. **模型方向未验证**：模型 CV 逐块基本平走（{_f(model_before_1, '.3f')} → "
         f"{_f(model_after_n, '.3f')}），与实测同量级但无方向性信息——"
-        "本运行不能证明冻结前向模型的梯度方向正确，摘要的声明以本节为准。",
+        "本运行不能证明冻结物理预测模型的梯度方向正确，摘要的声明以本节为准。",
         "6. **位移方向必须实测，不能由斜坡轴向推断**：本实验系统的 SLM **竖向安装**，"
         "面板 x 向斜坡在 CCD 上给出的是 **y 向**位移（本报告实测 "
         f"{_f((displacement or {}).get('dx'), '+.1f')}, {_f((displacement or {}).get('dy'), '+.1f')}"
@@ -640,7 +640,7 @@ def build_report_text(run: dict, run_dir: Path, out_dir: Path, stamp: str,
   轴 {axis}）只在末尾展示时叠加，使整形光斑与零级分离（零级由未调制光直接透过，留在原位）。
 * **判据**：本次等效面积掩膜的 3σ = {_f(resolution, '.5f')}（run.json 的
   `three_sigma_resolution`，来自当次实测的噪声地板）；Δ÷3σ 只作噪声参考。
-* **一次运行的局限**：单一会话、单一初值相位、单一 seed；冻结前向模型检查点
+* **一次运行的局限**：单一会话、单一初值相位、单一 seed；冻结物理预测模型检查点
   `{checkpoint if checkpoint else '（未记录）'}`；运行起始 {started if started else '（未记录）'}（UTC）。
 
 ## 2. 闭环逐块表

@@ -5,7 +5,7 @@
 > **数据/关联脚本**: [`src/ao_shaping/tools/slm/panel/panel_locate.py`](../../../src/ao_shaping/tools/slm/panel/panel_locate.py)
 > **数据/关联脚本**: [`scripts/slm/check_flat_stability.py`](../../../scripts/slm/check_flat_stability.py)
 > **运行环境**: 硬件
-> **说明**: 2026-10-15 正向模型闭环实验预检 (feat/r71-r84-closed-loop worktree; SLM 22030108 + 大恒 FJB24112232, 1064 nm)；面板宽扫因中途光路调整而作废，固定 0.020 ms 曝光平场短复测 21 s 内 ROI 能量漂移 0.52%；未下发任何新形状，恢复实验须先重扫面板入射位置
+> **说明**: 2026-10-15 物理预测模型闭环实验预检 (feat/r71-r84-closed-loop worktree; SLM 22030108 + 大恒 FJB24112232, 1064 nm)；面板宽扫因中途光路调整而作废，固定 0.020 ms 曝光平场短复测 21 s 内 ROI 能量漂移 0.52%；未下发任何新形状，恢复实验须先重扫面板入射位置
 <!-- provenance:end -->
 
 ## 实验目的
@@ -45,4 +45,4 @@
 
 ## 方法状态
 
-已只读核对 GitHub #115 与 #134：#115 要求把轮廓重合或 Hausdorff 与 CV/EE 并列，防止 `accepted` 被误读为目标形状形成；#134 提议拒绝轮改用不确定性采样探针，但其验收明确要求**先仿真验证**，目前不能直接作为实验探针策略。本次未修改在线优化算法，也未宣称任何新形状已经生成。此前物理模型与 U-Net 的同帧实验对照仍见 [2026-10-14 报告](model_in_loop_live_20261014.md)；U-Net 尚未获准进入实验 Step B。
+已只读核对 GitHub #115 与 #134：#115 要求把轮廓重合或 Hausdorff 与 CV/EE 并列，防止 `accepted` 被误读为目标形状形成；#134 提议拒绝轮改用不确定性采样探针，但其验收明确要求**先仿真验证**，目前不能直接作为实验探针策略。本次未修改在线优化算法，也未宣称任何新形状已经生成。此前物理预测模型与 U-Net 的同帧实验对照仍见 [2026-10-14 报告](model_in_loop_live_20261014.md)；U-Net 尚未获准进入实验 Step B。

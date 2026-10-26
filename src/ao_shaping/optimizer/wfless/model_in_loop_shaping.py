@@ -3,20 +3,20 @@
 每一轮在两步之间交替:
 
 * **Step A —— 波前拟合。** :class:`ZernikeCoefficientOptimizer` 由 (测量, 瞳面相位)
-  这一对数据拟合出静态像差。它的正向模型是规范形式
+  这一对数据拟合出静态像差。它的物理预测模型是规范形式
   ``|fftshift(fft2(ifftshift(U), norm="ortho))|**2``, 与
   :class:`~ao_shaping.drivers.sim.fouriergsnet_env.SimFourierGSNetEnv` **共用同一个**
-  前向模型, 因此拟合出的系数可与注入的真值直接逐位比较。
+  物理预测模型, 因此拟合出的系数可与注入的真值直接逐位比较。
 * **Step B —— 全频随机相位整形。** 冻结拟合出的系数, 用
   :mod:`ao_shaping.algorithm.signal_processing.differentiable_shaping` 的规范可微
   损失优化整幅逐像素 SLM 相位, 使远场逼近方形目标。
 
-由于 Step A 与数字孪生共享同一个前向模型, 在同网格下模型对孪生是**观测等价**的:
+由于 Step A 与数字孪生共享同一个物理预测模型, 在同网格下模型对孪生是**观测等价**的:
 孪生的原生振幅等于 :meth:`ZernikeCoefficientOptimizer.native_amplitude`, piston 模式
 的有限支撑恰好就是孪生的孔径掩模。以原生几何 (``BeamParams(native=True)``) 运行孪生
 即可让 SLM 面板本身就是模型网格, 环路内不引入任何重采样。
 
-本模块**不复刻**任何 Zernike 数学、前向模型、指标或损失: 全部委派给上述规范实现,
+本模块**不复刻**任何 Zernike 数学、物理预测模型、指标或损失: 全部委派给上述规范实现,
 自身只做薄编排层。
 
 与其他核心模块的关系
@@ -28,7 +28,7 @@
   ``utils/image/beam_metrics.py``, Zernike 计数来自 ``utils/wavefront/zernike_calc.py``。
 * 硬件对应路径: 同一整形目标在实验系统上由 ``runners/slm/gsnet_runner.py``
   (``slm-gsnet``) 与 ``runners/slm/slm_shaping_runner.py`` (``spgd-square``) 驱动,
-  但那两条走 Zernike/全频随机相位搜索而非本模块的迭代正向模型闭环。
+  但那两条走 Zernike/全频随机相位搜索而非本模块的迭代物理预测模型闭环。
 
 本模块是**仅仿真**的: 它从不 import 硬件驱动, 唯一接触的"设备"是
 :class:`SimFourierGSNetEnv`。
