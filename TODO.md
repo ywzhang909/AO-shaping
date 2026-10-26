@@ -3362,6 +3362,15 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 验证：`scripts/` + `runners/` **3091 passed / 90 skipped / 0 failed**；三脚本在 CI 容器内 import 冒烟 3 绿（pybox 里 `--help` 失败是缺 `torch`/`matplotlib`，与改动无关）；ruff 干净。
 - gates：TERM 合计 0 / 对账 97 条 13 violations（standing 不变）/ 溯源 clean；提交 = 1 运行器 + 4 脚本/`_common` + 2 测试文件 + `TODO.md`。
 
+98. ✅ **#173 报告生成器批第一片：`analyze_model_in_loop_loss.py` 的 12 处同语义阈值提三个具名常量（与 `HEAD` 的 AST 恒等证明），该文件 PLR2004 22→10**（2026-10-26）
+- 热点重测（ruff 0.15.12，`scripts/`）：PLR2004 **618** 处。按「重复 ≥3 才算簇」筛 top12，真正同语义重复的只有两类：`analyze_model_in_loop_loss.py` 的判定阈值族，和 `1e-9` / `1e-12` 那族**看着像同一个 eps 实则混用四种用法**的匹配容差/除零下限/零值判定/单位换算（见下条）。本批取语义最干净的一片：`scripts/slm/analyze_model_in_loop_loss.py`。
+- 提的三个常量：`TAIL_MOVING_RELATIVE = 0.05`（「还在动」的末段相对变化门，5 处）、`MIN_RUNS_PER_BUDGET = 3`（预算档计入判定的最少运行数，5 处）、`METRIC_BIAS_ABS = 0.02`（CV/EE 系统性失配的绝对偏差门，2 处），共 **12 处**。
+- **不提**的判定（留档）：同文件的 `3.0 *` 抖动倍数、`-0.05` 发散阈值、`abs(score_bias) > 0.05`、`>= 0.75`、`>= 0.5 * runs`、`2`/`2.0`/`4` 全是**单处出现或另一种量**。其中 `abs(score_bias) > 0.05` 与 `TAIL_MOVING_RELATIVE` 数值相同而语义不同（分数偏差 vs 相对变化率），共用一个名字会把两个判据焊死成一个 —— 正是 issue 警告的假单源化；`METRIC_BIAS_ABS` 的 `#:` 注里显式写了这条区分，防将来被误并。
+- `1e-9` / `1e-12` 族暂不合并的理由：`generate_hw_defocus_zernike_report.py`（`1e-9`×10）与 `generate_hw_gs_square_scans_report.py`（`1e-9`×10、`1e-3`×5）里的数字至少承载四种语义 —— 行匹配容差（`abs(dz_mm - target) < atol`）、零 defocus 判定（`abs(dz_mm) < atol`）、除零下限（`max(fwhm, 1e-9)`、`inten.sum() + 1e-12`）、单位换算（`nm→m` 的乘法 `1e-9`）。把「容差」与「下限」并成一份共享 eps 会让两者互相漂移；后者已有 `RESIDUAL_RECON_ATOL = 1e-9` 这类**按语义命名**的先例，跨脚本合并需逐点判语义，属后续批次。
+- 证明（不是断言）：按 AST 语义定位（`>` 且左侧含 `tail` 的 0.05、下标为 `runs` 的 3、`>` 的 0.02；不靠行号），再把三个名字**内联回原字面量**、删掉新增定义后与 `HEAD` 版本比 `ast.dump` ⇒ **61 个函数逐字节相同**。PLR2004 该文件 **22 → 10**。
+- 回归：`tests/ao_shaping/scripts` **2547 passed / 65 skipped / 0 failed**；`test_script_imports_resolve` 586 passed；ruff（默认规则与 `--select PLR2004`）干净；`py_compile` 通过。
+- gates：TERM 合计 0 / 对账 98 条 13 violations（standing 不变）/ 溯源 clean；提交 = 该脚本 + `TODO.md`。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
