@@ -220,9 +220,20 @@ class _SimDMRegistry:
     pib.optimize_pib() builds its default DM via get_dm_registry().create("nlight", ...)
     (pib.py:334), so the simulation patch must intercept the registry rather than a
     module-level NlightDM attribute (which no longer exists in pib.py).
+
+    ``combined_optimizer.optimize_pib`` builds its default DM via the filtering
+    factory ``create_dm()`` (#91: ``NLight.__init__`` rejects ``max_voltage`` /
+    ``min_voltage``, so the unfiltered ``create()`` crashed on hardware with
+    ``dm=None``). Unlike the real registry, this stub does NOT drop those two:
+    ``SimDM`` models them as the update-clipping bounds ``V_Min`` / ``V_Max``,
+    and the per-path characterization baselines depend on that — filtering
+    them here would silently change the simulated trajectory checksums.
     """
 
     def create(self, dm_type: str, **kwargs) -> SimDM:
+        return SimDM(**kwargs)
+
+    def create_dm(self, dm_type: str, **kwargs) -> SimDM:
         return SimDM(**kwargs)
 
 

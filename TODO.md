@@ -3310,6 +3310,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 登记不行动：3 个 `__main__.py` 通用 token 通过按 floor 合同不单列；`slm/transfer/` 家族 docstring 本就极简（如 `summary.py` 仅一句配对汇总），职责行照录原文未扩写。
 - gates：TERM 合计 0 / 对账 90 条 13 violations（standing 不变）/ 溯源 clean；提交仅 `AGENTS.md` + `TODO.md` + 新守卫三文件。
 
+91. ✅ **issue #91 剩余缺陷收口：combined 的 DM 工厂改走过滤工厂 `create_dm()`（`NLight` 拒收 `max/min_voltage` 的构造期 `TypeError`）+ 严格签名行为守卫**（2026-10-26）
+- 定位与口径：#91 的 P0/P1/P2 已全部在树（`a0dc66a9`/`1ce4717a`/`e39441ec`/`4c057280`/`9f894f6b`/`0a776ab6` 逐个 `merge-base --is-ancestor` 核验；`02c6c501` 是合并前的旧提交**不在树内**，等价内容在 `9f894f6b`）。唯一未结的**代码级**项 = P2 评论点名的「combined 走不过滤的 `create()` 还传 `max_voltage/min_voltage`」：`_KWARG_FILTERS["nlight"]` 不含这两个名字、`base.DM` 上它们是只读 property（截断更新时才生效）、`NLight.__init__` 只收 `max_iter_diff`/`max_neibor_diff`/`keep_when_exit`/`safety_mode` ⇒ 实验系统上 `dm=None` 必 `TypeError`。CLI 恒注入 DM 所以从未触发，而仿真 harness 的 `SimDM` **接受并消费**这两个 kwargs 当钳位界 ⇒ 缺陷被仿真层整个掩盖。
+- 修法（最小）：调用点 `create()` → `create_dm()`（按注册类型过滤 kwargs）；`dm_max_voltage`/`dm_min_voltage` 留在签名，docstring 写清「实验系统侧惰性、仿真侧兑现」的 sim-parity 契约；harness `_SimDMRegistry` **补** `create_dm` 且**不滤**——滤了就会挪两条路径的逐轮摘要（特征化基线依赖 ±12 钳位界）。`pib.py` 的 `create()` 只传安全 kwargs，不动。
+- 守卫 `tests/ao_shaping/optimizer/test_combined_dm_factory.py`（4 项）：行为（`dm=None` 完整走完，拿到**严格 NLight 签名**的假 DM，工厂收到过两个死参、构造时被滤掉）、AST 点名（`get_dm_registry().create(` 计数必须 0、`create_dm(` 恰 1）、扫描咬合自检（先种一棵违例树）、惰性参数契约（两名字不得进 `_KWARG_FILTERS["nlight"]`）。control：源码改回 `create(` → **恰 2 项红**（行为与 AST 各点名一次）→ `cmp` 逐字节还原 → 4 绿。
+- 回归（容器）：定向 6 文件 **47 passed**，含两条 `optimize_pib` 路径的逐轮 `_v`/`_diff` sha256 摘要**一字未动**；`optimizer/` 子树 **1303 passed / 5 skipped / 0 failed**（48g）；`optimizer/wfless` 1081/3、`runners` 544/25、`drivers/ccd/test_auto_exposure` 7。⚠️ 顺带钉一个测量事实：`tests/ao_shaping/optimizer/wfless` **整片**在 `AO_MEMORY=6g`（乃至 8 线程 16g）下于 ~21% 处 SIGKILL（**exit 137**，无 summary），须 48g —— 与 §8.13「全量须 48g」同源，非本轮引入。
+- #91 状态：代码级剩余清零。P2 的**实验系统复核**（issue 原文「再上实验系统复核后收口」）仍待设备在线；按「src >200 行不自动 close」的既定规则，issue 不因本轮改动关闭。
+- gates：TERM 合计 0 / 对账 91 条 13 violations（standing 不变）/ 溯源 clean；提交三文件（`combined_optimizer.py` + `pib_sim_eval.py` + 新守卫）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
