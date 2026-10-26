@@ -80,11 +80,13 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import subprocess
 import sys
 import time
 from importlib import metadata
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
@@ -97,6 +99,7 @@ from ao_shaping.drivers.sim._oopao_compat import (
     Atmosphere,
     Source,
     Telescope,
+    as_numpy,
     phaseStats,
 )
 from ml.sim2f.config import AberrationConfig, Sim2fConfig
@@ -159,6 +162,41 @@ def _cupy_version() -> str | None:
     return None
 
 
+def _backend_record() -> dict[str, object]:
+    """The array backend OOPAO actually bound in this process.
+
+    ``OOPAO_BACKEND`` and ``OOPAO_GPU_RESIDENT`` are read once, at OOPAO's first
+    use, so which module did the maths is a property of the **process**, not of
+    this script's arguments -- and ``auto`` silently selects CuPy on a CUDA host.
+    Recording that next to the CuPy *version* is the difference between "CuPy is
+    installed" and "CuPy ran": for the analytic estimator the answer is always
+    ``numpy`` (``makeCovarianceMatrix`` is closed-form NumPy), and knowing that is
+    what stops a future reader from blaming the GPU for a numerical drift.
+
+    Returns:
+        ``array_module`` / ``gpu`` / ``gpu_resident`` of the live process, plus
+        the two environment values and the CuPy wheel version. The three runtime
+        fields are ``None`` when ``OOPAO.runtime`` was never imported (should not
+        happen here -- the module-level ``_oopao_compat`` import loads it).
+    """
+    record: dict[str, object] = {
+        "oopao_backend_env": os.environ.get("OOPAO_BACKEND", "<unset = auto>"),
+        "oopao_gpu_resident_env": os.environ.get("OOPAO_GPU_RESIDENT", "<unset = 0>"),
+        "cupy": _cupy_version(),
+        "array_module": "unknown",
+        "gpu": None,
+        "gpu_resident": None,
+    }
+    runtime = sys.modules.get("OOPAO.runtime")
+    if runtime is None:  # pragma: no cover - _oopao_compat imports it
+        return record
+    xp, gpu = runtime.array_backend()
+    record["array_module"] = xp.__name__
+    record["gpu"] = bool(gpu)
+    record["gpu_resident"] = bool(runtime.gpu_resident())
+    return record
+
+
 def _oopao_commit() -> str:
     """``git rev-parse HEAD`` of the ``libs/OOPAO`` submodule.
 
@@ -198,7 +236,12 @@ def _shim_atmosphere(
 
     Args:
         grid: Pupil grid side, model samples.
-        aperture_m: Effective pupil diameter, metres.
+        aperture_m: Diameter of the pupil the OOPAO telescope represents.  For a
+            *sampled* estimator this must be the **grid span**
+            (``_grid_span_m``), because OOPAO's layer pixel pitch is
+            ``aperture_m / grid`` while the screens are indexed with the model's
+            grid; only the analytic estimator is indifferent (it reads
+            ``atm.r0_def`` / ``atm.L0`` / ``atm.param`` and nothing else).
         r0_m: Fried parameter, metres at 500 nm.
         l0_m: Outer scale, metres.
 
@@ -225,6 +268,29 @@ def _shim_atmosphere(
             src=source,
         )
     return atm
+
+
+def _grid_span_m(sim: Any) -> float:
+    """Physical extent of the model's pupil grid, metres.
+
+    ``Sim2fConfig`` states the pupil pitch **indirectly**
+    (``pupil_pitch_m = region_span_px / grid * panel_pixel``), and the Zernike disc
+    fills only part of it (``pupil_radius_px`` of ``grid/2``).  That distinction is
+    load-bearing for the sampled estimator: OOPAO's ``Telescope(resolution=n,
+    diameter=D)`` gives its phase screens a pixel pitch of ``D/n``, and the screens
+    are then indexed with the **model's** grid, so ``D`` must be the grid span --
+    ``grid * pupil_pitch_m`` -- not the disc diameter.  Feeding the disc diameter
+    samples the screens 4/3 finer than the basis they are projected onto and
+    underestimates every Zernike variance by ``(3/4)**(5/3) = 0.62`` (measured:
+    diagonal ratio 0.622 before, 1.005 after).
+
+    Args:
+        sim: The bench.
+
+    Returns:
+        ``grid * pupil_pitch_m``, metres.
+    """
+    return float(sim.grid) * float(sim.cfg.pupil_pitch_m)
 
 
 def _pupil_geometry(
@@ -331,7 +397,7 @@ def analytic_covariance(
     coords, basis, noll, _ = _pupil_geometry(sim, n_modes)
     atm = _shim_atmosphere(
         grid=int(sim.grid),
-        aperture_m=float(sim.cfg.aperture_m),
+        aperture_m=_grid_span_m(sim),
         r0_m=r0_m,
         l0_m=l0_m,
     )
@@ -404,7 +470,7 @@ def sampled_covariance(
     coords, basis, noll, support = _pupil_geometry(sim, n_modes)
     atm = _shim_atmosphere(
         grid=int(sim.grid),
-        aperture_m=float(sim.cfg.aperture_m),
+        aperture_m=_grid_span_m(sim),
         r0_m=r0_m,
         l0_m=l0_m,
     )
@@ -418,7 +484,9 @@ def sampled_covariance(
     with contextlib.redirect_stdout(io.StringIO()):
         for i in range(int(n_samples)):
             atm.generateNewPhaseScreen(seed=int(seed) + i)
-            screen = np.asarray(atm.layer_1.OPD)[2:-2, 2:-2]
+            # CuPy 数组不能隐式转 NumPy (``OOPAO_GPU_RESIDENT=1`` 时层相位可能留在
+            # 设备上), 所以经 as_numpy 统一取回主机 —— 见 drivers/sim/AGENTS.md。
+            screen = as_numpy(atm.layer_1.OPD)[2:-2, 2:-2]
             phase = np.asarray(screen, dtype=np.float64)[support]
             coeffs = projector @ (phase - phase.mean())
             acc += np.outer(coeffs, coeffs)
@@ -619,6 +687,7 @@ def main(argv: list[str] | None = None) -> int:
             "path": "libs/OOPAO",
             "imported_via": "ao_shaping.drivers.sim._oopao_compat",
         },
+        "backend": _backend_record(),
         "environment": {
             "python": sys.version.split()[0],
             "numpy": _pkg_version("numpy"),
@@ -640,7 +709,7 @@ def main(argv: list[str] | None = None) -> int:
         wavelength_m=np.float64(args.wavelength_m),
     )
     provenance.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    _print_summary(sigma, noll, elapsed)
+    _print_summary(sigma, noll, elapsed, record["backend"])
     print(f"wrote {asset.relative_to(ROOT)}")
     print(f"wrote {provenance.relative_to(ROOT)}")
     print(f"sha256 {digest}")
@@ -707,18 +776,33 @@ def _check(
     return 0
 
 
-def _print_summary(sigma: np.ndarray, noll: np.ndarray, elapsed: float) -> None:
-    """Print the mode-variance ladder and the strongest correlations.
+def _print_summary(
+    sigma: np.ndarray, noll: np.ndarray, elapsed: float, backend: dict[str, object]
+) -> None:
+    """Print the mode-variance ladder, the strongest correlations and the backend.
 
     Args:
         sigma: The covariance.
         noll: Noll indices.
         elapsed: Wall clock of the construction, seconds.
+        backend: The :func:`_backend_record` block, so the summary says which array
+            module actually did the maths in this run.
     """
     diag = np.diag(sigma)
     off = sigma / np.sqrt(np.outer(diag, diag))
     order = np.argsort(np.abs(off - np.eye(noll.size)).ravel())[::-1]
     print(f"K={noll.size} Noll {int(noll[0])}..{int(noll[-1])}  built in {elapsed:.2f} s")
+    print(
+        "backend: array module {} (gpu={}, gpu_resident={}; OOPAO_BACKEND={}, "
+        "OOPAO_GPU_RESIDENT={}; cupy {})".format(
+            backend.get("array_module"),
+            backend.get("gpu"),
+            backend.get("gpu_resident"),
+            backend.get("oopao_backend_env"),
+            backend.get("oopao_gpu_resident_env"),
+            backend.get("cupy"),
+        )
+    )
     print("mode variance (rad^2) and share of the diagonal:")
     total = float(diag.sum())
     for index, value in enumerate(diag):

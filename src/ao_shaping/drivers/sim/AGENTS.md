@@ -340,8 +340,8 @@ RMS 最小解, SPGD 正确地保留初始平场命令。要看到真实的校正
 
 
 **OOPAO API 坑** (实测): `relay()` 原地修改并返回 `None`; `wfs_measure` 返回
-`[slopes, flux, raw]`; CuPy 处于活跃状态, 必须用 `cp.asnumpy`
-(OOPAO 自带 `to_numpy` 在当前版本有兼容问题)。
+`[slopes, flux, raw]`; CuPy 处于活跃状态, 必须用 `cp.asnumpy` (OOPAO 自带 `to_numpy`
+在当前版本有兼容问题) —— 统一走 `_oopao_compat.as_numpy`, 见下方「OOPAO GPU」节。
 
 **已知约束**:
 
@@ -396,6 +396,111 @@ RMS 最小解, SPGD 正确地保留初始平场命令。要看到真实的校正
 对比报告与图片见 [`report/oopao_vs_numpy/oopao_vs_numpy_report/report.md`](../../../../report/oopao_vs_numpy/oopao_vs_numpy_report/report.md)
 (生成器 `scripts/oopao/generate_oopao_vs_numpy_report.py`); 后端回归测试
 `tests/ao_shaping/drivers/sim/test_oopao_backend.py`。
+
+## OOPAO GPU (`OOPAO_BACKEND` / `OOPAO_GPU_RESIDENT`)
+
+OOPAO 自带两个 GPU 旋钮, 都在 `libs/OOPAO/OOPAO/runtime.py`, 且都在**首次使用**时
+定死 (进程级); 之后再改只会 `RuntimeWarning`, 值不变:
+
+| 旋钮 | 取值 | 作用 |
+|---|---|---|
+| `OOPAO_BACKEND` | `auto` (默认) / `cpu` / `cuda` | 绑定哪个数组模块 (`numpy` 或 `cupy`)。`auto` 在有可用 CUDA 设备时装 `cupy` |
+| `OOPAO_GPU_RESIDENT` | `0` (默认) / `1` | 光学数组是否留在设备上 (`0` = 每步拷回主机) |
+
+🔴 **`auto` 选中 `cupy` 不等于「计算在 GPU 上」。** 实测 (RTX 5080 Laptop, CuPy 14.2.0):
+`auto` + residency 0 时 `runtime.array_backend()` 返回 `cupy`, 但相位屏走
+`Atmosphere.generateNewPhaseScreen` → `ft_sh_phase_screen(...)`, 调用处**不传 `backend`**,
+于是恒为 NumPy; 其余若干处才用 `backend = xp if self.gpu_resident else np`
+(`Atmosphere.py` ≈L607/641/650/705/750/765)。所以只有 `OOPAO_GPU_RESIDENT=1` 才让
+OOPAO 内部数学留在设备上 —— 而相位屏那条链连它也不管。
+
+### 实测表 (`scripts/oopao/benchmark_oopao_gpu.py` → `logs/oopao_gpu/`)
+
+四组配置各起一个**子进程** (后端进程级定死, 同进程测四组只会测到同一组);
+`make_screens` 3 seeds 取中位, `propagate_asm` 9 次热调用取中位。一次代表性运行:
+
+| 配置 | 绑定模块 | `make_screens` 128² | 512² | 1920² | `propagate_asm` 1920² (numpy 输入) | 同尺寸设备端核 |
+|---|---|---|---|---|---|---|
+| `cpu` / resident 0 | `numpy` | 0.0044 s | 0.125 s | 1.79 s | 313 ms | 6.06 ms |
+| `cpu` / resident 1 | `numpy` | 0.0043 s | 0.123 s | 1.76 s | 316 ms | 6.01 ms |
+| `cuda` / resident 0 | `cupy` | 0.0043 s | 0.126 s | 1.83 s | 318 ms | 5.87 ms |
+| `cuda` / resident 1 | `cupy` | 0.0049 s | 0.128 s | 1.86 s | 329 ms | 5.33 ms |
+
+逐次运行有 ±10% 抖动 (单点不可复用, 判读用下面几句而不是表里的小数):
+
+* **相位屏: GPU 一分不赚。** 不同配置间的差异 (3–13%) 与同一配置内的种子散布同级
+  (个别略超, 但都是个位数百分比), 且**四组配置的相位屏逐位相同**
+  (`max|Δ|/rms = 0`, Pearson 1.000000) —— 这直接证明 GPU 不在那条计算路径上。
+  `OOPAO_GPU_RESIDENT=1` 也没让它变快或变慢 (比值 ×0.89–1.07)。
+* **`propagate_asm` 1920²: 核快 50–59×, 算上搬运只值 8–14×。** numpy 313–340 ms;
+  设备端核 5.3–6.1 ms; H2D+D2H 让整轮往返落在 22–37 ms (传输耗时在本机跨运行波动 2–4×,
+  只能给区间)。
+* **`propagate_asm` 128²: GPU 更慢 (有效 ×0.33–0.73)。** 核 0.33–1.0 ms 与 numpy 0.39 ms
+  持平, 而 128² complex128 只有 262 KB, 两次往返把总时长推到 0.54–1.2 ms。
+* **本仓生产调用点还没用上它**: `beam_backend.propagate()` 入口就 `np.asarray(field)`,
+  永远落到 numpy 分支。要吃到那 8–14×, 必须由调用方自己把场留在设备上; 只改环境变量
+  对现有仿真链路的影响是**零**。
+
+### 数值一致性 (为什么不能断言位级相同)
+
+* 相位屏: 四组配置**逐位相同** (`max|Δ|/rms = 0`)。
+* 传播强度: 跨配置**逐位相同** (都走 numpy 输入路径)。
+* 同一进程内 CuPy 场 vs NumPy 场: 复数场 `max|Δ|/|ref|` = **5.0e-16 (128²) /
+  9.5e-16 (1920²)**, 强度 Pearson 1.000000 —— 差在 cuFFT 与 pocketfft 的求和顺序,
+  不是算法差异。⚠️ 因此 GPU 结果只能用**容差**断言 (回归测试用 1e-12 相对容差),
+  不得断言 `array_equal`。
+
+### GPU 安全取数 (`as_numpy`) 与 `propagate_asm` 的后端分派
+
+CuPy 数组对 `np.asarray` **不做隐式转换** (抛 `TypeError`), 上游 `runtime.to_numpy`
+在当前版本有兼容问题。消费端统一走
+`ao_shaping.drivers.sim._oopao_compat.as_numpy` (只用 `cp.asnumpy`; 配套
+`cupy_module()` 只查 `sys.modules`、**绝不**主动 import CuPy, 因为 import 一次要 ~1 s
+并打印实验性警告):
+
+* `oopao_backend.OopaoScreenBackend.make_screens` → `as_numpy(lay.OPD)`, 仍**恒定**返回
+  NumPy (`residency=1` 时层相位可能留在设备上, 消费端只认 NumPy);
+* `scripts/ml/build_sim2f_aberration_covariance.py::sampled_covariance` →
+  `as_numpy(atm.layer_1.OPD)`。
+
+`propagate_asm` 按**输入的数组后端**分派 (不是按进程级旋钮): NumPy 进 → 原 numpy 路径
+逐位不变; CuPy 进 → 设备上传播并返回 CuPy (进程级后端恰好是 CUDA 时直接用
+`Atmosphere.ASM`, 否则用 `_asm_on_backend` 调 OOPAO 自己的 `_asm_kernels` 在同一后端
+组合那三步 FFT)。
+
+### 交叉验证: 出厂像差模型 vs OOPAO 集合
+
+`src/ml/sim2f/assets/zernike_cov_kolmogorov_n21.npz` 是**解析** von Karman 协方差
+(Noll 4..22, grid 128)。`scripts/ml/validate_sim2f_aberration_ensemble.py` 用 2000 张
+OOPAO 相位屏 (同一瞳面 / 同一 canonical 基) 估经验协方差, 并按**预登记**判据
+「逐条误差 RMS ≤ 采样噪声地板 `sqrt(2/n)`」判定:
+
+| 变体 | n | 逐条误差 RMS | 地板 | 结论 |
+|---|---|---|---|---|
+| OOPAO 相位屏 vs 资产 | 2000 | 0.0344 (1.09×) | 0.0316 | 越过地板 |
+| 出厂采样器 `draw_aberration` vs 资产 (幅度对齐, 只比形状) | 2000 | 0.0554 (1.75×) | 0.0316 | 不一致, 见下 |
+
+* **相位屏变体**: 中位误差只有地板的一半 (0.0156), 81% 条目在地板内, 但总幅度系统性低
+  ~6% (`0.936×`), 且**一对散光模系统性偏斜** (Noll 5/6 = 0.61 / 1.20, 而解析资产两模
+  相等; 两者**和** 0.90×)。用**互不相交的 seed 段**可复现 (0.59 / 1.19), `n=1000` 与
+  `n=2000` 也一样 ⇒ 是 OOPAO 生成器的系统偏置, 不是采样噪声。已排除的解释: 次谐波
+  (`atm.mode=0` 关掉后该偏斜仍在)、相位场各向异性 (隔 2/4/8/16 px 的结构函数
+  `Sx/Sy` 差 <1%, 且 `Sx/Sd = 0.557` 正是各向同性的理论值 `(√2)^(-5/3)`) —— 根因未定,
+  属 `libs/OOPAO` (pinned submodule), 本仓不 patch。因此 `n=1000` 时 RMS 0.039 仍在地板
+  0.045 内而 `n=2000` 才分辨出来: **「在噪声内」只等于「当前 n 下不可分辨」, 不等于零**。
+* **采样器变体**: 幅度由 `rms_rad` 旋钮决定 (实测 `1.46e4×`, 是有意的难度旋钮, 故先对齐
+  再比形状), 对齐后逐模比值 0.87–1.29, 与 `src/ml/sim2f/optics.py` 文档里 0.85×/1.27×
+  的 Bingham 压缩一致 —— 偏差是已知且已记录的。
+
+复现: `python scripts/ml/validate_sim2f_aberration_ensemble.py --n-samples 2000`
+(报告 `logs/oopao_gpu/validate_sim2f_aberration_ensemble.{md,json}`)。
+
+⚠️ **瞳面直径陷阱 (本次才发现)**: OOPAO 的层像元 = `telescope.diameter / telescope.resolution`,
+而屏幕数组是按**模型网格**索引的, 所以 diameter 必须是**网格跨度**
+`grid * pupil_pitch_m` (7.2 mm), 不是 Zernike 盘的直径 `aperture_m` (5.4 mm)。用盘径会把
+屏幕采细 4/3, 每个 Zernike 方差都低 `(3/4)^(5/3) = 0.62` (实测 `sampled_covariance` 的
+对角比值 0.622 → 改对后 1.005)。解析变体对此不敏感 (`makeCovarianceMatrix` 只读
+`r0_def`/`L0`/`param`), 资产 SHA 不变。
 
 ## 与 mock_devices 的区别
 

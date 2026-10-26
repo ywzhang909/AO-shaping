@@ -222,6 +222,185 @@ class TestModuleWrappers:
         assert np.iscomplexobj(out)
 
 
+def _cupy():
+    """The ``cupy`` module when a device is usable, else ``None``."""
+    cp = oopao_backend.cupy_module()
+    if cp is None:
+        return None
+    try:
+        if cp.cuda.runtime.getDeviceCount() < 1:
+            return None
+    except Exception:  # pragma: no cover - broken driver
+        return None
+    return cp
+
+
+class TestNumpyExtraction:
+    """``as_numpy`` is the single GPU-safe extraction helper (T1)."""
+
+    def test_numpy_array_passes_through(self):
+        from ao_shaping.drivers.sim._oopao_compat import as_numpy
+
+        values = np.arange(6, dtype=np.float32).reshape(2, 3)
+        out = as_numpy(values)
+        assert isinstance(out, np.ndarray)
+        assert np.array_equal(out, values)
+
+    def test_list_input_is_converted(self):
+        from ao_shaping.drivers.sim._oopao_compat import as_numpy
+
+        out = as_numpy([[1.0, 2.0], [3.0, 4.0]])
+        assert isinstance(out, np.ndarray)
+        assert out.shape == (2, 2)
+
+    def test_device_array_is_copied_to_host(self):
+        cp = _cupy()
+        if cp is None:
+            pytest.skip("CuPy with a usable device is required")
+        from ao_shaping.drivers.sim._oopao_compat import as_numpy
+
+        values = np.arange(9, dtype=np.float64).reshape(3, 3)
+        device = cp.asarray(values)
+        out = as_numpy(device)
+        assert isinstance(out, np.ndarray)
+        assert np.array_equal(out, values)
+
+    def test_cupy_module_is_never_imported_just_to_be_checked(self):
+        """``cupy_module()`` must report, not import (importing costs ~1 s).
+
+        Checked on the AST, not by grepping the text: the docstring explains why it
+        does not import CuPy and therefore contains the words "import cupy".
+        """
+        import ast
+        import inspect
+        import textwrap
+
+        from ao_shaping.drivers.sim import _oopao_compat
+
+        tree = ast.parse(textwrap.dedent(inspect.getsource(_oopao_compat.cupy_module)))
+        imports = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.Import, ast.ImportFrom))
+        ]
+        assert imports == []
+        assert "sys.modules" in inspect.getsource(_oopao_compat.cupy_module)
+
+    def test_make_screens_returns_numpy(self):
+        """The public contract is NumPy even if OOPAO keeps layers on the device."""
+        p = _small_params()
+        out = oopao_backend.make_screens(**p, seed=3)
+        assert type(out) is np.ndarray
+
+
+class TestAsmBackendDispatch:
+    """``propagate_asm`` dispatches on the input array, not on the process (T2)."""
+
+    @staticmethod
+    def _field(n: int = 64, seed: int = 5) -> np.ndarray:
+        rng = np.random.default_rng(seed)
+        return (rng.normal(size=(n, n)) + 1j * rng.normal(size=(n, n))).astype(
+            np.complex128
+        )
+
+    def test_numpy_input_takes_oopao_numpy_path_bit_identically(self):
+        """The numpy branch must stay literally the same call as before."""
+        field = self._field()
+        expected = oopao_backend._asm_host().ASM(field, 1064e-9, 1e-3, 1e-3, 0.1)
+        got = oopao_backend.propagate_asm(field, lam=1064e-9, dx=1e-3, z=0.1)
+        assert np.array_equal(got, expected)
+
+    def test_array_backend_detection(self):
+        assert oopao_backend._array_backend(np.zeros(2)) is np
+        cp = _cupy()
+        if cp is None:
+            pytest.skip("CuPy with a usable device is required")
+        assert oopao_backend._array_backend(cp.zeros(2)) is cp
+
+    def test_device_input_returns_device_array(self):
+        cp = _cupy()
+        if cp is None:
+            pytest.skip("CuPy with a usable device is required")
+        field = cp.asarray(self._field())
+        out = oopao_backend.propagate_asm(field, lam=1064e-9, dx=1e-3, z=0.1)
+        assert isinstance(out, cp.ndarray)
+
+    def test_device_and_numpy_paths_agree(self):
+        cp = _cupy()
+        if cp is None:
+            pytest.skip("CuPy with a usable device is required")
+        field = self._field(128)
+        host = oopao_backend.propagate_asm(field, lam=1064e-9, dx=1e-3, z=0.1)
+        device = cp.asnumpy(
+            oopao_backend.propagate_asm(
+                cp.asarray(field), lam=1064e-9, dx=1e-3, z=0.1
+            )
+        )
+        assert np.abs(device - host).max() / np.abs(host).max() < 1e-12
+        intensity_host = np.abs(host) ** 2
+        intensity_device = np.abs(device) ** 2
+        assert np.corrcoef(intensity_host.ravel(), intensity_device.ravel())[0, 1] > 0.999999
+
+    def test_zero_distance_returns_the_input(self):
+        field = self._field(32)
+        out = oopao_backend.propagate_asm(field, lam=1064e-9, dx=1e-3, z=0.0)
+        assert np.array_equal(out, field)
+
+    def test_explicit_backend_composition_matches_the_numpy_kernel(self):
+        """``_asm_on_backend`` must be the same operator on a different backend."""
+        field = self._field(64)
+        host = oopao_backend._asm_host()
+        explicit = oopao_backend._asm_on_backend(
+            host, field, 1064e-9, 1e-3, 1e-3, 0.1, np
+        )
+        reference = host.ASM(field, 1064e-9, 1e-3, 1e-3, 0.1)
+        assert np.abs(explicit - reference).max() / np.abs(reference).max() < 1e-12
+
+
+class TestGpuResidencyWorks:
+    """``OOPAO_GPU_RESIDENT=1`` must work and must not change the screens (T1).
+
+    Residency is fixed at its first use, so it cannot be flipped inside this
+    process: the check runs in a child interpreter, exactly as a real run would.
+    """
+
+    def test_resident_screens_are_identical_to_non_resident(self):
+        import json
+        import subprocess
+        from pathlib import Path
+
+        p = _small_params()
+        expected = oopao_backend.make_screens(**p, seed=17)
+        root = Path(__file__).resolve().parents[4]
+        code = (
+            "import json\n"
+            "import numpy as np\n"
+            "from ao_shaping.drivers.sim import oopao_backend as ob\n"
+            f"out = ob.make_screens(N={p['N']}, dx={p['dx']}, Dscope={p['Dscope']}, "
+            f"lam={p['lam']}, cn2={p['cn2']}, L={p['L']}, L0={p['L0']}, "
+            f"n_screens={p['n_screens']}, seed=17)\n"
+            "print(json.dumps({'kind': type(out).__name__, "
+            "'values': np.asarray(out, dtype=float).ravel().tolist()}))\n"
+        )
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(root / "src") + os.pathsep + env.get("PYTHONPATH", "")
+        env["OOPAO_GPU_RESIDENT"] = "1"
+        env["OOPAO_BACKEND"] = "auto"
+        completed = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            cwd=str(root),
+            env=env,
+            timeout=600,
+        )
+        assert completed.returncode == 0, completed.stderr[-3000:]
+        payload = json.loads(completed.stdout.strip().splitlines()[-1])
+        assert payload["kind"] == "ndarray"
+        got = np.asarray(payload["values"], dtype=np.float32).reshape(expected.shape)
+        assert np.array_equal(got, expected)
+
+
 class TestPropagator:
     def test_engine_default_oopao(self):
         prop = oopao_backend.Propagator(N=64, dx=1e-3, lam=1064e-9)

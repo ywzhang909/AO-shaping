@@ -26,8 +26,54 @@ import importlib.util
 import os
 import sys
 from types import ModuleType
+from typing import Any
 
 import numpy as np
+
+# =====================================================================
+# 数组后端互转 (NumPy ↔ CuPy)
+#
+# 定义在**本模块最前面**, 因为它是消费 OOPAO 结果的通用工具: 驱动层
+# (``oopao_backend``) 与 ``scripts/`` 都要用同一份实现, 而放在这里同时满足
+# "两边都能 import" 与 "不产生循环依赖" (本模块只依赖 numpy)。OOPAO 不可用时本
+# 模块整体 ImportError, 故调用方各自保留一个纯 numpy 回退 (见 ``oopao_backend``)。
+# =====================================================================
+
+
+def cupy_module() -> ModuleType | None:
+    """已经 import 过的 ``cupy`` 模块; 从未 import 时返回 ``None``。
+
+    刻意**不**主动 ``import cupy``: 本仓里 CuPy 只可能由 OOPAO 的后端选择引入
+    (``OOPAO_BACKEND=auto|cuda``), 主动 import 会额外花约 1 s 并打印
+    ``cupyx.jit`` 实验性警告; 而 ``sys.modules`` 命中在两种情况下都给出正确答案。
+
+    Returns:
+        ``cupy`` 模块对象, 或 ``None``。
+    """
+    module = sys.modules.get("cupy")
+    return module if module is not None else None
+
+
+def as_numpy(array: Any) -> np.ndarray:
+    """把 NumPy 或 CuPy 数组安全地转成 NumPy。
+
+    CuPy 数组对 ``np.asarray`` **不是**隐式可转的 (会抛 ``TypeError``), 所以凡是
+    可能接到 OOPAO 设备数组的消费端都必须走这里 —— 这正是 ``OOPAO_GPU_RESIDENT=1``
+    下 ``np.asarray(layer.OPD)`` 会炸/变慢的原因。上游 OOPAO 自带的
+    ``runtime.to_numpy`` 在当前版本有兼容问题 (见 ``drivers/sim/AGENTS.md``),
+    因此这里只依赖 ``cp.asnumpy``。
+
+    Args:
+        array: NumPy 数组、CuPy 数组, 或任何 ``np.asarray`` 能接受的对象。
+
+    Returns:
+        NumPy 数组; 设备数组会拷回主机内存 (CuPy 上的数组不做零拷贝)。
+    """
+    cp = cupy_module()
+    if cp is not None and isinstance(array, cp.ndarray):
+        return cp.asnumpy(array)
+    return np.asarray(array)
+
 
 _PKG_NAME = "OOPAO"
 # 我们会主动加载的全部顶层模块 (SPRINT 是按需加载的; 它 import 的
@@ -137,4 +183,5 @@ __all__ = [
     "Asterism", "Detector", "Pyramid", "ShackHartmann", "FieldTransformer",
     "SpatialFilter", "NCPA", "OPD_map", "phaseStats", "InfluenceFunctions",
     "BioEdge", "GainSensingCamera", "LiFT", "MisRegistration",
+    "as_numpy", "cupy_module",
 ]

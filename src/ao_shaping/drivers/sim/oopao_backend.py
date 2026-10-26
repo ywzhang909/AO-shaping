@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import sys
 from functools import lru_cache
 from typing import Any
 
@@ -48,11 +49,22 @@ try:
         Atmosphere,
         Source,
         Telescope,
+        as_numpy,
+        cupy_module,
     )
 
     _OOPAO_AVAILABLE = True
 except Exception:  # pragma: no cover - OOPAO not installed
     _OOPAO_AVAILABLE = False
+
+    def as_numpy(array: Any) -> np.ndarray:  # type: ignore[misc]
+        """OOPAO 缺失时的纯 NumPy 回退 (此时不可能出现设备数组)。"""
+        return np.asarray(array)
+
+    def cupy_module() -> Any:  # type: ignore[misc]
+        """OOPAO 缺失时的回退: 永远没有 CuPy 后端。"""
+        return None
+
 
 __all__ = [
     "OopaoScreenBackend",
@@ -229,7 +241,10 @@ class OopaoScreenBackend:
         -------
         np.ndarray
             ``(n_screens, N, N)`` float32 弧度相位屏, 从 OOPAO 的 ``N+4`` 像素层居中
-            裁剪而来, 并重缩放到目标逐 slab r0。
+            裁剪而来, 并重缩放到目标逐 slab r0。**恒定是 NumPy 数组**: 即使
+            ``OOPAO_GPU_RESIDENT=1`` 让 OOPAO 把层相位留在设备上, 这里也经
+            :func:`_oopao_compat.as_numpy` 取回主机 —— 相位屏的消费端 (beam_backend /
+            npz 落盘 / 测试) 都只认 NumPy, 悄悄返回 CuPy 数组会让它们在下游炸掉。
         """
         rescale = self._rescale
         if r0_slab is not None:
@@ -239,7 +254,8 @@ class OopaoScreenBackend:
         out = np.empty((self.n_screens, self.N, self.N), dtype=np.float32)
         for i in range(self.n_screens):
             lay = getattr(self.atm, "layer_%d" % (i + 1))
-            out[i] = (np.asarray(lay.OPD)[2:-2, 2:-2] * rescale).astype(
+            # CuPy 数组不能隐式转 NumPy: 必须经 as_numpy (cp.asnumpy) 取回。
+            out[i] = (as_numpy(lay.OPD)[2:-2, 2:-2] * rescale).astype(
                 np.float32
             )
         return out
@@ -353,18 +369,100 @@ def _asm_host() -> Any:
     return _ASM_HOST
 
 
+def _array_backend(array: Any) -> Any:
+    """承载 ``array`` 的数组模块: ``numpy`` 或 ``cupy``。
+
+    由**数组本身**决定, 不看 OOPAO 的进程级后端选择 —— 这正是 T2 需要的语义:
+    传进 NumPy 就逐位走原 numpy 路径, 传进 CuPy 就上 GPU。
+
+    Args:
+        array: 待传播的数组。
+
+    Returns:
+        ``numpy`` 模块或 ``cupy`` 模块。
+    """
+    cp = cupy_module()
+    if cp is not None and isinstance(array, cp.ndarray):
+        return cp
+    return np
+
+
+def _oopao_picks(backend: Any) -> bool:
+    """OOPAO 的**进程级**后端选择是否就是 ``backend``。
+
+    ``Atmosphere.ASM`` 用 :func:`OOPAO.runtime.backend_of` 决定后端, 而那个函数
+    只认进程启动时定下的 ``OOPAO_BACKEND``。这里读同一个已加载的模块实例
+    (``_oopao_compat`` 已经加载过它, 故无 import 副作用), 用来判断能否直接把数组
+    交给 ``ASM``。
+
+    Args:
+        backend: ``numpy`` 或 ``cupy``。
+
+    Returns:
+        True 表示 ``ASM`` 自己就会选到 ``backend``。
+    """
+    runtime = sys.modules.get("OOPAO.runtime")
+    if runtime is None:  # pragma: no cover - Atmosphere 必然已加载它
+        return backend is np
+    xp, gpu = runtime.array_backend()
+    return (backend is xp) if gpu else (backend is np)
+
+
+def _asm_on_backend(
+    host: Any,
+    field: Any,
+    wavelength: float,
+    input_pitch: float,
+    output_pitch: float,
+    distance: float,
+    backend: Any,
+) -> Any:
+    """在指定数组后端上组合 OOPAO 的角谱核。
+
+    ``Atmosphere.ASM`` 只能在"进程级后端恰好等于数组所在后端"时工作, 于是
+    ``OOPAO_BACKEND=cpu`` 进程里一份 CuPy 场就无法经它传播。这里调 OOPAO 自己的
+    ``_asm_kernels`` 取**同一组**切趾/传递/输出啁啾核 (同一实现, 不是第二份数学),
+    再做 ``ASM`` 里那三步 FFT 组合 —— 因此结果与 ``ASM`` 在该后端上逐位相同。
+
+    Args:
+        host: :func:`_asm_host` 返回的 ASM 宿主 ``Atmosphere``。
+        field: 待传播的复场。
+        wavelength: 波长 (m)。
+        input_pitch: 输入像元间距 (m)。
+        output_pitch: 输出像元间距 (m)。
+        distance: 传播距离 (m)。
+        backend: ``numpy`` 或 ``cupy``。
+
+    Returns:
+        传播后的复场, 与 ``field`` 同一后端。
+    """
+    n = field.shape[0]
+    phase_1, phase_2, phase_3, m = host._asm_kernels(
+        backend, n, field.real.dtype, wavelength, input_pitch, output_pitch, distance
+    )
+    field_freq = backend.fft.fft2(backend.fft.ifftshift(field * phase_1))
+    field_out = backend.fft.fftshift(backend.fft.ifft2(field_freq * phase_2))
+    return field_out * phase_3 / m
+
+
 def propagate_asm(
-    input_field: np.ndarray,
+    input_field: Any,
     *,
     lam: float,
     dx: float,
     z: float,
-) -> np.ndarray:
-    """OOPAO ``Atmosphere.ASM`` 角谱传播 (纯函数)。
+) -> Any:
+    """OOPAO ``Atmosphere.ASM`` 角谱传播 (纯函数), 按输入的数组后端分派。
+
+    * **NumPy 输入** → 原 numpy 路径, 逐位不变 (一条 ULP 都不动)。
+    * **CuPy 输入** → 在同一台设备上传播, 返回 CuPy 数组。若进程级
+      ``OOPAO_BACKEND`` 同时选了 CUDA, 直接交给 ``ASM``; 否则 (例如
+      ``OOPAO_BACKEND=cpu`` 但调用方手里已有设备数组) 经
+      :func:`_asm_on_backend` 用 OOPAO 自己的核在该后端上组合。
 
     Parameters
     ----------
-    input_field : np.ndarray
+    input_field : np.ndarray or cupy.ndarray
         输入复场 (N, N)。
     lam : float
         波长 (m)。
@@ -372,10 +470,23 @@ def propagate_asm(
         输入/输出像元间距 (m); 此处输入与输出间距相等。
     z : float
         传播距离 (m); 负值表示反向传播。
+
+    Returns
+    -------
+    np.ndarray or cupy.ndarray
+        传播后的复场, 与 ``input_field`` 同类。
     """
     if not _OOPAO_AVAILABLE:
         raise RuntimeError("OOPAO is not available; use the numpy backend")
-    return _asm_host().ASM(input_field, lam, dx, dx, z)
+    backend = _array_backend(input_field)
+    if backend is np:
+        return _asm_host().ASM(input_field, lam, dx, dx, z)
+    host = _asm_host()
+    if _oopao_picks(backend):
+        return host.ASM(input_field, lam, dx, dx, z)
+    if z == 0:
+        return input_field
+    return _asm_on_backend(host, input_field, lam, dx, dx, z, backend)
 
 
 def _asm_numpy(
