@@ -36,11 +36,14 @@ def summarize(run: Path, out: Path):
         for col, row in enumerate(selected):
             with np.load(run / row["file"]) as payload:
                 xy, target = payload["camera_xy"], payload["target"]
+                core = payload["core"].copy()
                 image = payload["raw_frames"].mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)]
                 phase = payload["model_phase"]
             forward = FrozenDefocusForward(params, xy, device="cpu")
+            forward.exposure_ms = row["exposure_ms"]
             prediction = forward.predict(phase).detach().cpu().numpy()[0]
             objective = ShapeObjective(target)
+            objective.core = core
             model_metrics = image_metrics(prediction, objective)
             corr = float(np.corrcoef(prediction.ravel(), image.ravel())[0, 1])
             label = ("seed", "final")[col]

@@ -58,6 +58,11 @@ def audit_run(run: Path):
             if x.min() < 0 or y.min() < 0 or x.max() >= raw.shape[2] or y.max() >= raw.shape[1]:
                 raise ValueError(f"camera window beyond sensor: {label}")
             objective = ShapeObjective(target)
+            if config.get("core_margin") is not None:
+                from scipy.ndimage import binary_erosion
+                objective.core = binary_erosion(objective.box, iterations=max(1, int(np.ceil(config["core_margin"]/config.get("window_step", 2.)))))
+            if config.get("zero_radius", 0.) > 0:
+                objective.core &= np.linalg.norm(xy - np.asarray(config["zero_xy"]), axis=-1) > config["zero_radius"]
             if not np.array_equal(objective.core, core):
                 raise ValueError(f"core mask mismatch: {label}")
             measured = image_metrics(raw.mean(0)[y, x], objective)
@@ -74,7 +79,8 @@ def audit_run(run: Path):
             if not np.isclose(loss, row["loss"], rtol=2e-6, atol=2e-6):
                 raise ValueError(f"raw/manifest objective mismatch: {label}")
             maximum_peak = max(maximum_peak, float(raw.max()))
-            if raw.max() >= 250:
+            peak_to_check = raw[:, y, x][:, core].max() if config.get("meter_target", False) else raw.max()
+            if peak_to_check >= row.get("full_scale", 255.)*250/255:
                 raise ValueError(f"saturated measurement: {label}")
             frame_count += len(raw)
         exposure = float(row["exposure_ms"])
@@ -96,11 +102,40 @@ def audit_run(run: Path):
     if len(summary) != len(config["shapes"])*config["blocks"]:
         raise ValueError("incomplete optimization blocks")
     by_label = {r["label"]: r for r in records}
+    exploration_policies = {}
+    champion_labels = {}
     for block in summary:
         prefix = f"{block['shape']}_{block['block']}_"
         metric = config.get("accept_metric", "loss")
         if metric not in {"loss", "cv"}:
             raise ValueError("unknown acceptance metric")
+        if block.get("acceptance") == "nonmonotone_ccd":
+            from .exploration import NonmonotoneAcceptance
+            shape = block["shape"]
+            if shape not in exploration_policies:
+                champion_labels[shape] = shape+"_seed"
+                exploration_policies[shape] = NonmonotoneAcceptance(by_label[shape+"_seed"]["metrics"]["cv"],
+                    temperature=config["exploration_temperature"], relative_budget=config["exploration_budget"],
+                    seed=config["exploration_seed"])
+            a, b = by_label[prefix+"A1"], by_label[prefix+"B"]
+            if a["exposure_ms"] != b["exposure_ms"]:
+                raise ValueError(f"exploration exposure mismatch: {prefix}")
+            decision = exploration_policies[shape].update(a["metrics"]["cv"], b["metrics"]["cv"])
+            for key, value in decision.items():
+                if value != block[key]:
+                    raise ValueError(f"exploration decision differs: {prefix} {key}")
+            if decision["improved_best"]:
+                champion_labels[shape] = prefix+"B"
+            continue
+        if block.get("acceptance") == "sequential_ccd":
+            a, b = by_label[prefix+"A1"], by_label[prefix+"B"]
+            if a["exposure_ms"] != b["exposure_ms"]:
+                raise ValueError(f"sequential exposure mismatch: {prefix}")
+            av = a["metrics"]["cv"] if metric == "cv" else a["loss"]
+            bv = b["metrics"]["cv"] if metric == "cv" else b["loss"]
+            if bool(block["accepted"]) != (bv < av):
+                raise ValueError(f"sequential acceptance differs: {prefix}")
+            continue
         if block.get("acceptance", "paired") == "model_only":
             # No A–B–B–A apparatus: recompute the model-only rule from the two
             # recorded losses, and refuse an artefact that also carries candidate
@@ -118,6 +153,14 @@ def audit_run(run: Path):
         accepted = .5*(losses["B1"]+losses["B2"]) < .5*(losses["A1"]+losses["A2"])-abs(losses["A2"]-losses["A1"])
         if accepted != block["accepted"]:
             raise ValueError(f"acceptance decision differs: {prefix}")
+    for shape, champion_label in champion_labels.items():
+        with np.load(run / by_label[champion_label]["file"]) as champion:
+            expected = champion["model_phase"]
+            with np.load(run / by_label[shape+"_final"]["file"]) as final:
+                if not np.array_equal(expected, final["model_phase"]):
+                    raise ValueError(f"exploration final differs from champion: {shape}")
+            if not np.array_equal(expected, np.load(run / f"{shape}_best.npy")):
+                raise ValueError(f"exploration export differs from champion: {shape}")
     return dict(run=str(run.resolve()), captures=len(records), raw_frames=frame_count,
                 maximum_peak=maximum_peak, shapes=config["shapes"], blocks=len(summary),
                 accepted_blocks=sum(b["accepted"] for b in summary),

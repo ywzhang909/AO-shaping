@@ -256,6 +256,7 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None):
             params = load_frozen_parameters(checkpoint)
             xy = recentre_window(tuple(zero), half_span_px=220., step_px=2.)
             forward = FrozenDefocusForward(params, xy, device=device)
+            forward.exposure_ms = float(reference["exposure_ms"])
             center = np.asarray(zero)+np.asarray(params.ramp_matrix)[:, 0]/config.period
             for shape in config.shapes:
                 target = validate.target_at(xy, shape, center, config.side)
@@ -281,7 +282,7 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None):
                                     optimized_phase=optimizer.current_phase,
                                     prediction=forward.predict(phase).detach().cpu().numpy(),
                                     optimized_prediction=forward.predict(optimizer.current_phase).detach().cpu().numpy(),
-                                    target=target, camera_xy=xy)
+                                    target=target, camera_xy=xy, exposure_ms=forward.exposure_ms)
                 (out / f"{shape}_offline_iterations.json").write_text(json.dumps(optimizer.loss_history, indent=2), encoding="utf-8")
             # Self-describing: which device actually produced these phases.
             (out / "synthesis.json").write_text(json.dumps(dict(

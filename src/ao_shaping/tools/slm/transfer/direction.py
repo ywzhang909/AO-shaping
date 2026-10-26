@@ -35,8 +35,9 @@ def analyze(run, out):
                 phases.append(np.asarray(data["model_phase"], dtype=np.float32))
                 if row is a:
                     xy, target = data["camera_xy"], data["target"]
-                    image = data["raw_frames"].mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)] / row["exposure_ms"]
+                    image = data["raw_frames"].mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)] / (row["exposure_ms"]*row.get("counts_scale", 1.))
         forward = FrozenDefocusForward(params, xy, device="cpu")
+        forward.exposure_ms = a["exposure_ms"]
         objective = ShapeObjective(target, cv_only=config.get("objective", "shape") == "cv",
                                    formation=config.get("objective", "shape") == "formation")
         zero = torch.zeros_like(torch.tensor(phases[0]))

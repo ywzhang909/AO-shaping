@@ -16,7 +16,6 @@ from pathlib import Path
 
 import numpy as np
 from scipy.ndimage import map_coordinates
-from scipy.optimize import nnls
 
 
 from ao_shaping.tools.slm.transfer.capture import clock
@@ -136,7 +135,7 @@ def fit(args):
     from ao_shaping.algorithm.signal_processing.physical_forward_fit import PhysicalForwardFit
 
     torch.set_num_threads(4)
-    old = load_frozen_parameters(args.checkpoint)
+    old = load_frozen_parameters(args.checkpoint).effective_parameters()
     device = resolve_device(getattr(args, "device", None))
     rows, phases, images, xy, matrix, ramp_samples, train = load_dataset(
         args.dataset, old.grid_size, args.span, samples=getattr(args, "samples", None))
@@ -149,6 +148,7 @@ def fit(args):
                       iterations=args.iterations, ramp_matrix=matrix.tolist(), ramp_samples=ramp_samples,
                       adaptation=adaptation,
                       amplitude_center_lr=getattr(args, "amplitude_center_lr", None),
+                      radiometry=getattr(args, "radiometry", "exposure"),
                       exposure_assumption="counts/exposure_ms; linearity and illuminated offset not independently calibrated",
                       window_step_px=2, window_span_px=args.span, rows=rows, **clock())
     (args.out / "provenance.json").write_text(json.dumps(provenance, indent=2), encoding="utf-8")
@@ -179,6 +179,8 @@ def fit(args):
     target_cv = target.std((1, 2), correction=0) / target_mean[:, 0, 0]
     best_loss, history = float("inf"), []
     kernel = frozen._blaze_kernel
+    exposure_values = np.asarray([row["exposure_ms"] for row in rows])
+    from .radiometry import fit_radiometry
     for iteration in range(args.iterations + 1):
         started = clock()
         model.optimizer.zero_grad()
@@ -189,9 +191,11 @@ def fit(args):
         # prediction in both optimization and reported metrics. Never use
         # validation pixels to choose gain or additive background.
         optical_prediction = prediction.detach().cpu().numpy()
-        design = np.stack((optical_prediction[train].ravel(), np.ones(optical_prediction[train].size)), axis=1)
-        scale, offset = nnls(design, images[train].ravel())[0]
-        prediction = prediction * float(scale) + float(offset)
+        _, radiometry = fit_radiometry(optical_prediction, images, exposure_values, train,
+                                      mode=getattr(args, "radiometry", "exposure"))
+        scale, offset = radiometry["gain"], radiometry["background"]
+        exposure_tensor = torch.as_tensor(exposure_values[:, None, None], dtype=prediction.dtype, device=prediction.device)
+        prediction = prediction * scale + offset + radiometry["bias_counts"]/exposure_tensor
         p = prediction[model.train]
         normalized = p / p.mean((1, 2), keepdim=True).clamp_min(1e-9)
         cv = p.std((1, 2), correction=0) / p.mean((1, 2)).clamp_min(1e-9)
@@ -210,7 +214,7 @@ def fit(args):
                       residual_noll_radians={str(j): float(v) for j, v in zip(model.residual_modes, model.residual.detach())},
                       gain=1., background=0., sigma_ccd_px=old.sigma_ccd_px)
         predicted = prediction.detach().cpu().numpy()
-        params.update(gain=float(scale), background=float(offset))
+        params.update(radiometry)
         entry = dict(iteration=iteration, loss=float(loss.detach()), parameters=params,
                      metrics=metrics(predicted, images), **started, end_monotonic_ns=__import__("time").monotonic_ns())
         history.append(entry)
@@ -296,6 +300,7 @@ def main():
     parser.add_argument("--span", type=int, default=160)
     parser.add_argument("--adaptation", choices=("auto", "alignment", "full"), default="auto")
     parser.add_argument("--amplitude-center-lr", type=float, help="Override illumination position learning rate (panel px/update)")
+    parser.add_argument("--radiometry", choices=("shared", "exposure"), default="exposure")
     parser.add_argument("--device", choices=DEVICE_CHOICES, default="auto",
                         help="auto = CUDA when available else CPU; cpu pins the historical numbers")
     args = parser.parse_args()

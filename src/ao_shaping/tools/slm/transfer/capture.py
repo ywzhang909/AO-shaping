@@ -67,14 +67,14 @@ def locate(frame: np.ndarray) -> tuple[float, float]:
     return float((xx * weights).sum() / weights.sum()), float((yy * weights).sum() / weights.sum())
 
 
-def probes(size: int, count: int, seed: int):
+def probes(size: int, count: int, seed: int, periods=(64, 128)):
     from ao_shaping.tools.slm.transfer.probes import probe_grid
 
     zero = np.zeros((size, size), np.float32)
     yield "reference_start", "calibration", zero
     yy, xx = np.mgrid[:size, :size] * (1920 / size)
     for axis, coord in (("x", xx), ("y", yy)):
-        for period in (64, 128):
+        for period in periods:
             for sign in (-1, 1):
                 yield f"ramp_{axis}_{period}_{sign}", "calibration", sign * 2 * np.pi * coord / period
     for index in range(count):
@@ -133,7 +133,7 @@ def capture(args):
                         raise ValueError(f"Expected a monochrome 2D camera frame, got {raw.shape}")
                     return raw
 
-                for label, split, grid in probes(args.grid, args.count, args.seed):
+                for label, split, grid in probes(args.grid, args.count, args.seed, getattr(args, "ramp_periods", (64, 128))):
                     panel = to_panel(grid)
                     gray = slm.create_phase_from_array(panel)
                     slm.display_data(gray)
@@ -192,6 +192,7 @@ def main():
     parser.add_argument("--cam-id", type=int, default=0)
     parser.add_argument("--slm-number", type=int, default=1)
     parser.add_argument("--grid", type=int, default=128)
+    parser.add_argument("--ramp-periods", type=int, nargs="+", default=[64, 128])
     parser.add_argument("--count", type=int, default=12)
     parser.add_argument("--frames", type=int, default=3)
     parser.add_argument("--seed", type=int, default=102319)

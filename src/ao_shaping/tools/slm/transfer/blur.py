@@ -84,7 +84,7 @@ def calibrate(args):
     ).ravel()
     results = []
     for sigma in args.sigmas:
-        trial = replace(params, sigma_ccd_px=sigma, gain=1.0, background=0.0)
+        trial = replace(params, sigma_ccd_px=sigma, gain=1.0, background=0.0, bias_counts=0.)
         predictions = []
         for sample in samples:
             forward = FrozenDefocusForward(trial, sample["xy"], device="cpu")
@@ -94,10 +94,11 @@ def calibrate(args):
         design = np.stack(
             (optical[train].ravel(), np.ones(optical[train].size)), axis=-1
         )
+        bias = np.asarray([params.bias_counts/s["row"]["exposure_ms"] for s in samples])[:, None, None]
         gain, background = nnls(
-            design * weights[:, None], measured[train].ravel() * weights
+            design * weights[:, None], (measured-bias)[train].ravel() * weights
         )[0]
-        prediction = optical * gain + background
+        prediction = optical * gain + background + bias
         metrics = []
         scores = []
         for sample, im, p in zip(samples, measured, prediction):
