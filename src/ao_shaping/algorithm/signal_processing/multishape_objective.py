@@ -26,8 +26,11 @@ class ShapeObjective:
     ``tests/ao_shaping/algorithm/test_metric_layers_agree.py`` 钉住)。
     """
 
-    def __init__(self, target, *, cv_only=False):
+    def __init__(self, target, *, cv_only=False, formation=False):
         self.cv_only = bool(cv_only)
+        self.formation = bool(formation)
+        if self.cv_only and self.formation:
+            raise ValueError("CV-only and formation objectives are mutually exclusive")
         self.target = np.asarray(target, dtype=np.float32)
         self.box = self.target > .5
         self.core = binary_erosion(self.box, iterations=2)
@@ -47,7 +50,12 @@ class ShapeObjective:
         shape_loss = ((image/total-target/target.sum())**2).sum()*target.sum()
         smooth = .5*((1-torch.cos(delta_phase[1:]-delta_phase[:-1])).mean()
                      +(1-torch.cos(delta_phase[:, 1:]-delta_phase[:, :-1])).mean())
-        loss = cv2+.001*smooth if self.cv_only else cv2+2*(1-energy)+shape_loss+.001*smooth
+        if self.cv_only:
+            loss = cv2+.001*smooth
+        elif self.formation:
+            loss = .05*cv2+8*(1-energy)+shape_loss+.001*smooth
+        else:
+            loss = cv2+2*(1-energy)+shape_loss+.001*smooth
         return loss, dict(l_cv=float(cv2.detach()), ee_roi=float(energy.detach()),
                           shape_loss=float(shape_loss.detach()))
 
@@ -82,7 +90,13 @@ def anchored_intensity(measured, prediction, baseline_prediction):
 
 
 def gs_seed(forward, centre, side, shape):
-    """Construct the target on FFT coordinates using the full measured matrix."""
+    """Construct the target on FFT coordinates using the full measured matrix.
+
+    Every tensor read out of ``forward`` goes through ``detach().cpu()`` first:
+    the forward model may live on CUDA (``TransferSession.device``), and a
+    ``.numpy()`` on a CUDA tensor raises. On CPU this is a no-op, so the numbers
+    are unchanged.
+    """
     from ao_shaping.algorithm.signal_processing.gerchberg_saxton import gerchberg_saxton
 
     p = forward.params
@@ -93,10 +107,11 @@ def gs_seed(forward, centre, side, shape):
     camera_xy = frequency @ np.asarray(p.ramp_matrix).T + np.asarray(p.origin_xy)
     target = target_at(camera_xy, shape, centre, side)
     amplitude = np.zeros((n, n))
-    amplitude[half:half+g, half:half+g] = forward.amplitude.numpy()
+    amplitude[half:half+g, half:half+g] = forward.amplitude.detach().cpu().numpy()
     result = gerchberg_saxton(amplitude, np.sqrt(target), iterations=80, propagation="fft")
-    static = p.defocus_diopter*p.diopter_scale*forward.z4.numpy()
+    static = p.defocus_diopter*p.diopter_scale*forward.z4.detach().cpu().numpy()
     if forward.residual_basis is not None:
-        static = static+np.einsum("i,ijk->jk", forward.residual_values.numpy(), forward.residual_basis.numpy())
+        static = static+np.einsum("i,ijk->jk", forward.residual_values.detach().cpu().numpy(),
+                                  forward.residual_basis.detach().cpu().numpy())
     return result.phase[half:half+g, half:half+g]-static
 

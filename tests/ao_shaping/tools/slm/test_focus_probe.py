@@ -223,6 +223,85 @@ class TestAdaptiveExposure:
         assert got.exposure_ms <= 0.2
 
 
+class TestRatioBounds:
+    """The correction factor per step is a knob; its default is unchanged.
+
+    ``capture.capture`` starts at the camera floor, where the operator's log
+    showed a first frame at ~5% of full scale — a factor of ~9, which the default
+    ``(0.15, 6.0)`` clamp cannot apply in one step. The response is linear in
+    exposure, so one unclamped correction is exact; widening the bound lets a
+    probe settle in one correction plus one verification read.
+    """
+
+    def _linear(self, counts_per_ms: float, *, exposure: float = 0.02):
+        state = {"e": exposure}
+        seen: list[float] = []
+
+        def set_e(ms: float) -> float:
+            state["e"] = float(ms)
+            return float(ms)
+
+        def read() -> np.ndarray:
+            seen.append(state["e"])
+            frame = np.zeros((20, 20), dtype=np.float32)
+            frame[8:12, 8:12] = min(FULL_SCALE, counts_per_ms * state["e"])
+            return frame
+
+        return state, set_e, read, seen
+
+    def test_the_default_bound_is_still_the_historical_six(self) -> None:
+        """Pinned: every other caller relies on this clamp, not on a wide one."""
+        _, set_e, read, seen = self._linear(counts_per_ms=1.0, exposure=1.0)
+
+        got = fp.adapt_exposure(
+            set_e, read, start_ms=1.0, floor_ms=0.02, ceiling_ms=20.0,
+            full_scale=FULL_SCALE, max_steps=2, discard=0,
+        )
+
+        assert seen == [1.0, pytest.approx(6.0)]
+        assert got.status == "dim"
+
+    def test_a_widened_bound_lands_the_one_exact_correction(self) -> None:
+        """Cold start: 13/255 at the 0.02 ms floor needs ×8.8, not ×6."""
+        state, set_e, read, seen = self._linear(counts_per_ms=650.0, exposure=0.02)
+
+        got = fp.adapt_exposure(
+            set_e, read, start_ms=0.02, floor_ms=0.02, ceiling_ms=20.0,
+            full_scale=FULL_SCALE, max_steps=2, discard=0, ratio_bounds=(0.1, 50.0),
+        )
+
+        # One correction plus one verification read: 2 reads, not 12 steps.
+        assert got.reads == 2
+        assert len(seen) == 2
+        assert got.status == "ok"
+        # The correction is exact, so it lands on the target fraction, not merely
+        # somewhere inside the band.
+        assert got.fraction == pytest.approx(fp.TARGET_FRACTION, rel=1e-6)
+        assert state["e"] == pytest.approx(0.02 * fp.TARGET_FRACTION / (13 / 255), rel=1e-9)
+
+    def test_a_widened_bound_still_respects_the_ceiling(self) -> None:
+        """A bound wide enough to overshoot cannot walk past the exposure ceiling."""
+        _, set_e, read, seen = self._linear(counts_per_ms=1.0, exposure=1.0)
+
+        got = fp.adapt_exposure(
+            set_e, read, start_ms=1.0, floor_ms=0.02, ceiling_ms=20.0,
+            full_scale=FULL_SCALE, max_steps=2, discard=0, ratio_bounds=(0.1, 50.0),
+        )
+
+        assert seen[0] == 1.0
+        assert max(seen) <= 20.0
+        assert got.status == "dim"
+
+    def test_reversed_bounds_are_rejected(self) -> None:
+        _, set_e, read, _ = self._linear(counts_per_ms=1.0)
+
+        with pytest.raises(ValueError, match="ratio_bounds"):
+            fp.adapt_exposure(
+                set_e, read, start_ms=0.1, floor_ms=0.02, ceiling_ms=20.0,
+                full_scale=FULL_SCALE, ratio_bounds=(6.0, 0.15),
+            )
+
+
 class TestSweep:
     def test_it_finds_the_true_diopter(self) -> None:
         bench = FakeBench(true_diopter=-1.7, width=1.2)

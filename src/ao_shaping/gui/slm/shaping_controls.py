@@ -97,6 +97,7 @@ from ao_shaping.gui.slm.link_design_assist import (
     summary_rows,
 )
 from ao_shaping.gui.slm.pattern_controls import refresh_phase_preview
+from ao_shaping.gui.slm.transfer_progress import collect_progress, render_progress
 from ao_shaping.gui.utils.phase_overlay import apply_overlays_to_handle
 from ao_shaping.utils.io.timestamp import format_ts
 from ao_shaping.runners.runner_common import (
@@ -2067,6 +2068,10 @@ TRANSFER_RECIPE: dict[str, Any] = {
     "objective": "shape",
     "accept_metric": "loss",
     "seed_policy": "transfer",
+    "abba": False,
+    "adaptive_exposure": False,
+    "save_dataset": False,
+    "device": "auto",
 }
 
 #: Stage names emitted by ``run_session`` → operator-readable labels.  Keeping the
@@ -2081,13 +2086,20 @@ TRANSFER_STAGE_LABELS: dict[str, str] = {
     "exposure_response_capture": "曝光阶梯诊断",
     "exposure_response_analysis": "曝光响应分析",
     "blur_calibration": "有效展宽 / 辐射尺度校准",
-    "CCD_anchored_blocks": "CCD 锚定优化（A–B–B–A 验收）",
+    "CCD_anchored_blocks": "CCD 锚定优化（验收：A–B–B–A 或仅模型损失）",
     "GS_and_differentiable_synthesis": "GS + 可微相位合成（离线）",
     "transferred_phase_differentiable_synthesis": "历史接受相位迁移 + 可微合成（离线）",
     "raw_data_audit": "原始数据审计",
     "summary": "指标摘要",
     "direction_check": "方向核对",
 }
+
+
+def _device_choices() -> tuple[str, ...]:
+    """Accepted ``device`` values, imported lazily (the GUI stays torch-free)."""
+    from ao_shaping.tools.slm.transfer.device import DEVICE_CHOICES
+
+    return DEVICE_CHOICES
 
 
 def discover_transfer_checkpoint() -> Path | None:
@@ -2263,7 +2275,8 @@ class TransferMethod(ShapingMethod):
     phase_carries_carrier: ClassVar[bool] = True
     blurb: ClassVar[str] = (
         "少参数物理正向模型 + 当前光路重测几何 + 检查点迁移，再用 CCD 锚定短块与 "
-        "A–B–B–A 配对验收生成目标相位。与 CLI ``-m ao_shaping.tools.slm.transfer`` "
+        "A–B–B–A 配对验收生成目标相位（配对验收可关闭，关闭后只按模型损失接受）。"
+        "与 CLI ``-m ao_shaping.tools.slm.transfer`` "
         "同一入口；配方与验收见 "
         "report/shape_trials/multishape_capability/physical_multishape_reproduction_20261023.md。"
     )
@@ -2272,6 +2285,8 @@ class TransferMethod(ShapingMethod):
         super().__init__(prefix, slm_num)
         #: Widget handle for stage progress; created in :meth:`prepare_config`.
         self._progress: Any = None
+        #: Placeholder for the detail panel under the progress bar; same lifecycle.
+        self._panel: Any = None
         self._session_dir: Path | None = None
         # Initialised here (not just in ``prepare_config``) so a direct
         # ``execute()`` / ``_on_stage()`` cannot raise ``AttributeError``.
@@ -2406,11 +2421,41 @@ class TransferMethod(ShapingMethod):
                 help="cv = 候选平均 CV 必须优于参考平均 CV 减去前后参考漂移；"
                 "这样 EE 上升而 CV 退化的候选不会被接受",
             )
+        values["device"] = st.selectbox(
+            "计算设备",
+            options=list(_device_choices()),
+            index=list(_device_choices()).index(str(d["device"])),
+            key=self.wkey("device"),
+            help="auto = 有可用 CUDA 就用 GPU，否则 CPU；cpu = 与历史产物逐位对照"
+            "（拟合 / 合成 / CCD 块都受影响）。实际使用的设备写进 session.json 与各阶段 config.json",
+        )
         values["calibration"] = st.checkbox(
             "跨形状校准（曝光阶梯 + 有效展宽）",
             value=True,
             key=self.wkey("calibration"),
             help="需要同时选正方形/长方形/三角形；只选一个形状时自动跳过（CLI --skip-calibration）",
+        )
+        values["abba"] = st.checkbox(
+            "A–B–B–A 配对验收（CCD 实测）",
+            value=bool(d["abba"]),
+            key=self.wkey("abba"),
+            help="开 = 每块测 A1/B1/B2/A2，由实测指标判定候选是否接受；"
+            "关（默认）= 保留 CCD 锚定反馈，跳过 B1/B2/A2 与方向核对，候选只按模型损失接受，"
+            "摘要写 acceptance=model_only（等价 CLI --no-abba）",
+        )
+        values["adaptive_exposure"] = st.checkbox(
+            "运行中自动调整 CCD 曝光（块间）",
+            value=bool(d["adaptive_exposure"]),
+            key=self.wkey("adaptive_exposure"),
+            help="每个优化块前重新测光；启用配对时块内曝光保持一致。保存搜索帧和曝光读回值，结束时同曝光重拍初始与最终相位。",
+        )
+        values["save_dataset"] = st.checkbox(
+            "保存采集 npz（离线 --dataset 用）",
+            value=bool(d["save_dataset"]),
+            key=self.wkey("save_dataset"),
+            help="关（默认）= 探针只留在内存里直接交给拟合，不写 sample_*.npz；"
+            "开 = 按原样写出（离线 --dataset 与 scripts/slm 的分析脚本需要），"
+            "每条探针多 60-80 MB 与大部分耗时（等价 CLI --save-dataset）",
         )
         st.caption(
             "曝光与读出窗由本流程自己确定：逐帧自动曝光、测量窗固定 half_span=220 px。"
@@ -2451,6 +2496,10 @@ class TransferMethod(ShapingMethod):
             accept_metric=str(values["accept_metric"]),
             objective=str(values["objective"]),
             seed_policy=str(values["seed_policy"]),
+            abba=bool(values["abba"]),
+            adaptive_exposure=bool(values.get("adaptive_exposure", False)),
+            save_dataset=bool(values["save_dataset"]),
+            device=str(values["device"]),
         )
 
     def make_config(self, params: Any, *, debug: bool) -> Any:
@@ -2466,11 +2515,23 @@ class TransferMethod(ShapingMethod):
         """Stage progress: the run blocks the page, so the only live signal is this bar."""
         stages = config.plan()["stages"]
         self._progress = st.progress(0.0, text=f"共 {len(stages)} 个阶段：{stages[0]}")
+        # The detail panel lives under the bar; it is redrawn from the stage
+        # hook, so it keeps updating while the run blocks this script.
+        self._panel = st.empty()
         self._stage_total = len(stages)
         self._stage_index = 0
 
     def _on_stage(self, name: str, status: str) -> None:
-        """``run_session`` stage hook → progress bar.  Runs on the Streamlit thread."""
+        """``run_session`` stage hook → progress bar + detail panel.
+
+        Runs on the Streamlit thread; the panel is redrawn on every event
+        (including failures) so the operator sees *where* the run is.
+        """
+        if self._panel is not None and self._session_dir is not None:
+            with self._panel.container():
+                render_progress(
+                    collect_progress(self._session_dir), running=status != "failed"
+                )
         if status != "complete" or self._progress is None:
             return
         self._stage_index += 1
@@ -2505,6 +2566,25 @@ class TransferMethod(ShapingMethod):
             )
         if not values.get("shapes"):
             return "至少选择一个目标形状"
+        # 参数级前置检查：载波周期若不是标定档、或目标根本放不进采样窗，
+        # 以前要等到第一个 CCD 分块才报 "empty target core"（2026-10-26 实测），
+        # 那时采集与拟合已经跑了几分钟。这里在按「开始」之前就给出可执行的改法。
+        from ao_shaping.tools.slm.transfer.preflight import check_parameters
+
+        problems = check_parameters(
+            side=float(values.get("side", 80.0)),
+            period=float(values.get("period", 64.0)),
+            count=int(values.get("count", 24)),
+            iterations=int(values.get("iterations", 60)),
+            blocks=int(values.get("blocks", 4)),
+            updates=int(values.get("updates", 10)),
+            frames=int(values.get("frames", 3)),
+            shapes=tuple(values.get("shapes", ())),
+        )
+        errors = [problem for problem in problems if problem.severity == "error"]
+        if errors:
+            first = errors[0]
+            return f"{first.message} → {first.hint}"
         try:
             self.build_params(values).validate()
         except (FileNotFoundError, ValueError) as exc:
@@ -2657,7 +2737,7 @@ def render_closed_loop_shaping(slm_num: int) -> None:
         method.action,
         key=f"{prefix}_shp_run_{method.key}",
         type="primary",
-        disabled=bool(errors),
+        disabled=bool(errors) or bench_settings.bench_busy(),
         use_container_width=True,
     ):
         method.run(values, debug=bool(debug))

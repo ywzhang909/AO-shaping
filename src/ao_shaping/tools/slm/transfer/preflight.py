@@ -176,7 +176,7 @@ def check_parameters(
         problems.append(
             Problem(
                 "count_too_small",
-                f"探针数 {count} 少于 {PROBE_COUNT_MULTIPLE}。",
+                f"探针数 {count} 少于 {PROBE_COUNT_MULTIPLE}（count >= {PROBE_COUNT_MULTIPLE}）。",
                 f"训练/验证划分写死为 index % {PROBE_COUNT_MULTIPLE} >= 3，"
                 f"探针数必须是 {PROBE_COUNT_MULTIPLE} 的倍数。",
             )
@@ -185,7 +185,8 @@ def check_parameters(
         problems.append(
             Problem(
                 "count_not_multiple",
-                f"探针数 {count} 不是 {PROBE_COUNT_MULTIPLE} 的倍数。",
+                f"探针数 {count} 不是 {PROBE_COUNT_MULTIPLE} 的倍数"
+                f"（count 必须是 {PROBE_COUNT_MULTIPLE} 的倍数）。",
                 f"训练/验证划分写死为 index % {PROBE_COUNT_MULTIPLE} >= 3，"
                 "非倍数会让其中一个划分只剩零星几条，拟合阶段直接拒绝。",
             )

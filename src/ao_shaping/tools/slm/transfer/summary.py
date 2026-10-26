@@ -31,7 +31,8 @@ def summarize(run: Path, out: Path):
     results = []
     for index, shape in enumerate(shapes):
         item = dict(shape=shape)
-        selected = [next(r for r in records if r["label"] == f"{shape}_{label}") for label in ("seed", "final")]
+        seed_label = "seed_replay" if any(r["label"] == shape+"_seed_replay" for r in records) else "seed"
+        selected = [next(r for r in records if r["label"] == f"{shape}_{label}") for label in (seed_label, "final")]
         for col, row in enumerate(selected):
             with np.load(run / row["file"]) as payload:
                 xy, target = payload["camera_xy"], payload["target"]
@@ -81,10 +82,34 @@ def summarize(run: Path, out: Path):
                     checkpoint_sha256=hashlib.sha256(checkpoint.read_bytes()).hexdigest(),
                     manifest_sha256=hashlib.sha256((run / "manifest.json").read_bytes()).hexdigest(),
                     metric_scope="core CV (2 sample erosion), EE within fixed 441px window; raw counts, no offset subtraction",
+                    acceptance=acceptance_scope(run),
                     shapes=results)
     (out / "results.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     for row in results:
         print(json.dumps(row), flush=True)
+
+
+def acceptance_scope(run: Path) -> dict:
+    """Say what "accepted" means here, so a model-only run is never read as CCD-verified.
+
+    The A–B–B–A blocks measure the candidate and its anchor on the CCD; with them
+    switched off the candidate is accepted on the optimizer's own loss and no
+    measurement of the candidate exists. Reporting both under one word would
+    overstate the evidence, so the scope is explicit and per block.
+    """
+    path = Path(run) / "summary.json"
+    blocks = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else []
+    scopes = sorted({str(block.get("acceptance", "paired")) for block in blocks})
+    if scopes == ["paired"] or not scopes:
+        verdict = "paired CCD A–B–B–A; the candidate and both anchors were measured"
+    elif scopes == ["model_only"]:
+        verdict = ("model_only: A–B–B–A acceptance skipped — candidates accepted on the model "
+                   "loss only, no CCD verdict was measured for them")
+    else:
+        verdict = "mixed: some blocks are paired CCD, others are model-loss only"
+    return dict(scopes=scopes, verdict=verdict,
+                model_only_blocks=sum(b.get("acceptance", "paired") == "model_only" for b in blocks),
+                accepted_blocks=sum(bool(b.get("accepted")) for b in blocks))
 
 
 def main():

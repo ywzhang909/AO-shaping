@@ -69,6 +69,8 @@ def audit_run(run: Path):
             loss = measured["cv"]**2 + 2*(1-measured["ee_roi"]) + target.sum()*np.square(distribution-target/target.sum()).sum()
             if config.get("objective", "shape") == "cv":
                 loss = measured["cv"]**2
+            elif config.get("objective", "shape") == "formation":
+                loss = .05*measured["cv"]**2+8*(1-measured["ee_roi"])+target.sum()*np.square(distribution-target/target.sum()).sum()
             if not np.isclose(loss, row["loss"], rtol=2e-6, atol=2e-6):
                 raise ValueError(f"raw/manifest objective mismatch: {label}")
             maximum_peak = max(maximum_peak, float(raw.max()))
@@ -88,7 +90,7 @@ def audit_run(run: Path):
     for shape in config["shapes"]:
         if not {shape+"_seed", shape+"_final"}.issubset(labels):
             raise ValueError(f"unfinished shape: {shape}")
-        if len(exposures[shape]) != 1:
+        if len(exposures[shape]) != 1 and config.get("exposure_policy", "per_shape") != "per_block":
             raise ValueError(f"paired exposure changed: {shape}")
     summary = json.loads((run / "summary.json").read_text(encoding="utf-8"))
     if len(summary) != len(config["shapes"])*config["blocks"]:
@@ -99,6 +101,18 @@ def audit_run(run: Path):
         metric = config.get("accept_metric", "loss")
         if metric not in {"loss", "cv"}:
             raise ValueError("unknown acceptance metric")
+        if block.get("acceptance", "paired") == "model_only":
+            # No A–B–B–A apparatus: recompute the model-only rule from the two
+            # recorded losses, and refuse an artefact that also carries candidate
+            # captures it claims not to have measured.
+            if any(prefix+suffix in by_label for suffix in ("B1", "B2", "A2")):
+                raise ValueError(f"model-only block carries paired captures: {prefix}")
+            previous, last = block.get("model_loss_previous"), block.get("model_loss_last")
+            if bool(block["accepted"]) != (previous is not None and last is not None and last < previous):
+                raise ValueError(f"model-only acceptance differs: {prefix}")
+            continue
+        if len({by_label[prefix+suffix]["exposure_ms"] for suffix in ("A1", "B1", "B2", "A2")}) != 1:
+            raise ValueError(f"exposure differs within paired block: {prefix}")
         losses = {suffix: (by_label[prefix+suffix]["metrics"]["cv"] if metric == "cv" else
                            by_label[prefix+suffix]["loss"]) for suffix in ("A1", "B1", "B2", "A2")}
         accepted = .5*(losses["B1"]+losses["B2"]) < .5*(losses["A1"]+losses["A2"])-abs(losses["A2"]-losses["A1"])
@@ -107,5 +121,7 @@ def audit_run(run: Path):
     return dict(run=str(run.resolve()), captures=len(records), raw_frames=frame_count,
                 maximum_peak=maximum_peak, shapes=config["shapes"], blocks=len(summary),
                 accepted_blocks=sum(b["accepted"] for b in summary),
+                acceptance_scopes=sorted({b.get("acceptance", "paired") for b in summary}),
                 exposure_ms={s: sorted(e)[0] for s, e in exposures.items()},
+                exposure_history_ms={s: sorted(e) for s, e in exposures.items()},
                 file_sha256=hashes, status="passed", timestamp_scope="host calls, not sensor exposure triggers")

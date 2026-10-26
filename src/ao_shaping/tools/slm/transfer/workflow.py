@@ -12,6 +12,8 @@ import numpy as np
 from ao_shaping.utils.image.target.metrics import POLYGON_SHAPE_CHOICES
 
 from .capture import clock
+from .device import DEVICE_CHOICES, resolve_device
+from .preflight import check_geometry, check_parameters
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,26 @@ class TransferSession:
     objective: str = "shape"
     seed_run: Path | None = None
     seed_policy: str = "strict"
+    #: Optional A–B–B–A paired CCD acceptance (default off). Off: the
+    #: candidate is accepted on the optimizer's own loss and no CCD verdict is
+    #: measured -- the summary then says ``acceptance="model_only"``.
+    abba: bool = False
+    #: Write one ``sample_*.npz`` per probe. Off (default) keeps the measurements
+    #: in memory and hands them straight to the fit; on, the capture writes the
+    #: same keys/content as before, for the offline ``--dataset`` path and the
+    #: ``scripts/slm/`` analyses.
+    save_dataset: bool = False
+    #: Compute device for the torch stages (fit, synthesis, CCD blocks):
+    #: ``"auto"`` follows the machine (CUDA when available, else CPU), ``"cpu"``
+    #: reproduces the historical numbers, ``"cuda"`` fails loudly if unavailable.
+    #: The *resolved* value is what ``session.json`` and the stage configs record.
+    device: str = "auto"
+    initial_phase: str = "gs"
+    exposure_max_steps: int = 2
+    phase_lr: float = .01
+    phase_rms_cap: float = .2
+    adaptive_step: bool = False
+    adaptive_exposure: bool = False
 
     @property
     def calibration_enabled(self):
@@ -44,7 +66,15 @@ class TransferSession:
                 {"square", "triangle", "rectangle"}.issubset(self.shapes))
 
     def validate(self):
-        if self.objective not in {"shape", "cv"}:
+        if str(self.device).strip().lower() not in DEVICE_CHOICES:
+            raise ValueError(f"unknown device {self.device!r}; expected one of {list(DEVICE_CHOICES)}")
+        if self.exposure_max_steps < 2 or self.phase_lr <= 0 or self.phase_rms_cap <= 0:
+            raise ValueError("invalid exposure search or phase step budget")
+        if self.initial_phase not in {"gs", "plane", "random"}:
+            raise ValueError("unknown initial phase")
+        if self.seed_run and self.initial_phase != "gs":
+            raise ValueError("cold initial phase cannot use a historical seed run")
+        if self.objective not in {"shape", "cv", "formation"}:
             raise ValueError("unknown objective")
         if self.accept_metric not in {"loss", "cv"}:
             raise ValueError("unknown acceptance metric")
@@ -62,6 +92,24 @@ class TransferSession:
             raise ValueError("invalid target or optimization parameters")
         if not self.shapes or len(set(self.shapes)) != len(self.shapes) or not set(self.shapes) <= set(POLYGON_SHAPE_CHOICES):
             raise ValueError("unique supported shapes required")
+        # Parameter-level pre-flight. A carrier period the calibration never
+        # measured (or a target that cannot fit the sampling window at all) used
+        # to be discovered minutes later, in the first CCD block, as "empty
+        # target core" (2026-10-26: period 4 px -> 1865 px displacement).
+        problems = check_parameters(
+            side=float(self.side),
+            period=float(self.period),
+            count=int(self.count),
+            iterations=int(self.iterations),
+            blocks=int(self.blocks),
+            updates=int(self.updates),
+            frames=int(self.frames),
+            shapes=tuple(self.shapes),
+        )
+        errors = [problem for problem in problems if problem.severity == "error"]
+        if errors:
+            first = errors[0]
+            raise ValueError(f"{first.message} → {first.hint}")
         if self.dataset and not (self.dataset / "manifest.json").is_file():
             raise FileNotFoundError(self.dataset / "manifest.json")
         if self.checkpoint and not self.checkpoint.exists():
@@ -71,16 +119,26 @@ class TransferSession:
 
     def plan(self, offline=False):
         self.validate()
+        note = "Device stages require --execute; nominal cold start is not a calibrated model"
+        if not self.abba:
+            note += ("; A–B–B–A acceptance skipped: candidates are accepted on the model loss "
+                     "only and no CCD verdict is measured (summary acceptance=\"model_only\")")
         return dict(settings=asdict(self), opens_devices=not offline,
                     resolved=dict(adaptation=self.adaptation if self.checkpoint else "full",
-                                  calibration=self.calibration_enabled),
+                                  calibration=self.calibration_enabled,
+                                  acceptance="paired_abba" if self.abba else "model_only",
+                                  save_dataset=self.save_dataset,
+                                  # The request; ``run_session`` replaces it with the
+                                  # resolved device before writing session.json.
+                                  device=self.device),
                     stages=(["reuse_capture"] if self.dataset else ["capture"])
                     + ([] if self.checkpoint else ["nominal_initialization"])
                     + ["fit"]
-                    + ([("transferred_phase_differentiable_synthesis" if self.seed_run else "GS_and_differentiable_synthesis")] if offline else ([] if self.seed_run and not self.calibration_enabled else ["CCD_model_blocks"])
+                    + ([("transferred_phase_differentiable_synthesis" if self.seed_run else "GS_and_differentiable_synthesis" if self.initial_phase == "gs" else "cold_differentiable_synthesis")] if offline else ([] if (self.seed_run or self.initial_phase != "gs") and not self.calibration_enabled else ["CCD_model_blocks"])
                        + (["exposure_response_capture", "exposure_response_analysis", "blur_calibration"] if self.calibration_enabled else [])
-                       + ["CCD_anchored_blocks", "raw_data_audit", "summary", "direction_check"]),
-                    note="Device stages require --execute; nominal cold start is not a calibrated model")
+                       + ["CCD_anchored_blocks", "raw_data_audit", "summary"]
+                       + (["direction_check"] if self.abba else [])),
+                    note=note)
 
 
 def _notify(on_stage, name, status):
@@ -110,7 +168,12 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None):
         raise ValueError("--offline requires a recorded --dataset")
     out = config.out.resolve()
     out.mkdir(parents=True, exist_ok=False)
-    (out / "session.json").write_text(json.dumps(dict(**config.plan(offline), **clock()), default=str, indent=2), encoding="utf-8")
+    # Resolve the compute device once, here, so ``session.json`` records the one
+    # the stages will actually use (``config.device`` is the *request*: "auto").
+    device = resolve_device(config.device)
+    plan = config.plan(offline)
+    plan["resolved"]["device"] = device
+    (out / "session.json").write_text(json.dumps(dict(**plan, **clock()), default=str, indent=2), encoding="utf-8")
     journal = []
 
     def stage(name, operation):
@@ -134,10 +197,13 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None):
 
     from . import bootstrap, capture, fit, validate
     dataset = config.dataset.resolve() if config.dataset else out / "capture"
+    samples = None
     if config.dataset is None:
-        stage("capture", lambda: capture.capture(SimpleNamespace(out=dataset, camera=config.camera,
+        samples = stage("capture", lambda: capture.capture(SimpleNamespace(out=dataset, camera=config.camera,
               cam_id=config.cam_id, slm_number=config.slm_number, grid=128, count=config.count,
-              frames=config.frames, seed=config.seed, execute=True)))
+              frames=config.frames, seed=config.seed, execute=True,
+              exposure_max_steps=config.exposure_max_steps,
+              save_dataset=config.save_dataset)))
     checkpoint = config.checkpoint.resolve() if config.checkpoint else out / "initial/frozen_parameters.json"
     if config.checkpoint is None:
         def initialize():
@@ -146,16 +212,41 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None):
             checkpoint.write_text(json.dumps(params, indent=2), encoding="utf-8")
             (checkpoint.parent / "provenance.json").write_text(json.dumps(provenance, indent=2), encoding="utf-8")
         stage("nominal_initialization", initialize)
+    # The capture stage's in-memory payloads go straight into the fit; only a
+    # reused (recorded) dataset is read back from disk.
     stage("fit", lambda: fit.fit(SimpleNamespace(dataset=dataset, checkpoint=checkpoint,
-          out=out / "fit", iterations=config.iterations, span=120,
+          out=out / "fit", iterations=config.iterations, span=120, samples=samples,
+          device=device,
           adaptation=config.adaptation if config.checkpoint else "full")))
     checkpoint = out / "fit/frozen_parameters.json"
     rows = json.loads((dataset / "manifest.json").read_text(encoding="utf-8"))
     reference = next(r for r in rows if r["label"] == "reference_start" and fit.valid(r))
     zero = np.round(fit.spot(reference)).tolist()
+    # Geometry pre-flight: with the *measured* zero and the *fitted* ramp gain,
+    # recompute where the target lands in this session's sampling window. The
+    # parameter check above cannot see that combination (it needs the measured
+    # gain), and the alternative was discovering it in the first CCD block as
+    # "empty target core" (2026-10-26). Fail here, with the numbers that say
+    # which knob to turn.
+    frozen = json.loads(checkpoint.read_text(encoding="utf-8"))
+    geometry_problems = check_geometry(
+        zero_xy=zero,
+        ramp_matrix=np.asarray(frozen["ramp_matrix"], dtype=float),
+        side=float(config.side),
+        period=float(config.period),
+        shapes=tuple(config.shapes),
+    )
+    geometry_errors = [problem for problem in geometry_problems if problem.severity == "error"]
+    if geometry_errors:
+        first = geometry_errors[0]
+        raise ValueError(f"{first.message} → {first.hint}")
     options = dict(checkpoint=checkpoint, zero_xy=zero, period=config.period, side=config.side,
+                   initial_phase=config.initial_phase, random_seed=config.seed,
+                   phase_lr=config.phase_lr, phase_rms_cap=config.phase_rms_cap, adaptive_step=config.adaptive_step,
+                   adaptive_exposure=config.adaptive_exposure,
                    accept_metric=config.accept_metric, objective=config.objective,
                    shapes=list(config.shapes), updates=config.updates, frames=config.frames,
+                   abba=config.abba, device=device,
                    camera=config.camera, cam_id=config.cam_id, slm_number=config.slm_number)
     if offline:
         def synthesize():
@@ -164,7 +255,7 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None):
             )
             params = load_frozen_parameters(checkpoint)
             xy = recentre_window(tuple(zero), half_span_px=220., step_px=2.)
-            forward = FrozenDefocusForward(params, xy, device="cpu")
+            forward = FrozenDefocusForward(params, xy, device=device)
             center = np.asarray(zero)+np.asarray(params.ramp_matrix)[:, 0]/config.period
             for shape in config.shapes:
                 target = validate.target_at(xy, shape, center, config.side)
@@ -172,26 +263,35 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None):
                     from .seeding import accepted_seed
                     phase, _ = accepted_seed(config.seed_run, shape, forward, xy, target,
                                              policy=config.seed_policy, centre=center)
+                elif config.initial_phase != "gs":
+                    from .cold_start import cold_phase
+                    phase, _ = cold_phase(forward, center, kind=config.initial_phase, seed=config.seed)
                 else:
                     phase = validate.gs_seed(forward, center, config.side, shape)
-                objective = validate.ShapeObjective(target, cv_only=config.objective == "cv")
+                objective = validate.ShapeObjective(target, cv_only=config.objective == "cv",
+                                                     formation=config.objective == "formation")
                 from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import DifferentiableUniformityOptimizer
-                optimizer = DifferentiableUniformityOptimizer(forward, objective, phase, lr=.01, step_rms_cap=.2, device="cpu")
+                optimizer = DifferentiableUniformityOptimizer(forward, objective, phase,
+                    lr=config.phase_lr, step_rms_cap=config.phase_rms_cap, device=device)
                 for _ in range(config.updates):
                     optimizer.update()
                 if not np.isfinite(optimizer.current_phase).all():
                     raise RuntimeError("nonfinite offline optimized phase")
                 np.savez_compressed(out / f"{shape}_offline_seed.npz", model_phase=phase,
                                     optimized_phase=optimizer.current_phase,
-                                    prediction=forward.predict(phase).detach().numpy(),
-                                    optimized_prediction=forward.predict(optimizer.current_phase).detach().numpy(),
+                                    prediction=forward.predict(phase).detach().cpu().numpy(),
+                                    optimized_prediction=forward.predict(optimizer.current_phase).detach().cpu().numpy(),
                                     target=target, camera_xy=xy)
                 (out / f"{shape}_offline_iterations.json").write_text(json.dumps(optimizer.loss_history, indent=2), encoding="utf-8")
-        stage("transferred_phase_differentiable_synthesis" if config.seed_run else "GS_and_differentiable_synthesis", synthesize)
+            # Self-describing: which device actually produced these phases.
+            (out / "synthesis.json").write_text(json.dumps(dict(
+                device=device, device_requested=config.device, shapes=list(config.shapes),
+                initial_phase=config.initial_phase, updates=config.updates, **clock()), indent=2), encoding="utf-8")
+        stage("transferred_phase_differentiable_synthesis" if config.seed_run else "GS_and_differentiable_synthesis" if config.initial_phase == "gs" else "cold_differentiable_synthesis", synthesize)
     else:
         from . import direction, summary
         from .artifacts import audit_run
-        if not config.seed_run or config.calibration_enabled:
+        if (not config.seed_run and config.initial_phase == "gs") or config.calibration_enabled:
             stage("CCD_model_blocks", lambda: validate.run(SimpleNamespace(**options, out=out / "model",
                   seed_run=config.seed_run, seed_policy=config.seed_policy, mode="model", blocks=2, execute=True)))
         if config.calibration_enabled:
@@ -204,7 +304,7 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None):
                   checkpoint=checkpoint, out=out / "blur", sigmas=[0., .5, 1., 2., 3.515916109085083])))
             options["checkpoint"] = out / "blur/frozen_parameters.json"
         stage("CCD_anchored_blocks", lambda: validate.run(SimpleNamespace(**options, out=out / "anchored",
-              seed_run=config.seed_run if config.seed_run and not config.calibration_enabled else out / "model",
+              seed_run=config.seed_run if not config.calibration_enabled and (config.seed_run or config.initial_phase != "gs") else out / "model",
               seed_policy=config.seed_policy if config.seed_run and not config.calibration_enabled else "strict",
               mode="anchored", blocks=config.blocks, execute=True)))
         def audit():
@@ -212,7 +312,10 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None):
             (out / "audit.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
         stage("raw_data_audit", audit)
         stage("summary", lambda: summary.summarize(out / "anchored", out / "summary"))
-        stage("direction_check", lambda: direction.analyze(out / "anchored", out / "direction"))
+        if config.abba:
+            # The direction check reads B1/B2 and the minus probe; with the paired
+            # blocks switched off those captures do not exist.
+            stage("direction_check", lambda: direction.analyze(out / "anchored", out / "direction"))
     print(f"Session complete: {out}", flush=True)
     return out
 
@@ -227,15 +330,32 @@ def main():
         p.add_argument("--checkpoint", type=Path)
         p.add_argument("--seed-run", type=Path, help="Start from accepted phases; never invoke GS")
         p.add_argument("--seed-policy", choices=("strict", "transfer"), default="strict")
+        p.add_argument("--initial-phase", choices=("gs", "plane", "random"), default="gs")
+        p.add_argument("--exposure-max-steps", type=int, default=2)
+        p.add_argument("--phase-lr", type=float, default=.01)
+        p.add_argument("--phase-rms-cap", type=float, default=.2)
+        p.add_argument("--adaptive-step", action="store_true")
+        p.add_argument("--adaptive-exposure", action="store_true")
         p.add_argument("--shapes", nargs="+", default=["square", "rectangle", "triangle"])
         for key, default in (("count", 24), ("iterations", 60), ("blocks", 4), ("updates", 10), ("frames", 3), ("seed", 102319), ("cam-id", 0), ("slm-number", 1)):
             p.add_argument("--"+key, type=int, default=default)
         p.add_argument("--camera", default="daheng")
+        p.add_argument("--device", choices=DEVICE_CHOICES, default="auto",
+                       help="Compute device for fit/synthesis/CCD blocks: auto = CUDA when "
+                            "available else CPU; cpu reproduces the historical numbers")
         p.add_argument("--side", type=float, default=80.)
         p.add_argument("--period", type=float, default=64.)
         p.add_argument("--adaptation", choices=("auto", "alignment", "full"), default="auto")
         p.add_argument("--accept-metric", choices=("loss", "cv"), default="loss")
-        p.add_argument("--objective", choices=("shape", "cv"), default="shape")
+        p.add_argument("--objective", choices=("shape", "cv", "formation"), default="shape")
+        p.add_argument("--no-abba", dest="abba", action="store_false",
+                       help="Skip the A–B–B–A acceptance; accept on the model loss only "
+                            "(summary acceptance=model_only, no CCD verdict)")
+        p.add_argument("--abba", dest="abba", action="store_true", help="Enable optional A–B–B–A CCD acceptance")
+        p.set_defaults(abba=False)
+        p.add_argument("--save-dataset", action="store_true",
+                       help="Write one sample_*.npz per probe (needed by the offline --dataset "
+                            "path and scripts/slm analyses); off keeps them in memory")
         p.add_argument("--skip-calibration", dest="calibration", action="store_false")
         p.add_argument("--calibration", dest="calibration", action="store_true")
         p.set_defaults(calibration=None)

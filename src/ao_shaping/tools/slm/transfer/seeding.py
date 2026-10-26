@@ -37,9 +37,11 @@ def accepted_seed(directory, shape, forward, xy, target, *, policy="strict", cen
     difference = new_frequency-old_frequency
 
     def static(model):
-        result = model.params.defocus_diopter*model.params.diopter_scale*model.z4.numpy()
+        # ``model`` may be the caller's CUDA forward: read it out via cpu().
+        result = model.params.defocus_diopter*model.params.diopter_scale*model.z4.detach().cpu().numpy()
         if model.residual_basis is not None:
-            result = result + np.einsum("i,ijk->jk", model.residual_values.numpy(), model.residual_basis.numpy())
+            result = result + np.einsum("i,ijk->jk", model.residual_values.detach().cpu().numpy(),
+                                        model.residual_basis.detach().cpu().numpy())
         return result
 
     correction = static(previous)-static(forward)

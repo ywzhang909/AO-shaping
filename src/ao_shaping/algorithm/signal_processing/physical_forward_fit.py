@@ -33,14 +33,18 @@ class PhysicalForwardFit:
     def __init__(self, phases, images, camera_xy, matrix, focus_diopter, train_mask,
                  amplitude_center, *, learn_amplitude=False, initial_defocus=None,
                  learn_residual=False, fft_size=None, pixel_samples=1,
-                 basis_arrays=None, batch_size=None):
+                 basis_arrays=None, batch_size=None, device=None):
         import torch
         from ao_shaping.utils.wavefront.fraunhofer import focal_intensity
         from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
 
         self.torch = torch
         self.propagate = focal_intensity
-        self.phases = torch.tensor(phases, dtype=torch.float32)
+        # Default stays CPU: every existing caller (scripts, tests, other
+        # fitters) keeps its numbers. A caller that has a device to spend passes
+        # it explicitly -- see ``ao_shaping.tools.slm.transfer.device``.
+        self._device = torch.device(device or "cpu")
+        self.phases = torch.tensor(phases, dtype=torch.float32, device=self._device)
         size = self.phases.shape[-1]
         if self.phases.ndim != 3 or self.phases.shape[-2] != size or size < 8:
             raise ValueError("phases must be square batched grids of size >= 8")
@@ -50,34 +54,36 @@ class PhysicalForwardFit:
             raise ValueError("require even fft_size >= phase grid, pixel_samples >= 1")
         self.pixel_samples = pixel_samples
         self.batch_size = batch_size or len(phases)
-        self.images = torch.tensor(images, dtype=torch.float32)
-        self.xy = torch.tensor(camera_xy, dtype=torch.float32)
-        self.inverse = torch.tensor(np.linalg.inv(matrix), dtype=torch.float32)
-        self.train = torch.tensor(train_mask, dtype=torch.bool)
+        self.images = torch.tensor(images, dtype=torch.float32, device=self._device)
+        self.xy = torch.tensor(camera_xy, dtype=torch.float32, device=self._device)
+        self.inverse = torch.tensor(np.linalg.inv(matrix), dtype=torch.float32, device=self._device)
+        self.train = torch.tensor(train_mask, dtype=torch.bool, device=self._device)
         self.z4 = torch.tensor(basis_arrays[4] if basis_arrays is not None else
                                np.nan_to_num(generate_zernike_phase({4: 1.0}, (size, size))),
-                               dtype=torch.float32)
+                               dtype=torch.float32, device=self._device)
         # Z4 = sqrt(3)*(2*r^2 - 1); pupil half-span is 960 panel pixels.
         self.diopter_scale = diopter_scale()
-        self.panel_x, self.panel_y, self.panel_mask = panel_grid(torch, size)
+        self.panel_x, self.panel_y, self.panel_mask = panel_grid(torch, size, device=self._device)
         d = -focus_diopter if initial_defocus is None else initial_defocus
-        self.d = torch.nn.Parameter(torch.tensor(float(d)))
+        self.d = torch.nn.Parameter(torch.tensor(float(d), device=self._device))
         # Use one shared optical-axis intercept, not per-image fitted shifts.
-        self.origin = torch.nn.Parameter(torch.tensor([1360., 1020.]))
-        self.center = torch.nn.Parameter(torch.tensor(amplitude_center, dtype=torch.float32),
+        self.origin = torch.nn.Parameter(torch.tensor([1360., 1020.], device=self._device))
+        self.center = torch.nn.Parameter(torch.tensor(amplitude_center, dtype=torch.float32,
+                                                      device=self._device),
                                          requires_grad=learn_amplitude)
-        self.log_width = torch.nn.Parameter(torch.log(torch.tensor([260., 260.])),
+        self.log_width = torch.nn.Parameter(torch.log(torch.tensor([260., 260.], device=self._device)),
                                             requires_grad=learn_amplitude)
         params = [{"params": [self.d], "lr": .01}, {"params": [self.origin], "lr": 1.0}]
         if learn_amplitude:
             params += [{"params": [self.center], "lr": .5}, {"params": [self.log_width], "lr": .01}]
         self.residual_modes = list(range(5, 12)) if learn_residual else []
-        self.residual = torch.nn.Parameter(torch.zeros(len(self.residual_modes)), requires_grad=learn_residual)
+        self.residual = torch.nn.Parameter(torch.zeros(len(self.residual_modes), device=self._device),
+                                           requires_grad=learn_residual)
         self.residual_basis = torch.tensor(np.stack([
             basis_arrays[j] if basis_arrays is not None else
             np.nan_to_num(generate_zernike_phase({j: 1.}, (size, size)))
             for j in self.residual_modes
-        ]), dtype=torch.float32) if self.residual_modes else None
+        ]), dtype=torch.float32, device=self._device) if self.residual_modes else None
         if learn_residual:
             params += [{"params": [self.residual], "lr": .03}]
         self.optimizer = torch.optim.Adam(params)
@@ -137,5 +143,5 @@ class PhysicalForwardFit:
             loss = self.update()
             if index % 25 == 0:
                 print(f"fit {index}: loss={loss:.5f} d={self.d.item():.5f}", flush=True)
-        return self.prediction().detach().numpy()
+        return self.prediction().detach().cpu().numpy()
 

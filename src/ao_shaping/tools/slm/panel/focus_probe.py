@@ -361,6 +361,7 @@ def adapt_exposure(
     accept: tuple[float, float] = (ACCEPT_LOW, ACCEPT_HIGH),
     max_steps: int = 6,
     discard: int = 2,
+    ratio_bounds: tuple[float, float] = (0.15, 6.0),
 ) -> ExposureSetting:
     """Find an exposure that puts the peak inside ``accept``, then report it.
 
@@ -369,12 +370,23 @@ def adapt_exposure(
     there. ``discard`` frames are dropped after each change so the reading is not
     taken on the previous exposure's integration.
 
+    ``ratio_bounds`` clamps that one correction factor per step. The default
+    ``(0.15, 6.0)`` is deliberately conservative — it is what the bench probes
+    have always used. A caller that starts far from the answer (a cold start at
+    the camera floor where the first frame reads ~5% of full scale needs a factor
+    of ~9) may widen it and cut ``max_steps`` to 2: one exact correction plus one
+    verification read. That is only safe because the response *is* linear in
+    exposure; a camera with auto-gain would break the premise, not the bounds.
+
     Returns the best reachable setting. Its ``status`` says whether it landed in
     the band (``ok``), was still clipped at the floor (``clipped`` — unusable for
     ranking, the peak is saturated), or was still dark at the ceiling (``dim`` —
     nothing measurable there).
     """
     lo, hi = float(accept[0]), float(accept[1])
+    low_ratio, high_ratio = (float(ratio_bounds[0]), float(ratio_bounds[1]))
+    if low_ratio <= 0 or high_ratio < low_ratio:
+        raise ValueError("ratio_bounds must be positive and ordered")
     exposure = min(max(float(start_ms), floor_ms), ceiling_ms)
     peak = 0.0
     fraction = 0.0
@@ -392,7 +404,7 @@ def adapt_exposure(
         if lo <= fraction <= hi:
             return ExposureSetting(exposure, peak, fraction, "ok", reads)
         ratio = target / fraction if fraction > 1e-9 else 4.0
-        ratio = float(min(max(ratio, 0.15), 6.0))
+        ratio = float(min(max(ratio, low_ratio), high_ratio))
         nxt = float(min(max(exposure * ratio, floor_ms), ceiling_ms))
         # Clamped at a rail: more steps cannot improve, so stop and report why.
         if abs(nxt - exposure) <= 1e-6:

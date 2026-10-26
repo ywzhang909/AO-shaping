@@ -226,7 +226,7 @@ flowchart TD
 
 修正采用 `phi_new = phi_accepted + static_old − static_new + 2π delta_q · panel_xy`，其中 `q = inverse(ramp_matrix) @ (target_xy − origin_xy)`。入射中心的变化通过新物理模型的振幅与 Jacobian 处理；本修正不保证复杂入射分布或强截光下的初值质量，因此第一组 CCD 测量及后续配对接受判据仍必需。
 
-`anchored/config.json` 记录 `gs_iterations: 0`，并在 `seed_provenance` 中保存每个形状的来源、载波增量和静态修正 RMS。历史接受相位可能来自更早的 GS 实验，这不代表本轮又执行 GS。若希望完全不同的初值来源，需要另行提供与模型控制网格一致的已接受相位。
+`anchored/config.json` 记录 `gs_iterations: 0`，并在 `seed_provenance` 中保存每个形状的来源、载波增量和静态修正 RMS。历史接受相位可能来自更早的 GS 实验，这不代表本轮又执行 GS。完全从零开始的入口见第 12 节。
 
 ## 11. 优先改善均匀度的运行方式
 
@@ -235,9 +235,48 @@ flowchart TD
 ```powershell
 & $py -m ao_shaping.tools.slm.transfer run --out $out --checkpoint $checkpoint `
   --seed-run $seedRun --seed-policy transfer --skip-calibration `
-  --objective cv --accept-metric cv --execute
+  --objective cv --accept-metric cv --abba --execute
 ```
 
 `--objective cv` 以固定目标核心内的 CV 平方作为图像优化项，沿用现有相位增量限制；EE 和形状误差继续记录，但不参与图像目标。`--accept-metric cv` 使用实测 CV 做 A–B–B–A 判定：候选平均 CV 必须小于参考平均 CV 减去前后参考 CV 的差值绝对值。这样，EE 增加而 CV 退化的候选不能仅凭综合目标下降而被接受。
 
 原始数据审计按配置中的目标与接受指标分别重算，支持旧版综合目标记录。该模式适合对已有形状进行局部匀化；最终应同时查看光斑图和 EE，以判断匀化伴随的能量变化。设备恢复后的实验结果见复现报告新增实验记录。
+
+## 12. 无历史权重、无 GS 的冷启动
+
+不传 `--checkpoint` 或 `--seed-run`，用 `--initial-phase plane` 或 `random` 显式选择初值。物理模型从标称振幅、零像差开始，只使用当前采集数据拟合；整形相位初值为零或固定随机种子生成的平滑随机相位。下发时叠加根据当前几何计算的定位载波，因此完整面板相位包含线性倾斜；初值不包含拟合像差补偿或历史目标相位。
+
+```powershell
+$py = '.venv\Scripts\python.exe'
+$out = "data/debug/slm_transfer/$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+& $py -m ao_shaping.tools.slm.transfer run --out $out `
+  --initial-phase plane --shapes square --skip-calibration `
+  --count 24 --iterations 100 --blocks 6 --updates 20 `
+  --phase-lr 0.03 --phase-rms-cap 0.5 --adaptive-step --adaptive-exposure `
+  --exposure-max-steps 12 --save-dataset --execute
+```
+
+冷启动先监控核心 CV、目标区域能量 EE 和形状误差。只在目标形状已经形成后切换纯 CV 目标，避免把低信号或能量弥散误判为均匀整形。默认关闭 A–B–B–A，锚定模式仍在每块开始读取 CCD；候选按模型损失接受，最终 CCD 测量才表明整体效果。显式 `--abba` 可启用实测配对判定，拒绝后保持接受相位。`--adaptive-step` 在拒绝后将学习率减半，接受后逐步恢复到初始学习率上限；它调整相位优化步长，不修改冻结的物理模型。
+
+模型拟合的 `iterations.pkl` 保存每次参数更新前的权重与训练/验证指标，阶段内以训练损失选择检查点。发现验证误差持续较大或 CCD 多次拒绝时，应重拟合物理模型，再用独立 CCD 数据验收，不能仅凭训练损失继续增大相位更新。可随时离线导出指标轨迹：
+
+```powershell
+& $py -m ao_shaping.tools.slm.transfer.progress --fit "$out/fit" `
+  --run "$out/anchored" --out "$out/metrics_trace.json"
+```
+
+`--save-dataset` 保留全部探针原始帧与相位；整形阶段独立保存原始帧、相位、每帧曝光和主机时间戳。曝光搜索预算通过 `--exposure-max-steps` 配置，曝光上限仍由设备范围与当前环境变量决定。已有默认 GS 路径保持兼容，冷启动时必须显式指定 `--initial-phase`。
+
+若综合目标出现 CV 降低但 EE 和目标区域平均信号同步下降，可使用 `--objective formation`，其图像目标为 `0.05*CV² + 8*(1−EE_ROI) + shape_loss`。这是一项显式策略选项，不能替代图像检查，也不保证冷启动成功。每段实验均保持固定曝光；跨段自动曝光可能不同，因此应分别比较各段前后指标，不能把跨曝光的原始 EE 变化全部归因于相位。
+
+继续拟合的模型可能相关性变好而 CV 预测变差。`transfer.progress --select-fits ... --out ... --cv-weight 0.25` 可在已保存的拟合迭代中按 `1−corr+relative_L2+0.25*CV_abs_error` 选择候选，完整保留评分。权重是公开的选择策略；验证集此时参与模型选择，仍需独立 CCD 配对验收。`transfer.fit --amplitude-center-lr` 可改变入射位置参数学习率，用于检查标称入射位置距离实际位置较远时的慢收敛，默认保持原行为。
+
+停滞时可用 `python -m ao_shaping.tools.slm.transfer.local_response --run $run --out $local` 拟合已保存的正负相位扰动响应，比较正增益和剩余 PSF 候选。该数据用于拟合，不能作为独立验证；后续仍需新的 CCD 配对数据。它输出的检查点标记为 `local_response_only`，只允许 `--mode anchored`，不应作为全局光强预测模型使用。若校正后仍被拒绝，保留原接受相位，不应持续放大更新。
+
+## 13. 运行中曝光与可选配对
+
+自 2026-10-26 起，统一入口、独立验证 CLI 和 GUI 的 A–B–B–A 均默认关闭，显式 `--abba` 才启用；`--no-abba` 保留兼容。关闭时 `acceptance=model_only`，不能将“模型接受”表述为“通过 CCD 配对验收”。较早段落中的配对流程描述适用于显式启用的情况。GUI 中已有会话保留操作者选择，新会话使用关闭默认值。
+
+使用 `--adaptive-exposure` 或 GUI「运行中自动调整 CCD 曝光（块间）」允许每块前重新测光。启用配对时 A1/B1/B2/A2 使用同一曝光；关闭配对时每块仍先取得新的 CCD 锚定图像。每次测光保存搜索原始帧、相位、时间和曝光读回值。模型锚定图像按每帧读回曝光归一化，但这仍依赖相机响应近似线性，不代表曝光响应已经校准。
+
+结束时额外保存当前自动曝光下的最终图像，再以初始与当前曝光的较小值重拍初始相位和最终相位，避免将曝光变化误判为相位改善。`*_seed_replay` 与 `*_final` 是最终同曝光对照；`*_final_adaptive` 保留运行中曝光下的结果。审计允许块间曝光变化，并检查配对块内和逐帧读回值一致。跨曝光的原始 EE/CV 仍应分别解释。

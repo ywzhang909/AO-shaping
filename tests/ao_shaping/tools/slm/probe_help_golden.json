@@ -444,8 +444,8 @@
     ]
   },
   "slm_focus_probe": {
-    "body_literals": 140,
-    "body_literals_sha256": "06a6d2e78cf1dcb1",
+    "body_literals": 141,
+    "body_literals_sha256": "5b86c6cb4f886f93",
     "declared": [
       "--cam-id",
       "--cam-type",

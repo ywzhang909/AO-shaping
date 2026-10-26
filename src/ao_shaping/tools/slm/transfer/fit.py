@@ -20,6 +20,7 @@ from scipy.optimize import nnls
 
 
 from ao_shaping.tools.slm.transfer.capture import clock
+from ao_shaping.tools.slm.transfer.device import DEVICE_CHOICES, resolve_device
 
 
 def spot(row):
@@ -58,7 +59,21 @@ def valid(row):
             and float(row["exposure_ms"]) > 0)
 
 
-def load_dataset(directory, size, span):
+def load_dataset(directory, size, span, samples=None):
+    """Assemble training/validation pairs from a capture manifest.
+
+    ``samples`` is an optional ``{manifest "file": payload}`` mapping — the
+    capture stage's in-memory measurements (``capture.capture`` returns exactly
+    that). When given, the payload comes from there instead of
+    ``np.load(directory / row["file"])``; the manifest and ``config.json`` are
+    still read from ``directory`` because they are small metadata that stays on
+    disk either way. A payload only has to carry what the fit reads:
+    ``model_phase`` and ``raw_frames``.
+
+    The ``panel_gray`` marker keeps old on-disk datasets on their resampling
+    path: a payload with neither ``panel_gray`` nor ``panel_phase`` (the
+    in-memory form) is a control-grid capture by construction.
+    """
     rows = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
     usable = [row for row in rows if valid(row)]
     matrix, ramp_samples = geometry(usable)
@@ -71,20 +86,25 @@ def load_dataset(directory, size, span):
     selected = [row for row in usable if row.get("split") in {"train", "test", "validation"}]
     phases, images = [], []
     for row in selected:
-        with np.load(directory / row["file"]) as payload:
+        payload = samples[row["file"]] if samples is not None else np.load(directory / row["file"])
+        try:
+            model_phase = np.asarray(payload["model_phase"])
             # New captures store exactly the control grid that was displayed.
-            if "panel_gray" in payload and payload["model_phase"].shape == (size, size):
-                phase = payload["model_phase"]
+            if model_phase.shape == (size, size) and ("panel_gray" in payload or "panel_phase" not in payload):
+                phase = model_phase
             else:
                 panel = np.zeros((1920, 1920), dtype=np.float32)
                 panel[:1200] = payload["panel_phase"]
                 gy, gx = np.mgrid[:size, :size] * (1920 / size)
                 phase = map_coordinates(panel, [gy, gx], order=1)
-            frame = payload["raw_frames"].mean(0)
-            if xy[..., 0].min() < 0 or xy[..., 1].min() < 0 or xy[..., 0].max() >= frame.shape[1] or xy[..., 1].max() >= frame.shape[0]:
-                raise ValueError("fixed camera window extends beyond sensor")
-            images.append(frame[xy[..., 1].astype(int), xy[..., 0].astype(int)] / row["exposure_ms"])
-            phases.append(phase)
+            frame = np.asarray(payload["raw_frames"]).mean(0)
+        finally:
+            if hasattr(payload, "close"):
+                payload.close()
+        if xy[..., 0].min() < 0 or xy[..., 1].min() < 0 or xy[..., 0].max() >= frame.shape[1] or xy[..., 1].max() >= frame.shape[0]:
+            raise ValueError("fixed camera window extends beyond sensor")
+        images.append(frame[xy[..., 1].astype(int), xy[..., 0].astype(int)] / row["exposure_ms"])
+        phases.append(phase)
     train = np.array([row["split"] == "train" for row in selected])
     if not train.any() or train.all():
         raise ValueError("independent training and validation phases required")
@@ -117,31 +137,43 @@ def fit(args):
 
     torch.set_num_threads(4)
     old = load_frozen_parameters(args.checkpoint)
-    rows, phases, images, xy, matrix, ramp_samples, train = load_dataset(args.dataset, old.grid_size, args.span)
+    device = resolve_device(getattr(args, "device", None))
+    rows, phases, images, xy, matrix, ramp_samples, train = load_dataset(
+        args.dataset, old.grid_size, args.span, samples=getattr(args, "samples", None))
     args.out.mkdir(parents=True, exist_ok=False)
     provenance = dict(dataset=str(args.dataset.resolve()), checkpoint=str(args.checkpoint.resolve()),
                       script_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                       manifest_sha256=hashlib.sha256((args.dataset / "manifest.json").read_bytes()).hexdigest(),
+                      sample_source="memory" if getattr(args, "samples", None) is not None else "dataset",
+                      device=device, device_requested=getattr(args, "device", None),
                       iterations=args.iterations, ramp_matrix=matrix.tolist(), ramp_samples=ramp_samples,
                       adaptation=adaptation,
+                      amplitude_center_lr=getattr(args, "amplitude_center_lr", None),
                       exposure_assumption="counts/exposure_ms; linearity and illuminated offset not independently calibrated",
                       window_step_px=2, window_span_px=args.span, rows=rows, **clock())
     (args.out / "provenance.json").write_text(json.dumps(provenance, indent=2), encoding="utf-8")
     np.savez_compressed(args.out / "inputs.npz", phases=phases, measured=images, camera_xy=xy, train=train)
     initial = replace(old, ramp_matrix=tuple(tuple(x) for x in matrix))
-    frozen = FrozenDefocusForward(initial, xy, device="cpu")
-    basis = {4: frozen.z4.numpy()}
-    basis.update({j: b.numpy() for j, b in zip(frozen.residual_modes, frozen.residual_basis)})
+    frozen = FrozenDefocusForward(initial, xy, device=device)
+    basis = {4: frozen.z4.detach().cpu().numpy()}
+    basis.update({j: b.detach().cpu().numpy() for j, b in zip(frozen.residual_modes, frozen.residual_basis)})
     model = PhysicalForwardFit(phases, images, xy, matrix, 0., train, old.amplitude_center_xy,
                                learn_amplitude=True, initial_defocus=old.defocus_diopter,
                                learn_residual=True, fft_size=old.fft_size, pixel_samples=old.pixel_samples,
-                               basis_arrays=basis, batch_size=4)
+                               basis_arrays=basis, batch_size=4, device=device)
     with torch.no_grad():
         model.origin.copy_(torch.tensor(old.origin_xy))
         model.log_width.copy_(torch.tensor(old.amplitude_width_xy).log())
         model.residual.copy_(torch.tensor([old.residual_noll_radians.get(j, 0) for j in model.residual_modes]))
     from .adaptation import configure_adaptation
     configure_adaptation(model, adaptation)
+    center_lr = getattr(args, "amplitude_center_lr", None)
+    if center_lr is not None:
+        if not np.isfinite(center_lr) or center_lr <= 0:
+            raise ValueError("amplitude_center_lr must be finite and positive")
+        for group in model.optimizer.param_groups:
+            if any(parameter is model.center for parameter in group["params"]):
+                group["lr"] = center_lr
     target = model.images[model.train]
     target_mean = target.mean((1, 2), keepdim=True).clamp_min(1e-9)
     target_cv = target.std((1, 2), correction=0) / target_mean[:, 0, 0]
@@ -156,7 +188,7 @@ def fit(args):
         # Estimate shared radiometry on training pixels, then use that same
         # prediction in both optimization and reported metrics. Never use
         # validation pixels to choose gain or additive background.
-        optical_prediction = prediction.detach().numpy()
+        optical_prediction = prediction.detach().cpu().numpy()
         design = np.stack((optical_prediction[train].ravel(), np.ones(optical_prediction[train].size)), axis=1)
         scale, offset = nnls(design, images[train].ravel())[0]
         prediction = prediction * float(scale) + float(offset)
@@ -177,7 +209,7 @@ def fit(args):
                       amplitude_width=model.log_width.detach().exp().tolist(),
                       residual_noll_radians={str(j): float(v) for j, v in zip(model.residual_modes, model.residual.detach())},
                       gain=1., background=0., sigma_ccd_px=old.sigma_ccd_px)
-        predicted = prediction.detach().numpy()
+        predicted = prediction.detach().cpu().numpy()
         params.update(gain=float(scale), background=float(offset))
         entry = dict(iteration=iteration, loss=float(loss.detach()), parameters=params,
                      metrics=metrics(predicted, images), **started, end_monotonic_ns=__import__("time").monotonic_ns())
@@ -263,6 +295,9 @@ def main():
     parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--span", type=int, default=160)
     parser.add_argument("--adaptation", choices=("auto", "alignment", "full"), default="auto")
+    parser.add_argument("--amplitude-center-lr", type=float, help="Override illumination position learning rate (panel px/update)")
+    parser.add_argument("--device", choices=DEVICE_CHOICES, default="auto",
+                        help="auto = CUDA when available else CPU; cpu pins the historical numbers")
     args = parser.parse_args()
     if args.iterations < 0 or args.span < 20 or args.span % 2:
         parser.error("iterations >= 0; span must be even and >= 20")

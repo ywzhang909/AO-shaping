@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -204,3 +206,37 @@ def test_the_minimum_period_is_the_slm_nyquist() -> None:
     """8 µm 像元 ⇒ 每周期至少 2 个像元 = 16 panel px。"""
     assert MIN_PERIOD_PX == 16.0
     assert PROBE_COUNT_MULTIPLE == 6
+
+
+# --- 接线：会话自身的 validate() 在采集之前就拒绝 ---------------------------
+
+
+def _session(**overrides):
+    from ao_shaping.tools.slm.transfer.workflow import TransferSession
+
+    base = dict(out=Path("data/debug/slm_transfer/preflight_probe"), shapes=("square",))
+    base.update(overrides)
+    return TransferSession(**base)
+
+
+def test_the_session_rejects_the_period_that_broke_the_2026_10_26_run() -> None:
+    """period=4 必须被会话自己拒绝，且给出可执行的改法。"""
+    with pytest.raises(ValueError) as excinfo:
+        _session(period=4.0).validate()
+
+    message = str(excinfo.value)
+    assert "4" in message
+    assert "panel px" in message
+    assert "→" in message  # 带「怎么改」
+
+
+def test_the_session_rejects_a_probe_count_that_is_not_a_multiple_of_six() -> None:
+    with pytest.raises(ValueError) as excinfo:
+        _session(count=10).validate()
+
+    assert "10" in str(excinfo.value)
+
+
+def test_the_session_accepts_its_own_defaults() -> None:
+    """默认参数必须通过（否则这条检查会把正常流程也堵死）。"""
+    _session().validate()

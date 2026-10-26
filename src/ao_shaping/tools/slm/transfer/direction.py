@@ -37,7 +37,8 @@ def analyze(run, out):
                     xy, target = data["camera_xy"], data["target"]
                     image = data["raw_frames"].mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)] / row["exposure_ms"]
         forward = FrozenDefocusForward(params, xy, device="cpu")
-        objective = ShapeObjective(target, cv_only=config.get("objective", "shape") == "cv")
+        objective = ShapeObjective(target, cv_only=config.get("objective", "shape") == "cv",
+                                   formation=config.get("objective", "shape") == "formation")
         zero = torch.zeros_like(torch.tensor(phases[0]))
         with torch.no_grad():
             baseline, plus, negative = [forward.predict(phase)[0] for phase in phases]

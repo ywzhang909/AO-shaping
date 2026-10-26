@@ -120,6 +120,9 @@ class TestParamMapping:
         assert session.camera == "daheng"
         assert session.cam_id == 3
         assert session.slm_number == 1
+        # Both switches default to "measured behaviour": A–B–B–A on, npz off.
+        assert session.abba is False
+        assert session.save_dataset is False
         # Empty boxes are a cold start, not a path named "".
         assert session.checkpoint is None
         assert session.seed_run is None
@@ -145,6 +148,76 @@ class TestParamMapping:
         session = _method().build_params(_values())
         assert re.match(r"^\d{8}_\d{6}(-\d+)?$", session.out.name)
         assert session.out.parent == Path("data") / "debug" / "slm_transfer"
+
+
+class TestAcceptanceAndDatasetSwitches:
+    """The two cost knobs: paired acceptance, and writing the probe npz files."""
+
+    def test_both_switches_reach_the_session(self) -> None:
+        session = _method().build_params(_values(abba=False, save_dataset=True))
+
+        assert session.abba is False
+        assert session.save_dataset is True
+
+    def test_render_advanced_renders_both_checkboxes_with_recipe_defaults(
+        self, monkeypatch
+    ) -> None:
+        specs: list[dict[str, Any]] = []
+
+        def _checkbox(label, value=None, key=None, help=None):
+            specs.append(dict(label=label, value=value, key=key))
+            return value
+
+        monkeypatch.setattr(st, "checkbox", _checkbox)
+
+        _method().render_advanced({})
+
+        by_key = {str(spec["key"]): spec for spec in specs}
+        abba = by_key["slm1_shp_transfer_abba"]
+        dataset = by_key["slm1_shp_transfer_save_dataset"]
+        assert abba["value"] is sc.TRANSFER_RECIPE["abba"] is False
+        assert dataset["value"] is sc.TRANSFER_RECIPE["save_dataset"] is False
+
+    def test_switching_acceptance_off_is_visible_in_the_plan(self, tmp_path) -> None:
+        """A session.json reader must see that no CCD verdict was measured."""
+        session = TransferSession(out=tmp_path / "session", shapes=("square",), abba=False)
+
+        plan = session.plan()
+
+        assert plan["resolved"]["acceptance"] == "model_only"
+        assert "direction_check" not in plan["stages"]
+        assert "A–B–B–A acceptance skipped" in plan["note"]
+        assert TransferSession(out=tmp_path / "on", shapes=("square",), abba=True).plan()["resolved"]["acceptance"] == "paired_abba"
+
+
+class TestDeviceControl:
+    """The device selectbox: ``auto`` by default, and it reaches the session."""
+
+    def test_the_device_choice_reaches_the_session(self) -> None:
+        assert _method().build_params(_values()).device == "auto"
+        assert _method().build_params(_values(device="cpu")).device == "cpu"
+
+    def test_render_advanced_renders_the_three_device_choices(self, monkeypatch) -> None:
+        specs: list[dict[str, Any]] = []
+
+        def _selectbox(label, options=None, index=0, key=None, help=None, **kwargs):
+            specs.append(dict(label=label, options=list(options or ()), index=index, key=key))
+            return list(options)[index]
+
+        monkeypatch.setattr(st, "selectbox", _selectbox)
+
+        _method().render_advanced({})
+
+        spec = next(s for s in specs if str(s["key"]).endswith("_shp_transfer_device"))
+        assert spec["options"] == ["auto", "cpu", "cuda"]
+        # The rendered default is the recipe's, so the operator sees "auto".
+        assert spec["options"][spec["index"]] == sc.TRANSFER_RECIPE["device"] == "auto"
+
+    def test_an_unknown_device_is_refused_before_running(self) -> None:
+        message = _method().validate(_values(device="gpu"))
+
+        assert isinstance(message, str)
+        assert "unknown device" in message
 
 
 class TestPlanTransferSessionDir:
