@@ -3444,6 +3444,15 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 验证（本项只改注释 ⇒ 必须证明行为未变）：`bash -n run_pytest_ci.sh` 干净；守卫 `test_pytest_workflow_shards_cover_tree.py` **10 passed**（豁免条目仍自带紧邻的理由注释，新的六条配方都在条目之内）；`--collect-only` 下 ml 分片收项仍 **918**、`ml/zernike` 仍 **0**（豁免依旧生效，CI 行为与本项之前完全一致）；`ruff check .` 全仓 0 错误。
 - 遗留（105 续，配方已完备可直接开工）：按六条修 fixture + `AmpTrainConfig.roots` 透传 ⇒ 删除该豁免 ⇒ ml 分片收项从 918 增至约 **1444**（`ml/zernike` 的 526 项入门禁）；`ml/gsnet_debug` 同理由 item 106 处理（6g 下跨文件累积致 SIGKILL + 已跑部分 5 条红）。
 
+106. ✅ **`ml/gsnet_debug` 的 5 条真实失败根因是语料门控谓词写成了"目录存在"而非"索引有条目"；并把 item 104 未实测的两条断言撤回（实测 8g、12g 下即可完整跑完，抬内存有用）**（2026-10-27）
+- 承接 105 遗留的本项。先撤回**我自己**在 item 104 写下的两条未实测断言（第三次同类自我纠正）：(a) "`SIGKILL` 属 per-file 模式自身那一类故障，抬内存上限无用" —— 那是从 `optimizer/wfless` 的结论**套用**过来的，从未在此处测；实测 `gsnet_debug` 4 个文件在**同一容器**内 per-file 跑：6g ⇒ `exit=1` 且只有 **3 份摘要**（`test_gsnet_offline.py` 被杀且不产出任何 `FAILED`/`ERROR`），而 **8g 与 12g 均 `exit=0`、4 份摘要**（`22 / 78 / 80 passed+7 skipped / 83`）；(b) 6g 下该文件**单独一个容器**跑是 **80 passed / 7 skipped, exit=0** ⇒ 该区域的真红**不是内存**，是 5 条断言失败（`assert 0 > 0` / `assert 0 == 2` / `assert 0 == 1`）。47 文件大容器里缺的 87 项也逐字对上：`1188 − 1101 = 87` 恰是 `test_gsnet_offline.py` 自己的项数（`80 + 7`）。
+- 根因：该文件**早已有**语料门控 `@pytest.mark.skipif(not DEBUG_DIR.is_dir(), reason="requires data/debug pickles")`，但谓词是**目录是否存在**。CI 暂存的 `data/` 里 `data/debug` 是**存在且为空**（`stage_test_data.sh` 的 `EXCLUDE_RE` 排除 `debug|slm_dual_spot|zernike_pred|fouriergsnet_sim*`）⇒ 门控放行，计数断言对着空目录跑成红。同一文件里另 2 条测试用 `if not index.entries: pytest.skip(...)` 因而**正确 skip**（那 2 条 skipped 就是证据）⇒ 可用的谓词是"索引是否拿到条目"，不是目录在不在。
+- 修法（把已在两处生效的谓词收敛成**一处**，规则不再在副本间漂移）：新增 `_real_index(roots, **kwargs)` —— `build_record_index` 后若无条目即 `pytest.skip` 并在理由里点名 `roots`，有条目则**返回索引**（返回而非二次判空，避免对 65 GB 语料重复扫盘）；7 条真实语料测试全部改走它。顺带纠正一处归类错误：`test_real_data_index_survives_stub_pickles` 挂在 `TestBuildRecordIndexSynthetic` 类下，却调 `build_record_index(roots=[REAL_ZERNIKE_GLOB, REAL_PIB_GLOB])` 读真实语料，同样缺门控。改后 `test_gsnet_offline.py` 由 `5 failed / 80 passed / 2 skipped` 变 **80 passed / 7 skipped**，skip 理由逐条点名 glob（`no pickles under '/workspace/data/debug/slm_zernike_*': the corpus is not staged here`）⇒ 不是静默通过。
+- **两个控制（证明门控承重、且谓词不可退化）**：把 `_real_index` 的判空改成恒假 ⇒ **7 failed / 80 passed**；把谓词退回 `DEBUG_DIR.is_dir()` ⇒ 同样 **7 failed / 80 passed**（这一步正面坐实本项主张："目录存在" ≠ "语料可用"）；两处还原 ⇒ 80 passed / 7 skipped。
+- 为什么本项**没有**把该区域送进门禁（机制问题，不是结论问题）：`EXCLUDES` 是**无条件追加到每一次** `run_pytest_ci.sh` 调用的 ⇒ 保留豁免则 6g 的 `ml` 分片含它就被杀（实测 exit=1）；为该区域单开分片，则同一条 ignore 又把那个分片收成**空集合**，正是本仓库守卫要防的"PASS 而什么都没测"。故豁免保留，但理由改写为上面实测的形态，并显式撤回 item 104 的套用断言。
+- 另立 107：给 harness 加"按分片关闭豁免"的开关 + 分片级内存参数 ⇒ 单开 `ml-gsnet-debug` 分片（8g，**270 项**入门禁）。不能盲目抬高全片内存：6g 是为 CI 跑者物理内存实测选定的（`pytest.yml` 开头的分片内存适配说明），全局抬高有把整个 job 被杀的风险。
+- 验证（本项**不改变 CI 覆盖**，明示以免夸大）：`bash -n run_pytest_ci.sh` 干净；守卫 `test_pytest_workflow_shards_cover_tree.py` **10 passed**（`EXCLUDES` 现有 2 条，各自带紧邻理由注释）；`ml` 分片按 CI 形态（`AO_TEST_PER_FILE=1`, 6g）实跑 **exit=0、43 份摘要、910 passed、8 skipped**（= 918，与 `--collect-only` 逐项一致）、0 `FAILED`/`ERROR`，墙钟 327s；`ruff check .` 全仓 0 错误。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

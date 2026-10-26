@@ -188,6 +188,24 @@ fi
 # entire area (the blanket ml ignore below is what let three authored-red ml tests sit
 # invisible for a day -- TODO.md 8.9 items 102/103/104).
 EXCLUDES=(
+    # tests/ao_shaping/ml/gsnet_debug cannot join the `ml` shard, but not for the
+    # reason recorded when this entry was first written. Measured, 4 files, one
+    # container, per-file mode: at 6g the invocation exits 1 with only 3 summaries --
+    # test_gsnet_offline.py is killed and prints nothing (no FAILED, no error). At 8g
+    # and at 12g the same four files exit 0 with 4 summaries (22 / 78 / 80 passed + 7
+    # skipped / 83). And at 6g that same file is green on its own (80 passed, 7
+    # skipped) in its own container. So the ceiling does help -- the earlier note that
+    # "raising the ceiling is not the fix" was borrowed from optimizer/wfless without
+    # measuring it here, and is withdrawn.
+    #
+    # The entry stays only because the exemption mechanism is unconditional: EXCLUDES
+    # is appended to every run_pytest_ci.sh invocation, so a dedicated 8g shard for
+    # this area would collect zero items and report PASS while testing nothing -- the
+    # exact failure this file's guards exist to prevent. Fixing that needs a
+    # per-shard exemption switch plus a per-shard memory envelope (TODO.md 8.9 item
+    # 107); the runner's own RAM is why 6g was chosen for the shards in the first
+    # place, so the fix is a narrower envelope, not a global raise.
+    "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/ml/gsnet_debug"
     # 17 of tests/ao_shaping/ml/zernike read the 65 GB data/debug tree even though the
     # test file writes its own pickle corpus: the synthetic corpus yields no usable
     # record, so the family filter comes back empty and train() -- which builds its
@@ -217,10 +235,6 @@ EXCLUDES=(
     # Retiring this entry needs the fixture to meet all six, plus a roots passthrough
     # on AmpTrainConfig (train_amp.py builds the index from DEFAULT_ROOTS today).
     "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/ml/zernike"
-    # Measured corpus-free at 6g: SIGKILL (exit 137) partway through, plus 5 failures
-    # in the part that did run. Cross-file accumulation, i.e. the per-file mode's own
-    # failure class, so raising the ceiling is not the fix (TODO.md 8.9 item 106).
-    "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/ml/gsnet_debug"
 )
 
 # Interpreter and options are kept in separate arrays on purpose: the per-file mode
