@@ -3572,6 +3572,17 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 回归（改前基线均在本树未改动状态先量）：`tests/ao_shaping/utils` + `test_conventions.py` 由 1539 passed / 5 skipped 增至 1543 / 5，增量正是本批新增守卫的 4 条；`tests/ao_shaping/algorithm` 777 passed / 16 skipped 不变；`tests/ao_shaping/drivers/ccd/test_capture_fused.py` 29 passed 不变；optimizer 聚合指纹不变。分片覆盖守卫 11 passed，证明新测试文件落在 `utils` 分片目标内。`ruff check .` 全仓归零。
 - 覆盖账（实测）：`beam_metrics` 11 → 0、`target/metrics` 16 → 8、`exposure_fusion` 维持 119 的 3 处；`src` 全域 664 → 645（差值 19 与两处提升点数 11 + 8 一致）。
 
+121. ✅ **#173 续批：`optimizer/wfless/model_in_loop_shaping.py` 的魔数比较 18 → 7，提 `_MIN_SWEEP_POINTS` 与 `_MIN_PUPIL_SEMI_AXIS_PX`（11 处），按既有惯例用私有名**（2026-10-27）
+- 提 11 处成两个常量。`2` 被报 9 次（2008/2010/2030/2078/2081/2214/2225/2243/2453），问的全是同一件事——"这条响应曲线至少要几个可用扫点才谈得上拟合，少一个斜率就是未定义而不是有噪声"，提为 `_MIN_SWEEP_POINTS`；报错文本本身写着 `need >= 2 tilt points`，属代码与叙述同源的场景（与 112 的 FOV 判据同类）。`8` 两处（1617 与 2014）是同一个 pupil（瞳面） 半轴下限，提为 `_MIN_PUPIL_SEMI_AXIS_PX`。
+- 命名跟着该文件既有惯例走而不是跟着 120 走：文件里已有 `_MIN_CORRELATION`、`_MIN_SHIFT_CORRELATION`、`_DEFOCUS_MIN_HOLLOWNESS` 这一族**模块私有**常量，所以本批用 `_MIN_*` 而非 120 的公开 `NDIM_*`——后者是包级约定（住在 `ranks.py` 汇聚点），前者只是单模块判据，把单模块判据做成公开名反而制造虚假的包级约定。
+- 刻意按住 7 处（各仅一处，提了就是假单源）：2149 的相对偏差 `0.25`、2186 的比值窗口两端 `0.4`/`1.6`、1104 的 `1e-9` 缩放退化判据、2455 的接受样本数 `3`、2289 的单调样本数 `4`，以及 2701 的 `frame.ndim != 2`。最后这处值得记一笔：它与 120 的 `NDIM_SINGLE_CHANNEL` 是**同一惯用法但不同包**，而 116/120 都已写下"单一定义点是**包内**纪律"，且 `ranks.py` 的 docstring 自述范围是"本包的图像工具"。为**一处**站点把该 hub 的声明范围扩到 `optimizer` 属于反过来让文档失真，故本批留字面量；若后续该惯用法在 `optimizer` 内出现第二、第三处，再做一次有依据的扩围。
+- 同源债（显式记账，不静默留）：2008/2010 的报错文案里仍写死 `>= 2` 字面量（在 f-string 里，不是比较式，故 PLR2004 不报也不该报）。取证显示测试并不断言这些文案（`need >= 2`、`sweep point(s)` 在 `tests/` 里各 0 处命中），因此若要让文案也同源，改动是安全的但属于用户可见文本变更，本批不动，留给专门一批（同批需同时核对 `dropped_modes` 的 `only N sweep point(s)` 文案）。
+- 工具收益（120 固化的断言当场生效）：提升器入场断言"文件必须等于 HEAD 快照"在本批直接生效——预检用 `cmp` 证明快照有效后才跑，因此没有再出现 120 那次的行号漂移类缺陷。
+- 验证：11 个计划替换点全部由 ruff 真实命中；与 HEAD 的 AST 恒等判 `True`；分组校验正向 OK；控制电池 CONTROLS OK——A 把 `_MIN_PUPIL_SEMI_AXIS_PX` 定义 8→9、B 使用处加 `+ 1`、C 定义 `8 → 8.0`（换类型探针）、D 删定义只留使用、E 与 `_MIN_SWEEP_POINTS` 异值互换，另加把 2453 行标成 `pupil` 组的分组反向控制（报"该行没有字面量 8"）。`ruff check .` 全仓归零。
+- 回归按**同一执行形态**与改前基线逐位比对：`optimizer` 域在 CI 里是 `run_shard "optimizer" 1 1`（per-file），故按 per-file 形态复跑并聚合为指纹 `{72 files, 1208 passed, 3 skipped, 0 failed}`，与改前存盘指纹 `diff` 为空（完全一致）；`tests/ao_shaping/algorithm` 777 passed / 16 skipped 不变；`tests/ao_shaping/utils` + `test_conventions.py` 1543 passed / 5 skipped 不变。
+- 覆盖账（实测）：目标文件 18 → 7；`src` 全域 645 → 634（差值 11 与本批提升点数一致）。
+- 本批两处自造操作缺陷，都被门禁当场抓到而非靠审阅。① 我在一条双引号 shell 串里写了反引号包裹的比较式，bash 把它当命令替换执行，其中的 `>` 变成重定向，在工作树里凭空造出一个名为 `=` 的空文件（`git status` 里那条 `?? =` 就是它，删前先 `ls -la` 确认内容确为空）。教训：命令行里凡混排反引号与重定向符号的中文/代码文本，一律走带引号定界符的 heredoc 落成脚本，不得塞进双引号参数。② 我在台账插入脚本里自设的 12 词禁用表没有覆盖术语表的"首现夹注"规则，正文裸写了 `pupil`，被 TERM 门禁判为非规范；按 AGENTS 的授权路径改用 `term_unify_20261016.py --apply` 统一为 `pupil（瞳面）`，随后 dry-run 归零。教训：自设词表只是对权威清单的近似，提交前必须跑术语表脚本本身，而不是只跑我那份正则。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

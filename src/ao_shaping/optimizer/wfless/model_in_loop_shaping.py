@@ -117,6 +117,15 @@ _DEFOCUS_MIN_HOLLOWNESS = 0.60
 # spot centroid.
 _MIN_SHIFT_CORRELATION = 0.30
 
+#: A sweep needs at least this many usable points before a response curve can be fitted:
+#: with one, a slope is undefined rather than merely noisy, so that axis/mode/offset is
+#: skipped or reported as dropped instead of fitted.
+_MIN_SWEEP_POINTS = 2
+
+#: Smallest pupil semi-axis, in model pixels, the geometry calibration accepts. Below it the
+#: aperture is too small for the tilt and defocus fits to mean anything.
+_MIN_PUPIL_SEMI_AXIS_PX = 8
+
 
 def _has_both_signs(values: np.ndarray) -> bool:
     """True when the coefficients straddle zero, so an offset is observable."""
@@ -1614,7 +1623,7 @@ def calibrate_bench_geometry(
         only ever return its own edge.
         """
         a = int(min(int(semi_axis_model_px), region // 2))
-        if a < 8:
+        if a < _MIN_PUPIL_SEMI_AXIS_PX:
             return None
         span_panel = 2.0 * a * model_to_panel
         for phase in (reference_phase,):
@@ -2005,13 +2014,13 @@ def calibrate_bench_geometry_from_sweep(
     # call can never be mistaken for this call's evidence.
     if dropped is not None:
         dropped.clear()
-    if len(tilts) < 2:
+    if len(tilts) < _MIN_SWEEP_POINTS:
         raise ValueError(f"need >= 2 tilt points, got {len(tilts)}")
-    if len(defocuses) < 2:
+    if len(defocuses) < _MIN_SWEEP_POINTS:
         raise ValueError(f"need >= 2 defocus points, got {len(defocuses)}")
 
     a = int(min(semi_axis_model_px or (region // 2), region // 2))
-    if a < 8:
+    if a < _MIN_PUPIL_SEMI_AXIS_PX:
         raise ValueError(f"semi_axis_model_px must be >= 8, got {a}")
 
     # --- tilt -> far-field scale, per axis -----------------------------------
@@ -2027,7 +2036,7 @@ def calibrate_bench_geometry_from_sweep(
     sources: dict[str, str] = {}
     for axis in ("x", "y"):
         pts = [r for r in tilts if r.axis == axis]
-        if len(pts) < 2:
+        if len(pts) < _MIN_SWEEP_POINTS:
             continue
         coeffs = np.array([r.coefficient for r in pts], dtype=np.float64)
         use_shift = all(
@@ -2075,10 +2084,10 @@ def calibrate_bench_geometry_from_sweep(
     #                              = S / (model_to_panel * far_field_size)
     ramp_scale = float("nan")
     ramp_axis = ""
-    if len(ramps) >= 2:
+    if len(ramps) >= _MIN_SWEEP_POINTS:
         for ax in ("x", "y"):
             pts = [r for r in ramps if r.axis == ax]
-            if len(pts) < 2:
+            if len(pts) < _MIN_SWEEP_POINTS:
                 continue
             periods = np.array([r.coefficient for r in pts], dtype=np.float64)
             if np.any(periods <= 0):
@@ -2211,7 +2220,7 @@ def calibrate_bench_geometry_from_sweep(
         pts = [r for r in records if r.mode == mode]
         if pts:
             raw_widths[mode] = [float(r.fwhm_px) for r in pts]
-        if len(pts) < 2:
+        if len(pts) < _MIN_SWEEP_POINTS:
             if pts:
                 dropped_modes[mode] = (
                     f"only {len(pts)} sweep point(s); a width response needs at "
@@ -2222,7 +2231,7 @@ def calibrate_bench_geometry_from_sweep(
         w = np.array([r.fwhm_px for r in pts], dtype=np.float64)
         h = np.array([r.hollowness for r in pts], dtype=np.float64)
         ok = np.isfinite(w) & (w > 0) & np.isfinite(h)
-        if int(ok.sum()) < 2:
+        if int(ok.sum()) < _MIN_SWEEP_POINTS:
             dropped_modes[mode] = (
                 f"only {int(ok.sum())} point(s) with a finite positive FWHM"
             )
@@ -2240,7 +2249,7 @@ def calibrate_bench_geometry_from_sweep(
         single_lobe = h >= _DEFOCUS_MIN_HOLLOWNESS
         if (
             not single_lobe.all()
-            and int(single_lobe.sum()) >= 2
+            and int(single_lobe.sum()) >= _MIN_SWEEP_POINTS
             and _has_both_signs(c[single_lobe])
         ):
             logger.info(
@@ -2450,7 +2459,7 @@ def calibrate_bench_geometry_from_sweep(
             for c0 in resp_grid:
                 pred = np.interp(c - c0, resp_grid, curve)
                 okp = np.isfinite(pred) & (pred > 0)
-                if int(okp.sum()) < 2:
+                if int(okp.sum()) < _MIN_SWEEP_POINTS:
                     continue
                 rms = float(np.sqrt(np.mean(((pred[okp] - w[okp]) / w[okp]) ** 2)))
                 if rms < best_rms:
