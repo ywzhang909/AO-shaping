@@ -3235,6 +3235,15 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     - **控制**：把 PipelineDeviceParams 站点（最后一段匹配行）临时翻回急切 int 形态 → 守卫红，红点是 Far_Cam_ID 读取 "is eager (import-time), not lambda"；cp 备份 + cmp 逐字节还原 → 再绿。
     - **验证**：守卫单独跑 2 passed；tests/ao_shaping/runners 全量 544 passed / 25 skipped（skip 为既有恒量，其中 2 条来自 diff_shaping_runner 早已删除）；ruff（钉版 0.15.12）对两改动文件干净；golden 与契约冻结原样通过。
     - **范围**：config.py 的 DeviceConfig 0/1 是配置层标准默认（整数域且已 int() 转换），不在 CLI 合约范围；gui/ccd/target_shape_helper.py 的 `_DEFAULT_CAM_ID` 回退 "0" 已是规范形态；optimizer/rl/envs.py 已在第 80 条收编。第 73 条的挂账至此结清。
+82. ✅ **AGENTS.md 的 utils/wavefront 清单追上 issue #204 新增的 link_design：13→14 补齐带日期注解，并钉守卫防目录与文档清单漂移**（2026-10-26）：
+    - **来路**：第 81 条落地后的普查——抽查 sibling issue #204 批次的 `link_design.py` 是否守住 Zernike 红线。结论是干净的：顶层只 import numpy（无自写 Noll/(n,m)/多项式代码），消费方仅 `gui/slm/link_design_assist.py` 与 `gui/slm/shaping_controls.py` 复用本模块，docstring 自述与 `fraunhofer` 同物理、纯 numpy 保 utils 叶子层零 torch，golden 验收值与 `tests/ao_shaping/utils/test_link_design_param_sweep.py` 成对钉死。
+    - **发现**：目录里 14 个 .py 模块，AGENTS.md 的 utils/wavefront 行只登记 13 个——其余每个都带日期注解，link_design（`d10bb483`, 2026-10-26, 引入语 "import link_design from 659c93db (issue #204 single source of truth)"）唯一漏登；该行是后续普查的发现面，漏登会让已登记模块被误判为未登记新品。
+    - **修复（纯文档）**：行内模块格追加 `link_design`；注解格按既有分号接续格式追加带日期与来源的说明（望远镜链路 M_t=10、f_eff 换算口径、纯 numpy DFT 远场引擎与 fraunhofer 同物理、utils 叶子层零 torch、测试与消费方指针）。无行为变化。
+    - **先红后绿**：守卫在行补齐前运行即红，差集点名 link_design；补齐行后转绿。
+    - **防漂移守卫**：新 `tests/ao_shaping/test_wavefront_inventory_doc.py` 两测：行存在自检（该行缺失或结构异常时大声失败）+ 模块名格 token 集与目录 .py 模块集合双向精确相等（少登、错登都会点名差集）。
+    - **控制**：把行内 link_design 项临时删除 → 守卫红且差集仍点名 link_design；cp 备份 + cmp 逐字节还原 → 再绿。
+    - **验证**：守卫单独 2 passed；ruff（钉版 0.15.12）干净；术语门禁合计 0；provenance `--check` clean。
+    - **范围**：一次文档补登 + 一条守卫，无源行为与导入面变化。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
