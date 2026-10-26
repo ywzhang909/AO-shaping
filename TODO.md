@@ -3412,6 +3412,17 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 验证：`TestProbeAlgebra` 5→6 条全绿；`tests/ao_shaping/ml/sim2f` 整树由 291 passed / 3 failed 变为 **294 passed、6 skipped、1 failed**（唯一残留即 103）；`ruff check tests/ao_shaping/ml/sim2f/test_fit.py` 干净。
 - 环境口径（103 需要）：CI 测试镜像为 numpy **2.5.4** / torch **2.6.0+cpu** / Python **3.13.16**；协方差那条在其引入点 `38303f58` 的 worktree 上失败数值**逐字节相同**（`0.8538` / `1.3466`）⇒ 同样是 red on arrival，其 docstring 自述的 `1.27` 边界来自另一台机器的采样。
 
+103. ✅ **协方差阶梯那条 red-on-arrival 红：断言卡的是"21 项最大值"而 docstring 量的是"两端点"，按统计量分立钉界；并自纠 item 102 的提交只带了台账没带代码**（2026-10-27）
+- 承接 102 遗留的第 3 红：`test_aberration_covariance.py::TestKolmogorovDraw::test_end_to_end_shape_survives_the_rms_rescale` 在 `assert 0.80 < ratio.min() and ratio.max() < 1.30` 上失败（实测 `ratio.max() = 1.3466`）。
+- **不是回归**：在其引入点 `38303f58` 的 worktree 上实测，失败数值**逐字节相同**（`0.8538` / `1.3466`）⇒ 同样是 red on arrival。该提交之后 `optics.py` / `config.py` 只有 `90c108c2` 一处设备解析重构，与统计量无关。
+- **也不是环境漂移**（这一条最容易被误判，故先排除）：抽样因子由 `_covariance_factor` 从入库 npz 经一次特征分解 `L = V diag(sqrt(clip(lambda, 0)))` 得到，`L @ white` 逐比特可复现，seed 与抽样数都钉在测试源码里；镜像为 numpy 2.5.4 / torch 2.6.0+cpu / Python 3.13.16。真正的问题在**样本量与统计量**：同一配置扫 8 个 seed，`ratio.max()` 在 N=2000 为 **1.3466–1.3660（8/8 全部超出 1.30）**，在 N=8000 降为 **1.2860–1.2991（8/8 全部低于 1.30）**——对 21 个带噪项取最大值自带正偏且随 N 收缩，说明那条界是在**更大抽样数**下量出来的，却用在了 N=2000 的测试上。
+- **根因：断言与 docstring 量的不是同一个统计量。** 在测试自己的 seed、自己的 N=2000 下，`ratio[Noll 4] = 0.8538` 与 `ratio[Noll 22] = 1.2739` 同 docstring 自称的 "low order keeps **0.85x**"、"the highest mode gains **1.27x**" 逐位吻合，而 `ratio.max() = 1.3466` 落在**中间阶 Noll 17**。即界 `1.30` 是端点数值，却被拿去卡最大值统计量，在该预算下任何 seed 都不可能满足。另记：docstring 自称"边界是实测 + ~1.3x 余量"自相矛盾——`1.27 × 1.3 = 1.65`，而界写的是 `1.30`，实际余量只有 1.02x。
+- 修法（按统计量分立钉界，不是放宽）：新增 `#:` 注释的具名常量 `_LADDER_LOW_BAND = (0.80, 0.95)`（低端点：实测 0.8538，跨 seed 0.854–0.897）、`_LADDER_HIGH_BAND = (1.15, 1.35)`（高端点：实测 1.2739，跨 seed 1.274–1.319）、`_LADDER_MAX_OVER_ENTRIES = 1.45`（对 N=2000 实测 1.3466–1.3660 取 ~1.06x 余量）、`_LADDER_MIN_OVER_ENTRIES = 0.80`。断言改为按 `noll == 4` / `noll == 22` 取两端点，并新增**统计量分离断言** `noll[argmax] != noll[high]`（最大值必须仍落在中间阶——两条界之所以必须分立尽在于此）。docstring 同步改正：写明那两个数字是端点统计量、补上跨 seed 实测与 N=8000 对照，并记录该断言在引入点即红。
+- **四重控制（证明每条界都贴着实测，不是松档）**：最大值界改回 `1.30` ⇒ 红（`1.3466 < 1.3`）；低端点带收到 `(0.90, 0.95)` ⇒ 红（`0.8538`）；高端点带上界收到 `1.27` ⇒ 红（`1.2739`）；统计量分离断言的 `!=` 换成 `==` ⇒ 红（`17 == 22`）；四处还原后目标测试转绿。
+- **自纠：item 102 的提交只带了台账，没带代码。** 我在跑版本诊断后用 `git checkout -- tests/ao_shaping/ml/sim2f/test_fit.py` 收尾还原，而当时 102 的改动**尚未提交**，还原动作把它一起抹掉了；`b43cfe42` 的 `git show --stat` 只有 `TODO.md | 11 +`，而 commit message 描述的是一次从未进入该提交的测试拆分。发现方式是**提交之后仍跑整树回归**：失败的是已被改名删去的旧测试名 `test_probe_returns_the_truth` —— 一个"不该存在的名字"就是内容与验证不一致的信号。已自持验证副本恢复（`TestProbeAlgebra` 6 passed）。**规则改写**：对含未提交改动的文件禁止 `git checkout --`；追加式诊断片段一律按锚点删除自己追加的那一段；每次提交后一律 `git show --stat` 复核"提交内容 == 验证内容"。
+- 验证：`tests/ao_shaping/ml/sim2f` 整树 **295 passed、6 skipped、0 failed**（102 之后是 294 / 1，本项清零）；`test_aberration_covariance.py` 单文件 24 passed；`ruff check .` 全仓 0 错误。
+- 仍开放的结构性缺口（留待定 issue）：`.github/workflows/pytest.yml` 没有 `ml` 分片，覆盖守卫又把 `ml` 列入 `NOT_SHARDED = {"ml", "__pycache__"}`，再加 `pyproject` 的 `addopts --ignore=tests/ao_shaping/ml`——三重让路正是这批上游红潜形至今的共同原因。要么补 `ml` 分片（镜像已有 torch 与 numpy 2.5.4），要么至少把 `tests/ao_shaping/ml/sim2f` 这类纯 CPU 子树并入某个 blocking 分片。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
