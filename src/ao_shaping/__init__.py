@@ -21,6 +21,21 @@ Example:
 
 from __future__ import annotations
 
+# Redirect numba's JIT cache out of the repository tree *before* any submodule
+# (or a third-party it pulls in) can import numba. ``@njit(cache=True)`` writes
+# ``.nbi``/``.nbc`` next to the source module by default, which (a) breaks the
+# "import must not touch disk" contract and (b) fails outright on a read-only
+# mount. Pointing NUMBA_CACHE_DIR at a temp dir keeps the cache but moves it out
+# of ``src/``. Forced only when unset/empty so an explicit user override wins.
+import os
+import tempfile
+
+_cachedir = os.environ.get("NUMBA_CACHE_DIR", "")
+if not _cachedir or not os.path.isabs(_cachedir):
+    os.environ["NUMBA_CACHE_DIR"] = os.path.join(
+        tempfile.gettempdir(), "ao_shaping_numba_cache"
+    )
+
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 

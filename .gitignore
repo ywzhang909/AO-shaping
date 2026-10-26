@@ -130,6 +130,13 @@ report/**/*.npy
 # byte-for-byte by `scripts/ml/build_sim2f_aberration_covariance.py`; the sibling
 # JSON records the SHA-256 `--check` verifies.
 !src/ml/sim2f/assets/*.npz
+# Same reasoning: the GS default-square phase / target golden under
+# tests/ao_shaping/optimizer/wfless/ is *test source data*, not a run artefact. It
+# is a numerical reference that the import-laziness / golden tests compare against
+# with a calibrated tolerance (the sha1 pin it replaced was machine-specific). A
+# fresh clone needs it to run test_gs_refine_target_shapes.py, so it must be tracked.
+# Regenerable with AO_GS_REFINE_GOLDEN_UPDATE=1; the shape/sha1 are checked in CI.
+!tests/ao_shaping/optimizer/wfless/gs_refine_target_shapes_golden.npz
 *.log
 scripts/dev**
 tmp_*

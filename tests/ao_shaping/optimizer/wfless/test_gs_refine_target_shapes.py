@@ -13,7 +13,8 @@
 
 from __future__ import annotations
 
-import hashlib
+import os
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -48,6 +49,33 @@ from ao_shaping.utils.image.targets import square_mask
 FRAME = (256, 256)
 CENTRE = (128, 128)
 SIDE = 100
+
+#: Numerical golden for the default square GS phase / target. See
+#: :meth:`TestSquareIsUnchanged.test_default_gs_phase_matches_the_pinned_golden`
+#: for why this is a tolerance comparison, not the sha1 pin it replaced.
+GOLDEN_PATH = Path(__file__).with_name("gs_refine_target_shapes_golden.npz")
+GS_GOLDEN_RTOL = 1e-4
+GS_GOLDEN_ATOL = 1e-6
+
+
+def _load_gs_golden() -> dict[str, np.ndarray]:
+    """Load (and, under ``AO_GS_REFINE_GOLDEN_UPDATE=1``, regenerate) the golden."""
+    if os.environ.get("AO_GS_REFINE_GOLDEN_UPDATE") == "1":
+        cfg = ShapingBenchConfig(
+            n_grid=32,
+            aperture_size=32 * 8e-6,
+            wavelength=1064e-9,
+            focal_length=0.1224,
+            far_field_padding=4,
+            target_side_px=12,
+            seed=0,
+        )
+        np.savez_compressed(
+            GOLDEN_PATH,
+            phase=np.ascontiguousarray(gs_shape(cfg, n_iters=20, seed=0).phase),
+            target=np.ascontiguousarray(make_square_target(cfg)),
+        )
+    return {k: v for k, v in np.load(GOLDEN_PATH).items()}
 
 
 def _mask(shape: str, *, side: int = SIDE, frame: tuple[int, int] = FRAME, **kw):
@@ -84,28 +112,21 @@ class TestSquareIsUnchanged:
         assert np.array_equal(got, square_mask(frame, cy, cx, side))
 
     def test_default_gs_phase_matches_the_pinned_golden(self):
-        """默认方斑的 GS 相位必须逐位等于钉住的基线 (sha1 金标)。
+        """默认方斑的 GS 相位必须逐位等于钉住的基线 (数值 golden, 标定容差)。
 
-        GS 是确定性交替投影, 任何一处默认值被改动都会改变这个哈希 —— 这正是
-        「默认行为不变」的可执行定义。
+        GS 是确定性交替投影, 默认参数一处改动就会改变结果 —— 这正是「默认行为
+        不变」的可执行定义. 但相位是 float64 远场, 逐位 (sha1) 比较对 numpy/BLAS
+        构建差异极其敏感: 同一配置在作者机器上是 ``ebd0b18e…``, 在本仓库的其它
+        机器上是 ``c94410b9…`` (后者也是 6a5e1067 起各提交的实际值), 差 1 个 bit
+        哈希即全变 —— 这是 #167 differentiable_shaping golden 同类的「机器相关
+        golden」.
 
-        ⚠️ 此常量在 2026-10-24 被**重新钉过**：原先写的是
-        ``c94410b9d9a89c6bd686f73f25ca21c1e306e665``，而它**从来没有匹配过本仓库
-        的任何状态**（该测试在写下它的提交 ``d2d0c2b0`` 上当即就是红的）。实测：
-        同一配置在 ``6a5e1067``、``6a5e1067^``、``d2d0c2b0``、merge ``1de0104c``
-        与当前 master 上**全都是**下面这个哈希；再对 2000 组可能的
-        (n_grid, far_field_padding, target_side_px, n_iters, seed) 组合扫描，
-        **没有任何一组**能产出旧值 ⇒ 旧字面量无法从这份代码复现，是抄错而非回归。
-        因此「加三个新字段没有改变默认数值」这件事现在由**跨提交重算相等**证明，
-        而不是由一个来历不明的常量断言。
+        故改为数值容差比较: 形状 / dtype 仍精确相等, 逐元素用标定容差. 容差按
+        本 golden 要抓的变异标定: ``n_iters`` 20→19 让相位移动 ~3.3e-3 相对, 而
+        跨构建漂移是 float64 FFT 的 ~1e-6 量级; 因此 rtol=1e-4 / atol=1e-6 位于
+        漂移之上 ~100 倍、变异之下 ~33 倍.
 
-        重算（改默认值前先看基线）::
-
-            cfg = ShapingBenchConfig(n_grid=32, aperture_size=32*8e-6,
-                                     wavelength=1064e-9, focal_length=0.1224,
-                                     far_field_padding=4, target_side_px=12, seed=0)
-            hashlib.sha1(np.ascontiguousarray(gs_shape(cfg, n_iters=20, seed=0).phase)
-                         .tobytes()).hexdigest()
+        golden 数组由 ``AO_GS_REFINE_GOLDEN_UPDATE=1`` 重生 (``_load_gs_golden``).
         """
         cfg = ShapingBenchConfig(
             n_grid=32,
@@ -117,15 +138,18 @@ class TestSquareIsUnchanged:
             seed=0,
         )
         phase = np.ascontiguousarray(gs_shape(cfg, n_iters=20, seed=0).phase)
-        assert (
-            hashlib.sha1(phase.tobytes()).hexdigest()
-            == "ebd0b18ef7d7fa4527bff1976f0b3c206177070c"
-        )
         target = np.ascontiguousarray(make_square_target(cfg))
+        golden = _load_gs_golden()
+        # shape + dtype are exact invariants; a real geometry/default change moves them.
+        assert phase.shape == golden["phase"].shape and phase.dtype == golden["phase"].dtype
         assert (
-            hashlib.sha1(target.tobytes()).hexdigest()
-            == "1516662ec03781da1de0fed5e1d8059741cff4a0"
+            target.shape == golden["target"].shape
+            and target.dtype == golden["target"].dtype
         )
+        # cross-build drift is ~1e-6; a real default change moves >= 3.3e-3.
+        assert np.allclose(phase, golden["phase"], rtol=GS_GOLDEN_RTOL, atol=GS_GOLDEN_ATOL)
+        # target is build-independent geometry -> exact.
+        assert np.array_equal(target, golden["target"])
 
     @pytest.mark.parametrize("kind", ["square", "circle", "gaussian", "annulus"])
     def test_native_targets_keep_their_historical_geometry(self, kind):
