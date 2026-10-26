@@ -3183,6 +3183,40 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
               归并后的同一根因（`pib_exit_safety` 家族），新增守卫让 passed 比上一条基线多 1；CI 钉版 ruff
               **0.15.12** 全绿；术语门禁 **0 个文件**（引擎已不在 import 期扫描，见第 77 条）。
 
+79. ✅ **四个常驻红灯一分为三：两档是守卫自身逻辑错、一档是 README 对从未提交的脚本下指令 —— 修掉前两档，只留一个诚实的**（2026-10-26）：
+              - **来路（第 77 条归并后的同一根因分三档）**：4 条红灯同指 pib_exit_safety 幻影家族，但性质不同：
+                       `scripts/README.md` 用 3 行可运行指令描述一个从未存在的生成器（第 75 条守卫逮到，属文档缺陷）；
+                       `test_header_script_links_resolve` 对**报告文件不存在**的 registry key 也要求「报告头里的链接可解析」
+                       —— 文件不存在就没有 header，此谓守卫自身逻辑上不可满足（第 77 条已记录该不连贯）；
+                       `test_registry_script_paths_exist` 报「generator 不存在」—— 唯一实质性的、等作者落地的事实陈述。
+              - **取证补全**：遍历全部 16 个 worktree，幻影三件套（generator / 报告 / 配套测试）在每个 worktree 都缺席；
+                       `git log --all --diff-filter=A` 对该报告目录为空 ⇒ 是 registry 指向一次从未落地的实验，不是未推送分支。
+              - **裁决**：删 registry = 抹作者意图，代写 generator = 编造实验 —— 都不做（与第 77 条一致）。但 4 条里有
+                       2 条**不是作者数据的问题，而是守卫自身的问题**，属本会话职责；README 那档是活文档对不可运行命令下指令，
+                       按第 74/75 条先例（标注状态、撤回指令形式、保留设计记录）也应修。
+              - **修守卫**：`provenance.py::render_index` 把「报告文件缺失」列为**一等 pending 状态**
+                       （渲染出索引里那条尚未生成产物的章节），守卫此前无视该设计。改动四条：新增 `_pending_report_keys()`
+                       用与 render_index **完全相同**的规则派生（明文防两处漂移）；`test_header_script_links_resolve`
+                       对 pending key **skip 且带理由**（在 `-rs` 里显式可见，非静默变绿）；新守卫
+                       `test_pending_registry_entries_are_bounded_and_justified` 设 `_MAX_PENDING_REPORTS = 1` 上限
+                       + 每个 pending entry 必须带非空 `note`（说明在等什么）⇒ 把开放式漏洞收编成有界且有解释；
+                       registry 路径守卫对 pending key 的失败消息**精确化**（点名「报告本身也 pending，等作者把
+                       generator 与报告一起落地」），保留红灯但信号变准。
+              - **修 README**：在生成器小节段首加状态注（英文，与全文一致）：脚本从未提交于任何 ref、报告与配套测试
+                       同样不存在、下方只读 harness 是真实且被跟踪的，并明令不要照抄下述命令；把 3 行 powershell 调用栅栏
+                       改为「计划中的调用面」散文（默认挑最新带 `summary.json` 的 `run_*`、`--run-dir <dir>` 选目录、
+                       `--no-figures` 跳过配图）—— 不可运行的指令形式撤回，CLI 设计记录保留。刻意不再把幻影 generator
+                       的 .py 路径放进反引号，避免触发第 74 条引用路径守卫。
+              - **控制实验**：header-links 的 skip 在 `-rs` 里显式报出且理由为 pending（仅 1 个 skip）；有界守卫把一个
+                       **真实 registry 报告**移出 `report/` ⇒ pending 变 2 ⇒ 红且断言上限失败，移回后 `git status` 干净
+                       （逐字节原状）⇒ 再绿；README 两守卫的 RED→GREEN 转变即精度证据（修前红点名那 3 行，修后通过）。
+              - **验证**：宽跑 test_conventions + scripts ⇒ **1 failed / 2528 passed / 66 skipped**（基线 4 failed /
+                       2525 passed / 65 skipped：+3 passed = README 两守卫转绿 + 新有界守卫，+1 skipped =
+                       header-links 的显式 pending skip），唯一天红即 registry 路径守卫对 pib_exit_safety 那条；
+                       CI 钉版 ruff 0.15.12 干净；provenance `--check` clean（registry 与索引未动）。
+              - **净效果**：master 常驻失败从「4 红 = 1 幻影」改为「1 红 = 幻影」，且该红的消息从泛泛的「registry 陈旧」
+                       升级为指向作者决策的精确陈述 —— 这正是本轮把红灯当登记系统用的本意。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

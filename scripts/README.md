@@ -845,6 +845,15 @@ python scripts/slm/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts>
 
 ### generate_pib_exit_safety_report.py
 
+> ⚠️ **Status (2026-10-26): this section records design intent — the script was
+> never committed.** The generator named in this heading exists on no ref (no
+> commit in the full history adds it), and neither do its report
+> `report/slm/pib_exit_safety/pib_exit_safety_20261025.md` nor its unit test; the
+> read-only harness `scripts/slm/verify_pib_exit_safety_hw.py` in the
+> Verification Scripts section below *is* real and tracked. Evidence in TODO.md
+> 8.9 items 77/79. Do not run the commands below as written until the generator
+> lands.
+
 Renders the **issue #145 (H-28) exit-safety acceptance report** from the
 artefacts `scripts/slm/verify_pib_exit_safety_hw.py` already wrote.
 **Fully offline** — it never constructs a camera or an SLM, so the evidence can
@@ -860,12 +869,10 @@ refresh the panel, so a cleanup can "restore the best phase" into empty space.
 The gated predicates are read from each record's `verdict_keys`, so the report's
 acceptance table cannot disagree with what the harness actually gated.
 
-**Usage:**
-```powershell
-python scripts/slm/generate_pib_exit_safety_report.py                 # newest run_* with summary.json
-python scripts/slm/generate_pib_exit_safety_report.py --run-dir report/slm/pib_exit_safety/artifacts/run_20261025_120000
-python scripts/slm/generate_pib_exit_safety_report.py --no-figures
-```
+**Planned CLI (not runnable — see the status note above):** default picks the
+newest `run_*` directory carrying a `summary.json`; `--run-dir <dir>` selects
+one; `--no-figures` skips the figures.
+
 Every number comes from `summary.json` / the `.npz` crops; with no artefact run
 it exits non-zero and points at the harness instead of writing a placeholder.
 The generator re-stamps its own provenance block (`insert_header`), because it
