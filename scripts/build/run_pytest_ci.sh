@@ -182,8 +182,23 @@ fi
 # the mark in drivers/conftest.py fixed both the cost and 2 spurious failures.
 # Excluding drivers/ wholesale is what let drivers/ccd rot to 6 failed + 1 error
 # without CI seeing it (rot fixed in 29001826).
+# Corpus / memory exemptions. One entry per reason, each with a comment, and never a
+# whole top-level area: tests/ao_shaping/scripts/test_pytest_workflow_shards_cover_tree.py
+# rejects a dangling entry, an entry without a reason, and any entry that would blank an
+# entire area (the blanket ml ignore below is what let three authored-red ml tests sit
+# invisible for a day -- TODO.md 8.9 items 102/103/104).
 EXCLUDES=(
-    "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/ml"
+    # Consumes the data/debug corpus, which stage_test_data.sh deliberately leaves out
+    # of the CI stage. Measured corpus-free: 17 failed / 509 passed, all seventeen from
+    # one raise -- "HwPhaseImageDataset: the corpus has no usable records after
+    # filtering (files_scanned=0)". Those tests fail instead of skipping, which is the
+    # real defect; gating them on corpus presence retires this entry (TODO.md 8.9
+    # item 105).
+    "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/ml/zernike"
+    # Measured corpus-free at 6g: SIGKILL (exit 137) partway through, plus 5 failures
+    # in the part that did run. Cross-file accumulation, i.e. the per-file mode's own
+    # failure class, so raising the ceiling is not the fix (TODO.md 8.9 item 106).
+    "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/ml/gsnet_debug"
 )
 
 # Interpreter and options are kept in separate arrays on purpose: the per-file mode

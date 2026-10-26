@@ -3423,6 +3423,18 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 验证：`tests/ao_shaping/ml/sim2f` 整树 **295 passed、6 skipped、0 failed**（102 之后是 294 / 1，本项清零）；`test_aberration_covariance.py` 单文件 24 passed；`ruff check .` 全仓 0 错误。
 - 仍开放的结构性缺口（留待定 issue）：`.github/workflows/pytest.yml` 没有 `ml` 分片，覆盖守卫又把 `ml` 列入 `NOT_SHARDED = {"ml", "__pycache__"}`，再加 `pyproject` 的 `addopts --ignore=tests/ao_shaping/ml`——三重让路正是这批上游红潜形至今的共同原因。要么补 `ml` 分片（镜像已有 torch 与 numpy 2.5.4），要么至少把 `tests/ao_shaping/ml/sim2f` 这类纯 CPU 子树并入某个 blocking 分片。
 
+104. ✅ **闭合 CI 的 `ml` 盲区：harness 的整区 blanket ignore 换成逐条带理由的子路径豁免，新增 blocking `ml` 分片（per-file，实测 910 passed / 8 skipped / 0 failed / 333s），覆盖守卫升级为"豁免必须存在、必须自带理由、永不豁免整个区域"并补两条非空转自检**（2026-10-27）
+- 承接 102 / 103 的因果链：三条上游红之所以潜形，是三重让路叠加 —— `pyproject` 的 `addopts --ignore=tests/ao_shaping/ml`、`.github/workflows/pytest.yml` 根本没有 ml 分片、覆盖守卫把 `ml` 写进 `NOT_SHARDED = {"ml", "__pycache__"}`；另有第四重：`scripts/build/run_pytest_ci.sh` 对**每个分片**无条件加 `--ignore=…/tests/ao_shaping/ml`。本项闭合后两重（`addopts` 只影响本地裸 `pytest` 的 discovery，保持不动）。
+- **为什么不能只加一行 `run_shard "ml" … tests/ao_shaping/ml`**：harness 的 `--ignore` 与分片目标完全重合时，pytest 收到空集合仍退 0 ⇒ "PASS 而什么都没测"，正是守卫自己写下的失效模式。所以先改 harness：`EXCLUDES` 从一条整区豁免改为**两条子路径**豁免，每条紧邻自己的理由注释与实测数字。
+- 逐子目录实测（无语料 + `AO_MEMORY=6g`；harness 用的就是 `stage_test_data.sh` 排除 `debug|slm_dual_spot|zernike_pred|fouriergsnet_sim*` 之后的 data，故本地测量即等价 CI 条件）：`gsnet` 87 passed / 9.5s、`shaping` 127 passed + 1 skipped / 8.8s、`hwdataset` 387 passed / 8.2s、`ml` 根级两文件 14 passed + 1 skipped / 2.5s 全绿；而 `zernike` **17 failed / 509 passed** / 48.6s、`gsnet_debug` 跑到中途 **exit=137（SIGKILL）**且已跑部分含 5 条 F ⇒ 给 `ml` 加整区 blocking 分片会立刻把 CI 染红，必须按路径豁免。
+- 两条豁免的理由与归属：`ml/zernike` —— 17 条红同一个 raise：`HwPhaseImageDataset: the corpus has no usable records after filtering (files_scanned=0, files_usable=0)`，即语料缺席时**抛异常而非 skip**（本仓库既有惯例是 skip，如 `test_bench.py` 遇 `runs/` 缺失即 skip），属真缺陷，留 105 修门控后删掉该豁免；`ml/gsnet_debug` —— 6g 下跨文件累积致 SIGKILL，正是 per-file 模式自己那一类故障，抬内存上限无用，留 106。
+- 分片与守卫改动：新增 `run_shard "ml" 1 1 tests/ao_shaping/ml`（整目录、per-file、blocking、单行不续行以守住守卫的行解析），`NOT_SHARDED` 收窄为 `{"__pycache__"}`；守卫从 5 条增至 10 条，新增 `test_harness_ignore_targets_exist`（悬空豁免即红）、`test_no_harness_ignore_blanks_a_whole_test_area`（`tests/ao_shaping/<area>` 式整区豁免一律禁止，老让路模式不可回归）、`test_every_harness_ignore_carries_a_reason`、`test_harness_ignore_parser_is_not_vacuous`、`test_reason_check_is_not_vacuous`。
+- **两处缺陷是控制实验逼出来的（不是先写对再验）**：(a) 理由注释窗口取 7 行过宽，抹掉条目注释后仍能被 `EXCLUDES=(` 上方的策略块注释借光 ⇒ 收紧为"从数组起始或上一条 ignore 到本条目之间必须存在注释"；(b) `_reason_gaps` 用 `line.startswith("#")` 判注释，而数组内的理由注释缩进 4 格，于是真豁免被误报、自检还在**错误方向**上"通过" ⇒ 改为 `lstrip().startswith("#")`。植入手段本身也曾造假：`oxpy -c` 的单引号串里 `\$` 被转义吞掉，锚点 `count==0` 直接断言失败，于是一次"控制"其实什么都没植入却显示全绿 —— 改文件化控制脚本后才暴露 (b)。
+- 控制实验（逐条会咬）：豁免路径改成不存在的目录 ⇒ 2 红；把豁免恢复成整区 `ml` ⇒ 2 红；把 `_reason_gaps` 打成恒返空 ⇒ `test_reason_check_is_not_vacuous` 红；把 `IGNORE_RE` 的 `tests/` 换成 `testz/` ⇒ 两条空转自检同时红；四处还原 ⇒ 守卫 10 条全绿、`bash -n` 干净。
+- 验证：`--collect-only` 收项构成 `gsnet 87 + hwdataset 387 + shaping 128 + sim2f 301 + ml 根级 15 = 918`，两个豁免目录收项为 0；按 CI 形态（`AO_TEST_PER_FILE=1`）实跑该分片 **exit=0、43 份 per-file 摘要、910 passed、8 skipped、0 failed**，墙钟 333s。此前这些 ml 项在 CI 里**一项都没执行过**，一并拉回门禁的还有 `tests/ao_shaping/ml/test_train_cli_runnable.py::test_ruff_excludes_nothing_under_src`（守"ruff 不得再豁免 `src/ml/**`"的那道守卫，此前从未在 CI 跑过）。
+- 回归：`tests/ao_shaping/scripts` 分片 2555 passed、65 skipped、0 failed（含同样解析 harness 的 `test_ci_scratch_staging.py` 与 `test_conventions.py`）；`ruff check .` 全仓 0 错误。
+- 另立两项：105（`ml/zernike` 语料门控：无 `data/debug` 时应 skip 而非 raise，修好即删该豁免）、106（`ml/gsnet_debug` 的跨文件累积与 5 条红，修好即删该豁免）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

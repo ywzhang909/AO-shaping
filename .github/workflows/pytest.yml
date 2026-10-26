@@ -100,7 +100,9 @@ jobs:
           }
 
           # Shards are whole directories, never file lists: a list silently stops
-          # covering any test file added later. `optimizer` uses per-file mode because
+          # covering any test file added later. `ml` is whole-directory too, and runs
+          # per-file because two of its subareas are corpus- or memory-bound; those are
+          # exempted one path at a time in scripts/build/run_pytest_ci.sh, never here. `optimizer` uses per-file mode because
           # it cannot fit one process even at 12g (measured), and per-file coverage was
           # verified identical (1259 passed + 3 skipped == 1262 collected).
           #
@@ -115,6 +117,7 @@ jobs:
           run_shard "root-guards" 0 1 tests/ao_shaping/test_config.py tests/ao_shaping/test_conventions.py tests/ao_shaping/test_import_purity.py tests/ao_shaping/test_issue167_function_shape.py tests/ao_shaping/test_optimizer_doc_coverage.py tests/ao_shaping/test_runners_doc_paths.py tests/ao_shaping/test_tools_doc_coverage.py tests/ao_shaping/test_utils_display_doc_coverage.py tests/ao_shaping/test_wavefront_inventory_doc.py
           run_shard "runners-gui-misc" 0 1 tests/ao_shaping/runners tests/ao_shaping/gui tests/ao_shaping/model tests/ao_shaping/display tests/ao_shaping/report tests/ao_shaping/ao
           run_shard "scripts" 0 1 tests/ao_shaping/scripts
+          run_shard "ml" 1 1 tests/ao_shaping/ml
 
           echo "blocking shard failures: $FAILURES" >> "$GITHUB_STEP_SUMMARY"
           echo ""
