@@ -3294,6 +3294,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 登记不行动：`lr.py` / `lr_wfs.py` / `rl_wfs.py` 三个训练竖切复写同款脚手架（回调 / 编码器 / 组合提取器）与模块名 `gready` 的现状拼写 —— 均为代码级变更，不混入本条 doc census，另行条目。
 - gates：TERM 合计 0 / 对账 88 条 13 violations（standing 不变）/ 溯源 clean；提交仅 `AGENTS.md`+`TODO.md`+新守卫三文件。
 
+89. ✅ **utils/ + display/ 逐名叙述普查：65+6 模块双合同名面——7+2 真实缺口补录 + 6 撞词假覆盖补录 + 覆盖守卫落位**（2026-10-26）
+- 普查口径与结果：合同分两支——`name.py` 全名提及（前视限定）**或**裸干 stem token（词尾排除字母数字与点号 `(?![A-Za-z0-9_.])`）：点号排除使 `exposure.npy` 这类缓存名**不能**覆盖 `exposure.py` 模块；点号结尾的全名形式（`cli_params.py`）由名面分支兜住。utils 65 个中 43 个 stem 命中逐一核对为子包表行的真实列举（io 行 8 / image 行 12 / wavefront 行 14 / slm 行 8）+ 树注释（`spots_calc`, `wavefront_calc`, `frames`），**7 个零提及**：`image/target/masks.py`, `image/target/shapes.py`, `math/array_shape.py`, `math/fitting.py`, `math/stability.py`, `numba_compat.py`, `objective_direction.py`；display 6 个中 `beam_profile.py` / `windows.py` 零提及、`frames.py` 仅有树注释级提及。
+- 撞词假覆盖 6 个（通过 token 合同但**不是**模块引用，仍一并补录）：`cli/exposure.py` 仅命中 `exposure.npy` / `exposure_ms` / env 注记 "exposure ceiling"；`target/` 五叶的 stem 撞 drivers 树与反普通词（`ccd` → drivers 树注释, `geometry` / `objective` / `patterns` / `square` → 文献词与树词）。补录载体：`optimizer/` 章节同型的 `### utils/ 模块逐名登记 (2026-10-26 普查)`——13 行 4 分组表（`target/` 7 / `math/` 3 / 顶级 2 / `cli/` 1），插在 `## Zernike 使用规范` 之前（锚 count==1 断言）；WHERE-TO-LOOK Visualization 行单元格扩写：`windows.py`（旧注记 `Windows` 的实现文件, 无 docstring, 头部 ABC 类面）/ `frames.py` / `beam_profile.py` 渲染器全集（display 两个零提及收口）。
+- 取证口径：13 行职责全部来自模块 docstring 原句或类面，**零猜测**——按面积归一的多形状掩膜与其单独成模块理由（外接方框 CV 的背景污染）、canonical 形状词表、CCD 帧驱动目标管线、纯几何原语、目标选择+自适应 `rms_pib` 权重+指标面板、参数化目标图样、GS 式方形 sizing+振幅掩膜、精确形状数组拟合、最小二乘助手、settle/drift/linear 序列判据、算法+utils 共享可选 numba 垫片、目标名→搜索方向单一事实源、`--exposure-time-ms`/`--exposure-ms` 一旗标三状态一解析器（旗标声明 7+1 处的 0 值双义收口）、远场/SLM 相位/XY 截面单一渲染实现。消费方佐证：`target/` ← 5 个 wfless 优化器 + `slm_shaping_runner`；`numba_compat` / `objective_direction` ← `algorithm/gradient/__init__`, `pib`, `slm_zernike_pib`, `adc_dm_adam`, `spots_calc`。
+- 链条（与 87/88 同型）：守卫 `tests/ao_shaping/test_utils_display_doc_coverage.py`（2 tests, `ROOT=parents[2]`, token 合同 docstring 化）born-red —— **恰 9**（utils 7 + display 2, 红名单与普查名单逐名一致）→ patch → 三守卫无回归三绿（新守卫 2 + runners 4 + optimizer 1）→ control 删 `stability.py` 表行 → 恰 utils test 失败且点题同一模块 → `cmp` 逐字节还原 → 再绿 → ruff 三守卫全干净。
+- 登记不行动：`targets.py` compat shim 的 docstring 叶枚举已过时（写了盘面不存在的 `metrics`、缺 `geometry`/`masks`/`shapes` 三叶）——代码级修正另行条目；`tools/` 家族普查（86 模块、约 47 个名面未列, `probes`/`response`/`simulation`/`bootstrap` 撞普通词的边界裁定）为下一 item 专办。
+- gates：TERM 合计 0 / 对账 89 条 13 violations（standing 不变）/ 溯源 clean；提交仅 `AGENTS.md` + `TODO.md` + 新守卫三文件。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

@@ -133,7 +133,7 @@ AO-shaping/
 | **Zernike 系数→远场强度 Dataset** | `src/ml/hwdataset/zernike_dataset.py` | 输入=136 维 Noll 序系数 (弧度), 输出=归一化远场强度; **绕过 `materialise()` 的瞳面重建**, 实测 136 → 10.5 ms/item 且输出逐位一致 |
 | 离线评估统计 (配对检验/canary skill) | `src/ml/zernike/eval_stats.py` | **纯 numpy, 报告引用的统计唯一来源** (sign-flip 精确置换检验 / `cohens_dz` / `holm_bonferroni` / `min_attainable_pvalue` / `skill_scores` / `seed_agreement`)。scripts/ 只做渲染, **不得复制第二份** |
 | Standalone tools | `src/ao_shaping/tools/` | SLM phase capture, Micro-DM per-channel image collection, train data collection |
-| Visualization | `src/ao_shaping/display/` | Windows, frames for GUI |
+| Visualization | `src/ao_shaping/display/` | Windows, frames for GUI 与渲染器全集: `windows.py` 窗口管理 (旧注记 `Windows` 的实现文件, 无 docstring, 头部为 ABC 基类), `frames.py`, `beam_profile.py` 远场/SLM 相位/XY 截面渲染器 (单一实现) |
 | GUI | `src/ao_shaping/gui/{r50,dm,slm,zernike,ccd}/` | Streamlit components, 按设备域分包 (见上方目录树) |
 | Tests | `tests/ao_shaping/` | Mirror of src structure |
 
@@ -349,6 +349,28 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
   从本模块 import。
 
 ---
+
+### utils/ 模块逐名登记 (2026-10-26 普查)
+
+65 个模块逐一对照本文件叙述：子包表与树注释已以 stem 形式列举 43 个，名面真缺口 7 个；另有 6 个 stem 命中属撞词假覆盖（`exposure` 只命中 `exposure.npy` 与 env 注记、`target/` 五叶命中 drivers 树与反模式行的普通词），一并补录为 13 行表。全量覆盖由守卫 `tests/ao_shaping/test_utils_display_doc_coverage.py` 锁定（token 合同见守卫 docstring）。
+
+| 位置 | 模块 | 职责 (docstring 原句或类面) |
+|---|---|---|
+| `image/target/` | `shapes.py` | 闭环 SLM 整形链的 canonical 形状词表 (单一来源) |
+| `image/target/` | `geometry.py` | 形状→掩膜纯几何原语 (顶点/面积/包含判定/腐蚀) |
+| `image/target/` | `masks.py` | 多形状目标掩膜 (正方形/长方形/三角形/五角星) 按面积归一; 非方形目标若仍用外接方框做 CV 会混入背景且读数无意义, 故单独成模块 |
+| `image/target/` | `patterns.py` | SLM/图像网格上的参数化目标图样生成 |
+| `image/target/` | `square.py` | 方形光束整形目标的 sizing 与振幅掩膜 (GS 式) |
+| `image/target/` | `ccd.py` | CCD 帧驱动目标: 裁剪/缩放、任意中心掩膜、帧→SLM 网格管线 |
+| `image/target/` | `objective.py` | 整形目标选择 + 自适应 `rms_pib` 权重 + 指标面板 |
+| `math/` | `array_shape.py` | 精确形状数组拟合 (不感知图像/波前/设备) |
+| `math/` | `fitting.py` | 最小二乘拟合助手 (纯 numpy, 原样搬迁) |
+| `math/` | `stability.py` | settle/drift/linear 特征化判据 (纯 numpy 序列级) |
+| 顶级 | `numba_compat.py` | 算法+utils 两层共享的可选 numba 装饰器垫片 (零依赖叶子) |
+| 顶级 | `objective_direction.py` | 目标名→搜索方向的单一事实源 |
+| `cli/` | `exposure.py` | `--exposure-time-ms`/`--exposure-ms` 一旗标三状态一解析器 (旗标曾于 runner 声明 7 处 + `panel_locate` 1 处, 且 0 值在两类声明中含义不同) |
+
+尾注：`targets.py` 是 compat shim（其 docstring 的叶子枚举已过时——写了并不存在的 `metrics`、缺 `geometry`/`masks`/`shapes` 三个盘面叶），代码级 docstring 修正另行条目；`target/` 包消费方为 5 个 wfless 优化器与 `slm_shaping_runner`。
 
 ## Zernike 使用规范 (canonical 入口 — 禁止重复实现)
 
