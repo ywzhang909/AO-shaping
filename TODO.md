@@ -3244,6 +3244,16 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     - **控制**：把行内 link_design 项临时删除 → 守卫红且差集仍点名 link_design；cp 备份 + cmp 逐字节还原 → 再绿。
     - **验证**：守卫单独 2 passed；ruff（钉版 0.15.12）干净；术语门禁合计 0；provenance `--check` clean。
     - **范围**：一次文档补登 + 一条守卫，无源行为与导入面变化。
+83. ✅ **AGENTS.md 的 utils/io 与 utils/image 行同样漏登（recorder_keys / npz_summary / centroid），inventory 守卫推广到全部四个 utils 管道行**（2026-10-26）：
+    - **来路**：把 item 82 的同款探针扫向其余 utils 行——`utils/slm/`（L270）与 `utils/wavefront/`（L269，item 82 修后）干净，`utils/io/`（L267）与 `utils/image/`（L268）漂移。
+    - **发现 io**：目录 8 个模块，行只列 6——`recorder_keys`（`1a11e60e`, 2026-10-20, #130 item 2）与 `npz_summary`（`d14d9dc0`, 2026-10-25）漏登。本体取证：`recorder_keys` 是零导入叶子，11 个 `RECORD_*` 值成一份盘面列契约，被全仓 runners/optimizer/tools/ml 广泛 import，`tests/ao_shaping/utils/test_recorder_keys.py` 钉住；`npz_summary` 收拢 `abba_probe`/`floor_probe` 一字不差的两份 summary 写盘副本（27 行，`save_summary_npz`，域内旧名留薄封装）。
+    - **发现 image**：目录 12 个模块，行只列 11 个外加装饰 token——`centroid`（`124444e6`, 2026-10-24, issue #199 R6）漏登：窗口内强度加权质心原语 `windowed_centroid`，`frame_analysis`/`displacement` 三份副本单一来源；`targets` (+ `target/`) 已在列，`target/` 是子包目录（8 个模块），不是漏登。
+    - **修复（纯文档）**：io 行名格追加 `recorder_keys`, `npz_summary`；image 行名格追加 `centroid`；两行注解格按既有分号接续格式补带日期与来源的说明。
+    - **守卫推广**：重写 `tests/ao_shaping/test_wavefront_inventory_doc.py` 为四行统一钉（io/image/wavefront/slm）：行存在自检 + 名格 token（剥反引号、剥 " (" 起尾注，兼容 `targets` (+ `target/`) 装饰写法）与目录 .py stem 集**双向精确相等**，collective 单断言一次点名全部差集；`utils/cli/` 不入表（独立红线节，有意为之），不强加行。
+    - **先红后绿**：推广后的守卫在修行之前运行即红，一条信息同时点名 io 少登与 image 少登；三处补齐后转绿。
+    - **控制**：从 image 行临时删 `centroid` → 红且点名；cp 备份 + cmp 逐字节还原 → 再绿。
+    - **验证**：守卫 2 passed；ruff（钉版 0.15.12）干净；术语门禁合计 0；provenance `--check` clean。
+    - **范围**：两行文档补登 + 一条守卫推广，无源行为与导入面变化。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
