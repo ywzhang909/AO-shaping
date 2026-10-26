@@ -3342,6 +3342,12 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - #173 状态：仍开放——issue 自列的报告生成器批（`scripts/slm` 541 处）与长尾未清；本轮只收核心指标面这一片。
 - gates：TERM 合计 0 / 对账 94 条 13 violations（standing 不变）/ 溯源 clean；提交 = 两源文件 + `TODO.md`。
 
+95. ✅ **两个 CI 门禁洞收口：5 个 root 级文档守卫从未进任何 pytest 分片 ⇒ 补 `root-guards` 行；`NUMBA_CACHE_DIR` 有读点无文档 ⇒ 登记进「不在 `.env` 里的旋钮」表**（2026-10-26）
+- 分片洞：`test_pytest_workflow_shards_cover_tree.py::test_every_test_area_is_sharded` 自 items 87/88/90 落守卫后一直红着——root 级五个文档守卫（`test_optimizer_doc_coverage` / `test_runners_doc_paths` / `test_tools_doc_coverage` / `test_utils_display_doc_coverage` / `test_wavefront_inventory_doc`）不在 `.github/workflows/pytest.yml` 任何 `run_shard` 行内 ⇒ **CI 全绿也没有执行过它们**。补进既有 `root-guards` 分片（保持该守卫要求的「一行一调用」约定；`test_shard_targets_are_not_redundantly_nested` 同时绿）。这正是该守卫自己预言的失效方式：手写分片表悄悄漏文件。
+- env 文档洞：`test_env_names_read_by_code_are_documented` 抓到 `NUMBA_CACHE_DIR`——`ao_shaping/__init__.py` 在 import 期、`utils/numba_compat.py` 再兜一次，未设或**非绝对路径**时钉到 `<tempdir>/ao_shaping_numba_cache`。它是「import 不落盘」契约与只读挂载可用性的承重旋钮（用户显式绝对路径优先），按表格式登记读取点 / 默认 / 作用。
+- 验证：分片守卫 5 项转绿；`test_conventions` 该条转绿，同文件顺带暴露**两条上游既有红**（BLE001 盲吞棘轮 62 > 61、`report/shape_trials/cold_start/cold_start_20261026.md` 以生成器无法复现的小节收尾）——另立 item 处置，不混入本条。
+- gates：TERM 合计 0 / 对账 95 条 13 violations（standing 不变）/ 溯源 clean；提交 = `.github/workflows/pytest.yml` + `AGENTS.md` + `TODO.md`。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
