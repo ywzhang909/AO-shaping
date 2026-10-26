@@ -138,7 +138,7 @@ CAMERA_TYPES: dict[str, CameraSpec] = {
     "daheng": CameraSpec(
         "daheng",
         "ao_shaping.drivers.ccd.daheng:DahengCamera",
-        frozenset({"cam_id", "exposure_time_ms", "skip_sampling"}),
+        frozenset({"cam_id", "exposure_time_ms", "skip_sampling", "bit_depth"}),
     ),
     "miicam": CameraSpec(
         "miicam",

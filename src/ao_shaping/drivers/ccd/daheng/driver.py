@@ -257,12 +257,10 @@ class DahengCamera(BaseCamera):
 
         # 设置相机的增益
         self.cam.Gain.set(0.0)
-        # 按位深设置相机的像素格式（MONO8 / MONO16）
-        self.cam.PixelFormat.set(
-            gx.GxPixelFormatEntry.MONO16
-            if self._bit_depth == 16
-            else gx.GxPixelFormatEntry.MONO8
-        )
+        # 请求的位深必须对应实际格式，不允许 12 bit 静默回落为 Mono8。
+        if self._bit_depth not in (8, 12, 16):
+            raise ValueError("Daheng bit_depth must be 8, 12 or 16")
+        self.cam.PixelFormat.set(getattr(gx.GxPixelFormatEntry, f"MONO{self._bit_depth}"))
         if self.skip_sampling:
             # 设置相机的合并因子为2
             self.cam.BinningHorizontal.set(2)

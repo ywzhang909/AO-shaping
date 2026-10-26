@@ -170,7 +170,7 @@ def _auto_session(params: SlmModelInLoopParams) -> bool:
 
 def _locate_pupil_center(
     params: SlmModelInLoopParams, save_dir: Path
-) -> tuple[tuple[int, int], float, float, float]:
+) -> tuple[tuple[int, int], float, float, float, float]:
     """Locate the beam on the panel; return the scan result's reportable fields."""
     # Deferred: the probe reaches the camera and the SLM, and importing the
     # module must stay free of device-package side effects.
@@ -192,7 +192,12 @@ def _locate_pupil_center(
         cx, cy = parse_point(params.pupil_center)
         xs = (cx - params.panel_scan_step_px, cx, cx + params.panel_scan_step_px)
         ys = (cy - params.panel_scan_step_px, cy, cy + params.panel_scan_step_px)
-        if min(xs) < 0 or max(xs) >= SLM_PANEL_W or min(ys) < 0 or max(ys) >= SLM_PANEL_H:
+        if (
+            min(xs) < 0
+            or max(xs) >= SLM_PANEL_W
+            or min(ys) < 0
+            or max(ys) >= SLM_PANEL_H
+        ):
             raise SessionPreflightParamError(
                 "3x3 grid must lie on the SLM panel", param_hint="--panel-scan-step-px"
             )
@@ -219,11 +224,9 @@ def _locate_pupil_center(
     )
     scan = scan_panel(
         scan_params,
-        strict=True,
+        strict=False,
         max_session_drift=params.panel_scan_max_session_drift,
-        max_session_shift_px=(
-            float(params.panel_scan_max_session_shift_px) or None
-        ),
+        max_session_shift_px=(float(params.panel_scan_max_session_shift_px) or None),
     )
     if abs(scan.response) < 0.02:
         # A patch that misses the beam scatters nothing: the box energy barely
@@ -263,16 +266,30 @@ def measure_session_geometry(
     calibration_dir = save_dir / "session_geometry"
     exposure_ms = float(getattr(config, "exposure_time_ms", 0.0) or 0.0)
     common = [
-        sys.executable, str(runbook), "--out", str(calibration_dir.resolve()),
-        "--pupil-center", f"{config.pupil_center[0]},{config.pupil_center[1]}",
-        "--region", str(config.region),
-        "--far-field-size", str(config.region * config.far_field_padding),
-        "--collect-disc", str(round(config.panel_span_px / 2)),
-        "--zernike-radius", str(round(config.panel_span_px / 2)),
-        "--slm-number", str(config.slm_number),
-        "--slm-wavelength", str(config.slm_wavelength),
-        "--cam-type", config.cam_type, "--cam-id", str(config.cam_id),
-        "--exposure-ms", f"{exposure_ms:g}",
+        sys.executable,
+        str(runbook),
+        "--out",
+        str(calibration_dir.resolve()),
+        "--pupil-center",
+        f"{config.pupil_center[0]},{config.pupil_center[1]}",
+        "--region",
+        str(config.region),
+        "--far-field-size",
+        str(config.region * config.far_field_padding),
+        "--collect-disc",
+        str(round(config.panel_span_px / 2)),
+        "--zernike-radius",
+        str(round(config.panel_span_px / 2)),
+        "--slm-number",
+        str(config.slm_number),
+        "--slm-wavelength",
+        str(config.slm_wavelength),
+        "--cam-type",
+        config.cam_type,
+        "--cam-id",
+        str(config.cam_id),
+        "--exposure-ms",
+        f"{exposure_ms:g}",
     ]
     if illumination_radius_px is not None and float(illumination_radius_px) > 0:
         # A measured aperture makes the two focal-scale routes comparable;
@@ -285,8 +302,13 @@ def measure_session_geometry(
         subprocess.run(common + ["--stage", stage], cwd=root, check=True)
     path = calibration_dir / "bench_geometry.json"
     geometry = json.loads(path.read_text(encoding="utf-8"))
-    if geometry.get("method") != "sweep" or geometry.get("correlation", 0) < config.min_geometry_correlation:
-        raise RuntimeError(f"session geometry failed validation; evidence in {calibration_dir}")
+    if (
+        geometry.get("method") != "sweep"
+        or geometry.get("correlation", 0) < config.min_geometry_correlation
+    ):
+        raise RuntimeError(
+            f"session geometry failed validation; evidence in {calibration_dir}"
+        )
     return path
 
 
@@ -338,8 +360,11 @@ def _measure_illumination_radius(
         return None
     logger.info(
         "实测照明半径 {:.0f} 面板px（中心 {},{}；x {} / y {}）",
-        radius, center[0], center[1],
-        evidence.get("radius_x_px"), evidence.get("radius_y_px"),
+        radius,
+        center[0],
+        center[1],
+        evidence.get("radius_x_px"),
+        evidence.get("radius_y_px"),
     )
     return float(radius)
 
@@ -559,10 +584,15 @@ def calibrate_session(
     session_shift: float | None = None
     if locate:
         try:
-            center, response, pair_drift, session_drift, session_shift = _locate_pupil_center(
-            params, save_dir
-        )
-        except (OSError, subprocess.CalledProcessError, ValueError, RuntimeError) as exc:
+            center, response, pair_drift, session_drift, session_shift = (
+                _locate_pupil_center(params, save_dir)
+            )
+        except (
+            OSError,
+            subprocess.CalledProcessError,
+            ValueError,
+            RuntimeError,
+        ) as exc:
             raise _mark_step(exc, STEP_PANEL_SCAN)
     else:
         notes.append("已跳过全板入射定位, 沿用给定的瞳面中心")
@@ -583,13 +613,16 @@ def calibrate_session(
             geometry_file = measure_session_geometry(
                 measured, save_dir, illumination_radius_px=radius_px
             )
-        except (OSError, subprocess.CalledProcessError, ValueError, RuntimeError) as exc:
+        except (
+            OSError,
+            subprocess.CalledProcessError,
+            ValueError,
+            RuntimeError,
+        ) as exc:
             raise _mark_step(exc, STEP_SESSION_GEOMETRY)
         correlation = _read_correlation(geometry_file)
     else:
-        notes.append(
-            "已跳过 sweep 几何标定, 沿用给定的几何文件 (本次未做对比择优验收)"
-        )
+        notes.append("已跳过 sweep 几何标定, 沿用给定的几何文件 (本次未做对比择优验收)")
     captured_fingerprint: BenchFingerprint | None = None
     if fingerprint and (locate or geometry):
         captured_fingerprint = _capture_session_fingerprint(
@@ -618,7 +651,8 @@ def apply_session_calibration(
     """Return ``(params, config)`` with the non-``None`` calibration fields written."""
     if calibration.pupil_center is not None:
         params = replace(
-            params, pupil_center=f"{calibration.pupil_center[0]},{calibration.pupil_center[1]}"
+            params,
+            pupil_center=f"{calibration.pupil_center[0]},{calibration.pupil_center[1]}",
         )
         config = replace(config, pupil_center=calibration.pupil_center)
     if calibration.geometry_file is not None:

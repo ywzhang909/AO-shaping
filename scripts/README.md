@@ -2,6 +2,17 @@
 
 This directory contains various utility scripts for the AO-Shaping project, including build scripts, simulation scripts, training scripts, and analysis tools.
 
+`slm/generate_axial_plane_report.py` regenerates the SLM input-plane ABCD
+correction report from recorded CCD pairs. The reusable offline distance scan is
+`python -m ao_shaping.tools.slm.transfer.axial`; its fitted offset is conditional
+on a nominal calibration and is not an absolute distance measurement.
+
+`slm/generate_square1200_exploration_report.py` recomputes the strict versus
+nonmonotone CV comparison from saved Mono12 frames, audits acceptance decisions,
+and exports the phase selected by common-exposure replay. Hardware entry points
+remain `python -m ao_shaping.tools.slm.transfer.validate` and
+`python -m ao_shaping.tools.slm.transfer.replay_phases`; exploration is opt-in.
+
 ## Layout
 
 Scripts are grouped by **what they process** — a specific device, a specific
@@ -4472,3 +4483,39 @@ data with source hashes. See the complete
 [square/rectangle/triangle reproduction report](../report/shape_trials/multishape_capability/physical_multishape_reproduction_20261023.md)
 for runnable PowerShell steps and the distinction between cold initialization
 and the experimentally verified checkpoint-transfer workflow.
+
+### No-GS reproduction of an anchored block, and its far-field GIFs (2026-10-24)
+
+`slm/reproduce_transfer_block_without_gs.py` re-runs one anchored block with
+`gs_seed()` removed: the seed is an already accepted phase
+(`<seed-run>/<shape>_final`, or the phase actually displayed at `A1`), the
+reference irradiance and geometry come from the archived `A1` capture, and the
+update loop is the production one (`lr=0.01`, `step_rms_cap=0.2`, 10 steps,
+CPU). The candidate phase is then compared **bit for bit** against the archived
+`B1` phase. Entirely offline: no SLM, no camera.
+
+```powershell
+.venv\Scripts\python.exe scripts/slm/reproduce_transfer_block_without_gs.py --block 0 --seed-source run --out data/debug/transfer_repro_no_gs/block0
+.venv\Scripts\python.exe scripts/slm/reproduce_transfer_block_without_gs.py --block 1 --seed-source a1  --out data/debug/transfer_repro_no_gs/block1
+```
+
+`slm/generate_transfer_no_gs_gif.py` renders the two animations referenced by
+§3.7 of the same report. It calls
+`reproduce_shape(..., capture_frames=True)` so the update loop keeps exactly one
+implementation, and it refuses to render when the reproduced phase is not
+bitwise equal to the archive.
+
+```powershell
+.venv\Scripts\python.exe scripts/slm/generate_transfer_no_gs_gif.py
+```
+
+Outputs under `report/shape_trials/sim_pretrain_transfer/images/` (animations go to
+`images/`, per `report/AGENTS.md` §4):
+`no_gs_model_iterations_20261024.gif` (2x2 shapes, 11 model-predicted frames,
+labelled as prediction rather than measurement) and
+`no_gs_measured_abba_20261024.gif` (the four archived CCD frames A1/B1/B2/A2).
+Every panel keeps one fixed display scale across all its frames, so a brightness
+change in the animation is real and not a per-frame renormalisation.
+
+Report: [`sim_pretrain_transfer_20261024.md`](../report/shape_trials/sim_pretrain_transfer/sim_pretrain_transfer_20261024.md).
+
