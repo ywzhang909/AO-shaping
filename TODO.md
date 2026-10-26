@@ -3280,6 +3280,13 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 新守卫 `tests/ao_shaping/algorithm/test_sim_library_split.py` 锁定终态：sim 无入口件；demo 的 import 块恰为上述 4 符号且都在 sim 里；两个 demo 脚本存在；AGENTS 注化含 `14b1cda` 迁出记录且不再含两处旧措辞。born-red 单条正中注化断言；control（删 `14b1cda` token）变红 → `cmp` 逐字节还原 → 再绿；ruff clean。
 - gates：term gate 合计 0；ledger parity 86 条 / 13 已知；provenance `--check` clean。
 
+87. ✅ **root AGENTS.md runners 叙述全量对齐（6 行 stale 路径 / 结构树重写 / 漏登 4 补录 / `slm_offset_runner` 实名化）+ 新守卫 `test_runners_doc_paths.py`**（2026-10-26）：
+- 普查对象是 root `AGENTS.md` 对 `runners/`（17 个 .py：顶层 4 + `nlight_dm/` 4 + `micro_drive/` 1 + `slm/` 8）与 `optimizer/`（49 个 .py）的全部叙述；`optimizer/` 路径化引用 10 个全部命中磁盘（零漂移，守卫正面锁定），漂移集中在 runners 叙述。
+- 路径漂移 8 处 / 7 行：三层架构图的 `wf`/`pib`/`pipeline`/`combined` 四行把 4 个 runner 写在顶层（实际在 `runners/nlight_dm/`）；`zernike-matrix`/`rms-zernike` 两行加 `ZernikeDM` 反模式行（L1156）共 4 处 `zernike_matrix_runner.py`/`rms_zernike_runner.py` 写在顶层（实际在 `runners/slm/`）。测试路径（`runners/test_cli_contract_freeze.py`、`runners/test_diff_shaping_runner.py`）经 `tests/ao_shaping/` 回退命中，无漂移。
+- 结构树重写：原 6 行过期树（顶层 `wf/axis/pipeline/zernike-matrix` 4 个 + 过期注释）换成全量 17 文件三子包树；补漏登 4 个——`matrix_runner.py`（提供 `dm-matrix` + `hadamard-matrix`）、`voltage_runner.py`（`alt-voltage` / `full-voltage`）、`model_in_loop_session.py`（硬件 session 预检）、`offset_runner.py`（未注册）；专名 `slm_offset_runner` ×3 改为真实文件 `runners/slm/offset_runner.py`。注册口径以 `tests/ao_shaping/runners/test_cli_contract_freeze.py::EXPECTED_COMMANDS`（19 个已注册命令）为准；`hadamard-matrix` 2026-10-25 已注册（L738 已记，未动）。
+- 证据链：born-red（守卫三轮纠偏：ROOT 深度、树切片边界、子串假消解）单条信息点名 6 个未消解路径 + 4 个漏登文件 + 树 9 个 sentinel 全缺；`optimizer/` 路径消解测试首跑即绿（正面锁定零漂移）；control 首版曾假绿——删树内 `matrix_runner.py` 行后 `zernike_matrix_runner.py` 仍以子串满足两条匹配，守卫两侧匹配改负向后视 `(?<![A-Za-z0-9_])` 后同一 control 正确变红（双断言正中）→ `cmp` 逐字节还原 → 再绿；ruff clean。
+- gates 与教训：term gate 合计 0；ledger parity 87 条 / 13 已知；provenance `--check` clean。教训三则：子串匹配两侧皆坑——提及覆盖与树 sentinel 都会被长名吞并（`matrix_runner.py` ⊂ `zernike_matrix_runner.py`），守卫与 control 都必须用负向后视 `(?<![A-Za-z0-9_])` 限定名边界（本条 control 首版假绿即实证）；守卫 `ROOT` 深度按自身嵌套定（`tests/ao_shaping` 直下 = `parents[2]`，进一层子包 = `parents[3]`），容器挂载下首跑 `FileNotFoundError` 顶格暴露；顶层总览树本就是缩略视图——只做 phantom/sentinel + basename 覆盖检查，不做 drivers 式逐名全镜像，强镜像必然满屏假红。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

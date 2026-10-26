@@ -45,11 +45,26 @@ AO-shaping/
 │   ├── ao_shaping/          # Main package
 │   │   ├── main.py              # CLI entry point (Click-based)
 │   │   ├── runners/             # Runner scripts package
-│   │   │   ├── __init__.py     # Re-exports for backward compatibility
-│   │   │   ├── wf_runner.py         # Wavefront RMS optimizer
-│   │   │   ├── axis_beam_runner.py  # PIB optimizer
-│   │   │   ├── pipeline_runner.py   # Serial WF→PIB pipeline
-│   │   │   └── zernike_matrix_runner.py  # Zernike response matrix
+│   │   │   ├── __init__.py          # 惰性 re-export (_LAZY_RUNNERS / R-27, PEP-562)
+│   │   │   ├── runner_common.py     # 共享辅助 (resolve_dm / patch_sim_*_shaping)
+│   │   │   ├── matrix_runner.py     # dm-matrix + hadamard-matrix (DM 响应矩阵标定)
+│   │   │   ├── zernike_search_runner.py  # ga-zernike
+│   │   │   ├── nlight_dm/           # DM 家族 runners
+│   │   │   │   ├── wf_runner.py         # Wavefront RMS optimizer
+│   │   │   │   ├── axis_beam_runner.py  # PIB optimizer
+│   │   │   │   ├── pipeline_runner.py   # Serial WF→PIB pipeline
+│   │   │   │   └── combined_runner.py   # AdaMOD+SPGD 混合 PIB (legacy)
+│   │   │   ├── micro_drive/         # R50Power (Micro-DM) 电压驱动
+│   │   │   │   └── voltage_runner.py    # alt-voltage / full-voltage
+│   │   │   └── slm/                 # SLM 光路 runners
+│   │   │       ├── slm_shaping_runner.py    # slm-pib 命令组 (spgd / heuristic / square)
+│   │   │       ├── gsnet_runner.py          # slm-gsnet
+│   │   │       ├── gs_refine_runner.py      # slm-gs-refine
+│   │   │       ├── model_in_loop_runner.py  # slm-model-in-loop
+│   │   │       ├── model_in_loop_session.py # 硬件 session 预检 (入射定位 / 曝光)
+│   │   │       ├── rms_zernike_runner.py    # rms-zernike
+│   │   │       ├── zernike_matrix_runner.py # zernike-matrix + closed-loop
+│   │   │       └── offset_runner.py         # 未注册 (计划迁 tools/slm/)
 │   │   ├── algorithm/            # Optimization algorithms (Adam, SGD, etc.)
 │   │   ├── drivers/              # Hardware drivers (see drivers/AGENTS.md)
 │   │   │   ├── ccd/              # Cameras (Daheng, MiiCam)
@@ -112,7 +127,7 @@ AO-shaping/
 | Simulation | `src/ao_shaping/drivers/sim/` | Digital twin devices |
 | **2f 数字孪生（可复用）** | `src/ao_shaping/drivers/sim/bench_twin.py` | 参数化 2f 实验系统：把物理非理想因素注入传播链 —— SLM 的 LUT 非线性+量化、面板静态相差（Zernike+粗糙度）、装调（相机离焦/光路倾斜/透镜像差）。口径=瞳面区域→CCD 远场（与 region/padding/像元标度约定一致），默认全零误差=理想系统。与既有 `slm_pib_sim.py`（面板级 FFT 仿真）、`fouriergsnet_env.py`（带真实 λ/f/像元节距的傅里叶环境）并存，互不替代 |
 | Utilities | `src/ao_shaping/utils/{io,image,wavefront,slm}/` + root `cli_params.py` | 4 子包: io/, image/, wavefront/, slm/ (spots_calc, wavefront_calc, zernike_calc, display 等) + 零导入叶子 `cli_params.py` |
-| Standalone runners (未注册) | `src/ao_shaping/runners/` | `slm_offset_runner` 计划迁移至 `tools/slm/`。⚠️ `slm_shaping_runner` **曾经**在此列 (2026-10-05 前它未注册); 现以 `slm-pib` **命令组**注册（子命令 `spgd` / `heuristic` / `square`）；⚠️ 无 `spgd-square` 顶层命令 ⇒ 写 `slm-pib square` |
+| Standalone runners (未注册) | `src/ao_shaping/runners/` | `runners/slm/offset_runner.py` 计划迁移至 `tools/slm/`。⚠️ `slm_shaping_runner` **曾经**在此列 (2026-10-05 前它未注册); 现以 `slm-pib` **命令组**注册（子命令 `spgd` / `heuristic` / `square`）；⚠️ 无 `spgd-square` 顶层命令 ⇒ 写 `slm-pib square` |
 | ML training | `src/ml/` (standalone, not inside `ao_shaping/`) | U-Net+GAN, trainer, wandb_logger |
 | 硬件相位→相机图像 DataLoader | `src/ml/hwdataset/` | `data/debug` 全量转 PyTorch Dataset: 输入=SLM 相位+曝光, 输出=CCD 画面 (见 `硬件调试转 Dataset` 节) |
 | **Zernike 系数→远场强度 Dataset** | `src/ml/hwdataset/zernike_dataset.py` | 输入=136 维 Noll 序系数 (弧度), 输出=归一化远场强度; **绕过 `materialise()` 的瞳面重建**, 实测 136 → 10.5 ms/item 且输出逐位一致 |
@@ -213,15 +228,15 @@ New optimizers added to `src/ao_shaping/algorithm/` MUST follow the class-based 
 ```
 CLI (main.py Click 命令)
   │
-  ├─ wf ──────────────→ runners/wf_runner.py ──→ optimizer/wf/rms.py:optimizer_rms_dm() ──→ algorithm: Adam/AdaMOD
-  ├─ pib ─────────────→ runners/axis_beam_runner.py ──→ optimizer/wfless/pib.py:optimize_pib() ──→ algorithm: AdaMOD/Adam/SGD/Muno
-  ├─ pipeline ────────→ runners/pipeline_runner.py ──→ optimizer/wf/rms.py:optimizer_rms_dm() + wfless/pib.py ──→ algorithm: Adam/AdaMOD
-  ├─ zernike-matrix ──→ runners/zernike_matrix_runner.py ──→ optimizer/wf/zernike_response_matrix.py ──→ (标定)
-  ├─ rms-zernike ────→ runners/rms_zernike_runner.py ──→ optimizer/wf/rms_by_zernike.py ──→ algorithm: Adam/AdaMOD
+  ├─ wf ──────────────→ runners/nlight_dm/wf_runner.py ──→ optimizer/wf/rms.py:optimizer_rms_dm() ──→ algorithm: Adam/AdaMOD
+  ├─ pib ─────────────→ runners/nlight_dm/axis_beam_runner.py ──→ optimizer/wfless/pib.py:optimize_pib() ──→ algorithm: AdaMOD/Adam/SGD/Muno
+  ├─ pipeline ────────→ runners/nlight_dm/pipeline_runner.py ──→ optimizer/wf/rms.py:optimizer_rms_dm() + wfless/pib.py ──→ algorithm: Adam/AdaMOD
+  ├─ zernike-matrix ──→ runners/slm/zernike_matrix_runner.py ──→ optimizer/wf/zernike_response_matrix.py ──→ (标定)
+  ├─ rms-zernike ────→ runners/slm/rms_zernike_runner.py ──→ optimizer/wf/rms_by_zernike.py ──→ algorithm: Adam/AdaMOD
   ├─ ga-zernike ─────→ runners/zernike_search_runner.py ──→ optimizer/wf/ga_zernike.py ──→ algorithm: GA
   ├─ slm-pib ─────────→ runners/slm/slm_shaping_runner.py ──→ optimizer/wfless/slm_zernike_pib.py ──→ algorithm: Adam/AdaMOD/GA/PSO…
   ├─ slm-pib square ──→ runners/slm/slm_shaping_runner.py (square 子命令) ──→ optimizer/wfless/slm_square_shaping.py ──→ algorithm: SPGD (同名 click 组)
-  └─ combined ────────→ runners/combined_runner.py ──→ optimizer/combined_optimizer.py ──→ algorithm: AdaMOD/SPGD
+  └─ combined ────────→ runners/nlight_dm/combined_runner.py ──→ optimizer/combined_optimizer.py ──→ algorithm: AdaMOD/SPGD
 
 runners/       硬件编排层  — Click CLI, 设备生命周期 (open/close), 结果保存
 optimizer/     策略实现层  — 优化流程编排, 硬件状态管理, 调用 algorithm 更新参数
@@ -248,7 +263,7 @@ algorithm/     算法基础层  — 纯数学优化器 (update/grad), 无硬件�
 | 类型 | 说明 |
 |------|------|
 | 已注册 CLI 命令 | main.py 注册 **19** 个命令（逐个 `cli.add_command`，见 `main.py` 的 `# Register subcommands` 段；名单由 `tests/ao_shaping/runners/test_cli_contract_freeze.py::EXPECTED_COMMANDS` 冻结），见 Entry Points 节 |
-| 独立 Runner (未注册) | 需直接运行 `python -m ao_shaping.runners.<name>` 或 standalone 脚本; `slm_offset_runner` 计划迁移至 `tools/slm/`。⚠️ `slm_shaping_runner` **曾经**在此列 (2026-10-05 前它未注册); 现以 `slm-pib` **命令组**注册（子命令 `spgd` / `heuristic` / `square`）；⚠️ 无 `slm-pib` 之外的 `spgd-square` 顶层命令 ⇒ 写 `slm-pib square` |
+| 独立 Runner (未注册) | 需直接运行 `python -m ao_shaping.runners.<name>` 或 standalone 脚本; `runners/slm/offset_runner.py` 计划迁移至 `tools/slm/`。⚠️ `slm_shaping_runner` **曾经**在此列 (2026-10-05 前它未注册); 现以 `slm-pib` **命令组**注册（子命令 `spgd` / `heuristic` / `square`）；⚠️ 无 `slm-pib` 之外的 `spgd-square` 顶层命令 ⇒ 写 `slm-pib square` |
 
 ### 共享辅助
 
@@ -734,7 +749,7 @@ main (click.group)                                  # 19 个命令，逐个由 c
 **Note:** `combined` 命令仍注册于 main.py（cli.add_command(combined_run, name="combined")）且功能可用, 作为 legacy 保留。`pipeline_runner.py` 是推荐的 WF→PIB 串行方案。
 
 > **未注册到 main.py 的独立 Runner** (需直接运行 `python -m ao_shaping.runners.<name>` 或 standalone 脚本):
-> `slm_offset_runner` (计划迁移至 `tools/slm/`)。
+> `runners/slm/offset_runner.py` (计划迁移至 `tools/slm/`)。
 > ⚠️ `hadamard_matrix_runner` 曾在此列并标注「正在注册」—— 2026-10-25 实测**已注册**（cli.add_command(hadamard_matrix_run, name="hadamard-matrix")，已进入 `EXPECTED_COMMANDS` 与 help golden），故移出本行。
 > ⚠️ `slm_shaping_runner` 曾列于此 (2026-10-05 前未注册), 现以 `slm-pib` **命令组**注册（其 `square` 子命令即方形整形）。
 
@@ -1153,7 +1168,7 @@ VS Code settings in `.vscode/settings.json` (machine-local, untracked) set PYTHO
 | Assuming the 0-order spot sits at the camera frame center | In the 2f Fourier bench the optical axis (0-order = frame **global maximum**) lands at the camera center only by luck. Observed: frame center (1344,760) vs 0-order spot (1441-1443, 705-706). Always locate 0-order by `argmax`, never by geometry. |
 | diff-shaping 硬件闭环挂起（日志止于 `成功打开SLM #1`） | 2026-09-08 实测 (与相机无关): SLM open() 成功后, 首次 `camera.get_numpy_image()` 前无任何日志输出即无限阻塞 (900s 超时被强杀; 分步探针脚本同挂)。`WaitImageV3` 的原生等待由 SDK 内部驱动, 不受 Python 侧超时保护。处置: 强杀后先确认无残留 python 进程 (Get-Process python*)；重跑前 SLM memory 模式 open() 若超过数秒无日志, 对 SLM 控制器物理断电重置 (与 DVI 挂起同一处置)。故障排查与处置记录见 `report/slm/slm_shaping_diff/readme.md`（该条目当时引用的 `diff_shaping_runner.py` 已在 `fbef1926` 删除，仅存回归测试 `tests/ao_shaping/runners/test_diff_shaping_runner.py`；挂起结论本身仍然成立）。 |
 | Generating SLM phase via **min-max normalisation** | It **min-max normalises** the phase (`(p-pmin)/(pmax-pmin)*1023`) instead of `mod 2π` radians→grayscale, making the pattern **scale-invariant** (coefficients ×1 and ×4 produce byte-identical patterns; verified `np.array_equal == True`). Always convert radian phase through the SLM driver `slm.create_phase_from_array()` (2π=993 + wavefront correction + LUT). See `README.md`. ⚠️ 历史例子: `PatternHelper._zernike_to_uint16` 与 `ZernikeDM.generate_phase` —— **两者已于 2026-09 修复/删除**, 本行保留为反模式记录。 |
-| **`ZernikeDM.generate_phase` min-max normalises the phase** (same anti-pattern, still live) | `drivers/dm/zernike_dm.py:106-129` does `(raw−min)/(max−min)` then `×2π` (rad) / `×max_val` (gray) → output is **scale-invariant**: coefficients ×1 and ×4 give **byte-identical** phases (verified `np.array_equal == True`, PV always 2π). Since `ZernikeSLM.send_zernike` routes through it, **the Zernike coefficient amplitude is uncontrollable** for every consumer (`zernike-matrix`, `rms-zernike`, `ga-zernike`, `greedy-zernike`, `runners/zernike_matrix_runner.py`, `runners/rms_zernike_runner.py`, `gui/zernike/`). Fix: drop the normalisation (treat coefficients as radians) — note this intentionally changes those callers' behaviour. See `report/slm/report2.md` §2.3. |
+| **`ZernikeDM.generate_phase` min-max normalises the phase** (same anti-pattern, still live) | `drivers/dm/zernike_dm.py:106-129` does `(raw−min)/(max−min)` then `×2π` (rad) / `×max_val` (gray) → output is **scale-invariant**: coefficients ×1 and ×4 give **byte-identical** phases (verified `np.array_equal == True`, PV always 2π). Since `ZernikeSLM.send_zernike` routes through it, **the Zernike coefficient amplitude is uncontrollable** for every consumer (`zernike-matrix`, `rms-zernike`, `ga-zernike`, `greedy-zernike`, `runners/slm/zernike_matrix_runner.py`, `runners/slm/rms_zernike_runner.py`, `gui/zernike/`). Fix: drop the normalisation (treat coefficients as radians) — note this intentionally changes those callers' behaviour. See `report/slm/report2.md` §2.3. |
 | **Mixing units across the WFS→SLM correction loop** | The WFS `get_zernike()` returns **µm**; the response matrix must be built in the **same unit** as the correction's `w` (λ). Two real bugs (2026-09-16): matrix built in µm vs `w` in λ → coefficients inflated **1/0.532 = 1.88×**; and the solved coefficients are in **λ (waves)** but `make_phase`/`generate_zernike_polynomial` take **radians** → applied phase shrunk **2π = 6.28×**. Both fixed → closed-loop RMS improvement 13.8% → **42.1%**. Always route through the canonical `utils/wavefront/zernike_utils.py::um_to_waves`（`tools/zernike/common.py:36` 只做 re-export，并注明 canonical 在 zernike_utils；原写法指向的 `tools/slm/slm_zernike_common.py` 已不存在，2026-10-25 实测） and multiply λ→rad by `2π` before `make_phase`. See `report/slm/report2.md` §0. |
 | **Full-frame centre leaking into window-local metrics** (`slm_zernike_pib.py`) | `cam.reset_window(...)` returns the window centre in **full-frame sensor coordinates**, but every downstream metric (`rms_pib_terms`, `ImageTargetFunc.radius`, `spot_waist_sigma`, `reference_center`) operates on the **re-windowed** image and needs **window-local** coordinates. Hardware-verified bug (2026-09-23): the runner's `-c auto` probe locates the 0-order on the un-windowed camera (e.g. (633,934) on 1944×2592) → optimizer used it directly as window-local → every metric read **0** (pib=0, r_bucket pinned at 0.9 = 1px radius × shrink 0.9) across the whole heuristic matrix. Fix: after capturing the re-windowed `init_img`, re-locate `reference_center = zero_order_center(init_img)` and use `reference_center` (NOT the post-`reset_window` `center`) for the r-bucket radius too (L1396/L1441). Rule: whenever a centre is handed to a metric/ROI builder, verify which coordinate frame it belongs to first. |
 | Square shaping with low-order Zernike (n≤4) | Zernike modes are a **circularly symmetric smooth** basis; they physically cannot synthesise a square far-field (needs 2D-sinc-like near field / high spatial frequencies). Use full-pixel phase freedom (GS / differentiable / free-form), not Zernike. |
