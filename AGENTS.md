@@ -199,12 +199,12 @@ New optimizers added to `src/ao_shaping/algorithm/` MUST follow the class-based 
 | 子包 | 内容 | 说明 |
 |------|------|------|
 | `gradient/` | `adam`, `acceleration` | 梯度优化器 |
-| `heuristic/` | `ga`, `pso`, `sa`, `hc`, `rs`, `cem`, `de` | 无梯度启发式搜索 |
-| `signal_processing/` | `gerchberg_saxton`, `phase_wrap`, `controller`, `iterative_base`, `differentiable_beam`, `differentiable_shaping`, `beam_shaping_utils`, `wavefront`, `beam_shaping_benchmark` | 相位恢复/控制律/可微分整形 |
-| `tabu/` | Tabu 搜索 | 禁忌搜索 |
-| `goal_functions/` | `target_func`, `image_metrics` | 目标函数与图像质量指标 |
+| `heuristic/` | `heuristic_base`, `search`, `gm`, `ga`, `pso`, `simulated_annealing`, `hill_climbing`, `random_search`, `cross_entropy`, `differential_evolution` | 无梯度启发式搜索; 注: 原行的 `sa`/`hc`/`rs`/`cem`/`de` 为别名口径, 盘上这些名字自有史以来从未作为文件存在——盘上与全仓 import 皆用全名模块;`heuristic_base` 基类 / `gm` 引导变异 / `search` 共享黑盒驱动 (`heuristic_algorithm_choices`, runner_common 与多个 optimizer 流消费) 同样漏登 |
+| `signal_processing/` | `gerchberg_saxton`, `phase_wrap`, `controller`, `iterative_base`, `differentiable_beam`, `differentiable_shaping`, `beam_shaping_utils`, `wavefront`, `beam_shaping_benchmark`, `sim`, `iterative_zernike_shaping`, `zernike_coefficient_optimizer`, `angular_spectrum`, `square_shaping`, `uncertainty_probe_selector`, `differentiable_defocus_uniformity`, `multishape_objective`, `physical_forward_fit`, `defocus_forward_core` | 相位恢复/控制律/可微分整形; 补齐的 10 个模块各认其引入提交: `sim` (`1663614e`, 2026-09-18, 向量光束演示脚本, 反模式表已注记其应迁 `scripts/`, 本条只落册不动码), `iterative_zernike_shaping` (`04e6fc78`, 2026-09-29), `zernike_coefficient_optimizer` (`a94cadbb`, 2026-09-29), `angular_spectrum` (`c75aa3da`, 2026-10-09), `square_shaping` (`4edc8b84`, 2026-10-11), `uncertainty_probe_selector` (`080e0ac9`, 2026-10-16), `differentiable_defocus_uniformity` (`fe0f98b2`, 2026-10-23), `multishape_objective` 与 `physical_forward_fit` (`6a5e1067`, 2026-10-23), `defocus_forward_core` (`edbad379`, 2026-10-25, issue #199 step 4) |
+| `tabu/` | `tabu_search` | 禁忌搜索 |
+| `goal_functions/` | `target_func` | 目标函数与图像质量指标; 行内原列的 `image_metrics` 为幻影 token: 文件从未存在 (git `--follow` 零历史), 全仓 import 均走 `goal_functions.target_func` 的 `ImageTargetFunc` |
 
-> **注意**: top-level `algorithm/*.py` 文件是 *-re-export shims (向后兼容)。
+> **注意**: 顶层 `algorithm/` 现仅存 `__init__` 与 `base` (基类 `RegisteredBase`); 分包拆分带来的顶层 re-export shims 已于 `bbb3820b` (2026-09-20) 删除
 
 ---
 

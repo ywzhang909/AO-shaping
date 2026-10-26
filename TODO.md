@@ -3254,6 +3254,17 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     - **控制**：从 image 行临时删 `centroid` → 红且点名；cp 备份 + cmp 逐字节还原 → 再绿。
     - **验证**：守卫 2 passed；ruff（钉版 0.15.12）干净；术语门禁合计 0；provenance `--check` clean。
     - **范围**：两行文档补登 + 一条守卫推广，无源行为与导入面变化。
+84. ✅ **AGENTS.md 的 algorithm/ 子包表同款漂移：heuristic 行别名 token、signal_processing 行登 9 而盘上 19、tabu 行纯散文、goal_functions 行登从未存在的 image_metrics；四行逐一修正 + 守卫推广成九行套件**（2026-10-26）：
+    - **来路**：item 83 把 utils 四行钉死后，把同款探针推向 algorithm 子包表——`gradient/` 行干净 (2=2)，heuristic / signal_processing / tabu / goal_functions 四行形态各异的漂移；取证背书：cross_entropy/simulated_annealing 等 8 个全名模块全仓 import 均用全名，`image_metrics` 在 git 历史零出现，10 个 signal_processing 模块人人带引入提交。
+    - **修 heuristic 行**：模块格 7 个别名 token → 10 个真模块，注解格落别名消歧 + `heuristic_base`/`gm`/`search` 补登说明（基类 / 引导变异 / 共享黑盒驱动 `heuristic_algorithm_choices`）。
+    - **修 signal_processing 行**：模块格 9 → 19，注解格逐 module 落引入提交：`sim`、`iterative_zernike_shaping`、`zernike_coefficient_optimizer`、`angular_spectrum`、`square_shaping`、`uncertainty_probe_selector`、`differentiable_defocus_uniformity`、`multishape_objective`、`physical_forward_fit`、`defocus_forward_core`（2026-09-18 ~ 2026-10-25，issue #199 相关 batch）；`sim.py` 为向量光束演示，反模式表已注记应迁 `scripts/`——本条只落册，代码迁移另立条目。
+    - **修 tabu row 行**：纯散文模块格 "Tabu 搜索" 改 `tabu_search`（582 LOC，该子包唯一模块）。
+    - **修 goal_functions 行**：删幻影 `image_metrics`（文件从未存在，`--follow` 零历史；import 全走 `goal_functions.target_func` 的 `ImageTargetFunc`），改 `target_func` + 注解格说明。
+    - **入门注解重写**：L207 老 note「top-level `algorithm/*.py` 是 *-re-export shims」早已过时——顶层现仅存 `__init__` 与 `base`，顶层 shims 已于 `bbb3820b`（2026-09-20, "Refactor imports to align with new module structure"）删除，改写成现口径。
+    - **守卫推广**：`tests/ao_shaping/test_wavefront_inventory_doc.py` 的 SUBPACKAGES 4 → 9 行（utils/io|image|wavefront|slm + algorithm/gradient|heuristic|signal_processing|tabu|goal_functions），一律双色断言（行存在自检 / 行格与目录 stem 双向精确相等）后再收集成单条 diff 信息。
+    - **先红后绿**：推广守卫在修行之前运行即红，一条信息同时点名四行差集（heur 缺 8 / 多 5 别名，sp 缺 10，tabu 缺 1，gf 多 1 幻影）；四行修齐后转绿；控制：从 heuristic 行临时删 `cross_entropy` → 红点名；cmp 逐字节还原 → 再绿。
+    - **验证**：守卫 2 passed；ruff（钉版 0.15.12）干净；术语门禁合计 0；provenance `--check` clean；PAR 计数本条为 84。
+    - **范围**：algorithm 表 4 行文档修正 + 1 行注解重写 + 守卫推广，无源行为 / 导入面变化；`sim.py` 迁 `scripts/` 属代码重构，另立条目。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

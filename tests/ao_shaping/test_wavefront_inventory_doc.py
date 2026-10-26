@@ -1,18 +1,21 @@
-"""Pin AGENTS.md's utils/ subpackage inventory rows to their directories.
+"""Pin AGENTS.md's inventory table rows to their on-disk subpackages.
 
-Four utils subpackage rows in AGENTS.md's utils table document every
-module with a dated provenance annotation and are the discovery surface
-later censuses rely on (TODO 8.9 items 82/83): the wavefront row
-drifted after the issue #204 batch added ``link_design`` (13 listed,
-14 on disk), and the io/image rows drifted the same way after the
-single-sourcing batches added ``recorder_keys`` (``1a11e60e``) /
-``npz_summary`` (``d14d9dc0``) / ``centroid`` (``124444e6``).  The
-guard pins each names cell to the actual directory listing in both
-directions: a module without a row entry, or a row entry without a
-module, both fail loudly naming the diff.  A `` `name` (+ note)``
-decoration maps to ``name`` -- the image row uses that grammar to
-track the ``target/`` subpackage directory alongside the ``targets``
-module.  Text-only: no source imports.
+Two table families in AGENTS.md document every module with a dated
+provenance annotation and are the discovery surface later censuses rely
+on (TODO 8.9 items 82/83/84): the utils rows and the algorithm
+subpackage rows.  Both drifted: the wavefront row missed
+``link_design`` (items 82), the io/image rows missed
+``recorder_keys``/``npz_summary``/``centroid`` (item 83), and the
+algorithm table drifted harder still (item 84) -- the heuristic row
+used alias tokens for module names that never existed as files, the
+signal_processing row missed 10 modules, the tabu row was bare prose,
+and the goal_functions row listed a phantom ``image_metrics`` that
+never entered git history.  The guard pins each names cell to the
+actual directory listing in both directions: a module without a row
+entry, or a row entry without a module, both fail loudly naming the
+diff.  A `` `name` (+ note)`` decoration maps to ``name`` (the image
+row uses that grammar to track the ``target/`` subpackage directory).
+Text-only: no source imports.
 
 ``utils/cli/`` has no table row by design -- it is documented in its
 own red-line section, and the guard deliberately does not force one.
@@ -29,11 +32,16 @@ SUBPACKAGES = {
     "utils/image/": ROOT / "src/ao_shaping/utils/image",
     "utils/wavefront/": ROOT / "src/ao_shaping/utils/wavefront",
     "utils/slm/": ROOT / "src/ao_shaping/utils/slm",
+    "gradient/": ROOT / "src/ao_shaping/algorithm/gradient",
+    "heuristic/": ROOT / "src/ao_shaping/algorithm/heuristic",
+    "signal_processing/": ROOT / "src/ao_shaping/algorithm/signal_processing",
+    "tabu/": ROOT / "src/ao_shaping/algorithm/tabu",
+    "goal_functions/": ROOT / "src/ao_shaping/algorithm/goal_functions",
 }
 
 
 def _row_cells(label: str) -> list[str]:
-    """The three non-empty pipe cells of one utils row."""
+    """The three non-empty pipe cells of one inventory row."""
     anchor = f"| `{label}` |"
     text = AGENTS.read_text(encoding="utf-8")
     rows = [l for l in text.split("\n") if l.startswith(anchor)]
@@ -58,7 +66,8 @@ def test_source_layout_is_where_this_file_assumes() -> None:
         assert pkg.is_dir(), (label, pkg)
 
 
-def test_utils_inventory_rows_match_directories() -> None:
+def test_inventory_rows_match_directories() -> None:
+    """One unified diff message across all pinned rows keeps born-red legible."""
     diffs = []
     for label, pkg in SUBPACKAGES.items():
         stems = sorted(p.stem for p in pkg.glob("*.py") if p.stem != "__init__")
@@ -70,6 +79,6 @@ def test_utils_inventory_rows_match_directories() -> None:
                 f"{label}: missing from row {missing}, in row but not on disk {extra}"
             )
     assert not diffs, (
-        "AGENTS.md utils inventory rows drifted from the directories:\n"
+        "AGENTS.md inventory rows drifted from the directories:\n"
         + "\n".join(diffs)
     )
