@@ -372,6 +372,64 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 
 尾注：`targets.py` 是 compat shim（其 docstring 的叶子枚举已过时——写了并不存在的 `metrics`、缺 `geometry`/`masks`/`shapes` 三个盘面叶），代码级 docstring 修正另行条目；`target/` 包消费方为 5 个 wfless 优化器与 `slm_shaping_runner`。
 
+## tools/ 模块逐名登记 (2026-10-26 普查)
+
+86 个模块逐一对照本文件叙述：名面（`name.py` 全名）未列 58 个 —— 46 个真零提及 + 12 个 stem 命中（4 个真命中：`floor_probe` / `abba_probe` 见 io 行收拢注记、`lut_runner` 见注册映射树、`panel_locate` 见 `cli/exposure` 行注记；3 个 `__main__.py` 通用 token 按同 `__init__.py` 的 floor 合同通过；4 个撞普通词假命中：`bootstrap` / `probes` / `response` / `simulation`；1 个特例 `calibration.py` 只被包目录路径串 `tools/slm/calibration/` 命中）。46 真缺 + 4 假命中 + `calibration.py` 共 51 行补录如下；全量覆盖由守卫 `tests/ao_shaping/test_tools_doc_coverage.py` 锁定（token 合同同 `utils/` 守卫）。
+
+| 位置 | 模块 | 职责 (docstring 原句或类面) |
+|---|---|---|
+| 顶级 | `train_data_collect.py` | DM+WFS 训练数据采集器 (无 docstring; 由 `slm/calibration/train_data_collect.py` 的对标句背书) |
+| `ccd/` | `drift_probe.py` | 平场漂移 + 曝光阶梯探针 (SLM 2f 实验系统, 一次运行回答两个问题) |
+| `ccd/` | `exposure_check.py` | 相机是否真在手动曝光及其漂移检查 (实验系统工具而非库) |
+| `ccd/` | `short_exposure_probe.py` | 短曝光固定相位探针 (raw 帧 + 曝光读回) |
+| `kernels/` | `bench_kernels.py` | SLM 实验系统共享测量核 (由 `slm_bench_probe` 等多个先行探针模块合并) |
+| `kernels/` | `device_mutex.py` | 设备互斥锁: 谁占着设备从猜测变为可判定 (2026-10-22 实测事故驱动) |
+| `kernels/` | `sweep_analysis.py` | SLM Zernike 扫描的共享扫描/扫描分析助手 (多模块合并) |
+| `micro_dm/` | `micro_dm_image_collect.py` | Micro-DM 逐单元图像采集: 遍历多台 R50Power 控制器 (按 IP) 逐通道下发电压并以 MiiCam/Daheng 采集 |
+| `slm/` | `analyze_disturbance.py` | 光轴按各平场冻结后重算配对运行指标 |
+| `slm/` | `bench_twin_calibrate.py` | 数字孪生参数反演标定 (复用 `drivers.sim.bench_twin` 的 2f 孪生核心, 上层反向拟合) |
+| `slm/` | `compare_disturbance.py` | 固定 SLM 像差下的 GS-refine / model-in-loop 配对比较 |
+| `slm/` | `gs_refine_replay.py` | 就一个运行目录交错重放 GS-refine 相位 |
+| `slm/` | `model_in_loop_replay.py` | 两个已存 model-in-loop 相位的交错 CCD 重放 |
+| `slm/` | `model_in_loop_summary.py` | 单个 model-in-loop 会话的离线免相机复盘 |
+| `slm/` | `replay_disturbance.py` | 四个已存比较相位的交错定曝光 CCD 重放 |
+| `slm/calibration/` | `calibration.py` | SLM 标定工具包 (单文件合并版): 2026-09 由 3 来源合并 (含 `drivers/slm/slm_calibration` 的相位-灰度响应标定) |
+| `slm/calibration/` | `gray_response.py` | SLM 灰度→相机最大亮度响应采集 (出响应曲线图) |
+| `slm/calibration/` | `phase_capture.py` | SLM 随机相位 (湍流屏/Zernike) + Daheng/MiiCam 画面三路采集 |
+| `slm/calibration/` | `train_data_collect.py` | 面向 `ml/hwdataset` 语料的 SLM+CCD 训练数据采集器 |
+| `slm/cartographer/` | `cosine_pattern.py` | SLM Hartmann 标定的中心 cosine 灰度图样生成 |
+| `slm/cartographer/` | `dynamic_compensation.py` | 按实测 SLM 相位响应做动态像差补偿 |
+| `slm/cartographer/` | `hartmann_capture.py` | Hartmann-Shack 光斑场采集 + 质心跟踪 (Thorlabs WFS) |
+| `slm/cartographer/` | `phase_grayscale_lut.py` | 以中心 cosine 图样标定相位→灰度 LUT |
+| `slm/cartographer/` | `slm_cartographer_ui.py` | SLM Hartmann 标定 + 动态像差补偿的 Streamlit UI |
+| `slm/cartographer/` | `wavefront_reconstruction.py` | 由稀疏质心位移做傅里叶波前重建 |
+| `slm/panel/` | `alignment_probe.py` | 定位 CCD 光斑前先测焦距与两处彗差校正 (复用 canonical Fresnel 扫描) |
+| `slm/panel/` | `beam_extent.py` | 在面板上按边界扫描测光束中心与半径 |
+| `slm/panel/` | `bench_fingerprint.py` | 标定后光路是否变过——实测指纹比对而非假定 |
+| `slm/panel/` | `display_state.py` | 探针借用临时存储槽期间保全 SLM 显示状态 |
+| `slm/panel/` | `focus_preflight.py` | 采集前置阶段: 焦面(离焦)补偿 + 去转向自标切 (2f 实验系统 CCD 常驻离焦) |
+| `slm/panel/` | `focus_probe.py` | 找回把探测器拉回焦面的 Fresnel 焦长 |
+| `slm/panel/` | `phase_resolution.py` | 面板能否施加像素尺度相位——对照平滑模式判定 |
+| `slm/panel/` | `phase_response.py` | SLM 相位→CCD 响应探针 (核对相位图案确实作用于光) |
+| `slm/panel/` | `probe_policy.py` | 面板探针族共享的固定预算采集策略 (`beam_extent`/`panel_locate` 各持一策略) |
+| `slm/panel/` | `session_profile.py` | 会话级实验系统配置校验与按需重建 (2026-10-23 实测事故驱动) |
+| `slm/panel/` | `target_size.py` | 方形目标边长自动标定与推荐 (过小则零级能量堆中心/散斑) |
+| `slm/panel/` | `tilt_probe.py` | 以 SLM 倾斜给出面板是否真在调制的判定性证据 |
+| `slm/transfer/` | `blur.py` | 用实测形状标定等效模糊/辐射度量 (带形状族验证) |
+| `slm/transfer/` | `bootstrap.py` | 由新鲜 signed-ramp 采集建名义物理检查点 (零设备 import) |
+| `slm/transfer/` | `capture_response.py` | 交错定相位曝光响应采集, 保留每一帧 (需显式执行旗标) |
+| `slm/transfer/` | `direction.py` | 已存相位上的全局模型 vs 实测锚点方向性目标比较 |
+| `slm/transfer/` | `paired.py` | 定曝光配对判定 (带显式实测验收指标) |
+| `slm/transfer/` | `probes.py` | 确定性相位族 + canonical Zernike 求值 |
+| `slm/transfer/` | `response.py` | 固定 CCD 网格上的照明曝光响应拟合与独立校验 |
+| `slm/transfer/` | `simulation.py` | 生成已知真值的线性相机探针, 供免设备迁移测试 |
+| `slm/transfer/` | `summary.py` | 免开设备的配对实验运行汇总 |
+| `wfs/` | `wfs_probe.py` | SLM+WFS 光强与瞳面探针 — 标定前硬件状态检查 (光强是否足够且不饱和) |
+| `wfs/` | `wfs_reference.py` | SLM+WFS 参考波前标定与倾斜线性度 (三步流程) |
+| `wfs/` | `zernike_correction.py` | SLM Zernike 模式法波前矫正三阶段流程 (2026-09-15, 按实测调优) |
+| `wfs/` | `zernike_response.py` | SLM Zernike 模式→WFS 读数响应矩阵标定 (各模式 ±A 推拉) |
+| `zernike/` | `sweep_probe.py` | Smooth-Zernike 扫描探针: 以稳定读数采实验系统响应曲线 |
+
 ## Zernike 使用规范 (canonical 入口 — 禁止重复实现)
 
 > **单一事实源**: 全项目所有 Zernike 纯数学 (模式枚举 / 索引换算 / 相位生成 / 系数解析 / 单位换算) 统一走 `utils/wavefront/` 两层。**任何脚本、runner、tools、GUI、optimizer 不得自行实现** Noll↔(n,m) 查表、Zernike 多项式求值或相位生成 (2026-09 去重重构, 此前散落在 `gui/slm/`、`optimizer/wfless/`、`tools/slm/` 的重复实现已全部收敛)。详见 README `## Zernike 使用指南`。

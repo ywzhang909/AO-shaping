@@ -3302,6 +3302,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 登记不行动：`targets.py` compat shim 的 docstring 叶枚举已过时（写了盘面不存在的 `metrics`、缺 `geometry`/`masks`/`shapes` 三叶）——代码级修正另行条目；`tools/` 家族普查（86 模块、约 47 个名面未列, `probes`/`response`/`simulation`/`bootstrap` 撞普通词的边界裁定）为下一 item 专办。
 - gates：TERM 合计 0 / 对账 89 条 13 violations（standing 不变）/ 溯源 clean；提交仅 `AGENTS.md` + `TODO.md` + 新守卫三文件。
 
+90. ✅ **tools/ 逐名叙述普查：86 模块名面未列 58——46 真零提及补录 + 4 撞词假命中 + 1 包路径 token 特例（51 行 11 分组表）+ 覆盖守卫落位**（2026-10-26）
+- 普查口径：合同与 89 同源——`name.py` 全名提及（负向后视 `(?<![A-Za-z0-9_])`）**或**裸干 stem token（词尾+点号排除 `(?![A-Za-z0-9_.])`）；`tools/` 全部 86 个 `.py` 中名面未列 58 = **46 真零提及**（顶级 1 / `ccd/` 3 / `kernels/` 3 / `micro_dm/` 1 / `slm/` 根 7 / `slm/calibration/` 3 / `slm/cartographer/` 6 / `slm/panel/` 12 / `slm/transfer/` 5 / `wfs/` 4 / `zernike/` 1）+ 12 个 stem 命中逐一裁定：4 真命中（`floor_probe`/`abba_probe` ← io 行收拢注记、`lut_runner` ← 注册映射树、`panel_locate` ← 89 轮 `cli/exposure` 行注记）、3 个 `__main__.py` 通用 token 按 `__init__.py` 前例 floor 通过、4 撞普通词假命中（`bootstrap` ← scripts 序言、`probes` ← env 注记、`response` ← UI 树、`simulation` ← drivers 树）、1 特例 `calibration.py` 只被包目录路径串 `tools/slm/calibration/` 命中（token 合同通过但非模块引用）。
+- 补录载体：AGENTS.md 新增 `## tools/ 模块逐名登记 (2026-10-26 普查)` 节——51 行 11 分组表（46 真零 + 4 假命中 + `calibration.py`；分组求和 1+3+3+1+7+4+6+12+9+4+1=51），插在 `## Zernike 使用规范` 之前（与 89 的 utils 表同锚邻接，锚 count==1 断言）。
+- 取证口径：51 行职责全部取自模块 docstring 原句改写；唯顶级 `train_data_collect.py` 无 docstring，由 `slm/calibration/train_data_collect.py` 的对标句背书（DM+WFS 训练数据采集器）——零猜测。
+- 链条（与 87/88/89 同型）：守卫 `tests/ao_shaping/test_tools_doc_coverage.py`（1 test，合同与深度 `ROOT=parents[2]` 同 89）born-red 恰 **46**（红名单与普查清单逐名一致）→ patch → 四守卫无回归 **8 绿**（新 1 + runners 4 + optimizer 1 + utils/display 2）→ control 删 `sweep_probe.py` 表行 → 恰 1 失败且点题同一模块 → `cmp` 逐字节还原 → 再绿 → ruff 干净。
+- 登记不行动：3 个 `__main__.py` 通用 token 通过按 floor 合同不单列；`slm/transfer/` 家族 docstring 本就极简（如 `summary.py` 仅一句配对汇总），职责行照录原文未扩写。
+- gates：TERM 合计 0 / 对账 90 条 13 violations（standing 不变）/ 溯源 clean；提交仅 `AGENTS.md` + `TODO.md` + 新守卫三文件。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
