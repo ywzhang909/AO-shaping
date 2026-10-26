@@ -1,4 +1,4 @@
-"""迁移模型闭环的运行进度明细：纯采集一层 + Streamlit 渲染一层。
+"""迁移学习闭环的运行进度明细：纯采集一层 + Streamlit 渲染一层。
 
 为什么单独一个模块
 ------------------
@@ -69,7 +69,7 @@ STAGE_LABELS: dict[str, str] = {
     "capture": "当前光路采集（探针 + 逐帧自动曝光）",
     "reuse_capture": "复用已有采集",
     "nominal_initialization": "名义模型初始化（冷启动，未标定）",
-    "fit": "物理模型迁移 / 拟合",
+    "fit": "物理预测模型迁移 / 拟合",
     "CCD_model_blocks": "CCD 模型配对块",
     "exposure_response_capture": "曝光阶梯诊断",
     "exposure_response_analysis": "曝光响应分析",
@@ -799,7 +799,7 @@ def render_progress(view: Mapping[str, Any], *, running: bool) -> None:
 
     stages = list(view.get("stages") or ())
     if not stages:
-        st.caption("迁移模型闭环：还没有阶段记录（尚未开始）。")
+        st.caption("迁移学习闭环：还没有阶段记录（尚未开始）。")
         return
     head, counts = _header(view, running)
     st.markdown(head)

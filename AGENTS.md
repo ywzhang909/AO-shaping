@@ -374,7 +374,7 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 
 ## tools/ 模块逐名登记 (2026-10-26 普查)
 
-86 个模块逐一对照本文件叙述：名面（`name.py` 全名）未列 58 个 —— 46 个真零提及 + 12 个 stem 命中（4 个真命中：`floor_probe` / `abba_probe` 见 io 行收拢注记、`lut_runner` 见注册映射树、`panel_locate` 见 `cli/exposure` 行注记；3 个 `__main__.py` 通用 token 按同 `__init__.py` 的 floor 合同通过；4 个撞普通词假命中：`bootstrap` / `probes` / `response` / `simulation`；1 个特例 `calibration.py` 只被包目录路径串 `tools/slm/calibration/` 命中）。46 真缺 + 4 假命中 + `calibration.py` 共 51 行补录如下；全量覆盖由守卫 `tests/ao_shaping/test_tools_doc_coverage.py` 锁定（token 合同同 `utils/` 守卫）。
+86 个模块逐一对照本文件叙述：名面（`name.py` 全名）未列 58 个 —— 46 个真零提及 + 12 个 stem 命中（4 个真命中：`floor_probe` / `abba_probe` 见 io 行收拢注记、`lut_runner` 见注册映射树、`panel_locate` 见 `cli/exposure` 行注记；3 个 `__main__.py` 通用 token 按同 `__init__.py` 的 floor 合同通过；4 个撞普通词假命中：`bootstrap` / `probes` / `response` / `simulation`；1 个特例 `calibration.py` 只被包目录路径串 `tools/slm/calibration/` 命中）。46 真缺 + 4 假命中 + `calibration.py` 共 51 行补录如下；全量覆盖由守卫 `tests/ao_shaping/test_tools_doc_coverage.py` 锁定（token 合同同 `utils/` 守卫）。**2026-10-26 复核**：上游合入 10 个新 transfer 模块（tools 总数 86 → 96），守卫当时恰红这 10 个，已一并登记，本表现共 61 行。
 
 | 位置 | 模块 | 职责 (docstring 原句或类面) |
 |---|---|---|
@@ -424,6 +424,16 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 | `slm/transfer/` | `response.py` | 固定 CCD 网格上的照明曝光响应拟合与独立校验 |
 | `slm/transfer/` | `simulation.py` | 生成已知真值的线性相机探针, 供免设备迁移测试 |
 | `slm/transfer/` | `summary.py` | 免开设备的配对实验运行汇总 |
+| `slm/transfer/` | `axial.py` | 已记录相位/CCD 对上的条件 ABCD 输入面扫描 (免设备; 拟合距离是相对冻结标称标定的有效修正, 非 SLM-透镜绝对距离) |
+| `slm/transfer/` | `camera_probe.py` | 不开 SLM 记录相机实际格式与原始精度 |
+| `slm/transfer/` | `cold_start.py` | 无训练整形种子 (无相位恢复、无历史检查点) |
+| `slm/transfer/` | `exploration.py` | 已记录的非单调 CCD 探索 (champion 单独保留) |
+| `slm/transfer/` | `geometric_seed.py` | 可分离辐照传输 + 拟合光学给出的非 GS 方形种子 |
+| `slm/transfer/` | `local_response.py` | 由已记录 signed CCD 相位探针标定局部 Jacobian 增益/模糊 |
+| `slm/transfer/` | `preflight.py` | 迁移模型闭环整形的启动前参数检查 (2026-10-26 实测: `empty target core` 报错实为载波周期参数问题而非几何问题) |
+| `slm/transfer/` | `progress.py` | 由增量实验记录离线出指标轨迹 (免设备) |
+| `slm/transfer/` | `radiometry.py` | 共享光学增益、辐照背景与曝光无关计数 |
+| `slm/transfer/` | `replay_phases.py` | 在共同原生位深与曝光下重放精确归档相位 |
 | `wfs/` | `wfs_probe.py` | SLM+WFS 光强与瞳面探针 — 标定前硬件状态检查 (光强是否足够且不饱和) |
 | `wfs/` | `wfs_reference.py` | SLM+WFS 参考波前标定与倾斜线性度 (三步流程) |
 | `wfs/` | `zernike_correction.py` | SLM Zernike 模式法波前矫正三阶段流程 (2026-09-15, 按实测调优) |

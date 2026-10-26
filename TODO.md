@@ -3318,6 +3318,13 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - #91 状态：代码级剩余清零。P2 的**实验系统复核**（issue 原文「再上实验系统复核后收口」）仍待设备在线；按「src >200 行不自动 close」的既定规则，issue 不因本轮改动关闭。
 - gates：TERM 合计 0 / 对账 91 条 13 violations（standing 不变）/ 溯源 clean；提交三文件（`combined_optimizer.py` + `pib_sim_eval.py` + 新守卫）。
 
+92. ✅ **上游 291 文件批量合入后的两处门禁失守收口：10 个新 transfer 模块补登记（tools 表 51→61 行）+ 19 文件 40 行术语残留经官方脚本统一**（2026-10-26）
+- 背景：item 91 rebase 时 `origin/master` 已前进到 `79a79b40`（上游一次 291 文件 / +36472 行的批量合入：SLM transfer 工作流、square1200 实验、sim2f GPU 路径等）。item 90 落下的 tools 覆盖守卫**当场咬红这 10 个新模块**——棘轮按设计工作，红名单与新增面逐名一致。
+- 补登记：`axial` / `camera_probe` / `cold_start` / `exploration` / `geometric_seed` / `local_response` / `preflight` / `progress` / `radiometry` / `replay_phases` 十行进 `### tools/ 模块逐名登记` 的 `slm/transfer/` 分组，职责全部取自模块 docstring 原句（含 `preflight.py` 的 2026-10-26 `empty target core` 实测注记：报错看似几何问题实为载波周期参数问题）；普查节引言补一行复核注记（tools 总数 86→96，本表 61 行）。
+- 术语残留：上游批次自带 **19 文件 / 40 行**非规范措辞（`物理模型→物理预测模型`、`迁移模型→迁移学习` 等已注册映射，散布 report/、`gui/slm/`、`scripts/`、tests）。按仓库流程走 `scripts/_common/term_unify_20261016.py --apply` 统一；逐行 diff 复核**只有措辞词替换**，数值 / 路径 / DOI / 引用逐字节保留。
+- 顺带确认：上游 `9857a377` 补上 PIB 退出安全校验脚本后，长期 standing 红 `test_registry_script_paths_exist[report/slm/pib_exit_safety/…]` **自然消解**——本轮 targeted 654 passed / 1 skipped，该失败不再出现。
+- 验证与链条：受影响测试面（transfer_preflight / transfer_progress GUI+tools + `test_report_provenance` + tools 守卫）**654 passed**；tools 守卫由红转绿；TERM 合计 0 / 对账 92 条 13 violations（standing 不变）/ 溯源 clean；ruff 五处改动文件干净。提交 = `AGENTS.md` + 20 个术语文件 + `TODO.md`。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
