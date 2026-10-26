@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: command
 tags: [command]
-source: src/ao_shaping/runners/nlight_dm/pipeline_runner.py:37
+source: src/ao_shaping/runners/nlight_dm/pipeline_runner.py:41
 ---
 
 ## 一句话
@@ -13,7 +13,7 @@ source: src/ao_shaping/runners/nlight_dm/pipeline_runner.py:37
 
 ## 入口函数
 
-`runners.nlight_dm.pipeline_runner.run`（`src/ao_shaping/runners/nlight_dm/pipeline_runner.py:37`）
+`runners.nlight_dm.pipeline_runner.run`（`src/ao_shaping/runners/nlight_dm/pipeline_runner.py:41`）
 
 ```python
 run(ctx, device, run, wfs_params)
@@ -72,7 +72,7 @@ run(ctx, device, run, wfs_params)
 
 与本页函数结构/职责相近的函数（相似度得分，来自 `build_similarity.py`；含义与阈值见 [[relations/similar-functions|相似函数总览]]）：
 
-- 0.444 — [[commands/wf|`run`]]（同名 `run`；共享 7 个被调函数（调用结构高度相似））
+- 0.336 — [[commands/wf|`run`]]（同名 `run`；共享 7 个被调函数（调用结构高度相似））
 
 
 ## 相关页面

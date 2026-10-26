@@ -2639,6 +2639,550 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
        `test_interaction_matrix_zernike.py` 合跑 **23 passed / 1 skipped**（该 skip 是既有的 mock 接口
        不足）；改动文件编译通过；CI 钉版 ruff **0.15.12** 全绿。
 
+64. ✅ **两个模块对同一份落盘格式的理解不一致：缓存写入方存的是 1-D 拼接 + 偏移表，读取方却按矩形数组逐行下标，于是每条记录拿到的是别人家的数**（2026-10-26）：
+     - **来路（沿第 63 条向外普查）**：普查「一个逻辑产物落多个文件」的持久化方案后，**第一个候选被我自己
+       推翻** —— 硬件在环那条路径读 `fitted_coefficients.npy` 的加载器**已经**同时校验形状（对齐
+       `calc_n_zernike_terms(n_orders)`）与有限性，并已有测试覆盖。同一轮里我还怀疑 `source_amplitude.npy`
+       是「只写不读」的死产物，grep 后同样作废：它被约 10 个离线分析脚本读回。**两条都在动手前死掉，
+       没有产生任何代码改动。**
+     - **站住的缺陷是跨模块布局不一致**：写入方 `src/ml/gsnet_debug/cache.py` 把 `c_flat.npy` 存成
+       **1-D 拼接**（`np.concatenate(c_chunks)`），记录边界放在 `c_offsets.npy`，并明确声明每条记录的
+       项数「never padded and never truncated」；它自己的读取方按 `flat[start:stop]` 切片。而
+       `optimizer/wfless/model_in_loop_shaping.py` 的 `_records_from_cache` **从不读 `c_offsets`**
+       （该文件出现次数为 0），却按 `coeffs[index]` 逐行取。对 1-D 数组这个下标是**一个标量**，且来自
+       另一条记录的区段 ⇒ 每条记录只在 slot 0 拿到一个错位的数、其余全是 0，且**全程无警告**。这些值正是
+       `CalibrationRecord.coefficients`，用于报告逐记录拟合误差 —— 也就是说报告里的地面真值是错的。
+     - **为什么一直没暴露**：既有缓存测试写的是 `np.zeros((3, 28))` —— **2-D 矩形**，而没有任何写入方
+       产出这种形状。测试把实现者的假设当成了格式定义。
+     - **RED 先行，且故意留一条兼容性锚点**：新测试先跑 **5 failed / 1 passed**。唯一通过的那条不是我
+       顺手写错的，而是**动手前就写下**的约束：2-D 矩形布局必须继续能加载（既有测试用的正是它）。修复后
+       该锚点仍绿。
+     - **不靠猜：先量写入方能否产出空系数行**：写入方在 `_coerce_coefficients` **之前**就对缺系数键的记录
+       报错（"cannot be cached"），所以「空行」不是真实情形，无需特例。
+     - **修复**：新增 `_per_record_coefficients`（1-D ⇒ 按 `c_offsets` 切片；缺 `c_offsets` 或偏移表
+       跨度与数组不符 ⇒ **`ValueError` 拒绝猜边界**；2-D ⇒ 行数必须等于帧数，此前多出的帧会**静默**拿到
+       `None`）。填充到 `n_coeffs` 的语义原样保留 —— 这次只改**取到的值**，不改口径。
+     - **差分控制证明「切片」与「校验」各自受力**：只把取值改回 `coeffs[index]`（**保留**校验）⇒
+       恰好两条数值测试变红，四条拒绝类测试仍绿（2 failed / 4 passed）。
+     - **我自己的误读（在案，已被自己的实验推翻）**：一次「未打补丁」的整目录运行里我看到
+       `FFFF.F`，就推断「我的修复顺带修好了 5 条在库红测试」。**不成立**：该模块自己的测试在未打补丁的树上
+       是 **49 passed / 0 failed**，把同一条整目录命令在未打补丁的树上重跑则**一条失败行都没有**。最可能是
+       同一次运行在 ~33% 处被 SIGKILL 前的内存压力抖动。**这个推断没有进入任何结论或提交说明。**
+     - **我自己的操作错误（第 24 次）**：差分控制里我把 `cp` 还原与「换回未打补丁版本」写在同一条
+       命令中，而命令里一个 echo 的单引号串内出现了撇号 ⇒ bash **解析失败**，但**第一行已经执行**（已把
+       未打补丁版本覆盖进工作树），后半段的还原**从未运行**。发现方式只是我在下一条命令开头先打印
+       `git diff --numstat`（**为空**）。规则：任何会改文件做控制的命令，还原必须由**另一条**命令凭 diff
+       构成确认；含撇号的说明文字不要用单引号包裹。
+     - **既有限制（不由本次改动引起，两次实测一致）**：`tests/ao_shaping/optimizer/wfless` **整目录**
+       在 6 g 包络内无法作为一批运行 —— 约 33% 处 exit 137（SIGKILL），**打补丁前后完全相同**。因此本条
+       的验证用**定向消费者集合**，不用整目录。
+     - **验证**：定向终跑（缓存布局 + `test_model_in_loop_shaping` + `test_slm_model_in_loop` +
+       display）**213 passed**；更早一轮含 conventions 的消费者批次 **268 passed / 1 skipped / 2 failed**
+       （失败对仍是既有 `pib_exit_safety`）；新测试
+       `tests/ao_shaping/optimizer/wfless/test_model_in_loop_cache_layout.py` 6 条全绿；改动文件
+       编译通过，diff **49 insertions / 7 deletions**；
+       CI 钉版 ruff **0.15.12** 全绿。
+
+65. ✅ **LUT 加载器校验了形状与长度，却从不校验取值：一张全是 65535 的表被照常采用，而它随后会作用于每一帧相位的每个像素**（2026-10-26）：
+     - **先记我被自己实验推翻的假设（本会话第 5 次）**：我进场时的判断是 —— `save_lut` 用 `np.savetxt`
+       默认格式写 `lut_inverse.csv`（无 `fmt=`，即 `%.18e`），而 `Santec.load_lut` 的回退路径按
+       `dtype=np.uint16` 用 `np.genfromtxt` 读它，整数 dtype 解析不了科学计数法，会**替换成非法填充值**
+       且不抛异常。**用真实写入方做 RED 测试后该结论作废**：`genfromtxt` 对整数 dtype 能正确转换
+       科学计数法，回退路径把写入方存的表**逐值**读回。我几乎没有凭记忆把 `genfromtxt` 的机制写进结论 ——
+       差一点又犯一次。
+     - **实测站住的是取值域**：`load_lut` 只校验 `ndim == 1` 与 `size >= 1024`，**从不看值**。测试给出
+       确凿证据：一张 `np.full(1024, 65535)`（uint16 满值，正是损坏/填充替换后的典型形状）被**采纳**，
+       日志只有 `INFO ... LUT 已从 lut.npz 加载 (len=1024)`。而 `apply_lut_remap` 在
+       `create_phase_from_array`（全仓唯一 wrap 点）里对每个像素生效 ⇒ 破坏以「远场不对」的形式出现在
+       实验上，而不是以错误的形式出现在代码里。
+     - **为什么既有套件看不见**：`tests/ao_shaping/drivers/slm/test_slm_lut_hook.py` 的
+       `_write_csv_lut` 把灰度列**手写**成裸整数 —— 与第 64 条里 `np.zeros((3, 28))` 同一类问题：
+       测试替身编码了一个没有生产者会做的假设。这里它没有掩盖解析缺陷（解析本就正确），但它使
+       **取值域这个问题从未被问起**。
+     - **上限不是设备侧决定（来源已核）**：`MAX_GRAYSCALE_VALUE = get_max_grayscale()` 即
+       `2 ** GRAY_SCALE_BITS - 1`（`slm200_constants.py`）是**面板满量程**（10 bit ⇒ 1023），驱动自己的
+       注释块明确把它与**随波长变**的 `_max_gray`（本机 1064 nm ⇒ 993）区分开；
+       `utils/slm/phase_display.py` 的 `DEFAULT_MAX_GRAYSCALE = 1023` 同源。所以取值按
+       `MAX_GRAYSCALE_VALUE` 判、长度下限取它 +1，用的是仓库既有单一事实源，**没有**新写字面量
+       1023 / 1024。
+     - **修复与收敛同处**：`lut.npz` 与 `lut_inverse.csv` 两条路径各自带着一段**完全相同**的
+       `ndim`/`size` 判定；再加第三份取值判定只会更糟。改为一个
+       `_lut_table_or_none(table, *, source)` 承载形状 + 长度 + 灰度域，两条路径都调它，不合格就
+       `logger.warning` 并**保持当前状态**（沿用该方法已文档化的语义）。
+     - **RED 与差分控制**：修复前新套件 **1 failed / 4 passed**，失败消息里把被采纳的
+       `array([65535, ...])` 原样打出来作证据；修复后 5 条全绿。控制实验：**只删取值域那一段**
+       （保留形状/长度判定）⇒ **1 failed / 26 passed**，变红的正是取值域那一条，而既有
+       `test_slm_lut_hook.py` 26 条**全绿** ⇒ 这道判定既能拦住损坏表，又不会误杀合法表（其 LUT 峰值
+       恰为 1023）。
+     - **顺带作废的另一条猜测**：叶子层 `utils/slm/slm_lut.load_lut` 确实完全没有校验，但它的消费者
+       只有测试，硬件路径走的是 `Santec.load_lut` ⇒ 本次只修驱动侧，**不对叶子层做投机式 API 改动**。
+     - **我自己的操作错误（第 25 次）**：给 CI 包装脚本传标记时写成 `-m "not hardware"`（两个 token）
+       ⇒ `argument -m: expected one argument`，白跑一轮。**单 token 形式 `"-m=not hardware"` 早就在我自己的
+       环境记录里** —— 反复踩的原因不是不知道，而是**重新推导**参数形式而不查记录。附带收获：钉版 ruff
+       逮出我新加的两条 `# noqa: E402` 是死指令（`ruff.toml` 未启用 `E402`，且 `test_slm_lut_hook.py`
+       的房内写法本就不带 noqa）。
+     - **验证**：新测试 `tests/ao_shaping/drivers/slm/test_lut_csv_fallback_format.py` 5 条；与既有
+       `test_slm_lut_hook.py` + `utils/test_slm_lut.py` 合跑 **58 passed**；有界宽跑
+       `drivers/slm` + `utils/slm` + `conventions`（`-m=not hardware`）**233 passed / 19 skipped /
+       2 failed**（失败对仍是既有 `pib_exit_safety`）/ 109 deselected；驱动编译通过，diff
+       **31 insertions / 13 deletions**；CI 钉版 ruff **0.15.12** 全绿。
+
+66. ✅ **术语门禁被上游论文改版触发：统一脚本连行内代码里的被禁词也一并改写，所以直接跑 `--apply` 会把文本改坏**（2026-10-26）：
+     - **来路**：第 65 条 rebase 后门禁报 **1 个文件 / 2 行**，在 `docs/paper_gs_refine_experiment.md`，由上游 `00637811`（论文 v4.7）引入。我记录的残留 grep 模式串在该文件**零命中** ⇒ 权威是脚本与术语表左列，不是我背下来的模式。
+     - **关键陷阱：门禁转绿不等于文本正确**。我用脚本自身的 `transform()` 先打印它打算怎么改，实测它对**行内代码同样改写** —— 连我引用规则文本的那段 code span 也被替换，把「实验实验」这类损坏直接写进正文。所以本次**手工按规范改写**那两行，不跑 `--apply`。
+     - **我自己踩到的绕行失败**：先想用反引号把被禁词包成行内代码绕过去 —— 无效（上一条已证）；而且那次包裹在已有 code span 里又插了一层反引号，**套嵌**把 markdown 弄坏，两条 bullet 已重写。正确做法：本条**不写出被禁词本身**，一律以术语表登记号 **T-66** 指代 —— TODO.md 不在术语表 §2 的 DO-NOT-TOUCH 集合内，写出来门禁就会再红一次（实测 4 行）。
+     - **规范不是我发明的**：术语表对「区别于仿真 sim」这一义项已给出 canonical 形式 **实验（硬件实测）**，改写用的就是它，不是新词（AGENTS 要求新词先登记；这里是既有规则的组合词实现）。
+     - **数据守恒是量出来的**：逐变更行比对数字 token —— 第 4 行 **57 → 57 完全相同**、第 668 行 **5 → 5 完全相同**；章节号 / 图号 / 表号 / 日期一律未动 ⇒ 纯措辞改写。
+     - **工具缺口：记录而未动（待决）**。脚本自己的注释写明「**顺序敏感：组合词先于裸词**」，T-66 规则块也确实把组合词排在裸词之前 —— 但**被禁词 + 实验**这个组合缺失，于是裸词命中并把组合词改写成重复的「实验实验」。补一条组合规则置于裸词规则之前，就能杜绝此后每一次同类损坏。我**没有**改这个共享引擎或术语表：术语表是全仓单一事实源、§3 登记流程归 owner，改它会改变今后所有文档的规范化输出 ⇒ 列为待决并已提出。
+     - **顺带量到的一个空白**：上游把论文升到 v4.7，而 `docs/INDEX.md` 仍钉 v4.6，**没有任何守卫**发现这个不一致（conventions 全跑仍是既有那对失败）。若将来加版本一致性守卫，这条就是它的第一个目标。
+     - **验证**：门禁 dry-run **0 个文件 / 0 行**；按 AGENTS 的兜底 grep（含 T-66 那个词）在论文里 **0 命中**；conventions **55 passed / 1 skipped / 2 failed**（失败对仍是既有 `pib_exit_safety` 那对）；改动只落在论文的两行与本条记录。
+
+67. ✅ **统一引擎缺一条组合规则：裸词只吃掉前缀，于是把正文改成重复的「实验实验」——按同表既有兄弟规则补齐，不登记新词**（2026-10-26）：
+     - **来路与边界**：第 66 条把这条列为待决时**没有**动共享引擎。本条只做引擎那一半（补规则表里缺的
+       组合项），术语表 §3 的登记流程完全不动 —— 那是 owner 的流程。
+     - **先量改动面，再决定要不要改**：被禁词 + 实验 这个组合在树内**只剩 0 处**（论文那 2 处已在第 66 条
+       手工改掉），所以这是**潜伏缺陷**、不是正在损坏现存文本；修它是防下一次 `--apply`。
+     - **RED 先行，且加在既有守卫里**（不另起第二套 harness）：
+       `tests/ao_shaping/scripts/test_term_gate_enforced.py` 是引擎行为的既有归属地（#194 建的那套：
+       退出码、可触发性、CI 接线）。新增回归测试在修复前的失败消息里把损坏**逐字**打出来 —— 目标串被改成了
+       带重复「实验」的形式；这一次 RED 同时就是差分证据，不需要再来一轮「撤销验证」。
+     - **修法是同表先例，不是我造词**：同一张规则表里 T-03 那组兄弟同义词已经登记了**完全同形**的组合
+       （`…实验 → 实验`）。本条照它的形状把 T-66 的组合项补上，映射目标就是裸词的既有替换值，
+       **没有**新增口语词，也就不触发 AGENTS 的「新词须先登记」要求。
+     - **顺序不变量照文件的自述执行**：新规则紧挨裸词之前，符合该块注释写明的「**顺序敏感：组合词先于
+       裸词**」。同时探针确认 T-66 其余组合未受影响：曝光特例仍映射到「实测曝光」，T-11 样例仍映射到
+       「实验系统」。
+     - **非回归证据**：守卫全套 **10 passed**（既有 9 条 + 新 1 条），其中包含**对真实仓库跑 `--check` 的
+       仓库级断言** ⇒ 新规则没有让树内任何一行新变红；守卫文件自己在字符串常量里写到的被禁词组合，
+       与既有那条 T-11 常量一样处于豁免范围。真实仓库 dry-run 仍是 **0 个文件 / 0 行**；CI 钉版 ruff
+       **0.15.12** 全绿。
+     - **我的一条过时认知被纠正（作废处理）**：环境记录里我写着「CI 仍缺 pytest 自动化 / 术语门禁无
+       牙齿」。实测 `.github/workflows/ci.yml` 已有 **terminology job**（并有一条守卫禁止它降级成
+       advisory），且引擎已被 `test_term_gate_enforced.py` 覆盖 —— 「没有门禁」的判断作废，本条因此是
+       **预防性**修复。
+     - **顺带发现，未处理（待决）**：`term_unify_20261016.py` 在**被 import 时就会跑一次全仓扫描并打印
+       汇总** —— 我离线调它的 `transform()` 做探针，输出里先冒出了「合计: 0 个文件」。这对测试与脚本
+       探针都是意外副作用（且把全仓 I/O 塞进导入期）。修法是把扫描移进 ``__main__`` 守卫或惰性化，
+       但它改的是共享引擎的行为面 ⇒ 列为待决。
+     - **验证**：守卫 **10 passed**；真实仓库 dry-run **0 个文件 / 0 行**；引擎探针对组合串返回去掉重复后的
+       规范形式；改动文件编译通过；改动面 `scripts/_common/term_unify_20261016.py`（1 条规则 + 1 段注释）
+       与守卫测试各一处。
+
+68. ✅ **论文版本号在索引里是手工复述的，而这次复述漏了：加一条守卫，把「改版就得同步索引」变成机器判定**（2026-10-26）：
+     - **来路（第 66 条留下的账）**：那一条顺带量到「上游把论文升到 v4.7，而 `docs/INDEX.md` 仍钉 v4.6，
+       没有任何守卫发现」，当时只列为空白。本条把它补上：先加守卫，再由守卫逼着同步索引。
+     - **为什么这属于守卫而不是「下次记得」**：复述是**手工**的，而且已经漂移过两次 —— 上游先专门花一个
+       提交把索引从 v3.x 追到 v4.6（`6bfde391`，标题就是 re-pin paper version），随后 `00637811` 把论文升到
+       v4.7 却**没有**再动索引。人做过两次、漏了一次，就是守卫的地盘。
+     - **落点与房内风格**：追加到 `tests/ao_shaping/test_conventions.py` —— 文档交叉引用类守卫的既有
+       归属地（旁边就是 `test_relative_links_in_live_docs_point_at_tracked_paths` 与两条 invocation 守卫），
+       复用该模块的 `REPO` 与 `re` 约定，只新增 `_PAPER_DOC` / `_INDEX_DOC` / `_PAPER_VERSION` /
+       `_INDEX_VERSION` 四个模块级常量，不另起第二套扫描。
+     - **防空转（#32 / #34 的老教训）**：守卫先断言**三样东西都找到了** —— 论文开头的版本段、索引里的
+       那一行、以及该行里的版本 token。任何改名或换格式都会**响亮失败**，而不是「什么都没解析到于是通过」。
+     - **一个会让人静默比错数的坑**：论文版本段落的**末尾**带一份版本沿革清单，逐条列出 v4.6、v4.5、
+       v4.4 …… 不锚定的正则第一次就撞上旧条目，于是守卫拿**最老的版本**去比。因此模式锚定 `^版本` 并开
+       `re.MULTILINE`。
+     - **刻意只钉两个 token**：版本号 + 修订日期。索引那一行剩下的部分是「本次修订新增了什么」的叙述，
+       钉住它就会**每次改论文都被迫改索引** —— 脆且无信息量。代价讲明白：叙述写错，守卫不管。
+     - **RED 就是现场，无需造假样本**：当前树本身就是缺陷，守卫报
+       `('v4.6', '2026-10-25') != ('v4.7', '2026-10-26')`；按守卫把索引那行同步过去之后转绿。
+     - **术语门禁顺手守住**：`docs/INDEX.md` 的中文也在门禁扫描范围内，所以替换行用规范措辞
+       （正文只保留实验 / 仿真与数字孪生内容集中入附录 C），并且**避免在已开的全角括号里再嵌一层**
+       （规范形式带括号注，塞进已有的修订括号里读起来很差）。dry-run 仍是 **0 个文件**。
+     - **钉点唯一性实测**：全仓只有 `docs/INDEX.md` 一处复述论文版本号（把 `paper_gs_refine_experiment`
+       在 docs / report / README / CHANGELOG / TODO 的出现全列出来核对过），所以守卫覆盖的是**那一个**钉点，
+       不是通用版本系统。
+     - **验证**：`test_conventions.py` **56 passed / 1 skipped / 2 failed**（55 → 56 的增量即新守卫自身，
+       失败对仍是既有 `pib_exit_safety` 那对）；术语门禁 **0 个文件**；CI 钉版 ruff **0.15.12** 全绿；
+       守卫文件编译通过。
+
+69. ✅ **生成式调用图 wiki 把自己声明为 CLI 注册表的唯一权威，却发布了一个不存在的命令，并且是三个漂移的副本里那个「兜底 else」替它编造了入口函数**（2026-10-26）：
+     - **两条先作废的自我判断**：① 我原本想给「代码侧命令清单」补守卫，普查后发现
+       `tests/ao_shaping/runners/test_cli_contract_freeze.py` 已经用 `cli.commands` 把 19 个名字钉死 ⇒
+       再写一份枚举就是本仓反模式；② 我记忆里的「AGENTS 说 20 个命令」也是过时的 —— 现在 `AGENTS.md` /
+       `README.md` / `docs/user/cli-reference.md` 三处都写 19，且 §8.9 第 29 项早已把那个多出来的
+       `spgd-square` 追认成幽灵。
+     - **守卫范围的边界（不推翻旧决定）**：§8.9 第 30 项**已经否决过**「全仓禁止幽灵命令名」这条守卫 ——
+       因为 `CHANGELOG.md` / `report/` / `scripts/README.md` 里提旧名字是合法的历史叙述。本条的守卫只钉
+       **生成式 wiki 的注册表**（它自称权威），不碰散文，也不是把那条被否决的决定再端上来。
+     - **缺陷本体**：`SCHEMA.md` 写着「以 `entry/cli.md` 的 20 行注册表为唯一权威」，但那张表里有
+       `spgd-square`（它早已不是顶层命令，只是 `slm-pib` 的 `square` 子命令），而该页 frontmatter 的
+       `source:` 竟然指向 `src/ao_shaping/tools/slm/panel/diagnose.py:314` —— 一个与方形整形无关的文件。
+       文档不仅列了不存在的命令，还**为它编造了实现**。
+     - **根因是三份同逻辑副本漂移（R-25 类）**：`reg()` 循环用显式 `if/elif` 放行两个 tools 命令；
+       而 `entry/cli.md` 表格与 `cmd_page()` 两处写成「查不到就取兜底值」的形式，即
+       `cmd.get(key) or (lut if name == "slm-lut" else diagnose.main)`
+       —— 结尾那个**兜底 else** 让任何在资产 `cmd_entries`（实测 17 键）里查不到的命令
+       都拿到 diagnose 的入口。地面事实：`slm_square_run` 根本不在 `cmd_entries` 里，于是幽灵顺着 else
+       被发布成页面 / 表行 / 索引行 / 图节点。
+     - **修法**：三处收敛成唯一解析器 `cmd_qualifier`，两个 tools 命令由显式 `_TOOL_ENTRIES` 兜住，
+       **解析不到就 `LookupError`，不再猜**；注册表删掉幽灵；两处写死的「20」改成 `len(CMD_ORDER)`；
+       生成时把 `CMD_ORDER` 与 `main.py` 的 `add_command(name=…)` 互校，集合不同就 `SystemExit`
+       （实测 drift 为空，19 == 19）。
+     - **产物同步的两个实测前提**：`gen_wiki_pages.py` 读**已提交**的 JSON 资产、不重新解析源码 ⇒
+       重跑只改动 `entry/cli.md` 一个文件（20 → 19 行），我这一轮改过的源码行号没有渗进 wiki（那是
+       `0a776ab6` / `03b5dcb8` 的活）。另外生成器**从不删除**它不再产出的页面 ⇒ 幽灵页必须显式 `git rm`。
+     - **保留信息而非删掉引用**：`index.md` 的行删掉（已无指向目标）；但 `diagram/call-graph-overview.md`
+       的行与 mermaid 节点**改名**为 `slm-pib square` 而不是删除 —— 那条调用链是真的
+       （`slm_shaping_runner.square` → `optimize_slm_square` → 相机），且 `commands/slm-pib.md` 本来就已经
+       写了 `square` 子命令。普查也确认过：`scripts/` 下没有任何脚本生成 index / diagram / mmd，所以手工修
+       是对的，不是漏跑生成器。
+     - **故意留下的 stale（记录）**：`assets/diagram_layers.svg` 的标签仍是旧名。仓内脚本只产 `.mmd`
+       （`gen_diagrams.py` / `build_module_graph.py`），SVG 出自外部渲染器；它的 `viewBox` 与坐标是布局算出来的，
+       手改 `<text>` 节点会让更长的标签溢出边框 ⇒ 只能重渲染，列为待决。
+     - **新守卫用运行时注册表，不再解析第二遍**：`test_call_graph_wiki_cli_registry_tracks_main` 取
+       `from ao_shaping.main import cli`，双向断言（有幽灵页 / 有命令缺页都报）+ 表集合 + 标题里的数量，
+       并带 `_MIN_CLI_COMMANDS = 19` 地板防空转。
+     - **差分控制用真实历史缺陷，而不是造假样本**：把 HEAD 的幽灵页与修复前的 `entry/cli.md` 放回去 ⇒
+       守卫红且消息点名 `['spgd-square']`；从**修复后**备份 `cp` 回来（`cmp` 逐字节一致）⇒ 再绿。
+       另记一次工具告警：我用 `grep -c '^| '` 数表行得到 19 是**不可靠**的（它数的是该文件所有表格的行），
+       可靠做法是解析出 (名字, 入口) 对再比对集合。
+     - **验证**：conventions + `test_cli_contract_freeze` **95 passed / 1 skipped / 2 failed**（失败对仍是
+       既有 `pib_exit_safety`）；wiki 页面数 19 == `main.py` 注册数 19；生成器互校 drift 为空；
+       改动文件编译通过；CI 钉版 ruff **0.15.12** 全绿；改动面 = 生成器 + 5 处 wiki 产物 + 守卫 + 本条。
+
+70. ✅ **生成式 wiki 每条页面都带 `source:` 行号引用，其中一条手写页漂了 43 行、还落在函数体中间 —— 改为按 AST 取，并给全部引用加守卫**（2026-10-26）：
+     - **来路**：第 69 条里幽灵页的 `source:` 指向一个无关文件。本条顺着它普查该 wiki 全部
+              `source: <path>:<lineno>` 引用（实测 42 条）。
+     - **先记我的两次普查错误（第 6 次同类）**：① 第一版把「引用行不等于 AST 的 def 行」当缺陷，
+              报了 **21 条** —— 但装饰器行也属于定义头部（AST 的 `lineno` 指 `def`，不是装饰器），
+              正确口径是 `min(装饰器, def)` 到 `def` 这一段；改完真实缺陷只剩 1 条。
+              ② 探针崩过一次：资产里未解析的节点值是 `None`（`Recorder` 正是），dict 探针必须 None-safe。
+     - **范围先排除两类假警报**：42 条引用**全部**指向被跟踪文件、行号**全部**在文件行数内 ⇒
+              第 69 条那种「编造的映射」光靠范围检查抓不到，必须问它是否落在**定义头部**。
+     - **真缺陷两类**。① 我自己造成的漂移：第 60-62 条改过 `dm_response_matrix.py` 与
+              `zernike_response_matrix.py` ⇒ 引用被推后 3 行（495→498、809→812、624→627）；上游改
+              `gsnet_runner.py` ⇒ 395→396。**改源码就会让已提交 wiki 的行号引用变陈旧**，这条得记住。
+     - **② 手写页的字面量**：`functions/recorder.md` 文档 `Recorder` 类，引用却落在
+              `utils/io/file.py:426` —— 那行在 `save_history_hdf5` 的**函数体中间**，类实际在 469，
+              **漂了 43 行**。
+     - **为什么会漂**：生成器对这页走特判 —— `gen_wiki_pages.py` 把 `functions/recorder` 分派给
+              `func_page_recorder()`，其 frontmatter 是手写字符串，不参与资产刷新；而它之所以是手写页，
+              是因为该节点在资产里**未解析**（值为 `None`）。
+     - **修法**：新增 `definition_source(mod, sym)`，按 AST 在 `src/<模块路径>.py` 里找同名 def/class 的
+              行号，找不到就 `LookupError`；该页引用改成调用它 ⇒ 重跑后是 469，与 `class Recorder:` 对上。
+              再按 `SCHEMA.md:87-88` 写明的既有流程重跑 `build_call_graph.py` + `finalize_graph.py` +
+              `gen_wiki_pages.py`（幂等，`source` 行号会更新）⇒ diff 只有 5 页 + 2 个资产。
+     - **新守卫** `test_wiki_source_citations_land_on_definitions`：每条引用必须 ① 文件在树内、
+              ② 行号落在某个 def/class 的头部区域；地板 `_MIN_WIKI_CITATIONS = 40`（实测 42）防空转；
+              失败消息直接给重跑命令。范围仍只钉生成式 wiki，不重开第 30 条已否决的全仓散文守卫。
+     - **差分控制**：修复后守卫 **1 passed**；把 426 那个字面量放回去 ⇒ 红并点名该条引用；从
+              **修复后**的备份 `cp` 回来（`cmp` 逐字节一致）⇒ 再绿。备份取在修复之后，是第 63-64 条的教训。
+     - **未闭环的一处（记录）**：改 src 会让已提交 wiki 的行号引用变陈旧，仓内只有「重跑」流程、
+              没有新鲜度守卫；本条的守卫只保证陈旧引用不会落在函数体中间。是否给 CI 加 wiki 新鲜度检查，
+              列为待决。
+     - **验证**：conventions + #167 形状守卫 + CLI 契约冻结 + 术语门禁守卫合跑
+              **111 passed / 1 skipped / 2 failed**（失败对仍是既有 `pib_exit_safety`）；普查 **42/42**
+              落在定义头部、elsewhere **0**；术语门禁 **0 个文件**；CI 钉版 ruff **0.15.12** 全绿。
+
+71. ✅ **两处手写的 CLI 清单表此前没有任何守卫：现在钉到运行时注册表上，并用植入漂移证明它真的会响**（2026-10-26）：
+     - **来路（第 68-70 条同一族）**：同一事实被手工复述、却没人核对。CLI 清单在本仓**真的漂过** ——
+              §8.9 第 29 项实测有 8 处把已退役的 `spgd-square` 当顶层命令写。第 69 条的守卫只覆盖生成式
+              wiki，人写的两处清单（README 与 `docs/user/cli-reference.md`）仍然没人管。
+     - **先量现状，不假设它已经坏**：README 的表 **19 行** + 「注册 **19 个顶层命令**」；
+              `docs/user/cli-reference.md` 的表 **19 行** + 「当前共 **19 个命令**」；两处名字集合与
+              `main.py` 的注册集**完全相等**（AST 实测注册数 19）⇒ 今天的树不会因这条守卫变红，
+              它是**预防性**的。
+     - **守卫取运行时注册表，不再解析第二遍**：新增守卫
+              `test_cli_inventory_tables_in_docs_track_the_registered_commands` 在测试内局部导入
+              `from ao_shaping.main import cli` —— 与第 69 条同一取向：在测试里再写一份 `main.py` 的
+              AST 解析，就是给「两个实现互相漂移」备料。
+     - **范围界定（不是重开被否决的决定）**：只解析**表格行**与**明示的数量**。README 里那句
+              「早期文档中的 `spgd-square` 已不是独立顶层命令」不是表格形状，压根进不了解析。
+              §8.9 第 30 项否决的是「全仓散文禁止旧命令名」那条守卫，本条**没有**推翻它。
+     - **防空转**：两张表各要求 **≥19 行**，数量语句必须能匹配到；解析不到就**响亮失败**，而不是
+              「什么都没比对于是通过」（#32 / #34 的老教训）。失败消息直接把修法写清：改 CLI 的同一个
+              提交里同步数量与表行。
+     - **非空性只能靠植入漂移（今天没有天然 RED 可用）**：两次控制各自点燃一条断言 ——
+              ① README 数量 19 → 21 ⇒ 守卫红（数量断言）；② 往 `cli-reference` 表里加一行退役名
+              `spgd-square` ⇒ 守卫红（表集合断言）。还原用 `cp` 回 pristine 备份并以 `cmp` 确认逐字节
+              一致；控制之后 `git status` 只剩测试文件，残留漂移标记 **0**。
+     - **我自己的操作错误（第 26 次；撇号那一类的第 2 次，前一次是第 24 次）**：把「植入 + 还原」
+              写进同一条命令，其中一个 echo 的单引号串内含撇号 ⇒ bash **解析失败**。下一步我**先量树状态**
+              再动手，才发现解析错误发生在任何改动之前：两个植入根本没跑起来，两个文档与备份**逐字节一致**。
+              规则重申：控制用的改文件命令，其还原**绝不能假设已在同一条命令里完成**，必须独立用
+              `cmp` / diff 构成确认。
+     - **验证**：定向三轮控制 = **1 passed**（一致树）/ **1 failed**（数量漂移）/
+              **1 failed**（幽灵行）；合跑 conventions + CLI 契约冻结 + #167 形状守卫
+              **102 passed / 1 skipped / 2 failed**（失败对仍是既有 `pib_exit_safety` 那对）；普查两处各
+              19 行、集合相等、数量均为 19；术语门禁 **0 个文件**；CI 钉版 ruff **0.15.12** 全绿。
+
+72. ✅ **普查「人写的文档里 `file:NNN` 引用是否已失效」：套上仓库自己的豁免清单后只剩 3 条，且都在一份自我声明过时的档案里 ⇒ 本条零改动**（2026-10-26）：
+     - **来路**：第 70 条证明生成式页面的 `source:` 会漂 43 行。本条把同一问句问到人写的文档：普查
+              全仓 `.md` 里的 `path:line` 引用。
+     - **先记我的普查工具又错一次（同类第 7 次）**：第一版没套用仓库既有的豁免清单
+              `_HISTORICAL_DOCS`（`tests/ao_shaping/test_conventions.py:90`，已豁免 `report/`、
+              `docs/dev/`、`docs/slm/`、`docs/wfs/`、`docs/slm-200/`、`docs/thorlab-wfs/`、`TODO.md`
+              等），于是报出 **65 条**「缺陷」。套上豁免：151 个 md ⇒ 豁免 91 ⇒ 活文档 60 ⇒ 真实残留
+              **3 条**。教训：**豁免清单本身就是判据的一部分**，普查前先读仓库自己怎么划范围。
+     - **我的一条过时记忆被实测否定**：进这条时我认定 `AGENTS.md` 写着 `main.py:106` 注册 `combined`。
+              grep 整个文件**零命中**；`main.py:106` 是空行，注册从 109 开始（`combined` 在 120）。那个
+              「106」来自我会话摘要里**另一份工作树**的 AGENTS 副本 ⇒ 摘要里的文档断言不能当作当前工作树
+              的事实，必须重新 grep。
+     - **残留 3 条全在同一文件，而该文件自己已经声明失效**：`docs/issues_report.md` 开头写明
+              「本报告已严重过时（2026-10-01 复核）……§1~§3 引用的行号都需要重新扫描，实施前请勿直接引用」，
+              并把当前可信总账指向 `TODO.md`。那三条正是它点名的 §1~§3 行号（`utils/wfs_utils.py`、
+              `utils/pattern_helper.py`、`gs_hologram_runner.py` 都已不在树内）⇒ **改它就是篡改一份
+              刻意冻结的历史快照**。
+     - **判据口径（与第 70 条的区别，别照搬）**：本普查只用**无歧义**的那一条 —— 被引文件必须在树内。
+              空行与注释行**不算**缺陷（人写散文引到邻近注释是合法的）；第 70 条「必须落在定义头部」只适用
+              于生成式页面的 `source:` 字段，不能外推到散文。
+     - **决定：零改动**（record-only）。若日后要把「活文档引用必须可解析」升成守卫，前置条件是先把
+              `docs/issues_report.md` 归入 `_HISTORICAL_DOCS` —— 那是豁免清单的治理决定，留给你拍板
+              （与第 66-67 条对术语表 / 统一引擎的同一处置口径：我不动单一事实源的登记流程）。
+
+73. ✅ **同一个环境变量有两种大小写拼法，而代码里三处读的正是那个没有任何地方会设置的名字 —— 它一直静默地忽略配置**（2026-10-26）：
+     - **来路（同一族问题换个方向问）**：§8.9 早前那条普查问的是「`.env` 声明的键有没有读者」（文档 →
+              代码）。本条问反方向：**代码读的键名，有没有人设得进来**。分裂拼法这族问题本仓不是第一次见
+              （第 59 条的 `wighted_rms` / `weighted_rms` 就是同一形状）。
+     - **先量改动面**：AST 收集 `src/` 与 `scripts/` 里所有字面量环境变量名 ⇒ **22 个**；按大小写
+              不敏感分组 ⇒ **恰好 1 组**碰撞。所以这道判定今天**零误报**，是量出来的，不是猜的。
+     - **哪一个是真的**：`.env` 与 `.env.example` 都写 `Far_Cam_ID`；`AGENTS.md` 两处、
+              `docs/user/cli-reference.md` 两处也都写「由环境变量 `Far_Cam_ID` 决定」。而 `FAR_CAM_ID` 在
+              **全仓没有任何写入点**、CI 里也没有 ⇒ 它在那些站点永远只能走 fallback。
+     - **最刺眼的一处自相矛盾**：`runner_common.py:1691` 的 help 文案写着
+              `(default: Far_Cam_ID/0)`，紧接着一行 1692 读的却是 `FAR_CAM_ID` —— 同一个声明内部，
+              文档与代码相反。`git grep` 另确认**没有任何测试钉住大写拼法** ⇒ 这是修 bug，不是改契约。
+     - **后果（不是洁癖）**：三处读错名字的站点是 `PibRunnerParams`、`PibOpticalParams` 与 CCD
+              目标形状 GUI 里 import 期求值的模块级 `_DEFAULT_CAM_ID` —— 它们**永远**取默认值 `0`。
+              今天看不出来，只因为 `.env` 里恰好是 `Far_Cam_ID=0`；把那一行改成别的 id，这些路径仍会去开
+              0 号相机。同一文件的另外两处（1971 / 2026）读的才是对的名字。
+     - **修法（最小）**：只改这 3 处的**键名**，向文档拼法对齐；默认值一个字未动 ⇒ 在当前 `.env`
+              下行为完全不变。
+     - **同批量到、刻意不动（待你拍板）**：① 四处 `--cam-id` 的默认值类型不一致 —— 1692 / 1875 是
+              字符串 `"0"`，1971 / 2026 是整数 `0`（注解却是 `str`）；改它属于 CLI 契约（
+              `cli_help_golden.json` 正在钉 help），不在本条里顺手改。② `optimizer/rl/envs.py:21-22` 的
+              默认值是**反的**：`Far_Cam_ID` 默认 `'1'`、`Near_Cam_ID` 默认 `'0'`，与 `config.py:210-211`
+              的 0 / 1 相反 ⇒ RL 环境语义，设备侧决定。③ `src` / `scripts` 内**没有任何 dotenv 加载点**
+              （grep 为空），`.env` 靠编辑器 / 终端环境注入 ⇒ 拼错的键名不会被任何加载器纠正或警告。
+     - **新守卫** `test_env_names_read_by_code_have_no_case_collisions`：从 AST 抽取
+              `os.environ.get` / `os.getenv` / `setdefault` / `os.environ[...]` 的字面量键名，大小写不敏感
+              分组，一组多于一个就红；地板 `_MIN_ENV_NAMES_READ = 15`（实测 22）防空转；故意保留两种拼法必须
+              登记进 `_ENV_ALLOWLIST` 并给理由。失败消息把涉及的**文件**全列出来。
+     - **RED 与差分控制**：修复前守卫红，点名 `['FAR_CAM_ID', 'Far_Cam_ID']` 与 4 个读取文件；
+              修复后 1 passed。控制实验：**只**把 GUI 那一处改回大写 ⇒ 立刻红；从**修复后**的备份 `cp` 回来
+              （`cmp` 逐字节一致）⇒ 再绿。
+     - **验证**：宽跑 `runners` + `test_config` + `conventions` + `gui/slm/test_bench_settings` +
+              `gui/utils` ⇒ **705 passed / 26 skipped / 2 failed**（失败对仍是既有 `pib_exit_safety` 那对）；
+              术语门禁 **0 个文件**；CI 钉版 ruff **0.15.12** 全绿；两个改动文件编译通过。
+
+74. ✅ **文本里引用的路径同样是断言：普查发现 9 处引用指向已不存在的文件，其中一处指向一个从未存在过的测试**（2026-10-26）：
+     - **口径（补既有守卫看不见的通道）**：`test_python_invocation_paths_in_docs_and_docstrings_are_tracked`
+              只认 `python <path>.py` 这种**指令**。本条管更宽的通道：**任何被引号包裹的 `src/` / `scripts/` /
+              `tests/` 下 `.py` 路径**，扫 `src/` 与 `scripts/` 的**全部字符串字面量**（报告生成器往读者会照着
+              走的表格里写路径）加活文档的行。`CHANGELOG.md` 与 `_HISTORICAL_DOCS` 排除 —— changelog 的职责正是
+              写下它删掉了什么。
+     - **普查量与分类**：可解析引用 **361** 条 ⇒ 指向索引外 **20** 条 ⇒ 其中 **11 条是自我声明的历史**
+              （`docs/issues_report.md` 3 条 = 第 72 条那份冻结记录；`generate_inverse_design_report.py` 2 条已在
+              `_removed_note()` 里写明实验作废；`generate_fouriergsnet_pipeline_report.py` 3 条是自带日期的
+              2026-09-22 快照，其测试已在 `baefba2d` 删除；`fbef1926` 删除的运行器 1 条；`pib_exit_safety` 家族
+              2 条 = 让 provenance 守卫长期红的那条根因），**9 条是真失效引用**。
+     - **9 条的性质：搬过家**（不是删除）：`algorithm/differentiable_shaping.py` → `algorithm/`
+              下的 `signal_processing/`（`bbb3820b`，3 处引用）；`optimizer/wfless/slm_zernike_shaping.py` →
+              `slm_zernike_pib.py`（`8792ced1` 删的是零导入方的重导出 shim）；`tools/slm/` 的三个
+              `slm_zernike_*` → `tools/wfs/` 与 `tools/zernike/`（`699f149f` 那次按探测目标重组，以及后续一趟）；
+              `tests/ao_shaping/runners/test_gsnet_cache.py` → `tests/ao_shaping/ml/gsnet_debug/`。
+     - **最严重的一条不是过时，是伪造**：`square_shaping.py` 为「DM → HIO 退化（Elser 2003）」这个
+              数学论断写了一句「数值验证见 `tests/ao_shaping/algorithm/test_square_shaping_fienup_variants.py`」
+              —— 该测试**从未存在**（没有任何删除记录，全仓无一处提及），而今天也没有**任何**测试断言那条退化
+              等式（只有 `test_invalid_hio_fraction` 与按 `GS_METHODS` 的参数化覆盖）。前者让读者扑空，后者让
+              代码**声称有一条并不存在的数值证据**，审阅者据此少查一步 —— 与第 70 / 71 条同族的「未经检查的
+              转述」。
+     - **处置方式的选择（刻意保守）**：删掉虚假的证据指向、把**缺口写明白**（变体本身由
+              `test_square_shaping.py` 按 `GS_METHODS` 参数化覆盖，但退化等式本身无数值验证），**不是**顺手补一条
+              断言去把这句话坐实 —— 补断言是另一件事，需要单独决定 beta/gamma 的取值口径。
+     - **同一文件还藏着一个不可运行的指令**：`generate_diff_shaping_report.py` 的 §7 用一个 bash 围栏块让读者
+              执行 `main.py diff-shaping …`，而 `README.md` 与 `docs/user/cli-reference.md` 都写明该命令已移除。
+              参数表保留（那是实验结论），命令行不再重述，并就地写明命令与其运行器已在 `fbef1926` 移除、功能并入
+              `slm-gsnet` 与 `algorithm/signal_processing/`（引文档原话，**不自造** successor 的 flag）。
+     - **新守卫** `test_quoted_source_paths_in_live_text_exist_in_the_git_index`：豁免表
+              `_QUOTED_PY_PATH_HISTORICAL` 以 **(引用文件, 被引路径)** 为键，每条必须写删除 commit 或该记录自身的
+              免责声明 ⇒ **单纯「过时」不能进豁免表，只能改指向**；地板 `_MIN_QUOTED_PY_PATH_CLAIMS = 250`
+              （实测 361）。`tests/` 目录的 .py 刻意不扫（测试的 docstring 不会误导读者production 代码在哪）。
+     - **自审抓到一条假豁免**：我为 `diff_shaping_runner.py` 写的豁免理由是「文本已声明其被删除」，
+              而登记豁免时文本**还没**声明 ⇒ 豁免必须在同一次改动里让自己说的那话成真，否则守卫绿灯掩盖一个
+              假前提。已同步补文本。
+     - **工具自错（本条三次）**：① AST 推导式里把 `isinstance` 过滤写在 `n.keywords` 之后 ⇒ 对
+              `Module` 节点取 `.keywords` 当场崩；② 正则 `[A-Za-z0-9_./-]+` 把**人类写的省略号占位**
+              `tests/.../test_x.py` 当成可解析路径（2 条假阳性，现按含 `...` 直接跳过）；③ 正则经「heredoc 套
+              heredoc」落进文件成了 `\.py`（原始串里=字面反斜杠），提取器解析到 **0** 条 ⇒ **地板断言当场把空转
+              的守卫判红**（这正是地板存在的意义）。改用编辑工具直接写 `r"""…\.py…"""`。规则再重申：
+              **含反斜杠 / 引号的内容不走嵌套 heredoc**（第 24、26 次自错同属 bash 引号族）。
+     - **基线纠正（本条最有价值的产出）**：我长期把既有红记成 **2** 条。本次首次把
+              `tests/ao_shaping/scripts` 纳入选择并用 `git stash` 在 HEAD 上做 A/B ⇒ **另有 4 条在 HEAD 上就已红**：
+              `test_every_test_area_is_sharded`、`test_sync_check_reports_no_drift`、
+              `test_registry_script_paths_exist[report/slm/pib_exit_safety/…]`、
+              `test_header_script_links_resolve[…同一份…]` ⇒ **既有红是 6 条**，先前只因选择里没有这几个目录而
+              看不见。另：`test_python_invocation_paths…` **没有**被本条修好 —— 我一度以为移除死命令行会让它转绿，
+              **按名字逐条核对后确认仍红**（按数量比对会漏判）。
+     - **验证**：守卫 RED 点名 9 条（11 条豁免）⇒ 修复后 1 passed；差分控制只把 1 条指回旧路径 ⇒ 红且
+              **只点 1 条**，`git diff` 确认该文件只有那一行改动。宽跑 `test_conventions` +
+              `algorithm/signal_processing` + `scripts` + `optimizer/wf` ⇒ **2833 passed / 66 skipped / 6 failed**
+              （6 即纠正后的既有红集）。`tests/ao_shaping/ml/gsnet_debug` 带改动与 stash 后**输出逐字符相同**
+              （48 s，进度停在 53% 后无 summary，属该目录既有的重 I/O / 发现排除问题）⇒ 与本条无关，不纳入结论。
+              `main.py <命令>` 调用复测：57 条调用、**0** 条指向未注册命令。CI 钉版 ruff **0.15.12** 全绿；
+              六个改动文件 AST 解析通过。
+     - **遗留（待你拍板）**：11 条自我声明的历史引用要不要整体归入 `_HISTORICAL_DOCS`
+              （`docs/issues_report.md`、fouriergsnet 内嵌快照）；`generate_fouriergsnet_pipeline_report.py` 的
+              自带日期快照要不要加「其中测试已删除」注记（加注记等于改动一份有日期的记录）；`pib_exit_safety`
+              家族缺的究竟是脚本还是报告，只有原作者能定。
+
+75. ✅ **写全文本里的 CLI 调用同样是断言：命令名、组子命令、flag 三层此前无人校验，其中一条让读者执行 click 会当场拒绝的命令**（2026-10-26）：
+     - **口径（与既有两条守卫不重复）**：`test_python_invocation_paths_in_docs_and_docstrings_are_tracked`
+              管「被调用的**脚本**存在」，第 74 条管「被引用的**路径**存在」；本条管 `main.py` **之后**的三层
+              —— 命令名、组子命令、以及解析到具体命令后的每一个 flag。三者任一不存在，读者照抄就失败。
+     - **普查**：活文档与 `src/` / `scripts/` 的字符串字面量里可解析的调用声明 **72** 条（65 条是可运行
+              形态，其余是 click 自己的 Synopsis 写法）；组调用 23 条；顶层命令 **19** 个（与 AST 计数一致）；
+              真正的组只有 2 个：`slm-pib`（spgd / heuristic / square）与 `slm-gsnet`（spgd / heuristic / train）。
+     - **唯一的真缺陷，但落在两处**：`generate_model_in_loop_report.py` 生成的用法与
+              `docs/slm/model_in_loop_algorithm.md` 都写 `main.py slm-model-in-loop --cam-type sim -r 2 --debug`。
+              而 `--debug` 只在**顶层组**声明（`main.py` 的 group 回调），golden help 里 **13** 个命令自己的 help
+              含 `--debug`、`slm-model-in-loop` **不在其列** ⇒ 这个位置的 flag 必被 click 拒绝。修法：把
+              `--debug` 移到命令名**之前**（`main.py` 自己的用法行就是这个写法），语义不变 ——
+              `resolve_debug(ctx)` 读的正是组级 `ctx.obj`，注释承诺的 step dump 照样落盘。
+     - **刻意没走的另一条"修法"（待你拍板）**：给该命令的参数类补一个 `--debug` 也能让文档成立，但那是
+              **CLI 契约改动**（`cli_help_golden.json` 正在钉每个命令的 help 文本），不属纯文本修复。
+     - **守卫怎么解析**：先吃组级前置 flag，且**取值型**选项要把它的值一并吃掉（否则 `--dir data` 里的
+              `data` 会被当成命令名）；再取命令名；命令是组时解析子命令（**裸组调用判红**，click 的答案是
+              Missing command）；最后把剩余 flag 逐个对**解析到的那个命令**的声明比对。
+     - **我自己的守卫差点误伤正确的文本（两处真因，都值得记住）**：① click 把 `--x` / `--no-x` 这类
+              flag 对的否定形式放进 `secondary_opts` 而非 `opts` ⇒ 漏读它会把 `gs_refine_runner.py` docstring 里
+              **完全正确**的 `--no-gs-warm-start` 判成编造，我差一步就删掉一行正确文档；② `--help` 由 click
+              惰性附加（`get_help_option_names(ctx)`），从不出现在 `command.params` 里。
+     - **Synopsis 不是调用**：`[OPTIONS]`、`<command>`、以及本仓爱写的省略号，都是 click **描述**命令的
+              写法而不是可执行指令 ⇒ 按占位跳过；另外 markdown 行内代码的尾随反引号必须从 flag 上剥掉
+              （否则 `--debug` 挂着一个反引号就成了假阳性）。
+     - **豁免文档里的同类问题（record-only，不改写）**：对 `report/` 与设备文档目录用**同一套**解析复测
+              ⇒ 57 条调用里 12 条指向未注册命令，其中 **3 条是我临时普查脚本自己的吞值缺陷**（`--dir data`），
+              其余 9 条全在 `report/` 的冻结记录里（`diff-shaping` / `diff-beam` / `gs-square`，其中一条早已用
+              删除线标注）⇒ 与第 72、74 条口径一致，不改写。**是否把 `_HISTORICAL_DOCS` 拆成「行号引用豁免」与
+              「可运行调用豁免」两类由你定**：`docs/slm/` 里那条错误命令行我已手工修掉，但按定义守卫查不到它。
+     - **RED 与差分控制**：缺陷在场时守卫红并点名它，改完转绿。控制实验植入两处（一个未声明的组 flag、
+              一个裸组调用）⇒ **分别命中不同分支**，消息还把真实选项表与真实子命令表一起打印；随后从**修复后**的
+              备份恢复，`cmp` 逐字节一致，再绿。
+     - **工具自错三次（记下以免重犯）**：① `\S+` 把 markdown 的闭合引号吃进 token（`train"]`）⇒ 假阳性；
+              ② 临时普查的 walker 未实现「取值型组选项吞值」，把 `--dir data` 的值当命令，虚报一批；③ 我用
+              `chr(92)` 手拼正则字面量，拼出了 `[\^` 和一个多余引号 ⇒ **语法错误**，而且它不在测试阶段暴露、是在
+              **collect 阶段**让整个 `test_conventions.py` 无法导入（表现为 1 error 而非 failed）。补充规则：
+              **改完测试文件先 `ast.parse` + ruff，再进容器**（嵌套 heredoc 与手拼转义是本 session 已第 4 次踩同类坑）。
+     - **验证**：新守卫 green；宽跑 `test_conventions` + `runners` + `scripts` ⇒ **3063 passed /
+              90 skipped / 6 failed**，这 6 条正是第 74 条纠正后的既有红集（2 条文档调用类 + 4 条 provenance /
+              shard 类，已在 HEAD 上用 stash A/B 证过与本条无关）；CI 钉版 ruff **0.15.12** 全绿。
+
+76. ✅ **手工维护的 CI 分片清单会静默失去覆盖：一个根级守卫模块进来了却没进任何分片，而让 master 变红的正是那条「有测试没被跑」的断言**（2026-10-26）：
+     - **现象与因果**：`test_every_test_area_is_sharded` 在 HEAD 上就红，点名
+              `tests/ao_shaping/test_issue167_function_shape.py`。`git show --stat 695c8dc2`（2026-10-26）显示那次提交
+              **只新增这一个文件**，完全没碰 `.github/workflows/pytest.yml` ⇒ 手写的分片清单再没人补。该守卫住在
+              **blocking** 的 `scripts` 分片里 ⇒ **master 的 CI 此刻就是红的**，而它红的原因就是有一个测试文件
+              从未被执行。
+     - **为什么这类洞比没有 CI 更糟**（守卫 docstring 原话）：分片清单悄悄不再覆盖某个目录时，绿色作业
+              等于**断言**那些测试跑过了。补法是往 `run_shard "root-guards"` 那一行末尾加该模块，并保持
+              **一行一条调用** —— 守卫用正则逐行解析，跟不了续行，写续行会让它以为自己什么都没查。
+     - **进 blocking 分片之前先证明它自己会过**：单独跑该模块 = **5 passed / 0.07 s**；再按 workflow 里那行
+              **逐字**的调用跑整个 root-guards 分片 ⇒ **116 passed / 1 skipped / 2 failed**（2 即既有文档调用类红对），
+              且收集数从约 111 涨到 116 —— 那 5 条确实进到分片里了，不是只改了一行 YAML。其余三条分片守卫
+              （目标存在 / 无嵌套重复 / 至少一个硬门禁）同时保持绿。
+     - **纠正我自己的一条过期认知**：我此前记着本仓库「缺 pytest 自动化 workflow」。实际有
+              `.github/workflows/pytest.yml`（2026-10-24 起的硬门禁：构建一次镜像，每个分片一个独立 pytest 进程）
+              与 `ci.yml`（钉版 ruff）。它注释里给的实测数据与我第 64 条**独立撞到的** wfless OOM 完全对上：
+              不带目标的全量（9311 collected）在 16g 下 34% 处 exit 137，`optimizer/wfless` 在 6g 与 12g 都死而它
+              55 个文件各自单独跑全过 ⇒ CI 的解法是 `AO_TEST_PER_FILE=1` 且核对过覆盖等价。我当时把「我这侧的环境
+              限制」误记成了「仓库缺基础设施」。
+     - **同一分片里的第二个红：先判哪一侧过期，再跑守卫给的修法**。`test_sync_check_reports_no_drift`
+              点名 `report/shape_trials/sim_pretrain_transfer/sim_pretrain_transfer_20261024.md` 头部过期，并直接给出
+              命令 `python scripts/sync_report_provenance.py`。**照跑就会删掉一条真实溯源**：报告头部列 7 条
+              关联脚本，registry 只剩 6 条，缺的是 `scripts/slm/generate_transfer_no_gs_gif.py`。证据链：该脚本已跟踪；
+              它默认 `--out-dir` 正是这份报告自己的 `images/`；报告正文嵌入它产出的两张 GIF 并在原话里点它的名字；
+              头部那一行自 `5e514006` 起从未变过。相反，registry 那一侧是在 `52537df9`（一次 resolving one dedup
+              collision 的 23-commit 合并）中被丢掉的 ⇒ **过期的是单一事实源**。
+     - **修法次序**：改 `scripts/_common/provenance.py` 把条目补回（按头部既有顺序插在
+              `reproduce_transfer_block_without_gs.py` 之后），再让生成脚本重渲染。补完后 `--check` 的漂移换成
+              `report/README.md: index is stale`（索引由脚本生成，属正常连带）⇒ 跑一次幂等生成脚本，
+              `git diff report/README.md` **恰好一行**，就是那一行里补回 `generate_transfer_no_gs_gif.py`。最终
+              `check: clean`、`headers updated: 0`。
+     - **既有红由 6 降到只剩 2**：`tests/ao_shaping/scripts` 的失败由 4 条变成 **2** 条（574 → 575 passed）。
+              剩下的 2 条仍是 `pib_exit_safety` 家族，而这次把它的性质**钉死**：`git log --all -- 'report/slm/pib_exit_safety*'`
+              在**全部引用共 1788 个提交上为空** ⇒ 那份报告从未存在过；registry 指定的生成器
+              `scripts/slm/generate_pib_exit_safety_report.py` 同样从未被提交（`--diff-filter=A` 空）；配套的
+              `tests/ao_shaping/scripts/test_verify_pib_exit_safety_hw.py` 未跟踪；只有
+              `scripts/slm/verify_pib_exit_safety_hw.py`（issue #145 的硬件验收脚本）真实存在。另外我扫了 6 个兄弟
+              工作树：两个缺失文件在**任何工作树里都不存在** ⇒ 不是忘了 push，而是 registry 里一条指向**从未落地
+              的实验**的条目。
+     - **为什么不自行了断**：删条目会同时抹掉作者意图与 `report/README.md` 的索引行（索引由 REPORTS 渲染）；
+              反过来补一个生成器等于**伪造一次不存在的实验**。两者都比留红更坏 ⇒ 保留红并把证据链写全，交 owner 定。
+     - **验证与门禁**：上面两条守卫的结果如述；术语门禁 **0 个文件**；CI 钉版 ruff **0.15.12** 全绿；
+              workflow 的改动由守卫自身的正则解析接受（`test_workflow_exists_and_has_shards` 仍绿）。
+
+77. ✅ **术语引擎在 import 期就扫描全仓、还把写模式取自环境里的 `sys.argv`；顺带把四条长期红归并成同一根因**（2026-10-26）：
+     - **本条一开始想做的事被证据否掉（先记下，以免下次又去做同款守卫）**：原打算加「`REPORTS` 每个键都必须
+              对应磁盘上真实报告」的断言。普查 142 个键只有 1 个缺文件（`pib_exit_safety`），但
+              `report/README.md` 里有一个**刻意**的小节「尚未生成产物的报告」，正文明写这些条目「已在 `REPORTS`
+              登记但产物尚未提交（需要硬件，或尚未跑过），因此没有可点击的文件」⇒ 「登记先于产物」是本仓**有意
+              支持的状态**，那条守卫会与设计打架 ⇒ 不做。
+     - **同一次普查顺手把既有红归并**：四条长期红其实**同一根因** —— `scripts/README.md:865-867` 的三条
+              调用指令与 `scripts/_common/provenance.py` 的登记条目都指向
+              `scripts/slm/generate_pib_exit_safety_report.py`；该脚本在全仓 **1788 个提交的全部引用上从未存在**
+              （`git log --all --diff-filter=A` 为空），配套报告同样从未存在，配套测试未跟踪；只有
+              `scripts/slm/verify_pib_exit_safety_hw.py`（issue #145 的硬件验收脚本）真实存在，且两个缺失文件在
+              6 个兄弟工作树里也都不存在 ⇒ 不是漏 push，而是登记指向一次从未落地的实验。删条目会抹掉作者意图与
+              索引行，补脚本等于伪造实验 ⇒ 保留红、写全证据，交 owner。
+     - **真正属于我这侧的缺陷**：`scripts/_common/term_unify_20261016.py` 把扫描放在**模块作用域**，并从
+              `sys.argv` 直接取 `--apply`。实测 import 一次 = **4.05 s + 2 行 stdout**（任何 import 它的测试都在付这个
+              钱，还往测试输出里打印）。更要紧的是**写模式继承自调用方的 argv**：把 HEAD 版引擎放到**同深度**副本、
+              只把 `sys.argv` 设成含 `--apply` 与 `--root <tmp>`，**光是 import 就把样本文件改写了**（3 行 stdout +
+              文件被重写）—— 数据完整性问题，不只是慢。
+     - **修法**：扫描与打印整体移进 `main(argv)`，模块底部只留 `if __name__ == "__main__"` 调用；
+              `--root` / `--apply` / `--check` 全部走参数，模块作用域不再有任何 IO。修后 import = **0.017 s、0 行
+              stdout、不改任何文件**，也没有了模块级 `total`；`main(["--check", "--root", seed])` 仍返回 1 且不写。
+     - **行为等价是证出来的，不是推的**：三种调用（无参 / `--check` / `--apply --check`）改前改后**逐字节
+              一致**，退出码 0 / 0 / 1 不变；`--check --root <tmp>` 仍然只判定不写；CI 侧调用面
+              （`.github/workflows/ci.yml` 里的 `--check`）不变。
+     - **新守卫与它的非空转控制**：`test_importing_the_engine_scans_and_writes_nothing` 用
+              `spec_from_file_location` 现场加载引擎，把 `sys.argv` 设成含 `--apply` 的组合，断言 import 不打印、
+              不写文件、不残留模块级扫描状态，并断言显式 `main(...)` 仍报告漂移且不写。控制实验：同一逻辑跑
+              HEAD 版引擎 ⇒ **判红**（3 行 stdout + 改写文件），跑修后引擎 ⇒ 通过。该文件现 **11 passed**。
+     - **两次工具自错（记下形状）**：① 在 oxpy 里调 `git status` ⇒ `FileNotFoundError: git`（该沙箱没有
+              git 可执行，这条约束早已写明，我仍犯了）；② 把 HEAD 版引擎副本放 `/tmp` ⇒ 它靠
+              `Path(__file__).parents[2]` 认仓库根，当场 `IndexError` ⇒ **副本必须与原文件同深度**才可比；改放
+              `scripts/_common/_old_engine_probe.py`（untracked，用完即删，`git status` 证无残留），演示范围由
+              `--root <tmp>` 锁死，不碰真仓。另修掉自己新写 docstring 里一处错误的交叉指向（isolation 测试在第
+              143 行、新测试在 163 行，「pinned below」应为「pinned above」）。
+     - **验证**：`tests/ao_shaping/scripts` + `test_conventions` 宽跑 ⇒ **2524 passed / 65 skipped / 4 failed**，
+              4 条即上面归并后的同一根因；CI 钉版 ruff **0.15.12** 全绿；术语引擎自身 `--check` ⇒ **0 个文件**。
+
+78. ✅ **代码读取的环境变量名从未与文档核对过：11 个本仓旋钮只存在于代码里 —— 已补齐文档并加守卫**（2026-10-26）：
+     - **来路（补第 73 条留下的反方向）**：第 73 条只判「两个拼法是否互相碰撞」，当时顺手记下「有若干真实存在
+              但无文档的名字」却**没有判定**。本条把反方向闭合：代码读的每个名字，活文档里必须能找到。
+     - **先量三个集合，不猜**：`.env` 4 个名字、`.env.example` 5 个（多一个 `PATH`）、代码读 **21** 个。
+              `PATH` 只出现在 `.env.example` 而 `src/` 与 `scripts/` 都不读它 —— **不判为死配置**：它由加载器与
+              进程环境消费，AGENTS 的构建段本来就在设它。另：21 与第 73 条的 22 恰好差 1，正是
+              `FAR_CAM_ID` / `Far_Cam_ID` 合并的结果 ⇒ 两次普查互为交叉验证。
+     - **「活文档里查不到」的 14 个分两类**：**3 个平台自带**（`COMPUTERNAME` / `USERPROFILE` /
+              `XDG_DATA_HOME`，驱动拿它们定位配置落盘位置，由操作系统提供 ⇒ 显式豁免而不是文档化）；
+              **11 个是本仓自己的旋钮**：4 个 `*_CONFIG_DIR`（SLM / DM / MICRO_DM / CCD）、3 个厂商库路径接口
+              （`AO_SHAPING_SLM_DLL_DIR` / `MIICAM_SDK_PATH` / `AO_SHAPING_SDK_PATH`）、1 个可选
+              `AO_OOPAO_SOURCE_DIR`、3 个调试与调参开关（`WFS_DEBUG` / `RMS_ZERNIKE_DEBUG` /
+              `RMS_ZERNIKE_WEIGHTS`）⇒ 只有这 11 个是缺陷。
+     - **为什么「没有文档」是真缺陷而不是形式问题**：这 11 个全部在**模块作用域**求值（import 期就
+              `os.environ.get(...)`），所以**必须在启动 Python 之前设好**，import 之后再赋值静默无效 —— 这正是最难
+              排查的一类。其中两个直接决定驱动能否加载厂商库；`RMS_ZERNIKE_WEIGHTS` 会改变优化器的逐阶扰动权重，
+              而默认值 `(n+1)/n_max` 只写在代码注释里。找不到的旋钮等于不能用的旋钮。
+     - **修法（文档与守卫两侧）**：在 AGENTS 的环境变量段补一张 11 行表（读取位置 / 未设置时的默认 /
+              作用），并明写 import 期求值这条前提。表里的路径一律写成**全路径** `src/ao_shaping/...`，目的是让
+              第 74 条的引用路径守卫顺带**审计这张表本身** —— 已证：该守卫仍绿，说明这 11 行引用的路径全部在
+              git 索引里。
+     - **新守卫** `test_env_names_read_by_code_are_documented`：**复用**第 73 条的 AST 提取器
+              `_env_names_read_by_code()`（不在别处重写一份）；语料 = 活 `.md`（排除 `_HISTORICAL_DOCS` 与
+              `CHANGELOG.md`，实测 74 份）；并断言语料 **>= 40** 份，防「语料空了于是全绿」；豁免表
+              `_OS_ENV_NAMES` 只含那 3 个平台名且写明理由；失败消息把名字与其读取位置一并列出并指向该补的段落。
+     - **RED 是天然的，控制实验另证精度**：补文档**之前**跑守卫即红，点名 11 个且每个都带读取位置；补齐后
+              通过。控制实验只删表里 `WFS_DEBUG` 那一行 ⇒ 红且**只点 1 个**；从**修复后**备份 `cp` 回（`cmp`
+              逐字节一致）⇒ 再绿。
+     - **验证**：宽跑 `test_conventions` + `scripts` ⇒ **2525 passed / 65 skipped / 4 failed**，这 4 条即第 77 条
+              归并后的同一根因（`pib_exit_safety` 家族），新增守卫让 passed 比上一条基线多 1；CI 钉版 ruff
+              **0.15.12** 全绿；术语门禁 **0 个文件**（引擎已不在 import 期扫描，见第 77 条）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

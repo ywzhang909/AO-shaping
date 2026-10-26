@@ -3780,3 +3780,632 @@ def test_no_self_assignment_subscript() -> None:
         f"{len(offenders)} self-assignment site(s): {offenders}. A ``x[k] = x[k]`` statement "
         "either duplicates the conversion above it or hides the fact that none is happening."
     )
+#: The paper's version is restated by hand in ``docs/INDEX.md``, and that restatement drifts:
+#: upstream's v4.7 bump (00637811) left the index still saying v4.6, after the pin had already
+#: needed its own catch-up commit once before (6bfde391).
+_PAPER_DOC = REPO / "docs" / "paper_gs_refine_experiment.md"
+_INDEX_DOC = REPO / "docs" / "INDEX.md"
+#: Anchored to the head of the paper's version paragraph on purpose: the same paragraph ends
+#: with a 版本沿革 list naming every older release, so an unanchored search would match the
+#: oldest entry rather than the current one.
+_PAPER_VERSION = re.compile(r"^版本\s+(v\d+\.\d+)（(\d{4}-\d{2}-\d{2}) 修订）", re.MULTILINE)
+_INDEX_VERSION = re.compile(r"(v\d+\.\d+)（(\d{4}-\d{2}-\d{2}) 修订")
+
+
+def test_the_paper_version_pin_in_index_tracks_the_paper() -> None:
+    """``docs/INDEX.md`` must restate the paper's current version and revision date.
+
+    Only those two tokens are pinned. The rest of the index row is prose about what a given
+    revision added, and pinning it would force an index edit on every paper rewrite.
+    """
+    paper = _PAPER_VERSION.search(_PAPER_DOC.read_text(encoding="utf-8-sig"))
+    assert paper, (
+        "no version paragraph at the head of docs/paper_gs_refine_experiment.md -- the guard "
+        "would be comparing nothing"
+    )
+
+    row = next(
+        (
+            line
+            for line in _INDEX_DOC.read_text(encoding="utf-8-sig").split("\n")
+            if "paper_gs_refine_experiment.md" in line
+        ),
+        None,
+    )
+    assert row, "docs/INDEX.md no longer carries a row for the paper -- the pin moved or renamed"
+    pin = _INDEX_VERSION.search(row)
+    assert pin, f"the paper's index row states no version: {row[:140]}"
+
+    assert (pin.group(1), pin.group(2)) == (paper.group(1), paper.group(2)), (
+        f"docs/INDEX.md pins the paper as {pin.group(1)}（{pin.group(2)} 修订） while the paper "
+        f"opens with {paper.group(1)}（{paper.group(2)} 修订） -- restate the version in the "
+        "index row in the same commit that bumps the paper"
+    )
+#: The generated call-graph wiki declares itself the authority on the CLI surface
+#: (``SCHEMA.md``: ``entry/cli.md`` 的注册表为唯一权威), so its table, its per-command pages and
+#: its stated count are assertions about ``main.py`` -- not prose that may remember a retired
+#: name. ``AGENTS.md`` / ``CHANGELOG.md`` legitimately discuss ``spgd-square`` as history; this
+#: scope deliberately excludes them (the repo-wide version of this guard was rejected once
+#: already, TODO 8.9 item 30).
+_WIKI_DIR = REPO / "docs" / "dev" / "call_graph_wiki"
+_WIKI_COUNT_HEAD = re.compile(r"^## 注册的 (\d+) 个命令", re.MULTILINE)
+#: Floor measured 2026-10-26: 19 registered commands and 19 pages. A guard that parses
+#: nothing passes vacuously, so a shape change has to be loud.
+_MIN_CLI_COMMANDS = 19
+
+
+def test_call_graph_wiki_cli_registry_tracks_main() -> None:
+    """The wiki's CLI registry must be exactly what ``main.py`` registers.
+
+    Regression: the generator's command list kept the retired ``spgd-square`` after it stopped
+    being a top-level command, and two of its three qualifier lookups ended in a bare ``else``
+    that handed back the diagnose entry point -- so a page was published for a command that did
+    not exist, claiming a source file it never touched.
+    """
+    from ao_shaping.main import cli  # the runtime registry, not a second parse of main.py
+
+    registered = set(cli.commands)
+    assert len(registered) >= _MIN_CLI_COMMANDS, (
+        f"main.py registers {len(registered)} command(s), below the floor "
+        f"{_MIN_CLI_COMMANDS} -- the import found a degraded CLI"
+    )
+
+    pages = {path.stem for path in (_WIKI_DIR / "commands").glob("*.md")}
+    assert pages, "no command pages under docs/dev/call_graph_wiki/commands -- wrong wiki path"
+    ghost_pages = sorted(pages - registered)
+    assert not ghost_pages, (
+        f"{len(ghost_pages)} wiki command page(s) name something main.py does not register: "
+        f"{ghost_pages}. Drop the page and its index/diagram rows, or register the command."
+    )
+    missing_pages = sorted(registered - pages)
+    assert not missing_pages, (
+        f"{len(missing_pages)} registered command(s) have no wiki page: {missing_pages} -- "
+        "regenerate the wiki (scripts/call_graph/gen_wiki_pages.py)"
+    )
+
+    cli_page = (_WIKI_DIR / "entry" / "cli.md").read_text(encoding="utf-8")
+    table = set(re.findall(r"^\| `([a-z][a-z0-9-]+)` \| `", cli_page, re.MULTILINE))
+    assert table, "the entry/cli.md registry table parsed to nothing -- its shape changed"
+    assert table == registered, (
+        f"entry/cli.md's registry table disagrees with main.py: only-in-table="
+        f"{sorted(table - registered)} only-in-main={sorted(registered - table)}"
+    )
+
+    head = _WIKI_COUNT_HEAD.search(cli_page)
+    assert head, "entry/cli.md lost its '## 注册的 N 个命令' heading -- the count went literal again"
+    assert int(head.group(1)) == len(registered), (
+        f"entry/cli.md states {head.group(1)} command(s) but main.py registers {len(registered)}"
+    )
+#: Every generated wiki page carries a ``source: <repo-relative>:<lineno>`` line, and the dev
+#: handbook is read as fact. Two independent ways that line went wrong: the generator invented
+#: one for a command that no longer exists (TODO 8.9 item 69), and a hand-written page pinned a
+#: literal that drifted 43 lines behind the class it named (item 70). A citation is only worth
+#: trusting if it lands on a definition's header -- decorator through ``def``/``class``.
+_WIKI_DIR2 = REPO / "docs" / "dev" / "call_graph_wiki"
+_WIKI_SOURCE = re.compile(r"^source:\s*(\S+?):(\d+)\s*$", re.MULTILINE)
+#: Measured 2026-10-26: 42 citations across 50 pages. A guard that parses nothing passes
+#: vacuously, so a front-matter format change has to be loud.
+_MIN_WIKI_CITATIONS = 40
+
+
+def test_wiki_source_citations_land_on_definitions() -> None:
+    """Every ``source:`` citation in the call-graph wiki names a tracked file, at a definition.
+
+    Citing a line inside a body is not merely imprecise: it points a reader at unrelated code,
+    which is how a fabricated entry survived a whole review cycle -- the phantom page's citation
+    was in range, so range checks alone could not have caught it.
+    """
+    offenders: list[str] = []
+    checked = 0
+    headers: dict[str, set[int]] = {}
+
+    for page in sorted(_WIKI_DIR2.rglob("*.md")):
+        rel_page = page.relative_to(REPO).as_posix()
+        text = page.read_text(encoding="utf-8-sig", errors="replace")
+        for match in _WIKI_SOURCE.finditer(text):
+            checked += 1
+            target, lineno = match.group(1), int(match.group(2))
+            path = REPO / target
+            if not path.is_file():
+                offenders.append(f"{rel_page}: cited file {target} is not in the tree")
+                continue
+            if target not in headers:
+                tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"), filename=target)
+                good: set[int] = set()
+                for node in ast.walk(tree):
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                        start = min([node.lineno] + [d.lineno for d in node.decorator_list])
+                        good.update(range(start, node.lineno + 1))
+                headers[target] = good
+            if lineno not in headers[target]:
+                offenders.append(
+                    f"{rel_page}: {target}:{lineno} is not a definition header "
+                    f"(headers here: {sorted(headers[target])[:6]}...)"
+                )
+
+    assert checked >= _MIN_WIKI_CITATIONS, (
+        f"parsed {checked} citation(s), below the floor {_MIN_WIKI_CITATIONS} -- the "
+        "front-matter format stopped matching, so this guard is checking nothing"
+    )
+    assert not offenders, (
+        f"{len(offenders)} wiki citation(s) point away from a definition:\n  "
+        + "\n  ".join(offenders[:20])
+        + "\nRegenerate with scripts/call_graph/build_call_graph.py + finalize_graph.py + "
+        "gen_wiki_pages.py; if a page is hand-written, derive its citation instead of "
+        "pinning a literal."
+    )
+#: Two docs restate the CLI inventory by hand as a table plus a count: ``README.md``'s command
+#: overview and ``docs/user/cli-reference.md``'s reference table. Both were wrong at one point
+#: (TODO 8.9 item 29 found 8 places naming a retired command as top-level), and nothing re-checks
+#: them. Only table *rows* and the stated count are read, so prose that legitimately discusses a
+#: retired command -- e.g. README's note that ``spgd-square`` is no longer top-level -- is never
+#: treated as an inventory claim (the repo-wide prose version of this guard was rejected, item 30).
+_CLI_DOC_README = REPO / "README.md"
+_CLI_DOC_REFERENCE = REPO / "docs" / "user" / "cli-reference.md"
+_CLI_README_ROW = re.compile(r"^\| `([a-z][a-z0-9-]+)` \| \[docs/", re.MULTILINE)
+_CLI_README_COUNT = re.compile(r"注册 \*\*(\d+) 个顶层命令\*\*")
+_CLI_REFERENCE_ROW = re.compile(r"^\| `([a-z][a-z0-9-]+)` \| [^|]+ \| \d+ \|$", re.MULTILINE)
+_CLI_REFERENCE_COUNT = re.compile(r"当前共 \*\*(\d+) 个命令\*\*")
+#: Measured 2026-10-26: 19 rows in each table. A guard that parses no rows passes vacuously.
+_MIN_CLI_DOC_ROWS = 19
+
+
+def test_cli_inventory_tables_in_docs_track_the_registered_commands() -> None:
+    """Both hand-written CLI tables and their stated counts must equal the live registry.
+
+    A command added to ``main.py`` without a doc row -- or a row left behind after removal --
+    is a claim about an interface that does not exist, and users type what the table says.
+    """
+    from ao_shaping.main import cli  # the runtime registry, not a re-parse of main.py
+
+    registered = set(cli.commands)
+    assert len(registered) >= _MIN_CLI_DOC_ROWS, (
+        f"main.py registers {len(registered)} command(s), below the floor "
+        f"{_MIN_CLI_DOC_ROWS} -- the import found a degraded CLI"
+    )
+
+    sources = (
+        (_CLI_DOC_README, _CLI_README_ROW, _CLI_README_COUNT, "**全局选项**"),
+        (_CLI_DOC_REFERENCE, _CLI_REFERENCE_ROW, _CLI_REFERENCE_COUNT, "## 2. 全局选项"),
+    )
+    for path, row_re, count_re, tail_marker in sources:
+        rel = path.relative_to(REPO).as_posix()
+        text = path.read_text(encoding="utf-8-sig")
+        table_text = text.split(tail_marker)[0] if tail_marker in text else text
+
+        rows = row_re.findall(table_text)
+        assert len(rows) >= _MIN_CLI_DOC_ROWS, (
+            f"{rel}: parsed {len(rows)} command row(s), below the floor {_MIN_CLI_DOC_ROWS} "
+            "-- the table's shape changed, so this guard is checking nothing"
+        )
+        extra = sorted(set(rows) - registered)
+        missing = sorted(registered - set(rows))
+        assert not extra and not missing, (
+            f"{rel}'s CLI table disagrees with main.py: "
+            f"listed-but-not-registered={extra} registered-but-unlisted={missing}"
+        )
+
+        stated = count_re.findall(text)
+        assert stated, f"{rel} no longer states its command count -- the wording changed"
+        wrong = [n for n in stated if int(n) != len(registered)]
+        assert not wrong, (
+            f"{rel} states {wrong} command(s) while main.py registers {len(registered)} -- "
+            "restate the count in the same commit that changes the CLI"
+        )
+#: Environment variables are read by name and set by name, and the two ends never meet in a
+#: type checker, so a casing slip produces a knob that silently does nothing. Measured on
+#: 2026-10-26: production code reads 22 distinct names, and exactly one pair collided --
+#: ``Far_Cam_ID`` (the spelling in ``.env``, ``.env.example``, ``AGENTS.md`` and the CLI
+#: reference) and ``FAR_CAM_ID`` (read in three sites, set nowhere in the repo or CI). Those
+#: three sites therefore ignored the configured camera id and always used their fallback.
+#: A deliberate second spelling has to be registered in the allowlist below, with a reason.
+_ENV_ALLOWLIST: tuple[str, ...] = ()
+#: Measured 22 names read. A guard that parses nothing passes vacuously (TODO 8.9 #32/#34),
+#: so the parse has to be loud about its own scope.
+_MIN_ENV_NAMES_READ = 15
+
+#: Platform-provided names that production code reads but this repo does not define.
+#: Requiring a doc entry for them would mean documenting Windows or Linux itself.
+_OS_ENV_NAMES: tuple[str, ...] = ("COMPUTERNAME", "USERPROFILE", "XDG_DATA_HOME")
+
+
+def test_env_names_read_by_code_are_documented() -> None:
+    """Every environment name production code reads is named in a live document.
+
+    The case-collision guard checks one direction; this checks the other. A knob can be read at
+    runtime, honoured, and still be undiscoverable: the census over 21 read names found 11
+    repo-owned ones in no live document -- four ``*_CONFIG_DIR`` overrides, three vendor SDK/DLL
+    path seams, one optional OOPAO source path, and three debug/tuning switches -- beside 3
+    OS-provided names that are exempted rather than documented.
+    """
+    found, unparsed, scanned = _env_names_read_by_code()
+
+    assert not unparsed, (
+        f"{len(unparsed)} file(s) could not be parsed, so this guard saw nothing inside them: "
+        f"{unparsed}"
+    )
+    assert len(found) >= _MIN_ENV_NAMES_READ, (
+        f"only {len(found)} environment name(s) parsed over {scanned} file(s), below the floor "
+        f"{_MIN_ENV_NAMES_READ} -- the extractor stopped matching how this repo reads env vars"
+    )
+
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"], capture_output=True, cwd=str(REPO), check=False
+    ).stdout
+    tracked = {t.decode("utf-8", errors="replace") for t in listing.split(b"\0") if t}
+
+    corpus: dict[str, str] = {}
+    for rel in tracked:
+        if not rel.endswith(".md") or rel == "CHANGELOG.md":
+            continue
+        path = REPO / rel
+        if _is_historical(path):
+            continue
+        corpus[rel] = path.read_text(encoding="utf-8", errors="replace")
+    assert len(corpus) >= 40, (
+        f"only {len(corpus)} live document(s) scanned -- the corpus disappeared, so a pass here "
+        "would only prove the search was empty"
+    )
+
+    missing: dict[str, list[str]] = {}
+    for name, sites in found.items():
+        if name in _OS_ENV_NAMES:
+            continue
+        if not any(name in text for text in corpus.values()):
+            missing[name] = sorted(sites)[:3]
+
+    assert not missing, (
+        f"{len(missing)} environment name(s) are read by production code but appear in no live "
+        f"document ({len(corpus)} docs scanned, {len(_OS_ENV_NAMES)} OS-provided names exempted):\n  "
+        + "\n  ".join(f"{n} <- {v}" for n, v in sorted(missing.items()))
+        + "\nDocument each in the Environment Variables section of AGENTS.md with its default "
+        "value and what it changes: a knob nobody can find is a knob nobody can set."
+    )
+
+
+_QUOTED_PY_PATH = re.compile(
+    r"""[`'"]((?:src|scripts|tests)/[A-Za-z0-9_./-]+\.py)(?::\d+)?[`'"]"""
+)
+
+#: Citations whose referring text declares the target gone. Each key is
+#: (citing file, cited path) and each value states the deletion commit or the record's own
+#: self-disclaimer -- a bare stale path never belongs here, it gets repointed. Sized from the
+#: census that found 11 of the 22 citations in this class, so the exemption is the minority.
+_QUOTED_PY_PATH_HISTORICAL: dict[tuple[str, str], str] = {
+    ("docs/issues_report.md", "src/ao_shaping/utils/wfs_utils.py"):
+        "frozen 2026-05 snapshot whose own header declares the cited line numbers invalid",
+    ("docs/issues_report.md", "src/ao_shaping/utils/pattern_helper.py"):
+        "same frozen snapshot",
+    ("docs/issues_report.md", "src/ao_shaping/drivers/ccd/miicam_driver.py"):
+        "same frozen snapshot",
+    ("scripts/ml/generate_inverse_design_report.py", "scripts/crosstalk_augmentation_train.py"):
+        "emitted inside _removed_note(): the experiment is declared void and the script was "
+        "deleted in 6b85858a, so naming it is the record",
+    ("scripts/ml/generate_inverse_design_report.py", "scripts/inverse_crosstalk_check.py"):
+        "same _removed_note() annotation",
+    ("scripts/slm/generate_fouriergsnet_pipeline_report.py",
+     "tests/ao_shaping/drivers/sim/test_sim_fouriergsnet_pipeline.py"):
+        "self-dated (2026-09-22) frozen run snapshot; those tests were deleted in baefba2d -- "
+        "annotating or regenerating this snapshot is an owner call",
+    ("scripts/slm/generate_fouriergsnet_pipeline_report.py",
+     "tests/ao_shaping/runners/test_fouriergsnet_optimize.py"):
+        "same frozen snapshot",
+    ("scripts/slm/generate_diff_shaping_report.py", "src/ao_shaping/runners/diff_shaping_runner.py"):
+        "the runner was deleted in fbef1926 and the text says so, mirroring AGENTS.md's own "
+        "convention for that entry",
+    ("scripts/slm/verify_pib_exit_safety_hw.py", "scripts/slm/generate_pib_exit_safety_report.py"):
+        "phantom pib_exit_safety family: the script was never committed, so only its author can "
+        "say whether the sibling script or the report is missing; already red under "
+        "test_reproduce_commands_in_live_docs_name_tracked_scripts",
+    ("scripts/README.md", "tests/ao_shaping/scripts/test_verify_pib_exit_safety_hw.py"):
+        "same phantom family and the same known-red guard",
+}
+
+#: The census resolved 362 claims; a floor this far below catches an extractor that stopped
+#: matching without silently checking nothing.
+_MIN_QUOTED_PY_PATH_CLAIMS = 250
+
+#: ``python <hub> main.py <command> [subcommand] [flags...]`` as written in live text. The tail is
+#: captured on one line only: a backslash-continued block puts its remaining flags on the next line,
+#: and letting ``\s`` cross the newline made the next line's ``python`` look like a subcommand.
+_CLI_INVOCATION = re.compile(
+    r"(?:python3?|uv run python)[^\n]*?\S*main\.py((?:[ \t]+\S+)*)"
+)
+
+#: 72 invocation claims resolved over live markdown and src/ + scripts/ string literals, 65 of them
+#: runnable-looking and the rest click synopses; the floor leaves room for rewording but not for an
+#: extractor that quietly matches nothing.
+_MIN_CLI_INVOCATION_CLAIMS = 50
+
+
+def test_cli_invocations_in_live_text_name_real_commands_and_options() -> None:
+    """Every written-out CLI invocation names a command, subcommand and flag that exist.
+
+    The sibling guards here check that an invoked *script* is tracked and that a quoted *path* is
+    tracked; neither looks at what follows ``main.py``. This resolves the whole invocation against the
+    live click tree: the command, the subcommand when the command is a group, and every flag. A bare
+    group is an offender because click answers ``Missing command``, and a flag the command never
+    declared is an offender because click answers ``no such option``. Flag spellings are the part docs
+    drift on most easily -- ``docs/user/cli-reference.md`` already documents a live ``-d`` collision
+    between group level and command level, and a group option placed after the subcommand is rejected
+    exactly the way a made-up one is.
+    """
+    import click
+
+    from ao_shaping.main import cli
+
+    tracked = {
+        t.decode("utf-8", errors="replace")
+        for t in subprocess.run(
+            ["git", "ls-files", "-z"], capture_output=True, cwd=str(REPO), check=False
+        ).stdout.split(b"\0")
+        if t
+    }
+    targets = sorted(
+        rel
+        for rel in tracked
+        if (rel.endswith(".py") and (rel.startswith("src/") or rel.startswith("scripts/")))
+        or (rel.endswith(".md") and rel != "CHANGELOG.md" and not _is_historical(REPO / rel))
+    )
+
+    group_allowed: set[str] = {"--help", "-h"}
+    group_params: dict[str, click.Parameter] = {}
+    for param in cli.params:
+        group_allowed.update(param.opts)
+        group_allowed.update(param.secondary_opts)
+        for opt in (*param.opts, *param.secondary_opts):
+            group_params[opt] = param
+
+    def placeholder(token: str) -> bool:
+        # ``main.py [OPTIONS] [COMMAND]`` is how click itself writes a synopsis, and ``…`` /
+        # ``<command>`` are how this repo abbreviates one. Neither is a runnable invocation.
+        return token.startswith(("<", "[")) or chr(8230) in token
+
+
+    offenders: list[str] = []
+    checked = 0
+    for rel in targets:
+        path = REPO / rel
+        if not path.is_file():
+            continue
+        if rel.endswith(".py"):
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"), filename=rel)
+            except SyntaxError:
+                continue
+            claims = [
+                (node.lineno, value)
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Constant) and isinstance(node.value, str)
+                for value in node.value.splitlines()
+            ]
+        else:
+            claims = list(
+                enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1)
+            )
+
+        for lineno, line in claims:
+            for match in _CLI_INVOCATION.finditer(line):
+                checked += 1
+                tokens = [t for t in match.group(1).split() if t != chr(92)]
+                while tokens and tokens[0].startswith("-"):
+                    raw = tokens.pop(0)
+                    flag = raw.split("=", 1)[0]
+                    param = group_params.get(flag)
+                    if flag not in group_allowed:
+                        offenders.append(
+                            f"{rel}:{lineno} -> {flag!r} is not an option of the top-level group; "
+                            f"a group flag must precede the command name. Declared: "
+                            f"{sorted(group_allowed)}"
+                        )
+                    elif param is not None and not param.is_flag and "=" not in raw and tokens:
+                        tokens.pop(0)
+                if not tokens:
+                    continue
+                name = tokens.pop(0)
+                rest = tokens
+                if placeholder(name):
+                    continue
+                command = cli.commands.get(name)
+                if command is None:
+                    offenders.append(f"{rel}:{lineno} -> command {name!r} is not registered")
+                    continue
+                # Resolve a subcommand only through a group; a plain command takes none.
+                if isinstance(command, click.Group):
+                    nxt = next(
+                        (t for t in rest if not t.startswith("-") and not placeholder(t)), None
+                    )
+                    if nxt is None and not any(t in ("--help", "-h") for t in rest):
+                        offenders.append(
+                            f"{rel}:{lineno} -> group {name!r} invoked with no subcommand "
+                            f"(click: Missing command); its subcommands are "
+                            f"{sorted(command.commands)}"
+                        )
+                        continue
+                    if nxt is not None and nxt in command.commands:
+                        command = command.commands[nxt]
+                        rest = rest[rest.index(nxt) + 1:]
+                    elif nxt is not None:
+                        offenders.append(
+                            f"{rel}:{lineno} -> {name} {nxt!r} is not a subcommand of that group; "
+                            f"registered: {sorted(command.commands)}"
+                        )
+                        continue
+                # click attaches --help lazily (get_help_option_names(ctx)), so it never shows up in
+                # command.params. Accept the default plus the -h alias this hub's context_settings
+                # declares; anything else has to be a real declared option.
+                allowed: set[str] = {"--help", "-h"}
+                for param in command.params:
+                    allowed.update(param.opts)
+                    allowed.update(param.secondary_opts)
+                for token in rest:
+                    if not token.startswith("-") or token.startswith("<"):
+                        continue
+                    flag = token.split("=", 1)[0].rstrip(").,;:`\"'")
+                    if flag in ("--", "-"):
+                        continue
+                    if flag not in allowed:
+                        offenders.append(
+                            f"{rel}:{lineno} -> {flag!r} is not an option of "
+                            f"{name}; "
+                            f"declared: {sorted(a for a in allowed if a.startswith('--'))[:12]}"
+                        )
+
+    assert checked >= _MIN_CLI_INVOCATION_CLAIMS, (
+        f"resolved only {checked} CLI invocation claim(s), below the floor "
+        f"{_MIN_CLI_INVOCATION_CLAIMS} -- the grammar stopped matching how this repo writes its "
+        "commands, so a pass here would mean nothing was checked."
+    )
+    assert not offenders, (
+        f"{len(offenders)} written-out CLI invocation(s) cannot run as written:\n  "
+        + "\n  ".join(offenders[:20])
+        + "\nFix the text to the command tree that exists (run `python src/ao_shaping/main.py "
+        "<command> --help` to see real flags); do not invent options."
+    )
+
+
+
+def test_quoted_source_paths_in_live_text_exist_in_the_git_index() -> None:
+    """A quoted repo path is an existence claim: the file must be in the next clone.
+
+    ``test_python_invocation_paths_in_docs_and_docstrings_are_tracked`` covers ``python <path>.py``
+    instructions in module docstrings and live markdown. This covers the wider channel it cannot
+    see: a path quoted as text -- in any string literal of ``src/`` and ``scripts/`` (which is where
+    report generators write the tables their readers follow) and in live markdown. A census over 361
+    such claims found 9 pointing at files that had moved or been deleted while the text still
+    presented them as present: ``algorithm/differentiable_shaping.py`` (relocated into
+    ``algorithm/signal_processing/`` in bbb3820b, three citations), ``optimizer/wfless/
+    slm_zernike_shaping.py`` (the zero-importer re-export shim deleted in 8792ced1),
+    ``tools/slm/slm_zernike_{response,correction,common}.py`` (regrouped into ``tools/wfs/`` and
+    ``tools/zernike/`` in 699f149f and a later pass), ``tests/ao_shaping/runners/test_gsnet_cache.py``
+    (moved under ``tests/ao_shaping/ml/``), and one citation in ``square_shaping.py`` to a
+    ``test_square_shaping_fienup_variants.py`` that has never existed at all -- that last one was not
+    a stale pointer but a claimed numerical verification with no test behind it.
+    """
+    import subprocess
+
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"], capture_output=True, cwd=str(REPO), check=False
+    ).stdout
+    tracked = {t.decode("utf-8", errors="replace") for t in listing.split(b"\0") if t}
+
+    offenders: list[str] = []
+    checked = 0
+    exempt = 0
+    for rel in sorted(tracked):
+        path = REPO / rel
+        if not path.is_file():
+            continue
+        claims: list[tuple[int, str]] = []
+        if rel.endswith(".py"):
+            # tests/ is left out on purpose: a test docstring cannot mislead a reader about where
+            # production code lives, and this mirrors the scope of the invocation guard.
+            if not (rel.startswith("src/") or rel.startswith("scripts/")):
+                continue
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"))
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    for match in _QUOTED_PY_PATH.finditer(node.value):
+                        claims.append((node.lineno, match.group(1)))
+        elif rel.endswith(".md") and rel != "CHANGELOG.md" and not _is_historical(path):
+            # A changelog's job is to name the files it removed, so it is out of scope even though
+            # _is_historical() does not list it.
+            for lineno, line in enumerate(
+                path.read_text(encoding="utf-8", errors="replace").splitlines(), 1
+            ):
+                for match in _QUOTED_PY_PATH.finditer(line):
+                    claims.append((lineno, match.group(1)))
+        else:
+            continue
+        for lineno, cited in claims:
+            # "tests/.../test_x.py" is a placeholder a human wrote, not a resolvable claim.
+            if "..." in cited:
+                continue
+            checked += 1
+            if cited in tracked:
+                continue
+            reason = _QUOTED_PY_PATH_HISTORICAL.get((rel, cited))
+            if reason is not None:
+                exempt += 1
+                continue
+            offenders.append(f"{rel}:{lineno} -> {cited!r} (not in the git index)")
+
+    assert checked >= _MIN_QUOTED_PY_PATH_CLAIMS, (
+        f"resolved only {checked} quoted-path claim(s), below the floor "
+        f"{_MIN_QUOTED_PY_PATH_CLAIMS} -- the grammar stopped matching the repo's citation style, "
+        "so a pass here would mean nothing was checked."
+    )
+    assert not offenders, (
+        f"{len(offenders)} quoted path(s) name a file that is not in the git index "
+        f"({exempt} exempted as self-declared history):\n  " + "\n  ".join(offenders[:20])
+        + "\nRepoint each to where the file actually lives (git log --follow shows the move), or, "
+        "if it really was deleted, make the text say so and register the exemption with the commit."
+    )
+
+
+
+def _env_names_read_by_code() -> tuple[dict[str, list[str]], list[str], int]:
+    """Collect every literal environment variable name read under ``src/`` and ``scripts/``."""
+    found: dict[str, list[str]] = {}
+    unparsed: list[str] = []
+    scanned = 0
+    for path in sorted(SRC.rglob("*.py")) + sorted((REPO / "scripts").rglob("*.py")):
+        rel = path.relative_to(REPO).as_posix()
+        scanned += 1
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"), filename=rel)
+        except SyntaxError:
+            unparsed.append(rel)
+            continue
+        for node in ast.walk(tree):
+            name: str | None = None
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if node.func.attr in ("get", "getenv", "setdefault"):
+                    base = node.func.value
+                    base_name = base.id if isinstance(base, ast.Name) else getattr(base, "attr", "")
+                    if base_name in ("os", "environ") and node.args and isinstance(node.args[0], ast.Constant):
+                        name = node.args[0].value
+            elif isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute):
+                if node.value.attr == "environ" and isinstance(node.slice, ast.Constant):
+                    name = node.slice.value
+            if isinstance(name, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+                found.setdefault(name, []).append(rel)
+    return found, unparsed, scanned
+
+
+def test_env_names_read_by_code_have_no_case_collisions() -> None:
+    """No two environment variable names read by production code may differ only in case.
+
+    A split spelling does not fail: the un-set name just keeps returning its default, so the
+    code looks configured while honoring nothing. The camera id is the concrete case -- three
+    sites read ``FAR_CAM_ID`` while ``.env`` sets ``Far_Cam_ID``, and one of those very
+    declarations advertises ``Far_Cam_ID`` in its own ``--help`` text.
+    """
+    found, unparsed, scanned = _env_names_read_by_code()
+
+    assert not unparsed, (
+        f"{len(unparsed)} file(s) could not be parsed, so this guard saw nothing inside them: "
+        f"{unparsed}"
+    )
+    assert len(found) >= _MIN_ENV_NAMES_READ, (
+        f"only {len(found)} environment name(s) parsed over {scanned} file(s), below the floor "
+        f"{_MIN_ENV_NAMES_READ} -- the extractor stopped matching how this repo reads env vars"
+    )
+
+    groups: dict[str, list[str]] = {}
+    for name in found:
+        groups.setdefault(name.upper(), []).append(name)
+    collisions = {k: sorted(v) for k, v in groups.items() if len(v) > 1 and k not in _ENV_ALLOWLIST}
+
+    assert not collisions, (
+        f"{len(collisions)} env-name case collision(s): "
+        + "; ".join(
+            f"{names} read by {sorted(set().union(*(found[n] for n in names)))}"
+            for names in sorted(collisions.values())
+        )
+        + " -- one spelling is settable and the other silently is not: pick the documented "
+        "spelling, or register the pair in _ENV_ALLOWLIST with a reason."
+    )

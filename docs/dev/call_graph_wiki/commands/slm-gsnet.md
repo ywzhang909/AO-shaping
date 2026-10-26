@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: command
 tags: [command]
-source: src/ao_shaping/runners/slm/gsnet_runner.py:390
+source: src/ao_shaping/runners/slm/gsnet_runner.py:396
 ---
 
 ## 一句话
@@ -13,7 +13,7 @@ SLM freeform 方形整形（spgd/heuristic/train）
 
 ## 入口函数
 
-`runners.slm.gsnet_runner.run`（`src/ao_shaping/runners/slm/gsnet_runner.py:390`）
+`runners.slm.gsnet_runner.run`（`src/ao_shaping/runners/slm/gsnet_runner.py:396`）
 
 ```python
 run(ctx, run)

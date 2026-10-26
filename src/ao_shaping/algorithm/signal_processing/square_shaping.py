@@ -906,8 +906,9 @@ class UniformSquareShaper:
 
     **DM → HIO 退化 (Elser 2003)**: 取 ``beta=1``, ``gamma_A = -1/beta_HIO``,
     ``gamma_B = +1/beta_HIO`` 时, difference map 退化为 HIO (松弛系数
-    ``beta_HIO``)。数值验证见
-    ``tests/ao_shaping/algorithm/test_square_shaping_fienup_variants.py``。
+    ``beta_HIO``)。各变体本身由
+    ``tests/ao_shaping/algorithm/signal_processing/test_square_shaping.py`` 按
+    ``GS_METHODS`` 参数化覆盖, 但**该退化等式没有数值验证**（无对应测试）。
 
     能量守恒: 构造时把 ``amp_target`` 重标定到与瞳面总能量一致; 因子 c 在
     ``angle(c*X) = angle(X)`` 下被抵消, 故 ``gamma=0`` 时与 ``gs_shape`` 逐位等价。

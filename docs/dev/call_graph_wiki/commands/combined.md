@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: command
 tags: [command]
-source: src/ao_shaping/runners/nlight_dm/combined_runner.py:31
+source: src/ao_shaping/runners/nlight_dm/combined_runner.py:35
 ---
 
 ## 一句话
@@ -13,7 +13,7 @@ AdaMOD 综合 PIB 优化（自适应桶收缩）
 
 ## 入口函数
 
-`runners.nlight_dm.combined_runner.run`（`src/ao_shaping/runners/nlight_dm/combined_runner.py:31`）
+`runners.nlight_dm.combined_runner.run`（`src/ao_shaping/runners/nlight_dm/combined_runner.py:35`）
 
 ```python
 run(ctx, algorithm, run, camera)
@@ -67,7 +67,7 @@ AdaMOD 综合PIB优化器
 
 与本页函数结构/职责相近的函数（相似度得分，来自 `build_similarity.py`；含义与阈值见 [[relations/similar-functions|相似函数总览]]）：
 
-- 0.350 — [[commands/pib|`run`]]（同名 `run`；共享 6 个被调函数（调用结构高度相似））
+- 0.396 — [[commands/pib|`run`]]（同名 `run`；共享 10 个被调函数（调用结构高度相似））
 
 
 ## 相关页面

@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: command
 tags: [command]
-source: src/ao_shaping/runners/micro_drive/voltage_runner.py:609
+source: src/ao_shaping/runners/micro_drive/voltage_runner.py:642
 ---
 
 ## 一句话
@@ -13,7 +13,7 @@ AsyncMicroDM 全量交替电压下发
 
 ## 入口函数
 
-`runners.micro_drive.voltage_runner.full_voltage_run`（`src/ao_shaping/runners/micro_drive/voltage_runner.py:609`）
+`runners.micro_drive.voltage_runner.full_voltage_run`（`src/ao_shaping/runners/micro_drive/voltage_runner.py:642`）
 
 ```python
 full_voltage_run(ctx, params)

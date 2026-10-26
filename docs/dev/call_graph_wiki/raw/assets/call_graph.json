@@ -5,8 +5,8 @@
    "qualname": "cli",
    "module": "ao_shaping.main",
    "file": "src/ao_shaping/main.py",
-   "lineno": 79,
-   "end": 98,
+   "lineno": 86,
+   "end": 105,
    "args": [
     "ctx",
     "dir",
@@ -36,8 +36,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.nlight_dm.wf_runner",
    "file": "src/ao_shaping/runners/nlight_dm/wf_runner.py",
-   "lineno": 33,
-   "end": 95,
+   "lineno": 36,
+   "end": 98,
    "args": [
     "ctx",
     "dm",
@@ -88,8 +88,8 @@
    "qualname": "save_best_voltages",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3807,
-   "end": 3827,
+   "lineno": 4040,
+   "end": 4060,
    "args": [
     "records",
     "root_dir",
@@ -103,8 +103,8 @@
    "qualname": "optimizer_rms_dm",
    "module": "ao_shaping.optimizer.wf.rms",
    "file": "src/ao_shaping/optimizer/wf/rms.py",
-   "lineno": 45,
-   "end": 202,
+   "lineno": 50,
+   "end": 207,
    "args": [
     "epochs",
     "wfs_res",
@@ -143,8 +143,8 @@
    "qualname": "schedule_lr_delta",
    "module": "ao_shaping.optimizer.wf.rms",
    "file": "src/ao_shaping/optimizer/wf/rms.py",
-   "lineno": 19,
-   "end": 42,
+   "lineno": 24,
+   "end": 47,
    "args": [
     "rms"
    ],
@@ -318,8 +318,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.nlight_dm.axis_beam_runner",
    "file": "src/ao_shaping/runners/nlight_dm/axis_beam_runner.py",
-   "lineno": 44,
-   "end": 246,
+   "lineno": 48,
+   "end": 250,
    "args": [
     "ctx",
     "device",
@@ -369,8 +369,8 @@
    "qualname": "optimize_pib",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 248,
-   "end": 829,
+   "lineno": 209,
+   "end": 790,
    "args": [
     "center",
     "epochs",
@@ -431,8 +431,8 @@
    "qualname": "load_init_v",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3785,
-   "end": 3804,
+   "lineno": 4018,
+   "end": 4037,
    "args": [
     "load_file"
    ],
@@ -485,8 +485,8 @@
    "qualname": "plot_pib_debug_grid",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3830,
-   "end": 3862,
+   "lineno": 4063,
+   "end": 4095,
    "args": [
     "init_img",
     "best_img",
@@ -586,8 +586,8 @@
    "qualname": "_objective_to_min",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 223,
-   "end": 245,
+   "lineno": 184,
+   "end": 206,
    "args": [
     "objective"
    ],
@@ -618,8 +618,8 @@
    "qualname": "learning_schedule",
    "module": "ao_shaping.optimizer.wfless.slm_zernike_primitives",
    "file": "src/ao_shaping/optimizer/wfless/slm_zernike_primitives.py",
-   "lineno": 106,
-   "end": 214,
+   "lineno": 110,
+   "end": 172,
    "args": [
     "power_radius",
     "ideal_r",
@@ -637,8 +637,8 @@
    "qualname": "_generate_search_candidates",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 74,
-   "end": 98,
+   "lineno": 83,
+   "end": 107,
    "args": [
     "anchor_v",
     "radius_scale",
@@ -727,8 +727,8 @@
    "qualname": "_should_trigger_adaptive_search",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 101,
-   "end": 115,
+   "lineno": 110,
+   "end": 124,
    "args": [
     "epoch",
     "enabled",
@@ -746,8 +746,8 @@
    "qualname": "_extract_optimizer_momentum",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 56,
-   "end": 60,
+   "lineno": 65,
+   "end": 69,
    "args": [
     "optimizer"
    ],
@@ -770,8 +770,8 @@
    "qualname": "_reset_optimizer_state",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 63,
-   "end": 71,
+   "lineno": 72,
+   "end": 80,
    "args": [
     "optimizer"
    ],
@@ -840,8 +840,8 @@
    "qualname": "resolve_spot_center",
    "module": "ao_shaping.utils.image.hardware_utils",
    "file": "src/ao_shaping/utils/image/hardware_utils.py",
-   "lineno": 542,
-   "end": 598,
+   "lineno": 578,
+   "end": 634,
    "args": [
     "camera",
     "img",
@@ -858,8 +858,8 @@
    "qualname": "log_center_brightness",
    "module": "ao_shaping.utils.image.hardware_utils",
    "file": "src/ao_shaping/utils/image/hardware_utils.py",
-   "lineno": 517,
-   "end": 539,
+   "lineno": 553,
+   "end": 575,
    "args": [
     "img",
     "center",
@@ -928,8 +928,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.nlight_dm.pipeline_runner",
    "file": "src/ao_shaping/runners/nlight_dm/pipeline_runner.py",
-   "lineno": 37,
-   "end": 174,
+   "lineno": 41,
+   "end": 178,
    "args": [
     "ctx",
     "device",
@@ -960,7 +960,7 @@
     "wfs_params"
    ],
    "returns": "None",
-   "doc": "获取Zernike响应矩阵\n\n    支持 N 次正负交替循环测量 + M 次 WFS 读取取平均 + 方差跟踪 + 逆矩阵计算。\n\n    多幅度模式 (--n-magnitudes N):\n        自动生成N个不同扰动幅度 (2~5 rad)，分别标定并保存。\n\n    调试模式 (--debug):\n        保存每次测量的原始数据:\n        - SLM相位图 (灰度值, 已应用shift)\n        - WFS deviation数据\n        - WFS Zernike系数 (averaging前)\n\n    标定内核 (2026-09-16 按已验证的 tools/slm/slm_zernike_response.py 重写):\n        - 直控链路: Santec + PatternHelper (与原 ZernikeSLM 链路不同; 旧链路实机原生崩溃)\n        - 矩阵单位 **λ/λ**: 列 = Δ(WFS λ) / Δ(SLM 幅度 λ); 幅度 λ = rad/(2π)\n        - make_phase **透传 n_max** (不再硬编码 4 → n≥5 模式不再被截断)\n        - 测完矩阵后自动执行 offline_correction_test():\n            恢复内部参考 → 平场基线 → pinv 反解当前像差 (λ) → ×2π 弧度加载\n            → 复测残差 + 模型自检 (‖w0+M·c‖ vs ‖w1‖, 比 0.7~1.4)\n            → export_correction_csv 保存施加的矫正相位\n              (文件名含 序列号/波长/shift/半径/时间 + sidecar JSON)\n\n    TODO (实机待测试清单 —— 重写后尚未上设备实测):\n        [ ] 重标响应矩阵, 检查主导系数: [5](2,0)defocus [9](3,1)coma [13](4,0)spherical\n            应与理论形状对应; n≥5 模式不再被截断 (旧 bug: 硬编码 n_max=4)\n        [ ] 矩阵量纲: cond_eff 应仍 ≈8 量级; 反解系数幅值与推拉幅度 (λ) 同量级\n        [ ] 离线矫正测试: RMS 应有明显改善 (>20%); 模型自检比 ∈ 0.7~1.4\n            (偏离即 单位 λ/rad 或 zernike_radius 与标定不一致)\n        [ ] export_correction_csv 产物: 数据区为**弧度**; create_phase_from_array 重载\n            应还原矫正相位 (勿走 load_gray_from_csv/csv_to_phase 灰度读取管线)\n        [ ] closed-loop 用新矩阵: 收敛行为与离线反解一致, 控制系数无 6.28× 缩放\n        [ ] --n-magnitudes N: 各幅度结果应线性 (系数 / 幅度 ≈ 常数)\n    ",
+   "doc": "获取Zernike响应矩阵\n\n    支持 N 次正负交替循环测量 + M 次 WFS 读取取平均 + 方差跟踪 + 逆矩阵计算。\n\n    多幅度模式 (--n-magnitudes N):\n        自动生成N个不同扰动幅度 (2~5 rad)，分别标定并保存。\n\n    调试模式 (--debug):\n        保存每次测量的原始数据:\n        - SLM相位图 (灰度值, 已应用shift)\n        - WFS deviation数据\n        - WFS Zernike系数 (averaging前)\n\n    标定内核 (2026-09-16 按已验证的 tools/slm/slm_zernike_response.py 重写):\n        - 直控链路: Santec + PatternHelper (与原 ZernikeSLM 链路不同; 旧链路实验原生崩溃)\n        - 矩阵单位 **λ/λ**: 列 = Δ(WFS λ) / Δ(SLM 幅度 λ); 幅度 λ = rad/(2π)\n        - make_phase **透传 n_max** (不再硬编码 4 → n≥5 模式不再被截断)\n        - 测完矩阵后自动执行 offline_correction_test():\n            恢复内部参考 → 平场基线 → pinv 反解当前像差 (λ) → ×2π 弧度加载\n            → 复测残差 + 模型自检 (‖w0+M·c‖ vs ‖w1‖, 比 0.7~1.4)\n            → export_correction_csv 保存施加的矫正相位\n              (文件名含 序列号/波长/shift/半径/时间 + sidecar JSON)\n\n    TODO (实验待测试清单 —— 重写后尚未上设备实测):\n        [ ] 重标响应矩阵, 检查主导系数: [5](2,0)defocus [9](3,1)coma [13](4,0)spherical\n            应与理论形状对应; n≥5 模式不再被截断 (旧 bug: 硬编码 n_max=4)\n        [ ] 矩阵量纲: cond_eff 应仍 ≈8 量级; 反解系数幅值与推拉幅度 (λ) 同量级\n        [ ] 离线矫正测试: RMS 应有明显改善 (>20%); 模型自检比 ∈ 0.7~1.4\n            (偏离即 单位 λ/rad 或 zernike_radius 与标定不一致)\n        [ ] export_correction_csv 产物: 数据区为**弧度**; create_phase_from_array 重载\n            应还原矫正相位 (勿走 load_gray_from_csv/csv_to_phase 灰度读取管线)\n        [ ] closed-loop 用新矩阵: 收敛行为与离线反解一致, 控制系数无 6.28× 缩放\n        [ ] --n-magnitudes N: 各幅度结果应线性 (系数 / 幅度 ≈ 常数)\n    ",
    "decorators": [
     "click.command('zernike-matrix')",
     "click.pass_context",
@@ -1017,8 +1017,8 @@
    "qualname": "collect_device_info",
    "module": "ao_shaping.tools.zernike.common",
    "file": "src/ao_shaping/tools/zernike/common.py",
-   "lineno": 101,
-   "end": 177,
+   "lineno": 172,
+   "end": 248,
    "args": [
     "slm",
     "wfs",
@@ -1127,7 +1127,7 @@
     "progress_cb"
    ],
    "returns": "tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None, list['WfsStateSnapshot']]",
-   "doc": "推拉法 Zernike 响应矩阵标定 (内核与 `tools/slm/slm_zernike_response.py` 一致).\n\n    对每个 SLM Zernike 模式施加 ±A 扰动, 测 WFS Zernike 读数增量:\n        ``matrix[wfs_coeff, slm_mode] = Δ(WFS) / Δ(SLM 幅度)``,  单位 **λ/λ**\n\n    与旧实现 (`calibrate_zernike_response_matrix` + `ZernikeSLM`) 的差异:\n      - 走 **Santec + PatternHelper** 直控链路 (已验证; 旧链路在实机出现原生崩溃)\n      - 单位统一 **µm → λ** (`um_to_waves`), 与闭环矫正的 `w` 同单位\n      - 内置 **光斑有效比门控** (`wfs_validity`) + **逐点幅度合理性剔除**\n      - 矩阵**统一使用同一 Zernike 半径** (矫正相位按单一 R 生成, 否则归一化不匹配)\n\n    Args:\n        magnitude_rad: 扰动幅度, **单位弧度** (建议 2~5 rad ≈ 0.3~0.8λ)\n        zernike_radius: Zernike 归一化半径 px (建议 ≈1.5×光束半径)\n        settle: 相位下发后的额外等待 s (像素翻转估算之外)\n\n    Returns:\n        (matrix, variance, deviation_matrix, subaperture_mask, wf_records)\n        其中 matrix 形状 (66, n_modes), 单位 λ/λ; deviation_matrix 为\n        (2*n_spots, n_modes) 的展平 [dev_x; dev_y] 响应 (供斜率空间闭环)。\n    ",
+   "doc": "推拉法 Zernike 响应矩阵标定 (内核与 `tools/slm/slm_zernike_response.py` 一致).\n\n    对每个 SLM Zernike 模式施加 ±A 扰动, 测 WFS Zernike 读数增量:\n        ``matrix[wfs_coeff, slm_mode] = Δ(WFS) / Δ(SLM 幅度)``,  单位 **λ/λ**\n\n    与旧实现 (`calibrate_zernike_response_matrix` + `ZernikeSLM`) 的差异:\n      - 走 **Santec + PatternHelper** 直控链路 (已验证; 旧链路在实验出现原生崩溃)\n      - 单位统一 **µm → λ** (`um_to_waves`), 与闭环矫正的 `w` 同单位\n      - 内置 **光斑有效比门控** (`wfs_validity`) + **逐点幅度合理性剔除**\n      - 矩阵**统一使用同一 Zernike 半径** (矫正相位按单一 R 生成, 否则归一化不匹配)\n\n    Args:\n        magnitude_rad: 扰动幅度, **单位弧度** (建议 2~5 rad ≈ 0.3~0.8λ)\n        zernike_radius: Zernike 归一化半径 px (建议 ≈1.5×光束半径)\n        settle: 相位下发后的额外等待 s (像素翻转估算之外)\n\n    Returns:\n        (matrix, variance, deviation_matrix, subaperture_mask, wf_records)\n        其中 matrix 形状 (66, n_modes), 单位 λ/λ; deviation_matrix 为\n        (2*n_spots, n_modes) 的展平 [dev_x; dev_y] 响应 (供斜率空间闭环)。\n    ",
    "decorators": []
   },
   "ao_shaping.optimizer.wf.zernike_response_matrix.ZernikeResponseMatrixResult": null,
@@ -1135,8 +1135,8 @@
    "qualname": "save_zernike_response_matrix",
    "module": "ao_shaping.optimizer.wf.zernike_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/zernike_response_matrix.py",
-   "lineno": 617,
-   "end": 676,
+   "lineno": 627,
+   "end": 686,
    "args": [
     "result",
     "path",
@@ -1164,8 +1164,8 @@
    "qualname": "effective_cond",
    "module": "ao_shaping.tools.zernike.common",
    "file": "src/ao_shaping/tools/zernike/common.py",
-   "lineno": 195,
-   "end": 201,
+   "lineno": 266,
+   "end": 272,
    "args": [
     "matrix"
    ],
@@ -1215,8 +1215,8 @@
    "qualname": "safe_pinv",
    "module": "ao_shaping.tools.zernike.common",
    "file": "src/ao_shaping/tools/zernike/common.py",
-   "lineno": 180,
-   "end": 192,
+   "lineno": 251,
+   "end": 263,
    "args": [
     "matrix"
    ],
@@ -1228,8 +1228,8 @@
    "qualname": "closed_loop_run",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1565,
-   "end": 1819,
+   "lineno": 1572,
+   "end": 1826,
    "args": [
     "ctx",
     "params"
@@ -1250,7 +1250,7 @@
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
    "lineno": 1386,
-   "end": 1449,
+   "end": 1456,
    "args": [
     "result",
     "config"
@@ -1263,8 +1263,8 @@
    "qualname": "_measure_wfs_step",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1452,
-   "end": 1478,
+   "lineno": 1459,
+   "end": 1485,
    "args": [
     "wfs",
     "mask_indices",
@@ -1280,8 +1280,8 @@
    "qualname": "_expand_to_noll",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1481,
-   "end": 1506,
+   "lineno": 1488,
+   "end": 1513,
    "args": [
     "u",
     "n_max",
@@ -1319,8 +1319,8 @@
    "qualname": "optimizer_rms_slm",
    "module": "ao_shaping.optimizer.wf.rms_by_zernike",
    "file": "src/ao_shaping/optimizer/wf/rms_by_zernike.py",
-   "lineno": 433,
-   "end": 898,
+   "lineno": 439,
+   "end": 904,
    "args": [
     "epochs",
     "init_z",
@@ -1445,8 +1445,8 @@
    "qualname": "calc_n_zernike_terms",
    "module": "ao_shaping.utils.wavefront.matrix_utils",
    "file": "src/ao_shaping/utils/wavefront/matrix_utils.py",
-   "lineno": 56,
-   "end": 58,
+   "lineno": 55,
+   "end": 57,
    "args": [
     "n_max"
    ],
@@ -1548,8 +1548,8 @@
    "qualname": "_get_perturb_weights",
    "module": "ao_shaping.optimizer.wf.rms_by_zernike",
    "file": "src/ao_shaping/optimizer/wf/rms_by_zernike.py",
-   "lineno": 370,
-   "end": 412,
+   "lineno": 376,
+   "end": 418,
    "args": [
     "n_zernike"
    ],
@@ -1585,8 +1585,8 @@
    "qualname": "get_lr_schedule",
    "module": "ao_shaping.optimizer.wf.rms_by_zernike",
    "file": "src/ao_shaping/optimizer/wf/rms_by_zernike.py",
-   "lineno": 148,
-   "end": 177,
+   "lineno": 154,
+   "end": 183,
    "args": [
     "schedule_type",
     "epoch",
@@ -1602,8 +1602,8 @@
    "qualname": "get_delta_schedule",
    "module": "ao_shaping.optimizer.wf.rms_by_zernike",
    "file": "src/ao_shaping/optimizer/wf/rms_by_zernike.py",
-   "lineno": 180,
-   "end": 209,
+   "lineno": 186,
+   "end": 215,
    "args": [
     "schedule_type",
     "epoch",
@@ -1619,8 +1619,8 @@
    "qualname": "compute_mini_batch_gradient",
    "module": "ao_shaping.optimizer.wf.rms_by_zernike",
    "file": "src/ao_shaping/optimizer/wf/rms_by_zernike.py",
-   "lineno": 270,
-   "end": 349,
+   "lineno": 276,
+   "end": 355,
    "args": [
     "current_c",
     "slm",
@@ -1642,8 +1642,8 @@
    "qualname": "early_stopping_check",
    "module": "ao_shaping.optimizer.wf.rms_by_zernike",
    "file": "src/ao_shaping/optimizer/wf/rms_by_zernike.py",
-   "lineno": 217,
-   "end": 262,
+   "lineno": 223,
+   "end": 268,
    "args": [
     "rms_history",
     "window",
@@ -1699,8 +1699,8 @@
    "qualname": "optimizer_ga",
    "module": "ao_shaping.optimizer.wf.ga_zernike",
    "file": "src/ao_shaping/optimizer/wf/ga_zernike.py",
-   "lineno": 135,
-   "end": 383,
+   "lineno": 138,
+   "end": 386,
    "args": [
     "n_generations",
     "population_size",
@@ -1748,8 +1748,8 @@
    "qualname": "_tournament_selection",
    "module": "ao_shaping.optimizer.wf.ga_zernike",
    "file": "src/ao_shaping/optimizer/wf/ga_zernike.py",
-   "lineno": 47,
-   "end": 68,
+   "lineno": 50,
+   "end": 71,
    "args": [
     "population",
     "fitness",
@@ -1763,8 +1763,8 @@
    "qualname": "_gaussian_mutation",
    "module": "ao_shaping.optimizer.wf.ga_zernike",
    "file": "src/ao_shaping/optimizer/wf/ga_zernike.py",
-   "lineno": 106,
-   "end": 132,
+   "lineno": 109,
+   "end": 135,
    "args": [
     "individual",
     "mutation_rate",
@@ -1779,8 +1779,8 @@
    "qualname": "_blend_crossover",
    "module": "ao_shaping.optimizer.wf.ga_zernike",
    "file": "src/ao_shaping/optimizer/wf/ga_zernike.py",
-   "lineno": 71,
-   "end": 103,
+   "lineno": 74,
+   "end": 106,
    "args": [
     "parent1",
     "parent2",
@@ -1816,8 +1816,8 @@
    "qualname": "optimizer_greedy",
    "module": "ao_shaping.optimizer.wf.greedy_zernike",
    "file": "src/ao_shaping/optimizer/wf/greedy_zernike.py",
-   "lineno": 73,
-   "end": 398,
+   "lineno": 78,
+   "end": 403,
    "args": [
     "epochs",
     "n_init",
@@ -1847,8 +1847,8 @@
    "qualname": "_generate_random_direction",
    "module": "ao_shaping.optimizer.wf.greedy_zernike",
    "file": "src/ao_shaping/optimizer/wf/greedy_zernike.py",
-   "lineno": 55,
-   "end": 70,
+   "lineno": 60,
+   "end": 75,
    "args": [
     "param_dim",
     "perturb_mask"
@@ -1870,7 +1870,7 @@
     "wfs_drv"
    ],
    "returns": "None",
-   "doc": "获取DM变形镜响应矩阵\n\n    依次对每个DM单元施加正负电压扰动, 记录WFS子孔径斜率偏差,\n    构建 DM -> WFS 的响应矩阵。\n\n    支持 N 次正负交替循环测量 + M 次 WFS 读取取平均 +\n    方差跟踪 + 逆矩阵计算 + 自动电压优化。\n\n    调试模式 (--debug):\n        保存每次测量的原始WFS deviation数据。\n\n    TODO (实机待测试清单 —— sequential/hadamard 双模式尚未上设备实测):\n        [ ] sequential 模式真实 DM+WFS n=5 重跑 (n-averages 10) + 自动电压优化:\n            矩阵形状/条件数与仿真一致, 平均方差正常 (无死执行器误报)\n        [ ] hadamard 模式自动阶数实测: 与 sequential 矩阵一致性 (相关性/条件数\n            同量级), 测量时间显著减少 (所有有效单元同时扰动)\n        [ ] hadamard 显式阶数: --hadamard-order 指定 ≥有效单元数的最小 2 的幂\n            时正常; 非合法值应报清晰错误\n        [ ] 矫正闭环验证: 以标定矩阵 (pinv_matrix) 做波前矫正, RMS 明显改善\n        [ ] report3: scripts/dm/generate_dm_response_matrix_report.py 以真实 h5\n            生成报告 (图/表齐全), 结果写入 docs/slm 日报\n    ",
+   "doc": "获取DM变形镜响应矩阵\n\n    依次对每个DM单元施加正负电压扰动, 记录WFS子孔径斜率偏差,\n    构建 DM -> WFS 的响应矩阵。\n\n    支持 N 次正负交替循环测量 + M 次 WFS 读取取平均 +\n    方差跟踪 + 逆矩阵计算 + 自动电压优化。\n\n    调试模式 (--debug):\n        保存每次测量的原始WFS deviation数据。\n\n    TODO (实验待测试清单 —— sequential/hadamard 双模式尚未上设备实测):\n        [ ] sequential 模式真实 DM+WFS n=5 重跑 (n-averages 10) + 自动电压优化:\n            矩阵形状/条件数与仿真一致, 平均方差正常 (无死执行器误报)\n        [ ] hadamard 模式自动阶数实测: 与 sequential 矩阵一致性 (相关性/条件数\n            同量级), 测量时间显著减少 (所有有效单元同时扰动)\n        [ ] hadamard 显式阶数: --hadamard-order 指定 ≥有效单元数的最小 2 的幂\n            时正常; 非合法值应报清晰错误\n        [ ] 矫正闭环验证: 以标定矩阵 (pinv_matrix) 做波前矫正, RMS 明显改善\n        [ ] report3: scripts/dm/generate_dm_response_matrix_report.py 以真实 h5\n            生成报告 (图/表齐全), 结果写入 docs/slm 日报\n    ",
    "decorators": [
     "click.command('dm-matrix')",
     "click.pass_context",
@@ -1883,8 +1883,8 @@
    "qualname": "make_actuator_debug_callback",
    "module": "ao_shaping.utils.wavefront.wfs_utils",
    "file": "src/ao_shaping/utils/wavefront/wfs_utils.py",
-   "lineno": 247,
-   "end": 291,
+   "lineno": 334,
+   "end": 378,
    "args": [
     "debug_data_dir"
    ],
@@ -1926,8 +1926,8 @@
    "qualname": "calibrate_dm_response_matrix",
    "module": "ao_shaping.optimizer.wf.dm_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
-   "lineno": 491,
-   "end": 823,
+   "lineno": 498,
+   "end": 809,
    "args": [
     "dm",
     "wfs",
@@ -1957,8 +1957,8 @@
    "qualname": "save_dm_response_matrix",
    "module": "ao_shaping.optimizer.wf.dm_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
-   "lineno": 826,
-   "end": 894,
+   "lineno": 812,
+   "end": 880,
    "args": [
     "result",
     "path",
@@ -1972,8 +1972,8 @@
    "qualname": "_build_device_config",
    "module": "ao_shaping.optimizer.wf.dm_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
-   "lineno": 448,
-   "end": 488,
+   "lineno": 455,
+   "end": 495,
    "args": [
     "dm",
     "wfs"
@@ -1986,8 +1986,8 @@
    "qualname": "_hadamard_matrix",
    "module": "ao_shaping.optimizer.wf.dm_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
-   "lineno": 82,
-   "end": 102,
+   "lineno": 87,
+   "end": 107,
    "args": [
     "order"
    ],
@@ -1999,8 +1999,8 @@
    "qualname": "compute_pinv",
    "module": "ao_shaping.utils.wavefront.matrix_utils",
    "file": "src/ao_shaping/utils/wavefront/matrix_utils.py",
-   "lineno": 12,
-   "end": 22,
+   "lineno": 16,
+   "end": 26,
    "args": [
     "matrix",
     "rcond"
@@ -2013,8 +2013,8 @@
    "qualname": "compute_lstsq",
    "module": "ao_shaping.utils.wavefront.matrix_utils",
    "file": "src/ao_shaping/utils/wavefront/matrix_utils.py",
-   "lineno": 25,
-   "end": 48,
+   "lineno": 29,
+   "end": 52,
    "args": [
     "matrix"
    ],
@@ -2026,8 +2026,8 @@
    "qualname": "measure_actuator_response",
    "module": "ao_shaping.optimizer.wf.dm_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
-   "lineno": 237,
-   "end": 373,
+   "lineno": 265,
+   "end": 380,
    "args": [
     "dm",
     "wfs",
@@ -2047,8 +2047,8 @@
    "qualname": "_next_hadamard_order",
    "module": "ao_shaping.optimizer.wf.dm_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
-   "lineno": 62,
-   "end": 79,
+   "lineno": 67,
+   "end": 84,
    "args": [
     "n_valid"
    ],
@@ -2056,26 +2056,12 @@
    "doc": "Smallest power of two >= n_valid.\n\n    Args:\n        n_valid: Number of valid actuators (must be >= 1).\n\n    Returns:\n        Smallest power of two that is greater than or equal to n_valid.\n\n    Raises:\n        ValueError: If n_valid < 1.\n    ",
    "decorators": []
   },
-  "ao_shaping.utils.wavefront.wfs_utils.flatten_slopes": {
-   "qualname": "flatten_slopes",
-   "module": "ao_shaping.utils.wavefront.wfs_utils",
-   "file": "src/ao_shaping/utils/wavefront/wfs_utils.py",
-   "lineno": 18,
-   "end": 28,
-   "args": [
-    "dev_x",
-    "dev_y"
-   ],
-   "returns": "np.ndarray",
-   "doc": "Flatten x/y deviation arrays into single slope vector.\n\n    Args:\n        dev_x: X deviation array of shape (nx, ny)\n        dev_y: Y deviation array of shape (nx, ny)\n\n    Returns:\n        Concatenated flatten [dev_x; dev_y] vector\n    ",
-   "decorators": []
-  },
   "_optimize_perturbation_voltage": {
    "qualname": "_optimize_perturbation_voltage",
    "module": "ao_shaping.optimizer.wf.dm_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
-   "lineno": 376,
-   "end": 445,
+   "lineno": 383,
+   "end": 452,
    "args": [
     "dm",
     "wfs",
@@ -2088,12 +2074,27 @@
    "doc": "Find optimal perturbation voltage for a DM actuator.\n\n    Tests multiple voltage levels on one actuator and measures the response\n    linearity (second derivative of response magnitude vs voltage). The optimal\n    voltage is where the response is most linear (minimum second derivative).\n\n    Args:\n        dm: NLight DM instance.\n        wfs: WFSManager instance.\n        actuator_idx: Actuator index to test.\n        test_voltages: Array of voltage levels to test.\n        n_avg: WFS readings per measurement.\n        cancel_tile: If True, remove tip/tilt from WFS deviations.\n\n    Returns:\n        tuple: (optimal_voltage, diagnostics_dict)\n            - optimal_voltage: Best voltage found (float).\n            - diagnostics: dict with test_voltages, responses, linearity scores,\n              best_idx, optimal_voltage.\n    ",
    "decorators": []
   },
+  "_measure_averaged_slopes": {
+   "qualname": "_measure_averaged_slopes",
+   "module": "ao_shaping.optimizer.wf.dm_response_matrix",
+   "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
+   "lineno": 240,
+   "end": 262,
+   "args": [
+    "wfs",
+    "n_averages",
+    "cancel_tile"
+   ],
+   "returns": "tuple[np.ndarray, np.ndarray, np.ndarray]",
+   "doc": "Take ``n_averages`` **separate** WFS readings and average them per channel.\n\n    Every reading is its own acquisition (``n_sample=1``), which is what lets\n    :func:`truncated_mean` discard a single bad frame per channel. Returns the flattened\n    slopes plus the two component arrays, which callers reuse for diagnostics.\n\n    Not interchangeable with ``interaction_matrix._single_shot_slopes``: that one issues a\n    single ``take_image(n_sample=n_averages)`` and leaves ``cancel_tile`` at its default.\n    ",
+   "decorators": []
+  },
   "_decode_hadamard_responses": {
    "qualname": "_decode_hadamard_responses",
    "module": "ao_shaping.optimizer.wf.dm_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
-   "lineno": 105,
-   "end": 124,
+   "lineno": 110,
+   "end": 129,
    "args": [
     "row_responses",
     "hadamard"
@@ -2106,8 +2107,8 @@
    "qualname": "save_debug_data",
    "module": "ao_shaping.utils.wavefront.wfs_utils",
    "file": "src/ao_shaping/utils/wavefront/wfs_utils.py",
-   "lineno": 149,
-   "end": 184,
+   "lineno": 236,
+   "end": 271,
    "args": [
     "base_dir",
     "idx",
@@ -2124,8 +2125,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.micro_drive.voltage_runner",
    "file": "src/ao_shaping/runners/micro_drive/voltage_runner.py",
-   "lineno": 188,
-   "end": 413,
+   "lineno": 210,
+   "end": 446,
    "args": [
     "ctx",
     "params"
@@ -2142,8 +2143,8 @@
    "qualname": "_enable_debug",
    "module": "ao_shaping.runners.micro_drive.voltage_runner",
    "file": "src/ao_shaping/runners/micro_drive/voltage_runner.py",
-   "lineno": 125,
-   "end": 129,
+   "lineno": 129,
+   "end": 133,
    "args": [
     "enabled"
    ],
@@ -2155,8 +2156,8 @@
    "qualname": "_resolve_port",
    "module": "ao_shaping.runners.micro_drive.voltage_runner",
    "file": "src/ao_shaping/runners/micro_drive/voltage_runner.py",
-   "lineno": 158,
-   "end": 167,
+   "lineno": 180,
+   "end": 189,
    "args": [
     "ip",
     "port"
@@ -2183,8 +2184,8 @@
    "qualname": "_banner",
    "module": "ao_shaping.runners.micro_drive.voltage_runner",
    "file": "src/ao_shaping/runners/micro_drive/voltage_runner.py",
-   "lineno": 107,
-   "end": 122,
+   "lineno": 111,
+   "end": 126,
    "args": [
     "title",
     "rows"
@@ -2211,8 +2212,8 @@
    "qualname": "_safe_shutdown",
    "module": "ao_shaping.tools.micro_dm.micro_dm_image_collect",
    "file": "src/ao_shaping/tools/micro_dm/micro_dm_image_collect.py",
-   "lineno": 370,
-   "end": 383,
+   "lineno": 369,
+   "end": 382,
    "args": [
     "ctrl",
     "home_voltage"
@@ -2225,8 +2226,8 @@
    "qualname": "_duration_desc",
    "module": "ao_shaping.runners.micro_drive.voltage_runner",
    "file": "src/ao_shaping/runners/micro_drive/voltage_runner.py",
-   "lineno": 132,
-   "end": 134,
+   "lineno": 136,
+   "end": 138,
    "args": [
     "seconds"
    ],
@@ -2238,8 +2239,8 @@
    "qualname": "full_voltage_run",
    "module": "ao_shaping.runners.micro_drive.voltage_runner",
    "file": "src/ao_shaping/runners/micro_drive/voltage_runner.py",
-   "lineno": 609,
-   "end": 654,
+   "lineno": 642,
+   "end": 687,
    "args": [
     "ctx",
     "params"
@@ -2256,8 +2257,8 @@
    "qualname": "_amain",
    "module": "ao_shaping.runners.micro_drive.voltage_runner",
    "file": "src/ao_shaping/runners/micro_drive/voltage_runner.py",
-   "lineno": 454,
-   "end": 603,
+   "lineno": 487,
+   "end": 636,
    "args": [
     "ips",
     "alt_voltage",
@@ -2307,6 +2308,20 @@
    "decorators": []
   },
   "ao_shaping.drivers.dm.hadamard_dm.HadamardDM": null,
+  "ao_shaping.utils.wavefront.wfs_utils.flatten_slopes": {
+   "qualname": "flatten_slopes",
+   "module": "ao_shaping.utils.wavefront.wfs_utils",
+   "file": "src/ao_shaping/utils/wavefront/wfs_utils.py",
+   "lineno": 18,
+   "end": 28,
+   "args": [
+    "dev_x",
+    "dev_y"
+   ],
+   "returns": "np.ndarray",
+   "doc": "Flatten x/y deviation arrays into single slope vector.\n\n    Args:\n        dev_x: X deviation array of shape (nx, ny)\n        dev_y: Y deviation array of shape (nx, ny)\n\n    Returns:\n        Concatenated flatten [dev_x; dev_y] vector\n    ",
+   "decorators": []
+  },
   "is_hadamard_order": {
    "qualname": "is_hadamard_order",
    "module": "ao_shaping.utils.wavefront.hadamard_calc",
@@ -2324,8 +2339,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.nlight_dm.combined_runner",
    "file": "src/ao_shaping/runners/nlight_dm/combined_runner.py",
-   "lineno": 31,
-   "end": 115,
+   "lineno": 35,
+   "end": 119,
    "args": [
     "ctx",
     "algorithm",
@@ -2346,8 +2361,8 @@
    "qualname": "optimize_pib",
    "module": "ao_shaping.optimizer.combined_optimizer",
    "file": "src/ao_shaping/optimizer/combined_optimizer.py",
-   "lineno": 76,
-   "end": 351,
+   "lineno": 83,
+   "end": 365,
    "args": [
     "center",
     "epochs",
@@ -2407,8 +2422,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.slm_shaping_runner",
    "file": "src/ao_shaping/runners/slm/slm_shaping_runner.py",
-   "lineno": 461,
-   "end": 470,
+   "lineno": 464,
+   "end": 473,
    "args": [
     "ctx",
     "run"
@@ -2425,14 +2440,14 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.gs_refine_runner",
    "file": "src/ao_shaping/runners/slm/gs_refine_runner.py",
-   "lineno": 85,
-   "end": 222,
+   "lineno": 115,
+   "end": 264,
    "args": [
     "ctx",
     "params"
    ],
    "returns": "None",
-   "doc": "SLM GS 预整形 + 自由相位 SPGD 细化 (SLM + CCD 闭环)。\n\n    把远场光斑整形为均匀方形。先用 GS 算一个开环预整形相位 (只在实测优于平场时\n    采用), 再用无感知 SPGD 细化自由相位。\n\n    目标函数与仿真一致: ``0.5*PIB + 0.5/(1+CV)``, 读取真实 CCD 帧计算。\n    ",
+   "doc": "SLM GS 预整形 + 全频随机相位 SPGD 细化 (SLM + CCD 闭环)。\n\n    把远场光斑整形为 ``--target-shape`` 指定的形状 (默认方斑)。先用 GS 算一个\n    开环预整形相位 (只在实测优于平场时采用), 再用无感知 SPGD 细化全频随机相位。\n\n    形状同时作用于**两处**: GS 的目标, 以及 PIB/CV 的评分掩膜 —— 否则会出现\n    「用方框给圆形打分」这种把框内空白算进分母的口径错误。\n\n    目标函数与仿真一致: ``0.5*PIB + 0.5/(1+CV)``, 读取真实 CCD 帧计算。\n    ",
    "decorators": [
     "click.command()",
     "click.pass_context",
@@ -2443,8 +2458,8 @@
    "qualname": "build_gs_refine_config",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3199,
-   "end": 3259,
+   "lineno": 3352,
+   "end": 3420,
    "args": [
     "params",
     "debug"
@@ -2457,8 +2472,8 @@
    "qualname": "save_gs_refine_results",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3448,
-   "end": 3563,
+   "lineno": 3617,
+   "end": 3738,
    "args": [
     "recorder",
     "params",
@@ -2469,12 +2484,25 @@
    "doc": "Persist a GS-refine run's recorder and debug artefacts.\n\n    Extracted verbatim from ``runners/slm/gs_refine_runner.py`` so the GUI\n    adapter reuses the same disk layout without duplicating the CLI runner.\n    ",
    "decorators": []
   },
+  "_shape_params_line": {
+   "qualname": "_shape_params_line",
+   "module": "ao_shaping.runners.slm.gs_refine_runner",
+   "file": "src/ao_shaping/runners/slm/gs_refine_runner.py",
+   "lineno": 87,
+   "end": 109,
+   "args": [
+    "params"
+   ],
+   "returns": "str",
+   "doc": "Only the parameters the chosen shape actually reads.\n\n    Printing all eight for every shape would imply the irrelevant ones do\n    something: ``--target-grid-nx`` is silently ignored for a circle, and a run\n    whose banner suggests otherwise invites a wrong conclusion about why a shape\n    came out as it did.\n    ",
+   "decorators": []
+  },
   "build_gs_refine_config": {
    "qualname": "build_gs_refine_config",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3199,
-   "end": 3259,
+   "lineno": 3352,
+   "end": 3420,
    "args": [
     "params",
     "debug"
@@ -2487,8 +2515,8 @@
    "qualname": "parse_point",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3191,
-   "end": 3196,
+   "lineno": 3344,
+   "end": 3349,
    "args": [
     "raw"
    ],
@@ -2500,8 +2528,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.gsnet_runner",
    "file": "src/ao_shaping/runners/slm/gsnet_runner.py",
-   "lineno": 390,
-   "end": 402,
+   "lineno": 396,
+   "end": 408,
    "args": [
     "ctx",
     "run"
@@ -2536,8 +2564,8 @@
    "qualname": "build_model_in_loop_config",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3362,
-   "end": 3445,
+   "lineno": 3523,
+   "end": 3614,
    "args": [
     "params",
     "debug"
@@ -2550,8 +2578,8 @@
    "qualname": "save_model_in_loop_results",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3581,
-   "end": 3758,
+   "lineno": 3796,
+   "end": 3991,
    "args": [
     "result",
     "params",
@@ -2567,8 +2595,8 @@
    "qualname": "save_model_in_loop_config",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3566,
-   "end": 3578,
+   "lineno": 3741,
+   "end": 3759,
    "args": [
     "config",
     "save_dir"
@@ -2614,8 +2642,8 @@
    "qualname": "parse_point",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3191,
-   "end": 3196,
+   "lineno": 3344,
+   "end": 3349,
    "args": [
     "raw"
    ],
@@ -2730,8 +2758,8 @@
    "qualname": "save_model_in_loop_config",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3566,
-   "end": 3578,
+   "lineno": 3741,
+   "end": 3759,
    "args": [
     "config",
     "save_dir"
@@ -2740,12 +2768,25 @@
    "doc": "Persist the run configuration before hardware preflight can fail.",
    "decorators": []
   },
+  "_model_in_loop_json_payload": {
+   "qualname": "_model_in_loop_json_payload",
+   "module": "ao_shaping.runners.runner_common",
+   "file": "src/ao_shaping/runners/runner_common.py",
+   "lineno": 3762,
+   "end": 3793,
+   "args": [
+    "result"
+   ],
+   "returns": "dict[str, Any]",
+   "doc": "Build the JSON sidecar of a model-in-loop run.\n\n    The status and the config are always there. The **self-calibration\n    trajectory** is added only when that feature actually ran, so a run with\n    the self-calibration off keeps exactly the payload it had.\n\n    Args:\n        result: The run's result.\n\n    Returns:\n        A JSON-serialisable dictionary.\n    ",
+   "decorators": []
+  },
   "parse_frozen_modes": {
    "qualname": "parse_frozen_modes",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3183,
-   "end": 3188,
+   "lineno": 3336,
+   "end": 3341,
    "args": [
     "raw"
    ],
@@ -2943,8 +2984,8 @@
    "qualname": "open_camera",
    "module": "ao_shaping.utils.image.hardware_utils",
    "file": "src/ao_shaping/utils/image/hardware_utils.py",
-   "lineno": 643,
-   "end": 700,
+   "lineno": 679,
+   "end": 736,
    "args": [
     "camera_type",
     "cam_id",
@@ -3228,6 +3269,11 @@
   },
   {
    "from": "ao_shaping.optimizer.wf.dm_response_matrix.calibrate_dm_response_matrix",
+   "to": "_measure_averaged_slopes",
+   "calls": 2
+  },
+  {
+   "from": "ao_shaping.optimizer.wf.dm_response_matrix.calibrate_dm_response_matrix",
    "to": "_next_hadamard_order",
    "calls": 1
   },
@@ -3244,11 +3290,6 @@
   {
    "from": "ao_shaping.optimizer.wf.dm_response_matrix.calibrate_dm_response_matrix",
    "to": "ao_shaping.utils.wavefront.matrix_utils.compute_pinv",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.optimizer.wf.dm_response_matrix.calibrate_dm_response_matrix",
-   "to": "ao_shaping.utils.wavefront.wfs_utils.flatten_slopes",
    "calls": 1
   },
   {
@@ -3918,7 +3959,17 @@
   },
   {
    "from": "ao_shaping.runners.runner_common.save_model_in_loop_results",
+   "to": "_model_in_loop_json_payload",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.runner_common.save_model_in_loop_results",
    "to": "save_model_in_loop_config",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.slm.gs_refine_runner.run",
+   "to": "_shape_params_line",
    "calls": 1
   },
   {

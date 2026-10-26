@@ -30,7 +30,7 @@ from ao_shaping.drivers.ccd.daheng import DahengCamera
 from ao_shaping.utils.image.spots_calc import center_of_brightness, centroid
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-_DEFAULT_CAM_ID = int(os.environ.get("FAR_CAM_ID", "0"))
+_DEFAULT_CAM_ID = int(os.environ.get("Far_Cam_ID", "0"))
 _REFRESH_INTERVAL = 0.2  # seconds – live preview fragment cadence
 
 # Simulated CCD frame size (height, width) used when no camera is connected.

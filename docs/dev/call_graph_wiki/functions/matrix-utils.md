@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: function
 tags: [matrix,utils,calibration]
-source: src/ao_shaping/utils/wavefront/matrix_utils.py:12
+source: src/ao_shaping/utils/wavefront/matrix_utils.py:16
 ---
 
 ## 签名

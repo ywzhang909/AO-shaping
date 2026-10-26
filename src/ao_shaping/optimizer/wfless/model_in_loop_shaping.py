@@ -2815,6 +2815,48 @@ def _records_from_pkl(
     return records
 
 
+def _per_record_coefficients(
+    path: Path, stored: np.ndarray, n_records: int
+) -> list[np.ndarray]:
+    """Split a cached coefficient array into one vector per frame.
+
+    The cache writer stores ``c_flat.npy`` as a **1-D concatenation** and keeps the record
+    boundaries in ``c_offsets.npy`` so each record's term count stays exact. Indexing the flat
+    array per record instead hands back a single scalar taken from somewhere inside another
+    record's vector: the numbers look plausible and are attributed to the wrong frame, which is
+    how a real cache read as ground truth it never contained.
+    """
+    if stored.ndim == 1:
+        offsets_path = path / "c_offsets.npy"
+        if not offsets_path.exists():
+            raise ValueError(
+                f"{path}/{offsets_path.name} is missing, but c_flat.npy holds {stored.size} "
+                "concatenated values: the per-record boundaries cannot be recovered"
+            )
+        offsets = np.load(offsets_path)
+        if offsets.size != n_records + 1:
+            raise ValueError(
+                f"{path}/{offsets_path.name} holds {offsets.size} boundaries for {n_records} "
+                f"frames (expected {n_records + 1})"
+            )
+        if int(offsets[0]) != 0 or int(offsets[-1]) != stored.size:
+            raise ValueError(
+                f"{path}/{offsets_path.name} spans [{int(offsets[0])}, {int(offsets[-1])}] but "
+                f"c_flat.npy holds {stored.size} values: the cache is truncated or mixed"
+            )
+        return [
+            stored[int(offsets[index]) : int(offsets[index + 1])]
+            for index in range(n_records)
+        ]
+
+    if stored.shape[0] != n_records:
+        raise ValueError(
+            f"{path}/c_flat.npy holds {stored.shape[0]} rows for {n_records} frames: the "
+            "coefficient array and the images are not a pair"
+        )
+    return [stored[index] for index in range(n_records)]
+
+
 def _records_from_cache(
     path: Path, region: int, n_coeffs: int
 ) -> list[CalibrationRecord]:
@@ -2835,7 +2877,8 @@ def _records_from_cache(
 
     Raises:
         ValueError: If the cache arrays or the metadata describing their shape
-            are missing or inconsistent.
+            are missing or inconsistent -- including a 1-D ``c_flat.npy`` whose
+            ``c_offsets.npy`` is absent or does not span it.
     """
     coeffs = np.load(path / "c_flat.npy")
     images = np.load(path / "img_flat.npy")
@@ -2854,13 +2897,12 @@ def _records_from_cache(
     frames = images.reshape(images.size // per_record, *shape)
     flat_phase = np.zeros((region, region), dtype=np.float64)
     records: list[CalibrationRecord] = []
+    rows = _per_record_coefficients(path, coeffs, len(frames))
     for index in range(len(frames)):
-        vector: np.ndarray | None = None
-        if index < len(coeffs):
-            vector = np.zeros(n_coeffs, dtype=np.float64)
-            raw = np.asarray(coeffs[index], dtype=np.float64).ravel()
-            keep = min(raw.size, n_coeffs)
-            vector[:keep] = raw[:keep]
+        vector = np.zeros(n_coeffs, dtype=np.float64)
+        raw = np.asarray(rows[index], dtype=np.float64).ravel()
+        keep = min(raw.size, n_coeffs)
+        vector[:keep] = raw[:keep]
         records.append(
             CalibrationRecord(
                 image=_crop_to_grid(frames[index], region),

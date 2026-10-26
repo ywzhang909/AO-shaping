@@ -59,7 +59,7 @@ read from that cache when one exists; ``use_cache=False`` restores the plain
 ``pickle.load`` path. Either way the payload handed to :meth:`__getitem__` is a
 ``dict`` of record dicts, so the transform chain -- and therefore
 ``(source, target, gt_phase)`` -- is provably untouched: the two paths are
-bit-identical (see ``tests/ao_shaping/runners/test_gsnet_cache.py``).
+bit-identical (see ``tests/ao_shaping/ml/gsnet_debug/test_gsnet_cache.py``).
 
 Three behaviours are worth stating explicitly:
 

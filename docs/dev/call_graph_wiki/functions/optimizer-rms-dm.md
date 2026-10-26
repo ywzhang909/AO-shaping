@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: function
 tags: [optimizer,wavefront,spgd]
-source: src/ao_shaping/optimizer/wf/rms.py:45
+source: src/ao_shaping/optimizer/wf/rms.py:50
 ---
 
 ## 签名

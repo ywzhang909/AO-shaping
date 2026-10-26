@@ -1,6 +1,6 @@
 """Generate the illustrated verification report for differentiable beam shaping.
 
-This script verifies ``src/ao_shaping/algorithm/differentiable_shaping.py``
+This script verifies ``src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py``
 (PyTorch gradient-descent SLM phase optimisation) against the Gerchberg-Saxton
 baseline and the OLD broken default weights, and writes a complete illustrated
 report to ``report/slm_differential_shaping/`` (README.md + figures/ + gifs/ +
@@ -567,7 +567,7 @@ def build_readme(runs: dict, metrics: dict, asm_max_err: float) -> str:
     lines.append("## 1. 概述")
     lines.append("")
     lines.append(
-        "本报告验证 `src/ao_shaping/algorithm/differentiable_shaping.py` —— 一个基于 "
+        "本报告验证 `src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py`（原位于 `algorithm/` 顶层，`bbb3820b` 移入 `signal_processing/`）—— 一个基于 "
         "PyTorch 梯度下降的 SLM 相位优化模块（1064 nm），用于方形与聚焦光斑整形。"
         "将其与 Gerchberg-Saxton (GS) 基线以及**旧的损坏默认权重**进行对比，"
         "量化收敛性、光束质量（CV/EE）与数值一致性。"
@@ -575,8 +575,10 @@ def build_readme(runs: dict, metrics: dict, asm_max_err: float) -> str:
     lines.append("")
     lines.append(
         "相关代码：算法模块 "
-        "`src/ao_shaping/algorithm/differentiable_shaping.py`，运行器 "
-        "`src/ao_shaping/runners/diff_shaping_runner.py`，CLI 命令 `diff-shaping`。"
+        "`src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py`；其运行器 "
+        "`src/ao_shaping/runners/diff_shaping_runner.py` 与 CLI 命令 `diff-shaping` 已于 "
+        "`fbef1926` 移除，仅存回归测试 "
+        "`tests/ao_shaping/runners/test_diff_shaping_runner.py`。"
     )
     lines.append("")
     lines.append("## 2. 方法")
@@ -726,17 +728,25 @@ def build_readme(runs: dict, metrics: dict, asm_max_err: float) -> str:
         "可微分优化达到其约 90%（EE≈0.84-0.90），且 CV 更低（更均匀）。"
     )
     lines.append("")
-    lines.append("## 7. 推荐配置与 CLI 用法")
+    lines.append("## 7. 推荐配置")
     lines.append("")
     lines.append("推荐配置（模块默认值现已匹配）：")
     lines.append("")
-    lines.append("```bash")
-    lines.append("python src/ao_shaping/main.py diff-shaping \\")
-    lines.append("    --propagation fft --optimizer adam \\")
-    lines.append("    --iterations 600 --lr 3e-2 \\")
-    lines.append("    --w-uniformity 0.4 --w-efficiency 0.6 \\")
-    lines.append("    --w-zero-order 0 --w-smoothness 0")
-    lines.append("```")
+    lines.append("| 参数 | 推荐值 |")
+    lines.append("| --- | --- |")
+    lines.append("| `propagation` | `fft` |")
+    lines.append("| `optimizer` | `adam` |")
+    lines.append("| `iterations` | 600 |")
+    lines.append("| `lr` | 3e-2 |")
+    lines.append("| `w_uniformity` / `w_efficiency` | 0.4 / 0.6 |")
+    lines.append("| `w_zero_order` / `w_smoothness` | 0 / 0 |")
+    lines.append("")
+    lines.append(
+        "本节原先在此给出 `main.py diff-shaping …` 命令行；该命令与其运行器已于 `fbef1926` "
+        "移除，功能并入 `slm-gsnet` 与 `algorithm/signal_processing/`（见 "
+        "`docs/user/cli-reference.md` 的历史沿革）。参数作为当时的实验结论保留，"
+        "不可运行的命令行不再重述。"
+    )
     lines.append("")
     lines.append("## 8. 复现")
     lines.append("")

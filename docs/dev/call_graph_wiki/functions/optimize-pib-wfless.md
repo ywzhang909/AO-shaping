@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: function
 tags: [optimizer,pib,wfless]
-source: src/ao_shaping/optimizer/wfless/pib.py:248
+source: src/ao_shaping/optimizer/wfless/pib.py:209
 ---
 
 ## 签名
@@ -88,7 +88,7 @@ optimize_pib(center, epochs, r_bucket, delta, lr, exposure_time_ms, cam_type, sh
 
 与本页函数结构/职责相近的函数（相似度得分，来自 `build_similarity.py`；含义与阈值见 [[relations/similar-functions|相似函数总览]]）：
 
-- 0.425 — [[functions/optimize-pib-combined|`optimize_pib`]]（同名 `optimize_pib`；共享 12 个被调函数（调用结构高度相似））
+- 0.384 — [[functions/optimize-pib-combined|`optimize_pib`]]（同名 `optimize_pib`；共享 9 个被调函数（调用结构高度相似））
 
 
 ## 相关页面

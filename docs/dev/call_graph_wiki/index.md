@@ -53,7 +53,6 @@
 | 页面 | 一句话 |
 |---|---|
 | [[commands/slm-pib]] | SLM Zernike 整形（`spgd`/`heuristic` 子命令） |
-| [[commands/spgd-square]] | SLM 方形远场均匀性整形（SPGD，CV/EE/AR） |
 | [[commands/slm-gsnet]] | freeform 方形整形（`spgd`/`heuristic`/`train`） |
 | [[commands/slm-gs-refine]] | GS 开环预整形 + 自由相位 SPGD 细化 |
 | [[commands/slm-model-in-loop]] | 正向模型闭环方形整形（每轮重拟合像差） |
