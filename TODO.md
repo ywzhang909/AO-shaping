@@ -3216,6 +3216,15 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
                        CI 钉版 ruff 0.15.12 干净；provenance `--check` clean（registry 与索引未动）。
               - **净效果**：master 常驻失败从「4 红 = 1 幻影」改为「1 红 = 幻影」，且该红的消息从泛泛的「registry 陈旧」
                        升级为指向作者决策的精确陈述 —— 这正是本轮把红灯当登记系统用的本意。
+80. ✅ **RL 环境的相机回退与全仓相反已结清：Far 回退 '1' → '0' 与 DeviceConfig 对齐，从未被消费的 Near_Cam_ID 死读删除，并用 AST 守卫钉死两源必须一致**（2026-10-26）：
+    - **来路**：第 73 条建立 env 名普查时顺手记录的待决面——`optimizer/rl/envs.py:21-22` 的 `Far_Cam_ID` 回退 `'1'`／`Near_Cam_ID` 回退 `'0'`，与规范源相反。
+    - **取证**：规范事实四方一致——config.py 的 `DeviceConfig.__init__`（`far_cam_id` 回退 `0`／`near_cam_id` 回退 `1`）、`.env`、`.env.example`、AGENTS.md 的 .env 样例，全部 `Far=0/Near=1`；唯一偏离者就是 envs.py。消费点全文件唯一：`envs.py:35` 的 `MIICamera(cam_id=Far_Cam_ID, ...)`；`Near_Cam_ID` 在 922 行里只出现赋值一次——import 期读取、零消费的死读（与第 73 条删过的死读同族）。
+    - **为什么是真缺陷**：envs.py 按第 78 条口径属模块作用域（import 期）求值。当进程环境未设该名字（例如不经 .env 的直接 import）时才落到回退默认——那一次 RL 环境会把 1 号设备当 far 相机打开，而同进程里 config 驱动的消费方都用 0 号：同一个 env 名两套默认，且错的孤例正是接触物理设备的那一侧。
+    - **修复（最小，bugfix 规则不重构）**：`Far_Cam_ID` 回退改为与 DeviceConfig 一致的 `'0'`，注释指向规范源；`Near_Cam_ID` 死读整行删除。模块作用域读取本身保留（那是第 78 条登记过的 import 期阀门设计）。
+    - **防漂移守卫**：新 `tests/ao_shaping/optimizer/rl/test_envs_camera_id_fallbacks.py` 三测——路径深度自检（parents[4] 错位会大声失败，防假绿）；`test_far_cam_fallback_matches_device_config` 用 AST 分别解析两源比对回退字面量（不 import envs——它拖 gymnasium 与驱动包）；`test_near_cam_is_not_a_dead_module_read` 防死读复活。
+    - **控制**：cp 备份 → 把回退临时翻回 `'1'` → 守卫红且点名两侧值（envs `'1'` vs DeviceConfig `0`）→ cmp 逐字节还原 → 再绿。
+    - **验证**：新守卫 3 passed；tests/ao_shaping/optimizer/rl + tests/ao_shaping/test_config.py 合跑 45 passed / 1 skipped（skip 为容器缺 gymnasium 的既有恒量）；第 73 条 env 名大小写碰撞守卫绿；ruff（钉版 0.15.12）对两改动文件干净。
+    - **范围外仍挂账**：`runners/runner_common.py` 四处 `--cam-id` 默认同值不同型（字符串 `"0"` vs 整数 `0`）仍按第 73 条的决定留在待决面（CLI 合约，cli_help_golden.json 管辖）。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
