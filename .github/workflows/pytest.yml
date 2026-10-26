@@ -72,6 +72,12 @@ jobs:
 
           run_shard() {
             name="$1"; per_file="$2"; blocking="$3"; shift 3
+            # Optional NAME=value tokens before the targets: a shard's own envelope.
+            # Memory is per-shard because the areas differ (measured): ml/gsnet_debug
+            # is killed at 6g inside one container and green at 8g, while the other
+            # shards fit 6g, and raising every shard risks the runner itself.
+            envs=()
+            while [ $# -gt 0 ] && [ "${1#*=}" != "$1" ]; do envs+=("$1"); shift; done
             echo "::group::$name"
             # Stage once per job: the harness re-copies data/ on every refresh, and
             # the shards share one scratch dir.
@@ -81,7 +87,12 @@ jobs:
             if [ "$per_file" = "1" ]; then export AO_TEST_PER_FILE=1
             else unset AO_TEST_PER_FILE; fi
 
-            if ./scripts/build/run_pytest_ci.sh "$@" -q --tb=short; then
+            if [ "${#envs[@]}" -gt 0 ]; then
+              run_pytest=(env "${envs[@]}" ./scripts/build/run_pytest_ci.sh)
+            else
+              run_pytest=(./scripts/build/run_pytest_ci.sh)
+            fi
+            if "${run_pytest[@]}" "$@" -q --tb=short; then
               echo "$name: PASS" >> "$GITHUB_STEP_SUMMARY"
               echo "::notice::$name PASS"
             else
@@ -100,11 +111,14 @@ jobs:
           }
 
           # Shards are whole directories, never file lists: a list silently stops
-          # covering any test file added later. `ml` is whole-directory too, and runs
-          # per-file because two of its subareas are corpus- or memory-bound; those are
-          # exempted one path at a time in scripts/build/run_pytest_ci.sh, never here. `optimizer` uses per-file mode because
-          # it cannot fit one process even at 12g (measured), and per-file coverage was
-          # verified identical (1259 passed + 3 skipped == 1262 collected).
+          # covering any test file added later. The exception is `ml`, which is split
+          # into its subareas: one of them needs a larger memory envelope than the rest,
+          # and nesting a child shard inside a parent `ml` shard would either double-run
+          # it or silently empty the child. The shard-coverage guard now proves every
+          # subarea of a split area is named, so a newly added ml subdirectory cannot go
+          # uncovered the way a stale file list would. `optimizer` uses per-file mode
+          # because it cannot fit one process even at 12g (measured), and per-file
+          # coverage was verified identical (1259 passed + 3 skipped == 1262 collected).
           #
           # Keep every invocation on ONE line: tests/ao_shaping/scripts/
           # test_pytest_workflow_shards_cover_tree.py parses these lines to prove the
@@ -117,7 +131,13 @@ jobs:
           run_shard "root-guards" 0 1 tests/ao_shaping/test_config.py tests/ao_shaping/test_conventions.py tests/ao_shaping/test_import_purity.py tests/ao_shaping/test_issue167_function_shape.py tests/ao_shaping/test_optimizer_doc_coverage.py tests/ao_shaping/test_runners_doc_paths.py tests/ao_shaping/test_tools_doc_coverage.py tests/ao_shaping/test_utils_display_doc_coverage.py tests/ao_shaping/test_wavefront_inventory_doc.py
           run_shard "runners-gui-misc" 0 1 tests/ao_shaping/runners tests/ao_shaping/gui tests/ao_shaping/model tests/ao_shaping/display tests/ao_shaping/report tests/ao_shaping/ao
           run_shard "scripts" 0 1 tests/ao_shaping/scripts
-          run_shard "ml" 1 1 tests/ao_shaping/ml
+          run_shard "ml" 1 1 tests/ao_shaping/ml/gsnet tests/ao_shaping/ml/hwdataset tests/ao_shaping/ml/shaping tests/ao_shaping/ml/sim2f tests/ao_shaping/ml/zernike tests/ao_shaping/ml/test_csv_io.py tests/ao_shaping/ml/test_train_cli_runnable.py
+          # advisory: blocking=0 for exactly one cycle. 8g is measured inside the local
+          # test container (at 6g the invocation dies after 3 of 4 summaries; at 8g and
+          # 12g all four run: 22 / 78 / 80 passed + 7 skipped / 83), but the runner's own
+          # RAM envelope has never been observed from here. flip: set blocking=1 on the
+          # first run where ml-gsnet-debug reports PASS.
+          run_shard "ml-gsnet-debug" 1 0 AO_MEMORY=8g tests/ao_shaping/ml/gsnet_debug
 
           echo "blocking shard failures: $FAILURES" >> "$GITHUB_STEP_SUMMARY"
           echo ""

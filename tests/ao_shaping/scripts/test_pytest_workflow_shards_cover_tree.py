@@ -48,12 +48,14 @@ def _shards() -> list[dict[str, object]]:
         match = SHARD_RE.match(line)
         if match is None:
             continue
+        tokens = match.group("targets").split()
         shards.append(
             {
                 "name": match.group("name"),
                 "per_file": match.group("per_file") == "1",
                 "blocking": match.group("blocking") == "1",
-                "targets": match.group("targets").split(),
+                "envs": [t for t in tokens if "=" in t],
+                "targets": [t for t in tokens if "=" not in t],
             }
         )
     return shards
@@ -70,6 +72,20 @@ def _expected_areas() -> set[str]:
         elif child.is_file() and child.name.startswith("test_") and child.suffix == ".py":
             areas.add(child.name)
     return areas
+
+
+def _subareas(area: str) -> set[str]:
+    """The children of a directory area: sub-directories plus its test modules."""
+    root = TESTS_ROOT / area
+    units: set[str] = set()
+    for child in root.iterdir():
+        if child.name in NOT_SHARDED:
+            continue
+        if child.is_dir():
+            units.add(f"{area}/{child.name}")
+        elif child.is_file() and child.name.startswith("test_") and child.suffix == ".py":
+            units.add(f"{area}/{child.name}")
+    return units
 
 
 def _covered(shards: list[dict[str, object]]) -> set[str]:
@@ -92,12 +108,61 @@ def test_workflow_exists_and_has_shards() -> None:
 
 
 def test_every_test_area_is_sharded() -> None:
+    """A directory area is covered by its own shard, or by a shard for every subarea.
+
+    The second form is what lets one subarea carry a different memory envelope, but it
+    is only safe if *all* the siblings are named -- otherwise an unlisted subdirectory
+    is silently never collected, which is the failure mode the file-list exception used
+    to have.
+    """
     shards = _shards()
-    missing = sorted(_expected_areas() - _covered(shards))
+    covered = _covered(shards)
+    missing: list[str] = []
+    for area in sorted(_expected_areas()):
+        if area in covered:
+            continue
+        children = _subareas(area)
+        uncovered = sorted(children - covered)
+        if children and uncovered:
+            missing.extend(uncovered)
     assert not missing, (
         f"{missing} live under tests/ao_shaping but appear in no shard of "
         f"{WORKFLOW.relative_to(REPO)}; the job would go green without running them. "
         f"Add a run_shard line (one per line, no continuations)."
+    )
+
+
+def test_shard_env_tokens_are_well_formed() -> None:
+    """A per-shard envelope is only auditable if it is spelled predictably."""
+    bad: list[str] = []
+    for shard in _shards():
+        for token in shard["envs"]:  # type: ignore[index]
+            name, _, value = token.partition("=")
+            if not name.startswith("AO_") or not name.replace("_", "").isalnum():
+                bad.append(f"{shard['name']}: {token}")
+            elif name == "AO_MEMORY" and not re.fullmatch(r"\d+[mg]", value):
+                bad.append(f"{shard['name']}: {token} (expected e.g. 8g)")
+    assert not bad, f"malformed per-shard env tokens: {bad}"
+
+
+def test_advisory_shards_state_their_flip_condition() -> None:
+    """An advisory shard that never says when it becomes blocking stays forever.
+
+    ``blocking=0`` exists for one measured reason at a time; without a written flip
+    condition it degrades into the permanent hiding the workflow was rebuilt to stop.
+    """
+    lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
+    unexplained: list[str] = []
+    for shard in _shards():
+        if shard["blocking"]:  # type: ignore[truthy-bool]
+            continue
+        line = next(i for i, text in enumerate(lines) if f'run_shard "{shard["name"]}"' in text)
+        window = " ".join(lines[max(0, line - 6) : line]).lower()
+        if "advisory" not in window or "flip" not in window:
+            unexplained.append(str(shard["name"]))
+    assert not unexplained, (
+        f"advisory shards without an 'advisory:' note and a 'flip' condition "
+        f"above the invocation: {unexplained}"
     )
 
 
@@ -176,7 +241,7 @@ def test_harness_ignore_parser_is_not_vacuous() -> None:
         (2, "tests/ao_shaping/ml/zernike"),
         (3, "tests/ao_shaping/ml/x"),
     ], _ignores_from(planted)
-    assert _harness_ignores(), "the real harness carries no --ignore entries at all"
+
 
 
 def test_harness_ignore_targets_exist() -> None:
@@ -221,29 +286,27 @@ def test_every_harness_ignore_carries_a_reason() -> None:
 
 
 def test_reason_check_is_not_vacuous() -> None:
-    """Stripping an entry's own comment must be caught, not excused by the header.
+    """Proves the reason scan on planted text, in both directions.
 
-    Without this control the check could pass on a harness where no entry explains
-    itself, because the policy block above ``EXCLUDES=(`` is always nearby.
+    Reading the live harness would tie this control to the current exemption list: when
+    the last exemption is legitimately removed the control fails, detecting nothing. So
+    the probe supplies its own list -- one entry with a reason, one without -- and the
+    scan must pass the first and flag the second.
     """
-    lines = HARNESS.read_text(encoding="utf-8").splitlines()
-    opener = next(i for i, line in enumerate(lines) if line.strip().endswith("EXCLUDES=("))
-    closer = next(i for i in range(opener + 1, len(lines)) if lines[i].strip() == ")")
-    planted = [
-        line
-        for i, line in enumerate(lines)
-        if not (opener < i < closer and line.lstrip().startswith("#"))
-    ]
-    stripped = "\n".join(planted) + "\n"
-    # Compare against the real entry set rather than naming one entry: this control
-    # polices the exemption list, so it must not hard-code a member of it -- a member
-    # can legitimately disappear, and when it did the control failed on its own.
-    assert [target for _, target in _ignores_from(stripped)] == [
-        target for _, target in _harness_ignores()
-    ], "the planted file lost an entry; the control no longer tests anything"
-    assert _reason_gaps(stripped), (
-        "the reason check passed with every comment inside the EXCLUDES block removed "
-        "-- it is vacuous"
+    explained = (
+        "EXCLUDES=(\n"
+        "    # because: measured failure on a corpus-free runner\n"
+        '    "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/a/b"\n'
+        ")\n"
+    )
+    unexplained = (
+        "EXCLUDES=(\n"
+        '    "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/a/b"\n'
+        ")\n"
+    )
+    assert _reason_gaps(explained) == [], _reason_gaps(explained)
+    assert _reason_gaps(unexplained) == ["line 2: tests/ao_shaping/a/b"], (
+        "the reason check passed an exemption with no comment -- it is vacuous"
     )
 
 

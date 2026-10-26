@@ -3463,6 +3463,15 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - **本项我自己犯的三处错（均被验证步骤当场抓住，逐条留档）**：① 为删除临时捕获诊断而 `git checkout --` 了**尚含本项未提交改动**的 `test_train_amp_loss.py`，把它的 fixture 修复一并抹掉——这是 103 立的规则**第二次**被违反；发现方式是日志里出现了本应已不存在的旧文件名 `synthetic_family_*`。新做法固化：追加式诊断片段一律**按锚点删除自己那一段**，绝不整文件回退。② 删豁免的脚本用 `tests/ao_shaping/ml/zernike` 做锚点，却先命中理由注释的首行（那行也含该路径字符串），结果只削掉 1 行注释、豁免仍在；发现方式是 `--collect-only` 仍为 918。修法是先确认该文件本次唯一未提交改动就是这次误删（`git status --short` 核对后回退），再改用条目行自身的 `--ignore=` 作锚点。③ 104 写的豁免空转自检**硬编码了 `ml/zernike` 这一条目**，于是"合法撤除该条目"反而让控制变红；改为与实时条目集合比对——教训：**控制不得点名它所监督的那份清单的成员**。
 - 现状与遗留：harness `EXCLUDES` 只剩 1 条（`ml/gsnet_debug`，理由为 106 实测的机制性原因），守卫 `test_pytest_workflow_shards_cover_tree.py` **10 passed**；108 = 分片级豁免开关 + 分片级内存（把 `gsnet_debug` 的 270 项以 8g 纳入门禁）。
 
+108. ✅ **最后一条 harness 豁免撤除：`ml/gsnet_debug` 以分片级 8g 纳入 CI（`run_shard` 支持分片级 env 标记 + `ml` 改兄弟目录目标），并加强守卫到"兄弟拆分必须覆盖全部子区域"与"advisory 必须写明翻转条件"**（2026-10-27）
+- 动机：106 实测该区域的红不是内存而是语料门控（已在 106 修好），但它仍需 8g 包络（6g 同容器只出 3/4 份摘要即被杀）。全局抬到 8g 会波及其余分片——它们的适配内存是按 6g 实测选定的（`pytest.yml` 开头有说明），因此改成**分片级**内存。
+- 做法：`run_shard` 在三个定位参数之后吞掉所有含 `=` 的标记作为分片 env（bash：`while [ $# -gt 0 ] && [ "${1#*=}" != "$1" ]`），有标记时以 `env "${envs[@]}"` 前缀调用 harness；`ml` 分片目标由 `tests/ao_shaping/ml` 改为其 7 个兄弟目标（5 个子目录 + 2 个根级测试文件），另开 `run_shard "ml-gsnet-debug" 1 0 AO_MEMORY=8g tests/ao_shaping/ml/gsnet_debug`；harness 的 `EXCLUDES` 清空为 **0 条豁免**。
+- 兄弟拆分的合法性前提由守卫保证：`test_every_test_area_is_sharded` 从"目录必须是分片目标"改为"目录可由自身覆盖，**也可由其全部子区域覆盖**"——否则日后新增一个 ml 子目录就会被静默漏收（正是"文件清单"式分片的老毛病）。另新增 `test_shard_env_tokens_are_well_formed`（标记必须 `AO_` 前缀，`AO_MEMORY` 取 `^\d+[mg]$`）与 `test_advisory_shards_state_their_flip_condition`（`blocking=0` 的分片上方必须注明 advisory 与 flip 条件，防止 advisory 长期化）。
+- **又一次抓到我自己写的守卫缺陷（与 107 同一类，第二次）**：`test_harness_ignore_parser_is_not_vacuous` 与 `test_reason_check_is_not_vacuous` 都硬编码了"实时豁免清单非空"，于是本项**合法清空** `EXCLUDES` 反而让两条控制变红（`2 failed, 10 passed`，报的是 `_reason_gaps(...)` 收到空清单）。修法是把两条自检改为**植入合成文本并双向自证**（有条目带理由 → 无缺口；条目无理由 → 必须报缺口），与实时清单彻底解耦。教训固化：**监督某清单的控制，不得假设该清单含有成员**——否则清单的正确收缩会被控制误判为故障。
+- advisory 的边界与翻转：8g 只在本地测试容器内实测（6g 下 4 文件只产出 3 份摘要即被杀；8g 与 12g 均 4 份摘要、270 项、exit=0），而 CI 执行机的物理内存无法从本机观测 ⇒ 首个周期 `blocking=0`，注释写明"首次 `ml-gsnet-debug` 报 PASS 即改 `blocking=1`"，并由新守卫强制这类说明必须存在。
+- 验证：守卫 **12 passed**（原 10 + 新 2；我一度把辅助函数 `_subareas` 误计为测试而预期 13，核对后更正——台账以此为准）；**三控制各自精确炸掉对应检查**：删去一个 ml 兄弟目标 ⇒ `test_every_test_area_is_sharded` 红；把标记写成 `AO_MEMORY=8GiB` ⇒ 形状检查红；删掉 advisory 说明块 ⇒ advisory 检查红；还原后回到 12 passed。**用桩件执行 workflow 的 `run:` 块原文**（临时目录里放一个打印 env 与参数的假 harness）证明 bash 装配无误：只有 `ml-gsnet-debug` 得到 `AO_MEMORY=8g`，且 env 标记**不会**漏进 pytest 的目标参数；按 CI 形态实跑该分片（`AO_TEST_PER_FILE=1`, 8g）= **exit 0、4 份摘要、22 / 78 / 80 passed+7 skipped / 83**；收项等价性：父目标 `tests/ao_shaping/ml` = **1716**，兄弟 1446 + `gsnet_debug` 270 = **1716** ⇒ 拆分不重叠也不遗漏；`run_pytest_ci.sh` 与抽取出的 workflow `run` 块 `bash -n` 均干净；`ruff check .` 全仓 0。
+- 至此 ml 全域进入 CI：blocking 1446 + advisory 270 = **1716**（本系列起点是 ml 在 CI 里 **0 项**）；harness 豁免清单为空，但守卫仍看守其规则——未来若要再豁免，必须逐条带理由、必须是子路径而非整区域、且分片级 env 与 advisory 翻转条件都要写清。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
