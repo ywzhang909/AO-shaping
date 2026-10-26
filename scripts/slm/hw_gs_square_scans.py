@@ -351,6 +351,22 @@ DEFAULT_ESTIMATE_CAPTURE_S = 8.0
 #: 每帧 ``.npz`` 的磁盘占用估计 (MB, 已压缩, float32)。全画幅 1944x2592 的
 #: float32 是 20 MB, 压缩后本机实测落在 5-15 MB。
 ESTIMATE_NPZ_MB = 10.0
+#: A pair specification (``HxW``, ``X,Y``) carries exactly this many components; the
+#: parsers reject anything else rather than guessing which half was meant. Not used for
+#: array dimensionality, which is a different question.
+PAIR_FIELD_COUNT = 2
+
+#: Highest Zernike order this scan supports. The range check and the ``--n-max`` guard
+#: both quote it, and the failure message prints the same 1..30 range, so it lives here.
+MAX_ZERNIKE_ORDER = 30
+
+#: A square ROI needs at least this many pixels before its CV/PIB/score metrics mean
+#: anything; below it the metrics are returned as NaN instead of computed.
+MIN_MASK_PIXELS = 4
+
+#: Order list shown inline in the report before it is abbreviated to head and tail.
+#: A display choice, deliberately separate from any hardware limit.
+MAX_ORDERS_LISTED_INLINE = 6
 
 #: ``--near-tolerance`` 缺省值 (相机 px)
 DEFAULT_NEAR_TOLERANCE_PX = 200
@@ -531,7 +547,7 @@ def parse_frame_shape(text: str) -> tuple[int, int]:
     """``"1944x2592"`` / ``"1944,2592"`` → ``(height, width)``。"""
     raw = str(text).lower().replace("x", ",").replace("*", ",")
     parts = [p.strip() for p in raw.split(",") if p.strip()]
-    if len(parts) != 2:
+    if len(parts) != PAIR_FIELD_COUNT:
         raise ValueError(f"--dry-run-frame-shape 需要 HxW (如 1944x2592), 收到 {text!r}")
     height, width = int(parts[0]), int(parts[1])
     if height <= 0 or width <= 0:
@@ -542,7 +558,7 @@ def parse_frame_shape(text: str) -> tuple[int, int]:
 def parse_xy(text: str) -> tuple[float, float]:
     """``"930,1050"`` → ``(x, y)`` (相机坐标, 与 ``zero_order_center`` 同序)。"""
     parts = [p.strip() for p in str(text).replace(";", ",").split(",") if p.strip()]
-    if len(parts) != 2:
+    if len(parts) != PAIR_FIELD_COUNT:
         raise ValueError(f"坐标需要 X,Y 形式 (如 930,1050), 收到 {text!r}")
     return float(parts[0]), float(parts[1])
 
@@ -689,7 +705,7 @@ def parse_orders_spec(text: str) -> tuple[int, ...]:
         orders.extend(range(first, last + 1))
     if not orders:
         raise ValueError("--zernike-orders 不能为空")
-    bad = [n for n in orders if n < 1 or n > 30]
+    bad = [n for n in orders if n < 1 or n > MAX_ZERNIKE_ORDER]
     if bad:
         raise ValueError(
             f"--zernike-orders 支持 1..30 阶, 越界: {sorted(set(bad))}。"
@@ -865,7 +881,7 @@ def measure_box(
     cx, cy = float(center[0]), float(center[1])
     mask = square_mask(raw.shape, int(round(cy)), int(round(cx)), side)
     inside = int(mask.sum())
-    if inside < 4:
+    if inside < MIN_MASK_PIXELS:
         nan = float("nan")
         return {
             "cv": nan, "pib": nan, "ee": nan, "ar": nan, "score": nan,
@@ -926,7 +942,7 @@ def model_box_metrics(result: GSResult, side_cam_px: float, bench: Bench) -> dic
     side = int(min(max(int(round(bench.side_cam_to_gs(side_cam_px))), 2), n))
     mask = square_mask(amp.shape, n // 2, n // 2, side)
     intensity = amp**2
-    if int(mask.sum()) < 4 or float(intensity.sum()) <= 0.0:
+    if int(mask.sum()) < MIN_MASK_PIXELS or float(intensity.sum()) <= 0.0:
         return {"model_cv": float("nan"), "model_pib": float("nan"),
                 "model_score": float("nan"), "model_side_gs_px": float(side)}
     cv = float(uniformity_cv(intensity, mask))
@@ -1710,7 +1726,7 @@ def atomic_selection(args: argparse.Namespace, stages: tuple[str, ...]) -> dict[
         raise _fail(
             f"--{STAGE_VALUE_ARG[stage].replace('_', '-')} 必须为正, 收到 {value}", 2
         )
-    if stage == "zernike" and value > 30:
+    if stage == "zernike" and value > MAX_ZERNIKE_ORDER:
         raise _fail(f"--n-max 支持 1..30, 收到 {value}", 2)
     if stage == "blaze" and value < MIN_BLAZE_PERIOD_PX:
         raise _fail(
@@ -2026,14 +2042,14 @@ def print_plan(plan: dict[str, Any]) -> None:
     add("")
     add("第 2 段: Zernike 阶数扫描")
     order_list = [int(n) for n in s["orders"]]
-    if len(order_list) <= 6:
+    if len(order_list) <= MAX_ORDERS_LISTED_INLINE:
         order_text = "[" + ", ".join(str(n) for n in order_list) + "]"
     else:
         order_text = (
             "[" + ", ".join(str(n) for n in order_list[:3]) + ", …, "
             + ", ".join(str(n) for n in order_list[-3:]) + "]"
         )
-    shown_orders = order_list if len(order_list) <= 6 else (
+    shown_orders = order_list if len(order_list) <= MAX_ORDERS_LISTED_INLINE else (
         order_list[:3] + order_list[-3:]
     )
     add(f"  阶数               = {order_text}  (共 {len(order_list)} 个)")
