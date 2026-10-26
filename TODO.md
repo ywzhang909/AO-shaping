@@ -3389,6 +3389,18 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 顺带撞到的要紧事（另立 item 处置，不混入本条）：`ruff check .` 现在 **8 errors** ⇒ CI 的 lint 硬闸在 `origin/master` 上是红的 —— `src/ml/sim2f/bench.py` 两处 `F821` 未定义名（必然 `NameError`）、根级 `gen_one_gif.py` 的 E401/F401×2/E402、根级 `test_forward.py` 直接 `invalid-syntax` 且**被 git 追踪**。三者都由上游 `9857a377` 带入。
 - gates：TERM 合计 0 / 对账 100 条 13 violations（standing 不变）/ 溯源 clean；提交 = 三份脚本 + `TODO.md`。
 
+101. ✅ **CI lint 硬门禁（`ruff check .`）8 红转 0：补上 `ml.sim2f.bench` 里从未定义过的 `recorded_grayscale`（两条记录路径必然 `NameError`），并把两个根级 stray 脚本收进 `scripts/` / 删除**（2026-10-27）
+- 症状与门禁：`.github/workflows/ruff.yml` 的 `ruff check .` 报 8 条 —— `src/ml/sim2f/bench.py:526` 与 `:971` 的 F821 未定义名 `recorded_grayscale`；根级 `gen_one_gif.py` 的 E401 + F401×2 + E402；根级 `test_forward.py` 的 invalid-syntax×2。
+- 根因是**真缺陷而非风格**：`git log --all -S "def recorded_grayscale"` 为空 —— 该名字在任何 ref 上都不存在，却被 `SimInstrument.sent_grayscale` 与 `HwInstrument.sent_grayscale` 双双调用 ⇒ 一经调用即 `NameError`。此前无人撞到有两个原因：`tests/ao_shaping/ml` 位于 `pyproject` 的 `addopts --ignore`（65 GB 语料 + torch），而这两个方法**从未被任何测试触达**；于是 F821 成了这条死路上唯一的哨兵，也正是本轮变红的这道门禁。
+- 修法（语义已由两处调用点的 docstring 钉死）：新增唯一 helper `recorded_grayscale(phase_rad, *, slm=None, panel_shape=PANEL_SHAPE, radius_px=PUPIL_RADIUS_PX, center_xy=None)` = `build_panel_phase(...)`（与写路径同一个瞳面嵌入）→ `phase_to_slm_grayscale(panel, slm=...)`。硬件会话传活动设备，因而走 `create_phase_from_array`（波前矫正 + gamma LUT + 基础相位叠加 + 平移 + 波长相关的 `2π = _max_gray`），"面板收到了什么"因而不是近似而是逐比特；`slm=None`（孪生 / 离线分析 / 单测）回落到该函数的内置纯数学转换（折叠到 `[0, 2π)` 再缩放到 1023）。已加入 `__all__`，因为两处 docstring 以 `:func:` 交叉引用该名。
+- 测试：`tests/ao_shaping/ml/sim2f/test_bench.py` 新增 `TestRecordedGrayscale` 6 条（该文件 58→64 passed）—— 孪生记录与 `phase_to_slm_grayscale(build_panel_phase(·), slm=None)` 逐元素相等，且 dtype 为 uint16、形状为 `PANEL_SHAPE`；瞳面方框之外的三条越界带必须为 0（用 `panel_corner` 定位，不靠几何猜测）；`SimInstrument.sent_grayscale` 必须等于共享 helper；硬件路径用 monkeypatch 记录器证明**活动设备确实被转发**、且面板实参与 `build_panel_phase` 逐元素一致；另加 AST 委托守卫（两个 `sent_grayscale` 都必须调用 `recorded_grayscale`）与同守卫的 planted 反例自检。
+- **对照控制（证明测试会咬）**：把 `bench.py` 与 `test_bench.py` 暂存回 HEAD ⇒ 收集期直接 `ERROR: found no collectors`；把孪生的 `sent_grayscale` 改成内联 ⇒ 委托守卫精确报 `sent_grayscale at line 573 re-inlines the grayscale composition`（1 failed, 5 passed）；还原 ⇒ 6 passed。
+- 根级 stray：`gen_one_gif.py` 是报告图生成器却位于仓库根（违反"报告 / 插图生成必须在 `scripts/`"这条红线），且输入输出按**工作目录**解析 ⇒ 换个目录就把产物写到别处。`git mv` 为 `scripts/slm/generate_cold_start_process_gif.py`：头部改为具名内联 repo-root bootstrap（`ROOT = Path(__file__).resolve().parents[2]` + `sys.path.insert`），`BASE` / `FIG_DIR` 从 `__file__` 推导，合并导入拆开并删掉未用的 `json` / `PIL.Image`；已在 `scripts/README.md` 登记。**绘图主体逐字节未动**：AST 对齐下两个 `For` 循环体的 `dump` 完全相同，唯一实质差异是末尾 `print` 改为 ROOT 化路径。
+- `test_forward.py`（同一次上游提交带入）是把 shell 外壳（`" > /dev/null 2>&1`、`echo "Script written"`）连同 heredoc 一起存成 `.py` 的一次性探针：第 50 行 unterminated string ⇒ 该文件从未可解析，且全仓零引用 ⇒ `git rm`；其 `forward_intensity` 自检已包含在上面那个生成器的逐帧块里，历史可用 `git show 9857a377:test_forward.py` 取回。
+- 动手前先查清的两条守卫口径（否则搬移本身会新造红）：`tests/ao_shaping/scripts/test_script_repo_root_bootstrap.py` 的 `_WINDOWS_PATH` 以负向前瞻 `(?!Windows[\\/])` **豁免** `C:/Windows/Fonts/*.ttc`（操作系统资源、探测式使用、有 rcParams 回落），而 `parents[N]` 只要求解析到仓库根（`scripts/slm/**` ⇒ `parents[2]` ✓）；`ruff.toml` 的 `"scripts/*"` per-file-ignore **实测覆盖嵌套**（同一内容放 `scripts/slm/` 下全绿、放根级报 E402/F401），所以搬移动作自身就让那 4 条 lint 失去存在面。
+- 验证：`ruff check .` 8→**0**；守卫分片（bootstrap / imports-resolve / conventions / report-provenance）1481 passed、50 skipped；`tests/ao_shaping/ml/sim2f` 整树 291 passed、6 skipped、3 failed。
+- 另立一项：上述 3 条红是**上游既有**，与本项无关 —— 控制实验（同样两个文件暂存回 HEAD）逐条复现出同样 3 红且签名相同（`ml/sim2f/fit.py::probe` 拟合系数 `[0] = 0.2228` 对参考（真值）`0.20`，`atol = 0.02` 差 `0.0028`；`rank=4/4 cond=1.2 fit 0.591→0.0236 iter=120`）。见 102。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

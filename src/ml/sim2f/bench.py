@@ -181,6 +181,7 @@ __all__ = [
     "measure_sample",
     "panel_corner",
     "pupil_center",
+    "recorded_grayscale",
     "run_session",
     "select_indices",
     "verdict",
@@ -338,6 +339,62 @@ def build_panel_phase(
     return compose_pupil_dof(
         base, array, (height, width), float(radius_px), center_xy=center_xy
     )
+
+
+def recorded_grayscale(
+    phase_rad: Tensor | np.ndarray,
+    *,
+    slm: Any | None = None,
+    panel_shape: tuple[int, int] = PANEL_SHAPE,
+    radius_px: float = PUPIL_RADIUS_PX,
+    center_xy: tuple[int, int] | None = None,
+) -> np.ndarray:
+    """The uint16 panel grayscale that one ``(grid, grid)`` command phase produces.
+
+    ``SimInstrument.sent_grayscale`` and ``HwInstrument.sent_grayscale`` record the
+    same quantity, so they share this single implementation: embed the pupil
+    command onto the panel with :func:`build_panel_phase` -- the same call the
+    write path makes -- then convert radians to grayscale through
+    :func:`ao_shaping.utils.slm.phase_display.phase_to_slm_grayscale`.
+
+    The ``slm`` argument is the entire difference between the two instruments, and
+    it is why the helper takes the device instead of hard-coding either path.  With
+    a live device the conversion delegates to ``create_phase_from_array``: wavefront
+    correction, gamma LUT, base-phase overlay, panel shift and the
+    wavelength-dependent ``2*pi = _max_gray`` scaling all apply, so the returned
+    array is bit-for-bit what the panel physically received.  With ``slm=None`` the
+    same function falls back to its pure-math conversion (fold to ``[0, 2*pi)``,
+    scale to ``max_grayscale`` default 1023), which is all a panel-less twin can
+    record -- the twin's ``_phase`` column then has a hardware session's shape and
+    reading order without claiming the device's scaling.
+
+    Args:
+        phase_rad: ``(grid, grid)`` command phase, radians.
+        slm: Live SLM whose driver pipeline performs the conversion; ``None``
+            (twin, offline analysis, unit tests) uses the built-in pure math.
+        panel_shape: Panel ``(height, width)`` in pixels; this module's
+            :data:`PANEL_SHAPE` by default.
+        radius_px: Illuminated pupil radius; :data:`PUPIL_RADIUS_PX` by default.
+        center_xy: Pupil centre ``(x, y)`` in panel pixels; ``None`` = panel centre.
+
+    Returns:
+        ``(panel_h, panel_w)`` uint16 grayscale.  Outside the pupil square the
+        embedded phase is 0 rad, so on the ``slm=None`` path those pixels are
+        grayscale 0; a live device still applies its correction/LUT/overlay there.
+
+    Raises:
+        ValueError: Propagated from :func:`build_panel_phase` when the phase map is
+            not square or the pupil square does not fit the panel.
+    """
+    from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
+
+    panel = build_panel_phase(
+        phase_rad,
+        panel_shape=panel_shape,
+        radius_px=radius_px,
+        center_xy=center_xy,
+    )
+    return phase_to_slm_grayscale(panel, slm=slm)
 
 
 def pupil_center(

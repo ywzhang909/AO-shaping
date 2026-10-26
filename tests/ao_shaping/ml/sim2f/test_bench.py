@@ -15,7 +15,9 @@ tolerance must not be widened to make it go away.
 
 from __future__ import annotations
 
+import ast
 from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -26,6 +28,7 @@ from ml.sim2f.bench import (
     INSUFFICIENT_POWER,
     NET_DOES_NOT_RECOVER,
     NET_RECOVERS,
+    PANEL_SHAPE,
     PUPIL_RADIUS_PX,
     BenchmarkError,
     HwInstrument,
@@ -36,6 +39,7 @@ from ml.sim2f.bench import (
     measure_sample,
     panel_corner,
     pupil_center,
+    recorded_grayscale,
     run_session,
     select_indices,
     verdict,
@@ -317,6 +321,124 @@ class TestResampleConvention:
         assert feature_px == 24.0
         assert scale_error * feature_px == pytest.approx(0.161, abs=0.002)
         assert scale_error * feature_px < 1.0  # far below one camera pixel
+
+
+def _sent_grayscale_defs(source: str) -> list[ast.FunctionDef]:
+    """Every ``sent_grayscale`` definition in ``source``."""
+    return [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "sent_grayscale"
+    ]
+
+
+def _calls_recorded_grayscale(func: ast.FunctionDef) -> bool:
+    """Whether ``func``'s body calls ``recorded_grayscale`` by name."""
+    return any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "recorded_grayscale"
+        for node in ast.walk(func)
+    )
+
+
+class TestRecordedGrayscale:
+    """The single panel-grayscale path both instruments share.
+
+    ``recorded_grayscale`` used to be *called* by both ``sent_grayscale`` methods
+    without existing anywhere in any revision -- an undefined name that ruff flags
+    as F821 and that raises ``NameError`` the moment either method runs.  No test
+    covered the recording path, so the suites stayed green while both instruments
+    were broken.  These tests call it, pin what each instrument records, and pin
+    that neither method re-inlines the composition.
+    """
+
+    def test_twin_record_is_the_pure_math_conversion_of_the_embedding(self) -> None:
+        from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
+
+        phase = np.full((_GRID, _GRID), 0.7, dtype=np.float32)
+        recorded = recorded_grayscale(phase)
+
+        assert recorded.dtype == np.uint16
+        assert recorded.shape == PANEL_SHAPE
+        np.testing.assert_array_equal(
+            recorded, phase_to_slm_grayscale(build_panel_phase(phase), slm=None)
+        )
+
+    def test_the_record_is_black_outside_the_pupil_square(self) -> None:
+        phase = np.full((_GRID, _GRID), 0.7, dtype=np.float32)
+        recorded = recorded_grayscale(phase)
+        x0, y0 = panel_corner(PANEL_SHAPE, PUPIL_RADIUS_PX, None)
+        side = 2 * int(PUPIL_RADIUS_PX)
+
+        assert (x0, y0) != (0, 0)
+        assert (recorded[:y0, :] == 0).all(), "rows above the pupil carry the command"
+        assert (recorded[y0 + side :, :] == 0).all(), "rows below the pupil carry it"
+        assert (recorded[:, :x0] == 0).all(), "columns left of the pupil carry it"
+
+    def test_the_twin_instrument_delegates_to_the_shared_helper(self) -> None:
+        instrument = SimInstrument(bench=Sim2f(_ideal_bench(), device="cpu"), device="cpu")
+        phase = np.full((_GRID, _GRID), 0.7, dtype=np.float32)
+
+        np.testing.assert_array_equal(
+            instrument.sent_grayscale(phase), recorded_grayscale(phase)
+        )
+
+    def test_a_live_device_is_forwarded_to_the_conversion(self, monkeypatch) -> None:
+        import ao_shaping.utils.slm.phase_display as phase_display
+
+        seen: dict[str, object] = {}
+
+        def _recorder(phase, max_grayscale=None, slm=None):
+            seen["panel"] = np.asarray(phase, dtype=np.float64)
+            seen["slm"] = slm
+            return np.zeros(phase.shape, dtype=np.uint16)
+
+        monkeypatch.setattr(phase_display, "phase_to_slm_grayscale", _recorder)
+        device = object()
+        phase = np.linspace(0.0, 2.0, _GRID * _GRID, dtype=np.float32).reshape(
+            _GRID, _GRID
+        )
+
+        recorded_grayscale(
+            phase,
+            slm=device,
+            panel_shape=(256, 256),
+            radius_px=64.0,
+            center_xy=(128, 128),
+        )
+
+        assert seen["slm"] is device, "the live SLM never reached the conversion"
+        np.testing.assert_array_equal(
+            seen["panel"],
+            build_panel_phase(
+                phase, panel_shape=(256, 256), radius_px=64.0, center_xy=(128, 128)
+            ),
+        )
+
+    def test_both_instruments_delegate_instead_of_re_inlining(self) -> None:
+        source = Path(recorded_grayscale.__code__.co_filename).read_text(encoding="utf-8")
+        bodies = _sent_grayscale_defs(source)
+
+        assert len(bodies) == 2, f"expected twin + hardware, found {len(bodies)}"
+        for func in bodies:
+            assert _calls_recorded_grayscale(func), (
+                f"sent_grayscale at line {func.lineno} re-inlines the grayscale "
+                "composition instead of calling recorded_grayscale"
+            )
+
+    def test_the_delegation_scan_is_not_vacuous(self) -> None:
+        planted = (
+            "class HwInstrument:\n"
+            "    def sent_grayscale(self, phase_rad):\n"
+            "        return phase_to_slm_grayscale(build_panel_phase(phase_rad))\n"
+        )
+        bodies = _sent_grayscale_defs(planted)
+
+        assert len(bodies) == 1, "the scan saw no planted method"
+        assert not _calls_recorded_grayscale(bodies[0]
+                                             ), "the planted copy slipped through"
 
 
 class TestSimInstrument:

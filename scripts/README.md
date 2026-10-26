@@ -2437,6 +2437,34 @@ python scripts/slm/generate_slm_gsnet_sim_gif.py -o report/fouriergsnet_sim
 | `--pkl` | latest `data/debug/slm_gsnet_*/*/*.pkl` | Debug artifact pkl path |
 | `-o, --output` | `report/fouriergsnet_sim` | Output dir (GIFs → `<output>/gifs/`) |
 
+### generate_cold_start_process_gif.py
+
+Offline figure generator for the cold-start random-formation run. Reads the
+persisted `data/debug/slm_transfer/cold_start_20261026_1004/<run>/` artifacts
+(`iterations.pkl` for the commanded phase and per-iteration metrics, `capture_*.npz`
+for the averaged CCD frame and the `model_phase` behind it) and writes a
+per-iteration animation to
+`report/shape_trials/cold_start/figures/cold_start_<run>_process.gif`.
+
+Every frame is a 2x3 panel: commanded pupil phase (cyclic `twilight`), measured CCD
+far-field, the reference forward model's prediction for the same `model_phase`, the
+phase change against the initial frame, the metric block, and the loss-so-far trace.
+No device is opened -- the session was recorded on another machine, so this generator
+only reads saved artifacts, which is what keeps the animation reproducible offline.
+
+**Usage:**
+```bash
+python scripts/slm/generate_cold_start_process_gif.py
+```
+
+The run name is the `run_name` literal at the top of the file; `BASE` and `FIG_DIR`
+are derived from `__file__`, so the working directory does not matter.
+
+**Moved in from the repo root** (it was `gen_one_gif.py`): report and figure
+generation belongs in `scripts/`, and the old copy resolved its input and output
+paths relative to the working directory, so it silently wrote somewhere else when
+launched from any other directory.
+
 ### generate_pearson_pkl_gif.py
 
 Generates **synchronized CCD-image + SLM-phase** animated GIFs from all
