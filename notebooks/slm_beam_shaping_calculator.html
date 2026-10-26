@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SLM 远场光束整形参数计算器 · 最终版</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #f4f6f8; color: #222; }
+  header { background: #1f3a5f; color: #fff; padding: 14px 20px; }
+  header h1 { font-size: 20px; }
+  header p  { font-size: 12px; opacity: .8; margin-top: 4px; }
+  /* 快速参数入口按钮 */
+  .presets { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 14px 0; }
+  .preset-btn { background: #fff; border: 1px solid #1f3a5f; color: #1f3a5f; border-radius: 16px;
+                padding: 6px 14px; font-size: 13px; cursor: pointer; }
+  .preset-btn:hover { background: #1f3a5f; color: #fff; }
+  .layout { display: flex; gap: 14px; padding: 12px 14px; flex-wrap: wrap; }
+  .panel { background: #fff; border-radius: 10px; padding: 14px 16px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  .inputs { width: 310px; min-width: 270px; }
+  .outputs { flex: 1; min-width: 440px; }
+  h3 { font-size: 15px; margin: 10px 0 8px; color: #1f3a5f; border-left: 4px solid #1f3a5f; padding-left: 8px; }
+  .in-group { margin-bottom: 6px; }
+  .in-group h4 { font-size: 13px; margin: 10px 0 6px; color: #555; }
+  label { display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 3px 0; }
+  label input { width: 105px; padding: 4px 6px; border: 1px solid #ccc; border-radius: 5px; font-size: 13px; text-align: right; }
+  label input:focus { outline: 2px solid #1f3a5f44; border-color: #1f3a5f; }
+  .metrics { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0 12px; }
+  .metric { flex: 1; min-width: 105px; background: #eef3fa; border-radius: 8px; padding: 10px; text-align: center; }
+  .metric .v { font-size: 18px; font-weight: bold; color: #1f3a5f; }
+  .metric .n { font-size: 12px; color: #666; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { border-bottom: 1px solid #eee; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #f7f9fc; color: #555; }
+  td.f { font-family: Consolas, monospace; font-size: 12px; color: #777; }
+  td.val { font-family: Consolas, monospace; font-weight: bold; white-space: nowrap; }
+  .warn { margin-top: 10px; padding: 8px 12px; border-radius: 6px; font-size: 13px; display: none; }
+  .warn.err  { display: block; background: #fdecea; color: #c0392b; }
+  .warn.info { display: block; background: #e8f4fd; color: #1f6fb2; }
+  .full { margin: 0 14px 14px; }
+  canvas { width: 100%; max-width: 760px; background: #fff; border: 1px solid #e3e7ee; border-radius: 8px; }
+  /* 光束流动动画 */
+  .beam { stroke: #e8a33d; stroke-width: 2.5; fill: none;
+          stroke-dasharray: 10 8; animation: flow 0.8s linear infinite; }
+  @keyframes flow { to { stroke-dashoffset: -36; } }
+  .pulse { animation: pulse 1.6s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  /* 问号提示 */
+  .lab { display: inline-flex; align-items: center; gap: 4px; }
+  .tip { position: relative; display: inline-block; width: 15px; height: 15px; line-height: 15px;
+         margin-left: 5px; border-radius: 50%; background: #9db6d4; color: #fff;
+         font-size: 10px; text-align: center; cursor: help; vertical-align: middle; }
+  .tip:hover { background: #1f3a5f; }
+  .tip::after { content: attr(data-tip); position: absolute; top: 135%; left: 50%; transform: translateX(-50%);
+    width: 300px; background: #33455e; color: #fff; font-size: 12px; line-height: 1.6;
+    padding: 8px 10px; border-radius: 6px; white-space: pre-wrap; text-align: left;
+    box-shadow: 0 2px 8px rgba(0,0,0,.25); z-index: 99; pointer-events: none; font-family: inherit; }
+  .tip::before { content: ''; position: absolute; top: 118%; left: 50%; transform: translateX(-50%);
+    border: 6px solid transparent; border-bottom-color: #33455e; z-index: 99; }
+  td.f { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🔦 SLM 远场光束整形参数计算器 · 最终版</h1>
+  <p>链路：扩束(8mm) → SLM 8°反射 → 0.75×中继 → 采样镜 →（弱光）f_c → CCD ／（强光）望远镜(Ø54.79) → 1km 正方形 ｜ 望远镜支持调焦，可吸收 1064/1550 色差离焦</p>
+</header>
+
+<!-- ============ 快速参数入口 ============ -->
+<div class="presets" id="presets"></div>
+
+<div class="layout">
+  <!-- ==================== 左侧：参数输入 ==================== -->
+  <div class="panel inputs">
+    <h3>参数输入（问号悬停看说明）</h3>
+    <div class="in-group">
+      <h4>① 光源与目标</h4>
+      <label>波长 λ (nm)         <input id="lam"    type="number" value="1064"  step="1"></label>
+      <label>SLM 光束 1/e² (mm)  <input id="beam"   type="number" value="8"     step="0.1"></label>
+      <label>目标正方形边长 (cm) <input id="W"      type="number" value="10"    step="0.5"></label>
+      <label>传播距离 L (km)     <input id="L"      type="number" value="1.0"   step="0.1"></label>
+    </div>
+    <div class="in-group">
+      <h4>② SLM 与望远镜</h4>
+      <label>SLM 像素周期 (μm)   <input id="p"      type="number" value="8"     step="0.1"></label>
+      <label>SLM 分辨率 X (px)   <input id="slmx"   type="number" value="2560"  step="8"></label>
+      <label>SLM 分辨率 Y (px)   <input id="slmy"   type="number" value="1900"  step="8"></label>
+      <label>SLM 入射角 θ (°)    <input id="theta"  type="number" value="8"     step="0.5"></label>
+      <label>物镜口径 (mm)       <input id="Dout"   type="number" value="54.79" step="0.01"></label>
+      <label>望远镜倍率 M_t      <input id="Mt"     type="number" value="8.57"  step="0.01"></label>
+      <label>入瞳光阑 (mm)       <input id="Din"    type="number" value="6.3"   step="0.1"></label>
+    </div>
+    <div class="in-group">
+      <h4>③ 中继（8mm→6mm 缩束）</h4>
+      <label>中继倍率 f₂/f₁      <input id="relay"  type="number" value="0.75"  step="0.01"></label>
+      <label>中继 f₁ (mm)        <input id="rf1"    type="number" value="100"   step="5"></label>
+    </div>
+    <div class="in-group">
+      <h4>④ 诊断臂与约束</h4>
+      <label>诊断透镜 f_c (mm)   <input id="fc"     type="number" value="3000"  step="50"></label>
+      <label>CCD 像元 (μm)       <input id="ccd"    type="number" value="2.2"   step="0.1"></label>
+      <label>CCD 芯片宽度 (mm)   <input id="chip"   type="number" value="12.8"  step="0.1"></label>
+      <label>正方形偏移 (cm)     <input id="shift"  type="number" value="10"    step="1"></label>
+      <label>允许离焦模糊 (mm)   <input id="blur"   type="number" value="2"     step="0.5"></label>
+      <label>图案像素上限 (px)   <input id="pxcap"  type="number" value="1200"  step="50"></label>
+    </div>
+  </div>
+
+  <!-- ==================== 右侧：计算输出 ==================== -->
+  <div class="panel outputs">
+    <h3>核心结果</h3>
+    <div class="metrics">
+      <div class="metric"><div class="v" id="m_alpha">–</div><div class="n">目标全角 α</div></div>
+      <div class="metric"><div class="v" id="m_N">–</div><div class="n">分辨单元 N</div></div>
+      <div class="metric"><div class="v" id="m_Me">–</div><div class="n">等效倍率 M_t,eff</div></div>
+      <div class="metric"><div class="v" id="m_Deff">–</div><div class="n">出瞳有效口径</div></div>
+      <div class="metric"><div class="v" id="m_Wccd">–</div><div class="n">CCD 上图案边长</div></div>
+      <div class="metric"><div class="v" id="m_px">–</div><div class="n">图案像素 / 上限</div></div>
+      <div class="metric"><div class="v" id="m_r">–</div><div class="n">GS 工作区比值 r</div></div>
+      <div class="metric"><div class="v" id="m_cal">–</div><div class="n">远场标定系数</div></div>
+    </div>
+
+    <h3>详细参数（问号悬停看含义/公式）</h3>
+    <table id="resultTable">
+      <tr><th style="width:27%">参数（问号悬停）</th><th style="width:23%">数值</th><th>计算公式</th></tr>
+      <tr><td>分辨单元数 N</td><td class="val" id="v_n"></td><td class="f" id="f_n"></td></tr>
+      <tr><td>出瞳有效口径 D_eff</td><td class="val" id="v_deff"></td><td class="f" id="f_deff"></td></tr>
+      <tr><td>SLM 光束直径（固定）</td><td class="val" id="v_beam"></td><td class="f" id="f_beam"></td></tr>
+      <tr><td>中继后光束</td><td class="val" id="v_rbeam"></td><td class="f" id="f_rbeam"></td></tr>
+      <tr><td>等效倍率 M_t,eff</td><td class="val" id="v_mt"></td><td class="f" id="f_mt"></td></tr>
+      <tr><td>信号最高频率 ν_max</td><td class="val" id="v_nu"></td><td class="f" id="f_nu"></td></tr>
+      <tr><td>信号光栅周期</td><td class="val" id="v_T"></td><td class="f" id="f_T"></td></tr>
+      <tr><td>SLM 带宽裕量</td><td class="val" id="v_head"></td><td class="f" id="f_head"></td></tr>
+      <tr><td>倾斜角 θ_tilt</td><td class="val" id="v_tilt"></td><td class="f" id="f_tilt"></td></tr>
+      <tr><td>倾斜光栅周期</td><td class="val" id="v_Tt"></td><td class="f" id="f_Tt"></td></tr>
+      <tr><td>反射偏转角 2θ</td><td class="val" id="v_dev2"></td><td class="f" id="f_dev2"></td></tr>
+      <tr><td>有效像素周期 p/cosθ</td><td class="val" id="v_peff"></td><td class="f" id="f_peff"></td></tr>
+      <tr><td>图案像素数</td><td class="val" id="v_px"></td><td class="f" id="f_px"></td></tr>
+      <tr><td>CCD 上正方形边长</td><td class="val" id="v_wccd"></td><td class="f" id="f_wccd"></td></tr>
+      <tr><td>CCD 上零级斑直径</td><td class="val" id="v_spk"></td><td class="f" id="f_spk"></td></tr>
+      <tr><td>CCD 上图案偏移</td><td class="val" id="v_csh"></td><td class="f" id="f_csh"></td></tr>
+      <tr><td>CCD 所需视场</td><td class="val" id="v_fov"></td><td class="f" id="f_fov"></td></tr>
+      <tr><td>远场/CCD 标定系数</td><td class="val" id="v_cal"></td><td class="f" id="f_cal"></td></tr>
+      <tr><td>1200px 允许的最大 f_c</td><td class="val" id="v_fcpx"></td><td class="f" id="f_fcpx"></td></tr>
+      <tr><td>视场允许的最大 f_c</td><td class="val" id="v_fcc"></td><td class="f" id="f_fcc"></td></tr>
+      <tr><td>包络 1/e² 半宽</td><td class="val" id="v_env"></td><td class="f" id="f_env"></td></tr>
+      <tr><td>远场零级尖峰直径</td><td class="val" id="v_spkf"></td><td class="f" id="f_spkf"></td></tr>
+      <tr><td>焦深 (±)</td><td class="val" id="v_dof"></td><td class="f" id="f_dof"></td></tr>
+      <tr><td>非聚焦残余模糊</td><td class="val" id="v_bfr"></td><td class="f" id="f_bfr"></td></tr>
+      <tr><td>光束瑞利距离 z_R</td><td class="val" id="v_zr"></td><td class="f" id="f_zr"></td></tr>
+      <tr><td>GS 最优边长 W_opt</td><td class="val" id="v_wopt"></td><td class="f" id="f_wopt"></td></tr>
+      <tr><td>GS 工作区比值 r</td><td class="val" id="v_r"></td><td class="f" id="f_r"></td></tr>
+      <tr><td>最优区所需口径</td><td class="val" id="v_dmatch"></td><td class="f" id="f_dmatch"></td></tr>
+      <tr><td>SLM 纵向容差(模糊)</td><td class="val" id="v_dzA"></td><td class="f" id="f_dzA"></td></tr>
+      <tr><td>SLM 纵向容差(衍射极限)</td><td class="val" id="v_dzB"></td><td class="f" id="f_dzB"></td></tr>
+      <tr><td>SLM 光束区像素数</td><td class="val" id="v_nb"></td><td class="f" id="f_nb"></td></tr>
+      <tr><td>建议 FFT 点数</td><td class="val" id="v_nfft"></td><td class="f" id="f_nfft"></td></tr>
+      <tr><td>仿真采样间距</td><td class="val" id="v_dx"></td><td class="f" id="f_dx"></td></tr>
+      <tr><td>图案仿真像素</td><td class="val" id="v_simpx"></td><td class="f" id="f_simpx"></td></tr>
+    </table>
+
+    <div class="warn" id="warnErr"></div>
+    <div class="warn" id="warnInfo"></div>
+
+    <h3>远场一维示意（灰线=包络，蓝=目标正方形，红=零级，绿框=GS最优尺寸）</h3>
+    <canvas id="plot" width="760" height="250"></canvas>
+  </div>
+</div>
+
+<!-- ==================== 光路动画 ==================== -->
+<div class="panel full">
+  <h3>光路示意（动画；SLM 反射折转 2θ，中继 0.75× 缩束，红点=零级）</h3>
+  <svg id="opticsSvg" viewBox="0 0 1120 300" width="100%" style="max-width:1100px">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#e8a33d"/>
+      </marker>
+    </defs>
+    <!-- 激光器与扩束器（静态） -->
+    <rect x="20" y="130" width="46" height="40" rx="6" fill="#1f3a5f"/>
+    <text x="43" y="155" fill="#fff" font-size="12" text-anchor="middle">激光</text>
+    <line x1="90" y1="105" x2="90" y2="195" stroke="#888" stroke-width="3"/>
+    <line x1="140" y1="95" x2="140" y2="205" stroke="#888" stroke-width="3"/>
+    <text x="115" y="230" font-size="12" text-anchor="middle">扩束(8mm)</text>
+    <!-- 入射光束射向 SLM -->
+    <polyline class="beam" points="66,150 90,150 140,150 336,150" marker-end="url(#arrow)"/>
+    <text x="210" y="140" font-size="11" fill="#a07a2c" text-anchor="middle">入射光</text>
+    <!-- 反射后全部元件：组内水平画出，整体绕 P=(340,150) 旋转 -2θ -->
+    <g id="reflGroup" transform="rotate(-16 340 150)">
+      <line id="svgSlmLine" x1="334" y1="194" x2="346" y2="106" stroke="#1f3a5f" stroke-width="6"/>
+      <text id="svgSlm" x="340" y="212" font-size="12" text-anchor="middle">SLM 反射式 (8°)</text>
+      <line id="svgNormal" x1="340" y1="150" x2="300" y2="138" stroke="#999" stroke-width="1" stroke-dasharray="4 3"/>
+      <text id="svgNormalTxt" x="288" y="134" font-size="10" fill="#999" text-anchor="end">法线</text>
+      <text id="svgTheta" x="312" y="144" font-size="11" fill="#666">θ</text>
+      <!-- SLM → 中继 L1 → L2 -->
+      <polyline class="beam" points="344,150 680,150" marker-start="url(#arrow)"/>
+      <line x1="445" y1="118" x2="445" y2="182" stroke="#888" stroke-width="3"/>
+      <line x1="620" y1="108" x2="620" y2="192" stroke="#888" stroke-width="3"/>
+      <text x="533" y="224" font-size="12" text-anchor="middle" id="svgRelay">中继 ×0.75</text>
+      <!-- 采样镜 45° -->
+      <line x1="705" y1="112" x2="705" y2="188" stroke="#7a9cc6" stroke-width="4"
+            transform="rotate(45 705 150)"/>
+      <text x="705" y="205" font-size="12" text-anchor="middle">采样镜</text>
+      <!-- 弱光支路：f_c → CCD -->
+      <polyline class="beam" points="705,150 705,85 855,85" opacity="0.7"/>
+      <line x1="850" y1="68" x2="850" y2="102" stroke="#888" stroke-width="3"/>
+      <text x="850" y="55" font-size="12" text-anchor="middle" id="svgFc">f_c</text>
+      <rect x="895" y="67" width="56" height="36" rx="5" fill="#2c6fbb"/>
+      <text x="923" y="90" fill="#fff" font-size="12" text-anchor="middle">CCD</text>
+      <!-- 强光支路：望远镜 → 远场 -->
+      <polyline class="beam" points="705,150 970,150" opacity="0.9"/>
+      <line x1="810" y1="122" x2="810" y2="178" stroke="#888" stroke-width="3"/>
+      <line x1="930" y1="108" x2="930" y2="192" stroke="#888" stroke-width="5"/>
+      <text x="870" y="224" font-size="12" text-anchor="middle" id="svgTel">望远镜 M_t=8.57(可调焦)</text>
+      <circle class="pulse" cx="1000" cy="150" r="7" fill="#d64541"/>
+      <rect x="1028" y="128" width="44" height="44" fill="rgba(44,111,187,0.65)" rx="3">
+        <animate attributeName="opacity" values="0.65;0.35;0.65" dur="2s" repeatCount="indefinite"/>
+      </rect>
+      <text x="1000" y="180" font-size="11" text-anchor="middle" fill="#d64541">零级</text>
+      <text x="1050" y="192" font-size="11" text-anchor="middle" fill="#2c6fbb">目标正方形</text>
+    </g>
+  </svg>
+</div>
+
+<script>
+/* ==================================================================
+ * 计算逻辑（全部国际单位米；M_t,eff = M_t × 中继倍率）
+ * ================================================================== */
+const $ = id => document.getElementById(id);
+function num(id){ return parseFloat($(id).value) || 0; }
+function setRow(vId, fId, valText, frmText){ $(vId).textContent = valText; $(fId).textContent = frmText; }
+const f1 = x => x.toFixed(1), f2 = x => x.toFixed(2), f0 = x => x.toFixed(0);
+
+/* ---- 输入参数通俗说明 ---- */
+const IN_TIPS = {
+  lam:    "激光波长（本系统 1064nm）。望远镜为 1550nm 设计，~1% 焦距漂移由望远镜调焦吸收。",
+  beam:   "照到 SLM 上的高斯光束 1/e² 直径（本系统固定 8mm）。",
+  W:      "远场目标正方形边长（1 km 处）。",
+  L:      "望远镜到目标面的距离。",
+  p:      "SLM 像素块周期 8μm（液晶 7.8μm）。",
+  slmx:   "SLM 横向像素数 2560，通光宽度 = 分辨率×周期 = 20.5mm。",
+  slmy:   "SLM 纵向像素数 1900。",
+  theta:  "入射角 8°，反射后光路折转 2θ=16°。",
+  Dout:   "望远镜输出非球面有效口径 54.79mm（Zemax 文件解析值）。",
+  Mt:     "望远镜角压缩倍率 = 54.79/6.39 ≈ 8.57（结构决定，不可调）。",
+  Din:    "望远镜入瞳硬光阑 Ø6.3mm（Zemax 1–2 面）：中继后光束超过它就被裁剪。",
+  relay:  "中继缩束倍率 f₂/f₁ = 0.75：把 8mm 光束缩到 6mm 喂满入瞳。改成 1.0 可查看无中继时的裁剪冲突。",
+  rf1:    "中继第一片透镜焦距（SLM 位于其前焦面；该值决定 SLM 纵向容差）。",
+  fc:     "弱光诊断支路聚焦透镜。采样在望远镜之前，它看到的是'等效远场'。",
+  ccd:    "CCD 像元 2.2μm。",
+  chip:   "CCD 芯片宽度（FOV 约束：视场超过它就装不下）。",
+  shift:  "正方形相对零级的横向偏移（远场处），用于避开零级亮斑。物理下限 ≈ W/2 + 零级斑半径。",
+  blur:   "远场允许离焦模糊，用于换算 SLM 装调容差。",
+  pxcap:  "设计要求：CCD 上图案边长最多 1200 像素。",
+};
+
+/* ---- 输出参数含义 ---- */
+const ROW_TIPS = {
+  n:      "正方形边长上的独立分辨单元数（衍射极限）。N 越大边缘越清晰。",
+  deff:   "真正起作用的有效口径 = min(中继后光束×M_t, 物镜口径)。",
+  beam:   "SLM 上的光束直径（固定 8mm）。",
+  rbeam:  "经中继缩束后进入望远镜的光束直径 = 光束×中继倍率，必须 ≤ 入瞳光阑。",
+  mt:     "级联等效角压缩倍率 = M_t×中继倍率，决定远场图案相对 SLM 图案的压缩比。",
+  nu:     "SLM 相位图案中最细密光栅的空间频率，对应最大偏折角。",
+  T:      "最细密光栅周期占多少像素，越大越平缓。",
+  head:   "SLM 极限频率是所需频率的倍数，>2 从容。",
+  tilt:   "为把正方形移出零级所需的整体倾斜角。",
+  Tt:     "倾斜对应的相位条纹周期。",
+  dev2:   "入射轴与出射轴夹角 2θ，决定装调方位。",
+  peff:   "沿入射面方向的有效像素周期（光栅方程修正，<1%）。",
+  px:     "图案在 CCD 上占的像素数，必须 ≤ 设定的上限。",
+  wccd:   "目标正方形在 CCD 上的显示边长。",
+  spk:    "零级光在 CCD 上的艾里斑直径（按中继后光束计算）。",
+  csh:    "正方形在 CCD 上偏离视场中心的距离（零级留在中心）。",
+  fov:    "同时看到正方形+零级所需的最小视场，占芯片宽度的百分比也在此。",
+  cal:    "CCD 尺寸 × 它 = 远场真实尺寸（GS 反馈目标图按此换算）。",
+  fcpx:   "像素上限对应的最大 f_c；超过则图案超像素上限。",
+  fcc:    "芯片视场对应的最大 f_c（取 80% 芯片作裕量）。",
+  env:    "不整形时高斯光束在远场的自然发散 1/e² 半宽。",
+  spkf:   "零级光在远场（1km）的亮尖峰直径。",
+  dof:    "焦点前后图案基本清晰的范围。",
+  bfr:    "不聚焦时的固有菲涅尔模糊（本系统可忽略）。",
+  zr:     "扩束后光的准直距离。",
+  wopt:   "GS 最舒适目标尺寸：与包络同量级时效率/均匀性最佳。",
+  r:      "当前目标是最优值的倍数，0.8~2 最佳。",
+  dmatch: "让当前 W 落入最优区所需的最小口径（与 N 互相制约）。",
+  dzA:    "SLM 沿光轴容差（按模糊判据）。SLM 位于中继 L1 前焦面；若 SLM 直接在望远镜准直光中（无中继）则放宽至 cm 级。",
+  dzB:    "按 λ/4 波前判据的 SLM 装调精度（比模糊判据严格约 10 倍）。",
+  nb:     "光束在 SLM 上的像素数，即 GS 自由度规模。",
+  nfft:   "GS 迭代 FFT 网格：光束区零填充 ×32，取 2 的幂。",
+  dx:     "该 FFT 网格下的仿真输出面采样间距。",
+  simpx:  "图案在仿真网格上占的像素数（反馈时降采样到 CCD 像元）。",
+};
+
+/* ---- 页面加载：给输入框/输出行插入问号图标 ---- */
+function buildInputTips(){
+  for (const [id, txt] of Object.entries(IN_TIPS)) {
+    const inp = $(id); if (!inp) continue;
+    const lab = inp.closest('label');
+    const wrap = document.createElement('span'); wrap.className = 'lab';
+    while (lab.firstChild !== inp) wrap.appendChild(lab.firstChild);
+    lab.insertBefore(wrap, inp);
+    const tip = document.createElement('span');
+    tip.className = 'tip'; tip.textContent = '?'; tip.dataset.tip = txt;
+    wrap.appendChild(tip);
+  }
+  document.querySelectorAll('#resultTable tr').forEach(tr => {
+    const vTd = tr.querySelector('td.val'); if (!vTd) return;
+    const key = vTd.id.replace('v_', '');
+    const tip = document.createElement('span');
+    tip.className = 'tip'; tip.textContent = '?'; tip.id = 't_' + key;
+    tr.querySelector('td').appendChild(tip);
+  });
+  const ths = document.querySelectorAll('#resultTable th');
+  if (ths[2]) ths[2].style.display = 'none';
+}
+function updateTips(){
+  for (const [k, mean] of Object.entries(ROW_TIPS)) {
+    const tip = $('t_' + k); if (!tip) continue;
+    const f = $('f_' + k);
+    tip.dataset.tip = '含义：' + mean + ((f && f.textContent) ? '\n公式：' + f.textContent : '');
+  }
+}
+
+function calc(){
+  /* ---- 读入（工程单位 → 米） ---- */
+  const lam    = num('lam')   * 1e-9;
+  const beam   = num('beam')  * 1e-3;           // SLM 光束 8mm
+  const W      = num('W')     * 1e-2;
+  const L      = num('L')     * 1e3;
+  const p      = num('p')     * 1e-6;
+  const slmx   = num('slmx');
+  const Dout   = num('Dout')  * 1e-3;           // 54.79mm
+  const Mt     = num('Mt');                     // 8.57
+  const Din    = num('Din')   * 1e-3;           // 6.3mm
+  const relay  = num('relay');                  // 0.75
+  const rf1    = num('rf1')    * 1e-3;          // 100mm
+  const fc     = num('fc')     * 1e-3;          // 3000mm
+  const ccd    = num('ccd')    * 1e-6;
+  const chip   = num('chip')   * 1e-3;
+  const shift  = num('shift')  * 1e-2;
+  const blur   = num('blur')   * 1e-3;
+  const pxcap  = num('pxcap');
+  const th     = num('theta');
+
+  /* ---- 核心量 ---- */
+  const alpha  = W / L;
+  const Me     = Mt * relay;                    // 等效倍率 M_t,eff
+  const rbeam  = beam * relay;                  // 中继后光束（喂入望远镜）
+  const beamImg= Me * beam;                     // SLM 光束在出瞳的像
+  const D_eff  = Math.min(beamImg, Dout);
+  const N      = D_eff * alpha / lam;
+  const nu     = Me * alpha / (2 * lam);
+  const T      = 1 / nu;
+  const head   = (1/(2*p)) / nu;
+  const thr    = th * Math.PI/180;
+  const dev2   = 2 * th;
+  const peff   = p / Math.cos(thr);
+  const tilt   = Me * shift / L;                // SLM 侧倾斜角
+  const nT     = 1 / (tilt / lam);
+  const csh    = fc * tilt;
+  const Wccd   = fc * Me * alpha;
+  const px     = Wccd / ccd;
+  const spk    = 1.22 * lam * fc / rbeam;       // 采样点在中继后（6mm 光束）
+  const fov    = 2 * (csh + Wccd/2 + 3*spk);
+  const cal    = L / (fc * Me);
+  const fcpx   = pxcap * ccd / (Me * alpha);    // 像素上限 → f_c 上限
+  const fcc    = 0.8 * chip / (Me*(alpha + 2*shift/L) + 7.32*lam/rbeam);
+  const env    = lam / (Math.PI * D_eff/2);
+  const spkf   = 1.22 * lam * L / D_eff;
+  const dof    = 2 * lam * Math.pow(L/D_eff, 2);
+  const bfr    = D_eff*D_eff / (4*L);
+  const zR     = Math.PI * Math.pow(beam/2, 2) / lam;
+  /* GS 最优工作区 */
+  const Wopt   = 4 * lam * L / (Math.PI * D_eff);
+  const rzone  = W / Wopt;
+  const Dmatch = 4 * lam * L / (Math.PI * W);
+  /* SLM 纵向容差（SLM 位于中继 L1 前焦面的架构；fe→f1, M_t,eff→M_t 于公式） */
+  const dzA    = blur * rf1*rf1 * Mt*Mt / ((D_eff/2) * L);
+  const dzB    = 2 * lam * rf1*rf1 * Mt*Mt / (D_eff*D_eff);
+  /* GS 网格 */
+  const nb     = beam / p;
+  const nfft   = 32768;
+  const dx     = lam * fc / (nfft * p);
+  const simpx  = Wccd / dx;
+
+  /* ---- 顶部指标 ---- */
+  $('m_alpha').textContent = (alpha*1e6).toFixed(1) + ' μrad';
+  $('m_N').textContent     = N.toFixed(1) + ' 个';
+  $('m_Me').textContent    = Me.toFixed(2);
+  $('m_Deff').textContent  = f1(D_eff*1e3) + ' mm';
+  $('m_Wccd').textContent  = f2(Wccd*1e3) + ' mm';
+  $('m_px').textContent    = f0(px) + ' / ' + f0(pxcap);
+  $('m_r').textContent     = rzone.toFixed(2);
+  $('m_cal').textContent   = '×' + f1(cal);
+
+  /* ---- 明细表 ---- */
+  setRow('v_n','f_n', N.toFixed(2)+' 个',
+    `N = D_eff·α/λ = ${(D_eff*1e3).toFixed(1)}e-3 × ${(alpha*1e6).toFixed(0)}e-6 / ${lam.toExponential(3)}`);
+  setRow('v_deff','f_deff', f1(D_eff*1e3)+' mm',
+    `D_eff = min(M_t,eff·beam, D_out) = min(${(beamImg*1e3).toFixed(1)}, ${(Dout*1e3).toFixed(1)}) mm`);
+  setRow('v_beam','f_beam', f1(beam*1e3)+' mm',
+    `固定值（1/e² 直径）`);
+  setRow('v_rbeam','f_rbeam', f2(rbeam*1e3)+' mm',
+    `中继后光束 = beam×中继倍率 = ${num('beam')}×${num('relay')}；必须 ≤ 入瞳 ${num('Din')}mm`);
+  setRow('v_mt','f_mt', `${Mt.toFixed(2)} → ${Me.toFixed(2)}`,
+    `M_t,eff = M_t×中继 = ${Mt.toFixed(2)}×${num('relay')}`);
+  setRow('v_nu','f_nu', f0(nu)+' m⁻¹',
+    `ν_max = M_t,eff·α/(2λ) = ${Me.toFixed(2)}×${(alpha*1e6).toFixed(0)}e-6/(2×${lam.toExponential(3)})`);
+  setRow('v_T','f_T', f2(T*1e3)+' mm = '+f0(T/p)+' px',
+    `T = 1/ν_max = ${(T*1e3).toFixed(2)}mm / ${num('p')}μm`);
+  setRow('v_head','f_head', head.toFixed(0)+' ×',
+    `裕量 = [1/(2p)]/ν_max = [1/(2×${num('p')}e-6)]/${f0(nu)}`);
+  setRow('v_tilt','f_tilt', (tilt*1e3).toFixed(2)+' mrad',
+    `θ_tilt = M_t,eff·shift/L = ${Me.toFixed(2)}×${num('shift')}cm/${num('L')}km`);
+  setRow('v_Tt','f_Tt', (nT*1e3).toFixed(2)+' mm = '+f0(nT/p)+' px',
+    `T_tilt = λ/θ = ${lam.toExponential(3)}/${(tilt*1e3).toFixed(2)}mrad`);
+  setRow('v_dev2','f_dev2', f1(dev2)+' °',
+    `2θ = 2×${num('theta')}°`);
+  setRow('v_peff','f_peff', f2(peff*1e6)+' μm',
+    `p_eff = p/cosθ = ${num('p')}/cos${num('theta')}°`);
+  setRow('v_px','f_px', f0(px)+' px',
+    `px = f_c·M_t,eff·α/像元 = ${num('fc')}e-3×${Me.toFixed(2)}×${(alpha*1e6).toFixed(0)}e-6/${num('ccd')}e-6 ≤ ${f0(pxcap)}`);
+  setRow('v_wccd','f_wccd', f2(Wccd*1e3)+' mm',
+    `W_ccd = f_c·M_t,eff·α = ${num('fc')}×${Me.toFixed(2)}×${(alpha*1e6).toFixed(0)}e-6`);
+  setRow('v_spk','f_spk', f2(spk*1e3)+' mm = '+f0(spk/ccd)+' px',
+    `spike = 1.22λ·f_c/中继后光束 = 1.22×${lam.toExponential(3)}×${num('fc')}e-3/${(rbeam*1e3).toFixed(1)}e-3`);
+  setRow('v_csh','f_csh', f2(csh*1e3)+' mm',
+    `偏移 = f_c·θ_tilt = ${num('fc')}e-3×${(tilt*1e3).toFixed(2)}mrad`);
+  setRow('v_fov','f_fov', f2(fov*1e3)+' mm = '+f0(100*fov/chip)+'%芯片',
+    `FOV = 2×(偏移+W_ccd/2+3×spike)，须 ≤ 芯片 ${num('chip')}mm`);
+  setRow('v_cal','f_cal', '×'+f1(cal),
+    `标定 = L/(f_c·M_t,eff) = ${num('L')}e3/(${num('fc')}e-3×${Me.toFixed(2)})`);
+  setRow('v_fcpx','f_fcpx', f2(fcpx)+' m',
+    `f_c ≤ 上限×像元/(M_t,eff·α) = ${f0(pxcap)}×${num('ccd')}e-6/(${Me.toFixed(2)}×${(alpha*1e6).toFixed(0)}e-6)`);
+  setRow('v_fcc','f_fcc', f2(fcc)+' m',
+    `f_c ≤ 0.8×芯片/[M_t,eff(α+2shift/L)+7.32λ/中继光束]`);
+  setRow('v_env','f_env', (env*1e6).toFixed(1)+' μrad = '+f0(env*L*1e3)+' mm',
+    `env = λ/(π·D_eff/2)`);
+  setRow('v_spkf','f_spkf', f1(spkf*1e3)+' mm',
+    `spike_far = 1.22λL/D_eff = 1.22×${lam.toExponential(3)}×${num('L')}e3/${(D_eff*1e3).toFixed(1)}e-3`);
+  setRow('v_dof','f_dof', '±'+f0(dof)+' m',
+    `DOF = 2λ(L/D_eff)²`);
+  setRow('v_bfr','f_bfr', (bfr*1e3).toFixed(2)+' mm',
+    `blur = D_eff²/(4L)`);
+  setRow('v_zr','f_zr', f1(zR)+' m',
+    `z_R = π(beam/2)²/λ = π×${(beam/2*1e3).toFixed(1)}²e-6/${lam.toExponential(3)}`);
+  setRow('v_wopt','f_wopt', f2(Wopt*1e3)+' mm',
+    `W_opt = 4λL/(π·D_eff) = 4×${lam.toExponential(3)}×${num('L')}e3/(π×${(D_eff*1e3).toFixed(1)}e-3)`);
+  setRow('v_r','f_r', rzone.toFixed(2)+' ×',
+    `r = W/W_opt；经验最优区 0.8~2`);
+  setRow('v_dmatch','f_dmatch', f1(Dmatch*1e3)+' mm',
+    `D = 4λL/(π·W)`);
+  setRow('v_dzA','f_dzA', '±'+(dzA*1e6).toFixed(0)+' μm',
+    `δz = blur·f₁²·M_t²/((D_eff/2)·L)，SLM 位于中继 L₁ 前焦面`);
+  setRow('v_dzB','f_dzB', '±'+(dzB*1e6).toFixed(0)+' μm',
+    `δz = 2λ·f₁²·M_t²/D_eff²（λ/4 判据）`);
+  setRow('v_nb','f_nb', f0(nb)+' × '+f0(nb)+' px',
+    `N_beam = beam/p = ${num('beam')}mm/${num('p')}μm`);
+  setRow('v_nfft','f_nfft', f0(nfft)+'²',
+    `光束区 ${f0(nb)}² 零填充 ×32 取整（GPU FFT 约 1–2 秒）`);
+  setRow('v_dx','f_dx', f1(dx*1e6)+' μm',
+    `dx = λ·f_c/(N_fft·p) = ${lam.toExponential(3)}×${num('fc')}e-3/(${f0(nfft)}×${num('p')}e-6)`);
+  setRow('v_simpx','f_simpx', f0(simpx)+' px',
+    `仿真像素 = W_ccd/dx = ${(Wccd*1e3).toFixed(2)}mm/${(dx*1e6).toFixed(1)}μm`);
+
+  /* ---- 告警与工作区提示 ---- */
+  const wE = $('warnErr'), wI = $('warnInfo');
+  wE.className = 'warn'; wI.className = 'warn';
+  const errs = [], infos = [];
+  if (rbeam > Din)
+    errs.push(`中继后光束 ${(rbeam*1e3).toFixed(1)}mm 超过入瞳光阑 ${num('Din')}mm——将被裁剪！请把中继倍率降到 ≤ ${(Din/beam).toFixed(2)}`);
+  else if (rbeam < 0.85*Din)
+    infos.push(`中继后光束 ${(rbeam*1e3).toFixed(1)}/${num('Din')}mm，未喂满入瞳，可把中继倍率提到 ${(Din/beam).toFixed(2)}`);
+  if (beamImg < 0.85*Dout)
+    infos.push(`未用满物镜口径（${(beamImg*1e3).toFixed(1)}/${(Dout*1e3).toFixed(1)}mm）`);
+  if (px > pxcap)
+    errs.push(`图案 ${f0(px)}px 超过上限 ${f0(pxcap)}px！需 f_c ≤ ${fcpx.toFixed(2)}m`);
+  if (fov > chip)
+    errs.push(`所需视场 ${(fov*1e3).toFixed(1)}mm 超过芯片 ${num('chip')}mm！需 f_c ≤ ${fcc.toFixed(2)}m 或减小偏移`);
+  if (rzone > 2)
+    infos.push(`GS 工作区：边长为最优值的 ${rzone.toFixed(1)} 倍（r>2），能量需被推出自然包络，建议目标取内部点阵`);
+  else if (rzone < 0.8)
+    infos.push(`GS 工作区：r=${rzone.toFixed(2)}<0.8，能量会漏到旁瓣`);
+  else
+    infos.push(`✔ 位于 GS 最优工作区 (r=${rzone.toFixed(2)})`);
+  infos.push(`望远镜调焦吸收 1064/1550 色差（约 1% 焦距漂移），装调时实测聚焦位置即可`);
+  if (errs.length) { wE.className = 'warn err'; wE.textContent = '⚠ ' + errs.join(' ｜ '); }
+  if (infos.length) { wI.className = 'warn info'; wI.textContent = infos.join(' ｜ '); }
+
+  /* ---- SVG 动态标注 ---- */
+  $('svgRelay').textContent = `中继 ×${num('relay')} (f₁=${f0(num('rf1'))})`;
+  $('svgFc').textContent = `f_c=${f0(num('fc'))}mm`;
+  $('svgTel').textContent = `望远镜 M_t=${num('Mt')}(可调焦)`;
+  $('reflGroup').setAttribute('transform', `rotate(${-2*th} 340 150)`);
+  const dXL = 45*Math.sin(thr), dYL = 45*Math.cos(thr);
+  $('svgSlmLine').setAttribute('x1', 340-dXL); $('svgSlmLine').setAttribute('y1', 150+dYL);
+  $('svgSlmLine').setAttribute('x2', 340+dXL); $('svgSlmLine').setAttribute('y2', 150-dYL);
+  $('svgSlm').textContent = `SLM 反射式 (${f1(th)}°)`;
+  $('svgNormal').setAttribute('x2', 340-45*Math.cos(thr));
+  $('svgNormal').setAttribute('y2', 150-45*Math.sin(thr));
+  $('svgNormalTxt').setAttribute('x', 340-52*Math.cos(thr));
+  $('svgNormalTxt').setAttribute('y', 150-52*Math.sin(thr)+3);
+  $('svgTheta').setAttribute('x', 340-30*Math.cos(1.5*thr)-3);
+  $('svgTheta').setAttribute('y', 150-30*Math.sin(1.5*thr)+4);
+  /* 动态 viewBox 防止旋转后超界 */
+  const rad = -2*th*Math.PI/180, cs = Math.cos(rad), sn = Math.sin(rad);
+  const grpPts = [[334,106],[346,194],[533,228],[705,112],[705,214],[850,28],[951,58],
+                  [895,104],[870,232],[810,182],[930,198],[1000,142],[1000,180],
+                  [1028,124],[1072,196],[1050,194]];
+  let bx0=1e9, by0=1e9, bx1=-1e9, by1=-1e9;
+  const fit = (X,Y) => { bx0=Math.min(bx0,X); by0=Math.min(by0,Y); bx1=Math.max(bx1,X); by1=Math.max(by1,Y); };
+  for (const [gx,gy] of grpPts) { const dx=gx-340, dy=gy-150; fit(340+dx*cs-dy*sn, 150+dx*sn+dy*cs); }
+  [[20,128],[66,172],[115,232],[210,140]].forEach(q => fit(q[0],q[1]));
+  const pd = 16;
+  $('opticsSvg').setAttribute('viewBox',
+    `${(bx0-pd).toFixed(0)} ${(by0-pd).toFixed(0)} ${(bx1-bx0+2*pd).toFixed(0)} ${(by1-by0+2*pd).toFixed(0)}`);
+
+  updateTips();
+  drawPlot(env, L, shift, W, spkf, Wopt);
+}
+
+/* ---- 远场一维示意 ---- */
+function drawPlot(env, L, shift, W, spikeFar, Wopt){
+  const cv = $('plot'), ctx = cv.getContext('2d');
+  const Wpx = cv.width, Hpx = cv.height, pad = 40;
+  const envHalf = env * L * 1e3;
+  const xMax = (shift + W) * 1e3 * 1.25;
+  const x2px = x => pad + (x + xMax) / (2*xMax) * (Wpx - 2*pad);
+  ctx.clearRect(0, 0, Wpx, Hpx);
+  ctx.strokeStyle = '#ddd'; ctx.fillStyle = '#555'; ctx.font = '11px sans-serif';
+  ctx.beginPath(); ctx.moveTo(pad, Hpx-pad); ctx.lineTo(Wpx-pad, Hpx-pad); ctx.stroke();
+  for (const xm of [-xMax, -xMax/2, 0, xMax/2, xMax]) ctx.fillText(xm.toFixed(0), x2px(xm)-8, Hpx-pad+14);
+  ctx.fillText('远场横向位置 (mm)', Wpx/2-50, Hpx-6);
+  ctx.strokeStyle = '#999'; ctx.lineWidth = 1.5; ctx.beginPath();
+  for (let px = pad; px <= Wpx-pad; px++) {
+    const x = (px-pad)/(Wpx-2*pad)*2*xMax - xMax;
+    const py = Hpx-pad - Math.exp(-2*Math.pow(x/envHalf,2))*(Hpx-2*pad)*0.85;
+    px === pad ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(44,111,187,0.55)';
+  const sx = x2px((shift-W/2)*1e3), ex = x2px((shift+W/2)*1e3);
+  ctx.fillRect(sx, Hpx-pad-(Hpx-2*pad)*0.7, ex-sx, (Hpx-2*pad)*0.7);
+  ctx.fillStyle = '#2c6fbb'; ctx.fillText('目标正方形', (sx+ex)/2-26, Hpx-pad-(Hpx-2*pad)*0.7-6);
+  ctx.strokeStyle = '#2e9e5b'; ctx.setLineDash([6,4]); ctx.lineWidth = 1.5;
+  const gx = x2px((shift-Wopt/2)*1e3), gw = x2px((shift+Wopt/2)*1e3)-gx;
+  ctx.strokeRect(gx, Hpx-pad-(Hpx-2*pad)*0.7, Math.max(gw,2), (Hpx-2*pad)*0.7);
+  ctx.setLineDash([]); ctx.lineWidth = 1;
+  ctx.fillStyle = '#2e9e5b';
+  ctx.fillText('W_opt='+f1(Wopt*1e3)+'mm', Math.min(gx, x2px((shift+W/2)*1e3))+4, Hpx-pad-(Hpx-2*pad)*0.7-18);
+  ctx.fillStyle = '#d64541';
+  ctx.beginPath(); ctx.arc(x2px(0), Hpx-pad-(Hpx-2*pad)*0.9, 5, 0, 7); ctx.fill();
+  ctx.fillText('零级尖峰(≈'+spikeFar.toFixed(0)+'mm)', x2px(0)+10, Hpx-pad-(Hpx-2*pad)*0.9+4);
+  ctx.fillStyle = '#777';
+  ctx.fillText('灰线: 未整形包络(1/e²半宽 '+(env*1e6).toFixed(1)+' μrad)', pad, 16);
+}
+
+/* ---- 快速参数入口 ---- */
+const PRESETS = {
+  '推荐 · 1″CCD·f_c=3m':   { fc:3000, shift:10, chip:12.8, relay:0.75 },
+  '紧凑 · 1/1.8″·f_c=1.75m':{ fc:1750, shift:10, chip:7.2,  relay:0.75 },
+  '顶满1200px · 4/3″':     { fc:4100, shift:10, chip:17.3, relay:0.75 },
+  '无中继直联(看裁剪冲突)': { relay:1.0, fc:1000, shift:10, chip:12.8 },
+};
+function buildPresets(){
+  for (const [name, cfg] of Object.entries(PRESETS)) {
+    const btn = document.createElement('button');
+    btn.className = 'preset-btn'; btn.textContent = '⚡ ' + name;
+    btn.onclick = () => { Object.entries(cfg).forEach(([k,v]) => { $(k).value = v; }); calc(); };
+    $('presets').appendChild(btn);
+  }
+}
+
+document.querySelectorAll('input').forEach(el => el.addEventListener('input', calc));
+buildPresets();
+buildInputTips();
+calc();
+</script>
+</body>
+</html>
