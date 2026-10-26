@@ -576,6 +576,12 @@ flowchart TD
 
 ![三形状 CV/EE 对比](figures/multishape_all_shapes_cv_ee.png)
 
+### 13.2.4 迭代过程动画
+
+以下 GIF 展示了 CCD 锚定综合目标优化的完整迭代过程，每帧包含下发的 SLM 瞳面相位、实测 CCD 远场（叠目标掩模轮廓）、模型预测远场、实测−预测差值、正向预测模型 metrics（相关 r / SSIM / 增益 / 加性背景（杂散光）项）以及目标 metrics（CV / EE / IoU，实测 vs 预测）：
+
+![迭代过程动画](figures/20261021_172309_record_process.gif)
+
 首轮设备测量、原始数据审计和图像汇总完成后，离线方向检查遇到历史迁移相位 `float64` 与传播采样网格 `float32` 不一致。已仅在方向分析入口将相位统一为 float32，重新计算通过；9 项 AD/中心差分符号一致，最大相对误差约 0.01370%。原始失败的 `journal.json` 保留，恢复结果在 `direction_recovered/`，不将失败历史改写为首次全部完成。
 
 原始会话：`data/debug/slm_transfer/live_no_gs_20261024_0926/`。其中 `capture/` 为本轮原始探针，`fit/` 包含所有候选及逐次预测，`anchored/` 为全部配对帧、相位及 120 次更新记录，`source_snapshot/` 为本轮代码归档。
