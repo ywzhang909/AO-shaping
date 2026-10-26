@@ -224,7 +224,7 @@ def _locate_pupil_center(
     )
     scan = scan_panel(
         scan_params,
-        strict=False,
+        strict=True,
         max_session_drift=params.panel_scan_max_session_drift,
         max_session_shift_px=(float(params.panel_scan_max_session_shift_px) or None),
     )

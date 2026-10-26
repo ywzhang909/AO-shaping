@@ -3354,6 +3354,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 验证：`test_conventions.py` 全文件 **104 passed / 1 skipped**（两条红同时转绿）+ `test_transfer_progress.py` 绿；ruff 干净。顺带记一条口径：该文件里 ruff 相关用例在无 ruff 的容器发现集里是 skip，真正的 lint 闸是 CI 里钉版本的 job。
 - gates：TERM 合计 0 / 对账 96 条 13 violations（standing 不变）/ 溯源 clean；提交 = `transfer_progress.py` + `test_conventions.py` + `TODO.md`。
 
+97. ✅ **全仓扫红后的三条上游红收口：model-in-loop 会话扫描的 `strict` 门被 chore 提交悄悄翻掉 ⇒ 恢复；三个新脚本复写 `_fmt` ⇒ 接回 canonical 并立第七种格式化器 `fmt_num_or_dash`**（2026-10-26）
+- 扫描口径：分片全仓扫红（`optimizer`/`wfless` 整片须 48g；`drivers` 走 `--hardware` 闸 1091 passed / 220 skipped；`ml` 按默认排除）⇒ **8689 passed / 346 skipped / 3 failed**。三条全部是上游带入。
+- `strict` 回归：`f5fd1bfb`（一个 chore 提交）把 `model_in_loop_session._locate_pupil_center` 里 `scan_panel(strict=True)` 翻成 `strict=False`，提交信息与正文都没有一句涉及。语义差别是「**有任何网格点被平场漂移剔除就终止会话**」，而运行器一直是**显式覆盖** `scan_panel` 的默认 `False` 来要这道门 ⇒ 判定为回归，恢复 `strict=True`，不反向重钉测试（没有任何证据表明放宽是有意的，而这是整形前的一致性门；两条专钉它的 runner 测试正是为此存在）。
+- `_fmt` 三处复写：`scripts/ml/validate_sim2f_aberration_ensemble.py` / `scripts/oopao/benchmark_oopao_gpu.py` / `scripts/slm/generate_pib_exit_safety_report.py` 各写了一份 `_fmt`。前两份经值×spec 探针网格证明与 `fmt_general` **字节等价** ⇒ 删本地实现，改 `_fmt = partial(fmt_general, missing_nonfinite="n/a"[, missing_none="n/a"])`（spec 保持逐调用参数，30/39 个调用点零改动）；第三份是**第七种契约**：非有限值按 spec 原样打印（`inf`/`nan` 不转 `n/a`），非数值转破折号而非 `str(v)`——既不等于 `fmt_signed` 也不等于 `fmt_general`，提为 `scripts._common.fmt_num_or_dash`。顺带记一条：**第六个 `fmt_sigfig` 至今只有当年的等价证明、没有契约钉**。
+- 契约面：三个脚本补 `from scripts._common import` 与内联 repo-root bootstrap（`parents[2]` 形式）并加入 `MIGRATED` 名单（`imports_from_common` / `bootstraps_the_repo_root` 两条断言自此覆盖）；`test_common_helpers.py` 为第七个补 4 组行为与**区分**钉（`fmt_num_or_dash("abc")=="—"` vs `fmt_general("abc")=="abc"`；`inf` 原样 vs `fmt_signed` 的 `n/a`）。
+- 验证：`scripts/` + `runners/` **3091 passed / 90 skipped / 0 failed**；三脚本在 CI 容器内 import 冒烟 3 绿（pybox 里 `--help` 失败是缺 `torch`/`matplotlib`，与改动无关）；ruff 干净。
+- gates：TERM 合计 0 / 对账 97 条 13 violations（standing 不变）/ 溯源 clean；提交 = 1 运行器 + 4 脚本/`_common` + 2 测试文件 + `TODO.md`。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

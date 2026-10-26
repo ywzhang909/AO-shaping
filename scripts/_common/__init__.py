@@ -31,6 +31,7 @@ __all__ = [
     "fmt_fixed",
     "fmt_general",
     "fmt_metric",
+    "fmt_num_or_dash",
     "fmt_ratio",
     "fmt_signed",
     "fmt_sigfig",
@@ -213,6 +214,24 @@ def fmt_sigfig(v: float | None, digits: int = 4) -> str:
     if not math.isfinite(v):
         return "—"
     return f"{v:.{digits}g}"
+
+
+def fmt_num_or_dash(v: Any, digits: int = 4, dash: str = "—") -> str:
+    """Fixed-point with ``digits`` decimals; ``dash`` for ``None`` or unparseable input.
+
+    The ``generate_pib_exit_safety_report.py`` contract, kept as its own seventh
+    formatter because neither neighbour reproduces it byte-for-byte: unlike
+    :func:`fmt_signed` it prints a non-finite float through the spec (``inf``
+    stays ``inf``, ``nan`` stays ``nan``), and unlike :func:`fmt_general` a
+    non-numeric value becomes the dash instead of ``str(v)``. Probe-set proof in
+    TODO.md §8.9 item 97.
+    """
+    if v is None:
+        return dash
+    try:
+        return f"{float(v):.{digits}f}"
+    except (TypeError, ValueError):
+        return dash
 
 
 # ---------------------------------------------------------------------------

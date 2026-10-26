@@ -33,6 +33,7 @@ EXTRACTED = {
 
 #: Generators migrated onto ``scripts._common``.
 MIGRATED = (
+    "benchmark_oopao_gpu.py",
     "compare_loss_algorithms.py",
     "compare_sim_vs_hw.py",
     "generate_diff_shaping_report.py",
@@ -42,11 +43,13 @@ MIGRATED = (
     "generate_inverse_design_report.py",
     "generate_oopao_impact_report.py",
     "generate_oopao_vs_numpy_report.py",
+    "generate_pib_exit_safety_report.py",
     "generate_slm_pib_online_report.py",
     "generate_slm_pib_rms_pib_report.py",
     "generate_shape_objective_comparison.py",
     "generate_strehl_benchmark_report.py",
     "generate_zernike_coeff_report.py",
+    "validate_sim2f_aberration_ensemble.py",
 )
 
 

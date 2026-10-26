@@ -41,7 +41,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import matplotlib
 
@@ -50,6 +50,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from loguru import logger
 
+from scripts._common import fmt_num_or_dash
 from scripts._common.provenance import insert_header
 
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
@@ -144,17 +145,8 @@ def load_summary(run_dir: Path) -> dict[str, Any]:
     return json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
 
 
-def _fmt(value: Any, digits: int = 4, dash: str = "—") -> str:
-    if value is None:
-        return dash
-    try:
-        return f"{float(value):.{digits}f}"
-    except (TypeError, ValueError):
-        return dash
-
-
 def _fmt_optional(value: Any, digits: int = 2, dash: str = "—") -> str:
-    return _fmt(value, digits, dash)
+    return fmt_num_or_dash(value, digits, dash)
 
 
 def load_frames(record: dict[str, Any], run_dir: Path) -> dict[str, np.ndarray]:
@@ -202,7 +194,7 @@ def figure_scenario_panels(
         title = labels[state]
         key = corr_key[state]
         if key is not None:
-            title = f"{title}\nρ(实测) = {_fmt(corr.get(key))}"
+            title = f"{title}\nρ(实测) = {fmt_num_or_dash(corr.get(key))}"
         ax.set_title(title, fontsize=9)
         ax.set_xlabel("px")
         ax.set_ylabel("px")
@@ -425,7 +417,7 @@ def _scenario_section(
             ("flat_repeat", "平场与平场重复帧（噪声底）"),
         ):
             if name in corr:
-                lines.append(f"| {label} | {_fmt(corr.get(name))} |")
+                lines.append(f"| {label} | {fmt_num_or_dash(corr.get(name))} |")
         lines.append("")
 
     log_rows = _write_log_rows(record)
