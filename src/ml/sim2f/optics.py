@@ -114,6 +114,25 @@ DEFAULT_COVARIANCE_PATH = (
 #: Floor used when reducing a ``(cos, sin)`` pair to an angle, so an exactly zero
 #: phasor resolves to angle 0 instead of NaN.
 _PHASOR_EPS = 1e-12
+#: Rank of a two-axis array read as a matrix: a coefficient table, or a square
+#: covariance. These checks ask whether the argument is a matrix at all, not whether a
+#: batch axis still has to be added.
+NDIM_MATRIX = 2
+
+#: Rank of an unbatched spatial map, i.e. ``(grid, grid)``. An input at this rank gets an
+#: axis prepended before it reaches the pipeline. Separate from NDIM_MATRIX even though the
+#: number is the same: one shape is promoted, the other is only validated.
+NDIM_BARE_MAP = 2
+
+#: How many scalars a two-component vector carries -- an x/y offset, or a pair of
+#: coefficients. This counts elements of a flat vector, never tensor axes.
+NPAIR_COMPONENTS = 2
+
+#: Rank of a batched spatial map with no channel axis: ``(B, grid, grid)``.
+NDIM_BATCH_MAP = 3
+
+#: Rank of a batched map carrying an explicit channel axis: ``(B, C, n, n)``.
+NDIM_BATCHED_MAP = 4
 
 
 def _overlap_matrix(pixels: int, cells: int, ratio: float) -> np.ndarray:
@@ -621,7 +640,7 @@ class Sim2f:
             ValueError: If ``coeffs`` is not rank 2 or is empty in the mode axis.
         """
         tensor = coeffs if isinstance(coeffs, torch.Tensor) else torch.as_tensor(coeffs)
-        if tensor.dim() != 2:
+        if tensor.dim() != NDIM_MATRIX:
             raise ValueError(f"coeffs must be (B, K), got shape {tuple(tensor.shape)}")
         n_coeffs = int(tensor.shape[1])
         if n_coeffs < 1:
@@ -649,7 +668,7 @@ class Sim2f:
         Raises:
             ValueError: If ``phase`` is not ``(B, grid, grid)``.
         """
-        if phase.dim() != 3 or phase.shape[-2:] != (self.grid, self.grid):
+        if phase.dim() != NDIM_BATCH_MAP or phase.shape[-2:] != (self.grid, self.grid):
             raise ValueError(
                 f"phase must be (B, {self.grid}, {self.grid}), got "
                 f"{tuple(phase.shape)}"
@@ -820,7 +839,7 @@ class Sim2f:
         Raises:
             ValueError: If ``intensity`` is not ``(B, 1, fft_n, fft_n)``.
         """
-        if intensity.dim() != 4 or intensity.shape[-2:] != (self.fft_n, self.fft_n):
+        if intensity.dim() != NDIM_BATCHED_MAP or intensity.shape[-2:] != (self.fft_n, self.fft_n):
             raise ValueError(
                 f"intensity must be (B, 1, {self.fft_n}, {self.fft_n}), got "
                 f"{tuple(intensity.shape)}"
@@ -1021,7 +1040,7 @@ class Sim2f:
             ValueError: If ``offset_px`` does not have two elements.
         """
         offset = np.asarray(offset_px, dtype=np.float64).reshape(-1)
-        if offset.size != 2:
+        if offset.size != NPAIR_COMPONENTS:
             raise ValueError(f"offset_px must have two elements, got {offset_px!r}")
         scale = self._rad_per_camera_px()
         return np.array(
@@ -1047,7 +1066,7 @@ class Sim2f:
             ValueError: If ``coeffs`` does not have two elements.
         """
         values = np.asarray(coeffs, dtype=np.float64).reshape(-1)
-        if values.size != 2:
+        if values.size != NPAIR_COMPONENTS:
             raise ValueError(f"coeffs must have two elements, got {coeffs!r}")
         scale = self._rad_per_camera_px()
         return np.array(
@@ -1084,7 +1103,7 @@ class Sim2f:
             ValueError: If the rank/shape is not one of the two accepted forms.
         """
         tensor = phase if isinstance(phase, torch.Tensor) else torch.as_tensor(phase)
-        if tensor.dim() == 4:
+        if tensor.dim() == NDIM_BATCHED_MAP:
             if tensor.shape[1] != 2:
                 raise ValueError(
                     "a rank-4 phase must be (B, 2, grid, grid) (cos, sin) channels, "
@@ -1094,7 +1113,7 @@ class Sim2f:
             sin = tensor[:, 1]
             norm = torch.sqrt(cos * cos + sin * sin).clamp_min(_PHASOR_EPS)
             tensor = torch.atan2(sin / norm, cos / norm)
-        elif tensor.dim() != 3:
+        elif tensor.dim() != NDIM_BATCH_MAP:
             raise ValueError(
                 "phase must be (B, grid, grid) radians or (B, 2, grid, grid) "
                 f"phasor, got shape {tuple(tensor.shape)}"
@@ -1127,9 +1146,9 @@ class Sim2f:
             if isinstance(aberration, torch.Tensor)
             else torch.as_tensor(aberration)
         )
-        if tensor.dim() == 2:
+        if tensor.dim() == NDIM_BARE_MAP:
             tensor = tensor.unsqueeze(0)
-        if tensor.dim() != 3 or tensor.shape[-2:] != (self.grid, self.grid):
+        if tensor.dim() != NDIM_BATCH_MAP or tensor.shape[-2:] != (self.grid, self.grid):
             raise ValueError(
                 f"aberration must be (grid, grid), (1, grid, grid) or "
                 f"(B, grid, grid) with grid={self.grid}, got "
@@ -1170,11 +1189,11 @@ class Sim2f:
             if isinstance(illumination, torch.Tensor)
             else torch.as_tensor(illumination)
         )
-        if tensor.dim() == 2:
+        if tensor.dim() == NDIM_BARE_MAP:
             tensor = tensor.view(1, 1, self.grid, self.grid)
-        elif tensor.dim() == 3:
+        elif tensor.dim() == NDIM_BATCH_MAP:
             tensor = tensor.unsqueeze(1)
-        if tensor.dim() != 4 or tensor.shape[1] != 1:
+        if tensor.dim() != NDIM_BATCHED_MAP or tensor.shape[1] != 1:
             raise ValueError(
                 "illumination must be (1, 1, grid, grid) or (B, 1, grid, grid), "
                 f"got {tuple(tensor.shape)}"
@@ -1279,7 +1298,7 @@ def _covariance_factor(path: str) -> tuple[np.ndarray, np.ndarray]:
     with np.load(asset) as data:
         covariance = np.asarray(data["covariance"], dtype=np.float64)
         noll = np.asarray(data["noll"], dtype=np.int64)
-    if covariance.ndim != 2 or covariance.shape[0] != covariance.shape[1]:
+    if covariance.ndim != NDIM_MATRIX or covariance.shape[0] != covariance.shape[1]:
         raise ValueError(
             f"{asset} has covariance shape {covariance.shape}, expected (K, K)"
         )

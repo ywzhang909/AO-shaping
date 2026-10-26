@@ -3518,6 +3518,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 验证：6 个计划替换点全部由 ruff 真实命中。控制电池在 113（已提交）与 114 上均为 CONTROLS OK：基线判恒等，A–E 五类各自判非恒等，分组反向控制报"该行没有该字面量"。分组校验正向 OK。`ruff check .` 全仓归零。定向回归 `tests/ao_shaping/scripts` 为 2556 passed / 65 skipped / 0 failed（297.87 s，6g），与 110–113 四批基线逐位一致。
 - 覆盖账（实测）：目标文件 9 → 3；`scripts/slm` 338 → 332。
 
+115. ✅ **#173 续批：按全仓语义密度重选目标，`src/ml/sim2f/optics.py` 的魔数比较 16 → 3，13 处提为 5 个张量秩与分量数常量**（2026-10-27）
+- 选目标的方式改了：不再留在 `scripts/slm` 的惯性里，而是用 `plr_density.py` 对 `scripts` 与 `src` 全域按"同文件内同值重复站点数"排序。榜首即本批目标：16 处命中全部落在重复簇里、只有 3 个不同字面量——这是历批里密度最高的一次，而 `scripts/slm` 当时的头名 `generate_hw_defocus_zernike_report.py` 是 24 处里只有 11 处同值重复，性价比明显更低。
+- 提五个常量覆盖 13 处。**三个常量数值同为 2 却问三件不同的事**，绝不能并成一个：`NDIM_MATRIX`（624 的 `tensor.dim()!=2` 与 1282 的 `covariance.ndim!=2`，判"这到底是不是一个矩阵"）、`NDIM_BARE_MAP`（1130 与 1173 的 `dim()==2`，判"这是一张还没加批的图、要不要补一维"——一个会被提升，另一个只做校验）、`NPAIR_COMPONENTS`（1024 与 1050 的 `size != 2`，数的是平面向量里的标量分量个数，与张量轴无关）。另两个是秩族：`NDIM_BATCH_MAP = 3`（652、1097、1132、1175，批 + 两空间轴）与 `NDIM_BATCHED_MAP = 4`（823、1087、1177，批 + 通道 + 两空间轴）。
+- 刻意留作字面量的 3 处同样都是 `2`，但语义各是"量化至少要两级"、"cos/sin 的通道数"、"Zernike 模式数"，且各仅一处——提了就是假单源。这正是 112 记下的同值盲区在本仓库反复出现的样子，也是分组校验与恒等证明必须同时跑的理由。
+- 验证：13 个计划替换点全部由 ruff 真实命中；AST 与 HEAD 恒等；分组校验正向 OK，反向（把 1282 标成 bare）报"期望行不存在"；控制电池 CONTROLS OK——A 把 `NDIM_BARE_MAP` 定义改成 3、B 使用处加 `+ 1`、C 把 `NDIM_BATCH_MAP` 换类型（int→float）、D 删定义留使用、E 异值互换，五类各自判非恒等。`ruff check .` 全仓归零。
+- 回归面是先枚举再执行的，不是猜的：grep 全仓确认 import 该模块的测试只有 `tests/ao_shaping/ml/sim2f` 子树与 `tests/ao_shaping/scripts/test_measure_sim2f_kl_basis.py` 一个文件。并且**首次进入该回归面时先量改前基线**：用保存的改后副本与 HEAD 原文来回切，同一命令两侧均为 301 passed / 6 skipped（改前 124.19 s、改后 132.61 s），还原后经 `cmp` 证实与改后副本逐字节相同。只报"0 failed"不足以证明零回归，必须有改前基线可比。
+- 覆盖账（实测）：目标文件 16 → 3；`src` 全域 697 → 684。生产代码因此批属 `src/`，回归用 ml 分片形态（6g、`AO_TEST_DATA_REFRESH=0`）而非 scripts 分片。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
