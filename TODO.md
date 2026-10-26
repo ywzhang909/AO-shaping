@@ -3325,6 +3325,15 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 顺带确认：上游 `9857a377` 补上 PIB 退出安全校验脚本后，长期 standing 红 `test_registry_script_paths_exist[report/slm/pib_exit_safety/…]` **自然消解**——本轮 targeted 654 passed / 1 skipped，该失败不再出现。
 - 验证与链条：受影响测试面（transfer_preflight / transfer_progress GUI+tools + `test_report_provenance` + tools 守卫）**654 passed**；tools 守卫由红转绿；TERM 合计 0 / 对账 92 条 13 violations（standing 不变）/ 溯源 clean；ruff 五处改动文件干净。提交 = `AGENTS.md` + 20 个术语文件 + `TODO.md`。
 
+93. ✅ **issue #130 收尾：5 个探针 19 处裸键改 `RECORD_*` + 探针字面量基线重钉（AST 恒等证明）+ 顺带重钉上游漂移的设备会话 census**（2026-10-26）
+- 口径：#130 第 4 步当时留了 5 个探针文件例外（19 处裸键），理由是 `test_probe_flags.py` 的 in-body 字面量 sha256 基线要留给 R-37 重算。本轮直接把这块收尾：`zernike/sweep_probe`、`zernike/abba_probe`、`ccd/drift_probe`、`ccd/floor_probe`、`slm/calibration/train_data_collect` 共 **19 处**按下标 / 字典键 / `.get` 首参 / `in`-`not in` 四类位置换成 `recorder_keys` 常量，落盘取值逐字不变。
+- 恒等证明（不是断言）：改后把 `RECORD_*` 名字**内联回原字符串**、剥掉新增 import，再比 `ast.dump` —— **5/5 文件逐字节相同**。字面量计数差（−3/−3/−2/−4/−9）里超出 19 的部分是嵌套函数在扫描里的**既有重复计数口径**（旧基线同样如此），逐一比对消失的字符串恰为键本身、无其他变动。
+- 基线与守卫：`probe_help_golden.json` 五条目的 `body_literals` / `body_literals_sha256` 重钉；**旗标串一个没动**（`test_probe_declared_flags_are_unchanged` 原样绿）。`test_recorder_keys.py` 的 5 文件例外表、扫描跳过分支与过时 docstring 段落全部删除——全仓裸键扫描自此**零例外**。
+- 顺带（上游红，stash 复验与本轮无关）：`test_cli_argv_binding` 的设备会话 census 已被上游 `transfer/replay_phases.py`（1 Santec + 1 camera）与 `transfer/camera_probe.py`（0 Santec + 1 camera，设计上不开 SLM）越过 ⇒ 按该守卫自身 lineage 约定显式重钉 34→35 / 33→35 并补两条 per-file 条目。
+- 验证：`test_cli_argv_binding` + `test_recorder_keys` + `test_probe_flags` **171 passed / 1 skipped（opt-in）**；`tools/` 子树 **1092 passed / 5 skipped**；ruff 干净。
+- #130 状态：正文五步全部落地，**代码级剩余清零**（issue 可按此收口；R-37 的旗标迁移基线自此以重钉后的 golden 为起点）。
+- gates：TERM 合计 0 / 对账 93 条 13 violations（standing 不变）/ 溯源 clean。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
