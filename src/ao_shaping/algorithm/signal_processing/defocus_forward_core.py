@@ -78,6 +78,24 @@ def diopter_scale(wavelength_m: float = WAVELENGTH_M) -> float:
     )
 
 
+def axial_plane_correction(defocus_diopter: float, offset_m: float):
+    """Compose a calibrated paraxial ABCD map with input free space P(offset).
+
+    For the intensity kernel, d=A/B and the measured ramp scale is proportional
+    to B. Right multiplication by P(offset) gives B'=B+A*offset, hence
+    d'=d/(1+d*offset), scale'=scale*(1+d*offset). Output chirp has unit modulus.
+    Positive offset increases the distance from the input plane to the lens.
+    Offset is conditional on the nominal calibration, not identifiable jointly
+    with unrestricted d and ramp scale from single-plane intensity alone.
+    """
+    if not np.isfinite([defocus_diopter, offset_m]).all():
+        raise ValueError("finite axial offset and curvature required")
+    scale = 1. + float(defocus_diopter)*float(offset_m)
+    if scale <= 0:
+        raise ValueError("axial correction crosses a singular imaging plane")
+    return float(defocus_diopter)/scale, scale
+
+
 def panel_grid(torch: Any, size: int, *, device: Any = None):
     """Panel-pixel coordinates and illumination mask of a control grid.
 

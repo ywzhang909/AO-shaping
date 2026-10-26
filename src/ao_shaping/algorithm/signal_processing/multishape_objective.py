@@ -12,9 +12,14 @@ def target_at(xy, shape, centre, side):
     """Sample the canonical shape raster in physical CCD coordinates."""
     from ao_shaping.utils.image.target.patterns import create_target_shape
 
-    raster = create_target_shape(shape, (512, 512), side=side, radius_ratio=side/512,
-                                 aspect_ratio=2., center=(256., 256.))
-    return map_coordinates(raster, [xy[..., 1]-centre[1]+256, xy[..., 0]-centre[0]+256],
+    if not np.isfinite(side) or side <= 0:
+        raise ValueError("target side must be finite and positive")
+    extent = side * (2 if shape == "rectangle" else 1)
+    size = max(512, 2 * int(np.ceil((extent + 8) / 2)))
+    middle = size / 2
+    raster = create_target_shape(shape, (size, size), side=side, radius_ratio=side/size,
+                                 aspect_ratio=2., center=(middle, middle))
+    return map_coordinates(raster, [xy[..., 1]-centre[1]+middle, xy[..., 0]-centre[0]+middle],
                            order=1, mode="constant")
 
 

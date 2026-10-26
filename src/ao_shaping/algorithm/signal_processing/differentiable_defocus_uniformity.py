@@ -12,7 +12,7 @@ torch 在函数内延迟导入；``algorithm`` 层不 import 驱动/tools。
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -21,6 +21,7 @@ import numpy.typing as npt
 
 from ao_shaping.algorithm.signal_processing.defocus_forward_core import (
     PANEL_PITCH_PX,
+    axial_plane_correction,
     camera_sample_grids,
     defocus_phase,
     diopter_scale,
@@ -63,6 +64,9 @@ class FrozenDefocusParameters:
     fft_size: int = 1024
     pixel_samples: int = 3
     grid_size: int = 128
+    bias_counts: float = 0.
+    slm_axial_offset_m: float = 0.
+    axial_reference_curvature_diopter: float | None = None
 
     @classmethod
     def from_dicts(cls, parameters: Mapping[str, Any], ramp_matrix: Sequence[Sequence[float]], *,
@@ -82,6 +86,10 @@ class FrozenDefocusParameters:
             sigma_ccd_px=float(parameters["sigma_ccd_px"]),
             ramp_matrix=matrix,
             fft_size=int(fft_size), pixel_samples=int(pixel_samples), grid_size=int(grid_size),
+            bias_counts=float(parameters.get("bias_counts", 0.)),
+            slm_axial_offset_m=float(parameters.get("slm_axial_offset_m", 0.)),
+            axial_reference_curvature_diopter=(float(parameters["axial_reference_curvature_diopter"])
+                if parameters.get("axial_reference_curvature_diopter") is not None else None),
         )
 
     @property
@@ -96,7 +104,24 @@ class FrozenDefocusParameters:
                     residual_noll_radians={str(k): v for k, v in self.residual_noll_radians.items()},
                     gain=self.gain, background=self.background, sigma_ccd_px=self.sigma_ccd_px,
                     ramp_matrix=[list(r) for r in self.ramp_matrix], fft_size=self.fft_size,
-                    pixel_samples=self.pixel_samples, grid_size=self.grid_size)
+                    pixel_samples=self.pixel_samples, grid_size=self.grid_size, bias_counts=self.bias_counts,
+                    slm_axial_offset_m=self.slm_axial_offset_m,
+                    axial_reference_curvature_diopter=self.axial_reference_curvature_diopter)
+
+    def effective_parameters(self):
+        """Absorb input-plane offset into the identifiable intensity parameters.
+
+        Use before fitting fresh geometry or synthesizing a seed so an axial
+        offset is never applied twice. The original checkpoint remains intact.
+        """
+        if self.slm_axial_offset_m == 0:
+            return self
+        reference = (self.defocus_diopter if self.axial_reference_curvature_diopter is None
+                     else self.axial_reference_curvature_diopter)
+        d, scale = axial_plane_correction(reference, self.slm_axial_offset_m)
+        return replace(self, defocus_diopter=self.defocus_diopter+d-reference, gain=self.gain/scale**2,
+                       ramp_matrix=tuple(tuple(v*scale for v in row) for row in self.ramp_matrix),
+                       slm_axial_offset_m=0., axial_reference_curvature_diopter=d)
 
 
 def load_frozen_parameters(checkpoint_dir: str | Path, *, fft_size: int = 1024,
@@ -141,7 +166,11 @@ class FrozenDefocusForward:
         xy = np.asarray(camera_xy, dtype=np.float64)
         if xy.ndim != 3 or xy.shape[-1] != 2:
             raise ValueError(f"camera_xy must be (H, W, 2), got {xy.shape}")
+        params = params.effective_parameters()
         self.params = params
+        self.effective_defocus, self.axial_scale = axial_plane_correction(
+            params.defocus_diopter, params.slm_axial_offset_m)
+        self.exposure_ms = None
         self.camera_xy = xy
         self._device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
         size = int(params.grid_size)
@@ -204,7 +233,7 @@ class FrozenDefocusForward:
                 total = total + coerced
         return total
 
-    def predict(self, phase: Any, *, focus_phase: Any = None, carrier_phase: Any = None):
+    def predict(self, phase: Any, *, focus_phase: Any = None, carrier_phase: Any = None, exposure_ms: Any = None):
         """返回相机采样网格上的强度（对 ``phase`` 可微）。"""
         torch = _torch()
         from ao_shaping.utils.wavefront.fraunhofer import focal_intensity
@@ -213,18 +242,31 @@ class FrozenDefocusForward:
         if total.ndim == 2:
             total = total[None]
         p = self.params
-        phase_all = defocus_phase(torch, total, p.defocus_diopter, p.diopter_scale, self.z4,
+        phase_all = defocus_phase(torch, total, self.effective_defocus, p.diopter_scale, self.z4,
                                   residual_values=self.residual_values,
                                   residual_basis=self.residual_basis)
         field = self.amplitude[None] * torch.exp(1j * phase_all)
         intensity = focal_intensity(field, p.fft_size)
-        intensity = intensity * irradiance_scale(self.pitch, p.fft_size)
-        grids = camera_sample_grids(torch, self._xy_t, self.origin, self.inverse,
+        intensity = intensity * irradiance_scale(self.pitch, p.fft_size) / self.axial_scale**2
+        grids = camera_sample_grids(torch, self._xy_t, self.origin, self.inverse / self.axial_scale,
                                     self._grid_offsets, fft_size=p.fft_size, pitch=self.pitch)
         sampled = sample_intensity(torch, intensity, grids)
         if self._blaze_kernel is not None:
             sampled = torch.nn.functional.conv2d(sampled[:, None], self._blaze_kernel, padding=12)[:, 0]
-        return sampled * float(p.gain) + float(p.background)
+        result = sampled * float(p.gain) + float(p.background)
+        if p.bias_counts != 0:
+            exposure = exposure_ms if exposure_ms is not None else self.exposure_ms
+            if exposure is None:
+                raise ValueError("bias_counts checkpoint requires exposure_ms")
+            exposure = torch.as_tensor(exposure, dtype=result.dtype, device=result.device)
+            if not bool(torch.isfinite(exposure).all()) or bool((exposure <= 0).any()):
+                raise ValueError("exposure_ms must be finite and positive")
+            if exposure.ndim == 1 and exposure.shape[0] == result.shape[0]:
+                exposure = exposure[:, None, None]
+            elif exposure.ndim != 0:
+                raise ValueError("exposure_ms must be scalar or one value per phase")
+            result = result + float(p.bias_counts)/exposure
+        return result
 
     def illumination_weights(self) -> npt.NDArray[np.floating]:
         """照明加权用的权重 ``A²``（归一化到和为一）。"""
