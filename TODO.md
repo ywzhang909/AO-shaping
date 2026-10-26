@@ -3348,6 +3348,12 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 验证：分片守卫 5 项转绿；`test_conventions` 该条转绿，同文件顺带暴露**两条上游既有红**（BLE001 盲吞棘轮 62 > 61、`report/shape_trials/cold_start/cold_start_20261026.md` 以生成器无法复现的小节收尾）——另立 item 处置，不混入本条。
 - gates：TERM 合计 0 / 对账 95 条 13 violations（standing 不变）/ 溯源 clean；提交 = `.github/workflows/pytest.yml` + `AGENTS.md` + `TODO.md`。
 
+96. ✅ **上游带入的两条 conventions 红收口：BLE001 盲吞棘轮 62>61 改为带理由记录（口径切换不得静默）+ cold_start 报告尾节按既有钉住政策登记**（2026-10-26）
+- BLE001 棘轮：新增点在 `gui/slm/transfer_progress.py` 的 `_fit_quality`——验证集口径不可用时 `except Exception: pass` 静默退回全部探针口径。两个口径的分母不同，被吞的异常既可能是记录不齐也可能是 `validation_quality` 自身缺陷，而 UI 只会显示「全部」、看不出口径何时切换 ⇒ 判定属于守卫指示的**「可能让数字含义错」**一类，改成 `logger.debug` 带 `root` 与异常理由，不豁免、不动基线。棘轮回到 61。
+- 报告尾节：`report/shape_trials/cold_start/cold_start_20261026.md` 以「## 数据、复现与设备释放」收尾，该小节标题在任何 tracked emitter 里都不存在（上游贴进产物的手写段）。其生成器 `scripts/slm/generate_cold_start_report.py` 需要 `data/debug/slm_transfer/cold_start_20261026_1004`——实验在另一台机器上采集，产物不在本机 ⇒ 按 `_UNEMITTED_FINAL_SECTIONS` 的既有政策登记（该字典的注释原文：**生成器在本机跑不了时钉住**，把 prose 搬进没人能执行的生成器只是换一种不可验证；解除方式是移进 owner 并重跑 owner，条目一旦失效守卫即红）。
+- 验证：`test_conventions.py` 全文件 **104 passed / 1 skipped**（两条红同时转绿）+ `test_transfer_progress.py` 绿；ruff 干净。顺带记一条口径：该文件里 ruff 相关用例在无 ruff 的容器发现集里是 skip，真正的 lint 闸是 CI 里钉版本的 job。
+- gates：TERM 合计 0 / 对账 96 条 13 violations（standing 不变）/ 溯源 clean；提交 = `transfer_progress.py` + `test_conventions.py` + `TODO.md`。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

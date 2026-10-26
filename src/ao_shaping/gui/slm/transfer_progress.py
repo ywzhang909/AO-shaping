@@ -45,6 +45,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 __all__ = [
     "MAX_DETAIL_LINES",
     "MISSING",
@@ -499,8 +501,11 @@ def _fit_quality(
             from ao_shaping.tools.slm.transfer.adaptation import validation_quality
 
             return dict(validation_quality(result, rows)), "验证"
-        except Exception:  # 没有验证集探针 / 长度不齐 / 非有限值
-            pass
+        except Exception as exc:  # 没有验证集探针 / 长度不齐 / 非有限值
+            logger.debug(
+                f"transfer_progress: validation-set fit quality unavailable for "
+                f"{root} ({exc!r}); falling back to the all-probe basis"
+            )
     return (
         {
             "correlation": _mean([m.get("correlation") for m in entry_metrics]),
