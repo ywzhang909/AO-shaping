@@ -111,6 +111,31 @@ def test_audit_cv_acceptance_uses_raw_cv_instead_of_composite_loss(tmp_path):
     assert audit_run(tmp_path)["accepted_blocks"] == 0
 
 
+def test_exploration_audit_replays_rng_and_requires_champion_export(tmp_path):
+    from ao_shaping.tools.slm.transfer.exploration import NonmonotoneAcceptance
+    rows = make_run(tmp_path)
+    rows[2]["label"] = "square_0_B"
+    (tmp_path/"manifest.json").write_text(json.dumps(rows))
+    config = dict(shapes=["square"], blocks=1, accept_metric="cv",
+                  exploration_temperature=.03, exploration_budget=.25, exploration_seed=42)
+    (tmp_path/"config.json").write_text(json.dumps(config))
+    policy = NonmonotoneAcceptance(0., temperature=.03, relative_budget=.25, seed=42)
+    decision = policy.update(0., 0.)
+    summary = [dict(shape="square", block=0, acceptance="nonmonotone_ccd", **decision)]
+    (tmp_path/"summary.json").write_text(json.dumps(summary))
+    np.save(tmp_path/"square_best.npy", np.zeros((8, 8), dtype=np.float32))
+    assert audit_run(tmp_path)["status"] == "passed"
+    summary[0]["random_draw"] = .99
+    (tmp_path/"summary.json").write_text(json.dumps(summary))
+    with pytest.raises(ValueError, match="exploration decision differs"):
+        audit_run(tmp_path)
+    summary[0]["random_draw"] = decision["random_draw"]
+    (tmp_path/"summary.json").write_text(json.dumps(summary))
+    np.save(tmp_path/"square_best.npy", np.ones((8, 8), dtype=np.float32))
+    with pytest.raises(ValueError, match="export differs from champion"):
+        audit_run(tmp_path)
+
+
 def test_session_rejects_incomplete_calibration_shapes(tmp_path):
     with pytest.raises(ValueError, match="skip-calibration"):
         TransferSession(tmp_path, shapes=("square",), calibration=True).validate()
@@ -456,8 +481,10 @@ def _run_validate(tmp_path, monkeypatch, *, abba, mode="model", updates=2, devic
     class _Params:
         @classmethod
         def from_dicts(cls, parameters, ramp_matrix, *, grid_size, fft_size, pixel_samples):
-            return SimpleNamespace(ramp_matrix=np.asarray(ramp_matrix, dtype=float),
-                                   grid_size=grid_size)
+            params = SimpleNamespace(ramp_matrix=np.asarray(ramp_matrix, dtype=float),
+                                     grid_size=grid_size)
+            params.effective_parameters = lambda: params
+            return params
 
     class _Forward:
         def __init__(self, params, xy, device="cpu"):
