@@ -3552,6 +3552,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 修正后的控制链（每步都先断言工件确实被改动）：种全路径假指针 ⇒ 1 failed / 65 passed / 1 skipped；种短名假指针 ⇒ 同样红；两处还原均以备份 + `cmp` 证明逐字节一致（AGENTS.md 与 test_conventions.py 都带本批未提交改动，禁用 `git checkout`）；还原后 66 passed / 1 skipped。第一次种植还暴露一个流程缺陷：锚点 `## Zernike 使用规范` 计数不为 1（该标题带后缀且目录里再现），断言当场中止，于是紧随其后的 "66 passed" 是未种植状态的读数、不可作为证据——改为追加到文件末尾的无锚点种植并断言文本已变。
 - 回归：`tests/ao_shaping/utils` + `tests/ao_shaping/test_conventions.py` 为 1539 passed / 5 skipped / 0 failed，即 117 基线 1537 加本批新增 2 条，增量可解释；分片覆盖守卫仍 11 passed；`ruff check .` 归零。另记 117 的术语自查：改写段落时我先引入了未登记的口语词，按"新词须先登记"就地改掉后 TERM 门禁合计 0。
 
+119. ✅ **#173 续批：`src/ao_shaping/utils/image/exposure_fusion.py` 的魔数比较 12 → 3，两个 numpy 秩常量留在模块本地而刻意不进 `ml.sim2f.config` 汇聚点**（2026-10-27）
+- 提两处、按住三处。`3` 被报 7 次，其中 6 次（139/153/163/176/325/333）问的是同一件事——"输入是 `(C, H, W)` 空间栈还是裸图"，提为 `NDIM_SPATIAL_STACK`；而 281 的 `len(values) != 3` 是"alphas 必须是三元组"，值相同但与秩无关且全仓仅一处，按纪律留字面量。`2` 被报 4 次，其中 3 次（312/506/749）是 `(H, W)` 单通道图（亮度度量、融合权重、逐层修正都在这个秩上算），提为 `NDIM_SINGLE_CHANNEL`；520 的 `len(frames) < 2` 是"融合至少要几帧"，同样仅一处。`4` 的 432 行是金字塔继续下采的边长下限，也留。两个秩常量刻意**不合并成一个"秩"常量**：一个是栈、一个是裸图，混在一起就又造出一个假单源。
+- 为什么不复用 116 的汇聚点：`ao_shaping` 不得依赖可选包 `ml`（依赖方向是 `ml` → `ao_shaping.utils`，反向会破坏可选依赖分组与 import 纯度），且两组秩描述的是不同约定（这里是 numpy 的 `(C,H,W)`/`(H,W)`，sim2f 那组是 torch 管线里的批/通道约定）。因此本批定义点就放在模块本地。116 的"单一定义点"纪律是**包内**的，跨包强行汇聚属于另一类错误。
+- 三处自造缺陷，全部由验证当场抓到而非靠审阅，且都属同一根因（工具的隐含前提没被写成断言）：① 把 v1 形状的 spec（顶层 `anchor` + 字符串 `constants`）喂给 v2 提升器 ⇒ `TypeError: string indices must be integers`，在任何写入之前中止。无半成品状态的证据是三条独立的：`git diff --stat` 为空、该文件仍报 12 处、且分组校验随后打印的 9 条 MISMATCH 正是"尚未提升"的**正确读数**（不是补丁错）。② 控制电池按"至少 3 个常量"写死索引（`names[2]`），本 spec 只有 2 个名字会越界 ⇒ 改为取模索引，让"有几个常量"不再是隐含前提。③ **空控制这一类第三次复发**：`B_use_site` 的 `use_line` 只排除定义行，于是选中了另一个常量 `#:` 说明里提到该名字的**散文行**——字节改了、AST 没改，证明判 `True`，而字节级 `text != original` 断言照样通过。修法是 `use_line` 跳过注释行与 import 别名行，并让 B 在动手前断言"所选目标是被求值的代码"且把该行打印出来。规则固化：所谓"使用点"只有在它是可执行代码时才有意义，否则控制等于没做。
+- 验证：9 个计划替换点全部由 ruff 真实命中；与 HEAD 的 AST 恒等判 `True`；分组校验正向 OK；控制电池 CONTROLS OK（A 定义 2→3、B 使用处 `+ 1`、C 定义 `2 → 2.0`、D 删定义留使用、E 异值互换，外加按内容定位的分组反向控制）。`ruff check .` 全仓归零。
+- 回归面是先枚举再执行、并逐位比对改前基线：grep 确认消费者为 `algorithm/signal_processing/square_shaping.py`、`drivers/ccd/base.py`、`utils/image/target/metrics.py`，对应跑 `tests/ao_shaping/algorithm`（777 passed / 16 skipped，改前 260.15 s、改后 274.85 s）、`tests/ao_shaping/utils` 加 `test_conventions.py`（1539 passed / 5 skipped）、`tests/ao_shaping/drivers/ccd/test_capture_fused.py`（29 passed）——三条与改前完全一致。
+- 覆盖账（实测）：目标文件 12 → 3；`src` 全域 673 → 664（差值 9 与提升点数一致）。预检还确认了 116 期取的 HEAD 快照与当前文件逐字节相同，故 spec 里的行号仍然有效——跨批次复用快照时必须重新 `cmp`，不能假定未变。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
