@@ -3379,6 +3379,16 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 回归：`tests/ao_shaping/scripts` **2547 passed / 65 skipped / 0 failed**；`py_compile` 通过；ruff 干净。
 - gates：TERM 合计 0 / 对账 99 条 13 violations（standing 不变）/ 溯源 clean；提交 = 两份脚本 + `TODO.md`。
 
+100. ✅ **#173 报告/实验脚本批第三片：三份 `experiment_gs_*` 的 34 处按语义拆成 12 个具名常量（PLR2004 40→6；与 `HEAD` 的 AST 恒等 55+51+53 函数）**（2026-10-26）
+- 对象与拆法：`experiment_gs_fresnel_vs_virtuallens.py` **15 处 → 4 个常量**（`ROW_MATCH_ATOL` 浮点键回查该行 6 / `ZERO_DEFOCUS_RAD` 零离焦档判定 4 / `OPERATOR_DEGENERACY_ATOL` 「Δz=0 两条算子逐位退化」自检 3 / `SNAPSHOT_AGREEMENT_ATOL` 与已发布快照及仓库 `gs_shape` 的一致性硬校验 2）；`experiment_gs_improved.py` **9 处 → 3 个**（`ROW_MATCH_ATOL` 7 / `ZERO_DEFOCUS_MM` 1 / `MIRROR_AGREEMENT_ATOL` 1）；`experiment_gs_defocus_sweep_visuals.py` **10 处 → 5 个**（`OPERATOR_DEGENERACY_ATOL` 3 / `ROW_MATCH_ATOL` 1 / `NONZERO_COEFF_ATOL` 除零前的退化系数排除 1 / `MIN_FIT_POINTS` 幂律拟合最少点数 4 / `COEFF_CONSISTENCE_ATOL` 分母必须恰为 λf² 1）。
+- 为什么 `1e-12` 与 `1e-9` 必须分层：同一份脚本里 `1e-12` 判的是**同一表达式的两条 float 路径**（算子退化、行回查、零档分档），`1e-9` 判的是**跨文件/跨实现**的一致性（光学常量对上已发布快照、双分量 GS 对上仓库 `gs_shape`、解析分母对上 λf²）。两者相差三个数量级是**刻意的松紧分级**；并成一个 eps 就等于把跨实现的硬校验放松到浮点噪声级，正是 issue 警告的假单源化。
+- **不提**的 6 处（留档）：`rel_err > 1e-3`（两份各一处，判定「拟合可用」而非表示误差）、`base_delta > 1e-6`、中心距 `<= 3.0`、`abs(alpha-1) > 0.05`、`len(DZ_SCAN_MM) == 11`（扫描点数契约，与 `DZ_SCAN_MM` 本身重复才是正解）——全是单处出现且语义互不相同。
+- 定位与自检：按 ruff 报告的 (行, 列) 精确匹配比较器内的 `Constant`，每处断言恰有一个候选；并且**每个计划键都必须被 ruff 命中**（写了却没命中的键直接报错）——上一批就靠这条自检抓到我自己把 `1e-12` 误写成 `1e-9*1e-3`（浮点积并不等于 `1e-12`，那一处会静默漏替换）。
+- 证明（不是断言）：把 12 个名字**内联回原字面量**、删掉新增定义后与 `HEAD` 版本比 `ast.dump` ⇒ **55 / 51 / 53 个函数逐字节相同**；同时断言每个新常量在模块里恰好定义一次、取值与计划逐项一致。PLR2004：16→1、11→2、13→3（40→6，−34 = 替换处数）。`scripts/` 全片 618 → **544**（本轮 #173 三批 12+28+34 逐数吻合）。
+- 回归：`tests/ao_shaping/scripts` **2547 passed / 65 skipped / 0 failed**；三份脚本在 CI 容器内 import 冒烟 **3 passed**（临时测试跑完即删）；`py_compile` 与 `ruff check`（含 `--select PLR2004`）干净。
+- 顺带撞到的要紧事（另立 item 处置，不混入本条）：`ruff check .` 现在 **8 errors** ⇒ CI 的 lint 硬闸在 `origin/master` 上是红的 —— `src/ml/sim2f/bench.py` 两处 `F821` 未定义名（必然 `NameError`）、根级 `gen_one_gif.py` 的 E401/F401×2/E402、根级 `test_forward.py` 直接 `invalid-syntax` 且**被 git 追踪**。三者都由上游 `9857a377` 带入。
+- gates：TERM 合计 0 / 对账 100 条 13 violations（standing 不变）/ 溯源 clean；提交 = 三份脚本 + `TODO.md`。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

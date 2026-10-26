@@ -242,6 +242,24 @@ ALGO_COLORS: dict[str, str] = {
 #: V3 「事后外挂离焦」的外层一维搜索 (确定性, 无随机重启)。区间与
 #: experiment_gs_fresnel_vs_virtuallens.py 的 DEFOCUS_LIMITS 齐平, 才可比。
 POST_DEFOCUS_LIMITS = (-5.0, 5.0)
+#: 「Δz=0 时瞳面二次相位算子逐位退化为纯傅里叶 / 模型口径等于面板口径 / η=0 时复现
+#: OffFocusBench 正演」这类退化自检的容差: 同一量的两条 float 路径只允许归约噪声。
+OPERATOR_DEGENERACY_ATOL = 1e-12
+
+#: 按浮点键回查记录行 (``eta``) 的匹配容差: 只剩 float 往返误差。
+ROW_MATCH_ATOL = 1e-12
+
+#: 瞳面基上的离焦系数算不算「真的为零」: 为零时不做 `scale = a_inline / a_pupil_unit`
+#: 的除法 (否则除出一个无意义的巨大倍数), 判据是排除退化读数而不是分档。
+NONZERO_COEFF_ATOL = 1e-12
+
+#: 幂律指数拟合的最少 Δz 点数: 少于这个点数拟合**自由度过剩**, 指数只能当参考而
+#: 不作为门禁 (报告里据此决定是否打印拟合指数)。
+MIN_FIT_POINTS = 3
+
+#: 瞳面二次相位的分母必须恰为 ``lambda * f**2``: 跨的是解析式与实现, 故比逐位退化
+#: 松三个数量级。
+COEFF_CONSISTENCE_ATOL = 1e-9
 POST_DEFOCUS_COARSE = 21
 POST_DEFOCUS_GOLDEN = 12
 
@@ -469,7 +487,7 @@ def self_check_zero_dz(bench: OffFocusBench, chirp: PupilChirp, phase: np.ndarra
     """Δz=0 时瞳面二次相位算子必须逐位退化成纯傅里叶变换。"""
     ref = bench.intensity(phase, 0.0)
     err = rel_err(ref, chirp.intensity_bp(phase, 0.0))
-    if err > 1e-12:
+    if err > OPERATOR_DEGENERACY_ATOL:
         raise AssertionError(f"Δz=0 时瞳面二次相位算子未退化为傅里叶变换: {err:.3e}")
     return {"dz0_rel_err": err}
 
@@ -487,7 +505,7 @@ def self_check_pupil_pixel_size() -> dict[str, float]:
     """
     panel_aperture_m = 2.0 * BEAM_RADIUS_PANEL * SLM_PITCH_M
     err = abs(APERTURE_M - panel_aperture_m) / panel_aperture_m
-    if err > 1e-12:
+    if err > OPERATOR_DEGENERACY_ATOL:
         raise AssertionError(
             f"模型口径 {APERTURE_M * 1e3:.4f} mm 与面板口径 "
             f"{panel_aperture_m * 1e3:.4f} mm 不一致; 二次相位的物理长度会差 "
@@ -586,7 +604,7 @@ def self_check_two_component_at_eta0(
     got_a = intensity_scheme_a(bench, phase, dz, 0.0)
     got_b = intensity_scheme_bp(bench, chirp, phase, dz, 0.0)
     err_a, err_b = rel_err(ref_a, got_a), rel_err(ref_b, got_b)
-    if max(err_a, err_b) > 1e-12:
+    if max(err_a, err_b) > OPERATOR_DEGENERACY_ATOL:
         raise AssertionError(
             f"η=0 时未能复现 OffFocusBench 的正演 (方案A {err_a:.3e}, 方案B {err_b:.3e}); "
             "双分量实现改动了已验证的算子约定, 结论不可用"
@@ -608,7 +626,7 @@ def self_check_no_magnification(bench: OffFocusBench, chirp: "PupilChirp") -> di
     dz = 20e-3
     denom_needed = abs(chirp.coefficient(dz) * lam * f**2 / (-chirp.sign * chirp.alpha * np.pi * dz))
     err_denom = abs(denom_needed - 1.0)
-    if err_denom > 1e-9:
+    if err_denom > COEFF_CONSISTENCE_ATOL:
         raise AssertionError(
             f"瞳面二次相位的分母不是 λf² (偏离 {err_denom:.3e}); "
             "很可能是被换成了 λf(f+d) —— 那等价于引入 M=(f+d)/f, 对 2f 光路是错的"
@@ -654,12 +672,12 @@ def fit_halo_power_law(
     """
     sel = [
         r for r in rows
-        if abs(r["eta"] - eta) < 1e-12
+        if abs(r["eta"] - eta) < ROW_MATCH_ATOL
         and r["dz_mm"] >= HALO_FIT_MIN_DZ_MM
         and r["window_ok"]
         and r["halo_peak_total"] > 0
     ]
-    if len(sel) < 3:
+    if len(sel) < MIN_FIT_POINTS:
         return {"exponent": float("nan"), "n_points": len(sel),
                 "note": "窗口可信的 Δz 点不足 3 个, 幂律指数不可靠 (不作为门禁)"}
     x = np.log(np.array([r["dz_mm"] for r in sel], dtype=np.float64))
@@ -738,7 +756,7 @@ def self_check_halo_scaling(rows: list[dict[str, Any]]) -> dict[str, Any]:
     bad = {
         k: v["exponent"]
         for k, v in fits.items()
-        if v["n_points"] >= 3
+        if v["n_points"] >= MIN_FIT_POINTS
         and abs(v["exponent"] - HALO_EXPECT_EXPONENT) > HALO_EXPONENT_TOL
     }
     if bad:
@@ -1070,7 +1088,7 @@ def run_v3(
             # 的**数值投影**取那个倍数, 不照抄任何公式; 投影残差同时报进 CSV。
             quad_unit = chirp.phase_rad(dz)
             a_pupil_unit = chirp.zernike_defocus_coeff(dz, bench.defocus_basis)
-            scale = a_inline / a_pupil_unit if abs(a_pupil_unit) > 1e-12 else 0.0
+            scale = a_inline / a_pupil_unit if abs(a_pupil_unit) > NONZERO_COEFF_ATOL else 0.0
             quad = quad_unit * scale
             final_phase = phase_algo + quad
 
@@ -1386,7 +1404,7 @@ def plot_halo(
         ref = peak[good][0] * (mm[good] / mm[good][0]) ** HALO_EXPECT_EXPONENT
         ax.plot(mm[good], ref, ":", color=col, linewidth=1.4, label=f"η={eta:g} 参考 ∝ 1/d²")
         fit = fits.get(f"eta_{eta:g}", {})
-        if fit.get("n_points", 0) >= 3:
+        if fit.get("n_points", 0) >= MIN_FIT_POINTS:
             ax.annotate(f"拟合指数 {fit['exponent']:+.2f}",
                         (mm[good][-1], peak[good][-1]), textcoords="offset points",
                         xytext=(6, -10), fontsize=8, color=col)
@@ -1534,7 +1552,7 @@ def main() -> None:
     halo_rows = run_halo(bench, chirp, vc, gs0)
     halo_fits = self_check_halo_scaling(halo_rows)
     for key, fit in halo_fits.items():
-        if fit["n_points"] >= 3:
+        if fit["n_points"] >= MIN_FIT_POINTS:
             logger.info("  {} 幂律指数 = {:+.3f} (期望 {:.1f} ±{:.1f}, {} 点)",
                         key, fit["exponent"], HALO_EXPECT_EXPONENT,
                         HALO_EXPONENT_TOL, fit["n_points"])

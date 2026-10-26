@@ -253,6 +253,16 @@ GROUP_LABELS: dict[str, str] = {
 
 #: 参考材料里「选 d」的判据: 晕斑峰值须低于目标区平均强度的 GAMMA_REF 倍。
 GAMMA_REF = 1.0
+#: 按浮点键回查记录行 (``dz_mm`` / ``eta``) 的匹配容差: 只剩 float 往返误差。
+ROW_MATCH_ATOL = 1e-12
+
+#: 判「H0 组是零离焦档」的 ``dz_mm`` 阈值: 下发的是精确零, 落盘后只差表示。
+#: 与 `ROW_MATCH_ATOL` 同数量级而判据不同, 理由同 ``experiment_gs_fresnel_vs_virtuallens.py``。
+ZERO_DEFOCUS_MM = 1e-12
+
+#: ``eta=0`` 的双分量 GS 必须与仓库 ``gs_shape`` 在口径内逐位一致 (镜像自检)。
+#: 比行回查松三个数量级: 跨的是**两套实现**, 不是同一表达式的两条路径。
+MIRROR_AGREEMENT_ATOL = 1e-9
 GAMMA_LADDER: tuple[float, ...] = (1.0, 0.3, 0.1)
 
 
@@ -661,7 +671,7 @@ def self_check_eta0(bench: TwoComponentBench, n_iters: int, seed: int) -> float:
     )["phase_cont"]
     mask = bench.amp > 0
     delta = float(np.abs(ref[mask] - mine[mask]).max())
-    if delta > 1e-9:
+    if delta > MIRROR_AGREEMENT_ATOL:
         raise AssertionError(
             f"η=0 的双分量 GS 与 gs_shape 在口径内不一致 (max|Δphase|={delta:.3e}); "
             "流形约束写错了, H0 对不上基线"
@@ -1078,7 +1088,7 @@ def measure_trustworthy_dz(
     """
     per_dz: list[dict] = []
     for dz in sorted({float(r["dz_mm"]) for r in halo}):
-        sel = [r for r in halo if abs(float(r["dz_mm"]) - dz) < 1e-12]
+        sel = [r for r in halo if abs(float(r["dz_mm"]) - dz) < ROW_MATCH_ATOL]
         # 注意比的是**整形网格**的半窗 —— 晕斑最终要落进那张网格, 不是 halo 网格
         ratio = max(float(r["halo_w_over_shape_halfwindow"]) for r in sel)
         per_dz.append(
@@ -1091,7 +1101,7 @@ def measure_trustworthy_dz(
     trusted = [r["dz_mm"] for r in per_dz if r["trusted"]]
     dz_max = max(rc_dz(per_dz))
     w_at_max = max(
-        float(r["halo_w_1e2_um"]) for r in halo if abs(float(r["dz_mm"]) - dz_max) < 1e-12
+        float(r["halo_w_1e2_um"]) for r in halo if abs(float(r["dz_mm"]) - dz_max) < ROW_MATCH_ATOL
     )
     lam, f, d = WAVELENGTH_M, FOCAL_LENGTH_M, APERTURE_M
     # half_window_m >= w/LIMIT, 而 half_window_m = n_grid·λf/(2D)
@@ -1506,7 +1516,7 @@ def summarize(rc: RunConfig, rows: list[dict], trusted_dz: list[float] | None = 
     out: dict[str, Any] = {}
     pool = rows
     if trusted_dz is not None:
-        pool = [r for r in rows if any(abs(r["dz_mm"] - d) < 1e-12 for d in trusted_dz)]
+        pool = [r for r in rows if any(abs(r["dz_mm"] - d) < ROW_MATCH_ATOL for d in trusted_dz)]
     for group in GROUPS:
         sel = [r for r in pool if r["group"] == group]
         if not sel:
@@ -1538,7 +1548,7 @@ def band_limit_band(rows: list[dict]) -> list[dict]:
     """
     out: list[dict] = []
     for dz in sorted({float(r["dz_mm"]) for r in rows}):
-        sel = [r for r in rows if abs(float(r["dz_mm"]) - dz) < 1e-12]
+        sel = [r for r in rows if abs(float(r["dz_mm"]) - dz) < ROW_MATCH_ATOL]
         out.append(
             {
                 "dz_mm": dz,
@@ -1569,8 +1579,8 @@ def subtraction_benefit(rows: list[dict]) -> list[dict]:
             sel = {
                 r["group"]: r
                 for r in rows
-                if abs(float(r["dz_mm"]) - dz) < 1e-12
-                and abs(float(r["eta"]) - eta) < 1e-12
+                if abs(float(r["dz_mm"]) - dz) < ROW_MATCH_ATOL
+                and abs(float(r["eta"]) - eta) < ROW_MATCH_ATOL
             }
             if not {"H1", "H2", "H3"} <= set(sel):
                 continue
@@ -1672,7 +1682,7 @@ def dz_choice_table(halo: list[dict]) -> dict[str, Any]:
     table: dict[str, Any] = {"gamma_ladder": list(GAMMA_LADDER), "by_eta": {}}
     for eta in sorted({float(r["eta"]) for r in halo}):
         rows = sorted(
-            (r for r in halo if abs(r["eta"] - eta) < 1e-12),
+            (r for r in halo if abs(r["eta"] - eta) < ROW_MATCH_ATOL),
             key=lambda r: r["dz_mm"],
         )
         ratios = [float(r["halo_peak_over_box_mean"]) for r in rows]
@@ -2046,7 +2056,7 @@ def main() -> None:
     plot_groups_vs_dz(rows, out / f"imp_groups_vs_dz{rc.tag}.png")
 
     h0_row = next(
-        (r for r in rows if r["group"] == "H0" and abs(r["dz_mm"]) < 1e-12),
+        (r for r in rows if r["group"] == "H0" and abs(r["dz_mm"]) < ZERO_DEFOCUS_MM),
         None,
     )
     summary = {

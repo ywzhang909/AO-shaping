@@ -204,6 +204,25 @@ N_GRID = 64
 FAR_FIELD_PADDING = 8
 TARGET_SIDE_PX = 43
 SEED = 0
+#: 在记录行里按浮点键回查某一档 (``dz_units``) 的匹配容差: 写入与回读之间只剩 float
+#: 往返误差, 所以这是**表示**容差, 不是光学判据。
+ROW_MATCH_ATOL = 1e-12
+
+#: 判「这一行是零离焦档」的 ``defocus_rad`` 阈值: 下发的是精确零, 落盘成 float 后与
+#: 邻居档只差表示, 故取到表示噪声这一级。与 `ROW_MATCH_ATOL` 同数量级但判的**不是**
+#: 同一件事 (这行是不是 0 档 vs 这行是不是我要的那一档) —— 合并成一个名字以后就再也
+#: 看不出这两处判据何时会各自漂走。
+ZERO_DEFOCUS_RAD = 1e-12
+
+#: 「Δz=0 时两条算子必须逐位退化成同一个」这类自检的容差 (方案B 退化为傅里叶、
+#: G3(a=0) 与 G1′ 同分、环卷绕因子为单位模): 比较的是同一量的两条 float 路径,
+#: 差异只应来自浮点归约顺序。
+OPERATOR_DEGENERACY_ATOL = 1e-12
+
+#: 光学常量与已发布快照、以及仓库内 ``gs_shape`` 的一致性硬校验容差。比上面的
+#: 逐位退化松三个数量级: 这里跨的是**文件与实现** (常数改写、镜像复用), 不是同一
+#: 表达式的两条路径。
+SNAPSHOT_AGREEMENT_ATOL = 1e-9
 
 #: 瞳面离焦模式 (Noll 4 = (2,0) 离焦)。四组的离焦旋钮共用这一个模式。
 DEFO_MODE = (2, 0)
@@ -613,7 +632,7 @@ def self_check_constants() -> dict[str, float]:
         "focal_length_rel": abs(FOCAL_LENGTH_M - REF_SNAPSHOT["focal_length_m"]) / REF_SNAPSHOT["focal_length_m"],
         "dz_blur_rel": abs(DZ_BLUR_M * 1e3 - REF_SNAPSHOT["dz_blur_mm"]) / REF_SNAPSHOT["dz_blur_mm"],
     }
-    if max(errs.values()) > 1e-9:
+    if max(errs.values()) > SNAPSHOT_AGREEMENT_ATOL:
         raise AssertionError(
             f"光学常量与 experiment_gs_defocus_offocus.py 的已发布快照不一致: {errs}; "
             "Δz 扫描的单位会错, 结论不可用"
@@ -626,7 +645,7 @@ def self_check_gs(rc: RunConfig, bench: FresnelBench) -> float:
     ref = gs_shape(rc.bench(), n_iters=rc.gs_iters, seed=rc.seed).phase
     mine = bench.gs_phase(0.0, n_iters=rc.gs_iters, seed=rc.seed, scheme="A")
     delta = float(np.abs(ref - mine).max())
-    if delta > 1e-9:
+    if delta > SNAPSHOT_AGREEMENT_ATOL:
         raise AssertionError(
             f"GS 镜像在 Δz=0 与 gs_shape 不一致 (max|Δphase|={delta:.3e}); "
             "正/反向算子的约定被改坏了, 结论不可用"
@@ -645,7 +664,7 @@ def self_check_schemeB_at_zero(bench: FresnelBench, phase: np.ndarray) -> dict[s
     ):
         err = float(np.abs(got - ref).max() / max(float(ref.max()), 1e-30))
         out[name] = err
-    if max(out.values()) > 1e-12:
+    if max(out.values()) > OPERATOR_DEGENERACY_ATOL:
         raise AssertionError(f"Δz=0 时方案B 未退化为傅里叶变换: {out}")
     return out
 
@@ -1195,25 +1214,25 @@ def self_check_g3_vs_g1p(
     for u in dz_units:
         g1p = next(
             r for r in traj_rows
-            if r["group"] == "G1p" and abs(r["dz_units"] - u) < 1e-12
+            if r["group"] == "G1p" and abs(r["dz_units"] - u) < ROW_MATCH_ATOL
         )
         g3 = next(
             r for r in traj_rows
-            if r["group"] == "G3" and abs(r["dz_units"] - u) < 1e-12
-            and abs(r["defocus_rad"]) < 1e-12
+            if r["group"] == "G3" and abs(r["dz_units"] - u) < ROW_MATCH_ATOL
+            and abs(r["defocus_rad"]) < ZERO_DEFOCUS_RAD
         )
         worst = max(worst, abs(g1p["score"] - g3["score"]))
     # 另外: G3 若把最优离焦选在 0, 其 best 必须等于自己的 a=0 行
     for u in dz_units:
-        best = next(r for r in best_rows if r["group"] == "G3" and abs(r["dz_units"] - u) < 1e-12)
-        if abs(best["defocus_rad"]) < 1e-12:
+        best = next(r for r in best_rows if r["group"] == "G3" and abs(r["dz_units"] - u) < ROW_MATCH_ATOL)
+        if abs(best["defocus_rad"]) < ZERO_DEFOCUS_RAD:
             zero = next(
                 r for r in traj_rows
-                if r["group"] == "G3" and abs(r["dz_units"] - u) < 1e-12
-                and abs(r["defocus_rad"]) < 1e-12
+                if r["group"] == "G3" and abs(r["dz_units"] - u) < ROW_MATCH_ATOL
+                and abs(r["defocus_rad"]) < ZERO_DEFOCUS_RAD
             )
             worst = max(worst, abs(best["score"] - zero["score"]))
-    if worst > 1e-12:
+    if worst > OPERATOR_DEGENERACY_ATOL:
         raise AssertionError(
             f"G3(a=0) 与 G1′ 不一致 (最大偏差 {worst:.3e}); best score 与 best defocus "
             "很可能取自不同工作点/不同判据, 结论不可用"
@@ -1313,7 +1332,7 @@ def main() -> None:
     # --- 摘要 ------------------------------------------------------------
     def pick(group: str, u: float) -> dict:
         for r in best_rows:
-            if r["group"] == group and abs(r["dz_units"] - u) < 1e-12:
+            if r["group"] == group and abs(r["dz_units"] - u) < ROW_MATCH_ATOL:
                 return r
         raise KeyError((group, u))
 
@@ -1322,8 +1341,8 @@ def main() -> None:
         for r in traj_rows:
             if (
                 r["group"] == group
-                and abs(r["dz_units"] - u) < 1e-12
-                and abs(r["defocus_rad"]) < 1e-12
+                and abs(r["dz_units"] - u) < ROW_MATCH_ATOL
+                and abs(r["defocus_rad"]) < ZERO_DEFOCUS_RAD
             ):
                 return r
         raise KeyError((group, u))
@@ -1408,7 +1427,7 @@ def main() -> None:
                 "在离散网格上这两者是同一个算子, 「搬回瞳面」不引入额外的环卷绕误差; "
                 "A 与 B 的全部差异都来自把 kz 展开到二阶的傍轴截断"
             ),
-            "output_chirp_is_unit_modulus": bool(chirp_diff <= 1e-12),
+            "output_chirp_is_unit_modulus": bool(chirp_diff <= OPERATOR_DEGENERACY_ATOL),
             "output_chirp_direct_rel_err_vs_Bp": chirp_diff,
             "output_chirp_note": (
                 "Bp 与 Bp_chirped 只差一个输出二次相位 exp(+i*pi*|x_c|^2/(lambda*dz)), "
