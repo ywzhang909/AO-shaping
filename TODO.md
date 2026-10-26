@@ -3481,6 +3481,13 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 验证：守卫 11 passed。四条控制各自精确咬合且可还原：删去一个 `gsnet_debug` 文件目标 ⇒ 覆盖检查红；在 `tests/ao_shaping/ml/gsnet_debug/` 放一个新增测试文件（模拟清单走样）⇒ 覆盖检查红；删去整区域目标 `tests/ao_shaping/utils` ⇒ 覆盖检查红；给 `run_shard` 写续行 ⇒ `test_every_shard_target_exists` 把一个孤立的行继续反斜杠当作未知目标而红；四处还原 ⇒ 回到 11 passed。按 CI 形态实跑两个新分片（`AO_TEST_PER_FILE=1`，6g）：`-offline` exit=0、80 passed、7 skipped；`-rest` exit=0、22 / 78 / 83。workflow 双层结构校验：抽出 `run:` 块做 `bash -n` 干净；用一次性安装的 pyyaml 解析得 11 条 `run_shard`、env 标记为 none（pyyaml 仅用于本次校验，未引入仓库依赖，守卫仍按设计用正则解析）。
 - 覆盖账（本系列主线闭合）：ml blocking = 主分片 1446 + `-offline` 87 + `-rest` 183 = 1716，即整棵 `tests/ao_shaping/ml` 树；harness `EXCLUDES` 为 0 条，且不再有 advisory 分片。起点是 ml 在 CI 里 0 项（104 之前）。108 台账里的"advisory 翻转条件"已被本项取代，不再需要。
 
+110. ✅ **#173 续批：`scripts/slm/generate_bench_probe_report.py` 的魔数比较 21 → 7，按语义而非按字面值分组成 5 个具名常量**（2026-10-27）
+- 本批只提同语义重复值：`2` 被 ruff 报了 11 处，但其中 5 处是"曲线/系数向量长度不足以定斜率"，2 处是"布尔掩码里被接受的条目数"，另外 4 处是 `len(figures)` 的版式计数——四者数值相同含义不同，所以拆成 `MIN_FIT_SAMPLES`、`MIN_ACCEPTED_MODES` 两个常量，版式那 4 处刻意留作字面量（提成一个 `TWO` 正是该 issue 反对的假单源化）。同理 `3` 提为 `MIN_COEFFS_FOR_TREND`，`4` 提为 `MIN_MONOTONE_MODES`（单调性是形状断言，门槛高于接受判定），`25` 三处提为 `FOV_PCT_TOLERANCE`（记录视场与有效视场交叉核对，正文里引用同一数字，故必须单源）。单处出现的 `10`、以及 `len(figures) > 3/4` 不提。
+- 三处自造缺陷，都被验证当场抓到而非靠审阅：① 对 ruff 子进程加 `check=True` 是错的——它有发现项就按设计返回退出码 1，于是脚本在任何写入前中止（聚类重跑仍报 21 处即证明无半成品状态）。② ruff JSON 的字段是蛇形 `end_location`，我写成 `item.get("endLocation", item["location"])`，兜底生效后 `col_end == col_start`，定长切片删掉 0 个字符，产出 14 个 `MIN_FIT_SAMPLES2` 这类名字与数字粘连的 F821。这一处是 `ruff check .`（仓库配置 E、F）报出来的，**不是**我自己的证明报的。改成先断言起点文本确实等于该字面量、再按 `len(value)` 删除。③ 最严重：我的 AST 恒等证明是空心的——它用一个硬编码字典回填字面量，而不是从文件自己的赋值节点读取，于是把定义改成 `= 3` 它照样判 True。控制实验 A 因此没咬。修正后证明从文件自身的 Assign 取常量值，且"有使用无定义"直接判失败。
+- 环境教训：`oxpy - <<'PY'` 这种 stdin 形式在沙箱里不行（容器报 `exec: "-"` 找不到可执行文件），一次性脚本必须落成文件；沙箱内没有 `git`，HEAD 原文要在宿主先导出到临时文件。
+- 验证：每处计划替换的 (row, col, 字面量) 都必须被 ruff 真实命中，14/14 命中。控制 A（定义改 3）、B（使用处加 `+ 1`）、C（`25 → 25.0` 量纲改动）各自判非恒等，基线判恒等——三条控制覆盖定义值与使用处两类篡改面。`ruff check .` 全仓归零。定向回归 `tests/ao_shaping/scripts` 2556 passed / 65 skipped / 0 failed（303.97 s，6g）。
+- 剩余 7 处为该文件的单处判定阈值与版式计数，本批有意不动。scripts/slm 全域 PLR2004 由 375 起算，本文件 21 → 7。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
