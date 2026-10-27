@@ -3832,6 +3832,18 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - **两条我自己的流程缺陷（因涉及真实状态，必须记）**：① 一次对照**复用了旧脚本**，其目标文件写死，于是拼错的是 `runners/slm/gsnet_runner.py` 的标记而非 gui 文件，且计划的还原因 `||` 短路从未执行 ⇒ 工作树被污染。靠读 `git status` 抓到，**先取差异证据**（该文件未提交改动恰为 1 增 1 删、只有那一行拼写）才对**单文件** `git checkout` 复原；对照脚本已改为文件与 token 全部走参数。② `gui/ccd/ccd_analyzer.py` 在 `tests/` 下**没有任何测试**（grep 为空），所以该站点唯一证据是 `ast.dump` 一致性——写出来，不让分片绿暗示存在并不存在的覆盖。
 - 无需重钉文档或重生成 wiki：call-graph 索引**没有**钉这两个 gui 文件的行，被守卫看住的锚点都在 optimizer 内而本批未碰。
 
+**2026-10-27 · 2c2547b1 · #174 第四遍评审：`optimizer`/`runners`/`main.py` 共 24 处登记，未标注 330→306（本档零收窄）**
+- 24 处分属**两类不可混为一谈**的策略，逐处读、逐处写专属理由：
+  - **拆除路径不得掩盖正传播的失败**：`slm_model_in_loop.__init__` 先解开半开会话再重抛（绝不能半开继续跑）；`_restore_display` 与逐设备 `close` 尽力而为（一个拒关不得阻止其余）；`combined_optimizer` 的 DM 归零记录"变形镜仍停在最后一组电压"而非盖过结束本次运行的异常；`slm_zernike_pib` 退出路径强制平场，连这也失败时记 `SLM state unknown` 而不是从清理里抛出。
+  - **面向实验台的上报**：`voltage_runner._safe_shutdown` 三处（0 V 下发、继电器下电、链路关闭）**刻意宽捕获**——必须让操作员知道通道可能仍带电，抛出会放弃后续关停步骤；`_adc_worker` 累计读失败（线程抛出会**静默终止采集**，记录的 (时间, 电压) 序列留下无痕缺口）；两个 `run` 回路处理器上报后**继续落入安全关停**。`main.py` 与 `matrix_runner` 两处记录上下文后**重抛**，保住 CLI 退出码。
+  - 另有可选后端与元数据：`differentiable_beam` 驱动导入、`dm_response_matrix` 的 DM/WFS 配置采集、ADC 记录探针、CSV 旁路输出。
+- **本批没有收窄任何一处**，且这是探测后的结论而非偷懒：候选被判**假可证明**——`differentiable_beam` 保护区是导入一个顶层加载厂商原生库的模块（会抛 `OSError` 而非 `ImportError`）；`dm_response_matrix` 的 `hasattr` 探针在属性内部触达 SDK 时可抛任意异常。把它们写成 `ImportError`/`TypeError` 正是本 issue 警告的机械改写。
+- 上限：总数 **382 不变**，已标注 52→**76**，未标注 330→**306**。注释-only 由**结构**证明：10 个文件 `ast.dump` 与改前逐字节相同（"files whose code changed: 0"），`git diff -U0 -- src` 24 行新增、**非注释 0 行**。对照在新上限重武装：多加一处未标注 ⇒ **307** 变红，删除 ⇒ 复绿。
+- **两个守卫当场抓出副作用（不是我事后发现）**：
+  1. call-graph wiki **确实**钉了 `voltage_runner`、`matrix_runner`、`dm_response_matrix`、`main.py` 的行 ⇒ `test_wiki_source_citations_land_on_definitions` 如设计变红。正规修法重生成链，并**核对差异而非信任**：5 个 md 页 8 行、两个图资产 34 行，**非数字漂移 0**。
+  2. 文档钉 tripwire 自报漂移锚点 1944→1946、1857→1859、1552→1553（两处），已按带日期注记重钉；注记刻意**不用** `basename:NNN` 形态，使历史叙述不会被解析成活钉。`--max_peak` 区间**右界 1869 取自代码**（该告警调用的闭合行），不是把旧窗口平移——第一次重钉我凭旧版本记忆写锚点字符串，**先断言后写盘**使得文档未被半改（原子性救回）。
+- 分片与基线一致：conventions **70 passed / 1 skipped**（两个新守卫均绿）、`runners` 554/25、`optimizer/wf` 156/1、`wfless` 按文件 **55 摘要有序序列逐位一致**（1081/2/0）且两条 SKIPPED 相同。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
