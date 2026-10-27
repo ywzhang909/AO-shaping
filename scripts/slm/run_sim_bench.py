@@ -251,17 +251,17 @@ def main() -> int:
 
     results: list[RunResult] = []
     for runner in runners:
-        print(f"--- {runner} (epochs={args.epochs}) ---", flush=True)
+        logger.info(f"--- {runner} (epochs={args.epochs}) ---")
         res = _run_one(runner, args.epochs, out, args.timeout)
         results.append(res)
         status = "ok" if res.ok else f"FAILED rc={res.returncode}"
-        print(
+        logger.info(
             f"    {status} in {res.wall_s}s; {len(res.artefacts)} artefact(s); "
             f"metrics={res.metrics or '{}'}",
-            flush=True,
+
         )
         if res.note:
-            print(f"    note: {res.note}", flush=True)
+            logger.info(f"    note: {res.note}")
 
     manifest = {
         "generated": datetime.now().isoformat(timespec="seconds"),

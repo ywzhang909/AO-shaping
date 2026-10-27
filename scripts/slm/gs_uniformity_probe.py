@@ -31,6 +31,7 @@ from ao_shaping.utils.slm.phase_uniformity import (
     circular_smooth_phase,
     wrapped_gradient_rms,
 )
+from loguru import logger
 
 
 def pupil_mask(shape: tuple[int, int], center_xy: tuple[int, int], radius: float) -> np.ndarray:
@@ -219,7 +220,7 @@ def collect(
                     (output_dir / "measurements.json").write_text(
                         json.dumps(rows, indent=2), encoding="utf-8"
                     )
-                    print(json.dumps(row), flush=True)
+                    logger.info(json.dumps(row))
 
                 for repeat in range(repeats):
                     order = sigmas if repeat % 2 == 0 else tuple(reversed(sigmas))

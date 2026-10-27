@@ -67,8 +67,8 @@ def main() -> None:
     centre = forward.sample_grid_index(args.spot_xy[0], args.spot_xy[1])
     box, core = build_box_core_masks(xy.shape[:2], centre, args.target_side_px, 3.0, forward.sample_step_ccd())
     objective = UniformityObjective(box, core, w_phase=0.01)
-    print(f"[window] centre={centre} box={int(box.sum())} core={int(core.sum())} "
-          f"d={params.defocus_diopter:+.4f}", flush=True)
+    logger.info(f"[window] centre={centre} box={int(box.sum())} core={int(core.sum())} "
+          f"d={params.defocus_diopter:+.4f}")
 
     phase = torch.tensor(seed[None], dtype=torch.float32)
     phase.requires_grad_(True)
@@ -105,8 +105,8 @@ def main() -> None:
                   loss_terms=terms, defocus_diopter=params.defocus_diopter,
                   model_cv=dict(seed=model_cv(seed), b_plus=model_cv(seed + direction),
                                 b_minus=model_cv(seed - direction)))
-    print(f"[model] CV: seed {record['model_cv']['seed']:.4f} "
-          f"B+ {record['model_cv']['b_plus']:.4f} B− {record['model_cv']['b_minus']:.4f}", flush=True)
+    logger.info(f"[model] CV: seed {record['model_cv']['seed']:.4f} "
+          f"B+ {record['model_cv']['b_plus']:.4f} B− {record['model_cv']['b_minus']:.4f}")
 
     if args.execute:
         from ao_shaping.drivers.ccd.common import create_camera
@@ -156,7 +156,7 @@ def main() -> None:
                         mean = float(values.mean())
                         cv = float(np.sqrt((((values / mean) - 1) ** 2).mean())) if mean > 0 else float("nan")
                         records.append(dict(label=label, cv=cv, mean=mean, peak=float(frame.max())))
-                    print(f"  {label}: cv={records[-1]['cv']:.5f} mean={records[-1]['mean']:.2f}", flush=True)
+                    logger.info(f"  {label}: cv={records[-1]['cv']:.5f} mean={records[-1]['mean']:.2f}")
         finally:
             try:
                 slm.set_phase_overlay(None)
@@ -178,8 +178,8 @@ def main() -> None:
             # 判决必须查**方向**：Δ+ 应下降、Δ− 应上升，且都超过 3σ。
             # 只查"异号"会放过方向反了的记录（例如 Δ+ +0.08 / Δ− −0.08）。
             record["verdict"] = bool(dp < -resolution and dm > resolution)
-        print(json.dumps({k: v for k, v in record["measured"].items() if k != "frames"},
-                         indent=2, ensure_ascii=False), flush=True)
+        logger.info(json.dumps({k: v for k, v in record["measured"].items() if k != "frames"},
+                         indent=2, ensure_ascii=False))
 
     (args.out / "direction_record.json").write_text(json.dumps(record, indent=2, ensure_ascii=False),
                                                     encoding="utf-8")

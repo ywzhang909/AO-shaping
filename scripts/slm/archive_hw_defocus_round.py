@@ -737,17 +737,17 @@ def main(argv: list[str] | None = None) -> int:
         plan_path = candidate if candidate.is_file() else None
 
     if not groups_root.is_dir():
-        print(
+        logger.info(
             f"分组根不存在: {repo_rel(groups_root)} —— 这一轮还没采集? "
             "(采集产物落在 data/debug/<根名>/ 下)",
-            file=sys.stderr,
+
         )
         return 2
     if not sweep_root.is_dir():
-        print(
+        logger.info(
             f"扫描根不存在: {repo_rel(sweep_root)} —— 这一轮还没采集? "
             "(采集产物落在 data/debug/<根名>/ 下)",
-            file=sys.stderr,
+
         )
         return 2
 
@@ -762,13 +762,13 @@ def main(argv: list[str] | None = None) -> int:
             archive_plan=not args.no_plan,
         )
     except (OSError, ValueError) as exc:
-        print(f"归档计划生成失败: {exc}", file=sys.stderr)
+        logger.info(f"归档计划生成失败: {exc}")
         return 2
 
     if plan_path is None:
-        print(
+        logger.info(
             "  ⚠ 没有找到采集计划, 无法判定「缺组」 (用 --plan 指定计划文件)",
-            file=sys.stderr,
+
         )
 
     # **空轮不许归档**: 这一轮一个组都没产出时, 归档出来的只是一个空壳快照 ——
@@ -777,10 +777,10 @@ def main(argv: list[str] | None = None) -> int:
     # ⚠ 判据是**组记录数**, 不是文件数: 计划 JSON 与索引文件不算组记录 ——
     # 拿它们凑数会让「一个组都没跑」这一轮看起来像归档成功了。
     if not plan.groups:
-        print(
+        logger.info(
             "数据根里没有任何组记录 —— 这一轮还没采集, 不归档 "
             "(否则会归档出一个空壳快照, 读的人分不清「没跑」和「跑了但没留下」)",
-            file=sys.stderr,
+
         )
         return 2
 
@@ -793,7 +793,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         copied = execute(plan, force=args.force)
     except (OSError, ValueError) as exc:
-        print(f"归档失败: {exc}", file=sys.stderr)
+        logger.info(f"归档失败: {exc}")
         return 2
 
     manifest = write_manifest(

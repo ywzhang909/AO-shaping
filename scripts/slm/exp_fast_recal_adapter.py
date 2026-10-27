@@ -459,7 +459,7 @@ def main() -> None:
             for nf in frames:
                 for arm in ARMS:
                     rows.append(run_cell(arm, pert, nf, 16, seed=31 * s + 7))
-            print(f"  {kind} seed={s} done ({time.time() - t0:.0f}s)", flush=True)
+            logger.info(f"  {kind} seed={s} done ({time.time() - t0:.0f}s)")
 
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(rows, indent=1), encoding="utf-8")

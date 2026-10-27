@@ -127,9 +127,9 @@ def main(argv: list[str] | None = None) -> int:
             row[f"skill_k{k}"] = m["skill"]
             row[f"mse_k{k}"] = m["mse"]
         rows.append(row)
-        print("fold %2d  r2_const=%+.4f  " % (fold_i, m_const["r2_const"])
+        logger.info("fold %2d  r2_const=%+.4f  " % (fold_i, m_const["r2_const"])
               + "  ".join("skill k=%-2d %+.4f" % (k, row[f"skill_k{k}"]) for k in K_LIST),
-              flush=True)
+)
 
     logger.info("\n=== k-NN (no capacity, no optimiser, no loss) vs constant ===")
     summary: dict[str, float] = {}

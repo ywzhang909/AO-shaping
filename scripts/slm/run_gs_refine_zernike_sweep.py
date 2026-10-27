@@ -1160,10 +1160,10 @@ def _run_stage_a_with_saturation_backoff(
             if current <= MIN_BACKOFF_EXPOSURE_MS:
                 raise
             reduced = max(MIN_BACKOFF_EXPOSURE_MS, current * 0.5)
-            print(
+            logger.info(
                 f"[饱和退避] Stage A 在 {current:.4f} ms 饱和 ({exc}); "
                 f"曝光降到 {reduced:.4f} ms 重跑",
-                flush=True,
+
             )
             config = replace(config, exposure_time_ms=reduced)
             # Stage C 必须用同一个曝光, 否则两段的基线不可比。
@@ -1231,11 +1231,11 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         if recorded_exposure is not None:
             recorded = float(recorded_exposure)
             if abs(recorded - float(params.exposure_time_ms)) > 1e-9:
-                print(
+                logger.info(
                     f"[stage A] 曝光以 Stage A 记录为准 ({recorded} ms), "
                     f"忽略命令行的 {params.exposure_time_ms} ms —— "
                     f"基线可比性要求两段用同一个曝光",
-                    flush=True,
+
                 )
                 params.exposure_time_ms = recorded
         # Same argument for the focus correction: Stage C must optimise the
@@ -1243,9 +1243,9 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         recorded_focus = stage_a.config.get("defocus_focal_mm")
         if params.defocus_focal_mm is None and recorded_focus is not None:
             params.defocus_focal_mm = float(recorded_focus)
-            print(
+            logger.info(
                 f"[stage A] 焦面矫正沿用 Stage A 记录的 {params.defocus_focal_mm} mm",
-                flush=True,
+
             )
         # --- Focus correction (2f bench camera is not on the 2f plane) -----
         # Both optimizers accept a send-pipeline overlay, so ONE overlay covers
@@ -1284,10 +1284,10 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
                 stage_a.flat_frame, stage_a.mask_center_xy, side
             )
             if mask_center_source == "relocated":
-                print(
+                logger.info(
                     f"[stage A] 交接文件里没有可用的窗口内零级位置, 改从平场帧"
                     f"重新定位: {mask_center}",
-                    flush=True,
+
                 )
             resume_state = {
                 "base_panel": np.asarray(stage_a.base_panel, dtype=np.float64),
@@ -1317,10 +1317,10 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
                 "best_stage": str(stage_a.best_stage),
                 "epoch_offset": done,
             }
-            print(
+            logger.info(
                 f"[stage A] 续跑: 已跑 {done} 轮, 本块跑 {chunk_count} 轮 "
                 f"(总轮数 {params.epochs})",
-                flush=True,
+
             )
     else:
         # --- Segment 1: probe the flat far field ---------------------------

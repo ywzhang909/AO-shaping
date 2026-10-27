@@ -211,11 +211,11 @@ def main(argv: list[str] | None = None) -> int:
                 all_rows.append(row)
                 mse_txt = ("n/a" if row["val_mse"] is None
                            else f"{row['val_mse']:.5f}")
-                print(
+                logger.info(
                     f"[{t}] mode={mode:7s} seed={seed} "
                     f"val_r2={row['val_r2']:+.4f} val_mse={mse_txt} "
                     f"({row['seconds']:.0f}s)",
-                    flush=True,
+
                 )
 
     report = {

@@ -2579,18 +2579,18 @@ def _run_bench(
     if gate["code"] is not None:
         write_abort_config({"reason": gate["reason"], "exit_code": gate["code"]})
         if gate["code"] == EXIT_PATH_BLOCKED:
-            print(
+            logger.info(
                 "\n[中止] 光路受阻: " + gate["reason"] + "\n"
                 "       画面里根本没有光, 后面量到的只会是读出噪声。\n"
                 f"       判定已写进 {out_dir / 'run_config.json'}",
-                flush=True,
+
             )
         else:
-            print(
+            logger.info(
                 "\n[中止] " + gate["verdict"] + "\n"
                 "       用户要求: 实验系统没有被判为在焦之前, 一个测量都不做。\n"
                 f"       判定已写进 {out_dir / 'run_config.json'}",
-                flush=True,
+
             )
         return int(gate["code"])
 
@@ -2658,7 +2658,7 @@ def _run_bench(
     except Exception as exc:  # 几何失败 ⇒ 退出码 6
         logger.exception("几何标定失败")
         write_abort_config({"reason": "geometry_failed", "error": str(exc)})
-        print(f"\n[中止] 几何标定失败: {exc}", flush=True)
+        logger.info(f"\n[中止] 几何标定失败: {exc}")
         return EXIT_MODEL_FAILED
 
     k_mean = 0.5 * (geometry["kx"] + geometry["ky"])
@@ -2697,7 +2697,7 @@ def _run_bench(
     except Exception as exc:  # 模型构建失败 ⇒ 退出码 6
         logger.exception("物理预测模型构建失败")
         write_abort_config({"reason": "model_build_failed", "error": str(exc)})
-        print(f"\n[中止] 物理预测模型构建失败: {exc}", flush=True)
+        logger.info(f"\n[中止] 物理预测模型构建失败: {exc}")
         return EXIT_MODEL_FAILED
 
     device = "cuda" if torch.cuda.is_available() else "cpu"

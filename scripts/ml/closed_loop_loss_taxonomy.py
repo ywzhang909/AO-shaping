@@ -421,7 +421,7 @@ def main() -> None:
     logger.info("incumbent best RELATIVE movement per corruption (the bar to clear):")
     for c, v in inc_moves.items():
         logger.info(f"  {c:14s} {v['best_relative']:.4f}  via {v['argmax']}")
-    print()
+    logger.info()
     hdr = (
         f"{'candidate':24s} {'rel_discrim':>11s} {'safe':>6s} {'rho_max':>8s}  covers"
     )
@@ -437,7 +437,7 @@ def main() -> None:
             f"{name:24s} {v['discrimination']:11.4f} {str(v['degenerate_safe']):>6s} "
             f"{v['max_abs_spearman_vs_incumbent']:8.2f}  {','.join(v['covers']) or '-'}"
         )
-    print()
+    logger.info()
     for name in sorted(n for n in verdict if not verdict[n]["screenable_here"]):
         logger.info(f"{name:24s} NOT SCREENABLE HERE -- {verdict[name]['not_screenable_reason']}")
 

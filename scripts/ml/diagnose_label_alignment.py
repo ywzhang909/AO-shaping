@@ -112,9 +112,9 @@ def main() -> int:
         pair_dc.extend(dmat[iu].tolist())
         pair_di.extend(imat[iu].tolist())
 
-        print("%-52s adj|dc|=%.3f rand|dc|=%.3f | adj|dI|=%.5f rand|dI|=%.5f"
+        logger.info("%-52s adj|dc|=%.3f rand|dc|=%.3f | adj|dI|=%.5f rand|dI|=%.5f"
               % (Path(key).name[:52], adj.mean(), rand_c.mean(),
-                 adj_i.mean(), rand_i.mean()), flush=True)
+                 adj_i.mean(), rand_i.mean()))
 
     logger.info("\n=== smoothness: adjacent epochs vs all pairs, same pickle ===")
     ratio_c = [p["adj_dc_mean"] / max(p["rand_dc_mean"], 1e-12) for p in per_pickle]

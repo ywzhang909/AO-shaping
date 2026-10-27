@@ -5563,8 +5563,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             and str(args.log) == str(DEFAULT_LOG)):
         # 默认日志属于基线那一轮; 换 run-root 时它必然对不上 —— 忽略它, 而不是
         # 让一次"日志选错"变成硬失败 (显式传 --log 时仍然严格校验)。
-        print(f"警告: 默认日志 {_rel(DEFAULT_LOG)} 与本次 run-root 的 run_config 不一致, "
-              "已按「未提供日志」处理; 要核对 settle 判据请显式传 --log", file=sys.stderr)
+        logger.info(f"警告: 默认日志 {_rel(DEFAULT_LOG)} 与本次 run-root 的 run_config 不一致, "
+              "已按「未提供日志」处理; 要核对 settle 判据请显式传 --log")
         run = load_run(run_root, None)
     findings = compute_findings(run)
     # 归档目录跟随实际传入的 run-root (默认值只是示例), 换批次不会互相覆盖
@@ -5634,9 +5634,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     # -- 自检 0: §13.8 的残差必须与记录值 / 存盘相位对得上 --------------------
     residual_problems = check_residuals(residuals)
     if residual_problems:
-        print("§13.8 残差自检失败:", file=sys.stderr)
+        logger.info("§13.8 残差自检失败:")
         for problem in residual_problems:
-            print(f"  - {problem}", file=sys.stderr)
+            logger.info(f"  - {problem}")
         return 1
     if residuals is not None:
         pairs = ", ".join(
@@ -5658,9 +5658,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         checked += table.numeric_cells
         problems.extend(verify_table_in_markdown(markdown, table))
     if problems:
-        print("表格回读校验失败:", file=sys.stderr)
+        logger.info("表格回读校验失败:")
         for problem in problems:
-            print(f"  - {problem}", file=sys.stderr)
+            logger.info(f"  - {problem}")
         return 2
     logger.info(f"表格回读校验: {len(tables)} 张表 / {checked} 个数值单元, "
           f"全部与产物逐值一致")
@@ -5668,9 +5668,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     # -- 自检 2: 结构性不变量 ----------------------------------------------
     invariants = check_invariants(run, findings, retest)
     if invariants:
-        print("结构不变量校验失败:", file=sys.stderr)
+        logger.info("结构不变量校验失败:")
         for problem in invariants:
-            print(f"  - {problem}", file=sys.stderr)
+            logger.info(f"  - {problem}")
         return 3
     logger.info("结构不变量校验: score 分解 / 框面积恒等式 / CSV↔JSON / manifest "
           "/ 日志↔run_config 全部通过")
@@ -5684,16 +5684,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         if found:
             registered_root = Path(found.group(1))
             if registered_root.name != retest.root.name:
-                print(
+                logger.info(
                     "警告: REPORTS 里的复现命令指向 "
                     f"{registered_root.name}, 而本次实际用的是 {retest.root.name} —— "
                     "报告头部的「复现命令」会与实际不符, 请更新 provenance.py 的该条目",
-                    file=sys.stderr,
+
                 )
 
     if args.check:
         if not out_md.exists():
-            print(f"报告不存在: {out_md}", file=sys.stderr)
+            logger.info(f"报告不存在: {out_md}")
             return 1
         on_disk = out_md.read_text(encoding="utf-8")
         drift = [] if on_disk == markdown else [
@@ -5746,9 +5746,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 elif _sha256(copy) != _sha256(residual_figure):
                     drift.append(f"图与 artifacts 副本不一致: {residual_figure.name}")
         if drift:
-            print("--check 失败 (存在漂移):", file=sys.stderr)
+            logger.info("--check 失败 (存在漂移):")
             for item in drift:
-                print(f"  - {item}", file=sys.stderr)
+                logger.info(f"  - {item}")
             return 1
         n_mosaic = len([m for m in farfield.get("mosaics", [])])
         extra = ""

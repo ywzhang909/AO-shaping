@@ -255,7 +255,7 @@ def main() -> None:
         for cname, pred in cases.items():
             row[cname] = float(fn(pred, ref, mask).mean())
         scores[name] = row
-        print(f"  {name:26s} " + "  ".join(f"{c}={row[c]:.4f}" for c in cases), flush=True)
+        logger.info(f"  {name:26s} " + "  ".join(f"{c}={row[c]:.4f}" for c in cases))
 
     verdict: dict[str, dict[str, object]] = {}
     for name, row in scores.items():

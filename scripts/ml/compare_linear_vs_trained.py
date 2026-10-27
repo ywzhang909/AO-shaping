@@ -133,10 +133,10 @@ def main(argv: list[str] | None = None) -> int:
             "mse_ridge": m_pred["mse"],
             "mse_const": m_const["mse_const"],
         })
-        print("fold %2d  skill_ridge=%+.4f  r2_const=%+.4f  mse_ridge=%.6f "
+        logger.info("fold %2d  skill_ridge=%+.4f  r2_const=%+.4f  mse_ridge=%.6f "
               "mse_const=%.6f"
               % (index_i, m_pred["skill"], m_const["r2_const"],
-                 m_pred["mse"], m_const["mse_const"]), flush=True)
+                 m_pred["mse"], m_const["mse_const"]))
 
     skill = [r["skill_ridge"] for r in rows]
     logger.info("\nK=%d ridge: mean skill = %+.4f  (min %+.4f, max %+.4f)"

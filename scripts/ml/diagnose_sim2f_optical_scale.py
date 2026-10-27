@@ -1341,7 +1341,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     t0 = time.perf_counter()
     pairs, corpus_meta = load_pairs(args.limit_files)
     corpus_seconds = time.perf_counter() - t0
-    print(f"[corpus] {len(pairs)} distinct pairs in {corpus_seconds:.1f}s", flush=True)
+    logger.info(f"[corpus] {len(pairs)} distinct pairs in {corpus_seconds:.1f}s")
 
     cross = cross_check_against_prior_lane(corpus_meta["digests"])
     corpus_meta["distinct"] = len(pairs)
@@ -1358,9 +1358,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     t0 = time.perf_counter()
     h1_rows = scan_region_span(pairs, REGION_SPAN_GRID)
     h1_seconds = time.perf_counter() - t0
-    print(f"[H1] scanned {len(h1_rows)} spans in {h1_seconds:.1f}s", flush=True)
+    logger.info(f"[H1] scanned {len(h1_rows)} spans in {h1_seconds:.1f}s")
     h1 = judge_h1(h1_rows)
-    print(f"[H1] verdict = {h1['verdict']}: {h1['reason']}", flush=True)
+    logger.info(f"[H1] verdict = {h1['verdict']}: {h1['reason']}")
 
     # H2 基线配置: H1 接受则用 H1 接受配置, 否则用历史标定值 900 (预登记第 15 条)。
     if h1["verdict"] == "接受":
@@ -1373,11 +1373,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         h1["accepted_delta_px"] = None
 
     baseline_metrics = corpus_metrics(pairs, baseline_span, Sim2fConfig.calibrated().errors)
-    print(
+    logger.info(
         f"[H2] baseline region_span_px={baseline_span:.0f} "
         f"median ncc={baseline_metrics['ncc']['median']:+.4f} "
         f"median L1={baseline_metrics['l1']['median']:.4f}",
-        flush=True,
+
     )
 
     eta_rows: list[dict[str, Any]] = []
@@ -1393,10 +1393,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             "initial_defocus_m": HISTORICAL_DEFOUS_M,
         }
     else:
-        print("[H2] fit_twin stage1+stage2 ...", flush=True)
+        logger.info("[H2] fit_twin stage1+stage2 ...")
         fit = invert_defocus(pairs, baseline_span)
         h2_seconds = time.perf_counter() - t0
-        print(f"[H2] fit_twin done in {h2_seconds:.1f}s", flush=True)
+        logger.info(f"[H2] fit_twin done in {h2_seconds:.1f}s")
         inverted_errors = replace(
             Sim2fConfig.calibrated().errors,
             defocus_m=float(fit["stage1_plus_stage2"]["defocus_m"]),

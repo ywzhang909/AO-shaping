@@ -566,7 +566,7 @@ def main(argv: list[str] | None = None) -> int:
     run_root = _resolve_run_root(args.run_root)
     stage_dir = run_root / args.stage
     if not stage_dir.is_dir():
-        print(f"错误: stage 目录不存在: {stage_dir}", file=sys.stderr)
+        logger.info(f"错误: stage 目录不存在: {stage_dir}")
         return 1
     out_dir = Path(args.out) if args.out else stage_dir / "summary"
     out_dir.mkdir(parents=True, exist_ok=True)

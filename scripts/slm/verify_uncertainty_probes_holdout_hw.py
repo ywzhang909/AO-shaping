@@ -76,7 +76,7 @@ FIT_ITERATIONS = 60
 
 
 def _log(msg: str) -> None:
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
+    logger.info(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
 
 
 def _bandlimit_patch(sigma: float):

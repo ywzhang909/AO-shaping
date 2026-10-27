@@ -1027,10 +1027,10 @@ def main(argv: list[str] | None = None) -> int:
         cfg = config_from_args(args)
         plan = build_plan(cfg)
     except PlanError as exc:
-        print(str(exc), file=sys.stderr)
+        logger.info(str(exc))
         return 2
 
-    print(self_check_report(plan, cfg), file=sys.stderr)
+    logger.info(self_check_report(plan, cfg))
     payload = json.dumps(plan, indent=2, ensure_ascii=False)
     if args.print_plan:
         logger.info(payload)

@@ -299,7 +299,7 @@ def _maybe_build_cache(args: argparse.Namespace) -> int | None:
     try:
         from ml.hwdataset.cache import prepare_hw_cache
     except ImportError as exc:
-        print(f"ml.hwdataset.cache is unavailable: {exc}", file=sys.stderr)
+        logger.warning(f"ml.hwdataset.cache is unavailable: {exc}")
         return EXIT_ERROR
 
     index = _build_index(args)
@@ -330,14 +330,13 @@ def _build_index(args: argparse.Namespace) -> HwCorpusIndex | None:
             progress_every=args.progress_every,
         )
     except (OSError, ValueError) as exc:
-        print(f"could not index the corpus: {exc}", file=sys.stderr)
+        logger.error(f"could not index the corpus: {exc}")
         return None
     index = index.filter(families=families, require_exposure=args.require_exposure)
     if len(index) == 0:
-        print(
+        logger.error(
             "no usable records in the corpus: every record was excluded "
-            "(see the exclusion reasons in ml.hwdataset.index.build_hw_index)",
-            file=sys.stderr,
+            "(see the exclusion reasons in ml.hwdataset.index.build_hw_index)"
         )
         return None
     return index

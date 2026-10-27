@@ -141,8 +141,8 @@ def main(argv: list[str] | None = None) -> int:
     folds = build_folds(records, args.protocol)
     if args.folds:
         folds = [f for f in folds if f[0] in set(args.folds) or folds.index(f) in set(args.folds)]
-    print(f"corpus {len(records)} records, {len(folds)} folds, "
-          f"grid={args.grid} image_mode={args.image_mode}", flush=True)
+    logger.info(f"corpus {len(records)} records, {len(folds)} folds, "
+          f"grid={args.grid} image_mode={args.image_mode}")
 
     rows: list[dict] = []
     started = time.perf_counter()
@@ -175,7 +175,7 @@ def main(argv: list[str] | None = None) -> int:
                 "r2": float(metrics["r2"]), "mse": float(metrics["mse"]),
                 "n_train": len(train_pos), "n_val": len(val_pos),
             })
-            print(f"  fold {fold_index:2d} k={k:4d} r2={metrics['r2']:+.4f}", flush=True)
+            logger.info(f"  fold {fold_index:2d} k={k:4d} r2={metrics['r2']:+.4f}")
 
     # ---- summary + paired stats ------------------------------------------------
     from ml.zernike.eval_stats import cohens_dz, min_attainable_pvalue, sign_flip_pvalue

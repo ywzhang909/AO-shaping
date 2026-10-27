@@ -545,9 +545,9 @@ def main() -> None:
                         help="允许覆盖已存在且指向**另一次运行**的报告（默认拒绝）")
     args = parser.parse_args()
     if args.run_dir == ROOT / "data/debug/defocus_differentiable" / RUN_STAMP:
-        print("⚠ --run-dir 用的是历史默认值 " + RUN_STAMP + "；光路变化后必须显式指定", flush=True)
+        logger.info("⚠ --run-dir 用的是历史默认值 " + RUN_STAMP + "；光路变化后必须显式指定")
     if args.checkpoint == CHECKPOINT:
-        print("⚠ --checkpoint 用的是历史默认值（20261022 那一轮）；换光路后必须显式指定", flush=True)
+        logger.info("⚠ --checkpoint 用的是历史默认值（20261022 那一轮）；换光路后必须显式指定")
     STAMP = args.stamp
     report_path = OUT_DIR / (args.report_name if args.report_name.endswith(".md")
                              else args.report_name + ".md")

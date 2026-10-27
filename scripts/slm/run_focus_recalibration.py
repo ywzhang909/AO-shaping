@@ -48,7 +48,7 @@ def wait_for_idle(budget_s: float) -> None:
                 and "run_focus_recalibration" not in line]
         if not busy:
             return
-        print(f"  [wait] 设备忙（{busy[0][:80]}…），15 s 后再看", flush=True)
+        logger.info(f"  [wait] 设备忙（{busy[0][:80]}…），15 s 后再看")
         time.sleep(15)
     raise SystemExit("wait budget exhausted before the device became idle")
 
@@ -76,7 +76,7 @@ def main() -> None:
 
     from ao_shaping.tools.slm.panel.focus_probe import probe_session_focus
 
-    print(f"[focus] 开始扫描 {datetime.now().strftime('%H:%M:%S')}", flush=True)
+    logger.info(f"[focus] 开始扫描 {datetime.now().strftime('%H:%M:%S')}")
     probe = probe_session_focus(
         slm_number=args.slm_number, cam_type=args.cam_type, cam_id=args.cam_id,
         exposure_ms=args.exposure_ms, radius_px=args.radius_px,
@@ -112,8 +112,8 @@ def main() -> None:
 
     path = args.out / "focus.json"
     path.write_text(json.dumps(record, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
-    print(f"[focus] best_focal_mm = {best_mm:.2f}, best_diopter = {best_diopter:+.4f} m⁻¹, "
-          f"gain = {gain:.2f}×  -> {path}", flush=True)
+    logger.info(f"[focus] best_focal_mm = {best_mm:.2f}, best_diopter = {best_diopter:+.4f} m⁻¹, "
+          f"gain = {gain:.2f}×  -> {path}")
 
     if args.compare and args.compare.exists():
         old = json.loads(args.compare.read_text(encoding="utf-8")).get("focus", {})

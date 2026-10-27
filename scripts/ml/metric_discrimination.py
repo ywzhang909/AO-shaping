@@ -305,7 +305,7 @@ def main() -> None:
     rows: dict[str, dict[str, float]] = {}
     for name, pred in variants.items():
         rows[name] = compute_all(pred, target)
-        print(f"  {name:8s} done", flush=True)
+        logger.info(f"  {name:8s} done")
 
     # A candidate is only worth reporting if it (a) separates exact from the corruptions by
     # more than R2 does, and (b) is not a monotone restatement of R2.

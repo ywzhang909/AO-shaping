@@ -93,11 +93,11 @@ for family, refs in families.items():
         "r2_at_10": row["10"]["r2"],
         "gain_vs_10": row[best]["r2"] - row["10"]["r2"],
     }
-    print(
+    logger.info(
         f"{family:<26} n={len(subset.records):>5} fov={fov} "
         f"best_pad={best:>3} R2={row[best]['r2']:+.4f} "
         f"(pad10 {row['10']['r2']:+.4f}, gain {row[best]['r2'] - row['10']['r2']:+.4f})",
-        flush=True,
+
     )
 
 Path("report/loss_defects").mkdir(parents=True, exist_ok=True)

@@ -488,10 +488,10 @@ def main(argv: list[str] | None = None) -> int:
     clamped_rows = _aggregate(runs, "clamped_rows")
     table = _render_table(rows)
     clamped_table = _render_table(clamped_rows)
-    print()
+    logger.info()
     logger.info(f"== Step A 原始拟合 (未经信任域), {len(runs)} 次运行平均 ==")
     logger.info(table)
-    print()
+    logger.info()
     logger.info(f"== 经逐轮信任域后 (MIL 循环实际提交的), {len(runs)} 次运行平均 ==")
     logger.info(clamped_table)
 

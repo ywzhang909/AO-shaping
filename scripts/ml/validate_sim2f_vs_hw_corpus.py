@@ -601,7 +601,7 @@ def measure_corpus(limit_files: int | None, progress_every: int = 25) -> dict[st
             }
         )
         if progress_every > 0 and (position + 1) % progress_every == 0:
-            print(f"  sweep: {position + 1}/{len(index.records)}", flush=True)
+            logger.info(f"  sweep: {position + 1}/{len(index.records)}")
 
     swept = time.perf_counter()
 
@@ -2014,7 +2014,7 @@ def _print_summary(
     """Print the compact terminal summary."""
     sample = result["sample"]
     duplication = measurement["duplication"]
-    print()
+    logger.info()
     logger.info(
         f"records: {duplication['records']} -> distinct pairs: "
         f"{duplication['distinct']} (x{duplication['replication_factor']:.1f})"
@@ -2057,10 +2057,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     started = time.perf_counter()
     measurement = measure_corpus(args.limit_files)
     if not measurement["per_record"]:
-        print(
+        logger.info(
             f"error: no records under {measurement['config']['corpus_root']}/"
             f"{CORPUS_PATTERN}",
-            file=sys.stderr,
+
         )
         return 2
 
@@ -2076,7 +2076,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     written = write_artefacts(measurement, result, gate, out_dir / "artifacts")
 
     _print_summary(result, gate, measurement)
-    print()
+    logger.info()
     logger.info(f"wrote {out_dir / 'report.md'}")
     for path in written:
         logger.info(f"wrote {path}")

@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT))
 from scripts.slm.diagnose_defocus_sampling import (
     fixed_panel_basis, metrics, response_bias, restore_model, stamp,
 )
+from loguru import logger
 
 
 def supervised_loss(predicted, measured, masks, cv_weight=1.):
@@ -125,7 +126,7 @@ def main():
             best_score = score
             best_state = [p.detach().clone() for p in learnables]
         if iteration % 25 == 0:
-            print(iteration, score, record["nmse"], record["cv_mse"], record["parameters"]["sigma_ccd_px"], flush=True)
+            logger.info(iteration, score, record["nmse"], record["cv_mse"], record["parameters"]["sigma_ccd_px"])
         if iteration == args.iterations:
             break
         loss.backward()

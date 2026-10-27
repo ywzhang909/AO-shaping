@@ -75,10 +75,11 @@ from ao_shaping.utils.image.exposure_control import (
 )
 from ao_shaping.utils.slm.panel_geometry import phase_to_panel
 from ao_shaping.optimizer.wfless.slm_model_in_loop import _probe_phase
+from loguru import logger
 
 
 def _log(msg: str) -> None:
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
+    logger.info(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
 
 
 #: piston/tip/tilt 从远场**强度**不可辨识, 与线上默认一致。

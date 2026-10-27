@@ -456,7 +456,7 @@ def main(argv: list[str] | None = None) -> int:
             f"{row['corr_support']:>9.4f} {row['ceiling']:>9.4f} "
             f"{100 * row['energy_fraction_in_support']:>8.2f}"
         )
-    print()
+    logger.info()
     logger.info(f"{'holdout':26} {'family':10} {'recorded':>9} {'rebuilt':>8} {'ceiling':>8} {'flux/flat':>10} {'corr~flat':>10}")
     for probe in result["probes"]:
         if probe["recorded_correlation"] is None:
@@ -466,7 +466,7 @@ def main(argv: list[str] | None = None) -> int:
             f"{probe['corr_full']:>8.4f} {probe['ceiling']:>8.4f} "
             f"{probe['flux_ratio_to_flat']:>10.4f} {probe['flat_correlation']:>10.4f}"
         )
-    print()
+    logger.info()
     logger.info(f"{'holdout':26} {'family':10} {'support':>9} {'support-flat-removed':>21}")
     for probe in result["probes"]:
         if probe["recorded_correlation"] is None:

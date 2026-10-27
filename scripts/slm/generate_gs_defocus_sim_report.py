@@ -1461,5 +1461,5 @@ if __name__ == "__main__":
     try:
         main()
     except MissingArtefactsError as exc:
-        print(f"\n错误: 本生成器缺少输入, 未执行。\n{exc}", file=sys.stderr)
+        logger.info(f"\n错误: 本生成器缺少输入, 未执行。\n{exc}")
         raise SystemExit(2) from None

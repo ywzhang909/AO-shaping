@@ -450,7 +450,7 @@ def main() -> int:
 
     missing = [f.name for f in figures if not f.is_file()]
     if missing:
-        print(f"ERROR: figures missing: {missing}", file=sys.stderr)
+        logger.info(f"ERROR: figures missing: {missing}")
         return 1
     logger.info(f"report -> {out_md}")
     logger.info(f"figures -> {len(figures)} written to {fig_dir}")

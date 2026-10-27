@@ -546,7 +546,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         history, metrics, meta = _load(run_dir)
     except FileNotFoundError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        logger.info(f"error: {exc}")
         return 2
 
     _plot_training(history, figures / "training.png")

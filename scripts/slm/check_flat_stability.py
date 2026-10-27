@@ -26,6 +26,7 @@ from ao_shaping.utils.image.exposure_control import (
     configured_daheng_exposure_limit,
     resolve_daheng_exposure_limit,
 )
+from loguru import logger
 
 
 def collect(output_dir: Path, *, exposure_ms: float, repeats: int, frames: int) -> list[dict]:
@@ -92,7 +93,7 @@ def collect(output_dir: Path, *, exposure_ms: float, repeats: int, frames: int) 
                     (output_dir / "measurements.json").write_text(
                         json.dumps(rows, indent=2), encoding="utf-8"
                     )
-                    print(json.dumps(row), flush=True)
+                    logger.info(json.dumps(row))
     return rows
 
 

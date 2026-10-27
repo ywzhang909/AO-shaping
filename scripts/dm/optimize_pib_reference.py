@@ -800,7 +800,7 @@ def main():
           f"Lambda: {WAVELENGTH*1e9:.0f}nm, f: {FOCAL_LENGTH}m")
     logger.info(f"Turbulence: Cn2={CN2:.0e}, Dist={DIST}m, Subharmonics: OFF")
     logger.info(f"Target: PIB reaches {TARGET_RATIO*100:.0f}% of ideal")
-    print()
+    logger.info()
     
     cfg = SimConfig(
         npix=NPIX,
@@ -820,7 +820,7 @@ def main():
     logger.info(f"System: {ao}")
     logger.info(f"r_bucket: {s.r_bucket/(APERTURE/NPIX):.0f}px")
     logger.info(f"ideal_pib: {s.ideal_pib/s.ideal_total:.4f} (absolute: {s.ideal_pib:.4e})")
-    print()
+    logger.info()
     
     turb_img = ao.get_turb_image()
     turb_pib = ao.pib(turb_img)
@@ -828,7 +828,7 @@ def main():
     logger.info(f"Turbulent: PIB={turb_pib/s.ideal_total:.4f} ({turb_pib/s.ideal_pib:.4f}x ideal), "
           f"Strehl={turb_strehl:.4f}")
     logger.info(f"Target PIB: {TARGET_RATIO * s.ideal_pib/s.ideal_total:.4f} ({TARGET_RATIO*100:.0f}% of ideal)")
-    print()
+    logger.info()
     
     results = {}
     
@@ -842,7 +842,7 @@ def main():
     )
     results['spgd'] = best_spgd
     
-    print()
+    logger.info()
     logger.info("=" * 70)
     logger.info("STEP 2: SPGD with voltage-based DM")
     logger.info("=" * 70)
@@ -851,7 +851,7 @@ def main():
                               target_ratio=TARGET_RATIO, seed=42, verbose=True)
     results['spgd_v'] = spgd_v
     
-    print()
+    logger.info()
     logger.info("=" * 70)
     logger.info("STEP 3: Heuristic algorithms (PSO, GA, SA)")
     logger.info("=" * 70)
@@ -871,14 +871,14 @@ def main():
                     target_ratio=TARGET_RATIO, seed=42, verbose=True)
     results['sa'] = res_sa
     
-    print()
+    logger.info()
     logger.info("=" * 70)
     logger.info("SUMMARY")
     logger.info("=" * 70)
     logger.info(f"Ideal PIB:       {s.ideal_pib/s.ideal_total:.4f} (absolute: {s.ideal_pib:.4e})")
     logger.info(f"Turbulent PIB:   {turb_pib/s.ideal_total:.4f} (ratio: {turb_pib/s.ideal_pib:.4f})")
     logger.info(f"Target (80%):    {TARGET_RATIO * s.ideal_pib/s.ideal_total:.4f}")
-    print()
+    logger.info()
     logger.info(f"{'Algorithm':<10} {'Final PIB':>12} {'Ratio':>8} {'Converged':>10}")
     logger.info("-" * 45)
     for name in ('spgd', 'spgd_v', 'pso', 'ga', 'sa'):

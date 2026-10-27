@@ -1053,10 +1053,10 @@ def run_dataset(fit_mod, sampling_mod, spec: DatasetSpec, variants: list, iterat
                 "metrics": aggregate([r for r in scored if r["split"] == "test"]),
             }
         results.append(entry)
-        print(f"[{spec.name}] {variant.label} "
+        logger.info(f"[{spec.name}] {variant.label} "
               f"fft={variant.fft_size} ps={variant.pixel_samples} "
               f"amp={int(variant.learn_amplitude)} res={int(variant.learn_residual)} "
-              f"{parameters['fit_seconds']:.1f}s", flush=True)
+              f"{parameters['fit_seconds']:.1f}s")
     return results
 
 
@@ -1142,8 +1142,8 @@ def main(argv: list | None = None) -> int:
             sampling = Variant("A", winner["variant"]["label"], winner["variant"]["grid_size"],
                                winner["variant"]["fft_size"], winner["variant"]["pixel_samples"],
                                False, False)
-            print(f"[{spec.name}] 选中的采样：{winner['variant']['key']} "
-                  f"(训练集 CV 误差 {selection_score(winner):.4f})", flush=True)
+            logger.info(f"[{spec.name}] 选中的采样：{winner['variant']['key']} "
+                  f"(训练集 CV 误差 {selection_score(winner):.4f})")
             results += run_dataset(fit_mod, sampling_mod, spec, stage_b_variants(sampling),
                                    args.iterations, args.seed, args.evaluation_dataset,
                                    basis_cache, evaluation_cache)

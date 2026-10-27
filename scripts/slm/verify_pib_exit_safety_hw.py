@@ -1077,7 +1077,7 @@ def main(argv: list[str] | None = None) -> int:
     summary["finished_iso"] = _utc_now()
     _write_summary(outdir, summary)
 
-    print()
+    logger.info()
     logger.info(f"artifacts: {outdir}")
     logger.info(f"{'':2} {'scenario':<30} {'verdict':<6} {'exit branch':<14} "
           f"{'slot':>5} {'gray':>5} {'corr flat':>9} {'corr exit':>9}  failed")

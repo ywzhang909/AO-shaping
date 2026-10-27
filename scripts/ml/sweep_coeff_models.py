@@ -310,9 +310,9 @@ def main(argv: list[str] | None = None) -> int:
                 image_every=max(1, epochs),
                 log_every=max(1, epochs // 2),
             )
-            print(
+            logger.info(
                 f"\n=== arm={arm_name} fold={fold_index} epochs={epochs} ===",
-                flush=True,
+
             )
             outcome = train(cfg)
             row = {

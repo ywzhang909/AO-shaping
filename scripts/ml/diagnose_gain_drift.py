@@ -159,10 +159,10 @@ def main(argv: list[str] | None = None) -> int:
             row[f"r2_const_{mode}"] = score(
                 np.repeat(y_mean, len(y_va), axis=0), y_va)["r2_const"]
         rows.append(row)
-        print("fold %2d  gain spread(sd/mean)=%.3f | ridge skill  " % (fold_i, row["gain_spread"])
+        logger.info("fold %2d  gain spread(sd/mean)=%.3f | ridge skill  " % (fold_i, row["gain_spread"])
               + "  ".join("%s=%+.4f" % (m, row[f"ridge_skill_{m}"]) for m in MODES)
               + "  | knn " + "  ".join("%s=%+.4f" % (m, row[f"knn_skill_{m}"]) for m in MODES),
-              flush=True)
+)
 
     logger.info("\n=== does removing a per-frame gain/offset help? ===")
     out = {"rows": rows, "seconds": round(time.perf_counter() - started, 1)}

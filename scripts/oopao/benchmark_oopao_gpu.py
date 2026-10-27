@@ -658,7 +658,7 @@ def _render_markdown(
 
 def _print_summary(records: dict[str, dict[str, Any]], table: dict[str, Any], out_dir: Path) -> None:
     """Print the compact terminal summary (the same facts as the markdown)."""
-    print()
+    logger.info()
     logger.info("config                 | module | screens 128 | screens 512 | screens 1920 | ASM 1920 numpy | ASM 1920 device")
     for label, rec in records.items():
         logger.info(
@@ -669,7 +669,7 @@ def _print_summary(records: dict[str, dict[str, Any]], table: dict[str, Any], ou
             f"{_fmt(rec['asm']['1920']['numpy_median_ms'], '.1f'):>14} | "
             f"{_fmt(rec['asm']['1920'].get('gpu_median_ms', float('nan')), '.3g'):>15}"
         )
-    print()
+    logger.info()
     logger.info("agreement vs cpu/resident0 (max|d|/rms / pearson):")
     for label, row in table.items():
         cells = [
@@ -677,10 +677,10 @@ def _print_summary(records: dict[str, dict[str, Any]], table: dict[str, Any], ou
             for n in SCREEN_SIZES
         ] + [_fmt(row[f'intensity_{n}']['max_rel_over_rms'], '.1e') for n in ASM_SIZES]
         logger.info(f"  {label:<22} screens {', '.join(cells[:3])} | intensity {', '.join(cells[3:])}")
-    print()
+    logger.info()
     for line in _summary_lines(records, table):
         logger.info(line.replace("- ", "* ", 1))
-    print()
+    logger.info()
     logger.info(f"wrote {out_dir / 'benchmark_oopao_gpu.json'}")
     logger.info(f"wrote {out_dir / 'benchmark_oopao_gpu.md'}")
 
@@ -733,7 +733,7 @@ def main(argv: list[str] | None = None) -> int:
     failures: dict[str, str] = {}
     for config in CONFIGS:
         label = _label(*config)
-        print(f"[bench] {label} ...", flush=True)
+        logger.info(f"[bench] {label} ...")
         try:
             records[label] = _spawn(config, work_dir, args.child_timeout)
         except Exception as exc:  # a failed configuration is itself a result
@@ -741,7 +741,7 @@ def main(argv: list[str] | None = None) -> int:
             logger.info(f"[bench] {label} FAILED: {failures[label].splitlines()[0]}")
     elapsed = time.perf_counter() - started
     if not records:
-        print("error: every configuration failed", file=sys.stderr)
+        logger.info("error: every configuration failed")
         return 1
 
     table = _compare(records, work_dir)

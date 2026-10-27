@@ -128,10 +128,10 @@ def main(argv: list[str] | None = None) -> int:
             }
             row["mse_const"] = constant_baseline_metrics(const, tt)["mse"]
         out["folds"].append(row)
-        print("fold %2d  " % fold_i + "  ".join(
-            "%s skill=%+.4f" % (kind, row[kind]["skill"]) for kind in LOSSES), flush=True)
+        logger.info("fold %2d  " % fold_i + "  ".join(
+            "%s skill=%+.4f" % (kind, row[kind]["skill"]) for kind in LOSSES))
 
-    print()
+    logger.info()
     for kind in LOSSES:
         vals = [r[kind]["skill"] for r in out["folds"]]
         mses = [r[kind]["mse"] for r in out["folds"]]

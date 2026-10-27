@@ -556,7 +556,7 @@ def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     runs = [r for r in (_load_run(ts, label) for ts, label in SESSIONS.items()) if r]
     if not runs:
-        print("no run directories found", file=sys.stderr)
+        logger.info("no run directories found")
         return 1
     made = [fig_exposure_ladder(), fig_convergence(runs), fig_far_field(runs), fig_box_profile(runs)]
     summary = summarise(runs)
@@ -564,7 +564,7 @@ def main() -> int:
     if report is not None:
         logger.info(f"wrote {report.relative_to(ROOT)} (§0 block)")
     else:
-        print(f"note: {REPORT_KEY} not found, §0 block not written", file=sys.stderr)
+        logger.info(f"note: {REPORT_KEY} not found, §0 block not written")
     for path in made:
         if path.exists():
             logger.info(f"wrote {path.relative_to(ROOT)}")

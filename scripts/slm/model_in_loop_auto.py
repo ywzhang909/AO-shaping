@@ -154,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
         command = build_command(profile)
     except (OSError, ValueError, TypeError) as exc:
         parser.error(str(exc))
-    print("Command:", subprocess.list2cmdline(command), flush=True)
+    logger.info("Command:", subprocess.list2cmdline(command))
     if args.dry_run:
         return 0
     process = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE,
