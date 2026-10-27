@@ -2,7 +2,7 @@
 
 > 从 `main.py` 出发的函数调用图 + 逐函数优化文档（llm-wiki 式互链 Markdown）。
 > 数据源：AST 静态调用图 `raw/assets/call_graph_final.json`（`scripts/call_graph/build_call_graph.py` 生成，可重跑）
-> + 源码 docstring 逐字摘录。Last updated: 2026-10-14 | 总页数: 50
+> + 源码 docstring 逐字摘录。Last updated: 2026-10-27 | 总页数: 51
 
 ## 入口 (entry)
 
@@ -123,7 +123,7 @@
 
 ## 原始数据 (raw)
 
-- `raw/assets/call_graph_final.json` — 完整调用图（193 已解析节点 / 290 边）+ `recovered.json` 恢复映射
+- `raw/assets/call_graph_final.json` — 完整调用图（191 已解析节点 / 287 边）+ `recovered.json` 恢复映射
 - `raw/assets/similar_functions.json` — 相似函数关联（5 相似对 / 4 相似簇，含逐维得分与理由）
 - `assets/diagram_layers.svg` / `.png` — 分层调用图
 - `assets/global-call-graph.svg` / `.png` — 全局调用图（包级聚合）

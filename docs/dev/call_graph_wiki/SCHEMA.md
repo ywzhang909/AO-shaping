@@ -3,7 +3,7 @@
 ## Domain
 
 本 wiki 覆盖 **AO-Shaping 仓库**（`projects/AO-shaping/repo/`）的**开发使用**：
-以 `main.py` 为根入口，梳理其 Click CLI 的 19 个命令、命令到 runner / optimizer /
+以 `main.py` 为根入口，梳理其 Click CLI 的 20 个命令、命令到 runner / optimizer /
 driver 的函数调用图，并为每个骨架函数提供"逐函数"的优化文档（签名、真实 docstring、
 入/出边调用关系、调试模式、产物落盘）。
 
