@@ -1,5 +1,6 @@
 """Calibrate local Jacobian gain/blur from recorded signed CCD phase probes."""
 from __future__ import annotations
+from loguru import logger
 
 import argparse
 import json
@@ -71,7 +72,7 @@ def main():
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--shape", default="square")
     args = parser.parse_args()
-    print(json.dumps(fit_local_response(args.run, args.out, shape=args.shape), indent=2))
+    logger.info(json.dumps(fit_local_response(args.run, args.out, shape=args.shape), indent=2))
 
 
 if __name__ == "__main__":

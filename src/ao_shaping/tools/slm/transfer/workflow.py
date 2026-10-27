@@ -1,5 +1,6 @@
 """One session directory for capture, transfer, shaping and independent audit."""
 from __future__ import annotations
+from loguru import logger
 
 import argparse
 import json
@@ -396,7 +397,7 @@ def main():
                               fft_size=args.fft, grid_size=args.grid,
                               alpha=DEFAULT_ALPHA if args.alpha is None else args.alpha,
                               seed=args.seed)
-        print(json.dumps(dict(out=str(result["out"]), combinations=result["combinations"],
+        logger.info(json.dumps(dict(out=str(result["out"]), combinations=result["combinations"],
                               timings=result["timings"], metrics=result["metrics"]),
                          indent=2))
         return
@@ -406,7 +407,7 @@ def main():
         if args.count < 6:
             parser.error("count >= 6 required")
         checkpoint = generate_dataset(args.out, power=args.power, shift=args.shift, count=args.count, seed=args.seed)
-        print(f"Synthetic probes complete; nominal checkpoint: {checkpoint}")
+        logger.info(f"Synthetic probes complete; nominal checkpoint: {checkpoint}")
         return
     if args.command == "doctor":
         from .hardware import enumerate_camera
@@ -415,7 +416,7 @@ def main():
             args.out.parent.mkdir(parents=True, exist_ok=True)
             with args.out.open("x", encoding="utf-8") as stream:
                 json.dump(result, stream, default=str, indent=2)
-        print(json.dumps(result, default=str, indent=2))
+        logger.info(json.dumps(result, default=str, indent=2))
         return
     if args.command in {"audit", "replay"}:
         from .artifacts import audit_run
@@ -430,11 +431,11 @@ def main():
             args.out.parent.mkdir(parents=True, exist_ok=True)
             with args.out.open("x", encoding="utf-8") as stream:
                 json.dump(result, stream, indent=2)
-        print(json.dumps({k: v for k, v in result.items() if k != "file_sha256"}, indent=2))
+        logger.info(json.dumps({k: v for k, v in result.items() if k != "file_sha256"}, indent=2))
         return
     config = TransferSession(**{k: v for k, v in vars(args).items() if k not in {"command", "offline", "execute"}})
     if args.command == "plan" or not (args.execute or args.offline):
-        print(json.dumps(config.plan(args.offline), default=str, indent=2))
+        logger.info(json.dumps(config.plan(args.offline), default=str, indent=2))
     else:
         # The CLI owns its logging; keep INFO on stdout so PowerShell does not
         # turn routine loguru stderr messages into NativeCommandError records.

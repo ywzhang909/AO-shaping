@@ -1,5 +1,6 @@
 """Record actual camera formats and raw precision without opening an SLM."""
 from __future__ import annotations
+from loguru import logger
 
 import argparse
 import json
@@ -47,4 +48,4 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    print(json.dumps(probe(args.out), indent=2))
+    logger.info(json.dumps(probe(args.out), indent=2))

@@ -5,6 +5,7 @@ an illuminated affine intercept is a diagnostic, not an independently measured d
 """
 
 from __future__ import annotations
+from loguru import logger
 
 import argparse
 import hashlib
@@ -187,7 +188,7 @@ def main():
     if args.execute:
         capture(args)
     else:
-        print(
+        logger.info(
             json.dumps(
                 dict(
                     phases=["flat", args.shape],

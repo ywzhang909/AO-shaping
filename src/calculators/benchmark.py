@@ -1,4 +1,5 @@
 from __future__ import annotations
+from loguru import logger
 import numpy as np
 import time
 import json
@@ -241,19 +242,19 @@ optimizer_configs = {
     "AdamNS": (AdamNS, AdamNS_Py, {"lr": 1e-3}, {"lr": 1e-3}),
 }
 
-print("=" * 100)
-print("CYTHON OPTIMIZER PERFORMANCE COMPARISON")
-print("=" * 100)
+logger.info("=" * 100)
+logger.info("CYTHON OPTIMIZER PERFORMANCE COMPARISON")
+logger.info("=" * 100)
 
 results = []
 for dim in dims:
-    print("\n=== Dimension: %6d ===" % dim)
+    logger.info("\n=== Dimension: %6d ===" % dim)
     grad = np.random.randn(dim).astype(np.float32)
     header = "{:8s} {:>10s} {:>10s} {:>4s} {:>10s} {:>10s} {:>8s}".format(
         "Name", "MaxDiff", "RelDiff", "C", "Cython_ms", "Python_ms", "Speedup"
     )
-    print(header)
-    print("-" * 70)
+    logger.info(header)
+    logger.info("-" * 70)
     for name, (OC, OP, ckw, pkw) in optimizer_configs.items():
         oc = OC(dim, **ckw)
         op = OP(dim, **pkw)
@@ -276,7 +277,7 @@ for dim in dims:
         line = "{:8s} {:10.2e} {:10.2e} {:>4s} {:10.1f} {:10.1f} {:8.2f}x".format(
             name, md, rd, c, tc * 1000, tp * 1000, tp / tc
         )
-        print(line)
+        logger.info(line)
         results.append(
             {
                 "optimizer": name,

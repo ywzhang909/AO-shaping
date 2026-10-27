@@ -1,5 +1,6 @@
 """Offline metric traces from incremental experiment records; no devices."""
 from __future__ import annotations
+from loguru import logger
 
 import argparse
 import json
@@ -78,7 +79,7 @@ def main():
     args = parser.parse_args()
     if args.select_fits:
         decision = select_checkpoint(args.select_fits, args.out, cv_weight=args.cv_weight)
-        print(json.dumps({k: v for k, v in decision.items() if k != "candidates"}, indent=2))
+        logger.info(json.dumps({k: v for k, v in decision.items() if k != "candidates"}, indent=2))
         return
     result = {}
     if args.fit:
@@ -88,9 +89,9 @@ def main():
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, indent=2), encoding="utf-8")
     if args.fit:
-        print(json.dumps(dict(initial=result["fit"][0], latest=result["fit"][-1]), indent=2))
+        logger.info(json.dumps(dict(initial=result["fit"][0], latest=result["fit"][-1]), indent=2))
     if args.run:
-        print(json.dumps(result["physical"], indent=2))
+        logger.info(json.dumps(result["physical"], indent=2))
 
 
 if __name__ == "__main__":

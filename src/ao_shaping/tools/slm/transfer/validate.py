@@ -10,6 +10,7 @@ never measured. An explicit ``ccd_check`` instead measures sequential A/B
 captures; optional nonmonotone exploration retains a separate best phase.
 """
 from __future__ import annotations
+from loguru import logger
 
 import argparse
 import json
@@ -92,7 +93,7 @@ def run(args):
                          step_px=getattr(args, "window_step", 2.))
     forward = FrozenDefocusForward(params, xy, device=device)
     if not args.execute:
-        print(json.dumps(dict(zero_xy=args.zero_xy, target_xy=centre.tolist(), shapes=args.shapes), indent=2))
+        logger.info(json.dumps(dict(zero_xy=args.zero_xy, target_xy=centre.tolist(), shapes=args.shapes), indent=2))
         return
     prepared, seed_provenance = [], {}
     for shape in args.shapes:

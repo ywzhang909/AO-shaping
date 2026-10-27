@@ -213,48 +213,48 @@ def _print_report(report: Mapping[str, Any]) -> None:
     Args:
         report: Mapping produced by :func:`_build_report`.
     """
-    print(
+    logger.info(
         f"files scanned / usable : {report['files_scanned']} / {report['files_usable']}"
     )
-    print(f"records                : {report['total_records']}")
+    logger.info(f"records                : {report['total_records']}")
 
-    print("\nby phase source")
+    logger.info("\nby phase source")
     total = max(int(report["total_records"]), 1)
     for name, count in report["by_source"].items():
         share = 100.0 * int(count) / total
-        print(f"  {name:<11s} {int(count):>7d}  {share:5.1f}%")
+        logger.info(f"  {name:<11s} {int(count):>7d}  {share:5.1f}%")
 
-    print("\nby family  (n_terms, n_max, freeform_grid)")
+    logger.info("\nby family  (n_terms, n_max, freeform_grid)")
     shapes = report["family_shapes"]
     for family, count in report["by_family"].items():
         rendered = " ".join(
             f"({a},{b},{c})" for a, b, c in shapes.get(family, [])
         )
-        print(f"  {family:<26s} {int(count):>6d}  {rendered}")
+        logger.info(f"  {family:<26s} {int(count):>6d}  {rendered}")
 
-    print("\nexcluded (not in the dataset)")
+    logger.info("\nexcluded (not in the dataset)")
     excluded = report["excluded"]
     if not excluded:
-        print("  (nothing excluded)")
+        logger.info("  (nothing excluded)")
     else:
         for reason, count in excluded.items():
-            print(f"  {reason:<26s} {int(count):>6d}")
-        print("  reason codes: " + ", ".join(r.value for r in ExclusionReason))
+            logger.info(f"  {reason:<26s} {int(count):>6d}")
+        logger.info("  reason codes: " + ", ".join(r.value for r in ExclusionReason))
 
     exposure = report["exposure_ms"]
-    print("\nexposure (ms)")
+    logger.info("\nexposure (ms)")
     if exposure["count"] == 0:
-        print("  no record carries a resolvable exposure")
+        logger.info("  no record carries a resolvable exposure")
     else:
-        print(
+        logger.info(
             f"  count={exposure['count']} distinct={exposure['distinct']} "
             f"min={exposure['min']} median={exposure['median']} max={exposure['max']}"
         )
 
     fov = report["fov_px"]
-    print(f"\nfield of view (sidecar hint, px): {fov['values']}")
+    logger.info(f"\nfield of view (sidecar hint, px): {fov['values']}")
     if fov["differs_by_family"]:
-        print(
+        logger.info(
             f"  WARNING: {fov['distinct_count']} distinct fields of view in one corpus. "
             "A single output grid therefore means a different physical angular "
             "scale per family. This is surfaced per item as `fov_px`; filter or "
@@ -262,18 +262,18 @@ def _print_report(report: Mapping[str, Any]) -> None:
         )
 
     if report["samples"]:
-        print("\nmaterialised samples")
+        logger.info("\nmaterialised samples")
         for sample in report["samples"]:
-            print(
+            logger.info(
                 f"  #{sample['sample']} {sample['family']}/{sample['source']} "
                 f"exposure={sample['exposure_ms']}ms fov={sample['fov_px']}px "
                 f"{sample['elapsed_ms']:.1f}ms"
             )
-            print(
+            logger.info(
                 f"      phase_cos {tuple(sample['phase_cos_shape'])} "
                 f"{sample['phase_cos_dtype']}"
             )
-            print(
+            logger.info(
                 f"      image     {tuple(sample['image_shape'])} "
                 f"{sample['image_dtype']} "
                 f"range [{sample['image_min']:.4f}, {sample['image_max']:.4f}] "
@@ -306,7 +306,7 @@ def _maybe_build_cache(args: argparse.Namespace) -> int | None:
     if index is None:
         return EXIT_ERROR
     directories = prepare_hw_cache(index, config=MaterialiserConfig(grid=args.grid))
-    print(f"built {len(directories)} cache directories")
+    logger.info(f"built {len(directories)} cache directories")
     return EXIT_OK
 
 

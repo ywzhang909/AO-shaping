@@ -4,6 +4,7 @@ No device imports. This is an initialization, not a calibrated model. Fit it on
 phase-diverse measurements before using its gradients for physical control.
 """
 from __future__ import annotations
+from loguru import logger
 
 import argparse
 import hashlib
@@ -54,7 +55,7 @@ def main():
     args.out.mkdir(parents=True, exist_ok=False)
     (args.out / "frozen_parameters.json").write_text(json.dumps(params, indent=2), encoding="utf-8")
     (args.out / "provenance.json").write_text(json.dumps(provenance, indent=2), encoding="utf-8")
-    print(json.dumps(dict(checkpoint=str(args.out / "frozen_parameters.json"), **provenance), indent=2))
+    logger.info(json.dumps(dict(checkpoint=str(args.out / "frozen_parameters.json"), **provenance), indent=2))
 
 
 if __name__ == "__main__":

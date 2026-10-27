@@ -20,6 +20,7 @@ widened for the cold start, where the first probe reads a few percent of full
 scale and needs a factor of ~9.
 """
 from __future__ import annotations
+from loguru import logger
 
 import argparse
 import hashlib
@@ -210,7 +211,7 @@ def main():
     if args.execute:
         capture(args)
     else:
-        print(json.dumps(plan, indent=2))
+        logger.info(json.dumps(plan, indent=2))
 
 
 if __name__ == "__main__":
