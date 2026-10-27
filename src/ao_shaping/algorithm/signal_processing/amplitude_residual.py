@@ -57,24 +57,6 @@ class AmplitudeResidual:
                 idx += 1
         return r
 
-    def amplitude(self, base_amplitude, mode="exp"):
-        """Combine base Gaussian amplitude with residual.
-
-        mode='exp': A = base * exp(r)  (non-negative, multiplicative)
-        mode='softplus': A = softplus(log(base) + r)  (additive in log space)
-        """
-        r = self.evaluate  # placeholder; caller passes evaluated r
-        if mode == "exp":
-            return base_amplitude * np.exp(r)
-        elif mode == "softplus":
-            import numpy as np
-            log_base = np.log(np.clip(base_amplitude, 1e-12, None))
-            # softplus(x) = log(1 + exp(x))
-            x = log_base + r
-            return np.log1p(np.exp(np.clip(x, None, 20)))  # stable softplus
-        else:
-            raise ValueError(f"unknown mode: {mode}")
-
     def set_coeffs(self, coeffs):
         self.coeffs = np.asarray(coeffs, dtype=np.float64).ravel()
         if self.coeffs.shape[0] != (2 * self.n_modes + 1) ** 2:

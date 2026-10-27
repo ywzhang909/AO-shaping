@@ -67,6 +67,14 @@ class FrozenDefocusParameters:
     bias_counts: float = 0.
     slm_axial_offset_m: float = 0.
     axial_reference_curvature_diopter: float | None = None
+    # --- optional, default-off physical-model extensions (report 20261027 §4) ---
+    # All default to the identity so the historical linear baseline is preserved
+    # bit-for-bit; the next hardware round fits these coefficients.
+    slm_phase_a: float = 0.          # φ_eff = φ + a·sin φ + b·sin 2φ (SLM nonlinearity)
+    slm_phase_b: float = 0.
+    amplitude_residual_coeffs: tuple[float, ...] = ()  # flat Fourier coeffs (low-freq)
+    monotonic_ccd_h: tuple[float, ...] = ()            # LUT log-derivative on [0, v_max]
+    monotonic_ccd_v_max: float = 255.                  # response table upper bound
 
     @classmethod
     def from_dicts(cls, parameters: Mapping[str, Any], ramp_matrix: Sequence[Sequence[float]], *,
@@ -90,6 +98,11 @@ class FrozenDefocusParameters:
             slm_axial_offset_m=float(parameters.get("slm_axial_offset_m", 0.)),
             axial_reference_curvature_diopter=(float(parameters["axial_reference_curvature_diopter"])
                 if parameters.get("axial_reference_curvature_diopter") is not None else None),
+            slm_phase_a=float(parameters.get("slm_phase_a", 0.)),
+            slm_phase_b=float(parameters.get("slm_phase_b", 0.)),
+            amplitude_residual_coeffs=tuple(float(c) for c in parameters.get("amplitude_residual_coeffs", ())),
+            monotonic_ccd_h=tuple(float(h) for h in parameters.get("monotonic_ccd_h", ())),
+            monotonic_ccd_v_max=float(parameters.get("monotonic_ccd_v_max", 255.)),
         )
 
     @property
@@ -106,7 +119,11 @@ class FrozenDefocusParameters:
                     ramp_matrix=[list(r) for r in self.ramp_matrix], fft_size=self.fft_size,
                     pixel_samples=self.pixel_samples, grid_size=self.grid_size, bias_counts=self.bias_counts,
                     slm_axial_offset_m=self.slm_axial_offset_m,
-                    axial_reference_curvature_diopter=self.axial_reference_curvature_diopter)
+                    axial_reference_curvature_diopter=self.axial_reference_curvature_diopter,
+                     slm_phase_a=self.slm_phase_a, slm_phase_b=self.slm_phase_b,
+                     amplitude_residual_coeffs=tuple(self.amplitude_residual_coeffs),
+                     monotonic_ccd_h=tuple(self.monotonic_ccd_h),
+                     monotonic_ccd_v_max=self.monotonic_ccd_v_max)
 
     def effective_parameters(self):
         """Absorb input-plane offset into the identifiable intensity parameters.
@@ -193,6 +210,12 @@ class FrozenDefocusForward:
         self._xy_t = torch.tensor(xy, dtype=torch.float32, device=self._device)
         self._grid_offsets = subpixel_offsets(torch, params.pixel_samples, device=self._device)
         self._blaze_kernel = self._build_blaze_kernel(params.sigma_ccd_px)
+        # --- optional, default-off physical-model extensions (report 20261027 §4) ---
+        # Built only when the checkpoint actually carries non-identity coefficients,
+        # so the historical linear baseline stays bit-for-bit identical.
+        self._slm_phase = self._build_slm_phase_model(params)
+        self._amp_residual = self._build_amplitude_residual(params)
+        self._monotonic_ccd = self._build_monotonic_ccd_model(params)
 
     def _mode_basis(self, noll: int):
         """单个 Noll 模式在该控制网格上的基（物理中心 952.5 面板像元）。"""
@@ -215,6 +238,44 @@ class FrozenDefocusForward:
         kernel = torch.exp(-0.5 * (grid / (sigma_px / 2.0)) ** 2)
         kernel = kernel / kernel.sum()
         return (kernel[:, None] * kernel[None, :])[None, None]
+
+    def _build_slm_phase_model(self, params: "FrozenDefocusParameters"):
+        """Bounded periodic SLM phase nonlinearity (identity when a=b=0)."""
+        if params.slm_phase_a == 0. and params.slm_phase_b == 0.:
+            return None
+        from ao_shaping.algorithm.signal_processing.slm_phase_nonlinearity import (
+            slm_phase_nonlinearity,
+        )
+        return lambda phi: slm_phase_nonlinearity(phi, params.slm_phase_a, params.slm_phase_b)
+
+    def _build_amplitude_residual(self, params: "FrozenDefocusParameters"):
+        """Low-frequency illumination amplitude residual (identity when empty)."""
+        if not params.amplitude_residual_coeffs:
+            return None
+        from ao_shaping.algorithm.signal_processing.amplitude_residual import (
+            AmplitudeResidual,
+        )
+        model = AmplitudeResidual(grid_size=int(params.grid_size),
+                                  n_modes=int(round((len(params.amplitude_residual_coeffs) ** 0.5 - 1) / 2)))
+        model.set_coeffs(params.amplitude_residual_coeffs)
+        panel_x = self.panel_x.detach().cpu().numpy().astype(np.float64)
+        panel_y = self.panel_y.detach().cpu().numpy().astype(np.float64)
+        torch = _torch()
+        residual = torch.as_tensor(model.evaluate(panel_x, panel_y),
+                                  dtype=torch.float32, device=self._device)
+        return residual  # (grid, grid) additive log residual, applied via exp
+
+    def _build_monotonic_ccd_model(self, params: "FrozenDefocusParameters"):
+        """Monotonic CCD observation-chain response (identity when h empty)."""
+        if not params.monotonic_ccd_h:
+            return None
+        from ao_shaping.algorithm.signal_processing.monotonic_response import (
+            MonotonicResponse,
+            MonotonicResponseConfig,
+        )
+        n = len(params.monotonic_ccd_h)
+        cfg = MonotonicResponseConfig(n_bins=n, v_max=float(params.monotonic_ccd_v_max))
+        return MonotonicResponse(cfg, np.asarray(params.monotonic_ccd_h, dtype=np.float64))
 
     def total_phase_grid(self, phase: Any, *, focus_phase: Any = None, carrier_phase: Any = None):
         """``phi_panel = phi + phi_focus + phi_carrier``（raw 弧度，不包裹）。"""
@@ -242,10 +303,17 @@ class FrozenDefocusForward:
         if total.ndim == 2:
             total = total[None]
         p = self.params
+        # Optional SLM command -> effective phase nonlinearity (report 20261027 §4 item 2).
+        if self._slm_phase is not None:
+            total = self._slm_phase(total)
         phase_all = defocus_phase(torch, total, self.effective_defocus, p.diopter_scale, self.z4,
                                   residual_values=self.residual_values,
                                   residual_basis=self.residual_basis)
-        field = self.amplitude[None] * torch.exp(1j * phase_all)
+        # Optional Gaussian illumination amplitude residual (report 20261027 §4 item 3).
+        amplitude = self.amplitude[None]
+        if self._amp_residual is not None:
+            amplitude = amplitude * torch.exp(self._amp_residual[None])
+        field = amplitude * torch.exp(1j * phase_all)
         intensity = focal_intensity(field, p.fft_size)
         intensity = intensity * irradiance_scale(self.pitch, p.fft_size) / self.axial_scale**2
         grids = camera_sample_grids(torch, self._xy_t, self.origin, self.inverse / self.axial_scale,
@@ -266,6 +334,9 @@ class FrozenDefocusForward:
             elif exposure.ndim != 0:
                 raise ValueError("exposure_ms must be scalar or one value per phase")
             result = result + float(p.bias_counts)/exposure
+        # Optional monotonic CCD observation-chain response (report 20261027 §4 item 1).
+        if self._monotonic_ccd is not None:
+            result = self._monotonic_ccd.forward(result)
         return result
 
     def illumination_weights(self) -> npt.NDArray[np.floating]:

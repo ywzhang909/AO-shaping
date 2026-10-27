@@ -19,7 +19,6 @@ checkpoint flag (default off) so the historical linear baseline is preserved.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
 
 import numpy as np
 
@@ -80,30 +79,31 @@ class MonotonicResponse:
         idx0 = idx.floor().long().clamp(0, self.config.n_bins - 2)
         idx1 = idx0 + 1
         frac = idx - idx0.float()
-        h0 = torch.as_tensor(self.h_values[idx0.cpu().numpy()] if idx0.dim() == 0 else self.h_values[idx0.detach().cpu().numpy().ravel()].reshape(idx0.shape), dtype=torch.float64, device=v.device)
-        h1 = torch.as_tensor(self.h_values[idx1.cpu().numpy()] if idx1.dim() == 0 else self.h_values[idx1.detach().cpu().numpy().ravel()].reshape(idx1.shape), dtype=torch.float64, device=v.device)
+        h_table = torch.as_tensor(self.h_values, dtype=torch.float64, device=v.device)
+        h0 = h_table[idx0]
+        h1 = h_table[idx1]
         return h0 * (1 - frac) + h1 * frac
 
     def forward(self, v):
-        """Apply monotonic response: integrate derivative from 0 to v."""
+        """Apply monotonic response: integrate derivative from 0 to v.
+
+        Accepts a numpy array or torch tensor.  Returns the same kind of object
+        (numpy → numpy float64, tensor → tensor float64).
+        """
         import torch
-        v_t = torch.as_tensor(v, dtype=torch.float64)
-        # Numerical integration via cumulative trapezoid on a fine grid.
-        # For simplicity, use a per-element quadrature.
-        # We'll use the derivative evaluated at midpoints.
+
+        is_numpy = not hasattr(v, "clamp")
+        v_t = torch.as_tensor(np.asarray(v, dtype=np.float64), dtype=torch.float64)
         original_shape = v_t.shape
         v_flat = v_t.reshape(-1)
-        result = torch.zeros_like(v_flat)
-        # Vectorized: for each element, integrate from v_min to v.
-        # Use cumulative sum on a shared fine grid, then interpolate.
+        # Vectorized: integrate from v_min to v on a shared fine grid, then interpolate.
         n_quad = 64
-        xs = torch.linspace(self.config.v_min, self.config.v_max, n_quad, device=v.device, dtype=torch.float64)
+        xs = torch.linspace(self.config.v_min, self.config.v_max, n_quad,
+                            device=v_t.device, dtype=torch.float64)
         dx = (self.config.v_max - self.config.v_min) / (n_quad - 1)
         derivs = self.derivative(xs)  # (n_quad,)
-        cumint = torch.cumsum(derivs, dim=0) * dx  # (n_quad,) approximate
+        cumint = torch.cumsum(derivs, dim=0) * dx  # (n_quad,)
         # cumint[i] ≈ integral from v_min to xs[i]
-        # For a given v, find integral from v_min to v.
-        # Interpolate cumint at v.
         idx = (v_flat - self.config.v_min) / (self.config.v_max - self.config.v_min) * (n_quad - 1)
         idx0 = idx.floor().long().clamp(0, n_quad - 2)
         idx1 = idx0 + 1
@@ -111,13 +111,15 @@ class MonotonicResponse:
         cum0 = cumint[idx0.clamp(0, n_quad - 1)]
         cum1 = cumint[idx1.clamp(0, n_quad - 1)]
         integral = cum0 * (1 - frac) + cum1 * frac
-        # Subtract integral at 0 (v_min) to get integral from 0? Actually integral from v_min.
-        # Adjust: response(v) = integral from 0 to v = integral from v_min to v + const.
-        # Fixed reference: response(v_ref) = v_ref.
-        v_ref_integral = self._integral_at(torch.tensor(self.config.v_ref, device=v.device, dtype=torch.float64))
-        # Scale to make derivative ~1 at reference on average.
+        # Fixed reference: response(v_ref) = v_ref, so the response cannot
+        # arbitrarily rescale the signal.
+        v_ref_integral = self._integral_at(torch.tensor(self.config.v_ref,
+                                                        device=v_t.device, dtype=torch.float64))
         result = integral - v_ref_integral + self.config.v_ref
-        return result.reshape(original_shape).to(v.dtype)
+        result = result.reshape(original_shape)
+        if is_numpy:
+            return result.detach().cpu().numpy().astype(np.float64)
+        return result
 
     def _integral_at(self, v):
         import torch

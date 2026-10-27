@@ -18,8 +18,6 @@ panel phase) when a checkpoint flag enables it (default off).
 """
 from __future__ import annotations
 
-import math
-
 import numpy as np
 
 
