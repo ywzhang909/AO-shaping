@@ -1549,6 +1549,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         _initial_objective,
                     )
 
+            # policy: exit cleanup has to reach a safe phase even on Ctrl-C -- masking the exception loses the diagnosis and an SLM left on a random phase damages the next run
             except BaseException as _exit_exc:
                 # Never let cleanup raise: a masked exception loses the
                 # diagnosis, and an SLM left on a random phase damages the
@@ -1561,6 +1562,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 try:
                     slm.set_grayscale(0)
                     logger.warning("SLM forced to flat (gray 0) on cleanup failure")
+                # policy: last-resort safe state; if forcing flat also fails the honest outcome is to record that the SLM state is unknown, not to raise from cleanup
                 except Exception:  # last resort, cannot raise
                     logger.error("could not force flat phase either; SLM state unknown")
 

@@ -134,6 +134,7 @@ cli.add_command(hadamard_matrix_run, name="hadamard-matrix")
 if __name__ == "__main__":
     try:
         cli()
+    # policy: process boundary -- log the failure for the log file, then re-raise so the CLI's exit status is preserved
     except Exception as e:
         logger.error(f"CLI error: {e}")
         raise

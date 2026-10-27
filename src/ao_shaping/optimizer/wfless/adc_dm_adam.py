@@ -67,6 +67,7 @@ def save_list_to_txt(lst, file_path):
             for item in lst:
                 file.write(str(item) + "\n")
         logger.info(f"列表已成功保存到 {file_path}")
+    # policy: a diagnostic text dump must not abort the measurement that produced the data
     except Exception as e:
         logger.error(f"保存文件时出错: {e}")
 

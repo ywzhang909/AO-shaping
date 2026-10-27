@@ -253,6 +253,7 @@ def run(
             if debug_data_dir is not None:
                 click.echo(f"  调试数据已保存到: {debug_data_dir}")
 
+    # policy: runner boundary -- name the calibration stage that failed, then propagate to the CLI's exit handling
     except Exception as e:
         logger.error("Calibration failed: {}", e)
         raise
@@ -393,6 +394,7 @@ def hadamard_matrix_run(
             logger.info(f"  矩阵形状: {response_matrix.shape}")
             logger.info(f"  平均方差: {np.mean(variance_matrix):.6f}")
 
+    # policy: same boundary for the Hadamard calibration: report which stage failed, then raise
     except Exception as e:
         logger.error(f"校准失败: {e}")
         raise

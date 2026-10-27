@@ -156,6 +156,7 @@ def _adc_worker(
             mean_v = adc.read_mean()
             ts = time.time() - t_start
             result_queue.put((ts, mean_v))
+        # policy: a worker thread that raises ends acquisition silently, so the failure is counted and the recorded series shows the gap
         except Exception as exc:
             # Never raise: killing this thread would end acquisition silently. The
             # drain loop only counts what it received, so an unreported read failure
@@ -310,6 +311,7 @@ def run(ctx: click.Context, params: AltVoltageRunnerParams) -> None:
                 adc.open()
                 click.echo("✅")
                 logger.info("ADC connected: {}/{} @ {} Hz", params.adc_device, params.adc_channel, params.adc_sample_rate)
+            # policy: ADC recording is optional -- the voltage sweep still runs when acquisition cannot be opened
             except Exception as e:
                 click.echo(f"❌ {e}")
                 logger.error("ADC connection failed: {}", e)
@@ -406,6 +408,7 @@ def run(ctx: click.Context, params: AltVoltageRunnerParams) -> None:
             cycle_count += 1
             time.sleep(half_period)
 
+    # policy: an interrupted alternation loop is reported to the operator and the log, then execution falls through to the safe-shutdown path
     except Exception as e:
         click.echo(f"\n❌ 运行异常: {e}")
         logger.exception("Alt voltage loop error")
@@ -429,6 +432,7 @@ def run(ctx: click.Context, params: AltVoltageRunnerParams) -> None:
                     writer.writerows(adc_data)
                 click.echo(f"📄 ADC 数据已保存: {csv_path}  ({len(adc_data)} 条记录)")
                 logger.info("ADC data saved: {} ({} records)", csv_path, len(adc_data))
+            # policy: writing the recorded series is a side output; the experiment has already run, so a failed export is reported rather than raised
             except Exception as e:
                 logger.exception("Failed to save ADC data")
                 click.echo(f"⚠️ ADC 数据保存失败: {e}")
@@ -439,6 +443,7 @@ def run(ctx: click.Context, params: AltVoltageRunnerParams) -> None:
                 adc.close()
                 click.echo("  ✅ ADC 已关闭")
                 logger.info("ADC closed")
+            # policy: best-effort device close in teardown; the acquisition outcome is already logged
             except Exception as e:
                 logger.exception("ADC close error")
                 click.echo(f"  ⚠️ ADC 关闭失败: {e}")
@@ -459,6 +464,7 @@ def _safe_shutdown(ctrl: R50Controller, channels: list[int]) -> None:
             for ch in channels:
                 ctrl.set_channel_voltage(ch, 0.0)
         click.echo("  ✅ 已下发 0V 到所有通道")
+    # policy: a failed 0 V write during safe shutdown must reach the bench -- the channels may still be live
     except Exception as e:
         click.echo(f"  ⚠️  下发 0V 失败: {e}")
 
@@ -466,6 +472,7 @@ def _safe_shutdown(ctrl: R50Controller, channels: list[int]) -> None:
     try:
         ctrl.set_relay(False)
         click.echo("  ✅ 继电器已下电")
+    # policy: the operator has to know whether the relay is still energised; raising here would stop the remaining shutdown steps
     except Exception as e:
         click.echo(f"  ⚠️  继电器下电失败: {e}")
 
@@ -473,6 +480,7 @@ def _safe_shutdown(ctrl: R50Controller, channels: list[int]) -> None:
     try:
         ctrl.close()
         click.echo("  ✅ 连接已关闭")
+    # policy: closing the link after a failed run is best effort -- the instrument state has already been reported by the steps above
     except Exception as e:
         click.echo(f"  ⚠️  关闭连接失败: {e}")
 
@@ -625,6 +633,7 @@ async def _amain(
                 if remaining <= 0:
                     break
                 await asyncio.sleep(min(remaining, SLEEP_SLICE))
+    # policy: same as the alternation loop: report to operator and log, do not abandon the shutdown sequence
     except Exception as e:
         click.echo(f"\n❌ 运行异常: {e}")
         logger.exception("Full voltage loop error")

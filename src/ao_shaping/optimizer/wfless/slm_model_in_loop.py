@@ -1896,6 +1896,7 @@ class _HardwareBench:
                 logger.info(
                     "CCD ROI centered on full-frame zero order ({}, {})", full_x, full_y
                 )
+        # policy: opening devices is a sequence -- unwind whatever was already opened, then let the failure propagate so the run never proceeds half-open
         except Exception:
             if self._slm is not None:
                 self._restore_display()
@@ -2111,6 +2112,7 @@ class _HardwareBench:
         for device in (self._slm, self._cam):
             try:
                 device.close()
+            # policy: one device refusing to close must not stop the remaining devices from closing
             except Exception as exc:  # teardown must not mask the run
                 logger.warning("failed to close {}: {}", type(device).__name__, exc)
 
@@ -2123,6 +2125,7 @@ class _HardwareBench:
                     self._slm.set_grayscale(self._original_gray)
             else:
                 self._slm._display_memory(self._original_slot)
+        # policy: restoring the display during teardown is best effort; failing to restore must not replace the failure that is already propagating
         except Exception as exc:  # still close both devices
             logger.warning("failed to restore initial SLM display: {}", exc)
 

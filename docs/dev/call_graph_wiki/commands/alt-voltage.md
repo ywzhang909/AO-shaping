@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: command
 tags: [command]
-source: src/ao_shaping/runners/micro_drive/voltage_runner.py:210
+source: src/ao_shaping/runners/micro_drive/voltage_runner.py:211
 ---
 
 ## 一句话
@@ -13,7 +13,7 @@ R50 交替电压下发 + ADC 同步采集
 
 ## 入口函数
 
-`runners.micro_drive.voltage_runner.run`（`src/ao_shaping/runners/micro_drive/voltage_runner.py:210`）
+`runners.micro_drive.voltage_runner.run`（`src/ao_shaping/runners/micro_drive/voltage_runner.py:211`）
 
 ```python
 run(ctx, params)
