@@ -3813,6 +3813,15 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 又修掉一处**我自己制造的不一致**：注册表头注释仍写 `27 marked, 355 unmarked`，而隔壁上限已是 341——**守卫旁边的陈旧数字**比缺守卫更危险，因为它看起来是权威读数。
 - 顺带解释了一次"绿得可疑"：wiki 行号守卫没红，不是漏看——全库 65 处 wiki 钉行**没有一处**指向这三个驱动文件，本就没有可漂移的引用（核查过，不是假设）。
 
+**2026-10-27 · 6b879959 · #44 第三步：`_log_row`(66) 与 `_debug_report`(26) 上提到模块级，入口 1091→1069 行**
+- 选它们**不是按行数**，是按扫描实测的三个条件：只被调用、从不作为值存储/传递；自身不声明 `nonlocal`；其读取的自由变量在 def 之后不被外层体重绑。`_log_row` 读的 `best_objective`/`r_bucket` 确由 `_run_spgd` 经 `nonlocal` 写入，但它四个调用点全在这些写入者内部、读的是同一时刻同一 cell ⇒ 传参与闭包**等价**。
+- **`_on_evaluate` 刻意留在嵌套位置**：它是入口函数里唯一**按值传递**的 def（交给启发式引擎作 evaluate 钩子），自由变量必须是活 cell；改成调用点快照会冻结引擎后续修改的状态。它需要的是 run 状态对象——且字段现已可**实测**而非猜：`_run_spgd` 声明 `nonlocal _init_c, _init_r, best_c, best_objective, delta, last_best_epoch, r_bucket`，`_run_heuristic` 声明 `best_c, best_objective, last_best_epoch`。
+- 每个新增参数恰等于一个自由变量，因此**函数体未变**：语句列表 `ast.dump` 改前改后**逐字节相同**（`_log_row` 4253==4253、`_debug_report` 1413==1413 字节）。整函数 dump 唯一差异是 docstring 续行的**前导空格** 12→4（离开 `with` 块的必然结果），忽略缩进后逐行文本相同。
+- **我自己写出的两个 bug（都在写盘前被拦下）**：① 一次把调用实参按 `,` 切分再重排，把 `grad=np.zeros(nk, dtype=np.float64)` **拦腰截断**，产生 SyntaxError——因为脚本在写盘前先解析自身输出。② 两处删除按原序进行，第一次删除后 `lines` 已缩短，第二处仍用**原文件行号**下刀，切进了 `_apply_best_on_exit` 体内。规则：**多站点文本编辑必须按行号降序**，且**绝不用逗号切分实参列表**（改用 `tokenize` 配对括号，只在右括号前插入）。
+- 实测结构：入口 **1091→1069**（建档 1311），嵌套 def **6→4**，模块级具名对象 **15→17**。
+- 回归按 CI 对该子树的实际形态（per-file；`optimizer` 整棵单进程 6g 下 SIGKILL，即 #198）：改前改后 **55 个文件小结、有序 (passed, skipped, failed) 三元组逐位一致**，1081 passed / 2 skipped / 0 failed，两条 SKIPPED 按文件与理由一致。另 `runners` 554/25、`utils` 1490/4 与基线相同。该子树正是这两个 helper 的消费方，含 `_log_row` docstring 自称的"默认 recorder schema 是钉死契约"。
+- **本次是 012ee64b 那个文档钉 tripwire 第一次在生产改动上生效**：上提挪动了入口内行号，守卫自己报出新锚点而不需要我重算——`set_reference_center(pos_center)` 1870→1944、`max_peak` 门控 1793→1857、退出清理 `BaseException` 1497→1552（TODO.md 引用两次，两行都改）。区间右界 **1867 取自代码实际闭合行**（该告警调用的收尾），不是把旧窗口 +10 平移。conventions 回到 70 passed / 1 skipped。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
