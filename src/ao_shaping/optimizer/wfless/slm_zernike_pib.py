@@ -616,6 +616,12 @@ class _PibGeometry:
     fix_bucket: bool
     update_iter: int
     init_r: float
+    # The caller-supplied values as this pass left them. ``center`` stays FULL-FRAME;
+    # the search loop reads these four, which is why they could not be simple arguments.
+    center: Any
+    target_size: Any
+    target_center_smooth: Any
+    r_bucket: Any
 
 
 
@@ -688,6 +694,262 @@ def _evaluate_candidate(
     )
     return obj_val
 
+
+
+@dataclass(frozen=True)
+class _PibGeometryInputs:
+    """Everything `_prepare_geometry` reads, bound before the camera window is sized.
+
+    Issue #44: the geometry pass took these sixteen values out of the enclosing scope. As
+    an explicit frozen record it becomes testable without opening a device, and the two
+    coordinate frames it produces (`center_full` vs `reference_center`) are no longer mixed
+    up with the run state that only exists mid-optimisation.
+    """
+
+    _init_c: Any
+    blaze_choice: Any
+    cam: Any
+    cam_size: Any
+    config: Any
+    epochs: Any
+    exposure_time_ms: Any
+    n_max: Any
+    pattern_helper: Any
+    shape_for_metric: Any
+    shrink_ratio: Any
+    slm: Any
+    target_aspect_ratio: Any
+    target_max_brightness: Any
+    to_gray: Any
+    zernike_radius: Any
+    # Read AND refined by the pass; the refined values come back on `_PibGeometry`.
+    # These four are the names the nested version declared `nonlocal`.
+    center: Any
+    target_size: Any
+    target_center_smooth: Any
+    r_bucket: Any
+
+
+def _prepare_geometry(inp: _PibGeometryInputs) -> _PibGeometry:
+    """Locate the 0-order, size/re-window the camera, and derive the
+    target box + bucket radius from the flat-field frame.
+
+    Reads the enclosing run configuration and the open ``cam``/``slm``;
+    returns every value the search phases and the exit cleanup need.
+    """
+    _init_c, blaze_choice, cam, cam_size = (
+        inp._init_c, inp.blaze_choice, inp.cam, inp.cam_size
+    )
+    config, epochs, exposure_time_ms, n_max = (
+        inp.config, inp.epochs, inp.exposure_time_ms, inp.n_max
+    )
+    pattern_helper, shape_for_metric, shrink_ratio, slm = (
+        inp.pattern_helper, inp.shape_for_metric, inp.shrink_ratio, inp.slm
+    )
+    target_aspect_ratio, target_max_brightness, to_gray, zernike_radius = (
+        inp.target_aspect_ratio, inp.target_max_brightness, inp.to_gray, inp.zernike_radius
+    )
+
+    # These four are read before they are written (``resolve_spot_center(..., center,
+    # ...)``, ``if target_size is None``, ``if r_bucket <= 0``), so they arrive as inputs
+    # and are handed back refined on the returned record.
+    center, target_size, target_center_smooth, r_bucket = (
+        inp.center, inp.target_size, inp.target_center_smooth, inp.r_bucket
+    )
+    initial_phase = to_gray(
+        zernike_to_phase(_init_c, n_max, pattern_helper, zernike_radius, default_radius=ZERNIKE_APERTURE_RADIUS)
+    )
+    display_rotating(slm, initial_phase, _SLOT_ROTATOR)
+    time.sleep(SLM_RESPONSE_TIME_S)
+
+    # Initial acquisition used to locate the spot. When a fixed exposure was
+    # requested we honour it here too: auto-exposing to
+    # TEST_EXPOSURE_TIME_BRIGHTNESS can exceed a safe exposure limit (e.g.
+    # >3 ms on this bench) before the operator's chosen value is applied.
+    _img = capture_with_exposure(
+        cam,
+        exposure_time_ms,
+        TEST_EXPOSURE_TIME_BRIGHTNESS,
+        n_sample=config.n_eval_frames,
+    )
+
+    # Resolve the centre spec (None / "mass" / "max" / "shape" / tuple).
+    # When centre is None, ``smart_zero_order_center`` auto-detects via
+    # argmax + flat-core-aware local centroid; when a string, a fresh frame
+    # is re-captured and dispatched by name.
+    center = (
+        blaze_choice.signal_xy if blaze_choice is not None
+        else resolve_spot_center(cam, _img, center, n_sample=10)
+    )
+    log_center_brightness(_img, center, get_camera_exposure_ms(cam))
+
+    img_size = (cam_size, cam_size)
+    # Keep the ROI inside the frame: DahengCamera.reset_window rejects
+    # negative offsets, so a spot near an edge would abort the run.
+    center = clamp_center_to_frame(center, _img.shape, cam_size)
+    # Full-frame geometry: needed to re-window (enlargement) and to capture
+    # the report's un-windowed before/after frames later on.
+    center_full = (float(center[0]), float(center[1]))
+    full_frame_shape: tuple[int, int] = (
+        int(_img.shape[0]),
+        int(_img.shape[1]),
+    )
+    img_size, center = cam.reset_window(center, img_size)
+    logger.info("reset window center @ {}", center)
+
+    # Precedence: fixed exposure (`--exposure-time-ms > 0`) wins over
+    # auto-exposure (`--target-max-brightness > 0`); `0/0` keeps the current
+    # exposure ("若为0则不自动调整曝光时间", matching the runner help).
+    init_img = capture_with_exposure(
+        cam,
+        exposure_time_ms,
+        target_max_brightness,
+        n_sample=config.n_eval_frames,
+    )
+    logger.debug(
+        "Initial Image Max brightness: {} @ {}ms",
+        np.max(init_img),
+        get_camera_exposure_ms(cam),
+    )
+    img_size = init_img.shape[::-1]
+
+    # Enforce a >= CAM_WINDOW_TARGET_MARGIN x target-long-side window: the
+    # metric's energy denominator is the window total, so the out-of-box
+    # energy must stay visible. Enlarge (and re-capture) when cam_size is
+    # smaller than that, whatever value the caller asked for.
+    _est_extent = (
+        float(target_size)
+        if target_size is not None
+        else min(
+            max(
+                TARGET_BOX_WAIST_FACTOR * float(spot_waist_sigma(init_img, center)),
+                4.0,
+            ),
+            float(min(img_size)),
+        )
+    )
+    _long_side = _est_extent * (
+        float(target_aspect_ratio) if shape_for_metric == "rectangle" else 1.0
+    )
+    _required = int(np.ceil(CAM_WINDOW_TARGET_MARGIN * _long_side))
+    if _required > int(img_size[0]):
+        logger.warning(
+            "camera window {}x{} is smaller than {:.1f}x the target long side "
+            "({:.0f}px) - enlarging to {}x{}",
+            img_size[0],
+            img_size[1],
+            CAM_WINDOW_TARGET_MARGIN,
+            _long_side,
+            _required,
+            _required,
+        )
+        _req_center = clamp_center_to_frame(
+            center_full, full_frame_shape, _required
+        )
+        img_size, center = cam.reset_window(_req_center, (_required, _required))
+        center_full = (float(_req_center[0]), float(_req_center[1]))
+        init_img = cam.get_numpy_image(config.n_eval_frames)
+        img_size = init_img.shape[::-1]
+        logger.info("camera window enlarged to {}x{}", img_size[0], img_size[1])
+
+    # ``reset_window`` returns the window centre in FULL-FRAME sensor
+    # coordinates, but every downstream metric (``rms_pib_terms``, waist,
+    # radius) operates on the re-windowed ``init_img``. The 0-order spot is
+    # therefore re-located inside the window here - this also absorbs the
+    # runner's auto exposure/centre probe, which likewise returns a
+    # full-frame centre (un-windowed probe camera). Operator-supplied
+    # full-frame centres fix the window position, and the freshly positioned
+    # window then has the spot at its argmax, so re-locating stays correct
+    # for them too.
+    _spot = (
+        (
+            int(blaze_choice.signal_xy[0] - center[0] + img_size[0] // 2),
+            int(blaze_choice.signal_xy[1] - center[1] + img_size[1] // 2),
+        )
+        if blaze_choice is not None else zero_order_center(init_img)
+    )
+    reference_center: tuple[float, float] = (float(_spot[0]), float(_spot[1]))
+    if target_size is None:
+        _w, _h = img_size
+        # Box = TARGET_BOX_WAIST_FACTOR x the flat-field spot WAIST (not the
+        # 99%-encircled radius, which the stray halo blows up ~2x).
+        _waist = float(spot_waist_sigma(init_img, reference_center))
+        _want = TARGET_BOX_WAIST_FACTOR * _waist
+        logger.info(
+            "spot waist w0 = {:.1f}px -> target box (short side) = {:.1f}px",
+            _waist,
+            _want,
+        )
+        # Fit by the template's LONG side: a 4:3 rectangle is
+        # ``size * aspect_ratio`` wide, so clamping only by ``min(img_size)``
+        # let the box exceed the window width and get clipped.
+        if shape_for_metric == "rectangle":
+            _fit = min(float(_h), float(_w) / float(target_aspect_ratio))
+        else:
+            _fit = min(float(_h), float(_w))
+        if _want > _fit:
+            logger.warning(
+                "dynamic target size {:.1f}px ({}x waist) exceeds the "
+                "{}x{} window fit {:.1f}px - clamped; raise cam_size for a "
+                "full-size target",
+                _want,
+                TARGET_BOX_WAIST_FACTOR,
+                _w,
+                _h,
+                _fit,
+            )
+        target_size = float(min(max(_want, 4.0), _fit))
+        logger.info("Use dynamic target size @ {:.1f}px", target_size)
+
+    target_center_smooth = int(target_center_smooth)
+    target_center_history: deque[tuple[float, float]] = deque()
+    for _ in range(target_center_smooth):
+        target_center_history.append(reference_center)
+
+    if r_bucket <= 0:
+        _w, _h = img_size
+        # ``reference_center`` is the window-local spot position (see
+        # above); ``center`` here holds the FULL-FRAME window centre
+        # returned by ``reset_window`` and would be out of bounds for the
+        # windowed ``init_img`` - the 99%-entcircled radius must be
+        # anchored on the re-located spot.
+        r_bucket = ImageTargetFunc(_w, _h, reference_center).radius(
+            init_img, energy=0.99
+        )
+        r_bucket = min(r_bucket, cam_size // 2) * shrink_ratio
+        _fix_bucket = False
+        logger.info("Use dynamic radiu @ {}", r_bucket)
+    else:
+        _fix_bucket = True
+
+    if (
+        shrink_ratio <= 0
+        or np.isclose(shrink_ratio, 1.0)
+        or r_bucket <= IDEAL_SPOT_RADIUS
+    ):
+        update_iter = max(1, epochs)
+    else:
+        shrink_span = np.log(IDEAL_SPOT_RADIUS / r_bucket) / np.log(shrink_ratio)
+        if np.isfinite(shrink_span) and shrink_span > 0:
+            update_iter = max(1, int(epochs * 0.8 // shrink_span))
+        else:
+            update_iter = max(1, epochs)
+    _init_r = r_bucket
+    return _PibGeometry(
+        initial_phase=initial_phase,
+        full_frame_img=_img,
+        center_full=center_full,
+        full_frame_shape=full_frame_shape,
+        init_img=init_img,
+        reference_center=reference_center,
+        fix_bucket=_fix_bucket,
+        update_iter=update_iter,
+        init_r=_init_r,
+        center=center,
+        target_size=target_size,
+        target_center_smooth=target_center_smooth,
+        r_bucket=r_bucket,
+    )
 
 def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
     """Optimize PIB (Power in Bucket) using SLM with Zernike coefficient control.
@@ -915,212 +1177,29 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 _init_c = _init_c[:nk]
 
         # Reset SLM to flat phase
-        def _prepare_geometry() -> _PibGeometry:
-            """Locate the 0-order, size/re-window the camera, and derive the
-            target box + bucket radius from the flat-field frame.
 
-            Reads the enclosing run configuration and the open ``cam``/``slm``;
-            returns every value the search phases and the exit cleanup need.
-            """
-
-            # ``center``/``target_size``/``target_center_smooth``/``r_bucket`` are already
-            # bound in the enclosing run scope and are REBOUND here, so they must stay
-            # nonlocal: the block reads the caller-supplied value (``resolve_spot_center(
-            # ..., center, ...)``, ``if target_size is None``, ``if r_bucket <= 0``) before
-            # assigning it. Values the block newly creates are returned instead.
-            nonlocal center, target_size, target_center_smooth, r_bucket
-            initial_phase = to_gray(
-                zernike_to_phase(_init_c, n_max, pattern_helper, zernike_radius, default_radius=ZERNIKE_APERTURE_RADIUS)
-            )
-            display_rotating(slm, initial_phase, _SLOT_ROTATOR)
-            time.sleep(SLM_RESPONSE_TIME_S)
-
-            # Initial acquisition used to locate the spot. When a fixed exposure was
-            # requested we honour it here too: auto-exposing to
-            # TEST_EXPOSURE_TIME_BRIGHTNESS can exceed a safe exposure limit (e.g.
-            # >3 ms on this bench) before the operator's chosen value is applied.
-            _img = capture_with_exposure(
-                cam,
-                exposure_time_ms,
-                TEST_EXPOSURE_TIME_BRIGHTNESS,
-                n_sample=config.n_eval_frames,
-            )
-
-            # Resolve the centre spec (None / "mass" / "max" / "shape" / tuple).
-            # When centre is None, ``smart_zero_order_center`` auto-detects via
-            # argmax + flat-core-aware local centroid; when a string, a fresh frame
-            # is re-captured and dispatched by name.
-            center = (
-                blaze_choice.signal_xy if blaze_choice is not None
-                else resolve_spot_center(cam, _img, center, n_sample=10)
-            )
-            log_center_brightness(_img, center, get_camera_exposure_ms(cam))
-
-            img_size = (cam_size, cam_size)
-            # Keep the ROI inside the frame: DahengCamera.reset_window rejects
-            # negative offsets, so a spot near an edge would abort the run.
-            center = clamp_center_to_frame(center, _img.shape, cam_size)
-            # Full-frame geometry: needed to re-window (enlargement) and to capture
-            # the report's un-windowed before/after frames later on.
-            center_full = (float(center[0]), float(center[1]))
-            full_frame_shape: tuple[int, int] = (
-                int(_img.shape[0]),
-                int(_img.shape[1]),
-            )
-            img_size, center = cam.reset_window(center, img_size)
-            logger.info("reset window center @ {}", center)
-
-            # Precedence: fixed exposure (`--exposure-time-ms > 0`) wins over
-            # auto-exposure (`--target-max-brightness > 0`); `0/0` keeps the current
-            # exposure ("若为0则不自动调整曝光时间", matching the runner help).
-            init_img = capture_with_exposure(
-                cam,
-                exposure_time_ms,
-                target_max_brightness,
-                n_sample=config.n_eval_frames,
-            )
-            logger.debug(
-                "Initial Image Max brightness: {} @ {}ms",
-                np.max(init_img),
-                get_camera_exposure_ms(cam),
-            )
-            img_size = init_img.shape[::-1]
-
-            # Enforce a >= CAM_WINDOW_TARGET_MARGIN x target-long-side window: the
-            # metric's energy denominator is the window total, so the out-of-box
-            # energy must stay visible. Enlarge (and re-capture) when cam_size is
-            # smaller than that, whatever value the caller asked for.
-            _est_extent = (
-                float(target_size)
-                if target_size is not None
-                else min(
-                    max(
-                        TARGET_BOX_WAIST_FACTOR * float(spot_waist_sigma(init_img, center)),
-                        4.0,
-                    ),
-                    float(min(img_size)),
-                )
-            )
-            _long_side = _est_extent * (
-                float(target_aspect_ratio) if shape_for_metric == "rectangle" else 1.0
-            )
-            _required = int(np.ceil(CAM_WINDOW_TARGET_MARGIN * _long_side))
-            if _required > int(img_size[0]):
-                logger.warning(
-                    "camera window {}x{} is smaller than {:.1f}x the target long side "
-                    "({:.0f}px) - enlarging to {}x{}",
-                    img_size[0],
-                    img_size[1],
-                    CAM_WINDOW_TARGET_MARGIN,
-                    _long_side,
-                    _required,
-                    _required,
-                )
-                _req_center = clamp_center_to_frame(
-                    center_full, full_frame_shape, _required
-                )
-                img_size, center = cam.reset_window(_req_center, (_required, _required))
-                center_full = (float(_req_center[0]), float(_req_center[1]))
-                init_img = cam.get_numpy_image(config.n_eval_frames)
-                img_size = init_img.shape[::-1]
-                logger.info("camera window enlarged to {}x{}", img_size[0], img_size[1])
-
-            # ``reset_window`` returns the window centre in FULL-FRAME sensor
-            # coordinates, but every downstream metric (``rms_pib_terms``, waist,
-            # radius) operates on the re-windowed ``init_img``. The 0-order spot is
-            # therefore re-located inside the window here - this also absorbs the
-            # runner's auto exposure/centre probe, which likewise returns a
-            # full-frame centre (un-windowed probe camera). Operator-supplied
-            # full-frame centres fix the window position, and the freshly positioned
-            # window then has the spot at its argmax, so re-locating stays correct
-            # for them too.
-            _spot = (
-                (
-                    int(blaze_choice.signal_xy[0] - center[0] + img_size[0] // 2),
-                    int(blaze_choice.signal_xy[1] - center[1] + img_size[1] // 2),
-                )
-                if blaze_choice is not None else zero_order_center(init_img)
-            )
-            reference_center: tuple[float, float] = (float(_spot[0]), float(_spot[1]))
-            if target_size is None:
-                _w, _h = img_size
-                # Box = TARGET_BOX_WAIST_FACTOR x the flat-field spot WAIST (not the
-                # 99%-encircled radius, which the stray halo blows up ~2x).
-                _waist = float(spot_waist_sigma(init_img, reference_center))
-                _want = TARGET_BOX_WAIST_FACTOR * _waist
-                logger.info(
-                    "spot waist w0 = {:.1f}px -> target box (short side) = {:.1f}px",
-                    _waist,
-                    _want,
-                )
-                # Fit by the template's LONG side: a 4:3 rectangle is
-                # ``size * aspect_ratio`` wide, so clamping only by ``min(img_size)``
-                # let the box exceed the window width and get clipped.
-                if shape_for_metric == "rectangle":
-                    _fit = min(float(_h), float(_w) / float(target_aspect_ratio))
-                else:
-                    _fit = min(float(_h), float(_w))
-                if _want > _fit:
-                    logger.warning(
-                        "dynamic target size {:.1f}px ({}x waist) exceeds the "
-                        "{}x{} window fit {:.1f}px - clamped; raise cam_size for a "
-                        "full-size target",
-                        _want,
-                        TARGET_BOX_WAIST_FACTOR,
-                        _w,
-                        _h,
-                        _fit,
-                    )
-                target_size = float(min(max(_want, 4.0), _fit))
-                logger.info("Use dynamic target size @ {:.1f}px", target_size)
-
-            target_center_smooth = int(target_center_smooth)
-            target_center_history: deque[tuple[float, float]] = deque()
-            for _ in range(target_center_smooth):
-                target_center_history.append(reference_center)
-
-            if r_bucket <= 0:
-                _w, _h = img_size
-                # ``reference_center`` is the window-local spot position (see
-                # above); ``center`` here holds the FULL-FRAME window centre
-                # returned by ``reset_window`` and would be out of bounds for the
-                # windowed ``init_img`` - the 99%-entcircled radius must be
-                # anchored on the re-located spot.
-                r_bucket = ImageTargetFunc(_w, _h, reference_center).radius(
-                    init_img, energy=0.99
-                )
-                r_bucket = min(r_bucket, cam_size // 2) * shrink_ratio
-                _fix_bucket = False
-                logger.info("Use dynamic radiu @ {}", r_bucket)
-            else:
-                _fix_bucket = True
-
-            if (
-                shrink_ratio <= 0
-                or np.isclose(shrink_ratio, 1.0)
-                or r_bucket <= IDEAL_SPOT_RADIUS
-            ):
-                update_iter = max(1, epochs)
-            else:
-                shrink_span = np.log(IDEAL_SPOT_RADIUS / r_bucket) / np.log(shrink_ratio)
-                if np.isfinite(shrink_span) and shrink_span > 0:
-                    update_iter = max(1, int(epochs * 0.8 // shrink_span))
-                else:
-                    update_iter = max(1, epochs)
-            _init_r = r_bucket
-            return _PibGeometry(
-                initial_phase=initial_phase,
-                full_frame_img=_img,
-                center_full=center_full,
-                full_frame_shape=full_frame_shape,
-                init_img=init_img,
-                reference_center=reference_center,
-                fix_bucket=_fix_bucket,
-                update_iter=update_iter,
-                init_r=_init_r,
-            )
-
-        _geo = _prepare_geometry()
+        _geo = _prepare_geometry(_PibGeometryInputs(
+            _init_c=_init_c,
+            blaze_choice=blaze_choice,
+            cam=cam,
+            cam_size=cam_size,
+            center=center,
+            config=config,
+            epochs=epochs,
+            exposure_time_ms=exposure_time_ms,
+            n_max=n_max,
+            pattern_helper=pattern_helper,
+            r_bucket=r_bucket,
+            shape_for_metric=shape_for_metric,
+            shrink_ratio=shrink_ratio,
+            slm=slm,
+            target_aspect_ratio=target_aspect_ratio,
+            target_center_smooth=target_center_smooth,
+            target_max_brightness=target_max_brightness,
+            target_size=target_size,
+            to_gray=to_gray,
+            zernike_radius=zernike_radius,
+        ))
         initial_phase = _geo.initial_phase
         _img = _geo.full_frame_img
         center_full = _geo.center_full
@@ -1128,6 +1207,10 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         init_img = _geo.init_img
         reference_center = _geo.reference_center
         _fix_bucket = _geo.fix_bucket
+        center = _geo.center
+        target_size = _geo.target_size
+        target_center_smooth = _geo.target_center_smooth
+        r_bucket = _geo.r_bucket
         update_iter = _geo.update_iter
         _init_r = _geo.init_r
 
