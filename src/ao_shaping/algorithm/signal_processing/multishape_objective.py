@@ -94,6 +94,24 @@ def anchored_intensity(measured, prediction, baseline_prediction):
 
 
 
+def fft_grid_target(forward, centre, side, shape):
+    """Sample the shape target on the forward model's own FFT grid (CCD pixels).
+
+    The FFT grid is the centred spectrum layout the model propagates to
+    (``fftshift(fft2(ifftshift(field)))``), so index ``[i, j]`` of the returned
+    array is the far-field sample at that spectral position. Every seed
+    construction (GS, geometric transport, back-projection) must address the
+    same grid, so this is the single place the mapping from spectrum index to
+    CCD pixel is written down.
+    """
+    p = forward.params
+    n = p.fft_size
+    yy, xx = np.mgrid[:n, :n]
+    frequency = np.stack((xx - n // 2, yy - n // 2), axis=-1) / (n * forward.pitch)
+    camera_xy = frequency @ np.asarray(p.ramp_matrix).T + np.asarray(p.origin_xy)
+    return target_at(camera_xy, shape, centre, side)
+
+
 def gs_seed(forward, centre, side, shape):
     """Construct the target on FFT coordinates using the full measured matrix.
 
@@ -106,17 +124,14 @@ def gs_seed(forward, centre, side, shape):
 
     p = forward.params
     n, g = p.fft_size, p.grid_size
-    half = (n-g)//2
-    yy, xx = np.mgrid[:n, :n]
-    frequency = np.stack((xx-n//2, yy-n//2), axis=-1)/(n*forward.pitch)
-    camera_xy = frequency @ np.asarray(p.ramp_matrix).T + np.asarray(p.origin_xy)
-    target = target_at(camera_xy, shape, centre, side)
+    half = (n - g) // 2
+    target = fft_grid_target(forward, centre, side, shape)
     amplitude = np.zeros((n, n))
-    amplitude[half:half+g, half:half+g] = forward.amplitude.detach().cpu().numpy()
+    amplitude[half:half + g, half:half + g] = forward.amplitude.detach().cpu().numpy()
     result = gerchberg_saxton(amplitude, np.sqrt(target), iterations=80, propagation="fft")
-    static = p.defocus_diopter*p.diopter_scale*forward.z4.detach().cpu().numpy()
+    static = p.defocus_diopter * p.diopter_scale * forward.z4.detach().cpu().numpy()
     if forward.residual_basis is not None:
-        static = static+np.einsum("i,ijk->jk", forward.residual_values.detach().cpu().numpy(),
-                                  forward.residual_basis.detach().cpu().numpy())
-    return result.phase[half:half+g, half:half+g]-static
+        static = static + np.einsum("i,ijk->jk", forward.residual_values.detach().cpu().numpy(),
+                                    forward.residual_basis.detach().cpu().numpy())
+    return result.phase[half:half + g, half:half + g] - static
 

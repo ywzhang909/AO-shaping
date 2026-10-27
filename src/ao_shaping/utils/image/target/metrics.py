@@ -86,9 +86,21 @@ DIFFERENTIABLE_SHAPE_CHOICES: tuple[str, ...] = tuple(
     if s in {"square", "rectangle", "triangle", "star", "circle", "gaussian", "spot"}
 )
 
+#: The polygon family **plus the uniform disc** -- the shape set the
+#: physical-forward transfer tooling can seed and validate (transfer CLI
+#: choices, the shape-general non-GS back-projection seed). Subset view of
+#: :data:`TARGET_SHAPE_CHOICES` (order preserved). The disc is not a polygon,
+#: so it is not in :data:`POLYGON_SHAPE_CHOICES`; it is a target raster
+#: (``create_target_shape``) rather than a polygon mask (``target.masks``),
+#: which is why the mask family stays polygon-only.
+TRANSFER_SHAPE_CHOICES: tuple[str, ...] = tuple(
+    s for s in TARGET_SHAPE_CHOICES if s in {"square", "rectangle", "triangle", "star", "circle"}
+)
+
 # The views above must never drift out of the canonical vocabulary.
 assert set(POLYGON_SHAPE_CHOICES) <= set(TARGET_SHAPE_CHOICES)
 assert set(DIFFERENTIABLE_SHAPE_CHOICES) <= set(TARGET_SHAPE_CHOICES)
+assert set(TRANSFER_SHAPE_CHOICES) <= set(TARGET_SHAPE_CHOICES)
 
 
 def target_shape_roi(

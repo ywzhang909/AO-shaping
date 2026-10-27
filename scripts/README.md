@@ -3226,6 +3226,7 @@ defocus rather than the 0-order light, and the three conclusions it overturned.
 | `generate_sim2f_shaping_report.py` | Render `report/sim2f_shaping/closed_loop_20261025/report.md` + 9 figures from `runs/sim2f_fair/**` (teacher-vs-flat per family, bench transfer, four-variant ablation, noise ladder, determinism). `--run-dir` re-points it at another lane; a missing artefact renders `未测`, never a placeholder. |
 | `build_sim2f_aberration_covariance.py` | 生成 `ml.sim2f` 的 von Karman Zernike 协方差资产 (`src/ml/sim2f/assets/zernike_cov_kolmogorov_n21.npz` + 同源 JSON)。做法: OOPAO `phaseStats.makeCovarianceMatrix` 在模型实际使用的瞳面采样点上求相位协方差 (先去 piston), 再用 `Sim2f.zernike_basis` 的最小二乘投影得到 Noll 4..22 的系数协方差 (`rad²`, 换算到 1064 nm)。默认解析解 ⇒ 无采样噪声, 重跑逐字节一致; `--estimator sampled` 走 OOPAO 相位屏做蒙特卡洛交叉校核, `--check` 比对 JSON 里记录的 SHA 与磁盘上的载荷。`AberrationConfig(aberration_model="kolmogorov", covariance_path=...)` 读它; 默认仍是 `"iid"`, 逐位不变。 |
 | `measure_sim2f_kl_basis.py` | 回答一个决策问题: `fit.py` 的探针基该不该从 Noll 换成 KL。用 `Σ_z` 的特征向量作 KL 基, 按 `trace(PΣP)/trace(Σ)` 量 K 个模式捕获的方差份额 (三个基族: Noll 序 / `Σ` 特征序 / 实测抽样序), 并在 `Sim2f` 上真的搭出响应矩阵比较 `s_max/s_min`。**判据预注册**: 方差捕获 ≥1.5× **且** 条件数恶化 ≤2× 才接线。实测 KL 只多捕获 1.02–1.04× (可达上限就是 1.04×: Σ 的非对角相关只连到方差差 3.7–9.5 倍的模式上, 旋转用不上), K=19 时两者同为 100% ⇒ 判据 1 不成立, **结论是不接线**; 条件数一栏 KL 不比 Noll 差 (比值 0.64–1.26)。输出写 `logs/<timestamp>/`。 |
+| `validate_sim2f_vs_hw_corpus.py` | 把 G0-4 (`ncc(实测 net 帧, 孪生预测 net 帧) >= 0.5`) 放到真实 `data/debug/` 语料上回答, 并顺带量孪生的**焦面标度**是否对。只读 `data/debug/model_in_loop_hw_collect/20261025*` (312 条记录 / 54 个 pkl), 相位走 `ml.hwdataset.Materialiser`, 实测帧走 `farfield_frame_to_grid(..., 64, "raw")`, 孪生走 `Sim2f(Sim2fConfig.calibrated())`; 度量只有零均值 ncc 与归一化 L1 (禁绝对 Strehl/PIB/EE/FWHM), 几何按 `k` 扫描 (`k = 孪生 CCD 像素 / 实测像素`, `128 + (i − 31.5)·k` 双线性), 阈值**预注册**且事后不放宽。**实测**: 312 条记录按内容哈希只剩 18 个不同的 (相位, 帧) 对 (6 指令条件 x 3 轮, 每对存 6–36 次) ⇒ 统计单位改成去重后的对, 并把「按序号对半分」这条与族完全混杂的预登记缺陷写进报告; 结论 `not_similar` (归一化 L1 在 12 个 k 上的最小值 1.2027, 门限 0.5), G0-4 的 `min` 口径 +0.453 未通过、中位口径 +0.625 通过。写 `report/sim2f_bench/twin_vs_hw_corpus/20261027/`。 |
 
 ## Verification Scripts
 
@@ -4555,3 +4556,22 @@ change in the animation is real and not a per-frame renormalisation.
 
 Report: [`sim_pretrain_transfer_20261024.md`](../report/shape_trials/sim_pretrain_transfer/sim_pretrain_transfer_20261024.md).
 
+
+### Multishape 1200-px physical-forward shaping report (2026-10-27)
+
+`slm/generate_multishape1200_report.py` renders the report of the
+from-zero-model + multishape session written by the `slm-transfer-shapes`
+runner (`src/ao_shaping/runners/slm/transfer_shapes_runner.py`): the
+from-zero-vs-warm-start model comparison, the measured seed bake-off over the
+three non-GS / GS initial-phase constructions, the per-shape core-CV tables,
+the common replay and the Recorder process animation.
+
+```powershell
+.venv\Scripts\python.exe scripts/slm/generate_multishape1200_report.py
+.venv\Scripts\python.exe scripts/slm/generate_multishape1200_report.py --session data/debug/slm_transfer/<session>
+```
+
+Output: `report/shape_trials/multishape1200/multishape1200_20261027.md` plus
+`figures/` (PNG + the process GIF) and `artifacts/` (the session's own
+summary files). Offline: it only reads the session directory, it never
+re-measures.

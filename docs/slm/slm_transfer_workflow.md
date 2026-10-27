@@ -308,3 +308,23 @@ CCD 恰在后焦面且不存在截光时，SLM 轴向位置不改变远场强度
 使用 `--adaptive-exposure` 或 GUI「运行中自动调整 CCD 曝光（块间）」允许每块前重新测光。启用配对时 A1/B1/B2/A2 使用同一曝光；关闭配对时每块仍先取得新的 CCD 锚定图像。每次测光保存搜索原始帧、相位、时间和曝光读回值。模型锚定图像按每帧读回曝光归一化，但这仍依赖相机响应近似线性，不代表曝光响应已经校准。
 
 结束时额外保存当前自动曝光下的最终图像，再以初始与当前曝光的较小值重拍初始相位和最终相位，避免将曝光变化误判为相位改善。`*_seed_replay` 与 `*_final` 是最终同曝光对照；`*_final_adaptive` 保留运行中曝光下的结果。审计允许块间曝光变化，并检查配对块内和逐帧读回值一致。跨曝光的原始 EE/CV 仍应分别解释。
+
+## 14. 从零训练 + 多形状整形的统一入口（2026-10-27）
+
+`slm-transfer-shapes` 把「探针采集 → 从零拟合物理预测模型 → 逐形状 CCD 锚定整形 → 共同重放 → Recorder 记录」编排成一条命令：
+
+```powershell
+& $py src/ao_shaping/main.py slm-transfer-shapes `
+  --out data/debug/slm_transfer/<session> `
+  --shapes square --shapes triangle --shapes star --shapes circle `
+  --device cuda --execute
+```
+
+- **从零**：不传 `--checkpoint` 时，模型由当前光路的一次探针采集单独初始化（`bootstrap` 给出名义检查点）并在探针上拟合，不使用任何历史模型。标称初始化给出的照明位置与实测相差约 150 面板像元，Adam 的默认位置学习率走不完这段距离，因此从零训练应显式给 `--amplitude-center-lr`（本轮用 4 面板像元/步）并把 `--fit-iterations` 提到 150 量级。
+- **复用**：`--model-dir <session>` 复用该会话已采的探针与已拟合的模型，只跑整形段。
+- **形状**：目标边长由 `--side`（CCD 原生像元）给出，四种形状用同一边长。`circle` 属于 `TRANSFER_SHAPE_CHOICES`（多边形族 + 均匀圆盘），它是目标栅格而不是多边形掩膜，所以 `utils.image.target.masks` 的多边形族不变。
+- **四段流程**：初相位 → Mono12 → 续跑 → 稠密（`--window-step 2` + 宽带载波模型），与 2026-10-26 的正方形链一致；接受判据是**实测**核心 CV 下降。
+- **初相位择优**：三种构造（`transport` 传输 / `backprojection` 反投影 / `gs`）先各测一次初相位的核心 CV，逐形状取优（对比择优）。`transport` 只对正方形精确（可分离相位无法产生不可分离远场）；`backprojection` 是形状通用的非 GS 构造（一次逆变换，无迭代、无测量反馈），但它要求的瞳面空间频率可能超过控制 Nyquist；`gs` 是模型自带的 80 次迭代。
+- **记录**：逐 CCD 块的记录写入 `records/process.csv`、`records/process.h5` 与 `records/process_sidecars/`，并由 `Recorder.render_gif` 渲染过程动画。
+
+本轮实测结论见[多形状物理预测模型闭环整形报告](../../report/shape_trials/multishape1200/multishape1200_20261027.md)。

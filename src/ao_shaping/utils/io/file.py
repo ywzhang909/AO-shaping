@@ -17,6 +17,9 @@ from ao_shaping.utils.io.recorder_keys import (
     RECORD_EPOCH,
     RECORD_ID,
     RECORD_IMAGE,
+    RECORD_PHASE,
+    RECORD_GRAD,
+    RECORD_DIFF,
 )
 from ao_shaping.utils.io.timestamp import (
     DATE_FMT,
@@ -467,7 +470,9 @@ def save_history_hdf5(
 
 
 class Recorder:
-    def __init__(self, mark: str = "J", mode: "Literal['max', 'min'] | RecordMode" = "max"):
+    def __init__(
+        self, mark: str = "J", mode: "Literal['max', 'min'] | RecordMode" = "max"
+    ):
         self.mark = mark
         self.mode = RecordMode.coerce(mode)
         self.history = list()
@@ -581,9 +586,7 @@ class Recorder:
         # blows up with a bare AssertionError, so a plain iteration silently
         # breaks. Also note ``assert`` vanishes under ``python -O``.
         if not -len(self.history) <= index < len(self.history):
-            raise IndexError(
-                f"index {index} out of range {len(self.history)}"
-            )
+            raise IndexError(f"index {index} out of range {len(self.history)}")
         if hasattr(self.history, "iloc"):
             return self.history.iloc[index]
         return self.history[index]
@@ -628,6 +631,155 @@ class Recorder:
         target_iter, (index, value) = self.get_best_iter()
         return target_iter[target], (index, value)
 
+    def render_gif(
+        self,
+        output_path: "str | Path",
+        *,
+        fps: float = 4.0,
+        title: str | None = None,
+        max_frames: int | None = None,
+        font_path: str | None = None,
+    ) -> Path:
+        """Render the recorder history as an animated GIF.
+
+        Panels are chosen from the variable types actually stored in the
+        recorder's records (2-D arrays -> image panels, 1-D arrays -> bar
+        charts, scalars -> metrics text + trajectory). Matplotlib is imported
+        lazily so ``utils/`` stays a leaf layer.
+        """
+        return render_recorder_gif(
+            self,
+            output_path,
+            fps=fps,
+            title=title,
+            max_frames=max_frames,
+            font_path=font_path,
+        )
+
+    def save_gif(self, *args, **kwargs) -> Path:
+        """Alias for :meth:`render_gif`."""
+        return self.render_gif(*args, **kwargs)
+
+    @classmethod
+    def from_dir(cls, path, *, mark=None, mode="max"):
+        """Restore a :class:`Recorder` from a directory (or single file) of
+        saved artifacts (``.pkl`` / ``.json`` / ``.csv`` / ``.zip``).
+
+        The pickled data-mode dict ``{epoch: record}`` produced by
+        :func:`save_recorder_debug_artifacts` is preferred; CSV/JSON are
+        fallbacks. ``mark`` is auto-detected when omitted.
+        """
+        return cls.from_saved(path, mark=mark, mode=mode)
+
+    @classmethod
+    def from_saved(cls, path, *, mark=None, mode="max"):
+        path = Path(path)
+        if path.is_dir():
+            pkls = sorted(path.glob("*.pkl"))
+            csvs = sorted(list(path.glob("*.csv")) + list(path.glob("*.zip")))
+            jsons = sorted(path.glob("*.json"))
+            if pkls:
+                path = pkls[0]
+            elif csvs:
+                path = csvs[0]
+            elif jsons:
+                path = jsons[0]
+            else:
+                raise FileNotFoundError(f"no restorable artifacts in {path}")
+
+        if path.suffix == ".pkl":
+            with open(path, "rb") as f:
+                obj = pickle.load(f)
+            if isinstance(obj, cls):
+                return obj
+            if isinstance(obj, dict):
+                items = sorted(obj.items(), key=_epoch_key)
+                rows = [dict(v) for _, v in items]
+                for k, v in items:
+                    if (
+                        isinstance(v, dict)
+                        and RECORD_EPOCH not in v
+                        and isinstance(k, (int, np.integer))
+                    ):
+                        v = rows[[kk for kk, _ in items].index(k)] if False else None
+                # set epoch where missing
+                for i, (k, v) in enumerate(items):
+                    if isinstance(v, dict) and RECORD_EPOCH not in v:
+                        if isinstance(k, (int, np.integer)):
+                            rows[i][RECORD_EPOCH] = int(k)
+            elif isinstance(obj, (list, tuple)):
+                rows = [dict(r) if isinstance(r, dict) else r for r in obj]
+            else:
+                rows = []
+        elif path.suffix in (".csv", ".zip"):
+            df = pd.read_csv(path)
+            rows = [r.to_dict() for _, r in df.iterrows()]
+        elif path.suffix == ".json":
+            with open(path, encoding="utf-8") as f:
+                obj = json.load(f)
+            if (
+                isinstance(obj, dict)
+                and obj
+                and all(isinstance(v, dict) for v in obj.values())
+            ):
+                items = sorted(obj.items(), key=_epoch_key)
+                rows = [dict(v) for _, v in items]
+                for i, (k, v) in enumerate(items):
+                    if RECORD_EPOCH not in v and isinstance(k, (int, np.integer)):
+                        rows[i][RECORD_EPOCH] = int(k)
+            elif isinstance(obj, list):
+                rows = [dict(r) if isinstance(r, dict) else r for r in obj]
+            else:
+                rows = [obj] if isinstance(obj, dict) else []
+        else:
+            raise ValueError(f"unsupported artifact type: {path.suffix}")
+
+        if not rows:
+            raise ValueError(f"no records restored from {path}")
+
+        if mark is None:
+            first = rows[0] if isinstance(rows[0], dict) else {}
+            if "J" in first:
+                mark = "J"
+            else:
+                for cand in ("score", "loss", *_DATA_MODE_OBJECTIVE_KEYS):
+                    if isinstance(first, dict) and cand in first:
+                        mark = cand
+                        break
+                if mark is None and isinstance(first, dict):
+                    for k, v in first.items():
+                        if not (isinstance(k, str) and k.startswith("_")):
+                            try:
+                                float(v)
+                                mark = k
+                                break
+                            except (TypeError, ValueError):
+                                pass
+            if mark is None:
+                mark = "J"
+
+        rec = cls(mark=mark, mode=RecordMode.coerce(mode))
+        for idx, raw in enumerate(rows):
+            r: dict[str, Any] = raw if isinstance(raw, dict) else {mark: raw}
+            if mark not in r:
+                r[mark] = r.get(RECORD_ID, idx)
+                try:
+                    r[mark] = float(r[mark])
+                except (TypeError, ValueError):
+                    r[mark] = 0.0
+            if RECORD_EPOCH not in r:
+                r[RECORD_EPOCH] = idx
+            try:
+                r[mark] = float(r[mark])
+            except (TypeError, ValueError):
+                pass
+            rec.append(r)
+        return rec
+
+    @classmethod
+    def load(cls, *args, **kwargs):
+        return cls.from_saved(*args, **kwargs)
+
     def get_sublist(self, columns: list[str] | str | None = ""):
         if not columns:
             columns = self.mark
@@ -635,6 +787,389 @@ class Recorder:
             return [l.get(columns, np.nan) for l in self.history]
         else:
             return [{k: v for k, v in l.items() if k in columns} for l in self.history]
+
+
+# ---------------------------------------------------------------------------
+# PKL / Recorder -> animated GIF rendering (variable-type aware)
+# ---------------------------------------------------------------------------
+
+
+def _is_phase_key(key: str) -> bool:
+    kl = key.lower()
+    return key == RECORD_PHASE or "phase" in kl
+
+
+def _is_grad_key(key: str) -> bool:
+    kl = key.lower()
+    return key in (RECORD_GRAD, RECORD_DIFF) or "grad" in kl or "diff" in kl
+
+
+def _classify_recorder_rows(rows: list[dict]) -> dict[str, list[str]]:
+    """Classify record columns by their value type (inspecting the first row)."""
+    phase_keys: list[str] = []
+    image_keys: list[str] = []
+    grad_keys: list[str] = []
+    coeff_keys: list[str] = []
+    scalar_keys: list[str] = []
+    text_keys: list[str] = []
+    if not rows:
+        return {
+            "phase": phase_keys,
+            "image": image_keys,
+            "grad": grad_keys,
+            "coeff": coeff_keys,
+            "scalar": scalar_keys,
+            "text": text_keys,
+        }
+    first = rows[0]
+    for key, value in first.items():
+        if isinstance(value, str):
+            text_keys.append(key)
+            continue
+        arr = None
+        if isinstance(value, np.ndarray):
+            arr = value
+        elif isinstance(value, (list, tuple)):
+            try:
+                arr = np.asarray(value)
+            except Exception:
+                arr = None
+        if arr is not None and arr.ndim >= 1:
+            if arr.ndim >= 2:
+                if _is_phase_key(key):
+                    phase_keys.append(key)
+                elif _is_grad_key(key):
+                    grad_keys.append(key)
+                else:
+                    image_keys.append(key)
+            else:
+                coeff_keys.append(key)
+            continue
+        # scalar?
+        try:
+            float(value)  # type: ignore[arg-type]
+            scalar_keys.append(key)
+        except (TypeError, ValueError):
+            pass
+    return {
+        "phase": phase_keys,
+        "image": image_keys,
+        "grad": grad_keys,
+        "coeff": coeff_keys,
+        "scalar": scalar_keys,
+        "text": text_keys,
+    }
+
+
+def _resolve_recorder_rows(source) -> tuple[list[dict], str | None]:
+    """Resolve a Recorder / pkl path / dict / list into (rows, mark)."""
+    if isinstance(source, (str, Path)):
+        with open(source, "rb") as f:
+            obj = pickle.load(f)
+        if isinstance(obj, Recorder):
+            return list(obj.history), obj.mark
+        if isinstance(obj, dict):
+            items = sorted(obj.items(), key=lambda kv: _epoch_key(kv[0]))
+            return [dict(v) for _, v in items], None
+        if isinstance(obj, (list, tuple)):
+            return [dict(r) if isinstance(r, dict) else r for r in obj], None
+        if hasattr(obj, "history"):
+            return list(obj.history), getattr(obj, "mark", None)
+        return [], None
+    if isinstance(source, Recorder):
+        return list(source.history), source.mark
+    if isinstance(source, dict):
+        items = sorted(source.items(), key=lambda kv: _epoch_key(kv[0]))
+        return [dict(v) for _, v in items], None
+    if hasattr(source, "history"):
+        return list(source.history), getattr(source, "mark", None)
+    if isinstance(source, (list, tuple)):
+        return [dict(r) if isinstance(r, dict) else r for r in source], None
+    return [], None
+
+
+def _epoch_key(k):
+    try:
+        return (0, int(k))
+    except (TypeError, ValueError):
+        return (1, str(k))
+
+
+def render_recorder_gif(
+    source,
+    output_path: "str | Path",
+    *,
+    fps: float = 4.0,
+    title: str | None = None,
+    max_frames: int | None = None,
+    font_path: str | None = None,
+) -> Path:
+    """Render a Recorder / pkl / dict / list of records into an animated GIF.
+
+    Panels are selected from the variable types actually present in the records:
+    2-D phase arrays (twilight, wrapped to [-pi, pi)), other 2-D arrays
+    (inferno), gradients (coolwarm), 1-D arrays (bar charts), scalars (metrics
+    text + trajectory). Matplotlib is imported lazily.
+    """
+    rows, mark = _resolve_recorder_rows(source)
+    if not rows:
+        raise ValueError("no records to render")
+
+    if max_frames is not None and len(rows) > max_frames:
+        idx = np.linspace(0, len(rows) - 1, max_frames, dtype=int)
+        rows = [rows[i] for i in idx]
+
+    cls = _classify_recorder_rows(rows)
+    phase_keys = cls["phase"]
+    image_keys = cls["image"]
+    grad_keys = cls["grad"]
+    coeff_keys = cls["coeff"]
+    scalar_keys = cls["scalar"]
+    text_keys = cls["text"]
+
+    # font setup
+    import os as _os
+
+    if font_path is None:
+        font_path = "C:/Windows/Fonts/msyh.ttc"
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.font_manager as fm
+    import matplotlib.pyplot as plt
+    from matplotlib.animation import PillowWriter
+
+    if font_path and _os.path.exists(font_path):
+        try:
+            fm.fontManager.addfont(font_path)
+            fp = fm.FontProperties(fname=font_path)
+            plt.rcParams["font.family"] = fp.get_name()
+            plt.rcParams["font.sans-serif"] = [fp.get_name(), "SimHei", "SimSun"]
+        except Exception:
+            plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "SimSun"]
+    else:
+        plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "SimSun"]
+    plt.rcParams["axes.unicode_minus"] = False
+
+    # top image panels: phase first, then image, then grad (max 3)
+    top_keys: list[tuple[str, str]] = []  # (key, kind)
+    for k in phase_keys:
+        top_keys.append((k, "phase"))
+    for k in image_keys:
+        top_keys.append((k, "image"))
+    for k in grad_keys:
+        top_keys.append((k, "grad"))
+    # include 1D coeff as bar panel if room
+    if len(top_keys) < 3 and coeff_keys:
+        top_keys.append((coeff_keys[0], "coeff"))
+    top_keys = top_keys[:3]
+
+    # trajectory key: mark if scalar present else first scalar
+    traj_key = None
+    if mark and mark in scalar_keys:
+        traj_key = mark
+    elif scalar_keys:
+        # prefer loss/score/objective-like
+        for cand in ("loss", "score", "objective", "pib", "cv", "rmse"):
+            if cand in scalar_keys:
+                traj_key = cand
+                break
+        if traj_key is None:
+            traj_key = scalar_keys[0]
+
+    out_path = Path(output_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, axes = plt.subplots(2, 3, figsize=(14, 8.4))
+    writer = PillowWriter(fps=int(fps))
+
+    total = len(rows)
+    initial_phase_arr = None
+
+    for index, rec in enumerate(rows):
+        for row in axes:
+            for ax in row:
+                ax.clear()
+
+        # top panels
+        for j in range(3):
+            ax = axes[0][j]
+            if j < len(top_keys):
+                key, kind = top_keys[j]
+                val = rec.get(key, None)
+                if val is None:
+                    ax.text(0.5, 0.5, f"no {key}", ha="center", va="center")
+                    ax.axis("off")
+                    continue
+                arr = np.asarray(val)
+                if kind == "phase":
+                    try:
+                        wrapped = np.mod(arr.astype(float) + np.pi, 2 * np.pi) - np.pi
+                    except (TypeError, ValueError):
+                        ax.text(
+                            0.5,
+                            0.5,
+                            f"{key} (non-numeric)",
+                            ha="center",
+                            va="center",
+                            fontsize=9,
+                        )
+                        ax.set_xticks([])
+                        ax.set_yticks([])
+                        continue
+                    ax.imshow(
+                        wrapped,
+                        cmap="twilight",
+                        origin="upper",
+                        vmin=-np.pi,
+                        vmax=np.pi,
+                    )
+                    ax.set_title(f"{key} 瞳面相位 (rad)", fontsize=10)
+                    if initial_phase_arr is None:
+                        initial_phase_arr = wrapped.copy()
+                elif kind == "grad":
+                    ax.imshow(arr, cmap="coolwarm", origin="upper")
+                    ax.set_title(f"{key}", fontsize=10)
+                elif kind == "coeff":
+                    try:
+                        arrf = np.asarray(arr, dtype=float)
+                        ax.bar(range(len(arrf)), arrf)
+                    except (TypeError, ValueError):
+                        ax.text(
+                            0.5,
+                            0.5,
+                            f"{key} (non-numeric)",
+                            ha="center",
+                            va="center",
+                            fontsize=9,
+                        )
+                    ax.set_title(f"{key}", fontsize=10)
+                else:
+                    ax.imshow(arr, cmap="inferno", origin="upper")
+                    ax.set_title(f"{key}", fontsize=10)
+                ax.set_xticks([])
+                ax.set_yticks([])
+            else:
+                ax.axis("off")
+
+        # bottom-left: phase diff if phase available
+        ax_bl = axes[1][0]
+        if phase_keys:
+            key = phase_keys[0]
+            val = rec.get(key, None)
+            if val is not None and initial_phase_arr is not None and index > 0:
+                try:
+                    arr = np.asarray(val, dtype=float)
+                    wrapped = np.mod(arr + np.pi, 2 * np.pi) - np.pi
+                    diff = wrapped - initial_phase_arr
+                    ax_bl.imshow(
+                        diff, cmap="coolwarm", origin="upper", vmin=-np.pi, vmax=np.pi
+                    )
+                    ax_bl.set_title("相位变化 (vs 初始)", fontsize=10)
+                except (TypeError, ValueError):
+                    ax_bl.text(
+                        0.5,
+                        0.5,
+                        "phase diff unavailable",
+                        ha="center",
+                        va="center",
+                        fontsize=9,
+                    )
+            elif index == 0:
+                ax_bl.text(
+                    0.5, 0.5, "初始相位 (无变化)", ha="center", va="center", fontsize=10
+                )
+                ax_bl.axis("off")
+            else:
+                ax_bl.axis("off")
+        elif coeff_keys:
+            key = coeff_keys[0]
+            val = rec.get(key, None)
+            if val is not None:
+                try:
+                    arr = np.asarray(val, dtype=float)
+                    ax_bl.bar(range(len(arr)), arr)
+                except (TypeError, ValueError):
+                    ax_bl.text(
+                        0.5,
+                        0.5,
+                        f"{key} (non-numeric)",
+                        ha="center",
+                        va="center",
+                        fontsize=9,
+                    )
+                ax_bl.set_title(f"{key}", fontsize=10)
+            else:
+                ax_bl.axis("off")
+        else:
+            ax_bl.axis("off")
+        ax_bl.set_xticks([])
+        ax_bl.set_yticks([])
+
+        # bottom-middle: metrics text
+        ax_bm = axes[1][1]
+        ax_bm.axis("off")
+        ax_bm.set_title("metrics", fontsize=10)
+        lines = []
+        for k in scalar_keys:
+            v = rec.get(k, None)
+            if v is None:
+                continue
+            if isinstance(v, (np.ndarray, list, tuple)):
+                lines.append(f"{k}: {np.asarray(v).shape}")
+                continue
+            try:
+                lines.append(f"{k}: {float(v):.4f}")
+            except (TypeError, ValueError):
+                lines.append(f"{k}: {v}")
+        for k in text_keys:
+            v = rec.get(k, None)
+            if v is not None:
+                lines.append(f"{k}: {v}")
+        lines.append(f"epoch: {index + 1}/{total}")
+        ax_bm.text(
+            0.05,
+            0.95,
+            "\n".join(lines),
+            transform=ax_bm.transAxes,
+            fontsize=9,
+            va="top",
+            family="sans-serif",
+        )
+
+        # bottom-right: trajectory
+        ax_br = axes[1][2]
+        if traj_key is not None:
+            xs = list(range(index + 1))
+            ys = []
+            for r in rows[: index + 1]:
+                v = r.get(traj_key, None)
+                if v is None:
+                    ys.append(float("nan"))
+                    continue
+                try:
+                    ys.append(float(v))
+                except (TypeError, ValueError):
+                    ys.append(float("nan"))
+            ax_br.plot(xs, ys, color="steelblue", linewidth=1.0)
+            ax_br.set_title(f"{traj_key} 轨迹", fontsize=10)
+            ax_br.set_xlabel("迭代")
+            ax_br.grid(alpha=0.3)
+        else:
+            ax_br.axis("off")
+
+        if title:
+            fig.suptitle(f"{title} ({index + 1}/{total})", fontsize=12)
+        fig.tight_layout()
+
+        if index == 0:
+            writer.setup(fig, out_path, dpi=100)
+        writer.grab_frame()
+
+    writer.finish()
+    plt.close(fig)
+    logger.info(f"GIF saved: {out_path}")
+    return out_path
 
 
 # ---------------------------------------------------------------------------
@@ -769,9 +1304,7 @@ def _save_data_mode_debug_artifacts(
                 panel = np.asarray(data[e][top_right_key])
                 break
     if panel is not None:
-        ax_tr.set_title(
-            top_right_title if top_right_title else f"last {top_right_key}"
-        )
+        ax_tr.set_title(top_right_title if top_right_title else f"last {top_right_key}")
         # uint16 panels are SLM grayscale (2pi == device _max_gray); render them
         # with a gray ramp so the wrap period is legible. Anything else keeps
         # matplotlib's default map (far-field intensity frames).
@@ -960,7 +1493,10 @@ def save_optimization_debug_artifacts(
         )
 
     # --- wavefront mode (historical behaviour) ---
-    from ao_shaping.display.image_display import make_debug_wavefront_ax_plots, plot_funcs
+    from ao_shaping.display.image_display import (
+        make_debug_wavefront_ax_plots,
+        plot_funcs,
+    )
 
     import matplotlib.pyplot as plt
 

@@ -1,0 +1,22 @@
+{
+  "static_png_pixels_equal": true,
+  "static_labels": [
+    "strict_square_seed",
+    "mono12_dense_square_final",
+    "strict_square_final",
+    "nonmonotone_square_final",
+    "mono12_dense_square_3_B",
+    "strict_square_8_B",
+    "nonmonotone_square_14_B"
+  ],
+  "actual_shape": [
+    600,
+    4200,
+    3
+  ],
+  "regenerated_shape": [
+    600,
+    4200,
+    3
+  ]
+}

@@ -52,6 +52,7 @@ from ao_shaping.utils.image.target.metrics import (
     LOGGRAD_EPS,
     LOGGRAD_SIGMA,
     POLYGON_SHAPE_CHOICES,
+    TRANSFER_SHAPE_CHOICES,
     SHAPE_STAGE_WEIGHTS,
     TARGET_SHAPE_CHOICES,
     log_gradient_difference_from_fields,
@@ -125,6 +126,7 @@ __all__ = [
     # metrics
     "TARGET_SHAPE_CHOICES",
     "POLYGON_SHAPE_CHOICES",
+    "TRANSFER_SHAPE_CHOICES",
     "DIFFERENTIABLE_SHAPE_CHOICES",
     "target_shape_roi",
     "spot_waist_sigma",

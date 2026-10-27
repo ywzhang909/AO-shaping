@@ -121,6 +121,7 @@ AO-shaping/
 | GS 预整形 + 自由相位 SPGD 细化 (硬件) | `src/ao_shaping/optimizer/wfless/slm_gs_refine.py` + `runners/slm/gs_refine_runner.py` | 仿真 `iterative_zernike_shaping.py` 的硬件移植: GS 开环预矫正 (仅当实测优于平场才采用) + 无感知 SPGD 细化 (CLI: `slm-gs-refine`) |
 | 物理预测模型闭环校正 + 反复迭代 (硬件) | `src/ao_shaping/optimizer/wfless/slm_model_in_loop.py` + `runners/slm/model_in_loop_runner.py` | 仿真 `model_in_loop_shaping.simulate_iterative_shaping` 的硬件移植: 每轮用强随机探针重拟合物理预测模型的 Zernike 像差 (Step A), 再冻结该像差合成目标方斑相位 (Step B), 用 trust region + 逐轮验收抑制两者相互耦合振荡 (CLI: `slm-model-in-loop`) |
 | **迁移学习闭环整形（物理预测模型）** | `src/ao_shaping/tools/slm/transfer/` + `src/ao_shaping/gui/slm/shaping_controls.py` | 单一入口 `run_session` / `TransferSession`（CLI `python -m ao_shaping.tools.slm.transfer`，GUI 闭环整形「迁移学习」同入口）: `capture.py` 采集 + `to_panel`、`workflow.py` 阶段编排与 journal、`validate.py` A–B–B–A 验收、`fit.py` / `adaptation.py` / `seeding.py` / `pretrain.py`。接受相位自带载波（`ramp_matrix`），下发时跳过侧栏载波层 |
+| **多形状物理预测模型闭环整形（从零训练）** | `src/ao_shaping/runners/slm/transfer_shapes_runner.py` | 单一 runner 编排「从零训练物理预测模型 → 逐形状 CCD 锚定整形 → 共同重放 → Recorder 记录」：探针采集 (`capture`) → 名义初始化 (`bootstrap`) → 拟合 (`fit`) → 控制分辨率导出 (`geometric_seed`) → 四段整形 (`validate`：非 GS 初相位 / Mono12 / 续跑 / 稠密) → 同曝光同位深重放 (`replay_phases`) → 逐 CCD 块的 Recorder 记录 (`transfer/recording.py`，CSV + HDF5 + 过程 GIF)。CLI: `slm-transfer-shapes`。初相位有三种构造并**实测择优**：传输 (`square_transport_phase`，仅正方形精确) / 反投影 (`target_backprojection_phase`，形状通用但受控制 Nyquist 限制) / GS (`gs_seed`) |
 | Zernike 工具 | `src/ao_shaping/utils/wavefront/zernike_utils.py` | 系数解析 (Noll/(n,m)/数组) + 相位生成，Noll 1976 约定 |
 | **SLM 闪耀光栅衍射效率 / 相位响应标定** | `src/ao_shaping/tools/slm/calibration/diffraction_efficiency/` | 2f 实验系统里用一维闪耀光栅测器件的相位调制深度与衍射效率: `core.py` (纯算法: 图案/阶次识别/**离散器件模型**/拟合/诊断) + `simulate.py` (数字孪生: 填充因子/LUT/面板相差/离焦) + `measure.py` (Santec+Daheng 硬件后端) + `artifacts.py` (CSV/JSON/PNG)。CLI: `python -m ao_shaping.tools.slm.calibration.diffraction_efficiency {simulate,measure,analyze}`。**硬件前置条件**: 必须先有光路标定 `.npz` (几何标定产出), 否则无法预测 ±1 级落点。⚠️ **可信范围** (见 `report/slm/diffraction_efficiency/sim_nonideality_20261022.md`): **相对效率曲线可信, 但拟合出的相位深度只在"幂律器件 + 在焦 + 填充因子≈1"三前提同时成立时可信** —— 填充因子 0.8 会把标称器件报成过调制 (+16%), 非幂律 LUT 偏 +42%, 离焦偏 +11%。**光斑宽度门禁** (`--fwhm-gate-ratio`, 默认 3×; `--reference-fwhm-px` 给一条**在焦**的绝对参照) 把这类失真变成显式失败: 门禁触发时越限点与"零级被熄灭"的点**一并**退出拟合, 有效点不足即**拟合报错**而不是给出一个偏了的深度 |
 | RL training | `src/ao_shaping/optimizer/rl/` | SAC, LR-WFS |
@@ -303,7 +304,7 @@ algorithm/     算法基础层  — 纯数学优化器 (update/grad), 无硬件�
 
 | 类型 | 说明 |
 |------|------|
-| 已注册 CLI 命令 | main.py 注册 **19** 个命令（逐个 `cli.add_command`，见 `main.py` 的 `# Register subcommands` 段；名单由 `tests/ao_shaping/runners/test_cli_contract_freeze.py::EXPECTED_COMMANDS` 冻结），见 Entry Points 节 |
+| 已注册 CLI 命令 | main.py 注册 **20** 个命令（逐个 `cli.add_command`，见 `main.py` 的 `# Register subcommands` 段；名单由 `tests/ao_shaping/runners/test_cli_contract_freeze.py::EXPECTED_COMMANDS` 冻结），见 Entry Points 节 |
 | 独立 Runner (未注册) | 需直接运行 `python -m ao_shaping.runners.<name>` 或 standalone 脚本; `runners/slm/offset_runner.py` 计划迁移至 `tools/slm/`。⚠️ `slm_shaping_runner` **曾经**在此列 (2026-10-05 前它未注册); 现以 `slm-pib` **命令组**注册（子命令 `spgd` / `heuristic` / `square`）；⚠️ 无 `slm-pib` 之外的 `spgd-square` 顶层命令 ⇒ 写 `slm-pib square` |
 
 ### 共享辅助
@@ -853,7 +854,7 @@ python src/ao_shaping/main.py hadamard-matrix       # Hadamard 响应矩阵
 
 **CLI Structure (main.py 注册关系):**
 ```
-main (click.group)                                  # 19 个命令，逐个由 cli.add_command 注册
+main (click.group)                                  # 20 个命令，逐个由 cli.add_command 注册
 ├── wf                ← runners.nlight_dm.wf_runner
 ├── pib               ← runners.nlight_dm.axis_beam_runner
 ├── pipeline          ← runners.nlight_dm.pipeline_runner
@@ -871,6 +872,7 @@ main (click.group)                                  # 19 个命令，逐个由 c
 ├── slm-gsnet         ← runners.slm.gsnet_runner
 ├── slm-gs-refine     ← runners.slm.gs_refine_runner
 ├── slm-model-in-loop ← runners.slm.model_in_loop_runner
+├── slm-transfer-shapes ← runners.slm.transfer_shapes_runner  (物理预测模型多形状闭环整形: 从零训练 + 逐形状整形)
 ├── slm-lut           ← tools.slm.calibration.lut_runner       (来自 tools/，不经 _LAZY_RUNNERS)
 └── slm-diagnose      ← tools.slm.panel.diagnose               (同上)
 # 一个模块导出多个命令时必须显式给出 attr（`_IMPORT_ATTRS`），

@@ -48,6 +48,7 @@ import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw, ImageFont
 from ao_shaping.utils.io.recorder_keys import (
     RECORD_COEFFS,
+    RECORD_EPOCH,
     RECORD_IMAGE,
     RECORD_PHASE,
 )
@@ -82,10 +83,21 @@ def _collect_pkls() -> list[Path]:
 
 
 def _load_run(pkl: Path) -> dict:
-    """Load a pkl; return ``{epoch: record}`` dict."""
-    with open(pkl, "rb") as fh:
-        data = pickle.load(fh)
-    if not isinstance(data, dict) or not data:
+    """Load a pkl; return ``{epoch: record}`` dict.
+
+    Reconstructs a :class:`Recorder` first (unified load path), then projects
+    its history back into the epoch-keyed dict the rest of this script expects.
+    """
+    from ao_shaping.utils.io.file import Recorder
+
+    rec = Recorder.from_saved(pkl)
+    data: dict = {}
+    for i, r in enumerate(rec.history):
+        if not isinstance(r, dict):
+            continue
+        epoch = r.get(RECORD_EPOCH, i)
+        data[epoch] = r
+    if not data:
         raise ValueError(f"pkl 无有效记录: {pkl}")
     return data
 

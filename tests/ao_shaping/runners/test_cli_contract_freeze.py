@@ -60,6 +60,7 @@ EXPECTED_COMMANDS = (
     "slm-lut",
     "slm-model-in-loop",
     "slm-pib",
+    "slm-transfer-shapes",
     "wf",
     "zernike-matrix",
 )

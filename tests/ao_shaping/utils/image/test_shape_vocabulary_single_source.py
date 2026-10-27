@@ -30,6 +30,7 @@ from ao_shaping.utils.image.target.metrics import (
     DIFFERENTIABLE_SHAPE_CHOICES,
     POLYGON_SHAPE_CHOICES,
     TARGET_SHAPE_CHOICES,
+    TRANSFER_SHAPE_CHOICES,
 )
 
 SRC_ROOT = Path(__import__("ao_shaping").__file__).resolve().parents[0]
@@ -44,6 +45,7 @@ REGISTERED_VIEWS = (
     frozenset(TARGET_SHAPE_CHOICES),
     frozenset(POLYGON_SHAPE_CHOICES),
     frozenset(DIFFERENTIABLE_SHAPE_CHOICES),
+    frozenset(TRANSFER_SHAPE_CHOICES),
 )
 
 
@@ -132,15 +134,25 @@ def test_subset_views_are_views_of_the_canonical_vocabulary() -> None:
         "gaussian",
         "spot",
     }
+    # The transfer family is the polygon family plus the uniform disc: the
+    # disc is a target raster, not a polygon mask, so it is not in the polygon
+    # view -- but it must be in the transfer view (the transfer CLI accepts it).
+    assert set(TRANSFER_SHAPE_CHOICES) == {"square", "rectangle", "triangle", "star", "circle"}
     assert set(POLYGON_SHAPE_CHOICES) <= set(TARGET_SHAPE_CHOICES)
     assert set(DIFFERENTIABLE_SHAPE_CHOICES) <= set(TARGET_SHAPE_CHOICES)
+    assert set(TRANSFER_SHAPE_CHOICES) <= set(TARGET_SHAPE_CHOICES)
 
 
-@pytest.mark.parametrize("view", ["POLYGON_SHAPE_CHOICES", "DIFFERENTIABLE_SHAPE_CHOICES"])
+@pytest.mark.parametrize("view", ["POLYGON_SHAPE_CHOICES", "DIFFERENTIABLE_SHAPE_CHOICES",
+                                  "TRANSFER_SHAPE_CHOICES"])
 def test_views_keep_canonical_order(view: str) -> None:
     """视图保持 canonical 的相对顺序（docstring 承诺 "order preserved"）。"""
     canonical = list(TARGET_SHAPE_CHOICES)
     members = list(
-        POLYGON_SHAPE_CHOICES if view == "POLYGON_SHAPE_CHOICES" else DIFFERENTIABLE_SHAPE_CHOICES
+        {
+            "POLYGON_SHAPE_CHOICES": POLYGON_SHAPE_CHOICES,
+            "DIFFERENTIABLE_SHAPE_CHOICES": DIFFERENTIABLE_SHAPE_CHOICES,
+            "TRANSFER_SHAPE_CHOICES": TRANSFER_SHAPE_CHOICES,
+        }[view]
     )
     assert members == [s for s in canonical if s in set(members)]

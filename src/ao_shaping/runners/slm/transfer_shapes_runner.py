@@ -140,6 +140,29 @@ def _validate_args(*, checkpoint: Path, out: Path, zero_xy, shapes, recipe: Stag
     )
 
 
+def _rebuild_records(out: Path, shapes: list[str]) -> None:
+    """Rebuild the Recorder table from the run directories already on disk.
+
+    Offline and device-free: the run directories are the source of truth, so
+    the record table can be re-derived (after a fix, or with a new column)
+    without re-running anything.
+    """
+    from ao_shaping.utils.io.file import Recorder
+
+    recorder = Recorder(mark="cv_candidate", mode="min")
+    for shape in shapes:
+        for recipe in STAGE_RECIPES:
+            stage_dir = out / "shape" / shape / recipe.name
+            if not (stage_dir / "manifest.json").is_file():
+                continue
+            added = recording.append_run(recorder, stage_dir, f"{shape}/{recipe.name}")
+            logger.info("recorded {} blocks from {}", added, stage_dir)
+    saved = recording.save_records(recorder, out / "records", mark="process",
+                                   gif_name="process.gif", fps=2.0,
+                                   title="多形状物理预测模型闭环整形 (逐 CCD 块)")
+    click.echo(json.dumps(saved, indent=2, ensure_ascii=False))
+
+
 @click.command(name="slm-transfer-shapes")
 @click.option("--out", "out_dir", type=click.Path(path_type=Path), required=True,
               help="运行根目录 (每个阶段写入其子目录)")
@@ -186,13 +209,15 @@ def _validate_args(*, checkpoint: Path, out: Path, zero_xy, shapes, recipe: Stag
               show_default=True, help="共同重放的曝光 (ms); 可多次指定")
 @click.option("--model-dir", type=click.Path(path_type=Path), default=None,
               help="复用已有会话目录 (含 capture/ 与 fit/), 跳过模型采集与拟合")
+@click.option("--records-only", is_flag=True,
+              help="只从已有的分段目录重建 Recorder 记录 (离线, 不打开设备)")
 @click.option("--execute", is_flag=True, help="真正打开设备执行 (否则只打印计划)")
 def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, window_span: float,
         window_step: float, zero_radius: float, capture_grid: int, capture_count: int,
         fit_iterations: int, fit_span: int, amplitude_center_lr: float, control_grid: int,
         fft_size: int, frames: int, seed: int, camera: str, cam_id: int, slm_number: int,
         device: str, initial_phase: str, seed_bakeoff: bool, replay_exposures: tuple[float, ...],
-        model_dir: Path | None, execute: bool) -> None:
+        model_dir: Path | None, records_only: bool, execute: bool) -> None:
     """物理预测模型闭环整形：从零训练模型 + 目标整形，逐形状执行。
 
     典型用法::
@@ -204,6 +229,9 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
     shapes = list(shapes)
     replay_exposures = list(replay_exposures)
     out = out_dir.resolve()
+    if records_only:
+        _rebuild_records(out, shapes)
+        return
     plan = dict(out=str(out), shapes=list(shapes), side=side, period=period,
                 window_span=window_span, window_step=window_step, zero_radius=zero_radius,
                 capture_grid=capture_grid, capture_count=capture_count,

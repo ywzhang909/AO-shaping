@@ -222,6 +222,21 @@ REPORTS: dict[str, ReportProvenance] = {
                        "src/ao_shaping/algorithm/signal_processing/multishape_objective.py"),
     ),
 
+    "report/shape_trials/multishape1200/multishape1200_20261027.md": ReportProvenance(
+        script="scripts/slm/generate_multishape1200_report.py",
+        command="python scripts/slm/generate_multishape1200_report.py",
+        environment="实验（Santec #1 与 Daheng，1064 nm，1200 CCD 像元）",
+        note="从零训练物理预测模型 + 四种形状的 CCD 锚定整形 + 初相位实测择优 + Recorder 过程记录。",
+        extra_scripts=("src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+                       "src/ao_shaping/tools/slm/transfer/recording.py",
+                       "src/ao_shaping/tools/slm/transfer/geometric_seed.py",
+                       "src/ao_shaping/tools/slm/transfer/validate.py",
+                       "src/ao_shaping/tools/slm/transfer/capture.py",
+                       "src/ao_shaping/tools/slm/transfer/fit.py",
+                       "src/ao_shaping/tools/slm/transfer/replay_phases.py",
+                       "src/ao_shaping/algorithm/signal_processing/multishape_objective.py"),
+    ),
+
     "report/shape_trials/multishape_capability/physical_multishape_reproduction_20261023.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线（读取已保存的 Santec/Daheng 实验数据）",

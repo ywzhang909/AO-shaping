@@ -1,0 +1,554 @@
+[
+  {
+    "kind": "static_table_check",
+    "label": "strict_square_seed",
+    "file": "replay_0000.npz",
+    "exposure_ms": 50.0,
+    "cv": 0.38380418380367454,
+    "mean": 54.65515597945119
+  },
+  {
+    "kind": "static_table_check",
+    "label": "mono12_dense_square_final",
+    "file": "replay_0001.npz",
+    "exposure_ms": 50.0,
+    "cv": 0.38532667633604684,
+    "mean": 54.57871128464458
+  },
+  {
+    "kind": "static_table_check",
+    "label": "strict_square_final",
+    "file": "replay_0002.npz",
+    "exposure_ms": 50.0,
+    "cv": 0.46545454966900995,
+    "mean": 57.77677895696446
+  },
+  {
+    "kind": "static_table_check",
+    "label": "nonmonotone_square_final",
+    "file": "replay_0003.npz",
+    "exposure_ms": 50.0,
+    "cv": 0.3093470807875335,
+    "mean": 47.5401097388971
+  },
+  {
+    "kind": "static_table_check",
+    "label": "mono12_dense_square_3_B",
+    "file": "replay_0004.npz",
+    "exposure_ms": 50.0,
+    "cv": 0.38761895933660845,
+    "mean": 54.92478657103215
+  },
+  {
+    "kind": "static_table_check",
+    "label": "strict_square_8_B",
+    "file": "replay_0005.npz",
+    "exposure_ms": 50.0,
+    "cv": 0.49270357502286233,
+    "mean": 58.088474692398556
+  },
+  {
+    "kind": "static_table_check",
+    "label": "nonmonotone_square_14_B",
+    "file": "replay_0006.npz",
+    "exposure_ms": 50.0,
+    "cv": 0.3108962368113118,
+    "mean": 47.785352379969495
+  },
+  {
+    "kind": "static_table_check",
+    "label": "strict_square_seed",
+    "file": "replay_0007.npz",
+    "exposure_ms": 100.0,
+    "cv": 0.44300102612348885,
+    "mean": 94.71529106035065
+  },
+  {
+    "kind": "static_table_check",
+    "label": "mono12_dense_square_final",
+    "file": "replay_0008.npz",
+    "exposure_ms": 100.0,
+    "cv": 0.44478921095010715,
+    "mean": 95.09439322531448
+  },
+  {
+    "kind": "static_table_check",
+    "label": "strict_square_final",
+    "file": "replay_0009.npz",
+    "exposure_ms": 100.0,
+    "cv": 0.5318252166562747,
+    "mean": 100.5154295240061
+  },
+  {
+    "kind": "static_table_check",
+    "label": "nonmonotone_square_final",
+    "file": "replay_0010.npz",
+    "exposure_ms": 100.0,
+    "cv": 0.3650084375157086,
+    "mean": 80.2949320295389
+  },
+  {
+    "kind": "static_table_check",
+    "label": "mono12_dense_square_3_B",
+    "file": "replay_0011.npz",
+    "exposure_ms": 100.0,
+    "cv": 0.4405649003795445,
+    "mean": 94.21252193057896
+  },
+  {
+    "kind": "static_table_check",
+    "label": "strict_square_8_B",
+    "file": "replay_0012.npz",
+    "exposure_ms": 100.0,
+    "cv": 0.5653951926009699,
+    "mean": 100.29590643526323
+  },
+  {
+    "kind": "static_table_check",
+    "label": "nonmonotone_square_14_B",
+    "file": "replay_0013.npz",
+    "exposure_ms": 100.0,
+    "cv": 0.36593309592267803,
+    "mean": 80.62611157934569
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "strict",
+    "index": 0,
+    "stage": "OPTIMIZATION",
+    "label": "square_seed",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\strict\\capture_0000.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.4731613994163923,
+    "phase_sha256": "51691bf7c39007ce6d56fca7d1d94cd32c100d4194a15e1c2c3020490ad5d9a7"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "strict",
+    "index": 1,
+    "stage": "OPTIMIZATION",
+    "label": "square_0_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\strict\\capture_0002.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.3567710642176337,
+    "phase_sha256": "aa9bdede35bb308b7ee7fb693a38693b6368cd172fc6b6ebe2eef3c0cbc6414e"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "strict",
+    "index": 2,
+    "stage": "OPTIMIZATION",
+    "label": "square_1_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\strict\\capture_0004.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.33169134840704273,
+    "phase_sha256": "41fc0d399bf7a6041f944eec890c0485f6d2577748725940da153874065711fc"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "strict",
+    "index": 3,
+    "stage": "OPTIMIZATION",
+    "label": "square_2_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\strict\\capture_0006.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.3301408237829083,
+    "phase_sha256": "9ec7e68e343eb0e8f6cb584ae6c178007fec887c01984d15f39dd228a4b98397"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "strict",
+    "index": 4,
+    "stage": "OPTIMIZATION",
+    "label": "square_3_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\strict\\capture_0008.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.3301686393619984,
+    "phase_sha256": "fd20cbcd4d5865d46e3f07944588fa0acc7fd780775d9be7b3328ff9d1d13c0d"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "strict",
+    "index": 5,
+    "stage": "OPTIMIZATION",
+    "label": "square_4_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\strict\\capture_0010.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.32587695504227754,
+    "phase_sha256": "ec9af4910f644fab9fb60cdcef88e97d6031c8dcdf7569933528dc615d109df1"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "strict",
+    "index": 6,
+    "stage": "OPTIMIZATION",
+    "label": "square_5_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\strict\\capture_0012.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.3260780940206198,
+    "phase_sha256": "549263af7a7ba731e9ebf69eb09b90759bcc0e2f2c8943086af42bb0287fd7f4"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "strict",
+    "index": 7,
+    "stage": "OPTIMIZATION",
+    "label": "square_6_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\strict\\capture_0014.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.3255864391904094,
+    "phase_sha256": "8f2efb7ce2b22fe5b75a26abcd6c234931018dbaf02da7c19b2df694704452d4"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "strict",
+    "index": 8,
+    "stage": "OPTIMIZATION",
+    "label": "square_7_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\strict\\capture_0016.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.3174158055316165,
+    "phase_sha256": "1929bfe2ddaa89e11000da053780667bda9069afabdc5f441a4da451d396d248"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "strict",
+    "index": 9,
+    "stage": "OPTIMIZATION",
+    "label": "square_8_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\strict\\capture_0018.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.31322758055024275,
+    "phase_sha256": "419431678c9daf01b94a85d9f8a34e498de9be948b678c8e02f1eefe43cc695d"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "strict",
+    "index": 10,
+    "stage": "OPTIMIZATION",
+    "label": "square_9_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\strict\\capture_0020.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.32308518742417225,
+    "phase_sha256": "7cba3f4f0b8d0dbc6b2a5e866a1a0dbf5d4df05f48195073733faa36a0c2829f"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "strict",
+    "index": 11,
+    "stage": "OPTIMIZATION",
+    "label": "square_10_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\strict\\capture_0022.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.33027796481791066,
+    "phase_sha256": "350e611cadc3f62e0998565b78a211ba300f03a6cd6817ac3d826f708df2d623"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "strict",
+    "index": 12,
+    "stage": "OPTIMIZATION",
+    "label": "square_11_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\strict\\capture_0024.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.3518233634479111,
+    "phase_sha256": "237b8318c6185cbfcfc5498b3707f616f4787f7c2f2f297d1ed04cdd6c3b49b4"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "strict",
+    "index": 13,
+    "stage": "OPTIMIZATION",
+    "label": "square_12_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\strict\\capture_0026.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.35747729494171326,
+    "phase_sha256": "5b73a5bf1880491c7d62f77690b93ddfa3849fea8359f076498798e88cfc670b"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "strict",
+    "index": 14,
+    "stage": "OPTIMIZATION",
+    "label": "square_13_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\strict\\capture_0028.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.34675404598544196,
+    "phase_sha256": "c233bfb9b8e5b662a7378cd6a8193331a0a8dc98beb3e7af4c75164b69619591"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "strict",
+    "index": 15,
+    "stage": "OPTIMIZATION",
+    "label": "square_14_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\strict\\capture_0030.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.34283209442372214,
+    "phase_sha256": "922abea2f6be481667520ff468c3915b387989ba0bedafccd21d6c8b56c99b53"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "strict",
+    "index": 16,
+    "stage": "OPTIMIZATION",
+    "label": "square_15_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\strict\\capture_0032.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.3316239381290043,
+    "phase_sha256": "741a56182789da8eb77fb70ea66a7fbc2d98df4c2f8a28a8abd6870ca1107c69"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "strict",
+    "index": 17,
+    "stage": "OPTIMIZATION",
+    "label": "square_final",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\strict\\capture_0033.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.3342104810932757,
+    "phase_sha256": "741a56182789da8eb77fb70ea66a7fbc2d98df4c2f8a28a8abd6870ca1107c69"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "strict",
+    "index": 18,
+    "stage": "COMMON REPLAY",
+    "label": "strict_square_final",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\common_replay\\replay_0002.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.46545454966900995,
+    "phase_sha256": "741a56182789da8eb77fb70ea66a7fbc2d98df4c2f8a28a8abd6870ca1107c69"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "strict",
+    "index": 19,
+    "stage": "COMMON REPLAY",
+    "label": "strict_square_final",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\common_replay\\replay_0009.npz",
+    "exposure_ms": 100.0,
+    "native_cv": 0.5318252166562747,
+    "phase_sha256": "741a56182789da8eb77fb70ea66a7fbc2d98df4c2f8a28a8abd6870ca1107c69"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "nonmonotone",
+    "index": 0,
+    "stage": "OPTIMIZATION",
+    "label": "square_seed",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\nonmonotone\\capture_0000.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.4096483088724018,
+    "phase_sha256": "51691bf7c39007ce6d56fca7d1d94cd32c100d4194a15e1c2c3020490ad5d9a7"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "nonmonotone",
+    "index": 1,
+    "stage": "OPTIMIZATION",
+    "label": "square_0_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\nonmonotone\\capture_0002.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.34893569938154223,
+    "phase_sha256": "434e27d257025fa782109450b8cd606563312157c3683896b71fec1d4b6fd074"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "nonmonotone",
+    "index": 2,
+    "stage": "OPTIMIZATION",
+    "label": "square_1_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\nonmonotone\\capture_0004.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.3406667260631754,
+    "phase_sha256": "913f34db5acc6a8cd64efdaffaae2db565bde9f574121e8ff2eca24691f90879"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "nonmonotone",
+    "index": 3,
+    "stage": "OPTIMIZATION",
+    "label": "square_2_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\nonmonotone\\capture_0006.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.34657760947143684,
+    "phase_sha256": "d9befe6ac5109838d748c517fe7ea62ef14e7514f5a0a544ed57eb3b8d3bb0bf"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "nonmonotone",
+    "index": 4,
+    "stage": "OPTIMIZATION",
+    "label": "square_3_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\nonmonotone\\capture_0008.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.346828250873449,
+    "phase_sha256": "61aafcca8617b5486e8da6f25bce16795e3c8a880aec91d593c0e862baeeca53"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "nonmonotone",
+    "index": 5,
+    "stage": "OPTIMIZATION",
+    "label": "square_4_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\nonmonotone\\capture_0010.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.3414493554386052,
+    "phase_sha256": "00e3611d1ca3c4900986c13a31740a78e7301b6f0098ad073d8664e13beec28c"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "nonmonotone",
+    "index": 6,
+    "stage": "OPTIMIZATION",
+    "label": "square_5_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\nonmonotone\\capture_0012.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.3415575164536152,
+    "phase_sha256": "270fc470efad9b7f65d49bf41016c6df6856e66848e883bc10176c417e02f55a"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "nonmonotone",
+    "index": 7,
+    "stage": "OPTIMIZATION",
+    "label": "square_6_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\nonmonotone\\capture_0014.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.3328569572259337,
+    "phase_sha256": "458241686d39cb8fc7bca3b2c2895ac99790499d8ad64bc9257fa51ece140cdc"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "nonmonotone",
+    "index": 8,
+    "stage": "OPTIMIZATION",
+    "label": "square_7_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\nonmonotone\\capture_0016.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.32340459987762565,
+    "phase_sha256": "2989981726e59ddbfae1b8836b7707b8b5018d6dccecada9b0088b6f847bbe55"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "nonmonotone",
+    "index": 9,
+    "stage": "OPTIMIZATION",
+    "label": "square_8_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\nonmonotone\\capture_0018.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.3204903779472601,
+    "phase_sha256": "7f57ab2f1f2cbc67c2fdd178ddddd1813562233cffd7f936ea4fc158e34ccc2c"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "nonmonotone",
+    "index": 10,
+    "stage": "OPTIMIZATION",
+    "label": "square_9_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\nonmonotone\\capture_0020.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.3213622938073906,
+    "phase_sha256": "f41c5fe29c81f9b5af3f7477fa2b4f11c7fa50babf12c2b2ac44da91039303ab"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "nonmonotone",
+    "index": 11,
+    "stage": "OPTIMIZATION",
+    "label": "square_10_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\nonmonotone\\capture_0022.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.31882649145175174,
+    "phase_sha256": "2189d0214884a5a4a1d523fffc6dc0c07cb9ab0a5112482e7e3815a14e4169d2"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "nonmonotone",
+    "index": 12,
+    "stage": "OPTIMIZATION",
+    "label": "square_11_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\nonmonotone\\capture_0024.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.3145641776171817,
+    "phase_sha256": "3e0eb1beb2643d72c183fe2710c24bd21834bcd0a55a516d1ccc12171c577a7e"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "nonmonotone",
+    "index": 13,
+    "stage": "OPTIMIZATION",
+    "label": "square_12_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\nonmonotone\\capture_0026.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.3134592705066138,
+    "phase_sha256": "38b999b61f97457ecc4608302570286c8c42de83b766dd220931126e8ad830fd"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "nonmonotone",
+    "index": 14,
+    "stage": "OPTIMIZATION",
+    "label": "square_13_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\nonmonotone\\capture_0028.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.3116407536318866,
+    "phase_sha256": "03cf05494d6833ac35affad0112a356b654ce3d567ff60023160a9fed4cae529"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "nonmonotone",
+    "index": 15,
+    "stage": "OPTIMIZATION",
+    "label": "square_14_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\nonmonotone\\capture_0030.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.30942219192607195,
+    "phase_sha256": "098c9e05eb5cdaf9a2d5695708ec06849c71cfa01e81ab39a1c0e4b6b97b9b62"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "nonmonotone",
+    "index": 16,
+    "stage": "OPTIMIZATION",
+    "label": "square_15_B",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\nonmonotone\\capture_0032.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.3101823823367229,
+    "phase_sha256": "94542b5a1797734a8636dc0f4b6c0e2b9a10a37ac837bc4cbc923d87ad9b7b09"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "nonmonotone",
+    "index": 17,
+    "stage": "OPTIMIZATION",
+    "label": "square_final",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\nonmonotone\\capture_0034.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.30947680263823785,
+    "phase_sha256": "098c9e05eb5cdaf9a2d5695708ec06849c71cfa01e81ab39a1c0e4b6b97b9b62"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "nonmonotone",
+    "index": 18,
+    "stage": "COMMON REPLAY",
+    "label": "nonmonotone_square_final",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\common_replay\\replay_0003.npz",
+    "exposure_ms": 50.0,
+    "native_cv": 0.3093470807875335,
+    "phase_sha256": "098c9e05eb5cdaf9a2d5695708ec06849c71cfa01e81ab39a1c0e4b6b97b9b62"
+  },
+  {
+    "kind": "gif_frame",
+    "strategy": "nonmonotone",
+    "index": 19,
+    "stage": "COMMON REPLAY",
+    "label": "nonmonotone_square_final",
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\square1200_explore_20261026_1435\\common_replay\\replay_0010.npz",
+    "exposure_ms": 100.0,
+    "native_cv": 0.3650084375157086,
+    "phase_sha256": "098c9e05eb5cdaf9a2d5695708ec06849c71cfa01e81ab39a1c0e4b6b97b9b62"
+  }
+]

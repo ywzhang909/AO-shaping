@@ -1,0 +1,208 @@
+[
+  {
+    "stage": "plan",
+    "status": "complete",
+    "timestamp_utc": "2026-10-27T03:12:50.915238+00:00",
+    "monotonic_ns": 303834495437900,
+    "plan": {
+      "out": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\multishape1200_20261027",
+      "shapes": [
+        "square",
+        "triangle",
+        "star",
+        "circle"
+      ],
+      "side": 1200.0,
+      "period": 128.0,
+      "window_span": 820.0,
+      "window_step": 4.0,
+      "zero_radius": 60.0,
+      "capture_grid": 384,
+      "capture_count": 12,
+      "fit_iterations": 150,
+      "control_grid": 640,
+      "fft_size": 2048,
+      "initial_phase": "auto",
+      "seed_bakeoff": true,
+      "execute": true,
+      "stages": [
+        {
+          "name": "transport_cv",
+          "blocks": 4,
+          "updates": 15,
+          "bit_depth": 8,
+          "ccd_check": false,
+          "window_step": 4.0
+        },
+        {
+          "name": "mono12_cv",
+          "blocks": 8,
+          "updates": 20,
+          "bit_depth": 12,
+          "ccd_check": true,
+          "window_step": 4.0
+        },
+        {
+          "name": "mono12_continue",
+          "blocks": 12,
+          "updates": 15,
+          "bit_depth": 12,
+          "ccd_check": true,
+          "window_step": 4.0
+        },
+        {
+          "name": "mono12_dense",
+          "blocks": 4,
+          "updates": 20,
+          "bit_depth": 12,
+          "ccd_check": true,
+          "window_step": 2.0
+        }
+      ]
+    }
+  },
+  {
+    "stage": "model",
+    "status": "reused",
+    "timestamp_utc": "2026-10-27T03:12:51.002416+00:00",
+    "monotonic_ns": 303834582627200,
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\multishape1200_20261027"
+  },
+  {
+    "stage": "geometry",
+    "status": "complete",
+    "timestamp_utc": "2026-10-27T03:12:51.003854+00:00",
+    "monotonic_ns": 303834584046700,
+    "zero_xy": [
+      1224.0,
+      962.0
+    ]
+  },
+  {
+    "stage": "capture_geometry",
+    "status": "running",
+    "timestamp_utc": "2026-10-27T03:12:51.004635+00:00",
+    "monotonic_ns": 303834584834500
+  },
+  {
+    "stage": "capture_geometry",
+    "status": "complete",
+    "timestamp_utc": "2026-10-27T03:15:33.774782+00:00",
+    "monotonic_ns": 303997359022600,
+    "out": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\multishape1200_20261027\\geometry_wide"
+  },
+  {
+    "stage": "wide_model",
+    "status": "complete",
+    "timestamp_utc": "2026-10-27T03:15:33.800082+00:00",
+    "monotonic_ns": 303997384319700,
+    "out": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\multishape1200_20261027\\model_wide640"
+  },
+  {
+    "stage": "seed_bakeoff",
+    "status": "complete",
+    "timestamp_utc": "2026-10-27T03:19:12.094298+00:00",
+    "monotonic_ns": 304215683943400,
+    "shape": "square",
+    "scores": {
+      "transport": 1.3082926875827556,
+      "backprojection": 1.2939707606441853,
+      "gs": 0.657030063218309
+    },
+    "chosen": "gs"
+  },
+  {
+    "stage": "seed_bakeoff",
+    "status": "complete",
+    "timestamp_utc": "2026-10-27T03:21:33.983427+00:00",
+    "monotonic_ns": 304357576620300,
+    "shape": "triangle",
+    "scores": {
+      "backprojection": 2.21043122227624,
+      "gs": 0.639323606804808
+    },
+    "chosen": "gs"
+  },
+  {
+    "stage": "seed_bakeoff",
+    "status": "complete",
+    "timestamp_utc": "2026-10-27T03:24:50.234037+00:00",
+    "monotonic_ns": 304553830743100,
+    "shape": "star",
+    "scores": {
+      "backprojection": 1.6516195337381119,
+      "gs": 0.6469130894360721
+    },
+    "chosen": "gs"
+  },
+  {
+    "stage": "seed_bakeoff",
+    "status": "complete",
+    "timestamp_utc": "2026-10-27T03:27:36.017502+00:00",
+    "monotonic_ns": 304719617144200,
+    "shape": "circle",
+    "scores": {
+      "backprojection": 1.0126886580673757,
+      "gs": 0.630763229618563
+    },
+    "chosen": "gs"
+  },
+  {
+    "stage": "square/transport_cv",
+    "status": "running",
+    "timestamp_utc": "2026-10-27T03:27:36.018035+00:00",
+    "monotonic_ns": 304719617674600
+  },
+  {
+    "stage": "square/transport_cv",
+    "status": "complete",
+    "timestamp_utc": "2026-10-27T03:30:12.028663+00:00",
+    "monotonic_ns": 304875631089600,
+    "out": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\multishape1200_20261027\\shape\\square\\transport_cv"
+  },
+  {
+    "stage": "square/mono12_cv",
+    "status": "running",
+    "timestamp_utc": "2026-10-27T03:30:12.029533+00:00",
+    "monotonic_ns": 304875631956000
+  },
+  {
+    "stage": "square/mono12_cv",
+    "status": "complete",
+    "timestamp_utc": "2026-10-27T03:33:31.485517+00:00",
+    "monotonic_ns": 305075091490700,
+    "out": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\multishape1200_20261027\\shape\\square\\mono12_cv"
+  },
+  {
+    "stage": "square/mono12_continue",
+    "status": "running",
+    "timestamp_utc": "2026-10-27T03:33:31.486336+00:00",
+    "monotonic_ns": 305075092308700
+  },
+  {
+    "stage": "square/mono12_continue",
+    "status": "complete",
+    "timestamp_utc": "2026-10-27T03:37:17.237880+00:00",
+    "monotonic_ns": 305300847869300,
+    "out": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\multishape1200_20261027\\shape\\square\\mono12_continue"
+  },
+  {
+    "stage": "square/mono12_dense",
+    "status": "running",
+    "timestamp_utc": "2026-10-27T03:37:17.238694+00:00",
+    "monotonic_ns": 305300848691200
+  },
+  {
+    "stage": "square/mono12_dense",
+    "status": "complete",
+    "timestamp_utc": "2026-10-27T03:39:15.818698+00:00",
+    "monotonic_ns": 305419430630500,
+    "out": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\multishape1200_20261027\\shape\\square\\mono12_dense"
+  },
+  {
+    "stage": "triangle/transport_cv",
+    "status": "running",
+    "timestamp_utc": "2026-10-27T03:39:15.819983+00:00",
+    "monotonic_ns": 305419431918200
+  }
+]

@@ -124,8 +124,21 @@ def generate_gif(
             "或命令行第三参数 pupil_x,pupil_y。",
             pkl_path.stem,
         )
-    with open(pkl_path, "rb") as f:
-        data = pickle.load(f)
+    # Reconstruct a Recorder first (unified load path), then project its
+    # history into the epoch-keyed dict this renderer expects.
+    from ao_shaping.utils.io.file import Recorder
+    from ao_shaping.utils.io.recorder_keys import RECORD_EPOCH
+
+    rec = Recorder.from_saved(pkl_path)
+    data = {}
+    for i, r in enumerate(rec.history):
+        if not isinstance(r, dict):
+            continue
+        epoch = r.get(RECORD_EPOCH, i)
+        data[epoch] = r
+    if not data:
+        logger.warning("no records restored from {}", pkl_path)
+        return pkl_path.with_suffix(".gif")
 
     keys = sorted(data.keys())
     print("Keys:", keys)

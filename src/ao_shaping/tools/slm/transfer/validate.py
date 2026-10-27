@@ -28,7 +28,7 @@ from ao_shaping.tools.slm.transfer.device import DEVICE_CHOICES, resolve_device
 from ao_shaping.algorithm.signal_processing.multishape_objective import (
     ShapeObjective, anchored_intensity, gs_seed, image_metrics, target_at,
 )
-from ao_shaping.utils.image.target import POLYGON_SHAPE_CHOICES
+from ao_shaping.utils.image.target import TRANSFER_SHAPE_CHOICES
 
 
 def replay_seed(directory, shape, xy, target):
@@ -126,6 +126,16 @@ def run(args):
             phase = square_transport_phase(forward, centre, args.side)
             seed_provenance[shape] = dict(kind="transport", gs_calls=0, historical_phase=False,
                                           static_correction=True, side_ccd_px=args.side)
+        elif getattr(args, "initial_phase", "gs") == "backprojection":
+            # Shape-general non-GS seed: one analytic back-projection of the
+            # target through the fitted optics. A separable transport phase
+            # cannot produce a non-separable far field, so this is the
+            # non-GS construction available for triangle / star / circle.
+            from .geometric_seed import target_backprojection_phase
+            phase, diagnostics = target_backprojection_phase(forward, centre, args.side, shape)
+            seed_provenance[shape] = dict(kind="backprojection", gs_calls=0, historical_phase=False,
+                                          static_correction=True, side_ccd_px=args.side,
+                                          **diagnostics)
         elif getattr(args, "initial_phase", "gs") != "gs":
             from .cold_start import cold_phase
             phase, seed_provenance[shape] = cold_phase(forward, centre,
@@ -421,7 +431,7 @@ def main():
     parser.add_argument("--zero-radius", type=float, default=0., help="Exclude a fixed measured zero-order disk from core CV (CCD px)")
     parser.add_argument("--core-margin", type=float, help="Physical CCD pixel erosion; default is two sampling cells")
     parser.add_argument("--meter-target", action="store_true", help="Meter target core; permit saturation outside the core and retain full raw frames")
-    parser.add_argument("--shapes", nargs="+", choices=POLYGON_SHAPE_CHOICES, default=list(POLYGON_SHAPE_CHOICES))
+    parser.add_argument("--shapes", nargs="+", choices=TRANSFER_SHAPE_CHOICES, default=list(TRANSFER_SHAPE_CHOICES))
     parser.add_argument("--blocks", type=int, default=2)
     parser.add_argument("--updates", type=int, default=10)
     parser.add_argument("--frames", type=int, default=3)
@@ -429,7 +439,7 @@ def main():
                         help="Accepted-phase continuation defaults to anchored; cold synthesis defaults to model")
     parser.add_argument("--seed-run", type=Path, help="Replay accepted phases; exact grid/target match required")
     parser.add_argument("--seed-policy", choices=("strict", "transfer"), default="strict")
-    parser.add_argument("--initial-phase", choices=("gs", "plane", "random", "transport"), default="gs")
+    parser.add_argument("--initial-phase", choices=("gs", "plane", "random", "transport", "backprojection"), default="gs")
     parser.add_argument("--random-seed", type=int, default=102626)
     parser.add_argument("--phase-lr", type=float, default=.01)
     parser.add_argument("--phase-rms-cap", type=float, default=.2)
