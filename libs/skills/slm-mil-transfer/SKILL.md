@@ -1,6 +1,7 @@
 ---
 name: slm-mil-transfer
-description: Plan, conduct, and analyze SLM beam-shaping experiments using model-in-the-loop (MIL), compact physical forward models, simulation pretraining, and transfer learning. Use for optical-path adaptation, exposure-aware calibration, differentiable phase optimization, or diagnosis of predicted versus measured uniformity.
+version: 1.1.0
+description: Plan, conduct, and analyze SLM beam-shaping experiments using model-in-the-loop (MIL), compact physical forward models, simulation pretraining, and transfer learning. Use for optical-path adaptation, exposure-aware calibration, differentiable phase optimization, or diagnosis of predicted versus measured uniformity. Each experiment phase (planning, in-experiment, post-experiment) produces its own structured report with phase/far-field images following the model_in_loop_live reporting conventions.
 ---
 
 # SLM MIL 与迁移学习实验
@@ -42,6 +43,14 @@ python libs/skills/slm-mil-transfer/scripts/session_review.py compare --run REPL
 `RUN` 是含 `manifest.json` 的采集目录，不是上层整个实验目录。`--audit` 仅适用于完整 `transfer.validate` 会话；重放目录使用 `--check-raw`。脚本不会加载 pickle、打开设备或修改源数据；仅在显式 `--out NEW.json` 时写新文件，拒绝覆盖已有文件。原始帧检查需 NumPy 和 AO-shaping 包，元数据检查仅需 Python 标准库。实际命令和边界见脚本 `--help`。
 
 最终交付应包含：新光路下可复现的配置、原始相位与 CCD 帧、曝光与时间记录、模型检查点来源、固定掩膜指标、接受/拒绝轨迹、同曝光复测、失败假设、设备释放状态和下一步最有区分力的实验。按本仓库要求登记报告溯源；GIF 只显示真实采集步骤，优化时段与后续重放明确分段。
+
+## 各阶段报告（强制）
+
+规划、实验中、实验后三个阶段各自产出一份独立报告，内容、图片与口径见 [各阶段报告与图片规范](references/reporting.md)。该规范以 `report/shape_trials/model_in_loop/model_in_loop_live_20261014.md` 为样本，但是通用骨架，不绑定某次具体实验。
+
+每篇报告必须包含**当前可信事实**小节：设备型号与在线状态、SLM 波长与 LUT、CCD 像元尺寸与格式、光路是否离焦、几何与入射来源、曝光范围与实际读回满量程、已获授权与时长，并逐项标注本次实测 / 沿用历史 / 待定。**历史数值只作经验来源，不得继承为当前默认标定。** 所有具体数值（设备型号、波长、像元尺寸、曝光、几何、像素格式）均为历史会话实例，新实验必须在报告中显式记录当前实测值。
+
+报告是人工撰写的结构化叙述，不是自动生成文件；`scripts/session_review.py` 产出的 JSON 是报告的输入数据之一。图片遵循规范中的渲染口径（相位 `twilight`、远场 `inferno`、X/Y 过质心剖面、目标轮廓对照），并写明渲染图与原始 CCD 强度数组的口径差异。
 
 ## 历史依据
 
