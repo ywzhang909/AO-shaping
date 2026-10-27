@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 from pathlib import Path
 
@@ -92,17 +93,7 @@ def analyze(source: Path, out: Path):
             roi_mask=mask,
         )
         results[phase] = result
-        print(
-            phase,
-            json.dumps(
-                {
-                    k: v
-                    for k, v in result.items()
-                    if k not in {"rows", "response_candidates"}
-                }
-            ),
-            flush=True,
-        )
+        logger.info(phasejson.dumps({k: v for k, v in result.items() if k not in {'rows', 'response_candidates'}}))
     (out / "result.json").write_text(json.dumps(results, indent=2))
 
 

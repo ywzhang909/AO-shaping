@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import hashlib
 import json
 from pathlib import Path
@@ -89,7 +90,7 @@ def summarize(run: Path, out: Path):
                     shapes=results)
     (out / "results.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     for row in results:
-        print(json.dumps(row), flush=True)
+        logger.info(json.dumps(row))
 
 
 def acceptance_scope(run: Path) -> dict:

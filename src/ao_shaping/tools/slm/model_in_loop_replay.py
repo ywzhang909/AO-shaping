@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 from dataclasses import dataclass, fields
 from datetime import datetime
 import json
@@ -155,7 +156,7 @@ def run_replay(plan: ReplayPlan) -> list[dict[str, float | int | str]]:
             (plan.output_dir / "measurements.json").write_text(
                 json.dumps(rows, indent=2), encoding="utf-8"
             )
-            print(row, flush=True)
+            logger.info(row)
     finally:
         try:
             bench.display(flat)

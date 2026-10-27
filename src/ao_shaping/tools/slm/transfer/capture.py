@@ -176,7 +176,7 @@ def capture(args):
                     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
                     with (args.out / "capture_records.pkl").open("wb") as stream:
                         pickle.dump(manifest, stream, protocol=5)
-                    print(f"{label}: exposure={exposure:.5f} peak={raw.max():.1f} spot=({x:.1f},{y:.1f}) {setting.status}", flush=True)
+                    logger.info(f'{label}: exposure={exposure:.5f} peak={raw.max():.1f} spot=({x:.1f},{y:.1f}) {setting.status}')
                     if setting.status != "ok" or raw.max() >= 250:
                         raise RuntimeError("Unusable exposure; data retained, releasing devices")
             finally:

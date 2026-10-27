@@ -7,6 +7,7 @@ No validation image selects the effective blur. Other physical parameters stay f
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -129,7 +130,7 @@ def calibrate(args):
         np.savez_compressed(
             args.out / f"sigma_{sigma:g}.npz", prediction=prediction, measured=measured
         )
-        print(json.dumps(entry), flush=True)
+        logger.info(json.dumps(entry))
     best = min(results, key=lambda r: r["train_score"])
     selected = replace(
         params,

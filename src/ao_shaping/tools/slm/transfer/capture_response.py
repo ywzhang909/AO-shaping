@@ -158,7 +158,7 @@ def capture(args):
                         )
                         with (args.out / "capture_records.pkl").open("wb") as stream:
                             pickle.dump(rows, stream, protocol=5)
-                        print(json.dumps(row), flush=True)
+                        logger.info(json.dumps(row))
                         if raw.max() >= 250:
                             raise RuntimeError(
                                 "saturated group retained; ending exposure comparison"

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 from pathlib import Path
 
@@ -68,7 +69,7 @@ def analyze(run, out):
         results.append(row)
         np.savez_compressed(out/f"{shape}.npz", model_A=baseline.numpy(), model_plus=plus.numpy(),
                             model_minus=negative.numpy(), measured_A=image, phase_increment=direction.numpy())
-        print(json.dumps(row), flush=True)
+        logger.info(json.dumps(row))
     (out/"result.json").write_text(json.dumps(dict(run=str(run), results=results), indent=2))
 
 

@@ -6,6 +6,7 @@ calibration. It is not an absolute SLM-to-lens distance measurement.
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 from dataclasses import replace
 import hashlib
 import json
@@ -89,7 +90,7 @@ def scan(args):
         (args.out/"scan.json").write_text(json.dumps(history, indent=2), encoding="utf-8")
         with (args.out/"iterations.pkl").open("wb") as stream:
             pickle.dump(history, stream, protocol=5)
-        print(json.dumps(record | dict(per_frame=len(per_frame))), flush=True)
+        logger.info(json.dumps(record | dict(per_frame=len(per_frame))))
     best = min(history, key=lambda r:r["train"]["relative_l2"])
     baseline = next(r for r in history if r["offset_m"] == 0.)
     validation_gain = 1-best["validation"]["relative_l2"]/baseline["validation"]["relative_l2"]

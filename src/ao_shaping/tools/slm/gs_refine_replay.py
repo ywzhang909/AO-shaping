@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 from datetime import datetime, timezone
 import json
 import math
@@ -231,7 +232,7 @@ def run_replay(
             (plan.output_dir / "measurements.json").write_text(
                 json.dumps(rows, indent=2), encoding="utf-8"
             )
-            print(row, flush=True)
+            logger.info(row)
     return rows
 
 

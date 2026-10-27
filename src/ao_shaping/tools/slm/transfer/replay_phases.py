@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import pickle
 import time
@@ -122,7 +123,7 @@ def replay(args):
                         (args.out / "manifest.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
                         with (args.out / "capture_records.pkl").open("wb") as stream:
                             pickle.dump(records, stream, protocol=5)
-                        print(json.dumps(record | dict(frames=len(stamps))), flush=True)
+                        logger.info(json.dumps(record | dict(frames=len(stamps))))
                         if record["core_peak"] >= 4014:
                             raise RuntimeError("core saturated; raw replay retained")
             finally:

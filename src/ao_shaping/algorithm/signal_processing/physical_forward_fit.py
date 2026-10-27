@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+from loguru import logger
 from datetime import datetime, timezone
 
 import numpy as np
@@ -142,6 +143,6 @@ class PhysicalForwardFit:
         for index in range(iterations):
             loss = self.update()
             if index % 25 == 0:
-                print(f"fit {index}: loss={loss:.5f} d={self.d.item():.5f}", flush=True)
+                logger.info(f'fit {index}: loss={loss:.5f} d={self.d.item():.5f}')
         return self.prediction().detach().cpu().numpy()
 
