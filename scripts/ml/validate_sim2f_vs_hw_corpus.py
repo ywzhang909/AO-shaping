@@ -108,6 +108,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
+from ao_shaping.utils.io.recorder_keys import RECORD_IMAGE
 from ml.hwdataset import build_hw_index
 from ml.hwdataset.records import Materialiser, MaterialiserConfig
 from ml.hwdataset.transforms import farfield_frame_to_grid
@@ -567,7 +568,7 @@ def measure_corpus(limit_files: int | None, progress_every: int = 25) -> dict[st
     for position, ref in enumerate(index.records):
         cos_grid, sin_grid = materialiser.phase_grid(ref)
         payload = materialiser.store.get(ref)
-        measured = farfield_frame_to_grid(payload["_img"], GRID_MEASURED, mode="raw")
+        measured = farfield_frame_to_grid(payload[RECORD_IMAGE], GRID_MEASURED, mode="raw")
         phasor = torch.as_tensor(
             np.stack([cos_grid, sin_grid])[None], dtype=torch.float32
         )

@@ -3681,6 +3681,13 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 验证与回归：7 个计划替换点全部由 ruff 真实命中；AST 恒等 `True`；分组校验 OK（含 186）；`py_compile` 通过；`ruff check .` 全仓归零。回归按 CI 执行形态：`tests/ao_shaping/algorithm` **777 passed / 16 skipped**，与长期基线逐位一致；`tests/ao_shaping/utils` 出现 1 失败 `test_recorder_keys.py::test_call_sites_spell_keys_as_constants`——**用 stash 对照证明与本次改动无关**（把我的 2 个文件 stash 后同样失败，`1 failed, 18 passed` 逐条一致），它是外来 `feat/130-recorder-keys-callers` 带入的既有失败，列为 item 132。
 - 覆盖账（实测）：目标文件 9 → 2；`src` 606 → **599**；全仓 1108 → 1101。
 
+132. ✅ **收口 master 上最后一个既有失败：两个新脚本把 recorder key 写成裸下标字面量，迁到 `RECORD_IMAGE` 常量**（2026-10-27）
+- 失败是 `tests/ao_shaping/utils/test_recorder_keys.py::test_call_sites_spell_keys_as_constants`，在 item 131 已用 stash 对照证明与我的改动无关（来自外来 `feat/130-recorder-keys-callers` 合并）。两个 offender：`scripts/ml/diagnose_sim2f_optical_scale.py` 与 `scripts/ml/validate_sim2f_vs_hw_corpus.py`，各一处 `payload["_img"]`。
+- 修法是最小迁移：每个脚本加 `from ao_shaping.utils.io.recorder_keys import RECORD_IMAGE`（`RECORD_IMAGE = "_img"` 是该键的唯一定义点，仓库里已有 6+ 个脚本按此惯例），下标处改用常量。改动面恰好每文件 +2/−1，且核验过两文件**都不带 BOM**、读写没有改动编码（守卫特意提过仓库里有一个带 BOM 的脚本，故这一步不是多余）。
+- 这条守卫自身带非空转自证（`test_the_key_position_scan_actually_bites` 种植四种位置形态并要求恰好命中三个键；`test_the_redeclaration_scan_actually_bites` 钉再声明），所以我没有另加控制——扫描器已经在咬。它覆盖 key 的四种书写位置（下标、dict 字面量键、`.get(...)` 首参、`in` 两侧），并排除 docstring 里的散文提及。
+- 验证：`test_recorder_keys.py` 从 `1 failed / 18 passed` 变 **19 passed**；`tests/ao_shaping/utils` 从 `1 failed / 1489 passed / 4 skipped` 变 **1490 passed / 4 skipped / 0 failed**；两文件 `py_compile` 通过；`ruff check .` 全仓归零。这两个脚本无测试消费者（只被 `scripts/_common/provenance.py` 与 `scripts/README.md` 引用），故没有额外分片需要重跑。
+- **收口账（本会话在 master 上看到的失败已全部清零）**：`tests/ao_shaping/scripts` 2604 passed / 67 skipped / 0 failed；`tests/ao_shaping/utils` 1490 / 4 / 0；`tests/ao_shaping/tools` 1107 / 5 / 0；`tests/ao_shaping/algorithm` 777 / 16 / 0；`tests/ao_shaping/ml/sim2f` 317 / 6 / 0；`tests/ao_shaping/ml/gsnet` 87 / 0。CI 侧 `Ruff` 与 `Terminology gate` 均 success。本批不涉及 #173 计数（PLR2004 无变化）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
