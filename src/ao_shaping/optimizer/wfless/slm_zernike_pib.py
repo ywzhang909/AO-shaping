@@ -951,6 +951,127 @@ def _prepare_geometry(inp: _PibGeometryInputs) -> _PibGeometry:
         r_bucket=r_bucket,
     )
 
+
+def _log_row(
+    *,
+    epoch: int,
+    coeffs: np.ndarray,
+    obj_val: float,
+    obj_ratio: float,
+    J: float,
+    diff: float,
+    grad: np.ndarray,
+    img: np.ndarray,
+    lr_val: float,
+    delta_val: float,
+    max_brt: float,
+    gate: str | None=None,
+    phase: np.ndarray | None=None,
+    loggrad: float=0.0,
+    _init_r: Any,
+    best_objective: Any,
+    cam: Any,
+    objective: Any,
+    optimizer_type: Any,
+    r_bucket: Any,
+    record_phase: Any,
+    recorder: Any,
+    shaping: Any,
+    w_loggrad: Any,
+):
+    """Append one search step to the recorder (shared by both branches).
+
+    ``gate`` records the SPGD evaluation verdict for offline stats:
+    ``"applied"`` (gradient adopted), ``"fold"`` (brightness fold
+    rejected before scoring), ``"noise"`` (diff below the noise gate,
+    zeroed update) or ``"peak"`` (measured peak exceeded ``max_peak``,
+    update not committed). ``None`` (heuristic branch, or legacy
+    records) means "no verdict recorded".
+    """
+    row = {
+        "J": J,
+        RECORD_ROI_ENERGY: obj_ratio,
+        "_max_r": _init_r,
+        objective: obj_val,
+        RECORD_DIFF: diff,
+        RECORD_GATE: gate,
+        "lr": lr_val,
+        "r": r_bucket,
+        "delta": delta_val,
+        RECORD_EPOCH: epoch,
+        RECORD_COEFFS: coeffs,
+        RECORD_IMAGE: img,
+        "exp_t": get_camera_exposure_ms(cam),
+        "max_brt": max_brt,
+        RECORD_GRAD: grad,
+        "optimizer": optimizer_type,
+        f"best_{objective}": best_objective,
+    }
+    if loggrad != 0.0 or w_loggrad > 0.0:
+        # Structure term. Recorded ONLY when the feature is in use: the
+        # default recorder schema is a pinned contract (epoch rows may
+        # add exactly "_gate" over the baseline row), so a default run
+        # must keep its column set byte-identical.
+        row["loggrad"] = float(loggrad)
+    if record_phase and phase is not None:
+        # Display-ready grayscale exactly as sent to the SLM device.
+        row[RECORD_PHASE] = phase
+    if objective == "rms_pib":
+        _w_pib, _w_rms, _w_ee = shaping.weights
+        row["w_pib"] = float(_w_pib)
+        row["w_rms"] = float(_w_rms)
+        row["w_ee"] = float(_w_ee)
+        _terms = shaping.terms
+        row["pib_term"] = float(_terms[1])
+        row["rms_term"] = float(_terms[2])
+        row["ee_term"] = float(_terms[3])
+    row.update(shaping.metric_panel(img))
+    recorder.append(row)
+    return row
+
+def _debug_report(
+    algorithm: Any,
+    blaze_choice: Any,
+    cam_size: Any,
+    camera_config: Any,
+    debug: Any,
+    debug_dir: Any,
+    delta: Any,
+    epochs: Any,
+    objective: Any,
+    optimizer_type: Any,
+    r_bucket: Any,
+    recorder: Any,
+    shape_for_metric: Any,
+    target_size: Any,
+    w_outside: Any,
+):
+    """Save the debug artifact bundle when ``config.debug`` is set."""
+    if not debug:
+        return
+    _save_debug_artifacts(
+        recorder,
+        objective=objective,
+        root_dir=debug_dir,
+        payload={
+            "objective": objective,
+            "target_shape": shape_for_metric,
+            "target_size": target_size,
+            "epochs": epochs,
+            "algorithm": algorithm,
+            "optimizer_type": optimizer_type,
+            "delta": delta,
+            "w_outside": w_outside,
+            "r_bucket": r_bucket,
+            "cam_type": camera_config.cam_type,
+            "cam_size": cam_size,
+            "blaze_choice": (
+                asdict(blaze_choice)
+                if blaze_choice is not None else None
+            ),
+        },
+    )
+
 def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
     """Optimize PIB (Power in Bucket) using SLM with Zernike coefficient control.
 
@@ -1329,72 +1450,6 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             _row0["_full_frame_img"] = _img
         recorder.append(_row0)
 
-        def _log_row(
-            *,
-            epoch: int,
-            coeffs: np.ndarray,
-            obj_val: float,
-            obj_ratio: float,
-            J: float,
-            diff: float,
-            grad: np.ndarray,
-            img: np.ndarray,
-            lr_val: float,
-            delta_val: float,
-            max_brt: float,
-            gate: str | None = None,
-            phase: np.ndarray | None = None,
-            loggrad: float = 0.0,
-        ) -> dict:
-            """Append one search step to the recorder (shared by both branches).
-
-            ``gate`` records the SPGD evaluation verdict for offline stats:
-            ``"applied"`` (gradient adopted), ``"fold"`` (brightness fold
-            rejected before scoring), ``"noise"`` (diff below the noise gate,
-            zeroed update) or ``"peak"`` (measured peak exceeded ``max_peak``,
-            update not committed). ``None`` (heuristic branch, or legacy
-            records) means "no verdict recorded".
-            """
-            row = {
-                "J": J,
-                RECORD_ROI_ENERGY: obj_ratio,
-                "_max_r": _init_r,
-                objective: obj_val,
-                RECORD_DIFF: diff,
-                RECORD_GATE: gate,
-                "lr": lr_val,
-                "r": r_bucket,
-                "delta": delta_val,
-                RECORD_EPOCH: epoch,
-                RECORD_COEFFS: coeffs,
-                RECORD_IMAGE: img,
-                "exp_t": get_camera_exposure_ms(cam),
-                "max_brt": max_brt,
-                RECORD_GRAD: grad,
-                "optimizer": optimizer_type,
-                f"best_{objective}": best_objective,
-            }
-            if loggrad != 0.0 or w_loggrad > 0.0:
-                # Structure term. Recorded ONLY when the feature is in use: the
-                # default recorder schema is a pinned contract (epoch rows may
-                # add exactly "_gate" over the baseline row), so a default run
-                # must keep its column set byte-identical.
-                row["loggrad"] = float(loggrad)
-            if record_phase and phase is not None:
-                # Display-ready grayscale exactly as sent to the SLM device.
-                row[RECORD_PHASE] = phase
-            if objective == "rms_pib":
-                _w_pib, _w_rms, _w_ee = shaping.weights
-                row["w_pib"] = float(_w_pib)
-                row["w_rms"] = float(_w_rms)
-                row["w_ee"] = float(_w_ee)
-                _terms = shaping.terms
-                row["pib_term"] = float(_terms[1])
-                row["rms_term"] = float(_terms[2])
-                row["ee_term"] = float(_terms[3])
-            row.update(shaping.metric_panel(img))
-            recorder.append(row)
-            return row
 
         def _apply_best_on_exit() -> None:
             """Leave the SLM at the best-found phase (or flat if never improved)."""
@@ -1509,32 +1564,6 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 except Exception:  # last resort, cannot raise
                     logger.error("could not force flat phase either; SLM state unknown")
 
-        def _debug_report() -> None:
-            """Save the debug artifact bundle when ``config.debug`` is set."""
-            if not debug:
-                return
-            _save_debug_artifacts(
-                recorder,
-                objective=objective,
-                root_dir=debug_dir,
-                payload={
-                    "objective": objective,
-                    "target_shape": shape_for_metric,
-                    "target_size": target_size,
-                    "epochs": epochs,
-                    "algorithm": algorithm,
-                    "optimizer_type": optimizer_type,
-                    "delta": delta,
-                    "w_outside": w_outside,
-                    "r_bucket": r_bucket,
-                    "cam_type": camera_config.cam_type,
-                    "cam_size": cam_size,
-                    "blaze_choice": (
-                        asdict(blaze_choice)
-                        if blaze_choice is not None else None
-                    ),
-                },
-            )
 
         session = BenchSession(
             slm=slm,
@@ -1597,7 +1626,17 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         delta_val=float(delta),
                         max_brt=float(np.max(img)),
                         loggrad=float(last_eval.get("loggrad", 0.0)),
-                    )
+                                            _init_r=_init_r,
+                        best_objective=best_objective,
+                        cam=cam,
+                        objective=objective,
+                        optimizer_type=optimizer_type,
+                        r_bucket=r_bucket,
+                        record_phase=record_phase,
+                        recorder=recorder,
+                        shaping=shaping,
+                        w_loggrad=w_loggrad,
+)
                     if live_display is not None:
                         text = (
                             f"{algorithm} eval {index} | "
@@ -1650,7 +1689,22 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     result.best_value,
                     result.evaluations,
                 )
-            _debug_report()
+            _debug_report(                algorithm=algorithm,
+                blaze_choice=blaze_choice,
+                cam_size=cam_size,
+                camera_config=camera_config,
+                debug=debug,
+                debug_dir=debug_dir,
+                delta=delta,
+                epochs=epochs,
+                objective=objective,
+                optimizer_type=optimizer_type,
+                r_bucket=r_bucket,
+                recorder=recorder,
+                shape_for_metric=shape_for_metric,
+                target_size=target_size,
+                w_outside=w_outside,
+)
             return recorder
 
         def _run_spgd() -> None:
@@ -1776,7 +1830,17 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                             lr_val=optimizer.lr,
                             delta_val=delta,
                             max_brt=float(max(pk for _, _, pk, _ in _frame_stats)),
-                        )
+                                                    _init_r=_init_r,
+                            best_objective=best_objective,
+                            cam=cam,
+                            objective=objective,
+                            optimizer_type=optimizer_type,
+                            r_bucket=r_bucket,
+                            record_phase=record_phase,
+                            recorder=recorder,
+                            shaping=shaping,
+                            w_loggrad=w_loggrad,
+)
                         bar.update(1)
                         continue
 
@@ -1826,7 +1890,17 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                             lr_val=optimizer.lr,
                             delta_val=delta,
                             max_brt=_peak_observed,
-                        )
+                                                    _init_r=_init_r,
+                            best_objective=best_objective,
+                            cam=cam,
+                            objective=objective,
+                            optimizer_type=optimizer_type,
+                            r_bucket=r_bucket,
+                            record_phase=record_phase,
+                            recorder=recorder,
+                            shaping=shaping,
+                            w_loggrad=w_loggrad,
+)
                         bar.update(1)
                         continue
 
@@ -1989,7 +2063,17 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         delta_val=delta,
                         max_brt=float(max_brightness),
                         loggrad=float(_sign_results[1][0].loggrad),
-                    )
+                                            _init_r=_init_r,
+                        best_objective=best_objective,
+                        cam=cam,
+                        objective=objective,
+                        optimizer_type=optimizer_type,
+                        r_bucket=r_bucket,
+                        record_phase=record_phase,
+                        recorder=recorder,
+                        shaping=shaping,
+                        w_loggrad=w_loggrad,
+)
                     if live_display is not None:
                         text = (
                             f"epoch {epoch} | {objective} {objective_val:.4f} "
@@ -2038,7 +2122,22 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             # on it, restore that instead of a worse "best". Shared with the
             # heuristic branch through _apply_best_on_exit.
 
-            _debug_report()
+            _debug_report(                algorithm=algorithm,
+                blaze_choice=blaze_choice,
+                cam_size=cam_size,
+                camera_config=camera_config,
+                debug=debug,
+                debug_dir=debug_dir,
+                delta=delta,
+                epochs=epochs,
+                objective=objective,
+                optimizer_type=optimizer_type,
+                r_bucket=r_bucket,
+                recorder=recorder,
+                shape_for_metric=shape_for_metric,
+                target_size=target_size,
+                w_outside=w_outside,
+)
             return recorder
         finally:
             _apply_best_on_exit()
