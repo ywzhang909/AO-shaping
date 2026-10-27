@@ -340,6 +340,53 @@ def build_panel_phase(
     )
 
 
+def recorded_grayscale(
+    phase_rad: Tensor | np.ndarray,
+    *,
+    slm: Any | None = None,
+    panel_shape: tuple[int, int] = PANEL_SHAPE,
+    radius_px: float = PUPIL_RADIUS_PX,
+    center_xy: tuple[int, int] | None = None,
+) -> np.ndarray:
+    """The ``(panel_h, panel_w)`` uint16 grayscale a command actually becomes.
+
+    Two steps, and both matter for the record to mean anything:
+
+    1. :func:`build_panel_phase` embeds the ``(grid, grid)`` command into the full
+       panel at the illuminated pupil -- the same mapping the instrument applies
+       before it sends anything.
+    2. :func:`ao_shaping.utils.slm.phase_display.phase_to_slm_grayscale` turns
+       radians into panel grayscale.  With a live ``slm`` it delegates to the
+       driver pipeline (``mod 2*pi`` at the device ``_max_gray``, wavefront
+       correction, LUT); with ``slm=None`` it falls back to the pure-math
+       conversion (``2*pi = 1023``), which is what a twin session has.
+
+    This is the single definition both instruments' ``sent_grayscale`` records
+    through, so a twin session's ``_phase`` column and a hardware session's have
+    the same shape and the same meaning -- one analysis can read both.
+
+    Args:
+        phase_rad: ``(grid, grid)`` raw unwrapped radians (a leading singleton
+            batch channel is squeezed).  Torch or numpy.
+        slm: A live SLM device, or ``None`` for the pure-math conversion.
+        panel_shape: ``(height, width)`` in panel pixels.
+        radius_px: Pupil radius in panel pixels.
+        center_xy: Centre of the illuminated pupil square, panel pixels ``(x, y)``.
+
+    Returns:
+        ``(height, width)`` uint16 panel grayscale.
+    """
+    panel = build_panel_phase(
+        phase_rad,
+        panel_shape=panel_shape,
+        radius_px=radius_px,
+        center_xy=center_xy,
+    )
+    from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
+
+    return phase_to_slm_grayscale(panel, slm=slm)
+
+
 def pupil_center(
     panel_shape: tuple[int, int] = PANEL_SHAPE,
     center_xy: tuple[int, int] | None = None,
