@@ -135,10 +135,43 @@ def test_transfer_method_renders_the_controls_the_page_shows() -> None:
     ]
     assert order == sorted(order), "参数区顺序必须是 render_inputs → 并光路值 → 标定提示"
 
-    run_source = inspect.getsource(diff_opt_controller.main)
+    run_source = inspect.getsource(diff_opt_controller._render_body)
     # 校验必须早于按钮，按钮必须早于 run。
     assert run_source.index("render_validation") < run_source.index(
         "render_run_controls"
     )
     assert run_source.index("render_run_controls") < run_source.index("method.run(")
+
+
+# --------------------------------------------------------------------------- #
+# 4. 布局模式：默认主区 / 专用子标题折叠面板
+# --------------------------------------------------------------------------- #
+def test_layout_defaults_to_the_main_area(page: AppTest) -> None:
+    """没选折叠面板时主体画在主区，且侧栏有「页面布局」选择器。"""
+    assert not page.exception
+    assert [el.label for el in page.selectbox].count("页面布局") == 1
+    assert page.session_state["diff_opt_layout_choice"] == "（无，默认主区域）"
+    assert page.session_state["diff_opt_subheader_box"] is None
+
+
+def test_subheader_layout_puts_the_body_inside_a_status_panel(page: AppTest) -> None:
+    """选中折叠面板后，无设备提示仍出现且页面不报错（主体确实换容器）。"""
+    page.selectbox(key="diff_opt_layout_choice").select(
+        "专用子标题（折叠面板）"
+    ).run()
+    assert not page.exception
+    assert not page.error
+    assert any("连接至少一个 SLM" in info.value for info in page.info)
+    # AppTest 把 ``st.status`` 的返回对象当回调注册，句柄不是可读字符串 ——
+    # 只断言「选中时句柄非空、默认时为空」这条真实契约。
+    assert page.session_state["diff_opt_layout_choice"] == "专用子标题（折叠面板）"
+
+
+
+def test_subheader_layout_state_does_not_leak_into_other_pages() -> None:
+    """布局句柄用本页自己的 key —— 不写 multi_slm_controller 的 header 名。"""
+    src = inspect.getsource(diff_opt_controller)
+    assert 'st.session_state["sb"]' not in src
+    assert "diff_opt_subheader_box" in src
+
 

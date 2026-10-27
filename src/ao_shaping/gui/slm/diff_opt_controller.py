@@ -19,7 +19,7 @@
 
 合并掉的重复功能
 ----------------
-- 侧栏 「CCD参数设置」不再第二次调用 ``render_bench_settings()`` ——
+- 侧栏「CCD参数设置」不再第二次调用 ``render_bench_settings()`` ——
   ``render_slm_sidebar()`` 内部已调用一次，重复调用会让 ``bench_cam_type``
   等 widget key 撞车直接崩页。
 - 去掉多 SLM 页签、pattern 生成（Zernike / 湍流屏）、GS-refine 与 model-in-loop
@@ -30,6 +30,9 @@
 页面顺序（与 ``render_closed_loop_shaping`` 同一契约）
 -----------------------------------------------------
     光路状态条 → 目标与预算 → 高级参数 → 校验区 → 运行 → 进度/结果
+
+校验必须早于按钮，按钮才能 ``disabled``；运行中不重复排进度明细（
+``TransferMethod`` 自己有一份实时面板）。
 """
 
 from __future__ import annotations
@@ -58,15 +61,72 @@ PAGE_TITLE = "可微优化模型控制器"
 #: 结果区在 ``st.session_state`` 里的键：最近一次运行写下的会话目录。
 _SESSION_DIR_KEY = "diff_opt_session_dir"
 
+#: 侧栏「页面布局」的折叠面板句柄名（本页自己的 key，不串到别的页面）。
+_SUBHEADER_BOX_KEY = "diff_opt_subheader_box"
 
+#: 侧栏「页面布局」选择器自己的 key。
+_SUBHEADER_OPTION_KEY = "diff_opt_layout_choice"
+
+#: 「默认主区域」选项的文案。
+_PLAIN_LAYOUT = "（无，默认主区域）"
+
+
+# --------------------------------------------------------------------------- #
+# 渲染目标
+# --------------------------------------------------------------------------- #
+class _Layout:
+    """页面渲染目标：普通模式 = 主区 ``st``；折叠面板模式 = ``st.status`` 内部。
+
+    Streamlit 的渲染位置由调用点的**容器**决定，所以「在谁里面画」是一个显式
+    参数而不是全局状态 —— 否则测试替身与其它页面会互相串味。
+
+    本类只做两件事：``with layout:`` 进入该容器，以及把属性访问转给容器
+    （``layout.columns`` / ``layout.button`` … 与 ``st`` 一致）。
+    """
+
+    __slots__ = ("_container", "_target")
+
+    def __init__(self, target: Any, container: Any = None) -> None:
+        self._target = target
+        self._container = container
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._target, name)
+
+    def __enter__(self) -> "_Layout":
+        if self._container is not None:
+            self._container.__enter__()
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        if self._container is not None:
+            self._container.__exit__(*exc)
+
+
+def _layout() -> _Layout:
+    """当前页面的渲染目标（普通主区，或侧栏选中的专用子标题面板）。"""
+    box = st.session_state.get(_SUBHEADER_BOX_KEY)
+    if box is not None:
+        return _Layout(box)
+    return _Layout(st)
+
+
+# --------------------------------------------------------------------------- #
+# 会话状态 / 连接判定
+# --------------------------------------------------------------------------- #
 def _ensure_state() -> None:
-    """首次进入时枚举设备（与 ``multi_slm_controller.main`` 同一入口）。"""
+    """首次进入时枚举设备（与 ``multi_slm_controller.main`` 同一入口）。
+
+    枚举会逐个探测 8 个 SLM 编号，**必须只做一次**：每轮 rerun 重扫等于每次点
+    按钮都白等十几秒。``_initialize_slm_state`` 建出的状态就是「已扫过」的标记。
+    """
     if "available_slms" not in st.session_state:
         _initialize_slm_state()
         _refresh_device_list()
 
 
 def _connected_slm_numbers() -> list[int]:
+    """已连接（有 handle 且状态为已连接）的 SLM 编号。"""
     return [
         n
         for n in (1, 2)
@@ -75,6 +135,9 @@ def _connected_slm_numbers() -> list[int]:
     ]
 
 
+# --------------------------------------------------------------------------- #
+# 主体各段
+# --------------------------------------------------------------------------- #
 def render_connection_hint() -> None:
     """没有任何已连接 SLM 时的页面主体。"""
     st.title(PAGE_TITLE)
@@ -85,17 +148,14 @@ def render_connection_hint() -> None:
     )
 
 
-def render_header(slm_num: int) -> None:
+def render_status_header(slm_num: int, prefix: str) -> None:
+    """标题 + 一句话说明 + 光路状态条（这条光路现在能不能信）。"""
     st.title(PAGE_TITLE)
     st.caption(
         f"SLM {slm_num} · 单相机 · 迁移学习闭环整形（物理预测模型）。与 CLI "
         "`python -m ao_shaping.tools.slm.transfer` 同一入口：先名义初始化 / "
         "迁移历史检查点，再用 CCD 锚定短块与 A–B–B–A 配对验收生成目标相位。"
     )
-
-
-def render_path_status(prefix: str, slm_num: int) -> None:
-    """光路状态条：这条光路现在能不能信（借用闭环整形的同一实现）。"""
     status = render_bench_status(prefix, slm_num)
     if status:
         st.caption(status)
@@ -103,22 +163,23 @@ def render_path_status(prefix: str, slm_num: int) -> None:
     if manual:
         st.warning(
             "光路参数有手动覆盖，标定不会改动它们："
-            + "；".join(
-                bench_settings.field_hint(prefix, name) for name in manual
-            )
+            + "；".join(bench_settings.field_hint(prefix, name) for name in manual)
         )
 
 
-def render_parameters(method: TransferMethod) -> dict[str, Any]:
-    """目标与预算 → 高级参数，并并入侧栏光路值（唯一一份光路控件在侧栏）。"""
-    values = method.render_inputs()
-    bench_settings.merge_bench_values(values, method.prefix, method.slm_num, method.key)
+def render_parameters(method: TransferMethod, layout: _Layout) -> dict[str, Any]:
+    """目标与预算 → 高级参数，并并入侧栏光路值（光路控件只在侧栏）。"""
+    with layout:
+        values = method.render_inputs()
+    bench_settings.merge_bench_values(
+        values, method.prefix, method.slm_num, method.key
+    )
     method.hint_bench_calibration(values)
     return values
 
 
 def render_validation(
-    method: TransferMethod, values: dict[str, Any]
+    method: TransferMethod, values: dict[str, Any], layout: _Layout
 ) -> list[str]:
     """校验区必须在按钮之前，按钮才能 ``disabled``。"""
     errors: list[str] = []
@@ -128,41 +189,118 @@ def render_validation(
     method_error = method.validate(values)
     if method_error:
         errors.append(method_error)
-    for error in errors:
-        st.error(error)
+    with layout:
+        for error in errors:
+            st.error(error)
     return errors
 
 
-def render_run_controls(method: TransferMethod, errors: list[str]) -> tuple[bool, bool]:
+def render_run_controls(
+    method: TransferMethod, errors: list[str], layout: _Layout
+) -> tuple[bool, bool]:
     """调试开关 + 运行按钮。返回 ``(clicked, debug)``。"""
-    debug = st.checkbox(
-        "保存调试产物 (data/debug/…)",
-        value=False,
-        key=f"{method.prefix}_shp_debug",
-        disabled=bool(errors),
-        help="与 CLI --debug 同布局；迁移学习的证据目录不受它影响 —— "
-        "该管线从第一阶段就写 journal/audit，没有「不保存」模式",
-    )
-    clicked = st.button(
-        method.action,
-        key=f"{method.prefix}_shp_run_{method.key}",
-        type="primary",
-        disabled=bool(errors) or bench_settings.bench_busy(),
-        use_container_width=True,
-    )
+    with layout:
+        debug = st.checkbox(
+            "保存调试产物 (data/debug/…)",
+            value=False,
+            key=f"{method.prefix}_shp_debug",
+            disabled=bool(errors),
+            help="与 CLI --debug 同布局；迁移学习的证据目录不受它影响 —— "
+            "该管线从第一阶段就写 journal/audit，没有「不保存」模式",
+        )
+        clicked = st.button(
+            method.action,
+            key=f"{method.prefix}_shp_run_{method.key}",
+            type="primary",
+            disabled=bool(errors) or bench_settings.bench_busy(),
+            use_container_width=True,
+        )
     return bool(clicked), bool(debug)
 
 
 def render_session_progress() -> None:
-    """最近一次运行的进度明细（读会话目录，不重算指标）。"""
+    """最近一次运行的进度明细（读会话目录，不重算指标）。
+
+    运行期间进度由 ``TransferMethod`` 自己的进度条 + 明细面板实时刷新；本函数
+    只在**运行结束后**把同一条会话目录的最终状态再排一遍，所以运行中直接跳过，
+    否则同一份明细会在页面上出现两次。
+    """
     raw = st.session_state.get(_SESSION_DIR_KEY)
-    if not raw:
+    if not raw or bench_settings.bench_busy():
         return
     st.subheader("运行进度")
-    render_progress(
-        collect_progress(Path(raw)),
-        running=bench_settings.bench_busy(),
+    render_progress(collect_progress(Path(raw)), running=False)
+
+
+# --------------------------------------------------------------------------- #
+# 侧栏布局选择
+# --------------------------------------------------------------------------- #
+def _subheader_options() -> list[str]:
+    """「页面布局」的选项：默认主区，或挂到专用子标题折叠面板。"""
+    return [_PLAIN_LAYOUT, "专用子标题（折叠面板）"]
+
+
+def render_subheader_selector() -> None:
+    """侧栏「页面布局」：把主体挂进 ``st.status`` 折叠面板，或留在主区。
+
+    实现与 ``multi_slm_controller`` 的专用子标题一致（``st.status`` +
+    会话态句柄），但句柄存在**本页自己的 key** 上，不会串到别的页面。
+    交互控件在折叠面板内照常可用。
+    """
+    options = _subheader_options()
+    current = st.session_state.get(_SUBHEADER_OPTION_KEY, options[0])
+    index = options.index(current) if current in options else 0
+    choice = st.selectbox(
+        "页面布局",
+        options=options,
+        index=index,
+        key=_SUBHEADER_OPTION_KEY,
+        help="折叠面板模式把主体收进一块可折叠的「专用子标题」容器；"
+        "需要屏幕空间时用默认主区域",
     )
+    if choice == _PLAIN_LAYOUT:
+        st.session_state[_SUBHEADER_BOX_KEY] = None
+        return
+    st.session_state[_SUBHEADER_BOX_KEY] = st.status(
+        f"{PAGE_TITLE}（专用子标题）", expanded=True
+    )
+
+
+# --------------------------------------------------------------------------- #
+# 主体编排
+# --------------------------------------------------------------------------- #
+def _render_body(layout: _Layout) -> None:
+    """主体内容：状态条 → 参数 → 校验 → 运行 → 进度。"""
+    connected = _connected_slm_numbers()
+    if not connected:
+        with layout:
+            render_connection_hint()
+        return
+
+    slm_num = connected[0]
+    prefix = f"slm{slm_num}"
+
+    with layout:
+        render_status_header(slm_num, prefix)
+
+    method = TransferMethod(prefix, slm_num)
+    values = render_parameters(method, layout)
+    errors = render_validation(method, values, layout)
+    clicked, debug = render_run_controls(method, errors, layout)
+
+    if clicked:
+        # 计划目录要在 ``run`` 之前拿到：阶段中途失败时 ``run`` 返回 ``None``，
+        # 事后无从得知证据写在哪，而失败阶段恰恰最需要看产物。
+        planned = method.build_params(values).out
+        st.session_state[_SESSION_DIR_KEY] = str(planned)
+        method.run(values, debug=debug)
+        return
+
+    with layout:
+        render_session_progress()
+        if not bench_settings.effective_state(prefix):
+            st.caption("尚无运行结果。")
+        st.caption(snapshot_summary_line(prefix))
 
 
 def main() -> None:
@@ -176,37 +314,11 @@ def main() -> None:
 
     with st.sidebar:
         # 「CCD参数设置」已在 render_slm_sidebar() 内部渲染一次 —— 再调
-        # render_bench_settings() 会重复声明 bench_cam_type 等 key 并让页面崩掉。
+        # render_bench_settings() 会重复声明 bench_cam_type 等 key 让页面崩掉。
         render_slm_sidebar()
+        render_subheader_selector()
 
-    connected = _connected_slm_numbers()
-    if not connected:
-        render_connection_hint()
-        return
-
-    slm_num = connected[0]
-    prefix = f"slm{slm_num}"
-    render_header(slm_num)
-    render_path_status(prefix, slm_num)
-
-    method = TransferMethod(prefix, slm_num)
-    values = render_parameters(method)
-    errors = render_validation(method, values)
-    clicked, debug = render_run_controls(method, errors)
-
-    if clicked:
-        method.run(values, debug=debug)
-        # ``run`` 把接受相位写进 ``data/debug/slm_transfer/<stamp>``；目录由
-        # ``prepare_config`` 前的 ``build_params`` 决定，这里只记录最近一次。
-        planned = getattr(method, "_session_dir", None)
-        if planned is not None:
-            st.session_state[_SESSION_DIR_KEY] = str(planned)
-        return
-
-    render_session_progress()
-    if not bench_settings.effective_state(prefix):
-        st.caption("尚无运行结果。")
-    st.caption(snapshot_summary_line(prefix))
+    _render_body(_layout())
 
 
 if __name__ == "__main__":
