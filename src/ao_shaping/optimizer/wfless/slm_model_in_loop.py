@@ -117,6 +117,18 @@ from ao_shaping.utils.io.recorder_keys import (
     RECORD_EPOCH,
 )
 
+#: Fraction of full scale at which a frame counts as saturated. The same number decides two
+#: things here -- whether the initial exposure is already clipping, and whether a proposed
+#: change can be refused because the sensor is not the limiting factor -- so it has one home.
+#: It is a peak fraction, not a raw ADU count: the ``250`` below stays literal because that
+#: question is about a specific camera's full-scale reading.
+_SATURATION_PEAK_FRACTION = 0.9
+
+#: Tolerance (ms) for treating a requested exposure as already in effect: the comparison is
+#: against the driver's *readback*, so exact equality is not expected and a match within this
+#: window means the change did land. Distinct from any optical or metric threshold.
+_EXPOSURE_MATCH_TOL_MS = 0.001
+
 __all__ = [
     "AdaptiveTrustRegion",
     "AdaptiveTrustRegionConfig",
@@ -1851,7 +1863,7 @@ class _HardwareBench:
                         float(self._cam.exposure_time),
                         max_ms=self._ceiling_ms,
                     )
-                    if decision.peak_fraction >= 0.9:
+                    if decision.peak_fraction >= _SATURATION_PEAK_FRACTION:
                         raise RuntimeError(
                             "full-frame CCD saturated at initial exposure; "
                             "reduce laser power before calibration"
@@ -2031,8 +2043,8 @@ class _HardwareBench:
             self.last_raw_frame = np.asarray(raw).copy()
             decision = choose_exposure(raw, actual_ms, max_ms=self._ceiling_ms)
             if decision.accepted or (
-                decision.peak_fraction < 0.9
-                and abs(decision.next_ms - actual_ms) < 0.001
+                decision.peak_fraction < _SATURATION_PEAK_FRACTION
+                and abs(decision.next_ms - actual_ms) < _EXPOSURE_MATCH_TOL_MS
             ):
                 logger.info(
                     "CCD exposure {:.4f} ms, peak {:.1%} of full scale",
@@ -2043,7 +2055,7 @@ class _HardwareBench:
                     timespec="microseconds"
                 )
                 return exposure_normalized_frame(frame, actual_ms, reference_ms=0.02)
-            if abs(decision.next_ms - actual_ms) < 0.001:
+            if abs(decision.next_ms - actual_ms) < _EXPOSURE_MATCH_TOL_MS:
                 break
             next_ms = self._cam.reset_exposure_time(decision.next_ms)
             if not 0 < next_ms <= self._ceiling_ms + 1e-9:

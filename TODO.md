@@ -3688,6 +3688,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 验证：`test_recorder_keys.py` 从 `1 failed / 18 passed` 变 **19 passed**；`tests/ao_shaping/utils` 从 `1 failed / 1489 passed / 4 skipped` 变 **1490 passed / 4 skipped / 0 failed**；两文件 `py_compile` 通过；`ruff check .` 全仓归零。这两个脚本无测试消费者（只被 `scripts/_common/provenance.py` 与 `scripts/README.md` 引用），故没有额外分片需要重跑。
 - **收口账（本会话在 master 上看到的失败已全部清零）**：`tests/ao_shaping/scripts` 2604 passed / 67 skipped / 0 failed；`tests/ao_shaping/utils` 1490 / 4 / 0；`tests/ao_shaping/tools` 1107 / 5 / 0；`tests/ao_shaping/algorithm` 777 / 16 / 0；`tests/ao_shaping/ml/sim2f` 317 / 6 / 0；`tests/ao_shaping/ml/gsnet` 87 / 0。CI 侧 `Ruff` 与 `Terminology gate` 均 success。本批不涉及 #173 计数（PLR2004 无变化）。
 
+133. ✅ **#173 续批：`optimizer/wfless/slm_model_in_loop.py` 的 13 → 9，提两对同含义阈值，拒掉四处同值不同义的 `2`**（2026-10-27）
+- 提的 4 处只有两组。`0.9`（1854/2034）是同一个量：`decision.peak_fraction` 的饱和判据——同一个数既决定"初始曝光已经在削顶"，也决定"提议改曝光可以被拒绝，因为受限的不是传感器"⇒ `_SATURATION_PEAK_FRACTION`。`0.001`（2035/2046）是**逐字相同的谓词** `abs(decision.next_ms - actual_ms) < 0.001` 出现两次 ⇒ `_EXPOSURE_MATCH_TOL_MS`，注释写明它是与驱动**读回值**比较的容差（曝光不可能精确相等，落在窗口内即视为已生效），与任何光学/指标阈值无关。
+- **拒掉的 9 处逐一留痕**：四处 `2` 分属四个问题——1072 `probe_count < 2`（最少探针数）、1113 `region < 2`（最小 region）、1520 `index < 2`（Zernike 下标界）、2547 `out.ndim != 2`（数组秩）。2547 仍**不**跨包借 `utils.image.ranks` 的 `NDIM_SINGLE_CHANNEL`，理由就是 item 121 定的包边界：为了一个点把 image 的秩 hub 拉进 `optimizer` 会把一个有文档的作用域无谓扩大。其余单点也留字面量：1085 `probe_spread < 3.0`、1823 `>= 250`、1872 `< 10.0`、2203 `target > 0.5`、2298 `< 1e-9`。
+- 关键的一条**在注释里预先挡住**：1823 的 `250` 是特定相机（`daheng`）的原始满量程读数，不是 peak fraction——`_SATURATION_PEAK_FRACTION` 的注释直接写明"它是峰值比例，不是 ADU 计数，下面那个 250 之所以留字面量是因为问的是某台相机的满量程"。这类同族不同量的阈值最容易在后续清扫里被顺手合并。
+- 控制链（4 项，模块私有常量形态）：基线恒等；L1 `_SATURATION_PEAK_FRACTION` 0.9→0.95 ⇒ proof 判红；L2 `_EXPOSURE_MATCH_TOL_MS` 0.001→0.0005 ⇒ 判红；B 把一处 `>=` 改成 `>` ⇒ 判红；G 分组反向（把 1854 行标成 `tol` 组）⇒ group 判红 `literal '0.001' absent`。每项前还原、`finally` 再还原，`cmp` 逐字节一致。
+- 验证与回归：4 个计划替换点全部由 ruff 真实命中；AST 恒等 `True`；分组校验 OK；`py_compile` 通过；`ruff check .` 全仓归零。消费面定向基线不变：`tests/ao_shaping/optimizer/wfless/test_slm_model_in_loop.py` **130 passed**（改前后同一数字）。本批不涉及 `NDIM_*`，秩守卫无需改动。
+- 覆盖账（实测）：目标文件 13 → 9；`src` 全域 599 → **595**；全仓 1101 → 1097（差值 4 与提升点数一致）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
