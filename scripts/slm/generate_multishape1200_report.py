@@ -489,6 +489,8 @@ def build_report(facts: dict) -> str:
         ]
 
     if facts["bakeoff"]:
+        kinds = sorted({entry["kind"] for entry in facts["bakeoff"].values()},
+                       key=lambda k: ["transport", "backprojection", "gs"].index(k))
         lines += [
             "## 2 初相位的三种构造与实测择优",
             "",
@@ -501,13 +503,11 @@ def build_report(facts: dict) -> str:
             "",
             "三者的初相位在同一块、同一目标下**实测**核心 CV（越低越好）：",
             "",
-            "| 形状 | " + " | ".join(SEED_LABELS[kind] for kind in
-                                   sorted({entry["kind"] for entry in facts["bakeoff"].values()},
-                                          key=lambda k: ["transport", "backprojection", "gs"].index(k))) + " | 采用 |",
-            "|" + "---|" * (2 + len({entry["kind"] for entry in facts["bakeoff"].values()}) + 1),
+            "| 形状 | " + " | ".join(SEED_LABELS[kind] for kind in kinds) + " | 采用 |",
+            # Header and separator must agree: 形状 + one column per kind + 采用 is
+            # len(kinds) + 2 cells, so the separator is derived from the same list.
+            "|" + "---|" * (len(kinds) + 2),
         ]
-        kinds = sorted({entry["kind"] for entry in facts["bakeoff"].values()},
-                       key=lambda k: ["transport", "backprojection", "gs"].index(k))
         for shape in facts["bakeoff_shapes"]:
             values = []
             for kind in kinds:
