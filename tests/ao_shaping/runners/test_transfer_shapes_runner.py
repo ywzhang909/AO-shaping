@@ -11,6 +11,8 @@ from click.testing import CliRunner
 
 from ao_shaping.runners.slm.transfer_shapes_runner import STAGE_RECIPES, run
 
+REPO = Path(__file__).resolve().parents[3]
+
 
 def test_the_command_is_registered_on_the_top_level_group():
     from ao_shaping.main import cli
@@ -70,7 +72,25 @@ def test_the_shape_vocabulary_of_the_command_is_the_transfer_family():
 @pytest.mark.parametrize("path", ["src/ao_shaping/runners/slm/transfer_shapes_runner.py",
                                   "src/ao_shaping/tools/slm/transfer/recording.py"])
 def test_the_new_modules_are_tracked_by_the_repository(path):
-    """The convention guard reads the git index; a new file must be added to it."""
-    result = subprocess.run(["git", "ls-files", "--error-unmatch", path],
-                            capture_output=True, text=True)
-    assert result.returncode == 0, f"{path} is not tracked by git"
+    """The convention guard reads the git index; a new file must be added to it.
+
+    ``cwd=REPO`` is load-bearing: the container harness starts pytest in its scratch
+    directory (``run_pytest_ci.sh`` passes ``-w "$SCRATCH"``), so a git call without a
+    working directory answers "fatal: not a git repository" with rc=128 -- which this test
+    used to report as "not tracked by git", sending the runners shard red over files that
+    are plainly in the index. A checkout where git cannot answer at all is now skipped with
+    that reason instead of being mistaken for a missing file (the tri-state pattern already
+    used by test_report_provenance._is_gitignored).
+    """
+    result = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", path],
+        capture_output=True, text=True, cwd=str(REPO), check=False,
+    )
+    if result.returncode not in (0, 1):
+        pytest.skip(
+            f"git cannot answer for this checkout (rc={result.returncode}): "
+            f"{result.stderr.strip()}"
+        )
+    assert result.returncode == 0, (
+        f"{path} is not tracked by git -- add it with `git add {path}`"
+    )
