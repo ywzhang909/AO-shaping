@@ -44,11 +44,7 @@ from typing import Any
 import streamlit as st
 
 from ao_shaping.gui.slm import bench_settings
-from ao_shaping.gui.slm.multi_slm_controller import (
-    _initialize_slm_state,
-    _refresh_device_list,
-    render_slm_sidebar,
-)
+from ao_shaping.gui.slm.multi_slm_controller import render_slm_sidebar
 from ao_shaping.gui.slm.shaping_controls import (
     TransferMethod,
     render_bench_status,
@@ -60,6 +56,17 @@ from ao_shaping.gui.slm.transfer_progress import (
     missing_trace_labels,
     render_progress,
     render_traces,
+)
+from ao_shaping.gui.slmshape.connect import (
+    connected_slm_numbers as _connected_slm_numbers,
+    ensure_state as _ensure_state,
+    render_connection_hint,
+)
+from ao_shaping.gui.slmshape.layout import (
+    PLAIN_LAYOUT as _PLAIN_LAYOUT,
+    Layout as _Layout,
+    layout as _layout_factory,
+    render_layout_selector as _render_layout_selector,
 )
 
 #: 页面标题 / 侧栏品牌名。
@@ -79,67 +86,13 @@ _PLAIN_LAYOUT = "（无，默认主区域）"
 
 
 # --------------------------------------------------------------------------- #
-# 渲染目标
+# 渲染目标 —— 委派给 slmshape.layout（_Layout / _layout 已在上方导入/定义）
 # --------------------------------------------------------------------------- #
-class _Layout:
-    """页面渲染目标：普通模式 = 主区 ``st``；折叠面板模式 = ``st.status`` 内部。
-
-    Streamlit 的渲染位置由调用点的**容器**决定，所以「在谁里面画」是一个显式
-    参数而不是全局状态 —— 否则测试替身与其它页面会互相串味。
-
-    本类只做两件事：``with layout:`` 进入该容器，以及把属性访问转给容器
-    （``layout.columns`` / ``layout.button`` … 与 ``st`` 一致）。
-    """
-
-    __slots__ = ("_container", "_target")
-
-    def __init__(self, target: Any, container: Any = None) -> None:
-        self._target = target
-        self._container = container
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._target, name)
-
-    def __enter__(self) -> "_Layout":
-        if self._container is not None:
-            self._container.__enter__()
-        return self
-
-    def __exit__(self, *exc: Any) -> None:
-        if self._container is not None:
-            self._container.__exit__(*exc)
 
 
 def _layout() -> _Layout:
-    """当前页面的渲染目标（普通主区，或侧栏选中的专用子标题面板）。"""
-    box = st.session_state.get(_SUBHEADER_BOX_KEY)
-    if box is not None:
-        return _Layout(box)
-    return _Layout(st)
+    return _layout_factory(_SUBHEADER_BOX_KEY)
 
-
-# --------------------------------------------------------------------------- #
-# 会话状态 / 连接判定
-# --------------------------------------------------------------------------- #
-def _ensure_state() -> None:
-    """首次进入时枚举设备（与 ``multi_slm_controller.main`` 同一入口）。
-
-    枚举会逐个探测 8 个 SLM 编号，**必须只做一次**：每轮 rerun 重扫等于每次点
-    按钮都白等十几秒。``_initialize_slm_state`` 建出的状态就是「已扫过」的标记。
-    """
-    if "available_slms" not in st.session_state:
-        _initialize_slm_state()
-        _refresh_device_list()
-
-
-def _connected_slm_numbers() -> list[int]:
-    """已连接（有 handle 且状态为已连接）的 SLM 编号。"""
-    return [
-        n
-        for n in (1, 2)
-        if st.session_state.get(f"slm{n}_connected")
-        and st.session_state.get(f"slm{n}") is not None
-    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -263,22 +216,8 @@ def render_subheader_selector() -> None:
     会话态句柄），但句柄存在**本页自己的 key** 上，不会串到别的页面。
     交互控件在折叠面板内照常可用。
     """
-    options = _subheader_options()
-    current = st.session_state.get(_SUBHEADER_OPTION_KEY, options[0])
-    index = options.index(current) if current in options else 0
-    choice = st.selectbox(
-        "页面布局",
-        options=options,
-        index=index,
-        key=_SUBHEADER_OPTION_KEY,
-        help="折叠面板模式把主体收进一块可折叠的「专用子标题」容器；"
-        "需要屏幕空间时用默认主区域",
-    )
-    if choice == _PLAIN_LAYOUT:
-        st.session_state[_SUBHEADER_BOX_KEY] = None
-        return
-    st.session_state[_SUBHEADER_BOX_KEY] = st.status(
-        f"{PAGE_TITLE}（专用子标题）", expanded=True
+    _render_layout_selector(
+        _SUBHEADER_OPTION_KEY, _SUBHEADER_BOX_KEY, PAGE_TITLE
     )
 
 
