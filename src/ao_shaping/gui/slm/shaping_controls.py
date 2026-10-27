@@ -96,6 +96,7 @@ from ao_shaping.gui.slm.link_design_assist import (
     format_far_length,
     summary_rows,
 )
+from ao_shaping.gui.slm import sampling_assist
 from ao_shaping.gui.slm.pattern_controls import refresh_phase_preview
 from ao_shaping.gui.slm.transfer_progress import collect_progress, render_progress
 from ao_shaping.gui.utils.phase_overlay import apply_overlays_to_handle
@@ -1204,6 +1205,89 @@ class ShapingMethod(ABC):
                         {f"link_{field.name}": field.default for field in LINK_FIELDS},
                     )
                     st.rerun()
+
+            st.divider()
+            self._render_sampling_assist(lo=lo, window_side=window_side)
+
+    def _render_sampling_assist(self, *, lo: int, window_side: int) -> None:
+        """popover 的第二段：主路方斑 ``S`` ↔ 采样相机像素 + 物理可达性判据。
+
+        与上一段（望远镜远场）**口径不同、不可互换**：上一段量的是一公里外目标的
+        角尺度，这一段量的是主路焦面上已有的方斑被采样透镜以 ``f_sample/f_main``
+        再次成像后的大小。换算与全部判据在
+        :mod:`ao_shaping.utils.wavefront.sampling_limit`（单一实现），字段表与文本
+        在 :mod:`ao_shaping.gui.slm.sampling_assist`；这里只摆控件、显示、填入。
+
+        「填入」把 ``S_CCD`` 折成采样相机像元数，与本页「目标方边长」同一个单位 ——
+        前提是侧栏那个读出窗就是采样相机。超出窗口时照上一段的做法**夹取 + 警告**，
+        不静默改数值。
+        """
+        sampling_state = st.session_state
+        fields = {
+            field.name: float(
+                sampling_state.get(self.link_wkey(field.name), field.default)
+            )
+            for field in sampling_assist.SAMPLING_FIELDS
+        }
+        # 相机像元是相机侧的唯一事实源（侧栏设置），本段不另设控件。
+        camera_pixel_um = float(
+            sampling_state.get(
+                "camera_pixel_um", bench_settings.DEFAULT_CAMERA_PIXEL_UM
+            )
+        )
+        st.caption(
+            "主路方斑 S ↔ 采样相机像素：S_CCD = S·f_sample/f_main"
+            "（N 与 w 不进这条式子，只决定下面的可达性判据）。"
+        )
+        left, right = st.columns(2)
+        for index, field in enumerate(sampling_assist.SAMPLING_FIELDS):
+            cell = left if index % 2 == 0 else right
+            cell.number_input(
+                field.label,
+                min_value=field.lo,
+                max_value=field.hi,
+                value=bench_settings.widget_default(
+                    self.link_wkey(field.name), field.default
+                ),
+                step=field.step,
+                key=self.link_wkey(field.name),
+                help=field.help or None,
+            )
+        setup = sampling_assist.build_setup(
+            **fields, camera_pixel_m=camera_pixel_um * 1.0e-6
+        )
+        summary = sampling_assist.compute_sampling_summary(
+            evaluate_sampling(setup), window_side_px=int(window_side)
+        )
+        for label, text in sampling_assist.summary_rows(summary):
+            st.markdown(f"- **{label}**：{text}")
+        for label, text in sampling_assist.violation_rows(summary):
+            st.warning(f"{label}：{text}")
+
+        px = int(round(float(summary["side_on_camera_px"])))
+        filled = min(max(px, int(lo)), int(window_side))
+        if st.button(
+            "填入目标方边长（采样相机）",
+            key=self.link_wkey("sampling_apply"),
+            type="primary",
+        ):
+            queue_widget_writes(self, {"target_side": int(filled)})
+            st.rerun()
+
+        if st.button(
+            "恢复采样光路参数", key=self.link_wkey("sampling_reset")
+        ):
+            # 只恢复**光路参数**：目标边长 S 每次实验都不同，复位它会把操作员
+            # 刚测出来的目标抹掉。
+            queue_widget_writes(
+                self,
+                {
+                    f"link_{field.name}": field.default
+                    for field in sampling_assist.SAMPLING_FIELDS
+                    if field.is_optical
+                },
+            )
+            st.rerun()
 
     def common_param_values(self, values: Mapping[str, Any]) -> dict[str, Any]:
         """所有优化器参数对象共有的光路字段（一个映射，三份参数对象共用）。
