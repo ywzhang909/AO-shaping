@@ -391,8 +391,7 @@ def build():
 
 if __name__ == "__main__":
     data = build()
-    import sys as _s
     outp = REPO / "docs/dev/call_graph_wiki/raw/assets/call_graph.json"
     outp.parent.mkdir(parents=True, exist_ok=True)
     outp.write_text(json.dumps(data, ensure_ascii=False, indent=1))
-    print(f"wrote {outp}", file=_s.stderr)
+    logger.info(f"wrote {outp}")
