@@ -77,6 +77,7 @@ from loguru import logger  # noqa: E402
 
 from ml.sim2f.bench import (  # noqa: E402
     MAX_EXPOSURE_ENV,
+    PANEL_SHAPE,
     PUPIL_RADIUS_PX,
 )
 
@@ -88,6 +89,11 @@ FRAMES_FLOOR = 7
 #: Peak grey above which a Daheng frame is treated as clipped.  Matches the guard
 #: ``panel_locate.scan_panel`` raises on (``>= 250`` of 255).
 SATURATION_PEAK = 250
+
+#: Radius of the 0-order scoring box, i.e. the aperture whose energy the probes
+#: read.  60 px is ``panel_locate.scan_panel``'s own box; keeping it makes the
+#: response numbers directly comparable with that probe's output.
+FLAT_BOX_RADIUS_PX = 60
 
 
 @dataclass
@@ -183,6 +189,32 @@ def _resolve_exposure(cam, requested: float | None, ledger: CommandLedger) -> fl
     return float(readback)
 
 
+def _flat_box(ref, flat) -> np.ndarray:
+    """The 0-order scoring box around the flat frame's **measured** centroid."""
+    from ao_shaping.tools.slm.panel.panel_locate import _box_mask
+
+    return _box_mask(
+        ref.shape, int(round(flat.centroid_x)), int(round(flat.centroid_y)),
+        FLAT_BOX_RADIUS_PX,
+    )
+
+
+def _check_frame(ref, where: str) -> None:
+    """Refuse to locate or sweep on a clipped frame.
+
+    A saturated 0-order makes the box energy insensitive to the patch (the
+    counts hit 255 and stop moving), so a scan on it reports a *low* response
+    exactly where the beam is -- the failure looks like "illumination is
+    elsewhere" instead of "exposure is too high".
+    """
+    peak = float(np.max(ref))
+    if peak >= SATURATION_PEAK:
+        raise SystemExit(
+            f"{where} peaks at {peak:.0f}/255 (clipped at {SATURATION_PEAK}); "
+            "lower --exposure-ms before measuring the panel"
+        )
+
+
 def _measure_panel(devices, args, ledger: CommandLedger) -> dict[str, object]:
     """Locate the illuminated patch on the panel, paired-flat, in one device pass.
 
@@ -190,9 +222,15 @@ def _measure_panel(devices, args, ledger: CommandLedger) -> dict[str, object]:
     candidate patch write a random disc, take a flat *before* and *after*, and
     score the 0-order box energy change against the paired flat mean.  A drift
     above ``--max-flat-drift`` rejects the point instead of scoring it.
+
+    Two differences from ``scan_panel``, both of them cost, neither of them
+    accuracy: the *after* flat of one point is reused as the *before* flat of
+    the next (the panel goes flat between every pair either way, so this drops
+    one flat per point), and the disc is only ever written where the measured
+    illumination exists (a disc placed outside it cannot respond, and its
+    zero response would then compete with the true centre).
     """
     from ao_shaping.tools.slm.panel.panel_locate import (
-        _box_mask,
         _paired_delta,
         capture_settled_report,
         measure_flat_reference,
@@ -204,6 +242,7 @@ def _measure_panel(devices, args, ledger: CommandLedger) -> dict[str, object]:
     xs = [int(v) for v in args.grid_xs.split(",") if v.strip()]
     ys = [int(v) for v in args.grid_ys.split(",") if v.strip()]
     rng = np.random.default_rng(int(args.seed))
+    yy, xx = np.mgrid[0:panel[0], 0:panel[1]]
 
     with ledger.timed("panel_flat"):
         ref, flat = measure_flat_reference(
@@ -211,65 +250,92 @@ def _measure_panel(devices, args, ledger: CommandLedger) -> dict[str, object]:
             policy=policy, wait_time_s=None,
         )
         ledger.reads += int(args.frames)
-    box = _box_mask(ref.shape, int(round(flat.centroid_x)),
-                    int(round(flat.centroid_y)), 60)
+    box = _flat_box(ref, flat)
     base = float(ref[box].sum())
     logger.info("flat reference: {}  0-order box energy={:.0f}", flat.as_row(), base)
-    if np.max(ref) >= SATURATION_PEAK:
+    _check_frame(ref, "flat frame")
+
+    # Only candidates at least a patch radius inside the illuminated disc: a disc
+    # straddling the edge writes part of its phase where there is no light, so
+    # its response is a *fraction* of a real patch's and it biases the winner.
+    inside: list[tuple[int, int]] = []
+    skipped: list[tuple[int, int]] = []
+    for py in ys:
+        for px in xs:
+            reach = np.hypot(px - flat.centroid_x, py - flat.centroid_y)
+            (inside if reach + int(args.patch_radius) <= flat.radius_px
+             else skipped).append((px, py))
+    if skipped:
+        # A skipped cell is not "the illumination stops here": the illumination
+        # estimate itself may be wrong.  Prove it with the extent sweep before
+        # believing either, and say so.
+        logger.warning(
+            "{} of {} candidates sit outside the measured illumination "
+            "(centre {:.0f},{:.0f} radius {:.0f} px from the flat frame): {}",
+            len(skipped), len(xs) * len(ys), flat.centroid_x, flat.centroid_y,
+            flat.radius_px, skipped,
+        )
+        logger.warning(
+            "that estimate is not trusted as the answer to "
+            "'where is the beam' -- confirm it with the extent sweep "
+            "(run without --skip-extent) before running the bench"
+        )
+    if not inside:
         raise SystemExit(
-            f"flat frame peaks at {np.max(ref):.0f}/255; lower --exposure-ms "
-            "before locating the beam"
+            "no candidate patch fits inside the measured illumination; the flat "
+            "frame's centroid/radius disagree with the grid -- lower the "
+            "exposure or widen --grid-xs/--grid-ys"
         )
 
     results: list[tuple[float, int, int, float]] = []
     rows: list[dict[str, object]] = []
-    yy, xx = np.mgrid[0:panel[0], 0:panel[1]]
+    candidates = skipped
     with ledger.timed("panel_scan"):
-        for py in ys:
-            line: list[str] = []
-            for px in xs:
-                phase = np.zeros(panel, dtype=np.float64)
-                m = (yy - py) ** 2 + (xx - px) ** 2 <= int(args.patch_radius) ** 2
-                phase[m] = rng.uniform(0.0, 2.0 * np.pi, int(m.sum()))
-                before, _ = measure_flat_reference(
-                    cam, slm, n_frames=int(args.frames), panel_shape=panel,
-                    policy=policy, wait_time_s=None,
-                )
-                candidate = capture_settled_report(
-                    cam, slm, phase, wait_time_s=None, policy=policy
-                )
+        before = ref
+        for index, (px, py) in enumerate(inside):
+            phase = np.zeros(panel, dtype=np.float64)
+            m = (yy - py) ** 2 + (xx - px) ** 2 <= int(args.patch_radius) ** 2
+            phase[m] = rng.uniform(0.0, 2.0 * np.pi, int(m.sum()))
+            candidate = capture_settled_report(
+                cam, slm, phase, wait_time_s=None, policy=policy
+            )
+            ledger.writes += 1
+            ledger.reads += int(args.frames)
+            _check_frame(candidate.frame, f"panel patch ({px}, {py})")
+            if index + 1 < len(inside):
                 after, _ = measure_flat_reference(
                     cam, slm, n_frames=int(args.frames), panel_shape=panel,
                     policy=policy, wait_time_s=None,
                 )
-                ledger.writes += 1
-                ledger.reads += 3 * int(args.frames)
-                peak = max(float(np.max(f)) for f in (before, candidate.frame, after))
-                if peak >= SATURATION_PEAK:
-                    raise SystemExit(
-                        f"panel ({px}, {py}) peaks at {peak:.0f}/255; lower the exposure"
-                    )
-                try:
-                    delta, drift = _paired_delta(before, candidate.frame, after, box,
-                                                 float(args.max_flat_drift))
-                except ValueError as exc:
-                    delta, drift = float("nan"), float("nan")
-                    logger.warning("panel ({}, {}): {}", px, py, exc)
-                cells = [before[box].sum(), candidate.frame[box].sum(), after[box].sum()]
-                rows.append({
-                    "x": px, "y": py,
-                    "delta": None if not np.isfinite(delta) else float(delta),
-                    "flat_drift": None if not np.isfinite(drift) else float(drift),
-                    "flat_before": float(cells[0]), "candidate": float(cells[1]),
-                    "flat_after": float(cells[2]), "peak": peak,
-                    "rel_sigma": float(candidate.settle.rel_sigma),
-                })
-                if np.isfinite(delta):
-                    results.append((abs(delta), py, px, delta))
-                line.append(f"x={px}:{delta:+7.3f}")
-                ledger.phases.setdefault("panel_points", 0.0)
-                ledger.phases["panel_points"] += 1.0
-            logger.info("panel y={:>4}: {}", py, "  ".join(line))
+                ledger.reads += int(args.frames)
+                _check_frame(after, "re-paired flat")
+            else:
+                after = before  # last point: no successor to pair with
+            try:
+                delta, drift = _paired_delta(before, candidate.frame, after, box,
+                                             float(args.max_flat_drift))
+            except ValueError as exc:
+                delta, drift = float("nan"), float("nan")
+                logger.warning("panel ({}, {}): {}", px, py, exc)
+            rows.append({
+                "x": px, "y": py,
+                "delta": None if not np.isfinite(delta) else float(delta),
+                "flat_drift": None if not np.isfinite(drift) else float(drift),
+                "flat_before": float(before[box].sum()),
+                "candidate": float(candidate.frame[box].sum()),
+                "flat_after": float(after[box].sum()),
+                "peak": float(np.max(candidate.frame)),
+                "rel_sigma": float(candidate.settle.rel_sigma),
+            })
+            if np.isfinite(delta):
+                results.append((abs(delta), py, px, delta))
+            logger.info(
+                "panel ({:>4},{:>4}): delta={:+.4f} drift={:.1%} rel_sigma={:.3f}",
+                px, py, delta, drift, candidate.settle.rel_sigma,
+            )
+            before = after
+            ledger.slots.append(int(candidate.writes_slot))
+    _ = candidates
 
     if not results:
         raise SystemExit("panel scan produced no scorable candidate")
@@ -279,8 +345,13 @@ def _measure_panel(devices, args, ledger: CommandLedger) -> dict[str, object]:
     return {
         "center_xy": [int(bx), int(by)],
         "offset_from_panel_centre": [int(bx) - panel[1] // 2, int(by) - panel[0] // 2],
+        "offset_from_frame_centre": [
+            int(bx) - PANEL_SHAPE[1] // 2, int(by) - PANEL_SHAPE[0] // 2
+        ],
         "response": float(results[0][3]),
         "runner_up_abs": float(results[1][0]) if len(results) > 1 else None,
+        "inside_illumination": len(inside),
+        "skipped_outside_illumination": skipped,
         "points": rows,
     }
 
@@ -292,9 +363,14 @@ def _measure_beam_extent(devices, args, ledger: CommandLedger) -> dict[str, obje
     at radius ``r`` still change the far field?) asked with the cheaper statistic
     this session already needs: the 0-order box energy change against a paired
     flat.  A radius past the illuminated region gives a response at the floor.
+
+    The box here is the *patch's* own 60 px circle around the fixed 0-order
+    centroid, not a fresh centroid estimate: the 0-order does not move while the
+    patch moves, and re-locating it per point would fold spot wander into the
+    response.
     """
+    from ao_shaping.tools.slm.panel.panel_locate import _box_mask
     from ao_shaping.tools.slm.panel.panel_locate import (
-        _box_mask,
         capture_settled_report,
         measure_flat_reference,
     )
@@ -305,33 +381,66 @@ def _measure_beam_extent(devices, args, ledger: CommandLedger) -> dict[str, obje
     radius = int(args.patch_radius)
     yy, xx = np.mgrid[0:panel[0], 0:panel[1]]
     rng = np.random.default_rng(int(args.seed) + 1)
-    out: dict[str, object] = {}
-    for axis, values, centre_axis in (("x", args.extent_x, 1), ("y", args.extent_y, 0)):
-        found: list[dict[str, object]] = []
-        for value in [int(v) for v in values.split(",") if v.strip()]:
-            cx = value if centre_axis == 1 else panel[1] // 2
-            cy = value if centre_axis == 0 else panel[0] // 2
-            if not (radius <= cx < panel[1] - radius and radius <= cy < panel[0] - radius):
-                continue  # a disc at the edge would be a different aperture, not a sweep
-            phase = np.zeros(panel, dtype=np.float64)
-            m = (yy - cy) ** 2 + (xx - cx) ** 2 <= radius * radius
-            phase[m] = rng.uniform(0.0, 2.0 * np.pi, int(m.sum()))
-            before, flat = measure_flat_reference(
-                cam, slm, n_frames=int(args.frames), panel_shape=panel,
-                policy=policy, wait_time_s=None,
-            )
-            candidate = capture_settled_report(
-                cam, slm, phase, wait_time_s=None, policy=policy
-            )
-            ledger.writes += 1
-            ledger.reads += 2 * int(args.frames)
-            box = _box_mask(before.shape, int(round(flat.centroid_x)),
-                            int(round(flat.centroid_y)), 60)
-            ref = float(before[box].sum())
-            delta = (float(candidate.frame[box].sum()) - ref) / ref if ref > 0 else float("nan")
-            logger.info("beam extent {}={}: delta={:+.3f}", axis, value, delta)
-            found.append({"axis": axis, "value": value, "delta": delta})
-        out[axis] = found
+
+    with ledger.timed("extent_flat"):
+        ref, flat = measure_flat_reference(
+            cam, slm, n_frames=int(args.frames), panel_shape=panel,
+            policy=policy, wait_time_s=None,
+        )
+        ledger.reads += int(args.frames)
+    _check_frame(ref, "extent reference frame")
+    box = _box_mask(ref.shape, int(round(flat.centroid_x)),
+                    int(round(flat.centroid_y)), FLAT_BOX_RADIUS_PX)
+    reference = float(ref[box].sum())
+
+    out: dict[str, object] = {
+        "reference_centroid": [float(flat.centroid_x), float(flat.centroid_y)],
+        "panel_shape": list(panel),
+    }
+    with ledger.timed("extent_sweep"):
+        for axis, values, centre_axis in (
+            ("x", args.extent_x, 1), ("y", args.extent_y, 0)
+        ):
+            found: list[dict[str, object]] = []
+            before = ref
+            kept = [int(v) for v in values.split(",") if v.strip()]
+            for index, value in enumerate(kept):
+                cx = value if centre_axis == 1 else panel[1] // 2
+                cy = value if centre_axis == 0 else panel[0] // 2
+                if not (radius <= cx < panel[1] - radius
+                        and radius <= cy < panel[0] - radius):
+                    # A disc at the edge would be a different aperture, not a
+                    # sweep point: report the skip instead of a number that
+                    # means something else.
+                    found.append({"axis": axis, "value": value, "delta": None,
+                                  "skipped": "patch would leave the panel"})
+                    continue
+                phase = np.zeros(panel, dtype=np.float64)
+                m = (yy - cy) ** 2 + (xx - cx) ** 2 <= radius * radius
+                phase[m] = rng.uniform(0.0, 2.0 * np.pi, int(m.sum()))
+                candidate = capture_settled_report(
+                    cam, slm, phase, wait_time_s=None, policy=policy
+                )
+                ledger.writes += 1
+                ledger.reads += int(args.frames)
+                _check_frame(candidate.frame, f"extent {axis}={value}")
+                if index + 1 < len(kept):
+                    after, _ = measure_flat_reference(
+                        cam, slm, n_frames=int(args.frames), panel_shape=panel,
+                        policy=policy, wait_time_s=None,
+                    )
+                    ledger.reads += int(args.frames)
+                    _check_frame(after, "extent re-paired flat")
+                else:
+                    after = before
+                delta = (float(candidate.frame[box].sum())
+                         - (float(before[box].sum()) + float(after[box].sum())) / 2)
+                delta /= reference if reference > 0 else float("nan")
+                logger.info("extent {}={}: delta={:+.4f}", axis, value, delta)
+                found.append({"axis": axis, "value": value, "delta": float(delta)})
+                before = after
+                ledger.slots.append(int(candidate.writes_slot))
+            out[axis] = found
     return out
 
 
