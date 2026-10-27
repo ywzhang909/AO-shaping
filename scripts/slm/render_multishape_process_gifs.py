@@ -1,4 +1,7 @@
-import os, sys, glob, pickle
+import glob
+import os
+import pickle
+import sys
 import numpy as np
 
 sys.path.insert(0, "src")

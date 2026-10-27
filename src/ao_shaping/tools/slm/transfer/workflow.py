@@ -389,6 +389,14 @@ def main():
                           help="ridge penalty; default is pretrain.DEFAULT_ALPHA")
     pretrain.add_argument("--seed", type=int, default=102419)
     args = parser.parse_args()
+
+    # The CLI owns its logging: the plan and every stage summary are program output that
+    # callers parse, so they belong on stdout, not on loguru's default stderr sink.  This
+    # also keeps routine INFO records from becoming PowerShell NativeCommandError entries.
+    import sys
+    logger.remove()
+    logger.add(sys.stdout, level="INFO", colorize=False)
+
     if args.command == "pretrain":
         from .pretrain import DEFAULT_ALPHA, pretrain as run_pretrain
         if args.probes < 2:
@@ -437,10 +445,4 @@ def main():
     if args.command == "plan" or not (args.execute or args.offline):
         logger.info(json.dumps(config.plan(args.offline), default=str, indent=2))
     else:
-        # The CLI owns its logging; keep INFO on stdout so PowerShell does not
-        # turn routine loguru stderr messages into NativeCommandError records.
-        import sys
-        from loguru import logger
-        logger.remove()
-        logger.add(sys.stdout, level="INFO", colorize=False)
         run_session(config, offline=args.offline)

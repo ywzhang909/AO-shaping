@@ -93,7 +93,7 @@ def analyze(source: Path, out: Path):
             roi_mask=mask,
         )
         results[phase] = result
-        logger.info(phasejson.dumps({k: v for k, v in result.items() if k not in {'rows', 'response_candidates'}}))
+        logger.info(json.dumps({k: v for k, v in result.items() if k not in {'rows', 'response_candidates'}}))
     (out / "result.json").write_text(json.dumps(results, indent=2))
 
 

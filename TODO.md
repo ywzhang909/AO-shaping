@@ -3627,6 +3627,17 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 验证：6 个计划替换点全部由 ruff 真实命中；AST 恒等 `True`（proof 退出码 0）；分组校验 OK；`py_compile` 通过；`ruff check .` 全仓归零。回归按 CI 执行形态与改前基线逐位比对：`tests/ao_shaping/scripts` 维持 **2556 passed / 65 skipped**。
 - 覆盖账（实测）：目标文件 24 → 18；`scripts` 全域 501 → **495**（−6 与提升点数一致）。
 
+126. ✅ **并行 lane 把 master 的两个 CI 硬门禁推红了：修掉 4 条 ruff 项，其中 2 条是真运行时缺陷（`UnboundLocalError` / `NameError`），并恢复 transfer CLI 的 stdout 输出契约**（2026-10-27）
+- 背景必须记清：本批不是 #173 批次，而是 rebase 时撞上的现网故障。并行 lane（`a529d495` WIP 全量提交 + `bec67c67`/`d243b245` 的 issue #56 print→loguru 机械替换 + `67b16ff3` provenance 登记）落到 master 后，**Ruff 门禁连续两次 `completed failure`**（`67b16ff3` 与我 rebase 后的 `60932f75`），tools 分片也出现 1 个失败。
+- 4 条 ruff 项：`scripts/slm/render_multishape_process_gifs.py:1` E401（`import os, sys, glob, pickle` 拆成 4 行）；`transfer/response.py:96` F821 `phasejson`；`transfer/workflow.py:400` F823 `logger` 未赋值先用；`tests/ao_shaping/scripts/test_multishape1200_report.py:19` RUF100 死 noqa（该文件路径已被 per-file-ignores 豁免 E402，行内 `# noqa: E402` 因此名不副实）。
+- **F821 是真缺陷而不是风格**：外来 diff 显示原代码是 `print(\n    json.dumps(`，机械替换时把循环变量名 `phase` 粘进了函数名，变成 `phasejson.dumps(...)` ⇒ 该分支一执行就 `NameError`。修回 `json.dumps`，与同文件 17/97 行一致。
+- **F823 同样是真缺陷，且影响 5 条 CLI 分支**：`main()` 内在第 443 行写了局部 `from loguru import logger`，按 Python 作用域规则 `logger` 于是成为整个 `main()` 的局部名，而 400/410/419/434/438 五处使用都在它之前 ⇒ `UnboundLocalError`。我用 AST 取证列出这两组行号，并在 master 原状上复现了失败：`UnboundLocalError: cannot access local variable 'logger'`。模块级第 3 行本来就导入了同一个 loguru 单例，删掉局部导入即可（`sys` 模块级没有，故局部 `import sys` 保留）。
+- **治愈该测试还暴露出第二层契约破坏**：`test_default_cli_only_prints_plan_and_creates_no_session` 断言 `"CCD_anchored_blocks" in result.stdout`，而 loguru 默认 sink 是 stderr ⇒ stdout 为空。第 440-441 行注释本来就写着"keep INFO on stdout"，但只在执行分支里配置了 sink。修法是按根因把 sink 配置提到 `main()` 开头覆盖所有分支（原注释随之移位，不是新增叙述），并把执行分支里重复的三行删掉。
+- 验证：`ruff check .` 重新归零；4 个改动文件 `py_compile` 通过；`test_transfer_workflow.py` **29 全绿**（改前该文件 1 失败）；tools 全套从 `1 failed, 1106 passed, 5 skipped` 变成 **1107 passed, 5 skipped, 0 failed**；`-k multishape` 子集 59 passed / 1 skipped。transfer 测试里 `stderr` 只用作断言失败时的错误上下文，sink 移位不会反向破坏。
+- **顺带查明该机械替换的系统性风险**（留给后续批次，不在本批动）：loguru 的消息按 `str.format` 语义处理，`print("msg", value)` 被替换成 `logger.info("msg", value)` 时，消息里没有 `{}` 占位符就会**静默丢弃** value——我扫了该 lane 触及的 249 个 py 文件，得到 **20 处**这种嫌疑（多为脚本输出路径、VERDICT 行）。249 文件全部 `py_compile` 干净，所以问题只在语义层。
+- **既有失败必须与我的改动切割清楚**：scripts 分片从基线 2556 passed / 65 skipped（0 失败）变成 **28 failed / 2571 passed / 67 skipped**。对照实验：把我的 4 处修改 `git stash` 后再跑同一子集，结果**仍是 28 failed / 366 passed / 7 skipped，逐条相同** ⇒ 全部由并行 lane 引入，不是本批造成。按文件归组：`test_hw_gs_defocus_probe_groups.py` 7、`test_hw_gs_square_scans.py` 6、`test_term_gate_enforced.py` 5、`test_run_hw_sweep_groups.py` 3、`test_build_hw_sweep_plan.py` 2、`test_archive_hw_defocus_round.py` 2，另 3 个文件各 1。前 22 个是同一机制——脚本的 dry-run / plan 输出是**被机器解析的产物**（测试断言 `--plan-commands`、行数 `== 53`、字段 `最大边长`），换成 loguru 后既进了 stderr 又带时间戳前缀，解析面变空串；后 6 个属术语/守卫类，需单独定因。
+- 覆盖账：#173 计数不变（本批不做魔法数值），`src` 612 / `scripts` 500 是外来 WIP 后的现值（我 125 批末为 608 / 495）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
