@@ -36,6 +36,7 @@ CONSUMERS = (
     "sim2f/bench.py",
     "zernike/losses.py",
     "phase/dataset.py",
+    "gsnet/hybrid_phase.py",
 )
 HUB_MODULE = "ml.sim2f.config"
 #: A rank one module chose for its own layout. It must stay in that module: promoting it

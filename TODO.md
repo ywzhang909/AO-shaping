@@ -3663,6 +3663,15 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 验证：`test_common_helpers_not_reintroduced.py` 63 passed；`test_multishape1200_report.py` 4 passed（报告渲染面未变）；`py_compile` 通过；`ruff check .` 全仓归零；`tests/ao_shaping/scripts` 全量 **2604 passed / 67 skipped / 0 failed**。
 - 收口账：并行 lane 落到 master 后共有 **28** 个 scripts 失败，现已清零——5 个术语门禁（item 127）、22 个 stdout 产物契约（item 128）、1 个 helper 重现（本批）。CI 侧对应：`Ruff` success（item 126）、`Terminology gate` success（item 127）。#173 侧本阶段只推进了 item 125 一项（`scripts` 501 → 495，其后外来 WIP 把总数抬到 500）。
 
+130. ✅ **#173 续批：`ml/gsnet/hybrid_phase.py` 的 8 → 2，六个裸图秩消费 `ml` hub 的 `NDIM_BARE_MAP`（第 6 个消费者），两个同值规模下限留在字面量**（2026-10-27）
+- 语义：89/143/168/216/234/270 六处 `ndim != 2` 都是"输入必须是一张裸二维图"（143 还额外要求方形），与 116 收敛的约定同族 ⇒ 直接复用 `ml.sim2f.config.NDIM_BARE_MAP`，不新建别名。这也在守卫管辖之内：122 把扫描面扩到整个 `ml` 包之后，在 `gsnet` 里另写一份同名秩会当场变红——复用不再靠我记得去查重复。
+- **刻意不提 2 处**：第 42 行 `residual_grid < 2` 与 `radius_px < 2` 问的是"网格至少几格 / 半径至少几像素"，是规模下限，不是秩；且报错文本已自带 `residual_grid >= 2 and radius_px >= 2`。它们与 `NDIM_BARE_MAP` 同值不同义，合并就是造假单源（与 item 125 的 `len(ladder) < 2` 同一类陷阱）。
+- 跨包边界仍按**包作用域**这条规则：`ml.gsnet → ml.sim2f.config` 在 `ml` 包内，合法（同 122/123）；`utils.image.ranks.py` 那个 hub 属 `ao_shaping` 包，不能跨过来共用（121/120 定的边界）。成环这次**没有**再用静态 import 图（123 那次它因父包前缀展开报过假警报），直接走实证：`config.py` 无 intra-ml import、`sim2f/__init__.py` 零 import，并在带 torch 的 CI 环境里真收集了一次 `test_hybrid_phase.py`（11 条）⇒ 新边不成环。
+- 守卫（`tests/ao_shaping/ml/sim2f/test_rank_constants_single_source.py`）消费者名单 5 → 6（加入 `gsnet/hybrid_phase.py`），测试仍 5 条。两个种植各咬一面：在 `hybrid_phase.py` 里再声明 `NDIM_BARE_MAP = 2` ⇒ **2 条红**；登记为消费者却不再引用（改成字面量）⇒ **1 条红**；还原一律备份 + `cmp` 逐字节。
+- 控制链（纯 hub 形态，6 项全咬且退出码正确）：基线恒等；A hub `2→3`；C hub `2→2.0`（类型变、数值不变）；D 删 hub 定义 ⇒ 报"有使用无定义"；F 在消费方另建同名定义 ⇒ 判"重复定义"；B 把两处使用改成 `!= 3`；分组反向 G 把保留的 42 行扫进 `bare` 组 ⇒ 组校验判红，顺带暴露这种改写会一路渗进报错文本（`residual_grid >= NDIM_BARE_MAP`），正是分组边界必须把守的理由。
+- 验证：6 个计划替换点全部由 ruff 真实命中；AST 恒等 `True`（proof 退出码 0）；分组校验 OK；`py_compile` 通过；`ruff check .` 全仓归零。回归按 CI 执行形态与**本批前重量的基线**逐位比对：`tests/ao_shaping/ml/gsnet` 87 passed（不变）；`tests/ao_shaping/ml/sim2f` 317 passed / 6 skipped（不变——注意这条基线从 item 124 时的 300 涨到 317 是外来 WIP 新增测试所致，若沿用旧数就会把别人的增量误当成自己的回归）；`tests/ao_shaping/scripts -k=gsnet` 52 passed。
+- 覆盖账（实测）：目标文件 8 → 2；`src` 全域 612 → **606**；全仓 1114 → 1108（差值 6 与提升点数一致）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
