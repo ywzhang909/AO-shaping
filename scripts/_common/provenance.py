@@ -151,6 +151,30 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
     ),
 
+    "report/sim2f_bench/optical_scale_20261027/report.md": ReportProvenance(
+        script="scripts/ml/diagnose_sim2f_optical_scale.py",
+        command="python scripts/ml/diagnose_sim2f_optical_scale.py",
+        environment=(
+            "离线（只读 data/debug/ 的 pkl；孪生在 CPU 上跑 torch，无设备、无 GPU 必需）"
+        ),
+        note=(
+            "2f 实验系统数字孪生的远场尺度 / 离焦标定是否已失效: H1 (region_span_px, "
+            "25 点扫描 600–1200 px) 否决 —— 25 个点上无一点同时满足宽度比 ∈ [0.9, 1.1] "
+            "与中位 ncc >= 0.75; H2 (相机离焦 / 零级占比) 亦否决 —— defocus_m 相对差 "
+            "1.2 % 未超 20 %, 中位 ncc 提升 +0.0002 未达 0.05。两条假说都被否决, 现有证据"
+            "不足以说「标定已失效」: 中位 ncc 仍停在 +0.6247 (门限 +0.7500), 归一化 L1 "
+            "仍停在 1.3425 (门限 0.50); 不据此改任何已入库标定量"
+        ),
+        extra_scripts=(
+            "scripts/ml/validate_sim2f_vs_hw_corpus.py",
+            "src/ml/hwdataset/records.py",
+            "src/ml/sim2f/config.py",
+            "src/ml/sim2f/optics.py",
+            "src/ao_shaping/drivers/sim/bench_twin.py",
+            "src/ao_shaping/tools/slm/bench_twin_calibrate.py",
+        ),
+    ),
+
     "report/shape_trials/axial_plane/axial_plane_20261026.md": ReportProvenance(
         script="scripts/slm/generate_axial_plane_report.py",
         command="python scripts/slm/generate_axial_plane_report.py",
