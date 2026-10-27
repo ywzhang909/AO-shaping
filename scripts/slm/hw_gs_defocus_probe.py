@@ -1416,7 +1416,7 @@ def print_plan(plan: dict[str, Any], optics: Optics) -> None:
     add(f"  对拍基准: {plan['predicted_by_simulation']}")
     add("")
     add("=" * 78)
-    logger.info("\n".join(lines))
+    print("\n".join(lines))
 
 
 # ---------------------------------------------------------------------------
@@ -2460,7 +2460,7 @@ def assert_no_drivers() -> None:
         )
         sys.stderr.flush()
         raise SystemExit(3)
-    logger.info("dry-run 保证通过: sys.modules 里没有任何 ao_shaping.drivers.* "
+    print("dry-run 保证通过: sys.modules 里没有任何 ao_shaping.drivers.* "
           "(未 import、未 open 任何设备)")
 
 

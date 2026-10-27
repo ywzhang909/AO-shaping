@@ -1179,12 +1179,12 @@ def apply_resume(specs: list[GroupSpec], root: Path) -> list[GroupSpec]:
         if directory is None:
             # 「没有**可登记的**产物」: 目录里可能压根没有产物, 也可能只有一份
             # 「光路受阻时写的」焦面标定证据 (那一轮标定并没有完成)。
-            logger.info(f"[续跑] {spec.group}: 没有可登记的产物 → 这一组要跑")
+            print(f"[续跑] {spec.group}: 没有可登记的产物 → 这一组要跑", flush=True)
             continue
         spec.adopted_dir = str(directory)
-        logger.info(
+        print(
             f"[续跑] {spec.group}: 已有产物 ({directory}) → 登记为 adopted, 不重跑",
-
+            flush=True,
         )
     return specs
 
@@ -1324,8 +1324,7 @@ def run_group(
         # 数据一起被记下来, 否则复现时不知道当时拍的是多少曝光上限。
         "env": dict(spec.env),
     }
-    logger.info(f"[组] {spec.group} (自变量 {spec.variable or '?'}) -> {' '.join(argv)}",
-)
+    print(f"[组] {spec.group} (自变量 {spec.variable or '?'}) -> {' '.join(argv)}", flush=True)
     try:
         completed = subprocess.run(  # 命令来自计划文件, 本来就要执行
             argv,
@@ -1362,7 +1361,7 @@ def run_group(
     ):
         record["status"] = "over_budget"
         record["budget_s"] = float(max_group_seconds)
-    logger.info(f"[组] {spec.group}: {record['status']} "
+    print(f"[组] {spec.group}: {record['status']} "
           f"({record['duration_s']:.1f}s, exit={record['exit_code']})")
     return record
 
@@ -1394,7 +1393,7 @@ def adopt_group(spec: GroupSpec, directory: Path) -> dict[str, Any]:
         "out_dir_exists": True,
         "n_rows": _manifest_n_rows(directory.parent, spec.group),
     }
-    logger.info(f"[组] {spec.group}: adopted (已有目录 {directory})")
+    print(f"[组] {spec.group}: adopted (已有目录 {directory})", flush=True)
     return record
 
 
@@ -1439,7 +1438,7 @@ def skipped_group(
     }
     if detail:
         record["skip_detail"] = detail
-    logger.info(f"[组] {spec.group}: skipped ({detail or reason})")
+    print(f"[组] {spec.group}: skipped ({detail or reason})", flush=True)
     return record
 
 
@@ -1701,12 +1700,12 @@ def main(argv: list[str] | None = None) -> int:
             exposure_ms=args.probe_exposure_ms,
         )
         if result.message:
-            logger.info(f"{PROBE_NOTE_PREFIX} {result.message}")
-        logger.info(format_probe_line(result))
+            print(f"{PROBE_NOTE_PREFIX} {result.message}")
+        print(format_probe_line(result))
         return 0 if result.status == PROBE_IDLE else 1
 
     if not args.plan:
-        logger.info("缺少 --plan (计划 JSON 的路径)")
+        print("缺少 --plan (计划 JSON 的路径)", file=sys.stderr)
         return 2
 
     # dry-run 的「没有牵进驱动包」检查: 比的是**开始之前**与**现在**的差集。
@@ -1714,12 +1713,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         plan = load_plan(Path(args.plan))
     except (OSError, ValueError) as exc:
-        logger.info(f"计划读取失败: {exc}")
+        print(f"计划读取失败: {exc}", file=sys.stderr)
         return 2
 
     root_text = str(args.root) if args.root else str(plan.get("root", "") or "")
     if not root_text:
-        logger.info("计划里没有 root, 请用 --root 指定根目录")
+        print("计划里没有 root, 请用 --root 指定根目录", file=sys.stderr)
         return 2
     root = Path(root_text)
 
@@ -1728,18 +1727,18 @@ def main(argv: list[str] | None = None) -> int:
         path = Path(str(directory))
         problem = check_adopt_dir(path)
         if problem is not None:
-            logger.info(f"登记失败 [{group}]: {problem}")
+            print(f"登记失败 [{group}]: {problem}", file=sys.stderr)
             return 2
         adopt_map[str(group)] = path
 
     try:
         specs = resolve_specs(plan, adopt_map, list(args.only))
     except ValueError as exc:
-        logger.info(f"计划有问题: {exc}")
+        print(f"计划有问题: {exc}", file=sys.stderr)
         return 2
 
     if args.print_plan:
-        logger.info(
+        print(
             json.dumps(
                 {
                     "root": str(root),
@@ -1766,14 +1765,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.dry_run:
-        logger.info(f"根目录: {root}")
+        print(f"根目录: {root}")
         for spec in specs:
             argv = build_argv(spec.script, spec.args)
-            logger.info(f"  组 {spec.group} (自变量 {spec.variable or '?'})")
-            logger.info(f"    命令: {' '.join(argv)}")
+            print(f"  组 {spec.group} (自变量 {spec.variable or '?'})")
+            print(f"    命令: {' '.join(argv)}")
             if spec.adopted_dir:
-                logger.info(f"    登记已有目录: {spec.adopted_dir}")
-        logger.info("dry-run: 没有执行任何命令, 也没有打开任何设备")
+                print(f"    登记已有目录: {spec.adopted_dir}")
+        print("dry-run: 没有执行任何命令, 也没有打开任何设备")
         assert_no_devices(drivers_before)
         return 0
 
@@ -1804,10 +1803,10 @@ def main(argv: list[str] | None = None) -> int:
             own_pids=own_pids,
         )
         if code != 0:
-            logger.info(
+            print(
                 f"设备没拿到, 本轮不开跑 ({reason or '设备不可用'}); "
                 "设备恢复后可用 --resume 续跑",
-
+                file=sys.stderr,
             )
             return code
 
@@ -1854,11 +1853,11 @@ def main(argv: list[str] | None = None) -> int:
                             "reason_text": verdict.reason_text,
                         }
                         record["reason_text"] = verdict.reason_text
-                        logger.info(
+                        print(
                             f"[组] {spec.group}: light_path_blocked "
                             f"—— {verdict.reason_text or verdict.detail} "
                             "—— 中止整轮",
-
+                            file=sys.stderr,
                         )
                     else:
                         record["status"] = "device_unavailable"
@@ -1869,9 +1868,10 @@ def main(argv: list[str] | None = None) -> int:
                             "remedy": verdict.remedy,
                             "reason_text": verdict.reason_text,
                         }
-                        logger.info(
+                        print(
                             f"[组] {spec.group}: device_unavailable "
                             f"({verdict.kind}) —— 中止整轮",
+                            file=sys.stderr,
 
                         )
                     aborted = RoundAbort(group=spec.group, verdict=verdict)
@@ -1905,50 +1905,50 @@ def main(argv: list[str] | None = None) -> int:
     over_budget = [r for r in records if r["status"] == "over_budget"]
     skipped = [r for r in records if r["status"] == "skipped"]
     longest = max(records, key=lambda r: float(r["duration_s"]), default=None)
-    logger.info(f"\n索引: {manifest_path}")
+    print(f"\n索引: {manifest_path}")
     for line in (
         f"{r['group']}: {r['status']} ({float(r['duration_s']):.1f}s)"
         for r in records
     ):
-        logger.info(f"  {line}")
+        print(f"  {line}")
     if longest is not None:
-        logger.info(
+        print(
             f"最长的一组: {longest['group']} 用了 {float(longest['duration_s']):.1f}s / "
             f"预算 {float(args.max_group_seconds):.1f}s"
         )
     if over_budget:
         # 点名: 超预算的组必须出现在汇总里, 否则「每组不超过 10 分钟」这条约束
         # 就没有人盯着。
-        logger.info(
+        print(
             f"超预算的组 ({len(over_budget)}): "
             + ", ".join(
                 f"{r['group']} ({float(r['duration_s']):.1f}s)" for r in over_budget
             ),
-
+            file=sys.stderr,
         )
     if skipped:
-        logger.info(f"有 {len(skipped)} 组被跳过 (见索引里的 skip_reason)")
+        print(f"有 {len(skipped)} 组被跳过 (见索引里的 skip_reason)", file=sys.stderr)
     if aborted is not None:
         if aborted.verdict.kind == KIND_LIGHT_PATH_BLOCKED:
             # 光路不通: 说清**哪一组**、**判定理由原文**与**该查哪三段光路**。
-            logger.info(
+            print(
                 f"[中止] 光路不通 (第 {aborted.group} 组): {aborted.reason()}\n"
                 f"       {aborted.verdict.detail}\n"
                 f"       {aborted.verdict.advice()}\n"
                 f"       请人检查这三段光路: {LIGHT_PATH_CHECKLIST}\n"
                 "       本轮已中止 (剩余组标记为 skipped); 光路恢复后可用 --resume 续跑",
-
+                file=sys.stderr,
             )
         else:
-            logger.info(
+            print(
                 f"[中止] 设备不可用 (第 {aborted.group} 组): "
                 f"{aborted.verdict.headline()} —— {aborted.verdict.advice()}。"
                 "本轮已中止 (剩余组标记为 skipped); 设备恢复后可用 --resume 续跑",
-
+                file=sys.stderr,
             )
         return 1
     if failed:
-        logger.info(f"有 {len(failed)} 组失败/超时 (其余组已照常完成并记录)")
+        print(f"有 {len(failed)} 组失败/超时 (其余组已照常完成并记录)", file=sys.stderr)
         return 1
     return 0
 

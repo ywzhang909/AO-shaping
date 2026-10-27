@@ -1033,7 +1033,9 @@ def main(argv: list[str] | None = None) -> int:
     logger.info(self_check_report(plan, cfg))
     payload = json.dumps(plan, indent=2, ensure_ascii=False)
     if args.print_plan:
-        logger.info(payload)
+        # stdout 必须是纯 JSON (机器解析契约, 见 self_check_report docstring);
+        # 自检报告走 logger -> stderr, 不能进 stdout。
+        print(payload)
         return 0
 
     out = Path(args.out) if args.out else Path(cfg.groups_root) / "plan.json"

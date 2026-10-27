@@ -66,7 +66,6 @@
 from __future__ import annotations
 
 import argparse
-from loguru import logger
 import json
 import shutil
 import sys
@@ -640,47 +639,47 @@ def _fmt_counts(counts: dict[str, int]) -> str:
 def report(plan: ArchivePlan, *, groups_root: Path, sweep_root: Path, write: bool) -> None:
     """打印这一次归档的**完整交代** (演练与实写同一套输出)。"""
     mode = "实写" if write else "演练 (未写盘)"
-    logger.info(f"[归档] 轮次 {plan.round_name} — {mode}")
-    logger.info(f"  分组根: {repo_rel(groups_root)}")
-    logger.info(f"  扫描根: {repo_rel(sweep_root)}")
+    print(f"[归档] 轮次 {plan.round_name} — {mode}")
+    print(f"  分组根: {repo_rel(groups_root)}")
+    print(f"  扫描根: {repo_rel(sweep_root)}")
     if plan.focus_dir is not None:
-        logger.info(f"  焦面标定: {repo_rel(plan.focus_dir)}")
-    logger.info(f"  目标目录: {repo_rel(plan.round_dir)}")
+        print(f"  焦面标定: {repo_rel(plan.focus_dir)}")
+    print(f"  目标目录: {repo_rel(plan.round_dir)}")
 
     archived = [entry.src for entry in plan.entries]
-    logger.info(
+    print(
         f"  归档 {len(archived)} 个文件 ({_fmt_counts(_count_by_ext(archived))}) "
         f"→ {repo_rel(plan.round_dir)}"
     )
     for label, group, n_files in plan.groups:
-        logger.info(f"    [{label}] {group}: {n_files} 个文件")
+        print(f"    [{label}] {group}: {n_files} 个文件")
     skipped = [path for path, _ in plan.skipped]
-    logger.info(f"  跳过 {len(skipped)} 个文件 ({_fmt_counts(_count_by_ext(skipped))})")
+    print(f"  跳过 {len(skipped)} 个文件 ({_fmt_counts(_count_by_ext(skipped))})")
     for path, reason in plan.skipped:
         if reason.endswith("未列入白名单的文件"):
             continue
-        logger.info(f"    - {repo_rel(path)}: {reason}")
+        print(f"    - {repo_rel(path)}: {reason}")
 
     # 大文件单独点名: 它们留在 data/debug/, 报告里的图无法只靠归档重建 ——
     # 读者必须知道这一点 (与 artifacts/README.md 的「不在库里的东西」一节呼应)。
     big = [path for path in skipped if _is_big(path)]
     if big:
         total_mb = sum(path.stat().st_size for path in big) / (1024 * 1024)
-        logger.info(
+        print(
             f"  其中逐帧 frame_*.npz / 相位 *.npy / stage_a.npz 共 {len(big)} 个 "
             f"({total_mb:.1f} MB) 未入库, 仍留在 {repo_rel(groups_root.parent)} 下"
         )
 
     if plan.missing_groups:
-        logger.info(f"  ⚠ 缺组 (计划里有、数据根里没有): {', '.join(plan.missing_groups)}")
+        print(f"  ⚠ 缺组 (计划里有、数据根里没有): {', '.join(plan.missing_groups)}")
     else:
-        logger.info("  缺组: 无")
+        print("  缺组: 无")
     if plan.empty_groups:
-        logger.info(f"  ⚠ 空组 (目录在、但没有记录): {', '.join(plan.empty_groups)}")
+        print(f"  ⚠ 空组 (目录在、但没有记录): {', '.join(plan.empty_groups)}")
     if plan.unplanned_groups:
-        logger.info(f"  ⚠ 计划外的组 (数据根里有、计划里没有): {', '.join(plan.unplanned_groups)}")
+        print(f"  ⚠ 计划外的组 (数据根里有、计划里没有): {', '.join(plan.unplanned_groups)}")
     if plan.missing_index_files:
-        logger.info(
+        print(
             f"  (数据根里没有这些索引文件: {', '.join(plan.missing_index_files)})"
         )
 
@@ -737,14 +736,14 @@ def main(argv: list[str] | None = None) -> int:
         plan_path = candidate if candidate.is_file() else None
 
     if not groups_root.is_dir():
-        logger.info(
+        print(
             f"分组根不存在: {repo_rel(groups_root)} —— 这一轮还没采集? "
             "(采集产物落在 data/debug/<根名>/ 下)",
 
         )
         return 2
     if not sweep_root.is_dir():
-        logger.info(
+        print(
             f"扫描根不存在: {repo_rel(sweep_root)} —— 这一轮还没采集? "
             "(采集产物落在 data/debug/<根名>/ 下)",
 
@@ -762,11 +761,11 @@ def main(argv: list[str] | None = None) -> int:
             archive_plan=not args.no_plan,
         )
     except (OSError, ValueError) as exc:
-        logger.info(f"归档计划生成失败: {exc}")
+        print(f"归档计划生成失败: {exc}")
         return 2
 
     if plan_path is None:
-        logger.info(
+        print(
             "  ⚠ 没有找到采集计划, 无法判定「缺组」 (用 --plan 指定计划文件)",
 
         )
@@ -777,23 +776,23 @@ def main(argv: list[str] | None = None) -> int:
     # ⚠ 判据是**组记录数**, 不是文件数: 计划 JSON 与索引文件不算组记录 ——
     # 拿它们凑数会让「一个组都没跑」这一轮看起来像归档成功了。
     if not plan.groups:
-        logger.info(
+        print(
             "数据根里没有任何组记录 —— 这一轮还没采集, 不归档 "
             "(否则会归档出一个空壳快照, 读的人分不清「没跑」和「跑了但没留下」)",
-
+            file=sys.stderr,
         )
         return 2
 
     report(plan, groups_root=groups_root, sweep_root=sweep_root, write=args.write)
 
     if not args.write:
-        logger.info("  (演练结束: 加 --write 才落盘)")
+        print("  (演练结束: 加 --write 才落盘)")
         return 0
 
     try:
         copied = execute(plan, force=args.force)
     except (OSError, ValueError) as exc:
-        logger.info(f"归档失败: {exc}")
+        print(f"归档失败: {exc}")
         return 2
 
     manifest = write_manifest(
@@ -803,7 +802,7 @@ def main(argv: list[str] | None = None) -> int:
         out_root=out_root,
         copied=copied,
     )
-    logger.info(f"  归档清单: {repo_rel(manifest)}")
+    print(f"  归档清单: {repo_rel(manifest)}")
     return 0
 
 

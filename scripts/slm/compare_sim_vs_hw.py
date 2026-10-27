@@ -2641,8 +2641,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     markdown = render_markdown(cells, gaps, hw, sim, config.as_dict())
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(markdown, encoding="utf-8")
-    logger.info(markdown)
-    logger.info(f"\n对照表已写到: {out_path}")
+    print(markdown)
+    print(f"\n对照表已写到: {out_path}")
 
     if args.report:
         report_path = Path(args.report)
