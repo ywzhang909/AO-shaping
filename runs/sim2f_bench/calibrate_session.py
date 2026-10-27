@@ -108,6 +108,40 @@ DARK_FRAME_PEAK = 10
 #: total energy carries no size information at all (measured conserved).
 CORE_RADIUS_PX = 40
 
+#: Exposure ladder start.  The camera's own minimum is 0.02 ms; starting there
+#: costs one read and guarantees the ladder never begins above the beam.
+PROBE_FLOOR_MS = 0.02
+
+#: Where the 0-order peak must land for the calibration ratios to mean anything.
+#: The exposure is placed **at** ``TARGET_PEAK`` by a bracket + bisection, not by
+#: one proportional step: ``peak`` is only *approximately* linear in exposure
+#: below saturation on this bench (0.441 ms -> 135 counts, 0.8 ms -> 239 counts is
+#: 1.12x the linear expectation), so the last word is a measurement.
+TARGET_PEAK = 140.0
+TARGET_PEAK_LO = 100.0
+TARGET_PEAK_HI = 200.0
+
+#: Coarse ladder step.  Four, not two: the ladder only has to bracket the target
+#: (``log4(ceiling / floor)`` reads, ~5 on this bench), because the bisection
+#: refines inside the bracket.  Doubling spent 12 reads to do the same job.
+COARSE_FACTOR = 4.0
+
+#: Accepted distance from ``TARGET_PEAK``, in grey counts.  One count of
+#: quantisation is 0.7 % at 140, so this tolerance is deliberate and loose.
+BRACKET_TOL = 5.0
+
+#: Bisection stop, in ms, for a bench so stiff that counts cannot be resolved.
+BRACKET_TOL_MS = 1e-3
+
+#: Bisection budget.  Six steps shrink the coarse bracket by 64x, which is more
+#: than the 12-bit counts can resolve.
+MAX_BISECT_STEPS = 6
+
+#: Below this the frame is read noise, not a beam.  Used *only* by the exposure
+#: resolver, where a dark reading is the thing being classified; the panel scan
+#: uses ``DARK_FRAME_PEAK`` because by then the exposure is already settled.
+DARK_PEAK = 3.0
+
 
 @dataclass
 class CommandLedger:
@@ -167,45 +201,168 @@ class CommandLedger:
         logger.info("wall clock: {}", split)
 
 
-def _resolve_exposure(cam, requested: float | None, ledger: CommandLedger) -> float:
-    """Set the camera exposure, measuring the ceiling when none is given.
+def _set_exposure(cam, ms: float, ledger: CommandLedger, *, why: str) -> float:
+    """Move the camera to ``ms`` and return the readback, all in one place."""
+    readback = float(cam.reset_exposure_time(float(ms)))
+    ledger.exposures.append(readback)
+    logger.info("exposure: {} -> {:.4f} ms, readback {:.4f} ms", why, ms, readback)
+    return readback
 
-    ``None`` means "the operator did not pin it", which is **not** the same as
-    reusing a remembered value: the ceiling is probed on this path right now and
-    the working point is taken from it.  An explicit number is honoured and
-    still validated against the measured ceiling.
+
+def _measure_peak(cam, ledger: CommandLedger, *, frames: int = 3) -> float:
+    """Peak grey over ``frames`` fresh frames at the current exposure."""
+    peak = 0.0
+    for _ in range(max(int(frames), 1)):
+        frame = np.asarray(cam.get_numpy_image(n_sample=1), dtype=np.float64)
+        ledger.reads += 1
+        peak = max(peak, float(frame.max()))
+    return peak
+
+
+def _resolve_exposure(cam, requested: float | None, ledger: CommandLedger) -> float:
+    """Pick the working exposure from the signal the bench has *right now*.
+
+    Nothing here is remembered and nothing is assumed about the light level.
+    ``AO_DAHENG_MAX_EXPOSURE_MS`` only sets a **ceiling** -- and on this bench it
+    is an operator value, not a measurement -- so the working point cannot be
+    derived from it: on 2026-10-27 that ceiling was pinned at 0.8 ms, twice the
+    exposure at which the morning probe had read the 0-order at 141 counts.
+
+    The working point is instead **localised**, then bracketed:
+
+    1. A coarse geometric ladder from ``PROBE_FLOOR_MS`` while the peak is below
+       ``TARGET_PEAK_LO`` (bounded by the ceiling).  Its steps are factors of four,
+       so it costs ``log4(ceiling / floor)`` reads (~5 on this bench) and can only
+       land within a factor of four of the target.
+    2. A *bisection* inside the bracket until the peak is within
+       ``BRACKET_TOL`` of ``TARGET_PEAK``.  One proportional step is not
+       trustworthy as the last word -- see the note in the docstring of the
+       measured 0.441 ms -> 135 counts, 0.8 ms -> 239 counts pair, whose own
+       ratio is 1.12x the linear expectation -- and a bisection needs no
+       linearity assumption at all.  Saturating at the top of the bracket is
+       reported, not smoothed over.
+    3. ``DARK_PEAK`` at the ceiling means no light: an optical-path fault,
+       reported as one.
+
+    ``--exposure-ms`` pins the value and skips all of this; the ceiling still
+    bounds it.
     """
-    from ao_shaping.utils.image.exposure_control import (
-        resolve_daheng_exposure_limit,
-        working_exposure_ms,
-    )
+    from ao_shaping.utils.image.exposure_control import resolve_daheng_exposure_limit
 
     ceiling = resolve_daheng_exposure_limit(camera=cam)
-    ledger.exposures.append(float(cam.reset_exposure_time(0.02)))
-    if requested is None:
-        # The ladder runs inside ``resolve_daheng_exposure_limit`` (it writes the
-        # flat and reads the peak itself), so the measurement that picks the
-        # exposure happens *here*, now -- nothing is remembered from a past run.
-        with ledger.timed("exposure_probe"):
-            chosen = working_exposure_ms(ceiling)
-        logger.info(
-            "exposure: measured ceiling {:.4f} ms -> working {:.4f} ms "
-            "(half the ceiling, by ``working_exposure_ms``)", ceiling, chosen,
-        )
-    else:
-        chosen = float(requested)
-    if chosen > ceiling + 1e-9:
-        raise SystemExit(
-            f"exposure {chosen} ms exceeds the measured ceiling {ceiling} ms "
-            f"({MAX_EXPOSURE_ENV})"
-        )
-    readback = cam.reset_exposure_time(chosen)
-    ledger.exposures.append(float(readback))
+    _set_exposure(cam, PROBE_FLOOR_MS, ledger, why="ladder floor")
+    if requested is not None:
+        if float(requested) > ceiling + 1e-9:
+            raise SystemExit(
+                f"exposure {requested} ms exceeds the ceiling {ceiling} ms "
+                f"({MAX_EXPOSURE_ENV})"
+            )
+        return _set_exposure(cam, requested, ledger, why="pinned by --exposure-ms")
+
+    def peak_at(ms: float, why: str) -> float:
+        _set_exposure(cam, ms, ledger, why=why)
+        return _measure_peak(cam, ledger)
+
+    ladder: list[tuple[float, float]] = []
+    with ledger.timed("exposure_probe"):
+        ms = PROBE_FLOOR_MS
+        peak = _measure_peak(cam, ledger)
+        ladder.append((ms, peak))
+        # (a) coarse localisation: within a factor of COARSE_FACTOR of the target.
+        while peak < TARGET_PEAK_LO and ms * COARSE_FACTOR <= ceiling + 1e-9:
+            ms = min(ms * COARSE_FACTOR, ceiling)
+            peak = peak_at(ms, "ladder step")
+            ladder.append((ms, peak))
+
+        if peak < DARK_PEAK:
+            # Saturation is one dark-reading case and a dead path is another; a
+            # single reading at the ceiling cannot tell them apart, so look at the
+            # *middle* of the range before declaring a fault.
+            mid = max(ceiling / 8.0, PROBE_FLOOR_MS)
+            if mid < ms:
+                peak = peak_at(mid, "dark check")
+                ladder.append((mid, peak))
+                ms = mid
+        if peak < DARK_PEAK:
+            raise SystemExit(
+                f"peak {peak:.0f}/{SATURATION_PEAK} near the ceiling {ceiling} ms: "
+                f"the camera is seeing essentially no light.  That is not an "
+                f"exposure setting -- check the optical path (laser on, shutter "
+                f"open, beam on the SLM) before calibrating"
+            )
+
+        # (b) bracket the target.  Two cases, both ending in the same bisection:
+        # the ladder may have landed below target (bracket = its top .. ceiling)
+        # or overshot -- typically straight into saturation -- in which case the
+        # bracket is the step below it, and if even that floor clips, there is no
+        # exposure on offer that is not saturated.
+        saturated_top = peak >= TARGET_PEAK
+        if saturated_top:
+            lo = max(ms / COARSE_FACTOR, PROBE_FLOOR_MS)
+            best_peak = peak_at(lo, "bracket floor")
+            ladder.append((lo, best_peak))
+            if best_peak >= SATURATION_PEAK:
+                raise SystemExit(
+                    f"the 0-order clips at every exposure probed from "
+                    f"{PROBE_FLOOR_MS} ms to {ms} ms (peak {best_peak:.0f}/"
+                    f"{SATURATION_PEAK} at the lowest): no exposure setting lands "
+                    f"it on target -- attenuate the light, then re-run"
+                )
+            hi = ms
+        else:
+            lo, hi = ms, ceiling
+            best_peak = peak
+        best_ms = lo
+        scale = best_peak / best_ms
+        reached = abs(best_peak - TARGET_PEAK) <= BRACKET_TOL
+        for _ in range(0 if reached else MAX_BISECT_STEPS):
+            # Proportional *proposal* (exact on a linear bench, one read), kept
+            # inside the bracket so a mis-estimate costs a step, not a re-run.
+            probe = TARGET_PEAK / scale if scale > 0 else 0.5 * (lo + hi)
+            if not lo < probe < hi:
+                probe = 0.5 * (lo + hi)
+            peak = peak_at(probe, "bracket")
+            ladder.append((probe, peak))
+            if abs(peak - TARGET_PEAK) <= BRACKET_TOL:
+                best_ms, best_peak = probe, peak
+                break
+            if peak > TARGET_PEAK:
+                hi = probe
+            else:
+                lo = probe
+                best_ms, best_peak = probe, peak
+            if hi - lo <= BRACKET_TOL_MS:
+                break
+        # ``best_ms`` is the exposure the loop last *measured* at, so re-reading it
+        # would only add a duplicate ladder row.
+        peak, saturated, readback = best_peak, best_peak >= SATURATION_PEAK, best_ms
+        if peak < DARK_FRAME_PEAK:
+            raise SystemExit(
+                f"working point {best_ms:.4f} ms reads peak {peak:.0f}: the signal "
+                f"vanished while bracketing -- re-run rather than calibrate on it"
+            )
+
     logger.info(
-        "exposure: ceiling {:.4f} ms (measured now), working {:.4f} ms, "
-        "readback {:.4f} ms", ceiling, chosen, readback,
+        "exposure ladder (measured now): {}  -> ceiling {:.4f} ms, working "
+        "{:.4f} ms, peak {:.0f}/{} (target {} +- {})",
+        "  ".join(f"{e:.4f}ms:{p:.0f}" for e, p in ladder),
+        ceiling, readback, peak, SATURATION_PEAK, TARGET_PEAK, BRACKET_TOL,
     )
-    return float(readback)
+    if saturated:
+        logger.warning(
+            "the working point sits at saturation (peak {:.0f}/{}): no exposure "
+            "below the ceiling {} ms lands the 0-order on target.  The panel scan "
+            "will refuse a clipped frame -- lower the light or {}", peak,
+            SATURATION_PEAK, ceiling, MAX_EXPOSURE_ENV,
+        )
+    elif not TARGET_PEAK_LO <= peak <= TARGET_PEAK_HI:
+        logger.warning(
+            "peak {:.0f}/{} is outside the calibration band {}..{}: the ceiling "
+            "{} ms bounds the exposure, so the ratios will be read on a small "
+            "signal", peak, SATURATION_PEAK, TARGET_PEAK_LO, TARGET_PEAK_HI,
+            ceiling,
+        )
+    return readback
 
 
 def _flat_box(ref, flat) -> np.ndarray:
@@ -496,6 +653,24 @@ def _measure_beam_extent(devices, args, ledger: CommandLedger) -> dict[str, obje
                 })
                 before = after
                 ledger.slots_unreadable += 1
+            # The extent number on its own does not say whether the aperture
+            # actually stopped changing: an edge that still modulates is a real
+            # boundary, an edge that has flattened is the sweep running out, and
+            # the two look the same in the raw drop.  Ratio to the *previous*
+            # point separates them (``beam_extent`` reports the same thing as
+            # ``rel``); the deepest point of the sweep is not a boundary, so it
+            # gets no ratio at all rather than a fabricated one.
+            prev: float | None = None
+            for row in found:
+                value_fraction = row.get("core_fraction")
+                if value_fraction is None or prev is None:
+                    prev = value_fraction if value_fraction is not None else prev
+                    row["rel_to_previous"] = None
+                    continue
+                row["rel_to_previous"] = (
+                    None if prev <= 0 else float(value_fraction / prev)
+                )
+                prev = value_fraction
             out[axis] = found
     return out
 
