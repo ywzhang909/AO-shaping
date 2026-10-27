@@ -35,6 +35,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # Full object history, not the default depth=1 shallow clone. This job runs
+          # tests/ao_shaping/test_conventions.py, whose CHANGELOG citation guard asks git
+          # what each cited hash is (git cat-file -t); under a shallow checkout every one
+          # of the 71 citations resolves to "no such object" and the guard fails on a
+          # perfectly valid history. Pinned by
+          # tests/ao_shaping/scripts/test_pytest_workflow_shards_cover_tree.py::
+          # test_ci_checkout_keeps_full_history_for_history_dependent_guards.
+          fetch-depth: 0
           # `oopao` is a hard dependency (pyproject [tool.uv.sources] -> path
           # libs/OOPAO, editable). Without the submodule the image build fails with
           # "libs/OOPAO does not appear to be a Python project".
