@@ -733,11 +733,11 @@ payload 的键:
   强烈低通掉, 于是"随机瞳面相位 ⇒ 远场散斑"这个模型前提本身不成立, 实测帧是**一个紧致
   光斑 + 一圈暗晕**, 而模型预测的是**铺满画幅的散斑**。
   (`report/slm/model_in_loop_bench_calibration.md:49-55`)
-- 而 `--min-geometry-correlation` 默认 **0.5**(`runner_common.py:2992-3002`)。
+- 而 `--min-geometry-correlation` 默认 **0.5**(`runner_common.py:3058-3068`, 2026-10-27 复核)。
 
 > 🔴 **不要为了让运行"过"而调低 `--min-geometry-correlation`。** 那个守卫存在的理由就是
 > 阻止运行提交一个**比平场更差**的相位 —— 几何不对时整形只会把光斑做坏
-> (`slm_model_in_loop.py:2452-2460` 的异常文案说的就是这件事)。调低它会把一次干净的拒绝换成
+> (`slm_model_in_loop.py:2963-2973` 的异常文案说的就是这件事，2026-10-27 复核)。调低它会把一次干净的拒绝换成
 > 一次看起来成功、实际更差的运行。
 
 **dump 恰好就是这一情况的诊断工具**: 中止的运行照样把盘写出来, 于是
@@ -745,9 +745,9 @@ payload 的键:
 
 | 终止状态 | 触发点 | dump 里的 stage 组成 |
 |---|---|---|
-| `aborted_unidentifiable` | 几何 对比择优 相关度不达标(`slm_model_in_loop.py:2451-2460` 抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:187-203`) | **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |
-| `aborted_unidentifiable` | **验证集**相关性不达标(`slm_model_in_loop.py:2864-2884`) | `stepA-probe` 在, `stepB-shaped` **不在** |
-| `aborted_rejection_streak` | 连续 reject 达 `--max-rejection-streak` (`slm_model_in_loop.py:3130-3138` → `model_in_loop_runner.py:269-275` 退出 `2`) | `stepA-probe` / `stepB-shaped` **都在**, 一直到最后被 reject 的那一轮 |
+| `aborted_unidentifiable` | 几何 对比择优 相关度不达标(`slm_model_in_loop.py:2963-2973` 抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:187-203`) | **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |
+| `aborted_unidentifiable` | **验证集**相关性不达标(`slm_model_in_loop.py:3465-3487`) | `stepA-probe` 在, `stepB-shaped` **不在** |
+| `aborted_rejection_streak` | 连续 reject 达 `--max-rejection-streak` (`slm_model_in_loop.py:3747-3755` → `model_in_loop_runner.py:269-275` 退出 `2`) | `stepA-probe` / `stepB-shaped` **都在**, 一直到最后被 reject 的那一轮 |
 
 **先看 stage 列表, 再看数字** —— 几何失败、验证集失败和持续 reject 要走的路完全不同。
 
