@@ -19,6 +19,7 @@
 | `hardware_drivers.md` | 硬件驱动清单（Thorlabs WFS / SLM / CCD / DM 各品牌支持矩阵） |
 | `issues_report.md` | 问题与故障排查记录 |
 | `ml_training.md` | ML 训练指南（`src/ml/` 可选依赖包：训练器/模型/指标，与硬件层解耦） |
+| `ml_hwdataset.md` | ML `src/ml/hwdataset/` 模块文档：硬件相位→相机图像 DataLoader 全节（语料实测/模块表/缓存/样本契约/不可回退结论/用法），外迁自 AGENTS.md |
 | `simulation.md` | 数字孪生仿真环境总览（无硬件测试） |
 | `tabu_search_algorithm.md` | 禁忌搜索算法实现说明（英文，`algorithm/tabu`） |
 | `zernike_usage.md` | Zernike 两层入口用法（模式编号/系数换算入口） |
@@ -35,6 +36,8 @@
 |---|---|
 | `user/cli-reference.md` | **CLI 正式参考**：全部 flag 拼写/取值域/默认值逐字来自 `--help` 转储 |
 | `dev/coding_conventions.md` | 编码约定（Python 3.12+、导入、命名等） |
+| `dev/ci_testing.md` | 测试排除/分片策略与 CI 门禁现状（外迁自 AGENTS.md 的 `MISSING INFRASTRUCTURE` 与测试排除叙事） |
+| `dev/project_structure.md` | 项目包结构逐文件详解（外迁自根 AGENTS.md 的 `Project Structure`；根文档只留精简树 + 指向本文） |
 | `dev/extension_guide.md` | 二次开发与扩展指南：改动分层路由 + 最小模板（何时加新设备/算法/CLI，复用哪些 canonical 入口） |
 | `dev/todo_archive.md` | 已决事项档案（每条都是"一次决策的证据"，非变更日志） |
 
