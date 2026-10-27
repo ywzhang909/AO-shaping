@@ -792,7 +792,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     `display_data(zeros)`、`dev.close()`、`wfs.close()`）；**搜索循环里跳过读不到的候选**
     （`generate_fouriergsnet_sim_report.py:181` 遍历各候选目录找含所需键的 `config.json` —— 跳过坏候选是**控制流**，
     与 §8.9 第 5 项 ffmpeg 枚举同判据）；**逐条跳过损坏产物**（`generate_bench_twin_report.py:348`，注释已写明
-    "落盘产物损坏时只丢这一项"）；**可选设备元数据**（`probe_optical_path_validity.py:1351/1356`）。
+    "落盘产物损坏时只丢这一项"）；**可选设备元数据**（`probe_optical_path_validity.py:1356/1361`，旧行号 1351/1356 因 `717b7819` 在 136 行插入 5 行 `FLAT_DEFOCUS_EPS_RAD` 常量块而漂移，2026-10-27 复核）。
     ⚠️ 我先前怀疑 `generate_inverse_shaping_model_report.py:325` 的 `except: continue` 会**悄悄缩小发布表格的样本集**
     —— **实测否证**：行字典同时发布 `"n": len(norms)` 与 `"records": len(records)`，跳过会表现为 `n < records`，
     **归因本来就有** ⇒ 不动。另实测 `cam_exposure_range_ms` / `cam_hardware` 在两处赋值之外**全文件零引用**，
