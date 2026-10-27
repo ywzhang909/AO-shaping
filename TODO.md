@@ -3763,6 +3763,15 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 顺带一条已消解项的实证：**#202 的跨机金标问题已在树内修好且证据成立**——宿主机产出的 `gs_refine_target_shapes_golden.npz` + `rtol=1e-4/atol=1e-6`（`3e285e21` 入库）在**当初翻车的 CPU 容器镜像里 48 passed**。
 - 门禁与回归：conventions **68 passed / 1 skipped**（67 + 棘轮）；`tests/ao_shaping/algorithm` **777 passed / 16 skipped** 与基线逐位一致；`tests/ao_shaping/utils` 1490 passed / 4 skipped；术语、报告溯源、ruff 三门禁归零。
 
+**2026-10-27 · f67b8c89 · issue #44 第一步：`slm_zernike_pib` 实测 1311 行，先上提三个几乎不捕获状态的闭包**
+- 实测规模（比建档大）：`optimize_slm_zernike_pib` = **1311 行**（issue 记 ~900），函数体是一个 **1119 行 `with cam/slm/display` 块**，内含 **10 个嵌套 def**。闭包规模决定不能一次拆完：`_run_spgd` 374 行/21 自由变量、`_prepare_geometry` 204/15、`_apply_best_on_exit` 112/17、`_run_heuristic` 129/16、`_log_row` 66/10、`_on_evaluate` 47/10、`_debug_report` 26/15，只有 `_evaluate_candidate` 28/4、`capture_blaze` 7/3、`to_gray` 6/2 属于"行为等价可由构造保证"的范畴。
+- 本步只上提后者三个到模块级：`_capture_blaze(cam, slm, camera_config, phase)`、`_phase_to_gray(slm, phase, blaze_choice)`、`_evaluate_candidate(session, shaping, objective, last_eval, coeffs)`。第三个还把原先闭包捕获的 scratch 字典 `last_eval` 改为显式入参（写入方与事后钩子读取方在调用点可见）。所有调用点文本与参数形状不变：本地用 `functools.partial` 重绑，`select_blaze` / `BenchSession(to_gray=...)` / 启发式引擎拿到的仍是同样的单参可调用。
+- 结果：入口 **1311 → 1270 行**，嵌套 def **10 → 7**，模块级具名 helper +3。
+- **回归口径必须按 per-file**：`optimizer` 整棵在单进程下会被 SIGKILL（exit 137，即 #198），基线与改后同形态才可比。实测改前改后指纹**逐位一致** `{53 files, 994 passed, 2 skipped, 0 failed}`；另 `runners` 554 passed / 25 skipped、conventions 68 passed / 1 skipped（含 wiki 行号守卫）。
+- issue 强调的"字段名不能含糊"**结构上已满足**：`_PibGeometry` 的 docstring 直接点名 `reset_window` 全帧坐标 vs 下游指标所需窗口局部坐标这一反模式，字段按两种坐标系命名。缺的是 `_prepare_geometry` 仍嵌在入口函数里。
+- 剩余阶次（每阶可独立验证）：① 先造 run 上下文状态对象（承载 `session`/`shaping`/目标权重/历史缓冲），这是把 21 与 16 自由变量的两个循环搬出闭包的前置条件；② `_prepare_geometry` → 模块级；③ `_run_heuristic` → `_run_heuristic(state, config)`，再 `_run_spgd` 并把"采样/打分/门控/记录"分段；④ `_apply_best_on_exit` 与 `BenchSession` 边界是硬件安全退出落点，与 #145/#45 的 try/finally 契约耦合，**不在无硬件窗口里顺手改语义**。
+- 同批消掉一处会挡后续重构的既有红：`runners` 分片里 git 索引守卫未设 cwd，把 rc=128 "not a git repository" 误报成"未跟踪"（`d806fecd`）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
