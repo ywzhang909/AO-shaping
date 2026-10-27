@@ -2124,12 +2124,12 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 382
 #: the driver exception taxonomy (issue #145 / #45) would turn a working fallback into a crash.
 #:
 #:
-#: Measured 2026-10-28 after seven review passes (runners/slm + config + utils, the three CCD
+#: Measured 2026-10-28 after eight review passes (runners/slm + config + utils, the three CCD
 #: camera drivers, the R50 GUI loop files, the whole optimizer / runner CLI layer, the ml
-#: training scripts, and the CCD analyzer UI): 114 marked, 268 unmarked. The fourth pass
-#: covered only 12 of the 17 open optimizer sites and the fifth had to close the layer -- the
-#: ceiling is only as honest as the last count.
-_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 268
+#: training scripts, the CCD analyzer UI, and the bench settings panel): 128 marked, 254
+#: unmarked. The fourth pass covered only 12 of the 17 open optimizer sites and the fifth had
+#: to close the layer -- the ceiling is only as honest as the last count.
+_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 254
 
 
 def _blind_except_handlers_in_src() -> list[tuple[Path, int, bool]]:
@@ -2208,10 +2208,17 @@ _DOC_LINE_ANCHORS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
     ),
     (
         "TODO.md",
-        "上报动作本身的失败",
+        "上报动作本身的失败**（",
         "src/ao_shaping/gui/ccd/ccd_analyzer.py",
         ('raw_frame_queue.put(("error", str(exc)), block=False)',
          'raw_frame_queue.put(("error", f"Capture loop crashed: {exc}"), block=False)'),
+    ),
+    (
+        "TODO.md",
+        "探测降级**（`bench_settings.py:",
+        "src/ao_shaping/gui/slm/bench_settings.py",
+        ("# policy: 相机缺 PixelSize 特性不是错误",
+         "# policy: 大恒探测像元间距失败不是错误"),
     ),
 )
 
