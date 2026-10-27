@@ -61,9 +61,9 @@ M_samp = λ · f_sample / (D_SLM · p_cam) = Δ_min · (f_sample/f_main) / p_cam
 
 ## 运行效果
 
-- 截图占位：popover 展开后的「采样光路」段（字段 2×2 排布 + summary + violation 警告 + 两个按钮）。
-- 截图占位：`ok=False` 时 violation 行的红色告警。
-- 截图占位：`f_sample` 提到 180 mm 后 `M_samp≈3.0` 的正常态。
+- 截图占位：config_1.png（popover 展开后的「采样光路」段，字段 2×2 排布 + summary + violation 警告 + 两个按钮）。
+- 截图占位：config_2.png（`ok=False` 时 violation 行的红色告警）。
+- 截图占位：config_3.png（`f_sample` 提到 180 mm 后 `M_samp≈3.0` 的正常态）。
 
 （截图由操作员在真实台面上按 `./run_pytest.sh tests/ao_shaping/gui` 验证 GUI 后补入 `report/slm/sampling_assist/figures/`。）
 

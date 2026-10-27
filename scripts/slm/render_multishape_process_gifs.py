@@ -1,4 +1,7 @@
-import os, sys, glob, pickle
+import os
+import sys
+import glob
+from loguru import logger
 import numpy as np
 
 sys.path.insert(0, "src")
@@ -13,6 +16,57 @@ FIG = "report/shape_trials/multishape_capability/figures"
 os.makedirs(FIG, exist_ok=True)
 
 
+def _render_exact_grid(name, out, d, npzs):
+    zin = np.load(os.path.join(d, "inputs.npz"))
+    phases = zin["phases"]  # (N, H, W)
+    measured = zin["measured"]  # (N, h, w)
+    iters = sorted([p for p in npzs if "iteration" in os.path.basename(p)])
+    if not iters:
+        iters = [p for p in npzs if p.endswith(".npz") and "inputs" not in p]
+    N = phases.shape[0]
+    # normalize measured
+    meas_norm = []
+    for i in range(N):
+        m = measured[i].astype(float)
+        m = (m - m.min()) / (m.max() - m.min() + 1e-9)
+        meas_norm.append(m)
+    phase_norm = []
+    for i in range(N):
+        ph = phases[i].astype(float)
+        ph = np.mod(ph, 2 * np.pi)
+        ph = (ph - ph.min()) / (ph.max() - ph.min() + 1e-9)
+        phase_norm.append(ph)
+    fig, axes = plt.subplots(2, N, figsize=(3 * N, 6))
+    writer = PillowWriter(fps=3)
+    rendered = 0
+    for ip, p in enumerate(iters):
+        z = np.load(p)
+        pred = z["prediction"]  # (N, h, w)
+        for i in range(N):
+            axes[0, i].clear()
+            axes[1, i].clear()
+            axes[0, i].imshow(meas_norm[i], cmap="inferno")
+            axes[0, i].set_title("measured " + str(i), fontsize=8)
+            axes[0, i].axis("off")
+            pr = pred[i].astype(float)
+            pr = (pr - pr.min()) / (pr.max() - pr.min() + 1e-9)
+            axes[1, i].imshow(pr, cmap="viridis")
+            axes[1, i].set_title("pred " + str(i), fontsize=8)
+            axes[1, i].axis("off")
+        fig.suptitle(
+            name + " iter " + str(ip) + " (" + str(ip + 1) + "/" + str(len(iters)) + ")"
+        )
+        fig.tight_layout()
+        if rendered == 0:
+            writer.setup(fig, out, dpi=80)
+        writer.grab_frame()
+        rendered += 1
+    if rendered == 0:
+        raise ValueError("no iterations")
+    writer.finish()
+    plt.close(fig)
+
+
 def _render_special_npz(name, out, npzs):
     """Render blur (sigma sweep) or direction (per-shape) npzs as a GIF."""
     # blur style: sigma_*.npz with prediction/measured
@@ -22,6 +76,10 @@ def _render_special_npz(name, out, npzs):
             z = np.load(p)
             pred = z["prediction"] if "prediction" in z else None
             meas = z["measured"] if "measured" in z else None
+            if pred is not None and np.asarray(pred).ndim == 3:
+                pred = np.asarray(pred)[0]
+            if meas is not None and np.asarray(meas).ndim == 3:
+                meas = np.asarray(meas)[0]
             panels = []
             if pred is not None:
                 a = pred.astype(float)
@@ -101,17 +159,34 @@ dirs = [
 
 for d in dirs:
     name = os.path.basename(d.rstrip("/"))
+    # ensure uniqueness when two dirs share a basename (e.g. anchored_... in
+    # both validate_transfer_shapes and analyze_transfer_direction)
+    parent = os.path.basename(os.path.dirname(d.rstrip("/")))
+    if parent and parent not in ("debug",):
+        name = parent + "_" + name
     out = os.path.join(FIG, name + "_process.gif")
+    if os.path.exists(out):
+        print("SKIP existing", name)
+        continue
     iters = os.path.join(d, "iterations.pkl")
     npzs = sorted(glob.glob(os.path.join(d, "*.npz")))
     if os.path.exists(iters) and not npzs:
         try:
             render_recorder_gif(iters, out, fps=4, title=name, max_frames=60)
-            print("OK iters", name)
+            logger.info("OK iters", name)
         except Exception as e:
-            print("FAIL iters", name, repr(e))
+            logger.info("FAIL iters", name, repr(e))
         continue
     if npzs:
+        # exact_grid style: iteration_*.npz with 'prediction' + inputs.npz
+        has_pred = any("prediction" in np.load(p) for p in npzs)
+        if has_pred and os.path.exists(os.path.join(d, "inputs.npz")):
+            try:
+                _render_exact_grid(name, out, d, npzs)
+                logger.info("OK exact_grid", name)
+            except Exception as e:
+                logger.info("FAIL exact_grid", name, repr(e))
+            continue
         frames_data = []
         for p in npzs[:60]:
             z = np.load(p)
@@ -137,16 +212,16 @@ for d in dirs:
             if os.path.exists(iters):
                 try:
                     render_recorder_gif(iters, out, fps=4, title=name, max_frames=60)
-                    print("OK iters-fallback", name)
+                    logger.info("OK iters-fallback", name)
                 except Exception as e:
-                    print("FAIL fallback", name, repr(e))
+                    logger.info("FAIL fallback", name, repr(e))
             else:
                 # blur-style (prediction/measured) or direction-style npzs
                 try:
                     _render_special_npz(name, out, npzs)
-                    print("OK special", name)
+                    logger.info("OK special", name)
                 except Exception as e:
-                    print("FAIL special", name, repr(e))
+                    logger.info("FAIL special", name, repr(e))
             continue
         fig, axes = plt.subplots(1, 2, figsize=(10, 4))
         writer = PillowWriter(fps=4)
@@ -167,11 +242,11 @@ for d in dirs:
             writer.grab_frame()
         writer.finish()
         plt.close(fig)
-        print("OK npz", name, len(frames_data))
+        logger.info("OK npz", name, len(frames_data))
     else:
         if os.path.exists(iters):
             try:
                 render_recorder_gif(iters, out, fps=4, title=name, max_frames=60)
-                print("OK iters2", name)
+                logger.info("OK iters2", name)
             except Exception as e:
-                print("FAIL", name, repr(e))
+                logger.info("FAIL", name, repr(e))

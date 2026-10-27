@@ -139,6 +139,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="torch device for the network and the twin",
     )
     parser.add_argument("--seed", type=int, default=LOOP_SEED, help="master seed")
+    parser.add_argument(
+        "--record",
+        action="store_true",
+        help=(
+            "also persist process data (measured frame, command phase, grayscale) "
+            "under <out-dir>/process_data/ via BenchRecorder; off by default "
+            "(~4.4 MiB/row)"
+        ),
+    )
     return parser
 
 
@@ -239,6 +248,7 @@ def main(argv: list[str] | None = None) -> int:
             pupil_center_xy=pupil_center,
             device=args.device,
             seed=args.seed,
+            record=args.record,
         )
     except (FileNotFoundError, ValueError, KeyError, BenchmarkError) as exc:
         logger.error("session failed: {}", exc)

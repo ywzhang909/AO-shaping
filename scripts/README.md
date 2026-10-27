@@ -2,6 +2,15 @@
 
 This directory contains various utility scripts for the AO-Shaping project, including build scripts, simulation scripts, training scripts, and analysis tools.
 
+`slm/analyze_no_gs_session.py` audits a saved capture/fit pair; `slm/analyze_no_gs_run.py`
+compares square endpoints on the native CCD grid; `slm/analyze_no_gs_response.py`
+reuses the exact shaping core to diagnose exposure-dependent CV. All three are
+offline, require a new output directory, and never open devices. Examples and
+scope are in `report/shape_trials/no_gs_ccd_moved/analysis_20261027.md`.
+The fitter's optional `--record-responses` records detached physical-stage statistics
+alongside per-iteration Zernike coefficients; it adds diagnostic overhead and is
+not a neural activation hook.
+
 `slm/generate_axial_plane_report.py` regenerates the SLM input-plane ABCD
 correction report from recorded CCD pairs. The reusable offline distance scan is
 `python -m ao_shaping.tools.slm.transfer.axial`; its fitted offset is conditional

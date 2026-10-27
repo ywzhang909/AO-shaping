@@ -139,6 +139,18 @@ def fit(args):
     device = resolve_device(getattr(args, "device", None))
     rows, phases, images, xy, matrix, ramp_samples, train = load_dataset(
         args.dataset, old.grid_size, args.span, samples=getattr(args, "samples", None))
+    # ``load_dataset`` centres the camera window on the **measured** zero order
+    # of this capture. A warm checkpoint's origin is the *previous* bench's
+    # zero, and inheriting it after a realignment displaces the predicted field
+    # by that difference: the NNLS radiometry then clips the gain to zero, the
+    # prediction becomes a constant and every gradient vanishes, so the
+    # alignment stage deadlocks instead of converging (2026-10-27: a 76 px
+    # zero-order shift produced gain=0 and "nonfinite validation quality").
+    # Geometry here is measured, not inherited.
+    manifest_rows = json.loads((args.dataset / "manifest.json").read_text(encoding="utf-8"))
+    reference_row = next(row for row in manifest_rows
+                         if row["label"] == "reference_start" and valid(row))
+    measured_origin = spot(reference_row)
     args.out.mkdir(parents=True, exist_ok=False)
     provenance = dict(dataset=str(args.dataset.resolve()), checkpoint=str(args.checkpoint.resolve()),
                       script_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -146,6 +158,7 @@ def fit(args):
                       sample_source="memory" if getattr(args, "samples", None) is not None else "dataset",
                       device=device, device_requested=getattr(args, "device", None),
                       iterations=args.iterations, ramp_matrix=matrix.tolist(), ramp_samples=ramp_samples,
+                      record_responses=bool(getattr(args, "record_responses", False)),
                       adaptation=adaptation,
                       amplitude_center_lr=getattr(args, "amplitude_center_lr", None),
                       radiometry=getattr(args, "radiometry", "exposure"),
@@ -161,8 +174,17 @@ def fit(args):
                                learn_amplitude=True, initial_defocus=old.defocus_diopter,
                                learn_residual=True, fft_size=old.fft_size, pixel_samples=old.pixel_samples,
                                basis_arrays=basis, batch_size=4, device=device)
+    response_records = []
+    if getattr(args, "record_responses", False):
+        from ao_shaping.utils.image.model_response import summarize_response
+
+        def record_response(name, value, batch_start):
+            response_records.append(dict(stage=name, batch_start=batch_start,
+                                         **clock(), **summarize_response(value)))
+
+        model.diagnostic_callback = record_response
     with torch.no_grad():
-        model.origin.copy_(torch.tensor(old.origin_xy))
+        model.origin.copy_(torch.tensor(measured_origin))
         model.log_width.copy_(torch.tensor(old.amplitude_width_xy).log())
         model.residual.copy_(torch.tensor([old.residual_noll_radians.get(j, 0) for j in model.residual_modes]))
     from .adaptation import configure_adaptation
@@ -183,6 +205,7 @@ def fit(args):
     from .radiometry import fit_radiometry
     for iteration in range(args.iterations + 1):
         started = clock()
+        response_records.clear()
         model.optimizer.zero_grad()
         prediction = model.prediction()
         if kernel is not None:
@@ -193,6 +216,14 @@ def fit(args):
         optical_prediction = prediction.detach().cpu().numpy()
         _, radiometry = fit_radiometry(optical_prediction, images, exposure_values, train,
                                       mode=getattr(args, "radiometry", "exposure"))
+        if iteration == 0 and radiometry["gain"] <= 0:
+            raise ValueError(
+                "radiometry gain collapsed to zero at iteration 0: the checkpoint's "
+                "field does not overlap the measured window (origin/geometry mismatch). "
+                "The loss is then independent of the field, so no parameter can move; "
+                "re-anchor the geometry or refit from a fresh capture. "
+                f"(measured origin {np.round(measured_origin, 1).tolist()}, "
+                f"checkpoint origin {np.round(old.origin_xy, 1).tolist()})")
         scale, offset = radiometry["gain"], radiometry["background"]
         exposure_tensor = torch.as_tensor(exposure_values[:, None, None], dtype=prediction.dtype, device=prediction.device)
         prediction = prediction * scale + offset + radiometry["bias_counts"]/exposure_tensor
@@ -217,6 +248,8 @@ def fit(args):
         params.update(radiometry)
         entry = dict(iteration=iteration, loss=float(loss.detach()), parameters=params,
                      metrics=metrics(predicted, images), **started, end_monotonic_ns=__import__("time").monotonic_ns())
+        if getattr(args, "record_responses", False):
+            entry["responses"] = list(response_records)
         history.append(entry)
         np.savez_compressed(args.out / f"iteration_{iteration:04d}.npz", prediction=predicted)
         with (args.out / "iterations.pkl").open("wb") as stream:
@@ -301,6 +334,8 @@ def main():
     parser.add_argument("--adaptation", choices=("auto", "alignment", "full"), default="auto")
     parser.add_argument("--amplitude-center-lr", type=float, help="Override illumination position learning rate (panel px/update)")
     parser.add_argument("--radiometry", choices=("shared", "exposure"), default="exposure")
+    parser.add_argument("--record-responses", action="store_true",
+                        help="Record detached physical-stage response statistics in every iteration (adds diagnostic overhead)")
     parser.add_argument("--device", choices=DEVICE_CHOICES, default="auto",
                         help="auto = CUDA when available else CPU; cpu pins the historical numbers")
     args = parser.parse_args()

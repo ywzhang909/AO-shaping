@@ -22,7 +22,7 @@ from ao_shaping.algorithm.signal_processing.defocus_forward_core import (
 
 
 class PhysicalForwardFit:
-    """Nine-parameter shared physical fit with fixed camera geometry.
+    """Compact shared physical fit with fixed camera geometry.
 
     The panel geometry, Gaussian illumination, camera sampling grids and FFT
     irradiance scaling live in ``defocus_forward_core`` (issue #199 R2), shared
@@ -34,7 +34,7 @@ class PhysicalForwardFit:
     def __init__(self, phases, images, camera_xy, matrix, focus_diopter, train_mask,
                  amplitude_center, *, learn_amplitude=False, initial_defocus=None,
                  learn_residual=False, fft_size=None, pixel_samples=1,
-                 basis_arrays=None, batch_size=None, device=None):
+                 basis_arrays=None, batch_size=None, device=None, diagnostic_callback=None):
         import torch
         from ao_shaping.utils.wavefront.fraunhofer import focal_intensity
         from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
@@ -55,6 +55,7 @@ class PhysicalForwardFit:
             raise ValueError("require even fft_size >= phase grid, pixel_samples >= 1")
         self.pixel_samples = pixel_samples
         self.batch_size = batch_size or len(phases)
+        self.diagnostic_callback = diagnostic_callback
         self.images = torch.tensor(images, dtype=torch.float32, device=self._device)
         self.xy = torch.tensor(camera_xy, dtype=torch.float32, device=self._device)
         self.inverse = torch.tensor(np.linalg.inv(matrix), dtype=torch.float32, device=self._device)
@@ -96,6 +97,8 @@ class PhysicalForwardFit:
         width = self.log_width.exp()
         amplitude = gaussian_amplitude(torch, self.panel_x, self.panel_y, self.center, width,
                                        self.panel_mask)
+        if self.diagnostic_callback is not None:
+            self.diagnostic_callback("input_amplitude", amplitude, None)
         grids = camera_sample_grids(
             torch, self.xy, self.origin, self.inverse,
             subpixel_offsets(torch, self.pixel_samples, device=self.xy.device),
@@ -111,6 +114,10 @@ class PhysicalForwardFit:
             # Preserve physical irradiance units when input pitch or FFT changes.
             intensity = intensity * irradiance_scale(self.pitch, self.fft_size)
             sampled = sample_intensity(torch, intensity, grids)
+            if self.diagnostic_callback is not None:
+                for name, response in (("panel_phase", phase), ("panel_field", field),
+                                       ("propagated_intensity", intensity), ("ccd_integrated", sampled)):
+                    self.diagnostic_callback(name, response, start)
             predictions.append(sampled)
         return torch.cat(predictions)
 

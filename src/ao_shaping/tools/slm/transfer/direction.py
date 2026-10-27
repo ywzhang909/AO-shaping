@@ -36,11 +36,16 @@ def analyze(run, out):
                 phases.append(np.asarray(data["model_phase"], dtype=np.float32))
                 if row is a:
                     xy, target = data["camera_xy"], data["target"]
+                    recorded_core = data["core"].copy() if "core" in data else None
                     image = data["raw_frames"].mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)] / (row["exposure_ms"]*row.get("counts_scale", 1.))
         forward = FrozenDefocusForward(params, xy, device="cpu")
         forward.exposure_ms = a["exposure_ms"]
         objective = ShapeObjective(target, cv_only=config.get("objective", "shape") == "cv",
                                    formation=config.get("objective", "shape") == "formation")
+        if recorded_core is not None:
+            # Preserve the run's physical erosion and zero-order exclusion.
+            # Rebuilding only from target would silently change the objective.
+            objective.core = recorded_core
         zero = torch.zeros_like(torch.tensor(phases[0]))
         with torch.no_grad():
             baseline, plus, negative = [forward.predict(phase)[0] for phase in phases]

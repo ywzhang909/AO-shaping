@@ -206,3 +206,21 @@ none
 *.pt
 .history/*
 runs/*
+
+
+# Playwright
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+
+
+# openchamber
+.openchamber/*
+
+# >>> magpie: library skills placed here (magpie adds and removes these lines) >>>
+/.agents/skills/academic-communication-merged
+/.agents/skills/academic-research-merged
+# <<< magpie <<<

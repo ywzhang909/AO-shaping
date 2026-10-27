@@ -1,0 +1,121 @@
+{
+  "rows": [
+    {
+      "index": 0,
+      "exposure_ms": 92.947,
+      "fit": true,
+      "raw_core_mean": 5.076094913247983,
+      "raw_core_cv": 0.9747441312344506,
+      "corrected_core_cv": 1.1142067272055125,
+      "corrected_core_rate": 0.04898686808419669,
+      "corrected_negative_fraction": 0.00043220259788804785
+    },
+    {
+      "index": 1,
+      "exposure_ms": 23.236,
+      "fit": true,
+      "raw_core_mean": 1.6464894246643615,
+      "raw_core_cv": 0.7196566424536772,
+      "corrected_core_cv": 1.1426878034823502,
+      "corrected_core_rate": 0.048355006853081764,
+      "corrected_negative_fraction": 0.012358658069339314
+    },
+    {
+      "index": 2,
+      "exposure_ms": 92.947,
+      "fit": false,
+      "raw_core_mean": 5.018242064604554,
+      "raw_core_cv": 0.9573448523175613,
+      "corrected_core_cv": 1.0925086361528389,
+      "corrected_core_rate": 0.048364439725632896,
+      "corrected_negative_fraction": 0.00018689842070834502
+    },
+    {
+      "index": 3,
+      "exposure_ms": 46.473,
+      "fit": true,
+      "raw_core_mean": 2.7684873687817335,
+      "raw_core_cv": 0.8683405184377134,
+      "corrected_core_cv": 1.1191112897480895,
+      "corrected_core_rate": 0.048319989743627056,
+      "corrected_negative_fraction": 0.0029670124287449772
+    },
+    {
+      "index": 4,
+      "exposure_ms": 92.947,
+      "fit": false,
+      "raw_core_mean": 5.029514375603526,
+      "raw_core_cv": 0.9589217402721886,
+      "corrected_core_cv": 1.09439933751382,
+      "corrected_core_rate": 0.04848571648549573,
+      "corrected_negative_fraction": 0.00022194187459115972
+    },
+    {
+      "index": 5,
+      "exposure_ms": 11.618,
+      "fit": true,
+      "raw_core_mean": 1.1146466062361773,
+      "raw_core_cv": 0.5147737454459649,
+      "corrected_core_cv": 1.1351646873623065,
+      "corrected_core_rate": 0.05093252890428848,
+      "corrected_negative_fraction": 0.09274834127651621
+    },
+    {
+      "index": 6,
+      "exposure_ms": 92.947,
+      "fit": false,
+      "raw_core_mean": 5.0138927826059865,
+      "raw_core_cv": 0.9590801691873228,
+      "corrected_core_cv": 1.0949884496201177,
+      "corrected_core_rate": 0.04831764658547165,
+      "corrected_negative_fraction": 0.00015185496682553032
+    },
+    {
+      "index": 7,
+      "exposure_ms": 46.473,
+      "fit": false,
+      "raw_core_mean": 2.7624209575429086,
+      "raw_core_cv": 0.871277932801694,
+      "corrected_core_cv": 1.1255369523433245,
+      "corrected_core_rate": 0.04818945349163503,
+      "corrected_negative_fraction": 0.004041678347817961
+    },
+    {
+      "index": 8,
+      "exposure_ms": 23.236,
+      "fit": false,
+      "raw_core_mean": 1.6328146902158678,
+      "raw_core_cv": 0.7134895503368687,
+      "corrected_core_cv": 1.1471663229418179,
+      "corrected_core_rate": 0.04776649185701988,
+      "corrected_negative_fraction": 0.026119054293991216
+    },
+    {
+      "index": 9,
+      "exposure_ms": 11.618,
+      "fit": false,
+      "raw_core_mean": 1.1250700869077657,
+      "raw_core_cv": 0.49777442575299646,
+      "corrected_core_cv": 1.1260485817029018,
+      "corrected_core_rate": 0.05182971264259011,
+      "corrected_negative_fraction": 0.08519063638912251
+    },
+    {
+      "index": 10,
+      "exposure_ms": 92.947,
+      "fit": false,
+      "raw_core_mean": 5.054932560819862,
+      "raw_core_cv": 0.9684180567538676,
+      "corrected_core_cv": 1.1052605803721123,
+      "corrected_core_rate": 0.04875918615333155,
+      "corrected_negative_fraction": 0.0004789272030651341
+    }
+  ],
+  "core_pixels": 85608,
+  "intercept_core_percentiles": [
+    0.05815373595206192,
+    0.5652200488001675,
+    0.9130532404641192
+  ],
+  "qualification": "Same fixed core as shaping; signed illuminated per-pixel intercept fitted on first exposure visits; subsequent repeats validate only this fixed phase; not a dark calibration or cross-phase validation"
+}

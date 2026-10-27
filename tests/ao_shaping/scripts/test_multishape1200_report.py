@@ -16,7 +16,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
-from scripts.slm.generate_multishape1200_report import (  # noqa: E402
+from scripts.slm.generate_multishape1200_report import (
     _session_facts,
     _transport_flow_facts,
     build_report,

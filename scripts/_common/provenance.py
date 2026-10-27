@@ -151,6 +151,29 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
     ),
 
+    "report/sim2f_bench/optical_scale_20261027/report.md": ReportProvenance(
+        script="scripts/ml/diagnose_sim2f_optical_scale.py",
+        command="python scripts/ml/diagnose_sim2f_optical_scale.py",
+        environment=(
+            "离线（只读 data/debug/model_in_loop_hw_collect 的 18 组去重配对；"
+            "孪生在 CPU 上跑，无 SLM / 无相机）"
+        ),
+        note=(
+            "判两条『标定已失效』假说: H1 远场尺度 (region_span_px 25 点扫描, "
+            "宽度比 + 中位 ncc, 要求内点) 与 H2 离焦/零级 (既有 fit_twin Stage 1+2 "
+            "反演)。两条都判否决 —— 无一扫描点宽度比落在 [0.9,1.1], region_span "
+            "曲线中段凹陷而非内点极大; defocus_m 相对历史值仅差 1.2 %。故不改任何"
+            "已入库标定量, 也不据此重训网络。"
+        ),
+        extra_scripts=(
+            "scripts/ml/validate_sim2f_vs_hw_corpus.py",
+            "src/ml/sim2f/config.py",
+            "src/ml/sim2f/optics.py",
+            "src/ao_shaping/tools/slm/bench_twin_calibrate.py",
+            "src/ao_shaping/drivers/sim/bench_twin.py",
+        ),
+    ),
+
     "report/shape_trials/axial_plane/axial_plane_20261026.md": ReportProvenance(
         script="scripts/slm/generate_axial_plane_report.py",
         command="python scripts/slm/generate_axial_plane_report.py",
@@ -994,6 +1017,42 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/validate_defocus_exposure.py",
             "scripts/slm/summarize_defocus_forward_experiment.py",
             "src/ao_shaping/tools/slm/panel/alignment_probe.py",
+        ),
+    ),
+    "report/shape_trials/no_gs_ccd_moved/live_20261027.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="实验（Santec #1 / Daheng；CCD 移动后的无 GS 探针与可微优化）",
+        note="本轮原始数据、曝光读回、几何、物理预测与同曝光验收的实验中记录。",
+        extra_scripts=(
+            "src/ao_shaping/tools/slm/transfer/capture.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+            "src/ao_shaping/tools/slm/panel/alignment_probe.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "scripts/slm/analyze_no_gs_session.py",
+        ),
+    ),
+    "report/shape_trials/no_gs_ccd_moved/analysis_20261027.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线分析（本轮 Santec #1 / Daheng 原始数据；设备已释放）",
+        note="无 GS CCD 验收、曝光偏置、激活函数位置与下一轮多形状多尺度响应区间方案。",
+        extra_scripts=(
+            "scripts/slm/analyze_no_gs_run.py",
+            "scripts/slm/analyze_no_gs_response.py",
+            "src/ao_shaping/tools/slm/transfer/capture_response.py",
+            "src/ao_shaping/tools/slm/transfer/response.py",
+            "src/ao_shaping/tools/slm/transfer/direction.py",
+            "src/ao_shaping/tools/slm/transfer/local_response.py",
+            "src/ao_shaping/utils/image/model_response.py",
+        ),
+    ),
+    "report/shape_trials/physical_forward_no_gs_plan_20261027.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线（历史报告分析与下一轮实验规划；未连接设备）",
+        note="无 GS 相位起点：分层指标、物理参数与局部响应校正、CCD 验收及缓漂实验设计；不新增实验测量结论。",
+        extra_scripts=(
+            "src/ao_shaping/utils/image/physical_model_metrics.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
         ),
     ),
     "report/shape_trials/physical_forward_defocus_plan_20261022.md": ReportProvenance(

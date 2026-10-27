@@ -984,7 +984,7 @@ class ThorlabWFS(BaseWFS):
             logger.info(f"User reference saved to DLL location: {src_path}")
             logger.info(f"Backup created at: {backup_path}")
             return backup_path
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Failed to create backup: {e}")
             return None
 
@@ -1052,7 +1052,7 @@ class ThorlabWFS(BaseWFS):
             try:
                 shutil.copy2(backup_path, dst_path)
                 logger.info(f"Copied backup {backup_path} to {dst_path}")
-            except Exception as e:
+            except OSError as e:
                 logger.error(f"Failed to copy backup file: {e}")
                 return False
 
@@ -1074,7 +1074,7 @@ class ThorlabWFS(BaseWFS):
                 try:
                     files = list(ref_dir.glob("*")) if ref_dir.exists() else []
                     logger.debug(f"[WFS load_user_ref] Files in ref_dir: {files}")
-                except Exception as list_err:
+                except OSError as list_err:
                     logger.debug(f"[WFS load_user_ref] Cannot list ref_dir: {list_err}")
             return False
 

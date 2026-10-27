@@ -821,36 +821,45 @@ def _classify_recorder_rows(rows: list[dict]) -> dict[str, list[str]]:
             "scalar": scalar_keys,
             "text": text_keys,
         }
-    first = rows[0]
-    for key, value in first.items():
-        if isinstance(value, str):
-            text_keys.append(key)
-            continue
-        arr = None
-        if isinstance(value, np.ndarray):
-            arr = value
-        elif isinstance(value, (list, tuple)):
-            try:
-                arr = np.asarray(value)
-            except Exception:
-                arr = None
-        if arr is not None and arr.ndim >= 1:
-            if arr.ndim >= 2:
-                if _is_phase_key(key):
-                    phase_keys.append(key)
-                elif _is_grad_key(key):
-                    grad_keys.append(key)
-                else:
-                    image_keys.append(key)
+    # Classify from several rows, not just the first: a column can be ``None``
+    # in the first record (a candidate CV before any candidate was measured)
+    # and numeric afterwards. Classifying it as text silently dropped it from
+    # every panel, and the trajectory then fell back to ``_epoch``.
+    sample = rows[:32]
+    keys: list[str] = []
+    for row in sample:
+        for key in row:
+            if key not in keys:
+                keys.append(key)
+    for key in keys:
+        values = [row.get(key) for row in sample]
+        array = None
+        for value in values:
+            candidate = value
+            if isinstance(value, (list, tuple)):
+                try:
+                    candidate = np.asarray(value)
+                except Exception:
+                    candidate = None
+            if isinstance(candidate, np.ndarray) and candidate.ndim >= 2:
+                array = candidate
+                break
+        if array is not None:
+            if _is_phase_key(key):
+                phase_keys.append(key)
+            elif _is_grad_key(key):
+                grad_keys.append(key)
             else:
-                coeff_keys.append(key)
+                image_keys.append(key)
             continue
-        # scalar?
-        try:
-            float(value)  # type: ignore[arg-type]
+        if any(isinstance(value, (list, tuple, np.ndarray)) for value in values):
+            coeff_keys.append(key)
+            continue
+        if any(isinstance(value, (int, float, np.number)) for value in values):
             scalar_keys.append(key)
-        except (TypeError, ValueError):
-            pass
+            continue
+        if any(isinstance(value, str) for value in values):
+            text_keys.append(key)
     return {
         "phase": phase_keys,
         "image": image_keys,
@@ -970,12 +979,16 @@ def render_recorder_gif(
         traj_key = mark
     elif scalar_keys:
         # prefer loss/score/objective-like
-        for cand in ("loss", "score", "objective", "pib", "cv", "rmse"):
+        for cand in ("loss", "score", "objective", "pib", "cv", "rmse",
+                     "cv_candidate", "cv_anchor"):
             if cand in scalar_keys:
                 traj_key = cand
                 break
         if traj_key is None:
-            traj_key = scalar_keys[0]
+            # Bookkeeping columns make a meaningless "trajectory"; they are the
+            # last resort, not the default.
+            traj_key = next((key for key in scalar_keys
+                             if key not in {"_epoch", "_id", "block", "seed"}), scalar_keys[0])
 
     out_path = Path(output_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -985,6 +998,7 @@ def render_recorder_gif(
 
     total = len(rows)
     initial_phase_arr = None
+    rendered = 0
 
     for index, rec in enumerate(rows):
         for row in axes:
@@ -1165,7 +1179,13 @@ def render_recorder_gif(
         if index == 0:
             writer.setup(fig, out_path, dpi=100)
         writer.grab_frame()
+        rendered += 1
 
+    if rendered == 0:
+        # Nothing was ever set up: finishing here used to raise from inside
+        # matplotlib and hide the real reason.
+        plt.close(fig)
+        raise ValueError("no GIF frame was rendered")
     writer.finish()
     plt.close(fig)
     logger.info(f"GIF saved: {out_path}")

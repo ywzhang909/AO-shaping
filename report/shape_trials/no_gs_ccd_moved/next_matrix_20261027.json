@@ -1,0 +1,25 @@
+{
+  "status": "planned_not_executed",
+  "initial_phase": ["plane_plus_current_carrier", "seeded_random_plus_current_carrier"],
+  "gs_calls_allowed": 0,
+  "shapes": ["circle", "square", "triangle", "star"],
+  "sizes_native_ccd_px": [200, 600, 1200],
+  "size_semantics": "circle diameter; other shapes use canonical target_at side; record actual support bounding box and area",
+  "seeds": [20261027, 20261028, 20261029],
+  "order": "interleave shapes and sizes; repeat a fixed reference between groups",
+  "phase_rms_probe_rad": [0.03, 0.1, 0.3],
+  "probe_split": "calibration directions, independent unseen directions, and final shape replay are separate",
+  "exposure_policy": "adapt between blocks; fixed within reference/candidate block; repeat final phase at multiple unsaturated exposures",
+  "required_records": [
+    "raw_frames", "panel_phase", "panel_gray", "camera_xy", "target", "core",
+    "zero_order_exclusion", "exposure_readback_ms", "effective_bit_depth", "full_scale",
+    "utc_start_end", "monotonic_ns_start_end", "phase_family", "physical_units",
+    "zernike_noll_coefficients_rad_each_fit_iteration", "basis_normalization_and_aperture",
+    "effective_defocus_separately_from_residual_modes", "geometry_matrix", "amplitude_parameters",
+    "gain_background_bias", "physical_stage_response_statistics", "neural_activation_statistics_if_present",
+    "local_difference_prediction_and_measurement", "decision_and_rejection_reason"
+  ],
+  "physical_response_stages": ["input_amplitude", "panel_phase", "panel_field", "propagated_intensity", "ccd_integrated"],
+  "neural_response_statistics_if_present": ["shape", "mean", "std", "p01_p50_p99", "min_max", "zero_fraction", "saturation_fraction", "gradient_norm", "per_channel_summary"],
+  "qualification": "Coverage of sampled conditions, not a guarantee for arbitrary optical paths; phase gradients and exposure must be part of the validity range"
+}

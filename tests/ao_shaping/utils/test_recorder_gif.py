@@ -181,6 +181,47 @@ def test_load_alias(tmp_path):
     assert len(restored) == 2
 
 
+def test_classification_uses_more_than_the_first_row():
+    """A column that is None in the first record must not be classified as text.
+
+    A candidate CV only exists after the first candidate was measured, so the
+    first record legitimately carries ``cv_candidate=None``. Classifying from
+    that row alone dropped the column from every panel and made the trajectory
+    fall back to ``_epoch``.
+    """
+    from ao_shaping.utils.io.file import _classify_recorder_rows
+
+    rows = [
+        {"cv": 0.5, "cv_candidate": None, "_epoch": 0},
+        {"cv": 0.4, "cv_candidate": 0.42, "_epoch": 1},
+    ]
+    cls = _classify_recorder_rows(rows)
+    assert "cv_candidate" in cls["scalar"]
+    assert "cv_candidate" not in cls["text"]
+
+
+def test_gif_render_error_is_not_masked(tmp_path, monkeypatch):
+    """A failure inside the frame loop must surface as itself.
+
+    ``PillowWriter.saving`` calls ``finish()`` from a ``finally``; with no frame
+    collected that raised ``IndexError: list index out of range`` and hid the
+    real cause. The renderer drives setup/finish by hand so the original
+    exception survives.
+    """
+    from matplotlib.animation import PillowWriter
+
+    class Boom(RuntimeError):
+        pass
+
+    def explode(self, **kwargs):
+        raise Boom("frame rendering failed")
+
+    monkeypatch.setattr(PillowWriter, "grab_frame", explode)
+    rec = _make_recorder(3)
+    with pytest.raises(Boom):
+        render_recorder_gif(rec, tmp_path / "boom.gif")
+
+
 def test_render_then_from_saved_roundtrip_values(tmp_path):
     """End-to-end: save -> restore -> render produces same frame count."""
     rec = _make_recorder(5)

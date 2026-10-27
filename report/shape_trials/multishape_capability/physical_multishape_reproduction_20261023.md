@@ -333,15 +333,15 @@ $checkpoint = "$base/fit/frozen_parameters.json"
 
 ## 8. 原始数据、时间戳与移交目录
 
-| 内容 | 仓库根相对目录 | 关键文件 |
-|---|---|---|
-| 当前光路探针 | `data/debug/transfer_multishape_experiment/capture_20261023_1938/` | config、manifest、逐组 NPZ、capture_records.pkl |
-| 精确网格迁移 | `data/debug/fit_transfer_multishape/exact_grid_20261023_1935/` | inputs.npz、iterations.pkl、iteration_*.npz、result、frozen_parameters |
-| 原 GS 与模型模式 | `data/debug/validate_transfer_shapes/paired_20261023_1942/` | manifest、summary、逐帧数据、*_best.npy |
-| 曝光阶梯 | `data/debug/capture_transfer_response/ladder_20261023_1952/` | 原始测量帧与曝光搜索帧 |
-| 展宽/辐射校准 | `data/debug/calibrate_transfer_blur/shapes_20261023_1956/` | result.json、frozen_parameters.json |
-| 最终锚定实验 | `data/debug/validate_transfer_shapes/anchored_20261023_2002/` | 80 个采集 NPZ、manifest、iterations、summary、artifact_audit |
-| 方向与数值梯度 | `data/debug/analyze_transfer_direction/anchored_20261023_2002/` | 每形状差分 NPZ、result.json |
+| 内容 | 仓库根相对目录 | 关键文件 | 过程动画 |
+|---|---|---|---|
+| 当前光路探针 | `data/debug/transfer_multishape_experiment/capture_20261023_1938/` | config、manifest、逐组 NPZ、capture_records.pkl | ![capture](figures/transfer_multishape_experiment_capture_20261023_1938_process.gif) |
+| 精确网格迁移 | `data/debug/fit_transfer_multishape/exact_grid_20261023_1935/` | inputs.npz、iterations.pkl、iteration_*.npz、result、frozen_parameters | ![exact_grid](figures/fit_transfer_multishape_exact_grid_20261023_1935_process.gif) |
+| 原 GS 与模型模式 | `data/debug/validate_transfer_shapes/paired_20261023_1942/` | manifest、summary、逐帧数据、*_best.npy | ![paired](figures/validate_transfer_shapes_paired_20261023_1942_process.gif) |
+| 曝光阶梯 | `data/debug/capture_transfer_response/ladder_20261023_1952/` | 原始测量帧与曝光搜索帧 | ![ladder](figures/capture_transfer_response_ladder_20261023_1952_process.gif) |
+| 展宽/辐射校准 | `data/debug/calibrate_transfer_blur/shapes_20261023_1956/` | result.json、frozen_parameters.json | ![shapes](figures/calibrate_transfer_blur_shapes_20261023_1956_process.gif) |
+| 最终锚定实验 | `data/debug/validate_transfer_shapes/anchored_20261023_2002/` | 80 个采集 NPZ、manifest、iterations、summary、artifact_audit | ![anchored](figures/validate_transfer_shapes_anchored_20261023_2002_process.gif) |
+| 方向与数值梯度 | `data/debug/analyze_transfer_direction/anchored_20261023_2002/` | 每形状差分 NPZ、result.json | ![direction](figures/analyze_transfer_direction_anchored_20261023_2002_process.gif) |
 
 采集文件保存 `raw_frames`（3×1944×2592）、实际 `panel_gray`、`panel_phase`、128×128 `model_phase`、`camera_xy`、目标和核心掩膜。帧记录有 UTC 微秒字符串、主机单调起止纳秒值、曝光读回；时间是主机调用记录，**不是传感器内部曝光触发时间戳**。
 
