@@ -3772,6 +3772,17 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 剩余阶次（每阶可独立验证）：① 先造 run 上下文状态对象（承载 `session`/`shaping`/目标权重/历史缓冲），这是把 21 与 16 自由变量的两个循环搬出闭包的前置条件；② `_prepare_geometry` → 模块级；③ `_run_heuristic` → `_run_heuristic(state, config)`，再 `_run_spgd` 并把"采样/打分/门控/记录"分段；④ `_apply_best_on_exit` 与 `BenchSession` 边界是硬件安全退出落点，与 #145/#45 的 try/finally 契约耦合，**不在无硬件窗口里顺手改语义**。
 - 同批消掉一处会挡后续重构的既有红：`runners` 分片里 git 索引守卫未设 cwd，把 rc=128 "not a git repository" 误报成"未跟踪"（`d806fecd`）。
 
+**2026-10-27 · 1e4cd832 · #174 从"数盲捕"转为"数未判定"：27 处刻意宽捕获登记策略，棘轮拆成两档**
+- 逐条读完 `runners/slm`(11)、`config.py`(4)、`utils/`(12) 后确认：这一档**绝大多数是刻意的**——调用方提供的回调（`progress_cb`、`ui_display.update`）、可选读数（子孔径掩模、光斑偏差、光路指纹、自动曝光探针）、尽力而为的遥测（`Recorder`）、`finally` 里的末次 `close()`、以及构造边界"记录后原样重抛"。在 `drivers/` 异常分层（#145 / #45）未定义前把它们机械收窄成具体类型，等于把可用回落改成 CI 无法覆盖的硬件路径崩溃。所以本档不追计数，追**可评审性**。
+- 机制：被判定过的宽捕获必须带一行 `# policy:` 理由（位置约定：`except` 上方 2 行内，或处理器体内前 3 行）。计数逻辑收敛为单一提取器 `_blind_except_handlers_in_src()`，两档棘轮共用一次遍历——两条独立遍历会漂移，而"检查器量的不是被检查的东西"正是本文件里格式化守卫已记录过的失败模式。
+- 计数实测：盲捕总数 **382 不变**（注释改动不动语义），已标注 **27**，未标注 **355**（新上限 `_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 355`）。上限只在两种情况下下降：写下判定，或真的收窄到脱离该集合。
+- **两个方向的反空真断言**：`marked >= 20`（标记扫描若停止匹配，未标注会虚低而守卫空过）与 `marked < total`（窗口若过宽，未评审的处理器会被当成已判定）。
+- 对照验证（不是假设）：在 `src/` 下新增一个未标注盲捕 ⇒ 守卫在 **356** 变红；把一个标记拼错成 `# policys:` ⇒ 同样 356 变红（证明标记按精确 token 匹配、窗口不宽）。两次都复原并复绿。
+- 差异纯净性用机器核：`git diff -U0 -- src` 共 27 行新增，**非注释新增 0 行**；另把一处既有理由提升为标记 token，而不是再补一条重复注释。
+- 分片指纹与基线一致：conventions **69 passed / 1 skipped**（+1 即新守卫）、`runners` **554 / 25**、`utils` **1490 / 4**。
+- 插入注释会挪动被 call-graph wiki 钉行号的源文件行号，`test_wiki_source_citations_land_on_definitions` 按设计变红；正规修法是重生成 `build_call_graph.py + finalize_graph.py + gen_wiki_pages.py`。重生成后**核对差异而非信任它**：5 个 md 页共 9 行、两个图资产 98 行，**非数字漂移 0**（纯引用重钉）。
+- 顺带纠正一个取证口径：`hardware_utils.py` 的两处相机构造 `except Exception: log; raise` 在 ruff 的 BLE001 列表里**根本不出现**（ruff 对"记录后重抛"有上下文豁免；AGENTS 记的 382 vs 363 差额即来自此类），所以按 ruff 行号做锚点的批处理会漏站点——凡涉及这批计数的自动化都必须以 AST 为准。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
