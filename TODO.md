@@ -3655,6 +3655,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 顺带把一条**给 lane owner 的规则**写清楚（已发到 issue #56 评论）：对 stdout 即产出的脚本做 print→loguru，必须在 import 期配 `logger.add(sys.stdout, format="{message}")` 并重跑分片，否则一律不做；同时那 20 处"消息里没有 `{}` 却带位置参数"的写法会**静默丢值**（loguru 用 `str.format` 语义），已列清单。
 - 验证：7 个失败测试文件从 22 失败变 **323 passed / 7 skipped / 0 failed**；`tests/ao_shaping/scripts` 全量从 23 失败降到 **1 failed / 2600 passed / 67 skipped**，唯一残留是 `test_common_helpers_not_reintroduced.py::...[_fmt]`（另立 item 129）；`ruff check .` 归零；6 个文件 `py_compile` 通过；`git status` 只含这 6 个文件（无夹带）。
 
+129. ✅ **`_fmt` 在一个新生成器里重现：迁移到 `fmt_num_or_dash`（用差分实测选目标，不靠名字猜），并把该生成器登记进 MIGRATED 契约**（2026-10-27）
+- 现象：`scripts/slm/generate_multishape1200_report.py`（WIP 提交 `a529d495` 新建的报告生成器）里又写了一份 `def _fmt(value, digits=4, dash="—")`，触发 `test_common_helpers_not_reintroduced.py::test_no_generator_redefines_an_extracted_helper[_fmt]`——该 helper 早已抽到 `scripts/_common`，第二份必然与它漂移。
+- **迁移目标是差分实测选出来的，不是看名字像**。在 `digits ∈ {3,4,6}` × 取值 `None / 0.0 / 1.23456789 / -0.000123 / 1e-7 / 12345.678 / int / nan / ±inf` 的 30 个格点上逐个对比：`fmt_num_or_dash` 与局部副本 **0 处差异**（含 `None→—`、`nan→nan` 这两个最容易踩的点）；`fmt_fixed` 有 **6 处差异**（它把 `NaN→—`、遇 `None` 直接 `TypeError`）。`fmt_metric` / `fmt_ratio` / `fmt_general` 的语义更远（前者有 `|v|<1e-4` 分支、后者走 `g`/`e` 记法）。唯一如实记录的不对称：输入是**数值字符串**时局部副本会 `ValueError`，而 `fmt_num_or_dash` 输出 `1.5000`——即规范版是全函数而局部不是；本文件 10 个调用点喂的都是 float 或 `None`，没有字符串路径。
+- 改动：删掉局部定义，10 处调用改名，加 `from scripts._common import fmt_num_or_dash`；并把该文件登记进守卫的 `MIGRATED` 名单，于是它从此受三条契约把守（必须从 `scripts._common` 导入 / 必须把仓库根放进 `sys.path` / 模块级 import 必须真能解析）。守卫从 59 条变 **63 条全绿**。
+- **一次"要不要放宽守卫"的判断，结论是不放宽**：登记后 `bootstraps_the_repo_root` 立刻变红，因为它钉的是字面量 `sys.path.insert(0, str(Path(__file__).resolve().parents[2]))`，而该文件写的是 `ROOT` 变量形式。先量惯例再决定：**17 个已迁移生成器 100% 用字面量形式**（它们也各自保留 `ROOT` 变量用于其它路径，例如 `generate_pib_exit_safety_report.py` 就是 `str(ROOT / "src")` + 字面量根两行并存）。所以改文件顺应惯例，守卫不动——而且这条守卫的咬合力恰好被这次失败本身证明了。
+- 验证：`test_common_helpers_not_reintroduced.py` 63 passed；`test_multishape1200_report.py` 4 passed（报告渲染面未变）；`py_compile` 通过；`ruff check .` 全仓归零；`tests/ao_shaping/scripts` 全量 **2604 passed / 67 skipped / 0 failed**。
+- 收口账：并行 lane 落到 master 后共有 **28** 个 scripts 失败，现已清零——5 个术语门禁（item 127）、22 个 stdout 产物契约（item 128）、1 个 helper 重现（本批）。CI 侧对应：`Ruff` success（item 126）、`Terminology gate` success（item 127）。#173 侧本阶段只推进了 item 125 一项（`scripts` 501 → 495，其后外来 WIP 把总数抬到 500）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

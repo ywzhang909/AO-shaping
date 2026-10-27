@@ -22,8 +22,9 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from scripts._common import fmt_num_or_dash
 from scripts._common.provenance import insert_header
 
 from ao_shaping.runners.slm.transfer_shapes_runner import STAGE_RECIPES
@@ -393,10 +394,6 @@ def model_side_seed_cvs(session: Path, shapes: list[str], *, side: float, period
     return results
 
 
-def _fmt(value, digits=4, dash="—"):
-    return dash if value is None else f"{value:.{digits}f}"
-
-
 def build_report(facts: dict) -> str:
     session = facts["session"]
     lines: list[str] = []
@@ -516,7 +513,7 @@ def build_report(facts: dict) -> str:
             for kind in kinds:
                 match = next((entry for entry in facts["bakeoff"].values()
                               if entry["shape"] == shape and entry["kind"] == kind), None)
-                values.append(_fmt(match["seed_cv"], 4) if match else "—")
+                values.append(fmt_num_or_dash(match["seed_cv"], 4) if match else "—")
             chosen = facts.get("chosen_seeds", {}).get(shape, "—")
             lines.append(f"| {SHAPE_LABELS.get(shape, shape)} | " + " | ".join(values) +
                          f" | {SEED_LABELS.get(chosen, chosen)} |")
@@ -533,10 +530,10 @@ def build_report(facts: dict) -> str:
             model_entry = facts.get("model_side", {}).get(shape, {})
             lines.append(
                 f"| {SHAPE_LABELS.get(shape, shape)} | "
-                f"{_fmt(model_entry.get('transport'), 4)} | "
-                f"{_fmt(model_entry.get('backprojection'), 4)} | "
-                f"{_fmt(model_entry.get('gs'), 4)} | "
-                f"{_fmt(model_entry.get('backprojection_cycles_per_panel_px'), 3)} |")
+                f"{fmt_num_or_dash(model_entry.get('transport'), 4)} | "
+                f"{fmt_num_or_dash(model_entry.get('backprojection'), 4)} | "
+                f"{fmt_num_or_dash(model_entry.get('gs'), 4)} | "
+                f"{fmt_num_or_dash(model_entry.get('backprojection_cycles_per_panel_px'), 3)} |")
         lines += [
             "",
             "两列读数放在一起看：「传输」在模型里几乎完美（核心 CV ≈ 0.00x），"
@@ -577,7 +574,7 @@ def build_report(facts: dict) -> str:
                 completion = stage_completion(facts, shape).get(stage, {})
                 mark = "" if completion.get("complete") else \
                     f" ⚠{completion.get('blocks', 0)}/{completion.get('expected', 0)} 块"
-                cells.append(f"{_fmt(seed, 3)} → {_fmt(final, 3)}{mark}")
+                cells.append(f"{fmt_num_or_dash(seed, 3)} → {fmt_num_or_dash(final, 3)}{mark}")
             lines.append(f"| {SHAPE_LABELS.get(shape, shape)} | " + " | ".join(cells) + " |")
         lines += [
             "",
@@ -641,8 +638,8 @@ def build_report(facts: dict) -> str:
             stage_facts = flow["stages"].get(stage)
             if not stage_facts:
                 continue
-            lines.append(f"| {STAGE_LABELS[stage]} | {_fmt(stage_facts['seed_cv'], 3)} "
-                         f"| {_fmt(stage_facts['final_cv'], 3)} |")
+            lines.append(f"| {STAGE_LABELS[stage]} | {fmt_num_or_dash(stage_facts['seed_cv'], 3)} "
+                         f"| {fmt_num_or_dash(stage_facts['final_cv'], 3)} |")
         lines += [
             "",
             "两次运行只有初相位构造不同，其余（模型、段、块数、判据、采样）一致；"
@@ -661,7 +658,7 @@ def build_report(facts: dict) -> str:
         ]
         for row in facts["replay"]:
             lines.append(f"| {row['label']} | {row['exposure_ms']:.3f} | "
-                         f"{_fmt(row['metrics']['cv'], 6)} | {row['core_peak']:.1f} |")
+                         f"{fmt_num_or_dash(row['metrics']['cv'], 6)} | {row['core_peak']:.1f} |")
         lines.append("")
     else:
         lines += [
