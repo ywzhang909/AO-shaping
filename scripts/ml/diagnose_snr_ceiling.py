@@ -159,8 +159,8 @@ def main(argv: list[str] | None = None) -> int:
     out = {"rows": rows, "summary": summary, "curve": curve,
            "verdict": verdict, "seconds": round(time.perf_counter() - started, 1)}
     Path(args.out).write_text(json.dumps(out, indent=2), encoding="utf-8")
-    logger.info("\nVERDICT:", verdict)
-    logger.info("wrote", args.out)
+    logger.info(f"\nVERDICT: {verdict}")
+    logger.info(f"wrote {args.out}")
     return 0
 
 

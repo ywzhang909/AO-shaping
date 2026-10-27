@@ -154,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
         "mean_r2_const": float(np.mean([r["r2_const"] for r in rows])),
         "seconds": round(time.perf_counter() - started, 1),
     }, indent=2), encoding="utf-8")
-    logger.info("\nwrote", args.out)
+    logger.info(f"\nwrote {args.out}")
     return 0
 
 

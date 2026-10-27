@@ -190,7 +190,7 @@ def main() -> None:
     logger.info("Generating phase and CCD comparison image...")
     img = render_phase_ccd_comparison()
     logger.info(f"  -> {img.relative_to(ROOT)}")
-    logger.info("\nAll images generated in:", IMG_DIR.relative_to(ROOT))
+    logger.info(f"\nAll images generated in: {IMG_DIR.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

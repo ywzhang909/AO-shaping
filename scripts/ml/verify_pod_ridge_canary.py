@@ -118,7 +118,7 @@ def main() -> int:
     verdict = (out["real_mean"] > 0.5 and out["mean_mean"] < 0.2
                and out["permuted_mean"] < 0.2)
     out["verdict"] = "PASS" if verdict else "SUSPECT"
-    logger.info("\nverdict:", out["verdict"], "(real >> 0 >= mean, permuted)")
+    logger.info(f"\nverdict: {out['verdict']} (real >> 0 >= mean, permuted)")
     Path("logs/pod_ridge_canary.json").write_text(
         json.dumps(out, indent=2), encoding="utf-8")
     return 0 if verdict else 1

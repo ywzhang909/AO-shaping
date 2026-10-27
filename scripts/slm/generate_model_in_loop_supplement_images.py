@@ -731,7 +731,7 @@ def main() -> None:
     img7 = render_multitarget_shape_experiment()
     logger.info(f"  -> {img7.relative_to(ROOT)}")
 
-    logger.info("\nAll images generated in:", IMG_DIR.relative_to(ROOT))
+    logger.info(f"\nAll images generated in: {IMG_DIR.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

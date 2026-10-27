@@ -647,4 +647,4 @@ if __name__ == "__main__":
     w = build()
     logger.info(f"generated {len(w)} pages")
     for x in sorted(w):
-        logger.info(" ", x)
+        logger.info(f" {x}")

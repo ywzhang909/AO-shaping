@@ -164,7 +164,7 @@ def main() -> int:
            "slopes": slopes, "slope_mean": float(np.mean(slopes)),
            "verdict": verdict, "seconds": round(time.perf_counter() - started, 1)}
     Path("logs/label_alignment.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
-    logger.info("\nVERDICT:", verdict)
+    logger.info(f"\nVERDICT: {verdict}")
     logger.info("wrote logs/label_alignment.json")
     return 0
 

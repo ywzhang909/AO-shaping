@@ -166,7 +166,7 @@ def main() -> int:
 
     best = max(out["transforms"], key=lambda t: out["transforms"][t]["agg"]["skill"])
     out["best_transform"] = best
-    logger.info("\nbest transform by skill:", best)
+    logger.info(f"\nbest transform by skill: {best}")
     Path("logs/target_transform.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
     logger.info("wrote logs/target_transform.json")
     return 0

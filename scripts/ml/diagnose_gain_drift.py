@@ -200,10 +200,10 @@ def main(argv: list[str] | None = None) -> int:
         verdict = "per-frame gain/offset removal helps and crosses zero"
     out["paired_p_best_vs_none"] = float(paired_p)
     out["verdict"] = verdict
-    logger.info("\nbest mode:", best, " (paired p vs none = %.4f)" % paired_p)
-    logger.info("VERDICT:", verdict)
+    logger.info(f"\nbest mode: {best} (paired p vs none = {paired_p:.4f})")
+    logger.info(f"VERDICT: {verdict}")
     Path(args.out).write_text(json.dumps(out, indent=2), encoding="utf-8")
-    logger.info("wrote", args.out)
+    logger.info(f"wrote {args.out}")
     return 0
 
 
