@@ -106,6 +106,7 @@ def pick_slm_slot(slm: Any) -> int:
         try:
             _last_slm_slot = slm.get_displayed_memory_number()
             logger.info("SLM当前显示槽: {}", _last_slm_slot)
+        # policy: slot query is diagnostic bookkeeping only; error-code 1 is normal in set_grayscale mode, and slot rotation still has a safe candidate list without it
         except Exception as exc:
             logger.debug("读取 SLM 当前显示槽失败: {}", exc)
             _last_slm_slot = None

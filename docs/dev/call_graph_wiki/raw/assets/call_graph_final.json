@@ -187,8 +187,8 @@
    "qualname": "get_date_dir_name",
    "module": "ao_shaping.utils.io.cli_helpers",
    "file": "src/ao_shaping/utils/io/cli_helpers.py",
-   "lineno": 160,
-   "end": 167,
+   "lineno": 162,
+   "end": 169,
    "args": [],
    "returns": "str",
    "doc": "Get current date as directory name (YYYYMMDD format).\n\n    Routes to the shared primitive in ``utils.io.timestamp`` (R-28); this name\n    stays because it is exported through ``ao_shaping.utils`` and used by nine\n    modules.\n    ",
@@ -840,8 +840,8 @@
    "qualname": "resolve_spot_center",
    "module": "ao_shaping.utils.image.hardware_utils",
    "file": "src/ao_shaping/utils/image/hardware_utils.py",
-   "lineno": 578,
-   "end": 634,
+   "lineno": 580,
+   "end": 636,
    "args": [
     "camera",
     "img",
@@ -858,8 +858,8 @@
    "qualname": "log_center_brightness",
    "module": "ao_shaping.utils.image.hardware_utils",
    "file": "src/ao_shaping/utils/image/hardware_utils.py",
-   "lineno": 553,
-   "end": 575,
+   "lineno": 555,
+   "end": 577,
    "args": [
     "img",
     "center",
@@ -950,8 +950,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1057,
-   "end": 1380,
+   "lineno": 1062,
+   "end": 1388,
    "args": [
     "ctx",
     "params",
@@ -1046,8 +1046,8 @@
    "qualname": "_mode_ids",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 523,
-   "end": 539,
+   "lineno": 524,
+   "end": 540,
    "args": [
     "n_max",
     "excluded_piston",
@@ -1061,8 +1061,8 @@
    "qualname": "_print_calibration_summary",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 473,
-   "end": 508,
+   "lineno": 474,
+   "end": 509,
    "args": [
     "results",
     "output_path",
@@ -1077,7 +1077,7 @@
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
    "lineno": 318,
-   "end": 391,
+   "end": 392,
    "args": [
     "slm",
     "wfs",
@@ -1093,8 +1093,8 @@
    "qualname": "_save_init_state_hdf5",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 394,
-   "end": 429,
+   "lineno": 395,
+   "end": 430,
    "args": [
     "init_state",
     "output_path"
@@ -1107,8 +1107,8 @@
    "qualname": "calibrate_response_matrix_pushpull",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 584,
-   "end": 769,
+   "lineno": 585,
+   "end": 774,
    "args": [
     "slm",
     "wfs",
@@ -1150,8 +1150,8 @@
    "qualname": "_save_wavefront_log_hdf5",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 435,
-   "end": 467,
+   "lineno": 436,
+   "end": 468,
    "args": [
     "records",
     "output_path"
@@ -1177,8 +1177,8 @@
    "qualname": "offline_correction_test",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 775,
-   "end": 971,
+   "lineno": 780,
+   "end": 976,
    "args": [
     "slm",
     "wfs",
@@ -1204,8 +1204,8 @@
    "qualname": "get_timestamp_str",
    "module": "ao_shaping.utils.io.cli_helpers",
    "file": "src/ao_shaping/utils/io/cli_helpers.py",
-   "lineno": 170,
-   "end": 176,
+   "lineno": 172,
+   "end": 178,
    "args": [],
    "returns": "str",
    "doc": "Get current timestamp string (YYYYMMDD_HHMMSS format).\n\n    Identical to :func:`~ao_shaping.utils.io.file.gen_date_str`; both delegate to\n    ``utils.io.timestamp.format_ts`` (R-28).\n    ",
@@ -1228,8 +1228,8 @@
    "qualname": "closed_loop_run",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1572,
-   "end": 1826,
+   "lineno": 1580,
+   "end": 1834,
    "args": [
     "ctx",
     "params"
@@ -1249,8 +1249,8 @@
    "qualname": "from_response_matrix",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1386,
-   "end": 1456,
+   "lineno": 1394,
+   "end": 1464,
    "args": [
     "result",
     "config"
@@ -1263,8 +1263,8 @@
    "qualname": "_measure_wfs_step",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1459,
-   "end": 1485,
+   "lineno": 1467,
+   "end": 1493,
    "args": [
     "wfs",
     "mask_indices",
@@ -1280,8 +1280,8 @@
    "qualname": "_expand_to_noll",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1488,
-   "end": 1513,
+   "lineno": 1496,
+   "end": 1521,
    "args": [
     "u",
     "n_max",
@@ -1410,8 +1410,8 @@
    "qualname": "save_optimization_debug_artifacts",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 1383,
-   "end": 1528,
+   "lineno": 1385,
+   "end": 1530,
    "args": [
     "records",
     "save_dir",
@@ -1471,8 +1471,8 @@
    "qualname": "_validate_frame_artifacts",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 1228,
-   "end": 1241,
+   "lineno": 1230,
+   "end": 1243,
    "args": [
     "mode"
    ],
@@ -1484,8 +1484,8 @@
    "qualname": "_save_data_mode_debug_artifacts",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 1244,
-   "end": 1380,
+   "lineno": 1246,
+   "end": 1382,
    "args": [
     "data",
     "png_path",
@@ -2422,8 +2422,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.slm_shaping_runner",
    "file": "src/ao_shaping/runners/slm/slm_shaping_runner.py",
-   "lineno": 464,
-   "end": 473,
+   "lineno": 465,
+   "end": 474,
    "args": [
     "ctx",
     "run"
@@ -2528,8 +2528,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.gsnet_runner",
    "file": "src/ao_shaping/runners/slm/gsnet_runner.py",
-   "lineno": 396,
-   "end": 408,
+   "lineno": 397,
+   "end": 409,
    "args": [
     "ctx",
     "run"
@@ -2609,8 +2609,8 @@
    "qualname": "apply_session_calibration",
    "module": "ao_shaping.runners.slm.model_in_loop_session",
    "file": "src/ao_shaping/runners/slm/model_in_loop_session.py",
-   "lineno": 646,
-   "end": 660,
+   "lineno": 647,
+   "end": 661,
    "args": [
     "params",
     "config",
@@ -2624,8 +2624,8 @@
    "qualname": "calibrate_session",
    "module": "ao_shaping.runners.slm.model_in_loop_session",
    "file": "src/ao_shaping/runners/slm/model_in_loop_session.py",
-   "lineno": 552,
-   "end": 643,
+   "lineno": 553,
+   "end": 644,
    "args": [
     "params",
     "config",
@@ -2669,7 +2669,7 @@
    "module": "ao_shaping.runners.slm.model_in_loop_session",
    "file": "src/ao_shaping/runners/slm/model_in_loop_session.py",
    "lineno": 505,
-   "end": 549,
+   "end": 550,
    "args": [
     "params",
     "config",
@@ -2799,7 +2799,7 @@
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
    "lineno": 215,
-   "end": 397,
+   "end": 398,
    "args": [
     "out_dir",
     "shapes",
@@ -3123,8 +3123,8 @@
    "qualname": "open_camera",
    "module": "ao_shaping.utils.image.hardware_utils",
    "file": "src/ao_shaping/utils/image/hardware_utils.py",
-   "lineno": 679,
-   "end": 736,
+   "lineno": 682,
+   "end": 741,
    "args": [
     "camera_type",
     "cam_id",

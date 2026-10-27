@@ -221,6 +221,7 @@ class _FreeformSquareDisplay:
         }
         try:
             alive = self._display.render(frame_data, info=info)
+        # policy: display liveness probe: any render failure means the window is gone, and the caller treats that as a closed display
         except Exception:
             alive = False
         if not alive:

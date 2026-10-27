@@ -111,6 +111,7 @@ def setup_coredumpy(directory: str = "logs/debug/error"):
 
         coredumpy.patch_except(directory=directory)
         return True
+    # policy: coredumpy is an optional diagnostic; the CLI still runs without it
     except Exception:
         logger.error("coredumpy initialization failed")
         return False
@@ -149,6 +150,7 @@ def run_selector_dispatch(
         command(args)
     except SystemExit:
         raise
+    # policy: process boundary for a runner: report, keep the traceback in the log, exit non-zero; SystemExit is re-raised above this handler
     except Exception as e:
         click.echo(f"❌ 运行时错误: {e}")
         logger.exception("{} runner failed", label)

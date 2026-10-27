@@ -508,6 +508,7 @@ class Recorder:
                 def _safe_apply(row, f=func):
                     try:
                         return f(row.to_dict())
+                    # policy: postprocess_feature is a user callback applied per row: one bad row drops that row's feature, not the record
                     except Exception as e:
                         logger.warning(f"postprocess_feature failed: {e}")
                         return None
@@ -948,6 +949,7 @@ def render_recorder_gif(
             fp = fm.FontProperties(fname=font_path)
             plt.rcParams["font.family"] = fp.get_name()
             plt.rcParams["font.sans-serif"] = [fp.get_name(), "SimHei", "SimSun"]
+        # policy: font discovery is environment-dependent; the fallback list is the documented default
         except Exception:
             plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "SimSun"]
     else:
@@ -1367,7 +1369,7 @@ def _save_data_mode_debug_artifacts(
             )
             logger.info("wrote {} companion images to {}", len(written), image_dir)
         except Exception as e:
-            # Deliberately broad: a lost pickle costs the whole run, a lost plot
+            # policy: deliberately broad -- a lost pickle costs the whole run, a lost plot
             # costs one picture. Swallow, warn, and carry on to the JSON sidecar.
             logger.warning(
                 f"companion frame artifacts failed for {pkl_path}: {e} "

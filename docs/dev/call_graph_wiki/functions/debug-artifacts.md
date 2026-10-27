@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: function
 tags: [io,debug]
-source: src/ao_shaping/utils/io/file.py:1383
+source: src/ao_shaping/utils/io/file.py:1385
 ---
 
 ## 签名

@@ -2115,6 +2115,48 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
 #: deliberate fallbacks, and each one still needs an individual judgement.
 _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 382
 
+#: Second ratchet over the same population: a broad catch that has actually been *judged*
+#: carries a ``# policy:`` marker naming what the layer is protecting -- within two lines
+#: above the ``except``, or in the first three lines of the handler body. Counting the
+#: unmarked remainder is what makes progress reviewable. It rewards writing the judgement
+#: down, and it deliberately does not press the tree toward mechanical ``except ValueError``
+#: edits on hardware paths that CI cannot exercise: narrowing a driver call's handler without
+#: the driver exception taxonomy (issue #145 / #45) would turn a working fallback into a crash.
+#: Measured 2026-10-27 after the first review pass: 27 marked, 355 unmarked.
+_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 355
+
+
+def _blind_except_handlers_in_src() -> list[tuple[Path, int, bool]]:
+    """Every blind catch under ``src/``, as ``(path, except_line, policy_marked)``.
+
+    One walk feeds both ratchets. Two independent walks would drift apart, and that drift is
+    the failure mode this file already documents for its formatting guards: a checker that
+    counts something slightly different from the thing being guarded reports a clean tree.
+    """
+    src_dir = REPO / "src"
+    out: list[tuple[Path, int, bool]] = []
+    for path in sorted(src_dir.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        lines = text.splitlines()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ExceptHandler):
+                continue
+            if not isinstance(node.type, ast.Name) or node.type.id not in ("Exception", "BaseException"):
+                continue
+            if len(node.body) == 1 and isinstance(node.body[0], ast.Raise) and node.body[0].exc is None:
+                continue                       # re-raise only: BLE001 excuses this too
+            above = lines[max(0, node.lineno - 3):node.lineno - 1]
+            inside = lines[node.lineno - 1:min(len(lines), node.lineno + 2)]
+            marked = any("# policy:" in w for w in above) or any("# policy:" in w for w in inside)
+            out.append((path, node.lineno, marked))
+    return out
+
 
 def test_blind_except_handlers_in_src_do_not_grow() -> None:
     """No new blind ``except Exception`` may enter ``src/`` (issue #174).
@@ -2125,26 +2167,9 @@ def test_blind_except_handlers_in_src_do_not_grow() -> None:
     itself honest: an extractor that stopped parsing would otherwise report zero violations
     and pass.
     """
-    src = REPO / "src"
-    found = 0
-    offenders: list[str] = []
-    for path in sorted(src.rglob("*.py")):
-        if "__pycache__" in path.parts:
-            continue
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-        except SyntaxError:
-            continue
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ExceptHandler):
-                continue
-            if not isinstance(node.type, ast.Name) or node.type.id not in ("Exception", "BaseException"):
-                continue
-            if len(node.body) == 1 and isinstance(node.body[0], ast.Raise) and node.body[0].exc is None:
-                continue                       # re-raise only: BLE001 excuses this too
-            found += 1
-            if len(offenders) < 6:
-                offenders.append(f"{path.relative_to(REPO)}:{node.lineno}")
+    population = _blind_except_handlers_in_src()
+    found = len(population)
+    offenders = [f"{path.relative_to(REPO)}:{lineno}" for path, lineno, _m in population[:6]]
     assert found >= 100, (
         f"only {found} blind handler(s) parsed under src/ -- the walk stopped matching, so "
         "this ratchet would be enforcing nothing"
@@ -2155,6 +2180,36 @@ def test_blind_except_handlers_in_src_do_not_grow() -> None:
         "Catch the types the guarded call can actually raise, or let the error propagate; "
         "if a broad catch is genuinely intended, the ceiling may be raised only with a "
         "reason recorded in TODO.md section 8.9."
+    )
+
+
+def test_unmarked_blind_except_handlers_do_not_grow() -> None:
+    """A deliberate broad catch must state its policy, or it stays counted as undecided.
+
+    The ceiling moves only when a judgement exists: a ``# policy:`` line at the handler, or a
+    narrowed catch that leaves the population altogether. The two assertions on the split keep
+    the scan itself honest -- if the marker pattern ever stopped matching anything, the marked
+    count would fall; if it matched everything, the unmarked count would collapse to zero and
+    this test would pass while guarding nothing.
+    """
+    population = _blind_except_handlers_in_src()
+    unmarked = [(path, lineno) for path, lineno, marked in population if not marked]
+    marked = len(population) - len(unmarked)
+    assert marked >= 20, (
+        f"only {marked} handler(s) carry a `# policy:` marker -- the marker scan has stopped "
+        "matching, so the unmarked ratchet below is enforcing nothing"
+    )
+    assert marked < len(population), (
+        "every blind handler parsed as marked -- the marker window is too wide, and an "
+        "unreviewed handler could now pass as judged"
+    )
+    offenders = [f"{path.relative_to(REPO)}:{lineno}" for path, lineno in unmarked[:6]]
+    assert len(unmarked) <= _MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC, (
+        f"{len(unmarked)} blind except handlers under src/ carry no `# policy:` marker, above "
+        f"the ratchet {_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC} (first offenders: "
+        f"{', '.join(offenders)}). Read the guarded call: either narrow it to the types that "
+        "can actually be raised, or record the fallback policy in one line at the handler. "
+        "Narrowing a hardware-path handler is not a cleanup -- see issues #145 and #45."
     )
 
 

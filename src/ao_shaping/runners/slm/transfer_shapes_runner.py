@@ -353,6 +353,7 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         from ao_shaping.utils.io.file import Recorder
 
         recorder = Recorder(mark="cv_candidate", mode="min")
+    # policy: Recorder is optional telemetry for this stage loop
     except Exception as exc:  # pragma: no cover - Recorder is part of the repo
         logger.warning("Recorder unavailable: {}", exc)
 

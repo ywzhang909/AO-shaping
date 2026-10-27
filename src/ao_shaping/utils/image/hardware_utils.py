@@ -81,6 +81,7 @@ def capture_amplitude(
                 (int(center[0]), int(center[1])),
                 (int(size[0]), int(size[1])),
             )
+        # policy: reset_window is optional per driver; without it the full frame is the window
         except Exception:  # pragma: no cover - driver may not support
             logger.debug("Camera does not support reset_window; using full frame")
 
@@ -167,6 +168,7 @@ def save_frame_png(frame: np.ndarray, path: Path, title: str) -> None:
         fig.tight_layout()
         fig.savefig(path, dpi=100)
         plt.close(fig)
+    # policy: plotting must never break an optimisation loop: a lost picture is cheaper than a lost run
     except Exception:  # pragma: no cover - plotting must never break the loop
         logger.warning("PNG 保存失败: {}", path.name)
 
@@ -660,6 +662,7 @@ def call_with_timeout(fn: Any, timeout_s: float, desc: str) -> Any:
     def _runner() -> None:
         try:
             result.append(fn())
+        # policy: BaseException is captured only to re-raise it in the calling thread after the timeout; swallowing it in the worker would hide the real failure
         except BaseException as exc:
             error.append(exc)
 
@@ -713,6 +716,7 @@ def open_camera(
         except ImportError as e:
             logger.warning("Daheng相机不可用: {}", e)
             raise
+        # policy: construction boundary adds device context to the log, then propagates the failure unchanged
         except Exception as e:
             logger.error("Daheng相机初始化失败: {}", e)
             raise
@@ -730,6 +734,7 @@ def open_camera(
         except ImportError as e:
             logger.warning("MiiCam相机不可用: {}", e)
             raise
+        # policy: construction boundary adds device context to the log, then propagates the failure unchanged
         except Exception as e:
             logger.error("MiiCam相机初始化失败: {}", e)
             raise
