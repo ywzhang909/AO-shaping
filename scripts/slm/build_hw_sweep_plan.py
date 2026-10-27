@@ -64,7 +64,6 @@
 from __future__ import annotations
 
 import argparse
-from loguru import logger
 import json
 import math
 import re
@@ -1033,7 +1032,7 @@ def main(argv: list[str] | None = None) -> int:
     print(self_check_report(plan, cfg), file=sys.stderr)
     payload = json.dumps(plan, indent=2, ensure_ascii=False)
     if args.print_plan:
-        logger.info(payload)
+        print(payload)
         return 0
 
     out = Path(args.out) if args.out else Path(cfg.groups_root) / "plan.json"
@@ -1041,7 +1040,7 @@ def main(argv: list[str] | None = None) -> int:
         out = ROOT / out
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(payload + "\n", encoding="utf-8")
-    logger.info(f"计划已写入: {out} ({len(plan['groups'])} 组)")
+    print(f"计划已写入: {out} ({len(plan['groups'])} 组)")
     return 0
 
 

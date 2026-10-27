@@ -172,7 +172,6 @@ SLM 的 USB 当时是**断开**的, 于是每一组都在 2-5 s 内死于
 from __future__ import annotations
 
 import argparse
-from loguru import logger
 import contextlib
 import json
 import os
@@ -1739,7 +1738,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.print_plan:
-        logger.info(
+        print(
             json.dumps(
                 {
                     "root": str(root),
@@ -1766,14 +1765,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.dry_run:
-        logger.info(f"根目录: {root}")
+        print(f"根目录: {root}")
         for spec in specs:
             argv = build_argv(spec.script, spec.args)
-            logger.info(f"  组 {spec.group} (自变量 {spec.variable or '?'})")
-            logger.info(f"    命令: {' '.join(argv)}")
+            print(f"  组 {spec.group} (自变量 {spec.variable or '?'})")
+            print(f"    命令: {' '.join(argv)}")
             if spec.adopted_dir:
-                logger.info(f"    登记已有目录: {spec.adopted_dir}")
-        logger.info("dry-run: 没有执行任何命令, 也没有打开任何设备")
+                print(f"    登记已有目录: {spec.adopted_dir}")
+        print("dry-run: 没有执行任何命令, 也没有打开任何设备")
         assert_no_devices(drivers_before)
         return 0
 
@@ -1905,14 +1904,14 @@ def main(argv: list[str] | None = None) -> int:
     over_budget = [r for r in records if r["status"] == "over_budget"]
     skipped = [r for r in records if r["status"] == "skipped"]
     longest = max(records, key=lambda r: float(r["duration_s"]), default=None)
-    logger.info(f"\n索引: {manifest_path}")
+    print(f"\n索引: {manifest_path}")
     for line in (
         f"{r['group']}: {r['status']} ({float(r['duration_s']):.1f}s)"
         for r in records
     ):
-        logger.info(f"  {line}")
+        print(f"  {line}")
     if longest is not None:
-        logger.info(
+        print(
             f"最长的一组: {longest['group']} 用了 {float(longest['duration_s']):.1f}s / "
             f"预算 {float(args.max_group_seconds):.1f}s"
         )

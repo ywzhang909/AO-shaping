@@ -232,7 +232,6 @@ dry-run 里的「画面尺寸 / 0 级位置」是**计划假设**, 不是测量:
 from __future__ import annotations
 
 import argparse
-from loguru import logger
 import csv
 import json
 import math
@@ -2130,7 +2129,7 @@ def print_plan(plan: dict[str, Any]) -> None:
     add(f"产物根目录: {plan['out_root']}   (原子模式: <根>/<段>/<配置>/ + <根>/<段>/measurements.csv"
         " + <根>/manifest.json)")
     add("=" * 78)
-    logger.info("\n".join(lines))
+    print("\n".join(lines))
 
 
 # ---------------------------------------------------------------------------
@@ -3888,7 +3887,7 @@ def print_command_plan(plan: dict[str, Any], args: argparse.Namespace) -> None:
     add("提示: 先用 --scan sides 那一段跑完, 再 --scan select, 之后才能跑 zernike / blaze")
     add("     (它们从 <run-root>/sides/selected.json 读选定边长与基准相位)。")
     add("=" * 78)
-    logger.info("\n".join(out))
+    print("\n".join(out))
 
 
 def print_atomic_plan(plan: dict[str, Any], args: argparse.Namespace) -> None:
@@ -3977,7 +3976,7 @@ def print_atomic_plan(plan: dict[str, Any], args: argparse.Namespace) -> None:
         f"{STAGE_VALUE_FLAG[stage]} {value} --run-root {plan['run_root']} ...")
     add("  (完整参数集见 --plan-commands 打印的每一行)")
     add("=" * 78)
-    logger.info("\n".join(lines))
+    print("\n".join(lines))
 
 
 # ---------------------------------------------------------------------------
