@@ -191,6 +191,17 @@ def run(args):
                                                        blocks=args.blocks, updates=args.updates, frames=args.frames,
                                                        **clock()), indent=2), encoding="utf-8")
     records, iterations, summary = [], [], []
+    # The complete process, one Recorder record per CCD capture: the phase that
+    # was displayed, the measured far field (cropped to the target), the phase
+    # change since the previous capture of the same shape, and the numbers.
+    # Exported after the devices are closed, so a slow GIF render cannot hold
+    # the camera or the SLM.
+    from ao_shaping.utils.io.file import Recorder
+
+    from . import recording
+
+    recorder = Recorder(mark="cv", mode="min")
+    last_phase: dict[str, np.ndarray] = {}
     camera_options = {"bit_depth": bit_depth} if args.camera == "daheng" else {}
     with create_camera(args.camera, args.cam_id, exposure_time_ms=.02, **camera_options) as cam:
         with Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0) as slm:
@@ -234,6 +245,12 @@ def run(args):
                 with (args.out/"capture_records.pkl").open("wb") as stream:
                     pickle.dump(records, stream, protocol=5)
                 (args.out/"manifest.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
+                shape_name = label.split("_")[0]
+                previous = last_phase.get(shape_name)
+                recorder.append(recording.capture_record(
+                    row, image=image, camera_xy=xy, target=objective.target, phase=phase,
+                    previous_phase=previous, stage=args.mode))
+                last_phase[shape_name] = np.asarray(phase, dtype=np.float32)
                 if (sampled[objective.core].max() if getattr(args, "meter_target", False) else raw.max()) >= full_scale*250/255:
                     raise RuntimeError("saturated capture retained; stop paired comparison")
                 return row
@@ -412,6 +429,17 @@ def run(args):
             finally:
                 slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
                 time.sleep(.3)
+
+    # Table first, animation second: a GIF failure must never cost a measured
+    # run, and both are written with the devices already released.
+    if recorder.history:
+        try:
+            recording.save_records(recorder, args.out/"recording", mark="process",
+                                   gif_name="process.gif", fps=2.0,
+                                   title=f"{args.mode} — {','.join(args.shapes)} "
+                                         f"(逐 CCD 块, {bit_depth} bit)")
+        except Exception as exc:  # a rendering defect must not fail the session
+            logger.warning("process recording export failed: {}", exc)
 
 
 def main():

@@ -92,11 +92,59 @@ def test_block_records_fall_back_to_the_anchor_without_a_candidate(tmp_path):
 def test_crop_frame_keeps_the_window_and_decimates():
     frame = np.arange(100 * 120, dtype=float).reshape(100, 120)
     xy = np.stack(np.meshgrid(np.arange(10, 50), np.arange(20, 60)), axis=-1).astype(float)
-    crop = recording.crop_frame(frame, xy, max_side=20, margin=2)
+    crop, box = recording.crop_frame(frame, xy, max_side=20, margin=2)
     assert crop.ndim == 2
     assert max(crop.shape) <= 20
     # The crop is the window, so its values come from inside the frame region.
     assert crop.min() >= frame[18:62, 8:52].min()
+    assert box is None
+
+
+def test_crop_frame_returns_the_target_box_in_crop_pixels():
+    """The window is wider than the target on purpose; the outline has to say
+    which part of the crop is the requested shape."""
+    frame = np.zeros((100, 120))
+    xy = np.stack(np.meshgrid(np.arange(10, 50), np.arange(20, 60)), axis=-1).astype(float)
+    target = np.zeros(xy.shape[:2])
+    target[5:15, 10:30] = 1.
+    crop, box = recording.crop_frame(frame, xy, target=target, max_side=20, margin=2)
+    assert box is not None
+    x0, y0, x1, y1 = box
+    assert 0 <= x0 < x1 < crop.shape[1]
+    assert 0 <= y0 < y1 < crop.shape[0]
+
+
+def _fake_validate_run(tmp_path, *, shape="triangle"):
+    """A miniature ``validate.run`` directory: manifest + one npz per capture."""
+    run = tmp_path / "anchored"
+    run.mkdir()
+    xy = np.stack(np.meshgrid(np.arange(20, 60), np.arange(30, 70)), axis=-1).astype(float)
+    target = np.zeros(xy.shape[:2])
+    target[5:15, 10:30] = 1.
+    rows = []
+    for index, (label, cv) in enumerate(((f"{shape}_seed", 1.4), (f"{shape}_0_A1", 1.3),
+                                         (f"{shape}_0_B1", 0.9), (f"{shape}_final", 0.9))):
+        name = f"capture_{index:04d}.npz"
+        np.savez_compressed(run / name,
+                            raw_frames=np.full((2, 80, 90), int(cv * 10), dtype=np.uint16),
+                            camera_xy=xy, target=target, core=target.astype(bool),
+                            model_phase=np.full((8, 8), index, dtype=np.float32))
+        rows.append(dict(label=label, file=name, metrics=dict(cv=cv), exposure_ms=12.5,
+                         bit_depth=12, core_peak=10.0, saturation_pixels=0, loss=1.0 - .1 * index))
+    (run / "manifest.json").write_text(json.dumps(rows), encoding="utf-8")
+    return run
+
+
+def test_rebuild_run_reproduces_the_records_without_a_device(tmp_path):
+    """A run whose live export failed can be re-exported from its own capture files."""
+    run = _fake_validate_run(tmp_path)
+    saved = recording.rebuild_run(run, tmp_path / "out")
+    assert saved["records"] == 4
+    assert Path(saved["csv"]).is_file() and Path(saved["hdf5"]).is_file()
+    assert Path(saved["gif"]).is_file() and Path(saved["gif"]).stat().st_size > 0
+    header = Path(saved["csv"]).read_text(encoding="utf-8").splitlines()[0]
+    # the target outline is part of the record, not something the renderer guesses
+    assert "target_box" in header
 
 
 def test_save_records_writes_a_table_and_keeps_arrays_out_of_the_csv(tmp_path):

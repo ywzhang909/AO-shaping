@@ -33,50 +33,106 @@ def _read_json(path: Path):
 
 
 def crop_frame(frame: np.ndarray, camera_xy: np.ndarray, *, target: np.ndarray | None = None,
-               max_side: int = 420, margin: int = 24) -> np.ndarray:
-    """Crop the measured frame to the target region and decimate it.
+               max_side: int = 420, margin: int = 24,
+               ) -> tuple[np.ndarray, tuple[int, int, int, int] | None]:
+    """Crop the measured frame to the **sampling window** and decimate it.
 
-    The raw frame is the full 1944x2592 sensor; a GIF of that is unreadable
-    and enormous. With a target raster the crop is the *shape* itself (plus a
-    margin), so the spot fills the panel; without one it falls back to the
-    sampled window. The crop is taken from the run's own ``camera_xy`` (the
-    grid the optimizer saw), so it is exactly the region the numbers refer to.
-    Decimation is a plain block average, so a bright speckle cannot
-    disappear between pixels.
+    The raw frame is the full 1944x2592 sensor; a GIF of that is unreadable and
+    enormous. The crop is the window the optimizer actually measured (taken from
+    the run's own ``camera_xy``), not just the target box: what happens *outside*
+    the target is a result too, and with a window at 1.5x the side it is the only
+    place that is visible. The target raster is returned as a box **in crop
+    pixel coordinates** so the renderer can outline it.
+
+    Decimation is a plain block average, so a bright speckle cannot disappear
+    between pixels.
     """
     frame = np.asarray(frame, dtype=np.float64)
+    x0 = int(camera_xy[..., 0].min()) - margin
+    y0 = int(camera_xy[..., 1].min()) - margin
+    x1 = int(camera_xy[..., 0].max()) + margin
+    y1 = int(camera_xy[..., 1].max()) + margin
+    x0, y0 = max(0, x0), max(0, y0)
+    x1, y1 = min(frame.shape[1] - 1, x1), min(frame.shape[0] - 1, y1)
+    crop = frame[y0:y1 + 1, x0:x1 + 1]
+    factor = max(1, int(np.ceil(max(crop.shape) / max_side)))
+    if factor > 1:
+        h, w = crop.shape[0] // factor * factor, crop.shape[1] // factor * factor
+        crop = crop[:h, :w].reshape(h // factor, factor, w // factor, factor).mean(axis=(1, 3))
+    box = None
     target_array = None if target is None else np.asarray(target)
     if (target_array is not None and target_array.size
             and target_array.shape == camera_xy.shape[:2]):
         rows, columns = np.nonzero(target_array > .5)
         if rows.size:
-            x0 = int(camera_xy[rows.min(), columns.min()][0])
-            x1 = int(camera_xy[rows.max(), columns.max()][0])
-            y0 = int(camera_xy[rows.min(), columns.min()][1])
-            y1 = int(camera_xy[rows.max(), columns.max()][1])
-        else:
-            x0, x1, y0, y1 = 0, 0, 0, 0
-    else:
-        x0, x1 = int(camera_xy[..., 0].min()), int(camera_xy[..., 0].max())
-        y0, y1 = int(camera_xy[..., 1].min()), int(camera_xy[..., 1].max())
-    x0 = max(0, x0 - margin)
-    y0 = max(0, y0 - margin)
-    x1 = min(frame.shape[1] - 1, x1 + margin)
-    y1 = min(frame.shape[0] - 1, y1 + margin)
-    if x1 <= x0 or y1 <= y0:
-        x0, x1 = int(camera_xy[..., 0].min()), int(camera_xy[..., 0].max())
-        y0, y1 = int(camera_xy[..., 1].min()), int(camera_xy[..., 1].max())
-        x0 = max(0, x0 - margin)
-        y0 = max(0, y0 - margin)
-        x1 = min(frame.shape[1] - 1, x1 + margin)
-        y1 = min(frame.shape[0] - 1, y1 + margin)
-    crop = frame[y0:y1 + 1, x0:x1 + 1]
-    factor = max(1, int(np.ceil(max(crop.shape) / max_side)))
-    if factor > 1:
-        h, w = crop.shape[0] // factor * factor, crop.shape[1] // factor * factor
-        cropped = crop[:h, :w]
-        crop = cropped.reshape(h // factor, factor, w // factor, factor).mean(axis=(1, 3))
-    return crop.astype(np.float32)
+            tx0 = int(camera_xy[rows.min(), columns.min()][0]) - x0
+            ty0 = int(camera_xy[rows.min(), columns.min()][1]) - y0
+            tx1 = int(camera_xy[rows.max(), columns.max()][0]) - x0
+            ty1 = int(camera_xy[rows.max(), columns.max()][1]) - y0
+            box = (tx0 // factor, ty0 // factor, tx1 // factor, ty1 // factor)
+    return crop.astype(np.float32), box
+
+
+def capture_record(row: dict, *, image: np.ndarray, camera_xy: np.ndarray,
+                   target: np.ndarray | None, phase: np.ndarray,
+                   previous_phase: np.ndarray | None, stage: str) -> dict:
+    """One Recorder record from one capture of a ``validate.run`` block.
+
+    Single implementation: the live run and :func:`rebuild_run` both build their
+    records here, so the table, the HDF5 and the animation cannot drift apart.
+    ``image`` is the already-averaged frame; ``target`` is the target raster on
+    the ``camera_xy`` grid (the outline is drawn from it).
+    """
+    phase_array = np.asarray(phase, dtype=np.float32)
+    far_field, box = crop_frame(image, camera_xy, target=target)
+    return {
+        "cv": float(row["metrics"]["cv"]),
+        "core_peak": float(row["core_peak"]),
+        "model_loss": float(row["loss"]),
+        "label": row["label"],
+        "stage": stage,
+        "shape": str(row["label"]).split("_")[0],
+        "exposure_ms": float(row["exposure_ms"]),
+        "bit_depth": int(row["bit_depth"]),
+        "saturation_pixels": int(row["saturation_pixels"]),
+        # Target outline in crop pixels: the window is wider than the target on
+        # purpose, so the animation has to say which part is the requested shape.
+        "target_box": ",".join(str(int(v)) for v in box) if box else "",
+        RECORD_PHASE: phase_array,
+        RECORD_IMAGE: far_field,
+        RECORD_GRAD: (phase_array - previous_phase if previous_phase is not None
+                      else np.zeros_like(phase_array)),
+    }
+
+
+def rebuild_run(run_dir: Path, out_dir: Path | None = None, *, fps: float = 2.0,
+                title: str | None = None) -> dict:
+    """Rebuild the Recorder records of a finished ``validate.run`` directory.
+
+    Device-free: the capture ``.npz`` files and ``manifest.json`` are the source
+    of truth, so a run whose live export failed (or was made with an older
+    renderer) can be re-exported without re-measuring anything.
+    """
+    from ao_shaping.utils.io.file import Recorder
+
+    run_dir = Path(run_dir)
+    rows = _read_json(run_dir / "manifest.json")
+    recorder = Recorder(mark="cv", mode="min")
+    last_phase: dict[str, np.ndarray] = {}
+    for row in rows:
+        with np.load(run_dir / row["file"]) as saved:
+            image = np.asarray(saved["raw_frames"]).mean(0)
+            camera_xy = np.asarray(saved["camera_xy"])
+            target = np.asarray(saved["target"]) if "target" in saved.files else None
+            phase = np.asarray(saved["model_phase"], dtype=np.float32)
+        shape = str(row["label"]).split("_")[0]
+        recorder.append(capture_record(row, image=image, camera_xy=camera_xy, target=target,
+                                       phase=phase, previous_phase=last_phase.get(shape),
+                                       stage=run_dir.name))
+        last_phase[shape] = phase
+    return save_records(recorder, out_dir or run_dir / "recording", mark="process",
+                        gif_name="process.gif", fps=fps,
+                        title=title or f"{run_dir.name} (重建记录)")
 
 
 def _mean_frame(npz_path: Path) -> np.ndarray:
@@ -128,7 +184,7 @@ def block_records(run_dir: Path, stage: str) -> list[dict]:
             camera_xy = np.asarray(saved["camera_xy"])
             target = np.asarray(saved["target"]) if "target" in saved.files else None
         frame = _mean_frame(npz_path)
-        image = crop_frame(frame, camera_xy, target=target)
+        image, _ = crop_frame(frame, camera_xy, target=target)
         key = (shape, index)
         phase = last_phase.get(key)
         gradient = None
@@ -289,13 +345,19 @@ def render_process_gif(records: list[dict], path: str | Path, *, fps: float = 2.
                        default=1.0)
     phase_scale = phase_scale if phase_scale > 0 else 1.0
 
-    anchors = [record.get("cv_anchor") for record in records]
-    candidates = [record.get("cv_candidate") for record in records]
+    trajectory_keys = [key for key in ("cv_anchor", "cv_candidate")
+                       if any(key in record for record in records)]
+    if not trajectory_keys:
+        trajectory_keys = ["cv"]
+    series = {key: [record.get(key) for record in records] for key in trajectory_keys}
     losses = [record.get("model_loss") for record in records]
+    trajectory_labels = {"cv": "实测核心 CV", "cv_anchor": "锚点 A1", "cv_candidate": "候选 B"}
 
     fig, axes = plt.subplots(2, 3, figsize=(13.5, 8.0))
     writer = PillowWriter(fps=int(fps))
-    with writer.saving(fig, str(path), dpi=110):
+    writer.setup(fig, str(path), dpi=110)
+    rendered = 0
+    try:
         for index, record in enumerate(records):
             for row in axes:
                 for ax in row:
@@ -311,34 +373,55 @@ def render_process_gif(records: list[dict], path: str | Path, *, fps: float = 2.
             image = normalized[index]
             if image is not None:
                 axes[0][1].imshow(image, cmap="inferno", vmin=0, vmax=image_vmax)
-            axes[0][1].set_title("实测远场 (目标区, Mono8 等效 counts/ms)", fontsize=10)
+            # The window is deliberately wider than the target; the outline says
+            # which part of it is the requested shape, so the light outside it is
+            # readable as "outside" rather than as more target.
+            box = str(record.get("target_box") or "")
+            if box and image is not None:
+                from matplotlib.patches import Rectangle
+
+                try:
+                    x0, y0, x1, y1 = (float(value) for value in box.split(","))
+                except ValueError:
+                    pass
+                else:
+                    axes[0][1].add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, fill=False,
+                                                   edgecolor="#FFFFFF", linewidth=1.0,
+                                                   linestyle="--"))
+            axes[0][1].set_title("实测远场 (整窗, Mono8 等效 counts/ms; 虚线=目标)", fontsize=10)
             axes[0][1].axis("off")
 
             change = record.get(RECORD_GRAD)
-            if change is not None:
+            if change is not None and np.abs(change).max() > 0:
                 axes[0][2].imshow(_detrend(change), cmap="coolwarm",
                                   vmin=-change_scale, vmax=change_scale)
+            elif change is not None:
+                # B2 replays B1's phase on purpose; an all-zero change is a
+                # result (the repeat), not a rendering failure.
+                axes[0][2].text(.5, .5, "与上一次相位相同\n(重复采集)", ha="center", va="center",
+                                transform=axes[0][2].transAxes, fontsize=10, color="#555555")
             axes[0][2].set_title("块内相位变化 (rad, 90% 分位色标)", fontsize=10)
             axes[0][2].axis("off")
 
             axes[1][0].axis("off")
-            lines = [f"{key}: {record.get(key)}" for key in
-                     ("shape", "stage", "block", "label", "exposure_ms", "bit_depth",
-                      "cv_anchor", "cv_candidate", "cv_improvement", "accepted",
-                      "acceptance", "model_loss")]
+            text_keys = ("shape", "stage", "block", "label", "exposure_ms", "bit_depth",
+                         "cv", "cv_anchor", "cv_candidate", "cv_improvement",
+                         "core_peak", "saturation_pixels", "accepted", "acceptance",
+                         "model_loss")
+            lines = [f"{key}: {record.get(key)}" for key in text_keys
+                     if record.get(key) is not None]
             axes[1][0].text(0.02, 0.98, "\n".join(lines), transform=axes[1][0].transAxes,
                             fontsize=9, va="top", family="sans-serif")
             axes[1][0].set_title("本块读数", fontsize=10)
 
             xs = list(range(index + 1))
-            axes[1][1].plot(xs, [value if value is not None else np.nan
-                                 for value in anchors[: index + 1]],
-                            marker="o", markersize=3, color="#8C8C8C", label="锚点 A1")
-            axes[1][1].plot(xs, [value if value is not None else np.nan
-                                 for value in candidates[: index + 1]],
-                            marker="s", markersize=3, color="#C44E52", label="候选 B")
+            for key in trajectory_keys:
+                axes[1][1].plot(xs, [value if value is not None else np.nan
+                                     for value in series[key][: index + 1]],
+                                marker="o", markersize=3,
+                                label=trajectory_labels.get(key, key))
             axes[1][1].set_title("实测核心 CV", fontsize=10)
-            axes[1][1].set_xlabel("块")
+            axes[1][1].set_xlabel("采集")
             axes[1][1].legend(fontsize=7)
             axes[1][1].grid(alpha=.3)
 
@@ -346,12 +429,33 @@ def render_process_gif(records: list[dict], path: str | Path, *, fps: float = 2.
                                  for value in losses[: index + 1]],
                             marker="o", markersize=3, color="#4C72B0")
             axes[1][2].set_title("模型损失", fontsize=10)
-            axes[1][2].set_xlabel("块")
+            axes[1][2].set_xlabel("采集")
             axes[1][2].grid(alpha=.3)
 
             heading = title or "逐 CCD 块"
+            # The A–B–B–A block also captures a deliberate opposite-sign phase
+            # to separate a model-Jacobian error from an autograd error. Its CV
+            # is bad *by construction*, so the frame says so instead of looking
+            # like a failed block.
+            label = str(record.get("label") or "")
+            if "direction" in label:
+                heading = f"{heading} · 诊断探针 (反号, 非候选)"
             axes[0][1].figure.suptitle(f"{heading} — 块 {index + 1}/{len(records)}", fontsize=12)
             writer.grab_frame()
+            rendered += 1
+    except BaseException:
+        # ``PillowWriter.saving`` calls ``finish()`` from a ``finally``, so an
+        # error inside the loop used to surface as "list index out of range"
+        # from finish() instead of the real cause. Setup/finish are driven by
+        # hand here so the original exception survives.
+        plt.close(fig)
+        path.unlink(missing_ok=True)
+        raise
+    if rendered == 0:
+        plt.close(fig)
+        path.unlink(missing_ok=True)
+        raise ValueError("no GIF frame was rendered")
+    writer.finish()
     plt.close(fig)
     return path
 
