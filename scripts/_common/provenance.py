@@ -86,6 +86,26 @@ class ReportProvenance:
 #:   ``硬件``   -- needs a real bench (SLM / CCD / WFS / DM / micro-DM).
 #:   ``离线+硬件`` -- renders offline, but the numbers were measured on hardware.
 REPORTS: dict[str, ReportProvenance] = {
+    # -- sim2f 孪生 vs 2f 实验语料 (纯离线) ------------------------------------
+    "report/sim2f_bench/twin_vs_hw_corpus/20261027/report.md": ReportProvenance(
+        script="scripts/ml/validate_sim2f_vs_hw_corpus.py",
+        command="python scripts/ml/validate_sim2f_vs_hw_corpus.py",
+        environment="离线（只读 data/debug/ 的 pkl；孪生在 CPU 上跑 torch，无设备、无 GPU 必需）",
+        note=(
+            "把 G0-4 (`ncc(实测 net 帧, 孪生预测 net 帧) >= 0.5`) 放到 312 条真实 2f 语料上回答: "
+            "去重后只有 18 个不同的 (相位, 帧) 对 ⇒ 结论是 not_similar (归一化 L1 在整个 k 扫描上"
+            "的最小值 1.2027, 门限 0.5), G0-4 的 min 口径未通过 (+0.453) 而中位口径通过 (+0.625); "
+            "含几何标度 k 的完整扫描、逐轮一致性、以及「按序号对半分与族完全混杂」这条预登记缺陷的披露"
+        ),
+        extra_scripts=(
+            "src/ml/hwdataset/index.py",
+            "src/ml/hwdataset/records.py",
+            "src/ml/hwdataset/transforms.py",
+            "src/ml/sim2f/optics.py",
+            "src/ml/sim2f/config.py",
+        ),
+    ),
+
     # -- sim2f 闭环归因 (ml.sim2f) -------------------------------------------
     "report/sim2f_shaping/closed_loop_20261025/report.md": ReportProvenance(
         script="scripts/ml/generate_sim2f_shaping_report.py",
@@ -110,6 +130,27 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
     ),
 
+    "report/sim2f_bench/twin_vs_hw_corpus/20261027/pupil_center_sweep.md": ReportProvenance(
+        script="scripts/ml/calibrate_sim2f_pupil_center.py",
+        command="python scripts/ml/calibrate_sim2f_pupil_center.py",
+        environment=(
+            "离线（只读 runs/sim2f_bench/session 的实测产物 + runs/sim2f_fair 的 "
+            "checkpoint/语料；torch 仅重建网络相位与孪生预测帧，无 SLM / 无相机）"
+        ),
+        note=(
+            "G0-4 还差 0.01 的归因: 遍历瞳面中心偏移 (13x13, ±120 px) 看 min "
+            "ncc(实测 net, 孪生 net) 能否达到 0.5; 最优偏移 (0,+20) px 落在 ±20 px "
+            "判据带内, 但 5 px 细化在 (+10,-15) px 得到 0.5053, 说明门限恰好压在孪生"
+            "保真度上; 含重建复现 (2.2e-11) 与网络前向的设备依赖性 (CPU vs CUDA 差 "
+            "1.0e-3 ncc)"
+        ),
+        extra_scripts=(
+            "src/ml/sim2f/bench.py",
+            "src/ml/sim2f/optics.py",
+            "src/ao_shaping/utils/slm/phase_embed.py",
+        ),
+    ),
+
     "report/shape_trials/axial_plane/axial_plane_20261026.md": ReportProvenance(
         script="scripts/slm/generate_axial_plane_report.py",
         command="python scripts/slm/generate_axial_plane_report.py",
@@ -125,7 +166,8 @@ REPORTS: dict[str, ReportProvenance] = {
         command="python scripts/slm/generate_square1200_exploration_report.py",
         environment="实验（Santec #1、Daheng Mono12，1200 CCD 像元方形）",
         note="同初相位、同预算的严格 CV 验收与非单调探索对照及固定曝光重放。",
-        extra_scripts=("src/ao_shaping/tools/slm/transfer/validate.py",
+        extra_scripts=("scripts/slm/render_square1200_exploration.py",
+                       "src/ao_shaping/tools/slm/transfer/validate.py",
                        "src/ao_shaping/tools/slm/transfer/exploration.py",
                        "src/ao_shaping/tools/slm/transfer/artifacts.py",
                        "src/ao_shaping/tools/slm/transfer/replay_phases.py"),

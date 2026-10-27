@@ -3,6 +3,7 @@
 <!-- provenance:start -->
 > **生成脚本**: [`scripts/slm/generate_square1200_exploration_report.py`](../../../scripts/slm/generate_square1200_exploration_report.py)
 > **复现命令**: `python scripts/slm/generate_square1200_exploration_report.py`
+> **数据/关联脚本**: [`scripts/slm/render_square1200_exploration.py`](../../../scripts/slm/render_square1200_exploration.py)
 > **数据/关联脚本**: [`src/ao_shaping/tools/slm/transfer/validate.py`](../../../src/ao_shaping/tools/slm/transfer/validate.py)
 > **数据/关联脚本**: [`src/ao_shaping/tools/slm/transfer/exploration.py`](../../../src/ao_shaping/tools/slm/transfer/exploration.py)
 > **数据/关联脚本**: [`src/ao_shaping/tools/slm/transfer/artifacts.py`](../../../src/ao_shaping/tools/slm/transfer/artifacts.py)
@@ -32,7 +33,11 @@ Santec SLM #1、1064 nm、Daheng Mono12，满量程 4095。目标边长 1200 原
 
 ### 迭代过程动画
 
-以下 GIF 展示了严格验收与非单调探索的完整迭代过程，每帧包含 SLM 瞳面相位、CCD 远场光斑、模型预测光斑、相位变化、metrics（模型/目标）、Loss 轨迹：
+以下 GIF 按保存的 CCD 采集步骤展示初始相位、16 个块末候选和运行结束相位，随后追加同一相位在 50/100 ms 下的统一曝光重放。每幅 CCD 图都是对应文件的 5 帧均值，没有为未采集的相位更新插值生成 CCD 图像。候选被拒绝时会明确标注；展示候选不表示它被保留。动画不是 320 次相位更新逐次对应的 CCD 录像。
+
+每帧包含 SLM 控制网格相位、CCD、冻结物理预测模型、相位变化、原生核心 CV 轨迹及来源信息。模型图为未锚定的冻结预测，不能视为 CCD 测量。CCD 使用与下方静态图相同的坐标方向、裁剪窗口、核心均值归一化和固定色标范围 0–2；相位仅在显示时包裹。
+
+**与下方静态图的对应关系**：两部 GIF 的倒数第二帧分别为 `strict_square_final`、`nonmonotone_square_final` 的 **50 ms COMMON REPLAY**，与 `common_ccd_20261026.png` 从左数第 3、4 列使用完全相同的原始 CCD 文件和 5 帧均值。最后一帧是 100 ms 重放，对应表格的 100 ms 行；静态图仅展示 50 ms。优化阶段结束帧与稍后的重放帧属于不同采集时刻，不应强行显示为同一结果。
 
 **严格组**：
 
@@ -41,6 +46,16 @@ Santec SLM #1、1064 nm、Daheng Mono12，满量程 4095。目标边长 1200 原
 **非单调探索组**：
 
 ![迭代过程动画](figures/square1200_nonmonotone_process.gif)
+
+可直接检查动画中的 50 ms 重放帧：[严格组](figures/square1200_strict_replay50_20261026.png)、[探索组](figures/square1200_nonmonotone_replay50_20261026.png)。逐帧数据来源、曝光、相位哈希和原生 CV 见 [渲染核对记录](artifacts/20261026/render_audit.json)。两部 GIF 各包含 20 个实测采集步骤。
+
+2026-10-27 重新核对：14 组重放数据的原生 CV 与表格来源全部一致；从原始数据重新生成的静态图与现有 `common_ccd_20261026.png` 的 4200×600 RGB 像素逐一相同，见[静态图核对记录](artifacts/20261026/static_image_audit.json)。静态图没有换用新实验数据，历史实验指标保持原值。
+
+仅重绘动画、不改报告结论和最佳相位选择：
+
+```powershell
+python scripts/slm/generate_square1200_exploration_report.py --figures-only
+```
 
 虚线是历史最低观测值，不能消除测量漂移；恢复同一相位后 CV 仍可能变化。严格组也可继续改善，不能将前一轮停滞直接归因于严格验收。
 

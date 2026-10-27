@@ -22,7 +22,14 @@ OUT = ROOT / "report/shape_trials/square1200_exploration"
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT / "data/debug/slm_transfer/square1200_explore_20261026_1435")
+    parser.add_argument("--figures-only", action="store_true", help="Audit and render GIFs without rewriting the report or selections")
     args = parser.parse_args()
+    if args.figures_only:
+        import sys
+        sys.path.insert(0, str(ROOT))
+        from scripts.slm.render_square1200_exploration import render
+        render(args.root, OUT)
+        return
     figures, artifacts = OUT/"figures", OUT/"artifacts/20261026"
     figures.mkdir(parents=True, exist_ok=True)
     artifacts.mkdir(parents=True, exist_ok=True)
@@ -118,6 +125,13 @@ def main():
     for name, s in stages.items():
         lines.append(f"| {name} | {s['seed_cv']:.6f} | {s['final_cv']:.6f} | {s['accepted']}/16 | {s['accepted_uphill']} |")
     lines += ["", "![块级 CCD 轨迹](figures/trajectory_20261026.png)", "",
+        "### 迭代过程动画", "",
+        "GIF 按实测采集步骤展示初始相位、16 个块末候选、运行结束相位及 50/100 ms 统一重放，共 20 帧；不是 320 次相位更新逐帧对应的 CCD 录像。每幅 CCD 图是对应原始文件的 5 帧均值，拒绝的候选明确标注，未生成插值 CCD 图像。模型图为未锚定的冻结预测。", "",
+        "两部 GIF 的倒数第二帧分别为 strict_square_final、nonmonotone_square_final 的 50 ms COMMON REPLAY，与下方静态图第 3、4 列使用相同原始文件、均值、裁剪、坐标和 0–2 色标。最后一帧对应表格 100 ms 行，静态图仅展示 50 ms。运行结束采集和稍后重放是不同采集时刻，不能强行显示为同一结果。", "",
+        "![严格组动画](figures/square1200_strict_process.gif)", "",
+        "![探索组动画](figures/square1200_nonmonotone_process.gif)", "",
+        "50 ms 重放帧：[严格组](figures/square1200_strict_replay50_20261026.png)、[探索组](figures/square1200_nonmonotone_replay50_20261026.png)。[逐帧渲染核对记录](artifacts/20261026/render_audit.json) 保存来源、相位哈希和指标。仅重绘：`python scripts/slm/generate_square1200_exploration_report.py --figures-only`。", "",
+        "2026-10-27 核对：14 组重放 CV 与表格来源一致，原始数据重新生成的静态图与现有 4200×600 RGB 图像逐像素相同，见[静态图核对记录](artifacts/20261026/static_image_audit.json)。历史实验指标保持原值。", "",
         "虚线是历史最低观测值，不能消除测量漂移；恢复同一相位后 CV 仍可能变化。严格组也可继续改善，不能将前一轮停滞直接归因于严格验收。", "",
         "## 相同曝光下精确相位重放", "",
         "除两组最终相位，还重放共同初相位、此前最佳相位及每组历史最低的已接受候选。每项均原样重放所保存相位，未重新叠加模型校正。下表为 5 帧均值图的原生核心 CV；逐帧 CV、均值信号和全部块级决定保存在 evidence.json。", "",
