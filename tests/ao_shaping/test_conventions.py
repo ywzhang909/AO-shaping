@@ -2916,6 +2916,15 @@ def test_reproduce_commands_in_live_docs_name_tracked_scripts() -> None:
                 norm = token.replace("\\", "/")
                 if norm in tracked:
                     continue
+                # The path grammar deliberately starts a claim at ``scripts/`` or ``src/``
+                # even mid-token, so a correct repo-root path for a script that lives
+                # elsewhere -- e.g. a skill's own scripts directory under libs/ -- is
+                # extracted as its trailing span. Accept that span only when this very line
+                # spells a tracked path ending in it. A stale flat path spells no such
+                # thing, so the detection the guard exists for is unchanged.
+                line_norm = line.replace("\\", "/")
+                if any(t.endswith("/" + norm) and t in line_norm for t in tracked):
+                    continue
                 base = norm.rsplit("/", 1)[-1]
                 alt = sorted(t for t in tracked if t.rsplit("/", 1)[-1] == base)[:3]
                 offenders.append(
