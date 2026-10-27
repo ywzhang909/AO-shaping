@@ -787,6 +787,7 @@ class HwInstrument:
             )
             self._cam.open()
             self._cam.reset_exposure_time(self._exposure_ms)
+        # policy: a half-open instrument is unusable -- unwind what was already opened, then let the failure propagate
         except Exception:
             self.close()
             raise
@@ -794,6 +795,7 @@ class HwInstrument:
             if self._exposure_source == "ladder":
                 self._resolve_exposure()
             self._locate_zero_order()
+        # policy: same rule one step later: a session that got only part-way configured must not survive the constructor
         except Exception:
             self.close()
             raise
@@ -1064,6 +1066,7 @@ class HwInstrument:
                 continue
             try:
                 device.close()
+            # policy: one device refusing to close must not stop the remaining devices from closing
             except Exception as exc:  # a close failure must not mask the result
                 logger.warning("closing {} failed: {}", name, exc)
 
@@ -1316,6 +1319,7 @@ def _zero_order_offset(
     """
     try:
         predicted = np.asarray(instrument.twin(flat_phase), dtype=np.float32)
+    # policy: the twin-predicted 0-order is a non-gating diagnostic -- without it the row stays NaN and the report renders '-', while the verdict depends only on the ncc_* columns
     except Exception as exc:  # a diagnostic must never fail a measurement
         logger.debug("twin prediction for the 0-order offset failed: {}", exc)
         return float("nan")

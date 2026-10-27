@@ -739,6 +739,7 @@ def run_offline_training(run: RunParams, params: GsnetTrainParams) -> TrainResul
                 mode=_resolve_wandb_mode(params.wandb_mode),
             )
             wandb_url = getattr(wandb_run, "url", None)
+        # policy: W&B is optional telemetry -- if no run can be opened, train untracked instead of failing a run whose results go to disk anyway
         except Exception as exc:  # W&B must never break a run
             logger.warning("wandb.init failed ({}); training without W&B", exc)
             wandb_run = None
@@ -858,5 +859,6 @@ def run_offline_training(run: RunParams, params: GsnetTrainParams) -> TrainResul
         if wandb_run is not None:
             try:
                 wandb_run.finish()
+            # policy: ending the tracking session at teardown is best effort; nothing computed here depends on it
             except Exception as exc:  # teardown must not mask errors
                 logger.warning("wandb.finish failed: {}", exc)
