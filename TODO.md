@@ -3742,6 +3742,18 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 并发纪律代价（下次不再这样用）：多个子代理与主会话共用一个 worktree 时，共享生成物会被交错写——`call_graph.json` 的 mtime 与 `gen_wiki_pages.py` 同为 22:28:11，而我的链式跑在 22:23:3x，一度把"读旧 raw 得 207 节点"误判成生成链逻辑矛盾；另有代理把 6 个文件 `git add` 进索引，需在提交前 `git reset` 隔离。生成物类改动必须串行。
 - 覆盖账（实测）：本批 5 个 commit（`8ed5b52b` 清单与 wiki、`4b121684` 守卫假阳性、`a89aae89` 表格列数、`6b1a3e39` §6 产物节、`44828d85` golden）。rebase 到 `83e11cbb` 后复跑：conventions 66/0、CLI 两模块 116/0、脚本侧相关 67/0；术语、报告溯源、ruff 三门禁归零。
 
+**2026-10-27 · f86b669e · issue #200 与 #206：设备互斥的进程树断言与实现契约相反（容器里空真、bash 父进程下确定性失败），以及豁免表里两条理由已失效的死条款**
+- **#200 实况**：实现 `src/ao_shaping/tools/kernels/device_mutex.py:534-579` 的 docstring 把不对称写得很清楚——**祖先只沿 python 进程向上**（同一个终端可开多个会话，`cmd.exe`/`bash` 祖先启动的别的进程不算自己这条线），**后代则穿过任意中间层**（2026-10-22 那个假阳性的形态就是自己经 `cmd.exe` 起的 python 子进程被认成外人）。测试 `tests/ao_shaping/tools/kernels/test_device_mutex.py:367-375` 断的却是相反的契约：`if ppid: assert ppid in own`（凡非零父进程都算自己）。
+- **它在 CI 里是空真的**：`run_pytest_ci.sh` 把 `python -m pytest` 直接交给 `docker run`，pytest 是容器 PID 1 ⇒ `ppid=0` ⇒ 断言分支根本不执行。两种进程树对照实测：默认 **42 passed / 1 skipped**；`AO_TEST_PER_FILE=1`（包装脚本用 `bash -c` 当 PID 1，python 的父进程是 bash）⇒ **1 failed / 42 passed**，失败点正是第 375 行。
+- **判谁权威**：实现。裁剪规则有命名与文档、有 2026-10-22 事故依据，且 TODO 早前对同一对用例已裁定过一次（`15da456e`）；测试把契约放宽了。修的是测试：按父进程可执行文件分支——python 父进程必须在 own 里，非 python 父进程必须**不在** own 里。
+- **顺手把"空真"本身关掉**：新增 `TestAncestorsStopAtNonPython::test_a_shell_parent_is_not_claimed_as_ours`，用 `sh -c "python probe.py"` 主动造一个不可能属于 python 的中间层，断言子进程认得自己、不认 sh、也不越过 sh 去认领更上面的 python 测试进程；并带一条自我防空真断言（若构造退化就报"构造失效"，而不是静默通过）。
+- **变异对照**：把 `_is_python_process` 改成恒真（祖先永不裁剪）⇒ 新用例变红（先命中"构造失效"那条）；实现按备份 `cmp` 逐字节还原后回到 43 passed / 1 skipped。两种启动形态都绿：默认 43 passed / 1 skipped，`AO_TEST_PER_FILE=1` 44 passed。周边 `tests/ao_shaping/tools/kernels` 与 `tests/ao_shaping/scripts/test_device_lock_callers.py` 未受影响。
+- **#206 实况**：那条恒红在早前已由上游 `9857a377` 补齐文件而自行消解（`scripts/slm/generate_pib_exit_safety_report.py` 与其测试现已受跟踪），**但那次事故留下的豁免条款还在**：`_QUOTED_PY_PATH_HISTORICAL` 里两条 pib 豁免的理由文本仍写着"从未提交"，而消费方在 `cited in tracked` 处短路 ⇒ 条款既不可达、又在向读者说谎。删掉这两条，并补一条**豁免有效性守卫**：每个豁免键所豁免的路径今天必须**仍然不在** git 索引里——这正是豁免成立的条件，因此它不是口味约束，路径一旦入库就必须删条款。
+- **对照**：临时种一条豁免已跟踪路径的条款（README 引 `scripts/ml/calibrate_sim2f_pupil_center.py`）⇒ 新守卫变红并点名该对；按保存副本逐字节还原后重放正式版本。conventions 套件 **66 → 67 条测试**，rebase 后复跑 67 passed / 1 skipped。
+- 未结取证：`tests/ao_shaping/tools` 分片曾出现 **1 failed / 1107 passed** 的间歇失败，我当时只 grep 了汇总行、**丢掉了失败用例名**（流程失误）；定向重复未复现（单文件 12/12 干净、邻居 4/4 干净），重跑带日志的取证排在后面。
+- 一次协议执行错误记此以免重犯：推送前我只 `git ls-remote` 取远端 SHA 却**没先 `git fetch`**，于是该 commit 在本地对象库里不存在，`merge-base --is-ancestor` 与 `rebase` 双双报"无效的上游"。FF 协议的正确顺序是 **fetch → 取 SHA → 判祖先 → rebase → 复跑门禁 → push**。
+- 覆盖账：`f86b669e`（#200 测试对齐契约 + 确定性用例）、`b9ea3f59`（#206 死条款清理 + 豁免防腐守卫）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
