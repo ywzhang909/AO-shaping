@@ -30,7 +30,13 @@ RANK_VALUES = {
 #: Every module that is allowed to *consume* the ranks, relative to ``PKG``. A module that
 #: stops referencing them is reported, because the guard would then be watching fewer call
 #: sites than the consolidation claimed.
-CONSUMERS = ("sim2f/optics.py", "sim2f/losses.py", "zernike/losses.py", "phase/dataset.py")
+CONSUMERS = (
+    "sim2f/optics.py",
+    "sim2f/losses.py",
+    "sim2f/bench.py",
+    "zernike/losses.py",
+    "phase/dataset.py",
+)
 HUB_MODULE = "ml.sim2f.config"
 #: A rank one module chose for its own layout. It must stay in that module: promoting it
 # to the hub would imply a package-wide convention, and a second module declaring the same

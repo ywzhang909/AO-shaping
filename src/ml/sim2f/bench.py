@@ -149,7 +149,13 @@ from loguru import logger
 from torch import Tensor
 
 from ml.sim2f._device import _resolve_device
-from ml.sim2f.config import AberrationConfig, Sim2fConfig, TeacherConfig
+from ml.sim2f.config import (
+    NDIM_BARE_MAP,
+    NDIM_BATCH_MAP,
+    AberrationConfig,
+    Sim2fConfig,
+    TeacherConfig,
+)
 from ml.sim2f.loop import _check_geometry, _finite, _load_network, _Measurer, _score
 from ml.sim2f.model import network_input
 from ml.sim2f.optics import Sim2f, draw_aberration, write_aberration
@@ -215,6 +221,17 @@ MIN_WINS = 6
 
 #: README §3 criterion: and the mean ``ncc_net - ncc_flat`` must exceed this.
 MIN_DELTA = 0.05
+
+#: The zero-order spot is located by argmax, never by geometry, but it is still
+#: expected within this many pixels of the frame centre; further out means the bench is
+#: misaligned and the re-centred window would be a fiction rather than a correction.
+#: ``_locate_zero_order`` restates this number in prose -- keep the two in step.
+MAX_ZERO_ORDER_OFFSET_PX = 4
+
+#: Floor below which a correlation denominator counts as zero: the ratio it
+#: would produce is undefined, not merely large, so the caller reports a gate
+#: outcome instead of a number.
+MIN_CORRELATION_DENOM = 1e-12
 
 #: README §3 verdict vocabulary.  These three strings are the whole output
 #: alphabet; nothing else may be written as a conclusion.
@@ -314,9 +331,9 @@ def build_panel_phase(
 
     array = phase_rad.detach().cpu().numpy() if torch.is_tensor(phase_rad) else phase_rad
     array = np.asarray(array, dtype=np.float64)
-    if array.ndim == 3 and array.shape[0] == 1:
+    if array.ndim == NDIM_BATCH_MAP and array.shape[0] == 1:
         array = array[0]
-    if array.ndim != 2 or array.shape[0] != array.shape[1]:
+    if array.ndim != NDIM_BARE_MAP or array.shape[0] != array.shape[1]:
         raise ValueError(
             "build_panel_phase needs a square (grid, grid) phase map, got shape "
             f"{array.shape}"
@@ -444,9 +461,9 @@ def _phase_array(phase_rad: Tensor | np.ndarray) -> np.ndarray:
     """Normalise a command phase to a float32 ``(grid, grid)`` numpy array."""
     array = phase_rad.detach().cpu().numpy() if torch.is_tensor(phase_rad) else phase_rad
     array = np.asarray(array, dtype=np.float32)
-    if array.ndim == 3 and array.shape[0] == 1:
+    if array.ndim == NDIM_BATCH_MAP and array.shape[0] == 1:
         array = array[0]
-    if array.ndim != 2:
+    if array.ndim != NDIM_BARE_MAP:
         raise ValueError(f"a command phase must be (grid, grid), got {array.shape}")
     return array
 
@@ -892,7 +909,10 @@ class HwInstrument:
         probe = np.asarray(self._cam.get_numpy_image(1, skip_first=True))
         peak_row, peak_col = np.unravel_index(int(np.argmax(probe)), probe.shape)
         half_r, half_c = probe.shape[0] // 2, probe.shape[1] // 2
-        if abs(peak_row - half_r) > 4 or abs(peak_col - half_c) > 4:
+        if (
+            abs(peak_row - half_r) > MAX_ZERO_ORDER_OFFSET_PX
+            or abs(peak_col - half_c) > MAX_ZERO_ORDER_OFFSET_PX
+        ):
             corrected = (
                 int(center[0]) + (int(peak_col) - half_c),
                 int(center[1]) + (int(peak_row) - half_r),
@@ -1373,7 +1393,7 @@ def _ncc(left: np.ndarray, right: np.ndarray) -> float:
     a = a - a.mean()
     b = b - b.mean()
     denominator = float(np.sqrt((a * a).sum() * (b * b).sum()))
-    if denominator <= 1e-12:
+    if denominator <= MIN_CORRELATION_DENOM:
         return 0.0
     return float((a * b).sum() / denominator)
 
@@ -1571,7 +1591,7 @@ def gate0(
             np.asarray(block["a1"], dtype=np.float64),
             np.asarray(block["a2"], dtype=np.float64),
         )
-        if denominator <= 1e-12:
+        if denominator <= MIN_CORRELATION_DENOM:
             ratios[int(index)] = float("inf") if numerator > 0.0 else 0.0
         else:
             ratios[int(index)] = numerator / denominator
