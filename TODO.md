@@ -3696,6 +3696,15 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 验证与回归：4 个计划替换点全部由 ruff 真实命中；AST 恒等 `True`；分组校验 OK；`py_compile` 通过；`ruff check .` 全仓归零。消费面定向基线不变：`tests/ao_shaping/optimizer/wfless/test_slm_model_in_loop.py` **130 passed**（改前后同一数字）。本批不涉及 `NDIM_*`，秩守卫无需改动。
 - 覆盖账（实测）：目标文件 13 → 9；`src` 全域 599 → **595**；全仓 1101 → 1097（差值 4 与提升点数一致）。
 
+134. ✅ **#173 续批：`scripts/slm/probe_optical_path_validity.py` 的 8 → 5，"离焦视为零"三处共用一个容差；振幅为零那处故意不共用**（2026-10-27）
+- 提的 3 处是同一概念"这一帧是不是平场参考"：556 `abs(s["defocus_rad"]) < 1e-12)`、557 互补的 `>= 1e-12`、599 `is_flat = abs(...) < 1e-12`——同一判定在筛分与逐帧两处各写一次，且 556/557 必须严格互补，两处字面量漂移会让同一帧在一处算平场、另一处算非平场 ⇒ `FLAT_DEFOCUS_EPS_RAD = 1e-12`（命名与该文件既有阈值块一致：公开大写 + `#:` 夹注，见 `NOISE_FLOOR_SIGMAS` / `SATURATION_FRACTION` 等）。
+- **刻意不提 5 处**（逐条按原文核验，不按行号）：260 `abs(amplitude_rad) < 1e-12` 判的是**振幅**是否为零（与离焦不同量，尽管数值相同）；492 `len(peaks) >= 3` 是"够不够三点拟曲率"；496 `int(mask.sum()) >= 3` 是"掩膜里够不够三像素"；572 `len(groups) >= 2` 是"够不够两组做合并"；1004 `len(parts) != 2` 是 `"x,y"` 的 arity。五者各只出现一次且含义互不相同。
+- 这条切分是**机器把守**的：控制 G 把 255 行（振幅判据）标进 `flat` 组，组校验判红 `expected line not found: if abs(float(amplitude_rad)) < FLAT_DEFOCUS_EPS_RAD:`。容差注释里也写明"只适用于离焦轴，第 255 行判断的是振幅，是另一个量，故意不共用"。
+- 控制链：基线恒等；L1 把容差抬到 1e-9 ⇒ proof 判红；B 把 557 的 `>=` 改成 `>` ⇒ proof 判红（破坏互补性会被抓到）；G 如上 ⇒ group 判红。每项前还原、finally 再还原，`cmp` 逐字节一致。
+- 验证与回归：3 个计划替换点全部由 ruff 真实命中；AST 恒等 `True`；分组 OK；`py_compile` 通过；`ruff check .` 全仓归零；`tests/ao_shaping/scripts` 维持 **2604 passed / 67 skipped / 0 failed**（与改前逐位一致，也再次确认 master 全绿）。定向消费面 `test_probe_optical_path_validity.py` 9 passed。
+- 顺带说明为什么放弃另一个候选：`drivers/slm/santec/wavefront_correction.py` 的四处 `ndim == 2` 我**不**跨包借 `utils.image.ranks.NDIM_SINGLE_CHANNEL`——98/394 判的是 `np.loadtxt` 出来的**表**的秩，不是"裸图像平面"，把 image 域的秩名用到 CSV 表上正是该 hub 注释禁止的借用；476/590 两处虽贴合，为一个半的概念跨包引 hub 属 item 121 反对的作用域扩张。该文件真正的同义点只有 768 行同一谓词里的两处 `1e-12`（留给后续批次）。
+- 覆盖账（实测）：目标文件 8 → 5；`scripts` 全域 500 → **497**；全仓 1097 → 1094（差值 3 与提升点数一致）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
