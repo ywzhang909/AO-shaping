@@ -2291,6 +2291,96 @@ def test_live_doc_line_anchors_still_point_at_their_code() -> None:
     assert not offenders, "\n  " + "\n  ".join(offenders)
 
 
+#: The date-anchored ledger form (``**YYYY-MM-DD · sha · text**``) replaced numbered items on
+#: 2026-10-27 and nothing in the suite parsed it. Four separate defects landed in it during
+#: 2026-10-28: unbalanced bold, a nested full-width parenthesis, a shell/f-string escape residue
+#: written literally before a code span, and a narration line reproducing a live doc-pin locator.
+#: Legacy numbered items stay frozen -- rewriting them would falsify history -- so only this form is
+#: checked.
+_LEDGER_SECTION_START = "### 8.9"
+_LEDGER_SECTION_END = "### 8.10"
+_LEDGER_DATE_HEAD = re.compile(r"^\*\*(\d{4}-\d{2}-\d{2}) \u00b7 ([0-9a-f]{8}) \u00b7 ")
+_LEDGER_HEAD_ANY = re.compile(r"^(?:\d{1,3}\. |\*\*\d{4}-\d{2}-\d{2} \u00b7 )")
+_MIN_LEDGER_DATE_ENTRIES = 15
+
+
+def _strip_code_spans(line: str) -> str:
+    r"""Drop backticked spans: markdown does not read ``**`` inside ``...`` as bold."""
+    return re.sub(r"`[^`]*`", "", line)
+
+
+def _has_escape_residue(line: str) -> bool:
+    r"""True when a backslash outside a code span sits directly before an opening backtick.
+
+    A plain substring test for ``\`` + backtick is wrong: the legitimate span `` `\` `` (a code span
+    whose content is one backslash) contains that exact byte pair at its closing delimiter, and a
+    first version of this guard failed on such a line. Only a backslash in the prose segments -- what
+    a quoted heredoc or an f-string writes when someone escapes a backtick -- is residue.
+    """
+    inside = False
+    for i, ch in enumerate(line):
+        if ch == "`":
+            inside = not inside
+        elif ch == "\\" and not inside and line[i + 1: i + 2] == "`":
+            return True
+    return False
+
+
+def test_date_anchored_ledger_entries_stay_parseable_and_balanced() -> None:
+    """Every date-anchored ledger entry must parse, balance, and never shadow a live doc pin.
+
+    The heading shape is what ties a ledger entry to a commit, so drift (a third ``**``, a missing
+    space around the separator, a truncated SHA) silently breaks the only mechanical link between a
+    commit and its justification. Bold parity is measured outside code spans because a ``**`` inside a
+    backtick span is not bold: raw counting rejected a correct line and passed a broken one earlier the
+    same day.
+
+    The locator clause is the one that pays for itself. A narration line containing a registered
+    ``_DOC_LINE_ANCHORS`` locator makes that locator match a second, pin-less row, and the doc-pin
+    guard then fails on an unrelated commit -- which is how a docs-only commit got pushed red.
+    """
+    lines = (REPO / "TODO.md").read_text(encoding="utf-8").splitlines()
+    start = next((i for i, l in enumerate(lines) if l.startswith(_LEDGER_SECTION_START)), None)
+    end = next((i for i, l in enumerate(lines) if l.startswith(_LEDGER_SECTION_END)), None)
+    assert start is not None and end is not None and start < end, (
+        f"ledger section not found between {_LEDGER_SECTION_START!r} and {_LEDGER_SECTION_END!r} "
+        "-- the scope moved, so this guard would silently check nothing")
+
+    body = lines[start:end]
+    heads = [i for i, l in enumerate(body) if _LEDGER_HEAD_ANY.match(l)]
+    dated = [i for i in heads if _LEDGER_DATE_HEAD.match(body[i])]
+    assert len(dated) >= _MIN_LEDGER_DATE_ENTRIES, (
+        f"only {len(dated)} date-anchored entries parsed, below the floor "
+        f"{_MIN_LEDGER_DATE_ENTRIES} -- the ledger format moved and this guard went blind")
+
+    offenders: list[str] = []
+    for n, i in enumerate(dated):
+        stop = dated[n + 1] if n + 1 < len(dated) else len(body)
+        if _strip_code_spans(body[i]).count("**") != 2:
+            offenders.append(
+                f"TODO.md:{start + i + 1}: heading carries "
+                f"{_strip_code_spans(body[i]).count('**')} bold markers, exactly 2 required "
+                f"(inner bolding breaks the parse): {body[i][:64]}")
+        for j in range(i, stop):
+            line = body[j]
+            where = f"TODO.md:{start + j + 1}"
+            if line.count("`") % 2:
+                offenders.append(f"{where}: unbalanced code span: {line[:64]}")
+            elif _strip_code_spans(line).count("**") % 2:
+                offenders.append(f"{where}: unbalanced bold outside code spans: {line[:64]}")
+            if _has_escape_residue(line):
+                offenders.append(
+                    f"{where}: escape residue written literally before a code span "
+                    f"(heredoc or f-string quoting): {line[:64]}")
+            for _doc, locator, _src, _stmts in _DOC_LINE_ANCHORS:
+                if locator in line:
+                    offenders.append(
+                        f"{where}: ledger narration reproduces the live locator {locator!r}, so the "
+                        f"doc-pin guard matches this pin-less row and fails: {line[:64]}")
+
+    assert not offenders, "\n  " + "\n  ".join(offenders[:12])
+
+
 def test_blind_except_handlers_in_src_do_not_grow() -> None:
     """No new blind ``except Exception`` may enter ``src/`` (issue #174).
 
