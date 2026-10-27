@@ -52,6 +52,7 @@ try:
     from ao_shaping.drivers.ccd.miicam.driver import (
         MIICamera as MIICamManager,
     )
+# policy: optional camera backend -- importing that module loads a vendor native library, so it can fail as OSError, not only ImportError; camera discovery gates on MIICamManager being None
 except Exception:
     MIICamManager = None
 
@@ -101,6 +102,7 @@ class _MJPEGHandler(BaseHTTPRequestHandler):
                 self.wfile.write(b"\r\n")
         except (BrokenPipeError, ConnectionResetError):
             pass
+        # policy: an HTTP handler thread must not die over a vanished client or a partial write (the browser reconnects); broken pipe and reset are matched above, this covers the rest
         except Exception:
             pass
 
@@ -134,6 +136,7 @@ class _MJPEGStreamer:
         if self._server:
             try:
                 self._server.shutdown()
+            # policy: teardown is best effort (the socket may already be closed); raising out of stop() would leave the streamer thread unreaped
             except Exception:
                 pass
         if self._thread and self._thread.is_alive():
@@ -181,6 +184,7 @@ def _encode_jpeg(img: np.ndarray) -> bytes | None:
             )
         if success:
             return encoded.tobytes()
+    # policy: first of two encoders: on failure fall through to the Pillow path below instead of reporting an error
     except Exception:
         pass
 
@@ -193,6 +197,7 @@ def _encode_jpeg(img: np.ndarray) -> bytes | None:
         buf = BytesIO()
         pil_img.save(buf, format="JPEG", quality=80)
         return buf.getvalue()
+    # policy: preview encoding is best effort -- the MJPEG handler skips the frame when this returns None
     except Exception:
         return None
 
@@ -286,9 +291,11 @@ def _camera_capture_tick(
             except queue.Empty:
                 pass
         raw_frame_queue.put(img, block=False)
+    # policy: a capture failure is forwarded to the main thread as an ("error", ...) queue item; raising out of this thread would kill the live view silently
     except Exception as exc:
         try:
             raw_frame_queue.put(("error", str(exc)), block=False)
+        # policy: the error report itself must never be what kills the capture thread -- a dropped write costs one message, not the loop
         except Exception:
             pass
 
@@ -308,9 +315,11 @@ def _run_capture_loop(
         while not stop_event.is_set():
             _camera_capture_tick(camera, raw_frame_queue, params)
             time.sleep(max(0.005, float(params.get("dt", _REFRESH_INTERVAL))))
+    # policy: loop-level crash is reported through the queue and the finally clause still runs teardown; nothing may propagate out of a background thread
     except Exception as exc:
         try:
             raw_frame_queue.put(("error", f"Capture loop crashed: {exc}"), block=False)
+        # policy: same as the per-tick report: reporting a crash may not raise
         except Exception:
             pass
     finally:
@@ -461,6 +470,7 @@ def fit_gaussian(
         )
         residual = float(np.sum((y - gaussian(x, *popt)) ** 2))
         return popt, residual
+    # policy: a failed Gaussian fit means "no measurement": return (None, None) and let the analysis dict carry an absent value rather than abort the panel
     except Exception as exc:
         logger.warning("Gaussian fitting failed: {}", exc)
         return None, None
@@ -587,6 +597,7 @@ def _discover_available_cameras() -> dict[str, list[Any]]:
         if daheng_list:
             valid = [d for d in daheng_list if d.get("index", -1) >= 0]
             result["Daheng"] = valid
+    # policy: one backend that cannot enumerate must not blank the camera picker; enumeration reaches native code, so the raised type is not knowable here
     except Exception:
         pass
 
@@ -596,6 +607,7 @@ def _discover_available_cameras() -> dict[str, list[Any]]:
             miicam_list = MIICamManager.get_cam_list()
             if miicam_list:
                 result["MiiCam"] = list(miicam_list)
+        # policy: same contract as the Daheng branch: this backend failing leaves the others selectable
         except Exception:
             pass
 
@@ -648,6 +660,7 @@ def _get_camera_exposure_range(camera: Any) -> tuple[float, float]:
     try:
         if hasattr(camera, "get_exposure_range"):
             return camera.get_exposure_range()
+    # policy: method-based probe: get_exposure_range() exists on some drivers only, and calling it can fail inside the driver; the attribute-based probe below carries its own reason, and both paths end in the documented default range
     except Exception:
         pass
     try:
@@ -906,6 +919,7 @@ def main() -> None:
                 ):
                     st.session_state.camera_connected = True
                     logger.info("Recovered existing camera connection")
+            # policy: a stale session_state handle degrades to "not connected" (assigned below) instead of breaking every later rerun
             except Exception:
                 st.session_state.camera = None
 
@@ -933,6 +947,7 @@ def main() -> None:
                     # Start MJPEG streamer for low-latency live preview
                     _start_mjpeg_streamer()
                     st.success(f"{st.session_state.camera_type} camera connected")
+                # policy: connect failure is reported so the panel stays usable to retry; the driver's failure type varies by transport (USB, native library, permissions)
                 except Exception as exc:
                     st.error(f"Connection failed: {exc}")
         else:
@@ -949,6 +964,7 @@ def main() -> None:
                     st.session_state["ccd_fps_last_time"] = time.time()
                     st.session_state["ccd_fps_last_count"] = 0
                     st.info("Camera disconnected")
+                # policy: even when the driver refuses to close, stop the capture loop and streamer and drop every session_state reference -- otherwise the camera stays held and the UI shows a phantom connection
                 except Exception as exc:
                     logger.error("Disconnect failed: {}", exc)
                     _stop_capture_loop()
@@ -1007,6 +1023,7 @@ def main() -> None:
                 )
                 st.session_state.current_image = _analyze_image(img)
                 st.session_state.last_update_time = time.time()
+            # policy: one failed capture is surfaced to the operator and retried on the next rerun; it is not fatal to the analysis session
             except Exception as exc:
                 st.error(f"Failed to get image: {exc}")
 
