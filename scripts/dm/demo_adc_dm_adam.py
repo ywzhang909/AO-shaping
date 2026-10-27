@@ -10,6 +10,7 @@ NlightDM + nidaqmx).
 from __future__ import annotations
 
 import sys
+from loguru import logger
 from pathlib import Path
 
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
@@ -58,7 +59,7 @@ def main() -> None:
         last_voltage: np.ndarray = dfhistory.iloc[-1][RECORD_VOLTAGES]
 
         last_J = dfhistory.iloc[-1]["J"]
-        print(f"{last_J=}")
+        logger.info(f"{last_J=}")
         np.savetxt(Last_voltage_path, np.round(last_voltage), fmt="%d")
         time.sleep(2)
 

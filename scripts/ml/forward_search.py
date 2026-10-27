@@ -31,6 +31,7 @@ forward-only win would not change that.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 import time
 from dataclasses import dataclass, field
@@ -216,14 +217,14 @@ def inverse_score(model: nn.Module, basis: torch.Tensor, stacked: bool, start: n
 
 def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("=" * 112)
-    print("FORWARD-MODEL SEARCH: loss terms, architectures, augmentation -- paired over seeds")
-    print("=" * 112)
-    print(f"seeds={SEEDS} epochs={EPOCHS} n_max={N_MAX} grid={GRID} padding={PADDING} "
+    logger.info("=" * 112)
+    logger.info("FORWARD-MODEL SEARCH: loss terms, architectures, augmentation -- paired over seeds")
+    logger.info("=" * 112)
+    logger.info(f"seeds={SEEDS} epochs={EPOCHS} n_max={N_MAX} grid={GRID} padding={PADDING} "
           f"device={device}")
-    print("ranked on R2 and SSIM; MSE/PSNR alone are not used (this repo has been burned by that)")
-    print("not arms, for measured reasons: exposure conditioning (constant in 7/7 families),")
-    print("                              regularisation (val/train=1.08, flat learning curve)")
+    logger.info("ranked on R2 and SSIM; MSE/PSNR alone are not used (this repo has been burned by that)")
+    logger.info("not arms, for measured reasons: exposure conditioning (constant in 7/7 families),")
+    logger.info("                              regularisation (val/train=1.08, flat learning curve)")
 
     index = build_hw_index(index_cache="data/hw_index_cache.json", progress_every=0)
     index = index.filter(families=["slm_zernike_shaping"])
@@ -277,18 +278,18 @@ def main() -> None:
                 "params": int(sum(p.numel() for p in model.parameters())),
             }
             rows.append(row)
-            print(
+            logger.info(
                 f"  {arm.name:<20} seed={seed} r2={row['r2']:+.4f} ssim={row['ssim']:.4f} "
                 f"psnr={row['psnr']:5.2f} ellipse={row['ellipse_gap']:.4f} "
                 f"moment={row['moment_gap']:.4f}"
             )
-        print(f"  -> {arm.name}: {time.perf_counter() - t0:.0f}s\n")
+        logger.info(f"  -> {arm.name}: {time.perf_counter() - t0:.0f}s\n")
 
-    print("=" * 112)
-    print("SUMMARY -- paired against A0 (incumbent). An arm is only interesting if BOTH")
-    print("its delta and its sign are consistent; a lone positive mean is inside the noise.")
-    print("=" * 112)
-    print(f"{'arm':<20}{'R2':>9}{'dR2':>9}{'sd':>7}{'pos':>6}{'SSIM':>8}{'dSSIM':>8}"
+    logger.info("=" * 112)
+    logger.info("SUMMARY -- paired against A0 (incumbent). An arm is only interesting if BOTH")
+    logger.info("its delta and its sign are consistent; a lone positive mean is inside the noise.")
+    logger.info("=" * 112)
+    logger.info(f"{'arm':<20}{'R2':>9}{'dR2':>9}{'sd':>7}{'pos':>6}{'SSIM':>8}{'dSSIM':>8}"
           f"{'ellipse':>9}{'params':>11}")
     base = {r["seed"]: r for r in rows if r["arm"] == "A0 mse (incumbent)"}
     summary = []
@@ -308,13 +309,13 @@ def main() -> None:
             "params": sel[0]["params"],
         })
         s = summary[-1]
-        print(f"{s['arm']:<20}{s['r2']:>+9.4f}{s['d_r2']:>+9.4f}{s['d_r2_se']:>7.4f}"
+        logger.info(f"{s['arm']:<20}{s['r2']:>+9.4f}{s['d_r2']:>+9.4f}{s['d_r2_se']:>7.4f}"
               f"{s['pos']:>4}/{len(d)}{s['ssim']:>8.4f}{s['d_ssim']:>+8.4f}"
               f"{s['ellipse']:>9.4f}{s['params']:>11,}")
 
     out = ROOT / "report" / "loss_defects" / "forward_search.json"
     out.write_text(json.dumps({"rows": rows, "summary": summary}, indent=2), encoding="utf-8")
-    print(f"\nwrote {out}")
+    logger.info(f"\nwrote {out}")
 
 
 if __name__ == "__main__":

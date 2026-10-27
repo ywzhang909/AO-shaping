@@ -183,7 +183,7 @@ def main() -> None:
 
     (args.out / "direction_record.json").write_text(json.dumps(record, indent=2, ensure_ascii=False),
                                                     encoding="utf-8")
-    print(f"[done] {args.out}")
+    logger.info(f"[done] {args.out}")
 
 
 if __name__ == "__main__":

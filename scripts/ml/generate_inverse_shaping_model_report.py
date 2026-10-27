@@ -25,6 +25,7 @@ Outputs ``report/inverse_shaping_unet/model.md`` plus
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import collections
 import sys
 from pathlib import Path
@@ -991,9 +992,9 @@ def main(argv: list[str] | None = None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     report = out_dir / "model.md"
     report.write_text(build_report(cfg, rows, meta, floors), encoding="utf-8")
-    print(f"wrote {report}")
-    print(f"  params: {meta['total_params']:,}")
-    print(f"  model floor table: {'yes' if floors else 'no (snapshot/corpus absent)'}")
+    logger.info(f"wrote {report}")
+    logger.info(f"  params: {meta['total_params']:,}")
+    logger.info(f"  model floor table: {'yes' if floors else 'no (snapshot/corpus absent)'}")
     return 0
 
 

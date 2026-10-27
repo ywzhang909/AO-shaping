@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import time
 from datetime import datetime, timezone
@@ -118,11 +119,11 @@ def main() -> None:
         old = json.loads(args.compare.read_text(encoding="utf-8")).get("focus", {})
         old_mm = float(old.get("best_focal_mm", float("nan")))
         old_diopter = float(old.get("best_diopter_m1", float("nan")))
-        print("\n[focus] 与旧标定对比（光路变化）")
-        print(f"  旧: best_focal_mm {old_mm:.1f}  diopter {old_diopter:+.4f}  gain {old.get('gain_vs_flat')}")
-        print(f"  新: best_focal_mm {best_mm:.1f}  diopter {best_diopter:+.4f}  gain {gain}")
+        logger.info("\n[focus] 与旧标定对比（光路变化）")
+        logger.info(f"  旧: best_focal_mm {old_mm:.1f}  diopter {old_diopter:+.4f}  gain {old.get('gain_vs_flat')}")
+        logger.info(f"  新: best_focal_mm {best_mm:.1f}  diopter {best_diopter:+.4f}  gain {gain}")
         if np.isfinite(old_diopter) and np.isfinite(best_diopter):
-            print(f"  变化: {best_diopter - old_diopter:+.4f} m⁻¹ "
+            logger.info(f"  变化: {best_diopter - old_diopter:+.4f} m⁻¹ "
                   f"（绝对值 {abs(best_diopter) / max(abs(old_diopter), 1e-9):.2f}× 旧值）")
 
 

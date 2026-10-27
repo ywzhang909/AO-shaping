@@ -29,6 +29,7 @@
 from __future__ import annotations
 
 import sys
+from loguru import logger
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -492,7 +493,7 @@ def main() -> int:
     ) else None
     if band is not None:
         band.install()
-        print(f"[bandlimit] 选择器 bandlimit_sigma 钉为 {args.selector_bandlimit}")
+        logger.info(f"[bandlimit] 选择器 bandlimit_sigma 钉为 {args.selector_bandlimit}")
     try:
         return _main_inner(args)
     finally:
@@ -506,20 +507,20 @@ def _main_inner(args) -> int:
     save_dir = out_dir / stamp
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    print("=" * 78)
-    print("uncertainty-probe sim A/B  (commit 080e0ac9, issue #134)")
-    print("=" * 78)
-    print(f"base: seed={_BASE['seed']} rounds={_BASE['n_rounds']} "
+    logger.info("=" * 78)
+    logger.info("uncertainty-probe sim A/B  (commit 080e0ac9, issue #134)")
+    logger.info("=" * 78)
+    logger.info(f"base: seed={_BASE['seed']} rounds={_BASE['n_rounds']} "
           f"probe_count={_BASE['probe_count']} escalate={_BASE['escalate_probe_count']} "
           f"acceptance_loss_delta={_TIGHT_LOSS_DELTA:g}")
 
     arms = []
     for name, toggle in (("blind_fixed", False), ("uncertainty_r86", True)):
-        print(f"\n--- arm {name} (uncertainty_on_rejection={toggle}) ---")
+        logger.info(f"\n--- arm {name} (uncertainty_on_rejection={toggle}) ---")
         arm = run_arm(name, uncertainty_on_rejection=toggle)
         arms.append(arm)
         for r in arm["rounds"]:
-            print(
+            logger.info(
                 f"  rd{r['round']} src={r['probe_source']:<12} "
                 f"n={r['probe_count']} acc={str(r['accepted']):<5} "
                 f"loss {r['loss_before']:.5f}->{r['loss_after']:.5f} "
@@ -529,30 +530,30 @@ def _main_inner(args) -> int:
                 f"hf={max(r['probe_hf_fraction']):.4f} "
                 f"maxcos={max(r['probe_pair_cos'] or [0.0]):+.3f}"
             )
-        print(f"  status={arm['status']} accepted={arm['accepted_rounds']}"
+        logger.info(f"  status={arm['status']} accepted={arm['accepted_rounds']}"
               f"/{len(arm['rounds'])} selector_calls={arm['selector_calls']}")
 
     # 机制测量: 共后验下的 U(p)。优化器取 R-86 变体在那一轮的真实优化器
     # (只有该变体在那些轮真的走过选择器), 看不到就用 None。
     u_scores = _collect_u_scores(arms)
-    print("\n" + "=" * 78)
-    print("机制测量: 同一后验下, 不确定性探针 vs 同种子盲随机探针的 U(p)")
-    print("  结论只看 ratio_matched (幅度归一); ratio_raw 混着幅度差, 不可用")
-    print("=" * 78)
+    logger.info("\n" + "=" * 78)
+    logger.info("机制测量: 同一后验下, 不确定性探针 vs 同种子盲随机探针的 U(p)")
+    logger.info("  结论只看 ratio_matched (幅度归一); ratio_raw 混着幅度差, 不可用")
+    logger.info("=" * 78)
     if not u_scores:
-        print("  (无 R-86 轮次: 本次两个变体都没有触发不确定采样)")
+        logger.info("  (无 R-86 轮次: 本次两个变体都没有触发不确定采样)")
     for row in u_scores:
-        print(f"  rd{row['round']} [{row['posterior']}] "
+        logger.info(f"  rd{row['round']} [{row['posterior']}] "
               f"std unc={np.mean(row['std_uncertainty']):.2f} "
               f"blind={np.mean(row['std_blind']):.2f} "
               f"-> matched@{row['matched_std']:.2f}")
-        print(f"      raw    : U_unc={row['u_uncertainty_raw']:.4e} "
+        logger.info(f"      raw    : U_unc={row['u_uncertainty_raw']:.4e} "
               f"U_blind={row['u_blind_raw']:.4e} "
               f"ratio_raw={row['ratio_raw']:.3f} (幅度混杂, 不作结论)")
-        print(f"      matched: U_unc={row['u_uncertainty_matched']:.4e} "
+        logger.info(f"      matched: U_unc={row['u_uncertainty_matched']:.4e} "
               f"U_blind={row['u_blind_matched']:.4e} "
               f"ratio={row['ratio_matched']:.3f}")
-        print(f"      bandmat: U_blind={row['u_blind_bandmatched']:.4e} "
+        logger.info(f"      bandmat: U_blind={row['u_blind_bandmatched']:.4e} "
               f"ratio_bandmatched={row['ratio_bandmatched']:.3f} "
               f"{'OK >1' if row['ratio_bandmatched'] > 1.0 else 'NOT >1'}  "
               f"(acc={row['accepted']}, dloss={row['loss_delta']:+.5f})")
@@ -570,7 +571,7 @@ def _main_inner(args) -> int:
             if overlap:
                 collisions.append({"arm": a["arm"], "round": s["round"],
                                    "overlap": sorted(overlap)})
-    print(f"\n种子不变量: 两个变体种子逐轮一致={seeds_identical}; "
+    logger.info(f"\n种子不变量: 两个变体种子逐轮一致={seeds_identical}; "
           f"train/holdout 碰撞={collisions or '无'}")
 
     # --- 验收 2: 约束集 ----------------------------------------------------
@@ -588,11 +589,11 @@ def _main_inner(args) -> int:
                 r["probe_hf_fraction"])
             (blind_cos if a["arm"] == "blind_fixed" else unc_cos).extend(
                 r["probe_pair_cos"])
-    print(f"幅度带 [{floor:.2f}, {cap:.2f}] 越界={std_violations or '无'}")
-    print(f"低频占比(越大越平滑): blind mean={np.mean(blind_hf):.4f} "
+    logger.info(f"幅度带 [{floor:.2f}, {cap:.2f}] 越界={std_violations or '无'}")
+    logger.info(f"低频占比(越大越平滑): blind mean={np.mean(blind_hf):.4f} "
           f"max={np.max(blind_hf):.4f} | "
           f"uncertainty mean={np.mean(unc_hf):.4f} max={np.max(unc_hf):.4f}")
-    print(f"探针两两余弦: blind max={np.max(blind_cos):+.4f} | "
+    logger.info(f"探针两两余弦: blind max={np.max(blind_cos):+.4f} | "
           f"uncertainty max={np.max(unc_cos):+.4f} (越接近 0 越不塌缩)")
 
     # --- 多种子扫描: 单 seed 的 A/B 没有统计功效 ---------------------------
@@ -600,9 +601,9 @@ def _main_inner(args) -> int:
     # 或更快被接受"这种**比较性**结论, 一个 seed 只是一次抽样, 差值完全可能落在
     # 噪声里。所以另跑一组多种子配对扫描: 同一个 seed 同时喂两个变体 (配对), 差值在
     # 配对内抵消难度的差异。
-    print("\n" + "=" * 78)
-    print("多种子配对扫描 (每个 seed 同时跑两个变体)")
-    print("=" * 78)
+    logger.info("\n" + "=" * 78)
+    logger.info("多种子配对扫描 (每个 seed 同时跑两个变体)")
+    logger.info("=" * 78)
     sweep_seeds = [20261016, 7, 11, 42, 1234, 20260101, 555, 90210]
     sweep: list[dict] = []
     for sd in sweep_seeds:
@@ -644,7 +645,7 @@ def _main_inner(args) -> int:
         def fmt(v):
             return "n/a" if v is None else f"{v:+.6f}"
 
-        print(f"  seed {sd:>8}: blind acc={b['accepted']}/{b['rounds']} "
+        logger.info(f"  seed {sd:>8}: blind acc={b['accepted']}/{b['rounds']} "
               f"dloss={fmt(b['mean_dloss_post'])} "
               f"| r86 acc={r['accepted']}/{r['rounds']} "
               f"dloss={fmt(r['mean_dloss_post'])} "
@@ -655,11 +656,11 @@ def _main_inner(args) -> int:
     if usable:
         deltas = np.array([s["delta_dloss"] for s in usable], dtype=np.float64)
         neg = int(np.sum(deltas < 0))   # 负 = R-86 回退更小 = 更好
-        print(f"\n  可配对的 seed: {len(deltas)}/{len(sweep)}")
-        print(f"  paired ddloss (R-86 - blind): mean={deltas.mean():+.6f} "
+        logger.info(f"\n  可配对的 seed: {len(deltas)}/{len(sweep)}")
+        logger.info(f"  paired ddloss (R-86 - blind): mean={deltas.mean():+.6f} "
               f"median={np.median(deltas):+.6f} sd={deltas.std(ddof=1) if len(deltas) > 1 else 0:.6f}")
-        print(f"  R-86 回退更小的 seed: {neg}/{len(deltas)}")
-        print(f"  精确 sign-flip 置换检验 p = "
+        logger.info(f"  R-86 回退更小的 seed: {neg}/{len(deltas)}")
+        logger.info(f"  精确 sign-flip 置换检验 p = "
               f"{_sign_flip_p(deltas):.4f} (双侧, {len(deltas)} 个样本, "
               f"最小可达 p = {2 / 2 ** len(deltas):.4f})")
 
@@ -680,14 +681,14 @@ def _main_inner(args) -> int:
         }
         for a in arms
     }
-    print("\n" + "=" * 78)
-    print("A/B 汇总 (仅统计被拒轮之后的轮次, 即 R-86 实际生效的轮次)")
-    print("=" * 78)
-    print(f"{'arm':<18}{'rounds':>7}{'mean dloss':>14}{'mean holdout_r':>18}")
+    logger.info("\n" + "=" * 78)
+    logger.info("A/B 汇总 (仅统计被拒轮之后的轮次, 即 R-86 实际生效的轮次)")
+    logger.info("=" * 78)
+    logger.info(f"{'arm':<18}{'rounds':>7}{'mean dloss':>14}{'mean holdout_r':>18}")
     for a in arms:
         s = post[a["arm"]]
         d, h = s["mean_loss_delta"], s["mean_holdout_correlation"]
-        print(f"{a['arm']:<18}{s['rounds']:>7}"
+        logger.info(f"{a['arm']:<18}{s['rounds']:>7}"
               f"{('n/a' if d is None else f'{d:+.6f}'):>14}"
               f"{('n/a' if h is None else f'{h:.4f}'):>18}")
 
@@ -728,8 +729,8 @@ def _main_inner(args) -> int:
             for a in arms for r in a["rounds"] for k, p in enumerate(r["probes"])
         },
     )
-    print(f"\n保存: {save_dir / 'summary.json'}")
-    print(f"保存: {save_dir / 'probes.npz'}")
+    logger.info(f"\n保存: {save_dir / 'summary.json'}")
+    logger.info(f"保存: {save_dir / 'probes.npz'}")
     return 0
 
 

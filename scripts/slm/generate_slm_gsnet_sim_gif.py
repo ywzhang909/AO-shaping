@@ -188,8 +188,8 @@ def cli(pkl: str | None, output: str) -> None:
     _frames_to_gif(_make_phase_frames(data), phase_gif, PHASE_CMAP)
 
     logger.info("GIF 已写入 {} / {}", far_gif, phase_gif)
-    print(f"far:   ![{far_gif.stem}](gifs/{far_gif.name})")
-    print(f"phase: ![{phase_gif.stem}](gifs/{phase_gif.name})")
+    logger.info(f"far:   ![{far_gif.stem}](gifs/{far_gif.name})")
+    logger.info(f"phase: ![{phase_gif.stem}](gifs/{phase_gif.name})")
 
 
 if __name__ == "__main__":

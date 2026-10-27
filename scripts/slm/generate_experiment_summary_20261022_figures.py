@@ -1,4 +1,5 @@
 import numpy as np
+from loguru import logger
 import matplotlib
 
 matplotlib.use("Agg")
@@ -25,7 +26,7 @@ for trial_dir, method, cv_val in trials:
     far_path = trial_dir_path / "best_far_field.png"
 
     if not phase_file.exists() or not far_path.exists():
-        print(f"跳过 {trial_dir}: 文件不存在")
+        logger.info(f"跳过 {trial_dir}: 文件不存在")
         continue
 
     # 加载相位
@@ -94,8 +95,8 @@ for trial_dir, method, cv_val in trials:
     fig.savefig(out_xsec, dpi=120)
     plt.close(fig)
 
-    print(f"Saved: {out_phase.name}")
-    print(f"Saved: {out_far.name}")
-    print(f"Saved: {out_xsec.name}")
+    logger.info(f"Saved: {out_phase.name}")
+    logger.info(f"Saved: {out_far.name}")
+    logger.info(f"Saved: {out_xsec.name}")
 
-print("\nDone! All images rendered.")
+logger.info("\nDone! All images rendered.")

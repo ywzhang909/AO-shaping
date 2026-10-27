@@ -40,6 +40,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import sys
 from pathlib import Path
@@ -182,17 +183,17 @@ def main() -> int:
                         }
                     )
 
-    print("=" * 88)
-    print("INVERSE DESIGN: sim shape_sum (rows = forward fit_steps, cols = design_steps)")
-    print("=" * 88)
-    print(f"{'fit':>6}" + "".join(f"{d:>12}" for d in DESIGN_LADDER) + f"{'held-out MSE':>15}")
+    logger.info("=" * 88)
+    logger.info("INVERSE DESIGN: sim shape_sum (rows = forward fit_steps, cols = design_steps)")
+    logger.info("=" * 88)
+    logger.info(f"{'fit':>6}" + "".join(f"{d:>12}" for d in DESIGN_LADDER) + f"{'held-out MSE':>15}")
     summary = []
     for fit_steps in FIT_LADDER:
         cells = "".join(
             f"{_mean(rows, fit_steps, d, 'sim_shape_sum'):>12.4f}" for d in DESIGN_LADDER
         )
         mse = _mean(rows, fit_steps, 0, "held_out_mse")
-        print(f"{fit_steps:>6}{cells}{mse:>15.5f}")
+        logger.info(f"{fit_steps:>6}{cells}{mse:>15.5f}")
         for d in DESIGN_LADDER:
             summary.append(
                 {
@@ -203,22 +204,22 @@ def main() -> int:
                 }
             )
 
-    print(f"\nflat reference shape_sum = {flat:.4f}")
+    logger.info(f"\nflat reference shape_sum = {flat:.4f}")
 
     starts = {s: _mean(rows, s, 0, "sim_shape_sum") for s in FIT_LADDER}
     best = max(starts, key=lambda k: starts[k])
-    print(f"\nQ1 accuracy axis at design_steps=0 (paired vs best rung fit_steps={best}):")
-    print("    held-out MSE falls monotonically; shape_sum does NOT.")
+    logger.info(f"\nQ1 accuracy axis at design_steps=0 (paired vs best rung fit_steps={best}):")
+    logger.info("    held-out MSE falls monotonically; shape_sum does NOT.")
     for fit_steps in FIT_LADDER:
         sel = [r for r in rows if r["design_steps"] == 0 and r["fit_steps"] == fit_steps]
         ref = [r for r in rows if r["design_steps"] == 0 and r["fit_steps"] == best]
         deltas = [s["sim_shape_sum"] - b["sim_shape_sum"] for s, b in zip(sel, ref)]
-        print(
+        logger.info(
             f"    fit_steps={fit_steps:<4} held-out MSE={_mean(rows, fit_steps, 0, 'held_out_mse'):.5f}"
             f"  delta={np.mean(deltas):+.4f}  positives={sum(1 for d in deltas if d > 0)}/{len(deltas)}"
         )
 
-    print("\nQ2 design axis (paired vs design_steps=0 on the same start):")
+    logger.info("\nQ2 design axis (paired vs design_steps=0 on the same start):")
     for design_steps in DESIGN_LADDER:
         if design_steps == 0:
             continue
@@ -229,7 +230,7 @@ def main() -> int:
             ]
             ref = [r for r in rows if r["design_steps"] == 0 and r["fit_steps"] == fit_steps]
             deltas += [s["sim_shape_sum"] - b["sim_shape_sum"] for s, b in zip(sel, ref)]
-        print(
+        logger.info(
             f"    design_steps={design_steps:<4} delta={np.mean(deltas):+.4f}  "
             f"positives={sum(1 for d in deltas if d > 0)}/{len(deltas)}"
         )
@@ -237,7 +238,7 @@ def main() -> int:
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps({"rows": rows, "summary": summary}, indent=2), encoding="utf-8")
-    print(f"\nwrote {out_path}")
+    logger.info(f"\nwrote {out_path}")
     return 0
 
 

@@ -14,6 +14,7 @@ All figures are saved to ``report/shape_trials/model_in_loop/images/``.
 from __future__ import annotations
 
 import csv
+from loguru import logger
 import json
 from pathlib import Path
 
@@ -607,7 +608,7 @@ def render_multitarget_shape_experiment() -> Path:
             images.append(img)
             labels.append(label)
         else:
-            print(f"Warning: {img_path} not found")
+            logger.info(f"Warning: {img_path} not found")
     
     if not images:
         raise FileNotFoundError("No experiment images found")
@@ -701,36 +702,36 @@ def render_model_in_loop_20261014_table() -> Path:
 
 def main() -> None:
     """Generate all supplementary images."""
-    print("Generating U-Net prediction montage...")
+    logger.info("Generating U-Net prediction montage...")
     img1 = render_unet_prediction_montage()
-    print(f"  -> {img1.relative_to(ROOT)}")
+    logger.info(f"  -> {img1.relative_to(ROOT)}")
 
-    print("Generating PSF trial comparison...")
+    logger.info("Generating PSF trial comparison...")
     img2 = render_psf_trial_comparison()
-    print(f"  -> {img2.relative_to(ROOT)}")
+    logger.info(f"  -> {img2.relative_to(ROOT)}")
 
-    print("Generating phase bandwidth comparison...")
+    logger.info("Generating phase bandwidth comparison...")
     img3 = render_phase_bandwidth_comparison()
-    print(f"  -> {img3.relative_to(ROOT)}")
+    logger.info(f"  -> {img3.relative_to(ROOT)}")
 
-    print("Generating model candidate comparison...")
+    logger.info("Generating model candidate comparison...")
     img4 = render_model_candidate_comparison()
-    print(f"  -> {img4.relative_to(ROOT)}")
+    logger.info(f"  -> {img4.relative_to(ROOT)}")
 
-    print("Generating exposure and model comparison...")
+    logger.info("Generating exposure and model comparison...")
     img5 = render_exposure_response()
-    print(f"  -> {img5.relative_to(ROOT)}")
+    logger.info(f"  -> {img5.relative_to(ROOT)}")
 
-    print("Generating replay comparison...")
+    logger.info("Generating replay comparison...")
     img6 = render_replay_comparison()
-    print(f"  -> {img6.relative_to(ROOT)}")
-    print(f"  -> {img6.relative_to(ROOT)}")
+    logger.info(f"  -> {img6.relative_to(ROOT)}")
+    logger.info(f"  -> {img6.relative_to(ROOT)}")
 
-    print("Generating multitarget shape experiment...")
+    logger.info("Generating multitarget shape experiment...")
     img7 = render_multitarget_shape_experiment()
-    print(f"  -> {img7.relative_to(ROOT)}")
+    logger.info(f"  -> {img7.relative_to(ROOT)}")
 
-    print("\nAll images generated in:", IMG_DIR.relative_to(ROOT))
+    logger.info("\nAll images generated in:", IMG_DIR.relative_to(ROOT))
 
 
 if __name__ == "__main__":

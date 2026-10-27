@@ -39,6 +39,7 @@ npz (原始帧)、``optical_path_probe.json`` (全部读数 + 判定 + 阈值 + 
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import importlib.util
 import json
 import math
@@ -1311,12 +1312,12 @@ def run_probe(args: argparse.Namespace) -> int:
             out_dir / "optical_path_probe.png",
         )
 
-    print(f"\n判定: {verdict['state']}")
+    logger.info(f"\n判定: {verdict['state']}")
     for reason in verdict["reasons"]:
-        print(f"  - {reason}")
+        logger.info(f"  - {reason}")
     for item in verdict["advice"]:
-        print(f"  * {item}")
-    print(f"证据: {out_dir}")
+        logger.info(f"  * {item}")
+    logger.info(f"证据: {out_dir}")
     return int(verdict["exit_code"])
 
 

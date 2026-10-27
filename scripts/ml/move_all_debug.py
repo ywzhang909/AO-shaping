@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+from loguru import logger
 from pathlib import Path
 
 src_root = Path(__file__).resolve().parents[2] / "report/shape_trials"
@@ -42,4 +43,4 @@ for exp_dir in src_root.iterdir():
             
             copied += 1
 
-print(f"Done. Copied: {copied}, Skipped: {skipped}")
+logger.info(f"Done. Copied: {copied}, Skipped: {skipped}")

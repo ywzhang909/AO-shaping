@@ -17,6 +17,7 @@ Two things are deliberately NOT touched:
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import pathlib
 import re
 import sys
@@ -67,8 +68,8 @@ def main(argv: list[str]) -> int:
                 changed.append((rel, n))
 
     for rel, n in sorted(changed):
-        print(f"{n:4d}  {rel}")
-    print(f"\n{sum(n for _, n in changed)} replacements in {len(changed)} files")
+        logger.info(f"{n:4d}  {rel}")
+    logger.info(f"\n{sum(n for _, n in changed)} replacements in {len(changed)} files")
     return 0
 
 

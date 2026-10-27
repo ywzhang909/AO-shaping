@@ -25,6 +25,7 @@ Hardware: Santec SLM-200 (memory mode) + Thorlabs WFS. WFS exposure is capped at
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import sys
 import time
@@ -247,9 +248,9 @@ def acquire(slm: Santec, wfs: ThorlabWFS, ph: PatternHelper, out: Path,
             msg = (f"RMS={cap['stats']['rms']:.4f}λ [2]={z[2]:+.4f} [3]={z[3]:+.4f} "
                    f"[5]={z[5]:+.4f} |z[2..6]|={np.linalg.norm(z[2:7]):.4f}λ"
                    if z is not None else f"RMS={cap['stats']['rms']:.4f}λ")
-            print(f"[{i:02d}] {label:16s} {msg}")
+            logger.info(f"[{i:02d}] {label:16s} {msg}")
         except Exception as e:  # keep going per case
-            print(f"[WARN] case {label} failed: {type(e).__name__}: {e}")
+            logger.info(f"[WARN] case {label} failed: {type(e).__name__}: {e}")
     return records
 
 
@@ -364,9 +365,9 @@ def main() -> int:
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    print("=" * 72)
-    print("[Zernike → WFS 分布报告] 带图 md")
-    print("=" * 72)
+    logger.info("=" * 72)
+    logger.info("[Zernike → WFS 分布报告] 带图 md")
+    logger.info("=" * 72)
 
     slm = Santec(slm_number=args.slm_number, wavelength=args.slm_wavelength,
                  video_mode=0)
@@ -392,7 +393,7 @@ def main() -> int:
         wfs.take_image(n_sample=1, dynamicNoiseCut=True)
         ok_ref = wfs.create_default_user_ref()
         wfs.set_ref_plane(custom=True)
-        print(f"[OK] SLM #{slm._serial_number} shift=({sx},{sy}); "
+        logger.info(f"[OK] SLM #{slm._serial_number} shift=({sx},{sy}); "
               f"WFS {wfs.serial_num} exp={exp:.3f}ms; "
               f"flat ref create={ok_ref} use_custom_ref={wfs.use_custom_ref}")
 
@@ -406,7 +407,7 @@ def main() -> int:
         records = acquire(slm, wfs, ph, out, (sx, sy), args.settle_extra_s, max_gray)
         slm.display_data(flat_gray(), wait_time_s=0.5)
     except Exception as e:
-        print(f"[FAIL] {type(e).__name__}: {e}")
+        logger.info(f"[FAIL] {type(e).__name__}: {e}")
         return 1
     finally:
         for dev in (wfs, slm):
@@ -416,9 +417,9 @@ def main() -> int:
                 pass
 
     write_markdown(out, meta, records)
-    print(f"\n[OK] 报告: {out / 'report.md'}")
-    print(f"[OK] 图: {out / 'phase'} | {out / 'wfs'} ({len(records)} 用例)")
-    print("=" * 72)
+    logger.info(f"\n[OK] 报告: {out / 'report.md'}")
+    logger.info(f"[OK] 图: {out / 'phase'} | {out / 'wfs'} ({len(records)} 用例)")
+    logger.info("=" * 72)
     return 0
 
 

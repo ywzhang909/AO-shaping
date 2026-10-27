@@ -20,6 +20,7 @@ Usage
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -111,11 +112,11 @@ def main() -> int:
     print()
     for key in ("r2_const", "r2_ridge", "skill_vs_const"):
         vals = [r[key] for r in rows]
-        print("%-16s mean over %d folds: %+.4f  (min %+.4f, max %+.4f)"
+        logger.info("%-16s mean over %d folds: %+.4f  (min %+.4f, max %+.4f)"
               % (key, len(vals), np.mean(vals), np.min(vals), np.max(vals)))
     Path("logs/r2_baseline.json").write_text(json.dumps(
         {"k": K, "rows": rows}, indent=2), encoding="utf-8")
-    print("\nwrote logs/r2_baseline.json")
+    logger.info("\nwrote logs/r2_baseline.json")
     return 0
 
 

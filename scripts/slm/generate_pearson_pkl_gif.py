@@ -423,14 +423,14 @@ def cli(pkl, output_dir, max_frames, fps, max_dim, pearson_only):
         ok, msg = process_pkl(p, out_dir, pearson_only=pearson_only, **gif_kwargs)
         if ok:
             made += 1
-            print(f"[{p.name}] {msg}")
+            logger.info(f"[{p.name}] {msg}")
         else:
             skipped += 1
-            print(f"[{p.name}] SKIP: {msg}")
+            logger.info(f"[{p.name}] SKIP: {msg}")
 
-    print(f"\n{made} GIF(s) -> {out_dir}")
+    logger.info(f"\n{made} GIF(s) -> {out_dir}")
     if skipped:
-        print(f"{skipped} skipped")
+        logger.info(f"{skipped} skipped")
 
 
 if __name__ == "__main__":

@@ -37,6 +37,7 @@ cannot drift again.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -92,12 +93,12 @@ def _zernike_path(gs_phase: np.ndarray, target, mask, size_frac: float, aspect: 
 
 
 def main() -> None:
-    print("=" * 100)
-    print("FREEFORM vs ZERNIKE on the CORRECTED evaluator: does the projection bottleneck matter?")
-    print("=" * 100)
-    print(f"grid={GRID} n_max={N_MAX} coarse={COARSE} gs_iters={GS_ITERS} "
+    logger.info("=" * 100)
+    logger.info("FREEFORM vs ZERNIKE on the CORRECTED evaluator: does the projection bottleneck matter?")
+    logger.info("=" * 100)
+    logger.info(f"grid={GRID} n_max={N_MAX} coarse={COARSE} gs_iters={GS_ITERS} "
           f"steps={STEPS} draws={DRAWS} sim_window={inv.SIM_WINDOW}")
-    print("score = pib + uniformity, HIGHER is better")
+    logger.info("score = pib + uniformity, HIGHER is better")
 
     rows: list[dict] = []
     for size_frac in SIZE_FRACS:
@@ -127,20 +128,20 @@ def main() -> None:
 
     keys = ("flat", "gs_zernike", "gs_freeform", "grad_freeform", "gs_fm_refined")
     cells: list[dict] = []
-    print(f"\n{'ROI':>14}" + "".join(f"{k:>14}" for k in keys))
+    logger.info(f"\n{'ROI':>14}" + "".join(f"{k:>14}" for k in keys))
     for size_frac in SIZE_FRACS:
         for aspect in ASPECTS:
             sel = [r for r in rows if r["size_frac"] == size_frac
                    and abs(r["aspect"] - aspect) < 1e-9]
             mean = {k: float(np.mean([r[k] for r in sel])) for k in keys}
             cells.append(mean)
-            print(f"{size_frac:>7.3f}x{aspect:<6.3f}" + "".join(f"{mean[k]:>14.4f}" for k in keys))
+            logger.info(f"{size_frac:>7.3f}x{aspect:<6.3f}" + "".join(f"{mean[k]:>14.4f}" for k in keys))
 
     def report(label: str, a: str, b: str) -> None:
         d = np.array([c[a] - c[b] for c in cells])
-        print(f"  {label:<34} mean={d.mean():+.4f}  positives={int((d > 0).sum())}/{len(d)}")
+        logger.info(f"  {label:<34} mean={d.mean():+.4f}  positives={int((d > 0).sum())}/{len(d)}")
 
-    print("\n--- paired across the 9 ROI cells ---")
+    logger.info("\n--- paired across the 9 ROI cells ---")
     report("GS_freeform - GS_zernike", "gs_freeform", "gs_zernike")
     report("grad_freeform - GS_freeform", "grad_freeform", "gs_freeform")
     report("GS_freeform - flat", "gs_freeform", "flat")
@@ -149,16 +150,16 @@ def main() -> None:
 
     x = np.array([c["gs_freeform"] - c["flat"] for c in cells])
     y = np.array([c["gs_fm_refined"] - c["gs_freeform"] for c in cells])
-    print("\n--- does refinement behave like a restart in freeform space? ---")
-    print(f"  spearman(GS_freeform - flat, refinement delta) = {inv.spearman(x, y):+.4f}")
-    print("  Zernike space, corner-cropped evaluator: -0.8667 (mse) / -0.9167 (physical)")
-    print("  Zernike space, corrected evaluator:       +0.9333 (mse) / +0.9500 (physical)")
-    print("  A restart would be strongly NEGATIVE. Positive means refinement gains more")
-    print("  when the proposal is better -- directional information, i.e. a gradient.")
+    logger.info("\n--- does refinement behave like a restart in freeform space? ---")
+    logger.info(f"  spearman(GS_freeform - flat, refinement delta) = {inv.spearman(x, y):+.4f}")
+    logger.info("  Zernike space, corner-cropped evaluator: -0.8667 (mse) / -0.9167 (physical)")
+    logger.info("  Zernike space, corrected evaluator:       +0.9333 (mse) / +0.9500 (physical)")
+    logger.info("  A restart would be strongly NEGATIVE. Positive means refinement gains more")
+    logger.info("  when the proposal is better -- directional information, i.e. a gradient.")
 
     out = Path("report/loss_defects/freeform_vs_zernike.json")
     out.write_text(json.dumps(rows, indent=2), encoding="utf-8")
-    print(f"\nwrote {out}")
+    logger.info(f"\nwrote {out}")
 
 
 if __name__ == "__main__":

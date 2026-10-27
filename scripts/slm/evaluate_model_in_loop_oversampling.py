@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 from pathlib import Path
 
@@ -96,7 +97,7 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(results, indent=2), encoding="utf-8")
     for result in results:
-        print(result["run_dir"])
+        logger.info(result["run_dir"])
         for candidate in result["candidates"]:
             rows = candidate["results"]
             for family in ("holdout", "freeform", "shaped"):
@@ -104,7 +105,7 @@ def main() -> None:
                 if family == "freeform":
                     subset = [row for row in rows if row["family"] == family]
                 mean = np.mean([row["correlation"] for row in subset])
-                print(candidate["factor"], family, f"{mean:.4f}")
+                logger.info(candidate["factor"], family, f"{mean:.4f}")
 
 
 if __name__ == "__main__":

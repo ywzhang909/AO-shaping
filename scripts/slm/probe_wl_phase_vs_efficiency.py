@@ -218,9 +218,9 @@ def main() -> int:
         ),
         encoding="utf-8",
     )
-    print(f"产物: {csv_path}")
+    logger.info(f"产物: {csv_path}")
     if best:
-        print(
+        logger.info(
             f"最优 phase = {best['phase_accepted']} (={best['phase_accepted_pi']:.2f}pi, "
             f"2π灰度={best['two_pi_gray']})  η±1 = {best['eta_plus_total']:.4f}  η0 = {best['eta_zero']:.4f}"
         )

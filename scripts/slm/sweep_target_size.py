@@ -874,46 +874,46 @@ def print_summary(
     lo, hi, best, degenerate, message = window
     valid_pts = [p for p in result.points if p.valid]
     print()
-    print("=" * 72)
-    print("光学界限 (解析):")
-    print(f"  焦面单像素 Δx = λf/(N_x·p) = {result.limits.far_field_sample_m * 1e6:.4f} µm")
-    print(f"  最大无混叠视场 FOV = λf/p   = {result.limits.slm_fov_m * 1e3:.4f} mm")
-    print(f"  实用上限 = min(FOV, 传感器短边) = {result.limits.practical_max_px:.1f} px (相机像元)")
-    print(f"  系统签名 = {result.limits.signature()}")
-    print(
+    logger.info("=" * 72)
+    logger.info("光学界限 (解析):")
+    logger.info(f"  焦面单像素 Δx = λf/(N_x·p) = {result.limits.far_field_sample_m * 1e6:.4f} µm")
+    logger.info(f"  最大无混叠视场 FOV = λf/p   = {result.limits.slm_fov_m * 1e3:.4f} mm")
+    logger.info(f"  实用上限 = min(FOV, 传感器短边) = {result.limits.practical_max_px:.1f} px (相机像元)")
+    logger.info(f"  系统签名 = {result.limits.signature()}")
+    logger.info(
         f"零级锚点: xy={tuple(round(v, 2) for v in result.zero_order_xy)} "
         f"网格下标 {result.centre_ij}, 采样步长 {tuple(round(v, 3) for v in result.sample_step_ccd)} px"
     )
-    print(f"模型噪声地板 (valid = mean_core ≥ k={result.valid_k:g}×地板): {result.noise_floor}")
+    logger.info(f"模型噪声地板 (valid = mean_core ≥ k={result.valid_k:g}×地板): {result.noise_floor}")
     if result.ref_frame_dir is not None:
-        print(f"fidelity_proxy 参考帧: {result.ref_frame_dir} (零级 {result.ref_zero_rc})")
+        logger.info(f"fidelity_proxy 参考帧: {result.ref_frame_dir} (零级 {result.ref_zero_rc})")
     else:
-        print("fidelity_proxy 参考帧: 未加载 (--no-ref-frame)")
-    print("候选尺寸 (相机像元): " + ", ".join(f"{v:.1f}" for v in result.sizes))
-    print(f"有效点: {len(valid_pts)}/{len(result.points)} 个 (空盒点已标记无效, 不参与窗口选择)")
+        logger.info("fidelity_proxy 参考帧: 未加载 (--no-ref-frame)")
+    logger.info("候选尺寸 (相机像元): " + ", ".join(f"{v:.1f}" for v in result.sizes))
+    logger.info(f"有效点: {len(valid_pts)}/{len(result.points)} 个 (空盒点已标记无效, 不参与窗口选择)")
     if lo is not None:
-        print(f"峰值窗口 select_best_window: [{lo:.1f}, {hi:.1f}] px, 峰值 {best:.1f} px")
+        logger.info(f"峰值窗口 select_best_window: [{lo:.1f}, {hi:.1f}] px, 峰值 {best:.1f} px")
     else:
-        print(f"峰值窗口: 已拒斥 —— {message}")
+        logger.info(f"峰值窗口: 已拒斥 —— {message}")
     if degenerate:
         for name, reason in degenerate:
-            print(f"  [退化指标] {name}: {reason}")
+            logger.info(f"  [退化指标] {name}: {reason}")
     else:
-        print("  [退化指标] 无 —— 全部指标有区分度")
+        logger.info("  [退化指标] 无 —— 全部指标有区分度")
     if fit[0] is None:
-        print(f"单峰拟合 fit_optimum: 不呈单峰 (r²={fit[2]:.3f}) —— 顶点显式 None")
+        logger.info(f"单峰拟合 fit_optimum: 不呈单峰 (r²={fit[2]:.3f}) —— 顶点显式 None")
     else:
-        print(
+        logger.info(
             f"单峰拟合 fit_optimum: 顶点 {fit[0]:.1f} px, 半宽 {fit[1]:.1f} px, r²={fit[2]:.3f}"
         )
     if valid_pts:
-        print(
+        logger.info(
             f"推荐 recommend(): largest_valid={max(p.size_px for p in valid_pts):.1f} px, "
             f"best_balance={best_balance_size(valid_pts):.1f} px"
         )
     if calibration_path is not None:
-        print(f"标定表已写入: {calibration_path}")
-    print("=" * 72)
+        logger.info(f"标定表已写入: {calibration_path}")
+    logger.info("=" * 72)
 
 
 # --------------------------------------------------------------------------- #
@@ -926,8 +926,8 @@ def run_dry(args: argparse.Namespace) -> int:
     fig_dir = out_dir / "figures"
     out_dir.mkdir(parents=True, exist_ok=True)
     fig_dir.mkdir(parents=True, exist_ok=True)
-    print(f"运行目录: {out_dir}")
-    print(f"检查点: {args.checkpoint}")
+    logger.info(f"运行目录: {out_dir}")
+    logger.info(f"检查点: {args.checkpoint}")
 
     zero_xy = (
         (float(args.zero_order_x), float(args.zero_order_y))
@@ -1079,7 +1079,7 @@ def run_execute(args: argparse.Namespace) -> int:
     fig_dir = out_dir / "figures"
     out_dir.mkdir(parents=True, exist_ok=True)
     fig_dir.mkdir(parents=True, exist_ok=True)
-    print(f"运行目录: {out_dir}")
+    logger.info(f"运行目录: {out_dir}")
 
     # ---- P0.5: 等设备空出来 (公平仲裁, 不抢) --------------------------------
     wait_s = float(getattr(args, "wait_until_idle", 0.0) or 0.0)

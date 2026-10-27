@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import time
 from datetime import datetime, timezone
@@ -77,7 +78,7 @@ def main() -> None:
                        coverage=result["fused"].coverage,
                        metrics=result["metrics"], recorded_utc=datetime.now(timezone.utc).isoformat())
         (args.out / "hdr_metrics.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        logger.info(json.dumps(payload, indent=2, ensure_ascii=False))
         return
 
     from ao_shaping.drivers.ccd.common import create_camera
@@ -132,9 +133,9 @@ def main() -> None:
                    reference_ms=reference, metrics=result["metrics"],
                    recorded_utc=datetime.now(timezone.utc).isoformat())
     (args.out / "hdr_metrics.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(json.dumps({k: v for k, v in payload.items() if k != "metrics"}, indent=2, ensure_ascii=False))
+    logger.info(json.dumps({k: v for k, v in payload.items() if k != "metrics"}, indent=2, ensure_ascii=False))
     for size, values in payload["metrics"].items():
-        print(f"  {size:>5} px: mean {values['mean_core']:.4f}  fill {values['fill']:.4f}  "
+        logger.info(f"  {size:>5} px: mean {values['mean_core']:.4f}  fill {values['fill']:.4f}  "
               f"CV {values['cv_core']:.3f}  valid {values['valid']}")
 
 

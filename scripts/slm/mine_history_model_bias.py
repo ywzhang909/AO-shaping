@@ -2704,7 +2704,7 @@ def run(args: argparse.Namespace) -> int:
         )
 
     logger.info("产物写入 {}", out_dir)
-    print(json.dumps({
+    logger.info(json.dumps({
         "output_dir": out_dir.as_posix(),
         "n_sessions": len(sessions),
         "n_pairs": sum(len(s.pairs) for s in sessions),

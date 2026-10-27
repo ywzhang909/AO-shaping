@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from loguru import logger
 import sys
 
 import pandas as pd
@@ -17,10 +18,10 @@ def main() -> None:
     summary_df, _, _, artifacts = run_suite_and_save(output_dir=output_dir)
     pd.set_option("display.width", 160)
     pd.set_option("display.max_columns", None)
-    print(summary_df.to_string(index=False, float_format=lambda value: f"{value:.6f}"))
-    print(f"\nArtifacts saved to: {output_dir}")
+    logger.info(summary_df.to_string(index=False, float_format=lambda value: f"{value:.6f}"))
+    logger.info(f"\nArtifacts saved to: {output_dir}")
     for name, path in artifacts.items():
-        print(f"{name}: {path}")
+        logger.info(f"{name}: {path}")
 
 
 if __name__ == "__main__":

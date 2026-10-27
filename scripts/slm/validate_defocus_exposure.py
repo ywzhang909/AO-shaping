@@ -6,6 +6,7 @@ All raw frames, exposure readbacks and explicit stability verdicts are retained.
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import pickle
 import sys
@@ -40,7 +41,7 @@ def main():
     if args.max_wait_s <= 0:
         parser.error("--max-wait-s must be positive")
     plan = [(branch, fraction) for branch in args.branches for fraction in args.fractions]
-    print(json.dumps({"source": str(args.directory), "plan": plan}, indent=2))
+    logger.info(json.dumps({"source": str(args.directory), "plan": plan}, indent=2))
     if not args.execute:
         return
 

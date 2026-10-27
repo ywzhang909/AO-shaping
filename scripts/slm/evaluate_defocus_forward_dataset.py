@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import sys
 from pathlib import Path
@@ -57,7 +58,7 @@ def main():
                 metrics.append(m)
             results[name] = {"source_fit": str(fit.resolve()), "rows": metrics}
             np.savez_compressed(out/f"prediction_{name}.npz", predicted=predicted, measured=images, camera_xy=xy)
-            print(name, [(b, np.mean([m["corr"] for m in metrics if m["branch"]==b and m["family"]!="reference"])) for b in ("U", "C")])
+            logger.info(name, [(b, np.mean([m["corr"] for m in metrics if m["branch"]==b and m["family"]!="reference"])) for b in ("U", "C")])
     (out/"evaluation.json").write_text(json.dumps(results, indent=2))
 
 

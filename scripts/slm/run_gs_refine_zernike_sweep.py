@@ -1199,7 +1199,7 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
     # 组目录: <根目录>/<组名>/。一次调用只探这一组 (自变量 = n_max)。
     out_dir = group_output_dir(out_root, params.group)
     out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"[out] 根目录 {out_root} / 组目录 {out_dir} (组名 {params.group})")
+    logger.info(f"[out] 根目录 {out_root} / 组目录 {out_dir} (组名 {params.group})")
 
     if params.cam_type == "sim":
         patch_sim_pib_shaping(params.cam_type)
@@ -1256,7 +1256,7 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         send_overlay = build_focus_overlay(
             params.defocus_focal_mm, beam_radius_px=params.beam_radius_px
         )
-        print(
+        logger.info(
             f"[stage A] 读回 {stage_a_source}: center={center_xy} w0={w0:.2f}px "
             f"target_side={side:.2f}px epochs={stage_a.epochs_executed} "
             f"best_score={stage_a.best_score:.4f}"
@@ -1340,7 +1340,7 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
             slm_number=params.slm_number,
         )
         side = resolve_target_side(w0, params.cam_size, params.target_side)
-        print(
+        logger.info(
             f"[probe] cam_type={params.cam_type} probe_shape={probe_shape} "
             f"center={center_xy} w0={w0:.2f}px target_side={side:.2f}px"
         )
@@ -1384,7 +1384,7 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
             else chunk_best
         )
         epochs_executed = int(getattr(rec_a, "epochs_executed", 0))
-        print(
+        logger.info(
             f"[stage A] best_stage={rec_a.best_stage} "
             f"best_score={best_score:.4f} "
             f"epochs={epochs_executed}/{params.epochs} "
@@ -1429,7 +1429,7 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         )
         if params.stage_a_only:
             npz_path, json_path = save_stage_a(stage_a, out_dir)
-            print(f"[stage A] 落盘 {npz_path} / {json_path}")
+            logger.info(f"[stage A] 落盘 {npz_path} / {json_path}")
             summary = {
                 **group_fields(params.group, params.group_meta),
                 "config": _jsonable(asdict(params)),
@@ -1477,7 +1477,7 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
                     n_rows=0,
                 ),
             )
-            print(f"[done] wrote {out_dir / 'summary.json'} (Stage A only)")
+            logger.info(f"[done] wrote {out_dir / 'summary.json'} (Stage A only)")
             return summary
 
     # --- Stage B + C: per-order fit and SPGD ------------------------------
@@ -1487,7 +1487,7 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         fit = fit_best_phase(best_phase, n_max, params.beam_radius_px)
         clip_warning = check_zernike_clip(fit.max_abs_coefficient)
         if clip_warning:
-            print(f"[warn] n_max={n_max}: {clip_warning}")
+            logger.info(f"[warn] n_max={n_max}: {clip_warning}")
 
         cfg = build_stage_c_config(
             center=center_xy,
@@ -1564,7 +1564,7 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
                 int(best_index),
                 float(best_value),
             )
-        print(
+        logger.info(
             f"n_max={n_max} modes={fit.n_modes} "
             f"fit_rms={fit.rms_residual_rad:.4f}rad "
             f"max|c|={fit.max_abs_coefficient:.3f} | "
@@ -1650,7 +1650,7 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
             n_rows=len(orders),
         ),
     )
-    print(f"[done] wrote {out_dir / 'summary.json'}")
+    logger.info(f"[done] wrote {out_dir / 'summary.json'}")
     return summary
 
 
@@ -1821,7 +1821,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         group_meta = parse_group_meta(args.group_meta_pairs)
     except ValueError as exc:
-        print(f"参数错误: {exc}")
+        logger.info(f"参数错误: {exc}")
         return 2
     # --stage-a-only 与 --stage-a-in **可以**同时给: 那是「续跑这一块 Stage A」
     # (读回上一块的末态, 接着跑, 再把新末态落盘)。两者互斥会让「分块但总强度不变」
@@ -1829,10 +1829,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         orders = parse_orders(args.orders) if args.orders else ()
     except ValueError as exc:
-        print(f"参数错误: {exc}")
+        logger.info(f"参数错误: {exc}")
         return 2
     if args.time_budget_s < 0:
-        print(f"参数错误: --time-budget-s 不能为负, 收到 {args.time_budget_s}")
+        logger.info(f"参数错误: --time-budget-s 不能为负, 收到 {args.time_budget_s}")
         return 2
     params = SweepParams(
         cam_type=args.cam_type,
@@ -1868,13 +1868,13 @@ def main(argv: list[str] | None = None) -> int:
         # 光路受阻: 继续跑 8 个泽尼克阶次只是在对着死路测噪声, 而且结果看上去
         # 毫无异常。给出操作者要动手的检查清单, 并用**专属**退出码 (3) 与
         # 「参数错误」(2) 区分开。
-        print(f"光路受阻: {exc}")
-        print("  请先确认 光束→SLM 面板 → 2f 透镜 → CCD 三段光路。")
+        logger.info(f"光路受阻: {exc}")
+        logger.info("  请先确认 光束→SLM 面板 → 2f 透镜 → CCD 三段光路。")
         return 3
     except (FileNotFoundError, ValueError) as exc:
         # 读不回 Stage A 产物 (路径写错 / 文件损坏) 属于「参数错误」: 那条
         # 命令行本身就跑不起来, 与光路无关。
-        print(f"参数错误: {exc}")
+        logger.info(f"参数错误: {exc}")
         return 2
     return 0
 

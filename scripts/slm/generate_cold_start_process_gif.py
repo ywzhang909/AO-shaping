@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import os
+from loguru import logger
 import pickle
 import sys
 from pathlib import Path
@@ -163,4 +164,4 @@ for index, (rec, ccd_frame, pred_intensity, phase_wrapped) in enumerate(frames_d
 
 writer.finish()
 plt.close(fig)
-print(f"GIF saved: {FIG_DIR / f'cold_start_{run_name}_process.gif'}")
+logger.info(f"GIF saved: {FIG_DIR / f'cold_start_{run_name}_process.gif'}")

@@ -43,6 +43,7 @@ Usage (report generation belongs in ``scripts/``, per AGENTS.md)::
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import csv
 import itertools
 import os
@@ -259,7 +260,7 @@ def main() -> int:
     ]
 
     epochs = 2 if args.quick else args.epochs
-    print(
+    logger.info(
         f"matrix: track A = {len(ml_axes)} cells, track B = {len(ao_axes)} cells, "
         f"epochs={epochs}, workers={args.workers}"
     )
@@ -268,7 +269,7 @@ def main() -> int:
     with ProcessPoolExecutor(max_workers=args.workers) as pool:
         futures = {}
         if ml_axes:
-            print("\n--- Track A: ML objective x torch optimizer ---")
+            logger.info("\n--- Track A: ML objective x torch optimizer ---")
             for axes in ml_axes:
                 fut = pool.submit(
                     _run_ml,
@@ -316,9 +317,9 @@ def main() -> int:
                     extra = f" J={row['final_J']:.4g}"
                     if "m_pib" in row:
                         extra += f" m_pib={row['m_pib']:.4f}"
-                print(f"  [{done}/{len(futures)}] {tag}{extra}")
+                logger.info(f"  [{done}/{len(futures)}] {tag}{extra}")
             except Exception as exc:  # report, do not abort the matrix
-                print(f"  [{done}/{len(futures)}] {tag} FAILED: "
+                logger.info(f"  [{done}/{len(futures)}] {tag} FAILED: "
                       f"{type(exc).__name__}: {exc}")
                 rows.append({"track": "A_ml" if track == "A" else "B_ao",
                              "loss" if track == "A" else "objective":
@@ -328,9 +329,9 @@ def main() -> int:
     _write_csv(out_dir / "results.csv", rows)
     _write_markdown(out_dir / "report.md", rows, args, epochs)
     _plot(out_dir / "summary.png", rows)
-    print(f"\nwrote {out_dir / 'results.csv'}")
-    print(f"wrote {out_dir / 'report.md'}")
-    print(f"wrote {out_dir / 'summary.png'}")
+    logger.info(f"\nwrote {out_dir / 'results.csv'}")
+    logger.info(f"wrote {out_dir / 'report.md'}")
+    logger.info(f"wrote {out_dir / 'summary.png'}")
     return 0
 
 

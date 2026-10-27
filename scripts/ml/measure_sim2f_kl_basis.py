@@ -948,60 +948,60 @@ def main(argv: list[str] | None = None) -> int:
     evaluation = _evaluate(part1, part2)
 
     # -- print --------------------------------------------------------------
-    print("=" * 78)
-    print("sim2f probe/fit basis: does a KL basis beat Noll?  (measurement only)")
-    print("=" * 78)
-    print("bench           : Sim2f(Sim2fConfig(), device='cpu', dtype=torch.float64)")
-    print(f"covariance asset: {_display(asset)}")
-    print(f"                 : Noll {int(noll[0])}..{int(noll[-1])}, K={n_high} high-order modes")
-    print(f"draws per leg   : {draws}")
-    print(f"seeds           : kl_realised={SEED_KL_REALISED}  E1_sample={SEED_E1_SAMPLE}  "
+    logger.info("=" * 78)
+    logger.info("sim2f probe/fit basis: does a KL basis beat Noll?  (measurement only)")
+    logger.info("=" * 78)
+    logger.info("bench           : Sim2f(Sim2fConfig(), device='cpu', dtype=torch.float64)")
+    logger.info(f"covariance asset: {_display(asset)}")
+    logger.info(f"                 : Noll {int(noll[0])}..{int(noll[-1])}, K={n_high} high-order modes")
+    logger.info(f"draws per leg   : {draws}")
+    logger.info(f"seeds           : kl_realised={SEED_KL_REALISED}  E1_sample={SEED_E1_SAMPLE}  "
           f"E2(held out)={SEED_E2}  probe state={SEED_STATE}")
-    print(f"  {EUCLIDEAN_STATEMENT}")
-    print(f"  measured Gram of the sampled high-order basis: diag in "
+    logger.info(f"  {EUCLIDEAN_STATEMENT}")
+    logger.info(f"  measured Gram of the sampled high-order basis: diag in "
           f"[{gram['diag_min']:.4f}, {gram['diag_max']:.4f}], max |off-diagonal| "
           f"{gram['off_max']:.3e} (ideal 1 and 0)")
     print()
-    print("PRE-REGISTERED DECISION RULE (fixed before these numbers were seen)")
-    print(f"  {PRE_REGISTERED_RULE}")
+    logger.info("PRE-REGISTERED DECISION RULE (fixed before these numbers were seen)")
+    logger.info(f"  {PRE_REGISTERED_RULE}")
     print()
-    print("CAVEAT ON PART 1 (do not read the E1 KL column as evidence)")
-    print(f"  {CAVEAT}")
+    logger.info("CAVEAT ON PART 1 (do not read the E1 KL column as evidence)")
+    logger.info(f"  {CAVEAT}")
     print()
-    print(_part1_table(part1))
+    logger.info(_part1_table(part1))
     for ensemble, cov in ensembles.items():
-        print(
+        logger.info(
             f"  [{ensemble}] ensemble RMS = {math.sqrt(float(np.trace(cov))):.4f} rad, "
             f"trace(S) = {float(np.trace(cov)):.3e} rad^2"
         )
-    print("  -> the residual column is only comparable WITHIN one ensemble: E1 uses the")
-    print("     asset's own rad^2 scale (a weak turbulence realisation), while E2 carries")
-    print("     draw_aberration's 0.05-0.45 rad per-state RMS rescale. The fractions are")
-    print("     scale-free, which is why they are the column that compares bases.")
+    logger.info("  -> the residual column is only comparable WITHIN one ensemble: E1 uses the")
+    logger.info("     asset's own rad^2 scale (a weak turbulence realisation), while E2 carries")
+    logger.info("     draw_aberration's 0.05-0.45 rad per-state RMS rescale. The fractions are")
+    logger.info("     scale-free, which is why they are the column that compares bases.")
     print()
-    print(f"  realised/canonical variance ladder (E2 vs Sigma, each share normalised to mean 1): "
+    logger.info(f"  realised/canonical variance ladder (E2 vs Sigma, each share normalised to mean 1): "
           f"min {shape_ladder.min():.3f} at Noll {int(noll[int(np.argmin(shape_ladder))])}, "
           f"max {shape_ladder.max():.3f} at Noll {int(noll[int(np.argmax(shape_ladder))])}; "
           f"defocus/last ratio {float(np.diag(sigma)[0] / np.diag(sigma)[-1]):.1f}x -> "
           f"{float(np.diag(e2_cov)[0] / np.diag(e2_cov)[-1]):.1f}x")
     shape = covariance_shape
-    print("  why the gap can only be small (measured on Sigma, Noll basis):")
-    print(f"    diagonal ladder Noll {int(noll[0])}/Noll {int(noll[-1])} = "
+    logger.info("  why the gap can only be small (measured on Sigma, Noll basis):")
+    logger.info(f"    diagonal ladder Noll {int(noll[0])}/Noll {int(noll[-1])} = "
           f"{shape['diag_ladder_ratio_first_to_last']:.1f}x; leading eigenvalues vs leading")
-    print(f"    diagonal entries (top 3) = {shape['leading_eigen_over_leading_diag_top3']:.3f}; "
+    logger.info(f"    diagonal entries (top 3) = {shape['leading_eigen_over_leading_diag_top3']:.3f}; "
           f"max |off-diagonal corr| = {shape['max_abs_offdiagonal_correlation']:.3f}")
-    print(f"    but {100.0 * shape['offdiagonal_corr_energy_between_near_equal_partners']:.2f}% "
+    logger.info(f"    but {100.0 * shape['offdiagonal_corr_energy_between_near_equal_partners']:.2f}% "
           "of the off-diagonal correlation energy links equal-variance partners; it links")
-    print("    modes 3.7-9.5x apart in variance, so a rotation cannot move the top-K sum.")
-    print("    sum(top-K eigenvalues)/sum(first-K diagonal) IS the achievable ceiling:")
-    print("      " + "  ".join(
+    logger.info("    modes 3.7-9.5x apart in variance, so a rotation cannot move the top-K sum.")
+    logger.info("    sum(top-K eigenvalues)/sum(first-K diagonal) IS the achievable ceiling:")
+    logger.info("      " + "  ".join(
         f"K={k}:{shape['ceiling_ratio_by_K'][str(k)]:.3f}" for k in K_GRID))
     print()
-    print(_part2_table(part2))
+    logger.info(_part2_table(part2))
     print()
-    print("DECISION")
+    logger.info("DECISION")
     for row in evaluation["criterion1"]:
-        print(
+        logger.info(
             f"  criterion 1 @ K={row['K']} {row['ensemble']:<12}: "
             f"kl_sigma {100.0 * row['kl_sigma_fraction']:.2f}% vs noll "
             f"{100.0 * row['noll_fraction']:.2f}% -> ratio {row['ratio']:.3f} "
@@ -1009,22 +1009,22 @@ def main(argv: list[str] | None = None) -> int:
         )
     for row in evaluation["criterion2"]:
         if row["comparable"]:
-            print(
+            logger.info(
                 f"  criterion 2 {row['bench']}/{row['state']} K={row['K']:<2}: "
                 f"cond {row['kl_cond']:.2f} vs noll {row['noll_cond']:.2f} -> ratio "
                 f"{row['ratio']:.3f} (needs <= {row['threshold']}) "
                 f"{'PASS' if row['pass'] else 'FAIL'}"
             )
         else:
-            print(
+            logger.info(
                 f"  criterion 2 {row['bench']}/{row['state']} K={row['K']:<2}: "
                 f"NOT COMPARABLE -- {row['reason']}"
             )
-    print(f"  criterion 2 evaluated on {evaluation['criterion2_comparable_conditions']} "
+    logger.info(f"  criterion 2 evaluated on {evaluation['criterion2_comparable_conditions']} "
           f"of {len(evaluation['criterion2'])} (bench, state, K) conditions.")
     print()
-    print(f"  VERDICT: {evaluation['verdict']}")
-    print(f"  ({elapsed:.1f} s)")
+    logger.info(f"  VERDICT: {evaluation['verdict']}")
+    logger.info(f"  ({elapsed:.1f} s)")
 
     # -- artifacts ----------------------------------------------------------
     payload = {
@@ -1102,8 +1102,8 @@ def main(argv: list[str] | None = None) -> int:
     md_path.write_text(markdown + "\n", encoding="utf-8")
 
     print()
-    print(f"wrote {_display(json_path)}")
-    print(f"wrote {_display(md_path)}")
+    logger.info(f"wrote {_display(json_path)}")
+    logger.info(f"wrote {_display(md_path)}")
     return 0
 
 

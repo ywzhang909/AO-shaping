@@ -28,6 +28,7 @@ Paired: the same GS draws are refined by every model in the ladder.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -137,16 +138,16 @@ def main() -> None:
     )
     max_train = max(cfg["n_train"] for cfg in LADDER)
     need = DRAWS * max_train
-    print(f"loading {need} real samples ...")
+    logger.info(f"loading {need} real samples ...")
     pool = [load_sample(index, i) for i in range(need)]
 
     mask = roi_mask((GRID, GRID), (GRID / 2, GRID / 2), "rectangle", SIZE_FRAC * GRID, ASPECT)
     target = torch.as_tensor(square_amplitude(GRID), dtype=torch.float32)[None, None]
     flat = score_on_sim(np.zeros(N_MAX * (N_MAX + 3) // 2), GRID, N_MAX)["shape_sum"]
 
-    print("=" * 100)
-    print("DOES GRADIENT ALIGNMENT IMPROVE WITH FORWARD-MODEL ACCURACY?")
-    print("=" * 100)
+    logger.info("=" * 100)
+    logger.info("DOES GRADIENT ALIGNMENT IMPROVE WITH FORWARD-MODEL ACCURACY?")
+    logger.info("=" * 100)
 
     # GS reference per draw, per n_max (GS projection depends on n_max).
     rows: list[dict] = []
@@ -180,7 +181,7 @@ def main() -> None:
             r for r in rows if all(r[k] == v for k, v in kw.items())
         ]
 
-    print(f"\n{'n_max':>6}{'n_train':>8}{'held-out MSE':>14}{'GS only':>10}"
+    logger.info(f"\n{'n_max':>6}{'n_train':>8}{'held-out MSE':>14}{'GS only':>10}"
           f"{'GS+refine':>11}{'delta':>10}{'positives':>11}")
     summary = []
     for cfg in LADDER:
@@ -190,23 +191,23 @@ def main() -> None:
         rf = np.array([r["refined"] for r in s])
         d = rf - gs
         summary.append({**cfg, "held_out_mse": acc, "gs": float(gs.mean()), "delta": float(d.mean())})
-        print(
+        logger.info(
             f"{cfg['n_max']:>6}{cfg['n_train']:>8}{acc:>14.5f}{gs.mean():>10.4f}"
             f"{rf.mean():>11.4f}{d.mean():>+10.4f}{int((d > 0).sum())}/{len(d):>10}"
         )
 
-    print(f"\nflat reference = {flat:.4f}")
+    logger.info(f"\nflat reference = {flat:.4f}")
 
     # The decision question: does the delta trend toward zero as accuracy improves?
     ordered = sorted(summary, key=lambda r: r["held_out_mse"])
-    print("\ndelta ordered by forward accuracy (best model first):")
+    logger.info("\ndelta ordered by forward accuracy (best model first):")
     for r in ordered:
-        print(
+        logger.info(
             f"  MSE={r['held_out_mse']:.5f}  n_max={r['n_max']:>2} n_train={r['n_train']}  "
             f"delta={r['delta']:+.4f}"
         )
     best, worst = ordered[0], ordered[-1]
-    print(
+    logger.info(
         f"\nmost accurate model delta={best['delta']:+.4f} vs "
         f"least accurate {worst['delta']:+.4f}"
     )
@@ -217,11 +218,11 @@ def main() -> None:
         verdict = "alignment improves with accuracy, but not enough to make refinement safe"
     else:
         verdict = "MISALIGNMENT IS INTRINSIC -- forward accuracy does not rescue refinement"
-    print(f"VERDICT: {verdict}")
+    logger.info(f"VERDICT: {verdict}")
 
     out = Path("report/loss_defects/gradient_alignment_vs_accuracy.json")
     out.write_text(json.dumps({"rows": rows, "summary": summary}, indent=2), encoding="utf-8")
-    print(f"\nwrote {out}")
+    logger.info(f"\nwrote {out}")
 
 
 if __name__ == "__main__":

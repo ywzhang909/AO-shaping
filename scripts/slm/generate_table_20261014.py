@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import matplotlib
+from loguru import logger
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -47,6 +48,6 @@ def render_model_in_loop_20261014_table() -> Path:
     return out
 
 if __name__ == "__main__":
-    print("Generating model-in-loop 2026-10-14 table...")
+    logger.info("Generating model-in-loop 2026-10-14 table...")
     img = render_model_in_loop_20261014_table()
-    print(f"  -> {img.relative_to(ROOT)}")
+    logger.info(f"  -> {img.relative_to(ROOT)}")

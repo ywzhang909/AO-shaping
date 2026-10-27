@@ -53,6 +53,7 @@ per-configuration ``.npy`` files used for the agreement numbers.
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import os
 import shutil
@@ -287,7 +288,7 @@ def _run_child(payload: dict[str, Any]) -> int:
         "screens": _measure_screens(ob, out_dir),
         "asm": _measure_asm(ob, cp, out_dir),
     }
-    print(RESULT_MARKER + json.dumps(record))
+    logger.info(RESULT_MARKER + json.dumps(record))
     return 0
 
 
@@ -658,9 +659,9 @@ def _render_markdown(
 def _print_summary(records: dict[str, dict[str, Any]], table: dict[str, Any], out_dir: Path) -> None:
     """Print the compact terminal summary (the same facts as the markdown)."""
     print()
-    print("config                 | module | screens 128 | screens 512 | screens 1920 | ASM 1920 numpy | ASM 1920 device")
+    logger.info("config                 | module | screens 128 | screens 512 | screens 1920 | ASM 1920 numpy | ASM 1920 device")
     for label, rec in records.items():
-        print(
+        logger.info(
             f"{label:<22} | {rec['array_module']:<6} | "
             f"{_fmt(rec['screens']['128']['median_s'], '.3g'):>11} | "
             f"{_fmt(rec['screens']['512']['median_s'], '.3g'):>11} | "
@@ -669,19 +670,19 @@ def _print_summary(records: dict[str, dict[str, Any]], table: dict[str, Any], ou
             f"{_fmt(rec['asm']['1920'].get('gpu_median_ms', float('nan')), '.3g'):>15}"
         )
     print()
-    print("agreement vs cpu/resident0 (max|d|/rms / pearson):")
+    logger.info("agreement vs cpu/resident0 (max|d|/rms / pearson):")
     for label, row in table.items():
         cells = [
             f"{_fmt(row[f'screen_{n}']['max_rel_over_rms'], '.1e')}"
             for n in SCREEN_SIZES
         ] + [_fmt(row[f'intensity_{n}']['max_rel_over_rms'], '.1e') for n in ASM_SIZES]
-        print(f"  {label:<22} screens {', '.join(cells[:3])} | intensity {', '.join(cells[3:])}")
+        logger.info(f"  {label:<22} screens {', '.join(cells[:3])} | intensity {', '.join(cells[3:])}")
     print()
     for line in _summary_lines(records, table):
-        print(line.replace("- ", "* ", 1))
+        logger.info(line.replace("- ", "* ", 1))
     print()
-    print(f"wrote {out_dir / 'benchmark_oopao_gpu.json'}")
-    print(f"wrote {out_dir / 'benchmark_oopao_gpu.md'}")
+    logger.info(f"wrote {out_dir / 'benchmark_oopao_gpu.json'}")
+    logger.info(f"wrote {out_dir / 'benchmark_oopao_gpu.md'}")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -737,7 +738,7 @@ def main(argv: list[str] | None = None) -> int:
             records[label] = _spawn(config, work_dir, args.child_timeout)
         except Exception as exc:  # a failed configuration is itself a result
             failures[label] = f"{type(exc).__name__}: {exc}"
-            print(f"[bench] {label} FAILED: {failures[label].splitlines()[0]}")
+            logger.info(f"[bench] {label} FAILED: {failures[label].splitlines()[0]}")
     elapsed = time.perf_counter() - started
     if not records:
         print("error: every configuration failed", file=sys.stderr)
@@ -776,7 +777,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.keep_arrays:
         shutil.rmtree(work_dir, ignore_errors=True)
     if failures:
-        print(f"note: {len(failures)} configuration(s) failed: {', '.join(failures)}")
+        logger.info(f"note: {len(failures)} configuration(s) failed: {', '.join(failures)}")
     return 0
 
 

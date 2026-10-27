@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import base64
+from loguru import logger
 import json
 import re
 import struct
@@ -265,7 +266,7 @@ def load_run(run: str) -> RunData:
         try:
             cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as exc:
-            print(f"  [warn] {run}: config.json 解析失败 ({type(exc).__name__})")
+            logger.info(f"  [warn] {run}: config.json 解析失败 ({type(exc).__name__})")
             cfg = {}
         data.total_timesteps = cfg.get("total_timesteps")
         data.seed = cfg.get("seed")
@@ -279,7 +280,7 @@ def load_run(run: str) -> RunData:
         try:
             s = json.loads(sum_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as exc:
-            print(f"  [warn] {run}: summary.json 解析失败 ({type(exc).__name__})")
+            logger.info(f"  [warn] {run}: summary.json 解析失败 ({type(exc).__name__})")
             s = {}
         data.mean_reward = s.get("mean_reward")
         data.std_reward = s.get("std_reward")
@@ -296,7 +297,7 @@ def load_run(run: str) -> RunData:
             results = np.asarray(d["results"], dtype=float)
             data.npz_results_mean = results.mean(axis=1)
         except (OSError, KeyError, ValueError) as exc:
-            print(f"  [warn] {run}: evaluations.npz 解析失败 ({type(exc).__name__})")
+            logger.info(f"  [warn] {run}: evaluations.npz 解析失败 ({type(exc).__name__})")
             data.has_npz = False
 
     # --- tfevents ---
@@ -308,7 +309,7 @@ def load_run(run: str) -> RunData:
             try:
                 data.tf_curves[tag] = tf_scalars(str(tb), tag, limit=100000)
             except (OSError, struct.error, MemoryError) as exc:
-                print(f"  [warn] {run}: tfevents 解析失败 ({type(exc).__name__})")
+                logger.info(f"  [warn] {run}: tfevents 解析失败 ({type(exc).__name__})")
 
     return data
 
@@ -764,42 +765,42 @@ def build_report(runs: list[RunData], out_md: Path) -> None:
 # 主流程
 # ---------------------------------------------------------------------------
 def main() -> None:
-    print("=== 生成 SAC/Robust-RL 训练运行分析报告 ===")
-    print(f"模型目录: {MODELS_DIR}")
-    print(f"日志目录: {LOGS_DIR}")
-    print(f"输出目录: {OUT_DIR}")
+    logger.info("=== 生成 SAC/Robust-RL 训练运行分析报告 ===")
+    logger.info(f"模型目录: {MODELS_DIR}")
+    logger.info(f"日志目录: {LOGS_DIR}")
+    logger.info(f"输出目录: {OUT_DIR}")
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    print("[1/7] 加载全部运行遥测 ...")
+    logger.info("[1/7] 加载全部运行遥测 ...")
     runs = load_all_runs()
-    print(f"  共 {len(runs)} 个运行")
+    logger.info(f"  共 {len(runs)} 个运行")
     for r in runs:
-        print(f"  {r.run:45s} family={r.family:12s} ext={r.extractor:38s} "
+        logger.info(f"  {r.run:45s} family={r.family:12s} ext={r.extractor:38s} "
               f"cfg={r.has_config} sum={r.has_summary} npz={r.has_npz} tb={r.has_tfevents}")
 
-    print("[2/7] 图1: 家族构成 ...")
+    logger.info("[2/7] 图1: 家族构成 ...")
     fig1_runs_overview(runs, OUT_DIR / "runs_overview.png")
 
-    print("[3/7] 图2: 学习曲线 ...")
+    logger.info("[3/7] 图2: 学习曲线 ...")
     fig2_learning_curves(runs, OUT_DIR / "learning_curves.png")
 
-    print("[4/7] 图3: 最终指标对比 ...")
+    logger.info("[4/7] 图3: 最终指标对比 ...")
     fig3_final_metrics(runs, OUT_DIR / "final_metrics.png")
 
-    print("[5/7] 图4: 提取器分布 ...")
+    logger.info("[5/7] 图4: 提取器分布 ...")
     fig4_extractor_pie(runs, OUT_DIR / "extractor_pie.png")
 
-    print("[6/7] 图5/图6: 课程学习分析 ...")
+    logger.info("[6/7] 图5/图6: 课程学习分析 ...")
     fig5_turbulence_tfevents(runs, OUT_DIR / "turbulence_tfevents.png")
     fig6_curriculum_stages(runs, OUT_DIR / "curriculum_stages.png")
 
-    print("[7/7] 生成 Markdown 报告 ...")
+    logger.info("[7/7] 生成 Markdown 报告 ...")
     build_report(runs, OUT_DIR / "report.md")
 
-    print("=== 完成 ===")
+    logger.info("=== 完成 ===")
     for f in sorted(OUT_DIR.iterdir()):
-        print(f"  {f.name:32s} {f.stat().st_size:>10,} bytes")
+        logger.info(f"  {f.name:32s} {f.stat().st_size:>10,} bytes")
 
 
 if __name__ == "__main__":

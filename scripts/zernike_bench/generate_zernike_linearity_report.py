@@ -24,6 +24,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import glob
 import json
 import sys
@@ -257,7 +258,7 @@ def main() -> int:
     raw = Path(args.raw_scan) if args.raw_scan else latest_match(
         str(ROOT / "data" / "zernike_correction" / "raw_scan_*.json"))
     if raw is None or not raw.exists():
-        print("[FAIL] 未找到 raw_scan json")
+        logger.info("[FAIL] 未找到 raw_scan json")
         return 1
     rep_path = Path(args.report) if args.report else latest_match(
         str(ROOT / "data" / "zernike_correction" / "report_*.json"))
@@ -267,24 +268,24 @@ def main() -> int:
     figs = out / "figures"
     figs.mkdir(parents=True, exist_ok=True)
 
-    print("=" * 72)
-    print("[Zernike 线性度报告] WFS 读数是否随 SLM 系数成比例增长")
-    print("=" * 72)
-    print(f"  raw scan: {raw}")
-    print(f"  report  : {rep_path}")
+    logger.info("=" * 72)
+    logger.info("[Zernike 线性度报告] WFS 读数是否随 SLM 系数成比例增长")
+    logger.info("=" * 72)
+    logger.info(f"  raw scan: {raw}")
+    logger.info(f"  report  : {rep_path}")
 
     g = group_raw_scan(json.loads(raw.read_text(encoding="utf-8")), to_waves=True)
     rows = analyze_linearity(g)
     ok = [r for r in rows if r["verdict"].startswith("成比例")]
     bad = [r for r in rows if r["verdict"].startswith("**")]
-    print(f"[OK] 成比例 {len(ok)}/{len(rows)}; 不成比例 {len(bad)}: "
+    logger.info(f"[OK] 成比例 {len(ok)}/{len(rows)}; 不成比例 {len(bad)}: "
           f"{[(r['m'], int(r['R'])) for r in bad]}")
 
     fig_response_vs_amp(g, rows, figs / "01_response_vs_amplitude.png")
     fig_ratio_and_r2(rows, figs / "02_ratio_r2.png")
     body = write_markdown(out, {"rows": rows, "raw": raw, "report": rep})
     (out / "linearity.md").write_text("\n".join(body), encoding="utf-8")
-    print(f"\n[OK] 报告: {out / 'linearity.md'}")
+    logger.info(f"\n[OK] 报告: {out / 'linearity.md'}")
 
     if args.append_to:
         target = Path(args.append_to).resolve()
@@ -303,10 +304,10 @@ def main() -> int:
         if marker in existing:                      # 幂等: 替换旧章节
             existing = existing.split(marker)[0]
         target.write_text(existing.rstrip() + sep + section + "\n", encoding="utf-8")
-        print(f"[OK] 已追加到: {target} (图前缀 {prefix})")
+        logger.info(f"[OK] 已追加到: {target} (图前缀 {prefix})")
 
-    print(f"[OK] 图: {figs}")
-    print("=" * 72)
+    logger.info(f"[OK] 图: {figs}")
+    logger.info("=" * 72)
     return 0
 
 

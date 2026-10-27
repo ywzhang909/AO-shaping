@@ -23,6 +23,7 @@ refinement has anything to add to GS at all.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -101,10 +102,10 @@ def main() -> None:
     target = torch.as_tensor(square_amplitude(GRID), dtype=torch.float32)[None, None]
     flat = score_on_sim(np.zeros(N_MAX * (N_MAX + 3) // 2), GRID, N_MAX)["shape_sum"]
 
-    print("=" * 92)
-    print("DOES REFINEMENT ADD ANYTHING TO GS?  (the slm_gs_refine two-stage shape)")
-    print("=" * 92)
-    print(f"draws={DRAWS} refine_steps={REFINE_STEPS} gs_iters={GS_ITERS} flat={flat:.4f}")
+    logger.info("=" * 92)
+    logger.info("DOES REFINEMENT ADD ANYTHING TO GS?  (the slm_gs_refine two-stage shape)")
+    logger.info("=" * 92)
+    logger.info(f"draws={DRAWS} refine_steps={REFINE_STEPS} gs_iters={GS_ITERS} flat={flat:.4f}")
 
     rows = []
     for d in range(DRAWS):
@@ -119,11 +120,11 @@ def main() -> None:
     def arr(key: str) -> np.ndarray:
         return np.array([r[key] for r in rows])
 
-    print(f"\n{'draw':>6}{'GS only':>11}{'GS+MSE':>11}{'GS+phys':>11}")
+    logger.info(f"\n{'draw':>6}{'GS only':>11}{'GS+MSE':>11}{'GS+phys':>11}")
     for r in rows:
-        print(f"{r['draw']:>6}{r['gs_only']:>11.4f}{r['gs_then_mse']:>11.4f}{r['gs_then_phys']:>11.4f}")
+        logger.info(f"{r['draw']:>6}{r['gs_only']:>11.4f}{r['gs_then_mse']:>11.4f}{r['gs_then_phys']:>11.4f}")
 
-    print(f"\n{'':<11}{'mean':>10}{'sd':>10}{'min':>10}{'max':>10}{'vs GS':>10}{'positives':>11}")
+    logger.info(f"\n{'':<11}{'mean':>10}{'sd':>10}{'min':>10}{'max':>10}{'vs GS':>10}{'positives':>11}")
     base = arr("gs_only")
     for name in ("gs_only", *ARMS):
         a = arr(name)
@@ -133,25 +134,25 @@ def main() -> None:
             d = a - base
             delta = f"{d.mean():+.4f}"
             pos = f"{int((d > 0).sum())}/{len(d)}"
-        print(
+        logger.info(
             f"{name:<11}{a.mean():>10.4f}{a.std():>10.4f}{a.min():>10.4f}"
             f"{a.max():>10.4f}{delta:>10}{pos:>11}"
         )
 
-    print("\npaired vs GS only (same draw):")
+    logger.info("\npaired vs GS only (same draw):")
     for name in ARMS:
         d = arr(name) - base
         se = d.std(ddof=1) / np.sqrt(len(d))
         verdict = "REFINEMENT HELPS" if d.mean() > 2 * se else "no gain from refinement"
-        print(
+        logger.info(
             f"  {name:<14} delta={d.mean():+.4f} +/- {se:.4f}  "
             f"positives={int((d > 0).sum())}/{len(d)}  t={d.mean() / se:+.2f}  -> {verdict}"
         )
-    print(f"\nflat reference = {flat:.4f}")
+    logger.info(f"\nflat reference = {flat:.4f}")
 
     out = Path("report/loss_defects/gs_plus_refinement.json")
     out.write_text(json.dumps(rows, indent=2), encoding="utf-8")
-    print(f"wrote {out}")
+    logger.info(f"wrote {out}")
 
 
 if __name__ == "__main__":

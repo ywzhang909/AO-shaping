@@ -10,6 +10,7 @@ All figures are saved to `report/shape_trials/model_in_loop/images/`.
 from __future__ import annotations
 
 import csv
+from loguru import logger
 import json
 from pathlib import Path
 
@@ -186,10 +187,10 @@ def render_phase_ccd_comparison() -> Path:
 
 def main() -> None:
     """Generate all supplementary images for 2026-10-14 report."""
-    print("Generating phase and CCD comparison image...")
+    logger.info("Generating phase and CCD comparison image...")
     img = render_phase_ccd_comparison()
-    print(f"  -> {img.relative_to(ROOT)}")
-    print("\nAll images generated in:", IMG_DIR.relative_to(ROOT))
+    logger.info(f"  -> {img.relative_to(ROOT)}")
+    logger.info("\nAll images generated in:", IMG_DIR.relative_to(ROOT))
 
 
 if __name__ == "__main__":

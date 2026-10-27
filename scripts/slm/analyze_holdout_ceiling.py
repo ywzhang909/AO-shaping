@@ -25,6 +25,7 @@ Evidence is written to ``data/debug/analyze_holdout_ceiling/<stamp>/``.
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import shutil
 import sys
@@ -440,44 +441,44 @@ def main(argv: list[str] | None = None) -> int:
         ]
         shutil.copy2(figure, assets / "holdout_ceiling.png")
         for path in written:
-            print(f"report asset: {path}")
+            logger.info(f"report asset: {path}")
 
     header = (
         f"run: {run_dir.name}   support: {result['grid']['support_model_px']} px of a "
         f"{result['grid']['mapped_shape'][0]}-px far-field grid "
         f"({result['grid']['support_area_pct']}%)   gate: {result['gate']:g}"
     )
-    print(header)
-    print(f"{'family':10} {'n':>3} {'full':>8} {'support':>9} {'ceiling':>9} {'energy%':>8}")
+    logger.info(header)
+    logger.info(f"{'family':10} {'n':>3} {'full':>8} {'support':>9} {'ceiling':>9} {'energy%':>8}")
     for row in families:
-        print(
+        logger.info(
             f"{row['family']:10} {row['n']:>3} {row['corr_full']:>8.4f} "
             f"{row['corr_support']:>9.4f} {row['ceiling']:>9.4f} "
             f"{100 * row['energy_fraction_in_support']:>8.2f}"
         )
     print()
-    print(f"{'holdout':26} {'family':10} {'recorded':>9} {'rebuilt':>8} {'ceiling':>8} {'flux/flat':>10} {'corr~flat':>10}")
+    logger.info(f"{'holdout':26} {'family':10} {'recorded':>9} {'rebuilt':>8} {'ceiling':>8} {'flux/flat':>10} {'corr~flat':>10}")
     for probe in result["probes"]:
         if probe["recorded_correlation"] is None:
             continue
-        print(
+        logger.info(
             f"{probe['file']:26} {probe['family']:10} {probe['recorded_correlation']:>9.4f} "
             f"{probe['corr_full']:>8.4f} {probe['ceiling']:>8.4f} "
             f"{probe['flux_ratio_to_flat']:>10.4f} {probe['flat_correlation']:>10.4f}"
         )
     print()
-    print(f"{'holdout':26} {'family':10} {'support':>9} {'support-flat-removed':>21}")
+    logger.info(f"{'holdout':26} {'family':10} {'support':>9} {'support-flat-removed':>21}")
     for probe in result["probes"]:
         if probe["recorded_correlation"] is None:
             continue
-        print(
+        logger.info(
             f"{probe['file']:26} {probe['family']:10} {probe['corr_support']:>9.4f} "
             f"{probe['corr_support_flat_removed']:>21.4f}"
         )
     for family, null in result["holdout_null"].items():
-        print(f"same-family measured-vs-measured null [{family}]: {null['mean']:.4f} (n={null['pairs']})")
-    print(f"evidence: {out_dir}")
-    print(f"figure:   {figure}")
+        logger.info(f"same-family measured-vs-measured null [{family}]: {null['mean']:.4f} (n={null['pairs']})")
+    logger.info(f"evidence: {out_dir}")
+    logger.info(f"figure:   {figure}")
     return 0
 
 

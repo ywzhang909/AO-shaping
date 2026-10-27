@@ -27,6 +27,7 @@ CLUSTERS (shown in relations/similar-functions.md).
 from __future__ import annotations
 
 import json
+from loguru import logger
 import re
 from collections import defaultdict
 from datetime import date
@@ -167,9 +168,9 @@ def main() -> None:
         "clusters": clusters,
     }
     OUT.write_text(json.dumps(out, ensure_ascii=False, indent=1))
-    print(f"wrote {OUT} — {len(pairs)} linked pairs, {len(clusters)} clusters")
+    logger.info(f"wrote {OUT} — {len(pairs)} linked pairs, {len(clusters)} clusters")
     for p in pairs:
-        print(f"  {p['score']:.3f}  {p['a']}  ~  {p['b']}   ({p['reason']})")
+        logger.info(f"  {p['score']:.3f}  {p['a']}  ~  {p['b']}   ({p['reason']})")
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ of the forward figure meaningless.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -157,7 +158,7 @@ def main() -> None:
     )
     fig.savefig(FIG_DIR / "forward_search_pred_vs_true.png", bbox_inches="tight", dpi=140)
     plt.close(fig)
-    print(f"wrote {FIG_DIR / 'forward_search_pred_vs_true.png'}")
+    logger.info(f"wrote {FIG_DIR / 'forward_search_pred_vs_true.png'}")
 
     # ---------------------------------------------------------------- arm summary
     data = json.loads((ROOT / "report" / "loss_defects" / "forward_search.json").read_text(encoding="utf-8"))
@@ -199,7 +200,7 @@ def main() -> None:
     fig.tight_layout()
     fig.savefig(FIG_DIR / "forward_search_summary.png", bbox_inches="tight", dpi=140)
     plt.close(fig)
-    print(f"wrote {FIG_DIR / 'forward_search_summary.png'}")
+    logger.info(f"wrote {FIG_DIR / 'forward_search_summary.png'}")
 
 
 def _peak_norm(t: torch.Tensor) -> torch.Tensor:

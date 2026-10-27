@@ -24,6 +24,7 @@ improves *at all* relative to doing nothing (flat).
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -105,19 +106,19 @@ def inverse_score(model, basis, stacked, start, target, mask, device) -> float:
 
 def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("=" * 104)
-    print("INVERSE PHASE OPTIMISATION through the winning combined architecture")
-    print("=" * 104)
-    print(f"seeds={SEEDS} padding={PADDING} (training, evaluator and GS target all share it)")
+    logger.info("=" * 104)
+    logger.info("INVERSE PHASE OPTIMISATION through the winning combined architecture")
+    logger.info("=" * 104)
+    logger.info(f"seeds={SEEDS} padding={PADDING} (training, evaluator and GS target all share it)")
 
     gs = inv.gs_phase(SIZE_FRAC, ASPECT, iterations=40)
     flat = inv.score_phase(np.zeros((GRID, GRID)), SIZE_FRAC, ASPECT, padding=PADDING)
     gs_score = inv.score_phase(gs, SIZE_FRAC, ASPECT, padding=PADDING)
     if gs_score <= flat:
-        print("STOPPING: the GS target does not beat flat, so the target scale is wrong and")
-        print("every inverse number below would be meaningless.")
+        logger.info("STOPPING: the GS target does not beat flat, so the target scale is wrong and")
+        logger.info("every inverse number below would be meaningless.")
         raise SystemExit(1)
-    print(f"references: flat={flat:.4f}  GS={gs_score:.4f}  (GS - flat = {gs_score - flat:+.4f})")
+    logger.info(f"references: flat={flat:.4f}  GS={gs_score:.4f}  (GS - flat = {gs_score - flat:+.4f})")
 
     index = build_hw_index(index_cache="data/hw_index_cache.json", progress_every=0)
     index = index.filter(families=["slm_zernike_shaping"])
@@ -158,25 +159,25 @@ def main() -> None:
                     rng.normal(0.0, 0.6, (1, n_modes)).astype(np.float32), target, mask, device),
             }
             rows.append(row)
-            print(f"  {row['arm']:<20} seed={seed} r2={row['r2']:+.4f} "
+            logger.info(f"  {row['arm']:<20} seed={seed} r2={row['r2']:+.4f} "
                   f"inv(rand)={row['inv_rand']:.4f}  (flat={flat:.4f})")
 
-    print("\n" + "=" * 104)
-    print(f"means over {len(SEEDS)} seeds -- flat={flat:.4f}; higher is better everywhere")
-    print("=" * 104)
-    print(f"{'arm':<22}{'R2':>9}{'inv(rand)':>11}{'vs flat':>10}{'d(inv) vs A0':>14}{'pos':>7}")
+    logger.info("\n" + "=" * 104)
+    logger.info(f"means over {len(SEEDS)} seeds -- flat={flat:.4f}; higher is better everywhere")
+    logger.info("=" * 104)
+    logger.info(f"{'arm':<22}{'R2':>9}{'inv(rand)':>11}{'vs flat':>10}{'d(inv) vs A0':>14}{'pos':>7}")
     base = {r["seed"]: r["inv_rand"] for r in rows if r["arm"] == "A0 physics"}
     for name in ("A0 physics", "A5 unet", "D2 physics+residual"):
         sel = [r for r in rows if r["arm"] == name]
         d = np.array([r["inv_rand"] - base[r["seed"]] for r in sel])
         m = float(np.mean([r["inv_rand"] for r in sel]))
-        print(f"{name:<22}{np.mean([r['r2'] for r in sel]):>+9.4f}{m:>11.4f}"
+        logger.info(f"{name:<22}{np.mean([r['r2'] for r in sel]):>+9.4f}{m:>11.4f}"
               f"{m - flat:>+10.4f}{d.mean():>+14.4f}{int((d > 0).sum()):>4}/{len(d)}")
 
     out = ROOT / "report" / "loss_defects" / "inverse_combined.json"
     out.write_text(json.dumps({"flat": flat, "gs": gs_score, "padding": PADDING, "rows": rows},
                               indent=2), encoding="utf-8")
-    print(f"\nwrote {out}")
+    logger.info(f"\nwrote {out}")
 
 
 if __name__ == "__main__":

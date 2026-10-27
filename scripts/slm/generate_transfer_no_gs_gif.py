@@ -23,6 +23,7 @@ which calls ``gs_seed()`` zero times. Nothing here opens the SLM or the camera.
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -145,7 +146,7 @@ def main() -> None:
                                  seed_from_run=args.seed_source == "run",
                                  capture_frames=True)
         repro = result["phase_reproduction"]
-        print(f"{shape:10s} frames={len(result['model_frames'])} "
+        logger.info(f"{shape:10s} frames={len(result['model_frames'])} "
               f"B1 phase maxΔ={repro['max_abs']:.3e} bitwise={repro['bitwise_equal']}")
         if not repro["bitwise_equal"]:
             raise SystemExit(f"{shape}: reproduced phase differs from the archive; "
@@ -169,7 +170,7 @@ def main() -> None:
         footer="存档实测帧（复现相位与存档 B1 逐位相同 → 这些帧即该相位的实测）；ΔCV 相对 A1",
         baseline_index=0)
     for path in (model_path, measured_path):
-        print(f"wrote {path} ({path.stat().st_size / 1024:.0f} KiB)")
+        logger.info(f"wrote {path} ({path.stat().st_size / 1024:.0f} KiB)")
 
 
 if __name__ == "__main__":

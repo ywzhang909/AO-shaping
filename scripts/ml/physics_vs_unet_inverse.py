@@ -38,6 +38,7 @@ batch -- the "gradient" would be partly an artefact of batch composition.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -118,12 +119,12 @@ def inverse_design(forward, start: np.ndarray, target, mask, steps: int, lr: flo
 
 def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("=" * 108)
-    print("OPTION 1 (physics, closed-form) vs OPTION 2 (U-Net): forward accuracy AND invertibility")
-    print("=" * 108)
-    print(f"seeds={SEEDS} epochs={EPOCHS} n_max={N_MAX} grid={GRID} padding={PADDING} "
+    logger.info("=" * 108)
+    logger.info("OPTION 1 (physics, closed-form) vs OPTION 2 (U-Net): forward accuracy AND invertibility")
+    logger.info("=" * 108)
+    logger.info(f"seeds={SEEDS} epochs={EPOCHS} n_max={N_MAX} grid={GRID} padding={PADDING} "
           f"unet={UNET_FEATURES} device={device}")
-    print("one shared adapter: coefficients -> canonical basis -> phase -> phasor -> model")
+    logger.info("one shared adapter: coefficients -> canonical basis -> phase -> phasor -> model")
 
     index = build_hw_index(index_cache="data/hw_index_cache.json", progress_every=0)
     index = index.filter(families=["slm_zernike_shaping"])
@@ -145,7 +146,7 @@ def main() -> None:
     flat = inv.score_coefficients(
         np.zeros(n_modes), SIZE_FRAC, ASPECT, n_max=N_MAX, padding=PADDING
     )
-    print(f"n_modes={n_modes}  flat reference score={flat:.4f}  (higher is better)\n")
+    logger.info(f"n_modes={n_modes}  flat reference score={flat:.4f}  (higher is better)\n")
 
     rows: list[dict] = []
     for seed in SEEDS:
@@ -187,7 +188,7 @@ def main() -> None:
                 inverse_design(wrapped, gs, target, mask, 60, 0.02),
                 SIZE_FRAC, ASPECT, n_max=N_MAX, padding=PADDING,
             )
-            print(
+            logger.info(
                 f"  seed={seed} {name:<8} r2={row[f'{name}_r2']:+.4f} "
                 f"ssim={row[f'{name}_ssim']:.4f} psnr={row[f'{name}_psnr']:5.2f} "
                 f"params={row[f'{name}_params']:>10,} "
@@ -195,10 +196,10 @@ def main() -> None:
             )
         rows.append(row)
 
-    print("\n" + "=" * 108)
-    print(f"means over {len(SEEDS)} seeds -- higher is better everywhere; flat={flat:.4f}")
-    print("=" * 108)
-    print(f"{'':<10}{'R2':>9}{'SSIM':>9}{'PSNR':>8}{'params':>13}"
+    logger.info("\n" + "=" * 108)
+    logger.info(f"means over {len(SEEDS)} seeds -- higher is better everywhere; flat={flat:.4f}")
+    logger.info("=" * 108)
+    logger.info(f"{'':<10}{'R2':>9}{'SSIM':>9}{'PSNR':>8}{'params':>13}"
           f"{'inv(rand)':>12}{'inv(gs)':>10}{'inv(gs)-flat':>14}")
 
     def mean(name: str, key: str) -> float:
@@ -206,26 +207,26 @@ def main() -> None:
 
     for name in ("physics", "unet"):
         inv_gs = mean(name, "inv_gs")
-        print(f"{name:<10}{mean(name,'r2'):>+9.4f}{mean(name,'ssim'):>9.4f}"
+        logger.info(f"{name:<10}{mean(name,'r2'):>+9.4f}{mean(name,'ssim'):>9.4f}"
               f"{mean(name,'psnr'):>8.2f}{mean(name,'params'):>13,.0f}"
               f"{mean(name,'inv_rand'):>12.4f}{inv_gs:>10.4f}{inv_gs - flat:>+14.4f}")
 
-    print("\npaired, unet - physics:")
+    logger.info("\npaired, unet - physics:")
     for key, label in (("r2", "forward R2"), ("ssim", "forward SSIM"),
                        ("inv_rand", "inverse from random"), ("inv_gs", "inverse from GS")):
         d = np.array([r[f"unet_{key}"] - r[f"physics_{key}"] for r in rows])
         se = d.std(ddof=1) / np.sqrt(len(d))
-        print(f"  {label:<22} d={d.mean():+.4f} +/- {se:.4f}   "
+        logger.info(f"  {label:<22} d={d.mean():+.4f} +/- {se:.4f}   "
               f"positives {int((d > 0).sum())}/{len(d)}")
 
-    print("\nReading: judge on the inverse columns. Forward R2 says how well a model")
-    print("predicts frames it was trained on; the inverse columns say whether it can")
-    print("DESIGN a phase. A model that cannot be inverted cannot run the shaping loop,")
-    print("however good its R2 is.")
+    logger.info("\nReading: judge on the inverse columns. Forward R2 says how well a model")
+    logger.info("predicts frames it was trained on; the inverse columns say whether it can")
+    logger.info("DESIGN a phase. A model that cannot be inverted cannot run the shaping loop,")
+    logger.info("however good its R2 is.")
 
     out = ROOT / "report" / "loss_defects" / "physics_vs_unet_inverse.json"
     out.write_text(json.dumps(rows, indent=2), encoding="utf-8")
-    print(f"\nwrote {out}")
+    logger.info(f"\nwrote {out}")
 
 
 if __name__ == "__main__":

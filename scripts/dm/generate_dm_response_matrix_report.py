@@ -575,15 +575,15 @@ def main() -> int:
     figs = out / "figures"
     figs.mkdir(parents=True, exist_ok=True)
 
-    print("=" * 72)
-    print("[DM 响应矩阵报告] 创建 / 分析 / 检测")
-    print("=" * 72)
-    print(f"  h5    : {h5}")
-    print(f"  output: {out}")
+    logger.info("=" * 72)
+    logger.info("[DM 响应矩阵报告] 创建 / 分析 / 检测")
+    logger.info("=" * 72)
+    logger.info(f"  h5    : {h5}")
+    logger.info(f"  output: {out}")
 
     r = _load_result(h5)
     matrix = r["matrix"]
-    print(f"[OK] matrix {matrix.shape}, n_actuators={r['n_actuators']}")
+    logger.info(f"[OK] matrix {matrix.shape}, n_actuators={r['n_actuators']}")
 
     # Generate figures
     fig_matrix_heatmap(matrix, figs / "01_matrix_heatmap.png")
@@ -597,25 +597,25 @@ def main() -> int:
         figs / "04_subaperture_spatial.png",
     )
     sv, cond = fig_singular_values(matrix, figs / "05_singular_values.png")
-    print(f"[OK] SVD done, cond={cond:.3f}, sv[0]={sv[0]:.4f}")
+    logger.info(f"[OK] SVD done, cond={cond:.3f}, sv[0]={sv[0]:.4f}")
 
     # Dead/weak actuator check
     median_norm = float(np.median(col_norms))
     dead_thresh = 0.05 * median_norm
     n_dead = int(np.sum(col_norms < dead_thresh))
     if n_dead > 0:
-        print(f"[WARN] {n_dead} weak/dead actuator(s) detected "
+        logger.info(f"[WARN] {n_dead} weak/dead actuator(s) detected "
               f"(threshold={dead_thresh:.4f})")
     else:
-        print(f"[OK] no weak actuators (median={median_norm:.4f})")
+        logger.info(f"[OK] no weak actuators (median={median_norm:.4f})")
 
     # Build context and write markdown
     ctx = {**r, "h5": h5, "col_norms": col_norms, "sv_result": sv, "cond": cond}
     body = write_markdown(out, ctx)
     (out / "report.md").write_text(body, encoding="utf-8")
-    print(f"\n[OK] 报告: {out / 'report.md'}")
-    print(f"[OK] 图: {figs}")
-    print("=" * 72)
+    logger.info(f"\n[OK] 报告: {out / 'report.md'}")
+    logger.info(f"[OK] 图: {figs}")
+    logger.info("=" * 72)
     return 0
 
 

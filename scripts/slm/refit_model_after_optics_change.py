@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import hashlib
 import json
 import sys
@@ -182,8 +183,8 @@ def main() -> None:
         if (args.dataset / "manifest.json").exists() else None,
     )
     (args.out / "refit.json").write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(json.dumps({k: v for k, v in record.items() if k != "parameters"}, indent=2, ensure_ascii=False))
-    print("\n⚠ 重拟合的 loss 下降**不是**可用性证据；下一步必须做 B± 方向检验再用于优化。")
+    logger.info(json.dumps({k: v for k, v in record.items() if k != "parameters"}, indent=2, ensure_ascii=False))
+    logger.info("\n⚠ 重拟合的 loss 下降**不是**可用性证据；下一步必须做 B± 方向检验再用于优化。")
 
 
 if __name__ == "__main__":

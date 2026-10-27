@@ -15,6 +15,7 @@ this is the frame-to-frame spread of ``var_r`` itself.
 from __future__ import annotations
 
 import sys
+from loguru import logger
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,9 +41,9 @@ def main() -> None:
     ds = HwPhaseImageDataset(index, config=MaterialiserConfig(grid=GRID), use_cache=True)
     mask = roi_mask((GRID, GRID), (GRID / 2, GRID / 2), "rectangle", 0.375 * GRID, 4 / 3)
 
-    print("=" * 92)
-    print("IS THE SPOT-SIZE GAP ALREADY AT ITS FLOOR ON HELD-OUT FRAMES?")
-    print("=" * 92)
+    logger.info("=" * 92)
+    logger.info("IS THE SPOT-SIZE GAP ALREADY AT ITS FLOOR ON HELD-OUT FRAMES?")
+    logger.info("=" * 92)
 
     frames = []
     for i in range(0, 128):
@@ -50,13 +51,13 @@ def main() -> None:
         peak = img.amax()
         if float(peak) > 0:
             frames.append((img / peak)[None])   # image is already (1,g,g) -> (1,1,g,g)
-    print(f"collected {len(frames)} peak-normalised held-out frames")
+    logger.info(f"collected {len(frames)} peak-normalised held-out frames")
 
     var_r = np.array([float(second_moments(f, mask)[2]) for f in frames])
-    print("\nvar_r across held-out frames:")
-    print(f"  mean={var_r.mean():.2f}  sd={var_r.std(ddof=1):.2f}  "
+    logger.info("\nvar_r across held-out frames:")
+    logger.info(f"  mean={var_r.mean():.2f}  sd={var_r.std(ddof=1):.2f}  "
           f"min={var_r.min():.2f}  max={var_r.max():.2f}")
-    print(f"  coefficient of variation = {var_r.std(ddof=1) / var_r.mean() * 100:.2f}%")
+    logger.info(f"  coefficient of variation = {var_r.std(ddof=1) / var_r.mean() * 100:.2f}%")
 
     # The decisive comparison: what gap does a CONSTANT prediction -- always the mean spot
     # size -- achieve? Any model cannot beat "emit the average", so that number is a floor.
@@ -73,18 +74,18 @@ def main() -> None:
 
     gaps = [float(spot_moment_gap_term(constant, f, mask).mean()) for f in frames]
     gaps = np.array(gaps)
-    print("\nA CONSTANT prediction that always emits the mean spot size scores:")
-    print(f"  mean gap = {gaps.mean():.4f}   (sd {gaps.std(ddof=1):.4f})")
-    print("\nThe trained model's measured validation gap was 0.0368-0.0381.")
+    logger.info("\nA CONSTANT prediction that always emits the mean spot size scores:")
+    logger.info(f"  mean gap = {gaps.mean():.4f}   (sd {gaps.std(ddof=1):.4f})")
+    logger.info("\nThe trained model's measured validation gap was 0.0368-0.0381.")
     verdict = "AT/BELOW THE FLOOR" if gaps.mean() >= 0.0368 else "ABOVE THE FLOOR -- headroom exists"
-    print(f"\nVERDICT: {verdict}")
+    logger.info(f"\nVERDICT: {verdict}")
     if gaps.mean() >= 0.0368:
-        print("  'Always emit the average spot size' scores about the same as the trained")
-        print("  model. So the model already predicts spot SIZE as well as the data allows,")
-        print("  and a spot-size loss term has nothing left to win -- it can only trade")
-        print("  pixel fidelity (R2) for a metric that is already saturated. That is why the")
-        print("  sweep cost R2 monotonically and moved the gap not at all.")
-        print("  Any spot-SHAPE term must therefore be judged against this floor, not against 0.")
+        logger.info("  'Always emit the average spot size' scores about the same as the trained")
+        logger.info("  model. So the model already predicts spot SIZE as well as the data allows,")
+        logger.info("  and a spot-size loss term has nothing left to win -- it can only trade")
+        logger.info("  pixel fidelity (R2) for a metric that is already saturated. That is why the")
+        logger.info("  sweep cost R2 monotonically and moved the gap not at all.")
+        logger.info("  Any spot-SHAPE term must therefore be judged against this floor, not against 0.")
 
 
 if __name__ == "__main__":

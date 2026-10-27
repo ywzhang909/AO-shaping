@@ -8,6 +8,7 @@ repeatable invocation and reviews the result without duplicating those steps.
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import math
 import re
@@ -174,9 +175,9 @@ def main(argv: list[str] | None = None) -> int:
         (session_dir / "handoff_summary.json").write_text(
             json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
         )
-        print(f"Recorded gate verdict: {summary['verdict']} ({session_dir})")
+        logger.info(f"Recorded gate verdict: {summary['verdict']} ({session_dir})")
     elif session_dir is not None:
-        print(f"Run stopped; inspect evidence in {session_dir}")
+        logger.info(f"Run stopped; inspect evidence in {session_dir}")
     return code
 
 

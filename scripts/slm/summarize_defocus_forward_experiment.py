@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import csv
 import json
 from pathlib import Path
@@ -83,7 +84,7 @@ def render_spot_figure(
     }
     picked = pick_representatives(rows, branches)
     if not picked:
-        print("[提示] 没有可画的代表性记录, 跳过光斑图")
+        logger.info("[提示] 没有可画的代表性记录, 跳过光斑图")
         return None
 
     fig, axes = plt.subplots(len(picked), 4, figsize=(19, 5.2 * len(picked)))
@@ -326,7 +327,7 @@ def main():
             model_name,
             figures / "physical_forward_spot_profiles_20261022.png",
         )
-    print(json.dumps(summary, indent=2))
+    logger.info(json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":

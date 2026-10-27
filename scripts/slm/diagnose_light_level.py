@@ -13,6 +13,7 @@ figure, and a JSON summary.
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import sys
 from datetime import datetime
@@ -99,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
     frames = {}
     try:
         with camera:
-            print(
+            logger.info(
                 f"camera: {args.cam_type} #{args.cam_id}  "
                 f"exposure range {get_camera_exposure_range(camera)} ms"
             )
@@ -107,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
                 display_and_average(
                     camera, slm, np.zeros((SLM_PANEL_H, SLM_PANEL_W)), n_frames=2
                 )
-                print(f"flat phase displayed on SLM #{args.slm_number} (panel held flat for every reading)")
+                logger.info(f"flat phase displayed on SLM #{args.slm_number} (panel held flat for every reading)")
             for exposure in exposures:
                 set_camera_exposure_ms(camera, exposure)
                 effective = get_camera_exposure_ms(camera)
@@ -119,12 +120,12 @@ def main(argv: list[str] | None = None) -> int:
                 records.append(record)
                 frames[exposure] = frame
                 np.savez_compressed(out_dir / f"frame_{exposure:g}ms.npz", frame=frame)
-                print(
+                logger.info(
                     f"  {exposure:>7.2f} ms (eff {effective:>8.4f})  peak={record['max']:>6.2f}  "
                     f"mean={record['mean']:>7.3f}  min={record['min']:>5.1f}  p99={record['p99']:>6.2f}  "
                     f"std={record['std']:>7.3f}  at {record['max_position_xy']}"
                 )
-                print(f"           spot: {record['spot']}")
+                logger.info(f"           spot: {record['spot']}")
     finally:
         if slm is not None:
             slm.close()
@@ -158,10 +159,10 @@ def main(argv: list[str] | None = None) -> int:
     fig.savefig(figure, dpi=140)
     plt.close(fig)
 
-    print(f"\nverdict: {verdict['state']}")
+    logger.info(f"\nverdict: {verdict['state']}")
     for note in verdict["reasons"]:
-        print(f"  - {note}")
-    print(f"evidence: {out_dir}")
+        logger.info(f"  - {note}")
+    logger.info(f"evidence: {out_dir}")
     return 0 if verdict["state"] != "no_light" else 2
 
 

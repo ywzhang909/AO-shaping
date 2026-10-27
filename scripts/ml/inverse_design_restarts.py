@@ -13,6 +13,7 @@ Restarts are therefore drawn explicitly: `coefficients ~ N(0, sigma)` per restar
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -70,16 +71,16 @@ def main() -> None:
     n_modes = N_MAX * (N_MAX + 3) // 2
     rows: list[dict] = []
 
-    print("=" * 96)
-    print("INVERSE DESIGN step sweep, GENUINE random restarts (independent sim)")
-    print(f"flat = {flat:.4f};  restarts={N_RESTARTS};  starts ~ N(0, sigma)")
-    print("=" * 96)
+    logger.info("=" * 96)
+    logger.info("INVERSE DESIGN step sweep, GENUINE random restarts (independent sim)")
+    logger.info(f"flat = {flat:.4f};  restarts={N_RESTARTS};  starts ~ N(0, sigma)")
+    logger.info("=" * 96)
 
     for sigma in SIGMAS:
         starts = [np.random.default_rng(1000 + r).normal(0.0, sigma, n_modes) for r in range(N_RESTARTS)]
         for name, weights in OBJECTIVES.items():
-            print(f"\nsigma={sigma}  objective={name}")
-            print(f"{'steps':>7}{'mean':>10}{'best':>10}{'worst':>10}{'sd':>9}{'vs flat':>10}")
+            logger.info(f"\nsigma={sigma}  objective={name}")
+            logger.info(f"{'steps':>7}{'mean':>10}{'best':>10}{'worst':>10}{'sd':>9}{'vs flat':>10}")
             for steps in STEP_LADDER:
                 values = [
                     score_on_sim(design(weights, starts[r], steps), GRID, N_MAX)["shape_sum"]
@@ -95,18 +96,18 @@ def main() -> None:
                             "sim": v,
                         }
                     )
-                print(
+                logger.info(
                     f"{steps:>7}{np.mean(values):>10.4f}{max(values):>10.4f}"
                     f"{min(values):>10.4f}{np.std(values):>9.4f}"
                     f"{np.mean(values) - flat:>+10.4f}"
                 )
 
-    print("\n" + "=" * 96)
-    print("paired deltas vs the previous rung (restart-matched => real progress)")
-    print("=" * 96)
+    logger.info("\n" + "=" * 96)
+    logger.info("paired deltas vs the previous rung (restart-matched => real progress)")
+    logger.info("=" * 96)
     for sigma in SIGMAS:
         for name in OBJECTIVES:
-            print(f"  sigma={sigma}  {name}:")
+            logger.info(f"  sigma={sigma}  {name}:")
             for a, b in zip([0] + STEP_LADDER, STEP_LADDER):
                 deltas = []
                 for r in range(N_RESTARTS):
@@ -133,12 +134,12 @@ def main() -> None:
                 pos = sum(1 for d in deltas if d > 0)
                 verdict = "REAL" if pos == len(deltas) else ("none" if pos == 0 else "mixed")
                 tag = f"{a:>4} -> {b:<4}"
-                print(
+                logger.info(
                     f"    {tag} delta={np.mean(deltas):+.4f} +/- {np.std(deltas):.4f} "
                     f"positives={pos}/{len(deltas)}  [{verdict}]"
                 )
 
-    print("\nbest-of-N restarts (practical recipe)")
+    logger.info("\nbest-of-N restarts (practical recipe)")
     for sigma in SIGMAS:
         for name in OBJECTIVES:
             for steps in STEP_LADDER:
@@ -158,7 +159,7 @@ def main() -> None:
                 rng = np.random.default_rng(7)
                 draws = rng.choice(list(per.values()), size=(4000, N_RESTARTS), replace=True)
                 best_of = float(np.mean(draws.max(axis=1)))
-                print(
+                logger.info(
                     f"  sigma={sigma} {name:<9} steps={steps:<4} "
                     f"single={single:.4f}  best-of-{N_RESTARTS}={best_of:.4f} "
                     f"(+{best_of - single:.4f})"
@@ -166,7 +167,7 @@ def main() -> None:
 
     out = Path("report/loss_defects/inverse_step_saturation.json")
     out.write_text(json.dumps(rows, indent=2), encoding="utf-8")
-    print(f"\nwrote {out}")
+    logger.info(f"\nwrote {out}")
 
 
 if __name__ == "__main__":

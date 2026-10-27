@@ -53,6 +53,7 @@ region_span_px 不变; 变的是**相位图样**在焦面的物理尺度 (∝ 1/
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import math
 import sys
@@ -1522,8 +1523,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         json.dumps(jsonable(h2), ensure_ascii=False, indent=2), encoding="utf-8"
     )
     (OUT_DIR / "report.md").write_text(render_report(payload, figures), encoding="utf-8")
-    print(f"wrote {OUT_DIR / 'report.md'}")
-    print(f"wall clock {total_seconds:.1f}s")
+    logger.info(f"wrote {OUT_DIR / 'report.md'}")
+    logger.info(f"wall clock {total_seconds:.1f}s")
     return 0
 
 

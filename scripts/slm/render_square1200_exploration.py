@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+from loguru import logger
 import io
 import json
 
@@ -140,4 +141,4 @@ def render(root, out):
         # Exact source frame used by the PNG (mean then normalize, not one raw frame).
         frames[-2].save(figures/f"square1200_{name}_replay50_20261026.png")
     (out/"artifacts/20261026/render_audit.json").write_text(json.dumps(records_out,indent=2),encoding="utf-8")
-    print("Verified all 14 raw/table CV values; rendered 20 measured captures per GIF.")
+    logger.info("Verified all 14 raw/table CV values; rendered 20 measured captures per GIF.")

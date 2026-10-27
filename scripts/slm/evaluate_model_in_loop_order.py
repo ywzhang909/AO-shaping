@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 from dataclasses import fields, replace
 import json
 from pathlib import Path
@@ -100,13 +101,13 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(results, indent=2), encoding="utf-8")
     for result in results:
-        print(result["run_dir"])
+        logger.info(result["run_dir"])
         for candidate in result["candidates"]:
             rows = candidate["holdouts"]
             all_mean = np.mean([row["correlation"] for row in rows])
             free_mean = np.mean([row["correlation"] for row in rows
                                  if row["family"] == "freeform"])
-            print(candidate["n_orders"], candidate["steps"],
+            logger.info(candidate["n_orders"], candidate["steps"],
                   f"all={all_mean:.4f}", f"freeform={free_mean:.4f}")
 
 

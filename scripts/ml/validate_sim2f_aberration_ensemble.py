@@ -61,6 +61,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import contextlib
 import io
 import json
@@ -625,27 +626,27 @@ def _print_summary(
 ) -> None:
     """Print the compact terminal summary."""
     print()
-    print(f"backend: array module {backend['array_module']} (gpu={backend['gpu']}, "
+    logger.info(f"backend: array module {backend['array_module']} (gpu={backend['gpu']}, "
           f"gpu_resident={backend['gpu_resident']}, OOPAO_BACKEND={backend['oopao_backend_env']})")
-    print(f"wall clock: OOPAO screens {timings['oopao_s']:.2f} s, "
+    logger.info(f"wall clock: OOPAO screens {timings['oopao_s']:.2f} s, "
           f"sampler draws {timings['sampler_s']:.2f} s, total {timings['total_s']:.2f} s")
     for name, result in (("OOPAO ensemble", oopao_result), ("shipped sampler", sampler_result)):
         print()
-        print(f"[{name}] n={result['n_samples']}  floor sqrt(2/n)={result['noise_floor']:.4f}")
-        print(f"  amplitude (mean diag emp/ref): {result['amplitude_scale']:.4g}"
+        logger.info(f"[{name}] n={result['n_samples']}  floor sqrt(2/n)={result['noise_floor']:.4f}")
+        logger.info(f"  amplitude (mean diag emp/ref): {result['amplitude_scale']:.4g}"
               f"{'  [divided out]' if result['match_amplitude'] else ''}")
-        print(f"  entry error: rms {result['entry_error_rms']:.4f} "
+        logger.info(f"  entry error: rms {result['entry_error_rms']:.4f} "
               f"({result['rms_over_floor']:.2f}x floor), median {result['entry_error_median']:.4f}, "
               f"p95 {result['entry_error_p95']:.4f}, max {result['entry_error_max']:.4f}")
-        print(f"  entries within floor: {100 * result['fraction_within_floor']:.0f}%")
-        print(f"  off-diagonal correlation rms error: {result['offdiag_corr_rms_error']:.4f}")
+        logger.info(f"  entries within floor: {100 * result['fraction_within_floor']:.0f}%")
+        logger.info(f"  off-diagonal correlation rms error: {result['offdiag_corr_rms_error']:.4f}")
         ratios = np.asarray(result["diagonal_ratio"], dtype=np.float64)
-        print(f"  diagonal emp/ref: min {ratios.min():.3f}, median {np.median(ratios):.3f}, "
+        logger.info(f"  diagonal emp/ref: min {ratios.min():.3f}, median {np.median(ratios):.3f}, "
               f"max {ratios.max():.3f}")
-        print(f"  verdict: {result['verdict']}")
+        logger.info(f"  verdict: {result['verdict']}")
     print()
-    print(f"wrote {out_dir / 'validate_sim2f_aberration_ensemble.json'}")
-    print(f"wrote {out_dir / 'validate_sim2f_aberration_ensemble.md'}")
+    logger.info(f"wrote {out_dir / 'validate_sim2f_aberration_ensemble.json'}")
+    logger.info(f"wrote {out_dir / 'validate_sim2f_aberration_ensemble.md'}")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -688,15 +689,15 @@ def main(argv: list[str] | None = None) -> int:
         print("error: --n-samples and --n-draws must be >= 10", file=sys.stderr)
         return 2
 
-    print(PRE_REGISTRATION)
+    logger.info(PRE_REGISTRATION)
 
     ref = _reference()
-    print(
+    logger.info(
         f"asset: {ref['asset']}  K={ref['noll'].size}  Noll "
         f"{int(ref['noll'][0])}..{int(ref['noll'][-1])}  grid={ref['grid']}"
     )
     backend = _backend_record()
-    print(
+    logger.info(
         f"backend: array module {backend['array_module']} (gpu={backend['gpu']}, "
         f"gpu_resident={backend['gpu_resident']})"
     )
@@ -707,9 +708,9 @@ def main(argv: list[str] | None = None) -> int:
     # support describe the same pupil before any statistics are trusted.
     _coords, basis, _noll, _support = _pupil_geometry(sim, int(ref["n_modes"]))
     roundtrip = _roundtrip_error(basis)
-    print(f"basis round trip max|Δa| = {roundtrip:.3e} rad")
+    logger.info(f"basis round trip max|Δa| = {roundtrip:.3e} rad")
     pupil_diameter_m = _grid_span_m(sim)
-    print(
+    logger.info(
         f"OOPAO pupil: diameter={pupil_diameter_m * 1e3:.4g} mm "
         f"(= grid {ref['grid']} × {ref['pupil_pitch_m'] * 1e6:.4g} µm) -> "
         f"screen pixel pitch {pupil_diameter_m / ref['grid'] * 1e6:.4g} µm, "

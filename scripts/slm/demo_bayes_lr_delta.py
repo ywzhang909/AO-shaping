@@ -9,6 +9,7 @@ hardware (requires a camera); shrunk to 50 epochs for a quick pass.
 from __future__ import annotations
 
 import sys
+from loguru import logger
 from pathlib import Path
 
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
@@ -23,7 +24,7 @@ from ao_shaping.optimizer.wfless.bayes_opt_lr_delta import (
 
 def main() -> None:
     # 示例用法
-    print("开始贝叶斯优化...")
+    logger.info("开始贝叶斯优化...")
 
     # 贝叶斯优化
     bayes_result = bayesian_optimize_lr_delta(
@@ -34,15 +35,15 @@ def main() -> None:
         exposure_time_ms=60
     )
 
-    print("贝叶斯优化结果:")
-    print(f"最优学习率: {bayes_result['best_params']['lr']:.4f}")
-    print(f"最优delta: {bayes_result['best_params']['delta']:.4f}")
-    print(f"最优PIB值: {bayes_result['best_score']:.4f}")
+    logger.info("贝叶斯优化结果:")
+    logger.info(f"最优学习率: {bayes_result['best_params']['lr']:.4f}")
+    logger.info(f"最优delta: {bayes_result['best_params']['delta']:.4f}")
+    logger.info(f"最优PIB值: {bayes_result['best_score']:.4f}")
 
-    print("\n" + "="*50 + "\n")
+    logger.info("\n" + "="*50 + "\n")
 
     # 网格搜索
-    print("开始网格搜索...")
+    logger.info("开始网格搜索...")
     grid_result = grid_search_lr_delta(
         lr_values=[0.5, 1.0, 1.5, 2.0, 2.5],
         delta_values=[0.5, 1.0, 1.5, 2.0, 2.5],
@@ -50,10 +51,10 @@ def main() -> None:
         exposure_time_ms=60
     )
 
-    print("网格搜索结果:")
-    print(f"最优学习率: {grid_result['best_params']['lr']}")
-    print(f"最优delta: {grid_result['best_params']['delta']}")
-    print(f"最优PIB值: {grid_result['best_score']:.4f}")
+    logger.info("网格搜索结果:")
+    logger.info(f"最优学习率: {grid_result['best_params']['lr']}")
+    logger.info(f"最优delta: {grid_result['best_params']['delta']}")
+    logger.info(f"最优PIB值: {grid_result['best_score']:.4f}")
 
 
 if __name__ == "__main__":

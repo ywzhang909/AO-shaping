@@ -60,6 +60,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import math
 import statistics
@@ -2627,7 +2628,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             json.dumps(config.to_json(), ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
-        print(f"孪生参数已写到: {params_path}")
+        logger.info(f"孪生参数已写到: {params_path}")
 
     elapsed_s: float | None = args.elapsed_s
     if args.execute:
@@ -2640,8 +2641,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     markdown = render_markdown(cells, gaps, hw, sim, config.as_dict())
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(markdown, encoding="utf-8")
-    print(markdown)
-    print(f"\n对照表已写到: {out_path}")
+    logger.info(markdown)
+    logger.info(f"\n对照表已写到: {out_path}")
 
     if args.report:
         report_path = Path(args.report)
@@ -2656,7 +2657,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(report, encoding="utf-8")
-        print(f"报告正文已写到: {report_path}")
+        logger.info(f"报告正文已写到: {report_path}")
     return 0
 
 
@@ -2746,7 +2747,7 @@ def _run_sim_side(
         target_side=hw_zernike_target_side(hw_bundle),
     )
     elapsed = time.time() - started
-    print(f"[sim] 全部完成, 用时 {elapsed:.1f} s")
+    logger.info(f"[sim] 全部完成, 用时 {elapsed:.1f} s")
     return elapsed
 
 

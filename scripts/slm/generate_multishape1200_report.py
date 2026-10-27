@@ -7,6 +7,7 @@ together with its figures. Offline: no device, no re-measurement.
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import shutil
 import sys
@@ -766,7 +767,7 @@ def main() -> None:
     body = build_report(facts)
     target = ROOT / REPORT_KEY
     target.write_text(insert_header(body, REPORT_KEY), encoding="utf-8")
-    print(f"wrote {target}")
+    logger.info(f"wrote {target}")
 
 
 if __name__ == "__main__":

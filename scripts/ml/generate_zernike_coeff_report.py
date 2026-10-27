@@ -31,6 +31,7 @@ figures exist to make checkable:
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import shutil
 import statistics
@@ -582,9 +583,9 @@ def main(argv: list[str] | None = None) -> int:
     report_path.write_text("\n".join(body), encoding="utf-8")
 
     # Copy in the sweep figure if the sweep put it elsewhere.
-    print(f"wrote {report_path.relative_to(ROOT)}")
+    logger.info(f"wrote {report_path.relative_to(ROOT)}")
     for note in figure_notes:
-        print(f"  figure: {note}")
+        logger.info(f"  figure: {note}")
     return 0
 
 

@@ -6,6 +6,7 @@ Usage: python scripts/slm/evaluate_gs_variant_runs.py RUN_DIR ... --output summa
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import csv
 import json
 import pickle
@@ -65,7 +66,7 @@ def main() -> None:
     summary = [summarize_run(path) for path in args.run_dirs]
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    print(args.output)
+    logger.info(args.output)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import numpy as np
+from loguru import logger
 import matplotlib
 
 matplotlib.use("Agg")
@@ -75,7 +76,7 @@ run_dirs = [
 for run_dir, name in run_dirs:
     img, source = load_image_data(run_dir)
     if img is None:
-        print(f"跳过 {run_dir}: 无可用图像数据")
+        logger.info(f"跳过 {run_dir}: 无可用图像数据")
         continue
 
     h, w = img.shape
@@ -108,6 +109,6 @@ for run_dir, name in run_dirs:
     out = os.path.join(FIG_DIR, f"{name}_farfield_xsec.png")
     fig.savefig(out, dpi=120)
     plt.close(fig)
-    print(f"{run_dir} -> {out} (中心=({cx},{cy}), 数据源={source})")
+    logger.info(f"{run_dir} -> {out} (中心=({cx},{cy}), 数据源={source})")
 
-print("全部完成。")
+logger.info("全部完成。")

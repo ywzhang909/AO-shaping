@@ -732,12 +732,12 @@ def main(argv: list[str] | None = None) -> int:
 
     runs = _load("slm1_*.json")
     if not runs:
-        print(f"no focus-probe evidence under {EVIDENCE}; run the probe first")
+        logger.info(f"no focus-probe evidence under {EVIDENCE}; run the probe first")
         return 1
     verifies = _load("verify_*.json")
     drifts = _load("flat_drift_*.json")
     if not verifies:
-        print("no verify_*.json evidence; run scripts/slm/verify_focus_plane_hw.py")
+        logger.info("no verify_*.json evidence; run scripts/slm/verify_focus_plane_hw.py")
         return 1
 
     # The newest verify file may predate the ladder flag; prefer one that has it.
@@ -764,9 +764,9 @@ def main(argv: list[str] | None = None) -> int:
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text, encoding="utf-8")
-    print(f"wrote {out} ({len(text.splitlines())} lines)")
+    logger.info(f"wrote {out} ({len(text.splitlines())} lines)")
     if fig_ok:
-        print(f"wrote {OUT_PNG}")
+        logger.info(f"wrote {OUT_PNG}")
     return 0
 
 

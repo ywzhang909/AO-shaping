@@ -24,6 +24,7 @@ Run:
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -595,11 +596,11 @@ def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out = ROOT / REPORT_KEY
     out.write_text(insert_header(build(rows), REPORT_KEY), encoding="utf-8")
-    print(f"Wrote {out}")
-    print(
+    logger.info(f"Wrote {out}")
+    logger.info(
         f"  figures: recal_cost_ladder-style -> {FIG_DIR.name}/adaptation_corr.png, adaptation_beam_metric.png"
     )
-    print(f"  seeds={len({r['seed'] for r in rows})} frames={frames} rows={len(rows)}")
+    logger.info(f"  seeds={len({r['seed'] for r in rows})} frames={frames} rows={len(rows)}")
 
 
 if __name__ == "__main__":

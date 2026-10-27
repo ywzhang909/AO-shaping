@@ -1,6 +1,7 @@
 """Generate mermaid call-graph diagrams from call_graph_final.json."""
 from __future__ import annotations
 import json
+from loguru import logger
 import re
 from pathlib import Path
 from collections import defaultdict
@@ -78,7 +79,7 @@ for a, bs in depth1.items():
 lines.append("    end")
 
 (base / "diagram_commands.mmd").write_text("\n".join(lines))
-print("wrote diagram_commands.mmd")
+logger.info("wrote diagram_commands.mmd")
 
 # ---- Diagram 2: full per-layer flow (entry->runner->optimizer->driver/util) ----
 lines2 = ["flowchart TD"]
@@ -104,7 +105,7 @@ for e in edges:
     lines2.append(f"    {ida} --> {idb}")
 
 (base / "diagram_full.mmd").write_text("\n".join(lines2))
-print("wrote diagram_full.mmd")
+logger.info("wrote diagram_full.mmd")
 
 # ---- Per-command call chain (text, for wiki) ----
 out = []
@@ -139,4 +140,4 @@ for name in list(cmd) + list(tools):
             out2.append(f"  - {kk}")
     out2.append("")
 (base / "per_command_chain.txt").write_text("\n".join(out2))
-print("wrote per_command_chain.txt")
+logger.info("wrote per_command_chain.txt")

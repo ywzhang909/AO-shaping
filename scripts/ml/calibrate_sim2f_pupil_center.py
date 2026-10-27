@@ -74,6 +74,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import math
 import sys
@@ -1012,7 +1013,7 @@ def main(argv: list[str] | None = None) -> int:
     path = artefacts / "pupil_center_sweep.json"
     path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     logger.info("artefacts: {} + {} figure(s)", path, len(figures))
-    print(json.dumps({"verdict": verdict, "best": best, "at_zero": at_zero}, indent=2))
+    logger.info(json.dumps({"verdict": verdict, "best": best, "at_zero": at_zero}, indent=2))
     return 0
 
 

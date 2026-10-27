@@ -28,6 +28,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import sys
 import time
@@ -134,14 +135,14 @@ def main(argv: list[str] | None = None) -> int:
     for kind in LOSSES:
         vals = [r[kind]["skill"] for r in out["folds"]]
         mses = [r[kind]["mse"] for r in out["folds"]]
-        print("%-9s mean skill = %+.4f  (min %+.4f, max %+.4f)   mean mse = %.6g"
+        logger.info("%-9s mean skill = %+.4f  (min %+.4f, max %+.4f)   mean mse = %.6g"
               % (kind, float(np.mean(vals)), float(np.min(vals)),
                  float(np.max(vals)), float(np.mean(mses))))
     best = max(LOSSES, key=lambda k: float(np.mean([r[k]["skill"] for r in out["folds"]])))
     out["best_loss"] = best
-    print("\nbest loss space:", best)
+    logger.info("\nbest loss space:", best)
     Path(args.out).write_text(json.dumps(out, indent=2), encoding="utf-8")
-    print("wrote", args.out, "in %.1fs" % (time.perf_counter() - started))
+    logger.info("wrote", args.out, "in %.1fs" % (time.perf_counter() - started))
     return 0
 
 

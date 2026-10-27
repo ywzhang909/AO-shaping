@@ -28,6 +28,7 @@ Run::
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import csv
 import json
 import math
@@ -3731,7 +3732,7 @@ def main() -> int:
     if args.figures_only:
         # 正文一个字都不写: 图归位用。溯源块与 report/README.md 也不碰 ——
         # 这一轮只认「把图换回自己那一轮」, 不认「重新叙述那一轮」。
-        print(
+        logger.info(
             f"[done] 只重画了图, 未写报告正文 ({args.report_key}); 图名戳 = {FIG_TAG!r}"
         )
         return 0
@@ -3744,14 +3745,14 @@ def main() -> int:
         try:
             loaded = json.loads(Path(args.repeat_evidence).read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            print(f"⚠ 复测证据读不了, 跳过对照段: {exc}")
+            logger.info(f"⚠ 复测证据读不了, 跳过对照段: {exc}")
         else:
             if isinstance(loaded, dict):
                 loaded = dict(loaded)
                 loaded["_repeat_label"] = str(args.repeat_evidence)
                 repeat = loaded
             else:
-                print("⚠ 复测证据不是 JSON 对象, 跳过对照段")
+                logger.info("⚠ 复测证据不是 JSON 对象, 跳过对照段")
     body = build_markdown(
         primary_run,
         noise,
@@ -3775,7 +3776,7 @@ def main() -> int:
         out_path = ROOT / out_path
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(text, encoding="utf-8")
-    print(f"[done] wrote {out_path}")
+    logger.info(f"[done] wrote {out_path}")
     return 0
 
 

@@ -24,6 +24,7 @@ Usage (fully offline, no hardware):
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import sys
 from pathlib import Path
@@ -100,20 +101,20 @@ def main() -> None:
     assert "不含 shift" in side_data["gray_encoding"], side_data
     assert side_data["shift_note"], side_data
     assert "two_pi_gray" not in side_data["consumption"], side_data
-    print("[0] 侧车 JSON: max_gray=1023, shift_included=False, 不含 shift ✔")
+    logger.info("[0] 侧车 JSON: max_gray=1023, shift_included=False, 不含 shift ✔")
 
     # ---------- 1) CSV structure / value range ----------
     csv_data = np.loadtxt(csv, delimiter=",", skiprows=1, usecols=range(1, PANEL_W + 1))
     assert csv_data.shape == (PANEL_H, PANEL_W), csv_data.shape
     assert csv_data.min() >= 0 and csv_data.max() <= 1023, (csv_data.min(), csv_data.max())
-    print(f"[1] CSV {csv_data.shape}, 值域 [{csv_data.min()}, {csv_data.max()}] ⊂ 0..1023 ✔")
+    logger.info(f"[1] CSV {csv_data.shape}, 值域 [{csv_data.min()}, {csv_data.max()}] ⊂ 0..1023 ✔")
 
     # ---------- 2) loaders byte-identical ----------
     g_drv = Santec.load_gray_from_csv(str(csv))
     g_wc = WavefrontCorrection.load_gray_from_csv(str(csv))
     assert np.array_equal(g_drv, csv_data), "Santec.load_gray_from_csv ≠ CSV"
     assert np.array_equal(g_wc, csv_data), "WavefrontCorrection.load_gray_from_csv ≠ CSV"
-    print("[2] Santec / WavefrontCorrection.load_gray_from_csv 与 CSV 逐字节一致 ✔")
+    logger.info("[2] Santec / WavefrontCorrection.load_gray_from_csv 与 CSV 逐字节一致 ✔")
 
     # ---------- 3) recompute production pipeline → proves no baked shift ----------
     r = load_zernike_response_matrix(h5)
@@ -138,7 +139,7 @@ def main() -> None:
     assert "shift" not in str(make_phase.__doc__ or ""), "make_phase 不应有 shift 语义"
     g_re = WavefrontCorrection.correction_gray_offsets(phase_rad, max_grayscale=MG)
     assert np.array_equal(g_re, csv_data), "复算管线 ≠ 导出 CSV → 导出烘焙了额外变换?"
-    print("[3] 复算管线 (make_phase 无 shift) 与导出逐字节一致 → 不烘焙 shift ✔")
+    logger.info("[3] 复算管线 (make_phase 无 shift) 与导出逐字节一致 → 不烘焙 shift ✔")
 
     # ---------- 4) map_error additive semantics (displayed = mod(base + corr, 1024)) ----------
     wc_id = WavefrontCorrection(str(csv), calc_fn=lambda raw: raw.astype(np.float64))
@@ -152,7 +153,7 @@ def main() -> None:
     disp2 = wc_id.map_error(half, max_grayscale=1023)
     expect = np.mod(500 + csv_data.astype(np.int64), 1024)
     assert np.array_equal(disp2, expect), "map_error mod 环绕不一致"
-    print("[4] map_error 加法语义 + mod 环绕 (base=500) 一致 ✔")
+    logger.info("[4] map_error 加法语义 + mod 环绕 (base=500) 一致 ✔")
 
     # ---------- 5) quantization error bound (circular distance: wrap pixel 1024≡0) ----------
     scaled = np.mod(phase_rad / (2 * np.pi) * MG, MG + 1)
@@ -161,11 +162,11 @@ def main() -> None:
         - (MG + 1) / 2
     )
     assert np.abs(cir_err).max() <= 0.5 + 1e-9, np.abs(cir_err).max()
-    print(
+    logger.info(
         f"[5] 量化误差上界 ≤ 0.5 级 (圆周距离, max={np.abs(cir_err).max():.4f}) ✔"
     )
 
-    print("\nALL PASS: 满量程 1023 + 不烘焙 shift + 官方加载器逐字节一致")
+    logger.info("\nALL PASS: 满量程 1023 + 不烘焙 shift + 官方加载器逐字节一致")
 
 
 if __name__ == "__main__":

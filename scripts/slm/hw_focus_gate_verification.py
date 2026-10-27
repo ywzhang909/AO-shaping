@@ -199,12 +199,12 @@ def main(argv: list[str] | None = None) -> int:
         "focus_diopter_range": args.focus_diopter_range,
         "focus_refine": args.focus_refine,
     }
-    print("=== 焦面门禁取证计划 ===")
+    logger.info("=== 焦面门禁取证计划 ===")
     for key, value in plan.items():
-        print(f"  {key} = {value}")
+        logger.info(f"  {key} = {value}")
 
     if not args.execute or args.dry_run:
-        print("\n[dry-run] 未开任何设备。")
+        logger.info("\n[dry-run] 未开任何设备。")
         return 0
 
     from ao_shaping.drivers.ccd.common import create_camera
@@ -376,9 +376,9 @@ def main(argv: list[str] | None = None) -> int:
             (out_dir / "focus_gate_evidence.json").write_text(
                 json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8"
             )
-            print("\n=== 焦点门禁取证 ===")
-            print(json.dumps(evidence, ensure_ascii=False, indent=2))
-            print(f"\n取证目录: {out_dir}")
+            logger.info("\n=== 焦点门禁取证 ===")
+            logger.info(json.dumps(evidence, ensure_ascii=False, indent=2))
+            logger.info(f"\n取证目录: {out_dir}")
             write_report(evidence, ROOT / REPORT_KEY)
 
             if default_gate["code"] == EXIT_PATH_BLOCKED:

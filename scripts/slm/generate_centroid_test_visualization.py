@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+from loguru import logger
 from datetime import datetime
 from pathlib import Path
 
@@ -194,7 +195,7 @@ def generate_test_visualization():
     # 保存大图
     output_path = output_dir / "centroid_test_overview.png"
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
-    print(f"Saved: {output_path}")
+    logger.info(f"Saved: {output_path}")
     plt.close()
     
     # 为每个测试用例生成单独的高分辨率图像
@@ -251,7 +252,7 @@ def generate_test_visualization():
         # 保存单独图像
         output_path = output_dir / f"centroid_{test_case['name']}.png"
         plt.savefig(output_path, dpi=150, bbox_inches='tight')
-        print(f"Saved: {output_path}")
+        logger.info(f"Saved: {output_path}")
         plt.close()
     
     # 生成测试报告
@@ -277,8 +278,8 @@ def generate_test_visualization():
             f.write(f"#### {test_case['description']}\n")
             f.write(f"![{test_case['description']}](centroid_{test_case['name']}.png)\n\n")
     
-    print(f"\nReport saved: {report_path}")
-    print(f"\nAll visualizations saved to: {output_dir}")
+    logger.info(f"\nReport saved: {report_path}")
+    logger.info(f"\nAll visualizations saved to: {output_dir}")
     
     return output_dir
 

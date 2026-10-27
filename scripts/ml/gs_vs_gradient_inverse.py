@@ -17,6 +17,7 @@ same budget, scored on the independent sim.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -93,10 +94,10 @@ def main() -> None:
     target = torch.as_tensor(square_amplitude(GRID), dtype=torch.float32)[None, None]
     flat = score_on_sim(np.zeros(N_MODES), GRID, N_MAX)["shape_sum"]
 
-    print("=" * 92)
-    print("CANONICAL GS vs GRADIENT inverse design (paired by initial phase)")
-    print("=" * 92)
-    print(f"draws={DRAWS} steps={STEPS} sigma={SIGMA} gs_iters={GS_ITERS} flat={flat:.4f}")
+    logger.info("=" * 92)
+    logger.info("CANONICAL GS vs GRADIENT inverse design (paired by initial phase)")
+    logger.info("=" * 92)
+    logger.info(f"draws={DRAWS} steps={STEPS} sigma={SIGMA} gs_iters={GS_ITERS} flat={flat:.4f}")
 
     rows = []
     for d in range(DRAWS):
@@ -117,25 +118,25 @@ def main() -> None:
     d = gs - grad
     se = d.std(ddof=1) / np.sqrt(len(d))
 
-    print(f"\n{'draw':>6}{'GS':>10}{'gradient':>11}{'GS - grad':>11}")
+    logger.info(f"\n{'draw':>6}{'GS':>10}{'gradient':>11}{'GS - grad':>11}")
     for r in rows:
-        print(f"{r['draw']:>6}{r['gs']:>10.4f}{r['gradient']:>11.4f}{r['gs'] - r['gradient']:>+11.4f}")
+        logger.info(f"{r['draw']:>6}{r['gs']:>10.4f}{r['gradient']:>11.4f}{r['gs'] - r['gradient']:>+11.4f}")
 
-    print(f"\n{'':<6}{'mean':>10}{'sd':>10}{'min':>10}{'max':>10}")
+    logger.info(f"\n{'':<6}{'mean':>10}{'sd':>10}{'min':>10}{'max':>10}")
     for name, arr in (("GS", gs), ("gradient", grad)):
-        print(f"{name:<6}{arr.mean():>10.4f}{arr.std():>10.4f}{arr.min():>10.4f}{arr.max():>10.4f}")
+        logger.info(f"{name:<6}{arr.mean():>10.4f}{arr.std():>10.4f}{arr.min():>10.4f}{arr.max():>10.4f}")
 
-    print(f"\npaired GS - gradient = {d.mean():+.4f} +/- {se:.4f}  "
+    logger.info(f"\npaired GS - gradient = {d.mean():+.4f} +/- {se:.4f}  "
           f"positives={int((d > 0).sum())}/{len(d)}  t={d.mean() / se:+.2f}")
-    print(f"GS beats flat in {int((gs > flat).sum())}/{len(d)}; "
+    logger.info(f"GS beats flat in {int((gs > flat).sum())}/{len(d)}; "
           f"gradient beats flat in {int((grad > flat).sum())}/{len(d)}")
 
     verdict = "GS IS BETTER" if d.mean() > 2 * se else "no difference"
-    print(f"\nVERDICT: {verdict}")
+    logger.info(f"\nVERDICT: {verdict}")
 
     out = Path("report/loss_defects/gs_vs_gradient.json")
     out.write_text(json.dumps(rows, indent=2), encoding="utf-8")
-    print(f"wrote {out}")
+    logger.info(f"wrote {out}")
 
 
 if __name__ == "__main__":

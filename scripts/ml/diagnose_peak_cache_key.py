@@ -27,6 +27,7 @@ Usage
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from tempfile import TemporaryDirectory
 from pathlib import Path
@@ -80,7 +81,7 @@ def main() -> int:
         }
 
     report["direct_peak_vs_direct_abs255"] = stats(direct_peak, direct_abs)
-    print("direct(peak) vs direct(abs255)          : "
+    logger.info("direct(peak) vs direct(abs255)          : "
           "max|d|=%.6g  pixels differing=%.2f%%"
           % (report["direct_peak_vs_direct_abs255"]["max_abs_diff"],
              100 * report["direct_peak_vs_direct_abs255"]["frac_pixels_differing"]))
@@ -90,7 +91,7 @@ def main() -> int:
     amp = np.abs(direct_abs).max(axis=1, keepdims=True)
     manual = direct_abs / np.maximum(amp, 1e-8)
     report["direct_peak_vs_manual_abs255_over_amax"] = stats(direct_peak, manual)
-    print("direct(peak) vs abs255/max(abs255)      : "
+    logger.info("direct(peak) vs abs255/max(abs255)      : "
           "max|d|=%.6g  pixels differing=%.2f%%"
           % (report["direct_peak_vs_manual_abs255_over_amax"]["max_abs_diff"],
              100 * report["direct_peak_vs_manual_abs255_over_amax"]["frac_pixels_differing"]))
@@ -100,20 +101,20 @@ def main() -> int:
     cached_abs_after_peak = grab(build("abs255", use_cache=True), positions)
     report["cached_peak_vs_cached_abs255_after_peak"] = stats(
         cached_peak, cached_abs_after_peak)
-    print("cached(peak) vs cached(abs255) [peak 1st]: "
+    logger.info("cached(peak) vs cached(abs255) [peak 1st]: "
           "max|d|=%.6g  pixels differing=%.2f%%"
           % (report["cached_peak_vs_cached_abs255_after_peak"]["max_abs_diff"],
              100 * report["cached_peak_vs_cached_abs255_after_peak"]["frac_pixels_differing"]))
 
     report["cached_peak_vs_direct_peak"] = stats(cached_peak, direct_peak)
-    print("cached(peak) vs direct(peak)             : "
+    logger.info("cached(peak) vs direct(peak)             : "
           "max|d|=%.6g  pixels differing=%.2f%%"
           % (report["cached_peak_vs_direct_peak"]["max_abs_diff"],
              100 * report["cached_peak_vs_direct_peak"]["frac_pixels_differing"]))
 
     report["cached_abs_after_peak_vs_direct_abs255"] = stats(
         cached_abs_after_peak, direct_abs)
-    print("cached(abs255 after peak) vs direct(abs255): "
+    logger.info("cached(abs255 after peak) vs direct(abs255): "
           "max|d|=%.6g  pixels differing=%.2f%%"
           % (report["cached_abs_after_peak_vs_direct_abs255"]["max_abs_diff"],
              100 * report["cached_abs_after_peak_vs_direct_abs255"]["frac_pixels_differing"]))
@@ -124,11 +125,11 @@ def main() -> int:
     report["cached_abs_vs_direct_peak_is_cache_leak"] = cache_leak
     leak = cache_leak["frac_pixels_differing"] < 0.01
     report["verdict_cache_leak"] = bool(leak)
-    print("\ncached(abs255) matches direct(peak) to within %.2f%% of pixels: %s"
+    logger.info("\ncached(abs255) matches direct(peak) to within %.2f%% of pixels: %s"
           % (100 * cache_leak["frac_pixels_differing"], "YES -> CACHE LEAK" if leak else "no"))
 
     Path("logs/peak_cache_key.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    print("wrote logs/peak_cache_key.json")
+    logger.info("wrote logs/peak_cache_key.json")
     return 0
 
 

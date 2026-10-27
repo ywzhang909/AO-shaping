@@ -40,6 +40,7 @@ Writes ``report/loss_defects/metric_discrimination.json``.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -353,7 +354,7 @@ def main() -> None:
     )
 
     _plot(payload)
-    print(f"wrote {OUT_DIR / 'metric_discrimination.json'}")
+    logger.info(f"wrote {OUT_DIR / 'metric_discrimination.json'}")
 
 
 def _spearman(a: list[float], b: list[float]) -> float:

@@ -82,6 +82,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import hashlib
 import json
 import math
@@ -2014,29 +2015,29 @@ def _print_summary(
     sample = result["sample"]
     duplication = measurement["duplication"]
     print()
-    print(
+    logger.info(
         f"records: {duplication['records']} -> distinct pairs: "
         f"{duplication['distinct']} (x{duplication['replication_factor']:.1f})"
     )
-    print(
+    logger.info(
         f"k* = {result['k_star']:g}  "
         f"(先验 {K_APRIORI:g}); 内部性: {result['geometry']['interior']['interior']}; "
         f"三轮一致: {result['geometry']['rounds_agree']}; "
         f"几何可辨识: {result['geometry']['identified']}"
     )
-    print(
+    logger.info(
         f"@ k*: ncc median {sample['ncc']['median']:+.4f} "
         f"[{sample['ncc']['q25']:+.4f}, {sample['ncc']['q75']:+.4f}], "
         f"L1 median {sample['l1']['median']:.4f}"
     )
-    print(
+    logger.info(
         f"G0-4 @ k=1: min {gate['min']:+.4f} "
         f"({'pass' if gate['passes_min'] else 'FAIL'}); "
         f"median {gate['median']:+.4f} "
         f"({'pass' if gate['passes_median'] else 'FAIL'})"
     )
-    print(f"verdict: {result['verdict']} — {result['reason']}")
-    print(f"boundary: {result['boundary']}")
+    logger.info(f"verdict: {result['verdict']} — {result['reason']}")
+    logger.info(f"boundary: {result['boundary']}")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -2051,7 +2052,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     args = _build_parser().parse_args(argv)
     out_dir: Path = args.out_dir
-    print(PREREGISTRATION)
+    logger.info(PREREGISTRATION)
 
     started = time.perf_counter()
     measurement = measure_corpus(args.limit_files)
@@ -2076,12 +2077,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     _print_summary(result, gate, measurement)
     print()
-    print(f"wrote {out_dir / 'report.md'}")
+    logger.info(f"wrote {out_dir / 'report.md'}")
     for path in written:
-        print(f"wrote {path}")
+        logger.info(f"wrote {path}")
     for name in figures:
-        print(f"wrote {out_dir / 'figures' / name}")
-    print(f"wall clock {time.perf_counter() - started:.1f} s")
+        logger.info(f"wrote {out_dir / 'figures' / name}")
+    logger.info(f"wall clock {time.perf_counter() - started:.1f} s")
     return 0
 
 

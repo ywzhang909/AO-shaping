@@ -1,6 +1,7 @@
 """Second pass: recover unresolved names by repo-wide name match; dump function list."""
 from __future__ import annotations
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 from collections import defaultdict
@@ -53,7 +54,7 @@ for q, tgt in recovered.items():
         # find func object
         for d, mm in mods.items():
             pass
-print("recovery map saved")
+logger.info("recovery map saved")
 (ASSETS / "recovered.json").write_text(json.dumps(recovered, ensure_ascii=False, indent=1))
 
 # Dump resolved function inventory grouped by module for the wiki
@@ -62,7 +63,7 @@ for q, info in nodes.items():
     if info is not None:
         inv[info["module"]].append(info)
 for k in sorted(inv):
-    print(f"\n== {k} ({len(inv[k])}) ==")
+    logger.info(f"\n== {k} ({len(inv[k])}) ==")
     for fn in sorted(inv[k], key=lambda x: x["lineno"]):
         loc = fn["qualname"].split(".")[-1]
-        print(f"  {loc}  L{fn['lineno']}-{fn['end']}  args={len(fn['args'])}  doc={len(fn['doc'])}B  deco={fn['decorators']}")
+        logger.info(f"  {loc}  L{fn['lineno']}-{fn['end']}  args={len(fn['args'])}  doc={len(fn['doc'])}B  deco={fn['decorators']}")

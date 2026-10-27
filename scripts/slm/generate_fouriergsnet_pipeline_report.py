@@ -22,6 +22,7 @@ Fully offline -- standard library only, no hardware, no figures.
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -171,7 +172,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     out_file = out_dir / "report.md"
     out_file.write_text(REPORT, encoding="utf-8")
-    print(f"Report written to {out_file}")
+    logger.info(f"Report written to {out_file}")
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ No device is opened: everything is offline computation over stored captures.
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import csv
 import importlib
 import importlib.util
@@ -1093,7 +1094,7 @@ def main(argv: list | None = None) -> int:
         output.mkdir(parents=True, exist_ok=True)
         (output / "summary.md").write_text(render_summary(context), encoding="utf-8")
         render_figure(context, output / "sampling_grid.png")
-        print(f"re-rendered {output}")
+        logger.info(f"re-rendered {output}")
         return 0
     if not args.dataset:
         parser.error("--dataset 必填（name=path，可重复）")
@@ -1266,7 +1267,7 @@ def main(argv: list | None = None) -> int:
     (output / "summary.md").write_text(render_summary(context), encoding="utf-8")
     render_figure(context, output / "sampling_grid.png")
 
-    print(json.dumps({"converged": convergence["converged"],
+    logger.info(json.dumps({"converged": convergence["converged"],
                       "worst_relative_change": convergence["worst_relative_change"],
                       "cross_check": check}, indent=2, ensure_ascii=False))
     return 0

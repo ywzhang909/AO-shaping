@@ -32,6 +32,7 @@ CSV/JSON)，本脚本只负责 (a) 读表、(b) 渲染 5 张静态图 + 1 张复
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import csv
 import importlib.util
 import json
@@ -1374,9 +1375,9 @@ def run_quick(*, gs_iters: int | None = None) -> None:
     p1, r1 = gif_dz_sweep(fx, quick=True, out_dir=tmp)
     p2, r2, _dev = gif_reopt(fx, quick=True, out_dir=tmp)
     p3, r3 = gif_zeroth(fx, quick=True, out_dir=tmp)
-    print(f"[quick] sweep={p1.name} ({len(r1)} frames)  reopt={p2.name} ({len(r2)} frames)  "
+    logger.info(f"[quick] sweep={p1.name} ({len(r1)} frames)  reopt={p2.name} ({len(r2)} frames)  "
           f"zeroth={p3.name} ({len(r3)} frames)")
-    print("[quick] smoke frames ok; 未读任何落盘产物, 未写 report/")
+    logger.info("[quick] smoke frames ok; 未读任何落盘产物, 未写 report/")
 
 
 def main() -> None:
@@ -1393,9 +1394,9 @@ def main() -> None:
     preflight()  # 缺输入就列出「缺哪个文件 / 谁产出 / 跑哪条命令」, 不抛裸 FileNotFoundError
     now = {k: read_json(k) for k in ("sweep_json", "fresnel_json", "improved_json")}
     checks = self_checks(now)
-    print("[self-check]")
+    logger.info("[self-check]")
     for name, val in checks:
-        print(f"  - {name}: {val}")
+        logger.info(f"  - {name}: {val}")
 
     gs_iters = args.gs_iters or now["improved_json"]["grid"]["gs_iters"]
     sel = zeroth_selection()
@@ -1449,11 +1450,11 @@ def main() -> None:
 
     out = ROOT / REPORT_KEY
     out.write_text(insert_header(build_markdown(state), REPORT_KEY), encoding="utf-8")
-    print(f"\nWrote {out} in {time.perf_counter() - t0:.1f}s")
+    logger.info(f"\nWrote {out} in {time.perf_counter() - t0:.1f}s")
     for p in figs.values():
-        print(f"  fig  {p.relative_to(ROOT)}")
+        logger.info(f"  fig  {p.relative_to(ROOT)}")
     for _cap, name in gifs:
-        print(f"  gif  {(GIF_DIR / name).relative_to(ROOT)}")
+        logger.info(f"  gif  {(GIF_DIR / name).relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

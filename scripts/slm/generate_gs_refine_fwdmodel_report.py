@@ -16,6 +16,7 @@ Run:
 from __future__ import annotations
 
 import json
+from loguru import logger
 import pickle
 import sys
 from pathlib import Path
@@ -158,7 +159,7 @@ def simulate(sample, blur_camera_px: float = 0.0):
 
 
 def gate(samples, blur=0.0):
-    print(
+    logger.info(
         f"{'run':16s} {'phase':5s} | {'pib m':>7s} {'pib p':>7s} "
         f"| {'cv m':>7s} {'cv p':>7s} | {'sc m':>7s} {'sc p':>7s} {'corr':>7s}"
     )
@@ -172,7 +173,7 @@ def gate(samples, blur=0.0):
         comp = 0.5 * pib + 0.5 / (1.0 + cv)
         c = pearson(s["img"], cam)
         rows.append((s, pib, cv, comp, c))
-        print(
+        logger.info(
             f"{s['run']:16s} {s['phase']:5s} | {s['pib']:7.4f} {pib:7.4f} "
             f"| {s['cv']:7.4f} {cv:7.4f} | {s['score']:7.4f} {comp:7.4f} {c:+7.4f}"
         )
@@ -390,7 +391,7 @@ def main() -> None:
     debug_root = args.data_root or (ROOT / "data" / "debug")
     samples = collect(debug_root)
     if not samples:
-        print("no gs_refine samples with a recorded pupil centre under", debug_root)
+        logger.info("no gs_refine samples with a recorded pupil centre under", debug_root)
         return
 
     rows = gate(samples)
@@ -417,7 +418,7 @@ def main() -> None:
         insert_header(build_markdown(samples, rows, sweep), REPORT_KEY),
         encoding="utf-8",
     )
-    print(f"\nWrote {out}")
+    logger.info(f"\nWrote {out}")
 
 
 if __name__ == "__main__":

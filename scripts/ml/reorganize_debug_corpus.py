@@ -54,6 +54,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import csv
 import hashlib
 import json
@@ -506,30 +507,30 @@ def main(argv: list[str] | None = None) -> int:
         m.src.stat().st_size for p in movers for m in p.files if m.src.is_file()
     )
 
-    print(f"run directories : {len(plans)}")
-    print(f"  moved         : {len(movers)}")
-    print(f"  duplicates    : {len(dupes)} (byte-identical, SHA-256 verified)")
-    print(f"files to move   : {file_moves}")
-    print(f"cache entries   : {cache_moves}")
-    print(f"payload         : {total_bytes / 1e9:.2f} GB")
+    logger.info(f"run directories : {len(plans)}")
+    logger.info(f"  moved         : {len(movers)}")
+    logger.info(f"  duplicates    : {len(dupes)} (byte-identical, SHA-256 verified)")
+    logger.info(f"files to move   : {file_moves}")
+    logger.info(f"cache entries   : {cache_moves}")
+    logger.info(f"payload         : {total_bytes / 1e9:.2f} GB")
 
     rules: dict[str, int] = {}
     for plan in plans:
         rules[plan.rule] = rules.get(plan.rule, 0) + 1
-    print("\nclassification:")
+    logger.info("\nclassification:")
     for rule in sorted(rules):
-        print(f"  {rules[rule]:4d}  {rule}")
+        logger.info(f"  {rules[rule]:4d}  {rule}")
 
     if dupes:
-        print("\nbyte-identical duplicates (collapsed):")
+        logger.info("\nbyte-identical duplicates (collapsed):")
         for plan in dupes:
-            print(f"  {plan.old_dir.relative_to(DEBUG)}")
-            print(f"      == {plan.duplicate_of.relative_to(DEBUG)}")
+            logger.info(f"  {plan.old_dir.relative_to(DEBUG)}")
+            logger.info(f"      == {plan.duplicate_of.relative_to(DEBUG)}")
 
     if clashes:
-        print(f"\nABORT: {len(clashes)} destination collisions, nothing was touched:")
+        logger.info(f"\nABORT: {len(clashes)} destination collisions, nothing was touched:")
         for dst, a, b in clashes[:20]:
-            print(f"  {dst}\n      {a}\n      {b}")
+            logger.info(f"  {dst}\n      {a}\n      {b}")
         return 1
 
     manifest = args.plan_out or (ROOT / "logs" / "debug_reorg_plan.csv")
@@ -550,18 +551,18 @@ def main(argv: list[str] | None = None) -> int:
                     else "",
                 ]
             )
-    print(f"\nmanifest: {manifest}")
+    logger.info(f"\nmanifest: {manifest}")
 
     if not args.apply:
-        print("\nDRY RUN -- nothing was moved. Re-run with --apply.")
+        logger.info("\nDRY RUN -- nothing was moved. Re-run with --apply.")
         return 0
 
     stats = apply(plans, keep_duplicates=args.keep_duplicates)
-    print("\napplied:")
+    logger.info("\napplied:")
     for key, value in stats.items():
-        print(f"  {key:8s} {value}")
+        logger.info(f"  {key:8s} {value}")
     if args.keep_duplicates:
-        print(f"\nduplicates quarantined under {ROOT / 'data' / 'debug_dedup_quarantine'}")
+        logger.info(f"\nduplicates quarantined under {ROOT / 'data' / 'debug_dedup_quarantine'}")
     return 0
 
 

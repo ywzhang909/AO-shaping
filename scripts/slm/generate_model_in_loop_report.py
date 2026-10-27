@@ -49,6 +49,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import ast
 import sys
 from pathlib import Path
@@ -568,7 +569,7 @@ def _setup_fonts() -> None:
             plt.rcParams["font.sans-serif"] = [name, "DejaVu Sans"]
             break
     else:
-        print("warning: no CJK font found; Chinese labels may be garbled")
+        logger.info("warning: no CJK font found; Chinese labels may be garbled")
     plt.rcParams["axes.unicode_minus"] = False
 
 
@@ -672,7 +673,7 @@ def _learned_model_facts() -> dict[str, int]:
             count_parameters,
         )
     except Exception as exc:  # torch missing / ml dependency group not installed
-        print(
+        logger.info(
             f"note: cannot measure the learned model's facts "
             f"({type(exc).__name__}: {exc}); that section omits those numbers"
         )
@@ -1689,7 +1690,7 @@ def main() -> int:
     state = _debug_contract_state()
     missing = [k for k, present in state.items() if not present]
     if missing:
-        print(
+        logger.info(
             "warning: §14/§15 document the frozen `--debug` contract, but these "
             "source anchors are not present yet: "
             + ", ".join(missing)
@@ -1717,7 +1718,7 @@ def main() -> int:
     stamped = "\n".join(lines[: at + 1] + ["", header, ""] + rest).rstrip("\n") + "\n"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(stamped, encoding="utf-8")
-    print(f"wrote {args.out} ({len(stamped)} chars)")
+    logger.info(f"wrote {args.out} ({len(stamped)} chars)")
     return 0
 
 

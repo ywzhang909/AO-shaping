@@ -39,6 +39,7 @@ Usage
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 import time
 from pathlib import Path
@@ -115,22 +116,22 @@ def main() -> int:
               % (Path(key).name[:52], adj.mean(), rand_c.mean(),
                  adj_i.mean(), rand_i.mean()), flush=True)
 
-    print("\n=== smoothness: adjacent epochs vs all pairs, same pickle ===")
+    logger.info("\n=== smoothness: adjacent epochs vs all pairs, same pickle ===")
     ratio_c = [p["adj_dc_mean"] / max(p["rand_dc_mean"], 1e-12) for p in per_pickle]
     ratio_i = [p["adj_di_mean"] / max(p["rand_di_mean"], 1e-12) for p in per_pickle]
-    print("  coefficients: adjacent/random distance ratio, mean = %.4f"
+    logger.info("  coefficients: adjacent/random distance ratio, mean = %.4f"
           % float(np.mean(ratio_c)))
-    print("  images      : adjacent/random difference ratio, mean = %.4f"
+    logger.info("  images      : adjacent/random difference ratio, mean = %.4f"
           % float(np.mean(ratio_i)))
     diffs = [i - c for i, c in zip(ratio_i, ratio_c)]
-    print("  paired (image ratio - coefficient ratio) over %d pickles: mean=%+.4f p=%.4f "
+    logger.info("  paired (image ratio - coefficient ratio) over %d pickles: mean=%+.4f p=%.4f "
           "(min %.4f) dz=%+.2f"
           % (len(diffs), float(np.mean(diffs)), sign_flip_pvalue(diffs),
              min_attainable_pvalue(len(diffs)), cohens_dz(diffs)))
 
     # Regression of image difference on coefficient distance, per pickle so the
     # intercept (the noise floor) and the slope (the coupling) are both visible.
-    print("\n=== |dI| regressed on |dc| (within-pickle) ===")
+    logger.info("\n=== |dI| regressed on |dc| (within-pickle) ===")
     slopes = []
     for p in per_pickle:
         key = p["pickle"]
@@ -145,8 +146,8 @@ def main() -> int:
         di = np.sqrt(((im[:, None, :] - im[None, :, :]) ** 2).mean(axis=2))[iu]
         slope = float(np.polyfit(dc, di, 1)[0])
         slopes.append(slope)
-        print("  %-52s slope=%+.6f  intercept=%.6f" % (key[:52], slope, di.mean()))
-    print("  mean slope = %+.6f ; positive in %d/%d pickles"
+        logger.info("  %-52s slope=%+.6f  intercept=%.6f" % (key[:52], slope, di.mean()))
+    logger.info("  mean slope = %+.6f ; positive in %d/%d pickles"
           % (float(np.mean(slopes)), sum(1 for s in slopes if s > 0), len(slopes)))
 
     verdict = (
@@ -163,8 +164,8 @@ def main() -> int:
            "slopes": slopes, "slope_mean": float(np.mean(slopes)),
            "verdict": verdict, "seconds": round(time.perf_counter() - started, 1)}
     Path("logs/label_alignment.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
-    print("\nVERDICT:", verdict)
-    print("wrote logs/label_alignment.json")
+    logger.info("\nVERDICT:", verdict)
+    logger.info("wrote logs/label_alignment.json")
     return 0
 
 

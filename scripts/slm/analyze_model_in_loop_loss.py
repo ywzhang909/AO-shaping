@@ -2645,7 +2645,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             runs[run_dir.as_posix()] = load_run(campaign, run_dir)
         except Exception as exc:  # pragma: no cover - 防御
             logger.warning("读取运行失败 {}: {}", run_dir, exc)
-    print(f"discovered {len(runs)} run dirs")
+    logger.info(f"discovered {len(runs)} run dirs")
 
     analyses: list[dict[str, Any]] = []
     for key, run in runs.items():
@@ -2664,7 +2664,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 logger.warning("{}: 失配复算失败 {}", run.stamp, exc)
                 entry["mismatch"] = {"available": False, "note": f"复算失败：{exc}"}
         analyses.append(entry)
-        print(
+        logger.info(
             f"  {run.campaign[:16]:16s} {run.stamp:24s} "
             f"traceA={len(run.trace_a.losses):4d} "
             f"traceB={len(run.trace_b.losses):4d} "
@@ -2756,12 +2756,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         encoding="utf-8",
     )
     if grid_path is not None:
-        print(f"wrote {grid_path}")
-    print(f"wrote {out_dir / 'audit.json'}")
-    print(f"wrote {out_dir / 'candidates.json'}")
-    print(f"wrote {out_dir / 'summary.md'}")
+        logger.info(f"wrote {grid_path}")
+    logger.info(f"wrote {out_dir / 'audit.json'}")
+    logger.info(f"wrote {out_dir / 'candidates.json'}")
+    logger.info(f"wrote {out_dir / 'summary.md'}")
     print()
-    print(
+    logger.info(
         "verdicts:",
         json.dumps(verdict_block, indent=2, ensure_ascii=False, default=_json_default),
     )

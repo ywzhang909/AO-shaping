@@ -17,6 +17,7 @@ test_performance_comparison`` 的**逐字移植**。原实现是一个零断言�
 from __future__ import annotations
 
 import sys
+from loguru import logger
 import time
 from pathlib import Path
 
@@ -213,7 +214,7 @@ def render_markdown(results: dict[str, object], cupy_reasons: dict[str, str]) ->
 def main() -> int:
     results, cupy_reasons = run_benchmark()
     markdown = render_markdown(results, cupy_reasons)
-    print(markdown)
+    logger.info(markdown)
 
     # Stamp the provenance header at write time: this script overwrites its own
     # report, so a header left only on disk would be deleted by the next run.
@@ -222,7 +223,7 @@ def main() -> int:
     out_path = ROOT / REPORT_KEY
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(insert_header(markdown, REPORT_KEY), encoding="utf-8")
-    print(f"[ok] wrote {out_path}")
+    logger.info(f"[ok] wrote {out_path}")
     return 0
 
 

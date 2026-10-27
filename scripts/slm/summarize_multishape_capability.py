@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import math
 from datetime import datetime, timezone
@@ -565,7 +566,7 @@ def main() -> None:
     figs = make_comparison_figures(picked, args.root, args.out / FIG_SUBDIR)
     path.write_text(build_text(picked, args.root, args.exposure_ms, data_section, figs),
                     encoding="utf-8")
-    print(json.dumps({
+    logger.info(json.dumps({
         "report": str(path),
         "shapes": {s: r["_dir"] for s, r in picked.items()},
         "missing": [s for s in SHAPE_ORDER if s not in picked],

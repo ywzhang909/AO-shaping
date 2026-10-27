@@ -27,6 +27,7 @@ Usage
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -113,11 +114,11 @@ def main() -> int:
     for arm in ("real", "mean", "permuted"):
         vals = [f[arm] for f in out["folds"]]
         out[arm + "_mean"] = float(np.mean(vals))
-        print("\n%-8s mean over %d folds: %+.4f" % (arm, len(vals), np.mean(vals)))
+        logger.info("\n%-8s mean over %d folds: %+.4f" % (arm, len(vals), np.mean(vals)))
     verdict = (out["real_mean"] > 0.5 and out["mean_mean"] < 0.2
                and out["permuted_mean"] < 0.2)
     out["verdict"] = "PASS" if verdict else "SUSPECT"
-    print("\nverdict:", out["verdict"], "(real >> 0 >= mean, permuted)")
+    logger.info("\nverdict:", out["verdict"], "(real >> 0 >= mean, permuted)")
     Path("logs/pod_ridge_canary.json").write_text(
         json.dumps(out, indent=2), encoding="utf-8")
     return 0 if verdict else 1

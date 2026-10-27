@@ -76,6 +76,7 @@ LAPACK differences) can be told apart from a real divergence.
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import contextlib
 import hashlib
 import io
@@ -407,7 +408,7 @@ def analytic_covariance(
 
     phase_cov = _remove_piston(phase_cov)
     sigma = _project(phase_cov, basis) * (LAMBDA_REF_M / float(lam_m)) ** 2
-    print(f"phase covariance {phase_cov.shape} in {cov_seconds:.2f} s")
+    logger.info(f"phase covariance {phase_cov.shape} in {cov_seconds:.2f} s")
     return sigma, noll, {
         "n_pupil_samples": int(coords.size),
         "phase_variance_rad2_at_500nm_piston_removed": float(phase_cov[0, 0]),
@@ -493,7 +494,7 @@ def sampled_covariance(
     elapsed = time.perf_counter() - start
 
     sigma = acc / float(n_samples) * (LAMBDA_REF_M / float(lam_m)) ** 2
-    print(f"{n_samples} screens in {elapsed:.2f} s")
+    logger.info(f"{n_samples} screens in {elapsed:.2f} s")
     return 0.5 * (sigma + sigma.T), noll, {
         "n_pupil_samples": int(coords.size),
         "basis_roundtrip_max_abs_err": _roundtrip_error(basis),
@@ -710,9 +711,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     provenance.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     _print_summary(sigma, noll, elapsed, record["backend"])
-    print(f"wrote {asset.relative_to(ROOT)}")
-    print(f"wrote {provenance.relative_to(ROOT)}")
-    print(f"sha256 {digest}")
+    logger.info(f"wrote {asset.relative_to(ROOT)}")
+    logger.info(f"wrote {provenance.relative_to(ROOT)}")
+    logger.info(f"sha256 {digest}")
     return 0
 
 
@@ -768,11 +769,11 @@ def _check(
         if key not in ("asset", "covariance_sha256") and stored_record.get(key) != value
     )
     if differing:
-        print(
+        logger.info(
             "note: provenance fields differ from a fresh run (re-run without "
             f"--check to refresh): {', '.join(differing)}"
         )
-    print(f"OK: {asset.relative_to(ROOT)} matches sha256 {digest}")
+    logger.info(f"OK: {asset.relative_to(ROOT)} matches sha256 {digest}")
     return 0
 
 
@@ -791,8 +792,8 @@ def _print_summary(
     diag = np.diag(sigma)
     off = sigma / np.sqrt(np.outer(diag, diag))
     order = np.argsort(np.abs(off - np.eye(noll.size)).ravel())[::-1]
-    print(f"K={noll.size} Noll {int(noll[0])}..{int(noll[-1])}  built in {elapsed:.2f} s")
-    print(
+    logger.info(f"K={noll.size} Noll {int(noll[0])}..{int(noll[-1])}  built in {elapsed:.2f} s")
+    logger.info(
         "backend: array module {} (gpu={}, gpu_resident={}; OOPAO_BACKEND={}, "
         "OOPAO_GPU_RESIDENT={}; cupy {})".format(
             backend.get("array_module"),
@@ -803,11 +804,11 @@ def _print_summary(
             backend.get("cupy"),
         )
     )
-    print("mode variance (rad^2) and share of the diagonal:")
+    logger.info("mode variance (rad^2) and share of the diagonal:")
     total = float(diag.sum())
     for index, value in enumerate(diag):
-        print(f"  Noll {int(noll[index]):3d}  {value:.4e}  {100.0 * value / total:5.1f}%")
-    print("strongest |correlation|:")
+        logger.info(f"  Noll {int(noll[index]):3d}  {value:.4e}  {100.0 * value / total:5.1f}%")
+    logger.info("strongest |correlation|:")
     seen: set[tuple[int, int]] = set()
     for flat in order:
         i, j = divmod(int(flat), noll.size)
@@ -816,7 +817,7 @@ def _print_summary(
         seen.add((i, j))
         if abs(off[i, j]) < 0.05:
             break
-        print(f"  Noll {int(noll[i]):3d} / Noll {int(noll[j]):3d}  {off[i, j]:+.3f}")
+        logger.info(f"  Noll {int(noll[i]):3d} / Noll {int(noll[j]):3d}  {off[i, j]:+.3f}")
         if len(seen) >= 12:
             break
 

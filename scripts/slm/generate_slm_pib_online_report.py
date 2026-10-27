@@ -39,6 +39,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import pickle
 import sys
@@ -211,7 +212,7 @@ def load_runs(root: Path) -> list[Run]:
         try:
             runs.append(_load_run(run_dir))
         except Exception as exc:  # one bad dir must not kill the report
-            print(f"  ! skipping {run_dir.name}: {type(exc).__name__}: {exc}")
+            logger.info(f"  ! skipping {run_dir.name}: {type(exc).__name__}: {exc}")
     return runs
 
 
@@ -547,15 +548,15 @@ def main() -> int:
     args = parser.parse_args()
 
     if not args.root.is_dir():
-        print(f"error: artifact root not found: {args.root}")
+        logger.info(f"error: artifact root not found: {args.root}")
         return 1
 
-    print(f"reading {args.root}")
+    logger.info(f"reading {args.root}")
     runs = load_runs(args.root)
     if not runs:
-        print(f"error: no usable runs under {args.root}")
+        logger.info(f"error: no usable runs under {args.root}")
         return 1
-    print(f"  loaded {len(runs)} run(s)")
+    logger.info(f"  loaded {len(runs)} run(s)")
 
     out = args.out
     fig_dir = out / "figures"
@@ -577,9 +578,9 @@ def main() -> int:
                 figures.append(fig)
 
     report = write_report(runs, out, figures)
-    print(f"wrote {report}")
+    logger.info(f"wrote {report}")
     for fig in figures:
-        print(f"wrote {fig}")
+        logger.info(f"wrote {fig}")
     return 0
 
 

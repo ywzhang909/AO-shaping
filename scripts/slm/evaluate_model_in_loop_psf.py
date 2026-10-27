@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import csv
 import json
 from pathlib import Path
@@ -151,7 +152,7 @@ def main() -> None:
         writer.writerows(rows)
     for method in ("baseline", "train_selected_psf"):
         subset = [row for row in rows if row["method"] == method]
-        print(method, "corr", np.mean([row["correlation"] for row in subset]),
+        logger.info(method, "corr", np.mean([row["correlation"] for row in subset]),
               "nrmse", np.mean([row["shape_nrmse"] for row in subset]))
 
 

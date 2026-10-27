@@ -14,6 +14,7 @@ Physics:
 from __future__ import annotations
 
 import numpy as np
+from loguru import logger
 import sys
 from dataclasses import dataclass
 from typing import Any
@@ -348,11 +349,11 @@ def run_spgd_zernike(ao: AOSim, n_modes: int = 11, delta: float = 0.1,
             
             if ratio >= target_ratio:
                 if verbose:
-                    print(f"  [SPGD] Converged at epoch {epoch}: PIB={J:.4e}, ratio={ratio:.4f}")
+                    logger.info(f"  [SPGD] Converged at epoch {epoch}: PIB={J:.4e}, ratio={ratio:.4f}")
                 break
             if stagnant > 100:
                 if verbose:
-                    print(f"  [SPGD] Stagnant at epoch {epoch}: best={best_pib:.4e}")
+                    logger.info(f"  [SPGD] Stagnant at epoch {epoch}: best={best_pib:.4e}")
                 break
             
             flag = 0
@@ -363,7 +364,7 @@ def run_spgd_zernike(ao: AOSim, n_modes: int = 11, delta: float = 0.1,
     final_ratio = final_pib / ideal_pib
     
     if verbose:
-        print(f"  [SPGD] Final: PIB={final_pib:.4e}, ratio={final_ratio:.4f}, "
+        logger.info(f"  [SPGD] Final: PIB={final_pib:.4e}, ratio={final_ratio:.4f}, "
               f"ideal={ideal_pib:.4e}, target={target_pib:.4e}")
     
     return {
@@ -432,11 +433,11 @@ def run_spgd_voltage(ao: AOSim, delta: float = 0.5, gamma: float = 1e-3,
             
             if ratio >= target_ratio:
                 if verbose:
-                    print(f"  [SPGD-V] Converged at epoch {epoch}: PIB={J:.4e}, ratio={ratio:.4f}")
+                    logger.info(f"  [SPGD-V] Converged at epoch {epoch}: PIB={J:.4e}, ratio={ratio:.4f}")
                 break
             if stagnant > 100:
                 if verbose:
-                    print(f"  [SPGD-V] Stagnant at epoch {epoch}")
+                    logger.info(f"  [SPGD-V] Stagnant at epoch {epoch}")
                 break
             
             flag = 0
@@ -446,7 +447,7 @@ def run_spgd_voltage(ao: AOSim, delta: float = 0.5, gamma: float = 1e-3,
     final_ratio = final_pib / ao.state.ideal_pib
     
     if verbose:
-        print(f"  [SPGD-V] Final: PIB={final_pib:.4e}, ratio={final_ratio:.4f}")
+        logger.info(f"  [SPGD-V] Final: PIB={final_pib:.4e}, ratio={final_ratio:.4f}")
     
     return {
         'pib_curve': np.array(pib_vals),
@@ -517,18 +518,18 @@ def run_pso(ao: AOSim, n_particles: int = 20, epochs: int = 300,
         
         if best_f / ao.state.ideal_pib >= target_ratio:
             if verbose:
-                print(f"  [PSO] Converged at epoch {epoch}: PIB={best_f:.4e}, ratio={best_f/ao.state.ideal_pib:.4f}")
+                logger.info(f"  [PSO] Converged at epoch {epoch}: PIB={best_f:.4e}, ratio={best_f/ao.state.ideal_pib:.4f}")
             break
         if stagnant > 80:
             if verbose:
-                print(f"  [PSO] Stagnant at epoch {epoch}")
+                logger.info(f"  [PSO] Stagnant at epoch {epoch}")
             break
     
     final_img = ao.get_image(g_best)
     final_ratio = best_ever / ao.state.ideal_pib
     
     if verbose:
-        print(f"  [PSO] Best: PIB={best_ever:.4e}, ratio={final_ratio:.4f}")
+        logger.info(f"  [PSO] Best: PIB={best_ever:.4e}, ratio={final_ratio:.4f}")
     
     return {
         'pib_curve': np.array(pib_vals),
@@ -595,18 +596,18 @@ def run_ga(ao: AOSim, pop_size: int = 30, epochs: int = 300,
         epochs_list.append(epoch)
         if best_f / ao.state.ideal_pib >= target_ratio:
             if verbose:
-                print(f"  [GA] Converged at epoch {epoch}: PIB={best_f:.4e}, ratio={best_f/ao.state.ideal_pib:.4f}")
+                logger.info(f"  [GA] Converged at epoch {epoch}: PIB={best_f:.4e}, ratio={best_f/ao.state.ideal_pib:.4f}")
             break
         if stagnant > 80:
             if verbose:
-                print(f"  [GA] Stagnant at epoch {epoch}")
+                logger.info(f"  [GA] Stagnant at epoch {epoch}")
             break
     
     final_img = ao.get_image(best_chrom)
     final_ratio = best_f / ao.state.ideal_pib
     
     if verbose:
-        print(f"  [GA] Best: PIB={best_f:.4e}, ratio={final_ratio:.4f}")
+        logger.info(f"  [GA] Best: PIB={best_f:.4e}, ratio={final_ratio:.4f}")
     
     return {
         'pib_curve': np.array(pib_vals),
@@ -662,14 +663,14 @@ def run_sa(ao: AOSim, T_init: float = 1.0, T_min: float = 1e-6,
         epochs_list.append(epoch)
         if best_E / ao.state.ideal_pib >= target_ratio:
             if verbose:
-                print(f"  [SA] Converged at epoch {epoch}: PIB={best_E:.4e}, ratio={best_E/ao.state.ideal_pib:.4f}")
+                logger.info(f"  [SA] Converged at epoch {epoch}: PIB={best_E:.4e}, ratio={best_E/ao.state.ideal_pib:.4f}")
             break
     
     final_img = ao.get_image(best_v)
     final_ratio = best_E / ao.state.ideal_pib
     
     if verbose:
-        print(f"  [SA] Best: PIB={best_E:.4e}, ratio={final_ratio:.4f}")
+        logger.info(f"  [SA] Best: PIB={best_E:.4e}, ratio={final_ratio:.4f}")
     
     return {
         'pib_curve': np.array(pib_vals),
@@ -736,7 +737,7 @@ def plot_convergence(results: dict, save_path: str = "pib_convergence.png"):
     
     plt.tight_layout()
     plt.savefig(save_path, dpi=150)
-    print(f"[Plot] Saved to {save_path}")
+    logger.info(f"[Plot] Saved to {save_path}")
     plt.close()
 
 
@@ -774,7 +775,7 @@ def plot_spots(results: dict, ao: AOSim, save_path: str = "pib_spots.png"):
     
     plt.tight_layout()
     plt.savefig(save_path, dpi=150)
-    print(f"[Plot] Spots saved to {save_path}")
+    logger.info(f"[Plot] Spots saved to {save_path}")
     plt.close()
 
 
@@ -792,13 +793,13 @@ def main():
     EPOCHS_SPGD = 200
     EPOCHS_HEURISTIC = 100
     
-    print("=" * 70)
-    print("AO PIB Optimization with Validated digitaltwin Physics")
-    print("=" * 70)
-    print(f"Grid: {NPIX}x{NPIX}, Aperture: {APERTURE*1e3:.1f}mm, "
+    logger.info("=" * 70)
+    logger.info("AO PIB Optimization with Validated digitaltwin Physics")
+    logger.info("=" * 70)
+    logger.info(f"Grid: {NPIX}x{NPIX}, Aperture: {APERTURE*1e3:.1f}mm, "
           f"Lambda: {WAVELENGTH*1e9:.0f}nm, f: {FOCAL_LENGTH}m")
-    print(f"Turbulence: Cn2={CN2:.0e}, Dist={DIST}m, Subharmonics: OFF")
-    print(f"Target: PIB reaches {TARGET_RATIO*100:.0f}% of ideal")
+    logger.info(f"Turbulence: Cn2={CN2:.0e}, Dist={DIST}m, Subharmonics: OFF")
+    logger.info(f"Target: PIB reaches {TARGET_RATIO*100:.0f}% of ideal")
     print()
     
     cfg = SimConfig(
@@ -816,24 +817,24 @@ def main():
     ao = AOSim(cfg, seed=42)
     s = ao.state
     
-    print(f"System: {ao}")
-    print(f"r_bucket: {s.r_bucket/(APERTURE/NPIX):.0f}px")
-    print(f"ideal_pib: {s.ideal_pib/s.ideal_total:.4f} (absolute: {s.ideal_pib:.4e})")
+    logger.info(f"System: {ao}")
+    logger.info(f"r_bucket: {s.r_bucket/(APERTURE/NPIX):.0f}px")
+    logger.info(f"ideal_pib: {s.ideal_pib/s.ideal_total:.4f} (absolute: {s.ideal_pib:.4e})")
     print()
     
     turb_img = ao.get_turb_image()
     turb_pib = ao.pib(turb_img)
     turb_strehl = ao.strehl(turb_img)
-    print(f"Turbulent: PIB={turb_pib/s.ideal_total:.4f} ({turb_pib/s.ideal_pib:.4f}x ideal), "
+    logger.info(f"Turbulent: PIB={turb_pib/s.ideal_total:.4f} ({turb_pib/s.ideal_pib:.4f}x ideal), "
           f"Strehl={turb_strehl:.4f}")
-    print(f"Target PIB: {TARGET_RATIO * s.ideal_pib/s.ideal_total:.4f} ({TARGET_RATIO*100:.0f}% of ideal)")
+    logger.info(f"Target PIB: {TARGET_RATIO * s.ideal_pib/s.ideal_total:.4f} ({TARGET_RATIO*100:.0f}% of ideal)")
     print()
     
     results = {}
     
-    print("=" * 70)
-    print("STEP 1: SPGD with Zernike modes (11 modes, Adam)")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info("STEP 1: SPGD with Zernike modes (11 modes, Adam)")
+    logger.info("=" * 70)
     np.random.seed(42)
     best_spgd = run_spgd_zernike(
         ao, n_modes=11, delta=0.1, alpha=5e-3,
@@ -842,18 +843,18 @@ def main():
     results['spgd'] = best_spgd
     
     print()
-    print("=" * 70)
-    print("STEP 2: SPGD with voltage-based DM")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info("STEP 2: SPGD with voltage-based DM")
+    logger.info("=" * 70)
     np.random.seed(42)
     spgd_v = run_spgd_voltage(ao, delta=0.5, gamma=1e-3, epochs=EPOCHS_SPGD,
                               target_ratio=TARGET_RATIO, seed=42, verbose=True)
     results['spgd_v'] = spgd_v
     
     print()
-    print("=" * 70)
-    print("STEP 3: Heuristic algorithms (PSO, GA, SA)")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info("STEP 3: Heuristic algorithms (PSO, GA, SA)")
+    logger.info("=" * 70)
     
     np.random.seed(42)
     res_pso = run_pso(ao, n_particles=15, epochs=EPOCHS_HEURISTIC,
@@ -871,19 +872,19 @@ def main():
     results['sa'] = res_sa
     
     print()
-    print("=" * 70)
-    print("SUMMARY")
-    print("=" * 70)
-    print(f"Ideal PIB:       {s.ideal_pib/s.ideal_total:.4f} (absolute: {s.ideal_pib:.4e})")
-    print(f"Turbulent PIB:   {turb_pib/s.ideal_total:.4f} (ratio: {turb_pib/s.ideal_pib:.4f})")
-    print(f"Target (80%):    {TARGET_RATIO * s.ideal_pib/s.ideal_total:.4f}")
+    logger.info("=" * 70)
+    logger.info("SUMMARY")
+    logger.info("=" * 70)
+    logger.info(f"Ideal PIB:       {s.ideal_pib/s.ideal_total:.4f} (absolute: {s.ideal_pib:.4e})")
+    logger.info(f"Turbulent PIB:   {turb_pib/s.ideal_total:.4f} (ratio: {turb_pib/s.ideal_pib:.4f})")
+    logger.info(f"Target (80%):    {TARGET_RATIO * s.ideal_pib/s.ideal_total:.4f}")
     print()
-    print(f"{'Algorithm':<10} {'Final PIB':>12} {'Ratio':>8} {'Converged':>10}")
-    print("-" * 45)
+    logger.info(f"{'Algorithm':<10} {'Final PIB':>12} {'Ratio':>8} {'Converged':>10}")
+    logger.info("-" * 45)
     for name in ('spgd', 'spgd_v', 'pso', 'ga', 'sa'):
         r = results[name]
         status = "YES" if r['converged'] else "NO"
-        print(f"{name.upper():<10} {r['best_pib']/s.ideal_total:>12.4f} {r['final_ratio']:>8.4f} {status:>10}")
+        logger.info(f"{name.upper():<10} {r['best_pib']/s.ideal_total:>12.4f} {r['final_ratio']:>8.4f} {status:>10}")
     
     plot_convergence(results)
     plot_spots(results, ao)

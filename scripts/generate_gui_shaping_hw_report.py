@@ -13,6 +13,7 @@ Pure numpy + matplotlib: no hardware, no SDK, instruments may be powered off.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -561,19 +562,19 @@ def main() -> int:
     summary = summarise(runs)
     report = sync_report_block(four_elements(runs, summary))
     if report is not None:
-        print(f"wrote {report.relative_to(ROOT)} (§0 block)")
+        logger.info(f"wrote {report.relative_to(ROOT)} (§0 block)")
     else:
         print(f"note: {REPORT_KEY} not found, §0 block not written", file=sys.stderr)
     for path in made:
         if path.exists():
-            print(f"wrote {path.relative_to(ROOT)}")
-    print(f"wrote {(OUT / 'summary.json').relative_to(ROOT)}")
+            logger.info(f"wrote {path.relative_to(ROOT)}")
+    logger.info(f"wrote {(OUT / 'summary.json').relative_to(ROOT)}")
     for row in summary["runs"]:
         replay = row["replay"]
         head = "  ".join(
             f"{phase}={replay[phase]['score_mean']:.4f}" for phase in ("flat", "gs", "best") if phase in replay
         )
-        print(f"  {row['ts']}: {head}")
+        logger.info(f"  {row['ts']}: {head}")
     return 0
 
 

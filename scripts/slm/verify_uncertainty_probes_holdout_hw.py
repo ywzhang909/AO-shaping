@@ -40,6 +40,7 @@ B2_s0        2 张不确定性, sigma=0         同探针预算对比 (#139 步�
 from __future__ import annotations
 
 import os
+from loguru import logger
 import sys
 from datetime import datetime, timezone
 import json
@@ -233,7 +234,7 @@ def main() -> int:
             ("B2_s0", 2, "uncertainty", 0.0),
         ]
         results: list[dict] = []
-        print(f"\n{'变体':<9}{'探针':>5}{'验证集相关':>11}{'逐张':>26}"
+        logger.info(f"\n{'变体':<9}{'探针':>5}{'验证集相关':>11}{'逐张':>26}"
               f"{'std(选中)':>12}{'塌缩?':>8}")
         for name, count, kind, sigma in arms:
             # 验证集**先测**, 再测训练集 —— 交错顺序, 漂移落在两个变体差值里
@@ -298,14 +299,14 @@ def main() -> int:
         # ---- 汇总 ---------------------------------------------------------
         by = {r["arm"]: r for r in results}
         base = by["A8"]["holdout_correlation"]
-        print("\n" + "=" * 84)
-        print("相对基线 A8 (8 张固定随机) 的独立验证集相关性")
-        print("=" * 84)
-        print(f"{'变体':<9}{'探针':>5}{'验证集相关':>11}{'Δ vs A8':>11}{'每张探针换到的':>18}")
+        logger.info("\n" + "=" * 84)
+        logger.info("相对基线 A8 (8 张固定随机) 的独立验证集相关性")
+        logger.info("=" * 84)
+        logger.info(f"{'变体':<9}{'探针':>5}{'验证集相关':>11}{'Δ vs A8':>11}{'每张探针换到的':>18}")
         for r in results:
             d = r["holdout_correlation"] - base
             per = d / r["n_probes"] if r["n_probes"] else float("nan")
-            print(f"{r['arm']:<10}{r['n_probes']:>5}"
+            logger.info(f"{r['arm']:<10}{r['n_probes']:>5}"
                   f"{r['holdout_correlation']:>11.4f}{d:>+11.4f}{per:>18.5f}")
 
         budget = [r for r in results if r["arm"] in ("B2_s0", "B3_s0", "B6_s0")]

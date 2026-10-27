@@ -22,6 +22,7 @@ Usage:  python3 scripts/call_graph/build_module_graph.py
 from __future__ import annotations
 
 import json
+from loguru import logger
 from collections import defaultdict
 from pathlib import Path
 
@@ -179,7 +180,7 @@ def main() -> None:
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"wrote {OUT} ({OUT.stat().st_size} bytes), "
+    logger.info(f"wrote {OUT} ({OUT.stat().st_size} bytes), "
           f"{len([p for p in groups if groups[p]])} package nodes (+{len(extra_pkgs)} extra), "
           f"{kept} labeled edges (of {len(agg)} aggregated)")
 

@@ -32,6 +32,7 @@ Two conventions are load-bearing and easy to get wrong:
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import sys
 from pathlib import Path
@@ -565,9 +566,9 @@ def main(argv: list[str] | None = None) -> int:
     report.write_text(
         build_report(history, metrics, meta, rendered, run_dir), encoding="utf-8"
     )
-    print(f"wrote {report}")
+    logger.info(f"wrote {report}")
     for name, path in rendered.items():
-        print(f"  {name}: {path}")
+        logger.info(f"  {name}: {path}")
     return 0
 
 

@@ -9,6 +9,7 @@ CCD model grid, with the same frozen square and exposure readback.
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import csv
 from dataclasses import dataclass
 import hashlib
@@ -283,7 +284,7 @@ def main() -> None:
                mixed_exposure_covariate=args.mixed_exposure_covariate)
     for model in ("physical", "unet_prior", "unet_adapted"):
         values = [r for r in rows if r["model"] == model]
-        print(model, {key: round(float(np.mean([v[key] for v in values])), 4)
+        logger.info(model, {key: round(float(np.mean([v[key] for v in values])), 4)
                       for key in ("correlation", "cv", "ee")})
 
 

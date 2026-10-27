@@ -25,6 +25,7 @@ rather than a per-script copy -- the copies are what let the bug survive in twel
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -55,11 +56,11 @@ def refine(start: np.ndarray, weights: LossConfig, mask, target) -> np.ndarray:
 
 
 def main() -> None:
-    print("=" * 100)
-    print("IS 'REFINEMENT IS A RESTART' ROBUST ACROSS ROI *AND* OBJECTIVE?  (corrected evaluator)")
-    print("=" * 100)
-    print("score = pib + uniformity on an independent simulator; HIGHER IS BETTER.")
-    print("y = refinement delta, so POSITIVE means refinement HELPED.")
+    logger.info("=" * 100)
+    logger.info("IS 'REFINEMENT IS A RESTART' ROBUST ACROSS ROI *AND* OBJECTIVE?  (corrected evaluator)")
+    logger.info("=" * 100)
+    logger.info("score = pib + uniformity on an independent simulator; HIGHER IS BETTER.")
+    logger.info("y = refinement delta, so POSITIVE means refinement HELPED.")
 
     rows: list[dict] = []
     for size_frac in SIZE_FRACS:
@@ -82,7 +83,7 @@ def main() -> None:
                     )
                 rows.append(row)
 
-    print(f"\n{'ROI':>14}{'GS-flat':>10}" + "".join(f"{f'delta {k}':>14}" for k in OBJECTIVES))
+    logger.info(f"\n{'ROI':>14}{'GS-flat':>10}" + "".join(f"{f'delta {k}':>14}" for k in OBJECTIVES))
     cells = []
     for size_frac in SIZE_FRACS:
         for aspect in ASPECTS:
@@ -94,35 +95,35 @@ def main() -> None:
                 for k in OBJECTIVES
             }
             cells.append((gs_minus_flat, deltas))
-            print(f"{size_frac:>7.3f}x{aspect:<6.3f}{gs_minus_flat:>+10.4f}"
+            logger.info(f"{size_frac:>7.3f}x{aspect:<6.3f}{gs_minus_flat:>+10.4f}"
                   + "".join(f"{deltas[k]:>+14.4f}" for k in OBJECTIVES))
 
     xs = np.array([c[0] for c in cells])
-    print(f"\n{'objective':<12}{'pearson':>10}{'spearman':>11}{'vs restart claim':>22}")
+    logger.info(f"\n{'objective':<12}{'pearson':>10}{'spearman':>11}{'vs restart claim':>22}")
     verdicts = {}
     for k in OBJECTIVES:
         ys = np.array([c[1][k] for c in cells])
         p, s = inv.pearson(xs, ys), inv.spearman(xs, ys)
         ok = s < -0.6
         verdicts[k] = ok
-        print(f"{k:<12}{p:>+10.4f}{s:>+11.4f}"
+        logger.info(f"{k:<12}{p:>+10.4f}{s:>+11.4f}"
               f"{('monotone (restart)' if ok else 'NOT monotone'):>22}")
 
-    print(f"\nmean refinement delta over all {len(rows)} runs, per objective:")
+    logger.info(f"\nmean refinement delta over all {len(rows)} runs, per objective:")
     for k in OBJECTIVES:
         d = np.array([r[f"refined_{k}"] - r["gs"] for r in rows])
-        print(f"  {k:<12}{d.mean():>+9.4f}   positive (helped) in {int((d > 0).sum())}/{len(d)}")
+        logger.info(f"  {k:<12}{d.mean():>+9.4f}   positive (helped) in {int((d > 0).sum())}/{len(d)}")
 
     both = all(verdicts.values())
-    print(f"\nVERDICT: {'ROBUST across ROI x objective' if both else 'CLAIM REFUTED -- not restart behaviour'}")
+    logger.info(f"\nVERDICT: {'ROBUST across ROI x objective' if both else 'CLAIM REFUTED -- not restart behaviour'}")
     if not both:
-        print("The original -0.87/-0.92 was a property of the corner-cropped evaluator.")
-        print("Refinement now tracks its own objective and helps on average, which is what a")
-        print("gradient should do; GS alone does not beat flat, so refinement is the load-bearing step.")
+        logger.info("The original -0.87/-0.92 was a property of the corner-cropped evaluator.")
+        logger.info("Refinement now tracks its own objective and helps on average, which is what a")
+        logger.info("gradient should do; GS alone does not beat flat, so refinement is the load-bearing step.")
 
     out = Path("report/loss_defects/restart_claim_robustness.json")
     out.write_text(json.dumps(rows, indent=2), encoding="utf-8")
-    print(f"\nwrote {out}")
+    logger.info(f"\nwrote {out}")
 
 
 if __name__ == "__main__":

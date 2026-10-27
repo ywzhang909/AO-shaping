@@ -16,6 +16,7 @@ GPU (CUDA) is recommended; the script falls back to CPU automatically.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 import time
 from datetime import datetime
@@ -766,8 +767,8 @@ def build_readme(runs: dict, metrics: dict, asm_max_err: float) -> str:
 # ---------------------------------------------------------------------------
 def main() -> int:
     _mkdirs()
-    print(f"[report] output dir: {OUT_DIR}")
-    print(f"[report] device: {DEVICE}")
+    logger.info(f"[report] output dir: {OUT_DIR}")
+    logger.info(f"[report] device: {DEVICE}")
 
     metrics: dict = {
         "generated": datetime.now().isoformat(timespec="seconds"),
@@ -781,11 +782,11 @@ def main() -> int:
         t0 = time.time()
         parity = run_asm_parity()
         asm_max_err = parity["max_abs_error"]
-        print(
+        logger.info(
             f"[report] asm_parity done max_err={asm_max_err:.2e} ({time.time() - t0:.1f}s)"
         )
     except Exception as e:
-        print(f"[report] asm_parity FAILED: {e}")
+        logger.info(f"[report] asm_parity FAILED: {e}")
         metrics["errors"]["asm_parity"] = str(e)
         asm_max_err = float("nan")
 
@@ -815,12 +816,12 @@ def main() -> int:
             "final_loss": runs["gs_baseline"]["final_loss"],
             "loss0": runs["gs_baseline"]["loss0"],
         }
-        print(
+        logger.info(
             f"[report] gs_baseline done CV={runs['gs_baseline']['CV']:.4f} "
             f"EE={runs['gs_baseline']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
     except Exception as e:
-        print(f"[report] gs_baseline FAILED: {e}")
+        logger.info(f"[report] gs_baseline FAILED: {e}")
         metrics["errors"]["gs_baseline"] = str(e)
 
     # --- Run 3: old_default (documented failure) ---
@@ -852,12 +853,12 @@ def main() -> int:
             "final_loss": runs["old_default"]["final_loss"],
             "loss0": runs["old_default"]["loss0"],
         }
-        print(
+        logger.info(
             f"[report] old_default done CV={runs['old_default']['CV']:.4f} "
             f"EE={runs['old_default']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
     except Exception as e:
-        print(f"[report] old_default FAILED: {e}")
+        logger.info(f"[report] old_default FAILED: {e}")
         metrics["errors"]["old_default"] = str(e)
 
     # --- Run 4: win_fft ---
@@ -889,12 +890,12 @@ def main() -> int:
             "final_loss": runs["win_fft"]["final_loss"],
             "loss0": runs["win_fft"]["loss0"],
         }
-        print(
+        logger.info(
             f"[report] win_fft done CV={runs['win_fft']['CV']:.4f} "
             f"EE={runs['win_fft']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
     except Exception as e:
-        print(f"[report] win_fft FAILED: {e}")
+        logger.info(f"[report] win_fft FAILED: {e}")
         metrics["errors"]["win_fft"] = str(e)
 
     # --- Run 5: win_asm ---
@@ -926,12 +927,12 @@ def main() -> int:
             "final_loss": runs["win_asm"]["final_loss"],
             "loss0": runs["win_asm"]["loss0"],
         }
-        print(
+        logger.info(
             f"[report] win_asm done CV={runs['win_asm']['CV']:.4f} "
             f"EE={runs['win_asm']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
     except Exception as e:
-        print(f"[report] win_asm FAILED: {e}")
+        logger.info(f"[report] win_asm FAILED: {e}")
         metrics["errors"]["win_asm"] = str(e)
 
     # --- Run 6: win_spot ---
@@ -963,12 +964,12 @@ def main() -> int:
             "final_loss": runs["win_spot"]["final_loss"],
             "loss0": runs["win_spot"]["loss0"],
         }
-        print(
+        logger.info(
             f"[report] win_spot done CV={runs['win_spot']['CV']:.4f} "
             f"EE={runs['win_spot']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
     except Exception as e:
-        print(f"[report] win_spot FAILED: {e}")
+        logger.info(f"[report] win_spot FAILED: {e}")
         metrics["errors"]["win_spot"] = str(e)
 
     # --- Run 7: win_lbfgs ---
@@ -1000,12 +1001,12 @@ def main() -> int:
             "final_loss": runs["win_lbfgs"]["final_loss"],
             "loss0": runs["win_lbfgs"]["loss0"],
         }
-        print(
+        logger.info(
             f"[report] win_lbfgs done CV={runs['win_lbfgs']['CV']:.4f} "
             f"EE={runs['win_lbfgs']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
     except Exception as e:
-        print(f"[report] win_lbfgs FAILED: {e}")
+        logger.info(f"[report] win_lbfgs FAILED: {e}")
         metrics["errors"]["win_lbfgs"] = str(e)
 
     # --- Figures (only for runs that succeeded) ---
@@ -1036,26 +1037,26 @@ def main() -> int:
     if all(k in runs for k in ("win_fft", "win_spot")):
         try:
             make_gifs(runs)
-            print("[report] gifs done")
+            logger.info("[report] gifs done")
         except Exception as e:
-            print(f"[report] gifs FAILED: {e}")
+            logger.info(f"[report] gifs FAILED: {e}")
             metrics["errors"]["gifs"] = str(e)
 
     # --- Data persistence ---
     try:
         save_data(runs, metrics)
-        print("[report] data saved")
+        logger.info("[report] data saved")
     except Exception as e:
-        print(f"[report] save_data FAILED: {e}")
+        logger.info(f"[report] save_data FAILED: {e}")
         metrics["errors"]["save_data"] = str(e)
 
     # --- README ---
     try:
         readme = build_readme(runs, metrics, asm_max_err)
         (OUT_DIR / "README.md").write_text(readme, encoding="utf-8")
-        print("[report] README written")
+        logger.info("[report] README written")
     except Exception as e:
-        print(f"[report] README FAILED: {e}")
+        logger.info(f"[report] README FAILED: {e}")
         metrics["errors"]["readme"] = str(e)
 
     # Re-write metrics_summary.json (in case README step added errors)
@@ -1065,9 +1066,9 @@ def main() -> int:
             encoding="utf-8",
         )
     except Exception as e:
-        print(f"[report] final metrics write FAILED: {e}")
+        logger.info(f"[report] final metrics write FAILED: {e}")
 
-    print("[report] DONE")
+    logger.info("[report] DONE")
     return 0
 
 

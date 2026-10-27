@@ -2211,7 +2211,7 @@ def main() -> None:
         json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
-    print(json.dumps(
+    logger.info(json.dumps(
         {k: summary[k] for k in
          ("mode", "round_trip_relerr", "energy_ratio", "band_limit_damage",
           "trustworthy_dz", "metric_convention", "self_check",
@@ -2220,8 +2220,8 @@ def main() -> None:
           "hardware_advice", "band_limit_metric_band", "dz_choice")},
         indent=2, ensure_ascii=False,
     ))
-    print(f"\n产物目录: {out}")
-    print(f"耗时: {summary['elapsed_s']} s")
+    logger.info(f"\n产物目录: {out}")
+    logger.info(f"耗时: {summary['elapsed_s']} s")
 
 
 if __name__ == "__main__":

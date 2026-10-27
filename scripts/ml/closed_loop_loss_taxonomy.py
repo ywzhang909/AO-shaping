@@ -36,6 +36,7 @@ Writes ``report/loss_defects/closed_loop_loss_taxonomy.json``.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import math
 import sys
 from pathlib import Path
@@ -415,30 +416,30 @@ def main() -> None:
     (OUT_DIR / "closed_loop_loss_taxonomy.json").write_text(
         json.dumps(payload, indent=2), encoding="utf-8"
     )
-    print(f"wrote {OUT_DIR / 'closed_loop_loss_taxonomy.json'}\n")
+    logger.info(f"wrote {OUT_DIR / 'closed_loop_loss_taxonomy.json'}\n")
 
-    print("incumbent best RELATIVE movement per corruption (the bar to clear):")
+    logger.info("incumbent best RELATIVE movement per corruption (the bar to clear):")
     for c, v in inc_moves.items():
-        print(f"  {c:14s} {v['best_relative']:.4f}  via {v['argmax']}")
+        logger.info(f"  {c:14s} {v['best_relative']:.4f}  via {v['argmax']}")
     print()
     hdr = (
         f"{'candidate':24s} {'rel_discrim':>11s} {'safe':>6s} {'rho_max':>8s}  covers"
     )
-    print(hdr)
-    print("-" * len(hdr))
+    logger.info(hdr)
+    logger.info("-" * len(hdr))
     ranked = sorted(
         (n for n in verdict if verdict[n]["screenable_here"]),
         key=lambda n: -verdict[n]["discrimination"],
     )
     for name in ranked:
         v = verdict[name]
-        print(
+        logger.info(
             f"{name:24s} {v['discrimination']:11.4f} {str(v['degenerate_safe']):>6s} "
             f"{v['max_abs_spearman_vs_incumbent']:8.2f}  {','.join(v['covers']) or '-'}"
         )
     print()
     for name in sorted(n for n in verdict if not verdict[n]["screenable_here"]):
-        print(f"{name:24s} NOT SCREENABLE HERE -- {verdict[name]['not_screenable_reason']}")
+        logger.info(f"{name:24s} NOT SCREENABLE HERE -- {verdict[name]['not_screenable_reason']}")
 
 
 if __name__ == "__main__":

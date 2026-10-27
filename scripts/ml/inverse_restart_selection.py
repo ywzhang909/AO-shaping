@@ -24,6 +24,7 @@ selection and an external scorer is required.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -122,39 +123,39 @@ def main() -> None:
     )
     gain = pick - rand
 
-    print("=" * 84)
-    print(f"SELECTION RULE over {TRIALS} independent trials x {RESTARTS} restarts")
-    print("=" * 84)
-    print(f"flat = {flat:.4f}")
-    print("\nmean outcome of each rule (mean +/- sd over trials):")
+    logger.info("=" * 84)
+    logger.info(f"SELECTION RULE over {TRIALS} independent trials x {RESTARTS} restarts")
+    logger.info("=" * 84)
+    logger.info(f"flat = {flat:.4f}")
+    logger.info("\nmean outcome of each rule (mean +/- sd over trials):")
     for name, values in (
         ("pick by model score", pick),
         ("oracle (argmax sim)", oracle),
         ("random restart", rand),
         ("worst restart", worst),
     ):
-        print(f"  {name:<24} {values.mean():.4f} +/- {values.std():.4f}")
+        logger.info(f"  {name:<24} {values.mean():.4f} +/- {values.std():.4f}")
 
-    print(f"\nrestart spread within a trial: {spread.mean():.4f} +/- {spread.std():.4f}")
-    print(f"spearman(model_loss, sim) per trial: {np.mean(correlations):+.4f} "
+    logger.info(f"\nrestart spread within a trial: {spread.mean():.4f} +/- {spread.std():.4f}")
+    logger.info(f"spearman(model_loss, sim) per trial: {np.mean(correlations):+.4f} "
           f"+/- {np.std(correlations):.4f}  (n={TRIALS})")
 
-    print("\nTHE DECISION QUESTION -- does picking by model score beat picking blind?")
-    print(f"  pick_model - random = {gain.mean():+.4f} +/- {gain.std():.4f}")
-    print(f"  positive in {int((gain > 0).sum())}/{TRIALS} trials")
+    logger.info("\nTHE DECISION QUESTION -- does picking by model score beat picking blind?")
+    logger.info(f"  pick_model - random = {gain.mean():+.4f} +/- {gain.std():.4f}")
+    logger.info(f"  positive in {int((gain > 0).sum())}/{TRIALS} trials")
     se = gain.std() / np.sqrt(TRIALS)
-    print(f"  standard error = {se:.4f}  ->  t = {gain.mean() / se:+.2f}" if se else "  n/a")
+    logger.info(f"  standard error = {se:.4f}  ->  t = {gain.mean() / se:+.2f}" if se else "  n/a")
 
     frac = ((pick - rand) / np.maximum(oracle - rand, 1e-9)).mean()
-    print(f"\n  fraction of the available gain captured: {frac:.3f}")
-    print(f"  regret vs oracle: {(oracle - pick).mean():.4f} +/- {(oracle - pick).std():.4f}")
+    logger.info(f"\n  fraction of the available gain captured: {frac:.3f}")
+    logger.info(f"  regret vs oracle: {(oracle - pick).mean():.4f} +/- {(oracle - pick).std():.4f}")
 
     verdict = (
         "MODEL SCORE IS USEFUL for selection"
         if gain.mean() > 2 * se
         else "MODEL SCORE IS NOT USEFUL -- an external scorer is required"
     )
-    print(f"\nVERDICT: {verdict}")
+    logger.info(f"\nVERDICT: {verdict}")
 
     out = Path("report/loss_defects/restart_selection_trials.json")
     out.write_text(
@@ -163,7 +164,7 @@ def main() -> None:
         ),
         encoding="utf-8",
     )
-    print(f"wrote {out}")
+    logger.info(f"wrote {out}")
 
 
 if __name__ == "__main__":

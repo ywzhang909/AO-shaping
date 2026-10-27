@@ -46,6 +46,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import math
 import re
@@ -630,10 +631,10 @@ def main(argv: list[str] | None = None) -> int:
     render_png(png_path, args.stage, rounds, model, sigma)
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    print(f"stage={args.stage} 轮次={len(rounds)} 缺={len(payload['missing_rounds'])} 超3σ={len(above)}")
-    print(f"  md : {md_path}")
-    print(f"  png: {png_path}")
-    print(f"  jsn: {json_path}")
+    logger.info(f"stage={args.stage} 轮次={len(rounds)} 缺={len(payload['missing_rounds'])} 超3σ={len(above)}")
+    logger.info(f"  md : {md_path}")
+    logger.info(f"  png: {png_path}")
+    logger.info(f"  jsn: {json_path}")
     return 0
 
 

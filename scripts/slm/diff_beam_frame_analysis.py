@@ -202,25 +202,25 @@ def main() -> None:
         plot(result, run_dir)
         plot_spot_vs_target(result, run_dir)
 
-    print(f"\n=== {run_dir.name} ===")
-    print(f"algorithm={result['config']['algorithm']} "
+    logger.info(f"\n=== {run_dir.name} ===")
+    logger.info(f"algorithm={result['config']['algorithm']} "
           f"iterations={result['config']['iterations']} "
           f"exposure_ms={result['config']['exposure_ms']}")
     bi = result["config"].get("brightness_info")
     if bi:
-        print(f"brightness_mode: avg={bi.get('target_brightness')} "
+        logger.info(f"brightness_mode: avg={bi.get('target_brightness')} "
               f"side={bi.get('side_cam_px')}px "
               f"centroid=({bi.get('centroid', [0,0])[0]:.0f}, "
               f"{bi.get('centroid', [0,0])[1]:.0f}) "
               f"total={bi.get('total_intensity')}")
-    print(f"{'#':>2} {'phase':<14} {'peak':>7} {'sum':>9} "
+    logger.info(f"{'#':>2} {'phase':<14} {'peak':>7} {'sum':>9} "
           f"{'fpW':>4} {'fpH':>4} {'CV':>6} {'cy':>7} {'cx':>7}")
     for r in result["frames"]:
-        print(f"{r['frame']:>2} {r['phase']:<14} {r['peak']:>7.1f} "
+        logger.info(f"{r['frame']:>2} {r['phase']:<14} {r['peak']:>7.1f} "
               f"{r['sum']:>9.0f} {r['footprint_w_px']:>4} "
               f"{r['footprint_h_px']:>4} {r['uniformity_cv']:>6.3f} "
               f"{r['centroid_y']:>7.1f} {r['centroid_x']:>7.1f}")
-    print(f"analysis written to: {run_dir / 'frame_analysis.json'}")
+    logger.info(f"analysis written to: {run_dir / 'frame_analysis.json'}")
 
 
 if __name__ == "__main__":

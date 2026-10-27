@@ -9,6 +9,7 @@ Calculates and re-loads the DM interaction matrix via the slope method
 from __future__ import annotations
 
 import sys
+from loguru import logger
 from pathlib import Path
 
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
@@ -33,12 +34,12 @@ def main() -> None:
             pupil_diameter=2.27,
             save_path="data/interaction_matrix.txt",
         )
-        print(f"Interaction matrix shape: {matrix.shape}")
+        logger.info(f"Interaction matrix shape: {matrix.shape}")
 
         # Load matrix
         loaded_matrix = load_interaction_matrix("data/interaction_matrix.txt")
-        print(f"Loaded matrix shape: {loaded_matrix.shape}")
-        print("Interaction matrix calculation completed successfully!")
+        logger.info(f"Loaded matrix shape: {loaded_matrix.shape}")
+        logger.info("Interaction matrix calculation completed successfully!")
 
     except Exception as e:
         logger.error(f"Error during interaction matrix calculation: {e}")

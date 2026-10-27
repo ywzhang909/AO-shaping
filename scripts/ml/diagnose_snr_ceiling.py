@@ -35,6 +35,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import sys
 import time
@@ -130,27 +131,27 @@ def main(argv: list[str] | None = None) -> int:
               + "  ".join("skill k=%-2d %+.4f" % (k, row[f"skill_k{k}"]) for k in K_LIST),
               flush=True)
 
-    print("\n=== k-NN (no capacity, no optimiser, no loss) vs constant ===")
+    logger.info("\n=== k-NN (no capacity, no optimiser, no loss) vs constant ===")
     summary: dict[str, float] = {}
     for k in K_LIST:
         vals = [r[f"skill_k{k}"] for r in rows]
         summary[f"skill_k{k}"] = float(np.mean(vals))
-        print("  k=%-3d mean skill = %+.4f  (min %+.4f, max %+.4f)"
+        logger.info("  k=%-3d mean skill = %+.4f  (min %+.4f, max %+.4f)"
               % (k, np.mean(vals), np.min(vals), np.max(vals)))
     base = [r["skill_k1"] for r in rows]
-    print("\n  r2_const mean = %+.4f"
+    logger.info("\n  r2_const mean = %+.4f"
           % float(np.mean([r["r2_const"] for r in rows])))
     for k in K_LIST[1:]:
         diffs = [r[f"skill_k{k}"] - v for r, v in zip(rows, base)]
-        print("  paired k=%d minus k=1: mean=%+.4f p=%.4f (min %.4f) dz=%+.2f"
+        logger.info("  paired k=%d minus k=1: mean=%+.4f p=%.4f (min %.4f) dz=%+.2f"
               % (k, np.mean(diffs), sign_flip_pvalue(diffs),
                  min_attainable_pvalue(len(diffs)), cohens_dz(diffs)))
 
     # ---- signal-vs-separation curve, within-pickle pairs --------------------
-    print("\n=== image difference vs coefficient distance (within-pickle pairs) ===")
+    logger.info("\n=== image difference vs coefficient distance (within-pickle pairs) ===")
     curve = signal_curve(dataset, records)
     for entry in curve["bins"]:
-        print("  |dc| in [%s): n=%5d  mean|di|=%.6g  rms|di|=%.6g"
+        logger.info("  |dc| in [%s): n=%5d  mean|di|=%.6g  rms|di|=%.6g"
               % (entry["range"], entry["n"], entry["mean_abs"], entry["rms"]))
 
     verdict = "SIGNAL EXISTS (k-NN beats the constant)" if max(
@@ -158,8 +159,8 @@ def main(argv: list[str] | None = None) -> int:
     out = {"rows": rows, "summary": summary, "curve": curve,
            "verdict": verdict, "seconds": round(time.perf_counter() - started, 1)}
     Path(args.out).write_text(json.dumps(out, indent=2), encoding="utf-8")
-    print("\nVERDICT:", verdict)
-    print("wrote", args.out)
+    logger.info("\nVERDICT:", verdict)
+    logger.info("wrote", args.out)
     return 0
 
 

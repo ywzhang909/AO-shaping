@@ -35,6 +35,7 @@ FFT notch (--notch, default ON):
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import sys
 from pathlib import Path
 from typing import cast
@@ -280,18 +281,18 @@ def main() -> None:
     from collections import Counter
 
     n_none = sum(1 for _, _, c, _ in results if c is None)
-    print(f"Processed {len(results)} images -> {args.output}")
+    logger.info(f"Processed {len(results)} images -> {args.output}")
     if n_none:
-        print(f"  {n_none} images had no pixels above threshold (saved as _cxNone_cyNone)")
+        logger.info(f"  {n_none} images had no pixels above threshold (saved as _cxNone_cyNone)")
 
     # Quick sanity overview: distinct centroids
     centroids = [c for _, _, c, _ in results if c is not None]
     if centroids:
         arr = np.array(centroids)
         spread = arr.max(axis=0) - arr.min(axis=0)
-        print(f"  centroid x range: {arr[:,0].min():.1f}..{arr[:,0].max():.1f} "
+        logger.info(f"  centroid x range: {arr[:,0].min():.1f}..{arr[:,0].max():.1f} "
               f"(spread {spread[0]:.1f} px)")
-        print(f"  centroid y range: {arr[:,1].min():.1f}..{arr[:,1].max():.1f} "
+        logger.info(f"  centroid y range: {arr[:,1].min():.1f}..{arr[:,1].max():.1f} "
               f"(spread {spread[1]:.1f} px)")
         # distinct centroid count per controller
         per_dir: Counter[str] = Counter()
@@ -299,7 +300,7 @@ def main() -> None:
             if c is not None:
                 per_dir[src.parent.name] += 1
         for name, cnt in sorted(per_dir.items()):
-            print(f"    {name}: {cnt} distinct-pixel centroids")
+            logger.info(f"    {name}: {cnt} distinct-pixel centroids")
 
 
 if __name__ == "__main__":

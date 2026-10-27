@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from loguru import logger
 from pathlib import Path
 import json
 import os
@@ -222,7 +223,7 @@ def main() -> None:
         ]
     )
     (out_root / "report.md").write_text("\n".join(report_lines), encoding="utf-8")
-    print(out_root)
+    logger.info(out_root)
 
 
 if __name__ == "__main__":

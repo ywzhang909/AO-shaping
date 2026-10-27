@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 from pathlib import Path
 
@@ -607,7 +608,7 @@ def main() -> None:
                    artifacts={k: (v if isinstance(v, dict) else str(v)) for k, v in artifacts.items()})
     (OUT_DIR / f"{STAMP}_artifacts.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False),
                                                      encoding="utf-8")
-    print(json.dumps(summary, indent=2, ensure_ascii=False))
+    logger.info(json.dumps(summary, indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":

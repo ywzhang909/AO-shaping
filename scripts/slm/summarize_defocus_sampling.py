@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import csv
 import json
 from pathlib import Path
@@ -130,7 +131,7 @@ def main():
     fig.tight_layout()
     fig.savefig(figures/"sampling_radiometry_20261022_r2.png", dpi=160)
     plt.close(fig)
-    print(json.dumps(result.get("refit", result["radiometry"]["selection"]), indent=2))
+    logger.info(json.dumps(result.get("refit", result["radiometry"]["selection"]), indent=2))
 
 
 if __name__ == "__main__":

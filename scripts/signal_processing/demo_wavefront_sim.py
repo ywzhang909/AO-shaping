@@ -8,6 +8,7 @@ Turbulence parameters mirror the module-level constants of the source file.
 from __future__ import annotations
 
 import sys
+from loguru import logger
 from pathlib import Path
 
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
@@ -42,13 +43,13 @@ def main() -> None:
     # --- 步骤 1: 创建初始光束 (线偏振高斯光) ---
     Ex_init = create_gaussian_field(w0=0.05)
     Ey_init = np.zeros_like(Ex_init)
-    print("✅ 初始化完成: 初始光束为X偏振高斯光")
+    logger.info("✅ 初始化完成: 初始光束为X偏振高斯光")
 
     # --- 步骤 2: 分步傅里叶传播 (经过大气) ---
     Ex_prop, Ey_prop = propagator.propagate(Ex_init, Ey_init)
 
     # --- 步骤 3: 自适应光学校正 ---
-    print("🚀 开始自适应光学校正 (目标: 径向偏振光)...")
+    logger.info("🚀 开始自适应光学校正 (目标: 径向偏振光)...")
     Ex_final, Ey_final, Ex_tar, Ey_tar = ao_system.correct_to_vector_beam(Ex_prop, Ey_prop, target_mode="radial")
 
     # ================== 7. 可视化 ==================
@@ -81,7 +82,7 @@ def main() -> None:
     plt.tight_layout()
     plt.show()
 
-    print("✅ 仿真全流程结束!")
+    logger.info("✅ 仿真全流程结束!")
 
 
 if __name__ == "__main__":

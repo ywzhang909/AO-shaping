@@ -27,6 +27,7 @@ Run: ``python scripts/oopao/generate_asm_vs_fraunhofer_report.py``
 from __future__ import annotations
 
 import sys
+from loguru import logger
 from pathlib import Path
 
 import numpy as np
@@ -232,9 +233,9 @@ def main() -> int:
     block = provenance_block_for(target.relative_to(ROOT).as_posix())
     body = body.replace(f"{START_MARKER}\n{END_MARKER}", block)
     target.write_text(body, encoding="utf-8")
-    print(f"wrote {target.relative_to(ROOT)}")
+    logger.info(f"wrote {target.relative_to(ROOT)}")
     for key in ("torch_vs_numpy", "gpu_vs_cpu", "parseval_False", "bench_asm_absmax"):
-        print(f"  {key} = {data[key]}")
+        logger.info(f"  {key} = {data[key]}")
     return 0
 
 

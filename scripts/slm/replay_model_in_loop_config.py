@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 from dataclasses import fields
 import json
 from pathlib import Path
@@ -66,7 +67,7 @@ def main() -> None:
         result, SlmModelInLoopParams(),
         root_dir=args.output_dir.parent, debug=True, save_dir=args.output_dir,
     )
-    print(f"status={result.status} score={result.best_score:.4f} data={saved.save_dir}")
+    logger.info(f"status={result.status} score={result.best_score:.4f} data={saved.save_dir}")
 
 
 if __name__ == "__main__":

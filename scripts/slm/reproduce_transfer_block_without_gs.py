@@ -24,6 +24,7 @@ Everything here is offline: no SLM, no camera, no ``--execute``.
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import sys
 from pathlib import Path
@@ -202,7 +203,7 @@ def main() -> None:
     available = {row["label"] for row in _manifest(args.target_run)}
     for shape in args.shapes:
         if f"{shape}_{args.block}_A1" not in available:
-            print(f"[skip] {shape}: no block {args.block} in {args.target_run.name}")
+            logger.info(f"[skip] {shape}: no block {args.block} in {args.target_run.name}")
             continue
         result = reproduce_shape(shape=shape, block=args.block, updates=args.updates,
                                  checkpoint=args.checkpoint, seed_run=args.seed_run,
@@ -212,7 +213,7 @@ def main() -> None:
         results.append(result)
         repro = result["phase_reproduction"]
         proxy = result["anchored_proxy"]
-        print(f"{shape:10s} seed a1Δ={result['seed_vs_archived_a1_max_abs']:.3e} "
+        logger.info(f"{shape:10s} seed a1Δ={result['seed_vs_archived_a1_max_abs']:.3e} "
               f"B1 phase maxΔ={repro['max_abs']:.3e} bitwise={repro['bitwise_equal']} "
               f"| proxy CV {proxy['seed']['metrics']['cv']:.4f}→"
               f"{proxy['candidate']['metrics']['cv']:.4f} "
@@ -225,7 +226,7 @@ def main() -> None:
     if args.out:
         args.out.mkdir(parents=True, exist_ok=True)
         (args.out / "result.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
-        print(f"wrote {args.out / 'result.json'}")
+        logger.info(f"wrote {args.out / 'result.json'}")
 
 
 if __name__ == "__main__":

@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import csv
 import json
 import sys
@@ -96,7 +97,7 @@ def _build_gif(
 ) -> bool:
     """把逐点光斑拼成 GIF (固定亮度标尺, 三阶次同框)。"""
     if not frames:
-        print("没有 frames/point_*.npz, 跳过 GIF")
+        logger.info("没有 frames/point_*.npz, 跳过 GIF")
         return False
     by_command = {round(p["command"], 3): p for p in curve}
     # 零级位置: 第一帧 (平场) 的最亮点; 阶次沿**行**方向 (本光路轴交叉)。
@@ -392,12 +393,12 @@ def main() -> int:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     report_path = OUT_DIR / "report.md"
     report_path.write_text("\n".join(lines), encoding="utf-8")
-    print(f"报告已写出: {report_path}")
-    print(
+    logger.info(f"报告已写出: {report_path}")
+    logger.info(
         f"满命令 {top['command']:.0f} → η0={top['eta0']:.4f}, η±1={top['eta1']:.4f}; "
         f"深度 {depth_max_pi:.3f}π; 2π 灰度外推 {gray_2pi:.0f}"
     )
-    print(f"GIF: {'有' if gif_ok else '无'} ({len(frames)} 帧)")
+    logger.info(f"GIF: {'有' if gif_ok else '无'} ({len(frames)} 帧)")
     return 0
 
 

@@ -12,6 +12,7 @@ Checked per family, because a value that varies across the corpus can still be c
 from __future__ import annotations
 
 import sys
+from loguru import logger
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -32,10 +33,10 @@ PROBE = 40
 def main() -> None:
     index = build_hw_index(index_cache="data/hw_index_cache.json", progress_every=0)
 
-    print("=" * 104)
-    print("DEVICE METADATA: does anything actually vary where it would be used?")
-    print("=" * 104)
-    print(f"{'family':<30}{'n':>7}{'exposure values':>34}{'varies?':>9}")
+    logger.info("=" * 104)
+    logger.info("DEVICE METADATA: does anything actually vary where it would be used?")
+    logger.info("=" * 104)
+    logger.info(f"{'family':<30}{'n':>7}{'exposure values':>34}{'varies?':>9}")
 
     rows = []
     for family in sorted({r.family for r in index.records}):
@@ -49,19 +50,19 @@ def main() -> None:
             shown = exposures if len(exposures) <= 4 else [exposures[0], "...", exposures[-1]]
             varies = len(exposures) > 1
             rows.append((family, n, exposures, varies))
-            print(f"{family:<30}{n:>7}{str(shown):>34}{'YES' if varies else 'no':>9}")
+            logger.info(f"{family:<30}{n:>7}{str(shown):>34}{'YES' if varies else 'no':>9}")
         except Exception as exc:  # a family may have no usable payload
-            print(f"{family:<30}{'--':>7}{type(exc).__name__:>34}{'?':>9}")
+            logger.info(f"{family:<30}{'--':>7}{type(exc).__name__:>34}{'?':>9}")
 
-    print("\nreading:")
+    logger.info("\nreading:")
     constant = [r for r in rows if not r[3]]
-    print(f"  {len(constant)}/{len(rows)} families have a CONSTANT exposure over the probed "
+    logger.info(f"  {len(constant)}/{len(rows)} families have a CONSTANT exposure over the probed "
           f"records.")
-    print("  A constant input carries zero information: it cannot inform a prediction, so")
-    print("  conditioning on it would add parameters and a false sense of progress.")
+    logger.info("  A constant input carries zero information: it cannot inform a prediction, so")
+    logger.info("  conditioning on it would add parameters and a false sense of progress.")
     if all(not r[3] for r in rows):
-        print("\n  Exposure fusion is therefore NOT built as an arm -- there is nothing to fuse.")
-        print("  Recorded here so the negative is on file rather than silently skipped.")
+        logger.info("\n  Exposure fusion is therefore NOT built as an arm -- there is nothing to fuse.")
+        logger.info("  Recorded here so the negative is on file rather than silently skipped.")
 
 
 if __name__ == "__main__":

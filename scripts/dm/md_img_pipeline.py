@@ -19,6 +19,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import re
 import sys
@@ -421,7 +422,7 @@ def main() -> None:
     gif_dir = args.output / "gif"
 
     ip_dirs = sorted(p for p in args.input.iterdir() if p.is_dir())
-    print(f"Found {len(ip_dirs)} controller IPs")
+    logger.info(f"Found {len(ip_dirs)} controller IPs")
 
     # Load the SHARED reference once: channel-000 of the first controller
     # (192.168.0.101) is used for ALL IPs so every diff shares one baseline.
@@ -435,13 +436,13 @@ def main() -> None:
             shared_ref = load_gray(ref_path)
             if args.notch:
                 shared_ref = notch_fft(shared_ref)
-            print(f"Shared reference: {ref_path.name} (from {ref_path.parent.name})")
+            logger.info(f"Shared reference: {ref_path.name} (from {ref_path.parent.name})")
         else:
-            print(f"WARNING: shared reference not found: {ref_path}")
+            logger.info(f"WARNING: shared reference not found: {ref_path}")
 
     for ip_idx, ip_dir in enumerate(ip_dirs):
         ip_name = ip_dir.name
-        print(f"\n[{ip_idx + 1}/{len(ip_dirs)}] Processing {ip_name}...")
+        logger.info(f"\n[{ip_idx + 1}/{len(ip_dirs)}] Processing {ip_name}...")
 
         # Step 1: Diff computation
         if not args.skip_diff:
@@ -453,9 +454,9 @@ def main() -> None:
                     args.threshold, args.cmap, args.vmax, args.notch
                 )
                 n_valid = sum(1 for _, _, c in results if c is not None)
-                print(f"  Diff: {len(results)} images, {n_valid} with valid centroids")
+                logger.info(f"  Diff: {len(results)} images, {n_valid} with valid centroids")
             except Exception as e:
-                print(f"  Diff FAILED: {e}")
+                logger.info(f"  Diff FAILED: {e}")
                 continue
 
         # Step 2: Overlay
@@ -463,19 +464,19 @@ def main() -> None:
         if ip_diff_dir.is_dir():
             overlay_path = overlay_dir / f"{ip_name}_overlay.png"
             coverage = compute_ip_overlay(ip_diff_dir, overlay_path)
-            print(f"  Overlay: {coverage:.1f}% coverage -> {overlay_path.name}")
+            logger.info(f"  Overlay: {coverage:.1f}% coverage -> {overlay_path.name}")
 
         # Step 3: GIF
         if ip_diff_dir.is_dir():
             gif_path = gif_dir / f"{ip_name}.gif"
             try:
                 render_ip_gif(ip_diff_dir, gif_path, args.scale, args.fps)
-                print(f"  GIF: {gif_path.name} ({gif_path.stat().st_size / 1024:.0f} KiB)")
+                logger.info(f"  GIF: {gif_path.name} ({gif_path.stat().st_size / 1024:.0f} KiB)")
             except Exception as e:
-                print(f"  GIF FAILED: {e}")
+                logger.info(f"  GIF FAILED: {e}")
 
     # Step 4: Global overlay
-    print("\nComputing global overlay...")
+    logger.info("\nComputing global overlay...")
     all_diff_files = list(diff_root.rglob("*.png"))
     if all_diff_files:
         first = np.asarray(Image.open(all_diff_files[0]), dtype=np.float64)
@@ -490,19 +491,19 @@ def main() -> None:
         Image.fromarray(np.clip(overlay, 0, 255).astype(np.uint8)).save(global_overlay_path)
         gray = np.mean(overlay, axis=2) if is_rgb else overlay
         coverage = float((gray > 0).sum()) / (h * w) * 100
-        print(f"  Global overlay: {coverage:.1f}% coverage -> {global_overlay_path}")
+        logger.info(f"  Global overlay: {coverage:.1f}% coverage -> {global_overlay_path}")
 
     # Step 5: Combined GIF
     if gif_dir.is_dir() and list(gif_dir.glob("*.gif")):
         combined_path = args.output / "combined.gif"
         try:
             combine_gifs(gif_dir, [args.input], combined_path, args.fps)
-            print(f"\nCombined GIF: {combined_path} "
+            logger.info(f"\nCombined GIF: {combined_path} "
                   f"({combined_path.stat().st_size / 1024:.0f} KiB)")
         except Exception as e:
-            print(f"\nCombined GIF FAILED: {e}")
+            logger.info(f"\nCombined GIF FAILED: {e}")
 
-    print(f"\nPipeline complete. Output -> {args.output}")
+    logger.info(f"\nPipeline complete. Output -> {args.output}")
 
 
 if __name__ == "__main__":

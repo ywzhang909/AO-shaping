@@ -20,6 +20,7 @@ Offline only: reads saved JSON, writes one Markdown file and one figure.
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import shutil
 import sys
@@ -540,9 +541,9 @@ def main() -> None:
 
     target = ROOT / REPORT_KEY
     target.write_text(insert_header(body, REPORT_KEY), encoding="utf-8")
-    print(f"wrote {target.relative_to(ROOT)}")
-    print(f"figure -> {figure.relative_to(ROOT)}")
-    print(f"pretrain run: {run if run is not None else 'none (section marked as not produced)'}")
+    logger.info(f"wrote {target.relative_to(ROOT)}")
+    logger.info(f"figure -> {figure.relative_to(ROOT)}")
+    logger.info(f"pretrain run: {run if run is not None else 'none (section marked as not produced)'}")
 
 
 if __name__ == "__main__":

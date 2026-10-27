@@ -7,6 +7,7 @@ adapt the U-Net; holdouts and shaped frames are never used for fitting.
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import csv
 import json
 import sys
@@ -141,7 +142,7 @@ def main() -> None:
     for split in ("holdout", "shaped"):
         for model in ("physical", "unet_prior", "unet_adapted"):
             subset = [row for row in rows if row["split"] == split and row["model"] == model]
-            print(split, model, {metric: round(float(np.mean([row[metric] for row in subset])), 4)
+            logger.info(split, model, {metric: round(float(np.mean([row[metric] for row in subset])), 4)
                                 for metric in ("correlation", "cv", "ee")})
 
 

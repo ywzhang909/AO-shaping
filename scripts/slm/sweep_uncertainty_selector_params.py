@@ -23,6 +23,7 @@ ratio 的均值/中位数与"赢的种子比例"。**判据是赢的比例, 不�
 from __future__ import annotations
 
 import sys
+from loguru import logger
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -156,7 +157,7 @@ def main() -> int:
     _log("=" * 92)
 
     rows = []
-    print(f"{'配置':<26}{'U_unc':>11}{'U_rand':>11}{'ratio':>8}"
+    logger.info(f"{'配置':<26}{'U_unc':>11}{'U_rand':>11}{'ratio':>8}"
           f"{'中位ratio':>11}{'赢':>7}{'std(选中)':>11}{'秒':>7}")
     for cfg in CONFIGS:
         ratios, u_uncs, u_rands, stds, secs = [], [], [], [], []
@@ -205,7 +206,7 @@ def main() -> int:
             "probe_std_mean": float(np.mean(stds)),
             "seconds_mean": float(np.mean(secs)),
         })
-        print(f"{cfg['tag']:<26}{np.mean(u_uncs):>11.4e}{np.mean(u_rands):>11.4e}"
+        logger.info(f"{cfg['tag']:<26}{np.mean(u_uncs):>11.4e}{np.mean(u_rands):>11.4e}"
               f"{np.nanmean(arr):>8.3f}{np.nanmedian(arr):>11.3f}"
               f"{wins:>4}/{args.seeds:<2}{np.mean(stds):>11.3f}"
               f"{np.mean(secs):>7.1f}")

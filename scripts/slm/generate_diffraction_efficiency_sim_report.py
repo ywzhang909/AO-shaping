@@ -1663,32 +1663,32 @@ def run_all(*, n_steps: int, studies: tuple[str, ...]) -> list[CaseResult]:
 def print_summary(results: list[CaseResult]) -> None:
     """打印一行一个工况的汇总 (冒烟模式的主要输出)。"""
     print()
-    print("=" * 100)
-    print(
+    logger.info("=" * 100)
+    logger.info(
         f"{'研究':<4} {'工况':<18} {'拟合Δφ(π)':>10} {'偏差':>9} "
         f"{'拟合γ':>8} {'泄漏':>8} {'峰值η±1':>9} {'拟合rms':>9} {'判定':>8} {'真值判定':>8} "
         f"{'残差px':>8} {'FWHM px':>8} {'相对门禁':>18} {'绝对门禁':>20}"
     )
-    print("-" * 150)
+    logger.info("-" * 150)
     for r in results:
         flag = "" if r.verdict_ok else "  <== 判定与真值不符"
-        print(
+        logger.info(
             f"{r.case.study:<4} {r.case.short:<18} {r.depth_pi:>10.4f} "
             f"{r.depth_bias * 100.0:>8.1f}% {r.fit.gamma:>8.4f} "
             f"{r.fit.leakage:>8.4f} {r.peak_eta:>9.4f} {r.fit.residual_rms:>9.4f} "
             f"{r.verdict:>8} {r.truth_verdict:>8} {r.max_residual_px:>8.2f} "
             f"{r.fwhm_ref_px:>8.1f} {r.gate_rel_cell:>18} {r.gate_abs_cell:>20}{flag}"
         )
-    print("-" * 100)
+    logger.info("-" * 100)
     wrong = [r for r in results if not r.verdict_ok]
-    print(
+    logger.info(
         f"工况数 {len(results)} | 判定与真值不符 {len(wrong)} 个 "
         f"({', '.join(f'{r.case.study}:{r.case.short}' for r in wrong) if wrong else '无'}) | "
         f"|Δφ 偏差| > {DEPTH_BIAS_WARN * 100:.0f}% 的 "
         f"{sum(1 for r in results if abs(r.depth_bias) > DEPTH_BIAS_WARN)} 个 | "
         f"最大几何残差 {max(r.max_residual_px for r in results):.2f} px"
     )
-    print("=" * 100)
+    logger.info("=" * 100)
     print()
 
 

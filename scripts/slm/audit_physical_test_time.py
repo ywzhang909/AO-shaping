@@ -47,6 +47,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import math
 import re
@@ -1717,9 +1718,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     render_figure(ledger, out_dir / "time_share.png")
 
-    print(f"wrote {out_dir}")
+    logger.info(f"wrote {out_dir}")
     for kind, block in ledger["kinds"].items():
-        print(f"  {kind}: {block['total_seconds'] / 60:.1f} min")
+        logger.info(f"  {kind}: {block['total_seconds'] / 60:.1f} min")
     return 0
 
 

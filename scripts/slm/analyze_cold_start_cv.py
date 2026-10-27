@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+from loguru import logger
 import json
 import pickle
 from dataclasses import replace
@@ -148,7 +149,7 @@ def main():
     (DATA / "cv_diagnosis").mkdir(exist_ok=True)
     (DATA / "cv_diagnosis/results.json").write_text(json.dumps(dict(ablations=ablations, traces=traces), indent=2))
     REPORT.write_text("\n".join(lines), encoding="utf-8")
-    print(json.dumps(ablations, indent=2))
+    logger.info(json.dumps(ablations, indent=2))
 
 
 if __name__ == "__main__":

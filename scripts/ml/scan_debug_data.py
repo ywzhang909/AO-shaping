@@ -12,6 +12,7 @@ walking ancestors and skipping bare run stamps (``YYYYMMDD`` /
 
 from __future__ import annotations
 import json
+from loguru import logger
 import pickle
 import re
 from pathlib import Path
@@ -48,7 +49,7 @@ for pkl_path in debug_root.rglob('*.pkl'):
         with open(pkl_path, 'rb') as f:
             data = pickle.load(f)
     except Exception as e:
-        print(f"ERROR loading {pkl_path}: {e}")
+        logger.info(f"ERROR loading {pkl_path}: {e}")
         continue
 
     # Count iterations (epochs/rounds)
@@ -81,8 +82,8 @@ for pkl_path in debug_root.rglob('*.pkl'):
     run_dir = pkl_path.parent
     if is_sim or num_iters < 2:
         to_delete.append((run_dir, is_sim, num_iters))
-        print(f"{'SIM' if is_sim else 'LOW_ITER'} | iters={num_iters:3d} | {run_dir}")
+        logger.info(f"{'SIM' if is_sim else 'LOW_ITER'} | iters={num_iters:3d} | {run_dir}")
 
-print(f"\nTotal directories to review: {len(to_delete)}")
+logger.info(f"\nTotal directories to review: {len(to_delete)}")
 for d, is_sim, iters in to_delete:
-    print(f"  {'SIM' if is_sim else 'LOW_ITER'} | iters={iters:3d} | {d}")
+    logger.info(f"  {'SIM' if is_sim else 'LOW_ITER'} | iters={iters:3d} | {d}")

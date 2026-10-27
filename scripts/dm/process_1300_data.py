@@ -12,6 +12,7 @@ Process 1300-5.xlsx: add 36×36 grid positions and lookup group/pin from wiring 
 from __future__ import annotations
 
 import os
+from loguru import logger
 from pathlib import Path
 
 import openpyxl
@@ -134,18 +135,18 @@ def parse_wiring_table(path: Path) -> dict[int, dict]:
 def main() -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
 
-    print("Reading 1300-5.xlsx...")
+    logger.info("Reading 1300-5.xlsx...")
     df = read_1300_5_data(XLSX_1300_5)
-    print(f"  Read {len(df)} rows with data")
+    logger.info(f"  Read {len(df)} rows with data")
 
-    print("Parsing wiring table...")
+    logger.info("Parsing wiring table...")
     wiring_map = parse_wiring_table(XLSX_WIRING)
-    print(f"  Parsed {len(wiring_map)} entries from wiring table")
+    logger.info(f"  Parsed {len(wiring_map)} entries from wiring table")
 
     # Verify wiring table covers the range
     missing_rows = set(df["row_id"]) - set(wiring_map.keys())
     if missing_rows:
-        print(f"  WARNING: {len(missing_rows)} rows not found in wiring table: {sorted(missing_rows)[:10]}...")
+        logger.info(f"  WARNING: {len(missing_rows)} rows not found in wiring table: {sorted(missing_rows)[:10]}...")
 
     # Join wiring info into the dataframe
     df["组"] = df["row_id"].map(lambda r: wiring_map.get(r, {}).get("group", ""))
@@ -178,18 +179,18 @@ def main() -> None:
     }, inplace=True)
 
     # Save
-    print("\nSaving enriched data...")
+    logger.info("\nSaving enriched data...")
     df_out.to_excel(OUTPUT_XLSX, index=False, engine="openpyxl")
-    print(f"  XLSX: {OUTPUT_XLSX}")
+    logger.info(f"  XLSX: {OUTPUT_XLSX}")
     df_out.to_csv(OUTPUT_CSV, index=False)
-    print(f"  CSV: {OUTPUT_CSV}")
+    logger.info(f"  CSV: {OUTPUT_CSV}")
 
-    print("\nEnriched data preview (first 10 rows):")
-    print(df_out.head(10).to_string())
-    print(f"\nTotal records: {len(df_out)}")
-    print(f"36×36 grid size: {GRID_SIZE}×{GRID_SIZE} = {GRID_SIZE*GRID_SIZE}")
-    print(f"Unique IP groups: {sorted(df_out['IP组'].unique())}")
-    print(f"每组 column has values: {df_out['组'].unique().tolist()}")
+    logger.info("\nEnriched data preview (first 10 rows):")
+    logger.info(df_out.head(10).to_string())
+    logger.info(f"\nTotal records: {len(df_out)}")
+    logger.info(f"36×36 grid size: {GRID_SIZE}×{GRID_SIZE} = {GRID_SIZE*GRID_SIZE}")
+    logger.info(f"Unique IP groups: {sorted(df_out['IP组'].unique())}")
+    logger.info(f"每组 column has values: {df_out['组'].unique().tolist()}")
 
 
 if __name__ == "__main__":

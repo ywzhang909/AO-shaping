@@ -15,6 +15,7 @@ Writes logs/seed_sensitivity.json.
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import statistics
 import sys
@@ -128,18 +129,18 @@ def main(argv: list[str] | None = None) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
 
-    print("\n================ SEED SENSITIVITY ================")
-    print(f"fold {args.fold}, {args.epochs} epochs, seeds {args.seeds}")
+    logger.info("\n================ SEED SENSITIVITY ================")
+    logger.info(f"fold {args.fold}, {args.epochs} epochs, seeds {args.seeds}")
     for entry in table:
         parts = "  ".join(f"{k}={v:+.4f}" for k, v in entry.items() if k != "seed")
-        print(f"  seed {entry['seed']}: {parts}")
-    print(f"mean diff {summary['mean_diff']:+.4f} +/- {summary['std_diff']:.4f}")
-    print(f"signs observed: {summary['signs_observed']}")
-    print(f"SIGN FLIPS: {summary['sign_flips']}")
-    print(f"=> {summary['interpretation']}")
+        logger.info(f"  seed {entry['seed']}: {parts}")
+    logger.info(f"mean diff {summary['mean_diff']:+.4f} +/- {summary['std_diff']:.4f}")
+    logger.info(f"signs observed: {summary['signs_observed']}")
+    logger.info(f"SIGN FLIPS: {summary['sign_flips']}")
+    logger.info(f"=> {summary['interpretation']}")
     for term, mean in summary["per_term_means"].items():
-        print(f"   mean {term}: {mean:+.4f}")
-    print(f"artefact: {out}")
+        logger.info(f"   mean {term}: {mean:+.4f}")
+    logger.info(f"artefact: {out}")
     return 0
 
 

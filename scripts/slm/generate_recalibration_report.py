@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import glob
 import json
 from pathlib import Path
@@ -244,7 +245,7 @@ def main() -> None:
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     report_path = OUT_DIR / Path(REPORT_KEY).name
     if report_path.exists() and not args.force:
-        print(f"  {report_path.name} 已存在；加 --force 覆盖（本文件只属于 r2 这一轮）")
+        logger.info(f"  {report_path.name} 已存在；加 --force 覆盖（本文件只属于 r2 这一轮）")
     if args.old_focus == OLD_FOCUS:
         print("⚠ --old-focus 用的是 20261022 的历史标定；换光路后请显式指定", flush=True)
     data = load(args.old_focus)
@@ -253,7 +254,7 @@ def main() -> None:
     write_report(data, artifacts, report_path)
     (OUT_DIR / f"{STAMP}_artifacts.json").write_text(json.dumps(artifacts, indent=2, ensure_ascii=False),
                                                      encoding="utf-8")
-    print(json.dumps(artifacts, indent=2, ensure_ascii=False))
+    logger.info(json.dumps(artifacts, indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":

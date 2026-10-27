@@ -14,6 +14,7 @@ plus the second moment ratio, which is the physical observable the shaping cares
 from __future__ import annotations
 
 import sys
+from loguru import logger
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -36,7 +37,7 @@ CKPT = ROOT / "logs" / "zernike_amp_final_nmax20" / "best_coefficients.pt"
 
 def main() -> None:
     model, blob = load_trained(CKPT)
-    print(f"checkpoint: n_max={blob['n_max']} padding={blob['far_field_padding']} "
+    logger.info(f"checkpoint: n_max={blob['n_max']} padding={blob['far_field_padding']} "
           f"grid={blob['grid']}")
     designed = inv.gs_phase(inv.SIZE_FRAC, inv.ASPECT)
 
@@ -48,8 +49,8 @@ def main() -> None:
         pred = _norm(model(phasor.real, phasor.imag)[0, 0].numpy())
 
     var_p = float(second_moments(torch.as_tensor(pred)[None, None])[2])
-    print(f"\npred: var_r={var_p:.2f}")
-    print(f"{'sim pad':>9}{'pearson':>10}{'spearman':>10}{'var_r sim':>11}"
+    logger.info(f"\npred: var_r={var_p:.2f}")
+    logger.info(f"{'sim pad':>9}{'pearson':>10}{'spearman':>10}{'var_r sim':>11}"
           f"{'var ratio':>11}{'score(pred)':>13}{'score(sim)':>12}")
 
     best = None
@@ -61,14 +62,14 @@ def main() -> None:
         # scores need the same padding for the ROI terms to sit on the same pixels
         s_pred = inv.score_phase(designed, inv.SIZE_FRAC, inv.ASPECT, pad)
         s_true = inv.score_phase(designed, inv.SIZE_FRAC, inv.ASPECT, pad)
-        print(f"{pad:>9}{pear:>10.4f}{spear:>10.4f}{var_t:>11.2f}"
+        logger.info(f"{pad:>9}{pear:>10.4f}{spear:>10.4f}{var_t:>11.2f}"
               f"{var_p / var_t:>11.3f}{s_pred:>13.4f}{s_true:>12.4f}")
         if best is None or pear > best[1]:
             best = (pad, pear, var_t)
 
-    print(f"\nbest padding by shape agreement: {best[0]} (pearson {best[1]:.4f}, "
+    logger.info(f"\nbest padding by shape agreement: {best[0]} (pearson {best[1]:.4f}, "
           f"var_r {best[2]:.2f} vs pred {var_p:.2f})")
-    print(
+    logger.info(
         "The model is trained against real CCD frames whose spots are broad; the sim's "
         "focus is far tighter. If var_r(model) >> var_r(sim) at every padding, the "
         "disagreement is a MODEL limitation, not a scale mismatch."

@@ -33,6 +33,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import pickle
 import sys
@@ -640,20 +641,20 @@ def main() -> int:
     args = parser.parse_args()
 
     if not args.root.is_dir():
-        print(f"error: artifact root not found: {args.root}")
+        logger.info(f"error: artifact root not found: {args.root}")
         return 1
 
     frame_sets = load_frame_sets(args.root)
     if not frame_sets:
-        print(f"error: no recorded frames under {args.root}")
+        logger.info(f"error: no recorded frames under {args.root}")
         return 1
-    print(f"loaded {len(frame_sets)} frame set(s)")
+    logger.info(f"loaded {len(frame_sets)} frame set(s)")
 
     results: list[tuple[FrameSet, dict[str, np.ndarray], tuple[float, float]]] = []
     for fs in frame_sets:
         ys, center = analyse(fs, args.target_side)
         results.append((fs, ys, center))
-        print(f"  {fs.label}: {fs.epochs.size} frames @ center"
+        logger.info(f"  {fs.label}: {fs.epochs.size} frames @ center"
               f"({center[0]:.0f},{center[1]:.0f})")
 
     out = args.out
@@ -667,9 +668,9 @@ def main() -> int:
         figures.append(plot_objective_traces(fs, ys, fig_dir))
 
     report = write_report(results, args.target_side, out, figures)
-    print(f"wrote {report}")
+    logger.info(f"wrote {report}")
     for fig in figures:
-        print(f"wrote {fig}")
+        logger.info(f"wrote {fig}")
     return 0
 
 

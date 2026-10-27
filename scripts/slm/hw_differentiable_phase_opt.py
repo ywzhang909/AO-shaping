@@ -838,7 +838,7 @@ def print_plan(plan: dict[str, Any]) -> None:
         add(f"  {k}: {v}")
     add("")
     add("=" * 78)
-    print("\n".join(lines))
+    logger.info("\n".join(lines))
 
 
 # ---------------------------------------------------------------------------
@@ -857,7 +857,7 @@ def assert_no_drivers() -> None:
         )
         sys.stderr.flush()
         raise SystemExit(EXIT_DRYRUN_VIOLATION)
-    print(
+    logger.info(
         "dry-run 保证通过: sys.modules 里没有任何 ao_shaping.drivers.* "
         "(未 import、未 open 任何设备)"
     )
@@ -2353,7 +2353,7 @@ def run_analyze_only(args: argparse.Namespace) -> int:
         stamp,
         copy_artifacts=False,
     )
-    print(f"\n离线重分析完成: {run_dir}")
+    logger.info(f"\n离线重分析完成: {run_dir}")
     return EXIT_OK
 
 
@@ -2376,7 +2376,7 @@ def run_execute(args: argparse.Namespace, plan: dict[str, Any]) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     fig_dir = out_dir / "figures"
     fig_dir.mkdir(parents=True, exist_ok=True)
-    print(f"运行目录: {out_dir}")
+    logger.info(f"运行目录: {out_dir}")
 
     # ---- P0.5: 等设备空出来 (公平仲裁, 不抢) -------------------------------
     # 别的会话可能在跑硬件 sweep (相机/SLM 的句柄是独占的)。**先看进程再探针**
@@ -3109,11 +3109,11 @@ def _run_bench(
         # 冒烟跑**不写报告**: 报告是"这一轮真实实验"的结论, 被一次 2 轮迭代的
         # 冒烟覆盖掉, 就等于把结论换成了没意义的数。产物仍照常落盘。
         logger.info("冒烟模式: 产物已落盘, 报告不覆盖")
-        print(f"产物: {out_dir}")
+        logger.info(f"产物: {out_dir}")
         return EXIT_OK
     report_path = write_report(run_config, history, hw_history, out_dir, stamp)
-    print(f"报告: {report_path}")
-    print(f"产物: {out_dir}")
+    logger.info(f"报告: {report_path}")
+    logger.info(f"产物: {out_dir}")
     return EXIT_OK
 
 
@@ -3510,7 +3510,7 @@ def main() -> None:
 
     print_plan(plan)
     if args.execute:
-        print("\n[提示] 同时给了 --dry-run 与 --execute, 按 dry-run 处理")
+        logger.info("\n[提示] 同时给了 --dry-run 与 --execute, 按 dry-run 处理")
     assert_no_drivers()
 
 

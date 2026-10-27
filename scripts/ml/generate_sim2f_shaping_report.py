@@ -32,6 +32,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import csv
 import json
 import shutil
@@ -1693,11 +1694,11 @@ def main() -> int:
     # A figure that failed to render must not leave a markdown link behind.
     text = "\n".join(line for line in body_parts if line is not None).rstrip("\n") + "\n"
     (OUT_DIR / "report.md").write_text(insert_header(text, REPORT_KEY), encoding="utf-8")
-    print(f"wrote {OUT_DIR / 'report.md'}")
+    logger.info(f"wrote {OUT_DIR / 'report.md'}")
     written = [name for name in figures.values() if name]
-    print(f"figures: {len(written)}  artifacts: {len(artifacts)}")
+    logger.info(f"figures: {len(written)}  artifacts: {len(artifacts)}")
     if data.missing:
-        print("missing artefacts: " + ", ".join(data.missing))
+        logger.info("missing artefacts: " + ", ".join(data.missing))
     return 0
 
 

@@ -35,6 +35,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import sys
 import time
@@ -282,7 +283,7 @@ def main(argv: list[str] | None = None) -> int:
 
     started = time.perf_counter()
     gates = [gate_padding(dataset), gate_constant_predictor(dataset, folds, fold_indices)]
-    print(json.dumps(gates, indent=2, default=str))
+    logger.info(json.dumps(gates, indent=2, default=str))
 
     # Each configuration is one arm: (architecture, input_terms).
     configs = [
@@ -335,7 +336,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
     if trap_gate is not None:
         gates.append(trap_gate)
-        print(json.dumps([trap_gate], indent=2, default=str))
+        logger.info(json.dumps([trap_gate], indent=2, default=str))
 
     # (a) Canary-subtracted skill. The absolute R^2 is optimistic because a
     # train-mean image already scores highly on this corpus, so the honest
@@ -429,17 +430,17 @@ def main(argv: list[str] | None = None) -> int:
     out_path.write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
     _plot(summary)
 
-    print("\n================ SUMMARY ================")
-    print(f"all gates passed: {summary['all_gates_passed']}")
+    logger.info("\n================ SUMMARY ================")
+    logger.info(f"all gates passed: {summary['all_gates_passed']}")
     for arm, stats in summary["arm_means"].items():
-        print(f"  {arm:5s} val R^2 = {stats['mean_r2']:+.4f} +/- {stats['std_r2']:.4f}")
+        logger.info(f"  {arm:5s} val R^2 = {stats['mean_r2']:+.4f} +/- {stats['std_r2']:.4f}")
     for key, value in statistics.items():
-        print(
+        logger.info(
             f"  {key}: mean diff {value['mean_diff']:+.4f}, "
             f"p={value['p_sign_flip']:.4f}, Holm p={value['p_holm']:.4f}, "
             f"d_z={value['cohens_dz']:+.2f}"
         )
-    print(f"artefact: {out_path}")
+    logger.info(f"artefact: {out_path}")
     return 0
 
 

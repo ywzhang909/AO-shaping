@@ -20,6 +20,7 @@ cross-check because a single number is what got this repo into trouble before.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -111,21 +112,21 @@ if refuse_empty_overwrite(_out, results):
     )
 _out.write_text(json.dumps(results, indent=2), encoding="utf-8")
 
-print("\n" + "=" * 96)
-print("R2 at Z=0 per family x padding  (the model default is 10)")
-print("=" * 96)
-print(f"{'family':<26}" + "".join(f"{p:>8}" for p in PADDINGS) + f"{'best':>7}")
+logger.info("\n" + "=" * 96)
+logger.info("R2 at Z=0 per family x padding  (the model default is 10)")
+logger.info("=" * 96)
+logger.info(f"{'family':<26}" + "".join(f"{p:>8}" for p in PADDINGS) + f"{'best':>7}")
 for family, data in results.items():
     cells = "".join(
         f"{data['by_padding'][str(p)]['r2']:>8.2f}" for p in PADDINGS
     )
-    print(f"{family:<26}{cells}{data['best_padding']:>7}")
+    logger.info(f"{family:<26}{cells}{data['best_padding']:>7}")
 
-print("\nSSIM cross-check at each family's best padding vs padding 10:")
+logger.info("\nSSIM cross-check at each family's best padding vs padding 10:")
 for family, data in results.items():
     b = str(data["best_padding"])
-    print(
+    logger.info(
         f"  {family:<26} best {b:>3}: SSIM {data['by_padding'][b]['ssim']:.4f}"
         f"   pad10: SSIM {data['by_padding']['10']['ssim']:.4f}"
     )
-print("\nwrote report/loss_defects/padding_sweep.json")
+logger.info("\nwrote report/loss_defects/padding_sweep.json")

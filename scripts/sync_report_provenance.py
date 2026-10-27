@@ -27,6 +27,7 @@ that is a registry omission to fix, not a file to mangle.
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -107,7 +108,7 @@ def process(check: bool, verbose: bool) -> int:
         if updated != original:
             touched += 1
             if verbose:
-                print(f"  header: {key}")
+                logger.info(f"  header: {key}")
             if check:
                 drift.append(f"{key}: provenance header is missing or stale")
             else:
@@ -118,25 +119,25 @@ def process(check: bool, verbose: bool) -> int:
         pass
     else:
         if verbose:
-            print("  index:  report/README.md")
+            logger.info("  index:  report/README.md")
         if not check:
             INDEX.write_text(index_body, encoding="utf-8")
         if check:
             drift.append("report/README.md: index is stale")
 
-    print(f"registered reports: {len(REPORTS)}")
-    print(f"headers updated:    {touched}")
+    logger.info(f"registered reports: {len(REPORTS)}")
+    logger.info(f"headers updated:    {touched}")
     if unregistered:
-        print(f"UNREGISTERED ({len(unregistered)}) -- add them to scripts/_common/provenance.py:")
+        logger.info(f"UNREGISTERED ({len(unregistered)}) -- add them to scripts/_common/provenance.py:")
         for key in unregistered:
-            print(f"  - {key}")
+            logger.info(f"  - {key}")
     if drift:
-        print("DRIFT:")
+        logger.info("DRIFT:")
         for line in drift:
-            print(f"  ! {line}")
+            logger.info(f"  ! {line}")
         return 1
     if check:
-        print("check: clean")
+        logger.info("check: clean")
     return 0
 
 

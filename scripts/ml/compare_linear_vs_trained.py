@@ -23,6 +23,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import sys
 import time
@@ -138,14 +139,14 @@ def main(argv: list[str] | None = None) -> int:
                  m_pred["mse"], m_const["mse_const"]), flush=True)
 
     skill = [r["skill_ridge"] for r in rows]
-    print("\nK=%d ridge: mean skill = %+.4f  (min %+.4f, max %+.4f)"
+    logger.info("\nK=%d ridge: mean skill = %+.4f  (min %+.4f, max %+.4f)"
           % (args.k, float(np.mean(skill)), float(np.min(skill)), float(np.max(skill))))
-    print("constant baseline r2 = %+.4f"
+    logger.info("constant baseline r2 = %+.4f"
           % float(np.mean([r["r2_const"] for r in rows])))
-    print("\nfor reference, from logs/cv_skill.json (same folds, same target):")
-    print("  unet    skill = -0.9938")
-    print("  physics skill = -1.2674")
-    print("  hybrid  skill = -1.4056")
+    logger.info("\nfor reference, from logs/cv_skill.json (same folds, same target):")
+    logger.info("  unet    skill = -0.9938")
+    logger.info("  physics skill = -1.2674")
+    logger.info("  hybrid  skill = -1.4056")
 
     Path(args.out).write_text(json.dumps({
         "k": args.k, "rows": rows,
@@ -153,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
         "mean_r2_const": float(np.mean([r["r2_const"] for r in rows])),
         "seconds": round(time.perf_counter() - started, 1),
     }, indent=2), encoding="utf-8")
-    print("\nwrote", args.out)
+    logger.info("\nwrote", args.out)
     return 0
 
 

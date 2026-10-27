@@ -35,6 +35,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import shutil
 import sys
@@ -142,7 +143,7 @@ def load_run(art_dir: Path) -> Run | None:
                     arr = arr.reshape(1)
                 scalar_cols[key] = arr
     except (OSError, KeyError, ValueError) as exc:
-        print(f"  [warn] cannot read h5 {h5}: {exc}")
+        logger.info(f"  [warn] cannot read h5 {h5}: {exc}")
         return None
 
     J = scalar_cols.get("J")
@@ -375,19 +376,19 @@ def main() -> None:
 
     art_dirs = find_runs(args.debug_root)
     if not art_dirs:
-        print(f"no slm_pib_rms_pib_* artifact dirs under {args.debug_root}")
+        logger.info(f"no slm_pib_rms_pib_* artifact dirs under {args.debug_root}")
         raise SystemExit(1)
     art_dirs = art_dirs[: args.max_runs]
 
     runs: list[Run] = []
     for d in art_dirs:
-        print(f"loading {d.name} ...")
+        logger.info(f"loading {d.name} ...")
         run = load_run(d)
         if run is None:
             continue
         runs.append(run)
     if not runs:
-        print("no loadable runs")
+        logger.info("no loadable runs")
         raise SystemExit(1)
 
     out_dir = args.output
@@ -408,9 +409,9 @@ def main() -> None:
 
     out_md = out_dir / "report.md"
     build_markdown(runs, figs, out_dir, out_md)
-    print(f"report written: {out_md}")
+    logger.info(f"report written: {out_md}")
     for r in runs:
-        print(f"  {r.algo:6s} {r.stamp}  best={best_value(r):.4f}  "
+        logger.info(f"  {r.algo:6s} {r.stamp}  best={best_value(r):.4f}  "
               f"guard={r.guard_count}/{r.data_rows}")
 
 

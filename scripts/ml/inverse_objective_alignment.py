@@ -23,6 +23,7 @@ objective got better while the sim score did not. That is misalignment made visi
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -92,10 +93,10 @@ def main() -> None:
     flat = score_on_sim(np.zeros(N_MODES), GRID, N_MAX)["shape_sum"]
     starts = [np.random.default_rng(31000 + r).normal(0.0, SIGMA, N_MODES) for r in range(RESTARTS)]
 
-    print("=" * 100)
-    print("OBJECTIVE ALIGNMENT: does optimising the objective improve the real far field?")
-    print("=" * 100)
-    print(f"restarts={RESTARTS} steps={STEPS} sigma={SIGMA} flat={flat:.4f}")
+    logger.info("=" * 100)
+    logger.info("OBJECTIVE ALIGNMENT: does optimising the objective improve the real far field?")
+    logger.info("=" * 100)
+    logger.info(f"restarts={RESTARTS} steps={STEPS} sigma={SIGMA} flat={flat:.4f}")
 
     rows = []
     for name, weights in OBJECTIVES.items():
@@ -115,48 +116,48 @@ def main() -> None:
     def arr(obj: str, key: str) -> np.ndarray:
         return np.array([r[key] for r in rows if r["objective"] == obj])
 
-    print(f"\n{'objective':<14}{'obj start':>11}{'obj final':>11}{'improved':>10}"
+    logger.info(f"\n{'objective':<14}{'obj start':>11}{'obj final':>11}{'improved':>10}"
           f"{'sim mean':>11}{'sim sd':>9}{'vs flat':>10}")
     for name in OBJECTIVES:
         o0, o1 = arr(name, "obj_start"), arr(name, "obj_final")
         s = arr(name, "sim")
-        print(
+        logger.info(
             f"{name:<14}{o0.mean():>11.5f}{o1.mean():>11.5f}{(o0 - o1).mean():>10.5f}"
             f"{s.mean():>11.4f}{s.std():>9.4f}{s.mean() - flat:>+10.4f}"
         )
 
-    print("\npaired deltas vs `mse` (same restart = paired):")
+    logger.info("\npaired deltas vs `mse` (same restart = paired):")
     base = arr("mse", "sim")
     for name in OBJECTIVES:
         if name == "mse":
             continue
         d = arr(name, "sim") - base
         se = d.std(ddof=1) / np.sqrt(len(d))
-        print(
+        logger.info(
             f"  {name:<14} delta={d.mean():+.4f} +/- {se:.4f}  "
             f"positives={int((d > 0).sum())}/{len(d)}  t={d.mean() / se:+.2f}"
             if se
             else f"  {name:<14} delta={d.mean():+.4f}"
         )
 
-    print("\nMISALIGNMENT: restarts where the objective improved but the sim did not")
+    logger.info("\nMISALIGNMENT: restarts where the objective improved but the sim did not")
     for name in OBJECTIVES:
         imp = arr(name, "obj_improvement")
         s = arr(name, "sim")
         worse_half = s[imp <= np.median(imp)]
         better_half = s[imp > np.median(imp)]
-        print(
+        logger.info(
             f"  {name:<14} objective improved in {int((imp > 0).sum())}/{len(imp)} restarts; "
             f"sim on best-objective half {better_half.mean():.4f} vs "
             f"worst-objective half {worse_half.mean():.4f} "
             f"(delta {better_half.mean() - worse_half.mean():+.4f})"
         )
-    print("\n  If the objective were aligned, better-objective restarts would score higher on")
-    print("  the sim. A delta near zero -- or negative -- is misalignment.")
+    logger.info("\n  If the objective were aligned, better-objective restarts would score higher on")
+    logger.info("  the sim. A delta near zero -- or negative -- is misalignment.")
 
     out = Path("report/loss_defects/objective_alignment.json")
     out.write_text(json.dumps(rows, indent=2), encoding="utf-8")
-    print(f"\nwrote {out}")
+    logger.info(f"\nwrote {out}")
 
 
 if __name__ == "__main__":

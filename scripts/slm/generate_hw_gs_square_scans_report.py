@@ -46,6 +46,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import csv
 import hashlib
 import json
@@ -5642,7 +5643,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"n_max={p.n_max} 记录 {p.rms_recorded:.6f} / 重算 {p.rms_recomputed:.6f}"
             for p in residuals.panels
         )
-        print(f"§13.8 残差自检: {len(residuals.panels)} 个配置, {pairs}; "
+        logger.info(f"§13.8 残差自检: {len(residuals.panels)} 个配置, {pairs}; "
               f"recon 与存盘相位最大偏差 "
               f"{max(p.recon_delta for p in residuals.panels):.1e}")
 
@@ -5661,7 +5662,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         for problem in problems:
             print(f"  - {problem}", file=sys.stderr)
         return 2
-    print(f"表格回读校验: {len(tables)} 张表 / {checked} 个数值单元, "
+    logger.info(f"表格回读校验: {len(tables)} 张表 / {checked} 个数值单元, "
           f"全部与产物逐值一致")
 
     # -- 自检 2: 结构性不变量 ----------------------------------------------
@@ -5671,7 +5672,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         for problem in invariants:
             print(f"  - {problem}", file=sys.stderr)
         return 3
-    print("结构不变量校验: score 分解 / 框面积恒等式 / CSV↔JSON / manifest "
+    logger.info("结构不变量校验: score 分解 / 框面积恒等式 / CSV↔JSON / manifest "
           "/ 日志↔run_config 全部通过")
 
     # -- 自检 3 (非致命): 溯源条目里的复现命令必须指向本次实际用的复测目录 -------
@@ -5755,7 +5756,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             extra = (f"; §13 另有 2 张曲线 + {len(atomic_mosaics)} 张拼图"
                      + (" + fig12 残差图" if residual_figure is not None else "")
                      + f" 与 `artifacts/{ATOMIC_ARTIFACT_DIR.name}/`")
-        print(f"--check 通过: {_rel(out_md)} 与现场渲染逐字节一致, "
+        logger.info(f"--check 通过: {_rel(out_md)} 与现场渲染逐字节一致, "
               f"artifacts 副本与源一致, {len(figure_names)} 张指标图 + "
               f"{n_mosaic} 张远场拼图齐备 (含 frames_selection.json){extra}")
         return 0
@@ -5772,33 +5773,33 @@ def main(argv: Sequence[str] | None = None) -> int:
             fig_zernike_residual(atomic, residuals)
     out_md.parent.mkdir(parents=True, exist_ok=True)
     out_md.write_text(markdown, encoding="utf-8")
-    print(f"报告已写到: {_rel(out_md)}")
+    logger.info(f"报告已写到: {_rel(out_md)}")
     figures = render_figures(run, findings)
     if retest is not None and rf is not None:
         figures.append(fig_retest_neighbors(run, retest, rf))
-    print(f"图已写到: {_rel(FIG_DIR)}/ ({len(figures)} 张)")
+    logger.info(f"图已写到: {_rel(FIG_DIR)}/ ({len(figures)} 张)")
     written = copy_artifacts(run)
-    print(f"输入产物已复制: {_rel(ARTIFACT_DIR)}/ ({len(written)} 个文件)")
+    logger.info(f"输入产物已复制: {_rel(ARTIFACT_DIR)}/ ({len(written)} 个文件)")
     if farfield["mosaics"]:
         copied = _copy_farfield_to_artifacts(farfield, farfield_figures)
-        print(f"远场拼图已复制: {_rel(ARTIFACT_DIR)}/ ({copied} 张) + "
+        logger.info(f"远场拼图已复制: {_rel(ARTIFACT_DIR)}/ ({copied} 张) + "
               "frames_selection.json")
     if atomic is not None:
         pairs_a = atomic_artifact_sources(atomic, ATOMIC_ARTIFACT_DIR)
         written_a = _copy_artifact_set(pairs_a, ATOMIC_ARTIFACT_DIR, "atomic", atomic.root)
         copied_a = _copy_farfield_to_artifacts(atomic_farfield, atomic_figures,
                                                target=ATOMIC_ARTIFACT_DIR)
-        print(f"整轮原子重扫产物已复制: {_rel(ATOMIC_ARTIFACT_DIR)}/ "
+        logger.info(f"整轮原子重扫产物已复制: {_rel(ATOMIC_ARTIFACT_DIR)}/ "
               f"({len(written_a)} 个源文件 + {copied_a} 张图) + frames_selection.json")
     if retest is not None:
         pairs = retest_artifact_sources(retest, RETEST_ARTIFACT_DIR)
         written_r = _copy_artifact_set(pairs, RETEST_ARTIFACT_DIR, "retest", retest.root)
-        print(f"复测产物已复制: {_rel(RETEST_ARTIFACT_DIR)}/ ({len(written_r)} 个文件)")
+        logger.info(f"复测产物已复制: {_rel(RETEST_ARTIFACT_DIR)}/ ({len(written_r)} 个文件)")
         if prior is not None:
             pairs_p = retest_artifact_sources(prior, RETEST_PRIOR_ARTIFACT_DIR)
             written_p = _copy_artifact_set(pairs_p, RETEST_PRIOR_ARTIFACT_DIR,
                                            "retest_prior", prior.root)
-            print(f"更早一版复测产物已复制: {_rel(RETEST_PRIOR_ARTIFACT_DIR)}/ "
+            logger.info(f"更早一版复测产物已复制: {_rel(RETEST_PRIOR_ARTIFACT_DIR)}/ "
                   f"({len(written_p)} 个文件)")
     return 0
 

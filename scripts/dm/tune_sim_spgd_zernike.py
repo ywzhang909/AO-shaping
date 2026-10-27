@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+from loguru import logger
 import json
 import time
 from dataclasses import asdict, dataclass
@@ -149,11 +150,11 @@ def main() -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
 
-    print("Best SPGD:")
-    print(json.dumps(asdict(best_spgd), indent=2))
-    print("Best AdaMOD:")
-    print(json.dumps(asdict(best_adamod), indent=2))
-    print(f"Saved: {out_path}")
+    logger.info("Best SPGD:")
+    logger.info(json.dumps(asdict(best_spgd), indent=2))
+    logger.info("Best AdaMOD:")
+    logger.info(json.dumps(asdict(best_adamod), indent=2))
+    logger.info(f"Saved: {out_path}")
 
 
 if __name__ == "__main__":

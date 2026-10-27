@@ -28,6 +28,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import sys
 from pathlib import Path
@@ -200,10 +201,10 @@ def main() -> int:
     header = f"{'sample':>7}{'seed':>5}{'fit MSE':>10}{'flat':>9}" + "".join(
         f"{name:>11}" for name in OBJECTIVES
     )
-    print("=" * len(header))
-    print("INVERSE DESIGN on the learned model, SCORED on an independent sim")
-    print("=" * len(header))
-    print(header)
+    logger.info("=" * len(header))
+    logger.info("INVERSE DESIGN on the learned model, SCORED on an independent sim")
+    logger.info("=" * len(header))
+    logger.info(header)
 
     for position in range(args.samples):
         start, fit_mse = fit_forward(
@@ -219,32 +220,32 @@ def main() -> int:
                 )
                 row[name] = score_on_sim(coefficients, args.grid, args.n_max)["shape_sum"]
             rows.append(row)
-            print(
+            logger.info(
                 f"{position:>7}{seed:>5}{fit_mse:>10.5f}{row['flat']:>9.4f}"
                 + "".join(f"{row[name]:>11.4f}" for name in OBJECTIVES)
             )
 
-    print("\n" + "=" * 72)
-    print(f"paired deltas vs `mse`  ({len(rows)} pairs)")
-    print("=" * 72)
+    logger.info("\n" + "=" * 72)
+    logger.info(f"paired deltas vs `mse`  ({len(rows)} pairs)")
+    logger.info("=" * 72)
     baseline = [r["mse"] for r in rows]
     for name in OBJECTIVES:
         if name == "mse":
             continue
         deltas = [r[name] - b for r, b in zip(rows, baseline)]
         wins = sum(1 for d in deltas if d > 0)
-        print(
+        logger.info(
             f"  {name:<10} mean={np.mean(deltas):+.4f} "
             f"spread={max(deltas) - min(deltas):.4f} positives={wins}/{len(deltas)}"
         )
-    print("\nmeans: " + ", ".join(f"{n}={np.mean([r[n] for r in rows]):.4f}" for n in OBJECTIVES))
+    logger.info("\nmeans: " + ", ".join(f"{n}={np.mean([r[n] for r in rows]):.4f}" for n in OBJECTIVES))
     beaten = sum(1 for r in rows if all(r[n] > r["flat"] for n in OBJECTIVES))
-    print(f"all objectives beat flat in {beaten}/{len(rows)} paired runs")
+    logger.info(f"all objectives beat flat in {beaten}/{len(rows)} paired runs")
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
-    print(f"wrote {out_path}")
+    logger.info(f"wrote {out_path}")
     return 0
 
 

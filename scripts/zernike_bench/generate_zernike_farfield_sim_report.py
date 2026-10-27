@@ -20,6 +20,7 @@ Fully offline: 无硬件, 纯 numpy。入瞳网格自初版 128² 4× 上采样 
 from __future__ import annotations
 
 import sys
+from loguru import logger
 import time
 from pathlib import Path
 
@@ -605,7 +606,7 @@ def main() -> None:
     total_airy = float(I_airy.sum())
     airy_ee50 = encircled_radius(r_airy, w_airy, 0.50, total_airy)
     airy_ee90 = encircled_radius(r_airy, w_airy, 0.90, total_airy)
-    print(f"[baseline] Airy: center=({cy0},{cx0}) peak={ideal_peak:.3e} "
+    logger.info(f"[baseline] Airy: center=({cy0},{cx0}) peak={ideal_peak:.3e} "
               f"FWHM={airy_fwhm:.2f}px EE50={airy_ee50:.2f}px EE90={airy_ee90:.2f}px")
 
     # ---- m=4 方位谐波诊断: 旧网格 (128/64) 对照块 (报告 §4.1) ----
@@ -628,7 +629,7 @@ def main() -> None:
         "defocus_2.0": {r: float("nan") for r in M4_RADII},   # 扫描时 (noll==4, 2.0λ) 回填
     }
     m4 = {"old": m4_old, "new": m4_new}
-    print(f"[m4] old 128/64 airy r=25: {m4_old['airy'][25.0]:+.1f} dB | "
+    logger.info(f"[m4] old 128/64 airy r=25: {m4_old['airy'][25.0]:+.1f} dB | "
           f"new 512/256 airy r=25: {m4_new['airy'][25.0]:+.1f} dB")
 
     # 整帧坐标网格 (强度加权质心用, 预计算一次, 96 例复用)
@@ -682,8 +683,8 @@ def main() -> None:
                 "peak_dx": cex - cx0, "peak_dy": cey - cy0,
                 "peak_r_px": float(np.hypot(cex - cx0, cey - cy0)),
             })
-        print(f"[mode] Noll {noll} ({n}, {m}) {name} done")
-    print(f"[scan] {len(metrics)} cases, {n_fft} far-field FFTs")
+        logger.info(f"[mode] Noll {noll} ({n}, {m}) {name} done")
+    logger.info(f"[scan] {len(metrics)} cases, {n_fft} far-field FFTs")
 
     # ---------- metrics.csv ----------
     import csv
@@ -715,23 +716,23 @@ def main() -> None:
 
     # ---------- 图 ----------
     fig_farfield_grid(data, modes_info_lbl, AMPS_WAVES)
-    print("[fig] 01_farfield_grid.png")
+    logger.info("[fig] 01_farfield_grid.png")
     fig_phase_grid(data, mask, modes_info_lbl, AMPS_WAVES)
-    print("[fig] 02_phase_grid.png")
+    logger.info("[fig] 02_phase_grid.png")
     fig_strehl(strehl_s, modes_info_lbl, amps)
-    print("[fig] 03_strehl_vs_amp.png")
+    logger.info("[fig] 03_strehl_vs_amp.png")
     fig_encircled(ee50_s, ee90_s, modes_info_lbl, amps)
-    print("[fig] 04_encircled_energy_vs_amp.png")
+    logger.info("[fig] 04_encircled_energy_vs_amp.png")
     fig_fwhm(fwhm_s, modes_info_lbl, amps)
-    print("[fig] 05_fwhm_vs_amp.png")
+    logger.info("[fig] 05_fwhm_vs_amp.png")
     fig_peak_shift(shift_s, modes_info_lbl, amps)
-    print("[fig] 06_peak_shift_vs_amp.png")
+    logger.info("[fig] 06_peak_shift_vs_amp.png")
 
     # ---------- 报告 ----------
     write_report(metrics, modes_info, amps, strehl_s, m4, ideal_peak,
                  airy_fwhm, airy_ee50, airy_ee90, time.time() - t0)
-    print(f"[report] {OUT_DIR / 'report.md'}")
-    print(f"[done] {time.time() - t0:.1f}s, output: {OUT_DIR}")
+    logger.info(f"[report] {OUT_DIR / 'report.md'}")
+    logger.info(f"[done] {time.time() - t0:.1f}s, output: {OUT_DIR}")
 
 
 if __name__ == "__main__":

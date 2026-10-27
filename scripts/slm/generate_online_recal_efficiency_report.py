@@ -17,6 +17,7 @@ Run:
 from __future__ import annotations
 
 import dataclasses
+from loguru import logger
 import importlib
 import inspect
 import re
@@ -760,14 +761,14 @@ def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out = ROOT / REPORT_KEY
     out.write_text(insert_header(build_markdown(d, cm), REPORT_KEY), encoding="utf-8")
-    print(f"Wrote {out}")
-    print(
+    logger.info(f"Wrote {out}")
+    logger.info(
         f"  figures: {FIG_DIR.relative_to(ROOT).as_posix()}/"
         f"recal_cost_ladder.png, escalation_ladder.png"
     )
-    print(f"  per-phase CCD floor = {cm['per_phase']} frames")
-    print(f"  sweep points (enumerated by the probe) = {d['sweep_points']}")
-    print(
+    logger.info(f"  per-phase CCD floor = {cm['per_phase']} frames")
+    logger.info(f"  sweep points (enumerated by the probe) = {d['sweep_points']}")
+    logger.info(
         f"  {d['tilt_shift_scale']:.0f} constant assignments = "
         f"{len(d['tilt_scale_assigns'])} (assignments only, prose excluded)"
     )

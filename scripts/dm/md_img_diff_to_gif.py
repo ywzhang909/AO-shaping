@@ -21,6 +21,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import re
 from pathlib import Path
@@ -283,13 +284,13 @@ def main() -> None:
             try:
                 render_ip_gif(ip_dir, out_path, args.scale, args.fps)
             except Exception as e:  # report and continue
-                print(f"[{ip_dir.name}] FAILED: {e}")
+                logger.info(f"[{ip_dir.name}] FAILED: {e}")
                 continue
             made.append(out_path)
-            print(f"[{ip_dir.name}] {out_path.name} "
+            logger.info(f"[{ip_dir.name}] {out_path.name} "
                   f"({out_path.stat().st_size / 1024:.0f} KiB)")
 
-        print(f"\n{len(made)} GIFs -> {args.output}")
+        logger.info(f"\n{len(made)} GIFs -> {args.output}")
 
     # Step 2: combine all per-IP GIFs into one
     if args.combine or args.combine_only:
@@ -302,7 +303,7 @@ def main() -> None:
                 scale=1.0,  # per-IP GIFs are already scaled
                 fps=args.fps,
             )
-            print(f"\nCombined GIF -> {combine_path} "
+            logger.info(f"\nCombined GIF -> {combine_path} "
                   f"({combine_path.stat().st_size / 1024:.0f} KiB)")
         except Exception as e:
             raise SystemExit(f"Combine FAILED: {e}")

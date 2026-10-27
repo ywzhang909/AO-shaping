@@ -35,6 +35,7 @@ into this table.
 from __future__ import annotations
 
 import sys
+from loguru import logger
 from pathlib import Path
 
 import numpy as np
@@ -166,7 +167,7 @@ def main(out_dir: Path | None = None, *, iterations: int = 300, gifs: bool = Tru
     rows, df = run_benchmark_suite(iterations=iterations)
     write_table(df, out)
     (out / "suite_stdout.txt").write_text(df.to_string(), encoding="utf-8")
-    print(f"suite rows: {len(rows)}")
+    logger.info(f"suite rows: {len(rows)}")
 
     if gifs:
         gif_dir = out / "gif"
@@ -179,11 +180,11 @@ def main(out_dir: Path | None = None, *, iterations: int = 300, gifs: bool = Tru
                 )
                 write_artifacts(result, sub, max_frames=30)
                 n = len(list(sub.glob("*.gif")))
-                print(
+                logger.info(
                     f"  gif {algo:9s} {shape:8s} fill={result['fill_ratio']:.3f} "
                     f"area_met={result['area_met']} gifs={n}"
                 )
-    print(f"written to {out}")
+    logger.info(f"written to {out}")
     return 0
 
 

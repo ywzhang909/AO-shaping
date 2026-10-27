@@ -26,6 +26,7 @@ with the model.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -83,10 +84,10 @@ def inverse_score(model, basis, start, target, mask, device) -> float:
 
 def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("=" * 104)
-    print("DOES STRONG-PHASE AUGMENTATION BUY INVERSE CAPABILITY?")
-    print("=" * 104)
-    print(f"seeds={SEEDS} padding={PADDING} (training, evaluator AND the GS target all share it)")
+    logger.info("=" * 104)
+    logger.info("DOES STRONG-PHASE AUGMENTATION BUY INVERSE CAPABILITY?")
+    logger.info("=" * 104)
+    logger.info(f"seeds={SEEDS} padding={PADDING} (training, evaluator AND the GS target all share it)")
 
     # The library's VALIDATED GS phase. A hand-rolled scale-matched GS was tried first and is
     # deleted: it used the pupil phase in place of a back-propagation, so it was not a
@@ -102,12 +103,12 @@ def main() -> None:
     flat = inv.score_phase(np.zeros((GRID, GRID)), SIZE_FRAC, ASPECT, padding=PADDING)
     gs_score = inv.score_phase(gs, SIZE_FRAC, ASPECT, padding=PADDING)
     gs_coeff = fit_zernike(gs, n_max=N_MAX)[1:].astype(np.float32)
-    print(f"\nreferences at padding={PADDING}: flat={flat:.4f}  library GS={gs_score:.4f}")
+    logger.info(f"\nreferences at padding={PADDING}: flat={flat:.4f}  library GS={gs_score:.4f}")
     if gs_score <= flat:
-        print("  WARNING: GS does not beat flat here -- the target scale is wrong and any")
-        print("  inverse number below would be meaningless. Stopping rather than reporting it.")
+        logger.info("  WARNING: GS does not beat flat here -- the target scale is wrong and any")
+        logger.info("  inverse number below would be meaningless. Stopping rather than reporting it.")
         raise SystemExit(1)
-    print(f"  GS beats flat by {gs_score - flat:+.4f} -- the target is aimed correctly")
+    logger.info(f"  GS beats flat by {gs_score - flat:+.4f} -- the target is aimed correctly")
 
     index = build_hw_index(index_cache="data/hw_index_cache.json", progress_every=0)
     index = index.filter(families=["slm_zernike_shaping"])
@@ -155,26 +156,26 @@ def main() -> None:
                 "inv_gs": inverse_score(model, basis, gs_coeff[None], target, mask, device),
             }
             rows.append(row)
-            print(f"  {name:<20} seed={seed} inv(rand)={row['inv_rand']:.4f}  "
+            logger.info(f"  {name:<20} seed={seed} inv(rand)={row['inv_rand']:.4f}  "
                   f"(flat={flat:.4f}, GS={gs_score:.4f})")
 
-    print("\n" + "=" * 104)
-    print(f"means over {len(SEEDS)} seeds -- flat={flat:.4f}")
-    print("=" * 104)
+    logger.info("\n" + "=" * 104)
+    logger.info(f"means over {len(SEEDS)} seeds -- flat={flat:.4f}")
+    logger.info("=" * 104)
     base = {r["seed"]: r["inv_rand"] for r in rows if r["arm"] == "A0 incumbent"}
-    print(f"{'arm':<22}{'inv(rand)':>11}{'vs flat':>10}{'dR2 vs A0':>12}{'pos':>7}")
+    logger.info(f"{'arm':<22}{'inv(rand)':>11}{'vs flat':>10}{'dR2 vs A0':>12}{'pos':>7}")
     for name in arms:
         sel = [r for r in rows if r["arm"] == name]
         d = np.array([r["inv_rand"] - base[r["seed"]] for r in sel])
         m = float(np.mean([r["inv_rand"] for r in sel]))
-        print(f"{name:<22}{m:>11.4f}{m - flat:>+10.4f}{d.mean():>+12.4f}"
+        logger.info(f"{name:<22}{m:>11.4f}{m - flat:>+10.4f}{d.mean():>+12.4f}"
               f"{int((d > 0).sum()):>4}/{len(d)}")
 
     out = ROOT / "report" / "loss_defects" / "inverse_strong_phase.json"
     out.write_text(json.dumps(
         {"flat": flat, "gs": gs_score, "padding": PADDING, "rows": rows}, indent=2),
         encoding="utf-8")
-    print(f"\nwrote {out}")
+    logger.info(f"\nwrote {out}")
 
 
 if __name__ == "__main__":

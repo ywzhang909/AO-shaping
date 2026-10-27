@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import pickle
 from pathlib import Path
@@ -237,7 +238,7 @@ def main():
         "```", "",
         "该命令重放本次光路参数，不保证变化后的光路无须迁移。新会话先用 capture 重新测几何，再 fit 适配；高频大目标需检查控制 Nyquist 带宽。不能把1200 CCD像元误写成1200面板像元。", ""]
     (OUT / "square1200_20261026.md").write_text("\n".join(lines), encoding="utf-8")
-    print(json.dumps([dict(name=s["name"], endpoints=s["endpoints"], audit=s["audit"]["status"]) for s in runs], indent=2))
+    logger.info(json.dumps([dict(name=s["name"], endpoints=s["endpoints"], audit=s["audit"]["status"]) for s in runs], indent=2))
 
 
 if __name__ == "__main__":

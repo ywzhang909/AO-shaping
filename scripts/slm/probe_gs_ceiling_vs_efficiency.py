@@ -207,9 +207,9 @@ def main() -> int:
     (out_dir / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
     )
-    print(f"产物: {csv_path} / {out_dir / 'summary.json'}")
+    logger.info(f"产物: {csv_path} / {out_dir / 'summary.json'}")
     if best:
-        print(
+        logger.info(
             f"最优 gs = {best['gs']}  η±1 = {best['eta_plus_total']:.4f}  "
             f"η0 = {best['eta_zero']:.4f}"
         )

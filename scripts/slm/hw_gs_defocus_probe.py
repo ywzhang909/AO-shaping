@@ -174,6 +174,7 @@ target 要按 ``M`` 重采样 —— **对 2f 光路是错的**, 错在漏掉了
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import ast
 import csv
 import json
@@ -1415,7 +1416,7 @@ def print_plan(plan: dict[str, Any], optics: Optics) -> None:
     add(f"  对拍基准: {plan['predicted_by_simulation']}")
     add("")
     add("=" * 78)
-    print("\n".join(lines))
+    logger.info("\n".join(lines))
 
 
 # ---------------------------------------------------------------------------
@@ -1676,7 +1677,7 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
         # 仿真系统必须在**任何一次远场求值之前**就位 (种子 + 补零因子), 否则
         # 第一帧就已经用掉了默认系统的状态。
         configure_sim_system(int(args.sim_seed), int(args.sim_far_field_padding))
-        print(f"仿真后端: seed={int(args.sim_seed)}, "
+        logger.info(f"仿真后端: seed={int(args.sim_seed)}, "
               f"远场补零={int(args.sim_far_field_padding)}")
     # 根目录: 默认按 UTC 时间戳新建; --out-root 可以把同一轮实验的多个组钉到
     # 同一个根目录下 (根目录的 manifest.json 才会把它们都索引起来)。
@@ -1697,8 +1698,8 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
     # 同名组重跑会**覆盖**这一组的旧文件 (重跑一组 = 替换它, 清单里也是替换)。
     out_dir = group_output_dir(out_root, group_name)
     out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"测量目录: {out_dir}")
-    print(f"变量组: {group_name} (自变量 {GROUP_VARIABLE}); 根目录 {out_root}")
+    logger.info(f"测量目录: {out_dir}")
+    logger.info(f"变量组: {group_name} (自变量 {GROUP_VARIABLE}); 根目录 {out_root}")
 
     gs_panel = load_gs_phase_panel(args, optics)
     # 焦面矫正只算一次: 它与扫描点无关, 且每次重算都是几百 MB 级的无用开销。
@@ -1811,7 +1812,7 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                         if working_ms < 0.02:
                             raise RuntimeError("解出的曝光上限低于相机最小值 0.02 ms")
                     actual = float(cam.reset_exposure_time(working_ms))
-                    print(f"曝光: 请求 {args.exposure_ms} ms -> 上限 {ceiling} ms -> 生效 "
+                    logger.info(f"曝光: 请求 {args.exposure_ms} ms -> 上限 {ceiling} ms -> 生效 "
                           f"{actual} ms")
 
                     # -- 基线: 定位零级 (argmax) 并**冻结** ROI --------------------
@@ -1825,13 +1826,13 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                     slm.set_phase_overlay(focus_panel)
                     full = capture(slm, cam, flat, next_slot())
                     cx_full, cy_full = zero_order_center(full, refine=False, despike_k=3)
-                    print(f"零级 (全幅 argmax): ({cx_full}, {cy_full})")
+                    logger.info(f"零级 (全幅 argmax): ({cx_full}, {cy_full})")
                     cam.reset_window(center=(cx_full, cy_full),
                                      size=(int(args.roi_px), int(args.roi_px)))
                     roi_flat = capture(slm, cam, flat, next_slot())
                     cx, cy = zero_order_center(roi_flat, refine=False, despike_k=3)
                     # ⚠️ 冻结: 之后所有测量复用这一个 center 与框, 不逐帧重定位。
-                    print(f"零级 (ROI 内 argmax, 已冻结): ({cx}, {cy})")
+                    logger.info(f"零级 (ROI 内 argmax, 已冻结): ({cx}, {cy})")
 
                     # -- 基线帧 (Δz=0, **GS 相位已施加**): 目标框按它定尺 ----------
                     # 框的边长必须由**本次相位自己的**光斑量出来。历史上写死的
@@ -1893,7 +1894,7 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                         baseline_frame, int(args.roi_px), int(args.target_side_px)
                     )
                     target = square_mask(baseline_frame.shape, cy, cx, target_side)
-                    print(f"目标框: 边长 {target_side} px (来源 {target_side_source}, "
+                    logger.info(f"目标框: 边长 {target_side} px (来源 {target_side_source}, "
                           f"基线光斑 FWHM {baseline_fwhm:.2f} px), 中心冻结在 ({cx}, {cy})")
                     # 这一组的**固定**参数: 定下来的框。写进 group_meta ⇒ 根目录的
                     # manifest.json 也带着它 (清单是这一组的事实记录)。
@@ -1929,7 +1930,7 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                     if bool(getattr(args, "chirp_tilt_cancel", False)):
                         cal_dz = float(args.chirp_tilt_cal_dz_mm)
                         test_period = int(args.chirp_tilt_test_period_px)
-                        print(f"[去倾斜] 自标定开始: Δz={cal_dz} mm, "
+                        logger.info(f"[去倾斜] 自标定开始: Δz={cal_dz} mm, "
                               f"测试斜坡周期 {test_period} panel px")
                         try:
                             baseline_xy = spot_centroid(baseline_frame)
@@ -1952,12 +1953,12 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                             )
                             if chirp_tilt_cal is None:
                                 chirp_tilt_enabled = False
-                                print(f"[去倾斜] {chirp_tilt_note} —— "
+                                logger.info(f"[去倾斜] {chirp_tilt_note} —— "
                                       "本组按**无去倾斜**继续")
                             else:
                                 chirp_tilt_enabled = True
                                 for response in chirp_tilt_cal.axis_map.responses:
-                                    print(
+                                    logger.info(
                                         f"[去倾斜] 面板轴 {response.panel_axis} ("
                                         f"{'y/行' if response.panel_axis == 0 else 'x/列'}) "
                                         f"→ 相机轴 {response.camera_axis}: 实测 "
@@ -1965,13 +1966,13 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                                         f"{response.period_px} px, 实测标度/bench 常量 = "
                                         f"{response.expected_ratio:.3f}"
                                     )
-                                print("[去倾斜] 二次相位的转向量: "
+                                logger.info("[去倾斜] 二次相位的转向量: "
                                       f"({chirp_tilt_cal.raw_shift_px_per_mm[0]:+.3f}, "
                                       f"{chirp_tilt_cal.raw_shift_px_per_mm[1]:+.3f}) "
                                       "camera px/mm")
                                 comp_phase, comp_specs, comp_shift = compensation_for(cal_dz)
                                 if chirp_tilt_residual is not None:
-                                    print(
+                                    logger.info(
                                         f"[去倾斜] 补偿后残差: "
                                         f"({chirp_tilt_residual[0]:+.3f}, "
                                         f"{chirp_tilt_residual[1]:+.3f}) camera px/mm "
@@ -1979,13 +1980,13 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                                         f"({comp_shift[0]:+.2f}, {comp_shift[1]:+.2f}) px)"
                                     )
                                 else:
-                                    print(f"[去倾斜] {chirp_tilt_note}")
+                                    logger.info(f"[去倾斜] {chirp_tilt_note}")
                         except Exception as exc:  # 标定失败不许整轮作废
                             chirp_tilt_cal = None
                             chirp_tilt_enabled = False
                             chirp_tilt_residual = None
                             chirp_tilt_note = f"标定失败: {exc}"
-                            print(f"[去倾斜] {chirp_tilt_note} —— 本组按**无去倾斜**继续")
+                            logger.info(f"[去倾斜] {chirp_tilt_note} —— 本组按**无去倾斜**继续")
                     # 记录: 这一组跑没跑去倾斜, 清单里必须看得见。
                     group_meta["chirp_tilt_cancel"] = (
                         "true" if bool(getattr(args, "chirp_tilt_cancel", False)) else "false"
@@ -2184,8 +2185,8 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
             n_rows=len(rows),
         ),
     )
-    print(f"\n产物目录: {out_dir}")
-    print(f"分组清单: {out_root / 'manifest.json'}")
+    logger.info(f"\n产物目录: {out_dir}")
+    logger.info(f"分组清单: {out_root / 'manifest.json'}")
     return out_dir
 
 
@@ -2313,9 +2314,9 @@ def _replot_one(src: Path) -> None:
             continue
         with np.load(npz, allow_pickle=False) as data:
             frame = data["frame"]
-        print(f"Δz={row['dz_mm']:>5.1f} mm  CV={row['cv']:.4f}  PIB={row['pib']:.4f}  "
+        logger.info(f"Δz={row['dz_mm']:>5.1f} mm  CV={row['cv']:.4f}  PIB={row['pib']:.4f}  "
               f"frame{frame.shape} peak={float(frame.max()):.1f}")
-    print(f"已重出图: {src / 'hw_summary.png'}")
+    logger.info(f"已重出图: {src / 'hw_summary.png'}")
 
 
 def run_replot(args: argparse.Namespace) -> None:
@@ -2459,7 +2460,7 @@ def assert_no_drivers() -> None:
         )
         sys.stderr.flush()
         raise SystemExit(3)
-    print("dry-run 保证通过: sys.modules 里没有任何 ao_shaping.drivers.* "
+    logger.info("dry-run 保证通过: sys.modules 里没有任何 ao_shaping.drivers.* "
           "(未 import、未 open 任何设备)")
 
 

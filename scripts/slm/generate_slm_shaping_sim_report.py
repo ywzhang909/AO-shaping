@@ -22,6 +22,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import csv
 import json
 import pickle
@@ -425,10 +426,10 @@ def main() -> int:
     for runner in ("slm-pib", "slm-gsnet", "spgd-square"):
         loaded = load_runner(runner)
         if loaded is None:
-            print(f"  [skip] {runner}: no artefacts")
+            logger.info(f"  [skip] {runner}: no artefacts")
             continue
         runs[runner] = loaded
-        print(f"  [ok]   {runner}: {len(loaded[0])} epochs")
+        logger.info(f"  [ok]   {runner}: {len(loaded[0])} epochs")
 
     manifest = None
     mpath = Path(args.manifest)
@@ -451,8 +452,8 @@ def main() -> int:
     if missing:
         print(f"ERROR: figures missing: {missing}", file=sys.stderr)
         return 1
-    print(f"report -> {out_md}")
-    print(f"figures -> {len(figures)} written to {fig_dir}")
+    logger.info(f"report -> {out_md}")
+    logger.info(f"figures -> {len(figures)} written to {fig_dir}")
     return 0
 
 

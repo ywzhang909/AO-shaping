@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 from dataclasses import fields
 import json
 from pathlib import Path
@@ -101,11 +102,11 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(results, indent=2), encoding="utf-8")
     for result in results:
-        print(result["run_dir"])
+        logger.info(result["run_dir"])
         for label in ("zero", "smooth_10", "mixed_10", "mixed_30"):
             values = [row["correlation"] for row in result["folds"]
                       if row["candidate"] == label]
-            print(f"  {label}: {values[0]:.4f}, {values[1]:.4f}, mean {np.mean(values):.4f}")
+            logger.info(f"  {label}: {values[0]:.4f}, {values[1]:.4f}, mean {np.mean(values):.4f}")
 
 
 if __name__ == "__main__":

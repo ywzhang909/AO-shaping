@@ -21,6 +21,7 @@ attainable accuracy.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -91,11 +92,11 @@ def score(model: ZernikeAmpModel, cos, sin, target) -> dict[str, float]:
 def main() -> None:
     index = build_hw_index(index_cache="data/hw_index_cache.json")
     rows: list[dict] = []
-    print("=" * 96)
-    print("ANCHORED SPOT-SIZE TERM: paired forward fit on the real corpus")
-    print("=" * 96)
-    print(f"samples={N_SAMPLES} steps={FIT_STEPS} lr={LR} n_max={N_MAX} grid={GRID}")
-    print(f"{'config':<20}{'R2':>9}{'MSE':>10}{'moment gap':>12}{'var pred':>11}{'var true':>11}")
+    logger.info("=" * 96)
+    logger.info("ANCHORED SPOT-SIZE TERM: paired forward fit on the real corpus")
+    logger.info("=" * 96)
+    logger.info(f"samples={N_SAMPLES} steps={FIT_STEPS} lr={LR} n_max={N_MAX} grid={GRID}")
+    logger.info(f"{'config':<20}{'R2':>9}{'MSE':>10}{'moment gap':>12}{'var pred':>11}{'var true':>11}")
 
     for position in range(N_SAMPLES):
         cos, sin, target = load_corpus_sample(index, position, grid=GRID)
@@ -109,18 +110,18 @@ def main() -> None:
                 })
 
     for conserve in (False, True):
-        print(f"\n--- conserve_energy={conserve} ---")
-        print(f"{'config':<20}{'R2':>9}{'MSE':>10}{'moment gap':>12}"
+        logger.info(f"\n--- conserve_energy={conserve} ---")
+        logger.info(f"{'config':<20}{'R2':>9}{'MSE':>10}{'moment gap':>12}"
               f"{'var pred':>11}{'var true':>11}")
         for name in CONFIGS:
             sel = [r for r in rows if r["config"] == name and r["conserve_energy"] == conserve]
-            print(f"{name:<20}{np.mean([r['r2'] for r in sel]):>9.4f}"
+            logger.info(f"{name:<20}{np.mean([r['r2'] for r in sel]):>9.4f}"
                   f"{np.mean([r['mse'] for r in sel]):>10.5f}"
                   f"{np.mean([r['moment_gap'] for r in sel]):>12.4f}"
                   f"{np.mean([r['var_pred'] for r in sel]):>11.3f}"
                   f"{np.mean([r['var_true'] for r in sel]):>11.3f}")
 
-    print("\npaired deltas vs `mse` (same sample, same conserve flag):")
+    logger.info("\npaired deltas vs `mse` (same sample, same conserve flag):")
     for conserve in (False, True):
         for name in CONFIGS:
             if name == "mse":
@@ -133,12 +134,12 @@ def main() -> None:
                  and r["sample"] < N_SAMPLES]
             delta = np.array(d) - np.array(b)
             se = delta.std(ddof=1) / np.sqrt(len(delta))
-            print(f"  conserve={str(conserve):<5} {name:<20} dR2={delta.mean():+.4f}"
+            logger.info(f"  conserve={str(conserve):<5} {name:<20} dR2={delta.mean():+.4f}"
                   f" +/- {se:.4f}  positives={int((delta > 0).sum())}/{len(delta)}")
 
     out = Path("report/loss_defects/spot_moment_ablation.json")
     out.write_text(json.dumps(rows, indent=2), encoding="utf-8")
-    print(f"\nwrote {out}")
+    logger.info(f"\nwrote {out}")
 
 
 if __name__ == "__main__":

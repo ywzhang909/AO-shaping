@@ -33,6 +33,7 @@ Writes ``report/loss_defects/speckle_loss_bench.json``.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -282,13 +283,13 @@ def main() -> None:
     (OUT_DIR / "speckle_loss_bench.json").write_text(
         json.dumps(payload, indent=2), encoding="utf-8"
     )
-    print(f"\nwrote {OUT_DIR / 'speckle_loss_bench.json'}")
+    logger.info(f"\nwrote {OUT_DIR / 'speckle_loss_bench.json'}")
 
     # Adoption rule, applied explicitly rather than left to taste.
-    print("\n--- adoption verdict (must discriminate AND be degenerate-safe) ---")
+    logger.info("\n--- adoption verdict (must discriminate AND be degenerate-safe) ---")
     for name, v in sorted(verdict.items(), key=lambda kv: -kv[1]["discrimination"]):
         ok = bool(v["degenerate_safe"])
-        print(
+        logger.info(
             f"  {name:26s} discrim={v['discrimination']:.4f} "
             f"degenerate_safe={ok} (empty {v['empty_roi_margin']:+.4f}, "
             f"dark {v['all_dark_margin']:+.4f})"

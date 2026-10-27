@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from loguru import logger
 from pathlib import Path
 
 import json
@@ -407,7 +408,7 @@ def main() -> None:
     optimizer_df.to_csv(output_dir / "optimizer_summary.csv", index=False)
     rl_df.to_csv(output_dir / "rl_rollout.csv", index=False)
     write_report(output_dir, turbulence_df, optimizer_df, rl_df)
-    print(output_dir)
+    logger.info(output_dir)
 
 
 if __name__ == "__main__":

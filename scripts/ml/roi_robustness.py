@@ -26,6 +26,7 @@ stray corner.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -56,10 +57,10 @@ def gradient_design(start: np.ndarray, target, mask) -> np.ndarray:
 
 
 def main() -> None:
-    print("=" * 104)
-    print("ROBUSTNESS on the CORRECTED evaluator: do the headline conclusions survive a ROI sweep?")
-    print("=" * 104)
-    print(f"grid={GRID} n_max={N_MAX} padding={inv.PADDING} sim_window={inv.SIM_WINDOW} "
+    logger.info("=" * 104)
+    logger.info("ROBUSTNESS on the CORRECTED evaluator: do the headline conclusions survive a ROI sweep?")
+    logger.info("=" * 104)
+    logger.info(f"grid={GRID} n_max={N_MAX} padding={inv.PADDING} sim_window={inv.SIM_WINDOW} "
           f"draws={DRAWS} refine_steps={REFINE_STEPS}")
 
     rows: list[dict] = []
@@ -85,7 +86,7 @@ def main() -> None:
     def sel(sf: float, asp: float) -> list[dict]:
         return [r for r in rows if r["size_frac"] == sf and abs(r["aspect"] - asp) < 1e-9]
 
-    print(f"\n{'size_frac':>10}{'aspect':>8}{'flat':>9}{'GS':>9}{'grad':>9}"
+    logger.info(f"\n{'size_frac':>10}{'aspect':>8}{'flat':>9}{'GS':>9}{'grad':>9}"
           f"{'GS-grad':>10}{'t':>7}{'GS+ref':>9}{'ref delta':>11}{'t':>7}")
     verdicts = []
     for sf in SIZE_FRACS:
@@ -98,22 +99,22 @@ def main() -> None:
             t1 = d1.mean() / (d1.std(ddof=1) / np.sqrt(len(d1)))
             t2 = d2.mean() / (d2.std(ddof=1) / np.sqrt(len(d2)))
             verdicts.append((sf, asp, d1.mean(), t1, d2.mean(), t2))
-            print(
+            logger.info(
                 f"{sf:>10.3f}{asp:>8.3f}{s[0]['flat']:>9.4f}{gs.mean():>9.4f}{gr.mean():>9.4f}"
                 f"{d1.mean():>+10.4f}{t1:>+7.2f}{rf.mean():>9.4f}{d2.mean():>+11.4f}{t2:>+7.2f}"
             )
 
-    print("\n" + "=" * 104)
+    logger.info("\n" + "=" * 104)
     c1 = [v for v in verdicts if v[3] > 0]
     c2 = [v for v in verdicts if v[5] < 0]
-    print(f"claim 1  GS > gradient        : holds in {len(c1)}/{len(verdicts)} ROI settings")
-    print(f"claim 2  refinement hurts GS   : holds in {len(c2)}/{len(verdicts)} ROI settings")
+    logger.info(f"claim 1  GS > gradient        : holds in {len(c1)}/{len(verdicts)} ROI settings")
+    logger.info(f"claim 2  refinement hurts GS   : holds in {len(c2)}/{len(verdicts)} ROI settings")
     robust = len(c1) == len(verdicts) and len(c2) == len(verdicts)
-    print(f"\nVERDICT: {'BOTH ROBUST across the ROI sweep' if robust else 'NOT ROBUST -- ROI-dependent'}")
+    logger.info(f"\nVERDICT: {'BOTH ROBUST across the ROI sweep' if robust else 'NOT ROBUST -- ROI-dependent'}")
 
     out = Path("report/loss_defects/roi_robustness.json")
     out.write_text(json.dumps(rows, indent=2), encoding="utf-8")
-    print(f"wrote {out}")
+    logger.info(f"wrote {out}")
 
 
 if __name__ == "__main__":

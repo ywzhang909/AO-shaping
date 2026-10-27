@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import time
 from datetime import datetime, timezone
@@ -187,7 +188,7 @@ def main() -> None:
 
     if not args.execute:
         (args.out / "probe.json").write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
-        print(f"[dry] 计划已写入 {args.out}")
+        logger.info(f"[dry] 计划已写入 {args.out}")
         return
 
     from ao_shaping.drivers.ccd.common import create_camera
@@ -240,7 +241,7 @@ def main() -> None:
     record["metrics_flat"] = metrics(shots["flat"], best[1], args.target_side_px, (zero_col, zero_row))
     record["exposure_ms"] = float(exposure)
     (args.out / "probe.json").write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(json.dumps({k: v for k, v in record.items() if k.startswith(("metrics", "zero_", "target_", "carrier_"))},
+    logger.info(json.dumps({k: v for k, v in record.items() if k.startswith(("metrics", "zero_", "target_", "carrier_"))},
                      indent=2, ensure_ascii=False))
 
 

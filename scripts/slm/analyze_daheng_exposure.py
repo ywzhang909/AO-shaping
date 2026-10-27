@@ -8,6 +8,7 @@ dark frame and an independent validation sweep.
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 from pathlib import Path
 
@@ -131,7 +132,7 @@ def main() -> None:
     args.output_json.parent.mkdir(parents=True, exist_ok=True)
     args.output_json.write_text(json.dumps(result, indent=2), encoding="utf-8")
     for sweep in result["sweeps"]:
-        print(Path(sweep["source"]).name, sweep["response_models"]["affine"])
+        logger.info(Path(sweep["source"]).name, sweep["response_models"]["affine"])
 
 
 if __name__ == "__main__":

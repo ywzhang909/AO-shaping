@@ -6,6 +6,7 @@ actual docstring. No invented content.
 from __future__ import annotations
 
 import ast
+from loguru import logger
 import json
 import re
 from collections import defaultdict
@@ -644,6 +645,6 @@ def build():
 
 if __name__ == "__main__":
     w = build()
-    print(f"generated {len(w)} pages")
+    logger.info(f"generated {len(w)} pages")
     for x in sorted(w):
-        print(" ", x)
+        logger.info(" ", x)

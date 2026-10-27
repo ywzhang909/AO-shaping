@@ -33,6 +33,7 @@ Two conventions worth stating because they are easy to get wrong:
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import math
 import statistics
@@ -337,7 +338,7 @@ def fig_objective_mixture(index_cache: str) -> str | None:
     try:
         index = build_hw_index(index_cache=index_cache).filter(families=["slm_zernike_shaping"])
     except Exception as exc:  # pragma: no cover - corpus may be absent offline
-        print(f"skip objective-mixture figure: {exc}")
+        logger.info(f"skip objective-mixture figure: {exc}")
         return None
     records = list(index.records)
     dataset = HwPhaseImageDataset(index, config=MaterialiserConfig(grid=64), use_cache=True)
@@ -1206,7 +1207,7 @@ def main() -> int:
     if (synthesis_dir / "summary.json").exists():
         synthesis = json.loads((synthesis_dir / "summary.json").read_text(encoding="utf-8"))
     else:
-        print(f"note: no inversion results at {synthesis_dir}; section 10 will be omitted")
+        logger.info(f"note: no inversion results at {synthesis_dir}; section 10 will be omitted")
     out_dir = ROOT / args.out_dir
     FIGURES.mkdir(parents=True, exist_ok=True)
 
@@ -1244,7 +1245,7 @@ def main() -> int:
                     t_stat = rho * math.sqrt((n - 2) / (1.0 - rho * rho))
                     p_value = float(stats.t.sf(abs(t_stat), df=n - 2)) * 2.0
                     synthesis["iteration_corr"] = {"r": rho, "p": p_value}
-        print(f"rendered {sum(1 for v in figures.values() if v)} figures -> {FIGURES}")
+        logger.info(f"rendered {sum(1 for v in figures.values() if v)} figures -> {FIGURES}")
 
     text = build_report(sweep, history, figures, synthesis)
     if synthesis is None:
@@ -1256,7 +1257,7 @@ def main() -> int:
             text = text.replace("## 11. 本报告中被推翻的结论", "## 10. 本报告中被推翻的结论")
             text = text.replace("## 12. 复现", "## 11. 复现")
     (out_dir / "report.md").write_text(text + GLOSSARY_APPENDIX, encoding="utf-8")
-    print(f"wrote {out_dir / 'report.md'}")
+    logger.info(f"wrote {out_dir / 'report.md'}")
     return 0
 
 

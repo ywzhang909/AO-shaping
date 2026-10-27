@@ -39,6 +39,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import csv
 import json
 import math
@@ -334,14 +335,14 @@ def _run_bakeoff(run_dir: Path) -> dict[str, Any]:
             np.mean(np.abs(rebuilt - reference.measured))
             / max(float(np.max(reference.measured)), 1e-30)
         )
-        print(f"model_grid rebuild deviation (holdout 0): {deviation:.3e}")
+        logger.info(f"model_grid rebuild deviation (holdout 0): {deviation:.3e}")
         if deviation > 1e-6:
             raise RuntimeError(
                 f"the model-grid rebuild does not reproduce the recorded one "
                 f"(relative L1 {deviation:.3e}) -- the geometry mapping drifted"
             )
 
-    print(
+    logger.info(
         f"probes: {len(train)} train / {len(holdout)} holdout, "
         f"region={train[0].phase.shape[0]}, far_field={far_field_size}"
     )
@@ -409,7 +410,7 @@ def _run_bakeoff(run_dir: Path) -> dict[str, Any]:
             **clamped_metrics,
         }
         clamped_rows.append(clamped_row)
-        print(
+        logger.info(
             f"{variant.name:16s} val SSIM {metrics['ssim_foot']:.4f}  "
             f"r {metrics['pearson_r']:.4f}  E {metrics['energy_ratio_foot']:.4f}  "
             f"MSE {metrics['mse_foot']:.3e}  |c| {np.linalg.norm(coefficients):.3f}"
@@ -475,24 +476,24 @@ def main(argv: list[str] | None = None) -> int:
     runs: list[dict[str, Any]] = []
     for raw in args.run_dir:
         run_dir = Path(raw)
-        print(f"\n=== {run_dir} ===")
+        logger.info(f"\n=== {run_dir} ===")
         result = _run_bakeoff(run_dir)
         runs.append(result)
-        print("-- Step A 原始拟合 --")
-        print(_render_table(result["rows"]))
-        print("-- 经逐轮信任域后 --")
-        print(_render_table(result["clamped_rows"]))
+        logger.info("-- Step A 原始拟合 --")
+        logger.info(_render_table(result["rows"]))
+        logger.info("-- 经逐轮信任域后 --")
+        logger.info(_render_table(result["clamped_rows"]))
 
     rows = _aggregate(runs, "rows")
     clamped_rows = _aggregate(runs, "clamped_rows")
     table = _render_table(rows)
     clamped_table = _render_table(clamped_rows)
     print()
-    print(f"== Step A 原始拟合 (未经信任域), {len(runs)} 次运行平均 ==")
-    print(table)
+    logger.info(f"== Step A 原始拟合 (未经信任域), {len(runs)} 次运行平均 ==")
+    logger.info(table)
     print()
-    print(f"== 经逐轮信任域后 (MIL 循环实际提交的), {len(runs)} 次运行平均 ==")
-    print(clamped_table)
+    logger.info(f"== 经逐轮信任域后 (MIL 循环实际提交的), {len(runs)} 次运行平均 ==")
+    logger.info(clamped_table)
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = Path(args.out_dir) / stamp
@@ -543,7 +544,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     _plot(rows, out_dir / "bakeoff.png")
-    print(f"\nwrote {csv_path} and {json_path}")
+    logger.info(f"\nwrote {csv_path} and {json_path}")
     return 0
 
 

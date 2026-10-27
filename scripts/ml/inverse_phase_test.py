@@ -32,6 +32,7 @@ protocol exists to prevent.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -232,11 +233,11 @@ def train_physics(inputs, targets, epochs: int, seed: int, device) -> ZernikeAmp
 
 def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("=" * 108)
-    print("INVERSE PHASE OPTIMISATION TEST: does training on strong phases restore inversion?")
-    print("=" * 108)
-    print(f"seeds={SEEDS} n_max={N_MAX} padding={PADDING} device={device}")
-    print("training targets AND scoring: SimPibSystem (shared code; independence is in the phases)")
+    logger.info("=" * 108)
+    logger.info("INVERSE PHASE OPTIMISATION TEST: does training on strong phases restore inversion?")
+    logger.info("=" * 108)
+    logger.info(f"seeds={SEEDS} n_max={N_MAX} padding={PADDING} device={device}")
+    logger.info("training targets AND scoring: SimPibSystem (shared code; independence is in the phases)")
 
     target = inv.target_tensor(GRID, SIZE_FRAC, ASPECT).to(device)
     mask = roi_mask(
@@ -251,9 +252,9 @@ def main() -> None:
     # point, the freeform arm needs the PHASE. Converting the coefficients to a phase and
     # handing that to the coefficient parameterisation is a shape/semantics mismatch.
     gs_coeff_vec = inv.gs_coefficients(SIZE_FRAC, ASPECT, n_max=N_MAX).astype(np.float32)
-    print("\nreference scores on the INDEPENDENT evaluator (higher is better):")
-    print(f"  flat phase          {score_numpy(flat_phase):.4f}")
-    print(f"  GS phase            {score_numpy(gs_phase_np):.4f}")
+    logger.info("\nreference scores on the INDEPENDENT evaluator (higher is better):")
+    logger.info(f"  flat phase          {score_numpy(flat_phase):.4f}")
+    logger.info(f"  GS phase            {score_numpy(gs_phase_np):.4f}")
     flat_s, gs_s = score_numpy(flat_phase), score_numpy(gs_phase_np)
 
     arms = {
@@ -311,44 +312,44 @@ def main() -> None:
                 run_inverse(free_fwd, gs_phase_np.astype(np.float32)[None, None], target, mask)[0, 0]
             )
             rows.append(out)
-            print(
+            logger.info(
                 f"  {arm:<22} seed={seed} n={x.shape[0]:>5} "
                 f"zern(rand)={out['zern_rand']:.4f} zern(gs)={out['zern_gs']:.4f} "
                 f"free(rand)={out['free_rand']:.4f} free(gs)={out['free_gs']:.4f}"
             )
 
-    print("\n" + "=" * 108)
-    print(f"means over {len(SEEDS)} seeds -- validated simulator; flat={flat_s:.4f} "
+    logger.info("\n" + "=" * 108)
+    logger.info(f"means over {len(SEEDS)} seeds -- validated simulator; flat={flat_s:.4f} "
           f"GS={gs_s:.4f}; higher is better")
-    print("=" * 108)
-    print(f"{'arm':<24}{'zern(rand)':>12}{'zern(gs)':>11}{'free(rand)':>12}"
+    logger.info("=" * 108)
+    logger.info(f"{'arm':<24}{'zern(rand)':>12}{'zern(gs)':>11}{'free(rand)':>12}"
           f"{'free(gs)':>11}{'best-flat':>11}")
     for arm in arms:
         sel = [r for r in rows if r["arm"] == arm]
         best = max(
             float(np.mean([r[k] for r in sel])) for k in ("zern_rand", "zern_gs", "free_rand", "free_gs")
         )
-        print(f"{arm:<24}"
+        logger.info(f"{arm:<24}"
               f"{np.mean([r['zern_rand'] for r in sel]):>12.4f}"
               f"{np.mean([r['zern_gs'] for r in sel]):>11.4f}"
               f"{np.mean([r['free_rand'] for r in sel]):>12.4f}"
               f"{np.mean([r['free_gs'] for r in sel]):>11.4f}"
               f"{best - flat_s:>+11.4f}")
 
-    print("\npaired vs the mild-only incumbent (same seed, same evaluator):")
+    logger.info("\npaired vs the mild-only incumbent (same seed, same evaluator):")
     base = {r["seed"]: r for r in rows if r["arm"] == "mild-only (incumbent)"}
     for arm in arms:
         if arm == "mild-only (incumbent)":
             continue
         for key in ("zern_gs", "free_gs"):
             d = np.array([r[key] - base[r["seed"]][key] for r in rows if r["arm"] == arm])
-            print(f"  {arm:<22} {key:<9} d={d.mean():+.4f} +/- "
+            logger.info(f"  {arm:<22} {key:<9} d={d.mean():+.4f} +/- "
                   f"{d.std(ddof=1)/np.sqrt(len(d)):.4f}  positives {int((d > 0).sum())}/{len(d)}")
 
     out_path = ROOT / "report" / "loss_defects" / "inverse_phase_test.json"
     out_path.write_text(json.dumps(
         {"flat": flat_s, "gs": gs_s, "rows": rows}, indent=2), encoding="utf-8")
-    print(f"\nwrote {out_path}")
+    logger.info(f"\nwrote {out_path}")
 
 
 if __name__ == "__main__":

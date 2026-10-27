@@ -7,6 +7,7 @@ metrics and must not be read as camera or SLM performance.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import argparse
 from datetime import datetime
 from pathlib import Path
@@ -98,4 +99,4 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--objective", choices=("composite", "pearson"), default="composite")
     args = parser.parse_args()
-    print(run_benchmark(objective=args.objective))
+    logger.info(run_benchmark(objective=args.objective))

@@ -31,6 +31,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import sys
 import time
@@ -235,10 +236,10 @@ def main(argv: list[str] | None = None) -> int:
     path = out_root / f"ablation_{'_'.join(trainers)}.json"
     path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
-    print("\n=== summary (judged on val R^2) ===")
+    logger.info("\n=== summary (judged on val R^2) ===")
     for t in trainers:
         rep = report["reports"][t]
-        print(f"\n[{t}] baseline={rep['baseline']}  ranking: {' > '.join(rep['ranking'])}")
+        logger.info(f"\n[{t}] baseline={rep['baseline']}  ranking: {' > '.join(rep['ranking'])}")
         for mode, e in sorted(rep["modes"].items(), key=lambda kv: -kv[1]["val_r2_mean"]):
             line = (f"  {mode:7s} R2={e['val_r2_mean']:+.4f} +/- {e['val_r2_sd']:.4f} "
                     f"(n={e['n_seeds']})")
@@ -247,8 +248,8 @@ def main(argv: list[str] | None = None) -> int:
                 line += (f" | vs base: d={pv['mean_diff']:+.4f} "
                          f"p={pv['p_signflip']:.4f} (min {pv['min_attainable_p']:.4f}) "
                          f"dz={pv['cohens_dz']:+.2f}")
-            print(line)
-    print(f"\nwrote {path}")
+            logger.info(line)
+    logger.info(f"\nwrote {path}")
     return 0
 
 

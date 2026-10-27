@@ -27,6 +27,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import glob
 import json
 import re
@@ -802,7 +803,7 @@ def main() -> int:
 
     h5 = Path(args.h5) if args.h5 else _latest_matrix()
     if h5 is None or not h5.exists():
-        print("[FAIL] 未找到响应矩阵 h5")
+        logger.info("[FAIL] 未找到响应矩阵 h5")
         return 1
     scan_report = (Path(args.scan_report) if args.scan_report else latest_match(
         str(ROOT / "data" / "zernike_correction" / "report_*.json")))
@@ -813,19 +814,19 @@ def main() -> int:
     figs = out / "figures"
     figs.mkdir(parents=True, exist_ok=True)
 
-    print("=" * 72)
-    print("[Zernike 响应矩阵报告] 创建 / 分析 / 检测")
-    print("=" * 72)
-    print(f"  h5          : {h5}")
-    print(f"  scan report : {scan_report}")
-    print(f"  raw scan    : {raw_scan}")
+    logger.info("=" * 72)
+    logger.info("[Zernike 响应矩阵报告] 创建 / 分析 / 检测")
+    logger.info("=" * 72)
+    logger.info(f"  h5          : {h5}")
+    logger.info(f"  scan report : {scan_report}")
+    logger.info(f"  raw scan    : {raw_scan}")
 
     result = load_zernike_response_matrix(h5)
     dc = dict(result.device_config or {})
     modes = dc.get("slm_mode_ids_dll") or list(range(2, result.matrix.shape[1] + 2))
     matrix = result.matrix
 
-    print(f"[OK] matrix {matrix.shape}, cond={np.linalg.cond(matrix):.3f}")
+    logger.info(f"[OK] matrix {matrix.shape}, cond={np.linalg.cond(matrix):.3f}")
 
     fig_matrix_heatmap(matrix, modes, figs / "01_matrix_heatmap.png")
     fig_diagonal(matrix, modes, figs / "02_diagonal_dominance.png")
@@ -835,7 +836,7 @@ def main() -> int:
     diag_ok = sum(1 for col, m in enumerate(modes)
                   if m - 1 < matrix.shape[0]
                   and int(np.argmax(np.abs(matrix[:, col]))) == m - 1)
-    print(f"[OK] diagonal dominance: {diag_ok}/{len(modes)}")
+    logger.info(f"[OK] diagonal dominance: {diag_ok}/{len(modes)}")
 
     linearity: list[dict] = []
     worst: list[int] = []
@@ -853,20 +854,20 @@ def main() -> int:
         rep_sn = str(rep_dev.get("serial_number", ""))
         same_run = bool(rep_report.get("pass_count_by_radius")
                         and (not h5_sn or h5_sn == rep_sn))
-    print(f"[OK] same-run gating: {same_run} (report={scan_report.name if scan_report else '-'})")
+    logger.info(f"[OK] same-run gating: {same_run} (report={scan_report.name if scan_report else '-'})")
     if raw_scan and raw_scan.exists() and same_run:
         raw = json.loads(raw_scan.read_text(encoding="utf-8"))
         linearity = fig_linearity(raw, figs / "05_linearity.png")
         bad = [r for r in linearity if not r["ok"]]
         worst = sorted({r["dll_index"] for r in bad},
                        key=lambda m: -max(r["cv"] for r in bad if r["dll_index"] == m))[:4]
-        print(f"[OK] linearity: {len(linearity) - len(bad)}/{len(linearity)} pass; "
+        logger.info(f"[OK] linearity: {len(linearity) - len(bad)}/{len(linearity)} pass; "
               f"worst modes {worst}")
         if worst:
             fig_outlier(raw, figs / "06_outlier_diagnosis.png", worst)
 
     inverse = fig_inverse(matrix, modes, figs / "07_inverse_demo.png")
-    print(f"[OK] inverse demo: residual {inverse['residual']:.4f} "
+    logger.info(f"[OK] inverse demo: residual {inverse['residual']:.4f} "
           f"({inverse['reduction_pct']:.1f}% reduction)")
 
     closed_loop = None
@@ -874,7 +875,7 @@ def main() -> int:
     if rep_report and same_run and scan_report is not None:
         closed_loop = fig_closed_loop(rep_report, figs / "08_closed_loop.png")
         if closed_loop:
-            print(f"[OK] closed loop: {closed_loop['before_rms']:.4f} → "
+            logger.info(f"[OK] closed loop: {closed_loop['before_rms']:.4f} → "
                   f"{closed_loop['after_rms']:.4f} λ")
         # 离心(偏心)矫正对比四图: debug 目录与 report 同时间戳命名
         debug_dir = (scan_report.parent
@@ -886,7 +887,7 @@ def main() -> int:
                     or centering.get("rms")):
                 centering = {}          # 无任何派生图 (旧版 debug 目录缺失) → 跳过 §3.4
             else:
-                print(f"[OK] centering figs: shift {centering.get('shift')} "
+                logger.info(f"[OK] centering figs: shift {centering.get('shift')} "
                       f"(09-12) from {debug_dir.name}")
 
     ctx = {"result": result, "h5": h5, "scan_report": scan_report,
@@ -896,7 +897,7 @@ def main() -> int:
            "report": rep_report, "centering": centering}
     body = write_markdown(out, ctx)
     (out / "report.md").write_text(body, encoding="utf-8")
-    print(f"\n[OK] 报告: {out / 'report.md'}")
+    logger.info(f"\n[OK] 报告: {out / 'report.md'}")
 
     if args.append_to:
         target = Path(args.append_to).resolve()
@@ -919,10 +920,10 @@ def main() -> int:
         if marker in existing:                      # 幂等: 替换旧章节
             existing = existing.split(marker)[0]
         target.write_text(existing.rstrip() + sep + section + "\n", encoding="utf-8")
-        print(f"[OK] 已追加到: {target} (图前缀 {rel}/figures)")
+        logger.info(f"[OK] 已追加到: {target} (图前缀 {rel}/figures)")
 
-    print(f"[OK] 图: {figs}")
-    print("=" * 72)
+    logger.info(f"[OK] 图: {figs}")
+    logger.info("=" * 72)
     return 0
 
 

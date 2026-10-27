@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import math
 import re
@@ -733,7 +734,7 @@ def main(argv: list[str] | None = None) -> dict:
             "final_compare": fig_final,
         },
     )
-    print(json.dumps(summary, indent=2, ensure_ascii=False))
+    logger.info(json.dumps(summary, indent=2, ensure_ascii=False))
     return summary
 
 

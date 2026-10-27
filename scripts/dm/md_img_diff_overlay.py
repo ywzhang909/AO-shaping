@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 from pathlib import Path
 
 import numpy as np
@@ -51,13 +52,13 @@ def main() -> None:
     if not images:
         raise SystemExit(f"No images found under {args.input}")
 
-    print(f"Found {len(images)} diff images")
+    logger.info(f"Found {len(images)} diff images")
 
     # Load first image to get shape
     first = np.asarray(Image.open(images[0]), dtype=np.float64)
     h, w = first.shape[:2]
     is_rgb = first.ndim == 3 and first.shape[2] == 3
-    print(f"Image shape: {h}x{w} ({'RGB' if is_rgb else 'grayscale'})")
+    logger.info(f"Image shape: {h}x{w} ({'RGB' if is_rgb else 'grayscale'})")
 
     # Compute pixel-wise maximum
     if is_rgb:
@@ -68,17 +69,17 @@ def main() -> None:
     for i, path in enumerate(images):
         img = np.asarray(Image.open(path), dtype=np.float64)
         if img.shape[:2] != (h, w):
-            print(f"  Skipping {path.name}: shape {img.shape[:2]} != ({h}, {w})")
+            logger.info(f"  Skipping {path.name}: shape {img.shape[:2]} != ({h}, {w})")
             continue
         overlay = np.maximum(overlay, img)
         if (i + 1) % 50 == 0 or i == len(images) - 1:
-            print(f"  Processed {i + 1}/{len(images)}")
+            logger.info(f"  Processed {i + 1}/{len(images)}")
 
     # Save result
     args.output.parent.mkdir(parents=True, exist_ok=True)
     result = Image.fromarray(np.clip(overlay, 0, 255).astype(np.uint8))
     result.save(args.output)
-    print(f"Saved overlay -> {args.output}")
+    logger.info(f"Saved overlay -> {args.output}")
 
     # Stats
     if is_rgb:
@@ -89,8 +90,8 @@ def main() -> None:
     total_pixels = h * w
     nonzero_pixels = int((gray > 0).sum())
     coverage = nonzero_pixels / total_pixels * 100
-    print(f"Coverage: {nonzero_pixels}/{total_pixels} pixels have signal ({coverage:.1f}%)")
-    print(f"Max intensity: {gray.max():.1f}")
+    logger.info(f"Coverage: {nonzero_pixels}/{total_pixels} pixels have signal ({coverage:.1f}%)")
+    logger.info(f"Max intensity: {gray.max():.1f}")
 
 
 if __name__ == "__main__":

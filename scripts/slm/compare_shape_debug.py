@@ -13,6 +13,7 @@ frame. Scores from different optimizers select the best row but are not compared
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import pickle
 from pathlib import Path
 
@@ -127,14 +128,14 @@ def main() -> None:
     args = parser.parse_args()
     if args.side < 1 or args.bins < 1:
         parser.error("--side and --bins must be positive")
-    print(
+    logger.info(
         "run\tframe\tcenter_yx\tbest_row\tstage\tbackground\tpib\tcv\tcoverage\tbelow_10pct_mean\tbelow_50pct_mean"
     )
     for run in args.runs:
         result = compare(run, side=args.side, bins=args.bins)
         for stage in ("flat", "best"):
             values = result[stage]
-            print(
+            logger.info(
                 f"{run.name}\t{result['frame_shape']}\t{result['center']}\t"
                 f"{result['best_row']}\t{stage}\t"
                 + "\t".join(

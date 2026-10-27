@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from loguru import logger
 
 import matplotlib
 
@@ -77,4 +78,4 @@ def generate_analysis_figure(output_path: Path) -> Path:
 if __name__ == "__main__":
     target = Path("artifacts") / "sim_turbulence_analysis.png"
     saved = generate_analysis_figure(target)
-    print(saved)
+    logger.info(saved)

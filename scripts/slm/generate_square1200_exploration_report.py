@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import pickle
 from pathlib import Path
@@ -159,7 +160,7 @@ def main():
         f"最终设备释放记录（UTC）：`{release['timestamp_utc']}`，状态 `{release['status']}`。", "",
         "数据摘要：[evidence.json](artifacts/20261026/evidence.json)。前序实验：[1200 像元方形](../square1200/square1200_20261026.md)。", ""]
     (OUT/"exploration_20261026.md").write_text("\n".join(lines), encoding="utf-8")
-    print(json.dumps(dict(stages={k:{f:v[f] for f in ("seed_cv", "final_cv", "accepted", "accepted_uphill")} for k,v in stages.items()}, replay=comparisons, release=release), indent=2))
+    logger.info(json.dumps(dict(stages={k:{f:v[f] for f in ("seed_cv", "final_cv", "accepted", "accepted_uphill")} for k,v in stages.items()}, replay=comparisons, release=release), indent=2))
 
 
 if __name__ == "__main__":

@@ -908,7 +908,7 @@ def main(argv: list[str] | None = None) -> int:
                     "note": spec.note,
                 }
             )
-            print(f"[UNRESOLVED] {spec.figure}\n             {spec.note}")
+            logger.info(f"[UNRESOLVED] {spec.figure}\n             {spec.note}")
             continue
 
         spec.frame_shape = tuple(int(v) for v in frame.shape)
@@ -941,7 +941,7 @@ def main(argv: list[str] | None = None) -> int:
         tally[tier] = tally.get(tier, 0) + 1
 
         dy, dx = abs(cy - frame.shape[0] // 2), abs(cx - frame.shape[1] // 2)
-        print(
+        logger.info(
             f"[{tier.upper():10s}] {spec.figure}\n"
             f"             src={spec.container}"
             + (f"#{spec.key}" if spec.key else "")
@@ -972,7 +972,7 @@ def main(argv: list[str] | None = None) -> int:
     phase_written = phase_unresolved = 0
     if not args.check:
         phase_written, phase_unresolved = regenerate_phase_figures()
-        print(f"\n相位图重绘：{phase_written} 张，未能重建 {phase_unresolved} 张")
+        logger.info(f"\n相位图重绘：{phase_written} 张，未能重建 {phase_unresolved} 张")
 
         manifest = REPORT_DIR / "xy_profile_manifest.json"
         manifest.write_text(
@@ -991,9 +991,9 @@ def main(argv: list[str] | None = None) -> int:
             ),
             encoding="utf-8",
         )
-        print(f"\nmanifest -> {_rel(manifest)}")
+        logger.info(f"\nmanifest -> {_rel(manifest)}")
 
-    print("\n" + "  ".join(f"{k}={v}" for k, v in sorted(tally.items())))
+    logger.info("\n" + "  ".join(f"{k}={v}" for k, v in sorted(tally.items())))
     return 1 if tally["unresolved"] else 0
 
 

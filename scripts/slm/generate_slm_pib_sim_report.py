@@ -866,11 +866,11 @@ def cli() -> None:
             make_gif(run, gif_dir, tag, "_img", phase=False),
         ]
         for f in figs[tag]:
-            print(f"  wrote {f}")
+            logger.info(f"  wrote {f}")
 
     out_md = out_dir / "report.md"
     build_markdown(runs, tags, figs, gifs, out_md)
-    print(f"report -> {out_md}")
+    logger.info(f"report -> {out_md}")
 
 
 if __name__ == "__main__":

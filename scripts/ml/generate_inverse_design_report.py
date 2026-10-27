@@ -27,6 +27,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import math
 import sys
@@ -1074,12 +1075,12 @@ def main() -> int:
         )
         stats["phase"] = figure_phases(FIG_DIR / "phases.png")
         figure_roi_sweep(FIG_DIR / "roi_sweep.png")
-        print(f"figures written to {FIG_DIR}")
+        logger.info(f"figures written to {FIG_DIR}")
 
     report = build_report(stats, figures_ok)
     out = OUT_DIR / "inverse_design_report.md"
     out.write_text(report, encoding="utf-8")
-    print(f"wrote {out}")
+    logger.info(f"wrote {out}")
 
     (OUT_DIR / "inverse_design_report_stats.json").write_text(
         json.dumps(stats, indent=2, ensure_ascii=False), encoding="utf-8"

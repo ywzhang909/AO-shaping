@@ -7,6 +7,7 @@ with the terminology and the figures explained rather than assumed.
 
 from __future__ import annotations
 from pathlib import Path
+from loguru import logger
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "report" / "loss_defects" / "forward_search_report.md"
@@ -354,4 +355,4 @@ PROV = (
 )
 
 OUT.write_text(PROV + BODY, encoding="utf-8")
-print(f"wrote {OUT} ({len(BODY)} chars)")
+logger.info(f"wrote {OUT} ({len(BODY)} chars)")

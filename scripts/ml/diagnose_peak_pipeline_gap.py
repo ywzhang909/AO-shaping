@@ -24,6 +24,7 @@ Usage
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -99,7 +100,7 @@ def main() -> int:
         out[f"{split}_max_abs_diff"] = float(diff.max())
         out[f"{split}_mean_abs_diff"] = float(diff.mean())
         out[f"{split}_frac_pixels_differing"] = float((diff > 0).mean())
-        print("%-5s  max|diff|=%.6g  mean|diff|=%.6g  pixels differing=%.4f%%"
+        logger.info("%-5s  max|diff|=%.6g  mean|diff|=%.6g  pixels differing=%.4f%%"
               % (split, diff.max(), diff.mean(), 100.0 * (diff > 0).mean()))
 
     # Where do they differ? If it is a single hot pixel, `peak` and a per-frame
@@ -109,7 +110,7 @@ def main() -> int:
         maxima = frames.amax(dim=(-2, -1))
         n_tied_max = int((frames == maxima[:, :, None, None]).sum(dim=(-2, -1)).gt(1).sum())
         out[f"{split}_frames_with_tied_max"] = n_tied_max
-        print("%-5s  frames whose max is attained by >1 pixel: %d / %d"
+        logger.info("%-5s  frames whose max is attained by >1 pixel: %d / %d"
               % (split, n_tied_max, len(flat)))
 
     # Each pipeline's own constant-baseline R^2 on the same held-out fold.
@@ -122,12 +123,12 @@ def main() -> int:
         m = constant_baseline_metrics(const, target)
         out[f"{name}_r2_const"] = m["r2_const"]
         out[f"{name}_mse_const"] = m["mse_const"]
-        print("%-16s r2_const=%+.4f  mse_const=%.6g  var=%.6g"
+        logger.info("%-16s r2_const=%+.4f  mse_const=%.6g  var=%.6g"
               % (name, m["r2_const"], m["mse_const"], m["var"]))
 
     Path("logs/peak_pipeline_gap.json").write_text(
         json.dumps(out, indent=2), encoding="utf-8")
-    print("\nwrote logs/peak_pipeline_gap.json")
+    logger.info("\nwrote logs/peak_pipeline_gap.json")
     return 0
 
 

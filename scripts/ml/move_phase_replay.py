@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+from loguru import logger
 from pathlib import Path
 
 src_root = Path(__file__).resolve().parents[2] / "report/shape_trials"
@@ -32,7 +33,7 @@ for exp_dir in src_root.iterdir():
     dst_ts_dir = dst_family_dir / ts_dir_name
     
     if dst_ts_dir.exists():
-        print(f"SKIP (exists): {dst_ts_dir}")
+        logger.info(f"SKIP (exists): {dst_ts_dir}")
         skipped += 1
         continue
     
@@ -46,7 +47,7 @@ for exp_dir in src_root.iterdir():
     if png_file.exists():
         shutil.copy2(png_file, dst_ts_dir / 'phase_replay.png')
     
-    print(f"COPY: {family_name}/{ts_dir_name}")
+    logger.info(f"COPY: {family_name}/{ts_dir_name}")
     copied += 1
 
-print(f"\nDone. Copied: {copied}, Skipped: {skipped}")
+logger.info(f"\nDone. Copied: {copied}, Skipped: {skipped}")

@@ -141,7 +141,7 @@ def generate_gif(
         return pkl_path.with_suffix(".gif")
 
     keys = sorted(data.keys())
-    print("Keys:", keys)
+    logger.info("Keys:", keys)
 
     frames = []
     for k in keys:
@@ -215,13 +215,13 @@ def generate_gif(
 
     gif_path = pkl_path.with_suffix(".gif")
     imageio.mimsave(gif_path, frames, fps=fps)
-    print("Saved GIF to", gif_path)
+    logger.info("Saved GIF to", gif_path)
     return gif_path
 
 
 def main():
     if len(sys.argv) < 2:
-        print(
+        logger.info(
             "Usage: python generate_gif_from_pkl.py <pkl_path> [fps] [pupil_x,pupil_y]"
         )
         sys.exit(1)
@@ -233,10 +233,10 @@ def main():
             if pkls:
                 pkl_path = pkls[0]
             else:
-                print("No .pkl found in", pkl_path)
+                logger.info("No .pkl found in", pkl_path)
                 sys.exit(1)
         else:
-            print("File not found:", pkl_path)
+            logger.info("File not found:", pkl_path)
             sys.exit(1)
 
     fps = float(sys.argv[2]) if len(sys.argv) > 2 else 1.0

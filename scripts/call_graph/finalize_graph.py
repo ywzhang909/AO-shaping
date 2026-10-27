@@ -1,6 +1,7 @@
 """Merge recovery into final call_graph.json with full node metadata."""
 from __future__ import annotations
 import json
+from loguru import logger
 import sys
 import importlib.util
 from pathlib import Path
@@ -94,4 +95,4 @@ out = {
 (base / "call_graph_final.json").write_text(json.dumps(out, ensure_ascii=False, indent=1))
 
 n_res = sum(1 for v in final_nodes.values() if v)
-print(f"final nodes: {len(final_nodes)} (resolved {n_res}, external {len(final_nodes)-n_res}), edges {len(edges)}")
+logger.info(f"final nodes: {len(final_nodes)} (resolved {n_res}, external {len(final_nodes)-n_res}), edges {len(edges)}")

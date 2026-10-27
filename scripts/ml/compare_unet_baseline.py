@@ -311,18 +311,18 @@ def main() -> int:
             )
             rows.append({"seed": seed, **score.__dict__})
 
-    print(f"\n{'model':<22}{'params':>10}{'mse':>10}{'r2':>9}{'psnr':>9}{'ssim':>8}"
+    logger.info(f"\n{'model':<22}{'params':>10}{'mse':>10}{'r2':>9}{'psnr':>9}{'ssim':>8}"
           f"{'corr':>7}{'d_off':>8}{'d_rat':>8}{'sec':>7}")
-    print("-" * 96)
+    logger.info("-" * 96)
     names = sorted({r["name"] for r in rows})
     for name in names:
         group = [r for r in rows if r["name"] == name]
         pick = lambda k, _group=group: float(np.mean([r[k] for r in _group]))
-        print(f"{name:<22}{int(pick('params')):>10,}{pick('mse'):>10.5f}"
+        logger.info(f"{name:<22}{int(pick('params')):>10,}{pick('mse'):>10.5f}"
               f"{pick('r2'):>+9.4f}{pick('psnr'):>8.2f}dB{pick('ssim'):>8.4f}"
               f"{pick('correlation'):>7.3f}{pick('centroid_offset_px'):>8.2f}"
               f"{pick('spot_diameter_ratio'):>8.3f}{pick('seconds'):>7.1f}")
-    print(f"\n(mean of {args.seeds} seeds; seed-to-seed spread on r2 is ~0.13 here, "
+    logger.info(f"\n(mean of {args.seeds} seeds; seed-to-seed spread on r2 is ~0.13 here, "
           "so differences below that are not meaningful)")
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(rows, indent=2), encoding="utf-8")

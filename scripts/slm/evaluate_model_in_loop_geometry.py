@@ -7,6 +7,7 @@ the fitted transform and nonnegative gain/leakage are frozen.
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 from dataclasses import fields
 import json
 from pathlib import Path
@@ -142,7 +143,7 @@ def main() -> None:
             subset = rows if family == "all" else [r for r in rows if r["family"] == family]
             before = np.mean([r["baseline_correlation"] for r in subset])
             after = np.mean([r["corrected_correlation"] for r in subset])
-            print(item["run_dir"], item["coefficient_kind"], family,
+            logger.info(item["run_dir"], item["coefficient_kind"], family,
                   f"{before:.4f} -> {after:.4f}", item["parameters_dx_dy_scale"])
 
 

@@ -978,7 +978,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.dry_run:
         for s in scenarios:
-            print(
+            logger.info(
                 f"{s.key}: {s.name} algorithm={s.algorithm} epochs={s.epochs} "
                 f"target_size={s.target_size} interrupt@{s.interrupt_at_write} "
                 f"dropout@{s.dropout_at_capture}"
@@ -1078,8 +1078,8 @@ def main(argv: list[str] | None = None) -> int:
     _write_summary(outdir, summary)
 
     print()
-    print(f"artifacts: {outdir}")
-    print(f"{'':2} {'scenario':<30} {'verdict':<6} {'exit branch':<14} "
+    logger.info(f"artifacts: {outdir}")
+    logger.info(f"{'':2} {'scenario':<30} {'verdict':<6} {'exit branch':<14} "
           f"{'slot':>5} {'gray':>5} {'corr flat':>9} {'corr exit':>9}  failed")
     for rec in summary["scenarios"]:
         panel = rec["panel"]
@@ -1089,7 +1089,7 @@ def main(argv: list[str] | None = None) -> int:
         def fmt(value):
             return "-" if value is None else f"{value:.4f}"
 
-        print(
+        logger.info(
             f"{rec['key']:>2} {rec['name']:<30} {rec['verdict']:<6} "
             f"{rec['exit_branch']:<14} {str(firmware.get('displayed_slot')):>5} "
             f"{str(firmware.get('current_grayscale')):>5} "

@@ -230,7 +230,7 @@ def main(argv: list[str] | None = None) -> int:
                 print("exposure ladder on a flat phase:", flush=True)
                 payload["ladder"] = ladder(rig, int(args.repeats))
 
-            print("\nverification sweep (each point adapted to ~50% full scale):")
+            logger.info("\nverification sweep (each point adapted to ~50% full scale):")
             rows = [measure_focal(rig, f, int(args.frames)) for f in focals]
             rig.apply_flat()
 
@@ -276,18 +276,18 @@ def main(argv: list[str] | None = None) -> int:
     path = out / f"verify_{stamp}.json"
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    print("\n  f (mm)     exp     peak   peak/ms    fwhm   E/ms      in_box  gain")
+    logger.info("\n  f (mm)     exp     peak   peak/ms    fwhm   E/ms      in_box  gain")
     for row in rows:
-        print(
+        logger.info(
             f"  {row['focal_mm'] if row['focal_mm'] else 'plain':>6}"
             f"{row['exposure_ms']:9.3f}{row['peak']:8.1f}{row['peak_per_ms']:9.1f}"
             f"{row['fwhm_px']:9.1f}{row['energy_per_ms']:10.0f}"
             f"{row['in_box_frac']:9.3f}"
             f"{row.get('peak_gain_vs_plain', 0.0):7.2f}"
         )
-    print(f"\nlinearity at the best non-plain point: {linearity}")
+    logger.info(f"\nlinearity at the best non-plain point: {linearity}")
     logger.info("wrote {}", path)
-    print(f"wrote {path}")
+    logger.info(f"wrote {path}")
     return 0
 
 

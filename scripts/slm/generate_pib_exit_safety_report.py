@@ -626,7 +626,7 @@ def main(argv: list[str] | None = None) -> int:
 
     run_dir = Path(args.run_dir) if args.run_dir else find_latest_run()
     if run_dir is None or not (run_dir / "summary.json").is_file():
-        print(
+        logger.info(
             "no artifact run with summary.json under "
             f"{ARTIFACT_ROOT}; run scripts/slm/verify_pib_exit_safety_hw.py first"
         )
@@ -660,9 +660,9 @@ def main(argv: list[str] | None = None) -> int:
     text = insert_header(text, REPORT_KEY)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text, encoding="utf-8")
-    print(f"wrote {out} ({len(text.splitlines())} lines)")
+    logger.info(f"wrote {out} ({len(text.splitlines())} lines)")
     for path in list(figures.values()) + ([correlation_figure] if correlation_figure else []):
-        print(f"wrote {path}")
+        logger.info(f"wrote {path}")
     return 0
 
 

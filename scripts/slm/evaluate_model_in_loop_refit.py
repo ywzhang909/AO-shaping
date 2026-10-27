@@ -7,6 +7,7 @@ Holdout CCD grids are read from the recorder and never used for fitting.
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 from dataclasses import fields
 from pathlib import Path
@@ -79,12 +80,12 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(results, indent=2), encoding="utf-8")
     for result in results:
-        print(result["run_dir"])
+        logger.info(result["run_dir"])
         for name, candidate in result["candidates"].items():
             rows = candidate["holdouts"]
             mean = np.mean([row["correlation"] for row in rows])
             free = np.mean([row["correlation"] for row in rows if row["family"] == "freeform"])
-            print(f"  {name}: all={mean:.4f}, freeform={free:.4f}")
+            logger.info(f"  {name}: all={mean:.4f}, freeform={free:.4f}")
 
 
 if __name__ == "__main__":

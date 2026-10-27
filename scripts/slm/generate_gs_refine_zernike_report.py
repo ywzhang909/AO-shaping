@@ -14,6 +14,7 @@ Run:
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import csv
 import json
 import sys
@@ -514,8 +515,8 @@ def main() -> None:
         # 再深一层 (<ts>/<group>/summary.json), 所以递归找 —— 旧布局 (<ts>/) 也覆盖。
         candidates = sorted(base.rglob("summary.json")) if base.exists() else []
         if not candidates:
-            print(f"ERROR: no run with summary.json found under {base}")
-            print(
+            logger.info(f"ERROR: no run with summary.json found under {base}")
+            logger.info(
                 "Run the sweep first:  python scripts/slm/run_gs_refine_zernike_sweep.py"
             )
             sys.exit(1)
@@ -528,8 +529,8 @@ def main() -> None:
     out = ROOT / REPORT_KEY
     body = build_markdown(summary, run_dir)
     out.write_text(insert_header(body, REPORT_KEY), encoding="utf-8")
-    print(f"Wrote {out}")
-    print(f"Figures in {FIG_DIR}")
+    logger.info(f"Wrote {out}")
+    logger.info(f"Figures in {FIG_DIR}")
 
 
 if __name__ == "__main__":

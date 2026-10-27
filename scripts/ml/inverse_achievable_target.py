@@ -24,6 +24,7 @@ the achievable target's own quality as a reference point.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -123,16 +124,16 @@ def main() -> None:
     binary = binary_target(GRID)
     gs_target, gs_coeffs = achievable_target(GRID)
 
-    print("=" * 92)
-    print("ACHIEVABLE (GS-derived) TARGET vs BINARY SQUARE for inverse design")
-    print("=" * 92)
-    print(f"flat = {flat:.4f}")
-    print(f"GS coefficients: n={len(gs_coeffs)} absmax={np.abs(gs_coeffs).max():.4f} rad")
-    print(f"achievable target: peak={float(gs_target.max()):.4f} "
+    logger.info("=" * 92)
+    logger.info("ACHIEVABLE (GS-derived) TARGET vs BINARY SQUARE for inverse design")
+    logger.info("=" * 92)
+    logger.info(f"flat = {flat:.4f}")
+    logger.info(f"GS coefficients: n={len(gs_coeffs)} absmax={np.abs(gs_coeffs).max():.4f} rad")
+    logger.info(f"achievable target: peak={float(gs_target.max()):.4f} "
           f"mean={float(gs_target.mean()):.5f} "
           f"(binary square mean={float(binary.mean()):.5f})")
     gs_sim = score_on_sim(np.asarray(gs_coeffs, dtype=np.float64), GRID, N_MAX)["shape_sum"]
-    print(f"sim shape_sum of the GS target coefficients themselves: {gs_sim:.4f}")
+    logger.info(f"sim shape_sum of the GS target coefficients themselves: {gs_sim:.4f}")
 
     starts = [
         np.random.default_rng(52000 + r).normal(0.0, SIGMA, N_MODES) for r in range(RESTARTS)
@@ -158,22 +159,22 @@ def main() -> None:
     d = enriched - base
     se = d.std(ddof=1) / np.sqrt(len(d)) if len(d) > 1 else 0.0
 
-    print(f"\n{'target':<16}{'sim mean':>11}{'sim sd':>10}{'vs flat':>10}")
+    logger.info(f"\n{'target':<16}{'sim mean':>11}{'sim sd':>10}{'vs flat':>10}")
     for name in arms:
         s = arr(name)
-        print(f"{name:<16}{s.mean():>11.4f}{s.std():>10.4f}{s.mean() - flat:>+10.4f}")
+        logger.info(f"{name:<16}{s.mean():>11.4f}{s.std():>10.4f}{s.mean() - flat:>+10.4f}")
 
-    print("\npaired delta (gs_achievable - binary_square), same restart:")
-    print(f"  delta={d.mean():+.4f} +/- {se:.4f}  positives={int((d > 0).sum())}/{len(d)}"
+    logger.info("\npaired delta (gs_achievable - binary_square), same restart:")
+    logger.info(f"  delta={d.mean():+.4f} +/- {se:.4f}  positives={int((d > 0).sum())}/{len(d)}"
           + (f"  t={d.mean() / se:+.2f}" if se else ""))
 
-    print("\nreference points:")
-    print(f"  flat                     {flat:.4f}")
-    print(f"  GS target coefficients   {gs_sim:.4f}")
+    logger.info("\nreference points:")
+    logger.info(f"  flat                     {flat:.4f}")
+    logger.info(f"  GS target coefficients   {gs_sim:.4f}")
 
     out = Path("report/loss_defects/achievable_target.json")
     out.write_text(json.dumps({"rows": rows, "gs_coefficients": gs_coeffs.tolist()}, indent=2), encoding="utf-8")
-    print(f"\nwrote {out}")
+    logger.info(f"\nwrote {out}")
 
 
 if __name__ == "__main__":

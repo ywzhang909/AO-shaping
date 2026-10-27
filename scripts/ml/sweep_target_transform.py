@@ -28,6 +28,7 @@ Run
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -165,9 +166,9 @@ def main() -> int:
 
     best = max(out["transforms"], key=lambda t: out["transforms"][t]["agg"]["skill"])
     out["best_transform"] = best
-    print("\nbest transform by skill:", best)
+    logger.info("\nbest transform by skill:", best)
     Path("logs/target_transform.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
-    print("wrote logs/target_transform.json")
+    logger.info("wrote logs/target_transform.json")
     return 0
 
 

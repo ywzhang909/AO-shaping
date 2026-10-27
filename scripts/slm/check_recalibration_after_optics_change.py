@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 from pathlib import Path
 
@@ -98,15 +99,15 @@ def main() -> None:
 
     # ---- 汇总 ----------------------------------------------------------------
     stale = [r for r in rows if r["verdict"] in {"stale", "missing"}]
-    print("光路变化后的自动校准自检")
-    print("=" * 100)
+    logger.info("光路变化后的自动校准自检")
+    logger.info("=" * 100)
     width = max(len(r["item"]) for r in rows)
     for item in rows:
-        print(f"  {item['item']:<{width}} | {item['verdict']:<7} | 存量: {item['stored']}")
-        print(f"  {'':<{width}} | {'':<7} | 期望: {item['expected_after_change']}")
-        print(f"  {'':<{width}} | {'':<7} | 处置: {item['action']}")
-    print("-" * 100)
-    print(f"  需要重做: {len(stale)} / {len(rows)} 项；其中可离线重建的只有采样窗，"
+        logger.info(f"  {item['item']:<{width}} | {item['verdict']:<7} | 存量: {item['stored']}")
+        logger.info(f"  {'':<{width}} | {'':<7} | 期望: {item['expected_after_change']}")
+        logger.info(f"  {'':<{width}} | {'':<7} | 处置: {item['action']}")
+    logger.info("-" * 100)
+    logger.info(f"  需要重做: {len(stale)} / {len(rows)} 项；其中可离线重建的只有采样窗，"
           f"其余需设备（焦点扫描、模型重拟合、尺寸重扫）。")
 
     if args.json:

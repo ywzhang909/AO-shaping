@@ -40,6 +40,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import sys
 import time
@@ -163,10 +164,10 @@ def main(argv: list[str] | None = None) -> int:
               + "  | knn " + "  ".join("%s=%+.4f" % (m, row[f"knn_skill_{m}"]) for m in MODES),
               flush=True)
 
-    print("\n=== does removing a per-frame gain/offset help? ===")
+    logger.info("\n=== does removing a per-frame gain/offset help? ===")
     out = {"rows": rows, "seconds": round(time.perf_counter() - started, 1)}
     for arm in ("ridge", "knn"):
-        print("  %s arm:" % arm)
+        logger.info("  %s arm:" % arm)
         base_key = f"{arm}_skill_none"
         for mode in MODES:
             vals = [r[f"{arm}_skill_{mode}"] for r in rows]
@@ -176,7 +177,7 @@ def main(argv: list[str] | None = None) -> int:
                 extra = ("  paired vs none: mean=%+.4f p=%.4f (min %.4f) dz=%+.2f"
                          % (np.mean(diffs), sign_flip_pvalue(diffs),
                             min_attainable_pvalue(len(diffs)), cohens_dz(diffs)))
-            print("    %-7s mean skill = %+.4f%s" % (mode, np.mean(vals), extra))
+            logger.info("    %-7s mean skill = %+.4f%s" % (mode, np.mean(vals), extra))
             out[f"{arm}_{mode}_mean_skill"] = float(np.mean(vals))
     best = max(MODES, key=lambda m: out[f"ridge_{m}_mean_skill"])
     out["best_mode"] = best
@@ -199,10 +200,10 @@ def main(argv: list[str] | None = None) -> int:
         verdict = "per-frame gain/offset removal helps and crosses zero"
     out["paired_p_best_vs_none"] = float(paired_p)
     out["verdict"] = verdict
-    print("\nbest mode:", best, " (paired p vs none = %.4f)" % paired_p)
-    print("VERDICT:", verdict)
+    logger.info("\nbest mode:", best, " (paired p vs none = %.4f)" % paired_p)
+    logger.info("VERDICT:", verdict)
     Path(args.out).write_text(json.dumps(out, indent=2), encoding="utf-8")
-    print("wrote", args.out)
+    logger.info("wrote", args.out)
     return 0
 
 

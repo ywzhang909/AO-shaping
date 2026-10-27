@@ -22,6 +22,7 @@ spread (sd ~0.075 on R2) dwarfs every effect below except the data size.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import sys
 from pathlib import Path
 
@@ -81,12 +82,12 @@ def run(tag: str, kwargs: dict, seed: int) -> dict:
 
 def report(rows: list[dict], tags: list[str]) -> None:
     base = {r["seed"]: r for r in rows if r["tag"] == tags[0]}
-    print(f"\n{'config':<24}{'R2':>9}{'train':>10}{'val':>10}{'gap':>9}"
+    logger.info(f"\n{'config':<24}{'R2':>9}{'train':>10}{'val':>10}{'gap':>9}"
           f"{'val/train':>11}{'dR2':>9}{'pos':>6}")
     for tag in tags:
         sel = [r for r in rows if r["tag"] == tag]
         d = np.array([r["val_r2"] - base[r["seed"]]["val_r2"] for r in sel])
-        print(f"{tag:<24}{np.mean([r['val_r2'] for r in sel]):>9.4f}"
+        logger.info(f"{tag:<24}{np.mean([r['val_r2'] for r in sel]):>9.4f}"
               f"{np.mean([r['train_mse'] for r in sel]):>10.5f}"
               f"{np.mean([r['val_mse'] for r in sel]):>10.5f}"
               f"{np.mean([r['gap'] for r in sel]):>+9.5f}"
@@ -95,28 +96,28 @@ def report(rows: list[dict], tags: list[str]) -> None:
 
 
 def main() -> None:
-    print("=" * 104)
-    print("OVERFITTING: learning curve first, then regularisation levers (paired over seeds)")
-    print("=" * 104)
-    print(f"seeds={SEEDS} epochs={EPOCHS} family=slm_zernike_shaping (1010 usable records)")
+    logger.info("=" * 104)
+    logger.info("OVERFITTING: learning curve first, then regularisation levers (paired over seeds)")
+    logger.info("=" * 104)
+    logger.info(f"seeds={SEEDS} epochs={EPOCHS} family=slm_zernike_shaping (1010 usable records)")
 
     curve_rows = [run(t, k, s) for t, k in CURVE for s in SEEDS]
-    print("\n--- learning curve: n_max=20, varying the number of TRAINING records ---")
+    logger.info("\n--- learning curve: n_max=20, varying the number of TRAINING records ---")
     report(curve_rows, [t for t, _ in CURVE])
 
     lever_rows = [run(t, k, s) for t, k in LEVERS for s in SEEDS]
-    print("\n--- regularisation levers, all at max_train=512 ---")
+    logger.info("\n--- regularisation levers, all at max_train=512 ---")
     report(lever_rows, [t for t, _ in LEVERS])
 
-    print("\nreading:")
-    print("  gap > 0        -> validation error exceeds training error (overfitting)")
-    print("  val/train ~1   -> no gap; the model is data-limited, not capacity-limited")
-    print("  a lever helps only if dR2 is positive AND consistent (pos == len(seeds))")
+    logger.info("\nreading:")
+    logger.info("  gap > 0        -> validation error exceeds training error (overfitting)")
+    logger.info("  val/train ~1   -> no gap; the model is data-limited, not capacity-limited")
+    logger.info("  a lever helps only if dR2 is positive AND consistent (pos == len(seeds))")
 
     out = ROOT / "report" / "loss_defects" / "overfitting.json"
     out.write_text(json.dumps({"curve": curve_rows, "levers": lever_rows}, indent=2),
                    encoding="utf-8")
-    print(f"\nwrote {out}")
+    logger.info(f"\nwrote {out}")
 
 
 if __name__ == "__main__":

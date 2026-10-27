@@ -30,6 +30,7 @@ could not be answered afterwards. Curves are saved per arm per seed this time.
 from __future__ import annotations
 
 import json
+from loguru import logger
 import re
 import sys
 import time
@@ -147,10 +148,10 @@ def train_curves(
 
 def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("=" * 112)
-    print("COMBINED ARCHITECTURE + PER-OBJECTIVE BREAKDOWN + PER-EPOCH CURVES")
-    print("=" * 112)
-    print(f"seeds={SEEDS} epochs={EPOCHS} padding={PADDING} residual_scale={RESIDUAL_SCALE}")
+    logger.info("=" * 112)
+    logger.info("COMBINED ARCHITECTURE + PER-OBJECTIVE BREAKDOWN + PER-EPOCH CURVES")
+    logger.info("=" * 112)
+    logger.info(f"seeds={SEEDS} epochs={EPOCHS} padding={PADDING} residual_scale={RESIDUAL_SCALE}")
 
     index = build_hw_index(index_cache="data/hw_index_cache.json", progress_every=0)
     index = index.filter(families=["slm_zernike_shaping"])
@@ -161,7 +162,7 @@ def main() -> None:
         save_checkpoint=False,
     )
     objectives = [objective_of(index.records[i].path) for i in range(len(index.records))]
-    print("objectives in corpus: " + ", ".join(sorted(set(objectives))))
+    logger.info("objectives in corpus: " + ", ".join(sorted(set(objectives))))
 
     rows: list[dict] = []
     curves: dict[str, list[dict]] = {}
@@ -227,20 +228,20 @@ def main() -> None:
             curves.setdefault(name, []).extend(
                 [{**c, "seed": seed} for c in curve])
             po = "  ".join(f"{k}={v:+.3f}" for k, v in sorted(row["per_objective"].items()))
-            print(f"  seed={seed} {name:<20} r2={row['r2']:+.4f} ssim={row['ssim']:.4f} | {po}")
+            logger.info(f"  seed={seed} {name:<20} r2={row['r2']:+.4f} ssim={row['ssim']:.4f} | {po}")
 
-    print("\n" + "=" * 112)
-    print("PAIRED vs A0, and the per-objective spread")
-    print("=" * 112)
+    logger.info("\n" + "=" * 112)
+    logger.info("PAIRED vs A0, and the per-objective spread")
+    logger.info("=" * 112)
     base = {r["seed"]: r for r in rows if r["arm"] == "A0 physics"}
     for name in ("D1 frozen+residual", "D2 joint+residual", "A5 unet"):
         sel = [r for r in rows if r["arm"] == name]
         d = np.array([r["r2"] - base[r["seed"]]["r2"] for r in sel])
         ds = np.array([r["ssim"] - base[r["seed"]]["ssim"] for r in sel])
-        print(f"\n{name}:  dR2={d.mean():+.4f} +/- {d.std(ddof=1)/np.sqrt(len(d)):.4f} "
+        logger.info(f"\n{name}:  dR2={d.mean():+.4f} +/- {d.std(ddof=1)/np.sqrt(len(d)):.4f} "
               f"({int((d > 0).sum())}/{len(d)})   dSSIM={ds.mean():+.4f}")
         objs = sorted(sel[0]["per_objective"])
-        print("    per-objective dR2 vs A0:")
+        logger.info("    per-objective dR2 vs A0:")
         for ob in objs:
             # The val split is per-seed, so an objective can be absent from some seeds.
             # Paired differences are only formed where BOTH sides have it.
@@ -250,14 +251,14 @@ def main() -> None:
                 if ob in r["per_objective"] and ob in base[r["seed"]]["per_objective"]
             ])
             if od.size == 0:
-                print(f"      {ob:<12} (absent from this split)")
+                logger.info(f"      {ob:<12} (absent from this split)")
                 continue
             flag = "REGRESSION" if (od < -0.02).all() else ("better" if (od > 0).all() else "mixed")
-            print(f"      {ob:<12} {od.mean():+.4f}  ({int((od>0).sum())}/{len(od)})  {flag}")
+            logger.info(f"      {ob:<12} {od.mean():+.4f}  ({int((od>0).sum())}/{len(od)})  {flag}")
 
     out = ROOT / "report" / "loss_defects" / "forward_search_extra.json"
     out.write_text(json.dumps({"rows": rows, "curves": curves}, indent=2), encoding="utf-8")
-    print(f"\nwrote {out}  (rows + per-epoch curves for every arm/seed)")
+    logger.info(f"\nwrote {out}  (rows + per-epoch curves for every arm/seed)")
 
 
 if __name__ == "__main__":

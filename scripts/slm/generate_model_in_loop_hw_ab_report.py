@@ -60,6 +60,7 @@ Run:
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import csv
 import importlib.util
 import json
@@ -3363,7 +3364,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     session_dir = args.session.resolve()
     if not session_dir.is_dir():
-        print(f"session directory not found: {session_dir}")
+        logger.info(f"session directory not found: {session_dir}")
         return 2
     stamp = args.stamp or default_stamp(session_dir)
     report_name = args.report_name or f"model_in_loop_hw_ab_{stamp}.md"
@@ -3496,9 +3497,9 @@ def main(argv: list[str] | None = None) -> int:
     body = insert_header(body, key)
     report_path = out_dir / report_name
     report_path.write_text(body, encoding="utf-8")
-    print(f"report: {report_path}")
+    logger.info(f"report: {report_path}")
     for note in figure_notes:
-        print(f"figure: {note[0]} — {note[1]}")
+        logger.info(f"figure: {note[0]} — {note[1]}")
     return 0
 
 

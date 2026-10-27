@@ -27,6 +27,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import sys
 import time
@@ -241,7 +242,7 @@ def main() -> int:
     if args.list:
         for name, family in sorted(FAMILY.items()):
             kind = "smoke-test only" if family == "dm" else "physically modelled"
-            print(f"{name:14s} family={family:4s} {kind}")
+            logger.info(f"{name:14s} family={family:4s} {kind}")
         return 0
 
     out = Path(args.out)
@@ -274,8 +275,8 @@ def main() -> int:
     path = out / "summary.json"
     path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    print(f"\nmanifest -> {path}")
-    print(f"ok {manifest['ok_count']}/{manifest['total']}")
+    logger.info(f"\nmanifest -> {path}")
+    logger.info(f"ok {manifest['ok_count']}/{manifest['total']}")
     return 0 if manifest["ok_count"] == manifest["total"] else 1
 
 

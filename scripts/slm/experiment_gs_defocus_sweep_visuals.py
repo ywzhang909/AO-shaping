@@ -1776,9 +1776,9 @@ def main() -> None:
         json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
-    print(json.dumps(summary["scheme_gap_table"], indent=2, ensure_ascii=False))
-    print(f"\n产物目录: {out}")
-    print(f"耗时: {summary['elapsed_s']} s")
+    logger.info(json.dumps(summary["scheme_gap_table"], indent=2, ensure_ascii=False))
+    logger.info(f"\n产物目录: {out}")
+    logger.info(f"耗时: {summary['elapsed_s']} s")
 
 
 if __name__ == "__main__":

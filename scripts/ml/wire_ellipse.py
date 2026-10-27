@@ -7,6 +7,7 @@ opaque scalar.
 
 from __future__ import annotations
 from pathlib import Path
+from loguru import logger
 
 LOSSES = Path("src/ml/zernike/losses.py")
 TRAIN = Path("src/ml/zernike/train_amp.py")
@@ -56,7 +57,7 @@ t = sub(
     "losses.py",
 )
 LOSSES.write_text(t, encoding="utf-8")
-print("losses.py: w_ellipse field, composite accumulation, __all__")
+logger.info("losses.py: w_ellipse field, composite accumulation, __all__")
 
 t = TRAIN.read_text(encoding="utf-8")
 t = sub(
@@ -95,4 +96,4 @@ t = sub(
     "train_amp.py",
 )
 TRAIN.write_text(t, encoding="utf-8")
-print("train_amp.py: --w-ellipse flag, config, mask gate")
+logger.info("train_amp.py: --w-ellipse flag, config, mask gate")

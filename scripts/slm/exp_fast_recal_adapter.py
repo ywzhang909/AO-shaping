@@ -34,6 +34,7 @@ Run:
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import sys
 import time
@@ -462,7 +463,7 @@ def main() -> None:
 
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(rows, indent=1), encoding="utf-8")
-    print(f"\nWrote {out}  ({len(rows)} rows, {time.time() - t0:.0f}s)")
+    logger.info(f"\nWrote {out}  ({len(rows)} rows, {time.time() - t0:.0f}s)")
 
 
 if __name__ == "__main__":

@@ -1309,17 +1309,17 @@ def main() -> None:
         include_hardware=not args.no_hardware_frames,
     )
     gif = meta["gif"]
-    print(f"GIF: {gif['path']}")
-    print(
+    logger.info(f"GIF: {gif['path']}")
+    logger.info(
         f"  帧数 {gif['frames']} | 时长 {gif['duration_s']:.2f} s | "
         f"尺寸 {gif['size_px'][0]}x{gif['size_px'][1]} px | "
         f"{gif['bytes'] / 1e6:.2f} MB"
     )
-    print(f"  面板宽度 (px): {gif['panel_px']}")
-    print(f"曲线图: {meta['curves']['path']} ({meta['curves']['bytes'] / 1e6:.2f} MB)")
-    print(f"模型侧离线复现: {meta['model_side']['reproduced_offline']}")
+    logger.info(f"  面板宽度 (px): {gif['panel_px']}")
+    logger.info(f"曲线图: {meta['curves']['path']} ({meta['curves']['bytes'] / 1e6:.2f} MB)")
+    logger.info(f"模型侧离线复现: {meta['model_side']['reproduced_offline']}")
     if meta["degraded"]:
-        print(f"降级原因: {meta['degrade_reason']}")
+        logger.info(f"降级原因: {meta['degrade_reason']}")
 
 
 if __name__ == "__main__":

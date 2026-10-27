@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 from pathlib import Path
 
@@ -114,7 +115,7 @@ def main():
     if (args.root / "interpretation.md").exists():
         lines += [(args.root / "interpretation.md").read_text(encoding="utf-8")]
     OUT.write_text("\n".join(lines), encoding="utf-8")
-    print(OUT)
+    logger.info(OUT)
 
 
 if __name__ == "__main__":

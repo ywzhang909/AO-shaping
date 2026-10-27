@@ -40,6 +40,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import sys
 import time
@@ -179,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
     # ---- summary + paired stats ------------------------------------------------
     from ml.zernike.eval_stats import cohens_dz, min_attainable_pvalue, sign_flip_pvalue
 
-    print(f"\n=== val R^2 by K (mean over {len(folds)} folds) ===")
+    logger.info(f"\n=== val R^2 by K (mean over {len(folds)} folds) ===")
     summary: dict[int, dict] = {}
     for k in args.k:
         per_fold = [r["r2"] for r in rows if r["k"] == k]
@@ -190,7 +191,7 @@ def main(argv: list[str] | None = None) -> int:
             "mean_r2": float(np.mean(per_fold)),
             "sd_r2": float(np.std(per_fold, ddof=1)) if len(per_fold) > 1 else 0.0,
         }
-        print(f"  K={k:4d}  R2={summary[k]['mean_r2']:+.4f} +/- {summary[k]['sd_r2']:.4f}")
+        logger.info(f"  K={k:4d}  R2={summary[k]['mean_r2']:+.4f} +/- {summary[k]['sd_r2']:.4f}")
 
     # Reference points measured elsewhere in this project on the SAME corpus
     # (10-fold file protocol, val R^2): physics(n_max=15) +0.8727, the tuned
@@ -233,8 +234,8 @@ def main(argv: list[str] | None = None) -> int:
         },
         "seconds": round(time.perf_counter() - started, 1),
     }, indent=2), encoding="utf-8")
-    print(f"\nbest K={best_k}  R2={summary[best_k]['mean_r2']:+.4f}" if best_k else "\nno rows")
-    print(f"wrote {out}")
+    logger.info(f"\nbest K={best_k}  R2={summary[best_k]['mean_r2']:+.4f}" if best_k else "\nno rows")
+    logger.info(f"wrote {out}")
     return 0
 
 

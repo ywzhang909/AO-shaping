@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from loguru import logger
 from pathlib import Path
 import json
 import os
@@ -612,7 +613,7 @@ def main() -> None:
         f"`{combined['commands']['curriculum']}`",
     ]
     (report_dir / "report.md").write_text("\n".join(report_lines), encoding="utf-8")
-    print(report_dir)
+    logger.info(report_dir)
 
 
 if __name__ == "__main__":

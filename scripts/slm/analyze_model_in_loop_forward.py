@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 from pathlib import Path
 
@@ -57,7 +58,7 @@ def main() -> None:
         train_features.append(np.stack((prediction.ravel(), flat_grid.ravel()), axis=1))
         train_targets.append(measured.ravel())
     weights, _ = nnls(np.concatenate(train_features), np.concatenate(train_targets))
-    print(f"train fit: predicted={weights[0]:.4f}, flat_leakage={weights[1]:.4f}")
+    logger.info(f"train fit: predicted={weights[0]:.4f}, flat_leakage={weights[1]:.4f}")
     for path in sorted(records_dir.glob("round_01_*.npz")):
         if "train" in path.name:
             continue
@@ -67,7 +68,7 @@ def main() -> None:
         )
         measured = record["model_grid"].astype(np.float64)
         corrected = weights[0] * prediction + weights[1] * flat_grid
-        print(
+        logger.info(
             f"{path.stem}: direct={_prediction_correlation(prediction, measured):.4f} "
             f"corrected={_prediction_correlation(corrected, measured):.4f}"
         )

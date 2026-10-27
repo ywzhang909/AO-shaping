@@ -393,14 +393,14 @@ def _reanalyse(path: Path) -> None:
         _log_summary(f"{protocol} (re-analysed)", rows, models)
         reference = models[0]
         for other in models[1:]:
-            print(f"  {reference} minus {other}")
+            logger.info(f"  {reference} minus {other}")
             for metric in METRICS:
                 a = saved["models"][reference][metric]["per_fold"]
                 b = saved["models"][other][metric]["per_fold"]
                 diff = [x - y for x, y in zip(a, b)]
                 sd = statistics.stdev(diff)
                 d_z = statistics.fmean(diff) / sd if sd > 0 else float("inf")
-                print(
+                logger.info(
                     f"    {metric:<5} diff={statistics.fmean(diff):+.4f}+-{sd:.4f}"
                     f"  d_z={d_z:+.2f}  p_ttest={_safe_ttest(a, b):.4f}"
                     f"  p_signflip={exact_sign_flip_p(diff):.4f}"
