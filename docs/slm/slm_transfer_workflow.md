@@ -214,8 +214,8 @@ $seedRun = 'data/debug/transfer_integration/live_20261023/anchored'
 
 ```mermaid
 flowchart TD
-    A[历史接受相位和历史物理模型] --> T[计算静态相位与载波修正]
-    B[当前探针曝光及几何测量] --> M[迁移当前物理模型]
+    A[历史接受相位和历史物理预测模型] --> T[计算静态相位与载波修正]
+    B[当前探针曝光及几何测量] --> M[迁移当前物理预测模型]
     M --> T
     T --> O[CCD锚定短块可微优化]
     O --> V[固定曝光A B B A验收]

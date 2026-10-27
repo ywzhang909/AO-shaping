@@ -1116,7 +1116,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "Step A 像差系数 + 信赖域截断、Step B 600 步轨迹、逐探针实测/预测远场与"
             "相关/SSIM、逐轮 CV/EE/IoU、bake_off_rejected 结论 (整形 0.3451 未打赢"
             "平场 0.4025, 落盘相位为零相位平场)；过程动画每帧给相位/实测/预测远场"
-            "(叠目标掩模轮廓) + 差值 + 正向预测模型 metrics + 目标 metrics"
+            "(叠目标掩模轮廓) + 差值 + 物理预测模型 metrics + 目标 metrics"
         ),
         extra_scripts=(
             "scripts/slm/model_in_loop_hw_ab.py",

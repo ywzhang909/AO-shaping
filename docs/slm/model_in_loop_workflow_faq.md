@@ -102,7 +102,7 @@ python scripts/slm/model_in_loop_hw_runbook.py --stage calibrate --out data/debu
 问题（`scripts/slm/analyze_holdout_ceiling.py` 判别，见
 `report/shape_trials/model_in_loop/model_in_loop_live_20261019.md` 的验证集上限判别节）。
 
-### 2.6 迁移学习正向物理预测模型（Step A）
+### 2.6 迁移学习物理预测模型（Step A）
 
 模型概念上为：
 
@@ -237,7 +237,7 @@ CCD 对应强度，不能用场振幅代替强度作为观测量。
 没有新增有效的 U-Net 同帧迁移对照；不能将历史指标当作当前光路结果。
 
 **Q18：后续最先做什么？** 先补足照明振幅与多带宽相位数据，解决全频随机相位验证集，
-再比较不同匀化策略。继续增加 Step B 迭代无法修复错误的正向物理关系。
+再比较不同匀化策略。继续增加 Step B 迭代无法修复错误的物理预测关系。
 
 **Q19：时间戳如何用于速度比较？** 逐条记录采集时间并区分设备等待、曝光、模型拟合
 和目标优化耗时；同时报告达到同一 CV/EE 条件的总时间。只有总文件时间不够。

@@ -113,7 +113,7 @@ Daheng 曝光从 0.02 ms 起，回读后上限为 0.4 ms；未使用饱和帧，
 ```mermaid
 graph TD
     %% Step A: Forward Model Calibration (Physical)
-    subgraph "Step A: 正向模型校准 (物理代理)"
+    subgraph "Step A: 物理预测模型校准 (物理代理)"
         direction TB
         A1["训练探针<br/>8 个平滑随机相位<br/>(spread=4 rad)"] --> B1["Zernike 拟合<br/>n_orders=10<br/>frozen: piston/tip/tilt"]
         B1 --> C1["Zernike 系数<br/>→ 相位回复<br/>generate_zernike_phase"]
@@ -122,7 +122,7 @@ graph TD
         A1 --> F1["CCD 测量<br/>I_ccd (线性响应)"]
         E1 --> G1["NNLS 校准<br/>gain × I_model + leak × flat<br/>gain ≥ 0 约束"]
         F1 --> G1
-        G1 --> H1["冻结物理模型<br/>gain=1.531<br/>leak=0.051"]
+        G1 --> H1["冻结物理预测模型<br/>gain=1.531<br/>leak=0.051"]
     end
 
     %% Step A (Deep): Forward Model Training (Alternative)
@@ -196,7 +196,7 @@ graph TD
 深度模型 (U-Net) 和物理预测模型 (Zernike FFT) **共享同一个反向相位优化 (Step B)流程**, 它们只是替换了物理预测模型 (model) 这一环节:
 
 ```
-物理模型路径:  Zernike 系数 ──> generate_phase ──> FFT ──> intensity
+物理预测模型路径:  Zernike 系数 ──> generate_phase ──> FFT ──> intensity
                               ↑                       ↑
                             optimizer              autograd
                               ↓                       ↓
@@ -281,7 +281,7 @@ sequenceDiagram
     participant SPGD as SPGD Noise Suppression
 
     rect rgb(225, 245, 251)
-    Note over SLM,StepA: Step A: 正向模型校准 (Phase → CCD → Fit)
+    Note over SLM,StepA: Step A: 物理预测模型校准 (Phase → CCD → Fit)
     Loop 训练探针 (8 次)
         StepA->>SLM: 下发随机平滑相位 φ_train<br/>(spread=4 rad, 64×64)
         SLM-->>CCD: φ_train → 远场强度 I_train
@@ -290,7 +290,7 @@ sequenceDiagram
     end
 
     StepA->>PhysicsModel: NNLS 校准: gain + flat_leakage<br/>(11,393 硬件样本)
-    StepA->>Adam: 冻结物理模型: gain=1.531, leak=0.051
+    StepA->>Adam: 冻结物理预测模型: gain=1.531, leak=0.051
     Note right of PhysicsModel: 135 参数:<br/>66 Zernike 系数<br/>+2 NNLS 参数
     end
 

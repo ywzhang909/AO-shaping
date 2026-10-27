@@ -1528,7 +1528,7 @@ def figure_process_gif(bundle: RunBundle, path: Path) -> Path | None:
 
     布局 2×3, 每帧同时给出三样东西:
       * 上排 —— 下发的瞳面相位 / 实测远场(叠目标轮廓) / 模型预测远场(叠目标轮廓)
-      * 下排 —— 实测−预测差值(同标度) / **正向预测模型的 metrics** /
+      * 下排 —— 实测−预测差值(同标度) / **物理预测模型的 metrics** /
         **目标的 metrics** (实测与预测各一列)
     """
     from matplotlib.animation import PillowWriter
@@ -1605,7 +1605,7 @@ def figure_process_gif(bundle: RunBundle, path: Path) -> Path | None:
             axes[1][0].text(0.5, 0.5, f"差值\n{MISSING}", ha="center", va="center")
             axes[1][0].axis("off")
 
-        # (1,1) 正向预测模型的 metrics
+        # (1,1) 物理预测模型的 metrics
         r_model = None
         r_camera = None
         ssim_camera = None
@@ -1616,7 +1616,7 @@ def figure_process_gif(bundle: RunBundle, path: Path) -> Path | None:
         gain, leakage = _gain_and_leakage(bundle)
         _text_panel(
             axes[1][1],
-            "正向预测模型 metrics",
+            "物理预测模型 metrics",
             [
                 ("相关 r（相机窗口）", fmt_metric(r_model)),
                 ("相关 r（落盘）", fmt_metric(probe.manifest_correlation)),
@@ -2511,7 +2511,7 @@ def build_report(
             "动画逐探针给出「下发的瞳面相位 / 实测远场 / 模型预测远场」，"
             "并在实测远场与模型预测远场上叠加**目标掩模轮廓**（青色虚线）。"
             "下排另给三格：**实测 − 预测差值**（与上排同一标度，标注相关 r）、"
-            "**正向预测模型的 metrics**（相机窗口相关 r / 落盘相关 r / SSIM / "
+            "**物理预测模型的 metrics**（相机窗口相关 r / 落盘相关 r / SSIM / "
             "预测来源 / 曝光 / 模型增益 / 加性背景（杂散光）项系数）、"
             "**目标的 metrics**（形状与边长、冻结光轴、CV / EE / IoU，"
             "各给「实测 / 预测」两列）。"

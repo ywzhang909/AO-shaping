@@ -17,7 +17,7 @@
  .row{margin-bottom:18px;}
  .chart img{width:100%;border:1px solid #e5e7eb;border-radius:8px;}
 </style></head><body>
-<header><h1>相机主动离焦 · 物理正向模型 PKL 可视化画廊</h1>
+<header><h1>相机主动离焦 · 物理预测模型 PKL 可视化画廊</h1>
 <p>数据根目录：<code>data/debug/physical_forward_defocus/</code> · 对应报告 <code>physical_forward_defocus_live_20261022.md</code> 与 <code>physical_forward_sampling_20261022_r2.md</code> 的"接续"目录表。</p></header>
 <main>
 <section><h2>fixed_phase_repeat_20261022_r4</h2><p class="desc">U/C 同相位同曝光重复参考（区分测量重复性与模型误差）</p>
@@ -45,7 +45,7 @@
 <section><h2>radiometry_audit_20261022_r2</h2><p class="desc">逐像素仿射截距与展宽/模板对照（14 个阶段：单分量展宽 + 非相干混合模板）。diagnostic_iterations.pkl 记录训练得分与混合系数。</p>
 <div class="row chart"><img src="radiometry_audit_20261022_r2/metrics.png"></div>
 </section>
-<section><h2>uniformity_refit_20261022_r1</h2><p class="desc">联合强度 / CV 目标的物理模型微调，共 151 个迭代快照（含初值）。iterations.pkl 记录 loss / nmse / cv_mse 与全部物理参数。</p>
+<section><h2>uniformity_refit_20261022_r1</h2><p class="desc">联合强度 / CV 目标的物理预测模型微调，共 151 个迭代快照（含初值）。iterations.pkl 记录 loss / nmse / cv_mse 与全部物理参数。</p>
 <div class="row chart"><img src="uniformity_refit_20261022_r1/metrics_loss.png"></div>
 <div class="row chart"><img src="uniformity_refit_20261022_r1/metrics_params.png"></div>
 <p class="cap">下方为代表性探针的「SLM 相位（展开）｜相位包裹｜CCD 实测 ｜模型预测」四联图（log 缩放）。</p>

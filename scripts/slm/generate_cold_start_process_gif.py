@@ -128,7 +128,7 @@ for index, (rec, ccd_frame, pred_intensity, phase_wrapped) in enumerate(frames_d
     axes[1][1].axis("off")
     axes[1][1].set_title("metrics (模型 / 目标)", fontsize=11)
     combined_text = (
-        "【正向预测模型】\n"
+        "【物理预测模型】\n"
         "  loss: %.4f\n" % terms['loss'] +
         "  grad_norm: %.4f\n" % terms['gradient_norm'] +
         "  phase_rms: %.4f\n" % terms['phase_rms'] +

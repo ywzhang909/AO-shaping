@@ -119,8 +119,8 @@ AO-shaping/
 | SLM Zernike PIB / 方形整形 (同一模块) | `src/ao_shaping/optimizer/wfless/slm_zernike_pib.py` + `slm_square_shaping.py` + `runners/slm/slm_shaping_runner.py` | `slm_shaping_runner` 一个 click 组装下两个家族: `slm-pib`(`spgd`/`heuristic`) → `slm_zernike_pib.py`; `slm-pib square`(`square` 子命令，不是顶层命令) → `slm_square_shaping.py`。`--cam-type sim` 在两半都走数字孪生 (`runner_common.patch_sim_*_shaping`) |
 | SLM方形光斑整形 (SPGD, freeform) | `src/ao_shaping/optimizer/wfless/slm_square_shaping.py` + `runners/slm/gsnet_runner.py` | SPGD 优化 Zernike 系数 → 均匀方形远场 (CLI: `slm-gsnet`) |
 | GS 预整形 + 自由相位 SPGD 细化 (硬件) | `src/ao_shaping/optimizer/wfless/slm_gs_refine.py` + `runners/slm/gs_refine_runner.py` | 仿真 `iterative_zernike_shaping.py` 的硬件移植: GS 开环预矫正 (仅当实测优于平场才采用) + 无感知 SPGD 细化 (CLI: `slm-gs-refine`) |
-| 正向模型闭环校正 + 反复迭代 (硬件) | `src/ao_shaping/optimizer/wfless/slm_model_in_loop.py` + `runners/slm/model_in_loop_runner.py` | 仿真 `model_in_loop_shaping.simulate_iterative_shaping` 的硬件移植: 每轮用强随机探针重拟合正向模型的 Zernike 像差 (Step A), 再冻结该像差合成目标方斑相位 (Step B), 用 trust region + 逐轮验收抑制两者相互耦合振荡 (CLI: `slm-model-in-loop`) |
-| **迁移模型闭环整形（物理正向模型）** | `src/ao_shaping/tools/slm/transfer/` + `src/ao_shaping/gui/slm/shaping_controls.py` | 单一入口 `run_session` / `TransferSession`（CLI `python -m ao_shaping.tools.slm.transfer`，GUI 闭环整形「迁移模型」同入口）: `capture.py` 采集 + `to_panel`、`workflow.py` 阶段编排与 journal、`validate.py` A–B–B–A 验收、`fit.py` / `adaptation.py` / `seeding.py` / `pretrain.py`。接受相位自带载波（`ramp_matrix`），下发时跳过侧栏载波层 |
+| 物理预测模型闭环校正 + 反复迭代 (硬件) | `src/ao_shaping/optimizer/wfless/slm_model_in_loop.py` + `runners/slm/model_in_loop_runner.py` | 仿真 `model_in_loop_shaping.simulate_iterative_shaping` 的硬件移植: 每轮用强随机探针重拟合物理预测模型的 Zernike 像差 (Step A), 再冻结该像差合成目标方斑相位 (Step B), 用 trust region + 逐轮验收抑制两者相互耦合振荡 (CLI: `slm-model-in-loop`) |
+| **迁移学习闭环整形（物理预测模型）** | `src/ao_shaping/tools/slm/transfer/` + `src/ao_shaping/gui/slm/shaping_controls.py` | 单一入口 `run_session` / `TransferSession`（CLI `python -m ao_shaping.tools.slm.transfer`，GUI 闭环整形「迁移学习」同入口）: `capture.py` 采集 + `to_panel`、`workflow.py` 阶段编排与 journal、`validate.py` A–B–B–A 验收、`fit.py` / `adaptation.py` / `seeding.py` / `pretrain.py`。接受相位自带载波（`ramp_matrix`），下发时跳过侧栏载波层 |
 | Zernike 工具 | `src/ao_shaping/utils/wavefront/zernike_utils.py` | 系数解析 (Noll/(n,m)/数组) + 相位生成，Noll 1976 约定 |
 | **SLM 闪耀光栅衍射效率 / 相位响应标定** | `src/ao_shaping/tools/slm/calibration/diffraction_efficiency/` | 2f 实验系统里用一维闪耀光栅测器件的相位调制深度与衍射效率: `core.py` (纯算法: 图案/阶次识别/**离散器件模型**/拟合/诊断) + `simulate.py` (数字孪生: 填充因子/LUT/面板相差/离焦) + `measure.py` (Santec+Daheng 硬件后端) + `artifacts.py` (CSV/JSON/PNG)。CLI: `python -m ao_shaping.tools.slm.calibration.diffraction_efficiency {simulate,measure,analyze}`。**硬件前置条件**: 必须先有光路标定 `.npz` (几何标定产出), 否则无法预测 ±1 级落点。⚠️ **可信范围** (见 `report/slm/diffraction_efficiency/sim_nonideality_20261022.md`): **相对效率曲线可信, 但拟合出的相位深度只在"幂律器件 + 在焦 + 填充因子≈1"三前提同时成立时可信** —— 填充因子 0.8 会把标称器件报成过调制 (+16%), 非幂律 LUT 偏 +42%, 离焦偏 +11%。**光斑宽度门禁** (`--fwhm-gate-ratio`, 默认 3×; `--reference-fwhm-px` 给一条**在焦**的绝对参照) 把这类失真变成显式失败: 门禁触发时越限点与"零级被熄灭"的点**一并**退出拟合, 有效点不足即**拟合报错**而不是给出一个偏了的深度 |
 | RL training | `src/ao_shaping/optimizer/rl/` | SAC, LR-WFS |
@@ -209,8 +209,8 @@ AO-shaping/
 | `slm-pib` (`heuristic`) | 同上 (`algorithm=ga/pso/sa/hc/rs/cem/de`) | wfless | 黑盒启发式搜索 | SLM + CCD |
 | `slm-pib square` | `optimizer.wfless.slm_square_shaping:optimize_slm_square()` | wfless | 均匀方形远场 (CV + EE + AR 综合质量分) | SLM + CCD |
 | `slm-gs-refine` | `optimizer.wfless.slm_gs_refine:optimize_slm_gs_refine()` | wfless | GS 预矫正 (对比择优) + 自由相位 SPGD 细化 | SLM + CCD |
-| `slm-model-in-loop` | `optimizer.wfless.slm_model_in_loop:optimize_slm_model_in_loop()` | wfless | 探针 refit 正向模型 (Step A) + 目标光斑相位合成 (Step B), 带 trust region 与逐轮验收 | SLM + CCD |
-| （工具入口，非 main.py 命令） | `ao_shaping.tools.slm.transfer.workflow:run_session()` | tools | 少参数物理正向模型 + 当前光路重测几何 + 检查点迁移 + CCD 锚定 A–B–B–A 验收 | SLM + CCD |
+| `slm-model-in-loop` | `optimizer.wfless.slm_model_in_loop:optimize_slm_model_in_loop()` | wfless | 探针 refit 物理预测模型 (Step A) + 目标光斑相位合成 (Step B), 带 trust region 与逐轮验收 | SLM + CCD |
+| （工具入口，非 main.py 命令） | `ao_shaping.tools.slm.transfer.workflow:run_session()` | tools | 少参数物理预测模型 + 当前光路重测几何 + 检查点迁移 + CCD 锚定 A–B–B–A 验收 | SLM + CCD |
 
 > **`slm-pib` 配置容器** (2026-09): `optimize_slm_zernike_pib()` 已收敛为**纯 dataclass 单参数 API**:
 > `def optimize_slm_zernike_pib(config: SlmZernikePibConfig)` (`optimizer/wfless/slm_zernike_pib.py`)。
@@ -322,7 +322,7 @@ Utility functions for image processing and calculations, organized into 4 subpac
 |------|---------|-------|
 | `utils/io/` | `file`, `timestamp`, `cli_helpers`, `device_config`, `network`, `handler`, `recorder_keys`, `npz_summary` | `handler` becomes a backward-compat shim to `display/`; `recorder_keys` (2026-10-20 新增, 跟进 `1a11e60e`, #130 item 2): Recorder 记录字典键名的单一来源——11 个 `RECORD_*` 值成了一份盘面列契约 (HDF5/CSV sidecar 列名), 全仓 runners/optimizer/tools/ml 广泛 import;零导入叶子 (理由同 `utils/cli/params`), 由 `tests/ao_shaping/utils/test_recorder_keys.py` 钉住, 改键必须走显式迁移; `npz_summary` (2026-10-25 新增, 跟进 `d14d9dc0`): 探针脚本共用的压缩 `.npz` 摘要写盘单一实现 (`save_summary_npz`: 建父目录 + `np.savez_compressed` + log), `tools/zernike/abba_probe` 与 `tools/ccd/floor_probe` 的两份逐字节相同副本收拢于此, 域内旧名保留薄封装 |
 | `utils/image/` | `spots_calc`, `beam_metrics`, `targets` (+ `target/`), `resample`, `hardware_utils`, `displacement`, `exposure_control`, `exposure_fusion`, `exposure_response`, `frame_analysis`, `hdr`, `centroid` | `gs_visualization` 已迁至 `display/`（2026-10-03）；`utils/hardware_utils.py` 别名 shim 已删（2026-10-03）；`display.py` 亦已迁至 `display/image_display.py`（2026-10-09, `a9236e9`）⇒ 旧路径**无 compat shim**，由 `test_utils_leaf_no_rendering_import.py` 钉住（2026-10-25 实测：`utils/image/display.py` 已不存在）; `centroid` (2026-10-24 新增, 跟进 `124444e6`, issue #199 R6 单一来源): 窗口内强度加权质心原语 `windowed_centroid`——以全帧 argmax 定窗 (0 级光斑常偏心数百像素, 不按几何中心定窗), 减窗口最小值作局部本底, 无正向动态范围时回落峰像素;`frame_analysis` 与 `displacement` 的三份副本收拢于此; 有意不是二阶矩/FWHM 估计器, 也不是相位相关平移估计——两类不同问题 |
-| `utils/wavefront/` | `zernike_calc`, `zernike_utils`, `wavefront_calc`, `wfs_utils`, `phase_unwrap`, `hadamard_calc`, `matrix_utils`, `zero_order_overlay`, `model_error_terms`, `calibration_terms`, `pattern_helper`, `beam_amplitude`, `fraunhofer`, `link_design` | `zero_order_overlay` (2026-10-15 新增): 2f 实验系统零级衍射叠加 (BLAZE/FRESNEL 模式), 用实测 `TILT_SHIFT_SCALE` 预测光斑位移, 不 import drivers/gui/algorithm; `model_error_terms` (2026-10-22 新增, 跟进 `3d8ef224`): model-in-loop 正向模型误差项 `ModelErrorTerms` / `load_error_terms` / `save_error_terms` (LUT γ / 相机离焦 / 倾斜 / 面板相位), 孪生 `bench_twin` 与 MIL 优化器共用同一份误差口径; `calibration_terms` (2026-10-22 新增, 跟进 `7e1a2716`): 自标定量 瞳面平面内仿射 τ_θ (6 标量 amp_x/amp_y/off_x/off_y/rot/grid) + 逐模式族行程缩放 γ, 依据 GRAPHYCS (Cho 等 2026) 思路, 供 `slm_model_in_loop` Step A 自标定 (CLI `--selfcal-affine` / `--selfcal-travel`); torch 走函数内延迟导入, 保持 utils 叶子层零 torch 依赖; `link_design` (2026-10-26 新增, 跟进 `d10bb483`, issue #204 单一信仰源): 望远镜链路 (M_t=10) 远场设计入口——`far_to_ccd`/`ccd_to_far` 双向换算 (f_eff = f_c·M_t 口径) 与纯 numpy DFT 远场引擎 (与 `fraunhofer` 同物理, 保持 utils 叶子层零 torch 依赖); 锁定设计点与 golden 验收值由 `tests/ao_shaping/utils/test_link_design_param_sweep.py` 逐值断言, 消费方为 `gui/slm/link_design_assist.py` 与 `gui/slm/shaping_controls.py` |
+| `utils/wavefront/` | `zernike_calc`, `zernike_utils`, `wavefront_calc`, `wfs_utils`, `phase_unwrap`, `hadamard_calc`, `matrix_utils`, `zero_order_overlay`, `model_error_terms`, `calibration_terms`, `pattern_helper`, `beam_amplitude`, `fraunhofer`, `link_design` | `zero_order_overlay` (2026-10-15 新增): 2f 实验系统零级衍射叠加 (BLAZE/FRESNEL 模式), 用实测 `TILT_SHIFT_SCALE` 预测光斑位移, 不 import drivers/gui/algorithm; `model_error_terms` (2026-10-22 新增, 跟进 `3d8ef224`): model-in-loop 物理预测模型误差项 `ModelErrorTerms` / `load_error_terms` / `save_error_terms` (LUT γ / 相机离焦 / 倾斜 / 面板相位), 孪生 `bench_twin` 与 MIL 优化器共用同一份误差口径; `calibration_terms` (2026-10-22 新增, 跟进 `7e1a2716`): 自标定量 瞳面平面内仿射 τ_θ (6 标量 amp_x/amp_y/off_x/off_y/rot/grid) + 逐模式族行程缩放 γ, 依据 GRAPHYCS (Cho 等 2026) 思路, 供 `slm_model_in_loop` Step A 自标定 (CLI `--selfcal-affine` / `--selfcal-travel`); torch 走函数内延迟导入, 保持 utils 叶子层零 torch 依赖; `link_design` (2026-10-26 新增, 跟进 `d10bb483`, issue #204 单一信仰源): 望远镜链路 (M_t=10) 远场设计入口——`far_to_ccd`/`ccd_to_far` 双向换算 (f_eff = f_c·M_t 口径) 与纯 numpy DFT 远场引擎 (与 `fraunhofer` 同物理, 保持 utils 叶子层零 torch 依赖); 锁定设计点与 golden 验收值由 `tests/ao_shaping/utils/test_link_design_param_sweep.py` 逐值断言, 消费方为 `gui/slm/link_design_assist.py` 与 `gui/slm/shaping_controls.py` |
 | `utils/slm/` | `slm_lut`, `phase_display`, `bench_constants`, `panel_geometry`, `phase_disturbance`, `phase_embed`, `phase_uniformity`, `gs_debug_optics` | `pattern_helper` 实际在 `utils/wavefront/`（2026-10-25 `ls` 实测，已移到上面那行）；本行原写 `utils/slm/pattern_helper.py` 的引用同属误标 |
 | `utils/cli/params.py` (`utils/cli/` 子包) | `option`, `with_params`, `ClickGroup` | **零 `ao_shaping` 导入**（2026-10-03 从 `runners/runner_common.py` 抽出，TODO R-36）。见下方红线 |
 
@@ -430,7 +430,7 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 | `slm/transfer/` | `exploration.py` | 已记录的非单调 CCD 探索 (champion 单独保留) |
 | `slm/transfer/` | `geometric_seed.py` | 可分离辐照传输 + 拟合光学给出的非 GS 方形种子 |
 | `slm/transfer/` | `local_response.py` | 由已记录 signed CCD 相位探针标定局部 Jacobian 增益/模糊 |
-| `slm/transfer/` | `preflight.py` | 迁移模型闭环整形的启动前参数检查 (2026-10-26 实测: `empty target core` 报错实为载波周期参数问题而非几何问题) |
+| `slm/transfer/` | `preflight.py` | 迁移学习闭环整形的启动前参数检查 (2026-10-26 实测: `empty target core` 报错实为载波周期参数问题而非几何问题) |
 | `slm/transfer/` | `progress.py` | 由增量实验记录离线出指标轨迹 (免设备) |
 | `slm/transfer/` | `radiometry.py` | 共享光学增益、辐照背景与曝光无关计数 |
 | `slm/transfer/` | `replay_phases.py` | 在共同原生位深与曝光下重放精确归档相位 |
@@ -643,7 +643,7 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 > 全部候选 R² 只差 0.010、SSIM 差 0.031, 远在 fold-σ 0.06 内。
 >
 > ⚠️ **三条被推翻的结论 (勿再犯, 两次都因为噪声来源没查清)**:
-> (1) "U-Net R² 高 +0.022" —— 单 seed + **不公平预算** (U-Net 只给 25 epoch, 而物理模型第 13 epoch 就收敛)。
+> (1) "U-Net R² 高 +0.022" —— 单 seed + **不公平预算** (U-Net 只给 25 epoch, 而物理预测模型第 13 epoch 就收敛)。
 > (2) "SSIM 是真实且区间不重叠的差距" —— 同一单 seed; 3 seed 下区间重叠。
 > (3) **"两者打平, 无任何指标能区分"** —— **过度纠正**, 是我把 ±0.07 的配比噪声当成了
 >     模型差异。真实效应一度被掩盖、又被否认, 两次都源于**未先定位方差来源**。
@@ -654,13 +654,13 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 > 模型选项**, 只作为已记录的反面结果留在对比脚本里。
 >
 > 但两者**用途不可互换**: U-Net 出的是**图像**, 反解成可下发的 SLM 相位是另一个问题;
-> 就"预测要下发的修正"而言, 230 参数物理模型是唯一能**闭式给出可实现相位**
+> 就"预测要下发的修正"而言, 230 参数物理预测模型是唯一能**闭式给出可实现相位**
 > (`Σ Z_k B_k`, 230 个可解释弧度) 的, 且参数少 34000×、墙钟少 40%。
 > 完整报告见 [`report/zernike_phase2amp/zernike_amp_report/report.md`](./report/zernike_phase2amp/zernike_amp_report/report.md),
 > 含 11 节"被推翻结论"存档。旧对比表见
 > [`report/zernike_phase2amp/models_cv/unet_comparison.md`](./report/zernike_phase2amp/models_cv/unet_comparison.md)。
 
-0. **拿 `hwdataset` 的 `image` 当 Zernike 前向模型的 target 时, 必须校准远场尺度。**
+0. **拿 `hwdataset` 的 `image` 当 Zernike 物理预测模型的 target 时, 必须校准远场尺度。**
    `_anchored_window` (`transforms.py:440`) 取的是**以 0 阶为中心的 `grid×grid` 窗口**,
    它**不缩放** —— 真语料 `slm_zernike_shaping` 的相机窗口是 248 px, 所以 target 只覆盖
    `64/248 ≈ 26%` 的视场。而 FFT 输出若取 `far_field_padding=1` (整孔衍射全展), 预测与

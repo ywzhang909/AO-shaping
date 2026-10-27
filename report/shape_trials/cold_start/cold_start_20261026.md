@@ -162,7 +162,7 @@ flowchart TD
 ### 迭代过程动画
 
 以下 GIF 展示了 
-andom_no_abba 初相位下 CCD 锚定综合目标优化的完整迭代过程，每帧包含下发的 SLM 瞳面相位、实测 CCD 远场（叠目标掩模轮廓）、模型预测远场、实测−预测差值、正向预测模型 metrics（相关 r / SSIM / 增益 / 加性背景（杂散光）项）以及目标 metrics（CV / EE / IoU，实测 vs 预测）：
+andom_no_abba 初相位下 CCD 锚定综合目标优化的完整迭代过程，每帧包含下发的 SLM 瞳面相位、实测 CCD 远场（叠目标掩模轮廓）、模型预测远场、实测−预测差值、物理预测模型 metrics（相关 r / SSIM / 增益 / 加性背景（杂散光）项）以及目标 metrics（CV / EE / IoU，实测 vs 预测）：
 
 ![迭代过程动画](figures/cold_start_random_no_abba_process.gif)
 
