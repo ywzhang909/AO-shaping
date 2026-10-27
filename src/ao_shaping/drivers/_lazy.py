@@ -51,7 +51,10 @@ def install_lazy_attrs(
 
         try:
             value = getattr(import_module(module_path), attr)
-        except Exception as exc:  # 缺失的 SDK 不应拖垮整个包
+        except Exception as exc:  # 保留宽泛捕获: import_module + getattr 的失败
+            # 类型不可枚举 —— 除 ImportError 外, SDK 自身初始化还可能抛
+            # OSError/RuntimeError/ctypes 错误; 这里的契约是"任何加载失败都降级为
+            # value=None", 收窄会让部分缺失/损坏的 SDK 直接崩掉整个包的导入。
             if on_error is not None and on_error(name, exc) is False:
                 raise
             logger.debug(f"{name} driver not available: {exc}")

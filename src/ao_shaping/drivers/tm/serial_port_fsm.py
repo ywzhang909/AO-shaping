@@ -180,7 +180,7 @@ class SerialPortFSM:
                 if self.ser.in_waiting:
                     data = self.ser.read(self.ser.in_waiting)
                     self.rx_que.put(data)
-            except Exception as exc:
+            except OSError as exc:
                 # 设备拔出/USB 掉线时 worker 若静默死亡, running 仍为 True,
                 # send_in_queue 的帧将永远发不出去 —— 必须显式停并留痕。
                 logger.error(f"串口 worker 异常退出：{exc!r}")

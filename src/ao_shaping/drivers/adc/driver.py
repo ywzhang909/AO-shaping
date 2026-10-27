@@ -34,12 +34,17 @@ from ao_shaping.drivers.device_base import Device, DeviceError, DeviceState, Dev
 try:
     import nidaqmx
     from nidaqmx.constants import AcquisitionType
+    # ``nidaqmx.errors.Error`` 是 nidaqmx 全部错误的基类: ``DaqError`` 与
+    # ``DaqNotFoundError`` 各自直接继承它, 互不隶属 —— 只捕 ``DaqError`` 会漏掉
+    # "装了 nidaqmx 包但没装 NI-DAQmx 运行时" 时的 ``DaqNotFoundError``。
+    from nidaqmx.errors import Error as NidaqmxError
 
     NIDAQMX_AVAILABLE = True
 except ImportError:
     NIDAQMX_AVAILABLE = False
     nidaqmx = None  # type: ignore[assignment]
     AcquisitionType = None  # type: ignore[assignment]
+    NidaqmxError = OSError  # type: ignore[misc,assignment]  # nidaqmx 缺失时任务必先失败
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +174,7 @@ class NidaqADC(Device):
                 self._sample_rate,
                 self._samples_per_channel,
             )
-        except Exception as e:
+        except NidaqmxError as e:
             logger.exception("Failed to open ADC task")
             self._set_state(DeviceState.ERROR, str(e))
             raise NidaqADCError(f"Failed to open ADC task: {e}") from e
@@ -181,7 +186,7 @@ class NidaqADC(Device):
                 self._task.stop()
                 self._task.close()
                 logger.debug("ADC task stopped and closed")
-            except Exception as e:
+            except NidaqmxError as e:
                 logger.warning("Error closing ADC task: {}", e)
             finally:
                 self._task = None
@@ -234,7 +239,7 @@ class NidaqADC(Device):
             arr = np.asarray(data, dtype=np.float64)
             logger.debug("ADC read: {} samples, mean={:.6f} V", len(arr), np.mean(arr))
             return arr
-        except Exception as e:
+        except NidaqmxError as e:
             logger.exception("ADC read failed")
             self._set_state(DeviceState.ERROR, str(e))
             raise NidaqADCError(f"ADC read failed: {e}") from e

@@ -10,7 +10,7 @@
 <!-- provenance:end -->
 
 - 被测会话: `runs/sim2f_bench/session_hw/` (实验系统, `--backend hw --samples loop`, 24 样本, `--record`)
-- 校准参数: pupil center (960, 720), exposure 13.7846 ms (ceiling 18.8846 ms), pupil radius 450 px
+- 校准参数: pupil（瞳面） center (960, 720), exposure 13.7846 ms (ceiling 18.8846 ms), pupil radius 450 px
 - 写于: 2026-10-27
 
 ## 0. 预注册判据 (runs/sim2f_bench/README.md §4, 本报告未改)

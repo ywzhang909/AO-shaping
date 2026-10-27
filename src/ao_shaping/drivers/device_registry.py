@@ -124,7 +124,7 @@ class DeviceRegistry:
         for callback in self._on_device_registered:
             try:
                 callback(device_id, device)
-            except Exception as e:
+            except Exception as e:  # 外部注册回调, 抛出的类型由调用方决定, 不可枚举
                 logger.warning(f"Registration callback error: {e}")
 
         return device_id
@@ -162,7 +162,7 @@ class DeviceRegistry:
         for callback in self._on_device_unregistered:
             try:
                 callback(device_id, reg.device)
-            except Exception as e:
+            except Exception as e:  # 外部注册回调, 抛出的类型由调用方决定, 不可枚举
                 logger.warning(f"Unregistration callback error: {e}")
 
         return True
@@ -263,7 +263,7 @@ class DeviceRegistry:
             try:
                 reg.device.open()
                 results[device_id] = True
-            except Exception as e:
+            except Exception as e:  # reg.device 是任意设备实现, open() 抛出的类型不可枚举
                 logger.error(f"Failed to connect {reg.alias}: {e}")
                 results[device_id] = False
         return results
@@ -277,7 +277,7 @@ class DeviceRegistry:
             try:
                 reg.device.close()
                 results[device_id] = True
-            except Exception as e:
+            except Exception as e:  # reg.device 是任意设备实现, close() 抛出的类型不可枚举
                 logger.error(f"Failed to disconnect {reg.alias}: {e}")
                 results[device_id] = False
         return results
@@ -313,7 +313,7 @@ class DeviceRegistry:
             if reg.twin_sync_enabled:
                 try:
                     states[device_id] = reg.device.get_twin_state()
-                except Exception as e:
+                except Exception as e:  # reg.device 是任意设备实现, get_twin_state() 抛出的类型不可枚举
                     logger.warning(f"Failed to get twin state for {reg.alias}: {e}")
         return states
 
@@ -336,7 +336,7 @@ class DeviceRegistry:
             try:
                 reg.device.sync_from_twin(state)
                 results[device_id] = True
-            except Exception as e:
+            except Exception as e:  # reg.device 是任意设备实现, sync_from_twin() 抛出的类型不可枚举
                 logger.error(f"Failed to sync {reg.alias}: {e}")
                 results[device_id] = False
 

@@ -54,7 +54,7 @@ try:
     )
 
     _OOPAO_AVAILABLE = True
-except Exception:  # pragma: no cover - OOPAO not installed
+except (ImportError, OSError):  # pragma: no cover - OOPAO not installed
     _OOPAO_AVAILABLE = False
 
     def as_numpy(array: Any) -> np.ndarray:  # type: ignore[misc]

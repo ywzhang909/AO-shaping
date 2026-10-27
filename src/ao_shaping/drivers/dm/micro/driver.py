@@ -261,7 +261,7 @@ class R50Controller:
         if self._socket is not None:
             try:
                 self._socket.close()
-            except Exception:
+            except OSError:
                 pass
             self._socket = None
             logger.debug(f"R50Controller[{self.controller_id}] disconnected")
@@ -675,7 +675,7 @@ class MicroDM(DM, Device):
         for ctrl in self._controllers:
             try:
                 ctrl.close()
-            except Exception as exc:
+            except Exception as exc:  # controller 是任意实现, close() 抛出的类型不可枚举
                 logger.warning(f"Error closing controller: {exc}")
 
         self._set_state(DeviceState.DISCONNECTED)

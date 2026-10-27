@@ -1383,7 +1383,9 @@ def register_sim_camera() -> None:
 
     try:
         register_camera("sim", SimPibCCD)
-    except Exception as exc:  # 已注册过
+    except Exception as exc:  # 保留宽泛捕获: 注册表对"重复注册"抛的类型由注册表
+        # 实现决定 (ValueError/KeyError 等), 本处语义是"已注册过就跳过";
+        # 收窄会漏掉部分重复注册路径, 导致 import 本模块直接失败。
         logger.debug("sim camera already registered: {}", exc)
 
 
