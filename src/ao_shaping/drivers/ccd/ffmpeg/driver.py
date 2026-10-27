@@ -386,6 +386,7 @@ class FFmpegCamera(BaseCamera):
                     if cap is not None and cap.isOpened():
                         devices.append(i)
                         cap.release()
+                # policy: enumeration probes every index; a failed open means there is no device at that index
                 except Exception:
                     pass
         else:
@@ -396,6 +397,7 @@ class FFmpegCamera(BaseCamera):
                     if cap is not None and cap.isOpened():
                         devices.append(i)
                         cap.release()
+                # policy: enumeration probes every index; a failed open means there is no device at that index
                 except Exception:
                     pass
 

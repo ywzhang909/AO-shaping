@@ -812,6 +812,7 @@ class DahengCamera(BaseCamera):
             state["mode"] = 1 if auto_key == "On" else 0
             try:
                 state["target"] = self.cam.ExpectedGrayValue.get()
+            # policy: the auto-exposure target is an optional register; a state snapshot records only what this firmware exposes
             except Exception:
                 pass
             state["exposure_time_ms"] = self.exposure_time

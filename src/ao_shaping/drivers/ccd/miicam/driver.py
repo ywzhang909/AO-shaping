@@ -233,6 +233,7 @@ class MIICamera(BaseCamera):
             # 清空待处理帧
             try:
                 self.cam.put_Option(miicam.MIICAM_OPTION_FLUSH, 3)
+            # policy: best-effort flush while the device is already being taken down
             except Exception:
                 pass
 
@@ -241,6 +242,7 @@ class MIICamera(BaseCamera):
 
             try:
                 self.cam.Close()
+            # policy: last-effort close; a refusal here must not mask whatever already happened
             except Exception:
                 pass
 
@@ -438,6 +440,7 @@ class MIICamera(BaseCamera):
         """查询相机序列号。"""
         try:
             self._sn = self.cam.SerialNumber()
+        # policy: a device without a queryable serial falls back to a synthetic id and still works
         except Exception:
             self._sn = f"MIICAM_{self.cam_id}"
 
@@ -446,6 +449,7 @@ class MIICamera(BaseCamera):
         # 预防性地尝试停掉上一次会话遗留的拉流
         try:
             self.cam.Stop()
+        # policy: Stop() against a stream that is not running is an SDK error, not a caller failure
         except Exception:
             pass
         time.sleep(0.5)
@@ -459,6 +463,7 @@ class MIICamera(BaseCamera):
                 if attempt < max_retries - 1:
                     try:
                         self.cam.Stop()
+                    # policy: Stop() against a stream that is not running is an SDK error, not a caller failure
                     except Exception:
                         pass
                     time.sleep(0.5 + 0.5 * attempt)
@@ -510,6 +515,7 @@ class MIICamera(BaseCamera):
         # 关键: 流运行中 put_ExpoTime 不生效, 必须先 Stop
         try:
             self.cam.Stop()
+        # policy: Stop() against a stream that is not running is an SDK error, not a caller failure
         except Exception:
             pass
         time.sleep(0.1)
@@ -531,6 +537,7 @@ class MIICamera(BaseCamera):
                 if attempt < 2:
                     try:
                         self.cam.Stop()
+                    # policy: Stop() against a stream that is not running is an SDK error, not a caller failure
                     except Exception:
                         pass
                     time.sleep(0.3 * (attempt + 1))
@@ -758,6 +765,7 @@ class MIICamera(BaseCamera):
 
         try:
             self.cam.Stop()
+        # policy: Stop() against a stream that is not running is an SDK error, not a caller failure
         except Exception:
             pass
 
@@ -908,6 +916,7 @@ class MIICamera(BaseCamera):
                         self._callback_buffer = img
                         self._callback_frame_info = frame_info
                         self._callback_new_frame.set()
+            # policy: an SDK callback thread must not raise into vendor code; the loss is recorded and the frame reader sees it
             except Exception as exc:
                 self._note_frame_loss(nEvent, exc)
         elif nEvent == miicam.MIICAM_EVENT_STILLIMAGE:
@@ -926,6 +935,7 @@ class MIICamera(BaseCamera):
                         self._callback_buffer = img
                         self._callback_frame_info = frame_info
                         self._callback_new_frame.set()
+            # policy: an SDK callback thread must not raise into vendor code; the loss is recorded and the frame reader sees it
             except Exception as exc:
                 self._note_frame_loss(nEvent, exc)
 
@@ -1088,6 +1098,7 @@ class MIICamera(BaseCamera):
         if self.cam:
             try:
                 self.cam.Stop()
+            # policy: Stop() against a stream that is not running is an SDK error, not a caller failure
             except Exception:
                 pass
             time.sleep(0.3)
