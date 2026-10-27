@@ -4063,17 +4063,36 @@ _QUOTED_PY_PATH_HISTORICAL: dict[tuple[str, str], str] = {
     ("scripts/slm/generate_diff_shaping_report.py", "src/ao_shaping/runners/diff_shaping_runner.py"):
         "the runner was deleted in fbef1926 and the text says so, mirroring AGENTS.md's own "
         "convention for that entry",
-    ("scripts/slm/verify_pib_exit_safety_hw.py", "scripts/slm/generate_pib_exit_safety_report.py"):
-        "phantom pib_exit_safety family: the script was never committed, so only its author can "
-        "say whether the sibling script or the report is missing; already red under "
-        "test_reproduce_commands_in_live_docs_name_tracked_scripts",
-    ("scripts/README.md", "tests/ao_shaping/scripts/test_verify_pib_exit_safety_hw.py"):
-        "same phantom family and the same known-red guard",
 }
 
 #: The census resolved 362 claims; a floor this far below catches an extractor that stopped
 #: matching without silently checking nothing.
 _MIN_QUOTED_PY_PATH_CLAIMS = 250
+
+
+def test_quoted_path_exemptions_are_still_needed() -> None:
+    """Each entry of :data:`_QUOTED_PY_PATH_HISTORICAL` must still exempt a real miss.
+
+    An exemption is justified only while the path it excuses is absent from the git index.
+    When the path lands, the entry becomes unreachable (the consumer short-circuits on
+    ``cited in tracked`` before consulting it) and its rationale starts asserting something
+    false: the two pib_exit_safety entries deleted here still read "the script was never
+    committed" after upstream committed the generator and its test. Nothing else in the suite
+    notices, so dead justifications and their false claims accumulate silently.
+    """
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"], capture_output=True, cwd=str(REPO), check=False
+    )
+    tracked = {t.decode("utf-8", errors="replace") for t in listing.stdout.split(b"\0") if t}
+    assert tracked, "git ls-files returned nothing; is this a git repository?"
+    stale = sorted(
+        (citing, cited) for (citing, cited) in _QUOTED_PY_PATH_HISTORICAL if cited in tracked
+    )
+    assert not stale, (
+        f"{len(stale)} exemption(s) excuse a path that is tracked today: {stale[:5]} -- the "
+        "citation resolves, so delete the entry rather than keep a rationale claiming the "
+        "file does not exist."
+    )
 
 #: ``python <hub> main.py <command> [subcommand] [flags...]`` as written in live text. The tail is
 #: captured on one line only: a backslash-continued block puts its remaining flags on the next line,
