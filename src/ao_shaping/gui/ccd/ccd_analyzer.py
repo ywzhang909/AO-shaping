@@ -655,6 +655,7 @@ def _get_camera_exposure_range(camera: Any) -> tuple[float, float]:
         max_exp = getattr(camera, "max_exposure_ms", None)
         if min_exp is not None and max_exp is not None:
             return float(min_exp), float(max_exp)
+    # policy: exposure limits are a capability probe over an unknown device object; a driver without the attribute, or one that reaches the SDK to answer, must fall back to the documented defaults
     except Exception:
         pass
     return 0.01, 1000.0

@@ -78,6 +78,7 @@ def _controller_connected(ctrl: Any) -> bool:
     if callable(attr):
         try:
             return bool(attr())
+        # policy: a vendor connectivity predicate can itself fail; unknown state is read as disconnected so the caller gets a chance to reopen
         except Exception:
             return False
     return bool(attr)
@@ -92,6 +93,7 @@ def _recover_controller(ctrl: Any) -> bool:
         if callable(open_fn):
             return bool(open_fn())
         return False
+    # policy: reopening is best effort -- any failure leaves the controller disconnected and the next send attempts recovery again
     except Exception:
         return False
 
@@ -108,6 +110,7 @@ def _send_with_recovery(
         try:
             if bool(send_fn()):
                 return True
+        # policy: one attempt inside a bounded retry-with-reconnect; the failure is retried and only the last attempt's outcome is returned
         except Exception:
             pass
         if attempt < retries:
@@ -197,6 +200,7 @@ def apply_single_controller(
         return current, SendResult()
     try:
         current, ok = send_selection(ctrl, current, selection, voltage, vmin, vmax)
+    # policy: one controller failing mid-batch is reported as a single failed target, so the remaining controllers are still driven
     except Exception as e:
         logger.warning(f"apply_single_controller failed: {e}")
         return current, SendResult(fail=1, failed_targets=[_target_label(ctrl)])
@@ -331,6 +335,7 @@ def apply_joint(
     try:
         dm.send_voltages(flat)
         return flat, SendResult(ok=applied)
+    # policy: a failed joint send is reported per unit and surfaced in the panel instead of aborting it
     except Exception as e:
         logger.warning(f"apply_joint failed: {e}")
         return flat, SendResult(fail=len(units), failed_targets=["joint"])
@@ -392,6 +397,7 @@ def seq_tick(ctrl: Any, current: np.ndarray, p: dict) -> None:
             try:
                 q: queue.Queue = p["feedback_q"]  # type: ignore[assignment]
                 q.put(("info", f"逐序下发第 {p['seq_round']} 轮完成，开始下一轮"))
+            # policy: progress text is advisory feedback; a queue failure must not interrupt a sequence that is already driving hardware
             except Exception:
                 pass
         else:
@@ -399,6 +405,7 @@ def seq_tick(ctrl: Any, current: np.ndarray, p: dict) -> None:
             try:
                 q: queue.Queue = p["feedback_q"]  # type: ignore[assignment]
                 q.put(("info", "逐序下发已完成"))
+            # policy: completion text is advisory; the sequence state is already recorded in params
             except Exception:
                 pass
         return
@@ -417,6 +424,7 @@ def seq_tick(ctrl: Any, current: np.ndarray, p: dict) -> None:
         try:
             q: queue.Queue = p["feedback_q"]  # type: ignore[assignment]
             q.put(("progress", f"{idx + 1}/{total}"))
+        # policy: per-channel progress is advisory; losing it must not stop the sequence
         except Exception:
             pass
 
@@ -438,9 +446,11 @@ def run_loop(
         while not stop_event.is_set():
             loop_fn(ctrl, current, params)
             time.sleep(float(params.get("dt", 0.05)))
+    # policy: daemon-thread boundary -- a loop failure is handed to the UI thread through the queue (never session_state), and the finally still stops the loop
     except Exception as e:
         try:
             feedback_q.put(("error", f"下发异常: {e}"))
+        # policy: the error report is itself best effort; failing to enqueue must not skip the finally that clears the stop condition for the hardware loop
         except Exception:
             pass
     finally:

@@ -2123,9 +2123,10 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 382
 #: edits on hardware paths that CI cannot exercise: narrowing a driver call's handler without
 #: the driver exception taxonomy (issue #145 / #45) would turn a working fallback into a crash.
 #:
-#: Measured 2026-10-28 after two review passes (runners/slm + config + utils, then the three
-#: CCD camera drivers): 41 marked, 341 unmarked.
-_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 341
+#:
+#: Measured 2026-10-28 after three review passes (runners/slm + config + utils, the three
+#: CCD camera drivers and the R50 GUI loop files): 52 marked, 330 unmarked.
+_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 330
 
 
 def _blind_except_handlers_in_src() -> list[tuple[Path, int, bool]]:
