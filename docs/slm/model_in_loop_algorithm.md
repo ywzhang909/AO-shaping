@@ -842,20 +842,20 @@ python src/ao_shaping/main.py --debug slm-model-in-loop --cam-type sim -r 2
 
 ```bash
 # ① 平场稳不稳? 曝光线性吗? —— 这一步产出后面要用的曝光区间
-python -m ao_shaping.tools.slm.slm_drift_probe \
+python -m ao_shaping.tools.ccd.drift_probe \
     --cam-type daheng --cam-id 0 --exposure-ms 0.4 \
     --n-drift 24 --drift-period-s 5.0 \
     --exposure-ladder 0.2,0.3,0.4,0.6,0.8,1.0,1.25,1.5,2.0 \
     --ladder-repeats 2 --out data/slm_drift
 
 # ② 能分辨多小的信号? 噪声是读噪声还是漂移?
-python -m ao_shaping.tools.slm.slm_floor_probe \
+python -m ao_shaping.tools.ccd.floor_probe \
     --cam-type daheng --cam-id 0 --exposure-ms 1.5 \
     --n-repeat 20 --settle-curve-s 4.0 --settle-sample-ms 120 \
     --ks 1,4,9 --perturbation-rad 0.6 --out data/slm_floor
 
 # ③ 稠密随机相位测得出来吗? —— 散斑路线的总闸
-python -m ao_shaping.tools.slm.slm_abba_probe \
+python -m ao_shaping.tools.zernike.abba_probe \
     --cam-type daheng --cam-id 0 --rebracket-exposure \
     --n-patterns 12 --pairs 3 --grid 24 --delta-rad 0.5 \
     --out data/slm_abba
