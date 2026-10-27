@@ -1,5 +1,17 @@
 # 2f 实验系统数字孪生的远场尺度 / 离焦标定是否已失效 (纯离线诊断)
 
+<!-- provenance:start -->
+> **生成脚本**: [`scripts/ml/diagnose_sim2f_optical_scale.py`](../../../scripts/ml/diagnose_sim2f_optical_scale.py)
+> **复现命令**: `python scripts/ml/diagnose_sim2f_optical_scale.py`
+> **数据/关联脚本**: [`scripts/ml/validate_sim2f_vs_hw_corpus.py`](../../../scripts/ml/validate_sim2f_vs_hw_corpus.py)
+> **数据/关联脚本**: [`src/ml/sim2f/config.py`](../../../src/ml/sim2f/config.py)
+> **数据/关联脚本**: [`src/ml/sim2f/optics.py`](../../../src/ml/sim2f/optics.py)
+> **数据/关联脚本**: [`src/ao_shaping/tools/slm/bench_twin_calibrate.py`](../../../src/ao_shaping/tools/slm/bench_twin_calibrate.py)
+> **数据/关联脚本**: [`src/ao_shaping/drivers/sim/bench_twin.py`](../../../src/ao_shaping/drivers/sim/bench_twin.py)
+> **运行环境**: 离线（只读 data/debug/model_in_loop_hw_collect 的 18 组去重配对；孪生在 CPU 上跑，无 SLM / 无相机）
+> **说明**: 判两条『标定已失效』假说: H1 远场尺度 (region_span_px 25 点扫描, 宽度比 + 中位 ncc, 要求内点) 与 H2 离焦/零级 (既有 fit_twin Stage 1+2 反演)。两条都判否决 —— 无一扫描点宽度比落在 [0.9,1.1], region_span 曲线中段凹陷而非内点极大; defocus_m 相对历史值仅差 1.2 %。故不改任何已入库标定量, 也不据此重训网络。
+<!-- provenance:end -->
+
 - H1 (否决): 25 个 region_span_px 上没有一点同时满足 (a) 宽度比 ∈ [0.9, 1.1] 与 (b) 中位 ncc >= 0.75
 - H2 (否决): defocus_m 相对差 1.2 % 未超 20 %; 中位 ncc 提升 +0.0002 未达 0.05; 中位 L1 1.3324 未达 0.5
 - 一句话: **两条假说都没被判为接受**: 现有证据不足以说「标定已失效」; 中位 ncc 仍停在 +0.6247 (门限 +0.7500), 归一化 L1 仍停在 1.3425 (门限 0.50)。**不据此改任何已入库标定量。**
@@ -233,4 +245,3 @@ python scripts/ml/diagnose_sim2f_optical_scale.py
 10. **绝对量仍不可用**: 本报告只用 ncc / 归一化 L1 / 宽度比; 绝对 Strehl / PIB / EE / FWHM / 峰值 / 总能量一律没算, 也没进任何判据。
 
 11. **本报告不注册溯源**: `scripts/_common/provenance.py` 由另一条 lane 改动中, 本次不碰; `scripts/sync_report_provenance.py --check` 会因本文未登记而报缺失, 登记后重跑即消。
-

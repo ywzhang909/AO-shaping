@@ -160,6 +160,7 @@ from ml.sim2f.loop import _check_geometry, _finite, _load_network, _Measurer, _s
 from ml.sim2f.model import network_input
 from ml.sim2f.optics import Sim2f, draw_aberration, write_aberration
 from ml.sim2f.losses import from_phasor
+from ml.sim2f.recorder_io import BenchRecorder
 
 __all__ = [
     "CONDITIONS",
@@ -177,6 +178,7 @@ __all__ = [
     "NOISE_FACTOR",
     "PANEL_SHAPE",
     "PUPIL_RADIUS_PX",
+    "RECORD_SUBDIR",
     "SETTLE_S",
     "SimInstrument",
     "build_panel_phase",
@@ -272,6 +274,13 @@ ROWS_NAME = "rows.csv"
 FRAMES_NAME = "frames.npz"
 FETCH_NAME = "fetch.png"
 VERDICT_NAME = "VERDICT.md"
+
+#: Sub-directory of ``out_dir`` holding the process data when
+#: ``run_session(record=True)``: the ``Recorder`` CSV, its sidecars and the meta
+#: JSON, written by :meth:`ml.sim2f.recorder_io.BenchRecorder.save`.  A
+#: sub-directory rather than the session root because ``save`` names its files
+#: itself and must not collide with the session artefacts above.
+RECORD_SUBDIR = "process_data"
 
 
 class BenchmarkError(RuntimeError):
@@ -1296,6 +1305,78 @@ def measure_sample(
     return row
 
 
+#: Row keys copied straight into the ``Recorder`` metrics.  Every one is a
+#: constant of the protocol (README §3/§4), so the CSV is comparable across
+#: sessions without re-deriving anything.  ``indistinguishable`` is a bool and
+#: is recorded as 0/1.
+_RECORD_METRICS: tuple[str, ...] = (
+    "ncc_flat",
+    "ncc_net",
+    "ncc_delta",
+    "ncc_a_drift",
+    "ncc_b_drift",
+    "objective_flat",
+    "objective_net",
+    "objective_delta",
+    "l1_flat",
+    "l1_net",
+    "ee_flat",
+    "ee_net",
+    "zero_order_offset_px",
+)
+
+
+def _record_row(
+    recorder: BenchRecorder,
+    instrument: Instrument,
+    row: dict[str, Any],
+    *,
+    net_phase: Tensor | np.ndarray,
+) -> None:
+    """Append one sample's A1/B1/B2/A2 quartet to the process-data recorder.
+
+    Four rows per sample, one per condition, all sharing the sample's metrics:
+    the quartet metrics (``ncc_flat`` / ``ncc_net`` / ...) are *per sample*, and
+    splitting them across the four rows would invent a per-frame number the
+    protocol never computes.  What differs per row is exactly what differs on
+    the bench -- the measured frame, the command phase and the grayscale the
+    panel got.
+
+    Args:
+        recorder: The session's :class:`BenchRecorder`.
+        instrument: The instrument that measured this sample; it supplies the
+            grayscale the panel actually received, so a ``hw`` row carries the
+            device's own LUT/correction pipeline rather than a re-derivation.
+        row: The :func:`measure_sample` row (``frames`` / ``conditions`` / the
+            per-sample metrics).
+        net_phase: ``(grid, grid)`` network phase in radians; the ``b1``/``b2``
+            command.  The ``a1``/``a2`` command is the flat phase of the same
+            shape (see :func:`measure_sample`).
+    """
+    net = _phase_array(net_phase)
+    flat = np.zeros_like(net)
+    commands = {"a1": flat, "b1": net, "b2": net, "a2": flat}
+    metrics: dict[str, float] = {}
+    for key in _RECORD_METRICS:
+        value = row.get(key)
+        if value is not None:
+            metrics[key] = float(value)
+    metrics["indistinguishable"] = float(bool(row["indistinguishable"]))
+    for condition in CONDITIONS:
+        command = commands[condition]
+        recorder.append_sample(
+            index=int(row["index"]),
+            kind=str(row["kind"]),
+            condition=condition,
+            frame=np.asarray(row["frames"][condition], dtype=np.float32),
+            command_phase=command,
+            panel_grayscale=np.asarray(
+                instrument.sent_grayscale(command), dtype=np.uint16
+            ),
+            metrics=metrics,
+        )
+
+
 def _zero_order_offset(
     instrument: Instrument, measured_flat: np.ndarray, flat_phase: np.ndarray
 ) -> float:
@@ -1769,6 +1850,7 @@ def run_session(
     device: str | torch.device = "auto",
     seed: int = LOOP_SEED,
     aberration_cfg: AberrationConfig | None = None,
+    record: bool = False,
 ) -> dict[str, Any]:
     """Measure one session and write the README §7 artefacts.
 
@@ -1800,6 +1882,14 @@ def run_session(
         seed: Master seed.  ``7`` reproduces the published sample set.
         aberration_cfg: Distribution the ``sim`` states are drawn from; defaults
             to :class:`~ml.sim2f.config.AberrationConfig` (what the loop used).
+        record: Also persist the **process data** of every capture -- the measured
+            frame, the command phase and the grayscale the panel actually got --
+            through :class:`~ml.sim2f.recorder_io.BenchRecorder`, i.e. under the
+            repository's canonical ``Recorder`` key names
+            (``src/ao_shaping/utils/io/recorder_keys.py``).  Off by default
+            because the ``_phase`` column is a full 1200x1920 uint16 panel per
+            row (~4.4 MiB/row, see the module docstring); ``session.json``
+            records whether it was on.
 
     Returns:
         The session payload (also written to ``session.json``).
@@ -1867,6 +1957,7 @@ def run_session(
     twin_frames: dict[int, np.ndarray] = {}
     targets: dict[int, np.ndarray] = {}
     instruments: list[Instrument] = []
+    recorder: BenchRecorder | None = None
     describe_instrument: Instrument | None = session_instrument
     if session_instrument is not None:
         instruments.append(session_instrument)
@@ -1914,6 +2005,10 @@ def run_session(
             frames[int(index)] = row["frames"]
             targets[int(index)] = target[0, 0].detach().cpu().numpy()
             twin_frames[int(index)] = instrument.twin(net_phase)
+            if record:
+                if recorder is None:
+                    recorder = BenchRecorder()
+                _record_row(recorder, instrument, row, net_phase=net_phase)
             logger.info(
                 "sample {} kind={} ncc flat={:.4f} net={:.4f} drift={:.4f} "
                 "objective flat={:.4f} net={:.4f}{}",
@@ -1997,6 +2092,8 @@ def run_session(
             "panel_shape": None if panel_shape is None else [int(v) for v in panel_shape],
             "pupil_radius_px": PUPIL_RADIUS_PX,
             "pupil_side_px": int(round(2.0 * PUPIL_RADIUS_PX)),
+            "device": str(resolved),
+            "record_process_data": bool(record),
             "pupil_placement": _pupil_placement(
                 name, describe, panel_shape, pupil_center_xy
             ),
@@ -2040,6 +2137,9 @@ def run_session(
     _write_rows(out / ROWS_NAME, rows)
     if save_frames:
         _write_frames(out / FRAMES_NAME, frames, targets)
+    recorder_paths: dict[str, str] = {}
+    if recorder is not None:
+        recorder_paths = recorder.save(out / RECORD_SUBDIR)
     _render_fetch(out / FETCH_NAME, rows, targets)
     _write_verdict(out / VERDICT_NAME, payload)
     logger.info(
@@ -2051,6 +2151,8 @@ def run_session(
         FETCH_NAME,
         VERDICT_NAME,
     )
+    if recorder_paths:
+        logger.info("process data (Recorder columns) -> {}", recorder_paths)
     return payload
 
 
