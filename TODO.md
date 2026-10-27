@@ -3672,6 +3672,15 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 验证：6 个计划替换点全部由 ruff 真实命中；AST 恒等 `True`（proof 退出码 0）；分组校验 OK；`py_compile` 通过；`ruff check .` 全仓归零。回归按 CI 执行形态与**本批前重量的基线**逐位比对：`tests/ao_shaping/ml/gsnet` 87 passed（不变）；`tests/ao_shaping/ml/sim2f` 317 passed / 6 skipped（不变——注意这条基线从 item 124 时的 300 涨到 317 是外来 WIP 新增测试所致，若沿用旧数就会把别人的增量误当成自己的回归）；`tests/ao_shaping/scripts -k=gsnet` 52 passed。
 - 覆盖账（实测）：目标文件 8 → 2；`src` 全域 612 → **606**；全仓 1114 → 1108（差值 6 与提升点数一致）。
 
+131. ✅ **#173 续批：`algorithm/signal_processing/differentiable_shaping.py` 的 9 → 2，三种含义各自安家，并暴露出 AST 恒等证明的一个盲区**（2026-10-27）
+- 语义三分。① 3 处秩（314 `field.ndim != 2`、435 `target.ndim != 2`、439 `target.dim() != 2`）消费 `ao_shaping.utils.image.ranks.NDIM_SINGLE_CHANNEL`——该文件早已 `from ao_shaping.utils.image.target.metrics import ...`，`algorithm → utils.image` 是既有方向，不算新增依赖。② 2 处 `len(grid_size) != 2`（111/425，报错文本自带 "must be a 2-tuple"）是**元组 arity**，另立 `_GRID_SIZE_ARITY = 2`：这不是我谨慎，而是 `ranks.py` 的注释本身就写着该秩"既不是 pair 分量个数也不是最小边长，调用方不得借用"。③ 2 处 `total < 1e-12`（183/202）是"总能量数值为零 ⇒ 比值未定义"⇒ `_ZERO_ENERGY_FLOOR`，并把**未被 PLR2004 标记**的第 186 行分母 ε（`total + 1e-12`）一并归到同一定义（同一量两个家正是本批要防的事）。
+- 刻意保留 2 处（按内容核验，不按行号——125 记过行号会因插入块整体漂移）：179 行 `mask = target > 0.5`（掩膜阈值，单处）、184 行 `mu.abs() < 1e-12`（**均值退化**判据，与能量地板同值不同义，单处）。这条区分写进了 `_ZERO_ENERGY_FLOOR` 的注释，避免后来者顺手合并。
+- **本批最重要的收获是一个工具盲区**：`plr_proof_generic.py` 在校验时把被追踪的 Name 归一化回它的定义值，因此"把某使用点从名字改回字面量"在它眼里 AST 仍恒等（实测：把 186 行的 `_ZERO_ENERGY_FLOOR` 改回 `1e-12`，proof 判 `AST-IDENTICAL: True` 且 exit 0）。⇒ 恒等证明能守"定义不变/结构不变/有使用必须有定义"，**不能**守"每个点真的用了那个名字"；后者只有 group check 能做到。处置：把非 ruff 标记但语义属于该常量的点（186 行）补进 spec 的 rows，让组校验把守——复验：改回字面量 ⇒ group exit 1。这也说明 116/124 起我依赖的 group check 不是冗余装饰，而是同值场景下唯一的仪器。
+- 守卫扩面（`tests/ao_shaping/utils/image/test_rank_constants_single_source.py`）：扫描根从 `utils/image` 扩到整个 `src/ao_shaping`（122 在 `ml` 包的同型做法），`HUB` 改为 `utils/image/ranks.py`，消费者名单 3 → 4（加入 `differentiable_shaping.py`）。扩面前先证明包内只有 hub 一处 `NDIM_*` 定义。三个种植各咬一面：A 消费方再声明 ⇒ 2 红；B 登记却不再引用 ⇒ 1 红；**C 在 `optimizer` 包里另立同名秩 ⇒ 1 红**——C 正是扩面要关的盲区，扩面前它根本不在扫描范围内。测试 4 条全绿。
+- 控制链（9 项，混合形态：1 个 hub 名 + 2 个模块私有名 + 1 个非标记点）：基线恒等；A hub 秩 2→3；C hub `2 → 2.0`（类型变数值不变）；D 删 hub 定义 ⇒ "有使用无定义"；F 消费方另建同名定义 ⇒ "重复定义"；L1 `_GRID_SIZE_ARITY` 2→3；L2 `_ZERO_ENERGY_FLOOR` 抬到 1e-9；B 把 `target.dim()` 一处改成 `<`；E186 把分母 ε 改回字面量 ⇒ group 判红；G 分组反向（把 111 行的 arity 扫进 rank 组）⇒ group 判红。每项之前先还原，`finally` 再还原，`cmp` 逐字节一致。
+- 验证与回归：7 个计划替换点全部由 ruff 真实命中；AST 恒等 `True`；分组校验 OK（含 186）；`py_compile` 通过；`ruff check .` 全仓归零。回归按 CI 执行形态：`tests/ao_shaping/algorithm` **777 passed / 16 skipped**，与长期基线逐位一致；`tests/ao_shaping/utils` 出现 1 失败 `test_recorder_keys.py::test_call_sites_spell_keys_as_constants`——**用 stash 对照证明与本次改动无关**（把我的 2 个文件 stash 后同样失败，`1 failed, 18 passed` 逐条一致），它是外来 `feat/130-recorder-keys-callers` 带入的既有失败，列为 item 132。
+- 覆盖账（实测）：目标文件 9 → 2；`src` 606 → **599**；全仓 1108 → 1101。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
