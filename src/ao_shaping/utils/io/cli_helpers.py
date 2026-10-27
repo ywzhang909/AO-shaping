@@ -88,7 +88,10 @@ def parse_tuple(ctx, param, value):
             raise ValueError("Must have exactly two numbers")
         x, y = map(float, parts)
         return (x, y)
-    except Exception:
+    except (TypeError, ValueError) as exc:
+        # The body's only failures are the explicit ValueError above and float()'s
+        # TypeError/ValueError. Anything else is a bug in this parser, not a bad user
+        # argument, and must not be laundered into a usage message.
         raise click.BadParameter(
             f"Invalid center format: {value}. Expected formats: 'x,y' or '(x,y)'"
         )

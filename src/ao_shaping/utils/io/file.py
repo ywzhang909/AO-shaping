@@ -832,7 +832,10 @@ def _classify_recorder_rows(rows: list[dict]) -> dict[str, list[str]]:
         elif isinstance(value, (list, tuple)):
             try:
                 arr = np.asarray(value)
-            except Exception:
+            except (TypeError, ValueError):
+                # Ragged or non-numeric sequences are the only failure mode here
+                # (numpy raises ValueError for inhomogeneous shapes, TypeError for
+                # objects it cannot build an array from).
                 arr = None
         if arr is not None and arr.ndim >= 1:
             if arr.ndim >= 2:

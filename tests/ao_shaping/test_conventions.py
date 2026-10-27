@@ -2105,6 +2105,59 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
     return offenders, blocks
 
 
+#: Ratchet for issue #174: blind ``except Exception`` / ``except BaseException`` handlers
+#: under ``src/``. Counted by AST rather than by ruff because the test images do not install
+#: ruff (a ruff-based count would skip in exactly the place the gate runs), and the check is
+#: therefore unskippable. ``re_raise_only`` handlers are excluded, mirroring BLE001's own
+#: exemption, so the number is comparable to ``ruff check src --select BLE001`` (measured
+#: 363 today against this AST count of 382; the residual gap is ruff's contextual filtering).
+#: This is a ratchet, not a claim that 382 is acceptable: most remaining handlers are
+#: deliberate fallbacks, and each one still needs an individual judgement.
+_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 382
+
+
+def test_blind_except_handlers_in_src_do_not_grow() -> None:
+    """No new blind ``except Exception`` may enter ``src/`` (issue #174).
+
+    Recorded 2026-10-27: the count had grown to 382 (ruff reports 363) since the issue was
+    filed at 379 across the repo, and nothing in the suite could see that growth because
+    BLE001 is not in ruff's ``select``. The floor on the found count is what keeps the walk
+    itself honest: an extractor that stopped parsing would otherwise report zero violations
+    and pass.
+    """
+    src = REPO / "src"
+    found = 0
+    offenders: list[str] = []
+    for path in sorted(src.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ExceptHandler):
+                continue
+            if not isinstance(node.type, ast.Name) or node.type.id not in ("Exception", "BaseException"):
+                continue
+            if len(node.body) == 1 and isinstance(node.body[0], ast.Raise) and node.body[0].exc is None:
+                continue                       # re-raise only: BLE001 excuses this too
+            found += 1
+            if len(offenders) < 6:
+                offenders.append(f"{path.relative_to(REPO)}:{node.lineno}")
+    assert found >= 100, (
+        f"only {found} blind handler(s) parsed under src/ -- the walk stopped matching, so "
+        "this ratchet would be enforcing nothing"
+    )
+    assert found <= _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC, (
+        f"{found} blind except handlers under src/, above the ratchet "
+        f"{_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC} (first offenders: {', '.join(offenders)}). "
+        "Catch the types the guarded call can actually raise, or let the error propagate; "
+        "if a broad catch is genuinely intended, the ceiling may be raised only with a "
+        "reason recorded in TODO.md section 8.9."
+    )
+
+
 def test_markdown_table_rows_never_write_more_cells_than_declared() -> None:
     """Every markdown table row keeps the column count its separator declares.
 
