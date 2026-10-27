@@ -2158,6 +2158,116 @@ def _blind_except_handlers_in_src() -> list[tuple[Path, int, bool]]:
     return out
 
 
+#: Live `path:NNN` pins that this refactor workflow re-pins whenever code moves (six were
+#: re-pinned on 2026-10-28 after the #44 hoists in `slm_zernike_pib.py`).
+#:
+#: A repo-wide pin checker was measured first and REJECTED: the markdown tree holds 710
+#: `path:NNN` citations, only a minority sit on a row carrying a code token able to validate
+#: the target line, and several rows deliberately keep `原 :NNN` history for files that no
+#: longer exist. Gating those emits noise, not signal. This registry instead names the anchors
+#: known to move, each with the statement its pin must land on, and compares sets.
+_DOC_LINE_ANCHORS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
+    # (doc, row locator, source file, statements whose current lines the row must pin)
+    (
+        "docs/slm/pre_run_characterization.md",
+        "| 3 | `optimizer/wfless/slm_zernike_pib.py",
+        "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py",
+        ("SLM_RESPONSE_TIME_S = 0.0",),
+    ),
+    (
+        "docs/slm/pre_run_characterization.md",
+        "| 9 | `optimizer/wfless/slm_zernike_pib.py",
+        "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py",
+        ("def recenter", "set_reference_center(self.recenter",
+         "shaping.set_reference_center(pos_center)"),
+    ),
+    (
+        "TODO.md",
+        "`--max_peak` 不要动",
+        "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py",
+        ("_peak_observed = float(max(",),
+    ),
+    (
+        "TODO.md",
+        "在 `_apply_best_on_exit()` 退出清理里",
+        "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py",
+        ("except BaseException as _exit_exc",),
+    ),
+    (
+        "docs/issues_report.md",
+        "| `IDEAL_SPOT_RADIUS` |",
+        "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py",
+        # indented form: the bare name also appears in five call sites, which cannot be pinned
+        ("    IDEAL_SPOT_RADIUS,",),
+    ),
+)
+
+
+def _pinned_numbers(row: str, basename: str) -> set[int]:
+    r"""Every line number a doc row pins to `basename`: `f:12`, `f:12,30`, `f:12-15`.
+
+    A range contributes its start only -- the tables pin a statement or a block head, and a
+    block's last line is not a stable anchor. Parsing the whole numeric run in one go is what
+    keeps `f:1793-1803` from degrading into `179`, which is how `\d+(?!-)` backtracks.
+    """
+    out: set[int] = set()
+    for m in re.finditer(re.escape(basename) + r":(\d+(?:\s*[-,]\s*\d+)*)", row):
+        for part in m.group(1).split(","):
+            out.add(int(part.split("-")[0].strip()))
+    return out
+
+
+def test_live_doc_line_anchors_still_point_at_their_code() -> None:
+    """Pinned line numbers in the guarded tables must match where the code now lives.
+
+    Every doc row matching a registry locator is checked: the numbers it pins for the source
+    file must equal the current lines of the registered statements. A row that was half
+    re-pinned, over-pinned, or left behind by a code move all fail, and a human re-pin makes it
+    pass again -- which is the workflow these tables actually follow. Multiple rows may share a
+    locator (TODO.md cites the same anchor twice); every one of them has to agree, so the
+    second copy cannot silently rot.
+    """
+    offenders: list[str] = []
+    for doc_rel, locator, src_rel, statements in _DOC_LINE_ANCHORS:
+        doc_p, src_p = REPO / doc_rel, REPO / src_rel
+        if not doc_p.exists() or not src_p.exists():
+            offenders.append(f"{doc_rel}[{locator}]: file missing ({src_rel})")
+            continue
+        src = src_p.read_text(encoding="utf-8").splitlines()
+        want: set[int] = set()
+        for stmt in statements:
+            hits = [i + 1 for i, line in enumerate(src) if stmt in line]
+            if len(hits) != 1:
+                offenders.append(
+                    f"{doc_rel}[{locator}]: statement {stmt!r} occurs {len(hits)}x in "
+                    f"{src_rel} ({hits[:4]}) -- a pin cannot be attributed to an ambiguous "
+                    "statement; register a rarer one"
+                )
+                continue
+            want.add(hits[0])
+        rows = [l for l in doc_p.read_text(encoding="utf-8").splitlines() if locator in l]
+        if not rows:
+            offenders.append(
+                f"{doc_rel}: locator {locator!r} matched no row -- the table row was renamed "
+                "or deleted and the registry is now stale"
+            )
+            continue
+        for row in rows:
+            have = _pinned_numbers(row, src_p.name)
+            if not have:
+                offenders.append(
+                    f"{doc_rel}: row {locator!r} pins no `{src_p.name}:NNN` -- the citation "
+                    "was dropped while the registry still expects it"
+                )
+            elif have != want:
+                offenders.append(
+                    f"{doc_rel}: row {locator!r} pins {sorted(have)} but the code sits at "
+                    f"{sorted(want)} (stale: {sorted(have - want)}, unpinned: "
+                    f"{sorted(want - have)}) -- re-pin the table"
+                )
+    assert not offenders, "\n  " + "\n  ".join(offenders)
+
+
 def test_blind_except_handlers_in_src_do_not_grow() -> None:
     """No new blind ``except Exception`` may enter ``src/`` (issue #174).
 
