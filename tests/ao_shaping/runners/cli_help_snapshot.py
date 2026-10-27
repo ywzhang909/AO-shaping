@@ -42,6 +42,11 @@ The default is **compare**. To re-capture after an intentional CLI change::
 
     AO_UPDATE_HELP_GOLDEN=1 ./.venv/bin/python -m pytest tests/ao_shaping/runners/test_cli_help_golden.py -q
 
+That recipe needs a real (host) interpreter: ``scripts/build/run_pytest_ci.sh``
+mounts the repository read-only and forwards only a fixed env whitelist, so
+running it through the CI wrapper neither sees the variable nor could write the
+snapshot -- which is how this golden drifted behind a new flag unnoticed.
+
 The rewrite happens in a module-scoped fixture, so it runs once per session
 before the first comparison. Review the resulting ``git diff`` on
 ``cli_help_golden.json`` (written with ``indent=1, sort_keys=True``,
