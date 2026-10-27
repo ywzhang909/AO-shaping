@@ -20,3 +20,4 @@ The canonical home of all of them is
 Import them from there. ``dm_unit_compute.py`` in this directory is a thin
 pygame/WFS front end that imports the same canonical names (R-34, 2026-10-04).
 """
+from __future__ import annotations

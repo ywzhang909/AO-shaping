@@ -31,3 +31,4 @@ This follows existing repo precedent -- ``tests/ao_shaping/display/``,
 ``drivers/``, ``drivers/wfs/``, ``model/`` and ``runners/`` are already packages
 for the same reason.
 """
+from __future__ import annotations
