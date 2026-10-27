@@ -1146,6 +1146,7 @@ def optimize_slm_gs_refine(config: SlmGsRefineConfig) -> Recorder:
                             slm.set_grayscale(original_gray)
                         else:
                             slm._display_memory(original_slot)
+                    # policy: restoring the panel's initial display is reported AND re-raised: an unrestored SLM is a real bench hazard for whoever runs next
                     except Exception:
                         logger.exception("failed to restore the initial SLM display")
                         raise
@@ -1155,6 +1156,7 @@ def optimize_slm_gs_refine(config: SlmGsRefineConfig) -> Recorder:
                 continue
             try:
                 dev.close()
+            # policy: teardown closes what it can without masking the failure that ended the run
             except Exception:  # cleanup must not mask the real error
                 logger.debug("device close failed during cleanup", exc_info=True)
 

@@ -2124,10 +2124,11 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 382
 #: the driver exception taxonomy (issue #145 / #45) would turn a working fallback into a crash.
 #:
 #:
-#: Measured 2026-10-28 after four review passes (runners/slm + config + utils, the three
-#: CCD camera drivers, the R50 GUI loop files, and the optimizer / runner CLI layer:
-#: 76 marked, 306 unmarked.
-_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 306
+#: Measured 2026-10-28 after five review passes (runners/slm + config + utils, the three
+#: CCD camera drivers, the R50 GUI loop files, and the whole optimizer / runner CLI layer:
+#: 81 marked, 301 unmarked. The fourth pass covered only 12 of the 17 open optimizer sites;
+#: the fifth closed the layer -- the ceiling is only as honest as the last count.
+_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 301
 
 
 def _blind_except_handlers_in_src() -> list[tuple[Path, int, bool]]:
