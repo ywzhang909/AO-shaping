@@ -2206,19 +2206,29 @@ _DOC_LINE_ANCHORS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
         # indented form: the bare name also appears in five call sites, which cannot be pinned
         ("    IDEAL_SPOT_RADIUS,",),
     ),
+    (
+        "TODO.md",
+        "上报动作本身的失败",
+        "src/ao_shaping/gui/ccd/ccd_analyzer.py",
+        ('raw_frame_queue.put(("error", str(exc)), block=False)',
+         'raw_frame_queue.put(("error", f"Capture loop crashed: {exc}"), block=False)'),
+    ),
 )
 
 
 def _pinned_numbers(row: str, basename: str) -> set[int]:
-    r"""Every line number a doc row pins to `basename`: `f:12`, `f:12,30`, `f:12-15`.
+    r"""Every line number a doc row pins to `basename`: `f:12`, `f:12,30`, `f:12-15`, `f:12/30`.
 
     A range contributes its start only -- the tables pin a statement or a block head, and a
     block's last line is not a stable anchor. Parsing the whole numeric run in one go is what
     keeps `f:1793-1803` from degrading into `179`, which is how `\d+(?!-)` backtracks.
+    Slash-separated runs are the ledger's form for "these N handlers" (`f:297/321`); while `/` was
+    not a separator, a registered pin of that shape validated only its first number and every
+    later one could rot unnoticed.
     """
     out: set[int] = set()
-    for m in re.finditer(re.escape(basename) + r":(\d+(?:\s*[-,]\s*\d+)*)", row):
-        for part in m.group(1).split(","):
+    for m in re.finditer(re.escape(basename) + r":(\d+(?:\s*[-,/]\s*\d+)*)", row):
+        for part in re.split(r"[,/]", m.group(1)):
             out.add(int(part.split("-")[0].strip()))
     return out
 
