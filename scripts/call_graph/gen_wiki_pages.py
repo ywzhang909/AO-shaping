@@ -86,6 +86,7 @@ CMD_ORDER = [
     ("slm-gsnet", "SLM freeform 方形整形（spgd/heuristic/train）"),
     ("slm-gs-refine", "GS 预整形 + 全频随机相位 SPGD 细化"),
     ("slm-model-in-loop", "物理预测模型闭环方形整形（反复迭代）"),
+    ("slm-transfer-shapes", "多形状物理预测模型闭环整形（从零训练 → 逐形状整形 → 共同重放 → 记录）"),
     ("slm-lut", "SLM 灰度-相位 LUT 标定（衍射效率反演）"),
     ("slm-diagnose", "SLM 面板硬件自检（逐级定位）"),
 ]
@@ -110,6 +111,7 @@ CMD_SYMS = {
     "slm-gsnet": "slm_gsnet_run",
     "slm-gs-refine": "slm_gs_refine_run",
     "slm-model-in-loop": "slm_model_in_loop_run",
+    "slm-transfer-shapes": "slm_transfer_shapes_run",
     "slm-lut": "slm-lut",
     "slm-diagnose": "slm-diagnose",
 }

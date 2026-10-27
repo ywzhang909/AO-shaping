@@ -5,7 +5,7 @@
 Usage:
     python main.py [OPTIONS] COMMAND [ARGS]...
 
-Commands (19; the authoritative list is `main --help`, frozen by
+Commands (20; the authoritative list is `main --help`, frozen by
 tests/ao_shaping/runners/test_cli_contract_freeze.py::EXPECTED_COMMANDS):
     wf                 波前RMS优化器
     pib                轴向光束PIB优化器
@@ -24,6 +24,7 @@ tests/ao_shaping/runners/test_cli_contract_freeze.py::EXPECTED_COMMANDS):
     slm-gsnet          SLM 方形光斑 SPGD 整形 (freeform)
     slm-gs-refine      GS 预矫正 + 全频随机相位 SPGD 细化
     slm-model-in-loop  物理预测模型闭环校正 + 目标光斑相位合成 (反复迭代)
+    slm-transfer-shapes  物理预测模型多形状整形 (model → shaping → replay → record)
     slm-lut            SLM LUT 校准 (tools/)
     slm-diagnose       SLM 面板诊断 (tools/)
 
