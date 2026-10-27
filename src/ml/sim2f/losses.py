@@ -64,6 +64,12 @@ import torch
 from loguru import logger
 from torch import Tensor
 
+from ml.sim2f.config import (
+    NDIM_BARE_MAP,
+    NDIM_BATCH_MAP,
+    NDIM_BATCHED_MAP,
+)
+
 __all__ = [
     "EPS",
     "as_frame",
@@ -114,12 +120,12 @@ def as_frame(value: object) -> Tensor:
     if not torch.is_tensor(value):
         raise TypeError(f"as_frame expected a tensor, got {type(value).__name__}")
     frame = value
-    if frame.ndim == 2:
+    if frame.ndim == NDIM_BARE_MAP:
         frame = frame[None, None]
-    elif frame.ndim == 3:
+    elif frame.ndim == NDIM_BATCH_MAP:
         # Batch-first by repository convention: (B, H, W).
         frame = frame[:, None]
-    elif frame.ndim == 4:
+    elif frame.ndim == NDIM_BATCHED_MAP:
         if frame.shape[1] != 1:
             raise ValueError(
                 f"as_frame expected one intensity channel, got shape {tuple(frame.shape)}"
@@ -170,9 +176,9 @@ def to_phasor(phase: Tensor) -> Tensor:
     Raises:
         ValueError: If ``phase`` is not 3-D (or 4-D with one channel).
     """
-    if phase.ndim == 4 and phase.shape[1] == 1:
+    if phase.ndim == NDIM_BATCHED_MAP and phase.shape[1] == 1:
         phase = phase[:, 0]
-    if phase.ndim != 3:
+    if phase.ndim != NDIM_BATCH_MAP:
         raise ValueError(f"to_phasor expects (B, H, W), got shape {tuple(phase.shape)}")
     return torch.stack([torch.cos(phase), torch.sin(phase)], dim=1)
 
@@ -192,7 +198,7 @@ def from_phasor(phasor: Tensor) -> Tensor:
     Raises:
         ValueError: If the quadrature axis is not ``dim 1`` of length 2.
     """
-    if phasor.ndim != 4 or phasor.shape[1] != 2:
+    if phasor.ndim != NDIM_BATCHED_MAP or phasor.shape[1] != 2:
         raise ValueError(
             f"from_phasor expects (B, 2, H, W), got shape {tuple(phasor.shape)}"
         )
@@ -222,11 +228,11 @@ def _mask_weights(mask: Tensor | None, phasor: Tensor) -> tuple[Tensor | None, T
             (phasor.shape[0],), area, dtype=phasor.dtype, device=phasor.device
         )
     weights = mask.to(dtype=phasor.dtype, device=phasor.device)
-    if weights.ndim == 2:
+    if weights.ndim == NDIM_BARE_MAP:
         weights = weights[None, None]
-    elif weights.ndim == 3:
+    elif weights.ndim == NDIM_BATCH_MAP:
         weights = weights[:, None]
-    if weights.ndim != 4 or weights.shape[1] != 1:
+    if weights.ndim != NDIM_BATCHED_MAP or weights.shape[1] != 1:
         raise ValueError(
             f"mask must be (H, W), (1, 1, H, W) or (B, 1, H, W), got {tuple(mask.shape)}"
         )
@@ -530,7 +536,7 @@ def objective_terms(
     if pred.shape[0] == 1 and reference.shape[0] != 1:
         pred = pred.expand_as(reference)
     weights = support.to(dtype=pred.dtype, device=pred.device)
-    weights = as_frame(weights) if weights.ndim < 4 else weights
+    weights = as_frame(weights) if weights.ndim < NDIM_BATCHED_MAP else weights
     if weights.shape[0] == 1 and reference.shape[0] != 1:
         weights = weights.expand_as(reference)
 
@@ -655,7 +661,7 @@ def shaping_metrics(
     if predicted.shape[0] == 1 and wanted.shape[0] != 1:
         predicted = predicted.expand_as(wanted)
     weights = support.to(dtype=predicted.dtype, device=predicted.device)
-    weights = as_frame(weights) if weights.ndim < 4 else weights
+    weights = as_frame(weights) if weights.ndim < NDIM_BATCHED_MAP else weights
     if weights.shape[0] == 1 and wanted.shape[0] != 1:
         weights = weights.expand_as(wanted)
 

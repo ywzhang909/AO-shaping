@@ -423,7 +423,7 @@ graph LR
         direction TB
         subgraph "物理代理<br/>Physics Proxy"
             P1[ZernikeAmpModel<br/>全局 Z 向量，135 参数]
-            P2[FFT 前向模型<br/>far_field_padding=10 + center_crop]
+            P2[FFT 物理预测模型<br/>far_field_padding=10 + center_crop]
             P3[Frozen weights<br/>requires_grad=False]
             P4[NNLS 校准<br/>模型增益 g ≥ 0 + flat leakage]
             P1 --> P2 --> P4 --> P3

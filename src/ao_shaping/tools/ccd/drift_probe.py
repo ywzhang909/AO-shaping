@@ -80,6 +80,7 @@ from ao_shaping.tools.kernels.bench_kernels import (
 )
 from ao_shaping.tools.zernike.sweep_probe import capture_settled
 from ao_shaping.utils.cli.params import option, with_params
+from ao_shaping.utils.io.recorder_keys import (RECORD_EPOCH)
 
 __all__ = [
     "DRIFT_REPEAT_TOL",
@@ -183,7 +184,7 @@ def _measure(
         "fwhm_px": float(spot.fwhm_px),
         "exposure_ms": None if exposure_ms is None else float(exposure_ms),
         "repeat": None if repeat is None else int(repeat),
-        "_epoch": int(index),
+        RECORD_EPOCH: int(index),
     }
     return row, region
 
@@ -640,7 +641,7 @@ def main(params: DriftProbeParams) -> None:
         )
         set_exposure(float(params.exposure_ms))
 
-    rows: list[dict[str, Any]] = [{**r, "_epoch": i} for i, r in enumerate(
+    rows: list[dict[str, Any]] = [{**r, RECORD_EPOCH: i} for i, r in enumerate(
         [*drift_records, *ladder_records]
     )]
     columns = _summary_npz(drift_summary, ladder_summary, rows, params)

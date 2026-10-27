@@ -46,6 +46,8 @@ from loguru import logger
 from torch.utils.data import DataLoader
 
 from ml.hwdataset import (
+    DEFAULT_PANEL_CENTER,
+    DEFAULT_PANEL_RADIUS,
     DEFAULT_ROOTS,
     HwCorpusIndex,
     HwPhaseImageDataset,
@@ -153,6 +155,17 @@ class AmpTrainConfig:
     """Everything the training run needs. Every field is a plain value."""
 
     families: tuple[str, ...] = (DEFAULT_FAMILY,)
+    #: Corpus roots to scan.  The default is the canonical ``data/debug`` tree; the
+    #: field exists because the index used to be built from that default no matter
+    #: what the caller supplied, so a test that wrote its own pickle tree still read
+    #: whatever corpus the machine happened to hold -- and with an empty family
+    #: filter that fallback was silent.
+    roots: tuple[str, ...] = DEFAULT_ROOTS
+    #: Panel geometry handed to the materialiser.  Defaults are the corpus values from
+    #: :mod:`ml.hwdataset`; a hermetic fixture with a small synthetic panel overrides
+    #: them so its ROI still intersects that panel.
+    panel_center: tuple[int, int] = DEFAULT_PANEL_CENTER
+    panel_radius: float = DEFAULT_PANEL_RADIUS
     fov_px: int | None = None
     #: Path to the ``ml.hwdataset`` index cache. Defaults to the shared
     #: ``data/hw_index_cache.json`` written by ``python -m ml.hwdataset.inspect``;
@@ -1032,15 +1045,23 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
 
     # Keep the unfiltered index: corpus provenance and the staleness check
     # describe the whole cache, not just the family subset that will be trained.
-    raw_index = build_hw_index(index_cache=cfg.index_cache or None, progress_every=0)
-    stale = _warn_if_index_stale(raw_index, DEFAULT_ROOTS, None, cfg.index_cache)
+    roots = list(cfg.roots) or list(DEFAULT_ROOTS)
+    raw_index = build_hw_index(
+        roots=roots, index_cache=cfg.index_cache or None, progress_every=0
+    )
+    stale = _warn_if_index_stale(raw_index, roots, None, cfg.index_cache)
     corpus = _corpus_summary(raw_index, cfg.index_cache, stale["stale"])
     index = raw_index
     if cfg.families:
         index = index.filter(families=list(cfg.families))
     dataset = HwPhaseImageDataset(
         index,
-        config=MaterialiserConfig(grid=cfg.grid, image_mode=cfg.image_mode),
+        config=MaterialiserConfig(
+            grid=cfg.grid,
+            image_mode=cfg.image_mode,
+            panel_center=tuple(cfg.panel_center),
+            panel_radius=float(cfg.panel_radius),
+        ),
         use_cache=True,
     )
     train_idx, val_idx = _select_records(dataset, cfg)

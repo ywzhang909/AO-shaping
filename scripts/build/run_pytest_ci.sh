@@ -182,8 +182,12 @@ fi
 # the mark in drivers/conftest.py fixed both the cost and 2 spurious failures.
 # Excluding drivers/ wholesale is what let drivers/ccd rot to 6 failed + 1 error
 # without CI seeing it (rot fixed in 29001826).
+# Corpus / memory exemptions. One entry per reason, each with a comment, and never a
+# whole top-level area: tests/ao_shaping/scripts/test_pytest_workflow_shards_cover_tree.py
+# rejects a dangling entry, an entry without a reason, and any entry that would blank an
+# entire area (the blanket ml ignore below is what let three authored-red ml tests sit
+# invisible for a day -- TODO.md 8.9 items 102/103/104).
 EXCLUDES=(
-    "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/ml"
 )
 
 # Interpreter and options are kept in separate arrays on purpose: the per-file mode

@@ -59,6 +59,7 @@ import shutil
 import subprocess
 import sys
 import time
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -66,8 +67,10 @@ ROOT = Path(__file__).resolve().parents[2]
 # `scripts` is deliberately NOT on the path: every `scripts/<name>/` holding an
 # `__init__.py` is an importable package, and `scripts/ml/` would shadow `src/ml`
 # for a bare `import ml`. Sibling packages are imported as `scripts.<name>`.
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(ROOT / "src"))
+
+from scripts._common import fmt_general
 
 import numpy as np
 
@@ -377,17 +380,7 @@ def _compare(records: dict[str, dict[str, Any]], work_dir: Path) -> dict[str, An
     return table
 
 
-def _fmt(value: float, spec: str = ".3g") -> str:
-    """Format a float, rendering NaN/inf readably."""
-    if value is None:
-        return "n/a"
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return str(value)
-    if not np.isfinite(number):
-        return "n/a"
-    return format(number, spec)
+_fmt = partial(fmt_general, missing_nonfinite="n/a", missing_none="n/a")
 
 
 def _speedup(base: float, other: float) -> float:

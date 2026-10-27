@@ -22,10 +22,13 @@ Four separate guarantees, each catching a different way the contract breaks:
    a subscript slice, a dict-literal key, a ``.get(...)`` first argument, and
    either side of an ``in`` membership test.
 
-   The probe modules under ``tools/`` are the documented exception: their
-   in-body string literals are pinned byte-for-byte by the probe golden
-   (``test_probe_flags.py``) as the pre-migration baseline for the R-37 flag
-   migration, which has not started. Re-basing that golden is R-37's job.
+    The five probe modules that used to stay on bare keys (``sweep_probe``,
+    ``abba_probe``, ``drift_probe``, ``floor_probe``, ``slm/calibration/
+    train_data_collect``) were converted on 2026-10-26 closing out #130: the
+    probe body-literal golden in ``test_probe_flags.py`` was re-based in the
+    same commit, with an AST proof that only the 19 key literals were removed
+    and every flag string is untouched. The golden is therefore no longer a
+    reason to keep a second vocabulary here.
 
 Trade-off, stated rather than hidden: guarantee 2 keys on the *value*, so a future
 module that legitimately needs an unrelated ``"_c"`` constant will trip it and must
@@ -49,20 +52,6 @@ _SRC = Path(__file__).resolve().parents[3] / "src"
 _REPO = Path(__file__).resolve().parents[3]
 _SCRIPTS = _REPO / "scripts"
 _OWNER = (_SRC / "ao_shaping" / "utils" / "io" / "recorder_keys.py").resolve()
-
-#: Probe modules whose in-body string literals are pinned byte-for-byte by the
-#: probe golden (``tests/ao_shaping/tools/slm/test_probe_flags.py``) as the
-#: pre-migration baseline for the R-37 flag migration, which has not started.
-#: Re-basing that golden belongs to R-37, not to a vocabulary cleanup.
-_PROBE_EXCLUDED = frozenset(
-    {
-        "src/ao_shaping/tools/ccd/drift_probe.py",
-        "src/ao_shaping/tools/ccd/floor_probe.py",
-        "src/ao_shaping/tools/slm/calibration/train_data_collect.py",
-        "src/ao_shaping/tools/zernike/abba_probe.py",
-        "src/ao_shaping/tools/zernike/sweep_probe.py",
-    }
-)
 
 #: Byte-exact. Editing a value in the module must fail here, not in a report.
 _EXPECTED = {
@@ -129,8 +118,6 @@ def _key_position_literals(root: Path) -> list[str]:
             relative = path.resolve().relative_to(_REPO).as_posix()
         except ValueError:
             relative = path.as_posix()
-        if relative in _PROBE_EXCLUDED:
-            continue
         tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
         docstrings: set[int] = set()
         for node in ast.walk(tree):

@@ -102,7 +102,7 @@ AO-shaping/
 │   │   │       ├── slm_shaping_runner.py     # SLM Zernike PIB (slm-pib 命令组) + 方形整形 (square 子命令)
 │   │   │       ├── gsnet_runner.py           # SLM自由相位方形整形 (slm-gsnet)
 │   │   │       ├── gs_refine_runner.py       # GS 预矫正 + SPGD 细化 (slm-gs-refine)
-│   │   │       ├── model_in_loop_runner.py   # 正向模型闭环校正 (slm-model-in-loop)
+│   │   │       ├── model_in_loop_runner.py   # 物理预测模型闭环校正 (slm-model-in-loop)
 │   │   │       └── offset_runner.py          # SLM偏移校准 (standalone, 未注册)
 │   │   ├── algorithm/           # 优化算法 (5 子包: gradient/heuristic/signal_processing/tabu/goal_functions)
 │   │   │   ├── gradient/        # 梯度优化 (Adam, SGD, Muno, MuonW, etc.)

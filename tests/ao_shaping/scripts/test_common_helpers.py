@@ -29,6 +29,7 @@ from scripts._common import (
     fmt_fixed,
     fmt_general,
     fmt_metric,
+    fmt_num_or_dash,
     fmt_ratio,
     fmt_signed,
     format_iters,
@@ -260,6 +261,35 @@ def test_fmt_signed_is_distinct_from_fmt_metric() -> None:
     assert fmt_metric(float("nan")) == "-"
     assert fmt_signed(0.5).startswith("+")
     assert not fmt_metric(0.5).startswith("+")
+
+
+def test_fmt_num_or_dash_matches_the_recorded_behaviour() -> None:
+    """Seventh distinct formatter (``generate_pib_exit_safety_report.py``)."""
+    assert fmt_num_or_dash(0.123456) == "0.1235"
+    assert fmt_num_or_dash(0.123456, digits=2) == "0.12"
+    assert fmt_num_or_dash(None) == "—"
+    assert fmt_num_or_dash("abc") == "—"
+    assert fmt_num_or_dash(np.float64(2.5)) == "2.5000"
+    assert fmt_num_or_dash(0.5, dash="n/a") == "0.5000"
+    assert fmt_num_or_dash(None, dash="n/a") == "n/a"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(float("inf"), "inf"), (float("-inf"), "-inf"), (float("nan"), "nan")],
+)
+def test_fmt_num_or_dash_prints_non_finite_through_the_spec(
+    value: float, expected: str
+) -> None:
+    """The contract that keeps it separate from ``fmt_signed`` (which maps them to ``n/a``)."""
+    assert fmt_num_or_dash(value) == expected
+
+
+def test_fmt_num_or_dash_is_distinct_from_neighbours() -> None:
+    assert fmt_num_or_dash("abc") == "—"
+    assert fmt_general("abc") == "abc"
+    assert fmt_num_or_dash(float("inf")) == "inf"
+    assert fmt_signed(float("inf")) == "n/a"
 
 
 # ---------------------------------------------------------------------------

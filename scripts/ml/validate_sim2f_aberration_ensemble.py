@@ -67,6 +67,7 @@ import json
 import os
 import sys
 import time
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -75,13 +76,14 @@ ROOT = Path(__file__).resolve().parents[2]
 # path at all. `scripts/ml/` is an importable package (`scripts/__init__.py` exists),
 # so putting `scripts` on `sys.path` makes a bare `import ml` resolve to
 # `scripts/ml` instead of `src/ml` -- the documented subpackage-shadowing trap.
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(ROOT / "src"))
 
 import numpy as np
 
 from ml.sim2f.config import AberrationConfig
 from ml.sim2f.optics import DEFAULT_COVARIANCE_PATH, draw_aberration
+from scripts._common import fmt_general
 from scripts.ml.build_sim2f_aberration_covariance import (
     _build_bench,
     _grid_span_m,
@@ -416,15 +418,7 @@ def _strongest_pairs(result: dict[str, Any], noll: np.ndarray, count: int = 12) 
 # ---------------------------------------------------------------------------
 
 
-def _fmt(value: float, spec: str = ".4g") -> str:
-    """Format a float, rendering non-finite values as ``n/a``."""
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return str(value)
-    if not np.isfinite(number):
-        return "n/a"
-    return format(number, spec)
+_fmt = partial(fmt_general, missing_nonfinite="n/a")
 
 
 def _ladder_rows(result: dict[str, Any], noll: np.ndarray) -> list[list[str]]:

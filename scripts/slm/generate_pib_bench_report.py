@@ -59,6 +59,19 @@ plt.rcParams["axes.unicode_minus"] = False
 
 DEFAULT_ROOT = ROOT / "data" / "debug"
 DEFAULT_OUT = ROOT / "report" / "slm_pib_bench"
+#: A run needs at least this many recorded rows before any first-vs-final or
+#: head-vs-tail trend is defined; with one row every such diagnostic is meaningless.
+MIN_ROWS_FOR_TREND = 2
+
+#: Magnitude below which a metric's denominator counts as zero: the diagnostic falls back
+#: to a neutral value instead of dividing, so a near-zero baseline cannot fabricate a
+#: percentage. Not a degeneracy test on the measured quantity itself.
+NONZERO_DENOM_FLOOR = 1e-12
+
+#: Percentage improvement at which a run's gain stops being drift and counts as a real
+#: effect. Applied to both percentage columns (sustained and best) because it is the same
+#: question about the same quantity.
+MEANINGFUL_GAIN_PCT = 5.0
 
 #: Verdicts mirrored from ao_shaping.tools.kernels.sweep_analysis so this report
 #: renders offline without importing driver-side code paths.
@@ -139,7 +152,7 @@ def collect_search_runs(
         if not pkls:
             continue
         rows = _load_rows(pkls[0])
-        if not rows or len(rows) < 2:
+        if not rows or len(rows) < MIN_ROWS_FOR_TREND:
             continue
         key = next((k for k in keys if k in rows[0]), None)
         if key is None:
@@ -161,7 +174,7 @@ def collect_search_runs(
         # percentages (observed: +1.3e9%). Score only the un-penalised rows.
         scored = [r for r in rows if abs(float(r.get("J", 0.0))) <= 100.0]
         n_penalised = len(rows) - len(scored)
-        if len(scored) < 2:
+        if len(scored) < MIN_ROWS_FOR_TREND:
             continue
         try:
             values = np.asarray([float(r[key]) for r in scored], dtype=np.float64)
@@ -174,7 +187,7 @@ def collect_search_runs(
         sign = 1.0 if mode == "min" else -1.0  # +1 -> lower is better
         best = float(values.min() if mode == "min" else values.max())
         first, final = float(values[0]), float(values[-1])
-        denom = abs(first) if abs(first) > 1e-12 else 1.0
+        denom = abs(first) if abs(first) > NONZERO_DENOM_FLOOR else 1.0
         # Convergence diagnostics. ``final vs first`` alone is NOT a valid
         # progress measure: on a random walk the last sample lands wherever luck
         # puts it (bench-observed: a trace that dipped to 0.400, recovered to
@@ -188,7 +201,7 @@ def collect_search_runs(
         head = float(np.mean(values[:third]))
         tail = float(np.mean(values[-third:]))
         late_gain = (
-            100.0 * (head - tail) / abs(head) if abs(head) > 1e-12 else 0.0
+            100.0 * (head - tail) / abs(head) if abs(head) > NONZERO_DENOM_FLOOR else 0.0
         )
         out.append(
             {
@@ -479,11 +492,11 @@ def write_report(
                 f"> **⚠️ {len(walkers)}/{len(runs)} 个运行的 `dec` 在 0.45–0.55 之间** "
                 "= 随机游走。这些运行的 `sustained` 不应被解读为优化成果。",
             ]
-        strong = [r for r in runs if r["sustained_pct"] > 5.0]
+        strong = [r for r in runs if r["sustained_pct"] > MEANINGFUL_GAIN_PCT]
         weak = [
             r
             for r in runs
-            if abs(r["best_impr_pct"]) > 5.0 and abs(r["sustained_pct"]) < 2.0
+            if abs(r["best_impr_pct"]) > MEANINGFUL_GAIN_PCT and abs(r["sustained_pct"]) < 2.0
         ]
         # Does a frequently-firing energy guard correlate with a failed run?
         guarded = [r for r in runs if r.get("n_penalised", 0) > 0]

@@ -112,6 +112,19 @@ RECOMPUTE_TOL = 1e-5
 #: 本体相位距离: 去掉 piston 后的 L2 (弧度), 在 canonical 瞳面掩膜内统计。
 PUPIL_RADIUS_FRACTION = 0.5
 
+#: 「还在动」判据的下限: 末段 20% 的相对观测变化必须超过这个比例, 才算该预算档
+#: 尚未压平 (与下面 `runs_with_detectable_trend` 的比例门合用)。
+TAIL_MOVING_RELATIVE = 0.05
+
+#: 一个预算档至少要这么多次运行, 其中位数才计入「还在动 / 已收敛」的判定;
+#: 单次运行的末段变化无法与抖动区分。
+MIN_RUNS_PER_BUDGET = 3
+
+#: CV / EE 的模型减实测偏差超过这个绝对值, 才算系统性失配 (假设 B)。
+#: 与 `TAIL_MOVING_RELATIVE` 同为 0.05 量级但**不是同一个量**: 这里是绝对偏差,
+#: 那里是相对变化率。
+METRIC_BIAS_ABS = 0.02
+
 
 # ---------------------------------------------------------------------------
 # 数据容器
@@ -1563,7 +1576,7 @@ def aggregate(analyses: Sequence[dict[str, Any]]) -> dict[str, Any]:
             "runs_still_moving": sum(
                 1
                 for item in used
-                if (item.get("tail_20pct_observed_change") or 0.0) > 0.05
+                if (item.get("tail_20pct_observed_change") or 0.0) > TAIL_MOVING_RELATIVE
                 and (item.get("tail_20pct_observed_change") or 0.0)
                 > 3.0 * (item.get("tail_20pct_jitter") or 1.0)
             ),
@@ -1843,8 +1856,8 @@ def verdicts(agg: dict[str, Any]) -> dict[str, Any]:
         moving = [
             group
             for group in groups
-            if group["runs"] >= 3
-            and (group["median_tail_observed_change"] or 0.0) > 0.05
+            if group["runs"] >= MIN_RUNS_PER_BUDGET
+            and (group["median_tail_observed_change"] or 0.0) > TAIL_MOVING_RELATIVE
             and group["runs_with_detectable_trend"] >= 0.5 * group["runs"]
         ]
         return {
@@ -1900,16 +1913,16 @@ def verdicts(agg: dict[str, Any]) -> dict[str, Any]:
     largest_moving = [
         (label, group)
         for label, group in largest_groups
-        if group["runs"] >= 3
-        and (group["median_tail_observed_change"] or 0.0) > 0.05
+        if group["runs"] >= MIN_RUNS_PER_BUDGET
+        and (group["median_tail_observed_change"] or 0.0) > TAIL_MOVING_RELATIVE
         and group["runs_with_reliable_extrapolation"] >= 0.5 * group["runs"]
     ]
     historical_moving = [
         (row["label"], group)
         for row in evidence_a
         for group in row["by_iteration_budget"]
-        if group["runs"] >= 3
-        and (group["median_tail_observed_change"] or 0.0) > 0.05
+        if group["runs"] >= MIN_RUNS_PER_BUDGET
+        and (group["median_tail_observed_change"] or 0.0) > TAIL_MOVING_RELATIVE
         and float(group["iteration_budget"] or 0) != largest_budget
         and group["runs_with_detectable_trend"] >= 0.5 * group["runs"]
     ]
@@ -1961,8 +1974,8 @@ def verdicts(agg: dict[str, Any]) -> dict[str, Any]:
         and sign_consistency is not None
         and sign_consistency >= 0.75
     ) or (
-        (cv_bias is not None and abs(cv_bias) > 0.02)
-        or (ee_bias is not None and abs(ee_bias) > 0.02)
+        (cv_bias is not None and abs(cv_bias) > METRIC_BIAS_ABS)
+        or (ee_bias is not None and abs(ee_bias) > METRIC_BIAS_ABS)
     )
     out["B"] = {
         "supported": bool(systematic),
@@ -2073,7 +2086,7 @@ def _render_summary(
     a_parts = []
     for row in a["evidence"]:
         for group in row["by_iteration_budget"]:
-            if group["runs"] < 3:
+            if group["runs"] < MIN_RUNS_PER_BUDGET:
                 continue
             a_parts.append(
                 f"{row['label']} {group['iteration_budget']} 步档：末段相对变化 "
@@ -2444,8 +2457,8 @@ def _recommendations(verdict_block: dict[str, Any], agg: dict[str, Any]) -> list
             (row["label"], group)
             for row in iters["evidence"]
             for group in row["by_iteration_budget"]
-            if group["runs"] >= 3
-            and (group["median_tail_observed_change"] or 0.0) > 0.05
+            if group["runs"] >= MIN_RUNS_PER_BUDGET
+            and (group["median_tail_observed_change"] or 0.0) > TAIL_MOVING_RELATIVE
             and group["runs_with_detectable_trend"] >= 0.5 * group["runs"]
         ]
         detail = "; ".join(

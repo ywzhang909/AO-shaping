@@ -144,8 +144,8 @@
     ]
   },
   "slm_abba_probe": {
-    "body_literals": 156,
-    "body_literals_sha256": "16d27f4e30504beb",
+    "body_literals": 153,
+    "body_literals_sha256": "7bfbcac01a15f93a",
     "declared": [
       "--cam-id",
       "--cam-type",
@@ -336,8 +336,8 @@
     ]
   },
   "slm_drift_probe": {
-    "body_literals": 174,
-    "body_literals_sha256": "29071af11129133f",
+    "body_literals": 172,
+    "body_literals_sha256": "349aea1263efb9e0",
     "declared": [
       "--cam-id",
       "--cam-type",
@@ -392,8 +392,8 @@
     ]
   },
   "slm_floor_probe": {
-    "body_literals": 207,
-    "body_literals_sha256": "0d9796187812a2ee",
+    "body_literals": 203,
+    "body_literals_sha256": "2a702c7fbdeb5caf",
     "declared": [
       "--cam-id",
       "--cam-type",
@@ -666,8 +666,8 @@
     ]
   },
   "slm_train_data_collect": {
-    "body_literals": 247,
-    "body_literals_sha256": "a161b30e34afb153",
+    "body_literals": 238,
+    "body_literals_sha256": "30970bbd803d8f79",
     "declared": [
       "--algorithm",
       "--beam-radius",
@@ -910,8 +910,8 @@
     ]
   },
   "slm_zernike_sweep_probe": {
-    "body_literals": 103,
-    "body_literals_sha256": "f79e0ef102484be3",
+    "body_literals": 100,
+    "body_literals_sha256": "fa540e65a0deff9a",
     "declared": [
       "--no-hw",
       "--no-save-frames",

@@ -1,4 +1,4 @@
-"""Offline tests for the 迁移模型闭环 progress detail panel.
+"""Offline tests for the 迁移学习闭环 progress detail panel.
 
 ``ao_shaping.gui.slm.transfer_progress`` has two halves: a pure reader
 (:func:`collect_progress`, no streamlit, no hardware) and a renderer
@@ -639,7 +639,7 @@ class TestRenderProgress:
         tp.render_progress(self._running_view(tmp_path), running=True)
 
         assert stub.markdown[0] == (
-            "**运行中** · 当前阶段：物理模型迁移 / 拟合（3/7）"
+            "**运行中** · 当前阶段：物理预测模型迁移 / 拟合（3/7）"
         )
 
     def test_the_counts_line_follows(self, tmp_path, stub):
@@ -669,7 +669,7 @@ class TestRenderProgress:
 
         tp.render_progress(tp.collect_progress(out), running=True)
 
-        assert "**物理模型迁移 / 拟合**：进行中 —— 尚未产出指标" in stub.markdown[1]
+        assert "**物理预测模型迁移 / 拟合**：进行中 —— 尚未产出指标" in stub.markdown[1]
 
     def test_block_details_are_nested_under_their_stage_row(self, tmp_path, stub):
         out = _session(

@@ -57,6 +57,7 @@ from ao_shaping.tools.kernels.bench_kernels import (
 from ao_shaping.tools.kernels.bench_kernels import measure_spot
 from ao_shaping.tools.kernels.sweep_analysis import SIGMA_FLOOR
 from ao_shaping.utils.io.npz_summary import save_summary_npz
+from ao_shaping.utils.io.recorder_keys import (RECORD_EPOCH)
 
 #: Full width of the analysis ROI in pixels; half of this is the half-width
 #: handed to :func:`~ao_shaping.tools.kernels.bench_kernels.crop_roi`.
@@ -220,7 +221,7 @@ def repeatability_floor(
             "fwhm_px": _frame_metrics(frames[i])["fwhm_px"],
             "norm": float(series[i - 1]) if i > 0 else 0.0,
             "index": int(i),
-            "_epoch": int(i),
+            RECORD_EPOCH: int(i),
         }
         for i in range(count)
     ]
@@ -306,7 +307,7 @@ def settle_curve(
             "norm": float(norms[i]),
             "t_s": float(times[i]),
             "index": int(i),
-            "_epoch": int(i),
+            RECORD_EPOCH: int(i),
         }
         for i in range(n_samples)
     ]
@@ -396,7 +397,7 @@ def snr_ladder(
                 "snr": float(snr[k]),
                 "k": int(k),
                 "index": int(position),
-                "_epoch": int(position),
+                RECORD_EPOCH: int(position),
             }
         )
     summary: dict[str, Any] = {
@@ -466,7 +467,7 @@ def save_floor_records_pkl(path: Path, rows: Sequence[dict[str, Any]]) -> Path:
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {int(row["_epoch"]): row for row in rows}
+    payload = {int(row[RECORD_EPOCH]): row for row in rows}
     with path.open("wb") as handle:
         pickle.dump(payload, handle, protocol=pickle.HIGHEST_PROTOCOL)
     return path

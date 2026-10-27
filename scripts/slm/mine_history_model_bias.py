@@ -147,6 +147,14 @@ SCALE_SEARCH = (0.55, 1.80)
 
 #: 会话切分: 训练 / 历史验证集。
 SESSION_SPLIT_FRACTION = 0.7
+#: A fit, a residual, or a before/after comparison needs at least two entries: with
+#: one the quantity is undefined rather than merely noisy, so the case is skipped.
+MIN_COMPARISON_SAMPLES = 2
+
+#: Magnitude below which a scale factor (deviation from unity) or a centroid shift is
+#: numerically degenerate -- identity, or no movement at all. Such a sample carries no
+#: signal to regress, unlike a division floor, which is a separate concern.
+DEGENERACY_EPSILON = 1e-9
 
 
 # ---------------------------------------------------------------------------
@@ -296,7 +304,7 @@ def fit_exposure_response(
         拟合结果; 点少于 2 个或曝光全相同时退化为 ``bias=0, gain=1``。
     """
     usable = [(float(e), float(p)) for e, p in points if math.isfinite(e) and math.isfinite(p)]
-    if len(usable) < 2 or len({round(e, 9) for e, _ in usable}) < 2:
+    if len(usable) < MIN_COMPARISON_SAMPLES or len({round(e, 9) for e, _ in usable}) < MIN_COMPARISON_SAMPLES:
         return ExposureFit(
             bias=0.0,
             gain=1.0,
@@ -309,7 +317,7 @@ def fit_exposure_response(
     train = usable if holdout_index is None else [
         item for index, item in enumerate(usable) if index != holdout_index
     ]
-    if len(train) < 2:
+    if len(train) < MIN_COMPARISON_SAMPLES:
         train = usable
 
     ex = np.asarray([e for e, _ in train], dtype=np.float64)
@@ -448,7 +456,7 @@ def _session_exposure_fit(
         points = read_light_ladder(ladder)
         saturated = [p for p in points if p[1] >= SATURATION_LEVEL]
         usable = [p for p in points if p[1] < SATURATION_LEVEL]
-        if len(usable) >= 2:
+        if len(usable) >= MIN_COMPARISON_SAMPLES:
             source = f"曝光阶梯 {ladder.as_posix()}"
             if saturated:
                 source += f" (剔除 {len(saturated)} 个饱和点)"
@@ -466,7 +474,7 @@ def _session_exposure_fit(
         if exposure is None or raw is None:
             continue
         flat_exposures[exposure] = float(np.max(raw))
-    if len(flat_exposures) >= 2:
+    if len(flat_exposures) >= MIN_COMPARISON_SAMPLES:
         points = sorted(flat_exposures.items())
         return fit_exposure_response(points, "会话内平场探针的多曝光读数")
 
@@ -1059,7 +1067,7 @@ def _centroid(image: np.ndarray) -> tuple[float, float] | None:
 
 def _rescale_about_centroid(image: np.ndarray, factor: float) -> np.ndarray:
     """把图样绕自身质心缩放 ``factor`` 倍 (焦距尺度的作用)。"""
-    if abs(factor - 1.0) < 1e-9:
+    if abs(factor - 1.0) < DEGENERACY_EPSILON:
         return np.asarray(image, dtype=np.float64)
     from scipy.ndimage import map_coordinates
 
@@ -1078,7 +1086,7 @@ def _rescale_about_centroid(image: np.ndarray, factor: float) -> np.ndarray:
 
 def _translate(image: np.ndarray, dx: float, dy: float) -> np.ndarray:
     """平移图样 (亚格插值)。"""
-    if abs(dx) < 1e-9 and abs(dy) < 1e-9:
+    if abs(dx) < DEGENERACY_EPSILON and abs(dy) < DEGENERACY_EPSILON:
         return np.asarray(image, dtype=np.float64)
     from scipy.ndimage import shift as _shift
 

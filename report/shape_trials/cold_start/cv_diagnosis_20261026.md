@@ -1,4 +1,4 @@
-# 冷启动物理模型 CV 误差的曝光偏置诊断（2026-10-26）
+# 冷启动物理预测模型 CV 误差的曝光偏置诊断（2026-10-26）
 
 <!-- provenance:start -->
 > **生成脚本**: [`scripts/slm/analyze_cold_start_cv.py`](../../../scripts/slm/analyze_cold_start_cv.py)

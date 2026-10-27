@@ -308,6 +308,30 @@ class TestCovarianceAsset:
             draw_aberration(bench, cfg, np.random.default_rng(0))
 
 
+#: Ladder-compression bounds for
+#: :meth:`TestKolmogorovDraw.test_end_to_end_shape_survives_the_rms_rescale`, measured
+#: on the reference bench with the packaged asset at the test's own budget (2000
+#: end-to-end draws, TODO.md 8.9 item 103).  The two bands below bracket the **two
+#: endpoints** the docstring quotes -- the share ratio at the lowest probed mode
+#: (Noll 4) and at the highest (Noll 22).  Measured at seed 20261025: 0.8538 and
+#: 1.2739; over seeds 1 / 8 / 21 they stay in 0.893..0.897 and 1.315..1.319.
+_LADDER_LOW_BAND = (0.80, 0.95)
+_LADDER_HIGH_BAND = (1.15, 1.35)
+
+#: ``max`` over all 21 diagonal share ratios is a **different statistic** and it is
+#: positively biased: the maximum of noisy entries sits about a sampling sigma above
+#: the typical one.  Measured at N=2000 it is 1.3466 (seed 20261025, on Noll 17) and
+#: 1.3559..1.3660 on seeds 1 / 8 / 21, while at N=8000 it falls to 1.2860..1.2988 --
+#: the shrink with N is the evidence that the gap is sampling bias, not drift.  The
+#: bound is therefore pinned above the N=2000 measurements with ~1.06x margin, never
+#: at the endpoint value: the old ``1.30`` was the endpoint number, so it lay below
+#: this statistic's expected value and no seed at this budget could satisfy it.
+_LADDER_MAX_OVER_ENTRIES = 1.45
+
+#: Floor for the weakest entry, kept from the original assertion.  The minimum over
+#: 21 entries is biased the other way; measured 0.8538 at seed 20261025.
+_LADDER_MIN_OVER_ENTRIES = 0.80
+
 class TestKolmogorovDraw:
     """The correlated ensemble keeps the amplitude knob and changes only shape."""
 
@@ -380,16 +404,25 @@ class TestKolmogorovDraw:
         fixed norm.  Measured on 2000 end-to-end draws (seed 20261025):
 
         * ``max |corr - corr(Sigma)|`` off-diagonal: **0.091** (rms 0.029);
-        * the diagonal ladder is **compressed**: low order keeps 0.85x of its
-          target share, the highest mode gains 1.27x, so the defocus-to-Noll-22
-          ratio falls 35x -> 24x (an i.i.d. draw would be 1x, which is the whole
-          point of the change).
+        * the diagonal ladder is **compressed**: the lowest probed mode (Noll 4)
+          keeps 0.8538 of its target share, the highest (Noll 22) gains 1.2739x, so
+          the defocus-to-Noll-22 ratio falls 35x -> 24.6x (an i.i.d. draw would be
+          1x, which is the whole point of the change).
 
-        The bounds below are those measurements with ~1.3x margin, plus 15x for
-        the ladder span.  They are not tightened to the unconstrained sampling
-        error (0.019): a test asserting that would assert a property the
-        amplitude knob deliberately breaks.  See ``draw_aberration``'s docstring
-        for what to change if the *exact* ``Sigma`` is required.
+        The endpoints above are the statistics quoted in ``draw_aberration`` and they
+        reproduce here exactly at the pinned seed; the bands in
+        :data:`_LADDER_LOW_BAND` / :data:`_LADDER_HIGH_BAND` carry them with margin
+        over the extra seeds listed there.  ``max`` over all 21 ratios is *not* one
+        of those endpoints -- it lands on a mid-order mode (Noll 17 here) and is
+        inflated by sampling, so it gets its own bound in
+        :data:`_LADDER_MAX_OVER_ENTRIES`.  An earlier version of this test bounded
+        that max with the endpoint number (``1.30``), which no seed at this draw
+        count could satisfy -- it was red on arrival at the commit that added it
+        (38303f58), with a byte-identical failure signature.  The bounds are still
+        not tightened to the unconstrained sampling error (0.019): that would assert
+        a property the amplitude knob deliberately breaks.  See
+        ``draw_aberration``'s docstring for what to change if the *exact* ``Sigma``
+        is required.
         """
         draws = _draw_many(bench, _kolmogorov(), 2000, seed=20261025)[:, 2:]
         empirical = np.cov(draws, rowvar=False)
@@ -406,7 +439,22 @@ class TestKolmogorovDraw:
         share = np.diag(empirical) / np.diag(empirical).mean()
         expected = np.diag(target) / np.diag(target).mean()
         ratio = share / expected
-        assert 0.80 < ratio.min() and ratio.max() < 1.30
+        low = int(np.flatnonzero(noll == 4)[0])
+        high = int(np.flatnonzero(noll == 22)[0])
+        assert _LADDER_LOW_BAND[0] < ratio[low] < _LADDER_LOW_BAND[1], ratio[low]
+        assert _LADDER_HIGH_BAND[0] < ratio[high] < _LADDER_HIGH_BAND[1], ratio[high]
+        assert ratio.max() < _LADDER_MAX_OVER_ENTRIES, (
+            f"max over {ratio.size} entries landed on Noll "
+            f"{int(noll[int(ratio.argmax())])} at {ratio.max():.4f}"
+        )
+        # Separate bounds only make sense because the two statistics are attained at
+        # different modes: the max is a mid-order entry inflated by sampling, not the
+        # highest mode.  If they ever merge, both bands need re-measuring.
+        assert int(noll[int(ratio.argmax())]) != int(noll[high]), (
+            "max over entries now coincides with the highest mode: the endpoint and "
+            "max-over-entries statistics have merged, re-measure both bounds"
+        )
+        assert ratio.min() > _LADDER_MIN_OVER_ENTRIES, ratio.min()
         # The ladder survives: strictly decreasing *between radial orders* (modes
         # within one order are symmetry partners and only differ by sampling
         # noise), and low order still dominates by more than 15x.

@@ -81,7 +81,7 @@ from __future__ import annotations
 import contextlib
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Final
 
 import numpy as np
 import tqdm
@@ -152,6 +152,11 @@ ADVISE_EXPOSURE_TIME_BRIGHTNESS = int(255 / 3)
 # SLM parameters
 SLM_RESPONSE_TIME_S = 0.3  # Santec SLM-200 response time ~300ms
 SLM_RESET_ON_EXIT = True
+
+#: Below this, a frame statistic (mean / total power / peak / span) is
+#: numerically degenerate and the metric is reported as unusable rather than
+#: dividing through it.
+_DEGENERATE_EPS: Final[float] = 1e-10
 
 #: Simulation / test injection point; ``None`` means the real driver.
 _SLM_CLASS_OVERRIDE: type | None = None
@@ -395,7 +400,7 @@ def square_uniformity_cost(
         return 0.0, float("inf"), 0.0
 
     mean_val = float(np.mean(region))
-    if mean_val < 1e-10:
+    if mean_val < _DEGENERATE_EPS:
         return 0.0, float("inf"), 0.0
 
     std_val = float(np.std(region))
@@ -431,7 +436,7 @@ def square_encircled_energy(
     x1 = min(w, cx + half)
 
     total = float(np.sum(img))
-    if total < 1e-10:
+    if total < _DEGENERATE_EPS:
         return 0.0
 
     region_sum = float(np.sum(img[y0:y1, x0:x1]))
@@ -550,7 +555,7 @@ def square_aspect_ratio(
         return 0.0
 
     peak = float(np.max(region))
-    if peak < 1e-10:
+    if peak < _DEGENERATE_EPS:
         return 0.0
 
     mask = region > peak * threshold_ratio
@@ -566,7 +571,7 @@ def square_aspect_ratio(
     height_px = float(r_max - r_min + 1)
     width_px = float(c_max - c_min + 1)
 
-    if height_px < 1e-10:
+    if height_px < _DEGENERATE_EPS:
         return 0.0
 
     return width_px / height_px

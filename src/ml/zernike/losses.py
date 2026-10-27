@@ -59,6 +59,7 @@ import torch
 from torch import Tensor
 
 from ao_shaping.utils.image.target.metrics import target_shape_roi
+from ml.sim2f.config import NDIM_BARE_MAP, NDIM_BATCHED_MAP
 
 #: Floor for ``log`` and for divisions by an intensity that may be exactly 0.
 #: The forward model produces exact zeros on the far-field background (sidelobes),
@@ -154,7 +155,7 @@ def _flatten_roi(intensity: Tensor, mask: Tensor) -> tuple[Tensor, Tensor]:
     this module has the same per-sample shape and can be stacked by
     :func:`composite_loss`.
     """
-    if intensity.dim() != 4:
+    if intensity.dim() != NDIM_BATCHED_MAP:
         raise ValueError(f"intensity must be (B,1,H,W), got {tuple(intensity.shape)}")
     if tuple(intensity.shape[-2:]) != tuple(mask.shape):
         raise ValueError(
@@ -162,7 +163,7 @@ def _flatten_roi(intensity: Tensor, mask: Tensor) -> tuple[Tensor, Tensor]:
             f"{tuple(mask.shape)}; the ROI was built for a different frame size"
         )
     m = mask.to(device=intensity.device, dtype=intensity.dtype)
-    if m.dim() == 2:
+    if m.dim() == NDIM_BARE_MAP:
         m = m.view(1, 1, *m.shape)
     roi_sum = (intensity * m).sum(dim=(-2, -1)).squeeze(-1)
     total = intensity.sum(dim=(-2, -1)).squeeze(-1)
@@ -193,7 +194,7 @@ def second_moments(
     Returns ``(B,)`` tensors, matching every other term in this module. Pixels outside
     a supplied mask, and any NaN the basis may carry, contribute nothing.
     """
-    if intensity.dim() != 4:
+    if intensity.dim() != NDIM_BATCHED_MAP:
         raise ValueError(f"intensity must be (B,1,H,W), got {tuple(intensity.shape)}")
     weights = intensity
     if mask is not None:
@@ -203,7 +204,7 @@ def second_moments(
                 f"{tuple(mask.shape)}; the ROI was built for a different frame size"
             )
         m = mask.to(device=intensity.device, dtype=intensity.dtype)
-        if m.dim() == 2:
+        if m.dim() == NDIM_BARE_MAP:
             m = m.view(1, 1, *m.shape)
         weights = intensity * m
     weights = torch.nan_to_num(weights, nan=0.0, posinf=0.0, neginf=0.0)
@@ -247,7 +248,7 @@ def ellipse_parameters(
 
     Returns five ``(B,)`` tensors, matching every other term in this module.
     """
-    if intensity.dim() != 4:
+    if intensity.dim() != NDIM_BATCHED_MAP:
         raise ValueError(f"intensity must be (B,1,H,W), got {tuple(intensity.shape)}")
     device, dtype = intensity.device, intensity.dtype
     height, width = intensity.shape[-2:]
@@ -260,7 +261,7 @@ def ellipse_parameters(
                 f"{tuple(mask.shape)}; the ROI was built for a different frame size"
             )
         m = mask.to(device=device, dtype=dtype)
-        if m.dim() == 2:
+        if m.dim() == NDIM_BARE_MAP:
             m = m.view(1, 1, *m.shape)
         weights = intensity * m
 
@@ -362,10 +363,10 @@ def uniformity_term(intensity: Tensor, mask: Tensor) -> Tensor:
     :func:`pib_term` must accompany it (optimising uniformity alone has
     previously driven the box empty, EE -> 0.002, measured on hardware).
     """
-    if intensity.dim() != 4:
+    if intensity.dim() != NDIM_BATCHED_MAP:
         raise ValueError(f"intensity must be (B,1,H,W), got {tuple(intensity.shape)}")
     m = mask.to(device=intensity.device, dtype=intensity.dtype)
-    if m.dim() == 2:
+    if m.dim() == NDIM_BARE_MAP:
         m = m.view(1, 1, *m.shape)
     roi = intensity * m
     count = torch.clamp(m.sum(), min=1.0)
@@ -427,7 +428,7 @@ def speckle_detail_term(
     :func:`pib_term`, exactly as :func:`uniformity_term` does.
     """
     m = mask.to(device=prediction.device, dtype=prediction.dtype)
-    if m.dim() == 2:
+    if m.dim() == NDIM_BARE_MAP:
         m = m.view(1, 1, *m.shape)
 
     def tv(x: Tensor) -> Tensor:

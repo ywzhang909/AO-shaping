@@ -696,7 +696,7 @@ def _section_forward_model(cfg: dict[str, str]) -> list[str]:
     out: list[str] = []
     A = out.append
 
-    A("## 8. 正向预测模型的结构 (前处理 / 深度模块 / 后处理)\n")
+    A("## 8. 物理预测模型的结构 (前处理 / 深度模块 / 后处理)\n")
     A(
         "本仓有**三个**都叫「物理预测模型」的东西, 用途完全不同。先分清, 再讲结构 —— 混淆这三者\n"
         "本项目已经付出过代价: 离线 checkpoint 的 piston 约定与闭环约定差一位 (§9)。\n"

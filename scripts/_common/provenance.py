@@ -135,7 +135,7 @@ REPORTS: dict[str, ReportProvenance] = {
         script="scripts/slm/generate_square1200_report.py",
         command="python scripts/slm/generate_square1200_report.py",
         environment="实验（Santec #1 与 Daheng，1064 nm，1200 CCD 像元方形）",
-        note="非 GS 物理映射初相位、曝光感知迁移模型、Mono12 及 CCD 核心 CV 验收。",
+        note="非 GS 物理映射初相位、曝光感知迁移学习、Mono12 及 CCD 核心 CV 验收。",
         extra_scripts=("src/ao_shaping/tools/slm/transfer/validate.py",
                        "src/ao_shaping/tools/slm/transfer/geometric_seed.py",
                        "src/ao_shaping/tools/slm/transfer/camera_probe.py",
@@ -158,7 +158,7 @@ REPORTS: dict[str, ReportProvenance] = {
         script="scripts/slm/generate_cold_start_report.py",
         command="python scripts/slm/generate_cold_start_report.py",
         environment="离线（重算 Santec #1 与 Daheng 当前光路实验数据）",
-        note="无历史权重、平面或随机整形初相位，物理模型从零拟合与 CCD 配对验收。",
+        note="无历史权重、平面或随机整形初相位，物理预测模型从零拟合与 CCD 配对验收。",
         extra_scripts=("src/ao_shaping/tools/slm/transfer/capture.py",
                        "src/ao_shaping/tools/slm/transfer/bootstrap.py",
                        "src/ao_shaping/tools/slm/transfer/fit.py",
@@ -1116,7 +1116,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "Step A 像差系数 + 信赖域截断、Step B 600 步轨迹、逐探针实测/预测远场与"
             "相关/SSIM、逐轮 CV/EE/IoU、bake_off_rejected 结论 (整形 0.3451 未打赢"
             "平场 0.4025, 落盘相位为零相位平场)；过程动画每帧给相位/实测/预测远场"
-            "(叠目标掩模轮廓) + 差值 + 正向预测模型 metrics + 目标 metrics"
+            "(叠目标掩模轮廓) + 差值 + 物理预测模型 metrics + 目标 metrics"
         ),
         extra_scripts=(
             "scripts/slm/model_in_loop_hw_ab.py",

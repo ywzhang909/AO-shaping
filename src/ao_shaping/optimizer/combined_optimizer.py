@@ -125,8 +125,13 @@ def optimize_pib(
         target_max_brightness: Target max pixel brightness. ``0`` = disable auto-exposure.
         dm_unit_mask: Boolean mask for enabled DM actuators.
         dm_neibor_diff: Max neighbour voltage difference safety check.
-        dm_max_voltage: DM max voltage limit.
-        dm_min_voltage: DM min voltage limit.
+        dm_max_voltage: DM max voltage limit. Forwarded to the DM factory and
+            filtered per registered type by ``create_dm``: no registered
+            hardware DM accepts it as a constructor argument (the limits are
+            the ``V_Min`` / ``V_Max`` properties, enforced when updates are
+            clipped), so on hardware it is inert; the simulation shim honours
+            it. Kept in the signature for that sim-parity contract (#91).
+        dm_min_voltage: Same as ``dm_max_voltage``, lower bound.
         dm: DM instance. If ``None``, a default NlightDM is created.
         **kwargs: Additional kwargs forwarded to the AdaMOD constructor.
 
@@ -145,7 +150,7 @@ def optimize_pib(
         target_max_brightness=target_max_brightness,
         center=center,
         dm=dm,
-        create_dm=lambda: get_dm_registry().create(
+        create_dm=lambda: get_dm_registry().create_dm(
             "nlight",
             keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT,
             max_neibor_diff=dm_neibor_diff,

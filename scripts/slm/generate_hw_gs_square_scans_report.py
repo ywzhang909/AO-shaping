@@ -113,6 +113,37 @@ DARK_FRAME_FRACTION = 0.10
 
 #: `※` CV 离群判据: 该行 ``cv`` 超过同段中位数的这个倍数。
 OUTLIER_CV_RATIO = 1.5
+#: 在 CSV 行里按浮点键回查一条记录 (``blaze_period_px`` / ``n_max`` / ``side_px`` /
+#: 优化指标 ``variable``) 的匹配容差。命中唯一行才算「这帧对应这行」, 落空的后果是
+#: 报告里出现空洞而不是崩, 所以这道容差是**表示**级 (float 往返), 不是光学判据。
+ROW_MATCH_ATOL = 1e-9
+
+#: ``.npz`` 里的 params 与 CSV 行必须一致 (cv / pib / score / frame_peak 这类
+#: 由测量算出的量): 超过它就判「帧与 CSV 行对不上」并终止渲染。取 **1e-6** 是因为
+#: 这些量经过一次 float 化与 CSV 的十进制文本往返, 1e-9 会把纯表示差异误报成不一致。
+PARAM_NPZ_CSV_ATOL = 1e-6
+
+#: 同一个校验里 ``side_px`` 用的是 **1e-9** 而不是上面的 1e-6: 它是整数语义的边长
+#: (下发值), 只有 float 往返误差, 没有任何算术放大 —— 两个容差**故意不同**, 统一
+#: 成一个就把这条整数硬校验放松了。
+SIDE_PX_NPZ_CSV_ATOL = 1e-9
+
+#: ``score = 0.5·PIB + 0.5/(1+CV)`` 恒等式的复算容差: 报告读到的 score 必须由同一行
+#: 的 PIB/CV 复算得出, 差得比 float 算术噪声大就说明落盘时被别的代码路径改写过。
+SCORE_IDENTITY_ATOL = 1e-6
+
+#: 框面积恒等式 ``side² = box_area_px + box_clipped_px`` 的容差。这里是**像素面积**
+#: 量级 (side 可到千余 px), float 表示误差随量级放大, 所以比 score 那条松三个数量级。
+AREA_IDENTITY_ATOL = 1e-3
+
+#: 曝光读回值与生效值一致的容差 (``exposure_ms_readback`` vs ``exposure_ms`` /
+#: ``exposure_ms_working``): 驱动回读的是同一个下发浮点, 只允许表示误差。
+EXPOSURE_MATCH_ATOL = 1e-9
+
+#: 帧最大值与 CSV ``frame_peak`` 的一致性容差 (counts, 8 bit 满量程 255 量级):
+#: 这是**跨表示**核对 (帧 mean 与写盘时的 float 文本), 1e-3 counts 已远小于任何
+#: 有意义的电平差, 再松就会让真实的帧↔行错配溜过去。
+PEAK_MATCH_ATOL = 1e-3
 
 # ---------------------------------------------------------------------------
 # 复测批次 (功率已变) —— 第二数据源
@@ -971,7 +1002,7 @@ class RetestStage:
 
     def row_of(self, value: float) -> dict[str, str]:
         for row in self.rows:
-            if abs(float(row[self.variable]) - float(value)) < 1e-9:
+            if abs(float(row[self.variable]) - float(value)) < ROW_MATCH_ATOL:
                 return row
         raise KeyError(f"复测 {self.name} 段没有取值 {value} 的行")
 
@@ -1336,7 +1367,7 @@ def compute_retest_findings(
         value = float(row["blaze_period_px"])
         b_row = None
         for cand in base_blaze.rows:
-            if abs(float(cand["blaze_period_px"]) - value) < 1e-9:
+            if abs(float(cand["blaze_period_px"]) - value) < ROW_MATCH_ATOL:
                 b_row = cand
                 break
         if b_row is None or float(b_row["frame_peak"]) < DARK_FRAME_FRACTION * base_med_peak:
@@ -1353,7 +1384,7 @@ def compute_retest_findings(
     for cfg in zern.configs:
         b_row = None
         for row in base_zern.rows:
-            if abs(float(row["n_max"]) - cfg.value) < 1e-9:
+            if abs(float(row["n_max"]) - cfg.value) < ROW_MATCH_ATOL:
                 b_row = row
                 break
         if b_row is None:
@@ -1856,13 +1887,13 @@ def _check_frame_params(stage: str, cfg: CellPick, ref: FrameRef) -> None:
     for key, column in checks:
         if key not in params:
             continue
-        if abs(float(params[key]) - float(cfg.row[column])) > 1e-6:
+        if abs(float(params[key]) - float(cfg.row[column])) > PARAM_NPZ_CSV_ATOL:
             raise ValueError(
                 f"{stage}/{cfg.slug}: npz params 的 {key}={params[key]} 与 CSV 的 "
                 f"{column}={cfg.row[column]} 不一致 —— 帧与 CSV 行对不上"
             )
     if "side_px" in params and stage == "sides":
-        if abs(float(params["side_px"]) - float(cfg.row["side_px"])) > 1e-9:
+        if abs(float(params["side_px"]) - float(cfg.row["side_px"])) > SIDE_PX_NPZ_CSV_ATOL:
             raise ValueError(
                 f"{stage}/{cfg.slug}: npz params 的 side_px={params['side_px']} 与 CSV 不一致"
             )
@@ -1887,7 +1918,7 @@ def select_cells(
     def pick(stage: Stage, target: float, role: str, note: str = "") -> CellPick | None:
         key = VARIABLE[stage.name]
         for row in stage.rows:
-            if abs(float(row[key]) - float(target)) < 1e-9:
+            if abs(float(row[key]) - float(target)) < ROW_MATCH_ATOL:
                 return CellPick(stage=stage.name, row=row, role=role, note=note)
         return None
 
@@ -2105,7 +2136,7 @@ def plan_mosaic(run: Run, spec: MosaicSpec, picks: Sequence[CellPick]) -> dict[s
             # 有没有这两个数决定了读者能不能分清"数据太暗"和"画错了"。
             image = load_frame_mean(ref.paths)
             peak_px = float(image.max())
-            if abs(peak_px - peak) > 1e-3:
+            if abs(peak_px - peak) > PEAK_MATCH_ATOL:
                 raise ValueError(
                     f"{pick.stage}/{pick.slug}: 帧最大值 {peak_px:.6g} 与 CSV frame_peak "
                     f"{peak:.6g} 不一致 —— 帧与 CSV 行对不上"
@@ -2155,7 +2186,7 @@ def draw_mosaic(run: Run, spec: MosaicSpec, picks: Sequence[CellPick],
     for ax, (pick, record) in zip(flat, cells):
         ref = locate_frames(stage_dirs[pick.stage], pick.row, run.stages[pick.stage].headers)
         image = load_frame_mean(ref.paths)
-        if abs(float(image.max()) - float(record["peak"])) > 1e-3:
+        if abs(float(image.max()) - float(record["peak"])) > PEAK_MATCH_ATOL:
             raise ValueError(
                 f"{pick.stage}/{pick.slug}: 帧最大值 {float(image.max()):.6g} 与 CSV "
                 f"frame_peak {record['peak']:.6g} 不一致 —— 帧与 CSV 行对不上"
@@ -3667,7 +3698,7 @@ def fig_zernike_residual(atomic: RetestRun, residuals: ResidualSet) -> Path:
             continue
         _check_frame_params("zernike", pick, ref)
         image = load_frame_mean(ref.paths)
-        if abs(float(image.max()) - float(panel.row["frame_peak"])) > 1e-3:
+        if abs(float(image.max()) - float(panel.row["frame_peak"])) > PEAK_MATCH_ATOL:
             raise ValueError(
                 f"zernike/{panel.config}: 帧最大值 {float(image.max()):.6g} 与 CSV "
                 f"frame_peak {panel.row['frame_peak']} 不一致 —— 帧与 CSV 行对不上"
@@ -5299,7 +5330,7 @@ def render_report(
 
 def _idx_of(values: Sequence[float], target: float) -> int:
     for i, v in enumerate(values):
-        if abs(float(v) - float(target)) < 1e-9:
+        if abs(float(v) - float(target)) < ROW_MATCH_ATOL:
             return i
     raise ValueError(f"{target} 不在 {list(values)} 里")
 
@@ -5307,7 +5338,7 @@ def _idx_of(values: Sequence[float], target: float) -> int:
 def _row_at(rows: Sequence[dict[str, str]], key: str, value: float) -> dict[str, str]:
     """在 CSV 原文行里按某个数值列取一行 (取不到就报错, 不静默返回空)。"""
     for row in rows:
-        if abs(float(row[key]) - float(value)) < 1e-9:
+        if abs(float(row[key]) - float(value)) < ROW_MATCH_ATOL:
             return row
     raise KeyError(f"没有 {key} = {value} 的行")
 
@@ -5784,16 +5815,16 @@ def check_invariants(
                 pib = float(row["pib"])
                 cv = float(row["cv"])
                 expect = 0.5 * pib + 0.5 / (1.0 + cv)
-                if abs(expect - float(row["score"])) > 1e-6:
+                if abs(expect - float(row["score"])) > SCORE_IDENTITY_ATOL:
                     problems.append(
                         f"复测 {name} 第 {i} 行: score {row['score']} != "
                         f"0.5·PIB + 0.5/(1+CV) = {expect}"
                     )
                 side = float(row["box_side_px"])
                 if abs(side * side - float(row["box_area_px"])
-                       - float(row["box_clipped_px"])) > 1e-3:
+                       - float(row["box_clipped_px"])) > AREA_IDENTITY_ATOL:
                     problems.append(f"复测 {name} 第 {i} 行: 框面积恒等式不成立")
-                if abs(float(row["exposure_ms_readback"]) - retest.exposure_ms) > 1e-9:
+                if abs(float(row["exposure_ms_readback"]) - retest.exposure_ms) > EXPOSURE_MATCH_ATOL:
                     problems.append(
                         f"复测 {name} 第 {i} 行: 读回曝光 {row['exposure_ms_readback']} "
                         f"!= 生效 {retest.exposure_ms}"
@@ -5803,7 +5834,7 @@ def check_invariants(
             if cfg_path.exists():
                 cfg = load_json(cfg_path)
                 if abs(float(cfg.get("exposure_ms_working", float("nan")))
-                       - retest.exposure_ms) > 1e-9:
+                       - retest.exposure_ms) > EXPOSURE_MATCH_ATOL:
                     problems.append(f"复测 {name}/run_config.json 的生效曝光与 preflight 不一致")
 
     for name, stage in run.stages.items():
@@ -5812,19 +5843,19 @@ def check_invariants(
             cv = float(row["cv"])
             score = float(row["score"])
             expect = 0.5 * pib + 0.5 / (1.0 + cv)
-            if abs(expect - score) > 1e-6:
+            if abs(expect - score) > SCORE_IDENTITY_ATOL:
                 problems.append(
                     f"{name} 第 {i} 行: score {score} != 0.5·PIB + 0.5/(1+CV) = {expect}"
                 )
             side = float(row["box_side_px"])
             clipped = float(row["box_clipped_px"])
             area = float(row["box_area_px"])
-            if abs(side * side - area - clipped) > 1e-3:
+            if abs(side * side - area - clipped) > AREA_IDENTITY_ATOL:
                 problems.append(
                     f"{name} 第 {i} 行: 框面积恒等式不成立 "
                     f"({side}² − {area} != {clipped})"
                 )
-            if abs(float(row["exposure_ms_readback"]) - run.exposure_ms) > 1e-9:
+            if abs(float(row["exposure_ms_readback"]) - run.exposure_ms) > EXPOSURE_MATCH_ATOL:
                 problems.append(
                     f"{name} 第 {i} 行: 读回曝光 {row['exposure_ms_readback']} "
                     f"!= 生效 {run.exposure_ms}"

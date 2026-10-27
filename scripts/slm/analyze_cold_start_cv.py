@@ -103,7 +103,7 @@ def main():
             prediction = forward.predict(phase, exposure_ms=row["exposure_ms"])[0].numpy()
         sampling.append(dict(fft_size=fft, pixel_samples=pixels, **image_metrics(prediction, objective)))
     (out / "shape_and_sampling.json").write_text(json.dumps(dict(shapes=shape_results, sampling=sampling), indent=2))
-    lines = ["# 冷启动物理模型 CV 误差的曝光偏置诊断（2026-10-26）", "",
+    lines = ["# 冷启动物理预测模型 CV 误差的曝光偏置诊断（2026-10-26）", "",
         "## 已定位的原因", "",
         "旧模型在 counts/ms 空间拟合 `g*optical+b`。若相机还包含曝光无关的 counts 项，正确形式应为 `g*optical+b+bias_counts/exposure_ms`。光学加性背景与曝光无关的电子偏置不能混为同一常数。",
         "该形式与电子偏置、低 counts 量化等效偏置相容；仅凭当前有光数据不能唯一识别电子学来源，也不能证明短曝光非线性已经全部校准。", "",

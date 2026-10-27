@@ -39,6 +39,11 @@ import numpy as np
 
 from loguru import logger
 
+from ao_shaping.utils.image.ranks import (
+    NDIM_SINGLE_CHANNEL,
+    NDIM_SPATIAL_STACK,
+)
+
 __all__ = [
     "DETECTOR_FULL_SCALE",
     "compute_fusion_weights",
@@ -136,7 +141,7 @@ def _blur(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     Accepts ``(H, W)`` or ``(C, H, W)``; a 3-D input is filtered per channel
     along the two trailing axes.
     """
-    spatial = img if img.ndim == 3 else img[None, ...]
+    spatial = img if img.ndim == NDIM_SPATIAL_STACK else img[None, ...]
     height, width = int(spatial.shape[-2]), int(spatial.shape[-1])
     kernel = _fit_kernel(kernel, height, width)
     radius = (kernel.size - 1) // 2
@@ -150,7 +155,7 @@ def _blur(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     out = np.zeros_like(spatial)
     for offset, weight in enumerate(kernel):
         out += weight * padded[..., offset : offset + height, :width]
-    return out if img.ndim == 3 else out[0]
+    return out if img.ndim == NDIM_SPATIAL_STACK else out[0]
 
 
 def _convolve2d(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
@@ -160,7 +165,7 @@ def _convolve2d(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     only; every band-limiting blur goes through the separable :func:`_blur`.
     """
     radius_y, radius_x = kernel.shape[0] // 2, kernel.shape[1] // 2
-    spatial = img if img.ndim == 3 else img[None, ...]
+    spatial = img if img.ndim == NDIM_SPATIAL_STACK else img[None, ...]
     height, width = int(spatial.shape[-2]), int(spatial.shape[-1])
     if min(height, width) <= max(radius_y, radius_x):
         # ``mode="reflect"`` is illegal at this size; a level this small carries
@@ -173,7 +178,7 @@ def _convolve2d(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     for dy, krow in enumerate(kernel):
         for dx, weight in enumerate(krow):
             out += weight * padded[..., dy : dy + height, dx : dx + width]
-    return out if img.ndim == 3 else out[0]
+    return out if img.ndim == NDIM_SPATIAL_STACK else out[0]
 
 
 def _resize_bilinear(arr: np.ndarray, out_shape: tuple[int, int]) -> np.ndarray:
@@ -309,7 +314,7 @@ def _measure_weights(
     alpha_c, alpha_s, alpha_e = (float(a) for a in alphas)
 
     # (C, H, W) -> (H, W): the luminance the contrast measure is defined on.
-    gray = x if x.ndim == 2 else x.mean(axis=0)
+    gray = x if x.ndim == NDIM_SINGLE_CHANNEL else x.mean(axis=0)
     contrast = np.abs(_convolve2d(gray, LAPLACIAN_KERNEL_2D))
 
     weights = np.power(contrast, alpha_c)
@@ -322,7 +327,7 @@ def _measure_weights(
     # every pixel the same 1/K. The "fusion" would silently degrade to a plain
     # average of the bracket, with no per-pixel frame selection at all. Do not
     # reintroduce the factor to "fix" a mono regression.
-    if x.ndim == 3:
+    if x.ndim == NDIM_SPATIAL_STACK:
         saturation = np.sqrt(np.mean((x - x.mean(axis=0)) ** 2, axis=0))
         weights = weights * np.power(saturation, alpha_s)
 
@@ -330,7 +335,7 @@ def _measure_weights(
     # Product over CHANNELS. ``np.prod(g, axis=None)`` would flatten a 2-D frame
     # into a scalar (and that scalar is exp(-O(10^3)) for a dim bracket, i.e. an
     # exact zero), so the mono case must NOT go through ``np.prod`` at all.
-    well_exposed = np.prod(gaussian, axis=0) if x.ndim == 3 else gaussian
+    well_exposed = np.prod(gaussian, axis=0) if x.ndim == NDIM_SPATIAL_STACK else gaussian
     return weights * np.power(well_exposed, alpha_e)
 
 
@@ -503,7 +508,7 @@ def _blend(
     for frame, weight in zip(frames, weights, strict=True):
         # (H, W) -> (1, H, W) so it lines up with a (C, H, W) frame;
         # ``weight[..., None]`` would be (H, W, 1) and misalign the axes instead.
-        factor = weight if frame.ndim == 2 else weight[None, ...]
+        factor = weight if frame.ndim == NDIM_SINGLE_CHANNEL else weight[None, ...]
         total = total + frame * factor
     return np.clip(total, 0.0, 1.0) * full_scale
 
@@ -746,7 +751,7 @@ def _laplacian_fusion(
         level = np.zeros_like(band_pyramids[0][n])
         for bands, wpyr in zip(band_pyramids, weight_pyramids, strict=True):
             weight = wpyr[n]
-            factor = weight if level.ndim == 2 else weight[None, ...]
+            factor = weight if level.ndim == NDIM_SINGLE_CHANNEL else weight[None, ...]
             level = level + bands[n] * factor
         fused.append(level)
 

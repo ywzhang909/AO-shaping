@@ -2437,6 +2437,34 @@ python scripts/slm/generate_slm_gsnet_sim_gif.py -o report/fouriergsnet_sim
 | `--pkl` | latest `data/debug/slm_gsnet_*/*/*.pkl` | Debug artifact pkl path |
 | `-o, --output` | `report/fouriergsnet_sim` | Output dir (GIFs → `<output>/gifs/`) |
 
+### generate_cold_start_process_gif.py
+
+Offline figure generator for the cold-start random-formation run. Reads the
+persisted `data/debug/slm_transfer/cold_start_20261026_1004/<run>/` artifacts
+(`iterations.pkl` for the commanded phase and per-iteration metrics, `capture_*.npz`
+for the averaged CCD frame and the `model_phase` behind it) and writes a
+per-iteration animation to
+`report/shape_trials/cold_start/figures/cold_start_<run>_process.gif`.
+
+Every frame is a 2x3 panel: commanded pupil phase (cyclic `twilight`), measured CCD
+far-field, the reference forward model's prediction for the same `model_phase`, the
+phase change against the initial frame, the metric block, and the loss-so-far trace.
+No device is opened -- the session was recorded on another machine, so this generator
+only reads saved artifacts, which is what keeps the animation reproducible offline.
+
+**Usage:**
+```bash
+python scripts/slm/generate_cold_start_process_gif.py
+```
+
+The run name is the `run_name` literal at the top of the file; `BASE` and `FIG_DIR`
+are derived from `__file__`, so the working directory does not matter.
+
+**Moved in from the repo root** (it was `gen_one_gif.py`): report and figure
+generation belongs in `scripts/`, and the old copy resolved its input and output
+paths relative to the working directory, so it silently wrote somewhere else when
+launched from any other directory.
+
 ### generate_pearson_pkl_gif.py
 
 Generates **synchronized CCD-image + SLM-phase** animated GIFs from all
@@ -3823,13 +3851,14 @@ flattening a real measurement to zero in a committed report.
 | `fmt_fixed(v, nd=4)` | `_fmt` in `generate_slm_pib_rms_pib_report.py` | Em dash for NaN; **raises on `None`** (recorded limitation, kept). |
 | `fmt_signed(v, spec="+.4f")` | `_fmt` in `generate_shape_objective_comparison.py` | `"n/a"` for non-finite. |
 | `fmt_sigfig(v, digits=4)` | `_fmt` in `compare_sim_vs_hw.py` | Significant-figures ``g``; `—` for `None`/NaN, `∞`/`-∞` for `±inf`. The **sixth** formatter (added 2026-10-23, `b6ee43f1`); kept separate because it renders missing as `—` and infinities as `∞`, which none of the five above do. |
+| `fmt_num_or_dash(v, digits=4, dash="—")` | `_fmt` in `generate_pib_exit_safety_report.py` | Fixed-point with `digits` decimals; `dash` for `None` or unparseable input. The **seventh** formatter (added 2026-10-26, `25a748e1`); kept separate because unlike `fmt_signed` it prints a non-finite float through the spec (`inf`/`nan` stay `inf`/`nan`) and unlike `fmt_general` a non-numeric value becomes the dash instead of `str(v)`. |
 | `markdown_table(headers, rows)` | `_markdown_table` ×2 | GitHub-flavoured table. |
 | `savefig(fig, path, dpi=150)` | `_savefig` ×3 | `bbox_inches="tight"` + closes the figure. |
 | `plot_summary_bars(results, out_path, *, metric_key, xlabel, title)` | `plot_summary_bars` ×2 (heuristic-PIB and Strehl benchmarks) | Horizontal bar chart, one metric per algorithm, sorted descending. Every constant is pinned to what both copies used — `figsize=(8,5)`, `color="steelblue"`, value label at `+0.01` with 3 decimals, `xlim=(0,1.05)`, `grid(axis="x", alpha=0.3)`, `dpi=150` — and **byte-identical PNG output was verified for both call sites**, so no committed figure is rewritten. `generate_slm_pib_rms_pib_report` keeps its own `plot_summary_bars`: it scales figure height with the row count, derives a dynamic `xlim` from the data, uses `dpi=110` without `bbox_inches`, and returns the path instead of `None`. |
 | `iters_to_threshold(curve, threshold)` | ×2 | 1-based first crossing; `- 1e-12` absorbs float noise. |
 | `format_iters(v)` | ×2 | Em dash when the threshold was never reached. |
 
-**The six formatters are deliberately NOT merged.** A 170-probe before/after
+**The seven formatters are deliberately NOT merged.** A 170-probe before/after
 comparison of the old inline copies against `_common` came out **168 identical**;
 the only 2 differences are the sanctioned tiny-value fix above. Merging the other
 three would have rewritten already-committed reports (`0.5` → `0.5000`,

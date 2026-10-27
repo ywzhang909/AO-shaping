@@ -10,7 +10,7 @@
 > **数据/关联脚本**: [`src/ao_shaping/tools/slm/transfer/cold_start.py`](../../../src/ao_shaping/tools/slm/transfer/cold_start.py)
 > **数据/关联脚本**: [`src/ao_shaping/tools/slm/transfer/progress.py`](../../../src/ao_shaping/tools/slm/transfer/progress.py)
 > **运行环境**: 离线（重算 Santec #1 与 Daheng 当前光路实验数据）
-> **说明**: 无历史权重、平面或随机整形初相位，物理模型从零拟合与 CCD 配对验收。
+> **说明**: 无历史权重、平面或随机整形初相位，物理预测模型从零拟合与 CCD 配对验收。
 <!-- provenance:end -->
 
 ## 数据与方法
@@ -162,7 +162,7 @@ flowchart TD
 ### 迭代过程动画
 
 以下 GIF 展示了 
-andom_no_abba 初相位下 CCD 锚定综合目标优化的完整迭代过程，每帧包含下发的 SLM 瞳面相位、实测 CCD 远场（叠目标掩模轮廓）、模型预测远场、实测−预测差值、正向预测模型 metrics（相关 r / SSIM / 增益 / 加性背景（杂散光）项）以及目标 metrics（CV / EE / IoU，实测 vs 预测）：
+andom_no_abba 初相位下 CCD 锚定综合目标优化的完整迭代过程，每帧包含下发的 SLM 瞳面相位、实测 CCD 远场（叠目标掩模轮廓）、模型预测远场、实测−预测差值、物理预测模型 metrics（相关 r / SSIM / 增益 / 加性背景（杂散光）项）以及目标 metrics（CV / EE / IoU，实测 vs 预测）：
 
 ![迭代过程动画](figures/cold_start_random_no_abba_process.gif)
 
@@ -188,7 +188,7 @@ andom_no_abba 初相位下 CCD 锚定综合目标优化的完整迭代过程，�
 
 ## A–B–B–A 是否值得默认启用
 
-同一物理模型、同一随机种子、相同 6 块 ×25 次相位更新的记录如下。时间口径为第一组正式测量至最终测量的主机单调时间差，不包含设备打开和首次自动曝光。
+同一物理预测模型、同一随机种子、相同 6 块 ×25 次相位更新的记录如下。时间口径为第一组正式测量至最终测量的主机单调时间差，不包含设备打开和首次自动曝光。
 
 | 配置 | 原始测量帧 | 测量段时间 s | 同曝光初始→最终 CV | 同曝光初始→最终 EE_ROI | 接受范围 |
 |---|---:|---:|---:|---:|---|

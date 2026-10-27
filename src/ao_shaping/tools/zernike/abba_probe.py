@@ -66,6 +66,7 @@ from ao_shaping.utils.image.beam_metrics import zero_order_center
 from ao_shaping.utils.io.cli_helpers import parse_floats as _parse_floats
 from ao_shaping.utils.io.npz_summary import save_summary_npz
 from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
+from ao_shaping.utils.io.recorder_keys import (RECORD_EPOCH, RECORD_IMAGE)
 
 #: RNG seed for the dense coefficient maps. Pinned so a run is reproducible up
 #: to device noise (see ``AGENTS.md``: seed fixes the *pattern*, never the
@@ -400,8 +401,8 @@ def dense_abba_sweep(
                 "pattern": int(index),
                 "pair": int(pairs),
                 "exposure_ms": float(exposure_ms),
-                "_img": latest["img"],
-                "_epoch": int(index),
+                RECORD_IMAGE: latest["img"],
+                RECORD_EPOCH: int(index),
             }
         )
         if on_pattern is not None:
@@ -458,7 +459,7 @@ def save_abba_records_pkl(path: Path, rows: Sequence[dict[str, Any]]) -> Path:
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {int(row["_epoch"]): row for row in rows}
+    payload = {int(row[RECORD_EPOCH]): row for row in rows}
     with path.open("wb") as handle:
         pickle.dump(payload, handle, protocol=pickle.HIGHEST_PROTOCOL)
     return path

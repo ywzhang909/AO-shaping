@@ -2274,7 +2274,7 @@ class TransferMethod(ShapingMethod):
     applies_send_overlay: ClassVar[bool] = False
     phase_carries_carrier: ClassVar[bool] = True
     blurb: ClassVar[str] = (
-        "少参数物理正向模型 + 当前光路重测几何 + 检查点迁移，再用 CCD 锚定短块与 "
+        "少参数物理预测模型 + 当前光路重测几何 + 检查点迁移，再用 CCD 锚定短块与 "
         "A–B–B–A 配对验收生成目标相位（配对验收可关闭，关闭后只按模型损失接受）。"
         "与 CLI ``-m ao_shaping.tools.slm.transfer`` "
         "同一入口；配方与验收见 "

@@ -149,7 +149,13 @@ from loguru import logger
 from torch import Tensor
 
 from ml.sim2f._device import _resolve_device
-from ml.sim2f.config import AberrationConfig, Sim2fConfig, TeacherConfig
+from ml.sim2f.config import (
+    NDIM_BARE_MAP,
+    NDIM_BATCH_MAP,
+    AberrationConfig,
+    Sim2fConfig,
+    TeacherConfig,
+)
 from ml.sim2f.loop import _check_geometry, _finite, _load_network, _Measurer, _score
 from ml.sim2f.model import network_input
 from ml.sim2f.optics import Sim2f, draw_aberration, write_aberration
@@ -181,6 +187,7 @@ __all__ = [
     "measure_sample",
     "panel_corner",
     "pupil_center",
+    "recorded_grayscale",
     "run_session",
     "select_indices",
     "verdict",
@@ -214,6 +221,17 @@ MIN_WINS = 6
 
 #: README §3 criterion: and the mean ``ncc_net - ncc_flat`` must exceed this.
 MIN_DELTA = 0.05
+
+#: The zero-order spot is located by argmax, never by geometry, but it is still
+#: expected within this many pixels of the frame centre; further out means the bench is
+#: misaligned and the re-centred window would be a fiction rather than a correction.
+#: ``_locate_zero_order`` restates this number in prose -- keep the two in step.
+MAX_ZERO_ORDER_OFFSET_PX = 4
+
+#: Floor below which a correlation denominator counts as zero: the ratio it
+#: would produce is undefined, not merely large, so the caller reports a gate
+#: outcome instead of a number.
+MIN_CORRELATION_DENOM = 1e-12
 
 #: README §3 verdict vocabulary.  These three strings are the whole output
 #: alphabet; nothing else may be written as a conclusion.
@@ -313,9 +331,9 @@ def build_panel_phase(
 
     array = phase_rad.detach().cpu().numpy() if torch.is_tensor(phase_rad) else phase_rad
     array = np.asarray(array, dtype=np.float64)
-    if array.ndim == 3 and array.shape[0] == 1:
+    if array.ndim == NDIM_BATCH_MAP and array.shape[0] == 1:
         array = array[0]
-    if array.ndim != 2 or array.shape[0] != array.shape[1]:
+    if array.ndim != NDIM_BARE_MAP or array.shape[0] != array.shape[1]:
         raise ValueError(
             "build_panel_phase needs a square (grid, grid) phase map, got shape "
             f"{array.shape}"
@@ -348,42 +366,51 @@ def recorded_grayscale(
     radius_px: float = PUPIL_RADIUS_PX,
     center_xy: tuple[int, int] | None = None,
 ) -> np.ndarray:
-    """The ``(panel_h, panel_w)`` uint16 grayscale a command actually becomes.
+    """The uint16 panel grayscale that one ``(grid, grid)`` command phase produces.
 
-    Two steps, and both matter for the record to mean anything:
+    ``SimInstrument.sent_grayscale`` and ``HwInstrument.sent_grayscale`` record the
+    same quantity, so they share this single implementation: embed the pupil
+    command onto the panel with :func:`build_panel_phase` -- the same call the
+    write path makes -- then convert radians to grayscale through
+    :func:`ao_shaping.utils.slm.phase_display.phase_to_slm_grayscale`.
 
-    1. :func:`build_panel_phase` embeds the ``(grid, grid)`` command into the full
-       panel at the illuminated pupil -- the same mapping the instrument applies
-       before it sends anything.
-    2. :func:`ao_shaping.utils.slm.phase_display.phase_to_slm_grayscale` turns
-       radians into panel grayscale.  With a live ``slm`` it delegates to the
-       driver pipeline (``mod 2*pi`` at the device ``_max_gray``, wavefront
-       correction, LUT); with ``slm=None`` it falls back to the pure-math
-       conversion (``2*pi = 1023``), which is what a twin session has.
-
-    This is the single definition both instruments' ``sent_grayscale`` records
-    through, so a twin session's ``_phase`` column and a hardware session's have
-    the same shape and the same meaning -- one analysis can read both.
+    The ``slm`` argument is the entire difference between the two instruments, and
+    it is why the helper takes the device instead of hard-coding either path.  With
+    a live device the conversion delegates to ``create_phase_from_array``: wavefront
+    correction, gamma LUT, base-phase overlay, panel shift and the
+    wavelength-dependent ``2*pi = _max_gray`` scaling all apply, so the returned
+    array is bit-for-bit what the panel physically received.  With ``slm=None`` the
+    same function falls back to its pure-math conversion (fold to ``[0, 2*pi)``,
+    scale to ``max_grayscale`` default 1023), which is all a panel-less twin can
+    record -- the twin's ``_phase`` column then has a hardware session's shape and
+    reading order without claiming the device's scaling.
 
     Args:
-        phase_rad: ``(grid, grid)`` raw unwrapped radians (a leading singleton
-            batch channel is squeezed).  Torch or numpy.
-        slm: A live SLM device, or ``None`` for the pure-math conversion.
-        panel_shape: ``(height, width)`` in panel pixels.
-        radius_px: Pupil radius in panel pixels.
-        center_xy: Centre of the illuminated pupil square, panel pixels ``(x, y)``.
+        phase_rad: ``(grid, grid)`` command phase, radians.
+        slm: Live SLM whose driver pipeline performs the conversion; ``None``
+            (twin, offline analysis, unit tests) uses the built-in pure math.
+        panel_shape: Panel ``(height, width)`` in pixels; this module's
+            :data:`PANEL_SHAPE` by default.
+        radius_px: Illuminated pupil radius; :data:`PUPIL_RADIUS_PX` by default.
+        center_xy: Pupil centre ``(x, y)`` in panel pixels; ``None`` = panel centre.
 
     Returns:
-        ``(height, width)`` uint16 panel grayscale.
+        ``(panel_h, panel_w)`` uint16 grayscale.  Outside the pupil square the
+        embedded phase is 0 rad, so on the ``slm=None`` path those pixels are
+        grayscale 0; a live device still applies its correction/LUT/overlay there.
+
+    Raises:
+        ValueError: Propagated from :func:`build_panel_phase` when the phase map is
+            not square or the pupil square does not fit the panel.
     """
+    from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
+
     panel = build_panel_phase(
         phase_rad,
         panel_shape=panel_shape,
         radius_px=radius_px,
         center_xy=center_xy,
     )
-    from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
-
     return phase_to_slm_grayscale(panel, slm=slm)
 
 
@@ -434,9 +461,9 @@ def _phase_array(phase_rad: Tensor | np.ndarray) -> np.ndarray:
     """Normalise a command phase to a float32 ``(grid, grid)`` numpy array."""
     array = phase_rad.detach().cpu().numpy() if torch.is_tensor(phase_rad) else phase_rad
     array = np.asarray(array, dtype=np.float32)
-    if array.ndim == 3 and array.shape[0] == 1:
+    if array.ndim == NDIM_BATCH_MAP and array.shape[0] == 1:
         array = array[0]
-    if array.ndim != 2:
+    if array.ndim != NDIM_BARE_MAP:
         raise ValueError(f"a command phase must be (grid, grid), got {array.shape}")
     return array
 
@@ -882,7 +909,10 @@ class HwInstrument:
         probe = np.asarray(self._cam.get_numpy_image(1, skip_first=True))
         peak_row, peak_col = np.unravel_index(int(np.argmax(probe)), probe.shape)
         half_r, half_c = probe.shape[0] // 2, probe.shape[1] // 2
-        if abs(peak_row - half_r) > 4 or abs(peak_col - half_c) > 4:
+        if (
+            abs(peak_row - half_r) > MAX_ZERO_ORDER_OFFSET_PX
+            or abs(peak_col - half_c) > MAX_ZERO_ORDER_OFFSET_PX
+        ):
             corrected = (
                 int(center[0]) + (int(peak_col) - half_c),
                 int(center[1]) + (int(peak_row) - half_r),
@@ -1363,7 +1393,7 @@ def _ncc(left: np.ndarray, right: np.ndarray) -> float:
     a = a - a.mean()
     b = b - b.mean()
     denominator = float(np.sqrt((a * a).sum() * (b * b).sum()))
-    if denominator <= 1e-12:
+    if denominator <= MIN_CORRELATION_DENOM:
         return 0.0
     return float((a * b).sum() / denominator)
 
@@ -1561,7 +1591,7 @@ def gate0(
             np.asarray(block["a1"], dtype=np.float64),
             np.asarray(block["a2"], dtype=np.float64),
         )
-        if denominator <= 1e-12:
+        if denominator <= MIN_CORRELATION_DENOM:
             ratios[int(index)] = float("inf") if numerator > 0.0 else 0.0
         else:
             ratios[int(index)] = numerator / denominator

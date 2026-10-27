@@ -91,6 +91,27 @@ FALLBACK_MIN_HOLLOWNESS = 0.60
 #: Camera sensor size assumed when cross-checking the field-of-view route.
 FALLBACK_CAMERA_PIXELS = 2592.0
 FALLBACK_CAMERA_PIXEL_M = 2.2e-6
+#: Minimum samples a curve or coefficient vector needs before a fit, a slope or a
+#: comparison carries any information: one point cannot define either.
+MIN_FIT_SAMPLES = 2
+
+#: Accepted entries of a shape mask (single lobe, good samples) required before the
+#: verdict counts. Separate from ``MIN_FIT_SAMPLES`` although both are 2: this one
+#: counts accepted elements, that one counts vector length.
+MIN_ACCEPTED_MODES = 2
+
+#: Coefficients required before a trend may be reported at all -- with two, a
+#: "trend" is indistinguishable from noise.
+MIN_COEFFS_FOR_TREND = 3
+
+#: Monotone modes required for the monotonicity verdict: a higher bar than
+#: ``MIN_ACCEPTED_MODES`` because monotonicity is a shape claim, not a sign check.
+MIN_MONOTONE_MODES = 4
+
+#: Percentage tolerance for the recorded-versus-effective field-of-view cross-check,
+#: and the same bar on a repeated-sweep percentage spread. The prose in the report
+#: quotes this number, so it must live in exactly one place.
+FOV_PCT_TOLERANCE = 25
 FALLBACK_FOCAL_LENGTH_M = 0.125
 FALLBACK_WAVELENGTH_M = 1064e-9
 FALLBACK_APERTURE_M = 3.6e-3
@@ -504,7 +525,7 @@ def linear_slope(x: Iterable[float], y: Iterable[float]) -> tuple[float, float]:
     """
     xs = np.asarray(list(x), dtype=np.float64)
     ys = np.asarray(list(y), dtype=np.float64)
-    if xs.size < 2 or xs.size != ys.size or not np.isfinite(ys).all():
+    if xs.size < MIN_FIT_SAMPLES or xs.size != ys.size or not np.isfinite(ys).all():
         return float("nan"), float("nan")
     var = float(np.sum((xs - xs.mean()) ** 2))
     if var <= 0.0:
@@ -644,11 +665,11 @@ def build_mode_curve(
     hollows = np.asarray(hollowness, dtype=np.float64)[keep]
     dropped: list[tuple[float, float, float, str]] = []
 
-    if coeffs.size < 2:
+    if coeffs.size < MIN_FIT_SAMPLES:
         return ModeCurve(mode, coeffs, widths, dropped)
 
     single_lobe = hollows >= min_hollowness
-    if not single_lobe.all() and int(single_lobe.sum()) >= 2 and _has_both_signs(
+    if not single_lobe.all() and int(single_lobe.sum()) >= MIN_ACCEPTED_MODES and _has_both_signs(
         coeffs[single_lobe]
     ):
         for c, w, h in zip(coeffs[~single_lobe], widths[~single_lobe],
@@ -656,7 +677,7 @@ def build_mode_curve(
             dropped.append((float(c), float(w), float(h), "hollowness<阈值(环形)"))
         coeffs, widths, hollows = coeffs[single_lobe], widths[single_lobe], hollows[single_lobe]
 
-    if coeffs.size < 2:
+    if coeffs.size < MIN_FIT_SAMPLES:
         return ModeCurve(mode, coeffs, widths, dropped)
 
     monotone = np.ones(coeffs.shape, dtype=bool)
@@ -670,7 +691,7 @@ def build_mode_curve(
                 running = widths[j]
             else:
                 monotone[j] = False
-    if int(monotone.sum()) >= 4 and _has_both_signs(coeffs[monotone]):
+    if int(monotone.sum()) >= MIN_MONOTONE_MODES and _has_both_signs(coeffs[monotone]):
         for c, w, h, kept in zip(coeffs, widths, hollows, monotone):
             if not kept:
                 dropped.append(
@@ -679,7 +700,7 @@ def build_mode_curve(
         coeffs, widths = coeffs[monotone], widths[monotone]
 
     curve = ModeCurve(mode, coeffs, widths, dropped)
-    if coeffs.size >= 3:
+    if coeffs.size >= MIN_COEFFS_FOR_TREND:
         grid = np.linspace(coeffs.min() - 1.0, coeffs.max() + 1.0, 241)
         best: tuple[float, float, float] | None = None
         for c0 in grid:
@@ -774,7 +795,7 @@ def compute_ramp_routes(sweep: SweepData) -> list[RampRoute]:
         mask = sweep.select(mode="ramp", axis=axis)
         periods = sweep.coefficient[mask]
         good = np.isfinite(periods) & (periods > 0)
-        if int(good.sum()) < 2:
+        if int(good.sum()) < MIN_ACCEPTED_MODES:
             logger.info("ramp axis {}: fewer than 2 usable points, skipped", axis)
             continue
         periods = periods[good]
@@ -813,7 +834,7 @@ def compute_tilt_routes(sweep: SweepData, min_corr: float) -> list[TiltRoute]:
     for axis in ("x", "y"):
         mask = sweep.select(mode="tilt", axis=axis)
         coeffs = sweep.coefficient[mask]
-        if coeffs.size < 2:
+        if coeffs.size < MIN_FIT_SAMPLES:
             logger.info("tilt axis {}: fewer than 2 points, skipped", axis)
             continue
         corr = sweep.shift_corr[mask]
@@ -821,7 +842,7 @@ def compute_tilt_routes(sweep: SweepData, min_corr: float) -> list[TiltRoute]:
             sweep.shift_y[mask]
         ) & np.isfinite(corr)
         use_corr = bool(shifts_ok.all() and np.all(corr >= min_corr)) and bool(
-            coeffs.size >= 2
+            coeffs.size >= MIN_FIT_SAMPLES
         )
         max_corr = float(np.nanmax(corr)) if np.isfinite(corr).any() else float("nan")
         if use_corr:
@@ -1057,7 +1078,7 @@ def figure_widths(curve_map: dict[str, ModeCurve], out: Path) -> Path:
             float(curve.kept_coefficient.min()) - 0.3,
             float(curve.kept_coefficient.max()) + 0.3, 60,
         ) if curve.kept_coefficient.size else np.array([0.0, 1.0])
-        if curve.kept_coefficient.size >= 3:
+        if curve.kept_coefficient.size >= MIN_COEFFS_FOR_TREND:
             base = max(float(np.min(curve.kept_fwhm) ** 2) - 1.0, 0.0)
             ax.plot(
                 xs, np.sqrt(np.clip(base + curve.curvature * (xs - curve.offset) ** 2,
@@ -1104,7 +1125,7 @@ def figure_curvature(
     ax1.grid(alpha=0.3, axis="y")
 
     curve = curve_map.get("defocus")
-    if curve is not None and curve.kept_coefficient.size >= 3:
+    if curve is not None and curve.kept_coefficient.size >= MIN_COEFFS_FOR_TREND:
         ax2.plot(curve.kept_coefficient, curve.kept_fwhm**2, "o", ms=9,
                  color="#4C78A8", label="实测 width²")
         xs = np.linspace(
@@ -1485,7 +1506,7 @@ def _part_2(add, geometry, geometry_conflicts, max_rms, notes_raw, notes) -> Non
                 add(
                     f"- 视场比交叉核对偏离 **{fov_rel:.0f}%**"
                     + ("（超过 25% 警戒线，说明照明的孔径半径假设有误）"
-                       if fov_rel > 25 else "（在 25% 以内）")
+                       if fov_rel > FOV_PCT_TOLERANCE else "（在 25% 以内）")
                 )
             asym = notes.get("defocus_asymmetry", float("nan"))
             if np.isfinite(asym):
@@ -1781,7 +1802,7 @@ def _part_6(add, figures, geometry_conflicts, far_field_size, semi_axis, model_t
                 f"最大互相偏离 **{spread:.0f}%**。"
             )
             add("")
-            if spread > 25:
+            if spread > FOV_PCT_TOLERANCE:
                 add(
                     "> ⚠️ 偏离超过 25% 警戒线。前两条路线（斜坡、倾斜）都只依赖"
                     "**孔径半径**，而 FOV 路线额外假设**正入射**；本实验系统是倾斜入射，"
@@ -1948,7 +1969,7 @@ def _part_8(add, tilt_routes, curve_map, geometry_conflicts, shift_scale, max_rm
                 "并补扫 coma/spherical。"
             )
         )
-    if np.isfinite(notes.get("fov_rel", float("nan"))) and notes["fov_rel"] > 25:
+    if np.isfinite(notes.get("fov_rel", float("nan"))) and notes["fov_rel"] > FOV_PCT_TOLERANCE:
         conclusions.append(
             f"视场比交叉核对偏离 **{notes['fov_rel']:.0f}%**，超过 25% 警戒线；"
             "两条路线都与照明孔径半径成正比，"

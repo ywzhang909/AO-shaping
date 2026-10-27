@@ -57,6 +57,7 @@ from ao_shaping.utils.io.cli_helpers import (
     parse_tuple,
     setup_coredumpy,
 )
+from ao_shaping.utils.io.recorder_keys import (RECORD_EPOCH, RECORD_IMAGE, RECORD_PHASE)
 
 #: Panel raster of the Santec SLM-200 used on this bench (height, width).
 DEFAULT_PANEL_SHAPE: tuple[int, int] = (SLM_PANEL_H, SLM_PANEL_W)
@@ -308,7 +309,7 @@ def sweep_to_recorder_rows(result: SweepResult) -> list[dict[str, Any]]:
         point = measured.point
         rows.append({
             "peak": measured.peak,
-            "_epoch": index,
+            RECORD_EPOCH: index,
             "mode_id": MODE_CODES[point.mode],
             "axis_id": AXIS_CODES[point.axis],
             "coefficient": float(point.coefficient),
@@ -316,8 +317,8 @@ def sweep_to_recorder_rows(result: SweepResult) -> list[dict[str, Any]]:
             "centroid_x": measured.centroid_x,
             "centroid_y": measured.centroid_y,
             "hollowness": measured.hollowness,
-            "_phase": np.asarray(measured.phase_rad, dtype=np.float32),
-            "_img": np.asarray(measured.frame, dtype=np.float32),
+            RECORD_PHASE: np.asarray(measured.phase_rad, dtype=np.float32),
+            RECORD_IMAGE: np.asarray(measured.frame, dtype=np.float32),
         })
     return rows
 

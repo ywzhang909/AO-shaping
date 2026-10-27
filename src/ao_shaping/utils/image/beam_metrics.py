@@ -17,13 +17,24 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 import numpy as np
 import numpy.typing as npt
 from loguru import logger
 
+from ao_shaping.utils.image.ranks import NDIM_SINGLE_CHANNEL
 from ao_shaping.utils.image.spots_calc import centroid, radius
+
+#: Zero-variance guard for Pearson correlation in :func:`compute_beam_metrics`.
+_STD_EPS: Final[float] = 1e-8
+
+#: Smallest odd median kernel ``despike_frame`` can apply; below it the frame
+#: is returned untouched (a 1x1 or 2x2 "median" is not despiking).
+_DESPIKE_MIN_K: Final[int] = 3
+
+#: M^2 needs at least this many distinct focal planes to be absolute.
+_M2_MIN_PLANES: Final[int] = 3
 
 __all__ = [
     "intensity_to_amplitude",
@@ -163,7 +174,7 @@ def compute_beam_metrics(
 
     # Pearson 相关系数 (防止零方差)
     mf, tf = m.flatten(), t.flatten()
-    if mf.std() > 1e-8 and tf.std() > 1e-8:
+    if mf.std() > _STD_EPS and tf.std() > _STD_EPS:
         corr = float(np.corrcoef(mf, tf)[0, 1])
     else:
         corr = 1.0 if np.allclose(mf, tf) else 0.0
@@ -287,7 +298,7 @@ def compute_shaping_metrics(
     """
     intensity = np.asarray(intensity, dtype=np.float64)
     mask = np.asarray(mask, dtype=bool)
-    if intensity.ndim != 2 or mask.ndim != 2:
+    if intensity.ndim != NDIM_SINGLE_CHANNEL or mask.ndim != NDIM_SINGLE_CHANNEL:
         raise ValueError("intensity and mask must both be 2D arrays")
 
     # 将掩码区域裁剪到强度边界内 (居中重叠)。
@@ -334,7 +345,7 @@ def compute_shape_iou(
     """
     image = np.asarray(intensity, dtype=np.float64)
     target = np.asarray(mask, dtype=bool)
-    if image.ndim != 2 or image.shape != target.shape:
+    if image.ndim != NDIM_SINGLE_CHANNEL or image.shape != target.shape:
         raise ValueError("intensity and target mask must have the same 2D shape")
     if not 0 < peak_fraction < 1:
         raise ValueError("peak_fraction must lie in (0, 1)")
@@ -367,7 +378,7 @@ def zero_order_exclusion_mask(
 
     flat = np.asarray(flat_frame, dtype=np.float64)
     support = np.asarray(target, dtype=bool)
-    if flat.ndim != 2 or flat.shape != support.shape or not support.any():
+    if flat.ndim != NDIM_SINGLE_CHANNEL or flat.shape != support.shape or not support.any():
         raise ValueError("flat_frame and nonempty target must have the same 2D shape")
     if not 0 < threshold_fraction < 1 or margin_px < 0:
         raise ValueError("invalid zero-order threshold or margin")
@@ -574,7 +585,7 @@ def threshold_spot_center(img: np.ndarray) -> tuple[int, int]:
     Returns ``(x, y)`` in pixels (project convention).
     """
     frame = np.asarray(img)
-    if frame.ndim != 2 or frame.size == 0:
+    if frame.ndim != NDIM_SINGLE_CHANNEL or frame.size == 0:
         raise ValueError(f"img must be a non-empty 2D array, got shape {frame.shape}")
     height, width = frame.shape
     if float(frame.max()) <= 0.0:
@@ -600,7 +611,7 @@ def threshold_spot_center(img: np.ndarray) -> tuple[int, int]:
     return (width // 2, height // 2)
 
 
-def despike_frame(img: np.ndarray, k: int = 3) -> np.ndarray:
+def despike_frame(img: np.ndarray, k: int = _DESPIKE_MIN_K) -> np.ndarray:
     """Replace isolated hot/cold pixels with a ``k x k`` median.
 
     A box blur alone is not enough against a *single* hot pixel: a 5000-count
@@ -618,7 +629,7 @@ def despike_frame(img: np.ndarray, k: int = 3) -> np.ndarray:
     """
     frame = np.asarray(img, dtype=np.float64)
     k = int(k)
-    if k < 3:
+    if k < _DESPIKE_MIN_K:
         return frame
     pad = k // 2
     p = np.pad(frame, pad, mode="edge")
@@ -698,13 +709,13 @@ def zero_order_center(
         ``(x, y)`` 像素坐标 (项目约定)。全暗帧返回帧中心。
     """
     frame = np.asarray(frame)
-    if frame.ndim != 2 or frame.size == 0:
+    if frame.ndim != NDIM_SINGLE_CHANNEL or frame.size == 0:
         raise ValueError(f"frame must be a non-empty 2D array, got shape {frame.shape}")
     height, width = frame.shape
     if float(frame.max()) <= 0.0:
         return (width // 2, height // 2)
 
-    search = despike_frame(frame, despike_k) if despike_k >= 3 else frame
+    search = despike_frame(frame, despike_k) if despike_k >= _DESPIKE_MIN_K else frame
     anchor_y, anchor_x = np.unravel_index(int(np.argmax(search)), frame.shape)
     if not refine:
         return (int(anchor_x), int(anchor_y))
@@ -753,7 +764,7 @@ def smart_zero_order_center(
         ``(x, y)`` 像素坐标。全暗帧返回帧中心。
     """
     frame = np.asarray(img)
-    if frame.ndim != 2 or frame.size == 0:
+    if frame.ndim != NDIM_SINGLE_CHANNEL or frame.size == 0:
         raise ValueError(f"img must be a non-empty 2D array, got shape {frame.shape}")
     height, width = frame.shape
     if float(frame.max()) <= 0.0:
@@ -853,7 +864,7 @@ def locate_peak(frame: np.ndarray, finite: bool = True) -> tuple[int, int]:
 def _clean_frame(frame: np.ndarray, name: str) -> np.ndarray:
     """Return a finite, 2D float64 copy of *frame* (NaN/Inf -> 0)."""
     arr = np.asarray(frame, dtype=np.float64)
-    if arr.ndim != 2:
+    if arr.ndim != NDIM_SINGLE_CHANNEL:
         raise ValueError(f"{name} must be 2D, got shape {arr.shape}")
     return np.where(np.isfinite(arr), arr, 0.0)
 
@@ -955,7 +966,7 @@ def ideal_peak_from_pupil(
         ValueError: if *amplitude* is not 2D or *far_field_padding* < 1.
     """
     amp = np.asarray(amplitude, dtype=np.complex128)
-    if amp.ndim != 2:
+    if amp.ndim != NDIM_SINGLE_CHANNEL:
         raise ValueError(f"amplitude must be 2D, got shape {amp.shape}")
     pad = float(far_field_padding)
     if not math.isfinite(pad) or pad < 1.0:
@@ -1046,7 +1057,7 @@ def m2_from_focus_stack(
             f"fields ({len(fields)}) and z_positions_m ({len(z_positions_m)}) "
             "must have the same length"
         )
-    if len(fields) < 3:
+    if len(fields) < _M2_MIN_PLANES:
         raise ValueError(
             "M^2 cannot be measured absolutely from fewer than 3 focal planes; "
             "use m2_reference_relative for a single plane"
@@ -1058,7 +1069,7 @@ def m2_from_focus_stack(
     if not math.isfinite(pitch) or pitch <= 0.0:
         raise ValueError(f"pixel_pitch_m must be positive, got {pixel_pitch_m!r}")
     z = np.asarray(z_positions_m, dtype=np.float64)
-    if len(np.unique(z)) < 3:
+    if len(np.unique(z)) < _M2_MIN_PLANES:
         raise ValueError("z_positions_m must contain at least 3 distinct values")
     w = np.array(
         [beam_radius_second_moment(f, pixel_pitch_m=pitch) for f in fields],
@@ -1116,7 +1127,7 @@ def m2_reference_relative(
     """
     amp = np.asarray(field, dtype=np.complex128)
     ref = np.asarray(ideal_field, dtype=np.complex128)
-    if amp.ndim != 2 or ref.ndim != 2:
+    if amp.ndim != NDIM_SINGLE_CHANNEL or ref.ndim != NDIM_SINGLE_CHANNEL:
         raise ValueError(
             f"field and ideal_field must be 2D, got {amp.shape} and {ref.shape}"
         )

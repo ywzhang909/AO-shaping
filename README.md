@@ -364,7 +364,7 @@ streamlit run src/ao_shaping/gui/zernike/zernike_response_matrix_ui.py
 # SLM 校准
 streamlit run src/ao_shaping/gui/slm/slm_calibration_ui.py
 
-# 多 SLM 控制器（相位图案生成/下发，含闭环整形：GS+SPGD / 正向模型）
+# 多 SLM 控制器（相位图案生成/下发，含闭环整形：GS+SPGD / 物理预测模型）
 streamlit run src/ao_shaping/gui/slm/multi_slm_controller.py
 
 # 1300 陶瓷单元查看器（网格浏览 + 图片标注）

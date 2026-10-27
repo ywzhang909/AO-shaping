@@ -1182,12 +1182,15 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
     # in the module docstring's usage example) without a re-baseline; 31 -> 34
     # and 30 -> 33 on 2026-10-23 when tools/slm/transfer landed
     # (capture.py / capture_response.py / validate.py — 1 Santec + 1 camera
-    # each; the package's remaining modules construct no device). This guard
-    # pins the census so a
+    # each; the package's remaining modules construct no device). 34 -> 35 and
+    # 33 -> 35 on 2026-10-26 when tools/slm/transfer/replay_phases.py
+    # (1 Santec + 1 camera — archived-phase replay at a common native bit
+    # depth) and transfer/camera_probe.py (0 Santec + 1 camera, by design it
+    # never opens an SLM) landed upstream. This guard pins the census so a
     # *refactor* cannot quietly consolidate device sessions; adding a genuinely
     # new probe is a legitimate change and must be re-baselined here deliberately.
-    assert sum(santec.values()) == 34, f"Santec( construction sites changed: {santec}"
-    assert sum(camera.values()) == 33, f"camera-open call sites changed: {camera}"
+    assert sum(santec.values()) == 35, f"Santec( construction sites changed: {santec}"
+    assert sum(camera.values()) == 35, f"camera-open call sites changed: {camera}"
 
     assert santec == {
         "slm/calibration/calibration.py": 2,
@@ -1210,6 +1213,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/replay_disturbance.py": 1,
         "slm/transfer/capture.py": 1,
         "slm/transfer/capture_response.py": 1,
+        "slm/transfer/replay_phases.py": 1,
         "slm/transfer/validate.py": 1,
         "ccd/drift_probe.py": 1,
         "ccd/floor_probe.py": 1,
@@ -1242,8 +1246,10 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/panel/phase_response.py": 1,
         "slm/panel/tilt_probe.py": 1,
         "slm/replay_disturbance.py": 1,
+        "slm/transfer/camera_probe.py": 1,
         "slm/transfer/capture.py": 1,
         "slm/transfer/capture_response.py": 1,
+        "slm/transfer/replay_phases.py": 1,
         "slm/transfer/validate.py": 1,
         "ccd/drift_probe.py": 1,
         "ccd/exposure_check.py": 1,

@@ -1,29 +1,56 @@
-import numpy as np
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import pickle, json, os
+"""Cold-start 随机成形的逐迭代过程动画: 下发相位 / 实测远场 / 模型预测三联对比.
+
+读 ``data/debug/slm_transfer/cold_start_20261026_1004/<run>/`` 下的
+``iterations.pkl`` (每轮的下发相位与 metrics) 和 ``capture_*.npz`` (每块的 CCD 原始
+帧与 ``model_phase``), 把同一 ``model_phase`` 再前向一次得到预测光斑, 输出
+``report/shape_trials/cold_start/figures/cold_start_<run>_process.gif``: 上排 = 瞳面
+相位 / 实测远场 / 模型预测, 下排 = 相位变化 (vs 初始) / metrics 文本 / loss 轨迹。
+
+会话数据产生于另一台机器的实验系统, 所以这个生成器是**离线**的: 只读已保存的
+``data/debug`` 产物, 不打开任何设备。路径一律从 ``__file__`` 推导, 与运行时的
+工作目录无关。
+"""
+
+from __future__ import annotations
+
+import os
+import pickle
+import sys
 from pathlib import Path
-from PIL import Image
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+
+import matplotlib
+
+matplotlib.use("Agg")
+
+import matplotlib.font_manager as fm
+import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.animation import PillowWriter
 
-# Set Chinese font
-import matplotlib.font_manager as fm
-font_path = "C:/Windows/Fonts/msyh.ttc"
-if os.path.exists(font_path):
-    fm.fontManager.addfont(font_path)
-    prop = fm.FontProperties(fname=font_path)
-    plt.rcParams["font.family"] = prop.get_name()
-    plt.rcParams["font.sans-serif"] = [prop.get_name(), "SimHei", "SimSun"]
+from ao_shaping.drivers.sim.slm_shaping_bench import (
+    SquareShapingConfig,
+    forward_intensity,
+)
+
+#: 面板标题里的中文需要一款含 CJK 字形的字体。这是操作系统资源而不是仓库位置,
+#: 没有 ``__file__`` 相对写法, 所以先探测再回落到 matplotlib 的 rcParams 别名,
+#: 缺字体的机器只是退回默认 sans-serif 而不会失败。
+_FONT_PATH = "C:/Windows/Fonts/msyh.ttc"
+if os.path.exists(_FONT_PATH):
+    fm.fontManager.addfont(_FONT_PATH)
+    _font_prop = fm.FontProperties(fname=_FONT_PATH)
+    plt.rcParams["font.family"] = _font_prop.get_name()
+    plt.rcParams["font.sans-serif"] = [_font_prop.get_name(), "SimHei", "SimSun"]
 else:
     plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "SimSun"]
 plt.rcParams["axes.unicode_minus"] = False
 
-BASE = Path("data/debug/slm_transfer/cold_start_20261026_1004")
-FIG_DIR = Path("report/shape_trials/cold_start/figures")
+BASE = ROOT / "data/debug/slm_transfer/cold_start_20261026_1004"
+FIG_DIR = ROOT / "report/shape_trials/cold_start/figures"
 FIG_DIR.mkdir(parents=True, exist_ok=True)
-
-from ao_shaping.drivers.sim.slm_shaping_bench import forward_intensity, SquareShapingConfig
 
 run_name = "random_formation"
 label = "random_formation"
@@ -101,7 +128,7 @@ for index, (rec, ccd_frame, pred_intensity, phase_wrapped) in enumerate(frames_d
     axes[1][1].axis("off")
     axes[1][1].set_title("metrics (模型 / 目标)", fontsize=11)
     combined_text = (
-        "【正向预测模型】\n"
+        "【物理预测模型】\n"
         "  loss: %.4f\n" % terms['loss'] +
         "  grad_norm: %.4f\n" % terms['gradient_norm'] +
         "  phase_rms: %.4f\n" % terms['phase_rms'] +
@@ -136,4 +163,4 @@ for index, (rec, ccd_frame, pred_intensity, phase_wrapped) in enumerate(frames_d
 
 writer.finish()
 plt.close(fig)
-print("GIF saved: cold_start_random_formation_process.gif")
+print(f"GIF saved: {FIG_DIR / f'cold_start_{run_name}_process.gif'}")

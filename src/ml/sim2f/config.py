@@ -71,6 +71,10 @@ __all__ = [
     "AberrationConfig",
     "DEVICE_SPECS",
     "LoopConfig",
+    "NDIM_BARE_MAP",
+    "NDIM_BATCHED_MAP",
+    "NDIM_BATCH_MAP",
+    "NDIM_MATRIX",
     "OpticsErrors",
     "Sim2fConfig",
     "SynthConfig",
@@ -97,6 +101,28 @@ TARGET_KINDS: tuple[str, ...] = (
 
 #: Accepted ``device`` values.  ``"auto"`` resolves to CUDA when available.
 DEVICE_SPECS = ("auto", "cuda", "cpu")
+
+
+#: Tensor ranks shared by every consumer in this package.  ``optics`` and ``losses``
+#: import these instead of restating them: two definitions of one rank drift apart
+#: silently, and a drifted shape guard feeds the wrong training signal rather than
+#: raising.  ``NPAIR_COMPONENTS`` deliberately does **not** live here -- counting the
+#: scalars of a flat vector is an optics-only question.
+#: Rank of a two-axis array read as a matrix: a coefficient table, or a square
+#: covariance. These checks ask whether the argument is a matrix at all, not whether a
+#: batch axis still has to be added.
+NDIM_MATRIX = 2
+
+#: Rank of an unbatched spatial map, i.e. ``(grid, grid)``. An input at this rank gets an
+#: axis prepended before it reaches the pipeline. Separate from NDIM_MATRIX even though the
+#: number is the same: one shape is promoted, the other is only validated.
+NDIM_BARE_MAP = 2
+
+#: Rank of a batched spatial map with no channel axis: ``(B, grid, grid)``.
+NDIM_BATCH_MAP = 3
+
+#: Rank of a batched map carrying an explicit channel axis: ``(B, C, n, n)``.
+NDIM_BATCHED_MAP = 4
 
 
 def fast_len(n: int) -> int:

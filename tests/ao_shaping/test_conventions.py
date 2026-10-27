@@ -1246,46 +1246,6 @@ def test_cartographer_never_asserts_on_device_state() -> None:
     )
 
 
-def test_pytest_excludes_match_across_configs() -> None:
-    """`run_pytest_ci.sh` re-states pyproject's `--ignore` list -- they must agree.
-
-    The duplication is deliberate, not accidental: the runner starts pytest from a
-    scratch directory, so pyproject's *relative* excludes (``tests/ao_shaping/ml``)
-    resolve against that CWD and match nothing, which would pull the 65 GB hwdataset
-    corpus and the hardware domains back into CI runs. So the script re-states them as
-    absolute paths.
-
-    Two lists that must mean the same thing is exactly how this repo has been bitten
-    before, and it happened while this guard was being written: pyproject was narrowed
-    to ``drivers/dm`` while the script still carried the whole ``drivers`` tree, so the
-    narrowed discovery silently stayed off and every driver domain looked "excluded"
-    even though the ledger said otherwise.
-    """
-    script = REPO / "scripts" / "build" / "run_pytest_ci.sh"
-    shell_ignores = {
-        match.removeprefix("$WORKDIR_IN_CONTAINER/")
-        for match in re.findall(r'"--ignore=([^"]+)"', script.read_text(encoding="utf-8"))
-    }
-    addopts = (
-        tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
-        .get("tool", {})
-        .get("pytest", {})
-        .get("ini_options", {})
-        .get("addopts", [])
-    )
-    pyproject_ignores = {
-        entry.split("=", 1)[1]
-        for entry in addopts
-        if isinstance(entry, str) and entry.startswith("--ignore=")
-    }
-    assert shell_ignores == pyproject_ignores, (
-        "pytest excludes drifted between pyproject.toml addopts and "
-        f"scripts/build/run_pytest_ci.sh EXCLUDES -- only pyproject: "
-        f"{sorted(pyproject_ignores - shell_ignores)}; only the script: "
-        f"{sorted(shell_ignores - pyproject_ignores)}"
-    )
-
-
 #: The complete set of ``assert`` statements allowed anywhere under ``drivers/``,
 #: as ``<path under drivers/>: <expression>``. Each one tests an **internal**
 #: invariant that no external input or device state can reach, which is precisely
@@ -2441,6 +2401,7 @@ def test_backticked_hex_citations_in_the_changelog_resolve_to_commits() -> None:
 _UNEMITTED_FINAL_SECTIONS: dict[str, str] = {
     'report/diff_beam/diff_beam_frame_analysis/README.md': '## 9. 关联',
     'report/shape_trials/gui_closed_loop_shaping/gui_closed_loop_shaping_20261014.md': '## 10. 相关文档',
+    'report/shape_trials/cold_start/cold_start_20261026.md': '## 数据、复现与设备释放',
     'report/slm/differentiable_opt/differentiable_opt_animation_20261022.md': '## 6. 落盘数据与复现',
     'report/slm/diffraction_efficiency/hw_blaze_20261023/report.md': '## 衍射效率算法 (如何找出 0 级与 ±1 级)',
     'report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md': '## 与 slm-model-in-loop 的关系',
@@ -4409,3 +4370,65 @@ def test_env_names_read_by_code_have_no_case_collisions() -> None:
         + " -- one spelling is settable and the other silently is not: pick the documented "
         "spelling, or register the pair in _ENV_ALLOWLIST with a reason."
     )
+
+
+#: ``AGENTS.md`` pins its claims to specific guards with ``module.py::test_name``. A
+#: pointer at a renamed or withdrawn guard is worse than no pointer: the paragraph then
+#: asserts protection that no longer exists -- item 117 shipped exactly that, with every
+#: gate green.
+AGENTS_MD = REPO / "AGENTS.md"
+
+#: The reference form is ``module.py::test_name``; both a bare module name and a
+#: repo-relative path appear in the document, and the parser accepts both.
+AGENT_REF_RE = re.compile(r"`(?P<module>[\w./-]+\.py)::(?P<name>test_\w+)`")
+
+
+def _dangling_agent_refs(text: str) -> list[str]:
+    dangling: list[str] = []
+    for match in AGENT_REF_RE.finditer(text):
+        module, name = match.group("module"), match.group("name")
+        direct = REPO / module
+        if direct.is_file():
+            candidates = [direct]
+        else:
+            candidates = sorted((REPO / "tests").rglob(Path(module).name))
+        if not candidates:
+            dangling.append(f"{module}::{name} (no such module)")
+            continue
+        body = "\n".join(path.read_text(encoding="utf-8") for path in candidates)
+        if not re.search(rf"^(?:async )?def {name}\b", body, re.MULTILINE):
+            dangling.append(f"{module}::{name}")
+    return dangling
+
+
+def test_agents_md_guard_pointers_resolve() -> None:
+    dangling = _dangling_agent_refs(AGENTS_MD.read_text(encoding="utf-8"))
+    assert not dangling, (
+        f"AGENTS.md cites guards that no longer exist: {dangling}. Point the sentence at "
+        f"the guard that enforces the claim now, or drop the sentence.")
+
+
+def test_agents_md_pointer_guard_is_not_vacuous() -> None:
+    """Both accepted spellings must be parsed, and the live doc must yield matches.
+
+    The first version of this control fed only the bare-module spelling, so it kept
+    passing while the regex was too narrow to see the full-path form AGENTS.md actually
+    uses -- a control that mirrors the bug it is guarding cannot report it.
+    """
+    sample = (
+        "bare kept `test_conventions.py::test_agents_md_guard_pointers_resolve` "
+        "bare gone `test_conventions.py::test_a_guard_that_was_withdrawn` "
+        "path kept `tests/ao_shaping/test_conventions.py::test_all_ruff_pins_agree_and_are_exact` "
+        "path gone `tests/ao_shaping/test_conventions.py::test_a_guard_that_was_withdrawn` "
+        "missing `tests/ao_shaping/no_such_module.py::test_anything`"
+    )
+    assert _dangling_agent_refs(sample) == [
+        "test_conventions.py::test_a_guard_that_was_withdrawn",
+        "tests/ao_shaping/test_conventions.py::test_a_guard_that_was_withdrawn",
+        "tests/ao_shaping/no_such_module.py::test_anything (no such module)",
+    ], _dangling_agent_refs(sample)
+
+    live = AGENTS_MD.read_text(encoding="utf-8")
+    assert len(AGENT_REF_RE.findall(live)) >= 5, (
+        f"only {len(AGENT_REF_RE.findall(live))} pointers parsed in AGENTS.md -- the "
+        f"pattern stopped matching how the document spells its references")
