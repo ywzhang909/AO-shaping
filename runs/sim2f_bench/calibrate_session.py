@@ -95,20 +95,38 @@ SATURATION_PEAK = 250
 #: response numbers directly comparable with that probe's output.
 FLAT_BOX_RADIUS_PX = 60
 
+#: Peak grey below which a flat frame is "no light", not "dim light".  A working
+#: exposure on this bench puts the 0-order near 40 % of full scale (the
+#: ``working_exposure_ms`` rationale), so a peak of a few counts means the beam is
+#: not arriving, and every downstream ratio would be read off read noise.
+DARK_FRAME_PEAK = 10
+
+#: Radius of the *core* whose share of total frame energy the edge witnesses.
+#: ``beam_extent``'s own default, and the quantity it documents as the only one
+#: that is monotone in "how much light left the core": a box around the 0-order
+#: is not (a disc both scatters light out of it and redistributes light in), and
+#: total energy carries no size information at all (measured conserved).
+CORE_RADIUS_PX = 40
+
 
 @dataclass
 class CommandLedger:
     """Every command and every frame, counted per phase.
 
     ``writes`` counts SLM panel writes, ``reads`` counts camera captures and
-    ``slots`` the memory-slot rotations (a rotation is what makes the LCOS
-    refresh -- see ``drivers/slm/AGENTS.md``).  ``exposures`` records each
-    exposure the camera was moved through, so a ladder is visible as its steps.
+    ``slots`` the memory slots the driver reported for a write (a rotation is
+    what makes the LCOS refresh -- see ``drivers/slm/AGENTS.md``).  It is filled
+    only where the slot is actually readable; ``SettledAcquisition`` carries just
+    (frame, settle), so a write made through ``acquire_settled`` cannot be
+    attributed to a slot and is recorded as such rather than assumed.
+    ``exposures`` records each exposure the camera was moved through, so a ladder
+    is visible as its steps.
     """
 
     writes: int = 0
     reads: int = 0
     slots: list[int] = field(default_factory=list)
+    slots_unreadable: int = 0
     exposures: list[float] = field(default_factory=list)
     phases: dict[str, float] = field(default_factory=dict)
 
@@ -132,6 +150,7 @@ class CommandLedger:
             "camera_reads": self.reads,
             "memory_slot_rotations": len(self.slots),
             "distinct_slots": sorted(set(self.slots)),
+            "writes_with_unreadable_slot": self.slots_unreadable,
             "exposure_values_touched": sorted(set(self.exposures)),
             "seconds_by_phase": {k: round(v, 3) for k, v in self.phases.items()},
         }
@@ -140,9 +159,9 @@ class CommandLedger:
         """Log the counts and the wall-clock split."""
         split = "  ".join(f"{k}={v:.1f}s" for k, v in self.phases.items())
         logger.info(
-            "commands: {} SLM writes, {} camera reads, {} slot rotations "
-            "({} distinct), {} exposures touched",
-            self.writes, self.reads, len(self.slots), len(set(self.slots)),
+            "commands: {} SLM writes ({} with a slot the driver reported), "
+            "{} camera reads, {} distinct slots, {} exposures touched",
+            self.writes, len(self.slots), self.reads, len(set(self.slots)),
             len(set(self.exposures)),
         )
         logger.info("wall clock: {}", split)
@@ -244,52 +263,63 @@ def _measure_panel(devices, args, ledger: CommandLedger) -> dict[str, object]:
     rng = np.random.default_rng(int(args.seed))
     yy, xx = np.mgrid[0:panel[0], 0:panel[1]]
 
-    with ledger.timed("panel_flat"):
-        ref, flat = measure_flat_reference(
-            cam, slm, n_frames=int(args.frames), panel_shape=panel,
-            policy=policy, wait_time_s=None,
+    # The panel keeps the last pattern written, so the very first "flat" read is
+    # whatever a previous run left there.  Two attempts are the cheapest way to
+    # make the two failures distinguishable: still dark on the second read means
+    # it is the optical path or the exposure, not a stale panel.
+    first = second = None
+    for attempt in range(2):
+        with ledger.timed(f"flat_attempt_{attempt + 1}"):
+            ref, flat = measure_flat_reference(
+                cam, slm, n_frames=int(args.frames), panel_shape=panel,
+                policy=policy, wait_time_s=None,
+            )
+            ledger.reads += int(args.frames)
+        peak = float(np.max(ref))
+        logger.info(
+            "flat attempt {}/2: {} frame_peak={:.0f} frame_mean={:.3f} "
+            "frame_sum={:.0f}", attempt + 1, flat.as_row(), peak,
+            float(ref.mean()), float(ref.sum()),
         )
-        ledger.reads += int(args.frames)
+        if attempt == 0:
+            first = (ref, flat, peak)
+        else:
+            second = (ref, flat, peak)
+    assert first is not None and second is not None
+    ref, flat, _ = second
+    if float(np.max(ref)) < DARK_FRAME_PEAK or float(np.max(first[0])) < DARK_FRAME_PEAK:
+        raise SystemExit(
+            "flat frame peaks at {:.0f}/{} on both attempts (first {:.0f}): the "
+            "camera is seeing essentially no light.  That is not a stale-panel "
+            "reading and not an exposure setting -- check the optical path "
+            "(laser on, shutter open, beam on the SLM) before calibrating"
+            .format(float(np.max(ref)), SATURATION_PEAK,
+                    float(np.max(first[0])))
+        )
     box = _flat_box(ref, flat)
     base = float(ref[box].sum())
-    logger.info("flat reference: {}  0-order box energy={:.0f}", flat.as_row(), base)
+    logger.info("flat reference (2nd attempt): {}  0-order box energy={:.0f}",
+                flat.as_row(), base)
     _check_frame(ref, "flat frame")
 
-    # Only candidates at least a patch radius inside the illuminated disc: a disc
-    # straddling the edge writes part of its phase where there is no light, so
-    # its response is a *fraction* of a real patch's and it biases the winner.
-    inside: list[tuple[int, int]] = []
-    skipped: list[tuple[int, int]] = []
-    for py in ys:
-        for px in xs:
-            reach = np.hypot(px - flat.centroid_x, py - flat.centroid_y)
-            (inside if reach + int(args.patch_radius) <= flat.radius_px
-             else skipped).append((px, py))
-    if skipped:
-        # A skipped cell is not "the illumination stops here": the illumination
-        # estimate itself may be wrong.  Prove it with the extent sweep before
-        # believing either, and say so.
-        logger.warning(
-            "{} of {} candidates sit outside the measured illumination "
-            "(centre {:.0f},{:.0f} radius {:.0f} px from the flat frame): {}",
-            len(skipped), len(xs) * len(ys), flat.centroid_x, flat.centroid_y,
-            flat.radius_px, skipped,
-        )
-        logger.warning(
-            "that estimate is not trusted as the answer to "
-            "'where is the beam' -- confirm it with the extent sweep "
-            "(run without --skip-extent) before running the bench"
-        )
-    if not inside:
+
+    # A flat frame's spot measurement carries a centre and a shape, **not** a
+    # radius: ``SpotMeasurement`` is (peak, fwhm, centroid, hollowness).  So the
+    # illumination size is not inferred here at all -- the candidate grid is
+    # swept as given, and the extent sweep (``_measure_beam_extent``) is what
+    # states where the light stops.  Filtering on an invented radius would be
+    # exactly the kind of remembered number this session exists to avoid.
+    inside: list[tuple[int, int]] = [(px, py) for py in ys for px in xs]
+    if any(px < FLAT_BOX_RADIUS_PX or px >= panel[1] - FLAT_BOX_RADIUS_PX
+           or py < FLAT_BOX_RADIUS_PX or py >= panel[0] - FLAT_BOX_RADIUS_PX
+           for px, py in inside):
         raise SystemExit(
-            "no candidate patch fits inside the measured illumination; the flat "
-            "frame's centroid/radius disagree with the grid -- lower the "
-            "exposure or widen --grid-xs/--grid-ys"
+            "a candidate centre is closer to the panel edge than the scoring box; "
+            "widen the panel or trim --grid-xs/--grid-ys"
         )
 
     results: list[tuple[float, int, int, float]] = []
     rows: list[dict[str, object]] = []
-    candidates = skipped
     with ledger.timed("panel_scan"):
         before = ref
         for index, (px, py) in enumerate(inside):
@@ -334,8 +364,11 @@ def _measure_panel(devices, args, ledger: CommandLedger) -> dict[str, object]:
                 px, py, delta, drift, candidate.settle.rel_sigma,
             )
             before = after
-            ledger.slots.append(int(candidate.writes_slot))
-    _ = candidates
+            # ``acquire_settled`` discards ``display_data``'s return value, so the
+            # slot the driver auto-rotated to is not visible from here.  Record
+            # that, do not guess it: an assumed slot in the ledger would hide a
+            # real LCOS-refresh fault.
+            ledger.slots_unreadable += 1
 
     if not results:
         raise SystemExit("panel scan produced no scorable candidate")
@@ -350,26 +383,29 @@ def _measure_panel(devices, args, ledger: CommandLedger) -> dict[str, object]:
         ],
         "response": float(results[0][3]),
         "runner_up_abs": float(results[1][0]) if len(results) > 1 else None,
-        "inside_illumination": len(inside),
-        "skipped_outside_illumination": skipped,
+        "candidates_swept": len(inside),
         "points": rows,
     }
 
 
 def _measure_beam_extent(devices, args, ledger: CommandLedger) -> dict[str, object]:
-    """Sweep the panel edge to find where the beam stops responding.
+    """Sweep the panel to find where the light stops responding.
 
-    Same question as ``tools/slm/panel/beam_extent.py`` (does a random phase disc
-    at radius ``r`` still change the far field?) asked with the cheaper statistic
-    this session already needs: the 0-order box energy change against a paired
-    flat.  A radius past the illuminated region gives a response at the floor.
+    This is ``tools/slm/panel/beam_extent.py``'s measurement, run inside this
+    session instead of its own device pair: a random phase disc at radius ``r``,
+    and the **core fraction** -- the share of total frame energy inside
+    ``CORE_RADIUS_PX`` of the flat frame's centroid -- as the reading.  That
+    statistic is chosen for the reason the standalone probe documents: it is
+    monotone in how much light left the core, whereas a box around the 0-order
+    is not (a disc both scatters light out of it and redistributes light in) and
+    total energy carries no size information at all (measured conserved within
+    0.5 % across apertures from 100 to 850 px).
 
-    The box here is the *patch's* own 60 px circle around the fixed 0-order
-    centroid, not a fresh centroid estimate: the 0-order does not move while the
-    patch moves, and re-locating it per point would fold spot wander into the
-    response.
+    The centroid is the flat frame's, held fixed for the whole sweep: the
+    0-order does not move while the patch moves, and re-locating it per point
+    would fold spot wander into the reading.
     """
-    from ao_shaping.tools.slm.panel.panel_locate import _box_mask
+    from ao_shaping.tools.kernels.bench_kernels import core_fraction
     from ao_shaping.tools.slm.panel.panel_locate import (
         capture_settled_report,
         measure_flat_reference,
@@ -389,12 +425,15 @@ def _measure_beam_extent(devices, args, ledger: CommandLedger) -> dict[str, obje
         )
         ledger.reads += int(args.frames)
     _check_frame(ref, "extent reference frame")
-    box = _box_mask(ref.shape, int(round(flat.centroid_x)),
-                    int(round(flat.centroid_y)), FLAT_BOX_RADIUS_PX)
-    reference = float(ref[box].sum())
+    cx, cy = float(flat.centroid_x), float(flat.centroid_y)
+    base = core_fraction(ref, cx, cy, CORE_RADIUS_PX)
+    logger.info("extent reference: {}  core_fraction({}px)={:.4f}",
+                flat.as_row(), CORE_RADIUS_PX, base)
 
     out: dict[str, object] = {
-        "reference_centroid": [float(flat.centroid_x), float(flat.centroid_y)],
+        "reference_centroid": [cx, cy],
+        "core_radius_px": CORE_RADIUS_PX,
+        "core_fraction_flat": base,
         "panel_shape": list(panel),
     }
     with ledger.timed("extent_sweep"):
@@ -405,18 +444,21 @@ def _measure_beam_extent(devices, args, ledger: CommandLedger) -> dict[str, obje
             before = ref
             kept = [int(v) for v in values.split(",") if v.strip()]
             for index, value in enumerate(kept):
-                cx = value if centre_axis == 1 else panel[1] // 2
-                cy = value if centre_axis == 0 else panel[0] // 2
-                if not (radius <= cx < panel[1] - radius
-                        and radius <= cy < panel[0] - radius):
+                # The *other* coordinate is the flat frame's measured centre, not
+                # the panel's geometric middle: the beam is not parked centrally,
+                # so sweeping through the panel centre would walk off the beam.
+                px = value if centre_axis == 1 else int(round(cx))
+                py = value if centre_axis == 0 else int(round(cy))
+                if not (radius <= px < panel[1] - radius
+                        and radius <= py < panel[0] - radius):
                     # A disc at the edge would be a different aperture, not a
                     # sweep point: report the skip instead of a number that
                     # means something else.
-                    found.append({"axis": axis, "value": value, "delta": None,
+                    found.append({"value": value, "core_fraction": None,
                                   "skipped": "patch would leave the panel"})
                     continue
                 phase = np.zeros(panel, dtype=np.float64)
-                m = (yy - cy) ** 2 + (xx - cx) ** 2 <= radius * radius
+                m = (yy - py) ** 2 + (xx - px) ** 2 <= radius * radius
                 phase[m] = rng.uniform(0.0, 2.0 * np.pi, int(m.sum()))
                 candidate = capture_settled_report(
                     cam, slm, phase, wait_time_s=None, policy=policy
@@ -433,13 +475,27 @@ def _measure_beam_extent(devices, args, ledger: CommandLedger) -> dict[str, obje
                     _check_frame(after, "extent re-paired flat")
                 else:
                     after = before
-                delta = (float(candidate.frame[box].sum())
-                         - (float(before[box].sum()) + float(after[box].sum())) / 2)
-                delta /= reference if reference > 0 else float("nan")
-                logger.info("extent {}={}: delta={:+.4f}", axis, value, delta)
-                found.append({"axis": axis, "value": value, "delta": float(delta)})
+                # Paired flat: the reading is the drop from the mean of the flats
+                # either side of this write, so bench drift is subtracted rather
+                # than attributed to the patch.
+                pair = (core_fraction(before, cx, cy, CORE_RADIUS_PX)
+                        + core_fraction(after, cx, cy, CORE_RADIUS_PX)) / 2
+                value_fraction = core_fraction(
+                    candidate.frame, cx, cy, CORE_RADIUS_PX
+                )
+                drop = float(value_fraction - pair)
+                logger.info(
+                    "extent {}={} (patch at {},{}): core={:.4f} paired flat={:.4f} "
+                    "drop={:+.4f}", axis, value, px, py, value_fraction, pair, drop,
+                )
+                found.append({
+                    "value": value, "patch_xy": [px, py],
+                    "core_fraction": value_fraction,
+                    "paired_flat": pair, "drop": drop,
+                    "rel_sigma": float(candidate.settle.rel_sigma),
+                })
                 before = after
-                ledger.slots.append(int(candidate.writes_slot))
+                ledger.slots_unreadable += 1
             out[axis] = found
     return out
 
