@@ -12,10 +12,17 @@ from torch.utils.data import Dataset
 
 # External dependency - keep as absolute import
 from ml.csv_io import load_zernike_coefficients
+from ml.sim2f.config import NDIM_BARE_MAP
 
 from ao_shaping.utils.wavefront.zernike_calc import (
     ZernikeGenerator,
 )
+
+#: Rank of an image tensor that carries its channel axis: ``(C, H, W)``, where ``C`` is
+#: the camera axis of the dual-camera pair. Module-private on purpose -- this is how
+#: ``phase`` lays out its images, not a convention other modules have asked for, and the
+#: hub's NDIM_BATCH_MAP shares the value 3 while meaning a batch axis instead.
+_NDIM_CHANNELLED_IMAGE = 3
 
 
 def coefficients_to_phase_map(
@@ -177,7 +184,7 @@ class PhasePredictionDataset(Dataset):
 
     def _find_center(self, img: torch.Tensor) -> tuple[float, float]:
         """Find center of mass for an image tensor."""
-        if img.ndim == 3:
+        if img.ndim == _NDIM_CHANNELLED_IMAGE:
             img = img.squeeze(0)
         arr = img.cpu().numpy()
         arr_norm = arr - arr.min()
@@ -243,7 +250,7 @@ class PhasePredictionDataset(Dataset):
 
     def _equalize_histogram(self, img: torch.Tensor) -> torch.Tensor:
         """Apply histogram equalization for contrast enhancement."""
-        if img.ndim == 3:
+        if img.ndim == _NDIM_CHANNELLED_IMAGE:
             result = []
             for c in range(img.shape[0]):
                 arr = img[c].cpu().numpy()
@@ -290,7 +297,7 @@ class PhasePredictionDataset(Dataset):
         if shift_x == 0 and shift_y == 0:
             return tensor
 
-        if tensor.ndim == 2:
+        if tensor.ndim == NDIM_BARE_MAP:
             tensor = tensor.unsqueeze(0)
 
         c, h, w = tensor.shape
@@ -322,7 +329,7 @@ class PhasePredictionDataset(Dataset):
         if sigma <= 0.01:
             return tensor
 
-        if tensor.ndim == 2:
+        if tensor.ndim == NDIM_BARE_MAP:
             tensor = tensor.unsqueeze(0)
 
         c, h, w = tensor.shape
@@ -360,7 +367,7 @@ class PhasePredictionDataset(Dataset):
         target_size: tuple[int, int],
     ) -> torch.Tensor:
         """Crop around center and resize to target size."""
-        if img.ndim == 3:
+        if img.ndim == _NDIM_CHANNELLED_IMAGE:
             img = img.squeeze(0)
 
         h, w = img.shape
@@ -423,7 +430,7 @@ class PhasePredictionDataset(Dataset):
 
                 daheng_np = np.load(daheng_path)
                 daheng = torch.from_numpy(daheng_np).float()
-                if daheng.ndim == 2:
+                if daheng.ndim == NDIM_BARE_MAP:
                     daheng = daheng.unsqueeze(0)
 
                 center_row, center_col = self._find_center(daheng)
@@ -440,7 +447,7 @@ class PhasePredictionDataset(Dataset):
 
                 miicam_np = np.load(miicam_path)
                 miicam = torch.from_numpy(miicam_np).float()
-                if miicam.ndim == 2:
+                if miicam.ndim == NDIM_BARE_MAP:
                     miicam = miicam.unsqueeze(0)
 
                 center_row, center_col = self._find_center(miicam)
@@ -461,10 +468,10 @@ class PhasePredictionDataset(Dataset):
 
             if phase_path_npy.exists():
                 phase_np = np.load(phase_path_npy)
-                if phase_np.ndim != 2:
+                if phase_np.ndim != NDIM_BARE_MAP:
                     raise ValueError(f"Expected 2D phase map, got {phase_np.ndim}D: {phase_path_npy}")
                 phase = torch.from_numpy(phase_np).float()
-                if phase.ndim == 2:
+                if phase.ndim == NDIM_BARE_MAP:
                     phase = phase.unsqueeze(0)
             elif phase_path_csv.exists():
                 coeffs = load_zernike_coefficients(phase_path_csv)

@@ -3595,6 +3595,16 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 回归按同一执行形态与改前基线逐位比对：`tests/ao_shaping/ml/zernike` 在 CI 形态（per-file）下聚合指纹 `{21 files, 511 passed, 2 skipped, 0 failed}`，与改前存盘指纹 `diff` 为空；`tests/ao_shaping/ml/sim2f` 为 299 passed / 6 skipped 不变（116 记的 305 与本批 299 相差 6，即那次把 `test_measure_sim2f_kl_basis.py` 一并计入、本批未计，属口径对齐而非结果变化）。
 - 覆盖账（实测）：`ml/zernike/losses.py` 9 → 0；`src` 全域 634 → 625（差值 9 与提升点数一致）。
 
+123. ✅ **#173 续批：`ml/phase/dataset.py` 的 11 → 2，6 处消费 hub 的 `NDIM_BARE_MAP`、3 处定为模块私有 `_NDIM_CHANNELLED_IMAGE`，并给守卫补上"私有秩不外溢"的镜像规则**（2026-10-27）
+- 语义分流是这批的全部难点。6 处二维判定（293/325/426/443/467 的 `ndim == 2` 与 464 的 `!= 2`）都是"裸二维图补一个前导轴"或"校验它是二维"，与 116 已收敛的约定同一族 ⇒ 直接消费 `ml.sim2f.config.NDIM_BARE_MAP`，不新建别名。3 处三维判定（180/246/363）的前导轴是**相机轴**（516 行 `image.shape[0] == 2` 数的就是双相机台数，246 行按 `range(img.shape[0])` 逐通道处理），与 hub 里 `NDIM_BATCH_MAP = 3` 的值相同但含义是批轴 ⇒ 定为模块私有 `_NDIM_CHANNELLED_IMAGE = 3`，并把"为什么不进 hub"写进该常量的注释。
+- 不做成包级名的理由就是 121 记下的反向错误（过度共享）：这个布局只有本模块在用，而 hub 里已经存在一个同为 3、含义却是批轴的名字；再造一个同值的包级名，等于让"选哪个名字"变成读代码时的运气问题。
+- 刻意不提 2 处：329 的 sigma 下限 `0.01`（仅一处）、516 的 `2`（相机台数，不是秩）。
+- 一次**工具假警报**必须记下来：为验证 import 方向我写了静态 import 图脚本，它把子模块的父包前缀也算成 import 边（`ml.csv_io` 会触发 `ml` 根包初始化），于是判 `phase → sim2f` 成环。但既有事实是 `ml.phase.dataset` 今天已经在 import `ml.csv_io`，走的就是同一条父包初始化路径，且 `sim2f/__init__.py` 零 import、`config.py` 零 intra-ml import，不构成环。教训：工具的结论与既有事实矛盾时，先怀疑谓词而不是先改代码；最终由带 torch 的 CI 环境实跑定案（`test_csv_io.py` 本身就 import `ml.phase.dataset`，两处指纹与改前一致）。
+- 守卫随代码扩两处（`tests/ao_shaping/ml/sim2f/test_rank_constants_single_source.py`）：消费者名单加入 `phase/dataset.py`；新增 `test_module_local_ranks_stay_in_their_module`，钉住"私有秩只能由声明它的模块引用"——这是 121 边界规则的镜像：单模块约定不该上移成包级公约，也不该被别处悄悄借走。测试 4 → 5 条。两个种植各自咬到对应面：消费方再声明 hub 秩 ⇒ 2 条红；私有秩被另一个子包引用 ⇒ 新加那条红。还原一律备份 + `cmp` 逐字节核验。
+- 控制链（混合定义形态：一个名字来自 hub、一个是模块内定义）MIXED CONTROLS OK：基线判恒等；hub 侧 A 定义值 2→3、C 把 `NDIM_BARE_MAP = 2` 改成 `2.0`（断言类型确实变而数值不变）、D 删 hub 定义 ⇒ 报"有使用无定义"、F 在消费方另建同名定义 ⇒ 证明直接报"重复定义"；本地侧 L 把 `_NDIM_CHANNELLED_IMAGE = 3` 改成 4 ⇒ 判非恒等（私有常量同样在监督之下，不是只写给人看的注释）；B 使用处加 `+ 1`；分组反向（把 180 行标成二维组）⇒ 报"该行没有字面量 2"。
+- 验证与回归：9 个计划替换点全部由 ruff 真实命中；与 HEAD 的 AST 恒等 `True`；分组校验正向 OK；语法编译自检通过；`ruff check .` 全仓归零。回归按同一执行形态与改前基线比对：`tests/ao_shaping/ml/sim2f` 由 299 → 300 passed / 6 skipped，+1 恰为守卫新增的那条（可解释的增量才算可比）；`tests/ao_shaping/ml/shaping` 加两个 ml 根测试的逐文件聚合指纹 `{11 files, 141 passed, 2 skipped, 0 failed}` 与改前存盘值 `diff` 为空；`tests/ao_shaping/ml/zernike` 聚合指纹 `{21 files, 511 passed, 2 skipped, 0 failed}` 不变。
+- 覆盖账（实测）：目标文件 11 → 2；`src` 全域 625 → 616（差值 9 与提升点数一致）。这是 hub 被**第三个**子包消费的一批，122 把守卫做成包级的收益在这里兑现：复用不再依赖我记得去查重复，而是"另起一份"会让守卫当场变红。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

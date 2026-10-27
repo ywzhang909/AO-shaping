@@ -1,10 +1,12 @@
 """``NDIM_*`` may have exactly one definition site in the whole ``ml`` package.
 
 Item 116 consolidated the tensor ranks into :mod:`ml.sim2f.config`, which ``sim2f.optics``
-and ``sim2f.losses`` import. Item 122 made ``ml.zernike.losses`` a consumer from a second
-subpackage, so the scan is package-wide: a re-declaration in any subpackage drifts silently,
-and two shape guards can then mean different ranks under one name, sending training after the
-wrong axis convention instead of raising.
+and ``sim2f.losses`` import. Items 122 and 123 made ``ml.zernike.losses`` and
+``ml.phase.dataset`` consumers from further subpackages, so the scan is package-wide: a
+re-declaration in any subpackage drifts silently, and two shape guards can then mean different
+ranks under one name, sending training after the wrong axis convention instead of raising.
+The mirror rule is also pinned: a rank that one module laid out for itself stays private --
+hoisting it into the hub would advertise a convention nobody else asked for.
 
 The check is AST-only -- it parses source instead of importing it -- so it cannot be skipped
 for an environmental reason (no torch, no device, no corpus).
@@ -13,6 +15,7 @@ for an environmental reason (no torch, no device, no corpus).
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 PKG = Path(__file__).resolve().parents[4] / "src" / "ml"
@@ -27,8 +30,12 @@ RANK_VALUES = {
 #: Every module that is allowed to *consume* the ranks, relative to ``PKG``. A module that
 #: stops referencing them is reported, because the guard would then be watching fewer call
 #: sites than the consolidation claimed.
-CONSUMERS = ("sim2f/optics.py", "sim2f/losses.py", "zernike/losses.py")
+CONSUMERS = ("sim2f/optics.py", "sim2f/losses.py", "zernike/losses.py", "phase/dataset.py")
 HUB_MODULE = "ml.sim2f.config"
+#: A rank one module chose for its own layout. It must stay in that module: promoting it
+# to the hub would imply a package-wide convention, and a second module declaring the same
+# private name would imply the layouts agree when nothing enforces it.
+LOCAL_RANKS = {"_NDIM_CHANNELLED_IMAGE": "phase/dataset.py"}
 
 
 def _module_defs(path: Path) -> dict[str, object]:
@@ -64,6 +71,25 @@ class TestRankConstantsSingleSource:
 
     def test_rank_values_match_the_documented_axes(self):
         assert _module_defs(PKG / HUB) == RANK_VALUES
+
+    def test_module_local_ranks_stay_in_their_module(self):
+        for name, owner in sorted(LOCAL_RANKS.items()):
+            declared, referenced = [], []
+            for module in sorted(PKG.rglob("*.py")):
+                body = module.read_text(encoding="utf-8")
+                rel = module.relative_to(PKG).as_posix()
+                tree = ast.parse(body)
+                if any(
+                    isinstance(node, ast.Assign)
+                    and isinstance(node.targets[0], ast.Name)
+                    and node.targets[0].id == name
+                    for node in tree.body
+                ):
+                    declared.append(rel)
+                if re.search(rf"\b{name}\b", body):
+                    referenced.append(rel)
+            assert declared == [owner], f"{name} declared in {declared}; expected {owner} only"
+            assert referenced == [owner], f"{name} referenced outside {owner}: {referenced}"
 
     def test_consumers_import_ranks_instead_of_redeclaring(self):
         for consumer in CONSUMERS:
