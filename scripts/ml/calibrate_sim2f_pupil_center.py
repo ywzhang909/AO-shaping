@@ -103,6 +103,14 @@ WIDE_OFFSETS_PX = tuple(range(-240, 241, 20))
 #: The band of the three-valued conclusion (report §0).  Not a knob.
 PLACEMENT_BAND_PX = 20.0
 
+#: Report §6 is the script's own section: the inventory of what this run wrote.
+#: Every regeneration rewrites exactly this section, so a hand-pasted copy can
+#: never be the only source of it (``test_conventions`` guards the final heading).
+ARTEFACTS_HEADING = "## 6. 产物"
+
+#: The generated report inside ``--out-dir`` whose §6 this script owns.
+REPORT_NAME = "pupil_center_sweep.md"
+
 #: The eight dihedral transforms of a square frame (the ``NCC-D4`` side evidence).
 DIHEDRAL = {
     "identity": lambda a: a,
@@ -766,6 +774,96 @@ def _shape_of(curve: list[float]) -> dict[str, Any]:
     }
 
 
+def artefacts_section(
+    out_dir: Path,
+    json_path: Path,
+    figure_paths: list[str],
+    floor: float,
+    fine: dict[str, Any] | None,
+) -> str:
+    """Build the ``## 6. 产物`` section from the files this run actually wrote.
+
+    Args:
+        out_dir: The report directory (``--out-dir``); table paths are relative to it.
+        json_path: The sweep json written under ``artifacts/``.
+        figure_paths: Figure paths returned by :func:`render` (fine figure only
+            when the fine diagnostic ran).
+        floor: G0-4 floor drawn as the contour (labels quote it, never re-decide it).
+        fine: The fine diagnostic payload, or ``None`` when it was disabled.
+
+    Returns:
+        The Markdown section, ending with one newline.
+    """
+    grid_txt = "粗/细网格" if fine else "粗网格"
+    labels = {
+        "pupil_center_map.png": f"`min` / `mean` 的二维图 (红线 = {floor:g} 等值线)",
+        "pupil_center_slices.png": (
+            f"两条一维切片 (灰带 = ±{PLACEMENT_BAND_PX:g} px 判据带)"
+        ),
+        "pupil_center_fine.png": (
+            f"{int(fine['step_px'])} px 细化图与切片 (事后形状诊断)"
+            if fine
+            else "细化图与切片 (事后形状诊断)"
+        ),
+    }
+    rows: list[tuple[str, str]] = [
+        (
+            f"artifacts/{json_path.name}",
+            f"全部原始数字: {grid_txt}的 `min`/`mean`/最差样本图、切片、复现偏差、"
+            "旁证、逐样本增益",
+        )
+    ]
+    for figure in figure_paths:
+        path = Path(figure)
+        rows.append((path.relative_to(out_dir).as_posix(), labels[path.name]))
+
+    script_rel = Path(__file__).relative_to(ROOT).as_posix().replace("/", "\\")
+    lines = [
+        ARTEFACTS_HEADING,
+        "",
+        "```powershell",
+        '$env:PYTHONPATH="src;libs"',
+        f".venv\\Scripts\\python.exe {script_rel}",
+        "```",
+        "",
+        "| 文件 | 内容 |",
+        "|---|---|",
+    ]
+    lines += [f"| `{rel}` | {label} |" for rel, label in rows]
+    return "\n".join(lines) + "\n"
+
+
+def upsert_artefacts_section(report_path: Path, section: str) -> None:
+    """Rewrite only the ``## 6. 产物`` section of the report, keeping the rest.
+
+    The other sections are hand-written prose; this one is the script's inventory,
+    so a regeneration that moves figures or disables the fine sweep updates the
+    table in place.  If the section is missing (e.g. deleted by hand) it is
+    re-appended at the end, which is where the report's own ordering puts it.
+    """
+    if not report_path.is_file():
+        report_path.write_text(section, encoding="utf-8")
+        return
+    text = report_path.read_text(encoding="utf-8")
+    lines = text.splitlines(keepends=True)
+    start = next(
+        (i for i, line in enumerate(lines) if line.rstrip("\n") == ARTEFACTS_HEADING),
+        None,
+    )
+    if start is None:
+        if not text.endswith("\n"):
+            text += "\n"
+        report_path.write_text(text + "\n" + section, encoding="utf-8")
+        return
+    end = next(
+        (i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")),
+        len(lines),
+    )
+    report_path.write_text(
+        "".join(lines[:start]) + section + "".join(lines[end:]), encoding="utf-8"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the sweep and write the artefacts.
 
@@ -1013,6 +1111,11 @@ def main(argv: list[str] | None = None) -> int:
     path = artefacts / "pupil_center_sweep.json"
     path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     logger.info("artefacts: {} + {} figure(s)", path, len(figures))
+    report_path = args.out_dir / REPORT_NAME
+    upsert_artefacts_section(
+        report_path, artefacts_section(args.out_dir, path, figures, floor, fine)
+    )
+    logger.info("report §6 re-emitted from this run's artefacts: {}", report_path)
     logger.info(json.dumps({"verdict": verdict, "best": best, "at_zero": at_zero}, indent=2))
     return 0
 
