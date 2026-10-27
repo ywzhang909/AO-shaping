@@ -2208,7 +2208,7 @@ _DOC_LINE_ANCHORS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
     ),
     (
         "TODO.md",
-        "上报动作本身的失败**（",
+        "上报动作本身的失败**（`ccd_analyzer.py:",
         "src/ao_shaping/gui/ccd/ccd_analyzer.py",
         ('raw_frame_queue.put(("error", str(exc)), block=False)',
          'raw_frame_queue.put(("error", f"Capture loop crashed: {exc}"), block=False)'),
