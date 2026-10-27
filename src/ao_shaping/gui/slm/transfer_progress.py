@@ -39,8 +39,10 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import math
+import pickle
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -54,7 +56,10 @@ __all__ = [
     "STAGE_LABELS",
     "STATUS_LABELS",
     "collect_progress",
+    "collect_traces",
+    "missing_trace_labels",
     "render_progress",
+    "render_traces",
 ]
 
 #: 一条指标没测到时的显示文本。与 0 严格区分（见模块文档）。
@@ -186,6 +191,21 @@ def _read_json(path: Path | None) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
+        return None
+
+
+def _read_pickle(path: Path | None) -> Any:
+    """Load a pickle a run may still be appending to; ``None`` when unusable.
+
+    ``iterations.pkl`` is rewritten after every update, so a reader can catch it
+    half-written -- the same contract ``recording.run_rows`` already honours.
+    """
+    if path is None or not path.is_file():
+        return None
+    try:
+        with path.open("rb") as stream:
+            return pickle.load(stream)
+    except (OSError, EOFError, pickle.UnpicklingError, AttributeError, ImportError):
         return None
 
 
@@ -784,6 +804,204 @@ _READERS: dict[str, Any] = {
 
 
 # ---------------------------------------------------------------------------
+# 轨迹采集（图的数据源；同样纯函数、无 streamlit、缺产物不抛异常）
+# ---------------------------------------------------------------------------
+
+#: ``recording/process.csv`` 里真正要画的列。``_phase`` / ``_img`` / ``_grad``
+#: 是整幅面板与整帧图像，一条记录几十万字符 —— 画折线要的是标量，不读它们。
+_CCD_TRACE_COLUMNS = ("cv", "core_peak", "model_loss", "exposure_ms")
+
+#: 每个 stage 目录名 → 图上用的中文标签。
+_TRACE_RUNS: tuple[tuple[str, str], ...] = (("model", "模型块"), ("anchored", "锚定块"))
+
+
+def collect_traces(out_dir: str | Path | None) -> dict[str, Any]:
+    """Read the numeric traces behind the three plots; never raise.
+
+    The panel above answers "which stage, with what numbers"; this one answers
+    "how did it get there". Three independent traces, each ``None`` when its
+    artefacts were never written:
+
+    Args:
+        out_dir: 会话目录（``TransferSession.out``）。
+
+    Returns:
+        ``{"out_dir", "ccd", "fit", "prediction", "blocks"}`` where
+
+        - ``ccd``: ``{"runs": [{"stage", "label", "shapes", "series"}],
+          "has_seed"}`` — one entry per ``<stage>/recording/process.csv``；
+          ``series`` 是 ``{"label", "shape", "cv", "core_peak", "model_loss",
+          "exposure_ms"}`` 逐行（缺失值 ``None``）。
+        - ``fit``: ``{"iterations", "train", "validation", "selected"}`` —
+          ``iterations[0][0]`` 迭代号、``[1]`` 损失；训练/验证各三条指标均值
+          （``correlation`` / ``relative_l2`` / ``cv_abs_error``）。
+        - ``prediction``: ``{"metric_scope", "items"}`` — 每个 (形状, seed/final)
+          的实测 / 预测 CV 与相关系数。
+        - ``blocks``: ``{"anchored": [...], "model": [...]}`` — 逐块
+          ``baseline``/``candidate``/``accepted``。
+
+    全部产物都没写出来时每个字段都是 ``None``（图区整体不铺），四种轨迹各自
+    独立判定 —— 只删一部分产物时其余图照常显示。
+    """
+    out = _as_path(out_dir)
+    if out is None:
+        return {"out_dir": None, "ccd": None, "fit": None, "prediction": None,
+                "blocks": None}
+    return {
+        "out_dir": str(out),
+        "ccd": _ccd_trace(out),
+        "fit": _fit_trace(out),
+        "prediction": _prediction_trace(out),
+        "blocks": _block_trace(out),
+    }
+
+
+def _ccd_trace(out: Path) -> dict[str, Any] | None:
+    """``<stage>/recording/process.csv`` —— 每一次 CCD 采集一行。"""
+    runs = []
+    has_seed = False
+    for stage, label in _TRACE_RUNS:
+        rows = _read_process_csv(out / stage / "recording" / "process.csv")
+        if not rows:
+            continue
+        series = []
+        for row in rows:
+            name = str(row.get("label") or "")
+            series.append({
+                "label": name,
+                "shape": row.get("shape") or "",
+                "cv": _finite(row.get("cv")),
+                "core_peak": _finite(row.get("core_peak")),
+                "model_loss": _finite(row.get("model_loss")),
+                "exposure_ms": _finite(row.get("exposure_ms")),
+            })
+            if "seed" in name:
+                has_seed = True
+        runs.append({
+            "stage": stage,
+            "label": label,
+            "shapes": sorted({s["shape"] for s in series if s["shape"]}),
+            "series": series,
+        })
+    if not runs:
+        return None
+    return {"runs": runs, "has_seed": has_seed}
+
+
+def _read_process_csv(path: Path) -> list[Mapping[str, Any]]:
+    """只取标量列；半写的最后一行（列数不齐）由 ``DictReader`` 自己跳过。"""
+    if not path.is_file():
+        return []
+    rows: list[Mapping[str, Any]] = []
+    try:
+        with path.open(newline="", encoding="utf-8") as stream:
+            for row in csv.DictReader(stream):
+                if any(row.get(column) not in (None, "") for column in _CCD_TRACE_COLUMNS):
+                    rows.append(row)
+    except (OSError, csv.Error, UnicodeDecodeError) as exc:
+        logger.debug(f"transfer_progress: unreadable {path} ({exc!r})")
+        return []
+    return rows
+
+
+def _fit_trace(out: Path) -> dict[str, Any] | None:
+    """``fit/<stage>/iterations.pkl`` 的损失与分区指标轨迹。
+
+    口径与 :func:`~ao_shaping.tools.slm.transfer.progress.fit_trace` 逐项一致
+    （同一个验证集掩码、同一组指标），只是把「缺失产物」换成 ``None`` 而不抛。
+    ``fit/full/`` 是自动适配升级后真正被采用的那一次，优先读它。
+    """
+    root = out / "fit" / "full"
+    if not (root / "iterations.pkl").is_file():
+        root = out / "fit"
+    history = _read_pickle(root / "iterations.pkl")
+    if not isinstance(history, list) or not history:
+        return None
+    provenance = _read_json(root / "provenance.json")
+    rows = _rows(provenance.get("rows") if isinstance(provenance, Mapping) else None)
+    splits = [str(row.get("split") or "") for row in rows]
+    iterations, train, validation = [], [], []
+    for entry in history:
+        if not isinstance(entry, Mapping):
+            continue
+        iterations.append((_finite(entry.get("iteration")), _finite(entry.get("loss"))))
+        metrics = _rows(entry.get("metrics"))
+        for mask, bucket in ((True, train), (False, validation)):
+            keep = [
+                metric for metric, split in zip(metrics, splits)
+                if (split == "train") is mask
+            ] if splits and len(splits) == len(metrics) else []
+            bucket.append((
+                _mean([m.get("correlation") for m in keep]),
+                _mean([m.get("relative_l2") for m in keep]),
+                _mean([m.get("cv_abs_error") for m in keep]),
+            ))
+    if not iterations:
+        return None
+    selected = _read_json(root / "result.json")
+    return {
+        "iterations": iterations,
+        "train": train,
+        "validation": validation,
+        "selected": _finite(selected.get("iteration"))
+        if isinstance(selected, Mapping) else None,
+    }
+
+
+def _prediction_trace(out: Path) -> dict[str, Any] | None:
+    """``summary/results.json`` —— 每个形状 seed/final 的实测 vs 模型预测。
+
+    ⚠️ 两侧量纲不同：``measured.cv`` 是相机 counts 口径的散斑对比度（量级 ~0.6），
+    ``predicted.cv`` 是归一化模型强度面的同一定义（量级 ~0.05）。图上因此**不叠
+    折线**，只并排画每个点的「实测 / 预测」成对柱，并标注管线自己算的相关系数。
+    """
+    data = _read_json(out / "summary" / "results.json")
+    if not isinstance(data, Mapping):
+        return None
+    items = []
+    for shape in _rows(data.get("shapes")):
+        name = str(shape.get("shape") or "")
+        for stage in ("seed", "final"):
+            entry = shape.get(stage)
+            if not isinstance(entry, Mapping):
+                continue
+            measured = entry.get("measured") if isinstance(entry.get("measured"), Mapping) else {}
+            predicted = entry.get("predicted") if isinstance(entry.get("predicted"), Mapping) else {}
+            items.append({
+                "shape": name,
+                "stage": stage,
+                "measured_cv": _finite(measured.get("cv")),
+                "predicted_cv": _finite(predicted.get("cv")),
+                "correlation": _finite(entry.get("correlation")),
+                "loss": _finite(entry.get("loss")),
+            })
+    if not items:
+        return None
+    return {"metric_scope": str(data.get("metric_scope") or ""), "items": items}
+
+
+def _block_trace(out: Path) -> dict[str, Any] | None:
+    """``<stage>/summary.json`` —— 逐块基线→候选（含被拒绝的块）。"""
+    traces: dict[str, Any] = {}
+    for stage, _label in _TRACE_RUNS:
+        rows = _rows(_read_json(out / stage / "summary.json"))
+        blocks = [
+            {
+                "shape": row.get("shape") or "",
+                "block": row.get("block"),
+                "baseline": _finite(row.get("baseline")),
+                "candidate": _finite(row.get("candidate")),
+                "accepted": bool(row.get("accepted")),
+            }
+            for row in rows
+            if "baseline" in row and "candidate" in row
+        ]
+        if blocks:
+            traces[stage] = blocks
+    return traces or None
+
+
+# ---------------------------------------------------------------------------
 # Streamlit 渲染（只有排版，不读产物）
 # ---------------------------------------------------------------------------
 
@@ -860,3 +1078,243 @@ def _stage_block(stage: Mapping[str, Any]) -> str:
     lines = [f"- **{stage.get('label')}**：{status} —— {body}"]
     lines.extend(f"  - {detail}" for detail in stage.get("details") or ())
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Streamlit 渲染：三张轨迹图
+# ---------------------------------------------------------------------------
+
+
+def render_traces(view: Mapping[str, Any]) -> None:
+    """三张轨迹图：CCD 迭代过程 / 模型预测 vs 实测 / 指标折线。
+
+    Args:
+        view: :func:`collect_traces` 的返回值。四类轨迹各自缺失时，对应的图画
+            不出现，并在末尾一行说明缺哪些产物 —— 不画空坐标轴冒充「没有变化」。
+    """
+    import streamlit as st
+
+    present = [key for key in ("ccd", "fit", "prediction", "blocks") if view.get(key)]
+    if not present:
+        return
+    st.subheader("轨迹")
+    if view.get("prediction"):
+        _render_prediction(view["prediction"])
+    if view.get("ccd"):
+        _render_ccd(view["ccd"], has_blocks=bool(view.get("blocks")))
+    if view.get("fit"):
+        _render_fit(view["fit"])
+    if view.get("blocks"):
+        _render_blocks(view["blocks"])
+    missing = missing_trace_labels(view)
+    if missing:
+        st.caption("尚未产出：" + "、".join(missing) + "。")
+
+
+_TRACE_LABELS = (
+    ("ccd", "CCD 采集（recording/process.csv）"),
+    ("fit", "拟合轨迹（fit/iterations.pkl）"),
+    ("prediction", "模型预测（summary/results.json）"),
+    ("blocks", "逐块验收（summary.json）"),
+)
+
+
+def missing_trace_labels(view: Mapping[str, Any]) -> list[str]:
+    """四类轨迹里还没有产出的那几类的人类可读名（顺序固定）。
+
+    单独成函数是为了让页面能在**一张图都排不出来**时也照样说清缺什么：
+    :func:`render_traces` 在没有 ``轨迹`` 小标题的情况下返回，页面仍能据此给出
+    一行说明，而不是默默什么都不显示。
+    """
+    return [label for key, label in _TRACE_LABELS if not view.get(key)]
+
+
+def _nz(value: Any) -> float:
+    """画图用：缺失点给 ``nan``，matplotlib 自己跳过它（而不是画成 0）。"""
+    number = _finite(value)
+    return math.nan if number is None else number
+
+
+def _pyplot():
+    """``matplotlib`` 的 Agg 后端 + CJK 字体；与 ``micro_dm_ui`` 同一惯例。"""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib import font_manager
+
+    from ao_shaping.display.beam_profile import CJK_FONTS
+
+    available = {f.name for f in font_manager.fontManager.ttflist}
+    for family in CJK_FONTS:
+        if family in available:
+            plt.rcParams["font.sans-serif"] = [family]
+            break
+    plt.rcParams["axes.unicode_minus"] = False
+    return plt
+
+
+def _show(fig: Any, caption: str) -> None:
+    """把一张图交给 Streamlit 并立刻释放（长会话里 Figure 会累积）。"""
+    import streamlit as st
+
+    st.pyplot(fig)
+    from matplotlib import pyplot as plt
+
+    plt.close(fig)
+    st.caption(caption)
+
+
+def _render_ccd(ccd: Mapping[str, Any], *, has_blocks: bool) -> None:
+    """每次 CCD 采集的 CV / 核心峰值随采集序号 —— 上升段与 A–B–B–A 交错都能看出来。
+
+    颜色区分阶段（模型块 / 锚定块），空心点是种子的那几帧（``*_seed``）—— 种子
+    是两条链路共同的起点，用它对齐两次运行的基线。
+    """
+    plt = _pyplot()
+    runs = list(ccd.get("runs") or ())
+    fields = (
+        ("cv", "CV（越小越好）"),
+        ("core_peak", "核心峰值（counts）"),
+        ("model_loss", "模型损失"),
+    )
+    fig, axes = plt.subplots(1, 3, figsize=(11, 3.1))
+    colors = ["#1f77b4", "#d62728", "#2ca02c"]
+    for ax, (key, title) in zip(axes, fields):
+        for index, run in enumerate(runs):
+            series = list(run.get("series") or ())
+            xs = [i for i, point in enumerate(series) if point.get(key) is not None]
+            ys = [series[i][key] for i in xs]
+            if not xs:
+                continue
+            color = colors[index % len(colors)]
+            ax.plot(xs, ys, "-o", markersize=3.2, linewidth=1.4, color=color,
+                    label=str(run.get("label") or run.get("stage")))
+        ax.set_title(title, fontsize=9)
+        ax.set_xlabel("采集序号", fontsize=8)
+        ax.tick_params(labelsize=7)
+        ax.grid(alpha=0.25)
+        ax.legend(fontsize=7, loc="best")
+    fig.tight_layout()
+    made = "、".join(
+        f"{run.get('label')} {len(run.get('series') or ())} 帧" for run in runs
+    )
+    _show(fig, f"CCD 迭代过程：{made}。曲线按各阶段自己的采集顺序编号，"
+               "两段的序号不共用时间轴。" + ("" if has_blocks else "（无逐块验收产物）"))
+
+
+def _render_prediction(prediction: Mapping[str, Any]) -> None:
+    """模型预测 vs 实测：CV 并排（量纲不同，故分左右两轴）+ 相关系数。"""
+    plt = _pyplot()
+    items = list(prediction.get("items") or ())
+    labels = [f"{_shape_name(item['shape'])}\n{item['stage']}" for item in items]
+    measured = [item.get("measured_cv") for item in items]
+    predicted = [item.get("predicted_cv") for item in items]
+    correlation = [item.get("correlation") for item in items]
+    fig, axes = plt.subplots(1, 2, figsize=(9, 3.0))
+    xs = list(range(len(items)))
+    axes[0].bar([x - 0.19 for x in xs], [_nz(v) for v in measured], width=0.36,
+                color="#1f77b4", label="实测 CV（相机 counts）")
+    axes[0].bar([x + 0.19 for x in xs], [_nz(v) for v in predicted], width=0.36,
+                color="#ff7f0e", label="模型预测 CV（归一化强度）")
+    axes[0].set_xticks(xs)
+    axes[0].set_xticklabels(labels, fontsize=7)
+    axes[0].set_title("CV：实测 vs 预测（两轴量纲不同，只比趋势）", fontsize=9)
+    axes[0].tick_params(labelsize=7)
+    axes[0].legend(fontsize=7)
+    axes[0].grid(alpha=0.25, axis="y")
+    axes[1].bar(xs, [_nz(v) for v in correlation], width=0.5, color="#2ca02c")
+    axes[1].axhline(0.0, color="black", linewidth=0.8)
+    axes[1].set_xticks(xs)
+    axes[1].set_xticklabels(labels, fontsize=7)
+    axes[1].set_title("实测与预测的相关系数", fontsize=9)
+    axes[1].tick_params(labelsize=7)
+    axes[1].grid(alpha=0.25, axis="y")
+    fig.tight_layout()
+    scope = prediction.get("metric_scope") or MISSING
+    _show(fig, f"模型预测：口径 {scope}。")
+
+
+def _render_fit(fit: Mapping[str, Any]) -> None:
+    """拟合轨迹：损失 + 训练/验证三指标，选中迭代用竖线标出。"""
+    plt = _pyplot()
+    iterations = list(fit.get("iterations") or ())
+    xs = [i for i, (index, _loss) in enumerate(iterations) if index is not None]
+    labels = [iterations[i][0] for i in xs]
+    fig, axes = plt.subplots(1, 4, figsize=(13, 3.0))
+    axes[0].plot(xs, [_nz(iterations[i][1]) for i in xs], "-o", markersize=2.4,
+                 linewidth=1.4, color="#1f77b4", label="损失")
+    axes[0].set_title("拟合损失", fontsize=9)
+    for ax, (position, title) in zip(
+        axes[1:],
+        enumerate(("平均相关系数", "相对 L2（越小越好）", "CV 绝对误差（越小越好）"), start=1),
+    ):
+        for bucket, label, color in (
+            ("train", "训练", "#1f77b4"),
+            ("validation", "验证", "#d62728"),
+        ):
+            ys = [_nz(row[position - 1]) for row in (fit.get(bucket) or ())]
+            if len(ys) == len(xs):
+                ax.plot(xs, ys, "-o", markersize=2.4, linewidth=1.4, color=color,
+                        label=label)
+        ax.set_title(title, fontsize=9)
+        ax.legend(fontsize=7)
+    selected = fit.get("selected")
+    for ax in axes:
+        if selected is not None:
+            position = next((i for i, it in enumerate(labels) if it == selected), None)
+            if position is not None:
+                ax.axvline(position, color="#555555", linestyle=":", linewidth=1.1)
+        ax.set_xlabel("迭代序号", fontsize=8)
+        ax.tick_params(labelsize=7)
+        ax.grid(alpha=0.25)
+    fig.tight_layout()
+    note = f"共 {len(iterations)} 次迭代"
+    if selected is not None:
+        note += f"，选中 iteration={int(selected)}（虚线）"
+    if not any(fit.get("validation") or ()):
+        note += "；无 provenance 划分，验证集曲线不画"
+    _show(fig, f"拟合轨迹：{note}。训练/验证均值来自 provenance 的 split，"
+               "不重算。")
+
+
+def _render_blocks(blocks: Mapping[str, Any]) -> None:
+    """逐块基线→候选：实心=接受，空心=拒绝。被拒绝的块同样画出来。"""
+    plt = _pyplot()
+    stages = [(stage, rows) for stage, rows in blocks.items() if rows]
+    if not stages:
+        return
+    fig, ax = plt.subplots(figsize=(7.5, 3.0))
+    xticks, xticklabels = [], []
+    for stage, rows in stages:
+        offset = 0.16 if stage == "anchored" else -0.16
+        color = "#1f77b4" if stage == "model" else "#d62728"
+        for row in rows:
+            index = row.get("block")
+            if not isinstance(index, int):
+                continue
+            x = index + offset
+            for key in ("baseline", "candidate"):
+                value = row.get(key)
+                if value is None:
+                    continue
+                filled = key == "baseline" or bool(row.get("accepted"))
+                ax.plot([x], [value], marker="o", markersize=6, color=color,
+                        markerfacecolor=color if filled else "white",
+                        markeredgecolor=color, linestyle="none")
+            baseline, candidate = row.get("baseline"), row.get("candidate")
+            if baseline is not None and candidate is not None:
+                ax.annotate("", xy=(x, candidate), xytext=(x, baseline),
+                            arrowprops=dict(arrowstyle="->", color=color, alpha=0.6))
+            xticks.append(x)
+            xticklabels.append(f"{'锚定' if stage == 'anchored' else '模型'}{index + 1}")
+    ax.set_xticks(xticks)
+    ax.set_xticklabels(xticklabels, fontsize=7)
+    ax.set_ylabel("验收指标（CV）", fontsize=8)
+    ax.tick_params(labelsize=7)
+    ax.grid(alpha=0.25, axis="y")
+    fig.tight_layout()
+    accepted = sum(1 for _s, rows in stages for row in rows if row.get("accepted"))
+    total = sum(len(rows) for _s, rows in stages)
+    _show(fig, f"逐块验收：接受 {accepted}/{total} 块；实心 = 候选被接受，"
+               "空心 = 被拒绝（基线始终是实心）。")

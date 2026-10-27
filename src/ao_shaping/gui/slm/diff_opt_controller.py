@@ -29,10 +29,11 @@
 
 页面顺序（与 ``render_closed_loop_shaping`` 同一契约）
 -----------------------------------------------------
-    光路状态条 → 目标与预算 → 高级参数 → 校验区 → 运行 → 进度/结果
+    光路状态条 → 目标与预算 → 高级参数 → 校验区 → 运行 → 进度/轨迹
 
 校验必须早于按钮，按钮才能 ``disabled``；运行中不重复排进度明细（
-``TransferMethod`` 自己有一份实时面板）。
+``TransferMethod`` 自己有一份实时面板）。轨迹图（CCD 迭代过程 / 模型预测 /
+指标折线）只在运行结束后铺一次，数据来自 :func:`collect_traces`。
 """
 
 from __future__ import annotations
@@ -53,7 +54,13 @@ from ao_shaping.gui.slm.shaping_controls import (
     render_bench_status,
     snapshot_summary_line,
 )
-from ao_shaping.gui.slm.transfer_progress import collect_progress, render_progress
+from ao_shaping.gui.slm.transfer_progress import (
+    collect_progress,
+    collect_traces,
+    missing_trace_labels,
+    render_progress,
+    render_traces,
+)
 
 #: 页面标题 / 侧栏品牌名。
 PAGE_TITLE = "可微优化模型控制器"
@@ -219,17 +226,26 @@ def render_run_controls(
 
 
 def render_session_progress() -> None:
-    """最近一次运行的进度明细（读会话目录，不重算指标）。
+    """最近一次运行的进度明细与三张轨迹图（读会话目录，不重算指标）。
 
     运行期间进度由 ``TransferMethod`` 自己的进度条 + 明细面板实时刷新；本函数
-    只在**运行结束后**把同一条会话目录的最终状态再排一遍，所以运行中直接跳过，
-    否则同一份明细会在页面上出现两次。
+    只在**运行结束后**把同一条会话目录的最终状态与轨迹再排一遍，所以运行中直接
+    跳过，否则同一份明细会在页面上出现两次。
     """
     raw = st.session_state.get(_SESSION_DIR_KEY)
     if not raw or bench_settings.bench_busy():
         return
+    out = Path(raw)
     st.subheader("运行进度")
-    render_progress(collect_progress(Path(raw)), running=False)
+    render_progress(collect_progress(out), running=False)
+    traces = collect_traces(out)
+    render_traces(traces)
+    if not any(traces.get(key) for key in ("ccd", "fit", "prediction", "blocks")):
+        # 一张图都排不出来时 ``render_traces`` 早退（没有「轨迹」小标题），
+        # 页面仍要说清是这个目录还没写完，而不是整块区域凭空消失。
+        st.caption(
+            "该会话目录尚无轨迹产物：" + "、".join(missing_trace_labels(traces)) + "。"
+        )
 
 
 # --------------------------------------------------------------------------- #

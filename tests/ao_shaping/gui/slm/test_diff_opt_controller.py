@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import inspect
+from types import SimpleNamespace
 
 import pytest
 from streamlit.testing.v1 import AppTest
@@ -173,5 +174,166 @@ def test_subheader_layout_state_does_not_leak_into_other_pages() -> None:
     src = inspect.getsource(diff_opt_controller)
     assert 'st.session_state["sb"]' not in src
     assert "diff_opt_subheader_box" in src
+
+
+# --------------------------------------------------------------------------- #
+# 5. 轨迹区：CCD 迭代过程 / 模型预测 / metrics 折线
+#
+# 页面只做两件事 —— 从会话目录取数（``collect_traces``）、交给
+# ``render_traces`` 排版。这里锁的是页面级的接线契约：
+# 目录来自 ``diff_opt_session_dir``、运行中不铺、产物缺失时不报错。
+# --------------------------------------------------------------------------- #
+class _FakeSLM:
+    """已连接的 SLM 替身：``_connected_slm_numbers`` 只要求句柄非空，侧栏只读几个只读属性。"""
+
+    is_open = True
+    _serial_number = "FAKE-SN-01"
+    wavelength = 1064
+    slm_number = 1
+    Pixel_Size_um = 8.0
+    # 侧栏「波前矫正」段只读这两个 —— 无矫正文件时走 `未加载矫正文件` 分支。
+    _correction = SimpleNamespace(is_valid=False, csv_path=None)
+    correction_enabled = False
+    correction_csv_path = None
+
+
+def _connected(page: AppTest) -> AppTest:
+    """让页面走「有设备」分支（主体才会出现进度/轨迹区）。
+
+    设备枚举只在首轮跑一次（``available_slms`` 存在即跳过），所以先按真实顺序
+    把 session 态备好再 ``run()``：``_initialize_slm_state`` 以
+    ``"slm1" not in session_state`` 为首次标记，因此要先建 ``available_slms``
+    再放句柄 —— 否则它会把句柄覆盖成 ``None``；而 ``slm1_width`` 等字段是该
+    函数的产物，侧栏会直接下标读取，缺一个就 KeyError。
+    """
+    page.session_state["available_slms"] = []
+    page.session_state["slm1"] = _FakeSLM()
+    page.session_state["slm1_connected"] = True
+    defaults: dict[str, object] = {
+        "wavelength": 1064,
+        "video_mode": "内存模式",
+        "next_memory": 1,
+        "phase_preview": None,
+        "phase_source": "暂无",
+        "preview_colormap": "viridis",
+        "shift_x": 0,
+        "shift_y": 0,
+        "width": 1920,
+        "height": 1200,
+        "pixel_pitch_um": 8.0,
+        "bits": 10,
+        "use_120hz": False,
+        "use_correction": True,
+        "toggle_active": False,
+        "toggle_frequency": 1.0,
+        "base_phase": None,
+        "overlay_base": False,
+    }
+    for name, value in defaults.items():
+        page.session_state[f"slm1_{name}"] = value
+    return page
+
+def _session(tmp_path) -> str:
+    """一份最小会话：四类轨迹各一条，足以让四张图都出现。"""
+    import pickle
+
+    root = tmp_path / "session"
+    header = "cv,core_peak,model_loss,label,stage,shape,exposure_ms,_phase,_img,_grad,_id\n"
+    for stage in ("model", "anchored"):
+        path = root / stage / "recording" / "process.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            header
+            + f'0.59,900.0,1.36,{stage}_seed,{stage},square,12.5,"[[0]]","[[1]]","[[0]]",0\n'
+            + f'0.57,640.0,1.32,{stage}_0_A1,{stage},square,12.5,"[[0]]","[[1]]","[[0]]",1\n',
+            encoding="utf-8",
+        )
+    fit = root / "fit" / "full"
+    fit.mkdir(parents=True, exist_ok=True)
+    with (fit / "iterations.pkl").open("wb") as stream:
+        pickle.dump(
+            [
+                {"iteration": 0, "loss": 0.9,
+                 "metrics": [{"correlation": 0.1, "relative_l2": 0.9, "cv_abs_error": 1.0}]},
+                {"iteration": 1, "loss": 0.4,
+                 "metrics": [{"correlation": 0.6, "relative_l2": 0.4, "cv_abs_error": 0.3}]},
+            ],
+            stream,
+            protocol=4,
+        )
+    (fit / "provenance.json").write_text(
+        '{"rows": [{"split": "train"}]}', encoding="utf-8"
+    )
+    summary = root / "summary"
+    summary.mkdir(parents=True, exist_ok=True)
+    (summary / "results.json").write_text(
+        '{"metric_scope": "core CV", "shapes": [{"shape": "square", '
+        '"seed": {"measured": {"cv": 0.59}, "predicted": {"cv": 0.035}, '
+        '"correlation": 0.43, "loss": 1.36}}]}',
+        encoding="utf-8",
+    )
+    (root / "anchored" / "summary.json").write_text(
+        '[{"shape": "square", "block": 0, "baseline": 0.59, "candidate": 0.57, '
+        '"accepted": true}]',
+        encoding="utf-8",
+    )
+    return str(root)
+
+
+def _rendered_traces(page: AppTest) -> bool:
+    """主区是否排出了「轨迹」小标题（``subheader`` 是独立元素，不在 markdown 里）。"""
+    return "轨迹" in [str(block.value) for block in page.main.subheader]
+
+
+def test_no_session_dir_renders_no_trace_section(page: AppTest) -> None:
+    """默认（还没跑过）不出现「轨迹」区，也不出现缺产物说明。"""
+    assert "diff_opt_session_dir" not in page.session_state
+    assert not _rendered_traces(page)
+
+
+def test_a_session_dir_with_all_artefacts_renders_the_trace_section(
+    page: AppTest, tmp_path
+) -> None:
+    """会话目录里有四类产物 ⇒ 「轨迹」区 + 四张图 + 四条图注。"""
+    _connected(page)
+    page.session_state["diff_opt_session_dir"] = _session(tmp_path)
+    page.run()
+
+    assert not page.exception
+    assert not page.error
+    assert _rendered_traces(page)
+    said = [str(caption.value) for caption in page.main.caption]
+    captions = [text for text in said if text.startswith(("模型预测", "CCD 迭代过程", "拟合轨迹", "逐块验收"))]
+    assert len(captions) == 4
+    assert any("CCD 迭代过程" in text for text in captions)
+    assert not any("尚无轨迹产物" in text for text in said)
+
+
+def test_a_session_dir_without_artefacts_says_which_ones_are_missing(
+    page: AppTest, tmp_path
+) -> None:
+    """目录存在但产物还没写 ⇒ 不铺图、只说明缺什么，不报异常。"""
+    _connected(page)
+    (tmp_path / "empty").mkdir()
+    page.session_state["diff_opt_session_dir"] = str(tmp_path / "empty")
+    page.run()
+
+    assert not page.exception
+    assert not _rendered_traces(page)
+    said = [str(caption.value) for caption in page.main.caption]
+    assert any("尚无轨迹产物" in text for text in said)
+
+
+def test_a_busy_bench_keeps_the_trace_section_off_the_page(
+    page: AppTest, tmp_path
+) -> None:
+    """运行中：``TransferMethod`` 自己的面板在刷，页面不重复排进度与轨迹。"""
+    _connected(page)
+    page.session_state["diff_opt_session_dir"] = _session(tmp_path)
+    page.session_state["bench_busy"] = True
+    page.run()
+
+    assert "运行进度" not in [str(block.value) for block in page.main.subheader]
+    assert not _rendered_traces(page)
 
 
