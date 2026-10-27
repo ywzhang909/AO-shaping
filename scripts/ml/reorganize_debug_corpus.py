@@ -76,6 +76,19 @@ RUN_STAMP = re.compile(r"^\d{8}_\d{6}$")
 SUFFIX_TS = re.compile(r"^(?P<prefix>.+?)_(?P<stamp>\d{8}_\d{6})$")
 SUFFIX_DATE = re.compile(r"^(?P<prefix>.+?)_(?P<date>\d{8})$")
 
+#: Component counts of the relative run paths, matching the shapes enumerated in
+#: :func:`classify`. ``prefix/run`` is two, ``batch/prefix/run`` is three; the rules key on
+#: directory structure rather than on a filename so a run is never split from its sidecars.
+#: These are path depths -- they are not the same thing as the "two candidates" floor in
+#: :func:`resolve_duplicates`, which happens to share the value 2.
+_PATH_DEPTH_PREFIX_RUN = 2
+_PATH_DEPTH_BATCH_PREFIX_RUN = 3
+
+#: A duplicate only exists with at least two candidates pointing at the same target; below
+#: this there is nothing to arbitrate, so both the group and the pickle-bearing subset are
+#: skipped. Nothing to do with path depth.
+_MIN_DUP_CANDIDATES = 2
+
 
 # --------------------------------------------------------------------------- #
 # plan
@@ -137,13 +150,13 @@ def classify(rel: str, run_dir: Path) -> tuple[str, str, str]:
     leaf = run_dir.name
 
     # <prefix>_<ts>/<ts>/  -- the doubled-timestamp shape (134 dirs)
-    if len(parts) == 2 and RUN_STAMP.match(leaf):
+    if len(parts) == _PATH_DEPTH_PREFIX_RUN and RUN_STAMP.match(leaf):
         match = SUFFIX_TS.match(parts[0])
         if match and match.group("stamp") == leaf:
             return match.group("prefix"), leaf, "doubled"
 
     # <prefix>/<ts>/  -- the canonical shape (24 dirs, incl. slm_gs_refine)
-    if len(parts) == 2 and RUN_STAMP.match(leaf):
+    if len(parts) == _PATH_DEPTH_PREFIX_RUN and RUN_STAMP.match(leaf):
         return parts[0], leaf, "canonical"
 
     # <prefix>_YYYYMMDD/  -- date-stamped dirs such as device_* (6 dirs)
@@ -157,23 +170,23 @@ def classify(rel: str, run_dir: Path) -> tuple[str, str, str]:
         return parts[0], _stamp_of(run_dir), "flat_bare"
 
     # <batch>/<prefix>/<ts>/  -- batch directory holding one run
-    if len(parts) == 3 and RUN_STAMP.match(leaf):
+    if len(parts) == _PATH_DEPTH_BATCH_PREFIX_RUN and RUN_STAMP.match(leaf):
         return _strip_date(parts[1]), leaf, "batch_prefix_ts"
 
     # <batch>/<prefix>_<ts>/  -- batch directory, stamp in the middle name
-    if len(parts) == 3:
+    if len(parts) == _PATH_DEPTH_BATCH_PREFIX_RUN:
         match = SUFFIX_TS.match(parts[1])
         if match:
             return match.group("prefix"), match.group("stamp"), "batch_prefix_stamp"
 
     # <batch>/<prefix>_<ts>/  -- batch directory with the stamp in the leaf name
-    if len(parts) == 2:
+    if len(parts) == _PATH_DEPTH_PREFIX_RUN:
         match = SUFFIX_TS.match(leaf)
         if match:
             return match.group("prefix"), match.group("stamp"), "batch_prefix_stamp"
 
     # <phase_replay_batch>/phase_replay/  -- a replay of a <batch> run
-    if len(parts) == 2:
+    if len(parts) == _PATH_DEPTH_PREFIX_RUN:
         prefix = _strip_date(parts[0])
         prefix = re.sub(r"^phase_replay_", "", prefix)
         return prefix, _stamp_of(run_dir), "batch_phase_replay"
@@ -296,10 +309,10 @@ def resolve_duplicates(plans: list[RunPlan]) -> None:
         by_target.setdefault(plan.new_dir, []).append(plan)
 
     for group in by_target.values():
-        if len(group) < 2:
+        if len(group) < _MIN_DUP_CANDIDATES:
             continue
         with_pkls = [p for p in group if pickle_fingerprint(p.old_dir)]
-        if len(with_pkls) < 2:
+        if len(with_pkls) < _MIN_DUP_CANDIDATES:
             continue
         # richest copy first; ties broken by path so the result is deterministic
         with_pkls.sort(key=lambda p: (-len(p.files), str(p.old_dir)))

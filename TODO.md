@@ -3715,6 +3715,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 验证与回归：4 个计划替换点全部由 ruff 真实命中；AST 恒等 `True`；分组 OK；`py_compile` 通过；`ruff check .` 全仓归零。回归按 CI 执行形态与基线逐位一致：`tests/ao_shaping/algorithm` **777 passed / 16 skipped**（含该模块的主消费者测试）。新增 import 不构成环：`ranks.py` 自身零第三方、零 intra-包 import。
 - 覆盖账（实测）：目标文件 8 → 4；`src` 595 → **591**；全仓 1094 → 1090（差值 4 与提升点数一致）。
 
+136. ✅ **#173 续批：`scripts/ml/reorganize_debug_corpus.py` 的 8 → 0，一个文件里两组同值 `2` 各自安家（路径层数 vs 重复候选下限）**（2026-10-27）
+- 三类含义：① `classify()` 里 `len(parts) == 2` 四处（140/146/170/176）⇒ `_PATH_DEPTH_PREFIX_RUN`，② `len(parts) == 3` 两处（160/164）⇒ `_PATH_DEPTH_BATCH_PREFIX_RUN`——这两个数就是该函数 docstring 列举的语料目录形状的深度（`prefix/run` 两层、`batch/prefix/run` 三层），规则**按目录结构而非文件名**分派，所以深度是语料布局的一部分；③ `resolve_duplicates()` 里 `len(group) < 2` 与 `len(with_pkls) < 2`（299/302）⇒ `_MIN_DUP_CANDIDATES`，含义是"指向同一目标的候选至少两个才存在重复可言"。
+- ①③ 与 ② 都用到 `2`，但问的是完全不同的事；三处常量的注释彼此指认了这个区别（路径深度注释明说"它们与 `resolve_duplicates` 里那个恰好同为 2 的候选下限不是一回事"，后者注释反过来也写"与路径深度无关"）。这类互指注释是同值族最省事的防误合并手段。
+- 控制链（7 项）：基线恒等；L1 深度 2→4、L2 深度 3→4、L3 重复下限 2→3 各使 proof 判红；B 把 `len(group) <` 改成 `<=` 判红（这会真的改变行为——两个候选时就不再仲裁了）；三条分组反向控制里，299→`nest2` 与 140→`dup` 因 `expected line not found` 判红（正确理由），160→`nest2` 则因 `literal '2' absent` 判红——即"把值为 3 的点标成深度 2 组"在**取值匹配**阶段就被拒，同样是有效拦截，只是理由不同，如实记录以免后来者误读。所有控制的 HEAD 行对齐都先断言过该行确实含 `len(`（135 刚栽过一次行号错位的假控制）。
+- 验证：8 个计划替换点全部由 ruff 真实命中；AST 恒等 `True`；分组 OK；`py_compile` 通过；`ruff check .` 全仓归零；`tests/ao_shaping/scripts` 维持 **2604 passed / 67 skipped / 0 failed**。
+- **一条需要另立条目的观察**：这个脚本会**搬动 65 GB 语料目录**，却没有任何测试（全仓只有 `scripts/README.md` 与 provenance 引用它）。本批的安全性靠 AST 恒等保证，但"分类规则 + 重复仲裁"这类纯函数逻辑其实是本仓库最容易测的部分。#173 之外值得补一个测试条目（含 `classify` 的各形状与 `resolve_duplicates` 的边界），我已在此记账，不在本批顺手做。
+- 覆盖账（实测）：目标文件 8 → **0**；`scripts` 全域 497 → **489**；全仓 1094 → **1082**（差值 8 与提升点数一致）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
