@@ -3783,6 +3783,18 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 插入注释会挪动被 call-graph wiki 钉行号的源文件行号，`test_wiki_source_citations_land_on_definitions` 按设计变红；正规修法是重生成 `build_call_graph.py + finalize_graph.py + gen_wiki_pages.py`。重生成后**核对差异而非信任它**：5 个 md 页共 9 行、两个图资产 98 行，**非数字漂移 0**（纯引用重钉）。
 - 顺带纠正一个取证口径：`hardware_utils.py` 的两处相机构造 `except Exception: log; raise` 在 ruff 的 BLE001 列表里**根本不出现**（ruff 对"记录后重抛"有上下文豁免；AGENTS 记的 382 vs 363 差额即来自此类），所以按 ruff 行号做锚点的批处理会漏站点——凡涉及这批计数的自动化都必须以 AST 为准。
 
+**2026-10-27 · 2ee69348 · #44 第二步：`_prepare_geometry`（204 行）上提到模块级，`nonlocal` 语义改成"入参 + 返回"（重钉见 905493ce）**
+- 可安全上提的判据是**实测**的：16 个纯输入全部在嵌套 def 之前绑定（最晚 915），def 之后无人重绑；而 `_run_spgd`(21)/`_apply_best_on_exit`(18) 的自由变量里有的是 def **之后**才绑的，那批才需要 run 状态对象。
+- **我自己的扫描器错过一次，且是在写代码之前发现的**：`local_names()` 把 `nonlocal` 目标并进"局部名"，于是该函数看起来只读。实际原 931 行有 `nonlocal center, target_size, target_center_smooth, r_bucket`，而这 4 个都是**先读调用方值再精化重绑**（`resolve_spot_center(..., center, ...)`、`if target_size is None`、`if r_bucket <= 0`）。若按普通参数上提，调用方原值会被**静默冻结**，搜索回路拿着过期的 bucket 半径继续优化——本子树**没有任何测试能抓住**这种改变。教训：**`nonlocal` 名单是外层绑定，不是局部。**
+- 处置：4 个名字同时进 `_PibGeometryInputs`（frozen）与 `_PibGeometry`（既有 frozen 记录，本就把 `center_full` 全帧与 `reference_center` 窗口局部分开），唯一调用点把精化值赋回运行作用域；`nonlocal` 语句消失。`_run_spgd` / `_run_heuristic` / `_on_evaluate` 仍各自 `nonlocal`，这正是它们还不能上提的剩余原因。
+- **函数体未被改写，逐行比对为证**：搬移块 197 行，与改前 diff = **+4 / -0**（多出的 4 行就是构造点新增的关键字参数）。刻意不把标识符限定成 `inp.x`——197 行体改写不可评审，而那正是"上提悄悄改变某行读的是哪个绑定"的成因。
+- 实测结构：入口 **1270 → 1091 行**（建档 1311），嵌套 def **7 → 6**，模块级具名对象 **12 → 15**。
+- **纠正一个我此前一直引用的错数**：旧聚合器正则漏两行小结，本子树真实基线是 **55 个文件小结 / 1081 passed / 2 skipped / 0 failed**（不是 53 / 994）。
+- 回归口径升级：per-file 模式**不打印文件名**，只比总数会漏掉"一个文件多一个用例、另一个少一个"。改为比**有序 (passed, skipped, failed) 三元组序列**：55 个位置**逐元素一致**，两条 `SKIPPED` 按文件与理由也一致。另 conventions 69/1、runners 554/25、optimizer/wf 156/1 全绿。
+- wiki 这次**无需重生成**：被钉的引用指向 runner 入口（`slm_shaping_runner.py:464`）而非 optimizer 内部，重生成产生**空 diff**（核对而非假设），行号守卫仍绿。
+- **但另一类行号引用没有守卫**（重钉提交 905493ce）：call-graph 守卫只走 `docs/dev/call_graph_wiki/**`，而 `docs/slm/pre_run_characterization.md`、`TODO.md`、`docs/issues_report.md` 里手工维护的 `path:NNN` 会**静默漂移**。本次修 6 处：`set_reference_center(pos_center)` 1787→1870；`BaseException` 退出清理 1355→1497（3 处引用）；`--max_peak` 判定点 1585-1605→**1793-1803**（区间按门控块真实边界取，不是把旧窗口整体平移）；`IDEAL_SPOT_RADIUS` 导入 108→109——**这条不是 #44 造成的**，是并行 lane `b11c4f04` 在导入块上方加了一条 `zernike_calc` 导入，归因写进注记以免下一个人去追错的改动。
+- 已知残留（有意不动）：`docs/dev/todo_archive.md` 与 TODO.md 已划删历史行里的 5 处旧钉号属历史记录，按"不覆盖旧历史"约定保留；其中 `:721` 如今恰好落在新建 dataclass 的字段行上，是**巧合而非命中**——这正是该类引用需要守卫的理由。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
