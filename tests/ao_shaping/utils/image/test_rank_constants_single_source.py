@@ -28,6 +28,7 @@ CONSUMERS = (
     "utils/image/beam_metrics.py",
     "utils/image/target/metrics.py",
     "algorithm/signal_processing/differentiable_shaping.py",
+    "algorithm/signal_processing/differentiable_defocus_uniformity.py",
 )
 HUB_MODULE = "ao_shaping.utils.image.ranks"
 

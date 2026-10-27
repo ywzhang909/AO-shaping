@@ -3705,6 +3705,16 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 顺带说明为什么放弃另一个候选：`drivers/slm/santec/wavefront_correction.py` 的四处 `ndim == 2` 我**不**跨包借 `utils.image.ranks.NDIM_SINGLE_CHANNEL`——98/394 判的是 `np.loadtxt` 出来的**表**的秩，不是"裸图像平面"，把 image 域的秩名用到 CSV 表上正是该 hub 注释禁止的借用；476/590 两处虽贴合，为一个半的概念跨包引 hub 属 item 121 反对的作用域扩张。该文件真正的同义点只有 768 行同一谓词里的两处 `1e-12`（留给后续批次）。
 - 覆盖账（实测）：目标文件 8 → 5；`scripts` 全域 500 → **497**；全仓 1097 → 1094（差值 3 与提升点数一致）。
 
+135. ✅ **#173 续批：`algorithm/signal_processing/differentiable_defocus_uniformity.py` 的 8 → 4，同一个 `2` 的三重含义分开放；并抓住一次"因错误理由判红"的假控制**（2026-10-27）
+- 提 4 处：① HEAD 76 行 `len(matrix) != 2 or any(len(row) != 2 for row in matrix)` 同一判据里的两个 `2` ⇒ `_RAMP_MATRIX_SIDE`（ramp 矩阵把 `(x,y)` 面板斜坡映射到 `(dx,dy)` 相机位移，行数与每行长度是同一个数）；② 242 `total.ndim == 2` 与 458 `seed.ndim != 2` 是"裸二维图"⇒ 消费 `ao_shaping.utils.image.ranks.NDIM_SINGLE_CHANNEL`（同 131 的包与方向）。
+- 拒 4 处（按原文核验在场）：174 行两处——`xy.ndim != 3` 是**点云栈**的秩（不是 `(C,H,W)` 空间栈，绝不能借 `NDIM_SPATIAL_STACK`），`xy.shape[-1] != 2` 是**坐标分量数**；396 `len(entries) != 2` 是轴映射恰含 x/y 两项；562 `prediction.ndim == 3` 带批轴，`ao_shaping` 侧没有对应名（批轴语义在 `ml` hub 里，跨包不借）。
+- 两个提名的名字**同值不同义**（秩 vs 矩阵边长），所以分组边界就是本批的实质：`_RAMP_MATRIX_SIDE` 的注释写明"这是矩阵 arity，刻意不是数组秩常量——秩数的是图像平面的轴数，对 2×2 表什么也不说"。
+- **一次假控制被抓住（要紧的流程记录）**：我最初把分组反向控制写成 `rows["396"]` / `rows["167"]`，而 group check 按 **HEAD 快照行号**索引；lift 插了 8 行使当前行号整体后移，于是控制确实判红，但报的是 `literal '2' absent`——**因为行错位而红，不是因为边界被守住**。用正确 HEAD 行号（389 / 167）重做后，三条边界控制都因正确理由判红：`expected line not found: if len(entries) != _RAMP_MATRIX_SIDE:`、`if xy.ndim != 3 or xy.shape[-1] != NDIM_SINGLE_CHANNEL:`、以及把坐标分量数扫进矩阵组的第三种。这与 125 记的"按旧行号 grep"是同一个坑的第二次发作，只是这次发生在控制侧而非校验侧。
+- 控制链（其余项）：基线 proof/group 均 0；A hub 秩 2→3 ⇒ proof 红；L1 `_RAMP_MATRIX_SIDE` 2→3 ⇒ proof 红；B 把 `len(matrix) !=` 改成 `>` ⇒ proof 红。每项前还原、finally 再还原，两文件 `cmp` 逐字节一致。
+- 守卫：`tests/ao_shaping/utils/image/test_rank_constants_single_source.py` 消费者 4 → 5（加入本文件），仍 4 条测试；种植 A（消费方再声明 hub 秩）⇒ 2 红；种植 B（登记却不再引用）⇒ 1 红；还原后 4 绿。
+- 验证与回归：4 个计划替换点全部由 ruff 真实命中；AST 恒等 `True`；分组 OK；`py_compile` 通过；`ruff check .` 全仓归零。回归按 CI 执行形态与基线逐位一致：`tests/ao_shaping/algorithm` **777 passed / 16 skipped**（含该模块的主消费者测试）。新增 import 不构成环：`ranks.py` 自身零第三方、零 intra-包 import。
+- 覆盖账（实测）：目标文件 8 → 4；`src` 595 → **591**；全仓 1094 → 1090（差值 4 与提升点数一致）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
