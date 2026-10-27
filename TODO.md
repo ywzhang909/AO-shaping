@@ -3731,6 +3731,17 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - **一条需要另立条目的观察**：这个脚本会**搬动 65 GB 语料目录**，却没有任何测试（全仓只有 `scripts/README.md` 与 provenance 引用它）。本批的安全性靠 AST 恒等保证，但"分类规则 + 重复仲裁"这类纯函数逻辑其实是本仓库最容易测的部分。#173 之外值得补一个测试条目（含 `classify` 的各形状与 `resolve_duplicates` 的边界），我已在此记账，不在本批顺手做。
 - 覆盖账（实测）：目标文件 8 → **0**；`scripts` 全域 497 → **489**；全仓 1094 → **1082**（差值 8 与提升点数一致）。
 
+**2026-10-27 · 8ed5b52b · master 上 pytest 硬门禁 8 红全部收口：根因是并行分支注册了 `slm-transfer-shapes` 却没同步清单，另挖出 2 个被前一个断言掩盖的既有红**
+- 实况：`tests/ao_shaping/test_conventions.py` 由 **8 failed / 58 passed** 变为 **0 failed / 66 passed / 1 skipped**。根因单一：并行分支的 `a529d495` 注册了新命令并更新了 `EXPECTED_COMMANDS`、`AGENTS.md` 命令树与 golden，但漏掉 `main.py` docstring（仍写 19）、README 表与正文计数、`docs/user/cli-reference.md` 的概览表与小节、以及 `gen_wiki_pages.py` 手维护的 `CMD_ORDER`/`CMD_SYMS`。五源一致性守卫与两处文档表守卫因此同时红。
+- wiki 侧：`gen_wiki_pages.py` 在登记表与 `main.py` 不一致时**主动 SystemExit**（不是静默产错表），所以补登记后整条生成链才成功执行：命令页 19 → **20 页**（新增 `commands/slm-transfer-shapes.md`），final 资产 207 节点/17 条 `cmd_entries` → **212/18**，顺带修正 3 处 wiki 引用指向 `utils/io/file.py` 非定义行的行号漂移。
+- 两个**被掩盖的既有红**：前一个断言先抛出，修掉后才暴露。(a) 生成报告 `multishape1200_20261027.md` 的对比择优表，表头是 `形状 + n kinds + 采用 = n+2` 列，而分隔行按 `(2 + n + 1)` 写了 **n+3** 列——off-by-one；修在生成器里（分隔行改为从同一 `kinds` 推导，同时消掉三处重复的集合推导）。(b) `--help` golden 缺 runner 的 `--records-only` 选项，即并行分支加阶段没刷快照。
+- 挖出一个**守卫自身的假阳性**并按窄规则修掉：围栏命令的路径语法刻意允许前导 `/` 或 `\`（否则 Windows 写法整批漏检），于是它会把 `libs/skills/slm-mil-transfer/scripts/session_review.py`（**受跟踪、且是该脚本唯一受跟踪位置**）从中间截成 `scripts/session_review.py` 判为陈旧——文档无论怎么写都满足不了。新规则只在**同一行确实写出某个以该片段结尾的受跟踪完整路径**时豁免。四面实测：正确 libs 路径与反斜杠写法通过；陈旧扁平 `scripts/session_review.py` 仍判违规；貌似合理但不存在的 `libs/skills/does-not-exist/scripts/...` 仍判违规。检测强度未放水。
+- 我撤掉了子代理的 `Join-Path` 拼接写法：它能过守卫，但那是**绕过**正则缺陷而非修复，代价是把可直读的可运行命令写成晦涩形式。真正落后的只有 SKILL.md 的 prose 内联路径一处，已改为受跟踪位置。附带发现另一处**覆盖缺口**（未擅自扩权）：内联路径守卫要求引号紧贴 `src/|scripts/|tests/`，因此 `libs/` 前缀的引用对它完全不可见。
+- 一条**机制性教训**（为何 golden 能悄悄漂移）：文档里的快照刷新配方经 CI 包装脚本无法执行——该脚本把仓库**只读挂载**且只转发固定环境变量白名单，`AO_UPDATE_HELP_GOLDEN` 既进不去也写不回。已在 harness 的 docstring 写清这一约束；未改包装脚本（往只读挂载的容器里透传任意变量只是用一个陷阱换另一个）。golden 用仓库自带的 writer 生成，与提交版只差 1 个键 1 行。
+- 诚实边界：两个生成器**无法在本 worktree 端到端重跑**（`data/debug/slm_transfer/multishape1200_20261027` 等输入未入库、`runs/sim2f_bench/session` 与 `runs/sim2f_fair` 不在），所以产物分隔行修到"与修好后的生成器对 n=3 算出的字符串逐字相同"，是**表达式等价证明**而非整报重跑；§6 产物节发射器则用产物副本做了字节级对照（重跑幂等、删除后可复原、fine 行条件正确）。
+- 并发纪律代价（下次不再这样用）：多个子代理与主会话共用一个 worktree 时，共享生成物会被交错写——`call_graph.json` 的 mtime 与 `gen_wiki_pages.py` 同为 22:28:11，而我的链式跑在 22:23:3x，一度把"读旧 raw 得 207 节点"误判成生成链逻辑矛盾；另有代理把 6 个文件 `git add` 进索引，需在提交前 `git reset` 隔离。生成物类改动必须串行。
+- 覆盖账（实测）：本批 5 个 commit（`8ed5b52b` 清单与 wiki、`4b121684` 守卫假阳性、`a89aae89` 表格列数、`6b1a3e39` §6 产物节、`44828d85` golden）。rebase 到 `83e11cbb` 后复跑：conventions 66/0、CLI 两模块 116/0、脚本侧相关 67/0；术语、报告溯源、ruff 三门禁归零。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
