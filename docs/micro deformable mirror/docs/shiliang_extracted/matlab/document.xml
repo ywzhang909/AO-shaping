@@ -1,0 +1,554 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no" ?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[classdef shiliang < matlab.apps.AppBase
+
+    % Properties that correspond to app components
+    properties (Access = public)
+        v02UIFigure        matlab.ui.Figure
+        Panel_performance  matlab.ui.container.Panel
+        kHzLabel           matlab.ui.control.Label
+        Label_12           matlab.ui.control.Label
+        mmLabel_3          matlab.ui.control.Label
+        Label_11           matlab.ui.control.Label
+        mLabel             matlab.ui.control.Label
+        Label_10           matlab.ui.control.Label
+        mmLabel_2          matlab.ui.control.Label
+        Label_9            matlab.ui.control.Label
+        Label_8            matlab.ui.control.Label
+        Label_7            matlab.ui.control.Label
+        Panel_results      matlab.ui.container.Panel
+        ButtonRegion       matlab.ui.control.Button
+        LabelRMS           matlab.ui.control.Label
+        LabelPV            matlab.ui.control.Label
+        LabelNo            matlab.ui.control.Label
+        Label_1            matlab.ui.control.Label
+        Label_3            matlab.ui.control.Label
+        Label_2            matlab.ui.control.Label
+        ButtonPhase        matlab.ui.control.Button
+        Panel_operation    matlab.ui.container.Panel
+        ButtonCloseRelay   matlab.ui.control.Button
+        ButtonOpenRelay    matlab.ui.control.Button
+        EditFieldTotal     matlab.ui.control.NumericEditField
+        ButtonTotal        matlab.ui.control.Button
+        ButtonDianya       matlab.ui.control.Button
+        ButtonAuto         matlab.ui.control.Button
+        ButtonDisconnect   matlab.ui.control.Button
+        ButtonConnect      matlab.ui.control.Button
+        ButtonPause        matlab.ui.control.Button
+        ButtonStart        matlab.ui.control.Button
+        ButtonInitial      matlab.ui.control.Button
+        ButtonApply        matlab.ui.control.Button
+        ButtonCalculate    matlab.ui.control.Button
+        ButtonMeasure      matlab.ui.control.Button
+        Panel_settings     matlab.ui.container.Panel
+        EditFieldAperture  matlab.ui.control.NumericEditField
+        mmEditFieldLabel   matlab.ui.control.Label
+        EditFieldHigher    matlab.ui.control.NumericEditField
+        Label_6            matlab.ui.control.Label
+        EditFieldLower     matlab.ui.control.NumericEditField
+        Label_5            matlab.ui.control.Label
+        EditFieldGoal      matlab.ui.control.NumericEditField
+        Label_4            matlab.ui.control.Label
+        EditFieldPitch     matlab.ui.control.NumericEditField
+        mmLabel            matlab.ui.control.Label
+        EditFieldNumber    matlab.ui.control.NumericEditField
+        Label              matlab.ui.control.Label
+    end
+
+    
+    properties (Access = private)
+        %v0.2更新：(1)增加1300路电源连接断开，继电器打开关闭，上电功能
+        DianyaApp % Description
+        PhaseApp
+        RegionApp
+        CurrentDianya
+        CurrentX
+        CurrentY
+        CurrentZ
+        AxisX
+        AxisY
+        ave
+        mydriver % Description
+        mymeasure % Description
+        No %迭代次数
+    end    
+    
+    methods (Access = public)
+        
+        function updateDianya(app,hang,lie,data)
+            app.CurrentDianya(hang,lie)=data;
+            app.mydriver.danyuan((hang-1)*36+lie,str2double(data),app.EditFieldHigher.Value,app.EditFieldLower.Value);
+        end
+    end
+    
+    methods (Access = private)
+        
+        function updateParameter(app)
+            N=sqrt(app.EditFieldNumber.Value);
+            pitch=app.EditFieldPitch.Value*1e-3;
+            if mod(N,2)==1
+                width_qishi=-(N-1)/2*pitch;
+            else
+                width_qishi=-(N/2*pitch-pitch/2);
+            end
+            if mod(N,2)==1
+                height_qishi=-(N-1)/2*pitch;
+            else
+                height_qishi=-(N/2*pitch-pitch/2);
+            end
+            app.AxisX=width_qishi:pitch:width_qishi+pitch*(N-1);
+            app.AxisY=height_qishi:pitch:height_qishi+pitch*(N-1);
+            app.CurrentDianya=zeros(N,N);
+            app.CurrentX=NaN;
+            app.CurrentY=NaN;
+            app.CurrentZ=NaN;
+            app.ave=NaN;            
+        end
+    end
+
+
+    % Callbacks that handle component events
+    methods (Access = private)
+
+        % Code that executes after component creation
+        function startupFcn(app)
+            updateParameter(app)
+
+        end
+
+        % Button pushed function: ButtonDianya
+        function ButtonDianyaPushed(app, event)
+            app.ButtonDianya.Enable='off';
+            app.DianyaApp=dianya(app,app.CurrentDianya);
+        end
+
+        % Button pushed function: ButtonMeasure
+        function ButtonMeasurePushed(app, event)
+            app.mymeasure=laser;
+            app.mymeasure.chushi();
+
+            saveto_file='D:\BaiduSyncdisk\项目材料\王强\动态承片台\12寸拼接\20241116\initial.dat';
+            %saveto_file='D:\BaiduSyncdisk\项目材料\王强\动态承片台\12寸拼接\20241106\41.dat';
+            [x,y,z]=read_zygo_center_of_data(saveto_file);
+            %%%%%remove plane
+            warning off
+            [Xfit,Yfit,Zfit]=prepareSurfaceData(x,y,z);
+            A=[Xfit,Yfit,ones(length(Xfit),1)];
+            a=inv(A'*A)*A'*Zfit;
+            z=z-a(3)-a(1)*x-a(2)*(y');
+            %%%%%
+            app.LabelPV.Text=num2str((max(z(:))-min(z(:)))*1e9);
+            app.LabelRMS.Text=num2str(nanstd(z(:))*1e9);
+            app.CurrentX=x;
+            app.CurrentY=y;
+            app.CurrentZ=z;
+            [~,~,app.ave]=segmented_mean_2D(x,y,z,app.AxisX,app.AxisY);
+            if app.ButtonPhase.Enable=='off'
+                updatePhase(app.PhaseApp,app.CurrentX,app.CurrentY,app.CurrentZ);
+            else
+            end
+            if app.ButtonRegion.Enable=='off'
+                updateRegion(app.RegionApp,app.AxisX,app.AxisY,app.ave);
+            else
+            end
+        end
+
+        % Button pushed function: ButtonPhase
+        function ButtonPhasePushed(app, event)
+            app.ButtonPhase.Enable='off';
+            app.PhaseApp=phase(app,app.AxisX,app.AxisY,app.CurrentX,app.CurrentY,app.CurrentZ,app.EditFieldAperture.Value*1e-3);
+        end
+
+        % Value changed function: EditFieldNumber
+        function EditFieldNumberValueChanged(app, event)
+            value = app.EditFieldNumber.Value;
+            updateParameter(app)
+        end
+
+        % Close request function: v02UIFigure
+        function v02UIFigureCloseRequest(app, event)
+            delete(app.DianyaApp)
+            delete(app.PhaseApp)
+            delete(app.RegionApp)
+            delete(app)            
+        end
+
+        % Value changed function: EditFieldTotal
+        function EditFieldTotalValueChanged(app, event)
+            value = app.EditFieldTotal.Value;            
+        end
+
+        % Button pushed function: ButtonTotal
+        function ButtonTotalPushed(app, event)
+            app.CurrentDianya=ones(size(app.CurrentDianya))*app.EditFieldTotal.Value;
+            if app.ButtonDianya.Enable=='off'
+                updateVoltage(app.DianyaApp,app.CurrentDianya);
+            else
+            end
+            app.mydriver.zhengti(app.EditFieldTotal.Value,app.EditFieldHigher.Value,app.EditFieldLower.Value);
+        end
+
+        % Button pushed function: ButtonInitial
+        function ButtonInitialPushed(app, event)
+            app.CurrentDianya=zeros(size(app.CurrentDianya));
+            if app.ButtonDianya.Enable=='off'
+                updateVoltage(app.DianyaApp,app.CurrentDianya);
+            else
+            end
+            app.mydriver.zhengti(0,app.EditFieldHigher.Value,app.EditFieldLower.Value);
+        end
+
+        % Button pushed function: ButtonRegion
+        function ButtonRegionPushed(app, event)
+            app.ButtonRegion.Enable='off';
+            app.RegionApp=region(app,app.AxisX,app.AxisY,app.ave);
+        end
+
+        % Value changed function: EditFieldPitch
+        function EditFieldPitchValueChanged(app, event)
+            value = app.EditFieldPitch.Value;
+            updateParameter(app)
+        end
+
+        % Button pushed function: ButtonCalculate
+        function ButtonCalculatePushed(app, event)
+            zhongzhi=nanmean(app.ave);
+            app.CurrentDianya=(zhongzhi-app.ave)*1e9/20;
+            if app.ButtonDianya.Enable=='off'
+                updateVoltage(app.DianyaApp,app.CurrentDianya);
+            else
+            end
+        end
+
+        % Value changed function: EditFieldAperture
+        function EditFieldApertureValueChanged(app, event)
+            value = app.EditFieldAperture.Value;
+            
+        end
+
+        % Button pushed function: ButtonConnect
+        function ButtonConnectPushed(app, event)
+            app.mydriver=driver1300v1;
+            app.mydriver.duiying();
+            app.mydriver.lianjie();            
+        end
+
+        % Button pushed function: ButtonDisconnect
+        function ButtonDisconnectPushed(app, event)
+            app.mydriver.duankai();
+        end
+
+        % Button pushed function: ButtonOpenRelay
+        function ButtonOpenRelayPushed(app, event)
+            app.mydriver.relaystate(1);
+        end
+
+        % Button pushed function: ButtonCloseRelay
+        function ButtonCloseRelayPushed(app, event)
+            app.mydriver.relaystate(0);
+        end
+    end
+
+    % Component initialization
+    methods (Access = private)
+
+        % Create UIFigure and components
+        function createComponents(app)
+
+            % Create v02UIFigure and hide until all components are created
+            app.v02UIFigure = uifigure('Visible', 'off');
+            app.v02UIFigure.Position = [100 100 640 480];
+            app.v02UIFigure.Name = '变形镜程序v0.2';
+            app.v02UIFigure.CloseRequestFcn = createCallbackFcn(app, @v02UIFigureCloseRequest, true);
+
+            % Create Panel_settings
+            app.Panel_settings = uipanel(app.v02UIFigure);
+            app.Panel_settings.Title = '设置';
+            app.Panel_settings.Position = [4 3 260 253];
+
+            % Create Label
+            app.Label = uilabel(app.Panel_settings);
+            app.Label.HorizontalAlignment = 'right';
+            app.Label.Position = [60 80 57 22];
+            app.Label.Text = '单元数/个';
+
+            % Create EditFieldNumber
+            app.EditFieldNumber = uieditfield(app.Panel_settings, 'numeric');
+            app.EditFieldNumber.ValueChangedFcn = createCallbackFcn(app, @EditFieldNumberValueChanged, true);
+            app.EditFieldNumber.Position = [132 80 100 22];
+            app.EditFieldNumber.Value = 1296;
+
+            % Create mmLabel
+            app.mmLabel = uilabel(app.Panel_settings);
+            app.mmLabel.HorizontalAlignment = 'right';
+            app.mmLabel.Position = [40 42 77 22];
+            app.mmLabel.Text = '单元间距/mm';
+
+            % Create EditFieldPitch
+            app.EditFieldPitch = uieditfield(app.Panel_settings, 'numeric');
+            app.EditFieldPitch.ValueChangedFcn = createCallbackFcn(app, @EditFieldPitchValueChanged, true);
+            app.EditFieldPitch.Position = [132 42 100 22];
+            app.EditFieldPitch.Value = 3;
+
+            % Create Label_4
+            app.Label_4 = uilabel(app.Panel_settings);
+            app.Label_4.HorizontalAlignment = 'right';
+            app.Label_4.Position = [15 118 102 22];
+            app.Label_4.Text = '校正目标PV值/nm';
+
+            % Create EditFieldGoal
+            app.EditFieldGoal = uieditfield(app.Panel_settings, 'numeric');
+            app.EditFieldGoal.Position = [132 118 100 22];
+            app.EditFieldGoal.Value = 10;
+
+            % Create Label_5
+            app.Label_5 = uilabel(app.Panel_settings);
+            app.Label_5.HorizontalAlignment = 'right';
+            app.Label_5.Position = [50 156 65 22];
+            app.Label_5.Text = '电压下限/V';
+
+            % Create EditFieldLower
+            app.EditFieldLower = uieditfield(app.Panel_settings, 'numeric');
+            app.EditFieldLower.Position = [130 156 100 22];
+            app.EditFieldLower.Value = -20;
+
+            % Create Label_6
+            app.Label_6 = uilabel(app.Panel_settings);
+            app.Label_6.HorizontalAlignment = 'right';
+            app.Label_6.Position = [50 194 65 22];
+            app.Label_6.Text = '电压上限/V';
+
+            % Create EditFieldHigher
+            app.EditFieldHigher = uieditfield(app.Panel_settings, 'numeric');
+            app.EditFieldHigher.Position = [130 194 100 22];
+            app.EditFieldHigher.Value = 120;
+
+            % Create mmEditFieldLabel
+            app.mmEditFieldLabel = uilabel(app.Panel_settings);
+            app.mmEditFieldLabel.HorizontalAlignment = 'right';
+            app.mmEditFieldLabel.Position = [41 4 77 22];
+            app.mmEditFieldLabel.Text = '镜面口径/mm';
+
+            % Create EditFieldAperture
+            app.EditFieldAperture = uieditfield(app.Panel_settings, 'numeric');
+            app.EditFieldAperture.ValueChangedFcn = createCallbackFcn(app, @EditFieldApertureValueChanged, true);
+            app.EditFieldAperture.Position = [133 4 100 22];
+            app.EditFieldAperture.Value = 100;
+
+            % Create Panel_operation
+            app.Panel_operation = uipanel(app.v02UIFigure);
+            app.Panel_operation.Title = '操作';
+            app.Panel_operation.Position = [263 260 378 221];
+
+            % Create ButtonMeasure
+            app.ButtonMeasure = uibutton(app.Panel_operation, 'push');
+            app.ButtonMeasure.ButtonPushedFcn = createCallbackFcn(app, @ButtonMeasurePushed, true);
+            app.ButtonMeasure.Position = [264 167 100 24];
+            app.ButtonMeasure.Text = '测试';
+
+            % Create ButtonCalculate
+            app.ButtonCalculate = uibutton(app.Panel_operation, 'push');
+            app.ButtonCalculate.ButtonPushedFcn = createCallbackFcn(app, @ButtonCalculatePushed, true);
+            app.ButtonCalculate.Position = [264 128 100 24];
+            app.ButtonCalculate.Text = '计算电压';
+
+            % Create ButtonApply
+            app.ButtonApply = uibutton(app.Panel_operation, 'push');
+            app.ButtonApply.Position = [264 89 100 24];
+            app.ButtonApply.Text = '加电';
+
+            % Create ButtonInitial
+            app.ButtonInitial = uibutton(app.Panel_operation, 'push');
+            app.ButtonInitial.ButtonPushedFcn = createCallbackFcn(app, @ButtonInitialPushed, true);
+            app.ButtonInitial.Position = [140 167 100 24];
+            app.ButtonInitial.Text = '初始化';
+
+            % Create ButtonStart
+            app.ButtonStart = uibutton(app.Panel_operation, 'push');
+            app.ButtonStart.Position = [140 128 100 24];
+            app.ButtonStart.Text = '开始';
+
+            % Create ButtonPause
+            app.ButtonPause = uibutton(app.Panel_operation, 'push');
+            app.ButtonPause.Position = [140 89 100 24];
+            app.ButtonPause.Text = '暂停';
+
+            % Create ButtonConnect
+            app.ButtonConnect = uibutton(app.Panel_operation, 'push');
+            app.ButtonConnect.ButtonPushedFcn = createCallbackFcn(app, @ButtonConnectPushed, true);
+            app.ButtonConnect.Position = [17 167 100 24];
+            app.ButtonConnect.Text = '连接电源';
+
+            % Create ButtonDisconnect
+            app.ButtonDisconnect = uibutton(app.Panel_operation, 'push');
+            app.ButtonDisconnect.ButtonPushedFcn = createCallbackFcn(app, @ButtonDisconnectPushed, true);
+            app.ButtonDisconnect.Position = [17 51 100 24];
+            app.ButtonDisconnect.Text = '断开连接';
+
+            % Create ButtonAuto
+            app.ButtonAuto = uibutton(app.Panel_operation, 'push');
+            app.ButtonAuto.Position = [264 51 100 24];
+            app.ButtonAuto.Text = '自动测试';
+
+            % Create ButtonDianya
+            app.ButtonDianya = uibutton(app.Panel_operation, 'push');
+            app.ButtonDianya.ButtonPushedFcn = createCallbackFcn(app, @ButtonDianyaPushed, true);
+            app.ButtonDianya.Position = [140 51 100 24];
+            app.ButtonDianya.Text = '电压矩阵';
+
+            % Create ButtonTotal
+            app.ButtonTotal = uibutton(app.Panel_operation, 'push');
+            app.ButtonTotal.ButtonPushedFcn = createCallbackFcn(app, @ButtonTotalPushed, true);
+            app.ButtonTotal.Position = [140 15 100 24];
+            app.ButtonTotal.Text = '整体电压';
+
+            % Create EditFieldTotal
+            app.EditFieldTotal = uieditfield(app.Panel_operation, 'numeric');
+            app.EditFieldTotal.ValueChangedFcn = createCallbackFcn(app, @EditFieldTotalValueChanged, true);
+            app.EditFieldTotal.Position = [264 16 100 22];
+
+            % Create ButtonOpenRelay
+            app.ButtonOpenRelay = uibutton(app.Panel_operation, 'push');
+            app.ButtonOpenRelay.ButtonPushedFcn = createCallbackFcn(app, @ButtonOpenRelayPushed, true);
+            app.ButtonOpenRelay.Position = [17 128 100 24];
+            app.ButtonOpenRelay.Text = '打开继电器';
+
+            % Create ButtonCloseRelay
+            app.ButtonCloseRelay = uibutton(app.Panel_operation, 'push');
+            app.ButtonCloseRelay.ButtonPushedFcn = createCallbackFcn(app, @ButtonCloseRelayPushed, true);
+            app.ButtonCloseRelay.Position = [17 89 100 24];
+            app.ButtonCloseRelay.Text = '关闭继电器';
+
+            % Create Panel_results
+            app.Panel_results = uipanel(app.v02UIFigure);
+            app.Panel_results.Title = '结果';
+            app.Panel_results.Position = [4 260 260 221];
+
+            % Create ButtonPhase
+            app.ButtonPhase = uibutton(app.Panel_results, 'push');
+            app.ButtonPhase.ButtonPushedFcn = createCallbackFcn(app, @ButtonPhasePushed, true);
+            app.ButtonPhase.Position = [20 29 100 24];
+            app.ButtonPhase.Text = '面形结果';
+
+            % Create Label_2
+            app.Label_2 = uilabel(app.Panel_results);
+            app.Label_2.Position = [67 136 42 22];
+            app.Label_2.Text = 'PV/nm';
+
+            % Create Label_3
+            app.Label_3 = uilabel(app.Panel_results);
+            app.Label_3.Position = [67 107 52 22];
+            app.Label_3.Text = 'RMS/nm';
+
+            % Create Label_1
+            app.Label_1 = uilabel(app.Panel_results);
+            app.Label_1.Position = [67 75 53 22];
+            app.Label_1.Text = '测试次数';
+
+            % Create LabelNo
+            app.LabelNo = uilabel(app.Panel_results);
+            app.LabelNo.Position = [135 75 25 22];
+            app.LabelNo.Text = '0';
+
+            % Create LabelPV
+            app.LabelPV = uilabel(app.Panel_results);
+            app.LabelPV.Position = [135 136 64 22];
+            app.LabelPV.Text = '0';
+
+            % Create LabelRMS
+            app.LabelRMS = uilabel(app.Panel_results);
+            app.LabelRMS.Position = [135 107 74 22];
+            app.LabelRMS.Text = '0';
+
+            % Create ButtonRegion
+            app.ButtonRegion = uibutton(app.Panel_results, 'push');
+            app.ButtonRegion.ButtonPushedFcn = createCallbackFcn(app, @ButtonRegionPushed, true);
+            app.ButtonRegion.Position = [135 28 100 24];
+            app.ButtonRegion.Text = '区域结果';
+
+            % Create Panel_performance
+            app.Panel_performance = uipanel(app.v02UIFigure);
+            app.Panel_performance.Title = '性能指标';
+            app.Panel_performance.Position = [263 3 378 253];
+
+            % Create Label_7
+            app.Label_7 = uilabel(app.Panel_performance);
+            app.Label_7.Position = [185 177 32 22];
+            app.Label_7.Text = '1296';
+
+            % Create Label_8
+            app.Label_8 = uilabel(app.Panel_performance);
+            app.Label_8.Position = [86 177 53 22];
+            app.Label_8.Text = '单元数：';
+
+            % Create Label_9
+            app.Label_9 = uilabel(app.Panel_performance);
+            app.Label_9.Position = [86 139 65 22];
+            app.Label_9.Text = '单元间距：';
+
+            % Create mmLabel_2
+            app.mmLabel_2 = uilabel(app.Panel_performance);
+            app.mmLabel_2.Position = [185 139 32 22];
+            app.mmLabel_2.Text = '3mm';
+
+            % Create Label_10
+            app.Label_10 = uilabel(app.Panel_performance);
+            app.Label_10.Position = [86 101 41 22];
+            app.Label_10.Text = '行程：';
+
+            % Create mLabel
+            app.mLabel = uilabel(app.Panel_performance);
+            app.mLabel.Position = [185 101 29 22];
+            app.mLabel.Text = '1μm';
+
+            % Create Label_11
+            app.Label_11 = uilabel(app.Panel_performance);
+            app.Label_11.Position = [86 63 41 22];
+            app.Label_11.Text = '口径：';
+
+            % Create mmLabel_3
+            app.mmLabel_3 = uilabel(app.Panel_performance);
+            app.mmLabel_3.Position = [181 63 46 22];
+            app.mmLabel_3.Text = '100mm';
+
+            % Create Label_12
+            app.Label_12 = uilabel(app.Panel_performance);
+            app.Label_12.Position = [86 25 65 22];
+            app.Label_12.Text = '工作频率：';
+
+            % Create kHzLabel
+            app.kHzLabel = uilabel(app.Panel_performance);
+            app.kHzLabel.Position = [181 25 45 22];
+            app.kHzLabel.Text = '≥2kHz';
+
+            % Show the figure after all components are created
+            app.v02UIFigure.Visible = 'on';
+        end
+    end
+
+    % App creation and deletion
+    methods (Access = public)
+
+        % Construct app
+        function app = shiliang
+
+            % Create UIFigure and components
+            createComponents(app)
+
+            % Register the app with App Designer
+            registerApp(app, app.v02UIFigure)
+
+            % Execute the startup function
+            runStartupFcn(app, @startupFcn)
+
+            if nargout == 0
+                clear app
+            end
+        end
+
+        % Code that executes before app deletion
+        function delete(app)
+
+            % Delete UIFigure when app is deleted
+            delete(app.v02UIFigure)
+        end
+    end
+end]]></w:t></w:r></w:p></w:body></w:document>
