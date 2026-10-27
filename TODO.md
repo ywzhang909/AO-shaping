@@ -3754,6 +3754,15 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 一次协议执行错误记此以免重犯：推送前我只 `git ls-remote` 取远端 SHA 却**没先 `git fetch`**，于是该 commit 在本地对象库里不存在，`merge-base --is-ancestor` 与 `rebase` 双双报"无效的上游"。FF 协议的正确顺序是 **fetch → 取 SHA → 判祖先 → rebase → 复跑门禁 → push**。
 - 覆盖账：`f86b669e`（#200 测试对齐契约 + 确定性用例）、`b9ea3f59`（#206 死条款清理 + 豁免防腐守卫）。
 
+**2026-10-27 · 01912ab5 · issue #203 浅克隆把 CHANGELOG 引用守卫 71/71 推红；runners 分片里一条把"git 无法回答"误报成"未跟踪"的守卫；#174 盲捕棘轮上线**
+- **#203（`01912ab5`）**：`pytest.yml` 用 `actions/checkout@v4` 但没写 `fetch-depth` ⇒ 默认 **depth=1 浅克隆**，对象库只有 HEAD。该 job 跑 `test_conventions.py::test_backticked_hex_citations_in_the_changelog_resolve_to_commits`，它逐条 `git cat-file -t <hash>`，浅克隆下 71 条引用**全部**走 "no such object" 分支 ⇒ 每次运行确定性红，而历史本身没问题。本地复现对照：完整历史 70/71 解析为 commit（其余由守卫的链接标签过滤解释）；`git clone --depth 1` 下 `git cat-file -t 0026f58` ⇒ `fatal: Not a valid object name`。只给 pytest job 设 `fetch-depth: 0`：`ci.yml` 的 ruff/术语 job 与 `ruff.yml` 不读历史，保持浅克隆不增成本；该 job 自身另有历史依赖（推理 `741ea0e5 is an ancestor of master`），同一开关一并覆盖。防退化：`test_pytest_workflow_shards_cover_tree.py` 新增 `test_ci_checkout_keeps_full_history_for_history_dependent_guards`（要求恰好一个 checkout 步骤且 `fetch-depth: 0`），控制实验删该行 ⇒ 该测试点名变红；模块 11 → 12 全绿。
+- **runners 分片的既有红（`d806fecd`）**：`test_the_new_modules_are_tracked_by_the_repository` 报"两个模块未被 git 跟踪"，但真相藏在 stderr：`git ls-files --error-unmatch` 返回 **rc=128 + "fatal: not a git repository"**——测试没设 cwd，而 harness 把容器工作目录放在 `$SCRATCH`（`-w "$SCRATCH"`），那两个路径在索引里明明存在。修法按 `test_report_provenance._is_gitignored` 的三态先例：在 `REPO` 里跑 git，**rc=1 才是真的未跟踪**（照旧失败并写出 `git add` 补救），其它 rc 带理由 skip。对照：往参数里植入一个不存在路径 ⇒ 仍明确报"is not tracked by git"；还原逐字节一致。单文件 2 failed / 5 passed → **7 passed**（默认与 `AO_TEST_PER_FILE=1` 两种形态皆绿），整个 `tests/ao_shaping/runners` 分片 **554 passed / 25 skipped**（此数在提交后实测确认，非推算）。
+- **#174 盲捕（`07e170f1`）**：实况比 issue 记载更大——全仓 **548**（`src` 363 / `scripts` 137 / `tests` 44），且 BLE001 不在 ruff `select` 里，所以它的增长此前**没有任何守卫能看见**。本轮只做**可证明等价**的三处收窄：`cli_helpers.parse_center`（body 只会抛显式 ValueError 与 `float()` 的 TypeError/ValueError，其它异常原本是解析器自身的 bug，却被洗成用户可见的用法提示）、`io/file.py` 的数组探测（`np.asarray` 对 ragged/不可构造只抛 ValueError/TypeError）、`target_func.py` 的高斯 σ 拟合（`curve_fit` 失败是 RuntimeError，输入不合是 ValueError/TypeError）。其余绝大多数是**有意兜底**（可选驱动特性、带默认值的探测、"丢一张图不该丢整轮"），在 lint 计数压力下改写等于把错误处理变成猜测，因此本轮不动；`scripts/` 按既定边界不特意修。
+- **棘轮的口径选择是要紧处**：计数用 **AST** 而不是 ruff——测试镜像**不装 ruff**，任何基于 ruff 的计数恰好会在真正把关的那个 job 里 skip。AST 口径排除"纯重抛"（与 BLE001 自身的豁免一致），故与 ruff 可比（今日 382 vs 363）。同时给"找到的数量"设**下限 ≥100**，防止遍历/解析退化后以"零违规"通过。382 是待办队列上限，不是可接受值；上调必须在 §8.9 记理由。
+- 一条会被反复踩到的连带关系：**改动被 call-graph wiki 引用行号的源文件，会把 `test_wiki_source_citations_land_on_definitions` 推红**（本轮三处收窄就触发了）。正规修法只有重生成链 `build_call_graph → finalize_graph → gen_wiki_pages`（本轮只动 1 页 + 2 个资产），不是手改产物。
+- 顺带一条已消解项的实证：**#202 的跨机金标问题已在树内修好且证据成立**——宿主机产出的 `gs_refine_target_shapes_golden.npz` + `rtol=1e-4/atol=1e-6`（`3e285e21` 入库）在**当初翻车的 CPU 容器镜像里 48 passed**。
+- 门禁与回归：conventions **68 passed / 1 skipped**（67 + 棘轮）；`tests/ao_shaping/algorithm` **777 passed / 16 skipped** 与基线逐位一致；`tests/ao_shaping/utils` 1490 passed / 4 skipped；术语、报告溯源、ruff 三门禁归零。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
