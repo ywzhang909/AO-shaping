@@ -3804,6 +3804,15 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 文档侧配合改动，使活钉是唯一可解析的钉：ABBA 探针由裸 `:1870` 改成 `slm_zernike_pib.py:1870`（人读也更明确）；历史引用 `` `slm_zernike_pib.py:56` `` 改写为 `` `slm_zernike_pib.py` 原 56 ``——保留文件名给人看，但不再注册成活钉。
 - 对照验证：把表格行 3 的钉号改错 + 把 TODO **第二处**改错 ⇒ 两条 offense 各自带 stale/unpinned 集合报出；复原 ⇒ 复绿。conventions 现 **70 passed / 1 skipped**（+1 即本守卫）；术语、溯源、台账奇偶、全仓 ruff 归零。
 
+**2026-10-27 · d4b5f8f7 · #174 第二遍评审：三个 CCD 驱动的 14 处宽捕获登记策略，未标注 355→341**
+- 逐处读后再标：`miicam` 的 `Stop()` **6 处**（`_init_streaming` 两处——预停 449 与重试路径 462 是同一形态——加 `reset_exposure_time` 2 处、`reset_window`、`_stop_streaming`）：对**未运行的流**调 Stop 是 SDK 错误而非调用方失败；`close()` 2 处（设备已在拆除，flush 与 Close 属尽力而为）；`_frame_callback` 2 处（**SDK 回调线程不得把异常抛进厂商代码**，丢帧经 `_note_frame_loss` 记账并由读帧侧观察）；`_init_serial_number`（查不到序列号回落合成 id，设备仍可用）；`daheng get_auto_exposure_state`（自动曝光目标是**可选寄存器**，状态快照只记本次固件暴露的字段）；`ffmpeg get_cam_list` 2 处（枚举逐个探针索引，开不起来就是没有设备）。
+- **读了但刻意不标 2 处**：`miicam initialize` 外层处理器与 `close` 重试打断处。它们保护的是**重试循环**，宽捕获是否正确取决于 `drivers/` 异常分层（#145 / #45），不是读一次就能判。**标注等于把未决问题写成"已判定"的假记录。**
+- **注释-only 用结构证明而非声明**：三个文件改前改后 `ast.dump` **逐字节相同**（dump 不含行号 ⇒ 没有任何语句、表达式、名字或 handler 变化，只有 trivia 变），且 `git diff -U0` 14 行新增里**非注释 0 行**。这比跑一遍测试更强。
+- 计数：总数仍 **382**，已标注 **27→41**，未标注 **355→341**（上限同步下调）。下调后**重新武装对照**：再加一处未标注盲捕即在 **342** 变红，删除即复绿。conventions **70 passed / 1 skipped**。
+- 定位器踩到两个真问题并已修（都写进脚本注释）：① 用"except 上方若干行"或按 handler 跨度排序，会把**外层 try** 也算进来（daheng 那处同一 needle 命中 2 个 handler）——正解是最内层 try，且 needle 行不得落在其嵌套 try 区间内；② 一个 needle 可合法对应**多个同类站点**（`self.cam.Stop()` 命中 449 与 462），应全标而不是报歧义。另外 needle 必须是**整行**：真实行是 `self._sn = self.cam.SerialNumber()`，写 `self.cam.SerialNumber()` 在整行相等规则下必然不匹配。
+- 又修掉一处**我自己制造的不一致**：注册表头注释仍写 `27 marked, 355 unmarked`，而隔壁上限已是 341——**守卫旁边的陈旧数字**比缺守卫更危险，因为它看起来是权威读数。
+- 顺带解释了一次"绿得可疑"：wiki 行号守卫没红，不是漏看——全库 65 处 wiki 钉行**没有一处**指向这三个驱动文件，本就没有可漂移的引用（核查过，不是假设）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
