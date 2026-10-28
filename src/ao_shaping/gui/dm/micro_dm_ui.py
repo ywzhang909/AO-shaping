@@ -291,6 +291,7 @@ def connect_single() -> None:
         if st.session_state.mdm_single_controller is not None:
             try:
                 st.session_state.mdm_single_controller.close()
+            # policy: closing the stale handle before a reconnect is best effort: a failure here must not block establishing the new connection
             except Exception as e:
                 logger.warning(f"close warning: {e}")
             st.session_state.mdm_single_controller = None
@@ -305,6 +306,7 @@ def connect_single() -> None:
         st.session_state.mdm_single_connected = True
         st.session_state.mdm_single_connection_error = ""
         logger.info(f"Single unit connected: {ip}:{port}")
+    # policy: a failed connect becomes operator-visible state (error string plus disconnected flag), and the half-open controller is dropped so a retry starts clean
     except Exception as e:
         st.session_state.mdm_single_connection_error = f"连接失败: {e}"
         st.session_state.mdm_single_connected = False
@@ -318,6 +320,7 @@ def disconnect_single() -> None:
     try:
         if st.session_state.mdm_single_controller is not None:
             st.session_state.mdm_single_controller.close()
+    # policy: teardown is best effort: the controller reference is cleared either way, so a refusing close must not leave the UI holding a dead handle
     except Exception as e:
         logger.exception(f"disconnect warning: {e}")
     st.session_state.mdm_single_controller = None
@@ -377,6 +380,7 @@ def _single_fixed_loop(
                 break
             out_q.put(("sample", (v, time.time())))
             time.sleep(interval)
+    # policy: a fixed-voltage send failure is reported to the UI thread through the queue; raising out of the loop thread would stop the hardware with no explanation
     except Exception as e:
         out_q.put(("error", f"固定电压下发异常: {e}"))
         logger.exception(f"固定电压下发异常: {e}")
@@ -408,6 +412,7 @@ def _single_periodic_loop(
                 break
             out_q.put(("sample", (v, time.time())))
             time.sleep(dt)
+    # policy: a periodic waveform failure is reported through the queue and the finally clears the running flag -- an unhandled raise would leave the panel convinced it is still sweeping
     except Exception as e:
         out_q.put(("error", f"周期波形下发异常: {e}"))
         logger.exception(f"周期波形下发异常: {e}")
@@ -589,6 +594,7 @@ def _tab1_fragment():
                             ):
                                 _record_single_sample(v, time.time())
                             set_tab1_feedback(f"已下发 {voltage:.1f} V", "success")
+                        # policy: a single-channel send failure is surfaced as panel feedback: the operator must know the channel was not changed
                         except Exception as e:
                             set_tab1_feedback(f"发送失败: {e}", "error")
             with col_send2:
@@ -728,6 +734,7 @@ def connect_dm() -> bool:
         if st.session_state.mdm_dm is not None:
             try:
                 st.session_state.mdm_dm.close()
+            # policy: same contract as the single-unit path -- dropping the previous handle is best effort before opening a new one
             except Exception as e:
                 logger.warning(f"MicroDM close warning: {e}")
             st.session_state.mdm_dm = None
@@ -756,6 +763,7 @@ def connect_dm() -> bool:
 
         logger.info("MicroDM connected successfully")
         return True
+    # policy: connect failure is a reported result (False plus a session error) for the caller to act on, not an exception a Streamlit rerun would swallow
     except Exception as e:
         error_msg = f"MicroDM 连接失败: {e}"
         st.session_state.mdm_connection_error = error_msg
@@ -775,6 +783,7 @@ def disconnect_dm() -> None:
         st.session_state.mdm_connected = False
         st.session_state.mdm_connection_error = ""
         logger.info("MicroDM disconnected")
+    # policy: a refused close leaves the devices possibly still held, so the failure is recorded for the operator instead of pretending the session is disconnected
     except Exception as e:
         st.session_state.mdm_connection_error = f"断开连接失败: {e}"
         logger.exception(f"MicroDM disconnect failed: {e}")
@@ -794,6 +803,7 @@ def _matrix_continuous_loop(
         while not stop_event.is_set():
             dm.send_voltages(voltages)
             time.sleep(interval)
+    # policy: a continuous matrix send failure is reported through the queue: the operator must learn the channels may still be driven, rather than losing the thread silently
     except Exception as e:
         out_q.put(("error", f"矩阵持续发送异常: {e}"))
         logger.exception(f"矩阵持续电压发送异常: {e}")
@@ -827,6 +837,7 @@ def _hw_reset_action() -> None:
         st.session_state.mdm_dm.reset_all()
         st.session_state.mdm_matrix = np.zeros((GRID_SIZE, GRID_SIZE), dtype=np.float64)
         set_tab2_feedback("硬件已归零", "success")
+    # policy: if reset_all fails the actuators may still sit at their last voltages -- safety-relevant feedback, so it has to reach the panel and not raise
     except Exception as e:
         set_tab2_feedback(f"归零失败: {e}", "error")
 
@@ -1012,6 +1023,7 @@ def _tab2_fragment():
                 try:
                     st.session_state.mdm_dm.send_voltages(st.session_state.mdm_matrix.flatten())
                     set_tab2_feedback(f"矩阵已发送 ({TOTAL_CHANNELS} 通道)", "success")
+                # policy: a failed apply is reported in-panel and the session matrix is deliberately left as edited, so the operator can retry without re-entering it
                 except Exception as e:
                     set_tab2_feedback(f"应用失败: {e}", "error")
     with col_hw2:
@@ -1023,6 +1035,7 @@ def _tab2_fragment():
                     voltages = st.session_state.mdm_dm.get_actuator_positions()
                     st.session_state.mdm_matrix = voltages.reshape((GRID_SIZE, GRID_SIZE))
                     set_tab2_feedback("矩阵已刷新", "success")
+                # policy: a failed read-back is reported and the displayed matrix is kept -- half-read voltages are worse than stale ones
                 except Exception as e:
                     set_tab2_feedback(f"读取失败: {e}", "error")
     with col_hw3:
@@ -1048,6 +1061,7 @@ def _tab2_fragment():
                     set_tab2_feedback(f"矩阵已加载 ({data.shape})", "success")
                 else:
                     set_tab2_feedback(f"形状不匹配: 期望 ({GRID_SIZE},{GRID_SIZE}), 实际 {data.shape}", "error")
+            # policy: a rejected upload is a user-correctable input error: report it in the panel and keep the existing matrix untouched
             except Exception as e:
                 set_tab2_feedback(f"加载失败: {e}", "error")
     with col_io2:
@@ -1151,6 +1165,7 @@ def render_sidebar() -> None:
                 info = st.session_state.mdm_dm.get_hardware_info()
                 st.caption(f"控制器: {info.get('connected_controllers', 0)}/{info.get('n_controllers', 0)}")
                 st.caption(f"通道: {info.get('total_channels', 0)}")
+            # policy: the sidebar caption is decorative device info; a capability read that fails must not break the whole page rerun
             except Exception:
                 pass
 
