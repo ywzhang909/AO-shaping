@@ -184,7 +184,7 @@ def collect_device_info(slm: Santec, wfs: ThorlabWFS | None = None,
     def _get(obj: Any, attr: str) -> Any:
         try:
             return getattr(obj, attr)
-        except Exception as e:      # 单点读取失败不应中断
+        except Exception as e:# policy: vendor fields are read through getattr on an arbitrary handle, so the raised type is whatever the SDK chooses; one unreadable field must not blank the whole info dump
             logger.debug("读取 {}.{} 失败: {}", type(obj).__name__, attr, e)
             return None
 
@@ -199,7 +199,7 @@ def collect_device_info(slm: Santec, wfs: ThorlabWFS | None = None,
         s["two_pi_gray"] = int(mg)
         s["max_phase_rad"] = 2.0 * float(np.pi)    # 相位调制上限 = 2π
         s["max_phase_waves"] = 1.0
-    except Exception as e:
+    except Exception as e:# policy: get_wavelength_info is a vendor SDK call with untyped failures; the record keeps every other field when it is unavailable
         logger.debug("get_wavelength_info 失败: {}", e)
     s["max_grayscale_value"] = _get(slm, "MAX_GRAYSCALE_VALUE")
     pr = _get(slm, "Panel_Res")
@@ -225,18 +225,18 @@ def collect_device_info(slm: Santec, wfs: ThorlabWFS | None = None,
         w = info["wfs"]
         try:
             w.update(wfs.get_hardware_info())
-        except Exception as e:
+        except Exception as e:# policy: get_hardware_info is a vendor SDK call; an absent or unresponsive WFS must degrade to a partial record instead of aborting the probe
             logger.debug("wfs.get_hardware_info 失败: {}", e)
         w["exposure_time_ms"] = _get(wfs, "exposure_time")
         try:
             cx, cy, dx, dy = wfs.pupil
             w["pupil_center_mm"] = [float(cx), float(cy)]
             w["pupil_diameter_mm"] = [float(dx), float(dy)]
-        except Exception as e:
+        except Exception as e:# policy: pupil is an SDK property whose unpacking depends on live hardware state; a missing or odd-shaped read is recorded as absent
             logger.debug("wfs.pupil 读取失败: {}", e)
         try:
             w["mla_name"] = wfs.get_mla_name()
-        except Exception as e:
+        except Exception as e:# policy: get_mla_name is a vendor SDK call with untyped failures; the microlens name is optional metadata
             logger.debug("wfs.get_mla_name 失败: {}", e)
         w["num_spots_x"] = _get(wfs, "num_spots_x")
         w["num_spots_y"] = _get(wfs, "num_spots_y")
@@ -452,7 +452,7 @@ def measure_zernike(wfs: ThorlabWFS, n_avg: int = 3,
         wfs.take_image(n_sample=1, dynamicNoiseCut=True)
         try:
             z = wfs.get_zernike(zernike_order=order)
-        except Exception as e:
+        except Exception as e:# policy: one failed get_zernike read must not abort the order sweep -- the loop keeps the orders already collected
             logger.debug("get_zernike 失败: {}", e)
             continue
         if z is None or not np.isfinite(z).all():
@@ -509,7 +509,7 @@ def measure_tilt_defocus(
         wfs.take_image(n_sample=1, dynamicNoiseCut=True)
         try:
             z_um = wfs.get_zernike(zernike_order=zernike_order)
-        except Exception as e:  # 单帧失败不致命, 交由中位数容忍
+        except Exception as e:# policy: single-frame failure is not fatal: the median across frames absorbs a dropped read, and narrowing would let one SDK hiccup kill the whole batch
             logger.debug("get_zernike 失败: {}", e)
             continue
         if z_um is None:

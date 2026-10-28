@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 import numpy as np
@@ -27,7 +28,9 @@ import pytest
 
 from ao_shaping.tools.slm.calibration.train_data_collect import (
     CollectParams,
+    _RECOGNISED_FAMILIES,
     _effective_store_panel,
+    _get_recognised_families,
     build_plan,
     make_phase,
     sidecar_payload,
@@ -469,3 +472,41 @@ class TestOnRecordFailureIsAttributable:
         ), drops
         # "累计" marks a per-record line: first failure, then every 100th.
         assert len([m for m in drops if "累计" in m]) == 1 + (plan_len - 1) // 100, drops
+
+
+class TestRecognisedFamiliesFallback:
+    """The probe's whole failure surface is one optional import, so its handler is narrowed.
+
+    The last case is the one that pays for the narrowing: under a broad handler it would have
+    passed vacuously, since everything was swallowed.
+    """
+
+    def test_uses_ml_families_when_the_index_module_exposes_them(self, monkeypatch) -> None:
+        pkg = types.ModuleType("ml")
+        pkg.__path__ = []
+        hw = types.ModuleType("ml.hwdataset")
+        hw.__path__ = []
+        idx = types.ModuleType("ml.hwdataset.index")
+        idx._RECOGNISED_FAMILIES = ("alpha", "beta")
+        hw.index = idx
+        monkeypatch.setitem(sys.modules, "ml", pkg)
+        monkeypatch.setitem(sys.modules, "ml.hwdataset", hw)
+        assert _get_recognised_families() == ("alpha", "beta")
+
+    def test_falls_back_to_local_families_when_ml_is_absent(self, monkeypatch) -> None:
+        monkeypatch.setitem(sys.modules, "ml.hwdataset", None)
+        assert _get_recognised_families() == _RECOGNISED_FAMILIES
+
+    def test_non_import_error_from_the_optional_package_is_not_swallowed(
+        self, monkeypatch
+    ) -> None:
+        class Boom(types.ModuleType):
+            def __getattr__(self, name):
+                raise RuntimeError("probe failure is not an import problem")
+
+        pkg = types.ModuleType("ml")
+        pkg.__path__ = []
+        monkeypatch.setitem(sys.modules, "ml", pkg)
+        monkeypatch.setitem(sys.modules, "ml.hwdataset", Boom("ml.hwdataset"))
+        with pytest.raises(RuntimeError, match="not an import problem"):
+            _get_recognised_families()
