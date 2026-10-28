@@ -3929,6 +3929,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 覆盖诚实：仅 1 个测试文件真正引用该模块（另一次引用来自守卫自身），故 gui/dm **13 passed** 与 gui **575 passed** 与基线逐项一致只能算弱见证；等价性由 `git show HEAD:` 基线上的 `ast.dump` 相同 + 非注释新增 **0** 行钉死。
 - 提交按退出码闸门执行（conv/term/prov/ruff 全 0 才提交），不再把校验当日志输出。
 
+**2026-10-28 · 3155a9ab · #174 第十档：`target_shape_helper` 7 处登记，未标注 239→232（该文件无任何行号钉指向它，故无需重钉）**
+- 七处按**调用者与后果**分写，不套同一句：两个采集 handler 的差别在调用方而非措辞 —— `_capture_and_compute` 保留 session_state 里已有的帧，面板继续用**上一张好图**工作；`live_display` 是视图刷新，丢一帧不得终结会话。`_render_overlay` 是**逐方法隔离**：某个中心算法算不出就跳过，其余被选中的方法仍要画出叠加层。侧栏存活探测**fail closed**：`is_connected()` 抛出即视作相机丢失并重置会话状态，而不是留下一个下一轮会误信的陈旧句柄。连接/断开/ROI 应用失败一律上报操作员；其中**拒绝关闭**必须报告而不是宣称已断开，因为 try 内的状态重置可能只做了一半。
+- 上限：总数 **382 不变**，已标注 143→**150**，未标注 239→**232**；对照重武装 — 多加一处未标注 ⇒ **233** 变红。顺序照规矩：**先落地并证明编辑，再下调上限**。
+- **锚定再次改为 handler 行号 + AST 复验**：`_capture_and_compute` 与 `live_display` 的 handler 体**逐字相同**（同一句 `logger.exception("Frame capture failed")` 加同一句 `st.error`），needle 必然歧义 —— 而歧义 needle 正是此前把标记落到错误 handler 的成因。
+- 钉审计：全仓 markdown 中**没有任何行号钉指向该文件**（需处理 0 处），call-graph wiki 也未钉它（conventions 里的 wiki 引用守卫同时为绿，构成交叉印证）。这是本轮第一次一档**完全不产生钉漂移**。
+- **覆盖诚实到具体**：唯一提到该文件的测试 `tests/ao_shaping/runners/test_gs_square_center.py` **根本不 import 它**（只 import `utils.image.spots_calc`，gui import 行数实测为 0），它只是在散文里交叉引用三个中心方法。因此那次 5 passed 是**冒烟**而非见证；等价性由 `git show HEAD:` 基线上的 `ast.dump` 相同 + marker 增量恰为 **7** + 非注释新增 **0** 行 + `py_compile` 承担。
+- **记一个仍在已推送历史里的我的缺陷**：`3155a9ab` 的 message 里留了一句未清理的草稿残句（“…exactly 7 (0 -> 7), 15? no -- 7 added lines…”），是我把上一档的数字串进了本档句子。已推送历史不改写，在此记账；规则重申：**推送前必须把 message 逐句对着实际落地的数字重读一遍**。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
