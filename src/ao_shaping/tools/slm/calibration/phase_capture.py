@@ -131,7 +131,7 @@ def capture_camera_frame(
                 f"max={max_val}, mean={mean_val:.1f}, min={min_val}"
             )
         return frame
-    except Exception as e:
+    except Exception as e:  # policy: capture_frame reaches into a live camera and its dtype/stat handling; a camera that returns nothing must yield None for this frame, not abort the calibration sweep
         logger.warning(f"{cam_name} 采集失败: {e}")
         return None
 
@@ -375,7 +375,7 @@ def run(params: PhaseCaptureParams) -> None:
             )
             slm.open()
             logger.info(f"SLM #{params.slm_number} 已连接, 分辨率: {slm.Panel_Res}")
-        except Exception as e:
+        except Exception as e:  # policy: SLM open is a vendor SDK call whose failure type belongs to the SDK; the documented contract is to keep collecting without phase display, so the run degrades to slm=None
             logger.error(f"SLM连接失败: {e}")
             logger.warning("将继续采集但不显示相位到SLM")
             slm = None
@@ -401,7 +401,7 @@ def run(params: PhaseCaptureParams) -> None:
             logger.info(
                 f"Daheng相机已连接: {daheng_cam.cam_width}x{daheng_cam.cam_height}"
             )
-        except Exception as e:
+        except Exception as e:  # policy: open_camera('daheng') wraps vendor SDK init; an absent camera is a supported configuration and must degrade to None, not crash the capture
             logger.warning(f"Daheng相机不可用: {e}")
             daheng_cam = None
 
@@ -417,7 +417,7 @@ def run(params: PhaseCaptureParams) -> None:
             logger.info(
                 f"MiiCam相机已连接: {miicam_cam.cam_width}x{miicam_cam.cam_height}"
             )
-        except Exception as e:
+        except Exception as e:  # policy: open_camera('miicam') likewise: either camera may be missing, and the run continues with whichever camera is present
             logger.warning(f"MiiCam相机不可用: {e}")
             miicam_cam = None
 
@@ -521,7 +521,7 @@ def run(params: PhaseCaptureParams) -> None:
                 current_slot = (params.memory_slot + i - 1) % 128 + 1
                 slm.display_phase(phase_rad, memory_number=current_slot)
                 logger.info(f"相位已写入SLM内存槽 {current_slot} 并显示")
-            except Exception as e:
+            except Exception as e:  # policy: display_phase is a vendor SDK call over memory slots; a slot that fails to display must not lose the whole acquisition pass
                 logger.warning(f"SLM相位显示失败: {e}")
 
         # Small delay for SLM to settle
@@ -580,21 +580,21 @@ def run(params: PhaseCaptureParams) -> None:
         try:
             slm.close()
             logger.info("SLM已断开")
-        except Exception as e:
+        except Exception as e:  # policy: teardown: SLM close must be attempted even though nothing here can recover the device, and a failure must not stop the cameras from closing
             logger.warning(f"SLM断开失败: {e}")
 
     if daheng_cam is not None:
         try:
             daheng_cam.close()
             logger.info("Daheng相机已断开")
-        except Exception as e:
+        except Exception as e:  # policy: teardown: same reason as the SLM close -- every device gets its attempt, and aborting here would leave the next camera open
             logger.warning(f"Daheng相机断开失败: {e}")
 
     if miicam_cam is not None:
         try:
             miicam_cam.close()
             logger.info("MiiCam相机已断开")
-        except Exception as e:
+        except Exception as e:  # policy: teardown: last device in the chain; a swallowed close failure is recorded, and raising would hide the two closes that already succeeded
             logger.warning(f"MiiCam相机断开失败: {e}")
 
     logger.info(f"全部 {params.samples} 个样本已保存到 {base_output_dir}")

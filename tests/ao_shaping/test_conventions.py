@@ -2142,12 +2142,12 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 362
 #: the driver exception taxonomy (issue #145 / #45) would turn a working fallback into a crash.
 #:
 #:
-#: Measured 2026-10-28 after twenty-one marker passes and two executed narrowings (runners/slm + config + utils, the three CCD
+#: Measured 2026-10-28 after twenty-two marker passes and two executed narrowings (runners/slm + config + utils, the three CCD
 #: camera drivers, the R50 GUI loop files, the whole optimizer / runner CLI layer, the ml
 #: training scripts, the CCD analyzer UI, the bench settings panel, the Micro-DM panel, the
 #: target-shape helper, the R50 joint panel, the SLM calibration panel, the Micro-DM image
 #: analysis panel, the shaping-controls panel, and the R50 channel selector, then the first
-#: executed narrowing): 268 marked, 94
+#: executed narrowing): 276 marked, 86
 #: unmarked. The fourth pass covered only 12 of the 17 open optimizer sites and the fifth had
 #: to close the layer -- the ceiling is only as honest as the last count. One site left the
 #: population instead of gaining a marker (narrowed out, see the total ratchet above), so the
@@ -2158,7 +2158,7 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 362
 #: Every one of those sites guards a device call, so per the note above they stay broad and are
 #: judged rather than narrowed; the recurring reason written into the markers is that teardown
 #: and batch loops must attempt every step, because aborting midway leaves some channels
-#: energised and others not. Control re-armed: one more unannotated blind catch makes 95 red.
+#: energised and others not. Control re-armed: one more unannotated blind catch makes 87 red.
 #: The seventeenth marker pass (six scattered GUI files outside the R50 family: the transfer
 #: progress panel, the Zernike debug viewer, both ceramic viewers, the pyarrow probe and the
 #: phase overlay helper) moved this ceiling 182 -> 171 with 11 comment-only edits. Three of those
@@ -2189,7 +2189,13 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 362
 #: optional-package import, and it is the only handler in this file that left the blind population.
 #: That file is cited by line number at :187, :683-687, :970, :975 and :980, so all thirteen markers
 #: went onto the except line itself and the file stayed at exactly 987 lines.
-#: Measured split of what is left after the driver slice landed under issue #56: 64 in tools/,
+#: The twenty-second marker pass (the SLM phase-capture calibration tool, 8 sites) moved this
+#: ceiling 94 -> 86. All eight guard a device call -- capture_frame, Santec open, open_camera twice,
+#: three closes and a display_phase over memory slots -- so the narrowing question never arises; the
+#: recurring rationale is that either camera may be absent and teardown must attempt every device.
+#: That file carries no line-number citation, but the markers still went onto the except lines so the
+#: pass cannot shift anything a later document might cite: 605 lines before and after.
+#: Measured split of what is left after the driver slice landed under issue #56: 56 in tools/,
 #: 30 in drivers/. The total fell because that slice narrowed 17 handlers, and it also added two
 #: new blind handlers of its own in the transfer tooling.
 #: A convention gap this measurement exposes, and it is not a counting error: the #56 slice wrote
@@ -2201,7 +2207,7 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 362
 #: involved" bucket, and two of those still read a device attribute, so the honest expectation is
 #: that the tools layer is almost entirely marker-only until the driver exception taxonomy
 #: (#145 / #45) lands.
-_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 94
+_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 86
 
 
 def _blind_except_handlers_in_src() -> list[tuple[Path, int, bool]]:
