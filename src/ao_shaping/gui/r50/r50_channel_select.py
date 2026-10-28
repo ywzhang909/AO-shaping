@@ -362,7 +362,7 @@ def build_position_ip_table(df: pd.DataFrame | None = None) -> pd.DataFrame:
                     "连接器": str(r["连接器"]),
                 }
             )
-    except Exception as e:  # policy: malformed CSV -> empty table: the position/IP reference is a display aid, so a parse failure removes the table instead of the page
+    except (ValueError, KeyError, TypeError) as e:  # malformed CSV -> empty table (缺列=KeyError, int()=ValueError/TypeError)
         logger.warning(f"Failed to build position/IP table: {e}")
         return pd.DataFrame()
     # 位置序号 ↔ IP+序号 对应表按物理位置排序 (CSV 按引脚编号排列, 非位置序)

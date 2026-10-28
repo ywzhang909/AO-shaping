@@ -2110,10 +2110,19 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
 #: ruff (a ruff-based count would skip in exactly the place the gate runs), and the check is
 #: therefore unskippable. ``re_raise_only`` handlers are excluded, mirroring BLE001's own
 #: exemption, so the number is comparable to ``ruff check src --select BLE001`` (measured
-#: 363 today against this AST count of 382; the residual gap is ruff's contextual filtering).
-#: This is a ratchet, not a claim that 382 is acceptable: most remaining handlers are
+#: 363 today against this AST count of 381; the residual gap is ruff's contextual filtering).
+#: This is a ratchet, not a claim that 381 is acceptable: most remaining handlers are
 #: deliberate fallbacks, and each one still needs an individual judgement.
-_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 382
+#:
+#: The population shrank by one on 2026-10-28 rather than every handler staying blind: the R50
+#: channel selector's wiring-CSV parse handler was narrowed to the three types its guarded
+#: statements can actually raise (KeyError on a missing header, ValueError/TypeError on the
+#: int() conversions). That is the first executed narrowing in the GUI layer, and it sits on a
+#: pure-parse path -- no device call, so CI can see the whole failure surface. It is pinned by
+#: tests/ao_shaping/gui/r50/test_r50_channel_select.py, which asserts both that malformed rows
+#: still degrade to an empty table and that an unlisted error is no longer swallowed. Hardware
+#: paths remain deliberately un-narrowed until the driver exception taxonomy (#145 / #45).
+_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 381
 
 #: Second ratchet over the same population: a broad catch that has actually been *judged*
 #: carries a ``# policy:`` marker naming what the layer is protecting -- within two lines
@@ -2128,9 +2137,13 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 382
 #: camera drivers, the R50 GUI loop files, the whole optimizer / runner CLI layer, the ml
 #: training scripts, the CCD analyzer UI, the bench settings panel, the Micro-DM panel, the
 #: target-shape helper, the R50 joint panel, the SLM calibration panel, the Micro-DM image
-#: analysis panel, the shaping-controls panel, and the R50 channel selector): 188 marked, 194
+#: analysis panel, the shaping-controls panel, and the R50 channel selector, then the first
+#: executed narrowing): 187 marked, 194
 #: unmarked. The fourth pass covered only 12 of the 17 open optimizer sites and the fifth had
-#: to close the layer -- the ceiling is only as honest as the last count.
+#: to close the layer -- the ceiling is only as honest as the last count. One site left the
+#: population instead of gaining a marker (narrowed out, see the total ratchet above), so the
+#: marked count fell while this ceiling held: a real narrowing is worth more than a marker, and
+#: unlike a marker it moves the total too.
 _MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 194
 
 
