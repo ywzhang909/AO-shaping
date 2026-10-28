@@ -191,6 +191,7 @@ def run_pipeline(snapshot: dict, stop_event: threading.Event) -> None:
     try:
         sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
         import md_img_pipeline as pipe  # 延迟导入, 避免拖慢 UI 启动
+    # policy: the pipeline module is imported lazily to keep UI start-up fast; if that import fails the run is reported through the progress record and stops before any output is written
     except Exception as e:
         logger.exception("无法导入 md_img_pipeline: {}", e)
         _update_progress(run_id, status="error", message=f"无法导入 md_img_pipeline: {e}")
@@ -250,6 +251,7 @@ def run_pipeline(snapshot: dict, stop_event: threading.Event) -> None:
                     n_valid = sum(1 for _, _, c in results if c is not None)
                     _update_progress(run_id, message=f"{base}: diff {n_diff} 张 ({n_valid} 有效质心)")
                     logger.info("{}: diff {} 张", base, n_diff)
+                # policy: per-unit isolation: one group's diff failure is logged and skipped so the remaining groups still get processed
                 except Exception as e:
                     logger.exception("{}: diff 失败: {}", base, e)
                     _update_progress(run_id, message=f"{base}: diff 失败: {e}")
@@ -263,6 +265,7 @@ def run_pipeline(snapshot: dict, stop_event: threading.Event) -> None:
                     overlay_path = overlay_dir / f"{ip_name}_overlay.png"
                     coverage = pipe.compute_ip_overlay(ip_diff_dir, overlay_path)
                     _update_progress(run_id, message=f"{base}: overlay {coverage:.1f}%")
+                # policy: a failed overlay leaves coverage at zero and the unit advances to the gif step -- one derived image must not abort the unit
                 except Exception as e:
                     logger.exception("{}: overlay 失败: {}", base, e)
                     _update_progress(run_id, message=f"{base}: overlay 失败: {e}")
@@ -274,6 +277,7 @@ def run_pipeline(snapshot: dict, stop_event: threading.Event) -> None:
                     gif_path = gif_dir / f"{ip_name}.gif"
                     pipe.render_ip_gif(ip_diff_dir, gif_path, scale, fps)
                     gif_mb = gif_path.stat().st_size / (1024 * 1024)
+                # policy: a failed per-unit gif is logged with size zero and the loop continues; that unit's diff outputs are already on disk
                 except Exception as e:
                     logger.exception("{}: gif 失败: {}", base, e)
 
@@ -317,6 +321,7 @@ def run_pipeline(snapshot: dict, stop_event: threading.Event) -> None:
                 combined_mb = combined_path.stat().st_size / (1024 * 1024)
                 units_done += 1
                 _update_progress(run_id, units_done=units_done, message=f"combined.gif {combined_mb:.1f} MB")
+            # policy: combined.gif is the last optional artifact: its failure is recorded and the unit still counts as processed, so earlier outputs stand
             except Exception as e:
                 logger.exception("combined gif 失败: {}", e)
                 units_done += 1
@@ -324,6 +329,7 @@ def run_pipeline(snapshot: dict, stop_event: threading.Event) -> None:
 
         _update_progress(run_id, status="complete", message=f"流水线完成 → {output_dir}")
         logger.info("流水线完成 → {}", output_dir)
+    # policy: worker-level pipeline failure is written to the progress record -- the UI polls that record, so an uncaught raise would leave it stuck reporting a run in progress
     except Exception as e:
         logger.exception("流水线失败: {}", e)
         _update_progress(run_id, status="error", message=f"流水线失败: {e}")
@@ -543,6 +549,7 @@ def _centroid_for_channel(ip_diff_dir: Path, filename: str) -> str:
                 if pd.isna(cx) or pd.isna(cy):
                     return "无信号"
                 return f"({cx:.1f}, {cy:.1f})"
+        # policy: a missing or malformed centroid row degrades to the placeholder text and the channel row still renders its other fields
         except Exception as e:
             logger.warning("读取质心失败: {}", e)
     return "无信号"
@@ -618,6 +625,7 @@ def render_browse_tab() -> None:
         try:
             df = pd.read_csv(csv_path)
             st.dataframe(df, use_container_width=True, hide_index=True)
+        # policy: a corrupt centroids.csv drops the table to a caption; the tab and its remaining panels must still render
         except Exception as e:
             st.caption(f"读取 centroids.csv 失败: {e}")
 
@@ -632,6 +640,7 @@ def _coverage_of(path: Path) -> float:
         img = np.asarray(Image.open(path), dtype=np.float64)
         gray = np.mean(img, axis=2) if img.ndim == 3 else img
         return float((gray > 0).sum()) / gray.size * 100
+    # policy: coverage is a browse-time display metric: an unreadable image reads as zero percent, never an error that removes the rest of the table
     except Exception as e:
         logger.warning("计算覆盖率失败: {}", e)
         return 0.0
@@ -689,6 +698,7 @@ def render_merged_tab() -> None:
                     mime="image/gif",
                     key="mdimg_download_combined",
                 )
+            # policy: the merged tab only offers a download it can actually read: a failure becomes a caption instead of a broken button
             except Exception as e:
                 st.caption(f"读取 combined.gif 失败: {e}")
 
