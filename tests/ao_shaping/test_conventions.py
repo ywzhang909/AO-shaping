@@ -1711,7 +1711,13 @@ def test_the_loguru_guard_follows_the_logger_not_one_spelling_of_its_import() ->
 # recognised-family probe stopped being a blind silent handler when its optional-import
 # surface was narrowed to ImportError. Lowered again 60 -> 58 the same day after
 # rebasing onto the #56 driver slice, which narrowed two of the silent ones.
-_BLIND_SILENT_BASELINE = 58
+# Lowered 58 -> 46 on 2026-10-28 by #56 slice (3) batches A/B/C/D/E: 12 more silent
+# ones gained a concrete type instead of `except Exception` -- miicam's
+# ctypes-SDK teardown (14 -> `OSError`), thorlab_wfs/`_sdk_setup` file I/O,
+# the adc/santec guards, and the two `open()`+csv / `open()`+write sites in
+# voltage_runner and adc_dm_adam. A typed silent handler is still silent, but it is
+# no longer *unattributable*: the reader can see which failure class is being dropped.
+_BLIND_SILENT_BASELINE = 46
 
 
 def _blind_silent_handlers(root: Path) -> list[str]:
