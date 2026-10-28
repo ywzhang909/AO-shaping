@@ -2137,7 +2137,18 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
 #: tests/ao_shaping/tools/slm/test_slm_train_data_collect.py, whose last case is the one that
 #: justifies the change -- a probe failure that is not an import problem now reaches the caller
 #: instead of silently returning the built-in family list.
-_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 362
+#: The population then fell by 18 more handlers, none of them narrowed by this workstream. #56
+#: slices (3) A-E landed underneath, and their commit messages report 17 + 16 + 3 + 2 narrowed
+#: sites -- a larger number than this guard can see, because those counts span scripts/ and tests/
+#: while this ratchet scans src/ only. What is verifiable here is the net: 362 -> 344 inside src/.
+#: Their miicam narrowing rests on real evidence (the vendor's HRESULTException is an OSError
+#: subclass on win32), which is exactly the kind of justification the rule asks for, so the ceiling
+#: is lowered to the integrated measurement rather than argued about. Of those 18 departures, **11
+#: had been annotated and 7 had not**, which is why the marked count falls from 300 to 289 even
+#: though this workstream added markers the whole time: an above-line marker survives the edit that
+#: narrows its handler, but it stops counting once the handler leaves the blind population. Do not
+#: read a fall in the marked number as lost work -- check the total in the same line.
+_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 344
 
 #: Second ratchet over the same population: a broad catch that has actually been *judged*
 #: carries a ``# policy:`` marker naming what the layer is protecting -- within two lines
@@ -2153,8 +2164,9 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 362
 #: training scripts, the CCD analyzer UI, the bench settings panel, the Micro-DM panel, the
 #: target-shape helper, the R50 joint panel, the SLM calibration panel, the Micro-DM image
 #: analysis panel, the shaping-controls panel, and the R50 channel selector, then the first
-#: executed narrowing): 300 marked, 62
-#: unmarked. The fourth pass covered only 12 of the 17 open optimizer sites and the fifth had
+#: executed narrowing): 289 marked, 55
+#: unmarked on the integrated tree (300 / 62 when the twenty-sixth pass landed, before #56 (3) A-E).
+#: The fourth pass covered only 12 of the 17 open optimizer sites and the fifth had
 #: to close the layer -- the ceiling is only as honest as the last count. One site left the
 #: population instead of gaining a marker (narrowed out, see the total ratchet above), so the
 #: marked count fell while this ceiling held: a real narrowing is worth more than a marker, and
@@ -2164,7 +2176,7 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 362
 #: Every one of those sites guards a device call, so per the note above they stay broad and are
 #: judged rather than narrowed; the recurring reason written into the markers is that teardown
 #: and batch loops must attempt every step, because aborting midway leaves some channels
-#: energised and others not. Control re-armed: one more unannotated blind catch makes 63 red.
+#: energised and others not. Control re-armed: one more unannotated blind catch makes 56 red.
 #: The seventeenth marker pass (six scattered GUI files outside the R50 family: the transfer
 #: progress panel, the Zernike debug viewer, both ceramic viewers, the pyarrow probe and the
 #: phase overlay helper) moved this ceiling 182 -> 171 with 11 comment-only edits. Three of those
@@ -2223,19 +2235,23 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 362
 #: :161, :219, :309, :430, :554 and :713 across the four files), and :713 is itself a handler line,
 #: so all nine markers are trailing comments and every one of those cited lines was asserted either
 #: byte-identical or, for the marked one, still holding the same statement.
-#: Measured split of what is left after the driver slice landed under issue #56: 32 in tools/,
-#: 30 in drivers/. The total fell because that slice narrowed 17 handlers, and it also added two
-#: new blind handlers of its own in the transfer tooling.
-#: A convention gap this measurement exposes, and it is not a counting error: the #56 slice wrote
-#: its rationales as Chinese prose on the handler (``保留宽泛捕获`` / ``类型不可枚举``), while this
-#: guard credits only the ``# policy:`` token. So 26 sites that a human already judged still read
-#: as unjudged here. Unifying the two idioms is a decision for #174 and #56 together, not something
-#: this ratchet should settle by itself.
+#: Measured split of what is left after #56 slices (3) A-E landed: 32 in tools/, 23 in drivers/.
+#: The first driver slice narrowed 17 handlers and added two blind handlers of its own in the
+#: transfer tooling; slices A-E narrowed 18 more (16 + 3 + 2).
+#: A convention gap this measurement exposes, and it is not a counting error: #56 wrote its
+#: rationales as Chinese prose on the handler (``保留宽泛捕获`` / ``类型不可枚举``), while this
+#: guard credits only the ``# policy:`` token. Counting inside the guard's own marker window, **40
+#: of the 55 unmarked handlers already carry a Chinese rationale** -- 22 of the 23 remaining driver
+#: sites, and 18 of 32 tools sites -- so only **15 have no rationale at all**. Read that way the
+#: drivers layer is effectively finished by #56 and this branch has been about to duplicate it.
+#: Unifying the two idioms is a decision for #174 and #56 together, not something this ratchet
+#: should settle by itself, and it is now the highest-value open item: it changes what the ceiling
+#: means far more than any further marking pass would.
 #: A first classification pass over the tools sites put only 16 of 83 in a "no device handle
 #: involved" bucket, and two of those still read a device attribute, so the honest expectation is
 #: that the tools layer is almost entirely marker-only until the driver exception taxonomy
 #: (#145 / #45) lands.
-_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 62
+_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 55
 
 
 def _blind_except_handlers_in_src() -> list[tuple[Path, int, bool]]:
