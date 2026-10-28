@@ -159,7 +159,7 @@ def main(params: WfsProbeParams) -> int:
             click.echo("[INFO] --no-save: pupil 未写回")
 
         ok = True
-    except Exception as e:
+    except Exception as e:  # policy: probe body spans SLM open, SDK metadata reads and the exposure safety ceiling's ValueError; the probe's job is to report the failure and name its type, not to raise past the CLI
         logger.exception("探针失败")
         click.echo(f"[FAIL] {type(e).__name__}: {e}")
     finally:
@@ -167,7 +167,7 @@ def main(params: WfsProbeParams) -> int:
             try:
                 dev.close()
                 click.echo(f"[INFO] {name} close")
-            except Exception as e:
+            except Exception as e:  # policy: teardown: the close is best-effort and its failure is logged with the device name, so one stuck controller cannot hide the others' state
                 logger.warning("{} close: {}", name, e)
 
     if not params.no_save:

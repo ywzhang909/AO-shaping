@@ -539,7 +539,7 @@ def main(params: ZernikeResponseParams) -> int:
 
         slm.display_data(flat, wait_time_s=0.5)
 
-    except Exception as e:
+    except Exception as e:  # policy: whole response-matrix calibration: device opens, the exposure ceiling's ValueError, SDK reads and per-mode WFS measurement; reporting [FAIL] and returning 1 is the documented degradation
         logger.exception("标定失败")
         click.echo(f"[FAIL] {type(e).__name__}: {e}")
         return 1
@@ -547,7 +547,7 @@ def main(params: ZernikeResponseParams) -> int:
         for dev in (wfs, slm):
             try:
                 dev.close()
-            except Exception:
+            except Exception:  # policy: teardown: every device gets its close attempt whatever it raises, because a half-closed WFS or SLM corrupts the next run
                 pass
 
     # ---------- 保存 ----------
