@@ -1451,120 +1451,6 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         recorder.append(_row0)
 
 
-        def _apply_best_on_exit() -> None:
-            """Leave the SLM at the best-found phase (or flat if never improved)."""
-            # Run-level scalar, deliberately an attribute on the Recorder and NOT a
-            # row column: ``Recorder.append`` unions per-epoch record keys, so a
-            # once-per-run summary would either never appear or appear on the last
-            # row only, and ``Recorder`` has no schema for run-level metadata. The
-            # single consumer reads it defensively as
-            # ``getattr(rec, "energy_loss_violations", 0)``.
-            recorder.energy_loss_violations = shaping.guard_violations
-            # R8: this runs from a ``finally``. Two consequences, both
-            # handled here rather than at the call site: raising would mask
-            # the exception that got us here, and the camera may already be
-            # dead (the commonest cause), so every device touch below is
-            # guarded and the last resort is a flat phase, never a random one.
-            try:
-                if not SLM_APPLY_BEST_ON_EXIT:
-                    return
-                improved = (
-                    best_objective > _initial_objective + IMPROVE_EPS
-                    if objective_mode == "max"
-                    else best_objective < _initial_objective - IMPROVE_EPS
-                )
-                if improved:
-                    best_phase = to_gray(
-                        zernike_to_phase(best_c, n_max, pattern_helper, zernike_radius, default_radius=ZERNIKE_APERTURE_RADIUS)
-                    )
-                    display_rotating(slm, best_phase, _SLOT_ROTATOR)
-                    time.sleep(SLM_RESPONSE_TIME_S)
-                    # Un-windowed (full-frame) before/after for the report: the metric
-                    # window hides the energy that leaves the box, so the illustrative
-                    # comparison must be captured on the raw sensor.
-                    try:
-                        # ``reset_window`` keeps the box centred on ``center`` and
-                        # rejects negative offsets, so the full sensor cannot be asked
-                        # for directly - use the largest box that still fits around the
-                        # centre (effectively un-windowed: ~96% of the frame here).
-                        _fw, _fh = int(full_frame_shape[1]), int(full_frame_shape[0])
-                        _raw_w = 2 * int(min(center_full[0], _fw - center_full[0]))
-                        _raw_h = 2 * int(min(center_full[1], _fh - center_full[1]))
-                        # Some SDK / pixel-format combinations cap the window (observed
-                        # ``Width.range=[4,1680,4]``) and then silently keep the old
-                        # window; shrink until the camera really returns a large frame.
-                        for _attempt in range(4):
-                            try:
-                                cam.reset_window(
-                                    cast(tuple[int, int], center_full), (_raw_w, _raw_h)
-                                )
-                            except (RuntimeError, ValueError) as exc:
-                                logger.warning(
-                                    "raw view {}x{} rejected by the camera: {}",
-                                    _raw_w,
-                                    _raw_h,
-                                    exc,
-                                )
-                            _probe = cam.get_numpy_image(CAM_SAMPLE_ITER)
-                            logger.info(
-                                "raw view {}x{} -> frame {}",
-                                _raw_w,
-                                _raw_h,
-                                _probe.shape,
-                            )
-                            if min(_probe.shape) >= 400:
-                                break
-                            _raw_w = max(400, _raw_w // 2)
-                            _raw_h = max(400, _raw_h // 2)
-                        display_rotating(slm, initial_phase, _SLOT_ROTATOR)
-                        time.sleep(SLM_RESPONSE_TIME_S)
-                        setattr(
-                            recorder,
-                            "raw_before_img",
-                            cam.get_numpy_image(config.n_eval_frames),
-                        )
-                        display_rotating(slm, best_phase, _SLOT_ROTATOR)
-                        time.sleep(SLM_RESPONSE_TIME_S)
-                        setattr(
-                            recorder,
-                            "raw_after_img",
-                            cam.get_numpy_image(config.n_eval_frames),
-                        )
-                        setattr(recorder, "raw_frame_shape", full_frame_shape)
-                    except (RuntimeError, ValueError) as exc:
-                        logger.warning("raw before/after capture failed: {}", exc)
-                    logger.info(
-                        "SLM left at best {} phase: {:.4f} @ epoch {} (initial {:.4f})",
-                        objective,
-                        best_objective,
-                        last_best_epoch,
-                        _initial_objective,
-                    )
-                else:
-                    slm.set_grayscale(0)
-                    logger.info(
-                        "No {} improvement over the initial phase ({:.4f}); "
-                        "SLM left at flat",
-                        objective,
-                        _initial_objective,
-                    )
-
-            # policy: exit cleanup has to reach a safe phase even on Ctrl-C -- masking the exception loses the diagnosis and an SLM left on a random phase damages the next run
-            except BaseException as _exit_exc:
-                # Never let cleanup raise: a masked exception loses the
-                # diagnosis, and an SLM left on a random phase damages the
-                # next run. Flat is always safe.
-                logger.error(
-                    "best-phase restore failed ({}: {}); forcing flat phase",
-                    type(_exit_exc).__name__,
-                    _exit_exc,
-                )
-                try:
-                    slm.set_grayscale(0)
-                    logger.warning("SLM forced to flat (gray 0) on cleanup failure")
-                # policy: last-resort safe state; if forcing flat also fails the honest outcome is to record that the SLM state is unknown, not to raise from cleanup
-                except Exception:  # last resort, cannot raise
-                    logger.error("could not force flat phase either; SLM state unknown")
 
 
         session = BenchSession(
@@ -2142,4 +2028,158 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
 )
             return recorder
         finally:
-            _apply_best_on_exit()
+            _apply_best_on_exit(
+                recorder=recorder,
+                shaping=shaping,
+                cam=cam,
+                config=config,
+                objective=objective,
+                objective_mode=objective_mode,
+                slm=slm,
+                pattern_helper=pattern_helper,
+                to_gray=to_gray,
+                n_max=n_max,
+                zernike_radius=zernike_radius,
+                center_full=center_full,
+                full_frame_shape=full_frame_shape,
+                initial_phase=initial_phase,
+                best_c=best_c,
+                best_objective=best_objective,
+                last_best_epoch=last_best_epoch,
+                _initial_objective=_initial_objective,
+            )
+
+def _apply_best_on_exit(
+    *,
+    recorder,
+    shaping,
+    cam,
+    config,
+    objective,
+    objective_mode,
+    slm,
+    pattern_helper,
+    to_gray,
+    n_max,
+    zernike_radius,
+    center_full,
+    full_frame_shape,
+    initial_phase,
+    best_c,
+    best_objective,
+    last_best_epoch,
+    _initial_objective,
+) -> None:
+    """Leave the SLM at the best-found phase (or flat if never improved)."""
+    # Run-level scalar, deliberately an attribute on the Recorder and NOT a
+    # row column: ``Recorder.append`` unions per-epoch record keys, so a
+    # once-per-run summary would either never appear or appear on the last
+    # row only, and ``Recorder`` has no schema for run-level metadata. The
+    # single consumer reads it defensively as
+    # ``getattr(rec, "energy_loss_violations", 0)``.
+    recorder.energy_loss_violations = shaping.guard_violations
+    # R8: this runs from a ``finally``. Two consequences, both
+    # handled here rather than at the call site: raising would mask
+    # the exception that got us here, and the camera may already be
+    # dead (the commonest cause), so every device touch below is
+    # guarded and the last resort is a flat phase, never a random one.
+    try:
+        if not SLM_APPLY_BEST_ON_EXIT:
+            return
+        improved = (
+            best_objective > _initial_objective + IMPROVE_EPS
+            if objective_mode == "max"
+            else best_objective < _initial_objective - IMPROVE_EPS
+        )
+        if improved:
+            best_phase = to_gray(
+                zernike_to_phase(best_c, n_max, pattern_helper, zernike_radius, default_radius=ZERNIKE_APERTURE_RADIUS)
+            )
+            display_rotating(slm, best_phase, _SLOT_ROTATOR)
+            time.sleep(SLM_RESPONSE_TIME_S)
+            # Un-windowed (full-frame) before/after for the report: the metric
+            # window hides the energy that leaves the box, so the illustrative
+            # comparison must be captured on the raw sensor.
+            try:
+                # ``reset_window`` keeps the box centred on ``center`` and
+                # rejects negative offsets, so the full sensor cannot be asked
+                # for directly - use the largest box that still fits around the
+                # centre (effectively un-windowed: ~96% of the frame here).
+                _fw, _fh = int(full_frame_shape[1]), int(full_frame_shape[0])
+                _raw_w = 2 * int(min(center_full[0], _fw - center_full[0]))
+                _raw_h = 2 * int(min(center_full[1], _fh - center_full[1]))
+                # Some SDK / pixel-format combinations cap the window (observed
+                # ``Width.range=[4,1680,4]``) and then silently keep the old
+                # window; shrink until the camera really returns a large frame.
+                for _attempt in range(4):
+                    try:
+                        cam.reset_window(
+                            cast(tuple[int, int], center_full), (_raw_w, _raw_h)
+                        )
+                    except (RuntimeError, ValueError) as exc:
+                        logger.warning(
+                            "raw view {}x{} rejected by the camera: {}",
+                            _raw_w,
+                            _raw_h,
+                            exc,
+                        )
+                    _probe = cam.get_numpy_image(CAM_SAMPLE_ITER)
+                    logger.info(
+                        "raw view {}x{} -> frame {}",
+                        _raw_w,
+                        _raw_h,
+                        _probe.shape,
+                    )
+                    if min(_probe.shape) >= 400:
+                        break
+                    _raw_w = max(400, _raw_w // 2)
+                    _raw_h = max(400, _raw_h // 2)
+                display_rotating(slm, initial_phase, _SLOT_ROTATOR)
+                time.sleep(SLM_RESPONSE_TIME_S)
+                setattr(
+                    recorder,
+                    "raw_before_img",
+                    cam.get_numpy_image(config.n_eval_frames),
+                )
+                display_rotating(slm, best_phase, _SLOT_ROTATOR)
+                time.sleep(SLM_RESPONSE_TIME_S)
+                setattr(
+                    recorder,
+                    "raw_after_img",
+                    cam.get_numpy_image(config.n_eval_frames),
+                )
+                setattr(recorder, "raw_frame_shape", full_frame_shape)
+            except (RuntimeError, ValueError) as exc:
+                logger.warning("raw before/after capture failed: {}", exc)
+            logger.info(
+                "SLM left at best {} phase: {:.4f} @ epoch {} (initial {:.4f})",
+                objective,
+                best_objective,
+                last_best_epoch,
+                _initial_objective,
+            )
+        else:
+            slm.set_grayscale(0)
+            logger.info(
+                "No {} improvement over the initial phase ({:.4f}); "
+                "SLM left at flat",
+                objective,
+                _initial_objective,
+            )
+
+    # policy: exit cleanup has to reach a safe phase even on Ctrl-C -- masking the exception loses the diagnosis and an SLM left on a random phase damages the next run
+    except BaseException as _exit_exc:
+        # Never let cleanup raise: a masked exception loses the
+        # diagnosis, and an SLM left on a random phase damages the
+        # next run. Flat is always safe.
+        logger.error(
+            "best-phase restore failed ({}: {}); forcing flat phase",
+            type(_exit_exc).__name__,
+            _exit_exc,
+        )
+        try:
+            slm.set_grayscale(0)
+            logger.warning("SLM forced to flat (gray 0) on cleanup failure")
+        # policy: last-resort safe state; if forcing flat also fails the honest outcome is to record that the SLM state is unknown, not to raise from cleanup
+        except Exception:  # last resort, cannot raise
+            logger.error("could not force flat phase either; SLM state unknown")
