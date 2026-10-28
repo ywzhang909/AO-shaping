@@ -31,7 +31,7 @@ description: "Knowledge base from the AO-shaping repo device manuals (docs/): Da
 | 大恒相机 | GenICam Feature 模型：`is_implemented` 探活后按 8 类访问；高速采集必须回调推送 | ch01 |
 | Santec SLM-200 | 启动/切模式/设波长/写 EEPROM 各约 40 秒（`ReadSU` 轮询）；128 内存槽"备货-上架"，显示中的槽不可覆盖 | ch02 |
 | MiiCam | `hr >= 0` 即成功（`S_FALSE` 也是）；回调线程内禁调 SDK（死锁）；改曝光必须 Stop-设置-Start | ch03 |
-| Thorlabs WFS | 0=成功/正=警告/负=抛错；先 `Calc*` 后 `Get*`；2D 数组一律 Y 主序 `MAX_SPOTS[::-1]`；pupil 必须 `optimize_pupil()` 写回 | ch04 |
+| Thorlabs WFS | 0=成功/正=警告/负=抛错；先 `Calc*` 后 `Get*`；2D 数组一律 Y 主序 `MAX_SPOTS[::-1]`；pupil（瞳面） 必须 `optimize_pupil()` 写回 | ch04 |
 | Micro-DM 1300 | 热路径零分配、无重连、drain 8ms 硬超时、gather 独立超时；26 控×50 通道，wiring map 做坐标换算 | ch05 |
 | 驱动层 | 灰度与弧度是两个口径不互通；仿真 WFS 数值必须标"未验证" | ch06 |
 
@@ -42,7 +42,7 @@ description: "Knowledge base from the AO-shaping repo device manuals (docs/): Da
 3. **CSV 单向**：SLM 灰度入（`load_gray_from_csv→csv_to_phase`）与弧度出（`save_phase_to_csv`）不互通，导出文件不能交回加载管线。
 4. **MiiCam `==0` 判成功**：`S_FALSE=0x1` 是"成功但无操作"，`hr >= 0` 才是唯一判据。
 5. **MiiCam 运行中改曝光不生效**：抓到旧曝光残帧（max 恒定、图像雷同）→ `Stop→put_ExpoTime→Start` + 丢 1-2 帧。
-6. **WFS 硬编码 pupil**：边界无效子孔径污染 `WFS_ZernikeLsf`，产生巨大假 tip/tilt（实测 |z|=4.6~12.8λ，正确 pupil 后 ≤0.22λ）；`optimize_pupil()` 只计算不写回，必须 `wfs.pupil = wfs.optimize_pupil()`。
+6. **WFS 硬编码 pupil（瞳面）**：边界无效子孔径污染 `WFS_ZernikeLsf`，产生巨大假 tip/tilt（实测 |z|=4.6~12.8λ，正确 pupil（瞳面） 后 ≤0.22λ）；`optimize_pupil()` 只计算不写回，必须 `wfs.pupil = wfs.optimize_pupil()`。
 7. **热路径每帧分配/重连**：触发 GC 毫秒级暂停或延迟不可预测 → 预分配 + LUT 查表 + 固定超时。
 8. **回调线程调 SDK**：MiiCam `Stop/Close/put_Option`、大恒重计算，都是死锁或 `E_WRONG_THREAD` 来源。
 
@@ -55,7 +55,7 @@ description: "Knowledge base from the AO-shaping repo device manuals (docs/): Da
 | [ch01](chapters/ch01-daheng-camera-sdk.md) | 大恒（Daheng/Galaxy）相机 SDK | GX 主流程、拉取/回调双模式、Feature 8 类、曝光融合 |
 | [ch02](chapters/ch02-santec-slm200.md) | Santec SLM-200（LCOS-SLM） | 40s 时序、内存槽/显示表、SLM_STATUS、SN 降级链、振幅耦合 |
 | [ch03](chapters/ch03-miicam.md) | MiiCam 相机（C SDK + ctypes） | HRESULT 黄金规则、双采集模式、回调线程禁区、曝光复位 |
-| [ch04](chapters/ch04-thorlabs-wfs.md) | Thorlabs WFS 波前传感器 | ctypes 绑定五约定、71 API×10 族前置链、WFS_STATUS、pupil 写回 |
+| [ch04](chapters/ch04-thorlabs-wfs.md) | Thorlabs WFS 波前传感器 | ctypes 绑定五约定、71 API×10 族前置链、WFS_STATUS、pupil（瞳面） 写回 |
 | [ch05](chapters/ch05-micro-dm.md) | Micro-DM 1300（R50Power 多控制器） | AO 热路径五原则、TCP 帧协议、wiring map、同步/异步双模式 |
 | [ch06](chapters/ch06-driver-layer.md) | 驱动层总览（drivers/ 统一抽象） | 注册表+工厂、统一接口、仿真 WFS 保真度红线、CSV 单向管道 |
 
@@ -66,7 +66,7 @@ description: "Knowledge base from the AO-shaping repo device manuals (docs/): Da
 - **HRESULT / S_FALSE / E_WRONG_THREAD** → ch03
 - **回调 / 回调线程 / 死锁** → ch01, ch03
 - **曝光 / 残帧 / Stop-Start 复位** → ch01, ch03
-- **pupil / 假 tip/tilt / ZernikeLsf** → ch04
+- **pupil（瞳面） / 假 tip/tilt / ZernikeLsf** → ch04
 - **Y 主序 / MAX_SPOTS / 数组布局** → ch04
 - **热路径 / 零 GC / drain 超时 / TCP_NODELAY** → ch05
 - **wiring map / 通道映射 / (x,y) 换算** → ch05

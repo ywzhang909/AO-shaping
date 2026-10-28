@@ -55,7 +55,7 @@
 | 返回值判定 | `0` 放行 / **正数记 warning 不抛** / 负数抛 `WfsError` |
 | 2D 数组绑定 | 一律 `MAX_SPOTS[::-1]` 保持 **Y 主序**；传 (80,80) 直序=整幅转置 |
 | `Get*` 返回空/垃圾 | 先查前置链：`Calc*` 是否先跑（`GetSpotDiameters` 要 `calcDias=1`；`CalcReconstrDeviations` 先于 `CalcWavefront`） |
-| Zernike 出现巨大假 tip/tilt（\|z\| 数 λ~10λ） | pupil 被硬编码污染 → `wfs.pupil = wfs.optimize_pupil()`（只计算不写回，必须显式赋值） |
+| Zernike 出现巨大假 tip/tilt（\|z\| 数 λ~10λ） | pupil（瞳面） 被硬编码污染 → `wfs.pupil = wfs.optimize_pupil()`（只计算不写回，必须显式赋值） |
 | `GetInstrumentListLen` 报错 | 传 `VI_NULL()`（`c_ulong()`），不是 `None` |
 | Highspeed 模式 | 只剩质心流；图像/波前/Zernike/直径全禁用 |
 | 光瞳过暗/过亮 | status bit PTL/PTH → 自动曝光循环调曝光/增益 |

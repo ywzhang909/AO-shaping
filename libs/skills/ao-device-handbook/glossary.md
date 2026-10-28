@@ -16,7 +16,7 @@
 **drain 硬超时** — Micro-DM 每控 8ms（`SEND_DRAIN_TIMEOUT`），超时标记丢帧不阻塞节拍（ch05）。
 **Feature 属性模型** — 大恒 GenICam 风格，8 类 Feature（Int/Float/Enum/Bool/String/Buffer/Command）按类型访问（ch01）。
 **full-voltage** — Micro-DM 全量单元 0V↔V 同时交替，用于老化/寿命验证（ch05）。
-**GS 预整形** — 高斯预矫正 + 自由相位 SPGD 细化的 SLM 整形入口（ch02 关联）。
+**GS 预整形** — 高斯预矫正 + 全频随机相位 SPGD 细化的 SLM 整形入口（ch02 关联）。
 **HMiicam** — MiiCam 相机句柄，`Miicam_Open` 返回，`Close` 后失效（ch03）。
 **HadamardDM** — Walsh-Hadamard 系数驱动的 DM/SLM 接口（ch06）。
 **Highspeed 模式** — WFS10/20 专用，仅质心流，图像/波前/Zernike 全禁用（ch04）。

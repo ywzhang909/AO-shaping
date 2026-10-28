@@ -12,7 +12,7 @@ WFS 是"状态位 + 调用顺序 + 数组布局"三套约定叠加的设备：�
   - How: 软件触发 `WFS_SW_TRIGGER` 下每帧 `TakeSpotfieldImage` → `CalcSpotsCentrDiaIntens(calcDias=1, calcIntens=1)`；`dynamicNoiseCut=True` 时 `SetBlackLevelOffset + CutImageNoiseFloor` 自适应；返回 `n_sample/mean/min/max/rms` 记录 dict。
 - **波前 + Zernike 链（get_wavefront / get_zernike）**
   - When to use: 需要波前图或 Noll 系数。
-  - How: `get_zernike(order)` 走 `WFS_ZernikeLsf`，前置 `CalcSpotToReferenceDeviations(0)`；**调用前必须 `wfs.pupil = wfs.optimize_pupil()`**（硬编码 pupil 会污染 LSF 拟合，实测假 tip/tilt |z|=4.6~12.8λ，修正后 ≤0.22λ，R²=0.9603）；orders 0=auto 或 2..10，系数数组 67 长（index 1..66，µm，RoC=coeff[5]）。`get_wavefront(cancel_tile=True)` 先扣 Noll 2/3 阶再返回。
+  - How: `get_zernike(order)` 走 `WFS_ZernikeLsf`，前置 `CalcSpotToReferenceDeviations(0)`；**调用前必须 `wfs.pupil = wfs.optimize_pupil()`**（硬编码 pupil（瞳面） 会污染 LSF 拟合，实测假 tip/tilt |z|=4.6~12.8λ，修正后 ≤0.22λ，R²=0.9603）；orders 0=auto 或 2..10，系数数组 67 长（index 1..66，µm，RoC=coeff[5]）。`get_wavefront(cancel_tile=True)` 先扣 Noll 2/3 阶再返回。
 - **WFS_STATUS 17 位位图**
   - When to use: 故障诊断。
   - How: `WFS_GetStatus` 返回位图，关键位：0x01 CON(连接)、0x02 PTH(光瞳过亮)、0x04 PTL(光瞳过暗→调曝光/增益)、0x10 SCL(光斑裁剪)、0x400 PUD(光瞳未定义)、0x8000 LOS(断连)。
@@ -34,7 +34,7 @@ WFS 是"状态位 + 调用顺序 + 数组布局"三套约定叠加的设备：�
 ## Anti-patterns
 - **2D 数组按 (X,Y) 传**：绑定必须 `MAX_SPOTS[::-1]` 保持 Y 主序，直传 (80,80) 直序会整幅转置。
 - **`Get*` 前不 `Calc*`**：`GetSpotIntensities` 不计算只取值、`GetSpotDiameters` 需 `calcDias=1`、`CalcReconstrDeviations` 必须先于 `CalcWavefront(1/2)`、`ZernikeLsf` 必须先于 `CalcFourierOptometric`（fourierOrder 仅 2/4/6）。
-- **硬编码 pupil（如 (0,0,8mm)）**：边界无效子孔径污染 `WFS_ZernikeLsf`，产生巨大假 tip/tilt；必须 `wfs.pupil = wfs.optimize_pupil()` 自动获取并**写回**（`optimize_pupil()` 只计算不写回，返回元组必须显式赋值）。
+- **硬编码 pupil（瞳面）（如 (0,0,8mm)）**：边界无效子孔径污染 `WFS_ZernikeLsf`，产生巨大假 tip/tilt；必须 `wfs.pupil = wfs.optimize_pupil()` 自动获取并**写回**（`optimize_pupil()` 只计算不写回，返回元组必须显式赋值）。
 - **`==0` 判成功**：正数警告会被当错误抛，或负数错误被当成功吞掉。
 - **`GetInstrumentListLen` 传 `None`**：必须 `VI_NULL()`。
 - **Highspeed 下调非质心函数**：图像/波前/Zernike 等均不可用，会报错。
@@ -91,7 +91,7 @@ def take_image(self, n_sample: int = 10, dynamicNoiseCut: bool = True) -> dict:
 1. 状态码三态：0 放行 / 正记录 / 负抛 `WfsError`，每次必查。
 2. 数组一律 Y 主序 `MAX_SPOTS[::-1]`。
 3. 先 Calc 后 Get，前置链不可跳。
-4. pupil 必须 `optimize_pupil()` 自动获取并写回，严禁硬编码。
+4. pupil（瞳面） 必须 `optimize_pupil()` 自动获取并写回，严禁硬编码。
 5. Highspeed 只剩质心流，其余函数禁用。
 6. RoC=Z[5]，Noll 约定与 `zernike_utils` 对齐。
 

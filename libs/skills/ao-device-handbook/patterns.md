@@ -49,7 +49,7 @@
 
 ## WFS 调用前置链
 **When to use**: 波前/Zernike 测量。
-**How**: `optimize_pupil 写回 → Calc* → Get*`，先算后取，pupil 必须自动获取。
+**How**: `optimize_pupil 写回 → Calc* → Get*`，先算后取，pupil（瞳面） 必须自动获取。
 **Trade-offs**: 步骤多；换来系数/波前正确（避免假 tip/tilt）。
 
 ## HRESULT 三态判定
