@@ -362,7 +362,7 @@ def main() -> int:
             _log(f"summary: {out_dir / 'summary.json'}")
             _log("=" * 70)
             return 0
-    except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
+    except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
         _log(f"失败: {type(exc).__name__}: {exc}")
         meta["status"] = "failed"
         meta["error"] = f"{type(exc).__name__}: {exc}"
@@ -374,13 +374,13 @@ def main() -> int:
             if cam is not None:
                 cam.close()
                 _log("CCD 已关闭")
-        except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
+        except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
             _log(f"CCD 关闭异常: {exc}")
         try:
             if opened_slm:
                 slm.close()
                 _log("SLM 已关闭")
-        except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
+        except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
             _log(f"SLM 关闭异常: {exc}")
 
 

@@ -393,7 +393,7 @@ def main(params: DiagnoseParams) -> None:
             )
     except SystemExit:
         raise
-    except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
+    except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
         logger.exception("SLM self-check failed")
         raise
     finally:
@@ -405,7 +405,7 @@ def main(params: DiagnoseParams) -> None:
         if slm is not None:
             try:
                 slm.close()
-            except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
+            except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
                 pass
 
     # ── 汇总 ──

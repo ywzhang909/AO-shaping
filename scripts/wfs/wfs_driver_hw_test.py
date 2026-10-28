@@ -35,7 +35,7 @@ def main() -> None:
         logger.info(f"[PASS] open(): state={wfs._state}, handle={wfs._instrument_handle.value}")
         logger.info(f"  mla_index={wfs.mla_index}, exp={wfs._explosure_time}, gain={wfs._gain}")
         logger.info(f"  pupil=({wfs.c_x},{wfs.c_y},{wfs.d_x},{wfs.d_y})")
-    except Exception as e:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
+    except Exception as e:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
         logger.info(f"[FAIL] open(): {type(e).__name__}: {e}")
         traceback.print_exc(limit=3)
         return

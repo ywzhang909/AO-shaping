@@ -38,7 +38,7 @@ def main():
     try:
         wfs.take_image()
         logger.info("[PASS] take_image succeeded")
-    except Exception as e:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
+    except Exception as e:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
         logger.info(f"[FAIL] take_image: {e}")
         wfs.close()
         return
@@ -64,7 +64,7 @@ def main():
             logger.info(f"[PASS] GetSpotfieldImageCopy: shape={img.shape}, "
                   f"dtype={img.dtype}, min={img.min()}, max={img.max()}, "
                   f"mean={img.mean():.1f}, nonzero={np.count_nonzero(img)}")
-    except Exception as e:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
+    except Exception as e:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
         logger.info(f"[FAIL] GetSpotfieldImageCopy: {e}")
 
     # ── Test 4: OLD GetSpotfieldImage (unbound, original usage) ──
@@ -88,7 +88,7 @@ def main():
                   f"reported_rows={actual_rows}, reported_cols={actual_cols}, "
                   f"min={old_buf.min()}, max={old_buf.max()}, "
                   f"mean={old_buf.mean():.1f}, nonzero={np.count_nonzero(old_buf)}")
-    except Exception as e:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
+    except Exception as e:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
         logger.info(f"[FAIL] GetSpotfieldImage: {type(e).__name__}: {e}")
 
     # ── Test 5: Compare both results ──
@@ -128,7 +128,7 @@ def main():
         else:
             logger.info("  [SKIP] NEW image too small for overlap comparison")
 
-    except Exception as e:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
+    except Exception as e:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
         logger.info(f"[FAIL] Comparison: {e}")
 
     # ── Test 6: handle_error with WfsError ──
@@ -139,7 +139,7 @@ def main():
         logger.info("[FAIL] Should have raised WfsError")
     except WfsError as e:
         logger.info(f"[PASS] WfsError raised: {e}")
-    except Exception as e:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
+    except Exception as e:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
         logger.info(f"[FAIL] Wrong exception type: {type(e).__name__}: {e}")
 
     # ── Cleanup ──
