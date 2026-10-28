@@ -308,6 +308,54 @@ def test_save_dataset_writes_the_historical_npz_keys(tmp_path, monkeypatch):
     assert json.loads((tmp_path / "capture/config.json").read_text())["save_dataset"] is True
 
 
+def test_capture_writes_done_marker_with_early_stopped_false(tmp_path, monkeypatch):
+    """A completed capture records its own end so a parallel worker can tell."""
+    from ao_shaping.tools.slm.transfer import capture
+
+    _patch_capture_devices(monkeypatch)
+    _one_probe(monkeypatch)
+
+    capture.capture(_capture_args(tmp_path))
+
+    done = tmp_path / "capture" / ".capture_done"
+    assert done.is_file()
+    marker = json.loads(done.read_text(encoding="utf-8"))
+    assert marker["early_stopped"] is False
+    assert marker["probes"] == 1
+    assert "timestamp_utc" in marker and "monotonic_ns" in marker
+
+
+def test_capture_stops_when_acquisition_requested(tmp_path, monkeypatch):
+    """A parallel-fit worker can ask capture to stop early via a marker file."""
+    from ao_shaping.tools.slm.transfer import capture as capture_module
+
+    _patch_capture_devices(monkeypatch)
+    out = tmp_path / "capture"
+
+    def stopping_probes(*a):
+        states = [
+            ("reference_start", "calibration", np.zeros((8, 8), np.float32)),
+            ("train_0", "train", np.zeros((8, 8), np.float32)),
+            ("train_1", "train", np.zeros((8, 8), np.float32)),
+        ]
+        for index, state in enumerate(states):
+            if index == 1:
+                (out / "stop_acquisition.request").write_text("{}")
+            yield state
+
+    monkeypatch.setattr(capture_module, "probes", stopping_probes)
+
+    capture_module.capture(_capture_args(tmp_path, save_dataset=True))
+
+    done = out / ".capture_done"
+    assert done.is_file()
+    marker = json.loads(done.read_text(encoding="utf-8"))
+    assert marker["early_stopped"] is True
+    assert marker["probes"] == 1  # only the first probe was recorded
+    assert len(json.loads((out / "manifest.json").read_text())) == 1
+    assert (out / "stop_acquisition.request").is_file()
+
+
 def test_capture_arms_exposure_with_one_correction_and_a_wide_bound(tmp_path, monkeypatch):
     """One exact correction + one verification read, with a bound that reaches ×9."""
     from ao_shaping.tools.slm.transfer import capture

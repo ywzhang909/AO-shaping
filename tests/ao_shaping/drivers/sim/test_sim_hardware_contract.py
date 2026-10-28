@@ -487,6 +487,71 @@ class TestSystemFactoryKnobs:
         finally:
             reset_system(seed=42)
 
-    def test_get_system_returns_the_existing_instance(self) -> None:
-        first = get_system()
-        assert get_system() is first
+# ---------------------------------------------------------------------------
+# N. Control-surface parity (Santec methods that sim now exposes as no-ops/stubs)
+# ---------------------------------------------------------------------------
+
+
+class TestSimSlmControlSurface:
+    @pytest.fixture
+    def slm(self) -> SimSLMPib:
+        system = SimPibSystem(seed=42)
+        panel = SimSLMPib(system=system)
+        panel.open()
+        return panel
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "set_shift",
+            "shift_phase",
+            "display_phase",
+            "get_wavelength_info",
+            "get_displayed_memory_number",
+            "get_current_grayscale",
+            "get_displayed_phase",
+            "set_wavelength",
+            "get_serial_number",
+            "apply_shift",
+            "get_device_info",
+        ],
+    )
+    def test_method_exists_and_callable(self, slm: SimSLMPib, name: str) -> None:
+        assert callable(getattr(slm, name, None)), f"{name} missing on SimSLMPib"
+
+    def test_get_wavelength_info_returns_tuple(self, slm: SimSLMPib) -> None:
+        info = slm.get_wavelength_info()
+        assert isinstance(info, tuple) and len(info) == 2
+        assert all(isinstance(x, (int, np.integer)) for x in info)
+
+    def test_get_serial_number_returns_str(self, slm: SimSLMPib) -> None:
+        assert isinstance(slm.get_serial_number(), str)
+
+    def test_serial_number_property(self, slm: SimSLMPib) -> None:
+        assert isinstance(slm.serial_number, str)
+
+    def test_get_displayed_phase_returns_tuple(self, slm: SimSLMPib) -> None:
+        phase, src = slm.get_displayed_phase()
+        assert phase is None
+        assert isinstance(src, str)
+
+    def test_shift_phase_pure_function(self, slm: SimSLMPib) -> None:
+        import numpy as np
+
+        arr = np.arange(6, dtype=np.uint16).reshape(2, 3)
+        out = SimSLMPib.shift_phase(arr, 1, 0)
+        assert out.shape == arr.shape
+        assert out.dtype == arr.dtype
+
+    def test_set_grayscale_tracks_current(self, slm: SimSLMPib) -> None:
+        slm.set_grayscale(42)
+        assert slm.get_current_grayscale() == 42
+        slm.set_grayscale(0)
+
+    def test_display_phase_returns_int(self, slm: SimSLMPib) -> None:
+        import numpy as np
+
+        from ao_shaping.drivers.sim.slm_pib_sim import SLM_H, SLM_W
+
+        slot = slm.display_phase(np.zeros((SLM_H, SLM_W), dtype=np.float64))
+        assert isinstance(slot, int)

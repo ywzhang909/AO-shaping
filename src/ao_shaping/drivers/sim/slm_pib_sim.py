@@ -1070,6 +1070,16 @@ class SimSLMPib:
         self.last_phase_rad: np.ndarray | None = None
         # 叠加层合成**之后**真正上屏的相位 (= 命令 + 叠加)。
         self.last_applied_phase_rad: np.ndarray | None = None
+        # --- 与硬件 Santec 对齐的控制面状态 (sim 为数字孪生, 部分字段为占位) ---
+        self._current_gray: int = 0
+        self._shift_x: int = int(kwargs.pop("shift_x", 0) or 0)
+        self._shift_y: int = int(kwargs.pop("shift_y", 0) or 0)
+        self._wavelength: float = float(
+            kwargs.pop("wavelength", kwargs.pop("wavelength_nm", None))
+            or getattr(self.system, "wavelength_nm", 1064.0)
+        )
+        self._slm_number: int = int(kwargs.pop("slm_number", 1) or 1)
+        self._displayed_memory_number: int | None = None
 
     @classmethod
     def from_params(cls, params: Any, **overrides: Any) -> "SimSLMPib":
@@ -1250,10 +1260,99 @@ class SimSLMPib:
     def set_grayscale(self, gray: int | np.ndarray) -> None:
         """设置均匀灰度 (退出时用来把面板涂黑)。"""
         if isinstance(gray, (int, float)):
+            self._current_gray = int(gray)
             arr = np.full((self.system.slm_h, self.system.slm_w), int(gray), dtype=np.uint16)
         else:
             arr = np.asarray(gray, dtype=np.uint16)
+            if arr.size == 1:
+                self._current_gray = int(arr.flat[0])
         self.system.set_gray(arr)
+
+
+    # --- 与硬件 Santec 对齐的控制面 (sim 为数字孪生, 部分字段为占位/默认) ---
+    def set_shift(self, shift_x: int, shift_y: int) -> None:
+        """记录平移参数 (sim 不做物理平移, 仅保存以保持接口一致)。"""
+        self._shift_x = int(shift_x)
+        self._shift_y = int(shift_y)
+
+    @property
+    def shift_x(self) -> int:
+        return self._shift_x
+
+    @property
+    def shift_y(self) -> int:
+        return self._shift_y
+
+    @staticmethod
+    def shift_phase(phase, shift_x: int, shift_y: int):
+        """纯函数: 对相位图施加 X/Y 平移, 空白区域填 0 (与 Santec 一致)。"""
+        import scipy.ndimage as ndimage
+
+        phase = np.asarray(phase)
+        if int(shift_x) == 0 and int(shift_y) == 0:
+            return phase
+        shifted = ndimage.shift(
+            phase,
+            shift=(int(shift_y), int(shift_x)),
+            order=0,
+            mode="constant",
+            cval=0,
+        )
+        return shifted.astype(phase.dtype)
+
+    def display_phase(
+        self,
+        phase_rad,
+        wait_time_s=None,
+        memory_number=None,
+        memory_mode=1,
+    ) -> int:
+        """显示弧度制相位 (便捷封装: 弧度→灰度→display_data), 对齐 Santec。"""
+        phase_gray = self.create_phase_from_array(np.asarray(phase_rad, dtype=np.float64))
+        return int(self.display_data(phase_gray, wait_time_s if wait_time_s is not None else 0.0))
+
+    def get_wavelength_info(self) -> tuple[int, int]:
+        """返回 (波长 nm, 2π 对应灰度)。"""
+        return (int(self._wavelength), int(getattr(self.system, "two_pi_gray", 993)))
+
+    def get_displayed_memory_number(self) -> int | None:
+        """sim 无内存槽概念, 返回 None。"""
+        return self._displayed_memory_number
+
+    def get_current_grayscale(self) -> int:
+        """返回最近一次 set_grayscale 的值。"""
+        return int(self._current_gray)
+
+    def get_displayed_phase(self):
+        """sim 不缓存整幅相位, 返回 (None, 说明)。"""
+        return (None, "sim: 无相位缓存 (数字孪生)")
+
+    def set_wavelength(self, wavelength: int, save_to_device: bool = True) -> None:
+        """sim 波长由系统固定, 此处仅记录。"""
+        self._wavelength = float(wavelength)
+
+    def get_serial_number(self, timeout: float = 0.0):
+        """返回仿真设备标识。"""
+        return "SIM"
+
+    @property
+    def serial_number(self) -> str:
+        return "SIM"
+
+    def apply_shift(
+        self,
+        shift_x: int,
+        shift_y: int,
+        *,
+        wait_time_s: float = 0.3,
+        save_config: bool = True,
+    ):
+        """sim 不做物理平移, 仅更新参数并返回 None。"""
+        self.set_shift(shift_x, shift_y)
+        return None
+
+    def get_device_info(self) -> dict:
+        return {"manufacturer": "Simulation", "model": "SimSLMPib", "serial": "SIM"}
 
 
 class SimPibCCD(BaseCamera):

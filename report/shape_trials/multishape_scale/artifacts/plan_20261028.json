@@ -1,0 +1,262 @@
+{
+  "status": "planned_not_executed",
+  "date": "2026-10-28",
+  "source_plan": "report/shape_trials/no_gs_ccd_moved/next_matrix_20261027.json",
+  "source_analysis": "report/shape_trials/no_gs_ccd_moved/analysis_20261027.md",
+  "runner": "slm-transfer-shapes (src/ao_shaping/runners/slm/transfer_shapes_runner.py)",
+  "device": {
+    "slm": "Santec #1, serial 22030108, product 240236000005, LCOS KB1881T050",
+    "slm_dll": "0250 / Drive 0322 / Option 0321 / FPGA 0110",
+    "wavelength_nm": 1064,
+    "phase_table_2pi_gray": 993,
+    "ccd": "Daheng, SN FJB24112232, 2592x1944",
+    "ccd_exposure_range_ms": [
+      0.02,
+      1000.0
+    ],
+    "wfs": "not connected",
+    "dm": "not connected",
+    "miicam": "not connected"
+  },
+  "shapes": [
+    "square",
+    "triangle",
+    "star",
+    "circle"
+  ],
+  "sizes_native_ccd_px": [
+    1200,
+    600,
+    200
+  ],
+  "size_semantics": "square/triangle/star use canonical target_at side; circle uses side as diameter; record the actual support bounding box and area per cell",
+  "carrier": {
+    "period_panel_px": 48.0,
+    "single_period_for_all_sizes": true,
+    "shift_ccd_px_estimate": [
+      11.74,
+      -201.7
+    ],
+    "ramp_matrix_source": "data/debug/slm_transfer/no_gs_ccd_moved_20261027_2106/model640/frozen_parameters.json",
+    "ramp_matrix": [
+      [
+        563.6394548272365,
+        7349.231128302446
+      ],
+      [
+        -9681.518760958033,
+        -141.60028985448176
+      ]
+    ],
+    "measured_range_panel_px": {
+      "model640": [
+        64,
+        128
+      ],
+      "model_wide640": [
+        16,
+        32
+      ]
+    },
+    "rationale": "period 48 is within 1.5x of both models' measured ramp ranges, so neither extrapolates hard; order separation 403 px vs 151 px in the 2026-10-27 round; the fresh capture refits both models on the current path",
+    "placement_check": {
+      "probe": "data/debug/slm_transfer/carrier_probe_20261028/carrier_probe.json",
+      "x_ramp_measured_px": [
+        9.7,
+        -188.5
+      ],
+      "x_ramp_predicted_px": [
+        11.74,
+        -201.7
+      ],
+      "y_ramp_measured_px": [
+        154.7,
+        -38.3
+      ],
+      "y_ramp_predicted_px": [
+        153.11,
+        -2.95
+      ],
+      "note": "dominant terms agree to 0.7% / 6.5%; cross terms differ by 2 px and 35 px absolute; the session refits on the current path"
+    }
+  },
+  "cells": [
+    {
+      "side": 1200,
+      "window_span": 900.0,
+      "zero_radius": 60.0,
+      "target_box_x": [
+        706.5,
+        1906.5
+      ],
+      "target_box_y": [
+        180.7,
+        1380.7
+      ],
+      "window_x": [
+        394.8,
+        2194.8
+      ],
+      "window_y": [
+        82.4,
+        1882.4
+      ],
+      "margin_target_to_window_px": 98.3,
+      "margin_window_to_sensor_px": 82.4,
+      "zero_order_inside_target_box": true,
+      "core_area_removed_pct": 0.79
+    },
+    {
+      "side": 600,
+      "window_span": 620.0,
+      "zero_radius": 60.0,
+      "target_box_x": [
+        1006.5,
+        1606.5
+      ],
+      "target_box_y": [
+        480.7,
+        1080.7
+      ],
+      "window_x": [
+        674.8,
+        1914.8
+      ],
+      "window_y": [
+        362.4,
+        1602.4
+      ],
+      "margin_target_to_window_px": 118.3,
+      "margin_window_to_sensor_px": 362.4,
+      "zero_order_inside_target_box": true,
+      "core_area_removed_pct": 3.145
+    },
+    {
+      "side": 200,
+      "window_span": 420.0,
+      "zero_radius": 60.0,
+      "target_box_x": [
+        1206.5,
+        1406.5
+      ],
+      "target_box_y": [
+        680.7,
+        880.7
+      ],
+      "window_x": [
+        874.8,
+        1714.8
+      ],
+      "window_y": [
+        562.4,
+        1402.4
+      ],
+      "margin_target_to_window_px": 118.3,
+      "margin_window_to_sensor_px": 562.4,
+      "zero_order_inside_target_box": false,
+      "zero_order_clearance_px": 41.7,
+      "core_area_removed_pct": 0.0
+    }
+  ],
+  "exposure": {
+    "adaptive_during_shaping": true,
+    "ceiling_ms": 1000.0,
+    "replay_ladder_ms": [
+      15.0,
+      60.0,
+      150.0,
+      300.0
+    ],
+    "replay_ladder_rationale": "the 2026-10-27 round settled at 431-716 ms with peak 4095 on every recorded frame (saturated); a 300 ms ceiling stays below that measured saturation point while spanning 20x down to a bias-dominated point",
+    "saturation_evidence": {
+      "flat_phase_zero_order_8bit": {
+        "2ms": 36.7,
+        "5ms": 89.7,
+        "12ms": 210.0
+      },
+      "carrier_spot_8bit_saturation_ms": 25.0,
+      "prior_round_recorded_exposures_ms": [
+        431.603,
+        436.201,
+        716.461
+      ],
+      "prior_round_recorded_peak": 4095.0
+    }
+  },
+  "sessions": [
+    {
+      "name": "s1200",
+      "out": "data/debug/slm_transfer/multishape_scale_20261028/s1200",
+      "side": 1200.0,
+      "window_span": 900.0,
+      "model": "fresh (capture 12 probes at grid 384, fit 150 iterations, then geometry_wide at grid 640)",
+      "purpose": "train the physical model on the current path and shape the four largest targets"
+    },
+    {
+      "name": "s600",
+      "out": "data/debug/slm_transfer/multishape_scale_20261028/s600",
+      "side": 600.0,
+      "window_span": 620.0,
+      "model": "reuse s1200 (--model-dir), including model640 and model_wide640",
+      "purpose": "same model, same carrier, smaller target"
+    },
+    {
+      "name": "s200",
+      "out": "data/debug/slm_transfer/multishape_scale_20261028/s200",
+      "side": 200.0,
+      "window_span": 420.0,
+      "model": "reuse s1200",
+      "purpose": "same model, same carrier, smallest target"
+    }
+  ],
+  "reference_probe": {
+    "out": "data/debug/slm_transfer/multishape_scale_20261028/zero_ref",
+    "when": "before s1200, between s1200/s600 and between s600/s200",
+    "what": "plane phase at 5 and 12 ms, 8-bit, zero-order centroid and peak",
+    "why": "the model and zero_xy are reused across sessions, so bench drift between sessions must be measured rather than assumed"
+  },
+  "criteria": {
+    "geometry": "every target box fully inside the camera window and the window inside the sensor, else the runner raises (validate.py:114, :229); no silent crop or rescale",
+    "saturation": "a cell is rejected if its core peak reaches 250/255 of full scale during shaping (validate.py:254); each replay point is audited on raw_frames.max() and dropped if saturated",
+    "exposure_bias": "at least three unsaturated replay points, and the lowest point must be within a factor 3 of the estimated additive bias so the bias is identifiable",
+    "stage_acceptance": "stages 2-4 accept on core CV only; a stage that does not improve keeps the previous phase",
+    "comparability": "identical carrier period, zero_radius, stage recipes and target semantics across the three sizes; only side and window_span vary",
+    "failure_is_a_result": "a cell whose target leaves the sensor, whose core saturates, or whose stage CV does not improve is reported as such, not dropped"
+  },
+  "directories": {
+    "data_root": "data/debug/slm_transfer/multishape_scale_20261028",
+    "report_dir": "report/shape_trials/multishape_scale_20261028",
+    "reports": [
+      "planning_20261028.md",
+      "live_20261028.md",
+      "analysis_20261028.md"
+    ]
+  },
+  "time_budget_min": {
+    "s1200": 85,
+    "s600": 55,
+    "s200": 45,
+    "total": 185
+  },
+  "deferred": [
+    "seed replication (three probe-family seeds) on the full matrix; this round uses one seed and documents the limitation",
+    "interleaving shapes across sizes; the runner fixes one side per invocation, so sizes run as three consecutive sessions",
+    "GS initial phase (gs_calls_allowed = 0 in the source plan); the bake-off is limited to transport / backprojection",
+    "WFS and DM channels (devices not connected)"
+  ],
+  "required_records": [
+    "raw_frames",
+    "panel_phase",
+    "panel_gray",
+    "camera_xy",
+    "target",
+    "core",
+    "zero_order_exclusion",
+    "exposure_readback_ms",
+    "effective_bit_depth",
+    "full_scale",
+    "utc_start_end",
+    "monotonic_ns_start_end",
+    "geometry_matrix"
+  ]
+}

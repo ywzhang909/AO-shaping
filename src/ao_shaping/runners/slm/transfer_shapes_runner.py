@@ -205,8 +205,12 @@ def _rebuild_records(out: Path, shapes: list[str]) -> None:
               help="初相位构造; auto = 正方形用非 GS 传输, 其余用非 GS 反投影")
 @click.option("--seed-bakeoff/--no-seed-bakeoff", default=True, show_default=True,
               help="先实测各候选初相位的核心 CV, 逐形状择优 (对比择优)")
+@click.option("--gs-seed/--no-gs-seed", default=True, show_default=True,
+              help="对比择优是否允许 GS 初相位候选; 无 GS 冷启动方案须用 --no-gs-seed")
 @click.option("--replay-exposures", type=float, multiple=True, default=(50.0, 100.0),
               show_default=True, help="共同重放的曝光 (ms); 可多次指定")
+@click.option("--record-responses/--no-record-responses", default=False, show_default=True,
+              help="拟合时记录逐批物理响应统计 (fit --record-responses), 写入 fit/")
 @click.option("--model-dir", type=click.Path(path_type=Path), default=None,
               help="复用已有会话目录 (含 capture/ 与 fit/), 跳过模型采集与拟合")
 @click.option("--records-only", is_flag=True,
@@ -216,7 +220,9 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         window_step: float, zero_radius: float, capture_grid: int, capture_count: int,
         fit_iterations: int, fit_span: int, amplitude_center_lr: float, control_grid: int,
         fft_size: int, frames: int, seed: int, camera: str, cam_id: int, slm_number: int,
-        device: str, initial_phase: str, seed_bakeoff: bool, replay_exposures: tuple[float, ...],
+        device: str, initial_phase: str, seed_bakeoff: bool, gs_seed: bool,
+        replay_exposures: tuple[float, ...],
+        record_responses: bool,
         model_dir: Path | None, records_only: bool, execute: bool) -> None:
     """物理预测模型闭环整形：从零训练模型 + 目标整形，逐形状执行。
 
@@ -236,7 +242,9 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
                 window_span=window_span, window_step=window_step, zero_radius=zero_radius,
                 capture_grid=capture_grid, capture_count=capture_count,
                 fit_iterations=fit_iterations, control_grid=control_grid, fft_size=fft_size,
-                initial_phase=initial_phase, seed_bakeoff=seed_bakeoff, execute=execute,
+                initial_phase=initial_phase, seed_bakeoff=seed_bakeoff, gs_seed=gs_seed,
+                execute=execute,
+                record_responses=record_responses,
                 stages=[dict(name=recipe.name, blocks=recipe.blocks, updates=recipe.updates,
                              bit_depth=recipe.bit_depth, ccd_check=recipe.ccd_check,
                              window_step=recipe.window_step) for recipe in STAGE_RECIPES])
@@ -283,10 +291,12 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         fit_stage.fit(SimpleNamespace(
             dataset=capture_dir, checkpoint=nominal / "frozen_parameters.json",
             out=fit_dir, iterations=fit_iterations, span=fit_span, device=device,
-            adaptation="full", amplitude_center_lr=amplitude_center_lr, radiometry="exposure"))
+            adaptation="full", amplitude_center_lr=amplitude_center_lr, radiometry="exposure",
+            record_responses=record_responses))
         journal.record("fit", "complete", out=str(fit_dir))
 
         model_640 = root / "model640"
+        wide_dir = root / "model_wide640"
         geometric_seed.export_frozen_parameters(fit_dir / "frozen_parameters.json", model_640,
                                                 grid=control_grid, fft=fft_size)
         journal.record("model", "complete", model640=str(model_640))
@@ -324,6 +334,15 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         for shape in shapes:
             candidates = ["transport", "backprojection", "gs"] if shape == "square" \
                 else ["backprojection", "gs"]
+            if not gs_seed:
+                candidates = [kind for kind in candidates if kind != "gs"]
+            if len(candidates) == 1:
+                # 单一候选无需实测比较, 直接采用 (仍写入 journal 以便溯源)。
+                chosen[shape] = candidates[0]
+                journal.record("seed_bakeoff", "skipped", shape=shape, candidates=candidates,
+                               chosen=candidates[0], reason="single candidate")
+                logger.info("seed bake-off {}: single candidate -> {}", shape, candidates[0])
+                continue
             scores: dict[str, float] = {}
             for kind in candidates:
                 bake_dir = out / "seed_bakeoff" / f"{shape}_{kind}"

@@ -1,0 +1,91 @@
+{
+  "utc_start": "2026-10-28T01:48:57",
+  "monotonic_ns_start": 385200727597000,
+  "slm": {
+    "device_info": {
+      "driveboard_id": "22030108",
+      "serial_source": "driveboard",
+      "identity_id": "22030108",
+      "optionboard_id": "23020027",
+      "product_serial": "240236000005",
+      "lcos_serial": "KB1881T050",
+      "display_name": "LCOS-SLM-001",
+      "version": "DLL:0250,Drive:0322,Option:0321,FPGA:0110"
+    },
+    "wavelength_info": [
+      532,
+      1017
+    ],
+    "serial_number": "22030108",
+    "display_name": "LCOS-SLM-001",
+    "current_grayscale": 256,
+    "flat_displayed": true,
+    "flat_restored": true
+  },
+  "ccd": {
+    "sn": "FJB24112232",
+    "exposure_range_ms": [
+      0.02,
+      1000.0
+    ],
+    "initial_exposure_ms": 0.02,
+    "frames": [
+      {
+        "requested_exposure_ms": 2.0,
+        "readback_exposure_ms": 2.0,
+        "shape": [
+          1944,
+          2592
+        ],
+        "dtype": "float32",
+        "peak": 36.66666793823242,
+        "mean": 0.4816849760793511,
+        "p99.9": 12.666666984558105,
+        "peak_pixel_xy": [
+          1303,
+          971
+        ],
+        "at_peak_fraction": 7.938322410201696e-07,
+        "total_counts": 2427137.3783474863
+      },
+      {
+        "requested_exposure_ms": 5.0,
+        "readback_exposure_ms": 5.0,
+        "shape": [
+          1944,
+          2592
+        ],
+        "dtype": "float32",
+        "peak": 89.66666412353516,
+        "mean": 0.688980175588775,
+        "p99.9": 31.0,
+        "peak_pixel_xy": [
+          1303,
+          971
+        ],
+        "at_peak_fraction": 3.969161205100848e-07,
+        "total_counts": 3471666.3798051476
+      },
+      {
+        "requested_exposure_ms": 12.0,
+        "readback_exposure_ms": 12.0,
+        "shape": [
+          1944,
+          2592
+        ],
+        "dtype": "float32",
+        "peak": 210.0,
+        "mean": 1.0590953272205132,
+        "p99.9": 73.33333587646484,
+        "peak_pixel_xy": [
+          1303,
+          973
+        ],
+        "at_peak_fraction": 1.984580602550424e-07,
+        "total_counts": 5336620.371374428
+      }
+    ]
+  },
+  "utc_end": "2026-10-28T01:49:04",
+  "monotonic_ns_end": 385207183926200
+}

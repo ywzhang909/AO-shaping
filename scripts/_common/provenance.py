@@ -1045,6 +1045,82 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/utils/image/model_response.py",
         ),
     ),
+    "report/shape_trials/multishape_scale/multishape_scale_planning_20261028.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线规划（设备已预检；实验开始后于 2026-10-28 追加 H3 勘误与 --no-gs-seed 旗标说明）",
+        note=(
+            "四形状 × 三尺度（200/600/1200 原生 CCD px）同载波矩阵的实验方案："
+            "几何落点、曝光阶梯、通过/拒绝标准与数据目录；不含优化结论。"
+            "2026-10-28 拟合后追加勘误：实测载波位移 (14.76, −129.70)，"
+            "200 格零级不再与目标分离（排除区与目标重叠 5.61%）。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+            "src/ao_shaping/tools/slm/transfer/capture.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/replay_phases.py",
+        ),
+    ),
+    "report/shape_trials/multishape_scale/multishape_scale_live_20261028.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件（Santec #1 SLM + Daheng CCD；WFS / NLight DM / MIICAM 未连接）",
+        note=(
+            "多形状 × 三尺度同载波闭环整形：实验中记录（2026-10-28）。"
+            "Session A（1200 原生 px）的 16 个形状×阶段（square/triangle/star/circle 各 4 段）"
+            "全部完成，共 112 个验收块（28 块/形状；journal 16 条 ``complete``、无 error/failed）；"
+            "records 已导出（process.csv 179,587 B / process.h5 428,279,000 B / 336 个 sidecar）；"
+            "common_replay 完成，common_replay_dense 仍在写盘、本次未消费；s600 / s200 跨尺度未开始。"
+            "一次早期 relaunch 在 square/transport_cv 触发饱和守卫而中止，原完成数据未受损。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+            "src/ao_shaping/tools/slm/transfer/capture.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/replay_phases.py",
+            "scripts/slm/generate_multishape_scale_live_figures.py",
+        ),
+    ),
+    "report/shape_trials/multishape_scale/multishape_scale_analysis_20261028.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线分析（读取 Session A 运行目录的 stage 子目录、common_replay*/ 重放 npz 与 manifest；不连接设备）",
+        note=(
+            "多形状 × 三尺度同载波闭环整形：实验后分析（2026-10-28）。"
+            "三层证据收口（模型验证集 / 逐块 CV / 重放饱和审计）；"
+            "新增第（e）条硬约束——CV 随曝光单调上升并饱和、跨曝光档 CV 不可比；"
+            "给出目标对照、实验差距（G1–G6）与下一步方案（N1–N6，含具体命令），"
+            "并检索 Zotero 文库给出候选改进方法的文献依据（Mastiani 2024 / Cho 2026 GRAPHYCS / Chromatix 2026 等）。"
+            "common_replay 的 90 ms 块末 4 条失效记录由 common_replay_r2 洁净重测覆盖。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/replay_phases.py",
+            "scripts/slm/generate_multishape_scale_live_figures.py",
+        ),
+    ),
+    "report/shape_trials/multishape_scale/multishape_scale_wallclock_20261028.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线分析（读取 Session A/B 运行目录与光路探针落盘；光路复核为实验系统实测探针；修复的硬件收益在 s600_fixed 会话实测中）",
+        note=(
+            "多形状 × 三尺度闭环整形 campaign 的耗时剖析与写放大治理："
+            "按 journal ``status`` 字段重算逐阶段耗时（推翻「相邻同名配对」错配），"
+            "定位主导成本为 ``validate.py`` 的 ``iterations.pkl`` 每次优化迭代整体重写"
+            "（每条含 1.56 MB 相位副本，O(n²) 落盘，每 campaign ≈224 GB）；"
+            "改为每块落盘一次，离线基准 ≈14×、写出字节 15.3×↓、条目逐条一致；"
+            "含一次自我纠错（``star/mono12_cv`` 的 1438.8 s 系错误配对，真值为中断 1227.9 s + 恢复 210.9 s）；"
+            "并含光路曝光强度变化后的复核（判定 ok，强度 +1.35×、对准保持，质心仅移 2.3 px）。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+            "src/ao_shaping/tools/slm/transfer/capture.py",
+            "scripts/slm/probe_optical_path_validity.py",
+            "scripts/slm/plan_transfer_next_run.py",
+        ),
+    ),
     "report/shape_trials/physical_forward_no_gs_plan_20261027.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线（历史报告分析与下一轮实验规划；未连接设备）",

@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import numpy as np
 
 from ao_shaping.tools.slm.transfer.replay_phases import _selections
 
@@ -75,3 +76,37 @@ def test_a_missing_manifest_is_an_error_not_a_silent_empty_replay(tmp_path):
     args = SimpleNamespace(initial_run=empty, runs=[empty], include_best=False)
     with pytest.raises(FileNotFoundError):
         _selections(args)
+
+
+def _grid_run(tmp_path: Path, name: str, step: float) -> Path:
+    """A run whose phase-bearing captures all share one ``camera_xy`` grid."""
+    directory = tmp_path / name
+    directory.mkdir()
+    rows, xy = [], None
+    for index, label in enumerate(["square_seed", "square_final"]):
+        xy = np.arange(0, 4, step, dtype=float)
+        grid = np.stack(np.meshgrid(xy, xy, indexing="xy"), axis=-1)
+        np.savez_compressed(directory / f"capture_{index:04d}.npz",
+                            model_phase=np.zeros((2, 2)), camera_xy=grid,
+                            target=np.ones(grid.shape[:2]), core=np.ones(grid.shape[:2], bool))
+        rows.append(dict(label=label, file=f"capture_{index:04d}.npz", metrics=dict(cv=1.0)))
+    (directory / "manifest.json").write_text(json.dumps(rows), encoding="utf-8")
+    return directory
+
+
+def test_stages_at_different_sampling_steps_still_group_their_own_grids(tmp_path):
+    """Stage 4 samples the window finer, so its grid legitimately differs.
+
+    The replay must sample each phase through its own grid rather than reject
+    the session: the cross-stage comparison is the whole point of the replay.
+    """
+    coarse = _grid_run(tmp_path, "square_transport_cv", 1.0)
+    fine = _grid_run(tmp_path, "square_mono12_dense", 0.5)
+    args = SimpleNamespace(initial_run=coarse, runs=[coarse, fine], include_best=False)
+    selections = _selections(args)
+    assert {directory.name for directory, _ in selections} == {"square_transport_cv", "square_mono12_dense"}
+    shapes = {}
+    for directory, label in selections:
+        with np.load(directory / json.loads((directory / "manifest.json").read_text())[0]["file"]) as saved:
+            shapes.setdefault(saved["camera_xy"].shape, []).append(label)
+    assert len(shapes) == 2

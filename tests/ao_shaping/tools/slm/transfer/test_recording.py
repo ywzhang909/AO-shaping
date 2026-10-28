@@ -89,6 +89,73 @@ def test_block_records_fall_back_to_the_anchor_without_a_candidate(tmp_path):
     assert records[0]["cv_improvement"] is None
 
 
+def test_block_phase_is_the_block_s_own_last_iteration(tmp_path):
+    """Each block's phase panel must be *that block's* end phase.
+
+    Regression: the panel used to be flat because the shared display colour
+    scale was recomputed per frame (see the next test) -- but a record built
+    from the wrong iteration would also freeze it, so the record is pinned here.
+    """
+    run = _fake_run(tmp_path, blocks=3)
+    records = recording.block_records(run, "square/mono12_cv")
+    assert [float(record[recording.RECORD_PHASE].max()) for record in records] == [2.0] * 3
+    # The fake run's phases are constant maps (one value per iteration), so the
+    # in-block change is a constant too: block 0 changes by its whole iteration
+    # range (nothing to subtract), the later blocks show the difference between
+    # two already-identical maps.
+    assert float(np.abs(records[0][recording.RECORD_GRAD]).max()) == pytest.approx(2.0)
+    assert float(np.abs(records[1][recording.RECORD_GRAD]).max()) == pytest.approx(0.0)
+
+
+def test_process_gif_uses_one_phase_scale_for_every_frame(tmp_path):
+    """A per-frame colour scale makes every frame look identical.
+
+    The transfer session's phases differ by ~0.3 rad between neighbouring blocks
+    on a ~15 rad map. Normalising each frame to its own 90% quantile gave each
+    frame back its full range, and the pupil panel of the rendered GIF did not
+    change from the first frame to the last.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+
+    run = _fake_run(tmp_path, blocks=3)
+    records = recording.block_records(run, "square/mono12_cv")
+    assert records[0][recording.RECORD_PHASE].shape == (8, 8)
+    yy, xx = np.mgrid[0:8, 0:8]
+    for index, record in enumerate(records):
+        record[recording.RECORD_PHASE] = (15.0 + 0.3 * index + 2.0 * np.sin(xx / 2.0)
+                                          * np.cos(yy / 2.0)).astype(np.float32)
+
+    from matplotlib import pyplot as plt
+
+    captured = []
+    real_imshow = plt.Axes.imshow
+
+    def spying_imshow(self, data, *args, **kwargs):
+        if "vmin" in kwargs:
+            captured.append((float(kwargs["vmin"]), float(kwargs["vmax"])))
+        return real_imshow(self, data, *args, **kwargs)
+
+    plt.Axes.imshow = spying_imshow
+    try:
+        recording.render_process_gif(records, tmp_path / "process.gif", fps=2.0,
+                                     title="scale")
+    finally:
+        plt.Axes.imshow = real_imshow
+        plt.close("all")
+
+    # One limit per rendered phase-bearing panel, and every one of them the
+    # same: the shared scale may be computed from the whole animation, but it
+    # must not be recomputed from the frame being drawn.
+    # The far field keeps its own scale (0..vmax); the phase and the in-block
+    # change share one, and it must be the same in every frame.
+    phase_limits = [limits for limits in captured if limits[0] < 0]
+    assert len(phase_limits) == len(records) + 1
+    assert len({(round(low, 9), round(high, 9)) for low, high in phase_limits}) == 1, \
+        "the phase panels must not rescale per frame"
+
+
 def test_crop_frame_keeps_the_window_and_decimates():
     frame = np.arange(100 * 120, dtype=float).reshape(100, 120)
     xy = np.stack(np.meshgrid(np.arange(10, 50), np.arange(20, 60)), axis=-1).astype(float)

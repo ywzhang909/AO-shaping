@@ -327,6 +327,7 @@ def run(args):
                                 anchor_prediction = forward.predict(best)[0].detach().cpu().numpy()
                         optimizer = DifferentiableUniformityOptimizer(forward, objective, best, lr=phase_lr,
                             step_rms_cap=getattr(args, "phase_rms_cap", .2), device=device)
+                        iterations_before = len(iterations)
                         for iteration in range(args.updates):
                             start = clock()
                             if args.mode == "anchored":
@@ -338,8 +339,6 @@ def run(args):
                             iterations.append(dict(shape=shape, block=block, iteration=iteration,
                                                    phase=optimizer.current_phase.copy(), terms=optimizer.loss_history[-1],
                                                    **start, end_monotonic_ns=time.monotonic_ns()))
-                            with (args.out/"iterations.pkl").open("wb") as stream:
-                                pickle.dump(iterations, stream, protocol=5)
                         candidate = optimizer.current_phase
                         # Fresh optimizer per block: rejected proposals cannot advance its reference.
                         if abba:
@@ -412,6 +411,16 @@ def run(args):
                         summary.append(entry)
                         (args.out/"summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
                         print(json.dumps(entry), flush=True)
+                        # One dump per block, not per iteration: every history entry
+                        # carries a full phase copy (~1.6 MB), so rewriting the whole
+                        # history after each iteration writes O(n^2) bytes -- 21 GB for
+                        # a 160-iteration stage, which dominated that stage's wall
+                        # clock. The block is the transaction boundary (the accept /
+                        # reject verdict is recorded just above), so the history is
+                        # still flushed at the granularity the stage reports.
+                        if len(iterations) > iterations_before:
+                            with (args.out/"iterations.pkl").open("wb") as stream:
+                                pickle.dump(iterations, stream, protocol=5)
                     if policy is not None:
                         capture(f"{shape}_exploration_endpoint", best, objective)
                         best = champion.copy()

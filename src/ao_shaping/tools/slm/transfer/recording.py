@@ -260,9 +260,13 @@ def append_run(recorder, run_dir: Path, stage: str) -> int:
 def _detrend(phase: np.ndarray) -> np.ndarray:
     """Remove the piston and the linear (carrier) part of a phase map.
 
-    The displayed phase carries the carrier tilt and the device's piston; both
-    are a linear ramp over the whole panel, and leaving them in makes the map
-    look like white noise once it is wrapped for display.
+    The displayed phase carries the carrier tilt and the device's piston; the
+    linear ramp is a *drawn* pattern, not a measurement. Keeping the fit to a
+    fixed linear basis (rather than a higher-order polynomial) is deliberate: the basis is fixed,
+    so two frames that differ by an aberration difference differ by the same
+    amount after detrending -- a higher-order fit in the same 8-bit quantised
+    phase makes the removed part jump between neighbours and buries the
+    evolution in resampling noise.
     """
     phase = np.asarray(phase, dtype=np.float64)
     h, w = phase.shape
@@ -335,15 +339,29 @@ def render_process_gif(records: list[dict], path: str | Path, *, fps: float = 2.
     peaks = [float(np.percentile(image, 95)) for image in normalized if image is not None]
     image_vmax = max(peaks) if peaks else 1.0
     image_vmax = image_vmax if image_vmax > 0 else 1.0
-    changes = [record.get(RECORD_GRAD) for record in records]
-    change_scale = max((float(np.percentile(np.abs(change), 90)) for change in changes
-                        if change is not None), default=1.0)
-    change_scale = change_scale if change_scale > 0 else 1.0
+    # The in-block change is drawn to the same colour scale as the phase itself:
+    # it is a difference of two phases, so the range that fits them fits it, and
+    # a second scale would only cost the reader the comparison.
     phases = [record.get(RECORD_PHASE) for record in records]
     detrended = [_detrend(phase) for phase in phases if phase is not None]
-    phase_scale = max((float(np.percentile(np.abs(phase), 90)) for phase in detrended),
-                       default=1.0)
+    # One colour scale for the whole animation has to hold every frame, so two
+    # numbers are taken from the set of frames, never from the per-frame 90%
+    # quantile: the median *offset* (a frame's own median sits wherever the
+    # aberration happens to be, and a shared ``vmin=-vmax`` would clip a frame
+    # whose median is not zero), and the largest *spread* (the 90% quantile of
+    # ``|frame - its median|``). A per-frame scale would silently flatten the
+    # evolution: every frame gets its full range back, so the panel looks the
+    # same in every frame.
+    phase_centre = (float(np.median([np.median(m) for m in detrended]))
+                    if detrended else 0.0)
+    phase_scale = max((float(np.percentile(np.abs(m - np.median(m)), 90))
+                       for m in detrended), default=1.0)
     phase_scale = phase_scale if phase_scale > 0 else 1.0
+
+    # The frame's own phase and its in-block change share one colour scale --
+    # the change is a difference of two phases, so a scale that fits the phases
+    # fits it. Both are taken from the whole animation, never per frame.
+    phase_limits = phase_centre - phase_scale, phase_centre + phase_scale
 
     trajectory_keys = [key for key in ("cv_anchor", "cv_candidate")
                        if any(key in record for record in records)]
@@ -358,6 +376,7 @@ def render_process_gif(records: list[dict], path: str | Path, *, fps: float = 2.
     writer.setup(fig, str(path), dpi=110)
     rendered = 0
     try:
+        seen_change = False
         for index, record in enumerate(records):
             for row in axes:
                 for ax in row:
@@ -366,8 +385,8 @@ def render_process_gif(records: list[dict], path: str | Path, *, fps: float = 2.
             phase = record.get(RECORD_PHASE)
             if phase is not None:
                 axes[0][0].imshow(_detrend(phase), cmap="coolwarm",
-                                  vmin=-phase_scale, vmax=phase_scale)
-            axes[0][0].set_title("瞳面相位 (去活塞/倾斜, 90% 分位色标)", fontsize=10)
+                                  vmin=phase_limits[0], vmax=phase_limits[1])
+            axes[0][0].set_title("瞳面相位 (去活塞/倾斜; 全片共用色标)", fontsize=10)
             axes[0][0].axis("off")
 
             image = normalized[index]
@@ -393,14 +412,15 @@ def render_process_gif(records: list[dict], path: str | Path, *, fps: float = 2.
 
             change = record.get(RECORD_GRAD)
             if change is not None and np.abs(change).max() > 0:
+                seen_change = True
                 axes[0][2].imshow(_detrend(change), cmap="coolwarm",
-                                  vmin=-change_scale, vmax=change_scale)
+                                  vmin=phase_limits[0], vmax=phase_limits[1])
             elif change is not None:
                 # B2 replays B1's phase on purpose; an all-zero change is a
                 # result (the repeat), not a rendering failure.
                 axes[0][2].text(.5, .5, "与上一次相位相同\n(重复采集)", ha="center", va="center",
                                 transform=axes[0][2].transAxes, fontsize=10, color="#555555")
-            axes[0][2].set_title("块内相位变化 (rad, 90% 分位色标)", fontsize=10)
+            axes[0][2].set_title("块内相位变化 (与左图同色标)", fontsize=10)
             axes[0][2].axis("off")
 
             axes[1][0].axis("off")
@@ -455,6 +475,15 @@ def render_process_gif(records: list[dict], path: str | Path, *, fps: float = 2.
         plt.close(fig)
         path.unlink(missing_ok=True)
         raise ValueError("no GIF frame was rendered")
+    if not seen_change:
+        # Every frame says "same as the previous phase". That is only a result
+        # when the records carry no phase at all (the fallback records below);
+        # if they do carry one, the renderer has nothing to show for it, and it
+        # says so instead of writing a GIF whose first frame equals its last.
+        plt.close(fig)
+        path.unlink(missing_ok=True)
+        raise ValueError("no frame carried an in-block phase change; "
+                         "the phase column is missing from the records")
     writer.finish()
     plt.close(fig)
     return path
