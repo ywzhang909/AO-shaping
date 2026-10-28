@@ -732,6 +732,7 @@ def _save_to_csv() -> None:
         write_summary_csv(df, path)
         st.session_state.cv_dirty = False
         st.success(f"✅ 已保存到 `{path}`")
+    # policy: same save path as the DM viewer - error feedback, dirty flag kept, so a failed write is retryable
     except Exception as e:
         st.error(f"❌ 保存失败: {e}")
 
