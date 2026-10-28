@@ -302,6 +302,7 @@ def _render_sidebar() -> None:
                         st.session_state.ts_frame = None
                         st.session_state.ts_centers = {}
                         st.session_state.ts_target = None
+                # policy: a camera liveness probe that throws is treated as lost: state is reset to disconnected rather than leaving a stale handle the next tick would trust
                 except Exception as exc:
                     logger.warning("Camera state check failed: {}", exc)
                     st.session_state.ts_camera = None
@@ -322,6 +323,7 @@ def _render_sidebar() -> None:
                             "Camera {} connected", st.session_state.ts_cam_id
                         )
                         st.rerun()
+                    # policy: a refused connect is surfaced so the operator can fix the device id and retry; the driver's failure type varies with transport and native library
                     except Exception as exc:
                         logger.exception("Camera connection failed")
                         st.error(f"连接失败: {exc}")
@@ -339,6 +341,7 @@ def _render_sidebar() -> None:
                         st.info("相机已断开")
                         logger.info("Camera disconnected")
                         st.rerun()
+                    # policy: if the close threw, the state reset in the try may be partial, so the failure is shown rather than reporting a clean disconnect
                     except Exception as exc:
                         logger.exception("Camera disconnect failed")
                         st.error(f"断开失败: {exc}")
@@ -401,6 +404,7 @@ def _render_sidebar() -> None:
                             roi_center,
                             st.session_state.ts_window_size,
                         )
+                    # policy: an ROI window that cannot be applied is a configuration error: report it and leave the previous window in effect
                     except Exception as exc:
                         logger.exception("reset_window failed")
                         st.error(f"ROI 应用失败: {exc}")
@@ -544,6 +548,7 @@ def _render_overlay(
                 c = _compute_center(frame, key, custom_center)
                 label = dict(_CENTER_METHODS).get(key, key)
                 centers[label] = c
+            # policy: per-method isolation: one center method that cannot be computed is skipped, and the other selected methods still render their overlays
             except Exception as exc:
                 logger.warning("Center computation failed for {}: {}", key, exc)
 
@@ -603,6 +608,7 @@ def _capture_and_compute() -> None:
         st.session_state.ts_frame = frame
         st.success("图像已刷新")
         logger.info("Captured fresh frame: shape={}", frame.shape)
+    # policy: a failed capture is logged and shown to the operator; the frame already in session_state stays in use, so the panel keeps working off the last good image
     except Exception as exc:
         logger.exception("Frame capture failed")
         st.error(f"采集失败: {exc}")
@@ -639,6 +645,7 @@ def live_display() -> None:
             clamp=True,
             use_container_width=True,
         )
+    # policy: the live view tick: a capture failure is reported and the picture simply does not update -- one dropped frame must not end the session
     except Exception as exc:
         logger.exception("Frame capture failed")
         st.error(f"采集失败: {exc}")
