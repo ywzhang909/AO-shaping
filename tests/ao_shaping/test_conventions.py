@@ -2133,12 +2133,12 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 381
 #: the driver exception taxonomy (issue #145 / #45) would turn a working fallback into a crash.
 #:
 #:
-#: Measured 2026-10-28 after eighteen marker passes and one executed narrowing (runners/slm + config + utils, the three CCD
+#: Measured 2026-10-28 after nineteen marker passes and one executed narrowing (runners/slm + config + utils, the three CCD
 #: camera drivers, the R50 GUI loop files, the whole optimizer / runner CLI layer, the ml
 #: training scripts, the CCD analyzer UI, the bench settings panel, the Micro-DM panel, the
 #: target-shape helper, the R50 joint panel, the SLM calibration panel, the Micro-DM image
 #: analysis panel, the shaping-controls panel, and the R50 channel selector, then the first
-#: executed narrowing): 229 marked, 152
+#: executed narrowing): 248 marked, 133
 #: unmarked. The fourth pass covered only 12 of the 17 open optimizer sites and the fifth had
 #: to close the layer -- the ceiling is only as honest as the last count. One site left the
 #: population instead of gaining a marker (narrowed out, see the total ratchet above), so the
@@ -2149,7 +2149,7 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 381
 #: Every one of those sites guards a device call, so per the note above they stay broad and are
 #: judged rather than narrowed; the recurring reason written into the markers is that teardown
 #: and batch loops must attempt every step, because aborting midway leaves some channels
-#: energised and others not. Control re-armed: one more unannotated blind catch makes 153 red.
+#: energised and others not. Control re-armed: one more unannotated blind catch makes 134 red.
 #: The seventeenth marker pass (six scattered GUI files outside the R50 family: the transfer
 #: progress panel, the Zernike debug viewer, both ceramic viewers, the pyarrow probe and the
 #: phase overlay helper) moved this ceiling 182 -> 171 with 11 comment-only edits. Three of those
@@ -2160,7 +2160,13 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 381
 #: trailing comment and one converted the rationale already sitting on its handler body; only the
 #: eight below the pin grew the file. Nothing left the blind population: all 19 are SLM SDK or
 #: session-state calls, whose failure type belongs to the vendor or to Streamlit, not to us.
-_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 152
+#: The nineteenth marker pass (the Zernike response-matrix UI, 19 sites) moved this ceiling
+#: 152 -> 133 and zeroed the GUI layer. Seventeen of those sites sit above a line TODO.md cites
+#: by number, so they took trailing comments and the file grew by two lines in total -- only the
+#: two sites below that citation could afford to grow. All 19 are SLM/WFS SDK, disk or Streamlit
+#: calls: the narrowing question never arises, since the failure type belongs to the vendor, the
+#: filesystem or Streamlit rather than to this code.
+_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 133
 
 
 def _blind_except_handlers_in_src() -> list[tuple[Path, int, bool]]:
