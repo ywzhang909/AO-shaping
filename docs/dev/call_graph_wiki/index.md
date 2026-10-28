@@ -2,7 +2,7 @@
 
 > 从 `main.py` 出发的函数调用图 + 逐函数优化文档（llm-wiki 式互链 Markdown）。
 > 数据源：AST 静态调用图 `raw/assets/call_graph_final.json`（`scripts/call_graph/build_call_graph.py` 生成，可重跑）
-> + 源码 docstring 逐字摘录。Last updated: 2026-10-27 | 总页数: 51
+> + 源码 docstring 逐字摘录。Last updated: 2026-10-29 | 总页数: 51
 
 ## 入口 (entry)
 
@@ -68,21 +68,21 @@
 ### 优化器 (optimizer/)
 | 页面 | 签名 | 位置 |
 |---|---|---|
-| [[functions/optimizer-rms-dm]] | `optimizer_rms_dm(epochs, wfs_res, …, dm, wfs_type, …)` | `optimizer/wf/rms.py:45` |
-| [[functions/optimize-pib-wfless]] | `optimize_pib(center, epochs, r_bucket, …, dm, optimizer_type, …)` | `optimizer/wfless/pib.py:289` |
-| [[functions/optimize-pib-combined]] | `optimize_pib(center, epochs, r_bucket, …)` (AdaMOD) | `optimizer/combined_optimizer.py:118` |
-| [[functions/optimizer-rms-slm]] | `optimizer_rms_slm(epochs, init_z, lr, …)` (38 参) | `optimizer/wf/rms_by_zernike.py:433` |
-| [[functions/optimizer-ga]] | `optimizer_ga(n_generations, population_size, …)` | `optimizer/wf/ga_zernike.py:135` |
-| [[functions/optimizer-greedy]] | `optimizer_greedy(epochs, n_init, n_directions, …)` | `optimizer/wf/greedy_zernike.py:73` |
-| [[functions/optimize-slm-square]] | `optimize_slm_square(center, epochs, …)` (40 参) | `optimizer/wfless/slm_square_shaping.py:1129` |
+| [[functions/optimizer-rms-dm]] | `optimizer_rms_dm(epochs, wfs_res, …, dm, wfs_type, …)` | `optimizer/wf/rms.py:50` |
+| [[functions/optimize-pib-wfless]] | `optimize_pib(center, epochs, r_bucket, …, dm, optimizer_type, …)` | `optimizer/wfless/pib.py:209` |
+| [[functions/optimize-pib-combined]] | `optimize_pib(center, epochs, r_bucket, …)` (AdaMOD) | `optimizer/combined_optimizer.py:83` |
+| [[functions/optimizer-rms-slm]] | `optimizer_rms_slm(epochs, init_z, lr, …)` (38 参) | `optimizer/wf/rms_by_zernike.py:439` |
+| [[functions/optimizer-ga]] | `optimizer_ga(n_generations, population_size, …)` | `optimizer/wf/ga_zernike.py:138` |
+| [[functions/optimizer-greedy]] | `optimizer_greedy(epochs, n_init, n_directions, …)` | `optimizer/wf/greedy_zernike.py:78` |
+| [[functions/optimize-slm-square]] | `optimize_slm_square(center, epochs, …)` (40 参) | `optimizer/wfless/slm_square_shaping.py:939` |
 | [[functions/spgd-gradient]] | `spgd_gradient(pos_obj, neg_obj, disturb, *, maximize)` | `optimizer/spgd.py:40` |
 
 ### 标定内核 (calibration)
 | 页面 | 签名 | 位置 |
 |---|---|---|
-| [[functions/calibrate-dm-matrix]] | `calibrate_dm_response_matrix(dm, wfs, disturb_voltage, …)` | `optimizer/wf/dm_response_matrix.py:491` |
-| [[functions/save-dm-matrix]] | `save_dm_response_matrix(…)` | `optimizer/wf/dm_response_matrix.py:826` |
-| [[functions/save-zernike-matrix]] | `save_zernike_response_matrix(…)` | `optimizer/wf/zernike_response_matrix.py:617` |
+| [[functions/calibrate-dm-matrix]] | `calibrate_dm_response_matrix(dm, wfs, disturb_voltage, …)` | `optimizer/wf/dm_response_matrix.py:500` |
+| [[functions/save-dm-matrix]] | `save_dm_response_matrix(…)` | `optimizer/wf/dm_response_matrix.py:814` |
+| [[functions/save-zernike-matrix]] | `save_zernike_response_matrix(…)` | `optimizer/wf/zernike_response_matrix.py:627` |
 
 ### 驱动 / 注册表 (drivers/)
 | 页面 | 签名 | 位置 |
@@ -101,13 +101,13 @@
 |---|---|---|
 | [[functions/with-params]] | `with_params(arg_class, kw_name)` — dataclass→Click options | `utils/cli/params.py:244` |
 | [[functions/debug-mode]] | `get_debug_mode()` / `resolve_debug()` — DEBUG 判定 | `utils/io/cli_helpers.py:29` |
-| [[functions/path-dirs]] | `gen_date_dir()` / `make_date_dir()` / 时间戳 | `utils/io/file.py:113` |
-| [[functions/recorder]] | `Recorder` 类 — 优化过程逐行记录 | `utils/io/file.py:426` |
-| [[functions/debug-artifacts]] | `save_optimization_debug_artifacts()` / `save_recorder_debug_artifacts()` | `utils/io/file.py:739` |
-| [[functions/zernike-calc]] | `zernike_modes(n)` / `calc_n_zernike_terms(n)` | `utils/wavefront/zernike_calc.py:78` |
-| [[functions/spots]] | `centroid()` / `radius()` / `pib_ratio_mask()` | `utils/image/spots_calc.py:234` |
-| [[functions/matrix-utils]] | `compute_pinv()` / `compute_lstsq()` / `safe_pinv()` / `effective_cond()` | `utils/wavefront/matrix_utils.py:12` |
-| [[functions/slm-lut]] | `build_inverse_lut()` / `invert_depth_scan()` / `depth_pattern()` | `utils/slm/slm_lut.py:43` |
+| [[functions/path-dirs]] | `gen_date_dir()` / `make_date_dir()` / 时间戳 | `utils/io/file.py:159` |
+| [[functions/recorder]] | `Recorder` 类 — 优化过程逐行记录 | `utils/io/file.py:472` |
+| [[functions/debug-artifacts]] | `save_optimization_debug_artifacts()` / `save_recorder_debug_artifacts()` | `utils/io/file.py:1380` |
+| [[functions/zernike-calc]] | `zernike_modes(n)` / `calc_n_zernike_terms(n)` | `utils/wavefront/zernike_calc.py:90` |
+| [[functions/spots]] | `centroid()` / `radius()` / `pib_ratio_mask()` | `utils/image/spots_calc.py:218` |
+| [[functions/matrix-utils]] | `compute_pinv()` / `compute_lstsq()` / `safe_pinv()` / `effective_cond()` | `utils/wavefront/matrix_utils.py:16` |
+| [[functions/slm-lut]] | `build_inverse_lut()` / `invert_depth_scan()` / `depth_pattern()` | `utils/slm/slm_lut.py:248` |
 | [[functions/runner-common]] | `runner_common` 共享工具（center 解析 / 配置构建 / 结果保存） | `runners/runner_common.py` |
 
 ## 关系层 (relations) — 相似函数
