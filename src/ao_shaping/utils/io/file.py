@@ -806,37 +806,32 @@ def _is_grad_key(key: str) -> bool:
 
 
 def _classify_recorder_rows(rows: list[dict]) -> dict[str, list[str]]:
-    """Classify record columns by their value type (inspecting the first row)."""
-    phase_keys: list[str] = []
-    image_keys: list[str] = []
-    grad_keys: list[str] = []
-    coeff_keys: list[str] = []
-    scalar_keys: list[str] = []
-    text_keys: list[str] = []
-    if not rows:
-        return {
-            "phase": phase_keys,
-            "image": image_keys,
-            "grad": grad_keys,
-            "coeff": coeff_keys,
-            "scalar": scalar_keys,
-            "text": text_keys,
-        }
-    first = rows[0]
-    for key, value in first.items():
-        if isinstance(value, str):
+    """Classify record columns by their value type.
+
+    A column whose first record is ``None`` (a candidate metric only exists
+    after the first measurement) is typed from its first non-None value
+    instead of being dropped from every panel.
+    """
+    phase_keys, image_keys = [], []
+    grad_keys, coeff_keys = [], []
+    scalar_keys, text_keys = [], []
+    cols = {k: [r[k] for r in rows if r.get(k) is not None] for r in rows for k in r}
+    for key, vals in cols.items():
+        if not vals:
+            continue
+        v = vals[0]
+        if isinstance(v, str):
             text_keys.append(key)
             continue
         arr = None
-        if isinstance(value, np.ndarray):
-            arr = value
-        elif isinstance(value, (list, tuple)):
+        if isinstance(v, np.ndarray):
+            arr = v
+        elif isinstance(v, (list, tuple)):
             try:
-                arr = np.asarray(value)
+                arr = np.asarray(v)
             except (TypeError, ValueError):
-                # Ragged or non-numeric sequences are the only failure mode here
-                # (numpy raises ValueError for inhomogeneous shapes, TypeError for
-                # objects it cannot build an array from).
+                # Ragged/non-numeric is the only failure mode (ValueError for
+                # inhomogeneous shapes, TypeError for un-buildable objects).
                 arr = None
         if arr is not None and arr.ndim >= 1:
             if arr.ndim >= 2:
@@ -851,7 +846,7 @@ def _classify_recorder_rows(rows: list[dict]) -> dict[str, list[str]]:
             continue
         # scalar?
         try:
-            float(value)  # type: ignore[arg-type]
+            float(v)  # type: ignore[arg-type]
             scalar_keys.append(key)
         except (TypeError, ValueError):
             pass
