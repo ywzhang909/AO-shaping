@@ -155,22 +155,23 @@ REPORTS: dict[str, ReportProvenance] = {
         script="scripts/ml/diagnose_sim2f_optical_scale.py",
         command="python scripts/ml/diagnose_sim2f_optical_scale.py",
         environment=(
-            "离线（只读 data/debug/model_in_loop_hw_collect 的 18 组去重配对；"
-            "孪生在 CPU 上跑，无 SLM / 无相机）"
+            "离线（只读 data/debug/ 的 pkl；孪生在 CPU 上跑 torch，无设备、无 GPU 必需）"
         ),
         note=(
-            "判两条『标定已失效』假说: H1 远场尺度 (region_span_px 25 点扫描, "
-            "宽度比 + 中位 ncc, 要求内点) 与 H2 离焦/零级 (既有 fit_twin Stage 1+2 "
-            "反演)。两条都判否决 —— 无一扫描点宽度比落在 [0.9,1.1], region_span "
-            "曲线中段凹陷而非内点极大; defocus_m 相对历史值仅差 1.2 %。故不改任何"
-            "已入库标定量, 也不据此重训网络。"
+            "2f 实验系统数字孪生的远场尺度 / 离焦标定是否已失效: H1 (region_span_px, "
+            "25 点扫描 600–1200 px) 否决 —— 25 个点上无一点同时满足宽度比 ∈ [0.9, 1.1] "
+            "与中位 ncc >= 0.75; H2 (相机离焦 / 零级占比) 亦否决 —— defocus_m 相对差 "
+            "1.2 % 未超 20 %, 中位 ncc 提升 +0.0002 未达 0.05。两条假说都被否决, 现有证据"
+            "不足以说「标定已失效」: 中位 ncc 仍停在 +0.6247 (门限 +0.7500), 归一化 L1 "
+            "仍停在 1.3425 (门限 0.50); 不据此改任何已入库标定量"
         ),
         extra_scripts=(
             "scripts/ml/validate_sim2f_vs_hw_corpus.py",
+            "src/ml/hwdataset/records.py",
             "src/ml/sim2f/config.py",
             "src/ml/sim2f/optics.py",
-            "src/ao_shaping/tools/slm/bench_twin_calibrate.py",
             "src/ao_shaping/drivers/sim/bench_twin.py",
+            "src/ao_shaping/tools/slm/bench_twin_calibrate.py",
         ),
     ),
 

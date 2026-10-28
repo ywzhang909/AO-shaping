@@ -323,6 +323,7 @@ def _stage_metrics(
         return [], []
     try:
         return reader(out)
+    # policy: the metrics reader is per-format and a partly written artifact must show as "no metrics" rather than blank the whole panel
     except Exception:  # 产物缺失 / 只写了一半 / 字段改名：一律当作「未产出」
         return [], []
 
@@ -453,10 +454,12 @@ def _usable_count(rows: Sequence[Mapping[str, Any]]) -> int | None:
     """``fit.valid`` 的判据就是拟合真正吃进去的探针口径 —— 借它，不重写。"""
     try:
         from ao_shaping.tools.slm.transfer.fit import valid
+    # policy: optional import of the fit module - absence costs only the "usable" column; importing can raise OSError from a native library, not just ImportError
     except Exception:
         return None
     try:
         return sum(1 for row in rows if valid(row))
+    # policy: the usable count borrows fit.valid's predicate, so a row that predicate rejects costs the count (rendered as a dash), not the panel
     except Exception:
         return None
 
@@ -521,6 +524,7 @@ def _fit_quality(
             from ao_shaping.tools.slm.transfer.adaptation import validation_quality
 
             return dict(validation_quality(result, rows)), "验证"
+        # policy: validation-set quality is reported beside the all-probe figure; a silent fallback here would quietly swap the denominator the UI shows, so the reason is logged with the run root
         except Exception as exc:  # 没有验证集探针 / 长度不齐 / 非有限值
             logger.debug(
                 f"transfer_progress: validation-set fit quality unavailable for "

@@ -1710,6 +1710,7 @@ def optimize_slm_square(
             try:
                 display_ctx = SlmSquareDisplay()
                 display_stack.enter_context(display_ctx)
+            # policy: the pygame display is optional; if it cannot start, the run proceeds without it instead of failing at the window
             except Exception as _e:
                 logger.warning("pygame显示初始化失败, 本次运行禁用显示: {}", _e)
                 display_ctx = None
@@ -1809,6 +1810,7 @@ def optimize_slm_square(
                                 epoch=index,
                                 total_epochs=epochs,
                             )
+                        # policy: a display refresh inside the heuristic callback must not abort a search that is already driving the SLM
                         except Exception:
                             pass
 
@@ -2185,6 +2187,7 @@ def optimize_slm_square(
                             epoch=epoch,
                             total_epochs=epochs,
                         )
+                    # policy: a display refresh inside the optimisation loop must not abort the run -- the recorded metrics, not the window, decide the outcome
                     except Exception:
                         pass
 

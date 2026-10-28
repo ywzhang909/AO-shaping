@@ -1441,6 +1441,7 @@ def _init_wandb(cfg: AmpTrainConfig, model: ZernikeAmpModel, n_train: int, n_val
             },
             reinit="finish_previous",
         )
+    # policy: offline-only training is a supported mode, so an unreachable W&B is not an error
     except Exception as exc:  # never let telemetry kill a run
         logger.warning("wandb.init failed ({}); continuing offline-only", exc)
         return None
@@ -1469,6 +1470,7 @@ def _log_comparison_image(run, path: Path, epoch: int, caption: str) -> None:
             },
             step=epoch,
         )
+    # policy: the comparison figure is for review; its absence does not invalidate the metrics
     except Exception as exc:  # never let telemetry kill a run
         logger.warning("could not log {} to wandb: {}", path.name, exc)
 

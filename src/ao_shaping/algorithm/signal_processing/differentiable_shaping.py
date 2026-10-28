@@ -31,6 +31,7 @@ import numpy as np
 import numpy.typing as npt
 from loguru import logger
 
+from ao_shaping.utils.image.ranks import NDIM_SINGLE_CHANNEL
 from ao_shaping.utils.image.target.metrics import DIFFERENTIABLE_SHAPE_CHOICES
 from ao_shaping.utils.image.target.patterns import TargetShape, create_target_shape
 from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M, SLM_PITCH_M
@@ -39,6 +40,18 @@ if TYPE_CHECKING:  # pragma: no cover – type-only imports
     from typing import Any
 
     from torch import Tensor
+
+#: ``grid_size`` is always a ``(rows, columns)`` pair, and both validators reject a longer
+#: sequence instead of reading the first two entries. This is a tuple arity, not an array
+#: rank -- the note in :mod:`ao_shaping.utils.image.ranks` spells out why the two questions
+#: must not share one constant.
+_GRID_SIZE_ARITY = 2
+
+#: Floor below which a summed intensity counts as no energy at all: the ratios in
+#: ``efficiency_loss`` and ``zero_order_penalty`` are undefined there rather than merely
+#: large, so they return their neutral value instead of dividing. Deliberately distinct from
+#: the ``1e-12`` in :func:`uniformity_loss`, which tests a *mean* for degeneracy.
+_ZERO_ENERGY_FLOOR = 1e-12
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +121,7 @@ def create_target_mask(
     valid_shapes = DIFFERENTIABLE_SHAPE_CHOICES
     if shape not in valid_shapes:
         raise ValueError(f"Invalid shape {shape!r}. Must be one of {valid_shapes}")
-    if len(grid_size) != 2:
+    if len(grid_size) != _GRID_SIZE_ARITY:
         raise ValueError(f"grid_size must be a 2-tuple, got {len(grid_size)}D")
     if size <= 0:
         raise ValueError(f"size must be positive, got {size}")
@@ -180,10 +193,10 @@ def efficiency_loss(intensity: "Tensor", target: "Tensor") -> "Tensor":
     """
     torch = _torch()
     total = intensity.sum()
-    if total < 1e-12:
+    if total < _ZERO_ENERGY_FLOOR:
         return torch.tensor(1.0, device=intensity.device, dtype=intensity.dtype)
     target_energy = (intensity * target).sum()
-    encircled = target_energy / (total + 1e-12)
+    encircled = target_energy / (total + _ZERO_ENERGY_FLOOR)
     return 1.0 - encircled.clamp(0.0, 1.0)
 
 
@@ -199,7 +212,7 @@ def zero_order_penalty(intensity: "Tensor") -> "Tensor":
     r = 2  # 半窗宽 → 5×5 区域
     region = intensity[..., cy - r : cy + r + 1, cx - r : cx + r + 1]
     total = intensity.sum()
-    if total < 1e-12:
+    if total < _ZERO_ENERGY_FLOOR:
         return torch.tensor(0.0, device=intensity.device, dtype=intensity.dtype)
     return region.mean() / (total / (H * W) + 1e-12)
 
@@ -311,7 +324,7 @@ def angular_spectrum_propagate_torch(
         传播后的复光场, 形状与 *field* 相同。
     """
     torch = _torch()
-    if field.ndim != 2:
+    if field.ndim != NDIM_SINGLE_CHANNEL:
         raise ValueError(f"Field must be 2D, got {field.ndim}D")
     H, W = field.shape[-2:]
     device_str = str(field.device)
@@ -422,7 +435,7 @@ def _validate_shaping_inputs(
         raise ValueError(f"propagation must be 'fft' or 'asm', got {propagation!r}")
     if optimizer not in ("adam", "lbfgs"):
         raise ValueError(f"optimizer must be 'adam' or 'lbfgs', got {optimizer!r}")
-    if len(grid_size) != 2:
+    if len(grid_size) != _GRID_SIZE_ARITY:
         raise ValueError(f"grid_size must be a 2-tuple, got {len(grid_size)}D")
     H, W = grid_size
     if H <= 0 or W <= 0:
@@ -432,11 +445,11 @@ def _validate_shaping_inputs(
 
     # 校验目标的维度, 以及是否与 grid_size 匹配
     if isinstance(target, np.ndarray):
-        if target.ndim != 2:
+        if target.ndim != NDIM_SINGLE_CHANNEL:
             raise ValueError(f"target must be 2D, got {target.ndim}D")
         target_shape = target.shape
     else:  # torch 张量
-        if target.dim() != 2:
+        if target.dim() != NDIM_SINGLE_CHANNEL:
             raise ValueError(f"target must be 2D, got {target.dim()}D")
         target_shape = tuple(target.shape)
 

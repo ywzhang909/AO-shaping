@@ -783,7 +783,7 @@ def build_carrier_overlay(prefix: str = "slm1", slm=None) -> np.ndarray | None:
     )
     try:
         out = apply_zero_order_overlay(np.zeros(panel_shape, dtype=np.float64), params)
-    except Exception as exc:  # 叠加层失败不卡主流程
+    except Exception as exc:  # policy: 载波叠加是可选增强：构造失败返回 None，主流程按不叠加继续
         logger.warning("载波叠加构造失败 ({}): {}", prefix, exc)
         return None
     return np.asarray(out, dtype=np.float64)
@@ -803,7 +803,7 @@ def rebuild_defocus_overlay(prefix: str, slm) -> None:
         return
     try:
         overlay = build_defocus_overlay(prefix, slm)
-    except Exception as exc:  # 叠加层失败不卡重连
+    except Exception as exc:  # policy: 重连后离焦叠加重建失败只跳过叠加，不得让重连本身失败
         logger.warning("SLM {} 离焦叠加重建失败: {}", slm.slm_number, exc)
         return
     if np.allclose(overlay, 0.0, atol=1e-12):
@@ -836,7 +836,7 @@ def build_send_overlay(
     if defocus_enabled:
         try:
             built = build_defocus_overlay(prefix, slm)
-        except Exception as exc:  # 叠加层失败不卡主流程
+        except Exception as exc:  # policy: 下发时的离焦叠加失败按不叠加继续（built=None），不得打断下发
             logger.warning("SLM 离焦叠加重建失败 ({}): {}", prefix, exc)
             built = None
         if built is not None and np.allclose(built, 0.0, atol=1e-12):
@@ -921,14 +921,14 @@ def probe_camera_window(cam_type: str = "daheng", cam_id: int = 0) -> WindowSize
             max_height=int(height_range["max"]),
             inc=int(width_range.get("inc") or 2),
         )
-    except Exception as exc:  # 探测失败不是错误，只是拿不到真值
+    except Exception as exc:  # policy: 相机窗口探测失败不是错误，只是拿不到参考尺寸：返回 None 让调用方用默认值
         logger.debug("相机窗口上限探测失败 ({}): {}", cam_type, exc)
         return None
     finally:
         if cam is not None:
             try:
                 cam.close_device()
-            except Exception:  # 关闭失败无可补救
+            except Exception:  # policy: 探测用的临时相机句柄：关闭失败无可补救，不得掩盖探测结果
                 pass
 
 
@@ -1172,7 +1172,7 @@ def probe_session_exposure_ms(
             # 继续，绝不让「读不到范围」把一次可用的探测变成失败。
             try:
                 _, camera_max_ms = get_camera_exposure_range(cam)
-            except Exception as exc:  # 后端没有范围查询不是探测失败
+            except Exception as exc:  # policy: 后端不支持曝光范围查询不是探测失败：按无上限继续本次探测
                 logger.debug("相机曝光范围不可用，本次探测按无上限处理: {}", exc)
                 camera_max_ms = None
             if camera_max_ms is not None and (
@@ -1448,7 +1448,7 @@ def measure_illuminated_radius(
             out["edge_y"],
             out["exposure_ms"],
         )
-    except Exception as exc:  # 探测失败不该掀翻侧栏
+    except Exception as exc:  # policy: 照明半径是侧栏诊断量：失败记 exception 并把原因写进 out["error"]，不掀翻面板
         logger.exception("SLM {} 照明半径探测失败", slm_num)
         out["error"] = str(exc)
     return out
@@ -1486,16 +1486,16 @@ def detect_camera_pixel_um(cam_type: str = "daheng", cam_id: int = 0) -> float |
                 pixel_size = cam.PixelSize.get()
                 if pixel_size is not None and float(pixel_size) > 0:
                     return float(pixel_size)
-            except Exception:  # 特征缺失就落到型号表
+            except Exception:  # policy: 相机缺 PixelSize 特性不是错误：落到 KNOWN_CAMERA_PIXEL_UM 型号表
                 pass
-        except Exception as exc:  # 探测失败不是错误
+        except Exception as exc:  # policy: 大恒探测像元间距失败不是错误：外层返回 None 让型号表兜底
             logger.debug("大恒探测像元间距失败: {}", exc)
             return None
         finally:
             if cam is not None:
                 try:
                     cam.close_device()
-                except Exception:  # 关闭失败无可补救
+                except Exception:  # policy: 型号表兜底路径里的关闭失败无可补救：不得掩盖已拿到的像元间距
                     pass
         for known_model, pitch in KNOWN_CAMERA_PIXEL_UM.items():
             if known_model in model:
@@ -1513,7 +1513,7 @@ def detect_camera_pixel_um(cam_type: str = "daheng", cam_id: int = 0) -> float |
                     return float(pixel_size)
             finally:
                 cam.close()
-        except Exception as exc:  # 探测失败不是错误
+        except Exception as exc:  # policy: MiiCam 探测像元间距失败不是错误：返回 None 让型号表兜底
             logger.debug("MiiCam 探测像元间距失败: {}", exc)
         return None
     return None
@@ -1752,7 +1752,7 @@ def run_session_calibration(prefix: str, slm_num: int) -> str | None:
         from ao_shaping.runners.runner_common import build_model_in_loop_config
 
         config = build_model_in_loop_config(params, debug=False)
-    except Exception as exc:  # 参数/配置不可用，交给操作者改
+    except Exception as exc:  # policy: 标定参数不可用是操作者可修正的输入问题：界面报错后返回消息，不抛到重跑
         message = f"标定参数不可用: {exc}"
         logger.exception("标定参数不可用: {}", exc)
         st.error(message)
@@ -1775,7 +1775,7 @@ def run_session_calibration(prefix: str, slm_num: int) -> str | None:
             resolved_params, resolved_config = apply_session_calibration(
                 params, config, calibration
             )
-    except Exception as exc:  # calibrate_session 抛普通异常
+    except Exception as exc:  # policy: calibrate_session 抛普通异常：界面报失败并返回原因字符串，不改变已下发的相位
         logger.exception("SLM {} 光路标定失败: {}", slm_num, exc)
         st.error(f"SLM {slm_num} 光路标定失败: {exc}")
         return str(exc)
@@ -1871,7 +1871,7 @@ def _now_text() -> str:
 
     try:
         return str(gen_date_str())
-    except Exception:  # 时间戳不是关键路径
+    except Exception:  # policy: 时间戳只是文件名片段：拿不到就返回空串，不得让保存流程失败
         return ""
 
 

@@ -76,6 +76,7 @@ if TYPE_CHECKING:
 
 try:
     from ao_shaping.drivers.slm.santec import Santec
+# policy: optional hardware backend -- this module must import on a machine without the SLM SDK, so the driver is present-or-None by contract
 except Exception:  # pragma: no cover - hardware SDK not installed
     Santec = None  # type: ignore[assignment]
 

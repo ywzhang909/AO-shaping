@@ -23,7 +23,7 @@ AO-Shaping 解决一个具体问题：**让激光远场变成想要的样子**�
 2. **无波前传感器（WFS-less）的闭环**：只看 CCD 远场，用 PIB（Power-in-Bucket）、
    方形光斑均匀度、环围能量等目标驱动 SPGD、启发式搜索、可微分优化或
    “物理预测模型在环”合成。入口：`pib`、`combined`、`slm-pib`、`slm-pib square`、
-   `slm-gsnet`、`slm-gs-refine`、`slm-model-in-loop`。
+   `slm-gsnet`、`slm-gs-refine`、`slm-model-in-loop`、`slm-transfer-shapes`。
 3. **数字孪生与学习型模型**：2f-Fourier 实验系统的仿真后端，带湍流、
    热晕扰动与相机噪声模型；`src/ml/` 提供相位预测、Zernike 正向/逆向模型与
    GSNet 训练。没有硬件时，同一套 runner 用 `--cam-type sim` 即可回归。
@@ -237,7 +237,7 @@ CLI (src/ao_shaping/main.py)
 
 ## CLI 命令总览
 
-统一入口 `main.py`（Click-based），目前注册 **19 个顶层命令**；所有 runner 位于
+统一入口 `main.py`（Click-based），目前注册 **20 个顶层命令**；所有 runner 位于
 `src/ao_shaping/runners/`，可绕过 `main.py` 以 `python -m` 直接运行。
 
 ```bash
@@ -265,6 +265,7 @@ python src/ao_shaping/main.py [OPTIONS] COMMAND [ARGS]...
 | `slm-pib` | [docs/slm/slm_pib.md](docs/slm/slm_pib.md) | SLM Zernike PIB 优化（`spgd` / `heuristic` / `square`） |
 | `slm-gs-refine` | [docs/slm/slm_gs_refine.md](docs/slm/slm_gs_refine.md) | GS 预矫正 + 全频随机相位 SPGD 细化 |
 | `slm-model-in-loop` | [docs/slm/slm_model_in_loop.md](docs/slm/slm_model_in_loop.md) | 物理预测模型闭环校正 + 目标光斑相位合成（反复迭代） |
+| `slm-transfer-shapes` | [docs/slm/slm_transfer_workflow.md](docs/slm/slm_transfer_workflow.md) | 物理预测模型多形状整形（model → shaping → replay → record 四阶段） |
 
 > `slm-pib` 是 Click group：不带子命令等价于 `spgd`；`square` 是方形远场整形
 > （文档页 [`docs/slm/spgd_square.md`](docs/slm/spgd_square.md)）。
@@ -299,6 +300,7 @@ python -m ao_shaping.runners.slm.slm_shaping_runner square    # slm-pib square
 python -m ao_shaping.runners.slm.gsnet_runner                 # slm-gsnet
 python -m ao_shaping.runners.slm.gs_refine_runner             # slm-gs-refine
 python -m ao_shaping.runners.slm.model_in_loop_runner         # slm-model-in-loop
+python -m ao_shaping.runners.slm.transfer_shapes_runner      # slm-transfer-shapes
 python -m ao_shaping.tools.slm.calibration.lut_runner         # slm-lut
 python -m ao_shaping.tools.slm.panel.diagnose                 # slm-diagnose
 python -m ao_shaping.tools.micro_dm.micro_dm_image_collect    # Micro-DM 逐单元采集

@@ -30,6 +30,7 @@ def _resolve_class_attribute(cls: type, name: str) -> Any:
     if isinstance(value, property):
         try:
             value = getattr(cls(), name)
+        # policy: attribute probe over arbitrary registry classes: reading a class may fail for unrelated reasons, and the caller treats None as 'no value'
         except Exception:
             return None
     return value
@@ -71,6 +72,7 @@ def _first_reachable_hardware_dm_cls():
     for name in registry.list_reachable_types():
         try:
             cls = registry.get_class(name)
+        # policy: one unreachable DM type must not break discovery of the rest
         except Exception:
             continue
         if _counts_physical_actuators(cls):
@@ -93,6 +95,7 @@ def _resolve_dm_n_actuators() -> int:
             if isinstance(dm_num, int):
                 return dm_num
         return 64
+    # policy: config lookup falls back to the documented default actuator count
     except Exception:
         return 64
 
@@ -111,6 +114,7 @@ def _resolve_disabled_actuators() -> list[int]:
             if isinstance(disabled, list):
                 return disabled
         return [0]
+    # policy: config lookup falls back to the documented disabled-channel list
     except Exception:
         return [0]
 

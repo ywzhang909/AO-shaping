@@ -53,7 +53,7 @@
 
 ### 1.1 孪生预测帧的口径 (照抄, 不另发明)
 
-G0-4 的右操作数是 `HwInstrument.twin(phase)` (`src/ml/sim2f/bench.py:969`), 其全部内容就是:
+G0-4 的右操作数是 `HwInstrument.twin(phase)` (`src/ml/sim2f/bench.py:971`), 其全部内容就是:
 
 ```python
 bench = Sim2f(Sim2fConfig.calibrated(), device=...)      # 每会话新建一次

@@ -399,14 +399,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 |---|---|---|
 | **保持 `BaseException` + 补注释** | `utils/image/hardware_utils.py:627` | 不改，仅把线程边界语义写进注释；已机械钉住：`test_conventions.py::test_thread_boundary_exception_capture_keeps_base_exception` |
 | **最高价值：收窄** | `drivers/slm/santec/driver.py:1184` | `SantecError` —— 房内既有写法：`slm_gs_refine.py:780` `except SantecError as exc: if exc.code != 1: raise` |
-| 收窄 | `gui/r50/r50_channel_select.py:360` | `(ValueError, KeyError, TypeError)`（pandas `int()` / 列访问） |
+| **已收窄（执行）** | `gui/r50/r50_channel_select.py:365` | `(ValueError, KeyError, TypeError)`（pandas `int()` / 列访问） —— 2026-10-28 执行：该 handler 的守卫语句只有 `int(row[...])` 与列访问，缺列 = KeyError、坏值 = ValueError、空值 = TypeError，且**不碰硬件**（CI 可见全部失败面），故按本 issue 自己的口径收窄优先于登记；`tests/ao_shaping/gui/r50/test_r50_channel_select.py` 钉住两半契约（畸形行仍降级为空表 / 未列类型不再被吞）。该站已**退出盲捕总体**：382 → 381，已标注 188 → 187，未标注仍 194 |
 | 收窄 | `tools/slm/slm_zernike_common.py:114,129,155,162,166` | `(SantecError, WfsError, AttributeError)` |
 | 收窄 | `runners/slm/zernike_matrix_runner.py:652,759,765`（旧行号 733/774/840 已漂移，2026-10-24 复核） | `(WfsError, RuntimeError, ValueError)`。🔴 原建议含 `AssertionError`，现**禁止**：`92dbe716` 的守卫 `test_production_code_never_catches_assertion_error` 机器禁止 `src/`+`scripts/` 捕获 `AssertionError`（`python -O` 下 assert 消失 ⇒ 处理器变死代码；且 assert→raise 转换会让按 `AssertionError` 写的处理器静默失配）；该文件现 3 处均为裸 `except Exception`，未含 `AssertionError` ⇒ 收窄时不得引入 |
 | 收窄（teardown / close） | `runners/slm/zernike_matrix_runner.py:1376`、`slm_gs_refine.py:804`、`slm_model_in_loop.py:1679` | `(DeviceError, OSError, RuntimeError)` |
-| **必须保持宽** | 遥测 12 条（`ml/zernike/train_coeff.py:512,524,547,581,591`、`ml/zernike/train_amp.py:1301,1329`、`ml/shaping/train.py:680,741,767`、`ml/gsnet_debug/train.py:737,855`） | wandb 从网络/文件系统/序列化多路抛错；且 `except Exception` 不吞 Ctrl-C ⇒ 保留 noqa + 理由 |
+| **必须保持宽** | 遥测 12 处，按**函数名**引用（不再钉行号）：`ml/zernike/train_coeff.py` 的 `_init_wandb`/`_log_wandb_row`/`_log_comparison_image`/`_log_wandb_summary`/`_finish_wandb`（5 处）、`ml/zernike/train_amp.py` 的 `_init_wandb`/`_log_comparison_image`（2 处）、`ml/shaping/train.py` 的 `train`/`_init_wandb`/`_log_comparison_image`（3 处）、`ml/gsnet_debug/train.py` 的 `run_offline_training`（2 处） | wandb 从网络/文件系统/序列化多路抛错，且 `except Exception` 不吞 Ctrl-C ⇒ 保留宽捕获，理由已就地写成 `# policy:` 注释；机器校验由 §8.9 的盲捕棘轮计数承担（`tests/ao_shaping/test_conventions.py` 的 `_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC`），不再依赖行号。2026-10-28 复核更正两点：**其一**，旧措辞「保留 noqa + 理由」不成立——这四个文件里 `noqa` 出现 **0** 次，实际形态一直是宽捕获加就地理由注释；**其二**，旧行号 12 个中有 **8 个在本批复核之前就已失真**（落在 `)`、`n_val: int,`、docstring 等无关语句上），一行内堆 12 个行号本就不可维护，故改按函数名。 |
 | **必须保持宽** | `zernike_matrix_runner.py:846` | 包住**调用方传入的任意回调**，无法枚举 |
 | 边缘（建议保留） | `zernike_matrix_runner.py:1448`（整条多设备流水线）、`:1323`（显示回调） | 收窄会变脆 |
-| **改动前须单独复核 → 已复核，保留** | `optimizer/wfless/slm_zernike_pib.py:1355`（`BaseException`，在 `_apply_best_on_exit()` 退出清理里；原钉 `:1285`/`:1297` 两处已漂移，2026-10-25 实测**只剩 1 处**） | 已逐行读：处理器把异常**类型与消息都写进日志**，再强制 `set_grayscale(0)` 回安全平场，内层兜底 `except Exception` 记 "SLM state unknown" ⇒ 不重抛但**不静默**；宽捕获是**必需**的（收窄后 Ctrl-C 走不到安全态）。无需改动 |
+| **改动前须单独复核 → 已复核，保留** | `optimizer/wfless/slm_zernike_pib.py:2171`（`BaseException`，在 `_apply_best_on_exit()` 退出清理里；原钉 `:1285`/`:1297` 两处已漂移，2026-10-25 实测**只剩 1 处**） | 已逐行读：处理器把异常**类型与消息都写进日志**，再强制 `set_grayscale(0)` 回安全平场，内层兜底 `except Exception` 记 "SLM state unknown" ⇒ 不重抛但**不静默**；宽捕获是**必需**的（收窄后 Ctrl-C 走不到安全态）。无需改动 |
 
 ⚠️ **ruff 没有「故意宽 catch」的开关**：`lint.flake8-blind-except.allow-raise`
 **不存在**（官方 settings 无该节；GitHub 全仓 grep 无结果）。唯一相关选项是
@@ -461,6 +461,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 ### 8.9 `assert` 当运行期护栏（111 处）→ 按层收口
 
+> **条目编号已停用（2026-10-27 起）**。新条目**不再写** `item NNN`，标题改用自带锚的形态：
+> `**YYYY-MM-DD · 提交短 SHA · 一句话**`；插入点仍在 `### 8.10` 之前。
+> 上方原有的编号条目**保持原样**作为历史现场，其内部的 `item NNN` 互引**不回改**。
+>
+> 停用原因：编号由各会话自行取「上界 + 1」，而并行分支各自读到旧上界，于是**重号与空洞同时出现**
+> （实测：现存编号条目里最大编号比条目数多出若干，且不同分支会给出同号不同事）。
+> 今后交叉引用只写 commit SHA：它全局唯一，且可用 `git merge-base --is-ancestor` 验证在主线上的位置。
+
 > Python 文档明确：`assert` 用于**内部不变量**，**不得**用于校验外部输入；
 > 且 `python -O` 会**整条移除**（连同被保护的表达式）。因此下列检查在 `-O` 下全部消失。
 
@@ -488,7 +496,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 🔴 **同一坑的第二次，且这次是机器拦住的**：我在动手前用 `grep -rn 'except AssertionError' src/ scripts/` 得到 **0 命中**，据此以为没有窄处理器；AST 守卫一跑就报出 3 条元组写法。⇒ 判"不存在某类引用"**不得依赖单次 grep**：文本匹配看不见 `except (A, B)` 这种同一语义的不同写法。本会话已两次踩中（前一次是漏看 `test_frame_averaging.py:69` 的 `pytest.raises(AssertionError)`），区别是这次把规则写成了测试而非靠人复查。
 
-> 🔴 **`--max_peak` 不要动。** 它在 **optimizer**（`slm_zernike_pib.py:1585-1605`），不在驱动（行号 2026-10-20 复核，原 `:1456-1474`；`1ce4717a` 常量收敛后整体 −1）；
+> 🔴 **`--max_peak` 不要动。** 它在 **optimizer**（`slm_zernike_pib.py:1745-1755`（行号 2026-10-28 复核；原 `:1585-1605`，#44 三步闭包上提与 `# policy:` 标记逐次下移；区间右界取该告警调用的闭合行）），不在驱动（行号 2026-10-20 复核，原 `:1456-1474`；`1ce4717a` 常量收敛后整体 −1）；
 > 且其 CLI 帮助与 archive R-57 **明文声明它不是安全联锁**（"NOT a safety interlock"，
 > 只拒绝提交下一轮更新，光已出）。把它搬进驱动等于把**策略**伪装成**机制** ——
 > 与 TODO 里 R-57 的结论直接冲突。
@@ -593,12 +601,12 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 6. ✅ **BLE001 `gui` 片（原列 27 处 silent）逐处读上下文 ⇒ 26 处正确「不动」；删 1 处死代码；并暴露本判据的盲区**（2026-10-24）：
    26 处的正确性理由分五类，与 `drivers` 簇同源：**清理陈旧的尽力 close**（`multi_slm_controller.py:639`
-   自带注释 "Ignore errors when cleaning up stale state"、`slm_calibration_ui.py:133/179` 重连前先关旧设备、
-   `r50_single.py:110`）、**重试循环**（`r50_voltage_send.py:111` `_send_with_recovery`：吞单次失败后重试，
-   整体成败由返回值交给调用方）、**上报动作本身的失败**（`ccd_analyzer.py:292/314` 是包住
+   自带注释 "Ignore errors when cleaning up stale state"、`slm_calibration_ui.py:134/182` 重连前先关旧设备、
+   `r50_single.py:111`）、**重试循环**（`r50_voltage_send.py:111` `_send_with_recovery`：吞单次失败后重试，
+   整体成败由返回值交给调用方）、**上报动作本身的失败**（`ccd_analyzer.py:297/321`，数字钉的是下面两个**调用行**而非 `except` 行——后者在本文件里文本全同，按内容无法定位）——这两处是包住
    `raw_frame_queue.put(("error", …))` 的**内层**护栏 —— 外层已把错误送进队列；`r50_voltage_send.py:395/402/420`
-   同理包住 `feedback_q.put`）、**探测降级**（`bench_settings.py:1390/1399` `detect_camera_pixel_um` 回落
-   `KNOWN_CAMERA_PIXEL_UM` 型号表，外层打 debug 并显式 `return None`，注释已写明"探测失败不是错误"）、
+    同理包住 `feedback_q.put`）、**探测降级**（`bench_settings.py:1489/1491`，数字钉的是两条护栏的 handler 行——旧值 1390/1399 早在本次改动之前就已落在 docstring 正文与 dict 字面量上，已按内容核验重钉）`detect_camera_pixel_um` 回落
+    `KNOWN_CAMERA_PIXEL_UM` 型号表，外层打 debug 并显式 `return None`，两条 handler 已就地写明探测失败不是错误）、
    **清理进度文件**（`zernike_response_matrix_ui.py:833`）。⇒ **一处都没改成 raise**。
    唯一真缺陷不是"吞掉测量"而是**死代码**：`gui/zernike/zernike_debug_viewer.py:392-404` 在
    `pinv_matrix = np.linalg.pinv(...)` 之后算 `np.linalg.matrix_rank(...)` 判分支、分支里算
@@ -717,7 +725,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 9. ✅ **BLE001 `src/runners` + `src/optimizer` 片（5 处 silent）⇒ 2 处真缺陷；并修掉本账本自己守卫的「扫描盲区」（§8.10 第二次）**（2026-10-24）：
    3 处不动：`runners/slm/zernike_matrix_runner.py:1377`（`finally` 里的尽力 `dev.close()`）、
-   `optimizer/wfless/slm_square_shaping.py:1807/2183`（包住 `display_ctx.update(...)` —— 显示刷新失败**不该**中断优化闭环）。
+   `optimizer/wfless/slm_square_shaping.py:1803/2180`（两处 `try` 头，包住 `display_ctx.update(...)` —— 显示刷新失败**不该**中断优化闭环。2026-10-28 重钉：原 `:1807/2183` 钉的是调用内部的参数行，随本行实参列表增删就会漂；改钉 `try` 头并对齐语义。此前 `# policy:` 标记插入使两者各 +1/+2）
    **真缺陷两处，都在闭环热路径上**：
    ① `runners/micro_drive/voltage_runner.py:_adc_worker` 用 `except Exception: pass` 吞掉 ADC 读取失败。
    不可归因的关键实测：消费端 `:381`（2026-10-25 重钉，`a05f7e3f` 在 ADC 读取路径插入退避块 +22 行，原 `:359`）只 `logger.debug("Drained {} ADC samples this cycle", …)` —— 只数**收到多少**，
@@ -784,7 +792,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     `display_data(zeros)`、`dev.close()`、`wfs.close()`）；**搜索循环里跳过读不到的候选**
     （`generate_fouriergsnet_sim_report.py:181` 遍历各候选目录找含所需键的 `config.json` —— 跳过坏候选是**控制流**，
     与 §8.9 第 5 项 ffmpeg 枚举同判据）；**逐条跳过损坏产物**（`generate_bench_twin_report.py:348`，注释已写明
-    "落盘产物损坏时只丢这一项"）；**可选设备元数据**（`probe_optical_path_validity.py:1351/1356`）。
+    "落盘产物损坏时只丢这一项"）；**可选设备元数据**（`probe_optical_path_validity.py:1356/1361`，旧行号 1351/1356 因 `717b7819` 在 136 行插入 5 行 `FLAT_DEFOCUS_EPS_RAD` 常量块而漂移，2026-10-27 复核）。
     ⚠️ 我先前怀疑 `generate_inverse_shaping_model_report.py:325` 的 `except: continue` 会**悄悄缩小发布表格的样本集**
     —— **实测否证**：行字典同时发布 `"n": len(norms)` 与 `"records": len(records)`，跳过会表现为 `n < records`，
     **归因本来就有** ⇒ 不动。另实测 `cam_exposure_range_ms` / `cam_hardware` 在两处赋值之外**全文件零引用**，
@@ -877,7 +885,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       §8.7 那张带日期的 2026-10-23 测量表**保留原数**（它记录的是当时口径）。
 
 14. ✅ **`except BaseException` 全量复核收口：实测 5 处，逐处判定正当，并把「线程边界不得收窄」钉成守卫**（2026-10-25）：
-    - **AST 实测 5 处**（不是 grep 计数）：`optimizer/wfless/slm_zernike_pib.py:1355`、
+    - **AST 实测 5 处**（不是 grep 计数）：`optimizer/wfless/slm_zernike_pib.py:2171`、
       `tools/slm/transfer/workflow.py:78`、`utils/image/hardware_utils.py:627`、
       `scripts/slm/diff_beam_capture_flat.py:68`、`scripts/slm/hw_gs_defocus_probe.py:1071`
       ⇒ §8.4 的「真风险只有 2 处」与 R-64 行的「禁改 2 处」均为当时口径，已就地重钉。
@@ -887,7 +895,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       调用方确定重抛（实测 `:77 raise error[0]`、`:1082 raise box["error"]`）——
       它们正是把「原生 SDK 调用无限挂起」变成**有界且可归因**的机制
       （后者文档还引用了仓库里那次 900 s 强杀记录）；
-      `slm_zernike_pib.py:1355` 在 `_apply_best_on_exit()` 退出清理里：异常类型与消息都写进日志，
+      `slm_zernike_pib.py:2171` 在 `_apply_best_on_exit()` 退出清理里：异常类型与消息都写进日志，
       再强制 `set_grayscale(0)` 回安全平场，内层兜底 `except Exception` 记 "SLM state unknown"
       ⇒ 不重抛但**不静默**，且宽捕获是必需的：收窄后 Ctrl-C 走不到安全态。
     - **新守卫** `test_conventions.py::test_thread_boundary_exception_capture_keeps_base_exception`：
@@ -3618,6 +3626,427 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 控制链（混合定义形态，8 项全咬）：基线恒等；A hub `NDIM_BATCH_MAP` 3→4；C hub `NDIM_BARE_MAP` 改成 `2.0`（断言类型真变、数值不变）；D 同时删两个 hub 定义 ⇒ 报"有使用无定义"且**两个名字都列出**（我另跑探针确认工具不是只报第一个，之前的单元素是我脚本漏还原造成的）；F 在消费方另建同名定义 ⇒ 判"重复定义"；L1/L2 分别把两个本地常量抬走；B 把两处 `<=` 改成 `<`。
 - 验证与回归：8 个计划替换点全部由 ruff 真实命中；AST 恒等 `True`；分组校验正向 OK；`py_compile` 通过；`ruff check .` 全仓归零。回归按同一执行形态与改前基线逐位比对：`tests/ao_shaping/ml/sim2f` 维持 **300 passed / 6 skipped**（守卫条数未变，故数量必须不变才算可比）。消费面静态证据：全仓只有 `tests/ao_shaping/ml/sim2f/test_bench.py` 导入 `ml.sim2f.bench`，`scripts` 下无消费者，故 scripts 分片不受本批影响。
 - 覆盖账（实测）：目标文件 10 → 2；`src` 全域 616 → 608（差值 8 与提升点数一致）。
+
+125. ✅ **#173 续批：`scripts/slm/generate_hw_defocus_zernike_report.py` 的 24 → 18，本批的实质是"分组边界"而不是提常量**（2026-10-27）
+- 这个文件的 9 个 `2` 里只提 6 个。六个的共同点是**二元组的分量个数**：409/823/838 用 `len(value) != 2`（多一个分量就算数据损坏），590/612 用 `len(value) < 2`（只读前两个分量），415 用 `len(shape) == 2`（`(h, w)` 窗口元组）——六处的消费方式都是 `v[0]` 与 `v[1]`（411/593-594/615-616/826/841 行可直接核对），所以那个 2 回答的是同一个问题，归为 `_PAIR_ARITY = 2`。
+- **刻意不提的 3 个 `2`**：425 `len(clusters) < 2`、429 `len(values) < 2`、2741 `len(pts) < 2`——它们问的是"证据够不够"（至少两簇才能比对、至少两个值才能算离散度、至少两点才能拟合斜率），与"元组有几个分量"无关，且各自只出现一次。提了就是造假单源。留在字面量这件事是**机器把守**的：控制 G 把 HEAD 417 行（就是那条"至少两簇"）扫进 `pair` 组，组校验立刻判红 `expected line not found: if len(clusters) < _PAIR_ARITY:`。
+- 控制链（单项本地常量形态，全部咬且退出码正确）：基线 proof=0 / group=0；L 把 `_PAIR_ARITY` 改成 3 ⇒ proof=1；B 把一处 `!=` 改成 `<` ⇒ proof=1；G（上面那条分组边界）⇒ group=1；N 把组名换成目标里不存在的 `_TUPLE_LEN` ⇒ group=1。每项之前都先还原，`finally` 再还原并复验逐字节一致。124 修好的退出码语义在这里立刻兑现：以前这些变异只改 stdout、退出码恒 0，控制断言根本立不住。
+- 本批**我自己的两个校验错误**（比代码更值得记）：一是在 lift 之后按**旧行号**去 grep 保留项——插入 6 行常量块会让后续行号整体下移，于是结果为空，差点被当成"保留项没了"；二是用 ruff 的 JSON 输出核对剩余字面量时，我按单引号匹配 `'2'`，而 ruff 的消息实际用反引号包字面量（`` consider replacing `2` ``），过滤条件永不命中，于是打印出 `value-2 findings left: 0` 这个**假结论**。两者同属"检查器静默空转"这一类：空输出既能来自"确实没有"也能来自"查法错了"。修法是把预期写成正向断言而不是眼看为空——现在按反引号匹配后得 `value-2 findings left: 3`，并且逐值合计 18 与 24 − 6 一致。
+- 验证：6 个计划替换点全部由 ruff 真实命中；AST 恒等 `True`（proof 退出码 0）；分组校验 OK；`py_compile` 通过；`ruff check .` 全仓归零。回归按 CI 执行形态与改前基线逐位比对：`tests/ao_shaping/scripts` 维持 **2556 passed / 65 skipped**。
+- 覆盖账（实测）：目标文件 24 → 18；`scripts` 全域 501 → **495**（−6 与提升点数一致）。
+
+126. ✅ **并行 lane 把 master 的两个 CI 硬门禁推红了：修掉 4 条 ruff 项，其中 2 条是真运行时缺陷（`UnboundLocalError` / `NameError`），并恢复 transfer CLI 的 stdout 输出契约**（2026-10-27）
+- 背景必须记清：本批不是 #173 批次，而是 rebase 时撞上的现网故障。并行 lane（`a529d495` WIP 全量提交 + `bec67c67`/`d243b245` 的 issue #56 print→loguru 机械替换 + `67b16ff3` provenance 登记）落到 master 后，**Ruff 门禁连续两次 `completed failure`**（`67b16ff3` 与我 rebase 后的 `60932f75`），tools 分片也出现 1 个失败。
+- 4 条 ruff 项：`scripts/slm/render_multishape_process_gifs.py:1` E401（`import os, sys, glob, pickle` 拆成 4 行）；`transfer/response.py:96` F821 `phasejson`；`transfer/workflow.py:400` F823 `logger` 未赋值先用；`tests/ao_shaping/scripts/test_multishape1200_report.py:19` RUF100 死 noqa（该文件路径已被 per-file-ignores 豁免 E402，行内 `# noqa: E402` 因此名不副实）。
+- **F821 是真缺陷而不是风格**：外来 diff 显示原代码是 `print(\n    json.dumps(`，机械替换时把循环变量名 `phase` 粘进了函数名，变成 `phasejson.dumps(...)` ⇒ 该分支一执行就 `NameError`。修回 `json.dumps`，与同文件 17/97 行一致。
+- **F823 同样是真缺陷，且影响 5 条 CLI 分支**：`main()` 内在第 443 行写了局部 `from loguru import logger`，按 Python 作用域规则 `logger` 于是成为整个 `main()` 的局部名，而 400/410/419/434/438 五处使用都在它之前 ⇒ `UnboundLocalError`。我用 AST 取证列出这两组行号，并在 master 原状上复现了失败：`UnboundLocalError: cannot access local variable 'logger'`。模块级第 3 行本来就导入了同一个 loguru 单例，删掉局部导入即可（`sys` 模块级没有，故局部 `import sys` 保留）。
+- **治愈该测试还暴露出第二层契约破坏**：`test_default_cli_only_prints_plan_and_creates_no_session` 断言 `"CCD_anchored_blocks" in result.stdout`，而 loguru 默认 sink 是 stderr ⇒ stdout 为空。第 440-441 行注释本来就写着"keep INFO on stdout"，但只在执行分支里配置了 sink。修法是按根因把 sink 配置提到 `main()` 开头覆盖所有分支（原注释随之移位，不是新增叙述），并把执行分支里重复的三行删掉。
+- 验证：`ruff check .` 重新归零；4 个改动文件 `py_compile` 通过；`test_transfer_workflow.py` **29 全绿**（改前该文件 1 失败）；tools 全套从 `1 failed, 1106 passed, 5 skipped` 变成 **1107 passed, 5 skipped, 0 failed**；`-k multishape` 子集 59 passed / 1 skipped。transfer 测试里 `stderr` 只用作断言失败时的错误上下文，sink 移位不会反向破坏。
+- **顺带查明该机械替换的系统性风险**（留给后续批次，不在本批动）：loguru 的消息按 `str.format` 语义处理，`print("msg", value)` 被替换成 `logger.info("msg", value)` 时，消息里没有 `{}` 占位符就会**静默丢弃** value——我扫了该 lane 触及的 249 个 py 文件，得到 **20 处**这种嫌疑（多为脚本输出路径、VERDICT 行）。249 文件全部 `py_compile` 干净，所以问题只在语义层。
+- **既有失败必须与我的改动切割清楚**：scripts 分片从基线 2556 passed / 65 skipped（0 失败）变成 **28 failed / 2571 passed / 67 skipped**。对照实验：把我的 4 处修改 `git stash` 后再跑同一子集，结果**仍是 28 failed / 366 passed / 7 skipped，逐条相同** ⇒ 全部由并行 lane 引入，不是本批造成。按文件归组：`test_hw_gs_defocus_probe_groups.py` 7、`test_hw_gs_square_scans.py` 6、`test_term_gate_enforced.py` 5、`test_run_hw_sweep_groups.py` 3、`test_build_hw_sweep_plan.py` 2、`test_archive_hw_defocus_round.py` 2，另 3 个文件各 1。前 22 个是同一机制——脚本的 dry-run / plan 输出是**被机器解析的产物**（测试断言 `--plan-commands`、行数 `== 53`、字段 `最大边长`），换成 loguru 后既进了 stderr 又带时间戳前缀，解析面变空串；后 6 个属术语/守卫类，需单独定因。
+- 覆盖账：#173 计数不变（本批不做魔法数值），`src` 612 / `scripts` 500 是外来 WIP 后的现值（我 125 批末为 608 / 495）。
+
+127. ✅ **术语门禁自己被 issue #56 的机械替换改坏了：它不再 stdlib-only，也不再把结论写在 stdout —— CI 的 Terminology gate 因此红，5 条守卫测试因此红**（2026-10-27）
+- 归因是用 CI 日志做的，不是推测：run `40494363227`（`e9b1df26`，master 分支）里 `Terminology gate` 失败，job 日志只有两行有效信息——`python3 scripts/_common/term_unify_20261016.py --check` 之后是 `ModuleNotFoundError: No module named 'loguru'`，`##[error]Process completed with exit code 1`。而 `ci.yml:33-37` 的注释早就写明这个 job 的成立前提：**"Stdlib-only, so no uv and no container"**，它不装任何依赖。
+- 一次编辑同时打断两个契约。其一：**启动期零第三方依赖**——`from loguru import logger` 在 runner 上直接崩，exit 1；本地因为装了 loguru 反而"看起来是绿的"（我的 TERM 台阶阶只看 stdout 文本，从没查退出码，这也是为什么这条红在本地完全不可见）。其二：**结论写在 stdout 才是被机器回读的面**——loguru 默认 sink 是 stderr，于是 `test_term_gate_enforced.py` 里断言 `proc.stdout` 含 `合计: 0 个文件, 0 行` / `术语门禁未通过` / `1 个文件` 的 5 条测试全部失败。
+- 修法是把该脚本改回它本来必须的样子：删掉 loguru 导入，4 处 `logger.info` 恢复成 `print`（issue #56 自己的 diff 就显示了原样，逐字对齐），并在输出块留一条不变量注释说明"stdout 是故意的：CI 用裸 python3 且不装依赖，守卫测试从 stdout 回读"——没有这条注释，#56 的下一轮扫描会把我刚修好的崩溃重新引入。
+- **两条新守卫是先写、先看红、再修的**（TDD 顺序自带有效性证据）：`test_the_gate_is_stdlib_only` 用 AST 只查**模块级** import（函数内的延迟 import 不会在 CI 那次调用里加载，故不算破坏，注释里写明了这个边界），报出的就是根因文本 `the terminology gate now imports ['loguru'] at module level`；`test_the_gate_runs_without_site_packages` 用 `[sys.executable, "-S", ...]` 真实跑一遍 `--check`，`-S` 关掉 site-packages，等价于 runner 的环境——我在本地正是用同一手法复现了 CI 崩溃。
+- 控制与复验：修复后 `oxpy python3 -S scripts/_common/term_unify_20261016.py --check` 退出码 **0**（修复前同一命令复现 `ModuleNotFoundError`）；`test_term_gate_enforced.py` 从 **5 failed / 6 passed** 变 **13 passed**。非空转种植在修复后的树上做：把 `from loguru import logger` 加回去，两条新守卫各自单独变红（`-k=stdlib_only` 与 `-k=without_site_packages` 各 `1 failed, 12 deselected`），还原后 `cmp` 逐字节一致并 13 全绿。`ruff check .` 全仓归零。
+- 分片账：`tests/ao_shaping/scripts` 失败数 **28 → 23**，减少的正好是这 5 个。剩下 23 个按根因分两类，已立项：**22 个**是同类机制的另一半——脚本的 dry-run / plan 输出是被机器解析的产物（测试断言 `--plan-commands`、命令行数 `== 53`、字段 `最大边长`），换成 loguru 后既进 stderr 又带时间戳前缀，解析面成了空串（`test_hw_gs_defocus_probe_groups.py` 7、`test_hw_gs_square_scans.py` 6、`test_run_hw_sweep_groups.py` 3、`test_build_hw_sweep_plan.py` 2、`test_archive_hw_defocus_round.py` 2、`test_path_blocked_preflight.py` 1、`test_compare_sim_vs_hw.py` 1）；**1 个**是 `test_common_helpers_not_reintroduced.py::...[_fmt]`——`scripts/slm/generate_multishape1200_report.py` 里重新出现了 `def _fmt`，违反已抽出 helper 的单源契约（`scripts/_common` 的 fmt_metric / fmt_ratio / fmt_general / fmt_fixed / fmt_signed）。两类都与本批改动无关，用 stash 对照证明过。
+- 顺带记一个我自己的操作失误（有代价，必须留痕）：做 SHA 对照实验时我执行了 `git checkout master`，把本 worktree 切到了本地陈旧的 `master`（`0bab7230`，10-23），它不含我最近的提交。远端 `origin/master`（`e9b1df26`）与我的工作分支 `refactor/191-provenance-keys` 都完好，复位后 `HEAD == origin/master`、`dirty=0`。**规则**：这个 worktree 里不要 `git checkout master`——本地 `master` ref 陈旧且归其它 lane 推进，做对照实验要用分离 HEAD 或直接引用提交号。
+
+128. ✅ **同一 lane 的第二半：6 个脚本把"stdout 即产物"改成日志后，22 个测试失败——用精确反向应用修回，而不是手改 56 处**（2026-10-27）
+- 受影响文件：`hw_gs_square_scans.py`、`hw_gs_defocus_probe.py`、`run_hw_sweep_groups.py`、`build_hw_sweep_plan.py`、`archive_hw_defocus_round.py`、`compare_sim_vs_hw.py`（`b3c6a51d` 在它们上一共 62 增 / 56 删）。这些脚本的 dry-run 计划、命令清单、对照表**本身就是被机器消费的产物**，不是一条日志。
+- 三种症状面都出现，且第三种最反直觉：(1) 子进程测试断言 stdout 含 `最大边长` / `去倾斜` / `--plan-commands` / `原子模式计划` / `预测位移` / `dz_scan` / `dz_scan_model_gs` / `演练` / `光路自检` / `仿真 vs 实测 对照尺`，stdout 成了空串；(2) `test_subprocess_prints_the_same_number_of_lines` 要数出 53 行命令，实得 0；(3) `test_dry_run_never_imports_the_driver_package` 断言 `stderr` 里不出现 `ao_shaping.drivers`——而探针**自证清白的那句** "dry-run 保证通过: sys.modules 里没有任何 ao_shaping.drivers.*" 本身就含这个字面量，loguru 把它送进 stderr，于是"没有驱动"的声明自己触发了驱动泄漏检查。
+- 修法选择是有意的：**不手改发射点**。这些脚本里 lane 一共改了 56 处，逐处判断"哪条是被解析产物、哪条是诊断"会引入我自己的臆断。先确认这 6 个文件在 `b3c6a51d` 之后**无任何后续提交**（逐文件 `git log b3c6a51d..HEAD -- <file>` 均为 0），再 `git show b3c6a51d -- <6 files>` 生成补丁、`git apply -R --check` 预检通过、然后反向应用。核验是逐字节的：6 个文件与 `b3c6a51d^` 的原样 `cmp` 全部 RESTORED。
+- 为什么不能"保留 loguru 只把 sink 配到 stdout"：`run_hw_sweep_groups.py` 有 **37 处**测试用 `capsys` 在**进程内**调用函数，`compare_sim_vs_hw.py` 也有 2 处——把 sink 配在 `main()` 里根本覆盖不到它们；要覆盖就得在 import 期改全局 sink，那会污染任何 import 这些模块的调用方。所以恢复 `print` 才是最小且不臆造的修复。loguru 语义我也实测过：`format="{message}"` 时它自带一个换行，确实能与 `print` 逐字节等价，且无额外位置参数时不会走 `str.format`（JSON 花括号安全）——但这仍然救不了进程内 capsys 这条路。
+- 顺带把一条**给 lane owner 的规则**写清楚（已发到 issue #56 评论）：对 stdout 即产出的脚本做 print→loguru，必须在 import 期配 `logger.add(sys.stdout, format="{message}")` 并重跑分片，否则一律不做；同时那 20 处"消息里没有 `{}` 却带位置参数"的写法会**静默丢值**（loguru 用 `str.format` 语义），已列清单。
+- 验证：7 个失败测试文件从 22 失败变 **323 passed / 7 skipped / 0 failed**；`tests/ao_shaping/scripts` 全量从 23 失败降到 **1 failed / 2600 passed / 67 skipped**，唯一残留是 `test_common_helpers_not_reintroduced.py::...[_fmt]`（另立 item 129）；`ruff check .` 归零；6 个文件 `py_compile` 通过；`git status` 只含这 6 个文件（无夹带）。
+
+129. ✅ **`_fmt` 在一个新生成器里重现：迁移到 `fmt_num_or_dash`（用差分实测选目标，不靠名字猜），并把该生成器登记进 MIGRATED 契约**（2026-10-27）
+- 现象：`scripts/slm/generate_multishape1200_report.py`（WIP 提交 `a529d495` 新建的报告生成器）里又写了一份 `def _fmt(value, digits=4, dash="—")`，触发 `test_common_helpers_not_reintroduced.py::test_no_generator_redefines_an_extracted_helper[_fmt]`——该 helper 早已抽到 `scripts/_common`，第二份必然与它漂移。
+- **迁移目标是差分实测选出来的，不是看名字像**。在 `digits ∈ {3,4,6}` × 取值 `None / 0.0 / 1.23456789 / -0.000123 / 1e-7 / 12345.678 / int / nan / ±inf` 的 30 个格点上逐个对比：`fmt_num_or_dash` 与局部副本 **0 处差异**（含 `None→—`、`nan→nan` 这两个最容易踩的点）；`fmt_fixed` 有 **6 处差异**（它把 `NaN→—`、遇 `None` 直接 `TypeError`）。`fmt_metric` / `fmt_ratio` / `fmt_general` 的语义更远（前者有 `|v|<1e-4` 分支、后者走 `g`/`e` 记法）。唯一如实记录的不对称：输入是**数值字符串**时局部副本会 `ValueError`，而 `fmt_num_or_dash` 输出 `1.5000`——即规范版是全函数而局部不是；本文件 10 个调用点喂的都是 float 或 `None`，没有字符串路径。
+- 改动：删掉局部定义，10 处调用改名，加 `from scripts._common import fmt_num_or_dash`；并把该文件登记进守卫的 `MIGRATED` 名单，于是它从此受三条契约把守（必须从 `scripts._common` 导入 / 必须把仓库根放进 `sys.path` / 模块级 import 必须真能解析）。守卫从 59 条变 **63 条全绿**。
+- **一次"要不要放宽守卫"的判断，结论是不放宽**：登记后 `bootstraps_the_repo_root` 立刻变红，因为它钉的是字面量 `sys.path.insert(0, str(Path(__file__).resolve().parents[2]))`，而该文件写的是 `ROOT` 变量形式。先量惯例再决定：**17 个已迁移生成器 100% 用字面量形式**（它们也各自保留 `ROOT` 变量用于其它路径，例如 `generate_pib_exit_safety_report.py` 就是 `str(ROOT / "src")` + 字面量根两行并存）。所以改文件顺应惯例，守卫不动——而且这条守卫的咬合力恰好被这次失败本身证明了。
+- 验证：`test_common_helpers_not_reintroduced.py` 63 passed；`test_multishape1200_report.py` 4 passed（报告渲染面未变）；`py_compile` 通过；`ruff check .` 全仓归零；`tests/ao_shaping/scripts` 全量 **2604 passed / 67 skipped / 0 failed**。
+- 收口账：并行 lane 落到 master 后共有 **28** 个 scripts 失败，现已清零——5 个术语门禁（item 127）、22 个 stdout 产物契约（item 128）、1 个 helper 重现（本批）。CI 侧对应：`Ruff` success（item 126）、`Terminology gate` success（item 127）。#173 侧本阶段只推进了 item 125 一项（`scripts` 501 → 495，其后外来 WIP 把总数抬到 500）。
+
+130. ✅ **#173 续批：`ml/gsnet/hybrid_phase.py` 的 8 → 2，六个裸图秩消费 `ml` hub 的 `NDIM_BARE_MAP`（第 6 个消费者），两个同值规模下限留在字面量**（2026-10-27）
+- 语义：89/143/168/216/234/270 六处 `ndim != 2` 都是"输入必须是一张裸二维图"（143 还额外要求方形），与 116 收敛的约定同族 ⇒ 直接复用 `ml.sim2f.config.NDIM_BARE_MAP`，不新建别名。这也在守卫管辖之内：122 把扫描面扩到整个 `ml` 包之后，在 `gsnet` 里另写一份同名秩会当场变红——复用不再靠我记得去查重复。
+- **刻意不提 2 处**：第 42 行 `residual_grid < 2` 与 `radius_px < 2` 问的是"网格至少几格 / 半径至少几像素"，是规模下限，不是秩；且报错文本已自带 `residual_grid >= 2 and radius_px >= 2`。它们与 `NDIM_BARE_MAP` 同值不同义，合并就是造假单源（与 item 125 的 `len(ladder) < 2` 同一类陷阱）。
+- 跨包边界仍按**包作用域**这条规则：`ml.gsnet → ml.sim2f.config` 在 `ml` 包内，合法（同 122/123）；`utils.image.ranks.py` 那个 hub 属 `ao_shaping` 包，不能跨过来共用（121/120 定的边界）。成环这次**没有**再用静态 import 图（123 那次它因父包前缀展开报过假警报），直接走实证：`config.py` 无 intra-ml import、`sim2f/__init__.py` 零 import，并在带 torch 的 CI 环境里真收集了一次 `test_hybrid_phase.py`（11 条）⇒ 新边不成环。
+- 守卫（`tests/ao_shaping/ml/sim2f/test_rank_constants_single_source.py`）消费者名单 5 → 6（加入 `gsnet/hybrid_phase.py`），测试仍 5 条。两个种植各咬一面：在 `hybrid_phase.py` 里再声明 `NDIM_BARE_MAP = 2` ⇒ **2 条红**；登记为消费者却不再引用（改成字面量）⇒ **1 条红**；还原一律备份 + `cmp` 逐字节。
+- 控制链（纯 hub 形态，6 项全咬且退出码正确）：基线恒等；A hub `2→3`；C hub `2→2.0`（类型变、数值不变）；D 删 hub 定义 ⇒ 报"有使用无定义"；F 在消费方另建同名定义 ⇒ 判"重复定义"；B 把两处使用改成 `!= 3`；分组反向 G 把保留的 42 行扫进 `bare` 组 ⇒ 组校验判红，顺带暴露这种改写会一路渗进报错文本（`residual_grid >= NDIM_BARE_MAP`），正是分组边界必须把守的理由。
+- 验证：6 个计划替换点全部由 ruff 真实命中；AST 恒等 `True`（proof 退出码 0）；分组校验 OK；`py_compile` 通过；`ruff check .` 全仓归零。回归按 CI 执行形态与**本批前重量的基线**逐位比对：`tests/ao_shaping/ml/gsnet` 87 passed（不变）；`tests/ao_shaping/ml/sim2f` 317 passed / 6 skipped（不变——注意这条基线从 item 124 时的 300 涨到 317 是外来 WIP 新增测试所致，若沿用旧数就会把别人的增量误当成自己的回归）；`tests/ao_shaping/scripts -k=gsnet` 52 passed。
+- 覆盖账（实测）：目标文件 8 → 2；`src` 全域 612 → **606**；全仓 1114 → 1108（差值 6 与提升点数一致）。
+
+131. ✅ **#173 续批：`algorithm/signal_processing/differentiable_shaping.py` 的 9 → 2，三种含义各自安家，并暴露出 AST 恒等证明的一个盲区**（2026-10-27）
+- 语义三分。① 3 处秩（314 `field.ndim != 2`、435 `target.ndim != 2`、439 `target.dim() != 2`）消费 `ao_shaping.utils.image.ranks.NDIM_SINGLE_CHANNEL`——该文件早已 `from ao_shaping.utils.image.target.metrics import ...`，`algorithm → utils.image` 是既有方向，不算新增依赖。② 2 处 `len(grid_size) != 2`（111/425，报错文本自带 "must be a 2-tuple"）是**元组 arity**，另立 `_GRID_SIZE_ARITY = 2`：这不是我谨慎，而是 `ranks.py` 的注释本身就写着该秩"既不是 pair 分量个数也不是最小边长，调用方不得借用"。③ 2 处 `total < 1e-12`（183/202）是"总能量数值为零 ⇒ 比值未定义"⇒ `_ZERO_ENERGY_FLOOR`，并把**未被 PLR2004 标记**的第 186 行分母 ε（`total + 1e-12`）一并归到同一定义（同一量两个家正是本批要防的事）。
+- 刻意保留 2 处（按内容核验，不按行号——125 记过行号会因插入块整体漂移）：179 行 `mask = target > 0.5`（掩膜阈值，单处）、184 行 `mu.abs() < 1e-12`（**均值退化**判据，与能量地板同值不同义，单处）。这条区分写进了 `_ZERO_ENERGY_FLOOR` 的注释，避免后来者顺手合并。
+- **本批最重要的收获是一个工具盲区**：`plr_proof_generic.py` 在校验时把被追踪的 Name 归一化回它的定义值，因此"把某使用点从名字改回字面量"在它眼里 AST 仍恒等（实测：把 186 行的 `_ZERO_ENERGY_FLOOR` 改回 `1e-12`，proof 判 `AST-IDENTICAL: True` 且 exit 0）。⇒ 恒等证明能守"定义不变/结构不变/有使用必须有定义"，**不能**守"每个点真的用了那个名字"；后者只有 group check 能做到。处置：把非 ruff 标记但语义属于该常量的点（186 行）补进 spec 的 rows，让组校验把守——复验：改回字面量 ⇒ group exit 1。这也说明 116/124 起我依赖的 group check 不是冗余装饰，而是同值场景下唯一的仪器。
+- 守卫扩面（`tests/ao_shaping/utils/image/test_rank_constants_single_source.py`）：扫描根从 `utils/image` 扩到整个 `src/ao_shaping`（122 在 `ml` 包的同型做法），`HUB` 改为 `utils/image/ranks.py`，消费者名单 3 → 4（加入 `differentiable_shaping.py`）。扩面前先证明包内只有 hub 一处 `NDIM_*` 定义。三个种植各咬一面：A 消费方再声明 ⇒ 2 红；B 登记却不再引用 ⇒ 1 红；**C 在 `optimizer` 包里另立同名秩 ⇒ 1 红**——C 正是扩面要关的盲区，扩面前它根本不在扫描范围内。测试 4 条全绿。
+- 控制链（9 项，混合形态：1 个 hub 名 + 2 个模块私有名 + 1 个非标记点）：基线恒等；A hub 秩 2→3；C hub `2 → 2.0`（类型变数值不变）；D 删 hub 定义 ⇒ "有使用无定义"；F 消费方另建同名定义 ⇒ "重复定义"；L1 `_GRID_SIZE_ARITY` 2→3；L2 `_ZERO_ENERGY_FLOOR` 抬到 1e-9；B 把 `target.dim()` 一处改成 `<`；E186 把分母 ε 改回字面量 ⇒ group 判红；G 分组反向（把 111 行的 arity 扫进 rank 组）⇒ group 判红。每项之前先还原，`finally` 再还原，`cmp` 逐字节一致。
+- 验证与回归：7 个计划替换点全部由 ruff 真实命中；AST 恒等 `True`；分组校验 OK（含 186）；`py_compile` 通过；`ruff check .` 全仓归零。回归按 CI 执行形态：`tests/ao_shaping/algorithm` **777 passed / 16 skipped**，与长期基线逐位一致；`tests/ao_shaping/utils` 出现 1 失败 `test_recorder_keys.py::test_call_sites_spell_keys_as_constants`——**用 stash 对照证明与本次改动无关**（把我的 2 个文件 stash 后同样失败，`1 failed, 18 passed` 逐条一致），它是外来 `feat/130-recorder-keys-callers` 带入的既有失败，列为 item 132。
+- 覆盖账（实测）：目标文件 9 → 2；`src` 606 → **599**；全仓 1108 → 1101。
+
+132. ✅ **收口 master 上最后一个既有失败：两个新脚本把 recorder key 写成裸下标字面量，迁到 `RECORD_IMAGE` 常量**（2026-10-27）
+- 失败是 `tests/ao_shaping/utils/test_recorder_keys.py::test_call_sites_spell_keys_as_constants`，在 item 131 已用 stash 对照证明与我的改动无关（来自外来 `feat/130-recorder-keys-callers` 合并）。两个 offender：`scripts/ml/diagnose_sim2f_optical_scale.py` 与 `scripts/ml/validate_sim2f_vs_hw_corpus.py`，各一处 `payload["_img"]`。
+- 修法是最小迁移：每个脚本加 `from ao_shaping.utils.io.recorder_keys import RECORD_IMAGE`（`RECORD_IMAGE = "_img"` 是该键的唯一定义点，仓库里已有 6+ 个脚本按此惯例），下标处改用常量。改动面恰好每文件 +2/−1，且核验过两文件**都不带 BOM**、读写没有改动编码（守卫特意提过仓库里有一个带 BOM 的脚本，故这一步不是多余）。
+- 这条守卫自身带非空转自证（`test_the_key_position_scan_actually_bites` 种植四种位置形态并要求恰好命中三个键；`test_the_redeclaration_scan_actually_bites` 钉再声明），所以我没有另加控制——扫描器已经在咬。它覆盖 key 的四种书写位置（下标、dict 字面量键、`.get(...)` 首参、`in` 两侧），并排除 docstring 里的散文提及。
+- 验证：`test_recorder_keys.py` 从 `1 failed / 18 passed` 变 **19 passed**；`tests/ao_shaping/utils` 从 `1 failed / 1489 passed / 4 skipped` 变 **1490 passed / 4 skipped / 0 failed**；两文件 `py_compile` 通过；`ruff check .` 全仓归零。这两个脚本无测试消费者（只被 `scripts/_common/provenance.py` 与 `scripts/README.md` 引用），故没有额外分片需要重跑。
+- **收口账（本会话在 master 上看到的失败已全部清零）**：`tests/ao_shaping/scripts` 2604 passed / 67 skipped / 0 failed；`tests/ao_shaping/utils` 1490 / 4 / 0；`tests/ao_shaping/tools` 1107 / 5 / 0；`tests/ao_shaping/algorithm` 777 / 16 / 0；`tests/ao_shaping/ml/sim2f` 317 / 6 / 0；`tests/ao_shaping/ml/gsnet` 87 / 0。CI 侧 `Ruff` 与 `Terminology gate` 均 success。本批不涉及 #173 计数（PLR2004 无变化）。
+
+133. ✅ **#173 续批：`optimizer/wfless/slm_model_in_loop.py` 的 13 → 9，提两对同含义阈值，拒掉四处同值不同义的 `2`**（2026-10-27）
+- 提的 4 处只有两组。`0.9`（1854/2034）是同一个量：`decision.peak_fraction` 的饱和判据——同一个数既决定"初始曝光已经在削顶"，也决定"提议改曝光可以被拒绝，因为受限的不是传感器"⇒ `_SATURATION_PEAK_FRACTION`。`0.001`（2035/2046）是**逐字相同的谓词** `abs(decision.next_ms - actual_ms) < 0.001` 出现两次 ⇒ `_EXPOSURE_MATCH_TOL_MS`，注释写明它是与驱动**读回值**比较的容差（曝光不可能精确相等，落在窗口内即视为已生效），与任何光学/指标阈值无关。
+- **拒掉的 9 处逐一留痕**：四处 `2` 分属四个问题——1072 `probe_count < 2`（最少探针数）、1113 `region < 2`（最小 region）、1520 `index < 2`（Zernike 下标界）、2547 `out.ndim != 2`（数组秩）。2547 仍**不**跨包借 `utils.image.ranks` 的 `NDIM_SINGLE_CHANNEL`，理由就是 item 121 定的包边界：为了一个点把 image 的秩 hub 拉进 `optimizer` 会把一个有文档的作用域无谓扩大。其余单点也留字面量：1085 `probe_spread < 3.0`、1823 `>= 250`、1872 `< 10.0`、2203 `target > 0.5`、2298 `< 1e-9`。
+- 关键的一条**在注释里预先挡住**：1823 的 `250` 是特定相机（`daheng`）的原始满量程读数，不是 peak fraction——`_SATURATION_PEAK_FRACTION` 的注释直接写明"它是峰值比例，不是 ADU 计数，下面那个 250 之所以留字面量是因为问的是某台相机的满量程"。这类同族不同量的阈值最容易在后续清扫里被顺手合并。
+- 控制链（4 项，模块私有常量形态）：基线恒等；L1 `_SATURATION_PEAK_FRACTION` 0.9→0.95 ⇒ proof 判红；L2 `_EXPOSURE_MATCH_TOL_MS` 0.001→0.0005 ⇒ 判红；B 把一处 `>=` 改成 `>` ⇒ 判红；G 分组反向（把 1854 行标成 `tol` 组）⇒ group 判红 `literal '0.001' absent`。每项前还原、`finally` 再还原，`cmp` 逐字节一致。
+- 验证与回归：4 个计划替换点全部由 ruff 真实命中；AST 恒等 `True`；分组校验 OK；`py_compile` 通过；`ruff check .` 全仓归零。消费面定向基线不变：`tests/ao_shaping/optimizer/wfless/test_slm_model_in_loop.py` **130 passed**（改前后同一数字）。本批不涉及 `NDIM_*`，秩守卫无需改动。
+- 覆盖账（实测）：目标文件 13 → 9；`src` 全域 599 → **595**；全仓 1101 → 1097（差值 4 与提升点数一致）。
+
+134. ✅ **#173 续批：`scripts/slm/probe_optical_path_validity.py` 的 8 → 5，"离焦视为零"三处共用一个容差；振幅为零那处故意不共用**（2026-10-27）
+- 提的 3 处是同一概念"这一帧是不是平场参考"：556 `abs(s["defocus_rad"]) < 1e-12)`、557 互补的 `>= 1e-12`、599 `is_flat = abs(...) < 1e-12`——同一判定在筛分与逐帧两处各写一次，且 556/557 必须严格互补，两处字面量漂移会让同一帧在一处算平场、另一处算非平场 ⇒ `FLAT_DEFOCUS_EPS_RAD = 1e-12`（命名与该文件既有阈值块一致：公开大写 + `#:` 夹注，见 `NOISE_FLOOR_SIGMAS` / `SATURATION_FRACTION` 等）。
+- **刻意不提 5 处**（逐条按原文核验，不按行号）：260 `abs(amplitude_rad) < 1e-12` 判的是**振幅**是否为零（与离焦不同量，尽管数值相同）；492 `len(peaks) >= 3` 是"够不够三点拟曲率"；496 `int(mask.sum()) >= 3` 是"掩膜里够不够三像素"；572 `len(groups) >= 2` 是"够不够两组做合并"；1004 `len(parts) != 2` 是 `"x,y"` 的 arity。五者各只出现一次且含义互不相同。
+- 这条切分是**机器把守**的：控制 G 把 255 行（振幅判据）标进 `flat` 组，组校验判红 `expected line not found: if abs(float(amplitude_rad)) < FLAT_DEFOCUS_EPS_RAD:`。容差注释里也写明"只适用于离焦轴，第 255 行判断的是振幅，是另一个量，故意不共用"。
+- 控制链：基线恒等；L1 把容差抬到 1e-9 ⇒ proof 判红；B 把 557 的 `>=` 改成 `>` ⇒ proof 判红（破坏互补性会被抓到）；G 如上 ⇒ group 判红。每项前还原、finally 再还原，`cmp` 逐字节一致。
+- 验证与回归：3 个计划替换点全部由 ruff 真实命中；AST 恒等 `True`；分组 OK；`py_compile` 通过；`ruff check .` 全仓归零；`tests/ao_shaping/scripts` 维持 **2604 passed / 67 skipped / 0 failed**（与改前逐位一致，也再次确认 master 全绿）。定向消费面 `test_probe_optical_path_validity.py` 9 passed。
+- 顺带说明为什么放弃另一个候选：`drivers/slm/santec/wavefront_correction.py` 的四处 `ndim == 2` 我**不**跨包借 `utils.image.ranks.NDIM_SINGLE_CHANNEL`——98/394 判的是 `np.loadtxt` 出来的**表**的秩，不是"裸图像平面"，把 image 域的秩名用到 CSV 表上正是该 hub 注释禁止的借用；476/590 两处虽贴合，为一个半的概念跨包引 hub 属 item 121 反对的作用域扩张。该文件真正的同义点只有 768 行同一谓词里的两处 `1e-12`（留给后续批次）。
+- 覆盖账（实测）：目标文件 8 → 5；`scripts` 全域 500 → **497**；全仓 1097 → 1094（差值 3 与提升点数一致）。
+
+135. ✅ **#173 续批：`algorithm/signal_processing/differentiable_defocus_uniformity.py` 的 8 → 4，同一个 `2` 的三重含义分开放；并抓住一次"因错误理由判红"的假控制**（2026-10-27）
+- 提 4 处：① HEAD 76 行 `len(matrix) != 2 or any(len(row) != 2 for row in matrix)` 同一判据里的两个 `2` ⇒ `_RAMP_MATRIX_SIDE`（ramp 矩阵把 `(x,y)` 面板斜坡映射到 `(dx,dy)` 相机位移，行数与每行长度是同一个数）；② 242 `total.ndim == 2` 与 458 `seed.ndim != 2` 是"裸二维图"⇒ 消费 `ao_shaping.utils.image.ranks.NDIM_SINGLE_CHANNEL`（同 131 的包与方向）。
+- 拒 4 处（按原文核验在场）：174 行两处——`xy.ndim != 3` 是**点云栈**的秩（不是 `(C,H,W)` 空间栈，绝不能借 `NDIM_SPATIAL_STACK`），`xy.shape[-1] != 2` 是**坐标分量数**；396 `len(entries) != 2` 是轴映射恰含 x/y 两项；562 `prediction.ndim == 3` 带批轴，`ao_shaping` 侧没有对应名（批轴语义在 `ml` hub 里，跨包不借）。
+- 两个提名的名字**同值不同义**（秩 vs 矩阵边长），所以分组边界就是本批的实质：`_RAMP_MATRIX_SIDE` 的注释写明"这是矩阵 arity，刻意不是数组秩常量——秩数的是图像平面的轴数，对 2×2 表什么也不说"。
+- **一次假控制被抓住（要紧的流程记录）**：我最初把分组反向控制写成 `rows["396"]` / `rows["167"]`，而 group check 按 **HEAD 快照行号**索引；lift 插了 8 行使当前行号整体后移，于是控制确实判红，但报的是 `literal '2' absent`——**因为行错位而红，不是因为边界被守住**。用正确 HEAD 行号（389 / 167）重做后，三条边界控制都因正确理由判红：`expected line not found: if len(entries) != _RAMP_MATRIX_SIDE:`、`if xy.ndim != 3 or xy.shape[-1] != NDIM_SINGLE_CHANNEL:`、以及把坐标分量数扫进矩阵组的第三种。这与 125 记的"按旧行号 grep"是同一个坑的第二次发作，只是这次发生在控制侧而非校验侧。
+- 控制链（其余项）：基线 proof/group 均 0；A hub 秩 2→3 ⇒ proof 红；L1 `_RAMP_MATRIX_SIDE` 2→3 ⇒ proof 红；B 把 `len(matrix) !=` 改成 `>` ⇒ proof 红。每项前还原、finally 再还原，两文件 `cmp` 逐字节一致。
+- 守卫：`tests/ao_shaping/utils/image/test_rank_constants_single_source.py` 消费者 4 → 5（加入本文件），仍 4 条测试；种植 A（消费方再声明 hub 秩）⇒ 2 红；种植 B（登记却不再引用）⇒ 1 红；还原后 4 绿。
+- 验证与回归：4 个计划替换点全部由 ruff 真实命中；AST 恒等 `True`；分组 OK；`py_compile` 通过；`ruff check .` 全仓归零。回归按 CI 执行形态与基线逐位一致：`tests/ao_shaping/algorithm` **777 passed / 16 skipped**（含该模块的主消费者测试）。新增 import 不构成环：`ranks.py` 自身零第三方、零 intra-包 import。
+- 覆盖账（实测）：目标文件 8 → 4；`src` 595 → **591**；全仓 1094 → 1090（差值 4 与提升点数一致）。
+
+136. ✅ **#173 续批：`scripts/ml/reorganize_debug_corpus.py` 的 8 → 0，一个文件里两组同值 `2` 各自安家（路径层数 vs 重复候选下限）**（2026-10-27）
+- 三类含义：① `classify()` 里 `len(parts) == 2` 四处（140/146/170/176）⇒ `_PATH_DEPTH_PREFIX_RUN`，② `len(parts) == 3` 两处（160/164）⇒ `_PATH_DEPTH_BATCH_PREFIX_RUN`——这两个数就是该函数 docstring 列举的语料目录形状的深度（`prefix/run` 两层、`batch/prefix/run` 三层），规则**按目录结构而非文件名**分派，所以深度是语料布局的一部分；③ `resolve_duplicates()` 里 `len(group) < 2` 与 `len(with_pkls) < 2`（299/302）⇒ `_MIN_DUP_CANDIDATES`，含义是"指向同一目标的候选至少两个才存在重复可言"。
+- ①③ 与 ② 都用到 `2`，但问的是完全不同的事；三处常量的注释彼此指认了这个区别（路径深度注释明说"它们与 `resolve_duplicates` 里那个恰好同为 2 的候选下限不是一回事"，后者注释反过来也写"与路径深度无关"）。这类互指注释是同值族最省事的防误合并手段。
+- 控制链（7 项）：基线恒等；L1 深度 2→4、L2 深度 3→4、L3 重复下限 2→3 各使 proof 判红；B 把 `len(group) <` 改成 `<=` 判红（这会真的改变行为——两个候选时就不再仲裁了）；三条分组反向控制里，299→`nest2` 与 140→`dup` 因 `expected line not found` 判红（正确理由），160→`nest2` 则因 `literal '2' absent` 判红——即"把值为 3 的点标成深度 2 组"在**取值匹配**阶段就被拒，同样是有效拦截，只是理由不同，如实记录以免后来者误读。所有控制的 HEAD 行对齐都先断言过该行确实含 `len(`（135 刚栽过一次行号错位的假控制）。
+- 验证：8 个计划替换点全部由 ruff 真实命中；AST 恒等 `True`；分组 OK；`py_compile` 通过；`ruff check .` 全仓归零；`tests/ao_shaping/scripts` 维持 **2604 passed / 67 skipped / 0 failed**。
+- **一条需要另立条目的观察**：这个脚本会**搬动 65 GB 语料目录**，却没有任何测试（全仓只有 `scripts/README.md` 与 provenance 引用它）。本批的安全性靠 AST 恒等保证，但"分类规则 + 重复仲裁"这类纯函数逻辑其实是本仓库最容易测的部分。#173 之外值得补一个测试条目（含 `classify` 的各形状与 `resolve_duplicates` 的边界），我已在此记账，不在本批顺手做。
+- 覆盖账（实测）：目标文件 8 → **0**；`scripts` 全域 497 → **489**；全仓 1094 → **1082**（差值 8 与提升点数一致）。
+
+**2026-10-27 · 8ed5b52b · master 上 pytest 硬门禁 8 红全部收口：根因是并行分支注册了 `slm-transfer-shapes` 却没同步清单，另挖出 2 个被前一个断言掩盖的既有红**
+- 实况：`tests/ao_shaping/test_conventions.py` 由 **8 failed / 58 passed** 变为 **0 failed / 66 passed / 1 skipped**。根因单一：并行分支的 `a529d495` 注册了新命令并更新了 `EXPECTED_COMMANDS`、`AGENTS.md` 命令树与 golden，但漏掉 `main.py` docstring（仍写 19）、README 表与正文计数、`docs/user/cli-reference.md` 的概览表与小节、以及 `gen_wiki_pages.py` 手维护的 `CMD_ORDER`/`CMD_SYMS`。五源一致性守卫与两处文档表守卫因此同时红。
+- wiki 侧：`gen_wiki_pages.py` 在登记表与 `main.py` 不一致时**主动 SystemExit**（不是静默产错表），所以补登记后整条生成链才成功执行：命令页 19 → **20 页**（新增 `commands/slm-transfer-shapes.md`），final 资产 207 节点/17 条 `cmd_entries` → **212/18**，顺带修正 3 处 wiki 引用指向 `utils/io/file.py` 非定义行的行号漂移。
+- 两个**被掩盖的既有红**：前一个断言先抛出，修掉后才暴露。(a) 生成报告 `multishape1200_20261027.md` 的对比择优表，表头是 `形状 + n kinds + 采用 = n+2` 列，而分隔行按 `(2 + n + 1)` 写了 **n+3** 列——off-by-one；修在生成器里（分隔行改为从同一 `kinds` 推导，同时消掉三处重复的集合推导）。(b) `--help` golden 缺 runner 的 `--records-only` 选项，即并行分支加阶段没刷快照。
+- 挖出一个**守卫自身的假阳性**并按窄规则修掉：围栏命令的路径语法刻意允许前导 `/` 或 `\`（否则 Windows 写法整批漏检），于是它会把 `libs/skills/slm-mil-transfer/scripts/session_review.py`（**受跟踪、且是该脚本唯一受跟踪位置**）从中间截成 `scripts/session_review.py` 判为陈旧——文档无论怎么写都满足不了。新规则只在**同一行确实写出某个以该片段结尾的受跟踪完整路径**时豁免。四面实测：正确 libs 路径与反斜杠写法通过；陈旧扁平 `scripts/session_review.py` 仍判违规；貌似合理但不存在的 `libs/skills/does-not-exist/scripts/...` 仍判违规。检测强度未放水。
+- 我撤掉了子代理的 `Join-Path` 拼接写法：它能过守卫，但那是**绕过**正则缺陷而非修复，代价是把可直读的可运行命令写成晦涩形式。真正落后的只有 SKILL.md 的 prose 内联路径一处，已改为受跟踪位置。附带发现另一处**覆盖缺口**（未擅自扩权）：内联路径守卫要求引号紧贴 `src/|scripts/|tests/`，因此 `libs/` 前缀的引用对它完全不可见。
+- 一条**机制性教训**（为何 golden 能悄悄漂移）：文档里的快照刷新配方经 CI 包装脚本无法执行——该脚本把仓库**只读挂载**且只转发固定环境变量白名单，`AO_UPDATE_HELP_GOLDEN` 既进不去也写不回。已在 harness 的 docstring 写清这一约束；未改包装脚本（往只读挂载的容器里透传任意变量只是用一个陷阱换另一个）。golden 用仓库自带的 writer 生成，与提交版只差 1 个键 1 行。
+- 诚实边界：两个生成器**无法在本 worktree 端到端重跑**（`data/debug/slm_transfer/multishape1200_20261027` 等输入未入库、`runs/sim2f_bench/session` 与 `runs/sim2f_fair` 不在），所以产物分隔行修到"与修好后的生成器对 n=3 算出的字符串逐字相同"，是**表达式等价证明**而非整报重跑；§6 产物节发射器则用产物副本做了字节级对照（重跑幂等、删除后可复原、fine 行条件正确）。
+- 并发纪律代价（下次不再这样用）：多个子代理与主会话共用一个 worktree 时，共享生成物会被交错写——`call_graph.json` 的 mtime 与 `gen_wiki_pages.py` 同为 22:28:11，而我的链式跑在 22:23:3x，一度把"读旧 raw 得 207 节点"误判成生成链逻辑矛盾；另有代理把 6 个文件 `git add` 进索引，需在提交前 `git reset` 隔离。生成物类改动必须串行。
+- 覆盖账（实测）：本批 5 个 commit（`8ed5b52b` 清单与 wiki、`4b121684` 守卫假阳性、`a89aae89` 表格列数、`6b1a3e39` §6 产物节、`44828d85` golden）。rebase 到 `83e11cbb` 后复跑：conventions 66/0、CLI 两模块 116/0、脚本侧相关 67/0；术语、报告溯源、ruff 三门禁归零。
+
+**2026-10-27 · f86b669e · issue #200 与 #206：设备互斥的进程树断言与实现契约相反（容器里空真、bash 父进程下确定性失败），以及豁免表里两条理由已失效的死条款**
+- **#200 实况**：实现 `src/ao_shaping/tools/kernels/device_mutex.py:534-579` 的 docstring 把不对称写得很清楚——**祖先只沿 python 进程向上**（同一个终端可开多个会话，`cmd.exe`/`bash` 祖先启动的别的进程不算自己这条线），**后代则穿过任意中间层**（2026-10-22 那个假阳性的形态就是自己经 `cmd.exe` 起的 python 子进程被认成外人）。测试 `tests/ao_shaping/tools/kernels/test_device_mutex.py:367-375` 断的却是相反的契约：`if ppid: assert ppid in own`（凡非零父进程都算自己）。
+- **它在 CI 里是空真的**：`run_pytest_ci.sh` 把 `python -m pytest` 直接交给 `docker run`，pytest 是容器 PID 1 ⇒ `ppid=0` ⇒ 断言分支根本不执行。两种进程树对照实测：默认 **42 passed / 1 skipped**；`AO_TEST_PER_FILE=1`（包装脚本用 `bash -c` 当 PID 1，python 的父进程是 bash）⇒ **1 failed / 42 passed**，失败点正是第 375 行。
+- **判谁权威**：实现。裁剪规则有命名与文档、有 2026-10-22 事故依据，且 TODO 早前对同一对用例已裁定过一次（`15da456e`）；测试把契约放宽了。修的是测试：按父进程可执行文件分支——python 父进程必须在 own 里，非 python 父进程必须**不在** own 里。
+- **顺手把"空真"本身关掉**：新增 `TestAncestorsStopAtNonPython::test_a_shell_parent_is_not_claimed_as_ours`，用 `sh -c "python probe.py"` 主动造一个不可能属于 python 的中间层，断言子进程认得自己、不认 sh、也不越过 sh 去认领更上面的 python 测试进程；并带一条自我防空真断言（若构造退化就报"构造失效"，而不是静默通过）。
+- **变异对照**：把 `_is_python_process` 改成恒真（祖先永不裁剪）⇒ 新用例变红（先命中"构造失效"那条）；实现按备份 `cmp` 逐字节还原后回到 43 passed / 1 skipped。两种启动形态都绿：默认 43 passed / 1 skipped，`AO_TEST_PER_FILE=1` 44 passed。周边 `tests/ao_shaping/tools/kernels` 与 `tests/ao_shaping/scripts/test_device_lock_callers.py` 未受影响。
+- **#206 实况**：那条恒红在早前已由上游 `9857a377` 补齐文件而自行消解（`scripts/slm/generate_pib_exit_safety_report.py` 与其测试现已受跟踪），**但那次事故留下的豁免条款还在**：`_QUOTED_PY_PATH_HISTORICAL` 里两条 pib 豁免的理由文本仍写着"从未提交"，而消费方在 `cited in tracked` 处短路 ⇒ 条款既不可达、又在向读者说谎。删掉这两条，并补一条**豁免有效性守卫**：每个豁免键所豁免的路径今天必须**仍然不在** git 索引里——这正是豁免成立的条件，因此它不是口味约束，路径一旦入库就必须删条款。
+- **对照**：临时种一条豁免已跟踪路径的条款（README 引 `scripts/ml/calibrate_sim2f_pupil_center.py`）⇒ 新守卫变红并点名该对；按保存副本逐字节还原后重放正式版本。conventions 套件 **66 → 67 条测试**，rebase 后复跑 67 passed / 1 skipped。
+- 未结取证：`tests/ao_shaping/tools` 分片曾出现 **1 failed / 1107 passed** 的间歇失败，我当时只 grep 了汇总行、**丢掉了失败用例名**（流程失误）；定向重复未复现（单文件 12/12 干净、邻居 4/4 干净），重跑带日志的取证排在后面。
+- 一次协议执行错误记此以免重犯：推送前我只 `git ls-remote` 取远端 SHA 却**没先 `git fetch`**，于是该 commit 在本地对象库里不存在，`merge-base --is-ancestor` 与 `rebase` 双双报"无效的上游"。FF 协议的正确顺序是 **fetch → 取 SHA → 判祖先 → rebase → 复跑门禁 → push**。
+- 覆盖账：`f86b669e`（#200 测试对齐契约 + 确定性用例）、`b9ea3f59`（#206 死条款清理 + 豁免防腐守卫）。
+
+**2026-10-27 · 01912ab5 · issue #203 浅克隆把 CHANGELOG 引用守卫 71/71 推红；runners 分片里一条把"git 无法回答"误报成"未跟踪"的守卫；#174 盲捕棘轮上线**
+- **#203（`01912ab5`）**：`pytest.yml` 用 `actions/checkout@v4` 但没写 `fetch-depth` ⇒ 默认 **depth=1 浅克隆**，对象库只有 HEAD。该 job 跑 `test_conventions.py::test_backticked_hex_citations_in_the_changelog_resolve_to_commits`，它逐条 `git cat-file -t <hash>`，浅克隆下 71 条引用**全部**走 "no such object" 分支 ⇒ 每次运行确定性红，而历史本身没问题。本地复现对照：完整历史 70/71 解析为 commit（其余由守卫的链接标签过滤解释）；`git clone --depth 1` 下 `git cat-file -t 0026f58` ⇒ `fatal: Not a valid object name`。只给 pytest job 设 `fetch-depth: 0`：`ci.yml` 的 ruff/术语 job 与 `ruff.yml` 不读历史，保持浅克隆不增成本；该 job 自身另有历史依赖（推理 `741ea0e5 is an ancestor of master`），同一开关一并覆盖。防退化：`test_pytest_workflow_shards_cover_tree.py` 新增 `test_ci_checkout_keeps_full_history_for_history_dependent_guards`（要求恰好一个 checkout 步骤且 `fetch-depth: 0`），控制实验删该行 ⇒ 该测试点名变红；模块 11 → 12 全绿。
+- **runners 分片的既有红（`d806fecd`）**：`test_the_new_modules_are_tracked_by_the_repository` 报"两个模块未被 git 跟踪"，但真相藏在 stderr：`git ls-files --error-unmatch` 返回 **rc=128 + "fatal: not a git repository"**——测试没设 cwd，而 harness 把容器工作目录放在 `$SCRATCH`（`-w "$SCRATCH"`），那两个路径在索引里明明存在。修法按 `test_report_provenance._is_gitignored` 的三态先例：在 `REPO` 里跑 git，**rc=1 才是真的未跟踪**（照旧失败并写出 `git add` 补救），其它 rc 带理由 skip。对照：往参数里植入一个不存在路径 ⇒ 仍明确报"is not tracked by git"；还原逐字节一致。单文件 2 failed / 5 passed → **7 passed**（默认与 `AO_TEST_PER_FILE=1` 两种形态皆绿），整个 `tests/ao_shaping/runners` 分片 **554 passed / 25 skipped**（此数在提交后实测确认，非推算）。
+- **#174 盲捕（`07e170f1`）**：实况比 issue 记载更大——全仓 **548**（`src` 363 / `scripts` 137 / `tests` 44），且 BLE001 不在 ruff `select` 里，所以它的增长此前**没有任何守卫能看见**。本轮只做**可证明等价**的三处收窄：`cli_helpers.parse_center`（body 只会抛显式 ValueError 与 `float()` 的 TypeError/ValueError，其它异常原本是解析器自身的 bug，却被洗成用户可见的用法提示）、`io/file.py` 的数组探测（`np.asarray` 对 ragged/不可构造只抛 ValueError/TypeError）、`target_func.py` 的高斯 σ 拟合（`curve_fit` 失败是 RuntimeError，输入不合是 ValueError/TypeError）。其余绝大多数是**有意兜底**（可选驱动特性、带默认值的探测、"丢一张图不该丢整轮"），在 lint 计数压力下改写等于把错误处理变成猜测，因此本轮不动；`scripts/` 按既定边界不特意修。
+- **棘轮的口径选择是要紧处**：计数用 **AST** 而不是 ruff——测试镜像**不装 ruff**，任何基于 ruff 的计数恰好会在真正把关的那个 job 里 skip。AST 口径排除"纯重抛"（与 BLE001 自身的豁免一致），故与 ruff 可比（今日 382 vs 363）。同时给"找到的数量"设**下限 ≥100**，防止遍历/解析退化后以"零违规"通过。382 是待办队列上限，不是可接受值；上调必须在 §8.9 记理由。
+- 一条会被反复踩到的连带关系：**改动被 call-graph wiki 引用行号的源文件，会把 `test_wiki_source_citations_land_on_definitions` 推红**（本轮三处收窄就触发了）。正规修法只有重生成链 `build_call_graph → finalize_graph → gen_wiki_pages`（本轮只动 1 页 + 2 个资产），不是手改产物。
+- 顺带一条已消解项的实证：**#202 的跨机金标问题已在树内修好且证据成立**——宿主机产出的 `gs_refine_target_shapes_golden.npz` + `rtol=1e-4/atol=1e-6`（`3e285e21` 入库）在**当初翻车的 CPU 容器镜像里 48 passed**。
+- 门禁与回归：conventions **68 passed / 1 skipped**（67 + 棘轮）；`tests/ao_shaping/algorithm` **777 passed / 16 skipped** 与基线逐位一致；`tests/ao_shaping/utils` 1490 passed / 4 skipped；术语、报告溯源、ruff 三门禁归零。
+
+**2026-10-27 · f67b8c89 · issue #44 第一步：`slm_zernike_pib` 实测 1311 行，先上提三个几乎不捕获状态的闭包**
+- 实测规模（比建档大）：`optimize_slm_zernike_pib` = **1311 行**（issue 记 ~900），函数体是一个 **1119 行 `with cam/slm/display` 块**，内含 **10 个嵌套 def**。闭包规模决定不能一次拆完：`_run_spgd` 374 行/21 自由变量、`_prepare_geometry` 204/15、`_apply_best_on_exit` 112/17、`_run_heuristic` 129/16、`_log_row` 66/10、`_on_evaluate` 47/10、`_debug_report` 26/15，只有 `_evaluate_candidate` 28/4、`capture_blaze` 7/3、`to_gray` 6/2 属于"行为等价可由构造保证"的范畴。
+- 本步只上提后者三个到模块级：`_capture_blaze(cam, slm, camera_config, phase)`、`_phase_to_gray(slm, phase, blaze_choice)`、`_evaluate_candidate(session, shaping, objective, last_eval, coeffs)`。第三个还把原先闭包捕获的 scratch 字典 `last_eval` 改为显式入参（写入方与事后钩子读取方在调用点可见）。所有调用点文本与参数形状不变：本地用 `functools.partial` 重绑，`select_blaze` / `BenchSession(to_gray=...)` / 启发式引擎拿到的仍是同样的单参可调用。
+- 结果：入口 **1311 → 1270 行**，嵌套 def **10 → 7**，模块级具名 helper +3。
+- **回归口径必须按 per-file**：`optimizer` 整棵在单进程下会被 SIGKILL（exit 137，即 #198），基线与改后同形态才可比。实测改前改后指纹**逐位一致** `{53 files, 994 passed, 2 skipped, 0 failed}`；另 `runners` 554 passed / 25 skipped、conventions 68 passed / 1 skipped（含 wiki 行号守卫）。
+- issue 强调的"字段名不能含糊"**结构上已满足**：`_PibGeometry` 的 docstring 直接点名 `reset_window` 全帧坐标 vs 下游指标所需窗口局部坐标这一反模式，字段按两种坐标系命名。缺的是 `_prepare_geometry` 仍嵌在入口函数里。
+- 剩余阶次（每阶可独立验证）：① 先造 run 上下文状态对象（承载 `session`/`shaping`/目标权重/历史缓冲），这是把 21 与 16 自由变量的两个循环搬出闭包的前置条件；~~② `_prepare_geometry` → 模块级~~（**已由 `2ee69348` #44 第二步完成**：上提到模块级，经新增 `_PibGeometryInputs` 冻结记录承载 16 个入参 + 4 个"读后写"的 `center`/`target_size`/`target_center_smooth`/`r_bucket`，入口 1270→1091 行、嵌套 def 7→6）；③ `_run_heuristic` → `_run_heuristic(state, config)`，再 `_run_spgd` 并把"采样/打分/门控/记录"分段；④ `_apply_best_on_exit` 与 `BenchSession` 边界是硬件安全退出落点，与 #145/#45 的 try/finally 契约耦合，**不在无硬件窗口里顺手改语义**。
+- 同批消掉一处会挡后续重构的既有红：`runners` 分片里 git 索引守卫未设 cwd，把 rc=128 "not a git repository" 误报成"未跟踪"（`d806fecd`）。
+
+**2026-10-28 · 跟进上游 `2ee69348`（#44 第二步）· 6 处被引用行号重钉（纯 `.md`，零运行时改动）**
+- `2ee69348`（#44 第二步，纯重构）把 204 行 `_prepare_geometry` 闭包（原嵌在入口 L918）上提为模块级 `def`（新 L733），经新增冻结记录 `_PibGeometryInputs` 承载 16 个入参 + 4 个"读后写"的 `center`/`target_size`/`target_center_smooth`/`r_bucket`；入口 `def optimize_slm_zernike_pib` 由 L692 移至 L954，文件 1961→2044 行。模块级 L~694 以下 +83，故入口体内所有被钉行号统一 +83，几何段 2 处重定位到模块级。
+- 重钉对照（`2ee69348^` → `2ee69348`，`awk index` 逐锚点实测，非推算）：`except BaseException as _exit_exc`（`_apply_best_on_exit` 退出清理，旧钉漂移）→ 新钉见 追记；`--max_peak` 门控块（旧窗整体下移）→ 新钉见 追记（`if config.max_peak > 0.0` 句头 + 其注释）；re-locate `else zero_order_center(init_img)` → 模块级 **L869**、r-bucket `r_bucket = ImageTargetFunc(...).radius(` → 模块级 **L916**（AGENTS 反模式行，原 L1396/L1441 失效）；ABBA 探针 `shaping.set_reference_center(pos_center)`（旧钉漂移）→ 新钉见 追记（pre_run_characterization 第 9 行）。
+- **未动**（入口体内 delta +0，实测仍命中）：`:145`（`SLM_RESPONSE_TIME_S = 0.0`）、`:580`（`def recenter`）、`:594`（`set_reference_center(self.recenter`）。另 `:235`（`ZERNIKE_APERTURE_RADIUS` 现实际在 `:184`，`:235` 仅出现在 test 文件注释里，非本仓 `.md` 行号钉，不属本次范围）与 `slm_zernike_pib.py:721`/`:814`（TODO:493，指向**已删**的 `assert`，`0026f583` 时代，标 `✅ 已删`）均非本次漂移，保留原样。
+- 每处均按既有约定：**改现行号 + 附注钉 commit 与旧值**，历史值不删。零 `provenance` 触碰、零 `.py` 改动；`git status` 仅 3 个 `.md`（`TODO.md`/`AGENTS.md`/`docs/slm/pre_run_characterization.md`）。
+- **追记（2026-10-28，rebase 收口）**：本块写入时上游尚未落 `6b879959`（#44 第三步，`_log_row`/`_debug_report` 上提）与 `2c2547b1`（`# policy:` 标记插入），故本块当时所钉（BaseException 清理 / max_peak 门控 / ABBA 探针，三处新值）已过时；现行钉以 §8.9 表与 AST 5 处清单（`:1553`、门控 `:1859-1869`，复核于 `3ce9fd4a`）与 pre_run 第 9 行（`:1946`）为准，AGENTS 反模式行 L869/L916 在两次上提后未漂移（2026-10-28 实测）。本块保留为 `2ee69348` 时点重钉的历史记录。
+
+**2026-10-27 · 1e4cd832 · #174 从"数盲捕"转为"数未判定"：27 处刻意宽捕获登记策略，棘轮拆成两档**
+- 逐条读完 `runners/slm`(11)、`config.py`(4)、`utils/`(12) 后确认：这一档**绝大多数是刻意的**——调用方提供的回调（`progress_cb`、`ui_display.update`）、可选读数（子孔径掩模、光斑偏差、光路指纹、自动曝光探针）、尽力而为的遥测（`Recorder`）、`finally` 里的末次 `close()`、以及构造边界"记录后原样重抛"。在 `drivers/` 异常分层（#145 / #45）未定义前把它们机械收窄成具体类型，等于把可用回落改成 CI 无法覆盖的硬件路径崩溃。所以本档不追计数，追**可评审性**。
+- 机制：被判定过的宽捕获必须带一行 `# policy:` 理由（位置约定：`except` 上方 2 行内，或处理器体内前 3 行）。计数逻辑收敛为单一提取器 `_blind_except_handlers_in_src()`，两档棘轮共用一次遍历——两条独立遍历会漂移，而"检查器量的不是被检查的东西"正是本文件里格式化守卫已记录过的失败模式。
+- 计数实测：盲捕总数 **382 不变**（注释改动不动语义），已标注 **27**，未标注 **355**（新上限 `_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 355`）。上限只在两种情况下下降：写下判定，或真的收窄到脱离该集合。
+- **两个方向的反空真断言**：`marked >= 20`（标记扫描若停止匹配，未标注会虚低而守卫空过）与 `marked < total`（窗口若过宽，未评审的处理器会被当成已判定）。
+- 对照验证（不是假设）：在 `src/` 下新增一个未标注盲捕 ⇒ 守卫在 **356** 变红；把一个标记拼错成 `# policys:` ⇒ 同样 356 变红（证明标记按精确 token 匹配、窗口不宽）。两次都复原并复绿。
+- 差异纯净性用机器核：`git diff -U0 -- src` 共 27 行新增，**非注释新增 0 行**；另把一处既有理由提升为标记 token，而不是再补一条重复注释。
+- 分片指纹与基线一致：conventions **69 passed / 1 skipped**（+1 即新守卫）、`runners` **554 / 25**、`utils` **1490 / 4**。
+- 插入注释会挪动被 call-graph wiki 钉行号的源文件行号，`test_wiki_source_citations_land_on_definitions` 按设计变红；正规修法是重生成 `build_call_graph.py + finalize_graph.py + gen_wiki_pages.py`。重生成后**核对差异而非信任它**：5 个 md 页共 9 行、两个图资产 98 行，**非数字漂移 0**（纯引用重钉）。
+- 顺带纠正一个取证口径：`hardware_utils.py` 的两处相机构造 `except Exception: log; raise` 在 ruff 的 BLE001 列表里**根本不出现**（ruff 对"记录后重抛"有上下文豁免；AGENTS 记的 382 vs 363 差额即来自此类），所以按 ruff 行号做锚点的批处理会漏站点——凡涉及这批计数的自动化都必须以 AST 为准。
+
+**2026-10-27 · 2ee69348 · #44 第二步：`_prepare_geometry`（204 行）上提到模块级，`nonlocal` 语义改成"入参 + 返回"（重钉见 905493ce）**
+- 可安全上提的判据是**实测**的：16 个纯输入全部在嵌套 def 之前绑定（最晚 915），def 之后无人重绑；而 `_run_spgd`(21)/`_apply_best_on_exit`(18) 的自由变量里有的是 def **之后**才绑的，那批才需要 run 状态对象。
+- **我自己的扫描器错过一次，且是在写代码之前发现的**：`local_names()` 把 `nonlocal` 目标并进"局部名"，于是该函数看起来只读。实际原 931 行有 `nonlocal center, target_size, target_center_smooth, r_bucket`，而这 4 个都是**先读调用方值再精化重绑**（`resolve_spot_center(..., center, ...)`、`if target_size is None`、`if r_bucket <= 0`）。若按普通参数上提，调用方原值会被**静默冻结**，搜索回路拿着过期的 bucket 半径继续优化——本子树**没有任何测试能抓住**这种改变。教训：**`nonlocal` 名单是外层绑定，不是局部。**
+- 处置：4 个名字同时进 `_PibGeometryInputs`（frozen）与 `_PibGeometry`（既有 frozen 记录，本就把 `center_full` 全帧与 `reference_center` 窗口局部分开），唯一调用点把精化值赋回运行作用域；`nonlocal` 语句消失。`_run_spgd` / `_run_heuristic` / `_on_evaluate` 仍各自 `nonlocal`，这正是它们还不能上提的剩余原因。
+- **函数体未被改写，逐行比对为证**：搬移块 197 行，与改前 diff = **+4 / -0**（多出的 4 行就是构造点新增的关键字参数）。刻意不把标识符限定成 `inp.x`——197 行体改写不可评审，而那正是"上提悄悄改变某行读的是哪个绑定"的成因。
+- 实测结构：入口 **1270 → 1091 行**（建档 1311），嵌套 def **7 → 6**，模块级具名对象 **12 → 15**。
+- **纠正一个我此前一直引用的错数**：旧聚合器正则漏两行小结，本子树真实基线是 **55 个文件小结 / 1081 passed / 2 skipped / 0 failed**（不是 53 / 994）。
+- 回归口径升级：per-file 模式**不打印文件名**，只比总数会漏掉"一个文件多一个用例、另一个少一个"。改为比**有序 (passed, skipped, failed) 三元组序列**：55 个位置**逐元素一致**，两条 `SKIPPED` 按文件与理由也一致。另 conventions 69/1、runners 554/25、optimizer/wf 156/1 全绿。
+- wiki 这次**无需重生成**：被钉的引用指向 runner 入口（`slm_shaping_runner.py:464`）而非 optimizer 内部，重生成产生**空 diff**（核对而非假设），行号守卫仍绿。
+- **但另一类行号引用没有守卫**（重钉提交 905493ce）：call-graph 守卫只走 `docs/dev/call_graph_wiki/**`，而 `docs/slm/pre_run_characterization.md`、`TODO.md`、`docs/issues_report.md` 里手工维护的 `path:NNN` 会**静默漂移**。本次修 6 处：`set_reference_center(pos_center)` 1787→1870；`BaseException` 退出清理 1355→1497（3 处引用）；`--max_peak` 判定点 1585-1605→**1793-1803**（区间按门控块真实边界取，不是把旧窗口整体平移）；`IDEAL_SPOT_RADIUS` 导入 108→109——**这条不是 #44 造成的**，是并行 lane `b11c4f04` 在导入块上方加了一条 `zernike_calc` 导入，归因写进注记以免下一个人去追错的改动。
+- 已知残留（有意不动）：`docs/dev/todo_archive.md` 与 TODO.md 已划删历史行里的 5 处旧钉号属历史记录，按"不覆盖旧历史"约定保留；其中 `:721` 如今恰好落在新建 dataclass 的字段行上，是**巧合而非命中**——这正是该类引用需要守卫的理由。
+
+**2026-10-27 · 012ee64b · 给活表格的手工钉引用加 tripwire（#44 后续；重钉本身见 905493ce）**
+- 起因：#44 搬移代码后，`docs/slm/pre_run_characterization.md`、`TODO.md`、`docs/issues_report.md` 里 **6 处**手工 `path:NNN` 钉号静默漂移，只能人肉重钉；call-graph 的引用守卫只管 `docs/dev/call_graph_wiki/**`，管不到它们。
+- **先测再写，测出来的结论是"不要做全仓门禁"**：markdown 全树 **710 处** `path:NNN`、分布 82 个文件；两个活表格里只有 **19 处**同行带有可反查校验的代码 token；另有 **7 处**故意写 `原 :NNN` 指向已迁移/删除的文件（行内自己标注历史）。对这种总体加 CI 门禁只会产出噪声，并教会下一个人不信任门禁。所以守卫只覆盖**已知会动的锚点**，且把期望语句显式写出。
+- **我自己的两版失败设计（值得记，都是同一类错）**：① 第一版用文本启发式"猜"哪行文档对应哪个锚点 → 5 条误报；② 第二版用 `\d+(?!-)` 解析数字，在 `1793-1803` 上**回溯成 `179`**。两者都是本轮反复在批评的事：**检查器量的不是被检查对象**。
+- 最终形态（无推断）：登记表按"文档行定位符 + 源文件 + 期望语句"三元组，要求**每个匹配行**上钉的号集合与该语句当前行号集合**相等**；区间只取起点（块末行不是稳定锚）；每条登记语句必须在源文件**唯一出现**——`IDEAL_SPOT_RADIUS,` 有 5 处，所以把导入的缩进写进语句才算唯一。
+- 定位符**允许多行共享**：TODO.md 对同一个退出清理锚点引用了两次（表格 + 项目符号列表），两行都必须成立，第二份不能悄悄腐烂。
+- 文档侧配合改动，使活钉是唯一可解析的钉：ABBA 探针由裸 `:1870` 改成 `slm_zernike_pib.py:1870`（人读也更明确）；历史引用 `` `slm_zernike_pib.py:56` `` 改写为 `` `slm_zernike_pib.py` 原 56 ``——保留文件名给人看，但不再注册成活钉。
+- 对照验证：把表格行 3 的钉号改错 + 把 TODO **第二处**改错 ⇒ 两条 offense 各自带 stale/unpinned 集合报出；复原 ⇒ 复绿。conventions 现 **70 passed / 1 skipped**（+1 即本守卫）；术语、溯源、台账奇偶、全仓 ruff 归零。
+
+**2026-10-27 · d4b5f8f7 · #174 第二遍评审：三个 CCD 驱动的 14 处宽捕获登记策略，未标注 355→341**
+- 逐处读后再标：`miicam` 的 `Stop()` **6 处**（`_init_streaming` 两处——预停 449 与重试路径 462 是同一形态——加 `reset_exposure_time` 2 处、`reset_window`、`_stop_streaming`）：对**未运行的流**调 Stop 是 SDK 错误而非调用方失败；`close()` 2 处（设备已在拆除，flush 与 Close 属尽力而为）；`_frame_callback` 2 处（**SDK 回调线程不得把异常抛进厂商代码**，丢帧经 `_note_frame_loss` 记账并由读帧侧观察）；`_init_serial_number`（查不到序列号回落合成 id，设备仍可用）；`daheng get_auto_exposure_state`（自动曝光目标是**可选寄存器**，状态快照只记本次固件暴露的字段）；`ffmpeg get_cam_list` 2 处（枚举逐个探针索引，开不起来就是没有设备）。
+- **读了但刻意不标 2 处**：`miicam initialize` 外层处理器与 `close` 重试打断处。它们保护的是**重试循环**，宽捕获是否正确取决于 `drivers/` 异常分层（#145 / #45），不是读一次就能判。**标注等于把未决问题写成"已判定"的假记录。**
+- **注释-only 用结构证明而非声明**：三个文件改前改后 `ast.dump` **逐字节相同**（dump 不含行号 ⇒ 没有任何语句、表达式、名字或 handler 变化，只有 trivia 变），且 `git diff -U0` 14 行新增里**非注释 0 行**。这比跑一遍测试更强。
+- 计数：总数仍 **382**，已标注 **27→41**，未标注 **355→341**（上限同步下调）。下调后**重新武装对照**：再加一处未标注盲捕即在 **342** 变红，删除即复绿。conventions **70 passed / 1 skipped**。
+- 定位器踩到两个真问题并已修（都写进脚本注释）：① 用"except 上方若干行"或按 handler 跨度排序，会把**外层 try** 也算进来（daheng 那处同一 needle 命中 2 个 handler）——正解是最内层 try，且 needle 行不得落在其嵌套 try 区间内；② 一个 needle 可合法对应**多个同类站点**（`self.cam.Stop()` 命中 449 与 462），应全标而不是报歧义。另外 needle 必须是**整行**：真实行是 `self._sn = self.cam.SerialNumber()`，写 `self.cam.SerialNumber()` 在整行相等规则下必然不匹配。
+- 又修掉一处**我自己制造的不一致**：注册表头注释仍写 `27 marked, 355 unmarked`，而隔壁上限已是 341——**守卫旁边的陈旧数字**比缺守卫更危险，因为它看起来是权威读数。
+- 顺带解释了一次"绿得可疑"：wiki 行号守卫没红，不是漏看——全库 65 处 wiki 钉行**没有一处**指向这三个驱动文件，本就没有可漂移的引用（核查过，不是假设）。
+
+**2026-10-27 · 6b879959 · #44 第三步：`_log_row`(66) 与 `_debug_report`(26) 上提到模块级，入口 1091→1069 行**
+- 选它们**不是按行数**，是按扫描实测的三个条件：只被调用、从不作为值存储/传递；自身不声明 `nonlocal`；其读取的自由变量在 def 之后不被外层体重绑。`_log_row` 读的 `best_objective`/`r_bucket` 确由 `_run_spgd` 经 `nonlocal` 写入，但它四个调用点全在这些写入者内部、读的是同一时刻同一 cell ⇒ 传参与闭包**等价**。
+- **`_on_evaluate` 刻意留在嵌套位置**：它是入口函数里唯一**按值传递**的 def（交给启发式引擎作 evaluate 钩子），自由变量必须是活 cell；改成调用点快照会冻结引擎后续修改的状态。它需要的是 run 状态对象——且字段现已可**实测**而非猜：`_run_spgd` 声明 `nonlocal _init_c, _init_r, best_c, best_objective, delta, last_best_epoch, r_bucket`，`_run_heuristic` 声明 `best_c, best_objective, last_best_epoch`。
+- 每个新增参数恰等于一个自由变量，因此**函数体未变**：语句列表 `ast.dump` 改前改后**逐字节相同**（`_log_row` 4253==4253、`_debug_report` 1413==1413 字节）。整函数 dump 唯一差异是 docstring 续行的**前导空格** 12→4（离开 `with` 块的必然结果），忽略缩进后逐行文本相同。
+- **我自己写出的两个 bug（都在写盘前被拦下）**：① 一次把调用实参按 `,` 切分再重排，把 `grad=np.zeros(nk, dtype=np.float64)` **拦腰截断**，产生 SyntaxError——因为脚本在写盘前先解析自身输出。② 两处删除按原序进行，第一次删除后 `lines` 已缩短，第二处仍用**原文件行号**下刀，切进了 `_apply_best_on_exit` 体内。规则：**多站点文本编辑必须按行号降序**，且**绝不用逗号切分实参列表**（改用 `tokenize` 配对括号，只在右括号前插入）。
+- 实测结构：入口 **1091→1069**（建档 1311），嵌套 def **6→4**，模块级具名对象 **15→17**。
+- 回归按 CI 对该子树的实际形态（per-file；`optimizer` 整棵单进程 6g 下 SIGKILL，即 #198）：改前改后 **55 个文件小结、有序 (passed, skipped, failed) 三元组逐位一致**，1081 passed / 2 skipped / 0 failed，两条 SKIPPED 按文件与理由一致。另 `runners` 554/25、`utils` 1490/4 与基线相同。该子树正是这两个 helper 的消费方，含 `_log_row` docstring 自称的"默认 recorder schema 是钉死契约"。
+- **本次是 012ee64b 那个文档钉 tripwire 第一次在生产改动上生效**：上提挪动了入口内行号，守卫自己报出新锚点而不需要我重算——`set_reference_center(pos_center)` 1870→1944、`max_peak` 门控 1793→1857、退出清理 `BaseException` 1497→1552（TODO.md 引用两次，两行都改）。区间右界 **1867 取自代码实际闭合行**（该告警调用的收尾），不是把旧窗口 +10 平移。conventions 回到 70 passed / 1 skipped。
+
+**2026-10-27 · 4346b59a · #174 第三遍评审：`gui` 层 11 处逐处登记，未标注 341→330（没有收窄任何一处，理由见内）**
+- 这一档的结论与直觉相反：`gui` 163 处里**几乎全是该层刻意的宽捕获**，所以本批**降低的是"未判定"数**而非盲捕总数（总数仍 382）。已标注 41→**52**，未标注 341→**330**（上限同步下调）。
+- 11 处逐处读、逐处写**专属**理由（10 处 `gui/r50/r50_voltage_send.py` + 1 处 `gui/ccd/ccd_analyzer.py`）。同层站点理由互不相同：连接探针失败=**状态未知**（按断开处理好让恢复逻辑重开）、发送失败=有界重试**其中一次**（还会重连重试）、批量中某控制器失败=记为**单个失败目标**让其余继续被驱动、`run_loop` 内**上报失败本身**不得跳过清除停止条件的 `finally`。按层批量同文标记等于写下从未做过的判定。
+- **先探层再动手**：扫"`gui/` 里可证明收窄"的站点（保护区仅含转换与安全内建）只得 **4 处**，其中 **2 处判为假可证明**——被保护区是**导入硬件驱动模块**，其顶层加载厂商原生库，可抛 `OSError` 而非 `ImportError`。把这类收成 `ImportError` 正是本 issue 警告的机械改写，故保留宽捕获并按"可选后端探针"登记。
+- `ccd_analyzer.py` 曝光上下限那处也**不收窄**：虽然 `min_exposure_ms`/`max_exposure_ms` 今天只是返回类常量的属性（`miicam/driver.py:196-203`、`sim/slm_pib_sim.py:1357-1363`），但该站点是对**运行时选定的任意设备对象**做能力探针（`daheng`/`ffmpeg` 根本没有该属性），把 `TypeError/ValueError` 硬编码进去会让未来任何触达 SDK 的实现把 UI 打崩。
+- 注释-only 用**结构**证明：两文件 `ast.dump` 与改前**逐字节相同**（47738==47738、117429==117429），`git diff -U0 -- src` 11 行新增、**非注释 0 行**。
+- 对照在新上限上**双向重武装**：加一处未标注盲捕 ⇒ **331** 变红；把一个标记拼成 `# policys:` ⇒ 同样 **331** 变红（证明 token 是精确匹配）。复原后复绿。`tests/ao_shaping/gui/r50` 94 passed；conventions 70 passed / 1 skipped。
+- **两条我自己的流程缺陷（因涉及真实状态，必须记）**：① 一次对照**复用了旧脚本**，其目标文件写死，于是拼错的是 `runners/slm/gsnet_runner.py` 的标记而非 gui 文件，且计划的还原因 `||` 短路从未执行 ⇒ 工作树被污染。靠读 `git status` 抓到，**先取差异证据**（该文件未提交改动恰为 1 增 1 删、只有那一行拼写）才对**单文件** `git checkout` 复原；对照脚本已改为文件与 token 全部走参数。② `gui/ccd/ccd_analyzer.py` 在 `tests/` 下**没有任何测试**（grep 为空），所以该站点唯一证据是 `ast.dump` 一致性——写出来，不让分片绿暗示存在并不存在的覆盖。
+- 无需重钉文档或重生成 wiki：call-graph 索引**没有**钉这两个 gui 文件的行，被守卫看住的锚点都在 optimizer 内而本批未碰。
+
+**2026-10-27 · 2c2547b1 · #174 第四遍评审：`optimizer`/`runners`/`main.py` 共 24 处登记，未标注 330→306（本档零收窄）**
+- 24 处分属**两类不可混为一谈**的策略，逐处读、逐处写专属理由：
+  - **拆除路径不得掩盖正传播的失败**：`slm_model_in_loop.__init__` 先解开半开会话再重抛（绝不能半开继续跑）；`_restore_display` 与逐设备 `close` 尽力而为（一个拒关不得阻止其余）；`combined_optimizer` 的 DM 归零记录"变形镜仍停在最后一组电压"而非盖过结束本次运行的异常；`slm_zernike_pib` 退出路径强制平场，连这也失败时记 `SLM state unknown` 而不是从清理里抛出。
+  - **面向实验台的上报**：`voltage_runner._safe_shutdown` 三处（0 V 下发、继电器下电、链路关闭）**刻意宽捕获**——必须让操作员知道通道可能仍带电，抛出会放弃后续关停步骤；`_adc_worker` 累计读失败（线程抛出会**静默终止采集**，记录的 (时间, 电压) 序列留下无痕缺口）；两个 `run` 回路处理器上报后**继续落入安全关停**。`main.py` 与 `matrix_runner` 两处记录上下文后**重抛**，保住 CLI 退出码。
+  - 另有可选后端与元数据：`differentiable_beam` 驱动导入、`dm_response_matrix` 的 DM/WFS 配置采集、ADC 记录探针、CSV 旁路输出。
+- **本批没有收窄任何一处**，且这是探测后的结论而非偷懒：候选被判**假可证明**——`differentiable_beam` 保护区是导入一个顶层加载厂商原生库的模块（会抛 `OSError` 而非 `ImportError`）；`dm_response_matrix` 的 `hasattr` 探针在属性内部触达 SDK 时可抛任意异常。把它们写成 `ImportError`/`TypeError` 正是本 issue 警告的机械改写。
+- 上限：总数 **382 不变**，已标注 52→**76**，未标注 330→**306**。注释-only 由**结构**证明：10 个文件 `ast.dump` 与改前逐字节相同（"files whose code changed: 0"），`git diff -U0 -- src` 24 行新增、**非注释 0 行**。对照在新上限重武装：多加一处未标注 ⇒ **307** 变红，删除 ⇒ 复绿。
+- **两个守卫当场抓出副作用（不是我事后发现）**：
+  1. call-graph wiki **确实**钉了 `voltage_runner`、`matrix_runner`、`dm_response_matrix`、`main.py` 的行 ⇒ `test_wiki_source_citations_land_on_definitions` 如设计变红。正规修法重生成链，并**核对差异而非信任**：5 个 md 页 8 行、两个图资产 34 行，**非数字漂移 0**。
+  2. 文档钉 tripwire 自报漂移锚点 1944→1946、1857→1859、1552→1553（两处），已按带日期注记重钉；注记刻意**不用** `basename:NNN` 形态，使历史叙述不会被解析成活钉。`--max_peak` 区间**右界 1869 取自代码**（该告警调用的闭合行），不是把旧窗口平移——第一次重钉我凭旧版本记忆写锚点字符串，**先断言后写盘**使得文档未被半改（原子性救回）。
+- 分片与基线一致：conventions **70 passed / 1 skipped**（两个新守卫均绿）、`runners` 554/25、`optimizer/wf` 156/1、`wfless` 按文件 **55 摘要有序序列逐位一致**（1081/2/0）且两条 SKIPPED 相同。
+
+**2026-10-27 · 00b5ebaa · #174 补漏：`optimizer` 层第四遍漏登记 5 处，未标注 306→301，上限下调**
+- **漏项是我自己复核时发现的，不是守卫发现的**：第四档宣称覆盖 `optimizer` 层并按 24 处计数，但该层实测 **29** 处——`slm_square_shaping` 3 处与 `slm_gs_refine` 2 处在同一份转储里读过，却没进 SITES 清单。**"评审报告数到的站点"少于"该层实际站点"与"检查器量的不是被检查对象"是同一类缺陷**，故按层重数一遍并补齐。
+- 补登记 5 处（逐处专属理由，不按层同文）：`optimize_slm_square` 3 处——pygame 显示是**可选**的，开不出窗口不得让运行失败；两处回路内 `display_ctx.update(...)`（启发式回调内、优化循环内）——**重绘失败不得打断一个正在驱动 SLM 的搜索**，判定结果由记录下来的指标决定，不由窗口决定。`optimize_slm_gs_refine` 2 处——恢复面板初始显示要**记录并重抛**（SLM 未恢复对下一位操作者是台面隐患），而拆除阶段**尽力关闭且不掩盖结束本次运行的那个失败**。
+- 上限：总数仍 **382**，已标注 76→**81**，未标注 306→**301**。新上限上**重武装对照**：多加一处未标注 ⇒ **302** 变红，删除 ⇒ 复绿。
+- **纠正一个我自己做的无效证明**：先前一次"注释-only"证明把改前副本在**同一调用内**复制，于是 `ast.dump` 相同是**恒真**的。本轮基线改用 `git show HEAD:<path>`，两文件与已提交版本逐字节相同（190917==190917、190134==190134），且 `git diff -U0 -- src` 5 行新增、**非注释 0 行**。规则：**证明的基线必须来自编辑之前的状态**，否则它什么也不证明。
+- **我这次插入确实挪动了一处未登记的手工钉**：`TODO.md` 引 `slm_square_shaping.py:1807/2183` 描述"包住 `display_ctx.update(...)` 的两块"，但那两个数字钉的是调用**内部的参数行**——实参列表一动就漂。改钉 `try` 头 **1803/2180**（与散文语义一致，且对实参增删稳定）。**并核查而非假设**其余钉未被打扰：wiki 页、pre-run 表两行、TODO 的 1331/573/757/780/804 仍落在散文所述语句上。
+- 回归按 CI 对该子树形态（per-file）：**55 个文件小结、有序三元组逐位一致**，1081 passed / 2 skipped / 0 failed，两条 SKIPPED 按文件与理由一致。conventions **70 passed / 1 skipped**。
+
+**2026-10-28 · b9973db2 · #174 第六档：ml 训练与基准脚本 16 处盲捕逐处读后登记，未标注 301→285（本档零收窄）**
+- 覆盖 5 个文件共 **16 处**。12 处是 wandb 遥测，按**后果**分别措辞而非一个包套一句话：`_init_wandb`（3 处）追踪服务连不上**不得毁掉一次已在跑的训练**，离线是受支持模式；单次 `run.log` 失败只丢一个曲线点；对比图上传失败**不影响该文件本身**（3 处）；`run.summary` 与已持久化或已返回的值重复；收尾 `finish()` 尽力而为；`ml/shaping/train.py` 的 `train` 回路内日志同理。
+- 另 4 处在 `ml/sim2f/bench.py`：`__init__` 展开**半开**的仪器会话后重抛（2 处：打开 SLM、解析曝光与零级）、`close` 让一个拒绝的设备不阻断其余设备、孪生预测的 0 级衍射偏移返回 NaN。最后一条的依据是**消费侧核查**而非假设：`_indistinguishable` 只读 `ncc_*` 列，该字段在模块顶部文档中即标为非判据，报告把非有限偏移渲染为 `-`（`bench.py:2353-2354`）——它是诊断缺口，不是结论。
+- **更正我自己写进 commit message 的计数**：`b9973db2` 正文写「13 处遥测 + 其余 3 处 bench」，却又把 bench 列成 4 项。按 AST 逐函数归属重数：遥测 **12**、bench **4**，总数仍是 16，站点集合与注释-only 结论都不受影响。历史 commit 不改写，改在此处记账。
+- 锚定踩到真陷阱：`bench.py` 有**两个同名 `__init__`**（`SimInstrument` 与 `HwInstrument`），按 `ast.walk` 顺序解析外层作用域会选中错的那个并匹配到 **0** 个 handler；改成按 needle 唯一定位持有者，于是 dry-run 就把一次静默错置变成硬失败。
+- 上限：总数 **382 不变**，已标注 81→**97**，未标注 301→**285**。新上限上重武装对照：多加一处未标注 ⇒ **286** 变红，撤掉 ⇒ 复绿。证明基线取 `git show HEAD:` 的已提交副本（同调用内复制等于不证明）：5 文件 `ast.dump` 逐字节相同，`git diff -U0 -- src` 16 行新增、非注释 **0** 行。
+- 分片：`ml/sim2f` 317 passed / 6 skipped，`ml/zernike` 526 passed / 2 skipped，conventions 70/1。两者高于我此前引用的旧指纹（300 与 511）是因为其间有别的 commit 增加用例（`ae88acda`、`a529d495`、`5157891e`），不是本批行为差异——`ast.dump` 相等已把等价性钉死。
+- 顺带查出**台账自己**的两处失真，由 `42910921` 更正（见下条）。· 发现方式是**机械映射审计**（`pin_audit.py`：把每个 `path:NNN` 从改前树映射到改后树并按内容核验），不是肉眼——我先前肉眼判断「`bench.py:969` 不受影响」是**错的**（790/797 两次插入都在它之前），审计查出它应为 **971**，已按内容逐字节核验后重钉。
+
+**2026-10-28 · 42910921 · 台账更正：「必须保持宽」一行的 `noqa` 声明不成立，且 12 个手工行号中 8 个早已失真**
+- 该行声称这些 handler「保留 noqa + 理由」：这四个文件里 `noqa` 出现 **0** 次。真实形态一直是宽捕获加就地理由注释——本档补的 `# policy:` 标记正是把它显式化。
+- 该行 12 个行号在**本批复核之前**就有 **8 个**落在无关语句（`)`、`n_val: int,`、docstring 行），说明它在更早的重构里已经静默漂移且无人看守。一行内堆 12 个行号本就不可维护，故改按**函数名**引用（`_init_wandb`/`_log_wandb_row`/`_log_comparison_image`/`_log_wandb_summary`/`_finish_wandb`/`run_offline_training`/`train`），机器校验整体移交给棘轮计数（这 12 处都带标记，计数即断言）。
+- 规则沉淀：**注释-only 的改动会挪动他处的手工行号钉**；每次此类提交后必须跑机械映射审计，且审计的基线必须是**改动之前**的树——用已更新的新树当基线会把正确的钉报成漂移（本轮就出现过一次971→973 的假阳性）。
+
+**2026-10-28 · 9da388ff · #174 第七档：`gui/ccd/ccd_analyzer.py` 17 处盲捕逐处读后登记，未标注 285→268（本档零收窄）**
+- 17 处按**后果**分述，不给整层套同一句：可选后端与能力探测（MIICam 驱动导入会因顶层加载原生库而抛 `OSError`，不只 `ImportError`，写成 `ImportError` 正是本 issue 警告的机械改写；两个枚举分支——一个后端枚举失败不得清空相机选择器；`get_exposure_range()` 探针与**相邻**的 `getattr` 探针各写各的分工，不复用上一档留下的同文措辞）；后台线程与拆除（tick 与 loop 把失败经队列上报而不是静默死亡，上报本身尽力而为——丢一条消息不等于丢整个回路；`stop()` 与 HTTP handler 在显式 `BrokenPipeError`/`ConnectionResetError` 之后的兜底）。
+- 承重的一处是**断开连接**：即便驱动拒绝关闭，也必须停采集回路、停流媒体并丢弃全部 `session_state` 引用，否则相机被继续占住、界面显示一个不存在的连接。
+- **契约在消费侧核验而非假设**：`_encode_jpeg` 返回 None 由调用方 `if jpeg is None: continue`（`:94`）消化；`fit_gaussian` 的 `(None, None)` 作为缺失值进 analysis dict（`:249-259`）而不中断面板。
+- **覆盖诚实**：全仓没有任何测试引用 `ccd_analyzer`（`git grep ccd_analyzer -- tests` = 0 命中），分片不能见证本改动；执行级检查只有 `py_compile` 与 gui 分片 575 passed 不变。真正观察到本次编辑的只有棘轮守卫，而那是对注释的断言。
+- 上限：总数 **382 不变**，已标注 97→**114**，未标注 285→**268**；对照重武装——多加一处未标注 ⇒ **269** 变红，撤掉 ⇒ 复绿。注释-only 以 `git show HEAD:` 副本为基线：`ast.dump` 相同且 marker 增量恰为 **17**（1→18，不是对未改动文件的恒真读数），非注释新增 **0** 行。
+- 过程失败三条，都在本档内：
+  1. 用 bash 里嵌 Python 去改 needle 的引号 ⇒ needle 被改坏（匹配 0 处）⇒ plan 退出 1 ⇒ apply **未执行**。但我此前**已把上限下调到 268**，于是守卫变红是**我自己造成的树不一致**，不是棘轮抓到了新代码。规则：**先落地并证明编辑，再下调上限**。
+  2. 行号钉审计查出 606 行上 `ccd_analyzer` 那条钉（旧值 292 与 314）被本档插入挪动，我却**看完审计先提交了代码**⇒ 顺序颠倒：审计的意义是随同一次改动一起修，不是事后追。
+  3. 修那句话三次都栽在**自己的守卫**上：先断言「每行全角括号必须配平」⇒ 该台账条目是跨行续写的段落，单行本就不配平 ⇒ 写盘中止，但后续 `git add/commit` 未按退出码串联，于是把**并未发生**的修复连同「已修复」的 message 一起推成 `01d94e5a`；再修时把括号净变化算错（我同时把内层 `（后者` 改成 `——后者`，净变化是 0 而非 +1）⇒ 删掉了错误的开括号，`cc94fc27` 留下粗体粘连代码跨度的病句。最终用**精确字符串两处替换 + 读回核验**收口（`1bfdfe7a`）。规则：**脚本非零退出则下游一律不得执行**；守卫必须断言**目标文本本身**，而不是它的统计代理。
+- 钉法沉淀：该行数字改钉到**唯一的被保护调用行** **297/321**（`raw_frame_queue.put(("error", …))`），不再钉 `except Exception:`——后者在本文件文本全同，「按内容核验」在它上面是**恒真**的。审计脚本的基线必须是**改动之前**的副本；用已更新的树当基线会把正确的钉报成漂移。
+
+**2026-10-28 · 6d795989 · 文档钉 tripwire 补两处：解析器支持 `f:NNN/MMM`，并把 `ccd_analyzer` 的内层护栏登记为活锚点**
+- **缺口是实测出来的**：旧解析器只认 `,` 与 `-`，而台账在一次引多处时惯用 `/`（`ccd_analyzer` 的 297/321、`r50_voltage_send` 的 395/402/420）。对同一行离线复算：旧式只得 **{297}**、新式得 **{297, 321}** ⇒ 注册成这种形态的钉**过去只校验第一个数字**，其余编号可无声腐烂。本段刻意写成"文件名 的 数字"而非可解析的 `文件名.py:数字`，使历史叙述不会被后续改动误当活钉去重钉。
+- 新锚点：`TODO.md`「上报动作本身的失败」行 → `ccd_analyzer.py` 里**唯一**的两条被保护调用（297/321）。刻意不钉 `except Exception:`——该文本在本文件每个盲捕上全同，按内容核验它是**恒真**的；而守卫自己的歧义分支（`occurs Nx … register a rarer one`）已经把这条规则实现成断言，故我在注册处先写的 4 行注释**已删**（它只是复述代码本来就会报的错）。
+- 双向对照：只改坏第二个数字（`297/320`）⇒ 守卫变红且精确报 `pins [297, 320] but the code sits at [297, 321] (stale: [320], unpinned: [321])`；`git checkout` 还原 ⇒ 复绿。
+- **纠正我自己一条错的预期**：分片仍是 **70 passed / 1 skipped**。tripwire 是**单个测试函数**，注册条目是数据不是用例，“测试数 +1”从来不是正确信号；判断条目是否生效要看对照。
+- 闸：术语 0 文件、台账 violations 13 不变、报告溯源 clean、ruff clean。
+
+**2026-10-28 · 3d5a69d9 · #174 第八档：`bench_settings` 面板 14 处盲捕的既有理由收敛为计数标记，未标注 268→254（就地改写，行数不变）**
+- 这 14 处**早已各自带中文理由注释**写在 `except` 行上，因此本档不新增注释行，而是把既有理由**收敛到守卫计数认的标记形态**（`# policy:` 前缀）——在已有理由上再补一行同义叙述就是 slop。副作用也是好的：**行数 2612 → 2612 不变、每行 `#` 之前的 code 前缀逐字节相同**，故任何行的钉都不可能挪动。
+- 三组**同文不同后果**的措辞按后果区分：载波叠加（可选增强）与下发时的离焦叠加（可选修正）；大恒与 MiiCam 的像元间距探测（一个后端拒绝 vs 另一个后端）；两处「关闭失败」（探测用的临时句柄 vs 型号表兜底路径）。
+- 上限：总数 **382 不变**，已标注 114→**128**，未标注 268→**254**；对照重武装 — 多加一处未标注 ⇒ **255** 变红，撤掉 ⇒ 复绿。
+- **自己造又自己抓到的缺陷**：拼接产生 14 行双井号标记（切片已含原来的 `# `，我又拼了一次前缀）。**棘轮看不见它**——标记判定是子串匹配，畸形标记照样计数；只有人读的转储暴露了它。修后全仓同类形态 14→0。
+- 与上游 `409f0d0d` 是**同一缺陷的两套修复**（根因都是我把 `cea59644` 带红推送：tripwire 读的就是 TODO.md，而我用 TERM/PAR/PROV/ruff 校验了一次纯文档提交）。上游把自引用叙述行改成**带文件名的活钉**；我收紧**定位符本身**（收紧后的定位符带源文件名且不含数字，叙述无法在不写出可解析钉形态的前提下复现它）。裁定取后者：把历史叙述升级成活钉，等于要求旧数字永远与代码同号，而那正是本轮制造假阳性的形态。rebase 冲突按此解决，上游 commit 保留不改写。
+- **规则沉淀**：台账里的历史叙述一律写成不可解析形态（「文件名 的 数字」），绝不写成 `文件名.py:数字`；纯文档提交同样必须跑 tripwire。**但那次重跑看到的是 `1 failed`，我仍然提交并推送了**（`9b5efdb8` 因此带红入库，`103a9c25` 修复）⇒ 检查跑了不等于检查被采信：**提交必须以退出码为闸门**，把校验当日志输出就是自欺。
+- 顺带把**已失真 99 行**的旧钉登记为活锚点：该行原引 1390 与 1399，落在 docstring 正文与 dict 字面量上（**早于本档就已错**），现钉 1489 与 1491 并按 code 前缀核验；行内引用的一句注释因本档改写而同步更正。
+- **审计工具的判据也错过一次**：先报 1489 为 UNMAPPED（该行本身被就地改过，difflib 没有 equal 块可映射），又以整行相等做核验，在注释-only 编辑上几乎给出**假通过**。现改为恒等快路径 + **code 前缀**比较。
+- 覆盖：与 CCD 档不同，本模块**有真实测试**（13 个测试文件引用它），gui 分片 575 passed 不变是**真实见证**而非无关计数。闸：ruff clean、conventions 全绿、术语 0 文件、溯源 clean、台账 violations 13 不变。
+
+**2026-10-28 · 103a9c25 · 修复我自己带红推送的 `9b5efdb8`：把文档钉定位符改成引用形态，并订正上一条台账的不实陈述**
+- **红是我推上去的，且是同一类错误的第三次**：tripwire 当场报 `row '…' pins no ccd_analyzer.py:NNN -- the citation was dropped`，失败行我在 commit 前的输出里**已经看到**，但命令是顺序串接而非按退出码闸门，于是照常提交推送。规则重述：**校验的退出码必须决定下一条命令是否执行**。
+- 触发原因：我在台账里描述这个锚点时**原样复现了定位符**，使定位符匹配到第二个无钉的行。守卫语义是对的（匹配定位符的每一行都必须带该文件的钉），**不需要新增不变量**；曾考虑的「定位符必须唯一」会误伤两条合法共用定位符的 pib 条目，那是设计允许的。
+- 改的是**选定位符的方式**：定位符现在含源文件名（引用形态）。叙述要复现它就必然写出可解析的 `文件.py:数字` 钉形态，而台账写法已禁止该形态出现在历史叙述里 ⇒ 结构上不再可能碰撞。行匹配数：裸短语 2 行、旧收紧式 1 行、引用式定位符 1 行（即活钉行本身）。
+- 同条订正：上一条台账里「本轮已自我执行」那句**与事实不符**（重跑确有其事，结果却是失败后仍推送），已就地改写为真实经过。**台账不能留一句让后来者误信流程生效的话。**
+- 顺序也照新规矩走：先跑闸证明 conventions 全绿（70 passed / 1 skipped），**再**提交本条。
+
+**2026-10-28 · 3cd9da85 · 台账格式入库为守卫：只查日期锚定条目，四类缺陷各有对照**
+- 新增 `test_date_anchored_ledger_entries_stay_parseable_and_balanced`：日期锚定条目的**标题必须恰有两个粗体标记**（且按剥掉代码跨度后计数）、**每行代码跨度与粗体必须配平**、**不得出现反斜杠紧跟开跨度的残留**、**叙述不得复现任何已登记定位符**（否则定位符匹配到第二个无钉行，钉守卫会在无关 commit 上报红）。
+- **存量编号条目刻意不纳入**：改写它们等于伪造历史，§8.9 里那 13 条格式瑕疵是**冻结的已知债**，不是待清理项。
+- 四类缺陷都是今天我自己造出来的，而在此之前**没有任何守卫看着这份台账**：粗体不配对、代码跨度不闭合、f-string 把转义残留原样写进正文（`1073b8be` 的标题就是，已顺带修掉）、叙述复现定位符导致 `9b5efdb8` 带红推送。
+- **两条对照实验一开始是无效的，这比守卫本身更值得记**：
+  1. 第一版在 **oxpy 沙箱里**用 subprocess 调 CI runner ⇒ 容器内没有 docker ⇒ 四个 rc=1 测的是“容器里没有 docker”，而不是守卫咬住；
+  2. 第二版按**整段 pytest 输出**归因子句 ⇒ 输出里含测试自身源码（五个子句字面量都在函数体里）⇒ 四例都“报同一句”；
+  3. 还有一例**种入的行自身跨度不闭合** ⇒ 先被跨度子句抓 ⇒ 被误读成定位符子句漏抓。修正：归因只取断言的 offender 行，且对照必须**只携带被检缺陷本身**。修好后四类的预期子句逐一命中，另加一类（标题内多加粗）由自身对照命中。
+- 闸：conventions **71 passed / 1 skipped**（+1 用例）、术语 0 文件、台账 violations 13 不变、溯源 clean、ruff clean。本条目写完后**立即用新守卫复检**，而不是只跑旧三闸。
+
+**2026-10-28 · 8ff61254 · #174 第九档：Micro-DM 面板 15 处登记（该文件原先无就地理由，故新增 15 行），未标注 254→239**
+- 与上一档相反，这里 15 处**都自带理由注释为空**，因此是**新增 15 行**而非就地改写：行数 1198 → 1213。行数一变，别处的行号钉就可能挪 ⇒ 当场跑机械映射审计：该文件在台账里只有 **1 处活钉**，映射结果 code-intact、**需处理 0 处**；call-graph wiki 未钉该文件（conventions 里的 wiki 引用守卫同时为绿，即交叉印证）。
+- 措辞按**后果**分组，不给整层套一句：三个后台下发回路是承重组 —— 失败经队列上报、`finally` 清运行标志，未捕获的抛出会让面板以为扫描仍在进行而硬件已停；`disconnect_single` 是尽力而为（引用无论如何都清空），而 `disconnect_dm` **刻意不是**：驱动拒绝关闭时设备可能仍被占用，必须把失败留给操作员而不是假装已断开；`_hw_reset_action` 属安全相关（`reset_all` 失败意味着作动器可能仍停在末次电压）；两处「重连前先关旧句柄」刻意尽力而为（此处失败不得阻止建立新连接）；应用/读回/上传失败在面板内报告且**保留操作员设定的矩阵**（读到一半的矩阵比过期矩阵更糟）；侧栏硬件信息只是装饰性能力读取，可静默失败。
+- 上限：总数 **382 不变**，已标注 128→**143**，未标注 254→**239**；对照重武装 — 多加一处未标注 ⇒ **240** 变红。本档**顺序正确**：先落地并证明编辑，**再**下调上限（上一档我在标记未落地时就下调，导致守卫变红是我自己造成的树不一致）。
+- **锚定方式改了，理由记下来**：这些站点按 **handler 行号**锚定并在运行时用 AST 复验（断言为盲捕且未标注），**不用代码 needle**：`connect_single` 与 `disconnect_single` 各含一处**逐字相同**的 `if ... is not None:` + `.close()` 组合，needle 必然歧义 ——而歧义 needle 正是此前某档把标记落到错误 handler 的成因。
+- **自己的工具在误报之前被抓**：annotator 用 `"\n".join(splitlines(keepends=True))` 重新解析，等于在每行之间插入空行并使所有行号翻倍 ⇒ 15 个 handler 里 14 个查不到。它先以 `resolved 1/15` 暴露，再以取证步骤暴露：这就是**证明必须要求 marker 增量等于站点数**的原因 —— 对未被改动的文件，`ast.dump` 相同是恒真的。
+- 覆盖诚实：仅 1 个测试文件真正引用该模块（另一次引用来自守卫自身），故 gui/dm **13 passed** 与 gui **575 passed** 与基线逐项一致只能算弱见证；等价性由 `git show HEAD:` 基线上的 `ast.dump` 相同 + 非注释新增 **0** 行钉死。
+- 提交按退出码闸门执行（conv/term/prov/ruff 全 0 才提交），不再把校验当日志输出。
+
+**2026-10-28 · 3155a9ab · #174 第十档：`target_shape_helper` 7 处登记，未标注 239→232（该文件无任何行号钉指向它，故无需重钉）**
+- 七处按**调用者与后果**分写，不套同一句：两个采集 handler 的差别在调用方而非措辞 —— `_capture_and_compute` 保留 session_state 里已有的帧，面板继续用**上一张好图**工作；`live_display` 是视图刷新，丢一帧不得终结会话。`_render_overlay` 是**逐方法隔离**：某个中心算法算不出就跳过，其余被选中的方法仍要画出叠加层。侧栏存活探测**fail closed**：`is_connected()` 抛出即视作相机丢失并重置会话状态，而不是留下一个下一轮会误信的陈旧句柄。连接/断开/ROI 应用失败一律上报操作员；其中**拒绝关闭**必须报告而不是宣称已断开，因为 try 内的状态重置可能只做了一半。
+- 上限：总数 **382 不变**，已标注 143→**150**，未标注 239→**232**；对照重武装 — 多加一处未标注 ⇒ **233** 变红。顺序照规矩：**先落地并证明编辑，再下调上限**。
+- **锚定再次改为 handler 行号 + AST 复验**：`_capture_and_compute` 与 `live_display` 的 handler 体**逐字相同**（同一句 `logger.exception("Frame capture failed")` 加同一句 `st.error`），needle 必然歧义 —— 而歧义 needle 正是此前把标记落到错误 handler 的成因。
+- 钉审计：全仓 markdown 中**没有任何行号钉指向该文件**（需处理 0 处），call-graph wiki 也未钉它（conventions 里的 wiki 引用守卫同时为绿，构成交叉印证）。这是本轮第一次一档**完全不产生钉漂移**。
+- **覆盖诚实到具体**：唯一提到该文件的测试 `tests/ao_shaping/runners/test_gs_square_center.py` **根本不 import 它**（只 import `utils.image.spots_calc`，gui import 行数实测为 0），它只是在散文里交叉引用三个中心方法。因此那次 5 passed 是**冒烟**而非见证；等价性由 `git show HEAD:` 基线上的 `ast.dump` 相同 + marker 增量恰为 **7** + 非注释新增 **0** 行 + `py_compile` 承担。
+- **记一个仍在已推送历史里的我的缺陷**：`3155a9ab` 的 message 里留了一句未清理的草稿残句（“…exactly 7 (0 -> 7), 15? no -- 7 added lines…”），是我把上一档的数字串进了本档句子。已推送历史不改写，在此记账；规则重申：**推送前必须把 message 逐句对着实际落地的数字重读一遍**。
+
+**2026-10-28 · 5f5741c6 · #174 第十一档：R50 联合面板 7 处登记，未标注 232→225（连续第二档零钉漂移）**
+- 七处按后果写：连接失败**丢弃半开句柄**并置为未连接，后续刷新不得信任一条从未建立的链路；**继电器是唯一无法从面板其它处推断的状态**（它决定输出是否带电），故切换失败必须报错误；读回失败**保留屏上矩阵不动**（操作员知道的过期电压好过从未读完的硬件值）；批量上电整体抛出时**不得假定任何控制器已带电**（可达性由上方分支逐项点名）。
+- 两处 `_send` 闭包遵循 **send-result 契约**：驱动失败变成调用方会渲染的 failed `SendResult`，而不是中途抛出——后者会让面板**宣称一个硬件未必处于的状态**（应用中断时部分单元已设值；归零路径失败若吞掉就等于说“已归零”）。
+- 一处刻意**记录代价而非掩盖**：`_jc_disconnect` 里断继电器与关闭都是尽力而为、句柄无论如何都清空；标记写明**失败的 relay-off 可能让输出保持带电，而日志是唯一痕迹**。
+- 上限：总数 **382 不变**，已标注 150→**157**，未标注 232→**225**；对照重武装 — 多加一处未标注 ⇒ **226** 变红。顺序照规矩：先落地并证明编辑，再下调上限。
+- **锚定第三次改用 handler 行号 + AST 复验**，且这次是**构造性必然**：`_jc_apply_matrix` 与 `_jc_reset_to_applied` 里的 `_send` 闭包体逐字相同（同一句 `dm.send_voltages(flat)`），needle 不可能唯一。
+- 覆盖诚实：**全仓没有任何测试引用该模块**（命中 0），因此 conventions 与 gui 分片只是**确认没弄坏别处**的回归检查，不是本改动的见证；等价性由 `git show HEAD:` 基线上的 `ast.dump` 相同、marker 增量恰为 **7**、非注释新增 **0** 行、`py_compile` 通过承担。
+- 钉审计：无 markdown 行号钉指向该文件（需处理 **0** 处）——连续第二档不产生钉漂移；审计与改动仍在同一次变更里跑，不做事后追补。
+
+**2026-10-28 · ea00cd32 · #174 第十二档：SLM 校准面板 9 处登记（8 新增 + 1 就地收敛既有理由），未标注 225→216，并当场修掉本档自己造成的钉漂移**
+- **两种落法按站点选择，不一刀切**：一处 handler 体首行**已经自述理由**（原始 Santec 错误码如 -10003 对操作员没有指导意义 ⇒ 换可执行中文提示并返回 False），该注释**就地收敛为计数标记**，不在它上面再叠一句同义叙述；其余 8 处确无理由 ⇒ 新增标记行。
+- 按后果分写：重连前的两处内层 close 是尽力而为（此处失败不得阻止建立新连接）；两处拆除把被拒绝的关闭**上报**而 `finally` 仍清会话 —— 面板不得保留一个被设备拒绝的句柄；连接失败报告并返回 False，让操作员换 id 重试；损坏或缺失的存档校准是**操作员可修正的输入错误**，面板内报告并保留当前结果；进度文件写失败只损失一次进度 tick，**不毁掉校准运行**；校准 worker 经输出队列上报 —— 静默死亡会让面板去轮询一个永不推进的进度文件。
+- 上限：总数 **382 不变**，已标注 157→**166**，未标注 225→**216**；对照重武装 — 多加一处未标注 ⇒ **217** 变红。顺序照规矩：先落地并证明编辑，再下调上限。
+- **钉审计首次抓到真漂移，且就在本档**：台账清理行钉的 `slm_calibration_ui.py:133/179` 正是本档要标记的两个 handler，标记插到其上方便它们挪到 134/182。**同一 commit 内**按 code 前缀核验后重钉（两侧都是 `except Exception:`），并断言新行是 handler 而**不是**插入的标记行。
+- **被保护调用被否决为钉靶**：`slm_cal_slm.close()` 与 `slm_cal_camera.close()` 在本文件**各出现 2 次**，不唯一 ⇒ 顺序是**先要唯一性，再选可核验行**，而不是反过来迁就「语义更像」的靶点。
+- **工具语义教训（否则会误修）**：重钉完成后**再以改动前基线**跑同一条审计，会得到 `134->135 MOVED` 这类**假阳性** —— 钉已写成改动后坐标，脚本却把 134 再当基线坐标前移一次。审计只在**重钉之前**有意义；重钉之后的有效性由**映射断言**（旧坐标与 new 坐标的 code 前缀相等）保证，不由再跑一次同一审计保证。
+- 覆盖：该面板有 1 个专属测试文件（线程边界），重跑 **6 passed**；gui 分片 **575 passed** 与基线一致。注释-only 由 `git show HEAD:` 基线上的 `ast.dump` 相同 + marker 增量恰为 **9**（0→9）+ 非注释新增 **0** 行 + 无**双井号残留**钉死（行数 830 → 838）。
+
+**2026-10-28 · 8dd473a2 · #174 第十三档：Micro-DM 图像分析面板 10 处登记，未标注 216→206（该文件零测试引用，分片只算回归检查）**
+- 十处**分两族后果**写，不套同一句：
+  - **逐单元隔离**（流水线）：某一组 diff 失败即记录并跳过，其余组仍要跑完；overlay 失败让覆盖率留零并推进到 gif 步；单单元 gif 失败按 0 记录，而该单元已落盘的 diff 产物不受影响；`combined.gif` 作为**最后一件可选产物**，失败仍把该单元计入已处理。
+  - **运行必须可观测**：懒导入 `md_img_pipeline`（为保 UI 启动速度而刻意懒）失败时经**进度记录**上报，并在写任何输出之前停止；worker 级失败写进同一条进度记录 —— UI 轮询的就是它，未捕获的抛出会让面板**永远显示有运行在进行**。
+  - **展示降级**：读不到的图按 0% 覆盖率而非删掉整表；缺失或畸形的质心行退化为占位文本、该行其余字段照常渲染；`centroids.csv` 损坏时表格降为 caption；合并页**只在真能读到文件时**才提供下载。
+- 上限：总数 **382 不变**，已标注 166→**176**，未标注 216→**206**；对照重武装 — 多加一处未标注 ⇒ **207** 变红。顺序照规矩：先落地并证明编辑，再下调上限。
+- 锚定仍用 **handler 行号 + AST 复验**：`run_pipeline` 内嵌套多层 handler 且函数体近似相同，needle 是**构造性歧义**。钉审计：**没有任何 markdown 行号钉指向该文件**（需处理 0 处），故本档无重钉。
+- 覆盖诚实：**全仓无测试引用该模块**（命中 0），因此 conventions **71 passed / 1 skipped** 与 gui **575 passed**（与基线一致）只是**确认没弄坏别处**的回归检查，不是本改动的见证；等价性由 `git show HEAD:` 基线上 `ast.dump` 相同、marker 增量恰为 **10**（0→10）、非注释新增 **0** 行、无**双井号**残留、`py_compile` 通过承担。
+- **订正自己刚推的 commit message 的一处口径**：其中写 lines 727 → 737，而取证步骤实际打印 **728 → 738**——前者来自 `wc -l`（数换行符），后者来自 splitlines（把无换行符的末行计为一条）。**增量 10 在两种口径下一致**，结论不受影响，但 message 里的数字必须**从取证输出里取**，不能换一把尺子。这是本会话第二次在 message 数字上失手（前一次是残句），规则照旧：**推送前逐句对着落地的数字重读**。
+
+**2026-10-28 · a3ca7a06 · #174 第十四档：shaping_controls 6 处登记（5 处就地收敛 + 1 处新增），未标注 206→200；并修掉两个把标记当行首 token 的取证度量**
+- 六处里**五处早就自己写了理由**：四处挂在 `except` 行尾（must not block the reacquire、surfaced to the operator 两处、换层失败不该丢掉相位），一处在 handler 体首行。这五处一律**就地收敛为计数标记**而不是另起一句；只有一处确无理由 ⇒ 新增一行（相位下发后恢复发送叠加层属尽力而为，失败不得掩盖已经发生的下发）。因此行数只从 2758 变到 2759。
+- 措辞按后果补细：整形前释放句柄不得阻断接管（句柄槽无论如何都会清空）； ownership 作用域内失败走面板反馈而 `finally` 照常释放所有权，故错误文本就是操作员关于「运行为何停下」的记录；最佳相位下发失败**不得看起像已完成**，因此 return 而不是掉进成功提示；整形后重连失败复用侧边栏的同一套错误词汇（设备被占用 vs USB 断链），不把原始 Santec 错误码甩给操作员。
+- 上限：总数 **382 不变**，已标注 176→**182**，未标注 206→**200**；对照重武装 — 多加一处未标注 ⇒ **201** 变红。先落地并证明编辑，再下调上限。
+- **本档最主要的产出是修我自己的取证度量，而不是那 6 处标记**：
+  1. marker 增量校验此前数的是**以 `# policy:` 开头的行**，对写在 `except` 行尾的标记**完全失明**⇒ 一次正确的 6 站改动只读出增量 **2**，校验**误判为不合格并把工作树回滚**（假阴性，不是坏改动）。改为**按守卫自己的判定谓词**数「带标记的盲捕 handler」：改前 0/6，改后 6/6。
+  2. 纯净性校验此前用 `^+ *# policy:` 过滤新增行，同样漏看那四处 ⇒ 报出 **4 行不匹配**。改为**逐变更对**比较：5 对替换行 code 前缀逐字节相同且每行带标记、1 行纯标记插入、violation **0**。
+  3. 选档用的 `unmarked_by_file.py` 只查 handler 上方，**漏数体内标记** ⇒ gui 报 74 而守卫口径是 73。选档依据错了会挑错文件，故一并修正为与守卫同语义的实现。
+- **规则**：取证度量必须就是**被检验的定义本身**，不能是它的语法近似。本会话已是第三次栽在代理量上（括号平衡、`**` 计数、这次的行首 token）。
+- 覆盖与钉：该模块被 **8 个测试文件**引用 ⇒ conventions **71 passed / 1 skipped** 与 gui **575 passed** 是**真实见证**；钉审计显示无 markdown 引用指向该文件（需处理 0 处），故无重钉。注释-only 由 `git show HEAD:` 基线上 `ast.dump` 相同 + 双井号残留 0 + `py_compile` 通过共同钉死。
+
+**2026-10-28 · 4bc3aa3e · #174 第十五档：R50 通道选择面板 6 处登记，未标注 200→194；钉审计抓到本档造成的真漂移，并记下一处与旧处置表的冲突**
+- 六处都挂在把 1300 单元接线表读成选择器索引的那份 CSV 上，标记写的是**每次降级让操作员失去什么**：读不到文件 ⇒ 空表（该函数的既有契约，现在落到可被计数的位置上）；某行畸形 ⇒ 索引建到该行即止并**返回已建部分**（一行坏数据不得抹掉已解析的通道）；分组构建失败 ⇒ 干脆没有分组而非半个分组；单元列表失败 ⇒ 空列表且跳过排序，调用方看到的是「没有单元」而不是「排序做了一半」；接线表畸形 ⇒ 返回已解析的位置，后续查询把单元报成**未接线**而不是让联合控制页抛异常。
+- 其中一处的理由注释早已写在 handler 行尾（malformed CSV ⇒ 空表），**就地收敛为计数标记**而不重写覆盖；其余五处确无理由 ⇒ 新增行（行数 469 → 474）。
+- 上限：总数 **382 不变**，已标注 182→**188**，未标注 200→**194**；对照重武装 — 多加一处未标注 ⇒ **195** 变红。先落地并证明编辑，再下调上限。取证用**守卫自身谓词**：本文件带标记的盲捕 handler 由 0/6 变 6/6；逐变更对纯净性为 1 对替换 + 5 行纯标记插入、violation 0；与已提交副本 ast.dump 相同；双井号残留 0。
+- **钉审计抓到真漂移**：处置表里指该文件的那条钉（原为 360 行）正是本档就地收敛标记的那个 handler，标记插在其上使其移到 365 行，已在**同一 commit 内**重钉。第一次修复尝试有**两个都会静默放行错钉的 bug**，值得记：
+  1. 写成 `h_code == c_code == "except Exception as e:"` ——这是**链式比较**，等价于同时要求 code 前缀**不含缩进**，于是一对本应相等的对被判不等；而错误信息打印出两个一模一样的 repr，读起来像真的不匹配。
+  2. 修复后又拿**当前树**的副本当基线去跑审计 ⇒ 强制走恒等模式 ⇒ 每条钉都报「完好」，**这是空洞通过**，什么也没验证。重钉的正确验证方式是**把改动前副本里的旧坐标映射到工作树里的新坐标**；本档最终从 **AST** 解析两侧坐标（函数名 + handler 序号）并断言位移为 5，而不是用插入次数去推算。
+- **与旧处置表的冲突（未静默处理，留给下一档决断）**：同一行在处置表里的处置是**收窄**到 (ValueError, KeyError, TypeError)（pandas 的 int 转换与列访问），而本档的标记把它登记为**按策略保持宽**。二者现在**同时存在**于同一行。这不是措辞问题：该路径是**纯 CSV 解析、不碰硬件**，按本 issue 自己的口径（只有硬件路径的收窄不算清理）收窄是**合规且应当优先执行**的。下一档必须二选一并写清：**执行表里已记录的收窄**（会少一处盲捕，总数 382 随之下降），或**正式推翻该处置**并给出理由。留两处并存 = 台账自相矛盾。
+- 覆盖：该模块被 3 个测试文件引用（加守卫自身），故分片是**真实见证** —— gui/r50 **94 passed**、gui **575 passed**（与基线一致）、conventions **71 passed / 1 skipped**；术语 0 文件、溯源 clean、ruff clean、台账 violations 13 不变。
+
+**2026-10-28 · f8f5ea1f · #174 第十六档：首次执行收窄而非登记：接线表解析 handler 收敛到枚举失败面，处置表冲突就地了结**
+- 上一档记下了一处自相矛盾：处置表对同一个 handler 的处置是**收窄**，而该档的标记把它登记为**按策略保持宽**。本档**执行表里已记录的处置**，而不是推翻它，理由是该路径**不碰硬件**：守卫语句只有把 CSV 行转成整数与按列名取值，失败面可穷举且 CI 可见全部三面。本 issue 自己的口径就是只有硬件路径的收窄不算清理，所以这里收窄优先。
+- 失败面是**读出来的，不是假设的**：缺列 ⇒ KeyError，坏单元格 ⇒ ValueError，空单元格 ⇒ TypeError。收窄写在**同一行**（不插入行），故处置表里那条钉仍指向该 handler，无需重钉。
+- **台账计数形态与前十五档不同**：该站**退出盲捕总体**，因此总数 382→**381**、已标注 188→**187**，而**未标注仍是 194**（不是 193）。一次真实收窄比一个标记更值钱，因为它同时动总数；上限头注里**四处**数字随常量一起改（382 出现三处、188 出现一处），而一条**带日期的历史记录**（2026-10-27 测得涨到 382）**故意不改** — 改写过去的测量就是伪造台账。
+- 行为变更由新测试钉住**两半契约**，因为没测的收窄只是假设：畸形行仍降级为空表（韧性未退化），以及**未列类型不再被吞**（用一个 iterrows 抛 RuntimeError 的替身帧断言其向外传播 — 收窄前它会被伪装成空表，于是本函数自身的真 bug 与畸形 CSV 无法区分）。该模块在导入期不依赖界面框架，故测试无需跳过守卫。
+- 两处**自身缺陷在落地前被拦下**，记为教训：补丁脚本一度把反引号写成带反斜杠的形式（在 Python 字符串里那是无效转义，会把反斜杠原样写进文档），正是本档守卫要抓的那一类，靠**残留计数**在运行前查出；新测试里一度写了类型抑制注释，已删 — 本仓库不跑类型检查，抑制注释只留下无法验证的例外。
+- 覆盖：gui/r50 **94→100 passed**（六条新测试；该模块的全部三个测试消费方都在这一分片里，故它足以见证本次语义变更）、conventions **71 passed / 1 skipped** 不变；术语 0 文件、溯源 clean、ruff clean、台账 violations 13 不变。
+- 层内进度：gui 未标注 61 → **61**（本档不减未标注，因为消掉的一处原本已标注），**总数首次下降**；tools 83 与 drivers 50 仍不动 — 那两层的收窄前置是驱动异常分类学（#145 / #45）。
+
+**2026-10-28 · 0c96a25d · #174 第十七档：R50 控制器界面族 12 站按上一档的规则登记而非收窄，并当场识破一次空洞通过的取证**
+- 上一档立了判据（纯解析路径的失败面可穷举且 CI 可见，故可收窄；设备调用路径不可），本档就按它执行：十二站的守卫语句全是设备调用（建控制器、关闭、继电器切换、断电收尾、电压下发），抛出类型取决于**当前接的是哪种后端**，故一律**登记判定**而不是收窄。
+- 标记写的是**安全语义**而不是「捕获了异常」：收尾必须逐步尝试 — 继电器断电失败**不得跳过后续的关闭**，否则把控制器留在带电状态；批量切换按计数继续，中途放弃会留下**部分通道带电、其余不带**；单控制器继电器异常必须作为错误反馈到达操作员并中止本次动作，否则界面会**声称一个它从未设置的电源状态**；发送失败就地变成反馈，向外抛会重跑脚本并丢掉操作员刚输入的通道值。
+- **取证一度是空洞的，被自身矛盾识破**：逐文件取证脚本在容器内调版本控制命令（容器无该命令）⇒ 直接报错；其回退分支把**改动后的工作树**同时当改动前与改动后 ⇒ 报「标记增量 0」，而全局普查同时报 187→199。**两个数打架就是信号**。正确的分工是**宿主导出改动前副本、容器只读文件**，并且导出后先断言副本里的标记数为 0（否则所谓基线根本不是改动前状态）。
+- 因此本档的取证要求**两条同时成立**：与改动前副本 ast 结构完全相同（注释不可能进入语法树，故代码未被改动），**且**守卫自身谓词的标记增量等于站数（+12）。前者单独存在对「未改动文件」恒真，后者单独存在会放行代码改动 — 只有合取才是证明。
+- 上限：总数 **381 不变**（本档不让任何站退出盲捕总体），已标注 187→**199**，未标注 194→**182**；对照重武装 — 再多一处未标注 ⇒ **183** 变红。先落地并证明编辑，再下调上限。头注里随动的数字：普查对与档数（十六个标记档 + 一次执行收窄）。
+- 又一处**守卫自相矛盾**在运行前查出：我为「头注里不该再留旧数字」写的断言，去扫描的区段恰好包含自己新插入文本里合法引用的旧值（记录 194→182 的迁移本身）⇒ 必然假失败。改成直接断言**旧的普查对已不存在**，而不是扫描数字的出现次数。
+- 覆盖：gui/r50 **100 passed** 不变；gui 整片 **575→581 passed**（多出的 6 条正是上一档新增的契约测试，与基线推导一致，不是漂移）；conventions **71 passed / 1 skipped** 复核新上限；术语 0 文件、溯源 clean、ruff clean、台账 violations 13 不变。
+- 层内进度：gui 未标注 61→**49**（文件数 12→8）。剩余最大簇是两处各 19 站（多 SLM 控制器界面、Zernike 响应矩阵界面），站多需各自成档。
+
+**2026-10-28 · 777b904f · #174 第十八档：R50 族之外的 11 站登记，其中三站用行尾注释以免文档行号腐烂**
+- 判定沿用第十六档立的判据：十一站仍是**设备或产物路径**（指标读取器、可选拟合模块导入、矩阵求逆、汇总表保存、扩展探针、叠加层应用），失败类型取决于格式或后端，故一律**登记**而不收窄。
+- 其中一处**先前档已有裁决**，本档只把它写下来而不改写：验证集口径的质量回落会在界面上悄悄换掉正在展示的那个分母，所以标记要写明**换了什么口径**，而不是写「捕获了异常」。这是标记应有的信息量下限。
+- 矩阵求逆那一站**特此不收窄**：既有分析把该处的真缺陷记为隔壁的死代码，动这里等于用本档覆盖一个已经考虑过的裁决；先记判定，死代码另案处理。
+- **行号不腐烂的做法**：三站把标记写成 `except` 行尾注释、一站就地转换早已存在的理由 — 四种零行增长；其余插入点都落在本文引用那些文件的行号**之下**，或落在从未被引用的文件里。引用行号逐一核对后确认仍在原处（并无登记型守卫盯着它们，所以只能人工核对）。
+- **取证第二次抓到自身缺陷，形态是命名冲突**：基线副本按文件 basename 导出 ⇒ 两个同名文件（一个 729 行、一个 889 行）里后者静默覆盖前者；AST 对比立刻报出行数 889 对 730、模块体 30 对 34，而**标记增量那半边完全正常**（0→1）。若只跑增量检查，这轮就会拿错基线还报通过。修法：导出名扁平化为带目录前缀的形式。这是「两条合取才是证明」的第二个实例，不是形式主义。
+- 上限：总数 **381 不变**（无站退出盲捕总体），已标注 199→**210**，未标注 182→**171**；对照重武装 — 再多一处未标注 ⇒ **172** 变红。头注随动：普查对与档数（十七个标记档 + 一次执行收窄）。
+- 覆盖：gui 整片 **581 passed** 不变；conventions **71 passed / 1 skipped** 复核新上限；术语 0 文件、溯源 clean、ruff clean、台账 violations 13 不变。
+- 层内进度：gui 未标注 49→**38**，文件数 12→**2** — 剩下的恰好是两个各 19 站的簇（多 SLM 控制器界面、Zernike 响应矩阵界面），下一档起各自单独记档。
+
+**2026-10-28 · d060497a · #174 第十九档：多 SLM 控制器界面 19 站登记，十站因文档行号钉住而用行尾注释**
+- 十九站全是 **SLM SDK 或 Session State** 调用（厂商枚举、按序列号打开、ctypes 开关、波长/平移/模式下发、配置与相位落盘、背景线程里的周期切换）⇒ 失败类型属于厂商或 Streamlit，故**全部登记，无一收窄**。
+- 三处判定值得单独写明，这是标记的信息量下限：
+-  · **无显示槽位是正常状态**：灰度模式下没有内存槽在被显示，SDK 以错误码回答；因此把空槽位记成空值是**对的**，不是缺陷。若不写明，后来者会照反模式表里那一条把它「修」成故障。
+-  · **厂商不返回类型化错误**：枚举与打开失败要读错误文案，「已在别处打开」属于**正常状态**，应显示为使用中而不是失败 — 这里的字符串匹配是必要手段，不是偷懒。
+-  · **模式切换只报错、绝不自动重试**：控制器无响应会让本进程挂死（已记录的装置失效模式），只能断电恢复；自动重试等于把可恢复的报错变成不可恢复的挂起。
+- **行号策略**：文档按行号钉住该文件的第 898 行（二分里的使用中分支），而它正是一条**登记型守卫**盯着的钉。故第 898 行以上的十站一律写成 `except` 行尾注释、另有一站就地转换既有理由（四种零行增长），只有第 898 行以下的八站各加一行。核对结果：该行**逐字节未变**，文件仅增长八行。
+- **取证四条同时成立**才放行：语法树相同（真实改代码会在这里显形，注释不会）、十九站全部已标注、纯度（新增行只能是标记行或带行尾注释的 except 行或转换后的委托语句；删除行只能是 except 行与那一行旧理由）、钉所在行未动。增删计数 19 / 11 — 删除数少于新增数是行尾与就地转换的必然结果，不是漏改。
+- 上限：总数 **381 不变**，已标注 210→**229**，未标注 171→**152**；对照重武装 — 再多一处未标注 ⇒ **153** 变红。头注随动：普查对与档数（十八个标记档 + 一次执行收窄）。
+- 覆盖：gui 整片 **581 passed** 不变；conventions **71 passed / 1 skipped** 复核新上限与全部文档钉；术语 0 文件、溯源 clean、ruff clean、台账 violations 13 不变。
+- 层内进度：gui 未标注 38→**19**，文件数 2→**1** — 只剩 Zernike 响应矩阵界面，下一档收尾后 gui 层清零。
+
+**2026-10-28 · d31fc3aa · #174 第二十档：Zernike 响应矩阵界面 19 站登记，GUI 层未标注清零**
+- 十九站全是 **SLM/WFS SDK、磁盘产物或 Streamlit** 调用（平移下发、连接与断开、曝光范围探测、交互式发送与采集、平相位复位、进度文件读写、校准工作线程、矩阵加载与绘图）⇒ 失败类型属于厂商、文件系统或 Streamlit，**全部登记**。GUI 层 162 站至此 **0 未标注**。
+- 三处判定值得单独写明：
+-  · **断开助手把清空会话和成功横幅放进同一个 try**：所以这里的失败必须报错 — 否则界面会宣称一台其实还占着的设备已经释放，而下一次连接会因为「已在别处打开」失败。关闭那一步则相反：尽力而为，且 finally 仍清会话。
+-  · **校准工作线程的异常必须变成「进度为 -1 的失败消息」**：线程静默死亡时前端会永远停在最后一个百分比，操作员无法区分「还在跑」和「已经死了」。
+-  · **结果矩阵文件是这次校准唯一的记录**：加载失败必须报错，不能显示空矩阵 — 空矩阵看起来像一次合法但全零的标定，比报错危险得多。
+- **行号策略**：该文件有**两处**被文档按行号引用（求槽位的调用段与清理段），且**都不在登记型守卫里**⇒ 后一处以上的十七站一律写成 `except` 行尾注释（零位移），只有它以下的二站各加一行。核对：两处引用**逐字节未变**，文件仅增长两行。
+- **取证四条同时成立**：语法树相同、十九站全部已标注、纯度（增行只能是标记行或带行尾注释的 except 行，删行只能是 except 行）、两处引用未动。增删计数 19 / 17 — 删除数少于新增数正是行尾注释的必然结果。
+- 上限：总数 **381 不变**，已标注 229→**248**，未标注 152→**133**；对照重武装 — 再多一处未标注 ⇒ **134** 变红。头注随动：普查对与档数（十九个标记档 + 一次执行收窄）。
+- 覆盖：gui 整片 **581 passed** 不变；conventions **71 passed / 1 skipped** 复核新上限与全部文档钉；术语 0 文件、溯源 clean、ruff clean、台账 violations 13 不变。
+- 层进度：GUI 162 站全部判定完毕（未标注 0），optimizer 17、runners 23、config 4、main 1 也已是 0；余下只有 **tools 83** 与 **drivers 50**，两者的真实收窄前置仍是驱动异常分类学（#145 / #45），其中纯解析站可按第十六档先例照处置表收窄。
+
+**2026-10-28 · 9a0ef074 · #44 第四步第一刀：退出清理上提到模块级，入口 1071 → 976 行**
+- 切的是 `_apply_best_on_exit`（114 行）。选它作第一刀不是因为它最长，而是因为它是三段里**唯一零 `nonlocal`** 的一段：18 个自由名全是只读，因此**不需要状态持有者**，只要一张显式参数表 —— 也就能单独完成、单独验证，不必把两段一起动。
+- 做法：18 个自由名改成**仅关键字参数**（这个规模上位置参数必然错配，而错配只会在退出路径炸，最难发现）；函数体整体下移一级缩进、逐字节搬运。新函数放在入口函数**之后**而不是之前 — 这样它上方的钉（常量、两个 center 锚点）**完全不动**，只有它之后的钉移动。若放在之前，那几个钉会平移上百行，纯属自找。
+- **证据四条同时成立**：搬过去的函数体**语法树逐节点相同**（不是「看起来一样」）；18 个参数名与自由变量集合完全一致；调用点那 18 个名字全部在作用域内（用 AST 收集赋值名与形参来验证，不靠肉眼）；wfless 子树回归指纹 **55 文件 / 1081 passed / 2 skipped / 0 failed** 与基线**逐项相同**、零失败行。
+- **钉的连带账**（本档最值得记的一条）：移动 114 行让三处文档钉失效 — 一处随函数体搬走而跳到 `:2171`，另两处整体前移 114。做法是**先跑守卫让它把全部 offender 列出来**再动手，而不是事后逐个发现：守卫一次报了四个（其中同一个 locator 有**两条**同名行，必须同时改，只改一条仍然红）。重钉后守卫 1 passed。结论：动代码必然要付钉的账，先把账目列全再改，比改一笔验一笔便宜。
+- 收益：入口函数 **1071 → 976 行**（−95）；模块级新增一个函数，文件 2145 → 2206 行。显式参数表同时也说明了这一段的真实依赖面：18 个只读输入，没有任何隐藏状态。
+- 覆盖：conventions **71 passed / 1 skipped**（含七处文档钉）、术语 0 文件、溯源 clean、ruff clean、台账 violations 13 不变。
+- 下一步（不可颠倒）：`_run_heuristic`（125 行，含内层 `_on_evaluate` 57 行）与 `_run_spgd`（404 行）共享**同 7 个可变名**，且各自还有二十多个只读捕获名 ⇒ 必须先落一个可变状态持有者（7 字段）再切函数，否则这 7 个名字会以参数形式散落在调用点，比现在更难读。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

@@ -1,4 +1,4 @@
-"""``NDIM_*`` in ``ao_shaping.utils.image`` may have exactly one definition site.
+"""``NDIM_*`` in ``ao_shaping`` may have exactly one definition site.
 
 Item 120 moved the array-rank conventions of this package into :mod:`ranks` because
 ``beam_metrics``, ``target.metrics`` and ``exposure_fusion`` were all spelling the same shape
@@ -8,6 +8,11 @@ style one -- so the single-source property is asserted here rather than left to 
 
 The check is AST-only: it parses source instead of importing it, so it runs without numpy or
 a device and cannot be skipped for an environmental reason.
+
+The scan covers the whole ``ao_shaping`` package, not just ``utils.image``: the ranks are a
+package-wide convention now that ``algorithm.signal_processing.differentiable_shaping``
+consumes them, and a scan limited to the hub's own folder would let a second definition
+appear one package over and read as a pass (the same widening as item 122 did for ``ml``).
 """
 
 from __future__ import annotations
@@ -15,10 +20,16 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-PKG = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "utils" / "image"
-HUB = "ranks.py"
+PKG = Path(__file__).resolve().parents[4] / "src" / "ao_shaping"
+HUB = "utils/image/ranks.py"
 RANK_VALUES = {"NDIM_SINGLE_CHANNEL": 2, "NDIM_SPATIAL_STACK": 3}
-CONSUMERS = ("exposure_fusion.py", "beam_metrics.py", "target/metrics.py")
+CONSUMERS = (
+    "utils/image/exposure_fusion.py",
+    "utils/image/beam_metrics.py",
+    "utils/image/target/metrics.py",
+    "algorithm/signal_processing/differentiable_shaping.py",
+    "algorithm/signal_processing/differentiable_defocus_uniformity.py",
+)
 HUB_MODULE = "ao_shaping.utils.image.ranks"
 
 

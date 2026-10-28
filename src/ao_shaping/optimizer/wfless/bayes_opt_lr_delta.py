@@ -64,6 +64,7 @@ def objective_function(lr, delta, center=None, epochs=100, exposure_time_ms=80, 
         # 返回负值，因为我们使用最小化优化器来最大化PIB
         return -pib_value
 
+    # policy: a failed hardware measurement is reported to the optimiser as its worst score so the search keeps going; the failure itself is logged
     except Exception as e:
         logger.error(f"优化过程中出现错误: {e}")
         # 返回一个较大的正值表示失败
@@ -188,6 +189,7 @@ def grid_search_lr_delta(
 
                 logger.debug(f"  得分: {score:.4f}")
 
+            # policy: one failing (lr, delta) point is recorded with its error and the sweep continues -- the grid's value is the comparison across points
             except Exception as e:
                 logger.error(f"  错误: {e}")
                 results.append({

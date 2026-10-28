@@ -561,6 +561,7 @@ def _init_wandb(
             # fresh one on every call, so a resume in the same process orphans its own
             # history and _finish_wandb below then closes the wrong run object.
         )
+    # policy: offline-only training is a supported mode, so an unreachable W&B is not an error
     except Exception as exc:  # never let telemetry kill a run
         logger.warning("wandb.init failed ({}); continuing offline-only", exc)
         return None
@@ -573,6 +574,7 @@ def _log_wandb_row(run, row: dict[str, float], epoch: int) -> None:
         return
     try:
         run.log(row, step=epoch)
+    # policy: one unlogged epoch loses a curve point, not the training run it belongs to
     except Exception as exc:  # never let telemetry kill a run
         logger.warning("could not log epoch {} to wandb: {}", epoch, exc)
 
@@ -596,6 +598,7 @@ def _log_comparison_image(run, path: Path, epoch: int, caption: str) -> None:
             },
             step=epoch,
         )
+    # policy: the comparison figure is for review; its absence does not invalidate the metrics
     except Exception as exc:  # never let telemetry kill a run
         logger.warning("could not log {} to wandb: {}", path.name, exc)
 
@@ -630,6 +633,7 @@ def _log_wandb_summary(run, result: CoeffTrainResult) -> None:
             columns=list(result.history[0].keys()) if result.history else ["epoch"],
             data=[[row.get(k) for k in (result.history[0].keys() if result.history else ["epoch"])] for row in result.history],
         )
+    # policy: the summary duplicates values already in the returned result
     except Exception as exc:  # never let telemetry kill a run
         logger.warning("could not write the wandb summary: {}", exc)
 
@@ -640,6 +644,7 @@ def _finish_wandb(run) -> None:
         return
     try:
         run.finish()
+    # policy: closing the tracking session is teardown work; the run's outcome is already fixed
     except Exception as exc:  # never let telemetry kill a run
         logger.warning("could not finish the wandb run: {}", exc)
 

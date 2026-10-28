@@ -15,6 +15,7 @@ from torch.nn import functional as F
 
 from ao_shaping.utils.wavefront.fraunhofer import focal_intensity
 from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator, calc_n_zernike_terms
+from ml.sim2f.config import NDIM_BARE_MAP
 
 
 class HybridPupilPhase(nn.Module):
@@ -85,7 +86,7 @@ class HybridPupilPhase(nn.Module):
 
 def far_field_intensity(source_intensity: torch.Tensor, phase: torch.Tensor) -> torch.Tensor:
     """Differentiable ideal FFT intensity for a measured source-plane intensity."""
-    if source_intensity.shape != phase.shape or source_intensity.ndim != 2:
+    if source_intensity.shape != phase.shape or source_intensity.ndim != NDIM_BARE_MAP:
         raise ValueError("source_intensity and phase must be matching 2D arrays")
     field = source_intensity.clamp_min(0).sqrt() * torch.exp(1j * phase)
     return torch.fft.fftshift(torch.fft.fft2(torch.fft.ifftshift(field))).abs().square()
@@ -139,7 +140,7 @@ def camera_far_field_intensity(
     sampling: CameraSampling,
 ) -> torch.Tensor:
     """Differentiable ideal FFT sampled at physical CCD pixel centers."""
-    if source_intensity.shape != phase.shape or phase.ndim != 2 or phase.shape[0] != phase.shape[1]:
+    if source_intensity.shape != phase.shape or phase.ndim != NDIM_BARE_MAP or phase.shape[0] != phase.shape[1]:
         raise ValueError("source_intensity and phase must be matching square 2D arrays")
     height, width = camera_shape
     if height < 1 or width < 1:
@@ -164,7 +165,7 @@ def camera_far_field_intensity(
 
 def square_quality(intensity: torch.Tensor, target: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Differentiable GS-refine score, PIB and illuminated-target CV."""
-    if intensity.shape != target.shape or intensity.ndim != 2:
+    if intensity.shape != target.shape or intensity.ndim != NDIM_BARE_MAP:
         raise ValueError("intensity and target must be matching 2D arrays")
     inside = target > 0
     if not torch.any(inside):
@@ -212,7 +213,7 @@ class HybridPhaseOptimizer:
         source = np.asarray(source_intensity, dtype=np.float32)
         target = np.asarray(target_intensity, dtype=np.float32)
         base = np.asarray(gsnet_phase, dtype=np.float32)
-        if source.ndim != 2 or source.shape != target.shape or source.shape != base.shape:
+        if source.ndim != NDIM_BARE_MAP or source.shape != target.shape or source.shape != base.shape:
             raise ValueError("source, target and GSNet phase must be matching 2D arrays")
         if not all(np.isfinite(array).all() for array in (source, target, base)):
             raise ValueError("source, target and GSNet phase must be finite")
@@ -230,7 +231,7 @@ class HybridPhaseOptimizer:
             self.target = torch.from_numpy(target)
         else:
             camera_target = np.asarray(camera_target_intensity, dtype=np.float32)
-            if camera_target.ndim != 2 or not np.isfinite(camera_target).all():
+            if camera_target.ndim != NDIM_BARE_MAP or not np.isfinite(camera_target).all():
                 raise ValueError("camera target must be a finite 2D array")
             if np.any(camera_target < 0) or not np.any(camera_target):
                 raise ValueError("camera target must contain non-negative light")
@@ -266,7 +267,7 @@ class HybridPhaseOptimizer:
         """Use a trained GSNet prediction as the frozen refinement base."""
         source = np.asarray(source_intensity, dtype=np.float32)
         target = np.asarray(target_intensity, dtype=np.float32)
-        if source.ndim != 2 or source.shape != target.shape:
+        if source.ndim != NDIM_BARE_MAP or source.shape != target.shape:
             raise ValueError("source and target must be matching 2D arrays")
         parameter = next(model.parameters(), None)
         device = parameter.device if parameter is not None else torch.device("cpu")

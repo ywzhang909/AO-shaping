@@ -64,7 +64,6 @@
 from __future__ import annotations
 
 import argparse
-from loguru import logger
 import json
 import math
 import re
@@ -1043,7 +1042,7 @@ def main(argv: list[str] | None = None) -> int:
         out = ROOT / out
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(payload + "\n", encoding="utf-8")
-    logger.info(f"计划已写入: {out} ({len(plan['groups'])} 组)")
+    print(f"计划已写入: {out} ({len(plan['groups'])} 组)")
     return 0
 
 

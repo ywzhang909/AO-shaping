@@ -24,7 +24,6 @@ Python 文件做专业化替换。
   它只给守卫测试植入样本用（见 tests/ao_shaping/scripts/test_term_gate_enforced.py）。
 """
 import ast as _ast
-from loguru import logger
 import io
 import re
 import sys
@@ -788,14 +787,17 @@ def main(argv: "list[str] | None" = None) -> int:
         if apply_mode:
             f.write_text(new, encoding='utf-8')
 
+    # stdout, on purpose: ci.yml invokes this gate with bare ``python3`` and installs
+    # nothing (stdlib-only by design), and the guard tests read these lines back from
+    # stdout. A logging library would move them to stderr and crash the job on import.
     tag = '文件 (dry-run)' if not apply_mode else '文件 (已写入)'
-    logger.info(f"{tag}: 变化行数")
+    print(f"{tag}: 变化行数")
     for k, v in sorted(total.items()):
-        logger.info(f"  {v:4d}  {k}")
-    logger.info(f"合计: {len(total)} 个文件, {sum(total.values())} 行")
+        print(f"  {v:4d}  {k}")
+    print(f"合计: {len(total)} 个文件, {sum(total.values())} 行")
 
     if check_mode and total:
-        logger.info("术语门禁未通过: 先跑 --apply 统一, 或改写正文后重试")
+        print("术语门禁未通过: 先跑 --apply 统一, 或改写正文后重试")
         return 1
     return 0
 

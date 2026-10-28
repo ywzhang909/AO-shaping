@@ -232,7 +232,6 @@ dry-run 里的「画面尺寸 / 0 级位置」是**计划假设**, 不是测量:
 from __future__ import annotations
 
 import argparse
-from loguru import logger
 import csv
 import json
 import math

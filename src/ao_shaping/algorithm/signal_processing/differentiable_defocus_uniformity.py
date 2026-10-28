@@ -32,6 +32,13 @@ from ao_shaping.algorithm.signal_processing.defocus_forward_core import (
     subpixel_offsets,
 )
 from ao_shaping.algorithm.signal_processing.iterative_base import IterativeOptimizer
+from ao_shaping.utils.image.ranks import NDIM_SINGLE_CHANNEL
+
+#: Side length of the panel-ramp matrix: it maps ``(x, y)`` panel slopes to ``(dx, dy)``
+#: camera shifts, so both the row count and each row's length are this same number. It is a
+#: matrix arity -- deliberately not the array-rank constant, which counts axes of an image
+#: plane and says nothing about a 2x2 table.
+_RAMP_MATRIX_SIDE = 2
 
 
 def _torch():
@@ -81,7 +88,7 @@ class FrozenDefocusParameters:
                    fft_size: int = 1024, pixel_samples: int = 3, grid_size: int = 128) -> "FrozenDefocusParameters":
         residual = {int(k): float(v) for k, v in dict(parameters["residual_noll_radians"]).items()}
         matrix = tuple(tuple(float(v) for v in row) for row in ramp_matrix)
-        if len(matrix) != 2 or any(len(row) != 2 for row in matrix):
+        if len(matrix) != _RAMP_MATRIX_SIDE or any(len(row) != _RAMP_MATRIX_SIDE for row in matrix):
             raise ValueError("ramp_matrix must be 2x2")
         return cls(
             defocus_diopter=float(parameters["defocus_diopter"]),
@@ -300,7 +307,7 @@ class FrozenDefocusForward:
         from ao_shaping.utils.wavefront.fraunhofer import focal_intensity
 
         total = self.total_phase_grid(phase, focus_phase=focus_phase, carrier_phase=carrier_phase)
-        if total.ndim == 2:
+        if total.ndim == NDIM_SINGLE_CHANNEL:
             total = total[None]
         p = self.params
         # Optional SLM command -> effective phase nonlinearity (report 20261027 §4 item 2).
@@ -526,7 +533,7 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
                  step_rms_cap: float = 0.1, device: str | None = None) -> None:
         torch = _torch()
         seed = np.asarray(seed_phase, dtype=np.float32)
-        if seed.ndim != 2 or seed.shape[0] != seed.shape[1]:
+        if seed.ndim != NDIM_SINGLE_CHANNEL or seed.shape[0] != seed.shape[1]:
             raise ValueError(f"seed_phase must be a square 2D grid, got {seed.shape}")
         if seed.shape[0] != forward.params.grid_size:
             raise ValueError(f"seed_phase size {seed.shape[0]} != model grid {forward.params.grid_size}")

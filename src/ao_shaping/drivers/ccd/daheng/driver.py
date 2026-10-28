@@ -611,7 +611,7 @@ class DahengCamera(BaseCamera):
                 )
                 # 切换到手动模式，后续用比例迭代修正
                 self.cam.ExposureAuto.set(constants.GxAutoEntry.OFF.value)
-            except Exception as e:  # gxipy 第三方 Feature 访问: 不支持时抛出的类型不可枚举 (UnexpectedError/FeatureTypeError/ParameterTypeError 各自独立继承 Exception, 无公共基类)
+            except Exception as e:
                 logger.warning(
                     "[SDK auto-exposure] not available, falling back to manual: {}",
                     e,
@@ -762,7 +762,7 @@ class DahengCamera(BaseCamera):
                 self.cam.ExposureAuto.set(constants.GxAutoEntry.OFF.value)
                 logger.info("Auto exposure disabled")
             return True
-        except Exception as e:  # 同上: gxipy Feature 访问, 不支持时抛出的类型不可枚举
+        except Exception as e:
             logger.warning(f"Auto exposure not supported on Daheng camera: {e}")
             return False
 
@@ -783,7 +783,7 @@ class DahengCamera(BaseCamera):
         try:
             self.cam.ExpectedGrayValue.set(target)
             logger.info(f"Auto exposure target brightness set to {target}")
-        except Exception as e:  # 同上: gxipy Feature 访问, 不支持时抛出的类型不可枚举
+        except Exception as e:
             logger.warning(f"Auto exposure target not supported: {e}")
         return target
 
@@ -812,10 +812,11 @@ class DahengCamera(BaseCamera):
             state["mode"] = 1 if auto_key == "On" else 0
             try:
                 state["target"] = self.cam.ExpectedGrayValue.get()
-            except Exception:  # 同上: gxipy Feature 访问, 不支持时抛出的类型不可枚举
+            # policy: the auto-exposure target is an optional register; a state snapshot records only what this firmware exposes
+            except Exception:
                 pass
             state["exposure_time_ms"] = self.exposure_time
-        except Exception as e:  # 同上: gxipy Feature 访问, 不支持时抛出的类型不可枚举
+        except Exception as e:
             logger.warning(f"Auto exposure state not supported: {e}")
         return state
 
@@ -852,7 +853,7 @@ class DahengCamera(BaseCamera):
                 f"gain=[{min_gain}, {max_gain}]"
             )
             return True
-        except Exception as e:  # 同上: gxipy Feature 访问, 不支持时抛出的类型不可枚举
+        except Exception as e:
             logger.warning(f"Auto exposure range not supported: {e}")
             return False
 

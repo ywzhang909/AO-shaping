@@ -107,6 +107,7 @@ def connect() -> None:
     if old is not None:
         try:
             old.close()
+        # policy: best-effort close of a handle being replaced - its failure must not block establishing the new connection
         except Exception:
             pass
         st.session_state[f"{P}_controller"] = None
@@ -142,6 +143,7 @@ def disconnect() -> None:
             if not ok:
                 logger.warning("power_off_and_close returned False")
                 st.toast("⚠️ 下电或关闭过程存在异常，请检查设备状态", icon="⚠️")
+        # policy: teardown exception is surfaced as an error state in the UI; the session is already ending, so re-raising would only swallow the operator's feedback
         except Exception as exc:
             logger.error(f"关闭控制器异常: {exc}")
     st.session_state[f"{P}_controller"] = None
@@ -161,6 +163,7 @@ def set_relay_power(on: bool) -> None:
         return
     try:
         ok = set_relay(ctrl, on)
+    # policy: a relay exception must reach the operator and stop the action; continuing silently would let the UI claim a power state it never set
     except Exception as exc:
         _set_feedback(f"继电器操作失败: {exc}", "error")
         logger.error(f"set_relay_power({on}) 异常: {exc}")

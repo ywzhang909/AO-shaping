@@ -678,6 +678,7 @@ def train(cfg: ShapingConfig) -> TrainResult:
             run.summary["best_val_sup"] = best_val_sup
             run.summary["global_step"] = global_step
             run.summary["corpus"] = summary
+        # policy: the summary mirrors metrics already persisted locally; losing it must not fail the run
         except Exception as exc:  # never fail a finished run
             logger.warning("could not write wandb summary: {}", exc)
         run.finish()
@@ -739,6 +740,7 @@ def _init_wandb(cfg: ShapingConfig, summary: dict[str, Any]):
                 "corpus": summary,
             },
         )
+    # policy: offline-only training is a supported mode, so an unreachable W&B is not an error
     except Exception as exc:  # telemetry must never kill a run
         logger.warning("wandb.init failed ({}); continuing offline-only", exc)
         return None
@@ -765,6 +767,7 @@ def _log_comparison_image(run: Any, path: Path, epoch: int, caption: str) -> Non
             {"compare/pred_vs_true": wandb.Image(str(path), caption=caption)},
             step=epoch,
         )
+    # policy: the uploaded figure is review convenience; the file it depicts is already written
     except Exception as exc:  # telemetry must never kill a run
         logger.warning("could not log {} to wandb: {}", path.name, exc)
 

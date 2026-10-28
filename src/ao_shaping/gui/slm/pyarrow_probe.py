@@ -103,6 +103,7 @@ def pyarrow_diagnostics() -> list[tuple[str, str]]:
         installed = [p.name for p in (package_dir or Path(".")).glob("*.pyd")]
         rows.append(("已安装 lib*.pyd", ", ".join(installed) or "无"))
         rows.append(("解释器接受的扩展后缀", ", ".join(suffixes)))
+    # policy: diagnostics only - a failing extension listing must not blank the other rows the operator needs to read
     except Exception:
         pass
 

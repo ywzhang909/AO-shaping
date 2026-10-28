@@ -241,7 +241,7 @@ Measured on an independent draw of n = 4096 from the driver's own `np.random.def
 
 Same ensemble, `LoopConfig.seed=8` instead of 7 — the detector is off, so this is pure state-draw variation.
 
-| ensemble | arm | |Δobjective| | |Δncc| | |Δ net_open−flat gap| |
+| ensemble | arm | \|Δobjective\| | \|Δncc\| | \|Δ net_open−flat gap\| |
 |---|---|---|---|---|
 | iid | `flat` | 0.1334 | 0.0562 | - |
 | iid | `net_open` | 0.0232 | 0.0017 | 0.1103 |

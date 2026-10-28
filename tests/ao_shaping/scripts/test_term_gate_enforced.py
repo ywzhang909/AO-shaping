@@ -12,6 +12,7 @@ print the count); ``--check`` is the only mode allowed to fail.
 
 from __future__ import annotations
 
+import ast
 import subprocess
 import sys
 from pathlib import Path
@@ -97,6 +98,53 @@ def test_ci_workflow_actually_calls_the_gate() -> None:
         "the terminology job was downgraded to advisory: findings would report "
         "but never block, which is the failure mode this job was added to fix"
     )
+
+
+def test_the_gate_is_stdlib_only() -> None:
+    """``ci.yml`` runs this script with bare ``python3`` and installs nothing, and says
+    so in its own comment ("Stdlib-only, so no uv and no container"). A third-party
+    import therefore does not slow the gate, it destroys it: a print->loguru sweep added
+    ``from loguru import logger`` and the job died with ModuleNotFoundError (exit 1) on
+    the runner while passing on any machine that happens to have loguru installed.
+
+    Only module-level imports are checked: a deferred import inside a function is not
+    loaded at start-up, so it cannot crash the invocation CI makes.
+    """
+    tree = ast.parse(_UNIFIER.read_text(encoding="utf-8"))
+    stdlib = set(sys.stdlib_module_names)
+    offenders: list[str] = []
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            roots = [alias.name.split(".")[0] for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            roots = [] if node.level else [(node.module or "").split(".")[0]]
+        else:
+            continue
+        offenders += [r for r in roots if r and r not in stdlib and r != "scripts"]
+    assert not offenders, (
+        f"the terminology gate now imports {sorted(set(offenders))} at module level; the "
+        "CI job installs nothing, so the gate crashes there even though it passes locally"
+    )
+
+
+def test_the_gate_runs_without_site_packages() -> None:
+    """The same contract enforced by execution rather than by reading the source: ``-S``
+    hides site-packages, which is what the runner effectively is for this job. ``--check``
+    on the real repository must still exit 0."""
+    proc = subprocess.run(
+        [sys.executable, "-S", str(_UNIFIER), "--check"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=_REPO,
+    )
+    assert "ModuleNotFoundError" not in proc.stderr, (
+        f"the gate needs a package the CI job never installs:\n{proc.stderr}"
+    )
+    assert proc.returncode == 0, (
+        f"stdlib-only --check exited {proc.returncode}:\n{proc.stdout}\n{proc.stderr}"
+    )
+
 
 #: English prose whose last word is ``pupil``, followed by a Chinese paragraph. The
 #: context window used to span the newline, see a CJK neighbour, and gloss the English

@@ -355,6 +355,7 @@ def optimize_pib(
                 window.close()
             try:
                 dm.send_voltages(np.zeros(dm.DM_Num))  # type: ignore[union-attr]
+            # policy: teardown only -- raising here masks whatever ended the run, while silence leaves the mirror at its last voltages unnoticed
             except Exception as exc:
                 # Teardown only: raising here would mask whatever ended the run.
                 # Silent is worse -- the mirror keeps its last (possibly large)

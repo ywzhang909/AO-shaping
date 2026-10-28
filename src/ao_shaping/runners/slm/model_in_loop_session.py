@@ -522,6 +522,7 @@ def _capture_session_fingerprint(
         result = _probe_fingerprint(
             params, config, (int(centre[0]), int(centre[1])), save_dir
         )
+    # policy: optical-path fingerprint is provenance recorded alongside a calibration, not an input to it
     except Exception as exc:  # 指纹失败不掀翻标定
         logger.warning("光路指纹采集异常，本次不记录指纹: {}", exc)
         notes.append("光路指纹采集失败（不影响本次标定）")

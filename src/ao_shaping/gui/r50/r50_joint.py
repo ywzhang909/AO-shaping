@@ -120,6 +120,7 @@ def _jc_connect() -> None:
         st.session_state[f"{jc}_feedback_type"] = "success"
         _debug_add_op("connect", f"joint ({n_ctrl} controllers)", "all")
         logger.info(f"MicroDM connected: {n_ctrl} controllers")
+    # policy: a failed connect drops the half-open handle and marks the session disconnected, so no later tick can trust a link that was never established
     except Exception as e:
         st.session_state[f"{jc}_connection_error"] = f"连接失败: {e}"
         st.session_state[f"{jc}_connected"] = False
@@ -138,6 +139,7 @@ def _jc_disconnect() -> None:
             if st.session_state.get(f"{jc}_relay_on", False):
                 dm.set_relay_state(False)
             dm.close()
+        # policy: relay-off and close are best effort and the handle is cleared regardless -- recorded because a failed relay-off can leave outputs energized with only the log as trace
         except Exception as e:
             logger.warning(f"MicroDM disconnect warning: {e}")
     st.session_state[f"{jc}_dm"] = None
@@ -171,6 +173,7 @@ def _jc_set_relay(on: bool) -> None:
             st.session_state[f"{jc}_feedback_type"] = "info"
             reset_unit_states()
             _debug_add_op("relay_off", "joint", "all")
+    # policy: the relay decides whether outputs are energized, so a failed toggle must be shown as an error: the operator cannot infer the relay state from anything else on the panel
     except Exception as e:
         st.session_state[f"{jc}_feedback"] = f"继电器操作失败: {e}"
         st.session_state[f"{jc}_feedback_type"] = "error"
@@ -205,6 +208,7 @@ def _jc_apply_matrix() -> None:
     def _send() -> tuple[SendResult, list[Packet]]:
         try:
             dm.send_voltages(flat)
+        # policy: send-result contract: a driver failure becomes a failed SendResult the caller renders, not an exception that would abort the apply flow with some units already set
         except Exception as e:
             logger.exception(f"MicroDM apply failed: {e}")
             return SendResult(fail=1, failed_targets=[str(e)]), []
@@ -319,6 +323,7 @@ def _jc_reset_to_applied() -> None:
     def _send() -> tuple[SendResult, list[Packet]]:
         try:
             dm.send_voltages(flat)
+        # policy: same contract on the zeroing path, where swallowing the failure would claim the units are at zero while they may still hold their last voltages
         except Exception as e:
             logger.exception(f"MicroDM reset to zero failed: {e}")
             return SendResult(fail=1, failed_targets=[str(e)]), []
@@ -372,6 +377,7 @@ def _jc_refresh_from_hardware() -> None:
         st.session_state[f"{jc}_current_flat"] = matrix.flatten().copy()
         st.session_state[f"{jc}_feedback"] = "已从硬件刷新电压矩阵"
         st.session_state[f"{jc}_feedback_type"] = "info"
+    # policy: a failed read-back leaves the on-screen matrix untouched -- stale voltages the operator knows about beat hardware values that were never fully read
     except Exception as e:
         st.session_state[f"{jc}_feedback"] = f"刷新失败: {e}"
         st.session_state[f"{jc}_feedback_type"] = "error"
@@ -424,6 +430,7 @@ def _jc_batch_power_on() -> None:
                 f"{len(unreachable)} 不可达 ({', '.join(unreachable)})"
             )
             st.session_state[f"{jc}_feedback_type"] = "warning"
+    # policy: a batch power-on that throws outright is reported as failed and no controller may be assumed energized; the partial path above already names which units were reachable
     except Exception as e:
         st.session_state[f"{jc}_feedback"] = f"批量上电失败: {e}"
         st.session_state[f"{jc}_feedback_type"] = "error"

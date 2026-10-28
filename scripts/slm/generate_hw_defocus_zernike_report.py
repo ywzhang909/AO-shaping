@@ -304,6 +304,14 @@ PIXEL_COORD_MERGE_FIELDS = ("center_xy", "mask_center_xy")
 #: (焦面/曝光/口径不同) ⇒ 疑似混进了别轮的数据。
 CONTINUOUS_MERGE_FIELDS = ("w0_px", "target_side")
 
+#: How many components a two-component record carries: the corpus stores
+#: coordinates as (x, y) and camera windows as (height, width), and every reader takes
+#: exactly ``v[0]`` and ``v[1]``.  The comparison differs per call site (``!=`` where an
+#: extra component is a corruption, ``<`` where only the first two are read), but the 2
+#: answers the same question, so it has one home.  Not the same thing as the "at least two
+#: samples / points / clusters" floors elsewhere in this file, which stay literal.
+_PAIR_ARITY = 2
+
 #: 像素坐标逐轴偏差的**容忍上限** (px): 超过它就不算「定位抖动」而是判为疑似混入。
 #:
 #: 取 **2** 的理由: 实测逐阶组各自重新定位零级的散布只有 **±1 px** —— 第二轮八个
@@ -407,13 +415,13 @@ def _suspect_qualifier(zernike: dict[str, Any], field: str) -> str:
     shape_by_cluster: dict[str, set[str]] = {}
     for group, summary in by_group.items():
         value = summary.get(field)
-        if not isinstance(value, (list, tuple)) or len(value) != 2:
+        if not isinstance(value, (list, tuple)) or len(value) != _PAIR_ARITY:
             continue
         key = f"[{value[0]:g}, {value[1]:g}]"
         clusters.setdefault(key, []).append(group)
         shape = shapes.get(group)
         shape_by_cluster.setdefault(key, set()).add(
-            f"{shape[0]:g}x{shape[1]:g}" if isinstance(shape, list | tuple) and len(shape) == 2 else "?"
+            f"{shape[0]:g}x{shape[1]:g}" if isinstance(shape, list | tuple) and len(shape) == _PAIR_ARITY else "?"
         )
     if len(clusters) < 2:
         return ""
@@ -588,7 +596,7 @@ def _frame_shape_hw(value: Any) -> tuple[float, float] | None:
     ``mask_center_xy`` / ``center_xy`` 是 ``(x, y)`` —— 两者的**轴序相反**, 比较时
     必须换算 (x 对**宽**, y 对**高**), 否则非方形窗口会判错。
     """
-    if not isinstance(value, (list, tuple)) or len(value) < 2:
+    if not isinstance(value, (list, tuple)) or len(value) < _PAIR_ARITY:
         return None
     try:
         height = float(value[0])
@@ -610,7 +618,7 @@ def _coord_inside_window(value: Any, height: float, width: float) -> bool | None
         ``True`` / ``False`` = 判定结果; ``None`` = **取不到** (不是坐标对, 或数值
         不可解析) ⇒ 调用方按「无法证明它是全幅坐标」处理 (按可比), 而不是硬判。
     """
-    if not isinstance(value, (list, tuple)) or len(value) < 2:
+    if not isinstance(value, (list, tuple)) or len(value) < _PAIR_ARITY:
         return None
     try:
         x = float(value[0])
@@ -821,7 +829,7 @@ def _round_merge_facts(zernike: dict[str, Any]) -> dict[str, Any]:
 
     values: list[tuple[float, float]] = []
     for value in centers.values():
-        if not isinstance(value, (list, tuple)) or len(value) != 2:
+        if not isinstance(value, (list, tuple)) or len(value) != _PAIR_ARITY:
             continue
         try:
             pair = (float(value[0]), float(value[1]))
@@ -836,7 +844,7 @@ def _round_merge_facts(zernike: dict[str, Any]) -> dict[str, Any]:
     for group, value in centers.items():
         if group == kept_group:
             continue
-        if not isinstance(value, (list, tuple)) or len(value) != 2:
+        if not isinstance(value, (list, tuple)) or len(value) != _PAIR_ARITY:
             continue
         try:
             pair = (float(value[0]), float(value[1]))

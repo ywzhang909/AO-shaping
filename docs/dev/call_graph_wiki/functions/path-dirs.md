@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: function
 tags: [io,utils,time]
-source: src/ao_shaping/utils/io/file.py:156
+source: src/ao_shaping/utils/io/file.py:159
 ---
 
 ## 签名

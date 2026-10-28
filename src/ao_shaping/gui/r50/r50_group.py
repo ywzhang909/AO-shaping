@@ -77,6 +77,7 @@ def _gc_connect() -> None:
             ctrl = create_controller(
                 controller_id=ip_suffix, ip=ip, port=port, simulate=simulate
             )
+        # policy: per-IP connect - one unreachable controller is recorded and skipped so the rest of the group still connects; create_controller raises whatever its backend raises
         except Exception as e:
             errors.append(f"{ip}:{port} {e}")
             logger.exception(f"Group control connect failed for {ip}:{port}: {e}")
@@ -119,6 +120,7 @@ def _gc_disconnect() -> None:
     for ip_suffix, ctrl in controllers.items():
         try:
             power_off_and_close(ctrl)
+        # policy: disconnect is best effort - one controller failing to power off must not abort the loop and leave every other controller connected
         except Exception as e:
             logger.warning(f"Group control disconnect warning for ip={ip_suffix}: {e}")
 
@@ -149,6 +151,7 @@ def _gc_set_relay(on: bool) -> None:
                 success_count += 1
             else:
                 error_count += 1
+        # policy: batch relay toggle counts failures and continues; stopping mid-batch would leave some channels energised and the rest not
         except Exception as e:
             error_count += 1
             logger.exception(f"Group control relay failed for ip={ip_suffix}: {e}")
@@ -305,6 +308,7 @@ def _gc_batch_power_on() -> None:
                 success_count += 1
             else:
                 error_count += 1
+        # policy: batch power-on reports per-IP failures as a count so the operator sees which controllers refused; a partial failure is not a crash
         except Exception as e:
             error_count += 1
             logger.exception(f"Batch relay on failed for ip={ip_suffix}: {e}")

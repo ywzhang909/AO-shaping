@@ -41,6 +41,7 @@ MIGRATED = (
     "generate_gsnet_offline_report.py",
     "generate_heuristic_pib_report.py",
     "generate_inverse_design_report.py",
+    "generate_multishape1200_report.py",
     "generate_oopao_impact_report.py",
     "generate_oopao_vs_numpy_report.py",
     "generate_pib_exit_safety_report.py",

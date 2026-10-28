@@ -15,7 +15,7 @@ python src/ao_shaping/main.py --help
 python src/ao_shaping/main.py wf --help
 ```
 
-当前共 **19 个命令**：
+当前共 **20 个命令**：
 
 | 命令 | 一句话用途 | 详情章节 |
 |---|---|---|
@@ -38,6 +38,7 @@ python src/ao_shaping/main.py wf --help
 | `slm-pib` | Santec SLM 的 Zernike 系数整形，group（含 `spgd` / `heuristic` / `square` 子命令，`square` 即方形光斑整形） | 19 |
 | `slm-gs-refine` | SLM GS 预整形 + 全频随机相位 SPGD 细化 | 20 |
 | `slm-model-in-loop` | SLM model-in-the-loop 方形整形闭环 | 21 |
+| `slm-transfer-shapes` | 物理预测模型多形状整形（model → shaping → replay → record 四阶段，逐 CCD 块验收） | 22 |
 
 历史沿革：`gs` / `gs-square` / `diff-shaping` / `diff-beam` 已从 CLI 移除，其功能并入 `slm-gsnet` 与 `algorithm/signal_processing/`。
 
@@ -266,4 +267,77 @@ python src/ao_shaping/main.py zernike-matrix --n-max 10 --magnitude 3.0 --n-aver
 
 # 多幅度标定 + 调试原始数据
 python src/ao_shaping/main.py --debug zernike-matrix --n-magnitudes 4 --dither-amp 0.03
+```
+
+## 22. slm-transfer-shapes
+
+### 用途
+
+物理预测模型多形状整形：从零训练模型 + 目标整形，逐形状执行。四个阶段按顺序在线实现：
+
+1. **model** — 在当前光路上采集一组相位多样的探针，仅用这批采集生成标称 checkpoint（不从历史模型热启动），从零拟合物理预测模型，并把同一组光学参数导出到整形所用更细的控制网格（另含一个宽坡道变体，其载波映射按整形实际使用的控制分辨率重新测量）；
+2. **shaping** — 对每个请求的形状依次跑四个 CCD 锚定的优化段（非 GS 初相位 → Mono12 → 续接 → 稠密，段表硬编码于源码 `STAGE_RECIPES`，不通过选项暴露）；每个 CCD 块仅当**实测**核心 CV 下降才被接受；
+3. **replay** — 以共同位深和两档曝光重放每个形状存档的初相位与最终相位，使各段可在相同条件下比较；
+4. **record** — 把每个 CCD 块（相位、实测远场、相位变化、前后 CV、验收判定）写成 Recorder 记录，保存为 CSV + HDF5 + 动画 GIF。
+
+默认 `--seed-bakeoff` 会先实测各候选初相位的核心 CV、逐形状择优（对比择优）。完整工作流与实测记录见 [`docs/slm/slm_transfer_workflow.md`](../slm/slm_transfer_workflow.md)，流程出处见 [`report/shape_trials/square1200/square1200_20261026.md`](../../report/shape_trials/square1200/square1200_20261026.md)。
+
+### 硬件需求
+
+SLM（Santec）+ CCD 相机；不涉及 DM / WFS。设备只被需要它的阶段打开，且只在带 `--execute` 时才打开；不带该 flag 只打印计划（JSON），不打开设备。`--records-only` 完全离线：只从已有分段目录重建 Recorder 记录表。该命令没有仿真后端选项。
+
+### 选项
+
+| 选项 | 类型/取值 | 默认值 | 说明 |
+|---|---|---|---|
+| `--out` | PATH | 必填 | 运行根目录（每个阶段写入其子目录） |
+| `--shapes` | `[circle\|square\|rectangle\|triangle\|star]` | `square, triangle, star, circle` | 要整形的形状（同一尺寸，由 `--side` 给出）；可多次指定 |
+| `--side` | FLOAT | `1200.0` | 目标边长（CCD 原生像元） |
+| `--period` | FLOAT | `128.0` | 载波周期（面板像元） |
+| `--window-span` | FLOAT | `820.0` | 相机窗口半宽（CCD 原生像元） |
+| `--window-step` | FLOAT | `4.0` | 第一段的相机采样步长（CCD 原生像元）；后续段按流程表 |
+| `--zero-radius` | FLOAT | `60.0` | 零级排除半径（CCD 原生像元） |
+| `--capture-grid` | INTEGER | `384` | 探针采集的控制网格 |
+| `--capture-count` | INTEGER | `12` | 探针相位的数量（训练/验证各半） |
+| `--fit-iterations` | INTEGER | `150` | 物理预测模型的拟合迭代数（从零训练） |
+| `--fit-span` | INTEGER | `120` | 拟合窗口半宽（CCD 原生像元） |
+| `--amplitude-center-lr` | FLOAT | `4.0` | 照明位置学习率（面板像元/步）；从零训练需要它走完标称偏差 |
+| `--control-grid` | INTEGER | `640` | 整形阶段的控制网格 |
+| `--fft-size` | INTEGER | `2048` | 整形阶段的 FFT 尺寸 |
+| `--frames` | INTEGER | `3` | 每次采集的帧数 |
+| `--seed` | INTEGER | `20261027` | 探针族随机种子 |
+| `--camera` | TEXT | `daheng` | 相机后端名（`--help` 无说明文案，逐字取自源码默认值） |
+| `--cam-id` | INTEGER | `0` | 相机设备 ID（`--help` 无说明文案） |
+| `--slm-number` | INTEGER | `1` | SLM 设备编号（`--help` 无说明文案） |
+| `--device` | `[auto\|cpu\|cuda]` | `auto` | 计算设备（auto = 有 CUDA 用 CUDA） |
+| `--initial-phase` | `[auto\|transport\|backprojection\|gs]` | `auto` | 初相位构造；auto = 正方形用非 GS 传输，其余用非 GS 反投影 |
+| `--seed-bakeoff / --no-seed-bakeoff` | 开关 | 开启（`seed-bakeoff`） | 先实测各候选初相位的核心 CV，逐形状择优（对比择优） |
+| `--replay-exposures` | FLOAT | `50.0, 100.0` | 共同重放的曝光（ms）；可多次指定 |
+| `--model-dir` | PATH | 未指定 | 复用已有会话目录（含 `capture/` 与 `fit/`），跳过模型采集与拟合 |
+| `--records-only` | 开关 | 不启用 | 只从已有的分段目录重建 Recorder 记录（离线，不打开设备） |
+| `--execute` | 开关 | 不启用 | 真正打开设备执行（否则只打印计划） |
+
+共 26 项。该命令的选项全部是 `runners/slm/transfer_shapes_runner.py` 里的 `@click.option` 直接声明（无 params dataclass）；拼写、取值域与默认值逐字来自 `--help` 转储，与源码一致，无分歧。
+
+ℹ️ 四个整形段的块数、每块更新数、相位学习率、相位 RMS 上限、位深、验收度量与相机采样步长都不在选项表里，而是硬编码于 `STAGE_RECIPES`：`transport_cv`（4 块 × 15 更新，8 位）、`mono12_cv`（8 × 20，12 位）、`mono12_continue`（12 × 15，12 位）、`mono12_dense`（4 × 20，12 位，宽坡道模型 + 2.0 采样步长）。
+
+### 示例
+
+```bash
+# 先看计划，不打开设备
+python src/ao_shaping/main.py slm-transfer-shapes \
+    --out data/debug/slm_transfer/session --shapes square --shapes triangle
+
+# 真正执行（model → shaping → replay → record 四阶段）
+python src/ao_shaping/main.py slm-transfer-shapes \
+    --out data/debug/slm_transfer/session --shapes square --shapes triangle --execute
+
+# 只从已有会话的分段目录重建记录表（离线）
+python src/ao_shaping/main.py slm-transfer-shapes \
+    --out data/debug/slm_transfer/session --records-only
+
+# 复用已有会话的采集与拟合，只做整形
+python src/ao_shaping/main.py slm-transfer-shapes \
+    --out data/debug/slm_transfer/session2 \
+    --model-dir data/debug/slm_transfer/session --execute
 ```

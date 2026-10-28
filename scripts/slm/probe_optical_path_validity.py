@@ -136,6 +136,11 @@ PEAK_SIGMA_FLOOR_COUNTS = 1.0
 RECOMMENDED_PEAK_RANGE = (100.0, 200.0)
 #: Noll 4 = 离焦 (仓库约定)。
 DEFOCUS_NOLL_INDEX = 4
+
+#: 判定「这一帧就是平场参考」的离焦容差: 名义 Δz = 0 的那些帧, 其 ``defocus_rad``
+#: 与 0 只差在浮点误差量级内, 用严格 ``== 0`` 会把它们错判成非平场。只适用于离焦轴 ——
+#: 第 255 行判断的是**振幅**是否为 0, 那是另一个量, 故意不共用这个容差。
+FLAT_DEFOCUS_EPS_RAD = 1e-12
 #: 建议曝光的落点 (counts) —— 区间的中点。
 RECOMMENDED_PEAK_TARGET = 0.5 * (
     RECOMMENDED_PEAK_RANGE[0] + RECOMMENDED_PEAK_RANGE[1]
@@ -553,8 +558,8 @@ def analyse_defocus_response(
     恰恰是在换显示状态下比较的, 只用组内散布会低估噪声。
     """
     summaries = [_state_summary(s) for s in states]
-    flat = [s for s in summaries if abs(s["defocus_rad"]) < 1e-12]
-    non_flat = [s for s in summaries if abs(s["defocus_rad"]) >= 1e-12]
+    flat = [s for s in summaries if abs(s["defocus_rad"]) < FLAT_DEFOCUS_EPS_RAD]
+    non_flat = [s for s in summaries if abs(s["defocus_rad"]) >= FLAT_DEFOCUS_EPS_RAD]
     if not flat:
         flat = [summaries[0]]
 
@@ -596,7 +601,7 @@ def analyse_defocus_response(
         sem_fwhm = sigma_fwhm_state * math.sqrt(1.0 / n_flat + 1.0 / n_state)
         d_peak = peak - base_peak
         d_fwhm = fwhm - base_fwhm
-        is_flat = abs(summary["defocus_rad"]) < 1e-12
+        is_flat = abs(summary["defocus_rad"]) < FLAT_DEFOCUS_EPS_RAD
         if not is_flat:
             if abs(d_peak) >= peak_signal:
                 peak_signal = abs(d_peak)

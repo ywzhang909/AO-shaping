@@ -472,6 +472,7 @@ def _build_device_config(
         if hasattr(dm, "max_neibor_diff"):
             dm_config["max_neighbor_diff"] = dm.max_neibor_diff
         config["dm"] = dm_config
+    # policy: device config is best-effort metadata for the calibration record; a driver without the attribute must not fail the calibration
     except Exception as e:
         logger.debug(f"Could not capture DM config: {e}")
 
@@ -489,6 +490,7 @@ def _build_device_config(
         if hasattr(wfs, "serial_num"):
             wfs_config["serial_number"] = str(wfs.serial_num)
         config["wfs"] = wfs_config
+    # policy: same as the DM config above -- metadata capture is optional, the matrix is not
     except Exception as e:
         logger.debug(f"Could not capture WFS config: {e}")
 

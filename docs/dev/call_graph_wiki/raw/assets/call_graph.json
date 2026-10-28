@@ -5,8 +5,8 @@
    "qualname": "cli",
    "module": "ao_shaping.main",
    "file": "src/ao_shaping/main.py",
-   "lineno": 86,
-   "end": 105,
+   "lineno": 88,
+   "end": 107,
    "args": [
     "ctx",
     "dir",
@@ -187,8 +187,8 @@
    "qualname": "get_date_dir_name",
    "module": "ao_shaping.utils.io.cli_helpers",
    "file": "src/ao_shaping/utils/io/cli_helpers.py",
-   "lineno": 157,
-   "end": 164,
+   "lineno": 162,
+   "end": 169,
    "args": [],
    "returns": "str",
    "doc": "Get current date as directory name (YYYYMMDD format).\n\n    Routes to the shared primitive in ``utils.io.timestamp`` (R-28); this name\n    stays because it is exported through ``ao_shaping.utils`` and used by nine\n    modules.\n    ",
@@ -418,8 +418,8 @@
    "qualname": "get_init_V_by_rms",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 246,
-   "end": 270,
+   "lineno": 249,
+   "end": 273,
    "args": [
     "date"
    ],
@@ -458,8 +458,8 @@
    "qualname": "gen_date_dir",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 156,
-   "end": 163,
+   "lineno": 159,
+   "end": 166,
    "args": [
     "base_dir"
    ],
@@ -471,8 +471,8 @@
    "qualname": "gen_file_path_uuid",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 134,
-   "end": 144,
+   "lineno": 137,
+   "end": 147,
    "args": [
     "dir",
     "postfix"
@@ -840,8 +840,8 @@
    "qualname": "resolve_spot_center",
    "module": "ao_shaping.utils.image.hardware_utils",
    "file": "src/ao_shaping/utils/image/hardware_utils.py",
-   "lineno": 578,
-   "end": 634,
+   "lineno": 580,
+   "end": 636,
    "args": [
     "camera",
     "img",
@@ -858,8 +858,8 @@
    "qualname": "log_center_brightness",
    "module": "ao_shaping.utils.image.hardware_utils",
    "file": "src/ao_shaping/utils/image/hardware_utils.py",
-   "lineno": 553,
-   "end": 575,
+   "lineno": 555,
+   "end": 577,
    "args": [
     "img",
     "center",
@@ -950,8 +950,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1057,
-   "end": 1380,
+   "lineno": 1062,
+   "end": 1388,
    "args": [
     "ctx",
     "params",
@@ -1046,8 +1046,8 @@
    "qualname": "_mode_ids",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 523,
-   "end": 539,
+   "lineno": 524,
+   "end": 540,
    "args": [
     "n_max",
     "excluded_piston",
@@ -1061,8 +1061,8 @@
    "qualname": "_print_calibration_summary",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 473,
-   "end": 508,
+   "lineno": 474,
+   "end": 509,
    "args": [
     "results",
     "output_path",
@@ -1077,7 +1077,7 @@
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
    "lineno": 318,
-   "end": 391,
+   "end": 392,
    "args": [
     "slm",
     "wfs",
@@ -1093,8 +1093,8 @@
    "qualname": "_save_init_state_hdf5",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 394,
-   "end": 429,
+   "lineno": 395,
+   "end": 430,
    "args": [
     "init_state",
     "output_path"
@@ -1107,8 +1107,8 @@
    "qualname": "calibrate_response_matrix_pushpull",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 584,
-   "end": 769,
+   "lineno": 585,
+   "end": 774,
    "args": [
     "slm",
     "wfs",
@@ -1150,8 +1150,8 @@
    "qualname": "_save_wavefront_log_hdf5",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 435,
-   "end": 467,
+   "lineno": 436,
+   "end": 468,
    "args": [
     "records",
     "output_path"
@@ -1177,8 +1177,8 @@
    "qualname": "offline_correction_test",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 775,
-   "end": 971,
+   "lineno": 780,
+   "end": 976,
    "args": [
     "slm",
     "wfs",
@@ -1204,8 +1204,8 @@
    "qualname": "get_timestamp_str",
    "module": "ao_shaping.utils.io.cli_helpers",
    "file": "src/ao_shaping/utils/io/cli_helpers.py",
-   "lineno": 167,
-   "end": 173,
+   "lineno": 172,
+   "end": 178,
    "args": [],
    "returns": "str",
    "doc": "Get current timestamp string (YYYYMMDD_HHMMSS format).\n\n    Identical to :func:`~ao_shaping.utils.io.file.gen_date_str`; both delegate to\n    ``utils.io.timestamp.format_ts`` (R-28).\n    ",
@@ -1228,8 +1228,8 @@
    "qualname": "closed_loop_run",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1572,
-   "end": 1826,
+   "lineno": 1580,
+   "end": 1834,
    "args": [
     "ctx",
     "params"
@@ -1249,8 +1249,8 @@
    "qualname": "from_response_matrix",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1386,
-   "end": 1456,
+   "lineno": 1394,
+   "end": 1464,
    "args": [
     "result",
     "config"
@@ -1263,8 +1263,8 @@
    "qualname": "_measure_wfs_step",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1459,
-   "end": 1485,
+   "lineno": 1467,
+   "end": 1493,
    "args": [
     "wfs",
     "mask_indices",
@@ -1280,8 +1280,8 @@
    "qualname": "_expand_to_noll",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1488,
-   "end": 1513,
+   "lineno": 1496,
+   "end": 1521,
    "args": [
     "u",
     "n_max",
@@ -1369,8 +1369,8 @@
    "qualname": "build_debug_save_paths",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 212,
-   "end": 242,
+   "lineno": 215,
+   "end": 245,
    "args": [
     "root_dir",
     "context_subdir"
@@ -1410,8 +1410,8 @@
    "qualname": "save_optimization_debug_artifacts",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 847,
-   "end": 989,
+   "lineno": 1385,
+   "end": 1530,
    "args": [
     "records",
     "save_dir",
@@ -1471,8 +1471,8 @@
    "qualname": "_validate_frame_artifacts",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 690,
-   "end": 703,
+   "lineno": 1230,
+   "end": 1243,
    "args": [
     "mode"
    ],
@@ -1484,8 +1484,8 @@
    "qualname": "_save_data_mode_debug_artifacts",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 706,
-   "end": 844,
+   "lineno": 1246,
+   "end": 1382,
    "args": [
     "data",
     "png_path",
@@ -1508,8 +1508,8 @@
    "qualname": "gen_date_dir",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 156,
-   "end": 163,
+   "lineno": 159,
+   "end": 166,
    "args": [
     "base_dir"
    ],
@@ -1862,7 +1862,7 @@
    "module": "ao_shaping.runners.matrix_runner",
    "file": "src/ao_shaping/runners/matrix_runner.py",
    "lineno": 123,
-   "end": 260,
+   "end": 261,
    "args": [
     "ctx",
     "params",
@@ -1926,8 +1926,8 @@
    "qualname": "calibrate_dm_response_matrix",
    "module": "ao_shaping.optimizer.wf.dm_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
-   "lineno": 498,
-   "end": 809,
+   "lineno": 500,
+   "end": 811,
    "args": [
     "dm",
     "wfs",
@@ -1957,8 +1957,8 @@
    "qualname": "save_dm_response_matrix",
    "module": "ao_shaping.optimizer.wf.dm_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
-   "lineno": 812,
-   "end": 880,
+   "lineno": 814,
+   "end": 882,
    "args": [
     "result",
     "path",
@@ -1973,7 +1973,7 @@
    "module": "ao_shaping.optimizer.wf.dm_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/dm_response_matrix.py",
    "lineno": 455,
-   "end": 495,
+   "end": 497,
    "args": [
     "dm",
     "wfs"
@@ -2125,8 +2125,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.micro_drive.voltage_runner",
    "file": "src/ao_shaping/runners/micro_drive/voltage_runner.py",
-   "lineno": 210,
-   "end": 446,
+   "lineno": 211,
+   "end": 451,
    "args": [
     "ctx",
     "params"
@@ -2156,8 +2156,8 @@
    "qualname": "_resolve_port",
    "module": "ao_shaping.runners.micro_drive.voltage_runner",
    "file": "src/ao_shaping/runners/micro_drive/voltage_runner.py",
-   "lineno": 180,
-   "end": 189,
+   "lineno": 181,
+   "end": 190,
    "args": [
     "ip",
     "port"
@@ -2239,8 +2239,8 @@
    "qualname": "full_voltage_run",
    "module": "ao_shaping.runners.micro_drive.voltage_runner",
    "file": "src/ao_shaping/runners/micro_drive/voltage_runner.py",
-   "lineno": 642,
-   "end": 687,
+   "lineno": 651,
+   "end": 696,
    "args": [
     "ctx",
     "params"
@@ -2257,8 +2257,8 @@
    "qualname": "_amain",
    "module": "ao_shaping.runners.micro_drive.voltage_runner",
    "file": "src/ao_shaping/runners/micro_drive/voltage_runner.py",
-   "lineno": 487,
-   "end": 636,
+   "lineno": 495,
+   "end": 645,
    "args": [
     "ips",
     "alt_voltage",
@@ -2276,8 +2276,8 @@
    "qualname": "hadamard_matrix_run",
    "module": "ao_shaping.runners.matrix_runner",
    "file": "src/ao_shaping/runners/matrix_runner.py",
-   "lineno": 273,
-   "end": 398,
+   "lineno": 274,
+   "end": 400,
    "args": [
     "ctx",
     "params",
@@ -2362,7 +2362,7 @@
    "module": "ao_shaping.optimizer.combined_optimizer",
    "file": "src/ao_shaping/optimizer/combined_optimizer.py",
    "lineno": 83,
-   "end": 365,
+   "end": 371,
    "args": [
     "center",
     "epochs",
@@ -2386,7 +2386,7 @@
     "**kwargs"
    ],
    "returns": "Recorder",
-   "doc": "Optimize PIB (Power in Bucket) with AdaMOD and adaptive bucket radius.\n\n    This optimizer opens the camera and DM, then runs a disturbance-based\n    gradient loop that dynamically shrinks the bucket radius as the spot\n    becomes more concentrated.\n\n    Args:\n        center: Spot center. Pass a ``(x, y)`` tuple, ``\"mass\"``, ``\"max\"``,\n            ``\"shape\"``, or ``None`` for auto-detection.\n        epochs: Optimisation iterations.\n        r_bucket: Initial bucket radius. ``0`` = auto-detect.\n        delta: Disturbance magnitude.\n        lr: AdaMOD learning rate. ``0`` = auto-schedule.\n        exposure_time_ms: Camera exposure (ms). ``0`` = auto.\n        shrink_iter: Shrink bucket every N steps. ``0`` = disable.\n        shrink_ratio: Bucket shrink factor per shrink step.\n        cam_id: Camera device ID.\n        show: Show live Pygame display.\n        init_v: Initial DM voltage vector.\n        cam_size: Camera region-of-interest size.\n        target_max_brightness: Target max pixel brightness. ``0`` = disable auto-exposure.\n        dm_unit_mask: Boolean mask for enabled DM actuators.\n        dm_neibor_diff: Max neighbour voltage difference safety check.\n        dm_max_voltage: DM max voltage limit.\n        dm_min_voltage: DM min voltage limit.\n        dm: DM instance. If ``None``, a default NlightDM is created.\n        **kwargs: Additional kwargs forwarded to the AdaMOD constructor.\n\n    Returns:\n        ``Recorder`` with full per-epoch history (J, pib, voltages, etc.).\n    ",
+   "doc": "Optimize PIB (Power in Bucket) with AdaMOD and adaptive bucket radius.\n\n    This optimizer opens the camera and DM, then runs a disturbance-based\n    gradient loop that dynamically shrinks the bucket radius as the spot\n    becomes more concentrated.\n\n    Args:\n        center: Spot center. Pass a ``(x, y)`` tuple, ``\"mass\"``, ``\"max\"``,\n            ``\"shape\"``, or ``None`` for auto-detection.\n        epochs: Optimisation iterations.\n        r_bucket: Initial bucket radius. ``0`` = auto-detect.\n        delta: Disturbance magnitude.\n        lr: AdaMOD learning rate. ``0`` = auto-schedule.\n        exposure_time_ms: Camera exposure (ms). ``0`` = auto.\n        shrink_iter: Shrink bucket every N steps. ``0`` = disable.\n        shrink_ratio: Bucket shrink factor per shrink step.\n        cam_id: Camera device ID.\n        show: Show live Pygame display.\n        init_v: Initial DM voltage vector.\n        cam_size: Camera region-of-interest size.\n        target_max_brightness: Target max pixel brightness. ``0`` = disable auto-exposure.\n        dm_unit_mask: Boolean mask for enabled DM actuators.\n        dm_neibor_diff: Max neighbour voltage difference safety check.\n        dm_max_voltage: DM max voltage limit. Forwarded to the DM factory and\n            filtered per registered type by ``create_dm``: no registered\n            hardware DM accepts it as a constructor argument (the limits are\n            the ``V_Min`` / ``V_Max`` properties, enforced when updates are\n            clipped), so on hardware it is inert; the simulation shim honours\n            it. Kept in the signature for that sim-parity contract (#91).\n        dm_min_voltage: Same as ``dm_max_voltage``, lower bound.\n        dm: DM instance. If ``None``, a default NlightDM is created.\n        **kwargs: Additional kwargs forwarded to the AdaMOD constructor.\n\n    Returns:\n        ``Recorder`` with full per-epoch history (J, pib, voltages, etc.).\n    ",
    "decorators": []
   },
   "ao_shaping.utils.image.spots_calc.power_in_bucket_mask": {
@@ -2422,8 +2422,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.slm_shaping_runner",
    "file": "src/ao_shaping/runners/slm/slm_shaping_runner.py",
-   "lineno": 464,
-   "end": 473,
+   "lineno": 465,
+   "end": 474,
    "args": [
     "ctx",
     "run"
@@ -2528,8 +2528,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.gsnet_runner",
    "file": "src/ao_shaping/runners/slm/gsnet_runner.py",
-   "lineno": 396,
-   "end": 408,
+   "lineno": 397,
+   "end": 409,
    "args": [
     "ctx",
     "run"
@@ -2609,8 +2609,8 @@
    "qualname": "apply_session_calibration",
    "module": "ao_shaping.runners.slm.model_in_loop_session",
    "file": "src/ao_shaping/runners/slm/model_in_loop_session.py",
-   "lineno": 613,
-   "end": 626,
+   "lineno": 647,
+   "end": 661,
    "args": [
     "params",
     "config",
@@ -2624,8 +2624,8 @@
    "qualname": "calibrate_session",
    "module": "ao_shaping.runners.slm.model_in_loop_session",
    "file": "src/ao_shaping/runners/slm/model_in_loop_session.py",
-   "lineno": 527,
-   "end": 610,
+   "lineno": 553,
+   "end": 644,
    "args": [
     "params",
     "config",
@@ -2655,8 +2655,8 @@
    "qualname": "_read_correlation",
    "module": "ao_shaping.runners.slm.model_in_loop_session",
    "file": "src/ao_shaping/runners/slm/model_in_loop_session.py",
-   "lineno": 347,
-   "end": 353,
+   "lineno": 372,
+   "end": 378,
    "args": [
     "path"
    ],
@@ -2668,8 +2668,8 @@
    "qualname": "_capture_session_fingerprint",
    "module": "ao_shaping.runners.slm.model_in_loop_session",
    "file": "src/ao_shaping/runners/slm/model_in_loop_session.py",
-   "lineno": 480,
-   "end": 524,
+   "lineno": 505,
+   "end": 550,
    "args": [
     "params",
     "config",
@@ -2686,12 +2686,12 @@
    "module": "ao_shaping.runners.slm.model_in_loop_session",
    "file": "src/ao_shaping/runners/slm/model_in_loop_session.py",
    "lineno": 171,
-   "end": 238,
+   "end": 241,
    "args": [
     "params",
     "save_dir"
    ],
-   "returns": "tuple[tuple[int, int], float, float, float]",
+   "returns": "tuple[tuple[int, int], float, float, float, float]",
    "doc": "Locate the beam on the panel; return the scan result's reportable fields.",
    "decorators": []
   },
@@ -2699,8 +2699,8 @@
    "qualname": "_should_measure_radius",
    "module": "ao_shaping.runners.slm.model_in_loop_session",
    "file": "src/ao_shaping/runners/slm/model_in_loop_session.py",
-   "lineno": 293,
-   "end": 306,
+   "lineno": 315,
+   "end": 328,
    "args": [
     "params",
     "config"
@@ -2713,8 +2713,8 @@
    "qualname": "_measure_illumination_radius",
    "module": "ao_shaping.runners.slm.model_in_loop_session",
    "file": "src/ao_shaping/runners/slm/model_in_loop_session.py",
-   "lineno": 309,
-   "end": 344,
+   "lineno": 331,
+   "end": 369,
    "args": [
     "params",
     "config",
@@ -2729,8 +2729,8 @@
    "qualname": "measure_session_geometry",
    "module": "ao_shaping.runners.slm.model_in_loop_session",
    "file": "src/ao_shaping/runners/slm/model_in_loop_session.py",
-   "lineno": 241,
-   "end": 290,
+   "lineno": 244,
+   "end": 312,
    "args": [
     "config",
     "save_dir",
@@ -2792,6 +2792,145 @@
    ],
    "returns": "tuple[int, ...]",
    "doc": "Parse a comma-separated list of frozen Zernike mode indices.",
+   "decorators": []
+  },
+  "ao_shaping.runners.slm.transfer_shapes_runner.run": {
+   "qualname": "run",
+   "module": "ao_shaping.runners.slm.transfer_shapes_runner",
+   "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+   "lineno": 215,
+   "end": 398,
+   "args": [
+    "out_dir",
+    "shapes",
+    "side",
+    "period",
+    "window_span",
+    "window_step",
+    "zero_radius",
+    "capture_grid",
+    "capture_count",
+    "fit_iterations",
+    "fit_span",
+    "amplitude_center_lr",
+    "control_grid",
+    "fft_size",
+    "frames",
+    "seed",
+    "camera",
+    "cam_id",
+    "slm_number",
+    "device",
+    "initial_phase",
+    "seed_bakeoff",
+    "replay_exposures",
+    "model_dir",
+    "records_only",
+    "execute"
+   ],
+   "returns": "None",
+   "doc": "物理预测模型闭环整形：从零训练模型 + 目标整形，逐形状执行。\n\n    典型用法::\n\n        python src/ao_shaping/main.py slm-transfer-shapes \\\n            --out data/debug/slm_transfer/session \\\n            --shapes square --shapes triangle --execute\n    ",
+   "decorators": [
+    "click.command(name='slm-transfer-shapes')",
+    "click.option('--out', 'out_dir', type=click.Path(path_type=Path), required=True, help='运行根目录 (每个阶段写入其子目录)')",
+    "click.option('--shapes', type=click.Choice(list(TRANSFER_SHAPE_CHOICES)), multiple=True, default=('square', 'triangle', 'star', 'circle'), show_default=True, help='要整形的形状 (同一尺寸, 由 --side 给出); 可多次指定')",
+    "click.option('--side', type=float, default=1200.0, show_default=True, help='目标边长 (CCD 原生像元)')",
+    "click.option('--period', type=float, default=128.0, show_default=True, help='载波周期 (面板像元)')",
+    "click.option('--window-span', type=float, default=820.0, show_default=True, help='相机窗口半宽 (CCD 原生像元)')",
+    "click.option('--window-step', type=float, default=4.0, show_default=True, help='第一段的相机采样步长 (CCD 原生像元); 后续段按流程表')",
+    "click.option('--zero-radius', type=float, default=60.0, show_default=True, help='零级排除半径 (CCD 原生像元)')",
+    "click.option('--capture-grid', type=int, default=384, show_default=True, help='探针采集的控制网格')",
+    "click.option('--capture-count', type=int, default=12, show_default=True, help='探针相位的数量 (训练/验证各半)')",
+    "click.option('--fit-iterations', type=int, default=150, show_default=True, help='物理预测模型的拟合迭代数 (从零训练)')",
+    "click.option('--fit-span', type=int, default=120, show_default=True, help='拟合窗口半宽 (CCD 原生像元)')",
+    "click.option('--amplitude-center-lr', type=float, default=4.0, show_default=True, help='照明位置学习率 (面板像元/步); 从零训练需要它走完标称偏差')",
+    "click.option('--control-grid', type=int, default=640, show_default=True, help='整形阶段的控制网格')",
+    "click.option('--fft-size', type=int, default=2048, show_default=True, help='整形阶段的 FFT 尺寸')",
+    "click.option('--frames', type=int, default=3, show_default=True, help='每次采集的帧数')",
+    "click.option('--seed', type=int, default=20261027, show_default=True, help='探针族随机种子')",
+    "click.option('--camera', default='daheng', show_default=True)",
+    "click.option('--cam-id', type=int, default=0, show_default=True)",
+    "click.option('--slm-number', type=int, default=1, show_default=True)",
+    "click.option('--device', type=click.Choice(['auto', 'cpu', 'cuda']), default='auto', show_default=True, help='计算设备 (auto = 有 CUDA 用 CUDA)')",
+    "click.option('--initial-phase', type=click.Choice(['auto', 'transport', 'backprojection', 'gs']), default='auto', show_default=True, help='初相位构造; auto = 正方形用非 GS 传输, 其余用非 GS 反投影')",
+    "click.option('--seed-bakeoff/--no-seed-bakeoff', default=True, show_default=True, help='先实测各候选初相位的核心 CV, 逐形状择优 (对比择优)')",
+    "click.option('--replay-exposures', type=float, multiple=True, default=(50.0, 100.0), show_default=True, help='共同重放的曝光 (ms); 可多次指定')",
+    "click.option('--model-dir', type=click.Path(path_type=Path), default=None, help='复用已有会话目录 (含 capture/ 与 fit/), 跳过模型采集与拟合')",
+    "click.option('--records-only', is_flag=True, help='只从已有的分段目录重建 Recorder 记录 (离线, 不打开设备)')",
+    "click.option('--execute', is_flag=True, help='真正打开设备执行 (否则只打印计划)')"
+   ]
+  },
+  "_json": {
+   "qualname": "_json",
+   "module": "ao_shaping.runners.slm.transfer_shapes_runner",
+   "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+   "lineno": 84,
+   "end": 85,
+   "args": [
+    "path"
+   ],
+   "returns": null,
+   "doc": "",
+   "decorators": []
+  },
+  "_rebuild_records": {
+   "qualname": "_rebuild_records",
+   "module": "ao_shaping.runners.slm.transfer_shapes_runner",
+   "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+   "lineno": 143,
+   "end": 163,
+   "args": [
+    "out",
+    "shapes"
+   ],
+   "returns": "None",
+   "doc": "Rebuild the Recorder table from the run directories already on disk.\n\n    Offline and device-free: the run directories are the source of truth, so\n    the record table can be re-derived (after a fix, or with a new column)\n    without re-running anything.\n    ",
+   "decorators": []
+  },
+  "_seed_kind": {
+   "qualname": "_seed_kind",
+   "module": "ao_shaping.runners.slm.transfer_shapes_runner",
+   "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+   "lineno": 88,
+   "end": 98,
+   "args": [
+    "shape",
+    "requested"
+   ],
+   "returns": "str",
+   "doc": "The initial-phase construction to use for a shape.\n\n    ``transport`` is exact for a square and mathematically impossible for the\n    others (a separable phase cannot produce a non-separable far field), so\n    ``auto`` picks the shape-general non-GS back-projection for everything\n    else. ``gs`` stays available as the comparison arm.\n    ",
+   "decorators": []
+  },
+  "_validate_args": {
+   "qualname": "_validate_args",
+   "module": "ao_shaping.runners.slm.transfer_shapes_runner",
+   "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+   "lineno": 118,
+   "end": 140,
+   "args": [
+    "checkpoint",
+    "out",
+    "zero_xy",
+    "shapes",
+    "recipe",
+    "initial_phase",
+    "seed_run",
+    "device",
+    "camera",
+    "cam_id",
+    "slm_number",
+    "frames",
+    "side",
+    "period",
+    "window_span",
+    "zero_radius",
+    "window_step",
+    "blocks",
+    "updates",
+    "adaptive_exposure"
+   ],
+   "returns": "SimpleNamespace",
+   "doc": "Build the argument namespace ``validate.run`` expects.",
    "decorators": []
   },
   "ao_shaping.tools.slm.panel.diagnose.main": {
@@ -2984,8 +3123,8 @@
    "qualname": "open_camera",
    "module": "ao_shaping.utils.image.hardware_utils",
    "file": "src/ao_shaping/utils/image/hardware_utils.py",
-   "lineno": 679,
-   "end": 736,
+   "lineno": 682,
+   "end": 741,
    "args": [
     "camera_type",
     "cam_id",
@@ -4128,6 +4267,26 @@
    "calls": 1
   },
   {
+   "from": "ao_shaping.runners.slm.transfer_shapes_runner.run",
+   "to": "_json",
+   "calls": 3
+  },
+  {
+   "from": "ao_shaping.runners.slm.transfer_shapes_runner.run",
+   "to": "_rebuild_records",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.slm.transfer_shapes_runner.run",
+   "to": "_seed_kind",
+   "calls": 2
+  },
+  {
+   "from": "ao_shaping.runners.slm.transfer_shapes_runner.run",
+   "to": "_validate_args",
+   "calls": 2
+  },
+  {
    "from": "ao_shaping.runners.slm.zernike_matrix_runner.closed_loop_run",
    "to": "_expand_to_noll",
    "calls": 1
@@ -4550,6 +4709,7 @@
   "slm_pib_run": "ao_shaping.runners.slm.slm_shaping_runner.run",
   "slm_gs_refine_run": "ao_shaping.runners.slm.gs_refine_runner.run",
   "slm_gsnet_run": "ao_shaping.runners.slm.gsnet_runner.run",
-  "slm_model_in_loop_run": "ao_shaping.runners.slm.model_in_loop_runner.run"
+  "slm_model_in_loop_run": "ao_shaping.runners.slm.model_in_loop_runner.run",
+  "slm_transfer_shapes_run": "ao_shaping.runners.slm.transfer_shapes_runner.run"
  }
 }

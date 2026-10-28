@@ -23,6 +23,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -364,15 +365,80 @@ class TestOwnProcessTreeIsNotAConflict:
         assert report["ok"] is True
         assert report["holder_is_me"] is True
 
+#: 子进程: 在**外壳 sh 之下**的 python 里判定进程树, 回报事实。
+#:
+#: 祖先裁剪那条分支在测试进程里往往空真(容器里 pytest 是 PID 1; 被 bash 包裹时又取决
+#: 于外层启动方式), 所以这里显式造一个非 python 的中间层: 子进程的父进程是 sh, 再上面
+#: 才是 python 的测试进程 ⇒ 按实现契约两者都不该出现在子进程自己的树里。
+_PRUNE_CODE = """
+import json, os, sys
+sys.path.insert(0, {src!r})
+from ao_shaping.tools.kernels import device_mutex as dm
+
+table = dm.process_table_detail(fresh=True)
+me = os.getpid()
+ppid = table.get(me, (0, ""))[0]
+own = dm.process_tree_pids()
+print(json.dumps(dict(
+    pid=me,
+    ppid=ppid,
+    parent_is_python=dm._is_python_process(table.get(ppid, (0, ""))[1]),
+    self_in_own=me in own,
+    ppid_in_own=ppid in own,
+    test_pid_in_own={test_pid!r} in own,
+)), flush=True)
+"""
+
+
+class TestAncestorsStopAtNonPython:
+    """实现契约的另一半: 祖先只沿 python 走, 非 python 中间层不得被认成自己。"""
+
+    def test_a_shell_parent_is_not_claimed_as_ours(self, tmp_path):
+        sh = shutil.which("sh")
+        if sh is None:
+            pytest.skip("需要一个能当中间层的 sh, 才能构造非 python 父进程")
+
+        code = _PRUNE_CODE.format(src=str(ROOT / "src"), test_pid=os.getpid())
+        script = tmp_path / "probe.py"
+        script.write_text(code, encoding="utf-8")
+        # sh 是直接父进程, python 只是它的子进程 => 祖先链在 sh 处就该被裁掉。
+        proc = subprocess.Popen(  # 固定命令, 只在测试里用
+            [sh, "-c", f"{sys.executable} {script}"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        out, err = proc.communicate(timeout=60)
+        assert proc.returncode == 0, f"child exited {proc.returncode}: {err}"
+        report = json.loads(out.strip().splitlines()[-1])
+
+        # 非空真守卫: 这条用例必须真的有一个非 python 的父进程, 否则它什么都没验。
+        assert report["ppid"], "子进程必须有一个可见的父进程"
+        assert report["parent_is_python"] is False, (
+            "构造失效: 父进程不是 sh, 这条用例退化成空真"
+        )
+        assert report["self_in_own"] is True
+        assert report["ppid_in_own"] is False, (
+            "非 python 的中间层被认成了自己 => 同一终端里的兄弟会话会被误判为同一条线"
+        )
+        assert report["test_pid_in_own"] is False, (
+            "祖先链必须在 sh 处停下: 越过它去认领更上面的 python 进程同样是错的"
+        )
+
     def test_process_tree_pids_contains_ancestors_and_descendants(self):
         own = process_tree_pids()
         assert os.getpid() in own
 
-        # 祖先条: 容器里 pytest 常是 PID 1 ⇒ 命名空间内没有祖先可断言, 进程表对此
-        # 返回 parent=0, 实现也正是 `if not parent: break` 停在这里 (不是漏判)。
-        ppid = device_mutex.process_table_detail(fresh=True).get(os.getpid(), (0, ""))[0]
-        if ppid:
-            assert ppid in own
+        # 祖先条: 契约是**只沿 python 进程向上**(见 process_tree_pids 的 docstring),
+        # 所以断言必须跟着父进程的可执行文件走, 而不是「凡非零 ppid 都算自己」——
+        # 后者在容器里是空真的(pytest 常是 PID 1, ppid=0), 一旦外层是 `bash -c`
+        # (AO_TEST_PER_FILE=1 的分片形态)就确定性失败, 因为它与实现的裁剪规则相反。
+        table = device_mutex.process_table_detail(fresh=True)
+        ppid = table.get(os.getpid(), (0, ""))[0]
+        if not ppid:
+            pass                                       # PID 1: 命名空间内没有祖先可断言
+        elif device_mutex._is_python_process(table.get(ppid, (0, ""))[1]):
+            assert ppid in own, "python 父进程必须被认作自己这条线"
+        else:
+            assert ppid not in own, "非 python 父进程是**故意**不认的(同一终端的兄弟会话)"
 
         # 后代条: 用例名里就写着 descendants, 但原来根本没测这一条。
         proc = subprocess.Popen(  # 固定命令, 只在测试里用

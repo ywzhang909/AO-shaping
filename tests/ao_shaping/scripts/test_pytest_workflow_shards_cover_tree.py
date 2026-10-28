@@ -36,6 +36,31 @@ IGNORE_RE = re.compile(
     r'"--ignore=\$\{?(?P<base>WORKDIR_IN_CONTAINER|REPO)\}?/(?P<target>tests/\S+)"'
 )
 
+#: The job that runs the suite must check the repository out with full history.
+#: One of the guards in that job (test_conventions.py's CHANGELOG citation check) asks
+#: git what each cited hash *is*; with actions/checkout's default ``fetch-depth: 1`` the
+#: object store holds only HEAD, so every citation resolves to "no such object" and a
+#: valid history turns the gate red for a reason no one changed.
+CHECKOUT_RE = re.compile(r"uses:\s*actions/checkout@[^\n]*")
+FETCH_DEPTH_RE = re.compile(r"fetch-depth:\s*0")
+
+
+def test_ci_checkout_keeps_full_history_for_history_dependent_guards() -> None:
+    """The test job must pin ``fetch-depth: 0``, and only that job needs it."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    checkouts = CHECKOUT_RE.findall(text)
+    assert checkouts, "no actions/checkout step in pytest.yml -- the job changed shape"
+    assert len(checkouts) == 1, (
+        f"pytest.yml has {len(checkouts)} checkout steps; the history requirement below "
+        "must be stated per checkout, not assumed"
+    )
+    assert FETCH_DEPTH_RE.search(text), (
+        "pytest.yml does not set fetch-depth: 0 -- actions/checkout defaults to a "
+        "depth-1 shallow clone, which breaks every guard that reads git object history "
+        "(the CHANGELOG citation guard fails on all 71 citations at once)"
+    )
+
+
 SHARD_RE = re.compile(
     r'^\s*run_shard\s+"(?P<name>[^"]+)"\s+(?P<per_file>[01])\s+(?P<blocking>[01])\s+(?P<targets>\S.*)$'
 )

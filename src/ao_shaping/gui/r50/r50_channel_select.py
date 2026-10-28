@@ -176,6 +176,7 @@ def load_csv() -> pd.DataFrame:
         return pd.DataFrame()
     try:
         return pd.read_csv(CFG.CSV_PATH)
+    # policy: a missing or unreadable enrichment CSV yields an empty frame, so the channel selector degrades to no channels instead of failing the page load -- the documented contract of this function
     except Exception as e:
         logger.warning(f"Failed to load CSV: {e}")
         return pd.DataFrame()
@@ -212,6 +213,7 @@ def build_csv_index(df: pd.DataFrame | None = None) -> dict[tuple[int, int], Cha
             if key in index:
                 continue
             index[key] = ci
+    # policy: a bad row aborts the index build where it stands and the partial index is returned: one malformed row must not discard the channels that did parse
     except Exception as e:
         logger.warning(f"Failed to build CSV index: {e}")
     return index
@@ -249,6 +251,7 @@ def build_groups(df: pd.DataFrame | None = None) -> dict[str, GroupDef]:
         for _, row in df.iterrows():
             ci = row_to_channel_info(row)
             groups.setdefault(ci.group, {}).setdefault(ci.ip_suffix, []).append(ci)
+    # policy: group construction failure yields no groups at all, so the panel offers an empty grouping rather than a half-built one
     except Exception as e:
         logger.warning(f"Failed to build CSV groups: {e}")
         return {}
@@ -272,6 +275,7 @@ def build_all_units(df: pd.DataFrame | None = None) -> list[ChannelInfo]:
                 continue
             seen.add(key)
             all_units.append(ci)
+    # policy: unit-list failure yields an empty list and the sort below is skipped, so callers see no units rather than a partially sorted set
     except Exception as e:
         logger.warning(f"Failed to build CSV units: {e}")
         return []
@@ -299,6 +303,7 @@ def jc_build_wiring_index(df: pd.DataFrame | None = None) -> dict[int, tuple[int
             c = int(row["36×36列"])
             pos = r * GRID_SIZE + c + 1
             pos_to_hw[pos] = (ip_s, pp)
+    # policy: a malformed wiring table returns the positions parsed so far: later lookups then report units as unwired instead of raising through the joint-control page
     except Exception as e:
         logger.warning(f"Failed to build joint control CSV index: {e}")
     return pos_to_hw
@@ -357,7 +362,7 @@ def build_position_ip_table(df: pd.DataFrame | None = None) -> pd.DataFrame:
                     "连接器": str(r["连接器"]),
                 }
             )
-    except Exception as e:  # malformed CSV -> empty table
+    except (ValueError, KeyError, TypeError) as e:  # malformed CSV -> empty table (缺列=KeyError, int()=ValueError/TypeError)
         logger.warning(f"Failed to build position/IP table: {e}")
         return pd.DataFrame()
     # 位置序号 ↔ IP+序号 对应表按物理位置排序 (CSV 按引脚编号排列, 非位置序)

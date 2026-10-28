@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: command
 tags: [command]
-source: src/ao_shaping/runners/matrix_runner.py:273
+source: src/ao_shaping/runners/matrix_runner.py:274
 ---
 
 ## 一句话
@@ -13,7 +13,7 @@ Hadamard 响应矩阵标定（并行扰动）
 
 ## 入口函数
 
-`runners.matrix_runner.hadamard_matrix_run`（`src/ao_shaping/runners/matrix_runner.py:273`）
+`runners.matrix_runner.hadamard_matrix_run`（`src/ao_shaping/runners/matrix_runner.py:274`）
 
 ```python
 hadamard_matrix_run(ctx, params, wfs, wfs_drv)

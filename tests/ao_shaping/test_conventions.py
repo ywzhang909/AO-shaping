@@ -2105,6 +2105,383 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
     return offenders, blocks
 
 
+#: Ratchet for issue #174: blind ``except Exception`` / ``except BaseException`` handlers
+#: under ``src/``. Counted by AST rather than by ruff because the test images do not install
+#: ruff (a ruff-based count would skip in exactly the place the gate runs), and the check is
+#: therefore unskippable. ``re_raise_only`` handlers are excluded, mirroring BLE001's own
+#: exemption, so the number is comparable to ``ruff check src --select BLE001`` (measured
+#: 363 today against this AST count of 381; the residual gap is ruff's contextual filtering).
+#: This is a ratchet, not a claim that 381 is acceptable: most remaining handlers are
+#: deliberate fallbacks, and each one still needs an individual judgement.
+#:
+#: The population shrank by one on 2026-10-28 rather than every handler staying blind: the R50
+#: channel selector's wiring-CSV parse handler was narrowed to the three types its guarded
+#: statements can actually raise (KeyError on a missing header, ValueError/TypeError on the
+#: int() conversions). That is the first executed narrowing in the GUI layer, and it sits on a
+#: pure-parse path -- no device call, so CI can see the whole failure surface. It is pinned by
+#: tests/ao_shaping/gui/r50/test_r50_channel_select.py, which asserts both that malformed rows
+#: still degrade to an empty table and that an unlisted error is no longer swallowed. Hardware
+#: paths remain deliberately un-narrowed until the driver exception taxonomy (#145 / #45).
+_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 381
+
+#: Second ratchet over the same population: a broad catch that has actually been *judged*
+#: carries a ``# policy:`` marker naming what the layer is protecting -- within two lines
+#: above the ``except``, or in the first three lines of the handler body. Counting the
+#: unmarked remainder is what makes progress reviewable. It rewards writing the judgement
+#: down, and it deliberately does not press the tree toward mechanical ``except ValueError``
+#: edits on hardware paths that CI cannot exercise: narrowing a driver call's handler without
+#: the driver exception taxonomy (issue #145 / #45) would turn a working fallback into a crash.
+#:
+#:
+#: Measured 2026-10-28 after nineteen marker passes and one executed narrowing (runners/slm + config + utils, the three CCD
+#: camera drivers, the R50 GUI loop files, the whole optimizer / runner CLI layer, the ml
+#: training scripts, the CCD analyzer UI, the bench settings panel, the Micro-DM panel, the
+#: target-shape helper, the R50 joint panel, the SLM calibration panel, the Micro-DM image
+#: analysis panel, the shaping-controls panel, and the R50 channel selector, then the first
+#: executed narrowing): 248 marked, 133
+#: unmarked. The fourth pass covered only 12 of the 17 open optimizer sites and the fifth had
+#: to close the layer -- the ceiling is only as honest as the last count. One site left the
+#: population instead of gaining a marker (narrowed out, see the total ratchet above), so the
+#: marked count fell while this ceiling held: a real narrowing is worth more than a marker, and
+#: unlike a marker it moves the total too.
+#: The sixteenth marker pass (the R50 controller-UI family: connection helpers, group panel,
+#: single-controller panel, tab host) moved this ceiling 194 -> 182 with 12 comment-only edits.
+#: Every one of those sites guards a device call, so per the note above they stay broad and are
+#: judged rather than narrowed; the recurring reason written into the markers is that teardown
+#: and batch loops must attempt every step, because aborting midway leaves some channels
+#: energised and others not. Control re-armed: one more unannotated blind catch makes 134 red.
+#: The seventeenth marker pass (six scattered GUI files outside the R50 family: the transfer
+#: progress panel, the Zernike debug viewer, both ceramic viewers, the pyarrow probe and the
+#: phase overlay helper) moved this ceiling 182 -> 171 with 11 comment-only edits. Three of those
+#: sites took a trailing comment on the except line and one converted a rationale that was
+#: already there, so every line number those files are cited at stayed put.
+#: The eighteenth marker pass (the multi-SLM controller panel, 19 sites) moved this ceiling
+#: 171 -> 152. Ten of those sites sit above the line docs/issues_report.md pins, so they took a
+#: trailing comment and one converted the rationale already sitting on its handler body; only the
+#: eight below the pin grew the file. Nothing left the blind population: all 19 are SLM SDK or
+#: session-state calls, whose failure type belongs to the vendor or to Streamlit, not to us.
+#: The nineteenth marker pass (the Zernike response-matrix UI, 19 sites) moved this ceiling
+#: 152 -> 133 and zeroed the GUI layer. Seventeen of those sites sit above a line TODO.md cites
+#: by number, so they took trailing comments and the file grew by two lines in total -- only the
+#: two sites below that citation could afford to grow. All 19 are SLM/WFS SDK, disk or Streamlit
+#: calls: the narrowing question never arises, since the failure type belongs to the vendor, the
+#: filesystem or Streamlit rather than to this code.
+_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 133
+
+
+def _blind_except_handlers_in_src() -> list[tuple[Path, int, bool]]:
+    """Every blind catch under ``src/``, as ``(path, except_line, policy_marked)``.
+
+    One walk feeds both ratchets. Two independent walks would drift apart, and that drift is
+    the failure mode this file already documents for its formatting guards: a checker that
+    counts something slightly different from the thing being guarded reports a clean tree.
+    """
+    src_dir = REPO / "src"
+    out: list[tuple[Path, int, bool]] = []
+    for path in sorted(src_dir.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        lines = text.splitlines()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ExceptHandler):
+                continue
+            if not isinstance(node.type, ast.Name) or node.type.id not in ("Exception", "BaseException"):
+                continue
+            if len(node.body) == 1 and isinstance(node.body[0], ast.Raise) and node.body[0].exc is None:
+                continue                       # re-raise only: BLE001 excuses this too
+            above = lines[max(0, node.lineno - 3):node.lineno - 1]
+            inside = lines[node.lineno - 1:min(len(lines), node.lineno + 2)]
+            marked = any("# policy:" in w for w in above) or any("# policy:" in w for w in inside)
+            out.append((path, node.lineno, marked))
+    return out
+
+
+#: Live `path:NNN` pins that this refactor workflow re-pins whenever code moves (six were
+#: re-pinned on 2026-10-28 after the #44 hoists in `slm_zernike_pib.py`).
+#:
+#: A repo-wide pin checker was measured first and REJECTED: the markdown tree holds 710
+#: `path:NNN` citations, only a minority sit on a row carrying a code token able to validate
+#: the target line, and several rows deliberately keep `原 :NNN` history for files that no
+#: longer exist. Gating those emits noise, not signal. This registry instead names the anchors
+#: known to move, each with the statement its pin must land on, and compares sets.
+_DOC_LINE_ANCHORS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
+    # (doc, row locator, source file, statements whose current lines the row must pin)
+    (
+        "docs/slm/pre_run_characterization.md",
+        "| 3 | `optimizer/wfless/slm_zernike_pib.py",
+        "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py",
+        ("SLM_RESPONSE_TIME_S = 0.0",),
+    ),
+    (
+        "docs/slm/pre_run_characterization.md",
+        "| 9 | `optimizer/wfless/slm_zernike_pib.py",
+        "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py",
+        ("def recenter", "set_reference_center(self.recenter",
+         "shaping.set_reference_center(pos_center)"),
+    ),
+    (
+        "TODO.md",
+        "`--max_peak` 不要动",
+        "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py",
+        ("_peak_observed = float(max(",),
+    ),
+    (
+        "TODO.md",
+        "在 `_apply_best_on_exit()` 退出清理里",
+        "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py",
+        ("except BaseException as _exit_exc",),
+    ),
+    (
+        "docs/issues_report.md",
+        "| `IDEAL_SPOT_RADIUS` |",
+        "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py",
+        # indented form: the bare name also appears in five call sites, which cannot be pinned
+        ("    IDEAL_SPOT_RADIUS,",),
+    ),
+    (
+        "TODO.md",
+        "上报动作本身的失败**（`ccd_analyzer.py:",
+        "src/ao_shaping/gui/ccd/ccd_analyzer.py",
+        ('raw_frame_queue.put(("error", str(exc)), block=False)',
+         'raw_frame_queue.put(("error", f"Capture loop crashed: {exc}"), block=False)'),
+    ),
+    (
+        "TODO.md",
+        "探测降级**（`bench_settings.py:",
+        "src/ao_shaping/gui/slm/bench_settings.py",
+        ("# policy: 相机缺 PixelSize 特性不是错误",
+         "# policy: 大恒探测像元间距失败不是错误"),
+    ),
+    (
+        "TODO.md",
+        "`r50_single.py:",
+        "src/ao_shaping/gui/r50/r50_single.py",
+        # re-pinned 2026-10-28: the #174 band-17 policy comment landed on the line above
+        # this handler, pushing the `except Exception:` from 110 -> 111 (the comment the
+        # pin points at is the bare-catch site, not the policy note above it)
+        ("except Exception:",),
+    ),
+)
+
+
+def _pinned_numbers(row: str, basename: str) -> set[int]:
+    r"""Every line number a doc row pins to `basename`: `f:12`, `f:12,30`, `f:12-15`, `f:12/30`.
+
+    A range contributes its start only -- the tables pin a statement or a block head, and a
+    block's last line is not a stable anchor. Parsing the whole numeric run in one go is what
+    keeps `f:1793-1803` from degrading into `179`, which is how `\d+(?!-)` backtracks.
+    Slash-separated runs are the ledger's form for "these N handlers" (`f:297/321`); while `/` was
+    not a separator, a registered pin of that shape validated only its first number and every
+    later one could rot unnoticed.
+    """
+    out: set[int] = set()
+    for m in re.finditer(re.escape(basename) + r":(\d+(?:\s*[-,/]\s*\d+)*)", row):
+        for part in re.split(r"[,/]", m.group(1)):
+            out.add(int(part.split("-")[0].strip()))
+    return out
+
+
+def test_live_doc_line_anchors_still_point_at_their_code() -> None:
+    """Pinned line numbers in the guarded tables must match where the code now lives.
+
+    Every doc row matching a registry locator is checked: the numbers it pins for the source
+    file must equal the current lines of the registered statements. A row that was half
+    re-pinned, over-pinned, or left behind by a code move all fail, and a human re-pin makes it
+    pass again -- which is the workflow these tables actually follow. Multiple rows may share a
+    locator (TODO.md cites the same anchor twice); every one of them has to agree, so the
+    second copy cannot silently rot.
+    """
+    offenders: list[str] = []
+    for doc_rel, locator, src_rel, statements in _DOC_LINE_ANCHORS:
+        doc_p, src_p = REPO / doc_rel, REPO / src_rel
+        if not doc_p.exists() or not src_p.exists():
+            offenders.append(f"{doc_rel}[{locator}]: file missing ({src_rel})")
+            continue
+        src = src_p.read_text(encoding="utf-8").splitlines()
+        want: set[int] = set()
+        for stmt in statements:
+            hits = [i + 1 for i, line in enumerate(src) if stmt in line]
+            if len(hits) != 1:
+                offenders.append(
+                    f"{doc_rel}[{locator}]: statement {stmt!r} occurs {len(hits)}x in "
+                    f"{src_rel} ({hits[:4]}) -- a pin cannot be attributed to an ambiguous "
+                    "statement; register a rarer one"
+                )
+                continue
+            want.add(hits[0])
+        rows = [l for l in doc_p.read_text(encoding="utf-8").splitlines() if locator in l]
+        if not rows:
+            offenders.append(
+                f"{doc_rel}: locator {locator!r} matched no row -- the table row was renamed "
+                "or deleted and the registry is now stale"
+            )
+            continue
+        for row in rows:
+            have = _pinned_numbers(row, src_p.name)
+            if not have:
+                offenders.append(
+                    f"{doc_rel}: row {locator!r} pins no `{src_p.name}:NNN` -- the citation "
+                    "was dropped while the registry still expects it"
+                )
+            elif have != want:
+                offenders.append(
+                    f"{doc_rel}: row {locator!r} pins {sorted(have)} but the code sits at "
+                    f"{sorted(want)} (stale: {sorted(have - want)}, unpinned: "
+                    f"{sorted(want - have)}) -- re-pin the table"
+                )
+    assert not offenders, "\n  " + "\n  ".join(offenders)
+
+
+#: The date-anchored ledger form (``**YYYY-MM-DD · sha · text**``) replaced numbered items on
+#: 2026-10-27 and nothing in the suite parsed it. Four separate defects landed in it during
+#: 2026-10-28: unbalanced bold, a nested full-width parenthesis, a shell/f-string escape residue
+#: written literally before a code span, and a narration line reproducing a live doc-pin locator.
+#: Legacy numbered items stay frozen -- rewriting them would falsify history -- so only this form is
+#: checked.
+_LEDGER_SECTION_START = "### 8.9"
+_LEDGER_SECTION_END = "### 8.10"
+_LEDGER_DATE_HEAD = re.compile(r"^\*\*(\d{4}-\d{2}-\d{2}) \u00b7 ([0-9a-f]{8}) \u00b7 ")
+_LEDGER_HEAD_ANY = re.compile(r"^(?:\d{1,3}\. |\*\*\d{4}-\d{2}-\d{2} \u00b7 )")
+_MIN_LEDGER_DATE_ENTRIES = 15
+
+
+def _strip_code_spans(line: str) -> str:
+    r"""Drop backticked spans: markdown does not read ``**`` inside ``...`` as bold."""
+    return re.sub(r"`[^`]*`", "", line)
+
+
+def _has_escape_residue(line: str) -> bool:
+    r"""True when a backslash outside a code span sits directly before an opening backtick.
+
+    A plain substring test for ``\`` + backtick is wrong: the legitimate span `` `\` `` (a code span
+    whose content is one backslash) contains that exact byte pair at its closing delimiter, and a
+    first version of this guard failed on such a line. Only a backslash in the prose segments -- what
+    a quoted heredoc or an f-string writes when someone escapes a backtick -- is residue.
+    """
+    inside = False
+    for i, ch in enumerate(line):
+        if ch == "`":
+            inside = not inside
+        elif ch == "\\" and not inside and line[i + 1: i + 2] == "`":
+            return True
+    return False
+
+
+def test_date_anchored_ledger_entries_stay_parseable_and_balanced() -> None:
+    """Every date-anchored ledger entry must parse, balance, and never shadow a live doc pin.
+
+    The heading shape is what ties a ledger entry to a commit, so drift (a third ``**``, a missing
+    space around the separator, a truncated SHA) silently breaks the only mechanical link between a
+    commit and its justification. Bold parity is measured outside code spans because a ``**`` inside a
+    backtick span is not bold: raw counting rejected a correct line and passed a broken one earlier the
+    same day.
+
+    The locator clause is the one that pays for itself. A narration line containing a registered
+    ``_DOC_LINE_ANCHORS`` locator makes that locator match a second, pin-less row, and the doc-pin
+    guard then fails on an unrelated commit -- which is how a docs-only commit got pushed red.
+    """
+    lines = (REPO / "TODO.md").read_text(encoding="utf-8").splitlines()
+    start = next((i for i, l in enumerate(lines) if l.startswith(_LEDGER_SECTION_START)), None)
+    end = next((i for i, l in enumerate(lines) if l.startswith(_LEDGER_SECTION_END)), None)
+    assert start is not None and end is not None and start < end, (
+        f"ledger section not found between {_LEDGER_SECTION_START!r} and {_LEDGER_SECTION_END!r} "
+        "-- the scope moved, so this guard would silently check nothing")
+
+    body = lines[start:end]
+    heads = [i for i, l in enumerate(body) if _LEDGER_HEAD_ANY.match(l)]
+    dated = [i for i in heads if _LEDGER_DATE_HEAD.match(body[i])]
+    assert len(dated) >= _MIN_LEDGER_DATE_ENTRIES, (
+        f"only {len(dated)} date-anchored entries parsed, below the floor "
+        f"{_MIN_LEDGER_DATE_ENTRIES} -- the ledger format moved and this guard went blind")
+
+    offenders: list[str] = []
+    for n, i in enumerate(dated):
+        stop = dated[n + 1] if n + 1 < len(dated) else len(body)
+        if _strip_code_spans(body[i]).count("**") != 2:
+            offenders.append(
+                f"TODO.md:{start + i + 1}: heading carries "
+                f"{_strip_code_spans(body[i]).count('**')} bold markers, exactly 2 required "
+                f"(inner bolding breaks the parse): {body[i][:64]}")
+        for j in range(i, stop):
+            line = body[j]
+            where = f"TODO.md:{start + j + 1}"
+            if line.count("`") % 2:
+                offenders.append(f"{where}: unbalanced code span: {line[:64]}")
+            elif _strip_code_spans(line).count("**") % 2:
+                offenders.append(f"{where}: unbalanced bold outside code spans: {line[:64]}")
+            if _has_escape_residue(line):
+                offenders.append(
+                    f"{where}: escape residue written literally before a code span "
+                    f"(heredoc or f-string quoting): {line[:64]}")
+            for _doc, locator, _src, _stmts in _DOC_LINE_ANCHORS:
+                if locator in line:
+                    offenders.append(
+                        f"{where}: ledger narration reproduces the live locator {locator!r}, so the "
+                        f"doc-pin guard matches this pin-less row and fails: {line[:64]}")
+
+    assert not offenders, "\n  " + "\n  ".join(offenders[:12])
+
+
+def test_blind_except_handlers_in_src_do_not_grow() -> None:
+    """No new blind ``except Exception`` may enter ``src/`` (issue #174).
+
+    Recorded 2026-10-27: the count had grown to 382 (ruff reports 363) since the issue was
+    filed at 379 across the repo, and nothing in the suite could see that growth because
+    BLE001 is not in ruff's ``select``. The floor on the found count is what keeps the walk
+    itself honest: an extractor that stopped parsing would otherwise report zero violations
+    and pass.
+    """
+    population = _blind_except_handlers_in_src()
+    found = len(population)
+    offenders = [f"{path.relative_to(REPO)}:{lineno}" for path, lineno, _m in population[:6]]
+    assert found >= 100, (
+        f"only {found} blind handler(s) parsed under src/ -- the walk stopped matching, so "
+        "this ratchet would be enforcing nothing"
+    )
+    assert found <= _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC, (
+        f"{found} blind except handlers under src/, above the ratchet "
+        f"{_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC} (first offenders: {', '.join(offenders)}). "
+        "Catch the types the guarded call can actually raise, or let the error propagate; "
+        "if a broad catch is genuinely intended, the ceiling may be raised only with a "
+        "reason recorded in TODO.md section 8.9."
+    )
+
+
+def test_unmarked_blind_except_handlers_do_not_grow() -> None:
+    """A deliberate broad catch must state its policy, or it stays counted as undecided.
+
+    The ceiling moves only when a judgement exists: a ``# policy:`` line at the handler, or a
+    narrowed catch that leaves the population altogether. The two assertions on the split keep
+    the scan itself honest -- if the marker pattern ever stopped matching anything, the marked
+    count would fall; if it matched everything, the unmarked count would collapse to zero and
+    this test would pass while guarding nothing.
+    """
+    population = _blind_except_handlers_in_src()
+    unmarked = [(path, lineno) for path, lineno, marked in population if not marked]
+    marked = len(population) - len(unmarked)
+    assert marked >= 20, (
+        f"only {marked} handler(s) carry a `# policy:` marker -- the marker scan has stopped "
+        "matching, so the unmarked ratchet below is enforcing nothing"
+    )
+    assert marked < len(population), (
+        "every blind handler parsed as marked -- the marker window is too wide, and an "
+        "unreviewed handler could now pass as judged"
+    )
+    offenders = [f"{path.relative_to(REPO)}:{lineno}" for path, lineno in unmarked[:6]]
+    assert len(unmarked) <= _MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC, (
+        f"{len(unmarked)} blind except handlers under src/ carry no `# policy:` marker, above "
+        f"the ratchet {_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC} (first offenders: "
+        f"{', '.join(offenders)}). Read the guarded call: either narrow it to the types that "
+        "can actually be raised, or record the fallback policy in one line at the handler. "
+        "Narrowing a hardware-path handler is not a cleanup -- see issues #145 and #45."
+    )
+
+
 def test_markdown_table_rows_never_write_more_cells_than_declared() -> None:
     """Every markdown table row keeps the column count its separator declares.
 
@@ -2915,6 +3292,15 @@ def test_reproduce_commands_in_live_docs_name_tracked_scripts() -> None:
                     continue
                 norm = token.replace("\\", "/")
                 if norm in tracked:
+                    continue
+                # The path grammar deliberately starts a claim at ``scripts/`` or ``src/``
+                # even mid-token, so a correct repo-root path for a script that lives
+                # elsewhere -- e.g. a skill's own scripts directory under libs/ -- is
+                # extracted as its trailing span. Accept that span only when this very line
+                # spells a tracked path ending in it. A stale flat path spells no such
+                # thing, so the detection the guard exists for is unchanged.
+                line_norm = line.replace("\\", "/")
+                if any(t.endswith("/" + norm) and t in line_norm for t in tracked):
                     continue
                 base = norm.rsplit("/", 1)[-1]
                 alt = sorted(t for t in tracked if t.rsplit("/", 1)[-1] == base)[:3]
@@ -4054,17 +4440,36 @@ _QUOTED_PY_PATH_HISTORICAL: dict[tuple[str, str], str] = {
     ("scripts/slm/generate_diff_shaping_report.py", "src/ao_shaping/runners/diff_shaping_runner.py"):
         "the runner was deleted in fbef1926 and the text says so, mirroring AGENTS.md's own "
         "convention for that entry",
-    ("scripts/slm/verify_pib_exit_safety_hw.py", "scripts/slm/generate_pib_exit_safety_report.py"):
-        "phantom pib_exit_safety family: the script was never committed, so only its author can "
-        "say whether the sibling script or the report is missing; already red under "
-        "test_reproduce_commands_in_live_docs_name_tracked_scripts",
-    ("scripts/README.md", "tests/ao_shaping/scripts/test_verify_pib_exit_safety_hw.py"):
-        "same phantom family and the same known-red guard",
 }
 
 #: The census resolved 362 claims; a floor this far below catches an extractor that stopped
 #: matching without silently checking nothing.
 _MIN_QUOTED_PY_PATH_CLAIMS = 250
+
+
+def test_quoted_path_exemptions_are_still_needed() -> None:
+    """Each entry of :data:`_QUOTED_PY_PATH_HISTORICAL` must still exempt a real miss.
+
+    An exemption is justified only while the path it excuses is absent from the git index.
+    When the path lands, the entry becomes unreachable (the consumer short-circuits on
+    ``cited in tracked`` before consulting it) and its rationale starts asserting something
+    false: the two pib_exit_safety entries deleted here still read "the script was never
+    committed" after upstream committed the generator and its test. Nothing else in the suite
+    notices, so dead justifications and their false claims accumulate silently.
+    """
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"], capture_output=True, cwd=str(REPO), check=False
+    )
+    tracked = {t.decode("utf-8", errors="replace") for t in listing.stdout.split(b"\0") if t}
+    assert tracked, "git ls-files returned nothing; is this a git repository?"
+    stale = sorted(
+        (citing, cited) for (citing, cited) in _QUOTED_PY_PATH_HISTORICAL if cited in tracked
+    )
+    assert not stale, (
+        f"{len(stale)} exemption(s) excuse a path that is tracked today: {stale[:5]} -- the "
+        "citation resolves, so delete the entry rather than keep a rationale claiming the "
+        "file does not exist."
+    )
 
 #: ``python <hub> main.py <command> [subcommand] [flags...]`` as written in live text. The tail is
 #: captured on one line only: a backslash-continued block puts its remaining flags on the next line,

@@ -1,5 +1,5 @@
 ---
-title: slm-model-in-loop（正向模型闭环方形整形（反复迭代））
+title: slm-model-in-loop（物理预测模型闭环方形整形（反复迭代））
 created: 2026-10-13
 updated: 2026-10-13
 type: command
@@ -9,7 +9,7 @@ source: src/ao_shaping/runners/slm/model_in_loop_runner.py:60
 
 ## 一句话
 
-正向模型闭环方形整形（反复迭代）
+物理预测模型闭环方形整形（反复迭代）
 
 ## 入口函数
 

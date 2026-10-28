@@ -77,7 +77,7 @@ AO-shaping/
 ├── src/
 │   ├── ao_shaping/               # 主程序包
 │   │   ├── __init__.py
-│   │   ├── main.py               # CLI入口点 (Click-based), 注册 19 个命令
+│   │   ├── main.py               # CLI入口点 (Click-based), 注册 20 个命令
 │   │   ├── config.py             # 中央配置 (DM_N_ACTUATORS, DEFAULTS, PATHS, ao_config)
 │   │   ├── runners/              # 运行器包 (硬件编排层: Click CLI, 设备生命周期)
 │   │   │   ├── __init__.py       # Lazy imports + re-exports (via __getattr__)

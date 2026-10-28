@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: command
 tags: [command]
-source: src/ao_shaping/runners/slm/zernike_matrix_runner.py:1057
+source: src/ao_shaping/runners/slm/zernike_matrix_runner.py:1062
 ---
 
 ## 一句话
@@ -13,7 +13,7 @@ SLM Zernike 响应矩阵标定 + 离线矫正自检
 
 ## 入口函数
 
-`runners.slm.zernike_matrix_runner.run`（`src/ao_shaping/runners/slm/zernike_matrix_runner.py:1057`）
+`runners.slm.zernike_matrix_runner.run`（`src/ao_shaping/runners/slm/zernike_matrix_runner.py:1062`）
 
 ```python
 run(ctx, params, slm_params, wfs_driver, wfs_params)

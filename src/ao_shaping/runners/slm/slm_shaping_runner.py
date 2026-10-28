@@ -429,6 +429,7 @@ def _resolve_auto_camera(
             camera.exposure_time_ms = float(exposure)
         if center is not None:
             camera.center = (int(center[0]), int(center[1]))
+    # policy: auto exposure/centre probe is best effort; the CLI camera values remain the fallback
     except Exception as exc:  # probe is best-effort, never blocks the run
         logger.warning(
             "Auto exposure/centre probe failed ({}); using CLI camera values", exc

@@ -50,7 +50,7 @@ python libs/skills/slm-mil-transfer/scripts/session_review.py compare --run REPL
 
 每篇报告必须包含**当前可信事实**小节：设备型号与在线状态、SLM 波长与 LUT、CCD 像元尺寸与格式、光路是否离焦、几何与入射来源、曝光范围与实际读回满量程、已获授权与时长，并逐项标注本次实测 / 沿用历史 / 待定。**历史数值只作经验来源，不得继承为当前默认标定。** 所有具体数值（设备型号、波长、像元尺寸、曝光、几何、像素格式）均为历史会话实例，新实验必须在报告中显式记录当前实测值。
 
-报告是人工撰写的结构化叙述，不是自动生成文件；`scripts/session_review.py` 产出的 JSON 是报告的输入数据之一。图片遵循规范中的渲染口径（相位 `twilight`、远场 `inferno`、X/Y 过质心剖面、目标轮廓对照），并写明渲染图与原始 CCD 强度数组的口径差异。
+报告是人工撰写的结构化叙述，不是自动生成文件；`libs/skills/slm-mil-transfer/scripts/session_review.py` 产出的 JSON 是报告的输入数据之一。图片遵循规范中的渲染口径（相位 `twilight`、远场 `inferno`、X/Y 过质心剖面、目标轮廓对照），并写明渲染图与原始 CCD 强度数组的口径差异。
 
 ## 历史依据
 

@@ -228,7 +228,10 @@ class ImageTargetFunc:
                 )
             # popt = [amplitude, x0, y0, sigma, offset]
             return float(popt[3])
-        except Exception:
+        except (RuntimeError, ValueError, TypeError):
+            # curve_fit raises RuntimeError when the fit cannot converge and
+            # ValueError/TypeError for incompatible inputs; a "no sigma" answer means
+            # the fit failed, and any other exception is a defect worth seeing.
             return None
 
     def second_moment_radius(self, img: npt.NDArray[np.floating], center: tuple[float, float] | None = None) -> float:
