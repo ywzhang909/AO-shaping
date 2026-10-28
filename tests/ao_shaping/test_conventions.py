@@ -2257,6 +2257,15 @@ _DOC_LINE_ANCHORS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
         ("# policy: 相机缺 PixelSize 特性不是错误",
          "# policy: 大恒探测像元间距失败不是错误"),
     ),
+    (
+        "TODO.md",
+        "`r50_single.py:",
+        "src/ao_shaping/gui/r50/r50_single.py",
+        # re-pinned 2026-10-28: the #174 band-17 policy comment landed on the line above
+        # this handler, pushing the `except Exception:` from 110 -> 111 (the comment the
+        # pin points at is the bare-catch site, not the policy note above it)
+        ("except Exception:",),
+    ),
 )
 
 

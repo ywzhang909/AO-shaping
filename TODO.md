@@ -602,7 +602,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 6. ✅ **BLE001 `gui` 片（原列 27 处 silent）逐处读上下文 ⇒ 26 处正确「不动」；删 1 处死代码；并暴露本判据的盲区**（2026-10-24）：
    26 处的正确性理由分五类，与 `drivers` 簇同源：**清理陈旧的尽力 close**（`multi_slm_controller.py:639`
    自带注释 "Ignore errors when cleaning up stale state"、`slm_calibration_ui.py:134/182` 重连前先关旧设备、
-   `r50_single.py:110`）、**重试循环**（`r50_voltage_send.py:111` `_send_with_recovery`：吞单次失败后重试，
+   `r50_single.py:111`）、**重试循环**（`r50_voltage_send.py:111` `_send_with_recovery`：吞单次失败后重试，
    整体成败由返回值交给调用方）、**上报动作本身的失败**（`ccd_analyzer.py:297/321`，数字钉的是下面两个**调用行**而非 `except` 行——后者在本文件里文本全同，按内容无法定位）——这两处是包住
    `raw_frame_queue.put(("error", …))` 的**内层**护栏 —— 外层已把错误送进队列；`r50_voltage_send.py:395/402/420`
     同理包住 `feedback_q.put`）、**探测降级**（`bench_settings.py:1489/1491`，数字钉的是两条护栏的 handler 行——旧值 1390/1399 早在本次改动之前就已落在 docstring 正文与 dict 字面量上，已按内容核验重钉）`detect_camera_pixel_um` 回落
