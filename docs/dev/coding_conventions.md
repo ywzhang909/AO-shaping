@@ -189,6 +189,39 @@ class MyDriver(Device):
 - **禁止在任何类体/模块作用域做 I/O**。仓库**输入**资产 (如 `dm_adj.txt`) 经 `drivers/dm/_adjacency.py::load_adjacency()` 加载，路径锚定包位置；运行**输出** (如 `PATHS.root_dir`) CWD 相对是**正确**的。
 - **分层方向单一**: 硬件包不得 import 仿真包。仿真 DM 经同一个 `install_lazy_attrs` 惰性解析，`dm/_registry.py::_ensure_sim_dms_bound()` 保证 `"sim"` 在**首次注册表使用**时绑定。
 
+### 9.2 大文件拆分的落地口径（2026-10-29，Pilot 实战）
+
+§9 的"超过 800 行应考虑拆分"由 `scripts/check_module_size.py --check` 棘轮兜底
+（CI `module-size` job 跑；基线在 `scripts/_common/module_size_baseline.json`，
+只许降不许涨）。拆分的**顺序**比拆分的**决心**重要 —— 下面这套是
+`generate_hw_gs_square_scans_report.py`（5880 → 1983 行，拆成 11 个模块）走通的：
+
+1. **先抽自包含底座，再抽公共小工具，最后按主题搬函数。**
+   反过来做必然成环：常量/dataclass 被所有函数引用，小工具（路径转相对、图名加戳、
+   回查 CSV 行）被所有下游模块引用。先把它们落到叶子模块，依赖图才是 DAG；
+   留在原文件里，每搬一个函数都会把它整包拉走，于是每个新模块都拖一条重复的尾巴。
+2. **搬移用原文行切片，不要 `ast.unparse`。** 仓库里的常量带大量解释性注释，
+   unparse 会把它们整段丢掉。切片起止**必须含装饰器行**（漏了它 `@dataclass`
+   就变孤儿，症状是 `TypeError: X() takes no arguments`），并**连带节点上方的
+   `#:` Sphinx 属性文档**（否则原文件留下一堆孤儿注释）。
+3. **import 逐名字剪裁，不整句照抄。** `from typing import Any, Sequence` 照抄会把
+   没用到的 `Sequence` 一起带进新模块，F401 立刻红。
+4. **运行期被 `global` 改写的模块级变量，一个都不许搬。**
+   典型是输出目录常量：`main()` 里 `global FIG_DIR; FIG_DIR = ...` 就地改写。
+   搬走之后 `global` 只改 facade 自己的绑定，子模块读到的仍是旧值 —— 而且是
+   **静默**旧值，图会画到上一次的目录里。做法是改成装进一个可变对象
+   （`PATHS = ReportPaths()`），改的是对象字段，所有模块读到同一份。
+5. **等价性用逐字节证明，不用"能启动就算过"。** 拆分前/后各跑一次全量运行，
+   比对正文 sha256 + 每一张产物的 sha256 + `--check` 幂等退出码。任一处不同都
+   说明搬错了，不要靠肉眼。
+6. **配一个守卫测试**，钉住四件事：每个兄弟模块**按文件方式**（cwd 在仓库外）
+   启动退出 0；facade 逐个名字回查兄弟模块里是否真的定义了它（防漏搬）；
+   没有兄弟反向 import facade（防成环）；底座模块是叶子。
+   这套守卫在 Pilot 里当场抓到两个 ruff 不报的真缺陷 —— 兄弟模块里
+   `from _common import ...` 排在 `sys.path` 自举**之前**（E402 对 `sys.path`
+   操作网开一面，只有真按文件方式启动才 `ModuleNotFoundError`）。
+7. **拆完立刻收紧棘轮**：`--update-baseline` 只改被拆那一条，然后 `--check` 必须是 0。
+
 ### 10. 性能优化模式
 
 - **默认使用 NumPy** 实现数值计算
