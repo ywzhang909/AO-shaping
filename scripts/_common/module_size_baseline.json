@@ -35,7 +35,7 @@
   "scripts/slm/generate_fouriergsnet_sim_report.py": 921,
   "scripts/slm/generate_gs_defocus_sim_report.py": 1465,
   "scripts/slm/generate_hw_defocus_zernike_report.py": 3792,
-  "scripts/slm/generate_hw_gs_square_scans_report.py": 5880,
+  "scripts/slm/generate_hw_gs_square_scans_report.py": 1983,
   "scripts/slm/generate_model_in_loop_hw_ab_report.py": 3507,
   "scripts/slm/generate_model_in_loop_record_report.py": 2716,
   "scripts/slm/generate_model_in_loop_report.py": 1726,

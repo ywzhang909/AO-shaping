@@ -21,16 +21,20 @@ import numpy as np
 _ROOT = Path(__file__).resolve().parents[2]
 ROOT = _ROOT
 
+#: 报告键 (仓库根相对路径)。生成脚本**写死新目录** —— 重跑不会写回旧位置。
 REPORT_KEY = "report/shape_trials/hw_gs_square_scans/hw_gs_square_scans_20261023.md"
 
 OUT_DIR = ROOT / "report" / "shape_trials" / "hw_gs_square_scans"
 
+#: 默认产物根与日志。
 DEFAULT_RUN_ROOT = ROOT / "data" / "debug" / "hw_gs_square_scans" / "20261023_gs_square"
 
 DEFAULT_LOG = ROOT / "logs" / "gs_square_scan.log"
 
+#: 图名戳 —— 同系列里每份报告独占自己的图 (报告/AGENTS.md §2.1)。
 FIG_TAG = "_20261023"
 
+#: 三段与各自的自变量列名。
 STAGES: tuple[str, ...] = ("sides", "zernike", "blaze")
 
 VARIABLE: dict[str, str] = {
@@ -45,42 +49,74 @@ STAGE_CN: dict[str, str] = {
     "blaze": "闪耀光栅扫描",
 }
 
+#: 8 bit 相机的满量程 (counts)。行里 ``frame_peak`` 达到它就是**饱和**, 读数只能
+#: 当"≥满量程"用, 不能当线性测量值。相机 dtype 由 ``light_level`` 一类探针记录为
+#: ``uint8``; 这里把它当**器件常数**, 不是测量值。
 SATURATION_COUNTS = 255.0
 
+#: `‡` 帧电平异常判据: 该行 ``frame_peak`` 低于同段中位数的这个比例。
 DARK_FRAME_FRACTION = 0.10
 
+#: `※` CV 离群判据: 该行 ``cv`` 超过同段中位数的这个倍数。
 OUTLIER_CV_RATIO = 1.5
 
+#: 在 CSV 行里按浮点键回查一条记录 (``blaze_period_px`` / ``n_max`` / ``side_px`` /
+#: 优化指标 ``variable``) 的匹配容差。命中唯一行才算「这帧对应这行」, 落空的后果是
+#: 报告里出现空洞而不是崩, 所以这道容差是**表示**级 (float 往返), 不是光学判据。
 ROW_MATCH_ATOL = 1e-9
 
+#: ``.npz`` 里的 params 与 CSV 行必须一致 (cv / pib / score / frame_peak 这类
+#: 由测量算出的量): 超过它就判「帧与 CSV 行对不上」并终止渲染。取 **1e-6** 是因为
+#: 这些量经过一次 float 化与 CSV 的十进制文本往返, 1e-9 会把纯表示差异误报成不一致。
 PARAM_NPZ_CSV_ATOL = 1e-6
 
+#: 同一个校验里 ``side_px`` 用的是 **1e-9** 而不是上面的 1e-6: 它是整数语义的边长
+#: (下发值), 只有 float 往返误差, 没有任何算术放大 —— 两个容差**故意不同**, 统一
+#: 成一个就把这条整数硬校验放松了。
 SIDE_PX_NPZ_CSV_ATOL = 1e-9
 
+#: ``score = 0.5·PIB + 0.5/(1+CV)`` 恒等式的复算容差: 报告读到的 score 必须由同一行
+#: 的 PIB/CV 复算得出, 差得比 float 算术噪声大就说明落盘时被别的代码路径改写过。
 SCORE_IDENTITY_ATOL = 1e-6
 
+#: 框面积恒等式 ``side² = box_area_px + box_clipped_px`` 的容差。这里是**像素面积**
+#: 量级 (side 可到千余 px), float 表示误差随量级放大, 所以比 score 那条松三个数量级。
 AREA_IDENTITY_ATOL = 1e-3
 
+#: 曝光读回值与生效值一致的容差 (``exposure_ms_readback`` vs ``exposure_ms`` /
+#: ``exposure_ms_working``): 驱动回读的是同一个下发浮点, 只允许表示误差。
 EXPOSURE_MATCH_ATOL = 1e-9
 
+#: 帧最大值与 CSV ``frame_peak`` 的一致性容差 (counts, 8 bit 满量程 255 量级):
+#: 这是**跨表示**核对 (帧 mean 与写盘时的 float 文本), 1e-3 counts 已远小于任何
+#: 有意义的电平差, 再松就会让真实的帧↔行错配溜过去。
 PEAK_MATCH_ATOL = 1e-3
 
+#: 复测产物根 (``--retest-root``)。不给就完全不渲染 §11, 报告与没有这个参数时逐字节相同。
+#: 默认指向**冻结版**那一批 (单一代码版本, hash b7e964f3)。
 DEFAULT_RETEST_ROOT = ROOT / "data" / "debug" / "hw_gs_square_scans" / "20261023_retest_frozen"
 
+#: 更早一版复测 (同协议、同功率, 但代码版本不同)。只用来算**批间重复性**:
+#: 两批同协议的 CV / 位移差就是「复测自身能分辨多小」的带宽。不存在就跳过那张表。
 DEFAULT_RETEST_PRIOR_ROOT = (
     ROOT / "data" / "debug" / "hw_gs_square_scans" / "20261023_retest_power_changed"
 )
 
+#: 复测日志目录 (``--retest-log-dir``); 文件名为 ``retest_<stage>_<取值>.log``。
 DEFAULT_RETEST_LOG_DIR = ROOT / "logs"
 
+#: 整轮原子重扫 (``--atomic-root``)。这是**唯一「单一脚本版本 + 单一功率」的完整一轮**,
+#: 所以三段数字第一次真正可比。不给就完全不渲染 §13。
 DEFAULT_ATOMIC_ROOT = ROOT / "data" / "debug" / "hw_gs_square_scans" / "20261023_atomic_full"
 
+#: 复测批次**没有** sides 段 —— 每个配置都用 ``--side-px`` 显式覆盖边长。
 RETEST_STAGES: tuple[str, ...] = ("blaze", "zernike")
 
 RETEST_STAGE_CN: dict[str, str] = {
     "blaze": "闪耀光栅",
     "zernike": "Zernike 阶数",
 }
+
 
 @dataclass(frozen=True)
 class FieldRecord:
@@ -106,17 +142,20 @@ class FieldRecord:
         exposure_ms, peak = self.anchor()
         return peak / exposure_ms
 
+#: 基线同期的平场 0 级读数 (现场记录)。
 FIELD_BASELINE_FLAT = FieldRecord(
     label="基线同期 平场 0 级",
     readings=((0.5, 163.0),),
     source="logs/probe_light_exposures.py 现场读数（2026-10-23，基线同一光路状态）",
 )
 
+#: 复测前的平场 0 级曝光阶梯 (现场记录)。
 FIELD_RETEST_FLAT = FieldRecord(
     label="复测前 平场 0 级",
     readings=((0.05, 3.0), (0.2, 8.0), (1.0, 38.0), (5.0, 180.0)),
     source="logs/probe_light_exposures.py 现场读数（2026-10-23，复测开始前）",
 )
+
 
 @dataclass(frozen=True)
 class Cell:
@@ -142,6 +181,7 @@ class Cell:
             return not math.isfinite(parsed)
         return abs(parsed - self.value) <= 0.5 * 10.0 ** (-self.nd) + 1e-12
 
+
 @dataclass
 class Table:
     """一张数值表 + 它自己的回读校验。
@@ -164,6 +204,7 @@ class Table:
     @property
     def numeric_cells(self) -> int:
         return sum(1 for row in self.rows for c in row if isinstance(c, Cell))
+
 
 @dataclass
 class Stage:
@@ -190,6 +231,7 @@ class Stage:
         vals = [v for v in self.col(key) if math.isfinite(v)]
         return float(np.median(vals)) if vals else float("nan")
 
+
 @dataclass(frozen=True)
 class SettleEvent:
     """日志里的一条 ``settle criterion not met`` 记录。"""
@@ -208,6 +250,7 @@ class SettleEvent:
             f"settle 判据超时 {self.waited_s:.2f} s / {self.probes} 次探测 / "
             f"探测峰值 {self.probe_peak:g}"
         )
+
 
 @dataclass
 class Run:
@@ -259,6 +302,7 @@ class Run:
                 return ev
         return None
 
+
 @dataclass
 class Findings:
     """报告要讲的全部结论 —— 每一个都在这里算出来, 正文只做排版。"""
@@ -304,6 +348,7 @@ class Findings:
     dropped_configs: list[str]
     csv_cells: int
 
+
 @dataclass(frozen=True)
 class SettleRecord:
     """单配置日志里的一条 settle 告警 (复测批次每个配置一个日志文件)。"""
@@ -319,6 +364,7 @@ class SettleRecord:
             f"settle 判据超时 {self.waited_s:.2f} s / {self.probes} 次探测 / "
             f"探测峰值 {self.probe_peak:g}"
         )
+
 
 @dataclass
 class RetestConfig:
@@ -349,6 +395,7 @@ class RetestConfig:
     def spot_flagged(self) -> bool:
         """平场评估自己报「没有可评分的局域光斑」(饱和平台让 ``argmax`` 失义)。"""
         return str(self.spot.get("reason", "")).startswith("光路有光但没有可评分的局域光斑")
+
 
 @dataclass
 class RetestStage:
@@ -381,6 +428,7 @@ class RetestStage:
         """与 :meth:`Stage.median` 同名同义。"""
         vals = [v for v in self.col(key) if math.isfinite(v)]
         return float(np.median(vals)) if vals else float("nan")
+
 
 @dataclass
 class RetestRun:
@@ -457,6 +505,7 @@ class RetestRun:
         modes = {str((e.get("summary") or {}).get("mode", "?")) for e in self.manifest}
         return "/".join(sorted(modes))
 
+
 @dataclass
 class RetestFindings:
     """§11 要用的全部派生量 —— 每一个都现场算, 不复用任何字面量。"""
@@ -509,17 +558,23 @@ class RetestFindings:
     batch_dev_max: float
     prior_root: Path | None
 
+#: 每格的裁剪倍数 (相对 ``box_side_px``)。写进图注与 §12 正文。
 CROP_FACTOR = 1.4
 
+#: 拼图 1 的固定边长 (camera px)。
 SIDES_PANEL_PX: tuple[float, ...] = (200.0, 600.0, 1000.0, 1500.0, 1800.0)
 
+#: 拼图 2 的固定阶数。
 ZERNIKE_PANEL_ORDER: tuple[float, ...] = (30.0, 19.0, 12.0, 7.0)
 
+#: 拼图 3 的固定光栅周期 (16 是"有就画")。
 BLAZE_PANEL_PERIOD: tuple[float, ...] = (32.0, 64.0, 128.0)
 
 BLAZE_PANEL_OPTIONAL: float = 16.0
 
+#: 拼图 4 的整帧边长目标 (取最接近的那个)。
 FULLFRAME_TARGET_PX = 1000.0
+
 
 @dataclass(frozen=True)
 class MosaicSpec:
@@ -532,6 +587,7 @@ class MosaicSpec:
     cell_inch: float
     crop: bool
 
+#: 表格里「拼图」列的中文名。
 MOSAIC_CN: dict[str, str] = {
     "sides": "1 · 边长",
     "zernike": "2 · Zernike",
@@ -553,6 +609,7 @@ FLAG_LEGEND = (
     f"`※` = 该行 CV 超过同段中位数的 {OUTLIER_CV_RATIO:.1f}×; "
     "`§` = 该行方框有像素落在画面外 (`box_clipped_px > 0`)。"
 )
+
 
 @dataclass
 class AtomicFindings:
@@ -602,6 +659,7 @@ class AtomicFindings:
     cross_cv_max: float
     cross_score_max: float
 
+
 def run_zero_order(cfg: dict[str, Any]) -> tuple[float, float]:
     """段级 ``zero_order_xy_frozen`` (取不到就给 nan)。"""
     xy = cfg.get("zero_order_xy_frozen")
@@ -609,19 +667,25 @@ def run_zero_order(cfg: dict[str, Any]) -> tuple[float, float]:
         return float("nan"), float("nan")
     return float(xy[0]), float(xy[1])
 
+#: 残差图的列 (n_max 降序)。只画 CSV 里**实际存在**、且落了 `pupil_phase.npy` 的配置。
 RESIDUAL_PANEL_ORDER: tuple[int, ...] = (30, 19, 12, 7)
 
+#: 残差色标的半幅 (rad)。固定 ±π: 面板施加的相位就是 mod 2π 的, 四列因此可直接横比。
 RESIDUAL_VLIM = math.pi
 
+#: 残差图 / 基准相位的色图 (写死, 不随数据或 matplotlib 默认值变)。
 RESIDUAL_CMAP = "RdBu_r"
 
 BASE_CMAP = "twilight"
 
+#: §13.8 的自检容差, 与 `logs/check_zernike_phase_residual.py` 同一口径。
 RESIDUAL_RMS_RTOL = 0.02
 
 RESIDUAL_RECON_ATOL = 1e-9
 
+#: 「可见结构」描述里的高频判据 (cyc / fit-grid px): 0.25 对应周期 4 个拟合格。
 RESIDUAL_HIGH_FREQ = 0.25
+
 
 @dataclass
 class ResidualPanel:
@@ -655,6 +719,7 @@ class ResidualPanel:
             f"m=4 对称仅 {self.m4_share:.1%}"
         )
 
+
 @dataclass
 class ResidualSet:
     """§13.8 的全部输入: 一张基准相位 + 每列一个 :class:`ResidualPanel`。"""
@@ -665,64 +730,58 @@ class ResidualSet:
     panels: list[ResidualPanel]
 
 
-__all__ = [
-    "AREA_IDENTITY_ATOL",
-    "AtomicFindings",
-    "BASE_CMAP",
-    "BLAZE_PANEL_OPTIONAL",
-    "BLAZE_PANEL_PERIOD",
-    "CROP_FACTOR",
-    "Cell",
-    "DARK_FRAME_FRACTION",
-    "DEFAULT_ATOMIC_ROOT",
-    "DEFAULT_LOG",
-    "DEFAULT_RETEST_LOG_DIR",
-    "DEFAULT_RETEST_PRIOR_ROOT",
-    "DEFAULT_RETEST_ROOT",
-    "DEFAULT_RUN_ROOT",
-    "EXPOSURE_MATCH_ATOL",
-    "FIELD_BASELINE_FLAT",
-    "FIELD_RETEST_FLAT",
-    "FIG_TAG",
-    "FLAG_LEGEND",
-    "FULLFRAME_TARGET_PX",
-    "FieldRecord",
-    "Findings",
-    "MOSAICS",
-    "MOSAIC_CN",
-    "MosaicSpec",
-    "OUTLIER_CV_RATIO",
-    "OUT_DIR",
-    "PARAM_NPZ_CSV_ATOL",
-    "PEAK_MATCH_ATOL",
-    "REPORT_KEY",
-    "RESIDUAL_CMAP",
-    "RESIDUAL_HIGH_FREQ",
-    "RESIDUAL_PANEL_ORDER",
-    "RESIDUAL_RECON_ATOL",
-    "RESIDUAL_RMS_RTOL",
-    "RESIDUAL_VLIM",
-    "RETEST_STAGES",
-    "RETEST_STAGE_CN",
-    "ROW_MATCH_ATOL",
-    "ResidualPanel",
-    "ResidualSet",
-    "RetestConfig",
-    "RetestFindings",
-    "RetestRun",
-    "RetestStage",
-    "Run",
-    "SATURATION_COUNTS",
-    "SCORE_IDENTITY_ATOL",
-    "SIDES_PANEL_PX",
-    "SIDE_PX_NPZ_CSV_ATOL",
-    "STAGES",
-    "STAGE_CN",
-    "SettleEvent",
-    "SettleRecord",
-    "Stage",
-    "Table",
-    "VARIABLE",
-    "ZERNIKE_PANEL_ORDER",
-    "run_zero_order",
-]
+@dataclass
+class ReportPaths:
+    """报告的**输出目录**：这五个路径会被 ``main`` 在解析完参数后就地改写。
+
+    为什么不直接用模块级全局：这些目录要跟着 ``--out-md`` / ``--out-figures`` /
+    ``--retest-root`` / ``--atomic-root`` 变，而读它们的函数分散在多个子模块里。
+    模块级全局的 ``global X`` 只能改**本模块**的绑定 —— 别的模块 import 到的是
+    旧值，而且是**静默**的旧值（不报错，只是路径不对）。装进一个可变对象后，
+    改的是对象字段，无论从哪个模块读都是 main 改过的那一份。
+
+    字段默认值 = 报告那一次的目录；``main`` 换批次时逐个覆盖。
+    """
+
+    fig_dir: Path = OUT_DIR / "figures"
+    artifact_dir: Path = OUT_DIR / "artifacts" / "20261023_gs_square"
+    retest_artifact_dir: Path = OUT_DIR / "artifacts" / DEFAULT_RETEST_ROOT.name
+    retest_prior_artifact_dir: Path = (
+        OUT_DIR / "artifacts" / DEFAULT_RETEST_PRIOR_ROOT.name
+    )
+    atomic_artifact_dir: Path = OUT_DIR / "artifacts" / DEFAULT_ATOMIC_ROOT.name
+
+
+#: 全脚本共享的那一份。``main`` 改它的字段，其余模块只读。
+PATHS = ReportPaths()
+
+
+@dataclass(frozen=True)
+class CellPick:
+    """拼图里的一格: 哪个段、哪一行 CSV、以什么身份入选。"""
+
+    stage: str
+    row: dict[str, str]
+    role: str
+    note: str = ""
+
+    @property
+    def value(self) -> float:
+        return float(self.row[VARIABLE[self.stage]])
+
+    @property
+    def slug(self) -> str:
+        """该配置在 ``frames_selection.json`` 里的标识。"""
+        config = self.row.get("config")
+        if config:
+            return str(config)
+        index = self.row.get("index")
+        return f"index_{int(float(index)):03d}" if index else "?"
+
+
+@dataclass(frozen=True)
+class FrameRef:
+    """一格的帧来源。"""
+
+    paths: tuple[Path, ...]
+    layout: str  # "atomic" | "legacy" | "missing"
