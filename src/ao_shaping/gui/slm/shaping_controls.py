@@ -2413,9 +2413,9 @@ class TransferMethod(ShapingMethod):
                 d["period"],
                 4.0,
                 1024.0,
-                8.0,
+                1.0,
                 help="去零级载波的斜率光栅周期，写进物理预测模型的 ramp_matrix；"
-                "必须让目标整个落在测量窗内，否则运行前即拒绝",
+                "支持任意周期（无 8 倍网格限制），目标落在窗内的组合约束由运行前检查校验",
             )
         st.caption(
             "本方法的载波在**模型与相位内部**（``ramp_matrix``），不是侧栏「相位叠加」里那一层 —— "
@@ -2429,9 +2429,9 @@ class TransferMethod(ShapingMethod):
             _param_cells(4),
             (
                 ("count", "探针数", 6, 96, 6, "分组随机探针数（CLI --count）"),
-                ("iterations", "拟合迭代", 0, 400, 10, "模型参数拟合迭代（CLI --iterations）"),
-                ("blocks", "锚定块数", 1, 24, 1, "CCD 锚定短块数，每块一次 A–B–B–A 验收"),
-                ("updates", "每块更新数", 1, 60, 1, "每块内的模型更新次数"),
+                ("iterations", "拟合迭代", 0, 99999, 10, "模型参数拟合迭代（CLI --iterations）；上限由时间预算约束"),
+                ("blocks", "锚定块数", 1, 99999, 1, "CCD 锚定短块数，每块一次 A–B–B–A 验收；上限由时间预算约束"),
+                ("updates", "每块更新数", 1, 99999, 1, "每块内的模型更新次数；上限由时间预算约束"),
             ),
             strict=True,
         ):
@@ -2442,8 +2442,8 @@ class TransferMethod(ShapingMethod):
         for cell, (name, label, lo, hi, step, help_text) in zip(
             _param_cells(2),
             (
-                ("frames", "每点帧数", 3, 12, 1, "每个测量点的原始帧数（中位数前的样本数）"),
-                ("seed", "随机种子", 0, 999999, 1, "探针/初始化随机种子（CLI --seed）"),
+                ("frames", "每点帧数", 1, 9999, 1, "每个测量点的原始帧数（中位数前的样本数）；1 帧即物理合法"),
+                ("seed", "随机种子", 0, 999999999, 1, "探针/初始化随机种子（CLI --seed）；上限容纳 CLI 默认（如 20261027）"),
             ),
             strict=True,
         ):
