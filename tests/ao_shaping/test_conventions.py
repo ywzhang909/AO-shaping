@@ -1707,8 +1707,11 @@ def test_the_loguru_guard_follows_the_logger_not_one_spelling_of_its_import() ->
 
 # Measured 2026-10-25 by the same AST rule used below. Each of these handlers was read
 # in context and judged legitimate (TODO.md 8.9 items 5-10); the number is a floor to
-# defend, not an endorsement.
-_BLIND_SILENT_BASELINE = 61
+# defend, not an endorsement. Lowered 61 -> 60 on 2026-10-28: the collector's
+# recognised-family probe stopped being a blind silent handler when its optional-import
+# surface was narrowed to ImportError. Lowered again 60 -> 58 the same day after
+# rebasing onto the #56 driver slice, which narrowed two of the silent ones.
+_BLIND_SILENT_BASELINE = 58
 
 
 def _blind_silent_handlers(root: Path) -> list[str]:
@@ -2110,8 +2113,8 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
 #: ruff (a ruff-based count would skip in exactly the place the gate runs), and the check is
 #: therefore unskippable. ``re_raise_only`` handlers are excluded, mirroring BLE001's own
 #: exemption, so the number is comparable to ``ruff check src --select BLE001`` (measured
-#: 363 today against this AST count of 381; the residual gap is ruff's contextual filtering).
-#: This is a ratchet, not a claim that 381 is acceptable: most remaining handlers are
+#: 363 today against this AST count of 362; the residual gap is ruff's contextual filtering).
+#: This is a ratchet, not a claim that 362 is acceptable: most remaining handlers are
 #: deliberate fallbacks, and each one still needs an individual judgement.
 #:
 #: The population shrank by one on 2026-10-28 rather than every handler staying blind: the R50
@@ -2122,7 +2125,13 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
 #: tests/ao_shaping/gui/r50/test_r50_channel_select.py, which asserts both that malformed rows
 #: still degrade to an empty table and that an unlisted error is no longer swallowed. Hardware
 #: paths remain deliberately un-narrowed until the driver exception taxonomy (#145 / #45).
-_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 381
+#: The second executed narrowing is the same shape on a different axis: the collector's
+#: recognised-family probe wraps one optional-package import plus a defaulted getattr, so its
+#: entire surface is ImportError and it was narrowed to that. Pinned by
+#: tests/ao_shaping/tools/slm/test_slm_train_data_collect.py, whose last case is the one that
+#: justifies the change -- a probe failure that is not an import problem now reaches the caller
+#: instead of silently returning the built-in family list.
+_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 362
 
 #: Second ratchet over the same population: a broad catch that has actually been *judged*
 #: carries a ``# policy:`` marker naming what the layer is protecting -- within two lines
@@ -2133,12 +2142,12 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 381
 #: the driver exception taxonomy (issue #145 / #45) would turn a working fallback into a crash.
 #:
 #:
-#: Measured 2026-10-28 after nineteen marker passes and one executed narrowing (runners/slm + config + utils, the three CCD
+#: Measured 2026-10-28 after twenty-five marker passes and two executed narrowings (runners/slm + config + utils, the three CCD
 #: camera drivers, the R50 GUI loop files, the whole optimizer / runner CLI layer, the ml
 #: training scripts, the CCD analyzer UI, the bench settings panel, the Micro-DM panel, the
 #: target-shape helper, the R50 joint panel, the SLM calibration panel, the Micro-DM image
 #: analysis panel, the shaping-controls panel, and the R50 channel selector, then the first
-#: executed narrowing): 248 marked, 133
+#: executed narrowing): 300 marked, 62
 #: unmarked. The fourth pass covered only 12 of the 17 open optimizer sites and the fifth had
 #: to close the layer -- the ceiling is only as honest as the last count. One site left the
 #: population instead of gaining a marker (narrowed out, see the total ratchet above), so the
@@ -2149,7 +2158,7 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 381
 #: Every one of those sites guards a device call, so per the note above they stay broad and are
 #: judged rather than narrowed; the recurring reason written into the markers is that teardown
 #: and batch loops must attempt every step, because aborting midway leaves some channels
-#: energised and others not. Control re-armed: one more unannotated blind catch makes 134 red.
+#: energised and others not. Control re-armed: one more unannotated blind catch makes 63 red.
 #: The seventeenth marker pass (six scattered GUI files outside the R50 family: the transfer
 #: progress panel, the Zernike debug viewer, both ceramic viewers, the pyarrow probe and the
 #: phase overlay helper) moved this ceiling 182 -> 171 with 11 comment-only edits. Three of those
@@ -2166,7 +2175,61 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 381
 #: two sites below that citation could afford to grow. All 19 are SLM/WFS SDK, disk or Streamlit
 #: calls: the narrowing question never arises, since the failure type belongs to the vendor, the
 #: filesystem or Streamlit rather than to this code.
-_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 133
+#: The twentieth marker pass (tools/zernike/common.py, 7 sites) moved this ceiling 133 -> 126 and
+#: opened the tools layer. All seven guard a vendor SDK call or an SDK property read --
+#: get_wavelength_info, get_hardware_info, pupil, get_mla_name, get_zernike twice, and a getattr on
+#: an arbitrary handle -- so none has an enumerable failure surface and band-16 sends them to a
+#: marker rather than a narrowing. The file's only line-number citations sit at :6, :8, :36, :40 and
+#: :41, all above every handler, so the markers were written as trailing comments and the file stayed
+#: exactly 700 lines.
+#: The twenty-first marker pass (the SLM training-data collector, 13 sites) plus the second
+#: executed narrowing (its recognised-family probe) moved this ceiling 126 -> 112. Every marked
+#: site there guards a device call, an SLM-assisted phase conversion, a disk flush or a
+#: caller-supplied callback, so none had an enumerable surface. The one narrowed site wraps a single
+#: optional-package import, and it is the only handler in this file that left the blind population.
+#: That file is cited by line number at :187, :683-687, :970, :975 and :980, so all thirteen markers
+#: went onto the except line itself and the file stayed at exactly 987 lines.
+#: The twenty-second marker pass (the SLM phase-capture calibration tool, 8 sites) moved this
+#: ceiling 94 -> 86. All eight guard a device call -- capture_frame, Santec open, open_camera twice,
+#: three closes and a display_phase over memory slots -- so the narrowing question never arises; the
+#: recurring rationale is that either camera may be absent and teardown must attempt every device.
+#: That file carries no line-number citation, but the markers still went onto the except lines so the
+#: pass cannot shift anything a later document might cite: 605 lines before and after.
+#: The twenty-third marker pass (the Micro-DM per-channel image collector, 8 sites) moved this
+#: ceiling 86 -> 78. Two of those handlers log and then re-raise, and they are still counted: the
+#: exemption here is as narrow as the guard's own test -- a handler is excused only when its entire
+#: body is a bare ``raise``, so a log-then-re-raise wrapper stays in the population. TODO.md pins
+#: this file at :465-467 (the ``with_params`` wiring), and that pin sits between handlers -- :380
+#: above it in source order is :547 -- so all eight markers went onto their except lines: the file
+#: stayed at 713 lines and the three pinned lines are byte-identical.
+#: The twenty-fourth marker pass (the SLM cartographer panel, 7 sites) moved this ceiling 78 -> 71.
+#: All seven guard a device connect/disconnect path or the LUT calibration worker. Two of them are
+#: ``except Exception: pass`` -- genuinely silent -- and a marker does not change that, so the
+#: blind-silent floor is untouched by this pass. TODO.md cites this file at :99 and :145, and both
+#: are handler lines themselves, so a trailing comment keeps each citation on the statement it names
+#: while any inserted line above would have moved it: 792 lines before and after.
+#: The twenty-fifth marker pass (the WFS tool family: wfs_reference, wfs_probe, zernike_correction,
+#: zernike_response -- 9 sites) moved this ceiling 71 -> 62. Four of those nine are top-level flow
+#: guards that deliberately catch the ValueError raised by the WFS exposure safety ceiling on top of
+#: the vendor SDK failures, so narrowing them would let the ceiling escape as a traceback instead of
+#: the documented [FAIL] line plus exit code. That is a case where the broad catch is load-bearing by
+#: contract, not by laziness. This family is also the most citation-dense one yet (:15, :27, :159,
+#: :161, :219, :309, :430, :554 and :713 across the four files), and :713 is itself a handler line,
+#: so all nine markers are trailing comments and every one of those cited lines was asserted either
+#: byte-identical or, for the marked one, still holding the same statement.
+#: Measured split of what is left after the driver slice landed under issue #56: 32 in tools/,
+#: 30 in drivers/. The total fell because that slice narrowed 17 handlers, and it also added two
+#: new blind handlers of its own in the transfer tooling.
+#: A convention gap this measurement exposes, and it is not a counting error: the #56 slice wrote
+#: its rationales as Chinese prose on the handler (``保留宽泛捕获`` / ``类型不可枚举``), while this
+#: guard credits only the ``# policy:`` token. So 26 sites that a human already judged still read
+#: as unjudged here. Unifying the two idioms is a decision for #174 and #56 together, not something
+#: this ratchet should settle by itself.
+#: A first classification pass over the tools sites put only 16 of 83 in a "no device handle
+#: involved" bucket, and two of those still read a device attribute, so the honest expectation is
+#: that the tools layer is almost entirely marker-only until the driver exception taxonomy
+#: (#145 / #45) lands.
+_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 62
 
 
 def _blind_except_handlers_in_src() -> list[tuple[Path, int, bool]]:

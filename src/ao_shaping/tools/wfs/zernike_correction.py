@@ -702,7 +702,7 @@ def main(params: ZernikeCorrectionParams) -> int:
 
         slm.display_data(flat_gray(), wait_time_s=0.5)
 
-    except Exception as e:
+    except Exception as e:  # policy: whole correction flow: SLM/WFS open, the exposure ceiling's ValueError, SDK reads and WFS measurement all live in here, so the failure type belongs to the driver; the contract is [FAIL] plus exit 1
         logger.exception("流程失败")
         click.echo(f"[FAIL] {type(e).__name__}: {e}")
         return 1
@@ -710,7 +710,7 @@ def main(params: ZernikeCorrectionParams) -> int:
         for dev in (wfs, slm):
             try:
                 dev.close()
-            except Exception:
+            except Exception:  # policy: teardown: attempt every close; the citation on this very line is the point -- the guard statement must stay put
                 pass
 
     rp = out / f"report_{ts}.json"

@@ -185,7 +185,7 @@ def _get_recognised_families() -> tuple[str, ...]:
         fams = getattr(hwi, "_RECOGNISED_FAMILIES", None)
         if isinstance(fams, tuple) and fams:
             return fams
-    except Exception:
+    except ImportError:
         pass
     return _RECOGNISED_FAMILIES
 
@@ -399,7 +399,7 @@ def make_phase(point: PlanPoint, params: CollectParams) -> np.ndarray:
 
         try:
             up = np.asarray(zoom(base, (panel_h / g, panel_w / g), order=1))
-        except Exception:
+        except Exception:  # policy: scipy zoom fails on odd-shaped panels with types we do not own; the nearest-neighbour fallback below is the intended degradation path
             # 回退：最近邻
             up = np.repeat(np.repeat(base, panel_h // g, axis=0), panel_w // g, axis=1)
             if up.shape != (panel_h, panel_w):
@@ -584,7 +584,7 @@ def acquire(
         zc = zero_order_center(np.asarray(flat_img))
         zero_center = (float(zc[0]), float(zc[1]))
         logger.info("零阶定位（冻结）：({:.1f}, {:.1f})", zero_center[0], zero_center[1])
-    except Exception as e:
+    except Exception as e:  # policy: zero-order location drives the whole cam+slm settle loop; failing it must continue the run without a frozen ROI rather than abort a long collection
         logger.warning("零阶定位失败：{}（将不冻结 ROI）", e)
         zero_center = None
 
@@ -609,7 +609,7 @@ def acquire(
         if pupil_cam is not None:
             try:
                 pupil_arr = np.asarray(pupil_cam.get_numpy_image())
-            except Exception as e:
+            except Exception as e:  # policy: pupil-camera frame read; a missing pupil plane is recorded as None and the far-field record stays valid
                 logger.debug("瞳面相机采集失败：{}", e)
                 pupil_arr = None
         # 构造记录
@@ -672,7 +672,7 @@ def acquire(
             try:
                 gray = phase_to_slm_grayscale(phase_rad, slm=slm)
                 record[RECORD_PHASE] = np.asarray(gray, dtype=np.uint16)
-            except Exception as e:
+            except Exception as e:  # policy: phase_to_slm_grayscale delegates to the live SLM (LUT and wavefront correction), so the raised type belongs to the driver; the record keeps _c and the warning names the reconstruction cost
                 logger.warning(
                     "未能保存 _phase 面板 (第 {} 条): {} —— 该条记录将只有 _c, "
                     "ZERNIKE 来源会被 ml/hwdataset 按 300.0 px 重建, 与实际下发的 "
@@ -685,7 +685,7 @@ def acquire(
         if on_record is not None:
             try:
                 on_record(dict(record))
-            except Exception as e:
+            except Exception as e:  # policy: on_record is a caller-supplied callback, so its exception types are not ours to enumerate; one dropped record must not abort collection -- the counter and warning make the loss visible instead
                 dropped_records += 1
                 if dropped_records == 1 or dropped_records % 100 == 0:
                     logger.warning(
@@ -862,7 +862,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         from ao_shaping.drivers.slm import Santec  # type: ignore
         from ao_shaping.utils.image.hardware_utils import open_camera  # type: ignore
-    except Exception as e:
+    except Exception as e:  # policy: the driver import can fail for reasons owned by the vendor SDK import path, not by this code; the CLI reports it and exits 1 rather than raising a traceback
         logger.error("导入硬件驱动失败：{}", e)
         return 1
 
@@ -896,7 +896,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 pupil_cam.open()
                 logger.info("瞳面相机已打开（id={}）", params.pupil_cam_id)
-            except Exception as e:
+            except Exception as e:  # policy: open_camera plus open() for the pupil plane: that camera is optional, so a device that will not open degrades to None
                 logger.warning("瞳面相机打开失败：{}", e)
                 pupil_cam = None
 
@@ -947,7 +947,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     _flush(history, final=False)
                     flushed += 1
                     history.clear()
-                except Exception as e:
+                except Exception as e:  # policy: a mid-run flush failure must not abort collection -- the final flush still tries to land everything, and the batch index in the message names the gap
                     logger.error(
                         "中间刷写失败（第 {} 批）：{} —— 继续采集, 结束时仍会尝试落盘",
                         flushed,
@@ -957,11 +957,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if history:
             try:
                 _flush(history, final=True)
-            except Exception as e:
+            except Exception as e:  # policy: the final flush is the last chance to land records, so the honest outcome is an error log plus exit code 1, not an exception escaping cleanup
                 logger.error("最终刷写失败：{}", e)
                 return 1
         return 0
-    except Exception as e:
+    except Exception as e:  # policy: the collection body spans device I/O and disk writes, so the failure type is whatever the SDK raised; the run reports it and returns 1
         logger.exception("采集过程中发生异常：{}", e)
         return 1
     finally:
@@ -969,17 +969,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             if pupil_cam is not None:
                 pupil_cam.close()
-        except Exception:
+        except Exception:  # policy: teardown has to attempt every device: a pupil camera whose close() throws must not stop the far-field camera and the SLM from closing
             pass
         try:
             if cam is not None:
                 cam.close()
-        except Exception:
+        except Exception:  # policy: teardown has to attempt every device: a close() that throws here would still leave the SLM to close, and nothing can recover the resource either way
             pass
         try:
             if slm is not None:
                 slm.close()
-        except Exception:
+        except Exception:  # policy: teardown has to attempt every device: leaving the SLM on a random phase costs the next run more than the swallowed close error
             pass
 
 

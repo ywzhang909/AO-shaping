@@ -1,6 +1,6 @@
 # CI 与测试策略
 
-> 本文件从根 [AGENTS.md](../AGENTS.md) 的 `Build/Lint/Test Commands` / `MISSING INFRASTRUCTURE` 节外迁（2026-10-27）。
+> 本文件从根 [AGENTS.md](../../AGENTS.md) 的 `Build/Lint/Test Commands` / `MISSING INFRASTRUCTURE` 节外迁（2026-10-27）。
 
 ## 常规测试默认排除（pytest addopts）
 

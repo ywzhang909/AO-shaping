@@ -96,7 +96,7 @@ def _connect_slm() -> bool:
         ):
             try:
                 st.session_state.cart_slm.close()
-            except Exception:
+            except Exception:  # policy: closing the previous SLM handle before reconnecting: the handle is being discarded either way, so a close that throws must not block the reconnect the user just asked for
                 pass
 
         slm = Santec(
@@ -113,7 +113,7 @@ def _connect_slm() -> bool:
             f"res={slm.Panel_Res})"
         )
         return True
-    except Exception as e:
+    except Exception as e:  # policy: SLM connect spans vendor SDK construction, open and the session-state handoff; the failure type belongs to the SDK, and the contract is to surface it in the UI and return False rather than kill the page
         st.error(f"SLM connection failed: {e}")
         logger.exception(f"SLM connection failed: {e}")
         return False
@@ -125,7 +125,7 @@ def _disconnect_slm() -> None:
     try:
         if slm is not None:
             slm.close()
-    except Exception as e:
+    except Exception as e:  # policy: explicit disconnect is best-effort: the panel must drop its session reference even when the driver close fails, otherwise the UI keeps offering a device that is already being abandoned
         st.error(f"SLM disconnect failed: {e}")
     finally:
         st.session_state.cart_slm = None
@@ -142,7 +142,7 @@ def _connect_wfs() -> bool:
         ):
             try:
                 st.session_state.cart_wfs.close()
-            except Exception:
+            except Exception:  # policy: closing the previous WFS handle before reconnecting, same reason as the SLM handle above: discarding is the point, and blocking reconnect on a failed close would be worse
                 pass
 
         wfs = ThorlabWFS(
@@ -159,7 +159,7 @@ def _connect_wfs() -> bool:
             f"spots: {wfs.num_spots_x}×{wfs.num_spots_y})"
         )
         return True
-    except Exception as e:
+    except Exception as e:  # policy: WFS connect is vendor SDK construction plus open; report in the UI and return False, since the raised type is the driver's and Streamlit must stay responsive
         st.error(f"WFS connection failed: {e}")
         logger.exception(f"WFS connection failed: {e}")
         return False
@@ -171,7 +171,7 @@ def _disconnect_wfs() -> None:
     try:
         if wfs is not None:
             wfs.close()
-    except Exception as e:
+    except Exception as e:  # policy: best-effort WFS disconnect: the session reference is dropped regardless, and a driver close failure must not leave the page unusable
         st.error(f"WFS disconnect failed: {e}")
     finally:
         st.session_state.cart_wfs = None
@@ -309,7 +309,7 @@ def _lut_calibration_worker(
         st.session_state.cart_lut_result = result
         return result
 
-    except Exception as e:
+    except Exception as e:  # policy: the LUT calibration worker mixes driver calls with an explicit not-connected raise, and its failure has to reach the UI through the progress queue -- letting it escape would kill the worker thread and leave the bar stuck at its last percentage
         logger.exception(f"LUT calibration failed: {e}")
         st.session_state.cart_lut_error = str(e)
         progress_queue.append({"status": "error", "message": str(e)})
