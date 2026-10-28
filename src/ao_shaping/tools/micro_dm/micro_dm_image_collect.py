@@ -94,7 +94,7 @@ def _get_miicam_camera(cam_id: int, exposure_ms: float, bit_depth: int = 8) -> A
         return open_camera(
             "miicam", cam_id=cam_id, exposure_ms=exposure_ms, bit_depth=bit_depth
         )
-    except Exception as e:
+    except Exception as e:  # policy: open_camera('miicam') wraps vendor SDK init and this handler exists to name the device in the log before the caller sees the traceback; the raised type belongs to the SDK, and the re-raise is what keeps it attributable
         logger.error("MiiCam相机初始化失败: {}", e)
         raise
 
@@ -113,7 +113,7 @@ def _get_daheng_camera(cam_id: int, exposure_ms: float) -> Any:
     """
     try:
         return open_camera("daheng", cam_id=cam_id, exposure_ms=exposure_ms)
-    except Exception as e:
+    except Exception as e:  # policy: open_camera('daheng') likewise: log which camera failed, then re-raise -- the broad type is the vendor's, and swallowing it here would hide the failure from the caller's exit handling
         logger.error("Daheng相机初始化失败: {}", e)
         raise
 
@@ -350,13 +350,13 @@ def _collect_for_ip(
                 idx = None if frame_count == 1 else frame_idx
                 filename = _save_frame(ip_dir, ip, ch, frame, idx, save_npy)
                 saved_files.append(filename)
-        except Exception as e:
+        except Exception as e:  # policy: per-channel capture loop: get_numpy_image plus the save path span camera and disk, so one channel's failure must not discard the frames already collected for the other channels
             logger.warning("通道 {} 图像采集失败: {}", ch, e)
         finally:
             # 归位
             try:
                 _home_channel(ctrl, ch, home_voltage)
-            except Exception as e:
+            except Exception as e:  # policy: per-channel homing: every channel has to get its attempt, because aborting mid-loop leaves some channels energised and others at the home voltage
                 logger.warning("通道 {} 归位失败: {}", ch, e)
 
         if not _running:
@@ -377,7 +377,7 @@ def _safe_shutdown(ctrl: R50Controller, home_voltage: float) -> None:
     try:
         ctrl.power_off_and_close(home_voltage)
         click.echo(f"  ✅ 已下发 {home_voltage:g}V 归位, 继电器已下电, 连接已关闭")
-    except Exception as e:
+    except Exception as e:  # policy: power_off_and_close is the safety step on a live controller: it must be attempted and its failure reported, and nothing here can recover the device either way
         click.echo(f"  ⚠️  安全关闭失败: {e}")
     click.echo("🏁 控制器已退出")
 
@@ -544,7 +544,7 @@ def run(params: MicroDMImageCollectParams) -> None:
             cam = _get_miicam_camera(params.cam_id, params.exposure_ms, params.bit_depth)
             click.echo("✅")
             logger.info("MiiCam相机已连接: ID={}, bit_depth={}", params.cam_id, params.bit_depth)
-    except Exception as e:
+    except Exception as e:  # policy: camera open at CLI level spans vendor SDK init and the exposure handshake; the honest outcome is a message plus exit 1, and the failure type is the vendor's
         cam_name = "Daheng" if params.camera_type == "daheng" else "MiiCam"
         click.echo(f"❌ {cam_name} 相机打开失败: {e}")
         logger.error("{}相机打开失败: {}", cam_name, e)
@@ -677,7 +677,7 @@ def run(params: MicroDMImageCollectParams) -> None:
             cam_name = "Daheng" if params.camera_type == "daheng" else "MiiCam"
             click.echo(f"📷 {cam_name} 相机已关闭")
             logger.info("{}相机已关闭", cam_name)
-        except Exception as e:
+        except Exception as e:  # policy: teardown: the close must be attempted whatever it raises, and the run has already produced its files by this point
             cam_name = "Daheng" if params.camera_type == "daheng" else "MiiCam"
             click.echo(f"⚠️  {cam_name} 相机关闭失败: {e}")
             logger.warning("{}相机关闭失败: {}", cam_name, e)
@@ -700,7 +700,7 @@ def main() -> NoReturn:
         run()
     except SystemExit:
         raise
-    except Exception as e:
+    except Exception as e:  # policy: top-level guard around the whole collection body (device I/O plus disk writes) so an unexpected failure becomes a logged exit 1; the SystemExit handler above it deliberately re-raises, so CLI exits still pass through
         click.echo(f"❌ 运行时错误: {e}")
         logger.exception("Micro DM image collect failed")
         sys.exit(1)
