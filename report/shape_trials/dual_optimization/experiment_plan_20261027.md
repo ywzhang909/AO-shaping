@@ -383,11 +383,11 @@ python scripts/slm/generate_model_in_loop_cv_report.py  # if applicable
 
 目前的判断是：**多形状优化流程已经具备执行能力，部分条件下有明确的均匀度改善；但原定的“无 GS、同模型、三尺度对照”尚未完成，尚不能判断尺度是否是主要限制，也不能认定已经验证了替代 GS 的效果。** 下一轮应优先完成测量口径与更新方向验证，再补齐对照矩阵。
 
-本次仅进行了离线核对，没有连接设备或下发相位。分析采用了仓库 [MIL/transfer skill](/D:/Projects/TIFO/AO-shaping/libs/skills/slm-mil-transfer/SKILL.md) 中区分“流程完成、模型有效、整形成功”的方法。
+本次仅进行了离线核对，没有连接设备或下发相位。分析采用了仓库 [MIL/transfer skill](../../../libs/skills/slm-mil-transfer/SKILL.md) 中区分“流程完成、模型有效、整形成功”的方法。
 
 ### 1. 原定目标完成情况
 
-原定目标来自[规划报告](/D:/Projects/TIFO/AO-shaping/report/shape_trials/multishape_scale/multishape_scale_planning_20261028.md:22)：正方形、三角形、五角星、圆形，分别测试 **200 / 600 / 1200 原生 CCD px**，排除 GS 初相位，在一致条件下比较尺度与形状的影响。
+原定目标来自[规划报告](../multishape_scale/multishape_scale_planning_20261028.md:22)：正方形、三角形、五角星、圆形，分别测试 **200 / 600 / 1200 原生 CCD px**，排除 GS 初相位，在一致条件下比较尺度与形状的影响。
 
 | 原定目标 | 当前证据 | 评估 |
 |---|---|---|
@@ -399,7 +399,7 @@ python scripts/slm/generate_model_in_loop_cv_report.py  # if applicable
 | 证明生成了质量达标的目标形状 | 主要报告核心 CV，缺少统一的形状覆盖、边界和相对能量验收 | 尚不能判定 |
 | 用响应记录判断模型适用区间 | 有过程记录，但尚未完成系数、响应、方向性与性能的联合分析 | 部分完成 |
 
-需要更新一个时间顺序上的认识：[分析报告](/D:/Projects/TIFO/AO-shaping/report/shape_trials/multishape_scale/multishape_scale_analysis_20261028.md:28) 中“600 尚未开始”的结论已过时；[后续耗时报告](/D:/Projects/TIFO/AO-shaping/report/shape_trials/multishape_scale/multishape_scale_wallclock_20261028.md:316) 已记录 `s600_fixed` 完成全部 16 个优化阶段。不过，该轮使用 GS 起点，不能补齐原定的无 GS 对照。
+需要更新一个时间顺序上的认识：[分析报告](../multishape_scale/multishape_scale_analysis_20261028.md:28) 中“600 尚未开始”的结论已过时；[后续耗时报告](../multishape_scale/multishape_scale_wallclock_20261028.md:316) 已记录 `s600_fixed` 完成全部 16 个优化阶段。不过，该轮使用 GS 起点，不能补齐原定的无 GS 对照。
 
 此外，**1200 的“无 GS”不等于平面或随机相位冷启动**：实际是形状相关的反投影初相位。两种能力应分别评价。
 
