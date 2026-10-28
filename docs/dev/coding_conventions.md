@@ -156,6 +156,8 @@
 
 - **每个子目录必须包含 `__init__.py`**（即使是空文件或仅 docstring）
 - 模块文件行数建议：工具/算法模块 < 500 行，驱动/优化器 < 800 行。超过 800 行应考虑拆分为子模块
+  （**只针对 `src/`**：`scripts/` 下是 AI 一次性脚本，不做易用性优化，也不因行数被要求拆分
+  —— 见 `AGENTS.md`「scripts/ 目录：AI 一次性脚本」）
 - `utils/` 是叶子模块：不能反向依赖 `algorithm/`、`drivers/`、`optimizer/` 等高阶包
   如果必须引用，使用以下模式之一：
   - `TYPE_CHECKING` 保护（仅类型检查时导入）
@@ -193,7 +195,9 @@ class MyDriver(Device):
 
 §9 的"超过 800 行应考虑拆分"由 `scripts/check_module_size.py --check` 棘轮兜底
 （CI `module-size` job 跑；基线在 `scripts/_common/module_size_baseline.json`，
-只许降不许涨）。拆分的**顺序**比拆分的**决心**重要 —— 下面这套是
+只许降不许涨）。**门禁只管 `src/`**：`scripts/` 是 AI 一次性脚本，计入报告
+（标 `仅报告`）但不判红，那里的正确动作是"删过期 / 迁复用"，见 `AGENTS.md`
+「scripts/ 目录：AI 一次性脚本」。拆分的**顺序**比拆分的**决心**重要 —— 下面这套是
 `generate_hw_gs_square_scans_report.py`（5880 → 1983 行，拆成 11 个模块）走通的：
 
 1. **先抽自包含底座，再抽公共小工具，最后按主题搬函数。**

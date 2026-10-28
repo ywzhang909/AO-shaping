@@ -16,6 +16,15 @@
 - **增量**：新文件越过 800 行 → 判红；存量文件**行数增长** → 判红；
 - 允许变小，绝不允许变大。拆分后从 baseline 里移除即可永久收紧。
 
+为什么门禁只管 `src/`
+---------------------
+`scripts/` 下是**给 AI 用的脚本**——某次实验/某份报告/某次排查是怎么算出来的。
+使用者是发起那次任务的 AI 或人，不是终端用户，所以"为行数好看而拆文件"在那里
+没有收益（拆完只是把一次性的代码挪了个地方，还多一层 import 路径要维护）。
+2026-10-29 起：`scripts/` 仍**计入报告**（一眼能看到哪个脚本在膨胀），但**不参与
+退出码**。相应地把复用价值的东西迁进 `src/`、把过期的删掉，才是那里的正确动作。
+判据与细节见 `AGENTS.md`「scripts/ 目录：AI 一次性脚本」。
+
 用法
 ----
     python3 scripts/check_module_size.py                 # 报告（永远 exit 0）
@@ -40,6 +49,10 @@ WARN = 800
 HARD = 3000
 
 _SCAN_ROOTS = ("src", "scripts")
+
+#: 只有主项目 `src/` 参与门禁。`scripts/` 是 AI 一次性脚本（见模块 docstring 与
+#: `AGENTS.md`「scripts/ 目录：AI 一次性脚本」），计入报告但不判红。
+_ENFORCED_PREFIXES = ("src/",)
 
 #: 路径片段命中即跳过。vendored SDK 与 tests 不计：前者在 CI 的干净 checkout 里
 #: 根本不存在（untracked），后者是"测试文件长"而非"模块长"。
@@ -85,12 +98,22 @@ def load_baseline(path: Path) -> dict[str, int]:
     return {str(k): int(v) for k, v in data.items() if isinstance(v, int)}
 
 
+def _enforced(rel: str) -> bool:
+    """该模块是否受门禁约束（`scripts/` 只报告）。"""
+    return rel.startswith(_ENFORCED_PREFIXES)
+
+
 def violations(
     current: dict[str, int], baseline: dict[str, int]
 ) -> list[tuple[str, int, int | None]]:
-    """(路径, 当前行数, baseline 行数|None)。None 表示新越线。"""
+    """(路径, 当前行数, baseline 行数|None)。None 表示新越线。
+
+    只返回受门禁约束的模块：`scripts/` 的膨胀在报告里可见，但不拦 CI。
+    """
     found: list[tuple[str, int, int | None]] = []
     for rel, lines in current.items():
+        if not _enforced(rel):
+            continue
         prev = baseline.get(rel)
         if prev is None:
             found.append((rel, lines, None))
@@ -122,21 +145,29 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(args.root)
     baseline_path = Path(args.baseline)
     current = scan(root)
+    gated = {rel: n for rel, n in current.items() if _enforced(rel)}
 
     if args.update_baseline:
         baseline_path.parent.mkdir(parents=True, exist_ok=True)
         baseline_path.write_text(
-            json.dumps(current, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+            json.dumps(gated, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        print(f"baseline 已更新: {len(current)} 个受管模块 -> {baseline_path}")
+        print(
+            f"baseline 已更新: {len(gated)} 个受管模块 -> {baseline_path}"
+            f"（scripts/ 另有 {len(current) - len(gated)} 个 > {WARN} 行，仅报告）"
+        )
         return 0
 
     baseline = load_baseline(baseline_path)
     bad = violations(current, baseline)
-    tier_a = [(r, n) for r, n in current.items() if n > HARD]
+    tier_a = [(r, n) for r, n in gated.items() if n > HARD]
+    ungated = [(r, n) for r, n in current.items() if not _enforced(r)]
 
     for rel, lines in current.items():
+        if not _enforced(rel):
+            print(f"  {lines:>6} 行  {rel}  (仅报告, 不参与门禁)")
+            continue
         prev = baseline.get(rel)
         if prev is None:
             print(f"  {lines:>6} 行  {rel}")
@@ -144,7 +175,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {lines:>6} 行  {rel}  (+{lines - prev}, baseline {prev})")
         else:
             print(f"  {lines:>6} 行  {rel}  (<= baseline {prev})")
-    print(f"合计: {len(current)} 个模块 > {WARN} 行, 其中 {len(tier_a)} 个 > {HARD} 行 (必拆)")
+    print(
+        f"合计: {len(current)} 个模块 > {WARN} 行"
+        f" (受管 src/ {len(gated)} 个, 其中 {len(tier_a)} 个 > {HARD} 行必拆;"
+        f" scripts/ {len(ungated)} 个仅报告)"
+    )
 
     if not args.check:
         return 0

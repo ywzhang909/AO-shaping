@@ -66,8 +66,33 @@ AO-shaping/
 │   └── optical_ui/                   # [DEPRECATED] 空包
 ├── tests/ao_shaping/                 # 测试 (镜像 src 结构)
 ├── libs/                             # 第三方 SDK 二进制 (gxipy, Drv_UDPST)
-└── scripts/                          # 工具脚本, 按处理对象分组 (slm / dm / wfs / ml / rl / oopao / build / _common ...)
+└── scripts/                          # AI 一次性脚本, 按处理对象分组 (slm / dm / wfs / ml / rl / oopao / build / _common ...)
 ```
+
+## scripts/ 目录：AI 一次性脚本（2026-10-29）
+
+`scripts/` 不是产品代码，是**给 AI 用的脚本** —— 它记录"某次实验/某份报告/某次排查
+是怎么算出来的"。使用者是发起那次任务的 AI 或人，不是终端用户。因此：
+
+1. **不做易用性优化。** 不加交互式参数、不做宽容错兜底、不为好看而拆文件、不追求
+   可复用 API。一个 4000 行的报告脚本只要能重现它那份报告，**就不该**被为了行数
+   好看而拆开。`scripts/check_module_size.py` 因此**只对 `src/` 判红**，
+   `scripts/` 计入报告（哪个脚本在膨胀一眼可见）但不参与退出码；baseline 里也
+   只有 `src/` 条目。
+2. **有复用价值的函数迁移到主项目。** 判据是"**第二个消费者出现了**"，不是"写得
+   漂亮"。同一个判据/统计量/几何换算在第二个脚本里再抄一遍，就该搬进
+   `src/ao_shaping/` 的对应层（纯算法 → `algorithm/` 或 `utils/`；IO/报告基建 →
+   `utils/io/`；硬件交互 → `tools/` 对应子包），scripts 侧改成 import。
+   **禁止**在 scripts 里维护第二份实现 —— 已有先例：`src/ml/zernike/eval_stats.py`
+   是离线统计的唯一来源，scripts/ 只做渲染。
+3. **确认过期的删除。** 一次性探针在结论入 `report/` 或 issue 之后就是死代码；
+   留着只会让"哪个脚本是现在的口径"变成考古。删之前确认三件事：
+   ① 它产出的结论已被某份 report/issue 引用；② 没有别的脚本 import 它；
+   ③ `scripts/README.md` 里它那一行条目同时删掉。暂时删不掉的（还要重跑），
+   在文件头 docstring 写明"什么条件下可以删"。
+
+配套的**动作顺序**（不要反过来做）：先删过期 → 再迁复用 → 最后才考虑拆。
+拆分排在最后，是因为前两步经常让某个大脚本直接消失，拆了等于白干。
 
 ## WHERE TO LOOK
 

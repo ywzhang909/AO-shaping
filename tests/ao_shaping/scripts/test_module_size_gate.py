@@ -232,3 +232,42 @@ def test_the_baseline_file_is_committed() -> None:
         "checkout every oversized module would look brand new and the gate "
         "would fail on the first commit"
     )
+
+
+def test_oversized_scripts_are_reported_but_not_gated(tmp_path: Path) -> None:
+    """``scripts/`` is AI-facing one-off code: visible in the report, not a CI red.
+
+    The 2026-10-29 decision (AGENTS.md「scripts/ 目录：AI 一次性脚本」) is that
+    splitting a report script purely for line count buys nothing — the script has
+    one consumer and won't be extended. What *does* matter there is moving
+    reusable helpers into ``src/`` and deleting finished probes. So the gate
+    keeps showing them (drift stays visible) but only ``src/`` can fail the run.
+    """
+    root = tmp_path / "repo"
+    _seed_module(root, "scripts/probe_report.py", 900)
+    baseline = _seed_baseline(tmp_path, {})
+
+    proc = _run("--check", "--root", str(root), "--baseline", str(baseline))
+    assert proc.returncode == 0, (
+        "an oversized script failed the gate; scripts/ is report-only:\n"
+        f"{proc.stdout}"
+    )
+    assert "scripts/probe_report.py" in proc.stdout, "the script vanished from the report"
+    assert "仅报告" in proc.stdout, proc.stdout
+
+
+def test_baseline_only_covers_the_gated_root() -> None:
+    """A baseline entry the gate never reads is debt nobody is tracking.
+
+    If ``scripts/`` entries crept back into the baseline, ``--update-baseline``
+    would be recording ratchets for modules that can never fail — and the file
+    would drift from "what the gate enforces" to "every big file we ever had".
+    """
+    import json
+
+    data = json.loads(_BASELINE.read_text(encoding="utf-8"))
+    stray = sorted(k for k in data if not k.startswith("src/"))
+    assert not stray, (
+        f"{len(stray)} non-src entries in the ratchet baseline (e.g. {stray[:3]}); "
+        "scripts/ is report-only, so it must not appear here"
+    )

@@ -67,6 +67,24 @@ pipeline), `dm_sim/` (MATLAB DM simulation), `tuning_devices/` (device tuning).
 - Report generation still lives here and nowhere else (naming
   `generate_*_report.py`), and report output goes to `report/<topic>/` at the repo
   root — see the provenance notes below.
+- **This directory is AI-facing one-off code, judged by "does it still reproduce
+  its report", not by craft.** No interactive flags, no defensive fallbacks for
+  inputs nobody will type, no splitting a 4000-line report script purely for line
+  count. `scripts/check_module_size.py` enforces the 800-line rule on `src/` only;
+  scripts stay in its report as `仅报告` so drift is visible without turning into a
+  CI red. Policy and rationale: `AGENTS.md` → 「scripts/ 目录：AI 一次性脚本」.
+- **A helper earns its way into `src/` when a *second* consumer appears.** Copying
+  the same statistic/criterion/geometry conversion into a second script is the
+  trigger to move it into `src/ao_shaping/algorithm/`, `utils/`, or the matching
+  `tools/` subpackage and import it back — never keep a second implementation here.
+  Precedent: `src/ml/zernike/eval_stats.py` owns offline statistics; scripts only
+  render.
+- **Finished probes get deleted, not archived.** Once a probe's conclusion is cited
+  by a `report/` document or an issue, the script is dead code — keeping it turns
+  "which script is the current criterion" into archaeology. Before deleting:
+  its result is cited somewhere, nothing imports it, and its entry in this README
+  goes with it. If it must stay runnable, say in the module docstring *when* it
+  can be deleted.
 
 ## Build Scripts
 
