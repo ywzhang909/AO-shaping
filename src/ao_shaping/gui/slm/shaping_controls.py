@@ -457,7 +457,7 @@ def _release_slm_handle(slm_num: int) -> None:
     if slm is not None and getattr(slm, "is_open", False):
         try:
             slm.close()
-        except Exception as exc:  # must not block the reacquire
+        except Exception as exc:  # policy: must not block the reacquire: the handle slot is cleared either way, so a refusing close cannot be allowed to abort the handover
             logger.exception("SLM {} 整形前释放句柄失败: {}", slm_num, exc)
     st.session_state[prefix] = None
     st.session_state[f"{prefix}_connected"] = False
@@ -485,7 +485,7 @@ def _reacquire_slm_handle(slm_num: int) -> Any:
         raw.open()
     except Exception as exc:
         logger.exception("SLM {} 整形后重新连接失败: {}", slm_num, exc)
-        # 与侧边栏「连接」按钮同一套提示: 说明是设备被占用还是 USB 断链,
+        # policy: 与侧边栏「连接」按钮同一套提示: 说明是设备被占用还是 USB 断链,
         # 而不是把原始错误码直接甩给操作员。
         st.error(
             f"SLM {slm_num} 整形后重新连接失败。\n\n"
@@ -644,7 +644,7 @@ def shaping_session(
             with with_slm_ownership(self.slm_num, owned):
                 outcome = run(self, *args, **kwargs)
             return outcome
-        except Exception as exc:  # surfaced to the operator
+        except Exception as exc:  # policy: surfaced to the operator as panel feedback: the finally still releases ownership, so the error text is the operator's record of why a closed-loop run stopped
             logger.exception("闭环整形 [{}] 失败: {}", self.key, exc)
             st.error(f"{self.label} 失败: {exc}")
             return None
@@ -939,7 +939,7 @@ class ShapingMethod(ABC):
                     self.prefix, slm, include_carrier=False
                 ),
             )
-        except Exception as exc:  # 换层失败不该丢掉相位
+        except Exception as exc:  # policy: 换层失败不该丢掉相位：切换叠加层失败只记 warning，相位仍按当前叠加下发
             logger.warning("下发接受相位前切换叠加层失败（按当前叠加继续）: {}", exc)
         try:
             yield
@@ -948,6 +948,7 @@ class ShapingMethod(ABC):
                 apply_overlays_to_handle(
                     slm, bench_settings.build_send_overlay(self.prefix, slm)
                 )
+            # policy: restoring the send overlay after the phase send is best effort: failing here leaves the panel overlay state uncertain but must not mask the send that already happened
             except Exception as exc:
                 logger.warning("恢复发送叠加层失败: {}", exc)
 
@@ -969,7 +970,7 @@ class ShapingMethod(ABC):
                 refresh_phase_preview(self.slm_num)
                 max_gray = getattr(slm, "_max_gray", None) or Santec.MAX_GRAYSCALE_VALUE
                 st.success(f"最佳相位已下发（raw 弧度走驱动管线，2π={max_gray}）")
-            except Exception as exc:  # surfaced to the operator
+            except Exception as exc:  # policy: surfaced to the operator: a failed best-phase send must not look like a completed one, and the run returns instead of falling through to the success message
                 logger.exception("下发最佳相位失败: {}", exc)
                 st.error(f"最佳相位下发失败: {exc}")
                 return
