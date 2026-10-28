@@ -104,7 +104,7 @@ def _fit_and_plot(
         x_smooth = np.linspace(0, max_gray, 500)
         y_smooth = _sin_model(x_smooth, *popt)
         fit_label = f"sin fit: period={period_fit:.1f}"
-    except Exception as exc:
+    except Exception as exc:  # 保留宽泛捕获: 除 curve_fit 自身 (RuntimeError/TypeError/ValueError) 外还有 _sin_model 求值, 拟合失败的异常类型不可枚举
         logger.warning(f"Sin fit failed: {exc}, skipping fit line")
         popt = None
         x_smooth = np.linspace(0, max_gray, 500)

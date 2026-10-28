@@ -393,19 +393,19 @@ def main(params: DiagnoseParams) -> None:
             )
     except SystemExit:
         raise
-    except Exception:
+    except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
         logger.exception("SLM self-check failed")
         raise
     finally:
         if camera is not None:
             try:
                 camera.close()
-            except Exception:
+            except Exception:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
                 pass
         if slm is not None:
             try:
                 slm.close()
-            except Exception:
+            except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
                 pass
 
     # ── 汇总 ──

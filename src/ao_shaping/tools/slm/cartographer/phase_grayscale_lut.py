@@ -352,7 +352,7 @@ class PhaseGrayscaleLUT:
                         }
                     )
 
-            except Exception as e:
+            except Exception as e:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
                 logger.warning(f"Measurement failed at gs={gs}: {e}")
                 measured_phases.append(0.0)
                 measured_phases_2pi.append(0.0)
@@ -378,7 +378,7 @@ class PhaseGrayscaleLUT:
                     f"Polynomial fit: phase = {coeffs[0]:.2e}·g³ + "
                     f"{coeffs[1]:.2e}·g² + {coeffs[2]:.2e}·g + {coeffs[3]:.2e}"
                 )
-            except Exception as e:
+            except Exception as e:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
                 logger.warning(f"Polynomial fit failed: {e}")
 
         # Compute peak phase (from cosine pattern center)

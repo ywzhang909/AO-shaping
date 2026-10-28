@@ -1368,7 +1368,7 @@ def _save_data_mode_debug_artifacts(
                 title_prefix=frame_title_prefix,
             )
             logger.info("wrote {} companion images to {}", len(written), image_dir)
-        except Exception as e:
+        except Exception as e:  # 保留宽泛捕获: 内部调用链 save_frame_artifacts 的失败类型不可枚举
             # policy: deliberately broad -- a lost pickle costs the whole run, a lost plot
             # costs one picture. Swallow, warn, and carry on to the JSON sidecar.
             logger.warning(

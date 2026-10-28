@@ -575,7 +575,7 @@ def main(params: PhaseResponseParams) -> None:
         click.echo(f"[DONE] 产物已保存到 {out.resolve()}")
     except SystemExit:
         raise
-    except Exception:
+    except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
         logger.exception("SLM phase probe failed")
         raise
     finally:
@@ -587,7 +587,7 @@ def main(params: PhaseResponseParams) -> None:
         if slm is not None:
             try:
                 slm.close()
-            except Exception:
+            except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
                 pass
 
 

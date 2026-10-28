@@ -1780,7 +1780,7 @@ def main_shift_calib(params: ShiftCalibParams) -> int:
 
         slm.display_data(flat, wait_time_s=0.5)
 
-    except Exception as e:
+    except Exception as e:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
         logger.exception("标定失败")
         click.echo(f"[FAIL] {type(e).__name__}: {e}")
         # 异常路径也恢复原始 shift, 避免 close() 自动保存垃圾值
@@ -1789,14 +1789,14 @@ def main_shift_calib(params: ShiftCalibParams) -> int:
                 slm.set_shift(*original)
                 slm.save_config()
                 click.echo(f"[INFO] 已恢复原始 shift={original}")
-            except Exception as e2:
+            except Exception as e2:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
                 logger.warning("恢复原始 shift 失败: {}", e2)
     finally:
         for dev, name in ((wfs, "WFS"), (slm, "SLM")):
             try:
                 dev.close()
                 click.echo(f"[INFO] {name} close")
-            except Exception as e:
+            except Exception as e:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
                 logger.warning("{} close: {}", name, e)
 
     _write_report(params.output, report)
@@ -1981,7 +1981,7 @@ class SLMCCDCalibrator:
         def restore_full() -> None:
             try:
                 self.ccd.reset_window((0, 0), (0, 0))
-            except Exception:
+            except Exception:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
                 logger.warning("恢复全幅窗口失败")
 
         try:
