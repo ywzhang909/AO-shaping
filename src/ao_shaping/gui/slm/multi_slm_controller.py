@@ -80,7 +80,7 @@ def _scan_camera_status() -> list[dict]:
     try:
         device_manager = gx.DeviceManager()
         dev_count, dev_info_list = device_manager.update_device_list()
-    except Exception as e:
+    except Exception as e:  # policy: the vendor enumeration fails wholesale when the runtime is missing or no camera is attached; the scan keeps the statuses already collected instead of blanking the panel
         logger.debug(f"Daheng 相机枚举失败: {e}")
         return result
 
@@ -95,7 +95,7 @@ def _scan_camera_status() -> list[dict]:
             if cam is not None:
                 cam.close_device()
             entry["status"] = "可用"
-        except Exception as e:
+        except Exception as e:  # policy: this reads the vendor message, not a typed error: already-open-in-another-session (Access denied / REPEAT_OPENED) is a normal state that must be shown as in use, not as a failure
             msg = str(e)
             if (
                 "Access denied" in msg
@@ -245,12 +245,12 @@ def _probe_slm(slm_num: int) -> dict | None:
                 }
             else:
                 logger.debug(f"SLM #{slm_num} 无设备 (返回码 {ret})")
-        except Exception:
+        except Exception:  # policy: ctypes SDK open can raise on an invalid handle; a probe that cannot open reports not-responding and still reaches the finally-close, so one dead controller cannot abort scanning the rest
             logger.debug(f"扫描 SLM #{slm_num} 时发生异常", exc_info=True)
         finally:
             try:
                 slm_sdk.SLM_Ctrl_Close(slm_num)
-            except Exception:
+            except Exception:  # policy: the handle may never have opened, so this close is best-effort cleanup and its failure carries no information
                 pass
 
     t = threading.Thread(target=worker, daemon=True)
@@ -545,7 +545,7 @@ def _safe_set_state(key: str, value: Any) -> None:
     """
     try:
         st.session_state[key] = value
-    except Exception:
+    except Exception:  # policy: session_state access can fail outside a script run (background thread, shutdown); letting the caller continue without the value is this helper's whole purpose
         pass
 
 
@@ -637,7 +637,7 @@ def connect_slm(slm_num: int):
             if getattr(old_slm, "is_open", False):
                 old_slm.close()
         except Exception:
-            pass  # Ignore errors when cleaning up stale state
+            pass  # policy: a stale handle that refuses to close is expected after a crash or a re-run; session state is reset regardless so the new connect starts clean
         # Always reset state in session
         st.session_state[prefix] = None
         st.session_state[f"{prefix}_connected"] = False
@@ -658,7 +658,7 @@ def connect_slm(slm_num: int):
 
         _refresh_device_list()
         st.rerun()
-    except Exception as e:
+    except Exception as e:  # policy: open failure is the expected not-connected path, so state is cleared and the operator sees the vendor's own diagnosis instead of a traceback
         st.session_state[prefix] = None
         st.session_state[f"{prefix}_connected"] = False
         # 只报原始错误码对操作员没有指导意义 (例如 -10003 只是「USB设备已打开」),
@@ -678,7 +678,7 @@ def disconnect_slm(slm_num: int):
     try:
         if slm is not None and getattr(slm, "is_open", False):
             slm.close()
-    except Exception as e:
+    except Exception as e:  # policy: the finally block must still stop the toggle and clear the slots when close fails, or a controller that refuses to close leaves the panel driving a device it believes is gone
         st.error(f"SLM {slm_num} 断开失败: {e}")
         logger.exception(f"Failed to disconnect SLM {slm_num}: {e}")
     finally:
@@ -718,7 +718,7 @@ def set_wavelength(slm_num: int):
             st.success(f"SLM {slm_num} 波长设置为 {wavelength} nm")
             refresh_phase_preview(slm_num)
             _reset_context_widgets(slm_num)
-    except Exception as e:
+    except Exception as e:  # policy: the value reaches the device, so a rejection must be reported with the device message or the panel advertises a wavelength the LCOS is not using
         st.error(f"设置波长失败: {e}")
         logger.exception(f"Failed to set wavelength for SLM {slm_num}: {e}")
 
@@ -758,7 +758,7 @@ def set_shift(slm_num: int):
             else:
                 st.success(f"SLM {slm_num} 平移参数已更新: shift_x={sx}, shift_y={sy}")
                 st.info("当前没有缓存的相位可自动下发；请先生成或捕获一个相位图案。")
-    except Exception as e:
+    except Exception as e:  # policy: the periodic toggle is stopped first so a failed shift cannot leave the display swapping between the old and the shifted phase
         st.error(f"应用平移失败: {e}")
         logger.exception(f"Failed to set shift for SLM {slm_num}: {e}")
 
@@ -787,7 +787,7 @@ def set_video_mode(slm_num: int, mode_label: str):
             st.session_state[video_mode_key] = mode_label
             st.success(f"SLM {slm_num} 模式设置为 {mode_label}")
             refresh_phase_preview(slm_num)
-    except Exception as e:
+    except Exception as e:  # policy: surfaced and never retried automatically: an unresponsive controller can hang this process (documented DVI-mode failure) and only a power cycle recovers it
         st.error(f"设置模式失败: {e}")
         logger.exception(f"Failed to set video mode for SLM {slm_num}: {e}")
 
@@ -1121,6 +1121,7 @@ def _apply_uploaded_correction(slm_num: int, uploaded_correction: Any) -> None:
             st.warning("请先选择矫正 CSV 文件")
         else:
             _load_correction_into_device(slm, slm_num, uploaded_correction)
+    # policy: the correction is written to the device; on failure the previously displayed phase stays, which is exactly what the message must say
     except Exception as e:
         st.error(f"应用矫正失败: {e}")
         logger.exception(f"Failed to apply correction for SLM {slm_num}: {e}")
@@ -1136,6 +1137,7 @@ def _clear_correction(slm_num: int) -> None:
             slm.load_correction_from_csv(None)
             st.success("矫正已清除")
             refresh_phase_preview(slm_num)
+    # policy: a failed clear leaves the correction in place, so the message must not imply the phase was reset
     except Exception as e:
         st.error(f"清除矫正失败: {e}")
 
@@ -1206,6 +1208,7 @@ def _save_slm_config(slm_num: int, prefix: str) -> None:
         st.success(
             f"SLM {slm_num} 配置已保存（序列号: {slm._serial_number or '未知'}）"
         )
+    # policy: persisting to the device can be refused (firmware or read-only state); the operator believes the configuration is now stored, so the refusal is reported
     except Exception as e:
         st.error(f"保存配置到设备失败: {e}")
 
@@ -1226,6 +1229,7 @@ def _save_slm_phase_csv(slm_num: int) -> None:
         phase_rad = phase.astype(np.float64) / float(max_gray) * 2 * np.pi
         Santec.save_phase_to_csv(phase_rad, save_path)
         st.success(f"SLM {slm_num} 相位已保存到 {save_path}")
+    # policy: the CSV write can fail on permissions or disk while the phase stays displayed either way, so the failure is reported without touching the device
     except Exception as e:
         st.error(f"保存相位CSV失败: {e}")
         logger.exception(f"Failed to save phase CSV for SLM {slm_num}: {e}")
@@ -1309,6 +1313,7 @@ def _toggle_phases_task(
         # displayed one, pick an alternative in 2..125.
         try:
             current_slot = slm.get_displayed_memory_number()
+        # policy: in set_grayscale mode no slot is displayed and the SDK answers with an error code; that is a normal state, not a fault, so None is the correct value
         except Exception:
             current_slot = None
         if slot == current_slot:
@@ -1317,6 +1322,7 @@ def _toggle_phases_task(
 
         try:
             slm.display_data(target_phase, memory_number=slot)
+        # policy: this runs in the background toggle thread: one failed write is skipped and the next tick retries, because raising here would silence the periodic swap without telling anyone
         except Exception as e:
             logger.warning(f"周期切换失败: {e}")
 
@@ -1438,6 +1444,7 @@ def _render_phase_generate_section(slm_num: int, prefix: str) -> None:
                 f"相位已写入内存槽 {slm.get_displayed_memory_number()} 并显示（验证通过）"
             )
 
+        # policy: generation or display failure is reported with the operator's parameters still in the widgets, so the pattern can be corrected and re-sent
         except Exception as e:
             st.error(f"生成或显示相位失败: {e}")
             logger.exception(f"Failed to generate/display phase for SLM {slm_num}: {e}")
@@ -1485,6 +1492,7 @@ def _render_phase_generate_section(slm_num: int, prefix: str) -> None:
 
             # Clean up temp file
             temp_path.unlink()
+        # policy: the uploaded file is arbitrary input; a malformed CSV must surface as an error naming this step and leave the displayed phase untouched
         except Exception as e:
             st.error(f"加载CSV相位失败: {e}")
             logger.exception(f"Failed to load CSV phase for SLM {slm_num}: {e}")
