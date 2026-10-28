@@ -130,6 +130,7 @@ def connect_slm() -> bool:
         if st.session_state.slm_cal_slm_connected:
             try:
                 st.session_state.slm_cal_slm.close()
+            # policy: closing the stale SLM handle before a reconnect is best effort: a failure here must not block opening the new one
             except Exception:
                 pass
 
@@ -148,7 +149,7 @@ def connect_slm() -> bool:
         return True
 
     except Exception as e:
-        # 原始错误码 (如 -10003) 对操作员没有指导意义, 换成可执行的中文提示。
+        # policy: 原始错误码 (如 -10003) 对操作员没有指导意义, 换成可执行的中文提示并返回 False, 面板保持可用重试
         st.error(f"SLM 连接失败。\n\n{describe_santec_error(e)}")
         logger.exception(f"SLM connection failed: {e}")
         return False
@@ -160,6 +161,7 @@ def disconnect_slm() -> None:
     try:
         if had_slm:
             st.session_state.slm_cal_slm.close()
+    # policy: a refused close is surfaced to the operator, while the finally still clears the session -- the panel must not keep a handle the device rejected
     except Exception as e:
         st.error(f"SLM disconnect failed: {e}")
         logger.exception(f"SLM disconnect failed: {e}")
@@ -176,6 +178,7 @@ def connect_camera() -> bool:
         if st.session_state.slm_cal_camera is not None:
             try:
                 st.session_state.slm_cal_camera.close()
+            # policy: same best-effort close as the SLM path: dropping the stale camera handle must not block opening the new one
             except Exception:
                 pass
 
@@ -192,6 +195,7 @@ def connect_camera() -> bool:
         )
         return True
 
+    # policy: a failed camera connect is reported and returned as False so the panel stays usable to retry with a different id
     except Exception as e:
         st.error(f"Camera connection failed: {e}")
         logger.exception(f"Camera connection failed: {e}")
@@ -204,6 +208,7 @@ def disconnect_camera() -> None:
     try:
         if had_camera:
             st.session_state.slm_cal_camera.close()
+    # policy: same contract as the SLM teardown: report the refused close, and let the finally clear the session either way
     except Exception as e:
         st.error(f"Camera disconnect failed: {e}")
         logger.exception(f"Camera disconnect failed: {e}")
@@ -247,6 +252,7 @@ def _calibration_worker(
             try:
                 with open(progress_path, "w") as f:
                     json.dump(data, f)
+            # policy: progress-file writes exist for UI polling only: a failed write costs one progress tick, never the calibration run itself
             except Exception as e:
                 logger.warning(f"Failed to write progress file: {e}")
 
@@ -283,6 +289,7 @@ def _calibration_worker(
             }
         )
 
+    # policy: the calibration worker reports through the output queue -- dying silently would leave the panel polling a progress file that never advances
     except Exception as e:
         logger.exception(f"Calibration error: {e}")
         out_q.put(("error", f"Calibration failed: {e}"))
@@ -760,6 +767,7 @@ def render_load_view() -> None:
             result = CalibrationResult.load(file_path)
             st.session_state.slm_cal_result = result
             st.success(f"已加载: {selected}")
+        # policy: a missing or corrupt saved calibration is a user-correctable input error: report it in-panel and keep the result already in session untouched
         except Exception as e:
             st.error(f"加载失败: {e}")
 
