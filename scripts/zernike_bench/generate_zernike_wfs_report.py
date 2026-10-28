@@ -406,14 +406,14 @@ def main() -> int:
 
         records = acquire(slm, wfs, ph, out, (sx, sy), args.settle_extra_s, max_gray)
         slm.display_data(flat_gray(), wait_time_s=0.5)
-    except Exception as e:
+    except Exception as e:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
         logger.info(f"[FAIL] {type(e).__name__}: {e}")
         return 1
     finally:
         for dev in (wfs, slm):
             try:
                 dev.close()
-            except Exception:
+            except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
                 pass
 
     write_markdown(out, meta, records)

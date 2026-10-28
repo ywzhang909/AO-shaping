@@ -48,7 +48,7 @@ for pkl_path in debug_root.rglob('*.pkl'):
     try:
         with open(pkl_path, 'rb') as f:
             data = pickle.load(f)
-    except Exception as e:
+    except Exception as e:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
         logger.info(f"ERROR loading {pkl_path}: {e}")
         continue
 

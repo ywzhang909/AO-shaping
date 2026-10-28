@@ -68,7 +68,7 @@ def main() -> int:
     )
     try:
         wfs.open()
-    except Exception:
+    except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
         logger.info("[probe] WFS open 失败")
         raise
 
@@ -91,7 +91,7 @@ def main() -> int:
             dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=args.cancel_tile)
             z = wfs.get_zernike(zernike_order=args.zernike_order)
             wf, stats = wfs.get_wavefront(cancel_tile=args.cancel_tile)
-        except Exception:
+        except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
             logger.info(f"ERROR iter {i}, elapsed={time.perf_counter()-t_start:.1f}s",
 )
             raise
@@ -111,7 +111,7 @@ def main() -> int:
 
     try:
         wfs.close()
-    except Exception:
+    except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
         pass
     return 0
 

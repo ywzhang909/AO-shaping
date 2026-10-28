@@ -300,7 +300,7 @@ def main() -> None:
     finally:
         try:
             slm.display_data(np.zeros((1200, 1920), dtype=np.uint16))
-        except Exception:
+        except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
             pass
         slm.close()
     logger.info(f"[done] {args.out}")

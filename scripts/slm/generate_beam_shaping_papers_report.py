@@ -173,7 +173,7 @@ def main() -> int:
         df = differentiable_shape(CONFIG, n_iters=200, lr=0.05)
         record("differentiable_shape", df)
         logger.info("diff elapsed: {:.1f}s", time.time() - t0)
-    except Exception as e:
+    except Exception as e:  # 保留宽泛捕获: 内部调用链 differentiable_shape 的失败类型不可枚举
         logger.warning("differentiable_shape failed: {}", e)
 
     # --- SPGD ---------------------------------------------------------------

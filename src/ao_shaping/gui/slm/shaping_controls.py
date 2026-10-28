@@ -485,7 +485,7 @@ def _reacquire_slm_handle(slm_num: int) -> Any:
     try:
         raw = Santec(slm_number=slm_num)
         raw.open()
-    except Exception as exc:
+    except Exception as exc:  # 保留宽泛捕获: 内部调用链 Santec 的失败类型不可枚举
         logger.exception("SLM {} 整形后重新连接失败: {}", slm_num, exc)
         # policy: 与侧边栏「连接」按钮同一套提示: 说明是设备被占用还是 USB 断链,
         # 而不是把原始错误码直接甩给操作员。

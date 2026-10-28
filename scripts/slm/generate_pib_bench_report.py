@@ -665,7 +665,7 @@ def main() -> int:
             p = fig_sustained(runs, figs_dir)
             if p is not None:
                 figs.append(p)
-        except Exception as exc:
+        except Exception as exc:  # 保留宽泛捕获: 内部调用链 fig_sustained 的失败类型不可枚举
             logger.warning("figure fig_sustained failed: {}", exc)
 
     report = write_report(snr, smoke, runs, out, figs, root)

@@ -127,7 +127,7 @@ def render_phase_ccd_comparison() -> Path:
             im_phase = phase_ax.imshow(phase_viz, cmap="RdBu_r", vmin=-np.pi, vmax=np.pi)
             phase_ax.set_axis_off()
             plt.colorbar(im_phase, ax=phase_ax, fraction=0.046, pad=0.04)
-        except Exception as e:
+        except Exception as e:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
             phase_ax.text(0.5, 0.5, f"相位数据\n加载失败\n{str(e)[:50]}...", 
                          ha="center", va="center", transform=phase_ax.transAxes,
                          bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5))
@@ -144,7 +144,7 @@ def render_phase_ccd_comparison() -> Path:
                 ccd_rgb = ccd_img
             ccd_ax.imshow(ccd_rgb)
             ccd_ax.set_axis_off()
-        except Exception as e:
+        except Exception as e:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
             ccd_ax.text(0.5, 0.5, f"CCD图像\n加载失败\n{str(e)[:50]}...", 
                        ha="center", va="center", transform=ccd_ax.transAxes,
                        bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5))

@@ -188,7 +188,7 @@ for d in dirs:
         try:
             render_recorder_gif(iters, out, fps=4, title=name, max_frames=60)
             logger.info("OK iters", name)
-        except Exception as e:
+        except Exception as e:  # 保留宽泛捕获: 内部调用链 render_recorder_gif 的失败类型不可枚举
             logger.info("FAIL iters", name, repr(e))
         continue
     if npzs:
@@ -198,7 +198,7 @@ for d in dirs:
             try:
                 _render_exact_grid(name, out, d, npzs)
                 logger.info("OK exact_grid", name)
-            except Exception as e:
+            except Exception as e:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
                 logger.info("FAIL exact_grid", name, repr(e))
             continue
         frames_data = []
@@ -227,14 +227,14 @@ for d in dirs:
                 try:
                     render_recorder_gif(iters, out, fps=4, title=name, max_frames=60)
                     logger.info("OK iters-fallback", name)
-                except Exception as e:
+                except Exception as e:  # 保留宽泛捕获: 内部调用链 render_recorder_gif 的失败类型不可枚举
                     logger.info("FAIL fallback", name, repr(e))
             else:
                 # blur-style (prediction/measured) or direction-style npzs
                 try:
                     _render_special_npz(name, out, npzs)
                     logger.info("OK special", name)
-                except Exception as e:
+                except Exception as e:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
                     logger.info("FAIL special", name, repr(e))
             continue
         fig, axes = plt.subplots(1, 2, figsize=(10, 4))
@@ -262,5 +262,5 @@ for d in dirs:
             try:
                 render_recorder_gif(iters, out, fps=4, title=name, max_frames=60)
                 logger.info("OK iters2", name)
-            except Exception as e:
+            except Exception as e:  # 保留宽泛捕获: 内部调用链 render_recorder_gif 的失败类型不可枚举
                 logger.info("FAIL", name, repr(e))

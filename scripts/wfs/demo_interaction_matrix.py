@@ -41,7 +41,7 @@ def main() -> None:
         logger.info(f"Loaded matrix shape: {loaded_matrix.shape}")
         logger.info("Interaction matrix calculation completed successfully!")
 
-    except Exception as e:
+    except Exception as e:  # 保留宽泛捕获: 内部调用链 calculate_interaction_matrix 的失败类型不可枚举
         logger.error(f"Error during interaction matrix calculation: {e}")
         raise
 

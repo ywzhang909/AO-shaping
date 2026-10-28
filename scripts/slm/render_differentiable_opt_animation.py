@@ -1106,7 +1106,7 @@ def render(
     if include_hardware:
         try:
             hw_frames = collect_hardware_frames(ctx, main_mod, spec)
-        except Exception as exc:
+        except Exception as exc:  # 保留宽泛捕获: 内部调用链 collect_hardware_frames 的失败类型不可枚举
             logger.warning("实测帧读取失败, 跳过硬件锚点: {}: {}", type(exc).__name__, exc)
             hw_frames = []
 

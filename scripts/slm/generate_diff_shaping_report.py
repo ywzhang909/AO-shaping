@@ -785,7 +785,7 @@ def main() -> int:
         logger.info(
             f"[report] asm_parity done max_err={asm_max_err:.2e} ({time.time() - t0:.1f}s)"
         )
-    except Exception as e:
+    except Exception as e:  # 保留宽泛捕获: 内部调用链 run_asm_parity 的失败类型不可枚举
         logger.info(f"[report] asm_parity FAILED: {e}")
         metrics["errors"]["asm_parity"] = str(e)
         asm_max_err = float("nan")
@@ -820,7 +820,7 @@ def main() -> int:
             f"[report] gs_baseline done CV={runs['gs_baseline']['CV']:.4f} "
             f"EE={runs['gs_baseline']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
-    except Exception as e:
+    except Exception as e:  # 保留宽泛捕获: 内部调用链 run_gs_baseline 的失败类型不可枚举
         logger.info(f"[report] gs_baseline FAILED: {e}")
         metrics["errors"]["gs_baseline"] = str(e)
 
@@ -857,7 +857,7 @@ def main() -> int:
             f"[report] old_default done CV={runs['old_default']['CV']:.4f} "
             f"EE={runs['old_default']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
-    except Exception as e:
+    except Exception as e:  # 保留宽泛捕获: 内部调用链 run_diff 的失败类型不可枚举
         logger.info(f"[report] old_default FAILED: {e}")
         metrics["errors"]["old_default"] = str(e)
 
@@ -894,7 +894,7 @@ def main() -> int:
             f"[report] win_fft done CV={runs['win_fft']['CV']:.4f} "
             f"EE={runs['win_fft']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
-    except Exception as e:
+    except Exception as e:  # 保留宽泛捕获: 内部调用链 run_diff 的失败类型不可枚举
         logger.info(f"[report] win_fft FAILED: {e}")
         metrics["errors"]["win_fft"] = str(e)
 
@@ -931,7 +931,7 @@ def main() -> int:
             f"[report] win_asm done CV={runs['win_asm']['CV']:.4f} "
             f"EE={runs['win_asm']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
-    except Exception as e:
+    except Exception as e:  # 保留宽泛捕获: 内部调用链 run_diff 的失败类型不可枚举
         logger.info(f"[report] win_asm FAILED: {e}")
         metrics["errors"]["win_asm"] = str(e)
 
@@ -968,7 +968,7 @@ def main() -> int:
             f"[report] win_spot done CV={runs['win_spot']['CV']:.4f} "
             f"EE={runs['win_spot']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
-    except Exception as e:
+    except Exception as e:  # 保留宽泛捕获: 内部调用链 run_diff 的失败类型不可枚举
         logger.info(f"[report] win_spot FAILED: {e}")
         metrics["errors"]["win_spot"] = str(e)
 
@@ -1005,7 +1005,7 @@ def main() -> int:
             f"[report] win_lbfgs done CV={runs['win_lbfgs']['CV']:.4f} "
             f"EE={runs['win_lbfgs']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
-    except Exception as e:
+    except Exception as e:  # 保留宽泛捕获: 内部调用链 run_diff 的失败类型不可枚举
         logger.info(f"[report] win_lbfgs FAILED: {e}")
         metrics["errors"]["win_lbfgs"] = str(e)
 
@@ -1038,7 +1038,7 @@ def main() -> int:
         try:
             make_gifs(runs)
             logger.info("[report] gifs done")
-        except Exception as e:
+        except Exception as e:  # 保留宽泛捕获: 内部调用链 make_gifs 的失败类型不可枚举
             logger.info(f"[report] gifs FAILED: {e}")
             metrics["errors"]["gifs"] = str(e)
 
@@ -1046,7 +1046,7 @@ def main() -> int:
     try:
         save_data(runs, metrics)
         logger.info("[report] data saved")
-    except Exception as e:
+    except Exception as e:  # 保留宽泛捕获: 内部调用链 save_data 的失败类型不可枚举
         logger.info(f"[report] save_data FAILED: {e}")
         metrics["errors"]["save_data"] = str(e)
 
@@ -1055,7 +1055,7 @@ def main() -> int:
         readme = build_readme(runs, metrics, asm_max_err)
         (OUT_DIR / "README.md").write_text(readme, encoding="utf-8")
         logger.info("[report] README written")
-    except Exception as e:
+    except Exception as e:  # 保留宽泛捕获: 内部调用链 build_readme 的失败类型不可枚举
         logger.info(f"[report] README FAILED: {e}")
         metrics["errors"]["readme"] = str(e)
 
@@ -1065,7 +1065,7 @@ def main() -> int:
             json.dumps(metrics, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
         logger.info(f"[report] final metrics write FAILED: {e}")
 
     logger.info("[report] DONE")

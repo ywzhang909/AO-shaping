@@ -175,7 +175,7 @@ def main() -> None:
             )
             try:
                 res = cso.run_variant(slug, kwargs, args, exp, center, waist)
-            except Exception as exc:
+            except Exception as exc:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
                 logger.error(
                     "{} rep {} failed: {}: {}",
                     slug,

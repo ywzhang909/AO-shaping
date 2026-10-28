@@ -636,7 +636,7 @@ def connect_slm(slm_num: int):
             # Only try to close if the device thinks it's open
             if getattr(old_slm, "is_open", False):
                 old_slm.close()
-        except Exception:
+        except Exception:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
             pass  # policy: a stale handle that refuses to close is expected after a crash or a re-run; session state is reset regardless so the new connect starts clean
         # Always reset state in session
         st.session_state[prefix] = None

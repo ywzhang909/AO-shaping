@@ -1335,11 +1335,11 @@ def _collect_device_info(slm: Any, camera: Any) -> dict[str, Any]:
         info["slm_serial"] = None
     try:
         info["slm_video_mode"] = int(getattr(slm, "video_mode", 0))
-    except Exception:
+    except Exception:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
         info["slm_video_mode"] = None
     try:
         info["slm_wavelength_nm"] = getattr(slm, "wavelength", None)
-    except Exception:
+    except Exception:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
         info["slm_wavelength_nm"] = None
     for attr in ("serial_number", "serial", "sn"):
         value = getattr(camera, attr, None)
@@ -1359,7 +1359,7 @@ def _collect_device_info(slm: Any, camera: Any) -> dict[str, Any]:
     try:
         lo, hi = get_camera_exposure_range(camera)
         info["cam_exposure_range_ms"] = [float(lo), float(hi)]
-    except Exception:
+    except Exception:  # 保留宽泛捕获: 内部调用链 get_camera_exposure_range 的失败类型不可枚举
         pass
     return info
 

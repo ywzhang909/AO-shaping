@@ -41,7 +41,7 @@ def wait_for_idle(budget_s: float) -> None:
                                       "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
                                       "Select-Object -ExpandProperty CommandLine"],
                                      capture_output=True, text=True, timeout=30).stdout
-        except Exception:
+        except (OSError, subprocess.SubprocessError):
             listing = ""
         busy = [line for line in listing.splitlines()
                 if any(token in line for token in pattern)

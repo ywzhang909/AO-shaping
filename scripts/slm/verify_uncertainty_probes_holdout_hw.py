@@ -342,7 +342,7 @@ def main() -> int:
         _log(f"塌缩检查: {'有变体塌缩' if summary['any_collapse'] else '全部在幅度带内'}")
         _log(f"summary: {out_dir / 'summary.json'}")
         return 0
-    except Exception as exc:
+    except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
         _log(f"失败: {type(exc).__name__}: {exc}")
         meta["status"] = "failed"
         meta["error"] = f"{type(exc).__name__}: {exc}"
@@ -353,7 +353,7 @@ def main() -> int:
         try:
             bench.close()
             _log("设备已释放")
-        except Exception as exc:
+        except Exception as exc:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
             _log(f"关闭异常: {exc}")
 
 

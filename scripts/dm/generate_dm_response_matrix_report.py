@@ -160,7 +160,7 @@ def _load_result(path: Path) -> dict:
                 "calibration_mode": r.calibration_mode,
                 "hadamard_order": r.hadamard_order,
             }
-        except Exception as exc:
+        except Exception as exc:  # 保留宽泛捕获: 内部调用链 load_dm_response_matrix 的失败类型不可枚举
             logger.warning("Package loader failed ({}), using h5py fallback", exc)
     return _load_h5_fallback(path)
 

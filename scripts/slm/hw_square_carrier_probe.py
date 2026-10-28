@@ -221,7 +221,7 @@ def main() -> None:
     finally:
         try:
             slm.set_phase_overlay(None)
-        except Exception:
+        except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
             pass
         slm.close()
 

@@ -93,10 +93,10 @@ def load_modules() -> dict[str, Module]:
                 try:
                     text = p.read_text(encoding="utf-8-sig")
                     tree = ast.parse(text)
-                except Exception as e:
+                except Exception as e:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
                     logger.info(f"PARSE FAIL {p}: {e}")
                     continue
-            except Exception as e:
+            except Exception as e:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
                 logger.info(f"PARSE FAIL {p}: {e}")
                 continue
             m = Module(d, p)

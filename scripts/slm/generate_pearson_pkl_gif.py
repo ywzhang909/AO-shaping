@@ -308,7 +308,7 @@ def process_pkl(pkl: Path, out_dir: Path, pearson_only: bool = False, **gif_kwar
     """
     try:
         data = _load_run(pkl)
-    except Exception as exc:
+    except Exception as exc:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
         return False, f"load failed: {exc}"
 
     epochs = sorted(data.keys())

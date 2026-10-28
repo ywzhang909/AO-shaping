@@ -158,7 +158,7 @@ def main() -> int:
                 eta1 = float(m.eta_plus_total or 0.0)
                 sep = float(m.separation_px or float("nan"))
                 notes = " | ".join(m.notes)[:100]
-            except Exception as exc:
+            except Exception as exc:  # 保留宽泛捕获: 内部调用链 measure_orders 的失败类型不可枚举
                 eta0 = eta1 = sep = float("nan")
                 notes = f"measure_orders 失败: {exc}"[:100]
             row = {
