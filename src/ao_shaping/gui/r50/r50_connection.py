@@ -182,6 +182,7 @@ def set_relay(ctrl: Any | None, on: bool) -> bool:
             return False
         result = fn(on)
         return True if result is None else bool(result)
+    # policy: relay toggle failure returns False so the caller reports it in the UI; the live controller may be real, simulated or mock and each raises differently
     except Exception as e:
         logger.warning(f"set_relay({on}) failed: {e}")
         return False
@@ -203,6 +204,7 @@ def power_off_and_close(ctrl: Any | None) -> bool:
         try:
             result = fn()
             return True if result is None else bool(result)
+        # policy: power-off-and-close failure returns False; the caller still has to finish its own teardown, so this is reported rather than propagated
         except Exception as e:
             logger.warning(f"power_off_and_close failed: {e}")
             return False
@@ -210,11 +212,13 @@ def power_off_and_close(ctrl: Any | None) -> bool:
     try:
         if not set_relay(ctrl, False):
             ok = False
+    # policy: teardown steps are attempted independently - a failed relay-off must not skip the close() below, which would strand the controller energised
     except Exception as exc:
         logger.warning(f"set_relay(False) failed: {exc}")
         ok = False
     try:
         ctrl.close()
+    # policy: close() failure only sets ok=False; the handle is unusable either way, and raising here would leave the UI bound to a dead controller
     except Exception as exc:
         logger.warning(f"close failed: {exc}")
         ok = False

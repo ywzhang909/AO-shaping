@@ -203,6 +203,7 @@ def _render_voltage_send_form(is_connected: bool) -> None:
                     else:
                         try:
                             _send_channels(voltage)
+                        # policy: a failed voltage send becomes in-place error feedback; propagating it would rerun the script and discard the channel values the operator just typed
                         except Exception as e:
                             _set_feedback(f"发送失败: {e}", "error")
                     st.rerun()

@@ -2133,18 +2133,24 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 381
 #: the driver exception taxonomy (issue #145 / #45) would turn a working fallback into a crash.
 #:
 #:
-#: Measured 2026-10-28 after fifteen review passes (runners/slm + config + utils, the three CCD
+#: Measured 2026-10-28 after sixteen marker passes and one executed narrowing (runners/slm + config + utils, the three CCD
 #: camera drivers, the R50 GUI loop files, the whole optimizer / runner CLI layer, the ml
 #: training scripts, the CCD analyzer UI, the bench settings panel, the Micro-DM panel, the
 #: target-shape helper, the R50 joint panel, the SLM calibration panel, the Micro-DM image
 #: analysis panel, the shaping-controls panel, and the R50 channel selector, then the first
-#: executed narrowing): 187 marked, 194
+#: executed narrowing): 199 marked, 182
 #: unmarked. The fourth pass covered only 12 of the 17 open optimizer sites and the fifth had
 #: to close the layer -- the ceiling is only as honest as the last count. One site left the
 #: population instead of gaining a marker (narrowed out, see the total ratchet above), so the
 #: marked count fell while this ceiling held: a real narrowing is worth more than a marker, and
 #: unlike a marker it moves the total too.
-_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 194
+#: The sixteenth marker pass (the R50 controller-UI family: connection helpers, group panel,
+#: single-controller panel, tab host) moved this ceiling 194 -> 182 with 12 comment-only edits.
+#: Every one of those sites guards a device call, so per the note above they stay broad and are
+#: judged rather than narrowed; the recurring reason written into the markers is that teardown
+#: and batch loops must attempt every step, because aborting midway leaves some channels
+#: energised and others not. Control re-armed: one more unannotated blind catch makes 183 red.
+_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 182
 
 
 def _blind_except_handlers_in_src() -> list[tuple[Path, int, bool]]:
