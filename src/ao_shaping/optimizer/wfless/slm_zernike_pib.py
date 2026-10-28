@@ -1470,410 +1470,6 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
 
         # ------------------------------------------------------------------
 
-        def _run_spgd() -> None:
-            """SPGD branch: per-epoch perturbation, gating and coefficient update.
-
-            Nonlocal because these carry the run result out to ``_apply_best_on_exit``
-            (``best_c``/``best_objective``/``last_best_epoch``) and because the bucket
-            radius, the shrink schedule and the coefficient vector are live search state
-            that ``_log_row`` reads on every epoch.
-            """
-            nonlocal _init_c, _init_r, best_c, best_objective, delta, last_best_epoch, r_bucket
-            # Evaluation-robustness state (see ``config.n_eval_frames`` /
-            # ``fold_ratio`` / ``noise_gate_k``): the fold baseline is armed from
-            # the initial (valid) frame; the noise-gate diff history starts empty,
-            # so the gate stays off until ``noise_gate_window`` diffs have been
-            # collected.
-            _fold_baseline_peak: float | None = float(np.max(init_img))
-            _fold_baseline_sum: float | None = float(
-                np.asarray(init_img, dtype=np.float64).sum()
-            )
-            _diff_history: deque[float] = deque(maxlen=config.noise_gate_window)
-            _n_fold_gated = 0
-            _n_noise_gated = 0
-            _n_peak_gated = 0
-
-            if config.abba_sampling:
-                logger.info(
-                    "SPGD ABBA sampling enabled: 4 captures/epoch (+ - - +), "
-                    "linear drift cancellation"
-                )
-
-            if config.max_peak > 0.0 and exposure_time_ms == 0:
-                # A counts cap under auto-exposure is not a power cap: the
-                # saturation path lowers exposure, so counts fall while optical
-                # power does not.
-                logger.warning(
-                    "max_peak={} is a camera-count threshold but "
-                    "exposure_time_ms=0 enables auto-exposure, which lowers "
-                    "exposure near saturation and can mask a real over-power "
-                    "event. Fix the exposure to make the cap meaningful.",
-                    config.max_peak,
-                )
-
-            with tqdm.tqdm(
-                total=epochs, desc=f"slm_zernike iter {epochs}", dynamic_ncols=True
-            ) as bar:
-                for epoch in range(1, epochs + 1):
-                    # Generate random perturbation (±1 pattern)
-                    disturb_c = rng.binomial(1, 0.5, (nk,)).astype(float) * 2.0 - 1.0
-                    disturb_c = disturb_c * delta
-
-                    # Capture frames in the configured sign order: `+ -` by default,
-                    # `+ - - +` (ABBA) when ``abba_sampling`` is on. The palindrome
-                    # makes a drift that is linear in time carry an identical term
-                    # in both sign-means, so it cancels out of the SPGD difference
-                    # (see tools/slm/slm_snr_probe.py::abba_signal). Cost: 4
-                    # captures/epoch instead of 2.
-                    _captures: list[tuple[int, np.ndarray, np.ndarray, np.ndarray]] = []
-                    for _sign in _spgd_capture_signs(config.abba_sampling):
-                        _c, _phase, _img = session.capture(
-                            _init_c + float(_sign) * disturb_c
-                        )
-                        _captures.append((_sign, _img, _c, _phase))
-
-                    _pos_captures = [c for c in _captures if c[0] > 0]
-                    # The logged/ROI/adapt_weights frame stays the FIRST positive
-                    # capture, so a recorded row always describes the `+d` phase.
-                    # Each capture is `(sign, img, coeffs, phase)`; unpack by
-                    # position (a slice like ``[1:]`` would silently transpose the
-                    # image with the coefficient vector).
-                    _first_pos = _pos_captures[0]
-                    pos_img, _pos_c, pos_phase = _first_pos[1], _first_pos[2], _first_pos[3]
-
-                    # Evaluation-robustness gates (2026-09, from the delta<0.001
-                    # fold/jitter post-mortem; see docs/slm_pib): reject environment
-                    # brightness folds BEFORE scoring so they cannot masquerade as a
-                    # coefficient-driven change (measured discrete brightness
-                    # states, corr(J, max_brt) = -0.9996), and re-locate the target
-                    # ROI onto the CURRENT spot of each frame so a benign beam drift
-                    # is not scored as a shaping loss (measured 22-px drift). The
-                    # energy guard's ROI rides along; its armed baseline is kept.
-                    # Every captured frame is gated (ABBA captures 4).
-                    _frame_stats: list[tuple[int, bool, float, float]] = []
-                    for _c_sign, _img_c, _, _ in _captures:
-                        _is_fold, _pk, _sm = _frame_fold_check(
-                            _img_c,
-                            _fold_baseline_peak,
-                            _fold_baseline_sum,
-                            config.fold_ratio,
-                        )
-                        _frame_stats.append((_c_sign, _is_fold, _pk, _sm))
-                    _folded_signs = [s for s, is_fold, _, _ in _frame_stats if is_fold]
-                    if _folded_signs:
-                        _n_fold_gated += 1
-                        logger.warning(
-                            "epoch {}: brightness fold (signs={}, pk={:.0f}) - epoch skipped",
-                            epoch,
-                            _folded_signs,
-                            max(pk for _, _, pk, _ in _frame_stats),
-                        )
-                        # Record the epoch honestly (unchanged coefficients, real
-                        # mean J over the frames actually scored) so the fold is
-                        # visible offline, then skip search.
-                        _fold_j: list[float] = []
-                        _fold_ratio: list[float] = []
-                        with shaping.shape_batch():
-                            for _c_sign, _img_c, _, _ in _captures:
-                                _r = shaping(_img_c)
-                                _fold_j.append(float(_r.j))
-                                _fold_ratio.append(float(_r.ratio))
-                        _fold_j_mean = float(np.mean(_fold_j))
-                        _log_row(
-                            epoch=epoch,
-                            coeffs=_init_c,
-                            obj_val=_fold_j_mean,
-                            obj_ratio=float(np.mean(_fold_ratio)),
-                            J=_fold_j_mean,
-                            diff=0.0,
-                            gate="fold",
-                            grad=np.zeros(nk, dtype=np.float64),
-                            img=pos_img,
-                            phase=pos_phase,
-                            lr_val=optimizer.lr,
-                            delta_val=delta,
-                            max_brt=float(max(pk for _, _, pk, _ in _frame_stats)),
-                                                    _init_r=_init_r,
-                            best_objective=best_objective,
-                            cam=cam,
-                            objective=objective,
-                            optimizer_type=optimizer_type,
-                            r_bucket=r_bucket,
-                            record_phase=record_phase,
-                            recorder=recorder,
-                            shaping=shaping,
-                            w_loggrad=w_loggrad,
-)
-                        bar.update(1)
-                        continue
-
-                    # Measured-peak feasibility gate (see ``max_peak``): mirror the
-                    # fold gate, NOT the noise gate. A peak violation says nothing
-                    # about gradient validity, so unlike the noise gate this must
-                    # NOT call ``optimizer.update`` - zero-updating there decays
-                    # momentum, which would corrupt the Adam moments with a
-                    # statement we have no evidence for. It also must not append
-                    # to ``_diff_history`` (that would inflate ``sigma_hat`` and
-                    # make the noise gate over-fire) nor refresh the fold
-                    # baseline, nor best-track, nor touch the bucket / lr
-                    # schedules. Fully orthogonal: no state changes at all.
-                    _peak_observed = float(max(pk for _, _, pk, _ in _frame_stats))
-                    if config.max_peak > 0.0 and _peak_observed > config.max_peak:
-                        _n_peak_gated += 1
-                        logger.warning(
-                            "epoch {}: peak {:.0f} exceeds max_peak={:.0f} - "
-                            "update NOT committed (step #{})",
-                            epoch,
-                            _peak_observed,
-                            config.max_peak,
-                            _n_peak_gated,
-                        )
-                        # Honest row: unchanged coefficients, real mean J over the
-                        # frames actually scored, real peak. ``gate`` records the
-                        # reason so the freeze is visible offline.
-                        _peak_j: list[float] = []
-                        _peak_ratio: list[float] = []
-                        with shaping.shape_batch():
-                            for _c_sign, _img_c, _, _ in _captures:
-                                _r = shaping(_img_c)
-                                _peak_j.append(float(_r.j))
-                                _peak_ratio.append(float(_r.ratio))
-                        _peak_j_mean = float(np.mean(_peak_j))
-                        _log_row(
-                            epoch=epoch,
-                            coeffs=_init_c,
-                            obj_val=_peak_j_mean,
-                            obj_ratio=float(np.mean(_peak_ratio)),
-                            J=_peak_j_mean,
-                            diff=0.0,
-                            gate="peak",
-                            grad=np.zeros(nk, dtype=np.float64),
-                            img=pos_img,
-                            phase=pos_phase,
-                            lr_val=optimizer.lr,
-                            delta_val=delta,
-                            max_brt=_peak_observed,
-                                                    _init_r=_init_r,
-                            best_objective=best_objective,
-                            cam=cam,
-                            objective=objective,
-                            optimizer_type=optimizer_type,
-                            r_bucket=r_bucket,
-                            record_phase=record_phase,
-                            recorder=recorder,
-                            shaping=shaping,
-                            w_loggrad=w_loggrad,
-)
-                        bar.update(1)
-                        continue
-
-                    # All frames valid: refresh the fold baseline (EMA over valid
-                    # frames only: a fold can never pull the baseline down and
-                    # blind the gate) using the MEAN over every captured frame,
-                    # which reduces to the previous 0.5*(pos+neg) for 2 frames, and
-                    # score each frame around its OWN spot.
-                    _fold_baseline_peak, _fold_baseline_sum = _update_fold_baseline(
-                        _fold_baseline_peak,
-                        _fold_baseline_sum,
-                        float(np.mean([pk for _, _, pk, _ in _frame_stats])),
-                        float(np.mean([sm for _, _, _, sm in _frame_stats])),
-                    )
-                    _sign_results: dict[int, list[ObjectiveResult]] = {1: [], -1: []}
-                    with shaping.shape_batch():
-                        for _c_sign, _img_c, _, _ in _captures:
-                            _sign_results[_c_sign].append(session.score(_img_c))
-                    pos_res = _sign_results[1][0]
-                    # Sign-means (2 frames reduce to the single value they hold).
-                    pos_obj = float(np.mean([r.j for r in _sign_results[1]]))
-                    neg_obj = float(np.mean([r.j for r in _sign_results[-1]]))
-                    pos_obj_ratio = float(np.mean([r.ratio for r in _sign_results[1]]))
-                    neg_obj_ratio = float(np.mean([r.ratio for r in _sign_results[-1]]))
-                    pos_center = session.recenter(pos_img)
-
-                    max_brightness = max(
-                        float(np.max(c[1])) for c in _captures
-                    )
-                    _resampled, _sat_fired = session.resample_if_saturated(
-                        pos_img, trigger_peak=max_brightness
-                    )
-                    if _sat_fired:
-                        optimizer.scale_momentum(
-                            np.sum(_resampled) / np.sum(pos_img)
-                        )
-
-                    pos_j, neg_j = pos_obj, neg_obj
-                    # The recorded panel/metrics describe the POSITIVE frame; keep
-                    # the objective's ROI on the positive spot for the row.
-                    shaping.set_reference_center(pos_center)
-
-                    # `diff` is kept for logging; the SPGD sign comes from the
-                    # shared helper (optimizer/spgd.py) so it cannot be
-                    # hand-inverted again (this site maximised/minimised the wrong
-                    # way until the objective_mode fix). Cast to float: bucket sums
-                    # are unsigned.
-                    _spgd_sign = -1.0 if objective_mode == "max" else 1.0
-                    diff = (float(pos_j) - float(neg_j)) * _spgd_sign
-
-                    # Noise-aware update gate: with delta < 0.001 the measured diff
-                    # is 100% noise (SNR < 0.1; see the ``delta`` config note), so a
-                    # diff indistinguishable from the recent diff noise MUST NOT
-                    # move the coefficients - it is zeroed and the search stalls
-                    # honestly instead of random-walking (h6a: 0/55 modes SNR > 2,
-                    # gradient == noise, step/|grad| ratio 435x).
-                    sigma_hat = _rolling_sigma(_diff_history)
-                    _grad_usable = not _noise_gate(diff, sigma_hat, config.noise_gate_k)
-                    _diff_history.append(diff)
-                    if not _grad_usable:
-                        _n_noise_gated += 1
-
-                    gradient = spgd_gradient(
-                        pos_j, neg_j, disturb_c, maximize=(objective_mode == "max")
-                    )
-                    if _grad_usable:
-                        update = optimizer.update(gradient)
-                    else:
-                        # Keep the optimizer's momentum/history state consistent: a
-                        # zeroed update decays momentum toward 0 (forgetting the
-                        # noise-driven velocity) without moving the coefficients.
-                        update = optimizer.update(np.zeros_like(gradient))
-                    _to_update_c = np.clip(_init_c - update, -ZERNIKE_CLIP, ZERNIKE_CLIP)
-                    _init_c = _to_update_c
-
-                    # Value logged under the objective's own name and used by the
-                    # Recorder to pick its best row: the bucket ratio for "pib",
-                    # otherwise the objective the gradient optimises (e.g. radius).
-                    objective_val = pos_res.tracking
-                    objective_ratio = (pos_obj_ratio + neg_obj_ratio) / 2
-                    J = (pos_j + neg_j) / 2
-
-                    if objective == "rms_pib" and pos_obj > -100.0 and neg_obj > -100.0:
-                        # Adapt the PIB/RMS/EE weights from the POSITIVE-perturbation
-                        # result (abandoned evaluations are penalised to <= -100 and
-                        # skipped). ``pos_res`` is an immutable snapshot, so the
-                        # negative evaluation above cannot overwrite the terms - the
-                        # adaptation therefore uses the direction the gradient
-                        # actually follows. The term that improves J more gets the
-                        # higher weight.
-                        shaping.adapt_weights(pos_res)
-
-                    # Bucket radius shrink
-                    if epoch % update_iter == update_iter - 1:
-                        _init_r = max(_init_r * shrink_ratio, IDEAL_SPOT_RADIUS)
-
-                    if (
-                        (
-                            epoch % update_iter == update_iter - 1
-                            or (shrink_iter > 0 and epoch % shrink_iter == shrink_iter - 1)
-                            or objective_ratio >= 0.99
-                        )
-                        and not _fix_bucket
-                        and objective_val > 0
-                    ):
-                        power_radio = radius(pos_img, center=pos_center, energy=0.8)
-                        _pr = power_radio * shrink_ratio
-                        _r = max(r_bucket * shrink_ratio + 1, IDEAL_SPOT_RADIUS, r_bucket)
-                        r_bucket = min(_r, _pr, _init_r)
-                        # The objective reads the live bucket radius; keep it in sync.
-                        shaping.set_bucket(r_bucket)
-                        if lr == 0:
-                            _grad_mag = float(np.linalg.norm(gradient))
-                            _gradient_history.append(_grad_mag)
-                            _pib_history.append(float(objective_val))
-                            if len(_gradient_history) > _max_history_len:
-                                _gradient_history.pop(0)
-                                _pib_history.pop(0)
-                            optimizer.lr, delta = learning_schedule(
-                                power_radius=r_bucket,
-                                gradient_history=_gradient_history,
-                                pib_history=_pib_history,
-                                epoch=epoch,
-                                ideal_r=IDEAL_SPOT_RADIUS,
-                                max_lr=SCHEDULE_MAX_LR,
-                                max_delta=SCHEDULE_MAX_DELTA,
-                            )
-
-                    # Track best result in the objective's own direction.
-                    improved = (
-                        objective_val > best_objective + IMPROVE_EPS
-                        if objective_mode == "max"
-                        else objective_val < best_objective - IMPROVE_EPS
-                    )
-                    if improved:
-                        best_objective = float(objective_val)
-                        float(J)
-                        float(objective_ratio)
-                        # objective_val / pos_img were measured on the PERTURBED
-                        # phase `_pos_c`, so the saved coefficients must be `_pos_c`
-                        # too. Saving the clean `_init_c` made `save_best` write a
-                        # configuration that was never measured -- re-applying it
-                        # did not reproduce the reported metric (hardware-verified).
-                        best_c = _pos_c.copy()
-                        pos_img.copy()
-                        last_best_epoch = epoch
-
-                    log = _log_row(
-                        epoch=epoch,
-                        coeffs=_init_c,
-                        obj_val=objective_val,
-                        obj_ratio=objective_ratio,
-                        J=J,
-                        diff=diff,
-                        gate="applied" if _grad_usable else "noise",
-                        grad=gradient,
-                        img=pos_img,
-                        phase=pos_phase,
-                        lr_val=optimizer.lr,
-                        delta_val=delta,
-                        max_brt=float(max_brightness),
-                        loggrad=float(_sign_results[1][0].loggrad),
-                                            _init_r=_init_r,
-                        best_objective=best_objective,
-                        cam=cam,
-                        objective=objective,
-                        optimizer_type=optimizer_type,
-                        r_bucket=r_bucket,
-                        record_phase=record_phase,
-                        recorder=recorder,
-                        shaping=shaping,
-                        w_loggrad=w_loggrad,
-)
-                    if live_display is not None:
-                        text = (
-                            f"epoch {epoch} | {objective} {objective_val:.4f} "
-                            f"@ {last_best_epoch} | r {r_bucket:.1f} | lr {optimizer.lr:.3f}"
-                        )
-                        if not live_display.update(
-                            pos_img,
-                            pos_phase,
-                            _pos_c,
-                            pos_center,
-                            r_bucket,
-                            text,
-                            value=objective_val,
-                            epoch=epoch,
-                            total_epochs=epochs,
-                            target_size=target_size if target_size else None,
-                        ):
-                            logger.info(
-                                "Display window closed; stopping SPGD at epoch {}", epoch
-                            )
-                            break
-
-                    bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
-                    bar.update(1)
-
-            logger.info(
-                "SPGD finished: {}/{} epochs updates applied, {} brightness-fold "
-                "epochs skipped, {} noise-gated updates (noise_gate_k={}), "
-                "{} peak-gated updates (max_peak={})",
-                epochs - _n_fold_gated - _n_noise_gated - _n_peak_gated,
-                epochs,
-                _n_fold_gated,
-                _n_noise_gated,
-                config.noise_gate_k,
-                _n_peak_gated,
-                config.max_peak,
-            )
 
         try:
             state = _RunState(
@@ -1921,7 +1517,40 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 best_objective = state.best_objective
                 last_best_epoch = state.last_best_epoch
                 return _rec
-            _run_spgd()
+            _run_spgd(
+                state,
+                _fix_bucket=_fix_bucket,
+                _gradient_history=_gradient_history,
+                _max_history_len=_max_history_len,
+                _pib_history=_pib_history,
+                cam=cam,
+                config=config,
+                epochs=epochs,
+                exposure_time_ms=exposure_time_ms,
+                init_img=init_img,
+                live_display=live_display,
+                lr=lr,
+                nk=nk,
+                objective=objective,
+                objective_mode=objective_mode,
+                optimizer=optimizer,
+                optimizer_type=optimizer_type,
+                record_phase=record_phase,
+                recorder=recorder,
+                rng=rng,
+                session=session,
+                shaping=shaping,
+                shrink_iter=shrink_iter,
+                shrink_ratio=shrink_ratio,
+                target_size=target_size,
+                update_iter=update_iter,
+                w_loggrad=w_loggrad,
+            )
+            delta = state.delta
+            r_bucket = state.r_bucket
+            best_c = state.best_c
+            best_objective = state.best_objective
+            last_best_epoch = state.last_best_epoch
 
             # On exit, leave the SLM at the best phase found. The initial (flat or
             # loaded) phase is one of the candidates: if the search never improved
@@ -2274,3 +1903,436 @@ def _run_heuristic(
                 w_outside=w_outside,
 )
             return recorder
+
+def _run_spgd(
+    state: "_RunState",
+    *,
+    _fix_bucket,
+    _gradient_history,
+    _max_history_len,
+    _pib_history,
+    cam,
+    config,
+    epochs,
+    exposure_time_ms,
+    init_img,
+    live_display,
+    lr,
+    nk,
+    objective,
+    objective_mode,
+    optimizer,
+    optimizer_type,
+    record_phase,
+    recorder,
+    rng,
+    session,
+    shaping,
+    shrink_iter,
+    shrink_ratio,
+    target_size,
+    update_iter,
+    w_loggrad,
+) -> None:
+            """SPGD branch: per-epoch perturbation, gating and coefficient update.
+
+            Nonlocal because these carry the run result out to ``_apply_best_on_exit``
+            (``best_c``/``best_objective``/``last_best_epoch``) and because the bucket
+            radius, the shrink schedule and the coefficient vector are live search state
+            that ``_log_row`` reads on every epoch.
+            """
+            # Evaluation-robustness state (see ``config.n_eval_frames`` /
+            # ``fold_ratio`` / ``noise_gate_k``): the fold baseline is armed from
+            # the initial (valid) frame; the noise-gate diff history starts empty,
+            # so the gate stays off until ``noise_gate_window`` diffs have been
+            # collected.
+            _fold_baseline_peak: float | None = float(np.max(init_img))
+            _fold_baseline_sum: float | None = float(
+                np.asarray(init_img, dtype=np.float64).sum()
+            )
+            _diff_history: deque[float] = deque(maxlen=config.noise_gate_window)
+            _n_fold_gated = 0
+            _n_noise_gated = 0
+            _n_peak_gated = 0
+
+            if config.abba_sampling:
+                logger.info(
+                    "SPGD ABBA sampling enabled: 4 captures/epoch (+ - - +), "
+                    "linear drift cancellation"
+                )
+
+            if config.max_peak > 0.0 and exposure_time_ms == 0:
+                # A counts cap under auto-exposure is not a power cap: the
+                # saturation path lowers exposure, so counts fall while optical
+                # power does not.
+                logger.warning(
+                    "max_peak={} is a camera-count threshold but "
+                    "exposure_time_ms=0 enables auto-exposure, which lowers "
+                    "exposure near saturation and can mask a real over-power "
+                    "event. Fix the exposure to make the cap meaningful.",
+                    config.max_peak,
+                )
+
+            with tqdm.tqdm(
+                total=epochs, desc=f"slm_zernike iter {epochs}", dynamic_ncols=True
+            ) as bar:
+                for epoch in range(1, epochs + 1):
+                    # Generate random perturbation (±1 pattern)
+                    disturb_c = rng.binomial(1, 0.5, (nk,)).astype(float) * 2.0 - 1.0
+                    disturb_c = disturb_c * state.delta
+
+                    # Capture frames in the configured sign order: `+ -` by default,
+                    # `+ - - +` (ABBA) when ``abba_sampling`` is on. The palindrome
+                    # makes a drift that is linear in time carry an identical term
+                    # in both sign-means, so it cancels out of the SPGD difference
+                    # (see tools/slm/slm_snr_probe.py::abba_signal). Cost: 4
+                    # captures/epoch instead of 2.
+                    _captures: list[tuple[int, np.ndarray, np.ndarray, np.ndarray]] = []
+                    for _sign in _spgd_capture_signs(config.abba_sampling):
+                        _c, _phase, _img = session.capture(
+                            state._init_c + float(_sign) * disturb_c
+                        )
+                        _captures.append((_sign, _img, _c, _phase))
+
+                    _pos_captures = [c for c in _captures if c[0] > 0]
+                    # The logged/ROI/adapt_weights frame stays the FIRST positive
+                    # capture, so a recorded row always describes the `+d` phase.
+                    # Each capture is `(sign, img, coeffs, phase)`; unpack by
+                    # position (a slice like ``[1:]`` would silently transpose the
+                    # image with the coefficient vector).
+                    _first_pos = _pos_captures[0]
+                    pos_img, _pos_c, pos_phase = _first_pos[1], _first_pos[2], _first_pos[3]
+
+                    # Evaluation-robustness gates (2026-09, from the delta<0.001
+                    # fold/jitter post-mortem; see docs/slm_pib): reject environment
+                    # brightness folds BEFORE scoring so they cannot masquerade as a
+                    # coefficient-driven change (measured discrete brightness
+                    # states, corr(J, max_brt) = -0.9996), and re-locate the target
+                    # ROI onto the CURRENT spot of each frame so a benign beam drift
+                    # is not scored as a shaping loss (measured 22-px drift). The
+                    # energy guard's ROI rides along; its armed baseline is kept.
+                    # Every captured frame is gated (ABBA captures 4).
+                    _frame_stats: list[tuple[int, bool, float, float]] = []
+                    for _c_sign, _img_c, _, _ in _captures:
+                        _is_fold, _pk, _sm = _frame_fold_check(
+                            _img_c,
+                            _fold_baseline_peak,
+                            _fold_baseline_sum,
+                            config.fold_ratio,
+                        )
+                        _frame_stats.append((_c_sign, _is_fold, _pk, _sm))
+                    _folded_signs = [s for s, is_fold, _, _ in _frame_stats if is_fold]
+                    if _folded_signs:
+                        _n_fold_gated += 1
+                        logger.warning(
+                            "epoch {}: brightness fold (signs={}, pk={:.0f}) - epoch skipped",
+                            epoch,
+                            _folded_signs,
+                            max(pk for _, _, pk, _ in _frame_stats),
+                        )
+                        # Record the epoch honestly (unchanged coefficients, real
+                        # mean J over the frames actually scored) so the fold is
+                        # visible offline, then skip search.
+                        _fold_j: list[float] = []
+                        _fold_ratio: list[float] = []
+                        with shaping.shape_batch():
+                            for _c_sign, _img_c, _, _ in _captures:
+                                _r = shaping(_img_c)
+                                _fold_j.append(float(_r.j))
+                                _fold_ratio.append(float(_r.ratio))
+                        _fold_j_mean = float(np.mean(_fold_j))
+                        _log_row(
+                            epoch=epoch,
+                            coeffs=state._init_c,
+                            obj_val=_fold_j_mean,
+                            obj_ratio=float(np.mean(_fold_ratio)),
+                            J=_fold_j_mean,
+                            diff=0.0,
+                            gate="fold",
+                            grad=np.zeros(nk, dtype=np.float64),
+                            img=pos_img,
+                            phase=pos_phase,
+                            lr_val=optimizer.lr,
+                            delta_val=state.delta,
+                            max_brt=float(max(pk for _, _, pk, _ in _frame_stats)),
+                                                    _init_r=state._init_r,
+                            best_objective=state.best_objective,
+                            cam=cam,
+                            objective=objective,
+                            optimizer_type=optimizer_type,
+                            r_bucket=state.r_bucket,
+                            record_phase=record_phase,
+                            recorder=recorder,
+                            shaping=shaping,
+                            w_loggrad=w_loggrad,
+)
+                        bar.update(1)
+                        continue
+
+                    # Measured-peak feasibility gate (see ``max_peak``): mirror the
+                    # fold gate, NOT the noise gate. A peak violation says nothing
+                    # about gradient validity, so unlike the noise gate this must
+                    # NOT call ``optimizer.update`` - zero-updating there decays
+                    # momentum, which would corrupt the Adam moments with a
+                    # statement we have no evidence for. It also must not append
+                    # to ``_diff_history`` (that would inflate ``sigma_hat`` and
+                    # make the noise gate over-fire) nor refresh the fold
+                    # baseline, nor best-track, nor touch the bucket / lr
+                    # schedules. Fully orthogonal: no state changes at all.
+                    _peak_observed = float(max(pk for _, _, pk, _ in _frame_stats))
+                    if config.max_peak > 0.0 and _peak_observed > config.max_peak:
+                        _n_peak_gated += 1
+                        logger.warning(
+                            "epoch {}: peak {:.0f} exceeds max_peak={:.0f} - "
+                            "update NOT committed (step #{})",
+                            epoch,
+                            _peak_observed,
+                            config.max_peak,
+                            _n_peak_gated,
+                        )
+                        # Honest row: unchanged coefficients, real mean J over the
+                        # frames actually scored, real peak. ``gate`` records the
+                        # reason so the freeze is visible offline.
+                        _peak_j: list[float] = []
+                        _peak_ratio: list[float] = []
+                        with shaping.shape_batch():
+                            for _c_sign, _img_c, _, _ in _captures:
+                                _r = shaping(_img_c)
+                                _peak_j.append(float(_r.j))
+                                _peak_ratio.append(float(_r.ratio))
+                        _peak_j_mean = float(np.mean(_peak_j))
+                        _log_row(
+                            epoch=epoch,
+                            coeffs=state._init_c,
+                            obj_val=_peak_j_mean,
+                            obj_ratio=float(np.mean(_peak_ratio)),
+                            J=_peak_j_mean,
+                            diff=0.0,
+                            gate="peak",
+                            grad=np.zeros(nk, dtype=np.float64),
+                            img=pos_img,
+                            phase=pos_phase,
+                            lr_val=optimizer.lr,
+                            delta_val=state.delta,
+                            max_brt=_peak_observed,
+                                                    _init_r=state._init_r,
+                            best_objective=state.best_objective,
+                            cam=cam,
+                            objective=objective,
+                            optimizer_type=optimizer_type,
+                            r_bucket=state.r_bucket,
+                            record_phase=record_phase,
+                            recorder=recorder,
+                            shaping=shaping,
+                            w_loggrad=w_loggrad,
+)
+                        bar.update(1)
+                        continue
+
+                    # All frames valid: refresh the fold baseline (EMA over valid
+                    # frames only: a fold can never pull the baseline down and
+                    # blind the gate) using the MEAN over every captured frame,
+                    # which reduces to the previous 0.5*(pos+neg) for 2 frames, and
+                    # score each frame around its OWN spot.
+                    _fold_baseline_peak, _fold_baseline_sum = _update_fold_baseline(
+                        _fold_baseline_peak,
+                        _fold_baseline_sum,
+                        float(np.mean([pk for _, _, pk, _ in _frame_stats])),
+                        float(np.mean([sm for _, _, _, sm in _frame_stats])),
+                    )
+                    _sign_results: dict[int, list[ObjectiveResult]] = {1: [], -1: []}
+                    with shaping.shape_batch():
+                        for _c_sign, _img_c, _, _ in _captures:
+                            _sign_results[_c_sign].append(session.score(_img_c))
+                    pos_res = _sign_results[1][0]
+                    # Sign-means (2 frames reduce to the single value they hold).
+                    pos_obj = float(np.mean([r.j for r in _sign_results[1]]))
+                    neg_obj = float(np.mean([r.j for r in _sign_results[-1]]))
+                    pos_obj_ratio = float(np.mean([r.ratio for r in _sign_results[1]]))
+                    neg_obj_ratio = float(np.mean([r.ratio for r in _sign_results[-1]]))
+                    pos_center = session.recenter(pos_img)
+
+                    max_brightness = max(
+                        float(np.max(c[1])) for c in _captures
+                    )
+                    _resampled, _sat_fired = session.resample_if_saturated(
+                        pos_img, trigger_peak=max_brightness
+                    )
+                    if _sat_fired:
+                        optimizer.scale_momentum(
+                            np.sum(_resampled) / np.sum(pos_img)
+                        )
+
+                    pos_j, neg_j = pos_obj, neg_obj
+                    # The recorded panel/metrics describe the POSITIVE frame; keep
+                    # the objective's ROI on the positive spot for the row.
+                    shaping.set_reference_center(pos_center)
+
+                    # `diff` is kept for logging; the SPGD sign comes from the
+                    # shared helper (optimizer/spgd.py) so it cannot be
+                    # hand-inverted again (this site maximised/minimised the wrong
+                    # way until the objective_mode fix). Cast to float: bucket sums
+                    # are unsigned.
+                    _spgd_sign = -1.0 if objective_mode == "max" else 1.0
+                    diff = (float(pos_j) - float(neg_j)) * _spgd_sign
+
+                    # Noise-aware update gate: with delta < 0.001 the measured diff
+                    # is 100% noise (SNR < 0.1; see the ``delta`` config note), so a
+                    # diff indistinguishable from the recent diff noise MUST NOT
+                    # move the coefficients - it is zeroed and the search stalls
+                    # honestly instead of random-walking (h6a: 0/55 modes SNR > 2,
+                    # gradient == noise, step/|grad| ratio 435x).
+                    sigma_hat = _rolling_sigma(_diff_history)
+                    _grad_usable = not _noise_gate(diff, sigma_hat, config.noise_gate_k)
+                    _diff_history.append(diff)
+                    if not _grad_usable:
+                        _n_noise_gated += 1
+
+                    gradient = spgd_gradient(
+                        pos_j, neg_j, disturb_c, maximize=(objective_mode == "max")
+                    )
+                    if _grad_usable:
+                        update = optimizer.update(gradient)
+                    else:
+                        # Keep the optimizer's momentum/history state consistent: a
+                        # zeroed update decays momentum toward 0 (forgetting the
+                        # noise-driven velocity) without moving the coefficients.
+                        update = optimizer.update(np.zeros_like(gradient))
+                    _to_update_c = np.clip(state._init_c - update, -ZERNIKE_CLIP, ZERNIKE_CLIP)
+                    state._init_c = _to_update_c
+
+                    # Value logged under the objective's own name and used by the
+                    # Recorder to pick its best row: the bucket ratio for "pib",
+                    # otherwise the objective the gradient optimises (e.g. radius).
+                    objective_val = pos_res.tracking
+                    objective_ratio = (pos_obj_ratio + neg_obj_ratio) / 2
+                    J = (pos_j + neg_j) / 2
+
+                    if objective == "rms_pib" and pos_obj > -100.0 and neg_obj > -100.0:
+                        # Adapt the PIB/RMS/EE weights from the POSITIVE-perturbation
+                        # result (abandoned evaluations are penalised to <= -100 and
+                        # skipped). ``pos_res`` is an immutable snapshot, so the
+                        # negative evaluation above cannot overwrite the terms - the
+                        # adaptation therefore uses the direction the gradient
+                        # actually follows. The term that improves J more gets the
+                        # higher weight.
+                        shaping.adapt_weights(pos_res)
+
+                    # Bucket radius shrink
+                    if epoch % update_iter == update_iter - 1:
+                        state._init_r = max(state._init_r * shrink_ratio, IDEAL_SPOT_RADIUS)
+
+                    if (
+                        (
+                            epoch % update_iter == update_iter - 1
+                            or (shrink_iter > 0 and epoch % shrink_iter == shrink_iter - 1)
+                            or objective_ratio >= 0.99
+                        )
+                        and not _fix_bucket
+                        and objective_val > 0
+                    ):
+                        power_radio = radius(pos_img, center=pos_center, energy=0.8)
+                        _pr = power_radio * shrink_ratio
+                        _r = max(state.r_bucket * shrink_ratio + 1, IDEAL_SPOT_RADIUS, state.r_bucket)
+                        state.r_bucket = min(_r, _pr, state._init_r)
+                        # The objective reads the live bucket radius; keep it in sync.
+                        shaping.set_bucket(state.r_bucket)
+                        if lr == 0:
+                            _grad_mag = float(np.linalg.norm(gradient))
+                            _gradient_history.append(_grad_mag)
+                            _pib_history.append(float(objective_val))
+                            if len(_gradient_history) > _max_history_len:
+                                _gradient_history.pop(0)
+                                _pib_history.pop(0)
+                            optimizer.lr, state.delta = learning_schedule(
+                                power_radius=state.r_bucket,
+                                gradient_history=_gradient_history,
+                                pib_history=_pib_history,
+                                epoch=epoch,
+                                ideal_r=IDEAL_SPOT_RADIUS,
+                                max_lr=SCHEDULE_MAX_LR,
+                                max_delta=SCHEDULE_MAX_DELTA,
+                            )
+
+                    # Track best result in the objective's own direction.
+                    improved = (
+                        objective_val > state.best_objective + IMPROVE_EPS
+                        if objective_mode == "max"
+                        else objective_val < state.best_objective - IMPROVE_EPS
+                    )
+                    if improved:
+                        state.best_objective = float(objective_val)
+                        float(J)
+                        float(objective_ratio)
+                        # objective_val / pos_img were measured on the PERTURBED
+                        # phase `_pos_c`, so the saved coefficients must be `_pos_c`
+                        # too. Saving the clean `_init_c` made `save_best` write a
+                        # configuration that was never measured -- re-applying it
+                        # did not reproduce the reported metric (hardware-verified).
+                        state.best_c = _pos_c.copy()
+                        pos_img.copy()
+                        state.last_best_epoch = epoch
+
+                    log = _log_row(
+                        epoch=epoch,
+                        coeffs=state._init_c,
+                        obj_val=objective_val,
+                        obj_ratio=objective_ratio,
+                        J=J,
+                        diff=diff,
+                        gate="applied" if _grad_usable else "noise",
+                        grad=gradient,
+                        img=pos_img,
+                        phase=pos_phase,
+                        lr_val=optimizer.lr,
+                        delta_val=state.delta,
+                        max_brt=float(max_brightness),
+                        loggrad=float(_sign_results[1][0].loggrad),
+                                            _init_r=state._init_r,
+                        best_objective=state.best_objective,
+                        cam=cam,
+                        objective=objective,
+                        optimizer_type=optimizer_type,
+                        r_bucket=state.r_bucket,
+                        record_phase=record_phase,
+                        recorder=recorder,
+                        shaping=shaping,
+                        w_loggrad=w_loggrad,
+)
+                    if live_display is not None:
+                        text = (
+                            f"epoch {epoch} | {objective} {objective_val:.4f} "
+                            f"@ {state.last_best_epoch} | r {state.r_bucket:.1f} | lr {optimizer.lr:.3f}"
+                        )
+                        if not live_display.update(
+                            pos_img,
+                            pos_phase,
+                            _pos_c,
+                            pos_center,
+                            state.r_bucket,
+                            text,
+                            value=objective_val,
+                            epoch=epoch,
+                            total_epochs=epochs,
+                            target_size=target_size if target_size else None,
+                        ):
+                            logger.info(
+                                "Display window closed; stopping SPGD at epoch {}", epoch
+                            )
+                            break
+
+                    bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
+                    bar.update(1)
+
+            logger.info(
+                "SPGD finished: {}/{} epochs updates applied, {} brightness-fold "
+                "epochs skipped, {} noise-gated updates (noise_gate_k={}), "
+                "{} peak-gated updates (max_peak={})",
+                epochs - _n_fold_gated - _n_noise_gated - _n_peak_gated,
+                epochs,
+                _n_fold_gated,
+                _n_noise_gated,
+                config.noise_gate_k,
+                _n_peak_gated,
+                config.max_peak,
+            )
