@@ -175,6 +175,19 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
     ),
 
+    "report/sim2f_bench/alignment_20261027/report.md": ReportProvenance(
+        script=HANDWRITTEN,
+        command="",
+        environment="离线汇总（只读 runs/sim2f_bench/session_hw 与各 lane 报告产物，无 SLM / 无相机）",
+        note=(
+            "本报告把 lane 1 (仿真 dry run)、lane 2 (pupil_center_sweep 结论 A)、"
+            "optical_scale (H1/H2 均否决) 与 session_hw (G0-2 FAIL / G0-4 FAIL) 四路证据"
+            "汇总为一条对齐结论: G0-4 = 孪生保真度上限 (非放置错误), G0-2 = 真实光学漂移; "
+            "不放宽任何阈值。"
+        ),
+        extra_scripts=("src/ml/sim2f/bench.py",),
+    ),
+
     "report/shape_trials/axial_plane/axial_plane_20261026.md": ReportProvenance(
         script="scripts/slm/generate_axial_plane_report.py",
         command="python scripts/slm/generate_axial_plane_report.py",
@@ -1120,6 +1133,55 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/tools/slm/transfer/capture.py",
             "scripts/slm/probe_optical_path_validity.py",
             "scripts/slm/plan_transfer_next_run.py",
+        ),
+    ),
+    "report/shape_trials/transfer_square1200/transfer_square1200_20261027.md": ReportProvenance(
+        script="scripts/slm/generate_transfer_square1200_report.py",
+        command="python scripts/slm/generate_transfer_square1200_report.py",
+        environment="实验（Santec #1 与 Daheng，1064 nm，1200 CCD 像元）",
+        note=(
+            "手动干扰后用迁移适配的物理预测模型整形 1200 像元方形："
+            "alignment→full 的验证选择、模型模式与 CCD 锚定两段的 A–B–B–A 实测判决、"
+            "方向性检查、Recorder 过程记录与动画；"
+            "含「几何被继承导致适配永久卡死」这一机制的修复记录。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/tools/slm/transfer/workflow.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+            "src/ao_shaping/tools/slm/transfer/adaptation.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/paired.py",
+            "src/ao_shaping/tools/slm/transfer/recording.py",
+            "src/ao_shaping/tools/slm/transfer/capture.py",
+            "src/ao_shaping/tools/slm/transfer/radiometry.py",
+        ),
+    ),
+    "report/shape_trials/tri_plane_20261027/tri_plane_20261027.md": ReportProvenance(
+        script="scripts/slm/generate_tri_plane_report.py",
+        command="python scripts/slm/generate_tri_plane_report.py",
+        environment="实验（Santec #1 与 Daheng，1064 nm，1200 CCD 像元）",
+        note=(
+            "三角形与五角星 1.5 倍窗口 shaping + 平面相位起始对比："
+            "窗口开到边长 1.5 倍使目标外光可见；平面起始 3/4 块接受、CV 0.6632→0.5967，"
+            "优于 GS 起始的 2/4 块；GIF 渲染修复（整窗裁剪 + 目标轮廓 + 重复采集标注）。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/tools/slm/transfer/recording.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/workflow.py",
+            "src/ao_shaping/tools/slm/transfer/cold_start.py",
+        ),
+    ),
+    "report/shape_trials/dual_optimization/experiment_plan_20261027.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线（方案文档；设备已预检，实验尚待 G0-2 光路漂移处置）",
+        note=(
+            "迁移学习 + model-in-loop 双优化流程的实验方案："
+            "G0 前置门禁、逐轮交替的判决口径与记录要求；不含任何新测量。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/runners/slm/model_in_loop_runner.py",
+            "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
         ),
     ),
     "report/shape_trials/physical_forward_no_gs_plan_20261027.md": ReportProvenance(

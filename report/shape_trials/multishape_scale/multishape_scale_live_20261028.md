@@ -178,16 +178,80 @@ RuntimeError: saturated capture retained; stop paired comparison
 - **H2 / H3 暂不判定**：跨尺度可迁移性（同载波、同 60 px 零级排除）要三尺度齐备才可比；200 格的零级剔除面积已达 5.61%（§2 勘误），该尺度的「参照」性质已减弱。
 
 **未决问题**：
-1. `common_replay/`（16 相位 × 20 / 50 / 90 ms = 48 次）的**饱和审计未做**：重放路径无守卫，逐点 `raw_frames.max()` 尚未统计，故 H4 的复核与「末块 CV 是否被削顶影响」仍悬空。
-2. `common_replay_ladder_trial/`（15 / 60 / 150 / 300 ms）只写出 **34/64** 次、无 `released.json`；`common_replay_dense/` 至 03:48:40 仍在写盘且本次未消费 ⇒ 曝光阶梯这条证据链未闭合。
+1. ~~`common_replay/`（16 相位 × 20 / 50 / 90 ms = 48 次）的**饱和审计未做**~~ → **已补**：离线审计见 §5.1，`transport_cv_triangle_seed` / `transport_cv_triangle_final` 两行被扣留，其余 46 行可用。
+2. `common_replay_ladder_trial/`（15 / 60 / 150 / 300 ms）只写出 **34/64** 次、无 `released.json`；`common_replay_dense/` 至 03:48:40 仍在写盘 ⇒ 曝光阶梯这条证据链未闭合（§5.1 的审计报告里 `ladder_trial` 只到 150 ms 且每格只有 1 个相位）。
 3. **s600 / s200 未开始**：跨尺度（H2、H3）无可比数据。
 4. 五角星 / 圆形在 `mono12_cv` 之后变差的原因未定位：是探索配额（§4d）、模型在宽载波下的失配，还是 8 bit → 12 bit 切换后曝光工作点变化？现有数据不足以分开。
 
+### 5.1 离线重放审计结果（2026-10-28 补，免设备）
+
+依据 §5「下一步」第 1 条，用 `scripts/slm/audit_replay_blocks.py` 重读三个已归档重放块。
+该脚本用**冻结的传感器像素孔径**（源段 `config.json` 的 `target_xy` / `side` / `core_margin` /
+`zero_radius`）重算每个重放帧的 CV 与相对能量，而不是复用各段自己的 `metrics.cv` —— 后者用的是
+**当段腐蚀后的核**，dense 段每步腐蚀一次、采样步长减半，同一帧会报出不同的「均匀度」。
+
+| 重放块 | 可用行 | 扣留行 | 备注 |
+|---|---|---|---|
+| `common_replay` | 46/48 | `transport_cv_triangle_seed`、`transport_cv_triangle_final`（峰值 ≥ 98% 满量程） | 12 bit、20/50/90 ms 三档齐；三角形三档全部落在饱和里 |
+| `common_replay_r2` | 47/48 | `transport_cv_triangle_seed` | 18/24 格判「越过噪声」，与上一块同向 |
+| `common_replay_dense` | 24/24 | — | 20/50/90 ms，每格 seed / final 各 1 次（故多格 `insufficient_repeats`） |
+| `common_replay_ladder_trial` | 32/34 | `transport_cv_triangle_seed`、`transport_cv_square_seed` | 只到 60 ms（15/60 两档），150/300 ms 未写出 |
+
+「扣留行」是按**帧峰值 ≥ 98% 满量程**判的，与 manifest 里的 `core_peak` 无关 —— 核心外的
+一个削顶像素同样说明这一帧的曝光不是比较所假定的那个。注意 `n_usable` 统计的是「读得出来」的
+行数，被扣留的行仍在表里，只是不参与相位配对。
+
+**dense 段的结论（与 §5 一致，现在有了统一口径）**：`common_replay_dense` 的 seed → final
+在四个形状、三个曝光档共 12 格里**没有一格成立** —— 正方形三档都是 `insufficient_repeats`
+（`ΔCV = −0.014 / −0.020 / −0.015`，每格最终相位只测过一次）、三角形 / 圆形多数方向相反
+（`wrong_direction`：`+0.104 / +0.000 / +0.012` 与 `−0.015 / +0.003 / +0.002`）、
+五角星两档同时丢了相对能量（`energy_lost_with_cv`，`−0.021 / +0.035 / −0.018`）。
+⇒ **dense 段没有可判定的整形增益**，§3.2 里 dense 段末 CV 的下降只能记为段内过程值。
+
+**seed → final 在 `common_replay` / `common_replay_r2` 上是成立的**（正方形 −1.24 / −0.88、
+三角形 −1.32 / −1.58、五角星 −0.16 / −0.12、圆形 −0.53 / −0.55，两轮同向同量级）：
+这说的是**整段 recipe**（transport_cv → mono12 → continue）确实改变了远场，不是 dense 段。
+
+**重复性的量级**：`common_replay` 把同一 `final` 相位在三个曝光档各测一次（`phases=finalx3`），
+所以那行 `replicate spread` 是**跨曝光**的散布（正方形 ±0.52、三角形 ±1.23、五角星 ±0.024、
+圆形 ±0.024）—— 它说明的是「曝光会改变读数」，**不是**设备噪声，因此不能当噪声带用。
+同曝光的噪声仍以 §4c 的 0.0–2.6 pp（`common_replay` vs `common_replay_r2` 同一相位、同一曝光）为准。
+
+**统计口径**：`2/2**n` 是符号翻转检验的下限，`n = 5` 时 `2/32 = 0.0625 > 0.05` ⇒
+**每个条件至少要 6 次重复**才能谈 p<0.05；少于 6 次只报效应量。审计里同一相位只测过一次时
+报 `insufficient_repeats`，**不会**把跨相位散布借来当噪声。
+
+### 5.2 设备上线后的执行计划（已生成，待跑）
+
+计划由 `scripts/slm/plan_multishape_campaign.py` 生成（`--check` 校验通过，24 条 lane），
+落在 `data/debug/slm_transfer/multishape_nogs_20261029/`：`plan.json` +
+`lanes/NN_<session>.ps1`。
+
+| 维度 | 取值 |
+|---|---|
+| 路线 | `strict_cold`（`--initial-phase random`，只加载波，不读目标、不用物理预测模型）与 `analytic_init`（`--initial-phase backprojection`，用拟合光学但仍 0 次 GS） |
+| 尺寸 | 200 / 600 / 1200（原生 CCD px），窗口 420 / 620 / 900 |
+| 形状 | circle / square / triangle / star |
+| 顺序 | `route` → `size` → `shape`；同尺寸连跑，相机窗与曝光只落位一次 |
+| 重复预算 | 每条件 6 次（`2/2**6 = 0.031`，唯一能到 p<0.05 的最小值） |
+| 每条件必报 | `fixed_core_cv` / `shape_agreement`(IoU + 边界) / `relative_energy`，外加零级排除比例、饱和比例、相位来源、模型检查点 SHA-256、曝光读回 |
+
+**两条路线绝不合并**：`strict_cold` 才能回答「闭环能否从零开始工作」；`analytic_init` 即使
+名字里没有 GS，也用了解析结构，把它写成「冷启动成功」是错的。两者可以共用同一个
+`--model-dir` —— 模型不是初相位。
+
+**每条 lane 的第一行是 `probe_optical_path_validity.py` 且以退出码为门禁**（`0` = `ok`，
+`2` = `low_snr` / `no_response` ⇒ `exit 1`，不许开始花会话时间）。中断后用 `--resume` 重入
+同一 lane：已完成阶段跳过、不重测（`--order stage` 让同尺寸四形状按阶段纵向推进，中断只损失一段）。
+
+> ⚠️ `--replay-exposures` 是 click 的 `multiple=True`：`--replay-exposures 20 50 90` 会被
+> 报「多余位置参数」，必须重复旗标。生成器已逐项展开，手写命令时注意。
+
 **下一步（最有区分力）**：
-- **先做离线重放审计**（不占设备）：对 `common_replay/` 的 48 个 `replay_*.npz` 逐点统计 `raw_frames.max()` / 饱和像素数，确认哪些曝光档落在满量程，并把结果并入本节第 1、2 条。
-- **补完曝光阶梯**：若 `common_replay_dense` 与 `ladder_trial` 未自行完成，仅对**缺失的** replay 索引续跑（`replay_phases.replay` 不覆盖已存在文件），不重跑已完成的 34 次。
-- **Session B / C（s600、s200）**：以 `--model-dir <s1200> --side 600 --window-span 620` 与 `--side 200 --window-span 420` 各起新 `--out`，均 `--no-gs-seed --record-responses --replay-exposures`；注意 s200 的目标框与零级排除区已重叠 5.61%（§2 勘误），该尺度的 CV 需与该剔除面积一并读。
-- **实验后分析**：生成 `multishape_scale_analysis_20261028.md`，把三层证据（模型验证集 / 逐块 CV / 重放审计）+ §4.1 的四条口径 + 跨尺度比较写在一起。
+- **跑 §5.2 的 24 条 lane**（设备上线后），顺序按 `order_index`；任何一条被前置探针拒绝就先处理光路，不要跳过去跑下一条。
+- **补完曝光阶梯**：`common_replay_ladder_trial` 的缺失 replay 索引可续跑（`replay_phases.replay` 不覆盖已存在文件），不重跑已完成的 34 次。
+- **审计新会话**：每个会话结束立刻 `python scripts/slm/audit_replay_blocks.py --session <新会话>`，先把被扣留的饱和帧列出来再谈 CV。
+- **实验后分析**：把三层证据（模型验证集 / 逐块 CV / 重放审计）+ §4.1 的四条口径 + 跨尺度比较写进 `multishape_scale_analysis_20261028.md`。
 
 ## 6. 设备释放状态
 

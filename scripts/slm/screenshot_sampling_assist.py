@@ -1,3 +1,28 @@
+"""Device-off screenshot harness for the sampling-imaging assistant popover.
+
+Renders the real SLM shaping page (``render_closed_loop_shaping``) in a
+Streamlit app, with three substitutions that make the sampling-assist section
+capturable without hardware:
+
+* a **mock connected SLM** in session state, so the connected branch renders;
+* sampling-assist fields pre-filled from the ``SAMPLING_CFG`` JSON env var;
+* ``st.popover`` replaced by an inline block, so the popover body is visible
+  without a click.
+
+It writes nothing: open it with ``streamlit run``, point the browser at the
+shaping page, and screenshot the section. Output figures live in
+``report/slm/sampling_assist/figures/`` and are used by
+``docs/sampling_assist_usage.md``.
+
+Usage::
+
+    SAMPLING_CFG='{"main_side_mm": 40.0, "f_sample_mm": 50.0}' \
+        streamlit run scripts/slm/screenshot_sampling_assist.py
+
+These captures are **mock renders, not bench verification**: they document the
+layout and the wording of the summary/warning rows, while the numbers they show
+come from the values in ``SAMPLING_CFG``.
+"""
 from __future__ import annotations
 
 import json

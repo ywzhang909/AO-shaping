@@ -89,7 +89,7 @@ DEFAULT_SAMPLING = {
 
 def _positive(name: str, value: float) -> float:
     value = float(value)
-    if not (value > 0.0) or value != value or value in (float("inf"), float("-inf")):
+    if not (0.0 < value < float("inf")):
         raise ValueError(f"{name} 必须是正的有限值: {value!r}")
     return value
 

@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
+from scripts._common import fmt_metric
 from scripts._common.provenance import insert_header
 
 from ao_shaping.tools.slm.transfer.recording import crop_frame
@@ -59,13 +60,9 @@ def _read(path: Path, default=None):
         return default
 
 
-def _fmt(value, digits: int = 3) -> str:
-    if value is None:
-        return "—"
-    try:
-        return f"{float(value):.{digits}f}"
-    except (TypeError, ValueError):
-        return str(value)
+def _cell(value, digits: int = 3) -> str:
+    """One markdown cell: missing values keep the em dash, numbers use the canonical formatter."""
+    return "—" if value is None else fmt_metric(value, digits)
 
 
 def _role(label: str) -> str:
@@ -211,7 +208,7 @@ def plot_direction(facts: dict, path: Path) -> Path:
     axes[0].plot(span, span, color="#C44E52", linewidth=1, linestyle="--", label="1:1")
     axes[0].set_xlabel("实测差分（+Δ 与 −Δ 的像素差）")
     axes[0].set_ylabel("模型预测差分")
-    axes[0].set_title(f"差值图：相关 {_fmt(correlation, 3)}，相对 L2 {_fmt(relative_l2, 3)}",
+    axes[0].set_title(f"差值图：相关 {_cell(correlation, 3)}，相对 L2 {_cell(relative_l2, 3)}",
                       fontsize=10)
     axes[0].legend(fontsize=8)
     axes[0].grid(alpha=.3)
@@ -338,9 +335,9 @@ def build_report(facts: dict) -> str:
         "",
         "**结论**：干扰后适配（alignment 相关 0.34 → full 0.84）把模型重新对上当前光路；"
         "但纯模型提议的两块被实测否决，只有 CCD 锚定的块带来改善（核心 CV "
-        + _fmt(seed_cv, 3) + " → " + _fmt(final_cv, 3) + "，接受 "
+        + _cell(seed_cv, 3) + " → " + _cell(final_cv, 3) + "，接受 "
         + str(accepted) + "/" + str(len(anchored)) + " 块）。模型方向性仍弱"
-        "（差值图相关 " + _fmt(direction.get("difference_correlation"), 2) + "），"
+        "（差值图相关 " + _cell(direction.get("difference_correlation"), 2) + "），"
         "因此每一块都必须由实测判决。",
         "",
         "光路被**手动干扰**后，用 2026-10-27 从零训练得到的物理预测检查点做**迁移适配**，"
@@ -360,11 +357,11 @@ def build_report(facts: dict) -> str:
         "",
         "| 项 | 本轮取值 | 说明 |",
         "|---|---|---|",
-        f"| 目标 | 边长 {_fmt(settings.get('side'), 0)} CCD 原生像元 | 正方形，外接边与采样窗对齐 |",
-        f"| 载波周期 | {_fmt(settings.get('period'), 0)} 面板像元 | 标定档之一 |",
-        f"| 采样窗 | 半跨 {_fmt(settings.get('window_span'), 0)} px，步长 {_fmt(settings.get('window_step'), 0)} px | 大目标必须显式打开，默认 220 px 会直接拒绝 |",
-        f"| 零级排除 | 半径 {_fmt(settings.get('zero_radius'), 0)} CCD px | 只从评价里排除，没有物理消除零级 |",
-        f"| 核心 | 目标再腐蚀 {_fmt(settings.get('core_margin'), 0)} CCD px | 边缘不参与 CV |",
+        f"| 目标 | 边长 {_cell(settings.get('side'), 0)} CCD 原生像元 | 正方形，外接边与采样窗对齐 |",
+        f"| 载波周期 | {_cell(settings.get('period'), 0)} 面板像元 | 标定档之一 |",
+        f"| 采样窗 | 半跨 {_cell(settings.get('window_span'), 0)} px，步长 {_cell(settings.get('window_step'), 0)} px | 大目标必须显式打开，默认 220 px 会直接拒绝 |",
+        f"| 零级排除 | 半径 {_cell(settings.get('zero_radius'), 0)} CCD px | 只从评价里排除，没有物理消除零级 |",
+        f"| 核心 | 目标再腐蚀 {_cell(settings.get('core_margin'), 0)} CCD px | 边缘不参与 CV |",
         f"| 位深 / 曝光 | {int(settings.get('bit_depth', 8))} bit / 段内固定 | 各块曝光按目标测光，跨块原始 counts 不可直接比较 |",
         f"| 判据 | {'A–B–B–A 配对（实测核心 CV）' if settings.get('abba') else '模型损失'} | "
         f"{'漂移由 A1/A2 对照吸收' if settings.get('abba') else '无实测判决'} |",
@@ -376,9 +373,9 @@ def build_report(facts: dict) -> str:
 
     if zero and old_origin:
         lines += [
-            f"本轮实测零级 **({_fmt(zero[0], 1)}, {_fmt(zero[1], 1)})**，历史检查点记录的是 "
-            f"({_fmt(old_origin[0], 1)}, {_fmt(old_origin[1], 1)})，相差 "
-            f"**({_fmt(shift[0], 1)}, {_fmt(shift[1], 1)}) px**。这就是必须重新适配而不是直接沿用"
+            f"本轮实测零级 **({_cell(zero[0], 1)}, {_cell(zero[1], 1)})**，历史检查点记录的是 "
+            f"({_cell(old_origin[0], 1)}, {_cell(old_origin[1], 1)})，相差 "
+            f"**({_cell(shift[0], 1)}, {_cell(shift[1], 1)}) px**。这就是必须重新适配而不是直接沿用"
             "检查点的原因。",
             "",
         ]
@@ -394,9 +391,9 @@ def build_report(facts: dict) -> str:
     for entry in candidates:
         quality = entry["quality"]
         mark = " **← 采用**" if entry["stage"] == selected else ""
-        lines.append(f"| `{entry['stage']}`{mark} | {_fmt(quality['correlation'], 3)} | "
-                     f"{_fmt(quality['relative_l2'], 3)} | {_fmt(quality['cv_abs_error'], 3)} | "
-                     f"{_fmt(quality['score'], 3)} |")
+        lines.append(f"| `{entry['stage']}`{mark} | {_cell(quality['correlation'], 3)} | "
+                     f"{_cell(quality['relative_l2'], 3)} | {_cell(quality['cv_abs_error'], 3)} | "
+                     f"{_cell(quality['score'], 3)} |")
     lines += [
         "",
         f"选择结果：**{selected}**（升级触发：{adaptation.get('escalated')}）。"
@@ -423,7 +420,7 @@ def build_report(facts: dict) -> str:
     lines += [
         "",
         "照明中心在面板上移动了约 "
-        + _fmt(_distance(pretrained.get("amplitude_center"), adapted.get("amplitude_center")), 0)
+        + _cell(_distance(pretrained.get("amplitude_center"), adapted.get("amplitude_center")), 0)
         + " 面板像元——干扰不只是相机侧的平移，面板照明本身也动了，这正是 alignment 阶段"
         "（只放开位置）不足以解释、必须升级到 full 的原因。",
         "",
@@ -455,25 +452,25 @@ def build_report(facts: dict) -> str:
             candidate = entry.get("candidate")
             drift = entry.get("drift")
             verdict = "接受" if entry.get("accepted") else "拒绝"
-            lines.append(f"| {STAGE_LABELS[stage]} | {entry.get('block')} | {_fmt(baseline, 4)} | "
-                         f"{_fmt(candidate, 4)} | {_fmt(drift, 4) if drift is not None else '—'} | {verdict} |")
+            lines.append(f"| {STAGE_LABELS[stage]} | {entry.get('block')} | {_cell(baseline, 4)} | "
+                         f"{_cell(candidate, 4)} | {_cell(drift, 4) if drift is not None else '—'} | {verdict} |")
     lines += [
         "",
         f"**模型模式的两块全部被拒**：候选把实测核心 CV 从 "
-        f"{_fmt(model_stage[0].get('baseline') if model_stage else None, 4)} 推到 "
-        f"{_fmt(model_stage[0].get('candidate') if model_stage else None, 4)}。"
+        f"{_cell(model_stage[0].get('baseline') if model_stage else None, 4)} 推到 "
+        f"{_cell(model_stage[0].get('candidate') if model_stage else None, 4)}。"
         "纯模型梯度（没有 CCD 锚定）在干扰后的光路上方向是错的——这与既有结论一致："
         "模型的绝对量不可信，只能当提议器。",
         "",
         f"**CCD 锚定段接受 {accepted}/{len(anchored)} 块**：前两块把核心 CV 从 "
-        f"{_fmt(anchored[0].get('baseline') if anchored else None, 4)} 降到 "
-        f"{_fmt(min([entry.get('candidate') or 9.9 for entry in anchored]) if anchored else None, 4)}；"
+        f"{_cell(anchored[0].get('baseline') if anchored else None, 4)} 降到 "
+        f"{_cell(min([entry.get('candidate') or 9.9 for entry in anchored]) if anchored else None, 4)}；"
         "后两块候选被拒（0.5708→0.5771、0.5724→0.5799），说明单块 20 次更新在强干扰后的"
         "相位空间里已经走到平台，继续按同一步长提议只会变差。拒绝即回退到上一块的接受相位，"
         "所以最终相位仍是最好的一块。",
         "",
-        f"最终相位实测核心 CV **{_fmt(final_cv, 4)}**（初相位 {_fmt(seed_cv, 4)}，"
-        f"相对改善 {_fmt(100 * (seed_cv - final_cv) / seed_cv if seed_cv and final_cv else None, 1)}%）。",
+        f"最终相位实测核心 CV **{_cell(final_cv, 4)}**（初相位 {_cell(seed_cv, 4)}，"
+        f"相对改善 {_cell(100 * (seed_cv - final_cv) / seed_cv if seed_cv and final_cv else None, 1)}%）。",
         "",
         "![逐次采集的实测核心 CV](figures/cv_trajectory" + STAMP + ".png)",
         "",
@@ -486,17 +483,17 @@ def build_report(facts: dict) -> str:
         "",
         "| 量 | +Δ | −Δ | 差（+ − −） |",
         "|---|---:|---:|---:|",
-        f"| 模型损失 | {_fmt(direction.get('model_loss_plus'), 4)} | "
-        f"{_fmt(direction.get('model_loss_minus'), 4)} | "
-        f"{_fmt(_diff(direction.get('model_loss_plus'), direction.get('model_loss_minus')), 4)} |",
-        f"| 实测损失 | {_fmt(direction.get('ccd_loss_plus'), 4)} | "
-        f"{_fmt(direction.get('ccd_loss_minus'), 4)} | "
-        f"{_fmt(_diff(direction.get('ccd_loss_plus'), direction.get('ccd_loss_minus')), 4)} |",
+        f"| 模型损失 | {_cell(direction.get('model_loss_plus'), 4)} | "
+        f"{_cell(direction.get('model_loss_minus'), 4)} | "
+        f"{_cell(_diff(direction.get('model_loss_plus'), direction.get('model_loss_minus')), 4)} |",
+        f"| 实测损失 | {_cell(direction.get('ccd_loss_plus'), 4)} | "
+        f"{_cell(direction.get('ccd_loss_minus'), 4)} | "
+        f"{_cell(_diff(direction.get('ccd_loss_plus'), direction.get('ccd_loss_minus')), 4)} |",
         "",
-        f"模型认为两个方向几乎一样（差 {_fmt(_diff(direction.get('model_loss_plus'), direction.get('model_loss_minus')), 4)}），"
-        f"实测却差 {_fmt(_diff(direction.get('ccd_loss_plus'), direction.get('ccd_loss_minus')), 4)}。"
-        f"差值图的相关只有 **{_fmt(direction.get('difference_correlation'), 3)}**，"
-        f"相对 L2 **{_fmt(direction.get('difference_relative_l2'), 3)}**——"
+        f"模型认为两个方向几乎一样（差 {_cell(_diff(direction.get('model_loss_plus'), direction.get('model_loss_minus')), 4)}），"
+        f"实测却差 {_cell(_diff(direction.get('ccd_loss_plus'), direction.get('ccd_loss_minus')), 4)}。"
+        f"差值图的相关只有 **{_cell(direction.get('difference_correlation'), 3)}**，"
+        f"相对 L2 **{_cell(direction.get('difference_relative_l2'), 3)}**——"
         "适配后的模型能拟合当前场的亮度分布（验证相关 0.84），但**增量方向**仍不可靠。"
         "所以每一块都必须由实测判决，不能按模型损失继续推进。",
         "",
@@ -536,7 +533,7 @@ def build_report(facts: dict) -> str:
         "## 6 局限",
         "",
         "- **单段 4 块，20 次更新/块**：核心 CV 只从 "
-        f"{_fmt(seed_cv, 3)} 到 {_fmt(final_cv, 3)}，远小于多段链（含稠密采样与宽带载波）在同尺寸上"
+        f"{_cell(seed_cv, 3)} 到 {_cell(final_cv, 3)}，远小于多段链（含稠密采样与宽带载波）在同尺寸上"
         "达到的 0.39–0.41。这**不能**当作「迁移学习可以替代多段链」的证据；它只证明"
         "「干扰后适配 + CCD 锚定仍能把模型当提议器用起来」。",
         "- **模型方向性弱**：差值图相关 0.29，说明适配后的模型适合解释当前场，不适合预测增量；"
@@ -570,7 +567,7 @@ def build_report(facts: dict) -> str:
         "## 8 审计",
         "",
         f"- 采集数 {audit.get('captures', '—')}，原始帧 {audit.get('raw_frames', '—')}，"
-        f"最大峰值 {_fmt(audit.get('maximum_peak'), 0)}（满量程 4095，未饱和）",
+        f"最大峰值 {_cell(audit.get('maximum_peak'), 0)}（满量程 4095，未饱和）",
         f"- 块数 {audit.get('blocks', '—')}，接受 {audit.get('accepted_blocks', '—')}，"
         f"审计状态 `{audit.get('status', '—')}`",
         f"- 时间戳口径：{audit.get('timestamp_scope', '—')}",
@@ -584,8 +581,8 @@ def _fmt_array(value, digits: int) -> str:
     if value is None:
         return "—"
     if isinstance(value, (list, tuple)):
-        return "[" + ", ".join(_fmt(item, digits) for item in value) + "]"
-    return _fmt(value, digits)
+        return "[" + ", ".join(_cell(item, digits) for item in value) + "]"
+    return _cell(value, digits)
 
 
 def _diff(left, right):

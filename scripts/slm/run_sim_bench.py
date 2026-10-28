@@ -164,7 +164,10 @@ def _build_command(runner: str, epochs: int, out: Path) -> list[str]:
             "-d", str(out / "combined"),
         ]
     if runner == "spgd-square":
-        return base + [
+        # ``spgd-square`` is this script's label, not a CLI command: the square
+        # shaper is the ``square`` subcommand of the ``slm-pib`` group.
+        main_py = str(ROOT / "src" / "ao_shaping" / "main.py")
+        return [sys.executable, main_py, "slm-pib", "square"] + [
             "--cam-type", "sim", "--slm-type", "sim",
             "-e", str(epochs), "--cam-size", "256", "--zernike-radius", "200",
         ]

@@ -31,7 +31,6 @@ from ao_shaping.utils.wavefront.sampling_limit import (
     DEFAULT_SAMPLING,
     SamplingGeometry,
     SamplingSetup,
-    evaluate_sampling,
 )
 
 __all__ = [

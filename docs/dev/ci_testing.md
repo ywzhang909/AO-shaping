@@ -42,8 +42,6 @@ CI 按 `.github/workflows/pytest.yml` 的 `run_shard` 目标**显式收集**这�
 
 ## 缺失基础设施 / CI 现状
 
-## MISSING INFRASTRUCTURE
-
 - **CI**: 2026-10-15 曾建立 ruff 硬门禁（`.github/workflows/ruff.yml`，push + PR 触发，
   `ruff check .`，issue #132 决策 B）与参考级 `pylint.yml`（`continue-on-error: true`）；
   2026-10-19 `.github/` 曾整体移出 git 跟踪（本机保留）；

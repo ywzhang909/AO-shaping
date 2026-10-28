@@ -107,7 +107,6 @@ sys.path.insert(0, str(ROOT / "src"))
 from ao_shaping.tools.kernels import device_mutex
 from ao_shaping.tools.kernels.device_mutex import DeviceLock
 from ao_shaping.utils.slm.panel_geometry import phase_to_panel
-from loguru import logger
 
 #: The baseline capture whose ``probe_grid`` is reused verbatim.  Loading it by
 #: path (instead of copying the function) is what makes the random probes
@@ -784,10 +783,10 @@ def capture_dataset(args: argparse.Namespace, settings: dict, focus: dict,
                                                        encoding="utf-8")
                     with (out / "capture_records.pkl").open("wb") as stream:
                         pickle.dump(rows, stream, protocol=5)
-                    logger.info(f"{number:03d} {label} {branch}: "
+                    print(f"{number:03d} {label} {branch}: "
                           f"exposure={row['exposure_ms']:.4f} "
                           f"peak={raw.max()} settled={acquisition.settle.settled}",
-)
+                          flush=True)
                     if setting.status != "ok" or raw.max() >= 250:
                         raise RuntimeError(f"unusable exposure: {label} {setting.status}")
 
@@ -818,7 +817,7 @@ def print_summary(rows: list[dict], priors: list[PriorPhase], steps: list[dict])
     drift rate that density has to cover, measured on the reference captures
     themselves.
     """
-    logger.info("\n=== capture summary ===")
+    print("\n=== capture summary ===", flush=True)
     branches = sorted({row["branch"] for row in rows})
     for branch in branches:
         selected = [row for row in rows if row["branch"] == branch]
@@ -828,32 +827,32 @@ def print_summary(rows: list[dict], priors: list[PriorPhase], steps: list[dict])
         exposures = [row["exposure_ms"] for row in selected]
         peaks = [row["peak"] for row in selected]
         settled = sum(1 for row in selected if row["settled"]["settled"])
-        logger.info(f"branch {branch}: {len(selected)} samples, splits={splits}, "
+        print(f"branch {branch}: {len(selected)} samples, splits={splits}, "
               f"exposure={min(exposures):.4f}..{max(exposures):.4f} ms, "
               f"peak={min(peaks):.0f}..{max(peaks):.0f}, "
-              f"settled={settled}/{len(selected)}")
+              f"settled={settled}/{len(selected)}", flush=True)
     coverage = reference_coverage(steps)
-    logger.info(f"reference 覆盖密度：最多间隔 {coverage['max_gap']} 条内容采集"
-          f"（reference 对 {coverage['pairs']} 对）")
+    print(f"reference 覆盖密度：最多间隔 {coverage['max_gap']} 条内容采集"
+          f"（reference 对 {coverage['pairs']} 对）", flush=True)
     for branch in branches:
         drift = branch_drift(rows, branch)
         if drift is None:
-            logger.info(f"  {branch} 分支漂移率：未记录（该分支的 reference 少于 2 条）",
-)
+            print(f"  {branch} 分支漂移率：未记录（该分支的 reference 少于 2 条）",
+                  flush=True)
             continue
-        logger.info(f"  {branch} 分支漂移率：质心 {drift['centroid_drift_px_per_min']:.3f} px/min"
+        print(f"  {branch} 分支漂移率：质心 {drift['centroid_drift_px_per_min']:.3f} px/min"
               f"（相邻最大 {drift['centroid_step_max_px']:.2f} px，"
               f"跨 {drift['minutes']:.1f} min / {drift['references']} 条 reference），"
               f"FWHM 跨度 {drift['fwhm_span_pct']:.1f}%，"
               f"峰值跨度 {drift['peak_span_pct']:.1f}%"
-              f"（自适应曝光引起，非光漂）")
+              f"（自适应曝光引起，非光漂）", flush=True)
     fixed = {row["branch"]: row.get("fixed_exposure_ms") for row in rows
              if "fixed_exposure_ms" in row}
     if fixed:
-        logger.info("fixed exposure: "
+        print("fixed exposure: "
               + ", ".join(f"{branch} {value:.4f} ms" for branch, value in sorted(fixed.items())),
-)
-    logger.info("prior phases:")
+              flush=True)
+    print("prior phases:", flush=True)
     measured = {row["label"]: row for row in rows if row["family"] == "prior"}
     for prior in priors:
         source = prior.source
@@ -861,12 +860,12 @@ def print_summary(rows: list[dict], priors: list[PriorPhase], steps: list[dict])
         resampled = ("" if prior.resampled_from_region is None
                      else f" -> resampled from {prior.resampled_from_region}")
         peak = "" if row is None else f" measured_peak={row['peak']:.0f}"
-        logger.info(f"  {prior.label} [{prior.split}] region={prior.source_region}{resampled}"
+        print(f"  {prior.label} [{prior.split}] region={prior.source_region}{resampled}"
               f" run={source.get('run_path')} stamp={source.get('stamp')}"
               f" round={source.get('round')}"
               f" improvement={source.get('relative_improvement')}"
               f" cv_after={source.get('cv_after')} ee_after={source.get('ee_after')}{peak}",
-)
+              flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -876,15 +875,15 @@ def print_summary(rows: list[dict], priors: list[PriorPhase], steps: list[dict])
 
 def print_plan(plan: dict, steps: list[dict]) -> None:
     """Print the plan as JSON, then the capture list it implies."""
-    logger.info("=== plan (JSON) ===")
-    logger.info(json.dumps(plan, default=str, indent=2))
-    logger.info("=== capture list ===")
+    print("=== plan (JSON) ===", flush=True)
+    print(json.dumps(plan, default=str, indent=2), flush=True)
+    print("=== capture list ===", flush=True)
     for step in steps:
         source = step["source"]
         detail = source.get("note") or source.get("run_path") or source.get("family") or ""
-        logger.info(f"  {step['index']:03d} {step['label']:<22s} {step['branch']} "
-              f"{step['family']:<10s} {step['split']:<11s} {detail}")
-    logger.info(f"  total: {len(steps)} captures")
+        print(f"  {step['index']:03d} {step['label']:<22s} {step['branch']} "
+              f"{step['family']:<10s} {step['split']:<11s} {detail}", flush=True)
+    print(f"  total: {len(steps)} captures", flush=True)
 
 
 def build_parser() -> argparse.ArgumentParser:

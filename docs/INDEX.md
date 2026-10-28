@@ -16,6 +16,7 @@
 | `architecture.md` | `ao_shaping.model` 光场数据类模型（PhaseMap/ComplexField/OPD 等，像素间距+波长+来源元数据） |
 | `drivers_architecture.md` | `drivers/` 硬件抽象层设计：多品牌设备接入 + 虚拟仿真环境 |
 | `gui.md` | Streamlit GUI 总览，按设备域分包于 `src/ao_shaping/gui/` |
+| `sampling_assist_usage.md` | SLM 整形页「远场尺寸换算 → 采样光路」popover 的用户手册：`S_CCD = S·f_sample/f_main` 换算、五条可达性判据、操作步骤与界面截图（截图由 `scripts/slm/screenshot_sampling_assist.py` 无设备渲染） |
 | `hardware_drivers.md` | 硬件驱动清单（Thorlabs WFS / SLM / CCD / DM 各品牌支持矩阵） |
 | `issues_report.md` | 问题与故障排查记录 |
 | `ml_training.md` | ML 训练指南（`src/ml/` 可选依赖包：训练器/模型/指标，与硬件层解耦） |

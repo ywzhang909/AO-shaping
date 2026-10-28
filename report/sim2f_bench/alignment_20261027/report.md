@@ -1,10 +1,8 @@
 ﻿# 2f 实验系统孪生-硬件对齐结论 (Gate 0 归因汇总)
 
 <!-- provenance:start -->
-> **生成脚本**: 无（本报告汇总 lane 1 / lane 2 / optical_scale / session_hw 四路证据，各 lane 已有独立报告与脚本）
-> **复现命令**: 见各 lane 报告
-> **数据/关联脚本**: [`runs/sim2f_bench/README.md`](../../../runs/sim2f_bench/README.md) (预注册协议)
-> **数据/关联脚本**: [`src/ml/sim2f/bench.py`](../../../src/ml/sim2f/bench.py) (run_session / Gate-0)
+> **生成脚本**: 人工撰写，无生成脚本
+> **数据/关联脚本**: [`src/ml/sim2f/bench.py`](../../../src/ml/sim2f/bench.py)
 > **运行环境**: 离线汇总（只读 runs/sim2f_bench/session_hw 与各 lane 报告产物，无 SLM / 无相机）
 > **说明**: 本报告把 lane 1 (仿真 dry run)、lane 2 (pupil_center_sweep 结论 A)、optical_scale (H1/H2 均否决) 与 session_hw (G0-2 FAIL / G0-4 FAIL) 四路证据汇总为一条对齐结论: G0-4 = 孪生保真度上限 (非放置错误), G0-2 = 真实光学漂移; 不放宽任何阈值。
 <!-- provenance:end -->

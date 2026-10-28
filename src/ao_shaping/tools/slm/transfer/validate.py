@@ -41,6 +41,121 @@ def replay_seed(directory, shape, xy, target):
 
 
 
+#: Order-of-magnitude device-time model used only to pick a run order.
+#: 2026-10-28 post-mortem of ``multishape_scale_20261028``: a full-voltage CCD
+#: read costs ~0.9 s at this session's frame count, and the fixed ``time.sleep``
+#: before a capture is 0.6 s (see :func:`capture` below). Both were read off
+#: measured sessions, not benchmarked per camera: they are an *estimate*, so a
+#: caller can rank "one group now" against "one group later", nothing more.
+SETTLE_SECONDS = 0.6
+READ_SECONDS_PER_FRAME = 0.9
+
+
+def _group_tuple(bit_depth, window_step, groups) -> tuple[int, float, int]:
+    """Coerce one ``(bit_depth, window_step, groups)`` triple, rejecting nonsense.
+
+    A plan is read by an operator before a bench session, so a typo in a block
+    count must fail here with the offending value rather than silently plan a
+    zero-capture stage.
+    """
+    depth, step, count = int(bit_depth), float(window_step), int(groups)
+    if depth not in (8, 12):
+        raise ValueError(f"plan bit depth must be 8 or 12, got {bit_depth!r}")
+    if step <= 0:
+        raise ValueError(f"plan window step must be positive, got {window_step!r}")
+    if count < 0:
+        raise ValueError(f"plan group count must be nonnegative, got {groups!r}")
+    return depth, step, count
+
+
+def _frozen_groups(directory: Path) -> int:
+    """How many CCD blocks a stage directory already holds.
+
+    The block groups file is authoritative when present; an older directory
+    without it still reports what ``summary.json`` recorded. The file is
+    *recorded* data, so a shape mismatch is a broken archive and raises
+    :class:`ValueError` instead of an ``IndexError`` from a half-read row.
+
+    A group is one ``(shape, block)`` pair: several shapes share one summary, and
+    each block is what the stage's capture loop iterates over.
+    """
+    groups_path = directory / f"{directory.name}_groups.json"
+    summary_path = directory / "summary.json"
+    if groups_path.is_file():
+        try:
+            payload = json.loads(groups_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"unreadable block-groups file {groups_path}: {exc}") from exc
+        if isinstance(payload, dict):
+            payload = payload.get("groups")
+        if not isinstance(payload, list):
+            raise ValueError(f"block-groups file {groups_path} must hold a list of groups")
+        return len(payload)
+    if not summary_path.is_file():
+        return 0
+    try:
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"unreadable summary {summary_path}: {exc}") from exc
+    if not isinstance(payload, list):
+        raise ValueError(f"summary {summary_path} must be a JSON list of block entries")
+    blocks: set[tuple[str, int]] = set()
+    for index, entry in enumerate(payload):
+        if not isinstance(entry, dict) or "shape" not in entry or "block" not in entry:
+            raise ValueError(f"summary {summary_path} entry {index} lacks shape/block keys")
+        blocks.add((str(entry["shape"]), int(entry["block"])))
+    return len(blocks)
+
+
+def session_plan(args) -> dict:
+    """Work out, without opening a device, what a session would still have to measure.
+
+    A session is one long process, so an abort in its middle (a saturation guard,
+    a crash) leaves finished stage directories behind that today cannot be
+    re-entered at all: the run root is created with ``exist_ok=False``. This
+    helper answers, before any device opens, which ``(shape, bit_depth,
+    window_step, groups)`` tuples are already on disk and which are still needed,
+    so the operator can plan the order -- the stage whose predecessor is already
+    on disk first, the stage that needs the widest re-measurement last.
+
+    A shape with a stage directory that already holds CCD blocks lands in
+    ``frozen`` as ``(shape, bit_depth, window_step, groups)``, where the bit
+    depth / window step are the *last* requested tuple's: on resume an earlier
+    tuple is finished, so only the unfinished one is relevant, and its ``groups``
+    is where the stage left off. Everything else lands in ``todo``.
+
+    ``args.session_groups`` (optional) is a list of ``dict(bit_depth=...,
+    window_step=..., groups=...)`` overrides; without it every shape is planned
+    at the session's own ``bit_depth`` / ``window_step`` / ``blocks``, which is
+    the single-tuple behaviour the caller had before.
+
+    ``estimated_seconds`` is an *order of magnitude* (``groups * (0.6 + frames *
+    0.9)``, see ``SETTLE_SECONDS``): it exists to choose a run order, never to
+    promise wall clock, and it deliberately ignores the optimizer's CPU time.
+    """
+    out = Path(args.out)
+    overrides = getattr(args, "session_groups", None)
+    if overrides:
+        wanted = [_group_tuple(g["bit_depth"], g["window_step"], g["groups"]) for g in overrides]
+    else:
+        wanted = [_group_tuple(getattr(args, "bit_depth", 8), getattr(args, "window_step", 2.),
+                               getattr(args, "blocks", 1))]
+    frozen, todo = [], []
+    for shape in args.shapes:
+        directory = out / str(shape)
+        groups = _frozen_groups(directory) if directory.is_dir() else None
+        if not groups:
+            todo.extend((str(shape), *triple) for triple in wanted)
+            continue
+        frozen.append((str(shape), *wanted[-1][:2], groups))
+        if len(wanted) > 1:
+            todo.extend((str(shape), *triple) for triple in wanted[1:])
+    estimated = sum(groups for *_, groups in todo) * (SETTLE_SECONDS
+                                                      + float(getattr(args, "frames", 1))*READ_SECONDS_PER_FRAME)
+    return dict(shapes=[str(shape) for shape in args.shapes], frozen=frozen, todo=todo,
+                estimated_seconds=round(estimated, 1))
+
+
 def model_only_decision(history) -> dict:
     """Accept a candidate on the model's own loss, with no CCD verdict measured.
 
@@ -63,6 +178,16 @@ def model_only_decision(history) -> dict:
 
 
 def run(args):
+    if getattr(args, "plan_only", False):
+        # Plan mode: no torch, no seed synthesis, no device -- only the derived
+        # work list. It writes plan.json into a *new* directory and returns the
+        # path, so a later reader cannot mistake it for a stage that ran, and a
+        # re-plan cannot silently overwrite an existing one.
+        args.out.mkdir(parents=True, exist_ok=False)
+        plan = session_plan(args)
+        (args.out/"plan.json").write_text(json.dumps(plan, indent=2), encoding="utf-8")
+        logger.info(json.dumps(plan, indent=2))
+        return args.out
     import torch
     from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
         DifferentiableUniformityOptimizer, FrozenDefocusForward, FrozenDefocusParameters, recentre_window,
@@ -82,6 +207,15 @@ def run(args):
     if explore_temperature > 0 and (not getattr(args, "ccd_check", False) or getattr(args, "adaptive_exposure", False) or getattr(args, "abba", False)):
         raise ValueError("exploration requires sequential CCD checks and fixed exposure across blocks")
     bit_depth = int(getattr(args, "bit_depth", 8))
+    resume = bool(getattr(args, "resume", False))
+    if resume:
+        # A resumed stage keeps the bit depth its directory was recorded at;
+        # otherwise full_scale/counts_scale would disagree with stored frames.
+        recorded = args.out/"config.json"
+        saved_depth = (json.loads(recorded.read_text(encoding="utf-8")).get("bit_depth")
+                       if recorded.is_file() else None)
+        if saved_depth is not None and int(saved_depth) != bit_depth:
+            raise ValueError(f"resume bit depth {bit_depth} differs from recorded {saved_depth}")
     full_scale = float(2**bit_depth - 1)
     counts_scale = float(2**(bit_depth-8))
     # Carrier displacement uses both camera axes. The target is kept away from zero order.
@@ -145,6 +279,16 @@ def run(args):
         if not np.isfinite(phase).all():
             raise ValueError("nonfinite seed phase")
         prepared.append((shape, objective, phase))
+    # Resume: slice this stage's block range to the groups it has not measured
+    # yet; a fully measured stage measures nothing and only refreshes its record.
+    blocks_for: dict[str, list[int]] = {}
+    if resume:
+        for shape in args.shapes:
+            # A stage directory is one shape's run, so its measured groups are
+            # countable without re-planning; the remaining indices are this
+            # stage's outstanding work.
+            recorded = _frozen_groups(args.out)
+            blocks_for[shape] = list(range(recorded, getattr(args, "blocks", 0)))
     from .hardware import prepare_camera_sdk
     prepare_camera_sdk(args.camera)
     from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_ms, get_camera_exposure_range
@@ -152,9 +296,23 @@ def run(args):
     from ao_shaping.tools.slm.panel.focus_probe import adapt_exposure
     from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
 
-    args.out.mkdir(parents=True, exist_ok=False)
+    args.out.mkdir(parents=True, exist_ok=resume)
     import hashlib
     abba = bool(getattr(args, "abba", False))
+    # Resume: the run directory already exists, so its JSON logs are extended,
+    # not replaced. An overwrite would erase the record of the blocks that made
+    # the resume necessary.
+    summary = (json.loads((args.out/"summary.json").read_text(encoding="utf-8"))
+               if resume and (args.out/"summary.json").is_file() else [])
+    records = (json.loads((args.out/"manifest.json").read_text(encoding="utf-8"))
+               if resume and (args.out/"manifest.json").is_file() else [])
+    summary_entries = list(summary)
+    iterations = (pickle.loads((args.out/"iterations.pkl").read_bytes())
+                  if resume and (args.out/"iterations.pkl").is_file() else [])
+
+    def save_summary() -> None:
+        (args.out/"summary.json").write_text(json.dumps(summary_entries), encoding="utf-8")
+
     (args.out/"config.json").write_text(json.dumps(dict(checkpoint=str(args.checkpoint.resolve()), zero_xy=args.zero_xy,
                                                        target_xy=centre.tolist(), shapes=args.shapes,
                                                        period=args.period, side=args.side,
@@ -190,7 +348,6 @@ def run(args):
                                                        mode=args.mode, seed_run=str(args.seed_run) if args.seed_run else None,
                                                        blocks=args.blocks, updates=args.updates, frames=args.frames,
                                                        **clock()), indent=2), encoding="utf-8")
-    records, iterations, summary = [], [], []
     # The complete process, one Recorder record per CCD capture: the phase that
     # was displayed, the measured far field (cropped to the target), the phase
     # change since the previous capture of the same shape, and the numbers.
@@ -201,6 +358,12 @@ def run(args):
     from . import recording
 
     recorder = Recorder(mark="cv", mode="min")
+    if resume and (args.out/"capture_records.pkl").is_file():
+        # The process recording is cumulative: a resumed stage appends its own
+        # blocks to the captures already archived instead of exporting a table
+        # that silently starts again from the resumed shape.
+        with (args.out/"capture_records.pkl").open("rb") as stream:
+            records.extend(pickle.load(stream))
     last_phase: dict[str, np.ndarray] = {}
     camera_options = {"bit_depth": bit_depth} if args.camera == "daheng" else {}
     with create_camera(args.camera, args.cam_id, exposure_time_ms=.02, **camera_options) as cam:
@@ -244,6 +407,12 @@ def run(args):
                 records.append(row)
                 with (args.out/"capture_records.pkl").open("wb") as stream:
                     pickle.dump(records, stream, protocol=5)
+                # Resume extends the manifest instead of overwriting it: the
+                # captures before the interruption are still evidence. A capture
+                # index is never reused, so two runs cannot share a file name.
+                seen_files = {(args.out/known["file"]).resolve() for known in records[:-1]}
+                if (args.out/row["file"]).resolve() in seen_files:
+                    raise ValueError(f"capture file {row['file']} already archived")
                 (args.out/"manifest.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
                 shape_name = label.split("_")[0]
                 previous = last_phase.get(shape_name)
@@ -300,6 +469,10 @@ def run(args):
 
                 for shape, objective, best in prepared:
                     seed_phase = best.copy()
+                    # Resume: only the groups this stage has not measured yet.
+                    blocks = blocks_for.get(shape, list(range(args.blocks)))
+                    if not blocks:
+                        continue
                     exposure = tune_exposure(shape, best, exposure, objective)
                     seed_exposure = exposure
                     seed_record = capture(f"{shape}_seed", best, objective)
@@ -310,7 +483,7 @@ def run(args):
                         policy = NonmonotoneAcceptance(seed_record["metrics"]["cv"], temperature=explore_temperature,
                             relative_budget=getattr(args, "exploration_budget", .25), seed=getattr(args, "random_seed", 102626))
                     phase_lr = getattr(args, "phase_lr", .01)
-                    for block in range(args.blocks):
+                    for block in blocks:
                         if policy is not None and block > 0 and block % getattr(args, "exploration_window", 4) == 0:
                             best = champion.copy()
                         if block > 0 and getattr(args, "adaptive_exposure", False):
@@ -408,8 +581,8 @@ def run(args):
                         if accepted:
                             best = candidate.copy()
                             optimizer.accept()
-                        summary.append(entry)
-                        (args.out/"summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+                        summary_entries.append(entry)
+                        save_summary()
                         print(json.dumps(entry), flush=True)
                         # One dump per block, not per iteration: every history entry
                         # carries a full phase copy (~1.6 MB), so rewriting the whole
@@ -496,6 +669,10 @@ def main():
     parser.add_argument("--device", choices=DEVICE_CHOICES, default="auto",
                         help="auto = CUDA when available else CPU; cpu pins the historical numbers")
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--plan-only", action="store_true",
+                        help="Without a device: write plan.json (frozen/todo/estimate) into a new --out, then stop")
+    parser.add_argument("--resume", action="store_true",
+                        help="Re-enter an existing --out: measure only the missing block groups")
     args = parser.parse_args()
     args.mode = args.mode or ("anchored" if args.seed_run or args.initial_phase != "gs" else "model")
     if args.seed_run and args.initial_phase != "gs":

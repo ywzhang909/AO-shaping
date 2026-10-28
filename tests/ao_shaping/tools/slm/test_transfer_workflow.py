@@ -827,3 +827,64 @@ def test_the_session_records_the_resolved_device(tmp_path, monkeypatch):
 def test_an_unknown_device_is_refused_before_any_device_opens(tmp_path):
     with pytest.raises(ValueError, match="unknown device"):
         TransferSession(tmp_path / "session", device="gpu").validate()
+
+
+# ---------------------------------------------------------------------------
+# plan mode: what a session still has to measure, decided before any device
+# ---------------------------------------------------------------------------
+
+
+def _plan_args(out, shapes, **over):
+    from types import SimpleNamespace
+
+    base = dict(out=out, shapes=list(shapes), bit_depth=8, window_step=4., blocks=2, frames=3)
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+def _block_summary(path, shape, blocks):
+    """A ``summary.json`` as ``validate.run`` writes it: one row per block."""
+    path.mkdir(parents=True)
+    (path / "summary.json").write_text(json.dumps(
+        [dict(shape=shape, block=block, accepted=False) for block in blocks]))
+
+
+def test_session_plan_without_session_groups_is_one_tuple_per_shape(tmp_path):
+    from ao_shaping.tools.slm.transfer.validate import session_plan
+
+    plan = session_plan(_plan_args(tmp_path / "run", ["square", "circle"]))
+
+    assert plan["frozen"] == []
+    assert [tuple(entry[:2]) for entry in plan["todo"]] == [("square", 8), ("circle", 8)]
+    assert [entry[2:] for entry in plan["todo"]] == [(4., 2), (4., 2)]
+    # Order of magnitude only, not wall clock: 2 shapes x 2 groups x
+    # (0.6 s settle + 3 frames x 0.9 s) = 13.2 s.
+    assert plan["estimated_seconds"] == 13.2
+
+
+def test_a_finished_shape_lands_in_frozen_not_todo(tmp_path):
+    """A shape whose directory already holds two measured blocks needs no block.
+
+    The directory is written in the recorded form ``validate.run`` produces (one
+    ``summary.json`` row per block), so this asserts the on-disk contract plan
+    mode reads rather than a hand-built shortcut.
+    """
+    from ao_shaping.tools.slm.transfer.validate import session_plan
+
+    _block_summary(tmp_path / "square", "square", range(2))
+
+    plan = session_plan(_plan_args(tmp_path, ["square", "circle"]))
+
+    assert plan["frozen"] == [("square", 8, 4.0, 2)]
+    assert [entry[0] for entry in plan["todo"]] == ["circle"]
+
+
+def test_a_malformed_summary_is_a_value_error_not_an_index_error(tmp_path):
+    from ao_shaping.tools.slm.transfer.validate import session_plan
+
+    broken = tmp_path / "triangle"
+    broken.mkdir()
+    (broken / "summary.json").write_text(json.dumps([dict(shape="triangle")]))  # no "block"
+
+    with pytest.raises(ValueError, match="lacks shape/block keys"):
+        session_plan(_plan_args(tmp_path, ["triangle"]))

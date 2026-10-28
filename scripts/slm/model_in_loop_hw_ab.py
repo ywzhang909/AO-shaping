@@ -1455,7 +1455,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.plan:
-        logger.info(render_plan(plan))
+        print(render_plan(plan), flush=True)
         return 0
 
     session_dir.mkdir(parents=True, exist_ok=True)

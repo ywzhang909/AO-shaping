@@ -1,3 +1,17 @@
+"""One-off renderer for the multishape capability process animations.
+
+Reads the archived per-run ``*.npz`` dumps under
+``report/shape_trials/multishape_capability/`` (written by the recorder) and
+writes one GIF per run into ``figures/``: the exact-grid form plots the
+recorded far field next to the model phase, and anything else falls back to
+``render_recorder_gif`` on the iteration dumps.
+
+The paths are hardcoded to that one archived campaign on purpose — this is a
+re-render of an existing result, not a general tool. The later, parameterised
+renderer for the three-scale campaign is
+``scripts/slm/render_multishape_scale_process_gif.py``; use that one for new
+runs.
+"""
 import os
 import sys
 import glob

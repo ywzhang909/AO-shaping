@@ -208,13 +208,8 @@ none
 runs/*
 
 
-# Playwright
+# Local editor/agent state
 node_modules/
-/test-results/
-/playwright-report/
-/blob-report/
-/playwright/.cache/
-/playwright/.auth/
 
 
 # openchamber

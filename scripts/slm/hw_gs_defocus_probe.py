@@ -174,6 +174,7 @@ target 要按 ``M`` 重采样 —— **对 2f 光路是错的**, 错在漏掉了
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import ast
 import csv
 import json
@@ -1484,11 +1485,13 @@ def protected_memory_slot(slm: Any) -> int | None:
     if getter is None:
         return None
     try:
-        return int(getter())
+        slot = getter()
     except SantecError as exc:
         if exc.code != 1:
             raise
         return None  # set_grayscale 模式下没有槽位, 报错码 1 正常
+    # 有接口但当前不显示槽位 (仿真面板) 时 getter() 返回 None, 同样没有槽位要排除。
+    return None if slot is None else int(slot)
 
 
 def group_fields(group: str, meta: dict[str, str] | None = None) -> dict[str, Any]:

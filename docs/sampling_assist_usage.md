@@ -61,11 +61,37 @@ M_samp = λ · f_sample / (D_SLM · p_cam) = Δ_min · (f_sample/f_main) / p_cam
 
 ## 运行效果
 
-- 截图占位：config_1.png（popover 展开后的「采样光路」段，字段 2×2 排布 + summary + violation 警告 + 两个按钮）。
-- 截图占位：config_2.png（`ok=False` 时 violation 行的红色告警）。
-- 截图占位：config_3.png（`f_sample` 提到 180 mm 后 `M_samp≈3.0` 的正常态）。
+![shaping_section](../report/slm/sampling_assist/figures/shaping_section.png)
 
-（截图由操作员在真实台面上按 `./run_pytest.sh tests/ao_shaping/gui` 验证 GUI 后补入 `report/slm/sampling_assist/figures/`。）
+`shaping_section.png` — 页面实际渲染出来的「闭环整形 (SLM + CCD)」区块（顶部到「远场尺寸换算
+(inline capture)」段被页面下缘截断）：整形方法下拉、三个数字输入（边长因子 1.00 /
+权重 w_pib 0.50 / 权重 w_unif 0.50）、以及 `f_eff = f_c·M_t` 的换算说明与
+`远场边长 10.00` → `CCD 边长 200.0 μm = 91 px`、`分辨单元 N 8.46`。
+
+> ⚠️ **本目录曾有四张「不同参数」的副本，其实是同一张图的重新编码。**
+> 2026-10-28 复核（逐像素比对 + SHA-256）：原 `config_2` 与原 `config_4`、原
+> `config_3` 与原 `config_5` 字节相同；原 `config_1` 与其余四张也只差 24–60 个像素、
+> 最大通道差 2/255（PNG 抗锯齿噪声）。那张图里**没有**「采样光路」字段、没有
+> `f_sample` / `M_samp`、也没有 violation 告警行，所以旧正文里「`config_1` = 采样光路
+> popover」「`config_2` = `ok=False` 红字」「`config_3` = `f_sample` 提到 180 mm 后的
+> 正常态」三条 caption 都与像素不符，已删除，重复副本与一张没有被任何文档引用的图
+> 一并删除。要展示那三种状态，需按上面「操作步骤」用对应 `SAMPLING_CFG` 重新截图；
+> 本仓库目前没有那三张图。
+
+![test_capture](../report/slm/sampling_assist/figures/test_capture.png)
+
+`test_capture.png` — 设备未连接时的整页：侧栏「SLM 设备」表里列出一台真实枚举到的
+控制器（序列号 22030108）且状态为「未连接」，下方「未发现大恒相机」；主区是
+信息条「请在左侧连接至少一个 SLM」。这张证明的是**连接前**的界面形态，
+不是采集结果。
+
+> **这些图是布局截图，不是台面实测。** `shaping_section.png` 由
+> `scripts/slm/screenshot_sampling_assist.py` 生成：它模拟一个已连接的 SLM，
+> 因此不需要设备；`test_capture.png` 是设备关机时的真实界面截图。两者证明的都是
+> **布局与文案**，不是某一条光路的实测结论 —— 实测量请走本页「操作步骤」在现场读
+> summary。
+
+
 
 ## 非可互换的三条尺度律
 

@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
+from scripts._common import fmt_metric
 from scripts._common.provenance import insert_header
 from loguru import logger
 
@@ -45,13 +46,9 @@ def _read(p, default=None):
         return default if default is not None else {}
 
 
-def _fmt(v, d=3):
-    if v is None:
-        return "—"
-    try:
-        return f"{float(v):.{d}f}"
-    except (TypeError, ValueError):
-        return str(v)
+def _cell(value, digits: int = 3) -> str:
+    """One markdown cell: missing values keep the em dash, numbers use the canonical formatter."""
+    return "—" if value is None else fmt_metric(value, digits)
 
 
 def _role(label):
@@ -209,35 +206,35 @@ def main():
         "",
         "## 2 三角形 + 五角星（GS 起始）",
         "",
-        f"Seed CV {_fmt(gs_seed_cv, 4)} → Final CV {_fmt(gs_final_cv, 4)}，"
+        f"Seed CV {_cell(gs_seed_cv, 4)} → Final CV {_cell(gs_final_cv, 4)}，"
         f"接受 {gs_accepted}/{len(gs['anchored_summary'])} 块。",
         "",
         "![CV 轨迹](figures/cv_gs.png)",
         "",
         "![远场对比](figures/farfield_gs.png)",
         "",
-        "过程动画：`figures/process_gs.gif`",
+        "![过程动画](figures/process_gs.gif)",
         "",
         "## 3 三角形（平面相位起始）",
         "",
-        f"Seed CV {_fmt(pl_seed_cv, 4)} → Final CV {_fmt(pl_final_cv, 4)}，"
+        f"Seed CV {_cell(pl_seed_cv, 4)} → Final CV {_cell(pl_final_cv, 4)}，"
         f"接受 {pl_accepted}/{len(pl['anchored_summary'])} 块。",
         "",
         "![CV 轨迹](figures/cv_plane.png)",
         "",
         "![远场对比](figures/farfield_plane.png)",
         "",
-        "过程动画：`figures/process_plane.gif`",
+        "![过程动画](figures/process_plane.gif)",
         "",
         "## 4 关键数据对比",
         "",
         "| 指标 | GS 起始（五角星） | 平面起始（三角形） |",
         "|---|---|---|",
-        f"| Seed CV | {_fmt(gs_seed_cv, 4)} | {_fmt(pl_seed_cv, 4)} |",
-        f"| Final CV | {_fmt(gs_final_cv, 4)} | {_fmt(pl_final_cv, 4)} |",
+        f"| Seed CV | {_cell(gs_seed_cv, 4)} | {_cell(pl_seed_cv, 4)} |",
+        f"| Final CV | {_cell(gs_final_cv, 4)} | {_cell(pl_final_cv, 4)} |",
         f"| 接受块数 | {gs_accepted}/{len(gs['anchored_summary'])} | {pl_accepted}/{len(pl['anchored_summary'])} |",
-        f"| 曝光 (ms) | {_fmt(gs['anchored_manifest'][0]['exposure_ms'] if gs['anchored_manifest'] else None, 2)} | {_fmt(pl['anchored_manifest'][0]['exposure_ms'] if pl['anchored_manifest'] else None, 2)} |",
-        f"| 最大峰值 (counts) | {_fmt(gs['audit'].get('maximum_peak'), 0)} | {_fmt(pl['audit'].get('maximum_peak'), 0)} |",
+        f"| 曝光 (ms) | {_cell(gs['anchored_manifest'][0]['exposure_ms'] if gs['anchored_manifest'] else None, 2)} | {_cell(pl['anchored_manifest'][0]['exposure_ms'] if pl['anchored_manifest'] else None, 2)} |",
+        f"| 最大峰值 (counts) | {_cell(gs['audit'].get('maximum_peak'), 0)} | {_cell(pl['audit'].get('maximum_peak'), 0)} |",
         f"| 审计状态 | {gs['audit'].get('status', '—')} | {pl['audit'].get('status', '—')} |",
         "",
         "## 5 ABBA 判决明细",
@@ -248,7 +245,7 @@ def main():
         "|---|---|---|---|---|",
     ]
     for e in gs["anchored_summary"]:
-        lines.append(f"| {e['block']} | {_fmt(e['baseline'], 4)} | {_fmt(e['candidate'], 4)} | {_fmt(e['drift'], 4)} | {'✓' if e.get('accepted') else '✗'} |")
+        lines.append(f"| {e['block']} | {_cell(e['baseline'], 4)} | {_cell(e['candidate'], 4)} | {_cell(e['drift'], 4)} | {'✓' if e.get('accepted') else '✗'} |")
     lines += [
         "",
         "### 平面起始（三角形）",
@@ -257,7 +254,7 @@ def main():
         "|---|---|---|---|---|",
     ]
     for e in pl["anchored_summary"]:
-        lines.append(f"| {e['block']} | {_fmt(e['baseline'], 4)} | {_fmt(e['candidate'], 4)} | {_fmt(e['drift'], 4)} | {'✓' if e.get('accepted') else '✗'} |")
+        lines.append(f"| {e['block']} | {_cell(e['baseline'], 4)} | {_cell(e['candidate'], 4)} | {_cell(e['drift'], 4)} | {'✓' if e.get('accepted') else '✗'} |")
     lines += [
         "",
         "## 6 代码改动",
