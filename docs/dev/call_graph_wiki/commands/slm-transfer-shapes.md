@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: command
 tags: [command]
-source: src/ao_shaping/runners/slm/transfer_shapes_runner.py:360
+source: src/ao_shaping/runners/slm/transfer_shapes_runner.py:397
 ---
 
 ## 一句话
@@ -13,7 +13,7 @@ source: src/ao_shaping/runners/slm/transfer_shapes_runner.py:360
 
 ## 入口函数
 
-`runners.slm.transfer_shapes_runner.run`（`src/ao_shaping/runners/slm/transfer_shapes_runner.py:360`）
+`runners.slm.transfer_shapes_runner.run`（`src/ao_shaping/runners/slm/transfer_shapes_runner.py:397`）
 
 ```python
 run(out_dir, shapes, side, period, window_span, window_step, zero_radius, capture_grid, capture_count, fit_iterations, fit_span, amplitude_center_lr, … (+29 个))

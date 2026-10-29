@@ -2798,8 +2798,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 380,
-   "end": 634,
+   "lineno": 397,
+   "end": 662,
    "args": [
     "out_dir",
     "shapes",
@@ -2894,8 +2894,8 @@
    "qualname": "_json",
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 85,
-   "end": 86,
+   "lineno": 87,
+   "end": 88,
    "args": [
     "path"
    ],
@@ -2907,8 +2907,8 @@
    "qualname": "run_stages",
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 223,
-   "end": 277,
+   "lineno": 240,
+   "end": 294,
    "args": [
     "out",
     "shapes",
@@ -2950,8 +2950,8 @@
    "qualname": "_rebuild_records",
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 185,
-   "end": 205,
+   "lineno": 187,
+   "end": 207,
    "args": [
     "out",
     "shapes"
@@ -2964,8 +2964,8 @@
    "qualname": "_seed_kind",
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 107,
-   "end": 123,
+   "lineno": 109,
+   "end": 125,
    "args": [
     "shape",
     "requested"
@@ -2978,8 +2978,8 @@
    "qualname": "_measured_peak_rates",
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 89,
-   "end": 104,
+   "lineno": 91,
+   "end": 106,
    "args": [
     "runs"
    ],
@@ -3005,8 +3005,8 @@
    "qualname": "_validate_args",
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 143,
-   "end": 182,
+   "lineno": 145,
+   "end": 184,
    "args": [
     "checkpoint",
     "out",
