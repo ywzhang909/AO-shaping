@@ -35,11 +35,7 @@
 [仿真预训练与无 GS 迁移复现](sim_pretrain_transfer/sim_pretrain_transfer_20261024.md)。
 
 2026-10-26 无历史权重的物理预测模型从零拟合与 CCD 配对验收见
-[冷启动（从零拟合）](cold_start/cold_start_20261026.md)（与 [CV 诊断](cold_start/cv_diagnosis_20261026.md) 配套）。" 
-oldString">
-2026-10-27 基于历史证据的设计阶段见
-[无 GS 起点的物理预测模型与可微整形方案](physical_forward_no_gs_plan_20261027.md)：
-明确模型来源与初相位来源，优先校正目标核心和局部响应方向，设计同曝光 CCD 验收与缓漂适配；规划阶段不包含后续实验数值。
+[冷启动（从零拟合）](cold_start/cold_start_20261026.md)（与 [CV 诊断](cold_start/cv_diagnosis_20261026.md) 配套）。
 
 2026-10-26 SLM 偏离前焦面的 ABCD 校正、当前光路双曝光采集及距离可辨识性检查见
 [SLM 轴向平面校正](axial_plane/axial_plane_20261026.md)。
@@ -89,10 +85,6 @@ oldString">
 | 2026-10-27 | [迁移学习 + model-in-loop 双优化流程实验方案](dual_optimization/experiment_plan_20261027.md) | G0 前置门禁、逐轮交替判决口径；不含新测量 |
 | 2026-10-24 | [仿真预训练与无 GS 迁移复现](sim_pretrain_transfer/sim_pretrain_transfer_20261024.md) | 仿真预训练分组 CV 与无 GS 逐位复现 |
 | 2026-10-26 | [冷启动（从零拟合）](cold_start/cold_start_20261026.md) | 无历史权重的物理预测模型从零拟合与 CCD 配对验收 |
-| 2026-10-23 | [正方形、长方形、三角形：探测与物理预测模型闭环复现](multishape_capability/physical_multishape_reproduction_20261023.md) | 从零初始化与已有模型迁移的完整命令、模型结构、参数柱状图、逐块 CCD 演变、配对验收及 FAQ |" 
-oldString">
-| 日期 | 报告 | 主题 |
-|------|------|------|
 | 2026-10-23 | [正方形、长方形、三角形：探测与物理预测模型闭环复现](multishape_capability/physical_multishape_reproduction_20261023.md) | 从零初始化与已有模型迁移的完整命令、模型结构、参数柱状图、逐块 CCD 演变、配对验收及 FAQ |
 | 2026-10-23 | [GS 方形光斑三段扫描：边长 / Zernike 阶数 / 闪耀光栅](hw_gs_square_scans/hw_gs_square_scans_20261023.md) | 纯 GS（无 SPGD）三段扫描 + 功率变化后的原子化复测；PIB 与 CV 互相抵消决定 score 峰、低阶 Zernike 只解释 3.25% 相位方差、`predicted_shift_px` 方向可用但标度与 1/P 形状不可用；两处基线「异常」经复测判定为整帧全黑的失败采集
 | 2026-10-23 | [离焦光路下的可微整形测试方案](defocus_differentiable_test_plan_20261023.md) | 对照可微实验负结果；GS 初值、固定 ROI CV、梯度方向配对探测与短块 CCD 验收；仅制定方案 |
