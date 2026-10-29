@@ -390,14 +390,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
   ⇒ 遥测类 `except Exception` 对 Ctrl-C 是**安全**的，不必收窄。
 * 真风险只有 **2 处 `except BaseException`**（⚠️ 2026-10-25 重测：现树 **5 处** = `src/` 3 + `scripts/` 2，
   逐处判定见 §8.9 第 14 项；本行的「2 处」是本节写作时的口径，`transfer/workflow.py` 与 `scripts/` 两处未计入），而其中
-  `utils/image/hardware_utils.py:627`（原钉 `:628`，已按 grep 实测重钉）**必须保持 `BaseException`**：它跑在 daemon
+  `utils/image/hardware_utils.py:666`（原钉 `:628`，已按 grep 实测重钉）**必须保持 `BaseException`**：它跑在 daemon
   工作线程里，目的就是把工作线程的任何异常搬到调用线程重抛。收窄成 `Exception`
   会让工作线程的 `KeyboardInterrupt`/`SystemExit` 静默消失，`call_with_timeout`
   改为返回 `None`（静默行为变更）。它**不影响**主线程 Ctrl-C（`join` 可中断）。
 
 | 处置 | 站点 | 收窄到 |
 |---|---|---|
-| **保持 `BaseException` + 补注释** | `utils/image/hardware_utils.py:627` | 不改，仅把线程边界语义写进注释；已机械钉住：`test_conventions.py::test_thread_boundary_exception_capture_keeps_base_exception` |
+| **保持 `BaseException` + 补注释** | `utils/image/hardware_utils.py:666` | 不改，仅把线程边界语义写进注释；已机械钉住：`test_conventions.py::test_thread_boundary_exception_capture_keeps_base_exception` |
 | **最高价值：收窄** | `drivers/slm/santec/driver.py:1184` | `SantecError` —— 房内既有写法：`slm_gs_refine.py:780` `except SantecError as exc: if exc.code != 1: raise` |
 | **已收窄（执行）** | `gui/r50/r50_channel_select.py:365` | `(ValueError, KeyError, TypeError)`（pandas `int()` / 列访问） —— 2026-10-28 执行：该 handler 的守卫语句只有 `int(row[...])` 与列访问，缺列 = KeyError、坏值 = ValueError、空值 = TypeError，且**不碰硬件**（CI 可见全部失败面），故按本 issue 自己的口径收窄优先于登记；`tests/ao_shaping/gui/r50/test_r50_channel_select.py` 钉住两半契约（畸形行仍降级为空表 / 未列类型不再被吞）。该站已**退出盲捕总体**：382 → 381，已标注 188 → 187，未标注仍 194 |
 | 收窄 | `tools/slm/slm_zernike_common.py:114,129,155,162,166` | `(SantecError, WfsError, AttributeError)` |
@@ -450,7 +450,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | 不要把 `E402` 从 `ignore` 直接挪到 `select` 而不给 `scripts/*` 开 `per-file-ignores` | 会让 `scripts/*` 的 709 条 bootstrap 约定瞬间爆红（E402 实测总数 879 = scripts 709 / tests 128 / src 42，见 §8.3；原估 435 已作废，2026-10-23 随 R-63 step 2b 重钉） |
 | 不要先跑 RUF100 再开规则 | 见 §8.6 第 3 步，会删掉将来必需的 noqa |
 | 不要用 `# ruff: enable` 复活被 ignore 的规则 | 官方明确：range suppression **不能**启用"未被 select 的规则" |
-| 不要把 `except BaseException`（`hardware_utils.py:627`，以及两处同构的线程边界捕获 `scripts/slm/diff_beam_capture_flat.py:79`（旧行号 68 因上游 `a8673631`/`fe1cc504` 漂移，2026-10-29 复核）、`scripts/slm/hw_gs_defocus_probe.py:1071`）改成 `Exception` | 会造成静默行为变更（工作线程的 Ctrl-C 消失，调用方把挂起当成成功），已推理见 §8.4；已机械钉住：`test_thread_boundary_exception_capture_keeps_base_exception`（见 §8.9 第 14 项） |
+| 不要把 `except BaseException`（`hardware_utils.py:666`，以及两处同构的线程边界捕获 `scripts/slm/diff_beam_capture_flat.py:79`（旧行号 68 因上游 `a8673631`/`fe1cc504` 漂移，2026-10-29 复核）、`scripts/slm/hw_gs_defocus_probe.py:1071`）改成 `Exception` | 会造成静默行为变更（工作线程的 Ctrl-C 消失，调用方把挂起当成成功），已推理见 §8.4；已机械钉住：`test_thread_boundary_exception_capture_keeps_base_exception`（见 §8.9 第 14 项） |
 
 ### 8.8 一处不一致（非缺陷，但值得知道）
 
@@ -792,11 +792,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     `display_data(zeros)`、`dev.close()`、`wfs.close()`）；**搜索循环里跳过读不到的候选**
     （`generate_fouriergsnet_sim_report.py:181` 遍历各候选目录找含所需键的 `config.json` —— 跳过坏候选是**控制流**，
     与 §8.9 第 5 项 ffmpeg 枚举同判据）；**逐条跳过损坏产物**（`generate_bench_twin_report.py:337`，旧行号 348 因 `bf5c07cd` 上移 11 行而漂移，2026-10-29 复核），注释已写明
-    "落盘产物损坏时只丢这一项"）；**可选设备元数据**（`probe_optical_path_validity.py:1579/1586`，旧行号 1356/1361 因 `3ae92ade` 在其上方插入 `ladder_flux`/`bench_reference` 等光通量门禁代码而漂移，2026-10-29 复核）。
+    "落盘产物损坏时只丢这一项"）；**可选设备元数据**（`probe_optical_path_validity.py:1747/1752` 两处静默 `except: pass`，旧行号 1356/1361 因 `3ae92ade` 等后续提交在其上方插入 `ladder_flux`/`bench_reference` 等光通量门禁代码而下移，2026-10-29 复核重钉）。
     ⚠️ 我先前怀疑 `generate_inverse_shaping_model_report.py:325` 的 `except: continue` 会**悄悄缩小发布表格的样本集**
     —— **实测否证**：行字典同时发布 `"n": len(norms)` 与 `"records": len(records)`，跳过会表现为 `n < records`，
     **归因本来就有** ⇒ 不动。另实测 `cam_exposure_range_ms` / `cam_hardware` 在两处赋值之外**全文件零引用**，
-    且该探针的 verdict 分支（`:1080-1109`，旧行号 930-957 因 `3ae92ade` 上移而漂移，2026-10-29 复核）走的是设备互斥锁、不读它们 ⇒ 只影响描述性元数据，不影响结论。
+    且该探针的 verdict 分支（`:1197-1226`，`acquire_devices` 内 `device_mutex.wait_until_idle` + 判据 if/raise 链；旧行号 930-957 因 `3ae92ade` 等后续提交在其上方插入 `ladder_flux`/`bench_reference` 等光通量门禁代码而下移，2026-10-29 复核重钉）走的是设备互斥锁、不读它们 ⇒ 只影响描述性元数据，不影响结论。
     **BLE001 全仓终账（实测，非减法推算）**：silent（`pass`/`continue` 且无 raise）由 **90 → 83**
     （`src` 63→61、`tests` 16→11、`scripts` 11 不变）；`src`/`tests`/`scripts` **三棵树已全部逐处判定完毕**。
     回归：`tests/ao_shaping/utils` 按 CI 的 `AO_TEST_PER_FILE=1` 跑 **1326 passed / 4 skipped / exit 0**，
@@ -886,11 +886,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 14. ✅ **`except BaseException` 全量复核收口：实测 5 处，逐处判定正当，并把「线程边界不得收窄」钉成守卫**（2026-10-25）：
      - **AST 实测 5 处**（不是 grep 计数）：`optimizer/wfless/slm_zernike_pib.py:1718`、
-      `tools/slm/transfer/workflow.py:78`、`utils/image/hardware_utils.py:627`、
+      `tools/slm/transfer/workflow.py:226`（旧行号 78 因上游 `5341b36b` 合并等后续提交在其上方插入阶段编排代码而下移，2026-10-29 复核重钉）、`utils/image/hardware_utils.py:666`、
       `scripts/slm/diff_beam_capture_flat.py:79`（旧行号 68 因上游 `a8673631`/`fe1cc504` 漂移，2026-10-29 复核）、`scripts/slm/hw_gs_defocus_probe.py:1071`
       ⇒ §8.4 的「真风险只有 2 处」与 R-64 行的「禁改 2 处」均为当时口径，已就地重钉。
     - **逐处判定：没有一处需要改**（本项初始假设「能在硬件运动中途静默吞掉中断」被实测推翻）：
-      `workflow.py:78` 记录状态后 `raise`（本就重抛）；`hardware_utils.py:627`、
+      `workflow.py:226` 记录状态后 `raise`（本就重抛）；`hardware_utils.py:666`、
       `diff_beam_capture_flat.py:79`（旧行号 68 因上游 `a8673631`/`fe1cc504` 漂移，2026-10-29 复核）、`hw_gs_defocus_probe.py:1071` 是三处**同构的线程边界捕获**，
       调用方确定重抛（实测 `:77 raise error[0]`、`:1082 raise box["error"]`）——
       它们正是把「原生 SDK 调用无限挂起」变成**有界且可归因**的机制
@@ -906,8 +906,8 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       （§8.10 那条红线我第三次差点踩）。
     - ⚠️ **差分第一次无效**：临时树从 `HEAD` 切出，而新守卫还在工作区未提交 ⇒ 树里没有该测试，
       输出只是 `36 deselected` 而非失败。教训：**差分必须把被测的新代码一并带进临时树**。
-      补上后实测：把 `hardware_utils.py:627` 改成 `except Exception` ⇒ 守卫失败并点名
-      `hardware_utils.py:627: Exception`；未改动 ⇒ 36 passed / 1 skipped（既有 ruff-not-on-PATH 跳过）。
+      补上后实测：把 `hardware_utils.py:666` 改成 `except Exception` ⇒ 守卫失败并点名
+      `hardware_utils.py:666: Exception`；未改动 ⇒ 36 passed / 1 skipped（既有 ruff-not-on-PATH 跳过）。
     - 宿主 ruff 在落容器**之前**拦下一个真错：标识符写成 `re-raised`，连字符被解析成 `re - raised =`，
       报 `invalid-syntax: Invalid assignment target` —— 省一次容器运行。
 
