@@ -26,6 +26,7 @@ from ao_shaping.utils.io.recorder_keys import (
     RECORD_IMAGE,
     RECORD_PHASE,
 )
+from ao_shaping.utils.io.record_mode import RecordMode
 
 
 def _read_json(path: Path):
@@ -117,7 +118,7 @@ def rebuild_run(run_dir: Path, out_dir: Path | None = None, *, fps: float = 2.0,
 
     run_dir = Path(run_dir)
     rows = _read_json(run_dir / "manifest.json")
-    recorder = Recorder(mark="cv", mode="min")
+    recorder = Recorder(mark="cv", mode=RecordMode.MIN)
     last_phase: dict[str, np.ndarray] = {}
     for row in rows:
         with np.load(run_dir / row["file"]) as saved:

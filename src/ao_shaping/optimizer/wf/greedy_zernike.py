@@ -46,6 +46,7 @@ from ao_shaping.utils.io.recorder_keys import (
     RECORD_EPOCH,
     RECORD_PHASE,
 )
+from ao_shaping.utils.io.record_mode import RecordMode
 
 # SLM parameters
 SLM_WAVELENGTH_DEFAULT = 532  # nm
@@ -144,7 +145,7 @@ def optimizer_greedy(
     n_zernike = calc_n_zernike_terms(n_max)
     zernike_modes = _zernike_indices(n_max)
 
-    recorder = Recorder(mark='greedy_zernike', mode='min')
+    recorder = Recorder(mark='greedy_zernike', mode=RecordMode.MIN)
 
     # Create perturb mask (exclude piston/constant term)
     perturb_mask = np.ones(n_zernike, dtype=np.float64)

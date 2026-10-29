@@ -51,6 +51,7 @@ from ao_shaping.utils.io.recorder_keys import (
     RECORD_ROI_ENERGY,
     RECORD_VOLTAGES,
 )
+from ao_shaping.utils.io.record_mode import RecordMode
 
 BETA1: float = 0.9
 BETA2: float = 0.99
@@ -140,7 +141,7 @@ def optimize_pib(
     """
     delta = abs(delta)
     epochs = int(epochs)
-    recorder = Recorder(mark="pib", mode="max")
+    recorder = Recorder(mark="pib", mode=RecordMode.MAX)
 
     with open_pib_bench(
         cam_type=cam_type,

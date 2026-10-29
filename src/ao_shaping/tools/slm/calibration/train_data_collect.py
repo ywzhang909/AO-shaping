@@ -56,6 +56,7 @@ from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts
 from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
 from ao_shaping.utils.wavefront import zernike_calc
 from ao_shaping.utils.io.recorder_keys import (RECORD_COEFFS, RECORD_EPOCH, RECORD_IMAGE, RECORD_PHASE)
+from ao_shaping.utils.io.record_mode import RecordMode
 
 # 语料家族前缀（最长前缀匹配，顺序极为关键：slm_pib_online 必须排在 slm_pib 之前）
 # 参见：src/ml/hwdataset/index.py:200-210
@@ -588,7 +589,7 @@ def acquire(
         logger.warning("零阶定位失败：{}（将不冻结 ROI）", e)
         zero_center = None
 
-    rec = Recorder(mark="J", mode="max")
+    rec = Recorder(mark="J", mode=RecordMode.MAX)
     dropped_records = 0
     for p in plan:
         phase_rad = make_phase(p, params)
@@ -907,7 +908,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # ``save_recorder_debug_artifacts`` 读的是 ``res.history`` ——
         # 传普通 dict 会 AttributeError 并被下面的 except 吞掉, 结果是
         # "脚本跑完了但一个文件都没落"。所以必须真的构造 Recorder。
-        recorder = Recorder(mark="J", mode="max")
+        recorder = Recorder(mark="J", mode=RecordMode.MAX)
         # writer 只保留白名单里的键: 少写一个字段, 下游就看不到它。
         scalar_keys = ("exp_t", "peak", "spot_cx", "spot_cy", "J")
         img_keys = ("_img", "pupil")
@@ -918,7 +919,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             """把一批记录写成 debug 产物; 成功返回 True。"""
             if not rows:
                 return True
-            batch = Recorder(mark="J", mode="max")
+            batch = Recorder(mark="J", mode=RecordMode.MAX)
             batch.history = list(rows)
             point = plan[rows[-1][RECORD_EPOCH]] if 0 <= rows[-1][RECORD_EPOCH] < len(plan) else plan[0]
             save_recorder_debug_artifacts(

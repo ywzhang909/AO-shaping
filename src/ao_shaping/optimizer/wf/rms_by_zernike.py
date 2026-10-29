@@ -47,6 +47,7 @@ from ao_shaping.utils.io.recorder_keys import (
     RECORD_EPOCH,
     RECORD_PHASE,
 )
+from ao_shaping.utils.io.record_mode import RecordMode
 
 # =============================================================================
 # Scheduling utilities for LR and delta
@@ -547,7 +548,7 @@ def optimizer_rms_slm(
     n_zernike = calc_n_zernike_terms(n_max)
     zernike_modes = _zernike_indices(n_max)
 
-    recorder = Recorder(mark="rms", mode="min")
+    recorder = Recorder(mark="rms", mode=RecordMode.MIN)
 
     with (
         ZernikeSLM(

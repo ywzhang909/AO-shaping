@@ -203,7 +203,7 @@ def _objective_to_min(objective: str) -> int:
     objective the recorder reports as improving -- the 74c7d0f symptom reached
     through the vocabulary instead of through a scoping mistake.
     """
-    return -1 if objective_direction(objective) == "max" else 1
+    return -1 if objective_direction(objective).maximizing else 1
 
 
 def optimize_pib(

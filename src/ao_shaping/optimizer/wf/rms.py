@@ -16,6 +16,7 @@ from ao_shaping.utils.io.recorder_keys import (
     RECORD_EPOCH,
     RECORD_VOLTAGES,
 )
+from ao_shaping.utils.io.record_mode import RecordMode
 
 if TYPE_CHECKING:
     from ao_shaping.drivers.dm.base import DM
@@ -94,7 +95,7 @@ def optimizer_rms_dm(
     # Saved before the schedule rebinds `lr`/`delta`, which would otherwise
     # discard the caller's override at both call sites.
     _lr_override, _delta_override = lr, delta
-    recorder = Recorder(mark="rms", mode="min")
+    recorder = Recorder(mark="rms", mode=RecordMode.MIN)
 
     if not init_v:
         _init_v = np.zeros(dm.DM_NUM, dtype=np.float64)

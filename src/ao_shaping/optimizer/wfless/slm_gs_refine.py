@@ -120,6 +120,7 @@ from ao_shaping.utils.io.recorder_keys import (
     RECORD_IMAGE,
     RECORD_PHASE,
 )
+from ao_shaping.utils.io.record_mode import RecordMode
 
 __all__ = ["SlmGsRefineConfig", "optimize_slm_gs_refine"]
 
@@ -1110,7 +1111,7 @@ def optimize_slm_gs_refine(config: SlmGsRefineConfig) -> Recorder:
         import ao_shaping.drivers.sim.slm_pib_sim  # noqa: F401
 
     rng = np.random.default_rng(config.seed)
-    recorder = Recorder(mark="score", mode="max")
+    recorder = Recorder(mark="score", mode=RecordMode.MAX)
 
     slm = open_slm(config)
     # Send-pipeline overlay (GUI 离焦 / 底相位): apply to the SLM this run opens,

@@ -36,6 +36,7 @@ from ao_shaping.utils.wavefront.zernike_calc import zernike_modes as _zernike_in
 from ao_shaping.utils.io.recorder_keys import (
     RECORD_COEFFS,
 )
+from ao_shaping.utils.io.record_mode import RecordMode
 
 # SLM parameters
 SLM_WAVELENGTH_DEFAULT = 532  # nm
@@ -193,7 +194,7 @@ def optimizer_ga(
     n_zernike = calc_n_zernike_terms(n_max)
     zernike_modes = _zernike_indices(n_max)
 
-    recorder = Recorder(mark='ga_zernike', mode='min')
+    recorder = Recorder(mark='ga_zernike', mode=RecordMode.MIN)
 
     with (
         ZernikeSLM(

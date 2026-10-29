@@ -1635,7 +1635,7 @@ def _apply_best_on_exit(
             return
         improved = (
             best_objective > _initial_objective + IMPROVE_EPS
-            if objective_mode == "max"
+            if objective_mode.maximizing
             else best_objective < _initial_objective - IMPROVE_EPS
         )
         if improved:
@@ -1800,7 +1800,7 @@ def _run_heuristic(
                 def _on_evaluate(candidate, value, index) -> None:
                     improved = (
                         value > state.best_objective + IMPROVE_EPS
-                        if objective_mode == "max"
+                        if objective_mode.maximizing
                         else value < state.best_objective - IMPROVE_EPS
                     )
                     if improved:
@@ -1861,7 +1861,7 @@ def _run_heuristic(
                     iterations=epochs,
                     bounds=(-ZERNIKE_CLIP, ZERNIKE_CLIP),
                     x0=_init_c,
-                    maximize=(objective_mode == "max"),
+                    maximize=(objective_mode.maximizing),
                     seed=random_seed,
                     pop_size=pop_size,
                     on_evaluate=_on_evaluate,
@@ -2173,7 +2173,7 @@ def _run_spgd(
                     # hand-inverted again (this site maximised/minimised the wrong
                     # way until the objective_mode fix). Cast to float: bucket sums
                     # are unsigned.
-                    _spgd_sign = -1.0 if objective_mode == "max" else 1.0
+                    _spgd_sign = -1.0 if objective_mode.maximizing else 1.0
                     diff = (float(pos_j) - float(neg_j)) * _spgd_sign
 
                     # Noise-aware update gate: with delta < 0.001 the measured diff
@@ -2189,7 +2189,7 @@ def _run_spgd(
                         _n_noise_gated += 1
 
                     gradient = spgd_gradient(
-                        pos_j, neg_j, disturb_c, maximize=(objective_mode == "max")
+                        pos_j, neg_j, disturb_c, maximize=(objective_mode.maximizing)
                     )
                     if _grad_usable:
                         update = optimizer.update(gradient)
@@ -2257,7 +2257,7 @@ def _run_spgd(
                     # Track best result in the objective's own direction.
                     improved = (
                         objective_val > state.best_objective + IMPROVE_EPS
-                        if objective_mode == "max"
+                        if objective_mode.maximizing
                         else objective_val < state.best_objective - IMPROVE_EPS
                     )
                     if improved:

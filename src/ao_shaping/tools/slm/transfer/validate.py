@@ -305,10 +305,11 @@ def run(args):
     # Exported after the devices are closed, so a slow GIF render cannot hold
     # the camera or the SLM.
     from ao_shaping.utils.io.file import Recorder
+    from ao_shaping.utils.io.record_mode import RecordMode
 
     from . import recording
 
-    recorder = Recorder(mark="cv", mode="min")
+    recorder = Recorder(mark="cv", mode=RecordMode.MIN)
     if resume and (args.out/"capture_records.pkl").is_file():
         # The process recording is cumulative: a resumed stage appends its own
         # blocks to the captures already archived instead of exporting a table

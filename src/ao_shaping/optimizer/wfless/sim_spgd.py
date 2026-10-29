@@ -24,6 +24,7 @@ from ao_shaping.utils.io.recorder_keys import (
     RECORD_ROI_ENERGY,
     RECORD_VOLTAGES,
 )
+from ao_shaping.utils.io.record_mode import RecordMode
 
 def _current_strehl(ao_sys: TraditionalAOSystem) -> float:
     return float(ao_sys.observe()["strehl"])
@@ -180,7 +181,7 @@ def optimize_spgd(
     delta = abs(delta)
     epochs = int(epochs)
 
-    recorder = Recorder(mark="sim_spgd", mode="max")
+    recorder = Recorder(mark="sim_spgd", mode=RecordMode.MAX)
 
     config = AOConfig(
         N=n_grid,
@@ -438,7 +439,7 @@ def optimize_spgd_zernike(
     delta = abs(delta)
     epochs = int(epochs)
 
-    recorder = Recorder(mark="sim_spgd_zernike", mode="max")
+    recorder = Recorder(mark="sim_spgd_zernike", mode=RecordMode.MAX)
 
     config = AOConfig(
         N=n_grid,
@@ -658,7 +659,7 @@ def optimize_pso(
         np.random.seed(seed)
 
     epochs = int(epochs)
-    recorder = Recorder(mark="sim_pso", mode="max")
+    recorder = Recorder(mark="sim_pso", mode=RecordMode.MAX)
 
     config = AOConfig(
         N=n_grid,
@@ -787,7 +788,7 @@ def optimize_ga(
         np.random.seed(seed)
 
     epochs = int(epochs)
-    recorder = Recorder(mark="sim_ga", mode="max")
+    recorder = Recorder(mark="sim_ga", mode=RecordMode.MAX)
 
     config = AOConfig(
         N=n_grid,
@@ -926,7 +927,7 @@ def optimize_sa(
         np.random.seed(seed)
 
     epochs = int(epochs)
-    recorder = Recorder(mark="sim_sa", mode="max")
+    recorder = Recorder(mark="sim_sa", mode=RecordMode.MAX)
 
     config = AOConfig(
         N=n_grid,

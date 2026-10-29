@@ -192,8 +192,9 @@ def _rebuild_records(out: Path, shapes: list[str]) -> None:
     without re-running anything.
     """
     from ao_shaping.utils.io.file import Recorder
+    from ao_shaping.utils.io.record_mode import RecordMode
 
-    recorder = Recorder(mark="cv_candidate", mode="min")
+    recorder = Recorder(mark="cv_candidate", mode=RecordMode.MIN)
     for shape in shapes:
         for recipe in STAGE_RECIPES:
             stage_dir = out / "shape" / shape / recipe.name
@@ -595,8 +596,9 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
     recorder = None
     try:
         from ao_shaping.utils.io.file import Recorder
+        from ao_shaping.utils.io.record_mode import RecordMode
 
-        recorder = Recorder(mark="cv_candidate", mode="min")
+        recorder = Recorder(mark="cv_candidate", mode=RecordMode.MIN)
     # policy: Recorder is optional telemetry for this stage loop
     except Exception as exc:  # pragma: no cover - Recorder is part of the repo
         logger.warning("Recorder unavailable: {}", exc)

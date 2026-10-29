@@ -140,6 +140,7 @@ from ao_shaping.utils.io.recorder_keys import (
     RECORD_GRAD,
     RECORD_IMAGE,
 )
+from ao_shaping.utils.io.record_mode import RecordMode
 
 # Adam parameters
 beta1 = 0.9
@@ -1205,7 +1206,7 @@ def optimize_slm_square(
     _score_column = (
         "quality" if _objective_key in _DEFAULT_OBJECTIVE_ALIASES else _objective_key
     )
-    recorder = Recorder(mark=_score_column, mode="max")
+    recorder = Recorder(mark=_score_column, mode=RecordMode.MAX)
 
     # History for convergence detection
     _gradient_history: list[float] = []

@@ -58,6 +58,7 @@ from ao_shaping.utils.io.cli_helpers import (
     setup_coredumpy,
 )
 from ao_shaping.utils.io.recorder_keys import (RECORD_EPOCH, RECORD_IMAGE, RECORD_PHASE)
+from ao_shaping.utils.io.record_mode import RecordMode
 
 #: Panel raster of the Santec SLM-200 used on this bench (height, width).
 DEFAULT_PANEL_SHAPE: tuple[int, int] = (SLM_PANEL_H, SLM_PANEL_W)
@@ -486,7 +487,7 @@ def main(params: SweepProbeParams) -> None:
     logger.info("panel pitch {} m, 斜坡标定请用 ramp 点 (S = 位移 x 周期)",
                 SLM_PITCH_M)
 
-    recorder = Recorder(mark="peak", mode="min")
+    recorder = Recorder(mark="peak", mode=RecordMode.MIN)
     for row in sweep_to_recorder_rows(result):
         recorder.append(row)
     save_recorder_debug_artifacts(

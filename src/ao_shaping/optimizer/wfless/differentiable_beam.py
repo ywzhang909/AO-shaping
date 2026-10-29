@@ -60,6 +60,7 @@ from ao_shaping.utils.image.targets import crop_resize_to_grid
 from ao_shaping.utils.io.recorder_keys import (
     RECORD_EPOCH,
 )
+from ao_shaping.utils.io.record_mode import RecordMode
 
 # Hardware drivers are imported guarded: the SDKs are not installed on every
 # machine, and this module must stay importable without them. The auto-create
@@ -263,7 +264,7 @@ def optimize_beam_shaping(
         optimizer.device,
     )
 
-    recorder = Recorder(mark="loss", mode="min")
+    recorder = Recorder(mark="loss", mode=RecordMode.MIN)
     best_loss = float("inf")
     best_phase: np.ndarray | None = None
     steps_without_improvement = 0

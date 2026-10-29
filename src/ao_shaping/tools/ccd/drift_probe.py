@@ -81,6 +81,7 @@ from ao_shaping.tools.kernels.bench_kernels import (
 from ao_shaping.tools.zernike.sweep_probe import capture_settled
 from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.utils.io.recorder_keys import (RECORD_EPOCH)
+from ao_shaping.utils.io.record_mode import RecordMode
 
 __all__ = [
     "DRIFT_REPEAT_TOL",
@@ -649,7 +650,7 @@ def main(params: DriftProbeParams) -> None:
     np.savez_compressed(npz_path, **columns)
     logger.info("summary -> {}", npz_path)
 
-    recorder = Recorder(mark="peak", mode="min")
+    recorder = Recorder(mark="peak", mode=RecordMode.MIN)
     for row in rows:
         recorder.append(row)
     # `repeat` is deliberately absent from `scalar_keys`: it is None on every

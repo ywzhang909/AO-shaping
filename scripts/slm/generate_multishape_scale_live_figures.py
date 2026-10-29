@@ -50,6 +50,7 @@ sys.path.insert(0, str(ROOT))
 
 from ao_shaping.tools.slm.transfer import recording
 from ao_shaping.utils.io.file import Recorder
+from ao_shaping.utils.io.record_mode import RecordMode
 from ao_shaping.utils.io.recorder_keys import RECORD_IMAGE
 
 STAMP = "_20261028"
@@ -195,7 +196,7 @@ def build_recorder(run_root: Path, manifests: dict[tuple[str, str], list[dict]])
     Mirrors ``transfer_shapes_runner._rebuild_records``: the block numbering is
     owned by the recorder, so no two stages collide on an epoch / id.
     """
-    recorder = Recorder(mark="cv_candidate", mode="min")
+    recorder = Recorder(mark="cv_candidate", mode=RecordMode.MIN)
     for shape, stages in STAGE_PLAN.items():
         for stage in stages:
             if (shape, stage) not in manifests:

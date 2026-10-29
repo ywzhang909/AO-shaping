@@ -417,12 +417,13 @@ def stage_collect(args: argparse.Namespace, out_dir: Path) -> None:
     dframes: list[np.ndarray] = []
     vis = out_dir / "frames" / "collect"
     from ao_shaping.utils.io.file import Recorder
+    from ao_shaping.utils.io.record_mode import RecordMode
 
     # The preflight runs before any device is opened, so a bad focus.json
     # costs nothing.
     preflight = _build_focus_preflight(args, out_dir)
 
-    recorder = Recorder(mark="peak", mode="min")
+    recorder = Recorder(mark="peak", mode=RecordMode.MIN)
     with Santec(
         slm_number=args.slm_number, wavelength=args.slm_wavelength, video_mode=0
     ) as slm, create_camera(
@@ -666,12 +667,13 @@ def stage_sweep(args: argparse.Namespace, out_dir: Path) -> None:
     """
     from ao_shaping.optimizer.wfless.model_in_loop_shaping import SweepRecord
     from ao_shaping.utils.io.file import Recorder
+    from ao_shaping.utils.io.record_mode import RecordMode
 
     pupil = _pupil_center(args)
     vis = out_dir / "frames" / "sweep"
     tilt_axis = [(1, 1), (1, -1)]  # (n, m) for the two tilts
     points: list[SweepRecord] = []
-    recorder = Recorder(mark="peak", mode="min")
+    recorder = Recorder(mark="peak", mode=RecordMode.MIN)
     flat_peak = float("nan")
     flat_core = float("nan")
     flat_frame: np.ndarray | None = None
