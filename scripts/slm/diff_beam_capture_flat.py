@@ -88,7 +88,7 @@ def pick_slm_slot(slm: object, last_slot: int | None) -> tuple[int, int | None]:
         try:
             last_slot = int(slm.get_displayed_memory_number())  # type: ignore[attr-defined]
             logger.info("SLM当前显示槽: {}", last_slot)
-        except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (真机/仿真/mock), 抛出的类型不可枚举
+        except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
             logger.debug("读取 SLM 当前显示槽失败: {}", exc)
             last_slot = None
     candidates = [s for s in range(2, 126) if s != last_slot]
