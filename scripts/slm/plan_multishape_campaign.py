@@ -76,6 +76,12 @@ CAMPAIGN_ROOT = ROOT / "data" / "debug" / "slm_transfer"
 RUNNER = "src/ao_shaping/main.py"
 PROBE = "scripts/slm/probe_optical_path_validity.py"
 
+#: Placeholder the *plan* carries for the campaign root, so "plan.json stays
+#: portable: it can be copied to another machine whose data/ lives elsewhere.
+#: The rendered .ps1 must not carry it -- a lane is executed, not read, and an
+#: unexpanded token makes --model-dir a literal "<campaign>/..." directory.
+CAMPAIGN_TOKEN = "<campaign>"
+
 #: Sizes the campaign measures, in native CCD pixels, and the camera window each
 #: needs. The window must be wider than the target and the zero-order disk: the
 #: 200 px box overlaps the zero-order disk by 5.61 % (measured), which is why the
@@ -190,7 +196,7 @@ def render_lane(lane: dict, *, frames: int, replay_exposures: list[float]) -> li
         # No model dir = the from-zero branch. That is the whole point of the
         # refit lane: a lane that reuses a checkpoint must be preceded by a fit
         # on the current bench, or the reuse is silent.
-        *(["--model-dir", f'<campaign>/{lane["model_session"]}']
+        *(["--model-dir", f"{CAMPAIGN_TOKEN}/{lane['model_session']}"]
           if lane.get("model_session") else []),
         "--initial-phase", lane["initial_phase"],
         "--no-gs-seed",
@@ -201,6 +207,25 @@ def render_lane(lane: dict, *, frames: int, replay_exposures: list[float]) -> li
     ]
     return [preflight, 'if ($LASTEXITCODE -ne 0) { Write-Error "preflight refused"; exit 1 }',
             " ".join(shlex.quote(part) for part in runner)]
+
+
+def expand_campaign_token(commands: list[str], campaign_dir: Path) -> list[str]:
+    """Resolve the plan's portable campaign token into a runnable absolute path.
+
+    The plan keeps ``<campaign>`` so it survives being copied to a machine whose
+    ``data/`` sits elsewhere; a lane script is executed, not copied, so it must
+    carry the real root. Every lane but the refit has a ``--model-dir`` that
+    would otherwise point at a literal ``<campaign>`` directory.
+
+    Args:
+        commands: Lane commands as stored in ``plan.json``.
+        campaign_dir: The campaign root to substitute.
+
+    Returns:
+        The same commands with the token replaced by ``str(campaign_dir)``.
+    """
+    root = str(campaign_dir)
+    return [part.replace(CAMPAIGN_TOKEN, root) for part in commands]
 
 
 def build_plan(*, sizes: list[int], shapes: list[str], routes: list[str],
@@ -360,7 +385,8 @@ def main(argv: list[str] | None = None) -> int:
     lanes_dir.mkdir(exist_ok=True)
     for lane in plan["lanes"]:
         body = "\n".join([f'# {lane["session"]}  route={lane["route"]}  '
-                          f'shape={lane["shape"]}  size={lane["size"]} px', *lane["commands"], ""])
+                          f'shape={lane["shape"]}  size={lane["size"]} px',
+                          *expand_campaign_token(lane["commands"], args.campaign_dir), ""])
         (lanes_dir / f'{lane["order_index"]:02d}_{lane["session"]}.ps1').write_text(
             body, encoding="utf-8")
     print(f'wrote {args.campaign_dir / "plan.json"} and {len(plan["lanes"])} lanes')

@@ -233,3 +233,41 @@ def test_write_mode_emits_plan_and_one_lane_per_condition(tmp_path):
 def test_check_mode_exits_nonzero_on_a_bad_budget(tmp_path):
     assert planner.main(["--check", "--campaign-dir", str(tmp_path / "c"),
                          "--sizes", "600", "--shapes", "circle", "--repeats", "3"]) == 1
+
+
+# -- the campaign token: portable in the plan, expanded in the lane ----------
+
+
+def test_lane_scripts_never_leave_the_campaign_token_unexpanded(tmp_path):
+    campaign = tmp_path / "c"
+    assert planner.main(["--campaign-dir", str(campaign), "--sizes", "600",
+                         "--shapes", "circle"]) == 0
+    lanes = sorted((campaign / "lanes").glob("*.ps1"))
+    reusing = [path for path in lanes if "--model-dir" in path.read_text(encoding="utf-8")]
+    assert reusing, "every lane but the refit must pass a model dir"
+    for path in lanes:
+        body = path.read_text(encoding="utf-8")
+        assert planner.CAMPAIGN_TOKEN not in body, (
+            f"{path.name} would point --model-dir at a literal '<campaign>' directory"
+        )
+    for path in reusing:
+        parts = path.read_text(encoding="utf-8").split()
+        model_dir = parts[parts.index("--model-dir") + 1].strip("\"'")
+        assert Path(model_dir).is_absolute()
+        assert model_dir.startswith(str(campaign))
+
+
+def test_the_plan_itself_keeps_the_portable_token(tmp_path):
+    campaign = tmp_path / "c"
+    assert planner.main(["--campaign-dir", str(campaign), "--sizes", "600",
+                         "--shapes", "circle"]) == 0
+    plan = json.loads((campaign / "plan.json").read_text(encoding="utf-8"))
+    for lane in plan["lanes"]:
+        if not lane.get("model_session"):
+            continue
+        joined = " ".join(lane["commands"])
+        assert planner.CAMPAIGN_TOKEN in joined, "plan.json must stay portable"
+
+    expanded = planner.expand_campaign_token(["--model-dir", f"{planner.CAMPAIGN_TOKEN}/s1200"],
+                                            campaign)
+    assert expanded == ["--model-dir", f"{campaign}/s1200"]

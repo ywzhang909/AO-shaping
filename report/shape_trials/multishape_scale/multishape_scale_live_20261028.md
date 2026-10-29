@@ -281,10 +281,69 @@ counts（**×0.40**）。因此 `s1200` / `s600_fixed` 的拟合检查点与当�
 证据：`data/debug/optical_path_probe/retry_20261029/20261029_013227Z/optical_path_probe.json`。
 
 **下一步（最有区分力）**：
-- **跑 §5.2 的 25 条 lane**，顺序按 `order_index`（lane 00 refit 先行）；任何一条被前置探针拒绝就先处理光路，不要跳过去跑下一条。
+- **跑 §5.2 的剩余 lane 01–24**，顺序按 `order_index`；lane 00（refit）已于 §5.4 完成并产出本轮模型，任何一条被前置探针拒绝就先处理光路，不要跳过去跑下一条。
 - **补完曝光阶梯**：`common_replay_ladder_trial` 的缺失 replay 索引可续跑（`replay_phases.replay` 不覆盖已存在文件），不重跑已完成的 34 次。
 - **审计新会话**：每个会话结束立刻 `python scripts/slm/audit_replay_blocks.py --session <新会话>`，先把被扣留的饱和帧列出来再谈 CV。
 - **实验后分析**：把三层证据（模型验证集 / 逐块 CV / 重放审计）+ §4.1 的四条口径 + 跨尺度比较写进 `multishape_scale_analysis_20261028.md`。
+
+### 5.4 2026-10-29 lane 00（`p20261029_refit`）结果与模型重拟合判定
+
+lane 00 于 01:36:44 → 01:54:18 UTC 跑完四个阶段（`transport_cv` / `mono12_cv` / `mono12_continue` /
+`mono12_dense`），`seed_bakeoff` 按设计 `skipped`（`--no-gs-seed` + 随机初相位 = 严格冷启动分支）。
+
+**`model_power_check` 第 1 项：holdout 误差对比**（`fit/result.json`，12 条验证集探针）：
+
+| 检查点 | loss | corr 均值 | corr 最小 | relative_l2 |
+|---|---|---|---|---|
+| `p20261029`（本次重拟合） | **0.3263** | 0.7322 | 0.3735 | 0.6013 |
+| `s1200`（旧功率） | 0.3983 | 0.6806 | 0.3758 | 0.6256 |
+| `s600_fixed`（旧功率） | 0.2234 | 0.8111 | 0.5946 | 0.5913 |
+
+重拟合优于 `s1200`，落在 `s600_fixed` 与 `s1200` 之间。**判定：本次复用的模型是 `p20261029`**，
+`lanes/01` 起的 `--model-dir` 全部指向它。⚠️ 两边的验证集相位各不相同（各自会话自己的探针），
+所以上表是**同带比较，不是配对检验**；它只能回答「重拟合没有退化成噪声」，不能给出置信区间。
+
+**`model_power_check` 第 2 项：前置探针建议曝光 vs 实际采集曝光**：
+
+| 阶段 | 实际 settling 曝光 |
+|---|---|
+| `transport_cv` | 557.685 ms |
+| `mono12_cv` | 611.054 ms |
+| `mono12_continue` | 727.371 ms |
+| `mono12_dense` | 476.846 ms |
+
+对外比较：`s1200` 全程 155.52 ms，`s600_fixed` 0.72–50.4 ms。本次是 `s1200` 的 3.1–4.7×，与 ×0.40
+的功率下降同向。**两者不可直接相比**：前置探针的 20 ms 是让**平场**落在 100–200 counts 的推荐值，
+而逐阶段的 settling 曝光是在**成形后的窗口内**把峰值顶到目标带——窗口内的峰值远低于平场零级，
+所以它必然选更长的曝光。真正的曝光对照是 `common_replay` 的固定 50/125/225 ms。
+
+**重放审计**（`scripts/slm/audit_replay_blocks.py --session p20261029`，`peak_guard_fraction = 0.98`）：
+**15/15 行可用、全部放行，`clipped = []`** —— 50/125/225 ms 三档都没有截断，按 §5.3 不需退回 20/50/90。
+
+| 曝光档 | CV 均值（sd） | 相对 EE | 零级排除比 | 复制离散（final, 95% t） | seed→final |
+|---|---|---|---|---|---|
+| 50 ms | 1.1000 (0.2530) | 0.7347 | 0.008 | ±0.0532 | −0.5122，supported |
+| 125 ms | 1.0783 (0.2423) | 0.7400 | 0.008 | ±0.0458 | −0.4970，supported |
+| 225 ms | 1.0759 (0.2521) | 0.7415 | 0.008 | ±0.0432 | −0.5215，supported |
+
+**如何读这组 CV**：1.08 落在旧会话**成形前**的水平（`s600` 的 dense 起点是 1.0264–1.0879），而旧会话
+**成形后**的 0.6574–0.7316 来自一个已训练好的检查点。lane 00 是 1200 px、随机初相位、无模型可用的
+从零分支，所以：
+
+- **1.08 不是本轮 campaign 结果，是「复用检查点」各 lane 必须超过的锚点**；把它和旧功率的成形后
+  数值并列会同时混淆「冷启动 vs 迁移」和「旧功率 vs 新功率」两件事。
+- 三个曝光档的 CV 差 ≤ 0.025，远小于 ±0.05 的复制离散 → 曝光在 50–225 ms 内不影响结论，
+  等光子数重标定有效。
+
+**计划缺陷（已修）**：`lanes/01`–`24` 的 `--model-dir` 曾原样带出 `'<campaign>/p20261029'`
+占位符——`plan.json` 里的 `<campaign>` 是为了让计划可移植，但 lane 脚本是**要被执行的**，未展开
+就会指向一个名为 `<campaign>` 的字面目录。修法：`plan.json` 保留占位符，渲染 `.ps1` 时经
+`expand_campaign_token()` 展开成绝对路径；`tests/ao_shaping/scripts/test_plan_multishape_campaign.py`
+新增 2 条守卫（脚本内不得残留占位符、`plan.json` 内必须保留）。25 条 lane 已重新渲染并逐条核对
+三档 replay 曝光齐全。
+
+证据：`data/debug/slm_transfer/multishape_nogs_20261029/p20261029/`（`journal.json`、`fit/result.json`、
+`common_replay/`、逐阶段 `circle_*_exposure.json`）。
 
 ## 6. 设备释放状态
 
