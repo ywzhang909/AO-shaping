@@ -100,6 +100,7 @@ from ao_shaping.gui.slm import sampling_assist
 from ao_shaping.gui.slm.pattern_controls import refresh_phase_preview
 from ao_shaping.gui.slm.transfer_progress import collect_progress, render_progress
 from ao_shaping.gui.utils.phase_overlay import apply_overlays_to_handle
+from ao_shaping.optimizer.wfless.slm_gs_refine import VALIDATED_GS_REFINE_RECIPE
 from ao_shaping.utils.io.timestamp import format_ts
 from ao_shaping.runners.runner_common import (
     SlmGsRefineParams,
@@ -159,33 +160,13 @@ __all__ = [
 #: The interleaved-replay validated gs-refine recipe
 #: (report/shape_trials/gs_refine_live_20261012.md).  Changing a default here
 #: silently abandons that evidence — change it only with new replay evidence.
-GS_REFINE_RECIPE: dict[str, Any] = {
-    "target_side": 100,
-    "side_factor": 1.0,
-    "w_pib": 0.5,
-    "w_unif": 0.5,
-    "phase_grid": 12,
-    "delta": 0.35,
-    "confirm_best": True,
-    "epochs": 12,
-    "seed": 0,
-    "gs_warm_start": True,
-    "gs_iters": 12,
-    "gs_method": "plain",
-    # 面板模型取的是**像素间距** ``PITCH_UM`` = 8.0, 不是有效口径 7.8（相差 0.2 μm
-    # 的器件几何, 见 ``slm200_constants``）。换成像元尺寸会让孔径算小 2.5% 并作废下面
-    # 这份交错重放验证配方。
-    "panel_pixel_um": 8.0,
-    "camera_pixel_um": 2.2,
-    "beam_radius_px": 450.0,
-    "pupil_center": "960,690",
-    "far_field_padding": 3,
-    "cam_type": "daheng",
-    "cam_id": 0,
-    "exposure_time_ms": 0.05,
-    "cam_size": 250,
-    "n_eval_frames": 4,
-}
+#:
+#: The values live in the optimiser
+#: (:data:`ao_shaping.optimizer.wfless.slm_gs_refine.VALIDATED_GS_REFINE_RECIPE`)
+#: so the CLI/library side and this GUI preset cannot drift apart; this name is
+#: kept because the GUI and its tests import it, and it is a **copy** so a widget
+#: default can never mutate the validated table.
+GS_REFINE_RECIPE: dict[str, Any] = dict(VALIDATED_GS_REFINE_RECIPE)
 
 #: Model-in-loop budget presets: ``(轮数, Step A 步数, Step B 步数)``.
 #: The "标准" row is verbatim the ``docs/slm/slm_model_in_loop.md`` §5 defaults

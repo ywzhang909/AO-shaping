@@ -100,6 +100,7 @@ from ao_shaping.utils.cli.exposure import (
 from ao_shaping.utils.cli.params import ClickGroup, option
 from ao_shaping.utils.image.target import (
     DIFFERENTIABLE_SHAPE_CHOICES,
+    SHAPE_PARAMETER_FIELDS,
     SHAPING_OBJECTIVE_CHOICES,
     SQUARE_OBJECTIVE_CHOICES,
     TARGET_SHAPE_CHOICES,
@@ -2376,7 +2377,14 @@ class SlmGsRefineParams:
         ),
     ] = 0
     side_factor: Annotated[
-        float, option("--side-factor", help="Multiplier on the target side.")
+        float,
+        option(
+            "--side-factor",
+            help=(
+                "Multiplier on the target side (applies to both the explicit "
+                "and the auto-derived size)."
+            ),
+        ),
     ] = 1.0
     target_shape: Annotated[
         str,
@@ -2596,13 +2604,6 @@ class SlmGsRefineParams:
             help="GS far-field zero-padding factor (cost is quadratic).",
         ),
     ] = 3
-    gs_target_side_px: Annotated[
-        int,
-        option(
-            "--gs-target-side-px",
-            help="Override the bench-space target side (0 = derive).",
-        ),
-    ] = 0
 
     # --- hardware ----------------------------------------------------------
     cam_type: Annotated[
@@ -3349,6 +3350,68 @@ def parse_point(raw: str | None) -> tuple[int, int]:
     return int(parts[0]), int(parts[1])
 
 
+def _shape_knob_defaults() -> dict[str, Any]:
+    """Default value of every per-shape knob on :class:`SlmGsRefineParams`.
+
+    Derived from the dataclass itself (never a second literal table) so the
+    "is this knob at its default?" test in
+    :func:`_reject_irrelevant_shape_knobs` cannot drift from the declared
+    defaults.
+    """
+    by_name = {f.name: f for f in fields(SlmGsRefineParams)}
+    defaults: dict[str, Any] = {}
+    for knob in {name for names in SHAPE_PARAMETER_FIELDS.values() for name in names}:
+        default = by_name[knob].default
+        if default is MISSING:
+            raise RuntimeError(f"{knob} has no dataclass default")
+        defaults[knob] = default
+    return defaults
+
+
+def _reject_irrelevant_shape_knobs(params: SlmGsRefineParams) -> None:
+    """Refuse shape knobs the chosen shape does not read.
+
+    ``--target-shape circle --target-grid-nx 3`` parses happily and then does
+    nothing with the grid: the option exists for every shape because one params
+    dataclass holds them all.  Silently ignoring a flag the operator typed is
+    how a run gets reported against a setting that never applied, so this raises
+    instead, naming the shape and the knobs it *does* read.
+
+    Assumption: ``@with_params`` cannot tell "the user typed the default" from
+    "the user typed nothing", so a knob counts as **set** when it differs from
+    its dataclass default.  Passing a non-default value for a shape that does
+    not read it is therefore an error even if the caller meant it harmlessly.
+
+    Raises:
+        ValueError: If a knob outside
+            :data:`~ao_shaping.utils.image.target.shapes.SHAPE_PARAMETER_FIELDS`
+            ``[params.target_shape]`` is not at its default.
+    """
+    relevant = SHAPE_PARAMETER_FIELDS.get(params.target_shape)
+    if relevant is None:
+        # The shape itself is rejected by the config's own validation, which
+        # owns that message; do not duplicate the vocabulary here.
+        return
+    defaults = _shape_knob_defaults()
+    stray = [
+        f"{knob}={getattr(params, knob)!r} (default {defaults[knob]!r})"
+        for knob, default in defaults.items()
+        if knob not in relevant and getattr(params, knob) != default
+    ]
+    if not stray:
+        return
+    reads = (
+        ", ".join(relevant)
+        if relevant
+        else "no shape-specific knob (target_side only)"
+    )
+    raise ValueError(
+        f"target_shape={params.target_shape!r} does not read "
+        f"{', '.join(sorted(stray))}; it reads {reads}. Drop the flag or pick a "
+        "shape that uses it."
+    )
+
+
 def build_gs_refine_config(
     params: SlmGsRefineParams,
     *,
@@ -3356,9 +3419,18 @@ def build_gs_refine_config(
 ) -> SlmGsRefineConfig:
     """Build the ``SlmGsRefineConfig`` for a GS-refine run.
 
-    Verbatim field mapping from ``runners/slm/gs_refine_runner.py``.
+    The **only** params -> config mapping for ``slm-gs-refine``: the CLI runner,
+    ``save_gs_refine_results`` and the GUI adapter all go through it, so the
+    banner, the saved debug payload and the optimiser cannot disagree about what
+    a run used.
+
+    Raises:
+        ValueError: If a shape knob is set for a shape that does not read it (see
+            :func:`_reject_irrelevant_shape_knobs`).
     """
     from ao_shaping.optimizer.wfless.slm_gs_refine import SlmGsRefineConfig
+
+    _reject_irrelevant_shape_knobs(params)
 
     return SlmGsRefineConfig(
         epochs=params.epochs,
@@ -3398,7 +3470,6 @@ def build_gs_refine_config(
         confirm_best=params.confirm_best,
         focal_length_m=params.focal_length_m,
         far_field_padding=params.far_field_padding,
-        gs_target_side_px=params.gs_target_side_px,
         cam_type=params.cam_type,
         cam_id=params.cam_id,
         # CLI token -> config float. This is the ONLY translation point for
@@ -3620,11 +3691,21 @@ def save_gs_refine_results(
     *,
     root_dir: Path,
     debug: bool,
+    config: SlmGsRefineConfig | None = None,
 ) -> GsRefineSaveResult:
     """Persist a GS-refine run's recorder and debug artefacts.
 
     Extracted verbatim from ``runners/slm/gs_refine_runner.py`` so the GUI
     adapter reuses the same disk layout without duplicating the CLI runner.
+
+    Args:
+        recorder: The finished run's recorder.
+        params: The CLI params (``save_best_image`` is read from here).
+        root_dir: Run-output root.
+        debug: Whether to write the debug artefacts.
+        config: The config the run actually used. Passing it keeps the saved
+            ``debug_payload`` identical to what was executed; when omitted (older
+            callers, the GUI adapter) the config is rebuilt from ``params``.
     """
     from ao_shaping.display.frames import save_best_image
     from ao_shaping.utils.io.file import (
@@ -3634,7 +3715,8 @@ def save_gs_refine_results(
         save_recorder_debug_artifacts,
     )
 
-    config = build_gs_refine_config(params, debug=debug)
+    if config is None:
+        config = build_gs_refine_config(params, debug=debug)
 
     save_dir = debug_run_dir(root_dir, "slm_gs_refine")
     csv_file = save_dir / f"slm_gs_refine_{gen_date_str()}.csv"

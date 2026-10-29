@@ -81,32 +81,56 @@ from ao_shaping.utils.cli.exposure import (
     ExposureChoice,
     resolve_exposure,
 )
+from ao_shaping.utils.image.target.shapes import shape_parameter_fields
 from ao_shaping.utils.io.cli_helpers import resolve_debug
+from ao_shaping.utils.slm.bench_constants import (
+    TILT_SHIFT_SCALE as _TILT_SHIFT_SCALE_PX,
+)
+
+#: Config field name -> the CLI flag that sets it.
+#:
+#: The banner names flags rather than dataclass fields because a flag is what the
+#: operator typed and can re-type. Kept beside :func:`_shape_params_line`, which
+#: renders straight from ``SHAPE_PARAMETER_FIELDS`` — there is no second table of
+#: "which shape reads which knob".
+_FIELD_FLAGS: dict[str, str] = {
+    "target_aspect_ratio": "--target-aspect-ratio",
+    "target_inner_ratio": "--target-inner-ratio",
+    "target_sigma_ratio": "--target-sigma-ratio",
+    "target_line_width": "--target-line-width",
+    "target_grid_nx": "--target-grid-nx",
+    "target_grid_ny": "--target-grid-ny",
+    "target_thickness": "--target-thickness",
+}
+
+#: How each knob's number reads, so the banner needs no per-shape prose.
+_FIELD_UNITS: dict[str, str] = {
+    "target_aspect_ratio": "x short side (long axis horizontal)",
+    "target_inner_ratio": "x outer radius",
+    "target_sigma_ratio": "x target side",
+    "target_line_width": "x target side",
+    "target_grid_nx": "vertical lines",
+    "target_grid_ny": "horizontal lines",
+    "target_thickness": "x target side",
+}
 
 
 def _shape_params_line(params: SlmGsRefineParams) -> str:
     """Only the parameters the chosen shape actually reads.
 
-    Printing all eight for every shape would imply the irrelevant ones do
+    Rendering all eight for every shape would imply the irrelevant ones do
     something: ``--target-grid-nx`` is silently ignored for a circle, and a run
     whose banner suggests otherwise invites a wrong conclusion about why a shape
-    came out as it did.
+    came out as it did. The list comes from ``SHAPE_PARAMETER_FIELDS``, the one
+    table that says which shape reads which knob.
     """
-    shape = params.target_shape
-    if shape == "rectangle":
-        return f"aspect={params.target_aspect_ratio} (long axis horizontal)"
-    if shape == "annular":
-        return f"inner/outer={params.target_inner_ratio}"
-    if shape == "gaussian":
-        return f"sigma={params.target_sigma_ratio} x side"
-    if shape == "grid":
-        return (
-            f"{params.target_grid_nx}x{params.target_grid_ny} lines, "
-            f"line_width={params.target_line_width} x side"
-        )
-    if shape == "cross":
-        return f"thickness={params.target_thickness} x side"
-    return "edge = target side"
+    fields = shape_parameter_fields(params.target_shape)
+    if not fields:
+        return "edge = target side"
+    return ", ".join(
+        f"{_FIELD_FLAGS[name]}={getattr(params, name)} {_FIELD_UNITS[name]}"
+        for name in fields
+    )
 
 
 @click.command()
@@ -146,68 +170,55 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
         else Path("data")  # python -m 独立运行时无 main 组上下文
     )
 
+    # Build the config BEFORE the banner: it is the one place that resolves the
+    # derived bench quantities (focal length, exposure token -> float), so the
+    # banner prints `config.*` and cannot disagree with what the optimizer runs.
+    config = build_gs_refine_config(params, debug=debug)
+    f_note = "pinned" if params.focal_length_m > 0 else "derived"
+
     click.echo("=" * 64)
     click.echo("SLM GS Warm Start + Freeform SPGD Refinement")
     click.echo("=" * 64)
-    click.echo(f"Camera: {params.cam_type} #{params.cam_id} size={params.cam_size}")
-    click.echo(f"SLM: #{params.slm_number} @ {params.slm_wavelength}nm")
+    click.echo(f"Camera: {config.cam_type} #{config.cam_id} size={config.cam_size}")
+    click.echo(f"SLM: #{config.slm_number} @ {params.slm_wavelength}nm")
+    click.echo(f"Epochs: {config.epochs}  grid: {config.phase_grid}x{config.phase_grid}")
+    click.echo(f"SPGD: delta={config.delta} lr={config.lr} opt={config.optimizer_type}")
     click.echo(
-        f"Epochs: {params.epochs}  grid: {params.phase_grid}x{params.phase_grid}"
+        f"GS warm start: {'on' if config.gs_warm_start else 'off'} "
+        f"(iters={config.gs_iters})"
     )
-    click.echo(f"SPGD: delta={params.delta} lr={params.lr} opt={params.optimizer_type}")
-    click.echo(
-        f"GS warm start: {'on' if params.gs_warm_start else 'off'} "
-        f"(iters={params.gs_iters})"
-    )
-    if params.gs_method != "plain":
+    if config.gs_method != "plain":
         click.echo(
-            f"GS strategy: {params.gs_method}  gamma={params.gs_gamma} "
-            f"clip={params.gs_weight_clip} beta={params.gs_beta} "
-            f"hio_fraction={params.gs_hio_fraction}"
+            f"GS strategy: {config.gs_method}  gamma={config.gs_gamma} "
+            f"clip={config.gs_weight_clip} beta={config.gs_beta} "
+            f"hio_fraction={config.gs_hio_fraction}"
         )
-    # focal_length_m defaults to 0 = "derive from the measured focal scale and the
-    # camera pixel pitch", so echo what will actually be used rather than the raw
-    # 0 (the config resolves it in __post_init__).
-    from ao_shaping.drivers.slm.factory import DEFAULT_WAVELENGTH_NM
+    click.echo(
+        f"Bench model: beam_r={config.beam_radius_px}px "
+        f"panel={config.panel_pixel_um}um cam={config.camera_pixel_um}um "
+        f"f={config.focal_length_m:.5f}m ({f_note}) "
+        f"pad={config.far_field_padding}"
+    )
+    # The focal scale's own reference wavelength, shown only so the derived
+    # ``f`` above can be traced back to the measurement it came from.
     from ao_shaping.optimizer.wfless.slm_gs_refine import (
         _TILT_SHIFT_SCALE_MEASURED_AT_NM,
-        _TILT_SHIFT_SCALE_PX,
-        focal_length_from_camera_pixel,
     )
 
-    _f_m = params.focal_length_m
-    _f_note = "pinned"
-    if _f_m <= 0.0:
-        _f_m = focal_length_from_camera_pixel(
-            wavelength_nm=float(params.slm_wavelength or DEFAULT_WAVELENGTH_NM),
-            camera_pixel_um=params.camera_pixel_um,
-            slm_pixel_um=params.panel_pixel_um,
-            focal_scale_px=_TILT_SHIFT_SCALE_PX,
-            scale_measured_at_nm=_TILT_SHIFT_SCALE_MEASURED_AT_NM,
-        )
-        _f_note = "derived"
     click.echo(
-        f"Bench model: beam_r={params.beam_radius_px}px panel={params.panel_pixel_um}um "
-        f"cam={params.camera_pixel_um}um f={_f_m:.5f}m ({_f_note}) "
-        f"pad={params.far_field_padding}"
-    )
-    click.echo(
-        f"Wavelength: {params.slm_wavelength or 'ask device'} nm "
+        f"Wavelength: {config.slm_wavelength or 'ask device'} nm "
         f"(focal scale {_TILT_SHIFT_SCALE_PX:.0f} measured @ "
         f"{_TILT_SHIFT_SCALE_MEASURED_AT_NM:.0f}nm)"
     )
     click.echo(
-        f"Target side: {params.target_side or 'auto'} px (factor {params.side_factor})"
+        f"Target side: {config.target_side or 'auto'} px (factor {config.side_factor})"
     )
-    click.echo(
-        f"Target shape: {params.target_shape}  "
-        + _shape_params_line(params)
-    )
+    click.echo(f"Target shape: {config.target_shape}  " + _shape_params_line(params))
     click.echo(f"SLM pupil center: {params.pupil_center or 'panel center'}")
     click.echo(
-        f"Objective: 0.5-style composite w_pib={params.w_pib} w_unif={params.w_unif}"
+        f"Objective: 0.5-style composite w_pib={config.w_pib} w_unif={config.w_unif}"
     )
-    if params.cam_type != "sim":
+    if config.cam_type != "sim":
         click.echo("!" * 64)
         click.echo("硬件模式: 请确认光斑已对准 SLM 且 CCD 已就位。")
         click.echo("Ctrl+C 会在当前 epoch 结束后释放设备。")
@@ -215,8 +226,6 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
     click.echo("=" * 64)
 
     from ao_shaping.optimizer.wfless.slm_gs_refine import optimize_slm_gs_refine
-
-    config = build_gs_refine_config(params, debug=debug)
 
     recorder = optimize_slm_gs_refine(config)
 
@@ -251,7 +260,9 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
         "of the ROI frame)"
     )
 
-    save_result = save_gs_refine_results(recorder, params, root_dir=root_dir, debug=debug)
+    save_result = save_gs_refine_results(
+        recorder, params, root_dir=root_dir, debug=debug, config=config
+    )
     click.echo(f"History saved: {save_result.csv_file}")
     if save_result.phase_file is not None:
         click.echo(

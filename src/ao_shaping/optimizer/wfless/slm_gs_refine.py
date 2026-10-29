@@ -60,7 +60,8 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import MISSING, dataclass, field, replace
+from dataclasses import fields as dataclass_fields
 from datetime import datetime, timezone
 from typing import Any
 
@@ -121,7 +122,7 @@ from ao_shaping.utils.io.recorder_keys import (
     RECORD_PHASE,
 )
 
-__all__ = ["SlmGsRefineConfig", "optimize_slm_gs_refine"]
+__all__ = ["VALIDATED_GS_REFINE_RECIPE", "SlmGsRefineConfig", "optimize_slm_gs_refine"]
 
 # Measured bench constants (src/ao_shaping/drivers/AGENTS.md, 2026-09).
 _DEFAULT_PANEL_PIXEL_UM = 8.0
@@ -177,6 +178,45 @@ _STAGE_REFINE = "refine"
 #: pixels is pure noise, and the optimizer would chase it for a whole run.
 _MIN_TARGET_AREA_FRAC = 1e-3
 
+#: The interleaved-replay validated ``slm-gs-refine`` recipe
+#: (``report/shape_trials/gs_refine_live_20261012.md``; re-checked 2026-10-14).
+#:
+#: This is a **preset**, not a dataclass default: every value here was measured
+#: on the 2f experiment system as one interleaved replay, and changing one
+#: silently abandons that evidence. The library defaults in
+#: :class:`SlmGsRefineConfig` are the generic ones; the GUI's
+#: ``GS_REFINE_RECIPE`` is a copy of this table and the CLI defaults are
+#: deliberately left alone.
+#:
+#: ``panel_pixel_um`` is the **pitch** (``PITCH_UM`` = 8.0), not the active-pixel
+#: size 7.8: the bench model samples on the panel lattice, and the 0.2 μm gap is
+#: real device geometry — using 7.8 shrinks the aperture by 2.5 % and voids the
+#: replay evidence below.
+VALIDATED_GS_REFINE_RECIPE: dict[str, object] = {
+    "target_side": 100,
+    "side_factor": 1.0,
+    "w_pib": 0.5,
+    "w_unif": 0.5,
+    "phase_grid": 12,
+    "delta": 0.35,
+    "confirm_best": True,
+    "epochs": 12,
+    "seed": 0,
+    "gs_warm_start": True,
+    "gs_iters": 12,
+    "gs_method": "plain",
+    "panel_pixel_um": 8.0,
+    "camera_pixel_um": 2.2,
+    "beam_radius_px": 450.0,
+    "pupil_center": "960,690",
+    "far_field_padding": 3,
+    "cam_type": "daheng",
+    "cam_id": 0,
+    "exposure_time_ms": 0.05,
+    "cam_size": 250,
+    "n_eval_frames": 4,
+}
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -229,7 +269,12 @@ class SlmGsRefineConfig:
     """
 
     side_factor: float = 1.0
-    """Multiplier applied to the derived target side."""
+    """Multiplier applied to the target side.
+
+    It scales **whichever** size ``target_side`` resolved to: an explicit
+    ``target_side`` is multiplied by it, and so is the auto-derived one. There is
+    no second, independent way to set the target size.
+    """
 
     target_shape: str = "square"
     """Far-field target shape; a member of ``TARGET_SHAPE_CHOICES``.
@@ -325,8 +370,6 @@ class SlmGsRefineConfig:
     ``camera_pixel_um`` and the measured focal scale; pass a value to pin a
     specific lens."""
     far_field_padding: int = _DEFAULT_FAR_FIELD_PADDING
-    gs_target_side_px: int = 0
-    """Override the bench-space target side (0 = derive from ``target_side``)."""
 
     # --- hardware ----------------------------------------------------------
     cam_type: str = "daheng"
@@ -675,6 +718,52 @@ def target_geometry(config: SlmGsRefineConfig, side: float) -> TargetGeometry:
     )
 
 
+def _bench_probe(config: SlmGsRefineConfig, radius_px: float) -> ShapingBenchConfig:
+    """The GS forward-model bench config for this run's pupil and optics.
+
+    Single construction site: :func:`_gs_pupil_phase` aims this probe at the
+    target shape, and :func:`_prepare_refine_context` reads its
+    ``far_field_pixel_size`` to report the derived bench-space target side. Both
+    must see the same optics, so the probe is built once here rather than twice.
+    """
+    n_grid = pupil_side(radius_px)
+    return ShapingBenchConfig(
+        n_grid=n_grid,
+        aperture_size=n_grid * config.panel_pixel_um * 1e-6,
+        wavelength=config.slm_wavelength * 1e-9,
+        focal_length=config.focal_length_m,
+        far_field_padding=config.far_field_padding,
+        target_side_px=8,
+        seed=config.seed if config.seed is not None else 0,
+    )
+
+
+def bench_target_side_px(
+    camera_side_px: int,
+    *,
+    camera_pixel_um: float,
+    far_field_pixel_size: float,
+) -> int:
+    """Convert a **camera**-pixel target side to the model's far-field pixels.
+
+    GS constrains a target expressed in the forward model's own far-field grid,
+    while ``target_side`` is documented in camera pixels. The two lattices differ
+    by ``p_cam / far_field_pixel_size``, and that ratio is the whole conversion --
+    there is exactly one place that may set the bench-space side.
+
+    Args:
+        camera_side_px: Target side in camera pixels.
+        camera_pixel_um: Camera pixel pitch (the measurement anchor).
+        far_field_pixel_size: Model far-field pixel pitch in metres.
+
+    Returns:
+        The side in model far-field pixels, at least 3 (below that the target
+        cannot be rasterised).
+    """
+    cam_pitch_m = max(camera_pixel_um, 1e-6) * 1e-6
+    return max(3, int(round(camera_side_px * cam_pitch_m / far_field_pixel_size)))
+
+
 def _rasterise_target(
     shape: str,
     grid_shape: tuple[int, int],
@@ -944,24 +1033,14 @@ def _gs_pupil_phase(
     n_grid = pupil_side(radius_px)
     seed = config.seed if config.seed is not None else 0
     aperture_m = n_grid * config.panel_pixel_um * 1e-6
-    probe = ShapingBenchConfig(
-        n_grid=n_grid,
-        aperture_size=aperture_m,
-        wavelength=config.slm_wavelength * 1e-9,
-        focal_length=config.focal_length_m,
-        far_field_padding=config.far_field_padding,
-        target_side_px=8,
-        seed=seed,
-    )
+    probe = _bench_probe(config, radius_px)
     # GS constrains a target expressed in *bench* far-field pixels, so the
     # camera-pixel target side must be converted before GS aims at it.
-    if config.gs_target_side_px > 0:
-        bench_side = config.gs_target_side_px
-    else:
-        cam_pitch_m = max(config.camera_pixel_um, 1e-6) * 1e-6
-        bench_side = max(
-            3, int(round(target_side_cam * cam_pitch_m / probe.far_field_pixel_size))
-        )
+    bench_side = bench_target_side_px(
+        target_side_cam,
+        camera_pixel_um=config.camera_pixel_um,
+        far_field_pixel_size=probe.far_field_pixel_size,
+    )
     cfg = _gs_target_config(config, replace(probe, target_side_px=bench_side), bench_side)
 
     logger.info(
@@ -1546,6 +1625,78 @@ def _locate_zero_order_and_window(ctx: _RefineContext) -> None:
     ctx.full_frame_center = full_frame_center
 
 
+def _declared_default(name: str) -> Any:
+    """The dataclass default of ``SlmGsRefineConfig.<name>``.
+
+    Read from the class (not from an instance) because ``__post_init__``
+    rewrites ``focal_length_m`` in place: the default is the "nobody typed it"
+    baseline, the instance value is the resolved one.
+    """
+    for spec in dataclass_fields(SlmGsRefineConfig):
+        if spec.name == name:
+            if spec.default is MISSING:
+                raise RuntimeError(f"SlmGsRefineConfig.{name} has no default")
+            return spec.default
+    raise KeyError(name)
+
+
+def _value_source(value: Any, name: str) -> str:
+    """``"default"`` or ``"input"`` for a scalar config field.
+
+    ``config`` cannot record whether a caller passed a value or took the default
+    (the click params and the dataclass both collapse those cases), so this
+    reports the only thing that is knowable: whether the value still equals the
+    declared default.
+    """
+    return "default" if value == _declared_default(name) else "input"
+
+
+def _log_resolved_parameters(
+    config: SlmGsRefineConfig,
+    *,
+    panel_shape: tuple[int, int],
+    radius_px: float,
+    target_side: int,
+    bench_side: int,
+) -> None:
+    """Log the run's resolved parameters **once**, each with its provenance.
+
+    ``target_side`` and the bench-space side are resolved in two different
+    places (``_derive_target_side`` and ``bench_target_side_px``), and the focal
+    length in a third (``__post_init__``). Printing the resolved values together
+    with ``input`` / ``derived`` / ``default`` is what makes a run reproducible
+    from its log: the config alone cannot say which numbers were typed.
+    """
+    exposure_source = _value_source(config.exposure_time_ms, "exposure_time_ms")
+    weights_source = (
+        "default"
+        if (
+            config.w_pib == _declared_default("w_pib")
+            and config.w_unif == _declared_default("w_unif")
+        )
+        else "input"
+    )
+    side_source = "input" if config.target_side > 0 else "derived"
+    lines = (
+        f"target_shape={config.target_shape} "
+        f"({_value_source(config.target_shape, 'target_shape')})",
+        f"target_side={'auto' if config.target_side <= 0 else config.target_side} "
+        f"-> {target_side}px x side_factor={config.side_factor} ({side_source})",
+        f"gs_target_side_px={bench_side} (derived: camera px -> model far-field px)",
+        f"focal_length_m={config.focal_length_m:.6f} "
+        f"({'pinned' if config._focal_length_pinned else 'derived'})",
+        f"camera_pixel_um={config.camera_pixel_um} (anchor)",
+        f"phase_grid={config.phase_grid} "
+        f"({_value_source(config.phase_grid, 'phase_grid')})",
+        f"w_pib={config.w_pib} w_unif={config.w_unif} ({weights_source})",
+        f"exposure_ms={config.exposure_time_ms} ({exposure_source})",
+        f"panel={panel_shape} beam_radius_px={radius_px} "
+        f"cam={config.cam_type}#{config.cam_id}",
+    )
+    for line in lines:
+        logger.info("slm-gs-refine: {}", line)
+
+
 def _prepare_refine_context(
     config: SlmGsRefineConfig,
     slm: Any,
@@ -1600,17 +1751,14 @@ def _prepare_refine_context(
     if config.blaze_period_px >= 0 and config.cam_type == "sim":
         raise ValueError("blaze calibration requires a full-frame hardware CCD")
     _locate_zero_order_and_window(ctx)
-    logger.info(
-        "slm-gs-refine: panel={} beam_radius={}px target_side={}px "
-        "cam={}#{} exposure={}ms grid={}x{}",
-        panel_shape,
-        radius_px,
+    bench_side = bench_target_side_px(
         target_side,
-        config.cam_type,
-        config.cam_id,
-        config.exposure_time_ms,
-        config.phase_grid,
-        config.phase_grid,
+        camera_pixel_um=config.camera_pixel_um,
+        far_field_pixel_size=_bench_probe(config, radius_px).far_field_pixel_size,
+    )
+    _log_resolved_parameters(
+        config, panel_shape=panel_shape, radius_px=radius_px,
+        target_side=target_side, bench_side=bench_side,
     )
     ctx.work_slots = work_slots[:2]
     return ctx

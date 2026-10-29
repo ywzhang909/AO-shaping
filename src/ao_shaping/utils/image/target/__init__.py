@@ -94,6 +94,7 @@ from ao_shaping.utils.image.target.patterns import (
     load_target_image,
 )
 from ao_shaping.utils.image.target.shapes import (
+    SHAPE_PARAMETER_FIELDS,
     TARGET_SHAPE_LABELS,
     TargetShape,
     coerce_target_shape,
@@ -123,6 +124,7 @@ __all__ = [
     "TARGET_SHAPE_LABELS",
     "target_shape_options",
     "coerce_target_shape",
+    "SHAPE_PARAMETER_FIELDS",
     # metrics
     "TARGET_SHAPE_CHOICES",
     "POLYGON_SHAPE_CHOICES",

@@ -398,7 +398,34 @@ class TestGsTargetInjection:
 
 
 class TestCliParams:
-    def test_target_shape_reaches_the_config_field_by_field(self):
+    @pytest.mark.parametrize(
+        ("shape", "knob", "value"),
+        [
+            ("rectangle", "target_aspect_ratio", 3.0),
+            ("annular", "target_inner_ratio", 0.4),
+            ("gaussian", "target_sigma_ratio", 0.3),
+            ("grid", "target_line_width", 0.04),
+            ("grid", "target_grid_nx", 3),
+            ("grid", "target_grid_ny", 7),
+            ("cross", "target_thickness", 0.09),
+        ],
+    )
+    def test_shape_knob_reaches_the_config_for_the_shape_that_reads_it(
+        self, shape: str, knob: str, value: float
+    ):
+        """Each knob is wired field by field — for the shape that reads it.
+
+        It used to be checked on ``circle`` with all seven knobs at once, which
+        is exactly the combination ``build_gs_refine_config`` now refuses: a knob
+        the shape does not read must not silently land in the config.
+        """
+        params = SlmGsRefineParams(target_shape=shape, target_side=60, **{knob: value})
+        config = build_gs_refine_config(params, debug=False)
+        assert config.target_shape == shape
+        assert config.target_side == 60
+        assert getattr(config, knob) == value
+
+    def test_knobs_the_shape_does_not_read_are_refused(self):
         params = SlmGsRefineParams(
             target_shape="circle",
             target_side=60,
@@ -410,16 +437,8 @@ class TestCliParams:
             target_grid_ny=7,
             target_thickness=0.09,
         )
-        config = build_gs_refine_config(params, debug=False)
-        assert config.target_shape == "circle"
-        assert config.target_side == 60
-        assert config.target_aspect_ratio == 3.0
-        assert config.target_inner_ratio == 0.4
-        assert config.target_sigma_ratio == 0.3
-        assert config.target_line_width == 0.04
-        assert config.target_grid_nx == 3
-        assert config.target_grid_ny == 7
-        assert config.target_thickness == 0.09
+        with pytest.raises(ValueError, match="circle"):
+            build_gs_refine_config(params, debug=False)
 
     def test_defaults_are_square(self):
         config = build_gs_refine_config(SlmGsRefineParams(), debug=False)
