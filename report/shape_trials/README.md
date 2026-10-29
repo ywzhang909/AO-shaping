@@ -15,6 +15,32 @@
 [无 GS 起点的物理预测模型与可微整形方案](physical_forward_no_gs_plan_20261027.md)：
 明确模型来源与初相位来源，优先校正目标核心和局部响应方向，设计同曝光 CCD 验收与缓漂适配；规划阶段不包含后续实验数值。
 
+2026-10-28 多形状 × 三尺度同载波闭环整形（Session A，1200 原生 CCD 像元）见
+[规划](multishape_scale/multishape_scale_planning_20261028.md)、
+[实验中记录](multishape_scale/multishape_scale_live_20261028.md)、
+[实验后分析](multishape_scale/multishape_scale_analysis_20261028.md)、
+[设备会话](multishape_scale/live_20261029_device_session.md)与
+[下一轮方案](multishape_scale/next_round_20261029.md)：
+16 个形状×阶段组合、112 个验收块全部实测；仅 Session A 完成，H1/H2/H3 暂不能判定；
+新增硬约束：CV 随曝光单调上升并饱和，跨曝光档 CV 不可比。
+
+2026-10-27 三角形与五角星 1.5 倍窗口 shaping + 平面相位起始对比见
+[三角形与五角星 1.5 倍窗口 shaping](tri_plane_20261027/tri_plane_20261027.md)：
+窗口开到边长 1.5 倍使目标外光可见；平面起始 3/4 块接受、CV 0.6632→0.5967，优于 GS 起始的 2/4 块。
+
+2026-10-27 迁移学习 + model-in-loop 双优化流程实验方案见
+[双优化实验方案](dual_optimization/experiment_plan_20261027.md)（G0 前置门禁，不含新测量）。
+
+2026-10-24 仿真预训练与无 GS 迁移复现见
+[仿真预训练与无 GS 迁移复现](sim_pretrain_transfer/sim_pretrain_transfer_20261024.md)。
+
+2026-10-26 无历史权重的物理预测模型从零拟合与 CCD 配对验收见
+[冷启动（从零拟合）](cold_start/cold_start_20261026.md)（与 [CV 诊断](cold_start/cv_diagnosis_20261026.md) 配套）。" 
+oldString">
+2026-10-27 基于历史证据的设计阶段见
+[无 GS 起点的物理预测模型与可微整形方案](physical_forward_no_gs_plan_20261027.md)：
+明确模型来源与初相位来源，优先校正目标核心和局部响应方向，设计同曝光 CCD 验收与缓漂适配；规划阶段不包含后续实验数值。
+
 2026-10-26 SLM 偏离前焦面的 ABCD 校正、当前光路双曝光采集及距离可辨识性检查见
 [SLM 轴向平面校正](axial_plane/axial_plane_20261026.md)。
 
@@ -56,6 +82,15 @@
 [形状目标整形实验总结报告（2026-10-09 ~ 2026-10-19）](experiment_summary_20261016.md)
 统一汇总（完整时间线、公式体系、最优实践与悬而未决问题见该报告），主要记录如下：
 
+| 日期 | 报告 | 主题 |
+|------|------|------|
+| 2026-10-28 | [多形状 × 三尺度同载波闭环整形 — 规划/实验中记录/实验后分析/设备会话/下一轮](multishape_scale/multishape_scale_planning_20261028.md) | Session A（1200 原生 px）16 段×112 块全部实测；H1/H2/H3 暂不能判定；CV 随曝光单调上升并饱和（硬约束） |
+| 2026-10-27 | [三角形与五角星 1.5 倍窗口 shaping + 平面相位起始对比](tri_plane_20261027/tri_plane_20261027.md) | 平面起始 3/4 块接受、CV 0.6632→0.5967，优于 GS 起始 |
+| 2026-10-27 | [迁移学习 + model-in-loop 双优化流程实验方案](dual_optimization/experiment_plan_20261027.md) | G0 前置门禁、逐轮交替判决口径；不含新测量 |
+| 2026-10-24 | [仿真预训练与无 GS 迁移复现](sim_pretrain_transfer/sim_pretrain_transfer_20261024.md) | 仿真预训练分组 CV 与无 GS 逐位复现 |
+| 2026-10-26 | [冷启动（从零拟合）](cold_start/cold_start_20261026.md) | 无历史权重的物理预测模型从零拟合与 CCD 配对验收 |
+| 2026-10-23 | [正方形、长方形、三角形：探测与物理预测模型闭环复现](multishape_capability/physical_multishape_reproduction_20261023.md) | 从零初始化与已有模型迁移的完整命令、模型结构、参数柱状图、逐块 CCD 演变、配对验收及 FAQ |" 
+oldString">
 | 日期 | 报告 | 主题 |
 |------|------|------|
 | 2026-10-23 | [正方形、长方形、三角形：探测与物理预测模型闭环复现](multishape_capability/physical_multishape_reproduction_20261023.md) | 从零初始化与已有模型迁移的完整命令、模型结构、参数柱状图、逐块 CCD 演变、配对验收及 FAQ |
@@ -231,4 +266,5 @@ PNG/PKL/JSON 记录格式，比较 freeform/GS 正方形相位与 Zernike 基线
 
 ## 当前实验方案
 
+- 2026-10-28：[多形状 × 三尺度同载波闭环整形（Session A 1200 原生 px）](multishape_scale/multishape_scale_planning_20261028.md)；规划/实验中记录/实验后分析/设备会话/下一轮方案见 `multishape_scale/`。Session A 全部完成，Session B（600）/C（200）未开始；CV 随曝光单调上升并饱和为新增硬约束。
 - 2026-10-22：[相机主动离焦下的物理预测模型调优与可微优化方案](physical_forward_defocus_plan_20261022.md)。保持当前相机位置，先做离焦/转向及几何探测，以未补偿与 SLM 聚焦补偿两分支配对验证，再进入可微整形；本文没有新增实验数据。

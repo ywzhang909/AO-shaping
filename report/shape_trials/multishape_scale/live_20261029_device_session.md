@@ -10,8 +10,9 @@
 > **数据/关联脚本**: [`scripts/slm/audit_replay_blocks.py`](../../../scripts/slm/audit_replay_blocks.py)
 > **数据/关联脚本**: [`scripts/slm/probe_optical_path_validity.py`](../../../scripts/slm/probe_optical_path_validity.py)
 > **数据/关联脚本**: [`scripts/slm/analyze_session_time_budget.py`](../../../scripts/slm/analyze_session_time_budget.py)
+> **数据/关联脚本**: [`scripts/slm/generate_multishape_nogs_20261029_figures.py`](../../../scripts/slm/generate_multishape_nogs_20261029_figures.py)
 > **运行环境**: 硬件（Santec #1 SLM + Daheng CCD；WFS / NLight DM / MIICAM 未连接）
-> **说明**: 2026-10-29 设备在线多尺度整形会话的实测记录：lane 00–05 实际执行、06–24 未开始（25 条编制中完成 5 条、部分完成 1 条）。200 px 解析初始化四形状各 4/4 阶段完成，冻结光阑重放审计（已剔除饱和行）给出circle（15/15 有效，dCV −0.286/−0.126/−0.127，三档 supported）与 triangle（13/15，−0.161/−0.173，两档 supported）；square（11/15，+0.170/+0.165，两档 wrong_direction，约噪声三倍 → 真实回归）与 star（5/15，仅一档，no_difference）。600 px 仅 circle 前两段（1.0986→0.7993、0.7447→0.6268），无重放，不参与跨尺度对比。含审计工具缺陷（`clipped` 行被标注却仍进入分组均值）及其本轮修正（剔除后 circle 一位未变，triangle/square 各失去一档，star 失去两档）。§5.5 逐组合字段台账：本轮 objective 以 `formation=False` 运行，`l_partition` / `l_boundary` 逐轮恒为 0.0，故形状覆盖 / 边界误差与 Zernike 增量三项**未测**（不是未报），结论只覆盖「更均匀 + 能量没丢」。
+> **说明**: 2026-10-29 设备在线多尺度整形会话的实测记录：lane 00–05 实际执行、06–24 未开始（25 条编制中完成 5 条、部分完成 1 条）。200 px 解析初始化四形状各 4/4 阶段完成，冻结光阑重放审计（已剔除饱和行）给出circle（15/15 有效，dCV −0.286/−0.126/−0.127，三档 supported）与 triangle（13/15，−0.161/−0.173，两档 supported）；square（11/15，+0.170/+0.165，两档 wrong_direction，约噪声三倍 → 真实回归）与 star（5/15，仅一档，no_difference）。600 px 仅 circle 前两段（1.0986→0.7993、0.7447→0.6268），无重放，不参与跨尺度对比。含审计工具缺陷（`clipped` 行被标注却仍进入分组均值）及其本轮修正（剔除后 circle 一位未变，triangle/square 各失去一档，star 失去两档）。§5.5 逐组合字段台账：本轮 objective 以 `formation=False` 运行，`l_partition` / `l_boundary` 逐轮恒为 0.0，故形状覆盖 / 边界误差与 Zernike 增量三项**未测**（不是未报），结论只覆盖「更均匀 + 能量没丢」。配图由 `generate_multishape_nogs_20261029_figures.py` 渲染：CV 轨迹与逐段首末柱取自 `capture_records.pkl`（与 §5.2 表同源），冻结光阑审计图直接调用 `audit_block`/`summarise_block`（与 §5.1 表同源），帧图与 GIF 为 `common_replay/*.npz` 的判据帧。
 <!-- provenance:end -->
 
 > 本文是**当次设备会话的运行记录**（`lane 00–05` 实际执行、`06–24` 未开始）。
@@ -99,6 +100,22 @@ comparison」，但分组均值仍包含这些行）。
 （第 3 档在 triangle 与 square 上都没有 seed 行可比——前者 seed 被截断，后者
 4 个 final 全被截断——因此不产生 `dCV`。star 的后两档整组不可用。）
 
+![冻结光阑重放的逐档配对](figures/audit_dcv_s200_20261029.png)
+
+> **图 1** 上表逐格的可视化（`--only audit`）：上排 `dCV = candidate − baseline`，
+> 误差棒是**同一相位 4 次重复**的半宽——点越出误差棒才算差异，所以 square 的
+> `+0.170/+0.165` 落在棒外（约 3 倍噪声）而 star 的 `+0.078` 落在棒内，两条判定
+> 在图上直接可读。下排是同一批配对的 `ee_rel` 变化，用来区分「变均匀」与
+> 「丢能量换均匀」。灰色阴影列 = 该档**整组截断**、已剔除（star 后两档 5/5）。
+> 图上每一个点都是 `scripts/slm/audit_replay_blocks.py` 自己算出来的数，
+> 与上表逐位一致（同一函数，不是另一套口径）。
+
+![各档截断行占比](figures/saturation_groups_s200_20261029.png)
+
+> **图 2** 「为什么那几档退出了分组」（`--only saturation`）：每行一个形状，
+> 各自使用**自己的**曝光梯（circle 23.9–71.7 ms、star 61.2–183.6 ms），
+> 因此不共用横轴。circle 全程 0 截断；star 后两档 5/5 全截断 ⇒ 只剩一档可判。
+
 四条读法：
 
 1. **circle 是唯一三档全干净的形状**：0 饱和行，`dCV` 在三档上同号且都越过
@@ -141,6 +158,21 @@ comparison」，但分组均值仍包含这些行）。
 甚至略升，而 `mono12_cv`（12 bit、逐块 CCD 校验）才开始出现真正下降。两段的差别
 只有位深与「有没有逐块实测校验」两处，而 square 的回归（§8 第 2 条）恰好发生在
 校验拦不动的地方——同一件事的两面，也正是 issue #213 质量项 3a 要升级的机制。
+
+![逐采集核心 CV 轨迹](figures/cv_trajectory_s200_20261029.png)
+
+> **图 3** 上表的折线形态（`--only cv`）：横轴是**采集序号**（四段连续计数，
+> 竖直虚线 = 段边界），纵轴是该次采集实测的核心 CV；每个阶段窗口左下角标出
+> 该段的「首采集 → 末采集」。灰色虚线是 `transport_cv`——它是 8 bit 且**接受判据
+> 为模型损失**，CV 只是观测值，故不参与「CV 下降」的论断。可见 circle/triangle
+> 在第 2 段明确下行，square 在第 2、3 段明确**上行**，与图 1 的符号一致。
+
+![逐段首末核心 CV](figures/stage_dumbbell_s200_20261029.png)
+
+> **图 4** 同一张表的另一种读法（`--only dumbbell`）：每段空心点 = 段首采集、
+> 实心点 = 段末采集，箭头方向即该段净变化，数字为 Δ。这是「只横读、不竖读」
+> 那条限制的直接体现——段与段之间换过腐蚀后的 `core`，量级不可比，只有段内
+> 首末差可比。
 
 ### 5.3 s600 circle（lane 05，未完成）
 
@@ -240,3 +272,20 @@ comparison」，但分组均值仍包含这些行）。
    测试，尚无设备数据；1b 默认关闭、等实测 MTF。下一次实验按
    `next_round_20261029.md` 的顺序跑，其中形状覆盖 / 边界误差、Zernike 增量、
    预测-实测差三项需在下一轮按 §5.5 的补齐方式随每块落盘。
+
+### 8.1 佐证帧：审计到底比较了哪两张图
+
+![冻结光阑下的判据帧](figures/frozen_aperture_s200_20261029.png)
+
+> **图 5** 首档与末档的**判据帧**（`--only aperture`）：seed = A、final = B，
+> 青框 = 冻结判定框（边长 200 px），黄虚圆 = 被排除的零级盘。标题里的 CV 与
+> 左下角 `dCV` 就是图 1 同一次`judge_pair`的数字，所以这是「审计比的是什么」的
+> 逐图证据，而不是另画的示意图。square 行肉眼可见核心被做成了更不均匀的团块
+> （`dCV = +0.170/+0.165`），triangle 行则明显趋于抹平（`−0.161/−0.173`）。
+
+![冻结光阑重放帧序列](images/common_replay_s200_20261029.gif)
+
+> **图 6** 重放帧动画（`--only gif`，2 fps，15 帧 = `common_replay` 的 15 条
+> 采集，按采集顺序）：四个面板各自跟随本形状的同一序号行（行数较少的形状停在
+> 末帧），标题给出 `label | CV | 可用/截断`。截断帧仍留在动画里并标注——它们是
+> **被剔除**的证据，而不是没有发生。
