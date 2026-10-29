@@ -11,6 +11,7 @@
 > **数据/关联脚本**: [`scripts/slm/probe_optical_path_validity.py`](../../../scripts/slm/probe_optical_path_validity.py)
 > **数据/关联脚本**: [`scripts/slm/analyze_session_time_budget.py`](../../../scripts/slm/analyze_session_time_budget.py)
 > **数据/关联脚本**: [`scripts/slm/generate_multishape_nogs_20261029_figures.py`](../../../scripts/slm/generate_multishape_nogs_20261029_figures.py)
+> **数据/关联脚本**: [`scripts/slm/generate_multishape_s600_power1p0_figures.py`](../../../scripts/slm/generate_multishape_s600_power1p0_figures.py)
 > **运行环境**: 硬件（Santec #1 SLM + Daheng CCD；WFS / NLight DM / MIICAM 未连接）
 > **说明**: 2026-10-29 设备在线多尺度整形会话的实测记录：lane 00–04 在 0.7 功率下完成，05–08 在激光功率升到 1.0 后从头重跑/新跑，13 起进行中（25 条编制）。**一次会话不跨功率**：0.7 的半成品全部归档，跨功率只读形态不读量级。200 px 解析初始化（0.7）：circle 15/15 有效、dCV −0.286/−0.126/−0.127 三档 supported；triangle 13/15、−0.161/−0.173 两档 supported；square 11/15 的 dCV +0.170/+0.165 **已撤回**——同一批帧换回闭环接受口径给 −0.025（符号相反），且同一 `panel_gray` 字节 55 s 内峰值 +57%、主瓣换位 63 px ⇒ 效应量上界 |dCV| ≲ 0.02，见 issue #217；star 5/15 仅一档 no_difference。600 px（1.0）：四形状审计 dCV = circle −0.318/−0.314/−0.313、square −0.619/−0.614/−0.636、triangle −0.348（仅一档可判）、star −0.044/−0.041/−0.045，均 supported；ee_rel 0.46–0.69，零级排除 0.031，饱和 0（triangle 6 行单行截断）。含审计工具缺陷（`clipped` 行被标注却仍进入分组均值）及其本轮修正；`core_peak/exposure` 被证明不是辐射率（同一天两条 lane 方向相反），报告只承认平场探针读数与 ≥6× 跳变。§5.5 逐组合字段台账：本轮 objective 以 `formation=False` 运行，`l_partition` / `l_boundary` 逐轮恒为 0.0，故形状覆盖 / 边界误差与 Zernike 增量三项**未测**（不是未报），结论只覆盖「更均匀 + 能量没丢」。配图由 `generate_multishape_nogs_20261029_figures.py` 渲染：CV 轨迹与逐段首末柱取自 `capture_records.pkl`（与 §5.2 表同源），冻结光阑审计图直接调用 `audit_block`/`summarise_block`（与 §5.1 表同源），帧图与 GIF 为 `common_replay/*.npz` 的判据帧。
 <!-- provenance:end -->
@@ -233,6 +234,18 @@ circle 的 `dCV` 结论来自 §5.1 的冻结光阑重放，不是这两列。
 > **不能横读 `cv` 的量级。** 每个形状用自己形状的核心掩膜（外接框 + 腐蚀），
 > circle 0.87 与 triangle 1.42 的差是**掩膜几何**的差，不是「triangle 整得更差」。
 > 同一形状内的 `dCV` 才是可判的量。
+
+![600 px 四形状的逐档配对](figures/audit_dcv_s600_power1p0_20261029.png)
+
+> **图 7** 上表逐格的可视化（`scripts/slm/generate_multishape_s600_power1p0_figures.py`）：
+> 四个面板一个形状，柱 = `dCV`（final − seed），误差棒 = **final 重复离散半宽**
+> （n=4，95% t），浅绿带 = 该面板的中位半宽。柱越过浅绿带才算「有差异」。
+> 每格下方标 `n` 与 `ee_rel`。triangle 的第二档只有 4 条 final、**没有 seed**，
+> 因此画成空白斜纹柱并标「无 seed」——按 §5.1 同一规则只报不判。
+> 图上每一个数都来自 `audit_replay_blocks.audit_block` / `summarise_block` 本体
+> （与 §5.3 各表同一函数），不是另算一套。
+> 编号在 s200 的图 1–6 之后，位置放在 §5.3 是为了就着上面的表读；
+> 想看同一形状的 s200（0.7 功率）配对请回到图 1。
 
 四条的读法：
 

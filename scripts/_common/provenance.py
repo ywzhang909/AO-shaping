@@ -1176,6 +1176,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/probe_optical_path_validity.py",
             "scripts/slm/analyze_session_time_budget.py",
             "scripts/slm/generate_multishape_nogs_20261029_figures.py",
+            "scripts/slm/generate_multishape_s600_power1p0_figures.py",
         ),
     ),
     "report/shape_trials/multishape_scale/next_round_20261029.md": ReportProvenance(
