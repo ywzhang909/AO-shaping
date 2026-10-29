@@ -605,8 +605,8 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    `r50_single.py:111`）、**重试循环**（`r50_voltage_send.py:111` `_send_with_recovery`：吞单次失败后重试，
    整体成败由返回值交给调用方）、**上报动作本身的失败**（`ccd_analyzer.py:297/321`，数字钉的是下面两个**调用行**而非 `except` 行——后者在本文件里文本全同，按内容无法定位）——这两处是包住
    `raw_frame_queue.put(("error", …))` 的**内层**护栏 —— 外层已把错误送进队列；`r50_voltage_send.py:395/402/420`
-    同理包住 `feedback_q.put`）、**探测降级**（`bench_settings.py:1489/1491`，数字钉的是两条护栏的 handler 行——旧值 1390/1399 早在本次改动之前就已落在 docstring 正文与 dict 字面量上，已按内容核验重钉）`detect_camera_pixel_um` 回落
-    `KNOWN_CAMERA_PIXEL_UM` 型号表，外层打 debug 并显式 `return None`，两条 handler 已就地写明探测失败不是错误）、
+     同理包住 `feedback_q.put`）、**探测降级**（`bench_settings.py:1491`，数字钉的是剩下那条护栏的 handler 行——`15ea0a22` 把像元尺寸移进驱动层做成型号级单一来源后，大恒侧不再探测（改走
+     `probe_daheng_models` + `lookup_model_pixel_size_um`），原先两条 handler 随那段代码一并消失）：`detect_camera_pixel_um` 在 MiiCam 驱动不可用时打 debug 并显式 `return None`，回落与否交给调用方）、
    **清理进度文件**（`zernike_response_matrix_ui.py:833`）。⇒ **一处都没改成 raise**。
    唯一真缺陷不是"吞掉测量"而是**死代码**：`gui/zernike/zernike_debug_viewer.py:392-404` 在
    `pinv_matrix = np.linalg.pinv(...)` 之后算 `np.linalg.matrix_rank(...)` 判分支、分支里算
@@ -4164,6 +4164,13 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - `folds_of` canonical 一律返回 `(index, key, train, val)`；树里两种本地投影（index-first / key-first）在**调用点**适配，未用字段绑 `_`。本批迁 2 个，其余 6 个在后续提交收尾：原先 `enumerate` 重新导出的下标由 canonical 首字段直接提供，因此折号与 `default_rng(1234 + index_i)` 的种子逐位不变。
 - 守卫登记 `setup_cjk_font` / `_setup_fonts`（迁后零本地 def）；**`ridge` 故意不登记**：`verify_pod_ridge_canary.py`、`compare_linear_vs_trained.py` 的本地 `ridge`，以及 `diagnose_pod_ridge.py` 把拟合/预测拆成 `ridge_fit`+`ridge_predict` 两步，都是合法异用途。
 - 等价性照旧实测：旧 body 从 `git show HEAD:<file>` 抽出 exec，与 canonical 逐点比对；`folds_of` 语料覆盖混合 `str`/`Path` 路径（同名两种类型必须同组）、单记录路径、单路径语料、空语料，并断言每折 `train + val` 是 `range(len(records))` 的置换。
+
+**2026-10-29 · 56cb83d5 · 第三批收尾：剩余 6 处 `folds_of` 副本删除，`scripts/` 里该名字归零**
+- 两种历史投影在**调用点**各自适配，不动语义：index-first 变体把 `key` 丢给 `_`；key-first 变体的 `held` 本来就零引用（折号是 `len(per_fold)`）。
+- `for i, (held, ...) in enumerate(folds_of(records))` 的 `enumerate` 由 canonical 首字段取代 ⇒ 折号与 `default_rng(1234 + index_i)` 的种子逐位不变（逐 site 断言，不是推断）。
+- `verify_pod_ridge_canary.py` 的 `folds_of(records, protocol="file")`：全仓唯一调用点不传 `protocol`，函数体也从不读它 —— 死参数随本地 def 一起消失，而不是为了"兼容"被搬进 canonical。
+- 守卫登记 `folds_of`（AST 复检 offenders 为空）；`ridge` **仍不登记**：两处本地 `ridge` 与 `diagnose_pod_ridge.py` 把拟合/预测拆成 `ridge_fit`+`ridge_predict` 都是合法异用途。
+- 记一次**被 diff 复核抓回的失误**：编辑时 oldString 取宽了，把无关函数 `apply_transform` 的整个函数体连带删掉。若非提交前逐文件读 `git diff`，这就是一次静默的功能删除 —— 去重任务的产出必须是**净删除**，任何非目标行的变动都是事故。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

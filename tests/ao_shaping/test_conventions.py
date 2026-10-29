@@ -1717,7 +1717,10 @@ def test_the_loguru_guard_follows_the_logger_not_one_spelling_of_its_import() ->
 # the adc/santec guards, and the two `open()`+csv / `open()`+write sites in
 # voltage_runner and adc_dm_adam. A typed silent handler is still silent, but it is
 # no longer *unattributable*: the reader can see which failure class is being dropped.
-_BLIND_SILENT_BASELINE = 46
+# Lowered 46 -> 44 on 2026-10-29: the src/ moves in 062a64e5..fae245db (transfer/validate.py
+# split, exposure_control.py, record_mode.py) retired two silent sites. Number taken from the
+# guard's own walk, not recounted by hand.
+_BLIND_SILENT_BASELINE = 44
 
 
 def _blind_silent_handlers(root: Path) -> list[str]:
@@ -2339,8 +2342,11 @@ _DOC_LINE_ANCHORS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
         "TODO.md",
         "探测降级**（`bench_settings.py:",
         "src/ao_shaping/gui/slm/bench_settings.py",
-        ("# policy: 相机缺 PixelSize 特性不是错误",
-         "# policy: 大恒探测像元间距失败不是错误"),
+        # Re-pinned 2026-10-29: `15ea0a22` moved pixel size into the driver as a model-level
+        # single source, so `detect_camera_pixel_um` no longer probes Daheng at all
+        # (`probe_daheng_models` + `lookup_model_pixel_size_um`) and both `# policy:` handlers
+        # vanished with that code. One degradation guard remains -- MiiCam driver unavailable.
+        ("except (ImportError, OSError) as exc:",),
     ),
     (
         "TODO.md",
@@ -4525,6 +4531,10 @@ _QUOTED_PY_PATH_HISTORICAL: dict[tuple[str, str], str] = {
     ("scripts/slm/generate_diff_shaping_report.py", "src/ao_shaping/runners/diff_shaping_runner.py"):
         "the runner was deleted in fbef1926 and the text says so, mirroring AGENTS.md's own "
         "convention for that entry",
+    ("scripts/_common/provenance.py",
+     "tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py"):
+        "the note itself declares the generator never entered the index (全仓 git ls-files 无此 "
+        "path), so the missing generator -- not this citation -- is what would need fixing",
 }
 
 #: The census resolved 362 claims; a floor this far below catches an extractor that stopped
