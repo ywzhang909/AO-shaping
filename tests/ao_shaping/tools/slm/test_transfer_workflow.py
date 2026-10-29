@@ -545,7 +545,13 @@ def _run_validate(tmp_path, monkeypatch, *, abba, mode="model", updates=2, devic
             return torch.tensor(level*(1.0+ramp), dtype=torch.float32)[None]
 
     class _Optimizer:
-        def __init__(self, forward, objective, seed, *, lr, step_rms_cap, device):
+        # ``**kwargs``: the production optimizer keeps growing optional hooks
+        # (e.g. ``spectral_mask`` from issue #213 item 1b). A fake that names only
+        # the arguments it happens to use breaks every caller the day a hook is
+        # added, and the failure reads as "validate is broken" rather than "the
+        # fake is stale".
+        def __init__(self, forward, objective, seed, *, lr, step_rms_cap, device, **kwargs):
+            seen.setdefault("optimizer_kwargs", []).append(sorted(kwargs))
             seen["optimizer"].append(device)
             self._phase = np.asarray(seed, np.float32).copy()
             self.loss_history = []
