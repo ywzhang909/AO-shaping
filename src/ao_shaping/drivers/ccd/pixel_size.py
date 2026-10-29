@@ -78,7 +78,10 @@ def _read_models() -> dict[str, dict[str, float]]:
     if not path.exists():
         return {}
     try:
-        with open(path, encoding="utf-8") as f:
+        # ``utf-8-sig``: 手写的配置常带 BOM (Windows 记事本/PowerShell 都默认加)。
+        # 用 ``utf-8`` 读会让 ``json.load`` 报 "Unexpected UTF-8 BOM" 并把整份配置
+        # 当未登记 —— 权威来源就此静默失效, 回落成已知型号表里的旧值。
+        with open(path, encoding="utf-8-sig") as f:
             raw = json.load(f)
     except (OSError, json.JSONDecodeError) as exc:
         logger.warning(f"相机型号配置读取失败 ({path}): {exc}; 按未登记处理")

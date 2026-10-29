@@ -162,6 +162,22 @@ class TestModelConfig:
             KNOWN_MODEL_PIXEL_SIZE_UM[model]
         )
 
+    def test_bom_prefixed_config_is_still_read(self, config_dir: Path) -> None:
+        """Windows 手写配置常带 BOM: 带 BOM 时**型号配置仍优先于已知型号表**。
+
+        用 ``utf-8`` 读会让 ``json.load`` 报 "Unexpected UTF-8 BOM", 整份配置被当作
+        未登记 —— 权威来源静默失效、回落成已知型号表里的旧值, 且只有一条 warning。
+        """
+        path = model_pixel_size_config_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        model = next(iter(KNOWN_MODEL_PIXEL_SIZE_UM))
+        # UTF-8 BOM + 与已知型号表**不同**的值, 才能区分「读到了配置」和「回落」。
+        path.write_bytes(
+            b"\xef\xbb\xbf" + json.dumps({model: {"pixel_size_um": 9.9}}).encode("utf-8")
+        )
+        assert load_model_pixel_size_um(model) == pytest.approx(9.9)
+        assert resolve_model_pixel_size_um(model) == pytest.approx(9.9)
+
 
 class TestEnsurePrompt:
     def test_prompt_value_is_stored_and_reused(self, config_dir: Path) -> None:
