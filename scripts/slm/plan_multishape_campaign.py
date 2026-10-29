@@ -175,18 +175,27 @@ def plan_conditions(*, sizes: list[int], shapes: list[str], route: str,
 
     return lanes
 
-def render_lane(lane: dict, *, frames: int, replay_exposures: list[float]) -> list[str]:
+def render_lane(lane: dict, *, frames: int,
+                replay_exposures: list[float] | None) -> list[str]:
     """The exact command lines for one lane: preflight, then the runner.
 
     The preflight is a separate line whose exit code ends the lane, because the
     probe's verdict is the gate -- a nonzero exit means "do not spend the
     session", and a runner flag cannot express that.
+
+    ``replay_exposures`` defaults to ``None``, which asks the runner to derive the
+    ladder from the lane's own measured peaks. A ladder fixed across lanes is
+    wrong: the 2026-10-29 lane 01 aborted because 125 ms drove a 200 px core to
+    full scale while a 1200 px core was still clean at 225 ms.
     """
     preflight = f'python {PROBE} --session {lane["session"]}'
-    # click's ``multiple=True`` takes the flag once per value; a space-separated
-    # list is parsed as extra positional arguments, so expand the flag here.
-    replay = [part for value in replay_exposures
-              for part in ("--replay-exposures", str(value))]
+    if replay_exposures is None:
+        replay = ["--replay-exposures-auto"]
+    else:
+        # click's ``multiple=True`` takes the flag once per value; a
+        # space-separated list is parsed as extra positional arguments.
+        replay = [part for value in replay_exposures
+                  for part in ("--replay-exposures", str(value))]
     runner = [
         "python", RUNNER, "slm-transfer-shapes",
         "--out", lane["out"],
@@ -230,7 +239,7 @@ def expand_campaign_token(commands: list[str], campaign_dir: Path) -> list[str]:
 
 def build_plan(*, sizes: list[int], shapes: list[str], routes: list[str],
                model_session: str, campaign_dir: Path, frames: int,
-               replay_exposures: list[float], repeats: int,
+               replay_exposures: list[float] | None, repeats: int,
                power_note: str = "") -> dict:
     """The whole campaign: lanes, ordering, repeat budget and phase provenance."""
     lanes = [plan_refit_lane(sizes=sizes, shapes=shapes, model_session=model_session,
@@ -258,7 +267,8 @@ def build_plan(*, sizes: list[int], shapes: list[str], routes: list[str],
         campaign_dir=str(campaign_dir), model_session=model_session,
         routes={name: ROUTES[name] for name in routes},
         sizes=list(sizes), shapes=list(shapes), frames=frames,
-        replay_exposures=list(replay_exposures), repeats_per_condition=repeats,
+        replay_exposures=("auto" if replay_exposures is None else list(replay_exposures)),
+        repeats_per_condition=repeats,
         required_results=dict(REQUIRED_RESULTS),
         required_audit=list(REQUIRED_AUDIT),
         model_power_check=dict(
@@ -359,7 +369,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--routes", nargs="+", default=["strict_cold", "analytic_init"],
                         choices=sorted(ROUTES))
     parser.add_argument("--frames", type=int, default=3)
-    parser.add_argument("--replay-exposures", type=float, nargs="+", default=[20.0, 50.0, 90.0])
+    parser.add_argument("--replay-exposures", type=float, nargs="+", default=None,
+                        help="explicit replay ladder (ms); default: let each lane derive it from "
+                             "its own measured core peak -- a fixed ladder cannot serve both "
+                             "200 px and 1200 px")
     parser.add_argument("--repeats", type=int, default=6,
                         help="repeats per condition (6 = the fewest that can reach p<0.05)")
     parser.add_argument("--power-note", default="",

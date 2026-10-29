@@ -14,6 +14,7 @@ from ao_shaping.tools.slm.transfer.protocol import (
     FixedAperture,
     aperture_metrics,
     compare_repeats,
+    derive_replay_exposures,
     insufficient_keys,
     judge_pair,
     plan_reference_blocks,
@@ -309,6 +310,54 @@ def test_replay_audit_on_8bit_capture_uses_the_8bit_full_scale():
 def test_replay_audit_rejects_a_nonsense_full_scale():
     with pytest.raises(ValueError, match="full_scale"):
         replay_audit([dict(peak=1.0)], full_scale=0.0)
+
+
+# -- derive_replay_exposures ----------------------------------------------
+
+#: The four measured blocks of the 2026-10-29 lane 01 (analytic_init, 200 px,
+#: circle), verbatim from its stage manifests: (core_peak, full_scale,
+#: exposure_ms). The transport stage is 8-bit and the other three are 12-bit, so
+#: the rate has to be normalised by full scale or the 8-bit stage wins spuriously.
+LANE01_BLOCKS = [(136.3, 255.0, 55.08), (1110.0, 4095.0, 25.92),
+                 (1753.0, 4095.0, 48.246), (1841.0, 4095.0, 56.659)]
+
+
+def test_derived_ladder_keeps_the_brightest_block_below_the_guard():
+    ladder = derive_replay_exposures(LANE01_BLOCKS)
+    assert len(ladder) == len(protocol_module.REPLAY_LADDER_FRACTIONS)
+    assert ladder == sorted(ladder)
+    # Applying the ladder to the brightest block must stay under the audit guard:
+    # that is exactly what the fixed 50/125/225 ms ladder failed to do (lane 01
+    # reached 4095/4095 at 125 ms and the replay aborted).
+    peak, full_scale, exposure = max(LANE01_BLOCKS, key=lambda row: row[0] / row[1] / row[2])
+    brightest_share = (peak / full_scale) / exposure
+    assert ladder[-1] * brightest_share < protocol_module.REPLAY_PEAK_GUARD_FRACTION
+
+
+def test_derived_ladder_is_short_enough_where_the_fixed_one_saturated():
+    ladder = derive_replay_exposures(LANE01_BLOCKS)
+    # 125 ms drove this lane's core to full scale; the derived middle rung must be
+    # shorter than that, otherwise the derivation changed nothing.
+    assert ladder[1] < 125.0
+
+
+def test_derivation_uses_the_relative_rate_so_mixed_bit_depths_compare():
+    # Same relative brightness at the same exposure: a 12-bit block twice as long
+    # is half as fast, so it must not set the ladder.
+    ladder = derive_replay_exposures([(2048.0, 4095.0, 50.0), (2048.0, 4095.0, 100.0)])
+    assert ladder == pytest.approx([25.0, 50.0, 75.0], abs=0.05)
+
+
+def test_derivation_refuses_to_guess_when_nothing_was_measured():
+    with pytest.raises(ValueError, match="positive peak rate"):
+        derive_replay_exposures([])
+    with pytest.raises(ValueError, match="positive peak rate"):
+        derive_replay_exposures([(0.0, 4095.0, 50.0), (None, 4095.0, 50.0)])
+
+
+def test_derivation_accepts_mapping_rows_from_a_manifest():
+    rows = [dict(peak=1841.0, full_scale=4095.0, exposure_ms=56.659)]
+    assert derive_replay_exposures(rows) == derive_replay_exposures([(1841.0, 4095.0, 56.659)])
 
 
 # -- plan_reference_blocks ------------------------------------------------

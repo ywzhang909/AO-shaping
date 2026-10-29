@@ -40,6 +40,7 @@ from loguru import logger
 from ao_shaping.tools.slm.transfer import capture as capture_stage
 from ao_shaping.tools.slm.transfer import fit as fit_stage
 from ao_shaping.tools.slm.transfer import recording, replay_phases, validate as validate_stage
+from ao_shaping.tools.slm.transfer.protocol import derive_replay_exposures
 from ao_shaping.utils.image.target import TRANSFER_SHAPE_CHOICES
 
 
@@ -83,6 +84,24 @@ STAGE_RECIPES: tuple[StageRecipe, ...] = (
 
 def _json(path: Path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _measured_peak_rates(runs: list[Path]) -> list[tuple[float, float, float]]:
+    """``(core_peak, full_scale, exposure_ms)`` for every block already measured.
+
+    Read from the stage manifests of *this* lane, so the replay ladder is sized
+    by the same bench and the same shaped spot it will replay. A missing manifest
+    (``--resume`` into a half-done lane) simply contributes nothing.
+    """
+    observations: list[tuple[float, float, float]] = []
+    for run in runs:
+        manifest_path = Path(run) / "manifest.json"
+        if not manifest_path.is_file():
+            continue
+        for row in _json(manifest_path):
+            observations.append((row.get("core_peak"), row.get("full_scale"),
+                                 row.get("exposure_ms")))
+    return observations
 
 
 def _seed_kind(shape: str, requested: str) -> str:
@@ -281,6 +300,10 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
               show_default=True,
               help="共同重放的曝光 (ms); 重复旗标 (--replay-exposures 20 --replay-exposures 50)。"
                    "注意 click 的 multiple=True 不接受空格分隔的多个值, 生成计划时须逐项展开")
+@click.option("--replay-exposures-auto", is_flag=True, default=False,
+              help="按本 lane 已测各块的核心峰值率推导共同重放曝光 (覆盖 --replay-exposures)。"
+                   "固定 ladder 只在一个 lane 内成立: 200 px 的核在 125 ms 就满量程, "
+                   "而 1200 px 在 225 ms 仍可用, 故不能跨尺寸共用")
 @click.option("--record-responses/--no-record-responses", default=False, show_default=True,
               help="拟合时记录逐批物理响应统计 (fit --record-responses), 写入 fit/")
 @click.option("--model-dir", type=click.Path(path_type=Path), default=None,
@@ -299,6 +322,7 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         fft_size: int, frames: int, seed: int, camera: str, cam_id: int, slm_number: int,
         device: str, initial_phase: str, seed_bakeoff: bool, gs_seed: bool,
         replay_exposures: tuple[float, ...],
+        replay_exposures_auto: bool,
         record_responses: bool,
         model_dir: Path | None, records_only: bool, resume: bool, order: str,
         execute: bool) -> None:
@@ -323,6 +347,7 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
                 initial_phase=initial_phase, seed_bakeoff=seed_bakeoff, gs_seed=gs_seed,
                 execute=execute, resume=resume, order=order,
                 record_responses=record_responses,
+                replay_exposures=("auto" if replay_exposures_auto else list(replay_exposures)),
                 stages=[dict(name=recipe.name, blocks=recipe.blocks, updates=recipe.updates,
                              bit_depth=recipe.bit_depth, ccd_check=recipe.ccd_check,
                              window_step=recipe.window_step) for recipe in STAGE_RECIPES])
@@ -481,21 +506,40 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
     # -------------------------------------------------------------- replay
     runs = [out / "shape" / shape / recipe.name for shape in shapes for recipe in STAGE_RECIPES]
     replay_dir = out / "common_replay"
-    if resume and (replay_dir / "config.json").is_file():
+    # ``released.json`` is written only after every block replayed *and* both
+    # devices were released, so it is the completion marker. ``config.json`` is
+    # not: it is written before the first block, so a replay that aborted on a
+    # saturated core (2026-10-29, lane 01) would be skipped as "reused" and the
+    # lane would silently report a session with no usable replay.
+    if resume and (replay_dir / "released.json").is_file():
         # Same contract as a reused stage: the directory says it already ran.
         journal.record("replay", "reused", out=str(replay_dir))
     else:
         journal.record("replay", "running")
+        exposures = list(replay_exposures)
+        if replay_exposures_auto:
+            observations = _measured_peak_rates(runs)
+            exposures = derive_replay_exposures(observations)
+            journal.record("replay", "ladder_derived", exposures=exposures,
+                           n_blocks=len(observations))
+            logger.info("replay ladder derived from {} measured blocks: {} ms",
+                        len(observations), exposures)
         replay_phases.replay(SimpleNamespace(
             initial_run=out / "shape" / shapes[0] / STAGE_RECIPES[0].name, runs=runs,
-            out=replay_dir, exposures=list(replay_exposures), frames=frames,
+            out=replay_dir, exposures=exposures, frames=frames,
             camera=camera, cam_id=cam_id, slm_number=slm_number, include_best=False))
-        journal.record("replay", "complete", out=str(replay_dir))
+        journal.record("replay", "complete", out=str(replay_dir), exposures=exposures)
 
     # -------------------------------------------------------------- record
     records_marker = out / "records" / "process.csv"
     if resume and records_marker.is_file():
         journal.record("record", "reused", out=str(records_marker.parent))
+    elif recorder is None or not recorder.history:
+        # ``--resume`` on an otherwise finished lane re-enters no stage, so there
+        # is no capture to export. ``save_records`` raises "history is empty",
+        # which would fail a session whose only remaining work was the replay.
+        # ``--records-only`` rebuilds the table from the stage manifests.
+        journal.record("record", "skipped", reason="no captures this run; use --records-only")
     elif recorder is not None:
         saved = recording.save_records(recorder, out / "records", mark="process",
                                        gif_name="process.gif", fps=2.0,

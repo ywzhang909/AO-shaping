@@ -345,6 +345,64 @@ lane 00 于 01:36:44 → 01:54:18 UTC 跑完四个阶段（`transport_cv` / `mon
 证据：`data/debug/slm_transfer/multishape_nogs_20261029/p20261029/`（`journal.json`、`fit/result.json`、
 `common_replay/`、逐阶段 `circle_*_exposure.json`）。
 
+### 5.5 2026-10-29 lane 01：重放 ladder 不能跨尺寸共用（已修）
+
+lane 01（`p20261029_analytic_init_s200_circle`，200 px）四个整形阶段全部完成，**重放阶段中止**：
+
+```
+File ".../tools/slm/transfer/replay_phases.py", line 147, in replay
+    raise RuntimeError("core saturated; raw replay retained")
+```
+
+**根因不是设备，是协议**：`--replay-exposures` 当时是**跨 lane 固定**的 50/125/225 ms（按 1200 px 的
+refit 会话定标）。核心峰值由成形光斑的**集中程度**决定，200 px 的核在同样曝光下亮得多：
+
+| 曝光档 | 最亮块（transport 的 seed 相位） | 占满量程 |
+|---|---|---|
+| 50 ms | 1837 counts | 45% |
+| 125 ms | **4095 counts** | **100%（触发中止）** |
+
+所以「一个 ladder 服务所有尺寸」在构造上就不成立：1200 px 在 225 ms 仍可用，200 px 在 125 ms 已经满量程。
+
+**修法（推导，而不是再猜一组数）**：新增
+`protocol.derive_replay_exposures()`（设备无关、纯计算）与 runner 的 `--replay-exposures-auto`：
+
+1. 从**本 lane 已测**的各阶段 `manifest.json` 取 `(core_peak, full_scale, exposure_ms)`；
+2. 速率取 `max((core_peak / full_scale) / exposure_ms)` —— 用 `full_scale` 归一，因此同一 lane 里
+   8-bit 的 `transport_cv` 与 12-bit 的后三段可比；
+3. ladder = `[0.25, 0.5, 0.75] / 速率`，即让最亮块落在满量程的 25 / 50 / 75%。
+
+`REPLAY_LADDER_FRACTIONS` 三个比例都在 `REPLAY_PEAK_GUARD_FRACTION = 0.98` 之下**按构造**，所以推导出的
+ladder 不会选到审计会扣留的曝光。lane 01 的实测输入推得 **23.9 / 47.8 / 71.7 ms**（对照：被中止的固定
+ladder 是 50/125/225）。
+
+计划生成器默认改为输出 `--replay-exposures-auto`（`plan.json` 记 `"replay_exposures": "auto"`），
+显式列表仍可用（`--replay-exposures 20 50 90`，一项一旗标）。**ladder 在 lane 内固定、跨 lane 推导**——
+前者是曝光无关性检查成立的前提，后者是它不饱和的前提，两者不可互相替代。
+
+**顺带修掉第二个会静默吞掉会话的缺陷**：`--resume` 原来把 `common_replay/config.json` 当作重放已完成的
+标志，但它在**第一个块之前**就写了；一次中止的重放会被当作 `reused` 跳过，于是该 lane 会「成功」地报出
+一个没有可用重放的会话。现在要求 `released.json`（全部块重放完且两台设备都释放之后才写）。
+
+**第三个**：`--resume` 重进一个已完成的 lane 时没有任何新采集，Recorder 历史为空，
+`save_records` 抛 `history is empty - nothing to export`，把一个只剩重放的会话判成失败。现在该分支记
+`record/skipped` 并由 `--records-only` 从各阶段 `manifest.json` 离线重建（lane 01 已按此重建 28 行）。
+
+**重跑结果（lane 01，推导 ladder 23.906 / 47.812 / 71.718 ms，68 个已测块）**：
+
+| 曝光档 | CV 均值（sd） | 相对 EE | 零级排除比 | 复制离散（final, 95% t） | seed→final |
+|---|---|---|---|---|---|
+| 23.906 ms | 1.0762 (0.1117) | 0.3072 | 0.272 | ±0.0925 | −0.2864，supported |
+| 47.812 ms | 1.1219 (0.0531) | 0.3169 | 0.272 | ±0.0396 | −0.1263，supported |
+| 71.718 ms | 1.1191 (0.0554) | 0.3181 | 0.272 | ±0.0291 | −0.1273，supported |
+
+审计 **15/15 放行、`clipped = []`**。两点须如实记下：200 px 的**零级排除比 27.2%**（零级盘占小目标
+很大一块），以及 seed→final 的改善只有 −0.13～−0.29，远小于 1200 px 的 −0.51 —— 小目标的成形增益
+在本轮明显更弱，这是结果，不是测量故障。
+
+证据保留：`p20261029_analytic_init_s200/circle/common_replay_aborted_50_125_225ms/`（原始帧与 manifest）、
+`journal_first_attempt.json`（中止那次的 journal，`--resume` 会重写 `journal.json`）。
+
 ## 6. 设备释放状态
 
 - 中断进程与被中止的 relaunch 均由上下文管理器释放 SLM/CCD；预检记录 `flat_restored=true`（SLM 已复位到平场）。

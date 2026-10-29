@@ -80,13 +80,30 @@ def test_every_lane_carries_the_preflight_gate_first():
         assert "LASTEXITCODE" in joined and "exit 1" in joined
 
 
-def test_repeated_replay_exposures_are_expanded_one_flag_per_value():
+def test_the_default_ladder_is_derived_per_lane_not_a_fixed_list():
+    # A ladder fixed across lanes is wrong by construction: the 2026-10-29 lane 01
+    # aborted with ``core saturated`` because 125 ms drove a 200 px core to full
+    # scale while a 1200 px core was clean at 225 ms.
+    plan = planner.build_plan(sizes=[200, 600], shapes=["circle", "square"],
+                              routes=["strict_cold"], model_session="s1200",
+                              campaign_dir=Path("/tmp/campaign"), frames=3,
+                              replay_exposures=None, repeats=6)
+    assert plan["replay_exposures"] == "auto"
+    for lane in plan["lanes"]:
+        command = lane["commands"][-1]
+        assert "--replay-exposures-auto" in command
+        assert "--replay-exposures " not in command
+        assert "--execute" in command
+
+
+def test_an_explicit_ladder_is_expanded_one_flag_per_value():
     # click's ``multiple=True`` rejects ``--replay-exposures 20 50``; the planner
     # must emit one flag per value or the lane dies on its first real call.
     lane = _plan()["lanes"][0]
     command = lane["commands"][-1]
     for value in ("20.0", "50.0", "90.0"):
         assert f"--replay-exposures {value}" in command
+    assert "--replay-exposures-auto" not in command
     assert "--execute" in command
 
 

@@ -52,8 +52,10 @@ __all__ = [
     "insufficient_keys",
     "plan_reference_blocks",
     "replay_audit",
+    "derive_replay_exposures",
     "SHAPE_AGREEMENT_KEYS",
     "REPLAY_PEAK_GUARD_FRACTION",
+    "REPLAY_LADDER_FRACTIONS",
 ]
 
 #: Metric keys a shape-agreement read-out must report. Kept as a tuple so a
@@ -496,6 +498,63 @@ def compare_repeats(rows: Iterable[Mapping], *, keys: Sequence[str] = ("cv", "ee
 #: not use because nothing checked the peak. It is a *gate*, not a calibration:
 #: below it, the frame is compared as normal.
 REPLAY_PEAK_GUARD_FRACTION = 0.98
+
+
+#: Where a derived replay ladder puts the *brightest* measured block, as a share
+#: of full scale. The middle rung is the comparison exposure; the two outer rungs
+#: exist so the comparison can be shown not to depend on exposure. All sit below
+#: ``REPLAY_PEAK_GUARD_FRACTION`` by construction, so a derived ladder cannot pick
+#: an exposure the audit would then withhold.
+REPLAY_LADDER_FRACTIONS = (0.25, 0.5, 0.75)
+
+
+def derive_replay_exposures(
+    observations: Iterable[Sequence[float] | Mapping[str, float]],
+    *,
+    fractions: Sequence[float] = REPLAY_LADDER_FRACTIONS,
+) -> list[float]:
+    """Size a common replay ladder from the lane's own measured peak rate.
+
+    A replay ladder has to be fixed **within** a lane -- a common exposure is
+    what makes an A-B-B-A comparison mean anything -- but it cannot be fixed
+    *across* lanes. The core peak is set by how concentrated the shaped spot is,
+    so the same ladder that is comfortable at 1200 px saturates at 200 px: the
+    2026-10-29 campaign aborted lane 01 with ``core saturated; raw replay
+    retained`` because 125 ms drove a 200 px core to 4095/4095 while the
+    1200 px lane was still clean at 225 ms.
+
+    Args:
+        observations: One ``(peak, full_scale, exposure_ms)`` per already
+            measured block, in that block's own units. Carrying ``full_scale``
+            makes the rate comparable across an 8-bit and a 12-bit stage, which
+            the same lane mixes by design.
+        fractions: Target peak shares of full scale, applied to the brightest
+            block.
+
+    Returns:
+        One exposure per fraction, in ms, ascending.
+
+    Raises:
+        ValueError: If no block offers a positive peak at a positive exposure on
+            a positive full scale -- then there is nothing to scale from and any
+            number returned would be a guess.
+    """
+    rate = 0.0
+    for observation in observations:
+        if isinstance(observation, Mapping):
+            peak, full_scale, exposure = (observation["peak"], observation["full_scale"],
+                                          observation["exposure_ms"])
+        else:
+            peak, full_scale, exposure = observation
+        if peak is None or exposure is None or full_scale is None:
+            continue
+        peak, full_scale, exposure = float(peak), float(full_scale), float(exposure)
+        if peak <= 0 or full_scale <= 0 or exposure <= 0:
+            continue
+        rate = max(rate, (peak / full_scale) / exposure)
+    if rate <= 0:
+        raise ValueError("cannot derive a replay ladder: no block has a positive peak rate")
+    return [round(float(fraction) / rate, 3) for fraction in fractions]
 
 
 def replay_audit(frames: Iterable[Mapping], *, full_scale: float,
