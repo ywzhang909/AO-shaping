@@ -483,7 +483,7 @@ circle 的 `dCV` 结论来自 §5.1 的冻结光阑重放，不是这两列。
 | triangle（15） | 10.706 ms | 0.7432（0.0366） | −0.0016 | `no_difference` | 0.2509 | 0.272 |
 | | 21.412 ms | 0.7394（0.0416） | −0.0032 | `no_difference` | 0.2508 | 0.272 |
 | | 32.116 ms | 0.7448（0.0493） | —（该档只有 `final`，无 seed 行） | — | 0.2585 | 0.272 |
-| star（16） | — | — | — | **lane 失败，无数据**（§6） | — | — |
+| star（16） | — | — | — | **待重跑**：lane 在第 3 阶段（`mono12_continue`）打不开 SLM，前两阶段数据已整条归档作废（§6） | — | — |
 
 三点读法：
 
@@ -513,18 +513,26 @@ circle 的 `dCV` 结论来自 §5.1 的冻结光阑重放，不是这两列。
 | lane 02 seed-only 试跑被跳过 | resume 门按 `manifest.json` 存在与否判断，seed-only 试跑也写 manifest | `7d672959` 修：`blocks=0` 时同样写 manifest 并标记 |
 | 重放 ladder 跨尺寸共用 | ladder 按 1200 px 标定，200 px 首档即饱和 | `d0805383` 修：ladder 随 `side` 缩放 |
 | `audit_replay_blocks.py` 读不到 s200 目录 | 默认平铺布局，本次是 `<session>/<shape>/common_replay` | 传 `--session <session>/<shape>` |
-| **lane 16（`strict_cold_s200/star`）在 17:21:41 起动即失败**：`SantecError: 无法打开SLM #1 (错误码 -10003, USB设备已打开)`，之后 lane 31（1.0 的 `analytic_init_s200`）也在预检处被同样拒绝 | lane 15 刚在 17:21:41 结束、lane 16 在同一秒起动；设备锁自检报「SDK 报设备被占，但锁里没有任何活着的持有者」⇒ **控制器里的陈旧 USB 句柄**，不是并发占用（已核对：当时没有任何存活的 SQL/SLM 相关进程） | 需给 SLM 控制器**物理断电数秒再上电**（驱动自己的提示，也是 `drivers/slm/AGENTS.md` 的处置）；star 的 lane 16 与 lane 31–34 **全部作废重跑**。lane 32 留下的半成品目录（只有 `plan`/`model`/`geometry`，无任何采集）已删除 |
+| **lane 16（`strict_cold_s200/star`）在**第 3 阶段**打不开 SLM**：`transport_cv`（17:23:52→17:25:19）与 `mono12_cv`（17:25:19→17:27:54）都已 `complete`，17:27:54 起动 `mono12_continue` 时抛 `SantecError: 无法打开SLM #1 (错误码 -10003, USB设备已打开)`；随后 lane 31（1.0 的 `analytic_init_s200`）在预检探针处被同样拒绝 | **不是并发占用**：设备锁自检报「SDK 报设备被占，但锁里没有任何活着的持有者」，且逐进程核对过当时没有存活的 SLM/CCD 相关进程。**也不是上一个 lane 留下的**：lane 16 自己已经成功 open/close 了两次，是**第三次** open 失败 ⇒ 每阶段 `open()`/`close()`（`validate.py` 的 `with Santec(...)`，每 stage 一次）偶尔留下未释放的控制器句柄 | 驱动自身的提示与实际处置都是给 SLM 控制器**物理断电数秒再上电**（18:05 断电、18:09 起探针恢复：见下条）。lane 16 已整条重跑（200 px 冷启动的 star 行因此留空到重跑完成）；lane 31–34 与 17–20 顺延。lane 16 的两阶段半成品（含采集）已整体移到 `_aborted_20261029_1727_strict_cold_s200_star/` 留档，不删；lane 32 的半成品（只有 `plan`/`model`/`geometry`，无采集）已删除 |
+| 断电重启后首探针报 `InvalidAccess: ... SetPrivilege ... Access denied:{-1005}`（相机侧），3 min 后同一探针 `判定: ok` | 断电重启后 Daheng/GenICam 传输层还没放开独占权；期间有一个无关的 `pytest`（另一会话，全部 stub、不碰硬件）正在跑，已核对不是它 | 直接重试即可，不是设备故障；18:12 探针 `5 ms → 134 counts`、离焦有显著响应、`判定: ok` |
 
 ## 7. 设备释放
 
-- 03:50 UTC 终止；所有阶段进程、lane 链与被中止的 relaunch 均已结束。
-- SLM 与 Daheng CCD 由上下文管理器关闭，`released.json` 记于各 `common_replay`。
-- **下一位操作者**：
-  1. `p20261029_analytic_init_s600/circle` 的 `mono12_cv` 是半成品，`--resume`
-     从第 5 块继续；该目录没有 `common_replay`，重放需单独跑；
-  2. lane 06–24 从未启动，目录不存在，可直接按 `lanes/*.ps1` 开跑；
-  3. `--profile-timing` 只在 lane 05 打开（01–04 运行时该开关尚未提交），
-     `--async-capture-write` 全程关闭 ⇒ 01–04 与 05 的采集耗时口径不同。
+- 03:50 UTC 第一次终止（lane 00–04 与 05 的 `mono12_cv` 半成品）；之后会话在 17:2x 恢复，
+  lane 05–08、13–15 完成，lane 16 在第 3 阶段因 SLM 陈旧句柄失败（§6），
+  18:05 控制器物理断电重置、18:12 探针 `ok` 后重启剩余 9 条 lane（16、31–34、17–20）。
+- **设备当前状态（18:12 实测）**：SLM `Santec #1` 可开可关、`5 ms → 134 counts`
+  （与 1.0 功率一致）、离焦有显著响应；Daheng CCD 可用。**不是**空闲状态 ——
+  重启的 lane 链仍在跑，见下条。
+- 每次 lane 结束都会由上下文管理器关闭 SLM/CCD，`released.json` 记于各 `common_replay`；
+  但**每阶段重新 `open()` 的路径本身不稳**（§6 lane 16，今天约 1/20 次阶段打开失败），
+  接手的人若看到 `-10003` 而设备锁里没有持有者，直接按 §6 处置（物理断电），不要去找进程。
+- **接手时的注意**：
+  1. 一次会话不跨功率：0.7 的半成品全部归档在 `data/debug/slm_transfer/multishape_nogs_20261029/` 之外的同级目录，跨功率只读形态不读量级；
+  2. `--profile-timing` 只在 lane 05 打开（01–04 运行时该开关尚未提交），
+     `--async-capture-write` 全程关闭 ⇒ 01–04 与 05 的采集耗时口径不同；
+  3. 3a（`jacobian_guard`）默认开启且会把 `phase_rms_cap` 按到地板 0.02（§5.6），
+     复现本轮轨迹前先决定要不要关它。
 
 ## 8. 结论与未决
 
