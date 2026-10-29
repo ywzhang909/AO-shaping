@@ -175,14 +175,3 @@ __all__ = [
     "_rectangle_mask",
     "_SHAPE_ALIASES",
 ]
-
-try:
-    from .objective import MAXIMIZE_OBJECTIVES, MINIMIZE_OBJECTIVES, objective_direction, objective_maximizes
-except Exception:
-    pass
-
-
-try:
-    from .objective import MAXIMIZE_OBJECTIVES, MINIMIZE_OBJECTIVES, objective_direction, objective_maximizes
-except Exception:
-    pass

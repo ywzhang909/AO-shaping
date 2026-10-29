@@ -13,8 +13,6 @@ from typing import Any, Iterator, cast
 
 import numpy as np
 
-from ao_shaping.utils.io.record_mode import RecordMode
-
 from loguru import logger
 
 from ao_shaping.utils.image.target.metrics import (
@@ -349,29 +347,6 @@ class ObjectiveResult:
     tracking: float
     terms: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
     loggrad: float = 0.0
-
-
-
-MAXIMIZE_OBJECTIVES = ("pib", "avg_radiu", "shape", "roi_pib", "rms_pib")
-MINIMIZE_OBJECTIVES = (
-    "rms",
-    "j2",
-    "strehl",
-    "eee",
-    "sharpeness",
-)
-_MAXIMIZE_SET = frozenset(MAXIMIZE_OBJECTIVES)
-
-
-def objective_direction(objective: str) -> RecordMode:
-    obj = str(objective).strip().lower()
-    if obj in _MAXIMIZE_SET:
-        return RecordMode.MAX
-    return RecordMode.MIN
-
-
-def objective_maximizes(objective: str) -> bool:
-    return objective_direction(objective) is RecordMode.MAX
 
 
 SHAPING_OBJECTIVE_CHOICES = (
