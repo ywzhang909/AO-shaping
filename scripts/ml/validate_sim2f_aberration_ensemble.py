@@ -625,13 +625,13 @@ def _print_summary(
     out_dir: Path,
 ) -> None:
     """Print the compact terminal summary."""
-    print()
+    logger.info()
     logger.info(f"backend: array module {backend['array_module']} (gpu={backend['gpu']}, "
           f"gpu_resident={backend['gpu_resident']}, OOPAO_BACKEND={backend['oopao_backend_env']})")
     logger.info(f"wall clock: OOPAO screens {timings['oopao_s']:.2f} s, "
           f"sampler draws {timings['sampler_s']:.2f} s, total {timings['total_s']:.2f} s")
     for name, result in (("OOPAO ensemble", oopao_result), ("shipped sampler", sampler_result)):
-        print()
+        logger.info()
         logger.info(f"[{name}] n={result['n_samples']}  floor sqrt(2/n)={result['noise_floor']:.4f}")
         logger.info(f"  amplitude (mean diag emp/ref): {result['amplitude_scale']:.4g}"
               f"{'  [divided out]' if result['match_amplitude'] else ''}")
@@ -644,7 +644,7 @@ def _print_summary(
         logger.info(f"  diagonal emp/ref: min {ratios.min():.3f}, median {np.median(ratios):.3f}, "
               f"max {ratios.max():.3f}")
         logger.info(f"  verdict: {result['verdict']}")
-    print()
+    logger.info()
     logger.info(f"wrote {out_dir / 'validate_sim2f_aberration_ensemble.json'}")
     logger.info(f"wrote {out_dir / 'validate_sim2f_aberration_ensemble.md'}")
 
@@ -686,7 +686,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     n_draws = int(args.n_draws) if args.n_draws else int(args.n_samples)
     if int(args.n_samples) < 10 or n_draws < 10:
-        print("error: --n-samples and --n-draws must be >= 10", file=sys.stderr)
+        logger.info("error: --n-samples and --n-draws must be >= 10")
         return 2
 
     logger.info(PRE_REGISTRATION)

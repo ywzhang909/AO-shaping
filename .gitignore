@@ -206,3 +206,16 @@ none
 *.pt
 .history/*
 runs/*
+
+
+# Local editor/agent state
+node_modules/
+
+
+# openchamber
+.openchamber/*
+
+# >>> magpie: library skills placed here (magpie adds and removes these lines) >>>
+/.agents/skills/academic-communication-merged
+/.agents/skills/academic-research-merged
+# <<< magpie <<<

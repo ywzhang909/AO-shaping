@@ -66,6 +66,7 @@ from ml.hwdataset import (
     HwPhaseImageDataset,
     build_hw_index,
 )
+from ml.zernike.eval_stats import spearman
 
 OUT_DIR = ROOT / "report" / "loss_defects"
 
@@ -305,7 +306,7 @@ def main() -> None:
     rows: dict[str, dict[str, float]] = {}
     for name, pred in variants.items():
         rows[name] = compute_all(pred, target)
-        print(f"  {name:8s} done", flush=True)
+        logger.info(f"  {name:8s} done")
 
     # A candidate is only worth reporting if it (a) separates exact from the corruptions by
     # more than R2 does, and (b) is not a monotone restatement of R2.
@@ -325,7 +326,7 @@ def main() -> None:
         # rank correlation between this metric and R2 across the 5 variants
         xs = [rows[n][k] for n in rows]
         ys = [rows[n]["r2"] for n in rows]
-        rho = _spearman(xs, ys)
+        rho = spearman(xs, ys)
         verdict[k] = {
             "values": order[k],
             "delta_vs_exact": spread,
@@ -355,31 +356,6 @@ def main() -> None:
 
     _plot(payload)
     logger.info(f"wrote {OUT_DIR / 'metric_discrimination.json'}")
-
-
-def _spearman(a: list[float], b: list[float]) -> float:
-    """Spearman rho without a scipy dependency (5 points, ties averaged)."""
-    def rank(v: list[float]) -> list[float]:
-        order = sorted(range(len(v)), key=lambda i: v[i])
-        r = [0.0] * len(v)
-        i = 0
-        while i < len(order):
-            j = i
-            while j + 1 < len(order) and v[order[j + 1]] == v[order[i]]:
-                j += 1
-            avg = (i + j) / 2.0 + 1.0
-            for k in range(i, j + 1):
-                r[order[k]] = avg
-            i = j + 1
-        return r
-
-    ra, rb = rank(a), rank(b)
-    n = len(a)
-    ma, mb = sum(ra) / n, sum(rb) / n
-    num = sum((x - ma) * (y - mb) for x, y in zip(ra, rb))
-    da = sum((x - ma) ** 2 for x in ra) ** 0.5
-    db = sum((y - mb) ** 2 for y in rb) ** 0.5
-    return float(num / (da * db)) if da > 0 and db > 0 else float("nan")
 
 
 def _plot(payload: dict) -> None:

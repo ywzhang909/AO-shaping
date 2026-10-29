@@ -623,18 +623,18 @@ def main(argv: list[str] | None = None) -> int:
         # The asset name does not encode the geometry, so a non-reference run
         # overwrites the packaged file.  Say so: the runner-up mistake here is a
         # silent clobber that only shows up as a slightly wrong pupil.
-        print(
+        logger.info(
             f"note: grid={args.grid}/radius={args.pupil_radius_px} differs from the "
             f"reference geometry (grid={reference.grid}, "
             f"radius={reference.pupil_radius_px}); this rewrites the packaged asset "
             f"{ASSET_STEM}_n{int(args.n_modes)}.npz, and only the provenance JSON "
             "records the geometry it was built for",
-            file=sys.stderr,
+
         )
     if args.estimator == "analytic" and args.n_samples:
-        print("note: --n-samples is ignored by --estimator analytic", file=sys.stderr)
+        logger.info("note: --n-samples is ignored by --estimator analytic")
     if args.estimator == "sampled" and args.n_samples < 1:
-        print("error: --estimator sampled needs --n-samples > 0", file=sys.stderr)
+        logger.info("error: --estimator sampled needs --n-samples > 0")
         return 2
 
     sim = _build_bench(args)
@@ -737,29 +737,29 @@ def _check(
         Exit code: 0 when everything matches, 1 otherwise.
     """
     if not provenance.is_file():
-        print(f"FAIL: provenance missing: {provenance}", file=sys.stderr)
+        logger.info(f"FAIL: provenance missing: {provenance}")
         return 1
     stored_record = json.loads(provenance.read_text(encoding="utf-8"))
     if stored_record.get("covariance_sha256") != digest:
-        print(
+        logger.info(
             f"FAIL: recomputed covariance differs from the SHA in {provenance.name}\n"
             f"      stored {stored_record.get('covariance_sha256')}\n"
             f"      fresh  {digest}",
-            file=sys.stderr,
+
         )
         return 1
     if not asset.is_file():
-        print(f"FAIL: asset missing: {asset}", file=sys.stderr)
+        logger.info(f"FAIL: asset missing: {asset}")
         return 1
     with np.load(asset) as data:
         on_disk = np.asarray(data["covariance"], dtype=np.float64)
     disk_digest = _sha256(on_disk)
     if disk_digest != digest:
         worst = float(np.max(np.abs(on_disk - sigma)) / np.max(np.abs(sigma)))
-        print(
+        logger.info(
             f"FAIL: {asset.name} does not hash to the recorded SHA "
             f"({disk_digest} vs {digest}); max relative deviation {worst:.3e}",
-            file=sys.stderr,
+
         )
         return 1
 

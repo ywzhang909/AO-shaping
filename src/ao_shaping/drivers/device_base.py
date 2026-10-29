@@ -473,7 +473,7 @@ class Device(ABC):
         for callback in self._data_callbacks:
             try:
                 callback(data_type, data)
-            except Exception as e:
+            except Exception as e:  # 外部注册回调, 抛出的类型由调用方决定, 不可枚举
                 logger.warning(f"Data callback error: {e}")
 
     # ==================== 数字孪生支持 ====================
@@ -517,7 +517,7 @@ class Device(ABC):
                 if name in self._parameters:
                     try:
                         self.set_parameter_value(name, param_data["value"])
-                    except Exception as e:
+                    except Exception as e:  # 设备参数写入是任意驱动实现, 抛出的类型不可枚举
                         logger.warning(f"Failed to sync parameter '{name}': {e}")
 
     # ==================== 工具方法 ====================

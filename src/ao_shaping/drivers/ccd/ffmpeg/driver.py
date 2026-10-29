@@ -387,7 +387,7 @@ class FFmpegCamera(BaseCamera):
                         devices.append(i)
                         cap.release()
                 # policy: enumeration probes every index; a failed open means there is no device at that index
-                except Exception:
+                except Exception:  # 保留宽泛捕获: cv2.VideoCapture 的第三方异常类型不可枚举 (本机无 cv2, 无法确认 cv2.error)
                     pass
         else:
             # 尝试默认后端
@@ -398,7 +398,7 @@ class FFmpegCamera(BaseCamera):
                         devices.append(i)
                         cap.release()
                 # policy: enumeration probes every index; a failed open means there is no device at that index
-                except Exception:
+                except Exception:  # 同上: cv2.VideoCapture 枚举摄像头, 异常类型不可枚举
                     pass
 
         return devices
@@ -555,7 +555,7 @@ class ImageFolderCamera(BaseCamera):
                 return None
 
             return img
-        except Exception as e:
+        except Exception as e:  # 保留宽泛捕获: np.load + cv2.imread 组合, 各自的失败类型不可枚举
             logger.warning(f"Error reading {image_path}: {e}")
             return None
 

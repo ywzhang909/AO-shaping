@@ -25,6 +25,7 @@ from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
 
 
 from ao_shaping.tools.slm.transfer.probes import probe_grid
+from loguru import logger
 
 
 def main() -> int:
@@ -42,7 +43,7 @@ def main() -> int:
     if args.count < 6 or args.region < 24:
         parser.error("count >= 6 and region >= 24 required")
     plan = {**vars(args), "settings": settings, "best_diopter_m1": focus["best_diopter_m1"]}
-    print(json.dumps(plan, default=str, indent=2), flush=True)
+    logger.info(json.dumps(plan, default=str, indent=2))
     if not args.execute:
         for index in range(args.count):
             probe_grid(index, args.region, args.seed)
@@ -104,8 +105,8 @@ def main() -> int:
                     (out / "manifest.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
                     with (out / "capture_records.pkl").open("wb") as stream:
                         pickle.dump(rows, stream, protocol=5)
-                    print(f"{number:03d} {label} {branch}: exposure={current:.4f} "
-                          f"peak={raw.max()} settled={acquisition.settle.settled}", flush=True)
+                    logger.info(f"{number:03d} {label} {branch}: exposure={current:.4f} "
+                          f"peak={raw.max()} settled={acquisition.settle.settled}")
                     if setting.status != "ok" or raw.max() >= 250:
                         raise RuntimeError(f"unusable exposure: {label} {setting.status}")
 

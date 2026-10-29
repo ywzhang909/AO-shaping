@@ -494,7 +494,7 @@ def func_page_recorder():
         "一行 dict（含 `mark` 标记列），最终汇总为 DataFrame，`get_best_*` 系列按指定列取最优行。"
         "各命令页\"结果/调试落盘\"段里的 `save_recorder_debug_artifacts` 就是消费 `Recorder`\n"
         "产物的落盘函数（见 [[functions/debug-artifacts]]）。\n\n"
-        "## 结构（`src/ao_shaping/utils/io/file.py:426`）\n\n"
+        f"## 结构（`{definition_source('ao_shaping.utils.io.file', 'Recorder')}`）\n\n"
         "```python\nclass Recorder:\n"
         "    def __init__(self, mark: str = \"J\", mode: Literal[\"max\", \"min\"] = \"max\")\n"
         "    def append(self, record: dict)                    # 追加一行（自动补 _id）\n"
@@ -649,4 +649,4 @@ if __name__ == "__main__":
     w = build()
     logger.info(f"generated {len(w)} pages")
     for x in sorted(w):
-        logger.info(" ", x)
+        logger.info(f" {x}")

@@ -34,7 +34,7 @@ def _selections(args) -> list[tuple[Path, str]]:
                     shapes.append(shape)
     selections: list[tuple[Path, str]] = []
     for shape in shapes:
-        for directory in runs:
+        for directory in args.runs:  # the seed lives inside a stage run
             rows = json.loads((directory / "manifest.json").read_text())
             if any(row["label"] == f"{shape}_seed" for row in rows):
                 selections.append((directory, f"{shape}_seed"))
@@ -69,22 +69,37 @@ def replay(args):
     from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
 
     sources = []
-    xy = None
     for directory, label in _selections(args):
         rows = json.loads((directory / "manifest.json").read_text())
         row = next(r for r in rows if r["label"] == label)
         with np.load(directory / row["file"]) as saved:
             phase = saved["model_phase"].copy()
             grid, target, core = (saved[k].copy() for k in ("camera_xy", "target", "core"))
-        if xy is None:
-            xy = grid
-        elif not np.array_equal(xy, grid):
-            raise ValueError("replayed runs disagree on the camera grid")
-        sources.append((directory.name + "_" + label, phase, target, core))
+        sources.append(dict(name=directory.name + "_" + label, phase=phase, grid=grid,
+                            target=target, core=core))
     if not sources:
         raise ValueError("nothing to replay")
+    # One camera frame serves every grid. The stages deliberately sample the
+    # same window at different steps (stage 4 uses the finer recipe step), so a
+    # run's `camera_xy` arrays are equal *per stage* and differ across stages.
+    # Rejecting that made a finished multi-shape session un-replayable; instead
+    # each phase is sampled through its own grid, which is exactly the
+    # comparison the replay is for.
+    groups: dict[tuple, list[dict]] = {}
+    for source in sources:
+        key = (source["grid"].shape, float(source["grid"][0, 0, 0]), float(source["grid"][0, 0, 1]))
+        groups.setdefault(key, []).append(source)
+    for source in sources:
+        grid = source["grid"]
+        if (grid[..., 0].max() >= 2592 or grid[..., 1].max() >= 1944
+                or grid[..., 0].min() < 0 or grid[..., 1].min() < 0):
+            raise ValueError(f"{source['name']}: camera grid extends beyond the sensor")
     args.out.mkdir(parents=True, exist_ok=False)
-    (args.out / "config.json").write_text(json.dumps(dict(**vars(args), sources=[s[0] for s in sources], **clock()), default=str, indent=2), encoding="utf-8")
+    (args.out / "config.json").write_text(json.dumps(dict(
+        **vars(args), sources=[s["name"] for s in sources],
+        grids={f"{key[0]}|{key[1]:.1f},{key[2]:.1f}": [s["name"] for s in members]
+               for key, members in groups.items()}, **clock()), default=str, indent=2),
+        encoding="utf-8")
     records = []
     with create_camera(getattr(args, "camera", "daheng"), int(getattr(args, "cam_id", 0)),
                        exposure_time_ms=.02, bit_depth=12) as camera:
@@ -97,7 +112,10 @@ def replay(args):
             try:
                 for exposure in args.exposures:
                     camera.reset_exposure_time(exposure)
-                    for name, phase, target, core in sources:
+                    for source in sources:
+                        phase, grid = source["phase"], source["grid"]
+                        target, core = source["target"], source["core"]
+                        name = source["name"]
                         gray = slm.create_phase_from_array(to_panel(phase))
                         slm.display_data(gray)
                         time.sleep(.6)
@@ -108,16 +126,17 @@ def replay(args):
                             frames.append(frame)
                             stamps.append(dict(**stamp, end_monotonic_ns=time.monotonic_ns(), exposure_ms=float(get_camera_exposure_ms(camera))))
                         raw = np.stack(frames)
-                        sample = raw.mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)]
+                        sample = raw.mean(0)[grid[..., 1].astype(int), grid[..., 0].astype(int)]
                         filename = f"replay_{len(records):04d}.npz"
                         np.savez_compressed(args.out / filename, raw_frames=raw, model_phase=phase,
-                            panel_gray=gray, camera_xy=xy, target=target, core=core)
+                            panel_gray=gray, camera_xy=grid, target=target, core=core)
                         # Each source carries its own target / core, so the metrics
                         # are evaluated against the shape that was replayed.
                         shape_objective = ShapeObjective(target, cv_only=True)
                         shape_objective.core = core
                         record = dict(label=name, file=filename, exposure_ms=float(get_camera_exposure_ms(camera)),
                             full_scale=4095, bit_depth=12, counts_scale=16., frames=stamps,
+                            camera_grid=list(grid.shape),
                             metrics=image_metrics(sample, shape_objective), core_peak=float(sample[core].max()), **clock())
                         records.append(record)
                         (args.out / "manifest.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
@@ -133,6 +152,7 @@ def replay(args):
 
 
 if __name__ == "__main__":
+    import argparse
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--initial-run", type=Path, required=True)
     parser.add_argument("--runs", type=Path, nargs="+", required=True)

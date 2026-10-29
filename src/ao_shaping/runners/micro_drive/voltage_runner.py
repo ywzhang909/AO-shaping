@@ -433,7 +433,7 @@ def run(ctx: click.Context, params: AltVoltageRunnerParams) -> None:
                 click.echo(f"📄 ADC 数据已保存: {csv_path}  ({len(adc_data)} 条记录)")
                 logger.info("ADC data saved: {} ({} records)", csv_path, len(adc_data))
             # policy: writing the recorded series is a side output; the experiment has already run, so a failed export is reported rather than raised
-            except Exception as e:
+            except OSError as e:
                 logger.exception("Failed to save ADC data")
                 click.echo(f"⚠️ ADC 数据保存失败: {e}")
 

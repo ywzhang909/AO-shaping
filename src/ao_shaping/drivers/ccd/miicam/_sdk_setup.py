@@ -65,7 +65,7 @@ def _setup_miicam_sdk() -> bool:
     if hasattr(os, "add_dll_directory"):
         try:
             os.add_dll_directory(sdk_path)
-        except Exception as e:
+        except OSError as e:
             logger.warning(f"Failed to add DLL directory: {e}")
 
     # 若可用则预加载 SDK DLL
@@ -73,7 +73,7 @@ def _setup_miicam_sdk() -> bool:
     if os.path.exists(dll_path):
         try:
             ctypes.CDLL(dll_path)
-        except Exception as e:
+        except OSError as e:
             logger.warning(f"Failed to pre-load MIIUSB.dll: {e}")
 
     logger.debug(f"MIICAM SDK set up successfully from: {sdk_path}")

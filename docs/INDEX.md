@@ -1,7 +1,7 @@
 # AO-Shaping 文档总索引
 
 > 本文件是 `docs/` 的**入口索引**：按主题分域，每个文件一句话说明"这里能查到什么"。
-> 共 149 个 Markdown 文档（2026-10-23 盘点，2026-10-26 重钉：`spgd-square` 幽灵页删除后 147→146，新增相差光路多方案整形对比实验方案后 146→147，新增 `scripts/` 功能分类两份分析文档后 147→149）。新文档请在本索引登记后再提交。
+> 共 157 个 Markdown 文档（2026-10-23 盘点，2026-10-26 重钉：`spgd-square` 幽灵页删除后 147→146，新增相差光路多方案整形对比实验方案后 146→147，新增 `scripts/` 功能分类两份分析文档后 147→149；2026-10-29 复核：`find docs -name '*.md' | wc -l` = 157）。新文档请在本索引登记后再提交。
 >
 > 阅读路径建议：
 > 1. 第一次接触仓库 → `dev/call_graph_wiki/index.md`（调用图 + 逐函数手册，含全局调用图/类图）
@@ -16,14 +16,16 @@
 | `architecture.md` | `ao_shaping.model` 光场数据类模型（PhaseMap/ComplexField/OPD 等，像素间距+波长+来源元数据） |
 | `drivers_architecture.md` | `drivers/` 硬件抽象层设计：多品牌设备接入 + 虚拟仿真环境 |
 | `gui.md` | Streamlit GUI 总览，按设备域分包于 `src/ao_shaping/gui/` |
+| `sampling_assist_usage.md` | SLM 整形页「远场尺寸换算 → 采样光路」popover 的用户手册：`S_CCD = S·f_sample/f_main` 换算、五条可达性判据、操作步骤与界面截图（截图由 `scripts/slm/screenshot_sampling_assist.py` 无设备渲染） |
 | `hardware_drivers.md` | 硬件驱动清单（Thorlabs WFS / SLM / CCD / DM 各品牌支持矩阵） |
 | `issues_report.md` | 问题与故障排查记录 |
 | `ml_training.md` | ML 训练指南（`src/ml/` 可选依赖包：训练器/模型/指标，与硬件层解耦） |
+| `ml_hwdataset.md` | ML `src/ml/hwdataset/` 模块文档：硬件相位→相机图像 DataLoader 全节（语料实测/模块表/缓存/样本契约/不可回退结论/用法），外迁自 AGENTS.md |
 | `simulation.md` | 数字孪生仿真环境总览（无硬件测试） |
 | `tabu_search_algorithm.md` | 禁忌搜索算法实现说明（英文，`algorithm/tabu`） |
 | `zernike_usage.md` | Zernike 两层入口用法（模式编号/系数换算入口） |
 | `terminology_glossary.md` | **术语规范表**（唯一权威）：150+ 条口语→规范对照 + DO-NOT-TOUCH 保留清单 + T-60/T-61 新词登记 |
-| `paper_gs_refine_experiment.md` | 实验论文（GS 预矫正 + 随机平行梯度下降两级整形）：v4.7（2026-10-26 修订：正文只保留实验，仿真与数字孪生内容集中入附录 C），含 MIL 物理预测模型 + 可微光学框架综述 |
+| `paper_gs_refine_experiment.md` | 实验论文（GS 预矫正 + 随机平行梯度下降两级整形）：v4.8（2026-10-29 修订：补齐复合分数权重与窗口口径、理顺章节编号），含 MIL 物理预测模型 + 可微光学框架综述 |
 | `自适应 SPGD 光束整形闭环：完整方案总结.md` | 自适应 SPGD 方案：PPO 可信域思想 + 均匀化复合目标 + 自适应权重 + 历史信息复用 |
 | `相差光路多方案整形对比实验方案_v1.0.md` | 相差光路多方案整形对比实验方案 v1.0：6 方案 × 7 档像差，效果（composite/PIB/CV）+ 效率（收敛帧数/墙钟/收益成本比/帕累托）双维度对比 + 每类像差绑定独立工程路线 |
 | `scripts_functional_classification.md` | `scripts/` 功能二级分类与复用分析报告（2026-10-26）：在设备域一级分类上补 11 类功能二级分类，识别跨脚本重复功能与可复用函数，给出契约测试驱动、可逆的重构方案（未改动代码）；全量映射见 `scripts_functional_map.json` |
@@ -35,6 +37,8 @@
 |---|---|
 | `user/cli-reference.md` | **CLI 正式参考**：全部 flag 拼写/取值域/默认值逐字来自 `--help` 转储 |
 | `dev/coding_conventions.md` | 编码约定（Python 3.12+、导入、命名等） |
+| `dev/ci_testing.md` | 测试排除/分片策略与 CI 门禁现状（外迁自 AGENTS.md 的 `MISSING INFRASTRUCTURE` 与测试排除叙事） |
+| `dev/project_structure.md` | 项目包结构逐文件详解（外迁自根 AGENTS.md 的 `Project Structure`；根文档只留精简树 + 指向本文） |
 | `dev/extension_guide.md` | 二次开发与扩展指南：改动分层路由 + 最小模板（何时加新设备/算法/CLI，复用哪些 canonical 入口） |
 | `dev/todo_archive.md` | 已决事项档案（每条都是"一次决策的证据"，非变更日志） |
 

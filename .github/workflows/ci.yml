@@ -41,6 +41,27 @@ jobs:
       - name: Glossary gate (exit 1 on non-canonical terms)
         run: python3 scripts/_common/term_unify_20261016.py --check
 
+  module-size:
+    name: Module size gate
+    # coding_conventions.md §9 says "超过 800 行应考虑拆分", but nothing enforced it:
+    # the count of >800-line modules grew from 155 to 130 (non-test) while new
+    # report scripts kept landing, with no gate anywhere. #56 slice (4).
+    #
+    # It is a *ratchet*, not an absolute threshold: modules are already over
+    # 800, so an absolute gate would be red on its first day and would get
+    # downgraded to advisory -- i.e. back to nothing. Instead the baseline
+    # records today's sizes; new offenders and any *growth* fail, while
+    # shrinking is always free. Stdlib-only, so no uv and no container.
+    #
+    # Scope is `src/` only (2026-10-29): `scripts/` holds AI-facing one-off
+    # scripts where splitting for line count buys nothing -- they stay in the
+    # report as 仅报告. See AGENTS.md 「scripts/ 目录：AI 一次性脚本」.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Module size gate (src/ only; exit 1 on new or growing oversized modules)
+        run: python3 scripts/check_module_size.py --check
+
   # Tests moved to .github/workflows/pytest.yml (2026-10-24): a hard gate that runs
   # the suite in measured shards, one pytest process each.
   #

@@ -1,0 +1,46 @@
+{
+  "run": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\transfer_tri_star_20261027\\anchored",
+  "captures": 20,
+  "raw_frames": 60,
+  "maximum_peak": 2668.0,
+  "shapes": [
+    "star"
+  ],
+  "blocks": 4,
+  "accepted_blocks": 2,
+  "acceptance_scopes": [
+    "paired"
+  ],
+  "exposure_ms": {
+    "star": 61.551
+  },
+  "exposure_history_ms": {
+    "star": [
+      61.551
+    ]
+  },
+  "file_sha256": {
+    "capture_0000.npz": "b6470cb178b2c8d2245738069ca9eecc6855a2644bd67bb2a4248b27ab1ba2be",
+    "capture_0001.npz": "a1c91ea83c0f1f4245da1d93587100a0f496f97c6657bfec3b37dce292bb3302",
+    "capture_0002.npz": "f701489fc74ec7b3f13db91167f1d17618944f76ce4d28f71c4097db16f27e1f",
+    "capture_0003.npz": "f63433823a9e8f5cc125d5c10f51ea46b8813bff3b8e124f5354b45ef3e5ddce",
+    "capture_0004.npz": "222e9276b735667e3ce2982ce3d5c8b4022082df1ecbed6cb1946486d88fc48a",
+    "capture_0005.npz": "5c62b73bba95fe5b664de175e24ed08dcf7dc7b08f544e0d5370e9fc8a6682c7",
+    "capture_0006.npz": "c3d956348f2a28fa08d8a2224ac9c1ee7397be4f2d41eadf2a7db5bfeab8783c",
+    "capture_0007.npz": "bf2938a32111685fca7d8e16aba666c9516ebdc4c0008284976a9ac57c4fd948",
+    "capture_0008.npz": "8d23b1fcdacf22674b414607394b9dd1a72ce3bf152ce5b812282e542ee6dcb9",
+    "capture_0009.npz": "e7f092a80fe7fe1c95e9044d096d13bded4bf79c0be5ff058a3afee629e69aba",
+    "capture_0010.npz": "1f610ad5fcb49ea667f0c2652abc81d39f5eaf5fa0dbc829a5399edfd49374c4",
+    "capture_0011.npz": "a9cfae4bb4d4f74e1aeeee4b8bcf6f491eda4d70006be4a4dd5e558085ec4d56",
+    "capture_0012.npz": "23ff8a9753e357ac75bb8f640026ae3a74960101f7aa3d4158d6b50ae888deb8",
+    "capture_0013.npz": "85a90b45eae2cf2c35de0b116356f6198088002cd96327dce2fd6670b571df48",
+    "capture_0014.npz": "afd6e60c72765a874ed74a842acd49df3df422f33902cbd119c2c5dfc6131511",
+    "capture_0015.npz": "4e7b3ad554ff876249ea993fda7d4387e74bd3b9fd9a61586a5bfa8a0400f18c",
+    "capture_0016.npz": "569a024d035550e49a46e850233ea282f7c91c72054d716f317a609234fe7b59",
+    "capture_0017.npz": "8da45e91915f9c86f4fea831939c8fd6d8b11385e3bc887545671391c8ecf78b",
+    "capture_0018.npz": "26a87cc1c8e800ff5649e94175721a77093e932b9e553bf6c1973a2c67fa9461",
+    "capture_0019.npz": "2aa3a61b2824ca29de461e864147a6e644d611c3d87a92a68c164573c8525874"
+  },
+  "status": "passed",
+  "timestamp_scope": "host calls, not sensor exposure triggers"
+}

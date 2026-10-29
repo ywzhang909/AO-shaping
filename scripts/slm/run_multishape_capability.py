@@ -29,6 +29,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 import sys
+from loguru import logger
 
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
@@ -192,7 +193,7 @@ def main() -> None:
             spot_row, spot_col = (int(v) for v in np.unravel_index(int(np.argmax(base)), base.shape))
             records["spot_xy"] = [float(spot_col), float(spot_row)]
             records["seed_peak"] = float(base.max())
-            print(f"[spot] 同帧零点 ({spot_col}, {spot_row}) seed peak {base.max():.0f}", flush=True)
+            logger.info(f"[spot] 同帧零点 ({spot_col}, {spot_row}) seed peak {base.max():.0f}")
 
             xy = recentre_window((float(spot_col), float(spot_row)),
                                  half_span_px=args.window_half_span_px, step_px=2.0)
@@ -257,10 +258,10 @@ def main() -> None:
                     peak_candidate=float(np.mean([s["peak"] for s in stats["B1"]])),
                 )
                 records["blocks"].append(entry)
-                print(f"[block {block}] {baseline:.5f} -> {cand:.5f} (Δ {delta:+.5f}, "
+                logger.info(f"[block {block}] {baseline:.5f} -> {cand:.5f} (Δ {delta:+.5f}, "
                       f"{abs(delta) / resolution:.2f}x3σ) peak {entry['peak_baseline']:.0f}/"
                       f"{entry['peak_candidate']:.0f} | model {entry['model_before']:.3f}->"
-                      f"{entry['model_after']:.3f}", flush=True)
+                      f"{entry['model_after']:.3f}")
                 if best is None or cand < best["cv"]:
                     best = dict(cv=float(cand), block=block, panel=candidate_panel.copy(),
                                 grid=candidate_grid.copy())
@@ -285,12 +286,12 @@ def main() -> None:
                     "at_minus": mask_stats(frame, shift_mask(box_f, 0, -dx), shift_mask(core_f, 0, -dx),
                                            zero_mask),
                 }
-                print(f"[final {tag}] zero cv={final[tag]['at_zero']['cv']:.4f} "
+                logger.info(f"[final {tag}] zero cv={final[tag]['at_zero']['cv']:.4f} "
                       f"mean={final[tag]['at_zero']['mean_core']:.2f} "
                       f"zero_frac={final[tag]['at_zero']['zero_fraction']:.4f} | "
                       f"+shift mean={final[tag]['at_plus']['mean_core']:.2f} | "
                       f"-shift mean={final[tag]['at_minus']['mean_core']:.2f} | "
-                      f"peak={final[tag]['at_zero']['peak']:.0f}", flush=True)
+                      f"peak={final[tag]['at_zero']['peak']:.0f}")
             records["final"] = dict(shift_px=shift_px, shift_cells=dx, best_block=best["block"],
                                     best_cv=best["cv"], measured=final)
             np.save(args.out / "best_panel.npy", best["panel"])
@@ -299,10 +300,10 @@ def main() -> None:
     finally:
         try:
             slm.display_data(np.zeros((1200, 1920), dtype=np.uint16))
-        except Exception:
+        except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
             pass
         slm.close()
-    print(f"[done] {args.out}", flush=True)
+    logger.info(f"[done] {args.out}")
 
 
 if __name__ == "__main__":

@@ -21,14 +21,33 @@ import pytest
 _ROOT = Path(__file__).resolve().parents[3]
 _SCRIPTS = _ROOT / "scripts"
 
-#: Definitions that were extracted. Keyed by the old local name.
+#: Definitions that were extracted. Keyed by the old local name; the value is
+#: the canonical home (the assert message interpolates it verbatim).
 EXTRACTED = {
-    "_fmt": "fmt_metric / fmt_ratio / fmt_general / fmt_fixed / fmt_signed (FIVE distinct formatters)",
-    "_markdown_table": "markdown_table",
-    "_savefig": "savefig",
-    "iters_to_threshold": "iters_to_threshold",
-    "format_iters": "format_iters",
+    "_fmt": "scripts/_common: fmt_metric / fmt_ratio / fmt_general / fmt_fixed / fmt_signed (FIVE distinct formatters)",
+    "_markdown_table": "scripts/_common: markdown_table",
+    "_savefig": "scripts/_common: savefig",
+    "iters_to_threshold": "scripts/_common: iters_to_threshold",
+    "format_iters": "scripts/_common: format_iters",
     "oopao_package_dir": "scripts/_common/oopao_probe.py (both scripts/oopao/ generators)",
+    # The device-mutex set: ``scripts/slm/run_hw_sweep_groups.py`` carried a
+    # second copy of these while *already* importing the rest of the module
+    # ("再迁复用", AGENTS.md 「scripts/ 目录」 rule 2). The private names are
+    # imported across the module boundary on purpose -- forwarding, not
+    # forking; a local copy here would drift from the classifier that the
+    # live probe/queue paths actually consult.
+    "_ensure_repo_paths": "src/ao_shaping/tools/kernels/device_mutex.py",
+    "_extract_santec_error_code": "src/ao_shaping/tools/kernels/device_mutex.py",
+    "_reason_text": "src/ao_shaping/tools/kernels/device_mutex.py",
+    "classify_probe_setup_error": "src/ao_shaping/tools/kernels/device_mutex.py",
+    "format_occupier_lines": "src/ao_shaping/tools/kernels/device_mutex.py",
+    "parse_probe_cmd": "src/ao_shaping/tools/kernels/device_mutex.py",
+    "query_windows_python_processes": "src/ao_shaping/tools/kernels/device_mutex.py",
+    # Slot rotation: the 2..125 window and the "never the slot already being
+    # displayed" exclusion *are* the firmware no-op fix (AGENTS.md -- display_memory
+    # on the displayed slot leaves the LCOS unrefreshed), so a drifted copy is a
+    # hardware bug, not a style issue. scripts/slm/diff_beam_capture_flat.py had one.
+    "pick_slm_slot": "src/ao_shaping/utils/slm/phase_display.py",
 }
 
 #: Generators migrated onto ``scripts._common``.
@@ -112,7 +131,7 @@ def test_no_generator_redefines_an_extracted_helper(name: str) -> None:
         if name in _local_defs(p)
     ]
     assert not offenders, (
-        f"`def {name}` is back in {offenders}; it lives in scripts/_common as "
+        f"`def {name}` is back in {offenders}; it lives in "
         f"{EXTRACTED[name]} and a second copy will drift from it"
     )
 

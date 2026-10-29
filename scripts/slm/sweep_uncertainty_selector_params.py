@@ -45,7 +45,7 @@ from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import
 
 
 def _log(msg: str) -> None:
-    print(msg, flush=True)
+    logger.info(msg)
 
 
 def _u(selector: UncertaintyProbeSelector, probe: np.ndarray) -> float:

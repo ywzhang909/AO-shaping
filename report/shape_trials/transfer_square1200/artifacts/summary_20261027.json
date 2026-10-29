@@ -1,0 +1,54 @@
+[
+  {
+    "shape": "square",
+    "block": 0,
+    "accept_metric": "cv",
+    "baseline": 0.5981188018469199,
+    "candidate": 0.5727122275344582,
+    "drift": 0.0007332824783677916,
+    "accepted": true,
+    "timestamp_utc": "2026-10-27T07:03:53.301578+00:00",
+    "monotonic_ns": 317696854083100,
+    "phase_lr": 0.01,
+    "next_phase_lr": 0.01
+  },
+  {
+    "shape": "square",
+    "block": 1,
+    "accept_metric": "cv",
+    "baseline": 0.5757937773216664,
+    "candidate": 0.5716137191855557,
+    "drift": 0.0008266102718675894,
+    "accepted": true,
+    "timestamp_utc": "2026-10-27T07:04:12.796173+00:00",
+    "monotonic_ns": 317716348531600,
+    "phase_lr": 0.01,
+    "next_phase_lr": 0.01
+  },
+  {
+    "shape": "square",
+    "block": 2,
+    "accept_metric": "cv",
+    "baseline": 0.5708038143256061,
+    "candidate": 0.577075967341711,
+    "drift": 0.00027452467994804053,
+    "accepted": false,
+    "timestamp_utc": "2026-10-27T07:04:32.477130+00:00",
+    "monotonic_ns": 317736029342900,
+    "phase_lr": 0.01,
+    "next_phase_lr": 0.01
+  },
+  {
+    "shape": "square",
+    "block": 3,
+    "accept_metric": "cv",
+    "baseline": 0.5724365980541193,
+    "candidate": 0.579869952080738,
+    "drift": 0.00017882040452543713,
+    "accepted": false,
+    "timestamp_utc": "2026-10-27T07:04:54.396022+00:00",
+    "monotonic_ns": 317757948075500,
+    "phase_lr": 0.01,
+    "next_phase_lr": 0.01
+  }
+]

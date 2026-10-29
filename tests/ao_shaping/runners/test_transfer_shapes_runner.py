@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from ao_shaping.runners.slm.transfer_shapes_runner import STAGE_RECIPES, run
+from ao_shaping.runners.slm.transfer_shapes_runner import STAGE_RECIPES, _Journal, run
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -45,6 +45,123 @@ def test_plan_only_prints_the_plan_and_opens_no_device(tmp_path):
     assert not (tmp_path / "session").exists()
 
 
+# ---------------------------------------------------------------------------
+# resume / stage order: a half-finished session must be continuable
+# ---------------------------------------------------------------------------
+
+
+def _stage_args(tmp_path, *, stage_resume=True, order="stage", shapes=("square", "circle")):
+    """Everything ``run_stages`` needs, with paths that never touch a device."""
+    return dict(
+        out=tmp_path, shapes=list(shapes), order=order, resume=stage_resume,
+        journal=_Journal(path=tmp_path / "journal.json"),
+        chosen={shape: "backprojection" for shape in shapes},
+        model_640=tmp_path / "model640", wide_dir=tmp_path / "model_wide640",
+        zero_xy=[10., 10.], initial_phase="auto", device="cpu", camera="custom",
+        cam_id=0, slm_number=1, frames=2, side=20., period=64., window_span=60.,
+        zero_radius=0., window_step=4., recorder=None)
+
+
+def _record_entered_stages(monkeypatch):
+    """Replace ``validate.run`` with a stub that only leaves a manifest behind."""
+    from ao_shaping.runners.slm import transfer_shapes_runner as module
+
+    entered = []
+
+    def fake_validate(args):
+        args.out.mkdir(parents=True, exist_ok=True)
+        (args.out / "manifest.json").write_text("[]")
+        entered.append((args.out.parent.name, args.out.name, args.seed_run, args.resume))
+
+    monkeypatch.setattr(module.validate_stage, "run", fake_validate)
+    return entered
+
+
+def _fake_stage(tmp_path, shape, recipe_name):
+    stage_dir = tmp_path / "shape" / shape / recipe_name
+    stage_dir.mkdir(parents=True)
+    (stage_dir / "manifest.json").write_text("[]")
+    return stage_dir
+
+
+def test_resume_reuses_a_stage_whose_manifest_exists(tmp_path, monkeypatch):
+    """A finished stage is journaled ``reused`` and never re-entered."""
+    from ao_shaping.runners.slm.transfer_shapes_runner import STAGE_RECIPES, run_stages
+
+    entered = _record_entered_stages(monkeypatch)
+    frozen = _fake_stage(tmp_path, "square", STAGE_RECIPES[0].name)
+
+    run_stages(**_stage_args(tmp_path, shapes=("square",)))
+
+    states = [entry["status"] for entry in json.loads((tmp_path / "journal.json").read_text())]
+    reused = [entry for entry in json.loads((tmp_path / "journal.json").read_text())
+              if entry["status"] == "reused"]
+    assert [entry["stage"] for entry in reused] == [f"square/{STAGE_RECIPES[0].name}"]
+    assert reused[0]["out"] == str(frozen)
+    assert states.count("running") == len(STAGE_RECIPES) - 1
+    # Stage 2 continued from the reused directory, not from nothing.
+    assert entered[0][:2] == ("square", STAGE_RECIPES[1].name)
+    assert entered[0][2] == frozen
+
+
+def test_without_resume_a_populated_stage_directory_still_fails(tmp_path):
+    """The historical contract is unchanged: no --resume means no reuse.
+
+    This drives the production ``validate.run`` itself, with a stub forward
+    model, and nothing else stubbed out: the ``FileExistsError`` is the real
+    ``mkdir(parents=True, exist_ok=resume)`` guard, and it now lives inside
+    ``validate.run`` instead of the runner.
+    """
+    from ao_shaping.runners.slm.transfer_shapes_runner import run_stages
+    from ao_shaping.tools.slm.transfer import validate
+
+    model = tmp_path / "model640"
+    model.mkdir()
+    (model / "frozen_parameters.json").write_text(json.dumps(dict(
+        residual_noll_radians={}, defocus_diopter=0., origin=[0., 0.],
+        amplitude_center=[0., 0.], amplitude_width=[1., 1.], gain=1., background=0.,
+        sigma_ccd_px=1., ramp_matrix=[[1., 0.], [0., 1.]],
+        grid_size=8, fft_size=16, pixel_samples=3)))
+    frozen = _fake_stage(tmp_path, "square", STAGE_RECIPES[0].name)
+    args = _stage_args(tmp_path, stage_resume=False, shapes=("square",))
+    args["initial_phase"] = "random"
+    with pytest.raises(FileExistsError):
+        run_stages(**args)
+    assert validate.run is not None
+    assert frozen.is_dir()
+
+
+def test_stage_major_order_visits_every_shape_at_one_stage_before_the_next(tmp_path, monkeypatch):
+    from ao_shaping.runners.slm.transfer_shapes_runner import (
+        STAGE_RECIPES, _stage_sequence, run_stages,
+    )
+
+    expected = [(shape, index) for index in range(len(STAGE_RECIPES))
+                for shape in ("square", "circle")]
+    assert _stage_sequence(["square", "circle"], "stage") == expected
+    assert _stage_sequence(["square", "circle"], "shape") == [
+        (shape, index) for shape in ("square", "circle")
+        for index in range(len(STAGE_RECIPES))]
+
+    entered = _record_entered_stages(monkeypatch)
+    run_stages(**_stage_args(tmp_path, order="stage"))
+    assert [(shape, recipe) for shape, recipe, *_ in entered] == [
+        (shape, STAGE_RECIPES[index].name) for shape, index in expected]
+
+
+def test_the_new_flags_reach_the_plan_without_opening_a_device(tmp_path):
+    result = CliRunner().invoke(run, ["--out", str(tmp_path / "session"), "--shapes", "square",
+                                      "--resume", "--order", "stage"])
+    assert result.exit_code == 0, result.output
+    plan = json.loads(result.output[result.output.index("{"):result.output.rindex("}") + 1])
+    assert (plan["resume"], plan["order"]) == (True, "stage")
+    # --resume makes the plan say what is actually left, in stage-major order.
+    assert plan["session_plan"]["frozen"] == []
+    assert [(entry[0], entry[3]) for entry in plan["session_plan"]["todo"]] == [
+        ("square", recipe.blocks) for recipe in STAGE_RECIPES]
+    assert not (tmp_path / "session").exists()
+
+
 def test_the_stage_recipe_is_the_square1200_chain():
     names = [recipe.name for recipe in STAGE_RECIPES]
     assert names == ["transport_cv", "mono12_cv", "mono12_continue", "mono12_dense"]
@@ -70,7 +187,8 @@ def test_the_shape_vocabulary_of_the_command_is_the_transfer_family():
 
 
 @pytest.mark.parametrize("path", ["src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-                                  "src/ao_shaping/tools/slm/transfer/recording.py"])
+                                  "src/ao_shaping/tools/slm/transfer/recording.py",
+                                  "src/ao_shaping/algorithm/signal_processing/weight_schedule.py"])
 def test_the_new_modules_are_tracked_by_the_repository(path):
     """The convention guard reads the git index; a new file must be added to it.
 
@@ -94,3 +212,26 @@ def test_the_new_modules_are_tracked_by_the_repository(path):
     assert result.returncode == 0, (
         f"{path} is not tracked by git -- add it with `git add {path}`"
     )
+
+def test_objective_and_weight_schedule_reach_the_plan(tmp_path):
+    """Both default to the historical behaviour (cv / constant)."""
+    result = CliRunner().invoke(run, ["--out", str(tmp_path / "session"), "--shapes", "square"])
+    assert result.exit_code == 0, result.output
+    plan = json.loads(result.output[result.output.index("{"):result.output.rindex("}") + 1])
+    assert (plan["objective"], plan["weight_schedule"]) == ("cv", "constant")
+
+
+def test_staged_weights_with_the_cv_objective_is_refused(tmp_path):
+    """staged would be a silent no-op on a CV-only loss, so the runner fails."""
+    result = CliRunner().invoke(run, ["--out", str(tmp_path / "session"), "--shapes", "square",
+                                      "--weight-schedule", "staged"])
+    assert result.exit_code != 0
+    assert "--weight-schedule staged needs --objective" in result.output
+
+
+def test_staged_weights_with_a_shaped_objective_reaches_the_plan(tmp_path):
+    result = CliRunner().invoke(run, ["--out", str(tmp_path / "session"), "--shapes", "square",
+                                      "--objective", "shape", "--weight-schedule", "staged"])
+    assert result.exit_code == 0, result.output
+    plan = json.loads(result.output[result.output.index("{"):result.output.rindex("}") + 1])
+    assert (plan["objective"], plan["weight_schedule"]) == ("shape", "staged")

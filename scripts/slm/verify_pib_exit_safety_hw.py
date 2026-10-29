@@ -449,7 +449,7 @@ def _open_camera(exposure_ms: float):
             cam = create_camera("daheng", 0, exposure_time_ms=exposure_ms)
             cam.open()
             return cam
-        except Exception as exc:
+        except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
             last = exc
             time.sleep(0.6 + 0.4 * attempt)
     raise RuntimeError(f"could not reopen the camera for verification: {last}")
@@ -505,11 +505,11 @@ def _firmware_state(slm: Santec) -> dict[str, Any]:
     }
     try:
         state["displayed_slot"] = slm.get_displayed_memory_number()
-    except Exception as exc:
+    except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
         state["displayed_slot_error"] = f"{type(exc).__name__}: {exc}"
     try:
         state["current_grayscale"] = int(slm.get_current_grayscale())
-    except Exception as exc:
+    except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
         state["current_grayscale_error"] = f"{type(exc).__name__}: {exc}"
     return state
 
@@ -593,11 +593,11 @@ def verify_panel(bench: Bench, scenario: Scenario, outdir: Path) -> dict[str, An
     finally:
         try:
             slm.set_grayscale(0)
-        except Exception as exc:
+        except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
             logger.error("could not return the panel to flat: {}", exc)
         try:
             cam.close()
-        except Exception as exc:
+        except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
             logger.warning("verification camera close failed: {}", exc)
 
 
@@ -1010,7 +1010,7 @@ def main(argv: list[str] | None = None) -> int:
         }
         try:
             summary["baseline_slot"] = bench.slm.get_displayed_memory_number()
-        except Exception as exc:
+        except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
             summary["baseline_slot"] = None
             summary["baseline_slot_error"] = f"{type(exc).__name__}: {exc}"
         calibrate_exposure(bench, args.target_peak)
@@ -1028,7 +1028,7 @@ def main(argv: list[str] | None = None) -> int:
                 logger.exception("{}: harness error, scenario abandoned", scenario.key)
                 try:  # leave something safe behind before moving on
                     bench.slm.set_grayscale(0)
-                except Exception:
+                except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
                     pass
                 record = {
                     "key": scenario.key,
@@ -1070,14 +1070,14 @@ def main(argv: list[str] | None = None) -> int:
         try:
             bench.slm.set_grayscale(0)
             logger.info("SLM returned to flat gray-0; closing")
-        except Exception as exc:
+        except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
             logger.error("failed to leave the panel at flat: {}", exc)
         bench.slm.close()
 
     summary["finished_iso"] = _utc_now()
     _write_summary(outdir, summary)
 
-    print()
+    logger.info()
     logger.info(f"artifacts: {outdir}")
     logger.info(f"{'':2} {'scenario':<30} {'verdict':<6} {'exit branch':<14} "
           f"{'slot':>5} {'gray':>5} {'corr flat':>9} {'corr exit':>9}  failed")

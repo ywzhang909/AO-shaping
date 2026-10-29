@@ -168,7 +168,7 @@ def read_current_slot(slm: Any) -> int | None:
     """
     try:
         value = slm.get_displayed_memory_number()
-    except Exception:
+    except Exception:  # 入参 slm 是任意 SLM 实现 (含仿真/模拟对象), 各家抛的异常不同; 不支持内存槽是正常行为
         return None
     if value is None:
         return None
@@ -735,6 +735,9 @@ class Santec:
         try:
             self.check_drive_board()
         except Exception as e:  # pragma: no cover - 防御性: 健康检查不应影响打开
+            # 保留宽泛捕获: check_drive_board() 一路走到 ctypes SDK 的属性访问
+            # (_Sdk 上缺 SLM_Ctrl_ReadSDO 时会抛 AttributeError), 失败类型不可枚举;
+            # 这里的契约是"健康检查失败不能打断 open()", 收窄会让 SDK 异常逃出。
             logger.debug(f"SLM #{self.slm_number} 驱动板健康检查失败: {e}")
         if self._drive_board_status is not None and not self._drive_board_status.ok:
             logger.warning(
@@ -753,7 +756,7 @@ class Santec:
                         f"SLM #{self.slm_number} 产品序列号(drive):"
                         f" {self._serial_number}"
                     )
-            except Exception as e:
+            except Exception as e:  # 保留宽泛捕获: 同上的 ctypes SDK 读取
                 logger.debug(f"读取产品序列号(drive)失败: {e}")
 
         if not self._serial_number:
@@ -764,7 +767,7 @@ class Santec:
                         f"SLM #{self.slm_number} 产品序列号(option):"
                         f" {self._serial_number}"
                     )
-            except Exception as e:
+            except Exception as e:  # 保留宽泛捕获: 同上的 ctypes SDK 读取
                 logger.debug(f"读取产品序列号(option)失败: {e}")
 
         # 按标识加载配置文件
@@ -1085,7 +1088,7 @@ class Santec:
         try:
             status = self.check_drive_board()
             info["driveboard_id"] = status.drive_board_id
-        except Exception as e:
+        except (SantecError, RuntimeError) as e:
             logger.debug(f"读取 driveboard_id 失败: {e}")
             info["driveboard_id"] = None
 
@@ -1095,31 +1098,31 @@ class Santec:
 
         try:
             info["optionboard_id"] = self._read_option_id()
-        except Exception as e:
+        except (SantecError, RuntimeError) as e:
             logger.debug(f"读取 optionboard_id 失败: {e}")
 
         try:
             info["product_serial"] = self.get_product_serial_number(0)
             if not info["product_serial"]:
                 info["product_serial"] = self.get_product_serial_number(1)
-        except Exception as e:
+        except (SantecError, RuntimeError) as e:
             logger.debug(f"读取 product_serial 失败: {e}")
 
         try:
             info["lcos_serial"] = self.get_lcos_serial_number(0)
             if not info["lcos_serial"]:
                 info["lcos_serial"] = self.get_lcos_serial_number(1)
-        except Exception as e:
+        except (SantecError, RuntimeError) as e:
             logger.debug(f"读取 lcos_serial 失败: {e}")
 
         try:
             info["display_name"] = self.get_display_name()
-        except Exception as e:
+        except (SantecError, RuntimeError) as e:
             logger.debug(f"读取 display_name 失败: {e}")
 
         try:
             info["version"] = self.get_version()
-        except Exception as e:
+        except (SantecError, RuntimeError) as e:
             logger.debug(f"读取 version 失败: {e}")
 
         return info
@@ -1493,7 +1496,7 @@ class Santec:
         """
         try:
             slot = self.get_displayed_memory_number()
-        except Exception:  # 内存模式之外, 错误码 1 属正常
+        except (SantecError, RuntimeError):  # 内存模式之外, 错误码 1 属正常
             return None
         return int(slot) if isinstance(slot, int) else None
 
@@ -2457,7 +2460,7 @@ class Santec:
             return
         try:
             self.save_config()
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.warning(f"SLM #{self.slm_number} 保存平移配置失败: {e}")
 
     def _set_memory_mode(self, mode: int | VideoMode) -> None:

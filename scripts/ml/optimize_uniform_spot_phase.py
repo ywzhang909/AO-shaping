@@ -397,7 +397,7 @@ def cross_check_unet(
 
     try:
         index = build_hw_index(index_cache=index_cache).filter(families=[family])
-    except Exception as exc:
+    except Exception as exc:  # 保留宽泛捕获: 内部调用链 build_hw_index 的失败类型不可枚举
         logger.warning("cross-check unavailable (corpus): {}", exc)
         return None
     records = list(index.records)

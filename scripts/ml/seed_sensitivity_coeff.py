@@ -60,9 +60,9 @@ def main(argv: list[str] | None = None) -> int:
                 image_every=10**9,  # figures are irrelevant here; skip the work
                 out_dir=str(out_dir),
             )
-            print(
+            logger.info(
                 f"\n=== fold {args.fold} seed {seed} input_terms {terms} ===",
-                flush=True,
+
             )
             result = train(cfg)
             rows.append(
@@ -73,9 +73,8 @@ def main(argv: list[str] | None = None) -> int:
                     "best_val_r2": result.best_val_r2,
                 }
             )
-            print(
-                f"    -> best_val_r2 {result.best_val_r2:+.4f}", flush=True
-            )
+            logger.info(
+                f"    -> best_val_r2 {result.best_val_r2:+.4f}")
 
     by_seed: dict[int, dict[int, float]] = {}
     for row in rows:

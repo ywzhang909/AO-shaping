@@ -81,7 +81,7 @@ class ZernikeSLM:
                 self.wavelength = current_wl
             if current_wl != self.wavelength:
                 self._slm.set_wavelength(self.wavelength)
-        except Exception as e:
+        except Exception as e:  # 底层 SLM 实现未知 (Santec/仿真), 波长读写抛出的类型不可枚举
             logger.warning(f"读取波长信息失败: {e}，跳过波长设置")
 
         self.is_open = True

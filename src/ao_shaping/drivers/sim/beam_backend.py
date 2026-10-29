@@ -207,7 +207,7 @@ def _oopao_enabled() -> bool:
         return False
     try:
         from ao_shaping.drivers.sim import oopao_backend
-    except Exception:
+    except (ImportError, OSError):  # OSError 覆盖原生依赖 (DLL) 加载失败
         return False
     return oopao_backend._oopao_available()
 

@@ -391,7 +391,7 @@ def main() -> None:
     debug_root = args.data_root or (ROOT / "data" / "debug")
     samples = collect(debug_root)
     if not samples:
-        logger.info("no gs_refine samples with a recorded pupil centre under", debug_root)
+        logger.info(f"no gs_refine samples with a recorded pupil centre under {debug_root}")
         return
 
     rows = gate(samples)

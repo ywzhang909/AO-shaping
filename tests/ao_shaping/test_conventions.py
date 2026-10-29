@@ -1707,8 +1707,17 @@ def test_the_loguru_guard_follows_the_logger_not_one_spelling_of_its_import() ->
 
 # Measured 2026-10-25 by the same AST rule used below. Each of these handlers was read
 # in context and judged legitimate (TODO.md 8.9 items 5-10); the number is a floor to
-# defend, not an endorsement.
-_BLIND_SILENT_BASELINE = 61
+# defend, not an endorsement. Lowered 61 -> 60 on 2026-10-28: the collector's
+# recognised-family probe stopped being a blind silent handler when its optional-import
+# surface was narrowed to ImportError. Lowered again 60 -> 58 the same day after
+# rebasing onto the #56 driver slice, which narrowed two of the silent ones.
+# Lowered 58 -> 46 on 2026-10-28 by #56 slice (3) batches A/B/C/D/E: 12 more silent
+# ones gained a concrete type instead of `except Exception` -- miicam's
+# ctypes-SDK teardown (14 -> `OSError`), thorlab_wfs/`_sdk_setup` file I/O,
+# the adc/santec guards, and the two `open()`+csv / `open()`+write sites in
+# voltage_runner and adc_dm_adam. A typed silent handler is still silent, but it is
+# no longer *unattributable*: the reader can see which failure class is being dropped.
+_BLIND_SILENT_BASELINE = 46
 
 
 def _blind_silent_handlers(root: Path) -> list[str]:
@@ -2110,8 +2119,8 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
 #: ruff (a ruff-based count would skip in exactly the place the gate runs), and the check is
 #: therefore unskippable. ``re_raise_only`` handlers are excluded, mirroring BLE001's own
 #: exemption, so the number is comparable to ``ruff check src --select BLE001`` (measured
-#: 363 today against this AST count of 381; the residual gap is ruff's contextual filtering).
-#: This is a ratchet, not a claim that 381 is acceptable: most remaining handlers are
+#: 363 today against this AST count of 362; the residual gap is ruff's contextual filtering).
+#: This is a ratchet, not a claim that 362 is acceptable: most remaining handlers are
 #: deliberate fallbacks, and each one still needs an individual judgement.
 #:
 #: The population shrank by one on 2026-10-28 rather than every handler staying blind: the R50
@@ -2122,7 +2131,24 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
 #: tests/ao_shaping/gui/r50/test_r50_channel_select.py, which asserts both that malformed rows
 #: still degrade to an empty table and that an unlisted error is no longer swallowed. Hardware
 #: paths remain deliberately un-narrowed until the driver exception taxonomy (#145 / #45).
-_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 381
+#: The second executed narrowing is the same shape on a different axis: the collector's
+#: recognised-family probe wraps one optional-package import plus a defaulted getattr, so its
+#: entire surface is ImportError and it was narrowed to that. Pinned by
+#: tests/ao_shaping/tools/slm/test_slm_train_data_collect.py, whose last case is the one that
+#: justifies the change -- a probe failure that is not an import problem now reaches the caller
+#: instead of silently returning the built-in family list.
+#: The population then fell by 18 more handlers, none of them narrowed by this workstream. #56
+#: slices (3) A-E landed underneath, and their commit messages report 17 + 16 + 3 + 2 narrowed
+#: sites -- a larger number than this guard can see, because those counts span scripts/ and tests/
+#: while this ratchet scans src/ only. What is verifiable here is the net: 362 -> 344 inside src/.
+#: Their miicam narrowing rests on real evidence (the vendor's HRESULTException is an OSError
+#: subclass on win32), which is exactly the kind of justification the rule asks for, so the ceiling
+#: is lowered to the integrated measurement rather than argued about. Of those 18 departures, **11
+#: had been annotated and 7 had not**, which is why the marked count falls from 300 to 289 even
+#: though this workstream added markers the whole time: an above-line marker survives the edit that
+#: narrows its handler, but it stops counting once the handler leaves the blind population. Do not
+#: read a fall in the marked number as lost work -- check the total in the same line.
+_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 344
 
 #: Second ratchet over the same population: a broad catch that has actually been *judged*
 #: carries a ``# policy:`` marker naming what the layer is protecting -- within two lines
@@ -2133,13 +2159,14 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 381
 #: the driver exception taxonomy (issue #145 / #45) would turn a working fallback into a crash.
 #:
 #:
-#: Measured 2026-10-28 after sixteen marker passes and one executed narrowing (runners/slm + config + utils, the three CCD
+#: Measured 2026-10-28 after twenty-five marker passes and two executed narrowings (runners/slm + config + utils, the three CCD
 #: camera drivers, the R50 GUI loop files, the whole optimizer / runner CLI layer, the ml
 #: training scripts, the CCD analyzer UI, the bench settings panel, the Micro-DM panel, the
 #: target-shape helper, the R50 joint panel, the SLM calibration panel, the Micro-DM image
 #: analysis panel, the shaping-controls panel, and the R50 channel selector, then the first
-#: executed narrowing): 199 marked, 182
-#: unmarked. The fourth pass covered only 12 of the 17 open optimizer sites and the fifth had
+#: executed narrowing): 289 marked, 55
+#: unmarked on the integrated tree (300 / 62 when the twenty-sixth pass landed, before #56 (3) A-E).
+#: The fourth pass covered only 12 of the 17 open optimizer sites and the fifth had
 #: to close the layer -- the ceiling is only as honest as the last count. One site left the
 #: population instead of gaining a marker (narrowed out, see the total ratchet above), so the
 #: marked count fell while this ceiling held: a real narrowing is worth more than a marker, and
@@ -2149,8 +2176,82 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 381
 #: Every one of those sites guards a device call, so per the note above they stay broad and are
 #: judged rather than narrowed; the recurring reason written into the markers is that teardown
 #: and batch loops must attempt every step, because aborting midway leaves some channels
-#: energised and others not. Control re-armed: one more unannotated blind catch makes 183 red.
-_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 182
+#: energised and others not. Control re-armed: one more unannotated blind catch makes 56 red.
+#: The seventeenth marker pass (six scattered GUI files outside the R50 family: the transfer
+#: progress panel, the Zernike debug viewer, both ceramic viewers, the pyarrow probe and the
+#: phase overlay helper) moved this ceiling 182 -> 171 with 11 comment-only edits. Three of those
+#: sites took a trailing comment on the except line and one converted a rationale that was
+#: already there, so every line number those files are cited at stayed put.
+#: The eighteenth marker pass (the multi-SLM controller panel, 19 sites) moved this ceiling
+#: 171 -> 152. Ten of those sites sit above the line docs/issues_report.md pins, so they took a
+#: trailing comment and one converted the rationale already sitting on its handler body; only the
+#: eight below the pin grew the file. Nothing left the blind population: all 19 are SLM SDK or
+#: session-state calls, whose failure type belongs to the vendor or to Streamlit, not to us.
+#: The nineteenth marker pass (the Zernike response-matrix UI, 19 sites) moved this ceiling
+#: 152 -> 133 and zeroed the GUI layer. Seventeen of those sites sit above a line TODO.md cites
+#: by number, so they took trailing comments and the file grew by two lines in total -- only the
+#: two sites below that citation could afford to grow. All 19 are SLM/WFS SDK, disk or Streamlit
+#: calls: the narrowing question never arises, since the failure type belongs to the vendor, the
+#: filesystem or Streamlit rather than to this code.
+#: The twentieth marker pass (tools/zernike/common.py, 7 sites) moved this ceiling 133 -> 126 and
+#: opened the tools layer. All seven guard a vendor SDK call or an SDK property read --
+#: get_wavelength_info, get_hardware_info, pupil, get_mla_name, get_zernike twice, and a getattr on
+#: an arbitrary handle -- so none has an enumerable failure surface and band-16 sends them to a
+#: marker rather than a narrowing. The file's only line-number citations sit at :6, :8, :36, :40 and
+#: :41, all above every handler, so the markers were written as trailing comments and the file stayed
+#: exactly 700 lines.
+#: The twenty-first marker pass (the SLM training-data collector, 13 sites) plus the second
+#: executed narrowing (its recognised-family probe) moved this ceiling 126 -> 112. Every marked
+#: site there guards a device call, an SLM-assisted phase conversion, a disk flush or a
+#: caller-supplied callback, so none had an enumerable surface. The one narrowed site wraps a single
+#: optional-package import, and it is the only handler in this file that left the blind population.
+#: That file is cited by line number at :187, :683-687, :970, :975 and :980, so all thirteen markers
+#: went onto the except line itself and the file stayed at exactly 987 lines.
+#: The twenty-second marker pass (the SLM phase-capture calibration tool, 8 sites) moved this
+#: ceiling 94 -> 86. All eight guard a device call -- capture_frame, Santec open, open_camera twice,
+#: three closes and a display_phase over memory slots -- so the narrowing question never arises; the
+#: recurring rationale is that either camera may be absent and teardown must attempt every device.
+#: That file carries no line-number citation, but the markers still went onto the except lines so the
+#: pass cannot shift anything a later document might cite: 605 lines before and after.
+#: The twenty-third marker pass (the Micro-DM per-channel image collector, 8 sites) moved this
+#: ceiling 86 -> 78. Two of those handlers log and then re-raise, and they are still counted: the
+#: exemption here is as narrow as the guard's own test -- a handler is excused only when its entire
+#: body is a bare ``raise``, so a log-then-re-raise wrapper stays in the population. TODO.md pins
+#: this file at :465-467 (the ``with_params`` wiring), and that pin sits between handlers -- :380
+#: above it in source order is :547 -- so all eight markers went onto their except lines: the file
+#: stayed at 713 lines and the three pinned lines are byte-identical.
+#: The twenty-fourth marker pass (the SLM cartographer panel, 7 sites) moved this ceiling 78 -> 71.
+#: All seven guard a device connect/disconnect path or the LUT calibration worker. Two of them are
+#: ``except Exception: pass`` -- genuinely silent -- and a marker does not change that, so the
+#: blind-silent floor is untouched by this pass. TODO.md cites this file at :99 and :145, and both
+#: are handler lines themselves, so a trailing comment keeps each citation on the statement it names
+#: while any inserted line above would have moved it: 792 lines before and after.
+#: The twenty-fifth marker pass (the WFS tool family: wfs_reference, wfs_probe, zernike_correction,
+#: zernike_response -- 9 sites) moved this ceiling 71 -> 62. Four of those nine are top-level flow
+#: guards that deliberately catch the ValueError raised by the WFS exposure safety ceiling on top of
+#: the vendor SDK failures, so narrowing them would let the ceiling escape as a traceback instead of
+#: the documented [FAIL] line plus exit code. That is a case where the broad catch is load-bearing by
+#: contract, not by laziness. This family is also the most citation-dense one yet (:15, :27, :159,
+#: :161, :219, :309, :430, :554 and :713 across the four files), and :713 is itself a handler line,
+#: so all nine markers are trailing comments and every one of those cited lines was asserted either
+#: byte-identical or, for the marked one, still holding the same statement.
+#: Measured split of what is left after #56 slices (3) A-E landed: 32 in tools/, 23 in drivers/.
+#: The first driver slice narrowed 17 handlers and added two blind handlers of its own in the
+#: transfer tooling; slices A-E narrowed 18 more (16 + 3 + 2).
+#: A convention gap this measurement exposes, and it is not a counting error: #56 wrote its
+#: rationales as Chinese prose on the handler (``保留宽泛捕获`` / ``类型不可枚举``), while this
+#: guard credits only the ``# policy:`` token. Counting inside the guard's own marker window, **40
+#: of the 55 unmarked handlers already carry a Chinese rationale** -- 22 of the 23 remaining driver
+#: sites, and 18 of 32 tools sites -- so only **15 have no rationale at all**. Read that way the
+#: drivers layer is effectively finished by #56 and this branch has been about to duplicate it.
+#: Unifying the two idioms is a decision for #174 and #56 together, not something this ratchet
+#: should settle by itself, and it is now the highest-value open item: it changes what the ceiling
+#: means far more than any further marking pass would.
+#: A first classification pass over the tools sites put only 16 of 83 in a "no device handle
+#: involved" bucket, and two of those still read a device attribute, so the honest expectation is
+#: that the tools layer is almost entirely marker-only until the driver exception taxonomy
+#: (#145 / #45) lands.
+_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 55
 
 
 def _blind_except_handlers_in_src() -> list[tuple[Path, int, bool]]:
@@ -2240,6 +2341,15 @@ _DOC_LINE_ANCHORS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
         "src/ao_shaping/gui/slm/bench_settings.py",
         ("# policy: 相机缺 PixelSize 特性不是错误",
          "# policy: 大恒探测像元间距失败不是错误"),
+    ),
+    (
+        "TODO.md",
+        "`r50_single.py:",
+        "src/ao_shaping/gui/r50/r50_single.py",
+        # re-pinned 2026-10-28: the #174 band-17 policy comment landed on the line above
+        # this handler, pushing the `except Exception:` from 110 -> 111 (the comment the
+        # pin points at is the bare-catch site, not the policy note above it)
+        ("except Exception:",),
     ),
 )
 

@@ -180,7 +180,7 @@ def _load_result_file(result_path: Path):
 
         result = load_zernike_response_matrix(result_path)
         return result
-    except Exception as e:
+    except Exception as e:  # policy: user-chosen result file - a bad artifact surfaces as an error message instead of crashing the viewer
         st.error(f"Failed to load result file {result_path}: {e}")
         return None
 
@@ -386,7 +386,7 @@ def _compute_response_matrix_from_debug(debug_data: dict, magnitude: float):
         if response_matrix.size > 0 and min(response_matrix.shape) > 0:
             try:
                 pinv_matrix = np.linalg.pinv(response_matrix)
-            except Exception:
+            except Exception:  # policy: pinv on debug data - a non-invertible matrix falls back to least squares; the dead code below belongs to a separate report
                 pinv_matrix = None
                 lstsq_matrix = None
 
@@ -425,7 +425,7 @@ def _compute_response_matrix_from_debug(debug_data: dict, magnitude: float):
 
         return result
 
-    except Exception as e:
+    except Exception as e:  # policy: the whole debug-data computation - a malformed artifact is reported with a traceback so the operator can see why
         st.error(f"Failed to compute response matrix: {e}")
         import traceback
 

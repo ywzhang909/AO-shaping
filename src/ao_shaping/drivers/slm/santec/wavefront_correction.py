@@ -262,7 +262,7 @@ class WavefrontCorrection:
                 instance.load(panel_resolution=panel_resolution, **calc_kwargs)
                 logger.info("从{}加载矫正数据: {}", source, path.name)
                 return instance
-            except Exception as e:
+            except (OSError, ValueError) as e:
                 logger.warning("从{}加载矫正数据失败 ({}): {}", source, path.name, e)
 
         return None

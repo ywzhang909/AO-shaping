@@ -100,7 +100,7 @@ def main():
                     (out / "manifest.json").write_text(json.dumps(rows, indent=2))
                     with (out / "capture_records.pkl").open("wb") as stream:
                         pickle.dump(rows, stream, protocol=5)
-                    print(json.dumps(row), flush=True)
+                    logger.info(json.dumps(row))
                     if raw.max() >= 250:
                         raise RuntimeError("saturated exposure; response experiment stopped")
         finally:

@@ -841,7 +841,7 @@ def cli() -> None:
     else:
         dirs = find_debug_dirs(args.debug_root)[: max(1, args.max_runs)]
     if not dirs:
-        print(f"no debug artifacts under {args.debug_root}", file=sys.stderr)
+        logger.info(f"no debug artifacts under {args.debug_root}")
         sys.exit(1)
 
     runs = [load_run(d) for d in dirs]

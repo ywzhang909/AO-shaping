@@ -1,0 +1,647 @@
+# 多形状 × 三尺度同载波闭环整形：实验中记录（2026-10-28）
+
+<!-- provenance:start -->
+> **生成脚本**: 人工撰写，无生成脚本
+> **数据/关联脚本**: [`src/ao_shaping/runners/slm/transfer_shapes_runner.py`](../../../src/ao_shaping/runners/slm/transfer_shapes_runner.py)
+> **数据/关联脚本**: [`src/ao_shaping/tools/slm/transfer/capture.py`](../../../src/ao_shaping/tools/slm/transfer/capture.py)
+> **数据/关联脚本**: [`src/ao_shaping/tools/slm/transfer/fit.py`](../../../src/ao_shaping/tools/slm/transfer/fit.py)
+> **数据/关联脚本**: [`src/ao_shaping/tools/slm/transfer/validate.py`](../../../src/ao_shaping/tools/slm/transfer/validate.py)
+> **数据/关联脚本**: [`src/ao_shaping/tools/slm/transfer/replay_phases.py`](../../../src/ao_shaping/tools/slm/transfer/replay_phases.py)
+> **数据/关联脚本**: [`scripts/slm/generate_multishape_scale_live_figures.py`](../../../scripts/slm/generate_multishape_scale_live_figures.py)
+> **运行环境**: 硬件（Santec #1 SLM + Daheng CCD；WFS / NLight DM / MIICAM 未连接）
+> **说明**: 多形状 × 三尺度同载波闭环整形：实验中记录（2026-10-28）。Session A（1200 原生 px）的 16 个形状×阶段（square/triangle/star/circle 各 4 段）全部完成，共 112 个验收块（28 块/形状；journal 16 条 ``complete``、无 error/failed）；records 已导出（process.csv 179,587 B / process.h5 428,279,000 B / 336 个 sidecar）；common_replay 完成，common_replay_dense 仍在写盘、本次未消费；s600 / s200 跨尺度未开始。一次早期 relaunch 在 square/transport_cv 触发饱和守卫而中止，原完成数据未受损。2026-10-29 追加 §7：跨会话汇总（200 px 会话的净结论）、对 §6 第 3 条时效性的修正、以及把「反投影在小目标上胜出」降级为「在 circle / triangle 上成立」——跨尺度部分已跑完 s200 四形状；square 剔除饱和行后仍为真实回归（+0.170/+0.165，约噪声三倍），star 仅一档可判（no_difference）。
+<!-- provenance:end -->
+
+> 本记录是**实验中**事实来源：设备身份、几何与入射、曝光范围、已用时长逐项标注为本次实测 / 历史 / 待定；优化指标只记过程值，结论留到实验后分析。
+
+## 1. 阶段目标与待验假设
+
+本轮要回答的（详见规划报告 §1，H1–H4）：
+
+- **H1** 物理预测模型闭环在**无 GS** 时能否把四个形状都整形到位（GS 由 `--no-gs-seed` 强制排除，原因见规划 §1 与下文 §2）。
+- **H2** 同一载波（面板周期 48 px）、同一零级排除口径（半径 60 px）下，四形状的可迁移性。
+- **H3** 200 格零级在实测载波位移下**不再与目标分离**（规划时按位移 201.70 估算为「干净参照」，实测为 14.76 / −129.70，见 §2 勘误）；200 仍可比，但须与 5.61% 的零级剔除面积一并读。
+- **H4** 本轮曝光工作点能否避开核心饱和（上轮 `peak=4095` 为可避免操作缺陷）。
+
+本记录不回答这些问题，只钉死「进行到哪一步、哪些已实测、哪些待定」。
+
+## 2. 当前可信事实（会话专属）
+
+| 项 | 值 | 来源 |
+|---|---|---|
+| SLM 身份 | LCOS-SLM-001（Santec #1），driveboard `22030108`，optionboard `23020027`，LCOS `KB1881T050`，产品序列 `240236000005` | 预检 `artifacts/device_preflight_20261028.json` **本次实测** |
+| SLM 版本 | DLL 0250 / Drive 0322 / Option 0321 / FPGA 0110 | 预检 **本次实测** |
+| SLM 波长支持 | `[532, 1017]` nm（设备支持列表）；实验激光 1064 nm | 设备读回 + 阶段 `config.json` 的 `wavelength_nm=1064`（**本次实测** / 实验激光约定） |
+| CCD 身份 | Daheng SN `FJB24112232`，1944×2592，12 bit | 预检 **本次实测** |
+| CCD 曝光范围 | 0.02 – 1000 ms；请求=读回（2.0→2.0、5.0→5.0、12.0→12.0） | 预检 **本次实测** |
+| 曝光上限旋钮 | `AO_DAHENG_MAX_EXPOSURE_MS` 未设（`configured_limit_ms=0`） | 预检 **本次实测** |
+| 光路离焦 | `model640/frozen_parameters.json` 的 `defocus_diopter=0.330` | fit **本次实测** |
+| 零级定位 | 载波探针 `zero_estimate=[1303, 971]`；fit `zero_xy=[1294.0, 986.0]`（下游阶段用后者） | 载波探针 + fit **本次实测** |
+| 载波位移 | `model640` 实测 `ramp_matrix[:,0]/48 = (14.76, −129.70)` | fit **本次实测**（H3 勘误） |
+| 窗口半跨 | 1200→900、600→620、200→420（面板 px） | 规划 + 几何 `artifacts/geometry_plan.json` |
+| 零级排除半径 | 60 px（全三尺度） | 规划 |
+| 重放曝光阶梯 | 15 / 60 / 150 / 300 ms（×4 重复 `--replay-exposures`） | 规划 §6 |
+| 载波周期 | 48 面板 px（全三尺度统一） | 规划 |
+| GS 初相位 | 由 `--no-gs-seed` **强制排除**（本轮新增旗标） | 规划 §1 + runner |
+| 种子对比择优 | square：backprojection CV 1.022 胜 transport 1.231；triangle/star/circle 单一候选 backprojection，跳过实测比较 | seed_bakeoff 目录 **本次实测** |
+| 已用设备时长 | 16 段：02:26:05 – 03:33:58 UTC（约 68 min，含 `star/mono12_cv` 的 20 min 重启）；随后 records 导出至 03:38:25、`common_replay` 重放到 03:45:09 ⇒ 设备总占用约 79 min（另加预检 ~1 min；`common_replay_dense` 的尾段未计入） | journal 时间线 + 预检时间戳 |
+| 规划授权时长 | ~3 小时连续设备时间（A+B+C） | 规划 §10 |
+
+**H3 勘误（实测，已写入规划报告）**：规划时按载波位移 201.70 px 估 200 格零级「41.7 px 净空、剔除面积 0」；实测位移 `(14.76, −129.70)` 使零级只在 y 上离目标框边 29.70 px，60 px 排除区与目标框重叠 **30.30 px 深、占目标面积 5.61%**。几何守卫（`validate.py:114`）只查目标框是否越出采样窗，**不查排除区与目标框是否重叠**，故不会失败。H3「干净参照」前提因此减弱：200 仍可比，但须与 5.61% 零级剔除面积一并读。1200 / 600 剔除面积分别为 0.79% / 3.14%。
+
+**种子对比择优（本次实测）**：square 在 `--seed-bakeoff` 下实测核心 CV，backprojection（1.022）< transport（1.231）→ 采用 backprojection；triangle/star/circle 仅 backprojection 一个候选（GS 被排除），跳过实测比较直接采用，记入 journal。
+
+## 3. 数据 / 过程（Session A，1200 原生 px）
+
+数据目录：`../../../data/debug/slm_transfer/multishape_scale_20261028/s1200/`。
+
+### 3.1 模型与种子（均完成）
+
+`capture` → `fit` → `model640` + 宽载波 `model_wide640` → `seed_bakeoff`。fit 的 `defocus_diopter=0.330`，残差 Noll（5–11 阶）见 `model640/frozen_parameters.json`。
+
+### 3.2 四形状 × 四阶段整形结果（16/16 完成，112 块）
+
+4 个形状 × 4 个阶段 = 16 行。`transport_cv` 每形状 4 块、`mono12_cv` 8 块、`mono12_continue` 12 块、`mono12_dense` 4 块 ⇒ 每形状 28 块、四形状合计 **112 块**（每块 = 一次 A1(+B) 采集；`transport_cv` 只采集 A1 并按模型损失验收）。`段首 seed` 是进入该段时对上一段末相位的**同相位重测**（第 1 段即初相位采集），`段末 final` 是该段最后一次 `*_final` 采集；两者之差才是段内变化。
+
+| 形状 | 阶段 | bit | 段首 seed CV | 段末 final CV | 段内峰值 | 饱和像素（manifest 最大） | 曝光 ms |
+|---|---|---|---|---|---|---|---|
+| 正方形 | transport_cv | 8 | 1.0408 | 0.7766 | 255 | 277 (square_3_A1) | 135.196 |
+| 正方形 | mono12_cv | 12 | 0.7038 | 0.6574 | 3923 | 0 | 116.782 |
+| 正方形 | mono12_continue | 12 | 0.6836 | 0.6442 | 4095 | 120 (square_seed) | 152.600 |
+| 正方形 | mono12_dense | 12 | 0.6472 | 0.6443 | 3465 | 0 | 155.520 |
+| 三角形 | transport_cv | 8 | 1.9206 | 0.7662 | 255 | 3905 (triangle_3_A1) | 58.320 / 119.503 |
+| 三角形 | mono12_cv | 12 | 0.7391 | 0.6640 | 4095 | 1574 (triangle_seed_replay) | 104.288 |
+| 三角形 | mono12_continue | 12 | 0.6676 | 0.6582 | 4095 | 57 (triangle_seed) | 113.185 |
+| 三角形 | mono12_dense | 12 | 0.6728 | 0.6647 | 4095 | 566 (triangle_final) | 152.600 |
+| 五角星 | transport_cv | 8 | 0.9464 | 0.7510 | 244 | 0 | 135.196 |
+| 五角星 | mono12_cv | 12 | 0.7838 | 0.7069 | 2325 | 0 | 117.936 |
+| 五角星 | mono12_continue | 12 | 0.7128 | 0.7144 | 2200 | 0 | 131.581 |
+| 五角星 | mono12_dense | 12 | 0.7204 | 0.7316 | 3343 | 0 | 146.067 |
+| 圆形 | transport_cv | 8 | 1.2453 | 0.7300 | 226 | 0 | 155.520 |
+| 圆形 | mono12_cv | 12 | 0.6778 | 0.6774 | 3435 | 0 | 155.520 |
+| 圆形 | mono12_continue | 12 | 0.6771 | 0.6925 | 3699 | 0 | 155.520 |
+| 圆形 | mono12_dense | 12 | 0.6883 | 0.6958 | 4095 | 55 (circle_1_A1) | 155.520 |
+
+- `段内峰值` = 该阶段 `manifest.json` **全部行**（含 seed / `seed_replay` / final）的最大全幅峰值；`饱和像素` 同理取全行最大值并注明落在哪一行，`0` 表示该阶段任何一行都没有饱和像素。峰值/饱和都是**全幅**（含零级，零级在核心外），核心饱和守卫（`250/255`）逐块判定。
+- **8 bit 段（`transport_cv`）的 CV 不能与 12 bit 段直接比**：满量程 255 下三角形一块饱和 3905 px、峰值顶死在 255，其 0.7662 属削顶读数；同相位换到 12 bit 重测的四个差值见 §4a。
+- 各形状本会话最好的一段（段末 `final` CV）：正方形 **0.6442**（`mono12_continue`）、三角形 **0.6582**（`mono12_continue`）、五角星 **0.7069**（`mono12_cv`）、圆形 **0.6774**（`mono12_cv`）。五角星与圆形后两段的段末反而高于其段首（0.7128→0.7144、0.6771→0.6925），**四段不是单调收敛**（§4d）。
+
+![s1200 四形状 × 四阶段逐块过程动画](figures/process_s1200_20261028.gif)
+
+*图 3-1（`figures/process_s1200_20261028.gif`，56 帧，1485×880，由 `Recorder` 过程渲染）*：正方形 / 三角形 / 五角星 / 圆形**各 4 段、合计 112 个已实测** CCD 块的逐块过程（每块 = 一次 A1(+B) 采集；上排瞳面相位 / 实测远场 / 块内相位变化，下排本块读数 / 实测核心 CV / 模型损失）。112 块逐一成帧会超出体积预算，故按**每 2 块取 1**均匀抽帧成 56 帧（块 0、2、…、110），片内标题写明「112 块 · 每 2 块取 1 · 块 N/56」；首帧 = square/transport_cv 块 0，末帧 = circle/mono12_dense 块 2（第 56 个抽样帧，块 111 未抽到）。片尾标注为「square/triangle/star/circle 各 4 段, 全部已实测」。瞳面相位与块内相位变化两格**全片共用一套色标**（偏移取各帧中位数的中位数，跨度取各帧 `|f − 其自身中位数|` 的 90% 分位的最大值）：逐帧各自归一会把每帧拉回满量程。实测口径：相邻块 `|Δ|` 的逐像素最大值中位数约 **0.24 rad**、90% 分位约 **0.42 rad**，而全片共用色标半幅 **26.29 rad**（约各帧自身离散 15.2 rad 的 1.7 倍；全片相位中位偏 −0.38 rad）——逐帧归一恰好把这 0.24 rad 放大到满量程，整帧差异被抹平，这正是早前版本左上角「没变化」的原因。现已修复并由 `scripts/slm/render_multishape_scale_process_gif.py` 重新出图。
+
+![四形状逐块实测核心 CV](figures/cv_trajectory_s1200_20261028.png)
+
+*图 3-2（`figures/cv_trajectory_s1200_20261028.png`）*：上述 112 块的核心 CV 逐块轨迹，**四行、每形状 28 块**（横轴 = 同一形状内的块序号，竖向虚线 + 段名切出四个阶段）。**每行纵轴按本形状数据单独取**（含该行 4 个段首 seed 与 4 个段末 final），1–2 个百分点的段内起伏因此仍可见；四行不共用纵轴，跨形状只比 §3.2 的表值，不比图上高度。三角形行被其首块 1.9312 撑到 1.93 的量程，其后 27 块压在行下半部——这是真实量程、未截断。▲ = 段首 seed（第 2–4 段为对上一段末相位的同相位重测，第 1 段即初相位采集），同色点线 = 该段 `*_final` 水平（表值的图形化）。`transport_cv` 只采集 A1 且按模型损失验收（`accept_metric=loss`），该段画的是锚点序列；其余三段画 A1→B 后的候选值。图上不标数值（28 块/行，任何数字都会压在块点上），数值见 §3.2 与图 3-3。
+
+![各阶段末块实测核心 CV](figures/stage_final_cv_s1200_20261028.png)
+
+*图 3-3（`figures/stage_final_cv_s1200_20261028.png`）*：16 根柱 = 4 个阶段 × 4 个形状的**段末** `*_final` CV（柱内白字，与 §3.2 逐位一致）；每根柱上的黑色短横 + 细虚线 = **该段段首 seed**（同一相位重测），两者之差即段内变化。纵轴起点 0.55（非 0，出图内已标注）。`transport_cv` 的 8 bit 段首（1.0408 / 1.9206 / 0.9464 / 1.2453）远高于 12 bit 段末，按比例画会把所有柱压到一成高度，故在柱底以白字 `seed N↑` 标注、**不按比例画**。红字「饱和 N」= 该阶段 manifest 全部行（含 seed / `seed_replay` / final）的最大饱和像素数，共 7 处：三角形 `transport_cv` 3905、正方形 `transport_cv` 277、三角形 `mono12_cv` 1574、三角形 `mono12_dense` 566、正方形 `mono12_continue` 120、三角形 `mono12_continue` 57、圆形 `mono12_dense` 55；其余 9 个形状×阶段组合为 0。
+
+![首块 vs 末块实测远场](figures/ccd_first_last_s1200_20261028.png)
+
+*图 3-4（`figures/ccd_first_last_s1200_20261028.png`）*：**四行**（正方形 / 三角形 / 五角星 / 圆形），每行**首块**（`transport_cv` 块 0 的 A1，即初相位下发后的第一次采集）与**末块**（`mono12_dense` 块 3 的 B，本次闭环的最后一次块采集）的实测远场。首块：正方形 CV 1.0519 / 135.2 ms / 8 bit、三角形 1.9312 / 58.3 ms / 8 bit、五角星 0.9472 / 135.2 ms / 8 bit、圆形 1.2506 / 155.5 ms / 8 bit；末块：正方形 0.6393 / 155.5 ms / 12 bit、三角形 0.6734 / 152.6 ms / 12 bit、五角星 0.7320 / 146.1 ms / 12 bit、圆形 0.6930 / 155.5 ms / 12 bit。按 Mono8 等效 counts/ms 归一（每形状左右两格共用 99.5 分位色标），把「曝光不同、位深不同」的首末两格拉到可比口径；末块是块内最后一次候选采集，与 §3.2 的段末 `*_final`（收口采集）不是同一帧，数值不必相等。
+
+### 3.3 journal 时间线（16/16 阶段 complete，无 error）
+
+```
+02:26:05  plan / model reused / geometry / capture_geometry / wide_model 完成
+02:30:06  seed_bakeoff 完成（square: backprojection 胜 transport）
+02:31:19  square/transport_cv        完成     02:39:04  square/mono12_dense       完成
+02:40:01  triangle/transport_cv      完成     02:42:51  triangle/mono12_cv        完成
+02:47:31  triangle/mono12_continue   完成     02:49:52  triangle/mono12_dense     完成
+02:51:16  star/transport_cv          完成     02:51:16  star/mono12_cv 启动（03:11:44 再次启动）
+03:15:14  star/mono12_cv             完成     03:19:35  star/mono12_continue      完成
+03:21:47  star/mono12_dense          完成     03:21:47  session complete
+03:24:25  circle/transport_cv        完成     03:27:31  circle/mono12_cv          完成
+03:31:53  circle/mono12_continue     完成     03:33:58  circle/mono12_dense       完成
+03:33:58  session complete
+03:38:25  record complete（Recorder 导出 records/）
+03:42:18  replay 启动 → 03:45:09 replay complete（common_replay/）
+03:46:45  replay 启动（common_replay_dense/；最后一条 journal 03:48:40 仍为 running）
+```
+
+- **16 条**形状×阶段条目（square / triangle / star / circle × 4 段）全部 `complete`；journal 的 `status` 只出现 `complete | reused | running | skipped` 四种，**无 error / failed**。四个形状的 4 段块数为 4 / 8 / 12 / 4，合计 **112 块**（manifest 的 `*_A1` + `*_B` 行，每形状 28 块）。
+- 两处重启：`star/mono12_cv` 有两条 `running`（02:51:16 与 03:11:44）⇒ 该段被重启过一次，最终 03:15:14 `complete`，目录下 manifest 20 行、末条 `star_final`（无半条残留）；`triangle/mono12_dense` 曾在更早的进程里写盘完成而 journal 未记 `complete`（§3.4），本次已在 02:49:52 记为 `complete`。
+- `records/` 已导出（`record complete` 03:38:25）：`process.csv` 179,587 B、`process.h5` 428,279,000 B、`process.gif` 27,766,237 B（逐块过程 GIF，本报告不用它作图），外加 **336 个** `process_sidecars/*.npy`。
+- `common_replay/` 完成（03:42:18 启动 → 03:45:09 `replay complete` + `released.json` 记相机/SLM 上下文已关）：16 个来源相位（每形状 4 个 = `transport_cv` 段首 seed + `transport_cv` / `mono12_cv` / `mono12_continue` 段末 final；`mono12_dense` 段末不在其中）× 3 档曝光 20 / 50 / 90 ms = **48 次重放**，manifest 48 行。**注意**：其 90 ms 块末 4 条（`star/mono12_continue`、`circle/transport_cv`、`circle/mono12_cv`、`circle/mono12_continue`）因关设备前 SLM USB 掉线前兆而失效（`core_peak`≈25、mean 骤降到 ~15 计数、CV≈0.045），由 `common_replay_r2/`（洁净重测，36 条）覆盖，分析以 `common_replay_r2` 为准。
+- `common_replay_ladder_trial/`（15 / 60 / 150 / 300 ms × 16 相位，应 64 次）只写出 **34 次**、无 `released.json` ⇒ **未完成**，本记录只登记、不作证据（其 15 / 60 / 150 ms 的 CV 趋势仍被实验后分析引用，见 `multishape_scale_analysis_20261028.md` §3e）。
+- `common_replay_dense/` **已完成**（24 条 = `mono12_dense` 段 final + seed × 4 形状 × 20 / 50 / 90 ms，全部 `released.json`，无零字节、无饱和离群）：2.0 网格的洁净重放证据，已被实验后分析消费。
+
+### 3.4 中断与重启（已由续跑补全）
+
+- **早期一次中断**：`triangle/mono12_dense` 的 `manifest.json` 已写全（末条 `triangle_final`）但 journal 未记 `complete`（进程被杀在 `journal.record` 之前）。数据未损坏，续跑把该段补成 `complete`（02:49:52），并继续 star、circle 直至 16/16。
+- **早期一次 relaunch 中止**：该次尝试复用 `--model-dir`、未改生产代码，在 `square/transport_cv` 的采集处触发 `validate.py:254`：
+
+```
+RuntimeError: saturated capture retained; stop paired comparison
+```
+
+  该次尝试在进入整形循环时即中止，**未触及已完成数据**（目录下无 0 字节 capture，原 manifest 完好）；就 `square/transport_cv` 而言，8 bit 段的全幅峰值本来就顶到 255（核心判据 `--meter-target` 下才算通过，见 §4a），因此重跑该段本就容易先撞守卫。判定为曝光起点瞬态 + 8 bit 满量程的组合，非数据损坏。后续改为只针对**尚不存在**的阶段目录续跑（`validate.run` 对已存在目录 `mkdir(exist_ok=False)` 会抛 `FileExistsError`），16 段全部补齐。
+
+## 4. 关键判断与证据（三层）
+
+按规划 §1 的三类证据分别记状态：
+
+1. **模型选择证据（fit 验证集）**：`model640` 已 fit（`defocus_diopter=0.330`，残差 Noll 见 frozen_parameters）；`model_wide640` 由 `geometric_seed.export_frozen_parameters` 导出（宽载波重新标定映射）。**本次实测**，验证误差留给实验后分析。
+2. **CCD 候选验收证据（逐块 CV）**：16 段的段首 seed / 段末 final 见 §3.2，8 bit 段落在 0.7766–1.9206，12 bit 段落在 0.6574–0.7838。**过程值**，非结论。
+3. **重放证据**：`common_replay/` 已生成（16 相位 × 20 / 50 / 90 ms = 48 次，§3.3），但本记录**未做重放饱和审计**；`common_replay_ladder_trial/`（15 / 60 / 150 / 300 ms）只写出 34/64 次、`common_replay_dense/` 仍在写盘 ⇒ **该层证据未闭合**。重放路径无饱和守卫（`replay_phases.replay` 不检查满量程），审计办法见 §5。
+
+![square 种子对比择优实测 CV](figures/seed_bakeoff_square_20261028.png)
+
+*图 4-1（`figures/seed_bakeoff_square_20261028.png`）*：对应 §2「种子对比择优」与本节第 2 条候选验收证据 —— square 的两个候选各只有两次采集（seed 与 final），实测 CV 反投影 1.017 → 1.022、传输 1.228 → 1.231，色带为同次采集 3 帧的 min–max；backprojection 的末次 1.022 低于 transport 的 1.231，故采用前者。triangle / star / circle 只有 backprojection 一个候选，未做实测比较，此图不含它们的数据。
+
+### 4.1 读数口径与饱和审计（四条硬约束）
+
+**（a）8 bit 段是削顶读数，8→12 bit 的差值不是优化增益。** 三角形 8 bit 段一块饱和 **3905 px**、峰值顶死在 255，其 0.7662 是削顶后的读数。同一相位换到 12 bit 重测（下一段的段首 seed）四个差值为：正方形 0.7766 → 0.7038（**−7.28 pp**）、三角形 0.7662 → 0.7391（**−2.71 pp**）、五角星 0.7510 → 0.7838（**+3.28 pp**）、圆形 0.7300 → 0.6778（**−5.22 pp**）。符号三降一升 ⇒ bit 边界是**测量模式差异**，不是优化增益；任何跨 bit 的「提升/退步」都不成立。
+
+**（b）三角形在 12 bit 段仍有削顶，其 CV 只是乐观上界。** 三角形 `mono12_cv` 的 manifest 最大饱和 **1574 px**（落在 `triangle_seed_replay` 行；块内最大 684 px），`mono12_dense` 最大 **566 px**（落在 `triangle_final`），三段峰值都顶到 4095 满量程。正方形 `mono12_continue` 120 px、圆形 `mono12_dense` 55 px 属轻度；其余阶段为 0。饱和像素与核心（半径 60 px 排除区之外）是否逐块重叠未核验 ⇒ 三角形的三个 12 bit CV 记为**乐观上界**，不作精确刻度。
+
+**（c）同相位重测的差值 ≤ 2.62 pp ⇒ CV 差 ≤ 2 pp 不是证据。** 相邻两段对同一相位各测一次 CV 的配对（段末 final vs 下一段段首 seed）：正方形 0.6574 / 0.6836（**2.62 pp**）、三角形 0.6640 / 0.6676（0.36）、五角星 0.7069 / 0.7128（0.59）、圆形 0.6774 / 0.6771（0.03）；`mono12_continue` → `mono12_dense` 四组为 0.6442 / 0.6472（0.30）、0.6582 / 0.6728（1.46）、0.7144 / 0.7204（0.60）、0.6925 / 0.6883（0.42）。全部落在 **0.0–2.6 pp**，与 §4b 的削顶幅度同一量级 ⇒ 2 pp 以内的 CV 差**不构成证据**，只能记为测量重复性。
+
+**（d）验收按 CV，但探索配额非单调 ⇒ 段末不是段内最优。** 12 bit 三段的 `config.json` 均为 `accept_metric="cv"` + `exploration_budget=0.25`（`transport_cv` 为 `accept_metric="loss"`），候选里混有贪心与探索，段内 CV 不保证单调。两处反向：五角星 `mono12_continue` 段末 0.7144 高于段首 0.7128（**+0.2 pp**，段内峰值 2200）；圆形 `mono12_continue` 段末 0.6925 高于段首 0.6771（**+1.5 pp**，段内峰值 3699）。⇒ `*_final` 是**段末收口采集**，不是该段最优值；本报告一律不称段末为「该阶段最好」，段内最好值需回 manifest 逐块取。
+
+![曝光 / 全幅峰值 / 饱和像素逐块审计](figures/exposure_peak_saturation_s1200_20261028.png)
+
+*图 4-2（`figures/exposure_peak_saturation_s1200_20261028.png`）*：上述饱和审计的逐块依据，**四形状全部 112 块**同一块轴（横轴 = 形状内块序号，竖向虚线切段）。上格 `exposure_ms`（每段内固定：正方形 135.196 / 116.782 / 152.600 / 155.520 ms；三角形 58.320 / 104.288 / 113.185 / 152.600 ms，其中 `transport_cv` 末块抬到 119.503 ms；五角星 135.196 / 117.936 / 131.581 / 146.067 ms；圆形 155.520 ms × 4），中格全幅峰值 `peak`（红线 4095 = 12 bit 满量程，点线 4095×250/255 ≈ 4015 = 核心守卫阈值，绿虚线 255 = 8 bit 满量程；实心点 = 12 bit，空心方 = 8 bit），下格全幅饱和像素数（symlog，`0` 显示为 0）。饱和面板只做三处短标注以免互相压字：三角形 `transport_cv` **3905 px**（下方）、正方形 `transport_cv` **277 px**（上方）、三角形 `mono12_cv` 的块内 **684 px**（该段 manifest 最大 1574 px，落在 `seed_replay` 行，标注为「684 / 段 1574」）。右侧表格按 manifest 口径列出**全部 7 个非零阶段**的最大值，并把对应块内最大值并列（段 / 块两个口径分开写），末尾注明其余 9 个形状×阶段组合为 0。
+
+> §3.2 图 3-1–3-4 与本节的图 4-1、4-2 全部离线生成（不接 SLM / 相机，只读上表运行目录的阶段子目录），可用 `python scripts/slm/generate_multishape_scale_live_figures.py` 重新生成。
+
+## 5. 结论、未决问题与下一步
+
+**本会话结论（16/16 阶段完成、112 块全部实测）**：
+
+- **正方形与三角形在 12 bit 段继续下降**：正方形 0.7766（8 bit）→ 0.7038（同相位换 12 bit）→ 0.6836 → **0.6442**（`mono12_continue` 段末）→ 0.6443（`mono12_dense`）；三角形 0.7662 → 0.7391 → 0.6676 → **0.6582** → 0.6647。两条链在 `mono12_cv` / `mono12_continue` 段内的降幅（**≥ 3.5 pp**）远超 §4c 的 2.62 pp 重复性，是本会话唯一有区分力的变化；`mono12_dense`（宽载波）对两者只再动 ≤ 1.5 pp，落在重复性内。
+- **五角星与圆形在 `mono12_cv` 之后不再改善**：五角星 0.7838 → **0.7069**（本会话最好）→ 0.7144 → 0.7316；圆形 0.6778 → **0.6774** → 0.6925 → 0.6958。`mono12_continue` 与 `mono12_dense` 两段都**变差**（+0.2 / +0.6 pp 与 +1.5 / +0.7 pp）⇒ 四段链**不是单调收敛**，不能写成「越跑越好」；这与 §4c 的重复性同量级，说明这两段在 12 bit 下已无明显可优化余量（也可能是探索配额把段末拉离段内最优，见 §4d）。
+- **H4（避开核心饱和）只在核心口径成立**：12 bit 段无一触发 `250/255` 核心守卫，但三角形 `mono12_cv` 仍有 **1574 px** 全幅饱和、`mono12_dense` **566 px**（§4b），其 CV 只能算乐观上界；8 bit 段被满量程 255 削顶（三角形 3905 px），只作锚点、不作刻度。
+- **H1（无 GS 可整形）在四形状上都产生了可见的整形效果**：8 bit 首块 → 12 bit 末块 的块内 CV 为正方形 1.0519 → 0.6393、三角形 1.9312 → 0.6734、五角星 0.9472 → 0.7320、圆形 1.2506 → 0.6930（图 3-4）。这是过程值；「到位」判定要等重放审计与 s600 / s200 的跨尺度结果。
+- **H2 / H3 暂不判定**：跨尺度可迁移性（同载波、同 60 px 零级排除）要三尺度齐备才可比；200 格的零级剔除面积已达 5.61%（§2 勘误），该尺度的「参照」性质已减弱。
+
+**未决问题**：
+1. ~~`common_replay/`（16 相位 × 20 / 50 / 90 ms = 48 次）的**饱和审计未做**~~ → **已补**：离线审计见 §5.1，`transport_cv_triangle_seed` / `transport_cv_triangle_final` 两行被扣留，其余 46 行可用。
+2. `common_replay_ladder_trial/`（15 / 60 / 150 / 300 ms）只写出 **34/64** 次、无 `released.json`；`common_replay_dense/` 至 03:48:40 仍在写盘 ⇒ 曝光阶梯这条证据链未闭合（§5.1 的审计报告里 `ladder_trial` 只到 150 ms 且每格只有 1 个相位）。
+3. **s600 / s200 未开始**：跨尺度（H2、H3）无可比数据。
+4. 五角星 / 圆形在 `mono12_cv` 之后变差的原因未定位：是探索配额（§4d）、模型在宽载波下的失配，还是 8 bit → 12 bit 切换后曝光工作点变化？现有数据不足以分开。
+
+### 5.1 离线重放审计结果（2026-10-28 补，免设备）
+
+依据 §5「下一步」第 1 条，用 `scripts/slm/audit_replay_blocks.py` 重读三个已归档重放块。
+该脚本用**冻结的传感器像素孔径**（源段 `config.json` 的 `target_xy` / `side` / `core_margin` /
+`zero_radius`）重算每个重放帧的 CV 与相对能量，而不是复用各段自己的 `metrics.cv` —— 后者用的是
+**当段腐蚀后的核**，dense 段每步腐蚀一次、采样步长减半，同一帧会报出不同的「均匀度」。
+
+| 重放块 | 可用行 | 扣留行 | 备注 |
+|---|---|---|---|
+| `common_replay` | 46/48 | `transport_cv_triangle_seed`、`transport_cv_triangle_final`（峰值 ≥ 98% 满量程） | 12 bit、20/50/90 ms 三档齐；三角形三档全部落在饱和里 |
+| `common_replay_r2` | 47/48 | `transport_cv_triangle_seed` | 18/24 格判「越过噪声」，与上一块同向 |
+| `common_replay_dense` | 24/24 | — | 20/50/90 ms，每格 seed / final 各 1 次（故多格 `insufficient_repeats`） |
+| `common_replay_ladder_trial` | 32/34 | `transport_cv_triangle_seed`、`transport_cv_square_seed` | 只到 60 ms（15/60 两档），150/300 ms 未写出 |
+
+「扣留行」是按**帧峰值 ≥ 98% 满量程**判的，与 manifest 里的 `core_peak` 无关 —— 核心外的
+一个削顶像素同样说明这一帧的曝光不是比较所假定的那个。注意 `n_usable` 统计的是「读得出来」的
+行数，被扣留的行仍在表里，只是不参与相位配对。
+
+**dense 段的结论（与 §5 一致，现在有了统一口径）**：`common_replay_dense` 的 seed → final
+在四个形状、三个曝光档共 12 格里**没有一格成立** —— 正方形三档都是 `insufficient_repeats`
+（`ΔCV = −0.014 / −0.020 / −0.015`，每格最终相位只测过一次）、三角形 / 圆形多数方向相反
+（`wrong_direction`：`+0.104 / +0.000 / +0.012` 与 `−0.015 / +0.003 / +0.002`）、
+五角星两档同时丢了相对能量（`energy_lost_with_cv`，`−0.021 / +0.035 / −0.018`）。
+⇒ **dense 段没有可判定的整形增益**，§3.2 里 dense 段末 CV 的下降只能记为段内过程值。
+
+**seed → final 在 `common_replay` / `common_replay_r2` 上是成立的**（正方形 −1.24 / −0.88、
+三角形 −1.32 / −1.58、五角星 −0.16 / −0.12、圆形 −0.53 / −0.55，两轮同向同量级）：
+这说的是**整段 recipe**（transport_cv → mono12 → continue）确实改变了远场，不是 dense 段。
+
+**重复性的量级**：`common_replay` 把同一 `final` 相位在三个曝光档各测一次（`phases=finalx3`），
+所以那行 `replicate spread` 是**跨曝光**的散布（正方形 ±0.52、三角形 ±1.23、五角星 ±0.024、
+圆形 ±0.024）—— 它说明的是「曝光会改变读数」，**不是**设备噪声，因此不能当噪声带用。
+同曝光的噪声仍以 §4c 的 0.0–2.6 pp（`common_replay` vs `common_replay_r2` 同一相位、同一曝光）为准。
+
+**统计口径**：`2/2**n` 是符号翻转检验的下限，`n = 5` 时 `2/32 = 0.0625 > 0.05` ⇒
+**每个条件至少要 6 次重复**才能谈 p<0.05；少于 6 次只报效应量。审计里同一相位只测过一次时
+报 `insufficient_repeats`，**不会**把跨相位散布借来当噪声。
+
+### 5.2 设备上线后的执行计划（已生成，待跑）
+
+计划由 `scripts/slm/plan_multishape_campaign.py` 生成（`--check` 校验通过，**25 条 lane**），
+落在 `data/debug/slm_transfer/multishape_nogs_20261029/`：`plan.json` +
+`lanes/NN_<session>.ps1`。
+
+| 维度 | 取值 |
+|---|---|
+| 路线 | `strict_cold`（`--initial-phase random`，只加载波，不读目标、不用物理预测模型）与 `analytic_init`（`--initial-phase backprojection`，用拟合光学但仍 0 次 GS） |
+| 尺寸 | 200 / 600 / 1200（原生 CCD px），窗口 420 / 620 / 900 |
+| 形状 | circle / square / triangle / star |
+| 顺序 | `route` → `size` → `shape`；同尺寸连跑，相机窗与曝光只落位一次 |
+| 重复预算 | 每条件 6 次（`2/2**6 = 0.031`，唯一能到 p<0.05 的最小值） |
+| 每条件必报 | `fixed_core_cv` / `shape_agreement`(IoU + 边界) / `relative_energy`，外加零级排除比例、饱和比例、相位来源、模型检查点 SHA-256、曝光读回 |
+
+**lane 00 (`p20261029_refit`) 先在当前实验系统上重拟合模型**。拟合好的检查点带着它被拟合时
+那台实验系统的辐射度量（曝光响应增益、本底、面板在该光功率下的响应），跨一次激光/衰减变化
+复用它，每个预测强度都被整体缩放，而**没有一处会报错**。所以 lane 00 走 from-zero 分支
+（不带 `--model-dir`），写下的正是 lane 01–24 通过 `--model-dir` 指向的目录
+`<campaign>/p20261029`，并顺带把一个形状跑完四段，让会话至少留下一个不来自旧功率的锚点。
+`plan.json` 的 `model_power_check` 记录了必须先比较的两件事：`fit/result.json` 在**同一批
+验证集相位**上的 holdout 误差（refit 目录 vs 被复用目录），以及前置探针给出的建议曝光 vs 被复用
+采集当时的曝光。规则写在计划里：refit 赢就说明旧检查点不再是同一条光路，旧功率下的每个数
+都只能当「另一条光路的读数」，不能当 baseline。
+
+**两条路线绝不合并**：`strict_cold` 才能回答「闭环能否从零开始工作」；`analytic_init` 即使
+名字里没有 GS，也用了解析结构，把它写成「冷启动成功」是错的。两者可以共用同一个
+`--model-dir` —— 模型不是初相位。
+
+**每条 lane 的第一行是 `probe_optical_path_validity.py` 且以退出码为门禁**（`0` = `ok`，
+`2` = `low_snr` / `no_response` ⇒ `exit 1`，不许开始花会话时间）。中断后用 `--resume` 重入
+同一 lane：已完成阶段跳过、不重测（`--order stage` 让同尺寸四形状按阶段纵向推进，中断只损失一段）。
+
+> ⚠️ `--replay-exposures` 是 click 的 `multiple=True`：`--replay-exposures 20 50 90` 会被
+> 报「多余位置参数」，必须重复旗标。生成器已逐项展开，手写命令时注意。
+
+### 5.3 2026-10-29 前置门禁与光功率基线
+
+开跑前的前置探针（`--session retry_20261029`，阶梯 0.05–100 ms）判定 **`ok`**（退出码 `0`）：
+
+| 读数 | 值 |
+|---|---|
+| 可用曝光窗口 | 1 / 2 / 5 / 10 / 20 ms |
+| 建议曝光 | 20 ms，峰值 157 counts（落在 100–200 目标带） |
+| 噪声底 | 4.0 counts（0.05 ms 档 `中位数 + 4σ`） |
+| 阶梯单调 / 线性度 | 单调，`r² = 0.774` |
+| 饱和值 | 242.25 counts（8-bit） |
+
+**光功率基线变化**：同一 10 ms 曝光的平场峰值 2026-10-28 是 204 counts，2026-10-29 是 82
+counts（**×0.40**）。因此 `s1200` / `s600_fixed` 的拟合检查点与当时选的 20/50/90 ms replay
+曝光都不是今天的辐射度量：
+
+- 模型由 **lane 00 (`p20261029_refit`)** 在当前实验系统上重拟合，`model_power_check` 要求先比
+  两边 `fit/result.json` 在同一批验证集相位上的 holdout 误差，再引用任何旧 CV；
+- replay 曝光按「等光子数」重标定为 **50/125/225 ms**（×2.5）；是否被截断不由本表假定，而由
+  `scripts/slm/audit_replay_blocks.py` 的扣留清单判定，触发就退回 20/50/90。
+
+证据：`data/debug/optical_path_probe/retry_20261029/20261029_013227Z/optical_path_probe.json`。
+
+**下一步（最有区分力）**：
+- **跑 §5.2 的剩余 lane 01–24**，顺序按 `order_index`；lane 00（refit）已于 §5.4 完成并产出本轮模型，任何一条被前置探针拒绝就先处理光路，不要跳过去跑下一条。
+- **补完曝光阶梯**：`common_replay_ladder_trial` 的缺失 replay 索引可续跑（`replay_phases.replay` 不覆盖已存在文件），不重跑已完成的 34 次。
+- **审计新会话**：每个会话结束立刻 `python scripts/slm/audit_replay_blocks.py --session <新会话>`，先把被扣留的饱和帧列出来再谈 CV。
+- **实验后分析**：把三层证据（模型验证集 / 逐块 CV / 重放审计）+ §4.1 的四条口径 + 跨尺度比较写进 `multishape_scale_analysis_20261028.md`。
+
+### 5.4 2026-10-29 lane 00（`p20261029_refit`）结果与模型重拟合判定
+
+lane 00 于 01:36:44 → 01:54:18 UTC 跑完四个阶段（`transport_cv` / `mono12_cv` / `mono12_continue` /
+`mono12_dense`），`seed_bakeoff` 按设计 `skipped`（`--no-gs-seed` + 随机初相位 = 严格冷启动分支）。
+
+**`model_power_check` 第 1 项：holdout 误差对比**（`fit/result.json`，12 条验证集探针）：
+
+| 检查点 | loss | corr 均值 | corr 最小 | relative_l2 |
+|---|---|---|---|---|
+| `p20261029`（本次重拟合） | **0.3263** | 0.7322 | 0.3735 | 0.6013 |
+| `s1200`（旧功率） | 0.3983 | 0.6806 | 0.3758 | 0.6256 |
+| `s600_fixed`（旧功率） | 0.2234 | 0.8111 | 0.5946 | 0.5913 |
+
+重拟合优于 `s1200`，落在 `s600_fixed` 与 `s1200` 之间。**判定：本次复用的模型是 `p20261029`**，
+`lanes/01` 起的 `--model-dir` 全部指向它。⚠️ 两边的验证集相位各不相同（各自会话自己的探针），
+所以上表是**同带比较，不是配对检验**；它只能回答「重拟合没有退化成噪声」，不能给出置信区间。
+
+**`model_power_check` 第 2 项：前置探针建议曝光 vs 实际采集曝光**：
+
+| 阶段 | 实际 settling 曝光 |
+|---|---|
+| `transport_cv` | 557.685 ms |
+| `mono12_cv` | 611.054 ms |
+| `mono12_continue` | 727.371 ms |
+| `mono12_dense` | 476.846 ms |
+
+对外比较：`s1200` 全程 155.52 ms，`s600_fixed` 0.72–50.4 ms。本次是 `s1200` 的 3.1–4.7×，与 ×0.40
+的功率下降同向。**两者不可直接相比**：前置探针的 20 ms 是让**平场**落在 100–200 counts 的推荐值，
+而逐阶段的 settling 曝光是在**成形后的窗口内**把峰值顶到目标带——窗口内的峰值远低于平场零级，
+所以它必然选更长的曝光。真正的曝光对照是 `common_replay` 的固定 50/125/225 ms。
+
+**重放审计**（`scripts/slm/audit_replay_blocks.py --session p20261029`，`peak_guard_fraction = 0.98`）：
+**15/15 行可用、全部放行，`clipped = []`** —— 50/125/225 ms 三档都没有截断，按 §5.3 不需退回 20/50/90。
+
+| 曝光档 | CV 均值（sd） | 相对 EE | 零级排除比 | 复制离散（final, 95% t） | seed→final |
+|---|---|---|---|---|---|
+| 50 ms | 1.1000 (0.2530) | 0.7347 | 0.008 | ±0.0532 | −0.5122，supported |
+| 125 ms | 1.0783 (0.2423) | 0.7400 | 0.008 | ±0.0458 | −0.4970，supported |
+| 225 ms | 1.0759 (0.2521) | 0.7415 | 0.008 | ±0.0432 | −0.5215，supported |
+
+**如何读这组 CV**：1.08 落在旧会话**成形前**的水平（`s600` 的 dense 起点是 1.0264–1.0879），而旧会话
+**成形后**的 0.6574–0.7316 来自一个已训练好的检查点。lane 00 是 1200 px、随机初相位、无模型可用的
+从零分支，所以：
+
+- **1.08 不是本轮 campaign 结果，是「复用检查点」各 lane 必须超过的锚点**；把它和旧功率的成形后
+  数值并列会同时混淆「冷启动 vs 迁移」和「旧功率 vs 新功率」两件事。
+- 三个曝光档的 CV 差 ≤ 0.025，远小于 ±0.05 的复制离散 → 曝光在 50–225 ms 内不影响结论，
+  等光子数重标定有效。
+
+**计划缺陷（已修）**：`lanes/01`–`24` 的 `--model-dir` 曾原样带出 `'<campaign>/p20261029'`
+占位符——`plan.json` 里的 `<campaign>` 是为了让计划可移植，但 lane 脚本是**要被执行的**，未展开
+就会指向一个名为 `<campaign>` 的字面目录。修法：`plan.json` 保留占位符，渲染 `.ps1` 时经
+`expand_campaign_token()` 展开成绝对路径；`tests/ao_shaping/scripts/test_plan_multishape_campaign.py`
+新增 2 条守卫（脚本内不得残留占位符、`plan.json` 内必须保留）。25 条 lane 已重新渲染并逐条核对
+三档 replay 曝光齐全。
+
+证据：`data/debug/slm_transfer/multishape_nogs_20261029/p20261029/`（`journal.json`、`fit/result.json`、
+`common_replay/`、逐阶段 `circle_*_exposure.json`）。
+
+### 5.5 2026-10-29 lane 01：重放 ladder 不能跨尺寸共用（已修）
+
+lane 01（`p20261029_analytic_init_s200_circle`，200 px）四个整形阶段全部完成，**重放阶段中止**：
+
+```
+File ".../tools/slm/transfer/replay_phases.py", line 147, in replay
+    raise RuntimeError("core saturated; raw replay retained")
+```
+
+**根因不是设备，是协议**：`--replay-exposures` 当时是**跨 lane 固定**的 50/125/225 ms（按 1200 px 的
+refit 会话定标）。核心峰值由成形光斑的**集中程度**决定，200 px 的核在同样曝光下亮得多：
+
+| 曝光档 | 最亮块（transport 的 seed 相位） | 占满量程 |
+|---|---|---|
+| 50 ms | 1837 counts | 45% |
+| 125 ms | **4095 counts** | **100%（触发中止）** |
+
+所以「一个 ladder 服务所有尺寸」在构造上就不成立：1200 px 在 225 ms 仍可用，200 px 在 125 ms 已经满量程。
+
+**修法（推导，而不是再猜一组数）**：新增
+`protocol.derive_replay_exposures()`（设备无关、纯计算）与 runner 的 `--replay-exposures-auto`：
+
+1. 从**本 lane 已测**的各阶段 `manifest.json` 取 `(core_peak, full_scale, exposure_ms)`；
+2. 速率取 `max((core_peak / full_scale) / exposure_ms)` —— 用 `full_scale` 归一，因此同一 lane 里
+   8-bit 的 `transport_cv` 与 12-bit 的后三段可比；
+3. ladder = `[0.25, 0.5, 0.75] / 速率`，即让最亮块落在满量程的 25 / 50 / 75%。
+
+`REPLAY_LADDER_FRACTIONS` 三个比例都在 `REPLAY_PEAK_GUARD_FRACTION = 0.98` 之下**按构造**，所以推导出的
+ladder 不会选到审计会扣留的曝光。lane 01 的实测输入推得 **23.9 / 47.8 / 71.7 ms**（对照：被中止的固定
+ladder 是 50/125/225）。
+
+计划生成器默认改为输出 `--replay-exposures-auto`（`plan.json` 记 `"replay_exposures": "auto"`），
+显式列表仍可用（`--replay-exposures 20 50 90`，一项一旗标）。**ladder 在 lane 内固定、跨 lane 推导**——
+前者是曝光无关性检查成立的前提，后者是它不饱和的前提，两者不可互相替代。
+
+**顺带修掉第二个会静默吞掉会话的缺陷**：`--resume` 原来把 `common_replay/config.json` 当作重放已完成的
+标志，但它在**第一个块之前**就写了；一次中止的重放会被当作 `reused` 跳过，于是该 lane 会「成功」地报出
+一个没有可用重放的会话。现在要求 `released.json`（全部块重放完且两台设备都释放之后才写）。
+
+**第三个**：`--resume` 重进一个已完成的 lane 时没有任何新采集，Recorder 历史为空，
+`save_records` 抛 `history is empty - nothing to export`，把一个只剩重放的会话判成失败。现在该分支记
+`record/skipped` 并由 `--records-only` 从各阶段 `manifest.json` 离线重建（lane 01 已按此重建 28 行）。
+
+**重跑结果（lane 01，推导 ladder 23.906 / 47.812 / 71.718 ms，68 个已测块）**：
+
+| 曝光档 | CV 均值（sd） | 相对 EE | 零级排除比 | 复制离散（final, 95% t） | seed→final |
+|---|---|---|---|---|---|
+| 23.906 ms | 1.0762 (0.1117) | 0.3072 | 0.272 | ±0.0925 | −0.2864，supported |
+| 47.812 ms | 1.1219 (0.0531) | 0.3169 | 0.272 | ±0.0396 | −0.1263，supported |
+| 71.718 ms | 1.1191 (0.0554) | 0.3181 | 0.272 | ±0.0291 | −0.1273，supported |
+
+审计 **15/15 放行、`clipped = []`**。两点须如实记下：200 px 的**零级排除比 27.2%**（零级盘占小目标
+很大一块），以及 seed→final 的改善只有 −0.13～−0.29，远小于 1200 px 的 −0.51 —— 小目标的成形增益
+在本轮明显更弱，这是结果，不是测量故障。
+
+证据保留：`p20261029_analytic_init_s200/circle/common_replay_aborted_50_125_225ms/`（原始帧与 manifest）、
+`journal_first_attempt.json`（中止那次的 journal，`--resume` 会重写 `journal.json`）。
+
+### 5.6 2026-10-29 lane 02：seed-only 试跑被 resume 门吞掉（已修）
+
+lane 02（`p20261029_analytic_init_s200_square`）在 `seed_bakeoff` 处失败：
+
+```
+FileNotFoundError: .../square/seed_bakeoff/square_transport/manifest.json
+```
+
+这不是设备问题，是 `c1c7aeed`（本报告的 campaign 计划器那次提交）引入的**回归**：那段代码给
+`validate.run` 加了续跑门
+
+```python
+blocks = blocks_for.get(shape, list(range(args.blocks)))
+if not blocks:
+    continue
+```
+
+而 `seed_bakeoff` 恰恰是用 `blocks=0, updates=0` 调它 —— 只测 `*_seed` 与 `*_final` 两行来比较
+初始相位构造。空块列表于是把整个形状跳过，目录里只剩 `config.json`。`c1c7aeed` 之前
+（`multishape_scale_20261028/s1200`、`s600`、`s600_fixed` 的对比择优目录）都是正常的，所以这是
+**只有 square/triangle/star 才会踩到**的路径 —— circle 的候选表只有一个，根本不进对比择优。
+
+修法：`validate.skips_shape(resume=..., blocks=...)` —— 只有**续跑且无剩余块**才跳过；非续跑的
+空列表是 seed-only 试跑的合法输入。runner 侧再加一道：`validate_stage.run` 返回后若 manifest 仍
+不存在，报出候选名与原因，不再以 JSON 读取的 `FileNotFoundError` 收场。
+守卫：`tests/ao_shaping/tools/slm/transfer/test_validate_blocks.py`。
+
+修复后 lane 02 的对比择优里，两个候选都写出了 manifest，实测（`cv`，越小越好）：
+
+| 候选 | seed CV | final CV | 核心峰值 / 曝光 |
+|---|---|---|---|
+| `transport` | 1.9027 | 1.9016 | 64.7 counts @ 4.32 ms |
+| `backprojection` | **0.6399** | 0.6521 | 91.3 counts @ 155.52 ms |
+
+200 px 的方斑上**反投影以约 3 倍优势胜出**，`transport`（可分离传输相位，只有正方形有精确解）
+在小目标上给出的光斑又暗又散（同样落在满量程的比例下，它的曝光只有 4.32 ms 才不饱和）。
+这条与 1200 px 的经验相反，须按尺寸分别报，不能外推。
+
+### 5.7 采集墙钟账与五项提速提案的判定（2026-10-29）
+
+25 条 lane 串起来要跑一整天，于是先问"时间花在哪"，再决定改什么。这一步的**价值不在改得多，
+在改得对**：五个听起来都合理的提速提案里，只有两个的前提被实测支持。
+
+**方法**：`scripts/slm/analyze_session_time_budget.py` 只读已落盘的时间戳（`journal.json` 的阶段
+起止、每个采集行的 `monotonic_ns` / `end_monotonic_ns`、曝光调节期的试拍时刻），不打开任何设备，
+所以对正在跑的会话也能事后复盘。归因口径逐项互斥（`camera` / `gap` / `tuning` / `stage_other`），
+四项相加等于阶段墙钟。
+
+三条会话的占比（区间为三次会话的跨度）：
+
+| 项 | 占阶段墙钟 | 含义 |
+|---|---|---|
+| `gap` | **46–60%** | 相邻两次相机读出之间：SLM 写盘+液晶稳定+优化器计算+落盘 |
+| `stage_other` | 27–42% | 目标构造、模型前向、manifest 写入 |
+| `tuning` | 3.7–4.5% | 曝光调节（第一张试拍到 `adapt_exposure` 收敛） |
+| `camera` | 2.0–6.2% | 积分+读出+传输 |
+
+单次采集的分解（真实数据，非估算）：
+
+| 段 | 耗时 | 来源 |
+|---|---|---|
+| `np.savez_compressed`（46 MB → 13.5 MB） | **1155 ms** | 默认 deflate 级别 6 |
+| 液晶稳定固定 `sleep(.6)` | 600 ms | `validate.SETTLE_SECONDS` |
+| 20 × (`forward.predict` 7.4 ms + `optimizer.update` 13.7 ms) | 420 ms | `scripts/slm/_bench_frozen_forward.py` |
+| 相机读出 | 70–240 ms | 实测 |
+| 均值/裁剪/指标 | ~130 ms | — |
+| 锚定模式重读刚写的 npz | 145 ms | `np.load` 取均值 |
+
+单次采集合计 5.1–5.4 s，**约 2.5 s（49%）此前无任何分段计时**，落在 `gap` 里，对应
+`create_phase_from_array` + `display_data`（SLM 写盘/翻转）。这一段是**设备时间**，不是代码低效 ——
+它也是为什么"把计算挪到后台"能省的是**落盘**那一秒，不是这一段。
+
+压缩级别的标定（`savez` 27.8 ms / deflate1 288 ms·23.7 MB / deflate3 506 ms·14.1 MB /
+deflate6 1155 ms·13.5 MB）：不压缩能省 1.13 s，但 25 条 lane 的采集总量会把磁盘吃穿（当时余量
+64.3 GB），所以**没有**改压缩级别。
+
+五项提案的判定（完整论证见 [issue #213](https://github.com/ywzhang909/AO-shaping/issues/213)）：
+
+| 提案 | 前提 | 判定 |
+|---|---|---|
+| ① 曝光前馈（用模型预测曝光） | 曝光调节占 3.7–4.5% | **不采纳** —— 前提不成立；最好的情况省 0.2 s/会话 |
+| ② ABBA 序贯检验提前停止 | 重复次数由不确定性决定 | **只在完整 ABBA 周期之后**、campaign 后分析阶段用；不得在周期中间停 |
+| ③ `torch.compile` | 物理预测模型占 8% | **不采纳** —— 编译收益摊不到整段墙钟 |
+| ④ 异步流水线 | 落盘 1155 ms 在关键路径上 | **只采纳后台 npz 写盘**（1.16 s），其余不动 |
+| ⑤ 增量 FFT | — | **不采纳**（<2%），且 CV/PIB 都是**全帧归一化**，增量更新会改读数口径 |
+
+据此实现了三处改动（提交 `5d5f0f95`，全部是**默认关闭**的开关，见
+[`docs/user/cli-reference.md`](../../../docs/user/cli-reference.md) §22）：
+
+1. **锚点不再重读自己刚写的 npz**（`_CAPTURE_FRAMES` / `capture_frames`）：`validate.run` 的
+   锚定模式每块要一次前向，原实现 `np.load` 回那 46 MB 取均值（145 ms）。缓存的是**同一次采集的
+   同一份 uint16 帧**，文件仍是记录，消费者读到的字节不变。
+2. **后台写盘**（`_CaptureWriter`，单线程、`_MAX_PENDING=3`）：只把 `npz` 落盘挪出关键路径，
+   与下一次的液晶稳定重叠；写失败在 `close()` 重新抛出，不静默丢帧。
+3. **`--profile-timing`**：把每次采集拆成 `slm_write` / `settle` / `read` / `reduce` / `save`
+   五段写进 manifest 行。**只做测量**，不改任何采集值。
+
+三条合起来的理论上限约 1.3 s/采集（≈25%），但**本次 campaign 没有启用第 2 条**：新增的后台写盘
+路径只在本机仿真测试里验证过，用一条 4 小时无人值守的 20 lane 链去首次验证一个新型失败模式，
+代价大于收益。它已实现、已测、默认关闭，留给下一次单 lane 对照跑证明。
+
+**可比性口径**：lane 00–04 的 manifest 行**没有** `timing` 键（那时还没有这个开关）；lane 05–24
+带 `--profile-timing`。这只是多一个键，相位、曝光、帧数、验收判定完全相同，跨 lane 比较物理结果时不构成
+差异；比较**耗时**时只能拿 lane 05+ 与 lane 05+ 比。`--async-capture-write` 全程关闭，所以
+本次所有 lane 的采集耗时口径一致。
+
+### 5.8 2026-10-29 采集墙钟账与三项收尾改动
+
+问题起点：一次 lane 要跑 10–13 分钟，25 个组合就是四五个小时。于是提出五个提速提案
+（曝光前馈 / ABBA 序贯检验提前停止 / 算子融合 / 异步管道 / 增量 FFT）。判定前先量：
+`scripts/slm/analyze_session_time_budget.py` 只读已落盘的 `journal.json`、每帧 manifest 行与
+`*_exposure_reads.json` 里的时钟戳，**不打开设备、不改任何记录**，把墙钟拆成互斥的四段。
+
+#### 5.8.1 会话级归因（三份真实会话）
+
+| 段 | 口径 | 占会话墙钟 |
+|---|---|---|
+| `camera` | Σ(`end_monotonic_ns` − `monotonic_ns`)：积分 + 读出 + 传输 | 2.0–6.2% |
+| `gap` | 相邻两帧间隔减去上一帧的相机时间：SLM 显示 + 液晶稳定 + 优化器 + 落盘 | 46–60% |
+| `tuning` | 首次试拍到 `adapt_exposure` 收敛 | 3.7–4.5% |
+| `stage_other` | 阶段总时长减去以上三项：目标构造、模型前向、manifest 写入 | 27–42% |
+
+平均每次采集 5.1–5.4 s。**相机不是瓶颈，曝光反馈调节也只占 4%**——大头在「两次采集之间」。
+
+#### 5.8.2 单次采集分解（一次真实采集的逐段实测）
+
+| 段 | 实测 | 说明 |
+|---|---|---|
+| `np.savez_compressed` | 1155 ms | 默认 deflate-6，46 MB → 13.5 MB |
+| `time.sleep(.6)` | 600 ms | 液晶稳定，固定值 |
+| 物理预测模型 20 × `predict` | 148 ms | 7.4 ms/次（GPU） |
+| 优化器 20 × `update` | 274 ms | 13.7 ms/次 |
+| 相机读出 3 帧 | 70–240 ms | 随曝光与内容变化 |
+| 指标 / 裁剪 / 求均值 | ≈130 ms | — |
+| 锚点重新解压刚写下的 npz | 145 ms | 锚定模式下每块一次 |
+| **小计** | **≈2.6 s** | 余下 **≈2.5 s（49%）无可归因记录** |
+
+那 2.5 s 是 SLM 写盘 / 面板翻转 / `create_phase_from_array` 合起来的，此前**没有任何分段计时**
+能把它切开——这正是先加 `--profile-timing` 而不是先做优化的理由。
+
+落盘格式的另一组微基准（同一台机、同一份 46 MB 采集）：不压缩 `savez` 27.8 ms；
+deflate-1 288 ms / 23.7 MB；deflate-3 506 ms / 14.1 MB；deflate-6（默认）1155 ms / 13.5 MB。
+磁盘余量 64.3 GB，不够把 25 个 lane 的原始帧全存未压缩，所以「存未压缩」不在选项内。
+
+#### 5.8.3 五个提案的判定
+
+| 提案 | 前提 | 判定 | 理由 |
+|---|---|---|---|
+| ① 曝光前馈（跳过试拍） | 不成立 | **不采纳** | 曝光调节只占 3.7–4.5%，拿掉的不是瓶颈 |
+| ② ABBA 序贯检验提前停止 | 成立，但有边界 | **仅按完整 ABBA 周期**，campaign 之后改协议 | 半周期停止会把 A/B 顺序效应写进结论 |
+| ③ 算子融合 / `torch.compile` | 不成立 | **不采纳** | 模型往返只占约 8%（422 ms / 5.1 s） |
+| ④ 异步管道 | 部分成立 | **只做后台写盘**（1155 ms 那段） | 其余段互相有数据依赖，不能并行 |
+| ⑤ 增量 FFT | 不成立 | **不采纳** | 上界 <2%；且 CV / PIB 是全帧归一化，增量无定义 |
+
+判定评论：<https://github.com/ywzhang909/AO-shaping/issues/213#issuecomment-6487043807>。
+
+#### 5.8.4 已落地的三项改动（提交 `5d5f0f95`）
+
+1. **锚点走内存**：`capture` 把刚采的 `raw` 留在有界缓存（4 份，约 120 MB），锚定路径与
+   方向探针不再把自己刚写的 npz 解压回来（−145 ms/块）。
+2. **后台写盘**：`_CaptureWriter` 单线程把压缩落盘挪出关键路径，队列深度 3；磁盘变慢时
+   阻塞采集而不是撑大内存。默认关闭（`--async-capture-write`）。
+3. **分段计时**：`--profile-timing` 给每个 manifest 行加 `slm_write` / `settle` / `read` /
+   `reduce` / `save` 五段毫秒数。默认关闭。
+
+三项都**不改测量值**：缓存返回的是同一次采集的同一份 uint16 帧；后台写盘只改字节何时落盘；
+计时只追加一个 manifest 键。守卫：`tests/ao_shaping/tools/slm/transfer/test_capture_io.py`（6 项）
+与 `test_transfer_workflow.py` 的 3 项集成测试。
+
+#### 5.8.5 跨 lane 可比性
+
+`--profile-timing` 只在本轮 lane 05–24 打开（lane 00–04 运行时该开关尚不存在），所以
+**manifest 行的键集在前五个 lane 上少一个 `timing`**；任何离线脚本都必须按「键可缺失」读取。
+`--async-capture-write` 本轮**全程关闭**：它改变的是时序而非数值，但在一次 4 小时无人值守的
+连续运行里为一个约 20% 的收益引入新的失败面，不划算——它的收益留到单独一次对照测量里证明。
+
+## 6. 设备释放状态
+
+- 中断进程与被中止的 relaunch 均由上下文管理器释放 SLM/CCD；预检记录 `flat_restored=true`（SLM 已复位到平场）。
+- **当前**：SLM + Daheng CCD 均**已释放**（两个 `session complete` 分别记于 03:21:47 与 03:33:58，`common_replay` 的 `released.json` 记于 03:45:09）。
+- **下一位操作者注意**：
+  1. `common_replay_dense/` 的 replay 在 03:46:45 启动、最后一条 journal（03:48:40）仍为 `running`，本报告**未读取该目录**；动设备前先确认该次 replay 已自行结束，否则会与仍在写盘的后台采集抢相机。
+  2. `common_replay_ladder_trial/` 只有 34/64 次重放、无 `released.json`，属未完成，不要当成完整数据集引用。
+  3. Session A 的**跨尺度部分未开始**（s600、s200），SLM/CCD 可作为空闲设备使用，但不要原地覆盖 `data/debug/slm_transfer/multishape_scale_20261028/s1200/` 下的任何阶段目录（续跑依赖其 `seed_run` 链）。
+  4. 续跑前不需重新预检，但需确认 SLM DLL 路径与相机 SDK 仍在环境内。
+
+---
+
+## 7. 2026-10-29 会话后的跨会话汇总
+
+> 本节是**追加**的：§1–§6 记录的是 2026-10-28 的 Session A（1200 px）。10-29 的
+> 200 px 会话改变了其中两条判断，故在此汇总，不回头改写原记录。
+
+### 7.1 已完成的会话
+
+| 会话 | 尺度 | 初相位 | 完成度 | 记录位置 |
+|---|---|---|---|---|
+| Session A（10-28） | 1200 px | 解析初始化 | 16/16 阶段、112 块、重放完成 | 本文 §3 |
+| 10-29 lane 00 | — | 模型重拟合 | 完成 | p20261029/frozen_parameters.json |
+| 10-29 lane 01–04 | 200 px | 解析初始化 | 16/16 阶段、112 块、四次重放 | [live_20261029_device_session.md](live_20261029_device_session.md) |
+| 10-29 lane 05 | 600 px | 解析初始化 | 2/4 阶段（被设备下线中止） | 同上 §5.3 |
+| 10-29 lane 06–24 | 600/1200 px、严格冷启动 | — | **未开始** | — |
+
+### 7.2 冻结光阑审计下的净结论（跨会话）
+
+审计已修正 `clipped` 语义（饱和行不再进入分组均值），下表是**剔除饱和行后**的口径；
+「有效行」= 无 error 且未饱和的行数。
+
+| 形状 | 尺度 | `dCV` | 判定 | 有效行 | 可用性 |
+|---|---|---|---|---|---|
+| circle | 1200 px | 见 §5.1 | supported | — | 是 |
+| circle | 200 px | −0.286 / −0.126 / −0.127 | supported（三档） | 15 / 15 | **是** |
+| triangle | 200 px | −0.161 / −0.173 | supported（两档；第三档失去 seed 行） | 13 / 15 | **是** |
+| square | 200 px | **+0.170 / +0.165** | `wrong_direction`（两档） | 11 / 15 | **是**（作为"变差"的证据） |
+| star | 200 px | +0.078 | `no_difference`（一档） | 5 / 15 | **否**（仅一档可判） |
+
+两点必须连读：
+
+- **square 的"变差"是真的。** 两个可用曝光档的 `dCV` 均为正、约噪声半宽的 3 倍
+  （0.0526 / 0.0547），第三档的 4 个 final 全部截断只是让该档消失，并未参与判定。
+  所以它不是"饱和造成的假方向"，而是闭环在方斑上确实把 CV 做大了。
+- **star 只剩一档。** 修正前报的"最高曝光档 `wrong_direction`"来自一个整组饱和的
+  组，**已撤回**；剩余那档是 `no_difference`。它的 `ee_rel`（0.360）远高于其他
+  三形状（0.24–0.32），说明星形目标需要形状特定指标。
+
+### 7.3 对 §1–§6 的三处修正
+
+1. **§6 第 3 条已过期**：原文写"Session A 的跨尺度部分未开始（s600、s200）"。
+   10-29 已跑完 s200 的四形状；s600 只有 circle 的两段且无重放审计。1200 px 的
+   `analytic_init` 与全部 `strict_cold` 仍未开始。
+2. **"反投影在小目标上胜出"只在可测形状上成立**：10-28 的 §5.x 由 200 px
+   对比择优推出"反投影以约 3 倍优势胜出"，当时只有 seed-only 试跑。10-29 的完整
+   闭环数据表明该结论被 **circle 与 triangle** 支持；**square 反向**（闭环变差）；
+   **star 仅一档且为 `no_difference`**。原结论应降级为"在 circle / triangle 上成立"。
+3. **square 不是"测不到"**：修正审计语义后，其两个可用曝光档的 `dCV` 仍为
+   `+0.170 / +0.165`，效应量约为噪声三倍。此前把它归因为饱和污染的读法**作废**。
+
+### 7.4 下一步
+
+质量改善的实施方案（饱和先决 → 3a → 审计语义 → 1b → 2b → 4c）与下一轮 lane
+编排见 [next_round_20261029.md](next_round_20261029.md)。其中 3a 与 1b 的代码
+已实现，1b 默认关闭、等实测 MTF；审计的饱和语义已在本次修正。

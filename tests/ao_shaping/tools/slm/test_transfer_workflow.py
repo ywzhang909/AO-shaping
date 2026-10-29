@@ -308,6 +308,54 @@ def test_save_dataset_writes_the_historical_npz_keys(tmp_path, monkeypatch):
     assert json.loads((tmp_path / "capture/config.json").read_text())["save_dataset"] is True
 
 
+def test_capture_writes_done_marker_with_early_stopped_false(tmp_path, monkeypatch):
+    """A completed capture records its own end so a parallel worker can tell."""
+    from ao_shaping.tools.slm.transfer import capture
+
+    _patch_capture_devices(monkeypatch)
+    _one_probe(monkeypatch)
+
+    capture.capture(_capture_args(tmp_path))
+
+    done = tmp_path / "capture" / ".capture_done"
+    assert done.is_file()
+    marker = json.loads(done.read_text(encoding="utf-8"))
+    assert marker["early_stopped"] is False
+    assert marker["probes"] == 1
+    assert "timestamp_utc" in marker and "monotonic_ns" in marker
+
+
+def test_capture_stops_when_acquisition_requested(tmp_path, monkeypatch):
+    """A parallel-fit worker can ask capture to stop early via a marker file."""
+    from ao_shaping.tools.slm.transfer import capture as capture_module
+
+    _patch_capture_devices(monkeypatch)
+    out = tmp_path / "capture"
+
+    def stopping_probes(*a):
+        states = [
+            ("reference_start", "calibration", np.zeros((8, 8), np.float32)),
+            ("train_0", "train", np.zeros((8, 8), np.float32)),
+            ("train_1", "train", np.zeros((8, 8), np.float32)),
+        ]
+        for index, state in enumerate(states):
+            if index == 1:
+                (out / "stop_acquisition.request").write_text("{}")
+            yield state
+
+    monkeypatch.setattr(capture_module, "probes", stopping_probes)
+
+    capture_module.capture(_capture_args(tmp_path, save_dataset=True))
+
+    done = out / ".capture_done"
+    assert done.is_file()
+    marker = json.loads(done.read_text(encoding="utf-8"))
+    assert marker["early_stopped"] is True
+    assert marker["probes"] == 1  # only the first probe was recorded
+    assert len(json.loads((out / "manifest.json").read_text())) == 1
+    assert (out / "stop_acquisition.request").is_file()
+
+
 def test_capture_arms_exposure_with_one_correction_and_a_wide_bound(tmp_path, monkeypatch):
     """One exact correction + one verification read, with a bound that reaches ×9."""
     from ao_shaping.tools.slm.transfer import capture
@@ -453,7 +501,7 @@ class _LevelSlm:
 
 
 def _run_validate(tmp_path, monkeypatch, *, abba, mode="model", updates=2, device=None, seen=None,
-                  adaptive_exposure=False, blocks=1):
+                  adaptive_exposure=False, blocks=1, **extra):
     """Drive ``validate.run`` end to end with fakes: devices, forward and optimizer.
 
     Everything above the device layer is the production code, so the set of
@@ -497,7 +545,13 @@ def _run_validate(tmp_path, monkeypatch, *, abba, mode="model", updates=2, devic
             return torch.tensor(level*(1.0+ramp), dtype=torch.float32)[None]
 
     class _Optimizer:
-        def __init__(self, forward, objective, seed, *, lr, step_rms_cap, device):
+        # ``**kwargs``: the production optimizer keeps growing optional hooks
+        # (e.g. ``spectral_mask`` from issue #213 item 1b). A fake that names only
+        # the arguments it happens to use breaks every caller the day a hook is
+        # added, and the failure reads as "validate is broken" rather than "the
+        # fake is stale".
+        def __init__(self, forward, objective, seed, *, lr, step_rms_cap, device, **kwargs):
+            seen.setdefault("optimizer_kwargs", []).append(sorted(kwargs))
             seen["optimizer"].append(device)
             self._phase = np.asarray(seed, np.float32).copy()
             self.loss_history = []
@@ -549,7 +603,7 @@ def _run_validate(tmp_path, monkeypatch, *, abba, mode="model", updates=2, devic
                            frames=2, mode=mode, seed_run=None, seed_policy="strict",
                            accept_metric="loss", objective="shape", camera="custom",
                            cam_id=7, slm_number=2, execute=True, abba=abba, device=device,
-                           adaptive_exposure=adaptive_exposure)
+                           adaptive_exposure=adaptive_exposure, **extra)
     validate.run(args)
     return args
 
@@ -779,3 +833,113 @@ def test_the_session_records_the_resolved_device(tmp_path, monkeypatch):
 def test_an_unknown_device_is_refused_before_any_device_opens(tmp_path):
     with pytest.raises(ValueError, match="unknown device"):
         TransferSession(tmp_path / "session", device="gpu").validate()
+
+
+# ---------------------------------------------------------------------------
+# plan mode: what a session still has to measure, decided before any device
+# ---------------------------------------------------------------------------
+
+
+def _plan_args(out, shapes, **over):
+    from types import SimpleNamespace
+
+    base = dict(out=out, shapes=list(shapes), bit_depth=8, window_step=4., blocks=2, frames=3)
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+def _block_summary(path, shape, blocks):
+    """A ``summary.json`` as ``validate.run`` writes it: one row per block."""
+    path.mkdir(parents=True)
+    (path / "summary.json").write_text(json.dumps(
+        [dict(shape=shape, block=block, accepted=False) for block in blocks]))
+
+
+def test_session_plan_without_session_groups_is_one_tuple_per_shape(tmp_path):
+    from ao_shaping.tools.slm.transfer.validate import session_plan
+
+    plan = session_plan(_plan_args(tmp_path / "run", ["square", "circle"]))
+
+    assert plan["frozen"] == []
+    assert [tuple(entry[:2]) for entry in plan["todo"]] == [("square", 8), ("circle", 8)]
+    assert [entry[2:] for entry in plan["todo"]] == [(4., 2), (4., 2)]
+    # Order of magnitude only, not wall clock: 2 shapes x 2 groups x
+    # (0.6 s settle + 3 frames x 0.9 s) = 13.2 s.
+    assert plan["estimated_seconds"] == 13.2
+
+
+def test_a_finished_shape_lands_in_frozen_not_todo(tmp_path):
+    """A shape whose directory already holds two measured blocks needs no block.
+
+    The directory is written in the recorded form ``validate.run`` produces (one
+    ``summary.json`` row per block), so this asserts the on-disk contract plan
+    mode reads rather than a hand-built shortcut.
+    """
+    from ao_shaping.tools.slm.transfer.validate import session_plan
+
+    _block_summary(tmp_path / "square", "square", range(2))
+
+    plan = session_plan(_plan_args(tmp_path, ["square", "circle"]))
+
+    assert plan["frozen"] == [("square", 8, 4.0, 2)]
+    assert [entry[0] for entry in plan["todo"]] == ["circle"]
+
+
+def test_a_malformed_summary_is_a_value_error_not_an_index_error(tmp_path):
+    from ao_shaping.tools.slm.transfer.validate import session_plan
+
+    broken = tmp_path / "triangle"
+    broken.mkdir()
+    (broken / "summary.json").write_text(json.dumps([dict(shape="triangle")]))  # no "block"
+
+    with pytest.raises(ValueError, match="lacks shape/block keys"):
+        session_plan(_plan_args(tmp_path, ["triangle"]))
+
+
+def test_profile_timing_writes_a_five_part_split_per_capture(tmp_path, monkeypatch):
+    """The split is the evidence the speed-up work is argued from.
+
+    ``scripts/slm/analyze_session_time_budget.py`` can only attribute what a
+    session records; before this flag the ~5 s between two captures had no
+    per-segment breakdown at all, so every proposal rested on a guess.
+    """
+    args = _run_validate(tmp_path, monkeypatch, abba=False, mode="anchored", blocks=1,
+                         profile_timing=True)
+    rows = json.loads((args.out/"manifest.json").read_text())
+    assert rows
+    for row in rows:
+        assert set(row["timing"]) == {"slm_write", "settle", "read", "reduce", "save"}
+        assert all(value >= 0 for value in row["timing"].values())
+
+
+def test_timing_is_absent_unless_it_is_asked_for(tmp_path, monkeypatch):
+    args = _run_validate(tmp_path, monkeypatch, abba=False, mode="anchored", blocks=1)
+    rows = json.loads((args.out/"manifest.json").read_text())
+    assert rows and all("timing" not in row for row in rows)
+
+
+def test_async_capture_write_stores_the_same_measurement(tmp_path, monkeypatch):
+    """The background writer may only change *when* the bytes land.
+
+    A lane's manifest is what the campaign compares, so the row and the npz it
+    names must match the synchronous path exactly -- otherwise the flag would
+    silently fork the protocol.
+    """
+    (tmp_path/"sync").mkdir(parents=True, exist_ok=True)
+    (tmp_path/"async").mkdir(parents=True, exist_ok=True)
+    sync = _run_validate(tmp_path/"sync", monkeypatch, abba=False, mode="anchored", blocks=1)
+    background = _run_validate(tmp_path/"async", monkeypatch, abba=False, mode="anchored",
+                               blocks=1, async_capture_write=True)
+
+    def comparable(run):
+        rows = json.loads((run.out/"manifest.json").read_text())
+        keys = ("label", "file", "peak", "core_peak", "saturation_pixels", "loss")
+        return [{key: row[key] for key in keys} for row in rows]
+
+    assert comparable(sync) == comparable(background)
+    assert (sorted(path.name for path in sync.out.glob("capture_*.npz"))
+            == sorted(path.name for path in background.out.glob("capture_*.npz")))
+    with np.load(sync.out/"capture_0000.npz") as left, np.load(background.out/"capture_0000.npz") as right:
+        assert sorted(left.files) == sorted(right.files)
+        for key in left.files:
+            assert np.array_equal(left[key], right[key])

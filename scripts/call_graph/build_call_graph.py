@@ -12,6 +12,7 @@ import ast
 import json
 import sys
 from pathlib import Path
+from loguru import logger
 
 # scripts/call_graph/<this file> -> repo root is two levels up
 REPO = Path(__file__).resolve().parents[2]
@@ -92,11 +93,11 @@ def load_modules() -> dict[str, Module]:
                 try:
                     text = p.read_text(encoding="utf-8-sig")
                     tree = ast.parse(text)
-                except Exception as e:
-                    print(f"PARSE FAIL {p}: {e}", file=sys.stderr)
+                except Exception as e:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
+                    logger.info(f"PARSE FAIL {p}: {e}")
                     continue
-            except Exception as e:
-                print(f"PARSE FAIL {p}: {e}", file=sys.stderr)
+            except Exception as e:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
+                logger.info(f"PARSE FAIL {p}: {e}")
                 continue
             m = Module(d, p)
             m.tree = tree
@@ -237,7 +238,7 @@ def collect_calls(func: Func, m: Module, mods: dict[str, Module]):
 
 def build():
     mods = load_modules()
-    print(f"modules loaded: {len(mods)}", file=sys.stderr)
+    logger.info(f"modules loaded: {len(mods)}")
     # entries
     entries = {
         "main.main": None,  # placeholder
@@ -271,7 +272,7 @@ def build():
     for name, sym in lazy.items():
         attr = attrs.get(name, "run")
         cmd_entries[name] = f"{sym}.{attr}"
-    print(json.dumps(cmd_entries, indent=2), file=sys.stderr)
+    logger.info(json.dumps(cmd_entries, indent=2))
 
     # BFS
     nodes: dict[str, dict] = {}
@@ -370,12 +371,12 @@ def build():
     # stats
     repo_fns = [q for q, i in nodes.items() if i is not None and (i["module"] in mods)]
     ext = [q for q, i in nodes.items() if i is None]
-    print(f"nodes: total={len(nodes)} resolved={len(repo_fns)} unresolved={len(ext)}", file=sys.stderr)
-    print(f"edges: {len(edges)}", file=sys.stderr)
+    logger.info(f"nodes: total={len(nodes)} resolved={len(repo_fns)} unresolved={len(ext)}")
+    logger.info(f"edges: {len(edges)}")
     from collections import Counter
     per_mod = Counter((i["module"] if i else q) for q, i in nodes.items())
     for k, v in per_mod.most_common():
-        print(f"  {k}: {v}", file=sys.stderr)
+        logger.info(f"  {k}: {v}")
 
     out = {
         "entries": entry_points,
@@ -390,8 +391,7 @@ def build():
 
 if __name__ == "__main__":
     data = build()
-    import sys as _s
     outp = REPO / "docs/dev/call_graph_wiki/raw/assets/call_graph.json"
     outp.parent.mkdir(parents=True, exist_ok=True)
     outp.write_text(json.dumps(data, ensure_ascii=False, indent=1))
-    print(f"wrote {outp}", file=_s.stderr)
+    logger.info(f"wrote {outp}")

@@ -34,6 +34,10 @@ npz (原始帧)、``optical_path_probe.json`` (全部读数 + 判定 + 阈值 + 
 用法::
 
     python scripts/slm/probe_optical_path_validity.py --wait-until-idle 600
+    python scripts/slm/probe_optical_path_validity.py --session s200_circle --wait-until-idle 600
+
+``--session`` 只影响证据落盘位置 (``<out-root>/<session>/<UTC戳>/``): 生成器的每条
+lane 都带它, 于是「这次探测门禁的是哪条 lane」在目录名上就能对出来。
 """
 
 from __future__ import annotations
@@ -1039,6 +1043,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="证据输出根目录",
     )
     parser.add_argument(
+        "--session",
+        default="",
+        help="会话名: 证据落到 <out-root>/<session>/<UTC戳>/, 便于把一次探测对到它门禁的那个 lane; "
+             "缺省 = 直接落 <out-root>/<UTC戳>/",
+    )
+    parser.add_argument(
         "--frames",
         type=int,
         default=2,
@@ -1099,7 +1109,8 @@ def run_probe(args: argparse.Namespace) -> int:
             raise SystemExit(f"曝光必须为正: {exposure}")
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%SZ")
-    out_dir = Path(args.out_root) / stamp
+    session = str(getattr(args, "session", "") or "").strip()
+    out_dir = Path(args.out_root) / session / stamp if session else Path(args.out_root) / stamp
     out_dir.mkdir(parents=True, exist_ok=True)
 
     config = ProbeConfig(
@@ -1139,43 +1150,43 @@ def run_probe(args: argparse.Namespace) -> int:
     with slm:
         with camera:
             device_info = _collect_device_info(slm, camera)
-            print(
+            logger.info(
                 f"设备就绪: SLM #{config.slm_number} "
                 f"(序列号 {device_info.get('slm_serial')}), 相机 {config.cam_type} "
                 f"#{config.cam_id} (序列号 {device_info.get('cam_serial')})",
-                flush=True,
+
             )
             lo, hi = get_camera_exposure_range(camera)
-            print(f"相机曝光范围: {lo:g}-{hi:g} ms", flush=True)
+            logger.info(f"相机曝光范围: {lo:g}-{hi:g} ms")
 
             # -- 阶段一: 曝光阶梯 (面板保持平场) --------------------------
             flat_phase = build_defocus_phase(
                 0.0, config.defocus_radius_px, config.pupil_center
             )
             display_phase_on_slm(slm, flat_phase, config.settle_s)
-            print("\n[阶段一] 曝光阶梯 (平场):", flush=True)
+            logger.info("\n[阶段一] 曝光阶梯 (平场):")
             ladder = measure_exposure_ladder(
                 camera, exposures, config.frames_per_exposure, out_dir
             )
             for record in ladder:
-                print(
+                logger.info(
                     f"  {record['effective_ms']:>8.3f} ms  峰值={record['peak_raw']:>7.1f} "
                     f"(处理后 {record['peak_prepared']:>7.1f})  "
                     f"均值={record['mean_raw']:>7.3f}  p99={record['p99_raw']:>7.1f}  "
                     f"FWHM={record['fwhm_px']:>6.2f} px  "
                     f"质心=({record['centroid_x']:.0f}, {record['centroid_y']:.0f})",
-                    flush=True,
+
                 )
 
             ladder_summary = analyse_ladder(ladder, 255.0)
             noise = ladder_summary["noise_floor"]
-            print(
+            logger.info(
                 f"  噪声底: 中位数 {noise['median_counts']:.1f} + "
                 f"{NOISE_FLOOR_SIGMAS:g}σ ({noise['sigma_counts']:.2f}) = "
                 f"{noise['threshold_counts']:.1f} counts @ {noise['exposure_ms']:g} ms",
-                flush=True,
+
             )
-            print(
+            logger.info(
                 "  可用窗口: "
                 + (
                     ", ".join(f"{v:g}" for v in ladder_summary["usable_window_ms"])
@@ -1183,14 +1194,14 @@ def run_probe(args: argparse.Namespace) -> int:
                     if ladder_summary["usable_window_ms"]
                     else "(空)"
                 ),
-                flush=True,
+
             )
             recommended = ladder_summary.get("recommended_exposure")
             if recommended is not None:
-                print(
+                logger.info(
                     f"  建议曝光: {recommended['exposure_ms']:g} ms "
                     f"(峰值 {recommended['peak_counts']:.0f} counts)",
-                    flush=True,
+
                 )
 
             # -- 阶段二: 离焦响应 ---------------------------------------
@@ -1202,10 +1213,10 @@ def run_probe(args: argparse.Namespace) -> int:
                 usable = [r for r in ladder if r.get("usable")]
                 pool = usable or ladder
                 defocus_exposure = float(max(pool, key=lambda r: r["peak_raw"])["effective_ms"])
-            print(
+            logger.info(
                 f"\n[阶段二] 离焦响应 (曝光 {defocus_exposure:g} ms, "
                 f"幅度 {config.defocus_amps_rad}):",
-                flush=True,
+
             )
             states = measure_defocus_sweep(
                 camera,
@@ -1219,27 +1230,27 @@ def run_probe(args: argparse.Namespace) -> int:
                 out_dir,
             )
             for state in states:
-                print(
+                logger.info(
                     f"  离焦 {state['defocus_rad']:>+6.2f} rad  "
                     f"峰值={state['peak_raw']:>7.1f}  "
                     f"FWHM={state['fwhm_px']:>6.2f} px  "
                     f"二阶矩半径={state['second_moment_radius_px']:>6.2f} px  "
                     f"质心=({state['centroid_x']:.0f}, {state['centroid_y']:.0f})  "
                     f"[{state['tag']}]",
-                    flush=True,
+
                 )
 
             response = analyse_defocus_response(
                 states, float(noise["threshold_counts"])
             )
-            print(
+            logger.info(
                 f"  平场: 峰值 {response['baseline_peak_counts']:.1f} counts, "
                 f"FWHM {response['baseline_fwhm_px']:.2f} px; "
                 f"逐帧散布 σ(峰值)={response['sigma_peak_counts']:.2f} counts, "
                 f"σ(FWHM)={response['sigma_fwhm_px']:.2f} px",
-                flush=True,
+
             )
-            print(
+            logger.info(
                 f"  离焦带来的变化 (各幅度中最大): 峰值 "
                 f"{response['peak_signal_counts']:.1f} counts "
                 f"({response['peak_relative_change']:.1%}, 离焦 "
@@ -1251,14 +1262,14 @@ def run_probe(args: argparse.Namespace) -> int:
                 f"({WIDTH_RELATIVE_FLOOR:.0%} / {PEAK_RELATIVE_FLOOR:.0%}) ⇒ "
                 f"宽度显著={response['width_significant']}, "
                 f"峰值显著={response['peak_significant']}",
-                flush=True,
+
             )
-            print(
+            logger.info(
                 f"  分辨率: 宽度 {response['width_resolution']:.1%} "
                 f"(上限 {WIDTH_RESOLUTION_MAX:.0%}), 峰值 "
                 f"{response['peak_resolution']:.1%} "
                 f"(上限 {PEAK_RESOLUTION_MAX:.0%})",
-                flush=True,
+
             )
 
             verdict = decide(ladder_summary, response)
@@ -1335,11 +1346,11 @@ def _collect_device_info(slm: Any, camera: Any) -> dict[str, Any]:
         info["slm_serial"] = None
     try:
         info["slm_video_mode"] = int(getattr(slm, "video_mode", 0))
-    except Exception:
+    except Exception:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
         info["slm_video_mode"] = None
     try:
         info["slm_wavelength_nm"] = getattr(slm, "wavelength", None)
-    except Exception:
+    except Exception:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
         info["slm_wavelength_nm"] = None
     for attr in ("serial_number", "serial", "sn"):
         value = getattr(camera, attr, None)
@@ -1359,7 +1370,7 @@ def _collect_device_info(slm: Any, camera: Any) -> dict[str, Any]:
     try:
         lo, hi = get_camera_exposure_range(camera)
         info["cam_exposure_range_ms"] = [float(lo), float(hi)]
-    except Exception:
+    except Exception:  # 保留宽泛捕获: 内部调用链 get_camera_exposure_range 的失败类型不可枚举
         pass
     return info
 

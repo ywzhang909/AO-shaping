@@ -1662,7 +1662,7 @@ def run_all(*, n_steps: int, studies: tuple[str, ...]) -> list[CaseResult]:
 
 def print_summary(results: list[CaseResult]) -> None:
     """打印一行一个工况的汇总 (冒烟模式的主要输出)。"""
-    print()
+    logger.info()
     logger.info("=" * 100)
     logger.info(
         f"{'研究':<4} {'工况':<18} {'拟合Δφ(π)':>10} {'偏差':>9} "
@@ -1689,7 +1689,7 @@ def print_summary(results: list[CaseResult]) -> None:
         f"最大几何残差 {max(r.max_residual_px for r in results):.2f} px"
     )
     logger.info("=" * 100)
-    print()
+    logger.info()
 
 
 #: 旧版 (无日期戳) 的图名 —— 重跑后必须删掉, 否则 report/ 里留下孤儿资产

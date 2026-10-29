@@ -754,3 +754,228 @@ class TestRenderProgress:
         tp.render_progress(tp.collect_progress(out), running=True)
 
         assert "**复用已有采集**：跳过 —— 尚未产出指标" in stub.markdown[1]
+
+
+# ---------------------------------------------------------------------------
+# collect_traces: 三张图的数据源
+# ---------------------------------------------------------------------------
+
+
+CSV_HEADER = "cv,core_peak,model_loss,label,stage,shape,exposure_ms,_phase,_img,_grad,_id\n"
+
+
+def _process_csv(path: Path, rows: list[tuple[str, str, float, float, float]]) -> None:
+    """写一份 ``recording/process.csv``：``(label, shape, cv, peak, loss)``。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [CSV_HEADER]
+    for index, (label, shape, cv, peak, loss) in enumerate(rows):
+        lines.append(
+            f"{cv},{peak},{loss},{label},anchored,{shape},12.5,"
+            f'"[[0.1 0.2]]","[[1 2]]","[[0 0]]",{index}\n'
+        )
+    path.write_text("".join(lines), encoding="utf-8")
+
+
+def _fit_dir(root: Path, *, history: list[dict[str, Any]], splits: list[str]) -> None:
+    import pickle
+
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / "iterations.pkl").open("wb") as stream:
+        pickle.dump(history, stream, protocol=4)
+    _write(root / "provenance.json", {"rows": [{"split": s} for s in splits]})
+    _write(root / "result.json", {"iteration": 1, "loss": 0.2})
+
+
+def _history() -> list[dict[str, Any]]:
+    return [
+        {"iteration": 0, "loss": 0.9, "metrics": [
+            {"correlation": 0.1, "relative_l2": 0.9, "cv_abs_error": 1.0},
+            {"correlation": 0.3, "relative_l2": 0.7, "cv_abs_error": 0.5},
+        ]},
+        {"iteration": 1, "loss": 0.4, "metrics": [
+            {"correlation": 0.6, "relative_l2": 0.4, "cv_abs_error": 0.3},
+            {"correlation": 0.8, "relative_l2": 0.2, "cv_abs_error": 0.1},
+        ]},
+    ]
+
+
+class TestCollectTraces:
+    def test_no_session_directory_gives_four_none_fields(self):
+        view = tp.collect_traces(None)
+
+        assert view == {"out_dir": None, "ccd": None, "fit": None,
+                        "prediction": None, "blocks": None}
+
+    def test_ccd_trace_reads_the_scalar_columns_and_skips_the_arrays(self, tmp_path):
+        out = tmp_path / "session"
+        _process_csv(out / "model" / "recording" / "process.csv",
+                     [("square_seed", "square", 0.59, 1011.0, 1.36),
+                      ("square_0_A1", "square", 0.57, 640.0, 1.32)])
+        _process_csv(out / "anchored" / "recording" / "process.csv",
+                     [("square_0_B1", "square", 0.60, 700.0, 1.30)])
+
+        ccd = tp.collect_traces(out)["ccd"]
+
+        assert [run["label"] for run in ccd["runs"]] == ["模型块", "锚定块"]
+        first = ccd["runs"][0]["series"][0]
+        assert first == {"label": "square_seed", "shape": "square", "cv": 0.59,
+                         "core_peak": 1011.0, "model_loss": 1.36, "exposure_ms": 12.5}
+        assert ccd["has_seed"] is True
+        assert ccd["runs"][0]["shapes"] == ["square"]
+
+    def test_the_full_and_fallback_fit_directories_both_work(self, tmp_path):
+        out = tmp_path / "session"
+        _fit_dir(out / "fit" / "full", history=_history(), splits=["train", "validation"])
+
+        fit = tp.collect_traces(out)["fit"]
+
+        assert fit["iterations"] == [(0.0, 0.9), (1.0, 0.4)]
+        assert fit["selected"] == 1.0
+        assert fit["train"][1] == (0.6, 0.4, 0.3)
+        assert fit["validation"][1] == (0.8, 0.2, 0.1)
+
+        fallback = tmp_path / "fallback"
+        _fit_dir(fallback / "fit", history=_history(), splits=["train", "validation"])
+        assert tp.collect_traces(fallback)["fit"]["iterations"] == [(0.0, 0.9), (1.0, 0.4)]
+
+    def test_without_a_split_the_metric_series_stay_empty_not_zero(self, tmp_path):
+        out = tmp_path / "session"
+        _fit_dir(out / "fit", history=_history(), splits=[])
+
+        fit = tp.collect_traces(out)["fit"]
+
+        assert fit["train"] == [(None, None, None), (None, None, None)]
+        assert fit["validation"] == [(None, None, None), (None, None, None)]
+
+    def test_a_half_written_pickle_is_none_rather_than_an_exception(self, tmp_path):
+        out = tmp_path / "session" / "fit"
+        out.mkdir(parents=True)
+        (out / "iterations.pkl").write_bytes(b"\x80\x04\x95\x10\x00")
+
+        assert tp.collect_traces(tmp_path / "session")["fit"] is None
+
+    def test_prediction_pairs_measured_and_predicted_per_stage(self, tmp_path):
+        out = tmp_path / "session"
+        _write(out / "summary" / "results.json", {
+            "metric_scope": "core CV",
+            "shapes": [{
+                "shape": "square",
+                "seed": {"measured": {"cv": 0.59}, "predicted": {"cv": 0.035},
+                         "correlation": 0.43, "loss": 1.36},
+                "final": {"measured": {"cv": 0.57}, "predicted": {"cv": 0.055},
+                          "correlation": 0.13, "loss": 1.35},
+            }],
+        })
+
+        prediction = tp.collect_traces(out)["prediction"]
+
+        assert prediction["metric_scope"] == "core CV"
+        assert [item["stage"] for item in prediction["items"]] == ["seed", "final"]
+        assert prediction["items"][0]["measured_cv"] == 0.59
+        assert prediction["items"][0]["predicted_cv"] == 0.035
+
+    def test_blocks_keep_the_rejected_ones(self, tmp_path):
+        out = tmp_path / "session"
+        rows = [{"shape": "square", "block": 0, "baseline": 0.59, "candidate": 0.57,
+                 "accepted": True},
+                {"shape": "square", "block": 1, "baseline": 0.57, "candidate": 0.58,
+                 "accepted": False}]
+        _write(out / "anchored" / "summary.json", rows)
+
+        blocks = tp.collect_traces(out)["blocks"]
+
+        assert [row["accepted"] for row in blocks["anchored"]] == [True, False]
+        assert "model" not in blocks
+
+    def test_one_missing_trace_does_not_blank_the_others(self, tmp_path):
+        out = tmp_path / "session"
+        _fit_dir(out / "fit", history=_history(), splits=["train", "validation"])
+        _process_csv(out / "anchored" / "recording" / "process.csv",
+                     [("square_0_A1", "square", 0.57, 640.0, 1.32)])
+
+        view = tp.collect_traces(out)
+
+        assert view["ccd"] is not None and view["fit"] is not None
+        assert view["prediction"] is None and view["blocks"] is None
+
+
+class _PlotStub:
+    def __init__(self) -> None:
+        self.caption: list[str] = []
+        self.subheader: list[str] = []
+        self.figures: list[Any] = []
+
+
+@pytest.fixture
+def plot_stub(monkeypatch) -> _PlotStub:
+    stub = _PlotStub()
+    monkeypatch.setattr(st, "caption", lambda text, *a, **k: stub.caption.append(text))
+    monkeypatch.setattr(
+        st, "subheader", lambda text, *a, **k: stub.subheader.append(text)
+    )
+
+    import matplotlib.pyplot as plt
+
+    monkeypatch.setattr(st, "pyplot", lambda fig, *a, **k: stub.figures.append(fig))
+    closed: list[Any] = []
+    monkeypatch.setattr(plt, "close", lambda fig=None, *a, **k: closed.append(fig))
+    stub.closed = closed
+    return stub
+
+
+class TestRenderTraces:
+    def _out(self, tmp_path: Path) -> Path:
+        out = tmp_path / "session"
+        _fit_dir(out / "fit", history=_history(), splits=["train", "validation"])
+        _process_csv(out / "anchored" / "recording" / "process.csv",
+                     [("square_0_A1", "square", 0.57, 640.0, 1.32),
+                      ("square_0_B1", "square", 0.60, 700.0, 1.30)])
+        _write(out / "summary" / "results.json", {
+            "metric_scope": "core CV",
+            "shapes": [{"shape": "square",
+                        "seed": {"measured": {"cv": 0.59}, "predicted": {"cv": 0.035},
+                                 "correlation": 0.43, "loss": 1.36}}],
+        })
+        _write(out / "anchored" / "summary.json", [
+            {"shape": "square", "block": 0, "baseline": 0.59, "candidate": 0.57,
+             "accepted": True},
+        ])
+        return out
+
+    def test_four_traces_give_four_figures_and_every_figure_is_closed(
+        self, tmp_path, plot_stub
+    ):
+        tp.render_traces(tp.collect_traces(self._out(tmp_path)))
+
+        assert plot_stub.subheader == ["轨迹"]
+        assert len(plot_stub.figures) == 4
+        assert plot_stub.closed == plot_stub.figures
+
+    def test_nothing_produced_renders_nothing(self, plot_stub):
+        tp.render_traces(tp.collect_traces(None))
+
+        assert plot_stub.subheader == []
+        assert plot_stub.figures == []
+        assert plot_stub.caption == []
+
+    def test_partial_artefacts_name_what_is_still_missing(self, tmp_path, plot_stub):
+        out = tmp_path / "session"
+        _process_csv(out / "model" / "recording" / "process.csv",
+                     [("square_0_A1", "square", 0.57, 640.0, 1.32)])
+
+        tp.render_traces(tp.collect_traces(out))
+
+        assert len(plot_stub.figures) == 1
+        assert "尚未产出：" in plot_stub.caption[-1]
+        assert "拟合轨迹" in plot_stub.caption[-1]
+        assert "模型预测" in plot_stub.caption[-1]
+
+    def test_a_single_point_trace_still_draws(self, tmp_path, plot_stub):
+        """运行初期只有一帧采集 —— 必须画出来，而不是等第二个点。"""
+        out = tmp_path / "session"
+        _process_csv(out / "model" / "recording" / "process.csv",
+                     [("square_0_A1", "square", 0.57, 640.0, 1.32)])
+
+        tp.render_traces(tp.collect_traces(out))
+
+        assert len(plot_stub.figures) == 1

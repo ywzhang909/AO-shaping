@@ -29,6 +29,7 @@ import time
 import numpy as np
 
 from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
+from loguru import logger
 
 
 def parse_args() -> argparse.Namespace:
@@ -46,17 +47,17 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     faulthandler.enable()
-    print(f"[probe] WFS-only 隔离探针 iters={args.iters} mla={args.mla} "
+    logger.info(f"[probe] WFS-only 隔离探针 iters={args.iters} mla={args.mla} "
           f"exp={args.exp}ms high_speed={args.high_speed} "
           f"custom_ref={args.use_custom_ref} cancel_tile={args.cancel_tile}",
-          flush=True)
+)
 
     mla_enum = {
         320: MlaRes.Res320, 512: MlaRes.Res512, 768: MlaRes.Res768,
         1024: MlaRes.Res1024, 1280: MlaRes.Res1280,
     }.get(args.mla)
     if mla_enum is None:
-        print(f"[probe] 未知 MLA: {args.mla}", flush=True)
+        logger.info(f"[probe] 未知 MLA: {args.mla}")
         return 2
 
     wfs = ThorlabWFS(
@@ -67,17 +68,17 @@ def main() -> int:
     )
     try:
         wfs.open()
-    except Exception:
-        print("[probe] WFS open 失败", flush=True)
+    except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
+        logger.info("[probe] WFS open 失败")
         raise
 
     # 镜像 runner L1081-1082: 启动时 take_image + optimize_pupil
-    print("[probe] open OK, 开始 optimize_pupil ...", flush=True)
+    logger.info("[probe] open OK, 开始 optimize_pupil ...")
     t0 = time.perf_counter()
     wfs.take_image(n_sample=1, dynamicNoiseCut=True)
     cx, cy, dx, dy = wfs.pupil = wfs.optimize_pupil()
-    print(f"[probe] pupil=({cx:.3f},{cy:.3f})mm d=({dx:.3f},{dy:.3f})mm "
-          f"({time.perf_counter()-t0:.1f}s)", flush=True)
+    logger.info(f"[probe] pupil=({cx:.3f},{cy:.3f})mm d=({dx:.3f},{dy:.3f})mm "
+          f"({time.perf_counter()-t0:.1f}s)")
 
     # 镜像 runner _capture_wfs_full_state (L278-282), 结果累积模拟 runner 内存行为
     snapshots: list[tuple] = []
@@ -90,14 +91,14 @@ def main() -> int:
             dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=args.cancel_tile)
             z = wfs.get_zernike(zernike_order=args.zernike_order)
             wf, stats = wfs.get_wavefront(cancel_tile=args.cancel_tile)
-        except Exception:
-            print(f"ERROR iter {i}, elapsed={time.perf_counter()-t_start:.1f}s",
-                  flush=True)
+        except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
+            logger.info(f"ERROR iter {i}, elapsed={time.perf_counter()-t_start:.1f}s",
+)
             raise
         snapshots.append((dev_x, dev_y, z, wf))
         rms = float(stats.get("rms", np.nan)) if stats else np.nan
-        print(f"OK z[0..5]={np.round(z[0:6],3)} rms={rms:.4f} "
-              f"({time.perf_counter()-it_t0:.2f}s)", flush=True)
+        logger.info(f"OK z[0..5]={np.round(z[0:6],3)} rms={rms:.4f} "
+              f"({time.perf_counter()-it_t0:.2f}s)")
         # 每 20 迭代强制一次 GC, 制造堆块腾挪, 提高小型越界命中概率
         if i % 20 == 0:
             import gc
@@ -105,12 +106,12 @@ def main() -> int:
 
     el = time.perf_counter() - t_start
     n_kept = sum(len(np.asarray(s[2])) for s in snapshots)
-    print(f"[probe] PASS: {args.iters} iters 无崩溃, elapsed={el:.1f}s "
-          f"({el/args.iters:.2f}s/iter), 累积 zernike 元素={n_kept}", flush=True)
+    logger.info(f"[probe] PASS: {args.iters} iters 无崩溃, elapsed={el:.1f}s "
+          f"({el/args.iters:.2f}s/iter), 累积 zernike 元素={n_kept}")
 
     try:
         wfs.close()
-    except Exception:
+    except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
         pass
     return 0
 

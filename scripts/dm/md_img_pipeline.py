@@ -455,7 +455,7 @@ def main() -> None:
                 )
                 n_valid = sum(1 for _, _, c in results if c is not None)
                 logger.info(f"  Diff: {len(results)} images, {n_valid} with valid centroids")
-            except Exception as e:
+            except Exception as e:  # 保留宽泛捕获: 内部调用链 FileNotFoundError 的失败类型不可枚举
                 logger.info(f"  Diff FAILED: {e}")
                 continue
 
@@ -472,7 +472,7 @@ def main() -> None:
             try:
                 render_ip_gif(ip_diff_dir, gif_path, args.scale, args.fps)
                 logger.info(f"  GIF: {gif_path.name} ({gif_path.stat().st_size / 1024:.0f} KiB)")
-            except Exception as e:
+            except Exception as e:  # 保留宽泛捕获: 内部调用链 render_ip_gif 的失败类型不可枚举
                 logger.info(f"  GIF FAILED: {e}")
 
     # Step 4: Global overlay
@@ -500,7 +500,7 @@ def main() -> None:
             combine_gifs(gif_dir, [args.input], combined_path, args.fps)
             logger.info(f"\nCombined GIF: {combined_path} "
                   f"({combined_path.stat().st_size / 1024:.0f} KiB)")
-        except Exception as e:
+        except Exception as e:  # 保留宽泛捕获: 内部调用链 combine_gifs 的失败类型不可枚举
             logger.info(f"\nCombined GIF FAILED: {e}")
 
     logger.info(f"\nPipeline complete. Output -> {args.output}")

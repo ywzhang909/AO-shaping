@@ -16,6 +16,8 @@ import argparse
 import json
 import pickle
 import time
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +30,13 @@ from ao_shaping.tools.slm.transfer.device import DEVICE_CHOICES, resolve_device
 from ao_shaping.algorithm.signal_processing.multishape_objective import (
     ShapeObjective, anchored_intensity, gs_seed, image_metrics, target_at,
 )
+from ao_shaping.algorithm.signal_processing.spectral_regulariser import (
+    control_grid_cutoff, mtf_matched_mask,
+)
+from ao_shaping.algorithm.signal_processing.weight_schedule import staged_weights
+from ao_shaping.tools.slm.transfer.jacobian_guard import (
+    TrustRegionSchedule, direction_agreement,
+)
 from ao_shaping.utils.image.target import TRANSFER_SHAPE_CHOICES
 
 
@@ -39,6 +48,208 @@ def replay_seed(directory, shape, xy, target):
             raise ValueError("replay grid/target differs from current fixed geometry")
         return saved["model_phase"].copy()
 
+
+
+#: Order-of-magnitude device-time model used only to pick a run order.
+#: 2026-10-28 post-mortem of ``multishape_scale_20261028``: a full-voltage CCD
+#: read costs ~0.9 s at this session's frame count, and the fixed ``time.sleep``
+#: before a capture is 0.6 s (see :func:`capture` below). Both were read off
+#: measured sessions, not benchmarked per camera: they are an *estimate*, so a
+#: caller can rank "one group now" against "one group later", nothing more.
+SETTLE_SECONDS = 0.6
+READ_SECONDS_PER_FRAME = 0.9
+
+
+#: Captures whose raw frames are still in memory, newest last.
+#:
+#: ``capture`` builds ``raw`` and writes it to the npz; the anchored path then
+#: re-opened that same file to take its mean (~145 ms per 46 MB capture here,
+#: measured 2026-10-29). Keeping the array for the few blocks that still need it
+#: removes a disk round trip without changing what is written or what any later
+#: consumer reads -- the file remains the record of the measurement.
+_CAPTURE_FRAMES: "OrderedDict[str, np.ndarray]" = OrderedDict()
+#: Four covers the live needs (an anchored block reads back only its own A1;
+#: the paired direction probe reads the three captures it just took) and holds
+#: ~120 MB of uint16 frames rather than a session's worth.
+_CAPTURE_FRAMES_MAX = 4
+
+
+def remember_capture(file_name: str, raw: np.ndarray) -> None:
+    """Keep one capture's raw frames available to :func:`capture_frames`."""
+    _CAPTURE_FRAMES[file_name] = raw
+    _CAPTURE_FRAMES.move_to_end(file_name)
+    while len(_CAPTURE_FRAMES) > _CAPTURE_FRAMES_MAX:
+        _CAPTURE_FRAMES.popitem(last=False)
+
+
+def capture_frames(directory: Path, file_name: str) -> np.ndarray:
+    """Raw frames of a capture: from memory when this process still has them.
+
+    Falls back to the npz so a resumed run (a fresh process) still reads the
+    measurement it did not take.
+    """
+    cached = _CAPTURE_FRAMES.get(file_name)
+    if cached is not None:
+        return cached
+    with np.load(Path(directory) / file_name) as payload:
+        return payload["raw_frames"]
+
+
+class _CaptureWriter:
+    """Serialise capture npz writes on one background thread.
+
+    Why: ``np.savez_compressed`` of one capture costs 1155 ms here (46 MB of
+    full-sensor frames -> 13.5 MB), which is 23% of the ~5.1 s between two
+    captures, and it touches nothing the live loop still needs once the frames
+    are in :data:`_CAPTURE_FRAMES`. Overlapping it with the next capture's SLM
+    settle therefore removes it from the critical path.
+
+    One worker, so writes stay in order. Exceptions are re-raised by
+    :meth:`close` rather than lost in the thread.
+    """
+
+    #: Beyond this backlog the loop waits for the oldest write instead of
+    #: queueing more: a slowing disk must slow the session, not grow memory.
+    _MAX_PENDING = 3
+
+    def __init__(self) -> None:
+        self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="capture-writer")
+        self._pending: list = []
+
+    def submit(self, path: Path, payload: dict) -> None:
+        if len(self._pending) >= self._MAX_PENDING:
+            self._pending.pop(0).result()
+        self._pending.append(self._pool.submit(np.savez_compressed, Path(path), **payload))
+
+    def close(self) -> None:
+        """Wait for every queued write, then re-raise the first failure."""
+        self._pool.shutdown(wait=True)
+        for future in self._pending:
+            future.result()
+        self._pending.clear()
+
+
+def _milliseconds(**segments: float) -> dict:
+    """Turn ``perf_counter`` deltas (seconds) into rounded milliseconds."""
+    return {name: round(float(value) * 1e3, 1) for name, value in segments.items()}
+
+
+def _group_tuple(bit_depth, window_step, groups) -> tuple[int, float, int]:
+    """Coerce one ``(bit_depth, window_step, groups)`` triple, rejecting nonsense.
+
+    A plan is read by an operator before a bench session, so a typo in a block
+    count must fail here with the offending value rather than silently plan a
+    zero-capture stage.
+    """
+    depth, step, count = int(bit_depth), float(window_step), int(groups)
+    if depth not in (8, 12):
+        raise ValueError(f"plan bit depth must be 8 or 12, got {bit_depth!r}")
+    if step <= 0:
+        raise ValueError(f"plan window step must be positive, got {window_step!r}")
+    if count < 0:
+        raise ValueError(f"plan group count must be nonnegative, got {groups!r}")
+    return depth, step, count
+
+
+def _frozen_groups(directory: Path) -> int:
+    """How many CCD blocks a stage directory already holds.
+
+    The block groups file is authoritative when present; an older directory
+    without it still reports what ``summary.json`` recorded. The file is
+    *recorded* data, so a shape mismatch is a broken archive and raises
+    :class:`ValueError` instead of an ``IndexError`` from a half-read row.
+
+    A group is one ``(shape, block)`` pair: several shapes share one summary, and
+    each block is what the stage's capture loop iterates over.
+    """
+    groups_path = directory / f"{directory.name}_groups.json"
+    summary_path = directory / "summary.json"
+    if groups_path.is_file():
+        try:
+            payload = json.loads(groups_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"unreadable block-groups file {groups_path}: {exc}") from exc
+        if isinstance(payload, dict):
+            payload = payload.get("groups")
+        if not isinstance(payload, list):
+            raise ValueError(f"block-groups file {groups_path} must hold a list of groups")
+        return len(payload)
+    if not summary_path.is_file():
+        return 0
+    try:
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"unreadable summary {summary_path}: {exc}") from exc
+    if not isinstance(payload, list):
+        raise ValueError(f"summary {summary_path} must be a JSON list of block entries")
+    blocks: set[tuple[str, int]] = set()
+    for index, entry in enumerate(payload):
+        if not isinstance(entry, dict) or "shape" not in entry or "block" not in entry:
+            raise ValueError(f"summary {summary_path} entry {index} lacks shape/block keys")
+        blocks.add((str(entry["shape"]), int(entry["block"])))
+    return len(blocks)
+
+
+def skips_shape(*, resume: bool, blocks) -> bool:
+    """Whether this shape has nothing left to do -- which is a *resume-only* state.
+
+    An empty block list is legitimate without ``resume``: that is how the seed
+    bake-off asks for a seed-only pass (``blocks=0, updates=0``), and the run
+    still measures the seed and final rows. Gating on the empty list alone (as
+    the resume gate in ``c1c7aeed`` did) made that pass write no
+    ``manifest.json`` at all, so every square/triangle/star lane died reading a
+    file that was never created.
+    """
+    return bool(resume) and not list(blocks)
+
+
+def session_plan(args) -> dict:
+    """Work out, without opening a device, what a session would still have to measure.
+
+    A session is one long process, so an abort in its middle (a saturation guard,
+    a crash) leaves finished stage directories behind that today cannot be
+    re-entered at all: the run root is created with ``exist_ok=False``. This
+    helper answers, before any device opens, which ``(shape, bit_depth,
+    window_step, groups)`` tuples are already on disk and which are still needed,
+    so the operator can plan the order -- the stage whose predecessor is already
+    on disk first, the stage that needs the widest re-measurement last.
+
+    A shape with a stage directory that already holds CCD blocks lands in
+    ``frozen`` as ``(shape, bit_depth, window_step, groups)``, where the bit
+    depth / window step are the *last* requested tuple's: on resume an earlier
+    tuple is finished, so only the unfinished one is relevant, and its ``groups``
+    is where the stage left off. Everything else lands in ``todo``.
+
+    ``args.session_groups`` (optional) is a list of ``dict(bit_depth=...,
+    window_step=..., groups=...)`` overrides; without it every shape is planned
+    at the session's own ``bit_depth`` / ``window_step`` / ``blocks``, which is
+    the single-tuple behaviour the caller had before.
+
+    ``estimated_seconds`` is an *order of magnitude* (``groups * (0.6 + frames *
+    0.9)``, see ``SETTLE_SECONDS``): it exists to choose a run order, never to
+    promise wall clock, and it deliberately ignores the optimizer's CPU time.
+    """
+    out = Path(args.out)
+    overrides = getattr(args, "session_groups", None)
+    if overrides:
+        wanted = [_group_tuple(g["bit_depth"], g["window_step"], g["groups"]) for g in overrides]
+    else:
+        wanted = [_group_tuple(getattr(args, "bit_depth", 8), getattr(args, "window_step", 2.),
+                               getattr(args, "blocks", 1))]
+    frozen, todo = [], []
+    for shape in args.shapes:
+        directory = out / str(shape)
+        groups = _frozen_groups(directory) if directory.is_dir() else None
+        if not groups:
+            todo.extend((str(shape), *triple) for triple in wanted)
+            continue
+        frozen.append((str(shape), *wanted[-1][:2], groups))
+        if len(wanted) > 1:
+            todo.extend((str(shape), *triple) for triple in wanted[1:])
+    estimated = sum(groups for *_, groups in todo) * (SETTLE_SECONDS
+                                                      + float(getattr(args, "frames", 1))*READ_SECONDS_PER_FRAME)
+    return dict(shapes=[str(shape) for shape in args.shapes], frozen=frozen, todo=todo,
+                estimated_seconds=round(estimated, 1))
 
 
 def model_only_decision(history) -> dict:
@@ -63,6 +274,16 @@ def model_only_decision(history) -> dict:
 
 
 def run(args):
+    if getattr(args, "plan_only", False):
+        # Plan mode: no torch, no seed synthesis, no device -- only the derived
+        # work list. It writes plan.json into a *new* directory and returns the
+        # path, so a later reader cannot mistake it for a stage that ran, and a
+        # re-plan cannot silently overwrite an existing one.
+        args.out.mkdir(parents=True, exist_ok=False)
+        plan = session_plan(args)
+        (args.out/"plan.json").write_text(json.dumps(plan, indent=2), encoding="utf-8")
+        logger.info(json.dumps(plan, indent=2))
+        return args.out
     import torch
     from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
         DifferentiableUniformityOptimizer, FrozenDefocusForward, FrozenDefocusParameters, recentre_window,
@@ -82,6 +303,15 @@ def run(args):
     if explore_temperature > 0 and (not getattr(args, "ccd_check", False) or getattr(args, "adaptive_exposure", False) or getattr(args, "abba", False)):
         raise ValueError("exploration requires sequential CCD checks and fixed exposure across blocks")
     bit_depth = int(getattr(args, "bit_depth", 8))
+    resume = bool(getattr(args, "resume", False))
+    if resume:
+        # A resumed stage keeps the bit depth its directory was recorded at;
+        # otherwise full_scale/counts_scale would disagree with stored frames.
+        recorded = args.out/"config.json"
+        saved_depth = (json.loads(recorded.read_text(encoding="utf-8")).get("bit_depth")
+                       if recorded.is_file() else None)
+        if saved_depth is not None and int(saved_depth) != bit_depth:
+            raise ValueError(f"resume bit depth {bit_depth} differs from recorded {saved_depth}")
     full_scale = float(2**bit_depth - 1)
     counts_scale = float(2**(bit_depth-8))
     # Carrier displacement uses both camera axes. The target is kept away from zero order.
@@ -145,6 +375,16 @@ def run(args):
         if not np.isfinite(phase).all():
             raise ValueError("nonfinite seed phase")
         prepared.append((shape, objective, phase))
+    # Resume: slice this stage's block range to the groups it has not measured
+    # yet; a fully measured stage measures nothing and only refreshes its record.
+    blocks_for: dict[str, list[int]] = {}
+    if resume:
+        for shape in args.shapes:
+            # A stage directory is one shape's run, so its measured groups are
+            # countable without re-planning; the remaining indices are this
+            # stage's outstanding work.
+            recorded = _frozen_groups(args.out)
+            blocks_for[shape] = list(range(recorded, getattr(args, "blocks", 0)))
     from .hardware import prepare_camera_sdk
     prepare_camera_sdk(args.camera)
     from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_ms, get_camera_exposure_range
@@ -152,9 +392,23 @@ def run(args):
     from ao_shaping.tools.slm.panel.focus_probe import adapt_exposure
     from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
 
-    args.out.mkdir(parents=True, exist_ok=False)
+    args.out.mkdir(parents=True, exist_ok=resume)
     import hashlib
     abba = bool(getattr(args, "abba", False))
+    # Resume: the run directory already exists, so its JSON logs are extended,
+    # not replaced. An overwrite would erase the record of the blocks that made
+    # the resume necessary.
+    summary = (json.loads((args.out/"summary.json").read_text(encoding="utf-8"))
+               if resume and (args.out/"summary.json").is_file() else [])
+    records = (json.loads((args.out/"manifest.json").read_text(encoding="utf-8"))
+               if resume and (args.out/"manifest.json").is_file() else [])
+    summary_entries = list(summary)
+    iterations = (pickle.loads((args.out/"iterations.pkl").read_bytes())
+                  if resume and (args.out/"iterations.pkl").is_file() else [])
+
+    def save_summary() -> None:
+        (args.out/"summary.json").write_text(json.dumps(summary_entries), encoding="utf-8")
+
     (args.out/"config.json").write_text(json.dumps(dict(checkpoint=str(args.checkpoint.resolve()), zero_xy=args.zero_xy,
                                                        target_xy=centre.tolist(), shapes=args.shapes,
                                                        period=args.period, side=args.side,
@@ -190,7 +444,28 @@ def run(args):
                                                        mode=args.mode, seed_run=str(args.seed_run) if args.seed_run else None,
                                                        blocks=args.blocks, updates=args.updates, frames=args.frames,
                                                        **clock()), indent=2), encoding="utf-8")
-    records, iterations, summary = [], [], []
+    # The complete process, one Recorder record per CCD capture: the phase that
+    # was displayed, the measured far field (cropped to the target), the phase
+    # change since the previous capture of the same shape, and the numbers.
+    # Exported after the devices are closed, so a slow GIF render cannot hold
+    # the camera or the SLM.
+    from ao_shaping.utils.io.file import Recorder
+
+    from . import recording
+
+    recorder = Recorder(mark="cv", mode="min")
+    if resume and (args.out/"capture_records.pkl").is_file():
+        # The process recording is cumulative: a resumed stage appends its own
+        # blocks to the captures already archived instead of exporting a table
+        # that silently starts again from the resumed shape.
+        with (args.out/"capture_records.pkl").open("rb") as stream:
+            records.extend(pickle.load(stream))
+    last_phase: dict[str, np.ndarray] = {}
+    # Off by default: overlapping the npz write with the next capture's SLM
+    # settle changes when the bytes reach the disk, never what they contain --
+    # but a campaign compares lanes against each other, so the choice stays
+    # explicit at the call site instead of becoming an invisible default.
+    writer = _CaptureWriter() if getattr(args, "async_capture_write", False) else None
     camera_options = {"bit_depth": bit_depth} if args.camera == "daheng" else {}
     with create_camera(args.camera, args.cam_id, exposure_time_ms=.02, **camera_options) as cam:
         with Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0) as slm:
@@ -202,10 +477,13 @@ def run(args):
             exposure = max(floor, .02)
 
             def capture(label, phase, objective):
+                start = time.perf_counter()
                 panel = to_panel(phase)
                 gray = slm.create_phase_from_array(panel)
                 slm.display_data(gray)
+                written = time.perf_counter()
                 time.sleep(.6)
+                settled = time.perf_counter()
                 frames, stamps = [], []
                 for _ in range(args.frames):
                     stamp = clock()
@@ -213,6 +491,7 @@ def run(args):
                     frames.append(frame.copy())
                     stamps.append(dict(**stamp, end_monotonic_ns=time.monotonic_ns(), exposure_ms=float(get_camera_exposure_ms(cam))))
                 raw = np.stack(frames)
+                read_done = time.perf_counter()
                 image = raw.mean(0)
                 if xy[..., 0].min() < 0 or xy[..., 1].min() < 0 or xy[..., 0].max() >= image.shape[1] or xy[..., 1].max() >= image.shape[0]:
                     raise ValueError("camera window extends beyond sensor")
@@ -227,13 +506,39 @@ def run(args):
                 with torch.no_grad():
                     loss, _ = objective.evaluate(torch.tensor(sampled/(row["exposure_ms"]*counts_scale), dtype=torch.float32), torch.zeros_like(torch.tensor(phase)))
                 row["loss"] = float(loss)
-                np.savez_compressed(args.out/row["file"], raw_frames=raw, panel_gray=gray,
-                                    model_phase=phase, panel_phase=panel, camera_xy=xy,
-                                    target=objective.target, core=objective.core)
+                reduced = time.perf_counter()
+                remember_capture(row["file"], raw)
+                payload = dict(raw_frames=raw, panel_gray=gray,
+                               model_phase=phase, panel_phase=panel, camera_xy=xy,
+                               target=objective.target, core=objective.core)
+                if writer is None:
+                    np.savez_compressed(args.out/row["file"], **payload)
+                else:
+                    writer.submit(args.out/row["file"], payload)
+                if getattr(args, "profile_timing", False):
+                    # Splits the ~5.1 s between two captures into the parts a
+                    # caller can act on. ``save`` is what the background writer
+                    # takes off the critical path when it is enabled.
+                    row["timing"] = _milliseconds(
+                        slm_write=written - start, settle=settled - written,
+                        read=read_done - settled, reduce=reduced - read_done,
+                        save=time.perf_counter() - reduced)
                 records.append(row)
                 with (args.out/"capture_records.pkl").open("wb") as stream:
                     pickle.dump(records, stream, protocol=5)
+                # Resume extends the manifest instead of overwriting it: the
+                # captures before the interruption are still evidence. A capture
+                # index is never reused, so two runs cannot share a file name.
+                seen_files = {(args.out/known["file"]).resolve() for known in records[:-1]}
+                if (args.out/row["file"]).resolve() in seen_files:
+                    raise ValueError(f"capture file {row['file']} already archived")
                 (args.out/"manifest.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
+                shape_name = label.split("_")[0]
+                previous = last_phase.get(shape_name)
+                recorder.append(recording.capture_record(
+                    row, image=image, camera_xy=xy, target=objective.target, phase=phase,
+                    previous_phase=previous, stage=args.mode))
+                last_phase[shape_name] = np.asarray(phase, dtype=np.float32)
                 if (sampled[objective.core].max() if getattr(args, "meter_target", False) else raw.max()) >= full_scale*250/255:
                     raise RuntimeError("saturated capture retained; stop paired comparison")
                 return row
@@ -283,6 +588,10 @@ def run(args):
 
                 for shape, objective, best in prepared:
                     seed_phase = best.copy()
+                    # Resume: only the groups this stage has not measured yet.
+                    blocks = blocks_for.get(shape, list(range(args.blocks)))
+                    if skips_shape(resume=resume, blocks=blocks):
+                        continue
                     exposure = tune_exposure(shape, best, exposure, objective)
                     seed_exposure = exposure
                     seed_record = capture(f"{shape}_seed", best, objective)
@@ -293,7 +602,35 @@ def run(args):
                         policy = NonmonotoneAcceptance(seed_record["metrics"]["cv"], temperature=explore_temperature,
                             relative_budget=getattr(args, "exploration_budget", .25), seed=getattr(args, "random_seed", 102626))
                     phase_lr = getattr(args, "phase_lr", .01)
-                    for block in range(args.blocks):
+                    # Per-block Jacobian direction check (issue #213 item 3a).
+                    # It reuses the A1/B frames the block captures anyway, so it
+                    # costs one extra forward pass and no device time. It never
+                    # changes accept/reject -- only the next block's step cap.
+                    guard = None
+                    if getattr(args, "jacobian_guard", True) and getattr(args, "ccd_check", False):
+                        guard = TrustRegionSchedule(
+                            cap=float(getattr(args, "phase_rms_cap", .2)),
+                            floor=float(getattr(args, "jacobian_floor", .02)),
+                            low=float(getattr(args, "jacobian_low", .5)),
+                            high=float(getattr(args, "jacobian_high", .85)))
+                    spectral_weight = float(getattr(args, "spectral_weight", 0.0) or 0.0)
+                    spectral_mask = None
+                    if spectral_weight > 0:
+                        grid = int(best.shape[0])
+                        cutoff = getattr(args, "spectral_cutoff", None)
+                        if cutoff is None:
+                            cutoff = control_grid_cutoff(grid)
+                        if cutoff <= 0:
+                            raise ValueError("spectral cutoff must be positive")
+                        spectral_mask = mtf_matched_mask(grid, cutoff=float(cutoff))
+                    for block in blocks:
+                        # Staged objective weights (issue #213 item 4c). Only the
+                        # optimisation path moves; the acceptance criteria and the
+                        # frozen-aperture read-out stay untouched (next_round §1.1).
+                        # The weights actually used are written into the block's
+                        # summary entry, so no block is ever unattributable.
+                        if getattr(args, "weight_schedule", "constant") == "staged":
+                            objective.set_weights(staged_weights(objective.mode, block, len(blocks)))
                         if policy is not None and block > 0 and block % getattr(args, "exploration_window", 4) == 0:
                             best = champion.copy()
                         if block > 0 and getattr(args, "adaptive_exposure", False):
@@ -304,12 +641,16 @@ def run(args):
                         anchor_row = (capture(f"{shape}_{block}_A1", best, objective)
                                       if abba or args.mode == "anchored" else None)
                         if args.mode == "anchored":
-                            with np.load(args.out/anchor_row["file"]) as saved:
-                                anchor = saved["raw_frames"].mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)]/(anchor_row["exposure_ms"]*counts_scale)
+                            anchor_frames = capture_frames(args.out, anchor_row["file"])
+                            anchor = anchor_frames.mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)]/(anchor_row["exposure_ms"]*counts_scale)
                             with torch.no_grad():
                                 anchor_prediction = forward.predict(best)[0].detach().cpu().numpy()
                         optimizer = DifferentiableUniformityOptimizer(forward, objective, best, lr=phase_lr,
-                            step_rms_cap=getattr(args, "phase_rms_cap", .2), device=device)
+                            step_rms_cap=(guard.cap if guard is not None
+                                          else getattr(args, "phase_rms_cap", .2)),
+                            spectral_mask=spectral_mask, spectral_weight=spectral_weight,
+                            device=device)
+                        iterations_before = len(iterations)
                         for iteration in range(args.updates):
                             start = clock()
                             if args.mode == "anchored":
@@ -321,8 +662,6 @@ def run(args):
                             iterations.append(dict(shape=shape, block=block, iteration=iteration,
                                                    phase=optimizer.current_phase.copy(), terms=optimizer.loss_history[-1],
                                                    **start, end_monotonic_ns=time.monotonic_ns()))
-                            with (args.out/"iterations.pkl").open("wb") as stream:
-                                pickle.dump(iterations, stream, protocol=5)
                         candidate = optimizer.current_phase
                         # Fresh optimizer per block: rejected proposals cannot advance its reference.
                         if abba:
@@ -343,8 +682,7 @@ def run(args):
                                     lminus, _ = objective.evaluate(torch.tensor(pminus), torch.zeros_like(torch.tensor(best)))
 
                                 def observed(row):
-                                    with np.load(args.out/row["file"]) as payload:
-                                        mean = payload["raw_frames"].mean(0)
+                                    mean = capture_frames(args.out, row["file"]).mean(0)
                                     return mean[xy[..., 1].astype(int), xy[..., 0].astype(int)]/(row["exposure_ms"]*counts_scale)
 
                                 measured_difference = .5*(observed(b1)+observed(b2))-observed(minus)
@@ -370,6 +708,20 @@ def run(args):
                             bv = b1["metrics"][metric] if metric == "cv" else b1[metric]
                             decision = dict(accepted=bool(bv < av), acceptance="sequential_ccd",
                                             accept_metric=metric, baseline=float(av), candidate=float(bv))
+                            if guard is not None:
+                                with torch.no_grad():
+                                    candidate_prediction = forward.predict(candidate)[0].detach().cpu().numpy()
+                                measured_candidate = (
+                                    capture_frames(args.out, b1["file"]).mean(0)
+                                    [xy[..., 1].astype(int), xy[..., 0].astype(int)]
+                                    / (b1["exposure_ms"]*counts_scale))
+                                agreement = direction_agreement(
+                                    anchor_prediction, candidate_prediction,
+                                    anchor, measured_candidate,
+                                    low=guard.low, high=guard.high)
+                                guard.observe(agreement)
+                                decision["jacobian"] = dict(**agreement.as_dict(),
+                                                            cap_next=float(guard.cap))
                             if policy is not None:
                                 if metric != "cv":
                                     raise ValueError("exploration currently requires core CV acceptance")
@@ -386,15 +738,29 @@ def run(args):
                             entry = dict(shape=shape, block=block, **decision, **clock())
                         accepted = decision["accepted"]
                         entry["phase_lr"] = phase_lr
+                        # Which loss weights this block actually optimised
+                        # (issue #213 item 4c): without it a staged run cannot be
+                        # replayed, and "why did block 7 go that way" is unanswerable.
+                        entry["weights"] = dict(objective.weights)
                         if getattr(args, "adaptive_step", False):
                             phase_lr = min(getattr(args, "phase_lr", .01), phase_lr*1.1) if accepted else max(.001, phase_lr*.5)
                         entry["next_phase_lr"] = phase_lr
                         if accepted:
                             best = candidate.copy()
                             optimizer.accept()
-                        summary.append(entry)
-                        (args.out/"summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+                        summary_entries.append(entry)
+                        save_summary()
                         print(json.dumps(entry), flush=True)
+                        # One dump per block, not per iteration: every history entry
+                        # carries a full phase copy (~1.6 MB), so rewriting the whole
+                        # history after each iteration writes O(n^2) bytes -- 21 GB for
+                        # a 160-iteration stage, which dominated that stage's wall
+                        # clock. The block is the transaction boundary (the accept /
+                        # reject verdict is recorded just above), so the history is
+                        # still flushed at the granularity the stage reports.
+                        if len(iterations) > iterations_before:
+                            with (args.out/"iterations.pkl").open("wb") as stream:
+                                pickle.dump(iterations, stream, protocol=5)
                     if policy is not None:
                         capture(f"{shape}_exploration_endpoint", best, objective)
                         best = champion.copy()
@@ -412,6 +778,22 @@ def run(args):
             finally:
                 slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
                 time.sleep(.3)
+
+    # Every capture has been taken; wait for the queued writes before anything
+    # reads a capture back (records export, replay, a later stage's seed).
+    if writer is not None:
+        writer.close()
+
+    # Table first, animation second: a GIF failure must never cost a measured
+    # run, and both are written with the devices already released.
+    if recorder.history:
+        try:
+            recording.save_records(recorder, args.out/"recording", mark="process",
+                                   gif_name="process.gif", fps=2.0,
+                                   title=f"{args.mode} — {','.join(args.shapes)} "
+                                         f"(逐 CCD 块, {bit_depth} bit)")
+        except Exception as exc:  # a rendering defect must not fail the session
+            logger.warning("process recording export failed: {}", exc)
 
 
 def main():
@@ -435,6 +817,12 @@ def main():
     parser.add_argument("--blocks", type=int, default=2)
     parser.add_argument("--updates", type=int, default=10)
     parser.add_argument("--frames", type=int, default=3)
+    parser.add_argument("--profile-timing", action="store_true",
+                        help="Write a per-capture `timing` split (slm_write/settle/read/reduce/save, ms) "
+                             "into every manifest row. Measurement only; no capture changes.")
+    parser.add_argument("--async-capture-write", action="store_true",
+                        help="Overlap the capture npz write with the next capture's SLM settle. "
+                             "Off by default so a campaign's lanes stay comparable.")
     parser.add_argument("--mode", choices=("model", "anchored"), default=None,
                         help="Accepted-phase continuation defaults to anchored; cold synthesis defaults to model")
     parser.add_argument("--seed-run", type=Path, help="Replay accepted phases; exact grid/target match required")
@@ -459,6 +847,10 @@ def main():
     parser.add_argument("--device", choices=DEVICE_CHOICES, default="auto",
                         help="auto = CUDA when available else CPU; cpu pins the historical numbers")
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--plan-only", action="store_true",
+                        help="Without a device: write plan.json (frozen/todo/estimate) into a new --out, then stop")
+    parser.add_argument("--resume", action="store_true",
+                        help="Re-enter an existing --out: measure only the missing block groups")
     args = parser.parse_args()
     args.mode = args.mode or ("anchored" if args.seed_run or args.initial_phase != "gs" else "model")
     if args.seed_run and args.initial_phase != "gs":

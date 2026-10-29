@@ -1,7 +1,7 @@
 ---
 title: Recorder（优化过程记录器）
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-10-29
 type: class
 tags: [io, recorder, utils]
 source: src/ao_shaping/utils/io/file.py:472
@@ -15,7 +15,7 @@ source: src/ao_shaping/utils/io/file.py:472
 一行 dict（含 `mark` 标记列），最终汇总为 DataFrame，`get_best_*` 系列按指定列取最优行。各命令页"结果/调试落盘"段里的 `save_recorder_debug_artifacts` 就是消费 `Recorder`
 产物的落盘函数（见 [[functions/debug-artifacts]]）。
 
-## 结构（`src/ao_shaping/utils/io/file.py:426`）
+## 结构（`src/ao_shaping/utils/io/file.py:472`）
 
 ```python
 class Recorder:

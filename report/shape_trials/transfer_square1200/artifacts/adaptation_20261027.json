@@ -1,0 +1,52 @@
+{
+  "selected_stage": "full",
+  "escalated": true,
+  "escalation_heuristic": {
+    "correlation_below": 0.85,
+    "relative_l2_above": 0.25
+  },
+  "candidates": [
+    {
+      "stage": "alignment_initial",
+      "directory": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\transfer_square1200_20261027_r2\\fit\\alignment",
+      "quality": {
+        "correlation": 0.3624633729836608,
+        "relative_l2": 0.8334520364621582,
+        "cv_abs_error": 1.3759745419320843,
+        "score": 1.4709886634784972
+      }
+    },
+    {
+      "stage": "alignment",
+      "directory": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\transfer_square1200_20261027_r2\\fit\\alignment",
+      "quality": {
+        "correlation": 0.34094279095266405,
+        "relative_l2": 0.8362655741105837,
+        "cv_abs_error": 1.3263932265636704,
+        "score": 1.4953227831579197
+      }
+    },
+    {
+      "stage": "full_initial",
+      "directory": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\transfer_square1200_20261027_r2\\fit\\full",
+      "quality": {
+        "correlation": 0.3624633729836608,
+        "relative_l2": 0.8334520364621582,
+        "cv_abs_error": 1.3759745419320843,
+        "score": 1.4709886634784972
+      }
+    },
+    {
+      "stage": "full",
+      "directory": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\transfer_square1200_20261027_r2\\fit\\full",
+      "quality": {
+        "correlation": 0.8391235898388668,
+        "relative_l2": 0.4735585890074121,
+        "cv_abs_error": 0.3266798653003951,
+        "score": 0.6344349991685453
+      }
+    }
+  ],
+  "timestamp_utc": "2026-10-27T06:58:52.117158+00:00",
+  "monotonic_ns": 317395672637100
+}

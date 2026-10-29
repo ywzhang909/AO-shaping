@@ -1,0 +1,52 @@
+{
+  "selected_stage": "full",
+  "escalated": true,
+  "escalation_heuristic": {
+    "correlation_below": 0.85,
+    "relative_l2_above": 0.25
+  },
+  "candidates": [
+    {
+      "stage": "alignment_initial",
+      "directory": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\transfer_plane_20261027\\fit\\alignment",
+      "quality": {
+        "correlation": 0.3624633729836608,
+        "relative_l2": 0.8334520364621582,
+        "cv_abs_error": 1.3759745419320843,
+        "score": 1.4709886634784972
+      }
+    },
+    {
+      "stage": "alignment",
+      "directory": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\transfer_plane_20261027\\fit\\alignment",
+      "quality": {
+        "correlation": 0.34094279095266405,
+        "relative_l2": 0.8362655741105837,
+        "cv_abs_error": 1.3263932265636704,
+        "score": 1.4953227831579197
+      }
+    },
+    {
+      "stage": "full_initial",
+      "directory": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\transfer_plane_20261027\\fit\\full",
+      "quality": {
+        "correlation": 0.3624633729836608,
+        "relative_l2": 0.8334520364621582,
+        "cv_abs_error": 1.3759745419320843,
+        "score": 1.4709886634784972
+      }
+    },
+    {
+      "stage": "full",
+      "directory": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\transfer_plane_20261027\\fit\\full",
+      "quality": {
+        "correlation": 0.8391235892491883,
+        "relative_l2": 0.4735585895536656,
+        "cv_abs_error": 0.326679905036825,
+        "score": 0.6344350003044773
+      }
+    }
+  ],
+  "timestamp_utc": "2026-10-27T09:05:59.578580+00:00",
+  "monotonic_ns": 325023099949500
+}

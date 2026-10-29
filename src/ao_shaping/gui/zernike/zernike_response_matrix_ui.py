@@ -223,7 +223,7 @@ def set_slm_shift() -> None:
         shift_y = st.session_state.zrm_shift_y
         slm.set_shift(shift_x, shift_y)
         st.success(f"SLM shift set to ({shift_x}, {shift_y})")
-    except Exception as e:
+    except Exception as e:  # policy: the shift reaches the device, so a rejected shift must be reported or the operator believes the pattern moved
         st.error(f"设置shift失败: {e}")
         logger.exception(f"Failed to set SLM shift: {e}")
 
@@ -258,7 +258,7 @@ def connect_slm() -> bool:
         st.success(f"SLM {slm_number} connected (wavelength={slm.wavelength}nm, resolution={st.session_state.zrm_slm_width}×{st.session_state.zrm_slm_height})")
         return True
 
-    except Exception as e:
+    except Exception as e:  # policy: open failure is the expected not-connected path: the vendor's own diagnosis is shown and the caller is told the connect did not happen
         # 原始错误码 (如 -10003) 对操作员没有指导意义, 换成可执行的中文提示。
         st.error(f"SLM 连接失败。\n\n{describe_santec_error(e)}")
         logger.exception(f"ZernikeSLM connection failed: {e}")
@@ -273,7 +273,7 @@ def disconnect_slm() -> None:
         st.session_state.zrm_slm = None
         st.session_state.zrm_slm_connected = False
         st.success("SLM disconnected")
-    except Exception as e:
+    except Exception as e:  # policy: the session handle is cleared inside this try, so a failure must surface as an error rather than leave the panel claiming a free device
         st.error(f"SLM disconnect failed: {e}")
         logger.exception(f"ZernikeSLM disconnect failed: {e}")
 
@@ -285,7 +285,7 @@ def connect_wfs() -> bool:
         if st.session_state.zrm_wfs is not None:
             try:
                 st.session_state.zrm_wfs.close()
-            except Exception as e:
+            except Exception as e:  # policy: closing a leftover handle is housekeeping before the fresh open; failing it must not block the new connection
                 logger.warning(f"Previous WFS close warning: {e}")
             st.session_state.zrm_wfs = None
             st.session_state.zrm_wfs_connected = False
@@ -321,7 +321,7 @@ def connect_wfs() -> bool:
         mode_str = "自动曝光" if st.session_state.zrm_wfs_auto_exposure else f"手动曝光 {exp_time:.3f}ms"
         st.success(f"WFS connected ({mode_str})")
         return True
-    except Exception as e:
+    except Exception as e:  # policy: the vendor SDK can refuse the open (no MLA found, controller busy); the message is the vendor's and the caller is told it failed
         logger.exception(f"fail to connect wfs: {e}")
         st.error(f"fail to connect wfs: {e}")
         return False
@@ -334,18 +334,18 @@ def disconnect_wfs() -> None:
             if st.session_state.zrm_wfs_use_user_ref and st.session_state.zrm_wfs is not None:
                 try:
                     st.session_state.zrm_wfs.save_config()
-                except Exception as e:
+                except Exception as e:  # policy: persisting the configuration on the way out is best-effort: the disconnect must still proceed when the write fails
                     logger.warning(f"Failed to save WFS config on disconnect: {e}")
             
             try:
                 st.session_state.zrm_wfs.close()
-            except Exception as e:
+            except Exception as e:  # policy: close is best-effort and the finally block still clears the session, so a dead handle cannot stay in the panel
                 logger.warning(f"WFS close warning: {e}")
             finally:
                 st.session_state.zrm_wfs = None
                 st.session_state.zrm_wfs_connected = False
         st.success("WFS disconnected")
-    except Exception as e:
+    except Exception as e:  # policy: the success banner shares this try with the session update, so a failure must be an error, not a silent half-disconnect
         st.error(f"WFS disconnect failed: {e}")
         logger.exception(f"Failed to disconnect WFS: {e}")
 
@@ -443,7 +443,7 @@ def _send_current_zernike_phase_interactive(coeff: float = 1.0) -> None:
         st.session_state.zrm_interactive_last_dev_x = dev_x
         st.session_state.zrm_interactive_last_dev_y = dev_y
         st.session_state.zrm_interactive_last_zernike = zernike
-    except Exception as e:
+    except Exception as e:  # policy: the phase goes to the panel; on failure the sent flag is not set, so the interactive flow cannot claim a phase it never wrote
         st.error(f"发送相位失败: {e}")
         logger.exception(f"[INT#{seq:04d}] Failed to send Zernike phase: {e}")
 
@@ -496,7 +496,7 @@ def _capture_wfs_data_interactive() -> None:
         st.session_state.zrm_interactive_last_dev_y = dev_y
         st.session_state.zrm_interactive_last_zernike = zernike
 
-    except Exception as e:
+    except Exception as e:  # policy: a failed WFS read ends this step: the coefficient it would have produced does not exist, so the step is the only thing to report
         st.error(f"WFS采集失败: {e}")
         logger.exception(f"WFS capture failed: {e}")
 
@@ -537,7 +537,7 @@ def _set_slm_flat_interactive() -> None:
             st.session_state.zrm_interactive_last_dev_x = dev_x
             st.session_state.zrm_interactive_last_dev_y = dev_y
             st.session_state.zrm_interactive_last_zernike = zernike
-    except Exception as e:
+    except Exception as e:  # policy: the flat phase is the baseline every later coefficient is referenced to; if it cannot be applied the flow must be told
         st.error(f"设置平相位失败: {e}")
         logger.exception(f"[INT#{seq:04d}] Failed to set SLM flat: {e}")
 
@@ -651,7 +651,7 @@ def _progress_callback(progress_file: str | None, progress_data: dict) -> None:
         if progress_file:
             with open(progress_file, "w") as f:
                 json.dump(progress_data, f)
-    except Exception as e:
+    except Exception as e:  # policy: progress is a side channel: a failed write is logged and the calibration itself must keep running
         logger.warning(f"Failed to write progress file: {e}")
 
 
@@ -732,7 +732,7 @@ def _run_calibration_thread(
         # Hand the result to the main thread via the queue (picked up on next rerun)
         out_q.put(("result", result))
 
-    except Exception as e:
+    except Exception as e:  # policy: this is the calibration worker, so an exception becomes a failed progress message instead of a silently dead thread
         logger.exception(f"Calibration thread error: {e}")
         _progress_callback(progress_file, {
             "percent": -1,
@@ -815,10 +815,10 @@ def _render_calibration_polling() -> None:
 
                         plot_response_matrix(result, save_path.parent)
                         st.success("可视化图表已生成")
-                    except Exception as e:
+                    except Exception as e:  # policy: plotting is a convenience over an already saved result; failing it must not invalidate a calibration that succeeded
                         logger.warning(f"可视化生成失败: {e}")
 
-                except Exception as e:
+                except Exception as e:  # policy: the saved result is the only record of the run, so a load failure is reported instead of showing an empty matrix
                     st.error(f"加载结果失败: {e}")
                     logger.exception(f"Failed to load calibration result: {e}")
 
@@ -828,7 +828,7 @@ def _render_calibration_polling() -> None:
                 try:
                     if Path(progress_file).exists():
                         Path(progress_file).unlink()
-                except Exception:
+                except Exception:  # policy: cleaning up the progress file is best-effort once the result is loaded; a leftover file is harmless and must not fail the run
                     pass
 
                 # 完成检测: 触发一次全应用 rerun, 重新启用「开始校准」按钮
@@ -849,7 +849,7 @@ def _render_calibration_polling() -> None:
         except json.JSONDecodeError:
             # File might be partially written, retry on next poll
             pass
-        except Exception as e:
+        except Exception as e:  # policy: the progress file is polled while the worker writes it, so a partial read is expected and the next poll picks up the finished file
             logger.warning(f"Failed to read progress file: {e}")
 
 
@@ -1441,6 +1441,7 @@ def render_load_view_mode() -> None:
                 result = load_zernike_response_matrix(str(file_path))
                 st.session_state.zrm_calibration_result = result
                 st.success(f"已加载: {selected_file}")
+            # policy: a saved matrix read from disk can be foreign or corrupt; returning without replacing the matrix already on screen keeps the view honest
             except Exception as e:
                 st.error(f"加载失败: {e}")
                 return
@@ -1573,6 +1574,7 @@ def render_load_view_mode() -> None:
 
         except ImportError:
             st.warning("matplotlib未安装，无法生成可视化")
+        # policy: rendering is the last step of the view, and an empty figure would read as an empty matrix, so the failure names the step
         except Exception as e:
             st.error(f"可视化生成失败: {e}")
 

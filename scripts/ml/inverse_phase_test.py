@@ -27,6 +27,15 @@ re-measured and reversed once already.
 propagator written from scratch. Grading a model with the simulator that produced its
 training data would be the model marking its own homework -- the exact failure this repo's
 protocol exists to prevent.
+
+删除条件 (AGENTS.md 「scripts/ 目录」规则 3): 本脚本的产物
+``report/loss_defects/inverse_phase_test.json`` **未入库**, 且它的四变体实验
+(mild-only / synth / mixed / unet-synth, "强相位训练是否恢复可逆性") 在任何
+report/ 或 issue 里都没有结论记录 —— PROCESS.md 记录的 −0.2960 / −0.3701
+不可逆结论归属于 ``scripts/ml/physics_vs_unet_inverse.py``, 同一问题的后续
+实验由 provenance 登记的 ``scripts/ml/inverse_strong_phase.py`` 承接。当强相位
+训练的结论被写入 ``report/loss_defects/`` (或确认由 inverse_strong_phase.py
+口径取代、本轮四变体不再重跑) 时, 可删。
 """
 
 from __future__ import annotations

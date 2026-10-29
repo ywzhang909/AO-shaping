@@ -1,0 +1,50 @@
+{
+  "run": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\no_gs_ccd_moved_20261027_2106\\local_shape1200",
+  "rows": [
+    {
+      "label": "square_seed_replay",
+      "exposure_ms": 19.066,
+      "sampled": {
+        "cv": 2.5184103105225164,
+        "mean": 1.7416285082391052,
+        "ee_roi": 0.6961364452527268,
+        "target_peak": 99.0
+      },
+      "native_cv": 2.5173537875717336,
+      "native_cv_with_zero": 2.6058530630693704,
+      "native_core_mean_counts": 1.74806806147507,
+      "native_ee_window": 0.6951065278547994,
+      "excluded_core_pixels": 3846,
+      "per_frame_native_cv": [
+        2.5224291704665847,
+        2.52252162062038,
+        2.522204991692577
+      ],
+      "full_frame_peak": 101,
+      "full_scale": 255.0
+    },
+    {
+      "label": "square_final",
+      "exposure_ms": 19.066,
+      "sampled": {
+        "cv": 0.6427469736347642,
+        "mean": 1.4550003114973677,
+        "ee_roi": 0.6077588553844813,
+        "target_peak": 22.666666666666668
+      },
+      "native_cv": 0.6418562553535611,
+      "native_cv_with_zero": 0.657645523384518,
+      "native_core_mean_counts": 1.4580631265721733,
+      "native_ee_window": 0.6063737846246184,
+      "excluded_core_pixels": 3846,
+      "per_frame_native_cv": [
+        0.6603788652660901,
+        0.660575263115527,
+        0.659579164029607
+      ],
+      "full_frame_peak": 24,
+      "full_scale": 255.0
+    }
+  ],
+  "qualification": "Native square masks rebuilt from frozen geometry; sparse edge rounding can differ; EE denominator is recorded window; no measured dark subtraction"
+}

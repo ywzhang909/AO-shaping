@@ -19,7 +19,7 @@ ns = {"__file__": str(Path(__file__).parent / "build_call_graph.py")}
 exec(compile(src, "bcg", "exec"), ns)
 
 mods = ns["load_modules"]()
-print(f"modules: {len(mods)}", file=sys.stderr)
+logger.info(f"modules: {len(mods)}")
 
 # index all repo functions by simple name
 by_name = defaultdict(list)
@@ -42,10 +42,10 @@ for q, info in nodes.items():
         elif len(cands) > 1:
             recovered[q] = [c.qualname for c in cands]
 
-print(f"unresolved simple names: {sum(1 for q,i in nodes.items() if i is None and '.' not in q)}", file=sys.stderr)
-print(f"recovered uniquely: {sum(1 for v in recovered.values() if isinstance(v,str))}", file=sys.stderr)
+logger.info(f"unresolved simple names: {sum(1 for q,i in nodes.items() if i is None and '.' not in q)}")
+logger.info(f"recovered uniquely: {sum(1 for v in recovered.values() if isinstance(v,str))}")
 amb = {k:v for k,v in recovered.items() if isinstance(v,list)}
-print(f"ambiguous ({len(amb)}):", json.dumps(amb, indent=1, ensure_ascii=False), file=sys.stderr)
+logger.info(f"ambiguous ({len(amb)}):", json.dumps(amb, indent=1, ensure_ascii=False))
 
 # apply unique recovery
 for q, tgt in recovered.items():

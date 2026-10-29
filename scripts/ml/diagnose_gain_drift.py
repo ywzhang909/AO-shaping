@@ -159,10 +159,10 @@ def main(argv: list[str] | None = None) -> int:
             row[f"r2_const_{mode}"] = score(
                 np.repeat(y_mean, len(y_va), axis=0), y_va)["r2_const"]
         rows.append(row)
-        print("fold %2d  gain spread(sd/mean)=%.3f | ridge skill  " % (fold_i, row["gain_spread"])
+        logger.info("fold %2d  gain spread(sd/mean)=%.3f | ridge skill  " % (fold_i, row["gain_spread"])
               + "  ".join("%s=%+.4f" % (m, row[f"ridge_skill_{m}"]) for m in MODES)
               + "  | knn " + "  ".join("%s=%+.4f" % (m, row[f"knn_skill_{m}"]) for m in MODES),
-              flush=True)
+)
 
     logger.info("\n=== does removing a per-frame gain/offset help? ===")
     out = {"rows": rows, "seconds": round(time.perf_counter() - started, 1)}
@@ -200,10 +200,10 @@ def main(argv: list[str] | None = None) -> int:
         verdict = "per-frame gain/offset removal helps and crosses zero"
     out["paired_p_best_vs_none"] = float(paired_p)
     out["verdict"] = verdict
-    logger.info("\nbest mode:", best, " (paired p vs none = %.4f)" % paired_p)
-    logger.info("VERDICT:", verdict)
+    logger.info(f"\nbest mode: {best} (paired p vs none = {paired_p:.4f})")
+    logger.info(f"VERDICT: {verdict}")
     Path(args.out).write_text(json.dumps(out, indent=2), encoding="utf-8")
-    logger.info("wrote", args.out)
+    logger.info(f"wrote {args.out}")
     return 0
 
 

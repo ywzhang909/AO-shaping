@@ -305,7 +305,7 @@ def main() -> None:
             )
             logger.info(f"\nCombined GIF -> {combine_path} "
                   f"({combine_path.stat().st_size / 1024:.0f} KiB)")
-        except Exception as e:
+        except Exception as e:  # 保留宽泛捕获: 内部调用链 combine_gifs 的失败类型不可枚举
             raise SystemExit(f"Combine FAILED: {e}")
 
 

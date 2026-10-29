@@ -52,6 +52,8 @@ sys.path.insert(0, str(ROOT))
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
+from ml.zernike.eval_stats import spearman
+
 OUT_DIR = ROOT / "report" / "loss_defects"
 
 GRID = 64
@@ -241,30 +243,6 @@ CANDIDATES = {
 }
 
 
-def _spearman(a: list[float], b: list[float]) -> float:
-    def rank(v: list[float]) -> list[float]:
-        order = sorted(range(len(v)), key=lambda i: v[i])
-        r = [0.0] * len(v)
-        i = 0
-        while i < len(order):
-            j = i
-            while j + 1 < len(order) and v[order[j + 1]] == v[order[i]]:
-                j += 1
-            avg = (i + j) / 2.0 + 1.0
-            for k in range(i, j + 1):
-                r[order[k]] = avg
-            i = j + 1
-        return r
-
-    ra, rb = rank(a), rank(b)
-    n = len(a)
-    ma, mb = sum(ra) / n, sum(rb) / n
-    num = sum((x - ma) * (y - mb) for x, y in zip(ra, rb))
-    da = sum((x - ma) ** 2 for x in ra) ** 0.5
-    db = sum((y - mb) ** 2 for y in rb) ** 0.5
-    return float(num / (da * db)) if da > 0 and db > 0 else float("nan")
-
-
 def _flat(x: torch.Tensor) -> list[float]:
     return [float(v) for v in x.detach().flatten()]
 
@@ -387,7 +365,7 @@ def main() -> None:
             and abs(row[c] - base) / s > inc_moves[c]["best_relative"]
         ]
         # Redundancy: highest |Spearman| against any incumbent.
-        rho = {k: _spearman(baseline[name], baseline[f"incumbent:{k}"]) for k in inc}
+        rho = {k: spearman(baseline[name], baseline[f"incumbent:{k}"]) for k in inc}
         worst = max(
             (abs(v) for v in rho.values() if not math.isnan(v)), default=float("nan")
         )
@@ -421,7 +399,7 @@ def main() -> None:
     logger.info("incumbent best RELATIVE movement per corruption (the bar to clear):")
     for c, v in inc_moves.items():
         logger.info(f"  {c:14s} {v['best_relative']:.4f}  via {v['argmax']}")
-    print()
+    logger.info()
     hdr = (
         f"{'candidate':24s} {'rel_discrim':>11s} {'safe':>6s} {'rho_max':>8s}  covers"
     )
@@ -437,7 +415,7 @@ def main() -> None:
             f"{name:24s} {v['discrimination']:11.4f} {str(v['degenerate_safe']):>6s} "
             f"{v['max_abs_spearman_vs_incumbent']:8.2f}  {','.join(v['covers']) or '-'}"
         )
-    print()
+    logger.info()
     for name in sorted(n for n in verdict if not verdict[n]["screenable_here"]):
         logger.info(f"{name:24s} NOT SCREENABLE HERE -- {verdict[name]['not_screenable_reason']}")
 

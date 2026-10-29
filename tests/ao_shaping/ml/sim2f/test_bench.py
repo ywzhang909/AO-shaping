@@ -1314,3 +1314,126 @@ class TestPublishedReproduction:
             Path(__file__).resolve().parents[4] / "runs" / "sim2f_bench" / "_pytest" / "rows.csv"
         ).read_text(encoding="utf-8")
         assert "zero_order_offset_px" in rows_csv.splitlines()[0]
+
+
+class TestProcessRecording:
+    """``run_session(record=True)`` writes the process data under ``Recorder`` keys.
+
+    The columns are the repository's canonical keys
+    (``src/ao_shaping/utils/io/recorder_keys.py``), so a bench session can be read
+    by the same tooling that reads every other optimisation record.  Default is
+    off (a ``_phase`` panel is ~4.4 MiB/row), so both states are pinned here.
+    """
+
+    _CHECKPOINT = "runs/sim2f_fair/train/model_best.pt"
+    _CACHE = "runs/sim2f_fair/corpus"
+
+    @staticmethod
+    def _root():
+        from pathlib import Path
+
+        return Path(__file__).resolve().parents[4]
+
+    @pytest.fixture(scope="class")
+    def session(self, tmp_path_factory):
+        from ml.sim2f.bench import run_session
+
+        root = self._root()
+        for relative in (self._CHECKPOINT, self._CACHE):
+            if not (root / relative).exists():
+                pytest.skip(f"{relative} is absent (gitignored runs/ tree)")
+        out = tmp_path_factory.mktemp("recording")
+        payload = run_session(
+            checkpoint=root / self._CHECKPOINT,
+            cache=root / self._CACHE,
+            samples="loop",
+            limit=1,
+            out_dir=out,
+            backend="sim",
+            save_frames=False,
+            record=True,
+        )
+        return payload, out
+
+    def test_the_session_says_it_recorded(self, session) -> None:
+        from ml.sim2f.bench import RECORD_SUBDIR
+
+        payload, out = session
+        assert payload["record_process_data"] is True
+        assert (out / RECORD_SUBDIR / "bench_session.csv").is_file()
+
+    def test_one_row_per_condition_per_sample(self, session) -> None:
+        import csv
+
+        from ml.sim2f.bench import CONDITIONS, RECORD_SUBDIR
+
+        payload, out = session
+        with (out / RECORD_SUBDIR / "bench_session.csv").open(
+            encoding="utf-8", newline=""
+        ) as handle:
+            rows = list(csv.DictReader(handle))
+        assert len(rows) == len(payload["indices"]) * len(CONDITIONS)
+        assert [row["condition"] for row in rows] == list(CONDITIONS)
+
+    def test_the_columns_are_the_canonical_recorder_keys(self, session) -> None:
+        import csv
+
+        from ao_shaping.utils.io.recorder_keys import RECORD_COEFFS, RECORD_IMAGE, RECORD_PHASE
+        from ml.sim2f.bench import RECORD_SUBDIR
+
+        _payload, out = session
+        with (out / RECORD_SUBDIR / "bench_session.csv").open(
+            encoding="utf-8", newline=""
+        ) as handle:
+            header = next(csv.DictReader(handle)).keys()
+        for key in (RECORD_IMAGE, RECORD_COEFFS, RECORD_PHASE):
+            assert key in header
+
+    def test_the_phase_column_is_the_grayscale_the_panel_gets(self, session) -> None:
+        import csv
+
+        import numpy as np
+
+        from ml.sim2f.bench import (
+            PUPIL_RADIUS_PX,
+            RECORD_SUBDIR,
+            recorded_grayscale,
+        )
+
+        payload, out = session
+        sidecars = out / RECORD_SUBDIR / "bench_session_sidecars"
+        with (out / RECORD_SUBDIR / "bench_session.csv").open(
+            encoding="utf-8", newline=""
+        ) as handle:
+            first = next(csv.DictReader(handle))
+        stored = np.load(sidecars / f"bench_session__phase_{first['_id']:0>4}.npy")
+        assert stored.dtype == np.uint16
+        assert stored.shape == (1200, 1920)
+        # ``a1`` is the flat command, so the stored panel must equal the pure-math
+        # conversion of a flat phase at the default centre -- an independent
+        # re-derivation, not a copy of what the recorder happened to hold.
+        flat = np.zeros((128, 128), dtype=np.float32)
+        expected = recorded_grayscale(
+            flat, panel_shape=(1200, 1920), radius_px=PUPIL_RADIUS_PX, center_xy=None
+        )
+        assert np.array_equal(stored, expected)
+        assert int(first["_epoch"]) == int(payload["indices"][0])
+
+    def test_recording_is_off_by_default(self, tmp_path) -> None:
+        from ml.sim2f.bench import RECORD_SUBDIR, run_session
+
+        root = self._root()
+        for relative in (self._CHECKPOINT, self._CACHE):
+            if not (root / relative).exists():
+                pytest.skip(f"{relative} is absent (gitignored runs/ tree)")
+        payload = run_session(
+            checkpoint=root / self._CHECKPOINT,
+            cache=root / self._CACHE,
+            samples="loop",
+            limit=1,
+            out_dir=tmp_path,
+            backend="sim",
+            save_frames=False,
+        )
+        assert payload["record_process_data"] is False
+        assert not (tmp_path / RECORD_SUBDIR).exists()

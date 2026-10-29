@@ -1410,8 +1410,8 @@
    "qualname": "save_optimization_debug_artifacts",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 1385,
-   "end": 1530,
+   "lineno": 1380,
+   "end": 1525,
    "args": [
     "records",
     "save_dir",
@@ -1471,8 +1471,8 @@
    "qualname": "_validate_frame_artifacts",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 1230,
-   "end": 1243,
+   "lineno": 1225,
+   "end": 1238,
    "args": [
     "mode"
    ],
@@ -1484,8 +1484,8 @@
    "qualname": "_save_data_mode_debug_artifacts",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 1246,
-   "end": 1382,
+   "lineno": 1241,
+   "end": 1377,
    "args": [
     "data",
     "png_path",
@@ -2798,8 +2798,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 215,
-   "end": 398,
+   "lineno": 380,
+   "end": 634,
    "args": [
     "out_dir",
     "shapes",
@@ -2823,10 +2823,25 @@
     "device",
     "initial_phase",
     "seed_bakeoff",
+    "gs_seed",
     "replay_exposures",
+    "replay_exposures_auto",
+    "record_responses",
     "model_dir",
     "records_only",
-    "execute"
+    "resume",
+    "order",
+    "execute",
+    "profile_timing",
+    "async_capture_write",
+    "jacobian_guard",
+    "jacobian_low",
+    "jacobian_high",
+    "jacobian_floor",
+    "spectral_weight",
+    "spectral_cutoff",
+    "objective",
+    "weight_schedule"
    ],
    "returns": "None",
    "doc": "物理预测模型闭环整形：从零训练模型 + 目标整形，逐形状执行。\n\n    典型用法::\n\n        python src/ao_shaping/main.py slm-transfer-shapes \\\n            --out data/debug/slm_transfer/session \\\n            --shapes square --shapes triangle --execute\n    ",
@@ -2852,20 +2867,35 @@
     "click.option('--cam-id', type=int, default=0, show_default=True)",
     "click.option('--slm-number', type=int, default=1, show_default=True)",
     "click.option('--device', type=click.Choice(['auto', 'cpu', 'cuda']), default='auto', show_default=True, help='计算设备 (auto = 有 CUDA 用 CUDA)')",
-    "click.option('--initial-phase', type=click.Choice(['auto', 'transport', 'backprojection', 'gs']), default='auto', show_default=True, help='初相位构造; auto = 正方形用非 GS 传输, 其余用非 GS 反投影')",
+    "click.option('--initial-phase', type=click.Choice(['auto', 'plane', 'random', 'transport', 'backprojection', 'gs']), default='auto', show_default=True, help='初相位构造; auto = 正方形用非 GS 传输, 其余用非 GS 反投影; plane/random = 严格冷启动 (不读目标、不用物理预测模型)')",
     "click.option('--seed-bakeoff/--no-seed-bakeoff', default=True, show_default=True, help='先实测各候选初相位的核心 CV, 逐形状择优 (对比择优)')",
-    "click.option('--replay-exposures', type=float, multiple=True, default=(50.0, 100.0), show_default=True, help='共同重放的曝光 (ms); 可多次指定')",
+    "click.option('--gs-seed/--no-gs-seed', default=True, show_default=True, help='对比择优是否允许 GS 初相位候选; 无 GS 冷启动方案须用 --no-gs-seed')",
+    "click.option('--replay-exposures', type=float, multiple=True, default=(50.0, 100.0), show_default=True, help='共同重放的曝光 (ms); 重复旗标 (--replay-exposures 20 --replay-exposures 50)。注意 click 的 multiple=True 不接受空格分隔的多个值, 生成计划时须逐项展开')",
+    "click.option('--replay-exposures-auto', is_flag=True, default=False, help='按本 lane 已测各块的核心峰值率推导共同重放曝光 (覆盖 --replay-exposures)。固定 ladder 只在一个 lane 内成立: 200 px 的核在 125 ms 就满量程, 而 1200 px 在 225 ms 仍可用, 故不能跨尺寸共用')",
+    "click.option('--record-responses/--no-record-responses', default=False, show_default=True, help='拟合时记录逐批物理响应统计 (fit --record-responses), 写入 fit/')",
     "click.option('--model-dir', type=click.Path(path_type=Path), default=None, help='复用已有会话目录 (含 capture/ 与 fit/), 跳过模型采集与拟合')",
     "click.option('--records-only', is_flag=True, help='只从已有的分段目录重建 Recorder 记录 (离线, 不打开设备)')",
-    "click.option('--execute', is_flag=True, help='真正打开设备执行 (否则只打印计划)')"
+    "click.option('--resume', is_flag=True, help='跳过已有 manifest.json 的阶段 (journal 记 reused) 并沿用其目录作为下一段种子')",
+    "click.option('--order', 'order', type=click.Choice(['shape', 'stage']), default='shape', show_default=True, help='shape = 逐形状跑完四段; stage = 先跑所有形状的第 1 段, 再第 2 段 (连续几次运行共用同一 bit depth / window step / 曝光策略, 中断只损失一个形状的一段)')",
+    "click.option('--execute', is_flag=True, help='真正打开设备执行 (否则只打印计划)')",
+    "click.option('--profile-timing/--no-profile-timing', default=False, help='在每个采集的 manifest 行里记录 slm_write/settle/read/reduce/save 分段耗时 (ms); 只做测量, 不改任何采集值。默认关闭: 跨 lane 比较时要显式选择。')",
+    "click.option('--async-capture-write/--no-async-capture-write', default=False, help='把采集 npz 落盘放到后台线程, 与下一次采集的液晶稳定重叠; 只改变字节何时落盘, 不改变内容。默认关闭。')",
+    "click.option('--jacobian-guard/--no-jacobian-guard', default=True, help='逐块用 A1/B 的实测差分校验模型步方向, 并按一致性收缩下一块的 phase_rms_cap (issue #213 质量项 3a)。默认开启: 只读已有帧, 不改变接受/拒绝判定。跨 lane 比较旧行为时用 --no-jacobian-guard。')",
+    "click.option('--jacobian-low', type=float, default=0.5, show_default=True, help='方向相关性低于此值判为 contradict (cap 减半)')",
+    "click.option('--jacobian-high', type=float, default=0.85, show_default=True, help='方向相关性高于此值判为 agree (cap 恢复)')",
+    "click.option('--jacobian-floor', type=float, default=0.02, show_default=True, help='连续被否定时 cap 的下限 (rad, 照明加权 RMS)')",
+    "click.option('--spectral-weight', type=float, default=0.0, show_default=True, help='相位增量带外功率占比的惩罚权重 (issue #213 质量项 1b)。默认 0 = 关闭: 器件 MTF 尚未实测, 开启前应先确认 cutoff。')",
+    "click.option('--spectral-cutoff', type=float, default=None, help='通过带边缘, 单位 cycles/控制像素 (0..0.5, 0.5 = 控制网格 Nyquist)。缺省 = 0.35 (Nyquist 的 70%); 实测 MTF 后覆盖。')",
+    "click.option('--objective', type=click.Choice(['cv', 'shape', 'formation']), default='cv', show_default=True, help='优化目标族。cv = 只磨核心均匀度 (历史行为); shape 加能量与形状项; formation 再启用 partition / peripheral / floor / boundary 四项 (这几项此前从未在本 campaign 中被计算过 —— 抽取它们等于换实验变体, 须单独列为一组, 不得与 cv 变体的结果混读)。验收判据不随此选项改变。')",
+    "click.option('--weight-schedule', type=click.Choice(['constant', 'staged']), default='constant', show_default=True, help='损失权重随时间变化的方式 (issue #213 质量项 4c)。constant = 历史常数; staged = 前 1/3 块偏 energy、中段偏 shape、后 1/3 偏 cv2。只移动优化路径, 不改验收判据; 每块用到的权重写进 summary 条目。需 --objective 非 cv。')"
    ]
   },
   "_json": {
    "qualname": "_json",
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 84,
-   "end": 85,
+   "lineno": 85,
+   "end": 86,
    "args": [
     "path"
    ],
@@ -2873,12 +2903,55 @@
    "doc": "",
    "decorators": []
   },
+  "run_stages": {
+   "qualname": "run_stages",
+   "module": "ao_shaping.runners.slm.transfer_shapes_runner",
+   "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+   "lineno": 223,
+   "end": 277,
+   "args": [
+    "out",
+    "shapes",
+    "order",
+    "resume",
+    "journal",
+    "chosen",
+    "model_640",
+    "wide_dir",
+    "zero_xy",
+    "initial_phase",
+    "device",
+    "camera",
+    "cam_id",
+    "slm_number",
+    "frames",
+    "side",
+    "period",
+    "window_span",
+    "zero_radius",
+    "window_step",
+    "recorder",
+    "profile_timing",
+    "async_capture_write",
+    "jacobian_guard",
+    "jacobian_low",
+    "jacobian_high",
+    "jacobian_floor",
+    "spectral_weight",
+    "spectral_cutoff",
+    "objective",
+    "weight_schedule"
+   ],
+   "returns": "None",
+   "doc": "Run every ``(shape, stage)`` in ``order``, reusing finished stages on ``--resume``.\n\n    Split out of :func:`run` so the ordering and the reuse rule are testable\n    without opening a device: a caller can drive this with ``validate.run``\n    monkeypatched and read back which stage directories were entered. On\n    ``--resume`` a stage whose ``manifest.json`` exists is *not* re-entered --\n    it is journalled ``reused`` and its directory becomes the next stage's seed,\n    which is what makes finishing a half-done shape a continuation rather than a\n    re-measurement. Without ``--resume`` the old contract holds and a populated\n    directory raises ``FileExistsError`` inside ``validate.run``.\n    ",
+   "decorators": []
+  },
   "_rebuild_records": {
    "qualname": "_rebuild_records",
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 143,
-   "end": 163,
+   "lineno": 185,
+   "end": 205,
    "args": [
     "out",
     "shapes"
@@ -2891,22 +2964,49 @@
    "qualname": "_seed_kind",
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 88,
-   "end": 98,
+   "lineno": 107,
+   "end": 123,
    "args": [
     "shape",
     "requested"
    ],
    "returns": "str",
-   "doc": "The initial-phase construction to use for a shape.\n\n    ``transport`` is exact for a square and mathematically impossible for the\n    others (a separable phase cannot produce a non-separable far field), so\n    ``auto`` picks the shape-general non-GS back-projection for everything\n    else. ``gs`` stays available as the comparison arm.\n    ",
+   "doc": "The initial-phase construction to use for a shape.\n\n    ``transport`` is exact for a square and mathematically impossible for the\n    others (a separable phase cannot produce a non-separable far field), so\n    ``auto`` picks the shape-general non-GS back-projection for everything\n    else. ``gs`` stays available as the comparison arm.\n\n    ``plane`` and ``random`` are the **严格冷启动** route: they come from\n    ``cold_start.cold_phase``, which reads neither the target nor the forward\n    model. They must not be pooled with ``transport`` / ``backprojection`` in a\n    report -- the latter two use the fitted optics, so a win there does not show\n    that the loop works from nothing.\n    ",
+   "decorators": []
+  },
+  "_measured_peak_rates": {
+   "qualname": "_measured_peak_rates",
+   "module": "ao_shaping.runners.slm.transfer_shapes_runner",
+   "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+   "lineno": 89,
+   "end": 104,
+   "args": [
+    "runs"
+   ],
+   "returns": "list[tuple[float, float, float]]",
+   "doc": "``(core_peak, full_scale, exposure_ms)`` for every block already measured.\n\n    Read from the stage manifests of *this* lane, so the replay ladder is sized\n    by the same bench and the same shaped spot it will replay. A missing manifest\n    (``--resume`` into a half-done lane) simply contributes nothing.\n    ",
+   "decorators": []
+  },
+  "ao_shaping.tools.slm.transfer.protocol.derive_replay_exposures": {
+   "qualname": "derive_replay_exposures",
+   "module": "ao_shaping.tools.slm.transfer.protocol",
+   "file": "src/ao_shaping/tools/slm/transfer/protocol.py",
+   "lineno": 511,
+   "end": 557,
+   "args": [
+    "observations",
+    "fractions"
+   ],
+   "returns": "list[float]",
+   "doc": "Size a common replay ladder from the lane's own measured peak rate.\n\n    A replay ladder has to be fixed **within** a lane -- a common exposure is\n    what makes an A-B-B-A comparison mean anything -- but it cannot be fixed\n    *across* lanes. The core peak is set by how concentrated the shaped spot is,\n    so the same ladder that is comfortable at 1200 px saturates at 200 px: the\n    2026-10-29 campaign aborted lane 01 with ``core saturated; raw replay\n    retained`` because 125 ms drove a 200 px core to 4095/4095 while the\n    1200 px lane was still clean at 225 ms.\n\n    Args:\n        observations: One ``(peak, full_scale, exposure_ms)`` per already\n            measured block, in that block's own units. Carrying ``full_scale``\n            makes the rate comparable across an 8-bit and a 12-bit stage, which\n            the same lane mixes by design.\n        fractions: Target peak shares of full scale, applied to the brightest\n            block.\n\n    Returns:\n        One exposure per fraction, in ms, ascending.\n\n    Raises:\n        ValueError: If no block offers a positive peak at a positive exposure on\n            a positive full scale -- then there is nothing to scale from and any\n            number returned would be a guess.\n    ",
    "decorators": []
   },
   "_validate_args": {
    "qualname": "_validate_args",
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 118,
-   "end": 140,
+   "lineno": 143,
+   "end": 182,
    "args": [
     "checkpoint",
     "out",
@@ -2927,7 +3027,17 @@
     "window_step",
     "blocks",
     "updates",
-    "adaptive_exposure"
+    "adaptive_exposure",
+    "profile_timing",
+    "async_capture_write",
+    "jacobian_guard",
+    "jacobian_low",
+    "jacobian_high",
+    "jacobian_floor",
+    "spectral_weight",
+    "spectral_cutoff",
+    "objective",
+    "weight_schedule"
    ],
    "returns": "SimpleNamespace",
    "doc": "Build the argument namespace ``validate.run`` expects.",
@@ -4273,18 +4383,33 @@
   },
   {
    "from": "ao_shaping.runners.slm.transfer_shapes_runner.run",
+   "to": "_measured_peak_rates",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.slm.transfer_shapes_runner.run",
    "to": "_rebuild_records",
    "calls": 1
   },
   {
    "from": "ao_shaping.runners.slm.transfer_shapes_runner.run",
    "to": "_seed_kind",
-   "calls": 2
+   "calls": 1
   },
   {
    "from": "ao_shaping.runners.slm.transfer_shapes_runner.run",
    "to": "_validate_args",
-   "calls": 2
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.slm.transfer_shapes_runner.run",
+   "to": "ao_shaping.tools.slm.transfer.protocol.derive_replay_exposures",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.slm.transfer_shapes_runner.run",
+   "to": "run_stages",
+   "calls": 1
   },
   {
    "from": "ao_shaping.runners.slm.zernike_matrix_runner.closed_loop_run",

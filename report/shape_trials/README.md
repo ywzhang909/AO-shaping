@@ -6,6 +6,37 @@
 > **说明**: 方斑整形实验对比试验索引；各次试验的目录与结论由此汇总
 <!-- provenance:end -->
 
+2026-10-27 CCD 移动后的无 GS 冷启动实测见
+[实验中记录](no_gs_ccd_moved/live_20261027.md)与
+[实验后分析](no_gs_ccd_moved/analysis_20261027.md)：
+物理预测误差、同曝光可微更新、低光计数偏置、非线性位置及下一轮多形状/多尺寸响应区间。
+
+2026-10-27 基于历史证据的设计阶段见
+[无 GS 起点的物理预测模型与可微整形方案](physical_forward_no_gs_plan_20261027.md)：
+明确模型来源与初相位来源，优先校正目标核心和局部响应方向，设计同曝光 CCD 验收与缓漂适配；规划阶段不包含后续实验数值。
+
+2026-10-28 多形状 × 三尺度同载波闭环整形（Session A，1200 原生 CCD 像元）见
+[规划](multishape_scale/multishape_scale_planning_20261028.md)、
+[实验中记录](multishape_scale/multishape_scale_live_20261028.md)、
+[实验后分析](multishape_scale/multishape_scale_analysis_20261028.md)、
+[设备会话](multishape_scale/live_20261029_device_session.md)与
+[下一轮方案](multishape_scale/next_round_20261029.md)：
+16 个形状×阶段组合、112 个验收块全部实测；仅 Session A 完成，H1/H2/H3 暂不能判定；
+新增硬约束：CV 随曝光单调上升并饱和，跨曝光档 CV 不可比。
+
+2026-10-27 三角形与五角星 1.5 倍窗口 shaping + 平面相位起始对比见
+[三角形与五角星 1.5 倍窗口 shaping](tri_plane_20261027/tri_plane_20261027.md)：
+窗口开到边长 1.5 倍使目标外光可见；平面起始 3/4 块接受、CV 0.6632→0.5967，优于 GS 起始的 2/4 块。
+
+2026-10-27 迁移学习 + model-in-loop 双优化流程实验方案见
+[双优化实验方案](dual_optimization/experiment_plan_20261027.md)（G0 前置门禁，不含新测量）。
+
+2026-10-24 仿真预训练与无 GS 迁移复现见
+[仿真预训练与无 GS 迁移复现](sim_pretrain_transfer/sim_pretrain_transfer_20261024.md)。
+
+2026-10-26 无历史权重的物理预测模型从零拟合与 CCD 配对验收见
+[冷启动（从零拟合）](cold_start/cold_start_20261026.md)（与 [CV 诊断](cold_start/cv_diagnosis_20261026.md) 配套）。
+
 2026-10-26 SLM 偏离前焦面的 ABCD 校正、当前光路双曝光采集及距离可辨识性检查见
 [SLM 轴向平面校正](axial_plane/axial_plane_20261026.md)。
 
@@ -21,6 +52,12 @@
 
 2026-10-27 的从零训练物理预测模型 + 正方形/三角形/五角星/圆形同尺寸整形见
 [多形状物理预测模型闭环整形](multishape1200/multishape1200_20261027.md)。
+
+2026-10-27 光路被手动干扰后的迁移适配与 1200 像元方形整形见
+[迁移学习适配预训练物理预测模型](transfer_square1200/transfer_square1200_20261027.md)。
+干扰把零级移动 76 px，`alignment` 的验证相关只有 0.34、自动升级到 `full` 后 0.84；
+纯模型提议的两块被实测否决，CCD 锚定段接受 2/4 块，核心 CV 0.594 → 0.573。
+同轮修掉了「几何被继承 ⇒ 增益截断为 0 ⇒ 适配永久卡死」这一机制。
 
 2026-10-15 的 GS 方法实验对照、形状 IoU 预检与曝光探测记录见
 [GS issue 实验报告](gs_refine/gs_issue_live_20261015.md)。
@@ -43,6 +80,11 @@
 
 | 日期 | 报告 | 主题 |
 |------|------|------|
+| 2026-10-28 | [多形状 × 三尺度同载波闭环整形 — 规划/实验中记录/实验后分析/设备会话/下一轮](multishape_scale/multishape_scale_planning_20261028.md) | Session A（1200 原生 px）16 段×112 块全部实测；H1/H2/H3 暂不能判定；CV 随曝光单调上升并饱和（硬约束） |
+| 2026-10-27 | [三角形与五角星 1.5 倍窗口 shaping + 平面相位起始对比](tri_plane_20261027/tri_plane_20261027.md) | 平面起始 3/4 块接受、CV 0.6632→0.5967，优于 GS 起始 |
+| 2026-10-27 | [迁移学习 + model-in-loop 双优化流程实验方案](dual_optimization/experiment_plan_20261027.md) | G0 前置门禁、逐轮交替判决口径；不含新测量 |
+| 2026-10-24 | [仿真预训练与无 GS 迁移复现](sim_pretrain_transfer/sim_pretrain_transfer_20261024.md) | 仿真预训练分组 CV 与无 GS 逐位复现 |
+| 2026-10-26 | [冷启动（从零拟合）](cold_start/cold_start_20261026.md) | 无历史权重的物理预测模型从零拟合与 CCD 配对验收 |
 | 2026-10-23 | [正方形、长方形、三角形：探测与物理预测模型闭环复现](multishape_capability/physical_multishape_reproduction_20261023.md) | 从零初始化与已有模型迁移的完整命令、模型结构、参数柱状图、逐块 CCD 演变、配对验收及 FAQ |
 | 2026-10-23 | [GS 方形光斑三段扫描：边长 / Zernike 阶数 / 闪耀光栅](hw_gs_square_scans/hw_gs_square_scans_20261023.md) | 纯 GS（无 SPGD）三段扫描 + 功率变化后的原子化复测；PIB 与 CV 互相抵消决定 score 峰、低阶 Zernike 只解释 3.25% 相位方差、`predicted_shift_px` 方向可用但标度与 1/P 形状不可用；两处基线「异常」经复测判定为整帧全黑的失败采集
 | 2026-10-23 | [离焦光路下的可微整形测试方案](defocus_differentiable_test_plan_20261023.md) | 对照可微实验负结果；GS 初值、固定 ROI CV、梯度方向配对探测与短块 CCD 验收；仅制定方案 |
@@ -216,4 +258,5 @@ PNG/PKL/JSON 记录格式，比较 freeform/GS 正方形相位与 Zernike 基线
 
 ## 当前实验方案
 
+- 2026-10-28：[多形状 × 三尺度同载波闭环整形（Session A 1200 原生 px）](multishape_scale/multishape_scale_planning_20261028.md)；规划/实验中记录/实验后分析/设备会话/下一轮方案见 `multishape_scale/`。Session A 全部完成，Session B（600）/C（200）未开始；CV 随曝光单调上升并饱和为新增硬约束。
 - 2026-10-22：[相机主动离焦下的物理预测模型调优与可微优化方案](physical_forward_defocus_plan_20261022.md)。保持当前相机位置，先做离焦/转向及几何探测，以未补偿与 SLM 聚焦补偿两分支配对验证，再进入可微整形；本文没有新增实验数据。

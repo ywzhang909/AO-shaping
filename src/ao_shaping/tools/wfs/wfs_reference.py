@@ -90,7 +90,7 @@ def measure_tilt(wfs: ThorlabWFS, n_avg: int, zernike_order: int) -> dict:
         fits.append(fit)
         try:
             z = wfs.get_zernike(zernike_order=zernike_order)
-        except Exception:
+        except Exception:  # policy: get_zernike is a driver call over live hardware: a single unreadable frame becomes z=None and the reference sweep continues with the orders it did get
             z = None
         if z is not None and np.isfinite(z[TILT_DLL_SLICE]).all():
             ztilts.append(np.asarray(z[TILT_DLL_SLICE], dtype=float) / 0.532)
@@ -299,7 +299,7 @@ def main(params: WfsReferenceParams) -> int:
 
         slm.display_data(flat_gray(), wait_time_s=0.5)
 
-    except Exception as e:
+    except Exception as e:  # policy: top-level flow guard: it spans SLM/WFS open, the exposure read and the deliberate ValueError from the WFS exposure safety ceiling, so the type is not ours; reporting [FAIL] and clearing all_ok is the contract
         logger.exception("流程失败")
         click.echo(f"[FAIL] {type(e).__name__}: {e}")
         all_ok = False
@@ -307,7 +307,7 @@ def main(params: WfsReferenceParams) -> int:
         for dev in (wfs, slm):
             try:
                 dev.close()
-            except Exception:
+            except Exception:  # policy: teardown: every device gets its close attempt regardless of what it raises, and nothing here can recover a device that will not close
                 pass
 
     report["all_ok"] = bool(all_ok)

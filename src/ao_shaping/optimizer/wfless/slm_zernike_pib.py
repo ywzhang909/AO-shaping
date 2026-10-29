@@ -1451,120 +1451,6 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         recorder.append(_row0)
 
 
-        def _apply_best_on_exit() -> None:
-            """Leave the SLM at the best-found phase (or flat if never improved)."""
-            # Run-level scalar, deliberately an attribute on the Recorder and NOT a
-            # row column: ``Recorder.append`` unions per-epoch record keys, so a
-            # once-per-run summary would either never appear or appear on the last
-            # row only, and ``Recorder`` has no schema for run-level metadata. The
-            # single consumer reads it defensively as
-            # ``getattr(rec, "energy_loss_violations", 0)``.
-            recorder.energy_loss_violations = shaping.guard_violations
-            # R8: this runs from a ``finally``. Two consequences, both
-            # handled here rather than at the call site: raising would mask
-            # the exception that got us here, and the camera may already be
-            # dead (the commonest cause), so every device touch below is
-            # guarded and the last resort is a flat phase, never a random one.
-            try:
-                if not SLM_APPLY_BEST_ON_EXIT:
-                    return
-                improved = (
-                    best_objective > _initial_objective + IMPROVE_EPS
-                    if objective_mode == "max"
-                    else best_objective < _initial_objective - IMPROVE_EPS
-                )
-                if improved:
-                    best_phase = to_gray(
-                        zernike_to_phase(best_c, n_max, pattern_helper, zernike_radius, default_radius=ZERNIKE_APERTURE_RADIUS)
-                    )
-                    display_rotating(slm, best_phase, _SLOT_ROTATOR)
-                    time.sleep(SLM_RESPONSE_TIME_S)
-                    # Un-windowed (full-frame) before/after for the report: the metric
-                    # window hides the energy that leaves the box, so the illustrative
-                    # comparison must be captured on the raw sensor.
-                    try:
-                        # ``reset_window`` keeps the box centred on ``center`` and
-                        # rejects negative offsets, so the full sensor cannot be asked
-                        # for directly - use the largest box that still fits around the
-                        # centre (effectively un-windowed: ~96% of the frame here).
-                        _fw, _fh = int(full_frame_shape[1]), int(full_frame_shape[0])
-                        _raw_w = 2 * int(min(center_full[0], _fw - center_full[0]))
-                        _raw_h = 2 * int(min(center_full[1], _fh - center_full[1]))
-                        # Some SDK / pixel-format combinations cap the window (observed
-                        # ``Width.range=[4,1680,4]``) and then silently keep the old
-                        # window; shrink until the camera really returns a large frame.
-                        for _attempt in range(4):
-                            try:
-                                cam.reset_window(
-                                    cast(tuple[int, int], center_full), (_raw_w, _raw_h)
-                                )
-                            except (RuntimeError, ValueError) as exc:
-                                logger.warning(
-                                    "raw view {}x{} rejected by the camera: {}",
-                                    _raw_w,
-                                    _raw_h,
-                                    exc,
-                                )
-                            _probe = cam.get_numpy_image(CAM_SAMPLE_ITER)
-                            logger.info(
-                                "raw view {}x{} -> frame {}",
-                                _raw_w,
-                                _raw_h,
-                                _probe.shape,
-                            )
-                            if min(_probe.shape) >= 400:
-                                break
-                            _raw_w = max(400, _raw_w // 2)
-                            _raw_h = max(400, _raw_h // 2)
-                        display_rotating(slm, initial_phase, _SLOT_ROTATOR)
-                        time.sleep(SLM_RESPONSE_TIME_S)
-                        setattr(
-                            recorder,
-                            "raw_before_img",
-                            cam.get_numpy_image(config.n_eval_frames),
-                        )
-                        display_rotating(slm, best_phase, _SLOT_ROTATOR)
-                        time.sleep(SLM_RESPONSE_TIME_S)
-                        setattr(
-                            recorder,
-                            "raw_after_img",
-                            cam.get_numpy_image(config.n_eval_frames),
-                        )
-                        setattr(recorder, "raw_frame_shape", full_frame_shape)
-                    except (RuntimeError, ValueError) as exc:
-                        logger.warning("raw before/after capture failed: {}", exc)
-                    logger.info(
-                        "SLM left at best {} phase: {:.4f} @ epoch {} (initial {:.4f})",
-                        objective,
-                        best_objective,
-                        last_best_epoch,
-                        _initial_objective,
-                    )
-                else:
-                    slm.set_grayscale(0)
-                    logger.info(
-                        "No {} improvement over the initial phase ({:.4f}); "
-                        "SLM left at flat",
-                        objective,
-                        _initial_objective,
-                    )
-
-            # policy: exit cleanup has to reach a safe phase even on Ctrl-C -- masking the exception loses the diagnosis and an SLM left on a random phase damages the next run
-            except BaseException as _exit_exc:
-                # Never let cleanup raise: a masked exception loses the
-                # diagnosis, and an SLM left on a random phase damages the
-                # next run. Flat is always safe.
-                logger.error(
-                    "best-phase restore failed ({}: {}); forcing flat phase",
-                    type(_exit_exc).__name__,
-                    _exit_exc,
-                )
-                try:
-                    slm.set_grayscale(0)
-                    logger.warning("SLM forced to flat (gray 0) on cleanup failure")
-                # policy: last-resort safe state; if forcing flat also fails the honest outcome is to record that the SLM state is unknown, not to raise from cleanup
-                except Exception:  # last resort, cannot raise
-                    logger.error("could not force flat phase either; SLM state unknown")
 
 
         session = BenchSession(
@@ -1583,7 +1469,318 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         )
 
         # ------------------------------------------------------------------
-        def _run_heuristic() -> "Recorder":
+
+
+        try:
+            state = _RunState(
+                best_c=best_c,
+                best_objective=best_objective,
+                last_best_epoch=last_best_epoch,
+                delta=delta,
+                r_bucket=r_bucket,
+                _init_c=_init_c,
+                _init_r=_init_r,
+            )
+            if algorithm != "spgd":
+                _rec = _run_heuristic(
+                    state,
+                    _init_c=_init_c,
+                    _init_r=_init_r,
+                    algorithm=algorithm,
+                    blaze_choice=blaze_choice,
+                    cam=cam,
+                    cam_size=cam_size,
+                    camera_config=camera_config,
+                    center=center,
+                    debug=debug,
+                    debug_dir=debug_dir,
+                    delta=delta,
+                    epochs=epochs,
+                    live_display=live_display,
+                    nk=nk,
+                    objective=objective,
+                    objective_mode=objective_mode,
+                    optimizer_type=optimizer_type,
+                    pop_size=pop_size,
+                    r_bucket=r_bucket,
+                    random_seed=random_seed,
+                    record_phase=record_phase,
+                    recorder=recorder,
+                    session=session,
+                    shape_for_metric=shape_for_metric,
+                    shaping=shaping,
+                    target_size=target_size,
+                    w_loggrad=w_loggrad,
+                    w_outside=w_outside,
+                )
+                best_c = state.best_c
+                best_objective = state.best_objective
+                last_best_epoch = state.last_best_epoch
+                return _rec
+            _run_spgd(
+                state,
+                _fix_bucket=_fix_bucket,
+                _gradient_history=_gradient_history,
+                _max_history_len=_max_history_len,
+                _pib_history=_pib_history,
+                cam=cam,
+                config=config,
+                epochs=epochs,
+                exposure_time_ms=exposure_time_ms,
+                init_img=init_img,
+                live_display=live_display,
+                lr=lr,
+                nk=nk,
+                objective=objective,
+                objective_mode=objective_mode,
+                optimizer=optimizer,
+                optimizer_type=optimizer_type,
+                record_phase=record_phase,
+                recorder=recorder,
+                rng=rng,
+                session=session,
+                shaping=shaping,
+                shrink_iter=shrink_iter,
+                shrink_ratio=shrink_ratio,
+                target_size=target_size,
+                update_iter=update_iter,
+                w_loggrad=w_loggrad,
+            )
+            delta = state.delta
+            r_bucket = state.r_bucket
+            best_c = state.best_c
+            best_objective = state.best_objective
+            last_best_epoch = state.last_best_epoch
+
+            # On exit, leave the SLM at the best phase found. The initial (flat or
+            # loaded) phase is one of the candidates: if the search never improved
+            # on it, restore that instead of a worse "best". Shared with the
+            # heuristic branch through _apply_best_on_exit.
+
+            _debug_report(                algorithm=algorithm,
+                blaze_choice=blaze_choice,
+                cam_size=cam_size,
+                camera_config=camera_config,
+                debug=debug,
+                debug_dir=debug_dir,
+                delta=delta,
+                epochs=epochs,
+                objective=objective,
+                optimizer_type=optimizer_type,
+                r_bucket=r_bucket,
+                recorder=recorder,
+                shape_for_metric=shape_for_metric,
+                target_size=target_size,
+                w_outside=w_outside,
+)
+            return recorder
+        finally:
+            _apply_best_on_exit(
+                recorder=recorder,
+                shaping=shaping,
+                cam=cam,
+                config=config,
+                objective=objective,
+                objective_mode=objective_mode,
+                slm=slm,
+                pattern_helper=pattern_helper,
+                to_gray=to_gray,
+                n_max=n_max,
+                zernike_radius=zernike_radius,
+                center_full=center_full,
+                full_frame_shape=full_frame_shape,
+                initial_phase=initial_phase,
+                best_c=best_c,
+                best_objective=best_objective,
+                last_best_epoch=last_best_epoch,
+                _initial_objective=_initial_objective,
+            )
+
+def _apply_best_on_exit(
+    *,
+    recorder,
+    shaping,
+    cam,
+    config,
+    objective,
+    objective_mode,
+    slm,
+    pattern_helper,
+    to_gray,
+    n_max,
+    zernike_radius,
+    center_full,
+    full_frame_shape,
+    initial_phase,
+    best_c,
+    best_objective,
+    last_best_epoch,
+    _initial_objective,
+) -> None:
+    """Leave the SLM at the best-found phase (or flat if never improved)."""
+    # Run-level scalar, deliberately an attribute on the Recorder and NOT a
+    # row column: ``Recorder.append`` unions per-epoch record keys, so a
+    # once-per-run summary would either never appear or appear on the last
+    # row only, and ``Recorder`` has no schema for run-level metadata. The
+    # single consumer reads it defensively as
+    # ``getattr(rec, "energy_loss_violations", 0)``.
+    recorder.energy_loss_violations = shaping.guard_violations
+    # R8: this runs from a ``finally``. Two consequences, both
+    # handled here rather than at the call site: raising would mask
+    # the exception that got us here, and the camera may already be
+    # dead (the commonest cause), so every device touch below is
+    # guarded and the last resort is a flat phase, never a random one.
+    try:
+        if not SLM_APPLY_BEST_ON_EXIT:
+            return
+        improved = (
+            best_objective > _initial_objective + IMPROVE_EPS
+            if objective_mode == "max"
+            else best_objective < _initial_objective - IMPROVE_EPS
+        )
+        if improved:
+            best_phase = to_gray(
+                zernike_to_phase(best_c, n_max, pattern_helper, zernike_radius, default_radius=ZERNIKE_APERTURE_RADIUS)
+            )
+            display_rotating(slm, best_phase, _SLOT_ROTATOR)
+            time.sleep(SLM_RESPONSE_TIME_S)
+            # Un-windowed (full-frame) before/after for the report: the metric
+            # window hides the energy that leaves the box, so the illustrative
+            # comparison must be captured on the raw sensor.
+            try:
+                # ``reset_window`` keeps the box centred on ``center`` and
+                # rejects negative offsets, so the full sensor cannot be asked
+                # for directly - use the largest box that still fits around the
+                # centre (effectively un-windowed: ~96% of the frame here).
+                _fw, _fh = int(full_frame_shape[1]), int(full_frame_shape[0])
+                _raw_w = 2 * int(min(center_full[0], _fw - center_full[0]))
+                _raw_h = 2 * int(min(center_full[1], _fh - center_full[1]))
+                # Some SDK / pixel-format combinations cap the window (observed
+                # ``Width.range=[4,1680,4]``) and then silently keep the old
+                # window; shrink until the camera really returns a large frame.
+                for _attempt in range(4):
+                    try:
+                        cam.reset_window(
+                            cast(tuple[int, int], center_full), (_raw_w, _raw_h)
+                        )
+                    except (RuntimeError, ValueError) as exc:
+                        logger.warning(
+                            "raw view {}x{} rejected by the camera: {}",
+                            _raw_w,
+                            _raw_h,
+                            exc,
+                        )
+                    _probe = cam.get_numpy_image(CAM_SAMPLE_ITER)
+                    logger.info(
+                        "raw view {}x{} -> frame {}",
+                        _raw_w,
+                        _raw_h,
+                        _probe.shape,
+                    )
+                    if min(_probe.shape) >= 400:
+                        break
+                    _raw_w = max(400, _raw_w // 2)
+                    _raw_h = max(400, _raw_h // 2)
+                display_rotating(slm, initial_phase, _SLOT_ROTATOR)
+                time.sleep(SLM_RESPONSE_TIME_S)
+                setattr(
+                    recorder,
+                    "raw_before_img",
+                    cam.get_numpy_image(config.n_eval_frames),
+                )
+                display_rotating(slm, best_phase, _SLOT_ROTATOR)
+                time.sleep(SLM_RESPONSE_TIME_S)
+                setattr(
+                    recorder,
+                    "raw_after_img",
+                    cam.get_numpy_image(config.n_eval_frames),
+                )
+                setattr(recorder, "raw_frame_shape", full_frame_shape)
+            except (RuntimeError, ValueError) as exc:
+                logger.warning("raw before/after capture failed: {}", exc)
+            logger.info(
+                "SLM left at best {} phase: {:.4f} @ epoch {} (initial {:.4f})",
+                objective,
+                best_objective,
+                last_best_epoch,
+                _initial_objective,
+            )
+        else:
+            slm.set_grayscale(0)
+            logger.info(
+                "No {} improvement over the initial phase ({:.4f}); "
+                "SLM left at flat",
+                objective,
+                _initial_objective,
+            )
+
+    # policy: exit cleanup has to reach a safe phase even on Ctrl-C -- masking the exception loses the diagnosis and an SLM left on a random phase damages the next run
+    except BaseException as _exit_exc:
+        # Never let cleanup raise: a masked exception loses the
+        # diagnosis, and an SLM left on a random phase damages the
+        # next run. Flat is always safe.
+        logger.error(
+            "best-phase restore failed ({}: {}); forcing flat phase",
+            type(_exit_exc).__name__,
+            _exit_exc,
+        )
+        try:
+            slm.set_grayscale(0)
+            logger.warning("SLM forced to flat (gray 0) on cleanup failure")
+        # policy: last-resort safe state; if forcing flat also fails the honest outcome is to record that the SLM state is unknown, not to raise from cleanup
+        except Exception:  # last resort, cannot raise
+            logger.error("could not force flat phase either; SLM state unknown")
+
+@dataclass
+class _RunState:
+    """Run-level mutable state, owned by ``optimize_slm_zernike_pib``.
+
+    The search branches used to close over these names with ``nonlocal``, which is what kept them
+    nested inside a 1000-line function. Holding them on an object lets a branch move out to module
+    level without giving up "the exit cleanup still sees the best accepted phase".
+    """
+
+    best_c: "np.ndarray | None" = None
+    best_objective: float = float("-inf")
+    last_best_epoch: int = -1
+    delta: float = 0.0
+    r_bucket: float = 0.0
+    _init_c: "np.ndarray | None" = None
+    _init_r: float = 0.0
+
+
+def _run_heuristic(
+    state: "_RunState",
+    *,
+    _init_c,
+    _init_r,
+    algorithm,
+    blaze_choice,
+    cam,
+    cam_size,
+    camera_config,
+    center,
+    debug,
+    debug_dir,
+    delta,
+    epochs,
+    live_display,
+    nk,
+    objective,
+    objective_mode,
+    optimizer_type,
+    pop_size,
+    r_bucket,
+    random_seed,
+    record_phase,
+    recorder,
+    session,
+    shape_for_metric,
+    shaping,
+    target_size,
+    w_loggrad,
+    w_outside,
+) -> "Recorder":
             """Black-box heuristic branch (shared driver: algorithm/heuristic/search.py).
 
             The driver clips candidates to the bounds, handles the maximise/minimise
@@ -1594,7 +1791,6 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             ``finally`` cleanup in ``_apply_best_on_exit`` reads them, so the phase the
             search last accepted has to stay visible outside this function.
             """
-            nonlocal best_c, best_objective, last_best_epoch
             last_eval: dict = {}
 
             with tqdm.tqdm(
@@ -1602,16 +1798,15 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             ) as bar:
 
                 def _on_evaluate(candidate, value, index) -> None:
-                    nonlocal best_objective, best_c, last_best_epoch
                     improved = (
-                        value > best_objective + IMPROVE_EPS
+                        value > state.best_objective + IMPROVE_EPS
                         if objective_mode == "max"
-                        else value < best_objective - IMPROVE_EPS
+                        else value < state.best_objective - IMPROVE_EPS
                     )
                     if improved:
-                        best_objective = float(value)
-                        best_c = np.asarray(candidate, dtype=np.float64).copy()
-                        last_best_epoch = index
+                        state.best_objective = float(value)
+                        state.best_c = np.asarray(candidate, dtype=np.float64).copy()
+                        state.last_best_epoch = index
 
                     img = last_eval["img"]
                     row = _log_row(
@@ -1629,7 +1824,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         max_brt=float(np.max(img)),
                         loggrad=float(last_eval.get("loggrad", 0.0)),
                                             _init_r=_init_r,
-                        best_objective=best_objective,
+                        best_objective=state.best_objective,
                         cam=cam,
                         objective=objective,
                         optimizer_type=optimizer_type,
@@ -1642,7 +1837,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     if live_display is not None:
                         text = (
                             f"{algorithm} eval {index} | "
-                            f"best {objective} {best_objective:.4f} @ {last_best_epoch} | "
+                            f"best {objective} {state.best_objective:.4f} @ {state.last_best_epoch} | "
                             f"J {row['J']:.3g} | r {r_bucket:.1f}"
                         )
                         live_display.update(
@@ -1709,7 +1904,36 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
 )
             return recorder
 
-        def _run_spgd() -> None:
+def _run_spgd(
+    state: "_RunState",
+    *,
+    _fix_bucket,
+    _gradient_history,
+    _max_history_len,
+    _pib_history,
+    cam,
+    config,
+    epochs,
+    exposure_time_ms,
+    init_img,
+    live_display,
+    lr,
+    nk,
+    objective,
+    objective_mode,
+    optimizer,
+    optimizer_type,
+    record_phase,
+    recorder,
+    rng,
+    session,
+    shaping,
+    shrink_iter,
+    shrink_ratio,
+    target_size,
+    update_iter,
+    w_loggrad,
+) -> None:
             """SPGD branch: per-epoch perturbation, gating and coefficient update.
 
             Nonlocal because these carry the run result out to ``_apply_best_on_exit``
@@ -1717,7 +1941,6 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             radius, the shrink schedule and the coefficient vector are live search state
             that ``_log_row`` reads on every epoch.
             """
-            nonlocal _init_c, _init_r, best_c, best_objective, delta, last_best_epoch, r_bucket
             # Evaluation-robustness state (see ``config.n_eval_frames`` /
             # ``fold_ratio`` / ``noise_gate_k``): the fold baseline is armed from
             # the initial (valid) frame; the noise-gate diff history starts empty,
@@ -1756,7 +1979,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 for epoch in range(1, epochs + 1):
                     # Generate random perturbation (±1 pattern)
                     disturb_c = rng.binomial(1, 0.5, (nk,)).astype(float) * 2.0 - 1.0
-                    disturb_c = disturb_c * delta
+                    disturb_c = disturb_c * state.delta
 
                     # Capture frames in the configured sign order: `+ -` by default,
                     # `+ - - +` (ABBA) when ``abba_sampling`` is on. The palindrome
@@ -1767,7 +1990,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     _captures: list[tuple[int, np.ndarray, np.ndarray, np.ndarray]] = []
                     for _sign in _spgd_capture_signs(config.abba_sampling):
                         _c, _phase, _img = session.capture(
-                            _init_c + float(_sign) * disturb_c
+                            state._init_c + float(_sign) * disturb_c
                         )
                         _captures.append((_sign, _img, _c, _phase))
 
@@ -1820,7 +2043,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         _fold_j_mean = float(np.mean(_fold_j))
                         _log_row(
                             epoch=epoch,
-                            coeffs=_init_c,
+                            coeffs=state._init_c,
                             obj_val=_fold_j_mean,
                             obj_ratio=float(np.mean(_fold_ratio)),
                             J=_fold_j_mean,
@@ -1830,14 +2053,14 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                             img=pos_img,
                             phase=pos_phase,
                             lr_val=optimizer.lr,
-                            delta_val=delta,
+                            delta_val=state.delta,
                             max_brt=float(max(pk for _, _, pk, _ in _frame_stats)),
-                                                    _init_r=_init_r,
-                            best_objective=best_objective,
+                                                    _init_r=state._init_r,
+                            best_objective=state.best_objective,
                             cam=cam,
                             objective=objective,
                             optimizer_type=optimizer_type,
-                            r_bucket=r_bucket,
+                            r_bucket=state.r_bucket,
                             record_phase=record_phase,
                             recorder=recorder,
                             shaping=shaping,
@@ -1880,7 +2103,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         _peak_j_mean = float(np.mean(_peak_j))
                         _log_row(
                             epoch=epoch,
-                            coeffs=_init_c,
+                            coeffs=state._init_c,
                             obj_val=_peak_j_mean,
                             obj_ratio=float(np.mean(_peak_ratio)),
                             J=_peak_j_mean,
@@ -1890,14 +2113,14 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                             img=pos_img,
                             phase=pos_phase,
                             lr_val=optimizer.lr,
-                            delta_val=delta,
+                            delta_val=state.delta,
                             max_brt=_peak_observed,
-                                                    _init_r=_init_r,
-                            best_objective=best_objective,
+                                                    _init_r=state._init_r,
+                            best_objective=state.best_objective,
                             cam=cam,
                             objective=objective,
                             optimizer_type=optimizer_type,
-                            r_bucket=r_bucket,
+                            r_bucket=state.r_bucket,
                             record_phase=record_phase,
                             recorder=recorder,
                             shaping=shaping,
@@ -1975,8 +2198,8 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         # zeroed update decays momentum toward 0 (forgetting the
                         # noise-driven velocity) without moving the coefficients.
                         update = optimizer.update(np.zeros_like(gradient))
-                    _to_update_c = np.clip(_init_c - update, -ZERNIKE_CLIP, ZERNIKE_CLIP)
-                    _init_c = _to_update_c
+                    _to_update_c = np.clip(state._init_c - update, -ZERNIKE_CLIP, ZERNIKE_CLIP)
+                    state._init_c = _to_update_c
 
                     # Value logged under the objective's own name and used by the
                     # Recorder to pick its best row: the bucket ratio for "pib",
@@ -1997,7 +2220,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
 
                     # Bucket radius shrink
                     if epoch % update_iter == update_iter - 1:
-                        _init_r = max(_init_r * shrink_ratio, IDEAL_SPOT_RADIUS)
+                        state._init_r = max(state._init_r * shrink_ratio, IDEAL_SPOT_RADIUS)
 
                     if (
                         (
@@ -2010,10 +2233,10 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     ):
                         power_radio = radius(pos_img, center=pos_center, energy=0.8)
                         _pr = power_radio * shrink_ratio
-                        _r = max(r_bucket * shrink_ratio + 1, IDEAL_SPOT_RADIUS, r_bucket)
-                        r_bucket = min(_r, _pr, _init_r)
+                        _r = max(state.r_bucket * shrink_ratio + 1, IDEAL_SPOT_RADIUS, state.r_bucket)
+                        state.r_bucket = min(_r, _pr, state._init_r)
                         # The objective reads the live bucket radius; keep it in sync.
-                        shaping.set_bucket(r_bucket)
+                        shaping.set_bucket(state.r_bucket)
                         if lr == 0:
                             _grad_mag = float(np.linalg.norm(gradient))
                             _gradient_history.append(_grad_mag)
@@ -2021,8 +2244,8 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                             if len(_gradient_history) > _max_history_len:
                                 _gradient_history.pop(0)
                                 _pib_history.pop(0)
-                            optimizer.lr, delta = learning_schedule(
-                                power_radius=r_bucket,
+                            optimizer.lr, state.delta = learning_schedule(
+                                power_radius=state.r_bucket,
                                 gradient_history=_gradient_history,
                                 pib_history=_pib_history,
                                 epoch=epoch,
@@ -2033,12 +2256,12 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
 
                     # Track best result in the objective's own direction.
                     improved = (
-                        objective_val > best_objective + IMPROVE_EPS
+                        objective_val > state.best_objective + IMPROVE_EPS
                         if objective_mode == "max"
-                        else objective_val < best_objective - IMPROVE_EPS
+                        else objective_val < state.best_objective - IMPROVE_EPS
                     )
                     if improved:
-                        best_objective = float(objective_val)
+                        state.best_objective = float(objective_val)
                         float(J)
                         float(objective_ratio)
                         # objective_val / pos_img were measured on the PERTURBED
@@ -2046,13 +2269,13 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         # too. Saving the clean `_init_c` made `save_best` write a
                         # configuration that was never measured -- re-applying it
                         # did not reproduce the reported metric (hardware-verified).
-                        best_c = _pos_c.copy()
+                        state.best_c = _pos_c.copy()
                         pos_img.copy()
-                        last_best_epoch = epoch
+                        state.last_best_epoch = epoch
 
                     log = _log_row(
                         epoch=epoch,
-                        coeffs=_init_c,
+                        coeffs=state._init_c,
                         obj_val=objective_val,
                         obj_ratio=objective_ratio,
                         J=J,
@@ -2062,15 +2285,15 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         img=pos_img,
                         phase=pos_phase,
                         lr_val=optimizer.lr,
-                        delta_val=delta,
+                        delta_val=state.delta,
                         max_brt=float(max_brightness),
                         loggrad=float(_sign_results[1][0].loggrad),
-                                            _init_r=_init_r,
-                        best_objective=best_objective,
+                                            _init_r=state._init_r,
+                        best_objective=state.best_objective,
                         cam=cam,
                         objective=objective,
                         optimizer_type=optimizer_type,
-                        r_bucket=r_bucket,
+                        r_bucket=state.r_bucket,
                         record_phase=record_phase,
                         recorder=recorder,
                         shaping=shaping,
@@ -2079,14 +2302,14 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     if live_display is not None:
                         text = (
                             f"epoch {epoch} | {objective} {objective_val:.4f} "
-                            f"@ {last_best_epoch} | r {r_bucket:.1f} | lr {optimizer.lr:.3f}"
+                            f"@ {state.last_best_epoch} | r {state.r_bucket:.1f} | lr {optimizer.lr:.3f}"
                         )
                         if not live_display.update(
                             pos_img,
                             pos_phase,
                             _pos_c,
                             pos_center,
-                            r_bucket,
+                            state.r_bucket,
                             text,
                             value=objective_val,
                             epoch=epoch,
@@ -2113,33 +2336,3 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 _n_peak_gated,
                 config.max_peak,
             )
-
-        try:
-            if algorithm != "spgd":
-                return _run_heuristic()
-            _run_spgd()
-
-            # On exit, leave the SLM at the best phase found. The initial (flat or
-            # loaded) phase is one of the candidates: if the search never improved
-            # on it, restore that instead of a worse "best". Shared with the
-            # heuristic branch through _apply_best_on_exit.
-
-            _debug_report(                algorithm=algorithm,
-                blaze_choice=blaze_choice,
-                cam_size=cam_size,
-                camera_config=camera_config,
-                debug=debug,
-                debug_dir=debug_dir,
-                delta=delta,
-                epochs=epochs,
-                objective=objective,
-                optimizer_type=optimizer_type,
-                r_bucket=r_bucket,
-                recorder=recorder,
-                shape_for_metric=shape_for_metric,
-                target_size=target_size,
-                w_outside=w_outside,
-)
-            return recorder
-        finally:
-            _apply_best_on_exit()

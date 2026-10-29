@@ -104,11 +104,11 @@ def main(argv: list[str] | None = None) -> int:
     ab_sweep = _load("logs/ab_file_protocol.json")
     seed_sweep = _load("logs/seed_sensitivity.json")
     if file_sweep is None and production is None:
-        print(
+        logger.info(
             "No artefact found. Run first:\n"
             "  python scripts/ml/sweep_coeff_models.py\n"
             "  python -m ml.zernike.train_coeff --fold 13 --epochs 80",
-            file=sys.stderr,
+
         )
         return 1
 

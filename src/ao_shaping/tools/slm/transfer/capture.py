@@ -118,6 +118,7 @@ def capture(args):
               "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
     (args.out / "config.json").write_text(json.dumps(config, default=str, indent=2), encoding="utf-8")
     manifest, samples = [], {}
+    early_stopped = False
     with create_camera(args.camera, args.cam_id, exposure_time_ms=.02) as cam:
         with Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0) as slm:
             slm.set_phase_overlay(None)
@@ -135,6 +136,11 @@ def capture(args):
                     return raw
 
                 for label, split, grid in probes(args.grid, args.count, args.seed, getattr(args, "ramp_periods", (64, 128))):
+                    # The parallel-fit worker (or an operator) may ask capture to
+                    # stop early; honour it before taking the next probe.
+                    if (args.out / "stop_acquisition.request").is_file():
+                        early_stopped = True
+                        break
                     panel = to_panel(grid)
                     gray = slm.create_phase_from_array(panel)
                     slm.display_data(gray)
@@ -182,6 +188,9 @@ def capture(args):
             finally:
                 slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
                 time.sleep(.3)
+    (args.out / ".capture_done").write_text(
+        json.dumps(dict(early_stopped=early_stopped, probes=len(manifest), **clock()), indent=2),
+        encoding="utf-8")
     return samples
 
 

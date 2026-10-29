@@ -748,7 +748,7 @@ def run_probe(args: argparse.Namespace) -> int:
     finally:
         try:
             cam.close()
-        except Exception as exc:
+        except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
             logger.warning("camera close failed: {}", exc)
 
     # ----------------------------------------------------- run verdicts

@@ -9,6 +9,12 @@ initial report generation:
   - Exposure response diagnostics
 
 All figures are saved to ``report/shape_trials/model_in_loop/images/``.
+
+删除条件 (AGENTS.md 「scripts/ 目录」规则 3): 其至少 7 张图 (montage / psf /
+bandwidth / candidate / exposure / replay / multitarget) 被活报告
+``report/shape_trials/model_in_loop/model_in_loop_live_20261013.md`` 引用。当
+``report/shape_trials/model_in_loop/images/`` 的图片不再需要重跑时可删, 结论见
+该报告。
 """
 
 from __future__ import annotations
@@ -731,7 +737,7 @@ def main() -> None:
     img7 = render_multitarget_shape_experiment()
     logger.info(f"  -> {img7.relative_to(ROOT)}")
 
-    logger.info("\nAll images generated in:", IMG_DIR.relative_to(ROOT))
+    logger.info(f"\nAll images generated in: {IMG_DIR.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

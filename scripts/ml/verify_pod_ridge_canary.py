@@ -108,8 +108,8 @@ def main() -> int:
 
         out["folds"].append({"fold": index_i, "real": real, "mean": mean_r2,
                              "permuted": perm_r2})
-        print("fold %2d  real=%+.4f  mean=%+.4f  permuted=%+.4f"
-              % (index_i, real, mean_r2, perm_r2), flush=True)
+        logger.info("fold %2d  real=%+.4f  mean=%+.4f  permuted=%+.4f"
+              % (index_i, real, mean_r2, perm_r2))
 
     for arm in ("real", "mean", "permuted"):
         vals = [f[arm] for f in out["folds"]]
@@ -118,7 +118,7 @@ def main() -> int:
     verdict = (out["real_mean"] > 0.5 and out["mean_mean"] < 0.2
                and out["permuted_mean"] < 0.2)
     out["verdict"] = "PASS" if verdict else "SUSPECT"
-    logger.info("\nverdict:", out["verdict"], "(real >> 0 >= mean, permuted)")
+    logger.info(f"\nverdict: {out['verdict']} (real >> 0 >= mean, permuted)")
     Path("logs/pod_ridge_canary.json").write_text(
         json.dumps(out, indent=2), encoding="utf-8")
     return 0 if verdict else 1

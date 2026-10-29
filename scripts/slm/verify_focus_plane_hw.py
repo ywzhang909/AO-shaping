@@ -147,10 +147,10 @@ def ladder(rig: Rig, repeats: int = 3) -> list[dict[str, float]]:
                 "in_box_frac": frac,
             }
         )
-        print(
+        logger.info(
             f"  ladder {ms:6.2f} ms  peak={peak:6.1f}  "
             f"counts/ms={peak / float(ms):7.1f}  fwhm={m.fwhm_px:6.1f}",
-            flush=True,
+
         )
     return rows
 
@@ -227,7 +227,7 @@ def main(argv: list[str] | None = None) -> int:
         with create_camera("daheng", 0, exposure_time_ms=0.2) as cam:
             rig = Rig(cam=cam, slm=slm)
             if not args.no_ladder:
-                print("exposure ladder on a flat phase:", flush=True)
+                logger.info("exposure ladder on a flat phase:")
                 payload["ladder"] = ladder(rig, int(args.repeats))
 
             logger.info("\nverification sweep (each point adapted to ~50% full scale):")

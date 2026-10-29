@@ -247,7 +247,7 @@ def main() -> None:
     if report_path.exists() and not args.force:
         logger.info(f"  {report_path.name} 已存在；加 --force 覆盖（本文件只属于 r2 这一轮）")
     if args.old_focus == OLD_FOCUS:
-        print("⚠ --old-focus 用的是 20261022 的历史标定；换光路后请显式指定", flush=True)
+        logger.info("⚠ --old-focus 用的是 20261022 的历史标定；换光路后请显式指定")
     data = load(args.old_focus)
     artifacts = dict(focus=plot_focus(data, FIG_DIR / f"{STAMP}_focus_compare.png"),
                      direction=plot_direction(data, FIG_DIR / f"{STAMP}_direction.png"))

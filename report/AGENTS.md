@@ -48,6 +48,7 @@ report/<topic>/
 | `fast_recal_adapter/` | `scripts/ml/exp_fast_recal_adapter_report.py` | `fast_recal_adapter.md` |
 | `sim_pretrain_transfer/` | `scripts/slm/generate_sim_pretrain_transfer_report.py` | `sim_pretrain_transfer_20261024.md` |
 | `multishape1200/` | `scripts/slm/generate_multishape1200_report.py` | `multishape1200_20261027.md` |
+| `transfer_square1200/` | `scripts/slm/generate_transfer_square1200_report.py` | `transfer_square1200_20261027.md` |
 | `gs_refine/` | 手工撰写（GS 系列） | `gs_issue_live_20261015.md` 等 9 份 |
 | `model_in_loop/` | 手工撰写（MIL 系列） | `model_in_loop_live_20261013.md` 等 9 份 |
 

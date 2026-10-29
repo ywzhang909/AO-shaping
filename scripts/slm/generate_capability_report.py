@@ -235,7 +235,7 @@ def plot_final_compare(run: dict, run_dir: Path, path: Path,
     try:
         img_best = np.load(best_path).astype(np.float64)
         img_carrier = np.load(carrier_path).astype(np.float64)
-    except Exception as exc:
+    except (OSError, ValueError) as exc:
         return dict(ok=False, reason=f"最终帧读取失败：{exc}")
     if img_best.ndim != 2 or img_carrier.ndim != 2:
         return dict(ok=False, reason="最终帧不是一维二维图像数组")

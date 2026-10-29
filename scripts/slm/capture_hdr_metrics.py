@@ -108,11 +108,11 @@ def main() -> None:
                 frame = np.mean(stack, axis=0)
                 captured[float(exposure)] = frame
                 np.save(args.out / f"frame_{exposure:g}ms.npy", frame.astype(np.float32))
-                print(f"  exposure {exposure:g} ms: peak {frame.max():.0f} mean {frame.mean():.2f}", flush=True)
+                logger.info(f"  exposure {exposure:g} ms: peak {frame.max():.0f} mean {frame.mean():.2f}")
     finally:
         try:
             slm.set_phase_overlay(None)
-        except Exception:
+        except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
             pass
         slm.close()
 

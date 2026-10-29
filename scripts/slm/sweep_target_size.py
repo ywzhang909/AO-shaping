@@ -873,7 +873,7 @@ def print_summary(
 ) -> None:
     lo, hi, best, degenerate, message = window
     valid_pts = [p for p in result.points if p.valid]
-    print()
+    logger.info()
     logger.info("=" * 72)
     logger.info("光学界限 (解析):")
     logger.info(f"  焦面单像素 Δx = λf/(N_x·p) = {result.limits.far_field_sample_m * 1e6:.4f} µm")

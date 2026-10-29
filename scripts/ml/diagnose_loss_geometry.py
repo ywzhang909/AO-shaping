@@ -128,10 +128,10 @@ def main(argv: list[str] | None = None) -> int:
             }
             row["mse_const"] = constant_baseline_metrics(const, tt)["mse"]
         out["folds"].append(row)
-        print("fold %2d  " % fold_i + "  ".join(
-            "%s skill=%+.4f" % (kind, row[kind]["skill"]) for kind in LOSSES), flush=True)
+        logger.info("fold %2d  " % fold_i + "  ".join(
+            "%s skill=%+.4f" % (kind, row[kind]["skill"]) for kind in LOSSES))
 
-    print()
+    logger.info()
     for kind in LOSSES:
         vals = [r[kind]["skill"] for r in out["folds"]]
         mses = [r[kind]["mse"] for r in out["folds"]]
@@ -140,9 +140,9 @@ def main(argv: list[str] | None = None) -> int:
                  float(np.max(vals)), float(np.mean(mses))))
     best = max(LOSSES, key=lambda k: float(np.mean([r[k]["skill"] for r in out["folds"]])))
     out["best_loss"] = best
-    logger.info("\nbest loss space:", best)
+    logger.info(f"\nbest loss space: {best}")
     Path(args.out).write_text(json.dumps(out, indent=2), encoding="utf-8")
-    logger.info("wrote", args.out, "in %.1fs" % (time.perf_counter() - started))
+    logger.info(f"wrote {args.out} in {(time.perf_counter() - started):.1f}s")
     return 0
 
 

@@ -183,8 +183,8 @@ def main() -> None:
     # 载波带来的远场平移（实验系统实测常数 TILT_SHIFT_SCALE，含面板↔相机 90° 轴交换）
     shift_dx, shift_dy = predicted_shift_px(overlay)
     record["carrier_shift_px_theory"] = [float(shift_dx), float(shift_dy)]
-    print(f"[carrier] period {args.carrier_period_px} px ⇒ 远场平移理论 "
-          f"({shift_dx:.0f}, {shift_dy:.0f}) CCD px", flush=True)
+    logger.info(f"[carrier] period {args.carrier_period_px} px ⇒ 远场平移理论 "
+          f"({shift_dx:.0f}, {shift_dy:.0f}) CCD px")
 
     if not args.execute:
         (args.out / "probe.json").write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -217,11 +217,11 @@ def main() -> None:
                 shots[label] = np.mean(stack, axis=0)
                 np.save(args.out / f"ccd_{label}.npy", shots[label].astype(np.float32))
                 row, col = np.unravel_index(int(np.argmax(shots[label])), shots[label].shape)
-                print(f"  {label}: peak {shots[label].max():.0f} argmax (row {row}, col {col})", flush=True)
+                logger.info(f"  {label}: peak {shots[label].max():.0f} argmax (row {row}, col {col})")
     finally:
         try:
             slm.set_phase_overlay(None)
-        except Exception:
+        except Exception:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
             pass
         slm.close()
 

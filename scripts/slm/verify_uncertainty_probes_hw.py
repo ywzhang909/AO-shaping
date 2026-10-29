@@ -75,10 +75,11 @@ from ao_shaping.utils.image.exposure_control import (
 )
 from ao_shaping.utils.slm.panel_geometry import phase_to_panel
 from ao_shaping.optimizer.wfless.slm_model_in_loop import _probe_phase
+from loguru import logger
 
 
 def _log(msg: str) -> None:
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
+    logger.info(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
 
 
 #: piston/tip/tilt 从远场**强度**不可辨识, 与线上默认一致。
@@ -361,7 +362,7 @@ def main() -> int:
             _log(f"summary: {out_dir / 'summary.json'}")
             _log("=" * 70)
             return 0
-    except Exception as exc:
+    except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
         _log(f"失败: {type(exc).__name__}: {exc}")
         meta["status"] = "failed"
         meta["error"] = f"{type(exc).__name__}: {exc}"
@@ -373,13 +374,13 @@ def main() -> int:
             if cam is not None:
                 cam.close()
                 _log("CCD 已关闭")
-        except Exception as exc:
+        except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
             _log(f"CCD 关闭异常: {exc}")
         try:
             if opened_slm:
                 slm.close()
                 _log("SLM 已关闭")
-        except Exception as exc:
+        except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
             _log(f"SLM 关闭异常: {exc}")
 
 

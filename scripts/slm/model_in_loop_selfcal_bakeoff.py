@@ -72,6 +72,7 @@ from ao_shaping.utils.wavefront.calibration_terms import (
     PupilAffine,
     TravelScale,
 )
+from ml.zernike.eval_stats import pearson
 
 #: 硬件路径冻结的 ROI 中心 = 平场画面 0 级的 argmax (``zero_order_center``
 #: 的 ``refine=False`` 分支)。
@@ -104,18 +105,6 @@ def _ssim(predicted: np.ndarray, measured: np.ndarray) -> float:
     from ao_shaping.tools.slm.bench_twin_calibrate import _ssim as canonical_ssim
 
     return float(canonical_ssim(predicted, measured))
-
-
-def _pearson(first: np.ndarray, second: np.ndarray) -> float:
-    """两张图的 Pearson 相关系数。"""
-    a = np.asarray(first, dtype=np.float64).ravel()
-    b = np.asarray(second, dtype=np.float64).ravel()
-    a = a - a.mean()
-    b = b - b.mean()
-    denominator = float(np.linalg.norm(a) * np.linalg.norm(b))
-    if denominator <= 0.0:
-        return float("nan")
-    return float(np.dot(a, b) / denominator)
 
 
 @dataclass
@@ -255,7 +244,9 @@ def _evaluate(
         reference = _peak_normalise(probe.measured)
         estimate = _peak_normalise(predicted)
         ssim_full.append(_ssim(predicted, probe.measured))
-        correlations.append(_pearson(estimate, reference))
+        correlations.append(
+            pearson(np.asarray(estimate).ravel(), np.asarray(reference).ravel())
+        )
         energy_full.append(
             float(np.sum(estimate) / max(float(np.sum(reference)), 1e-30))
         )
@@ -488,10 +479,10 @@ def main(argv: list[str] | None = None) -> int:
     clamped_rows = _aggregate(runs, "clamped_rows")
     table = _render_table(rows)
     clamped_table = _render_table(clamped_rows)
-    print()
+    logger.info()
     logger.info(f"== Step A 原始拟合 (未经信任域), {len(runs)} 次运行平均 ==")
     logger.info(table)
-    print()
+    logger.info()
     logger.info(f"== 经逐轮信任域后 (MIL 循环实际提交的), {len(runs)} 次运行平均 ==")
     logger.info(clamped_table)
 

@@ -2760,10 +2760,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     logger.info(f"wrote {out_dir / 'audit.json'}")
     logger.info(f"wrote {out_dir / 'candidates.json'}")
     logger.info(f"wrote {out_dir / 'summary.md'}")
-    print()
+    logger.info()
     logger.info(
-        "verdicts:",
-        json.dumps(verdict_block, indent=2, ensure_ascii=False, default=_json_default),
+        f"verdicts: {json.dumps(verdict_block, indent=2, ensure_ascii=False, default=_json_default)}",
     )
     return 0
 

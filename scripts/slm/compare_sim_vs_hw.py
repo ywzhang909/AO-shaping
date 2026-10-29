@@ -60,6 +60,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import math
 import statistics
@@ -2689,11 +2690,11 @@ def _run_sim_side(
         defocus_focal_mm = value if value > 0 else None
     else:
         defocus_focal_mm = hw_defocus_focal_mm(hw_bundle)
-    print(f"[sim] 瞳面菲涅尔焦面矫正: {defocus_focal_mm} mm", flush=True)
+    logger.info(f"[sim] 瞳面菲涅尔焦面矫正: {defocus_focal_mm} mm")
 
     groups_root = sim_root / "hw_groups_sim"
     started = time.time()
-    print(f"[sim] 离焦扫描 ({len(dz_points)} 点) ...", flush=True)
+    logger.info(f"[sim] 离焦扫描 ({len(dz_points)} 点) ...")
     run_sim_probe(
         config,
         out_root=groups_root,
@@ -2706,7 +2707,7 @@ def _run_sim_side(
         frames=int(args.frames),
         defocus_focal_mm=defocus_focal_mm,
     )
-    print(f"[sim] 噪声组 ({len(noise_points)} 次重复) ...", flush=True)
+    logger.info(f"[sim] 噪声组 ({len(noise_points)} 次重复) ...")
     run_sim_probe(
         config,
         out_root=groups_root,
@@ -2719,7 +2720,7 @@ def _run_sim_side(
         frames=int(args.frames),
         defocus_focal_mm=defocus_focal_mm,
     )
-    print("[sim] 焦面标定 ...", flush=True)
+    logger.info("[sim] 焦面标定 ...")
     run_sim_focus_probe(
         config,
         out_dir=sim_root / "focus_calibration",
@@ -2731,7 +2732,7 @@ def _run_sim_side(
         max_exposure_ms=float(args.focus_max_exposure_ms),
         diopters=hw_focus_diopter_grid(hw_bundle),
     )
-    print("[sim] 阶数扫描 ...", flush=True)
+    logger.info("[sim] 阶数扫描 ...")
     orders = [int(o) for o in str(args.zernike_orders).split(",") if o.strip()]
     run_sim_zernike_sweep(
         config,

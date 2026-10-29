@@ -79,6 +79,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from ao_shaping.tools.kernels import device_mutex
 from ao_shaping.tools.kernels.device_mutex import DeviceLock
 from ao_shaping.tools.slm.model_in_loop_summary import summarize_session
+from loguru import logger
 
 AUTO_SCRIPT = ROOT / "scripts" / "slm" / "model_in_loop_auto.py"
 LIGHT_SCRIPT = ROOT / "scripts" / "slm" / "diagnose_light_level.py"
@@ -1450,7 +1451,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         plan = build_plan(args, session_dir)
     except (ValueError, TypeError) as exc:
-        print(f"campaign refused: {exc}", flush=True)
+        logger.info(f"campaign refused: {exc}")
         return 2
 
     if args.plan:
@@ -1468,7 +1469,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         lock, manifest["device_wait"] = acquire_device_lock(args)
     except RuntimeError as exc:
-        print(f"campaign refused: {exc}", flush=True)
+        logger.info(f"campaign refused: {exc}")
         manifest["campaign_state"] = "device_unavailable"
         manifest["notes"] = [str(exc)]
         (session_dir / "manifest.json").write_text(
@@ -1541,10 +1542,10 @@ def run_campaign(
 
         record = run_mil_stage(args, stage, stage_dir)
         manifest["stages"].append(record)
-        print(
+        logger.info(
             f"[{record['name']}] outcome={record['outcome']} "
             f"met={record['expectation_met']} exit={record['exit_code']}",
-            flush=True,
+
         )
         if stage.get("geometry_donor"):
             # Hand the donor's geometry to the later arms, so they differ from
@@ -1576,9 +1577,9 @@ def run_campaign(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     (session_dir / "summary.md").write_text(render_summary(manifest), encoding="utf-8")
-    print(f"campaign state: {campaign_state}", flush=True)
-    print(f"manifest: {session_dir / 'manifest.json'}", flush=True)
-    print(f"summary:  {session_dir / 'summary.md'}", flush=True)
+    logger.info(f"campaign state: {campaign_state}")
+    logger.info(f"manifest: {session_dir / 'manifest.json'}")
+    logger.info(f"summary:  {session_dir / 'summary.md'}")
 
     if campaign_state in ("blocked_no_light", "blocked_weak", "bench_outside_model"):
         return 2

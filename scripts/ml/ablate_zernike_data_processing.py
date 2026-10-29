@@ -27,6 +27,14 @@ Usage
     python scripts/ml/ablate_zernike_data_processing.py --trainer amp
     python scripts/ml/ablate_zernike_data_processing.py --trainer coeff
     python scripts/ml/ablate_zernike_data_processing.py --trainer both --epochs 30
+
+删除条件 (AGENTS.md 「scripts/ 目录」规则 3): 产物写到 ``logs/`` (默认
+``logs/ablate_zernike_data_processing``, 不入库), 且 ``report/zernike_r2_baseline/
+pod_ridge/report.md``「最终判决」表里 image_mode abs255/peak/robust 一行虽记录了
+对应结论 (skill 全为负), 但该报告的 provenance 条目没有登记本脚本 —— 结论归属
+``diagnose_pod_ridge.py`` / ``sweep_target_transform.py`` 等。当本消融被明确归属
+到某 report/ 条目 (pod_ridge 报告或 issue)、且不再需要重跑两个 trainer 的
+image_mode 配对对比时, 可删。
 """
 from __future__ import annotations
 
@@ -211,11 +219,11 @@ def main(argv: list[str] | None = None) -> int:
                 all_rows.append(row)
                 mse_txt = ("n/a" if row["val_mse"] is None
                            else f"{row['val_mse']:.5f}")
-                print(
+                logger.info(
                     f"[{t}] mode={mode:7s} seed={seed} "
                     f"val_r2={row['val_r2']:+.4f} val_mse={mse_txt} "
                     f"({row['seconds']:.0f}s)",
-                    flush=True,
+
                 )
 
     report = {

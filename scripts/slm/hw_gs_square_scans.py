@@ -232,6 +232,7 @@ dry-run 里的「画面尺寸 / 0 级位置」是**计划假设**, 不是测量:
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import csv
 import json
 import math
@@ -2333,10 +2334,10 @@ class BenchSession:
             except SantecError as exc:
                 last = exc
                 wait = USB_RETRY_BASE_WAIT_S * (4 ** attempt)
-                print(
+                logger.info(
                     f"[USB 重试 {attempt + 1}/{USB_RETRY_ATTEMPTS}] "
                     f"失败: {exc}; 等待 {wait:.1f}s 后重试",
-                    flush=True,
+
                 )
                 time.sleep(wait)
         assert last is not None
@@ -2419,12 +2420,12 @@ def open_bench(
     is_sim = str(args.cam_type).strip().lower() == "sim"
     sim_map = _configure_sim_if_needed(args)
     if is_sim and sim_map is not None:
-        print(
+        logger.info(
             "仿真后端: seed={}, 远场补零={}, 每仿真采样点 = ({:.3f} 行, {:.3f} 列) 相机像元".format(
                 int(args.sim_seed), int(args.sim_far_field_padding),
                 sim_map["row_scale"], sim_map["col_scale"],
             ),
-            flush=True,
+
         )
     params = _ScanParams(
         cam_type=args.cam_type,
@@ -2450,7 +2451,7 @@ def open_bench(
                 with display_guard:
                     protected = protected_memory_slot(slm)
                     if protected is not None:
-                        print(f"运行前正在显示的内存槽 (将被排除): {protected}", flush=True)
+                        logger.info(f"运行前正在显示的内存槽 (将被排除): {protected}")
 
                     # -- 曝光上限 -----------------------------------------
                     if is_sim:
@@ -2467,10 +2468,10 @@ def open_bench(
                         if working_ms < 0.02:
                             raise RuntimeError("解出的曝光上限低于相机最小值 0.02 ms")
                     actual = float(cam.reset_exposure_time(working_ms))
-                    print(
+                    logger.info(
                         f"曝光: 请求 {args.exposure_ms} ms -> 上限 {ceiling} ms -> "
                         f"生效 {actual} ms",
-                        flush=True,
+
                     )
 
                     session = BenchSession(
@@ -2497,8 +2498,8 @@ def open_bench(
                         cx0, cy0 = zero_order_center(flat, refine=False, despike_k=3)
                         session.zero_order_xy = (float(cx0), float(cy0))
                         session.frame_shape = (int(flat.shape[0]), int(flat.shape[1]))
-                        print(f"0 级 (全幅 argmax, 已冻结): ({cx0}, {cy0}); "
-                              f"画面 {flat.shape[1]} x {flat.shape[0]}", flush=True)
+                        logger.info(f"0 级 (全幅 argmax, 已冻结): ({cx0}, {cy0}); "
+                              f"画面 {flat.shape[1]} x {flat.shape[0]}")
 
                         assessment = assess_spot(flat)
                         session.spot = assessment.as_dict()
@@ -2512,19 +2513,19 @@ def open_bench(
                                 **(abort_context or {}),
                             }
                             write_json_atomic(Path(abort_dir) / "run_config.json", abort)
-                            print(
+                            logger.info(
                                 "\n[中止] 光路受阻: " + assessment.reason + "\n"
                                 "       平场帧里没有任何局域光斑, 扫描只会记下噪声。\n"
                                 f"       判定与理由已写进 {Path(abort_dir) / 'run_config.json'}",
-                                flush=True,
+
                             )
                             raise SystemExit(EXIT_PATH_BLOCKED)
                         if not assessment.usable:
-                            print(
+                            logger.info(
                                 f"[警告] 平场帧有光但没有可评分的局域光斑 "
                                 f"({assessment.reason}); 扫描继续, 但指标要按"
                                 "「光斑没聚焦」解读",
-                                flush=True,
+
                             )
                         yield session
                     finally:
@@ -2565,7 +2566,7 @@ def run_execute(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) ->
     if not out_root.is_absolute():
         out_root = ROOT / out_root
     out_root.mkdir(parents=True, exist_ok=True)
-    print(f"根目录: {out_root}", flush=True)
+    logger.info(f"根目录: {out_root}")
 
     selected: dict[str, Any] = {
         "side_px": None, "phase_pupil": None, "gs_grid": None, "zernike_fit": None,
@@ -2601,9 +2602,9 @@ def run_execute(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) ->
             requested_max = int(args.side_max)
             side_max_used = min(requested_max, side_max)
             if requested_max > side_max:
-                print(f"[警告] --side-max {requested_max} 超出画面可用半径, "
-                      f"已限制为 {side_max} px", flush=True)
-        print(f"最大边长: {side_max} px (原始 {side_max_raw} px)", flush=True)
+                logger.info(f"[警告] --side-max {requested_max} 超出画面可用半径, "
+                      f"已限制为 {side_max} px")
+        logger.info(f"最大边长: {side_max} px (原始 {side_max_raw} px)")
 
         sides = side_scan_list(int(args.side_min), side_max_used, int(args.side_step))
 
@@ -2640,16 +2641,16 @@ def run_execute(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) ->
                     f"至少 {grid_auto}"
                 )
         if gs_grid != int(plan["scan"]["gs_grid"]):
-            print(
+            logger.info(
                 f"[提示] 实测画面下 GS 网格从计划的 "
                 f"{int(plan['scan']['gs_grid'])} 变为 {gs_grid}",
-                flush=True,
+
             )
-        print(
+        logger.info(
             f"边长列表: {list(sides)}; GS 网格 N={gs_grid} "
             f"(远场窗口 {gs_grid * bench.camera_px_per_gs_px:.0f} camera px, "
             f"需 {span_cam:.0f})",
-            flush=True,
+
         )
 
         def stage_dir(name: str) -> Path:
@@ -2689,13 +2690,13 @@ def run_execute(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) ->
             write_json_atomic(out_dir / f"metrics_{idx:03d}.json", row)
             rows.append(row)
             _write_rows(out_dir, rows)
-            print(
+            logger.info(
                 f"[{out_dir.name} #{idx:03d}] " + " ".join(
                     f"{k}={row[k]:.4g}" if isinstance(row.get(k), float) else f"{k}={row[k]}"
                     for k in ("side_px", "n_max", "blaze_period_px", "cv", "pib", "score")
                     if k in row
                 ),
-                flush=True,
+
             )
             return row
 
@@ -2719,7 +2720,7 @@ def run_execute(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) ->
             }
             rows.append(row)
             _write_rows(out_dir, rows)
-            print(f"[{out_dir.name} #{idx:03d}] 失败: {exc}", flush=True)
+            logger.info(f"[{out_dir.name} #{idx:03d}] 失败: {exc}")
             return row
 
         def write_stage_meta(
@@ -2813,14 +2814,14 @@ def run_execute(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) ->
                     key=str(args.rank_by),
                 )
             except NoNearSideError as exc:
-                print(f"\n[中止] {exc}", flush=True)
+                logger.info(f"\n[中止] {exc}")
                 raise SystemExit(EXIT_NO_NEAR_SIDE) from exc
             selected["side_px"] = int(best["side_px"])
-            print(
+            logger.info(
                 f"[选定] 边长 {selected['side_px']} px "
                 f"(近 {args.target_side_near}±{args.near_tolerance}, "
                 f"{args.rank_by}={float(best[args.rank_by]):.4f})",
-                flush=True,
+
             )
 
         # 选定边长: 跑过第 1 段就用它的结果, 否则用 --side-px。
@@ -2972,11 +2973,11 @@ def run_execute(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) ->
                     "box_clipped": not bool(entry["fits_frame"]),
                 }
                 if not entry["fits_frame"]:
-                    print(
+                    logger.info(
                         f"[警告] 周期 {period} px 的预测位移 "
                         f"{entry['predicted_shift_px']:.0f} px 让方框出画面; "
                         "这一行的 PIB/EE 会偏低 (box_clipped=true)",
-                        flush=True,
+
                     )
                 # 叠加层只有一条通道 (焦面补偿在用), 所以光栅加进**模式相位**。
                 phase_panel = apply_zero_order_overlay(base_panel, params_blaze)
@@ -3050,8 +3051,8 @@ def run_execute(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) ->
             },
         )
 
-    print(f"\n产物根目录: {out_root}", flush=True)
-    print(f"三段清单: {out_root / 'manifest.json'}", flush=True)
+    logger.info(f"\n产物根目录: {out_root}")
+    logger.info(f"三段清单: {out_root / 'manifest.json'}")
     return out_root
 
 
@@ -3113,10 +3114,10 @@ def _resolve_base_pupil(
     )
     if cached is not None:
         return cached, "cache", info
-    print(
+    logger.info(
         f"[基准相位] 没有可复用的缓存 ({info.get('reason')}); 重算 GS "
         f"(边长 {selection.side_px} px, N={int(gs_grid)}, {int(gs_iters)} 迭代)",
-        flush=True,
+
     )
     result = run_gs_square(
         float(selection.side_px), bench, n_grid=int(gs_grid), iterations=int(gs_iters)
@@ -3214,8 +3215,8 @@ def run_atomic(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) -> 
     run_root = require_accumulation_root(args)
     stage_dir = stage_dir_from_args(args, run_root, stage)
     cfg_dir = config_dir(stage_dir, stage, value)
-    print(f"[{stage} {slug}] 批次根 {run_root}", flush=True)
-    print(f"[{stage} {slug}] 本配置目录 {cfg_dir}", flush=True)
+    logger.info(f"[{stage} {slug}] 批次根 {run_root}")
+    logger.info(f"[{stage} {slug}] 本配置目录 {cfg_dir}")
 
     # -- 依赖解析: 在开设备之前 (缺 selected.json 就不该占 USB 句柄) -----------
     selection: Selection | None = None
@@ -3224,12 +3225,12 @@ def run_atomic(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) -> 
     base_info: dict[str, Any] = {}
     if stage in ("zernike", "blaze"):
         selection = load_selection(run_root, side_px_override=args.side_px)
-        print(
+        logger.info(
             f"[{stage} {slug}] 选定边长 {selection.side_px} px "
             f"(来源 {selection.source}"
             + (f", {selection.rank_by}={selection.score:.4f}" if selection.score is not None else "")
             + ")",
-            flush=True,
+
         )
         # 缓存命中与否是**离线判定**, 先试一次; 需要重算时等实测网格定了再做。
         if selection.gs_grid is not None:
@@ -3241,10 +3242,10 @@ def run_atomic(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) -> 
             )
             if cached is not None:
                 base_pupil, base_source = cached, "cache"
-                print(
+                logger.info(
                     f"[{stage} {slug}] 复用缓存基准相位 {base_info.get('loaded')} "
                     f"(形状 {cached.shape})",
-                    flush=True,
+
                 )
 
     declared_orders = parse_orders_spec(args.zernike_orders)
@@ -3268,7 +3269,7 @@ def run_atomic(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) -> 
             sess.frame_shape, (cx0, cy0),
             margin_px=int(args.edge_margin_px), step_px=int(args.side_step),
         )
-        print(f"[{stage} {slug}] 最大边长 {side_max} px (原始 {side_max_raw} px)", flush=True)
+        logger.info(f"[{stage} {slug}] 最大边长 {side_max} px (原始 {side_max_raw} px)")
 
         gs_grid = atomic_gs_grid(
             args, bench,
@@ -3304,10 +3305,10 @@ def run_atomic(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) -> 
         if base_pupil is not None and int(base_pupil.shape[0]) != int(gs_grid):
             # 缓存相位的形状就是它当初的 GS 网格 —— 以它为准, 否则产物里记的网格与实际
             # 相位不符 (那会让「这一行是用哪个网格算的」永远说不清)。
-            print(
+            logger.info(
                 f"[{stage} {slug}] 缓存相位的网格是 {int(base_pupil.shape[0])}, "
                 f"本次反解是 {int(gs_grid)}; 按缓存为准记录",
-                flush=True,
+
             )
             gs_grid = int(base_pupil.shape[0])
 
@@ -3343,8 +3344,8 @@ def run_atomic(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) -> 
                 # 本进程内这次拟合的墙钟 (命中缓存时 ≈ 0); 键名沿用整段模式的
                 # ``fit_seconds``, 让既有报告脚本读得到。
                 step["fit_seconds"] = float(time.time() - t_fit)
-                print(f"[{stage} {slug}] Zernike 拟合 {fit_source} "
-                      f"(最高 {fit.max_order} 阶, {fit.coefficients.size} 系数)", flush=True)
+                logger.info(f"[{stage} {slug}] Zernike 拟合 {fit_source} "
+                      f"(最高 {fit.max_order} 阶, {fit.coefficients.size} 系数)")
                 t0 = time.time()
                 recon, stats = reconstruct_from_fit(fit, int(value))
                 pupil_phase = np.asarray(recon, dtype=np.float64)
@@ -3410,11 +3411,11 @@ def run_atomic(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) -> 
                     "box_clipped": not bool(entry["fits_frame"]),
                 })
                 if not entry["fits_frame"]:
-                    print(
+                    logger.info(
                         f"[警告] 周期 {value} px 的预测位移 "
                         f"{entry['predicted_shift_px']:.0f} px 让方框出画面; "
                         "这一行的 PIB/EE 会偏低 (box_clipped=true)",
-                        flush=True,
+
                     )
                 # 叠加层只有一条通道 (焦面补偿在用), 所以光栅加进**模式相位**。
                 phase_panel = apply_zero_order_overlay(
@@ -3454,7 +3455,7 @@ def run_atomic(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) -> 
                 )
         except SantecError as exc:
             # 单组失败不该留下半个配置: 记一行失败 (指标 NaN), 仍然落盘并进索引。
-            print(f"[{stage} {slug}] 失败: {exc}", flush=True)
+            logger.info(f"[{stage} {slug}] 失败: {exc}")
             frame = None
             row = {
                 "timestamp_utc": _utc_now_iso(),
@@ -3538,11 +3539,11 @@ def run_atomic(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) -> 
         },
     )
 
-    print(
+    logger.info(
         f"[{stage} {slug}] 完成: cv={as_float(row.get('cv')):.4g} "
         f"pib={as_float(row.get('pib')):.4g} score={as_float(row.get('score')):.4g}; "
         f"{stage_dir / CONFIG_CSV_NAME} 现在有 {len(rows)} 行",
-        flush=True,
+
     )
     return cfg_dir
 
@@ -3584,7 +3585,7 @@ def run_select(args: argparse.Namespace) -> Path:
             key=str(args.rank_by),
         )
     except NoNearSideError as exc:
-        print(f"\n[中止] {exc}", flush=True)
+        logger.info(f"\n[中止] {exc}")
         raise SystemExit(EXIT_NO_NEAR_SIDE) from exc
 
     side_px = int(as_float(best.get("side_px")))
@@ -3595,10 +3596,10 @@ def run_select(args: argparse.Namespace) -> Path:
     except ValueError:
         phase_path_text = str(phase_file)
     if not phase_file.is_file():
-        print(
+        logger.info(
             f"[警告] {phase_file} 不存在 (该边长可能是失败行); 第 2/3 段会重算 GS 并在 "
             "metrics.json 里记 base_phase_source=\"recomputed\"",
-            flush=True,
+
         )
 
     payload: dict[str, Any] = {
@@ -3637,10 +3638,10 @@ def run_select(args: argparse.Namespace) -> Path:
         ),
     }
     path = save_selection(run_root, payload)
-    print(
+    logger.info(
         f"[选定] 边长 {side_px} px (近 {args.target_side_near:.0f}±{args.near_tolerance:.0f}, "
         f"{args.rank_by}={payload['rank_value']:.4f}); 候选 {len(rows)} 行 → {path}",
-        flush=True,
+
     )
     return path
 
@@ -3708,10 +3709,10 @@ def run_summarize(args: argparse.Namespace) -> Path:
                 "dir_abs": str(stage_dir),
             },
         )
-        print(
+        logger.info(
             f"[{stage}] {len(rows)} 个配置 → {stage_dir / CONFIG_CSV_NAME}"
             f" + summary.png",
-            flush=True,
+
         )
         total += len(rows)
     if total == 0:
@@ -3719,7 +3720,7 @@ def run_summarize(args: argparse.Namespace) -> Path:
             f"{run_root} 下没有任何已完成的配置产物 (退出码 {EXIT_NO_MEASUREMENTS})",
             EXIT_NO_MEASUREMENTS,
         )
-    print(f"根清单: {run_root / MANIFEST_NAME}", flush=True)
+    logger.info(f"根清单: {run_root / MANIFEST_NAME}")
     return run_root
 
 
@@ -4104,9 +4105,9 @@ def main() -> None:
     scan = str(args.scan).strip().lower()
     if scan in OFFLINE_SCANS:
         if args.execute:
-            print(
+            logger.info(
                 f"--scan {scan} 是离线子命令, 不开设备; 已忽略 --execute",
-                file=sys.stderr,
+
             )
         if scan == "select":
             run_select(args)
@@ -4128,29 +4129,29 @@ def main() -> None:
                 plan["estimate"]["capture_s"]
             )
             if per_config > PLAN_LIMIT_S:
-                print(
+                logger.info(
                     f"[警告] 单组预计 {per_config:.0f}s 已超过 {PLAN_LIMIT_S:.0f}s 预算 "
                     "(GS 网格偏大?), 但原子模式无法再拆",
-                    flush=True,
+
                 )
             try:
                 run_atomic(args, bench, plan)
             except SelectionMissing as exc:
                 # 缺选点 = 该先跑 --scan select, 不是去查光路/驱动 (退出码 6)。
-                print(f"\n[中止] {exc}", flush=True)
+                logger.info(f"\n[中止] {exc}")
                 raise SystemExit(EXIT_SELECTION_MISSING) from exc
             return
         if float(plan["estimate"]["total_s"]) > PLAN_LIMIT_S * len(plan["stages"]):
-            print(
+            logger.info(
                 "[警告] 预计总耗时超过预算 —— 整段模式一次跑完, 建议改用原子模式 "
                 "(见 --plan-commands)",
-                flush=True,
+
             )
         run_execute(args, bench, plan)
         return
 
     if args.execute and args.dry_run:
-        print("给了 --dry-run 和 --execute, 按 dry-run 处理", file=sys.stderr)
+        logger.info("给了 --dry-run 和 --execute, 按 dry-run 处理")
     if atomic:
         print_atomic_plan(plan, args)
     else:

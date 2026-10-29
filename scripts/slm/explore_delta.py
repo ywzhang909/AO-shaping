@@ -312,9 +312,9 @@ def main() -> int:
         ]
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     logger.info("wrote {}", out)
-    print()
+    logger.info()
     logger.info(scan.table())
-    print()
+    logger.info()
     logger.info(f"recommended delta: {scan.recommended}")
     return 0
 

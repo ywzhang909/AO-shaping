@@ -212,7 +212,7 @@ class AsyncR50Controller:
             try:
                 self._writer.close()
                 await self._writer.wait_closed()
-            except Exception:
+            except OSError:
                 pass
             self._reader = None
             self._writer = None

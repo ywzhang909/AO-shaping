@@ -38,6 +38,7 @@ def ramp_matrix(rows: list[dict]) -> np.ndarray:
 
 
 from ao_shaping.algorithm.signal_processing.physical_forward_fit import PhysicalForwardFit
+from loguru import logger
 
 
 def load_observations(directory, camera_center=None, *, grid_size=128):
@@ -142,8 +143,8 @@ def main():
         results["models"][name] = result
         np.savez_compressed(destination / f"prediction_{name}.npz", predicted=prediction, measured=images, camera_xy=camera_xy)
         (destination / "forward_fit.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
-        print(name, [(b, float(np.mean([r["corr"] for r in metrics if r["branch"] == b and r["split"] == "test"])))
-                     for b in ("U", "C")], flush=True)
+        logger.info(name, [(b, float(np.mean([r["corr"] for r in metrics if r["branch"] == b and r["split"] == "test"])))
+                     for b in ("U", "C")])
 
 
 if __name__ == "__main__":

@@ -175,6 +175,19 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
     ),
 
+    "report/sim2f_bench/alignment_20261027/report.md": ReportProvenance(
+        script=HANDWRITTEN,
+        command="",
+        environment="离线汇总（只读 runs/sim2f_bench/session_hw 与各 lane 报告产物，无 SLM / 无相机）",
+        note=(
+            "本报告把 lane 1 (仿真 dry run)、lane 2 (pupil_center_sweep 结论 A)、"
+            "optical_scale (H1/H2 均否决) 与 session_hw (G0-2 FAIL / G0-4 FAIL) 四路证据"
+            "汇总为一条对齐结论: G0-4 = 孪生保真度上限 (非放置错误), G0-2 = 真实光学漂移; "
+            "不放宽任何阈值。"
+        ),
+        extra_scripts=("src/ml/sim2f/bench.py",),
+    ),
+
     "report/shape_trials/axial_plane/axial_plane_20261026.md": ReportProvenance(
         script="scripts/slm/generate_axial_plane_report.py",
         command="python scripts/slm/generate_axial_plane_report.py",
@@ -1018,6 +1031,228 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/validate_defocus_exposure.py",
             "scripts/slm/summarize_defocus_forward_experiment.py",
             "src/ao_shaping/tools/slm/panel/alignment_probe.py",
+        ),
+    ),
+    "report/shape_trials/no_gs_ccd_moved/live_20261027.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="实验（Santec #1 / Daheng；CCD 移动后的无 GS 探针与可微优化）",
+        note="本轮原始数据、曝光读回、几何、物理预测与同曝光验收的实验中记录。",
+        extra_scripts=(
+            "src/ao_shaping/tools/slm/transfer/capture.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+            "src/ao_shaping/tools/slm/panel/alignment_probe.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "scripts/slm/analyze_no_gs_session.py",
+        ),
+    ),
+    "report/shape_trials/no_gs_ccd_moved/analysis_20261027.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线分析（本轮 Santec #1 / Daheng 原始数据；设备已释放）",
+        note="无 GS CCD 验收、曝光偏置、激活函数位置与下一轮多形状多尺度响应区间方案。",
+        extra_scripts=(
+            "scripts/slm/analyze_no_gs_run.py",
+            "scripts/slm/analyze_no_gs_response.py",
+            "src/ao_shaping/tools/slm/transfer/capture_response.py",
+            "src/ao_shaping/tools/slm/transfer/response.py",
+            "src/ao_shaping/tools/slm/transfer/direction.py",
+            "src/ao_shaping/tools/slm/transfer/local_response.py",
+            "src/ao_shaping/utils/image/model_response.py",
+        ),
+    ),
+    "report/shape_trials/multishape_scale/multishape_scale_planning_20261028.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线规划（设备已预检；实验开始后于 2026-10-28 追加 H3 勘误与 --no-gs-seed 旗标说明）",
+        note=(
+            "四形状 × 三尺度（200/600/1200 原生 CCD px）同载波矩阵的实验方案："
+            "几何落点、曝光阶梯、通过/拒绝标准与数据目录；不含优化结论。"
+            "2026-10-28 拟合后追加勘误：实测载波位移 (14.76, −129.70)，"
+            "200 格零级不再与目标分离（排除区与目标重叠 5.61%）。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+            "src/ao_shaping/tools/slm/transfer/capture.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/replay_phases.py",
+        ),
+    ),
+    "report/shape_trials/multishape_scale/multishape_scale_live_20261028.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件（Santec #1 SLM + Daheng CCD；WFS / NLight DM / MIICAM 未连接）",
+        note=(
+            "多形状 × 三尺度同载波闭环整形：实验中记录（2026-10-28）。"
+            "Session A（1200 原生 px）的 16 个形状×阶段（square/triangle/star/circle 各 4 段）"
+            "全部完成，共 112 个验收块（28 块/形状；journal 16 条 ``complete``、无 error/failed）；"
+            "records 已导出（process.csv 179,587 B / process.h5 428,279,000 B / 336 个 sidecar）；"
+            "common_replay 完成，common_replay_dense 仍在写盘、本次未消费；s600 / s200 跨尺度未开始。"
+            "一次早期 relaunch 在 square/transport_cv 触发饱和守卫而中止，原完成数据未受损。"
+            "2026-10-29 追加 §7：跨会话汇总（200 px 会话的净结论）、对 §6 第 3 条时效性的修正、"
+            "以及把「反投影在小目标上胜出」降级为「在 circle / triangle 上成立」——"
+            "跨尺度部分已跑完 s200 四形状；square 剔除饱和行后仍为真实回归（+0.170/+0.165，"
+            "约噪声三倍），star 仅一档可判（no_difference）。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+            "src/ao_shaping/tools/slm/transfer/capture.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/replay_phases.py",
+            "scripts/slm/generate_multishape_scale_live_figures.py",
+        ),
+    ),
+    "report/shape_trials/multishape_scale/multishape_scale_analysis_20261028.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线分析（读取 Session A 运行目录的 stage 子目录、common_replay*/ 重放 npz 与 manifest；不连接设备）",
+        note=(
+            "多形状 × 三尺度同载波闭环整形：实验后分析（2026-10-28）。"
+            "三层证据收口（模型验证集 / 逐块 CV / 重放饱和审计）；"
+            "新增第（e）条硬约束——CV 随曝光单调上升并饱和、跨曝光档 CV 不可比；"
+            "给出目标对照、实验差距（G1–G6）与下一步方案（N1–N6，含具体命令），"
+            "并检索 Zotero 文库给出候选改进方法的文献依据（Mastiani 2024 / Cho 2026 GRAPHYCS / Chromatix 2026 等）。"
+            "common_replay 的 90 ms 块末 4 条失效记录由 common_replay_r2 洁净重测覆盖。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/replay_phases.py",
+            "scripts/slm/generate_multishape_scale_live_figures.py",
+        ),
+    ),
+    "report/shape_trials/multishape_scale/multishape_scale_wallclock_20261028.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线分析（读取 Session A/B 运行目录与光路探针落盘；光路复核为实验系统实测探针；修复的硬件收益在 s600_fixed 会话实测中）",
+        note=(
+            "多形状 × 三尺度闭环整形 campaign 的耗时剖析与写放大治理："
+            "按 journal ``status`` 字段重算逐阶段耗时（推翻「相邻同名配对」错配），"
+            "定位主导成本为 ``validate.py`` 的 ``iterations.pkl`` 每次优化迭代整体重写"
+            "（每条含 1.56 MB 相位副本，O(n²) 落盘，每 campaign ≈224 GB）；"
+            "改为每块落盘一次，离线基准 ≈14×、写出字节 15.3×↓、条目逐条一致；"
+            "含一次自我纠错（``star/mono12_cv`` 的 1438.8 s 系错误配对，真值为中断 1227.9 s + 恢复 210.9 s）；"
+            "并含光路曝光强度变化后的复核（判定 ok，强度 +1.35×、对准保持，质心仅移 2.3 px）。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+            "src/ao_shaping/tools/slm/transfer/capture.py",
+            "scripts/slm/probe_optical_path_validity.py",
+            "scripts/slm/plan_transfer_next_run.py",
+        ),
+    ),
+    "report/shape_trials/multishape_scale/live_20261029_device_session.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件（Santec #1 SLM + Daheng CCD；WFS / NLight DM / MIICAM 未连接）",
+        note=(
+            "2026-10-29 设备在线多尺度整形会话的实测记录：lane 00–05 实际执行、"
+            "06–24 未开始（25 条编制中完成 5 条、部分完成 1 条）。"
+            "200 px 解析初始化四形状各 4/4 阶段完成，冻结光阑重放审计（已剔除饱和行）给出"
+            "circle（15/15 有效，dCV −0.286/−0.126/−0.127，三档 supported）与 triangle"
+            "（13/15，−0.161/−0.173，两档 supported）；square（11/15，+0.170/+0.165，"
+            "两档 wrong_direction，约噪声三倍 → 真实回归）与 star（5/15，仅一档，"
+            "no_difference）。"
+            "600 px 仅 circle 前两段（1.0986→0.7993、0.7447→0.6268），无重放，不参与跨尺度对比。"
+            "含审计工具缺陷（`clipped` 行被标注却仍进入分组均值）及其本轮修正（剔除后 "
+            "circle 一位未变，triangle/square 各失去一档，star 失去两档）。"
+            "§5.5 逐组合字段台账：本轮 objective 以 `formation=False` 运行，"
+            "`l_partition` / `l_boundary` 逐轮恒为 0.0，故形状覆盖 / 边界误差与 "
+            "Zernike 增量三项**未测**（不是未报），结论只覆盖「更均匀 + 能量没丢」。"
+            "配图由 `generate_multishape_nogs_20261029_figures.py` 渲染："
+            "CV 轨迹与逐段首末柱取自 `capture_records.pkl`（与 §5.2 表同源），"
+            "冻结光阑审计图直接调用 `audit_block`/`summarise_block`（与 §5.1 表同源），"
+            "帧图与 GIF 为 `common_replay/*.npz` 的判据帧。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/capture.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+            "src/ao_shaping/tools/slm/transfer/replay_phases.py",
+            "scripts/slm/audit_replay_blocks.py",
+            "scripts/slm/probe_optical_path_validity.py",
+            "scripts/slm/analyze_session_time_budget.py",
+            "scripts/slm/generate_multishape_nogs_20261029_figures.py",
+        ),
+    ),
+    "report/shape_trials/multishape_scale/next_round_20261029.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线（issue #213 质量建议 + 2026-10-29 会话实测记录；本文的代码项已在仓内实现并通过单元测试，尚未实验）",
+        note=(
+            "2026-10-29 之后的质量改善实施方案：按 issue #213 comment 6466195110 的"
+            "质量侧优先级（3a Jacobian 逐块校验 / 1b 频域 MTF 正则 / 2b 像素级不均匀性掩膜 / "
+            "4c 多目标 Pareto）给出改法、开关、验收判据与失败形态；"
+            "依据本轮实测把「饱和先决」与「审计 clipped 语义修正」提到 P0，"
+            "并明确 3a 只实现缩 cap（不转纯实测梯度）、1b 默认关闭等实测 MTF。"
+            "所有判定统一使用重复导出的不确定度（6 个 ABBA 周期可达 p<0.05），不用固定阈值。"
+            "§9 落地状态区分已实现（3a / 1b / P0-2 审计 / 4c 阶段化权重）与未实现"
+            "（2b 像素级掩膜 —— 缺实测标定数据，反演无法验证，理由写在 §5 末尾），"
+            "并记下本轮走 `cv` 变体导致形状覆盖 / 边界误差未测这一字段缺口。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/tools/slm/transfer/jacobian_guard.py",
+            "src/ao_shaping/algorithm/signal_processing/spectral_regulariser.py",
+            "src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+            "scripts/slm/audit_replay_blocks.py",
+        ),
+    ),
+    "report/shape_trials/transfer_square1200/transfer_square1200_20261027.md": ReportProvenance(
+        script="scripts/slm/generate_transfer_square1200_report.py",
+        command="python scripts/slm/generate_transfer_square1200_report.py",
+        environment="实验（Santec #1 与 Daheng，1064 nm，1200 CCD 像元）",
+        note=(
+            "手动干扰后用迁移适配的物理预测模型整形 1200 像元方形："
+            "alignment→full 的验证选择、模型模式与 CCD 锚定两段的 A–B–B–A 实测判决、"
+            "方向性检查、Recorder 过程记录与动画；"
+            "含「几何被继承导致适配永久卡死」这一机制的修复记录。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/tools/slm/transfer/workflow.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+            "src/ao_shaping/tools/slm/transfer/adaptation.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/paired.py",
+            "src/ao_shaping/tools/slm/transfer/recording.py",
+            "src/ao_shaping/tools/slm/transfer/capture.py",
+            "src/ao_shaping/tools/slm/transfer/radiometry.py",
+        ),
+    ),
+    "report/shape_trials/tri_plane_20261027/tri_plane_20261027.md": ReportProvenance(
+        script="scripts/slm/generate_tri_plane_report.py",
+        command="python scripts/slm/generate_tri_plane_report.py",
+        environment="实验（Santec #1 与 Daheng，1064 nm，1200 CCD 像元）",
+        note=(
+            "三角形与五角星 1.5 倍窗口 shaping + 平面相位起始对比："
+            "窗口开到边长 1.5 倍使目标外光可见；平面起始 3/4 块接受、CV 0.6632→0.5967，"
+            "优于 GS 起始的 2/4 块；GIF 渲染修复（整窗裁剪 + 目标轮廓 + 重复采集标注）。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/tools/slm/transfer/recording.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/workflow.py",
+            "src/ao_shaping/tools/slm/transfer/cold_start.py",
+        ),
+    ),
+    "report/shape_trials/dual_optimization/experiment_plan_20261027.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线（方案文档；设备已预检，实验尚待 G0-2 光路漂移处置）",
+        note=(
+            "迁移学习 + model-in-loop 双优化流程的实验方案："
+            "G0 前置门禁、逐轮交替的判决口径与记录要求；不含任何新测量。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/runners/slm/model_in_loop_runner.py",
+            "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+        ),
+    ),
+    "report/shape_trials/physical_forward_no_gs_plan_20261027.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线（历史报告分析与下一轮实验规划；未连接设备）",
+        note="无 GS 相位起点：分层指标、物理参数与局部响应校正、CCD 验收及缓漂实验设计；不新增实验测量结论。",
+        extra_scripts=(
+            "src/ao_shaping/utils/image/physical_model_metrics.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
         ),
     ),
     "report/shape_trials/physical_forward_defocus_plan_20261022.md": ReportProvenance(

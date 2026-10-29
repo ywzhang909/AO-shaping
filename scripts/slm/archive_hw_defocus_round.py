@@ -739,14 +739,14 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"分组根不存在: {repo_rel(groups_root)} —— 这一轮还没采集? "
             "(采集产物落在 data/debug/<根名>/ 下)",
-            file=sys.stderr,
+
         )
         return 2
     if not sweep_root.is_dir():
         print(
             f"扫描根不存在: {repo_rel(sweep_root)} —— 这一轮还没采集? "
             "(采集产物落在 data/debug/<根名>/ 下)",
-            file=sys.stderr,
+
         )
         return 2
 
@@ -761,13 +761,13 @@ def main(argv: list[str] | None = None) -> int:
             archive_plan=not args.no_plan,
         )
     except (OSError, ValueError) as exc:
-        print(f"归档计划生成失败: {exc}", file=sys.stderr)
+        print(f"归档计划生成失败: {exc}")
         return 2
 
     if plan_path is None:
         print(
             "  ⚠ 没有找到采集计划, 无法判定「缺组」 (用 --plan 指定计划文件)",
-            file=sys.stderr,
+
         )
 
     # **空轮不许归档**: 这一轮一个组都没产出时, 归档出来的只是一个空壳快照 ——
@@ -792,7 +792,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         copied = execute(plan, force=args.force)
     except (OSError, ValueError) as exc:
-        print(f"归档失败: {exc}", file=sys.stderr)
+        print(f"归档失败: {exc}")
         return 2
 
     manifest = write_manifest(

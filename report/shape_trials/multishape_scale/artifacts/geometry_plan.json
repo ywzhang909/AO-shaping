@@ -1,0 +1,118 @@
+{
+  "zero_xy": [
+    1294.8,
+    982.4
+  ],
+  "period": 48.0,
+  "shift": [
+    11.74,
+    -201.7
+  ],
+  "cells": [
+    {
+      "side": 1200,
+      "window_span": 900,
+      "target_x": [
+        706.5,
+        1906.5
+      ],
+      "target_y": [
+        180.7,
+        1380.7
+      ],
+      "window_x": [
+        394.8,
+        2194.8
+      ],
+      "window_y": [
+        82.4,
+        1882.4
+      ],
+      "sensor_x": [
+        0,
+        2591
+      ],
+      "sensor_y": [
+        0,
+        1943
+      ],
+      "in_sensor": true,
+      "target_in_window": true,
+      "margin_top": 98.3,
+      "margin_bottom": 501.7,
+      "zero_disk_distance": 0.0,
+      "zero_disk_intersects": true,
+      "core_area_removed_pct": 0.79
+    },
+    {
+      "side": 600,
+      "window_span": 620,
+      "target_x": [
+        1006.5,
+        1606.5
+      ],
+      "target_y": [
+        480.7,
+        1080.7
+      ],
+      "window_x": [
+        674.8,
+        1914.8
+      ],
+      "window_y": [
+        362.4,
+        1602.4
+      ],
+      "sensor_x": [
+        0,
+        2591
+      ],
+      "sensor_y": [
+        0,
+        1943
+      ],
+      "in_sensor": true,
+      "target_in_window": true,
+      "margin_top": 118.3,
+      "margin_bottom": 521.7,
+      "zero_disk_distance": 0.0,
+      "zero_disk_intersects": true,
+      "core_area_removed_pct": 3.145
+    },
+    {
+      "side": 200,
+      "window_span": 420,
+      "target_x": [
+        1206.5,
+        1406.5
+      ],
+      "target_y": [
+        680.7,
+        880.7
+      ],
+      "window_x": [
+        874.8,
+        1714.8
+      ],
+      "window_y": [
+        562.4,
+        1402.4
+      ],
+      "sensor_x": [
+        0,
+        2591
+      ],
+      "sensor_y": [
+        0,
+        1943
+      ],
+      "in_sensor": true,
+      "target_in_window": true,
+      "margin_top": 118.3,
+      "margin_bottom": 521.7,
+      "zero_disk_distance": 101.7,
+      "zero_disk_intersects": false,
+      "core_area_removed_pct": 0.0
+    }
+  ]
+}

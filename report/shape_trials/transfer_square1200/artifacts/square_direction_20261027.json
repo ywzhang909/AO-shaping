@@ -1,0 +1,11 @@
+{
+  "shape": "square",
+  "model_loss_plus": 1.2850866317749023,
+  "model_loss_minus": 1.28609037399292,
+  "ccd_loss_plus": 1.3284077644348145,
+  "ccd_loss_minus": 1.5054373741149902,
+  "difference_correlation": 0.28919114806082263,
+  "difference_relative_l2": 1.287254202915548,
+  "timestamp_utc": "2026-10-27T07:03:53.122878+00:00",
+  "monotonic_ns": 317696675385900
+}

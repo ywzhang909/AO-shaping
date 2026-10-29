@@ -60,6 +60,30 @@ class TransferSession:
     phase_rms_cap: float = .2
     adaptive_step: bool = False
     adaptive_exposure: bool = False
+    #: CCD sampling window for the anchored blocks: half-span and step in
+    #: native CCD pixels. The 220/2 default is a small-target setting; a
+    #: 1200-px target needs a half-span of at least ~640 or its box leaves the
+    #: window and the run fails the boundary check.
+    window_span: float = 220.
+    window_step: float = 2.
+    #: Radius (native CCD px) excluded from the core metric around the zero
+    #: order, and the extra erosion applied to the core beyond the window step.
+    zero_radius: float = 0.
+    core_margin: float | None = None
+    #: Control grid of the probe capture; must tile the panel exactly.
+    capture_grid: int = 128
+    #: ADC bit depth of the CCD blocks (8 or 12).
+    bit_depth: int = 8
+    #: Control resolution used for the shaping stages. ``0`` keeps the fit's own
+    #: resolution; a finer grid is a *sampling* export of the same optical
+    #: parameters (geometric_seed.export_frozen_parameters), which is what the
+    #: 1200-px runs use so the phase is not limited by the probe grid.
+    control_grid: int = 0
+    fft_size: int = 2048
+    #: Learning rate of the illumination-position parameter (panel px/step).
+    #: ``None`` keeps the fit default; a disturbed bench whose beam moved on the
+    #: panel needs more than the default to reach the measured position.
+    amplitude_center_lr: float | None = None
 
     @property
     def calibration_enabled(self):
@@ -91,6 +115,16 @@ class TransferSession:
             raise ValueError("count >= 6, frames >= 3 and iterations >= 0 required")
         if min(self.blocks, self.updates) < 1 or self.side <= 0 or self.period < 4:
             raise ValueError("invalid target or optimization parameters")
+        if self.window_span <= 0 or self.window_step <= 0 or self.zero_radius < 0:
+            raise ValueError("invalid camera window or zero-order exclusion")
+        if self.bit_depth not in (8, 12):
+            raise ValueError("bit depth must be 8 or 12")
+        if self.capture_grid < 16 or 1920 % self.capture_grid or 1200 % (1920 // self.capture_grid):
+            raise ValueError("capture grid must exactly tile the 1920x1200 panel")
+        if self.control_grid and (1920 % self.control_grid
+                                  or 1200 % (1920 // self.control_grid)
+                                  or self.fft_size < self.control_grid):
+            raise ValueError("control grid must tile the panel exactly and FFT must cover it")
         if not self.shapes or len(set(self.shapes)) != len(self.shapes) or not set(self.shapes) <= set(POLYGON_SHAPE_CHOICES):
             raise ValueError("unique supported shapes required")
         # Parameter-level pre-flight. A carrier period the calibration never
@@ -106,6 +140,7 @@ class TransferSession:
             updates=int(self.updates),
             frames=int(self.frames),
             shapes=tuple(self.shapes),
+            half_span_px=float(self.window_span),
         )
         errors = [problem for problem in problems if problem.severity == "error"]
         if errors:
@@ -135,6 +170,7 @@ class TransferSession:
                     stages=(["reuse_capture"] if self.dataset else ["capture"])
                     + ([] if self.checkpoint else ["nominal_initialization"])
                     + ["fit"]
+                    + (["control_resolution_export"] if self.control_grid else [])
                     + ([("transferred_phase_differentiable_synthesis" if self.seed_run else "GS_and_differentiable_synthesis" if self.initial_phase == "gs" else "cold_differentiable_synthesis")] if offline else ([] if (self.seed_run or self.initial_phase != "gs") and not self.calibration_enabled else ["CCD_model_blocks"])
                        + (["exposure_response_capture", "exposure_response_analysis", "blur_calibration"] if self.calibration_enabled else [])
                        + ["CCD_anchored_blocks", "raw_data_audit", "summary"]
@@ -201,7 +237,8 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None):
     samples = None
     if config.dataset is None:
         samples = stage("capture", lambda: capture.capture(SimpleNamespace(out=dataset, camera=config.camera,
-              cam_id=config.cam_id, slm_number=config.slm_number, grid=128, count=config.count,
+              cam_id=config.cam_id, slm_number=config.slm_number, grid=config.capture_grid,
+              count=config.count,
               frames=config.frames, seed=config.seed, execute=True,
               exposure_max_steps=config.exposure_max_steps,
               save_dataset=config.save_dataset)))
@@ -217,9 +254,16 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None):
     # reused (recorded) dataset is read back from disk.
     stage("fit", lambda: fit.fit(SimpleNamespace(dataset=dataset, checkpoint=checkpoint,
           out=out / "fit", iterations=config.iterations, span=120, samples=samples,
-          device=device,
+          device=device, amplitude_center_lr=config.amplitude_center_lr,
           adaptation=config.adaptation if config.checkpoint else "full")))
     checkpoint = out / "fit/frozen_parameters.json"
+    if config.control_grid:
+        from .geometric_seed import export_frozen_parameters
+
+        control_out = out / f"model{config.control_grid}"
+        stage("control_resolution_export", lambda: export_frozen_parameters(
+            checkpoint, control_out, grid=config.control_grid, fft=config.fft_size))
+        checkpoint = control_out / "frozen_parameters.json"
     rows = json.loads((dataset / "manifest.json").read_text(encoding="utf-8"))
     reference = next(r for r in rows if r["label"] == "reference_start" and fit.valid(r))
     zero = np.round(fit.spot(reference)).tolist()
@@ -236,12 +280,17 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None):
         side=float(config.side),
         period=float(config.period),
         shapes=tuple(config.shapes),
+        half_span_px=float(config.window_span),
+        step_px=float(config.window_step),
     )
     geometry_errors = [problem for problem in geometry_problems if problem.severity == "error"]
     if geometry_errors:
         first = geometry_errors[0]
         raise ValueError(f"{first.message} → {first.hint}")
     options = dict(checkpoint=checkpoint, zero_xy=zero, period=config.period, side=config.side,
+                   window_span=config.window_span, window_step=config.window_step,
+                   zero_radius=config.zero_radius, core_margin=config.core_margin,
+                   bit_depth=config.bit_depth,
                    initial_phase=config.initial_phase, random_seed=config.seed,
                    phase_lr=config.phase_lr, phase_rms_cap=config.phase_rms_cap, adaptive_step=config.adaptive_step,
                    adaptive_exposure=config.adaptive_exposure,
@@ -322,6 +371,21 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None):
     return out
 
 
+def _log_to_stdout():
+    """Keep the CLI's own INFO on stdout.
+
+    PowerShell turns loguru's default stderr lines into NativeCommandError
+    records, and the plan/execute output *is* the command's result (the
+    ``--help``-frozen CLI contract asserts it on stdout). ``logger`` stays the
+    module-level one: importing it inside a function makes it a local and
+    breaks every other call in ``main``.
+    """
+    import sys
+
+    logger.remove()
+    logger.add(sys.stdout, level="INFO", colorize=False)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -347,6 +411,26 @@ def main():
                             "available else CPU; cpu reproduces the historical numbers")
         p.add_argument("--side", type=float, default=80.)
         p.add_argument("--period", type=float, default=64.)
+        p.add_argument("--window-span", type=float, default=220.,
+                       help="CCD window half-span (native px); a 1200-px target needs >= ~640")
+        p.add_argument("--window-step", type=float, default=2.,
+                       help="CCD sampling step (native px) used for the mask and metrics")
+        p.add_argument("--zero-radius", type=float, default=0.,
+                       help="Radius (native px) excluded from the core around the zero order")
+        p.add_argument("--core-margin", type=float, default=None,
+                       help="Extra erosion (native px) of the core beyond the window step")
+        p.add_argument("--capture-grid", type=int, default=128,
+                       help="Control grid of the probe capture (must tile the panel)")
+        p.add_argument("--bit-depth", type=int, choices=(8, 12), default=8,
+                       help="ADC bit depth of the CCD blocks")
+        p.add_argument("--control-grid", type=int, default=0,
+                       help="Export the fitted optics at this control grid before shaping "
+                            "(0 = keep the fit resolution; a 1200-px target uses 640)")
+        p.add_argument("--fft-size", type=int, default=2048,
+                       help="FFT size of the exported control-resolution checkpoint")
+        p.add_argument("--amplitude-center-lr", type=float, default=None,
+                       help="Learning rate of the illumination position (panel px/step); "
+                            "a disturbed bench needs more than the default to reach it")
         p.add_argument("--adaptation", choices=("auto", "alignment", "full"), default="auto")
         p.add_argument("--accept-metric", choices=("loss", "cv"), default="loss")
         p.add_argument("--objective", choices=("shape", "cv", "formation"), default="shape")
@@ -370,6 +454,12 @@ def main():
     audit = commands.add_parser("audit", help="Check raw frames, exposures, phases, masks and A/B decisions")
     audit.add_argument("--run", type=Path, required=True)
     audit.add_argument("--out", type=Path)
+    record = commands.add_parser("record", help="Rebuild a finished run's Recorder "
+                                 "table and GIF; no devices")
+    record.add_argument("--run", type=Path, required=True,
+                        help="the anchored/ or model/ directory of a finished run")
+    record.add_argument("--out", type=Path, help="output directory (default <run>/recording)")
+    record.add_argument("--fps", type=float, default=2.0)
     doctor = commands.add_parser("doctor", help="Enumerate Daheng without opening a stream or accessing SLM")
     doctor.add_argument("--out", type=Path)
     simulate = commands.add_parser("simulate", help="Create known-truth linear-camera transfer probes; no devices")
@@ -426,6 +516,12 @@ def main():
                 json.dump(result, stream, default=str, indent=2)
         logger.info(json.dumps(result, default=str, indent=2))
         return
+    if args.command == "record":
+        from .recording import rebuild_run
+
+        _log_to_stdout()
+        logger.info(json.dumps(rebuild_run(args.run, args.out, fps=args.fps), indent=2))
+        return
     if args.command in {"audit", "replay"}:
         from .artifacts import audit_run
         result = audit_run(args.run)
@@ -443,6 +539,8 @@ def main():
         return
     config = TransferSession(**{k: v for k, v in vars(args).items() if k not in {"command", "offline", "execute"}})
     if args.command == "plan" or not (args.execute or args.offline):
+        _log_to_stdout()
         logger.info(json.dumps(config.plan(args.offline), default=str, indent=2))
     else:
+        _log_to_stdout()
         run_session(config, offline=args.offline)

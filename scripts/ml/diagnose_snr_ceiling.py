@@ -127,9 +127,9 @@ def main(argv: list[str] | None = None) -> int:
             row[f"skill_k{k}"] = m["skill"]
             row[f"mse_k{k}"] = m["mse"]
         rows.append(row)
-        print("fold %2d  r2_const=%+.4f  " % (fold_i, m_const["r2_const"])
+        logger.info("fold %2d  r2_const=%+.4f  " % (fold_i, m_const["r2_const"])
               + "  ".join("skill k=%-2d %+.4f" % (k, row[f"skill_k{k}"]) for k in K_LIST),
-              flush=True)
+)
 
     logger.info("\n=== k-NN (no capacity, no optimiser, no loss) vs constant ===")
     summary: dict[str, float] = {}
@@ -159,8 +159,8 @@ def main(argv: list[str] | None = None) -> int:
     out = {"rows": rows, "summary": summary, "curve": curve,
            "verdict": verdict, "seconds": round(time.perf_counter() - started, 1)}
     Path(args.out).write_text(json.dumps(out, indent=2), encoding="utf-8")
-    logger.info("\nVERDICT:", verdict)
-    logger.info("wrote", args.out)
+    logger.info(f"\nVERDICT: {verdict}")
+    logger.info(f"wrote {args.out}")
     return 0
 
 

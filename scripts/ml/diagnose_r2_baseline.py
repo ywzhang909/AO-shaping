@@ -104,12 +104,12 @@ def main() -> int:
             "skill_vs_const": 1.0 - float(m_ridge["mse"]) / float(m_const["mse"]),
         })
         r = rows[-1]
-        print("fold %2d  var=%.5f  mse_const=%.5f  mse_ridge=%.5f  "
+        logger.info("fold %2d  var=%.5f  mse_const=%.5f  mse_ridge=%.5f  "
               "r2_const=%+.4f  r2_ridge=%+.4f  skill=%+.4f"
               % (i, r["var_pooled"], r["mse_const"], r["mse_ridge"],
-                 r["r2_const"], r["r2_ridge"], r["skill_vs_const"]), flush=True)
+                 r["r2_const"], r["r2_ridge"], r["skill_vs_const"]))
 
-    print()
+    logger.info()
     for key in ("r2_const", "r2_ridge", "skill_vs_const"):
         vals = [r[key] for r in rows]
         logger.info("%-16s mean over %d folds: %+.4f  (min %+.4f, max %+.4f)"

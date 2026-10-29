@@ -334,7 +334,9 @@ def resolve_ips(user_ips: tuple[str, ...]) -> list[str]:
             return list(DEFAULT_IPS)
         logger.info("未指定 IP, 从 wiring map 加载 {} 个控制器: {}", len(ips), ips)
         return ips
-    except Exception as e:
+    except Exception as e:  # 保留宽泛捕获: WiringMap.from_file 是可替换的加载器,
+        # 其失败类型不可枚举 (文件 I/O 之外还有调用方/注入实现抛的任意异常);
+        # 这里的语义是"任何加载失败都回退默认 IP 段", 收窄会让注入的失败逃出。
         logger.warning("wiring map 加载失败 ({}), 回退默认 IP 段", e)
         return list(DEFAULT_IPS)
 

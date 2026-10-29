@@ -22,6 +22,7 @@ from scipy.optimize import nnls
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from scripts.slm.fit_defocus_forward_dataset import PhysicalForwardFit, load_observations
+from loguru import logger
 
 
 def stamp():
@@ -198,7 +199,7 @@ def main():
         (stage/"result.json").write_text(json.dumps(result, indent=2))
         summary[name] = result
         (out/"summary.json").write_text(json.dumps(summary, indent=2))
-        print(name, [(b, np.mean([abs(r['measured_cv']-r['predicted_cv']) for r in result['rows'] if r['split']=='external' and r['family']!='reference' and r['branch']==b])) for b in ('U','C')], flush=True)
+        logger.info(name, [(b, np.mean([abs(r['measured_cv']-r['predicted_cv']) for r in result['rows'] if r['split']=='external' and r['family']!='reference' and r['branch']==b])) for b in ('U','C')])
         del model
     # Bias is calibrated independently from fixed-phase exposure data.
     bias = response_bias(args.response, xy)
@@ -230,13 +231,13 @@ def main():
                                training_score=result["training_score"], gain=gain, background=background))
         with (out/"diagnostic_iterations.pkl").open("wb") as stream:
             pickle.dump(iterations, stream, protocol=5)
-        print('blur', sigma, result['training_score'], flush=True)
+        logger.info('blur', sigma, result['training_score'])
     winner = min((k for k in summary if k.startswith("blur_")), key=lambda k: summary[k]["training_score"])
     summary["selection"] = dict(stage=winner, rule="minimum training normalized image MSE; optical parameters frozen",
                                  bias_negative_intercept_fraction=float(np.mean(bias["raw_intercept"]<0)),
                                  note="Previously inspected external data are diagnostic; fresh hardware validation required after model selection.")
     (out/"summary.json").write_text(json.dumps(summary, indent=2))
-    print('selected', winner, flush=True)
+    logger.info('selected', winner)
 
 
 if __name__ == "__main__":

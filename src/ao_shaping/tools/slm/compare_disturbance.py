@@ -164,7 +164,7 @@ def run_comparison(args: argparse.Namespace) -> Path:
             entry["flat_center_xy"] = list(center)
             entry["common_quality"] = _common_quality(best_frame, args.target_side, center)
             entry["result"] = "completed"
-        except Exception as exc:
+        except Exception as exc:  # 保留宽泛捕获: 内部调用链 SlmGsRefineConfig 的失败类型不可枚举
             entry["result"] = "failed"
             entry["error"] = f"{type(exc).__name__}: {exc}"
             raise

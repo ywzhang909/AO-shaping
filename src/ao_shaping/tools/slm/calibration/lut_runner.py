@@ -842,7 +842,7 @@ def run(params: LutRunnerParams) -> None:
             f"\nLUT saved to {lut_dir}. Load into SLM via: slm.load_lut('{lut_dir}')"
         )
 
-    except Exception as exc:
+    except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
         logger.error("SLM LUT runner failed: {}", exc)
         raise
     finally:
@@ -851,13 +851,13 @@ def run(params: LutRunnerParams) -> None:
             try:
                 slm.close()
                 logger.info("SLM disconnected")
-            except Exception as exc:
+            except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
                 logger.warning("SLM disconnect failed: {}", exc)
         if camera is not None:
             try:
                 camera.close()
                 logger.info("Camera disconnected")
-            except Exception as exc:
+            except Exception as exc:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
                 logger.warning("Camera disconnect failed: {}", exc)
 
 
@@ -867,7 +867,7 @@ def main() -> None:
         run(standalone_mode=True)
     except SystemExit:
         raise
-    except Exception as exc:
+    except Exception as exc:  # 保留宽泛捕获: 内部调用链 run 的失败类型不可枚举
         click.echo(f"Error: {exc}")
         logger.exception("SLM LUT runner failed")
         sys.exit(1)

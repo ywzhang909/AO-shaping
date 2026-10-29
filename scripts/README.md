@@ -2,6 +2,15 @@
 
 This directory contains various utility scripts for the AO-Shaping project, including build scripts, simulation scripts, training scripts, and analysis tools.
 
+`slm/analyze_no_gs_session.py` audits a saved capture/fit pair; `slm/analyze_no_gs_run.py`
+compares square endpoints on the native CCD grid; `slm/analyze_no_gs_response.py`
+reuses the exact shaping core to diagnose exposure-dependent CV. All three are
+offline, require a new output directory, and never open devices. Examples and
+scope are in `report/shape_trials/no_gs_ccd_moved/analysis_20261027.md`.
+The fitter's optional `--record-responses` records detached physical-stage statistics
+alongside per-iteration Zernike coefficients; it adds diagnostic overhead and is
+not a neural activation hook.
+
 `slm/generate_axial_plane_report.py` regenerates the SLM input-plane ABCD
 correction report from recorded CCD pairs. The reusable offline distance scan is
 `python -m ao_shaping.tools.slm.transfer.axial`; its fitted offset is conditional
@@ -21,7 +30,7 @@ script from the repository root so its `data/` and `report/` paths resolve.
 
 | Subfolder | What it processes |
 |---|---|
-| `slm/` | The Santec SLM-200 + CCD far-field bench (2f-Fourier), hardware and its simulation twin: `slm-pib`, `spgd-square`, `slm-gsnet`, diff-beam, bench probes, model-in-loop runbook, the shape-objective studies, and the beam-shaping benchmark family. |
+| `slm/` | The Santec SLM-200 + CCD far-field bench (2f-Fourier), hardware and its simulation twin: `slm-pib` (incl. the `square` subcommand), `slm-gsnet`, diff-beam, bench probes, model-in-loop runbook, the shape-objective studies, the beam-shaping benchmark family, and `screenshot_sampling_assist.py` — the device-off Streamlit harness that renders the sampling-assist popover for the figures in `docs/sampling_assist_usage.md`. |
 | `ccd/` | Camera-driver probes that are not tied to the SLM bench: `miicam_auto_exposure_probe.py` verifies the MiiCam `auto_exposure` contract on hardware (response map, knee scan, dirty-data scan, convergence/boundary/dead-zone runs). Opens the camera through the miicam SDK only and never touches the Daheng backend. |
 | `zernike_bench/` | The Zernike calibration bench — Zernike phase written to the SLM and read back by the WFS: response matrix, linearity, far-field morphology, phase→WFS readout, and the WFS-only probe. |
 | `dm/` | Deformable mirrors: Micro-DM (R50Power) per-channel image diff pipeline, 1300-channel wiring tables, the DM response-matrix report, and the DM-side simulation references. |
@@ -58,6 +67,24 @@ pipeline), `dm_sim/` (MATLAB DM simulation), `tuning_devices/` (device tuning).
 - Report generation still lives here and nowhere else (naming
   `generate_*_report.py`), and report output goes to `report/<topic>/` at the repo
   root — see the provenance notes below.
+- **This directory is AI-facing one-off code, judged by "does it still reproduce
+  its report", not by craft.** No interactive flags, no defensive fallbacks for
+  inputs nobody will type, no splitting a 4000-line report script purely for line
+  count. `scripts/check_module_size.py` enforces the 800-line rule on `src/` only;
+  scripts stay in its report as `仅报告` so drift is visible without turning into a
+  CI red. Policy and rationale: `AGENTS.md` → 「scripts/ 目录：AI 一次性脚本」.
+- **A helper earns its way into `src/` when a *second* consumer appears.** Copying
+  the same statistic/criterion/geometry conversion into a second script is the
+  trigger to move it into `src/ao_shaping/algorithm/`, `utils/`, or the matching
+  `tools/` subpackage and import it back — never keep a second implementation here.
+  Precedent: `src/ml/zernike/eval_stats.py` owns offline statistics; scripts only
+  render.
+- **Finished probes get deleted, not archived.** Once a probe's conclusion is cited
+  by a `report/` document or an issue, the script is dead code — keeping it turns
+  "which script is the current criterion" into archaeology. Before deleting:
+  its result is cited somewhere, nothing imports it, and its entry in this README
+  goes with it. If it must stay runnable, say in the module docstring *when* it
+  can be deleted.
 
 ## Build Scripts
 
@@ -2568,7 +2595,7 @@ smoothly apodised out to `--halo-radius-px` and PV-normalised to
 > (`runner_common.patch_sim_pib_shaping`) **刻意不 reset** —— 否则会把 harness 装好的
 > 带干扰系统换成无种子、无干扰的系统, 运行静默地与自己的 manifest 矛盾。方形家族那边
 > (`patch_sim_square_shaping`) 则钉 `seed=42`, 因为它没有面向用户的 seed 能传到实验系统,
-> 不钉住的话两次 `spgd-square --cam-type sim` 的干扰流不可比
+> 不钉住的话两次 `slm-pib square --cam-type sim` 的干扰流不可比
 > (locked by `tests/ao_shaping/scripts/test_slm_pib_sim_run_disturbance.py` +
 > `tests/ao_shaping/runners/test_slm_shaping_runner_sim_backend.py`)。
 
@@ -2659,9 +2686,9 @@ python scripts/slm/run_sim_bench.py --only slm-pib spgd-square --epochs 200
 **What it does** (writes `data/sim_bench/summary.json`):
 - Drives the genuine Click entries via `main.py`, not the optimizer functions, so
   the CLI wiring is exercised too: `pib` / `combined` with
-  `--cam-type sim --dm-type sim`; `spgd-square` with
-  `--cam-type sim --slm-type sim`; `slm-gsnet` / `slm-pib` with
-  `--cam-type sim --debug`
+  `--cam-type sim --dm-type sim`; the `spgd-square` label with
+  `main.py slm-pib square --cam-type sim --slm-type sim`; `slm-gsnet` / `slm-pib`
+  with `--cam-type sim --debug`
 - Records per runner: `ok`, `returncode`, `wall_s`, the artefact paths it wrote,
   best-effort headline metrics parsed from the CSV, and a `note`
 - **Per-run isolation**: a failure is captured into the manifest rather than
@@ -3580,15 +3607,115 @@ python scripts/slm/probe_optical_path_validity.py \
 | `--defocus-exposure-ms` | 自动 | 离焦扫描用的曝光 (缺省 = 建议曝光) |
 | `--settle-s` | `0.5` | 每次改面板后的稳定等待 (s) |
 | `--out-root` | `data/debug/optical_path_probe` | 证据输出根目录 |
+| `--session` | 空 | 会话名 ⇒ 证据落 `<out-root>/<session>/<UTC戳>/`; 生成器用它把一次探测对到它门禁的那条 lane |
 | `--no-plot` | off | 不画图 |
 
 **退出码**: `0` = 判定 `ok`; `2` = 判定 `low_snr` 或 `no_response` —— 可以直接
 当上层门禁用。
 
+> 手工复现时直接看进程退出码: 把 stderr 一起管道出去 (`2>&1 | Tee-Object`) 会让
+> `$LASTEXITCODE` 变成 1, 把 `2` 掩盖掉。lane 脚本不接管道, 门禁判据不受影响。
+
+> ⚠️ **`low_snr` 有两种, 别混**: ①**曝光不足** (阶梯里光斑确实在涨, 只是没进 100–200
+> counts 的区间) ⇒ 按建议曝光重跑; ②**传感器上没有光** (光路被挡/激光没出光/耦合掉了)。
+> 第二种抬曝光永远救不回来, 必须回到光路。平场黑帧**不能**给这两种定罪: 平场相位是镜子,
+> 直流光斑原则上可能落在传感器外。区分只需一次散射测试 —— 平场相位与**随机相位** (把光散成
+> 满画幅光环, 与几何无关) 用同一曝光各取几帧, 比**全帧总和**: 随机相位抬不起总和, 就是光没到
+> 相机; 抬得起而平场是黑的, 则是几何/载波问题。
+
 > 设备互斥: SLM 的 USB 句柄是独占的。探针开跑前复用
 > `run_hw_sweep_groups.py` 的 `probe_devices` / `classify_device_unavailable` /
 > `WAITABLE_KINDS` 探一次; 被占且属于「可以等」的那两类时按 `--wait-until-idle`
 > 的预算等, 设备没插上这类等不来的立刻报错退出。
+
+### audit_replay_blocks.py — 离线重放审计 (免设备)
+
+把已归档的 CCD 重放块按**统一口径**读成三类结果, 用来回答「这一段的 CV 变化是
+真的还是口径/曝光/饱和造成的」。它不重算物理、不碰设备, 只做三件事:
+
+1. **冻结孔径**: 用*全画幅传感器像素*定义一次目标框 / 核 / 零级排除盘
+   (`ao_shaping.tools.slm.transfer.protocol.FixedAperture`), 对每个重放帧算同一
+   口径的 `cv` / `ee_rel` / `zero_excluded_fraction` / `saturated_fraction`。
+2. **只在同一重放条件内比较**: 分组键是 `(曝光, 位深, 形状)`, 因为实测 20 → 90 ms
+   会把 CV 从 0.419 推到 0.759, 远大于待测效应。
+3. **饱和帧与缺测帧显式扣留**: 峰值 ≥ 98% 满量程的帧 (`REPLAY_PEAK_GUARD_FRACTION`)
+   与峰值未记录的帧都会被挡在比较之外并列出名字, 而不是悄悄参与平均。
+
+**两套散布分开报**, 这是本脚本存在的核心理由:
+
+| 数字 | 含义 | 能支持什么 |
+|---|---|---|
+| `replicate spread <phase>` | 同一相位在同一条件下重测 ≥2 次 | **唯一**能当噪声用的量 (95% t) |
+| `phases=finalx3,seedx1` 行的 `sd` | 条件内跨相位的散布 | 只说明阶段走了多远, **不是**噪声 |
+
+一个相位只测过一次时报 `insufficient_repeats`, **不会**把跨相位散布借来当噪声 ——
+2026-10-28 之前那个「2 pp 阈值」正是这么借出来的。配对判定走
+`protocol.judge_pair` (平局报 `no_difference`, 而不是把平局读成退化)。
+
+```bash
+python scripts/slm/audit_replay_blocks.py                     # 默认审计 s1200 的全部重放块
+python scripts/slm/audit_replay_blocks.py --session s600_fixed
+python scripts/slm/audit_replay_blocks.py --json out.json --no-table   # 只出机器可读结果
+```
+
+### plan_multishape_campaign.py — 无 GS 多形状矩阵的运行计划 (免设备)
+
+把「设备上线后要跑什么」变成数据: 一份 `plan.json` + 每个条件一条 ready-to-run
+lane (`lanes/NN_<session>.ps1`)。它只写文件、不开设备, `--check` 只校验不落盘。
+
+**为什么要生成而不是手写** —— 上一轮手写的 lane 真的出过这几种事故:
+
+| 事故 | 本脚本的处理 |
+|---|---|
+| lane 写着 `--initial-phase gs`, 而目标是「完全不用 GS」 | `ROUTES` 表里两条路线 `gs_calls` 都是 0; `validate_plan` 直接拒绝含 GS 的 lane |
+| **严格冷启动** 和 **解析初始化** 被并进同一张表, 于是解析初相位被读成「冷启动成功」 | 两条路线名字进 session 目录名, 不会共享 session 或输出目录 |
+| 没分配重复预算, 「提升」是单次测量 | 每条 lane 带 `plan_reference_blocks`, 并写明 `2/2**n` 的下限 (`--repeats 6` 才能到 p<0.05) |
+| 整个会话的前置门禁 (`probe_optical_path_validity.py`) 靠操作员记得 | 每条 lane 的第一行就是探针, 且 `if ($LASTEXITCODE -ne 0) { exit 1 }` |
+| 跨光功率复用一个拟合好的模型 (2026-10-29: 激光/衰减变了之后 `--model-dir` 照指旧会话) | lane 00 先**在当前实验系统上重拟合** (不带 `--model-dir`, 写的就是其它 lane 复用的那个目录); `plan.json` 的 `model_power_check` 写明必须先比较两边的 holdout 误差 |
+
+**lane 00 (refit) 不是可选的前戏** —— 拟合好的检查点带着**它被拟合时那台实验系统的
+辐射度量**: 曝光响应增益、本底、以及面板在那个光功率下的响应。跨一次激光/衰减变化去复用它,
+每个预测强度都被整体缩放, 而且**没有一处会报错**: 闭环只是开始追一个不再描述实验系统的模型。
+所以复用被做成**有前提的**: lane 00 用 from-zero 分支 (`--model-dir` 缺省) 在**当前**实验系统上
+拟合一次并写下其它 lane 指向的那个目录, 顺带把一个形状跑完四段, 让会话至少有一个不来自
+旧功率的锚点。`validate_plan` 会拒绝「有 lane 复用模型但没有 refit lane」「refit 不在第一位」
+「refit 写错目录」「refit 自己带 `--model-dir`」这几种计划。
+
+**两条路线, 永不合并**:
+
+| 路线 | `--initial-phase` | 是否读目标 / 用物理预测模型 | 能回答的问题 |
+|---|---|---|---|
+| `strict_cold` | `plane` / `random` | 都不读 (`cold_start.cold_phase`: 只加实测载波) | 闭环能否从「什么都没有」开始工作 |
+| `analytic_init` | `backprojection` | 用拟合好的光学习 (但仍 0 次 GS 调用) | 解析初相位能不能加速收敛 |
+
+两条路线可以共用**同一个拟合好的模型** (`--model-dir`) —— 模型不是初相位。
+
+**每个条件必须报的三类结果** (写进 `plan.json` 的 `required_results`, 防止只留下 CV):
+
+| 类别 | 来源 |
+|---|---|
+| `fixed_core_cv` | `protocol.aperture_metrics`: 冻结的传感器像素孔径, 不是当段腐蚀后的核 |
+| `shape_agreement` | `protocol.shape_agreement`: IoU + 边界均值/p95 + 覆盖率 |
+| `relative_energy` | `protocol.aperture_metrics.ee_rel`: 框内 / 全帧, 同一曝光 |
+
+外加 `REQUIRED_AUDIT` 里的五项辅助读数: 零级排除比例、饱和比例、相位来源、模型
+检查点 SHA-256、曝光读回值。
+
+**运行顺序**: 先 `route`, 再 `size`, 再 `shape` —— 同一尺寸 / 同一路线的 lane 连跑,
+相机窗与曝光只需落位一次; 中途中断损失的是这一尺寸剩下的部分, 而不是散在三套窗口里
+的半成品。中断后用 `--resume` 重入同一 lane (已完成阶段跳过, 不重测)。
+
+```bash
+python scripts/slm/plan_multishape_campaign.py --check                 # 只校验, 逐条打印 PROBLEM
+python scripts/slm/plan_multishape_campaign.py                          # 写 plan.json + 25 lanes (含 refit)
+python scripts/slm/plan_multishape_campaign.py --sizes 600 --routes strict_cold
+python scripts/slm/plan_multishape_campaign.py --model-session p20261029 \
+    --power-note "laser output changed since s1200"
+```
+
+> ⚠️ click 的 `--replay-exposures` 是 `multiple=True`: 一条命令里写
+> `--replay-exposures 20 50 90` 会被当成多余位置参数报错, 必须重复旗标
+> (`--replay-exposures 20 --replay-exposures 50 ...`)。生成器已按此逐项展开。
 
 ### evaluate_model_in_loop_*.py — offline A/B tests on a saved run
 

@@ -227,14 +227,14 @@ class MIICamera(BaseCamera):
                     break
                 except miicam.HRESULTException:
                     time.sleep(0.1)
-                except Exception:
+                except OSError:
                     break
 
             # 清空待处理帧
             try:
                 self.cam.put_Option(miicam.MIICAM_OPTION_FLUSH, 3)
             # policy: best-effort flush while the device is already being taken down
-            except Exception:
+            except OSError:
                 pass
 
             # 留一点时间让回调线程结束
@@ -243,7 +243,7 @@ class MIICamera(BaseCamera):
             try:
                 self.cam.Close()
             # policy: last-effort close; a refusal here must not mask whatever already happened
-            except Exception:
+            except OSError:
                 pass
 
             self.cam_width = 0
@@ -279,19 +279,19 @@ class MIICamera(BaseCamera):
                 if temp_cam:
                     try:
                         temp_cam.Stop()
-                    except Exception:
+                    except OSError:
                         pass
                     try:
                         temp_cam.put_Option(miicam.MIICAM_OPTION_FLUSH, 3)
-                    except Exception:
+                    except OSError:
                         pass
                     time.sleep(0.5)
                     try:
                         temp_cam.Close()
-                    except Exception:
+                    except OSError:
                         pass
                     time.sleep(1.0)
-        except Exception:
+        except OSError:
             pass
 
         # 更新设备列表并取得设备信息列表
@@ -441,7 +441,7 @@ class MIICamera(BaseCamera):
         try:
             self._sn = self.cam.SerialNumber()
         # policy: a device without a queryable serial falls back to a synthetic id and still works
-        except Exception:
+        except OSError:
             self._sn = f"MIICAM_{self.cam_id}"
 
     def _init_streaming(self) -> None:
@@ -450,7 +450,7 @@ class MIICamera(BaseCamera):
         try:
             self.cam.Stop()
         # policy: Stop() against a stream that is not running is an SDK error, not a caller failure
-        except Exception:
+        except OSError:
             pass
         time.sleep(0.5)
 
@@ -464,7 +464,7 @@ class MIICamera(BaseCamera):
                     try:
                         self.cam.Stop()
                     # policy: Stop() against a stream that is not running is an SDK error, not a caller failure
-                    except Exception:
+                    except OSError:
                         pass
                     time.sleep(0.5 + 0.5 * attempt)
                 else:
@@ -516,7 +516,7 @@ class MIICamera(BaseCamera):
         try:
             self.cam.Stop()
         # policy: Stop() against a stream that is not running is an SDK error, not a caller failure
-        except Exception:
+        except OSError:
             pass
         time.sleep(0.1)
 
@@ -538,7 +538,7 @@ class MIICamera(BaseCamera):
                     try:
                         self.cam.Stop()
                     # policy: Stop() against a stream that is not running is an SDK error, not a caller failure
-                    except Exception:
+                    except OSError:
                         pass
                     time.sleep(0.3 * (attempt + 1))
                 else:
@@ -766,7 +766,7 @@ class MIICamera(BaseCamera):
         try:
             self.cam.Stop()
         # policy: Stop() against a stream that is not running is an SDK error, not a caller failure
-        except Exception:
+        except OSError:
             pass
 
         if size == (0, 0):
@@ -917,7 +917,7 @@ class MIICamera(BaseCamera):
                         self._callback_frame_info = frame_info
                         self._callback_new_frame.set()
             # policy: an SDK callback thread must not raise into vendor code; the loss is recorded and the frame reader sees it
-            except Exception as exc:
+            except Exception as exc:  # 保留宽泛捕获: 采集回调横跨 SDK/ctypes/numpy/用户回调, 异常类型不可枚举
                 self._note_frame_loss(nEvent, exc)
         elif nEvent == miicam.MIICAM_EVENT_STILLIMAGE:
             try:
@@ -936,7 +936,7 @@ class MIICamera(BaseCamera):
                         self._callback_frame_info = frame_info
                         self._callback_new_frame.set()
             # policy: an SDK callback thread must not raise into vendor code; the loss is recorded and the frame reader sees it
-            except Exception as exc:
+            except Exception as exc:  # 保留宽泛捕获: 采集回调横跨 SDK/ctypes/numpy/用户回调, 异常类型不可枚举
                 self._note_frame_loss(nEvent, exc)
 
     def get_callback_frame(
@@ -1099,7 +1099,7 @@ class MIICamera(BaseCamera):
             try:
                 self.cam.Stop()
             # policy: Stop() against a stream that is not running is an SDK error, not a caller failure
-            except Exception:
+            except OSError:
                 pass
             time.sleep(0.3)
         self._callback_mode_active = False

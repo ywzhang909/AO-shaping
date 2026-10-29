@@ -607,6 +607,7 @@ def _save_to_csv() -> None:
         write_summary_csv(df, path)
         st.session_state.cv_dirty = False
         st.success(f"✅ 已保存到 `{path}`")
+    # policy: a failed summary write must surface as an error and must NOT clear cv_dirty, so the operator can retry the save that did not happen
     except Exception as e:
         st.error(f"❌ 保存失败: {e}")
 

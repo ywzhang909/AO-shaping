@@ -20,6 +20,7 @@ from scipy.optimize import nnls
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from scripts.slm.diagnose_defocus_sampling import metrics, response_bias, stamp
+from loguru import logger
 
 
 def main():
@@ -93,7 +94,7 @@ def main():
             with (out/"diagnostic_iterations.pkl").open("wb") as stream:
                 pickle.dump(history, stream, protocol=5)
             (out/"summary.json").write_text(json.dumps(results, indent=2))
-            print(key, result["training_score"], coefficients.tolist(), flush=True)
+            logger.info(key, result["training_score"], coefficients.tolist())
     results["selection"] = dict(stage=min(results, key=lambda k: results[k]["training_score"]),
                                  rule="minimum training normalized MSE; never test CV")
     validation = bias["validation_mask"]

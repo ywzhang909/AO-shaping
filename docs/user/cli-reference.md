@@ -277,7 +277,7 @@ python src/ao_shaping/main.py --debug zernike-matrix --n-magnitudes 4 --dither-a
 
 1. **model** — 在当前光路上采集一组相位多样的探针，仅用这批采集生成标称 checkpoint（不从历史模型热启动），从零拟合物理预测模型，并把同一组光学参数导出到整形所用更细的控制网格（另含一个宽坡道变体，其载波映射按整形实际使用的控制分辨率重新测量）；
 2. **shaping** — 对每个请求的形状依次跑四个 CCD 锚定的优化段（非 GS 初相位 → Mono12 → 续接 → 稠密，段表硬编码于源码 `STAGE_RECIPES`，不通过选项暴露）；每个 CCD 块仅当**实测**核心 CV 下降才被接受；
-3. **replay** — 以共同位深和两档曝光重放每个形状存档的初相位与最终相位，使各段可在相同条件下比较；
+3. **replay** — 以共同位深和共同曝光阶梯（默认两档 50/100 ms；`--replay-exposures-auto` 时按本 lane 实测核心峰值率推导）重放每个形状存档的初相位与最终相位，使各段可在相同条件下比较；
 4. **record** — 把每个 CCD 块（相位、实测远场、相位变化、前后 CV、验收判定）写成 Recorder 记录，保存为 CSV + HDF5 + 动画 GIF。
 
 默认 `--seed-bakeoff` 会先实测各候选初相位的核心 CV、逐形状择优（对比择优）。完整工作流与实测记录见 [`docs/slm/slm_transfer_workflow.md`](../slm/slm_transfer_workflow.md)，流程出处见 [`report/shape_trials/square1200/square1200_20261026.md`](../../report/shape_trials/square1200/square1200_20261026.md)。
@@ -310,14 +310,33 @@ SLM（Santec）+ CCD 相机；不涉及 DM / WFS。设备只被需要它的阶�
 | `--cam-id` | INTEGER | `0` | 相机设备 ID（`--help` 无说明文案） |
 | `--slm-number` | INTEGER | `1` | SLM 设备编号（`--help` 无说明文案） |
 | `--device` | `[auto\|cpu\|cuda]` | `auto` | 计算设备（auto = 有 CUDA 用 CUDA） |
-| `--initial-phase` | `[auto\|transport\|backprojection\|gs]` | `auto` | 初相位构造；auto = 正方形用非 GS 传输，其余用非 GS 反投影 |
+| `--initial-phase` | `[auto\|plane\|random\|transport\|backprojection\|gs]` | `auto` | 初相位构造；auto = 正方形用非 GS 传输，其余用非 GS 反投影；plane/random = 严格冷启动（不读目标、不用物理预测模型） |
 | `--seed-bakeoff / --no-seed-bakeoff` | 开关 | 开启（`seed-bakeoff`） | 先实测各候选初相位的核心 CV，逐形状择优（对比择优） |
-| `--replay-exposures` | FLOAT | `50.0, 100.0` | 共同重放的曝光（ms）；可多次指定 |
+| `--gs-seed / --no-gs-seed` | 开关 | 开启（`gs-seed`） | 对比择优是否允许 GS 初相位候选；无 GS 冷启动方案须用 `--no-gs-seed` |
+| `--replay-exposures` | FLOAT | `50.0, 100.0` | 共同重放的曝光（ms）；可多次指定（`multiple=True` 不接受空格分隔的多值，须逐值重复旗标） |
+| `--replay-exposures-auto` | 开关 | 不启用 | 按本 lane 已测各块的核心峰值率推导共同重放曝光（覆盖 `--replay-exposures`）；固定 ladder 只在一个 lane 内成立，不能跨尺寸共用 |
+| `--record-responses / --no-record-responses` | 开关 | 不启用（`no-record-responses`） | 拟合时记录逐批物理响应统计（fit `--record-responses`），写入 `fit/` |
 | `--model-dir` | PATH | 未指定 | 复用已有会话目录（含 `capture/` 与 `fit/`），跳过模型采集与拟合 |
 | `--records-only` | 开关 | 不启用 | 只从已有的分段目录重建 Recorder 记录（离线，不打开设备） |
+| `--resume` | 开关 | 不启用 | 跳过已有 manifest.json 的阶段（journal 记 reused）并沿用其目录作为下一段种子 |
+| `--order` | `[shape\|stage]` | `shape` | shape = 逐形状跑完四段；stage = 先跑所有形状的第 1 段，再第 2 段（连续几次运行共用同一 bit depth / window step / 曝光策略，中断只损失一个形状的一段） |
 | `--execute` | 开关 | 不启用 | 真正打开设备执行（否则只打印计划） |
+| `--profile-timing / --no-profile-timing` | 开关 | 不启用 | 给每个采集的 manifest 行加一条 `timing` 分段耗时（`slm_write` / `settle` / `read` / `reduce` / `save`，毫秒）。只做测量，不改任何采集值；默认关闭，以便跨 lane 比较时是显式选择 |
+| `--async-capture-write / --no-async-capture-write` | 开关 | 不启用 | 把采集 npz 的落盘交给单线程后台写盘，与下一次采集的液晶稳定重叠。只改变字节何时落盘，不改变内容；默认关闭 |
+| `--jacobian-guard / --no-jacobian-guard` | 开关 | 开启（`jacobian-guard`） | 逐块用本块已有的 A1 锚定帧与 B 帧算「模型预测差分 vs 实测差分」的方向相关性，并据此收缩下一块的 `phase_rms_cap`（issue #213 质量项 3a）。**只读已有帧、不改变接受/拒绝**；消费既有采集，不增加设备时间。要复现旧行为（跨 lane 比较）时用 `--no-jacobian-guard` |
+| `--jacobian-low` | FLOAT | `0.5` | 方向相关性低于此值判为 `contradict`（下一块 cap 减半） |
+| `--jacobian-high` | FLOAT | `0.85` | 方向相关性高于此值判为 `agree`（下一块 cap 恢复） |
+| `--jacobian-floor` | FLOAT | `0.02` | 连续被否定时 cap 的下限（rad，照明加权 RMS） |
+| `--spectral-weight` | FLOAT | `0.0` | 相位增量带外功率占比的惩罚权重（issue #213 质量项 1b）。**默认 0 = 关闭**：器件 MTF 尚未实测，开启前应先确认 `--spectral-cutoff` |
+| `--spectral-cutoff` | FLOAT | 未指定 → `0.35` | 通过带边缘，单位 cycles/控制像素（0–0.5，0.5 = 控制网格 Nyquist）。缺省 0.35 = Nyquist 的 70%，过渡带宽 0.10；实测 MTF 后覆盖 |
+| `--objective` | 选择 | `cv` | 优化目标族：`cv` 只磨核心均匀度（历史行为）；`shape` 加能量项与形状项；`formation` 再启用 partition / peripheral / floor / boundary 四项（本 campaign 从未计算过，抽取它们等于换实验变体，须单独成组，不得与 `cv` 变体混读）。**验收判据不随此选项改变** |
+| `--weight-schedule` | 选择 | `constant` | 损失权重随时间变化的方式（issue #213 质量项 4c）。`constant` = 历史常数；`staged` = 前 1/3 块偏 `energy`、中段偏 `shape`、后 1/3 偏 `cv2`。只移动优化路径，不改验收判据；每块实际用到的权重写进 `summary.json` 条目。需 `--objective` 非 `cv`（CV-only 损失没有可调项，故该组合在解析参数时直接拒绝） |
 
-共 26 项。该命令的选项全部是 `runners/slm/transfer_shapes_runner.py` 里的 `@click.option` 直接声明（无 params dataclass）；拼写、取值域与默认值逐字来自 `--help` 转储，与源码一致，无分歧。
+共 41 项。该命令的选项全部是 `runners/slm/transfer_shapes_runner.py` 里的 `@click.option` 直接声明（无 params dataclass）；拼写、取值域与默认值逐字来自 `--help` 转储，与源码一致，无分歧。
+
+ℹ️ 其中八项服务于 issue #213 的**质量侧**，不属于原始测量协议：`--jacobian-guard` 与它的三个阈值只调度下一块的 `phase_rms_cap`（不参与接受/拒绝，默认开启）；`--spectral-weight` / `--spectral-cutoff` 只改变 loss 组成（默认关闭，等实测 MTF）；`--weight-schedule` 与它的前置 `--objective` 只改变优化路径与 loss 权重（默认 `constant` + `cv` = 历史行为）。验收口径不变。
+
+ℹ️ `--profile-timing` 与 `--async-capture-write` 是**测速开关**，不是测量协议的一部分：`slm-transfer-shapes` 一次采集之间的约 5.1 s 里，压缩落盘占 1155 ms（46 MB → 13.5 MB），锚定模式还会把刚写下的 npz 解压回来取锚点。`--async-capture-write` 只把前者挪出关键路径，`--profile-timing` 只记录分段耗时；两者都不改相位、曝光、帧数或任何验收判定。判定依据与实测见 [issue #213](https://github.com/ywzhang909/AO-shaping/issues/213)。
 
 ℹ️ 四个整形段的块数、每块更新数、相位学习率、相位 RMS 上限、位深、验收度量与相机采样步长都不在选项表里，而是硬编码于 `STAGE_RECIPES`：`transport_cv`（4 块 × 15 更新，8 位）、`mono12_cv`（8 × 20，12 位）、`mono12_continue`（12 × 15，12 位）、`mono12_dense`（4 × 20，12 位，宽坡道模型 + 2.0 采样步长）。
 

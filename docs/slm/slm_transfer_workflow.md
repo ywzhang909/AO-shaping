@@ -49,6 +49,8 @@ Daheng 绑定优先使用已安装的 `gxipy`；设备操作时若未安装，�
 
 可以指定 `--count`、`--iterations`、`--blocks`、`--updates`、`--frames`、`--camera`、`--cam-id`、`--slm-number`、`--side`、`--period`。减少块数是短时流程验证，不应当作默认流程性能结论。改变目标后必须使用新目录。
 
+大尺寸目标还要给出相机采样窗与控制分辨率：`--window-span`（半视场，CCD 原生 px）、`--window-step`（采样步长）、`--zero-radius`（零级排除半径）、`--core-margin`（核心额外腐蚀）、`--bit-depth`（8/12）、`--capture-grid`（探针控制网格）、`--control-grid` 与 `--fft-size`（拟合后把同一组光学参数导出到更密控制网格再整形；`0` = 沿用拟合分辨率）。默认值仍是 220 px 半跨的小目标口径，`--side 1200` 必须同时给 `--window-span 820`（或更大），否则启动前的边界检查会直接拒绝。
+
 完整校准需要正方形、三角形用于拟合，长方形用于验证。只测试一个形状时自动跳过此阶段，也可显式指定 `--skip-calibration`：
 
 ```powershell
@@ -109,6 +111,7 @@ $run = 'data/debug/validate_transfer_shapes/anchored_20261023_2002'
 | `response/`、`response_analysis/` | 曝光阶梯与诊断，尚未自动施加逐像元反响应 LUT |
 | `blur/` | 有效展宽及辐射尺度校准 |
 | `anchored/` | 局部锚定优化原始帧、相位、时间和接受记录 |
+| `anchored/recording/`、`model/recording/` | 逐次采集的 Recorder 记录：`process.csv`（标量）+ `process.h5`（含相位/远场/相位变化数组）+ `process.gif`（过程动画），设备关闭后才导出。远场面板按**整个采样窗**裁剪并画出目标轮廓（虚线），所以窗口开到目标 1.5 倍时能看到目标外那圈光怎么变；重复采集（B2 重放 B1）的相位变化面板会标「与上一次相位相同」而不是画一张空图 |
 | `audit.json`、`summary/`、`direction/` | 完整性审计、图像/指标摘要、方向核对 |
 
 目录已存在时拒绝覆盖。中断后先查看 `journal.json`，保留失败阶段数据；当前版本不自动跳过或续接设备阶段，避免把光路变化前后的记录拼成同一闭环。重新执行使用新目录，必要时用已完成采集继续离线分析。
@@ -277,7 +280,7 @@ $out = "data/debug/slm_transfer/$(Get-Date -Format 'yyyyMMdd_HHmmss')"
 
 大尺寸目标可使用独立验证入口 `python -m ao_shaping.tools.slm.transfer.validate` 的 `--side`、`--window-span`（半视场，CCD 原生 px）、`--window-step`（采样步长）和 `--core-margin`（核心边缘腐蚀，CCD 原生 px）。`--initial-phase transport` 用入射能量的累积分布生成非 GS 方形初相位；仅支持 square，且检查控制网格 Nyquist 带宽。`geometric_seed` 模块可将已拟合参数导出到更密控制网格，并用 `--geometry-dataset` 更新正负光栅矩阵；这不是新的模型拟合，仍需 CCD 验证。
 
-`--bit-depth 12` 在 Daheng 请求 Mono12，原始数据保留 uint16 容器的 12 bit 值，满量程为 4095。当前物理检查点使用 Mono8 等效 counts/ms 时，锚定图像按 counts/16 对齐码值尺度；这不代替各模式的曝光响应标定。`--zero-radius` 固定排除定位零级的核心圆盘；`--meter-target` 仅对目标核心测光，允许核心外饱和并保留完整原始帧。此时原始 EE 不适合精确效率比较。`--ccd-check --accept-metric cv` 显式启用同曝光 A/B 顺序检查，拒绝核心 CV 恶化的候选；默认仍关闭，不具有 A–B–B–A 的漂移抵消能力。实验结果与尺寸口径见[1200 像元方形报告](../../report/shape_trials/square1200/square1200_20261026.md)。
+`--bit-depth 12` 在 Daheng 请求 Mono12，原始数据保留 uint16 容器的 12 bit 值，满量程为 4095。当前物理检查点使用 Mono8 等效 counts/ms 时，锚定图像按 counts/16 对齐码值尺度；这不代替各模式的曝光响应标定。`--zero-radius` 固定排除定位零级的核心圆盘；`--meter-target` 仅对目标核心测光，允许核心外饱和并保留完整原始帧。此时原始 EE 不适合精确效率比较。`--ccd-check --accept-metric cv` 显式启用同曝光 A/B 顺序检查，拒绝核心 CV 恶化的候选；默认仍关闭，不具有 A–B–B–A 的漂移抵消能力。实验结果与尺寸口径见[1200 像元方形报告](../../report/shape_trials/square1200/square1200_20261026.md)；光路被手动干扰后的迁移适配与同一尺寸的整形见[迁移学习适配报告](../../report/shape_trials/transfer_square1200/transfer_square1200_20261027.md)。
 
 ### SLM 偏离透镜前焦面的适配
 

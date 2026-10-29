@@ -174,6 +174,7 @@ target 要按 ``M`` 重采样 —— **对 2f 光路是错的**, 错在漏掉了
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import ast
 import csv
 import json
@@ -1484,11 +1485,13 @@ def protected_memory_slot(slm: Any) -> int | None:
     if getter is None:
         return None
     try:
-        return int(getter())
+        slot = getter()
     except SantecError as exc:
         if exc.code != 1:
             raise
         return None  # set_grayscale 模式下没有槽位, 报错码 1 正常
+    # 有接口但当前不显示槽位 (仿真面板) 时 getter() 返回 None, 同样没有槽位要排除。
+    return None if slot is None else int(slot)
 
 
 def group_fields(group: str, meta: dict[str, str] | None = None) -> dict[str, Any]:
@@ -1749,8 +1752,8 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
             except SantecError as exc:
                 last = exc
                 wait = USB_RETRY_BASE_WAIT_S * (4 ** attempt)
-                print(f"[USB 重试 {attempt + 1}/{USB_RETRY_ATTEMPTS}] slot={slot} "
-                      f"失败: {exc}; 等待 {wait:.1f}s 后换槽重试", flush=True)
+                logger.info(f"[USB 重试 {attempt + 1}/{USB_RETRY_ATTEMPTS}] slot={slot} "
+                      f"失败: {exc}; 等待 {wait:.1f}s 后换槽重试")
                 time.sleep(wait)
         assert last is not None
         raise last
@@ -1871,22 +1874,22 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                             json.dumps(abort_config, indent=2, ensure_ascii=False),
                             encoding="utf-8",
                         )
-                        print(
+                        logger.info(
                             "\n[中止] 光路受阻: " + assessment.reason + "\n"
                             "       基线帧里没有任何局域光斑 (峰值 "
                             f"{assessment.excess:.2f} counts, FWHM "
                             f"{assessment.fwhm_px:.0f} px / 画幅 "
                             f"{assessment.frame_px} px), 扫描只会记下噪声。\n"
                             f"       判定与理由已写进 {out_dir / 'run_config.json'}",
-                            flush=True,
+
                         )
                         raise SystemExit(EXIT_PATH_BLOCKED)
                     if not assessment.usable:
-                        print(
+                        logger.info(
                             "[警告] 基线帧有光但没有可评分的局域光斑 "
                             f"({assessment.reason}); 这一轮仍然继续, "
                             "但指标要按「光斑没聚焦」来解读",
-                            flush=True,
+
                         )
 
                     target_side, target_side_source, baseline_fwhm = resolve_probe_target_side(
@@ -2076,7 +2079,7 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                         )
                         rows.append(row)
                         write_measurements(out_dir, rows)
-                        print(json.dumps(row, ensure_ascii=False), flush=True)
+                        logger.info(json.dumps(row, ensure_ascii=False))
                         return row
 
                     def record_failure(step: dict[str, Any], exc: Exception) -> dict[str, Any]:
@@ -2107,7 +2110,7 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                         }
                         rows.append(row)
                         write_measurements(out_dir, rows)
-                        print(json.dumps(row, ensure_ascii=False), flush=True)
+                        logger.info(json.dumps(row, ensure_ascii=False))
                         return row
 
                     # -- 基线行 (Δz = 0, GS 相位, 只带焦面矫正) -------------------
@@ -2161,8 +2164,8 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                                 frame = capture_retry(slm, cam, gs_panel, next_slot)
                             except SantecError as exc:
                                 # 单点失败不能让整轮扫描作废: 记一行失败, 继续下一个 Δz。
-                                print(f"[跳过] Δz={step['dz_mm']} mm 取帧失败: {exc}",
-                                      flush=True)
+                                logger.info(f"[跳过] Δz={step['dz_mm']} mm 取帧失败: {exc}",
+)
                                 record_failure(step_row, exc)
                                 continue
                             record(step_row, frame)
@@ -2433,7 +2436,7 @@ def main() -> None:
 
     if args.execute:
         if args.dry_run:
-            print("给了 --dry-run 和 --execute, 按 dry-run 处理", file=sys.stderr)
+            logger.info("给了 --dry-run 和 --execute, 按 dry-run 处理")
             print_plan(plan, optics)
             assert_no_drivers()
             return

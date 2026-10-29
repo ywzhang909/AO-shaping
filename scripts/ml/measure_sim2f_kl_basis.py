@@ -961,13 +961,13 @@ def main(argv: list[str] | None = None) -> int:
     logger.info(f"  measured Gram of the sampled high-order basis: diag in "
           f"[{gram['diag_min']:.4f}, {gram['diag_max']:.4f}], max |off-diagonal| "
           f"{gram['off_max']:.3e} (ideal 1 and 0)")
-    print()
+    logger.info()
     logger.info("PRE-REGISTERED DECISION RULE (fixed before these numbers were seen)")
     logger.info(f"  {PRE_REGISTERED_RULE}")
-    print()
+    logger.info()
     logger.info("CAVEAT ON PART 1 (do not read the E1 KL column as evidence)")
     logger.info(f"  {CAVEAT}")
-    print()
+    logger.info()
     logger.info(_part1_table(part1))
     for ensemble, cov in ensembles.items():
         logger.info(
@@ -978,7 +978,7 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("     asset's own rad^2 scale (a weak turbulence realisation), while E2 carries")
     logger.info("     draw_aberration's 0.05-0.45 rad per-state RMS rescale. The fractions are")
     logger.info("     scale-free, which is why they are the column that compares bases.")
-    print()
+    logger.info()
     logger.info(f"  realised/canonical variance ladder (E2 vs Sigma, each share normalised to mean 1): "
           f"min {shape_ladder.min():.3f} at Noll {int(noll[int(np.argmin(shape_ladder))])}, "
           f"max {shape_ladder.max():.3f} at Noll {int(noll[int(np.argmax(shape_ladder))])}; "
@@ -996,9 +996,9 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("    sum(top-K eigenvalues)/sum(first-K diagonal) IS the achievable ceiling:")
     logger.info("      " + "  ".join(
         f"K={k}:{shape['ceiling_ratio_by_K'][str(k)]:.3f}" for k in K_GRID))
-    print()
+    logger.info()
     logger.info(_part2_table(part2))
-    print()
+    logger.info()
     logger.info("DECISION")
     for row in evaluation["criterion1"]:
         logger.info(
@@ -1022,7 +1022,7 @@ def main(argv: list[str] | None = None) -> int:
             )
     logger.info(f"  criterion 2 evaluated on {evaluation['criterion2_comparable_conditions']} "
           f"of {len(evaluation['criterion2'])} (bench, state, K) conditions.")
-    print()
+    logger.info()
     logger.info(f"  VERDICT: {evaluation['verdict']}")
     logger.info(f"  ({elapsed:.1f} s)")
 
@@ -1101,7 +1101,7 @@ def main(argv: list[str] | None = None) -> int:
     md_path = out_dir / "kl_basis_measurement.md"
     md_path.write_text(markdown + "\n", encoding="utf-8")
 
-    print()
+    logger.info()
     logger.info(f"wrote {_display(json_path)}")
     logger.info(f"wrote {_display(md_path)}")
     return 0

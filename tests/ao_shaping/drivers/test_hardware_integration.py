@@ -250,7 +250,7 @@ class TestSLMHardware:
         try:
             from ao_shaping.drivers.slm.santec import Santec
 
-            slm = Santec(slm_number=1, wavelength=532, phase_range=200)
+            slm = Santec(slm_number=1, wavelength=532)
             slm.open()
             print(f"\n[SLM] Connected: SN={slm.serial_number}")
             yield slm
@@ -263,7 +263,6 @@ class TestSLMHardware:
         """Test SLM connection."""
         print(f"  Serial: {slm.serial_number}")
         print(f"  Wavelength: {slm.wavelength} nm")
-        print(f"  Phase range: {slm.phase_range}")
         assert slm.is_open
 
     def test_wavelength_info(self, slm):
@@ -352,7 +351,7 @@ class TestZernikeSLMHardware:
         """Test Zernike coefficient retrieval."""
         coeffs = zernike_slm.get_current_zernike_coeffs()
         print(f"  Current Zernike coeffs: {len(coeffs)} terms")
-        print(f"  First 5: {coeffs[:5]}")
+        print(f"  First 5: {list(coeffs.values())[:5]}")
 
 
 # ============================================================================

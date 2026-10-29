@@ -148,7 +148,7 @@ def connect_slm() -> bool:
         )
         return True
 
-    except Exception as e:
+    except Exception as e:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
         # policy: 原始错误码 (如 -10003) 对操作员没有指导意义, 换成可执行的中文提示并返回 False, 面板保持可用重试
         st.error(f"SLM 连接失败。\n\n{describe_santec_error(e)}")
         logger.exception(f"SLM connection failed: {e}")

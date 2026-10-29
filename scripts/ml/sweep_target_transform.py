@@ -159,14 +159,14 @@ def main() -> int:
             "n_negative_skill": int(sum(1 for f in per_fold if f["skill"] < 0)),
         }
         out["transforms"][kind] = {"agg": agg, "folds": per_fold}
-        print("%-8s R2_ridge=%+.4f  R2_const=%+.4f  skill=%+.4f +/- %.4f  "
+        logger.info("%-8s R2_ridge=%+.4f  R2_const=%+.4f  skill=%+.4f +/- %.4f  "
               "(%d/10 folds negative)"
               % (kind, agg["r2_ridge"], agg["r2_const"], agg["skill"],
-                 agg["skill_sd"], agg["n_negative_skill"]), flush=True)
+                 agg["skill_sd"], agg["n_negative_skill"]))
 
     best = max(out["transforms"], key=lambda t: out["transforms"][t]["agg"]["skill"])
     out["best_transform"] = best
-    logger.info("\nbest transform by skill:", best)
+    logger.info(f"\nbest transform by skill: {best}")
     Path("logs/target_transform.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
     logger.info("wrote logs/target_transform.json")
     return 0

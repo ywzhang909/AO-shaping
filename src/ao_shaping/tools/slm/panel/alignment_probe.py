@@ -120,6 +120,8 @@ def scan_coma(capture, phase_for, *, span_rad=1.5, points=7, passes=2,
 
 
 def run_probe(args) -> dict:
+    from ao_shaping.tools.slm.transfer.hardware import prepare_camera_sdk
+    prepare_camera_sdk(args.cam_type)
     from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_range
     from ao_shaping.drivers.slm.santec import Santec
     from ao_shaping.tools.kernels.bench_kernels import (
@@ -208,6 +210,8 @@ def run_probe(args) -> dict:
 
 def verify_saved(args) -> dict:
     """Independent fixed-exposure, reversed-order replay of a saved correction."""
+    from ao_shaping.tools.slm.transfer.hardware import prepare_camera_sdk
+    prepare_camera_sdk(args.cam_type)
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm.santec import Santec
     from ao_shaping.tools.kernels.bench_kernels import capture_settled, fresnel_panel

@@ -64,6 +64,7 @@
 from __future__ import annotations
 
 import argparse
+from loguru import logger
 import json
 import math
 import re
@@ -1026,12 +1027,14 @@ def main(argv: list[str] | None = None) -> int:
         cfg = config_from_args(args)
         plan = build_plan(cfg)
     except PlanError as exc:
-        print(str(exc), file=sys.stderr)
+        logger.info(str(exc))
         return 2
 
-    print(self_check_report(plan, cfg), file=sys.stderr)
+    logger.info(self_check_report(plan, cfg))
     payload = json.dumps(plan, indent=2, ensure_ascii=False)
     if args.print_plan:
+        # stdout 必须是纯 JSON (机器解析契约, 见 self_check_report docstring);
+        # 自检报告走 logger -> stderr, 不能进 stdout。
         print(payload)
         return 0
 

@@ -164,7 +164,10 @@ def _build_command(runner: str, epochs: int, out: Path) -> list[str]:
             "-d", str(out / "combined"),
         ]
     if runner == "spgd-square":
-        return base + [
+        # ``spgd-square`` is this script's label, not a CLI command: the square
+        # shaper is the ``square`` subcommand of the ``slm-pib`` group.
+        main_py = str(ROOT / "src" / "ao_shaping" / "main.py")
+        return [sys.executable, main_py, "slm-pib", "square"] + [
             "--cam-type", "sim", "--slm-type", "sim",
             "-e", str(epochs), "--cam-size", "256", "--zernike-radius", "200",
         ]
@@ -251,17 +254,17 @@ def main() -> int:
 
     results: list[RunResult] = []
     for runner in runners:
-        print(f"--- {runner} (epochs={args.epochs}) ---", flush=True)
+        logger.info(f"--- {runner} (epochs={args.epochs}) ---")
         res = _run_one(runner, args.epochs, out, args.timeout)
         results.append(res)
         status = "ok" if res.ok else f"FAILED rc={res.returncode}"
-        print(
+        logger.info(
             f"    {status} in {res.wall_s}s; {len(res.artefacts)} artefact(s); "
             f"metrics={res.metrics or '{}'}",
-            flush=True,
+
         )
         if res.note:
-            print(f"    note: {res.note}", flush=True)
+            logger.info(f"    note: {res.note}")
 
     manifest = {
         "generated": datetime.now().isoformat(timespec="seconds"),

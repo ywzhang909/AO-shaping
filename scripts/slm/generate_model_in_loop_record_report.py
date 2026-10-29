@@ -797,7 +797,7 @@ def _recompute_predictions(bundle: RunBundle) -> None:
             pupil_oversampling=int(config.get("pupil_oversampling", 1)),
             error_terms=None,
         )
-    except Exception as exc:
+    except Exception as exc:  # 保留宽泛捕获: 内部调用链 ZernikeCoefficientOptimizer 的失败类型不可枚举
         bundle.recompute_note = f"未复算（物理预测模型构造失败：{exc}）"
         return
     optimizer.set_source_amplitude(bundle.source_amplitude)
@@ -831,7 +831,7 @@ def _recompute_predictions(bundle: RunBundle) -> None:
             continue
         try:
             candidate = predict(probe.phase)
-        except Exception as exc:
+        except Exception as exc:  # 保留宽泛捕获: 内部调用链 predict 的失败类型不可枚举
             logger.warning("复算预测失败 {}: {}", probe.name, exc)
             return
         deviation = max(deviation, float(np.abs(candidate - probe.prediction).max()))
