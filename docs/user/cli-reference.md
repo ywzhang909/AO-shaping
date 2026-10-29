@@ -329,10 +329,12 @@ SLM（Santec）+ CCD 相机；不涉及 DM / WFS。设备只被需要它的阶�
 | `--jacobian-floor` | FLOAT | `0.02` | 连续被否定时 cap 的下限（rad，照明加权 RMS） |
 | `--spectral-weight` | FLOAT | `0.0` | 相位增量带外功率占比的惩罚权重（issue #213 质量项 1b）。**默认 0 = 关闭**：器件 MTF 尚未实测，开启前应先确认 `--spectral-cutoff` |
 | `--spectral-cutoff` | FLOAT | 未指定 → `0.35` | 通过带边缘，单位 cycles/控制像素（0–0.5，0.5 = 控制网格 Nyquist）。缺省 0.35 = Nyquist 的 70%，过渡带宽 0.10；实测 MTF 后覆盖 |
+| `--objective` | 选择 | `cv` | 优化目标族：`cv` 只磨核心均匀度（历史行为）；`shape` 加能量项与形状项；`formation` 再启用 partition / peripheral / floor / boundary 四项（本 campaign 从未计算过，抽取它们等于换实验变体，须单独成组，不得与 `cv` 变体混读）。**验收判据不随此选项改变** |
+| `--weight-schedule` | 选择 | `constant` | 损失权重随时间变化的方式（issue #213 质量项 4c）。`constant` = 历史常数；`staged` = 前 1/3 块偏 `energy`、中段偏 `shape`、后 1/3 偏 `cv2`。只移动优化路径，不改验收判据；每块实际用到的权重写进 `summary.json` 条目。需 `--objective` 非 `cv`（CV-only 损失没有可调项，故该组合在解析参数时直接拒绝） |
 
-共 39 项。该命令的选项全部是 `runners/slm/transfer_shapes_runner.py` 里的 `@click.option` 直接声明（无 params dataclass）；拼写、取值域与默认值逐字来自 `--help` 转储，与源码一致，无分歧。
+共 41 项。该命令的选项全部是 `runners/slm/transfer_shapes_runner.py` 里的 `@click.option` 直接声明（无 params dataclass）；拼写、取值域与默认值逐字来自 `--help` 转储，与源码一致，无分歧。
 
-ℹ️ 其中六项是 issue #213 的**质量改动**，不属于原始测量协议：`--jacobian-guard` 与其三个阈值只调度下一块的 `phase_rms_cap`（不参与接受/拒绝，默认开启），`--spectral-weight` / `--spectral-cutoff` 只改变 loss 组成（默认关闭，等实测 MTF）。验收口径不变。
+ℹ️ 其中八项服务于 issue #213 的**质量侧**，不属于原始测量协议：`--jacobian-guard` 与它的三个阈值只调度下一块的 `phase_rms_cap`（不参与接受/拒绝，默认开启）；`--spectral-weight` / `--spectral-cutoff` 只改变 loss 组成（默认关闭，等实测 MTF）；`--weight-schedule` 与它的前置 `--objective` 只改变优化路径与 loss 权重（默认 `constant` + `cv` = 历史行为）。验收口径不变。
 
 ℹ️ `--profile-timing` 与 `--async-capture-write` 是**测速开关**，不是测量协议的一部分：`slm-transfer-shapes` 一次采集之间的约 5.1 s 里，压缩落盘占 1155 ms（46 MB → 13.5 MB），锚定模式还会把刚写下的 npz 解压回来取锚点。`--async-capture-write` 只把前者挪出关键路径，`--profile-timing` 只记录分段耗时；两者都不改相位、曝光、帧数或任何验收判定。判定依据与实测见 [issue #213](https://github.com/ywzhang909/AO-shaping/issues/213)。
 

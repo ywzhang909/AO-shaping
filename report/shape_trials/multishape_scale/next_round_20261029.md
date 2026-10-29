@@ -9,7 +9,7 @@
 > **数据/关联脚本**: [`src/ao_shaping/runners/slm/transfer_shapes_runner.py`](../../../src/ao_shaping/runners/slm/transfer_shapes_runner.py)
 > **数据/关联脚本**: [`scripts/slm/audit_replay_blocks.py`](../../../scripts/slm/audit_replay_blocks.py)
 > **运行环境**: 离线（issue #213 质量建议 + 2026-10-29 会话实测记录；本文的代码项已在仓内实现并通过单元测试，尚未实验）
-> **说明**: 2026-10-29 之后的质量改善实施方案：按 issue #213 comment 6466195110 的质量侧优先级（3a Jacobian 逐块校验 / 1b 频域 MTF 正则 / 2b 像素级不均匀性掩膜 / 4c 多目标 Pareto）给出改法、开关、验收判据与失败形态；依据本轮实测把「饱和先决」与「审计 clipped 语义修正」提到 P0，并明确 3a 只实现缩 cap（不转纯实测梯度）、1b 默认关闭等实测 MTF。所有判定统一使用重复导出的不确定度（6 个 ABBA 周期可达 p<0.05），不用固定阈值。§9 落地状态区分已实现（3a / 1b / P0-2 审计）与未实现（2b / 4c），并记下本轮 `formation=False` 导致形状覆盖 / 边界误差未测这一字段缺口。
+> **说明**: 2026-10-29 之后的质量改善实施方案：按 issue #213 comment 6466195110 的质量侧优先级（3a Jacobian 逐块校验 / 1b 频域 MTF 正则 / 2b 像素级不均匀性掩膜 / 4c 多目标 Pareto）给出改法、开关、验收判据与失败形态；依据本轮实测把「饱和先决」与「审计 clipped 语义修正」提到 P0，并明确 3a 只实现缩 cap（不转纯实测梯度）、1b 默认关闭等实测 MTF。所有判定统一使用重复导出的不确定度（6 个 ABBA 周期可达 p<0.05），不用固定阈值。§9 落地状态区分已实现（3a / 1b / P0-2 审计 / 4c 阶段化权重）与未实现（2b 像素级掩膜 —— 缺实测标定数据，反演无法验证，理由写在 §5 末尾），并记下本轮走 `cv` 变体导致形状覆盖 / 边界误差未测这一字段缺口。
 <!-- provenance:end -->
 
 > **来源**：[issue #213 comment 6466195110](https://github.com/ywzhang909/AO-shaping/issues/213#issuecomment-6466195110)
@@ -300,9 +300,23 @@ issue 表的天花板 ①：控制网格上存在 Nyquist 上界，模型认为"
   直接检验）；
 - 标定图时效性：隔 24 h 重测，`gain_map` 的相对漂移 < 5%。
 
+### 为什么本轮没实现（诚实记录）
+
+`2b` 的核心不是"加一个 mask 字段"，而是**一次真实标定**加**一次验证集泛化判定**：
+Walsh/Hadamard 扫基、从远场反演每像素复增益、用不相交相位族做训练/验证划分。
+设备已下线，仓里没有任何一份这样的标定数据，于是：
+
+- 反演代码写了也无法执行——符号约定、归一化、基函数顺序全都没有数据可对；
+- 而"写了就算实现"最坏的结果是下一轮把它当既有件直接放进闭环，用一个未验证的
+  增益图去乘前向振幅，方向错了只会让闭环更差（这正是 3a 要探测的那类失真）。
+
+所以 2b 的处理是：**设计留在本节，代码等标定数据**。真要做时按下面顺序——
+先跑一次标定采集并落盘原始远场，再写反演并用**验证集的相位族**验证，验证集不达标
+就退回不加 mask（本节的验收条款已经是这个意思）。
+
 ---
 
-## 6. P3 `4c` 多目标 Pareto 动态权重（待实现）
+## 6. P3 `4c` 多目标 Pareto 动态权重（已实现，默认关）
 
 ### 它治的是什么
 
@@ -329,6 +343,32 @@ issue 表的天花板 ①：控制网格上存在 Nyquist 上界，模型认为"
 - 三个目标的达成度（CV 改善 / `ee_rel` 不降 / 零级抑制度不降）同时成立，
   不是"CV 独好"；
 - 与常数权重对照 ≥6 次重复配对比较。
+
+### 落地（2026-10-29，默认关）
+
+| 件 | 位置 |
+|---|---|
+| 权重变成具名字典（原来是散在 `evaluate` 里的常数，行为逐字节不变） | `algorithm/signal_processing/multishape_objective.py::DEFAULT_WEIGHTS` + `set_weights()` |
+| 三阶段 schedule（前 1/3 偏 `energy`、中段偏 `shape`、后 1/3 偏 `cv2`） | `algorithm/signal_processing/weight_schedule.py` |
+| 逐块应用 + 把**实际用到的权重**写进 `summary.json` 条目 | `tools/slm/transfer/validate.py`（`entry["weights"]`） |
+| CLI 开关 | `--weight-schedule {constant,staged}`，以及它的前置 `--objective {cv,shape,formation}` |
+
+三点实施口径，避免下一轮误读：
+
+1. **`cv` 变体不可 staged**：CV-only 损失只有 `cv2 + smooth`，没有 `energy`/`shape`
+   可调，`staged` 在那里等于空转。所以 `--weight-schedule staged` 与
+   `--objective cv` 的组合在**解析参数时**就被拒绝（`click.UsageError`），而不是
+   静默跑一个没生效的 schedule。
+2. **`--objective` 本身是"换变体"，不是开关**：本轮全部数据走 `cv` 变体
+   （`cv_only=True`，见 `live_20261029_device_session.md` §5.5），换成 `shape` /
+   `formation` 后 loss 组成不同，结果不能与 `cv` 变体的 dCV 混读。`formation` 还是
+   补上形状覆盖 / 边界误差两项（`l_partition` / `l_boundary`）的唯一途径。
+3. **判据仍然冻结**：`accept_metric` 依旧是实测 `cv`，schedule 只改优化路径；
+   如果哪天为了让 CV 好看而改 `energy` 权重，那是改判据，必须单列。
+
+单测：`tests/ao_shaping/algorithm/test_weight_schedule.py`（14 项：三阶段切分、
+只缩放三键、formation 专有项不动、`cv` 变体退化、未知 mode/键报错、默认权重逐字节
+复现历史 loss、staged 确实改变同一帧的 loss）。
 
 ---
 
@@ -378,17 +418,17 @@ issue 表的天花板 ①：控制网格上存在 Nyquist 上界，模型认为"
 | P1 1b | `algorithm/signal_processing/spectral_regulariser.py` + `differentiable_defocus_uniformity.py` | `test_spectral_regulariser.py` 9 项 | 待跑（默认关） |
 | P0-2 审计 `clipped` 语义 | **已实现**：`scripts/slm/audit_replay_blocks.py` 分 `measured` / `clipped` / `usable` 三集，分组只用 `usable`；无可用组直接 `no comparable groups` | 已重跑四形状验证 | 已生效 |
 | P0-0 饱和 | 运行参数 + 报告约定 | — | 待跑 |
-| 五项口径的「形状覆盖 / 边界误差」 | 不需新代码：`ShapeObjective(formation=True)` 的 `l_partition` / `l_boundary` 已是 canonical 实现 | — | 下一轮随每块 `decision` 落盘；**启用 formation 改变优化目标，须作为协议变更单列并重钉判据** |
-| P2 2b | 未实现 | — | — |
-| P3 4c | 未实现 | — | — |
+| 五项口径的「形状覆盖 / 边界误差」 | 不需新代码：`ShapeObjective(formation=True)` 的 `l_partition` / `l_boundary` 已是 canonical 实现 | — | 下一轮随每块 `decision` 落盘（`--objective formation` 已接线）；换变体即换 loss，须单独成组、不与 `cv` 变体混读 |
+| P2 2b | **未实现**，理由见 §5 末尾：需要一次真实标定 + 验证集泛化门禁，没有实测数据时写出来的反演无法验证 | — | — |
+| P3 4c | **已实现**（默认关）：`weight_schedule.py` + `ShapeObjective.set_weights` + 逐块 `entry["weights"]`；CLI `--weight-schedule` 与其前置 `--objective` | `test_weight_schedule.py` 14 项 + runner 3 项 | 待跑（`constant` + `cv` = 历史行为） |
 
 **本轮数据的字段缺口**（台账见 `live_20261029_device_session.md` §5.5）：本轮
-objective 以 `formation=False` 运行，抽查 `circle/mono12_cv` 第 0 轮的
-`iterations.pkl`，`l_partition` / `l_boundary` / `l_peripheral` / `l_floor` **逐轮
-恒为 0.0** —— 形状覆盖 / 边界误差是**没有测**，不是没报。按 §1.1，本轮结论只覆盖
+objective 走 `cv` 变体（`--objective cv` ⇒ `cv_only=True`），抽查 `circle/mono12_cv`
+第 0 轮的 `iterations.pkl`，`l_partition` / `l_boundary` / `l_peripheral` /
+`l_floor` **逐轮恒为 0.0** —— 形状覆盖 / 边界误差是**没有测**，不是没报。按 §1.1，本轮结论只覆盖
 「更均匀 + 能量没丢」两项；star 的 `ee_rel = 0.360` 也正落在这个空口上。三条补齐
 方式（形状项随 `decision` 落盘、每阶段一次 Noll 序 Zernike 拟合、每块
 predicted-vs-measured 标量差）写在 `live_20261029_device_session.md` §5.5。
 
-P0-0 / P2 / P3 的具体代码在下一轮开工时按本文件实施；P0-1 / P1 / P0-2
-已随本轮提交，开关默认值按上表设定。
+P0-0 / P2 的具体代码在下一轮开工时按本文件实施；P0-1 / P1 / P0-2 / P3
+已随本轮提交，开关默认值按上表设定（3a 与 `--objective cv` 默认开启/维持历史行为，1b 与 4c 默认关闭）。

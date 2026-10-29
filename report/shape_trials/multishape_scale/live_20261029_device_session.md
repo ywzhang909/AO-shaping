@@ -178,7 +178,7 @@ comparison」，但分组均值仍包含这些行）。
 | 模型检查点 | 有 | journal `model` 阶段 `status=reused` → `p20261029` | — |
 | 精确时间戳 | 有 | journal `timestamp_utc` + 每块 `summary.json` 的 `timestamp_utc` / `monotonic_ns` | — |
 | 预测 vs 实测 | **部分** | `anchored` 模式逐轮用预测强度做锚定（`iterations.pkl` 的 `terms['mode']`），但**差值标量未落盘** | 只能离线用 `forward.predict(phase)` 与同相位捕获帧复算 |
-| 形状覆盖 | **无** | — | objective 以 `formation=False` 运行：抽查 `circle/mono12_cv` 第 0 轮，`l_partition` / `l_boundary` / `l_peripheral` / `l_floor` **全为 0.0**，即本轮根本没计算这些项 |
+| 形状覆盖 | **无** | — | objective 走 `cv` 变体（`--objective cv` ⇒ `cv_only=True`）：抽查 `circle/mono12_cv` 第 0 轮，`l_partition` / `l_boundary` / `l_peripheral` / `l_floor` **全为 0.0**，即本轮根本没计算这些项 |
 | 边界误差 | **无** | — | 同上（`l_boundary`） |
 | Zernike 增量 | **无** | — | 相位是控制网格上的**像素级全图**，没有 Zernike 参数化，增量无从定义 |
 
@@ -190,8 +190,9 @@ comparison」，但分组均值仍包含这些行）。
 下一轮的补齐方式（已在 next_round 就位）：
 
 1. **形状覆盖 / 边界误差** = `ShapeObjective(formation=True)` 的 `l_partition` /
-   `l_boundary`，随每块 `decision` 落盘。⚠️ 打开 formation 会改变优化目标本身，
-   须作为**协议变更**单列并同步重钉判据，不得只当成"多记两个数"。
+   `l_boundary`，随每块 `decision` 落盘（`--objective formation` 已接线，
+   next_round §6 / §9）。⚠️ 换 `--objective` 就是**换实验变体**：`formation` 的 loss
+   组成与 `cv` 变体不同，其结果不得与 `cv` 变体的 dCV 混读，须单独成组并单列。
 2. **Zernike 增量** = 每阶段结束时把相位按 Noll 序拟合一次（canonical：
    `utils/wavefront/zernike_calc`），存进阶段摘要。
 3. **预测-实测差** = 每块记录 `forward.predict(phase)` 与同相位实测帧的标量差

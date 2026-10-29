@@ -149,8 +149,16 @@ def _validate_args(*, checkpoint: Path, out: Path, zero_xy, shapes, recipe: Stag
                    async_capture_write: bool = False, jacobian_guard: bool = True,
                    jacobian_low: float = 0.5, jacobian_high: float = 0.85,
                    jacobian_floor: float = 0.02, spectral_weight: float = 0.0,
-                   spectral_cutoff: float | None = None) -> SimpleNamespace:
+                   spectral_cutoff: float | None = None,
+                   objective: str = "cv", weight_schedule: str = "constant") -> SimpleNamespace:
     """Build the argument namespace ``validate.run`` expects."""
+    if weight_schedule not in ("constant", "staged"):
+        raise ValueError(f"unknown weight schedule {weight_schedule!r}")
+    if weight_schedule == "staged" and objective == "cv":
+        # The CV-only loss has no energy/shape term to stage, so "staged" would
+        # be a silent no-op. Fail instead of pretending the run was scheduled.
+        raise ValueError("--weight-schedule staged needs --objective shape or formation; "
+                         "the cv objective has nothing to stage")
     return SimpleNamespace(
         checkpoint=checkpoint, out=out, zero_xy=list(zero_xy), target_xy=None,
         period=period, side=side, window_span=window_span,
@@ -164,12 +172,13 @@ def _validate_args(*, checkpoint: Path, out: Path, zero_xy, shapes, recipe: Stag
         phase_lr=recipe.phase_lr, phase_rms_cap=recipe.phase_rms_cap,
         adaptive_step=True, adaptive_exposure=adaptive_exposure, fixed_exposure_ms=None,
         exploration_temperature=0.0, exploration_budget=0.25, exploration_window=4,
-        accept_metric=recipe.accept_metric, objective="cv", abba=False,
+        accept_metric=recipe.accept_metric, objective=objective, abba=False,
         ccd_check=recipe.ccd_check, device=device, execute=True,
         profile_timing=profile_timing, async_capture_write=async_capture_write,
         jacobian_guard=jacobian_guard, jacobian_low=jacobian_low,
         jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
         spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
+        weight_schedule=weight_schedule,
     )
 
 
@@ -220,7 +229,8 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
                jacobian_guard: bool = True, jacobian_low: float = 0.5,
                jacobian_high: float = 0.85, jacobian_floor: float = 0.02,
                spectral_weight: float = 0.0,
-               spectral_cutoff: float | None = None) -> None:
+               spectral_cutoff: float | None = None,
+               objective: str = "cv", weight_schedule: str = "constant") -> None:
     """Run every ``(shape, stage)`` in ``order``, reusing finished stages on ``--resume``.
 
     Split out of :func:`run` so the ordering and the reuse rule are testable
@@ -254,7 +264,8 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
             profile_timing=profile_timing, async_capture_write=async_capture_write,
             jacobian_guard=jacobian_guard, jacobian_low=jacobian_low,
             jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
-            spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff)
+            spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
+            objective=objective, weight_schedule=weight_schedule)
         # validate.run only reads this optional flag; absent it keeps the
         # historical "new directory or fail" contract.
         args.resume = resume
@@ -355,6 +366,17 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
 @click.option("--spectral-cutoff", type=float, default=None,
               help="通过带边缘, 单位 cycles/控制像素 (0..0.5, 0.5 = 控制网格 Nyquist)。"
                    "缺省 = 0.35 (Nyquist 的 70%); 实测 MTF 后覆盖。")
+@click.option("--objective", type=click.Choice(["cv", "shape", "formation"]), default="cv",
+              show_default=True,
+              help="优化目标族。cv = 只磨核心均匀度 (历史行为); shape 加能量与形状项; "
+                   "formation 再启用 partition / peripheral / floor / boundary 四项 "
+                   "(这几项此前从未在本 campaign 中被计算过 —— 抽取它们等于换实验变体, "
+                   "须单独列为一组, 不得与 cv 变体的结果混读)。验收判据不随此选项改变。")
+@click.option("--weight-schedule", type=click.Choice(["constant", "staged"]), default="constant",
+              show_default=True,
+              help="损失权重随时间变化的方式 (issue #213 质量项 4c)。constant = 历史常数; "
+                   "staged = 前 1/3 块偏 energy、中段偏 shape、后 1/3 偏 cv2。只移动优化路径, "
+                   "不改验收判据; 每块用到的权重写进 summary 条目。需 --objective 非 cv。")
 def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, window_span: float,
         window_step: float, zero_radius: float, capture_grid: int, capture_count: int,
         fit_iterations: int, fit_span: int, amplitude_center_lr: float, control_grid: int,
@@ -367,7 +389,8 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         execute: bool, profile_timing: bool, async_capture_write: bool,
         jacobian_guard: bool, jacobian_low: float, jacobian_high: float,
         jacobian_floor: float, spectral_weight: float,
-        spectral_cutoff: float | None) -> None:
+        spectral_cutoff: float | None, objective: str,
+        weight_schedule: str) -> None:
     """物理预测模型闭环整形：从零训练模型 + 目标整形，逐形状执行。
 
     典型用法::
@@ -379,6 +402,11 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
     shapes = list(shapes)
     replay_exposures = list(replay_exposures)
     out = out_dir.resolve()
+    # Fail at argument time, not after the model is loaded: a staged schedule on
+    # the CV-only loss has nothing to stage and would silently run unscheduled.
+    if weight_schedule == "staged" and objective == "cv":
+        raise click.UsageError("--weight-schedule staged needs --objective shape or formation; "
+                               "the cv objective has nothing to stage")
     if records_only:
         _rebuild_records(out, shapes)
         return
@@ -393,6 +421,7 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
                 jacobian_guard=jacobian_guard, jacobian_low=jacobian_low,
                 jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
                 spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
+                objective=objective, weight_schedule=weight_schedule,
                 stages=[dict(name=recipe.name, blocks=recipe.blocks, updates=recipe.updates,
                              bit_depth=recipe.bit_depth, ccd_check=recipe.ccd_check,
                              window_step=recipe.window_step) for recipe in STAGE_RECIPES])
@@ -555,7 +584,8 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         async_capture_write=async_capture_write,
         jacobian_guard=jacobian_guard, jacobian_low=jacobian_low,
         jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
-        spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff)
+        spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
+        objective=objective, weight_schedule=weight_schedule)
 
     # -------------------------------------------------------------- replay
     runs = [out / "shape" / shape / recipe.name for shape in shapes for recipe in STAGE_RECIPES]

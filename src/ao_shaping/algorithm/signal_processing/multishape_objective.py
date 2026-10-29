@@ -4,8 +4,24 @@ Pure numerical helpers; no device or tools imports.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import numpy as np
 from scipy.ndimage import binary_erosion, map_coordinates
+
+#: Loss weights per objective mode (issue #213 item 4c). These are the values
+#: that were hard-coded inline before 2026-10-29; making them a named dict is
+#: behaviour-preserving. ``weight_schedule.staged_weights`` overrides a subset
+#: per block -- only the optimisation path moves, the acceptance criteria stay
+#: frozen (``report/shape_trials/multishape_scale/next_round_20261029.md`` §1.1).
+#: Keys absent from a mode are not used by that mode's loss, and ``set_weights``
+#: rejects them so a typo can never be a silent no-op.
+DEFAULT_WEIGHTS: dict[str, dict[str, float]] = {
+    "cv": {"cv2": 1.0, "smooth": .001},
+    "shape": {"cv2": 1.0, "energy": 2.0, "shape": 1.0, "smooth": .001},
+    "formation": {"cv2": .05, "energy": 8.0, "shape": 1.0, "smooth": .001,
+                  "partition": .5, "peripheral": .5, "floor": 1.0, "boundary": .3},
+}
 
 
 def target_at(xy, shape, centre, side):
@@ -42,6 +58,10 @@ class ShapeObjective:
         self.formation = bool(formation)
         if self.cv_only and self.formation:
             raise ValueError("CV-only and formation objectives are mutually exclusive")
+        #: Which weight set ``set_weights`` validates against.
+        self.mode = "cv" if self.cv_only else ("formation" if self.formation else "shape")
+        #: Active loss weights; ``constant`` unless a schedule overrides them.
+        self.weights = dict(DEFAULT_WEIGHTS[self.mode])
         self.target = np.asarray(target, dtype=np.float32)
         self.box = self.target > .5
         self.core = binary_erosion(self.box, iterations=2)
@@ -93,6 +113,21 @@ class ShapeObjective:
         eroded = binary_erosion(self.box, iterations=1)
         return self.box & ~eroded
 
+    def set_weights(self, weights: Mapping[str, float]) -> None:
+        """Replace the active loss weights for this objective's mode.
+
+        Only the keys ``DEFAULT_WEIGHTS[self.mode]`` already defines may be set;
+        an unknown key raises instead of being silently ignored, because a
+        mistyped weight would otherwise look like "the schedule did nothing".
+        """
+        unknown = sorted(set(weights) - set(DEFAULT_WEIGHTS[self.mode]))
+        if unknown:
+            raise ValueError(f"unknown weight(s) for mode {self.mode!r}: {unknown}; "
+                             f"allowed: {sorted(DEFAULT_WEIGHTS[self.mode])}")
+        merged = dict(DEFAULT_WEIGHTS[self.mode])
+        merged.update({key: float(value) for key, value in weights.items()})
+        self.weights = merged
+
     def evaluate(self, image, delta_phase):
         import torch
         target = torch.as_tensor(self.target, device=image.device)
@@ -135,13 +170,18 @@ class ShapeObjective:
                 boundary_vals = image[bm_t]
                 if boundary_vals.numel() > 0:
                     l_boundary = boundary_vals.std() / boundary_vals.mean().clamp_min(1e-9)
-        if self.cv_only:
-            loss = cv2+.001*smooth
-        elif self.formation:
-            loss = (.05*cv2 + 8*(1-energy) + shape_loss + .001*smooth
-                    + 0.5*l_partition + 0.5*l_peripheral + 1.0*l_floor + 0.3*l_boundary)
-        else:
-            loss = cv2+2*(1-energy)+shape_loss+.001*smooth
+        w = self.weights
+        # One expression for all modes: a mode simply leaves the keys it does
+        # not define at weight 0 (``cv`` mode has no energy/shape key). The
+        # constants are byte-for-byte the ones that used to be inline here.
+        loss = (w["cv2"]*cv2
+                + w.get("energy", 0.0)*(1-energy)
+                + w.get("shape", 0.0)*shape_loss
+                + w["smooth"]*smooth
+                + w.get("partition", 0.0)*l_partition
+                + w.get("peripheral", 0.0)*l_peripheral
+                + w.get("floor", 0.0)*l_floor
+                + w.get("boundary", 0.0)*l_boundary)
         return loss, dict(l_cv=float(cv2.detach()), ee_roi=float(energy.detach()),
                           shape_loss=float(shape_loss.detach()),
                           l_partition=float(l_partition.detach()) if hasattr(l_partition, "detach") else float(l_partition),

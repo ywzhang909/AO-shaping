@@ -187,7 +187,8 @@ def test_the_shape_vocabulary_of_the_command_is_the_transfer_family():
 
 
 @pytest.mark.parametrize("path", ["src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-                                  "src/ao_shaping/tools/slm/transfer/recording.py"])
+                                  "src/ao_shaping/tools/slm/transfer/recording.py",
+                                  "src/ao_shaping/algorithm/signal_processing/weight_schedule.py"])
 def test_the_new_modules_are_tracked_by_the_repository(path):
     """The convention guard reads the git index; a new file must be added to it.
 
@@ -211,3 +212,26 @@ def test_the_new_modules_are_tracked_by_the_repository(path):
     assert result.returncode == 0, (
         f"{path} is not tracked by git -- add it with `git add {path}`"
     )
+
+def test_objective_and_weight_schedule_reach_the_plan(tmp_path):
+    """Both default to the historical behaviour (cv / constant)."""
+    result = CliRunner().invoke(run, ["--out", str(tmp_path / "session"), "--shapes", "square"])
+    assert result.exit_code == 0, result.output
+    plan = json.loads(result.output[result.output.index("{"):result.output.rindex("}") + 1])
+    assert (plan["objective"], plan["weight_schedule"]) == ("cv", "constant")
+
+
+def test_staged_weights_with_the_cv_objective_is_refused(tmp_path):
+    """staged would be a silent no-op on a CV-only loss, so the runner fails."""
+    result = CliRunner().invoke(run, ["--out", str(tmp_path / "session"), "--shapes", "square",
+                                      "--weight-schedule", "staged"])
+    assert result.exit_code != 0
+    assert "--weight-schedule staged needs --objective" in result.output
+
+
+def test_staged_weights_with_a_shaped_objective_reaches_the_plan(tmp_path):
+    result = CliRunner().invoke(run, ["--out", str(tmp_path / "session"), "--shapes", "square",
+                                      "--objective", "shape", "--weight-schedule", "staged"])
+    assert result.exit_code == 0, result.output
+    plan = json.loads(result.output[result.output.index("{"):result.output.rindex("}") + 1])
+    assert (plan["objective"], plan["weight_schedule"]) == ("shape", "staged")

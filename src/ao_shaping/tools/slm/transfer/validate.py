@@ -33,6 +33,7 @@ from ao_shaping.algorithm.signal_processing.multishape_objective import (
 from ao_shaping.algorithm.signal_processing.spectral_regulariser import (
     control_grid_cutoff, mtf_matched_mask,
 )
+from ao_shaping.algorithm.signal_processing.weight_schedule import staged_weights
 from ao_shaping.tools.slm.transfer.jacobian_guard import (
     TrustRegionSchedule, direction_agreement,
 )
@@ -623,6 +624,13 @@ def run(args):
                             raise ValueError("spectral cutoff must be positive")
                         spectral_mask = mtf_matched_mask(grid, cutoff=float(cutoff))
                     for block in blocks:
+                        # Staged objective weights (issue #213 item 4c). Only the
+                        # optimisation path moves; the acceptance criteria and the
+                        # frozen-aperture read-out stay untouched (next_round §1.1).
+                        # The weights actually used are written into the block's
+                        # summary entry, so no block is ever unattributable.
+                        if getattr(args, "weight_schedule", "constant") == "staged":
+                            objective.set_weights(staged_weights(objective.mode, block, len(blocks)))
                         if policy is not None and block > 0 and block % getattr(args, "exploration_window", 4) == 0:
                             best = champion.copy()
                         if block > 0 and getattr(args, "adaptive_exposure", False):
@@ -730,6 +738,10 @@ def run(args):
                             entry = dict(shape=shape, block=block, **decision, **clock())
                         accepted = decision["accepted"]
                         entry["phase_lr"] = phase_lr
+                        # Which loss weights this block actually optimised
+                        # (issue #213 item 4c): without it a staged run cannot be
+                        # replayed, and "why did block 7 go that way" is unanswerable.
+                        entry["weights"] = dict(objective.weights)
                         if getattr(args, "adaptive_step", False):
                             phase_lr = min(getattr(args, "phase_lr", .01), phase_lr*1.1) if accepted else max(.001, phase_lr*.5)
                         entry["next_phase_lr"] = phase_lr
