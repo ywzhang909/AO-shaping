@@ -63,6 +63,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from audit_replay_blocks import REPLAY_PEAK_GUARD_FRACTION, REPLAY_DIRS, _label_parts
 
+# `scripts._common` lives in this package, so the REPO ROOT (not just `src`)
+# must be importable. A direct `python scripts/...` does not put it there;
+# pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from scripts._common import fmt_general
+
 DEFAULT_CAMPAIGN = ROOT / "data" / "debug" / "slm_transfer" / "multishape_nogs_20261029"
 TERMS = ("filled_fraction", "iou", "boundary_mean_px", "boundary_p95_px",
          "coverage_fraction", "energy_in_target", "inside_cv")
@@ -171,11 +178,6 @@ def summarise(rows: list[dict], *, key: tuple[str, ...]) -> list[dict]:
     return out
 
 
-def _fmt(record: dict, name: str, spec: str) -> str:
-    value = record[name]
-    return "--" if value is None else format(value, spec)
-
-
 def print_table(records: list[dict], *, key: tuple[str, ...]) -> None:
     head = (f"{'/'.join(key):<40} {'n':>2} {'filled':>7} {'iou':>6} {'b_mean':>7} "
             f"{'b_p95':>7} {'cover':>6} {'E_in':>6} {'cv_in':>6}")
@@ -183,12 +185,14 @@ def print_table(records: list[dict], *, key: tuple[str, ...]) -> None:
     print("-" * len(head))
     for record in records:
         label = "/".join(str(record[k]) for k in key)
-        print(f"{label:<40} {record['n']:>2} {_fmt(record, 'filled_fraction', '.3f'):>7} "
-              f"{_fmt(record, 'iou', '.3f'):>6} {_fmt(record, 'boundary_mean_px', '.2f'):>7} "
-              f"{_fmt(record, 'boundary_p95_px', '.2f'):>7} "
-              f"{_fmt(record, 'coverage_fraction', '.3f'):>6} "
-              f"{_fmt(record, 'energy_in_target', '.3f'):>6} "
-              f"{_fmt(record, 'inside_cv', '.3f'):>6}")
+        print(f"{label:<40} {record['n']:>2} "
+              f"{fmt_general(record['filled_fraction'], '.3f', missing_none='--'):>7} "
+              f"{fmt_general(record['iou'], '.3f', missing_none='--'):>6} "
+              f"{fmt_general(record['boundary_mean_px'], '.2f', missing_none='--'):>7} "
+              f"{fmt_general(record['boundary_p95_px'], '.2f', missing_none='--'):>7} "
+              f"{fmt_general(record['coverage_fraction'], '.3f', missing_none='--'):>6} "
+              f"{fmt_general(record['energy_in_target'], '.3f', missing_none='--'):>6} "
+              f"{fmt_general(record['inside_cv'], '.3f', missing_none='--'):>6}")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

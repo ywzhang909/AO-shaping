@@ -4172,6 +4172,13 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 守卫登记 `folds_of`（AST 复检 offenders 为空）；`ridge` **仍不登记**：两处本地 `ridge` 与 `diagnose_pod_ridge.py` 把拟合/预测拆成 `ridge_fit`+`ridge_predict` 都是合法异用途。
 - 记一次**被 diff 复核抓回的失误**：编辑时 oldString 取宽了，把无关函数 `apply_transform` 的整个函数体连带删掉。若非提交前逐文件读 `git diff`，这就是一次静默的功能删除 —— 去重任务的产出必须是**净删除**，任何非目标行的变动都是事故。
 
+**2026-10-29 · b227bf50 · 上游带入的 5 处门禁红收口，外加自己的棘轮与锚点欠账**
+- **归因先于动手，而且差点归错**：分离树钉在 `142ff97b` 的**真实父提交** `fae245db` 上复现 5 处红，钉在更早的 `062a64e5` 上则 0 处 ⇒ 红由 `062a64e5..fae245db` 区间的上游提交带入，不是第三批造成的。第一次我拿 `062a64e5` 当"干净基线"，跑出来 conventions 全绿，据此就会去"修"一批自己根本没写坏的代码 —— 分离树的基线必须是真实父提交，不能是"上次看过的上游头"。
+- 五处的修法都坚持改**唯一来源**：BOM 剥掉开头三字节（11080 → 11077）；被并成一行的两条表格行按原字节拆回两行（内容零改动）；描述里的裸竖线在 `provenance.py` 的 `note` 上转义后重跑 `sync_report_provenance.py`；引用路径按守卫要求登记"自述历史"豁免；`探测降级` 锚点改钉到仍然存在的 handler。
+- 生成物陷阱（已踩实）：报告正文的说明行与 `report/README.md` 的索引行**都是生成物** —— 直接编辑正文会被 `sync_report_provenance.py` 按 note 覆写回去。另外 Python 源码里要写 `\\|`：普通字符串中的 `\|` 是 invalid escape sequence（触发 SyntaxWarning），而 ruff 的 `select = [E, F]` 不含 W605，**lint 抓不到**。
+- 锚点漂移不是"把行号改对"而是"叙述跟上现实"：`15ea0a22` 把像元尺寸改成型号级单一来源（`probe_daheng_models` + `lookup_model_pixel_size_um`），大恒侧根本不探测，原两条 `# policy:` handler 随代码一起消失；同一行还挂着早已不存在的 `KNOWN_CAMERA_PIXEL_UM` 回落表 ⇒ 只改数字会留下一段假叙述。登记表语句同步换成全文件唯一的那条，避免 pin 无法归属。
+- 棘轮 `_BLIND_SILENT_BASELINE` 46 → 44 用**守卫自身的 walk** 取数（手写口径此前已经咬过两次），并写明减少的两处来自该区间 src/ 搬迁（`transfer/validate.py` 拆分、`exposure_control.py`、`record_mode.py`）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
