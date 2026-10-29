@@ -4150,6 +4150,13 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 测试放位踩过一次坑：`tests/ao_shaping/ml/` **根目录**不被 CI 的 `ml` 分片枚举（只列 5 个子目录 + 2 个文件），放错等于静默不收集 ⇒ 移到 `ml/zernike/`；scipy 交叉校验必须 `pytest.importorskip`（环境无 scipy 要跳过而不是报错，且 `.statistic` 需 scipy≥1.9，改用索引取 p 值）。
 - 覆盖：ruff / provenance / term（0 文件 0 行）/ module-size 全绿；容器 2875 passed / 71 skipped / 0 failed。
 
+**2026-10-29 · bf5c07cd · 上条的调用侧收尾：scripts/ 里 8 处 `pearson`/`spearman` 副本删除，9 处同名不同义保留**
+- 迁移动作：8 个逐字节相同的副本改转发到 `ml.zernike.eval_stats`（其中 4 个是 ravel 包装，`.ravel()` 移到调用点）；9 个同名站点判定 DIFFERENT 保留，差异逐条写明（`argsort(argsort)` 无均秩、零方差回 `0.0`、返回 `None` 当"未记录"哨兵、先 `_normalise()` 再相关、径向分箱谱、`size<3` 判据）。
+- **名字守卫对「同名不同义」无能为力**：`EXTRACTED` 按模块级 def 名精确匹配，而合法异用途的 `def spearman`×2、`def pearson`×1 仍在树里，登记即当场红。这类去重的裁决只能靠 body 比对，不能靠名字。
+- 顺带修两个被迁移暴露的真问题：① `exp_fast_recal_adapter.py` 把 `ROOT/scripts` 排在 `ROOT/src` 之前，而 `scripts/` 与 `scripts/ml/` **都是包** ⇒ `import ml.zernike.*` 解析到 `scripts/ml` 并 ImportError —— ruff 查不出，只有 `test_scripts_are_importable_in_file_form` 抓得到；② 自己的 facade 守卫只统计顶层 `def`，实现迁走后 re-export 看不见 ⇒ 改统计顶层**绑定**（defs + 常量 + import，跳过 `import *`）。
+- 一处**故意接受**的契约差异：`generate_bench_twin_report` 原来在 shape 不等时返回 `nan`，canonical 会 `ValueError`。两个操作数来自同一个 `.npz` 探针记录，该分支是防御性的；对报告生成器而言崩掉比把 `nan` 静默写进已发表表格更好。
+- 覆盖：容器 `scripts/` + conventions 2855 passed / 73 skipped；2 failed 是**上游**红（`src/ao_shaping/tools/slm/transfer/validate.py` 864 行 > 800，在 pristine `origin/master` 分离树复现，属 transfer 特性且在持续变长），不在本批范围。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

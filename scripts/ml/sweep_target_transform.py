@@ -41,6 +41,7 @@ import numpy as np
 
 from ml.hwdataset import MaterialiserConfig, build_hw_index
 from ml.hwdataset.zernike_dataset import ZERNIKE_COEFF_SOURCES, ZernikeCoeffDataset
+from ml.zernike.eval_stats import ridge
 from ml.zernike.metrics import batch_image_metrics
 
 import torch
@@ -83,14 +84,6 @@ def folds_of(records):
     keys = sorted(groups)
     return [(k, [p for kk, ps in groups.items() if kk != k for p in ps], groups[k])
             for k in keys]
-
-
-def ridge(x, z, alpha=1.0):
-    xm, zm = x.mean(0, keepdims=True), z.mean(0, keepdims=True)
-    xc, zc = x - xm, z - zm
-    g = xc @ xc.T
-    g.flat[:: g.shape[0] + 1] += alpha
-    return xc.T @ np.linalg.solve(g, zc), xm, zm
 
 
 def metrics(pred, truth):

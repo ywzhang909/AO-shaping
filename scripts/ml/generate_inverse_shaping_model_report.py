@@ -45,6 +45,7 @@ import numpy as np
 import torch
 
 from scripts._common import fmt_metric
+from scripts._common.plot_style import CJK_FONTS_INVERSE_SHAPING, setup_cjk_font
 
 from ml.shaping.config import ShapingConfig
 from ml.shaping.models import PhasorUNet, unit_phasor
@@ -66,12 +67,6 @@ FLOOR_FAMILIES = (
     "slm_gsnet_square",
 )
 FLOOR_PER_FAMILY = 6
-
-
-def _setup_fonts() -> None:
-    """Use a CJK-capable font so Chinese labels do not render as boxes."""
-    plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
-    plt.rcParams["axes.unicode_minus"] = False
 
 
 def _count(module: torch.nn.Module) -> int:
@@ -956,7 +951,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--snapshot", default=DEFAULT_SNAPSHOT)
     args = parser.parse_args(argv)
 
-    _setup_fonts()
+    setup_cjk_font(CJK_FONTS_INVERSE_SHAPING)
     out_dir = Path(args.out_dir)
     figures = out_dir / "figures"
     figures.mkdir(parents=True, exist_ok=True)

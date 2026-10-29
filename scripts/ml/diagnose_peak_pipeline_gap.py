@@ -38,6 +38,7 @@ import torch
 
 from ml.hwdataset import MaterialiserConfig, build_hw_index
 from ml.hwdataset.zernike_dataset import ZERNIKE_COEFF_SOURCES, ZernikeCoeffDataset
+from ml.zernike.eval_stats import folds_of
 from ml.zernike.metrics import constant_baseline_metrics
 
 FAMILY = "slm_zernike_shaping"
@@ -46,15 +47,6 @@ EPS = 1e-8
 
 def peak_normalise(x: torch.Tensor) -> torch.Tensor:
     return x / torch.clamp(x.amax(dim=(-2, -1), keepdim=True), min=EPS)
-
-
-def folds_of(records):
-    groups: dict[str, list[int]] = {}
-    for position, record in enumerate(records):
-        groups.setdefault(str(record.path), []).append(position)
-    keys = sorted(groups)
-    return [(i, k, [p for kk, ps in groups.items() if kk != k for p in ps], groups[k])
-            for i, k in enumerate(keys)]
 
 
 def main() -> int:

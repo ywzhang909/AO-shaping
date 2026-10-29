@@ -37,9 +37,11 @@ import numpy as np
 
 __all__ = [
     "cohens_dz",
+    "folds_of",
     "holm_bonferroni",
     "paired_comparison",
     "pearson",
+    "ridge",
     "seed_agreement",
     "sign_flip_pvalue",
     "skill_scores",
@@ -127,6 +129,47 @@ def spearman(x, y) -> float:
     if xa.size < 2:
         return float("nan")
     return pearson(_average_rank(xa), _average_rank(ya))
+
+
+def folds_of(records):
+    """Leave-one-group-out folds over records keyed by ``str(record.path)``.
+
+    Duck-typed on ``record.path`` (``str`` or ``Path`` both group to the same key);
+    no import of the record type, so this module stays stdlib + numpy. Every
+    distinct path is held out exactly once. Fold order is ``sorted`` key order --
+    never insertion order -- so two runs over the same records get identical folds.
+
+    Returns ``(index, key, train_positions, val_positions)`` where the position
+    lists index into ``records``, ``train_positions`` concatenate in group-first
+    order, and ``train + val`` is a permutation of ``range(len(records))``.
+    Scripts whose loops consume a projection of this tuple (e.g. dropping ``key``)
+    adapt at the call site; the canonical always carries both index and key.
+    """
+    groups: dict[str, list[int]] = {}
+    for position, record in enumerate(records):
+        groups.setdefault(str(record.path), []).append(position)
+    keys = sorted(groups)
+    return [(i, k, [p for kk, ps in groups.items() if kk != k for p in ps], groups[k])
+            for i, k in enumerate(keys)]
+
+
+def ridge(x: np.ndarray, z: np.ndarray, alpha: float = 1.0):
+    """Dual-form multi-output ridge with an intercept: ``(weights, x_mean, z_mean)``.
+
+    ``x`` is (n_samples, n_features), ``z`` is (n_samples, n_targets); the solve is
+    on the n x n Gram, so it stays cheap when n << n_features. Prediction is
+    ``(x_new - x_mean) @ weights + z_mean``. Inputs are never mutated.
+
+    Degenerate inputs keep ``np.linalg.solve`` semantics rather than smoothing
+    them: ``alpha == 0`` with a rank-deficient (or single-row) centred ``x`` is
+    singular and raises ``LinAlgError`` -- the behaviour every migrated copy had,
+    and silently returning a pseudo-inverse solution would hide a broken fold.
+    """
+    xm, zm = x.mean(0, keepdims=True), z.mean(0, keepdims=True)
+    xc, zc = x - xm, z - zm
+    g = xc @ xc.T
+    g.flat[:: g.shape[0] + 1] += alpha
+    return xc.T @ np.linalg.solve(g, zc), xm, zm
 
 
 def sign_flip_pvalue(diffs: Sequence[float]) -> float:

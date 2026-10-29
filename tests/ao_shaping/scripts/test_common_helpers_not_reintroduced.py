@@ -48,6 +48,11 @@ EXTRACTED = {
     # on the displayed slot leaves the LCOS unrefreshed), so a drifted copy is a
     # hardware bug, not a style issue. scripts/slm/diff_beam_capture_flat.py had one.
     "pick_slm_slot": "src/ao_shaping/utils/slm/phase_display.py",
+    # CJK font setup: seven copies with three distinct bodies. The preference
+    # chain is a parameter and the installed-font probe a flag, because merging
+    # the chains would re-render tracked figures with a different font.
+    "setup_cjk_font": "scripts/_common/plot_style.py: setup_cjk_font",
+    "_setup_fonts": "scripts/_common/plot_style.py: setup_cjk_font(probe_installed=True)",
 }
 
 #: Generators migrated onto ``scripts._common``.

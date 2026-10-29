@@ -53,15 +53,10 @@ if str(ROOT / "src") not in sys.path:
 import numpy as np
 
 from scripts._common import fmt_metric
+from scripts._common.plot_style import CJK_FONTS_INVERSE_SHAPING, setup_cjk_font
 
 DEFAULT_RUN = "logs/shaping_main"
 DEFAULT_OUT = "report/inverse_shaping_unet"
-
-
-def _setup_fonts() -> None:
-    """Use a CJK-capable font so Chinese labels do not render as boxes."""
-    plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
-    plt.rcParams["axes.unicode_minus"] = False
 
 
 def _load(run_dir: Path) -> tuple[list[dict], dict, dict]:
@@ -537,7 +532,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out-dir", default=DEFAULT_OUT)
     args = parser.parse_args(argv)
 
-    _setup_fonts()
+    setup_cjk_font(CJK_FONTS_INVERSE_SHAPING)
     run_dir = Path(args.run_dir)
     out_dir = Path(args.out_dir)
     figures = out_dir / "figures"

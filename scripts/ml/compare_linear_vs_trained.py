@@ -42,6 +42,7 @@ import torch
 
 from ml.hwdataset import MaterialiserConfig, build_hw_index
 from ml.hwdataset.zernike_dataset import ZERNIKE_COEFF_SOURCES, ZernikeCoeffDataset
+from ml.zernike.eval_stats import folds_of
 from ml.zernike.metrics import constant_baseline_metrics
 
 FAMILY = "slm_zernike_shaping"
@@ -52,15 +53,6 @@ def peak_normalise(x: torch.Tensor) -> torch.Tensor:
     """The same normalisation ``compare_models_cv`` applies to CV targets."""
     scale = x.amax(dim=(-2, -1), keepdim=True)
     return x / torch.clamp(scale, min=EPS)
-
-
-def folds_of(records):
-    groups: dict[str, list[int]] = {}
-    for position, record in enumerate(records):
-        groups.setdefault(str(record.path), []).append(position)
-    keys = sorted(groups)
-    return [(i, k, [p for kk, ps in groups.items() if kk != k for p in ps], groups[k])
-            for i, k in enumerate(keys)]
 
 
 def ridge(x: np.ndarray, z: np.ndarray, alpha: float):

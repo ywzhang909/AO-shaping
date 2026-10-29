@@ -56,6 +56,7 @@ import torch
 
 from ml.hwdataset import MaterialiserConfig, build_hw_index
 from ml.hwdataset.zernike_dataset import ZERNIKE_COEFF_SOURCES, ZernikeCoeffDataset
+from ml.zernike.eval_stats import ridge
 from ml.zernike.metrics import constant_baseline_metrics
 from ml.zernike.eval_stats import cohens_dz, min_attainable_pvalue, sign_flip_pvalue
 
@@ -102,14 +103,6 @@ def apply_mode(frames: np.ndarray, a: np.ndarray, b: np.ndarray, mode: str) -> n
     if mode == "gain":
         return frames / np.maximum(a, 1e-6)[:, None]
     return (frames - b[:, None]) / np.maximum(a, 1e-6)[:, None]
-
-
-def ridge(x, z, alpha=1.0):
-    xm, zm = x.mean(0, keepdims=True), z.mean(0, keepdims=True)
-    xc, zc = x - xm, z - zm
-    g = xc @ xc.T
-    g.flat[:: g.shape[0] + 1] += alpha
-    return xc.T @ np.linalg.solve(g, zc), xm, zm
 
 
 def score(pred, truth):
