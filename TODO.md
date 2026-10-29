@@ -4179,6 +4179,12 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 锚点漂移不是"把行号改对"而是"叙述跟上现实"：`15ea0a22` 把像元尺寸改成型号级单一来源（`probe_daheng_models` + `lookup_model_pixel_size_um`），大恒侧根本不探测，原两条 `# policy:` handler 随代码一起消失；同一行还挂着早已不存在的 `KNOWN_CAMERA_PIXEL_UM` 回落表 ⇒ 只改数字会留下一段假叙述。登记表语句同步换成全文件唯一的那条，避免 pin 无法归属。
 - 棘轮 `_BLIND_SILENT_BASELINE` 46 → 44 用**守卫自身的 walk** 取数（手写口径此前已经咬过两次），并写明减少的两处来自该区间 src/ 搬迁（`transfer/validate.py` 拆分、`exposure_control.py`、`record_mode.py`）。
 
+**2026-10-29 · 7c340120 · `_fmt` 副本收口：五个格式化器是刻意不同的，选择依据是实测输出而不是名字**
+- 守卫报 `def _fmt` 复现（上游 `71413576` 带入）。本地实现就是 `None → "--"` 加裸 `format(value, spec)`，`scripts/_common` 的五个格式化器里只有 `fmt_general(v, spec, missing_none="--")` 与之等价。
+- 判定靠实测：40/40 逐字节相同（值域取调用点真正会传的类型 —— `float(np.mean(...))`、`np.float64`、`peak<=0` 分支的 `None`；spec 取 `.3f`/`.2f`；含 0.0、1e-8、0.0004、负值、四舍五入边界、≥1e5、`nan`/`inf`），并把 `print_table` 整表输出与旧实现逐行比对，整表相同。
+- 其余四个会怎么错（这就是"按名字挑"要付的代价）：`fmt_metric` 把 `None` 渲成单横线、`|v|<1e-4` 改走科学计数、`|v|≥10` 塌成 `.0f` 且忽略逐列 spec；`fmt_ratio` 用 6 位 g（`12.345 → '12'`）且 `None` 抛 `TypeError`；`fmt_fixed` 对 `None` 直接抛异常（本表 `peak<=0` 的行会让整张表崩）；`fmt_signed` 把**所有**非有限值渲成缺失标记（`nan → '--'`，旧实现给 `'nan'`）。
+- 一处**有意偏离**任务约束并给出理由：该文件原先没把仓库根放进 `sys.path`，而 `scripts/` 是包 ⇒ 裸 `python scripts/slm/...` 下 `from scripts._common import` 无法解析。补的是 `sys.path.insert(0, str(ROOT))`（仓库根，不是 `scripts/` 目录），既有条目一个没动也没重排，因此不会把 `scripts/ml` 排到 `src/ml` 之前 —— 与上一条记录里那个 ImportError 事故不是同一个形态。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
