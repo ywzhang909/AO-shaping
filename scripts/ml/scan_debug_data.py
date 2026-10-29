@@ -6,8 +6,13 @@ run directories that look disposable, so a human decides what to remove. It
 
 Note on layout: runs follow the canonical
 ``data/debug/<prefix>/<YYYYmmdd_HHMMSS>/`` shape, so the family is resolved by
-walking ancestors and skipping bare run stamps (``YYYYMMDD`` /
-``YYYYmmdd_HHMMSS``), not by taking ``parent.parent`` blindly.
+walking ancestors and skipping bare run stamps (``YYYYMMDD`` / ``YYYYmmdd_HHMMSS``), not by taking ``parent.parent`` blindly.
+
+删除条件 (AGENTS.md 「scripts/ 目录」规则 3): 本脚本是**可重跑的语料分诊探针**,
+不是结论生成器 —— 它只打印待人工复核的低价值 run 目录, 从不写盘, 其筛查结果
+也未被任何 report/ 或 issue 引用, 故规则 3① 目前不满足。当 ``python -m
+ml.hwdataset.inspect`` 覆盖同一判据 (sim-only / <2 epochs 的 run 列表), 或
+``data/debug`` 语料归档后不再需要人工分诊时, 可删。
 """
 
 from __future__ import annotations

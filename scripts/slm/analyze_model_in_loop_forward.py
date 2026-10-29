@@ -1,4 +1,10 @@
-"""Evaluate a saved hardware forward model on disjoint phase probes."""
+"""Evaluate a saved hardware forward model on disjoint phase probes.
+
+删除条件 (AGENTS.md 「scripts/ 目录」规则 3): 这是可重跑的离线评估器 (接受任意
+``run_dir``), 其 disjoint-probe 评估结论目前未被任何 report/ 或 issue 引用,
+规则 3① 不满足。当 ``report/shape_trials/model_in_loop/`` 下的报告已固化该
+评估结论、且后续 MIL run 不再需要独立复评时, 可删。
+"""
 
 from __future__ import annotations
 

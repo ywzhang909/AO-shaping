@@ -234,9 +234,18 @@ from ao_shaping.tools.kernels.device_mutex import (
     DeviceLock,
     DeviceUnavailable,
     classify_device_unavailable,
+    classify_probe_setup_error,
+    format_occupier_lines,
     format_probe_line,
+    parse_probe_cmd,
     probe_devices,
+    query_windows_python_processes,
     resolve_probe_cmd,
+    # 私有名同样是权威模块的**唯一**实现, 这里只转发不复制 (AGENTS.md
+    # 「scripts/ 目录」规则 2: 禁止在 scripts 里维护第二份实现)。
+    _ensure_repo_paths,
+    _extract_santec_error_code,
+    _reason_text,
 )
 
 # --- 兼容再导出: 名字不变, 实现只有一份 --------------------------------
@@ -272,18 +281,14 @@ ProbeResult = _device_mutex.ProbeResult
 ProcessInfo = _device_mutex.ProcessInfo
 WaitVerdict = _device_mutex.WaitVerdict
 LockHolder = _device_mutex.LockHolder
-classify_probe_setup_error = _device_mutex.classify_probe_setup_error
 escalate_stale_state = _device_mutex.escalate_stale_state
 format_probe_line = _device_mutex.format_probe_line
 parse_probe_output = _device_mutex.parse_probe_output
-parse_probe_cmd = _device_mutex.parse_probe_cmd
 run_device_probe = _device_mutex.run_device_probe
 default_probe_cmd = _device_mutex.default_probe_cmd
-query_windows_python_processes = _device_mutex.query_windows_python_processes
 own_process_ids = _device_mutex.own_process_ids
 select_device_using_processes = _device_mutex.select_device_using_processes
 find_device_using_processes = _device_mutex.find_device_using_processes
-format_occupier_lines = _device_mutex.format_occupier_lines
 default_lock_path = _device_mutex.default_lock_path
 
 
@@ -306,67 +311,6 @@ class RoundAbort:
     def reason(self) -> str:
         """判定理由原文 (没有原文时退回根因描述)。"""
         return self.verdict.reason_text or self.verdict.headline()
-
-
-def _reason_text(text: str, pattern: re.Pattern[str]) -> str:
-    """摘出命中判定的那一行原文。
-
-    Args:
-        text: 子进程输出 (stderr + stdout 拼起来)。
-        pattern: 判定用的正则。
-
-    Returns:
-        命中处所在的**整行** (去掉首尾空白, 最多 :data:`REASON_TEXT_CHARS` 字符);
-        没命中则空字符串。
-    """
-    matches = list(pattern.finditer(text))
-    if not matches:
-        return ""
-    start = matches[-1].start()
-    line_start = text.rfind("\n", 0, start) + 1
-    line_end = text.find("\n", start)
-    if line_end < 0:
-        line_end = len(text)
-    return text[line_start:line_end].strip()[:REASON_TEXT_CHARS]
-
-
-def _extract_santec_error_code(text: str) -> int | None:
-    """取出文本里最后一个 Santec 错误码 (没有则 ``None``)。
-
-    Args:
-        text: 待解析文本。
-
-    Returns:
-        错误码整数, 或 ``None``。
-    """
-    codes = _SANTEC_CODE_RE.findall(text)
-    if not codes:
-        return None
-    try:
-        return int(codes[-1])
-    except ValueError:  # pragma: no cover - 正则保证是整数
-        return None
-
-
-def classify_probe_setup_error(text: str) -> str | None:
-    """判定一段输出是不是「探针自己没装好」(而不是设备被占)。
-
-    Args:
-        text: 探针的 stderr (或异常文本)。
-
-    Returns:
-        给操作者看的中文原因; 不是环境问题则返回 ``None``。
-    """
-    if not text:
-        return None
-    for pattern in PROBE_SETUP_ERROR_RES:
-        if pattern.search(text):
-            return (
-                "探针自己没装好 (大恒 SDK gxipy 不在 PYTHONPATH 里 —— 它只随仓库"
-                "分发在 libs/ 下)。这不是「设备被占」, 不能靠等解决: 请把 "
-                "libs/ 加进 PYTHONPATH 后重试。"
-            )
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -494,20 +438,6 @@ def parse_probe_output(stdout: str, stderr: str = "") -> ProbeResult:
     )
 
 
-def _ensure_repo_paths() -> None:
-    """把仓库的四个搜索路径塞进 ``sys.path`` (探针子进程用)。
-
-    为什么不能只靠环境变量: ``gxipy`` 只随仓库分发在 ``libs/`` 下, 不在
-    site-packages 里。漏了它, 相机会在半途抛 ``NameError: name 'gx' is not
-    defined`` —— 于是「相机被占」与「相机没装好」分不开, 而等设备的逻辑会永远
-    等下去 (2026-10-21 实测空转 55 分钟)。所以这里**显式**补一遍。
-    """
-    for path in (ROOT, ROOT / "src", ROOT / "libs", ROOT / "libs" / "OOPAO"):
-        text = str(path)
-        if text not in sys.path:
-            sys.path.insert(0, text)
-
-
 def _probe_failure(text: str) -> ProbeResult:
     """把探针里的异常翻译成结论。"""
     setup = classify_probe_setup_error(text)
@@ -544,30 +474,6 @@ def default_probe_cmd(
         "--probe-exposure-ms",
         str(float(exposure_ms)),
     ]
-
-
-def parse_probe_cmd(text: str) -> list[str]:
-    """把探针命令的文本解析成 argv。
-
-    JSON 数组优先 (路径里有空格时只有 JSON 靠得住), 否则按空白切。
-
-    Args:
-        text: 命令文本。
-
-    Returns:
-        argv 列表 (空文本 → 空列表)。
-    """
-    stripped = text.strip()
-    if not stripped:
-        return []
-    if stripped.startswith("["):
-        try:
-            data = json.loads(stripped)
-        except ValueError:
-            data = None
-        if isinstance(data, list):
-            return [str(item) for item in data]
-    return stripped.split()
 
 
 def run_device_probe(
@@ -627,54 +533,6 @@ class ProcessInfo:
 
     cmdline: str = ""
     """命令行 (可能为空: 有些进程的 CommandLine 拿不到)。"""
-
-
-def query_windows_python_processes() -> list[ProcessInfo]:
-    """用 CIM 列出 python 进程 (pid, 父 pid, 命令行)。
-
-    非 Windows 或查询失败时返回空列表 —— 查不到占用者不该让整轮失败, 退化成
-    「只靠探针」即可。
-
-    Returns:
-        ``[ProcessInfo, ...]``。
-    """
-    if os.name != "nt":
-        return []
-    command = (
-        "Get-CimInstance Win32_Process | "
-        "Where-Object { $_.Name -like 'python*' } | "
-        "ForEach-Object { "
-        "\"$($_.ProcessId)`t$($_.ParentProcessId)`t$($_.CommandLine)\" }"
-    )
-    try:
-        completed = subprocess.run(  # 固定命令, 不带用户输入
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return []
-    if completed.returncode != 0:
-        return []
-    processes: list[ProcessInfo] = []
-    for raw in completed.stdout.splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        pid_text, _, rest = line.partition("\t")
-        ppid_text, _, cmdline = rest.partition("\t")
-        try:
-            pid = int(pid_text)
-        except ValueError:
-            continue
-        try:
-            ppid = int(ppid_text)
-        except ValueError:
-            ppid = 0
-        processes.append(ProcessInfo(pid=pid, ppid=ppid, cmdline=cmdline))
-    return processes
 
 
 def own_process_ids(
@@ -789,11 +647,6 @@ def find_device_using_processes(
         exclude_pids=exclude_pids,
         own_paths=own_paths,
     )
-
-
-def format_occupier_lines(hits: Sequence[ProcessInfo]) -> list[str]:
-    """把占用者列表排成给人看的行。"""
-    return [f"  pid {proc.pid}: {proc.cmdline}" for proc in hits]
 
 
 def wait_until_idle(

@@ -1,3 +1,12 @@
+"""重跑 2026-10-15 GS 五轮对照的相位/远场/截面图 (report/shape_trials/figures/)。
+
+删除条件 (AGENTS.md 「scripts/ 目录」规则 3): 其图片 gs_issue_live_phase_*.png /
+gs_issue_live_farfield_*.png 仍被活报告
+``report/shape_trials/gs_refine/gs_issue_live_20261015.md`` 引用 (结论见该报告与
+``report/shape_trials/experiment_summary_20261016.md``)。当
+report/shape_trials/figures/ 下这组图不再需要重跑时可删。
+
+"""
 import numpy as np
 from loguru import logger
 import matplotlib

@@ -25,7 +25,7 @@
 | `tabu_search_algorithm.md` | 禁忌搜索算法实现说明（英文，`algorithm/tabu`） |
 | `zernike_usage.md` | Zernike 两层入口用法（模式编号/系数换算入口） |
 | `terminology_glossary.md` | **术语规范表**（唯一权威）：150+ 条口语→规范对照 + DO-NOT-TOUCH 保留清单 + T-60/T-61 新词登记 |
-| `paper_gs_refine_experiment.md` | 实验论文（GS 预矫正 + 随机平行梯度下降两级整形）：v4.7（2026-10-26 修订：正文只保留实验，仿真与数字孪生内容集中入附录 C），含 MIL 物理预测模型 + 可微光学框架综述 |
+| `paper_gs_refine_experiment.md` | 实验论文（GS 预矫正 + 随机平行梯度下降两级整形）：v4.8（2026-10-29 修订：补齐复合分数权重与窗口口径、理顺章节编号），含 MIL 物理预测模型 + 可微光学框架综述 |
 | `自适应 SPGD 光束整形闭环：完整方案总结.md` | 自适应 SPGD 方案：PPO 可信域思想 + 均匀化复合目标 + 自适应权重 + 历史信息复用 |
 | `相差光路多方案整形对比实验方案_v1.0.md` | 相差光路多方案整形对比实验方案 v1.0：6 方案 × 7 档像差，效果（composite/PIB/CV）+ 效率（收敛帧数/墙钟/收益成本比/帕累托）双维度对比 + 每类像差绑定独立工程路线 |
 | `scripts_functional_classification.md` | `scripts/` 功能二级分类与复用分析报告（2026-10-26）：在设备域一级分类上补 11 类功能二级分类，识别跨脚本重复功能与可复用函数，给出契约测试驱动、可逆的重构方案（未改动代码）；全量映射见 `scripts_functional_map.json` |

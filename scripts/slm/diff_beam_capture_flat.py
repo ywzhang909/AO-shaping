@@ -22,6 +22,14 @@ This script, run with the hardware online (SLM200 + Daheng CCD):
 Usage:
     uv run --group ml python scripts/slm/diff_beam_capture_flat.py \
         --exposure-us 1200 --output data/diff_beam/flat_tiff
+
+删除条件 (AGENTS.md 「scripts/ 目录」规则 3): 它服务的 ``diff-beam`` runner 已删
+(fbef192, 见 tests/ao_shaping/runners/test_diff_beam_runner.py 的 skip 说明),
+本文件本可随其退场; 但 scripts/README.md「Diff-Beam Shaping Pipeline」一节仍
+条目在案 (规则 3③ 要求同行删除, 不在本次改动范围), 且 TODO.md §8.9 把它列为
+三处同构线程边界捕获之一 (``diff_beam_capture_flat.py:68``;
+test_thread_boundary_exception_capture_keeps_base_exception 全树扫描, 不因本文件
+消失而失效)。当上述 README 一节与 TODO.md 引用在同一次改动里清理后, 可删。
 """
 
 from __future__ import annotations

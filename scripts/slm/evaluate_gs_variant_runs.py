@@ -1,6 +1,13 @@
 """Compare trusted local GS debug runs using their saved CCD frames.
 
 Usage: python scripts/slm/evaluate_gs_variant_runs.py RUN_DIR ... --output summary.json
+
+删除条件 (AGENTS.md 「scripts/ 目录」规则 3): 可重跑的离线比较器 (summary.json
+写到调用者指定路径), 其 GS 变体对比结论未被任何 report/ 或 issue 引用,
+规则 3① 不满足; 且 H-33 (GS → Zernike 阶数扫描, 见 TODO.md 与
+report/shape_trials/gs_refine/gs_refine_zernike_hardware_plan.md) 未闭环,
+GS 变体 run 可能还需复评。当 GS 变体对比结论已入
+``report/shape_trials/gs_refine/`` 且存量 ``slm_gs_refine`` run 不再需要复评时, 可删。
 """
 
 from __future__ import annotations
