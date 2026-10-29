@@ -277,7 +277,7 @@ python src/ao_shaping/main.py --debug zernike-matrix --n-magnitudes 4 --dither-a
 
 1. **model** — 在当前光路上采集一组相位多样的探针，仅用这批采集生成标称 checkpoint（不从历史模型热启动），从零拟合物理预测模型，并把同一组光学参数导出到整形所用更细的控制网格（另含一个宽坡道变体，其载波映射按整形实际使用的控制分辨率重新测量）；
 2. **shaping** — 对每个请求的形状依次跑四个 CCD 锚定的优化段（非 GS 初相位 → Mono12 → 续接 → 稠密，段表硬编码于源码 `STAGE_RECIPES`，不通过选项暴露）；每个 CCD 块仅当**实测**核心 CV 下降才被接受；
-3. **replay** — 以共同位深和两档曝光重放每个形状存档的初相位与最终相位，使各段可在相同条件下比较；
+3. **replay** — 以共同位深和共同曝光阶梯（默认两档 50/100 ms；`--replay-exposures-auto` 时按本 lane 实测核心峰值率推导）重放每个形状存档的初相位与最终相位，使各段可在相同条件下比较；
 4. **record** — 把每个 CCD 块（相位、实测远场、相位变化、前后 CV、验收判定）写成 Recorder 记录，保存为 CSV + HDF5 + 动画 GIF。
 
 默认 `--seed-bakeoff` 会先实测各候选初相位的核心 CV、逐形状择优（对比择优）。完整工作流与实测记录见 [`docs/slm/slm_transfer_workflow.md`](../slm/slm_transfer_workflow.md)，流程出处见 [`report/shape_trials/square1200/square1200_20261026.md`](../../report/shape_trials/square1200/square1200_20261026.md)。
@@ -310,14 +310,19 @@ SLM（Santec）+ CCD 相机；不涉及 DM / WFS。设备只被需要它的阶�
 | `--cam-id` | INTEGER | `0` | 相机设备 ID（`--help` 无说明文案） |
 | `--slm-number` | INTEGER | `1` | SLM 设备编号（`--help` 无说明文案） |
 | `--device` | `[auto\|cpu\|cuda]` | `auto` | 计算设备（auto = 有 CUDA 用 CUDA） |
-| `--initial-phase` | `[auto\|transport\|backprojection\|gs]` | `auto` | 初相位构造；auto = 正方形用非 GS 传输，其余用非 GS 反投影 |
+| `--initial-phase` | `[auto\|plane\|random\|transport\|backprojection\|gs]` | `auto` | 初相位构造；auto = 正方形用非 GS 传输，其余用非 GS 反投影；plane/random = 严格冷启动（不读目标、不用物理预测模型） |
 | `--seed-bakeoff / --no-seed-bakeoff` | 开关 | 开启（`seed-bakeoff`） | 先实测各候选初相位的核心 CV，逐形状择优（对比择优） |
-| `--replay-exposures` | FLOAT | `50.0, 100.0` | 共同重放的曝光（ms）；可多次指定 |
+| `--gs-seed / --no-gs-seed` | 开关 | 开启（`gs-seed`） | 对比择优是否允许 GS 初相位候选；无 GS 冷启动方案须用 `--no-gs-seed` |
+| `--replay-exposures` | FLOAT | `50.0, 100.0` | 共同重放的曝光（ms）；可多次指定（`multiple=True` 不接受空格分隔的多值，须逐值重复旗标） |
+| `--replay-exposures-auto` | 开关 | 不启用 | 按本 lane 已测各块的核心峰值率推导共同重放曝光（覆盖 `--replay-exposures`）；固定 ladder 只在一个 lane 内成立，不能跨尺寸共用 |
+| `--record-responses / --no-record-responses` | 开关 | 不启用（`no-record-responses`） | 拟合时记录逐批物理响应统计（fit `--record-responses`），写入 `fit/` |
 | `--model-dir` | PATH | 未指定 | 复用已有会话目录（含 `capture/` 与 `fit/`），跳过模型采集与拟合 |
 | `--records-only` | 开关 | 不启用 | 只从已有的分段目录重建 Recorder 记录（离线，不打开设备） |
+| `--resume` | 开关 | 不启用 | 跳过已有 manifest.json 的阶段（journal 记 reused）并沿用其目录作为下一段种子 |
+| `--order` | `[shape\|stage]` | `shape` | shape = 逐形状跑完四段；stage = 先跑所有形状的第 1 段，再第 2 段（连续几次运行共用同一 bit depth / window step / 曝光策略，中断只损失一个形状的一段） |
 | `--execute` | 开关 | 不启用 | 真正打开设备执行（否则只打印计划） |
 
-共 26 项。该命令的选项全部是 `runners/slm/transfer_shapes_runner.py` 里的 `@click.option` 直接声明（无 params dataclass）；拼写、取值域与默认值逐字来自 `--help` 转储，与源码一致，无分歧。
+共 31 项。该命令的选项全部是 `runners/slm/transfer_shapes_runner.py` 里的 `@click.option` 直接声明（无 params dataclass）；拼写、取值域与默认值逐字来自 `--help` 转储，与源码一致，无分歧。
 
 ℹ️ 四个整形段的块数、每块更新数、相位学习率、相位 RMS 上限、位深、验收度量与相机采样步长都不在选项表里，而是硬编码于 `STAGE_RECIPES`：`transport_cv`（4 块 × 15 更新，8 位）、`mono12_cv`（8 × 20，12 位）、`mono12_continue`（12 × 15，12 位）、`mono12_dense`（4 × 20，12 位，宽坡道模型 + 2.0 采样步长）。
 
