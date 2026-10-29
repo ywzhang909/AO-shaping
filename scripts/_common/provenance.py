@@ -1155,8 +1155,10 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="硬件（Santec #1 SLM + Daheng CCD；WFS / NLight DM / MIICAM 未连接）",
         note=(
             "2026-10-29 设备在线多尺度整形会话的实测记录：lane 00–04 在 0.7 功率下完成，"
-            "05–08 在激光功率升到 1.0 后从头重跑/新跑，13–15 已完成、16 因 SLM 陈旧句柄"
-            "（错误码 −10003）失败待重跑，31–34 待跑（25 条编制）。"
+            "05–08 在激光功率升到 1.0 后从头重跑/新跑，13–15 完成；16 首次失于 SLM 陈旧"
+            "句柄（错误码 −10003），断电重置后重跑拿到 4/4 阶段，最后的 `common_replay` "
+            "在 18:35 激光停机处截断（12 个归档，无 `released.json`）；31–34 与 17–20 "
+            "因停机从未启动（25 条编制的最终状态见 §3 / §9.6）。"
             "**一次会话不跨功率**：0.7 的半成品全部归档，跨功率只读形态不读量级。"
             "200 px 解析初始化（0.7）：circle 15/15 有效、dCV −0.286/−0.126/−0.127 三档 "
             "supported；triangle 13/15、−0.161/−0.173 两档 supported；square 11/15 的 "
@@ -1171,8 +1173,14 @@ REPORTS: dict[str, ReportProvenance] = {
             "`core_peak/exposure` 被证明不是辐射率（同一天两条 lane 方向相反），"
             "报告只承认平场探针读数与 ≥6× 跳变。"
             "§5.5 逐组合字段台账：本轮 objective 以 `formation=False` 运行，"
-            "`l_partition` / `l_boundary` 逐轮恒为 0.0，故形状覆盖 / 边界误差与 "
-            "Zernike 增量三项**未测**（不是未报），结论只覆盖「更均匀 + 能量没丢」。"
+            "`l_partition` / `l_boundary` 逐轮恒为 0.0，故闭环**没有**优化形状项；"
+            "形状覆盖 / 边界误差已在 §5.8 用同一批归档帧**离线复算**补上"
+            "（`scripts/slm/audit_shape_agreement.py` 流式产出 "
+            "`artifacts/shape_agreement_20261029.jsonl`，222 帧 / 12 会话：所有组合的 "
+            "`filled_fraction` ≤ 10.7%，且两条 CV 改善最大的会话（600 px circle / "
+            "square）填充反而降到原来的 1/6–1/8 ⇒ 结论仍只覆盖"
+            "「更均匀 + 能量没丢」，且现在有「没长成目标形状」的量化上界）；"
+            "Zernike 增量本轮**仍是空白**。"
             "配图由 `generate_multishape_nogs_20261029_figures.py` 渲染："
             "CV 轨迹与逐段首末柱取自 `capture_records.pkl`（与 §5.2 表同源），"
             "冻结光阑审计图直接调用 `audit_block`/`summarise_block`（与 §5.1 表同源），"
@@ -1185,6 +1193,8 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/tools/slm/transfer/fit.py",
             "src/ao_shaping/tools/slm/transfer/replay_phases.py",
             "scripts/slm/audit_replay_blocks.py",
+            "scripts/slm/audit_shape_agreement.py",
+            "scripts/slm/generate_multishape_shape_figure.py",
             "scripts/slm/probe_optical_path_validity.py",
             "scripts/slm/analyze_session_time_budget.py",
             "scripts/slm/generate_multishape_nogs_20261029_figures.py",
