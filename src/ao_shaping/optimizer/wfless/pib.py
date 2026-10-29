@@ -11,6 +11,7 @@ from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.dm._registry import get_dm_registry
 from ao_shaping.algorithm.gradient.adam import Base
 from ao_shaping.utils import ImageVoltagesDisplay, logger, Recorder
+from ao_shaping.utils.io.record_mode import RecordMode
 from ao_shaping.utils.objective_direction import objective_direction
 from ao_shaping.optimizer.spid_pib_loop import open_pib_bench, spid_pib_epoch
 from ao_shaping.optimizer.wfless._convergence_diagnostics import (
@@ -203,7 +204,7 @@ def _objective_to_min(objective: str) -> int:
     objective the recorder reports as improving -- the 74c7d0f symptom reached
     through the vocabulary instead of through a scoping mistake.
     """
-    return -1 if objective_direction(objective).maximizing else 1
+    return -1 if RecordMode.coerce(objective_direction(objective)).maximizing else 1
 
 
 def optimize_pib(

@@ -52,11 +52,10 @@ from ao_shaping.tools.kernels.bench_kernels import (
     zernike_panel,
 )
 from ao_shaping.utils.image.beam_metrics import zero_order_center
-from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts
+from ao_shaping.utils.io.file import RecordMode, Recorder, save_recorder_debug_artifacts
 from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
 from ao_shaping.utils.wavefront import zernike_calc
 from ao_shaping.utils.io.recorder_keys import (RECORD_COEFFS, RECORD_EPOCH, RECORD_IMAGE, RECORD_PHASE)
-from ao_shaping.utils.io.record_mode import RecordMode
 
 # 语料家族前缀（最长前缀匹配，顺序极为关键：slm_pib_online 必须排在 slm_pib 之前）
 # 参见：src/ml/hwdataset/index.py:200-210

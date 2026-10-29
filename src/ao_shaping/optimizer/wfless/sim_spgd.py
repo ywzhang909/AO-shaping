@@ -11,7 +11,7 @@ import tqdm
 
 from ao_shaping.drivers.sim.compat import AOConfig, TraditionalAOSystem
 from ao_shaping.utils.image.spots_calc import power_bucket, radius
-from ao_shaping.utils import logger, Recorder
+from ao_shaping.utils import logger, RecordMode, Recorder
 
 from ao_shaping.optimizer.constants import create_optimizer
 from ao_shaping.utils.io.recorder_keys import (
@@ -24,7 +24,6 @@ from ao_shaping.utils.io.recorder_keys import (
     RECORD_ROI_ENERGY,
     RECORD_VOLTAGES,
 )
-from ao_shaping.utils.io.record_mode import RecordMode
 
 def _current_strehl(ao_sys: TraditionalAOSystem) -> float:
     return float(ao_sys.observe()["strehl"])

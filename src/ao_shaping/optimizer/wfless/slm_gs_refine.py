@@ -98,7 +98,7 @@ from ao_shaping.utils.image.exposure_control import (
 from ao_shaping.utils.image.target.patterns import create_target_shape
 from ao_shaping.utils.image.target.metrics import TARGET_SHAPE_CHOICES
 from ao_shaping.utils.image.targets import square_mask
-from ao_shaping.utils.io.file import Recorder
+from ao_shaping.utils.io.file import RecordMode, Recorder
 from ao_shaping.utils.slm.bench_constants import (
     BLAZE_PERIOD_MIN_PX,
     MAX_SLM_NUMBER,
@@ -120,7 +120,6 @@ from ao_shaping.utils.io.recorder_keys import (
     RECORD_IMAGE,
     RECORD_PHASE,
 )
-from ao_shaping.utils.io.record_mode import RecordMode
 
 __all__ = ["SlmGsRefineConfig", "optimize_slm_gs_refine"]
 

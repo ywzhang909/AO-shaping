@@ -59,7 +59,7 @@ from ao_shaping.gui.utils.phase_overlay import (
     apply_overlays_to_handle,
 )
 from ao_shaping.optimizer.spgd import spgd_gradient
-from ao_shaping.utils import Recorder, logger
+from ao_shaping.utils import RecordMode, Recorder, logger
 from ao_shaping.utils.cli.exposure import exposure_ms_legacy, resolve_exposure
 from ao_shaping.utils.objective_direction import objective_direction
 from ao_shaping.utils.image.beam_metrics import (
@@ -1213,7 +1213,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             raise ValueError(
                 f"{_name} must be a finite, non-negative weight, got {_w!r}"
             )
-    objective_mode = objective_direction(objective)
+    objective_mode = RecordMode.coerce(objective_direction(objective))
     recorder = Recorder(mark=objective, mode=objective_mode)
 
     # History for convergence detection

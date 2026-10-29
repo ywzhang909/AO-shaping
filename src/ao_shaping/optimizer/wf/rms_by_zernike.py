@@ -37,7 +37,7 @@ from ao_shaping.algorithm.heuristic.search import (
 from ao_shaping.drivers import MlaRes, ThorlabWFS
 from ao_shaping.drivers.wfs._registry import resolve_wfs
 from ao_shaping.drivers.slm import ZernikeSLM
-from ao_shaping.utils import Recorder, logger
+from ao_shaping.utils import Recorder, RecordMode, logger
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 from ao_shaping.utils.wavefront.zernike_calc import zernike_modes as _zernike_indices
 from ao_shaping.optimizer.spgd import spgd_gradient
@@ -47,7 +47,6 @@ from ao_shaping.utils.io.recorder_keys import (
     RECORD_EPOCH,
     RECORD_PHASE,
 )
-from ao_shaping.utils.io.record_mode import RecordMode
 
 # =============================================================================
 # Scheduling utilities for LR and delta

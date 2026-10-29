@@ -204,13 +204,15 @@ def resolve_objective_key(run: dict) -> str:
     return "J"
 
 
-def objective_direction(key: str) -> str:
+def objective_label(key: str) -> str:
     """``"max"`` for the bucket/shaping objectives, ``"min"`` otherwise.
 
-    Thin wrapper over the single-source :func:`_objective_direction` so the
-    report's call sites keep a stable, explicitly named local function.
+    Renders the single-source :func:`objective_direction` as the wire string the
+    report's columns and JSON sidecar expect. Deliberately *not* named
+    ``objective_direction``: a same-named local wrapper is where a second copy of
+    the vocabulary starts (issue #130).
     """
-    return _objective_direction(key)
+    return str(_objective_direction(key))
 
 
 def objective_summary(run: dict, key: str, direction: str) -> dict[str, Any]:
@@ -428,7 +430,7 @@ def build_markdown(
         items = artefacts[tag]
         payload = run["payload"]
         obj_key = resolve_objective_key(run)
-        direction = objective_direction(obj_key)
+        direction = objective_label(obj_key)
         summary = objective_summary(run, obj_key, direction)
         epochs = run["epochs"]
         lines.append(f"## 2. 运行 `{tag}` (目录 `{run['dir'].name}`)")
@@ -594,7 +596,7 @@ def cli() -> None:
         runs.append(run)
         tag = f"run{len(runs) - 1}"
         obj_key = resolve_objective_key(run)
-        direction = objective_direction(obj_key)
+        direction = objective_label(obj_key)
         summary = objective_summary(run, obj_key, direction)
         best_epoch = summary.get("best_epoch") if summary.get("available") else None
         logger.info(

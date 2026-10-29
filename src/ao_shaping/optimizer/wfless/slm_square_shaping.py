@@ -111,7 +111,7 @@ from ao_shaping.optimizer.wfless.adaptive_spgd_core import (
     get_stage_weights,
     should_boost_stagnation,
 )
-from ao_shaping.utils import Recorder, logger
+from ao_shaping.utils import Recorder, RecordMode, logger
 from ao_shaping.utils.image.beam_metrics import smart_zero_order_center
 from ao_shaping.utils.image.exposure_control import (
     resolve_daheng_exposure_limit,
@@ -140,7 +140,6 @@ from ao_shaping.utils.io.recorder_keys import (
     RECORD_GRAD,
     RECORD_IMAGE,
 )
-from ao_shaping.utils.io.record_mode import RecordMode
 
 # Adam parameters
 beta1 = 0.9
