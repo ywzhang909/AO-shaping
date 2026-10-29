@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: command
 tags: [command]
-source: src/ao_shaping/runners/slm/gs_refine_runner.py:115
+source: src/ao_shaping/runners/slm/gs_refine_runner.py:139
 ---
 
 ## 一句话
@@ -13,7 +13,7 @@ GS 预整形 + 全频随机相位 SPGD 细化
 
 ## 入口函数
 
-`runners.slm.gs_refine_runner.run`（`src/ao_shaping/runners/slm/gs_refine_runner.py:115`）
+`runners.slm.gs_refine_runner.run`（`src/ao_shaping/runners/slm/gs_refine_runner.py:139`）
 
 ```python
 run(ctx, params)

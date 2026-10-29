@@ -1717,7 +1717,10 @@ def test_the_loguru_guard_follows_the_logger_not_one_spelling_of_its_import() ->
 # the adc/santec guards, and the two `open()`+csv / `open()`+write sites in
 # voltage_runner and adc_dm_adam. A typed silent handler is still silent, but it is
 # no longer *unattributable*: the reader can see which failure class is being dropped.
-_BLIND_SILENT_BASELINE = 46
+# Lowered 46 -> 44 on 2026-10-29: 15ea0a22 moved pixel size into the driver, which
+# deleted the GUI's GenICam ``PixelSize`` probe and the daheng/miicam probe's blind
+# fallbacks -- two handlers stopped existing rather than becoming typed.
+_BLIND_SILENT_BASELINE = 44
 
 
 def _blind_silent_handlers(root: Path) -> list[str]:
