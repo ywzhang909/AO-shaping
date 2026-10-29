@@ -501,7 +501,7 @@ class _LevelSlm:
 
 
 def _run_validate(tmp_path, monkeypatch, *, abba, mode="model", updates=2, device=None, seen=None,
-                  adaptive_exposure=False, blocks=1):
+                  adaptive_exposure=False, blocks=1, **extra):
     """Drive ``validate.run`` end to end with fakes: devices, forward and optimizer.
 
     Everything above the device layer is the production code, so the set of
@@ -597,7 +597,7 @@ def _run_validate(tmp_path, monkeypatch, *, abba, mode="model", updates=2, devic
                            frames=2, mode=mode, seed_run=None, seed_policy="strict",
                            accept_metric="loss", objective="shape", camera="custom",
                            cam_id=7, slm_number=2, execute=True, abba=abba, device=device,
-                           adaptive_exposure=adaptive_exposure)
+                           adaptive_exposure=adaptive_exposure, **extra)
     validate.run(args)
     return args
 
@@ -888,3 +888,52 @@ def test_a_malformed_summary_is_a_value_error_not_an_index_error(tmp_path):
 
     with pytest.raises(ValueError, match="lacks shape/block keys"):
         session_plan(_plan_args(tmp_path, ["triangle"]))
+
+
+def test_profile_timing_writes_a_five_part_split_per_capture(tmp_path, monkeypatch):
+    """The split is the evidence the speed-up work is argued from.
+
+    ``scripts/slm/analyze_session_time_budget.py`` can only attribute what a
+    session records; before this flag the ~5 s between two captures had no
+    per-segment breakdown at all, so every proposal rested on a guess.
+    """
+    args = _run_validate(tmp_path, monkeypatch, abba=False, mode="anchored", blocks=1,
+                         profile_timing=True)
+    rows = json.loads((args.out/"manifest.json").read_text())
+    assert rows
+    for row in rows:
+        assert set(row["timing"]) == {"slm_write", "settle", "read", "reduce", "save"}
+        assert all(value >= 0 for value in row["timing"].values())
+
+
+def test_timing_is_absent_unless_it_is_asked_for(tmp_path, monkeypatch):
+    args = _run_validate(tmp_path, monkeypatch, abba=False, mode="anchored", blocks=1)
+    rows = json.loads((args.out/"manifest.json").read_text())
+    assert rows and all("timing" not in row for row in rows)
+
+
+def test_async_capture_write_stores_the_same_measurement(tmp_path, monkeypatch):
+    """The background writer may only change *when* the bytes land.
+
+    A lane's manifest is what the campaign compares, so the row and the npz it
+    names must match the synchronous path exactly -- otherwise the flag would
+    silently fork the protocol.
+    """
+    (tmp_path/"sync").mkdir(parents=True, exist_ok=True)
+    (tmp_path/"async").mkdir(parents=True, exist_ok=True)
+    sync = _run_validate(tmp_path/"sync", monkeypatch, abba=False, mode="anchored", blocks=1)
+    background = _run_validate(tmp_path/"async", monkeypatch, abba=False, mode="anchored",
+                               blocks=1, async_capture_write=True)
+
+    def comparable(run):
+        rows = json.loads((run.out/"manifest.json").read_text())
+        keys = ("label", "file", "peak", "core_peak", "saturation_pixels", "loss")
+        return [{key: row[key] for key in keys} for row in rows]
+
+    assert comparable(sync) == comparable(background)
+    assert (sorted(path.name for path in sync.out.glob("capture_*.npz"))
+            == sorted(path.name for path in background.out.glob("capture_*.npz")))
+    with np.load(sync.out/"capture_0000.npz") as left, np.load(background.out/"capture_0000.npz") as right:
+        assert sorted(left.files) == sorted(right.files)
+        for key in left.files:
+            assert np.array_equal(left[key], right[key])

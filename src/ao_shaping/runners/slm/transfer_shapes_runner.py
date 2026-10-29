@@ -145,7 +145,8 @@ def _validate_args(*, checkpoint: Path, out: Path, zero_xy, shapes, recipe: Stag
                    cam_id: int, slm_number: int, frames: int, side: float, period: float,
                    window_span: float, zero_radius: float, window_step: float | None = None,
                    blocks: int | None = None, updates: int | None = None,
-                   adaptive_exposure: bool = True) -> SimpleNamespace:
+                   adaptive_exposure: bool = True, profile_timing: bool = False,
+                   async_capture_write: bool = False) -> SimpleNamespace:
     """Build the argument namespace ``validate.run`` expects."""
     return SimpleNamespace(
         checkpoint=checkpoint, out=out, zero_xy=list(zero_xy), target_xy=None,
@@ -162,6 +163,7 @@ def _validate_args(*, checkpoint: Path, out: Path, zero_xy, shapes, recipe: Stag
         exploration_temperature=0.0, exploration_budget=0.25, exploration_window=4,
         accept_metric=recipe.accept_metric, objective="cv", abba=False,
         ccd_check=recipe.ccd_check, device=device, execute=True,
+        profile_timing=profile_timing, async_capture_write=async_capture_write,
     )
 
 
@@ -207,7 +209,8 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
                chosen: dict[str, str], model_640: Path, wide_dir: Path, zero_xy,
                initial_phase: str, device: str, camera: str, cam_id: int, slm_number: int,
                frames: int, side: float, period: float, window_span: float,
-               zero_radius: float, window_step: float, recorder) -> None:
+               zero_radius: float, window_step: float, recorder,
+               profile_timing: bool = False, async_capture_write: bool = False) -> None:
     """Run every ``(shape, stage)`` in ``order``, reusing finished stages on ``--resume``.
 
     Split out of :func:`run` so the ordering and the reuse rule are testable
@@ -237,7 +240,8 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
             recipe=recipe, initial_phase=kind, seed_run=seed_run, device=device,
             camera=camera, cam_id=cam_id, slm_number=slm_number, frames=frames,
             side=side, period=period, window_span=window_span, zero_radius=zero_radius,
-            window_step=window_step if index == 0 else None)
+            window_step=window_step if index == 0 else None,
+            profile_timing=profile_timing, async_capture_write=async_capture_write)
         # validate.run only reads this optional flag; absent it keeps the
         # historical "new directory or fail" contract.
         args.resume = resume
@@ -316,6 +320,12 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
               show_default=True,
               help="shape = 逐形状跑完四段; stage = 先跑所有形状的第 1 段, 再第 2 段 (连续几次运行共用同一 bit depth / window step / 曝光策略, 中断只损失一个形状的一段)")
 @click.option("--execute", is_flag=True, help="真正打开设备执行 (否则只打印计划)")
+@click.option("--profile-timing/--no-profile-timing", default=False,
+              help="在每个采集的 manifest 行里记录 slm_write/settle/read/reduce/save 分段耗时 (ms); "
+                   "只做测量, 不改任何采集值。默认关闭: 跨 lane 比较时要显式选择。")
+@click.option("--async-capture-write/--no-async-capture-write", default=False,
+              help="把采集 npz 落盘放到后台线程, 与下一次采集的液晶稳定重叠; "
+                   "只改变字节何时落盘, 不改变内容。默认关闭。")
 def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, window_span: float,
         window_step: float, zero_radius: float, capture_grid: int, capture_count: int,
         fit_iterations: int, fit_span: int, amplitude_center_lr: float, control_grid: int,
@@ -325,7 +335,7 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         replay_exposures_auto: bool,
         record_responses: bool,
         model_dir: Path | None, records_only: bool, resume: bool, order: str,
-        execute: bool) -> None:
+        execute: bool, profile_timing: bool, async_capture_write: bool) -> None:
     """物理预测模型闭环整形：从零训练模型 + 目标整形，逐形状执行。
 
     典型用法::
@@ -506,7 +516,8 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         initial_phase=initial_phase, device=device, camera=camera, cam_id=cam_id,
         slm_number=slm_number, frames=frames, side=side, period=period,
         window_span=window_span, zero_radius=zero_radius, window_step=window_step,
-        recorder=recorder)
+        recorder=recorder, profile_timing=profile_timing,
+        async_capture_write=async_capture_write)
 
     # -------------------------------------------------------------- replay
     runs = [out / "shape" / shape / recipe.name for shape in shapes for recipe in STAGE_RECIPES]

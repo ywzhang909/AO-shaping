@@ -16,6 +16,8 @@ import argparse
 import json
 import pickle
 import time
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -49,6 +51,80 @@ def replay_seed(directory, shape, xy, target):
 #: caller can rank "one group now" against "one group later", nothing more.
 SETTLE_SECONDS = 0.6
 READ_SECONDS_PER_FRAME = 0.9
+
+
+#: Captures whose raw frames are still in memory, newest last.
+#:
+#: ``capture`` builds ``raw`` and writes it to the npz; the anchored path then
+#: re-opened that same file to take its mean (~145 ms per 46 MB capture here,
+#: measured 2026-10-29). Keeping the array for the few blocks that still need it
+#: removes a disk round trip without changing what is written or what any later
+#: consumer reads -- the file remains the record of the measurement.
+_CAPTURE_FRAMES: "OrderedDict[str, np.ndarray]" = OrderedDict()
+#: Four covers the live needs (an anchored block reads back only its own A1;
+#: the paired direction probe reads the three captures it just took) and holds
+#: ~120 MB of uint16 frames rather than a session's worth.
+_CAPTURE_FRAMES_MAX = 4
+
+
+def remember_capture(file_name: str, raw: np.ndarray) -> None:
+    """Keep one capture's raw frames available to :func:`capture_frames`."""
+    _CAPTURE_FRAMES[file_name] = raw
+    _CAPTURE_FRAMES.move_to_end(file_name)
+    while len(_CAPTURE_FRAMES) > _CAPTURE_FRAMES_MAX:
+        _CAPTURE_FRAMES.popitem(last=False)
+
+
+def capture_frames(directory: Path, file_name: str) -> np.ndarray:
+    """Raw frames of a capture: from memory when this process still has them.
+
+    Falls back to the npz so a resumed run (a fresh process) still reads the
+    measurement it did not take.
+    """
+    cached = _CAPTURE_FRAMES.get(file_name)
+    if cached is not None:
+        return cached
+    with np.load(Path(directory) / file_name) as payload:
+        return payload["raw_frames"]
+
+
+class _CaptureWriter:
+    """Serialise capture npz writes on one background thread.
+
+    Why: ``np.savez_compressed`` of one capture costs 1155 ms here (46 MB of
+    full-sensor frames -> 13.5 MB), which is 23% of the ~5.1 s between two
+    captures, and it touches nothing the live loop still needs once the frames
+    are in :data:`_CAPTURE_FRAMES`. Overlapping it with the next capture's SLM
+    settle therefore removes it from the critical path.
+
+    One worker, so writes stay in order. Exceptions are re-raised by
+    :meth:`close` rather than lost in the thread.
+    """
+
+    #: Beyond this backlog the loop waits for the oldest write instead of
+    #: queueing more: a slowing disk must slow the session, not grow memory.
+    _MAX_PENDING = 3
+
+    def __init__(self) -> None:
+        self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="capture-writer")
+        self._pending: list = []
+
+    def submit(self, path: Path, payload: dict) -> None:
+        if len(self._pending) >= self._MAX_PENDING:
+            self._pending.pop(0).result()
+        self._pending.append(self._pool.submit(np.savez_compressed, Path(path), **payload))
+
+    def close(self) -> None:
+        """Wait for every queued write, then re-raise the first failure."""
+        self._pool.shutdown(wait=True)
+        for future in self._pending:
+            future.result()
+        self._pending.clear()
+
+
+def _milliseconds(**segments: float) -> dict:
+    """Turn ``perf_counter`` deltas (seconds) into rounded milliseconds."""
+    return {name: round(float(value) * 1e3, 1) for name, value in segments.items()}
 
 
 def _group_tuple(bit_depth, window_step, groups) -> tuple[int, float, int]:
@@ -378,6 +454,11 @@ def run(args):
         with (args.out/"capture_records.pkl").open("rb") as stream:
             records.extend(pickle.load(stream))
     last_phase: dict[str, np.ndarray] = {}
+    # Off by default: overlapping the npz write with the next capture's SLM
+    # settle changes when the bytes reach the disk, never what they contain --
+    # but a campaign compares lanes against each other, so the choice stays
+    # explicit at the call site instead of becoming an invisible default.
+    writer = _CaptureWriter() if getattr(args, "async_capture_write", False) else None
     camera_options = {"bit_depth": bit_depth} if args.camera == "daheng" else {}
     with create_camera(args.camera, args.cam_id, exposure_time_ms=.02, **camera_options) as cam:
         with Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0) as slm:
@@ -389,10 +470,13 @@ def run(args):
             exposure = max(floor, .02)
 
             def capture(label, phase, objective):
+                start = time.perf_counter()
                 panel = to_panel(phase)
                 gray = slm.create_phase_from_array(panel)
                 slm.display_data(gray)
+                written = time.perf_counter()
                 time.sleep(.6)
+                settled = time.perf_counter()
                 frames, stamps = [], []
                 for _ in range(args.frames):
                     stamp = clock()
@@ -400,6 +484,7 @@ def run(args):
                     frames.append(frame.copy())
                     stamps.append(dict(**stamp, end_monotonic_ns=time.monotonic_ns(), exposure_ms=float(get_camera_exposure_ms(cam))))
                 raw = np.stack(frames)
+                read_done = time.perf_counter()
                 image = raw.mean(0)
                 if xy[..., 0].min() < 0 or xy[..., 1].min() < 0 or xy[..., 0].max() >= image.shape[1] or xy[..., 1].max() >= image.shape[0]:
                     raise ValueError("camera window extends beyond sensor")
@@ -414,9 +499,23 @@ def run(args):
                 with torch.no_grad():
                     loss, _ = objective.evaluate(torch.tensor(sampled/(row["exposure_ms"]*counts_scale), dtype=torch.float32), torch.zeros_like(torch.tensor(phase)))
                 row["loss"] = float(loss)
-                np.savez_compressed(args.out/row["file"], raw_frames=raw, panel_gray=gray,
-                                    model_phase=phase, panel_phase=panel, camera_xy=xy,
-                                    target=objective.target, core=objective.core)
+                reduced = time.perf_counter()
+                remember_capture(row["file"], raw)
+                payload = dict(raw_frames=raw, panel_gray=gray,
+                               model_phase=phase, panel_phase=panel, camera_xy=xy,
+                               target=objective.target, core=objective.core)
+                if writer is None:
+                    np.savez_compressed(args.out/row["file"], **payload)
+                else:
+                    writer.submit(args.out/row["file"], payload)
+                if getattr(args, "profile_timing", False):
+                    # Splits the ~5.1 s between two captures into the parts a
+                    # caller can act on. ``save`` is what the background writer
+                    # takes off the critical path when it is enabled.
+                    row["timing"] = _milliseconds(
+                        slm_write=written - start, settle=settled - written,
+                        read=read_done - settled, reduce=reduced - read_done,
+                        save=time.perf_counter() - reduced)
                 records.append(row)
                 with (args.out/"capture_records.pkl").open("wb") as stream:
                     pickle.dump(records, stream, protocol=5)
@@ -507,8 +606,8 @@ def run(args):
                         anchor_row = (capture(f"{shape}_{block}_A1", best, objective)
                                       if abba or args.mode == "anchored" else None)
                         if args.mode == "anchored":
-                            with np.load(args.out/anchor_row["file"]) as saved:
-                                anchor = saved["raw_frames"].mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)]/(anchor_row["exposure_ms"]*counts_scale)
+                            anchor_frames = capture_frames(args.out, anchor_row["file"])
+                            anchor = anchor_frames.mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)]/(anchor_row["exposure_ms"]*counts_scale)
                             with torch.no_grad():
                                 anchor_prediction = forward.predict(best)[0].detach().cpu().numpy()
                         optimizer = DifferentiableUniformityOptimizer(forward, objective, best, lr=phase_lr,
@@ -545,8 +644,7 @@ def run(args):
                                     lminus, _ = objective.evaluate(torch.tensor(pminus), torch.zeros_like(torch.tensor(best)))
 
                                 def observed(row):
-                                    with np.load(args.out/row["file"]) as payload:
-                                        mean = payload["raw_frames"].mean(0)
+                                    mean = capture_frames(args.out, row["file"]).mean(0)
                                     return mean[xy[..., 1].astype(int), xy[..., 0].astype(int)]/(row["exposure_ms"]*counts_scale)
 
                                 measured_difference = .5*(observed(b1)+observed(b2))-observed(minus)
@@ -625,6 +723,11 @@ def run(args):
                 slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
                 time.sleep(.3)
 
+    # Every capture has been taken; wait for the queued writes before anything
+    # reads a capture back (records export, replay, a later stage's seed).
+    if writer is not None:
+        writer.close()
+
     # Table first, animation second: a GIF failure must never cost a measured
     # run, and both are written with the devices already released.
     if recorder.history:
@@ -658,6 +761,12 @@ def main():
     parser.add_argument("--blocks", type=int, default=2)
     parser.add_argument("--updates", type=int, default=10)
     parser.add_argument("--frames", type=int, default=3)
+    parser.add_argument("--profile-timing", action="store_true",
+                        help="Write a per-capture `timing` split (slm_write/settle/read/reduce/save, ms) "
+                             "into every manifest row. Measurement only; no capture changes.")
+    parser.add_argument("--async-capture-write", action="store_true",
+                        help="Overlap the capture npz write with the next capture's SLM settle. "
+                             "Off by default so a campaign's lanes stay comparable.")
     parser.add_argument("--mode", choices=("model", "anchored"), default=None,
                         help="Accepted-phase continuation defaults to anchored; cold synthesis defaults to model")
     parser.add_argument("--seed-run", type=Path, help="Replay accepted phases; exact grid/target match required")

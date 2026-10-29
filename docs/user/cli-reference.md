@@ -321,8 +321,12 @@ SLM（Santec）+ CCD 相机；不涉及 DM / WFS。设备只被需要它的阶�
 | `--resume` | 开关 | 不启用 | 跳过已有 manifest.json 的阶段（journal 记 reused）并沿用其目录作为下一段种子 |
 | `--order` | `[shape\|stage]` | `shape` | shape = 逐形状跑完四段；stage = 先跑所有形状的第 1 段，再第 2 段（连续几次运行共用同一 bit depth / window step / 曝光策略，中断只损失一个形状的一段） |
 | `--execute` | 开关 | 不启用 | 真正打开设备执行（否则只打印计划） |
+| `--profile-timing / --no-profile-timing` | 开关 | 不启用 | 给每个采集的 manifest 行加一条 `timing` 分段耗时（`slm_write` / `settle` / `read` / `reduce` / `save`，毫秒）。只做测量，不改任何采集值；默认关闭，以便跨 lane 比较时是显式选择 |
+| `--async-capture-write / --no-async-capture-write` | 开关 | 不启用 | 把采集 npz 的落盘交给单线程后台写盘，与下一次采集的液晶稳定重叠。只改变字节何时落盘，不改变内容；默认关闭 |
 
-共 31 项。该命令的选项全部是 `runners/slm/transfer_shapes_runner.py` 里的 `@click.option` 直接声明（无 params dataclass）；拼写、取值域与默认值逐字来自 `--help` 转储，与源码一致，无分歧。
+共 33 项。该命令的选项全部是 `runners/slm/transfer_shapes_runner.py` 里的 `@click.option` 直接声明（无 params dataclass）；拼写、取值域与默认值逐字来自 `--help` 转储，与源码一致，无分歧。
+
+ℹ️ `--profile-timing` 与 `--async-capture-write` 是**测速开关**，不是测量协议的一部分：`slm-transfer-shapes` 一次采集之间的约 5.1 s 里，压缩落盘占 1155 ms（46 MB → 13.5 MB），锚定模式还会把刚写下的 npz 解压回来取锚点。`--async-capture-write` 只把前者挪出关键路径，`--profile-timing` 只记录分段耗时；两者都不改相位、曝光、帧数或任何验收判定。判定依据与实测见 [issue #213](https://github.com/ywzhang909/AO-shaping/issues/213)。
 
 ℹ️ 四个整形段的块数、每块更新数、相位学习率、相位 RMS 上限、位深、验收度量与相机采样步长都不在选项表里，而是硬编码于 `STAGE_RECIPES`：`transport_cv`（4 块 × 15 更新，8 位）、`mono12_cv`（8 × 20，12 位）、`mono12_continue`（12 × 15，12 位）、`mono12_dense`（4 × 20，12 位，宽坡道模型 + 2.0 采样步长）。
 
