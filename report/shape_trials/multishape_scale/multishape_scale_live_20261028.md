@@ -403,6 +403,44 @@ ladder 是 50/125/225）。
 证据保留：`p20261029_analytic_init_s200/circle/common_replay_aborted_50_125_225ms/`（原始帧与 manifest）、
 `journal_first_attempt.json`（中止那次的 journal，`--resume` 会重写 `journal.json`）。
 
+### 5.6 2026-10-29 lane 02：seed-only 试跑被 resume 门吞掉（已修）
+
+lane 02（`p20261029_analytic_init_s200_square`）在 `seed_bakeoff` 处失败：
+
+```
+FileNotFoundError: .../square/seed_bakeoff/square_transport/manifest.json
+```
+
+这不是设备问题，是 `c1c7aeed`（本报告的 campaign 计划器那次提交）引入的**回归**：那段代码给
+`validate.run` 加了续跑门
+
+```python
+blocks = blocks_for.get(shape, list(range(args.blocks)))
+if not blocks:
+    continue
+```
+
+而 `seed_bakeoff` 恰恰是用 `blocks=0, updates=0` 调它 —— 只测 `*_seed` 与 `*_final` 两行来比较
+初始相位构造。空块列表于是把整个形状跳过，目录里只剩 `config.json`。`c1c7aeed` 之前
+（`multishape_scale_20261028/s1200`、`s600`、`s600_fixed` 的对比择优目录）都是正常的，所以这是
+**只有 square/triangle/star 才会踩到**的路径 —— circle 的候选表只有一个，根本不进对比择优。
+
+修法：`validate.skips_shape(resume=..., blocks=...)` —— 只有**续跑且无剩余块**才跳过；非续跑的
+空列表是 seed-only 试跑的合法输入。runner 侧再加一道：`validate_stage.run` 返回后若 manifest 仍
+不存在，报出候选名与原因，不再以 JSON 读取的 `FileNotFoundError` 收场。
+守卫：`tests/ao_shaping/tools/slm/transfer/test_validate_blocks.py`。
+
+修复后 lane 02 的对比择优里，两个候选都写出了 manifest，实测（`cv`，越小越好）：
+
+| 候选 | seed CV | final CV | 核心峰值 / 曝光 |
+|---|---|---|---|
+| `transport` | 1.9027 | 1.9016 | 64.7 counts @ 4.32 ms |
+| `backprojection` | **0.6399** | 0.6521 | 91.3 counts @ 155.52 ms |
+
+200 px 的方斑上**反投影以约 3 倍优势胜出**，`transport`（可分离传输相位，只有正方形有精确解）
+在小目标上给出的光斑又暗又散（同样落在满量程的比例下，它的曝光只有 4.32 ms 才不饱和）。
+这条与 1200 px 的经验相反，须按尺寸分别报，不能外推。
+
 ## 6. 设备释放状态
 
 - 中断进程与被中止的 relaunch 均由上下文管理器释放 SLM/CCD；预检记录 `flat_restored=true`（SLM 已复位到平场）。
