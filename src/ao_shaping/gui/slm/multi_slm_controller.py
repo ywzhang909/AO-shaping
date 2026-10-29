@@ -199,18 +199,18 @@ def _stop_toggle(slm_num: int) -> None:
 
 
 def _probe_slm(slm_num: int) -> dict | None:
-    """Probe a single SLM by number; return device dict or None.
-
-    Returns ``None`` when no device is attached to ``slm_num``.  When a device
-    is attached but already open (by this or another instance) the returned
-    dict carries ``in_use=True`` / ``status="使用中"`` so the UI can show it
-    without attempting a second ``SLM_Ctrl_Open``.
-
-    Runs in a daemon thread with a timeout so a hung SDK call cannot block
-    the Streamlit server (the Santec SDK has historically hung on
-    ``SLM_Ctrl_ReadSD`` after rapid open/close cycles).
+    """Probe a single SLM; return its device dict, or ``None`` when no device
+    is attached (including the SDK being unavailable on a non-Windows host).
+    An already-open device reports ``in_use=True``. Runs in a daemon thread
+    with a timeout so a hung SDK call cannot block the Streamlit server (the
+    Santec SDK has historically hung on ``SLM_Ctrl_ReadSD`` after rapid
+    open/close cycles).
     """
-    import ao_shaping.drivers.slm.santec._slm_win as slm_sdk
+    try:
+        import ao_shaping.drivers.slm.santec._slm_win as slm_sdk  # Windows-only
+    except (ImportError, OSError) as e:  # non-Windows host: degrade to "no device"
+        logger.debug(f"Santec SLM SDK unavailable, skipping SLM probe: {e}")
+        return None
 
     result: list[dict | None] = [None]
 

@@ -190,6 +190,9 @@ classDiagram
 | slm{N}_defocus_use_reco      | bool            | 「用推荐值」按钮（把焦距写回探测推荐值，widget 键） |
 | slm{N}_shp_pending         | dict            | 主区预算预设的单次 flush 待写值（非 widget key） |
 | slm{N}_shp_budget_preset*   | str             | 预算预设选择与其「已应用」标记（widget 键） |
+| diff_opt_session_dir        | str             | 可微优化模型控制器页的会话目录（轨迹图数据源，非 widget key） |
+| diff_opt_subheader_box      | SpecialBlock/None | 可微优化页「专用子标题」折叠面板句柄（默认 None=主区，非 widget key） |
+| diff_opt_layout_choice      | str             | 可微优化页「页面布局」选择器（默认主区 / 专用子标题，widget 键） |
 
 ---
 

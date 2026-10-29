@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -21,7 +22,10 @@ from streamlit.testing.v1 import AppTest
 from ao_shaping.gui.slm import diff_opt_controller, shaping_controls
 from ao_shaping.gui.slm.shaping_controls import TRANSFER_RECIPE, TransferMethod
 
-APP = "src/ao_shaping/gui/slm/diff_opt_controller.py"
+# AppTest.from_file resolves relative paths against the *calling* file, so
+# build the entrypoint path absolutely from this test's location (repo root is
+# 4 levels up: tests/ao_shaping/gui/slm/ -> repo).
+APP = str(Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "slm" / "diff_opt_controller.py")
 
 
 @pytest.fixture()

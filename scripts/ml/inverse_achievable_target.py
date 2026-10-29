@@ -50,6 +50,7 @@ from scripts.ml.inverse_design_sim_eval import (
 )
 from ml.zernike.losses import LossConfig, composite_loss, roi_mask
 from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel
+from ml.zernike.inverse_design import square_amplitude  # single source of truth (#210)
 
 RESTARTS = 16
 STEPS = 60
@@ -58,13 +59,6 @@ N_MODES = N_MAX * (N_MAX + 3) // 2
 PIXEL_UM = 8.0
 
 
-def square_amplitude(grid: int) -> np.ndarray:
-    amp = np.zeros((grid, grid), dtype=np.float64)
-    half_w = int(SIZE_FRAC * grid * ASPECT / 2)
-    half_h = int(SIZE_FRAC * grid / 2)
-    c = grid // 2
-    amp[c - half_h : c + half_h, c - half_w : c + half_w] = 1.0
-    return amp
 
 
 def binary_target(grid: int) -> torch.Tensor:
