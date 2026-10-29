@@ -11,12 +11,18 @@ respond to any of them on this bench``
 焦面标度 —— 那个宽度响应整个淹在噪声里。
 
 所以几何标定之前应当先有一个**前置判定**: 光路到底通不通、够不够亮、SLM 到底
-有没有在调制。这个探针一次跑完给出三态判定:
+有没有在调制。这个探针一次跑完给出四态判定:
 
 * ``ok`` —— 光斑明显高于噪声底, **且**离焦带来了显著响应 (宽度或峰值的变化超过
   噪声水平) ⇒ 光路有效, 可以继续标定。
 * ``low_snr`` —— 光斑勉强高于噪声底, 或离焦响应淹没在噪声里 ⇒ 光路未必坏, 是
   **曝光/信噪比不足**; 给出建议曝光 (峰值落在 ~100-200 counts 的那一档)。
+* ``weak_path`` —— 光斑可见、离焦也响应, 但**每毫秒峰值只有本系统历史 ``ok``
+  探测中位数的 X%** ⇒ 光路被部分遮挡 / 衰减了。这一态是 2026-10-29 实测补上的:
+  当天把光路挡掉一部分后, 探针仍判 ``ok`` (峰值 68 counts 在噪声底 4 counts 之上,
+  离焦响应也显著), 而光通量已从 6.15 掉到 1.38 counts/ms。**曝光能补回峰值,
+  补不回被挡掉的能量** —— 若靠加大曝光把它抬进 100-200 counts 再判 ok, 整段标定
+  就建在衰减后的光束上。
 * ``no_response`` —— 光斑清晰可见但**离焦毫无响应** ⇒ 光路或 SLM 可疑 (面板没调制 /
   光束不在模型以为的位置 / 离焦没真正加上去); 给出排查方向
   (``tools/slm/slm_diagnose.py`` 的三步链: 冻结 / 调制 / 线性)。
@@ -28,8 +34,8 @@ respond to any of them on this bench``
 npz (原始帧)、``optical_path_probe.json`` (全部读数 + 判定 + 阈值 + 建议)、
 ``optical_path_probe.png`` (曝光-峰值曲线 + 离焦响应曲线)。
 
-退出码: ``0`` = 判定为 ``ok``; ``2`` = 判定为 ``low_snr`` 或 ``no_response``
-(可以当上层门禁用)。
+退出码: ``0`` = 判定为 ``ok``; ``2`` = 判定为 ``low_snr`` / ``weak_path`` /
+``no_response`` (可以当上层门禁用)。
 
 用法::
 
@@ -150,10 +156,23 @@ RECOMMENDED_PEAK_TARGET = 0.5 * (
     RECOMMENDED_PEAK_RANGE[0] + RECOMMENDED_PEAK_RANGE[1]
 )
 
-#: 三态判定的取值。
+#: 判定状态的取值。
 STATE_OK = "ok"
 STATE_LOW_SNR = "low_snr"
 STATE_NO_RESPONSE = "no_response"
+#: 光斑可见、离焦也响应, 但光通量远低于本系统历史水平 ⇒ 光路被部分遮挡/衰减。
+STATE_WEAK_PATH = "weak_path"
+
+#: 光通量相对历史 ``ok`` 中位数的下限。低于它判 ``weak_path``。
+#:
+#: 口径来自 2026-10-29 的同一台实验系统: 19 次 ``ok`` 探测的 counts/ms 中位数 6.15
+#: (相互离散在 5.6-8.0, 另有一次 20.6 的强耦合), 而部分挡光后掉到 1.38 —— 即 22%。
+#: 取 0.5 既抓得住这种量级的衰减 (还留了 2 倍余量给光源老化/重新标定), 也不会因为
+#: 一次 ±20% 的日常漂移就报警。
+DEFAULT_MIN_THROUGHPUT_RATIO: float = 0.5
+
+#: 参考值至少要由这么多次历史 ``ok`` 探测给出; 样本更少时中位数本身就在漂, 不下判定。
+MIN_REFERENCE_SAMPLES: int = 3
 
 
 @dataclass
@@ -440,6 +459,43 @@ def measure_defocus_sweep(
     return states
 
 
+def ladder_flux(ladder: list[dict[str, Any]]) -> dict[str, Any]:
+    """峰值 counts/ms —— 只用**未饱和**的可用档拟合, 以及参与拟合的档位 (ms)。
+
+    为什么单独成函数: 它有两个消费者。① 本次判定 (:func:`analyse_ladder`);
+    ② :func:`bench_reference` 读**旧**记录 —— 2026-10-29 之前落盘的 json 没有
+    ``ladder_summary.counts_per_ms``, 只能从它自己的 ``exposure_ladder`` 按同一
+    口径重算, 否则历史参考恒为空、这条门禁永远不生效 (首次上线实测就踩到了)。
+
+    为什么用峰值/毫秒而不是全帧总和: 遮挡把光**散掉**, 不是均匀减光 —— 2026-10-29
+    实测挡掉一部分后峰值掉到 22% (6.15 → 1.38 counts/ms), 而全帧总和只掉约 30%。
+    饱和档的峰值被满量程削平, 进拟合会把斜率压得比真实值低, 让正常光路看起来像
+    衰减, 所以一律排除。
+    """
+    points: list[dict[str, Any]] = []
+    for record in ladder:
+        usable = record.get("usable")
+        if usable is None:  # 旧记录只保证有 carries_signal / saturated
+            usable = bool(record.get("carries_signal")) and not bool(
+                record.get("saturated")
+            )
+        if usable:
+            points.append(record)
+    points.sort(key=lambda r: float(r["effective_ms"]))
+    flux = float("nan")
+    if len(points) >= 2:
+        xs = np.array([float(r["effective_ms"]) for r in points])
+        ys = np.array([float(r["peak_raw"]) for r in points])
+        design = np.stack([np.ones(xs.size), xs], axis=1)
+        flux = float(np.linalg.lstsq(design, ys, rcond=None)[0][1])
+    elif points:
+        flux = float(points[-1]["peak_raw"]) / float(points[-1]["effective_ms"])
+    return {
+        "counts_per_ms": flux,
+        "window_ms": [float(r["effective_ms"]) for r in points],
+    }
+
+
 def analyse_ladder(
     ladder: list[dict[str, Any]],
     full_scale: float,
@@ -505,6 +561,9 @@ def analyse_ladder(
             ss_res = float(np.sum(resid**2))
             linearity_r2 = float(1.0 - ss_res / ss_tot) if ss_tot > 0 else float("nan")
 
+    # 光通量 (counts/ms): 口径 (只拟合未饱和的可用档) 见 :func:`ladder_flux`。
+    flux = ladder_flux(ladder)
+
     return {
         "noise_floor": noise_floor,
         "saturation_counts": float(saturation_counts),
@@ -514,6 +573,8 @@ def analyse_ladder(
         "recommended_exposure": recommended,
         "ladder_monotonic": bool(monotonic),
         "ladder_linearity_r2": linearity_r2,
+        "counts_per_ms": flux["counts_per_ms"],
+        "counts_per_ms_window_ms": flux["window_ms"],
     }
 
 
@@ -687,13 +748,74 @@ def analyse_defocus_response(
     }
 
 
+def bench_reference(
+    out_root: Path,
+    *,
+    device: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """本实验系统历史 ``ok`` 探测的光通量中位数 (counts/ms)。
+
+    为什么口径只取 ``ok``: 一次已经判 ``low_snr`` 的运行不是「正常工作时的样子」,
+    拿它进中位数会把标准越拉越低, 于是同一条坏光路连着跑几次就把自己判成正常了。
+
+    设备匹配: ``slm_serial`` / ``cam_serial`` 读得到时按序列号匹配 (换 SLM 或换相机
+    后旧参考不再适用); 读不到的记录要求 ``full_scale`` 一致 (8 bit 与 12 bit 的
+    peak 不可比)。样本少于 :data:`MIN_REFERENCE_SAMPLES` 时返回 ``None`` ——
+    中位数在 1-2 个样本上没有意义, 宁可不下判定。
+    """
+    samples: list[float] = []
+    scales: list[float] = []
+    used: list[str] = []
+    for path in sorted(out_root.rglob("optical_path_probe.json")):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):  # 读到半截文件不应让门禁自己崩掉
+            continue
+        verdict = record.get("verdict") or {}
+        if verdict.get("state") != STATE_OK:
+            continue
+        ladder_summary = record.get("ladder_summary") or {}
+        value = ladder_summary.get("counts_per_ms")
+        if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+            # 2026-10-29 之前落盘的记录没有这一项: 从它自己的阶梯按同一口径重算。
+            value = ladder_flux(record.get("exposure_ladder") or [])["counts_per_ms"]
+        if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+            continue
+        ladder = record.get("exposure_ladder") or []
+        scale = float(ladder[0].get("full_scale") or 0.0) if ladder else 0.0
+        record_device = record.get("device") or {}
+        for key in ("slm_serial", "cam_serial"):
+            wanted = (device or {}).get(key)
+            if wanted and record_device.get(key) and record_device.get(key) != wanted:
+                break
+        else:
+            samples.append(float(value))
+            scales.append(scale)
+            used.append(str(path.parent))
+    if len(samples) < MIN_REFERENCE_SAMPLES:
+        return None
+    return {
+        "source": "history",
+        "counts_per_ms": float(np.median(samples)),
+        "n": len(samples),
+        "min_counts_per_ms": float(min(samples)),
+        "max_counts_per_ms": float(max(samples)),
+        "full_scale": max(scales) if scales else None,
+        "runs": used[-5:],
+    }
+
+
 def decide(
     ladder_summary: dict[str, Any],
     response: dict[str, Any],
+    *,
+    throughput: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """三态判定 + 依据 + 建议。
+    """四态判定 + 依据 + 建议。
 
-    判定顺序是有意的: 先看「有没有信号」, 再看「响应测不准还是根本没响应」。
+    判定顺序是有意的: 先看「有没有信号」, 再看「响应测不准还是根本没响应」,
+    最后才看「响应正常但光通量远低于本系统历史水平」—— 前两态说的是「测不出来」,
+    ``weak_path`` 说的是「测得出来, 但被测的已经不是原来那束光」。
     """
     reasons: list[str] = []
     advice: list[str] = []
@@ -787,7 +909,26 @@ def decide(
     else:
         state = STATE_LOW_SNR
 
-    if state != STATE_OK and recommended is not None and usable:
+    # 光通量判定: 只覆盖 ``ok`` —— ``low_snr`` / ``no_response`` 已经指出了更根本的
+    # 问题 (测不出来 / 没有调制), 再叠加一层「光也弱」只会把排查顺序搅乱。
+    if state == STATE_OK and throughput and throughput.get("ratio") is not None:
+        ratio = float(throughput["ratio"])
+        if ratio < float(throughput["min_ratio"]):
+            state = STATE_WEAK_PATH
+            reasons.append(
+                f"光通量只有参考的 {ratio:.0%}: 峰值 {throughput['counts_per_ms']:.2f} "
+                f"counts/ms, 参考 {throughput['reference_counts_per_ms']:.2f} counts/ms "
+                f"({throughput['reference_source']}, n={throughput['reference_n']})"
+                f" ⇒ 衰减到约 1/{1.0 / max(ratio, 1e-6):.1f}"
+            )
+            advice.insert(
+                0,
+                "先查光路遮挡 / 滤镜 / 元件位置再继续: 被挡掉的是能量, 加大曝光只能把"
+                "峰值抬回 100-200 counts 的目标区间, 挡掉的那部分回不来 —— "
+                "把「加曝光后判 ok」当成已修好, 会把整段标定建在衰减后的光束上",
+            )
+
+    if state not in (STATE_OK, STATE_WEAK_PATH) and recommended is not None and usable:
         advice.append(
             f"下一次标定建议用曝光 {recommended['exposure_ms']:g} ms "
             f"(峰值 {recommended['peak_counts']:.0f} counts)"
@@ -1049,6 +1190,24 @@ def build_parser() -> argparse.ArgumentParser:
              "缺省 = 直接落 <out-root>/<UTC戳>/",
     )
     parser.add_argument(
+        "--min-throughput-ratio",
+        type=float,
+        default=DEFAULT_MIN_THROUGHPUT_RATIO,
+        help="光通量下限: 峰值 counts/ms 低于参考值的这个比例即判 weak_path "
+             f"(默认 {DEFAULT_MIN_THROUGHPUT_RATIO:g}; 设 0 = 关掉比较)",
+    )
+    parser.add_argument(
+        "--reference-counts-per-ms",
+        type=float,
+        default=None,
+        help="显式给出光通量参考 (counts/ms); 缺省 = 取 --out-root 下历史 ok 探测的中位数",
+    )
+    parser.add_argument(
+        "--no-reference",
+        action="store_true",
+        help="不做光通量比较 (回到 ok / low_snr / no_response 三态)",
+    )
+    parser.add_argument(
         "--frames",
         type=int,
         default=2,
@@ -1158,6 +1317,40 @@ def run_probe(args: argparse.Namespace) -> int:
             )
             lo, hi = get_camera_exposure_range(camera)
             logger.info(f"相机曝光范围: {lo:g}-{hi:g} ms")
+
+            # 光通量参考: 在采集之前就取 (某次参考缺失时不必先花几分钟采完才发现),
+            # 设备已开 ⇒ 序列号可用于匹配历史记录。
+            reference: dict[str, Any] | None = None
+            if not bool(getattr(args, "no_reference", False)):
+                explicit = getattr(args, "reference_counts_per_ms", None)
+                if explicit is not None:
+                    value = float(explicit)
+                    reference = {
+                        "source": "explicit",
+                        "counts_per_ms": value,
+                        "n": 1,
+                        "min_counts_per_ms": value,
+                        "max_counts_per_ms": value,
+                        "full_scale": None,
+                        "runs": [],
+                    }
+                else:
+                    reference = bench_reference(Path(args.out_root), device=device_info)
+                if reference is None:
+                    logger.info(
+                        "光通量参考: 历史 ok 探测不足 "
+                        f"{MIN_REFERENCE_SAMPLES} 次, 本次不判 weak_path "
+                        "(可用 --reference-counts-per-ms 显式给出)"
+                    )
+                else:
+                    logger.info(
+                        f"光通量参考: {reference['counts_per_ms']:.2f} counts/ms "
+                        f"({reference['source']}, n={reference['n']}, "
+                        f"范围 {reference['min_counts_per_ms']:.2f}-"
+                        f"{reference['max_counts_per_ms']:.2f}); "
+                        f"下限 {float(args.min_throughput_ratio):.0%} ⇒ "
+                        f"{float(args.min_throughput_ratio) * reference['counts_per_ms']:.2f} counts/ms"
+                    )
 
             # -- 阶段一: 曝光阶梯 (面板保持平场) --------------------------
             flat_phase = build_defocus_phase(
@@ -1272,7 +1465,27 @@ def run_probe(args: argparse.Namespace) -> int:
 
             )
 
-            verdict = decide(ladder_summary, response)
+            throughput: dict[str, Any] | None = None
+            flux = float(ladder_summary.get("counts_per_ms") or float("nan"))
+            if reference is not None and math.isfinite(flux) and reference["counts_per_ms"] > 0:
+                reference_flux = float(reference["counts_per_ms"])
+                throughput = {
+                    "counts_per_ms": flux,
+                    "reference_counts_per_ms": reference_flux,
+                    "reference_source": reference["source"],
+                    "reference_n": int(reference["n"]),
+                    "reference_runs": list(reference.get("runs") or []),
+                    "ratio": flux / reference_flux,
+                    "min_ratio": float(args.min_throughput_ratio),
+                    "fit_window_ms": ladder_summary.get("counts_per_ms_window_ms"),
+                }
+                logger.info(
+                    f"  光通量: {flux:.2f} counts/ms = 参考的 "
+                    f"{throughput['ratio']:.0%} "
+                    f"(下限 {throughput['min_ratio']:.0%})"
+                )
+
+            verdict = decide(ladder_summary, response, throughput=throughput)
 
     thresholds = {
         "noise_floor_sigmas": NOISE_FLOOR_SIGMAS,
@@ -1312,6 +1525,7 @@ def run_probe(args: argparse.Namespace) -> int:
         "ladder_summary": ladder_summary,
         "defocus_sweep": states,
         "defocus_response": response,
+        "throughput": throughput,
         "thresholds": thresholds,
         "verdict": verdict,
     }

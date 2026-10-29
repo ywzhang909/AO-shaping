@@ -17,6 +17,7 @@ summary/verdict dicts out, no camera and no device.
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -240,3 +241,207 @@ def test_defocus_phase_at_the_panel_centre_matches_the_canonical_call() -> None:
     )
 
     assert np.array_equal(phase, canonical)
+
+
+# -- 光通量 (weak_path): 光被挡掉一部分时「信号还在, 但已经不是原来那束光」 --------
+#
+# 2026-10-29 实测把这台实验系统的光路挡掉一部分后, 三态判据仍然给 ``ok``:
+# 峰值 68 counts 远高于噪声底 4 counts, 离焦响应也统计显著。唯一动了的量是
+# **每毫秒峰值** —— 6.15 → 1.38 counts/ms (22%), 而总能量只掉约 30% (遮挡把光
+# 散掉而不是均匀减光)。所以光通量必须单独判, 且只跟本系统自己的历史比。
+
+
+def _write_history_run(
+    root: Path,
+    name: str,
+    *,
+    state: str = "ok",
+    counts_per_ms: float = 6.0,
+    slm_serial: str | None = "22030108",
+    cam_serial: str | None = "FJB24112232",
+    full_scale: float = 255.0,
+) -> Path:
+    """An on-disk probe run shaped the way :func:`bench_reference` reads it."""
+    run = root / name / "20261029_000000Z"
+    run.mkdir(parents=True)
+    record = {
+        "verdict": {"state": state},
+        "ladder_summary": {"counts_per_ms": counts_per_ms},
+        "exposure_ladder": [{"full_scale": full_scale}],
+        "device": {"slm_serial": slm_serial, "cam_serial": cam_serial},
+    }
+    (run / "optical_path_probe.json").write_text(
+        json.dumps(record), encoding="utf-8"
+    )
+    return run
+
+
+def test_ladder_flux_slope_ignores_the_saturated_steps() -> None:
+    """A saturated step is clipped at full scale: fitting it would fake an attenuation."""
+    ladder = _ladder([(1.0, 6.0), (5.0, 31.0), (10.0, 61.0), (20.0, 255.0), (50.0, 255.0)])
+    summary = probe.analyse_ladder(ladder, 255.0)
+
+    assert summary["counts_per_ms_window_ms"] == [1.0, 5.0, 10.0]
+    # The unsaturated steps are linear at ~6.1 counts/ms; including the clipped
+    # 255-count steps would drag the slope towards zero.
+    assert summary["counts_per_ms"] == pytest.approx(6.1, rel=0.03)
+
+
+def test_bench_reference_is_the_median_of_ok_runs_only(tmp_path: Path) -> None:
+    """A run already judged ``low_snr`` is not "what this bench normally looks like".
+
+    Feeding it into the median would let a blocked path lower the standard until
+    it judges itself normal.
+    """
+    for index, value in enumerate((6.0, 6.2, 6.1)):
+        _write_history_run(tmp_path, f"ok{index}", counts_per_ms=value)
+    _write_history_run(tmp_path, "dim", state="low_snr", counts_per_ms=0.02)
+
+    reference = probe.bench_reference(tmp_path)
+
+    assert reference is not None
+    assert reference["n"] == 3
+    assert reference["counts_per_ms"] == pytest.approx(6.1)
+
+
+def test_bench_reference_refuses_fewer_than_three_ok_runs(tmp_path: Path) -> None:
+    """One or two samples have no meaningful median -- better to withhold the verdict."""
+    _write_history_run(tmp_path, "a", counts_per_ms=6.0)
+    _write_history_run(tmp_path, "b", counts_per_ms=6.2)
+
+    assert probe.bench_reference(tmp_path) is None
+
+
+def test_bench_reference_ignores_a_different_bench(tmp_path: Path) -> None:
+    """After a SLM or camera swap the old flux is another bench's flux."""
+    for index in range(3):
+        _write_history_run(tmp_path, f"ok{index}", counts_per_ms=6.0 + 0.1 * index)
+    for index in range(3):
+        _write_history_run(
+            tmp_path, f"other{index}", counts_per_ms=0.5, slm_serial="99999999"
+        )
+
+    reference = probe.bench_reference(
+        tmp_path, device={"slm_serial": "22030108", "cam_serial": "FJB24112232"}
+    )
+
+    assert reference is not None
+    assert reference["n"] == 3
+    assert reference["counts_per_ms"] == pytest.approx(6.1)
+
+
+def test_bench_reference_recomputes_the_flux_from_legacy_records(tmp_path: Path) -> None:
+    """Runs written before 2026-10-29 carry no ``counts_per_ms`` -- derive it.
+
+    Without this the reference stays empty on a bench that already has history,
+    so the gate would silently never fire (the first live run hit exactly this:
+    it reported "history has fewer than 3 ok runs" against 19 of them).
+    """
+    ladder = _ladder([(1.0, 6.0), (5.0, 31.0), (10.0, 61.0)])
+    probe.analyse_ladder(ladder, 255.0)  # 把 usable / saturated 标志写到档位上
+    for index in range(3):
+        run = _write_history_run(tmp_path, f"legacy{index}")
+        record = json.loads((run / "optical_path_probe.json").read_text(encoding="utf-8"))
+        record.pop("ladder_summary")
+        record["exposure_ladder"] = ladder
+        (run / "optical_path_probe.json").write_text(
+            json.dumps(record), encoding="utf-8"
+        )
+
+    reference = probe.bench_reference(tmp_path)
+
+    assert reference is not None
+    assert reference["n"] == 3
+    assert reference["counts_per_ms"] == pytest.approx(6.1, rel=0.03)
+
+
+def _ok_inputs() -> tuple[dict, dict]:
+    """The ladder + defocus response that the three-state rule judges ``ok``."""
+    states = [
+        _state(0.0, 165.0, 80.0, 10),
+        _state(1.0, 213.0, 72.0, 30),
+        _state(-1.0, 130.0, 83.0, 40),
+        _state(0.0, 169.0, 80.0, 50),
+    ]
+    return (
+        probe.analyse_ladder(GOOD_LADDER, 255.0),
+        probe.analyse_defocus_response(states, 2.4),
+    )
+
+
+def test_verdict_weak_path_when_the_flux_is_far_below_the_reference() -> None:
+    """Signal + response, but a fifth of the usual flux: the path is obstructed."""
+    summary, response = _ok_inputs()
+    flux = summary["counts_per_ms"]
+    throughput = {
+        "counts_per_ms": flux,
+        "reference_counts_per_ms": flux / 0.22,
+        "reference_source": "history",
+        "reference_n": 19,
+        "ratio": 0.22,
+        "min_ratio": probe.DEFAULT_MIN_THROUGHPUT_RATIO,
+    }
+
+    verdict = probe.decide(summary, response, throughput=throughput)
+
+    assert verdict["state"] == "weak_path"
+    assert verdict["exit_code"] == 2
+    assert any("光通量只有参考的 22%" in reason for reason in verdict["reasons"])
+    # The obstruction is the thing to fix first -- raising the exposure only
+    # restores the peak, not the light that never arrived.
+    assert "遮挡" in verdict["advice"][0]
+    assert not any("建议用曝光" in item for item in verdict["advice"])
+
+
+def test_verdict_stays_ok_when_the_flux_matches_the_reference() -> None:
+    """Ordinary run-to-run drift must not trip the gate."""
+    summary, response = _ok_inputs()
+    flux = summary["counts_per_ms"]
+    throughput = {
+        "counts_per_ms": flux,
+        "reference_counts_per_ms": flux / 0.95,
+        "reference_source": "history",
+        "reference_n": 19,
+        "ratio": 0.95,
+        "min_ratio": probe.DEFAULT_MIN_THROUGHPUT_RATIO,
+    }
+
+    verdict = probe.decide(summary, response, throughput=throughput)
+
+    assert verdict["state"] == "ok"
+    assert verdict["exit_code"] == 0
+
+
+def test_verdict_without_a_reference_is_unchanged() -> None:
+    """``--no-reference`` (or too little history) falls back to the three states."""
+    summary, response = _ok_inputs()
+
+    verdict = probe.decide(summary, response, throughput=None)
+
+    assert verdict["state"] == "ok"
+    assert verdict["exit_code"] == 0
+
+
+def test_weak_path_never_masks_a_harder_failure() -> None:
+    """A panel that does not modulate stays ``no_response``, however dim the path."""
+    states = [
+        _state(0.0, 213.0, 12.0, 10),
+        _state(1.0, 212.0, 12.1, 30),
+        _state(-1.0, 212.0, 12.2, 40),
+        _state(0.0, 213.0, 12.0, 50),
+    ]
+    summary = probe.analyse_ladder(GOOD_LADDER, 255.0)
+    response = probe.analyse_defocus_response(states, 2.4)
+    throughput = {
+        "counts_per_ms": summary["counts_per_ms"],
+        "reference_counts_per_ms": summary["counts_per_ms"] / 0.1,
+        "reference_source": "history",
+        "reference_n": 19,
+        "ratio": 0.1,
+        "min_ratio": probe.DEFAULT_MIN_THROUGHPUT_RATIO,
+    }
+
+    verdict = probe.decide(summary, response, throughput=throughput)
+
+    assert verdict["state"] == "no_response"
+    assert verdict["exit_code"] == 2
