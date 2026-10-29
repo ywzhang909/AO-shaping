@@ -43,6 +43,11 @@ EXTRACTED = {
     "format_occupier_lines": "src/ao_shaping/tools/kernels/device_mutex.py",
     "parse_probe_cmd": "src/ao_shaping/tools/kernels/device_mutex.py",
     "query_windows_python_processes": "src/ao_shaping/tools/kernels/device_mutex.py",
+    # Slot rotation: the 2..125 window and the "never the slot already being
+    # displayed" exclusion *are* the firmware no-op fix (AGENTS.md -- display_memory
+    # on the displayed slot leaves the LCOS unrefreshed), so a drifted copy is a
+    # hardware bug, not a style issue. scripts/slm/diff_beam_capture_flat.py had one.
+    "pick_slm_slot": "src/ao_shaping/utils/slm/phase_display.py",
 }
 
 #: Generators migrated onto ``scripts._common``.

@@ -39,10 +39,94 @@ __all__ = [
     "cohens_dz",
     "holm_bonferroni",
     "paired_comparison",
+    "pearson",
     "seed_agreement",
     "sign_flip_pvalue",
     "skill_scores",
+    "spearman",
 ]
+
+
+def _as_float_pair(x, y) -> tuple[np.ndarray, np.ndarray]:
+    """Validate two inputs as equal-length 1-D float64 vectors (copies, no aliasing).
+
+    Raises ``ValueError`` on non-1D input or a length mismatch -- the same contract
+    :func:`pearson` and :func:`spearman` document.
+    """
+    xa = np.array(x, dtype=np.float64, ndmin=0, copy=True)
+    ya = np.array(y, dtype=np.float64, ndmin=0, copy=True)
+    if xa.ndim != 1 or ya.ndim != 1:
+        raise ValueError(
+            f"expected 1-D vectors, got shapes {xa.shape} and {ya.shape}"
+        )
+    if xa.size != ya.size:
+        raise ValueError(f"length mismatch: {xa.size} vs {ya.size}")
+    return xa, ya
+
+
+def _average_rank(values: np.ndarray) -> np.ndarray:
+    """Average ranks of ``values`` (ties share the mean of their rank span).
+
+    Matches the default ranking of ``scipy.stats.rankdata``: for a group of ``c``
+    equal values occupying sorted positions ``p+1 .. p+c``, every member gets
+    ``p + (c + 1) / 2``. Implemented with ``np.unique`` (sorted) plus cumulative
+    counts -- no scipy, no pandas.
+    """
+    uniques, counts = np.unique(values, return_counts=True)
+    offsets = np.concatenate(([0], np.cumsum(counts)))  # first sorted position per group
+    group_rank = (offsets[:-1] + offsets[1:] + 1) / 2.0  # mean of (p+1 .. p+c)
+    return group_rank[np.searchsorted(uniques, values)]
+
+
+def pearson(x, y) -> float:
+    """Pearson product-moment correlation of two 1-D vectors (numpy only).
+
+    Contract: centre each vector, divide by the product of their L2 norms, return a
+    float64 scalar. Inputs are never mutated (converted to float64 copies).
+
+    - ``ValueError`` on length mismatch or non-1D input.
+    - ``nan`` when ``n < 2`` (nothing to correlate) and when either vector has zero
+      variance (a constant vector has no correlation *direction*). The degenerate
+      return is ``nan``, **not 0.0** -- matching modern ``scipy.stats.pearsonr``,
+      which likewise returns ``nan`` for constant input rather than inventing a
+      zero correlation.
+    - ``nan`` propagates: any non-finite entry makes the result ``nan`` rather than
+      silently dropping the pair (unlike :func:`sign_flip_pvalue`, NaNs here are
+      data errors, not missing folds).
+
+    Deliberately not ``np.corrcoef``: that returns a 2x2 matrix and emits
+    RuntimeWarnings (with ``nan`` off the diagonal) that callers routinely ignore.
+    """
+    xa, ya = _as_float_pair(x, y)
+    if xa.size < 2:
+        return float("nan")
+    xc = xa - xa.mean()
+    yc = ya - ya.mean()
+    norm = float(np.linalg.norm(xc) * np.linalg.norm(yc))
+    if norm == 0.0:
+        return float("nan")  # zero variance in at least one vector
+    return float(xc @ yc / norm)
+
+
+def spearman(x, y) -> float:
+    """Spearman rank correlation: Pearson on average ranks (ties get mean ranks).
+
+    Matches ``scipy.stats.spearmanr`` default (average-rank ties, no tie correction
+    debate -- the two agree because both reduce to Pearson over the same ranked
+    vectors). Equivalent by construction to ``pearson(_average_rank(x),
+    _average_rank(y))``.
+
+    Same validation contract as :func:`pearson`: ``ValueError`` on length mismatch or
+    non-1D input; ``nan`` when ``n < 2``; ``nan`` when either vector is constant
+    (its ranks have zero variance) -- again ``nan``, not 0.0. Non-finite entries
+    (``nan``/``inf``) sort into the ranking and corrupt it, so the result is
+    undefined there; callers must pre-filter, as the Zernike eval scripts already do
+    for their metric lists.
+    """
+    xa, ya = _as_float_pair(x, y)
+    if xa.size < 2:
+        return float("nan")
+    return pearson(_average_rank(xa), _average_rank(ya))
 
 
 def sign_flip_pvalue(diffs: Sequence[float]) -> float:

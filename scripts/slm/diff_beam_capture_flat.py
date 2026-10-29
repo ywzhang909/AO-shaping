@@ -35,13 +35,16 @@ test_thread_boundary_exception_capture_keeps_base_exception 全树扫描, 不因
 from __future__ import annotations
 
 import argparse
-import random
 import threading
 import time
 from pathlib import Path
 
 import numpy as np
 from loguru import logger
+
+# 内存槽轮换的唯一实现, 这里只转发不复制 (AGENTS.md 「scripts/ 目录」规则 2)。
+# phase_display 是纯 utils 叶子 (无 SDK / torch / cupy), 故不放进下面的硬件 try。
+from ao_shaping.utils.slm.phase_display import pick_slm_slot
 
 try:
     from PIL import Image
@@ -86,36 +89,16 @@ def call_with_timeout(fn: object, timeout_s: float, desc: str) -> object:
     return result[0] if result else None
 
 
-def pick_slm_slot(slm: object, last_slot: int | None) -> tuple[int, int | None]:
-    """Pick a random SLM memory slot in [2, 125] different from the last used.
-
-    On first use, reads the currently displayed slot from the device so the
-    rotation survives process restarts (memory mode only).
-    """
-    if last_slot is None:
-        try:
-            last_slot = int(slm.get_displayed_memory_number())  # type: ignore[attr-defined]
-            logger.info("SLM当前显示槽: {}", last_slot)
-        except Exception as exc:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
-            logger.debug("读取 SLM 当前显示槽失败: {}", exc)
-            last_slot = None
-    candidates = [s for s in range(2, 126) if s != last_slot]
-    slot = random.choice(candidates)
-    return slot, slot
-
-
-def display_flat_phase(
-    slm: object, settle_time_s: float, last_slot: int | None
-) -> int | None:
+def display_flat_phase(slm: object, settle_time_s: float) -> int:
     """Display a zero-radian flat phase (full panel) with slot rotation."""
     height = int(getattr(slm, "height", 1200))
     width = int(getattr(slm, "width", 1920))
     phase_rad = np.zeros((height, width), dtype=np.float64)
-    slot, new_last = pick_slm_slot(slm, last_slot)
+    slot = pick_slm_slot(slm)
     slm.display_phase(phase_rad, memory_number=slot)  # type: ignore[attr-defined]
     time.sleep(0.05)
     time.sleep(settle_time_s)
-    return new_last
+    return slot
 
 
 # ── centroid algorithms (all return (row, col)) ────────────────────────────
@@ -208,8 +191,8 @@ def main() -> None:
     logger.info("CCD 就绪: ID={} exposure={:.3f}ms", args.cam_id, exp_ms)
 
     try:
-        last_slot = display_flat_phase(slm, args.settle_time, None)
-        logger.info("平场相位已显示 (slot={})", last_slot)
+        slot = display_flat_phase(slm, args.settle_time)
+        logger.info("平场相位已显示 (slot={})", slot)
 
         # Capture the raw frame. Single frame keeps it truly "raw" (no averaging
         # blur from beam drift), but n_sample>1 reduces read noise; both are saved.

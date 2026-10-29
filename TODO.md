@@ -4131,6 +4131,15 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 三个数**必须用守卫自己的函数取**：手写"静默 = 处理体只有 pass"得 44，守卫实测 46 —— 定义更宽，差 2 就是自造口径的代价。
 - 为什么单独记：对外推送迫使本分支 rebase，常量改动从 `0f1c188a` 改写到 `4fba2ef6`。台账引用以本条为准，`0f1c188a` 只作分析留档。
 
+**2026-10-29 · a8673631 · scripts/ 新政策第一批：删 6 个过期脚本、9 处可删条件、device_mutex 七函数去重**
+- 政策来源是 `dcdd3f80` 写进 AGENTS.md 的「scripts/ 目录」三条，按其动作顺序取前两步：先删过期、再迁复用。本批只动 `scripts/` + 一处守卫 + 台账，**未动 `src/` 运行时路径**：19 文件 / +110 / −1023。
+- 删除要可复核：先对 14 个候选做全项归零预筛（provenance / baseline / tests / README / stem-imports），只有三条确认齐备的 6 个才删；删后全树零残留引用。
+- **没删的比删掉的重要**：`generate_diff_shaping_report.py` 是 `compute_cv_ee` 的 canonical home（`test_compute_metrics_renamed.py` 依赖）→ 必须先迁移；`call_graph/analyze_graph.py` 写 `recovered.json` 供 `finalize_graph.py`；另 4 个仍被引用。9 个保留文件写成「删除条件」而非「以后再说」：每条都写明规则 3① 当下为何不满足（结论未入 report / 产出图仍被活报告引用 / README 条目需同行清理），以及满足后即可删的判据。
+- 去重的形态值得记：`run_hw_sweep_groups.py` **一直**从 `device_mutex` import 了十几个名字，却同时留着第二份本地实现，且本地定义**遮蔽**了导入 —— 判据改动永远命中副本，打不到巡检真正使用的那份。7 个函数改转发后净 −165 行；守卫登记这 7 个名字，并去掉断言里硬编码的 `scripts/_common`（它们住在 `src/`）。
+- 顺带：`docs/scripts_functional_map.json` 无生成器、无测试引用，是化石快照，删脚本会让它静默陈旧 ⇒ **不拿它当"仍被引用"的依据**；但规则 3 目前只覆盖 `scripts/README.md`，这类快照要不要一起管仍待定。
+- 顺带修一处**上游**红：`f88aafa3` 把论文升到 v4.8 却漏改 `docs/INDEX.md:28`，conventions 因此在主线变红。分离树上复现 + 本提交原本不触碰这两个文件 ⇒ 归属上游；同批把索引行改成 v4.8 使主线回绿。
+- 覆盖：ruff / provenance / term（0 文件 0 行）/ module-size 全绿；容器 2884 passed / 72 skipped / 0 failed。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
