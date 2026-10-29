@@ -257,6 +257,29 @@ RuntimeError: saturated capture retained; stop paired comparison
 > ⚠️ `--replay-exposures` 是 click 的 `multiple=True`：`--replay-exposures 20 50 90` 会被
 > 报「多余位置参数」，必须重复旗标。生成器已逐项展开，手写命令时注意。
 
+### 5.3 2026-10-29 前置门禁与光功率基线
+
+开跑前的前置探针（`--session retry_20261029`，阶梯 0.05–100 ms）判定 **`ok`**（退出码 `0`）：
+
+| 读数 | 值 |
+|---|---|
+| 可用曝光窗口 | 1 / 2 / 5 / 10 / 20 ms |
+| 建议曝光 | 20 ms，峰值 157 counts（落在 100–200 目标带） |
+| 噪声底 | 4.0 counts（0.05 ms 档 `中位数 + 4σ`） |
+| 阶梯单调 / 线性度 | 单调，`r² = 0.774` |
+| 饱和值 | 242.25 counts（8-bit） |
+
+**光功率基线变化**：同一 10 ms 曝光的平场峰值 2026-10-28 是 204 counts，2026-10-29 是 82
+counts（**×0.40**）。因此 `s1200` / `s600_fixed` 的拟合检查点与当时选的 20/50/90 ms replay
+曝光都不是今天的辐射度量：
+
+- 模型由 **lane 00 (`p20261029_refit`)** 在当前实验系统上重拟合，`model_power_check` 要求先比
+  两边 `fit/result.json` 在同一批验证集相位上的 holdout 误差，再引用任何旧 CV；
+- replay 曝光按「等光子数」重标定为 **50/125/225 ms**（×2.5）；是否被截断不由本表假定，而由
+  `scripts/slm/audit_replay_blocks.py` 的扣留清单判定，触发就退回 20/50/90。
+
+证据：`data/debug/optical_path_probe/retry_20261029/20261029_013227Z/optical_path_probe.json`。
+
 **下一步（最有区分力）**：
 - **跑 §5.2 的 25 条 lane**，顺序按 `order_index`（lane 00 refit 先行）；任何一条被前置探针拒绝就先处理光路，不要跳过去跑下一条。
 - **补完曝光阶梯**：`common_replay_ladder_trial` 的缺失 replay 索引可续跑（`replay_phases.replay` 不覆盖已存在文件），不重跑已完成的 34 次。
