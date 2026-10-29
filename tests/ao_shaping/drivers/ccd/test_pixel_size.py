@@ -312,3 +312,123 @@ class TestDahengModelResolution:
         cam._model = "SOME-NEW-MODEL"
         assert cam.ensure_pixel_size_um(prompt=lambda _q: "6.5") == pytest.approx(6.5)
         assert load_model_pixel_size_um("SOME-NEW-MODEL") == pytest.approx(6.5)
+
+
+class _FakeDeviceManager:
+    """替身 ``gx.DeviceManager()``: 枚举阶段失败。"""
+
+    def __init__(self, *, dev_info=None, enum_error=None) -> None:
+        self._dev_info = dev_info or []
+        self._enum_error = enum_error
+
+    def update_device_list(self):
+        if self._enum_error is not None:
+            raise self._enum_error
+        return len(self._dev_info), self._dev_info
+
+
+class _ExplodingDeviceManager:
+    """替身 ``gx.DeviceManager``: 构造阶段就失败 (GigE 驱动缺失)。"""
+
+    def __init__(self, error: BaseException) -> None:
+        self._error = error
+
+    def __call__(self):
+        raise self._error
+
+
+def _install_fake_gxipy(monkeypatch: pytest.MonkeyPatch, factory) -> None:
+    """把 ``gxipy`` 换成一个只有 ``DeviceManager`` 的假模块。
+
+    ``factory`` 是 ``gx.DeviceManager`` 本身 (零参可调用); 只替换
+    ``sys.modules['gxipy']``, 不碰真实 SDK 的安装状态 ——
+    ``probe_daheng_models`` 的函数内 ``import gxipy`` 因此拿到替身。
+    """
+    import sys
+    import types
+
+    fake = types.ModuleType("gxipy")
+    fake.DeviceManager = factory  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "gxipy", fake)
+
+
+class TestDahengEnumerationFailures:
+    """枚举失败 ≠ 没有相机, 但对调用方后果相同 (拿不到型号), 必须归一成空列表。"""
+
+    def test_enumeration_error_returns_empty_list(
+        self, config_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from ao_shaping.drivers.ccd.pixel_size import probe_daheng_models
+
+        _install_fake_gxipy(
+            monkeypatch, lambda: _FakeDeviceManager(enum_error=RuntimeError("网卡未就绪"))
+        )
+        assert probe_daheng_models() == []
+
+    def test_construction_error_returns_empty_list(
+        self, config_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from ao_shaping.drivers.ccd.pixel_size import probe_daheng_models
+
+        _install_fake_gxipy(monkeypatch, _ExplodingDeviceManager(OSError("Galaxy 驱动未安装")))
+        assert probe_daheng_models() == []
+
+    def test_enumeration_error_is_logged(
+        self, config_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """宽捕获必须留日志 —— 否则"探不到相机"会变成不可诊断的静默 0。"""
+        from loguru import logger
+
+        from ao_shaping.drivers.ccd.pixel_size import probe_daheng_models
+
+        _install_fake_gxipy(
+            monkeypatch, lambda: _FakeDeviceManager(enum_error=RuntimeError("网卡未就绪"))
+        )
+        messages: list[str] = []
+        sink_id = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+        try:
+            probe_daheng_models()
+        finally:
+            logger.remove(sink_id)
+        assert any("大恒相机枚举失败" in m for m in messages)
+
+    def test_enumeration_failure_resolves_to_zero_when_not_strict(
+        self, config_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from ao_shaping.drivers.ccd.pixel_size import camera_pixel_size_um_for
+
+        _install_fake_gxipy(
+            monkeypatch, lambda: _FakeDeviceManager(enum_error=RuntimeError("网卡未就绪"))
+        )
+        assert camera_pixel_size_um_for("daheng", 0, strict=False) == 0.0
+
+    def test_enumeration_failure_raises_when_strict(
+        self, config_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from ao_shaping.drivers.ccd.pixel_size import camera_pixel_size_um_for
+
+        _install_fake_gxipy(
+            monkeypatch, lambda: _FakeDeviceManager(enum_error=RuntimeError("网卡未就绪"))
+        )
+        with pytest.raises(CameraError) as excinfo:
+            camera_pixel_size_um_for("daheng", 0)
+        assert "--camera-pixel-um" in str(excinfo.value)
+
+    def test_listed_model_resolves_from_config(
+        self, config_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """枚举成功时仍按型号解析 (这里锁定未改动的正向路径)。"""
+        from ao_shaping.drivers.ccd.pixel_size import (
+            camera_pixel_size_um_for,
+            probe_daheng_models,
+        )
+
+        store_model_pixel_size_um("MER2-507-23GM", 2.2)
+        _install_fake_gxipy(
+            monkeypatch,
+            lambda: _FakeDeviceManager(
+                dev_info=[{"model": ("MER2-507-23GM",)}, {"model": "MER2-507-23GM"}]
+            ),
+        )
+        assert probe_daheng_models() == ["MER2-507-23GM"]
+        assert camera_pixel_size_um_for("daheng", 0) == pytest.approx(2.2)

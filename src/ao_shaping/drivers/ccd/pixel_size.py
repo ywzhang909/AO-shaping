@@ -235,7 +235,17 @@ def probe_daheng_models() -> list[str]:
         import gxipy as gx  # type: ignore[import-untyped]
     except (ImportError, OSError):
         return []
-    _, dev_info_list = gx.DeviceManager().update_device_list()
+    try:
+        _, dev_info_list = gx.DeviceManager().update_device_list()
+    # 枚举失败 (GigE 驱动/网卡异常、设备被别的进程独占) 与"没有相机"对调用方的
+    # 后果相同 —— 拿不到型号。gxipy 的异常类型只能在该 SDK 被导入后才知道 (本模块
+    # 是零导入叶子), 收窄成 OSError 会把可用回落变成崩溃。
+    # policy: 宽捕获归一成"探不到相机", 但必须留日志, 否则这句归一就是静默的。
+    except Exception as exc:
+        logger.warning(
+            f"大恒相机枚举失败 ({type(exc).__name__}: {exc}); 按没有可连接相机处理"
+        )
+        return []
     models: list[str] = []
     for info in dev_info_list or []:
         raw = info.get("model", "") or ""
