@@ -110,6 +110,7 @@
  "run_stages": "run_stages",
  "_rebuild_records": "_rebuild_records",
  "_seed_kind": "_seed_kind",
+ "_measured_peak_rates": "_measured_peak_rates",
  "_validate_args": "_validate_args",
  "step_freezing": "step_freezing",
  "step_modulation": "step_modulation",
