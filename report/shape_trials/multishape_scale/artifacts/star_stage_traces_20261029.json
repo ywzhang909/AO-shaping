@@ -1,0 +1,89 @@
+{
+  "session_dir": "data\\debug\\slm_transfer\\multishape_nogs_20261029\\p20261029_strict_cold_s200\\star",
+  "shapes": [
+    "star"
+  ],
+  "total_frames": 68,
+  "stages": [
+    {
+      "shape": "star",
+      "stage": "transport_cv",
+      "csv": "data\\debug\\slm_transfer\\multishape_nogs_20261029\\p20261029_strict_cold_s200\\star\\shape\\star\\transport_cv\\recording\\process.csv",
+      "frames": 8,
+      "cv_first": 0.6875328861332516,
+      "cv_min": 0.6875328861332516,
+      "cv_last": 0.8309857991843207,
+      "cv_delta": 0.1434529130510691,
+      "exposure_first_ms": 15.99,
+      "exposure_last_ms": 15.99,
+      "first_label": "star_seed",
+      "last_label": "star_final",
+      "bit_depth": [
+        8
+      ],
+      "saturated_frames": 0,
+      "model_loss_first": 0.4727013111114502,
+      "model_loss_last": 0.6905372738838196
+    },
+    {
+      "shape": "star",
+      "stage": "mono12_cv",
+      "csv": "data\\debug\\slm_transfer\\multishape_nogs_20261029\\p20261029_strict_cold_s200\\star\\shape\\star\\mono12_cv\\recording\\process.csv",
+      "frames": 20,
+      "cv_first": 0.6068238404832343,
+      "cv_min": 0.5610261882348492,
+      "cv_last": 0.5632689851667045,
+      "cv_delta": -0.043554855316529806,
+      "exposure_first_ms": 15.67,
+      "exposure_last_ms": 15.67,
+      "first_label": "star_seed",
+      "last_label": "star_final",
+      "bit_depth": [
+        12
+      ],
+      "saturated_frames": 9,
+      "model_loss_first": 0.3682352006435394,
+      "model_loss_last": 0.3172719180583954
+    },
+    {
+      "shape": "star",
+      "stage": "mono12_continue",
+      "csv": "data\\debug\\slm_transfer\\multishape_nogs_20261029\\p20261029_strict_cold_s200\\star\\shape\\star\\mono12_continue\\recording\\process.csv",
+      "frames": 28,
+      "cv_first": 0.5671120609815923,
+      "cv_min": 0.5571090538813961,
+      "cv_last": 0.5840895947139877,
+      "cv_delta": 0.01697753373239541,
+      "exposure_first_ms": 25.92,
+      "exposure_last_ms": 25.92,
+      "first_label": "star_seed",
+      "last_label": "star_final",
+      "bit_depth": [
+        12
+      ],
+      "saturated_frames": 0,
+      "model_loss_first": 0.3216160535812378,
+      "model_loss_last": 0.3411606550216675
+    },
+    {
+      "shape": "star",
+      "stage": "mono12_dense",
+      "csv": "data\\debug\\slm_transfer\\multishape_nogs_20261029\\p20261029_strict_cold_s200\\star\\shape\\star\\mono12_dense\\recording\\process.csv",
+      "frames": 12,
+      "cv_first": 0.6422024597623143,
+      "cv_min": 0.6066164454102619,
+      "cv_last": 0.6066164454102619,
+      "cv_delta": -0.03558601435205233,
+      "exposure_first_ms": 24.27,
+      "exposure_last_ms": 24.27,
+      "first_label": "star_seed",
+      "last_label": "star_final",
+      "bit_depth": [
+        12
+      ],
+      "saturated_frames": 0,
+      "model_loss_first": 0.4124239683151245,
+      "model_loss_last": 0.3679834604263305
+    }
+  ]
+}
