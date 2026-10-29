@@ -450,7 +450,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | 不要把 `E402` 从 `ignore` 直接挪到 `select` 而不给 `scripts/*` 开 `per-file-ignores` | 会让 `scripts/*` 的 709 条 bootstrap 约定瞬间爆红（E402 实测总数 879 = scripts 709 / tests 128 / src 42，见 §8.3；原估 435 已作废，2026-10-23 随 R-63 step 2b 重钉） |
 | 不要先跑 RUF100 再开规则 | 见 §8.6 第 3 步，会删掉将来必需的 noqa |
 | 不要用 `# ruff: enable` 复活被 ignore 的规则 | 官方明确：range suppression **不能**启用"未被 select 的规则" |
-| 不要把 `except BaseException`（`hardware_utils.py:627`，以及两处同构的线程边界捕获 `scripts/slm/diff_beam_capture_flat.py:68`、`scripts/slm/hw_gs_defocus_probe.py:1071`）改成 `Exception` | 会造成静默行为变更（工作线程的 Ctrl-C 消失，调用方把挂起当成成功），已推理见 §8.4；已机械钉住：`test_thread_boundary_exception_capture_keeps_base_exception`（见 §8.9 第 14 项） |
+| 不要把 `except BaseException`（`hardware_utils.py:627`，以及两处同构的线程边界捕获 `scripts/slm/diff_beam_capture_flat.py:79`（旧行号 68 因上游 `a8673631`/`fe1cc504` 漂移，2026-10-29 复核）、`scripts/slm/hw_gs_defocus_probe.py:1071`）改成 `Exception` | 会造成静默行为变更（工作线程的 Ctrl-C 消失，调用方把挂起当成成功），已推理见 §8.4；已机械钉住：`test_thread_boundary_exception_capture_keeps_base_exception`（见 §8.9 第 14 项） |
 
 ### 8.8 一处不一致（非缺陷，但值得知道）
 
@@ -791,12 +791,12 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     **`scripts/` 11 处全部合法**，分四类：`finally` 尽力清理（`set_phase_overlay(None)` ×3、
     `display_data(zeros)`、`dev.close()`、`wfs.close()`）；**搜索循环里跳过读不到的候选**
     （`generate_fouriergsnet_sim_report.py:181` 遍历各候选目录找含所需键的 `config.json` —— 跳过坏候选是**控制流**，
-    与 §8.9 第 5 项 ffmpeg 枚举同判据）；**逐条跳过损坏产物**（`generate_bench_twin_report.py:348`，注释已写明
-    "落盘产物损坏时只丢这一项"）；**可选设备元数据**（`probe_optical_path_validity.py:1356/1361`，旧行号 1351/1356 因 `717b7819` 在 136 行插入 5 行 `FLAT_DEFOCUS_EPS_RAD` 常量块而漂移，2026-10-27 复核）。
+    与 §8.9 第 5 项 ffmpeg 枚举同判据）；**逐条跳过损坏产物**（`generate_bench_twin_report.py:337`，旧行号 348 因 `bf5c07cd` 上移 11 行而漂移，2026-10-29 复核），注释已写明
+    "落盘产物损坏时只丢这一项"）；**可选设备元数据**（`probe_optical_path_validity.py:1579/1586`，旧行号 1356/1361 因 `3ae92ade` 在其上方插入 `ladder_flux`/`bench_reference` 等光通量门禁代码而漂移，2026-10-29 复核）。
     ⚠️ 我先前怀疑 `generate_inverse_shaping_model_report.py:325` 的 `except: continue` 会**悄悄缩小发布表格的样本集**
     —— **实测否证**：行字典同时发布 `"n": len(norms)` 与 `"records": len(records)`，跳过会表现为 `n < records`，
     **归因本来就有** ⇒ 不动。另实测 `cam_exposure_range_ms` / `cam_hardware` 在两处赋值之外**全文件零引用**，
-    且该探针的 verdict 分支（`:930-957`）走的是设备互斥锁、不读它们 ⇒ 只影响描述性元数据，不影响结论。
+    且该探针的 verdict 分支（`:1080-1109`，旧行号 930-957 因 `3ae92ade` 上移而漂移，2026-10-29 复核）走的是设备互斥锁、不读它们 ⇒ 只影响描述性元数据，不影响结论。
     **BLE001 全仓终账（实测，非减法推算）**：silent（`pass`/`continue` 且无 raise）由 **90 → 83**
     （`src` 63→61、`tests` 16→11、`scripts` 11 不变）；`src`/`tests`/`scripts` **三棵树已全部逐处判定完毕**。
     回归：`tests/ao_shaping/utils` 按 CI 的 `AO_TEST_PER_FILE=1` 跑 **1326 passed / 4 skipped / exit 0**，
@@ -887,11 +887,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 14. ✅ **`except BaseException` 全量复核收口：实测 5 处，逐处判定正当，并把「线程边界不得收窄」钉成守卫**（2026-10-25）：
      - **AST 实测 5 处**（不是 grep 计数）：`optimizer/wfless/slm_zernike_pib.py:1718`、
       `tools/slm/transfer/workflow.py:78`、`utils/image/hardware_utils.py:627`、
-      `scripts/slm/diff_beam_capture_flat.py:68`、`scripts/slm/hw_gs_defocus_probe.py:1071`
+      `scripts/slm/diff_beam_capture_flat.py:79`（旧行号 68 因上游 `a8673631`/`fe1cc504` 漂移，2026-10-29 复核）、`scripts/slm/hw_gs_defocus_probe.py:1071`
       ⇒ §8.4 的「真风险只有 2 处」与 R-64 行的「禁改 2 处」均为当时口径，已就地重钉。
     - **逐处判定：没有一处需要改**（本项初始假设「能在硬件运动中途静默吞掉中断」被实测推翻）：
       `workflow.py:78` 记录状态后 `raise`（本就重抛）；`hardware_utils.py:627`、
-      `diff_beam_capture_flat.py:68`、`hw_gs_defocus_probe.py:1071` 是三处**同构的线程边界捕获**，
+      `diff_beam_capture_flat.py:79`（旧行号 68 因上游 `a8673631`/`fe1cc504` 漂移，2026-10-29 复核）、`hw_gs_defocus_probe.py:1071` 是三处**同构的线程边界捕获**，
       调用方确定重抛（实测 `:77 raise error[0]`、`:1082 raise box["error"]`）——
       它们正是把「原生 SDK 调用无限挂起」变成**有界且可归因**的机制
       （后者文档还引用了仓库里那次 900 s 强杀记录）；
