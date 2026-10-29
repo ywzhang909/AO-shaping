@@ -70,9 +70,17 @@ EXPECTED_AUTO_SIDE = {"dz_scan_hw_gs": 13, "dz_scan_model_gs": 23}
 
 
 def _run_probe(*args: str) -> subprocess.CompletedProcess[str]:
-    """跑一次探针 (子进程, 拿真实退出码)。"""
+    """跑一次探针 (子进程, 拿真实退出码)。
+
+    像元不再有默认值: 探针要么从 ``--camera-pixel-um`` 取, 要么 (``--execute`` 时)
+    从相机型号配置读。子进程里没有真相机, 所以这里注入一个显式值
+    (MER2-507-23GM 的 2.2 µm); 调用方自己给了就尊重它。
+    """
+    extra: tuple[str, ...] = (
+        () if "--camera-pixel-um" in args else ("--camera-pixel-um", "2.2")
+    )
     return subprocess.run(
-        [sys.executable, str(PROBE), *args],
+        [sys.executable, str(PROBE), *args, *extra],
         cwd=str(ROOT),
         capture_output=True,
         text=True,
@@ -752,7 +760,7 @@ class TestChirpTiltCli:
             build_plan,
         )
 
-        args = build_parser().parse_args(["--dry-run"])
+        args = build_parser().parse_args(["--dry-run", "--camera-pixel-um", "2.2"])
         plan = build_plan(args, build_optics(args))
         for step in plan["steps"]:
             for key in STEP_ROW_FIELDS:

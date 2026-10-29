@@ -90,9 +90,11 @@ G3−G1′ 度量的是离焦**能不能在重优化之上再多挤出一点**, 
 * 整形配置/目标/评分: :mod:`~ao_shaping.algorithm.signal_processing.square_shaping`。
 * Zernike (2,0) 基: :class:`~ao_shaping.utils.wavefront.zernike_calc.ZernikeGenerator`。
 * 光学常量: 从 :mod:`ao_shaping.optimizer.wfless.slm_gs_refine` 追到源头
-  (面板像元 8.0 µm、CCD 像元 2.2 µm、光束半径 450 SLM px、焦距由
+  (面板像元 8.0 µm、光束半径 450 SLM px、波长 ``DEFAULT_WAVELENGTH_NM``、焦距由
   :func:`~ao_shaping.utils.wavefront.matrix_utils.focal_length_from_camera_pixel`
-  从实测 2f 焦距标度导出、波长 ``DEFAULT_WAVELENGTH_NM``)。
+  从实测 2f 焦距标度导出)。**CCD 像元来自驱动层的型号配置**
+  (:func:`ao_shaping.drivers.ccd.pixel_size.camera_pixel_size_um_for`,
+  本脚本用 ``sim`` 的孪生口径): 型号未登记会报错并给出登记命令, 不再由本脚本写死。
 
 标定 (与 ``report/iterative_zernike_shaping/data.json`` 同口径)
 --------------------------------------------------------------
@@ -158,6 +160,7 @@ from ao_shaping.algorithm.signal_processing.square_shaping import (
     gs_shape,
     make_square_target,
 )
+from ao_shaping.drivers.ccd.pixel_size import camera_pixel_size_um_for
 from ao_shaping.optimizer.wfless import slm_gs_refine as gs_refine
 from ao_shaping.utils.image.beam_metrics import measure_spot_diameter_cam
 from ao_shaping.utils.wavefront.matrix_utils import focal_length_from_camera_pixel
@@ -171,7 +174,9 @@ from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator, zernike_mo
 WAVELENGTH_NM = float(gs_refine.DEFAULT_WAVELENGTH_NM)
 WAVELENGTH_M = WAVELENGTH_NM * 1e-9
 PANEL_PIXEL_UM = float(gs_refine._DEFAULT_PANEL_PIXEL_UM)
-CAMERA_PIXEL_UM = float(gs_refine._DEFAULT_CAMERA_PIXEL_UM)
+#: CCD 像元取自驱动层的型号配置 (本脚本是纯仿真, 用 ``sim`` 的孪生口径);
+#: 型号未登记时驱动会报错并给出登记命令, 这里不写死数值。
+CAMERA_PIXEL_UM = float(camera_pixel_size_um_for("sim"))
 BEAM_RADIUS_PX = float(gs_refine._DEFAULT_BEAM_RADIUS_PX)
 SCALE_MEASURED_AT_NM = float(gs_refine._TILT_SHIFT_SCALE_MEASURED_AT_NM)
 FOCAL_LENGTH_M = float(

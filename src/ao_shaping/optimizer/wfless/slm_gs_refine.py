@@ -168,6 +168,18 @@ _DEFAULT_FOCAL_LENGTH_M = focal_length_from_camera_pixel(
 # target square with >200 far-field pixels and keeps the FFT at 2700**2.
 _DEFAULT_FAR_FIELD_PADDING = 3
 
+
+def _pitch_backend_label(cam_type: str) -> str:
+    """Backend label used in the pixel-pitch provenance phrase.
+
+    ``sim`` is the twin-optics backend, and saying "sim twin" is what tells a
+    reader the 2.2 um came from the simulation's own optics rather than from a
+    datasheet.
+    """
+    name = str(cam_type or "").strip().lower()
+    return "sim twin" if name == "sim" else name
+
+
 _STAGE_FLAT = "flat"
 _STAGE_GS = "gs"
 _STAGE_REFINE = "refine"

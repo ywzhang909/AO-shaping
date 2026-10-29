@@ -303,7 +303,6 @@ from scripts._common.group_manifest import (
 )
 from scripts.slm.hw_gs_defocus_probe import (
     ACQUIRE_TIMEOUT_S,
-    CAMERA_PIXEL_UM,
     EXIT_PATH_BLOCKED,
     OPEN_TIMEOUT_S,
     SCALE_MEASURED_AT_NM,
@@ -519,14 +518,46 @@ def build_bench(args: argparse.Namespace) -> Bench:
     ``read_default_wavelength_nm`` 用 ``ast`` **静态读取** ``drivers/slm/factory.py``
     里的 ``DEFAULT_WAVELENGTH_NM``, 不 import 驱动包 —— 这样既保住单一事实源, 又
     不破坏「dry-run 不碰设备」的保证。
+
+    CCD 像元同理是**设备属性** (型号配置), 不是本文件的常量: ``--camera-pixel-um``
+    给正数即覆盖, ``0`` 表示 ``--execute`` 时从驱动层读 (Daheng 查 ``models.json``;
+    ``--cam-type sim`` 用孪生口径)。**dry-run 必须显式给** —— 读型号配置要 import
+    ``drivers.ccd.pixel_size``, 而它一被 import 就会牵入相机/SLM 后端, 与
+    :func:`assert_no_drivers` 的零驱动包保证冲突。像元决定 ``focal_m``, 而
+    ``focal_m`` 是 GS 的传播距离, 所以它决定整份计划的 GS 换算: 猜一个数会让焦距与
+    目标边长一致地偏, 而没有任何一处报错。
     """
     wavelength_nm = float(args.wavelength_nm)
     if wavelength_nm <= 0:
         wavelength_nm = read_default_wavelength_nm()
     args.wavelength_nm = wavelength_nm
+    camera_pixel_um = float(getattr(args, "camera_pixel_um", 0.0) or 0.0)
+    if camera_pixel_um <= 0.0:
+        if not getattr(args, "execute", False):
+            raise SystemExit(
+                "dry-run 需要显式 --camera-pixel-um <µm>: 从相机型号配置读像元要 import "
+                "驱动包, 而 dry-run 保证「不 import 任何 ao_shaping.drivers.*」。\n"
+                "  → 例如 --camera-pixel-um 2.2 (Daheng MER2-507-23GM)。"
+            )
+        from ao_shaping.drivers.ccd.base import CameraError
+        from ao_shaping.drivers.ccd.pixel_size import camera_pixel_size_um_for
+
+        try:
+            camera_pixel_um = float(
+                camera_pixel_size_um_for(
+                    str(getattr(args, "cam_type", "daheng")),
+                    int(getattr(args, "cam_id", 0)),
+                )
+            )
+        except CameraError as exc:
+            raise SystemExit(
+                f"无法确定 CCD 像元 ({args.cam_type}#{args.cam_id}): {exc}\n"
+                "  → 显式给 --camera-pixel-um <µm>。"
+            ) from exc
+    args.camera_pixel_um = camera_pixel_um
     focal = focal_length_from_camera_pixel(
         wavelength_nm=wavelength_nm,
-        camera_pixel_um=CAMERA_PIXEL_UM,
+        camera_pixel_um=camera_pixel_um,
         slm_pixel_um=SLM_PITCH_M * 1e6,
         focal_scale_px=TILT_SHIFT_SCALE,
         scale_measured_at_nm=SCALE_MEASURED_AT_NM,
@@ -537,7 +568,7 @@ def build_bench(args: argparse.Namespace) -> Bench:
         panel_shape=(SLM_PANEL_H, SLM_PANEL_W),
         beam_center_panel=(int(BEAM_CENTER_PANEL[0]), int(BEAM_CENTER_PANEL[1])),
         beam_radius_px=float(args.beam_radius_px),
-        camera_pixel_um=CAMERA_PIXEL_UM,
+        camera_pixel_um=camera_pixel_um,
     )
 
 
@@ -3777,6 +3808,8 @@ def shared_arg_tokens(args: argparse.Namespace, *, run_root_text: str) -> list[s
         "--blaze-periods", *[str(int(p)) for p in args.blaze_periods],
         "--beam-radius-px", _fmt_num(args.beam_radius_px),
         "--wavelength-nm", _fmt_num(args.wavelength_nm),
+        *(["--camera-pixel-um", _fmt_num(args.camera_pixel_um)]
+          if float(getattr(args, "camera_pixel_um", 0.0) or 0.0) > 0.0 else []),
         "--slm-number", str(int(args.slm_number)),
         "--seed", str(int(args.seed)),
         "--sim-seed", str(int(args.sim_seed)),
@@ -4058,6 +4091,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help=f"照明半径 (面板 px, 默认 {BEAM_RADIUS_PANEL})")
     p.add_argument("--wavelength-nm", type=float, default=0.0,
                    help="波长 (nm); 0 = 读驱动包里的 DEFAULT_WAVELENGTH_NM (不 import)")
+    p.add_argument("--camera-pixel-um", type=float, default=0.0,
+                   help="CCD 像元 (µm); 正数 = 显式覆盖, 0 = 执行时从相机型号配置读 "
+                        "(Daheng 查 models.json, sim 用孪生口径)。dry-run 必须显式给, "
+                        "否则读型号配置会 import 驱动包、破坏零驱动包保证")
     p.add_argument("--slm-number", type=int, default=1, help="SLM 编号")
     p.add_argument("--seed", type=int, default=0,
                    help="随机种子 (只影响仿真噪声; GS 初值 = 目标反向传播, 无随机数)")
@@ -4084,9 +4121,26 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
-    bench = build_bench(args)  # 顺带把 --wavelength-nm 0 解析成设备常量
 
     # -- 离线子命令: 不打开任何设备, 也不 import 驱动包 ----------------------
+    #    必须在 build_bench **之前**: 它们只读已累积的产物, 与像元/焦距无关,
+    #    所以不该因为「dry-run 必须显式给 --camera-pixel-um」而被拦住。
+    scan = str(args.scan).strip().lower()
+    if not args.plan_commands and scan in OFFLINE_SCANS:
+        if args.execute:
+            logger.info(
+                f"--scan {scan} 是离线子命令, 不开设备; 已忽略 --execute",
+
+            )
+        if scan == "select":
+            run_select(args)
+        else:
+            run_summarize(args)
+        assert_no_drivers()
+        return
+
+    bench = build_bench(args)  # 顺带把 --wavelength-nm 0 解析成设备常量
+
     if args.plan_commands:
         # 命令清单要**完整网格**, 所以内部按 --scan all 生成 (与本次 --scan 无关)。
         plan_args = argparse.Namespace(**vars(args))
@@ -4099,20 +4153,6 @@ def main() -> None:
         except ValueError as exc:
             raise SystemExit(f"参数错误: {exc}") from exc
         print_command_plan(plan, args)
-        assert_no_drivers()
-        return
-
-    scan = str(args.scan).strip().lower()
-    if scan in OFFLINE_SCANS:
-        if args.execute:
-            logger.info(
-                f"--scan {scan} 是离线子命令, 不开设备; 已忽略 --execute",
-
-            )
-        if scan == "select":
-            run_select(args)
-        else:
-            run_summarize(args)
         assert_no_drivers()
         return
 

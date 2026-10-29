@@ -83,6 +83,11 @@ from ao_shaping.utils.wavefront.zernike_calc import noll_indices, zernike_modes
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts" / "slm" / "hw_gs_square_scans.py"
 
+#: dry-run / ``--plan-commands`` 必须显式给像元: 从型号配置读像元要 import 驱动包,
+#: 而那条路径保证「不 import 任何 ao_shaping.drivers.*」。这里统一用本实验系统
+#: Daheng MER2-507-23GM 的实测值, 与被钉住的历史读数 (焦距/位移) 同源。
+_DRY_PITCH = ("--camera-pixel-um", "2.2")
+
 
 # ---------------------------------------------------------------------------
 # 合成帧
@@ -314,7 +319,7 @@ class TestFrameParsing:
 # ---------------------------------------------------------------------------
 class TestBlaze:
     def bench(self) -> Bench:
-        args = build_parser().parse_args(["--dry-run"])
+        args = build_parser().parse_args(["--dry-run", *_DRY_PITCH])
         return build_bench(args)
 
     def test_shift_magnitude_is_the_bench_scale_over_period(self):
@@ -362,7 +367,7 @@ class TestBlaze:
 class TestGsMapping:
     @pytest.fixture(scope="class")
     def bench(self) -> Bench:
-        args = build_parser().parse_args(["--dry-run"])
+        args = build_parser().parse_args(["--dry-run", *_DRY_PITCH])
         return build_bench(args)
 
     def test_one_gs_sample_is_a_fixed_number_of_camera_pixels(self, bench):
@@ -464,7 +469,7 @@ class TestMeasureBox:
 # ---------------------------------------------------------------------------
 class TestPlan:
     def test_plan_carries_everything_the_dry_run_must_show(self):
-        args = build_parser().parse_args(["--dry-run"])
+        args = build_parser().parse_args(["--dry-run", *_DRY_PITCH])
         bench = build_bench(args)
         plan = build_plan(args, bench)
         scan = plan["scan"]
@@ -478,40 +483,40 @@ class TestPlan:
         assert plan["estimate"]["total_s"] > 0.0
 
     def test_explicit_side_max_is_clamped_by_the_frame(self):
-        args = build_parser().parse_args(["--dry-run", "--side-max", "5000"])
+        args = build_parser().parse_args(["--dry-run", *_DRY_PITCH, "--side-max", "5000"])
         plan = build_plan(args, build_bench(args))
         assert plan["frame"]["side_max"] < 5000
         assert "限制" in plan["frame"]["side_max_note"]
 
     def test_assumed_zero_order_shows_up_as_an_assumption(self):
-        args = build_parser().parse_args(["--dry-run"])
+        args = build_parser().parse_args(["--dry-run", *_DRY_PITCH])
         assert build_plan(args, build_bench(args))["frame"]["zero_order_assumed"] is True
-        args = build_parser().parse_args(["--dry-run", "--dry-run-zero-order", "900,1100"])
+        args = build_parser().parse_args(["--dry-run", *_DRY_PITCH, "--dry-run-zero-order", "900,1100"])
         plan = build_plan(args, build_bench(args))
         assert plan["frame"]["zero_order_assumed"] is False
         assert plan["frame"]["zero_order_xy"] == [900.0, 1100.0]
 
     def test_off_centre_zero_order_shrinks_the_max_side(self):
         """0 级离左边只有 200 px ⇒ 可用半径 190 ⇒ 原始 380, 取到步长整数倍 = 300。"""
-        args = build_parser().parse_args(["--dry-run", "--dry-run-zero-order", "200,1000"])
+        args = build_parser().parse_args(["--dry-run", *_DRY_PITCH, "--dry-run-zero-order", "200,1000"])
         plan = build_plan(args, build_bench(args))
         assert plan["frame"]["side_max_raw"] == 380
         assert plan["frame"]["side_max"] == 300
 
     def test_a_single_stage_plan_only_lists_that_stage(self):
-        args = build_parser().parse_args(["--dry-run", "--scan", "sides"])
+        args = build_parser().parse_args(["--dry-run", *_DRY_PITCH, "--scan", "sides"])
         plan = build_plan(args, build_bench(args))
         assert plan["stages"] == ["sides"]
         assert set(plan["stage_plans"]) == {"sides"}
 
     def test_explicit_gs_grid_too_small_is_refused(self):
-        args = build_parser().parse_args(["--dry-run", "--gs-grid", "64"])
+        args = build_parser().parse_args(["--dry-run", *_DRY_PITCH, "--gs-grid", "64"])
         with pytest.raises(SystemExit) as excinfo:
             build_plan(args, build_bench(args))
         assert "卷绕" in str(excinfo.value)
 
     def test_bad_blaze_period_is_refused(self):
-        args = build_parser().parse_args(["--dry-run", "--blaze-periods", "1", "16"])
+        args = build_parser().parse_args(["--dry-run", *_DRY_PITCH, "--blaze-periods", "1", "16"])
         with pytest.raises(SystemExit):
             build_plan(args, build_bench(args))
 
@@ -541,7 +546,7 @@ class TestDiscipline:
 
     def test_dry_run_runs_without_hardware_and_prints_the_plan(self):
         proc = subprocess.run(
-            [sys.executable, str(SCRIPT), "--dry-run"],
+            [sys.executable, str(SCRIPT), "--dry-run", *_DRY_PITCH],
             cwd=str(ROOT),
             capture_output=True,
             text=True,
@@ -564,7 +569,7 @@ class TestDiscipline:
     def test_atomic_mode_is_advertised_in_the_whole_segment_plan(self):
         """整段计划里必须写出原子模式的推荐用法 (否则没人会知道有这条路)。"""
         proc = subprocess.run(
-            [sys.executable, str(SCRIPT), "--dry-run"],
+            [sys.executable, str(SCRIPT), "--dry-run", *_DRY_PITCH],
             cwd=str(ROOT),
             capture_output=True,
             text=True,
@@ -588,9 +593,9 @@ class TestAtomicSelection:
 
     def test_each_stage_picks_up_its_own_value_selector(self):
         cases = (
-            (["--dry-run", "--scan", "sides", "--side-px", "700"], "sides", 700),
-            (["--dry-run", "--scan", "zernike", "--n-max", "11"], "zernike", 11),
-            (["--dry-run", "--scan", "blaze", "--blaze-period", "32"], "blaze", 32),
+            (["--dry-run", *_DRY_PITCH, "--scan", "sides", "--side-px", "700"], "sides", 700),
+            (["--dry-run", *_DRY_PITCH, "--scan", "zernike", "--n-max", "11"], "zernike", 11),
+            (["--dry-run", *_DRY_PITCH, "--scan", "blaze", "--blaze-period", "32"], "blaze", 32),
         )
         for argv, stage, value in cases:
             args = build_parser().parse_args(argv)
@@ -603,17 +608,17 @@ class TestAtomicSelection:
 
     def test_whole_segment_has_no_atomic_selector(self):
         """不给值选择器 = 旧版整段路径 (保留, 不是原子模式)。"""
-        args = build_parser().parse_args(["--dry-run", "--scan", "sides"])
+        args = build_parser().parse_args(["--dry-run", *_DRY_PITCH, "--scan", "sides"])
         assert atomic_selection(args, ("sides",)) is None
-        args = build_parser().parse_args(["--dry-run", "--scan", "all"])
+        args = build_parser().parse_args(["--dry-run", *_DRY_PITCH, "--scan", "all"])
         assert atomic_selection(args, ("sides", "zernike", "blaze")) is None
         # --scan all + --side-px 仍是「显式覆盖」, 不是原子模式
-        args = build_parser().parse_args(["--dry-run", "--scan", "all", "--side-px", "700"])
+        args = build_parser().parse_args(["--dry-run", *_DRY_PITCH, "--scan", "all", "--side-px", "700"])
         assert atomic_selection(args, ("sides", "zernike", "blaze")) is None
 
     def test_plan_records_the_atomic_config(self):
         args = build_parser().parse_args(
-            ["--dry-run", "--scan", "zernike", "--n-max", "11", "--run-root", "x"]
+            ["--dry-run", *_DRY_PITCH, "--scan", "zernike", "--n-max", "11", "--run-root", "x"]
         )
         plan = build_plan(args, build_bench(args))
         assert plan["atomic"]["stage"] == "zernike"
@@ -621,15 +626,15 @@ class TestAtomicSelection:
         assert plan["stages"] == ["zernike"]
 
     def test_out_of_range_values_are_refused(self):
-        args = build_parser().parse_args(["--dry-run", "--scan", "zernike", "--n-max", "31"])
+        args = build_parser().parse_args(["--dry-run", *_DRY_PITCH, "--scan", "zernike", "--n-max", "31"])
         with pytest.raises(SystemExit):
             atomic_selection(args, ("zernike",))
         args = build_parser().parse_args(
-            ["--dry-run", "--scan", "blaze", "--blaze-period", "1"]
+            ["--dry-run", *_DRY_PITCH, "--scan", "blaze", "--blaze-period", "1"]
         )
         with pytest.raises(SystemExit):
             atomic_selection(args, ("blaze",))
-        args = build_parser().parse_args(["--dry-run", "--scan", "sides", "--side-px", "0"])
+        args = build_parser().parse_args(["--dry-run", *_DRY_PITCH, "--scan", "sides", "--side-px", "0"])
         with pytest.raises(SystemExit):
             atomic_selection(args, ("sides",))
 
@@ -649,7 +654,7 @@ class TestAtomicSelection:
 # ---------------------------------------------------------------------------
 class TestCommandPlan:
     def plan(self, argv=()):
-        args = build_parser().parse_args(["--dry-run", "--run-root", "data/demo", *argv])
+        args = build_parser().parse_args(["--dry-run", *_DRY_PITCH, "--run-root", "data/demo", *argv])
         plan_args = argparse.Namespace(**vars(args))
         plan_args.scan = "all"
         plan_args.side_px = None
@@ -725,7 +730,7 @@ class TestCommandPlan:
 
     def test_subprocess_prints_the_same_number_of_lines(self):
         proc = subprocess.run(
-            [sys.executable, str(SCRIPT), "--plan-commands", "--run-root", "data/demo"],
+            [sys.executable, str(SCRIPT), "--plan-commands", *_DRY_PITCH, "--run-root", "data/demo"],
             cwd=str(ROOT),
             capture_output=True,
             text=True,
@@ -963,7 +968,7 @@ class TestSelectCommand:
 # ---------------------------------------------------------------------------
 class TestBasePhaseCache:
     def bench(self) -> Bench:
-        args = build_parser().parse_args(["--dry-run"])
+        args = build_parser().parse_args(["--dry-run", *_DRY_PITCH])
         return build_bench(args)
 
     def selection(self, side: int = 900, grid: int = 8) -> Selection:
@@ -1048,13 +1053,13 @@ class TestBasePhaseCache:
     def test_gs_grid_prefers_the_recorded_one(self):
         """原子模式的网格: 显式 > 第 1 段记录的 > 按窗口反解。"""
         bench = self.bench()
-        args = build_parser().parse_args(["--dry-run"])
+        args = build_parser().parse_args(["--dry-run", *_DRY_PITCH])
         assert atomic_gs_grid(args, bench, side_max_px=1000, max_shift_px=0, hint=1024) == 1024
         auto = atomic_gs_grid(args, bench, side_max_px=1000, max_shift_px=0)
         assert auto == bench.gs_grid_for(1000)
-        explicit = build_parser().parse_args(["--dry-run", "--gs-grid", "2048"])
+        explicit = build_parser().parse_args(["--dry-run", *_DRY_PITCH, "--gs-grid", "2048"])
         assert atomic_gs_grid(explicit, bench, side_max_px=1000, max_shift_px=0) == 2048
-        too_small = build_parser().parse_args(["--dry-run", "--gs-grid", "64"])
+        too_small = build_parser().parse_args(["--dry-run", *_DRY_PITCH, "--gs-grid", "64"])
         with pytest.raises(SystemExit):
             atomic_gs_grid(too_small, bench, side_max_px=1000, max_shift_px=0)
 
@@ -1065,7 +1070,7 @@ class TestBasePhaseCache:
 class TestAtomicDryRun:
     def test_one_config_only(self):
         proc = subprocess.run(
-            [sys.executable, str(SCRIPT), "--dry-run", "--scan", "sides",
+            [sys.executable, str(SCRIPT), "--dry-run", *_DRY_PITCH, "--scan", "sides",
              "--side-px", "700", "--run-root", "data/demo"],
             cwd=str(ROOT), capture_output=True, text=True, check=False,
         )
@@ -1080,7 +1085,7 @@ class TestAtomicDryRun:
 
     def test_zernike_plan_states_the_dependency(self):
         proc = subprocess.run(
-            [sys.executable, str(SCRIPT), "--dry-run", "--scan", "zernike",
+            [sys.executable, str(SCRIPT), "--dry-run", *_DRY_PITCH, "--scan", "zernike",
              "--n-max", "11", "--run-root", "data/demo"],
             cwd=str(ROOT), capture_output=True, text=True, check=False,
         )
@@ -1091,7 +1096,7 @@ class TestAtomicDryRun:
 
     def test_blaze_plan_shows_the_predicted_shift(self):
         proc = subprocess.run(
-            [sys.executable, str(SCRIPT), "--dry-run", "--scan", "blaze",
+            [sys.executable, str(SCRIPT), "--dry-run", *_DRY_PITCH, "--scan", "blaze",
              "--blaze-period", "32", "--run-root", "data/demo"],
             cwd=str(ROOT), capture_output=True, text=True, check=False,
         )

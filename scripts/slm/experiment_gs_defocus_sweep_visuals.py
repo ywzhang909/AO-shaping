@@ -163,6 +163,7 @@ from ao_shaping.algorithm.signal_processing.angular_spectrum import (
 from ao_shaping.algorithm.signal_processing.square_shaping import (
     composite_from_pib_cv,
 )
+from ao_shaping.drivers.ccd.pixel_size import camera_pixel_size_um_for
 from ao_shaping.utils.wavefront.matrix_utils import (
     focal_length_from_camera_pixel,
 )
@@ -199,9 +200,12 @@ TRUST_EDGE_ENERGY = 0.02
 INNER_CROP = 0.5
 
 #: 实验系统 CCD (Daheng MER2-507-23GM) 的尺寸与像元, 用于对比「仿真画幅 vs 真实
-#: 视场」。值取自 ``src/ao_shaping/drivers/AGENTS.md`` 记录的实测参数。
+#: 视场」。像元取自驱动层的型号配置 (本脚本是纯仿真, 用 ``sim`` 的孪生口径);
+#: 型号未登记时驱动会报错并给出登记命令, 这里不写死数值。
 HW_CCD_PX = (2592, 1944)
-HW_CCD_PIXEL_M = 2.2e-6
+HW_CCD_PIXEL_M = camera_pixel_size_um_for("sim") * 1e-6
+#: 本脚本的「相机像元」锚点 (与 ``HW_CCD_PIXEL_M`` 同源), 供焦距复核用。
+CAMERA_PIXEL_UM = camera_pixel_size_um_for("sim")
 
 #: 零级振幅系数 η 的取值 (公式 ``U = U_inc·[η + (1−η)e^{iφ}]`` 里的那个 η)。
 #: 零级**功率**占比 = ``η²/(η²+(1−η)²)``: 0.02 → 4.2e−4, 0.05 → 2.6e−3,
@@ -1612,7 +1616,7 @@ def main() -> None:
         "focal_length_m": FOCAL_LENGTH_M,
         "focal_length_recheck_m": focal_length_from_camera_pixel(
             wavelength_nm=WAVELENGTH_NM,
-            camera_pixel_um=2.2,
+            camera_pixel_um=CAMERA_PIXEL_UM,
             slm_pixel_um=PANEL_PIXEL_UM,
             focal_scale_px=TILT_SHIFT_SCALE,
             scale_measured_at_nm=1064.0,

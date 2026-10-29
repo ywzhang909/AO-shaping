@@ -702,8 +702,13 @@ class TestFocalLengthResolution:
     """
 
     def test_zero_focal_length_is_derived_from_the_measured_scale(self) -> None:
-        """The derivation is the measured one, not a hard-coded magic number."""
-        config = SlmModelInLoopConfig(focal_length_m=0.0)
+        """The derivation is the measured one, not a hard-coded magic number.
+
+        The pitch is now a device property: pass it explicitly here, because this
+        test is about the *formula*, and a config with no resolvable camera
+        (``cam_type="daheng"``, no device) deliberately keeps 0 and defers.
+        """
+        config = SlmModelInLoopConfig(focal_length_m=0.0, camera_pixel_um=2.2)
         expected = focal_length_from_camera_pixel(
             wavelength_nm=float(config.slm_wavelength),
             camera_pixel_um=config.camera_pixel_um,
@@ -713,6 +718,21 @@ class TestFocalLengthResolution:
         )
         assert config.focal_length_m == pytest.approx(expected)
         assert config.focal_length_m > 0.0
+
+    def test_the_pitch_comes_from_the_camera_model_when_not_passed(self) -> None:
+        """``0`` means "ask the camera model", and sim can answer without hardware."""
+        from ao_shaping.drivers.ccd.pixel_size import camera_pixel_size_um_for
+
+        config = SlmModelInLoopConfig(cam_type="sim")
+        assert config.camera_pixel_um == pytest.approx(camera_pixel_size_um_for("sim"))
+        assert config.camera_pixel_um_source == "derived: sim twin"
+        assert config.focal_length_m > 0.0
+
+    def test_an_unresolvable_pitch_leaves_no_derived_focal_length(self) -> None:
+        config = SlmModelInLoopConfig(cam_type="daheng", cam_id=99)
+        assert config.camera_pixel_um == 0.0
+        assert config.camera_pixel_um_source == "unresolved"
+        assert config.focal_length_m == 0.0
 
     def test_explicit_focal_length_is_pinned_verbatim(self) -> None:
         """An explicit value is a datasheet anchor and must not be overwritten."""

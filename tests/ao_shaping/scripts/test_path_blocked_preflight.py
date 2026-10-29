@@ -101,7 +101,7 @@ class TestDefocusProbePlan:
     """dry-run 的计划文本必须讲清楚这个 pre-flight。"""
 
     def test_the_plan_mentions_the_preflight(self):
-        args = build_parser().parse_args(["--dry-run"])
+        args = build_parser().parse_args(["--dry-run", "--camera-pixel-um", "2.2"])
         plan = build_plan(args, build_optics(args))
         preflight = plan["preflight"]
         assert "光路自检" in preflight["what"]
@@ -111,7 +111,9 @@ class TestDefocusProbePlan:
 
     def test_the_dry_run_prints_the_preflight(self):
         proc = subprocess.run(
-            [sys.executable, str(PROBE), "--dry-run"],
+            # 像元在 dry-run 里必须显式给 (见探针的 assert_no_drivers): 读型号配置
+            # 会 import 驱动包, 而 dry-run 保证不 import 任何 ao_shaping.drivers.*。
+            [sys.executable, str(PROBE), "--dry-run", "--camera-pixel-um", "2.2"],
             cwd=str(ROOT),
             capture_output=True,
             text=True,

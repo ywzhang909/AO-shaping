@@ -21,13 +21,16 @@
 * 只 import 三个**零导入叶子** (:mod:`ao_shaping.utils.slm.bench_constants`、
   :mod:`ao_shaping.utils.wavefront.matrix_utils` 与
   :mod:`ao_shaping.tools.kernels.bench_kernels`) —— 实测它们**不牵入任何
-  ``ao_shaping.drivers.*``**;
+  ``ao_shaping.drivers.*``;
 * 波长常量 ``DEFAULT_WAVELENGTH_NM`` 用 ``ast`` 从 ``drivers/slm/factory.py``
   **静态读取** (不 import), 保持单一事实源又不触发驱动包的 import 期副作用;
 * 收尾时**断言** ``ao_shaping.drivers`` 没出现在 ``sys.modules`` 里 —— 这条断言
   让「dry-run 不碰设备」成为可执行的保证而不是口头承诺, 违反就 exit 3。
 
-因此 ``--dry-run`` 在**没有任何硬件的机器上**也必须 exit 0。
+因此 ``--dry-run`` 在**没有任何硬件的机器上**也必须 exit 0 —— 但它要求显式
+``--camera-pixel-um``: 从相机**型号配置**读像元要 import ``drivers.ccd.pixel_size``,
+而那个 import 会连带牵入相机/SLM 后端, 直接违约上面那条断言。``--execute`` 时像元
+自动从型号配置读 (未登记就报错并给出登记命令)。
 
 🔴 **扫描前先自检光路 (pre-flight)**: 基准帧 (Δz=0, GS 相位已施加) 一抓到就判
 一次「有没有可评分的局域光斑」。判据看**结构**而不是亮度 —— 光路被挡住时画面里
@@ -198,9 +201,9 @@ sys.path.insert(0, str(ROOT / "src"))
 import numpy as np
 
 # ---------------------------------------------------------------------------
-# 光学常量: 全部来自**零导入叶子**, 导入它们不会牵入 ao_shaping.drivers.*
-# (实测: sys.modules 里没有任何 ao_shaping.drivers 出现)。单一事实源仍是
-# bench_constants / matrix_utils, 本文件不另立一份。
+# 光学常量: 单一事实源是 bench_constants / matrix_utils, 本文件不另立一份。
+# 面板/口径/焦距标度来自零导入叶子; **CCD 像元是设备属性**, 由 ``--camera-pixel-um``
+# 给出或 (``--execute`` 时) 从驱动层的型号配置读 (见 ``build_optics``) —— 本文件不写死。
 # ---------------------------------------------------------------------------
 from ao_shaping.utils.image.frame_analysis import (
     SpotUsability,
@@ -236,8 +239,6 @@ GROUP_VARIABLE = "dz_mm"
 
 #: 2f 焦距标度是在哪个波长下测的 (bench_constants 的 TILT_SHIFT_SCALE 是 1064 nm 下测的)
 SCALE_MEASURED_AT_NM = 1064.0
-#: CCD 像元 (Daheng MER2-507-23GM, datasheet 常数, 见 drivers/AGENTS.md)
-CAMERA_PIXEL_UM = 2.2
 
 #: 瞳面二次相位的符号/前因子。**不是照抄公式**: 仿真脚本
 #: ``experiment_gs_defocus_sweep_visuals.py`` 用方案A 的 |U_CCD|^2 数值一致性比对反解
@@ -467,9 +468,36 @@ def build_optics(args: argparse.Namespace) -> Optics:
     if wavelength_nm <= 0:
         wavelength_nm = read_default_wavelength_nm()
     args.wavelength_nm = wavelength_nm
+    # 像元来自驱动层的**型号配置** (Daheng 查 ``models.json``; ``--cam-type sim``
+    # 用孪生口径)。型号未登记时这里报错并给出登记命令 —— 像元决定全部远场物理标度,
+    # 猜一个数会让焦距/束腰/目标边长一致地偏, 而没有任何一处报错。
+    #
+    # ``--camera-pixel-um`` 给正数即覆盖型号配置。**dry-run 必须显式给**: 读型号配置
+    # 要 import ``drivers.ccd.pixel_size``, 而它一被 import 就会连带牵入相机/SLM 后端,
+    # dry-run 的 ``assert_no_drivers`` 因此会判违约 (见该函数)。
+    camera_pixel_um = float(getattr(args, "camera_pixel_um", 0.0) or 0.0)
+    if camera_pixel_um <= 0.0:
+        if not getattr(args, "execute", False):
+            raise SystemExit(
+                "dry-run 需要显式 --camera-pixel-um <µm>: 从相机型号配置读像元要 import "
+                "驱动包, 而 dry-run 保证「不 import 任何 ao_shaping.drivers.*」。\n"
+                "  → 例如 --camera-pixel-um 2.2 (Daheng MER2-507-23GM)。"
+            )
+        from ao_shaping.drivers.ccd.base import CameraError
+        from ao_shaping.drivers.ccd.pixel_size import camera_pixel_size_um_for
+
+        try:
+            camera_pixel_um = camera_pixel_size_um_for(
+                str(args.cam_type), int(args.cam_id)
+            )
+        except CameraError as exc:
+            raise SystemExit(
+                f"无法确定 CCD 像元 ({args.cam_type}#{args.cam_id}): {exc}\n"
+                "  → 显式给 --camera-pixel-um <µm>。"
+            ) from exc
     focal = focal_length_from_camera_pixel(
         wavelength_nm=wavelength_nm,
-        camera_pixel_um=CAMERA_PIXEL_UM,
+        camera_pixel_um=camera_pixel_um,
         slm_pixel_um=SLM_PITCH_M * 1e6,
         focal_scale_px=TILT_SHIFT_SCALE,
         scale_measured_at_nm=SCALE_MEASURED_AT_NM,
@@ -482,7 +510,7 @@ def build_optics(args: argparse.Namespace) -> Optics:
         beam_center_panel=(int(BEAM_CENTER_PANEL[0]), int(BEAM_CENTER_PANEL[1])),
         beam_radius_panel=float(BEAM_RADIUS_PANEL),
         panel_pitch_m=SLM_PITCH_M,
-        camera_pixel_um=CAMERA_PIXEL_UM,
+        camera_pixel_um=camera_pixel_um,
     )
 
 
@@ -2383,6 +2411,11 @@ def build_parser() -> argparse.ArgumentParser:
                    choices=["daheng", "miicam", "sim"],
                    help="相机后端 (daheng/miicam/sim)。sim = 无硬件的数字孪生: "
                         "同一条命令换 --cam-type sim 就在仿真里跑出同结构的产物")
+    p.add_argument("--camera-pixel-um", type=float, default=0.0,
+                   help="CCD 像元 (µm)。0 (默认) 从相机**型号配置**读取 "
+                        "(drivers.ccd.pixel_size: daheng 查 models.json / miicam "
+                        "写死 / sim 用孪生口径); 型号未登记会报错并给出登记命令。"
+                        "传值即覆盖 —— 像元决定全部远场物理标度")
     p.add_argument("--sim-seed", type=int, default=0,
                    help="仿真噪声模型的随机种子 (--cam-type sim only)。固定它 ⇒ "
                         "同样的种子给出逐位相同的远场 (可重复)")
@@ -2452,6 +2485,11 @@ def assert_no_drivers() -> None:
 
     这条断言让「dry-run 不碰设备」成为**可执行的**保证而不是口头承诺。违反就 exit 3,
     因为那意味着 dry-run 路径上混进了会触发 SDK 加载的 import。
+
+    CCD 像元因此**不能在 dry-run 里从型号配置读**: ``drivers.ccd.pixel_size`` 一被
+    import 就会连带牵入相机/SLM 后端 (实测 ``drivers.sim.*`` / ``drivers.slm.santec.*``
+    / ``drivers.wfs.*`` 全部进 ``sys.modules``)。所以 dry-run 要求显式
+    ``--camera-pixel-um``, 而 ``--execute`` 才从型号配置读。
     """
     leaked = sorted(m for m in sys.modules if m.startswith("ao_shaping.drivers"))
     if leaked:

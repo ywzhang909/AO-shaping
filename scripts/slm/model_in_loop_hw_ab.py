@@ -254,7 +254,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--min-ee", type=float, default=0.4)
     parser.add_argument("--min-iou", type=float, default=0.5)
     parser.add_argument("--seed", type=int, default=19)
-    parser.add_argument("--camera-pixel-um", type=float, default=2.2)
+    parser.add_argument(
+        "--camera-pixel-um",
+        type=float,
+        default=0.0,
+        help=(
+            "CCD 像元 (µm)。0 (默认) = 从相机**型号配置**读取 "
+            "(drivers.ccd.pixel_size: daheng 查 models.json / miicam 写死 / sim 用孪生"
+            "口径; 型号未登记会报错并给出登记命令); 传值即覆盖。"
+        ),
+    )
     parser.add_argument("--slm-pixel-um", type=float, default=8.0)
     parser.add_argument("--panel-span-px", type=float, default=900.0)
     parser.add_argument("--max-cv-regression", type=float, default=0.02)

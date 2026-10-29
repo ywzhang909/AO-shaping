@@ -289,6 +289,10 @@ def _run_probe(
             "0.2",
             "--roi-px",
             str(ROI_PX),
+            # 像元不再有默认值; 假相机没有型号可查, 所以显式给一个 (2.2 µm =
+            # Daheng MER2-507-23GM, 与本文件假设备模拟的那台一致)。
+            "--camera-pixel-um",
+            "2.2",
             "--cam-type",
             cam_type,
             *extra,
@@ -348,7 +352,10 @@ class TestDriverStrings:
     def test_the_plan_names_the_driver_of_the_backend(
         self, cam_type: str, slm_driver: str, ccd_driver: str
     ):
-        args = build_parser().parse_args(["--cam-type", cam_type])
+        args = build_parser().parse_args(
+            # 像元不再有默认值: 读型号配置要 import 驱动包, 而本文件是离线测试。
+            ["--cam-type", cam_type, "--camera-pixel-um", "2.2"]
+        )
         plan = build_plan(args, build_optics(args))
         assert plan["devices"][0]["driver"] == slm_driver
         assert plan["devices"][1]["driver"] == ccd_driver

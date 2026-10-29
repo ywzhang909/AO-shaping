@@ -714,12 +714,24 @@ class SlmModelInLoopConfig:
 
     wavelength_nm: int = 1064
     slm_pixel_um: float = 8.0
-    camera_pixel_um: float = 2.2
-    """CCD pixel pitch -- the bench model's measurement anchor.
+    camera_pixel_um: float = 0.0
+    """CCD pixel pitch (um) -- the bench model's measurement anchor.
 
     The measured focal scale fixes only the ratio ``f / p_cam``, so exactly one
-    external anchor is unavoidable. This one is a per-camera datasheet constant
-    rather than a bench assembly choice.
+    external anchor is unavoidable. It is a **per-camera-model property** owned by
+    the driver layer (:mod:`ao_shaping.drivers.ccd.pixel_size`), so ``0`` (the
+    default) means "read it from the camera model" -- Daheng from
+    ``models.json``, MiiCam fixed, sim from the twin optics. A positive value is
+    an override. An unresolved 0 is refused when the session opens (see
+    ``require_camera_pixel_um``), never used as a physical scale.
+    """
+
+    camera_pixel_um_source: str = "input"
+    """Where :attr:`camera_pixel_um` came from: ``"input"`` / ``"derived: ..."`` /
+    ``"unresolved"``.
+
+    Recorded so a run's saved payload and log say whether the pitch was typed or
+    read from the camera model.
     """
 
     panel_span_px: float = 900.0
@@ -1164,9 +1176,92 @@ class SlmModelInLoopConfig:
         if self.geometry_file is not None and not Path(self.geometry_file).is_file():
             raise ValueError(f"geometry_file does not exist: {self.geometry_file!r}")
         self.frozen_modes = tuple(sorted({int(m) for m in self.frozen_modes}))
+        # The pixel pitch is a device property: 0 means "ask the camera model".
+        # Non-strict here on purpose -- a config must be constructible without a
+        # connected camera (probing GigE is not a constructor's job), so an
+        # unresolved pitch stays 0 and ``require_camera_pixel_um`` refuses it once
+        # the camera is open, which is also where the pitch can be read off the
+        # device itself.
+        self._resolve_camera_pixel_um()
         # Resolve the focal length once, here, so the runner, a library caller and
         # the tests can never disagree about what geometry a run actually used.
+        # With an unresolved pitch the anchor does not exist yet, so the derived
+        # focal length waits for ``require_camera_pixel_um``.
         if self.focal_length_m <= 0.0:
+            self._focal_length_pinned = False
+            if self.camera_pixel_um > 0.0:
+                from ao_shaping.drivers.slm.factory import DEFAULT_WAVELENGTH_NM
+                from ao_shaping.optimizer.wfless.slm_gs_refine import (
+                    _TILT_SHIFT_SCALE_MEASURED_AT_NM,
+                    _TILT_SHIFT_SCALE_PX,
+                    focal_length_from_camera_pixel,
+                )
+
+                self.focal_length_m = focal_length_from_camera_pixel(
+                    wavelength_nm=float(self.slm_wavelength or DEFAULT_WAVELENGTH_NM),
+                    camera_pixel_um=self.camera_pixel_um,
+                    slm_pixel_um=self.slm_pixel_um or SLM_PITCH_M * 1e6,
+                    focal_scale_px=_TILT_SHIFT_SCALE_PX,
+                    scale_measured_at_nm=_TILT_SHIFT_SCALE_MEASURED_AT_NM,
+                )
+        else:
+            self._focal_length_pinned = True
+
+        # Resolve the error terms LAST: they need the focal length and the
+        # far-field grid, both of which are only known here.
+        self.error_terms = self._resolve_error_terms()
+
+    def _resolve_camera_pixel_um(self) -> None:
+        """Fill ``camera_pixel_um`` from the camera model when it is 0.
+
+        Non-strict: constructing a config must not need a connected camera (see
+        ``__post_init__``). ``cam_type="sim"`` / ``"miicam"`` resolve here without
+        hardware; a Daheng model resolves only when a device is enumerable, and
+        otherwise :meth:`require_camera_pixel_um` fails loudly at session start.
+        """
+        if self.camera_pixel_um > 0.0:
+            return
+        from ao_shaping.drivers.ccd.pixel_size import camera_pixel_size_um_for
+        from ao_shaping.optimizer.wfless.slm_gs_refine import _pitch_backend_label
+
+        resolved = camera_pixel_size_um_for(self.cam_type, self.cam_id, strict=False)
+        if resolved > 0.0:
+            self.camera_pixel_um = resolved
+            self.camera_pixel_um_source = (
+                f"derived: {_pitch_backend_label(self.cam_type)}"
+            )
+        else:
+            self.camera_pixel_um_source = "unresolved"
+
+    def require_camera_pixel_um(self, camera: Any | None = None) -> float:
+        """Return a usable pixel pitch, resolving it from the open camera if needed.
+
+        Args:
+            camera: The opened camera handle, or ``None`` (sim bench / model config
+                only).
+
+        Returns:
+            The pitch in um (always > 0).
+
+        Raises:
+            CameraError: The pitch cannot be determined; the message names the
+                registration command.
+        """
+        if self.camera_pixel_um > 0.0:
+            return self.camera_pixel_um
+
+        from ao_shaping.drivers.ccd.pixel_size import camera_pixel_size_um_for
+        from ao_shaping.optimizer.wfless.slm_gs_refine import _pitch_backend_label
+
+        self.camera_pixel_um = camera_pixel_size_um_for(
+            self.cam_type, self.cam_id, camera=camera
+        )
+        self.camera_pixel_um_source = (
+            "derived: open camera"
+            if camera is not None
+            else f"derived: {_pitch_backend_label(self.cam_type)}"
+        )
+        if not self._focal_length_pinned and self.focal_length_m <= 0.0:
             from ao_shaping.drivers.slm.factory import DEFAULT_WAVELENGTH_NM
             from ao_shaping.optimizer.wfless.slm_gs_refine import (
                 _TILT_SHIFT_SCALE_MEASURED_AT_NM,
@@ -1174,7 +1269,6 @@ class SlmModelInLoopConfig:
                 focal_length_from_camera_pixel,
             )
 
-            self._focal_length_pinned = False
             self.focal_length_m = focal_length_from_camera_pixel(
                 wavelength_nm=float(self.slm_wavelength or DEFAULT_WAVELENGTH_NM),
                 camera_pixel_um=self.camera_pixel_um,
@@ -1182,12 +1276,7 @@ class SlmModelInLoopConfig:
                 focal_scale_px=_TILT_SHIFT_SCALE_PX,
                 scale_measured_at_nm=_TILT_SHIFT_SCALE_MEASURED_AT_NM,
             )
-        else:
-            self._focal_length_pinned = True
-
-        # Resolve the error terms LAST: they need the focal length and the
-        # far-field grid, both of which are only known here.
-        self.error_terms = self._resolve_error_terms()
+        return self.camera_pixel_um
 
     def _resolve_error_terms(self) -> ModelErrorTerms | None:
         """Load the error terms and re-anchor them on this run's optics.
@@ -2901,6 +2990,11 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
         coefficients = seeded
 
     bench = _open_bench(config)
+    # The pitch is a device property and the camera is open here (sim has none, and
+    # its value was already resolved from the twin optics at construction), so this
+    # is the best source there is. It raises -- naming the registration command --
+    # rather than letting an unresolved pitch scale the whole forward model.
+    config.require_camera_pixel_um(getattr(bench, "_cam", None))
     # Declared before the ``try`` so the ``finally`` teardown can always reach it.
     # The window itself can only be opened further down, once the geometry solve
     # has produced the target box that the CCD overlay needs.
