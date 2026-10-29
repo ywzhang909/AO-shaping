@@ -199,8 +199,14 @@ def summarise_block(block: dict) -> dict:
     the earlier "2 pp" band look like a measurement when it was not.
     """
     rows = block["rows"]
-    usable = [row for row in rows if not row.get("error")]
-    clipped = [row["label"] for row in usable if row.get("clipped")]
+    measured = [row for row in rows if not row.get("error")]
+    clipped = [row["label"] for row in measured if row.get("clipped")]
+    # A saturated frame's CV/ee_rel is not a measurement of the phase: the core
+    # is flat-topped, so its CV is whatever the clip boundary made it. They are
+    # therefore dropped from every group below, which is what the printed
+    # summary has always claimed; before this change the claim was false and
+    # ``dCV`` was computed on clipped rows.
+    usable = [row for row in measured if not row.get("clipped")]
     groups = {}
     for key, members in group_rows(usable).items():
         exposure, depth, shape = key
@@ -243,7 +249,7 @@ def summarise_block(block: dict) -> dict:
             pairs=pairs)
     return dict(directory=block["directory"], present=block["present"],
                 released=block.get("released", False), n_rows=len(rows),
-                n_usable=len(usable), clipped=clipped,
+                n_measured=len(measured), n_usable=len(usable), clipped=clipped,
                 errors=[dict(label=row.get("label"), error=row["error"])
                         for row in rows if row.get("error")],
                 groups=groups)
@@ -253,7 +259,8 @@ def summarise_block(block: dict) -> dict:
 def _format_table(summary: dict) -> str:
     """Render one block's summary as fixed-width text for a terminal."""
     lines = [f"## {Path(summary['directory']).name}  "
-             f"({summary['n_usable']}/{summary['n_rows']} rows usable"
+             f"({summary['n_usable']}/{summary.get('n_measured', summary['n_rows'])}"
+             f" measured rows usable, {summary['n_rows']} present"
              f"{', released' if summary['released'] else ', NOT released'})"]
     if not summary["present"]:
         lines.append("    (directory absent)")
@@ -262,7 +269,10 @@ def _format_table(summary: dict) -> str:
         lines.append(f"    ! {error['label']}: {error['error']}")
     if summary["clipped"]:
         lines.append(f"    ! clipped (>= {REPLAY_PEAK_GUARD_FRACTION:.0%} full scale), "
-                     f"excluded from any comparison: {', '.join(summary['clipped'])}")
+                     f"dropped from every group below: {', '.join(summary['clipped'])}")
+    if not summary["groups"]:
+        lines.append("    (no comparable groups: every measured row was clipped or errored)")
+        return "\n".join(lines)
     for key, group in summary["groups"].items():
         std = "n/a" if group["cv_std"] is None else f"{group['cv_std']:.4f}"
         counts = group["phase_counts"]

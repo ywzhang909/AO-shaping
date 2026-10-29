@@ -146,7 +146,10 @@ def _validate_args(*, checkpoint: Path, out: Path, zero_xy, shapes, recipe: Stag
                    window_span: float, zero_radius: float, window_step: float | None = None,
                    blocks: int | None = None, updates: int | None = None,
                    adaptive_exposure: bool = True, profile_timing: bool = False,
-                   async_capture_write: bool = False) -> SimpleNamespace:
+                   async_capture_write: bool = False, jacobian_guard: bool = True,
+                   jacobian_low: float = 0.5, jacobian_high: float = 0.85,
+                   jacobian_floor: float = 0.02, spectral_weight: float = 0.0,
+                   spectral_cutoff: float | None = None) -> SimpleNamespace:
     """Build the argument namespace ``validate.run`` expects."""
     return SimpleNamespace(
         checkpoint=checkpoint, out=out, zero_xy=list(zero_xy), target_xy=None,
@@ -164,6 +167,9 @@ def _validate_args(*, checkpoint: Path, out: Path, zero_xy, shapes, recipe: Stag
         accept_metric=recipe.accept_metric, objective="cv", abba=False,
         ccd_check=recipe.ccd_check, device=device, execute=True,
         profile_timing=profile_timing, async_capture_write=async_capture_write,
+        jacobian_guard=jacobian_guard, jacobian_low=jacobian_low,
+        jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
+        spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
     )
 
 
@@ -210,7 +216,11 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
                initial_phase: str, device: str, camera: str, cam_id: int, slm_number: int,
                frames: int, side: float, period: float, window_span: float,
                zero_radius: float, window_step: float, recorder,
-               profile_timing: bool = False, async_capture_write: bool = False) -> None:
+               profile_timing: bool = False, async_capture_write: bool = False,
+               jacobian_guard: bool = True, jacobian_low: float = 0.5,
+               jacobian_high: float = 0.85, jacobian_floor: float = 0.02,
+               spectral_weight: float = 0.0,
+               spectral_cutoff: float | None = None) -> None:
     """Run every ``(shape, stage)`` in ``order``, reusing finished stages on ``--resume``.
 
     Split out of :func:`run` so the ordering and the reuse rule are testable
@@ -241,7 +251,10 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
             camera=camera, cam_id=cam_id, slm_number=slm_number, frames=frames,
             side=side, period=period, window_span=window_span, zero_radius=zero_radius,
             window_step=window_step if index == 0 else None,
-            profile_timing=profile_timing, async_capture_write=async_capture_write)
+            profile_timing=profile_timing, async_capture_write=async_capture_write,
+            jacobian_guard=jacobian_guard, jacobian_low=jacobian_low,
+            jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
+            spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff)
         # validate.run only reads this optional flag; absent it keeps the
         # historical "new directory or fail" contract.
         args.resume = resume
@@ -326,6 +339,22 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
 @click.option("--async-capture-write/--no-async-capture-write", default=False,
               help="把采集 npz 落盘放到后台线程, 与下一次采集的液晶稳定重叠; "
                    "只改变字节何时落盘, 不改变内容。默认关闭。")
+@click.option("--jacobian-guard/--no-jacobian-guard", default=True,
+              help="逐块用 A1/B 的实测差分校验模型步方向, 并按一致性收缩下一块的 "
+                   "phase_rms_cap (issue #213 质量项 3a)。默认开启: 只读已有帧, "
+                   "不改变接受/拒绝判定。跨 lane 比较旧行为时用 --no-jacobian-guard。")
+@click.option("--jacobian-low", type=float, default=0.5, show_default=True,
+              help="方向相关性低于此值判为 contradict (cap 减半)")
+@click.option("--jacobian-high", type=float, default=0.85, show_default=True,
+              help="方向相关性高于此值判为 agree (cap 恢复)")
+@click.option("--jacobian-floor", type=float, default=0.02, show_default=True,
+              help="连续被否定时 cap 的下限 (rad, 照明加权 RMS)")
+@click.option("--spectral-weight", type=float, default=0.0, show_default=True,
+              help="相位增量带外功率占比的惩罚权重 (issue #213 质量项 1b)。"
+                   "默认 0 = 关闭: 器件 MTF 尚未实测, 开启前应先确认 cutoff。")
+@click.option("--spectral-cutoff", type=float, default=None,
+              help="通过带边缘, 单位 cycles/控制像素 (0..0.5, 0.5 = 控制网格 Nyquist)。"
+                   "缺省 = 0.35 (Nyquist 的 70%); 实测 MTF 后覆盖。")
 def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, window_span: float,
         window_step: float, zero_radius: float, capture_grid: int, capture_count: int,
         fit_iterations: int, fit_span: int, amplitude_center_lr: float, control_grid: int,
@@ -335,7 +364,10 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         replay_exposures_auto: bool,
         record_responses: bool,
         model_dir: Path | None, records_only: bool, resume: bool, order: str,
-        execute: bool, profile_timing: bool, async_capture_write: bool) -> None:
+        execute: bool, profile_timing: bool, async_capture_write: bool,
+        jacobian_guard: bool, jacobian_low: float, jacobian_high: float,
+        jacobian_floor: float, spectral_weight: float,
+        spectral_cutoff: float | None) -> None:
     """物理预测模型闭环整形：从零训练模型 + 目标整形，逐形状执行。
 
     典型用法::
@@ -358,6 +390,9 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
                 execute=execute, resume=resume, order=order,
                 record_responses=record_responses,
                 replay_exposures=("auto" if replay_exposures_auto else list(replay_exposures)),
+                jacobian_guard=jacobian_guard, jacobian_low=jacobian_low,
+                jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
+                spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
                 stages=[dict(name=recipe.name, blocks=recipe.blocks, updates=recipe.updates,
                              bit_depth=recipe.bit_depth, ccd_check=recipe.ccd_check,
                              window_step=recipe.window_step) for recipe in STAGE_RECIPES])
@@ -517,7 +552,10 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         slm_number=slm_number, frames=frames, side=side, period=period,
         window_span=window_span, zero_radius=zero_radius, window_step=window_step,
         recorder=recorder, profile_timing=profile_timing,
-        async_capture_write=async_capture_write)
+        async_capture_write=async_capture_write,
+        jacobian_guard=jacobian_guard, jacobian_low=jacobian_low,
+        jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
+        spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff)
 
     # -------------------------------------------------------------- replay
     runs = [out / "shape" / shape / recipe.name for shape in shapes for recipe in STAGE_RECIPES]

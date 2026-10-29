@@ -1086,6 +1086,10 @@ REPORTS: dict[str, ReportProvenance] = {
             "records 已导出（process.csv 179,587 B / process.h5 428,279,000 B / 336 个 sidecar）；"
             "common_replay 完成，common_replay_dense 仍在写盘、本次未消费；s600 / s200 跨尺度未开始。"
             "一次早期 relaunch 在 square/transport_cv 触发饱和守卫而中止，原完成数据未受损。"
+            "2026-10-29 追加 §7：跨会话汇总（200 px 会话的净结论）、对 §6 第 3 条时效性的修正、"
+            "以及把「反投影在小目标上胜出」降级为「在 circle / triangle 上成立」——"
+            "跨尺度部分已跑完 s200 四形状；square 剔除饱和行后仍为真实回归（+0.170/+0.165，"
+            "约噪声三倍），star 仅一档可判（no_difference）。"
         ),
         extra_scripts=(
             "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
@@ -1133,6 +1137,52 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/tools/slm/transfer/capture.py",
             "scripts/slm/probe_optical_path_validity.py",
             "scripts/slm/plan_transfer_next_run.py",
+        ),
+    ),
+    "report/shape_trials/multishape_scale/live_20261029_device_session.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件（Santec #1 SLM + Daheng CCD；WFS / NLight DM / MIICAM 未连接）",
+        note=(
+            "2026-10-29 设备在线多尺度整形会话的实测记录：lane 00–05 实际执行、"
+            "06–24 未开始（25 条编制中完成 5 条、部分完成 1 条）。"
+            "200 px 解析初始化四形状各 4/4 阶段完成，冻结光阑重放审计（已剔除饱和行）给出"
+            "circle（15/15 有效，dCV −0.286/−0.126/−0.127，三档 supported）与 triangle"
+            "（13/15，−0.161/−0.173，两档 supported）；square（11/15，+0.170/+0.165，"
+            "两档 wrong_direction，约噪声三倍 → 真实回归）与 star（5/15，仅一档，"
+            "no_difference）。"
+            "600 px 仅 circle 前两段（1.0986→0.7993、0.7447→0.6268），无重放，不参与跨尺度对比。"
+            "含审计工具缺陷（`clipped` 行被标注却仍进入分组均值）及其本轮修正（剔除后 "
+            "circle 一位未变，triangle/square 各失去一档，star 失去两档）。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/capture.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+            "src/ao_shaping/tools/slm/transfer/replay_phases.py",
+            "scripts/slm/audit_replay_blocks.py",
+            "scripts/slm/probe_optical_path_validity.py",
+            "scripts/slm/analyze_session_time_budget.py",
+        ),
+    ),
+    "report/shape_trials/multishape_scale/next_round_20261029.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线（issue #213 质量建议 + 2026-10-29 会话实测记录；本文的代码项已在仓内实现并通过单元测试，尚未实验）",
+        note=(
+            "2026-10-29 之后的质量改善实施方案：按 issue #213 comment 6466195110 的"
+            "质量侧优先级（3a Jacobian 逐块校验 / 1b 频域 MTF 正则 / 2b 像素级不均匀性掩膜 / "
+            "4c 多目标 Pareto）给出改法、开关、验收判据与失败形态；"
+            "依据本轮实测把「饱和先决」与「审计 clipped 语义修正」提到 P0，"
+            "并明确 3a 只实现缩 cap（不转纯实测梯度）、1b 默认关闭等实测 MTF。"
+            "所有判定统一使用重复导出的不确定度（6 个 ABBA 周期可达 p<0.05），不用固定阈值。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/tools/slm/transfer/jacobian_guard.py",
+            "src/ao_shaping/algorithm/signal_processing/spectral_regulariser.py",
+            "src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+            "scripts/slm/audit_replay_blocks.py",
         ),
     ),
     "report/shape_trials/transfer_square1200/transfer_square1200_20261027.md": ReportProvenance(

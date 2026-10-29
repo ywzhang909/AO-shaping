@@ -30,6 +30,12 @@ from ao_shaping.tools.slm.transfer.device import DEVICE_CHOICES, resolve_device
 from ao_shaping.algorithm.signal_processing.multishape_objective import (
     ShapeObjective, anchored_intensity, gs_seed, image_metrics, target_at,
 )
+from ao_shaping.algorithm.signal_processing.spectral_regulariser import (
+    control_grid_cutoff, mtf_matched_mask,
+)
+from ao_shaping.tools.slm.transfer.jacobian_guard import (
+    TrustRegionSchedule, direction_agreement,
+)
 from ao_shaping.utils.image.target import TRANSFER_SHAPE_CHOICES
 
 
@@ -595,6 +601,27 @@ def run(args):
                         policy = NonmonotoneAcceptance(seed_record["metrics"]["cv"], temperature=explore_temperature,
                             relative_budget=getattr(args, "exploration_budget", .25), seed=getattr(args, "random_seed", 102626))
                     phase_lr = getattr(args, "phase_lr", .01)
+                    # Per-block Jacobian direction check (issue #213 item 3a).
+                    # It reuses the A1/B frames the block captures anyway, so it
+                    # costs one extra forward pass and no device time. It never
+                    # changes accept/reject -- only the next block's step cap.
+                    guard = None
+                    if getattr(args, "jacobian_guard", True) and getattr(args, "ccd_check", False):
+                        guard = TrustRegionSchedule(
+                            cap=float(getattr(args, "phase_rms_cap", .2)),
+                            floor=float(getattr(args, "jacobian_floor", .02)),
+                            low=float(getattr(args, "jacobian_low", .5)),
+                            high=float(getattr(args, "jacobian_high", .85)))
+                    spectral_weight = float(getattr(args, "spectral_weight", 0.0) or 0.0)
+                    spectral_mask = None
+                    if spectral_weight > 0:
+                        grid = int(best.shape[0])
+                        cutoff = getattr(args, "spectral_cutoff", None)
+                        if cutoff is None:
+                            cutoff = control_grid_cutoff(grid)
+                        if cutoff <= 0:
+                            raise ValueError("spectral cutoff must be positive")
+                        spectral_mask = mtf_matched_mask(grid, cutoff=float(cutoff))
                     for block in blocks:
                         if policy is not None and block > 0 and block % getattr(args, "exploration_window", 4) == 0:
                             best = champion.copy()
@@ -611,7 +638,10 @@ def run(args):
                             with torch.no_grad():
                                 anchor_prediction = forward.predict(best)[0].detach().cpu().numpy()
                         optimizer = DifferentiableUniformityOptimizer(forward, objective, best, lr=phase_lr,
-                            step_rms_cap=getattr(args, "phase_rms_cap", .2), device=device)
+                            step_rms_cap=(guard.cap if guard is not None
+                                          else getattr(args, "phase_rms_cap", .2)),
+                            spectral_mask=spectral_mask, spectral_weight=spectral_weight,
+                            device=device)
                         iterations_before = len(iterations)
                         for iteration in range(args.updates):
                             start = clock()
@@ -670,6 +700,20 @@ def run(args):
                             bv = b1["metrics"][metric] if metric == "cv" else b1[metric]
                             decision = dict(accepted=bool(bv < av), acceptance="sequential_ccd",
                                             accept_metric=metric, baseline=float(av), candidate=float(bv))
+                            if guard is not None:
+                                with torch.no_grad():
+                                    candidate_prediction = forward.predict(candidate)[0].detach().cpu().numpy()
+                                measured_candidate = (
+                                    capture_frames(args.out, b1["file"]).mean(0)
+                                    [xy[..., 1].astype(int), xy[..., 0].astype(int)]
+                                    / (b1["exposure_ms"]*counts_scale))
+                                agreement = direction_agreement(
+                                    anchor_prediction, candidate_prediction,
+                                    anchor, measured_candidate,
+                                    low=guard.low, high=guard.high)
+                                guard.observe(agreement)
+                                decision["jacobian"] = dict(**agreement.as_dict(),
+                                                            cap_next=float(guard.cap))
                             if policy is not None:
                                 if metric != "cv":
                                     raise ValueError("exploration currently requires core CV acceptance")

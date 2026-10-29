@@ -530,7 +530,9 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
     def __init__(self, forward: FrozenDefocusForward, objective: UniformityObjective,
                  seed_phase: npt.NDArray[np.floating], *, phi_focus: npt.NDArray[np.floating] | None = None,
                  phi_carrier: npt.NDArray[np.floating] | None = None, lr: float = 0.01,
-                 step_rms_cap: float = 0.1, device: str | None = None) -> None:
+                 step_rms_cap: float = 0.1, device: str | None = None,
+                 spectral_mask: npt.NDArray[np.floating] | None = None,
+                 spectral_weight: float = 0.0) -> None:
         torch = _torch()
         seed = np.asarray(seed_phase, dtype=np.float32)
         if seed.ndim != NDIM_SINGLE_CHANNEL or seed.shape[0] != seed.shape[1]:
@@ -550,6 +552,13 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
         self._opt = torch.optim.Adam([self._delta], lr=lr)
         self._lr = float(lr)
         self._cap = float(step_rms_cap)
+        if spectral_weight < 0:
+            raise ValueError("spectral_weight must be non-negative")
+        if spectral_weight > 0 and spectral_mask is None:
+            raise ValueError("spectral_weight > 0 requires a spectral_mask")
+        self._spectral_weight = float(spectral_weight)
+        self._spectral_mask = (None if spectral_mask is None
+                               else np.asarray(spectral_mask, dtype=np.float32))
         self._weights = torch.tensor(forward.illumination_weights(), dtype=torch.float32, device=self._device)
         super().__init__(max_iterations=1)
         self._step = 0
@@ -628,12 +637,19 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
         if self._converged:
             return self.current_phase
         self._opt.zero_grad(set_to_none=True)
+        penalty = None
+        if self._spectral_weight > 0:
+            from ao_shaping.algorithm.signal_processing.spectral_regulariser import spectral_penalty
+
+            penalty = self._spectral_weight * spectral_penalty(self._delta, self._spectral_mask)
         prediction = self.forward.predict(self._seed + self._delta, focus_phase=self._focus,
                                           carrier_phase=self._carrier)
         if prediction.ndim == 3:
             prediction = prediction[0]
         if measured_intensity is None:
             loss, terms = self.objective.evaluate(prediction, self._delta)
+            if penalty is not None:
+                loss = loss + penalty
             loss.backward()
             mode = "model"
         else:
@@ -644,8 +660,16 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
             loss_meas, terms = self.objective.evaluate(measured, self._delta.detach())
             loss_meas.backward()
             prediction.backward(gradient=measured.grad)
+            if penalty is not None:
+                # The measured path gives the delta no gradient of its own (the
+                # objective sees a detached copy), so the band-limit term has to
+                # be back-propagated separately or it would be a no-op on
+                # hardware -- exactly where it is needed.
+                penalty.backward()
             loss = loss_meas
             mode = "measured"
+        if penalty is not None:
+            terms = {**terms, "l_spectral": float(penalty.detach())}
         grad_norm = float(self._delta.grad.norm()) if self._delta.grad is not None else 0.0
         self._opt.step()
         rms_before = self._project_increment()

@@ -323,8 +323,16 @@ SLM（Santec）+ CCD 相机；不涉及 DM / WFS。设备只被需要它的阶�
 | `--execute` | 开关 | 不启用 | 真正打开设备执行（否则只打印计划） |
 | `--profile-timing / --no-profile-timing` | 开关 | 不启用 | 给每个采集的 manifest 行加一条 `timing` 分段耗时（`slm_write` / `settle` / `read` / `reduce` / `save`，毫秒）。只做测量，不改任何采集值；默认关闭，以便跨 lane 比较时是显式选择 |
 | `--async-capture-write / --no-async-capture-write` | 开关 | 不启用 | 把采集 npz 的落盘交给单线程后台写盘，与下一次采集的液晶稳定重叠。只改变字节何时落盘，不改变内容；默认关闭 |
+| `--jacobian-guard / --no-jacobian-guard` | 开关 | 开启（`jacobian-guard`） | 逐块用本块已有的 A1 锚定帧与 B 帧算「模型预测差分 vs 实测差分」的方向相关性，并据此收缩下一块的 `phase_rms_cap`（issue #213 质量项 3a）。**只读已有帧、不改变接受/拒绝**；消费既有采集，不增加设备时间。要复现旧行为（跨 lane 比较）时用 `--no-jacobian-guard` |
+| `--jacobian-low` | FLOAT | `0.5` | 方向相关性低于此值判为 `contradict`（下一块 cap 减半） |
+| `--jacobian-high` | FLOAT | `0.85` | 方向相关性高于此值判为 `agree`（下一块 cap 恢复） |
+| `--jacobian-floor` | FLOAT | `0.02` | 连续被否定时 cap 的下限（rad，照明加权 RMS） |
+| `--spectral-weight` | FLOAT | `0.0` | 相位增量带外功率占比的惩罚权重（issue #213 质量项 1b）。**默认 0 = 关闭**：器件 MTF 尚未实测，开启前应先确认 `--spectral-cutoff` |
+| `--spectral-cutoff` | FLOAT | 未指定 → `0.35` | 通过带边缘，单位 cycles/控制像素（0–0.5，0.5 = 控制网格 Nyquist）。缺省 0.35 = Nyquist 的 70%，过渡带宽 0.10；实测 MTF 后覆盖 |
 
-共 33 项。该命令的选项全部是 `runners/slm/transfer_shapes_runner.py` 里的 `@click.option` 直接声明（无 params dataclass）；拼写、取值域与默认值逐字来自 `--help` 转储，与源码一致，无分歧。
+共 39 项。该命令的选项全部是 `runners/slm/transfer_shapes_runner.py` 里的 `@click.option` 直接声明（无 params dataclass）；拼写、取值域与默认值逐字来自 `--help` 转储，与源码一致，无分歧。
+
+ℹ️ 其中六项是 issue #213 的**质量改动**，不属于原始测量协议：`--jacobian-guard` 与其三个阈值只调度下一块的 `phase_rms_cap`（不参与接受/拒绝，默认开启），`--spectral-weight` / `--spectral-cutoff` 只改变 loss 组成（默认关闭，等实测 MTF）。验收口径不变。
 
 ℹ️ `--profile-timing` 与 `--async-capture-write` 是**测速开关**，不是测量协议的一部分：`slm-transfer-shapes` 一次采集之间的约 5.1 s 里，压缩落盘占 1155 ms（46 MB → 13.5 MB），锚定模式还会把刚写下的 npz 解压回来取锚点。`--async-capture-write` 只把前者挪出关键路径，`--profile-timing` 只记录分段耗时；两者都不改相位、曝光、帧数或任何验收判定。判定依据与实测见 [issue #213](https://github.com/ywzhang909/AO-shaping/issues/213)。
 
