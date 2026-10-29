@@ -757,7 +757,7 @@ payload 的键:
 |---|---|---|
 | 光路 | SLM 前焦面 → f=125 mm 透镜 → CCD 后焦面(2f Fourier); CCD 坐标 = 空间频率 | `src/ao_shaping/drivers/AGENTS.md:161` |
 | SLM | Santec SLM-200 **#1**, sn `22030108`, 1920×1200, 10-bit, @1064 nm, **2π = 993 gray**, **只允许 memory mode** | `report/slm/model_in_loop_bench_calibration.md:293-294`; pitch 8 µm 见 `report/slm/bench_calibration_20261001.md:13` |
-| CCD | Daheng MER2-507-23GM NIR, sn `FJB24112232`, 2592×1944, **像元 2.2 µm** | `src/ao_shaping/drivers/AGENTS.md:159`; 像元默认值 `--camera-pixel-um` `runner_common.py:2897-2906` (默认值常量 `_DEFAULT_CAMERA_PIXEL_UM=2.2` 在 `:149`) |
+| CCD | Daheng MER2-507-23GM NIR, sn `FJB24112232`, 2592×1944, **像元 2.2 µm** | `src/ao_shaping/drivers/AGENTS.md:159`; 像元是**型号级属性**: `--camera-pixel-um 0`(默认) 由 `drivers/ccd/pixel_size.py` 查型号配置 (`models.json`), 正数才是显式覆盖 |
 | 面板上的光斑 | 中心 **(960, 600)**, 半径 **450 面板 px**; 由半平面随机相位边界扫描实测 (0 阶浓度掉下去的那个拐点就是光斑边缘) | `src/ao_shaping/utils/slm/bench_constants.py:53-55`（R-47 下沉：`BEAM_CENTER_PANEL`/`BEAM_RADIUS_PANEL` 单一定义，`bench_kernels` 仅再导出）; 测量方式与数值 `report/slm/model_in_loop_bench_calibration.md:181-191` |
 | `--panel-span-px` | **900** = 2 × 450 | `runner_common.py:2907-2919`(文档就写在 option 的 help 里) |
 | 相机上的 0 阶 | ≈ **(674, 1028)** on 2592×1944, 距几何中心 (1296, 972) 偏 **622 px** | `report/slm/model_in_loop_bench_calibration.md:297-299` |

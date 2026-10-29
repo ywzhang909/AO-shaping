@@ -1045,8 +1045,9 @@ def _section_bench_commands() -> list[str]:
     )
     A(
         "| CCD | Daheng MER2-507-23GM NIR, sn `FJB24112232`, 2592×1944, **像元 2.2 µm** "
-        "| `src/ao_shaping/drivers/AGENTS.md:159`; 像元默认值 `--camera-pixel-um` "
-        "`runner_common.py:2897-2906` (默认值常量 `_DEFAULT_CAMERA_PIXEL_UM=2.2` 在 `:149`) |"
+        "| `src/ao_shaping/drivers/AGENTS.md:159`; 像元是**型号级属性**: "
+        "`--camera-pixel-um 0`(默认) 由 `drivers/ccd/pixel_size.py` 查型号配置 "
+        "(`models.json`), 正数才是显式覆盖 |"
     )
     A(
         "| 面板上的光斑 | 中心 **(960, 600)**, 半径 **450 面板 px**; 由半平面随机相位边界扫描实测 "
