@@ -27,12 +27,15 @@ import hashlib
 import json
 import pickle
 import time
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
 from scipy.ndimage import gaussian_filter
+
+from .light_guard import LightGuard, OpticalPathInvalid, verify_light
 
 #: Exposure search for one probe: one exact correction + one verification read.
 #: The old loop allowed 12 multiplicative steps under a (0.15, 6.0) clamp; a cold
@@ -46,6 +49,26 @@ EXPOSURE_RATIO_BOUNDS = (0.1, 50.0)
 def clock() -> dict:
     return dict(timestamp_utc=datetime.now(timezone.utc).isoformat(timespec="microseconds"),
                 monotonic_ns=time.monotonic_ns())
+
+
+def exposure_setter(cam) -> Callable[[float], float]:
+    """Wrap a camera into the ``set_exposure_ms`` callback the light guard wants.
+
+    ``reset_exposure_time`` returns the effective exposure on the hardware driver,
+    but the leaf backends (sim / image_folder) are allowed to return ``None``, and
+    the value that matters for the ``exposure_ceiling`` diagnosis is the one the
+    **sensor** reports, not the one we asked for — ``get_camera_exposure_ms`` is
+    already the single readback entry point (issue #32, ``回读恒为 3.0``). So set,
+    then read back, instead of trusting a return value that half the backends
+    omit.
+    """
+    from ao_shaping.drivers.ccd.common import get_camera_exposure_ms
+
+    def set_exposure(ms: float) -> float:
+        cam.reset_exposure_time(float(ms))
+        return get_camera_exposure_ms(cam)
+
+    return set_exposure
 
 
 def to_panel(grid: np.ndarray) -> np.ndarray:
@@ -135,6 +158,21 @@ def capture(args):
                         raise ValueError(f"Expected a monochrome 2D camera frame, got {raw.shape}")
                     return raw
 
+                # 便宜的光路检查, 在探针族之前: 2026-10-28 光路失效那次, 单条探针
+                # 先烧掉整个阶梯 (每档 0.6 s settle + 落盘) 才报「曝光不收敛」,
+                # 一条 lane 几十秒换来一句无法诊断的话。这里先显示平场 (第一号
+                # 探针 reference_start 本来就是它, 所以不多一次显示语义), 再用
+                # 0.05/0.4/3.2 ms 三档少数几帧回答「有没有光」; 没有光就直接抛
+                # OpticalPathInvalid (exit code 3), 不进探针族。
+                slm.display_data(slm.create_phase_from_array(to_panel(
+                    np.zeros((args.grid, args.grid), np.float32))))
+                time.sleep(.6)
+                light = verify_light(read, exposure_setter(cam),
+                                     floor_ms=floor, ceiling_ms=ceiling,
+                                     label=f"capture {args.out.name}")
+                (args.out / "light_check.json").write_text(
+                    json.dumps({**light, **clock()}, default=str, indent=2), encoding="utf-8")
+
                 for label, split, grid in probes(args.grid, args.count, args.seed, getattr(args, "ramp_periods", (64, 128))):
                     # The parallel-fit worker (or an operator) may ask capture to
                     # stop early; honour it before taking the next probe.
@@ -157,7 +195,9 @@ def capture(args):
                     setting = adapt_exposure(cam.reset_exposure_time, probe_read, start_ms=exposure,
                                              floor_ms=floor, ceiling_ms=ceiling, full_scale=255,
                                              max_steps=exposure_steps,
-                                             ratio_bounds=EXPOSURE_RATIO_BOUNDS)
+                                             ratio_bounds=EXPOSURE_RATIO_BOUNDS,
+                                             on_step=LightGuard(label=f"probe {label}",
+                                                                max_steps=exposure_steps).observe)
                     exposure = float(get_camera_exposure_ms(cam))
                     frames, clocks = [], []
                     for _ in range(args.frames):
@@ -194,6 +234,47 @@ def capture(args):
     return samples
 
 
+def precheck_light(*, camera: str, cam_id: int, label: str = "启动前光路检查") -> dict:
+    """开一次相机, 读少数几帧, 回答「这一路现在有没有光」。
+
+    只给**跳过采集**的启动路径用 (``--model-dir`` 复用一份已拟合的模型)。正常
+    路径里 :func:`capture` 已经在它自己打开的相机上做了同一件事 —— 同一实现
+    :func:`ao_shaping.tools.slm.transfer.light_guard.verify_light`, 所以这里不再
+    重复判据, 也不该被正常路径调用 (那会白开一次设备)。
+
+    为什么跳过采集的路径需要它: 那份模型是在**原来那束光**上拟合的, 光路失效后
+    继续用, 第一个变暗的读数要等到整形段第一块才出现, 而模型加载、目标与种子
+    准备都已经跑完。这一步把坏光路挡在这些分钟级工作之前。
+
+    面板上显示的是上一次会话留下的相位 —— 不影响「有没有光」的判定 (只影响光斑
+    形状), 所以这里不为此再打开 SLM。
+
+    Args:
+        camera: ``daheng`` / ``sim`` 等相机类型。
+        cam_id: 相机下标。
+        label: 写进异常的对象名。
+
+    Returns:
+        :func:`verify_light` 的判定字典 (已带实测数字)。
+
+    Raises:
+        OpticalPathInvalid: 每一档都只有噪声底。
+    """
+    from .hardware import prepare_camera_sdk
+    prepare_camera_sdk(camera)
+    from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_range
+    from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
+
+    with create_camera(camera, cam_id, exposure_time_ms=.02) as cam:
+        floor, ceiling = get_camera_exposure_range(cam)
+        limit = configured_daheng_exposure_limit() if camera == "daheng" else 0
+        if limit > 0:
+            ceiling = min(ceiling, limit)
+        return verify_light(
+            lambda: np.asarray(cam.get_numpy_image(n_sample=1, skip_first=False)),
+            exposure_setter(cam), floor_ms=floor, ceiling_ms=ceiling, label=label)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
@@ -218,7 +299,13 @@ def main():
         parser.error("frames >= 2 and count >= 6 required")
     plan = [(label, split, list(grid.shape)) for label, split, grid in probes(args.grid, args.count, args.seed)]
     if args.execute:
-        capture(args)
+        # 光路无光是实验系统上的预期状态, 不是缺陷: 只报实测数字, 退出码 3, 不打
+        # traceback (与探针的 2、普通异常的 1 分开)。
+        try:
+            capture(args)
+        except OpticalPathInvalid as exc:
+            logger.error(exc.report())
+            raise SystemExit(exc.exit_code) from None
     else:
         logger.info(json.dumps(plan, indent=2))
 

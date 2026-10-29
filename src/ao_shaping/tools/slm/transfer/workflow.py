@@ -14,6 +14,7 @@ from ao_shaping.utils.image.target.metrics import POLYGON_SHAPE_CHOICES
 
 from .capture import clock
 from .device import DEVICE_CHOICES, resolve_device
+from .light_guard import OpticalPathInvalid
 from .preflight import check_geometry, check_parameters
 
 
@@ -242,6 +243,13 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None):
               frames=config.frames, seed=config.seed, execute=True,
               exposure_max_steps=config.exposure_max_steps,
               save_dataset=config.save_dataset)))
+    elif not offline:
+        # 复用已录数据集时采集段整个被跳过, 于是**没有任何人**看一眼光路就让拟合
+        # 与整形跑起来。这里补一次便宜检查 (同一实现 verify_light): 2026-10-28
+        # 的教训是光路失效要几十秒到几分钟才暴露, 而这一路本来可以几秒就停。
+        stage("light_check", lambda: capture.precheck_light(
+            camera=config.camera, cam_id=config.cam_id,
+            label=f"session {config.out.name}"))
     checkpoint = config.checkpoint.resolve() if config.checkpoint else out / "initial/frozen_parameters.json"
     if config.checkpoint is None:
         def initialize():
@@ -543,4 +551,10 @@ def main():
         logger.info(json.dumps(config.plan(args.offline), default=str, indent=2))
     else:
         _log_to_stdout()
-        run_session(config, offline=args.offline)
+        # 光路无光 (OpticalPathInvalid) 是实验系统上的预期状态: 只报实测数字并
+        # 用专用退出码 3 (探针的 non-ok 是 2, 普通异常是 1), 不打 traceback。
+        try:
+            run_session(config, offline=args.offline)
+        except OpticalPathInvalid as exc:
+            logger.error(exc.report())
+            raise SystemExit(exc.exit_code) from None

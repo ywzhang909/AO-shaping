@@ -209,14 +209,66 @@ _FIT_MIN_PEAK_FRACTION: float = 0.10
 _FIT_MIN_TOP_PEAK_FRACTION: float = 0.25
 
 
+@dataclass(frozen=True)
+class FrameNoiseFloor:
+    """One frame's own read-noise level, as three numbers a caller can quote.
+
+    ``sigma_counts`` is the robust scale ``1.4826 * MAD`` and
+    ``threshold_counts`` is ``median + NOISE_FLOOR_SIGMAS * sigma``: a peak above
+    the threshold is light, at or below it is noise.  Returning the parts (not
+    just the verdict) is what lets a failure message say *why* — ``光路无光``
+    的报错必须带实测数字, 否则和「参数越界」无法区分.
+    """
+
+    median_counts: float
+    sigma_counts: float
+    threshold_counts: float
+
+
+def frame_noise_floor(image: np.ndarray) -> FrameNoiseFloor:
+    """Estimate one frame's read noise from the frame itself.
+
+    The beam occupies a tiny fraction of the frame, so it cannot inflate the
+    median or the MAD (median absolute deviation); a hot pixel cannot either,
+    which is why this is preferred over ``max - median`` or a standard
+    deviation.  A frame whose MAD is exactly zero cannot resolve its own spread
+    (more than half its pixels sit on the median), so one count of quantisation
+    is assumed instead of dividing by zero.
+
+    两个消费者: 曝光上限估计 (:func:`_carries_signal`) 与传输链路的光路无光守卫
+    (``tools/slm/transfer/light_guard.py``)。后者要拿阈值和 sigma 一起写进异常里,
+    所以这里返回三段数字而不是一个布尔值。
+
+    Args:
+        image: One raw CCD frame (any shape, any numeric dtype).
+
+    Returns:
+        :class:`FrameNoiseFloor` with the median, the robust sigma, and the
+        ``median + k * sigma`` threshold above which a peak counts as light.
+    """
+    data = np.asarray(image, dtype=np.float64)
+    if data.size == 0:
+        return FrameNoiseFloor(
+            median_counts=0.0,
+            sigma_counts=_NOISE_FLOOR_FALLBACK_SIGMA,
+            threshold_counts=NOISE_FLOOR_SIGMAS * _NOISE_FLOOR_FALLBACK_SIGMA,
+        )
+    median = float(np.median(data))
+    mad = float(np.median(np.abs(data - median)))
+    sigma = 1.4826 * mad
+    if sigma <= 0.0:
+        sigma = _NOISE_FLOOR_FALLBACK_SIGMA
+    return FrameNoiseFloor(median_counts=median, sigma_counts=sigma,
+                           threshold_counts=median + NOISE_FLOOR_SIGMAS * sigma)
+
+
 def _carries_signal(image: np.ndarray, peak: float, full_scale: float) -> bool:
     """Whether a frame's brightest pixel is light rather than read noise.
 
-    The noise floor is read off the frame itself: ``median + k * sigma`` with
-    ``sigma = 1.4826 * MAD`` (a robust scale the beam cannot inflate, because
-    the beam occupies a tiny fraction of the frame).  A frame whose MAD is
-    exactly zero cannot resolve its own spread, so one count of quantisation
-    is used instead.
+    The noise floor is read off the frame itself by :func:`frame_noise_floor`:
+    ``median + k * sigma`` with ``sigma = 1.4826 * MAD`` (a robust scale the
+    beam cannot inflate, because the beam occupies a tiny fraction of the
+    frame).
 
     Args:
         image: One raw integer CCD frame.
@@ -230,9 +282,8 @@ def _carries_signal(image: np.ndarray, peak: float, full_scale: float) -> bool:
         return False
     if peak >= full_scale:
         return True  # clipped: the sensor saw at least full scale
-    data = np.asarray(image, dtype=np.float64)
-    median = float(np.median(data))
-    if peak == median:
+    floor = frame_noise_floor(image)
+    if peak == floor.median_counts:
         # A flat frame carries no noise distribution: there is nothing for the
         # peak to be an outlier of, so its level is the signal — or a DC
         # pedestal.  A pedestal drags the per-rung ``min`` down (the safe
@@ -241,11 +292,7 @@ def _carries_signal(image: np.ndarray, peak: float, full_scale: float) -> bool:
         # why the fit additionally requires a bright top rung (see
         # ``_FIT_MIN_TOP_PEAK_FRACTION``).
         return True
-    mad = float(np.median(np.abs(data - median)))
-    sigma = 1.4826 * mad
-    if sigma <= 0.0:
-        sigma = _NOISE_FLOOR_FALLBACK_SIGMA
-    return peak > median + NOISE_FLOOR_SIGMAS * sigma
+    return peak > floor.threshold_counts
 
 
 def estimate_exposure_ceiling_ms(

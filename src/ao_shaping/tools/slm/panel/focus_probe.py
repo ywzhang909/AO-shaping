@@ -107,6 +107,7 @@ from ao_shaping.tools.kernels.bench_kernels import (
     fresnel_panel,
 )
 from ao_shaping.utils.cli.params import option, with_params
+from ao_shaping.utils.image.exposure_control import FrameNoiseFloor, frame_noise_floor
 from ao_shaping.utils.image.frame_analysis import (
     BLOCKED_PATH_REASON,
     SpotUsability,
@@ -162,6 +163,25 @@ class ExposureSetting:
     fraction: float
     status: str
     reads: int
+
+
+@dataclass(frozen=True)
+class ExposureStep:
+    """One measured rung of :func:`adapt_exposure`'s ladder, handed to ``on_step``.
+
+    The observer gets the frame's *own* noise floor with the peak, because
+    "why is this ladder not converging" is only answerable as a comparison
+    between the two: 峰值停在噪声底就是「光路没有光」, 峰值远高于噪声底却仍在
+    接受带之外才是「曝光窗口进不去」。``is_last`` says whether another rung is
+    still coming, so an observer can end the ladder early instead of waiting for
+    a budget that cannot help.
+    """
+
+    index: int
+    exposure_ms: float
+    peak_counts: float
+    noise: FrameNoiseFloor
+    is_last: bool
 
 
 @dataclass(frozen=True)
@@ -362,6 +382,7 @@ def adapt_exposure(
     max_steps: int = 6,
     discard: int = 2,
     ratio_bounds: tuple[float, float] = (0.15, 6.0),
+    on_step: Callable[[ExposureStep], None] | None = None,
 ) -> ExposureSetting:
     """Find an exposure that puts the peak inside ``accept``, then report it.
 
@@ -378,6 +399,16 @@ def adapt_exposure(
     verification read. That is only safe because the response *is* linear in
     exposure; a camera with auto-gain would break the premise, not the bounds.
 
+    ``on_step`` is an optional observer called with one :class:`ExposureStep`
+    after every rung is measured (peak + that frame's own noise floor + whether
+    another rung is still coming). It is how a caller ends an unanswerable
+    ladder *early*: 2026-10-28 的光路失效让这个循环空转了 48 s 才报「曝光不收敛」
+    (``report/shape_trials/multishape_scale/multishape_scale_wallclock_20261028.md``
+    §9), 而峰值停在噪声底这件事在第 2 档就已经看得出来了。A raising observer
+    aborts the ladder immediately; an observer that never raises changes nothing.
+    The frame's median/MAD is only computed when an observer is registered, so the
+    existing callers pay nothing for it.
+
     Returns the best reachable setting. Its ``status`` says whether it landed in
     the band (``ok``), was still clipped at the floor (``clipped`` — unusable for
     ranking, the peak is saturated), or was still dark at the ceiling (``dim`` —
@@ -392,7 +423,13 @@ def adapt_exposure(
     fraction = 0.0
     reads = 0
 
-    for _ in range(int(max_steps)):
+    def report(step: int, exposure: float, peak: float,
+               noise: FrameNoiseFloor | None, is_last: bool) -> None:
+        if on_step is not None:
+            on_step(ExposureStep(index=step, exposure_ms=exposure, peak_counts=peak,
+                                 noise=noise, is_last=is_last))
+
+    for step in range(1, int(max_steps) + 1):
         set_exposure_ms(exposure)
         for _ in range(int(discard)):
             read_frame()
@@ -401,14 +438,19 @@ def adapt_exposure(
         reads += 1
         peak = robust_peak(frame)
         fraction = peak / full_scale if full_scale else 0.0
+        noise = frame_noise_floor(frame) if on_step is not None else None
+
         if lo <= fraction <= hi:
+            report(step, exposure, peak, noise, True)
             return ExposureSetting(exposure, peak, fraction, "ok", reads)
         ratio = target / fraction if fraction > 1e-9 else 4.0
         ratio = float(min(max(ratio, low_ratio), high_ratio))
         nxt = float(min(max(exposure * ratio, floor_ms), ceiling_ms))
         # Clamped at a rail: more steps cannot improve, so stop and report why.
         if abs(nxt - exposure) <= 1e-6:
+            report(step, exposure, peak, noise, True)
             break
+        report(step, exposure, peak, noise, step >= int(max_steps))
         exposure = nxt
 
     status = "clipped" if fraction > hi else "dim"

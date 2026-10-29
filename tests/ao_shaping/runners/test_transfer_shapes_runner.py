@@ -235,3 +235,69 @@ def test_staged_weights_with_a_shaped_objective_reaches_the_plan(tmp_path):
     assert result.exit_code == 0, result.output
     plan = json.loads(result.output[result.output.index("{"):result.output.rindex("}") + 1])
     assert (plan["objective"], plan["weight_schedule"]) == ("shape", "staged")
+
+
+# -- 光路无光的退出契约 ----------------------------------------------------
+#
+# 2026-10-28 的失败是一条 lane 花了 48 s 才报一句「曝光不收敛」, 而那句话既没说
+# 数字也没说该去查光路还是查参数。这里的契约是: 光路无光 ⇒ 退出码 3 + 实测数字,
+# 且**不打印 traceback** (那是预期状态, 不是缺陷)。普通异常仍是 1。
+
+def _dark_path(*, what: str = "capture") -> Exception:
+    from ao_shaping.tools.slm.transfer.light_guard import LadderReading, OpticalPathInvalid
+    from ao_shaping.utils.image.exposure_control import FrameNoiseFloor
+
+    noise = FrameNoiseFloor(median_counts=0.0, sigma_counts=1.0, threshold_counts=4.0)
+    return OpticalPathInvalid(
+        reason="flat", cause="blocked", budget=12, what=what,
+        readings=(LadderReading(1, 0.02, 0.0, noise), LadderReading(2, 0.08, 0.0, noise)))
+
+
+def test_a_dark_path_exits_with_three_and_no_traceback(tmp_path, monkeypatch):
+    from ao_shaping.tools.slm.transfer import capture as capture_module
+
+    def dark(_args):
+        raise _dark_path()
+
+    monkeypatch.setattr(capture_module, "capture", dark)
+    result = CliRunner().invoke(run, ["--out", str(tmp_path / "session"),
+                                      "--shapes", "square", "--execute"])
+    assert result.exit_code == 3, result.output
+    assert "光路无光" in result.output
+    assert "0.02→0.08 ms" in result.output          # 实测数字, 不是一句结论
+    assert "Traceback" not in result.output
+
+
+def test_reusing_a_model_checks_the_light_before_it_is_loaded(tmp_path, monkeypatch):
+    """--model-dir 跳过采集, 于是没有任何人看一眼光路: 启动时必须先查。"""
+    from ao_shaping.tools.slm.transfer import capture as capture_module
+
+    entered: list[str] = []
+
+    def dark(**_kwargs):
+        entered.append("precheck")
+        raise _dark_path(what="model reuse")
+
+    monkeypatch.setattr(capture_module, "precheck_light", dark)
+    model = tmp_path / "model"
+    model.mkdir()
+    result = CliRunner().invoke(run, ["--out", str(tmp_path / "session"), "--shapes", "square",
+                                      "--model-dir", str(model), "--execute"])
+    assert entered == ["precheck"]
+    assert result.exit_code == 3, result.output
+    assert "model reuse" in result.output and "Traceback" not in result.output
+
+
+def test_an_ordinary_failure_keeps_exit_code_one(tmp_path, monkeypatch):
+    """别把两个码混成一个: 3 是光路, 1 才是代码/流程出错。"""
+    from ao_shaping.tools.slm.transfer import capture as capture_module
+
+    def broken(_args):
+        raise RuntimeError("exposure did not converge")
+
+    monkeypatch.setattr(capture_module, "capture", broken)
+    result = CliRunner().invoke(run, ["--out", str(tmp_path / "session"),
+                                      "--shapes", "square", "--execute"])
+    assert result.exit_code == 1
+    assert isinstance(result.exception, RuntimeError)
+    assert "exposure did not converge" in str(result.exception)

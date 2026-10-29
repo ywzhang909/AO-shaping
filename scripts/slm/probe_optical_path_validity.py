@@ -174,6 +174,17 @@ DEFAULT_MIN_THROUGHPUT_RATIO: float = 0.5
 #: 参考值至少要由这么多次历史 ``ok`` 探测给出; 样本更少时中位数本身就在漂, 不下判定。
 MIN_REFERENCE_SAMPLES: int = 3
 
+#: 落盘式重定基的文件名 (放在 ``--out-root`` 下)。历史中位数在两种情况下没法用:
+#: 光功率被改过 (整批数的量级全变), 或按序列号匹配后只剩几条过期的旧样本。
+#: 2026-10-29 实测: 当前 SLM 序列号 23020027、当天上午的记录是 22030108, 于是
+#: 参考落到 3.45 counts/ms, 而当场实测 28.22 被判成「739%」仍然 ``ok`` —— 门禁被
+#: 稀释到只剩「完全无光」还挡得住。``--rebaseline`` 是操作者的一次显式声明:
+#: 「以这一刻的光通量为新的正常值」, 下一次探测起生效。
+REFERENCE_BASELINE_FILE: str = "reference_baseline.json"
+
+#: 历史参考的中位数若是这么久的旧记录, 提示它可能在光功率/器件变动后失效。
+REFERENCE_STALE_DAYS: float = 2.0
+
 
 @dataclass
 class FrameStats:
@@ -748,31 +759,126 @@ def analyse_defocus_response(
     }
 
 
+def _age_days(stamp: Any) -> float | None:
+    """把记录里的 ISO 时间戳换成「多少天前」; 解析不了就返回 ``None``。"""
+    if not isinstance(stamp, str) or not stamp:
+        return None
+    try:
+        then = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - then).total_seconds() / 86400.0
+
+
+def _load_reference_baseline(
+    path: Path,
+    *,
+    device: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """读落盘的重定基基线; 文件缺失/数值不可用/设备序列号不符时返回 ``None``。
+
+    序列号不符就不沿用: 换了 SLM 或相机之后「那一刻的正常值」不再代表现在。
+    """
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    value = payload.get("counts_per_ms")
+    if not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) <= 0:
+        return None
+    record_device = payload.get("device") or {}
+    for key in ("slm_serial", "cam_serial"):
+        wanted = (device or {}).get(key)
+        if wanted and record_device.get(key) and record_device.get(key) != wanted:
+            return None
+    return {
+        "source": "rebaseline",
+        "counts_per_ms": float(value),
+        "n": 1,
+        "min_counts_per_ms": float(value),
+        "max_counts_per_ms": float(value),
+        "full_scale": payload.get("full_scale"),
+        "runs": [str(path)],
+        "recorded_utc": payload.get("recorded_utc"),
+        "age_days": _age_days(payload.get("recorded_utc")),
+        "skipped": {},
+    }
+
+
+def _save_reference_baseline(
+    path: Path,
+    *,
+    counts_per_ms: float,
+    device: dict[str, Any] | None,
+    full_scale: float | None,
+    session: str = "",
+    note: str = "",
+) -> dict[str, Any]:
+    """把「这一刻的光通量」写成新的参考基线 (下次探测起生效)。"""
+    payload = {
+        "counts_per_ms": float(counts_per_ms),
+        "recorded_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "device": dict(device or {}),
+        "full_scale": full_scale,
+        "session": session,
+        "note": note,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
+
+
 def bench_reference(
     out_root: Path,
     *,
     device: dict[str, Any] | None = None,
+    full_scale: float | None = None,
 ) -> dict[str, Any] | None:
     """本实验系统历史 ``ok`` 探测的光通量中位数 (counts/ms)。
 
     为什么口径只取 ``ok``: 一次已经判 ``low_snr`` 的运行不是「正常工作时的样子」,
     拿它进中位数会把标准越拉越低, 于是同一条坏光路连着跑几次就把自己判成正常了。
 
+    取值的优先级: 落盘的重定基基线 (``reference_baseline.json``, 见
+    :data:`REFERENCE_BASELINE_FILE`) → 历史 ``ok`` 记录的中位数。
+
     设备匹配: ``slm_serial`` / ``cam_serial`` 读得到时按序列号匹配 (换 SLM 或换相机
-    后旧参考不再适用); 读不到的记录要求 ``full_scale`` 一致 (8 bit 与 12 bit 的
-    peak 不可比)。样本少于 :data:`MIN_REFERENCE_SAMPLES` 时返回 ``None`` ——
-    中位数在 1-2 个样本上没有意义, 宁可不下判定。
+    后旧参考不再适用)。位深只在调用方给出 ``full_scale`` 时强制一致 —— 探测在
+    采集之前就要拿参考, 那时位深还没测出来, 所以默认不按位深过滤 (这条以前写在
+    docstring 里但代码没做, 2026-10-29 更正)。
+
+    样本少于 :data:`MIN_REFERENCE_SAMPLES` 时返回 ``None`` —— 中位数在 1-2 个样本上
+    没有意义, 宁可不下判定。返回的 ``skipped`` 记账说明其余记录为什么没进样本池,
+    ``age_days`` 给出样本池里最新一条有多旧。
     """
+    baseline = _load_reference_baseline(out_root / REFERENCE_BASELINE_FILE, device=device)
+    if baseline is not None:
+        return baseline
+
     samples: list[float] = []
     scales: list[float] = []
     used: list[str] = []
+    skipped = {
+        "unreadable": 0,
+        "not_ok": 0,
+        "serial_mismatch": 0,
+        "scale_mismatch": 0,
+        "no_flux": 0,
+    }
+    newest_utc: str | None = None
     for path in sorted(out_root.rglob("optical_path_probe.json")):
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):  # 读到半截文件不应让门禁自己崩掉
+            skipped["unreadable"] += 1
             continue
         verdict = record.get("verdict") or {}
         if verdict.get("state") != STATE_OK:
+            skipped["not_ok"] += 1
             continue
         ladder_summary = record.get("ladder_summary") or {}
         value = ladder_summary.get("counts_per_ms")
@@ -780,18 +886,26 @@ def bench_reference(
             # 2026-10-29 之前落盘的记录没有这一项: 从它自己的阶梯按同一口径重算。
             value = ladder_flux(record.get("exposure_ladder") or [])["counts_per_ms"]
         if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+            skipped["no_flux"] += 1
             continue
         ladder = record.get("exposure_ladder") or []
         scale = float(ladder[0].get("full_scale") or 0.0) if ladder else 0.0
+        if full_scale and scale and abs(scale - float(full_scale)) > 1e-9:
+            skipped["scale_mismatch"] += 1
+            continue
         record_device = record.get("device") or {}
         for key in ("slm_serial", "cam_serial"):
             wanted = (device or {}).get(key)
             if wanted and record_device.get(key) and record_device.get(key) != wanted:
+                skipped["serial_mismatch"] += 1
                 break
         else:
             samples.append(float(value))
             scales.append(scale)
             used.append(str(path.parent))
+            stamp = record.get("created_utc")
+            if isinstance(stamp, str) and (newest_utc is None or stamp > newest_utc):
+                newest_utc = stamp
     if len(samples) < MIN_REFERENCE_SAMPLES:
         return None
     return {
@@ -802,6 +916,9 @@ def bench_reference(
         "max_counts_per_ms": float(max(samples)),
         "full_scale": max(scales) if scales else None,
         "runs": used[-5:],
+        "recorded_utc": newest_utc,
+        "age_days": _age_days(newest_utc),
+        "skipped": skipped,
     }
 
 
@@ -1208,6 +1325,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="不做光通量比较 (回到 ok / low_snr / no_response 三态)",
     )
     parser.add_argument(
+        "--rebaseline",
+        action="store_true",
+        help="把本次实测的光通量写成新的参考基线 (<out-root>/reference_baseline.json), "
+             "下次探测起生效; 本次自身不判 weak_path (它就是标准本身)",
+    )
+    parser.add_argument(
         "--frames",
         type=int,
         default=2,
@@ -1321,7 +1444,14 @@ def run_probe(args: argparse.Namespace) -> int:
             # 光通量参考: 在采集之前就取 (某次参考缺失时不必先花几分钟采完才发现),
             # 设备已开 ⇒ 序列号可用于匹配历史记录。
             reference: dict[str, Any] | None = None
-            if not bool(getattr(args, "no_reference", False)):
+            baseline_path = Path(args.out_root) / REFERENCE_BASELINE_FILE
+            rebaseline = bool(getattr(args, "rebaseline", False))
+            if rebaseline:
+                logger.info(
+                    f"光通量参考: 本次重定基 (--rebaseline) ⇒ 本次不判 weak_path, "
+                    f"实测值写入 {baseline_path}"
+                )
+            elif not bool(getattr(args, "no_reference", False)):
                 explicit = getattr(args, "reference_counts_per_ms", None)
                 if explicit is not None:
                     value = float(explicit)
@@ -1340,7 +1470,7 @@ def run_probe(args: argparse.Namespace) -> int:
                     logger.info(
                         "光通量参考: 历史 ok 探测不足 "
                         f"{MIN_REFERENCE_SAMPLES} 次, 本次不判 weak_path "
-                        "(可用 --reference-counts-per-ms 显式给出)"
+                        "(可用 --reference-counts-per-ms 显式给出, 或用 --rebaseline 重定基)"
                     )
                 else:
                     logger.info(
@@ -1351,6 +1481,22 @@ def run_probe(args: argparse.Namespace) -> int:
                         f"下限 {float(args.min_throughput_ratio):.0%} ⇒ "
                         f"{float(args.min_throughput_ratio) * reference['counts_per_ms']:.2f} counts/ms"
                     )
+                    skipped = reference.get("skipped") or {}
+                    if any(skipped.values()):
+                        logger.info(
+                            "  参考样本池的排除记账: "
+                            + ", ".join(f"{k}={v}" for k, v in skipped.items() if v)
+                        )
+                    age = reference.get("age_days")
+                    if (
+                        reference.get("source") == "history"
+                        and isinstance(age, (int, float))
+                        and age > REFERENCE_STALE_DAYS
+                    ):
+                        logger.warning(
+                            f"  参考中位数来自 {age:.1f} 天前的记录 ⇒ 光功率/器件变动后它不再适用, "
+                            "用 --rebaseline 重定基"
+                        )
 
             # -- 阶段一: 曝光阶梯 (面板保持平场) --------------------------
             flat_phase = build_defocus_phase(
@@ -1486,6 +1632,25 @@ def run_probe(args: argparse.Namespace) -> int:
                 )
 
             verdict = decide(ladder_summary, response, throughput=throughput)
+
+            if rebaseline and math.isfinite(flux):
+                scales = [
+                    float(row.get("full_scale") or 0.0)
+                    for row in (ladder or [])
+                    if float(row.get("full_scale") or 0.0) > 0
+                ]
+                saved = _save_reference_baseline(
+                    baseline_path,
+                    counts_per_ms=flux,
+                    device=device_info,
+                    full_scale=max(scales) if scales else None,
+                    session=str(getattr(args, "session", "") or ""),
+                    note="operator declared this flux as the new normal",
+                )
+                logger.info(
+                    f"  已重定基: 参考 = {saved['counts_per_ms']:.2f} counts/ms "
+                    f"({saved['recorded_utc']}); 下一次探测起生效"
+                )
 
     thresholds = {
         "noise_floor_sigmas": NOISE_FLOOR_SIGMAS,

@@ -25,6 +25,7 @@ import numpy as np
 
 from ao_shaping.tools.slm.transfer.capture import clock, to_panel
 from ao_shaping.tools.slm.transfer.device import DEVICE_CHOICES, resolve_device
+from ao_shaping.tools.slm.transfer.light_guard import LightGuard, OpticalPathInvalid
 
 
 from ao_shaping.algorithm.signal_processing.multishape_objective import (
@@ -577,11 +578,26 @@ def run(args):
                             read_exposure()
                         setting = SimpleNamespace(status="ok")
                     else:
+                        # 12 档阶梯 (每档 0.6 s settle + 3 次读出 + npz 落盘):
+                        # 光路失效时它会把 48 s 全花在等待上, 然后报一句「曝光
+                        # 不收敛」—— 2026-10-28 的实测, 见
+                        # report/shape_trials/multishape_scale/
+                        # multishape_scale_wallclock_20261028.md §9。
+                        # 挂上守卫后, 峰值停在噪声底的阶梯在第 2-3 档就抛
+                        # OpticalPathInvalid (退出码 3); 有光的阶梯一行不改。
+                        ladder_steps = 12
+                        guard = LightGuard(label=f"{label}_exposure",
+                                           max_steps=ladder_steps)
                         setting = adapt_exposure(cam.reset_exposure_time, read_exposure, start_ms=start_ms,
-                                                 floor_ms=floor, ceiling_ms=ceiling, full_scale=full_scale, max_steps=12)
+                                                 floor_ms=floor, ceiling_ms=ceiling, full_scale=full_scale,
+                                                 max_steps=ladder_steps, on_step=guard.observe)
                     np.savez_compressed(args.out/f"{label}_exposure.npz", raw_frames=np.stack(exposure_reads), model_phase=phase)
                     (args.out/f"{label}_exposure.json").write_text(json.dumps(dict(frames=exposure_stamps, status=setting.status), indent=2), encoding="utf-8")
                     if setting.status != "ok":
+                        # 走到这里说明**有光** (守卫见过高于噪声底的峰值), 只是
+                        # 12 档之内没能把峰值落进 (0.25, 0.80) —— 也就是「曝光
+                        # 参数/上限不对」这一类, 不是「光路无光」。两条路分开,
+                        # 因为处置完全不同。
                         raise RuntimeError("exposure did not converge")
                     forward.exposure_ms = float(get_camera_exposure_ms(cam))
                     return float(get_camera_exposure_ms(cam))
@@ -857,7 +873,12 @@ def main():
         parser.error("--seed-run cannot be combined with a cold --initial-phase")
     if args.phase_lr <= 0 or args.phase_rms_cap <= 0 or args.period < 4 or args.side <= 0 or min(args.blocks, args.updates, args.frames) < 1:
         parser.error("invalid sampling or iteration parameters")
-    run(args)
+    # 光路无光是预期状态: 报实测数字 + 退出码 3, 不打印 traceback。
+    try:
+        run(args)
+    except OpticalPathInvalid as exc:
+        logger.error(exc.report())
+        raise SystemExit(exc.exit_code) from None
 
 
 if __name__ == "__main__":

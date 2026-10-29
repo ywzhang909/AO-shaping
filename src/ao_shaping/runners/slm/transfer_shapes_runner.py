@@ -28,6 +28,7 @@ called in-process, so there is exactly one implementation of the update loop.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -40,6 +41,7 @@ from loguru import logger
 from ao_shaping.tools.slm.transfer import capture as capture_stage
 from ao_shaping.tools.slm.transfer import fit as fit_stage
 from ao_shaping.tools.slm.transfer import recording, replay_phases, validate as validate_stage
+from ao_shaping.tools.slm.transfer.light_guard import OpticalPathInvalid
 from ao_shaping.tools.slm.transfer.protocol import derive_replay_exposures
 from ao_shaping.utils.image.target import TRANSFER_SHAPE_CHOICES
 
@@ -203,6 +205,21 @@ def _rebuild_records(out: Path, shapes: list[str]) -> None:
                                    gif_name="process.gif", fps=2.0,
                                    title="多形状物理预测模型闭环整形 (逐 CCD 块)")
     click.echo(json.dumps(saved, indent=2, ensure_ascii=False))
+
+
+@contextlib.contextmanager
+def _optical_path_exit(what: str):
+    """把「光路无光」映射成退出码 3, 并且只报实测数字 (不打 traceback)。
+
+    这一条是**预期**的失败 —— 实验系统上有人挡了光 / 激光没出光 / 光路漂走了 ——
+    不是缺陷, traceback 只会把一条可诊断的信息埋进栈帧里。普通异常照旧由 click
+    报退出码 1, 两条路不混: 3 让 lane 脚本 / 运维直接去查光路, 1 才是「代码出错」。
+    """
+    try:
+        yield
+    except OpticalPathInvalid as exc:
+        click.echo(f"[{what}] {exc.report()}", err=True)
+        raise SystemExit(exc.exit_code) from None
 
 
 def _stage_sequence(shapes, order: str) -> list:
@@ -459,14 +476,23 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         model_640 = root / "model640"
         wide_dir = root / "model_wide640"
         journal.record("model", "reused", source=str(root))
+        # 复用模型时整段采集被跳过, 于是**没有人在模型加载前看过一眼光路**。
+        # 那份模型是在原来那束光上拟合的: 光路失效后继续用, 第一个变暗的读数要
+        # 等到整形段第一块才出现 (2026-10-28 那次是 48 s 的曝光阶梯空转), 而模型
+        # 加载/目标/种子准备都已经跑完。少数几帧先问一句「有没有光」, 没有就按
+        # 光路无光退出 (码 3)。
+        with _optical_path_exit("light_check"):
+            capture_stage.precheck_light(camera=camera, cam_id=cam_id,
+                                         label=f"model reuse {root.name}")
     else:
         root = out
         capture_dir = root / "capture"
         journal.record("capture", "running")
-        capture_stage.capture(SimpleNamespace(
-            out=capture_dir, camera=camera, cam_id=cam_id, slm_number=slm_number,
-            grid=capture_grid, count=capture_count, frames=frames, seed=seed,
-            execute=True, exposure_max_steps=12, save_dataset=True))
+        with _optical_path_exit("capture"):
+            capture_stage.capture(SimpleNamespace(
+                out=capture_dir, camera=camera, cam_id=cam_id, slm_number=slm_number,
+                grid=capture_grid, count=capture_count, frames=frames, seed=seed,
+                execute=True, exposure_max_steps=12, save_dataset=True))
         journal.record("capture", "complete", out=str(capture_dir))
 
         # The nominal checkpoint comes from this capture alone: the model is
@@ -510,11 +536,12 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
     if not (wide_dir / "frozen_parameters.json").is_file():
         geometry_dir = root / "geometry_wide"
         journal.record("capture_geometry", "running")
-        capture_stage.capture(SimpleNamespace(
-            out=geometry_dir, camera=camera, cam_id=cam_id, slm_number=slm_number,
-            grid=control_grid, count=6, frames=frames, seed=seed + 1,
-            execute=True, exposure_max_steps=12, save_dataset=True,
-            ramp_periods=[16, 32]))
+        with _optical_path_exit("capture_geometry"):
+            capture_stage.capture(SimpleNamespace(
+                out=geometry_dir, camera=camera, cam_id=cam_id, slm_number=slm_number,
+                grid=control_grid, count=6, frames=frames, seed=seed + 1,
+                execute=True, exposure_max_steps=12, save_dataset=True,
+                ramp_periods=[16, 32]))
         journal.record("capture_geometry", "complete", out=str(geometry_dir))
         geometric_seed.export_frozen_parameters(model_640 / "frozen_parameters.json",
                                                 wide_dir, grid=control_grid, fft=fft_size,
@@ -574,18 +601,19 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
     except Exception as exc:  # pragma: no cover - Recorder is part of the repo
         logger.warning("Recorder unavailable: {}", exc)
 
-    run_stages(
-        out=out, shapes=shapes, order=order, resume=resume, journal=journal,
-        chosen=chosen, model_640=model_640, wide_dir=wide_dir, zero_xy=zero_xy,
-        initial_phase=initial_phase, device=device, camera=camera, cam_id=cam_id,
-        slm_number=slm_number, frames=frames, side=side, period=period,
-        window_span=window_span, zero_radius=zero_radius, window_step=window_step,
-        recorder=recorder, profile_timing=profile_timing,
-        async_capture_write=async_capture_write,
-        jacobian_guard=jacobian_guard, jacobian_low=jacobian_low,
-        jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
-        spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
-        objective=objective, weight_schedule=weight_schedule)
+    with _optical_path_exit("shape"):
+        run_stages(
+            out=out, shapes=shapes, order=order, resume=resume, journal=journal,
+            chosen=chosen, model_640=model_640, wide_dir=wide_dir, zero_xy=zero_xy,
+            initial_phase=initial_phase, device=device, camera=camera, cam_id=cam_id,
+            slm_number=slm_number, frames=frames, side=side, period=period,
+            window_span=window_span, zero_radius=zero_radius, window_step=window_step,
+            recorder=recorder, profile_timing=profile_timing,
+            async_capture_write=async_capture_write,
+            jacobian_guard=jacobian_guard, jacobian_low=jacobian_low,
+            jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
+            spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
+            objective=objective, weight_schedule=weight_schedule)
 
     # -------------------------------------------------------------- replay
     runs = [out / "shape" / shape / recipe.name for shape in shapes for recipe in STAGE_RECIPES]

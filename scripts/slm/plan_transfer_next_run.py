@@ -131,11 +131,17 @@ Set-Content -Path "{gate}" -Value "{shape} started $((Get-Date).ToString('o'))" 
 
 try {{
     # Gate the model reuse: --model-dir is only sound while the path is unchanged.
-    # Exit code is the verdict (0 = ok); low_snr / no_response abort the lane.
+    # Exit code is the verdict (0 = ok; 2 = low_snr / weak_path / no_response -- the
+    # 2026-10-29 partially blocked path ran at 22% of the bench throughput and still
+    # looked "ok" to a peak-only test, so the threshold is flux per ms; 3 = no light
+    # at all, the runner's OpticalPathInvalid). Any of them aborts the lane: the
+    # model was fitted on the *old* light, and exposure can restore the peak but
+    # never the energy that was blocked out.
     .venv\\Scripts\\python.exe "{PROBE.relative_to(ROOT)}"
     if ($LASTEXITCODE -ne 0) {{
-        Write-Error "optical-path probe did not return ok (exit $LASTEXITCODE); do not reuse the model"
-        exit 1
+        # 3, not 1: "the path is dark" must be distinguishable from "the script broke".
+        Write-Error "optical-path probe did not return ok (exit $LASTEXITCODE; 2 = low_snr/weak_path/no_response, 3 = no light); do not reuse the model"
+        exit 3
     }}
 
     {command}
@@ -193,10 +199,13 @@ if (Test-Path "{gate}") {{
 Set-Content -Path "{gate}" -Value "replay_s600_fixed started $((Get-Date).ToString('o'))" -Encoding UTF8
 
 try {{
+    # Same gate as the shaping lanes: the replay anchors to *this* path, so a dark
+    # or partly blocked path makes the common-exposure comparison meaningless.
+    # 2 = low_snr / weak_path / no_response, 3 = no light (OpticalPathInvalid).
     .venv\\Scripts\\python.exe "{PROBE.relative_to(ROOT)}"
     if ($LASTEXITCODE -ne 0) {{
-        Write-Error "optical-path probe did not return ok (exit $LASTEXITCODE); the replay anchors to this path"
-        exit 1
+        Write-Error "optical-path probe did not return ok (exit $LASTEXITCODE; 2 = low_snr/weak_path/no_response, 3 = no light); the replay anchors to this path"
+        exit 3
     }}
     {command}
     if ($LASTEXITCODE -ne 0) {{

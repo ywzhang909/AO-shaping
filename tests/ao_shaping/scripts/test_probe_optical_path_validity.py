@@ -355,6 +355,72 @@ def test_bench_reference_recomputes_the_flux_from_legacy_records(tmp_path: Path)
     assert reference["counts_per_ms"] == pytest.approx(6.1, rel=0.03)
 
 
+def test_a_rebaselined_baseline_replaces_the_history(tmp_path: Path) -> None:
+    """After a laser-power change the history is another regime's flux.
+
+    2026-10-29 live: the reference collapsed to 3.45 counts/ms (only four stale
+    2026-10-22 records matched the current SLM serial) while the bench measured
+    28.22 -- "739%", still ``ok``, i.e. the gate stopped discriminating at all.
+    """
+    for index, value in enumerate((6.0, 6.2, 6.1)):
+        _write_history_run(tmp_path, f"ok{index}", counts_per_ms=value)
+    probe._save_reference_baseline(
+        tmp_path / probe.REFERENCE_BASELINE_FILE,
+        counts_per_ms=28.22,
+        device={"slm_serial": "22030108", "cam_serial": "FJB24112232"},
+        full_scale=4095.0,
+    )
+
+    reference = probe.bench_reference(
+        tmp_path, device={"slm_serial": "22030108", "cam_serial": "FJB24112232"}
+    )
+
+    assert reference is not None
+    assert reference["source"] == "rebaseline"
+    assert reference["counts_per_ms"] == pytest.approx(28.22)
+
+
+def test_a_rebaselined_baseline_does_not_survive_a_bench_swap(tmp_path: Path) -> None:
+    """A baseline recorded on another SLM says nothing about this one."""
+    for index, value in enumerate((6.0, 6.2, 6.1)):
+        _write_history_run(
+            tmp_path, f"ok{index}", counts_per_ms=value, slm_serial="23020027"
+        )
+    probe._save_reference_baseline(
+        tmp_path / probe.REFERENCE_BASELINE_FILE,
+        counts_per_ms=28.22,
+        device={"slm_serial": "22030108", "cam_serial": "FJB24112232"},
+        full_scale=4095.0,
+    )
+
+    reference = probe.bench_reference(
+        tmp_path, device={"slm_serial": "23020027", "cam_serial": "FJB24112232"}
+    )
+
+    assert reference is not None
+    assert reference["source"] == "history"
+
+
+def test_the_reference_says_why_records_were_left_out(tmp_path: Path) -> None:
+    """A silently thinned pool is how the gate went blind on 2026-10-29."""
+    for index in range(3):
+        _write_history_run(tmp_path, f"ok{index}", counts_per_ms=6.0 + 0.1 * index)
+    for index in range(2):
+        _write_history_run(
+            tmp_path, f"other{index}", counts_per_ms=0.5, slm_serial="99999999"
+        )
+    _write_history_run(tmp_path, "dim", state="low_snr", counts_per_ms=0.02)
+
+    reference = probe.bench_reference(
+        tmp_path, device={"slm_serial": "22030108", "cam_serial": "FJB24112232"}
+    )
+
+    assert reference is not None
+    assert reference["n"] == 3
+    assert reference["skipped"]["serial_mismatch"] == 2
+    assert reference["skipped"]["not_ok"] == 1
+
+
 def _ok_inputs() -> tuple[dict, dict]:
     """The ladder + defocus response that the three-state rule judges ``ok``."""
     states = [
