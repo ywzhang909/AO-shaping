@@ -477,6 +477,11 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
                     period=period, window_span=window_span, zero_radius=zero_radius,
                     window_step=window_step, blocks=0, updates=0, adaptive_exposure=False)
                 validate_stage.run(args)
+                if not manifest_path.is_file():
+                    raise RuntimeError(
+                        f"seed bake-off {shape}/{kind} finished without writing "
+                        f"{manifest_path}; a seed-only pass (blocks=0) must still "
+                        f"measure its seed row")
                 scores[kind] = float(_json(manifest_path)[0]["metrics"]["cv"])
             best = min(scores, key=lambda k: scores[k])
             chosen[shape] = best

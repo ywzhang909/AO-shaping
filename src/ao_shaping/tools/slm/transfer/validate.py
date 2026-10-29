@@ -107,6 +107,19 @@ def _frozen_groups(directory: Path) -> int:
     return len(blocks)
 
 
+def skips_shape(*, resume: bool, blocks) -> bool:
+    """Whether this shape has nothing left to do -- which is a *resume-only* state.
+
+    An empty block list is legitimate without ``resume``: that is how the seed
+    bake-off asks for a seed-only pass (``blocks=0, updates=0``), and the run
+    still measures the seed and final rows. Gating on the empty list alone (as
+    the resume gate in ``c1c7aeed`` did) made that pass write no
+    ``manifest.json`` at all, so every square/triangle/star lane died reading a
+    file that was never created.
+    """
+    return bool(resume) and not list(blocks)
+
+
 def session_plan(args) -> dict:
     """Work out, without opening a device, what a session would still have to measure.
 
@@ -471,7 +484,7 @@ def run(args):
                     seed_phase = best.copy()
                     # Resume: only the groups this stage has not measured yet.
                     blocks = blocks_for.get(shape, list(range(args.blocks)))
-                    if not blocks:
+                    if skips_shape(resume=resume, blocks=blocks):
                         continue
                     exposure = tune_exposure(shape, best, exposure, objective)
                     seed_exposure = exposure
