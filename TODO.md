@@ -605,8 +605,9 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    `r50_single.py:111`）、**重试循环**（`r50_voltage_send.py:111` `_send_with_recovery`：吞单次失败后重试，
    整体成败由返回值交给调用方）、**上报动作本身的失败**（`ccd_analyzer.py:297/321`，数字钉的是下面两个**调用行**而非 `except` 行——后者在本文件里文本全同，按内容无法定位）——这两处是包住
    `raw_frame_queue.put(("error", …))` 的**内层**护栏 —— 外层已把错误送进队列；`r50_voltage_send.py:395/402/420`
-    同理包住 `feedback_q.put`）、**探测降级**（`bench_settings.py:1489/1491`，数字钉的是两条护栏的 handler 行——旧值 1390/1399 早在本次改动之前就已落在 docstring 正文与 dict 字面量上，已按内容核验重钉）`detect_camera_pixel_um` 回落
-    `KNOWN_CAMERA_PIXEL_UM` 型号表，外层打 debug 并显式 `return None`，两条 handler 已就地写明探测失败不是错误）、
+    同理包住 `feedback_q.put`）、**探测降级**（本项 2026-10-29 撤销：`detect_camera_pixel_um` 改为只查型号配置
+    `data/ccd_configs/ccd/models.json`，型号未登记即抛 `CameraError` 并给出登记命令，原先两条吞 `except Exception`
+    的兜底随 `15ea0a22` 删除 ⇒ 已无行号可钉）、
    **清理进度文件**（`zernike_response_matrix_ui.py:833`）。⇒ **一处都没改成 raise**。
    唯一真缺陷不是"吞掉测量"而是**死代码**：`gui/zernike/zernike_debug_viewer.py:392-404` 在
    `pinv_matrix = np.linalg.pinv(...)` 之后算 `np.linalg.matrix_rank(...)` 判分支、分支里算

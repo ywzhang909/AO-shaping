@@ -51,14 +51,14 @@ CSV 格式要求：1200×1920，值 0~1023，首行/首列为 Y/X 索引。
 
 | 方法 | 代码路径（与 CLI 等价） | 说明 |
 |------|-------------------------|------|
-| **GS+SPGD 闭环整形（已验证配方）** | `SlmGsRefineParams` → `build_gs_refine_config` → `optimize_slm_gs_refine` → `save_gs_refine_results`（同 CLI `slm-gs-refine`） | 默认值即交替重放验证过的配方 |
+| **GS+SPGD 闭环整形（已验证配方）** | `SlmGsRefineParams` → `build_gs_refine_config` → `optimize_slm_gs_refine` → `save_gs_refine_results`（同 CLI `slm-gs-refine`） | GUI 预置（preset）取自交替重放验证过的配方；它与 dataclass 默认值是两份东西 |
 | **物理预测模型闭环整形（前沿）** | `SlmModelInLoopParams` → `build_model_in_loop_config` → `optimize_slm_model_in_loop`（同 CLI `slm-model-in-loop`） | 需要 torch |
 
 ### 3.1 GS+SPGD 闭环整形（已验证配方）
 
 GS 开环预矫正（对比择优，仅当实测优于平场才采用）+ 无感知 SPGD 细化。
 
-GUI 默认值取自交替重放验证过的配方（[`report/shape_trials/gs_refine/gs_refine_live_20261012.md`](../../../../report/shape_trials/gs_refine/gs_refine_live_20261012.md)）：
+GUI 的预置值（preset）取自交替重放验证过的配方（[`report/shape_trials/gs_refine/gs_refine_live_20261012.md`](../../../../report/shape_trials/gs_refine/gs_refine_live_20261012.md)）。它只有一份定义：`optimizer/wfless/slm_gs_refine.py::VALIDATED_GS_REFINE_RECIPE`，GUI 的 `GS_REFINE_RECIPE` 是它的副本，因此预置与 CLI 侧不会各自漂移；而 dataclass 默认值仍是另一回事（不是这张配方）：
 
 - `cam_type=daheng`、曝光 `0.05 ms`（大恒曝光上限按会话：`AO_DAHENG_MAX_EXPOSURE_MS`，0 = 画面探测）
 - `pupil_center=960,690`、`beam_radius_px=450`、`target_side=100`、`cam_size=250`

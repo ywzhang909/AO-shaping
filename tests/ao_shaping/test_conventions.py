@@ -2338,13 +2338,9 @@ _DOC_LINE_ANCHORS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
         ('raw_frame_queue.put(("error", str(exc)), block=False)',
          'raw_frame_queue.put(("error", f"Capture loop crashed: {exc}"), block=False)'),
     ),
-    (
-        "TODO.md",
-        "探测降级**（`bench_settings.py:",
-        "src/ao_shaping/gui/slm/bench_settings.py",
-        ("# policy: 相机缺 PixelSize 特性不是错误",
-         "# policy: 大恒探测像元间距失败不是错误"),
-    ),
+    # The bench_settings.py row was withdrawn 2026-10-29: `detect_camera_pixel_um` now
+    # only reads the model config, so both `# policy:` fallbacks it pinned were deleted
+    # (15ea0a22) rather than moved -- there is no statement left to anchor.
     (
         "TODO.md",
         "`r50_single.py:",

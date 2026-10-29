@@ -260,7 +260,7 @@ SLM N 设置 [expander, expanded]        ← 工作条件
 **不变更**：`shaping_session` 语义（停 toggle、释放/重取句柄、异常只上屏一次）；
 `_sync_slm_session_state` / `_release_slm_handle` / `_reacquire_slm_handle` / `_safe_set_state`；
 `build_gs_refine_params` / `build_model_in_loop_params` 的 values→params 映射；
-`GS_REFINE_RECIPE` 全部已验证值；`camera_pixel_um` 与 `slm1_shp_*` 的 widget key；
+`GS_REFINE_RECIPE` 全部已验证值（现为 `optimizer/wfless/slm_gs_refine.py::VALIDATED_GS_REFINE_RECIPE` 的副本，取值未变）；`camera_pixel_um` 与 `slm1_shp_*` 的 widget key；
 预览 fragment 结构。
 
 ### v1.2（2026-10-19，本轮）
