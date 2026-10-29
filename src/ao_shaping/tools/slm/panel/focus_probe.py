@@ -1,45 +1,24 @@
 """Find the Fresnel focal length that brings the detector back to focus.
 
-Why this exists
----------------
-A plain (flat) phase puts the 0-order at the 2f plane. Move the camera off that
-plane — even by a few millimetres — and the spot stops being a spot: behind
-focus it is a diverging cone whose blur grows linearly with the offset, so the
-peak collapses and any downstream metric (PIB, square shaping, Zernike response)
-is measured on a defocused blob. The fix is a quadratic phase on the panel,
-which moves the focus back onto the detector. Its magnitude is *not* derivable
-from the nominal 125 mm lens alone: the effective offset is a bench fact, the
-panel's phase sign convention is not written down anywhere authoritative, and
-the diffraction efficiency of a wrapped lens phase depends on how many pixels
-per fringe the panel can actually resolve. So it is measured.
+Why measured: a plain (flat) phase puts the 0-order at the 2f plane; move the camera off
+that plane and the spot becomes a diverging cone — the peak collapses and every downstream
+metric (PIB, square shaping, Zernike response) is read on a defocused blob. A quadratic
+phase restores focus, but its magnitude is a *bench fact*, not derivable from the nominal
+125 mm lens: the effective offset is unmeasured, the panel's phase sign is not written down
+authoritatively, and wrapped-lens diffraction efficiency depends on pixels-per-fringe the
+panel can actually resolve. So it is measured.
 
-The measurement, and its one trap
----------------------------------
-Sweep the Fresnel focal length on a *plain* phase, read the frame, and pick the
-brightest point. The trap is that brightness changes by orders of magnitude
-across the sweep — near focus the peak clips at 255 while a few dioptres away it
-is in the read noise. A fixed exposure therefore cannot rank the points: it
-saturates the good ones and buries the rest.
+The trap: brightness varies by orders of magnitude across the sweep — near focus the peak
+clips at 255, a few dioptres away it is in the read noise. A fixed exposure cannot rank the
+points, so **the exposure is re-armed at every point** and the comparison uses
+``peak / exposure_ms`` (counts per ms), never the raw peak. The linearity assumption is
+also *verified* at the winner (a second read at half exposure), not trusted.
 
-So **the exposure is re-armed at every single point** and the comparison uses
-``peak / exposure_ms`` (counts per millisecond), never the raw peak. Since the
-sensor is linear in exposure, that ratio is proportional to the true intensity at
-the panel and is comparable across points measured at different exposures. This
-module also *verifies* the linearity assumption at the winner (a second reading at
-half the exposure) rather than trusting it, because a camera with auto-gain would
-silently break the whole ranking.
-
-What is scanned
----------------
-The natural parameter is dioptric power ``D = 1/f`` (m^-1), because defocus is
-quadratic in radius, so ``D`` is what the correction is linear in. ``D = 0`` is
-the plain phase, the baseline. The range is scanned symmetrically on purpose: the
-sign of the phase that pulls focus back depends on the panel convention and on
-which side of the 2f plane the camera moved to, and a wrong guess is expensive to
-discover one-directionally. A coarse sweep finds the basin; a parabolic vertex
-plus a re-measurement refines it. If the winner sits on the edge of the range the
-range is extended outward once or twice, because "the best point is the last one"
-means the answer is outside.
+What is scanned: dioptric power ``D = 1/f`` (defocus is quadratic in radius, so the
+correction is linear in ``D``; ``D = 0`` is the plain-phase baseline), swept symmetrically
+since the focus-pulling phase sign is unknown. A coarse sweep finds the basin; a parabolic
+vertex plus re-measurement refines it; if the winner sits on the range edge the range is
+extended outward once or twice.
 
 Usage
 -----
@@ -48,43 +27,19 @@ Usage
     python -m ao_shaping.tools.slm.panel.focus_probe --exposure-ms 0.1
     python -m ao_shaping.tools.slm.panel.focus_probe --steps 25 --frames 3
 
-退出码
-------
+退出码: 0 = 找到焦面 (最佳 1/f 与焦距写进证据文件); 1 = 探测本身失败 (设备报错,
+证据文件有 ``error``); 2 = 没找到焦面 (扫描范围内无一点落进可用曝光带);
+3 = **光路受阻** (画面根本没有光, 不是「没对上焦」, 是光没到相机)。
 
-=====  ==========================================================================
- 码    含义
-=====  ==========================================================================
-  0    找到了焦面 (最佳 1/f 与焦距都写进了证据文件)
-  1    探测本身失败 (设备报错, 证据文件里有 ``error``)
-  2    没找到焦面 —— 扫描范围内没有任何一点落进可用曝光带
-  3    **光路受阻** —— 画面里根本没有光, 不是「没对上焦」, 是光没到相机
-=====  ==========================================================================
+🔴 **2 与 3 必须分开**: 光路被挡时画面同样「找不到光斑」, 且**只能靠结构看出**
+(峰值停在读出噪声本底 + 无局域结构)。处置不同: 2 重扫焦距 / 挪相机, 3 查
+光束→SLM 面板→2f 透镜→CCD 三段光路。判据见 :func:`ao_shaping.utils.image.frame_analysis.assess_spot`。
 
-🔴 **2 与 3 必须分开**: 光路被挡住时画面里同样「找不到光斑」, 而被挡住这件事
-**只能靠结构看出来** (峰值停在读出噪声本底 + 没有任何局域结构)。两者的处置完全
-不同: 2 要重新扫焦距 / 挪相机, 3 要去查 光束→SLM 面板 → 2f 透镜 → CCD 三段光路。
-判据见 :func:`ao_shaping.utils.image.frame_analysis.assess_spot`。
-
-Which SLM is used
------------------
-
-The panel comes from the bench backend factory
-(:func:`ao_shaping.drivers.slm.factory.open_slm`) whenever the backend is the
-simulation, so ``--cam-type sim`` runs the very same sweep on the digital twin
-(``SimSLMPib``); a hardware backend builds the Santec panel in memory mode
-(``video_mode=0``) exactly as before. This module still opens exactly **one**
-SLM session — only the class behind it depends on the backend.
-
-In simulation the sweep returns the **simulation's own** best 1/f, decided by
-the twin's geometry; it is *not* a bench measurement and it is generally not the
-measured focal length (1549.3 mm on this bench). The evidence file therefore
-carries ``backend: "sim"`` and an explicit note, so the number can never be
-mistaken for a measured value.
-
-The GUI entry point is :func:`probe_session_focus`, called from the SLM bench
-sidebar "探测焦面" (focus-plane probe) button; the recommended focal it writes
-feeds the sidebar defocus-overlay block (see
-``ao_shaping.gui.slm.bench_settings.build_defocus_overlay``).
+SLM 面板由实验系统后端工厂 (:func:`ao_shaping.drivers.slm.factory.open_slm`) 生成,
+``--cam-type sim`` 在数字孪生 ``SimSLMPib`` 上跑同一扫描。仿真返回**孪生自己的**
+最佳 1/f (由孪生几何决定), 不是实验系统测量值, 故证据文件带 ``backend: "sim"``
+并显式标注, 防止误当实测。GUI 入口 :func:`probe_session_focus` (侧栏"探测焦面"),
+其推荐焦距喂给侧栏离焦叠加块 (``ao_shaping.gui.slm.bench_settings.build_defocus_overlay``)。
 """
 
 from __future__ import annotations
