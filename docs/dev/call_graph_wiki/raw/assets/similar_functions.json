@@ -1,5 +1,5 @@
 {
- "generated_on": "2026-10-28",
+ "generated_on": "2026-10-29",
  "method": {
   "source": "call_graph_final.json (AST static call graph)",
   "script": "scripts/call_graph/build_similarity.py",

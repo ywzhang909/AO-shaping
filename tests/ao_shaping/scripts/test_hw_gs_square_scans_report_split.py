@@ -57,8 +57,13 @@ def _local_path(dotted: str) -> Path:
     return _ROOT.joinpath(*dotted.split(".")).with_suffix(".py")
 
 
-def _top_level_defs(path: Path) -> set[str]:
-    """Names a module binds at module level (functions, classes, constants)."""
+def _top_level_bindings(path: Path) -> set[str]:
+    """Names a module binds at module level: defs, constants, and imports.
+
+    Imports count because a sibling that delegates an implementation to a shared
+    module and re-exports it still *binds* the name the facade consumes — only
+    ``import *`` is skipped, since it binds an unknowable set.
+    """
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     out: set[str] = set()
     for node in tree.body:
@@ -68,6 +73,10 @@ def _top_level_defs(path: Path) -> set[str]:
             out.update(t.id for t in node.targets if isinstance(t, ast.Name))
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
             out.add(node.target.id)
+        elif isinstance(node, ast.ImportFrom):
+            out.update(a.asname or a.name for a in node.names if a.name != "*")
+        elif isinstance(node, ast.Import):
+            out.update(a.asname or a.name.split(".")[0] for a in node.names)
     return out
 
 
@@ -148,7 +157,7 @@ def test_facade_re_exports_every_name_it_claims() -> None:
     missing: list[str] = []
     for dotted in _SIBLINGS:
         path = _local_path(dotted)
-        have = _top_level_defs(path)
+        have = _top_level_bindings(path)
         for name in _imported_from(tree, dotted):
             if name not in have:
                 missing.append(f"  {dotted} no longer defines {name}")

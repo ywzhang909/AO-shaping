@@ -4140,6 +4140,16 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 顺带修一处**上游**红：`f88aafa3` 把论文升到 v4.8 却漏改 `docs/INDEX.md:28`，conventions 因此在主线变红。分离树上复现 + 本提交原本不触碰这两个文件 ⇒ 归属上游；同批把索引行改成 v4.8 使主线回绿。
 - 覆盖：ruff / provenance / term（0 文件 0 行）/ module-size 全绿；容器 2884 passed / 72 skipped / 0 failed。
 
+**2026-10-29 · fe1cc504 · 再迁复用第二批：`pearson`/`spearman` 收进 `ml/zernike/eval_stats.py`，8 处实现删除**
+- 政策第二步的样板批：先在 canonical 层**新增**能力（insert-only +84 行，不动既有函数），再把 `scripts/` 里逐字节相同的副本改转发，最后才评估「还有谁长得像」。5 文件 / +267 / −26，`src/` 运行时路径未动。
+- 契约要写死而不是"看着一样"：`nan` 而非 `0.0`（n<2 / 零方差），NaN **传播**不删除，长度不等或非 1 维 **raise ValueError**；`spearman` = 平均秩上的 Pearson（tie 用例 `13/19 = 0.684211`，教科书 d² 公式在同一用例给 `0.700000`）。
+- **没迁的比迁了的重要**：9 个同名站点判定为 DIFFERENT 并逐条写明可观测差异（`argsort(argsort)` 无均秩 + 零方差回 `0.0` / 返回 `None` 当"未记录"哨兵 / 先 `_normalise()` 再相关 / 径向分箱谱 / `size<3` 判据），全部保留。
+- 守卫**故意不登记**：`EXTRACTED` 按模块级 def 名精确匹配，而合法异用途的 `def spearman`×2、`def pearson`×1 仍在树里，登记即当场红 ⇒ 名字守卫对「同名不同义」无能为力，这是它的边界，不是疏漏。
+- 等价性不靠眼看：8 个被删 def 全部从 `git show HEAD:<file>` 抽出落盘副本，与 canonical 逐点比对（tie-heavy 随机 + 退化双侧断言），max|diff| ≤ 1.9e-16；其中 4 个是 ravel 包装，`ravel()` 移到调用点。
+- 同批迁一处非统计复用：`diff_beam_capture_flat.py` 的本地 `pick_slm_slot` 转发到 `utils/slm/phase_display.py`。
+- 测试放位踩过一次坑：`tests/ao_shaping/ml/` **根目录**不被 CI 的 `ml` 分片枚举（只列 5 个子目录 + 2 个文件），放错等于静默不收集 ⇒ 移到 `ml/zernike/`；scipy 交叉校验必须 `pytest.importorskip`（环境无 scipy 要跳过而不是报错，且 `.statistic` 需 scipy≥1.9，改用索引取 p 值）。
+- 覆盖：ruff / provenance / term（0 文件 0 行）/ module-size 全绿；容器 2875 passed / 71 skipped / 0 failed。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

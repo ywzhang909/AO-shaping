@@ -45,8 +45,10 @@ import numpy as np
 import torch
 
 ROOT = Path(__file__).resolve().parents[2]
+# 只放 src: 本文件不 import 任何 ``scripts.*``, 而 ``scripts/`` 本身是包, 且含
+# ``scripts/ml/`` —— 把它排在 src 前面会让 ``import ml.zernike.*`` 解析到
+# ``scripts/ml`` 并 ImportError (见 tests/.../test_script_file_form_imports.py)。
 sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT / "scripts"))
 
 from ao_shaping.drivers.sim.slm_shaping_bench import (
     ShapingBenchConfig,
@@ -54,6 +56,7 @@ from ao_shaping.drivers.sim.slm_shaping_bench import (
     forward_intensity,
 )
 from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
+from ml.zernike.eval_stats import pearson
 
 GRID = 64
 WIN = (64, 64)
@@ -213,13 +216,6 @@ def _r2(meas: list[np.ndarray], pred: list[np.ndarray]) -> float:
     b = np.concatenate([np.asarray(p, float).ravel() for p in pred])
     ss_tot = float(((a - a.mean()) ** 2).sum())
     return 1.0 - float(((a - b) ** 2).sum()) / ss_tot if ss_tot > 0 else float("nan")
-
-
-def _corr(a: np.ndarray, b: np.ndarray) -> float:
-    a, b = np.asarray(a, float).ravel(), np.asarray(b, float).ravel()
-    if a.std() == 0 or b.std() == 0:
-        return float("nan")
-    return float(np.corrcoef(a, b)[0, 1])
 
 
 def beam(img: np.ndarray) -> tuple[float, float]:
@@ -415,7 +411,8 @@ def run_cell(arm: str, pert: Perturb, n_frames: int, n_hold: int,
     pred = [predict(hold[i], c, ab_model, theta, g) for i in range(n_hold)]
     meas_h = [peak_norm(bench_image(hold[i], pert.ab, pert.theta)) for i in range(n_hold)]
 
-    corrs = [_corr(p, m) for p, m in zip(pred, meas_h)]
+    corrs = [pearson(np.asarray(p, float).ravel(), np.asarray(m, float).ravel())
+             for p, m in zip(pred, meas_h)]
     e90p, cvp = (np.array(v) for v in zip(*[beam(p) for p in pred]))
     e90m, cvm = (np.array(v) for v in zip(*[beam(m) for m in meas_h]))
     return {
