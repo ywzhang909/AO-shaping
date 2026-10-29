@@ -19,6 +19,7 @@ ccd/
 │   ├── driver.py
 │   ├── _sdk_setup.py
 │   └── __init__.py
+├── pixel_size.py        # 像元尺寸按型号解析 (零导入叶子, 型号配置 → 已知型号表 → 报错)
 └── __init__.py          # 包入口 (MIICamera, DahengCamera, FFmpegCamera 等)
 ```
 
