@@ -86,6 +86,7 @@ sys.path.insert(0, str(ROOT))
 
 from scripts._common import fmt_metric, markdown_table, savefig
 from scripts._common.provenance import insert_header
+from ml.zernike.eval_stats import pearson
 
 #: Where the report and its figures live (the manual MIL series directory).
 DEFAULT_OUT_DIR = ROOT / "report" / "shape_trials" / "model_in_loop"
@@ -663,18 +664,6 @@ def best_shift(template: np.ndarray, image: np.ndarray, max_shift: int = 96):
     return int(row_lag[row]), int(col_lag[col]), float(window.flat[flat])
 
 
-def normalized_correlation(a: np.ndarray, b: np.ndarray) -> float:
-    """Pearson correlation of two images, NaN when either is degenerate."""
-    a = np.asarray(a, dtype=np.float64).ravel()
-    b = np.asarray(b, dtype=np.float64).ravel()
-    a = a - a.mean()
-    b = b - b.mean()
-    denominator = float(np.linalg.norm(a) * np.linalg.norm(b))
-    if denominator <= 0:
-        return float("nan")
-    return float(a @ b / denominator)
-
-
 def display_image(array: np.ndarray) -> np.ndarray:
     """Map an intensity array to a log-scaled display array in ``[0, 1]``."""
     data = np.asarray(array, dtype=np.float64)
@@ -1029,8 +1018,8 @@ def arm_alignment(stage: StageData, pairs: list) -> Alignment:
             quality = float(
                 np.mean(
                     [
-                        normalized_correlation(
-                            align_to_camera(mapped, shift), frame
+                        pearson(
+                            align_to_camera(mapped, shift).ravel(), frame.ravel()
                         )
                         for mapped, frame in pairs
                     ]
@@ -1123,11 +1112,11 @@ def collect_probe_truths(stage: StageData) -> list[ProbeTruth]:
         if truth.mapped is None or truth.frame is None:
             continue
         truth.mapped = align_to_camera(truth.mapped, alignment.shift)
-        truth.r_camera = normalized_correlation(truth.mapped, truth.frame)
+        truth.r_camera = pearson(truth.mapped.ravel(), truth.frame.ravel())
         truth.ssim_camera = ssim_score(truth.mapped, truth.frame)
         truth.r2_camera = linear_r2(truth.frame, truth.mapped)
         if truth.model_grid is not None and truth.prediction is not None:
-            truth.r_model = normalized_correlation(truth.prediction, truth.model_grid)
+            truth.r_model = pearson(truth.prediction.ravel(), truth.model_grid.ravel())
     truths.sort(key=probe_sort_key)
     return truths
 
@@ -1364,7 +1353,7 @@ def _render_gif_frame(
         if roi_center is not None:
             ax_predicted.plot(roi_center[0], roi_center[1], "+", color="cyan", markersize=10)
         if frame is not None:
-            correlation = normalized_correlation(rolled, frame)
+            correlation = pearson(rolled.ravel(), frame.ravel())
         ax_predicted.set_title(
             "模型预测 (按记录几何缩放到相机网格)\n与实测的相关性 "
             + (f"{correlation:.4f}" if not math.isnan(correlation) else "未记录"),
@@ -2047,7 +2036,7 @@ def render_truth_stats_figure(
             extent=(0.0, upper, 0.0, upper),
         )
         ax_scatter.plot([0, upper], [0, upper], "w--", linewidth=1.2, alpha=0.8)
-        pooled_r = normalized_correlation(predicted, measured)
+        pooled_r = pearson(predicted.ravel(), measured.ravel())
         pooled_r2 = linear_r2(measured, predicted)
         ax_scatter.text(
             0.03,

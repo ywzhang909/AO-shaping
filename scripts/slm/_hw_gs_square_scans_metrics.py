@@ -38,6 +38,10 @@ from scripts.slm._hw_gs_square_scans_model import (
     Stage,
 )
 
+# re-export: analysis/figures/sections/report 四个 facade 从这里取 pearson/spearman;
+# 实现本体在 ml.zernike.eval_stats (统计唯一来源)，勿删本 import。
+from ml.zernike.eval_stats import pearson, spearman
+
 def score_terms(pib: float, cv: float) -> tuple[float, float]:
     """``score = 0.5·PIB + 0.5·1/(1+CV)`` 的两项 (与采集脚本同一口径)。"""
     return 0.5 * pib, 0.5 / (1.0 + cv)
@@ -51,29 +55,6 @@ def monotonic_report(values: Sequence[float], *, increasing: bool = True) -> lis
         if not increasing and values[i] >= values[i - 1]:
             out.append(i)
     return out
-
-def pearson(xs: Sequence[float], ys: Sequence[float]) -> float:
-    x = np.asarray(xs, dtype=float)
-    y = np.asarray(ys, dtype=float)
-    if x.size < 2 or x.std() == 0 or y.std() == 0:
-        return float("nan")
-    return float(np.corrcoef(x, y)[0, 1])
-
-def spearman(xs: Sequence[float], ys: Sequence[float]) -> float:
-    """秩相关 (无 scipy 依赖): 秩后取 Pearson。"""
-    def rank(v: Sequence[float]) -> np.ndarray:
-        arr = np.asarray(v, dtype=float)
-        order = arr.argsort()
-        ranks = np.empty(arr.size, dtype=float)
-        ranks[order] = np.arange(1, arr.size + 1, dtype=float)
-        # 平秩取平均 (本数据里自变量无重复, 这里只是稳妥)
-        for value in np.unique(arr):
-            mask = arr == value
-            if mask.sum() > 1:
-                ranks[mask] = ranks[mask].mean()
-        return ranks
-
-    return pearson(rank(xs), rank(ys))
 
 def flag_rows(run: Run, stage: Stage) -> list[str]:
     """逐行的旗标: ``†`` settle 超时, ``‡`` 帧电平异常, ``※`` CV 离群, ``§`` 框出画。

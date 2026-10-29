@@ -82,6 +82,7 @@ from ao_shaping.drivers.sim.bench_twin import (
 from ao_shaping.optimizer.wfless.slm_model_in_loop import _to_model_grid
 from ao_shaping.tools.slm import bench_twin_calibrate as btc
 from ao_shaping.utils.image.beam_metrics import zero_order_center
+from ml.zernike.eval_stats import pearson
 
 #: 默认实验目录 (一次真实 MIL 实验的落盘目录)。
 DEFAULT_RUN_DIR = ROOT / "data/debug/slm_model_in_loop/20261019_103208"
@@ -311,18 +312,6 @@ def _cells_for(frame: np.ndarray, center, *, far_field_size, cell_scale, rot, ce
     """把一张相机帧落到模型采样点网格的中央 ``cells × cells`` 窗口。"""
     grid = _to_model_grid(frame, center, far_field_size, cell_scale, rot)
     return _crop_centre(grid, cells)
-
-
-def _pearson(a: np.ndarray, b: np.ndarray) -> float:
-    """两个同形数组的 Pearson 相关系数 (与 MIL 的 ``_prediction_correlation`` 同口径)。"""
-    x = np.asarray(a, dtype=np.float64).ravel().copy()
-    y = np.asarray(b, dtype=np.float64).ravel().copy()
-    if x.shape != y.shape:
-        return float("nan")
-    x -= x.mean()
-    y -= y.mean()
-    denominator = float(np.linalg.norm(x) * np.linalg.norm(y))
-    return float(np.dot(x, y) / denominator) if denominator > 0 else float("nan")
 
 
 def _mil_run_summary(run_dir: Path) -> dict:
@@ -958,12 +947,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             continue
         row: dict[str, Any] = {"name": probe.name}
         if probe.stored_prediction is not None:
-            row["mil"] = _pearson(probe.stored_prediction, probe.stored_grid)
-        row["twin_ideal"] = _pearson(
-            full_ideal.far_field(probe.phase), probe.stored_grid
+            row["mil"] = pearson(
+                np.asarray(probe.stored_prediction).ravel(),
+                np.asarray(probe.stored_grid).ravel(),
+            )
+        row["twin_ideal"] = pearson(
+            np.asarray(full_ideal.far_field(probe.phase)).ravel(),
+            np.asarray(probe.stored_grid).ravel(),
         )
         row["twin_fitted"] = (
-            _pearson(full_fitted.far_field(probe.phase), probe.stored_grid)
+            pearson(
+                np.asarray(full_fitted.far_field(probe.phase)).ravel(),
+                np.asarray(probe.stored_grid).ravel(),
+            )
             if fit_result is not None
             else None
         )
