@@ -44,21 +44,12 @@ import torch
 
 from ml.hwdataset import MaterialiserConfig, build_hw_index
 from ml.hwdataset.zernike_dataset import ZERNIKE_COEFF_SOURCES, ZernikeCoeffDataset
-from ml.zernike.eval_stats import ridge
+from ml.zernike.eval_stats import folds_of, ridge
 from ml.zernike.metrics import constant_baseline_metrics
 
 FAMILY = "slm_zernike_shaping"
 LOSSES = ("mse", "sqrt_mse", "log_mse")
 K = 4
-
-
-def folds_of(records):
-    groups: dict[str, list[int]] = {}
-    for position, record in enumerate(records):
-        groups.setdefault(str(record.path), []).append(position)
-    keys = sorted(groups)
-    return [(i, [p for kk, ps in groups.items() if kk != k for p in ps], groups[k])
-            for i, k in enumerate(keys)]
 
 
 def to_loss_space(y: np.ndarray, kind: str) -> np.ndarray:
@@ -94,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
 
     started = time.perf_counter()
     out: dict = {"folds": []}
-    for fold_i, train_pos, val_pos in folds_of(records):
+    for fold_i, _, train_pos, val_pos in folds_of(records):
         x_tr, y_tr = stack(train_pos)
         x_va, y_va = stack(val_pos)
         row = {"fold": fold_i}

@@ -53,6 +53,13 @@ EXTRACTED = {
     # the chains would re-render tracked figures with a different font.
     "setup_cjk_font": "scripts/_common/plot_style.py: setup_cjk_font",
     "_setup_fonts": "scripts/_common/plot_style.py: setup_cjk_font(probe_installed=True)",
+    # Leave-one-group-out folds over record paths: the grouping (key = str(path),
+    # folds in sorted-key order, group-first train lists) *is* the paired-comparison
+    # contract -- a drifted copy silently changes which records share a fold, so the
+    # per-fold numbers in the diagnostic reports stop being comparable. Nine copies
+    # existed; all now import the canonical ("再迁复用" batch 3). `ridge` is
+    # deliberately NOT registered: legitimate different-purpose ridge copies remain.
+    "folds_of": "src/ml/zernike/eval_stats.py: folds_of",
 }
 
 #: Generators migrated onto ``scripts._common``.

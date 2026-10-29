@@ -4157,6 +4157,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 一处**故意接受**的契约差异：`generate_bench_twin_report` 原来在 shape 不等时返回 `nan`，canonical 会 `ValueError`。两个操作数来自同一个 `.npz` 探针记录，该分支是防御性的；对报告生成器而言崩掉比把 `nan` 静默写进已发表表格更好。
 - 覆盖：容器 `scripts/` + conventions 2855 passed / 73 skipped；2 failed 是**上游**红（`src/ao_shaping/tools/slm/transfer/validate.py` 864 行 > 800，在 pristine `origin/master` 分离树复现，属 transfer 特性且在持续变长），不在本批范围。
 
+**2026-10-29 · 142ff97b · 再迁复用第三批：7 处 matplotlib 字体设置收进 `scripts/_common/plot_style.py`，`folds_of`/`ridge` 建 canonical**
+- 两个簇一次做：CJK 字体设置（4 个 `setup_cjk_font` + 3 个 `_setup_fonts`）落到新模块 `scripts/_common/plot_style.py`（113 行，只写 rcParams，不 import pyplot）；`folds_of` 与 `ridge` 插进 `ml/zernike/eval_stats.py`（+43 行，insert-only，不动既有函数）。
+- **7 个字体副本并不相同，不能强行统一语义**：两类行为用参数保留 —— 默认 `probe_installed=False` 直接**替换** `font.sans-serif`，`probe_installed=True` 才对着已安装字体表解析；字族顺序差异用 `CJK_FONTS` / `CJK_FONTS_INVERSE_SHAPING` 两个常量表达。去重去掉的是实现重复，不是行为差异。
+- `ridge` canonical 是**对偶形式**（在 n×n Gram 上解，`n << n_features` 时便宜）并返回 `(weights, x_mean, z_mean)`；退化输入**不做伪逆平滑**：`alpha=0` 且中心化 `x` 秩亏时照旧抛 `LinAlgError` —— 每个被迁副本本来就是该行为，静默返回伪逆解会掩盖一个坏折。
+- `folds_of` canonical 一律返回 `(index, key, train, val)`；树里两种本地投影（index-first / key-first）在**调用点**适配，未用字段绑 `_`。本批迁 2 个，其余 6 个在后续提交收尾：原先 `enumerate` 重新导出的下标由 canonical 首字段直接提供，因此折号与 `default_rng(1234 + index_i)` 的种子逐位不变。
+- 守卫登记 `setup_cjk_font` / `_setup_fonts`（迁后零本地 def）；**`ridge` 故意不登记**：`verify_pod_ridge_canary.py`、`compare_linear_vs_trained.py` 的本地 `ridge`，以及 `diagnose_pod_ridge.py` 把拟合/预测拆成 `ridge_fit`+`ridge_predict` 两步，都是合法异用途。
+- 等价性照旧实测：旧 body 从 `git show HEAD:<file>` 抽出 exec，与 canonical 逐点比对；`folds_of` 语料覆盖混合 `str`/`Path` 路径（同名两种类型必须同组）、单记录路径、单路径语料、空语料，并断言每折 `train + val` 是 `range(len(records))` 的置换。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

@@ -41,19 +41,11 @@ import torch
 
 from ml.hwdataset import MaterialiserConfig, build_hw_index
 from ml.hwdataset.zernike_dataset import ZERNIKE_COEFF_SOURCES, ZernikeCoeffDataset
+from ml.zernike.eval_stats import folds_of
 from ml.zernike.metrics import batch_image_metrics
 
 FAMILY = "slm_zernike_shaping"
 K = 4
-
-
-def folds_of(records, protocol="file"):
-    groups: dict[str, list[int]] = {}
-    for position, record in enumerate(records):
-        groups.setdefault(str(record.path), []).append(position)
-    keys = sorted(groups)
-    return [(k, [p for kk, ps in groups.items() if kk != k for p in ps], groups[k])
-            for k in keys]
 
 
 def ridge(x, z, alpha):
@@ -88,7 +80,7 @@ def main() -> int:
         return np.stack(c), np.stack(im)
 
     out = {"k": K, "folds": []}
-    for index_i, (held, train_pos, val_pos) in enumerate(folds_of(records)):
+    for index_i, _, train_pos, val_pos in folds_of(records):
         x_tr, y_tr = stack(train_pos)
         x_va, y_va = stack(val_pos)
         centred = y_tr - y_tr.mean(0, keepdims=True)
