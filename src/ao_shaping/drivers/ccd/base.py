@@ -43,7 +43,17 @@ class BaseCamera(ABC):
     * 亮度: 原始像素值; dtype 取决于位深
       (通常是 ``uint8`` 或 ``uint16``)。
     * ROI 窗口: ``(width, height)`` 与 ``(center_x, center_y)``, 单位像素。
+    * 像元尺寸: :attr:`pixel_size_um`, 单位**微米 (µm)**, 是**类属性** ——
+      它由型号决定, 与实例状态无关。``0`` 表示该后端不提供或尚未登记。
     """
+
+    #: 传感器像元边长 (µm)。0 = 未知或不适用。
+    #:
+    #: 子类按型号给出: 大恒从型号配置/已知型号表解析 (见
+    #: :mod:`ao_shaping.drivers.ccd.pixel_size`), MiiCam 写死 2.9, 仿真后端给出
+    #: 孪生口径。**调用方不得再硬编码数值**, 需要像元尺寸时读本属性 (或走
+    #: :meth:`require_pixel_size_um` 拿到带根因的报错)。
+    pixel_size_um: float = 0.0
 
     def __init__(
         self,
@@ -88,6 +98,23 @@ class BaseCamera(ABC):
     def _device_open(self) -> bool:
         """设备是否已初始化。用 ``cv2`` 视频流 / 图像序列回放等后端时覆写本方法。"""
         return self.cam is not None
+
+    def require_pixel_size_um(self) -> float:
+        """返回像元边长 (µm); 未提供时抛 :class:`CameraError`。
+
+        返回 ``0`` 比抛异常危险得多: 调用方会拿它去乘像素坐标, 得到 0 的物理尺寸,
+        然后在几何校验里报一个与根因无关的错 (或静默算出 0 焦距)。这里直接把根因
+        和补救办法说出来。
+        """
+        value = float(getattr(self, "pixel_size_um", 0.0) or 0.0)
+        if not (value > 0.0):
+            raise CameraError(
+                f"{type(self).__name__} 没有可用的像元尺寸 (pixel_size_um={value:g})。"
+                "大恒相机请登记型号像元尺寸: "
+                "python -m ao_shaping.drivers.ccd.pixel_size --prompt; "
+                "其它后端请显式设置 pixel_size_um。"
+            )
+        return value
 
     @abstractmethod
     def __exit__(self, exc_type, exc_value, traceback):

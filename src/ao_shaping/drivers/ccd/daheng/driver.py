@@ -12,6 +12,11 @@ from ao_shaping.drivers.ccd import BaseCamera
 from ao_shaping.drivers.ccd.base import AveragedFrame, CameraError
 from ao_shaping.drivers.ccd.common import ExposureTime
 from ao_shaping.drivers.ccd.daheng import constants
+from ao_shaping.drivers.ccd.pixel_size import (
+    ensure_model_pixel_size_um,
+    resolve_model_pixel_size_um,
+    store_model_pixel_size_um,
+)
 from ao_shaping.utils.io.device_config import ConfigHandler, DeviceParam, param
 from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 from ao_shaping.utils.io.file import logger
@@ -86,6 +91,10 @@ class DahengCamera(BaseCamera):
         self.cam = None
         self._sn: str | None = None
         self.cam_width, self.cam_height = 0, 0
+        #: 相机型号 (SDK 的 DeviceModelName), initialize() 时确定。
+        self._model: str | None = None
+        #: 像元尺寸显式覆盖 (µm); None = 按型号解析。
+        self._pixel_size_um: float | None = None
 
     @property
     def device_manager(self):
@@ -125,9 +134,76 @@ class DahengCamera(BaseCamera):
         """获取相机序列号。"""
         return self._sn
 
+    @property
+    def model_name(self) -> str | None:
+        """相机型号 (SDK ``DeviceModelName``), 未打开时为 ``None``。"""
+        return self._model
+
+    @property
+    def pixel_size_um(self) -> float:
+        """像元边长 (µm): 型号配置 → 已知型号表 → 抛 :class:`CameraError`。
+
+        大恒可接入不同型号, 像元尺寸因此**不写死在驱动里**: 它按型号从
+        ``<CCD_CONFIG_DIR>/ccd/models.json`` 载入 (见
+        :mod:`ao_shaping.drivers.ccd.pixel_size`)。型号未登记时在这里报错,
+        而不是回落一个"差不多"的数 —— 像元尺寸决定全部远场物理标度。
+
+        Raises:
+            CameraError: 相机未打开 (型号未知), 或该型号未登记像元尺寸。
+        """
+        if self._pixel_size_um is not None:
+            return float(self._pixel_size_um)
+        if not self._model:
+            raise CameraError(
+                "相机尚未打开, 型号未知 ⇒ 像元尺寸无法确定; "
+                "请先 initialize()/open() 再读取 pixel_size_um"
+            )
+        return resolve_model_pixel_size_um(self._model)
+
+    def ensure_pixel_size_um(self, *, prompt=None) -> float:
+        """确保当前型号的像元尺寸已登记; 未登记则询问用户并写入配置。
+
+        脚本侧的入口 (驱动本身不交互): 捕获不到配置时由调用方决定是否允许提问,
+        录入一次之后同型号的后续运行直接命中 ``models.json``。
+
+        Args:
+            prompt: 提问函数, 默认 ``input``。
+        """
+        if not self._model:
+            raise CameraError("相机尚未打开, 型号未知 ⇒ 无法登记像元尺寸")
+        value = ensure_model_pixel_size_um(self._model, prompt=prompt)
+        self._pixel_size_um = value
+        return value
+
+    def store_pixel_size_um(self, pixel_size_um: float) -> None:
+        """把当前型号的像元尺寸写入型号配置, 并作为本实例的显式值。"""
+        if not self._model:
+            raise CameraError("相机尚未打开, 型号未知 ⇒ 无法登记像元尺寸")
+        store_model_pixel_size_um(self._model, pixel_size_um)
+        self._pixel_size_um = float(pixel_size_um)
+
     def is_connected(self) -> bool:
         """检查相机是否已连接且就绪。"""
         return self.cam is not None and self._sn is not None
+
+    def _resolve_model(self, dev_info: dict) -> str | None:
+        """确定相机型号名: 设备列表项 → GenICam ``DeviceModelName``。
+
+        像元尺寸按型号登记 (见 :mod:`ao_shaping.drivers.ccd.pixel_size`), 所以型号
+        必须在 ``initialize`` 时就定下来; 拿不到就留 ``None``, 之后读
+        ``pixel_size_um`` 会明确报错, 而不是猜。
+        """
+        raw: Any = dev_info.get("model", "") or ""
+        if isinstance(raw, tuple):
+            raw = raw[0] if raw else ""
+        name = str(raw).strip()
+        if name:
+            return name
+        feature = getattr(self.cam, "DeviceModelName", None)
+        if feature is None:
+            return None
+        raw = feature.get()
+        return str(raw).strip() or None
 
     def load_config(self) -> dict:
         """加载当前设备的配置文件。
@@ -274,6 +350,7 @@ class DahengCamera(BaseCamera):
         self.cam.Height.set(self.cam.HeightMax.get())
 
         self._sn = sn
+        self._model = self._resolve_model(dev_info_list[self.cam_id])
 
         # 按序列号加载并应用配置文件（不覆盖 __init__ 显式参数）
         config = self.load_config()

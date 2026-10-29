@@ -1362,6 +1362,10 @@ class SimPibCCD(BaseCamera):
     ``create_camera("sim", ...)`` 会产出本类的实例。
     """
 
+    #: 孪生口径的像元边长 (µm), 与 ``SimPibSystem`` 的远场标度同源。
+    #: 仿真运行需要像元尺寸时读本属性, 不要回落到实验系统相机的数值。
+    pixel_size_um: float = CCD_PIXEL_UM
+
     def __init__(
         self,
         cam_id: int = 0,

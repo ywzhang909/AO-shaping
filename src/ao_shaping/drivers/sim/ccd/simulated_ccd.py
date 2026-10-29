@@ -46,6 +46,7 @@ class SimulatedCCD(BaseCamera):
         resolution: tuple[int, int] = (1024, 1024),
         noise_level: float = 5.0,
         random_seed: int | None = None,
+        pixel_size_um: float = 0.0,
     ):
         """初始化模拟 CCD。
 
@@ -55,8 +56,12 @@ class SimulatedCCD(BaseCamera):
             resolution: 图像分辨率 (宽, 高)。
             noise_level: 噪声水平, 单位 ADU。
             random_seed: 用于可复现性的随机种子。
+            pixel_size_um: 像元边长 (µm)。默认 0 = 未定义 (本类是通用仿真相机,
+                没有固定的物理口径); 需要物理标度的仿真请显式传入, 或改用
+                ``SimPibCCD`` (它的孪生口径自带像元尺寸)。
         """
         super().__init__(cam_id, exposure_time_ms)
+        self.pixel_size_um = float(pixel_size_um)
 
         self._resolution = resolution
         self._noise_level = noise_level

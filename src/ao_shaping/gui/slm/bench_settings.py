@@ -60,6 +60,11 @@ import streamlit as st
 from loguru import logger
 
 from ao_shaping.drivers.ccd.common import WindowSize
+from ao_shaping.drivers.ccd.pixel_size import (
+    KNOWN_MODEL_PIXEL_SIZE_UM,
+    lookup_model_pixel_size_um,
+    probe_daheng_models,
+)
 from ao_shaping.utils.cli.exposure import DEFAULT_EXPOSURE_TOKEN
 from ao_shaping.drivers.slm.santec.slm200_constants import (
     PANEL_RES,
@@ -160,9 +165,12 @@ GEOMETRY_SOURCE_LABELS: dict[str, str] = {
     "keep": "沿用上次几何（只重测中心）",
 }
 
-#: 相机像元间距默认 / 已知型号表（大恒 MER2-507 = 2.2 μm，本实验系统实测）。
-DEFAULT_CAMERA_PIXEL_UM = 2.2
-KNOWN_CAMERA_PIXEL_UM: dict[str, float] = {"MER2-507": 2.2}
+#: 相机像元间距的已知型号表 —— 由相机驱动层给出 (单一来源:
+#: ``ao_shaping.drivers.ccd.pixel_size.KNOWN_MODEL_PIXEL_SIZE_UM``), 这里只是
+#: 保持侧栏的公开名字不变。**不要**在本模块再添一份型号 → 像元间距的映射。
+KNOWN_CAMERA_PIXEL_UM: dict[str, float] = dict(KNOWN_MODEL_PIXEL_SIZE_UM)
+#: 侧栏控件在「探不到设备」时的显示默认值 (不是设备真值; 探到就覆盖)。
+DEFAULT_CAMERA_PIXEL_UM = KNOWN_MODEL_PIXEL_SIZE_UM["MER2-507"]
 
 #: 目标方边长下界（相机像素）。低于 8 px 的目标框在读出噪声里没有意义。
 MIN_TARGET_SIDE_PX = 8
@@ -1460,62 +1468,29 @@ def measure_illuminated_radius(
 
 
 def detect_camera_pixel_um(cam_type: str = "daheng", cam_id: int = 0) -> float | None:
-    """从硬件探测相机像元间距（μm）；失败返回 ``None``。
+    """探测相机像元间距 (µm); 探不到返回 ``None``。
 
-    先读设备 ``PixelSize``，再回落到已知型号表（大恒 MER2-507 = 2.2 μm）。
+    单一来源是相机驱动 (``BaseCamera.pixel_size_um``): 大恒按**型号**从
+    ``data/ccd_configs/ccd/models.json`` 解析 (未登记则回落已知型号表), MiiCam
+    写死 2.9。本函数只做型号查询, **不打开相机** —— 型号已足够定位型号级配置,
+    开相机只为读一个静态属性既慢又会抢设备锁。
+
+    ⚠️ 不要改回读 GenICam 的 ``PixelSize`` 特征: 那是**位深** (``BPP8`` = 8),
+    会把 Mono8 相机报成 8 µm。
     """
     if cam_type == "daheng":
-        try:
-            import gxipy as gx  # type: ignore[import-untyped]
-        except (ImportError, OSError):
+        models = probe_daheng_models()
+        if cam_id >= len(models):
             return None
-        device_manager = gx.DeviceManager()
-        dev_count, dev_info_list = device_manager.update_device_list()
-        if not dev_count or not dev_info_list or len(dev_info_list) <= cam_id:
-            return None
-        info = dev_info_list[cam_id]
-        sn = info.get("sn")
-        model_raw: Any = info.get("model", "") or ""
-        if isinstance(model_raw, tuple):
-            model_raw = model_raw[0] if model_raw else ""
-        model = str(model_raw)
-        cam: Any = None
-        try:
-            cam = device_manager.open_device_by_sn(sn)
-            try:
-                pixel_size = cam.PixelSize.get()
-                if pixel_size is not None and float(pixel_size) > 0:
-                    return float(pixel_size)
-            except Exception:  # policy: 相机缺 PixelSize 特性不是错误：落到 KNOWN_CAMERA_PIXEL_UM 型号表
-                pass
-        except Exception as exc:  # policy: 大恒探测像元间距失败不是错误：外层返回 None 让型号表兜底
-            logger.debug("大恒探测像元间距失败: {}", exc)
-            return None
-        finally:
-            if cam is not None:
-                try:
-                    cam.close_device()
-                except Exception:  # policy: 型号表兜底路径里的关闭失败无可补救：不得掩盖已拿到的像元间距
-                    pass
-        for known_model, pitch in KNOWN_CAMERA_PIXEL_UM.items():
-            if known_model in model:
-                return pitch
-        return None
+        return lookup_model_pixel_size_um(models[cam_id])
     if cam_type == "miicam":
         try:
             from ao_shaping.drivers.ccd.miicam.driver import MIICamera
 
-            cam = MIICamera(cam_id=cam_id)
-            cam.open()
-            try:
-                pixel_size = getattr(cam, "pixel_size_um", None)
-                if pixel_size is not None:
-                    return float(pixel_size)
-            finally:
-                cam.close()
-        except Exception as exc:  # policy: MiiCam 探测像元间距失败不是错误：返回 None 让型号表兜底
-            logger.debug("MiiCam 探测像元间距失败: {}", exc)
-        return None
+            return float(MIICamera.pixel_size_um) or None
+        except (ImportError, OSError) as exc:
+            logger.debug("MiiCam 驱动不可用: {}", exc)
+            return None
     return None
 
 

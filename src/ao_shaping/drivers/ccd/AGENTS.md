@@ -106,8 +106,58 @@ cam.auto_exposure(
 | `get_auto_exposure_state()` | 获取自动曝光状态 |
 | `set_auto_exposure_range(...)` | 设置自动曝光范围 |
 | `get_cam_list()` | 获取可用相机列表 (static) |
+| `pixel_size_um` | 传感器像元边长 (µm), **类属性**, 默认 `0` = 未知 |
+| `require_pixel_size_um()` | 取像元边长; 未知时抛 `CameraError` 并说明补救办法 |
 
 具体驱动 (MIICAM/FFmpeg/Daheng) 还提供 `set_auto_exposure_target(target)` 方法 (非抽象, 由各驱动自行实现)。
+
+### 像元尺寸 `pixel_size_um` (2026-10-29)
+
+像元尺寸决定全部远场物理标度 (像素 ↔ 空间频率 → 焦距 / 束腰 / 目标边长), 因此它是
+**驱动的类属性**, 不是各脚本的 CLI 默认值 —— 调用方一律读 `cam.pixel_size_um`
+(或 `cam.require_pixel_size_um()`), 不得再硬编码数值。
+
+| 后端 | 来源 | 行为 |
+|------|------|------|
+| `BaseCamera` | — | `pixel_size_um = 0.0` (未知)。`require_pixel_size_um()` 抛 `CameraError`, 错误信息带后端名与补救命令 |
+| `DahengCamera` | 型号级配置 `<CCD_CONFIG_DIR>/ccd/models.json` → 已知型号表 → 报错 | 属性按型号解析 (见下); **未登记就报错**, 不猜数 |
+| `MIICamera` | 写死 | `pixel_size_um = 2.9` —— 该后端目前只支持一款相机, 换型号改这一处 |
+| `SimPibCCD` (`--cam-type sim`) | 孪生口径 | `pixel_size_um = CCD_PIXEL_UM` (与 `SimPibSystem` 的远场标度同源) |
+| `SimulatedCCD` | 构造参数 | `SimulatedCCD(pixel_size_um=...)`, 默认 `0` (通用仿真相机没有固定物理口径) |
+| `FFmpegCamera` / `ImageFolderCamera` | — | 沿用基类 `0` (视频/图集回放没有可靠的物理标度) |
+
+**大恒为什么按型号而不是按序列号**: 像元尺寸是**型号属性**, 同一型号的多台相机共用同一个值;
+按序列号存 (`CCDParams`) 会让每接一台新相机都要重新登记同一个数。配置文件
+`data/ccd_configs/ccd/models.json`:
+
+```json
+{
+  "MER2-507-23GM": {"pixel_size_um": 2.2}
+}
+```
+
+解析顺序: 型号配置 → `KNOWN_MODEL_PIXEL_SIZE_UM` (历史口径, 前缀匹配, 只作回落) →
+抛 `CameraError` (信息里给出登记命令)。实现集中在零导入叶子
+`drivers/ccd/pixel_size.py` (不 import 任何 SDK, 模块作用域不读盘)。
+
+**缺登记时怎么补** (驱动只报错、不交互, 交互在脚本/命令行侧):
+
+```bash
+python -m ao_shaping.drivers.ccd.pixel_size                 # 列出已登记型号
+python -m ao_shaping.drivers.ccd.pixel_size --prompt        # 询问当前连接的大恒相机型号并录入
+python -m ao_shaping.drivers.ccd.pixel_size --store MER2-507-23GM 2.2
+```
+
+脚本侧对应 `cam.ensure_pixel_size_um(prompt=input)` (未登记则提问 + 写入配置 + 本实例生效)。
+
+**runner / 脚本的统一入口**是 `camera_pixel_size_um_for(cam_type, cam_id, *, camera=None, prompt=None)`:
+命令行把「未指定」写成 `0`, 由它按后端换成真实值 —— 已打开的 `camera` 实例优先
+(`cam.require_pixel_size_um()`), 否则按类型查型号配置 (大恒**只枚举设备不打开**),
+`miicam` 取写死的 2.9, `sim` 取孪生口径。型号未登记时, 交互终端才提问 (默认写盘),
+非交互环境直接抛驱动侧的 `CameraError`。
+
+⚠️ **GenICam 的 `PixelSize` 特征不是像元边长** —— 它是**位深** (`GxPixelSizeEntry`: BPP8=8 …),
+读它当像元尺寸会得到 `8 µm`。物理像元间距只能来自型号配置或器件手册。
 
 ## 已知坑
 

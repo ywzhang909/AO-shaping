@@ -132,6 +132,10 @@ class MIICamera(BaseCamera):
     MIN_EXPOSURE_MS = 0.011
     MAX_EXPOSURE_MS = 10000.0
 
+    #: 传感器像元边长 (µm)。MiiCam 后端目前只支持一款相机, 故写死;
+    #: 换型号时改这一处, 调用方一律读 ``cam.pixel_size_um``, 不再各自硬编码。
+    pixel_size_um: float = 2.9
+
     @staticmethod
     def get_exposure_range() -> tuple[float, float]:
         """获取相机支持的曝光时间范围, 单位 ms。
