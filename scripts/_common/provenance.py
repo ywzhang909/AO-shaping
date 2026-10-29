@@ -1155,7 +1155,8 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="硬件（Santec #1 SLM + Daheng CCD；WFS / NLight DM / MIICAM 未连接）",
         note=(
             "2026-10-29 设备在线多尺度整形会话的实测记录：lane 00–04 在 0.7 功率下完成，"
-            "05–08 在激光功率升到 1.0 后从头重跑/新跑，13 起进行中（25 条编制）。"
+            "05–08 在激光功率升到 1.0 后从头重跑/新跑，13–15 已完成、16 因 SLM 陈旧句柄"
+            "（错误码 −10003）失败待重跑，31–34 待跑（25 条编制）。"
             "**一次会话不跨功率**：0.7 的半成品全部归档，跨功率只读形态不读量级。"
             "200 px 解析初始化（0.7）：circle 15/15 有效、dCV −0.286/−0.126/−0.127 三档 "
             "supported；triangle 13/15、−0.161/−0.173 两档 supported；square 11/15 的 "
@@ -1188,6 +1189,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/analyze_session_time_budget.py",
             "scripts/slm/generate_multishape_nogs_20261029_figures.py",
             "scripts/slm/generate_multishape_s600_power1p0_figures.py",
+            "scripts/slm/generate_multishape_jacobian_figure.py",
         ),
     ),
     "report/shape_trials/multishape_scale/next_round_20261029.md": ReportProvenance(

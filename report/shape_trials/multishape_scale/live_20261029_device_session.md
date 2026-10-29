@@ -12,8 +12,9 @@
 > **数据/关联脚本**: [`scripts/slm/analyze_session_time_budget.py`](../../../scripts/slm/analyze_session_time_budget.py)
 > **数据/关联脚本**: [`scripts/slm/generate_multishape_nogs_20261029_figures.py`](../../../scripts/slm/generate_multishape_nogs_20261029_figures.py)
 > **数据/关联脚本**: [`scripts/slm/generate_multishape_s600_power1p0_figures.py`](../../../scripts/slm/generate_multishape_s600_power1p0_figures.py)
+> **数据/关联脚本**: [`scripts/slm/generate_multishape_jacobian_figure.py`](../../../scripts/slm/generate_multishape_jacobian_figure.py)
 > **运行环境**: 硬件（Santec #1 SLM + Daheng CCD；WFS / NLight DM / MIICAM 未连接）
-> **说明**: 2026-10-29 设备在线多尺度整形会话的实测记录：lane 00–04 在 0.7 功率下完成，05–08 在激光功率升到 1.0 后从头重跑/新跑，13 起进行中（25 条编制）。**一次会话不跨功率**：0.7 的半成品全部归档，跨功率只读形态不读量级。200 px 解析初始化（0.7）：circle 15/15 有效、dCV −0.286/−0.126/−0.127 三档 supported；triangle 13/15、−0.161/−0.173 两档 supported；square 11/15 的 dCV +0.170/+0.165 **已撤回**——同一批帧换回闭环接受口径给 −0.025（符号相反），且同一 `panel_gray` 字节 55 s 内峰值 +57%、主瓣换位 63 px ⇒ 效应量上界 |dCV| ≲ 0.02，见 issue #217；star 5/15 仅一档 no_difference。600 px（1.0）：四形状审计 dCV = circle −0.318/−0.314/−0.313、square −0.619/−0.614/−0.636、triangle −0.348（仅一档可判）、star −0.044/−0.041/−0.045，均 supported；ee_rel 0.46–0.69，零级排除 0.031，饱和 0（triangle 6 行单行截断）。含审计工具缺陷（`clipped` 行被标注却仍进入分组均值）及其本轮修正；`core_peak/exposure` 被证明不是辐射率（同一天两条 lane 方向相反），报告只承认平场探针读数与 ≥6× 跳变。§5.5 逐组合字段台账：本轮 objective 以 `formation=False` 运行，`l_partition` / `l_boundary` 逐轮恒为 0.0，故形状覆盖 / 边界误差与 Zernike 增量三项**未测**（不是未报），结论只覆盖「更均匀 + 能量没丢」。配图由 `generate_multishape_nogs_20261029_figures.py` 渲染：CV 轨迹与逐段首末柱取自 `capture_records.pkl`（与 §5.2 表同源），冻结光阑审计图直接调用 `audit_block`/`summarise_block`（与 §5.1 表同源），帧图与 GIF 为 `common_replay/*.npz` 的判据帧。
+> **说明**: 2026-10-29 设备在线多尺度整形会话的实测记录：lane 00–04 在 0.7 功率下完成，05–08 在激光功率升到 1.0 后从头重跑/新跑，13–15 已完成、16 因 SLM 陈旧句柄（错误码 −10003）失败待重跑，31–34 待跑（25 条编制）。**一次会话不跨功率**：0.7 的半成品全部归档，跨功率只读形态不读量级。200 px 解析初始化（0.7）：circle 15/15 有效、dCV −0.286/−0.126/−0.127 三档 supported；triangle 13/15、−0.161/−0.173 两档 supported；square 11/15 的 dCV +0.170/+0.165 **已撤回**——同一批帧换回闭环接受口径给 −0.025（符号相反），且同一 `panel_gray` 字节 55 s 内峰值 +57%、主瓣换位 63 px ⇒ 效应量上界 |dCV| ≲ 0.02，见 issue #217；star 5/15 仅一档 no_difference。600 px（1.0）：四形状审计 dCV = circle −0.318/−0.314/−0.313、square −0.619/−0.614/−0.636、triangle −0.348（仅一档可判）、star −0.044/−0.041/−0.045，均 supported；ee_rel 0.46–0.69，零级排除 0.031，饱和 0（triangle 6 行单行截断）。含审计工具缺陷（`clipped` 行被标注却仍进入分组均值）及其本轮修正；`core_peak/exposure` 被证明不是辐射率（同一天两条 lane 方向相反），报告只承认平场探针读数与 ≥6× 跳变。§5.5 逐组合字段台账：本轮 objective 以 `formation=False` 运行，`l_partition` / `l_boundary` 逐轮恒为 0.0，故形状覆盖 / 边界误差与 Zernike 增量三项**未测**（不是未报），结论只覆盖「更均匀 + 能量没丢」。配图由 `generate_multishape_nogs_20261029_figures.py` 渲染：CV 轨迹与逐段首末柱取自 `capture_records.pkl`（与 §5.2 表同源），冻结光阑审计图直接调用 `audit_block`/`summarise_block`（与 §5.1 表同源），帧图与 GIF 为 `common_replay/*.npz` 的判据帧。
 <!-- provenance:end -->
 
 > 本文是**当次设备会话的运行记录**（`lane 00–05` 实际执行、`06–24` 未开始）。
@@ -373,7 +374,7 @@ circle 的 `dCV` 结论来自 §5.1 的冻结光阑重放，不是这两列。
 | 相位来源 | 有 | `plan.initial_phase` = `backprojection`；各阶段 `manifest.json` 的 `phase` / `seed_run` | — |
 | 模型检查点 | 有 | journal `model` 阶段 `status=reused` → `p20261029` | — |
 | 精确时间戳 | 有 | journal `timestamp_utc` + 每块 `summary.json` 的 `timestamp_utc` / `monotonic_ns` | — |
-| 预测 vs 实测 | **部分** | `anchored` 模式逐轮用预测强度做锚定（`iterations.pkl` 的 `terms['mode']`），但**差值标量未落盘** | 只能离线用 `forward.predict(phase)` 与同相位捕获帧复算 |
+| 预测 vs 实测 | **有**（lane 05 起） | `shape/<shape>/<stage>/summary.json` 每块的 `jacobian`：`correlation` / `relative_l2` / `predicted_rms` / `measured_rms` / `verdict` / `cap_next`；详见 §5.6 | lane 01–04 早于 3a 入库，没有这个字段 |
 | 形状覆盖 | **无** | — | objective 走 `cv` 变体（`--objective cv` ⇒ `cv_only=True`）：抽查 `circle/mono12_cv` 第 0 轮，`l_partition` / `l_boundary` / `l_peripheral` / `l_floor` **全为 0.0**，即本轮根本没计算这些项 |
 | 边界误差 | **无** | — | 同上（`l_boundary`） |
 | Zernike 增量 | **无** | — | 相位是控制网格上的**像素级全图**，没有 Zernike 参数化，增量无从定义 |
@@ -391,8 +392,117 @@ circle 的 `dCV` 结论来自 §5.1 的冻结光阑重放，不是这两列。
    组成与 `cv` 变体不同，其结果不得与 `cv` 变体的 dCV 混读，须单独成组并单列。
 2. **Zernike 增量** = 每阶段结束时把相位按 Noll 序拟合一次（canonical：
    `utils/wavefront/zernike_calc`），存进阶段摘要。
-3. **预测-实测差** = 每块记录 `forward.predict(phase)` 与同相位实测帧的标量差
-   （前向已可用：`scripts/slm/_bench_frozen_forward.py`）。
+3. **预测-实测差** —— lane 05 起已经逐块落盘（§5.6）：`summary.json` 的 `jacobian`
+   字段就是「模型预测差分 vs 实测差分」的相关性与相对 L2，不必再离线复算。剩下的问题
+   不是「没测」，而是**这个读数在测什么还没分离**（issue #218）。
+
+### 5.6 预测 vs 实测：3a 逐块方向校验（lane 05–08，192 块里的 96 块）
+
+3a 的设计是「每块用已有的 `A1`/`B` 两张帧做一次免费的成对探针」：模型预测
+`pred(candidate) − pred(best)`，实验系统实测 `B − A1`，两者做 Pearson 相关。数据在
+`shape/<shape>/<stage>/summary.json`（**JSON 列表**，每块一个 `jacobian` 字典），
+**不在** `records/process.h5` 的 scalars 里 —— 此前一直没被引用就是因为查错了地方。
+
+| 形状 | 有 `jacobian` 的块 | `correlation` 中位（各阶段） | `relative_l2` 中位 | verdict |
+|---|---|---|---|---|
+| circle | 24（12+8+4） | −0.013 / −0.008 / +0.023 | 1.40 – 1.42 | 24/24 `contradict` |
+| square | 24 | +0.010 / +0.021 / −0.002 | 1.40 – 1.42 | 24/24 `contradict` |
+| triangle | 24 | +0.028 / +0.050 / +0.032 | 1.38 – 1.39 | 24/24 `contradict` |
+| star | 24 | +0.018 / +0.006 / +0.019 | 1.40 – 1.41 | 24/24 `contradict` |
+
+`relative_l2` 恒在 1.40–1.42（逐块范围 1.355–1.447，96 块），而 √2 = 1.4142：这不是
+「方向偏了一点」，是**两个差分向量几乎正交**。`correlation` 逐块 |·| ≤ **0.083**，
+其中 86/96 块落在 ±0.05 内、96/96 落在 ±0.10 内。
+
+![3a 逐块方向校验](figures/jacobian_direction_s600_power1p0_20261029.png)
+
+> **图 8** 上表四形状、96 块的逐块读数（生成器
+> `scripts/slm/generate_multishape_jacobian_figure.py`，数据就是 `summary.json` 的
+> `jacobian` 字段）。(a) `correlation` 全部贴在 0 附近，灰带是报告判为「无信息」的
+> ±0.05；(b) `relative_l2` 的分布压在 √2 上；(c) `cap_next` 从 0.1 一路减半到地板
+> 0.02 的逐步证据；(d) 同一批块的 `measured_rms` 与 3 帧均值噪声底
+> （0.00163）对比 —— **差分在噪声之上 4.6–20 倍**，所以不是「测不到」。
+
+#### 先排除了三种「假信号」解释
+
+在同一个 stage（`s600/circle` → `mono12_cv`，8 块）上直接量：
+
+| 解释 | 检验 | 结果 |
+|---|---|---|
+| 差分只是相机噪声 | 同相位三次读数（`circle_<n>_exposure_read_00{1,2,3}.npy`）的逐像素 sd ÷ √3 ÷ (`exposure_ms`·`counts_scale`)，与 `validate.py` 构造 `measured_candidate` 同一口径 | 噪声底 **0.00160–0.00166**；实测差分 RMS 中位 **0.01050**（最低 0.00772，最高 0.03146）⇒ **SNR ≈ 4.6–6.3**，差分在噪声之上 |
+| 差分是 A1/B 的增益/曝光不匹配 | `corr(B − A1, A1)`（纯增益误差应 ≈ +1）；两次曝光是否相同 | 曝光完全相同（51.80 ms → 51.80 ms）；`corr` 只有 **−0.152 / −0.056 / −0.134 / −0.063** ⇒ 不是把光束轮廓缩放了 |
+| 差分是散斑（高频），模型是平滑的 | 差分与锚定帧各自的径向功率谱 | 差分功率 **28–57% 落在 <0.02 cycles/px**、31–35% 落在 0.02–0.05（锚定帧 85–87% 落 <0.02）⇒ 差分也是**平滑**的，不是散斑 |
+
+三条都排除后，剩下两种可能，**本轮无法分离**：
+
+1. 冻结的物理预测模型在这一步（`phase_rms_cap` 0.02–0.025 rad rms）上给出的空间形态
+   与实验系统响应无关；
+2. 比较口径本身有问题 —— `forward.predict()` 的输出网格与控制网格 `xy` 的取向/转置/
+   归一化不一致，于是两个**都平滑但形状不同**的图逐像素相关为 0。
+
+**倾向哪一边？数据整齐得不像物理。** 96 块、四种形状、三条阶段配方，`corr` 一律
+|·| ≤ 0.083、`relative_l2` 一律压在 √2 上 —— 真实的模型误差通常随形状、步长、区块位置变化。
+但也正因如此，**不能**把 `contradict` 读成「模型方向被实验系统否定」。本报告只承认：
+这个读数**当前没有信息量**。已开 issue [#218](https://github.com/ywzhang909/AO-shaping/issues/218)
+（含「先证伪第 2 条」的单测建议）。
+
+#### 它确实改变了实验条件：步长被按到地板
+
+`TrustRegionSchedule` 在每个 `contradict` 块把 `phase_rms_cap` 减半，而 `--phase-rms-cap`
+的 CLI 默认是 0.2：
+
+| 块 | `cap_next` | `correlation` | `accepted` |
+|---|---|---|---|
+| 0 | 0.1 | +0.032 | True |
+| 1 | 0.05 | −0.010 | True |
+| 2 | 0.025 | −0.005 | True |
+| 3 | **0.02（地板）** | −0.022 | True |
+| 4–7 | 0.02 | −0.017 / −0.004 / +0.006 / −0.015 | True |
+
+即：**lane 05 之后的每条 lane 从第 3 块起都在用默认值 1/10 的步长**，原因是一个尚无
+信息量的读数。读 §5.2 / §5.3 的轨迹时要把这条算进去 —— 后段变慢未必是 objective 收敛，
+可能是步长被 3a 按住（`phase_lr` 全程恒为 0.025，与 cap 是两回事）。
+
+`DEFAULT_MIN_SIGNAL = 2e-3` 同样偏松：按同一口径，本会话的**相对**噪声底是
+`0.00166 / mean|A1| ≈ 0.00166 / 0.052 ≈ 0.032`，比默认门限松约 16 倍，所以
+`insufficient_signal` 这个分支实际上永远不会触发 —— 「测不出来」被当成了「模型错了」。
+
+### 5.7 `strict_cold_s200`（1.0 功率，lane 13–16）：冷启动一条 `supported` 都没有
+
+严格冷启动 = 初相位是平面/随机（既没有 GS 也没有解析初始化），lane 13–16 在 200 px
+上逐形状重放（`common_replay`：同一形状 `final` 采 4 次 + `seed` 采 1 次，逐曝光档单独配对）：
+
+| 形状 | 曝光档 | 组内 `cv`（sd） | `dCV`（seed → final） | 判定 | `ee_rel` | 零级排除 |
+|---|---|---|---|---|---|---|
+| circle（13） | 5.352 ms | 0.9248（0.2019） | **−0.3971** | `energy_lost_with_cv` ⇒ **不支持** | 0.2491 | 0.272 |
+| | 10.705 ms | 0.9314（0.1949） | **−0.3732** | 同上 | 0.2577 | 0.272 |
+| | 16.056 ms | 0.9270（0.1954） | **−0.3699** | 同上 | 0.2571 | 0.272 |
+| square（14） | 7.622 ms | 0.8024（0.0949） | **+0.2150** | `wrong_direction` | 0.2404 | 0.272 |
+| | 15.245 ms | 0.7993（0.0910） | **+0.2070** | `wrong_direction` | 0.2421 | 0.272 |
+| | 22.867 ms | 0.7951（0.0890） | **+0.1986** | `wrong_direction` | 0.2419 | 0.272 |
+| triangle（15） | 10.706 ms | 0.7432（0.0366） | −0.0016 | `no_difference` | 0.2509 | 0.272 |
+| | 21.412 ms | 0.7394（0.0416） | −0.0032 | `no_difference` | 0.2508 | 0.272 |
+| | 32.116 ms | 0.7448（0.0493） | —（该档只有 `final`，无 seed 行） | — | 0.2585 | 0.272 |
+| star（16） | — | — | — | **lane 失败，无数据**（§6） | — | — |
+
+三点读法：
+
+1. **circle 的 −0.40 不能读成「冷启动有效」。** CV 掉得很大，但 `ee_rel` 同时在掉，
+   口径判 `energy_lost_with_cv`：核心确实更均匀了，代价是能量离开了核心 —— 按 §9.5
+   的规则，这在 CV 单值口径下**不是**改善。要判它到底算不算更好，得先有形状覆盖/边界
+   误差或绝对效率口径（§5.5 的缺口正卡在这里）。
+2. **square 在这里是反向的，且这是 1.0 功率内部的一致结论**：三档 `+0.215 / +0.207 /
+   +0.199`，重复离散只有 ±0.005–0.007，符号与 §8 第 2 条记录的 0.7 功率那次同向。
+   ⚠️ **只读符号，不读量级**：跨功率的两个数不可比（§9.5），而且 §8 第 2 条已经判定
+   0.7 那次 `+0.17` 的**量级不可复现**并被撤回。这里能说的只有：在 1.0 功率、三次
+   同曝光重放上，冷启动进入正方形目标时闭环**稳定地**把它做得更不均匀。
+3. **triangle 落在重复离散之内**（±0.06 对 `dCV` −0.002），即「没动」，不是「变差」。
+
+> ⚠️ **这一节不能单独当作「严格冷启动不行」的证据。** lane 13–16 与 analytic 那批
+> 用的是同一个 3a（§5.6）：`cap_next` 同样在第 3 块落到地板 0.02，而冷启动是**最需要
+> 大步长**的路线（它的起点离解最远）。也就是说，「冷启动几乎动不了」既可能是冷启动
+> 本身的问题，也可能是被 3a 把步长按在地板上。两件事要用「关闭 3a（`--no-jacobian-guard`）
+> 重跑同一批」来分离 —— 这一条已并入 #218 的修法顺序。
 
 ## 6. 失败与修复
 
@@ -403,6 +513,7 @@ circle 的 `dCV` 结论来自 §5.1 的冻结光阑重放，不是这两列。
 | lane 02 seed-only 试跑被跳过 | resume 门按 `manifest.json` 存在与否判断，seed-only 试跑也写 manifest | `7d672959` 修：`blocks=0` 时同样写 manifest 并标记 |
 | 重放 ladder 跨尺寸共用 | ladder 按 1200 px 标定，200 px 首档即饱和 | `d0805383` 修：ladder 随 `side` 缩放 |
 | `audit_replay_blocks.py` 读不到 s200 目录 | 默认平铺布局，本次是 `<session>/<shape>/common_replay` | 传 `--session <session>/<shape>` |
+| **lane 16（`strict_cold_s200/star`）在 17:21:41 起动即失败**：`SantecError: 无法打开SLM #1 (错误码 -10003, USB设备已打开)`，之后 lane 31（1.0 的 `analytic_init_s200`）也在预检处被同样拒绝 | lane 15 刚在 17:21:41 结束、lane 16 在同一秒起动；设备锁自检报「SDK 报设备被占，但锁里没有任何活着的持有者」⇒ **控制器里的陈旧 USB 句柄**，不是并发占用（已核对：当时没有任何存活的 SQL/SLM 相关进程） | 需给 SLM 控制器**物理断电数秒再上电**（驱动自己的提示，也是 `drivers/slm/AGENTS.md` 的处置）；star 的 lane 16 与 lane 31–34 **全部作废重跑**。lane 32 留下的半成品目录（只有 `plan`/`model`/`geometry`，无任何采集）已删除 |
 
 ## 7. 设备释放
 
@@ -435,15 +546,17 @@ circle 的 `dCV` 结论来自 §5.1 的冻结光阑重放，不是这两列。
 3. **star 只有一档可判**（`no_difference`，`ee_rel` 0.360 为四形状最高），另两档
    整组截断。星形目标需要形状特定的指标，CV 单值不够——而本轮恰恰没算形状项
    （§5.5），所以这一条只能记为"待测"。
-4. **600 px 的 circle 已在 1.0 功率重跑并完成重放审计**（§9）：审计口径
-   `cv` 0.8660 / 0.8646 / 0.8640（三档曝光互相只差 ≤0.002，比 0.7 功率时的
-   0.933/0.922/0.904 明显收敛），`dCV` −0.3176 / −0.3136 / −0.3133，`ee_rel`
-   0.525。1200 px 与全部 `strict_cold` lane 仍在跑，因此**两类初始化的对比问题
-   仍未回答**。
-5. **质量侧前两项**（3a 逐块 Jacobian 校验、1b 频域带限）代码已实现并通过单元
-   测试，尚无设备数据；1b 默认关闭、等实测 MTF。下一次实验按
-   `next_round_20261029.md` 的顺序跑，其中形状覆盖 / 边界误差、Zernike 增量、
-   预测-实测差三项需在下一轮按 §5.5 的补齐方式随每块落盘。
+4. **600 px 四形状已在 1.0 功率全部跑完（§5.3）**；circle 的重放审计给出 `cv`
+   0.8660 / 0.8646 / 0.8640（三档互相只差 ≤0.002，比 0.7 功率的 0.933/0.922/0.904
+   明显收敛），`dCV` −0.3176 / −0.3136 / −0.3133、`ee_rel` 0.525。**200 px 的
+   `strict_cold` 已跑 circle / square / triangle 三个形状（§5.7），star 的 lane 因
+   SLM 陈旧句柄失败（§6），等断电重置后重跑**；`analytic_init_s200` 的 1.0 重跑
+   （lane 31–34）同样待跑。因此**两类初始化的对比问题仍未回答** —— 但已经可以看出
+   它不是「谁`dCV` 更大」的问题，而是「冷启动连方向都稳不住」（§5.7）。
+5. **质量侧前两项**：3a 逐块 Jacobian 校验已有设备数据（§5.6，96 块，`contradict`
+   遍布且步长被按到地板 —— 读数是**无信息**的，已开 issue #218）；1b 频域带限仍
+   默认关闭、等实测 MTF。下一次实验按 `next_round_20261029.md` 的顺序跑，其中形状
+   覆盖 / 边界误差、Zernike 增量两项需在下一轮按 §5.5 的补齐方式随每块落盘。
 
 ### 8.1 佐证帧：审计到底比较了哪两张图
 
