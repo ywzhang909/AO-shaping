@@ -17,7 +17,7 @@
 > **数据/关联脚本**: [`scripts/slm/generate_multishape_s600_power1p0_figures.py`](../../../scripts/slm/generate_multishape_s600_power1p0_figures.py)
 > **数据/关联脚本**: [`scripts/slm/generate_multishape_jacobian_figure.py`](../../../scripts/slm/generate_multishape_jacobian_figure.py)
 > **运行环境**: 硬件（Santec #1 SLM + Daheng CCD；WFS / NLight DM / MIICAM 未连接）
-> **说明**: 2026-10-29 设备在线多尺度整形会话的实测记录：lane 00–04 在 0.7 功率下完成，05–08 在激光功率升到 1.0 后从头重跑/新跑，13–15 完成；16 首次失于 SLM 陈旧句柄（错误码 −10003），断电重置后重跑拿到 4/4 阶段，最后的 `common_replay` 在 18:35 激光停机处截断（12 个归档，无 `released.json`）；31–34 与 17–20 因停机从未启动（25 条编制的最终状态见 §3 / §9.6）。**一次会话不跨功率**：0.7 的半成品全部归档，跨功率只读形态不读量级。200 px 解析初始化（0.7）：circle 15/15 有效、dCV −0.286/−0.126/−0.127 三档 supported；triangle 13/15、−0.161/−0.173 两档 supported；square 11/15 的 dCV +0.170/+0.165 **已撤回**——同一批帧换回闭环接受口径给 −0.025（符号相反），且同一 `panel_gray` 字节 55 s 内峰值 +57%、主瓣换位 63 px ⇒ 效应量上界 |dCV| ≲ 0.02，见 issue #217；star 5/15 仅一档 no_difference。600 px（1.0）：四形状审计 dCV = circle −0.318/−0.314/−0.313、square −0.619/−0.614/−0.636、triangle −0.348（仅一档可判）、star −0.044/−0.041/−0.045，均 supported；ee_rel 0.46–0.69，零级排除 0.031，饱和 0（triangle 6 行单行截断）。含审计工具缺陷（`clipped` 行被标注却仍进入分组均值）及其本轮修正；`core_peak/exposure` 被证明不是辐射率（同一天两条 lane 方向相反），报告只承认平场探针读数与 ≥6× 跳变。§5.5 逐组合字段台账：本轮 objective 以 `formation=False` 运行，`l_partition` / `l_boundary` 逐轮恒为 0.0，故闭环**没有**优化形状项；形状覆盖 / 边界误差已在 §5.8 用同一批归档帧**离线复算**补上（`scripts/slm/audit_shape_agreement.py` 流式产出 `artifacts/shape_agreement_20261029.jsonl`，222 帧 / 12 会话：所有组合的 `filled_fraction` ≤ 10.7%，且两条 CV 改善最大的会话（600 px circle / square）填充反而降到原来的 1/6–1/8 ⇒ 结论仍只覆盖「更均匀 + 能量没丢」，且现在有「没长成目标形状」的量化上界）；Zernike 增量本轮**仍是空白**。图 10（lane 16 四段逐帧 `cv` / 曝光，68 帧）由 `scripts/slm/plot_session_process_traces.py` 从各段 `recording/process.csv` 渲染，数值先落 `artifacts/star_stage_traces_20261029.json`：它证的是「四段都跑了、每帧可追」，不是「变好了」（段内首末差不作收益判据）。配图由 `generate_multishape_nogs_20261029_figures.py` 渲染：CV 轨迹与逐段首末柱取自 `capture_records.pkl`（与 §5.2 表同源），冻结光阑审计图直接调用 `audit_block`/`summarise_block`（与 §5.1 表同源），帧图与 GIF 为 `common_replay/*.npz` 的判据帧。
+> **说明**: 2026-10-29 设备在线多尺度整形会话的实测记录：lane 00–04 在 0.7 功率下完成，05–08 在激光功率升到 1.0 后从头重跑/新跑，13–15 完成；16 首次失于 SLM 陈旧句柄（错误码 −10003），断电重置后重跑拿到 4/4 阶段，最后的 `common_replay` 在 18:35 激光停机处截断（12 个归档，无 `released.json`）；31–34 与 17–20 因停机从未启动（25 条编制的最终状态见 §3 / §9.6）。**一次会话不跨功率**：0.7 的半成品全部归档，跨功率只读形态不读量级。200 px 解析初始化（0.7）：circle 15/15 有效、dCV −0.286/−0.126/−0.127 三档 supported；triangle 13/15、−0.161/−0.173 两档 supported；square 11/15 的 dCV +0.170/+0.165 **已撤回**——同一批帧换回闭环接受口径给 −0.025（符号相反），且同一 `panel_gray` 字节 55 s 内峰值 +57%、主瓣换位 63 px ⇒ 效应量上界 |dCV| ≲ 0.02，见 issue #217；star 5/15 仅一档 no_difference。600 px（1.0）：四形状审计 dCV = circle −0.318/−0.314/−0.313、square −0.619/−0.614/−0.636、triangle −0.348（仅一档可判）、star −0.044/−0.041/−0.045，均 supported；ee_rel 0.46–0.69，零级排除 0.031，饱和 0（triangle 6 行单行截断）。含审计工具缺陷（`clipped` 行被标注却仍进入分组均值）及其本轮修正；`core_peak/exposure` 被证明不是辐射率（同一天两条 lane 方向相反），报告只承认平场探针读数与 ≥6× 跳变。§5.5 逐组合字段台账：本轮 objective 以 `formation=False` 运行，`l_partition` / `l_boundary` 逐轮恒为 0.0，故闭环**没有**优化形状项；形状覆盖 / 边界误差已在 §5.8 用同一批归档帧**离线复算**补上（`scripts/slm/audit_shape_agreement.py` 流式产出 `artifacts/shape_agreement_20261029.jsonl`，222 帧 / 12 会话：所有组合的 `filled_fraction` ≤ 10.7%，且两条 CV 改善最大的会话（600 px circle / square）填充反而降到原来的 1/6–1/8 ⇒ 结论仍只覆盖「更均匀 + 能量没丢」，且现在有「没长成目标形状」的量化上界）；Zernike 增量本轮**仍是空白**。图 9（lane 16 四段逐帧 `cv` / 曝光，68 帧）由 `scripts/slm/plot_session_process_traces.py` 从各段 `recording/process.csv` 渲染，数值先落 `artifacts/star_stage_traces_20261029.json`：它证的是「四段都跑了、每帧可追」，不是「变好了」（段内首末差不作收益判据）。配图由 `generate_multishape_nogs_20261029_figures.py` 渲染：CV 轨迹与逐段首末柱取自 `capture_records.pkl`（与 §5.2 表同源），冻结光阑审计图直接调用 `audit_block`/`summarise_block`（与 §5.1 表同源），帧图与 GIF 为 `common_replay/*.npz` 的判据帧。
 <!-- provenance:end -->
 
 > 本文是**当次设备会话的运行记录**（`lane 00–05` 实际执行、`06–24` 未开始）。
@@ -531,13 +531,13 @@ circle 的 `dCV` 结论来自 §5.1 的冻结光阑重放，不是这两列。
 > 本身的问题，也可能是被 3a 把步长按在地板上。两件事要用「关闭 3a（`--no-jacobian-guard`）
 > 重跑同一批」来分离 —— 这一条已并入 #218 的修法顺序。
 
-#### 图 10：lane 16 重跑的四段逐帧记录（「跑完四段」的证据，不是「变好」的证据）
+#### 图 9：lane 16 重跑的四段逐帧记录（「跑完四段」的证据，不是「变好」的证据）
 
 ![star 盲跑四段逐帧记录](figures/star_stage_traces_20261029.png)
 
 lane 16 在 17:27 那次失败后于 18:17 重跑，四段各自留下了 Recorder 记录
 （`shape/star/<stage>/recording/`：`process.csv` + `process.h5` + `process.gif`，
-GIF 1.3–4.4 MB / HDF5 28–99 MB，均在停机前写完）。图 10 由
+GIF 1.3–4.4 MB / HDF5 28–99 MB，均在停机前写完）。图 9 由
 `scripts/slm/plot_session_process_traces.py` 从四份 `process.csv` 直接渲染，
 数值**先**落 `artifacts/star_stage_traces_20261029.json` 再画图：
 
@@ -572,7 +572,7 @@ GIF 1.3–4.4 MB / HDF5 28–99 MB，均在停机前写完）。图 10 由
 于是这两项是对已有数据的离线复算：同一帧、同一掩膜、同一实现，没有第二份真相。
 脚本 `scripts/slm/audit_shape_agreement.py`（`--jsonl` 逐块流式落盘 + `--resume`，
 被中断不丢已算完的块）→ `artifacts/shape_agreement_20261029.jsonl`（15 个重放块 /
-222 帧）；图 9 与下面这张表由 `scripts/slm/generate_multishape_shape_figure.py`
+222 帧）；图 10 与下面这张表由 `scripts/slm/generate_multishape_shape_figure.py`
 从该 jsonl 一次渲染（`--jsonl` 输入，不再读 npz；`--markdown` 写出
 `artifacts/shape_table_20261029.txt`，报告里的表就是它）。
 
@@ -613,7 +613,7 @@ GIF 1.3–4.4 MB / HDF5 28–99 MB，均在停机前写完）。图 10 由
 
 ![目标填充 vs 掩膜内 CV](figures/shape_filling_20261029.png)
 
-> **图 9** 上表的配对形态（`scripts/slm/generate_multishape_shape_figure.py`，12 个会话）：
+> **图 10** 上表的配对形态（`scripts/slm/generate_multishape_shape_figure.py`，12 个会话）：
 > 空心点 = `seed`、实心点 = 该次重放的 `final`，颜色按形状。(a) `filled_fraction`（对数轴）
 > ——**全部落在 0.002–0.107 之间**；(b) 同一批帧的 `inside_cv` —— 7/12 条左移，但每条
 > 位移的绝对量（0.007–0.041）比 CV（0.05–0.39）小一个量级。

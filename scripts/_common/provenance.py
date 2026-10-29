@@ -1181,7 +1181,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "square）填充反而降到原来的 1/6–1/8 ⇒ 结论仍只覆盖"
             "「更均匀 + 能量没丢」，且现在有「没长成目标形状」的量化上界）；"
             "Zernike 增量本轮**仍是空白**。"
-            "图 10（lane 16 四段逐帧 `cv` / 曝光，68 帧）由 "
+            "图 9（lane 16 四段逐帧 `cv` / 曝光，68 帧）由 "
             "`scripts/slm/plot_session_process_traces.py` 从各段 `recording/process.csv` "
             "渲染，数值先落 `artifacts/star_stage_traces_20261029.json`：它证的是"
             "「四段都跑了、每帧可追」，不是「变好了」（段内首末差不作收益判据）。"
