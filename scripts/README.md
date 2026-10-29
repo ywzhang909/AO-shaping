@@ -3607,10 +3607,19 @@ python scripts/slm/probe_optical_path_validity.py \
 | `--defocus-exposure-ms` | 自动 | 离焦扫描用的曝光 (缺省 = 建议曝光) |
 | `--settle-s` | `0.5` | 每次改面板后的稳定等待 (s) |
 | `--out-root` | `data/debug/optical_path_probe` | 证据输出根目录 |
+| `--session` | 空 | 会话名 ⇒ 证据落 `<out-root>/<session>/<UTC戳>/`; 生成器用它把一次探测对到它门禁的那条 lane |
 | `--no-plot` | off | 不画图 |
 
 **退出码**: `0` = 判定 `ok`; `2` = 判定 `low_snr` 或 `no_response` —— 可以直接
 当上层门禁用。
+
+> ⚠️ **`low_snr` 有两种, 别混**: ①**曝光不足** (阶梯里光斑确实在涨, 只是没进 100–200
+> counts 的区间) ⇒ 按建议曝光重跑; ②**传感器上根本没有光** (2026-10-29 实测: 阶梯抬到
+> 1000 ms 峰值仍只有 12 counts, 而前一天 10 ms 是 204 counts; 平场 200 ms 的全帧总和
+> 9.7e6 counts 就是 1.9 counts/px 的平坦本底, 没有光斑)。第二种抬曝光永远救不回来, 必须回到光路。
+> 区分方法只需一次散射测试: 平场相位 (镜子, 直流光斑可能落在传感器外) 与**随机相位**
+> (把光散成满画幅光环, 与几何无关) 用同一曝光各取几帧, 比**全帧总和** —— 随机相位抬不
+> 起总和, 就是光没到相机。
 
 > 设备互斥: SLM 的 USB 句柄是独占的。探针开跑前复用
 > `run_hw_sweep_groups.py` 的 `probe_devices` / `classify_device_unavailable` /
@@ -3660,6 +3669,15 @@ lane (`lanes/NN_<session>.ps1`)。它只写文件、不开设备, `--check` 只�
 | **严格冷启动** 和 **解析初始化** 被并进同一张表, 于是解析初相位被读成「冷启动成功」 | 两条路线名字进 session 目录名, 不会共享 session 或输出目录 |
 | 没分配重复预算, 「提升」是单次测量 | 每条 lane 带 `plan_reference_blocks`, 并写明 `2/2**n` 的下限 (`--repeats 6` 才能到 p<0.05) |
 | 整个会话的前置门禁 (`probe_optical_path_validity.py`) 靠操作员记得 | 每条 lane 的第一行就是探针, 且 `if ($LASTEXITCODE -ne 0) { exit 1 }` |
+| 跨光功率复用一个拟合好的模型 (2026-10-29: 激光/衰减变了之后 `--model-dir` 照指旧会话) | lane 00 先**在当前实验系统上重拟合** (不带 `--model-dir`, 写的就是其它 lane 复用的那个目录); `plan.json` 的 `model_power_check` 写明必须先比较两边的 holdout 误差 |
+
+**lane 00 (refit) 不是可选的前戏** —— 拟合好的检查点带着**它被拟合时那台实验系统的
+辐射度量**: 曝光响应增益、本底、以及面板在那个光功率下的响应。跨一次激光/衰减变化去复用它,
+每个预测强度都被整体缩放, 而且**没有一处会报错**: 闭环只是开始追一个不再描述实验系统的模型。
+所以复用被做成**有前提的**: lane 00 用 from-zero 分支 (`--model-dir` 缺省) 在**当前**实验系统上
+拟合一次并写下其它 lane 指向的那个目录, 顺带把一个形状跑完四段, 让会话至少有一个不来自
+旧功率的锚点。`validate_plan` 会拒绝「有 lane 复用模型但没有 refit lane」「refit 不在第一位」
+「refit 写错目录」「refit 自己带 `--model-dir`」这几种计划。
 
 **两条路线, 永不合并**:
 
@@ -3687,8 +3705,10 @@ lane (`lanes/NN_<session>.ps1`)。它只写文件、不开设备, `--check` 只�
 
 ```bash
 python scripts/slm/plan_multishape_campaign.py --check                 # 只校验, 逐条打印 PROBLEM
-python scripts/slm/plan_multishape_campaign.py                          # 写 plan.json + 24 lanes
+python scripts/slm/plan_multishape_campaign.py                          # 写 plan.json + 25 lanes (含 refit)
 python scripts/slm/plan_multishape_campaign.py --sizes 600 --routes strict_cold
+python scripts/slm/plan_multishape_campaign.py --model-session p20261029 \
+    --power-note "laser output changed since s1200"
 ```
 
 > ⚠️ click 的 `--replay-exposures` 是 `multiple=True`: 一条命令里写

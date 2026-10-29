@@ -38,12 +38,25 @@ Both may consume the same **fitted model**; the model is not the initial phase.
 Every emitted lane names its route in ``--initial-phase`` and in the plan, so a
 report cannot pool them without saying so.
 
+The reuse of that model is conditional
+--------------------------------------
+
+A checkpoint carries the radiometry of the bench it was fitted on (exposure
+response gain, background, the panel's response at that optical power), so
+reusing one across a laser or attenuator change rescales every predicted
+intensity while nothing fails loudly. Lane 00 therefore *fits the model on the
+current bench* (it omits ``--model-dir`` and writes the directory lanes 01+ point
+at), and ``model_power_check`` in the plan records what must be compared before
+an old-power number is quoted as a baseline. ``--no-refit`` exists only for the
+case where the model dir was fitted in this same bench session.
+
 Usage
 -----
 
     python scripts/slm/plan_multishape_campaign.py                    # write plan.json + lanes
     python scripts/slm/plan_multishape_campaign.py --check            # validate only
     python scripts/slm/plan_multishape_campaign.py --session s600 --sizes 600
+    python scripts/slm/plan_multishape_campaign.py --power-note "laser output changed since s1200"
 """
 from __future__ import annotations
 
@@ -93,6 +106,43 @@ REQUIRED_AUDIT = ("zero_excluded_fraction", "saturated_fraction", "phase_provena
 DEFAULT_MINUTES_PER_BLOCK = 0.4  # measured: ~4 captures x ~6 s with settle
 
 
+def plan_refit_lane(*, sizes: list[int], shapes: list[str], model_session: str,
+                    campaign_dir: Path) -> dict:
+    """Lane 00: fit the model on the *current* bench before any lane reuses one.
+
+    A fitted checkpoint carries the radiometry of the bench it was fitted on --
+    exposure response gain, background and the panel's response at that optical
+    power. Reusing a checkpoint across a laser or attenuator change silently
+    rescales every predicted intensity, and nothing in the reused run fails
+    loudly: the shaping loop just chases a model that no longer describes the
+    bench. So the reuse is made conditional on a fit at the current power,
+    written into the same directory the other lanes point ``--model-dir`` at
+    (which is why this lane omits ``--model-dir`` and thereby takes the
+    from-zero branch).
+
+    The lane also drags one shape through the four stages at the current power,
+    so the session ends with at least one anchor that is *not* a replay of an
+    old-power number.
+    """
+    size = max(sizes)
+    return dict(
+        session=f"{model_session}_refit",
+        size=size,
+        shape=shapes[0],
+        route="refit",
+        model_session=None,
+        reuse_session=model_session,
+        out=str(Path(campaign_dir) / model_session),
+        window_span=SIZE_WINDOWS.get(size),
+        initial_phase=ROUTES["strict_cold"]["initial_phase"],
+        gs_calls_allowed=0,
+        description=("fit the physical model on the current bench (no --model-dir); "
+                     "lanes 01+ reuse this directory"),
+        required_results=dict(REQUIRED_RESULTS),
+        required_audit=list(REQUIRED_AUDIT),
+    )
+
+
 def plan_conditions(*, sizes: list[int], shapes: list[str], route: str,
                     model_session: str, campaign_dir: Path) -> list[dict]:
     """One lane per (size, shape): the same recipe, separated by size.
@@ -137,7 +187,11 @@ def render_lane(lane: dict, *, frames: int, replay_exposures: list[float]) -> li
         "--shapes", lane["shape"],
         "--side", str(lane["size"]),
         "--window-span", str(lane["window_span"]),
-        "--model-dir", f'<campaign>/{lane["model_session"]}',
+        # No model dir = the from-zero branch. That is the whole point of the
+        # refit lane: a lane that reuses a checkpoint must be preceded by a fit
+        # on the current bench, or the reuse is silent.
+        *(["--model-dir", f'<campaign>/{lane["model_session"]}']
+          if lane.get("model_session") else []),
         "--initial-phase", lane["initial_phase"],
         "--no-gs-seed",
         *replay,
@@ -151,18 +205,25 @@ def render_lane(lane: dict, *, frames: int, replay_exposures: list[float]) -> li
 
 def build_plan(*, sizes: list[int], shapes: list[str], routes: list[str],
                model_session: str, campaign_dir: Path, frames: int,
-               replay_exposures: list[float], repeats: int) -> dict:
+               replay_exposures: list[float], repeats: int,
+               power_note: str = "") -> dict:
     """The whole campaign: lanes, ordering, repeat budget and phase provenance."""
-    lanes = []
+    lanes = [plan_refit_lane(sizes=sizes, shapes=shapes, model_session=model_session,
+                             campaign_dir=campaign_dir)]
     for route in routes:
         lanes.extend(plan_conditions(sizes=sizes, shapes=shapes, route=route,
                                      model_session=model_session, campaign_dir=campaign_dir))
+    # The refit lane stays at index 0 no matter how the rest sorts: every other
+    # lane's ``--model-dir`` points at the directory it writes.
+    ordered = [lanes[0]]
+    rest = lanes[1:]
     # Stage-major, size-major: every lane of one size and one route runs back to
     # back so the camera window and the exposure land once, and a mid-campaign
     # abort costs the rest of that size rather than scattering half-finished work
     # across three windows.
-    lanes.sort(key=lambda lane: (lane["route"], lane["size"], shapes.index(lane["shape"])))
-    for index, lane in enumerate(lanes):
+    rest.sort(key=lambda lane: (lane["route"], lane["size"], shapes.index(lane["shape"])))
+    ordered.extend(rest)
+    for index, lane in enumerate(ordered):
         lane["order_index"] = index
         lane["commands"] = render_lane(lane, frames=frames, replay_exposures=replay_exposures)
         lane["plan_reference_blocks"] = plan_reference_blocks(
@@ -175,6 +236,22 @@ def build_plan(*, sizes: list[int], shapes: list[str], routes: list[str],
         replay_exposures=list(replay_exposures), repeats_per_condition=repeats,
         required_results=dict(REQUIRED_RESULTS),
         required_audit=list(REQUIRED_AUDIT),
+        model_power_check=dict(
+            refit_lane=ordered[0]["session"],
+            reuse_session=model_session,
+            note=power_note or (
+                "state what changed on the bench (laser power, attenuator, coupling) "
+                "and whether the reused checkpoint was fitted before or after it"),
+            compare=[
+                "fit/result.json holdout error of the refit dir vs the reused dir, "
+                "on the same held-out phases",
+                "the preflight's recommended exposure vs the exposure the reused capture was taken at",
+            ],
+            rule=("lanes 01+ may only cite the reused checkpoint once the refit's holdout "
+                  "error on the current bench is compared with it; if the refit wins, the "
+                  "campaign's model is the refit and every old-power number is a different "
+                  "optical power, not a baseline"),
+        ),
         phases=dict(
             offline_first=[
                 "python scripts/slm/audit_replay_blocks.py --session <previous> --json <out>",
@@ -189,7 +266,7 @@ def build_plan(*, sizes: list[int], shapes: list[str], routes: list[str],
                 "python scripts/slm/audit_replay_blocks.py --session <new> --json <out>",
                 "compare only within one (exposure, bit depth, shape, route) condition",
             ]),
-        lanes=lanes)
+        lanes=ordered)
 
 
 def validate_plan(plan: dict) -> list[str]:
@@ -197,17 +274,19 @@ def validate_plan(plan: dict) -> list[str]:
 
     These are the mistakes that actually happened: a GS lane, a lane without the
     preflight, two routes pooled into one session name, a missing repeat budget,
-    and a missing result class.
+    and a missing result class. The last block is the 2026-10-29 one: a campaign
+    that reused a checkpoint fitted at a different optical power.
     """
     problems = []
     seen_sessions = set()
+    refit_lanes = [lane for lane in plan["lanes"] if lane.get("route") == "refit"]
     for lane in plan["lanes"]:
         if lane["session"] in seen_sessions:
             problems.append(f'duplicate session name {lane["session"]}')
         seen_sessions.add(lane["session"])
         if lane["gs_calls_allowed"] != 0 or "gs" in lane["initial_phase"].split("_"):
             problems.append(f'{lane["session"]}: a no-GS campaign lane may not use GS')
-        if lane["route"] not in plan["routes"]:
+        if lane.get("route") != "refit" and lane["route"] not in plan["routes"]:
             problems.append(f'{lane["session"]}: unknown route {lane["route"]}')
         if not lane["commands"] or PROBE not in lane["commands"][0]:
             problems.append(f'{lane["session"]}: preflight missing')
@@ -220,6 +299,27 @@ def validate_plan(plan: dict) -> list[str]:
                 "report an effect size, not a verdict")
         if lane["window_span"] is None:
             problems.append(f'{lane["session"]}: unknown target size {lane["size"]}')
+
+    # -- the model may not be reused across an optical-power change -----------
+    reused = [lane for lane in plan["lanes"] if lane.get("model_session")]
+    if len(refit_lanes) > 1:
+        problems.append(f'{len(refit_lanes)} refit lanes: exactly one model fit per campaign')
+    if refit_lanes:
+        refit = refit_lanes[0]
+        if refit["order_index"] != 0:
+            problems.append(f'{refit["session"]}: the refit must run first, it writes the model dir others reuse')
+        if "--model-dir" in " ".join(refit["commands"]):
+            problems.append(f'{refit["session"]}: the refit lane must not reuse a model dir')
+        expected = str(Path(plan["campaign_dir"]) / plan["model_session"])
+        if Path(refit["out"]) != Path(expected):
+            problems.append(f'{refit["session"]}: the refit must write {expected}, which is what lanes reuse')
+        if (plan.get("model_power_check") or {}).get("refit_lane") != refit["session"]:
+            problems.append("model_power_check does not name the refit lane")
+    elif reused:
+        problems.append("lanes reuse a model dir but no refit lane establishes it on the current bench")
+    for lane in reused:
+        if f'<campaign>/{plan["model_session"]}' not in " ".join(lane["commands"]):
+            problems.append(f'{lane["session"]}: --model-dir is not the campaign model session')
     return problems
 
 
@@ -237,13 +337,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--replay-exposures", type=float, nargs="+", default=[20.0, 50.0, 90.0])
     parser.add_argument("--repeats", type=int, default=6,
                         help="repeats per condition (6 = the fewest that can reach p<0.05)")
+    parser.add_argument("--power-note", default="",
+                        help="what changed on the bench since the reused model was fitted "
+                             "(recorded in the plan; the refit lane is the check, this is the memo)")
     parser.add_argument("--check", action="store_true", help="validate and print, write nothing")
     args = parser.parse_args(argv)
 
     plan = build_plan(sizes=args.sizes, shapes=args.shapes, routes=args.routes,
                       model_session=args.model_session, campaign_dir=args.campaign_dir,
                       frames=args.frames, replay_exposures=args.replay_exposures,
-                      repeats=args.repeats)
+                      repeats=args.repeats, power_note=args.power_note)
     problems = validate_plan(plan)
     text = json.dumps(plan, indent=2, ensure_ascii=False)
     if args.check:

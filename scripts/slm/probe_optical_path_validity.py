@@ -34,6 +34,10 @@ npz (原始帧)、``optical_path_probe.json`` (全部读数 + 判定 + 阈值 + 
 用法::
 
     python scripts/slm/probe_optical_path_validity.py --wait-until-idle 600
+    python scripts/slm/probe_optical_path_validity.py --session s200_circle --wait-until-idle 600
+
+``--session`` 只影响证据落盘位置 (``<out-root>/<session>/<UTC戳>/``): 生成器的每条
+lane 都带它, 于是「这次探测门禁的是哪条 lane」在目录名上就能对出来。
 """
 
 from __future__ import annotations
@@ -1039,6 +1043,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="证据输出根目录",
     )
     parser.add_argument(
+        "--session",
+        default="",
+        help="会话名: 证据落到 <out-root>/<session>/<UTC戳>/, 便于把一次探测对到它门禁的那个 lane; "
+             "缺省 = 直接落 <out-root>/<UTC戳>/",
+    )
+    parser.add_argument(
         "--frames",
         type=int,
         default=2,
@@ -1099,7 +1109,8 @@ def run_probe(args: argparse.Namespace) -> int:
             raise SystemExit(f"曝光必须为正: {exposure}")
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%SZ")
-    out_dir = Path(args.out_root) / stamp
+    session = str(getattr(args, "session", "") or "").strip()
+    out_dir = Path(args.out_root) / session / stamp if session else Path(args.out_root) / stamp
     out_dir.mkdir(parents=True, exist_ok=True)
 
     config = ProbeConfig(

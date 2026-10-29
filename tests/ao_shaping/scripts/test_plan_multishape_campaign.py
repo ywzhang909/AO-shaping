@@ -43,14 +43,15 @@ def _plan(**overrides) -> dict:
 
 def test_the_two_routes_never_share_a_session_or_a_directory():
     plan = _plan()
+    riding = [lane for lane in plan["lanes"] if lane["route"] != "refit"]
     sessions = [lane["session"] for lane in plan["lanes"]]
-    assert len(sessions) == len(set(sessions)) == 8
+    assert len(sessions) == len(set(sessions)) == 9  # 8 route lanes + the refit lane
     outs = [lane["out"] for lane in plan["lanes"]]
     assert len(outs) == len(set(outs))
     # The route is visible in the session name, so a report table cannot pool the
     # two by accident.
-    assert {lane["route"] for lane in plan["lanes"]} == {"strict_cold", "analytic_init"}
-    for lane in plan["lanes"]:
+    assert {lane["route"] for lane in riding} == {"strict_cold", "analytic_init"}
+    for lane in riding:
         assert lane["route"] in lane["session"]
 
 
@@ -63,6 +64,8 @@ def test_strict_cold_uses_only_an_uninformed_initial_phase():
 def test_analytic_route_still_spends_no_gs_call():
     plan = _plan(routes=["analytic_init"])
     for lane in plan["lanes"]:
+        if lane["route"] == "refit":
+            continue  # lane 00 uses the cold route's phase; it is not an analytic lane
         assert lane["initial_phase"] == "backprojection"
         assert lane["gs_calls_allowed"] == 0
         assert "--no-gs-seed" in lane["commands"][-1]
@@ -105,10 +108,61 @@ def test_window_span_follows_the_target_size():
 
 def test_lanes_run_route_then_size_then_shape():
     plan = _plan()
+    assert plan["lanes"][0]["route"] == "refit"
+    riding = plan["lanes"][1:]
     order = [(lane["route"], lane["size"], plan["shapes"].index(lane["shape"]))
-             for lane in plan["lanes"]]
+             for lane in riding]
     assert order == sorted(order)
     assert [lane["order_index"] for lane in plan["lanes"]] == list(range(len(plan["lanes"])))
+
+
+# -- the model may not be reused across an optical-power change -------------
+
+def test_a_refit_lane_always_precedes_the_lanes_that_reuse_a_model():
+    plan = _plan()
+    refit, *rest = plan["lanes"]
+    assert refit["order_index"] == 0
+    assert refit["session"] == "s1200_refit"
+    # The refit is the only lane without --model-dir: it *produces* the model.
+    assert "--model-dir" not in " ".join(refit["commands"])
+    for lane in rest:
+        assert "--model-dir" in lane["commands"][-1]
+        assert "<campaign>/s1200" in lane["commands"][-1]
+
+
+def test_the_refit_writes_the_directory_the_other_lanes_reuse():
+    plan = _plan()
+    refit = plan["lanes"][0]
+    assert Path(refit["out"]) == Path(plan["campaign_dir"]) / plan["model_session"]
+    assert plan["model_power_check"]["refit_lane"] == refit["session"]
+    assert plan["model_power_check"]["reuse_session"] == plan["model_session"]
+    assert plan["model_power_check"]["rule"]
+
+
+def test_a_plan_that_reuses_a_model_without_a_refit_is_rejected():
+    plan = _plan()
+    plan["lanes"] = [lane for lane in plan["lanes"] if lane["route"] != "refit"]
+    for index, lane in enumerate(plan["lanes"]):
+        lane["order_index"] = index
+    problems = planner.validate_plan(plan)
+    assert any("no refit lane" in problem for problem in problems)
+
+
+def test_a_refit_that_is_not_first_or_wrongly_placed_is_rejected():
+    plan = _plan()
+    plan["lanes"][0]["order_index"] = 3          # something else would run first
+    plan["lanes"][0]["out"] = "/tmp/elsewhere"   # lanes would reuse an empty dir
+    problems = planner.validate_plan(plan)
+    assert any("must run first" in problem for problem in problems)
+    assert any("must write" in problem for problem in problems)
+
+
+def test_the_refit_lane_may_not_itself_reuse_a_model():
+    plan = _plan()
+    refit = plan["lanes"][0]
+    refit["commands"][-1] += " --model-dir /tmp/somewhere"
+    problems = planner.validate_plan(plan)
+    assert any("must not reuse a model dir" in problem for problem in problems)
 
 
 # -- repeat budget ---------------------------------------------------------
@@ -166,11 +220,14 @@ def test_write_mode_emits_plan_and_one_lane_per_condition(tmp_path):
     assert planner.main(["--campaign-dir", str(campaign), "--sizes", "600",
                          "--shapes", "circle", "square"]) == 0
     plan = json.loads((campaign / "plan.json").read_text(encoding="utf-8"))
-    assert len(plan["lanes"]) == 4  # 2 routes x 1 size x 2 shapes
+    assert len(plan["lanes"]) == 5  # refit lane + 2 routes x 1 size x 2 shapes
     lanes = sorted((campaign / "lanes").glob("*.ps1"))
-    assert len(lanes) == 4
+    assert len(lanes) == 5
+    assert lanes[0].name.startswith("00_")
+    assert "refit" in lanes[0].name
     body = lanes[0].read_text(encoding="utf-8")
     assert planner.PROBE in body and "--no-gs-seed" in body
+    assert "--model-dir" not in body
 
 
 def test_check_mode_exits_nonzero_on_a_bad_budget(tmp_path):
