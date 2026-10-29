@@ -9,7 +9,7 @@
 > **数据/关联脚本**: [`src/ao_shaping/runners/slm/transfer_shapes_runner.py`](../../../src/ao_shaping/runners/slm/transfer_shapes_runner.py)
 > **数据/关联脚本**: [`scripts/slm/audit_replay_blocks.py`](../../../scripts/slm/audit_replay_blocks.py)
 > **运行环境**: 离线（issue #213 质量建议 + 2026-10-29 会话实测记录；本文的代码项已在仓内实现并通过单元测试，尚未实验）
-> **说明**: 2026-10-29 之后的质量改善实施方案：按 issue #213 comment 6466195110 的质量侧优先级（3a Jacobian 逐块校验 / 1b 频域 MTF 正则 / 2b 像素级不均匀性掩膜 / 4c 多目标 Pareto）给出改法、开关、验收判据与失败形态；依据本轮实测把「饱和先决」与「审计 clipped 语义修正」提到 P0，并明确 3a 只实现缩 cap（不转纯实测梯度）、1b 默认关闭等实测 MTF。所有判定统一使用重复导出的不确定度（6 个 ABBA 周期可达 p<0.05），不用固定阈值。
+> **说明**: 2026-10-29 之后的质量改善实施方案：按 issue #213 comment 6466195110 的质量侧优先级（3a Jacobian 逐块校验 / 1b 频域 MTF 正则 / 2b 像素级不均匀性掩膜 / 4c 多目标 Pareto）给出改法、开关、验收判据与失败形态；依据本轮实测把「饱和先决」与「审计 clipped 语义修正」提到 P0，并明确 3a 只实现缩 cap（不转纯实测梯度）、1b 默认关闭等实测 MTF。所有判定统一使用重复导出的不确定度（6 个 ABBA 周期可达 p<0.05），不用固定阈值。§9 落地状态区分已实现（3a / 1b / P0-2 审计）与未实现（2b / 4c），并记下本轮 `formation=False` 导致形状覆盖 / 边界误差未测这一字段缺口。
 <!-- provenance:end -->
 
 > **来源**：[issue #213 comment 6466195110](https://github.com/ywzhang909/AO-shaping/issues/213#issuecomment-6466195110)
@@ -376,10 +376,19 @@ issue 表的天花板 ①：控制网格上存在 Nyquist 上界，模型认为"
 |---|---|---|---|
 | P0-1 3a | `tools/slm/transfer/jacobian_guard.py` + `validate.py` 接线 | `test_jacobian_guard.py` 10 项 | 待跑 |
 | P1 1b | `algorithm/signal_processing/spectral_regulariser.py` + `differentiable_defocus_uniformity.py` | `test_spectral_regulariser.py` 9 项 | 待跑（默认关） |
+| P0-2 审计 `clipped` 语义 | **已实现**：`scripts/slm/audit_replay_blocks.py` 分 `measured` / `clipped` / `usable` 三集，分组只用 `usable`；无可用组直接 `no comparable groups` | 已重跑四形状验证 | 已生效 |
 | P0-0 饱和 | 运行参数 + 报告约定 | — | 待跑 |
-| P0-2 审计 | 待改（§3） | 待补 | — |
+| 五项口径的「形状覆盖 / 边界误差」 | 不需新代码：`ShapeObjective(formation=True)` 的 `l_partition` / `l_boundary` 已是 canonical 实现 | — | 下一轮随每块 `decision` 落盘；**启用 formation 改变优化目标，须作为协议变更单列并重钉判据** |
 | P2 2b | 未实现 | — | — |
 | P3 4c | 未实现 | — | — |
 
-P0-0 / P0-2 / P2 / P3 的具体代码在下一轮开工时按本文件实施；P0-1 / P1
+**本轮数据的字段缺口**（台账见 `live_20261029_device_session.md` §5.5）：本轮
+objective 以 `formation=False` 运行，抽查 `circle/mono12_cv` 第 0 轮的
+`iterations.pkl`，`l_partition` / `l_boundary` / `l_peripheral` / `l_floor` **逐轮
+恒为 0.0** —— 形状覆盖 / 边界误差是**没有测**，不是没报。按 §1.1，本轮结论只覆盖
+「更均匀 + 能量没丢」两项；star 的 `ee_rel = 0.360` 也正落在这个空口上。三条补齐
+方式（形状项随 `decision` 落盘、每阶段一次 Noll 序 Zernike 拟合、每块
+predicted-vs-measured 标量差）写在 `live_20261029_device_session.md` §5.5。
+
+P0-0 / P2 / P3 的具体代码在下一轮开工时按本文件实施；P0-1 / P1 / P0-2
 已随本轮提交，开关默认值按上表设定。

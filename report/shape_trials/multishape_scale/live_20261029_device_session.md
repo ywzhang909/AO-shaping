@@ -11,12 +11,12 @@
 > **数据/关联脚本**: [`scripts/slm/probe_optical_path_validity.py`](../../../scripts/slm/probe_optical_path_validity.py)
 > **数据/关联脚本**: [`scripts/slm/analyze_session_time_budget.py`](../../../scripts/slm/analyze_session_time_budget.py)
 > **运行环境**: 硬件（Santec #1 SLM + Daheng CCD；WFS / NLight DM / MIICAM 未连接）
-> **说明**: 2026-10-29 设备在线多尺度整形会话的实测记录：lane 00–05 实际执行、06–24 未开始（25 条编制中完成 5 条、部分完成 1 条）。200 px 解析初始化四形状各 4/4 阶段完成，冻结光阑重放审计（已剔除饱和行）给出circle（15/15 有效，dCV −0.286/−0.126/−0.127，三档 supported）与 triangle（13/15，−0.161/−0.173，两档 supported）；square（11/15，+0.170/+0.165，两档 wrong_direction，约噪声三倍 → 真实回归）与 star（5/15，仅一档，no_difference）。600 px 仅 circle 前两段（1.0986→0.7993、0.7447→0.6268），无重放，不参与跨尺度对比。含审计工具缺陷（`clipped` 行被标注却仍进入分组均值）及其本轮修正（剔除后 circle 一位未变，triangle/square 各失去一档，star 失去两档）。
+> **说明**: 2026-10-29 设备在线多尺度整形会话的实测记录：lane 00–05 实际执行、06–24 未开始（25 条编制中完成 5 条、部分完成 1 条）。200 px 解析初始化四形状各 4/4 阶段完成，冻结光阑重放审计（已剔除饱和行）给出circle（15/15 有效，dCV −0.286/−0.126/−0.127，三档 supported）与 triangle（13/15，−0.161/−0.173，两档 supported）；square（11/15，+0.170/+0.165，两档 wrong_direction，约噪声三倍 → 真实回归）与 star（5/15，仅一档，no_difference）。600 px 仅 circle 前两段（1.0986→0.7993、0.7447→0.6268），无重放，不参与跨尺度对比。含审计工具缺陷（`clipped` 行被标注却仍进入分组均值）及其本轮修正（剔除后 circle 一位未变，triangle/square 各失去一档，star 失去两档）。§5.5 逐组合字段台账：本轮 objective 以 `formation=False` 运行，`l_partition` / `l_boundary` 逐轮恒为 0.0，故形状覆盖 / 边界误差与 Zernike 增量三项**未测**（不是未报），结论只覆盖「更均匀 + 能量没丢」。
 <!-- provenance:end -->
 
 > 本文是**当次设备会话的运行记录**（`lane 00–05` 实际执行、`06–24` 未开始）。
 > 判定口径与跨会话汇总见同目录 `multishape_scale_live_20261028.md` §7；
-> 提速与质量改动见该文 §5.7 / §5.8。
+> 提速改动见该文 §5.7 / §5.8；质量改动（issue #213 各项）见 `next_round_20261029.md`。
 
 ## 1. 会话目标
 
@@ -137,9 +137,10 @@ comparison」，但分组均值仍包含这些行）。
 **只能横读**（同形状、相邻阶段的 seed → final）。竖读会把不同腐蚀量的 `core`
 当成同一把尺子。跨阶段、跨形状一律用 §5.1。
 
-值得注意的是：`transport_cv`（8 bit、无 CCD 校验）在四个形状上都几乎不动甚至
-略升，而 `mono12_cv`（12 bit、逐块 CCD 校验）才开始出现真正下降——与 §5.8 的
-「模型方向不可信时盲目走步」一致。
+值得注意的是：`transport_cv`（8 bit、**无** `ccd_check`）在四个形状上都几乎不动
+甚至略升，而 `mono12_cv`（12 bit、逐块 CCD 校验）才开始出现真正下降。两段的差别
+只有位深与「有没有逐块实测校验」两处，而 square 的回归（§8 第 2 条）恰好发生在
+校验拦不动的地方——同一件事的两面，也正是 issue #213 质量项 3a 要升级的机制。
 
 ### 5.3 s600 circle（lane 05，未完成）
 
@@ -165,6 +166,37 @@ comparison」，但分组均值仍包含这些行）。
 | 相位来源 | 逐阶段 `manifest.json` 的 `phase` / `seed_run` 字段 |
 | 预测 vs 实测 | 逐块 `jacobian` 字段**本次不存在**（该守卫于本次之后实现） |
 
+### 5.5 逐组合字段齐全性（十项要求 × 本轮实际）
+
+| 字段 | 本轮 | 落点 / 证据 | 缺失原因 |
+|---|---|---|---|
+| 冻结核心 `cv` | 有 | 审计三档 `dCV`（§5.1）；逐阶段 §5.2 | — |
+| 相对 `ee_rel` | 有 | 审计 `ee_rel` | — |
+| 零级排除比例 | 有 | 0.2719（12 bit 组一致） | — |
+| 饱和比例 | 有 | 审计 `clipped` 行数 | — |
+| 相位来源 | 有 | `plan.initial_phase` = `backprojection`；各阶段 `manifest.json` 的 `phase` / `seed_run` | — |
+| 模型检查点 | 有 | journal `model` 阶段 `status=reused` → `p20261029` | — |
+| 精确时间戳 | 有 | journal `timestamp_utc` + 每块 `summary.json` 的 `timestamp_utc` / `monotonic_ns` | — |
+| 预测 vs 实测 | **部分** | `anchored` 模式逐轮用预测强度做锚定（`iterations.pkl` 的 `terms['mode']`），但**差值标量未落盘** | 只能离线用 `forward.predict(phase)` 与同相位捕获帧复算 |
+| 形状覆盖 | **无** | — | objective 以 `formation=False` 运行：抽查 `circle/mono12_cv` 第 0 轮，`l_partition` / `l_boundary` / `l_peripheral` / `l_floor` **全为 0.0**，即本轮根本没计算这些项 |
+| 边界误差 | **无** | — | 同上（`l_boundary`） |
+| Zernike 增量 | **无** | — | 相位是控制网格上的**像素级全图**，没有 Zernike 参数化，增量无从定义 |
+
+三条缺失的后果必须写清：按 [next_round §1.1](next_round_20261029.md) 的口径，
+「形状覆盖 / 边界误差」空白意味着 §8 里 circle / triangle 的 `supported`
+**只覆盖「更均匀 + 能量没丢」两项**，不覆盖「长成了目标形状」；star 的
+`ee_rel` 偏高（0.360）也正好落在这一空口上，无法判断是形状没长成还是目标外漏光。
+
+下一轮的补齐方式（已在 next_round 就位）：
+
+1. **形状覆盖 / 边界误差** = `ShapeObjective(formation=True)` 的 `l_partition` /
+   `l_boundary`，随每块 `decision` 落盘。⚠️ 打开 formation 会改变优化目标本身，
+   须作为**协议变更**单列并同步重钉判据，不得只当成"多记两个数"。
+2. **Zernike 增量** = 每阶段结束时把相位按 Noll 序拟合一次（canonical：
+   `utils/wavefront/zernike_calc`），存进阶段摘要。
+3. **预测-实测差** = 每块记录 `forward.predict(phase)` 与同相位实测帧的标量差
+   （前向已可用：`scripts/slm/_bench_frozen_forward.py`）。
+
 ## 6. 失败与修复
 
 | 现象 | 根因 | 处理 |
@@ -188,15 +220,22 @@ comparison」，但分组均值仍包含这些行）。
 
 ## 8. 结论与未决
 
+> ⚠️ **结论的适用范围**：§5.5 的字段台账显示本轮**没有**形状覆盖 / 边界误差 /
+> Zernike 增量三项。因此下面每一条的「成立」都只覆盖**更均匀（CV）与能量没丢
+> （`ee_rel`）**这两项，不覆盖「长成了目标形状」。按 next_round §1.1 的口径，
+> 这是"部分口径的结论"，报告时不得简写成"整形成功"。
+
 1. **200 px 解析初始化**：circle 的改善在三档曝光上全部成立（0 饱和行，
    `ee_rel` 未降）；triangle 在两档上成立（第三档失去 seed 行）。
 2. **square 是本轮唯一「真的变差」的形状**：剔除饱和行后，两个可用档的
    `dCV` 仍为 +0.17 / +0.16，约为噪声半宽的 3 倍。这不是测量问题，是**闭环把它
-   做差了**——正是 §5.8 与 issue #213 的 3a 要查的模型方向问题。
+   做差了**——正是 issue #213 质量项 3a（逐块 Jacobian 方向校验）要查的模型方向问题。
 3. **star 只有一档可判**（`no_difference`，`ee_rel` 0.360 为四形状最高），另两档
-   整组截断。星形目标需要形状特定的指标，CV 单值不够。
+   整组截断。星形目标需要形状特定的指标，CV 单值不够——而本轮恰恰没算形状项
+   （§5.5），所以这一条只能记为"待测"。
 4. **600 / 1200 px 与全部 `strict_cold` lane 没有数据**，两类初始化的对比问题
    **仍未回答**。s600/circle 仅两段，且没有重放审计。
 5. **质量侧前两项**（3a 逐块 Jacobian 校验、1b 频域带限）代码已实现并通过单元
    测试，尚无设备数据；1b 默认关闭、等实测 MTF。下一次实验按
-   `next_round_20261029.md` 的顺序跑。
+   `next_round_20261029.md` 的顺序跑，其中形状覆盖 / 边界误差、Zernike 增量、
+   预测-实测差三项需在下一轮按 §5.5 的补齐方式随每块落盘。

@@ -1153,6 +1153,9 @@ REPORTS: dict[str, ReportProvenance] = {
             "600 px 仅 circle 前两段（1.0986→0.7993、0.7447→0.6268），无重放，不参与跨尺度对比。"
             "含审计工具缺陷（`clipped` 行被标注却仍进入分组均值）及其本轮修正（剔除后 "
             "circle 一位未变，triangle/square 各失去一档，star 失去两档）。"
+            "§5.5 逐组合字段台账：本轮 objective 以 `formation=False` 运行，"
+            "`l_partition` / `l_boundary` 逐轮恒为 0.0，故形状覆盖 / 边界误差与 "
+            "Zernike 增量三项**未测**（不是未报），结论只覆盖「更均匀 + 能量没丢」。"
         ),
         extra_scripts=(
             "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
@@ -1175,6 +1178,8 @@ REPORTS: dict[str, ReportProvenance] = {
             "依据本轮实测把「饱和先决」与「审计 clipped 语义修正」提到 P0，"
             "并明确 3a 只实现缩 cap（不转纯实测梯度）、1b 默认关闭等实测 MTF。"
             "所有判定统一使用重复导出的不确定度（6 个 ABBA 周期可达 p<0.05），不用固定阈值。"
+            "§9 落地状态区分已实现（3a / 1b / P0-2 审计）与未实现（2b / 4c），"
+            "并记下本轮 `formation=False` 导致形状覆盖 / 边界误差未测这一字段缺口。"
         ),
         extra_scripts=(
             "src/ao_shaping/tools/slm/transfer/jacobian_guard.py",
