@@ -49,6 +49,10 @@ from typing import Any
 
 from loguru import logger
 
+from ao_shaping.utils.image.target.shapes import (
+    TARGET_SHAPE_LABELS as _TARGET_SHAPE_LABELS,
+)
+
 __all__ = [
     "MAX_DETAIL_LINES",
     "MISSING",
@@ -89,13 +93,12 @@ STAGE_LABELS: dict[str, str] = {
     "direction_check": "方向核对",
 }
 
-#: 目标形状 → 中文名。同样是唯一一份（``shaping_controls`` 应从本模块再导出）。
-SHAPE_LABELS: dict[str, str] = {
-    "square": "正方形",
-    "rectangle": "长方形",
-    "triangle": "三角形",
-    "star": "五角星（已实现，尚无实验结果）",
-}
+#: 目标形状 → 中文名。**唯一**一份是
+#: :data:`ao_shaping.utils.image.target.shapes.TARGET_SHAPE_LABELS`，本模块只取一份副本，
+#: 不再手抄 —— 手抄过的两处（本模块与 ``shaping_controls.TRANSFER_SHAPE_LABELS``）都漏了
+#: ``circle``，并把 ``star`` 标成「尚无实验结果」，而 2026-10-28 的 campaign 里 star 已跑满
+#: 四段（``report/shape_trials/multishape_scale/multishape_scale_live_20261028.md`` §3.2）。
+SHAPE_LABELS: dict[str, str] = dict(_TARGET_SHAPE_LABELS)
 
 #: 阶段状态 → 中文词。与 ``bench_settings`` 的 ``● / ○`` 同一档文字标识，不用 emoji。
 STATUS_LABELS: dict[str, str] = {

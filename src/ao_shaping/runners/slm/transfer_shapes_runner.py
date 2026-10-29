@@ -28,11 +28,12 @@ called in-process, so there is exactly one implementation of the update loop.
 
 from __future__ import annotations
 
-import contextlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import click
 import numpy as np
@@ -43,45 +44,8 @@ from ao_shaping.tools.slm.transfer import fit as fit_stage
 from ao_shaping.tools.slm.transfer import recording, replay_phases, validate as validate_stage
 from ao_shaping.tools.slm.transfer.light_guard import OpticalPathInvalid
 from ao_shaping.tools.slm.transfer.protocol import derive_replay_exposures
+from ao_shaping.tools.slm.transfer.stages import STAGE_RECIPES, StageRecipe
 from ao_shaping.utils.image.target import TRANSFER_SHAPE_CHOICES
-
-
-@dataclass(frozen=True)
-class StageRecipe:
-    """One CCD-anchored optimization stage of the shaping chain."""
-
-    name: str
-    blocks: int
-    updates: int
-    phase_lr: float
-    phase_rms_cap: float
-    bit_depth: int
-    ccd_check: bool
-    accept_metric: str
-    window_step: float
-    core_margin: float | None = None
-    wide_model: bool = False
-    seed_policy: str = "strict"
-
-
-#: The four stages of the square1200 chain, in order. Stage 1 starts from the
-#: non-GS geometric seed; stages 2-4 continue from the previous stage's
-#: accepted phase. Only stage 4 uses the wide-ramp model and the finer camera
-#: sampling, which is where the resolution limit of the first three shows up.
-STAGE_RECIPES: tuple[StageRecipe, ...] = (
-    StageRecipe(name="transport_cv", blocks=4, updates=15, phase_lr=0.03,
-                phase_rms_cap=0.25, bit_depth=8, ccd_check=False, accept_metric="loss",
-                window_step=4.0),
-    StageRecipe(name="mono12_cv", blocks=8, updates=20, phase_lr=0.025,
-                phase_rms_cap=0.20, bit_depth=12, ccd_check=True, accept_metric="cv",
-                window_step=4.0),
-    StageRecipe(name="mono12_continue", blocks=12, updates=15, phase_lr=0.02,
-                phase_rms_cap=0.15, bit_depth=12, ccd_check=True, accept_metric="cv",
-                window_step=4.0),
-    StageRecipe(name="mono12_dense", blocks=4, updates=20, phase_lr=0.015,
-                phase_rms_cap=0.12, bit_depth=12, ccd_check=True, accept_metric="cv",
-                window_step=2.0, core_margin=8.0, wide_model=True, seed_policy="transfer"),
-)
 
 
 def _json(path: Path):
@@ -184,6 +148,365 @@ def _validate_args(*, checkpoint: Path, out: Path, zero_xy, shapes, recipe: Stag
     )
 
 
+def _plan_dict(*, out: Path, execute: bool, **params: Any) -> dict[str, Any]:
+    """The plan printed without ``--execute`` and journalled when a run starts.
+
+    Split out of :func:`run` so :func:`execute_campaign` journals the *same* dict a
+    plan-only run prints: the journal's ``plan`` entry is what a later reader uses to
+    answer "这条路 lane 到底带了哪些旗标", so the two must never be built twice with
+    slightly different key sets.
+    """
+    plan = dict(out=str(out), shapes=list(params["shapes"]), side=params["side"],
+                period=params["period"],
+                window_span=params["window_span"], window_step=params["window_step"],
+                zero_radius=params["zero_radius"],
+                capture_grid=params["capture_grid"], capture_count=params["capture_count"],
+                fit_iterations=params["fit_iterations"], control_grid=params["control_grid"],
+                fft_size=params["fft_size"],
+                initial_phase=params["initial_phase"], seed_bakeoff=params["seed_bakeoff"],
+                gs_seed=params["gs_seed"],
+                execute=execute, resume=params["resume"], order=params["order"],
+                record_responses=params["record_responses"],
+                replay_exposures=("auto" if params["replay_exposures_auto"]
+                                  else list(params["replay_exposures"])),
+                jacobian_guard=params["jacobian_guard"], jacobian_low=params["jacobian_low"],
+                jacobian_high=params["jacobian_high"], jacobian_floor=params["jacobian_floor"],
+                spectral_weight=params["spectral_weight"],
+                spectral_cutoff=params["spectral_cutoff"],
+                objective=params["objective"], weight_schedule=params["weight_schedule"],
+                stages=[dict(name=recipe.name, blocks=recipe.blocks, updates=recipe.updates,
+                             bit_depth=recipe.bit_depth, ccd_check=recipe.ccd_check,
+                             window_step=recipe.window_step) for recipe in STAGE_RECIPES])
+    # ``validate.session_plan`` prices one shape at a single (bit_depth,
+    # window_step, groups) tuple per stage; hand it the recipe table so the
+    # printed plan reflects the real stage sizes instead of the runner's own
+    # --window-span/--blocks defaults. Only the resume/order path needs it: the
+    # historical flag-only plan stays byte-identical.
+    if plan["resume"] or plan["order"] != "shape":
+        from types import SimpleNamespace as _Namespace
+
+        from ao_shaping.tools.slm.transfer.validate import session_plan
+
+        plan["session_plan"] = session_plan(_Namespace(
+            out=out, shapes=list(params["shapes"]), frames=params["frames"],
+            session_groups=[dict(bit_depth=recipe.bit_depth, window_step=recipe.window_step,
+                                 groups=recipe.blocks) for recipe in STAGE_RECIPES]))
+    return plan
+
+
+def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None,
+                     **kwargs: Any) -> dict[str, Any]:
+    """Run the *executing* half of :func:`run` — this one opens the device.
+
+    Why it is a function of its own: the GUI campaign page runs it in a background
+    thread (``Thread(target=...)`` bodies may not touch ``st.session_state``), and
+    copying the runner's 38-parameter call plus its model/replay/records sequencing
+    into the page would fork the flow into two implementations that drift.
+
+    Arguments
+    ---------
+    ``**kwargs`` uses the click parameter names of ``slm-transfer-shapes`` (minus
+    ``--out``), so ``campaign.CampaignSettings.kwargs()`` expands straight in.
+    Omitted values fall back to **click's own defaults** (read off ``run.params``)
+    rather than a second table written here: two copies of the same default drift
+    silently, and click is the contract the lane scripts already bind to.
+
+    ``should_stop`` is a cooperative, **segment-granularity** stop: it is asked once
+    before each CCD block group (i.e. before each ``(shape, stage)`` segment) and once
+    before ``replay`` and before ``records``. A single block (~24-40 s: one A1(+B)
+    capture, its optimization and its write) is an atomic transaction — interrupting
+    it mid-way leaves a half-written ``manifest.json``, so it is never polled inside
+    a block. "Stop" therefore means "stop after this segment", not "cut the device".
+    A segment that never starts is journalled ``stopped`` (``campaign_progress``
+    reads any unknown status verbatim and does not raise), and this function returns
+    normally — an operator pressing stop is not a failure.
+
+    Returns:
+        ``{"out": str, "stages": int, "blocks": int, "stopped": bool}``. ``stages`` /
+        ``blocks`` are the **planned** totals (``campaign.campaign_matrix``: 4 shapes
+        → 16 / 112); what actually ran is read back from the directory by
+        ``campaign_progress.collect_campaign_progress``.
+
+    Raises:
+        OpticalPathInvalid: no usable light on this path (someone blocked the beam, the
+            laser is off, the path walked away). Expected on the bench, not a defect:
+            the exception carries the exposure ladder readings plus ``reason`` /
+            ``cause`` / ``report()``. Only :func:`run` turns it into exit code 3 — a
+            programmatic caller (the GUI) gets the object and can render the numbers.
+    """
+    from ao_shaping.tools.slm.transfer.campaign import campaign_matrix, matrix_totals
+
+    defaults = {param.name: param.default for param in run.params
+                if param.name not in ("out_dir", "execute", "records_only")}
+    unknown = sorted(set(kwargs) - set(defaults))
+    if unknown:
+        raise TypeError(f"execute_campaign 不认识这些参数: {unknown}"
+                        f"（可用: {sorted(defaults)}）")
+    values: dict[str, Any] = {**defaults, **kwargs}
+
+    shapes = list(values["shapes"])
+    replay_exposures = list(values["replay_exposures"])
+    side = values["side"]
+    period = values["period"]
+    window_span = values["window_span"]
+    window_step = values["window_step"]
+    zero_radius = values["zero_radius"]
+    capture_grid = values["capture_grid"]
+    capture_count = values["capture_count"]
+    fit_iterations = values["fit_iterations"]
+    fit_span = values["fit_span"]
+    amplitude_center_lr = values["amplitude_center_lr"]
+    control_grid = values["control_grid"]
+    fft_size = values["fft_size"]
+    frames = values["frames"]
+    seed = values["seed"]
+    camera = values["camera"]
+    cam_id = values["cam_id"]
+    slm_number = values["slm_number"]
+    device = values["device"]
+    initial_phase = values["initial_phase"]
+    seed_bakeoff = values["seed_bakeoff"]
+    gs_seed = values["gs_seed"]
+    replay_exposures_auto = values["replay_exposures_auto"]
+    record_responses = values["record_responses"]
+    model_dir = values["model_dir"]
+    resume = values["resume"]
+    order = values["order"]
+    profile_timing = values["profile_timing"]
+    async_capture_write = values["async_capture_write"]
+    jacobian_guard = values["jacobian_guard"]
+    jacobian_low = values["jacobian_low"]
+    jacobian_high = values["jacobian_high"]
+    jacobian_floor = values["jacobian_floor"]
+    spectral_weight = values["spectral_weight"]
+    spectral_cutoff = values["spectral_cutoff"]
+    objective = values["objective"]
+    weight_schedule = values["weight_schedule"]
+
+    totals = matrix_totals(campaign_matrix(shapes))
+    summary = {"out": str(out), "stages": totals["segments"], "blocks": totals["blocks"],
+               "stopped": False}
+
+    def stop_requested() -> bool:
+        return bool(should_stop is not None and should_stop())
+
+    out.mkdir(parents=True, exist_ok=True)
+    journal = _Journal(path=out / "journal.json")
+    journal.record("plan", "complete",
+                   plan=_plan_dict(out=out, execute=True, **values))
+
+    from ao_shaping.tools.slm.transfer import bootstrap as bootstrap_stage
+    from ao_shaping.tools.slm.transfer import geometric_seed
+
+    # ---------------------------------------------------------------- model
+    if model_dir is not None:
+        root = model_dir.resolve()
+        capture_dir = root / "capture"
+        fit_dir = root / "fit"
+        model_640 = root / "model640"
+        wide_dir = root / "model_wide640"
+        journal.record("model", "reused", source=str(root))
+        # 复用模型时整段采集被跳过, 于是**没有人在模型加载前看过一眼光路**。
+        # 那份模型是在原来那束光上拟合的: 光路失效后继续用, 第一个变暗的读数要
+        # 等到整形段第一块才出现 (2026-10-28 那次是 48 s 的曝光阶梯空转), 而模型
+        # 加载/目标/种子准备都已经跑完。少数几帧先问一句「有没有光」, 没有就抛
+        # ``OpticalPathInvalid`` (CLI 由 :func:`run` 映射成退出码 3, GUI 由调用方
+        # 直接渲染 ``report()``)。
+        capture_stage.precheck_light(camera=camera, cam_id=cam_id,
+                                     label=f"model reuse {root.name}")
+    else:
+        root = out
+        capture_dir = root / "capture"
+        journal.record("capture", "running")
+        capture_stage.capture(SimpleNamespace(
+            out=capture_dir, camera=camera, cam_id=cam_id, slm_number=slm_number,
+            grid=capture_grid, count=capture_count, frames=frames, seed=seed,
+            execute=True, exposure_max_steps=12, save_dataset=True))
+        journal.record("capture", "complete", out=str(capture_dir))
+
+        # The nominal checkpoint comes from this capture alone: the model is
+        # trained from zero, not warm-started from a historical one.
+        nominal = root / "initial"
+        nominal.mkdir(parents=True, exist_ok=True)
+        frozen, provenance = bootstrap_stage.bootstrap(capture_dir)
+        (nominal / "frozen_parameters.json").write_text(json.dumps(frozen, indent=2), encoding="utf-8")
+        (nominal / "provenance.json").write_text(json.dumps(provenance, indent=2), encoding="utf-8")
+
+        fit_dir = root / "fit"
+        model_640 = fit_dir / "model640"
+        wide_dir = fit_dir / "model_wide640"
+        journal.record("fit", "running")
+        fit_stage.fit(SimpleNamespace(
+            dataset=capture_dir, checkpoint=nominal / "frozen_parameters.json",
+            out=fit_dir, iterations=fit_iterations, span=fit_span, device=device,
+            adaptation="full", amplitude_center_lr=amplitude_center_lr, radiometry="exposure",
+            record_responses=record_responses))
+        journal.record("fit", "complete", out=str(fit_dir))
+
+        model_640 = root / "model640"
+        wide_dir = root / "model_wide640"
+        geometric_seed.export_frozen_parameters(fit_dir / "frozen_parameters.json", model_640,
+                                                grid=control_grid, fft=fft_size)
+        journal.record("model", "complete", model640=str(model_640))
+
+    # The zero order is measured on this path, never assumed.
+    rows = _json(capture_dir / "manifest.json")
+    reference = next(row for row in rows if row["label"] == "reference_start")
+    zero_xy = [float(v) for v in np.round(fit_stage.spot(reference))]
+    journal.record("geometry", "complete", zero_xy=zero_xy)
+
+    if not (model_640 / "frozen_parameters.json").is_file():
+        geometric_seed.export_frozen_parameters(fit_dir / "frozen_parameters.json", model_640,
+                                                grid=control_grid, fft=fft_size)
+        journal.record("model", "complete", model640=str(model_640))
+
+    # The wide-ramp variant needs a fresh signed-ramp measurement at the
+    # control resolution actually used for shaping.
+    if not (wide_dir / "frozen_parameters.json").is_file():
+        geometry_dir = root / "geometry_wide"
+        journal.record("capture_geometry", "running")
+        capture_stage.capture(SimpleNamespace(
+            out=geometry_dir, camera=camera, cam_id=cam_id, slm_number=slm_number,
+            grid=control_grid, count=6, frames=frames, seed=seed + 1,
+            execute=True, exposure_max_steps=12, save_dataset=True,
+            ramp_periods=[16, 32]))
+        journal.record("capture_geometry", "complete", out=str(geometry_dir))
+        geometric_seed.export_frozen_parameters(model_640 / "frozen_parameters.json",
+                                                wide_dir, grid=control_grid, fft=fft_size,
+                                                geometry_dataset=geometry_dir)
+        journal.record("wide_model", "complete", out=str(wide_dir))
+
+    # ------------------------------------------------------- seed bake-off
+    chosen: dict[str, str] = {}
+    if seed_bakeoff:
+        for shape in shapes:
+            candidates = ["transport", "backprojection", "gs"] if shape == "square" \
+                else ["backprojection", "gs"]
+            if not gs_seed:
+                candidates = [kind for kind in candidates if kind != "gs"]
+            if len(candidates) == 1:
+                # 单一候选无需实测比较, 直接采用 (仍写入 journal 以便溯源)。
+                chosen[shape] = candidates[0]
+                journal.record("seed_bakeoff", "skipped", shape=shape, candidates=candidates,
+                               chosen=candidates[0], reason="single candidate")
+                logger.info("seed bake-off {}: single candidate -> {}", shape, candidates[0])
+                continue
+            scores: dict[str, float] = {}
+            for kind in candidates:
+                bake_dir = out / "seed_bakeoff" / f"{shape}_{kind}"
+                manifest_path = bake_dir / "manifest.json"
+                if manifest_path.is_file():
+                    scores[kind] = float(_json(manifest_path)[0]["metrics"]["cv"])
+                    continue
+                args = _validate_args(
+                    checkpoint=model_640 / "frozen_parameters.json", out=bake_dir,
+                    zero_xy=zero_xy, shapes=[shape], recipe=STAGE_RECIPES[0],
+                    initial_phase=kind, seed_run=None, device=device, camera=camera,
+                    cam_id=cam_id, slm_number=slm_number, frames=frames, side=side,
+                    period=period, window_span=window_span, zero_radius=zero_radius,
+                    window_step=window_step, blocks=0, updates=0, adaptive_exposure=False)
+                validate_stage.run(args)
+                if not manifest_path.is_file():
+                    raise RuntimeError(
+                        f"seed bake-off {shape}/{kind} finished without writing "
+                        f"{manifest_path}; a seed-only pass (blocks=0) must still "
+                        f"measure its seed row")
+                scores[kind] = float(_json(manifest_path)[0]["metrics"]["cv"])
+            best = min(scores, key=lambda k: scores[k])
+            chosen[shape] = best
+            journal.record("seed_bakeoff", "complete", shape=shape, scores=scores, chosen=best)
+            logger.info("seed bake-off {}: {} -> {}", shape, scores, best)
+    else:
+        chosen = {shape: _seed_kind(shape, initial_phase) for shape in shapes}
+
+    # ------------------------------------------------------------- shaping
+    recorder = None
+    try:
+        from ao_shaping.utils.io.file import Recorder
+
+        recorder = Recorder(mark="cv_candidate", mode="min")
+    # policy: Recorder is optional telemetry for this stage loop
+    except Exception as exc:  # pragma: no cover - Recorder is part of the repo
+        logger.warning("Recorder unavailable: {}", exc)
+
+    stopped = run_stages(
+        out=out, shapes=shapes, order=order, resume=resume, journal=journal,
+        chosen=chosen, model_640=model_640, wide_dir=wide_dir, zero_xy=zero_xy,
+        initial_phase=initial_phase, device=device, camera=camera, cam_id=cam_id,
+        slm_number=slm_number, frames=frames, side=side, period=period,
+        window_span=window_span, zero_radius=zero_radius, window_step=window_step,
+        recorder=recorder, profile_timing=profile_timing,
+        async_capture_write=async_capture_write,
+        jacobian_guard=jacobian_guard, jacobian_low=jacobian_low,
+        jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
+        spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
+        objective=objective, weight_schedule=weight_schedule,
+        should_stop=should_stop)
+
+    # -------------------------------------------------------------- replay
+    runs = [out / "shape" / shape / recipe.name for shape in shapes for recipe in STAGE_RECIPES]
+    replay_dir = out / "common_replay"
+    if stopped or stop_requested():
+        # 停止是**段粒度**的: 整形段边界停下后不再开重放, 把余下工作留给 --resume
+        # (重放目录只有写了 ``released.json`` 才被当作已完成, 见下)。
+        journal.record("replay", "stopped", reason="operator stop before replay")
+        journal.record("session", "stopped", out=str(out))
+        summary["stopped"] = True
+        click.echo(f"Session stopped at a segment boundary, before replay: {out}")
+        return summary
+    # ``released.json`` is written only after every block replayed *and* both
+    # devices were released, so it is the completion marker. ``config.json`` is
+    # not: it is written before the first block, so a replay that aborted on a
+    # saturated core (2026-10-29, lane 01) would be skipped as "reused" and the
+    # lane would silently report a session with no usable replay.
+    if resume and (replay_dir / "released.json").is_file():
+        # Same contract as a reused stage: the directory says it already ran.
+        journal.record("replay", "reused", out=str(replay_dir))
+    else:
+        journal.record("replay", "running")
+        exposures = list(replay_exposures)
+        if replay_exposures_auto:
+            observations = _measured_peak_rates(runs)
+            exposures = derive_replay_exposures(observations)
+            journal.record("replay", "ladder_derived", exposures=exposures,
+                           n_blocks=len(observations))
+            logger.info("replay ladder derived from {} measured blocks: {} ms",
+                        len(observations), exposures)
+        replay_phases.replay(SimpleNamespace(
+            initial_run=out / "shape" / shapes[0] / STAGE_RECIPES[0].name, runs=runs,
+            out=replay_dir, exposures=exposures, frames=frames,
+            camera=camera, cam_id=cam_id, slm_number=slm_number, include_best=False))
+        journal.record("replay", "complete", out=str(replay_dir), exposures=exposures)
+
+    # -------------------------------------------------------------- record
+    if stop_requested():
+        # 重放已经跑完, 但操作员在回收表之前按了停止: 回收表可由 --records-only
+        # 从 manifest 重建 (与下面 "no captures" 分支同一理由), 所以这里不是丢数据。
+        journal.record("record", "stopped", reason="operator stop before records")
+        journal.record("session", "stopped", out=str(out))
+        summary["stopped"] = True
+        click.echo(f"Session stopped before records: {out}")
+        return summary
+    records_marker = out / "records" / "process.csv"
+    if resume and records_marker.is_file():
+        journal.record("record", "reused", out=str(records_marker.parent))
+    elif recorder is None or not recorder.history:
+        # ``--resume`` on an otherwise finished lane re-enters no stage, so there
+        # is no capture to export. ``save_records`` raises "history is empty",
+        # which would fail a session whose only remaining work was the replay.
+        # ``--records-only`` rebuilds the table from the stage manifests.
+        journal.record("record", "skipped", reason="no captures this run; use --records-only")
+    elif recorder is not None:
+        saved = recording.save_records(recorder, out / "records", mark="process",
+                                       gif_name="process.gif", fps=2.0,
+                                       title="多形状物理预测模型闭环整形 (逐 CCD 块)")
+        journal.record("record", "complete", **saved)
+        click.echo(json.dumps(saved, indent=2, ensure_ascii=False))
+    journal.record("session", "complete", out=str(out))
+    click.echo(f"Session complete: {out}")
+    return summary
+
+
 def _rebuild_records(out: Path, shapes: list[str]) -> None:
     """Rebuild the Recorder table from the run directories already on disk.
 
@@ -205,21 +528,6 @@ def _rebuild_records(out: Path, shapes: list[str]) -> None:
                                    gif_name="process.gif", fps=2.0,
                                    title="多形状物理预测模型闭环整形 (逐 CCD 块)")
     click.echo(json.dumps(saved, indent=2, ensure_ascii=False))
-
-
-@contextlib.contextmanager
-def _optical_path_exit(what: str):
-    """把「光路无光」映射成退出码 3, 并且只报实测数字 (不打 traceback)。
-
-    这一条是**预期**的失败 —— 实验系统上有人挡了光 / 激光没出光 / 光路漂走了 ——
-    不是缺陷, traceback 只会把一条可诊断的信息埋进栈帧里。普通异常照旧由 click
-    报退出码 1, 两条路不混: 3 让 lane 脚本 / 运维直接去查光路, 1 才是「代码出错」。
-    """
-    try:
-        yield
-    except OpticalPathInvalid as exc:
-        click.echo(f"[{what}] {exc.report()}", err=True)
-        raise SystemExit(exc.exit_code) from None
 
 
 def _stage_sequence(shapes, order: str) -> list:
@@ -247,7 +555,8 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
                jacobian_high: float = 0.85, jacobian_floor: float = 0.02,
                spectral_weight: float = 0.0,
                spectral_cutoff: float | None = None,
-               objective: str = "cv", weight_schedule: str = "constant") -> None:
+               objective: str = "cv", weight_schedule: str = "constant",
+               should_stop: Callable[[], bool] | None = None) -> bool:
     """Run every ``(shape, stage)`` in ``order``, reusing finished stages on ``--resume``.
 
     Split out of :func:`run` so the ordering and the reuse rule are testable
@@ -258,6 +567,15 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
     which is what makes finishing a half-done shape a continuation rather than a
     re-measurement. Without ``--resume`` the old contract holds and a populated
     directory raises ``FileExistsError`` inside ``validate.run``.
+
+    ``should_stop`` is checked **before each segment only** (return value ``True``
+    means the operator stopped it): one segment is 4-12 CCD blocks of one shape and
+    every single block is an atomic capture+optimize+write transaction, so a stop
+    that cut inside a block would leave a half-written ``manifest.json`` on disk.
+    The segment that never starts is journalled ``stopped``.
+
+    Returns:
+        ``True`` when a stop request ended the loop early, ``False`` otherwise.
     """
     for shape, index in _stage_sequence(shapes, order):
         recipe = STAGE_RECIPES[index]
@@ -265,6 +583,11 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
         if resume and (stage_dir / "manifest.json").is_file():
             journal.record(f"{shape}/{recipe.name}", "reused", out=str(stage_dir))
             continue
+        if should_stop is not None and should_stop():
+            journal.record(f"{shape}/{recipe.name}", "stopped",
+                           reason="operator stop before segment start")
+            logger.info("stop requested; {} not started", f"{shape}/{recipe.name}")
+            return True
         # Each stage continues from the nearest earlier stage that is on disk,
         # which under --resume is the reused directory just above.
         seed_run = next((out / "shape" / shape / earlier.name
@@ -292,6 +615,7 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
             added = recording.append_run(recorder, stage_dir, f"{shape}/{recipe.name}")
             logger.info("recorded {} blocks from {}", added, stage_dir)
         journal.record(f"{shape}/{recipe.name}", "complete", out=str(stage_dir))
+    return False
 
 
 @click.command(name="slm-transfer-shapes")
@@ -427,239 +751,40 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
     if records_only:
         _rebuild_records(out, shapes)
         return
-    plan = dict(out=str(out), shapes=list(shapes), side=side, period=period,
-                window_span=window_span, window_step=window_step, zero_radius=zero_radius,
-                capture_grid=capture_grid, capture_count=capture_count,
-                fit_iterations=fit_iterations, control_grid=control_grid, fft_size=fft_size,
-                initial_phase=initial_phase, seed_bakeoff=seed_bakeoff, gs_seed=gs_seed,
-                execute=execute, resume=resume, order=order,
-                record_responses=record_responses,
-                replay_exposures=("auto" if replay_exposures_auto else list(replay_exposures)),
-                jacobian_guard=jacobian_guard, jacobian_low=jacobian_low,
-                jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
-                spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
-                objective=objective, weight_schedule=weight_schedule,
-                stages=[dict(name=recipe.name, blocks=recipe.blocks, updates=recipe.updates,
-                             bit_depth=recipe.bit_depth, ccd_check=recipe.ccd_check,
-                             window_step=recipe.window_step) for recipe in STAGE_RECIPES])
-    # ``validate.session_plan`` prices one shape at a single (bit_depth,
-    # window_step, groups) tuple per stage; hand it the recipe table so the
-    # printed plan reflects the real stage sizes instead of the runner's own
-    # --window-span/--blocks defaults. Only the resume/order path needs it: the
-    # historical flag-only plan stays byte-identical.
-    if plan["resume"] or plan["order"] != "shape":
-        from types import SimpleNamespace as _Namespace
-
-        from ao_shaping.tools.slm.transfer.validate import session_plan
-
-        plan["session_plan"] = session_plan(_Namespace(
-            out=out, shapes=shapes, frames=frames,
-            session_groups=[dict(bit_depth=recipe.bit_depth, window_step=recipe.window_step,
-                                 groups=recipe.blocks) for recipe in STAGE_RECIPES]))
+    params: dict[str, Any] = dict(
+        shapes=shapes, side=side, period=period, window_span=window_span,
+        window_step=window_step, zero_radius=zero_radius, capture_grid=capture_grid,
+        capture_count=capture_count, fit_iterations=fit_iterations, fit_span=fit_span,
+        amplitude_center_lr=amplitude_center_lr, control_grid=control_grid,
+        fft_size=fft_size, frames=frames, seed=seed, camera=camera, cam_id=cam_id,
+        slm_number=slm_number, device=device, initial_phase=initial_phase,
+        seed_bakeoff=seed_bakeoff, gs_seed=gs_seed, replay_exposures=replay_exposures,
+        replay_exposures_auto=replay_exposures_auto, record_responses=record_responses,
+        model_dir=model_dir, resume=resume, order=order, profile_timing=profile_timing,
+        async_capture_write=async_capture_write, jacobian_guard=jacobian_guard,
+        jacobian_low=jacobian_low, jacobian_high=jacobian_high,
+        jacobian_floor=jacobian_floor, spectral_weight=spectral_weight,
+        spectral_cutoff=spectral_cutoff, objective=objective,
+        weight_schedule=weight_schedule)
+    plan = _plan_dict(out=out, execute=execute, **params)
     click.echo(json.dumps(plan, indent=2, ensure_ascii=False))
     if not execute:
         click.echo("\n未指定 --execute : 只打印计划, 不打开设备。")
         return
-
-    out.mkdir(parents=True, exist_ok=True)
-    journal = _Journal(path=out / "journal.json")
-    journal.record("plan", "complete", plan=plan)
-
-    from ao_shaping.tools.slm.transfer import bootstrap as bootstrap_stage
-    from ao_shaping.tools.slm.transfer import geometric_seed
-
-    # ---------------------------------------------------------------- model
-    if model_dir is not None:
-        root = model_dir.resolve()
-        capture_dir = root / "capture"
-        fit_dir = root / "fit"
-        model_640 = root / "model640"
-        wide_dir = root / "model_wide640"
-        journal.record("model", "reused", source=str(root))
-        # 复用模型时整段采集被跳过, 于是**没有人在模型加载前看过一眼光路**。
-        # 那份模型是在原来那束光上拟合的: 光路失效后继续用, 第一个变暗的读数要
-        # 等到整形段第一块才出现 (2026-10-28 那次是 48 s 的曝光阶梯空转), 而模型
-        # 加载/目标/种子准备都已经跑完。少数几帧先问一句「有没有光」, 没有就按
-        # 光路无光退出 (码 3)。
-        with _optical_path_exit("light_check"):
-            capture_stage.precheck_light(camera=camera, cam_id=cam_id,
-                                         label=f"model reuse {root.name}")
-    else:
-        root = out
-        capture_dir = root / "capture"
-        journal.record("capture", "running")
-        with _optical_path_exit("capture"):
-            capture_stage.capture(SimpleNamespace(
-                out=capture_dir, camera=camera, cam_id=cam_id, slm_number=slm_number,
-                grid=capture_grid, count=capture_count, frames=frames, seed=seed,
-                execute=True, exposure_max_steps=12, save_dataset=True))
-        journal.record("capture", "complete", out=str(capture_dir))
-
-        # The nominal checkpoint comes from this capture alone: the model is
-        # trained from zero, not warm-started from a historical one.
-        nominal = root / "initial"
-        nominal.mkdir(parents=True, exist_ok=True)
-        params, provenance = bootstrap_stage.bootstrap(capture_dir)
-        (nominal / "frozen_parameters.json").write_text(json.dumps(params, indent=2), encoding="utf-8")
-        (nominal / "provenance.json").write_text(json.dumps(provenance, indent=2), encoding="utf-8")
-
-        fit_dir = root / "fit"
-        model_640 = fit_dir / "model640"
-        wide_dir = fit_dir / "model_wide640"
-        journal.record("fit", "running")
-        fit_stage.fit(SimpleNamespace(
-            dataset=capture_dir, checkpoint=nominal / "frozen_parameters.json",
-            out=fit_dir, iterations=fit_iterations, span=fit_span, device=device,
-            adaptation="full", amplitude_center_lr=amplitude_center_lr, radiometry="exposure",
-            record_responses=record_responses))
-        journal.record("fit", "complete", out=str(fit_dir))
-
-        model_640 = root / "model640"
-        wide_dir = root / "model_wide640"
-        geometric_seed.export_frozen_parameters(fit_dir / "frozen_parameters.json", model_640,
-                                                grid=control_grid, fft=fft_size)
-        journal.record("model", "complete", model640=str(model_640))
-
-    # The zero order is measured on this path, never assumed.
-    rows = _json(capture_dir / "manifest.json")
-    reference = next(row for row in rows if row["label"] == "reference_start")
-    zero_xy = [float(v) for v in np.round(fit_stage.spot(reference))]
-    journal.record("geometry", "complete", zero_xy=zero_xy)
-
-    if not (model_640 / "frozen_parameters.json").is_file():
-        geometric_seed.export_frozen_parameters(fit_dir / "frozen_parameters.json", model_640,
-                                                grid=control_grid, fft=fft_size)
-        journal.record("model", "complete", model640=str(model_640))
-
-    # The wide-ramp variant needs a fresh signed-ramp measurement at the
-    # control resolution actually used for shaping.
-    if not (wide_dir / "frozen_parameters.json").is_file():
-        geometry_dir = root / "geometry_wide"
-        journal.record("capture_geometry", "running")
-        with _optical_path_exit("capture_geometry"):
-            capture_stage.capture(SimpleNamespace(
-                out=geometry_dir, camera=camera, cam_id=cam_id, slm_number=slm_number,
-                grid=control_grid, count=6, frames=frames, seed=seed + 1,
-                execute=True, exposure_max_steps=12, save_dataset=True,
-                ramp_periods=[16, 32]))
-        journal.record("capture_geometry", "complete", out=str(geometry_dir))
-        geometric_seed.export_frozen_parameters(model_640 / "frozen_parameters.json",
-                                                wide_dir, grid=control_grid, fft=fft_size,
-                                                geometry_dataset=geometry_dir)
-        journal.record("wide_model", "complete", out=str(wide_dir))
-
-    # ------------------------------------------------------- seed bake-off
-    chosen: dict[str, str] = {}
-    if seed_bakeoff:
-        for shape in shapes:
-            candidates = ["transport", "backprojection", "gs"] if shape == "square" \
-                else ["backprojection", "gs"]
-            if not gs_seed:
-                candidates = [kind for kind in candidates if kind != "gs"]
-            if len(candidates) == 1:
-                # 单一候选无需实测比较, 直接采用 (仍写入 journal 以便溯源)。
-                chosen[shape] = candidates[0]
-                journal.record("seed_bakeoff", "skipped", shape=shape, candidates=candidates,
-                               chosen=candidates[0], reason="single candidate")
-                logger.info("seed bake-off {}: single candidate -> {}", shape, candidates[0])
-                continue
-            scores: dict[str, float] = {}
-            for kind in candidates:
-                bake_dir = out / "seed_bakeoff" / f"{shape}_{kind}"
-                manifest_path = bake_dir / "manifest.json"
-                if manifest_path.is_file():
-                    scores[kind] = float(_json(manifest_path)[0]["metrics"]["cv"])
-                    continue
-                args = _validate_args(
-                    checkpoint=model_640 / "frozen_parameters.json", out=bake_dir,
-                    zero_xy=zero_xy, shapes=[shape], recipe=STAGE_RECIPES[0],
-                    initial_phase=kind, seed_run=None, device=device, camera=camera,
-                    cam_id=cam_id, slm_number=slm_number, frames=frames, side=side,
-                    period=period, window_span=window_span, zero_radius=zero_radius,
-                    window_step=window_step, blocks=0, updates=0, adaptive_exposure=False)
-                validate_stage.run(args)
-                if not manifest_path.is_file():
-                    raise RuntimeError(
-                        f"seed bake-off {shape}/{kind} finished without writing "
-                        f"{manifest_path}; a seed-only pass (blocks=0) must still "
-                        f"measure its seed row")
-                scores[kind] = float(_json(manifest_path)[0]["metrics"]["cv"])
-            best = min(scores, key=lambda k: scores[k])
-            chosen[shape] = best
-            journal.record("seed_bakeoff", "complete", shape=shape, scores=scores, chosen=best)
-            logger.info("seed bake-off {}: {} -> {}", shape, scores, best)
-    else:
-        chosen = {shape: _seed_kind(shape, initial_phase) for shape in shapes}
-
-    # ------------------------------------------------------------- shaping
-    recorder = None
+    # The executing half lives in ``execute_campaign`` so the GUI campaign page can
+    # drive the identical sequence from a background thread instead of a second copy.
+    #
+    # 「光路无光」的退出码映射放在**这里**，不放在 ``execute_campaign`` 里：那是本模块
+    # 唯一的库函数（GUI 在后台线程调用它），而 ``capture.py`` / ``validate.py`` 的既有
+    # 约定也是「库抛 ``OpticalPathInvalid``，只有 ``main`` 把它翻成退出码 3」。翻早了
+    # 异常对象就消失在一句 ``SystemExit(3)`` 里 —— 调用方只剩一个数字，实测曝光阶梯、
+    # ``reason`` / ``cause`` 全都拿不到。这一条是**预期**的失败（有人挡光 / 激光没出光
+    # / 光路漂走），不是缺陷：只报实测数字，不打印 traceback；普通异常照旧是退出码 1。
     try:
-        from ao_shaping.utils.io.file import Recorder
-
-        recorder = Recorder(mark="cv_candidate", mode="min")
-    # policy: Recorder is optional telemetry for this stage loop
-    except Exception as exc:  # pragma: no cover - Recorder is part of the repo
-        logger.warning("Recorder unavailable: {}", exc)
-
-    with _optical_path_exit("shape"):
-        run_stages(
-            out=out, shapes=shapes, order=order, resume=resume, journal=journal,
-            chosen=chosen, model_640=model_640, wide_dir=wide_dir, zero_xy=zero_xy,
-            initial_phase=initial_phase, device=device, camera=camera, cam_id=cam_id,
-            slm_number=slm_number, frames=frames, side=side, period=period,
-            window_span=window_span, zero_radius=zero_radius, window_step=window_step,
-            recorder=recorder, profile_timing=profile_timing,
-            async_capture_write=async_capture_write,
-            jacobian_guard=jacobian_guard, jacobian_low=jacobian_low,
-            jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
-            spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
-            objective=objective, weight_schedule=weight_schedule)
-
-    # -------------------------------------------------------------- replay
-    runs = [out / "shape" / shape / recipe.name for shape in shapes for recipe in STAGE_RECIPES]
-    replay_dir = out / "common_replay"
-    # ``released.json`` is written only after every block replayed *and* both
-    # devices were released, so it is the completion marker. ``config.json`` is
-    # not: it is written before the first block, so a replay that aborted on a
-    # saturated core (2026-10-29, lane 01) would be skipped as "reused" and the
-    # lane would silently report a session with no usable replay.
-    if resume and (replay_dir / "released.json").is_file():
-        # Same contract as a reused stage: the directory says it already ran.
-        journal.record("replay", "reused", out=str(replay_dir))
-    else:
-        journal.record("replay", "running")
-        exposures = list(replay_exposures)
-        if replay_exposures_auto:
-            observations = _measured_peak_rates(runs)
-            exposures = derive_replay_exposures(observations)
-            journal.record("replay", "ladder_derived", exposures=exposures,
-                           n_blocks=len(observations))
-            logger.info("replay ladder derived from {} measured blocks: {} ms",
-                        len(observations), exposures)
-        replay_phases.replay(SimpleNamespace(
-            initial_run=out / "shape" / shapes[0] / STAGE_RECIPES[0].name, runs=runs,
-            out=replay_dir, exposures=exposures, frames=frames,
-            camera=camera, cam_id=cam_id, slm_number=slm_number, include_best=False))
-        journal.record("replay", "complete", out=str(replay_dir), exposures=exposures)
-
-    # -------------------------------------------------------------- record
-    records_marker = out / "records" / "process.csv"
-    if resume and records_marker.is_file():
-        journal.record("record", "reused", out=str(records_marker.parent))
-    elif recorder is None or not recorder.history:
-        # ``--resume`` on an otherwise finished lane re-enters no stage, so there
-        # is no capture to export. ``save_records`` raises "history is empty",
-        # which would fail a session whose only remaining work was the replay.
-        # ``--records-only`` rebuilds the table from the stage manifests.
-        journal.record("record", "skipped", reason="no captures this run; use --records-only")
-    elif recorder is not None:
-        saved = recording.save_records(recorder, out / "records", mark="process",
-                                       gif_name="process.gif", fps=2.0,
-                                       title="多形状物理预测模型闭环整形 (逐 CCD 块)")
-        journal.record("record", "complete", **saved)
-        click.echo(json.dumps(saved, indent=2, ensure_ascii=False))
-    journal.record("session", "complete", out=str(out))
-    click.echo(f"Session complete: {out}")
+        execute_campaign(out=out, **params)
+    except OpticalPathInvalid as exc:
+        click.echo(exc.report(), err=True)
+        raise SystemExit(exc.exit_code) from None
 
 
 if __name__ == "__main__":

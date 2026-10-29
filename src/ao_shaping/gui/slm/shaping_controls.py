@@ -2108,14 +2108,17 @@ class ModelInLoopMethod(ShapingMethod):
 # Transfer: physical-forward-model closed loop (docs/slm/slm_transfer_workflow.md)
 # ---------------------------------------------------------------------------
 
-#: Shapes the transfer entry actually implements.  Not "any text pattern":
-#: ``TransferSession.validate`` rejects anything outside this set, and 五角星 is
-#: implemented but has **no device result yet** (workflow doc §7).
+#: 本页选项集（迁移学习历来跑的四种）→ 中文名，仅用于显示；校验走
+#: :data:`ao_shaping.utils.image.target.TRANSFER_SHAPE_CHOICES`，名字的唯一来源是
+#: :data:`ao_shaping.utils.image.target.shapes.TARGET_SHAPE_LABELS`。
+#: 原先 ``star`` 的文案写着「尚无实验结果」——那条已过期：2026-10-28 的 multishape
+#: campaign 里 star 四段全部跑完
+#: （``report/shape_trials/multishape_scale/multishape_scale_live_20261028.md`` §3.2）。
 TRANSFER_SHAPE_LABELS: dict[str, str] = {
     "square": "正方形",
     "rectangle": "长方形",
     "triangle": "三角形",
-    "star": "五角星（已实现，尚无实验结果）",
+    "star": "五角星",
 }
 
 #: The recipe the reproduction report ran (report/shape_trials/multishape_capability/

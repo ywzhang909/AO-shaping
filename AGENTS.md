@@ -432,6 +432,9 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 | `slm/transfer/` | `parallel_fit.py` | 无头并行模型拟合监控: 独立进程流式读 loss, 收敛/平台期写 marker 令采集提前停, `--finalize` 委托正式拟合 |
 | `slm/transfer/` | `protocol.py` | 测量协议原语: 口径固定指标与重复统计 (2026-10-28 multishape 复盘的三个读数缺陷: CV 分不清平坦与变暗 / 分母漂移 / 缺能量伴随量) |
 | `slm/transfer/` | `session_plan.py` | 免设备会话规划、续跑记账与 model-only 验收 (由 `validate.py` 拆出过模块规模门禁, `validate` 按旧路径重导入) |
+| `slm/transfer/` | `stages.py` | 四阶段 CCD 锚定整形配方表 (单一事实源, 不碰设备): `STAGE_RECIPES` 从 `runners/slm/transfer_shapes_runner.py` 搬出, 免设备消费者 (GUI 计划页 / 进度读取 / 计划脚本) 不必 import 一整个 click 绑定的 runner |
+| `slm/transfer/` | `campaign.py` | 多形状 campaign 的「形状 + 尺寸 → 其余全部参数」派生层 (纯函数, 不碰设备): `SIZE_WINDOWS`/`window_for_side` 与计划脚本共用同一张尺寸→窗口表 (200/600/1200 → 420/620/900), `derive_settings` 逐字段标 `measured`/`derived`/`default`/`manual` 来源并记下被覆盖的原值, `campaign_matrix`/`estimate_seconds`/`estimate_disk_gb` 供计划页预览; 存在的理由是「哪些数是测出来的、哪些只是 CLI 默认值」不能靠操作员记忆 |
+| `slm/transfer/` | `campaign_progress.py` | campaign 输出目录的逐块进度读取器 (纯函数, 不碰 streamlit/设备; 产物缺失、只写一半、阶段被 `stopped` 都不抛): `collect_campaign_progress` 读 `journal.json` + `shape/<shape>/<stage>/manifest.json` → 16 段 / 112 块视图 (与报告 §3.2 表同源), `peak_full` 对齐报告「段内峰值」, `peak_inside` 另答核心内峰值 |
 | `wfs/` | `wfs_probe.py` | SLM+WFS 光强与瞳面探针 — 标定前硬件状态检查 (光强是否足够且不饱和) |
 | `wfs/` | `wfs_reference.py` | SLM+WFS 参考波前标定与倾斜线性度 (三步流程) |
 | `wfs/` | `zernike_correction.py` | SLM Zernike 模式法波前矫正三阶段流程 (2026-09-15, 按实测调优) |

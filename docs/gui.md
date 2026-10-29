@@ -49,6 +49,11 @@ streamlit run src/ao_shaping/gui/zernike/zernike_debug_viewer.py
 streamlit run src/ao_shaping/gui/dm/md_img_analysis_ui.py
   - 手册: docs/GUI/dm/md_img_analysis_ui/md_img_analysis_ui_user_manual.md
   - SRS:  docs/GUI/dm/md_img_analysis_ui/md_img_analysis_ui_srs.md
+
+# 多形状整形 campaign 操作台 (形状 + 尺寸是唯一必填, 其余自动派生)
+streamlit run src/ao_shaping/gui/slm/multishape_campaign_ui.py
+  - 手册: docs/GUI/slm/multishape_campaign_ui/multishape_campaign_ui_user_manual.md
+  - SRS:  docs/GUI/slm/multishape_campaign_ui/multishape_campaign_ui_srs.md
 ```
 
 ## 各页面文档索引
@@ -64,3 +69,4 @@ streamlit run src/ao_shaping/gui/dm/md_img_analysis_ui.py
 | CCD 实时图像分析 | [`ccd_analyzer_user_manual.md`](./GUI/ccd/ccd_analyzer/ccd_analyzer_user_manual.md) | [`ccd_analyzer_srs.md`](./GUI/ccd/ccd_analyzer/ccd_analyzer_srs.md) |
 | Zernike 调试查看器 | [`zernike_debug_viewer_user_manual.md`](./GUI/zernike/zernike_debug_viewer/zernike_debug_viewer_user_manual.md) | [`zernike_debug_viewer_srs.md`](./GUI/zernike/zernike_debug_viewer/zernike_debug_viewer_srs.md) |
 | Micro-DM 图像分析 | [`md_img_analysis_ui_user_manual.md`](./GUI/dm/md_img_analysis_ui/md_img_analysis_ui_user_manual.md) | [`md_img_analysis_ui_srs.md`](./GUI/dm/md_img_analysis_ui/md_img_analysis_ui_srs.md) |
+| 多形状整形 campaign | [`multishape_campaign_ui_user_manual.md`](./GUI/slm/multishape_campaign_ui/multishape_campaign_ui_user_manual.md) | [`multishape_campaign_ui_srs.md`](./GUI/slm/multishape_campaign_ui/multishape_campaign_ui_srs.md) |

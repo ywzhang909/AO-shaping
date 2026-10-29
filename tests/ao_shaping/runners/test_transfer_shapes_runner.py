@@ -301,3 +301,89 @@ def test_an_ordinary_failure_keeps_exit_code_one(tmp_path, monkeypatch):
     assert result.exit_code == 1
     assert isinstance(result.exception, RuntimeError)
     assert "exposure did not converge" in str(result.exception)
+
+
+# --------------------------------------------------------------------------- #
+# execute_campaign: the executing half the GUI drives from a background thread
+# --------------------------------------------------------------------------- #
+def test_execute_runs_the_callable_body_not_a_copy(tmp_path, monkeypatch):
+    """``run --execute`` must delegate, and hand over *every* click parameter.
+
+    The GUI page calls ``execute_campaign(**CampaignSettings.kwargs(), out=...)``;
+    a parameter that ``run`` fails to forward silently falls back to the click
+    default, which is exactly the "one lane lost a flag" failure the campaign layer
+    exists to prevent.
+    """
+    from ao_shaping.runners.slm import transfer_shapes_runner as module
+
+    captured: dict = {}
+
+    def fake_execute(**kwargs):
+        captured.update(kwargs)
+        return {"out": str(kwargs["out"]), "stages": 0, "blocks": 0, "stopped": False}
+
+    monkeypatch.setattr(module, "execute_campaign", fake_execute)
+    result = CliRunner().invoke(run, ["--out", str(tmp_path / "s"), "--shapes", "square",
+                                      "--side", "200", "--window-span", "420", "--execute"])
+    assert result.exit_code == 0, result.output
+    assert captured["out"] == (tmp_path / "s").resolve()
+    assert captured["shapes"] == ["square"]
+    assert captured["side"] == 200.0
+    assert captured["window_span"] == 420.0
+    forwarded = {param.name for param in run.params} - {"out_dir", "execute", "records_only"}
+    assert forwarded <= set(captured), sorted(forwarded - set(captured))
+
+
+def test_execute_campaign_rejects_a_misspelled_keyword(tmp_path):
+    """A typo must fail loudly: a silently ignored key would run with another default."""
+    from ao_shaping.runners.slm.transfer_shapes_runner import execute_campaign
+
+    with pytest.raises(TypeError, match="不认识"):
+        execute_campaign(out=tmp_path, windo_span=1.0)
+
+
+def _drive_run_stages(tmp_path, monkeypatch, *, stops_at: int | None = None):
+    """Drive ``run_stages`` with ``validate.run`` faked: no device is opened."""
+    from ao_shaping.runners.slm import transfer_shapes_runner as module
+
+    entered: list[Path] = []
+
+    def fake_validate(args):
+        entered.append(Path(args.out))
+        Path(args.out).mkdir(parents=True, exist_ok=True)
+        (Path(args.out) / "manifest.json").write_text("[]", encoding="utf-8")
+
+    monkeypatch.setattr(module.validate_stage, "run", fake_validate)
+    journal = module._Journal(path=tmp_path / "journal.json")
+    calls = {"n": 0}
+
+    def should_stop() -> bool:
+        calls["n"] += 1
+        return stops_at is not None and calls["n"] >= stops_at
+
+    stopped = module.run_stages(
+        out=tmp_path, shapes=["square"], order="shape", resume=False, journal=journal,
+        chosen={"square": "transport"}, model_640=tmp_path, wide_dir=tmp_path,
+        zero_xy=(0.0, 0.0), initial_phase="auto", device="cpu", camera="sim", cam_id=0,
+        slm_number=1, frames=1, side=200.0, period=32.0, window_span=420.0,
+        zero_radius=60.0, window_step=4.0, recorder=None, should_stop=should_stop)
+    return stopped, entered, journal
+
+
+def test_no_stop_runs_every_segment(tmp_path, monkeypatch):
+    stopped, entered, journal = _drive_run_stages(tmp_path, monkeypatch)
+    assert stopped is False
+    assert len(entered) == len(STAGE_RECIPES)
+    assert [entry["status"] for entry in journal.entries] == ["running", "complete"] * len(STAGE_RECIPES)
+
+
+def test_should_stop_ends_at_a_segment_boundary_and_journals_stopped(tmp_path, monkeypatch):
+    """Stop is segment-granularity: the next segment is journalled ``stopped``, no raise."""
+    stopped, entered, journal = _drive_run_stages(tmp_path, monkeypatch, stops_at=2)
+    assert stopped is True
+    # One full segment ran; the second one was never entered (a block is atomic).
+    assert len(entered) == 1
+    statuses = [entry["status"] for entry in journal.entries]
+    assert statuses == ["running", "complete", "stopped"]
+    assert journal.entries[-1]["stage"] == f"square/{STAGE_RECIPES[1].name}"
+    assert "operator stop" in journal.entries[-1]["reason"]

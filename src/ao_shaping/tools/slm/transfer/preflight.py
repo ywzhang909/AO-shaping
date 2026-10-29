@@ -21,6 +21,10 @@
 两级都要有：只有第一级时，``period`` 与 ``side`` 的**组合**是否放得下要等到
 实测斜坡才知道；只有第二级时，操作员已经等了几分钟才知道参数填错。
 
+第三级（只在有实测零点时可用）：:func:`check_zero_overlap` —— 零级剔除圆盘与
+目标框的重叠面积。它是**读数口径**检查，不是"能不能跑"：200 px 档实测重叠
+5.61 % 的那次仍然跑完了，但那段 CV 只能带重叠面积一起读（规划报告 §1 H3 勘误）。
+
 口径来源（不要另立一套）
 ------------------------
 - 采样窗：``validate.run`` 用 ``recentre_window(zero_xy, half_span_px=220, step_px=2)``；
@@ -46,8 +50,10 @@ __all__ = [
     "STEP_PX",
     "WINDOW_MARGIN_PX",
     "Problem",
+    "ZeroOverlap",
     "check_geometry",
     "check_parameters",
+    "check_zero_overlap",
     "format_problems",
 ]
 
@@ -376,3 +382,201 @@ def _period_hint(offset_vec: np.ndarray, side: float, half_span_px: float) -> st
         "两者都放不下时，得重新标定斜坡或把目标边长降到 "
         f"≤ {_max_side_px(offset, half_span_px):.0f} px。"
     )
+
+
+#: 零级剔除圆盘的默认半径（px）。与 ``--zero-radius`` 的 CLI 默认 60.0 一致 ——
+#: 报告 §3.2 的 0.79 % / 3.14 % / 5.61 % 三个剔除面积都按 60 px 圆盘算的，
+#: 换半径就换了口径。
+DEFAULT_ZERO_RADIUS_PX: float = 60.0
+
+
+@dataclass(frozen=True)
+class ZeroOverlap:
+    """零级剔除圆盘与目标方框的重叠（读数口径，不是"能不能跑"）。
+
+    Attributes:
+        intersects: 是否重叠（重叠面积为 0 时为 ``False``）。
+        area_px: 重叠面积（px²）。
+        pct: 重叠面积占目标方框面积的百分比（``100 * area_px / side²``）。
+        depth_px: 圆盘压进方框的深度（px）。圆心在框内时为 0；圆心在框外时为
+            ``半径 - 圆心到框的距离``（夹到 0 以上）。
+        note: 一句中文说明，带数字，可直接显示在 GUI 的校验区。
+    """
+
+    intersects: bool
+    area_px: float
+    pct: float
+    depth_px: float
+    note: str
+
+
+def check_zero_overlap(
+    target_x: float,
+    target_y: float,
+    side: float,
+    zero_xy: tuple[float, float] | None,
+    zero_radius: float = DEFAULT_ZERO_RADIUS_PX,
+) -> ZeroOverlap:
+    """零级剔除圆盘 ∩ 目标方框的面积与该区域压进方框的深度。
+
+    为什么需要它：几何守卫（:func:`check_geometry`）只检查目标框是否越出采样窗，
+    **不检查零级剔除区与目标框是否重叠**，所以 2026-10-28 那次 200 px 格
+    「零级与目标分离」的前提在实测载波位移下失效（规划报告 §1 H3 勘误）却不会报错。
+    重叠面积必须与 CV 一起读 —— 否则「200 px 的 CV 更差」会被读成优化变差，
+    而不是核心里有 5.61 % 属于零级。
+
+    几何口径：目标框是以 ``(target_x, target_y)`` 为中心、边长 ``side`` 的轴对齐正方形；
+    零级是圆心 ``zero_xy``、半径 ``zero_radius`` 的圆盘。两个输入都用**同一坐标系**
+    （相机 sensor px）—— 全幅坐标与窗口局部坐标混用会把重叠面积算成 0（见 AGENTS
+    反模式表里 `full-frame centre leaking into window-local metrics` 那一条）。
+
+    面积是**解析**算的，不是网格近似：本模块此前只有方框/采样窗的检查
+    （:func:`_max_side_px`、:func:`check_geometry`），没有圆弧面积助手，所以
+    :func:`_quarter_disc_area` 与 :func:`_disc_box_area` 就实现在这里，不引第二套几何。
+    验收：1200 → 0.79 %、600 → 3.14 %、200 → 5.61 %（圆心离框边 29.70 px、
+    穿入 30.30 px），见 ``tests/ao_shaping/tools/slm/transfer/test_zero_overlap.py``。
+
+    Args:
+        target_x: 目标框中心 x（sensor px）。
+        target_y: 目标框中心 y（sensor px）。
+        side: 目标框边长（px），须为正。
+        zero_xy: 实测零级位置 ``(x, y)``（sensor px）；``None`` 表示未测。
+        zero_radius: 零级剔除圆盘半径（px）。
+
+    Returns:
+        :class:`ZeroOverlap`。``zero_xy is None`` 时返回「不相交 + 说明未测」，
+        不抛异常 —— 计划页在没做光路探针时必须仍然能画出来。
+
+    Raises:
+        ValueError: ``side`` 或 ``zero_radius`` 不是正的有限数。
+    """
+    side_value = _positive_length(side, "目标框边长 side")
+    radius = _positive_length(zero_radius, "零级圆盘半径 zero_radius")
+    if zero_xy is None:
+        return ZeroOverlap(
+            intersects=False, area_px=0.0, pct=0.0, depth_px=0.0,
+            note="零级位置未测：无法判断剔除区与目标框是否重叠，运行前请做光路探针"
+                 "（scripts/slm/probe_optical_path_validity.py）",
+        )
+
+    zx, zy = (float(v) for v in zero_xy)
+    tx, ty = float(target_x), float(target_y)
+    x0, x1 = tx - side_value / 2.0, tx + side_value / 2.0
+    y0, y1 = ty - side_value / 2.0, ty + side_value / 2.0
+
+    area = _disc_box_area(zx, zy, radius, x0, x1, y0, y1)
+    # 浮点残差：完全相切/完全不相交时面积可能是 1e-12 级的负零或正零。
+    area = max(0.0, min(area, math.pi * radius * radius, side_value * side_value))
+    pct = 100.0 * area / (side_value * side_value)
+
+    distance = _distance_to_box(zx, zy, x0, x1, y0, y1)
+    nearest_edge = _nearest_edge(zx, zy, x0, x1, y0, y1)
+    depth = 0.0 if distance <= 0.0 else max(0.0, radius - distance)
+    intersects = area > 0.0
+
+    if not intersects:
+        note = (f"零级圆盘（半径 {radius:g} px）与目标框不相交："
+                f"圆心离框 {distance:.2f} px ≥ 半径 {radius:g} px，剔除面积为 0")
+    elif distance <= 0.0 and radius <= nearest_edge:
+        note = (f"零级圆盘完全落在目标框内：剔除面积 {pct:.2f}%"
+                f"（π·{radius:g}² / {side_value:g}²）")
+    elif distance <= 0.0:
+        note = (f"零级圆盘被目标框裁掉一部分：剔除面积 {pct:.2f}%"
+                f"（半径 {radius:g} px 大于圆心到最近框边 {nearest_edge:.2f} px —— "
+                "方框比圆盘小，核心指标会低估零级能量）")
+    else:
+        note = (f"零级圆盘压进目标框 {depth:.2f} px、占目标面积 {pct:.2f}%："
+                f"这部分能量落在核心内，CV 必须与该剔除面积一起读"
+                f"（圆心在框外 {distance:.2f} px，半径 {radius:g} px）")
+
+    return ZeroOverlap(intersects=intersects, area_px=area, pct=pct, depth_px=depth, note=note)
+
+
+def _positive_length(value: float, name: str) -> float:
+    """把一个长度参数校验成正的有限数（px）。"""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} 必须是数字（px），收到 {value!r}") from None
+    if not math.isfinite(number) or number <= 0.0:
+        raise ValueError(f"{name} 必须是正的有限数（px），收到 {value!r}")
+    return number
+
+
+def _arc_primitive(t: float, radius: float) -> float:
+    """``I(t) = ∫_0^t sqrt(r² − x²) dx``（``t`` 夹到 ``[0, r]``）。
+
+    圆盘面积的**唯一**解析原语：四分之一圆面积就是 ``I(r) = πr²/4``，
+    圆弧段面积是 ``I`` 的差。写成原语而不是逐处写扇形公式，是因为夹角、
+    弦长、区域三种写法在边界（``t = r``、``t = 0``）上各自有特例，容易分叉。
+    """
+    t = min(max(t, 0.0), radius)
+    rest = max(radius * radius - t * t, 0.0)
+    return 0.5 * (t * math.sqrt(rest) + radius * radius * math.asin(t / radius))
+
+
+def _quarter_disc_area(a: float, b: float, radius: float) -> float:
+    """``圆盘 ∩ [0,a]×[0,b]`` 的面积（圆心在原点，``a``/``b`` 为到圆心的距离）。
+
+    这是"一个象限里的累积分布"：对 ``[a0,a1]×[b0,b1]`` 用四项容斥即可得到
+    任意轴对齐矩形的重叠面积（见 :func:`_disc_box_area`），不必给圆-矩形裁剪写
+    第二种分情形实现。
+
+    分支来自 ``min(b, sqrt(r² − x²))`` 的换元点 ``x = sqrt(r² − b²)``：
+    ``b ≥ r`` 时被积函数就是 ``sqrt(r² − x²)``（整条弦都在窗口内），
+    否则先是一段常数 ``b``、之后才是弦。
+    """
+    if a <= 0.0 or b <= 0.0 or radius <= 0.0:
+        return 0.0
+    limit = min(a, radius)
+    if b >= radius:
+        return _arc_primitive(limit, radius)
+    switch = math.sqrt(max(radius * radius - b * b, 0.0))
+    edge = min(limit, switch)
+    return b * edge + _arc_primitive(limit, radius) - _arc_primitive(edge, radius)
+
+
+def _split_at(value0: float, value1: float, cut: float) -> tuple[tuple[float, float], ...]:
+    """把区间 ``[value0, value1]`` 在 ``cut`` 处切开（若 ``cut`` 落在区间内部）。"""
+    low, high = (value0, value1) if value0 <= value1 else (value1, value0)
+    if high <= cut or low >= cut:
+        return ((low, high),)
+    return ((low, cut), (cut, high))
+
+
+def _disc_box_area(
+    centre_x: float, centre_y: float, radius: float,
+    x0: float, x1: float, y0: float, y1: float,
+) -> float:
+    """圆盘 ∩ 轴对齐矩形的面积（解析，非网格近似）。
+
+    先把矩形沿圆心的两条轴线切成至多 4 块，使每块完全落在一个象限内；每块把坐标
+    折叠成到圆心的距离后，用 :func:`_quarter_disc_area` 的四项容斥求面积。
+    这样既不需要"圆是否完全在矩形内"之类的特例，也不会在矩形跨越圆心时算错。
+    """
+    area = 0.0
+    for xa, xb in _split_at(x0, x1, centre_x):
+        ax0, ax1 = sorted((abs(xa - centre_x), abs(xb - centre_x)))
+        for ya, yb in _split_at(y0, y1, centre_y):
+            ay0, ay1 = sorted((abs(ya - centre_y), abs(yb - centre_y)))
+            area += (
+                _quarter_disc_area(ax1, ay1, radius)
+                - _quarter_disc_area(ax0, ay1, radius)
+                - _quarter_disc_area(ax1, ay0, radius)
+                + _quarter_disc_area(ax0, ay0, radius)
+            )
+    return area
+
+
+def _distance_to_box(x: float, y: float, x0: float, x1: float, y0: float, y1: float) -> float:
+    """点到轴对齐矩形的距离（点在矩形内时为 0）。"""
+    dx = max(x0 - x, 0.0, x - x1)
+    dy = max(y0 - y, 0.0, y - y1)
+    return math.hypot(dx, dy)
+
+
+def _nearest_edge(x: float, y: float, x0: float, x1: float, y0: float, y1: float) -> float:
+    """点在矩形内时到最近边的距离（点在矩形外时按 :func:`_distance_to_box` 口径返回 0）。"""
+    if not (x0 <= x <= x1 and y0 <= y <= y1):
+        return 0.0
+    return min(x - x0, x1 - x, y - y0, y1 - y)

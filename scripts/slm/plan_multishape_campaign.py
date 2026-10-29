@@ -70,6 +70,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:  # allow `python scripts/...` from a bare checkout
     sys.path.insert(0, str(ROOT / "src"))
 
+from ao_shaping.tools.slm.transfer.campaign import MINUTES_PER_BLOCK as DEFAULT_MINUTES_PER_BLOCK
+from ao_shaping.tools.slm.transfer.campaign import SIZE_WINDOWS as CAMPAIGN_SIZE_WINDOWS
 from ao_shaping.tools.slm.transfer.protocol import plan_reference_blocks
 
 CAMPAIGN_ROOT = ROOT / "data" / "debug" / "slm_transfer"
@@ -86,7 +88,10 @@ CAMPAIGN_TOKEN = "<campaign>"
 #: needs. The window must be wider than the target and the zero-order disk: the
 #: 200 px box overlaps the zero-order disk by 5.61 % (measured), which is why the
 #: aperture metrics exclude it rather than shrinking the window.
-SIZE_WINDOWS = {200: 420.0, 600: 620.0, 1200: 900.0}
+#:
+#: 定义已搬到 ``ao_shaping.tools.slm.transfer.campaign``（GUI 计划页与免设备消费者
+#: 都要同一张表）；这里只 import，不再维护第二份。
+SIZE_WINDOWS = CAMPAIGN_SIZE_WINDOWS
 
 #: Initial-phase provenance per route. ``initial_phase`` is the CLI value;
 #: ``gs_calls`` is what the route is allowed to spend (0 for both).
@@ -109,7 +114,9 @@ REQUIRED_RESULTS = {
 REQUIRED_AUDIT = ("zero_excluded_fraction", "saturated_fraction", "phase_provenance",
                   "model_checkpoint_sha256", "exposure_readback_ms")
 
-DEFAULT_MINUTES_PER_BLOCK = 0.4  # measured: ~4 captures x ~6 s with settle
+#: 单块墙钟基线（分钟）。单一事实源在
+#: ``ao_shaping.tools.slm.transfer.campaign.MINUTES_PER_BLOCK``（上面按原名 import 成
+#: ``DEFAULT_MINUTES_PER_BLOCK``），脚本不再维护第二份。
 
 
 def plan_refit_lane(*, sizes: list[int], shapes: list[str], model_session: str,

@@ -380,6 +380,9 @@ streamlit run src/ao_shaping/gui/zernike/zernike_debug_viewer.py
 
 # Micro-DM 图像分析（diff 图/网格）
 streamlit run src/ao_shaping/gui/dm/md_img_analysis_ui.py
+
+# 多形状整形 campaign（形状 + 尺寸是唯一必填，其余参数自动派生并标注来源）
+streamlit run src/ao_shaping/gui/slm/multishape_campaign_ui.py
 ```
 
 各页面的用户手册与需求规格说明书见 [`docs/gui.md`](docs/gui.md) 的文档索引。

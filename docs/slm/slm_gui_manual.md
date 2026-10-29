@@ -116,6 +116,8 @@ classDiagram
 | bench_settings.py       | 侧栏「CCD参数设置」区块 + 三态（探测/人工）session 契约  |
 | shaping_controls.py     | 闭环整形主区：GS+SPGD 闭环 / 物理预测模型闭环 / 迁移学习闭环，三个适配器共用一个方法选择器（render_closed_loop_shaping） |
 | slm_calibration_ui.py   | 独立的 LUT 标定页面（不在本说明书范围）                    |
+| multishape_campaign_ui.py | 独立的多形状整形 campaign 操作台（形状 + 尺寸是唯一必填，参数由 `tools/slm/transfer/campaign.py` 派生；不在本说明书范围） |
+| precheck.py             | 上述操作台的运行前检查卡（六项，红停 + 黄勾选；无设备可用） |
 
 ---
 
@@ -193,6 +195,23 @@ classDiagram
 | diff_opt_session_dir        | str             | 可微优化模型控制器页的会话目录（轨迹图数据源，非 widget key） |
 | diff_opt_subheader_box      | SpecialBlock/None | 可微优化页「专用子标题」折叠面板句柄（默认 None=主区，非 widget key） |
 | diff_opt_layout_choice      | str             | 可微优化页「页面布局」选择器（默认主区 / 专用子标题，widget 键） |
+| msc_side_preset / msc_side_custom | int / float | 多形状 campaign 页的边长（预设 / 自填，widget 键） |
+| msc_overrides               | dict            | 该页手工覆盖的 campaign 参数（按参数名；非 widget key） |
+| msc_overrides_reset         | bool            | 一次性「按尺寸重新推导」信号（消费后清，非 widget key） |
+| msc_out_text / msc_out_side | str / float     | `--out` 根目录（widget 键）与它对应的边长（换尺寸才重写目录） |
+| msc_model_choice / msc_model_custom / msc_model | str | 物理预测模型目录（下拉 / 手填 / 生效值；`None` = 从零训练） |
+| msc_budget_hours            | float           | 设备占用预算（h，widget 键；缺省 `precheck.BUDGET_HOURS`） |
+| msc_acks / msc_ack_<check>  | dict / bool     | 检查卡黄项勾选总表 / 单条勾选框（六项之一，widget 键） |
+| msc_resume / msc_resume_dir | bool / str      | 「从断点续跑」开关（widget 键）与它对应的目录（非 widget key） |
+| msc_run                     | `_CampaignRun`  | 运行体：目录、线程、`stop_event`、`out_q`、形状快照（非 widget key） |
+| msc_summary / msc_error / msc_optical_path | dict | 三种终态回传：完成摘要 / 异常 / 光路无光（`reason`,`cause`,`report`） |
+| msc_history_choice          | str             | ⑦ 历史会话选中的 campaign 目录（widget 键） |
+| msc_start / msc_stop / msc_reset_overrides | —（button） | 该页三个按钮（widget 键） |
+
+> `msc_*` 这些键属于**独立的** `gui/slm/multishape_campaign_ui.py`
+> （`streamlit run` 单独启动，不挂进本页）；列在这里是因为它复用本节的
+> `bench_settings` 侧栏与 `slm{N}_*` 设备键。完整说明见
+> [`docs/GUI/slm/multishape_campaign_ui/multishape_campaign_ui_user_manual.md`](../../GUI/slm/multishape_campaign_ui/multishape_campaign_ui_user_manual.md)。
 
 ---
 
