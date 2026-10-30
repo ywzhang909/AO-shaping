@@ -1,5 +1,10 @@
 {
   "run_root": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\hw_gs_square_scans\\20261030_gs1000",
+  "flat_dir": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\optical_path_probe\\gs_flat_halo\\20261030_034710Z",
+  "flat_dir_note": "平相位帧 (A / 平场 FWHM) 的来源目录; 与 §4.1 那次探测不是同一次采集",
+  "ladder_dir": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\optical_path_probe\\gs_control_1000px\\20261030_031154Z",
+  "ladder_dir_note": "图 8 曝光阶梯的来源目录 = §4.1 那次光路探测",
+  "ladder_frame_note": "每档 npz 存 2 帧, 图取第 1 帧; §4.1 的 peak_raw 是两帧最大值 (1 ms: 213 vs 215)",
   "dc_px": [
     1269.0,
     944.0
@@ -81,12 +86,160 @@
   "long_pair_increment_counts": 439707.0,
   "long_pair_outside_share": 0.6575490574333115,
   "pedestal_drift_counts": 165937.0,
+  "corrected_arm": null,
+  "raw_ccd_frames": [
+    {
+      "tag": "A",
+      "exposure_ms": 1.0,
+      "crop_center_px": [
+        1269.0,
+        944.0
+      ],
+      "peak": 178.0,
+      "frame_median": 0.0,
+      "saturated_px": 0,
+      "x_profile_row_px": 944.0,
+      "x_profile_x_rel_px": [
+        -560.0,
+        559.0
+      ],
+      "x_profile_zero_order_counts": 178.0,
+      "x_profile_box_median": null,
+      "x_profile_box_peak": null
+    },
+    {
+      "tag": "B",
+      "exposure_ms": 200.0,
+      "crop_center_px": [
+        1257.0,
+        915.0
+      ],
+      "peak": 255.0,
+      "frame_median": 1.0,
+      "saturated_px": 368,
+      "x_profile_row_px": 944.0,
+      "x_profile_x_rel_px": [
+        -572.0,
+        547.0
+      ],
+      "x_profile_zero_order_counts": 255.0,
+      "x_profile_box_median": 8.75,
+      "x_profile_box_peak": 255.0
+    },
+    {
+      "tag": "D-P10",
+      "exposure_ms": 600.0,
+      "crop_center_px": [
+        1967.0,
+        902.0
+      ],
+      "peak": 255.0,
+      "frame_median": 2.0,
+      "saturated_px": 2598,
+      "x_profile_row_px": 944.0,
+      "x_profile_x_rel_px": [
+        -160.0,
+        1257.0
+      ],
+      "x_profile_zero_order_counts": 255.0,
+      "x_profile_box_median": 16.75,
+      "x_profile_box_peak": 255.0
+    },
+    {
+      "tag": "D-P12",
+      "exposure_ms": 600.0,
+      "crop_center_px": [
+        1843.6666666666665,
+        902.0
+      ],
+      "peak": 255.0,
+      "frame_median": 2.0,
+      "saturated_px": 2182,
+      "x_profile_row_px": 944.0,
+      "x_profile_x_rel_px": [
+        -160.0,
+        1134.0
+      ],
+      "x_profile_zero_order_counts": 255.0,
+      "x_profile_box_median": 19.25,
+      "x_profile_box_peak": 255.0
+    }
+  ],
+  "raw_ccd_note": "逐帧自己的色标; 全帧 4x4 块最大值降采样; 未做本底扣除",
+  "exposure_ladder": [
+    {
+      "exposure_ms": 0.05,
+      "peak": 15.0,
+      "frame_median": 0.0,
+      "saturated_px": 0,
+      "crop_peak": 15.0,
+      "crop_saturated_px": 0
+    },
+    {
+      "exposure_ms": 0.2,
+      "peak": 45.0,
+      "frame_median": 0.0,
+      "saturated_px": 0,
+      "crop_peak": 45.0,
+      "crop_saturated_px": 0
+    },
+    {
+      "exposure_ms": 1.0,
+      "peak": 213.0,
+      "frame_median": 0.0,
+      "saturated_px": 0,
+      "crop_peak": 213.0,
+      "crop_saturated_px": 0
+    },
+    {
+      "exposure_ms": 2.0,
+      "peak": 255.0,
+      "frame_median": 0.0,
+      "saturated_px": 76,
+      "crop_peak": 255.0,
+      "crop_saturated_px": 76
+    },
+    {
+      "exposure_ms": 5.0,
+      "peak": 255.0,
+      "frame_median": 0.0,
+      "saturated_px": 239,
+      "crop_peak": 255.0,
+      "crop_saturated_px": 239
+    },
+    {
+      "exposure_ms": 10.0,
+      "peak": 255.0,
+      "frame_median": 0.0,
+      "saturated_px": 499,
+      "crop_peak": 255.0,
+      "crop_saturated_px": 499
+    },
+    {
+      "exposure_ms": 20.0,
+      "peak": 255.0,
+      "frame_median": 1.0,
+      "saturated_px": 780,
+      "crop_peak": 255.0,
+      "crop_saturated_px": 780
+    },
+    {
+      "exposure_ms": 50.0,
+      "peak": 255.0,
+      "frame_median": 1.0,
+      "saturated_px": 1438,
+      "crop_peak": 255.0,
+      "crop_saturated_px": 1438
+    }
+  ],
   "figures": [
     "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig1_four_arms.png",
     "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig2_blaze_overview.png",
     "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig3_model_vs_measured.png",
     "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig4_profiles.png",
     "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig5_flat_psf.png",
-    "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig6_diffuse_floor.png"
+    "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig6_diffuse_floor.png",
+    "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig7_raw_ccd.png",
+    "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig8_exposure_ladder.png"
   ]
 }

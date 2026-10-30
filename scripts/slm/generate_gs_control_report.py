@@ -14,9 +14,22 @@ Flat-phase reference frames come from ``probe_optical_path_validity.py``
 
 1. 平相位 (flat phase)          —— 光路自身的光斑, 未整形
 2. 直接发送 GS (GS, no blaze)   —— 方斑与 0 级重合, 0 级在框内饱和
-3. 经过矫正后发送 GS            —— **本次未采集** (设备下线); 传 ``--corrected-frame``
-                                   即自动占用该格, 否则画占位格并写明待办
+3. 经过矫正后发送 GS            —— ``--corrected-frame`` + ``--replay-b-frame``
+                                   (同曝光对照) + ``--corrected-flat-frame``
+                                   (平相位+矫正的未整形光斑) + ``--correction-meta``
 4. 叠加闪耀光栅 (GS + blaze)    —— 方斑移出 0 级
+
+第 3 项的证据口径: C 与 B 几何相同 (无闪耀光栅), 0 级都落在方框正中并在同一曝光下
+饱和, 于是**框内均匀度在两者上同样不可用**; 可比的只有边缘过渡宽度 (图 9) 与未整形
+光斑的峰值/FWHM (矫正是否真抵消了像差)。缺少 ``--replay-b-frame`` 时图 9 不给锐度
+结论, 只画 C 本身。
+
+图 7/图 8 是**原始 CCD 画面**: 图 7 是四个变体各自的全帧 (log) 与 1:1 裁图 (线性),
+图 8 是平相位曝光阶梯的原始帧。两张图都只读盘面上已有的帧、不扣本底、不叠加指标,
+作用是让读者看到「CCD 上到底拍到什么」——报告里其余图都是派生量。图 7 的裁图中心
+逐帧取自该帧自己的方框/0 级位置 (闪耀把方斑平移了 595-720 px), 图 8 的曝光档位由
+``<ladder-dir>/exposure_*ms.npz`` 的盘面内容决定 (缺省目录 = §4.1 那次光路探测的阶梯,
+与 ``--flat-dir`` 那次采集不是同一批帧)。
 
 几何口径 (与 ``hw_gs_square_scans.py`` 同一套, 这里只读不算):
 
@@ -37,8 +50,28 @@ Flat-phase reference frames come from ``probe_optical_path_validity.py``
 
 用法::
 
+    # 只有 A/B/D 三个变体 (无 C): 图 1/3/4/5/6/7/8, 图 9 不生成
     python scripts/slm/generate_gs_control_report.py
-    python scripts/slm/generate_gs_control_report.py --corrected-frame <npz>
+
+    # 带 C: 四份输入缺一不可 —— C 帧、同曝光的 B 重放帧、矫正后的平相位帧、
+    # 以及 acquisition 写出的 correction_meta.json (含 probe_count / 留出相关系数 /
+    # model_psf_fwhm_px)。``--flat-frame`` 换成与 C 同一次会话的平相位帧时,
+    # 图 9 的光斑峰值才与 C 的平相位帧可比 (峰值只在同曝光下可比)。
+    python scripts/slm/generate_gs_control_report.py \\
+        --corrected-frame <c.npz> --replay-b-frame <replay_b.npz> \\
+        --corrected-flat-frame <cflat.npz> --flat-frame <flat.npz> \\
+        --correction-meta <correction_meta.json>
+
+    # 只重画某几张图 (调试用)
+    python scripts/slm/generate_gs_control_report.py --only corrected
+
+退出码: 恒为 0 —— 输入不一致不当作脚本失败, 而是**降级成字段**: 曝光不同则
+``psf_peak_comparable = false``, 缺 ``model_psf_fwhm_px`` 则 ``geometry_ok = null``,
+缺 ``--replay-b-frame`` 则图 9 的对照面板与边缘剖面留空 (图仍生成, 只是不给
+锐度结论)。报告正文必须读这些字段, 不能凭图面推断。
+
+关键字段 (全部写进 ``figure_numbers.json``):
+``psf_peak_comparable`` / ``geometry_ok`` / ``box_metrics_not_comparable``。
 """
 
 from __future__ import annotations
@@ -76,6 +109,7 @@ from scripts._common.plot_style import setup_cjk_font
 
 DEFAULT_RUN = ROOT / "data/debug/hw_gs_square_scans/20261030_gs1000"
 DEFAULT_FLAT = ROOT / "data/debug/optical_path_probe/gs_flat_halo/20261030_034710Z"
+DEFAULT_LADDER = ROOT / "data/debug/optical_path_probe/gs_control_1000px/20261030_031154Z"
 DEFAULT_OUT = ROOT / "report/slm/gs_control_1000px/figures"
 
 # 面板 <-> 相机 90 度轴交换 (bench_constants 口径, 与
@@ -137,6 +171,148 @@ def crop(frame: np.ndarray, cx: float, cy: float, half: int) -> tuple[np.ndarray
     x0 = min(max(x0, 0), max(w - 2 * half, 0))
     y0 = min(max(y0, 0), max(h - 2 * half, 0))
     return frame[y0:y0 + 2 * half, x0:x0 + 2 * half], x0, y0
+
+
+def _decode_params(store) -> dict:
+    """``npz`` 里的 ``params`` 是采集脚本写的 JSON 字符串; 缺省/坏掉都返回 {}。"""
+    if "params" not in store.files:
+        return {}
+    raw = store["params"]
+    try:
+        if getattr(raw, "shape", ()) != ():
+            return dict(raw) if isinstance(raw, dict) else {}
+        val = raw.item()
+        if isinstance(val, bytes):
+            val = val.decode("utf-8")
+        return json.loads(val) if isinstance(val, str) else {}
+    except (ValueError, TypeError, UnicodeDecodeError):
+        return {}
+
+
+def load_frame_with_meta(path: pathlib.Path) -> tuple[np.ndarray, dict]:
+    """帧 + 采集参数。键 ``frame`` 优先, 回落到 ``frames[0]`` (与 ``load_frame`` 同口径)。"""
+    with np.load(path, allow_pickle=True) as z:
+        arr = z["frame"] if "frame" in z.files else z["frames"][0]
+        meta = _decode_params(z)
+    return np.asarray(arr, dtype=np.float64), meta
+
+
+def _fwhm(prof: np.ndarray) -> float:
+    """半高全宽 (样本数); 无样本过半高或峰不为正时返回 nan 而不是猜一个数。
+
+    峰为 0 的剖面 (``prepare_frame`` 把本底剪到 0 后的空帧) 若照 ``max()/2`` 判,
+    全零剖面会「全在半高以上」而报出整个窗口宽度 —— 必须先把这种情况挡掉。
+    """
+    prof = np.asarray(prof, dtype=float)
+    peak = float(prof.max()) if prof.size else 0.0
+    if not np.isfinite(peak) or peak <= 0:
+        return float("nan")
+    above = np.where(prof >= peak / 2)[0]
+    return float(above[-1] - above[0] + 1) if above.size else float("nan")
+
+
+def psf_shape(frame: np.ndarray, half: int = 60) -> dict:
+    """未整形光斑的峰值 / 中心 / 两向 FWHM —— 平相位与「平相位 + 矫正」同一口径。
+
+    窗口按帧边界收缩, 与 ``build_context`` 里平相位 FWHM 的算法逐位一致, 否则两个
+    数字不可比。
+    """
+    p = prepare_frame(np.asarray(frame, float))
+    iy, ix = np.unravel_index(int(np.argmax(p)), p.shape)
+    h = int(min(half, ix, p.shape[1] - ix - 1))
+    v = int(min(half, iy, p.shape[0] - iy - 1))
+    return dict(
+        peak=float(p[iy, ix]),
+        center=(float(ix), float(iy)),
+        fwhm_x=_fwhm(p[iy, max(0, ix - h): ix + h + 1]),
+        fwhm_y=_fwhm(p[max(0, iy - v): iy + v + 1, ix]),
+    )
+
+
+def _cut(frame: np.ndarray, cx: float, cy: float, along: str,
+         win: int = 90) -> tuple[np.ndarray, np.ndarray]:
+    """过 (cx, cy) 的一维剖面 + 相对该点的坐标; 窗口按帧边界收缩, 不补零。"""
+    ix, iy = int(round(cx)), int(round(cy))
+    if along == "x":
+        lo, hi = max(0, ix - win), min(frame.shape[1], ix + win + 1)
+        return frame[iy, lo:hi], np.arange(lo, hi) - ix
+    lo, hi = max(0, iy - win), min(frame.shape[0], iy + win + 1)
+    return frame[lo:hi, ix], np.arange(lo, hi) - iy
+
+
+def _edge_profile(frame: np.ndarray, center: tuple[float, float], side: float,
+                  band_frac: float = 0.3) -> tuple[np.ndarray, float]:
+    """方框中心行 ±``band_frac*side`` 的行均值剖面 + 方框中心列号 (相机 px)。
+
+    方斑边缘沿 y 有抖动, 单行剖面的读数取决于恰好切到哪一行; 行带均值才描述
+    「边缘本身有多软」。剖面已去本底 (``prepare_frame``), 与所有其它指标同口径。
+    """
+    p = prepare_frame(np.asarray(frame, float))
+    cy, cx = int(round(center[1])), int(round(center[0]))
+    half_band = max(1, int(band_frac * side))
+    rows = p[max(0, cy - half_band): cy + half_band + 1]
+    return rows.mean(axis=0), float(cx)
+
+
+def _crossing_width(prof: np.ndarray, idx: np.ndarray, floor: float, contrast: float,
+                    sign: float, f_lo: float = 0.1, f_hi: float = 0.9) -> float:
+    """由内向外跨 ``f_hi`` 与 ``f_lo`` 两个阈值的距离 (px); 找不到返回 nan。
+
+    ``sign`` = +1 取方框右边缘 (内部在左), -1 取左边缘 (内部在右)。阈值搜索限制在
+    传入的剖面段内, 因此噪声不会被当作边缘。
+    """
+    lo = floor + f_lo * contrast
+    hi = floor + f_hi * contrast
+    above = np.where(prof >= hi)[0]
+    below = np.where(prof <= lo)[0]
+    if not above.size or not below.size:
+        return float("nan")
+    if sign > 0:
+        i_hi = int(above[-1])
+        cand = below[below > i_hi]
+        i_lo = int(cand[0]) if cand.size else -1
+    else:
+        i_hi = int(above[0])
+        cand = below[below < i_hi]
+        i_lo = int(cand[-1]) if cand.size else -1
+    return abs(float(idx[i_lo] - idx[i_hi])) if i_lo >= 0 else float("nan")
+
+
+def edge_transition(frame: np.ndarray, center: tuple[float, float], side: float,
+                    *, band_frac: float = 0.3, inner_gap: float = 150.0,
+                    outer_gap: float = 350.0, span: float = 220.0) -> dict:
+    """方斑左右两条竖边的 10–90 / 20–80 过渡宽度 (相机 px)。
+
+    平台/底分别取框内、框外距边 ``inner_gap``–``outer_gap`` 的段中位数: 两端都远离
+    框心 0 级与方框角, 也远离 8 bit 量化的单台阶。这是「直接发送 GS」与「矫正后
+    发送 GS」之间**唯一可比的锐度指标** —— 两者的 0 级都在框内饱和, 框内均匀度
+    (cv/pib) 在两种变体上同样不可用。
+    """
+    prof, cx = _edge_profile(frame, center, side, band_frac)
+    out: dict[str, dict] = {}
+    for name, sign in (("left", -1.0), ("right", 1.0)):
+        edge = cx + sign * side / 2
+        a_in, b_in = sorted((edge - sign * inner_gap, edge - sign * outer_gap))
+        a_out, b_out = sorted((edge + sign * inner_gap, edge + sign * outer_gap))
+        a_in, b_in = max(0, int(a_in)), max(1, int(b_in))
+        a_out, b_out = max(0, int(a_out)), max(1, int(b_out))
+        platform = float(np.median(prof[a_in:b_in])) if b_in > a_in else float("nan")
+        floor = float(np.median(prof[a_out:b_out])) if b_out > a_out else float("nan")
+        contrast = platform - floor
+        i0, i1 = max(0, int(edge - span)), min(prof.size, int(edge + span))
+        seg, idx = prof[i0:i1], np.arange(i0, i1)
+        if not np.isfinite(contrast) or contrast <= 0 or seg.size == 0:
+            out[name] = dict(width_px=float("nan"), width_20_80_px=float("nan"),
+                             platform=platform, floor=floor, contrast=contrast)
+            continue
+        out[name] = dict(
+            width_px=_crossing_width(seg, idx, floor, contrast, sign),
+            width_20_80_px=_crossing_width(seg, idx, floor, contrast, sign, 0.2, 0.8),
+            platform=platform, floor=floor, contrast=contrast,
+        )
+    out["profile"] = prof
+    out["center_x"] = cx
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +549,7 @@ def fig_four_arms(ctx: dict, out: pathlib.Path) -> pathlib.Path:
                   bbox=dict(fc="black", alpha=0.55, lw=0))
         ax_c.set_xticks([])
         ax_c.set_yticks([])
+        _scale_bar(ax_c, csub.shape, 200, "200 px")
     else:
         ax_c.set_facecolor("#e8e8ec")
         ax_c.text(
@@ -761,9 +938,415 @@ def fig_diffuse_floor(ctx: dict, out: pathlib.Path) -> pathlib.Path:
 
 
 # ---------------------------------------------------------------------------
+# 图 7: 原始 CCD 画面 —— 四个变体的全帧与 1:1 裁图
+# ---------------------------------------------------------------------------
+def _block_max(frame: np.ndarray, factor: int = 4) -> np.ndarray:
+    """``factor x factor`` 块取最大值降采样。
+
+    全帧缩略图若用均值或插值缩小, 衍射极限量级的点状光斑会被抹成几个 counts,
+    读者看到的「光斑」就不再是 CCD 上那个光斑了。块最大值保住峰值与位置。
+    """
+    h = frame.shape[0] // factor * factor
+    w = frame.shape[1] // factor * factor
+    f = frame[:h, :w]
+    return f.reshape(h // factor, factor, w // factor, factor).max(axis=(1, 3))
+
+
+def _x_profile_span(panel: dict, dc: tuple[float, float]) -> tuple[np.ndarray, np.ndarray]:
+    """过 0 级与整形级的那条水平剖面 + 相对 0 级的 x 偏移 (相机 px)。
+
+    行取 **0 级所在行** (四栏共用同一条物理行 ``y = dc[1]``): 实测四帧的 0 级质心
+    落在 y 940.2-942.7, 与 ``dc`` 只差 1-4 px, 而方斑在 y 上同样落在 920-960 这几行,
+    所以单行剖面能同时切到 0 级核与整形级; 逐栏换行会让四栏不可比。
+
+    x 跨度**逐栏取该栏内容**: 有方框的栏覆盖 0 级到方框右缘 —— D 的方斑被闪耀移出
+    595-720 px, 用 0 级附近的窗口会把方斑整块切掉; 无方框的栏取 0 级 ±560 px。
+    越界按帧边界收缩、不补零。
+
+    这一行不做本底扣除、不做平滑 —— 画出来的就是 CCD 上那一行的原始 counts。
+    """
+    frame = panel["frame"]
+    row = int(round(dc[1]))
+    cx = float(panel["center"][0])
+    side = panel.get("side_px")
+    if side:
+        lo = min(dc[0] - 160.0, cx - 0.5 * side - 60.0)
+        hi = max(dc[0] + 160.0, cx + 0.5 * side + 60.0)
+    else:
+        lo, hi = dc[0] - 560.0, dc[0] + 560.0
+    lo = int(max(0, round(lo)))
+    hi = int(min(frame.shape[1], round(hi)))
+    return frame[row, lo:hi], np.arange(lo, hi) - float(dc[0])
+
+
+def raw_frame_panels(ctx: dict) -> list[dict]:
+    """图 7 的每一栏: 原始帧 + 该帧自己的目标区中心 + 曝光。
+
+    中心**逐帧**取: 闪耀把方斑整体平移了 595-720 px, 拿 B 的方框中心去裁 D 的帧
+    会把方斑切掉一半; 平相位帧则只有一个 0 级。
+    """
+    s = ctx["sides"]
+    panels = [
+        dict(
+            tag="A", label="平相位 (flat phase)", frame=ctx["flat_1ms"],
+            center=(float(ctx["dc"][0]), float(ctx["dc"][1])), exposure_ms=1.0,
+            box=False, note="未整形: 线性色标下只有一个点",
+            shift_x_px=0.0, side_px=None,
+        ),
+        dict(
+            tag="B", label="直接发送 GS (无闪耀光栅)", frame=ctx["side_frame"],
+            center=(float(s["box_center_x"]), float(s["box_center_y"])),
+            exposure_ms=float(s["exposure_ms_readback"]), box=True,
+            note="方框与 0 级同心, 0 级在框内饱和",
+            shift_x_px=0.0, side_px=float(ctx["side_px"]),
+        ),
+    ]
+    for period in sorted(ctx["blaze"]):
+        row = ctx["blaze"][period]
+        panels.append(dict(
+            tag=f"D-P{period}", label=f"GS + 闪耀光栅 P={period}",
+            frame=load_frame(ctx["run"] / "blaze" / f"frame_{row['frame_index']:03d}.npz"),
+            center=(float(row["box_center_x"]), float(row["box_center_y"])),
+            exposure_ms=float(row["exposure_ms_readback"]), box=True,
+            note=f"实测位移 {float(row['measured_shift_x_px']):.0f} px",
+            shift_x_px=float(row["measured_shift_x_px"]),
+            side_px=float(row["box_side_px"]),
+        ))
+    return panels
+
+
+def _frame_stats(frame: np.ndarray) -> dict:
+    """单帧的峰值 / 中位数 / 饱和像素数 (饱和判据: ≥254 counts, 满量程 255)。"""
+    return dict(
+        peak=float(frame.max()),
+        frame_median=float(np.median(frame)),
+        saturated_px=int((frame >= 254).sum()),
+    )
+
+
+def fig_raw_ccd(ctx: dict, out: pathlib.Path) -> pathlib.Path:
+    """四个变体的原始 CCD 画面: 上行全帧 (log), 下行 1:1 裁图 (线性 0-255)。
+
+    这张图不做本底扣除、不做指标叠加 —— 它要回答的是「CCD 上到底看到什么」,
+    与图 1 (裁图 + 指标注解) 和图 2 (单帧全貌 + 位移箭头) 分工不同。
+    """
+    panels = raw_frame_panels(ctx)
+    side = ctx["side_px"]
+    n = len(panels)
+    fig, axes = plt.subplots(3, n, figsize=(4.0 * n, 13.0), squeeze=False,
+                             layout="constrained",
+                             gridspec_kw=dict(height_ratios=[1.0, 1.0, 0.92]))
+    under = plt.get_cmap("inferno").copy()
+    under.set_under("#000004")
+    stats = []
+    for col, p in enumerate(panels):
+        frame = p["frame"]
+        st = _frame_stats(frame)
+        stats.append(dict(tag=p["tag"], exposure_ms=p["exposure_ms"],
+                          crop_center_px=list(p["center"]), **st))
+
+        ax = axes[0, col]
+        im = ax.imshow(_block_max(frame, 4), cmap=under,
+                       norm=LogNorm(vmin=1.0, vmax=FULL_SCALE))
+        ax.set_title(f"{p['tag']}  {p['label']}\n"
+                     f"全帧 {frame.shape[1]}x{frame.shape[0]}, 4x4 块最大值", fontsize=9)
+        ax.text(0.02, 0.98,
+                f"{p['exposure_ms']:g} ms\n峰值 {st['peak']:.0f} counts\n"
+                f"帧中位数 {st['frame_median']:.1f}\n"
+                f"饱和 (>=254) {st['saturated_px']} px",
+                transform=ax.transAxes, va="top", ha="left", fontsize=7.5,
+                color="white", bbox=dict(fc="black", alpha=0.55, lw=0))
+        ax.set_xticks([])
+        ax.set_yticks([])
+        cb = fig.colorbar(im, ax=ax, fraction=0.045, pad=0.02)
+        cb.ax.tick_params(labelsize=6.5)
+        cb.set_label("counts (log)", fontsize=7)
+
+        ax = axes[1, col]
+        cx, cy = p["center"]
+        sub, x0, y0 = crop(frame, cx, cy, 560)
+        im = ax.imshow(sub, cmap="inferno", vmin=0, vmax=FULL_SCALE)
+        if p["box"]:
+            ax.add_patch(mpatches.Rectangle(
+                (cx - side / 2 - x0, cy - side / 2 - y0), side, side,
+                fill=False, ec="#39d0ff", lw=1.2,
+            ))
+        ax.set_title(f"{p['tag']}  1:1 裁图 {sub.shape[1]}x{sub.shape[0]} px, 线性 0-255",
+                     fontsize=9)
+        ax.text(0.02, 0.98,
+                f"中心 ({cx:.0f}, {cy:.0f}) px\n{p['note']}\n"
+                f"裁图内峰值 {sub.max():.0f}, 饱和 {int((sub >= 254).sum())} px",
+                transform=ax.transAxes, va="top", ha="left", fontsize=7.5,
+                color="white", bbox=dict(fc="black", alpha=0.55, lw=0))
+        ax.set_xticks([])
+        ax.set_yticks([])
+        _scale_bar(ax, sub.shape, 200, "200 px")
+        cb = fig.colorbar(im, ax=ax, fraction=0.045, pad=0.02)
+        cb.ax.tick_params(labelsize=6.5)
+        cb.set_label("counts (线性)", fontsize=7)
+
+        # --- 第三行: 过 0 级与整形级的水平 (X 方向) 剖面 ---
+        prof, xrel = _x_profile_span(p, ctx["dc"])
+        row_y = int(round(ctx["dc"][1]))
+        ax = axes[2, col]
+        ax.plot(xrel, prof, lw=1.0, color="#c2185b")
+        ax.axhline(FULL_SCALE, ls="--", lw=0.8, color="#888888")
+        ax.text(0.995, FULL_SCALE, "255 满量程 ", transform=ax.get_yaxis_transform(),
+                va="bottom", ha="right", fontsize=6.5, color="#666666")
+        ax.axvline(0.0, ls=":", lw=0.9, color="#1565c0")
+        ax.text(-8.0, 0.99, "0 级 ", transform=ax.get_xaxis_transform(),
+                va="top", ha="right", fontsize=7, color="#1565c0")
+        side_i = p.get("side_px")
+        box_rel = None
+        if side_i:
+            box_rel = (cx - 0.5 * side_i - ctx["dc"][0], cx + 0.5 * side_i - ctx["dc"][0])
+            ax.axvspan(box_rel[0], box_rel[1], color="#39d0ff", alpha=0.10, lw=0)
+            ax.text(0.5 * (box_rel[0] + box_rel[1]), 0.06, "1000 px 方框",
+                    transform=ax.get_xaxis_transform(), va="bottom", ha="center",
+                    fontsize=7, color="#0d6f8c",
+                    bbox=dict(fc="white", alpha=0.75, lw=0, pad=1.5))
+        ax.set_xlim(float(xrel[0]), float(xrel[-1]))
+        ax.set_ylim(0, FULL_SCALE * 1.08)
+        ax.set_title(f"{p['tag']}  X 剖面 y={row_y}, 过 0 级与整形级", fontsize=9)
+        ax.set_xlabel("相对 0 级的 x 偏移 (相机 px)", fontsize=7.5)
+        ax.set_ylabel("counts", fontsize=7.5)
+        ax.tick_params(labelsize=7)
+        ax.grid(alpha=0.18, lw=0.5)
+        at_zero = float(prof[np.argmin(np.abs(xrel))])
+        in_box = (prof[(xrel >= box_rel[0]) & (xrel <= box_rel[1])]
+                  if box_rel is not None else np.array([]))
+        note = f"0 级处 {at_zero:.0f} counts"
+        if in_box.size:
+            note += f"\n框内 中位 {np.median(in_box):.0f} / 峰 {in_box.max():.0f}"
+        ax.text(0.02, 0.96, note, transform=ax.transAxes, va="top", ha="left",
+                fontsize=7, color="#333333", bbox=dict(fc="white", alpha=0.7, lw=0))
+        stats[col].update(
+            x_profile_row_px=float(row_y),
+            x_profile_x_rel_px=[float(xrel[0]), float(xrel[-1])],
+            x_profile_zero_order_counts=at_zero,
+            x_profile_box_median=None if not in_box.size else float(np.median(in_box)),
+            x_profile_box_peak=None if not in_box.size else float(in_box.max()),
+        )
+    fig.suptitle("原始 CCD 画面 (未做本底扣除): 上行全帧 log 色标, 中行 1:1 裁图线性色标,\n"
+                 "下行过 0 级与整形级的水平 (X 方向) 强度剖面 (单行原始 counts), 竖点线 = 0 级",
+                 fontsize=12)
+    p = out / "fig7_raw_ccd.png"
+    fig.savefig(p)
+    plt.close(fig)
+    ctx["raw_ccd_stats"] = stats
+    return p
+
+
+# ---------------------------------------------------------------------------
+# 图 8: 平相位曝光阶梯的原始帧
+# ---------------------------------------------------------------------------
+def ladder_frames(flat_dir: pathlib.Path) -> list[tuple[float, np.ndarray]]:
+    """目录里所有 ``exposure_<ms>ms.npz`` 按曝光升序 —— 阶梯内容由盘面决定, 不写死。"""
+    out = []
+    for path in flat_dir.glob("exposure_*ms.npz"):
+        stem = path.name[len("exposure_"):-len("ms.npz")]
+        try:
+            ms = float(stem)
+        except ValueError:
+            continue
+        out.append((ms, load_frame(path)))
+    return sorted(out, key=lambda item: item[0])
+
+
+def fig_exposure_ladder(ctx: dict, out: pathlib.Path) -> pathlib.Path | None:
+    """曝光阶梯的原始帧: 0 级核先饱和、再向外扩, 是「8 bit 限制」的直观证据。"""
+    frames = ladder_frames(ctx["ladder_dir"])
+    if not frames:
+        return None
+    dc = ctx["dc"]
+    cols = 4
+    rows = (len(frames) + cols - 1) // cols
+    fig, axes = plt.subplots(rows, cols, figsize=(3.9 * cols, 3.3 * rows),
+                             squeeze=False, layout="constrained")
+    stats = []
+    for ax, (ms, frame) in zip(axes.ravel(), frames):
+        sub, _, _ = crop(frame, dc[0], dc[1], 140)
+        im = ax.imshow(sub, cmap="inferno", vmin=0, vmax=FULL_SCALE)
+        st = _frame_stats(frame)
+        stats.append(dict(exposure_ms=ms, **st,
+                          crop_peak=float(sub.max()),
+                          crop_saturated_px=int((sub >= 254).sum())))
+        ax.set_title(f"{ms:g} ms", fontsize=10)
+        ax.text(0.02, 0.98,
+                f"峰值 {st['peak']:.0f}\n饱和 {st['saturated_px']} px\n"
+                f"帧中位数 {st['frame_median']:.1f}",
+                transform=ax.transAxes, va="top", ha="left", fontsize=7.5,
+                color="white", bbox=dict(fc="black", alpha=0.55, lw=0))
+        ax.set_xticks([])
+        ax.set_yticks([])
+    for ax in axes.ravel()[len(frames):]:
+        ax.axis("off")
+    cb = fig.colorbar(im, ax=axes.ravel().tolist(), fraction=0.02, pad=0.01)
+    cb.ax.set_title("counts\n线性 0-255", fontsize=8, pad=8)
+    fig.suptitle("平相位曝光阶梯的原始帧 (§4.1 那次探测): 裁图 280x280 px, 以 0 级为中心, 未做本底扣除\n"
+                 "每档 npz 存 2 帧, 此处取第 1 帧; 饱和 = ≥254 counts (满量程 255)",
+                 fontsize=10.5)
+    p = out / "fig8_exposure_ladder.png"
+    fig.savefig(p)
+    plt.close(fig)
+    ctx["ladder_stats"] = stats
+    return p
+
+
+# ---------------------------------------------------------------------------
+# 图 9: 「矫正后发送 GS」与它的同曝光对照
+# ---------------------------------------------------------------------------
+def fig_corrected_compare(ctx: dict, out: pathlib.Path) -> pathlib.Path | None:
+    """C 变体的唯一可比证据: 同曝光重放 B vs C 的边缘锐度 + 平相位 vs 矫正平相位光斑。
+
+    为什么不是框内 pib/cv: C 与 B 几何相同 (无闪耀光栅), 0 级都落在方框正中并在
+    200 ms 下饱和, 框内均匀度在两者上同样不可用 —— 拿它比会得出「矫正让 CV 变好/变差」
+    这种没有意义的结论。可比的只有**边缘过渡宽度** (方斑轮廓本身有多软) 与**未整形
+    光斑的形状** (矫正是否真的抵消了像差)。
+    """
+    if ctx["corrected_frame"] is None:
+        return None
+
+    side = ctx["side_px"]
+    cx, cy = ctx["box_center_side"]
+    sub_b = sub_c = None
+    bframe = ctx["replay_b_frame"]
+    if bframe is not None:
+        sub_b, bx0, by0 = crop(bframe, cx, cy, 700)
+    sub_c, cx0, cy0 = crop(ctx["corrected_frame"], cx, cy, 700)
+
+    fig, axes = plt.subplots(2, 2, figsize=(11.6, 10.2))
+    ax_b, ax_c, ax_e, ax_p = axes[0, 0], axes[0, 1], axes[1, 0], axes[1, 1]
+
+    def _panel(ax, sub, x0, y0, title, note):
+        ax.imshow(sub, cmap="inferno", vmin=0, vmax=30)
+        ax.add_patch(mpatches.Rectangle((cx - side / 2 - x0, cy - side / 2 - y0),
+                                        side, side, fill=False, ec="#39d0ff", lw=1.4))
+        ax.set_title(title)
+        ax.text(0.02, 0.98, note, transform=ax.transAxes, va="top", ha="left",
+                fontsize=8, color="white", bbox=dict(fc="black", alpha=0.55, lw=0))
+        ax.set_xticks([])
+        ax.set_yticks([])
+        _scale_bar(ax, sub.shape, 200, "200 px")
+
+    def _exp(meta, default="?"):
+        v = meta.get("exposure_ms_readback", meta.get("exposure_ms"))
+        return f"{float(v):g} ms" if _is_num(v) else default
+
+    if sub_b is not None:
+        _panel(ax_b, sub_b, bx0, by0, "B  直接发送 GS (同曝光重放)",
+               f"{_exp(ctx['replay_b_meta'])}\n色标上限 30, 0 级在框内截顶")
+    else:
+        ax_b.set_facecolor("#e8e8ec")
+        ax_b.text(0.5, 0.5, "未提供同曝光重放 B\n(--replay-b-frame)",
+                  ha="center", va="center", fontsize=11, color="#8a8a94")
+        ax_b.set_xticks([])
+        ax_b.set_yticks([])
+        ax_b.set_title("B  直接发送 GS — 缺对照")
+
+    _panel(ax_c, sub_c, cx0, cy0, "C  经过矫正后发送 GS",
+           f"{_exp(ctx['corrected_meta'])}\n{ctx['corrected_note'].splitlines()[-1]}")
+
+    # --- 边缘剖面 (同曝光一对) ---
+    eb = ctx["edge_b_replay"]
+    ec = ctx["edge_c"]
+    if eb is not None and ec is not None:
+        xb = np.arange(eb["profile"].size) - eb["center_x"]
+        xc = np.arange(ec["profile"].size) - ec["center_x"]
+        ax_e.plot(xb, eb["profile"], lw=1.2, color="#c1121f",
+                  label=f"重放 B   右 {eb['right']['width_px']:.1f} px / "
+                        f"左 {eb['left']['width_px']:.1f} px")
+        ax_e.plot(xc, ec["profile"], lw=1.2, color="#1d4e89",
+                  label=f"C        右 {ec['right']['width_px']:.1f} px / "
+                        f"左 {ec['left']['width_px']:.1f} px")
+        for edge in (-side / 2, side / 2):
+            ax_e.axvline(edge, color="#39d0ff", lw=1.0, ls="--",
+                         label="方框边 (1000 px)" if edge < 0 else None)
+        ax_e.set_xlim(-side / 2 - 260, side / 2 + 260)
+        ax_e.set_ylim(bottom=0)
+        ax_e.set_xlabel("相对方框中心 (相机 px)")
+        ax_e.set_ylabel("行带均值 counts/px (已减本底)")
+        ax_e.set_title("边缘过渡宽度: 10–90 % (图例) —— 唯一可比的锐度指标")
+        ax_e.grid(alpha=0.25)
+        ax_e.legend(fontsize=8, loc="upper left")
+    else:
+        ax_e.set_facecolor("#e8e8ec")
+        ax_e.text(0.5, 0.5, "需要同曝光 B 与 C 两帧", ha="center", va="center",
+                  fontsize=11, color="#8a8a94")
+        ax_e.set_xticks([])
+        ax_e.set_yticks([])
+
+    # --- 未整形光斑: 平相位 vs 平相位+矫正 ---
+    pf, pc = ctx["psf_flat"], ctx["psf_cflat"]
+    if pc is not None:
+        fa = prepare_frame(ctx["flat_psf_frame"])
+        fb = prepare_frame(ctx["corrected_flat_frame"])
+        # 各自以自己的峰为原点。矫正若含倾斜分量, 光斑会整体平移; 拿平相位帧的峰去
+        # 采样矫正帧, 会把「平移」读成「变宽」, 这正是要避免的那类假结论。
+        shift = float(np.hypot(pc["center"][0] - pf["center"][0],
+                               pc["center"][1] - pf["center"][1]))
+        win = 90
+        for cut, col_f, col_c in (("x", "#c1121f", "#1d4e89"), ("y", "#e07a5f", "#3d5a80")):
+            a, xa = _cut(fa, pf["center"][0], pf["center"][1], cut, win)
+            b, xb = _cut(fb, pc["center"][0], pc["center"][1], cut, win)
+            ax_p.plot(xa, a / a.max(), lw=1.2, ls="--", color=col_f, marker=".",
+                      markevery=12, ms=3.5,
+                      label=f"平相位 {cut}  FWHM {pf['fwhm_' + cut]:.1f} px")
+            ax_p.plot(xb, b / b.max(), lw=1.4, color=col_c,
+                      label=f"平相位+矫正 {cut}  FWHM {pc['fwhm_' + cut]:.1f} px")
+        ax_p.set_xlabel("相对各自 0 级峰 (相机 px)")
+        ax_p.set_ylabel("归一化强度")
+        efa = ctx["flat_psf_meta"].get("exposure_ms_readback",
+                                       ctx["flat_psf_meta"].get("exposure_ms"))
+        efc = ctx["corrected_flat_meta"].get("exposure_ms_readback",
+                                             ctx["corrected_flat_meta"].get("exposure_ms"))
+        same_exp = _is_num(efa) and _is_num(efc) and float(efa) == float(efc)
+        head = (f"未整形光斑: 峰 {pf['peak']:.1f} → {pc['peak']:.1f} counts"
+                if same_exp else
+                f"未整形光斑 (平相位 {efa if _is_num(efa) else '?'} ms / "
+                f"矫正 {efc if _is_num(efc) else '?'} ms, 峰值不可直接比)")
+        ax_p.set_title(f"{head}, 峰位移 {shift:.1f} px", fontsize=9.5)
+        ax_p.grid(alpha=0.25)
+        ax_p.legend(fontsize=7.5, loc="upper right")
+    else:
+        ax_p.set_facecolor("#e8e8ec")
+        ax_p.text(0.5, 0.5, "未提供平相位+矫正帧\n(--corrected-flat-frame)",
+                  ha="center", va="center", fontsize=11, color="#8a8a94")
+        ax_p.set_xticks([])
+        ax_p.set_yticks([])
+
+    cm = ctx["correction_meta"]
+    bits = []
+    if _is_num(cm.get("probe_count")):
+        bits.append(f"探针 {int(cm['probe_count'])} 帧")
+    if _is_num(cm.get("heldout_corr")):
+        bits.append(f"留出预测相关 {float(cm['heldout_corr']):.3f}")
+    if _is_num(cm.get("rms_before")) and _is_num(cm.get("rms_after")):
+        bits.append(f"拟合残差 {float(cm['rms_before']):.2f} → {float(cm['rms_after']):.2f} rad")
+    fig.text(0.5, 0.022,
+             "B/C 两帧同曝光同几何, 差别只有「是否叠加拟合像差的共轭」; "
+             "0 级在框内饱和, 故只比边缘锐度与未整形光斑, 不报框内均匀度。"
+             + ("  " + " | ".join(bits) if bits else ""),
+             ha="center", va="bottom", fontsize=7.5,
+             bbox=dict(fc="#eef4fb", ec="#7fa8cc", lw=0.8))
+    fig.suptitle("矫正后发送 GS: 与同曝光 B 的边缘锐度对照", fontsize=12)
+    fig.tight_layout(rect=(0, 0.05, 1, 0.97))
+    p = out / "fig9_corrected_compare.png"
+    fig.savefig(p)
+    plt.close(fig)
+    return p
+
+
+# ---------------------------------------------------------------------------
 # 主流程
 # ---------------------------------------------------------------------------
-def build_context(run: pathlib.Path, flat_dir: pathlib.Path, corrected: pathlib.Path | None) -> dict:
+def build_context(run: pathlib.Path, flat_dir: pathlib.Path,
+                  corrected: pathlib.Path | None,
+                  replay_b: pathlib.Path | None = None,
+                  corrected_flat: pathlib.Path | None = None,
+                  correction_meta: pathlib.Path | None = None,
+                  flat_frame: pathlib.Path | None = None,
+                  ladder_dir: pathlib.Path | None = None) -> dict:
     sides = read_csv(run / "sides/measurements.csv")[0]
     blaze_rows = read_csv(run / "blaze/measurements.csv")
     blaze_rows = [r for r in blaze_rows if not r.get("error")]
@@ -784,12 +1367,8 @@ def build_context(run: pathlib.Path, flat_dir: pathlib.Path, corrected: pathlib.
     iy, ix = np.unravel_index(np.argmax(p1), p1.shape)
     dc = (float(ix), float(iy))
 
-    def fwhm(prof):
-        above = np.where(prof >= prof.max() / 2)[0]
-        return float(above[-1] - above[0] + 1) if above.size else float("nan")
-
-    fw_x = fwhm(p1[iy, max(0, ix - 60):ix + 60])
-    fw_y = fwhm(p1[max(0, iy - 60):iy + 60, ix])
+    fw_x = _fwhm(p1[iy, max(0, ix - 60):ix + 60])
+    fw_y = _fwhm(p1[max(0, iy - 60):iy + 60, ix])
 
     airy_zero = 1.22 / (2 * BEAM_RADIUS_PANEL) * TILT_SHIFT_SCALE
     airy_fwhm = 0.843 * airy_zero
@@ -924,8 +1503,62 @@ def build_context(run: pathlib.Path, flat_dir: pathlib.Path, corrected: pathlib.
     pedestal = float(flat005.mean())
     pedestal_drift = float(abs(e2[1].sum() - e2[2].sum()))
 
+    # --- C 变体 (矫正后发送 GS) 与它的同曝光对照 ---
+    corrected_frame, corrected_meta = (
+        load_frame_with_meta(corrected) if corrected else (None, {}))
+    replay_frame, replay_meta = (
+        load_frame_with_meta(replay_b) if replay_b else (None, {}))
+    cflat_frame, cflat_meta = (
+        load_frame_with_meta(corrected_flat) if corrected_flat else (None, {}))
+    cmeta: dict = {}
+    if correction_meta is not None:
+        try:
+            cmeta = json.loads(correction_meta.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            cmeta = {}
+
+    # 方斑锐度: 只有**同曝光**的一对 (重放 B / C) 才能直接比。原始 B 帧是另一个
+    # 曝光 (CSV 里读回), 它的边缘宽度受平台计数与饱和半径影响, 只作参考。
+    box_c_side = (float(sides["box_center_x"]), float(sides["box_center_y"]))
+    edge_b_orig = edge_transition(side_frame, box_c_side, side_px)
+    edge_b_replay = (edge_transition(replay_frame, box_c_side, side_px)
+                     if replay_frame is not None else None)
+    edge_c = (edge_transition(corrected_frame, box_c_side, side_px)
+              if corrected_frame is not None else None)
+
+    # 未整形光斑: 平相位 vs 平相位+矫正。这是「拟合出的像差是否真被抵消」的唯一
+    # 直接证据 —— 方斑帧里 0 级饱和, 光斑形状被截顶, 看不出矫正效果。
+    # ``flat_frame`` 给的是**同一会话同曝光**的平相位帧; 缺省回落到历史 1 ms 帧,
+    # 此时两帧曝光不同, 峰值不可直接比 (FWHM 仍可比, 曝光只影响高度)。
+    flat_psf_frame = flat1
+    flat_psf_meta: dict = {}
+    if flat_frame is not None:
+        flat_psf_frame, flat_psf_meta = load_frame_with_meta(flat_frame)
+    psf_flat = psf_shape(flat_psf_frame)
+    psf_cflat = psf_shape(cflat_frame) if cflat_frame is not None else None
+
+    def _exp_of(meta: dict, default: str = "?") -> str:
+        v = meta.get("exposure_ms_readback", meta.get("exposure_ms"))
+        return f"{float(v):g}" if _is_num(v) else default
+
+    corrected_note = ""
+    if corrected_frame is not None:
+        exp_c = _exp_of(corrected_meta)
+        exp_b = _exp_of(replay_meta) if replay_frame is not None else "?"
+        lines = [f"{exp_c} ms (与 B 同曝光)" if replay_frame is not None
+                 else f"{exp_c} ms", "色标上限 30"]
+        if edge_c is not None and edge_b_replay is not None:
+            lines.append(
+                f"右边缘 10–90  {edge_c['right']['width_px']:.1f} px"
+                f"  (重放 B {edge_b_replay['right']['width_px']:.1f} px)")
+            if exp_b != exp_c:
+                lines.append(f"⚠ 重放 B 曝光 {exp_b} ms ≠ C {exp_c} ms")
+        lines.append("0 级仍在框内 → 均匀度指标与 B 同样不可用")
+        corrected_note = "\n".join(lines)
+
     return dict(
-        run=run, flat_dir=flat_dir, sides=sides, blaze=blaze, blaze_primary=primary,
+        run=run, flat_dir=flat_dir, ladder_dir=ladder_dir or flat_dir,
+        sides=sides, blaze=blaze, blaze_primary=primary,
         side_px=side_px, dc=dc, flat_1ms=flat1, side_frame=side_frame,
         blaze_frame=frame, blaze_model=model,
         flat_fwhm_x=fw_x, flat_fwhm_y=fw_y, airy_zero=airy_zero, airy_fwhm=airy_fwhm,
@@ -952,9 +1585,112 @@ def build_context(run: pathlib.Path, flat_dir: pathlib.Path, corrected: pathlib.
         pedestal_drift=pedestal_drift,
         derivative_pairs=dict(pairs=pairs, halo_per_ms=halo_pm),
         long_pair_increment=long_inc, long_pair_share=long_share,
-        corrected_frame=load_frame(corrected) if corrected else None,
-        corrected_note="",
+        corrected_frame=corrected_frame,
+        corrected_meta=corrected_meta,
+        corrected_note=corrected_note,
+        replay_b_frame=replay_frame,
+        replay_b_meta=replay_meta,
+        corrected_flat_frame=cflat_frame,
+        corrected_flat_meta=cflat_meta,
+        correction_meta=cmeta,
+        box_center_side=box_c_side,
+        edge_b_orig=edge_b_orig,
+        edge_b_replay=edge_b_replay,
+        edge_c=edge_c,
+        psf_flat=psf_flat,
+        psf_cflat=psf_cflat,
+        flat_psf_frame=flat_psf_frame,
+        flat_psf_meta=flat_psf_meta,
     )
+
+
+def _num_or_none(v):
+    """非有限值写 null, 不让 NaN 进 JSON。"""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if np.isfinite(f) else None
+
+
+def _corrected_summary(ctx: dict, c_box: dict | None) -> dict | None:
+    """C 变体的数字汇总 (写进 ``figure_numbers.json``)。
+
+    ``c_box`` 的 pib/cv 与 B 一样含框内饱和 0 级, 记下来只为完整, 不作结论依据 ——
+    所以显式标 ``box_metrics_not_comparable``, 免得下游把它当成均匀度读数。
+    """
+    if ctx["corrected_frame"] is None:
+        return None
+    cm = ctx["correction_meta"]
+    out: dict = {
+        "corrected_exposure_ms": _num_or_none(
+            ctx["corrected_meta"].get("exposure_ms_readback",
+                                      ctx["corrected_meta"].get("exposure_ms"))),
+        "replay_b_exposure_ms": _num_or_none(
+            ctx["replay_b_meta"].get("exposure_ms_readback",
+                                     ctx["replay_b_meta"].get("exposure_ms"))),
+        "box_metrics_not_comparable": True,
+        "box_pib": _num_or_none(None if c_box is None else c_box["pib"]),
+        "box_cv": _num_or_none(None if c_box is None else c_box["cv"]),
+        "box_score": _num_or_none(None if c_box is None else c_box["score"]),
+    }
+    for key, edge in (("b_replay", ctx["edge_b_replay"]), ("c", ctx["edge_c"])):
+        if edge is None:
+            continue
+        for side_name in ("left", "right"):
+            out[f"{key}_edge_{side_name}_px"] = _num_or_none(edge[side_name]["width_px"])
+            out[f"{key}_edge_{side_name}_20_80_px"] = _num_or_none(
+                edge[side_name]["width_20_80_px"])
+    eb, ec = ctx["edge_b_replay"], ctx["edge_c"]
+    if eb is not None and ec is not None:
+        for side_name in ("left", "right"):
+            wb = _num_or_none(eb[side_name]["width_px"])
+            wc = _num_or_none(ec[side_name]["width_px"])
+            out[f"edge_{side_name}_change_px"] = (
+                None if wb is None or wc is None else wc - wb)
+    pf, pc = ctx["psf_flat"], ctx["psf_cflat"]
+    out["flat_psf"] = dict(peak=_num_or_none(pf["peak"]),
+                           fwhm_x=_num_or_none(pf["fwhm_x"]),
+                           fwhm_y=_num_or_none(pf["fwhm_y"]),
+                           center=list(pf["center"]))
+    if pc is not None:
+        out["corrected_flat_psf"] = dict(peak=_num_or_none(pc["peak"]),
+                                        fwhm_x=_num_or_none(pc["fwhm_x"]),
+                                        fwhm_y=_num_or_none(pc["fwhm_y"]),
+                                        center=list(pc["center"]))
+        out["psf_peak_shift_px"] = _num_or_none(
+            float(np.hypot(pc["center"][0] - pf["center"][0],
+                           pc["center"][1] - pf["center"][1])))
+    # 峰值只在**同曝光**下可比; FWHM 与峰位移不受曝光影响。缺元数据时按不可比处理,
+    # 宁可少一句结论, 不要多一句错的。
+    ef = _num_or_none(ctx["flat_psf_meta"].get(
+        "exposure_ms_readback", ctx["flat_psf_meta"].get("exposure_ms")))
+    ec = _num_or_none(ctx["corrected_flat_meta"].get(
+        "exposure_ms_readback", ctx["corrected_flat_meta"].get("exposure_ms")))
+    out["flat_psf_exposure_ms"] = ef
+    out["corrected_flat_exposure_ms"] = ec
+    out["psf_peak_comparable"] = bool(ef is not None and ec is not None and ef == ec)
+    # 几何自检: 模型预测的未整形光斑宽度若与实测差太多, 拟合出的「像差」里就有
+    # 一份「模型与实验系统不符」—— 拟合无法区分这两者, 只会把它们一起塞进系数。
+    # 2x 是很宽的门限 (真实偏差通常 <20%); 越过它说明映射本身错了, 该停, 不该解释。
+    mw = (cm or {}).get("model_psf_fwhm_px")
+    if isinstance(mw, (list, tuple)) and len(mw) >= 2:
+        mx, my = _num_or_none(mw[0]), _num_or_none(mw[1])
+    else:
+        mx = my = _num_or_none(mw)
+    fx, fy = _num_or_none(pf["fwhm_x"]), _num_or_none(pf["fwhm_y"])
+    out["model_psf_fwhm_px"] = [mx, my]
+    out["model_psf_ratio"] = [
+        None if mx is None or not fx else mx / fx,
+        None if my is None or not fy else my / fy,
+    ]
+    ratios = [r for r in out["model_psf_ratio"] if r is not None]
+    out["geometry_ok"] = (
+        None if not ratios else all(0.5 <= r <= 2.0 for r in ratios))
+    out["correction_meta"] = cm or None
+    return out
 
 
 def _is_num(v) -> bool:
@@ -971,24 +1707,40 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--run-root", type=pathlib.Path, default=DEFAULT_RUN)
     ap.add_argument("--flat-dir", type=pathlib.Path, default=DEFAULT_FLAT)
+    ap.add_argument("--ladder-dir", type=pathlib.Path, default=DEFAULT_LADDER,
+                    help="图 8 曝光阶梯的帧目录 (缺省为 §4.1 那次光路探测的阶梯)")
     ap.add_argument("--out", type=pathlib.Path, default=DEFAULT_OUT)
     ap.add_argument("--corrected-frame", type=pathlib.Path, default=None,
                     help="「经过矫正后发送 GS」那一变体的帧 (.npz, key=frame)")
+    ap.add_argument("--replay-b-frame", type=pathlib.Path, default=None,
+                    help="与 C 同曝光重放的「直接发送 GS」帧 —— 锐度对照的唯一合法对手")
+    ap.add_argument("--corrected-flat-frame", type=pathlib.Path, default=None,
+                    help="平相位 + 矫正的未整形光斑帧 (低曝光, 0 级不饱和)")
+    ap.add_argument("--flat-frame", type=pathlib.Path, default=None,
+                    help="与 --corrected-flat-frame 同会话同曝光的平相位帧; "
+                         "缺省用 --flat-dir 里的历史 1 ms 帧")
+    ap.add_argument("--correction-meta", type=pathlib.Path, default=None,
+                    help="矫正臂的 JSON 记录 (拟合系数/探针数/留出预测/曝光)")
     ap.add_argument("--only", nargs="*", default=None,
-                    help="只画指定图 (four_arms overview model profiles psf floor)")
+                    help="只画指定图 (four_arms overview model profiles psf floor "
+                         "raw ladder corrected)")
     args = ap.parse_args(argv)
 
     args.out.mkdir(parents=True, exist_ok=True)
-    ctx = build_context(args.run_root, args.flat_dir, args.corrected_frame)
+    ctx = build_context(args.run_root, args.flat_dir, args.corrected_frame,
+                        replay_b=args.replay_b_frame,
+                        corrected_flat=args.corrected_flat_frame,
+                        correction_meta=args.correction_meta,
+                        flat_frame=args.flat_frame,
+                        ladder_dir=args.ladder_dir)
+    # C 的框内 pib/cv 仍然算, 但只进 figure_numbers (报告里明写它与 B 一样不可用:
+    # 0 级在框内饱和), 不再当作 C 的说明文字 —— 那会让人以为它是个可比的均匀度。
+    c_box = None
     if ctx["corrected_frame"] is not None:
-        res = measure_box(ctx["corrected_frame"],
-                          (ctx["sides"]["box_center_x"], ctx["sides"]["box_center_y"]),
-                          ctx["side_px"])
-        ctx["corrected_note"] = (
-            f"pib {res['pib']:.3f}  cv {res['cv']:.2f}  score {res['score']:.3f}"
-        )
+        c_box = measure_box(ctx["corrected_frame"], ctx["box_center_side"], ctx["side_px"])
 
-    wanted = args.only or ["four_arms", "overview", "model", "profiles", "psf", "floor"]
+    wanted = args.only or ["four_arms", "overview", "model", "profiles", "psf", "floor",
+                           "raw", "ladder", "corrected"]
     made = []
     if "four_arms" in wanted:
         made.append(fig_four_arms(ctx, args.out))
@@ -1002,9 +1754,24 @@ def main(argv: list[str] | None = None) -> int:
         made.append(fig_flat_psf(ctx, args.out))
     if "floor" in wanted:
         made.append(fig_diffuse_floor(ctx, args.out))
+    if "raw" in wanted:
+        made.append(fig_raw_ccd(ctx, args.out))
+    if "ladder" in wanted:
+        p = fig_exposure_ladder(ctx, args.out)
+        if p is not None:
+            made.append(p)
+    if "corrected" in wanted:
+        p = fig_corrected_compare(ctx, args.out)
+        if p is not None:
+            made.append(p)
 
     summary = {
         "run_root": str(args.run_root),
+        "flat_dir": str(ctx["flat_dir"]),
+        "flat_dir_note": "平相位帧 (A / 平场 FWHM) 的来源目录; 与 §4.1 那次探测不是同一次采集",
+        "ladder_dir": str(ctx["ladder_dir"]),
+        "ladder_dir_note": "图 8 曝光阶梯的来源目录 = §4.1 那次光路探测",
+        "ladder_frame_note": "每档 npz 存 2 帧, 图取第 1 帧; §4.1 的 peak_raw 是两帧最大值 (1 ms: 213 vs 215)",
         "dc_px": ctx["dc"],
         "flat_fwhm_px": [ctx["flat_fwhm_x"], ctx["flat_fwhm_y"]],
         "airy_fwhm_px": ctx["airy_fwhm"],
@@ -1048,6 +1815,10 @@ def main(argv: list[str] | None = None) -> int:
         "long_pair_increment_counts": ctx["long_pair_increment"],
         "long_pair_outside_share": ctx["long_pair_share"],
         "pedestal_drift_counts": ctx["pedestal_drift"],
+        "corrected_arm": _corrected_summary(ctx, c_box),
+        "raw_ccd_frames": ctx.get("raw_ccd_stats", []),
+        "raw_ccd_note": "逐帧自己的色标; 全帧 4x4 块最大值降采样; 未做本底扣除",
+        "exposure_ladder": ctx.get("ladder_stats", []),
         "figures": [str(p) for p in made],
     }
     (args.out.parent / "figure_numbers.json").write_text(
