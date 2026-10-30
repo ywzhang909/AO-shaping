@@ -2966,11 +2966,11 @@ class SlmModelInLoopParams:
         option(
             "--camera-pixel-um",
             help=(
-                "CCD pixel pitch in um -- the bench model's measurement ANCHOR, "
-                "because the measured focal scale only fixes the ratio f/p_cam."
+                "CCD pixel pitch in um -- the bench model's measurement ANCHOR; "
+                "0 = resolve from the camera model config, positive overrides."
             ),
         ),
-    ] = _DEFAULT_CAMERA_PIXEL_UM
+    ] = 0.0
     panel_span_px: Annotated[
         float,
         option(

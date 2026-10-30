@@ -132,6 +132,9 @@ LIBRARY_ONLY: dict[str, set[str]] = {
     MIL.label: {
         "adaptive_trust_region",
         "callback",
+        # 派生出处字段: 由 _resolve_camera_pixel_um / require_camera_pixel_um 写入
+        # (0c07aa54 引入), 记录 pitch 是 input / derived / unresolved —— 没有 CLI 入口。
+        "camera_pixel_um_source",
         "debug_dir",
         # 库调用者直接塞 ModelErrorTerms 对象; CLI 走 --error-params (str 路径)
         # 由 __post_init__ 解析填充, 不走 builder 的 kwargs。

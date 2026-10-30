@@ -4270,6 +4270,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 处置：驱动语义不动 —— 句柄缺失是夹具产物，把 `except` 放宽到 `AttributeError` 与 #174 的窄捕获方向相反；夹具侧补 `get_displayed_memory_number → None`（「显示槽未知」），轮换纯走进程内计数器 —— 正是本用例要测的前提（省略 `memory_number` 时驱动自己换槽）。
 - 验收：改后 `test_cartographer_slot_rotation.py` 3/3；`tests/ao_shaping/tools/slm/` 全目录 per-file 9 文件 exit=0 / 0 FAILED；门禁全绿。
 
+**2026-10-30 · c9c15c6b · #203 scripts 归因：唯一红是探针 advice 措辞滞后（产品已改、守卫未跟），守卫跟产品改 `panel.diagnose`**
+- 实测：tip 上 scripts 分片 1 failed / 2877 passed / 80 skipped，唯一红 `test_probe_optical_path_validity.py::test_verdict_no_response_...` 断言 advice 含子串 `slm_diagnose`；而产品措辞早已由 `a5dd02e8` 改正为 `python -m ao_shaping.tools.slm.panel.diagnose`（同一批把两条入口点守卫点亮转绿）⇒ 守卫滞后于产品，不是产品回归。该测试文件由上游 #214/#215 探针在途工作引入（`113965b1`/`3ae92ade`/`54782eec`），非本链刀引入。
+- 处置：只改守卫断言子串（`slm_diagnose` → `panel.diagnose`，与产品措辞逐字对齐），不动产品措辞、不动该在途功能。
+- 验收：该文件 21/21；scripts 分片 2878 passed / 80 skipped / 0 failed；ruff / term（0 文件 0 行）/ provenance / module-size 全绿。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
