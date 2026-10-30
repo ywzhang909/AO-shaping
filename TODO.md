@@ -4237,6 +4237,15 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 归因：在纯 `4c81b8be`（不含本链提交）上逐一复现（#44 评论 6523191905）。
 - 覆盖：三文件 26 例容器内全绿；wfless 子树 55 文件 1090 passed / 2 skipped / 0 failed（合入前基线 1081 + 上游在子树内新增 9 例，skip 数不变）；ruff / term（0 文件 0 行）/ provenance / module-size 全绿。
 
+**2026-10-30 · ff288621 · #44 持有者权威刀：_RunState 成为入口唯一权威，删两段读回（入口 521 → 516 行）**
+- 构造移到 `try:` 之前（普通 dataclass，`__init__` 不可能抛出 ⇒ `finally` 无条件读 `state.*`）；heuristic 读回 3 行 + spgd 读回 5 行两段删除；分发 kwargs、`_debug_report`、`finally` 的 best 三元组一律读 `state.*`；构造之后入口内这六个名字再无任何裸读写（grep 实测：仅剩构造自身的 7 个入参）。
+- 一处有意的异常路径语义修正（代码注释已钉不变量）：搜索分支抛出时退出清理过去读 pre-dispatch 的陈旧局部量，现在读分支增量写过的 `state.best_c` —— 恢复到「最近一次被接受的 best」才是 `_apply_best_on_exit` 的设计意图；成功路径数值不变。
+- 回归：wfless 子树 per-file 指纹 55 文件逐项一致 —— 1090 passed / 2 skipped / 0 failed；ruff / term / provenance / module-size 全绿。
+
+**2026-10-30 · 1612d277 · 重钉 ff288621 移位的 5 处文档行号锚（审计链模式，含一处上游纠偏）**
+- `:1716→:1711` ×3（`BaseException` 退出清理）、`:2078-2088→:2073-2083`（`--max_peak` 告警块）、ABBA 探针 `:2165→:2160`；每个锚按当前文件内容逐行核验后才写。
+- 最后一处为顺带纠偏：上游表头钉较调用实际位置超前 4 行（与 ff288621 无关的既有漂移），按内容实测统一修正。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
