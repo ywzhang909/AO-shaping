@@ -86,6 +86,21 @@ class ReportProvenance:
 #:   ``硬件``   -- needs a real bench (SLM / CCD / WFS / DM / micro-DM).
 #:   ``离线+硬件`` -- renders offline, but the numbers were measured on hardware.
 REPORTS: dict[str, ReportProvenance] = {
+    "report/slm/gs_control_1000px/report.md": ReportProvenance(
+        script="scripts/slm/generate_gs_control_report.py",
+        command="python scripts/slm/generate_gs_control_report.py",
+        environment="离线渲染 (读硬件采集的帧与相位; 数字为 2f 实验系统实测)",
+        extra_scripts=(
+            "scripts/slm/hw_gs_square_scans.py",
+            "scripts/slm/probe_optical_path_validity.py",
+        ),
+        note=(
+            "纯 GS 方斑控制组 (1000 px 目标): 平相位 / 直接 GS / GS+闪耀 P=10,12 三组实测, "
+            "外加同相位物理模型的同口径对比; 0 级用横向闪耀移出方框后 pib/cv 才可用; "
+            "C 变体 (先矫正光路像差再发 GS) 因设备下线未采集, 图上留灰色占位; "
+            "8 bit 量程把方斑平台压到 11-15 counts, 框外那层底的来源未定论"
+        ),
+    ),
     # -- sim2f 孪生 vs 2f 实验语料 (纯离线) ------------------------------------
     "report/sim2f_bench/twin_vs_hw_corpus/20261027/report.md": ReportProvenance(
         script="scripts/ml/validate_sim2f_vs_hw_corpus.py",

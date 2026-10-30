@@ -2025,6 +2025,33 @@ python scripts/slm/generate_model_in_loop_cv_report.py --quick    # 2 folds, 1 r
 | `--step-a-iterations` / `--step-b-iterations` | `20` / `20` | Step A / Step B budget |
 | `--quick` | off | smoke mode: 2 folds, 1 round |
 
+### generate_gs_control_report.py
+
+Renders the six figures and `figure_numbers.json` for
+`report/slm/gs_control_1000px/report.md` (pure-GS square control group, 1000 px
+target on the 2f bench). **Fully offline** — it reads only frames, phases and the
+optical-path probe JSON already on disk; the camera and the SLM can be powered
+down.
+
+The box metric is imported from the acquisition driver
+(`hw_gs_square_scans.measure_box`) instead of being re-implemented, so the report
+cannot drift from the definition that produced the CSV. Model-side numbers are
+integrated in the **model** coordinate system (the camera-px box is mapped into
+sample indices) rather than resampled onto the camera grid, which is why the JSON
+carries two denominators: `model_pib_box` (camera view — comparable with the
+measurement) and `model_pib_box_whole_field` (whole 7400² model field — **not**
+comparable; never quote it next to a measured pib).
+
+The C arm (corrected wavefront, then GS) is a grey placeholder until
+`--corrected-frame` is given; no code change is needed to fill it.
+
+```bash
+python scripts/slm/generate_gs_control_report.py
+python scripts/slm/generate_gs_control_report.py --run-root <path>/data/debug/hw_gs_square_scans/20261030_gs1000
+python scripts/slm/generate_gs_control_report.py --corrected-frame <frame.npz>   # fills the missing C arm
+python scripts/slm/generate_gs_control_report.py --only fig3 fig4                # redraw a subset
+```
+
 ### generate_gs_golden_reference.py
 
 Generates the **GS golden-reference comparator**: `report/shape_trials/gs_golden_reference/gs_golden_reference.md`

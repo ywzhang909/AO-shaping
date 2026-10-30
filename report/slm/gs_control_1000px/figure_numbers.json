@@ -1,0 +1,92 @@
+{
+  "run_root": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\hw_gs_square_scans\\20261030_gs1000",
+  "dc_px": [
+    1269.0,
+    944.0
+  ],
+  "flat_fwhm_px": [
+    16.0,
+    9.0
+  ],
+  "airy_fwhm_px": 8.456226666666666,
+  "airy_zero_px": 10.03111111111111,
+  "flat_ratio_to_airy": [
+    1.892096869052706,
+    1.0643044888421471
+  ],
+  "square_measured_px": [
+    1000.0,
+    992.0
+  ],
+  "square_center_px": [
+    1870.0,
+    964.75
+  ],
+  "square_right_edge_px": 2370.0,
+  "square_right_edge_range_px": [
+    2327.0,
+    2389.0
+  ],
+  "square_height_range_px": [
+    963.5,
+    1031.0
+  ],
+  "square_center_y_range_px": [
+    946.75,
+    985.0
+  ],
+  "square_left_edge_unmeasurable": "左边缘与 0 级光晕相连; 宽度由右边缘减设计边长反推",
+  "model_pib_box": 0.88309430590494,
+  "model_pib_box_denominator": "相机视场内的模型光 —— 与实测 pib 同口径",
+  "model_pib_box_whole_field": 0.7564434422577255,
+  "model_pib_box_whole_field_note": "分母是整个 7400^2 模型场, 含落在画面外的光; 不可与实测 pib 直接比",
+  "outside_box_share_model": 0.11690569409506002,
+  "model_cv_box": 1.60775657678647,
+  "model_cv_box_ex_residual_order": 0.787233121394394,
+  "model_residual_order_energy_share": 0.01705653333797615,
+  "model_pib_box_recentred": 0.9359168812645525,
+  "model_cv_box_recentred": 1.5112871218719093,
+  "recentre_box_center_px": [
+    1885.6666666666665,
+    944.0
+  ],
+  "predicted_square_right_edge_px": 2385.6666666666665,
+  "measured_cv_ex_saturated": 1.0599070897149405,
+  "measured_saturated_share_in_box": 0.000808,
+  "cv_center_frac": 0.6,
+  "model_cv_center": 2.0683280407254574,
+  "measured_cv_center": 1.2255960518283966,
+  "model_light_inside_camera_view": 0.8565828555338373,
+  "dc_frozen_px": [
+    1227.0,
+    902.0
+  ],
+  "dc_frozen_error_px": [
+    42.0,
+    42.0
+  ],
+  "outside_box_share_measured": 0.2632223411039,
+  "outside_box_mean_counts": 2.8352561175860047,
+  "pedestal_0.05ms_counts": 0.3064134897500381,
+  "frame_median_counts": 2.0,
+  "derivative_pairs_counts_per_ms": {
+    "0.05->0.2": -583379.9999999999,
+    "0.2->1": 141982.5,
+    "1->2": 123108.0,
+    "2->5": 12575.666666666666,
+    "5->10": 58972.8,
+    "10->20": 59642.1,
+    "20->50": 14656.9
+  },
+  "long_pair_increment_counts": 439707.0,
+  "long_pair_outside_share": 0.6575490574333115,
+  "pedestal_drift_counts": 165937.0,
+  "figures": [
+    "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig1_four_arms.png",
+    "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig2_blaze_overview.png",
+    "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig3_model_vs_measured.png",
+    "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig4_profiles.png",
+    "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig5_flat_psf.png",
+    "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig6_diffuse_floor.png"
+  ]
+}
