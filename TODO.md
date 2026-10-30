@@ -4252,6 +4252,9 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 与 SPGD 分支的不对称是真实的：`_run_spgd` 会重绑 `state.delta`（learning_schedule），heuristic 分支从不碰 —— 本刀把它接上同一条通道。
 - 回归：wfless 子树 per-file 指纹 55 文件 (passed, skipped, failed) 三元组与持有者权威刀逐项一致 —— 1090 passed / 2 skipped / 0 failed；py_compile / ruff 全绿。
 
+**2026-10-30 · 2a21401e · 重钉 ca0c7ea6 移位的 5 处文档行号锚**
+- `:1711→:1709` ×3（`BaseException` 退出清理：调用点 −2 行在本钉之上、签名 −2 行在其下）、`:2073-2083→:2069-2079`（`--max_peak` 告警块，两删除点均在其上，−4）、ABBA 探针 `:2160→:2156`（−4）；每个新值按当前文件内容逐行核验（1709/2069/2079/2156 实测命中）后才写入，审计链逐钉追加「复核 `ca0c7ea6`」条目。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
