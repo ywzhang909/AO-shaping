@@ -4265,6 +4265,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 方案裁决：不采 e9b1df26 形态（`remove + add(sys.stdout)` 会把诊断路由到 stdout，与两处 stderr 断言冲突；add-only 则每次 `main()` 叠加一个 sink，输出成倍重复）；采 67d8e327「stdout 即产物」判例 —— 表格行 + cache 成功行 revert 回 `print`，诊断保留 loguru 但在 `main()` 开头 `logger.remove(); logger.add(sys.stderr, level="WARNING")` 重绑**当前**流。实测依据：纯 revert 后仍 13/14，唯一红项正是断言 err 的那个用例。
 - 验收：`test_inspect_cli.py` 14/14；hwdataset 全目录 per-file 9 文件 387 passed / 0 failed；ruff / term / provenance / module-size 全绿。
 
+**2026-10-30 · 54c8bc6e · #219 收口：cartographer 裸实例夹具补 `get_displayed_memory_number` 替身，用例不再恒红**
+- 归因：上游 `1522ab95` 给 `display_data` 轮换分支新增 `_read_displayed_slot_safe()` 读点；测试用 `object.__new__(Santec)` 搭的裸实例没有 `_slm` 句柄 ⇒ `get_displayed_memory_number()` 抛 `AttributeError`，而它不在 `_read_displayed_slot_safe` 的 `(SantecError, RuntimeError)` 捕获面内。容器逐一复现：1 failed / 2 passed。
+- 处置：驱动语义不动 —— 句柄缺失是夹具产物，把 `except` 放宽到 `AttributeError` 与 #174 的窄捕获方向相反；夹具侧补 `get_displayed_memory_number → None`（「显示槽未知」），轮换纯走进程内计数器 —— 正是本用例要测的前提（省略 `memory_number` 时驱动自己换槽）。
+- 验收：改后 `test_cartographer_slot_rotation.py` 3/3；`tests/ao_shaping/tools/slm/` 全目录 per-file 9 文件 exit=0 / 0 FAILED；门禁全绿。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

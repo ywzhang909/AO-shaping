@@ -197,7 +197,7 @@ def test_verdict_no_response_when_the_measurement_is_sharp_but_nothing_moves() -
     assert verdict["state"] == "no_response"
     assert verdict["exit_code"] == 2
     assert response["precision_ok"] is True
-    assert any("slm_diagnose" in item for item in verdict["advice"])
+    assert any("panel.diagnose" in item for item in verdict["advice"])
 
 
 def test_verdict_low_snr_when_no_exposure_carries_signal() -> None:
