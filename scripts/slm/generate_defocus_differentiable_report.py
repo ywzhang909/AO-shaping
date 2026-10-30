@@ -46,7 +46,7 @@ def _mpl():
 # 读数据
 # --------------------------------------------------------------------------- #
 def load_e_reps(run_dir: Path) -> list[dict]:
-    """E 阶段：初值 vs 冻结最优的 A-B-B-A 重放（每次 rep 一个 stage_d_block1.json）。"""
+    """E 阶段：初值 vs 冻结最优的 A-B-B-A 复测（每次 rep 一个 stage_d_block1.json）。"""
     reps = []
     for directory in sorted((run_dir / "stage_e").glob("rep*")):
         record_path = directory / "stage_d_block1.json"
@@ -87,7 +87,7 @@ def panel_to_grid(panel: np.ndarray, size: int = 128) -> np.ndarray:
 
 
 def replay_block(forward, objective, seed_grid: np.ndarray, cap: float, updates: int = 10, lr: float = 0.01):
-    """离线重放一块：返回每步的 (预测图, 指标)。"""
+    """离线复测一块：返回每步的 (预测图, 指标)。"""
     torch = __import__("torch")
     from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
         DifferentiableUniformityOptimizer,
@@ -295,7 +295,7 @@ def build_e_section(data: dict) -> str:
     """E 阶段（冻结最优相位，初值 vs 最优 A-B-B-A 重复 3 次）的正文段。"""
     reps = data.get("e_reps") or []
     if not reps:
-        return "（E 阶段的 3 次重放尚未采集。）"
+        return "（E 阶段的 3 次复测尚未采集。）"
     deltas = [float(r["delta"]) for r in reps]
     baselines = [float(r["baseline_mean"]) for r in reps]
     candidates = [float(r["candidate_mean"]) for r in reps]
@@ -304,11 +304,11 @@ def build_e_section(data: dict) -> str:
     sd = float(np.std(deltas, ddof=1)) if len(deltas) > 1 else float("nan")
     rows = "\n".join(f"| {i + 1} | {r['baseline_mean']:.5f} | {r['candidate_mean']:.5f} | "
                      f"{r['delta']:+.5f} | {r['drift']:+.5f} |" for i, r in enumerate(reps))
-    return f"""## 4b. 冻结重放（E 阶段）
+    return f"""## 4b. 冻结重复验证（E 阶段）
 
 初值与冻结最优相位各 5 帧，A-B-B-A 完整重复 {len(reps)} 次（共 {len(reps) * 20} 帧原始数据）。
 
-| 重放 | 初值 CV | 最优 CV | Δ | 漂移 (A2−A1) |
+| 重复 | 初值 CV | 最优 CV | Δ | 漂移 (A2−A1) |
 |---|---|---|---|---|
 {rows}
 
@@ -436,7 +436,7 @@ def write_report(data: dict, artifacts: dict, path: Path) -> None:
 {provenance_block}
 ## 摘要
 
-在**未移动相机**的离焦光路上，用冻结的物理预测模型做可微优化，并用 A-B-B-A 重放逐块验收。
+在**未移动相机**的离焦光路上，用冻结的物理预测模型做可微优化，并用 A-B-B-A 复测逐块验收。
 本轮回答三件事：模型↔实测的**方向**对不对、**幅度**差多少、**逐块**能否稳定改善。
 
 * **方向检验（C）**：模型下降方向正/负两个方向在实验系统上给出**符号相反**的 CV 变化
@@ -480,14 +480,14 @@ B− {direction['direction_record']['cv_model']['b_minus']:.4f}（对称 ±{dire
 |---|---|---|---|---|---|---|
 {table_rows}
 
-每块都是 **A1-B1-B2-A2**（各 5 帧）：B1/B2 两次重放差见 `stage_d/run_block*/stage_d_block1.json`，
+每块都是 **A1-B1-B2-A2**（各 5 帧）：B1/B2 两次复测差见 `stage_d/run_block*/stage_d_block1.json`，
 A2−A1 为漂移。接受条件为 Δ < −3σ（{artifacts['curves']['resolution']:.4f}）。
 
 ## 4. 指标随优化的变化
 
 上图上半栏：**模型预测**的 CV 逐步曲线（蓝）与**实验系统实测**的 CV 锚点（红方块，误差棒为 3σ）；
 下半栏：模型预测的目标区均值。数据由 `scripts/slm/generate_defocus_differentiable_report.py`
-离线重放每块 10 步得到（与设备上跑的是同一模型、同一掩膜、同一 cap）。
+离线复测每块 10 步得到（与设备上跑的是同一模型、同一掩膜、同一 cap）。
 
 {e_section}
 
@@ -513,7 +513,7 @@ GIF 左栏是模型预测的远场演化，右栏是该块的实测帧（A1/B1/A
 
 ## 6. 边界
 
-* 单次会话、单一初值；E 阶段的冻结重放 3× 只用于重复性，不足以宣称跨光路泛化。
+* 单次会话、单一初值；E 阶段的冻结重复验证 3× 只用于重复性，不足以宣称跨光路泛化。
 * 接受判据用 3σ（4 次独立上屏 × 5 帧估计），小样本不确定度仍在。
 * 模型幅度与实测相差约 {abs(blocks[0]['delta']) / max(abs(blocks[0]['model_cv_before'] - blocks[0]['model_cv_candidate']), 1e-9):.0%}，
   所以**不能用模型预测的改善量**替代理事实测。

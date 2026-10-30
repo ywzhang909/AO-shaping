@@ -171,7 +171,7 @@ AO-shaping/
 | `wfless/` | `adc_dm_adam.py` | ADC 驱动族的参考实现 (`drivers/adc/driver.py` 文档指名引用): Adam + numba 加速 + pandas 记录 |
 | `wfless/` | `bayes_hyperparam.py` | skopt `gp_minimize` 贝叶斯超参搜索工具 |
 | `wfless/` | `bayes_opt_lr_delta.py` | 对 `wfless/pib.optimize_pib` 的 LR/delta 做贝叶斯选型 |
-| `wfless/` | `defocus_uniformity_shaping.py` | 离焦可微整形块级策略: 初值 / 方向检验 / A-B-B-A 重放 / 接受-拒绝 (纯逻辑, 硬件 I/O 由协议脚本注入) |
+| `wfless/` | `defocus_uniformity_shaping.py` | 离焦可微整形块级策略: 初值 / 方向检验 / A-B-B-A 复测 / 接受-拒绝 (纯逻辑, 硬件 I/O 由协议脚本注入) |
 | `wfless/` | `differentiable_shaping.py` | 可微光束整形优化器封装 (闭环实现的薄 re-export) |
 | `wfless/` | `gready_cam.py` | 相机+DM 贪婪搜索 (`MIICamera` + `NlightDM` + `KEEP_VOLTAGE_WHEN_EXIT`; 模块名 `gready` 为现状拼写) |
 | `wfless/` | `gs_refine_zernike_fit.py` | 把 GS-refine SLM 相位拟合为 Noll 序 Zernike 系数 |
