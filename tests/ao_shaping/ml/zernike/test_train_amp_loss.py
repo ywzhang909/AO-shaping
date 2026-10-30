@@ -213,10 +213,14 @@ def test_roi_size_frac_scales_the_mask_with_the_grid(tmp_path):
     large = roi_mask((64, 64), (32.0, 32.0), "rectangle", 0.375 * 64, 4 / 3)
     # Same physical fraction => same relative area, 16x more pixels at 4x the edge.
     # NOTE: numel(), not .size -- Tensor.size is a method, not a property.
-    assert small.sum() / small.numel() == pytest.approx(
-        large.sum() / large.numel(), rel=0.05
-    )
-    assert large.sum() == pytest.approx(16 * small.sum(), rel=0.2)
+    # NOTE: floats, not 0-dim Tensors, at the approx boundary -- pytest's
+    # Decimal-context check iterates the operand (_pytest/approx.py:
+    # _contains_decimal) and a 0-dim Tensor is not iterable, so a genuine numeric
+    # diff gets replaced by `TypeError: iteration over a 0-d tensor`.
+    small_frac = float(small.sum() / small.numel())
+    large_frac = float(large.sum() / large.numel())
+    assert small_frac == pytest.approx(large_frac, rel=0.05)
+    assert float(large.sum()) == pytest.approx(float(16 * small.sum()), rel=0.2)
 
 
 def test_model_output_is_intensity_and_matches_the_lost_reference_shape():
