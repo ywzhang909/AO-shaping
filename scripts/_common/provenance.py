@@ -1246,7 +1246,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "supported；triangle 13/15、−0.161/−0.173 两档 supported；square 11/15 的 "
             "dCV +0.170/+0.165 **已撤回**——同一批帧换回闭环接受口径给 −0.025（符号相反），"
             "且同一 `panel_gray` 字节 55 s 内峰值 +57%、主瓣换位 63 px ⇒ 效应量上界 "
-            "|dCV| ≲ 0.02，见 issue #217；star 5/15 仅一档 no_difference。"
+            "\\|dCV\\| ≲ 0.02，见 issue #217；star 5/15 仅一档 no_difference。"
             "600 px（1.0）：四形状审计 dCV = circle −0.318/−0.314/−0.313、square "
             "−0.619/−0.614/−0.636、triangle −0.348（仅一档可判）、star −0.044/−0.041/"
             "−0.045，均 supported；ee_rel 0.46–0.69，零级排除 0.031，饱和 0（triangle 6 行"

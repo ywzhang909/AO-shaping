@@ -7,19 +7,16 @@ from loguru import logger
 import csv
 import json
 from pathlib import Path
+import sys
 
 import numpy as np
 
-#: CJK 字体 (报告图)。找不到就退回默认字体, 不报错。
-CJK_FONTS = ("Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "DejaVu Sans")
+ROOT = Path(__file__).resolve().parents[2]
+# `scripts.*` 以包路径被 import, 所以仓库根本身必须可 import —— 以文件形式启动
+# (`python scripts/x/y.py`) 时 cwd 不在 sys.path 上, 只有脚本自己的目录在。
+sys.path.insert(0, str(ROOT))
 
-
-def setup_cjk_font() -> None:
-    """给 matplotlib 配中文字体。"""
-    import matplotlib
-
-    matplotlib.rcParams["font.sans-serif"] = list(CJK_FONTS)
-    matplotlib.rcParams["axes.unicode_minus"] = False
+from scripts._common.plot_style import setup_cjk_font
 
 
 def fwhm_1d(profile):

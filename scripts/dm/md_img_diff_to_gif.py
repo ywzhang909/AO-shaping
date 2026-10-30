@@ -24,13 +24,15 @@ import argparse
 from loguru import logger
 import json
 import re
+import sys
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-# Filenames look like: <ip>-<channel>_cx<X>_cy<Y>.png  or  <ip>-<channel>.png
-# (channel is the 3-digit number right after the last dash of the base name).
-_CHANNEL_RE = re.compile(r"-(\d{3})")
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from scripts._common.md_img_channel import _channel_of
 
 # Windows system font for frame labels (falls back gracefully).
 _FONT_CANDIDATES = (
@@ -38,13 +40,6 @@ _FONT_CANDIDATES = (
     "C:/Windows/Fonts/segoeui.ttf",
     "C:/Windows/Fonts/consola.ttf",
 )
-
-
-def _channel_of(path: Path) -> int:
-    m = _CHANNEL_RE.search(path.name)
-    if m is None:
-        raise ValueError(f"Cannot parse channel number from {path.name}")
-    return int(m.group(1))
 
 
 def _centroid_of(path: Path) -> str:

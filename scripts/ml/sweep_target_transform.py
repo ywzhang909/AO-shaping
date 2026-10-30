@@ -41,6 +41,7 @@ import numpy as np
 
 from ml.hwdataset import MaterialiserConfig, build_hw_index
 from ml.hwdataset.zernike_dataset import ZERNIKE_COEFF_SOURCES, ZernikeCoeffDataset
+from ml.zernike.eval_stats import folds_of, ridge
 from ml.zernike.metrics import batch_image_metrics
 
 import torch
@@ -76,23 +77,6 @@ def apply_transform(kind: str, frames: np.ndarray, grid: int) -> np.ndarray:
     raise ValueError(kind)
 
 
-def folds_of(records):
-    groups: dict[str, list[int]] = {}
-    for position, record in enumerate(records):
-        groups.setdefault(str(record.path), []).append(position)
-    keys = sorted(groups)
-    return [(k, [p for kk, ps in groups.items() if kk != k for p in ps], groups[k])
-            for k in keys]
-
-
-def ridge(x, z, alpha=1.0):
-    xm, zm = x.mean(0, keepdims=True), z.mean(0, keepdims=True)
-    xc, zc = x - xm, z - zm
-    g = xc @ xc.T
-    g.flat[:: g.shape[0] + 1] += alpha
-    return xc.T @ np.linalg.solve(g, zc), xm, zm
-
-
 def metrics(pred, truth):
     """`batch_image_metrics` needs BxCxHxW, and the transforms change the side
     length (`center` yields 32x32), so the spatial shape is inferred from the
@@ -125,7 +109,7 @@ def main() -> int:
     out: dict = {"transforms": {}}
     for kind in TRANSFORMS:
         per_fold = []
-        for held, train_pos, val_pos in folds:
+        for _, _, train_pos, val_pos in folds:
             keys_tr = [(str(records[p].path), p) for p in train_pos]
             keys_va = [(str(records[p].path), p) for p in val_pos]
             x_tr = np.stack([coeffs[k] for k in keys_tr])

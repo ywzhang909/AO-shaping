@@ -1356,14 +1356,9 @@ class SimSLMPib:
 
 
 class SimPibCCD(BaseCamera):
-    """返回仿真 SLM 远场的模拟 CCD。
+    """返回仿真 SLM 远场的模拟 CCD; 接到进程级 :class:`SimPibSystem`, 注册为相机类型 ``"sim"``。"""
 
-    接到进程级的 :class:`SimPibSystem` 上。注册为相机类型 ``"sim"``, 因此
-    ``create_camera("sim", ...)`` 会产出本类的实例。
-    """
-
-    #: 孪生口径的像元边长 (µm), 与 ``SimPibSystem`` 的远场标度同源。
-    #: 仿真运行需要像元尺寸时读本属性, 不要回落到实验系统相机的数值。
+    #: 孪生口径像元边长 (µm), 与 ``SimPibSystem`` 远场标度同源; 仿真需像元尺寸时读本属性, 勿回落实验系统相机值。
     pixel_size_um: float = CCD_PIXEL_UM
 
     def __init__(

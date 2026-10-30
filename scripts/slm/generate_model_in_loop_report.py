@@ -65,6 +65,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts._common.plot_style import setup_cjk_font
 from scripts._common.provenance import script_link
 
 #: Where the generated write-up lands. ``docs/``, not ``report/``: this is a usage /
@@ -558,19 +559,6 @@ flowchart LR
 #: on the next) and emit a byte-different PNG for identical input -- which
 #: shows up as a spurious diff in the tracked figure.
 _CJK = ("Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "WenQuanYi Micro Hei")
-
-
-def _setup_fonts() -> None:
-    from matplotlib import font_manager
-
-    have = {f.name for f in font_manager.fontManager.ttflist}
-    for name in _CJK:
-        if name in have:
-            plt.rcParams["font.sans-serif"] = [name, "DejaVu Sans"]
-            break
-    else:
-        logger.info("warning: no CJK font found; Chinese labels may be garbled")
-    plt.rcParams["axes.unicode_minus"] = False
 
 
 def _fig_timeline(path: Path, cfg: dict[str, str]) -> None:
@@ -1705,7 +1693,7 @@ def main() -> int:
     fig_dir = out_path.parent / "figures"
     if not args.no_figures:
         fig_dir.mkdir(parents=True, exist_ok=True)
-        _setup_fonts()
+        setup_cjk_font(_CJK, probe_installed=True)
         _fig_timeline(fig_dir / "model_in_loop_timeline.png", cfg)
 
     body = render(cfg, consts, figures=not args.no_figures)

@@ -500,7 +500,8 @@ Walsh/Hadamard 扫基、从远场反演每像素复增益、用不相交相位�
 | `scripts/slm/audit_shape_agreement.py` | `--jsonl PATH` 逐重放块写一行并 flush；`--resume` 跳过已有块（已实现并实测：二次运行 0 块重算） |
 | `scripts/slm/generate_multishape_shape_figure.py` | `--jsonl` 直接从上面那份流读，**不再读 npz**；配对 JSON 在画图**之前**落盘（画图失败不丢数字） |
 | `scripts/slm/audit_replay_blocks.py` | 仅打印，不改盘面；耗时可接受（12 会话 < 1 min），暂不加流式 |
-| `scripts/slm/plot_session_process_traces.py` | 逐段摘要 JSON **先写**、再画图（画图失败不丢数字）；只读已落盘的 `process.csv`，不重算测量 || `tools/slm/transfer/replay_phases.py` | 每个归档后写 `manifest.json`（本轮 12 个归档在进程被杀后仍完整可读，证明这条已生效） |
+| `scripts/slm/plot_session_process_traces.py` | 逐段摘要 JSON **先写**、再画图（画图失败不丢数字）；只读已落盘的 `process.csv`，不重算测量 |
+| `tools/slm/transfer/replay_phases.py` | 每个归档后写 `manifest.json`（本轮 12 个归档在进程被杀后仍完整可读，证明这条已生效） |
 
 下一轮凡是新写的批量脚本，一律遵守：**逐单元写一行 + flush + 有 `--resume`**，
 并且把"哪个单元已经完成"记在产物本身里，不要另建一份状态文件（两份状态一定会

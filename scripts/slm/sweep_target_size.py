@@ -127,6 +127,7 @@ from ao_shaping.tools.slm.panel.target_size import (
     is_valid,
     select_best_window,
 )
+from scripts._common.plot_style import setup_cjk_font
 from scripts.slm.hw_gs_defocus_probe import guarded
 
 # --------------------------------------------------------------------------- #
@@ -180,8 +181,6 @@ EXIT_DEVICE_HANG = 2
 EXIT_MODEL_FAILED = 6
 EXIT_BENCH_BUSY = 7
 
-CJK_FONTS = ("Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "DejaVu Sans")
-
 #: 每个量的分子/分母定义 (逐字写进 sweep.json 的 ``metric_definitions`` 块)
 METRIC_DEFINITIONS: dict[str, str] = {
     "efficiency": (
@@ -220,12 +219,6 @@ METRIC_DEFINITIONS: dict[str, str] = {
         "偏移 + 实测零级定位到实测像素 (最近邻), 两图共享「零级为中心」约定"
     ),
 }
-
-
-def setup_cjk_font() -> None:
-    """给 matplotlib 配中文字体 (找不到就退回默认字体, 不报错)。"""
-    matplotlib.rcParams["font.sans-serif"] = list(CJK_FONTS)
-    matplotlib.rcParams["axes.unicode_minus"] = False
 
 
 # --------------------------------------------------------------------------- #

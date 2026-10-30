@@ -48,7 +48,7 @@
   "src/ao_shaping/tools/slm/calibration/lut_runner.py": 877,
   "src/ao_shaping/tools/slm/calibration/train_data_collect.py": 987,
   "src/ao_shaping/tools/slm/panel/focus_preflight.py": 921,
-  "src/ao_shaping/tools/slm/panel/focus_probe.py": 1139,
+  "src/ao_shaping/tools/slm/panel/focus_probe.py": 944,
   "src/ao_shaping/tools/slm/panel/session_profile.py": 1075,
   "src/ao_shaping/tools/slm/panel/target_size.py": 851,
   "src/ao_shaping/utils/image/beam_metrics.py": 1221,

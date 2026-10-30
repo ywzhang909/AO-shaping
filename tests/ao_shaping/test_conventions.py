@@ -53,11 +53,13 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import io
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tokenize
 import tomllib
 from pathlib import Path
 from types import ModuleType
@@ -1717,9 +1719,12 @@ def test_the_loguru_guard_follows_the_logger_not_one_spelling_of_its_import() ->
 # the adc/santec guards, and the two `open()`+csv / `open()`+write sites in
 # voltage_runner and adc_dm_adam. A typed silent handler is still silent, but it is
 # no longer *unattributable*: the reader can see which failure class is being dropped.
-# Lowered 46 -> 44 on 2026-10-29: 15ea0a22 moved pixel size into the driver, which
-# deleted the GUI's GenICam ``PixelSize`` probe and the daheng/miicam probe's blind
-# fallbacks -- two handlers stopped existing rather than becoming typed.
+# Lowered 46 -> 44 on 2026-10-29, twice over by both sides of a merge: `15ea0a22`
+# moved pixel size into the driver, deleting the GUI's GenICam ``PixelSize`` probe and
+# the daheng/miicam probe's blind fallbacks (two handlers stopped existing rather than
+# becoming typed), and the src/ moves in 062a64e5..fae245db (transfer/validate.py split,
+# exposure_control.py, record_mode.py) retired two more silent sites. The number below is
+# taken from the guard's own walk, not recounted by hand.
 _BLIND_SILENT_BASELINE = 44
 
 
@@ -2241,51 +2246,138 @@ _MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 344
 #: Measured split of what is left after #56 slices (3) A-E landed: 32 in tools/, 23 in drivers/.
 #: The first driver slice narrowed 17 handlers and added two blind handlers of its own in the
 #: transfer tooling; slices A-E narrowed 18 more (16 + 3 + 2).
-#: A convention gap this measurement exposes, and it is not a counting error: #56 wrote its
-#: rationales as Chinese prose on the handler (``保留宽泛捕获`` / ``类型不可枚举``), while this
-#: guard credits only the ``# policy:`` token. Counting inside the guard's own marker window, **40
-#: of the 55 unmarked handlers already carry a Chinese rationale** -- 22 of the 23 remaining driver
-#: sites, and 18 of 32 tools sites -- so only **15 have no rationale at all**. Read that way the
-#: drivers layer is effectively finished by #56 and this branch has been about to duplicate it.
-#: Unifying the two idioms is a decision for #174 and #56 together, not something this ratchet
-#: should settle by itself, and it is now the highest-value open item: it changes what the ceiling
-#: means far more than any further marking pass would.
-#: A first classification pass over the tools sites put only 16 of 83 in a "no device handle
-#: involved" bucket, and two of those still read a device attribute, so the honest expectation is
-#: that the tools layer is almost entirely marker-only until the driver exception taxonomy
-#: (#145 / #45) lands.
-_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 55
+#: The convention gap flagged above is CLOSED (2026-10-29), and closing it changed what this
+#: ceiling means far more than any further marking pass could. The guard now credits an *attached
+#: rationale* -- trailing on the handler line, in the comment lines directly above it, or as the
+#: handler body's leading comments, which is the shape #56 actually writes (``保留宽泛捕获: ...
+#: 失败类型不可枚举``) -- and a handler whose last statement is ``raise`` (cleanup-then-propagate
+#: is a decision: the exception still escapes, nothing is swallowed). Re-measured under that rule:
+#: 340 blind handlers, 285 carrying ``# policy:``, 48 carrying an attached prose rationale, 6 that
+#: re-raise, and **1** without a self-contained judgement -- ``# 同上`` at
+#: ``tools/kernels/device_mutex.py:1052``, now written out in full. So the ceiling goes 55 -> 0:
+#: any new blind handler under ``src/`` must record its judgement at the handler, in either idiom.
+#: This does not soften the ratchet on the risk it exists for -- narrowing a hardware-path handler
+#: without the driver exception taxonomy (#145 / #45) is still what the failure message warns
+#: against, and a decorative or two-character comment is not a rationale (``_is_rationale``).
+_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC = 0
+
+
+#: Tool directives are not judgements. The character classes are ASCII on purpose: ``\w`` matches
+#: CJK, so a ``pragma:[\w -]*`` stripper swallows the Chinese rationale that follows
+#: ``pragma: no cover -`` and reports an annotated handler as unannotated.
+_COMMENT_DIRECTIVE = re.compile(
+    r"^(?:pragma:[A-Za-z0-9 -]*|noqa[A-Za-z0-9,: -]*|type:[A-Za-z0-9 \[\], -]*"
+    r"|ruff:?[A-Za-z0-9 -]*)[-:]?\s*",
+    re.IGNORECASE,
+)
+_DECORATION_ONLY = re.compile(r"^[\s\-=#*_+.·─━|~^]+$")
+
+
+def _is_rationale(comment: str) -> bool:
+    """Would this comment, read alone, tell a reader why the broad catch is intended?"""
+    body = _COMMENT_DIRECTIVE.sub("", comment.lstrip("#").strip()).strip()
+    if not body or _DECORATION_ONLY.match(body):
+        return False
+    if re.search(r"[\u4e00-\u9fff]", body):
+        return len(body) >= 6            # 6 字 reads as a clause; ``同上`` (2 字) does not
+    return len(body.split()) >= 3
+
+
+def _comment_tokens(text: str) -> dict[int, str]:
+    """Real COMMENT tokens keyed by start line.
+
+    ``tokenize``, never ``'#' in line``: a ``#`` inside a string literal must not be able to
+    pass as a rationale, and that is the one way this criterion could be gamed by accident.
+    """
+    out: dict[int, str] = {}
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(text).readline):
+            if token.type == tokenize.COMMENT:
+                out.setdefault(token.start[0], token.string)
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return out
+    return out
+
+
+def _attached_comment_lines(comments: dict[int, str], node: ast.ExceptHandler) -> list[int]:
+    """Lines whose comments are attached to this handler: the ``except`` line itself, the
+    contiguous comment run directly above it, and the contiguous comment run directly inside it.
+
+    Attachment rather than a fixed window, so a comment sitting on unrelated code a few lines
+    up cannot make an undocumented handler look judged.
+    """
+    found: list[int] = []
+    if node.lineno in comments:
+        found.append(node.lineno)
+    line = node.lineno - 1
+    while line >= 1 and line in comments:
+        found.append(line)
+        line -= 1
+    last = node.body[-1].lineno
+    line = node.lineno + 1
+    while line <= last and line in comments:
+        found.append(line)
+        line += 1
+    return found
+
+
+def _blind_handlers_in_text(text: str, path: Path) -> list[tuple[Path, int, bool]]:
+    """One file's blind handlers, judged. Split out so the detector itself can be tested."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return []
+    lines = text.splitlines()
+    comments = _comment_tokens(text)
+    out: list[tuple[Path, int, bool]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ExceptHandler):
+            continue
+        if not isinstance(node.type, ast.Name) or node.type.id not in ("Exception", "BaseException"):
+            continue
+        if len(node.body) == 1 and isinstance(node.body[0], ast.Raise) and node.body[0].exc is None:
+            continue                       # re-raise only: BLE001 excuses this too
+        above = lines[max(0, node.lineno - 3):node.lineno - 1]
+        inside = lines[node.lineno - 1:min(len(lines), node.lineno + 2)]
+        judged = any("# policy:" in w for w in above) or any("# policy:" in w for w in inside)
+        if not judged and isinstance(node.body[-1], ast.Raise):
+            judged = True
+        if not judged:
+            judged = any(_is_rationale(comments[ln]) for ln in _attached_comment_lines(comments, node))
+        out.append((path, node.lineno, judged))
+    return out
 
 
 def _blind_except_handlers_in_src() -> list[tuple[Path, int, bool]]:
-    """Every blind catch under ``src/``, as ``(path, except_line, policy_marked)``.
+    """Every blind catch under ``src/``, as ``(path, except_line, judged)``.
 
     One walk feeds both ratchets. Two independent walks would drift apart, and that drift is
     the failure mode this file already documents for its formatting guards: a checker that
     counts something slightly different from the thing being guarded reports a clean tree.
+
+    A handler counts as judged when any of these holds at the handler itself:
+
+    * a ``# policy:`` token above, on, or just inside the ``except`` (the idiom this branch
+      introduced, and still the one the failure message recommends);
+    * its last statement is a ``raise`` -- cleanup-then-propagate is a decision, the original
+      exception still escapes;
+    * an attached rationale comment: trailing on the handler line, in the contiguous comment
+      lines directly above it, or as the leading comments of the handler body. #56 writes its
+      judgements in that last shape (``保留宽泛捕获: ... 失败类型不可枚举``), and crediting only
+      ``# policy:`` counted 55 documented handlers as undecided.
+
+    ``_is_rationale`` is what keeps this honest: decoration, tool directives (``pragma`` /
+    ``noqa``), and two-character pointers (``同上``) do not judge anything.
     """
-    src_dir = REPO / "src"
     out: list[tuple[Path, int, bool]] = []
-    for path in sorted(src_dir.rglob("*.py")):
+    for path in sorted((REPO / "src").rglob("*.py")):
         if "__pycache__" in path.parts:
             continue
         try:
             text = path.read_text(encoding="utf-8")
-            tree = ast.parse(text)
-        except SyntaxError:
+        except (SyntaxError, UnicodeDecodeError):
             continue
-        lines = text.splitlines()
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ExceptHandler):
-                continue
-            if not isinstance(node.type, ast.Name) or node.type.id not in ("Exception", "BaseException"):
-                continue
-            if len(node.body) == 1 and isinstance(node.body[0], ast.Raise) and node.body[0].exc is None:
-                continue                       # re-raise only: BLE001 excuses this too
-            above = lines[max(0, node.lineno - 3):node.lineno - 1]
-            inside = lines[node.lineno - 1:min(len(lines), node.lineno + 2)]
-            marked = any("# policy:" in w for w in above) or any("# policy:" in w for w in inside)
-            out.append((path, node.lineno, marked))
+        out.extend(_blind_handlers_in_text(text, path))
     return out
 
 
@@ -2338,9 +2430,17 @@ _DOC_LINE_ANCHORS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
         ('raw_frame_queue.put(("error", str(exc)), block=False)',
          'raw_frame_queue.put(("error", f"Capture loop crashed: {exc}"), block=False)'),
     ),
-    # The bench_settings.py row was withdrawn 2026-10-29: `detect_camera_pixel_um` now
-    # only reads the model config, so both `# policy:` fallbacks it pinned were deleted
-    # (15ea0a22) rather than moved -- there is no statement left to anchor.
+    (
+        "TODO.md",
+        "探测降级**（`bench_settings.py:",
+        "src/ao_shaping/gui/slm/bench_settings.py",
+        # Re-pinned 2026-10-29: `15ea0a22` moved pixel size into the driver as a model-level
+        # single source, so `detect_camera_pixel_um` no longer probes Daheng at all
+        # (`probe_daheng_models` + `lookup_model_pixel_size_um`) and both `# policy:` handlers
+        # vanished with that code. One degradation guard remains -- MiiCam driver unavailable,
+        # line 1282; the pin cites that line and nothing else.
+        ("except (ImportError, OSError) as exc:",),
+    ),
     (
         "TODO.md",
         "`r50_single.py:",
@@ -2537,33 +2637,57 @@ def test_blind_except_handlers_in_src_do_not_grow() -> None:
 
 
 def test_unmarked_blind_except_handlers_do_not_grow() -> None:
-    """A deliberate broad catch must state its policy, or it stays counted as undecided.
+    """A deliberate broad catch must record its judgement, or it stays counted as undecided.
 
-    The ceiling moves only when a judgement exists: a ``# policy:`` line at the handler, or a
-    narrowed catch that leaves the population altogether. The two assertions on the split keep
-    the scan itself honest -- if the marker pattern ever stopped matching anything, the marked
-    count would fall; if it matched everything, the unmarked count would collapse to zero and
-    this test would pass while guarding nothing.
+    The ceiling moves only when a judgement exists at the handler: a ``# policy:`` line, an
+    attached rationale comment, or a narrowed catch that leaves the population altogether. It is
+    now zero -- every blind handler under ``src/`` carries one -- so a new undocumented blind
+    catch fails immediately.
+
+    Detector honesty is proved by negative controls in
+    :func:`test_blind_handler_detector_still_flags_an_undocumented_handler`, not by the tree's
+    own imperfection: the previous version asserted some handler must still read as unjudged,
+    which demonstrates a working scanner only while the codebase stays defective.
     """
     population = _blind_except_handlers_in_src()
-    unmarked = [(path, lineno) for path, lineno, marked in population if not marked]
-    marked = len(population) - len(unmarked)
-    assert marked >= 20, (
-        f"only {marked} handler(s) carry a `# policy:` marker -- the marker scan has stopped "
-        "matching, so the unmarked ratchet below is enforcing nothing"
-    )
-    assert marked < len(population), (
-        "every blind handler parsed as marked -- the marker window is too wide, and an "
-        "unreviewed handler could now pass as judged"
+    unmarked = [(path, lineno) for path, lineno, judged in population if not judged]
+    judged_count = sum(1 for _, _, judged in population if judged)
+    assert len(population) >= 100 and judged_count >= 20, (
+        f"the walk found {len(population)} handler(s) with {judged_count} judged -- an extractor "
+        "that stopped parsing would report a clean tree, so the floor is what keeps this honest"
     )
     offenders = [f"{path.relative_to(REPO)}:{lineno}" for path, lineno in unmarked[:6]]
     assert len(unmarked) <= _MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC, (
-        f"{len(unmarked)} blind except handlers under src/ carry no `# policy:` marker, above "
-        f"the ratchet {_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC} (first offenders: "
+        f"{len(unmarked)} blind except handler(s) under src/ record no judgement at the handler, "
+        f"above the ratchet {_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC} (first offenders: "
         f"{', '.join(offenders)}). Read the guarded call: either narrow it to the types that "
-        "can actually be raised, or record the fallback policy in one line at the handler. "
-        "Narrowing a hardware-path handler is not a cleanup -- see issues #145 and #45."
+        "can actually be raised, or write the fallback policy in one line at the handler "
+        "(``# policy: ...`` or plain prose). Narrowing a hardware-path handler is not a cleanup "
+        "-- see issues #145 and #45."
     )
+
+
+def test_blind_handler_detector_still_flags_an_undocumented_handler(tmp_path: Path) -> None:
+    """Negative controls: the judgement scan must still answer NO when nothing judges it.
+
+    Widening a marker rule is precisely where a guard starts passing what it should fail, so the
+    detector is tested against known snippets instead of against the tree.
+    """
+    undocumented = _blind_handlers_in_text(
+        "try:\n    read()\nexcept Exception:\n    pass\n", tmp_path / "s.py"
+    )
+    assert undocumented and not any(judged for _, _, judged in undocumented), (
+        "an undocumented `except Exception` read as judged"
+    )
+    assert _blind_handlers_in_text(
+        "try:\n    read()\nexcept Exception:\n    cleanup()\n    raise\n", tmp_path / "s.py"
+    )[0][2], "cleanup-then-raise decides the failure: the exception still escapes"
+    assert not _is_rationale("# 同上")
+    assert not _is_rationale("# pragma: no cover")
+    assert not _is_rationale("# ------------")
+    assert _is_rationale("# pragma: no cover - 回落到 numpy 实现")
+    assert _is_rationale("# 保留宽泛捕获: 失败类型不可枚举")
+    assert _is_rationale("# a failed candidate must not abort the scan")
 
 
 def test_markdown_table_rows_never_write_more_cells_than_declared() -> None:
@@ -4524,6 +4648,10 @@ _QUOTED_PY_PATH_HISTORICAL: dict[tuple[str, str], str] = {
     ("scripts/slm/generate_diff_shaping_report.py", "src/ao_shaping/runners/diff_shaping_runner.py"):
         "the runner was deleted in fbef1926 and the text says so, mirroring AGENTS.md's own "
         "convention for that entry",
+    ("scripts/_common/provenance.py",
+     "tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py"):
+        "the note itself declares the generator never entered the index (全仓 git ls-files 无此 "
+        "path), so the missing generator -- not this citation -- is what would need fixing",
 }
 
 #: The census resolved 362 claims; a floor this far below catches an extractor that stopped

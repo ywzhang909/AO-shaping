@@ -48,6 +48,8 @@ sys.path.insert(0, str(ROOT))
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
+from scripts.ml._speckle_aug import _blur
+
 OUT_DIR = ROOT / "report" / "loss_defects"
 
 GRID = 64
@@ -200,25 +202,6 @@ def _mask() -> torch.Tensor:
     # Float, not bool: `roi_mask` returns a boolean mask and `1 - mask` on a bool tensor is
     # a TypeError, while the losses under test want a multiplicative weight anyway.
     return roi_mask((GRID, GRID), c, "rectangle", float(SIDE), 1.0).float()
-
-
-def _gauss_kernel(sigma: float) -> torch.Tensor:
-    r = int(4 * sigma + 0.5)
-    x = torch.arange(-r, r + 1, dtype=torch.float32)
-    k = torch.exp(-(x**2) / (2 * sigma**2))
-    return k / k.sum()
-
-
-def _blur(img: torch.Tensor, sigma: float) -> torch.Tensor:
-    k = _gauss_kernel(sigma)
-    r = (k.numel() - 1) // 2
-    n, c, h, w = img.shape
-    f = img.reshape(n * c, 1, h, w)
-    f = torch.nn.functional.pad(f, (r, r, 0, 0), mode="reflect")
-    f = torch.nn.functional.conv2d(f, k.view(1, 1, 1, -1))
-    f = torch.nn.functional.pad(f, (0, 0, r, r), mode="reflect")
-    f = torch.nn.functional.conv2d(f, k.view(1, 1, -1, 1))
-    return f.reshape(n, c, h, w)
 
 
 def _speckle(img: torch.Tensor, cv: float, seed: int) -> torch.Tensor:

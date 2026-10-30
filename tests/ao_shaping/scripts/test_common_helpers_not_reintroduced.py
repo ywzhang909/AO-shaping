@@ -48,6 +48,18 @@ EXTRACTED = {
     # on the displayed slot leaves the LCOS unrefreshed), so a drifted copy is a
     # hardware bug, not a style issue. scripts/slm/diff_beam_capture_flat.py had one.
     "pick_slm_slot": "src/ao_shaping/utils/slm/phase_display.py",
+    # CJK font setup: seven copies with three distinct bodies. The preference
+    # chain is a parameter and the installed-font probe a flag, because merging
+    # the chains would re-render tracked figures with a different font.
+    "setup_cjk_font": "scripts/_common/plot_style.py: setup_cjk_font",
+    "_setup_fonts": "scripts/_common/plot_style.py: setup_cjk_font(probe_installed=True)",
+    # Leave-one-group-out folds over record paths: the grouping (key = str(path),
+    # folds in sorted-key order, group-first train lists) *is* the paired-comparison
+    # contract -- a drifted copy silently changes which records share a fold, so the
+    # per-fold numbers in the diagnostic reports stop being comparable. Nine copies
+    # existed; all now import the canonical ("再迁复用" batch 3). `ridge` is
+    # deliberately NOT registered: legitimate different-purpose ridge copies remain.
+    "folds_of": "src/ml/zernike/eval_stats.py: folds_of",
 }
 
 #: Generators migrated onto ``scripts._common``.

@@ -1,4 +1,4 @@
-﻿"""Figure: does the target get *filled*? (report §5.8)
+"""Figure: does the target get *filled*? (report §5.8)
 
 Every verdict in the 2026-10-29 live log covers "more uniform (CV) + energy not
 lost".  This figure adds the missing half from data that already exists: the

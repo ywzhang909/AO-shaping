@@ -390,14 +390,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
   ⇒ 遥测类 `except Exception` 对 Ctrl-C 是**安全**的，不必收窄。
 * 真风险只有 **2 处 `except BaseException`**（⚠️ 2026-10-25 重测：现树 **5 处** = `src/` 3 + `scripts/` 2，
   逐处判定见 §8.9 第 14 项；本行的「2 处」是本节写作时的口径，`transfer/workflow.py` 与 `scripts/` 两处未计入），而其中
-  `utils/image/hardware_utils.py:627`（原钉 `:628`，已按 grep 实测重钉）**必须保持 `BaseException`**：它跑在 daemon
+  `utils/image/hardware_utils.py:666`（原钉 `:628`，已按 grep 实测重钉）**必须保持 `BaseException`**：它跑在 daemon
   工作线程里，目的就是把工作线程的任何异常搬到调用线程重抛。收窄成 `Exception`
   会让工作线程的 `KeyboardInterrupt`/`SystemExit` 静默消失，`call_with_timeout`
   改为返回 `None`（静默行为变更）。它**不影响**主线程 Ctrl-C（`join` 可中断）。
 
 | 处置 | 站点 | 收窄到 |
 |---|---|---|
-| **保持 `BaseException` + 补注释** | `utils/image/hardware_utils.py:627` | 不改，仅把线程边界语义写进注释；已机械钉住：`test_conventions.py::test_thread_boundary_exception_capture_keeps_base_exception` |
+| **保持 `BaseException` + 补注释** | `utils/image/hardware_utils.py:666` | 不改，仅把线程边界语义写进注释；已机械钉住：`test_conventions.py::test_thread_boundary_exception_capture_keeps_base_exception` |
 | **最高价值：收窄** | `drivers/slm/santec/driver.py:1184` | `SantecError` —— 房内既有写法：`slm_gs_refine.py:780` `except SantecError as exc: if exc.code != 1: raise` |
 | **已收窄（执行）** | `gui/r50/r50_channel_select.py:365` | `(ValueError, KeyError, TypeError)`（pandas `int()` / 列访问） —— 2026-10-28 执行：该 handler 的守卫语句只有 `int(row[...])` 与列访问，缺列 = KeyError、坏值 = ValueError、空值 = TypeError，且**不碰硬件**（CI 可见全部失败面），故按本 issue 自己的口径收窄优先于登记；`tests/ao_shaping/gui/r50/test_r50_channel_select.py` 钉住两半契约（畸形行仍降级为空表 / 未列类型不再被吞）。该站已**退出盲捕总体**：382 → 381，已标注 188 → 187，未标注仍 194 |
 | 收窄 | `tools/slm/slm_zernike_common.py:114,129,155,162,166` | `(SantecError, WfsError, AttributeError)` |
@@ -450,7 +450,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | 不要把 `E402` 从 `ignore` 直接挪到 `select` 而不给 `scripts/*` 开 `per-file-ignores` | 会让 `scripts/*` 的 709 条 bootstrap 约定瞬间爆红（E402 实测总数 879 = scripts 709 / tests 128 / src 42，见 §8.3；原估 435 已作废，2026-10-23 随 R-63 step 2b 重钉） |
 | 不要先跑 RUF100 再开规则 | 见 §8.6 第 3 步，会删掉将来必需的 noqa |
 | 不要用 `# ruff: enable` 复活被 ignore 的规则 | 官方明确：range suppression **不能**启用"未被 select 的规则" |
-| 不要把 `except BaseException`（`hardware_utils.py:627`，以及两处同构的线程边界捕获 `scripts/slm/diff_beam_capture_flat.py:79`（旧行号 68 因上游 `a8673631`/`fe1cc504` 漂移，2026-10-29 复核）、`scripts/slm/hw_gs_defocus_probe.py:1071`）改成 `Exception` | 会造成静默行为变更（工作线程的 Ctrl-C 消失，调用方把挂起当成成功），已推理见 §8.4；已机械钉住：`test_thread_boundary_exception_capture_keeps_base_exception`（见 §8.9 第 14 项） |
+| 不要把 `except BaseException`（`hardware_utils.py:666`，以及两处同构的线程边界捕获 `scripts/slm/diff_beam_capture_flat.py:79`（旧行号 68 因上游 `a8673631`/`fe1cc504` 漂移，2026-10-29 复核）、`scripts/slm/hw_gs_defocus_probe.py:1071`）改成 `Exception` | 会造成静默行为变更（工作线程的 Ctrl-C 消失，调用方把挂起当成成功），已推理见 §8.4；已机械钉住：`test_thread_boundary_exception_capture_keeps_base_exception`（见 §8.9 第 14 项） |
 
 ### 8.8 一处不一致（非缺陷，但值得知道）
 
@@ -605,9 +605,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    `r50_single.py:111`）、**重试循环**（`r50_voltage_send.py:111` `_send_with_recovery`：吞单次失败后重试，
    整体成败由返回值交给调用方）、**上报动作本身的失败**（`ccd_analyzer.py:297/321`，数字钉的是下面两个**调用行**而非 `except` 行——后者在本文件里文本全同，按内容无法定位）——这两处是包住
    `raw_frame_queue.put(("error", …))` 的**内层**护栏 —— 外层已把错误送进队列；`r50_voltage_send.py:395/402/420`
-    同理包住 `feedback_q.put`）、**探测降级**（本项 2026-10-29 撤销：`detect_camera_pixel_um` 改为只查型号配置
-    `data/ccd_configs/ccd/models.json`，型号未登记即抛 `CameraError` 并给出登记命令，原先两条吞 `except Exception`
-    的兜底随 `15ea0a22` 删除 ⇒ 已无行号可钉）、
+    同理包住 `feedback_q.put`）、**探测降级**（`bench_settings.py:1282`，本项 2026-10-29 重钉而非撤销：`detect_camera_pixel_um`
+    改为只查型号配置 `data/ccd_configs/ccd/models.json`（`probe_daheng_models` + `lookup_model_pixel_size_um`，大恒侧不再开相机探测），
+    型号未登记时驱动侧 `resolve_model_pixel_size_um` 抛 `CameraError` 并给出登记命令，原先两条吞 `except Exception` 的兜底随
+    `15ea0a22` 删除 ⇒ 大恒侧已无护栏可钉；剩下的就是这条 MiiCam 侧收窄后的 `except (ImportError, OSError)` → 打 debug →
+    显式 `return None`，回落与否交给调用方——旧钉 1491 行已随文件改动失效）、
    **清理进度文件**（`zernike_response_matrix_ui.py:833`）。⇒ **一处都没改成 raise**。
    唯一真缺陷不是"吞掉测量"而是**死代码**：`gui/zernike/zernike_debug_viewer.py:392-404` 在
    `pinv_matrix = np.linalg.pinv(...)` 之后算 `np.linalg.matrix_rank(...)` 判分支、分支里算
@@ -793,11 +795,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     `display_data(zeros)`、`dev.close()`、`wfs.close()`）；**搜索循环里跳过读不到的候选**
     （`generate_fouriergsnet_sim_report.py:181` 遍历各候选目录找含所需键的 `config.json` —— 跳过坏候选是**控制流**，
     与 §8.9 第 5 项 ffmpeg 枚举同判据）；**逐条跳过损坏产物**（`generate_bench_twin_report.py:337`，旧行号 348 因 `bf5c07cd` 上移 11 行而漂移，2026-10-29 复核），注释已写明
-    "落盘产物损坏时只丢这一项"）；**可选设备元数据**（`probe_optical_path_validity.py:1579/1586`，旧行号 1356/1361 因 `3ae92ade` 在其上方插入 `ladder_flux`/`bench_reference` 等光通量门禁代码而漂移，2026-10-29 复核）。
+    "落盘产物损坏时只丢这一项"）；**可选设备元数据**（`probe_optical_path_validity.py:1747/1752` 两处静默 `except: pass`，旧行号 1356/1361 因 `3ae92ade` 等后续提交在其上方插入 `ladder_flux`/`bench_reference` 等光通量门禁代码而下移，2026-10-29 复核重钉）。
     ⚠️ 我先前怀疑 `generate_inverse_shaping_model_report.py:325` 的 `except: continue` 会**悄悄缩小发布表格的样本集**
     —— **实测否证**：行字典同时发布 `"n": len(norms)` 与 `"records": len(records)`，跳过会表现为 `n < records`，
     **归因本来就有** ⇒ 不动。另实测 `cam_exposure_range_ms` / `cam_hardware` 在两处赋值之外**全文件零引用**，
-    且该探针的 verdict 分支（`:1080-1109`，旧行号 930-957 因 `3ae92ade` 上移而漂移，2026-10-29 复核）走的是设备互斥锁、不读它们 ⇒ 只影响描述性元数据，不影响结论。
+    且该探针的 verdict 分支（`:1197-1226`，`acquire_devices` 内 `device_mutex.wait_until_idle` + 判据 if/raise 链；旧行号 930-957 因 `3ae92ade` 等后续提交在其上方插入 `ladder_flux`/`bench_reference` 等光通量门禁代码而下移，2026-10-29 复核重钉）走的是设备互斥锁、不读它们 ⇒ 只影响描述性元数据，不影响结论。
     **BLE001 全仓终账（实测，非减法推算）**：silent（`pass`/`continue` 且无 raise）由 **90 → 83**
     （`src` 63→61、`tests` 16→11、`scripts` 11 不变）；`src`/`tests`/`scripts` **三棵树已全部逐处判定完毕**。
     回归：`tests/ao_shaping/utils` 按 CI 的 `AO_TEST_PER_FILE=1` 跑 **1326 passed / 4 skipped / exit 0**，
@@ -887,11 +889,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 14. ✅ **`except BaseException` 全量复核收口：实测 5 处，逐处判定正当，并把「线程边界不得收窄」钉成守卫**（2026-10-25）：
      - **AST 实测 5 处**（不是 grep 计数）：`optimizer/wfless/slm_zernike_pib.py:1718`、
-      `tools/slm/transfer/workflow.py:78`、`utils/image/hardware_utils.py:627`、
+      `tools/slm/transfer/workflow.py:226`（旧行号 78 因上游 `5341b36b` 合并等后续提交在其上方插入阶段编排代码而下移，2026-10-29 复核重钉）、`utils/image/hardware_utils.py:666`、
       `scripts/slm/diff_beam_capture_flat.py:79`（旧行号 68 因上游 `a8673631`/`fe1cc504` 漂移，2026-10-29 复核）、`scripts/slm/hw_gs_defocus_probe.py:1071`
       ⇒ §8.4 的「真风险只有 2 处」与 R-64 行的「禁改 2 处」均为当时口径，已就地重钉。
     - **逐处判定：没有一处需要改**（本项初始假设「能在硬件运动中途静默吞掉中断」被实测推翻）：
-      `workflow.py:78` 记录状态后 `raise`（本就重抛）；`hardware_utils.py:627`、
+      `workflow.py:226` 记录状态后 `raise`（本就重抛）；`hardware_utils.py:666`、
       `diff_beam_capture_flat.py:79`（旧行号 68 因上游 `a8673631`/`fe1cc504` 漂移，2026-10-29 复核）、`hw_gs_defocus_probe.py:1071` 是三处**同构的线程边界捕获**，
       调用方确定重抛（实测 `:77 raise error[0]`、`:1082 raise box["error"]`）——
       它们正是把「原生 SDK 调用无限挂起」变成**有界且可归因**的机制
@@ -907,8 +909,8 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       （§8.10 那条红线我第三次差点踩）。
     - ⚠️ **差分第一次无效**：临时树从 `HEAD` 切出，而新守卫还在工作区未提交 ⇒ 树里没有该测试，
       输出只是 `36 deselected` 而非失败。教训：**差分必须把被测的新代码一并带进临时树**。
-      补上后实测：把 `hardware_utils.py:627` 改成 `except Exception` ⇒ 守卫失败并点名
-      `hardware_utils.py:627: Exception`；未改动 ⇒ 36 passed / 1 skipped（既有 ruff-not-on-PATH 跳过）。
+      补上后实测：把 `hardware_utils.py:666` 改成 `except Exception` ⇒ 守卫失败并点名
+      `hardware_utils.py:666: Exception`；未改动 ⇒ 36 passed / 1 skipped（既有 ruff-not-on-PATH 跳过）。
     - 宿主 ruff 在落容器**之前**拦下一个真错：标识符写成 `re-raised`，连字符被解析成 `re - raised =`，
       报 `invalid-syntax: Invalid assignment target` —— 省一次容器运行。
 
@@ -4150,6 +4152,64 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 同批迁一处非统计复用：`diff_beam_capture_flat.py` 的本地 `pick_slm_slot` 转发到 `utils/slm/phase_display.py`。
 - 测试放位踩过一次坑：`tests/ao_shaping/ml/` **根目录**不被 CI 的 `ml` 分片枚举（只列 5 个子目录 + 2 个文件），放错等于静默不收集 ⇒ 移到 `ml/zernike/`；scipy 交叉校验必须 `pytest.importorskip`（环境无 scipy 要跳过而不是报错，且 `.statistic` 需 scipy≥1.9，改用索引取 p 值）。
 - 覆盖：ruff / provenance / term（0 文件 0 行）/ module-size 全绿；容器 2875 passed / 71 skipped / 0 failed。
+
+**2026-10-29 · bf5c07cd · 上条的调用侧收尾：scripts/ 里 8 处 `pearson`/`spearman` 副本删除，9 处同名不同义保留**
+- 迁移动作：8 个逐字节相同的副本改转发到 `ml.zernike.eval_stats`（其中 4 个是 ravel 包装，`.ravel()` 移到调用点）；9 个同名站点判定 DIFFERENT 保留，差异逐条写明（`argsort(argsort)` 无均秩、零方差回 `0.0`、返回 `None` 当"未记录"哨兵、先 `_normalise()` 再相关、径向分箱谱、`size<3` 判据）。
+- **名字守卫对「同名不同义」无能为力**：`EXTRACTED` 按模块级 def 名精确匹配，而合法异用途的 `def spearman`×2、`def pearson`×1 仍在树里，登记即当场红。这类去重的裁决只能靠 body 比对，不能靠名字。
+- 顺带修两个被迁移暴露的真问题：① `exp_fast_recal_adapter.py` 把 `ROOT/scripts` 排在 `ROOT/src` 之前，而 `scripts/` 与 `scripts/ml/` **都是包** ⇒ `import ml.zernike.*` 解析到 `scripts/ml` 并 ImportError —— ruff 查不出，只有 `test_scripts_are_importable_in_file_form` 抓得到；② 自己的 facade 守卫只统计顶层 `def`，实现迁走后 re-export 看不见 ⇒ 改统计顶层**绑定**（defs + 常量 + import，跳过 `import *`）。
+- 一处**故意接受**的契约差异：`generate_bench_twin_report` 原来在 shape 不等时返回 `nan`，canonical 会 `ValueError`。两个操作数来自同一个 `.npz` 探针记录，该分支是防御性的；对报告生成器而言崩掉比把 `nan` 静默写进已发表表格更好。
+- 覆盖：容器 `scripts/` + conventions 2855 passed / 73 skipped；2 failed 是**上游**红（`src/ao_shaping/tools/slm/transfer/validate.py` 864 行 > 800，在 pristine `origin/master` 分离树复现，属 transfer 特性且在持续变长），不在本批范围。
+
+**2026-10-29 · 142ff97b · 再迁复用第三批：7 处 matplotlib 字体设置收进 `scripts/_common/plot_style.py`，`folds_of`/`ridge` 建 canonical**
+- 两个簇一次做：CJK 字体设置（4 个 `setup_cjk_font` + 3 个 `_setup_fonts`）落到新模块 `scripts/_common/plot_style.py`（113 行，只写 rcParams，不 import pyplot）；`folds_of` 与 `ridge` 插进 `ml/zernike/eval_stats.py`（+43 行，insert-only，不动既有函数）。
+- **7 个字体副本并不相同，不能强行统一语义**：两类行为用参数保留 —— 默认 `probe_installed=False` 直接**替换** `font.sans-serif`，`probe_installed=True` 才对着已安装字体表解析；字族顺序差异用 `CJK_FONTS` / `CJK_FONTS_INVERSE_SHAPING` 两个常量表达。去重去掉的是实现重复，不是行为差异。
+- `ridge` canonical 是**对偶形式**（在 n×n Gram 上解，`n << n_features` 时便宜）并返回 `(weights, x_mean, z_mean)`；退化输入**不做伪逆平滑**：`alpha=0` 且中心化 `x` 秩亏时照旧抛 `LinAlgError` —— 每个被迁副本本来就是该行为，静默返回伪逆解会掩盖一个坏折。
+- `folds_of` canonical 一律返回 `(index, key, train, val)`；树里两种本地投影（index-first / key-first）在**调用点**适配，未用字段绑 `_`。本批迁 2 个，其余 6 个在后续提交收尾：原先 `enumerate` 重新导出的下标由 canonical 首字段直接提供，因此折号与 `default_rng(1234 + index_i)` 的种子逐位不变。
+- 守卫登记 `setup_cjk_font` / `_setup_fonts`（迁后零本地 def）；**`ridge` 故意不登记**：`verify_pod_ridge_canary.py`、`compare_linear_vs_trained.py` 的本地 `ridge`，以及 `diagnose_pod_ridge.py` 把拟合/预测拆成 `ridge_fit`+`ridge_predict` 两步，都是合法异用途。
+- 等价性照旧实测：旧 body 从 `git show HEAD:<file>` 抽出 exec，与 canonical 逐点比对；`folds_of` 语料覆盖混合 `str`/`Path` 路径（同名两种类型必须同组）、单记录路径、单路径语料、空语料，并断言每折 `train + val` 是 `range(len(records))` 的置换。
+
+**2026-10-29 · 56cb83d5 · 第三批收尾：剩余 6 处 `folds_of` 副本删除，`scripts/` 里该名字归零**
+- 两种历史投影在**调用点**各自适配，不动语义：index-first 变体把 `key` 丢给 `_`；key-first 变体的 `held` 本来就零引用（折号是 `len(per_fold)`）。
+- `for i, (held, ...) in enumerate(folds_of(records))` 的 `enumerate` 由 canonical 首字段取代 ⇒ 折号与 `default_rng(1234 + index_i)` 的种子逐位不变（逐 site 断言，不是推断）。
+- `verify_pod_ridge_canary.py` 的 `folds_of(records, protocol="file")`：全仓唯一调用点不传 `protocol`，函数体也从不读它 —— 死参数随本地 def 一起消失，而不是为了"兼容"被搬进 canonical。
+- 守卫登记 `folds_of`（AST 复检 offenders 为空）；`ridge` **仍不登记**：两处本地 `ridge` 与 `diagnose_pod_ridge.py` 把拟合/预测拆成 `ridge_fit`+`ridge_predict` 都是合法异用途。
+- 记一次**被 diff 复核抓回的失误**：编辑时 oldString 取宽了，把无关函数 `apply_transform` 的整个函数体连带删掉。若非提交前逐文件读 `git diff`，这就是一次静默的功能删除 —— 去重任务的产出必须是**净删除**，任何非目标行的变动都是事故。
+
+**2026-10-29 · b227bf50 · 上游带入的 5 处门禁红收口，外加自己的棘轮与锚点欠账**
+- **归因先于动手，而且差点归错**：分离树钉在 `142ff97b` 的**真实父提交** `fae245db` 上复现 5 处红，钉在更早的 `062a64e5` 上则 0 处 ⇒ 红由 `062a64e5..fae245db` 区间的上游提交带入，不是第三批造成的。第一次我拿 `062a64e5` 当"干净基线"，跑出来 conventions 全绿，据此就会去"修"一批自己根本没写坏的代码 —— 分离树的基线必须是真实父提交，不能是"上次看过的上游头"。
+- 五处的修法都坚持改**唯一来源**：BOM 剥掉开头三字节（11080 → 11077）；被并成一行的两条表格行按原字节拆回两行（内容零改动）；描述里的裸竖线在 `provenance.py` 的 `note` 上转义后重跑 `sync_report_provenance.py`；引用路径按守卫要求登记"自述历史"豁免；`探测降级` 锚点改钉到仍然存在的 handler。
+- 生成物陷阱（已踩实）：报告正文的说明行与 `report/README.md` 的索引行**都是生成物** —— 直接编辑正文会被 `sync_report_provenance.py` 按 note 覆写回去。另外 Python 源码里要写 `\\|`：普通字符串中的 `\|` 是 invalid escape sequence（触发 SyntaxWarning），而 ruff 的 `select = [E, F]` 不含 W605，**lint 抓不到**。
+- 锚点漂移不是"把行号改对"而是"叙述跟上现实"：`15ea0a22` 把像元尺寸改成型号级单一来源（`probe_daheng_models` + `lookup_model_pixel_size_um`），大恒侧根本不探测，原两条 `# policy:` handler 随代码一起消失；同一行还挂着早已不存在的 `KNOWN_CAMERA_PIXEL_UM` 回落表 ⇒ 只改数字会留下一段假叙述。登记表语句同步换成全文件唯一的那条，避免 pin 无法归属。
+- 棘轮 `_BLIND_SILENT_BASELINE` 46 → 44 用**守卫自身的 walk** 取数（手写口径此前已经咬过两次），并写明减少的两处来自该区间 src/ 搬迁（`transfer/validate.py` 拆分、`exposure_control.py`、`record_mode.py`）。
+
+**2026-10-29 · 7c340120 · `_fmt` 副本收口：五个格式化器是刻意不同的，选择依据是实测输出而不是名字**
+- 守卫报 `def _fmt` 复现（上游 `71413576` 带入）。本地实现就是 `None → "--"` 加裸 `format(value, spec)`，`scripts/_common` 的五个格式化器里只有 `fmt_general(v, spec, missing_none="--")` 与之等价。
+- 判定靠实测：40/40 逐字节相同（值域取调用点真正会传的类型 —— `float(np.mean(...))`、`np.float64`、`peak<=0` 分支的 `None`；spec 取 `.3f`/`.2f`；含 0.0、1e-8、0.0004、负值、四舍五入边界、≥1e5、`nan`/`inf`），并把 `print_table` 整表输出与旧实现逐行比对，整表相同。
+- 其余四个会怎么错（这就是"按名字挑"要付的代价）：`fmt_metric` 把 `None` 渲成单横线、`|v|<1e-4` 改走科学计数、`|v|≥10` 塌成 `.0f` 且忽略逐列 spec；`fmt_ratio` 用 6 位 g（`12.345 → '12'`）且 `None` 抛 `TypeError`；`fmt_fixed` 对 `None` 直接抛异常（本表 `peak<=0` 的行会让整张表崩）；`fmt_signed` 把**所有**非有限值渲成缺失标记（`nan → '--'`，旧实现给 `'nan'`）。
+- 一处**有意偏离**任务约束并给出理由：该文件原先没把仓库根放进 `sys.path`，而 `scripts/` 是包 ⇒ 裸 `python scripts/slm/...` 下 `from scripts._common import` 无法解析。补的是 `sys.path.insert(0, str(ROOT))`（仓库根，不是 `scripts/` 目录），既有条目一个没动也没重排，因此不会把 `scripts/ml` 排到 `src/ml` 之前 —— 与上一条记录里那个 ImportError 事故不是同一个形态。
+
+**2026-10-29 · 8aec47af · #174 标记写法收口：守卫承认"附着在 handler 上的理由注释"，未判定盲捕 55 → 0**
+- 这不是数字游戏，而是阻止一批废工：上一条台账自己就写着"40/55 已带中文理由 ⇒ 这条分支差点去重复 #56 已经做过的事"。开工时先读了 tools 里几处站点，**四条全部已自带理由**（`# 探针要把任何异常都翻译成结论`、`# a failed candidate must not abort the scan`），证实旧口径在度量写作风格而不是"判定过没有"。
+- 重新实测（按**附着关系**判定，不是行窗口）：src/ 下 340 处盲捕 = 285 处 `# policy:` + 48 处附着中文理由 + 6 处末语句是 `raise`（清理后原样上抛：异常仍然逃出去，什么都没吞）+ **1 处**没有自足理由 —— `device_mutex.py:1052` 的 `# 同上`。就地改写成自足的一句，同行改写 ⇒ 该文件的 `path:NNN` 引用零漂移。
+- 判定标准必须防作弊：注释取 `tokenize` 的真 COMMENT token（字符串字面量里的 `#` 永远不能充当理由），且必须附着在 handler 上（同行尾注 / 紧邻上方连续注释 / handler 体内首段注释），不是固定 3 行窗口；`pragma:`/`noqa` 一类工具指令先剥再判；装饰线与两字指针不构成理由。
+- 新踩的坑已写进代码注释：`[\w -]*` 里 `\w` **匹配中文**，剥 `pragma: no cover -` 时会把后面的中文理由整条吞成空串，从而把已注释的站点误报为未注释 ⇒ 字符类限定 ASCII。
+- 诚实性断言换向：原先 `marked < len(population)` 要求"树里必须还剩未判定的 handler"才算扫描器有效 —— 上限归零后它自相矛盾，且它本身是在要求代码库保持缺陷。改为对检测器本身做反例测试（无注释的 `except Exception: pass` 必须判未判定；`cleanup(); raise` 必须判已判定；`同上` / `pragma: no cover` / 纯装饰线不算理由）。
+- walk 仍只有一条：`_blind_handlers_in_text` 拆出来是为了能喂合成片段做反例，`_blind_except_handlers_in_src` 只负责遍历 —— 这个文件已多次记录"两条 walk 会漂移"的失效形态。
+- 棘轮 `_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC` 55 → **0**：此后 src/ 里任何新增盲捕都必须就地写判定，否则 CI 直接红。#174 剩下的只有**收窄异常类型**，仍受驱动层异常分类学（#145 / #45）门控。
+
+**2026-10-29 · 891180b7 · 第四批去重：候选改由 name-agnostic AST 哈希给出，6 对副本收口（净 −125 行）**
+- 换算法而不是换直觉：对 `scripts/` 全树按 **(函数体 AST + 签名 AST)** 哈希聚类取候选。这一步当场否掉两条我自己记在台账里的猜测 —— `square_amplitude` 的"×4"是**调用点**不是定义（全仓只 1 处 def）；`call_with_timeout` 的唯一副本住在待删文件里 ⇒ 迁它纯属白费工。
+- 六对归属：`_channel_of` → `scripts/_common/md_img_channel.py`（两文件互不 import，且 `_CHANNEL_RE` 只服务这个函数，随函数一起搬）；`_build_env`/`_build_env_from_config` → `scripts/_common/rl_sac_env.py`（这一次同名**确实**同体，逐字节相同 ⇒ 保留 `_build_env`，另一侧唯一调用点改名）；`_rel_diff` 在 impact_report 里是**死副本**（全文件只有 def 那一行，从无调用）⇒ 删除而不是转 forward；`_gauss_kernel`+`_blur` → `scripts/ml/_speckle_aug.py`（增广核，有意**不**进 `eval_stats.py`）；`_predict` 的 keeper 是 AGENTS 点名的 grouped-CV 权威实现 `compare_models_cv.py`。
+- 依赖处理有一处必须偏离"最小改动"：`ao_shaping.optimizer.rl.*` 两行 import 延迟进函数体 —— `rl` 是可选依赖组，模块级 import 会让 `scripts._common.rl_sac_env` 在裸安装下不可 import（同一个坑在 oopao 报告里记过）；两脚本因此删掉变孤儿的 import，否则 F401。两个 benchmark 脚本只 import `_blur`：`_gauss_kernel` 只被 `_blur` 调用，多 import 一个未用名字就是 F401。
+- **发现第三副本但没动**：`scripts/ml/metric_discrimination.py` 另有一套 `_gauss_kernel`/`_blur`，AST 哈希与前两组都不同 ⇒ 登记待判，不强行合并。`scripts/rl/visualize_sac_runs.py` 的 `_build_env_from_config(config: dict)` 是另一个函数。
+- 覆盖：ruff / term（0 文件 0 行）/ provenance / module-size 全绿；13 个受影响文件 py_compile 通过；容器 scripts 分片 + conventions 2904 passed / 78 skipped / 0 failed。
+
+**2026-10-30 · 944abed2 · 先删过期收口：9 个带「删除条件」文件复盘，仅 inverse_phase_test.py 一个当下可证成立**
+- 判据改为**按文件自述的删除条件**核验，不用"看起来过时"替代。删 `scripts/ml/inverse_phase_test.py`（365 行）：条件原文 = 强相位训练结论写入 `report/loss_defects/`（或确认由 inverse_strong_phase.py 口径取代、本轮四变体不再重跑）；现已满足 —— `forward_search_report.md` §5 记录 C4/C5 两个变体（ΔR² +0.0151 / +0.0322，2/3 seed 一致）并写明"逆向优化仍然是失败的 —— 合成强相位数据没有修复它"，后继 `scripts/ml/inverse_strong_phase.py` 已在 provenance 登记。
+- 五向预筛实测全零命中：provenance / baseline / tests / scripts/README / 按 stem import；其产物 `inverse_phase_test.json` 从未入库（git ls-files 计数 0）；删除后全树按 stem 零引用。
+- 其余 8 个 KEPT，阻塞条件各自可核：两个报告图生成器（唯一生成器 + 活报告引用，按"每份报告必须能追到生成脚本"必留）；`analyze_model_in_loop_forward.py`（MIL 报告无 disjoint-probe 复评结论，全目录 grep 空）；`evaluate_gs_variant_runs.py`（H-33 仍开）；`check_recalibration_after_optics_change.py`（三份新光路报告证明光路仍在变，且无自动门接管该项审计）；`scan_debug_data.py`（`ml.hwdataset.inspect` 无 sim-only / <2-epoch 分诊能力，`data/debug` 语料在主仓仍活跃）；`ablate_zernike_data_processing.py`（至今无 report/ 条目显式归属该消融）；`diff_beam_capture_flat.py`（runner 已在 fbef1926 删，但其自述条件要求 README 一节与 TODO §8.9 引用**同一次改动**里清理；那条 §8.9 是 33db634c 按内容重钉行号的**已结案审计记录**，抹站点 ≠ 清理悬空引用 ⇒ 显式记为受阻）。
+- 唯一残留提及：`docs/scripts_functional_map.json:128` 仍列已删路径 —— 该快照无生成器、无测试引用（第一批已认定其提及不构成依据），但现在可证地在腐化；"这类快照要不要纳入规则 3③" 登记待定。
+- 覆盖：容器 scripts 分片 + conventions 2901 passed / 78 skipped / 0 failed（比上一批少 3 条 = 被删脚本从 scripts 遍历参数消失，非回归）；ruff / term（0 文件 0 行）/ provenance / module-size 全绿。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

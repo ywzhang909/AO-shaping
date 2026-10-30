@@ -50,7 +50,12 @@ import torch
 
 from loguru import logger
 
-from scripts.ml.compare_models_cv import build_folds, exact_sign_flip_p, objective_of
+from scripts.ml.compare_models_cv import (
+    _predict,
+    build_folds,
+    exact_sign_flip_p,
+    objective_of,
+)
 from scripts.ml.compare_unet_baseline import (
     _inputs,
     _peak_normalise,
@@ -84,15 +89,6 @@ UNET_BEST = (50, 0.01, [16, 32, 64, 128, 256])
 def _metrics(prediction: torch.Tensor, target: torch.Tensor) -> dict[str, float]:
     values = batch_image_metrics(prediction, target)
     return {key: float(values[key]) for key in METRICS}
-
-
-def _predict(model, stacked: torch.Tensor, forward) -> torch.Tensor:
-    chunks = []
-    with torch.no_grad():
-        for start in range(0, stacked.shape[0], 256):
-            stop = min(start + 256, stacked.shape[0])
-            chunks.append(forward(model, stacked[start:stop]))
-    return torch.cat(chunks)
 
 
 def run_config(

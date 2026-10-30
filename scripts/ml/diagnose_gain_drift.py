@@ -56,21 +56,13 @@ import torch
 
 from ml.hwdataset import MaterialiserConfig, build_hw_index
 from ml.hwdataset.zernike_dataset import ZERNIKE_COEFF_SOURCES, ZernikeCoeffDataset
+from ml.zernike.eval_stats import ridge
 from ml.zernike.metrics import constant_baseline_metrics
-from ml.zernike.eval_stats import cohens_dz, min_attainable_pvalue, sign_flip_pvalue
+from ml.zernike.eval_stats import cohens_dz, folds_of, min_attainable_pvalue, sign_flip_pvalue
 
 FAMILY = "slm_zernike_shaping"
 MODES = ("none", "gain", "affine")
 K = 4
-
-
-def folds_of(records):
-    groups: dict[str, list[int]] = {}
-    for position, record in enumerate(records):
-        groups.setdefault(str(record.path), []).append(position)
-    keys = sorted(groups)
-    return [(i, [p for kk, ps in groups.items() if kk != k for p in ps], groups[k])
-            for i, k in enumerate(keys)]
 
 
 def load(dataset, positions):
@@ -104,14 +96,6 @@ def apply_mode(frames: np.ndarray, a: np.ndarray, b: np.ndarray, mode: str) -> n
     return (frames - b[:, None]) / np.maximum(a, 1e-6)[:, None]
 
 
-def ridge(x, z, alpha=1.0):
-    xm, zm = x.mean(0, keepdims=True), z.mean(0, keepdims=True)
-    xc, zc = x - xm, z - zm
-    g = xc @ xc.T
-    g.flat[:: g.shape[0] + 1] += alpha
-    return xc.T @ np.linalg.solve(g, zc), xm, zm
-
-
 def score(pred, truth):
     t = torch.from_numpy(np.ascontiguousarray(truth, dtype=np.float32)).reshape(-1, 1, 64, 64)
     p = torch.from_numpy(np.ascontiguousarray(pred, dtype=np.float32)).reshape(-1, 1, 64, 64)
@@ -130,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
         index, config=MaterialiserConfig(grid=64, image_mode="peak"), use_cache=True)
 
     rows = []
-    for fold_i, train_pos, val_pos in folds_of(records):
+    for fold_i, _, train_pos, val_pos in folds_of(records):
         x_tr, y_tr_raw = load(dataset, train_pos)
         x_va, y_va_raw = load(dataset, val_pos)
         row = {"fold": fold_i}

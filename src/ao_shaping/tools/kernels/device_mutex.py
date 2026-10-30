@@ -1049,7 +1049,7 @@ def probe_devices(
         finally:
             with contextlib.suppress(Exception):
                 cam.close()
-    except Exception as exc:  # 同上
+    except Exception as exc:  # 探针契约: 相机侧 open() 失败同样翻译成结论, 不向巡检抛异常
         return _probe_failure(f"{type(exc).__name__}: {exc}")
     return ProbeResult(status=PROBE_IDLE, source=PROBE_SOURCE_SDK)
 

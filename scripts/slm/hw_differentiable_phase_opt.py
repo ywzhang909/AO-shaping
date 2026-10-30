@@ -170,6 +170,7 @@ from ao_shaping.utils.slm.bench_constants import (
     TILT_SHIFT_SCALE,
 )
 from scripts._common import fmt_general
+from scripts._common.plot_style import setup_cjk_font
 from scripts._common.provenance import insert_header
 from scripts.slm.hw_gs_defocus_probe import guarded
 
@@ -253,15 +254,6 @@ DEFAULT_SETTLE_S = 0.5
 
 #: 默认输出根目录
 DEFAULT_OUT_ROOT = ROOT / "data" / "debug" / "differentiable_opt"
-
-#: CJK 字体 (报告图)。
-CJK_FONTS = ("Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "DejaVu Sans")
-
-
-def setup_cjk_font() -> None:
-    """给 matplotlib 配中文字体 (找不到就退回默认字体, 不报错)。"""
-    matplotlib.rcParams["font.sans-serif"] = list(CJK_FONTS)
-    matplotlib.rcParams["axes.unicode_minus"] = False
 
 
 # ---------------------------------------------------------------------------

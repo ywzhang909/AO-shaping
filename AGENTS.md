@@ -245,7 +245,7 @@ New optimizers added to `src/ao_shaping/algorithm/` MUST follow the class-based 
 |------|------|------|
 | `gradient/` | `adam`, `acceleration` | 梯度优化器 |
 | `heuristic/` | `heuristic_base`, `search`, `gm`, `ga`, `pso`, `simulated_annealing`, `hill_climbing`, `random_search`, `cross_entropy`, `differential_evolution` | 无梯度启发式搜索; 注: 原行的 `sa`/`hc`/`rs`/`cem`/`de` 为别名口径, 盘上这些名字自有史以来从未作为文件存在——盘上与全仓 import 皆用全名模块;`heuristic_base` 基类 / `gm` 引导变异 / `search` 共享黑盒驱动 (`heuristic_algorithm_choices`, runner_common 与多个 optimizer 流消费) 同样漏登 |
-| `signal_processing/` | `gerchberg_saxton`, `phase_wrap`, `controller`, `iterative_base`, `differentiable_beam`, `differentiable_shaping`, `beam_shaping_utils`, `wavefront`, `beam_shaping_benchmark`, `sim`, `iterative_zernike_shaping`, `zernike_coefficient_optimizer`, `angular_spectrum`, `square_shaping`, `uncertainty_probe_selector`, `differentiable_defocus_uniformity`, `multishape_objective`, `physical_forward_fit`, `defocus_forward_core` | 相位恢复/控制律/可微分整形; 补齐的 10 个模块各认其引入提交: `sim` (`1663614e`, 2026-09-18, 向量光束演示; `__main__` 演示体已于 `14b1cda` 迁至 `scripts/signal_processing/demo_wavefront_sim.py` (+ `demo_wavefront_reconstruction.py`), 本体保留 import-only 库, 拆分即终态), `iterative_zernike_shaping` (`04e6fc78`, 2026-09-29), `zernike_coefficient_optimizer` (`a94cadbb`, 2026-09-29), `angular_spectrum` (`c75aa3da`, 2026-10-09), `square_shaping` (`4edc8b84`, 2026-10-11), `uncertainty_probe_selector` (`080e0ac9`, 2026-10-16), `differentiable_defocus_uniformity` (`fe0f98b2`, 2026-10-23), `multishape_objective` 与 `physical_forward_fit` (`6a5e1067`, 2026-10-23), `defocus_forward_core` (`edbad379`, 2026-10-25, issue #199 step 4) |
+| `signal_processing/` | `gerchberg_saxton`, `phase_wrap`, `controller`, `iterative_base`, `differentiable_beam`, `differentiable_shaping`, `beam_shaping_utils`, `wavefront`, `beam_shaping_benchmark`, `sim`, `iterative_zernike_shaping`, `zernike_coefficient_optimizer`, `angular_spectrum`, `square_shaping`, `uncertainty_probe_selector`, `differentiable_defocus_uniformity`, `multishape_objective`, `physical_forward_fit`, `defocus_forward_core`, `amplitude_residual`, `monotonic_response`, `slm_phase_nonlinearity`, `spectral_regulariser`, `weight_schedule` | 相位恢复/控制律/可微分整形; 补齐的 10 个模块各认其引入提交: `sim` (`1663614e`, 2026-09-18, 向量光束演示; `__main__` 演示体已于 `14b1cda` 迁至 `scripts/signal_processing/demo_wavefront_sim.py` (+ `demo_wavefront_reconstruction.py`), 本体保留 import-only 库, 拆分即终态), `iterative_zernike_shaping` (`04e6fc78`, 2026-09-29), `zernike_coefficient_optimizer` (`a94cadbb`, 2026-09-29), `angular_spectrum` (`c75aa3da`, 2026-10-09), `square_shaping` (`4edc8b84`, 2026-10-11), `uncertainty_probe_selector` (`080e0ac9`, 2026-10-16), `differentiable_defocus_uniformity` (`fe0f98b2`, 2026-10-23), `multishape_objective` 与 `physical_forward_fit` (`6a5e1067`, 2026-10-23), `defocus_forward_core` (`edbad379`, 2026-10-25, issue #199 step 4) |
 | `tabu/` | `tabu_search` | 禁忌搜索 |
 | `goal_functions/` | `target_func` | 目标函数与图像质量指标; 行内原列的 `image_metrics` 为幻影 token: 文件从未存在 (git `--follow` 零历史), 全仓 import 均走 `goal_functions.target_func` 的 `ImageTargetFunc` |
 
@@ -309,7 +309,7 @@ Utility functions for image processing and calculations, organized into 4 subpac
 
 | Subpackage | Contents | Notes |
 |------|---------|-------|
-| `utils/io/` | `file`, `timestamp`, `cli_helpers`, `device_config`, `network`, `handler`, `recorder_keys`, `npz_summary` | `handler` becomes a backward-compat shim to `display/`; `recorder_keys` (2026-10-20 新增, 跟进 `1a11e60e`, #130 item 2): Recorder 记录字典键名的单一来源——11 个 `RECORD_*` 值成了一份盘面列契约 (HDF5/CSV sidecar 列名), 全仓 runners/optimizer/tools/ml 广泛 import;零导入叶子 (理由同 `utils/cli/params`), 由 `tests/ao_shaping/utils/test_recorder_keys.py` 钉住, 改键必须走显式迁移; `npz_summary` (2026-10-25 新增, 跟进 `d14d9dc0`): 探针脚本共用的压缩 `.npz` 摘要写盘单一实现 (`save_summary_npz`: 建父目录 + `np.savez_compressed` + log), `tools/zernike/abba_probe` 与 `tools/ccd/floor_probe` 的两份逐字节相同副本收拢于此, 域内旧名保留薄封装 |
+| `utils/io/` | `file`, `timestamp`, `cli_helpers`, `device_config`, `network`, `handler`, `recorder_keys`, `npz_summary`, `record_mode` | `handler` becomes a backward-compat shim to `display/`; `recorder_keys` (2026-10-20 新增, 跟进 `1a11e60e`, #130 item 2): Recorder 记录字典键名的单一来源——11 个 `RECORD_*` 值成了一份盘面列契约 (HDF5/CSV sidecar 列名), 全仓 runners/optimizer/tools/ml 广泛 import;零导入叶子 (理由同 `utils/cli/params`), 由 `tests/ao_shaping/utils/test_recorder_keys.py` 钉住, 改键必须走显式迁移; `npz_summary` (2026-10-25 新增, 跟进 `d14d9dc0`): 探针脚本共用的压缩 `.npz` 摘要写盘单一实现 (`save_summary_npz`: 建父目录 + `np.savez_compressed` + log), `tools/zernike/abba_probe` 与 `tools/ccd/floor_probe` 的两份逐字节相同副本收拢于此, 域内旧名保留薄封装; `record_mode` (2026-10-29 新增, 跟进 `2ad2e58e`): Recorder 模式词汇 `max`/`min` 的单一来源 —— `RecordMode(str, Enum)` + `coerce` 回落方向与旧 `== "max"` 判据逐位一致 (None/未知 → MIN), `maximizing`/`sign` 属性收拢原先 6 个优化器文件各自拼的 `objective_mode` |
 | `utils/image/` | `spots_calc`, `beam_metrics`, `targets` (+ `target/`), `resample`, `hardware_utils`, `displacement`, `exposure_control`, `exposure_fusion`, `exposure_response`, `frame_analysis`, `hdr`, `centroid`, `ranks`, `physical_model_metrics`, `model_response` | `gs_visualization` 已迁至 `display/`（2026-10-03）；`utils/hardware_utils.py` 别名 shim 已删（2026-10-03）；`display.py` 亦已迁至 `display/image_display.py`（2026-10-09, `a9236e9`）⇒ 旧路径**无 compat shim**，由 `test_utils_leaf_no_rendering_import.py::test_old_display_path_raises` 钉住（2026-10-25 实测：`utils/image/display.py` 已不存在）; `centroid` (2026-10-24 新增, 跟进 `124444e6`, issue #199 R6 单一来源): 窗口内强度加权质心原语 `windowed_centroid`——以全帧 argmax 定窗 (0 级光斑常偏心数百像素, 不按几何中心定窗), 减窗口最小值作局部本底, 无正向动态范围时回落峰像素;`frame_analysis` 与 `displacement` 的三份副本收拢于此; 有意不是二阶矩/FWHM 估计器, 也不是相位相关平移估计——两类不同问题; `ranks` (2026-10-27 新增, 跟进 `4c4513c2`): 图像数组秩的零导入叶子 `NDIM_SINGLE_CHANNEL` (=2, 裸图像素面) / `NDIM_SPATIAL_STACK` (=3, `(C,H,W)` 空间栈), `beam_metrics`/`target.metrics`/`exposure_fusion` 的形状守卫单一来源, 由 `tests/ao_shaping/utils/image/test_rank_constants_single_source.py` 钉住; `physical_model_metrics` (2026-10-27 新增): 物理前向模型与整形质量度量 (NumPy-only, 离线, 不碰相机/SLM), 把模型预测质量与物理整形质量分开——`affine_radiometry`/`compute_forward_metrics`/`compute_directional_metrics` 均在显式核心掩膜上计算并保留零级排除 |
 | `utils/wavefront/` | `zernike_calc`, `zernike_utils`, `wavefront_calc`, `wfs_utils`, `phase_unwrap`, `hadamard_calc`, `matrix_utils`, `zero_order_overlay`, `model_error_terms`, `calibration_terms`, `pattern_helper`, `beam_amplitude`, `fraunhofer`, `link_design`, `sampling_limit` | `zero_order_overlay` (2026-10-15 新增): 2f 实验系统零级衍射叠加 (BLAZE/FRESNEL 模式), 用实测 `TILT_SHIFT_SCALE` 预测光斑位移, 不 import drivers/gui/algorithm; `model_error_terms` (2026-10-22 新增, 跟进 `3d8ef224`): model-in-loop 物理预测模型误差项 `ModelErrorTerms` / `load_error_terms` / `save_error_terms` (LUT γ / 相机离焦 / 倾斜 / 面板相位), 孪生 `bench_twin` 与 MIL 优化器共用同一份误差口径; `calibration_terms` (2026-10-22 新增, 跟进 `7e1a2716`): 自标定量 瞳面平面内仿射 τ_θ (6 标量 amp_x/amp_y/off_x/off_y/rot/grid) + 逐模式族行程缩放 γ, 依据 GRAPHYCS (Cho 等 2026) 思路, 供 `slm_model_in_loop` Step A 自标定 (CLI `--selfcal-affine` / `--selfcal-travel`); torch 走函数内延迟导入, 保持 utils 叶子层零 torch 依赖; `link_design` (2026-10-26 新增, 跟进 `d10bb483`, issue #204 单一信仰源): 望远镜链路 (M_t=10) 远场设计入口——`far_to_ccd`/`ccd_to_far` 双向换算 (f_eff = f_c·M_t 口径) 与纯 numpy DFT 远场引擎 (与 `fraunhofer` 同物理, 保持 utils 叶子层零 torch 依赖); 锁定设计点与 golden 验收值由 `tests/ao_shaping/utils/test_link_design_param_sweep.py` 逐值断言, 消费方为 `gui/slm/link_design_assist.py` 与 `gui/slm/shaping_controls.py` |
 | `utils/slm/` | `slm_lut`, `phase_display`, `bench_constants`, `panel_geometry`, `phase_disturbance`, `phase_embed`, `phase_uniformity`, `gs_debug_optics` | `pattern_helper` 实际在 `utils/wavefront/`（2026-10-25 `ls` 实测，已移到上面那行）；本行原写 `utils/slm/pattern_helper.py` 的引用同属误标 |
@@ -364,7 +364,7 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 
 ## tools/ 模块逐名登记 (2026-10-26 普查)
 
-86 个模块逐一对照本文件叙述：名面（`name.py` 全名）未列 58 个 —— 46 个真零提及 + 12 个 stem 命中（4 个真命中：`floor_probe` / `abba_probe` 见 io 行收拢注记、`lut_runner` 见注册映射树、`panel_locate` 见 `cli/exposure` 行注记；3 个 `__main__.py` 通用 token 按同 `__init__.py` 的 floor 合同通过；4 个撞普通词假命中：`bootstrap` / `probes` / `response` / `simulation`；1 个特例 `calibration.py` 只被包目录路径串 `tools/slm/calibration/` 命中）。46 真缺 + 4 假命中 + `calibration.py` 共 51 行补录如下；全量覆盖由守卫 `tests/ao_shaping/test_tools_doc_coverage.py` 锁定（token 合同同 `utils/` 守卫）。**2026-10-26 复核**：上游合入 10 个新 transfer 模块（tools 总数 86 → 96），守卫当时恰红这 10 个，已一并登记，本表现共 61 行。**2026-10-29 复核**：上游 10-26 后又陆续合入 `jacobian_guard` / `parallel_fit` / `protocol` 三个 transfer 模块（此前漏登记），连同 `validate.py` 为过模块规模门禁拆分出的 `session_plan.py` 一并补登记 4 行，本表现共 64 行。**2026-10-29 二轮**：本轮 campaign 界面新增的 4 个 transfer 模块（`campaign_control` / `checkpoint_registry` / `cost_table` / `optical_session`）与拆分出的 `session_record.py` 补登记 5 行，本表现共 69 行。
+86 个模块逐一对照本文件叙述：名面（`name.py` 全名）未列 58 个 —— 46 个真零提及 + 12 个 stem 命中（4 个真命中：`floor_probe` / `abba_probe` 见 io 行收拢注记、`lut_runner` 见注册映射树、`panel_locate` 见 `cli/exposure` 行注记；3 个 `__main__.py` 通用 token 按同 `__init__.py` 的 floor 合同通过；4 个撞普通词假命中：`bootstrap` / `probes` / `response` / `simulation`；1 个特例 `calibration.py` 只被包目录路径串 `tools/slm/calibration/` 命中）。46 真缺 + 4 假命中 + `calibration.py` 共 51 行补录如下；全量覆盖由守卫 `tests/ao_shaping/test_tools_doc_coverage.py` 锁定（token 合同同 `utils/` 守卫）。**2026-10-26 复核**：上游合入 10 个新 transfer 模块（tools 总数 86 → 96），守卫当时恰红这 10 个，已一并登记，本表现共 61 行。**2026-10-29 复核**：上游 10-26 后又陆续合入 `jacobian_guard` / `parallel_fit` / `protocol` 三个 transfer 模块（此前漏登记），连同 `validate.py` 为过模块规模门禁拆分出的 `session_plan.py` 一并补登记 4 行，本表现共 64 行；同日 `48b8b55a` 把曝光阶梯自 `panel/focus_probe.py` 拆出为 `panel/exposure_adapt.py`，补登记 1 行，本表现共 65 行。**2026-10-29 二轮**：本轮 campaign 界面新增的 4 个 transfer 模块（`campaign_control` / `checkpoint_registry` / `cost_table` / `optical_session`）与拆分出的 `session_record.py` 补登记 5 行，本表现共 70 行。
 
 | 位置 | 模块 | 职责 (docstring 原句或类面) |
 |---|---|---|
@@ -397,6 +397,7 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 | `slm/panel/` | `beam_extent.py` | 在面板上按边界扫描测光束中心与半径 |
 | `slm/panel/` | `bench_fingerprint.py` | 标定后光路是否变过——实测指纹比对而非假定 |
 | `slm/panel/` | `display_state.py` | 探针借用临时存储槽期间保全 SLM 显示状态 |
+| `slm/panel/` | `exposure_adapt.py` | 曝光阶梯单一来源 (2026-10-29 自 `focus_probe` 拆出): 选出让帧峰值落在满量程可接受带内的曝光并读出 `robust_peak`/`frame_full_scale`/`adapt_exposure`; 免设备 (`set_exposure_ms`/`read_frame` 注入), `focus_probe` 旧路径 re-export 同组名 |
 | `slm/panel/` | `focus_preflight.py` | 采集前置阶段: 焦面(离焦)补偿 + 去转向自标切 (2f 实验系统 CCD 常驻离焦) |
 | `slm/panel/` | `focus_probe.py` | 找回把探测器拉回焦面的 Fresnel 焦长 |
 | `slm/panel/` | `phase_resolution.py` | 面板能否施加像素尺度相位——对照平滑模式判定 |
@@ -701,6 +702,59 @@ pythonpath = ["src"]
 ```
 
 VS Code settings in `.vscode/settings.json` (machine-local, untracked) set PYTHONPATH to `src` and `libs` directories.
+
+## 工程纪律与质量门禁（2026-10-29，采纳 Uncle Bob ub-mode 精简版）
+
+任何改动（含 AI 代理）按三段推进，不跳段：
+
+1. **先能跑（Make it Work）**——交付能解决问题的最小改动，不为"将来可能"预埋。
+2. **再写对（Make it Right）**——用下面 5 条纪律和确定性门禁把改动写对，再谈扩展。
+3. **守习惯（Practice）**——留行动日志、守护上下文、小步有序提交。
+
+### 动手前五问（Make it Work 阶段）
+
+- **一个决定一个位置**（Single Source of Truth）：同一常量/函数/格式/schema 只允许一份
+  真源。第二份实现出现前先 grep 全仓消费者——已登记的 SSoT（`zernike_utils`、
+  `beam_metrics`、`eval_stats` 等）不得在 runner/tools/GUI 内重写。
+- **先减后加**（Subtract Before You Add）：动手前先把能删的删掉（死代码、过期脚本、
+  被收编的重钉）。本仓 `scripts/` 的动作顺序固定为：先删过期，再迁复用，最后才谈拆。
+- **攻前提**（Attack the Premise）：当两个共享同一前提的修复都卡在同一个门禁上时，
+  把那个前提用一句话写下来，先消掉它，再谈下一个修复。不要在同一前提上反复打补丁
+  （本仓典型：把"大文件行数"当前提去加 baseline 白名单，而非删被塞进去的重复 SSoT）。
+- **数据形状先于逻辑**：先把持久化格式/入参类型/单位约定定对，再写分支逻辑。
+  数据在入口处校验一次，内部信任它（Boundary Discipline）。
+- **以可检查的终局为准**（Outcome-Oriented）：瞄准能验证的终态；中间允许断点，
+  但断点必须计划过、可回滚（rebase/commit 粒度保证）。
+
+### 写对的五条纪律（Make it Right 阶段）
+
+- **修根因**：复现它，改根因。一个只把崩溃藏起来的守卫（`try/except: pass`、
+  `# noqa` 压提示）不是修复。
+- **测行为，不测实现**：测试像用户一样调用代码、检查用户能看到的输出。如果一个测试
+  在"把所有函数改成 `return None` 后"仍能通过，就扔掉它。
+- **幂等**：操作跑两次、或中途崩溃后重跑，要落到同一终态。CI 分片、`--mark-pushed`、
+  报告重生成都必须幂等。
+- **可验证单元**：一次只完成一个小单元并验证它，再开下一个；不要"先改完再统一测"。
+- **类型纪律**：非法值不可被写出；外部数据在入口一次性解析；不压编译器（不 `# type: ignore`
+  掩盖真问题）。
+
+### 确定性质量门禁（本地，按窗口跑）
+
+`ruff` 之外，对本窗口新增/改动的 `src/**` 用 ub-mode 三件套做结构性门禁。三者均
+确定性（非 LLM），输出可复现，作为"需定方案/高风险"判定的客观证据：
+
+| 门禁 | 工具 | 命令（在仓库根） | 判据 |
+|------|------|------------------|------|
+| 复杂度/测试 | `crapper`（CRAP 分数） | `/opt/data/.venvs/ubmode/bin/crapper --no-coverage src/ao_shaping/...` | 每函数 `CRAP = CC²·(1-cov)³ + CC`；`>30` 必拆（拆函数 / 补测试 / 两者），`5–30` 值得关注 |
+| 重复 | `dryer`（结构 Jaccard） | `/opt/data/.venvs/ubmode/bin/dryer src/ao_shaping/...` | 相似度 `>=0.82` 的函数对列入重复清单，按"逐字比对确认真重复"处置（见 5+1 扫描 ③ 维） |
+| 变异 | `mutator`（mutation testing） | `/opt/data/.venvs/ubmode/bin/mutator src/ao_shaping/... --test-command "..."` | 幸存者 mutant = 测试没覆盖到的行为；"覆盖未覆盖、杀死幸存者、删死代码" |
+
+> 说明：`crapper`/`dryer`/`mutator` 是**本地辅助门禁**（不在 GitHub Actions 硬门禁内，
+> 见 `docs/dev/ci_testing.md` 的 CI 现状节），用于在评审/扫描时给出客观的"该拆/该删/
+> 该补测试"证据，替代纯主观判断。`crapper --no-coverage` 只算复杂度（不依赖覆盖率
+> 报告，最省事）；需要 CRAP 全值时加 `--use-existing-coverage` 并先跑一次
+> `./run_pytest.sh -- --cov=ao_shaping`。工具装在持久卷 `/opt/data/.venvs/ubmode`
+> （`uv venv` + `git+https://github.com/unclebob/{crapper,dryer,mutator}.git`）。
 
 ## Code Style Guidelines
 

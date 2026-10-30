@@ -54,21 +54,13 @@ from ml.hwdataset.zernike_dataset import ZERNIKE_COEFF_SOURCES, ZernikeCoeffData
 from ml.zernike.metrics import constant_baseline_metrics
 from ml.zernike.eval_stats import (
     cohens_dz,
+    folds_of,
     min_attainable_pvalue,
     sign_flip_pvalue,
 )
 
 FAMILY = "slm_zernike_shaping"
 K_LIST = (1, 3, 5, 10)
-
-
-def folds_of(records):
-    groups: dict[str, list[int]] = {}
-    for position, record in enumerate(records):
-        groups.setdefault(str(record.path), []).append(position)
-    keys = sorted(groups)
-    return [(i, [p for kk, ps in groups.items() if kk != k for p in ps], groups[k])
-            for i, k in enumerate(keys)]
 
 
 def load(dataset, positions):
@@ -100,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
     started = time.perf_counter()
     folds = folds_of(records)
     rows: list[dict] = []
-    for fold_i, train_pos, val_pos in folds:
+    for fold_i, _, train_pos, val_pos in folds:
         x_tr, y_tr = load(dataset, train_pos)
         x_va, y_va = load(dataset, val_pos)
 

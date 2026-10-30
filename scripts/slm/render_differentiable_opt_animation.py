@@ -70,6 +70,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from loguru import logger
 
+from scripts._common.plot_style import setup_cjk_font
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -99,15 +101,6 @@ COLOR_MODEL = "#27ae60"
 COLOR_HW = "#c0392b"
 COLOR_BLUE = "#2f6fb0"
 COLOR_GRID = "#888888"
-
-CJK_FONTS = ("Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "DejaVu Sans")
-
-
-def setup_cjk_font() -> None:
-    """Give matplotlib a CJK font (falls back silently when none is present)."""
-    matplotlib.rcParams["font.sans-serif"] = list(CJK_FONTS)
-    matplotlib.rcParams["axes.unicode_minus"] = False
-
 
 # ---------------------------------------------------------------------------
 # Small IO helpers

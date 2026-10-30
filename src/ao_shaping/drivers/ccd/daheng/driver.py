@@ -98,11 +98,7 @@ class DahengCamera(BaseCamera):
 
     @property
     def device_manager(self):
-        """惰性创建并缓存 gxipy DeviceManager (仅连接路径使用)。
-
-        无 SDK 时 ``gx`` 未定义, 但本属性只在 ``initialize`` (open/连接) 时被
-        读取, 届时 SDK 应当可用。
-        """
+        """惰性创建并缓存 gxipy DeviceManager (仅连接路径使用, 无 SDK 时 ``gx`` 未定义)。"""
         if self._device_manager is None:
             self._device_manager = gx.DeviceManager()  # type: ignore[name-defined]
         return self._device_manager
@@ -143,10 +139,9 @@ class DahengCamera(BaseCamera):
     def pixel_size_um(self) -> float:
         """像元边长 (µm): 型号配置 → 已知型号表 → 抛 :class:`CameraError`。
 
-        大恒可接入不同型号, 像元尺寸因此**不写死在驱动里**: 它按型号从
-        ``<CCD_CONFIG_DIR>/ccd/models.json`` 载入 (见
-        :mod:`ao_shaping.drivers.ccd.pixel_size`)。型号未登记时在这里报错,
-        而不是回落一个"差不多"的数 —— 像元尺寸决定全部远场物理标度。
+        大恒可接入不同型号, 像元尺寸因此**不写死在驱动里**: 按型号从
+        ``<CCD_CONFIG_DIR>/ccd/models.json`` 载入 (见 :mod:`ao_shaping.drivers.ccd.pixel_size`)。
+        型号未登记在这里报错, 不回落"差不多"的数 —— 它决定全部远场物理标度。
 
         Raises:
             CameraError: 相机未打开 (型号未知), 或该型号未登记像元尺寸。
@@ -163,8 +158,7 @@ class DahengCamera(BaseCamera):
     def ensure_pixel_size_um(self, *, prompt=None) -> float:
         """确保当前型号的像元尺寸已登记; 未登记则询问用户并写入配置。
 
-        脚本侧的入口 (驱动本身不交互): 捕获不到配置时由调用方决定是否允许提问,
-        录入一次之后同型号的后续运行直接命中 ``models.json``。
+        脚本侧入口 (驱动本身不交互); 录入一次后同型号后续运行直接命中 ``models.json``。
 
         Args:
             prompt: 提问函数, 默认 ``input``。
@@ -189,9 +183,8 @@ class DahengCamera(BaseCamera):
     def _resolve_model(self, dev_info: dict) -> str | None:
         """确定相机型号名: 设备列表项 → GenICam ``DeviceModelName``。
 
-        像元尺寸按型号登记 (见 :mod:`ao_shaping.drivers.ccd.pixel_size`), 所以型号
-        必须在 ``initialize`` 时就定下来; 拿不到就留 ``None``, 之后读
-        ``pixel_size_um`` 会明确报错, 而不是猜。
+        像元尺寸按型号登记, 所以型号必须在 ``initialize`` 时就定下来; 拿不到就留
+        ``None``, 之后读 ``pixel_size_um`` 会明确报错, 而不是猜。
         """
         raw: Any = dev_info.get("model", "") or ""
         if isinstance(raw, tuple):
@@ -235,9 +228,8 @@ class DahengCamera(BaseCamera):
     def _require_sdk(self) -> None:
         """SDK 不可用时给出可行动的错误, 而不是 `NameError`。
 
-        模块顶层的 `import gxipy` 失败时 `gx` 被绑成 ``None`` (见模块 docstring 附近),
-        因此这里必须**先**拦住: 否则后续对 ``gx.`` 的取值会炸成一个看不出原因的
-        ``AttributeError``/``NameError``。
+        模块顶层的 `import gxipy` 失败时 `gx` 被绑成 ``None``, 因此这里必须
+        **先**拦住: 否则后续对 ``gx.`` 的取值会炸成 ``AttributeError``/``NameError``。
         """
         if gx is None:
             raise CameraError(
@@ -246,23 +238,12 @@ class DahengCamera(BaseCamera):
             )
 
     def initialize(self):
-        """
-        初始化相机设备。
+        """初始化相机设备。
 
-        此方法执行以下操作：
-        1. 关闭之前打开的相机设备（如果有）。
-        2. 更新设备列表并检查是否有足够的设备。
-        3. 打开指定的相机设备。
-        4. 设置相机的曝光时间、增益、像素格式、采样方式、偏移量、宽度和高度。
-        5. 更新相机的属性并开启数据流。
-
-        如果没有找到相机设备，将记录错误并抛出连接中止错误。
-
-        参数:
-            无
-
-        返回:
-            无
+        依次执行: 关闭旧设备 → 更新设备列表并检查数量 → 打开设备 (处理 REPEAT_OPENED)
+        → 读曝光范围 (µs→ms) 并把请求曝光钳到 [min,max] → 关 SDK 自动曝光 → 设增益/
+        位深/合并/偏移/宽高 → 记序列号与型号 → 按序列号加载并应用配置并重写曝光 →
+        更新属性 → 设流缓冲 NewestOnly → 开流。找不到设备记错误并抛 ConnectionAbortedError。
         """
         self._require_sdk()
         # 关闭之前打开的相机设备（如果有）
@@ -367,30 +348,18 @@ class DahengCamera(BaseCamera):
 
     #: 改曝光后必须消费掉的帧数 (2026-10-21 实测, 见 ``reset_exposure_time``)。
     EXPOSURE_CHANGE_DISCARD_FRAMES: int = 3
-    """改曝光后主动丢掉的帧数。
-
-    大恒 SDK 在取流进行中直接写 ``ExposureTime``, **改动之前**就已经开始积分的帧
-    仍留在 SDK 流水线里。实测滞后的帧数是 1~2 帧, 这里留 1 帧余量。
-
-    该值可按后端实际行为调整: 把它设成 0 就退回到「不消费」的行为 (旧行为)。
-    """
+    """改曝光后主动丢掉的帧数 (大恒 SDK 改曝光后 1~2 帧仍在上次曝光, 留 1 帧余量;
+    设 0 退回「不消费」的旧行为)。"""
 
     def reset_exposure_time(self, time_ms: float) -> float:
-        """重设相机曝光时间, 并让**改曝光后的第一帧就是新曝光**。
+        """重设曝光时间, 并让**改曝光后的第一帧就是新曝光**。
 
-        大恒 SDK 在取流进行中直接写 ``ExposureTime``, 于是**改动之前**就已经开始
-        积分的帧仍留在 SDK 流水线里: 改完曝光后紧接着取到的 1~2 帧还是**上一档曝光**
-        的画面。2026-10-21 实测 (相机 FJB24112232):
-
-        - 2 -> 20 ms: 第 1 帧 mean=0.343/max=5、第 2 帧 0.320/5 (都还是 2 ms 的画面),
-          第 3 帧才出现 20 ms 的 0.559/42;
-        - 20 -> 2 ms: 前两帧 0.596/43、0.596/41 (还是 20 ms), 第 3 帧 0.326/5。
-
-        ``get_numpy_image`` 自带的 ``skip_first`` 只丢 1 帧, **不够** —— 2026-10-20
-        录下的测光阶梯就是这样把 5 ms 档的峰值记成了 2 ms 档的值。因此这里在曝光
-        真的改变后主动消费掉 ``EXPOSURE_CHANGE_DISCARD_FRAMES`` 帧, 把这条从
-        「调用方的时序巧合」变成**驱动层的不变量**。代价是 3 帧的采集时间 (曝光
-        100 ms 时约 300 ms)。
+        大恒 SDK 在取流进行中直接写 ``ExposureTime``, 改动前已开积分的 1~2 帧仍留在
+        SDK 流水线, 仍是上一档曝光的画面 (2026-10-21 实测 FJB24112232: 2→20ms 第 3 帧
+        才出现新值)。``get_numpy_image`` 的 ``skip_first`` 只丢 1 帧**不够** —— 2026-10-20
+        的测光阶梯因此把 5ms 档峰值记成 2ms 档。故这里在曝光真的改变后主动消费
+        ``EXPOSURE_CHANGE_DISCARD_FRAMES`` 帧, 把「第一帧即新曝光」变成**驱动层不变量**
+        (代价 3 帧采集时间, 100ms 曝光约 300ms)。
 
         参数:
             time_ms: 新的曝光时间, 单位毫秒。
@@ -434,18 +403,15 @@ class DahengCamera(BaseCamera):
     def _clamp_int(value: int, int_range: dict | None) -> int:
         """把整数值钳制/对齐到 GenICam int 特征的 [min, max, inc] 网格。
 
-        gxipy 的 ``IntFeature.set`` 对越界值**不抛异常**——只 print
-        "IntFeature.set: int_value out of bounds, xxx.range=[min, max, inc]"
-        然后**静默保留旧值**（窗口不生效，调用方无从知晓）。因此必须在
-        set 之前把请求值对齐到相机的合法网格，彻底杜绝该失败模式。
+        gxipy ``IntFeature.set`` 对越界值**不抛异常**——只 print 噪声后**静默保留旧值**
+        (窗口不生效, 调用方无从知晓), 故必须在 set 前对齐到合法网格。
 
         Args:
             value: 请求值。
-            int_range: ``feature.get_range()`` 返回的 {"min","max","inc"}
-                字典（可能为 None，表示特征不可用，原样返回）。
+            int_range: ``feature.get_range()`` 的 {"min","max","inc"} (None 原样返回)。
 
         Returns:
-            int: 对齐后的值，满足 ``min <= v <= max`` 且 ``(v - min) % inc == 0``。
+            int: 对齐后的值, 满足 ``min <= v <= max`` 且 ``(v - min) % inc == 0``。
         """
         if int_range is None:
             return int(value)
@@ -464,19 +430,16 @@ class DahengCamera(BaseCamera):
         center: tuple[int, int] | tuple[np.intp, ...] = (0, 0),
         size: tuple[int, int] = (0, 0),
     ) -> tuple[tuple[int, int], tuple[int, int]]:
-        """
-        重置相机的窗口大小和位置，以确保图像的中心位于指定的位置。
+        """重置相机窗口大小与位置, 使图像中心位于指定位置。
 
         参数:
-        size (Tuple[int]): 期望的窗口大小，格式为 (宽度, 高度)。
-        center (Tuple[int]): 期望的窗口中心位置，格式为 (x坐标, y坐标)。
+        size (Tuple[int]): 期望窗口大小 (宽, 高)。
+        center (Tuple[int]): 期望窗口中心 (x, y)。
 
         返回:
-        Tuple[Tuple[int, int], Tuple[int, int]]:
-            ((实际生效的宽高), (实际生效的中心坐标))。
-            请求值越出相机 GenICam [min, max, inc] 网格时会被钳制并记录
-            warning（SDK 对越界 set 只 print 噪声并静默保留旧窗口，绝不
-            传递非法值给 SDK）；返回值为 set 后 readback 校验的真实值。
+        ((实际生效宽高), (实际生效中心坐标))。请求值越出相机 GenICam [min,max,inc]
+        网格时会被钳制并记 warning (SDK 对越界 set 只 print 噪声并静默保留旧窗口,
+        绝不传非法值给 SDK); 返回 set 后 readback 校验的真实值。
         """
         # 中心坐标大于0
         self._ensure_open()
@@ -572,14 +535,10 @@ class DahengCamera(BaseCamera):
         return (eff_w, eff_h), (eff_x + eff_w // 2, eff_y + eff_h // 2)
 
     def __take_one_shot(self) -> npt.NDArray[np.uint8]:
-        """
-        拍摄一张相机图像。
-
-        参数:
-        无
+        """拍摄一张相机图像 (uint8)。
 
         返回:
-        np.ndarray: 拍摄到的图像数据，数据类型为uint8。
+            np.ndarray: 拍摄到的图像数据, 数据类型 uint8。
         """
         self._ensure_open()
         while True:
@@ -590,16 +549,7 @@ class DahengCamera(BaseCamera):
     def get_numpy_image(
         self, n_sample=1, skip_first=True, denoise=False
     ) -> npt.NDArray[np.uint16] | npt.NDArray[np.uint8] | npt.NDArray[np.float32]:
-        """
-        获取相机的图像数据，进行平均处理。
-
-        参数:
-        n_sample (int): 采样次数，用于计算平均图像。必须大于0。
-        skip_first (bool): 是否跳过第一次采样，默认值为True。
-
-        返回:
-        np.ndarray: 单帧保留原始整数类型，多帧平均为 float32 原始灰度值。
-        """
+        """获取相机图像数据并做平均处理 (n_sample 必须 > 0, 多帧平均为 float32)。"""
         if n_sample <= 0:
             raise ValueError("Sample count must be > 0")
         if skip_first:
@@ -626,33 +576,23 @@ class DahengCamera(BaseCamera):
         use_sdk_auto: bool = True,
         sdk_settle_frames: int = 3,
     ) -> npt.NDArray[np.uint8]:
-        """自动曝光调整 - 优先使用大恒 SDK 原生自动曝光，再用比例迭代修正。
+        """自动曝光调整 - 优先大恒 SDK 原生自动曝光, 再比例迭代修正。
 
-        ``target_max`` / ``tolerance`` 均采用 **0-255 灰度**单位 (与 SDK
-        ``ExpectedGrayValue`` 以及历史 ``autoset_exposure_time_ms`` 一致)。
-
-        算法 (两阶段):
-        阶段 1 - SDK 原生自动曝光 (use_sdk_auto=True 时):
-          1. 启用 ExposureAuto="Once"，设置 ExpectedGrayValue 为目标亮度
-          2. 采集 sdk_settle_frames 帧让 SDK 内部收敛
-          3. 读取 SDK 自动调整后的曝光时间作为初值
-          4. 关闭 SDK 自动曝光，切换到手动模式
-
-        阶段 2 - 比例迭代修正:
-          1. 拍摄图像并计算最大亮度
-          2. 若峰值落在 ``target_max ± tolerance`` 内 (twice_valid=True 时需连续两次) 则停止
-          3. 否则按 ``new_exp = exp * target / peak`` 调整 (单步放大上限 3×)
-          4. 裁剪到有效范围 [min, max]，并处理曝光已到边界仍无法达标的情况
-          5. 重复直到收敛或达到 max_iterations
+        ``target_max``/``tolerance`` 均为 **0-255 灰度** (与 SDK ``ExpectedGrayValue``
+        一致)。阶段 1 (use_sdk_auto): ExposureAuto="Once"+ExpectedGrayValue=target →
+        采 sdk_settle_frames 帧让 SDK 收敛 → 读回曝光作初值 → 切手动。阶段 2 比例迭代:
+        拍图取峰值, 落 ``target±tolerance`` (twice_valid 需连续两次) 即停; 否则
+        ``new_exp = exp*target/peak`` (单步放大上限 3×) 裁剪到 [min,max], 处理已到
+        边界仍不达标, 重复至收敛或 max_iterations。
 
         Args:
             target_max: 目标最大亮度 (0-255, 默认40)
             tolerance: 峰值容差 (0-255, 默认5)
-            twice_valid: True 时要求连续两次落入容差范围才收敛 (默认True)
+            twice_valid: True 需连续两次落入容差才收敛 (默认True)
             max_iterations: 第二阶段最大迭代次数 (默认20)
-            n_sample: 每次估计峰值时的采样帧数 (默认1)
-            use_sdk_auto: 是否优先使用 SDK 原生自动曝光 (默认True)
-            sdk_settle_frames: SDK 自动曝光收敛等待帧数 (默认3)
+            n_sample: 每次估计峰值的采样帧数 (默认1)
+            use_sdk_auto: 是否先用 SDK 原生自动曝光 (默认True)
+            sdk_settle_frames: SDK 收敛等待帧数 (默认3)
 
         Returns:
             np.ndarray: 调整后采集到的图像 (uint8)。
@@ -807,28 +747,25 @@ class DahengCamera(BaseCamera):
     def get_exposure_time_ms(self) -> float:
         """从设备**回读**当前生效的曝光时间 (ms)。
 
-        直接读 SDK 的 ``ExposureTime`` 特征 (即设备实际在用的值), 而非本地
-        ``__exposure_time_ms`` 缓存 —— 后者在 ``reset_exposure_time`` 里经
-        钳制 + 量化到整数微秒后才下发, 与原始请求可能差 1 µs, 且本地缓存从不
-        随设备回读更新, 故只读缓存会得到漂移值 (issue #32)。
+        直接读 SDK 的 ``ExposureTime`` 特征 (设备实际在用的值), 而非本地
+        ``__exposure_time_ms`` 缓存 —— 后者在 ``reset_exposure_time`` 里经钳制
+        + 量化后下发, 与原始请求可能差 1 µs, 且缓存从不随设备回读更新
+        (issue #32)。
         """
         return float(self.exposure_time)
 
     def enable_auto_exposure(self, enable: bool = True, mode: int = 1) -> bool:
-        """启用或关闭自动曝光。
+        """启用或关闭自动曝光 (大恒 SDK ``ExposureAuto`` "On"/"Off")。
 
-        用的是大恒 SDK 的 ``ExposureAuto`` 枚举 (``"On"``/``"Off"``)。
-        启用时相机会自动调整曝光时间与增益, 以达到经 ``ExpectedGrayValue``
-        设定的目标亮度。
+        启用时相机自动调整曝光与增益, 以达到 ``ExpectedGrayValue`` 设定的目标亮度。
 
         参数:
             enable: True 启用, False 关闭。
-            mode: 自动曝光模式 (0=禁用, 1=连续, 2=单次)。
-                  只在 ``enable=True`` 时有意义; 大恒 SDK 没有单独的模式枚举,
-                  因此始终使用连续模式。
+            mode: 自动曝光模式 (0=禁用, 1=连续, 2=单次); 只在 enable=True 时有意义,
+                大恒 SDK 无单独模式枚举, 始终用连续模式。
 
         返回:
-            bool: 成功返回 True, 不支持返回 False。
+            bool: 成功 True, 不支持 False。
         """
         self._ensure_open()
         try:
@@ -846,11 +783,11 @@ class DahengCamera(BaseCamera):
     def set_auto_exposure_target(self, target: int) -> int:
         """设置自动曝光的目标亮度。
 
-        对应大恒 SDK 的 ``ExpectedGrayValue`` (IntFeature, 0-255,
-        默认 120)。仅在自动曝光启用时生效。
+        对应大恒 SDK ``ExpectedGrayValue`` (IntFeature, 0-255, 默认 120), 仅在自动
+        曝光启用时生效。
 
         参数:
-            target: 目标亮度值。范围 0-255, 默认 120。
+            target: 目标亮度值, 0-255, 默认 120。
 
         返回:
             实际设定的目标值。
@@ -865,16 +802,11 @@ class DahengCamera(BaseCamera):
         return target
 
     def get_auto_exposure_state(self) -> dict:
-        """获取当前自动曝光状态。
-
-        从大恒 SDK 读取 ``ExposureAuto`` 枚举与 ``ExpectedGrayValue``。
+        """获取当前自动曝光状态 (从大恒 SDK 读 ``ExposureAuto`` 与 ``ExpectedGrayValue``)。
 
         返回:
-            含以下内容的字典:
-                - enabled: bool —— 自动曝光是否已启用
-                - mode: int —— 当前模式 (1=连续, 0=禁用)
-                - target: int —— 当前目标亮度 (0-255)
-                - exposure_time_ms: float —— 当前曝光时间, 单位 ms
+            字典: enabled (bool) / mode (int, 1=连续 0=禁用) / target (int) /
+            exposure_time_ms (float, ms)。
         """
         self._ensure_open()
         state: dict = {
@@ -906,18 +838,15 @@ class DahengCamera(BaseCamera):
     ) -> bool:
         """设置自动曝光的时间与增益范围。
 
-        对应大恒 SDK 的 ``AutoExposureTimeMin``/``Max`` (FloatFeature,
-        µs) 与 ``AutoGainMin``/``Max`` (FloatFeature)。这些边界限定了
-        自动曝光 / 自动增益的搜索空间。
+        对应大恒 SDK ``AutoExposureTimeMin/Max`` (FloatFeature, µs) 与 ``AutoGainMin/Max``,
+        限定自动曝光/增益的搜索空间。
 
         参数:
-            max_time_ms: 最大曝光时间, 单位 ms。
-            min_time_ms: 最小曝光时间, 单位 ms。
-            max_gain: 最大增益值。
-            min_gain: 最小增益值。
+            max_time_ms: 最大曝光时间 (ms); min_time_ms: 最小曝光时间 (ms);
+                max_gain: 最大增益; min_gain: 最小增益。
 
         返回:
-            bool: 成功返回 True, 不支持返回 False。
+            bool: 成功 True, 不支持 False。
         """
         self._ensure_open()
         try:
@@ -936,12 +865,5 @@ class DahengCamera(BaseCamera):
 
     @property
     def auto_exposure_value(self) -> float:
-        """当前自动曝光的数值 (曝光时间, 单位 ms)。
-
-        自动曝光启用时, 返回 SDK 自动调到的曝光时间; 关闭时, 返回手动设定的
-        曝光时间。
-
-        返回:
-            float: 当前曝光时间, 单位毫秒。
-        """
+        """当前自动曝光的数值 (曝光时间, ms); 启用时返回 SDK 调到的值, 关闭时返回手动值。"""
         return self.exposure_time

@@ -67,6 +67,7 @@ from ml.hwdataset import (
     build_hw_index,
 )
 from ml.zernike.eval_stats import spearman
+from scripts.ml._speckle_aug import _blur
 
 OUT_DIR = ROOT / "report" / "loss_defects"
 
@@ -107,33 +108,6 @@ def _load_targets() -> torch.Tensor:
 
 
 # --------------------------------------------------------------------------- variants
-
-
-def _gauss_kernel(sigma: float) -> torch.Tensor:
-    """Separable 1-D Gaussian, truncated at 4 sigma."""
-    r = int(4 * sigma + 0.5)
-    x = torch.arange(-r, r + 1, dtype=torch.float32)
-    k = torch.exp(-(x**2) / (2 * sigma**2))
-    return k / k.sum()
-
-
-def _blur(img: torch.Tensor, sigma: float) -> torch.Tensor:
-    """Separable Gaussian blur over the last two dims, reflect-padded so edges stay put.
-
-    ``conv2d`` rejects ``mode='reflect'`` with an integer pad, so the reflect padding is
-    materialised by ``F.pad`` first and the convolution itself runs 'valid'. That keeps the
-    border value equal to its true local mean instead of shrinking toward zero, which a
-    zero-pad would do and which would contaminate the edge pixels we are measuring.
-    """
-    k = _gauss_kernel(sigma)
-    r = (k.numel() - 1) // 2
-    n, c, h, w = img.shape
-    flat = img.reshape(n * c, 1, h, w)
-    flat = torch.nn.functional.pad(flat, (r, r, 0, 0), mode="reflect")
-    flat = torch.nn.functional.conv2d(flat, k.view(1, 1, 1, -1))
-    flat = torch.nn.functional.pad(flat, (0, 0, r, r), mode="reflect")
-    flat = torch.nn.functional.conv2d(flat, k.view(1, 1, -1, 1))
-    return flat.reshape(n, c, h, w)
 
 
 def _shift(img: torch.Tensor, px: int) -> torch.Tensor:
