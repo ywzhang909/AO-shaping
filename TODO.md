@@ -4211,6 +4211,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 唯一残留提及：`docs/scripts_functional_map.json:128` 仍列已删路径 —— 该快照无生成器、无测试引用（第一批已认定其提及不构成依据），但现在可证地在腐化；"这类快照要不要纳入规则 3③" 登记待定。
 - 覆盖：容器 scripts 分片 + conventions 2901 passed / 78 skipped / 0 failed（比上一批少 3 条 = 被删脚本从 scripts 遍历参数消失，非回归）；ruff / term（0 文件 0 行）/ provenance / module-size 全绿。
 
+**2026-10-30 · f6b3e186 · gitub/master 合入后的三处门禁红收口（BOM / 入口点路径 / 盲捕棘轮 344 → 347）**
+- 三处都是「两侧各自绿、合并后红」的形态，不是新写的代码。① `tests/ao_shaping/gui/slm/test_optical_probe_button.py` 是**本地独有**文件（base `9fd5642d` 与 `d36bbbfb` 都没有），首三字节却是 UTF-8 BOM ⇒ 新并入的 `test_no_tracked_source_py_starts_with_a_utf8_bom` 直接红。该测试本身是活的（276 行，锁 `render_optical_probe` 的四态措辞 + 曝光写回 + 无设备/忙碌禁用），所以只剥 3 字节、不删文件。
+- ② `tools/slm/panel/probe_policy.py` 的排查话术仍写 `python -m ao_shaping.tools.slm.slm_diagnose`，模块早已迁到 `ao_shaping.tools.slm.panel.diagnose`（`main()` 与 `__main__` 都在）。这一处同时点亮两条红：`test_documented_python_dash_m_entry_points_resolve`（目标不可运行）与 `test_the_baseline_has_not_grown_and_is_still_justified`（它校验 `_ALLOWED_UNRESOLVED` 集合与实际未解析集合**相等**，新坏的一处让两侧分叉）⇒ 改路径后两条一并转绿，`_ALLOWED_UNRESOLVED` 未加白名单。
+- ③ 盲捕棘轮 `_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC` 的 344 是远程的整合测量（base 与 `d36bbbfb` 实测都是 340），合入后实测 347：本地 6 个新文件带入 9 处（`session_record` 2 / `exposure_status` 2 / `slm_ownership` 2 / `diff_opt_controller` 1 / `campaign_monitor` 1 / `pixel_size` 1），`bench_settings` 与 `shaping_controls` 各少 1，净 340 → 347。
+- 按该棘轮自述的规则（只有记录了理由才允许上调）上调到整合测量值 347，**没有**去把这 9 处改写成窄捕获：它们到达时就已带判定标记（未判定棘轮仍是 0、`test_unmarked_blind_except_handlers_do_not_grow` 保持绿），说明是被判定过的宽捕获，再"收窄"一次就是重做 #56 已做过的工作。
+- 未并入的部分：`test_markdown_table_rows_never_write_more_cells_than_declared` 在本机因 `data/debug/**/report.md` 而红，那是 `.gitignore:26`（`data/*`）下的**未入库**调试产物，CI 的干净检出没有 `data/`；不动它，也不据此改守卫。
+- 复核口径：`_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC` 的 347 用守卫自身的 AST 规则在四个 ref 上各算一遍（base 340 / `ac8e862a` 347 / `d36bbbfb` 340 / 合并 347），不是按新增文件行数估的。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

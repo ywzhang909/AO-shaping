@@ -201,7 +201,7 @@ def decide(
                 f"({response['peak_relative_change']:.1%})"
             )
             advice.append(
-                "排查顺序: 1) python -m ao_shaping.tools.slm.slm_diagnose 的三步链 "
+                "排查顺序: 1) python -m ao_shaping.tools.slm.panel.diagnose 的三步链 "
                 "(冻结 / 调制 / 线性) —— 面板没调制时离焦不会改变任何读数; "
                 "2) 确认离焦真的加到了光束照到的那块面板上 (瞳面位置); "
                 "3) 确认相机仍在焦面附近 (离焦幅度是否已把焦面推出视场)"

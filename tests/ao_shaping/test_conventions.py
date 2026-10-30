@@ -2156,7 +2156,14 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
 #: though this workstream added markers the whole time: an above-line marker survives the edit that
 #: narrows its handler, but it stops counting once the handler leaves the blind population. Do not
 #: read a fall in the marked number as lost work -- check the total in the same line.
-_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 344
+#: Raised 344 -> 347 on 2026-10-30, integrating gitub/master (measured on f6b3e186): the six
+#: new files that came with the local campaign/transfer work (session_record, slm_ownership,
+#: exposure_status, diff_opt_controller, campaign_monitor, pixel_size) brought 9 handlers,
+#: and bench_settings/shaping_controls lost 2, for a net 340 -> 347. Every one of the 9
+#: arrived already judged -- the marked-count ratchet below is still zero -- so this raise
+#: records the integrated measurement rather than blessing new undecided catches. Reason
+#: recorded in TODO.md section 8.9.
+_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 347
 
 #: Second ratchet over the same population: a broad catch that has actually been *judged*
 #: carries a ``# policy:`` marker naming what the layer is protecting -- within two lines
