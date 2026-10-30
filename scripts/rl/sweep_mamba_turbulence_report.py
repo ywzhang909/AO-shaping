@@ -22,9 +22,10 @@ ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-from ao_shaping.optimizer.rl.sac_train import build_env as build_static_env
-from ao_shaping.optimizer.rl.sac_turbulence_train import build_env as build_turb_env
+from scripts._common.rl_sac_env import _build_env
 
 
 PYTHON = sys.executable
@@ -225,43 +226,9 @@ def _load_eval_rewards(log_dir: Path) -> np.ndarray:
     return data["results"].mean(axis=1)
 
 
-def _build_env_from_config(log_dir: Path):
-    config = json.loads((log_dir / "config.json").read_text(encoding="utf-8"))
-    common = {
-        "max_steps": config["max_steps"],
-        "n_grid": config["n_grid"],
-        "n_actuators": config["n_actuators"],
-        "n_subapertures": config["n_subapertures"],
-        "history_len": config["history_len"],
-        "goal_gain": config["goal_gain"],
-        "hold_target_steps": config["hold_target_steps"],
-        "action_scale": config["action_scale"],
-        "time_penalty": config["time_penalty"],
-        "action_penalty": config["action_penalty"],
-        "saturation_penalty": config["saturation_penalty"],
-    }
-    if "n_zernike_modes" in config:
-        env = build_static_env(
-            **common,
-            n_zernike_modes=config["n_zernike_modes"],
-            zernike_coeff_std=config["zernike_coeff_std"],
-            zernike_coeff_clip=config["zernike_coeff_clip"],
-        )
-        model_path = ROOT / "models" / log_dir.name / "sac_static_final.zip"
-        return env, model_path, "static"
-    env = build_turb_env(
-        **common,
-        cn2=config["cn2"],
-        screen_step_px=config["screen_step_px"],
-        screen_margin_steps=config["screen_margin_steps"],
-    )
-    model_path = ROOT / "models" / log_dir.name / "sac_turbulence_final.zip"
-    return env, model_path, "turbulence"
-
-
 def _rollout(log_dir: Path, episodes: int = 3) -> pd.DataFrame:
     config = json.loads((log_dir / "config.json").read_text(encoding="utf-8"))
-    env, model_path, _ = _build_env_from_config(log_dir)
+    env, model_path, _ = _build_env(log_dir)
     model = SAC.load(model_path)
     rows: list[dict[str, float | int]] = []
     for seed_offset in range(episodes):

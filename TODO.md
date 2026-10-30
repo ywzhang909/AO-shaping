@@ -4185,6 +4185,15 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 其余四个会怎么错（这就是"按名字挑"要付的代价）：`fmt_metric` 把 `None` 渲成单横线、`|v|<1e-4` 改走科学计数、`|v|≥10` 塌成 `.0f` 且忽略逐列 spec；`fmt_ratio` 用 6 位 g（`12.345 → '12'`）且 `None` 抛 `TypeError`；`fmt_fixed` 对 `None` 直接抛异常（本表 `peak<=0` 的行会让整张表崩）；`fmt_signed` 把**所有**非有限值渲成缺失标记（`nan → '--'`，旧实现给 `'nan'`）。
 - 一处**有意偏离**任务约束并给出理由：该文件原先没把仓库根放进 `sys.path`，而 `scripts/` 是包 ⇒ 裸 `python scripts/slm/...` 下 `from scripts._common import` 无法解析。补的是 `sys.path.insert(0, str(ROOT))`（仓库根，不是 `scripts/` 目录），既有条目一个没动也没重排，因此不会把 `scripts/ml` 排到 `src/ml` 之前 —— 与上一条记录里那个 ImportError 事故不是同一个形态。
 
+**2026-10-29 · 8aec47af · #174 标记写法收口：守卫承认"附着在 handler 上的理由注释"，未判定盲捕 55 → 0**
+- 这不是数字游戏，而是阻止一批废工：上一条台账自己就写着"40/55 已带中文理由 ⇒ 这条分支差点去重复 #56 已经做过的事"。开工时先读了 tools 里几处站点，**四条全部已自带理由**（`# 探针要把任何异常都翻译成结论`、`# a failed candidate must not abort the scan`），证实旧口径在度量写作风格而不是"判定过没有"。
+- 重新实测（按**附着关系**判定，不是行窗口）：src/ 下 340 处盲捕 = 285 处 `# policy:` + 48 处附着中文理由 + 6 处末语句是 `raise`（清理后原样上抛：异常仍然逃出去，什么都没吞）+ **1 处**没有自足理由 —— `device_mutex.py:1052` 的 `# 同上`。就地改写成自足的一句，同行改写 ⇒ 该文件的 `path:NNN` 引用零漂移。
+- 判定标准必须防作弊：注释取 `tokenize` 的真 COMMENT token（字符串字面量里的 `#` 永远不能充当理由），且必须附着在 handler 上（同行尾注 / 紧邻上方连续注释 / handler 体内首段注释），不是固定 3 行窗口；`pragma:`/`noqa` 一类工具指令先剥再判；装饰线与两字指针不构成理由。
+- 新踩的坑已写进代码注释：`[\w -]*` 里 `\w` **匹配中文**，剥 `pragma: no cover -` 时会把后面的中文理由整条吞成空串，从而把已注释的站点误报为未注释 ⇒ 字符类限定 ASCII。
+- 诚实性断言换向：原先 `marked < len(population)` 要求"树里必须还剩未判定的 handler"才算扫描器有效 —— 上限归零后它自相矛盾，且它本身是在要求代码库保持缺陷。改为对检测器本身做反例测试（无注释的 `except Exception: pass` 必须判未判定；`cleanup(); raise` 必须判已判定；`同上` / `pragma: no cover` / 纯装饰线不算理由）。
+- walk 仍只有一条：`_blind_handlers_in_text` 拆出来是为了能喂合成片段做反例，`_blind_except_handlers_in_src` 只负责遍历 —— 这个文件已多次记录"两条 walk 会漂移"的失效形态。
+- 棘轮 `_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC` 55 → **0**：此后 src/ 里任何新增盲捕都必须就地写判定，否则 CI 直接红。#174 剩下的只有**收窄异常类型**，仍受驱动层异常分类学（#145 / #45）门控。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

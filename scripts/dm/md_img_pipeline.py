@@ -38,10 +38,9 @@ from scripts.dm.md_img_diff_centroid import (
     notch_fft,
     render_colormap,
 )
+from scripts._common.md_img_channel import _channel_of
 
 # --- Constants ---
-
-_CHANNEL_RE = re.compile(r"-(\d{3})")
 
 _FONT_CANDIDATES = (
     "C:/Windows/Fonts/arial.ttf",
@@ -57,13 +56,6 @@ def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
         except OSError:
             continue
     return ImageFont.load_default()
-
-
-def _channel_of(path: Path) -> int:
-    m = _CHANNEL_RE.search(path.name)
-    if m is None:
-        raise ValueError(f"Cannot parse channel number from {path.name}")
-    return int(m.group(1))
 
 
 _CENTROID_RE = re.compile(r"_cx(-?\d+(?:\.\d+)?)_cy(-?\d+(?:\.\d+)?)")

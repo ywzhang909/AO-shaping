@@ -518,13 +518,6 @@ def probe_slm_shaping_bench_dead_cn2() -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # 格式化与表格
 # --------------------------------------------------------------------------- #
-def _rel_diff(numpy_value: float, oopao_value: float) -> str:
-    """两个仿真后端分支相对差 (百分比); numpy 值为 0 时返回 ``—``。"""
-    if numpy_value == 0.0:
-        return "—"
-    return f"{(oopao_value - numpy_value) / abs(numpy_value) * 100.0:+.2f}%"
-
-
 def _cn2_label(cn2: float) -> str:
     """cn2 的阶梯标签 (不在阶梯内时回落到科学计数法)。"""
     for value, label in CN2_LADDER:
