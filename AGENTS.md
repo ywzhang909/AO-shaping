@@ -364,7 +364,7 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 
 ## tools/ 模块逐名登记 (2026-10-26 普查)
 
-86 个模块逐一对照本文件叙述：名面（`name.py` 全名）未列 58 个 —— 46 个真零提及 + 12 个 stem 命中（4 个真命中：`floor_probe` / `abba_probe` 见 io 行收拢注记、`lut_runner` 见注册映射树、`panel_locate` 见 `cli/exposure` 行注记；3 个 `__main__.py` 通用 token 按同 `__init__.py` 的 floor 合同通过；4 个撞普通词假命中：`bootstrap` / `probes` / `response` / `simulation`；1 个特例 `calibration.py` 只被包目录路径串 `tools/slm/calibration/` 命中）。46 真缺 + 4 假命中 + `calibration.py` 共 51 行补录如下；全量覆盖由守卫 `tests/ao_shaping/test_tools_doc_coverage.py` 锁定（token 合同同 `utils/` 守卫）。**2026-10-26 复核**：上游合入 10 个新 transfer 模块（tools 总数 86 → 96），守卫当时恰红这 10 个，已一并登记，本表现共 61 行。**2026-10-29 复核**：上游 10-26 后又陆续合入 `jacobian_guard` / `parallel_fit` / `protocol` 三个 transfer 模块（此前漏登记），连同 `validate.py` 为过模块规模门禁拆分出的 `session_plan.py` 一并补登记 4 行，本表现共 64 行；同日 `48b8b55a` 把曝光阶梯自 `panel/focus_probe.py` 拆出为 `panel/exposure_adapt.py`，补登记 1 行，本表现共 65 行。**2026-10-29 二轮**：本轮 campaign 界面新增的 4 个 transfer 模块（`campaign_control` / `checkpoint_registry` / `cost_table` / `optical_session`）与拆分出的 `session_record.py` 补登记 5 行，本表现共 70 行。
+86 个模块逐一对照本文件叙述：名面（`name.py` 全名）未列 58 个 —— 46 个真零提及 + 12 个 stem 命中（4 个真命中：`floor_probe` / `abba_probe` 见 io 行收拢注记、`lut_runner` 见注册映射树、`panel_locate` 见 `cli/exposure` 行注记；3 个 `__main__.py` 通用 token 按同 `__init__.py` 的 floor 合同通过；4 个撞普通词假命中：`bootstrap` / `probes` / `response` / `simulation`；1 个特例 `calibration.py` 只被包目录路径串 `tools/slm/calibration/` 命中）。46 真缺 + 4 假命中 + `calibration.py` 共 51 行补录如下；全量覆盖由守卫 `tests/ao_shaping/test_tools_doc_coverage.py` 锁定（token 合同同 `utils/` 守卫）。**2026-10-26 复核**：上游合入 10 个新 transfer 模块（tools 总数 86 → 96），守卫当时恰红这 10 个，已一并登记，本表现共 61 行。**2026-10-29 复核**：上游 10-26 后又陆续合入 `jacobian_guard` / `parallel_fit` / `protocol` 三个 transfer 模块（此前漏登记），连同 `validate.py` 为过模块规模门禁拆分出的 `session_plan.py` 一并补登记 4 行，本表现共 64 行；同日 `48b8b55a` 把曝光阶梯自 `panel/focus_probe.py` 拆出为 `panel/exposure_adapt.py`，补登记 1 行，本表现共 65 行。**2026-10-29 二轮**：本轮 campaign 界面新增的 4 个 transfer 模块（`campaign_control` / `checkpoint_registry` / `cost_table` / `optical_session`）与拆分出的 `session_record.py` 补登记 5 行，本表现共 70 行。**2026-10-30 复核**：上游 `f6b3e186` 合入时 `jacobian_guard` / `parallel_fit` / `protocol` 三条被两条提交（`adbc2016` 短版 / `54782eec` 长版）重复登记，已去重各留一条（长版，与 docstring 一致），本表实为 75 行。
 
 | 位置 | 模块 | 职责 (docstring 原句或类面) |
 |---|---|---|
@@ -429,9 +429,6 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 | `slm/transfer/` | `progress.py` | 由增量实验记录离线出指标轨迹 (免设备) |
 | `slm/transfer/` | `radiometry.py` | 共享光学增益、辐照背景与曝光无关计数 |
 | `slm/transfer/` | `replay_phases.py` | 在共同原生位深与曝光下重放精确归档相位 |
-| `slm/transfer/` | `jacobian_guard.py` | 逐块 Jacobian 方向校验与它驱动的信任域收缩 (免设备) |
-| `slm/transfer/` | `parallel_fit.py` | 无头并行模型拟合监控: 独立进程流式读 loss, 收敛/平台期写 marker 令采集提前停, `--finalize` 委托正式拟合 |
-| `slm/transfer/` | `protocol.py` | 测量协议原语: 口径固定指标与重复统计 (2026-10-28 multishape 复盘的三个读数缺陷: CV 分不清平坦与变暗 / 分母漂移 / 缺能量伴随量) |
 | `slm/transfer/` | `session_plan.py` | 免设备会话规划、续跑记账与 model-only 验收 (由 `validate.py` 拆出过模块规模门禁, `validate` 按旧路径重导入) |
 | `slm/transfer/` | `stages.py` | 四阶段 CCD 锚定整形配方表 (单一事实源, 不碰设备): `STAGE_RECIPES` 从 `runners/slm/transfer_shapes_runner.py` 搬出, 免设备消费者 (GUI 计划页 / 进度读取 / 计划脚本) 不必 import 一整个 click 绑定的 runner |
 | `slm/transfer/` | `campaign.py` | 多形状 campaign 的「形状 + 尺寸 → 其余全部参数」派生层 (纯函数, 不碰设备): `SIZE_WINDOWS`/`window_for_side` 与计划脚本共用同一张尺寸→窗口表 (200/600/1200 → 420/620/900), `derive_settings` 逐字段标 `measured`/`derived`/`default`/`manual` 来源并记下被覆盖的原值, `campaign_matrix`/`estimate_seconds`/`estimate_disk_gb` 供计划页预览; 存在的理由是「哪些数是测出来的、哪些只是 CLI 默认值」不能靠操作员记忆 |
