@@ -97,7 +97,7 @@ Step B 是纯计算 (可微物理预测模型过 FFT)，硬件上不可微的只
 | `--region` / `--far-field-padding` | 物理预测模型瞳面网格 / 远场补零倍数 | 64 / 8 |
 | `--pupil-oversampling` | 瞳面双线性过采样 (Step A/B 子像素插值, 放大瞳面后按匹配远场采样再裁回 `--region`, 视场不变只提采样率) | 1 (可选 1/2/4) |
 | `--panel-span-px` / `--pupil-center` | 探针覆盖面板宽度 / 光斑面板坐标 | 900 / (960,600) |
-| `--camera-pixel-um` / `--slm-pixel-um` / `--focal-length-m` | 光路模型测量锚点 | 2.2 / 8.0 / 0.0 |
+| `--camera-pixel-um` / `--slm-pixel-um` / `--focal-length-m` | 光路模型测量锚点 | 0.0 / 8.0 / 0.0（`--camera-pixel-um 0` = 由相机型号配置解析，正数为显式覆盖） |
 | `--target-side` | 目标方形边长 (相机像素) | 60 |
 | `--w-efficiency` / `--w-uniformity` | 质量分权重。**w-efficiency 必须非零** | 0.6 / 0.4 |
 | `--max-cv-regression` | 已验收成形相位之间允许的最大 CV 绝对增量 | 0.02 |

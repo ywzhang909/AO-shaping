@@ -351,7 +351,7 @@ stateDiagram-v2
 | `settle_discard / n_eval_frames` | `2 / 4` |
 | `cam_type / cam_id / cam_size` | `daheng / 0 / 300` |
 | `panel_span_px / pupil_center` | `900.0 / BEAM_CENTER_PANEL` |
-| `camera_pixel_um / slm_pixel_um` | `2.2 / 8.0` |
+| `camera_pixel_um / slm_pixel_um` | `0.0 / 8.0` |
 | `wavelength_nm / focal_length_m` | `1064 / 0.0` |
 
 孪生侧的 `region` 原生光斑腰 `native_w0(region)` 由 `TWIN_REGION = 512` 线性缩放;
