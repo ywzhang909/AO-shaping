@@ -2994,6 +2994,7 @@ _UNEMITTED_FINAL_SECTIONS: dict[str, str] = {
     'report/diff_beam/diff_beam_frame_analysis/README.md': '## 9. 关联',
     'report/shape_trials/gui_closed_loop_shaping/gui_closed_loop_shaping_20261014.md': '## 10. 相关文档',
     'report/shape_trials/cold_start/cold_start_20261026.md': '## 数据、复现与设备释放',
+    'report/simulation/sim_credibility/sim_credibility_20261030.md': '## 11. 坑',
     'report/slm/differentiable_opt/differentiable_opt_animation_20261022.md': '## 6. 落盘数据与复现',
     'report/slm/diffraction_efficiency/hw_blaze_20261023/report.md': '## 衍射效率算法 (如何找出 0 级与 ±1 级)',
     'report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md': '## 与 slm-model-in-loop 的关系',
