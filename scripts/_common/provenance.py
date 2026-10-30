@@ -993,6 +993,25 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         extra_scripts=("src/ao_shaping/runners/slm/model_in_loop_runner.py",),
     ),
+    "report/simulation/sim_credibility/sim_credibility_20261030.md": ReportProvenance(
+        script="scripts/slm/render_sim_credibility_report.py",
+        command="python scripts/slm/render_sim_credibility_report.py",
+        environment="离线（只读 data/debug 的 pkl 与 report/ 下两份 JSON；torch 在 CPU 上跑，无设备、无 GPU）",
+        note=(
+            "2f 数字孪生的可信度边界 + 可微整形在仿真里的现状: 方向判据用 18 个去重 (相位, 帧) 对的 "
+            "153 全配对 / 45 同批次配对 / 397 错配对照, 同批次余弦中位 0.0288 (对照 0.0102, 门限 0.5), "
+            "符号一致率 0.5056 ⇒ 孪生对变化方向无信息 (判据 false); 绝对画面零均值 ncc 中位 0.7160 与既有 "
+            "not_similar 报告的 max-over-k 0.7160 是同一个点, 不构成新证据; 另复现 `run_benchmark` 默认 "
+            "sum1 目标下 `uniformity_loss` 恒 0 与 `efficiency_loss` 零点错位 256 倍的退化 (不修), "
+            "并用 0/1 掩膜口径重跑四形状的 GS 与 backprop (两个初相位; SPGD 未重跑) 及跨后端、参数敏感性。"
+            "**本文件的正文是手写的** (数字取自两份 JSON), 渲染脚本只生成三张图, 不改正文也不改数字"
+        ),
+        extra_scripts=(
+            "scripts/ml/analyze_sim2f_direction_corpus.py",
+            "scripts/slm/analyze_sim_differentiable.py",
+            "scripts/ml/validate_sim2f_vs_hw_corpus.py",
+        ),
+    ),
     # -- 基准网格的逐 GIF 指标 (同一脚本按 单元 生成) ----------------------
     "report/benchmarks/device_less_full/gif/gs_circle/gs_circle_metrics.md": ReportProvenance(
         script="scripts/slm/generate_beam_shaping_benchmark_report.py",
