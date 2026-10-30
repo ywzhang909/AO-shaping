@@ -4201,6 +4201,13 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - **发现第三副本但没动**：`scripts/ml/metric_discrimination.py` 另有一套 `_gauss_kernel`/`_blur`，AST 哈希与前两组都不同 ⇒ 登记待判，不强行合并。`scripts/rl/visualize_sac_runs.py` 的 `_build_env_from_config(config: dict)` 是另一个函数。
 - 覆盖：ruff / term（0 文件 0 行）/ provenance / module-size 全绿；13 个受影响文件 py_compile 通过；容器 scripts 分片 + conventions 2904 passed / 78 skipped / 0 failed。
 
+**2026-10-30 · 944abed2 · 先删过期收口：9 个带「删除条件」文件复盘，仅 inverse_phase_test.py 一个当下可证成立**
+- 判据改为**按文件自述的删除条件**核验，不用"看起来过时"替代。删 `scripts/ml/inverse_phase_test.py`（365 行）：条件原文 = 强相位训练结论写入 `report/loss_defects/`（或确认由 inverse_strong_phase.py 口径取代、本轮四变体不再重跑）；现已满足 —— `forward_search_report.md` §5 记录 C4/C5 两臂（ΔR² +0.0151 / +0.0322，2/3 seed 一致）并写明"逆向优化仍然是失败的 —— 合成强相位数据没有修复它"，后继 `scripts/ml/inverse_strong_phase.py` 已在 provenance 登记。
+- 五向预筛实测全零命中：provenance / baseline / tests / scripts/README / 按 stem import；其产物 `inverse_phase_test.json` 从未入库（git ls-files 计数 0）；删除后全树按 stem 零引用。
+- 其余 8 个 KEPT，阻塞条件各自可核：两个报告图生成器（唯一生成器 + 活报告引用，按"每份报告必须能追到生成脚本"必留）；`analyze_model_in_loop_forward.py`（MIL 报告无 disjoint-probe 复评结论，全目录 grep 空）；`evaluate_gs_variant_runs.py`（H-33 仍开）；`check_recalibration_after_optics_change.py`（三份新光路报告证明光路仍在变，且无自动门接管该项审计）；`scan_debug_data.py`（`ml.hwdataset.inspect` 无 sim-only / <2-epoch 分诊能力，`data/debug` 语料在主仓仍活跃）；`ablate_zernike_data_processing.py`（至今无 report/ 条目显式归属该消融）；`diff_beam_capture_flat.py`（runner 已在 fbef1926 删，但其自述条件要求 README 一节与 TODO §8.9 引用**同一次改动**里清理；那条 §8.9 是 33db634c 按内容重钉行号的**已结案审计记录**，抹站点 ≠ 清理悬空引用 ⇒ 显式记为受阻）。
+- 唯一残留提及：`docs/scripts_functional_map.json:128` 仍列已删路径 —— 该快照无生成器、无测试引用（第一批已认定其提及不构成依据），但现在可证地在腐化；"这类快照要不要纳入规则 3③" 登记待定。
+- 覆盖：容器 scripts 分片 + conventions 2901 passed / 78 skipped / 0 failed（比上一批少 3 条 = 被删脚本从 scripts 遍历参数消失，非回归）；ruff / term（0 文件 0 行）/ provenance / module-size 全绿。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

@@ -1,11 +1,12 @@
-"""Shared image-augmentation kernels for the two ``scripts/ml`` loss benchmarks.
+"""Shared image-augmentation kernels for the ``scripts/ml`` loss benchmarks.
 
-``closed_loop_loss_taxonomy.py`` and ``speckle_loss_bench.py`` carried
-byte-identical copies of ``_gauss_kernel`` and ``_blur``; the corruption
-variants they score losses against (``over_smooth`` / ``missing_speckle``)
-call ``_blur`` with the same sigmas, so a drifted copy would make the two
-benchmark tables measure different images. These are augmentation kernels,
-not evaluation statistics -- they deliberately do **not** live in
+``closed_loop_loss_taxonomy.py``, ``speckle_loss_bench.py`` and
+``metric_discrimination.py`` carried byte-identical copies of
+``_gauss_kernel`` and ``_blur``; the corruption variants they score losses
+against (``over_smooth`` / ``missing_speckle`` / ``smooth``) call ``_blur``
+with the same sigmas, so a drifted copy would make the benchmark tables
+measure different images. These are augmentation kernels, not evaluation
+statistics -- they deliberately do **not** live in
 ``ml/zernike/eval_stats.py``.
 """
 
@@ -22,6 +23,13 @@ def _gauss_kernel(sigma: float) -> torch.Tensor:
 
 
 def _blur(img: torch.Tensor, sigma: float) -> torch.Tensor:
+    """Separable Gaussian blur over the last two dims, reflect-padded so edges stay put.
+
+    ``conv2d`` rejects ``mode='reflect'`` with an integer pad, so the reflect padding is
+    materialised by ``F.pad`` first and the convolution itself runs 'valid'. That keeps the
+    border value equal to its true local mean instead of shrinking toward zero, which a
+    zero-pad would do and which would contaminate the edge pixels we are measuring.
+    """
     k = _gauss_kernel(sigma)
     r = (k.numel() - 1) // 2
     n, c, h, w = img.shape
