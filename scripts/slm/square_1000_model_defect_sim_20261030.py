@@ -36,6 +36,17 @@ Modes
                  the 24 phase-orthogonal seed pairs.  Answers "which axis owns
                  the seed-independent pattern the bench does not have", which is
                  the defect that makes the model gradient point the wrong way.
+``jacobian``     the local Jacobian actually used for control: the v7 ``RX``/``RY``
+                 +-probe pairs (drift-corrected rate maps) against the model's own
+                 +-probe predictions, per amplitude variant, as a direction
+                 cosine.  Stops if the frozen variant misses the reported values,
+                 because every number below it would then be unanchored.
+``aberration-fit``
+                 the rescue attempt.  Refits the path aberration (Noll 4..15
+                 radians) from zeros on the eight seeds -- two illuminations x two
+                 held-out folds, near-duplicate seed phases never split -- and
+                 then re-scores all three gates on the refit model.
+``all``          seed-sweep + jacobian + aberration-fit + variants in one run.
 
 Collect-only.  No device access, no writes outside ``--out``.
 """
@@ -44,6 +55,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -232,7 +244,13 @@ def with_amplitude(forward, amplitude):
 
 
 def rebuild_forward(**overrides):
-    """New forward with one frozen-parameter field replaced."""
+    """New forward with one frozen-parameter field replaced.
+
+    ``amplitude=`` is *not* a frozen-parameter field (the illumination map is a
+    tensor living on the panel grid), so it is applied after construction and
+    never reaches ``dataclasses.replace``; every other keyword is a parameter
+    field, including ``residual_noll_radians``.
+    """
     from dataclasses import replace
 
     from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
@@ -240,12 +258,15 @@ def rebuild_forward(**overrides):
         load_frozen_parameters,
     )
 
+    amplitude = overrides.pop("amplitude", None)
     plan = np.load(SEED_RUN / "plan.npz")
     camera_xy = np.asarray(plan["camera_xy"], dtype=np.float64)
     params = load_frozen_parameters(CHECKPOINT).effective_parameters()
     params = replace(params, **overrides) if overrides else params
     forward = FrozenDefocusForward(params, camera_xy, device="cpu")
     forward.exposure_ms = 1.0
+    if amplitude is not None:
+        forward.amplitude = amplitude
     return forward, np.asarray(plan[SEED_KEY], dtype=np.float64)
 
 
@@ -473,11 +494,527 @@ def common_mode_sweep(forward, plan, masks: dict, out_dir: Path) -> dict:
 
 
 # --------------------------------------------------------------------------- main
+# ------------------------------------------------------------ jacobian gate (b)
+# The v7 session executed A, A, N4+, N4-, A, RX+, RX-, A, RY+, RY-, A, A(0.5x),
+# A(1.5x), A.  The six A captures (0, 1, 4, 7, 10, 13) are the drift reference the
+# report's analyzer interpolates between; the RX/RY probe pairs sit inside them.
+DRIFT_ANCHORS = (0, 1, 4, 7, 10, 13)
+#: Probe axis -> (plus capture, minus capture, following anchor capture).
+DIAG_PROBE_GROUPS = {"RX": (5, 6, 7), "RY": (8, 9, 10)}
+#: Values reported for the frozen checkpoint, used as a reproduction anchor.
+FROZEN_JACOBIAN = {"RX": 0.270, "RY": 0.444}
+FROZEN_JACOBIAN_TOLERANCE = 0.01
+
+# ------------------------------------------------------------ aberration refit (c)
+#: Phase-correlation groups of the eight v2 seeds: the phases inside one group are
+#: near-duplicates, so a cross-validation split must never cut a group in half.
+SEED_PHASE_GROUPS = {"AE": ("A", "E_blur4_half"),
+                     "BCD": ("B_blur2", "C_blur4", "D_blur6")}
+#: Noll 4..15.  Piston and tilt (Noll 1-3) only slide the far field and are not
+#: fitted: they cannot fix its shape, and they would absorb the registration error.
+FIT_NOLL_MODES = tuple(range(4, 16))
+FIT_ITERATIONS = 300
+FIT_LR = 0.05
+FIT_TORCH_SEED = 0
+#: The 2x2 design: frozen Gaussian illumination first, then hard_ellipse_x1.25.
+FIT_AMPLITUDES = (("gaussian_frozen", None), ("hard_ellipse_x1.25", "hard_ellipse_x1.25"))
+_GATE_COMMON_MODE_R = 0.10
+_GATE_JACOBIAN_COSINE = 0.50
+_GATE_R_DIAG = 0.30
+
+
+def control_grid_size(forward) -> int:
+    """Side length of the phase control grid the physical prediction model takes."""
+    grid = getattr(forward, "control_grid", None)
+    grid = forward.params.grid_size if grid is None else grid
+    return int(grid[0]) if isinstance(grid, (tuple, list)) else int(grid)
+
+
+def resize_panel_to_control(phase: np.ndarray, control_grid) -> np.ndarray:
+    """Resample a panel-grid phase onto the model control grid (identity when equal).
+
+    The archived probe phases and the checkpoint control grid agree today, so this
+    is a no-op for every variant in this script; it exists so the two stays answerable
+    if either side changes.
+    """
+    size = int(control_grid[0]) if isinstance(control_grid, (tuple, list)) else int(control_grid)
+    arr = np.asarray(phase, dtype=np.float64)
+    if arr.shape == (size, size):
+        return arr
+    height, width = arr.shape
+    ay = (np.arange(size, dtype=np.float64) + 0.5) * height / size - 0.5
+    ax = (np.arange(size, dtype=np.float64) + 0.5) * width / size - 0.5
+    y0 = np.floor(ay).astype(np.int64)
+    x0 = np.floor(ax).astype(np.int64)
+    fy, fx = ay - y0, ax - x0
+    y0c, y1c = np.clip(y0, 0, height - 1), np.clip(y0 + 1, 0, height - 1)
+    x0c, x1c = np.clip(x0, 0, width - 1), np.clip(x0 + 1, 0, width - 1)
+    top = arr[np.ix_(y0c, x0c)] * (1.0 - fx)[None, :] + arr[np.ix_(y0c, x1c)] * fx[None, :]
+    bottom = arr[np.ix_(y1c, x0c)] * (1.0 - fx)[None, :] + arr[np.ix_(y1c, x1c)] * fx[None, :]
+    return top * (1.0 - fy)[:, None] + bottom * fy[:, None]
+
+
+def cosine(a: np.ndarray, b: np.ndarray) -> float:
+    """Direction cosine of two equal-shape fields (flattened before comparing)."""
+    va = np.asarray(a, dtype=np.float64).ravel()
+    vb = np.asarray(b, dtype=np.float64).ravel()
+    denom = float(np.linalg.norm(va) * np.linalg.norm(vb))
+    return float(va @ vb / denom) if denom > 0 else float("nan")
+
+
+def diagnostic_v7_rates(diag_dir: Path = DIAG) -> dict[int, np.ndarray]:
+    """Per-capture rate maps of the v7 session, read exactly as its analyzer reads them.
+
+    One native pixel per lattice node (no binning, **no** median subtraction),
+    divided by that capture's own exposure -> ``counts/ms``.  This is the
+    calibration that produced the report's gate-(b) numbers, and it is kept
+    deliberately apart from :func:`load_measured`, which median-subtracts every
+    frame before averaging.
+    """
+    manifest = json.loads((diag_dir / "manifest.json").read_text())
+    rates: dict[int, np.ndarray] = {}
+    for position, row in enumerate(manifest):
+        blob = np.load(diag_dir / row["file"])
+        raw = np.asarray(blob["raw_frames"], dtype=np.float64)
+        xy = np.asarray(blob["camera_xy"])
+        frame = raw.mean(axis=0)
+        key = int(row.get("index", position))
+        rates[key] = (frame[xy[..., 1].astype(int), xy[..., 0].astype(int)]
+                      / float(row["exposure_ms"]))
+    return rates
+
+
+def drift_reference(rates: dict[int, np.ndarray],
+                    anchors: tuple[int, ...] = DRIFT_ANCHORS) -> dict[int, np.ndarray]:
+    """Linear interpolation of the anchor rate maps across every capture index."""
+    out = {}
+    for i in range(min(rates), max(rates) + 1):
+        left = max(a for a in anchors if a <= i)
+        right = min(a for a in anchors if a >= i)
+        weight = 0.0 if left == right else (i - left) / (right - left)
+        out[i] = (1.0 - weight) * rates[left] + weight * rates[right]
+    return out
+
+
+def jacobian_measured_deltas(rates: dict[int, np.ndarray],
+                             drift: dict[int, np.ndarray]) -> dict[str, np.ndarray]:
+    """Drift-corrected +-probe half-differences, one field per probe axis."""
+    return {axis: 0.5 * ((rates[plus] - drift[plus]) - (rates[minus] - drift[minus]))
+            for axis, (plus, minus, _anchor) in DIAG_PROBE_GROUPS.items()}
+
+
+def load_probe_phases(forward, diag_dir: Path = DIAG) -> dict[str, np.ndarray]:
+    """The executed v7 probe phases, resampled onto the control grid.
+
+    The phases are read from the session's own archive rather than rebuilt from the
+    probe recipe, so what is scored is what was actually displayed.
+    """
+    with np.load(diag_dir / "probe_phases.npz") as probes:
+        keys = [f"{axis}{sign}" for axis in DIAG_PROBE_GROUPS for sign in "+-"]
+        return {key: resize_panel_to_control(np.asarray(probes[key], dtype=np.float64),
+                                             control_grid_size(forward))
+                for key in keys}
+
+
+def jacobian_predicted_deltas(forward, probe_phases: dict[str, np.ndarray],
+                              *, exposure_ms: float = 1.0) -> dict[str, np.ndarray]:
+    """Model counterpart of :func:`jacobian_measured_deltas` for one forward."""
+    half = {key: predict(forward, value, exposure_ms=exposure_ms)
+            for key, value in probe_phases.items()}
+    return {axis: 0.5 * (half[axis + "+"] - half[axis + "-"]) for axis in DIAG_PROBE_GROUPS}
+
+
+def jacobian_row(variant: str, predicted: dict[str, np.ndarray],
+                 measured: dict[str, np.ndarray], masks: dict) -> dict:
+    box = masks["box"]
+    row: dict = {"variant": variant}
+    for axis in DIAG_PROBE_GROUPS:
+        pred, meas = predicted[axis], measured[axis]
+        row[axis] = {
+            "cosine_full": cosine(pred, meas),
+            "cosine_box": cosine(pred[box], meas[box]),
+            "pred_delta_norm": float(np.linalg.norm(pred)),
+            "meas_delta_norm": float(np.linalg.norm(meas)),
+        }
+    return row
+
+
+def jacobian_gate(forward, masks: dict, out_dir: Path, diag_dir: Path = DIAG) -> dict:
+    """Gate (b): does the local Jacobian of the physical prediction model point the
+    way the bench does?
+
+    One measurement (the v7 RX/RY probe pairs, drift-corrected) is compared against
+    every amplitude variant.  The frozen variant must reproduce the reported values;
+    anything else would mean this offline copy of the model drifts from the one the
+    report gates on, and every gate number below it would be unanchored.
+    """
+    rates = diagnostic_v7_rates(diag_dir)
+    drift = drift_reference(rates)
+    measured = jacobian_measured_deltas(rates, drift)
+    probe_phases = load_probe_phases(forward, diag_dir)
+    print(f"\n=== jacobian gate (b): {len(DIAG_PROBE_GROUPS)} probe axes, "
+          f"grid {measured['RX'].shape} = {measured['RX'].size} points ===")
+
+    rows = [jacobian_row("frozen_baseline",
+                         jacobian_predicted_deltas(forward, probe_phases), measured, masks)]
+    for name, amplitude in amplitude_variants(forward).items():
+        saved = with_amplitude(forward, amplitude)
+        rows.append(jacobian_row(name, jacobian_predicted_deltas(forward, probe_phases),
+                                 measured, masks))
+        forward.amplitude = saved
+
+    sanity = {}
+    for axis in DIAG_PROBE_GROUPS:
+        value = rows[0][axis]["cosine_full"]
+        expected = FROZEN_JACOBIAN[axis]
+        sanity[axis] = {"model_cosine": value, "reported_cosine": expected,
+                        "tolerance": FROZEN_JACOBIAN_TOLERANCE,
+                        "ok": bool(abs(value - expected) <= FROZEN_JACOBIAN_TOLERANCE)}
+    failed = [axis for axis, block in sanity.items() if not block["ok"]]
+    if failed:
+        raise SystemExit(
+            "frozen variant does not reproduce the reported Jacobian cosines for "
+            + ", ".join(failed) + ": "
+            + ", ".join(f"{axis} model {sanity[axis]['model_cosine']:+.4f} vs reported "
+                        f"{sanity[axis]['reported_cosine']:+.4f}" for axis in failed)
+            + " -- the offline model and the report's model disagree, stopping here.")
+
+    payload = {
+        "checkpoint": str(CHECKPOINT),
+        "diagnostic_session": str(diag_dir),
+        "probe_axes": {axis: {"plus_index": pair[0], "minus_index": pair[1],
+                              "probe_amplitude_rad": None}
+                       for axis, pair in DIAG_PROBE_GROUPS.items()},
+        "calibration": {
+            "name": "diagnostic_v7_rate_map",
+            "bin_size": 1,
+            "median_subtraction": False,
+            "drift_anchors": list(DRIFT_ANCHORS),
+            "drift_model": "linear interpolation between the bracketing anchor rate maps",
+            "prediction_exposure_ms": 1.0,
+            "grid_shape": list(measured["RX"].shape),
+            "grid_points": int(measured["RX"].size),
+            "note": "separate from load_measured(), which median-subtracts every frame",
+        },
+        "measured": {axis: {"delta_norm": float(np.linalg.norm(measured[axis])),
+                            "delta_rms": float(np.sqrt(np.mean(measured[axis] ** 2)))}
+                     for axis in DIAG_PROBE_GROUPS},
+        "frozen_sanity": sanity,
+        "rows": rows,
+    }
+    (out_dir / "jacobian.json").write_text(json.dumps(payload, indent=1))
+
+    print(f"{'variant':<22}{'RX full':>9}{'RX box':>9}{'RY full':>9}{'RY box':>9}"
+          f"{'|dRX|':>10}{'|dRY|':>10}")
+    for row in rows:
+        print(f"{row['variant']:<22}"
+              f"{row['RX']['cosine_full']:+9.4f}{row['RX']['cosine_box']:+9.4f}"
+              f"{row['RY']['cosine_full']:+9.4f}{row['RY']['cosine_box']:+9.4f}"
+              f"{row['RX']['pred_delta_norm']:10.4f}{row['RY']['pred_delta_norm']:10.4f}")
+    for axis, block in sanity.items():
+        print(f"frozen sanity {axis}: {block['model_cosine']:+.5f} vs reported "
+              f"{block['reported_cosine']:+.3f} (tol {block['tolerance']}) -> OK")
+    print(f"gate (b) needs both cosines >= {_GATE_JACOBIAN_COSINE}; best now "
+          f"{max(min(row['RX']['cosine_full'], row['RY']['cosine_full']) for row in rows):+.4f}"
+          f" -> defect_sim/jacobian.json")
+    return payload
+
+
+# ------------------------------------------------------- aberration refit (gate c)
+def seed_exposure_ms(seed_run: Path = SEED_RUN) -> float:
+    """Exposure shared by the eight seed captures (the run opens with one preview)."""
+    manifest = json.loads((seed_run / "manifest.json").read_text())
+    counts: dict[float, int] = {}
+    for entry in manifest:
+        key = float(entry["exposure_ms"])
+        counts[key] = counts.get(key, 0) + 1
+    return max(counts, key=counts.get)
+
+
+def load_seed_fields(out_dir: Path) -> dict[str, np.ndarray]:
+    """Measured native fields of the eight v2 seeds (median-subtracted counts/ms).
+
+    Same source ``common_mode_sweep`` reads, so the two modes score the same numbers.
+    """
+    fields = np.load(out_dir / "seed_sweep_fields.npz")
+    return {seed: np.asarray(fields["meas_" + seed], dtype=np.float64) for seed in SEED_LIST}
+
+
+def _pearson_torch(a, b):
+    """Pearson correlation in float64, differentiable through ``a``."""
+    import torch
+
+    va = torch.as_tensor(a, dtype=torch.float64).ravel()
+    vb = torch.as_tensor(b, dtype=torch.float64).ravel()
+    va = va - va.mean()
+    vb = vb - vb.mean()
+    denom = torch.sqrt((va * va).sum() * (vb * vb).sum())
+    return (va * vb).sum() / denom.clamp_min(1e-300)
+
+
+def fit_residual_aberration(forward, phases: dict[str, np.ndarray],
+                            meas: dict[str, np.ndarray], train_seeds: list[str],
+                            exposure_ms: float, box: np.ndarray, *,
+                            iterations: int = FIT_ITERATIONS, lr: float = FIT_LR,
+                            seed: int = FIT_TORCH_SEED, verbose: bool = True) -> dict:
+    """Fit the path aberration (Noll 4..15 radians) on ``-Pearson r_diag``.
+
+    ``residual_values`` is swapped for a leaf tensor so ``predict`` stays
+    differentiable; ``FrozenDefocusForward`` reads that attribute directly, so no
+    other part of the frozen physical prediction model has to be touched.  Both
+    classes' float32 working dtype is kept: torch rejects float64 values against
+    the float32 mode basis (``einsum``) and the float32 sample grids
+    (``grid_sample``).
+    """
+    import torch
+
+    torch.manual_seed(seed)
+    values = torch.zeros(len(forward.residual_modes),
+                         dtype=forward.residual_basis.dtype, requires_grad=True)
+    forward.residual_values = values
+    optimizer = torch.optim.Adam([values], lr=lr)
+    floor = additive_floor(forward, exposure_ms)
+    box_mask = torch.as_tensor(box, dtype=torch.bool)
+    targets = {seed_key: torch.as_tensor(meas[seed_key][box], dtype=torch.float64)
+               for seed_key in train_seeds}
+    trace: list[float] = []
+    for step in range(iterations):
+        optimizer.zero_grad()
+        total = 0.0
+        for seed_key in train_seeds:
+            pred = forward.predict(torch.as_tensor(phases[seed_key], dtype=torch.float32),
+                                   exposure_ms=exposure_ms)[0]
+            loss = -_pearson_torch((pred - floor)[box_mask], targets[seed_key]) / len(train_seeds)
+            loss.backward()
+            total += float(loss.detach())
+        optimizer.step()
+        trace.append(total)
+        if verbose and (step % 25 == 0 or step == iterations - 1):
+            print(f"  iteration {step:3d}  loss {total:+.5f}")
+    forward.residual_values = values.detach().clone()
+    return {"modes": list(forward.residual_modes),
+            "values": np.asarray(values.detach(), dtype=np.float64),
+            "trace": trace, "final_loss": float(trace[-1])}
+
+
+def r_diag_by_seed(forward, phases: dict[str, np.ndarray], meas: dict[str, np.ndarray],
+                   exposure_ms: float, box: np.ndarray) -> dict[str, float]:
+    """``r_diag`` per seed with the same calibration ``common_mode_sweep`` uses."""
+    floor = additive_floor(forward, exposure_ms)
+    out = {}
+    for seed_key in SEED_LIST:
+        signal = predict(forward, np.asarray(phases[seed_key], dtype=np.float64),
+                         exposure_ms=exposure_ms) - floor
+        out[seed_key] = pearson(signal, meas[seed_key], box)
+    return out
+
+
+def radiometry_gains(forward, phases: dict[str, np.ndarray], meas: dict[str, np.ndarray],
+                     exposure_ms: float, box: np.ndarray) -> dict:
+    """Least-squares gain ``<meas, sig>/<sig, sig>`` per seed on the target box."""
+    floor = additive_floor(forward, exposure_ms)
+    gains = {}
+    for seed_key in SEED_LIST:
+        signal = (predict(forward, np.asarray(phases[seed_key], dtype=np.float64),
+                          exposure_ms=exposure_ms) - floor)[box]
+        reference = meas[seed_key][box]
+        denom = float((signal * signal).sum())
+        gains[seed_key] = float((reference * signal).sum() / denom) if denom > 0 else float("nan")
+    values = list(gains.values())
+    return {"mean": float(np.mean(values)), "min": float(np.min(values)),
+            "max": float(np.max(values)), "by_seed": gains}
+
+
+def aberration_fit(plan, masks: dict, out_dir: Path) -> dict:
+    """Gate (c) rescue attempt: refit the path aberration, then re-evaluate all gates.
+
+    The hypothesis is that the ``r_diag`` ceiling is a *missing* pupil aberration,
+    so Noll 4..15 radians are fitted from scratch on the v2 seeds (piston/tilt stay
+    out) under two illuminations x two held-out folds.  Near-duplicate seed phases
+    are grouped, so no fold ever trains on half a group and validates on the other
+    half.  ``common_mode_sweep`` is reused for gate (a) through a scratch output
+    directory, which leaves the existing artifacts untouched.
+    """
+    import torch
+
+    meas = load_seed_fields(out_dir)
+    exposure_ms = seed_exposure_ms()
+    box = masks["box"]
+    base_forward, _, _, _ = load_forward()
+    phases = {seed_key: np.asarray(plan[seed_key], dtype=np.float64) for seed_key in SEED_LIST}
+    amplitudes = amplitude_variants(base_forward)
+    # One measurement for every combo: v7 rate maps and the v7 probe archive.
+    rates = diagnostic_v7_rates()
+    drift = drift_reference(rates)
+    probe_measured = jacobian_measured_deltas(rates, drift)
+    probe_phases = load_probe_phases(base_forward)
+
+    fits: list[dict] = []
+    for amplitude_name, variant_key in FIT_AMPLITUDES:
+        amplitude = None if variant_key is None else amplitudes[variant_key]
+        for fold_name, held_out in SEED_PHASE_GROUPS.items():
+            train = [seed_key for seed_key in SEED_LIST if seed_key not in held_out]
+            forward, _ = rebuild_forward(
+                residual_noll_radians={int(j): 0.0 for j in FIT_NOLL_MODES},
+                amplitude=amplitude)
+            print(f"\n=== aberration fit: amplitude {amplitude_name}, fold {fold_name} "
+                  f"({FIT_ITERATIONS} iterations, Adam lr {FIT_LR}) ===")
+            print(f"  train {train}\n  held-out {list(held_out)}")
+            result = fit_residual_aberration(forward, phases, meas, train, exposure_ms, box)
+            diagonal = r_diag_by_seed(forward, phases, meas, exposure_ms, box)
+            row = {
+                "amplitude": amplitude_name,
+                "fold": fold_name,
+                "train_seeds": train,
+                "held_out_seeds": list(held_out),
+                "noll_modes": result["modes"],
+                "coefficients": {int(mode): float(value)
+                                 for mode, value in zip(result["modes"], result["values"])},
+                "coefficients_rad_rms": float(np.sqrt(np.mean(result["values"] ** 2))),
+                "parameter_dtype": str(result["values"].dtype),
+                "final_train_loss": result["final_loss"],
+                "train_loss_trace": result["trace"],
+                "r_diag_by_seed": diagonal,
+                "r_diag_in_sample_mean": float(np.mean([diagonal[s] for s in train])),
+                "r_diag_held_out_mean": float(np.mean([diagonal[s] for s in held_out])),
+            }
+            fits.append(row)
+            print(f"  coefficients rms {row['coefficients_rad_rms']:.4f} rad; "
+                  f"r_diag in-sample {row['r_diag_in_sample_mean']:+.4f}, "
+                  f"held-out {row['r_diag_held_out_mean']:+.4f}")
+
+    # Gate re-evaluation per combo.  A single refit model is needed for gates (a)
+    # and (b) and for the radiometry gain; the fold-AE coefficients are used there.
+    scratch = out_dir / "aberration_fit_common_mode"
+    scratch.mkdir(parents=True, exist_ok=True)
+    if not (scratch / "seed_sweep_fields.npz").exists():
+        shutil.copyfile(out_dir / "seed_sweep_fields.npz", scratch / "seed_sweep_fields.npz")
+
+    gates: list[dict] = []
+    for amplitude_name, variant_key in FIT_AMPLITUDES:
+        amplitude = None if variant_key is None else amplitudes[variant_key]
+        for state in ("frozen_residual", "aberration_fit_fold_AE"):
+            if state == "frozen_residual":
+                forward, _ = rebuild_forward(amplitude=amplitude)
+            else:
+                forward, _ = rebuild_forward(
+                    residual_noll_radians={int(j): 0.0 for j in FIT_NOLL_MODES},
+                    amplitude=amplitude)
+                fit_row = next(row for row in fits
+                               if row["amplitude"] == amplitude_name and row["fold"] == "AE")
+                forward.residual_values = torch.tensor(
+                    [float(fit_row["coefficients"][int(mode)]) for mode in forward.residual_modes],
+                    dtype=forward.residual_basis.dtype)
+            print(f"\n--- combo {amplitude_name} / {state} ---")
+            common = common_mode_sweep(forward, plan, masks, scratch)
+            baseline = next(row for row in common["rows"] if row["variant"] == "frozen")
+            predicted = jacobian_predicted_deltas(forward, probe_phases)
+            jacobian = {axis: {"cosine_full": cosine(predicted[axis], probe_measured[axis]),
+                               "cosine_box": cosine(predicted[axis][box],
+                                                    probe_measured[axis][box]),
+                               "pred_delta_norm": float(np.linalg.norm(predicted[axis]))}
+                        for axis in DIAG_PROBE_GROUPS}
+            diagonal = r_diag_by_seed(forward, phases, meas, exposure_ms, box)
+            folds = {}
+            for fold_name, held_out in SEED_PHASE_GROUPS.items():
+                train = [seed_key for seed_key in SEED_LIST if seed_key not in held_out]
+                # Refit combos are scored with the model fitted on *that* fold's train
+                # seeds, so its held-out seeds really were excluded from the fit.  The
+                # frozen-residual combos fitted nothing, so one model serves all folds.
+                source = diagonal if state == "frozen_residual" else next(
+                    row["r_diag_by_seed"] for row in fits
+                    if row["amplitude"] == amplitude_name and row["fold"] == fold_name)
+                folds[fold_name] = {
+                    "train_seeds": train,
+                    "held_out_seeds": list(held_out),
+                    "in_sample_mean": float(np.mean([source[s] for s in train])),
+                    "held_out_mean": float(np.mean([source[s] for s in held_out])),
+                }
+            row = {
+                "combo": f"{amplitude_name}__{state}",
+                "amplitude": amplitude_name,
+                "aberration_state": state,
+                "common_mode_r": baseline["pred_common_mode_r"],
+                "common_mode_r_max": baseline["pred_common_mode_r_max"],
+                "jacobian": jacobian,
+                "r_diag_all_seeds_mean": float(np.mean(list(diagonal.values()))),
+                "r_diag_by_seed": diagonal,
+                "r_diag_folds": folds,
+                "radiometry_gain": radiometry_gains(forward, phases, meas, exposure_ms, box),
+            }
+            row["pass_common_mode"] = bool(row["common_mode_r"] < _GATE_COMMON_MODE_R)
+            row["pass_jacobian"] = bool(min(block["cosine_full"] for block in jacobian.values())
+                                        >= _GATE_JACOBIAN_COSINE)
+            row["pass_r_diag_in_sample"] = bool(
+                all(block["in_sample_mean"] >= _GATE_R_DIAG for block in folds.values()))
+            row["pass_r_diag_held_out"] = bool(
+                all(block["held_out_mean"] >= _GATE_R_DIAG for block in folds.values()))
+            row["pass_all_three_gates"] = bool(
+                row["pass_common_mode"] and row["pass_jacobian"]
+                and row["pass_r_diag_in_sample"] and row["pass_r_diag_held_out"])
+            gates.append(row)
+
+    best = next(row for row in fits if row["amplitude"] == FIT_AMPLITUDES[1][0]
+                and row["fold"] == "AE")
+    coefficients_path = out_dir / "aberration_fit_coeffs.json"
+    coefficients_path.write_text(json.dumps(
+        {"source": "fold AE, hard_ellipse_x1.25",
+         "noll_radians": {str(mode): value for mode, value in best["coefficients"].items()}},
+        indent=1))
+
+    payload = {
+        "checkpoint": str(CHECKPOINT),
+        "seed_run": str(SEED_RUN),
+        "exposure_ms": exposure_ms,
+        "fit": {
+            "noll_modes": list(FIT_NOLL_MODES),
+            "iterations": FIT_ITERATIONS,
+            "lr": FIT_LR,
+            "torch_seed": FIT_TORCH_SEED,
+            "parameter_dtype": best["parameter_dtype"],
+            "loss": "mean(-Pearson(pred - floor, measured)) over train seeds, target-box mask",
+            "signal_definition": "predict(exposure_ms) - (background + bias/exposure_ms)",
+            "held_out_folds": {name: list(group) for name, group in SEED_PHASE_GROUPS.items()},
+            "single_model_choice": ("gates (a), (b) and the radiometry gain use the "
+                                    "fold-AE fitted coefficients"),
+            "note": ("checkpoint residual_noll_radians is replaced by Noll 4..15 zeros and "
+                     "refitted from scratch, so the fit is not seeded by the frozen values"),
+        },
+        "gates_needed": {"common_mode_r_below": _GATE_COMMON_MODE_R,
+                         "jacobian_cosine_at_least": _GATE_JACOBIAN_COSINE,
+                         "r_diag_at_least": _GATE_R_DIAG},
+        "fits": fits,
+        "gates": gates,
+        "verdict": {
+            "any_combo_passes_all_three": bool(any(row["pass_all_three_gates"] for row in gates)),
+            "best_combo": min(gates, key=lambda row: -int(row["pass_all_three_gates"]))["combo"],
+        },
+    }
+    (out_dir / "aberration_fit.json").write_text(json.dumps(payload, indent=1))
+
+    print("\n=== aberration refit: gate table (2x2) ===")
+    print(f"{'combo':<44}{'cmode r':>9}{'RX':>8}{'RY':>8}{'r_ins':>8}{'r_held':>8}"
+          f"{'gain':>9}{'pass':>6}")
+    for row in gates:
+        ins = min(block["in_sample_mean"] for block in row["r_diag_folds"].values())
+        held = min(block["held_out_mean"] for block in row["r_diag_folds"].values())
+        print(f"{row['combo']:<44}{row['common_mode_r']:+9.4f}"
+              f"{row['jacobian']['RX']['cosine_full']:+8.4f}"
+              f"{row['jacobian']['RY']['cosine_full']:+8.4f}"
+              f"{ins:+8.4f}{held:+8.4f}{row['radiometry_gain']['mean']:9.3f}"
+              f"{'YES' if row['pass_all_three_gates'] else 'no':>6}")
+    print(f"artifacts -> {out_dir / 'aberration_fit.json'}, {coefficients_path}")
+    return payload
+
+
+# --------------------------------------------------------------------------- main
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=DIAG / "defect_sim")
     parser.add_argument("--no-shift", action="store_true", help="skip the registration sweep")
-    parser.add_argument("--mode", choices=("variants", "seed-sweep", "common-mode", "both"),
+    parser.add_argument("--mode",
+                        choices=("variants", "seed-sweep", "common-mode", "both",
+                                 "jacobian", "aberration-fit", "all"),
                         default="both")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
@@ -485,7 +1022,7 @@ def main() -> None:
     forward, phase, camera_xy, plan = load_forward()
     masks = build_masks(camera_xy)
 
-    if args.mode in ("seed-sweep", "both"):
+    if args.mode in ("seed-sweep", "both", "all"):
         seed_sweep(forward, plan, masks, args.out)
         if args.mode == "seed-sweep":
             return
@@ -493,6 +1030,20 @@ def main() -> None:
     if args.mode == "common-mode":
         common_mode_sweep(forward, plan, masks, args.out)
         return
+
+    if args.mode in ("jacobian", "aberration-fit", "all"):
+        # Gate (b): the local Jacobian of the physical prediction model against
+        # the v7 +-probe pairs.  Runs first because it is also the anchor every
+        # later number is read against.
+        jacobian_gate(forward, masks, args.out)
+        if args.mode == "jacobian":
+            return
+        # Gate (c) refits the pupil aberration and re-evaluates all three gates.
+        # Gate (a) is re-run into a scratch directory, never over ``args.out``,
+        # so the artifacts the earlier modes wrote stay byte-identical.
+        aberration_fit(plan, masks, args.out)
+        if args.mode == "aberration-fit":
+            return
 
     meas, meas_meta = load_measured(camera_xy)
     floor = additive_floor(forward, 1.0)
