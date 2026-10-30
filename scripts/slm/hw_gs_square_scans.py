@@ -15,7 +15,8 @@
 2. ``zernike``: 取第 1 段里**边长接近 1000** 且复合分数最高的那个边长, 把它的 GS
    相位拟合成 ``--zernike-orders`` 范围的 Zernike 系数, 只用**前 N 阶**重构相位,
    逐个测量 (N = 7..30)。
-3. ``blaze``: 在选定相位上叠加**不同周期的闪耀光栅** (面板 x 斜坡), 逐个测量,
+3. ``blaze``: 在选定相位上叠加**不同周期的闪耀光栅** (面板单轴斜坡, 方向由
+   ``--blaze-direction`` 选), 逐个测量,
    并记录 ``predicted_shift_px`` 与**实测质心位移**。
 
 三段之间只通过「选定边长 / 选定相位」单向传递, 不做任何闭环优化 —— 本脚本里
@@ -82,6 +83,12 @@
 ``--blaze-periods`` 默认 ``16 24 32 40 48 64 96 128`` (面板 px, ≥2 才在 Nyquist
 之上)。位移用 :func:`~ao_shaping.utils.wavefront.zero_order_overlay.predicted_shift_px`
 (已含面板↔相机 90° 交换: 面板 x 斜坡 → 相机 y), 幅值 ``TILT_SHIFT_SCALE/P``。
+
+``--blaze-direction`` 决定斜坡在面板的哪个轴: ``vertical`` (默认) = 面板 x 斜坡 ⇒
+相机 **y** 位移; ``horizontal`` = 面板 y 斜坡 ⇒ 相机 **x** 位移。选哪个由**行程**
+决定 —— 0 级在画面里并不居中 (本实验系统实测 2592×1944 上偏到 (1265, 943)), 所以
+两条轴的可用行程不对称; 边长 1000 px 的方框需要 |位移| > 500 px 才能把 0 级让到框外,
+若垂直方向放不下就换水平 (``blaze_shift_table`` 的 ``fits_frame`` 会判这一条)。
 
 ⚠️ **叠加光栅后冻结的方框失效, 而且整帧 ``argmax`` 也不再是方斑**: 真实瞳面是
 双分量 ``U = U_inc·[η + (1−η)e^{iφ}]``, 那个 ``η`` 项不经相位调制, 始终停在 0 级
@@ -1211,12 +1218,27 @@ def load_or_compute_fit(
 # ---------------------------------------------------------------------------
 # 闪耀光栅
 # ---------------------------------------------------------------------------
-def blaze_overlay(period_px: float, wavelength_nm: float) -> OverlayParams:
-    """一条面板 x 斜坡的叠加参数 (``BLAZE``, 方向 ``vertical``)。"""
+def blaze_overlay(
+    period_px: float,
+    wavelength_nm: float,
+    direction: str = "vertical",
+) -> OverlayParams:
+    """一条面板斜坡的叠加参数 (``BLAZE``)。
+
+    ``direction`` 是**面板**斜坡方向 (``zero_order_overlay`` 的词汇):
+
+    * ``vertical`` —— 面板 x 斜坡 ⇒ 相机 **y** 位移 (本脚本的历史默认);
+    * ``horizontal`` —— 面板 y 斜坡 ⇒ 相机 **x** 位移。
+
+    为什么需要选: 0 级光斑在画面里并不居中 (实测常偏上/偏左), 所以「把方斑挪出
+    0 级」这件事在两个相机轴上的**可用行程不一样**。边长 1000 px 的方框需要
+    |位移| > 500 px 才能把 0 级让到框外, 而垂直方向的上方行程可能不到 500 px ——
+    这时只能改走水平方向 (见 ``blaze_shift_table`` 的 ``fits_frame`` 判据)。
+    """
     return OverlayParams(
         mode=ZeroOrderOverlay.BLAZE,
         blaze_period_px=float(period_px),
-        blaze_direction="vertical",
+        blaze_direction=str(direction),
         wavelength_nm=float(wavelength_nm),
         panel_pixel_um=SLM_PITCH_M * 1e6,
     )
@@ -1244,11 +1266,13 @@ def blaze_shift_table(
     *,
     side_px: float,
     center: tuple[float, float],
+    direction: str = "vertical",
 ) -> list[dict[str, Any]]:
     """每个周期的预测位移与「位移后的方框还装不装得进画面」。
 
-    ``predicted_shift_px`` 已含面板↔相机 90° 交换 (面板 x 斜坡 → 相机 y)。位移之后
-    方框以「``center`` + 预测位移」为心, 所以这个框必须整个落在画面内。
+    ``predicted_shift_px`` 已含面板↔相机 90° 交换 (面板 x 斜坡 → 相机 y; 面板 y
+    斜坡 → 相机 x, 由 ``direction`` 选择)。位移之后方框以「``center`` + 预测位移」
+    为心, 所以这个框必须整个落在画面内。
 
     Args:
         periods: 光栅周期 (面板 px)。
@@ -1256,6 +1280,7 @@ def blaze_shift_table(
         shape: 画面 ``(height, width)``。
         side_px: 方框边长 (相机 px)。
         center: 冻结的 0 级位置 (相机 px)。
+        direction: 面板斜坡方向 (``vertical`` / ``horizontal``)。
 
     Returns:
         每项 ``{"blaze_period_px", "predicted_shift_x_px", "predicted_shift_y_px",
@@ -1264,7 +1289,7 @@ def blaze_shift_table(
     """
     out: list[dict[str, Any]] = []
     for period in periods:
-        dx, dy = predicted_shift_px(blaze_overlay(period, wavelength_nm))
+        dx, dy = predicted_shift_px(blaze_overlay(period, wavelength_nm, direction))
         magnitude = float(math.hypot(dx, dy))
         box_center = (float(center[0]) + float(dx), float(center[1]) + float(dy))
         out.append(
@@ -1831,6 +1856,7 @@ def build_plan(args: argparse.Namespace, bench: Bench) -> dict[str, Any]:
         blaze_table = blaze_shift_table(
             periods, bench.wavelength_nm, frame_shape,
             side_px=planning_side, center=zero_xy,
+            direction=str(args.blaze_direction),
         )
     else:
         blaze_table = []
@@ -1891,11 +1917,12 @@ def build_plan(args: argparse.Namespace, bench: Bench) -> dict[str, Any]:
             "variable": STAGE_VARIABLES["blaze"],
             "n_configs": len(periods),
             "configs": list(periods),
+            "direction": str(args.blaze_direction),
             "gs_seconds_each": 0.0,
             "seconds": estimate_stage_seconds(
                 len(periods), gs_seconds_each=0.0, capture_s=capture_s
             ),
-            "detail": "选定相位上逐周期叠加面板 x 斜坡; 框跟着预测位移走",
+            "detail": "选定相位上逐周期叠加面板单轴斜坡; 框跟着预测位移走",
         }
 
     total_s = sum(float(v["seconds"]) for v in stage_plans.values())
@@ -1998,7 +2025,8 @@ def build_plan(args: argparse.Namespace, bench: Bench) -> dict[str, Any]:
             ),
             "focus": focus_text,
             "blaze": (
-                "apply_zero_order_overlay(BLAZE, vertical) 加进模式相位; "
+                "apply_zero_order_overlay(BLAZE, direction) 加进模式相位 "
+                f"(direction={args.blaze_direction}); "
                 "预测位移 predicted_shift_px 已含面板↔相机 90° 交换"
             ),
             "metrics": (
@@ -2100,7 +2128,11 @@ def print_plan(plan: dict[str, Any]) -> None:
             add(f"  选定边长           = {s['side_px_override']} px (--side-px, "
                 "第 1 段未跑, 所以没有现场选点)")
     add("")
-    add("第 3 段: 闪耀光栅周期扫描 (面板 x 斜坡 → 相机 y)")
+    _bd = str(plan.get("stage_plans", {}).get("blaze", {}).get("direction", "vertical"))
+    _axis = "x" if _bd == "horizontal" else "y"
+    _ramp = "y" if _axis == "x" else "x"
+    add(f"第 3 段: 闪耀光栅周期扫描 (面板 {_ramp} 斜坡 → 相机 {_axis}, "
+        f"--blaze-direction {_bd})")
     add(f"  方框按边长 {s['blaze_planning_side_px']:.0f} px 规划 (选定边长开跑后才定)")
     add("  周期(panel px)   预测位移(camera px)        框心(预测)              装得下")
     for row in s["blaze_table"]:
@@ -2651,6 +2683,7 @@ def run_execute(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) ->
                 periods, bench.wavelength_nm, flat_frame_shape,
                 side_px=float(near_side),
                 center=(float(cx0), float(cy0)),
+                direction=str(args.blaze_direction),
             )
             if periods
             else []
@@ -2976,17 +3009,20 @@ def run_execute(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) ->
             blaze_table = blaze_shift_table(
                 periods, bench.wavelength_nm, flat_frame_shape,
                 side_px=float(side_star), center=(float(cx0), float(cy0)),
+                direction=str(args.blaze_direction),
             )
             write_stage_meta("blaze", out_dir, {
                 "selected_side_px": side_star,
                 "blaze_periods": list(periods),
                 "blaze_base": base_label,
-                "blaze_direction": "vertical (面板 x 斜坡 → 相机 y)",
+                "blaze_direction": str(args.blaze_direction),
                 "blaze_table": blaze_table,
             })
             for entry in blaze_table:
                 period = int(entry["blaze_period_px"])
-                params_blaze = blaze_overlay(period, bench.wavelength_nm)
+                params_blaze = blaze_overlay(
+                    period, bench.wavelength_nm, str(args.blaze_direction)
+                )
                 dx_pred = float(entry["predicted_shift_x_px"])
                 dy_pred = float(entry["predicted_shift_y_px"])
                 box_center = (
@@ -3283,7 +3319,9 @@ def run_atomic(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) -> 
     declared_periods = tuple(int(p) for p in args.blaze_periods)
     max_shift = 0.0
     for period in declared_periods:
-        dx, dy = predicted_shift_px(blaze_overlay(period, bench.wavelength_nm))
+        dx, dy = predicted_shift_px(
+            blaze_overlay(period, bench.wavelength_nm, str(args.blaze_direction))
+        )
         max_shift = max(max_shift, float(math.hypot(dx, dy)))
 
     focus_panel = _focus_overlay_panel(args, bench)
@@ -3421,6 +3459,7 @@ def run_atomic(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) -> 
                 entry = blaze_shift_table(
                     (int(value),), bench.wavelength_nm, sess.frame_shape,
                     side_px=float(side_star), center=(float(cx0), float(cy0)),
+                    direction=str(args.blaze_direction),
                 )[0]
                 dx_pred = float(entry["predicted_shift_x_px"])
                 dy_pred = float(entry["predicted_shift_y_px"])
@@ -3434,6 +3473,7 @@ def run_atomic(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) -> 
                     "base_phase_source": base_source,
                     "base_phase_info": base_info,
                     "blaze_base": base_label,
+                    "blaze_direction": str(args.blaze_direction),
                     "predicted_shift_x_px": dx_pred,
                     "predicted_shift_y_px": dy_pred,
                     "predicted_shift_px": float(entry["predicted_shift_px"]),
@@ -3450,7 +3490,10 @@ def run_atomic(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) -> 
                     )
                 # 叠加层只有一条通道 (焦面补偿在用), 所以光栅加进**模式相位**。
                 phase_panel = apply_zero_order_overlay(
-                    base_panel, blaze_overlay(float(value), bench.wavelength_nm)
+                    base_panel,
+                    blaze_overlay(
+                        float(value), bench.wavelength_nm, str(args.blaze_direction)
+                    ),
                 )
 
             frame = sess.capture_retry(phase_panel)
@@ -3527,6 +3570,7 @@ def run_atomic(args: argparse.Namespace, bench: Bench, plan: dict[str, Any]) -> 
             "selected_side_px": int(side_star),
             "blaze_periods": [int(p) for p in declared_periods],
             "blaze_base": base_label,
+            "blaze_direction": str(args.blaze_direction),
         }
     write_stage_run_config(
         stage_dir,
@@ -3805,6 +3849,7 @@ def shared_arg_tokens(args: argparse.Namespace, *, run_root_text: str) -> list[s
         "--zernike-orders", str(args.zernike_orders),
         "--zernike-fit-grid", str(int(args.zernike_fit_grid)),
         "--blaze-base", str(args.blaze_base),
+        "--blaze-direction", str(args.blaze_direction),
         "--blaze-periods", *[str(int(p)) for p in args.blaze_periods],
         "--beam-radius-px", _fmt_num(args.beam_radius_px),
         "--wavelength-nm", _fmt_num(args.wavelength_nm),
@@ -3975,10 +4020,15 @@ def print_atomic_plan(plan: dict[str, Any], args: argparse.Namespace) -> None:
         add("  依赖               = <run-root>/sides/selected.json "
             "(缺失时退出码 6, 提示先跑 --scan select)")
     else:
-        overlay = blaze_overlay(float(value), b["wavelength_nm"])
+        overlay = blaze_overlay(
+            float(value), b["wavelength_nm"], str(args.blaze_direction)
+        )
         dx, dy = predicted_shift_px(overlay)
         add("这一组")
-        add(f"  光栅周期           = {value} 面板 px (方向 vertical: 面板 x 斜坡 → 相机 y)")
+        axis = "x" if str(args.blaze_direction) == "horizontal" else "y"
+        ramp = "y" if axis == "x" else "x"
+        add(f"  光栅周期           = {value} 面板 px "
+            f"(方向 {args.blaze_direction}: 面板 {ramp} 斜坡 → 相机 {axis})")
         add(f"  预测位移           = ({dx:+.1f}, {dy:+.1f}) camera px "
             f"= {math.hypot(dx, dy):.1f} px")
         add("  框                 = 冻结 0 级 + 预测位移 (方框随斑走)")
@@ -4084,6 +4134,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--blaze-base", default="gs", choices=("gs", "zernike-best"),
                    help="第 3 段的基底相位: gs (选定边长的 GS 相位, 默认) 或 "
                         "zernike-best (第 2 段得分最高的阶数重构)")
+    p.add_argument("--blaze-direction", default="vertical",
+                   choices=("vertical", "horizontal"),
+                   help="光栅斜坡方向: vertical = 面板 x 斜坡 → 相机 y 位移 (默认); "
+                        "horizontal = 面板 y 斜坡 → 相机 x 位移。0 级不居中时, "
+                        "哪个轴有足够行程就用哪个 (边长 1000 px 需要 |位移| > 500 px)")
     p.add_argument("--defocus-focal-mm", type=float, default=None,
                    help="瞳面菲涅尔焦距 (mm): 不给 = 不补偿 (CCD 已在焦面); "
                         "inf = 显式平场")
