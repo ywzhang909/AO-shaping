@@ -38,7 +38,7 @@ counts/ms（7.3 倍台阶），而单次运行内两分钟的稳定性是 1.05 �
 graph TD
     CLI["tools/slm/panel/bench_fingerprint.py"]
     K["tools/kernels/bench_kernels.py · zernike_panel"]
-    F["tools/slm/panel/focus_probe.py · adapt_exposure"]
+    F["tools/slm/panel/exposure_adapt.py · adapt_exposure"]
     FA["utils/image/frame_analysis.py · measure_spot / estimate_shift"]
     SLM["drivers/slm/santec · Santec"]
     CCD["drivers/ccd · DahengCamera / MIICamera"]
