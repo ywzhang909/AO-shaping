@@ -186,7 +186,7 @@ class DahengCamera(BaseCamera):
         像元尺寸按型号登记, 所以型号必须在 ``initialize`` 时就定下来; 拿不到就留
         ``None``, 之后读 ``pixel_size_um`` 会明确报错, 而不是猜。
         """
-        raw: Any = dev_info.get("model", "") or ""
+        raw: Any = dev_info.get("model_name", "") or ""
         if isinstance(raw, tuple):
             raw = raw[0] if raw else ""
         name = str(raw).strip()

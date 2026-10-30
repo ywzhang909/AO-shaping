@@ -248,7 +248,7 @@ def probe_daheng_models() -> list[str]:
         return []
     models: list[str] = []
     for info in dev_info_list or []:
-        raw = info.get("model", "") or ""
+        raw = info.get("model_name", "") or ""
         if isinstance(raw, tuple):
             raw = raw[0] if raw else ""
         name = str(raw).strip()

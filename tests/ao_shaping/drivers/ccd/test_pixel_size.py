@@ -271,6 +271,13 @@ class TestCameraPixelSizeFor:
 
 
 class TestDahengModelResolution:
+    @pytest.mark.parametrize("raw", [("MER2-507-23GM",), "MER2-507-23GM"])
+    def test_dev_info_model_name_key_is_used(self, config_dir: Path, raw) -> None:
+        from ao_shaping.drivers.ccd.daheng.driver import DahengCamera
+
+        cam = DahengCamera()
+        assert cam._resolve_model({"model_name": raw}) == "MER2-507-23GM"
+
     def test_unopened_camera_reports_unknown_model(self, config_dir: Path) -> None:
         from ao_shaping.drivers.ccd.daheng.driver import DahengCamera
 
@@ -427,7 +434,7 @@ class TestDahengEnumerationFailures:
         _install_fake_gxipy(
             monkeypatch,
             lambda: _FakeDeviceManager(
-                dev_info=[{"model": ("MER2-507-23GM",)}, {"model": "MER2-507-23GM"}]
+                dev_info=[{"model_name": ("MER2-507-23GM",)}, {"model_name": "MER2-507-23GM"}]
             ),
         )
         assert probe_daheng_models() == ["MER2-507-23GM"]
