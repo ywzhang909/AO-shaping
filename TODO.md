@@ -4231,6 +4231,12 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 回归：wfless 子树 per-file 指纹改前改后 55 文件逐项一致 —— 1081 passed / 2 skipped / 0 failed；ruff / py_compile / term 全绿。
 - 落地时上游合入（`4c81b8be`）带进 3 个既有红（gs-refine golden ×2 的 `far_field_pixel_size=0.0` 除零、model_in_loop 几何重锚的 `focal_length_m=0.0`）；在纯 `4c81b8be`（不含本刀）上逐一复现 ⇒ 与本刀无关，归因见 #44 评论 6523191905；修复在下一条目记录。
 
+**2026-10-30 · 705ee440 · 上游合入带进 wfless 的 3 个红收口：过时的一侧是测试替身与测试 helper，不是代码**
+- gs-refine golden ×2（除零）：测试把 `sync_device_wavelength` 覆盖为空操作；上游 `2aa39d86` 把实验系统几何输入收敛到 `_bench_probe`（它在 sync 之后读 `slm_wavelength`），而真实 sim 路径的 sync 会确定性采纳 `DEFAULT_WAVELENGTH_NM=1064`（factory 文档：绝不让下游相位数学看到零波长）。删覆盖后 **golden 逐位匹配、无需再生成** —— 同时印证该收敛是数值等价的。
+- model_in_loop 重锚 ×1（`focal_length_m=0`）：`0c07aa54` 刻意删除「消费者各写 2.2」的第二事实源（默认 0 = 向相机型号配置解析，正数才在 `__post_init__` 推导 focal）；`TestHardwareWiring._config` 没给实验系统锚点。helper 补 `camera_pixel_um=8.0`（文档化的显式覆盖路径，与同文件 golden 测试同值），其余三个用该 helper 的测试不断言几何值。
+- 归因：在纯 `4c81b8be`（不含本链提交）上逐一复现（#44 评论 6523191905）。
+- 覆盖：三文件 26 例容器内全绿；wfless 子树 55 文件 1090 passed / 2 skipped / 0 failed（合入前基线 1081 + 上游在子树内新增 9 例，skip 数不变）；ruff / term（0 文件 0 行）/ provenance / module-size 全绿。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

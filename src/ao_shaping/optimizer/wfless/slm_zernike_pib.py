@@ -1471,16 +1471,19 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         # ------------------------------------------------------------------
 
 
+        # Constructed before the try (plain dataclass: cannot raise) so the
+        # finally-cleanup reads state.* unconditionally -- and on a branch
+        # exception now restores the branch's incremental best, not stale locals.
+        state = _RunState(
+            best_c=best_c,
+            best_objective=best_objective,
+            last_best_epoch=last_best_epoch,
+            delta=delta,
+            r_bucket=r_bucket,
+            _init_c=_init_c,
+            _init_r=_init_r,
+        )
         try:
-            state = _RunState(
-                best_c=best_c,
-                best_objective=best_objective,
-                last_best_epoch=last_best_epoch,
-                delta=delta,
-                r_bucket=r_bucket,
-                _init_c=_init_c,
-                _init_r=_init_r,
-            )
             if algorithm != "spgd":
                 _rec = _run_heuristic(
                     state,
@@ -1492,7 +1495,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     center=center,
                     debug=debug,
                     debug_dir=debug_dir,
-                    delta=delta,
+                    delta=state.delta,
                     epochs=epochs,
                     live_display=live_display,
                     nk=nk,
@@ -1500,7 +1503,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     objective_mode=objective_mode,
                     optimizer_type=optimizer_type,
                     pop_size=pop_size,
-                    r_bucket=r_bucket,
+                    r_bucket=state.r_bucket,
                     random_seed=random_seed,
                     record_phase=record_phase,
                     recorder=recorder,
@@ -1511,9 +1514,6 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     w_loggrad=w_loggrad,
                     w_outside=w_outside,
                 )
-                best_c = state.best_c
-                best_objective = state.best_objective
-                last_best_epoch = state.last_best_epoch
                 return _rec
             _run_spgd(
                 state,
@@ -1544,11 +1544,6 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 update_iter=update_iter,
                 w_loggrad=w_loggrad,
             )
-            delta = state.delta
-            r_bucket = state.r_bucket
-            best_c = state.best_c
-            best_objective = state.best_objective
-            last_best_epoch = state.last_best_epoch
 
             # On exit, leave the SLM at the best phase found. The initial (flat or
             # loaded) phase is one of the candidates: if the search never improved
@@ -1561,11 +1556,11 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 camera_config=camera_config,
                 debug=debug,
                 debug_dir=debug_dir,
-                delta=delta,
+                delta=state.delta,
                 epochs=epochs,
                 objective=objective,
                 optimizer_type=optimizer_type,
-                r_bucket=r_bucket,
+                r_bucket=state.r_bucket,
                 recorder=recorder,
                 shape_for_metric=shape_for_metric,
                 target_size=target_size,
@@ -1588,9 +1583,9 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 center_full=center_full,
                 full_frame_shape=full_frame_shape,
                 initial_phase=initial_phase,
-                best_c=best_c,
-                best_objective=best_objective,
-                last_best_epoch=last_best_epoch,
+                best_c=state.best_c,
+                best_objective=state.best_objective,
+                last_best_epoch=state.last_best_epoch,
                 _initial_objective=_initial_objective,
             )
 
