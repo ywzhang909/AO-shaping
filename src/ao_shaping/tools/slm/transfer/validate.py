@@ -26,6 +26,7 @@ import numpy as np
 from ao_shaping.tools.slm.transfer.capture import clock, to_panel
 from ao_shaping.tools.slm.transfer.device import DEVICE_CHOICES, resolve_device
 from ao_shaping.tools.slm.transfer.light_guard import LightGuard, OpticalPathInvalid
+from ao_shaping.tools.slm.transfer.radiometry import count_rate
 
 
 from ao_shaping.algorithm.signal_processing.multishape_objective import (
@@ -359,7 +360,7 @@ def run(args):
                            bit_depth=bit_depth, counts_scale=counts_scale, full_scale=full_scale,
                            exposure_ms=float(get_camera_exposure_ms(cam)), **clock())
                 with torch.no_grad():
-                    loss, _ = objective.evaluate(torch.tensor(sampled/(row["exposure_ms"]*counts_scale), dtype=torch.float32), torch.zeros_like(torch.tensor(phase)))
+                    loss, _ = objective.evaluate(torch.tensor(count_rate(sampled, row), dtype=torch.float32), torch.zeros_like(torch.tensor(phase)))
                 row["loss"] = float(loss)
                 reduced = time.perf_counter()
                 remember_capture(row["file"], raw)
@@ -512,7 +513,7 @@ def run(args):
                                       if abba or args.mode == "anchored" else None)
                         if args.mode == "anchored":
                             anchor_frames = capture_frames(args.out, anchor_row["file"])
-                            anchor = anchor_frames.mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)]/(anchor_row["exposure_ms"]*counts_scale)
+                            anchor = count_rate(anchor_frames.mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)], anchor_row)
                             with torch.no_grad():
                                 anchor_prediction = forward.predict(best)[0].detach().cpu().numpy()
                         optimizer = DifferentiableUniformityOptimizer(forward, objective, best, lr=phase_lr,
@@ -553,7 +554,7 @@ def run(args):
 
                                 def observed(row):
                                     mean = capture_frames(args.out, row["file"]).mean(0)
-                                    return mean[xy[..., 1].astype(int), xy[..., 0].astype(int)]/(row["exposure_ms"]*counts_scale)
+                                    return count_rate(mean[xy[..., 1].astype(int), xy[..., 0].astype(int)], row)
 
                                 measured_difference = .5*(observed(b1)+observed(b2))-observed(minus)
                                 predicted_difference = pplus-pminus
@@ -581,10 +582,9 @@ def run(args):
                             if guard is not None:
                                 with torch.no_grad():
                                     candidate_prediction = forward.predict(candidate)[0].detach().cpu().numpy()
-                                measured_candidate = (
+                                measured_candidate = count_rate(
                                     capture_frames(args.out, b1["file"]).mean(0)
-                                    [xy[..., 1].astype(int), xy[..., 0].astype(int)]
-                                    / (b1["exposure_ms"]*counts_scale))
+                                    [xy[..., 1].astype(int), xy[..., 0].astype(int)], b1)
                                 agreement = direction_agreement(
                                     anchor_prediction, candidate_prediction,
                                     anchor, measured_candidate,

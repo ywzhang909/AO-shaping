@@ -9,6 +9,8 @@ from pathlib import Path
 
 import numpy as np
 
+from ao_shaping.tools.slm.transfer.radiometry import count_rate
+
 
 def fit_local_response(run, out, *, shape="square", sigmas=(0., 1., 2., 4., 8.)):
     """Choose on one local response pair; subsequent CCD data must validate it.
@@ -31,7 +33,7 @@ def fit_local_response(run, out, *, shape="square", sigmas=(0., 1., 2., 4., 8.))
         row = next(r for r in rows if r["label"] == label)
         with np.load(run / row["file"]) as payload:
             xy = payload["camera_xy"].copy()
-            image = payload["raw_frames"].mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)] / (row["exposure_ms"]*row.get("counts_scale", 1.))
+            image = count_rate(payload["raw_frames"].mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)], row)
             return image, payload["model_phase"].copy(), xy
     plus1, plus_phase, xy = read(shape+"_0_B1")
     plus2, _, _ = read(shape+"_0_B2")

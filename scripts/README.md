@@ -15,6 +15,23 @@ not a neural activation hook.
 correction report from recorded CCD pairs. The reusable offline distance scan is
 `python -m ao_shaping.tools.slm.transfer.axial`; its fitted offset is conditional
 on a nominal calibration and is not an absolute distance measurement.
+`slm/generate_axial_move_sim_report.py` renders the follow-up question — what an
+actual SLM axial move costs the model, its scaling law, and the `(s, ε)`
+identifiability bound — from twin truth only, staged on S1 nominal geometry as a
+sensitivity bound and S2 in-situ readings.
+
+`slm/run_blackbox_path_20261029.py` drives one multi-shape black-box transfer
+session and appends its outcome to
+`report/shape_trials/blackbox_path/artifacts/execution_<tag>.json`.
+`slm/summarize_blackbox_path_20261029.py` recomputes per-block metrics offline
+from a saved run directory, and `slm/replay_saved_phases_20261029.py` replays
+archived phases at one common exposure and native bit depth — the comparability
+check behind "the exposure gap comes from the shaped phase, not the optical
+path". `slm/simulate_transfer_units_20261029.py` reproduces the two radiometric
+normalisations on a known-truth synthetic camera, so the anchor unit defect
+becomes an executable assertion; it explicitly records the one hardware outcome
+it does **not** reproduce (the model-only 0/N rejections), rather than tuning
+until it matches. All of these are device-free except the first.
 
 `slm/generate_square1200_exploration_report.py` recomputes the strict versus
 nonmonotone CV comparison from saved Mono12 frames, audits acceptance decisions,

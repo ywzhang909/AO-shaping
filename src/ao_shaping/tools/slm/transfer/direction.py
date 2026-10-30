@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from ao_shaping.tools.slm.transfer.capture import clock
+from ao_shaping.tools.slm.transfer.radiometry import count_rate
 from ao_shaping.algorithm.signal_processing.multishape_objective import ShapeObjective
 
 
@@ -37,7 +38,7 @@ def analyze(run, out):
                 if row is a:
                     xy, target = data["camera_xy"], data["target"]
                     recorded_core = data["core"].copy() if "core" in data else None
-                    image = data["raw_frames"].mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)] / (row["exposure_ms"]*row.get("counts_scale", 1.))
+                    image = count_rate(data["raw_frames"].mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)], row)
         forward = FrozenDefocusForward(params, xy, device="cpu")
         forward.exposure_ms = a["exposure_ms"]
         objective = ShapeObjective(target, cv_only=config.get("objective", "shape") == "cv",

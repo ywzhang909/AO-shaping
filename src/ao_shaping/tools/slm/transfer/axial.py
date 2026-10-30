@@ -19,6 +19,7 @@ from scipy.optimize import nnls
 
 from .capture import clock
 from .device import resolve_device
+from .radiometry import count_rate
 
 
 def scan(args):
@@ -46,7 +47,7 @@ def scan(args):
                 raise ValueError("saturated core; retain raw data and adjust exposure")
             image = saved["raw_frames"].mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)]
         phases.append(phase)
-        images.append(image/(row["exposure_ms"]*row.get("counts_scale", 1.)))
+        images.append(count_rate(image, row))
         hashes.append(hashlib.sha256(phase.tobytes()).hexdigest())
         exposures.append(row["exposure_ms"])
     unique = list(dict.fromkeys(hashes))

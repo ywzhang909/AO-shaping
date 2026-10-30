@@ -6,6 +6,19 @@
 > **说明**: 方斑整形实验对比试验索引；各次试验的目录与结论由此汇总
 <!-- provenance:end -->
 
+2026-10-29 黑盒路径两轮现场（平面起始相位 / GS 起始相位）与离线诊断见
+[规划](blackbox_path/planning_20261029.md)、
+[现场记录](blackbox_path/live_20261029.md)、
+[同曝光重放记录](blackbox_path/artifacts/live_acquisition_20261029.md)、
+[离线诊断](blackbox_path/analysis_20261029.md)与
+[无设备复现](blackbox_path/sim_units_20261029.md)：
+逐形状报告（不跨形状平均）；D1 归一化单位缺陷与 D2 `fit.valid` 位深门限已修，
+H1（模型-实测相关）与 H2（CV 降且 EE 不降）均未通过，模板块在模型补齐残余结构前不作验收路径。
+
+2026-10-29 SLM 沿光轴移动的模型代价与再辨识边界（纯仿真）见
+[轴向移动仿真](axial_move_sim/axial_move_sim_20261029.md)：
+S1 标称几何只作灵敏度上界，S2 取当日现场读数，两档几何差 35 倍。
+
 2026-10-27 CCD 移动后的无 GS 冷启动实测见
 [实验中记录](no_gs_ccd_moved/live_20261027.md)与
 [实验后分析](no_gs_ccd_moved/analysis_20261027.md)：

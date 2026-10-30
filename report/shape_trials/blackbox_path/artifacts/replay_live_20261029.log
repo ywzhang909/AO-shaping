@@ -1,0 +1,524 @@
+﻿.venv/Scripts/python.exe : [32m2026-10-29 21:28:34.763[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.ccd.commo
+n[0m:[36mregister_camera[0m:[36m201[0m - [34m[1mRegistered camera type 'sim' -> ao_shaping.drivers.sim.slm_pib_s
+im:SimPibCCD[0m
+At line:1 char:74
++ ... artifacts'; .venv/Scripts/python.exe scripts/slm/replay_saved_phases_ ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([32m2026-10-29...m:SimPibCCD[0m:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[32m2026-10-29 21:28:34.764[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.ccd.common[0m:[36mregister_camera
+[0m:[36m201[0m - [34m[1mRegistered camera type 'sim' -> ao_shaping.drivers.sim.slm_pib_sim:SimPibCCD[0m
+[32m2026-10-29 21:28:34.863[0m | [1mINFO    [0m | [36m__main__[0m:[36mmain[0m:[36m245[0m - [1m已取得设备互斥锁 LockH
+older(pid=451260, cmdline='D:\\Projects\\TIFO\\AO-shaping\\.venv\\Scripts\\python.exe scripts/slm/replay_saved_phases_2
+0261029.py --execute', acquired_at='2026-10-29T13:28:34+00:00', acquired_at_epoch=1793280514.8523507, ppid=450700, unkn
+own=False)[0m
+[32m2026-10-29 21:28:34.865[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.ccd.common[0m:[36mcreate_camera[0
+m:[36m271[0m - [34m[1mCreating camera type=daheng cam_id=0[0m
+[32m2026-10-29 21:28:35.492[0m | [1mINFO    [0m | [36mao_shaping.drivers.ccd.daheng.driver[0m:[36minitialize[0m
+:[36m303[0m - [1mExposure time range: 20.0~1000000.0 µs (0.020~1000.000 ms)[0m
+[32m2026-10-29 21:28:35.524[0m | [1mINFO    [0m | [36mao_shaping.utils.io.file[0m:[36mload_config[0m:[36m1734
+[0m - [1m未找到ccd设备(FJB24112232)配置文件，使用默认参数[0m
+[32m2026-10-29 21:28:35.529[0m | [1mINFO    [0m | [36mao_shaping.drivers.ccd.daheng.driver[0m:[36m__update_prope
+rties[0m:[36m768[0m - [1mOpen cam FJB24112232 success. width=2592, height=1944[0m
+[32m2026-10-29 21:28:36.455[0m | [1mINFO    [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mopen[0m:[36m
+718[0m - [1m成功打开SLM #1[0m
+[32m2026-10-29 21:28:36.564[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_check_st
+atus[0m:[36m2243[0m - [34m[1mSLM #1 状态正常[0m
+[32m2026-10-29 21:28:36.671[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_read_ide
+ntity[0m:[36m984[0m - [34m[1mSLM #1 driveboardID: 22030108[0m
+[32m2026-10-29 21:28:36.671[0m | [1mINFO    [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mopen[0m:[36m
+726[0m - [1mSLM #1 标识: 22030108[0m
+[32m2026-10-29 21:28:36.777[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_read_ide
+ntity[0m:[36m984[0m - [34m[1mSLM #1 driveboardID: 22030108[0m
+[32m2026-10-29 21:28:36.779[0m | [1mINFO    [0m | [36mao_shaping.utils.io.file[0m:[36mload_config[0m:[36m1742
+[0m - [1m已加载slm设备(22030108)配置文件[0m
+[32m2026-10-29 21:28:36.780[0m | [1mINFO    [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_apply_config_
+params[0m:[36m2223[0m - [1mSLM #1 参数: wavelength=1064, shift_x=0, shift_y=0, use_120hz=False[0m
+[32m2026-10-29 21:28:36.780[0m | [1mINFO    [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_load_correcti
+on[0m:[36m2323[0m - [1mSLM #1 矫正已禁用（配置文件记录）[0m
+[32m2026-10-29 21:28:36.834[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mget_wavel
+ength_info[0m:[36m1269[0m - [34m[1m当前波长: 1064nm, 2π对应灰度值: 993[0m
+[32m2026-10-29 21:28:36.834[0m | [1mINFO    [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_setup_wavelen
+gth[0m:[36m2502[0m - [1mSLM #1 波长与设备当前值相同，跳过设置 (wavelength=1064)[0m
+[32m2026-10-29 21:28:36.940[0m | [1mINFO    [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_set_memory_mo
+de[0m:[36m2489[0m - [1mSLM #1 已设置为内部内存模式[0m
+[32m2026-10-29 21:28:36.941[0m | [1mINFO    [0m | [36m__main__[0m:[36mmain[0m:[36m266[0m - [1m曝光范围 0.02 .. 1
+000.0 ms[0m
+[32m2026-10-29 21:28:37.305[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#3[0m
+[32m2026-10-29 21:28:37.359[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 200.0ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:28:38.658[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#4[0m
+[32m2026-10-29 21:28:38.729[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.8ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:28:40.037[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#5[0m
+[32m2026-10-29 21:28:40.111[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:28:41.404[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#6[0m
+[32m2026-10-29 21:28:41.475[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.2ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:28:42.767[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#7[0m
+[32m2026-10-29 21:28:42.842[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:28:44.155[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#8[0m
+[32m2026-10-29 21:28:44.230[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:28:45.537[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#9[0m
+[32m2026-10-29 21:28:45.610[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:28:46.855[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#10[0m
+[32m2026-10-29 21:28:46.928[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 198.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:28:48.171[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#11[0m
+[32m2026-10-29 21:28:48.248[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:28:49.564[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#12[0m
+[32m2026-10-29 21:28:49.642[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 198.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:28:50.920[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#13[0m
+[32m2026-10-29 21:28:50.998[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:28:52.356[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#14[0m
+[32m2026-10-29 21:28:52.434[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 197.8ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:28:53.731[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#15[0m
+[32m2026-10-29 21:28:53.807[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:28:54.739[0m | [1mINFO    [0m | [36m__main__[0m:[36mmain[0m:[36m305[0m - [1mcommon 曝光初值 0.
+1324 ms (0.02 ms 下最大峰 495)[0m
+[32m2026-10-29 21:28:55.254[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#16[0m
+[32m2026-10-29 21:28:55.329[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.8ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:28:56.807[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#17[0m
+[32m2026-10-29 21:28:56.886[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.8ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:28:58.342[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#18[0m
+[32m2026-10-29 21:28:58.412[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:28:59.840[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#19[0m
+[32m2026-10-29 21:28:59.913[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.2ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:01.448[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#20[0m
+[32m2026-10-29 21:29:01.538[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:02.966[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#21[0m
+[32m2026-10-29 21:29:03.043[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:04.493[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#22[0m
+[32m2026-10-29 21:29:04.563[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:05.999[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#23[0m
+[32m2026-10-29 21:29:06.072[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 198.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:07.444[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#24[0m
+[32m2026-10-29 21:29:07.518[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:09.006[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#25[0m
+[32m2026-10-29 21:29:09.081[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 198.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:10.538[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#26[0m
+[32m2026-10-29 21:29:10.614[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:12.078[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#27[0m
+[32m2026-10-29 21:29:12.153[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 197.8ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:13.621[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#28[0m
+[32m2026-10-29 21:29:13.697[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:14.590[0m | [1mINFO    [0m | [36m__main__[0m:[36mmain[0m:[36m313[0m - [1mcommon 验证 #1: 
+0.1324 ms 最大峰 2610 (上限 3686)[0m
+[32m2026-10-29 21:29:15.096[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#29[0m
+[32m2026-10-29 21:29:15.170[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.0ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:16.549[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#30[0m
+[32m2026-10-29 21:29:16.622[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:18.017[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#31[0m
+[32m2026-10-29 21:29:18.091[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 198.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:19.470[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#32[0m
+[32m2026-10-29 21:29:19.550[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:21.008[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#33[0m
+[32m2026-10-29 21:29:21.086[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 197.8ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:22.473[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#34[0m
+[32m2026-10-29 21:29:22.546[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:23.876[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#35[0m
+[32m2026-10-29 21:29:23.942[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.0ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:25.303[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#36[0m
+[32m2026-10-29 21:29:25.372[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:26.730[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#37[0m
+[32m2026-10-29 21:29:26.796[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 198.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:28.096[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#38[0m
+[32m2026-10-29 21:29:28.166[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:29.590[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#39[0m
+[32m2026-10-29 21:29:29.660[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 197.8ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:31.027[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#40[0m
+[32m2026-10-29 21:29:31.097[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:32.019[0m | [1mINFO    [0m | [36m__main__[0m:[36mmain[0m:[36m332[0m - [1mhigh 验证 #1: 3.
+1651 ms 最大峰 2604 (上限 3686)[0m
+[32m2026-10-29 21:29:32.478[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#41[0m
+[32m2026-10-29 21:29:32.553[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.8ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:34.049[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#42[0m
+[32m2026-10-29 21:29:34.126[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.8ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:35.557[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#43[0m
+[32m2026-10-29 21:29:35.631[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:37.005[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#44[0m
+[32m2026-10-29 21:29:37.076[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.2ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:38.458[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#45[0m
+[32m2026-10-29 21:29:38.529[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:39.929[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#46[0m
+[32m2026-10-29 21:29:40.000[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:41.456[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#47[0m
+[32m2026-10-29 21:29:41.530[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:42.887[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#48[0m
+[32m2026-10-29 21:29:42.970[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 198.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:44.319[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#49[0m
+[32m2026-10-29 21:29:44.387[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:45.772[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#50[0m
+[32m2026-10-29 21:29:45.847[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 198.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:47.214[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#51[0m
+[32m2026-10-29 21:29:47.286[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:48.750[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#52[0m
+[32m2026-10-29 21:29:48.821[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 197.8ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:50.177[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#53[0m
+[32m2026-10-29 21:29:50.246[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:51.648[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#54[0m
+[32m2026-10-29 21:29:51.722[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.0ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:53.130[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#55[0m
+[32m2026-10-29 21:29:53.205[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:54.669[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#56[0m
+[32m2026-10-29 21:29:54.750[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 198.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:56.205[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#57[0m
+[32m2026-10-29 21:29:56.278[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:57.719[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#58[0m
+[32m2026-10-29 21:29:57.791[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 197.8ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:29:59.258[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#59[0m
+[32m2026-10-29 21:29:59.331[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:00.794[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#60[0m
+[32m2026-10-29 21:30:00.869[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.8ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:02.215[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon flat
+ 曝光 0.1324 ms 峰值 2585 饱和像素 0[0m
+[32m2026-10-29 21:30:02.671[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#61[0m
+[32m2026-10-29 21:30:02.746[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.8ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:04.059[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon squa
+re_r1_seed 曝光 0.1324 ms 峰值 1314 饱和像素 0[0m
+[32m2026-10-29 21:30:04.590[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#62[0m
+[32m2026-10-29 21:30:04.660[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:05.994[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon squa
+re_r1_final 曝光 0.1324 ms 峰值 1297 饱和像素 0[0m
+[32m2026-10-29 21:30:06.501[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#63[0m
+[32m2026-10-29 21:30:06.572[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.2ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:07.865[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon tria
+ngle_r1_seed 曝光 0.1324 ms 峰值 1244 饱和像素 0[0m
+[32m2026-10-29 21:30:08.390[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#64[0m
+[32m2026-10-29 21:30:08.466[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:09.760[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon tria
+ngle_r1_final 曝光 0.1324 ms 峰值 1177 饱和像素 0[0m
+[32m2026-10-29 21:30:10.292[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#65[0m
+[32m2026-10-29 21:30:10.363[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:11.702[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon rect
+angle_r1_seed 曝光 0.1324 ms 峰值 1234 饱和像素 0[0m
+[32m2026-10-29 21:30:12.217[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#66[0m
+[32m2026-10-29 21:30:12.292[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:13.634[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon rect
+angle_r1_final 曝光 0.1324 ms 峰值 1175 饱和像素 0[0m
+[32m2026-10-29 21:30:14.184[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#67[0m
+[32m2026-10-29 21:30:14.265[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 198.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:15.492[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon squa
+re_r2_seed 曝光 0.1324 ms 峰值 89 饱和像素 0[0m
+[32m2026-10-29 21:30:15.968[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#68[0m
+[32m2026-10-29 21:30:16.044[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:17.328[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon squa
+re_r2_final 曝光 0.1324 ms 峰值 87 饱和像素 0[0m
+[32m2026-10-29 21:30:17.887[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#69[0m
+[32m2026-10-29 21:30:17.970[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 198.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:19.252[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon tria
+ngle_r2_seed 曝光 0.1324 ms 峰值 137 饱和像素 0[0m
+[32m2026-10-29 21:30:19.763[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#70[0m
+[32m2026-10-29 21:30:19.842[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:21.188[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon tria
+ngle_r2_final 曝光 0.1324 ms 峰值 111 饱和像素 0[0m
+[32m2026-10-29 21:30:21.680[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#71[0m
+[32m2026-10-29 21:30:21.753[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 197.8ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:23.055[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon rect
+angle_r2_seed 曝光 0.1324 ms 峰值 90 饱和像素 0[0m
+[32m2026-10-29 21:30:23.587[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#72[0m
+[32m2026-10-29 21:30:23.660[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:24.933[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon rect
+angle_r2_final 曝光 0.1324 ms 峰值 83 饱和像素 0[0m
+[32m2026-10-29 21:30:25.509[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#73[0m
+[32m2026-10-29 21:30:25.585[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 0.0ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:26.620[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon rect
+angle_r2_final 曝光 0.1324 ms 峰值 85 饱和像素 0[0m
+[32m2026-10-29 21:30:27.100[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#74[0m
+[32m2026-10-29 21:30:27.174[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:28.462[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon rect
+angle_r2_seed 曝光 0.1324 ms 峰值 86 饱和像素 0[0m
+[32m2026-10-29 21:30:29.008[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#75[0m
+[32m2026-10-29 21:30:29.084[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 197.8ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:30.448[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon tria
+ngle_r2_final 曝光 0.1324 ms 峰值 109 饱和像素 0[0m
+[32m2026-10-29 21:30:30.994[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#76[0m
+[32m2026-10-29 21:30:31.067[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:32.383[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon tria
+ngle_r2_seed 曝光 0.1324 ms 峰值 138 饱和像素 0[0m
+[32m2026-10-29 21:30:32.866[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#77[0m
+[32m2026-10-29 21:30:32.932[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 198.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:34.162[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon squa
+re_r2_final 曝光 0.1324 ms 峰值 84 饱和像素 0[0m
+[32m2026-10-29 21:30:34.661[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#78[0m
+[32m2026-10-29 21:30:34.731[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:35.968[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon squa
+re_r2_seed 曝光 0.1324 ms 峰值 88 饱和像素 0[0m
+[32m2026-10-29 21:30:36.471[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#79[0m
+[32m2026-10-29 21:30:36.539[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 198.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:37.794[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon rect
+angle_r1_final 曝光 0.1324 ms 峰值 1208 饱和像素 0[0m
+[32m2026-10-29 21:30:38.268[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#80[0m
+[32m2026-10-29 21:30:38.342[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:39.611[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon rect
+angle_r1_seed 曝光 0.1324 ms 峰值 1234 饱和像素 0[0m
+[32m2026-10-29 21:30:40.141[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#81[0m
+[32m2026-10-29 21:30:40.216[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:41.444[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon tria
+ngle_r1_final 曝光 0.1324 ms 峰值 1203 饱和像素 0[0m
+[32m2026-10-29 21:30:41.940[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#82[0m
+[32m2026-10-29 21:30:42.014[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:43.265[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon tria
+ngle_r1_seed 曝光 0.1324 ms 峰值 1236 饱和像素 0[0m
+[32m2026-10-29 21:30:43.748[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#83[0m
+[32m2026-10-29 21:30:43.825[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.2ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:45.127[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon squa
+re_r1_final 曝光 0.1324 ms 峰值 1273 饱和像素 0[0m
+[32m2026-10-29 21:30:45.667[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#84[0m
+[32m2026-10-29 21:30:45.740[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:46.982[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon squa
+re_r1_seed 曝光 0.1324 ms 峰值 1313 饱和像素 0[0m
+[32m2026-10-29 21:30:47.519[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#85[0m
+[32m2026-10-29 21:30:47.593[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.8ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:48.919[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mcommon flat
+ 曝光 0.1324 ms 峰值 2606 饱和像素 0[0m
+[32m2026-10-29 21:30:49.453[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#86[0m
+[32m2026-10-29 21:30:49.532[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.8ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:50.845[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mhigh square
+_r2_seed 曝光 3.1651 ms 峰值 1441 饱和像素 0[0m
+[32m2026-10-29 21:30:51.377[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#87[0m
+[32m2026-10-29 21:30:51.463[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:52.838[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mhigh square
+_r2_final 曝光 3.1651 ms 峰值 1396 饱和像素 0[0m
+[32m2026-10-29 21:30:53.354[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#88[0m
+[32m2026-10-29 21:30:53.431[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 198.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:54.939[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mhigh triang
+le_r2_seed 曝光 3.1651 ms 峰值 2473 饱和像素 0[0m
+[32m2026-10-29 21:30:55.572[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#89[0m
+[32m2026-10-29 21:30:55.657[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:57.010[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mhigh triang
+le_r2_final 曝光 3.1651 ms 峰值 1939 饱和像素 0[0m
+[32m2026-10-29 21:30:57.498[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#90[0m
+[32m2026-10-29 21:30:57.574[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 197.8ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:30:58.812[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mhigh rectan
+gle_r2_seed 曝光 3.1651 ms 峰值 1415 饱和像素 0[0m
+[32m2026-10-29 21:30:59.270[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#91[0m
+[32m2026-10-29 21:30:59.346[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:31:00.628[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mhigh rectan
+gle_r2_final 曝光 3.1651 ms 峰值 1339 饱和像素 0[0m
+[32m2026-10-29 21:31:01.075[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#92[0m
+[32m2026-10-29 21:31:01.148[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 0.0ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:31:02.291[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mhigh rectan
+gle_r2_final 曝光 3.1651 ms 峰值 1373 饱和像素 0[0m
+[32m2026-10-29 21:31:02.840[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#93[0m
+[32m2026-10-29 21:31:02.912[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:31:04.222[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mhigh rectan
+gle_r2_seed 曝光 3.1651 ms 峰值 1405 饱和像素 0[0m
+[32m2026-10-29 21:31:04.712[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#94[0m
+[32m2026-10-29 21:31:04.789[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 197.8ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:31:06.039[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mhigh triang
+le_r2_final 曝光 3.1651 ms 峰值 1920 饱和像素 0[0m
+[32m2026-10-29 21:31:06.506[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#95[0m
+[32m2026-10-29 21:31:06.580[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:31:07.897[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mhigh triang
+le_r2_seed 曝光 3.1651 ms 峰值 2457 饱和像素 0[0m
+[32m2026-10-29 21:31:08.428[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#96[0m
+[32m2026-10-29 21:31:08.500[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 198.4ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:31:09.781[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mhigh square
+_r2_final 曝光 3.1651 ms 峰值 1390 饱和像素 0[0m
+[32m2026-10-29 21:31:10.317[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36m_write_to
+_memory[0m:[36m2597[0m - [34m[1m相位数据已写入SLM #1 内存#97[0m
+[32m2026-10-29 21:31:10.391[0m | [34m[1mDEBUG   [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mdisplay_d
+ata[0m:[36m1578[0m - [34m[1mSLM #1 自动等待 199.6ms (按最大灰度变化估算)[0m
+[32m2026-10-29 21:31:11.737[0m | [1mINFO    [0m | [36m__main__[0m:[36mcapture[0m:[36m404[0m - [1mhigh square
+_r2_seed 曝光 3.1651 ms 峰值 1430 饱和像素 0[0m
+[32m2026-10-29 21:31:11.746[0m | [1mINFO    [0m | [36m__main__[0m:[36mmain[0m:[36m416[0m - [1m采集完成: 38 次采集 /
+ 38 帧[0m
+[32m2026-10-29 21:31:11.747[0m | [1mINFO    [0m | [36mao_shaping.utils.io.file[0m:[36mload_config[0m:[36m1742
+[0m - [1m已加载slm设备(22030108)配置文件[0m
+[32m2026-10-29 21:31:11.748[0m | [1mINFO    [0m | [36mao_shaping.utils.io.file[0m:[36msave_config[0m:[36m1767
+[0m - [1m配置已保存: D:\Projects\TIFO\AO-shaping\data\slm_configs\slm\22030108.json[0m
+[32m2026-10-29 21:31:11.748[0m | [1mINFO    [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36msave_config[0
+m:[36m1967[0m - [1mSLM配置已保存: D:\Projects\TIFO\AO-shaping\data\slm_configs\slm\22030108.json[0m
+[32m2026-10-29 21:31:11.954[0m | [1mINFO    [0m | [36mao_shaping.drivers.slm.santec.driver[0m:[36mclose[0m:[36
+m807[0m - [1m成功关闭SLM #1[0m
+[32m2026-10-29 21:31:12.070[0m | [1mINFO    [0m | [36m__main__[0m:[36mmain[0m:[36m438[0m - [1m设备锁释放完成=True (
+释放前持有者 {'pid': 451260, 'cmdline': 'D:\\Projects\\TIFO\\AO-shaping\\.venv\\Scripts\\python.exe scripts/slm/replay_saved_
+phases_20261029.py --execute', 'acquired_at': '2026-10-29T13:28:34+00:00', 'unknown': False})[0m
+common 组 13 条: ['flat', 'square_r1_seed', 'square_r1_final', 'triangle_r1_seed', 'triangle_r1_final', 'rectangle_r1_seed', 'rectangle_r1_final', 'square_r2_seed', 'square_r2_final', 'triangle_r2_seed', 'triangle_r2_final', 'rectangle_r2_seed', 'rectangle_r2_final']
+high   组 6 条: ['square_r2_seed', 'square_r2_final', 'triangle_r2_seed', 'triangle_r2_final', 'rectangle_r2_seed', 'rectangle_r2_final']

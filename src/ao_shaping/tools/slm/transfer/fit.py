@@ -21,6 +21,7 @@ from scipy.ndimage import map_coordinates
 
 from ao_shaping.tools.slm.transfer.capture import clock
 from ao_shaping.tools.slm.transfer.device import DEVICE_CHOICES, resolve_device
+from ao_shaping.tools.slm.transfer.radiometry import count_rate
 
 
 def spot(row):
@@ -52,10 +53,28 @@ def geometry(rows):
     return matrix, spread
 
 
-def valid(row):
+def valid(row, full_scale=None):
+    """Whether a captured row may enter the fit.
+
+    The peak gate is a *fraction* of the row's own full scale. It used to be a
+    hardcoded ``peak < 250``: correct for Mono8 and silently wrong for every
+    other depth — a Mono12 capture (peaks near 4095) fails it for every row, so
+    ``load_dataset`` reported "no usable rows" instead of a bit-depth problem.
+    """
+    scale = full_scale if full_scale is not None else row.get("full_scale", 255)
+    try:
+        scale = float(scale)
+    except (TypeError, ValueError):
+        scale = 255.0
+    if not np.isfinite(scale) or scale <= 0:
+        scale = 255.0
+    try:
+        peak = float(row.get("peak", scale))
+    except (TypeError, ValueError):
+        peak = scale
     return (row.get("settled", {}).get("settled", True)
             and row.get("exposure_status", row.get("exposure_setting", {}).get("status", "ok")) == "ok"
-            and float(row.get("peak", 255)) < 250
+            and peak < 250 / 255 * scale
             and float(row["exposure_ms"]) > 0)
 
 
@@ -103,7 +122,7 @@ def load_dataset(directory, size, span, samples=None):
                 payload.close()
         if xy[..., 0].min() < 0 or xy[..., 1].min() < 0 or xy[..., 0].max() >= frame.shape[1] or xy[..., 1].max() >= frame.shape[0]:
             raise ValueError("fixed camera window extends beyond sensor")
-        images.append(frame[xy[..., 1].astype(int), xy[..., 0].astype(int)] / row["exposure_ms"])
+        images.append(count_rate(frame[xy[..., 1].astype(int), xy[..., 0].astype(int)], row))
         phases.append(phase)
     train = np.array([row["split"] == "train" for row in selected])
     if not train.any() or train.all():

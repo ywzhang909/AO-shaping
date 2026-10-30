@@ -317,13 +317,15 @@ def render_process_gif(records: list[dict], path: str | Path, *, fps: float = 2.
     # have nothing to do with the phase. Counts per millisecond is the
     # comparable quantity, and it is what the metrics are computed on.
     def _counts_per_ms(record, image):
-        """Mono8-equivalent counts per millisecond.
+        """Mono8-equivalent counts per millisecond (display only).
 
         The blocks are metered independently and the bit depth changes between
         stages, so the raw counts are neither comparable nor displayable: an
         8-bit frame is capped at 255 counts while a 12-bit frame reaches 4095.
-        ``counts / (exposure_ms * 2**(bit_depth - 8))`` is the same unit the
-        metrics are computed on.
+        Folding 2**(bit_depth-8) in lets one palette cover both, and that is the
+        only reason it is here: the quantity compared against the model is the
+        native counts/ms from ``radiometry.count_rate``, which deliberately does
+        not fold the bit depth in.
         """
         exposure = record.get("exposure_ms") or 0.0
         if image is None or not exposure:

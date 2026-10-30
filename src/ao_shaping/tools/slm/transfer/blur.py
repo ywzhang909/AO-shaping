@@ -16,6 +16,7 @@ import numpy as np
 from scipy.optimize import nnls
 
 from ao_shaping.tools.slm.transfer.capture import clock
+from ao_shaping.tools.slm.transfer.radiometry import count_rate
 from ao_shaping.tools.slm.transfer.validate import ShapeObjective, image_metrics
 from ao_shaping.utils.image.target import POLYGON_SHAPE_CHOICES
 
@@ -48,11 +49,11 @@ def calibrate(args):
         row = next(r for r in rows if r["label"] == shape + "_seed")
         with np.load(args.source / row["file"]) as data:
             xy = data["camera_xy"]
-            measured = (
+            measured = count_rate(
                 data["raw_frames"].mean(0)[
                     xy[..., 1].astype(int), xy[..., 0].astype(int)
-                ]
-                / row["exposure_ms"]
+                ],
+                row,
             )
             samples.append(
                 dict(

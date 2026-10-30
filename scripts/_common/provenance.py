@@ -188,6 +188,88 @@ REPORTS: dict[str, ReportProvenance] = {
         extra_scripts=("src/ml/sim2f/bench.py",),
     ),
 
+    "report/shape_trials/axial_move_sim/axial_move_sim_20261029.md": ReportProvenance(
+        script="scripts/slm/generate_axial_move_sim_report.py",
+        command="python scripts/slm/generate_axial_move_sim_report.py",
+        environment="离线（数字孪生真值，无任何实验测量，无设备）",
+        note="SLM 沿光轴移动的模型代价、远场标度律与 (s, ε) 再辨识边界；S1 标称几何只作灵敏度上界，S2 取 2026-10-29 现场读数。",
+        extra_scripts=(
+            "src/ao_shaping/tools/slm/transfer/axial.py",
+            "src/ao_shaping/drivers/sim/bench_twin.py",
+        ),
+    ),
+
+    "report/shape_trials/blackbox_path/planning_20261029.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线（写于采集之前，无设备）",
+        note=(
+            "采集前写定的判据：H1（模型-实测相关）与 H2（CV 降而 EE 不降）的成功/失败阈值、"
+            "逐形状报告口径与不接受平均的理由。复核结果见 analysis_20261029.md。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/protocol.py",
+        ),
+    ),
+
+    "report/shape_trials/blackbox_path/artifacts/live_acquisition_20261029.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="实验（Santec #1、Daheng Mono12）同曝光同位深重放 + 离线核对",
+        note=(
+            "把两轮已存相位在同一曝光与原生位深下重放，作为「36 倍曝光差来自整形相位而非光路」的"
+            "可比性检验；记录逐帧饱和计数与设备释放状态。"
+        ),
+        extra_scripts=(
+            "scripts/slm/replay_saved_phases_20261029.py",
+            "src/ao_shaping/tools/slm/transfer/replay_phases.py",
+        ),
+    ),
+
+    "report/shape_trials/blackbox_path/live_20261029.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="实验（Santec #1、Daheng Mono12，2f 实验系统）采集 + 离线复核（无设备）",
+        note=(
+            "r1（平面起始相位）与 r2（GS 起始相位）两轮现场记录的逐形状读数、块级接受计数，"
+            "以及按 planning_20261029.md 事先写定判据的复核：H1 未通过（r2 相关中位 0.70）、"
+            "H2 未通过（CV 降但 EE 同步降）。不跨形状平均。"
+        ),
+        extra_scripts=(
+            "scripts/slm/run_blackbox_path_20261029.py",
+            "scripts/slm/summarize_blackbox_path_20261029.py",
+            "scripts/slm/replay_saved_phases_20261029.py",
+            "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+        ),
+    ),
+
+    "report/shape_trials/blackbox_path/analysis_20261029.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线（只读 data/shape_trials/blackbox_path_* 归档产物 + 代码走查，无设备）",
+        note=(
+            "D1 归一化缺陷（锚点除以 counts_scale=16 而模型是原生计数率）、D2 fit.valid 的 8-bit 门限、"
+            "F1 模型对得上能量却对不上残余结构（CV 差 2.1–3.3 倍）、F2 综合分以 EE 换 CV。"
+        ),
+        extra_scripts=(
+            "scripts/slm/summarize_blackbox_path_20261029.py",
+            "scripts/slm/simulate_transfer_units_20261029.py",
+            "src/ao_shaping/tools/slm/transfer/radiometry.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+        ),
+    ),
+
+    "report/shape_trials/blackbox_path/sim_units_20261029.md": ReportProvenance(
+        script="scripts/slm/simulate_transfer_units_20261029.py",
+        command="python scripts/slm/simulate_transfer_units_20261029.py",
+        environment="离线（合成线性相机 + 数字孪生，无设备）",
+        note="无设备复现两条归一化路径：Mono8/Mono12 增益一致性、锚定合成图的目标值、以及块级接受计数。",
+        extra_scripts=(
+            "src/ao_shaping/tools/slm/transfer/radiometry.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+            "src/ao_shaping/tools/slm/transfer/blur.py",
+        ),
+    ),
+
     "report/shape_trials/axial_plane/axial_plane_20261026.md": ReportProvenance(
         script="scripts/slm/generate_axial_plane_report.py",
         command="python scripts/slm/generate_axial_plane_report.py",

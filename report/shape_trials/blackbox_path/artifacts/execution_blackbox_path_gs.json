@@ -1,0 +1,22 @@
+{
+  "out": "data\\shape_trials\\blackbox_path_gs_20261029_201406",
+  "tag": "blackbox_path_gs",
+  "args": {
+    "tag": "blackbox_path_gs",
+    "initial_phase": "gs",
+    "updates": 20,
+    "blocks": 3,
+    "count": 12,
+    "iterations": 120,
+    "side": 200.0,
+    "exposure_steps": 8,
+    "checkpoint": null,
+    "dataset": null,
+    "no_calibration": false
+  },
+  "started": "2026-10-29T20:14:06.991767",
+  "status": "completed",
+  "result": "D:\\Projects\\TIFO\\AO-shaping\\data\\shape_trials\\blackbox_path_gs_20261029_201406",
+  "finished": "2026-10-29T20:44:20.821083",
+  "mutex_released": true
+}
