@@ -4194,6 +4194,13 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - walk 仍只有一条：`_blind_handlers_in_text` 拆出来是为了能喂合成片段做反例，`_blind_except_handlers_in_src` 只负责遍历 —— 这个文件已多次记录"两条 walk 会漂移"的失效形态。
 - 棘轮 `_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC` 55 → **0**：此后 src/ 里任何新增盲捕都必须就地写判定，否则 CI 直接红。#174 剩下的只有**收窄异常类型**，仍受驱动层异常分类学（#145 / #45）门控。
 
+**2026-10-29 · 891180b7 · 第四批去重：候选改由 name-agnostic AST 哈希给出，6 对副本收口（净 −125 行）**
+- 换算法而不是换直觉：对 `scripts/` 全树按 **(函数体 AST + 签名 AST)** 哈希聚类取候选。这一步当场否掉两条我自己记在台账里的猜测 —— `square_amplitude` 的"×4"是**调用点**不是定义（全仓只 1 处 def）；`call_with_timeout` 的唯一副本住在待删文件里 ⇒ 迁它纯属白费工。
+- 六对归属：`_channel_of` → `scripts/_common/md_img_channel.py`（两文件互不 import，且 `_CHANNEL_RE` 只服务这个函数，随函数一起搬）；`_build_env`/`_build_env_from_config` → `scripts/_common/rl_sac_env.py`（这一次同名**确实**同体，逐字节相同 ⇒ 保留 `_build_env`，另一侧唯一调用点改名）；`_rel_diff` 在 impact_report 里是**死副本**（全文件只有 def 那一行，从无调用）⇒ 删除而不是转 forward；`_gauss_kernel`+`_blur` → `scripts/ml/_speckle_aug.py`（增广核，有意**不**进 `eval_stats.py`）；`_predict` 的 keeper 是 AGENTS 点名的 grouped-CV 权威实现 `compare_models_cv.py`。
+- 依赖处理有一处必须偏离"最小改动"：`ao_shaping.optimizer.rl.*` 两行 import 延迟进函数体 —— `rl` 是可选依赖组，模块级 import 会让 `scripts._common.rl_sac_env` 在裸安装下不可 import（同一个坑在 oopao 报告里记过）；两脚本因此删掉变孤儿的 import，否则 F401。两个 benchmark 脚本只 import `_blur`：`_gauss_kernel` 只被 `_blur` 调用，多 import 一个未用名字就是 F401。
+- **发现第三副本但没动**：`scripts/ml/metric_discrimination.py` 另有一套 `_gauss_kernel`/`_blur`，AST 哈希与前两组都不同 ⇒ 登记待判，不强行合并。`scripts/rl/visualize_sac_runs.py` 的 `_build_env_from_config(config: dict)` 是另一个函数。
+- 覆盖：ruff / term（0 文件 0 行）/ provenance / module-size 全绿；13 个受影响文件 py_compile 通过；容器 scripts 分片 + conventions 2904 passed / 78 skipped / 0 failed。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
