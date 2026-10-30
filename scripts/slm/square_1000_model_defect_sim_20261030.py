@@ -500,9 +500,11 @@ def common_mode_sweep(forward, plan, masks: dict, out_dir: Path) -> dict:
 # report's analyzer interpolates between; the RX/RY probe pairs sit inside them.
 DRIFT_ANCHORS = (0, 1, 4, 7, 10, 13)
 #: Probe axis -> (plus capture, minus capture, following anchor capture).
-DIAG_PROBE_GROUPS = {"RX": (5, 6, 7), "RY": (8, 9, 10)}
+DIAG_PROBE_GROUPS = {"N4": (2, 3, 4), "RX": (5, 6, 7), "RY": (8, 9, 10)}
 #: Values reported for the frozen checkpoint, used as a reproduction anchor.
-FROZEN_JACOBIAN = {"RX": 0.270, "RY": 0.444}
+#: RX/RY anchor against report section 10; N4 anchors against section 13.7, which
+#: reports the same code path run on the lowest-order probe.
+FROZEN_JACOBIAN = {"N4": -0.0092, "RX": 0.270, "RY": 0.444}
 FROZEN_JACOBIAN_TOLERANCE = 0.01
 
 # ------------------------------------------------------------ aberration refit (c)
@@ -704,18 +706,22 @@ def jacobian_gate(forward, masks: dict, out_dir: Path, diag_dir: Path = DIAG) ->
     }
     (out_dir / "jacobian.json").write_text(json.dumps(payload, indent=1))
 
-    print(f"{'variant':<22}{'RX full':>9}{'RX box':>9}{'RY full':>9}{'RY box':>9}"
-          f"{'|dRX|':>10}{'|dRY|':>10}")
+    axes = list(DIAG_PROBE_GROUPS)
+    control = [a for a in ("RX", "RY") if a in DIAG_PROBE_GROUPS]
+    header = f"{'variant':<22}"
+    for axis in axes:
+        header += f"{(axis + ' full'):>9}{(axis + ' box'):>9}"
+    print(header + "".join(f"|d{a}|".rjust(10) for a in axes))
     for row in rows:
-        print(f"{row['variant']:<22}"
-              f"{row['RX']['cosine_full']:+9.4f}{row['RX']['cosine_box']:+9.4f}"
-              f"{row['RY']['cosine_full']:+9.4f}{row['RY']['cosine_box']:+9.4f}"
-              f"{row['RX']['pred_delta_norm']:10.4f}{row['RY']['pred_delta_norm']:10.4f}")
+        line = f"{row['variant']:<22}"
+        for axis in axes:
+            line += f"{row[axis]['cosine_full']:+9.4f}{row[axis]['cosine_box']:+9.4f}"
+        print(line + "".join(f"{row[a]['pred_delta_norm']:10.4f}" for a in axes))
     for axis, block in sanity.items():
         print(f"frozen sanity {axis}: {block['model_cosine']:+.5f} vs reported "
               f"{block['reported_cosine']:+.3f} (tol {block['tolerance']}) -> OK")
-    print(f"gate (b) needs both cosines >= {_GATE_JACOBIAN_COSINE}; best now "
-          f"{max(min(row['RX']['cosine_full'], row['RY']['cosine_full']) for row in rows):+.4f}"
+    print(f"gate (b) needs both control cosines >= {_GATE_JACOBIAN_COSINE}; best now "
+          f"{max(min(row[a]['cosine_full'] for a in control) for row in rows):+.4f}"
           f" -> defect_sim/jacobian.json")
     return payload
 
@@ -794,6 +800,7 @@ def fit_residual_aberration(forward, phases: dict[str, np.ndarray],
     forward.residual_values = values.detach().clone()
     return {"modes": list(forward.residual_modes),
             "values": np.asarray(values.detach(), dtype=np.float64),
+            "parameter_dtype": str(values.dtype),
             "trace": trace, "final_loss": float(trace[-1])}
 
 
@@ -871,7 +878,8 @@ def aberration_fit(plan, masks: dict, out_dir: Path) -> dict:
                 "coefficients": {int(mode): float(value)
                                  for mode, value in zip(result["modes"], result["values"])},
                 "coefficients_rad_rms": float(np.sqrt(np.mean(result["values"] ** 2))),
-                "parameter_dtype": str(result["values"].dtype),
+                "fitted_tensor_dtype": result["parameter_dtype"],
+                 "exported_coefficient_dtype": str(result["values"].dtype),
                 "final_train_loss": result["final_loss"],
                 "train_loss_trace": result["trace"],
                 "r_diag_by_seed": diagonal,
@@ -971,7 +979,11 @@ def aberration_fit(plan, masks: dict, out_dir: Path) -> dict:
             "iterations": FIT_ITERATIONS,
             "lr": FIT_LR,
             "torch_seed": FIT_TORCH_SEED,
-            "parameter_dtype": best["parameter_dtype"],
+            "fitted_tensor_dtype": best["fitted_tensor_dtype"],
+            "exported_coefficient_dtype": best["exported_coefficient_dtype"],
+            "dtype_note": ("the fitted leaf tensor carries the forward's own working dtype "
+                           "(float32): torch rejects float64 values against the float32 mode "
+                           "basis (defocus_phase einsum) and float32 sample grids (grid_sample)"),
             "loss": "mean(-Pearson(pred - floor, measured)) over train seeds, target-box mask",
             "signal_definition": "predict(exposure_ms) - (background + bias/exposure_ms)",
             "held_out_folds": {name: list(group) for name, group in SEED_PHASE_GROUPS.items()},
