@@ -246,7 +246,7 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线（只读 data/shape_trials/blackbox_path_* 归档产物 + 代码走查，无设备）",
         note=(
             "D1 归一化缺陷（锚点除以 counts_scale=16 而模型是原生计数率）、D2 fit.valid 的 8-bit 门限、"
-            "F1 模型对得上能量却对不上残余结构（CV 差 2.1–3.3 倍）、F2 综合分以 EE 换 CV。"
+            "F1 模型对得上能量却对不上残余结构（CV 差 2.1–3.3 倍）、F2 复合分数以 EE 换 CV。"
         ),
         extra_scripts=(
             "scripts/slm/summarize_blackbox_path_20261029.py",

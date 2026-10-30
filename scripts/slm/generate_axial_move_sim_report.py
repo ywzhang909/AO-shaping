@@ -210,7 +210,7 @@ def fit_scale_and_defocus(measured: np.ndarray, phase: np.ndarray,
 
 
 def extent_side_px(frame: np.ndarray, half_side: float) -> float:
-    """目标框内 (强度 > 半高) 的等效方形边长 — 只读尺寸, 不读均匀性。"""
+    """目标框内 (强度 > 半高) 的等效方形边长 — 只读尺寸, 不读均匀度。"""
     arr = np.asarray(frame, dtype=np.float64)
     n = arr.shape[0]
     centre = (n - 1) / 2.0
