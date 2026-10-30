@@ -1484,8 +1484,6 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             if algorithm != "spgd":
                 _rec = _run_heuristic(
                     state,
-                    _init_c=_init_c,
-                    _init_r=_init_r,
                     algorithm=algorithm,
                     blaze_choice=blaze_choice,
                     cam=cam,
@@ -1752,8 +1750,6 @@ class _RunState:
 def _run_heuristic(
     state: "_RunState",
     *,
-    _init_c,
-    _init_r,
     algorithm,
     blaze_choice,
     cam,
@@ -1823,7 +1819,7 @@ def _run_heuristic(
                         delta_val=float(delta),
                         max_brt=float(np.max(img)),
                         loggrad=float(last_eval.get("loggrad", 0.0)),
-                                            _init_r=_init_r,
+                        _init_r=state._init_r,
                         best_objective=state.best_objective,
                         cam=cam,
                         objective=objective,
@@ -1860,7 +1856,7 @@ def _run_heuristic(
                     dim=nk,
                     iterations=epochs,
                     bounds=(-ZERNIKE_CLIP, ZERNIKE_CLIP),
-                    x0=_init_c,
+                    x0=state._init_c,
                     maximize=(objective_mode == "max"),
                     seed=random_seed,
                     pop_size=pop_size,

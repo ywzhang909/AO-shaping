@@ -4211,6 +4211,12 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 唯一残留提及：`docs/scripts_functional_map.json:128` 仍列已删路径 —— 该快照无生成器、无测试引用（第一批已认定其提及不构成依据），但现在可证地在腐化；"这类快照要不要纳入规则 3③" 登记待定。
 - 覆盖：容器 scripts 分片 + conventions 2901 passed / 78 skipped / 0 failed（比上一批少 3 条 = 被删脚本从 scripts 遍历参数消失，非回归）；ruff / term（0 文件 0 行）/ provenance / module-size 全绿。
 
+**2026-10-30 · ca8890c6 · 去重待判项收口：metric_discrimination 的第三套 _gauss_kernel/_blur 并入 _speckle_aug（净 −18 行）**
+- 上一批（891180b7）登记的"第三副本"（`scripts/ml/metric_discrimination.py` 另有一套 `_gauss_kernel`/`_blur`，AST 哈希与前两组都不同）本轮给出判定后并入。判定是两步实测，不是看像不像：剥掉 `_blur` 的说明 docstring + 局部名 `flat`→`f` 后，两函数体 `ast.dump` 逐一相等（哈希差异全部来自 docstring 与命名，无数学差异）；`torch.manual_seed(0)` 下 3 形状 × 4 sigma 共 12 组，`_blur` 输出 `torch.equal` 全真（0 失配）。
+- 改动：`metric_discrimination.py` 删本地两套 def，改 `from scripts.ml._speckle_aug import _blur`（与既有两个消费方同一模式；`_gauss_kernel` 只被 `_blur` 使用，不另 import）；reflect-pad + 'valid' conv 的理由 docstring 迁进 keeper `_speckle_aug._blur`（知识保留在唯一入口）；`_speckle_aug` 模块 docstring 更新为三个消费方。
+- 附加记录两项：① 同批台账条目里的一个未登记口语词被术语门禁拦下（C4/C5 的数量量词写法），已在 d36bbbfb 按规范词改写补绿 —— 教训：**TODO 条目入 commit 前同样先过 term gate**，且完成脚本要用 `&&` 串联而不是顺序行；② `oxpy` 在 /tmp 下启动时仓库相对路径会失配一次 —— 沙箱侧环境记录，不属代码事实。
+- 覆盖：py_compile 2 文件通过；ruff / term（0 文件 0 行）/ provenance / module-size 全绿；容器 scripts 分片 + conventions 2901 passed / 78 skipped / 0 failed。
+
 **2026-10-30 · f6b3e186 · gitub/master 合入后的三处门禁红收口（BOM / 入口点路径 / 盲捕棘轮 344 → 347）**
 - 三处都是「两侧各自绿、合并后红」的形态，不是新写的代码。① `tests/ao_shaping/gui/slm/test_optical_probe_button.py` 是**本地独有**文件（base `9fd5642d` 与 `d36bbbfb` 都没有），首三字节却是 UTF-8 BOM ⇒ 新并入的 `test_no_tracked_source_py_starts_with_a_utf8_bom` 直接红。该测试本身是活的（276 行，锁 `render_optical_probe` 的四态措辞 + 曝光写回 + 无设备/忙碌禁用），所以只剥 3 字节、不删文件。
 - ② `tools/slm/panel/probe_policy.py` 的排查话术仍写 `python -m ao_shaping.tools.slm.slm_diagnose`，模块早已迁到 `ao_shaping.tools.slm.panel.diagnose`（`main()` 与 `__main__` 都在）。这一处同时点亮两条红：`test_documented_python_dash_m_entry_points_resolve`（目标不可运行）与 `test_the_baseline_has_not_grown_and_is_still_justified`（它校验 `_ALLOWED_UNRESOLVED` 集合与实际未解析集合**相等**，新坏的一处让两侧分叉）⇒ 改路径后两条一并转绿，`_ALLOWED_UNRESOLVED` 未加白名单。
