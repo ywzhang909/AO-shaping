@@ -711,6 +711,7 @@ class TestHardwareWiring:
             far_field_padding=4,
             panel_span_px=900.0,
             slm_pixel_um=8.0,
+            camera_pixel_um=8.0,
             wavelength_nm=1064,
             error_params=error_params,
         )

@@ -4225,6 +4225,12 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 未并入的部分：`test_markdown_table_rows_never_write_more_cells_than_declared` 在本机因 `data/debug/**/report.md` 而红，那是 `.gitignore:26`（`data/*`）下的**未入库**调试产物，CI 的干净检出没有 `data/`；不动它，也不据此改守卫。
 - 复核口径：`_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC` 的 347 用守卫自身的 AST 规则在四个 ref 上各算一遍（base 340 / `ac8e862a` 347 / `d36bbbfb` 340 / 合并 347），不是按新增文件行数估的。
 
+**2026-10-30 · 6b52f34c · #44 前置收窄一刀：_run_heuristic 去掉与 state 同瓶的 _init_c/_init_r kwargs（入口 523 → 521 行）**
+- 等价性是构造性的：分发点同一局部量同时进 `_RunState(...)` 与被删的 kwargs；`_run_heuristic` 对这两个名字零重绑（第四步实测 nonlocal 清单 = {best_c, best_objective, last_best_epoch}）；体内两个读点改读 `state._init_c`/`state._init_r`；全树无测试直接构造 `_run_heuristic`。
+- 刻意不做：`delta`/`r_bucket` 等同名双通道保留 —— 入口局部量在 SPGD 分发后仍被读，属于该串记录的「持有者成为权威」独立一刀（删两处写回 + 入口 21 个赋值点），不混入本刀。
+- 回归：wfless 子树 per-file 指纹改前改后 55 文件逐项一致 —— 1081 passed / 2 skipped / 0 failed；ruff / py_compile / term 全绿。
+- 落地时上游合入（`4c81b8be`）带进 3 个既有红（gs-refine golden ×2 的 `far_field_pixel_size=0.0` 除零、model_in_loop 几何重锚的 `focal_length_m=0.0`）；在纯 `4c81b8be`（不含本刀）上逐一复现 ⇒ 与本刀无关，归因见 #44 评论 6523191905；修复在下一条目记录。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
