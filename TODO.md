@@ -4260,6 +4260,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 三处成文：AGENTS.md 规则 3③ 括号（活登记表仅 `scripts/README.md`；冻结快照不随删除同步、其提及不构成「仍被引用」依据、快照自身须声明冻结）；JSON 头部 `_notice`（冻结声明 + 已知腐化条目点名 + 不作五向预筛依据 + 活登记表指针；解析核验通过，12 类数据未动）；classification 委托行标注冻结语义。
 - 刻意不做：`:128` 已删路径条目不修 —— 修正即开始维护，与冻结矛盾，`_notice` 已声明该已知陈旧；`scripts_issue_body.md:6` 不改（已发布 issue 正文属历史记录本身）。
 
+**2026-10-30 · adb26c26 · #211 收口：inspect CLI 人类表格回 stdout，诊断在 main() 边界重绑当前 sys.stderr**
+- 根因：`bec67c67` 的 print→loguru 扫描把 `src/ml/hwdataset/inspect.py` 表格扫成 `logger.info`（默认 sink = stderr 且**绑在 import 时刻的流上**）；同文件 `--json` 走 `json.dump(..., sys.stdout)` 仍绿 —— 同一 CLI 两条输出路径自相矛盾。基线容器实测 **7 failed / 7 passed**（比 issue 所列 6 个多一个 `test_empty_corpus_exits_two`：默认 sink 绑旧流，capsys 换流后诊断逃过捕获）。
+- 方案裁决：不采 e9b1df26 形态（`remove + add(sys.stdout)` 会把诊断路由到 stdout，与两处 stderr 断言冲突；add-only 则每次 `main()` 叠加一个 sink，输出成倍重复）；采 67d8e327「stdout 即产物」判例 —— 表格行 + cache 成功行 revert 回 `print`，诊断保留 loguru 但在 `main()` 开头 `logger.remove(); logger.add(sys.stderr, level="WARNING")` 重绑**当前**流。实测依据：纯 revert 后仍 13/14，唯一红项正是断言 err 的那个用例。
+- 验收：`test_inspect_cli.py` 14/14；hwdataset 全目录 per-file 9 文件 387 passed / 0 failed；ruff / term / provenance / module-size 全绿。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
