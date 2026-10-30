@@ -1,7 +1,7 @@
 # AO-Shaping 文档总索引
 
 > 本文件是 `docs/` 的**入口索引**：按主题分域，每个文件一句话说明"这里能查到什么"。
-> 共 157 个 Markdown 文档（2026-10-23 盘点，2026-10-26 重钉：`spgd-square` 幽灵页删除后 147→146，新增相差光路多方案整形对比实验方案后 146→147，新增 `scripts/` 功能分类两份分析文档后 147→149；2026-10-29 复核：`find docs -name '*.md' | wc -l` = 157）。新文档请在本索引登记后再提交。
+> 共 160 个 Markdown 文档（2026-10-23 盘点，2026-10-26 重钉：`spgd-square` 幽灵页删除后 147→146，新增相差光路多方案整形对比实验方案后 146→147，新增 `scripts/` 功能分类两份分析文档后 147→149；2026-10-29 复核：`find docs -name '*.md' | wc -l` = 157；2026-10-30 复核：新增 `multishape_campaign_ui` SRS/用户手册（`0ec5e32d`）+ `streamlit_theme`（`d3fb61c5`）3 份后 157→160）。新文档请在本索引登记后再提交。
 >
 > 阅读路径建议：
 > 1. 第一次接触仓库 → `dev/call_graph_wiki/index.md`（调用图 + 逐函数手册，含全局调用图/类图）
@@ -105,14 +105,17 @@
 | `slm/slm_patterns/shaping.md` | SLM 整形图案说明 |
 | `slm/slm_transfer_workflow.md` | 三形状（方/三角/星）物理预测模型整形统一入口 `python -m ao_shaping.tools.slm.transfer`：规划、物理迁移、GS 初始化、曝光响应、展宽校准、CCD 锚定可微优化与原始数据验收 |
 
-## GUI 前端（Streamlit）— 18 篇
+## GUI 前端（Streamlit）— 21 篇
 
 | 文档 | 说明 |
 |---|---|
 | `GUI/slm/multi_slm_controller/multi_slm_controller_srs.md` | multi_slm_controller.py 软件需求规格说明书 (SRS)：功能/非功能需求、接口规范、系统类图、设计约束 |
 | `GUI/slm/multi_slm_controller/multi_slm_controller_user_manual.md` | multi_slm_controller.py 用户手册：设备连接/相位下发/闭环远场整形操作指南 |
+| `GUI/slm/multishape_campaign_ui/multishape_campaign_ui_srs.md` | multishape_campaign_ui.py 软件需求规格说明书 (SRS)：多形状整形 campaign 操作台，「形状 + 尺寸」为唯一必填，其余参数自动派生并逐行标来源（实测/派生/默认/手工） |
+| `GUI/slm/multishape_campaign_ui/multishape_campaign_ui_user_manual.md` | multishape_campaign_ui.py 用户手册：多形状整形 campaign 选形状/定尺寸 → 派生参数 → 计划矩阵/时间磁盘预算/检查卡/历史复盘 |
 | `GUI/slm/slm_calibration_ui/slm_calibration_ui_srs.md` | SLM LUT 校准 UI (slm_calibration_ui.py) 软件需求规格说明书 (SRS) |
 | `GUI/slm/slm_calibration_ui/slm_calibration_ui_user_manual.md` | SLM LUT 校准 UI (slm_calibration_ui.py) 用户手册 |
+| `GUI/slm/streamlit_theme.md` | SLM 整形 GUI 主题配置存档（`.streamlit/config.toml` 正本）：白底冷蓝操作台 + 8 档灰阶 + 语义色 + AA 对比度，附复原命令与 `streamlit_theme_config.toml` |
 | `GUI/ccd/ccd_analyzer/ccd_analyzer_srs.md` | CCD 实时图像分析 UI (ccd_analyzer.py) 软件需求规格说明书 (SRS) |
 | `GUI/ccd/ccd_analyzer/ccd_analyzer_user_manual.md` | CCD 实时图像分析 UI (ccd_analyzer.py) 用户手册 |
 | `GUI/r50/r50_controller_ui/r50_controller_ui_srs.md` | R50 控制器控制面板 UI (r50_controller_ui.py) 软件需求规格说明书 (SRS) |
