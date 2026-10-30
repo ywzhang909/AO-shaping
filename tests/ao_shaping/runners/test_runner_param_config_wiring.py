@@ -183,6 +183,49 @@ def _config_call_kwargs(builder_name: str) -> dict[str, str]:
     raise AssertionError(f"no *Config(...) call found in {builder_name}()")
 
 
+#: Kwargs whose value is *resolved* instead of copied: the builder hands
+#: ``params`` to a helper that combines the operator's override with the camera
+#: model (``--camera-pixel-um 0`` means "ask the model"). Reading
+#: ``params.<field>`` straight into the ``Config(...)`` call would bypass that
+#: single source, so the check follows the call one level into the helper rather
+#: than exempting the field outright: the helper itself must read
+#: ``params.<field>``, which :func:`_resolved_through` verifies.
+_RESOLVED_KWARGS: dict[tuple[str, str], str] = {
+    ("build_gs_refine_config", "camera_pixel_um"): "_resolve_camera_pixel_um",
+    ("build_model_in_loop_config", "camera_pixel_um"): "_resolve_camera_pixel_um",
+}
+
+
+def _function_node(name: str) -> ast.FunctionDef:
+    tree = ast.parse(Path(runner_common.__file__).read_text(encoding="utf-8-sig"))
+    return next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == name
+    )
+
+
+def _resolved_through(builder_name: str, resolver_name: str, field: str) -> bool:
+    """True iff ``builder`` passes ``params`` to ``resolver``, which reads ``field``.
+
+    Both halves matter: the first pins *which* helper resolves the kwarg, the
+    second keeps the "the CLI value is actually read" proof that a plain
+    exemption would drop.
+    """
+    builder = _function_node(builder_name)
+    hands_over_params = any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == resolver_name
+        and any(isinstance(arg, ast.Name) and arg.id == "params" for arg in node.args)
+        for node in ast.walk(builder)
+    )
+    if not hands_over_params:
+        return False
+    resolver_src = ast.unparse(_function_node(resolver_name))
+    return f"params.{field}" in resolver_src
+
+
 def _field_names(cls: type) -> set[str]:
     return {f.name for f in dataclasses.fields(cls)}
 
@@ -227,15 +270,20 @@ class TestWiring:
 
         A builder-local kwarg such as ``record_debug=debug`` is exempt because
         its name is not a params field; everything whose name *is* a params
-        field must read ``params.<that same field>``.
+        field must read ``params.<that same field>`` — directly, or through the
+        registered resolver in :data:`_RESOLVED_KWARGS` (which must itself read
+        the field, see :func:`_resolved_through`).
         """
         kwargs = _config_call_kwargs(family.builder_name)
         params_fields = _field_names(family.params)
-        wrong = {
-            name: src
-            for name, src in kwargs.items()
-            if name in params_fields and f"params.{name}" not in src
-        }
+        wrong = {}
+        for name, src in kwargs.items():
+            if name not in params_fields or f"params.{name}" in src:
+                continue
+            resolver = _RESOLVED_KWARGS.get((family.builder_name, name))
+            if resolver and _resolved_through(family.builder_name, resolver, name):
+                continue
+            wrong[name] = src
         assert not wrong, (
             f"{family.builder_name}() sets {wrong} without reading the matching "
             f"params field — a hardcoded or mis-sourced value"

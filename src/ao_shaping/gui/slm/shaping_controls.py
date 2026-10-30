@@ -71,7 +71,6 @@ from loguru import logger
 from ao_shaping.drivers.slm.santec import (
     MEMORY_MODE_INTERNAL,
     Santec,
-    describe_santec_error,
 )
 from ao_shaping.drivers.slm.santec.slm200_constants import (
     PITCH_UM as SLM_PITCH_UM,
@@ -83,6 +82,10 @@ from ao_shaping.gui.slm import bench_settings
 from ao_shaping.gui.slm.bench_settings import (
     CAM_TYPE_OPTIONS,
     MIL_TARGET_SIDE_MIN_PX,
+)
+from ao_shaping.gui.slm.bench_status_view import (
+    render_bench_status,
+    render_exposure_status,
 )
 from ao_shaping.gui.slm.link_design_assist import (
     DEFAULT_FAR_SIDE,
@@ -98,6 +101,17 @@ from ao_shaping.gui.slm.link_design_assist import (
 )
 from ao_shaping.gui.slm import sampling_assist
 from ao_shaping.gui.slm.pattern_controls import refresh_phase_preview
+from ao_shaping.gui.slm.slm_ownership import SlmOwnership, with_slm_ownership
+from ao_shaping.gui.slm.transfer_candidates import (
+    TRANSFER_FP_SESSION_KEY,
+    TRANSFER_NO_SOURCE_LABEL,
+    TRANSFER_SHAPE_LABELS,
+    _candidate_root,
+    _unique_labels,
+    fingerprint_from_state,
+    transfer_checkpoint_candidates,
+    transfer_seed_run_candidates,
+)
 from ao_shaping.gui.slm.transfer_progress import collect_progress, render_progress
 from ao_shaping.gui.utils.phase_overlay import apply_overlays_to_handle
 from ao_shaping.optimizer.wfless.slm_gs_refine import VALIDATED_GS_REFINE_RECIPE
@@ -128,6 +142,8 @@ __all__ = [
     "GS_REFINE_RECIPE",
     "MIL_BUDGET_PRESETS",
     "SHAPING_METHODS",
+    "TRANSFER_FP_SESSION_KEY",
+    "TRANSFER_NO_SOURCE_LABEL",
     "TRANSFER_RECIPE",
     "TRANSFER_SHAPE_LABELS",
     "TRANSFER_STAGE_LABELS",
@@ -150,6 +166,8 @@ __all__ = [
     "render_closed_loop_shaping",
     "shaping_method_labels",
     "shaping_session",
+    "transfer_checkpoint_candidates",
+    "transfer_seed_run_candidates",
     "validate_daheng_exposure",
     "validate_daheng_fixed_exposure",
     "validate_exposure",
@@ -413,135 +431,6 @@ def numeric_exposure(raw: Any) -> float | None:
 
 
 # ---------------------------------------------------------------------------
-# Device lifecycle — the optimizer owns the handles while a run is in flight
-# ---------------------------------------------------------------------------
-
-
-def _stop_background_toggle(slm_num: int) -> None:
-    """Stop any phase-A/B toggle thread bound to this SLM.
-
-    Lazy import: ``multi_slm_controller`` imports this module at module level,
-    so the reverse edge has to be deferred.
-    """
-    from ao_shaping.gui.slm.multi_slm_controller import _stop_toggle
-
-    _stop_toggle(slm_num)
-
-
-def _release_slm_handle(slm_num: int) -> None:
-    """Close the GUI's SLM handle so the optimizer can open its own.
-
-    Only the target SLM is released; the other SLM (dual layout) stays
-    connected.  Session state is cleared the same way ``disconnect_slm`` does
-    (minus the rerun), so the sidebar reflects reality during the run.
-    """
-    prefix = f"slm{slm_num}"
-    slm = st.session_state.get(prefix)
-    if slm is not None and getattr(slm, "is_open", False):
-        try:
-            slm.close()
-        except Exception as exc:  # policy: must not block the reacquire: the handle slot is cleared either way, so a refusing close cannot be allowed to abort the handover
-            logger.exception("SLM {} 整形前释放句柄失败: {}", slm_num, exc)
-    st.session_state[prefix] = None
-    st.session_state[f"{prefix}_connected"] = False
-    st.session_state[f"{prefix}_phase_preview"] = None
-    st.session_state[f"{prefix}_phase_source"] = "闭环整形运行中"
-
-
-def _reacquire_slm_handle(slm_num: int) -> Any:
-    """Re-open the SLM after the optimizer closed its own handle.
-
-    ``Santec.open()`` reloads the per-serial config file itself (wavelength,
-    shift, correction), so the reacquired device carries the same settings the
-    sidebar had before the run.  The fresh :class:`Santec` is wrapped in the
-    controller-layer overlay proxy (same as ``connect_slm``) so the send
-    pipeline overlay (defocus + base phase) is carried on the session handle,
-    and the proxy is both stored and returned (the session holds exactly what
-    the caller gets back).
-    """
-    from ao_shaping.gui.slm.multi_slm_controller import _sync_slm_session_state
-    from ao_shaping.gui.utils.phase_overlay import OverlaidSantec
-
-    prefix = f"slm{slm_num}"
-    try:
-        raw = Santec(slm_number=slm_num)
-        raw.open()
-    except Exception as exc:  # 保留宽泛捕获: 内部调用链 Santec 的失败类型不可枚举
-        logger.exception("SLM {} 整形后重新连接失败: {}", slm_num, exc)
-        # policy: 与侧边栏「连接」按钮同一套提示: 说明是设备被占用还是 USB 断链,
-        # 而不是把原始错误码直接甩给操作员。
-        st.error(
-            f"SLM {slm_num} 整形后重新连接失败。\n\n"
-            f"{describe_santec_error(exc)}\n\n"
-            "请在侧边栏手动重连。"
-        )
-        return None
-    slm = OverlaidSantec(raw)
-    st.session_state[prefix] = slm
-    st.session_state[f"{prefix}_connected"] = True
-    _sync_slm_session_state(slm_num, slm)
-    return slm
-
-
-@dataclass
-class SlmOwnership:
-    """The SLM-handle handover slot yielded by :func:`with_slm_ownership`.
-
-    Inside the ``with`` body the GUI owns **no** handle (``slm`` is ``None`` by
-    construction — the optimizer or the calibrator has it).  On exit the
-    re-acquired handle lands in :attr:`slm`, so the caller can adopt a phase
-    afterwards — the only point at which the GUI owns the device again.
-
-    ``st.session_state`` lives on the ``Streamlit`` object, not on this module,
-    so the tests can swap in a plain dict and drive the whole handover offline.
-    """
-
-    slm_num: int
-    slm: Any = None
-
-
-@contextmanager
-def with_slm_ownership(
-    slm_num: int, slot: SlmOwnership | None = None
-) -> Iterator[SlmOwnership]:
-    """Hand the SLM to whoever needs it for the whole body, then take it back.
-
-    Three steps, in this order:
-
-    1. stop the background phase toggle (it would fight for the panel);
-    2. release the GUI's handle — Santec SDK handles are not re-entrant, and
-       the optimizers *and* the session calibrator open their own;
-    3. ``finally``: re-acquire, so a crash or an abort cannot strand the page
-       without a device.
-
-    The whole body also runs under the session ``bench_busy`` flag, which is what
-    disables the sidebar optical-path controls while a run or a calibration is
-    in flight.
-
-    Both entry points share it: :func:`shaping_session` (a shaping run) and the
-    sidebar calibration button.  ``slot`` is optional, so a caller can hold the
-    reference *before* entering — that is what lets the ``finally`` of
-    :func:`shaping_session` read :attr:`SlmOwnership.slm` even when step 1 or 2
-    raised.  Exceptions from the body propagate untouched — surfacing them once
-    is the caller's job.
-    """
-    owned = slot if slot is not None else SlmOwnership(slm_num)
-    _stop_background_toggle(slm_num)
-    bench_settings.set_bench_busy(True)
-    _release_slm_handle(slm_num)
-    try:
-        yield owned
-    finally:
-        # Nested, not sequential: a re-acquire that raised would otherwise leave
-        # ``bench_busy`` stuck True, which disables the sidebar optical-path
-        # controls for the rest of the session with no way to clear them.
-        try:
-            owned.slm = _reacquire_slm_handle(slm_num)
-        finally:
-            bench_settings.set_bench_busy(False)
-
-
-# ---------------------------------------------------------------------------
 # Registry + lifecycle decorator
 # ---------------------------------------------------------------------------
 
@@ -713,12 +602,22 @@ def _slms_on_screen() -> int:
 
 
 def _param_cells(count: int) -> list[Any]:
-    """为 ``count`` 个参数控件铺格子：单 SLM 一行铺满，双 SLM 每行最多 2 个。
+    """为 ``count`` 个参数控件铺格子：单 SLM 每行最多 4 个，双 SLM 每行最多 2 个。
+
+    列数按**组大小**定，不铺满整行：小参数组（frames/seed 这种 2 个字段的）就
+    占 2 列，5 个字段的组（GS 目标行）拆成 3+2 —— 塞成一行 5 列时每格只剩
+    ~120 px，number_input 的标签换行、数字被截（#215 审计 8/10）。4 个一组是
+    真正的四参数组，保持一行 4 列。
 
     格子顺序 = ``st.columns`` 逐行创建顺序；调用方按返回顺序放置控件，
     ``values[key] = ...`` 的写入顺序就与重排前逐一相同（预设联动依赖这个顺序）。
     """
-    per_row = count if _slms_on_screen() < 2 else min(2, count)
+    if _slms_on_screen() >= 2:
+        per_row = min(2, count)
+    elif count > 4:
+        per_row = 3
+    else:
+        per_row = count
     per_row = max(1, per_row)
     cells: list[Any] = []
     while len(cells) < count:
@@ -2108,19 +2007,6 @@ class ModelInLoopMethod(ShapingMethod):
 # Transfer: physical-forward-model closed loop (docs/slm/slm_transfer_workflow.md)
 # ---------------------------------------------------------------------------
 
-#: 本页选项集（迁移学习历来跑的四种）→ 中文名，仅用于显示；校验走
-#: :data:`ao_shaping.utils.image.target.TRANSFER_SHAPE_CHOICES`，名字的唯一来源是
-#: :data:`ao_shaping.utils.image.target.shapes.TARGET_SHAPE_LABELS`。
-#: 原先 ``star`` 的文案写着「尚无实验结果」——那条已过期：2026-10-28 的 multishape
-#: campaign 里 star 四段全部跑完
-#: （``report/shape_trials/multishape_scale/multishape_scale_live_20261028.md`` §3.2）。
-TRANSFER_SHAPE_LABELS: dict[str, str] = {
-    "square": "正方形",
-    "rectangle": "长方形",
-    "triangle": "三角形",
-    "star": "五角星",
-}
-
 #: The recipe the reproduction report ran (report/shape_trials/multishape_capability/
 #: physical_multishape_reproduction_20261023.md); the GUI defaults to it so the
 #: operator reproduces measured behaviour rather than a guessed budget.
@@ -2189,6 +2075,17 @@ def discover_transfer_checkpoint() -> Path | None:
         reverse=True,
     )
     return candidates[0] if candidates else None
+
+
+# 候选/文案层在 ``ao_shaping.gui.slm.transfer_candidates``（纯数据，不 import
+# streamlit）；本文件只做 re-export（``__all__`` 逐名未变）与 session_state 接线。
+def _session_fingerprint() -> dict[str, Any] | None:
+    """``st.session_state`` 里放的当前光路指纹；没放 ⇒ ``None``（候选不带兼容分）。"""
+    try:
+        stored = st.session_state.get(TRANSFER_FP_SESSION_KEY)
+    except Exception:  # 裸模式/无脚本上下文：当作没放
+        return None
+    return fingerprint_from_state(stored)
 
 
 def plan_transfer_session_dir(root_dir: Path = Path("data")) -> Path:
@@ -2439,23 +2336,7 @@ class TransferMethod(ShapingMethod):
     def render_advanced(self, values: dict[str, Any]) -> None:
         """迁移来源与验收口径（与 CLI 的 --checkpoint/--seed-run/--adaptation/... 同名）。"""
         d = TRANSFER_RECIPE
-        found = discover_transfer_checkpoint()
-        values["checkpoint"] = st.text_input(
-            "历史检查点 (frozen_parameters.json)",
-            value=str(found) if found is not None else "",
-            key=self.wkey("checkpoint"),
-            help="留空 = 冷启动（先名义模型初始化再完整拟合，慢且初值未标定）。"
-            "默认自动填入最近一次 transfer 会话的冻结检查点",
-        )
-        if found is not None:
-            st.caption(f"自动发现最近检查点：{found}")
-        values["seed_run"] = st.text_input(
-            "历史接受相位目录 (跳过 GS)",
-            value="",
-            key=self.wkey("seed_run"),
-            help="指向历史会话的 anchored/ 目录；填写后初值来自历史接受相位，"
-            "本轮不调用 GS（CLI --seed-run）",
-        )
+        self._render_load_source(values)
         cells = _param_cells(4)
         with cells[0]:
             values["adaptation"] = st.selectbox(
@@ -2532,6 +2413,142 @@ class TransferMethod(ShapingMethod):
             f"附加曝光上限仍受 {DAHENG_EXPOSURE_LIMIT_ENV} 约束"
             f"（当前 {configured_daheng_exposure_limit() or '未设置 = 由画面探测'}）。"
         )
+
+    # --- 迁移来源：候选下拉（默认） / 手动路径（折叠，降级） -------------
+
+    def _render_load_source(self, values: dict[str, Any]) -> None:
+        """迁移来源：候选下拉为准，手打路径降级成折叠区（默认路径上没有输入框）。
+
+        实测依据（2026-10-29）：这两个框曾是主路径上唯一要手打路径的地方，而
+        「打错一个字 → 跑十分钟才发现读的是空目录」是这条链路上最贵的一类错误；
+        候选本来就在 ``checkpoint_registry`` 的索引里，没有理由再让人抄一遍。
+        索引不可用/为空时回落 :meth:`_render_manual_load_source`（功能不能丢）。
+        """
+        root = _candidate_root(None)
+        rows = transfer_checkpoint_candidates(root=root, current_fp=_session_fingerprint())
+        seeds = transfer_seed_run_candidates(root=root)
+        if rows is None:
+            self._render_manual_load_source(values, "候选索引不可用，请手动填写")
+            return
+        if not rows:
+            self._render_manual_load_source(
+                values,
+                f"候选索引为空（{root} 下还没有登记过的检查点），请手动填写",
+            )
+            return
+
+        picked = self._checkpoint_selectbox(rows)
+        seed = self._seed_run_selectbox(seeds or ())
+        with st.expander("手动指定路径（未校验）", expanded=False):
+            st.caption(
+                "索引覆盖不到的历史目录才需要手填；手填值优先于上面的候选，"
+                "且不经过索引校验。"
+            )
+            manual_checkpoint = st.text_input(
+                "手动检查点路径 (frozen_parameters.json)",
+                value="",
+                key=self.wkey("checkpoint_manual"),
+                help="必须是 frozen_parameters.json 文件的完整路径；留空 = 用上面的候选",
+            )
+            manual_seed = st.text_input(
+                "手动历史接受相位目录",
+                value="",
+                key=self.wkey("seed_run_manual"),
+                help="目录里必须有 manifest.json 与 config.json；留空 = 用上面的候选",
+            )
+            self._note_manual_path("检查点", manual_checkpoint)
+            self._note_manual_path("初始种子目录", manual_seed)
+
+        values["checkpoint"] = str(manual_checkpoint or "").strip() or (
+            picked["file"] if picked is not None else ""
+        )
+        values["seed_run"] = str(manual_seed or "").strip() or (
+            seed["path"] if seed is not None else ""
+        )
+
+    def _checkpoint_selectbox(self, rows: Sequence[Mapping[str, Any]]
+                              ) -> Mapping[str, Any] | None:
+        """检查点下拉；返回选中的候选行，选「不使用」时返回 ``None``。"""
+        labels = [TRANSFER_NO_SOURCE_LABEL] + _unique_labels(
+            [str(row["label"]) for row in rows]
+        )
+        choice = st.selectbox(
+            "历史检查点（来自检查点索引）",
+            options=labels,
+            index=0,
+            key=self.wkey("checkpoint_pick"),
+            help="首项 = 冷启动（先名义模型初始化再完整拟合，慢且初值未标定）；"
+            "其余项的「兼容分」由 optical_session 按当前光路指纹打分，"
+            "未提供当前指纹时留空",
+        )
+        index = labels.index(choice)
+        if index == 0:
+            st.caption("不使用历史检查点：本轮先名义模型初始化，再完整拟合。")
+            return None
+        picked = rows[index - 1]
+        st.caption(f"选用检查点：{picked['file']}")
+        if picked["rejected"]:
+            st.warning("索引判定这条候选不能直接使用：" + "；".join(picked["reasons"]))
+        return picked
+
+    def _seed_run_selectbox(self, rows: Sequence[Mapping[str, Any]]
+                            ) -> Mapping[str, Any] | None:
+        """历史接受相位目录下拉；返回选中行，选「不使用」时返回 ``None``。"""
+        labels = [TRANSFER_NO_SOURCE_LABEL] + _unique_labels(
+            [str(row["label"]) for row in rows]
+        )
+        choice = st.selectbox(
+            "历史接受相位目录（跳过 GS）",
+            options=labels,
+            index=0,
+            key=self.wkey("seed_run_pick"),
+            help="候选 = 带 manifest.json + config.json 的历史会话产物（与运行前校验同一条判据）；"
+            "选中后初值来自历史接受相位，本轮不调用 GS（CLI --seed-run）",
+        )
+        if not rows:
+            st.caption(
+                "还没发现可用的历史接受相位目录（需要同时有 manifest.json 与 config.json）。"
+            )
+            return None
+        index = labels.index(choice)
+        if index == 0:
+            return None
+        picked = rows[index - 1]
+        st.caption(f"选用历史接受相位：{picked['path']}")
+        return picked
+
+    def _render_manual_load_source(self, values: dict[str, Any], reason: str) -> None:
+        """降级通道：索引不可用/为空时保留原来的自由文本框，并说清为什么。
+
+        没有索引的机器上功能不能丢 —— 这里就是改动前的两个输入框本身。
+        """
+        st.info(reason)
+        found = discover_transfer_checkpoint()
+        values["checkpoint"] = st.text_input(
+            "历史检查点 (frozen_parameters.json)",
+            value=str(found) if found is not None else "",
+            key=self.wkey("checkpoint"),
+            help="留空 = 冷启动（先名义模型初始化再完整拟合，慢且初值未标定）。"
+            "默认自动填入最近一次 transfer 会话的冻结检查点",
+        )
+        if found is not None:
+            st.caption(f"自动发现最近检查点：{found}")
+        values["seed_run"] = st.text_input(
+            "历史接受相位目录 (跳过 GS)",
+            value="",
+            key=self.wkey("seed_run"),
+            help="指向历史会话的 anchored/ 目录；填写后初值来自历史接受相位，"
+            "本轮不调用 GS（CLI --seed-run）",
+        )
+        self._note_manual_path("检查点", values["checkpoint"])
+        self._note_manual_path("初始种子目录", values["seed_run"])
+
+    @staticmethod
+    def _note_manual_path(label: str, raw: Any) -> None:
+        """手动值非空时明确标注：它没经过索引校验。"""
+        text = str(raw or "").strip()
+        if text:
+            st.warning(f"手工路径，未校验：{label} = {text}")
 
     # --- mapping ----------------------------------------------------------
 
@@ -2688,38 +2705,6 @@ def build_model_in_loop_params(values: Mapping[str, Any]) -> SlmModelInLoopParam
 # ---------------------------------------------------------------------------
 
 
-def render_bench_status(prefix: str, slm_num: int) -> str | None:
-    """状态条：一句话说清「这条光路现在是什么状态」。
-
-    Three cases, and each one answers a question the operator actually has:
-    not calibrated at all (the sidebar 标定 button has never run), calibrated with
-    some fields hand-overridden, or calibrated and trusted.
-    """
-    detected = bench_settings.detected_state(prefix)
-    manual = bench_settings.manual_fields(prefix)
-    # One predicate, one implementation: ``is_calibrated`` also drives the
-    # sidebar expander title, so the status bar cannot disagree with it.
-    calibrated = bench_settings.is_calibrated(prefix)
-    if not calibrated:
-        return (
-            f"光路 SLM {slm_num}：○ 未标定 —— {bench_settings.uncalibrated_note(prefix)}；"
-            f"标定按钮在左侧「CCD参数设置」→「SLM {slm_num} · 光路几何与标定」"
-        )
-    parts = [f"光路 SLM {slm_num}：● 已标定 {detected.get('calibrated_at') or '-'}"]
-    parts.append(
-        f"入射中心 {bench_settings.bench_pupil_center(prefix, '未定位')} 探测值"
-    )
-    if detected.get("geometry_correlation") is not None:
-        parts.append(f"相关度 {float(detected['geometry_correlation']):.4f}")
-    parts.append(f"曝光 {detected.get('exposure_ms', '?')} ms")
-    if detected.get("geometry_file"):
-        parts.append(f"几何 {detected['geometry_file']}")
-    line = " · ".join(parts)
-    if manual:
-        line += f" · {len(manual)} 项手动覆盖（{'、'.join(manual)}）"
-    return line
-
-
 def render_closed_loop_shaping(slm_num: int) -> None:
     """Render the closed-loop shaping section for one SLM.
 
@@ -2766,6 +2751,9 @@ def render_closed_loop_shaping(slm_num: int) -> None:
     status = render_bench_status(prefix, slm_num)
     if status is not None:
         st.caption(status)
+    # L2 会话曝光时效（值 + 实测时刻 + 过期黄点 + 重测按钮）。放在连接判定
+    # 之前：曝光属于实验系统，SLM 没连上也应该先看见它过期了。
+    render_exposure_status(prefix)
     if bench_settings.manual_fields(prefix):
         st.warning(
             "光路参数有手动覆盖，标定不会改动它们："

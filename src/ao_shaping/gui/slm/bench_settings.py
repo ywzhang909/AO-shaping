@@ -53,7 +53,7 @@ import json
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 import streamlit as st
@@ -72,9 +72,16 @@ from ao_shaping.drivers.slm.santec.slm200_constants import (
     PIXEL_SIZE_UM,
 )
 from ao_shaping.gui.utils.phase_overlay import PhaseOverlay
-from ao_shaping.utils.image.exposure_control import (
-    configured_daheng_exposure_limit,
-    working_exposure_ms,
+from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
+from ao_shaping.gui.slm.exposure_status import (
+    EXPOSURE_PROBE_DEBUG_DIR,
+    EXPOSURE_STALE_S,
+    ExposureProbeFailure,
+    bench_session_id,
+    current_exposure_ms,
+    exposure_state,
+    probe_session_exposure_ms,
+    record_exposure_probe,
 )
 from ao_shaping.tools.slm.panel.focus_probe import FOCUS_PROBE_DEBUG_DIR
 
@@ -97,12 +104,15 @@ __all__ = [
     "bench_fresnel_focal_mm",
     "bench_geometry_source",
     "bench_pupil_center",
+    "bench_session_id",
     "bench_summary_lines",
     "bench_window_side",
     "measure_illuminated_radius",
     "build_calibration_params",
+    "current_exposure_ms",
     "detected_state",
     "effective_state",
+    "exposure_state",
     "field_diff",
     "field_hint",
     "field_state",
@@ -117,10 +127,12 @@ __all__ = [
     "publish_session_calibration",
     "BEAM_RADIUS_DEBUG_DIR",
     "EXPOSURE_PROBE_DEBUG_DIR",
+    "EXPOSURE_STALE_S",
     "ExposureProbeFailure",
     "probe_session_exposure_ms",
     "queue_pending",
     "record_detection",
+    "record_exposure_probe",
     "render_bench_settings",
     "reset_manual",
     "reusable_geometry_file",
@@ -1067,229 +1079,8 @@ def validate_bench_inputs() -> str | None:
 # ---------------------------------------------------------------------------
 # 曝光探测
 # ---------------------------------------------------------------------------
-
-#: 探测证据落在 ``data/debug/<脚本名>/`` 下，与本模块的其它探测分开。
-EXPOSURE_PROBE_DEBUG_DIR = Path("data") / "debug" / "bench_settings" / "exposure_probe"
-
-#: 确认帧的合格区间。返回的曝光必须让实测峰值落在这里，否则就是截断值。
-_CONFIRM_SATURATION = 0.9
-_CONFIRM_TARGET = 0.55
-
-
-class ExposureProbeFailure(RuntimeError):
-    """曝光探测失败，携带一条可直接上屏的中文说明。"""
-
-
-def _confirm_working_exposure(
-    read_frame: Callable[[], np.ndarray],
-    reset_exposure: Callable[[float], float | None],
-    ceiling_ms: float,
-    *,
-    work_fraction: float,
-    floor_ms: float,
-    max_attempts: int = 3,
-) -> tuple[float, float, float, list[dict[str, float]], np.dtype]:
-    """回读验证工作曝光，返回 ``(工作曝光, 读回曝光, 峰值, 逐次回读记录, 帧 dtype)``。
-
-    阶梯给出的上限只是响应模型；必须用**那一档曝光**回读一帧再判定，否则会把
-    截断的曝光当成可用的交出去（实测 2026-10-17：阶梯定上限 0.243 ms，取其一半
-    回读却是 255/255）。
-
-    饱和时按比例回退再试；``max_attempts`` 次仍饱和则抛
-    :class:`RuntimeError`。本函数不碰设备状态，只用注入的两个回调，因此可以
-    用合成帧直接做数值回归。最后一个返回值是回读帧的 dtype，调用方据此算满量程。
-    """
-    working = working_exposure_ms(ceiling_ms, fraction=work_fraction, floor_ms=floor_ms)
-    confirmations: list[dict[str, float]] = []
-    readback = working
-    peak = 0.0
-    dtype: np.dtype = np.dtype(np.uint8)
-    for _ in range(max_attempts):
-        readback = float(reset_exposure(working) or working)
-        frame = np.asarray(read_frame())
-        peak = float(np.max(frame)) if frame.size else 0.0
-        dtype = frame.dtype
-        full = (
-            float(np.iinfo(frame.dtype).max)
-            if np.issubdtype(frame.dtype, np.integer)
-            else 255.0
-        )
-        frac = peak / full if full else 0.0
-        confirmations.append({"ms": working, "peak": peak, "peak_fraction": frac})
-        if frac >= _CONFIRM_SATURATION:
-            # Clipped: back off proportionally rather than returning it.
-            working = max(floor_ms, working * _CONFIRM_TARGET / max(frac, 1e-9))
-            continue
-        break
-    else:
-        raise RuntimeError(
-            f"工作曝光在 {len(confirmations)} 次回退后仍然饱和"
-            f"（最后一次 {confirmations[-1]['peak_fraction']:.0%}）；"
-            "光路比阶梯看到的高出很多，请降低激光功率或加衰减后重测"
-        )
-    return working, readback, peak, confirmations, dtype
-
-
-def probe_session_exposure_ms(
-    cam_type: str = "daheng",
-    cam_id: int = 0,
-    *,
-    work_fraction: float = 0.5,
-    floor_ms: float = 0.02,
-    debug_dir: Path | None = None,
-) -> tuple[float, dict[str, Any]]:
-    """在当前光路下实测一个可用的会话曝光（ms），返回 ``(曝光, 证据)``。
-
-    探测用**倍增阶梯**找饱和上限（``probe_exposure_ceiling_ms``：曝光翻倍直到
-    峰值达到 ``saturation_fraction``×满量程），再用 ``working_exposure_ms`` 取
-    ``work_fraction``×上限作为工作曝光。上限取「峰值将达满量程 90%」的那一档
-    再乘 0.9 余量（≈81%），所以工作曝光下峰值约在 40%——既能拿到足够原始
-    计数，又留有余量防截断。
-
-    失败时抛 :class:`ExposureProbeFailure`：曝光是**光路属性**，不随传感器变，
-    所以宁可中止也不能给一个猜的值。若 ``AO_DAHENG_MAX_EXPOSURE_MS`` 有配置则
-    优先用它（不探测），这是既有契约，此处不改变优先级。
-
-    上限一律再受**相机自己的曝光上限**约束：相机最大值是「传感器还能积分多久」，
-    不是「何时饱和」，所以它只是上限而不是一次测量——但超过它的曝光根本设不下去
-    （驱动会静默钳位，于是实测峰值与请求曝光对不上）。相机报不出范围的后端按
-    **无上限**处理，与旧行为一致。
-
-    相机在函数内打开并关闭；``debug_dir`` 给定时把阶梯每一档的
-    ``(曝光, 峰值)`` 写成 JSON，便于复盘「当时画面到底多亮」。
-    """
-    from ao_shaping.drivers.ccd.common import (
-        create_camera,
-        get_camera_exposure_range,
-    )
-    from ao_shaping.utils.image.exposure_control import probe_exposure_ceiling_ms
-
-    if cam_type.lower() != "daheng":
-        # 其他相机类型走各自的曝光语义，本探测只服务大恒的定量 CCD 路径。
-        raise ExposureProbeFailure(
-            f"曝光自动探测目前只支持大恒（daheng），当前相机类型为 {cam_type!r}。"
-            "请在「会话曝光」直接填入实测值。"
-        )
-    camera_max_ms: float | None = None
-    try:
-        with create_camera(cam_type, int(cam_id), exposure_time_ms=floor_ms) as cam:
-            # ``n_sample=1`` 返回整数原始帧；取 n>1 会得到 float32 平均帧，
-            # 而阶梯判定要求整数帧（见 docs/slm/slm_model_in_loop.md 实测记录）。
-            #
-            # 相机上限先问设备要：拿不到（后端不支持 / 调用失败）就按无上限
-            # 继续，绝不让「读不到范围」把一次可用的探测变成失败。
-            try:
-                _, camera_max_ms = get_camera_exposure_range(cam)
-            except Exception as exc:  # policy: 后端不支持曝光范围查询不是探测失败：按无上限继续本次探测
-                logger.debug("相机曝光范围不可用，本次探测按无上限处理: {}", exc)
-                camera_max_ms = None
-            if camera_max_ms is not None and (
-                not np.isfinite(camera_max_ms) or camera_max_ms <= 0
-            ):
-                camera_max_ms = None
-
-            # Walk the ladder **once**: letting ``resolve_daheng_exposure_limit``
-            # probe and then probing again here would cost a second walk and
-            # could contradict itself on a bench whose light drifts (measured
-            # 2026-10-17: peak at 0.1 ms moved 63 -> 79 within 20 min). Taking
-            # the operator's env ceiling when it is set keeps that precedence
-            # without touching the camera, exactly as the shared resolver does.
-            configured = configured_daheng_exposure_limit()
-            if configured > 0:
-                # 操作员的取值压过探测，但不压过传感器：取二者中更紧的那个。
-                ceiling = float(configured)
-                if camera_max_ms is not None:
-                    ceiling = min(ceiling, camera_max_ms)
-                estimate = None
-            else:
-                estimate = probe_exposure_ceiling_ms(
-                    cam.reset_exposure_time,
-                    lambda: np.asarray(cam.get_numpy_image(n_sample=1)),
-                    start_ms=floor_ms,
-                    hard_max_ms=camera_max_ms,
-                )
-                ceiling = float(estimate.ceiling_ms)
-
-            working, readback, peak, confirmations, dtype = _confirm_working_exposure(
-                lambda: np.asarray(cam.get_numpy_image(n_sample=1)),
-                cam.reset_exposure_time,
-                ceiling,
-                work_fraction=work_fraction,
-                floor_ms=floor_ms,
-            )
-    except ExposureProbeFailure:
-        raise
-    except (RuntimeError, ValueError, OSError) as exc:
-        raise ExposureProbeFailure(
-            f"曝光探测失败：{exc}。"
-            "请确认激光已出光、光路未遮挡，并在「会话曝光」手动填入实测值。"
-        ) from exc
-
-    full_scale = (
-        float(np.iinfo(dtype).max) if np.issubdtype(dtype, np.integer) else 255.0
-    )
-    evidence: dict[str, Any] = {
-        "cam_type": cam_type,
-        "cam_id": int(cam_id),
-        "ceiling_ms": ceiling,
-        "work_fraction": float(work_fraction),
-        "working_ms": working,
-        "readback_ms": readback,
-        "peak": peak,
-        "full_scale": full_scale,
-        "peak_fraction": peak / full_scale if full_scale else 0.0,
-        "ceiling_source": "env" if estimate is None else "image_probe",
-        "confirmations": confirmations,
-        "last_safe_ms": float(estimate.last_safe_ms) if estimate else 0.0,
-        "saturated_ms": None
-        if estimate is None or estimate.saturated_ms is None
-        else float(estimate.saturated_ms),
-        "ladder_peak_fractions": (
-            [] if estimate is None else [float(v) for v in estimate.peak_fractions]
-        ),
-        # How the ceiling was reached, so the next probe can be replayed: the
-        # per-rung extrapolations (the old ``min`` of these) with their
-        # exposures, the fitted saturation exposure, and the measured bound
-        # that clamped it.  ``ladder_peak_fractions`` has one entry per rung;
-        # ``ladder_estimates_ms`` only one per rung that carried signal, so zip
-        # it with ``ladder_estimate_exposures_ms``.
-        "ladder_estimates_ms": (
-            [] if estimate is None else [float(v) for v in estimate.estimates_ms]
-        ),
-        "ladder_estimate_exposures_ms": (
-            []
-            if estimate is None
-            else [float(v) for v in estimate.estimate_exposures_ms]
-        ),
-        "fit_ms": None if estimate is None else estimate.fit_ms,
-        "fit_points": 0 if estimate is None else int(estimate.fit_points),
-        "bound_ms": None if estimate is None else estimate.bound_ms,
-        "first_clipped_ms": None if estimate is None else estimate.first_clipped_ms,
-        # 相机自己报的曝光上限（None = 后端报不出，按无上限处理）。探测路径下它
-        # 已被 ``probe_exposure_ceiling_ms`` 用作 ``hard_max_ms``，所以命中时
-        # ``bound_ms`` 与它相等；env 路径没有 ``estimate``，这个键是唯一的记录。
-        "camera_max_ms": camera_max_ms,
-    }
-    target = Path(debug_dir) if debug_dir is not None else EXPOSURE_PROBE_DEBUG_DIR
-    try:
-        target.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        (target / f"{stamp}.json").write_text(
-            json.dumps(evidence, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
-    except OSError as exc:  # 证据落盘失败不否定已完成的测量
-        logger.warning("曝光探测证据写入 {} 失败: {}", target, exc)
-    logger.info(
-        "曝光探测：上限 {:.4f} ms（最后未饱和 {:.4f} ms），工作曝光 {:.4f} ms，"
-        "峰值 {:.0f}/{:.0f} ({:.0%})",
-        ceiling,
-        evidence["last_safe_ms"],
-        working,
-        peak,
-        full_scale,
-        evidence["peak_fraction"],
-    )
-    return working, evidence
+# 整族实现已搬到 ``exposure_status``（实测 → 证据落盘 → 时效判定），这里只
+# 保留 re-export，调用方仍写 ``bench_settings.exposure_state``。
 
 
 # ---------------------------------------------------------------------------
@@ -2085,7 +1876,7 @@ def _render_exposure_block(disabled: bool, cam_type: str) -> None:
                 st.error(str(exc))
             else:
                 queue_pending("", {"bench_exposure_ms": float(probed_ms)})
-                record_detection("", {"exposure_ms": float(probed_ms)})
+                record_exposure_probe("", float(probed_ms), evidence)
                 source = (
                     "环境变量" if evidence["ceiling_source"] == "env" else "画面探测"
                 )

@@ -17,6 +17,9 @@ element calls work outside a script run (same convention as
 
 from __future__ import annotations
 
+import contextlib
+import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +27,7 @@ import numpy as np
 import pytest
 import streamlit as st
 
+from ao_shaping.gui.slm import shaping_controls
 from ao_shaping.gui.slm.pattern_controls import PATTERN_REGISTRY
 from ao_shaping.gui.slm.shaping_controls import (
     GS_REFINE_RECIPE,
@@ -109,6 +113,43 @@ def _recipe_values(slm_number: int = 1) -> dict[str, Any]:
     values = dict(GS_REFINE_RECIPE)
     values["slm_number"] = slm_number
     return values
+
+
+class TestParamRowGrouping:
+    """#215 审计 8/10：每行列数按**组大小**定 —— 5 个挤成一行时每格 <200 px，
+    number_input 的标签换行、数值被截。"""
+
+    @staticmethod
+    def _rows(monkeypatch, count: int, *, dual: bool) -> list[int]:
+        rows: list[int] = []
+
+        def fake_columns(n: int, *a, **k):
+            rows.append(int(n))
+            return [object() for _ in range(int(n))]
+
+        monkeypatch.setattr(shaping_controls, "_slms_on_screen", lambda: 2 if dual else 1)
+        monkeypatch.setattr(st, "columns", fake_columns, raising=False)
+        cells = shaping_controls._param_cells(count)
+        # 格子数与重排前一致:调用方按顺序放控件,写入顺序不能变。
+        assert len(cells) == count
+        return rows
+
+    @pytest.mark.parametrize(
+        ("count", "rows"),
+        [
+            (2, [2]),  # 小参数组(frames/seed)就占 2 列,不铺满整行
+            (3, [3]),
+            (4, [4]),  # 真正的四参数组保持一行 4 列
+            (5, [3, 3]),  # 5 个拆 3+2
+            (1, [1]),
+        ],
+    )
+    def test_single_slm_rows(self, monkeypatch, count: int, rows: list[int]) -> None:
+        assert self._rows(monkeypatch, count, dual=False) == rows
+
+    def test_dual_slm_caps_every_row_at_two(self, monkeypatch) -> None:
+        """双 SLM 并排时每台主区只有 ~500 px,每行最多 2 个。"""
+        assert self._rows(monkeypatch, 4, dual=True) == [2, 2]
 
 
 class TestRegistryCleanup:
@@ -333,27 +374,27 @@ class TestDeviceLifecycle:
         return state
 
     def test_release_closes_handle_and_clears_state(self, monkeypatch) -> None:
-        from ao_shaping.gui.slm import shaping_controls
+        from ao_shaping.gui.slm import slm_ownership
 
         state = self._patch_state(monkeypatch)
         fake = _FakeSLM()
         state["slm1"] = fake
         state["slm1_connected"] = True
 
-        shaping_controls._release_slm_handle(1)
+        slm_ownership._release_slm_handle(1)
 
         assert fake.close_calls == 1
         assert state["slm1"] is None
         assert state["slm1_connected"] is False
 
     def test_reacquire_opens_and_syncs_state(self, monkeypatch) -> None:
-        from ao_shaping.gui.slm import shaping_controls
+        from ao_shaping.gui.slm import slm_ownership
 
         state = self._patch_state(monkeypatch)
         _FakeSantecFactory.instances.clear()
-        monkeypatch.setattr(shaping_controls, "Santec", _FakeSantecFactory)
+        monkeypatch.setattr(slm_ownership, "Santec", _FakeSantecFactory)
 
-        slm = shaping_controls._reacquire_slm_handle(1)
+        slm = slm_ownership._reacquire_slm_handle(1)
 
         assert slm is not None
         assert slm.is_open
@@ -366,17 +407,17 @@ class TestDeviceLifecycle:
         """When the sidebar widgets have already been instantiated (re-acquire
         path), ``_safe_set_state`` must not raise even though the widget keys
         are locked — non-widget keys like ``_phase_preview`` still propagate."""
-        from ao_shaping.gui.slm import shaping_controls
+        from ao_shaping.gui.slm import slm_ownership
 
         state = self._patch_state(monkeypatch)
         _FakeSantecFactory.instances.clear()
-        monkeypatch.setattr(shaping_controls, "Santec", _FakeSantecFactory)
+        monkeypatch.setattr(slm_ownership, "Santec", _FakeSantecFactory)
         # Simulate already-instantiated widgets by pre-populating the keys.
         state["slm1_wavelength"] = 1064
         state["slm1_shift_x"] = 0
         state["slm1_shift_y"] = 0
 
-        slm = shaping_controls._reacquire_slm_handle(1)
+        slm = slm_ownership._reacquire_slm_handle(1)
 
         assert slm is not None
         assert state["slm1"] is slm
@@ -419,7 +460,7 @@ class TestDeviceLifecycle:
     def test_run_reacquires_even_when_optimizer_raises(self, monkeypatch) -> None:
         """The ``@shaping_session`` contract: the GUI must own the handle again
         even when the optimizer dies mid-run (SDK handles are not re-entrant)."""
-        from ao_shaping.gui.slm import shaping_controls
+        from ao_shaping.gui.slm import shaping_controls, slm_ownership
         from ao_shaping.optimizer.wfless import slm_gs_refine
 
         state = self._patch_state(monkeypatch)
@@ -436,7 +477,7 @@ class TestDeviceLifecycle:
 
         _FakeSantecFactory.instances.clear()
         monkeypatch.setattr(slm_gs_refine, "optimize_slm_gs_refine", _boom)
-        monkeypatch.setattr(shaping_controls, "Santec", _FakeSantecFactory)
+        monkeypatch.setattr(slm_ownership, "Santec", _FakeSantecFactory)
 
         method = shaping_controls.GsRefineMethod("slm1", 1)
         outcome = method.run(_recipe_values(), debug=False)
@@ -448,7 +489,7 @@ class TestDeviceLifecycle:
         assert reacquired is not None and reacquired.is_open
 
     def test_run_displays_best_phase_after_success(self, monkeypatch) -> None:
-        from ao_shaping.gui.slm import shaping_controls
+        from ao_shaping.gui.slm import shaping_controls, slm_ownership
         from ao_shaping.optimizer.wfless import slm_gs_refine
 
         state = self._patch_state(monkeypatch)
@@ -480,7 +521,7 @@ class TestDeviceLifecycle:
             lambda *a, **k: type("R", (), {"save_dir": Path("data/debug/x")}),
         )
         _FakeSantecFactory.instances.clear()
-        monkeypatch.setattr(shaping_controls, "Santec", _FakeSantecFactory)
+        monkeypatch.setattr(slm_ownership, "Santec", _FakeSantecFactory)
 
         method = shaping_controls.GsRefineMethod("slm1", 1)
         outcome = method.run(_recipe_values(), debug=False)
@@ -624,3 +665,238 @@ class TestOutcomeNormalisation:
         assert out.best_score == 0.71
         assert "completed" in out.note
         assert out.rows[0]["stage"] == "flat"
+
+
+class _FakeWidgets:
+    """Streamlit 元素的最小记录器。
+
+    裸模式下 streamlit 的元素调用是 no-op，而本组要钉的恰恰是「默认路径上没有
+    输入框」「手工值必须带未校验告警」这类看不见的约定 —— 只能靠记录器断言。
+    """
+
+    def __init__(self, *, choice: str | None = None,
+                 texts: dict[str, str] | None = None) -> None:
+        self.selectbox_calls: list[dict[str, Any]] = []
+        self.text_input_calls: list[dict[str, Any]] = []
+        self.captions: list[str] = []
+        self.infos: list[str] = []
+        self.warnings: list[str] = []
+        self.expanders: list[tuple[str, bool]] = []
+        self._choice = choice
+        self._texts = dict(texts or {})
+        self._depth = 0
+
+    def selectbox(self, label: str, options: Any = (), index: int = 0,
+                  key: str | None = None, **_: Any) -> Any:
+        picks = list(options)
+        self.selectbox_calls.append(
+            {"label": label, "options": picks, "key": key})
+        return self._choice if self._choice in picks else picks[index]
+
+    def text_input(self, label: str, value: Any = "", key: str | None = None,
+                   **_: Any) -> Any:
+        self.text_input_calls.append(
+            {"label": label, "key": key, "value": value, "depth": self._depth})
+        return self._texts.get(key or "", value)
+
+    @contextlib.contextmanager
+    def expander(self, label: str, expanded: bool = False):
+        self.expanders.append((label, bool(expanded)))
+        self._depth += 1
+        try:
+            yield
+        finally:
+            self._depth -= 1
+
+    def caption(self, text: Any, **_: Any) -> None:
+        self.captions.append(str(text))
+
+    def info(self, text: Any, **_: Any) -> None:
+        self.infos.append(str(text))
+
+    def warning(self, text: Any, **_: Any) -> None:
+        self.warnings.append(str(text))
+
+
+def _install_widgets(monkeypatch, log: _FakeWidgets) -> dict[str, Any]:
+    for name in ("selectbox", "text_input", "expander", "caption", "info",
+                 "warning"):
+        monkeypatch.setattr(st, name, getattr(log, name), raising=False)
+    state: dict[str, Any] = {}
+    monkeypatch.setattr(st, "session_state", state)
+    return state
+
+
+class TestSessionFingerprintAdapter:
+    """``st.session_state`` 读取留在 GUI 侧；只有映射转换在数据层。"""
+
+    def test_session_fingerprint_comes_only_from_session_state(
+            self, monkeypatch) -> None:
+        state = _install_widgets(monkeypatch, _FakeWidgets())
+        assert shaping_controls._session_fingerprint() is None
+        state[shaping_controls.TRANSFER_FP_SESSION_KEY] = {"geometry": {"a": 1}}
+        assert shaping_controls._session_fingerprint() == {"geometry": {"a": 1}}
+
+
+class TestTransferLoadSourceRender:
+    """默认路径 = 两个候选下拉 + 折叠的手动区；索引不可用时才回落到文本框。
+
+    实测依据（2026-10-29）：这两个框曾是主路径上唯一要手打路径的地方，而
+    「打错一个字 → 跑十分钟才发现读的是空目录」是这条链路上最贵的一类错误。
+    """
+
+    @staticmethod
+    def _row(**over: Any) -> dict[str, Any]:
+        row: dict[str, Any] = {
+            "label": "正方形 · 2026-10-27 18:10 · 兼容 0.87 · 已校验",
+            "file": "ck/square/fit/frozen_parameters.json",
+            "path": "ck/square",
+            "session": "square",
+            "shape": "square",
+            "created_at": "2026-10-27T18:10:38+00:00",
+            "score": 0.87,
+            "verified": True,
+            "rejected": False,
+            "reasons": [],
+        }
+        row.update(over)
+        return row
+
+    @staticmethod
+    def _method() -> shaping_controls.TransferMethod:
+        return shaping_controls.TransferMethod("slm1", 1)
+
+    def test_default_path_has_no_text_input_outside_expander(
+            self, monkeypatch) -> None:
+        log = _FakeWidgets()
+        _install_widgets(monkeypatch, log)
+        monkeypatch.setattr(shaping_controls, "transfer_checkpoint_candidates",
+                            lambda **k: [self._row()])
+        monkeypatch.setattr(shaping_controls, "transfer_seed_run_candidates",
+                            lambda **k: [])
+
+        values: dict[str, Any] = {}
+        self._method()._render_load_source(values)
+
+        # 两个下拉都只有「不使用历史产物」一项时即为冷启动，路径为空。
+        assert values == {"checkpoint": "", "seed_run": ""}
+        assert [c["options"][0] for c in log.selectbox_calls] == [
+            shaping_controls.TRANSFER_NO_SOURCE_LABEL] * 2
+        # 手动框默认折叠，且只在展开区里出现 —— 主路径上没有任何输入框。
+        assert log.expanders == [("手动指定路径（未校验）", False)]
+        assert log.text_input_calls
+        assert all(call["depth"] == 1 for call in log.text_input_calls)
+        assert any("不使用历史检查点" in cap for cap in log.captions)
+
+    def test_picked_checkpoint_and_seed_become_the_values(
+            self, monkeypatch) -> None:
+        row = self._row()
+        seed = {"label": "正方形 · 2026-10-29 09:00", "path": "ck/seed/anchored"}
+        log = _FakeWidgets(choice=row["label"])
+        _install_widgets(monkeypatch, log)
+        monkeypatch.setattr(shaping_controls, "transfer_checkpoint_candidates",
+                            lambda **k: [row])
+        monkeypatch.setattr(shaping_controls, "transfer_seed_run_candidates",
+                            lambda **k: [seed])
+
+        values: dict[str, Any] = {}
+        self._method()._render_load_source(values)
+
+        assert values["checkpoint"] == row["file"]
+        # 种子下拉默认停在首项 ⇒ 不填（选中历史相位的用例见下一个）。
+        assert values["seed_run"] == ""
+        assert any(f"选用检查点：{row['file']}" in cap for cap in log.captions)
+
+    def test_picked_seed_run_becomes_the_value(self, monkeypatch) -> None:
+        seed = {"label": "正方形 · 2026-10-29 09:00", "path": "ck/seed/anchored"}
+        log = _FakeWidgets(choice=seed["label"])
+        _install_widgets(monkeypatch, log)
+        monkeypatch.setattr(shaping_controls, "transfer_checkpoint_candidates",
+                            lambda **k: [self._row()])
+        monkeypatch.setattr(shaping_controls, "transfer_seed_run_candidates",
+                            lambda **k: [seed])
+
+        values: dict[str, Any] = {}
+        self._method()._render_load_source(values)
+
+        assert values["seed_run"] == seed["path"]
+        assert values["checkpoint"] == ""
+        assert any(f"选用历史接受相位：{seed['path']}" in cap
+                   for cap in log.captions)
+
+    def test_manual_value_overrides_and_is_marked_unverified(
+            self, monkeypatch) -> None:
+        manual = "D:/hand_picked/frozen_parameters.json"
+        log = _FakeWidgets(
+            choice=self._row()["label"],
+            texts={self._method().wkey("checkpoint_manual"): manual},
+        )
+        _install_widgets(monkeypatch, log)
+        monkeypatch.setattr(shaping_controls, "transfer_checkpoint_candidates",
+                            lambda **k: [self._row()])
+        monkeypatch.setattr(shaping_controls, "transfer_seed_run_candidates",
+                            lambda **k: [])
+
+        values: dict[str, Any] = {}
+        self._method()._render_load_source(values)
+
+        # 手填优先于下拉，且必须显式标注它没过索引校验。
+        assert values["checkpoint"] == manual
+        assert any(w.startswith("手工路径，未校验：")
+                   and manual in w for w in log.warnings)
+
+    def test_rejected_candidate_warns_with_index_reasons(
+            self, monkeypatch) -> None:
+        row = self._row(rejected=True, reasons=["指纹与当前光路不符"])
+        log = _FakeWidgets(choice=row["label"])
+        _install_widgets(monkeypatch, log)
+        monkeypatch.setattr(shaping_controls, "transfer_checkpoint_candidates",
+                            lambda **k: [row])
+        monkeypatch.setattr(shaping_controls, "transfer_seed_run_candidates",
+                            lambda **k: [])
+
+        self._method()._render_load_source({})
+
+        assert any("指纹与当前光路不符" in w for w in log.warnings)
+
+    def test_unavailable_index_falls_back_to_text_boxes(
+            self, monkeypatch) -> None:
+        log = _FakeWidgets()
+        _install_widgets(monkeypatch, log)
+        monkeypatch.setattr(shaping_controls, "transfer_checkpoint_candidates",
+                            lambda **k: None)
+        monkeypatch.setattr(shaping_controls, "transfer_seed_run_candidates",
+                            lambda **k: None)
+        found = Path("C:/found/frozen_parameters.json")
+        monkeypatch.setattr(shaping_controls, "discover_transfer_checkpoint",
+                            lambda: found)
+
+        values: dict[str, Any] = {}
+        self._method()._render_load_source(values)
+
+        assert log.selectbox_calls == []
+        assert log.infos == ["候选索引不可用，请手动填写"]
+        # 降级通道就是改动前的两个框（同 key，历史填过的值仍记得）。
+        assert [call["key"] for call in log.text_input_calls] == [
+            self._method().wkey("checkpoint"),
+            self._method().wkey("seed_run"),
+        ]
+        assert values["checkpoint"] == str(found)
+        assert values["seed_run"] == ""
+
+    def test_empty_index_falls_back_to_text_boxes(self, monkeypatch) -> None:
+        log = _FakeWidgets()
+        _install_widgets(monkeypatch, log)
+        monkeypatch.setattr(shaping_controls, "transfer_checkpoint_candidates",
+                            lambda **k: [])
+        monkeypatch.setattr(shaping_controls, "transfer_seed_run_candidates",
+                            lambda **k: [])
+        monkeypatch.setattr(shaping_controls, "discover_transfer_checkpoint",
+                            lambda: None)
+
+        values: dict[str, Any] = {}
+        self._method()._render_load_source(values)
+
+        assert log.selectbox_calls == []
+        assert len(log.infos) == 1 and "候选索引为空" in log.infos[0]
+        assert values == {"checkpoint": "", "seed_run": ""}

@@ -1,0 +1,93 @@
+# SLM 整形 GUI 主题（Issue #215 规则 1「定个性 / 主题」）
+#
+# 调性：实验系统操作台 —— 白底、单一冷蓝强调色、圆角收敛、层次靠灰阶而非描边。
+# 主色 #2E86AB 与白底是这台控制台的既有身份，本次只补齐与统一，不改版。
+#
+# ── 灰阶 8 档（N0→N7，冷灰，色相与主色同族）─────────────────────────────
+#   N0 #FFFFFF  画布           → backgroundColor
+#   N1 #F7F9FB  浅面（次级底、表头、代码底） → grayBackgroundColor / codeBackgroundColor
+#                               / dataframeHeaderBackgroundColor
+#   N2 #F0F2F6  次级面（侧栏控件底）       → secondaryBackgroundColor
+#   N3 #E6EAEF  弱分割                     → dataframeBorderColor
+#   N4 #D3D9E1  分割 / 描边                → borderColor
+#   N5 #AAB3BF  禁用、弱图形（未占用的档位，见下方说明）
+#   N6 #6B7480  次级文字                   → grayColor
+#   N7 #31333F  正文                       → textColor / grayTextColor
+#
+# ── 语义强调 3 色 × 3 档（浅底深字）─────────────────────────────────────
+# 每色三件套 = Color（色相本体，用于图标/强调文字）+ BackgroundColor（浅底）
+# + TextColor（浅底上的深字）。红/绿/黄只用于状态语义，不用于装饰。
+#   红 #B3261E / 底 #FDECEA / 字 #8C1D18   禁止、失败、超限
+#   绿 #1E7A46 / 底 #E8F5EE / 字 #14512F   正常、完成、通过
+#   黄 #8A6D00 / 底 #FFF6DA / 字 #5C4800   注意、待确认（纯黄在白底上不可读，
+#                                          故取赭黄，保证 AA 对比度）
+#
+# ── [theme] API 表达不了的部分（不靠注入 CSS 假装实现）────────────────────
+# 1. 「8 档灰阶」不是运行期可寻址的 token 体系。Streamlit 只暴露有限的中性槽位
+#    （上面已把 7 档落到真实槽位），N5 #AAB3BF 没有对应槽位，属登记未用；
+#    页面内若需要「同一区块里的第 3 级底色差」，[theme] 无法表达 —— 那要靠
+#    自定义 CSS，本次明确不做（Issue #215 约束）。
+# 2. 字体只能是 sans-serif / serif / monospace 三个关键字、[[theme.fontFaces]]
+#    的本地字体文件、或一个远程 CSS 链接。仓库内没有字体资产，实验机上也不保证
+#    有外网，故仍用 sans-serif；换成有个性的字体会同时牺牲离线可用性。
+# 3. 按钮分层（每屏 ≤1 primary）、空状态引导、分隔线数量是控件级规则，不是主题
+#    key，落在两个 SLM GUI 文件的代码里（slm_calibration_ui.py /
+#    multi_slm_controller.py），本文件不参与。
+
+[theme]
+# 白底冷蓝是既有身份；显式锁 light，否则系统深色模式下这套浅底深字会反转。
+base = "light"
+primaryColor = "#2E86AB"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F2F6"
+textColor = "#31333F"
+
+# 字体：见上方「表达不了的部分」第 2 条
+font = "sans-serif"
+codeFont = "monospace"
+
+# 圆角统一 0.5rem：操作台不要圆润玩具感，也不要直角生硬感
+baseRadius = "0.5rem"
+# 输入控件带描边，形状与可编辑性一一对应（表格/输入框 vs 纯文本）
+showWidgetBorder = true
+
+# N4 / N3 / N1 三档分别承担 描边 / 表格分割 / 浅面
+borderColor = "#D3D9E1"
+dataframeBorderColor = "#E6EAEF"
+dataframeHeaderBackgroundColor = "#F7F9FB"
+codeBackgroundColor = "#F7F9FB"
+codeTextColor = "#31333F"
+
+# 链接用加深档而非主色本体：#2E86AB 在白底只有 ~3.6:1，正文级链接不够；
+# #1F6D8C 约 5.4:1，同色相不破坏统一。
+linkColor = "#1F6D8C"
+
+# 中性语义槽位（与上面 N6 / N1 / N7 对齐）
+grayColor = "#6B7480"
+grayBackgroundColor = "#F7F9FB"
+grayTextColor = "#31333F"
+
+# 语义强调 3 色 × 3 档
+redColor = "#B3261E"
+redBackgroundColor = "#FDECEA"
+redTextColor = "#8C1D18"
+greenColor = "#1E7A46"
+greenBackgroundColor = "#E8F5EE"
+greenTextColor = "#14512F"
+yellowColor = "#8A6D00"
+yellowBackgroundColor = "#FFF6DA"
+yellowTextColor = "#5C4800"
+
+# 多序列图表：主色 + 语义色 + 两个区分度足够的冷色。
+# 不把灰阶塞进这里 —— 50 路单元电压柱图与多序列轨迹线在灰阶下无法区分。
+chartCategoricalColors = [
+    "#2E86AB",
+    "#1E7A46",
+    "#B3261E",
+    "#8A6D00",
+    "#5B4B8A",
+    "#2F6F6F",
+]
+
+[server]
+headless = true

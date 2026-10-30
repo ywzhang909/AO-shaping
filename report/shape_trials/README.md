@@ -78,37 +78,37 @@
 [形状目标整形实验总结报告（2026-10-09 ~ 2026-10-19）](experiment_summary_20261016.md)
 统一汇总（完整时间线、公式体系、最优实践与悬而未决问题见该报告），主要记录如下：
 
-| 日期 | 报告 | 主题 |
-|------|------|------|
-| 2026-10-28 | [多形状 × 三尺度同载波闭环整形 — 规划/实验中记录/实验后分析/设备会话/下一轮](multishape_scale/multishape_scale_planning_20261028.md) | Session A（1200 原生 px）16 段×112 块全部实测；H1/H2/H3 暂不能判定；CV 随曝光单调上升并饱和（硬约束） |
-| 2026-10-27 | [三角形与五角星 1.5 倍窗口 shaping + 平面相位起始对比](tri_plane_20261027/tri_plane_20261027.md) | 平面起始 3/4 块接受、CV 0.6632→0.5967，优于 GS 起始 |
-| 2026-10-27 | [迁移学习 + model-in-loop 双优化流程实验方案](dual_optimization/experiment_plan_20261027.md) | G0 前置门禁、逐轮交替判决口径；不含新测量 |
-| 2026-10-24 | [仿真预训练与无 GS 迁移复现](sim_pretrain_transfer/sim_pretrain_transfer_20261024.md) | 仿真预训练分组 CV 与无 GS 逐位复现 |
-| 2026-10-26 | [冷启动（从零拟合）](cold_start/cold_start_20261026.md) | 无历史权重的物理预测模型从零拟合与 CCD 配对验收 |
-| 2026-10-23 | [正方形、长方形、三角形：探测与物理预测模型闭环复现](multishape_capability/physical_multishape_reproduction_20261023.md) | 从零初始化与已有模型迁移的完整命令、模型结构、参数柱状图、逐块 CCD 演变、配对验收及 FAQ |
-| 2026-10-23 | [GS 方形光斑三段扫描：边长 / Zernike 阶数 / 闪耀光栅](hw_gs_square_scans/hw_gs_square_scans_20261023.md) | 纯 GS（无 SPGD）三段扫描 + 功率变化后的原子化复测；PIB 与 CV 互相抵消决定 score 峰、低阶 Zernike 只解释 3.25% 相位方差、`predicted_shift_px` 方向可用但标度与 1/P 形状不可用；两处基线「异常」经复测判定为整帧全黑的失败采集
-| 2026-10-23 | [离焦光路下的可微整形测试方案](defocus_differentiable_test_plan_20261023.md) | 对照可微实验负结果；GS 初值、固定 ROI CV、梯度方向配对探测与短块 CCD 验收；仅制定方案 |
-| 2026-10-22 | [跨系列联合分析与下一步实验计划](experiment_summary_20261022.md) | MIL 损失审计 + 离焦/泽尼克测试 + 当天四轮 campaign 失败的联合分析；规律清单、脚本盘点与阶段 0–6 计划 |
-| 2026-10-22 | [物理预测采样与响应诊断](model_in_loop/physical_forward_sampling_20261022_r2.md) | 传播采样、CCD 像素积分、曝光偏置和剩余峰宽；逐步数据保留 |
-| 2026-10-22 | [主动离焦下的物理预测模型实验](model_in_loop/physical_forward_defocus_live_20261022.md) | 当前功率曝光响应、U/C 配对探针、9–16 参数物理预测与独立验证 |
-| 2026-10-12 | [GS 重构后真实设备调试](gs_refine/gs_refine_live_20261012.md) | GS+SPGD 半径对照 |
-| 2026-10-13 | [物理预测模型闭环实验记录](model_in_loop/model_in_loop_live_20261013.md) | Step A 校准 + Step B 优化，800 iter |
-| 2026-10-13 | [物理预测模型闭环：暂停实验交接](model_in_loop/model_in_loop_pause_handoff_20261013.md) | 暂停期间状态、证据、工程变更摘要 |
-| 2026-10-13 | [物理预测模型闭环整形：暂停期间工作与恢复实验条件](model_in_loop/model_in_loop_next_steps_20261013.md) | 暂停后续步骤与恢复条件 |
-| 2026-10-13 | [GSNet 混合瞳面相位离线验证](gs_refine/gsnet_hybrid_offline_20261013.md) | 8 阶 Zernike + 可训练残差参数化 |
-| 2026-10-14 | [Model-in-loop 实验复核](model_in_loop/model_in_loop_live_20261014.md) | 7 轮多形状 + 交错重放 |
-| 2026-10-14 | [GUI 闭环整形功能实验验证](gui_closed_loop_shaping/gui_closed_loop_shaping_20261014.md) | 三次会话交错重放 |
-| 2026-10-15 | [GS 方法实验对照与形状验收预检](gs_refine/gs_issue_live_20261015.md) | plain/weighted/adaptive-feedback 五轮对照 |
-| 2026-10-15 | [GS 相位匀化与剔零级均匀度实验](gs_refine/gs_uniformity_live_20261015.md) | 相位平滑 + 纯 CV 闭环 |
-| 2026-10-15 | [Model-in-loop 实验预检](model_in_loop/model_in_loop_live_20261015.md) | 面板宽扫作废，光路调整中 |
-| 2026-10-15 | [SLM 整形的实测离轴载波](gs_refine/zero_order_blaze_20261015.md) | blaze carrier，位移标度约 7400/P px |
-| 2026-10-16 | [Model-in-loop 匀化权重与重拟合实验对照](model_in_loop/model_in_loop_live_20261016.md) | CV/EE 权重消融 |
-| 2026-10-16 | [Model-in-loop 方斑均匀度实验](model_in_loop/model_in_loop_uniformity_live_20261016.md) | 软边缘 CV + 两轮热启动，CV −20.8% |
-| 2026-10-16 | [不确定性采样探针验收](model_in_loop/uncertainty_probe_hw_20261016.md) | #134 带限约束才是关键 |
-| 2026-10-16 | [GS-refine Zernike 阶数扫描](gs_refine_zernike/gs_refine_zernike_uniformity.md) | 仿真 8 阶扫描，仅残差单调降 |
-| 2026-10-19 | [相机位置调整后的物理预测模型校正与多形状整形](model_in_loop/model_in_loop_live_20261019.md) | FWHM 47.23→13.75 px，多形状门槛 |
-| 2026-10-19 | [CCD 焦后离焦下的 GS 匀化仿真](gs_defocus_sim/gs_defocus_sim_20261019.md) | 离焦五组因果链，纯仿真 |
-| 2026-10-19 | [GS → Zernike → SPGD 匀化实验计划](gs_refine/gs_refine_zernike_hardware_plan.md) | H0–H12 硬件计划，P0 硬门 |
+| 日期       | 报告                                                                                                                                  | 主题                                                                                                                                                                                                                           |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2026-10-28 | [多形状 × 三尺度同载波闭环整形 — 规划/实验中记录/实验后分析/设备会话/下一轮](multishape_scale/multishape_scale_planning_20261028.md) | Session A（1200 原生 px）16 段×112 块全部实测；H1/H2/H3 暂不能判定；CV 随曝光单调上升并饱和（硬约束）                                                                                                                         |
+| 2026-10-27 | [三角形与五角星 1.5 倍窗口 shaping + 平面相位起始对比](tri_plane_20261027/tri_plane_20261027.md)                                       | 平面起始 3/4 块接受、CV 0.6632→0.5967，优于 GS 起始                                                                                                                                                                           |
+| 2026-10-27 | [迁移学习 + model-in-loop 双优化流程实验方案](dual_optimization/experiment_plan_20261027.md)                                           | G0 前置门禁、逐轮交替判决口径；不含新测量                                                                                                                                                                                      |
+| 2026-10-24 | [仿真预训练与无 GS 迁移复现](sim_pretrain_transfer/sim_pretrain_transfer_20261024.md)                                                  | 仿真预训练分组 CV 与无 GS 逐位复现                                                                                                                                                                                             |
+| 2026-10-26 | [冷启动（从零拟合）](cold_start/cold_start_20261026.md)                                                                                | 无历史权重的物理预测模型从零拟合与 CCD 配对验收                                                                                                                                                                                |
+| 2026-10-23 | [正方形、长方形、三角形：探测与物理预测模型闭环复现](multishape_capability/physical_multishape_reproduction_20261023.md)               | 从零初始化与已有模型迁移的完整命令、模型结构、参数柱状图、逐块 CCD 演变、配对验收及 FAQ                                                                                                                                        |
+| 2026-10-23 | [GS 方形光斑三段扫描：边长 / Zernike 阶数 / 闪耀光栅](hw_gs_square_scans/hw_gs_square_scans_20261023.md)                               | 纯 GS（无 SPGD）三段扫描 + 功率变化后的原子化复测；PIB 与 CV 互相抵消决定 score 峰、低阶 Zernike 只解释 3.25% 相位方差、`predicted_shift_px` 方向可用但标度与 1/P 形状不可用；两处基线「异常」经复测判定为整帧全黑的失败采集 |
+| 2026-10-23 | [离焦光路下的可微整形测试方案](defocus_differentiable_test_plan_20261023.md)                                                           | 对照可微实验负结果；GS 初值、固定 ROI CV、梯度方向配对探测与短块 CCD 验收；仅制定方案                                                                                                                                          |
+| 2026-10-22 | [跨系列联合分析与下一步实验计划](experiment_summary_20261022.md)                                                                       | MIL 损失审计 + 离焦/泽尼克测试 + 当天四轮 campaign 失败的联合分析；规律清单、脚本盘点与阶段 0–6 计划                                                                                                                          |
+| 2026-10-22 | [物理预测采样与响应诊断](model_in_loop/physical_forward_sampling_20261022_r2.md)                                                       | 传播采样、CCD 像素积分、曝光偏置和剩余峰宽；逐步数据保留                                                                                                                                                                       |
+| 2026-10-22 | [主动离焦下的物理预测模型实验](model_in_loop/physical_forward_defocus_live_20261022.md)                                                | 当前功率曝光响应、U/C 配对探针、9–16 参数物理预测与独立验证                                                                                                                                                                   |
+| 2026-10-12 | [GS 重构后真实设备调试](gs_refine/gs_refine_live_20261012.md)                                                                          | GS+SPGD 半径对照                                                                                                                                                                                                               |
+| 2026-10-13 | [物理预测模型闭环实验记录](model_in_loop/model_in_loop_live_20261013.md)                                                               | Step A 校准 + Step B 优化，800 iter                                                                                                                                                                                            |
+| 2026-10-13 | [物理预测模型闭环：暂停实验交接](model_in_loop/model_in_loop_pause_handoff_20261013.md)                                                | 暂停期间状态、证据、工程变更摘要                                                                                                                                                                                               |
+| 2026-10-13 | [物理预测模型闭环整形：暂停期间工作与恢复实验条件](model_in_loop/model_in_loop_next_steps_20261013.md)                                 | 暂停后续步骤与恢复条件                                                                                                                                                                                                         |
+| 2026-10-13 | [GSNet 混合瞳面相位离线验证](gs_refine/gsnet_hybrid_offline_20261013.md)                                                               | 8 阶 Zernike + 可训练残差参数化                                                                                                                                                                                                |
+| 2026-10-14 | [Model-in-loop 实验复核](model_in_loop/model_in_loop_live_20261014.md)                                                                 | 7 轮多形状 + 交错重放                                                                                                                                                                                                          |
+| 2026-10-14 | [GUI 闭环整形功能实验验证](gui_closed_loop_shaping/gui_closed_loop_shaping_20261014.md)                                                | 三次会话交错重放                                                                                                                                                                                                               |
+| 2026-10-15 | [GS 方法实验对照与形状验收预检](gs_refine/gs_issue_live_20261015.md)                                                                   | plain/weighted/adaptive-feedback 五轮对照                                                                                                                                                                                      |
+| 2026-10-15 | [GS 相位匀化与剔零级均匀度实验](gs_refine/gs_uniformity_live_20261015.md)                                                              | 相位平滑 + 纯 CV 闭环                                                                                                                                                                                                          |
+| 2026-10-15 | [Model-in-loop 实验预检](model_in_loop/model_in_loop_live_20261015.md)                                                                 | 面板宽扫作废，光路调整中                                                                                                                                                                                                       |
+| 2026-10-15 | [SLM 整形的实测离轴载波](gs_refine/zero_order_blaze_20261015.md)                                                                       | blaze carrier，位移标度约 7400/P px                                                                                                                                                                                            |
+| 2026-10-16 | [Model-in-loop 匀化权重与重拟合实验对照](model_in_loop/model_in_loop_live_20261016.md)                                                 | CV/EE 权重消融                                                                                                                                                                                                                 |
+| 2026-10-16 | [Model-in-loop 方斑均匀度实验](model_in_loop/model_in_loop_uniformity_live_20261016.md)                                                | 软边缘 CV + 两轮热启动，CV −20.8%                                                                                                                                                                                             |
+| 2026-10-16 | [不确定性采样探针验收](model_in_loop/uncertainty_probe_hw_20261016.md)                                                                 | #134 带限约束才是关键                                                                                                                                                                                                          |
+| 2026-10-16 | [GS-refine Zernike 阶数扫描](gs_refine_zernike/gs_refine_zernike_uniformity.md)                                                        | 仿真 8 阶扫描，仅残差单调降                                                                                                                                                                                                    |
+| 2026-10-19 | [相机位置调整后的物理预测模型校正与多形状整形](model_in_loop/model_in_loop_live_20261019.md)                                           | FWHM 47.23→13.75 px，多形状门槛                                                                                                                                                                                               |
+| 2026-10-19 | [CCD 焦后离焦下的 GS 匀化仿真](gs_defocus_sim/gs_defocus_sim_20261019.md)                                                              | 离焦五组因果链，纯仿真                                                                                                                                                                                                         |
+| 2026-10-19 | [GS → Zernike → SPGD 匀化实验计划](gs_refine/gs_refine_zernike_hardware_plan.md)                                                     | H0–H12 硬件计划，P0 硬门                                                                                                                                                                                                      |
 
 其余支撑文档（[GS 金标参照](gs_golden_reference/gs_golden_reference.md)、[GS 物理预测模型标定](gs_refine_fwdmodel/gs_refine_fwdmodel_calibration.md)、
 [在线重标定效率](online_recal_efficiency/online_recal_efficiency.md)、[少参数在线适配](fast_recal_adapter/fast_recal_adapter.md)、[MIL 验证集 K 折](model_in_loop_cv/model_in_loop_cv.md)、
@@ -251,10 +251,9 @@ PNG/PKL/JSON 记录格式，比较 freeform/GS 正方形相位与 Zernike 基线
 协议予以孤立测试。该文档的例子是 44×33 矩形使用八阶模式，因此其数值设置不直接适用于
 本 100 像素方形 / n_max=8 实验系统。
 
-
 ![1791968052647](image/README/1791968052647.png)
 
-![1791968216537](image/README/1791968216537.png)
+![1793269054501](image/README/1793269054501.png)![1791968216537](image/README/1791968216537.png)
 
 ## 当前实验方案
 

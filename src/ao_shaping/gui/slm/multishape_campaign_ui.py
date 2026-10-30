@@ -42,6 +42,12 @@ PowerShell 跑出来的，手敲的两个失败模式（**参数漂移**、**来
 ⑤ 的检查卡**不碰** ``verify_light``：那要活相机（``read_frame`` + ``set_exposure_ms``），
 塞进去就毁掉"没设备也能先看一眼"这条前提。
 
+模型复用（⑦）
+--------------
+「这条光路的模型还能不能复用」与逐块复盘是两件事，且本文件已在模块规模棘轮线上，故单独成
+:mod:`ao_shaping.gui.slm.campaign_reuse`；本页只 re-export 并原样调用，阈值 / 打分仍只有
+``optical_session`` / ``history_browser`` 一份。
+
 线程契约
 --------
 一次 campaign 要跑几小时，只能放后台线程。``Thread(target=...)`` 的线程体
@@ -69,9 +75,18 @@ import streamlit as st
 from loguru import logger
 
 from ao_shaping.gui.slm import bench_settings, precheck
+from ao_shaping.gui.slm.campaign_monitor import (  # noqa: F401 -- re-exported to tests
+    block_table_rows,
+    journal_plan_shapes,
+    plan_shapes,
+    render_progress_panel,
+    stage_table_rows,
+)
+from ao_shaping.gui.slm.campaign_reuse import (
+    HISTORY_PREFIX, campaign_fingerprint, has_fingerprint_readings, render_reuse_panel)
 from ao_shaping.gui.slm.multi_slm_controller import render_slm_sidebar
 from ao_shaping.gui.slm.shaping_controls import SlmOwnership, with_slm_ownership
-from ao_shaping.gui.slm.transfer_progress import SHAPE_LABELS, collect_progress, render_progress
+from ao_shaping.gui.slm.transfer_progress import SHAPE_LABELS
 from ao_shaping.gui.slmshape.connect import connected_slm_numbers, ensure_state
 from ao_shaping.tools.slm.transfer.campaign import (
     SIZE_WINDOWS,
@@ -94,7 +109,8 @@ from ao_shaping.tools.slm.transfer.light_guard import (
     OpticalPathInvalid,
 )
 
-__all__ = ["PAGE_TITLE", "main"]
+__all__ = ["PAGE_TITLE", "main", "HISTORY_PREFIX", "campaign_fingerprint",
+           "has_fingerprint_readings", "render_reuse_panel"]
 
 #: 页面标题 / 侧栏（浏览器标签）里的名字。
 PAGE_TITLE = "多形状整形 campaign"
@@ -353,17 +369,6 @@ def _format_value(value: Any) -> str:
     if isinstance(value, (list, tuple)):
         return "(" + ", ".join(_format_value(item) for item in value) + ")"
     return str(value)
-
-
-def _numeric(value: Any) -> Any:
-    """表格里的缺值：``"—"``（:data:`MISSING`）→ ``None``。
-
-    ``st.dataframe`` 走 arrow 序列化，同一列里既有 ``0.6574`` 又有 ``"—"`` 时会退化成
-    object 列，arrow 接着按 double 转换并抛 ``ArrowInvalid`` —— 整张表**不显示**，栈只进
-    日志。触发条件恰好是「某段还没有块读数」（刚开始 / 被 ``stopped`` / 读到半截产物），
-    也就是操作员最需要看进度的那一刻。缺值一律给 ``None``：arrow 用 NaN 表示，界面空白。
-    """
-    return None if value == MISSING else value
 
 
 def render_settings_table(settings) -> None:
@@ -679,119 +684,6 @@ def _finish_run(run: _CampaignRun, kind: str, payload: Any) -> None:
             st.session_state[_ERROR_KEY] = payload
 
 
-def _render_block_line(stage, planned: int | None = None) -> str:
-    """当前段的一行逐块 CV 摘要（与报告 §3.2 同口径：CV 必须带曝光与饱和一起读）。
-
-    ``planned`` 是**该阶段的计划块数**（``campaign_matrix`` 里那一行）。不能拿
-    ``len(stage.blocks)`` 当分母：那是「已写下的块」，于是这一行会永远显示
-    ``块 4/4``，把「跑到第 4 块（共 12 块）」读成「这一阶段做完了」。
-    """
-    blocks = stage.blocks
-    if not blocks:
-        return f"{stage.shape}/{stage.stage}：还没有块读数"
-    last = blocks[-1]
-    first_cv = blocks[0].cv
-    total = len(blocks) if planned is None else planned
-    return (f"{stage.shape}/{stage.stage} 块 {len(blocks)}/{total}"
-            f" · 首块 CV {first_cv} → 末块 CV {last.cv}"
-            f" · 曝光 {last.exposure_ms} ms · 饱和 {last.saturated_px} px"
-            f" · 验收 {last.accepted}")
-
-
-def journal_plan_shapes(progress) -> tuple[str, ...]:
-    """这份目录**计划**跑哪些形状：journal 的 ``plan`` 条目（runner 开跑第一行就写）。
-
-    目录里只留下已经跑过的形状，``collect_campaign_progress`` 也只看得到那些；所以
-    「计划分母」必须来自别处 —— 开跑时的 ``plan.shapes`` 就是那份计划。没有 plan 条目
-    （更早的目录）时返回空元组，由调用方决定退到哪。
-    """
-    for entry in reversed(progress.journal):
-        plan = entry.get("plan") if isinstance(entry, dict) else None
-        if isinstance(plan, dict) and plan.get("shapes"):
-            return tuple(str(name) for name in plan["shapes"])
-    return ()
-
-
-def plan_shapes(progress) -> tuple[str, ...]:
-    """历史浏览时的计划形状：journal 的 ``plan`` 条目，退到目录里出现过的形状。
-
-    ⑦ 没有 ``settings`` 可问，只能这样；⑥ 用的是页面当前选的形状（见
-    :func:`render_progress_panel` 的优先级）。
-    """
-    return journal_plan_shapes(progress) or tuple(
-        dict.fromkeys(stage.shape for stage in progress.stages))
-
-
-def stage_table_rows(progress) -> list[dict[str, Any]]:
-    """段状态表的行。
-
-    抽成函数是为了能单测「缺值不给 ``"—"``」这条：``st.dataframe`` 的 arrow 序列化不接受
-    同一列混排 float 与字符串（见 :func:`_numeric`），而这条错误只会打到日志、界面直接少
-    一张表。
-    """
-    return [{"形状": SHAPE_LABELS.get(stage.shape, stage.shape), "阶段": stage.stage,
-             "状态": stage.status, "块": len(stage.blocks),
-             "段首 CV": _numeric(stage.seed_cv), "段末 CV": _numeric(stage.final_cv),
-             "核心峰值": _numeric(stage.peak_inside),
-             "曝光 ms": _numeric(stage.exposure_ms)}
-            for stage in progress.stages]
-
-
-def block_table_rows(stage) -> list[dict[str, Any]]:
-    """当前段的逐块表：``验收`` 来自 ``summary.json``（读取器已 join），其余照抄读数。"""
-    return [{"块": block.index, "CV": _numeric(block.cv),
-             "饱和 px": _numeric(block.saturated_px),
-             "核心峰值": _numeric(block.core_peak),
-             "曝光 ms": _numeric(block.exposure_ms),
-             "验收": _numeric(block.accepted), "说明": block.note}
-            for block in stage.blocks]
-
-
-def render_progress_panel(out_dir: Path, *, running: bool,
-                          shapes: "tuple[str, ...] | list[str] | None" = None) -> None:
-    """逐段/逐块进度：总量进度条 + 段状态表 + 当前段逐块 + journal 流水。
-
-    **分母来自计划，不来自读取器。** ``collect_campaign_progress`` 只枚举该目录里
-    *已经出现* 的段，所以一份跑到一半的 campaign 会诚实地报「4/4 段」—— 那是本页最
-    容易误读的一行（issue #215 的现场就是这个）。计划段数/块数一律由
-    ``campaign.campaign_matrix(shapes)`` / ``matrix_totals`` 给出，读取器只提供**分子**。
-
-    分母的优先级：目录 journal 里的 ``plan.shapes``（那是这份目录**实际按什么计划**跑的，
-    换过勾选之后也仍然是对的）→ 传入的 ``shapes``（页面当前选择，新目录还没有 plan 时）
-    → 目录里出现过的形状。
-    """
-    progress = collect_campaign_progress(out_dir)
-    planned = (journal_plan_shapes(progress) or tuple(shapes or ())
-               or plan_shapes(progress))
-    rows = campaign_matrix(list(planned))
-    plan = matrix_totals(rows)
-    planned_blocks = {(row.shape, row.stage): row.blocks for row in rows}
-    done_blocks = progress.totals["blocks_done"]
-    done_segments = progress.totals["segments_done"]
-    total_blocks = plan["blocks"] or progress.totals["blocks_total"]
-    total_segments = plan["segments"] or progress.totals["segments_total"]
-    st.progress(min(1.0, done_blocks / total_blocks) if total_blocks else 0.0,
-                text=f"块 {done_blocks}/{total_blocks} · 段 {done_segments}/{total_segments}"
-                     f" · 目录 {out_dir}")
-    seen = progress.totals["segments_total"]
-    if total_segments and seen < total_segments:
-        st.caption(f"本目录里目前读到 {seen} 段（计划 {total_segments} 段）：分母取计划，"
-                   "所以跑到一半不会显示成「全部完成」。")
-    st.dataframe(stage_table_rows(progress), hide_index=True,
-                 use_container_width=True)
-    current = next((stage for stage in progress.stages
-                    if stage.status not in COMPLETE_STATUSES and stage.blocks), None)
-    if current is not None:
-        planned_for_stage = planned_blocks.get((current.shape, current.stage))
-        st.markdown(f"**当前段** · {_render_block_line(current, planned_for_stage)}")
-        # ``验收`` 读的是 ``summary.json`` 的接受判定 —— 读取器已经把 manifest 与
-        # summary 两个文件按块号连好了，这里不再自己 join 一遍（两份 join 迟早不一致）。
-        st.dataframe(block_table_rows(current), hide_index=True,
-                     use_container_width=True)
-    with st.expander("阶段流水（journal.json）", expanded=False):
-        render_progress(collect_progress(out_dir), running=running)
-
-
 def _drain_queue(out_q: "queue.Queue[tuple[str, Any]]") -> list[tuple[str, Any]]:
     """非阻塞抽干结果队列（线程→主线程的唯一通道）。"""
     drained: list[tuple[str, Any]] = []
@@ -829,9 +721,11 @@ def campaign_progress_fragment() -> None:
 
     running_label = "（已请求停止：当前段跑完即停）" if run.stop_event.is_set() else ""
     st.markdown(f"**运行中** · 启动于 {run.started_at} {running_label}")
-    render_progress_panel(run.out, running=True, shapes=run.shapes)
-    if st.button("停止（当前块结束后）", key="msc_stop",
-                 disabled=run.stop_event.is_set()):
+    render_progress_panel(run.out, running=True, shapes=run.shapes, key_prefix="cm_run")
+    if st.button("停止（本段结束后）", key="msc_stop",
+                 disabled=run.stop_event.is_set(),
+                 help="停止点是段边界：当前段剩下的块照常跑完（单块是原子事务），"
+                      "journal 记 stopped（不算完成）。接着跑用上面的「从断点续跑」。"):
         run.stop_event.set()
         st.rerun(scope="fragment")
 
@@ -946,7 +840,8 @@ def render_run(*, settings, out_dir: Path, model_dir: Path | None, card,
     elif out_dir.is_dir():
         # 没有在跑时照样画一遍落盘读数：进度是磁盘上的事实，不是内存里的状态。
         # 断线重开页面 / 上次中断后回来看，都走这一条。
-        render_progress_panel(out_dir, running=False, shapes=settings.shapes)
+        render_progress_panel(out_dir, running=False, shapes=settings.shapes,
+                              key_prefix="cm_idle")
 
 
 def _active_slm_number() -> int:
@@ -955,11 +850,8 @@ def _active_slm_number() -> int:
     return min(connected) if connected else 1
 
 
-# --------------------------------------------------------------------------- #
-# ⑦ 历史会话
-# --------------------------------------------------------------------------- #
 def render_history(campaigns: list[Path]) -> None:
-    """⑦ 历史会话：挑一个 campaign 目录，离线看它的逐段/逐块读数。"""
+    """⑦ 历史会话：挑一个 campaign 目录，离线看逐段/逐块读数与这条光路的复用性。"""
     st.subheader("⑦ 历史会话")
     if not campaigns:
         st.caption(f"{campaign_root()} 下还没有 campaign（或都还没写 journal.json）。")
@@ -971,7 +863,10 @@ def render_history(campaigns: list[Path]) -> None:
     choice = st.selectbox("选择 campaign 目录", options=options, index=0,
                           key="msc_history_choice")
     directory = Path(choice)
-    render_progress_panel(directory, running=False)
+    # ⑦ 是离线读数：没有 campaign 在跑，关掉暂停闸（恒禁用的按钮只会误导），轨迹与成本表留着。
+    render_progress_panel(directory, running=False, key_prefix="cm_hist", stage_gate=False)
+    # 逐段/逐块读数之后追加「这条光路的模型还能不能复用」（窗口/零级/曝光/相机格式任一变了，映射就不再适用）。
+    render_reuse_panel(directory)
 
 # --------------------------------------------------------------------------- #
 # 入口

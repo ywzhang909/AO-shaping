@@ -115,7 +115,7 @@ streamlit run src/ao_shaping/gui/slm/multishape_campaign_ui.py
 |---|---|---|
 | `geometry` | 几何自洽 | 零级剔除圆盘（半径 `--zero-radius` = 60 px）∩ 目标方框 / 目标面积；采样窗判据：目标半边长 + `WINDOW_MARGIN_PX`（8 px）≤ `--window-span` |
 | `disk` | 磁盘预算 | 计划产物 GB 与所在盘的可用空间 |
-| `time` | 时间预算 | 估算秒数与设备占用预算（缺省 `BUDGET_HOURS = 8 h`，超只 `warn`） |
+| `time` | 时间预算 | 优先按历史 campaign 的实测 `cost.json` 外推（`cost_table.read_campaign_costs` + `estimate_campaign`）；无实测回落到 `estimate_seconds`（块数 × 24 s，±40 % 区间）并在判据里注明「常数估算而不是实测」与回落原因；超设备占用预算（缺省 `BUDGET_HOURS = 8 h`）只 `warn` |
 | `model` | 模型新鲜度 | 模型目录的产物时间与本次预期口径 |
 | `saturation` | 饱和预估 | 历史 campaign 的 `peak / full_scale` 峰值比 |
 | `exposure` | 曝光收敛史 | 历史 campaign 的曝光阶梯是否收敛 |
@@ -184,6 +184,36 @@ streamlit run src/ao_shaping/gui/slm/multishape_campaign_ui.py
 - FR-38：目录被删过/挪过时先清 widget 键 `msc_history_choice`，否则 `selectbox` 会因
   state 不在 options 里抛异常。
 
+### 2.10 运行监控、成本与模型复用（本轮补齐）
+
+本节是跨 ⑥⑦ 的两组能力：一侧是"这一轮还要多久、能不能中途收工"，另一侧是"这条光路的
+模型还能不能复用"。
+
+- FR-39：**成本面板**读 `cost_table.read_campaign_costs`（逐段实测秒数 / 块数 / 每块秒），
+  再用 `estimate_campaign` 按本次**计划**块数给一行估算。没有历史成本时显示
+  「首次运行，无历史成本」，**不**印一张全 0 的表（全 0 会被读成"很快跑完"）。
+  ⑤ 的时间预算与它同源：有实测就按实测外推，没有才回落到常数估算并注明是常数。
+- FR-40：**段间暂停**与「立即停止」是两个独立动作。单块仍是原子事务（FR-31），
+  段间暂停只在**段边界**生效：页面写请求文件（`campaign_control.request_stage_stop`），
+  runner 在每个段边界轮询并消费（`stage_stop_requested` / `clear_stage_stop`）。
+  请求留在目录里未被消费时，下一次「开始」会在第一段跑完后停下 —— 面板必须把这件事
+  说出来，并提供「取消暂停请求」，不能静默生效。
+- FR-41：**逐块 CV 轨迹**横轴按「段序·块序」连续编号，每个形状从 0 起按**计划**块数推进
+  （与 FR-25 同一分母），段与段之间不重置；每块仍是一帧，不做平滑。
+- FR-42：**指纹写侧**在会话收尾执行：`compute_optical_fingerprint` → `save_fingerprint`
+  落 `fingerprint.json`，再 `register_session` 登记检查点索引（索引条目内联该指纹）。
+  两步各自容错：写失败**不得**让已完成的会话失败；目录残缺时照写一条缺字段的指纹，
+  供 ⑦ 逐格显示「未记录」而不是抛错或填 0。
+- FR-43：**兼容分只有两档阈值加一个判定**：`COMPAT_THRESHOLD = 0.60`（可用下限，需人工
+  确认）、`AUTO_APPLY_THRESHOLD = 0.80`（推荐，可免确认应用），判定函数
+  `compatibility_verdict(score)` 是唯一实现。GUI 内不得出现 `0.60` / `0.80` 字面量，
+  也不得自写分数比较（否则页面与检查卡迟早对同一份指纹给出不同结论）。
+- FR-44：**⑦ 模型复用面板**：先渲染当前目录的指纹卡（优先 `load_fingerprint`；缺文件时
+  只读重算一次，**不写盘、不改 mtime**），再渲染候选清单（按形状过滤、带兼容分与三档
+  结论、`stale` 候选打「已过期」、无指纹的旧候选显示「兼容 —」而不是 `0.00`）。
+  候选与打分只来自 `history_browser` / `optical_session`，页面**不做**第二遍扫描或打分；
+  两者任一 import 失败时降级为一行说明，不阻塞 ⑦ 的复盘读数。
+
 ---
 
 ## 3. 接口规范
@@ -228,19 +258,22 @@ streamlit run src/ao_shaping/gui/slm/multishape_campaign_ui.py
 - NFR-4：不重复实现。参数派生、进度读取、零级几何、形状标签、阶段配方各只有一份来源
   （`campaign` / `campaign_progress` / `preflight` / `TARGET_SHAPE_LABELS` / `stages`），
   本页只做渲染与编排。
-- NFR-5：术语。文档与界面文案遵守 `docs/terminology_glossary.md`：`实验系统`（非"台架"）、
-  `对比择优`（非 `bake-off`），不使用"实拍/真机"。
+- NFR-5：术语。文档与界面文案一律遵守 `docs/terminology_glossary.md` 的规范术语表
+  （实验系统、对比择优、参考（真值）等），不引入表外口语说法。
 
 ---
 
 ## 5. 本版明确不做
 
+原列本节的三项已在本轮落地，移入 FR：实验系统指纹比对 → FR-42 / FR-43 / FR-44；
+`cost_table`（逐形状成本）→ FR-39；⑦ 的历史浏览器 → FR-44。以下是仍不做的：
+
 | 项 | 说明 |
 |---|---|
-| M 系列实验系统指纹比对 | 见 issue #214 的后续条目；当前只在 ⑤ 用历史 campaign 做饱和 / 曝光两项推断 |
-| 独立的历史浏览器（跨 campaign 检索） | ⑦ 只做单目录复盘，检索仍靠 `report/` 与脚本 |
-| `cost_table`（逐形状的价格/工时表） | 预算只给总时间与总磁盘 |
+| 跨 campaign 检索 | ⑦ 与历史浏览器都按「单目录 / 单索引」工作；跨目录横向对比仍靠 `report/` 与脚本 |
+| 逐形状价格 / 工时换算 | 成本只给实测秒数与按计划块数的估算（FR-39），不做金额换算 |
 | 四工位并行 | 本页一次只跑一份 campaign；`bench_busy()` 是互斥判据 |
+| 指纹的自动重标定 | 指纹只记录与比对（FR-42/FR-43），差异需要人改参数重测，本版不自动纠偏 |
 
 ---
 
@@ -251,5 +284,8 @@ streamlit run src/ao_shaping/gui/slm/multishape_campaign_ui.py
 | 纯函数 | `tests/ao_shaping/tools/slm/transfer/test_campaign_settings.py`（派生 / 来源标签 / 覆盖 / 矩阵 / 预算 / 计划脚本同源）、`test_campaign_progress.py`、`test_zero_overlap.py` |
 | 页面 | `tests/ao_shaping/gui/slm/test_multishape_campaign_ui.py`（含离线渲染七段、计划分母、形状标签兜底、光路无光横幅、arrow 缺值回归） |
 | 检查卡 | `tests/ao_shaping/gui/slm/test_precheck.py`（六项 × 四种状态的判据与门禁） |
+| 运行监控 | `tests/ao_shaping/gui/slm/test_campaign_monitor.py`（轨迹分母与段序、段闸门三分支、成本面板降级） |
+| 指纹与评分 | `tests/ao_shaping/tools/slm/transfer/test_optical_session.py`（兼容分与三档判定边界）、`test_checkpoint_registry.py`（索引校验 / stale） |
+| 复用面板 | `tests/ao_shaping/gui/slm/test_history_browser.py`、`test_multishape_campaign_ui.py` 的「⑦ 的模型复用」节（记录值优先、缺指纹只读重算、空目录「未记录」、import 失败降级） |
 | runner | `tests/ao_shaping/runners/test_transfer_shapes_runner.py`（退出码 3、无 traceback、参数表对齐） |
 | 真实产物 | `data/debug/slm_transfer/multishape_scale_20261028/s1200`：16 段 / 112 块、square 四段 CV 与 `peak_full`（255 / 3923 / 4095 / 3465）与报告 §3.2 逐位一致 |

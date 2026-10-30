@@ -30,8 +30,13 @@ import numpy as np
 import pytest
 
 from ao_shaping.gui.slm import bench_settings as bs
+from ao_shaping.gui.slm import exposure_status as es
 
 MODULE = Path(bs.__file__)
+
+#: ``_confirm_working_exposure`` 随曝光探测族搬到了 ``exposure_status``（2026-10-29），
+#: 其余助手仍在 ``bench_settings``。契约不变：名字必须在，且必须可调用。
+_EXPOSURE_OWNED = frozenset({"_confirm_working_exposure"})
 
 #: Every widget key the sidebar creates, with the scope it lives in. Keys are
 #: per-SLM (prefixed) except the experiment-level ones, which are global.
@@ -217,7 +222,7 @@ class TestConfirmWorkingExposure:
     def test_accepts_a_frame_below_saturation(self) -> None:
         frame = np.full((4, 4), 100, dtype=np.uint8)
 
-        working, readback, peak, confirmations, dtype = bs._confirm_working_exposure(
+        working, readback, peak, confirmations, dtype = es._confirm_working_exposure(
             lambda: frame,
             lambda ms: ms,
             ceiling_ms=0.4,
@@ -247,7 +252,7 @@ class TestConfirmWorkingExposure:
             reads.append(ms)
             return ms
 
-        working, _readback, peak, confirmations, _dtype = bs._confirm_working_exposure(
+        working, _readback, peak, confirmations, _dtype = es._confirm_working_exposure(
             read_frame,
             reset,
             ceiling_ms=0.4,
@@ -261,7 +266,7 @@ class TestConfirmWorkingExposure:
     def test_raises_when_every_attempt_is_saturated(self) -> None:
         frame = np.full((4, 4), 255, dtype=np.uint8)
         with pytest.raises(RuntimeError, match="仍然饱和"):
-            bs._confirm_working_exposure(
+            es._confirm_working_exposure(
                 lambda: frame,
                 lambda ms: ms,
                 ceiling_ms=0.4,
@@ -273,7 +278,7 @@ class TestConfirmWorkingExposure:
         """Backing off must not go below the floor."""
         frame = np.full((4, 4), 255, dtype=np.uint8)
         with pytest.raises(RuntimeError):
-            bs._confirm_working_exposure(
+            es._confirm_working_exposure(
                 lambda: frame,
                 lambda ms: ms,
                 ceiling_ms=0.4,
@@ -346,4 +351,5 @@ class TestSplitKeptFunctionInventory:
         ],
     )
     def test_helper_exists(self, name: str) -> None:
-        assert callable(getattr(bs, name))
+        owner = es if name in _EXPOSURE_OWNED else bs
+        assert callable(getattr(owner, name))

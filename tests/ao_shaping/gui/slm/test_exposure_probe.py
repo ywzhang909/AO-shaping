@@ -13,6 +13,8 @@ the camera is a stub, same convention as ``test_bench_settings.py``.
 from __future__ import annotations
 
 import json
+import re
+from datetime import datetime
 from typing import Any
 
 import numpy as np
@@ -20,7 +22,13 @@ import pytest
 import streamlit as st
 
 from ao_shaping.gui.slm import bench_settings as bs
+from ao_shaping.gui.slm import exposure_status as es
+from ao_shaping.gui.slm import shaping_controls as sc
 from ao_shaping.utils.image import exposure_control as ec
+
+
+class _Rerun(Exception):
+    """``st.rerun()`` 在裸模式没有脚本运行上下文,所以用异常代替「重跑一次」。"""
 
 
 @pytest.fixture(autouse=True)
@@ -168,8 +176,8 @@ class TestProbeSessionExposure:
         cam.SATURATES_AT = 0.05  # ladder will think the bench is very bright
         working, evidence = bs.probe_session_exposure_ms(debug_dir=tmp_path / "probe")
         fractions = [c["peak_fraction"] for c in evidence["confirmations"]]
-        assert evidence["peak_fraction"] < bs._CONFIRM_SATURATION
-        assert fractions[-1] < bs._CONFIRM_SATURATION
+        assert evidence["peak_fraction"] < es._CONFIRM_SATURATION
+        assert fractions[-1] < es._CONFIRM_SATURATION
         assert working < evidence["ceiling_ms"]
 
     def test_an_unsalvageable_bench_raises_instead_of_returning_a_clip(
@@ -391,3 +399,148 @@ class TestSidebarButtonWiring:
             c for c in calls if c.get("key") == "detect_exposure_btn"
         )
         assert exposure_btn["disabled"] is True
+
+
+class TestExposureStaleness:
+    """L2：实测曝光带取样时刻，过期只上黄点，绝不自动改值（#215 C3）。"""
+
+    def test_a_fresh_probe_is_not_stale(self, state) -> None:
+        state[bs.detected_key("")] = {
+            "exposure_ms": 0.15,
+            "probed_at": datetime.now().timestamp(),
+        }
+
+        info = bs.exposure_state("")
+
+        assert info["stale"] is False
+        assert info["age_s"] == pytest.approx(0.0, abs=5.0)
+        assert re.fullmatch(r"\d{2}:\d{2}:\d{2}", info["probed_at_text"])
+
+    def test_three_hours_old_is_stale(self, state) -> None:
+        """2 h 是分界：实测 1.5 h 后光强漂 ×1.35,所以 3 h 必然该重测。"""
+        state[bs.detected_key("")] = {
+            "exposure_ms": 0.15,
+            "probed_at": datetime.now().timestamp() - 3 * 3600,
+        }
+
+        info = bs.exposure_state("")
+
+        assert info["stale"] is True
+        assert info["age_s"] == pytest.approx(3 * 3600, abs=5.0)
+
+    def test_a_hand_typed_exposure_is_not_called_stale(self, state) -> None:
+        """没有取样时刻 ≠ 陈旧：手填值不该被点黄点催着「重测」。"""
+        state[bs.detected_key("")] = {"exposure_ms": 0.3}
+
+        info = bs.exposure_state("")
+
+        assert info["exposure_ms"] == pytest.approx(0.3)
+        assert info["probed_at"] is None
+        assert info["probed_at_text"] == ""
+        assert info["age_s"] is None
+        assert info["stale"] is False
+
+    def test_per_slm_status_falls_back_to_the_experiment_record(self, state) -> None:
+        """曝光是实验级字段：某台 SLM 的探测表没有它也要读出同一条记录。"""
+        state[bs.detected_key("")] = {
+            "exposure_ms": 0.15,
+            "probed_at": datetime.now().timestamp() - 3 * 3600,
+        }
+
+        assert bs.exposure_state("slm2")["exposure_ms"] == pytest.approx(0.15)
+        assert bs.exposure_state("slm2")["stale"] is True
+
+    def test_record_exposure_probe_stamps_the_sample_moment(self, state) -> None:
+        moment = datetime.now().timestamp() - 60
+
+        written = bs.record_exposure_probe(
+            "", 0.21, {"probed_at": moment, "probed_at_text": "12:00:01"}
+        )
+
+        assert written["exposure_ms"] == pytest.approx(0.21)
+        assert written["probed_at"] == pytest.approx(moment)
+        assert written["probed_at_text"] == "12:00:01"
+        assert bs.exposure_state("")["stale"] is False
+
+    def test_probe_evidence_carries_the_session_and_sample_moment(
+        self, stub_camera, tmp_path
+    ) -> None:
+        """证据 JSON 只**追加** session_id / probed_at，不改既有键与返回值。"""
+        _, evidence = bs.probe_session_exposure_ms(debug_dir=tmp_path / "probe")
+
+        assert evidence["probed_at"] == pytest.approx(
+            datetime.now().timestamp(), abs=60.0
+        )
+        assert re.fullmatch(r"\d{2}:\d{2}:\d{2}", evidence["probed_at_text"])
+        assert evidence["session_id"] == ""  # 还没标定过 ⇒ 空串,不伪造编号
+        assert "ceiling_ms" in evidence  # 既有键一个不少
+
+
+class TestExposureStatusBar:
+    """状态栏：说清「当前多少 ms / 实测什么时候 / 是否该重测」，从不自己改值。"""
+
+    def _captions(self, monkeypatch) -> list[str]:
+        lines: list[str] = []
+
+        def fake_caption(text, *a, **k):
+            lines.append(str(text))
+
+        monkeypatch.setattr(st, "caption", fake_caption, raising=False)
+        monkeypatch.setattr(
+            st, "button", lambda *a, **k: False, raising=False
+        )
+        return lines
+
+    def test_a_fresh_probe_shows_its_time_and_no_yellow_dot(
+        self, state, monkeypatch
+    ) -> None:
+        lines = self._captions(monkeypatch)
+        state["bench_exposure_ms"] = 0.15
+        state[bs.detected_key("")] = {
+            "exposure_ms": 0.15,
+            "probed_at": datetime.now().timestamp(),
+            "probed_at_text": "12:31:05",
+        }
+
+        sc.render_exposure_status("slm1")
+
+        assert "重测于 12:31:05" in lines[-1]
+        assert "0.150 ms" in lines[-1]
+        assert "🟡" not in lines[-1]
+
+    def test_a_stale_probe_adds_a_yellow_dot_without_touching_the_value(
+        self, state, monkeypatch
+    ) -> None:
+        lines = self._captions(monkeypatch)
+        state["bench_exposure_ms"] = 0.15
+        state[bs.detected_key("")] = {
+            "exposure_ms": 0.15,
+            "probed_at": datetime.now().timestamp() - 3 * 3600,
+        }
+
+        sc.render_exposure_status("slm1")
+
+        assert "🟡" in lines[-1]
+        # 不自动改：控件值与探测记录都还在原处。
+        assert state["bench_exposure_ms"] == pytest.approx(0.15)
+        assert state[bs.detected_key("")]["exposure_ms"] == pytest.approx(0.15)
+
+    def test_the_button_runs_the_sidebar_probe_path(
+        self, state, monkeypatch, stub_camera, tmp_path
+    ) -> None:
+        self._captions(monkeypatch)
+        monkeypatch.setattr(st, "button", lambda *a, **k: True, raising=False)
+        monkeypatch.setattr(
+            st, "rerun", lambda *a, **k: (_ for _ in ()).throw(_Rerun()), raising=False
+        )
+        monkeypatch.setattr(es, "EXPOSURE_PROBE_DEBUG_DIR", tmp_path / "probe")
+        state["bench_exposure_ms"] = 0.02
+        state["bench_cam_type"] = "daheng"
+
+        with pytest.raises(_Rerun):
+            sc.render_exposure_status("slm1")
+
+        assert state[bs.pending_key("")]["bench_exposure_ms"] > 0.02
+        recorded = state[bs.detected_key("")]["exposure_ms"]
+        assert recorded == pytest.approx(stub_camera.applied[-1])
+        assert bs.exposure_state("")["probed_at"] is not None

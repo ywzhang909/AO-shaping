@@ -56,9 +56,9 @@ def state(monkeypatch):
 @pytest.fixture
 def fake_santec(monkeypatch):
     """Replace the Santec class so the handle re-acquire needs no hardware."""
-    from ao_shaping.gui.slm import shaping_controls
+    from ao_shaping.gui.slm import slm_ownership
 
-    monkeypatch.setattr(shaping_controls, "Santec", lambda slm_number: _FakeSLM())
+    monkeypatch.setattr(slm_ownership, "Santec", lambda slm_number: _FakeSLM())
     return _FakeSLM
 
 

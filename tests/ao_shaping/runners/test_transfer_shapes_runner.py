@@ -387,3 +387,177 @@ def test_should_stop_ends_at_a_segment_boundary_and_journals_stopped(tmp_path, m
     assert statuses == ["running", "complete", "stopped"]
     assert journal.entries[-1]["stage"] == f"square/{STAGE_RECIPES[1].name}"
     assert "operator stop" in journal.entries[-1]["reason"]
+
+
+# --------------------------------------------------------------------------- #
+# 段成本与段间暂停 (issue #214 的数据层接进 runner)
+# --------------------------------------------------------------------------- #
+def _write_blocks(stage_dir: Path, blocks: int) -> None:
+    """写一份有 ``blocks`` 行的段 manifest (第一行是 seed 重测)。"""
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    rows = [{"block": index} for index in range(blocks)]
+    (stage_dir / "manifest.json").write_text(json.dumps(rows), encoding="utf-8")
+
+
+def test_a_completed_stage_records_its_measured_cost(tmp_path, monkeypatch):
+    """Every finished segment leaves a ``cost.json`` of journal time × manifest blocks."""
+    from ao_shaping.runners.slm import transfer_shapes_runner as module
+    from ao_shaping.tools.slm.transfer.cost_table import COST_FILE, read_campaign_costs
+
+    def fake_validate(args):
+        _write_blocks(Path(args.out), blocks=4)
+
+    monkeypatch.setattr(module.validate_stage, "run", fake_validate)
+    assert module.run_stages(**_stage_args(tmp_path, shapes=("square",))) is False
+
+    stage_dir = tmp_path / "shape" / "square" / STAGE_RECIPES[0].name
+    payload = json.loads((stage_dir / COST_FILE).read_text(encoding="utf-8"))
+    assert payload["stage"] == STAGE_RECIPES[0].name
+    assert payload["shape"] == "square"
+    assert payload["source"] == "measured"
+    # manifest 4 行里第一行是 seed 重测, 真正测过的块数是 3.
+    assert payload["blocks"] == 3
+    assert payload["seconds"] >= 0.0
+    assert payload["seconds_per_block"] == pytest.approx(payload["seconds"] / 3)
+    # 成本落在段目录里, 扫回来按 <形状>/<阶段> 归并.
+    assert set(read_campaign_costs(tmp_path)) == {
+        f"square/{recipe.name}" for recipe in STAGE_RECIPES}
+
+
+def test_a_pause_request_stops_after_the_completed_stage(tmp_path, monkeypatch):
+    """The on-disk pause is honoured after a *finished* segment, then cleared."""
+    from ao_shaping.runners.slm import transfer_shapes_runner as module
+    from ao_shaping.tools.slm.transfer.campaign_control import (
+        request_stage_stop,
+        stage_stop_requested,
+    )
+    from ao_shaping.tools.slm.transfer.cost_table import COST_FILE
+
+    entered = _record_entered_stages(monkeypatch)
+    request_stage_stop(tmp_path, reason="先看这一段")
+    stopped = module.run_stages(**_stage_args(tmp_path, shapes=("square",),
+                                              stage_resume=False))
+
+    assert stopped is True
+    assert len(entered) == 1
+    assert stage_stop_requested(tmp_path) is False
+    statuses = [entry["status"] for entry in
+                json.loads((tmp_path / "journal.json").read_text(encoding="utf-8"))]
+    assert statuses == ["running", "complete", "paused"]
+    # 暂停之前这一段已经完整落盘: 产物与成本都在.
+    stage_dir = tmp_path / "shape" / "square" / STAGE_RECIPES[0].name
+    assert (stage_dir / "manifest.json").is_file()
+    assert (stage_dir / COST_FILE).is_file()
+
+
+def test_resuming_a_paused_run_reuses_the_finished_stage(tmp_path, monkeypatch):
+    """``--resume`` picks a paused campaign up at the *next* segment, cost untouched."""
+    from ao_shaping.runners.slm import transfer_shapes_runner as module
+    from ao_shaping.tools.slm.transfer.campaign_control import request_stage_stop
+    from ao_shaping.tools.slm.transfer.cost_table import COST_FILE
+
+    first = _record_entered_stages(monkeypatch)
+    request_stage_stop(tmp_path, reason="暂停")
+    assert module.run_stages(**_stage_args(tmp_path, shapes=("square",))) is True
+    assert len(first) == 1
+    cost_path = tmp_path / "shape" / "square" / STAGE_RECIPES[0].name / COST_FILE
+    cost_before = json.loads(cost_path.read_text(encoding="utf-8"))
+
+    second = _record_entered_stages(monkeypatch)
+    assert module.run_stages(**_stage_args(tmp_path, shapes=("square",))) is False
+
+    assert second[0][:2] == ("square", STAGE_RECIPES[1].name)
+    journal = json.loads((tmp_path / "journal.json").read_text(encoding="utf-8"))
+    reused = [entry["stage"] for entry in journal if entry["status"] == "reused"]
+    assert reused == [f"square/{STAGE_RECIPES[0].name}"]
+    # 已测成本是覆盖写的: 续跑不重算, 也不抹掉.
+    assert json.loads(cost_path.read_text(encoding="utf-8")) == cost_before
+
+
+def test_the_released_summary_carries_the_fingerprint_only_when_one_exists(tmp_path):
+    """No fingerprint in the session directory ⇒ no field invented at the end."""
+    from ao_shaping.tools.slm.transfer.optical_session import save_fingerprint
+    from ao_shaping.tools.slm.transfer.session_record import optical_session_field
+
+    assert optical_session_field(tmp_path) == {}
+
+    save_fingerprint({"created_at": "2026-01-01T00:00:00+00:00", "window_span": 820.0},
+                     tmp_path)
+    field = optical_session_field(tmp_path)
+    assert set(field) == {"optical_session"}
+    assert field["optical_session"]["window_span"] == 820.0
+
+
+# ---------------------------------------------------------------------------
+# 收尾写侧: 指纹落盘 + 检查点登记 (免设备)
+# ---------------------------------------------------------------------------
+
+
+def _write_json(path: Path, payload) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def _writing_session(tmp_path: Path) -> Path:
+    """一条只含已有产物的假会话目录 (含一个检查点), 不需要设备。"""
+    root = tmp_path / "session"
+    _write_json(root / "journal.json", [
+        {"stage": "plan", "status": "complete",
+         "timestamp_utc": "2026-01-01T00:00:00+00:00",
+         "plan": {"shapes": ["square"], "window_span": 820.0, "window_step": 4.0,
+                  "zero_radius": 0.0, "period": 128.0, "control_grid": [640, 640],
+                  "fft_size": 1024}},
+        {"stage": "geometry", "status": "complete", "zero_xy": [101.5, 208.25]},
+    ])
+    _write_json(root / "shape" / "square" / "capture" / "config.json",
+                {"pixel_size_um": 3.45})
+    _write_json(root / "shape" / "square" / "capture" / "manifest.json",
+                [{"peak": 900.0, "full_scale": 4095.0, "exposure_ms": 0.6},
+                 {"peak": 1500.0, "full_scale": 4095.0, "exposure_ms": 0.6}])
+    _write_json(root / "fit" / "provenance.json",
+                {"grid_size": [320, 320], "fft_size": 1024, "origin": [50.0, 60.0],
+                 "ramp_matrix": [[1, 2], [3, 4]]})
+    _write_json(root / "camera_probe" / "formats.json",
+                {"observations": [{"format": "Mono12", "exposure_ms": 0.6}]})
+    _write_json(root / "optical_path_probe.json", {"state": "ok"})
+    _write_json(root / "nominal" / "frozen_parameters.json",
+                {"ramp_matrix": [[1.0, 0.0], [0.0, 1.0]], "grid_size": [320, 320],
+                 "fft_size": 1024})
+    return root
+
+
+def test_session_completion_writes_the_fingerprint_and_registers_checkpoints(tmp_path):
+    """收尾写侧: 用已有产物算指纹落盘, 并把检查点登记进索引 (免设备)。"""
+    from ao_shaping.tools.slm.transfer.checkpoint_registry import INDEX_NAME
+    from ao_shaping.tools.slm.transfer.optical_session import (
+        FINGERPRINT_NAME, compute_optical_fingerprint)
+    from ao_shaping.tools.slm.transfer.session_record import record_optical_session
+
+    out = _writing_session(tmp_path)
+    record_optical_session(out)
+
+    assert (out / FINGERPRINT_NAME).is_file()
+    written = json.loads((out / FINGERPRINT_NAME).read_text(encoding="utf-8"))
+    expected = compute_optical_fingerprint(out)
+    assert written.keys() == expected.keys()
+    for key, value in expected.items():
+        if key == "created_at":
+            continue
+        assert written[key] == value, key
+    # 检查点是登记了的 (指纹先落盘, 所以条目里带着它)。
+    index = json.loads((out / INDEX_NAME).read_text(encoding="utf-8"))
+    assert [entry["kind"] for entry in index] == ["nominal"]
+    assert index[0]["fingerprint"]["window_span"] == 820.0
+
+
+def test_session_completion_survives_an_incomplete_directory(tmp_path):
+    """残缺目录也要写一条缺字段的指纹, 不能让跑完的会话失败。"""
+    from ao_shaping.tools.slm.transfer.optical_session import FINGERPRINT_NAME
+    from ao_shaping.tools.slm.transfer.session_record import record_optical_session
+
+    out = tmp_path / "empty_session"
+    record_optical_session(out)  # 不得抛异常
+
+    written = json.loads((out / FINGERPRINT_NAME).read_text(encoding="utf-8"))
+    assert written["window_span"] is None
+    assert written["created_at"]

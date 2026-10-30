@@ -36,6 +36,7 @@ import streamlit as st
 
 from ao_shaping.gui.slm import bench_settings as bs
 from ao_shaping.gui.slm import shaping_controls as sc
+from ao_shaping.gui.slm import slm_ownership
 from ao_shaping.runners.slm.model_in_loop_session import SessionCalibration
 
 
@@ -83,7 +84,7 @@ class _FakeSLM:
 def state(monkeypatch):
     state: dict[str, Any] = {}
     monkeypatch.setattr(st, "session_state", state)
-    monkeypatch.setattr(sc, "Santec", lambda slm_number: _FakeSLM())
+    monkeypatch.setattr(slm_ownership, "Santec", lambda slm_number: _FakeSLM())
     monkeypatch.setattr(
         "ao_shaping.gui.slm.multi_slm_controller._stop_toggle", lambda n: None
     )
@@ -197,7 +198,7 @@ class TestGeometryGate:
         opened: list[Any] = []
         monkeypatch.setattr(st, "error", lambda text, *a, **k: errors.append(str(text)))
         monkeypatch.setattr(
-            sc, "Santec", lambda *a, **k: opened.append((a, k))
+            slm_ownership, "Santec", lambda *a, **k: opened.append((a, k))
         )
 
         values = _values(tmp_path, geometry_file="", cam_type="daheng")

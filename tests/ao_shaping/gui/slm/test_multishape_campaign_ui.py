@@ -235,13 +235,20 @@ def test_known_zero_xy_falls_back_to_the_journal_then_admits_ignorance(tmp_path:
 # 5. 交给 execute_campaign 的关键字 / 断点续跑
 # --------------------------------------------------------------------------- #
 def _write_journal(campaign: Path, entries: list[tuple[str, str]],
-                   shapes: tuple[str, ...] = ("square",)) -> None:
-    """最小 journal：只写 ``stage`` / ``status``，形状目录一并建出来。"""
+                   shapes: tuple[str, ...] = ("square",),
+                   plan: tuple[str, ...] | None = None) -> None:
+    """最小 journal：只写 ``stage`` / ``status``，形状目录一并建出来。
+
+    ``plan`` 写的是 runner 落盘的 ``{"plan": {"shapes": [...]}}`` 条目 —— 那是**这份
+    目录实际按什么计划跑的**，进度分母优先取它（换过勾选之后也仍然对）。
+    """
     for shape in shapes:
         (campaign / "shape" / shape).mkdir(parents=True, exist_ok=True)
-    (campaign / "journal.json").write_text(
-        json.dumps([{"stage": stage, "status": status} for stage, status in entries]),
-        encoding="utf-8")
+    payload: list[dict] = []
+    if plan:
+        payload.append({"plan": {"shapes": list(plan)}})
+    payload += [{"stage": stage, "status": status} for stage, status in entries]
+    (campaign / "journal.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
 def test_runner_kwargs_are_all_accepted_by_execute_campaign() -> None:
@@ -467,3 +474,159 @@ def test_progress_tables_survive_missing_values(tmp_path: Path) -> None:
     assert block_rows[0]["CV"] is None and block_rows[0]["验收"] is None
     for rows in (stage_rows, block_rows):
         pa.Table.from_pandas(pd.DataFrame(rows))   # 原先在这里抛 ArrowInvalid
+
+
+# --------------------------------------------------------------------------- #
+# 7. 监控读数：统一进度 / CV 轨迹 / 段间闸 / 成本
+# --------------------------------------------------------------------------- #
+def _write_blocks(campaign: Path, shape: str, stage: str, *, blocks: int) -> None:
+    """写一个阶段的 ``manifest.json``（段首行 + 逐块行，每块一个 CV）。"""
+    stage_dir = campaign / "shape" / shape / stage
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    common = {"core_peak": 200.0, "exposure_ms": 40.0, "saturation_pixels": 0,
+              "bit_depth": 12, "full_scale": 4095.0}
+    rows = [{"label": f"{shape}_seed", "file": f"{shape}_seed.npz",
+             "metrics": {"cv": 1.0, "mean": 1.0, "ee_roi": 0.4, "target_peak": 1.0},
+             **common}]
+    for index in range(blocks):
+        rows.append({"label": f"{shape}_{index}_A1", "file": f"{shape}_{index}.npz",
+                     "metrics": {"cv": 0.90 - 0.01 * index, "mean": 1.0,
+                                 "ee_roi": 0.4, "target_peak": 1.0},
+                     **common})
+    (stage_dir / "manifest.json").write_text(json.dumps(rows), encoding="utf-8")
+
+
+def test_idle_panel_draws_the_three_monitor_blocks(page: AppTest, tmp_path: Path,
+                                                  monkeypatch) -> None:
+    """⑥ 的空闲面板：CV 轨迹 + 段间闸（禁用）+ 成本表，三个块都得在。
+
+    空闲视图不是"没东西可看"：断线重开后第一步就是看这份盘上读数，所以轨迹图与成本
+    表在这里和运行中一样要画；只有闸必须禁用（没有 campaign 在跑）。
+    """
+    # 换到空目录：历史区没有可挑的 campaign，这张图只可能来自 ⑥。
+    monkeypatch.chdir(tmp_path)
+    campaign = tmp_path / "stamp" / "s1200"
+    _write_journal(campaign, [("square/transport_cv", "complete")], plan=("square",))
+    _write_blocks(campaign, "square", "transport_cv", blocks=4)
+
+    page.text_input(key="msc_out_text").input(str(campaign))
+    page.run()
+    assert not page.exception
+
+    # 轨迹：一张折线图，说明里写清横轴是什么、CV 越低越好（空图会被读成"没有变化"）。
+    assert len(page.get("vega_lite_chart")) == 1
+    captions = " ".join(element.value for element in page.caption)
+    assert "段序·块序" in captions
+    assert "越低越好" in captions
+
+    # 段间闸：空闲时禁用，键带 ⑥ 的前缀（⑦ 同时读同一目录时不能撞键）。
+    gate = [button for button in page.button if button.key == "cm_idle_stage_pause"]
+    assert len(gate) == 1
+    assert gate[0].disabled is True
+    assert "只在运行中有意义" in captions
+
+    # 成本表：模块已就绪给表、未就绪给一行说明，两种都算"这一块在"。
+    assert "**成本**" in " ".join(element.value for element in page.markdown
+                                 if element.value)
+    assert ("首次运行" in captions) or ("尚未就绪" in captions)
+
+
+def test_progress_line_is_the_shared_formatter_sentence(page: AppTest,
+                                                        tmp_path: Path) -> None:
+    """进度条上那句话必须由 ``campaign_monitor.progress_caption`` 生成。
+
+    页面里任何一处手写的"跑到第几段第几块"都会和它漂移成两种写法，而操作员会拿其中一个
+    去对另一个。所以这里不是"格式像"，而是与同一个函数的输出**逐字相等**。
+    """
+    from ao_shaping.gui.slm import campaign_monitor as cm
+    from ao_shaping.tools.slm.transfer.campaign_progress import collect_campaign_progress
+
+    campaign = tmp_path / "stamp" / "s1200"
+    _write_journal(campaign, [("square/transport_cv", "complete")], plan=("square",))
+    _write_blocks(campaign, "square", "transport_cv", blocks=4)
+
+    page.text_input(key="msc_out_text").input(str(campaign))
+    page.run()
+    assert not page.exception
+
+    text = page.get("progress")[0].proto.text
+    expected = cm.progress_caption(collect_campaign_progress(campaign),
+                                   planned_shapes=("square",))
+    assert text == expected
+    assert "段 1/4" in text and "块 4/28" in text and "已用 " in text
+
+
+def test_idle_panel_and_history_view_can_read_the_same_directory(tmp_path: Path,
+                                                                monkeypatch) -> None:
+    """⑥ 与 ⑦ 同时读同一个目录：两套前缀互不干扰，⑦ 不出暂停闸。
+
+    ``render_progress_panel`` 现在被三处视图共用，同一次脚本运行里出现两份是常态
+    （默认输出目录正好也是历史里那一条）。不带前缀的同名控件会让整页变成一条
+    ``DuplicateElementKey`` 异常 —— 那不是"界面有点小问题"，是页面全白。
+    """
+    monkeypatch.chdir(tmp_path)          # campaign_root() = <tmp>/data/debug/slm_transfer
+    campaign = tmp_path / "data" / "debug" / "slm_transfer" / "stamp" / "s1200"
+    _write_journal(campaign, [("square/transport_cv", "complete")])
+    _write_blocks(campaign, "square", "transport_cv", blocks=4)
+
+    at = AppTest.from_file(APP, default_timeout=180)
+    at.run()
+    at.text_input(key="msc_out_text").input(str(campaign))
+    at.run()
+    assert not at.exception, [str(exc.value)[:200] for exc in at.exception]
+
+    keys = {button.key for button in at.button}
+    assert "cm_idle_stage_pause" in keys
+    assert not any(key and key.startswith("cm_hist_") for key in keys)
+    # 两个面板各画一张轨迹图：同一个目录被读了两次，不是只画一次。
+    assert len(at.get("vega_lite_chart")) == 2
+
+
+# --------------------------------------------------------------------------- #
+# 8. ⑦ 的模型复用（接已完工的历史浏览器；面板本体见 test_campaign_reuse.py）
+# --------------------------------------------------------------------------- #
+
+RECORDED_FP: dict = {
+    "created_at": "2026-10-27T14:03:11.123456+00:00",
+    "window_span": 420.0,
+    "window_step": 20.0,
+    "zero_xy": [1442.0, 706.0],
+    "zero_radius": 30.0,
+    "exposure_ms": 5.0,
+    "camera_format": "Mono12",
+    "control_grid": [256, 256],
+    "pixel_size_um": 3.45,
+}
+
+
+def _write_recorded_fingerprint(campaign: Path, **overrides) -> None:
+    """会话目录里那份已落盘的 ``fingerprint.json``（采集侧写的，⑦ 只读）。"""
+    payload = {**RECORDED_FP, **overrides}
+    (campaign / "fingerprint.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _fingerprint_tables(page: AppTest) -> list:
+    """指纹卡的六行表（列名固定为 ``项目`` / ``值``）。"""
+    return [element.value for element in page.dataframe
+            if "项目" in _columns(element.value)]
+
+
+def test_history_section_renders_the_reuse_panel_for_the_picked_directory(
+        tmp_path: Path, monkeypatch) -> None:
+    """⑦ 整段：挑中的目录既出逐段读数，也出这条光路的模型复用。"""
+    monkeypatch.chdir(tmp_path)
+    campaign = tmp_path / "data" / "debug" / "slm_transfer" / "stamp" / "s1200"
+    _write_journal(campaign, [("square/transport_cv", "complete")])
+    _write_blocks(campaign, "square", "transport_cv", blocks=2)
+    _write_recorded_fingerprint(campaign)
+
+    at = AppTest.from_file(APP, default_timeout=180)
+    at.run()
+    assert not at.exception, [str(exc.value)[:200] for exc in at.exception]
+
+    markdown = " ".join(element.value for element in at.markdown if element.value)
+    assert "模型复用（这条光路）" in markdown
+    assert _fingerprint_tables(at), "⑦ 没有画出指纹卡"
+    # 逐段/逐块读数视图还在（同一段里，不挪走）。
+    assert _stage_table(at) is not None
+    assert at.session_state["msc_hist_current_fp"]["window_span"] == 420.0

@@ -206,7 +206,31 @@ def image_metrics(image, objective):
     mean = float(core_values.mean())
     return dict(cv=masked_cv(frame, objective.core) if mean > 0 else None, mean=mean,
                 ee_roi=masked_energy_fraction(frame, objective.box, floor=1e-9),
-                target_peak=float(frame[objective.box].max()))
+                target_peak=float(frame[objective.box].max()),
+                target_pearson=target_pearson(frame, objective.target))
+
+
+def target_pearson(image, target):
+    """实测帧与目标掩膜的 Pearson 相关 (整形相似度, 无量纲)。
+
+    为什么要整窗而不是只在 ``objective.box`` 内算: 方斑目标的掩膜在框内恒为
+    1, 框内方差为 0, Pearson 在那里**无定义**; 三角/矩形目标同理, 掩膜在框内
+    也只有 0/1 两档。真正要回答的是「实测远场像不像这个形状」——落在目标之外
+    的光同样属于答案, 所以相关在全窗口 (相机窗口 = 目标掩膜同一网格) 上算。
+
+    返回 ``None`` 而不是 0.0: 全暗帧 (无光) 的方差为 0, 相关无定义, 与
+    ``cv=None`` 的退化约定一致 —— 0.0 会被读成「测了, 但完全不像」。
+
+    归一化不改变本值 (Pearson 对仿射缩放不变), 保留归一化是给读者把它与叠加
+    图对照时口径一致; 因此本函数不对输入做任何截断或归一化。
+    """
+    frame = np.asarray(image, dtype=np.float64)
+    ref = np.asarray(target, dtype=np.float64)
+    if frame.shape != ref.shape:
+        raise ValueError("image and target must share the camera-window grid")
+    if frame.size < 2 or frame.std() == 0 or ref.std() == 0:
+        return None
+    return float(np.corrcoef(frame.ravel(), ref.ravel())[0, 1])
 
 
 def anchored_intensity(measured, prediction, baseline_prediction):

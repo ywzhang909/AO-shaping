@@ -22,6 +22,7 @@ import streamlit as st
 
 from ao_shaping.gui.slm import bench_settings as bs
 from ao_shaping.gui.slm import shaping_controls as sc
+from ao_shaping.gui.slm import slm_ownership
 from ao_shaping.gui.slm.shaping_controls import GsRefineMethod, SlmOwnership
 from ao_shaping.gui.utils.phase_overlay import OverlaidSantec
 
@@ -71,7 +72,7 @@ def state(monkeypatch):
     state: dict[str, Any] = {}
     monkeypatch.setattr(st, "session_state", state)
     monkeypatch.setattr(bs, "probe_camera_window", lambda *a, **k: None)
-    monkeypatch.setattr(sc, "Santec", lambda slm_number: _FakeSLM())
+    monkeypatch.setattr(slm_ownership, "Santec", lambda slm_number: _FakeSLM())
     monkeypatch.setattr(
         "ao_shaping.gui.slm.multi_slm_controller._stop_toggle", lambda n: None
     )
@@ -135,7 +136,7 @@ class TestWithSlmOwnership:
         def boom(_slm_num):
             raise RuntimeError("SLM controller is wedged")
 
-        monkeypatch.setattr(sc, "_reacquire_slm_handle", boom)
+        monkeypatch.setattr(slm_ownership, "_reacquire_slm_handle", boom)
 
         with pytest.raises(RuntimeError, match="wedged"):
             with sc.with_slm_ownership(1):

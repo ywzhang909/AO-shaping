@@ -364,7 +364,7 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 
 ## tools/ 模块逐名登记 (2026-10-26 普查)
 
-86 个模块逐一对照本文件叙述：名面（`name.py` 全名）未列 58 个 —— 46 个真零提及 + 12 个 stem 命中（4 个真命中：`floor_probe` / `abba_probe` 见 io 行收拢注记、`lut_runner` 见注册映射树、`panel_locate` 见 `cli/exposure` 行注记；3 个 `__main__.py` 通用 token 按同 `__init__.py` 的 floor 合同通过；4 个撞普通词假命中：`bootstrap` / `probes` / `response` / `simulation`；1 个特例 `calibration.py` 只被包目录路径串 `tools/slm/calibration/` 命中）。46 真缺 + 4 假命中 + `calibration.py` 共 51 行补录如下；全量覆盖由守卫 `tests/ao_shaping/test_tools_doc_coverage.py` 锁定（token 合同同 `utils/` 守卫）。**2026-10-26 复核**：上游合入 10 个新 transfer 模块（tools 总数 86 → 96），守卫当时恰红这 10 个，已一并登记，本表现共 61 行。**2026-10-29 复核**：上游 10-26 后又陆续合入 `jacobian_guard` / `parallel_fit` / `protocol` 三个 transfer 模块（此前漏登记），连同 `validate.py` 为过模块规模门禁拆分出的 `session_plan.py` 一并补登记 4 行，本表现共 64 行。
+86 个模块逐一对照本文件叙述：名面（`name.py` 全名）未列 58 个 —— 46 个真零提及 + 12 个 stem 命中（4 个真命中：`floor_probe` / `abba_probe` 见 io 行收拢注记、`lut_runner` 见注册映射树、`panel_locate` 见 `cli/exposure` 行注记；3 个 `__main__.py` 通用 token 按同 `__init__.py` 的 floor 合同通过；4 个撞普通词假命中：`bootstrap` / `probes` / `response` / `simulation`；1 个特例 `calibration.py` 只被包目录路径串 `tools/slm/calibration/` 命中）。46 真缺 + 4 假命中 + `calibration.py` 共 51 行补录如下；全量覆盖由守卫 `tests/ao_shaping/test_tools_doc_coverage.py` 锁定（token 合同同 `utils/` 守卫）。**2026-10-26 复核**：上游合入 10 个新 transfer 模块（tools 总数 86 → 96），守卫当时恰红这 10 个，已一并登记，本表现共 61 行。**2026-10-29 复核**：上游 10-26 后又陆续合入 `jacobian_guard` / `parallel_fit` / `protocol` 三个 transfer 模块（此前漏登记），连同 `validate.py` 为过模块规模门禁拆分出的 `session_plan.py` 一并补登记 4 行，本表现共 64 行。**2026-10-29 二轮**：本轮 campaign 界面新增的 4 个 transfer 模块（`campaign_control` / `checkpoint_registry` / `cost_table` / `optical_session`）与拆分出的 `session_record.py` 补登记 5 行，本表现共 69 行。
 
 | 位置 | 模块 | 职责 (docstring 原句或类面) |
 |---|---|---|
@@ -435,6 +435,11 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 | `slm/transfer/` | `stages.py` | 四阶段 CCD 锚定整形配方表 (单一事实源, 不碰设备): `STAGE_RECIPES` 从 `runners/slm/transfer_shapes_runner.py` 搬出, 免设备消费者 (GUI 计划页 / 进度读取 / 计划脚本) 不必 import 一整个 click 绑定的 runner |
 | `slm/transfer/` | `campaign.py` | 多形状 campaign 的「形状 + 尺寸 → 其余全部参数」派生层 (纯函数, 不碰设备): `SIZE_WINDOWS`/`window_for_side` 与计划脚本共用同一张尺寸→窗口表 (200/600/1200 → 420/620/900), `derive_settings` 逐字段标 `measured`/`derived`/`default`/`manual` 来源并记下被覆盖的原值, `campaign_matrix`/`estimate_seconds`/`estimate_disk_gb` 供计划页预览; 存在的理由是「哪些数是测出来的、哪些只是 CLI 默认值」不能靠操作员记忆 |
 | `slm/transfer/` | `campaign_progress.py` | campaign 输出目录的逐块进度读取器 (纯函数, 不碰 streamlit/设备; 产物缺失、只写一半、阶段被 `stopped` 都不抛): `collect_campaign_progress` 读 `journal.json` + `shape/<shape>/<stage>/manifest.json` → 16 段 / 112 块视图 (与报告 §3.2 表同源), `peak_full` 对齐报告「段内峰值」, `peak_inside` 另答核心内峰值 |
+| `slm/transfer/` | `campaign_control.py` | 段间暂停闸: 「本段结束后停下」写进目录而非内存 (换页面/重开浏览器仍看得见), 文件约定同 `parallel_fit` 的 `stop_acquisition.request` |
+| `slm/transfer/` | `checkpoint_registry.py` | 检查点索引: `register_session` / `scan_checkpoint_index` / `verify_checkpoint` 三件事分开做, 失配标 `stale` 而不是删 (「过期」本身有用), 只写 `session/checkpoint_index.json` 不动模型文件 |
+| `slm/transfer/` | `cost_table.py` | 逐段实测成本: `cost.json` 落在段目录, `read_campaign_costs` 反向归并; 估算只用**每块秒**外推 (段长秒数不可比), 无历史时返回全 0 并留空基准, 让页面能说「首次运行, 无历史成本」 |
+| `slm/transfer/` | `optical_session.py` | 光路指纹与兼容评分: 指纹 (窗口/零级/曝光/相机格式/控制网格) + 五维加权打分 + 两档阈值 (`COMPAT_THRESHOLD` 0.60 / `AUTO_APPLY_THRESHOLD` 0.80) 与唯一判定 `compatibility_verdict` |
+| `slm/transfer/` | `session_record.py` | 会话收尾与段级记账 (指纹落盘 + 检查点登记 + 段成本 + 段间暂停), 免设备免 click, 只读会话目录已有产物 (由 `transfer_shapes_runner.py` 拆出过模块规模门禁) |
 | `wfs/` | `wfs_probe.py` | SLM+WFS 光强与瞳面探针 — 标定前硬件状态检查 (光强是否足够且不饱和) |
 | `wfs/` | `wfs_reference.py` | SLM+WFS 参考波前标定与倾斜线性度 (三步流程) |
 | `wfs/` | `zernike_correction.py` | SLM Zernike 模式法波前矫正三阶段流程 (2026-09-15, 按实测调优) |

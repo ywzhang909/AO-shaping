@@ -26,6 +26,7 @@ from ao_shaping.tools.slm.transfer.campaign import (
     estimate_disk_gb,
     estimate_seconds,
 )
+from ao_shaping.tools.slm.transfer.cost_table import record_stage_cost
 from ao_shaping.tools.slm.transfer.preflight import check_zero_overlap
 
 SHAPES = ("square", "triangle", "star", "circle")
@@ -199,6 +200,7 @@ def test_time_passes_under_the_default_budget(out_dir: Path) -> None:
     check = _by_key(_card(out_dir=out_dir))["time"]
     low, expected, high = estimate_seconds(campaign_matrix(SHAPES))
     assert check.status == "pass"
+    assert "常数估算" in check.detail
     assert f"≈{expected / 60:.0f} min" in check.detail
     assert f"区间 {low / 60:.0f}–{high / 60:.0f} min" in check.detail
 
@@ -208,6 +210,59 @@ def test_time_warns_over_budget_but_never_stops(out_dir: Path) -> None:
     check = _by_key(_card(out_dir=out_dir, budget_hours=0.1))["time"]
     assert check.status == "warn"
     assert "超出预算" in check.detail
+
+
+def _write_cost(campaign: Path, shape: str, stage: str, *, seconds: float,
+                blocks: int) -> None:
+    """用真实写入口落一份段成本（不手搓 JSON —— 键名漂移要被这里抓住）。"""
+    record_stage_cost(campaign / "shape" / shape / stage, stage=stage, shape=shape,
+                      seconds=seconds, blocks=blocks)
+
+
+def test_time_prefers_measured_costs_over_the_constant(out_dir: Path,
+                                                       tmp_path: Path) -> None:
+    """有历史 ``cost.json`` 时按实测外推，并把常数估算放在旁边做对照。"""
+    campaign = tmp_path / "20261028" / "s1200"
+    _write_cost(campaign, "square", "validate", seconds=160.0, blocks=8)   # 20 s/块
+    _write_cost(campaign, "square", "dense", seconds=360.0, blocks=12)     # 30 s/块
+    check = _by_key(_card(out_dir=out_dir, campaigns=[campaign]))["time"]
+    # 中位 25 s/块 × 112 块 = 2800 s ≈ 47 min；常数 2688 s → 实测比常数 +4 %。
+    assert check.status == "pass"
+    assert "按实测" in check.detail
+    assert "2 段实测" in check.detail
+    assert "每块 25.0 s" in check.detail
+    assert "常数估算" in check.detail
+    assert "差 +4 %" in check.detail
+    assert "实测更慢" in check.evidence
+
+
+def test_time_falls_back_to_the_constant_and_says_why(out_dir: Path,
+                                                      tmp_path: Path) -> None:
+    """坏 JSON / 缺字段不许抛：回落常数，并把"为什么回落"写进判据。"""
+    campaign = tmp_path / "stamp" / "s1200"
+    half_written = campaign / "shape" / "square" / "validate"
+    half_written.mkdir(parents=True)
+    (half_written / "cost.json").write_text("{not json", encoding="utf-8")
+    no_fields = campaign / "shape" / "star" / "validate"
+    no_fields.mkdir(parents=True)
+    (no_fields / "cost.json").write_text(
+        json.dumps({"stage": "validate", "shape": "star"}), encoding="utf-8")
+    check = _by_key(_card(out_dir=out_dir, campaigns=[campaign]))["time"]
+    assert check.status == "pass"
+    assert check.detail.startswith("常数估算")
+    assert "常数估算而不是实测" in check.evidence
+    assert "1 份历史 campaign" in check.evidence
+    assert "没有一行同时写着" in check.evidence
+
+
+def test_time_constant_estimate_scales_with_the_planned_blocks(out_dir: Path) -> None:
+    """判据里的块数与秒数按当前计划生成，不再写死「112 块 → 2688 s」。"""
+    settings = derive_settings(("square",), 1200.0)
+    check = _by_key(_card(out_dir=out_dir, settings=settings))["time"]
+    assert "本页 28 块 → 672 s" in check.evidence
+    # 依据句保留：常数与实测的既有偏差仍是事实陈述，不因改动删掉。
+    assert "112 块 → 2688 s" in check.evidence
+    assert "2675.0 s" in check.evidence
 
 
 # --------------------------------------------------------------------------- #

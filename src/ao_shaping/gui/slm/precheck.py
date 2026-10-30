@@ -47,10 +47,17 @@ from pathlib import Path
 from typing import Any, Literal
 
 from ao_shaping.tools.slm.transfer.campaign import (
+    ESTIMATE_SPREAD,
+    SECONDS_PER_BLOCK,
     CampaignSettings,
     campaign_matrix,
     estimate_disk_gb,
     estimate_seconds,
+    matrix_totals,
+)
+from ao_shaping.tools.slm.transfer.cost_table import (
+    estimate_campaign,
+    read_campaign_costs,
 )
 from ao_shaping.tools.slm.transfer.preflight import (
     WINDOW_MARGIN_PX,
@@ -338,24 +345,124 @@ def _disk_check(*, settings: CampaignSettings, out_dir: Path) -> Check:
                  evidence=evidence)
 
 
-def _time_check(*, settings: CampaignSettings, budget_hours: float) -> Check:
-    """时间预算：整形墙钟期望值 vs 操作员给的设备占用预算。"""
+@dataclass(frozen=True)
+class _MeasuredTime:
+    """历史 campaign 的实测成本外推（``cost_table.estimate_campaign`` 的口径）。"""
+
+    low: float
+    mid: float
+    high: float
+    per_block_low: float
+    per_block_mid: float
+    per_block_high: float
+    rows: int
+
+
+def _measured_time(recent_campaigns: Sequence[Path], planned_blocks: int
+                   ) -> tuple[_MeasuredTime | None, str]:
+    """按历史 campaign 落盘的 ``cost.json`` 外推整形墙钟；读不到时给出**回落原因**。
+
+    只读盘、不抛异常：缺文件 / 坏 JSON / 缺 ``blocks`` 或 ``seconds`` 都落在
+    :func:`read_campaign_costs` 的「跳过」分支里，这里再把「一行可用都没有」翻成
+    一句中文原因 —— 判据得能说清"为什么现在给的是常数"。
+    """
+    if not recent_campaigns:
+        return None, "本页没有提供历史 campaign 目录"
+    planned = max(0, int(planned_blocks or 0))
+    if not planned:
+        return None, "本次计划块数为 0"
+    costs: dict[str, dict[str, Any]] = {}
+    try:
+        for campaign in recent_campaigns:
+            base = Path(campaign)
+            # 加 campaign 名做前缀：不同次的同名段（square/validate…）各算一行，
+            # 否则后一次会盖掉前一次，"几段实测"这个样本数就不真了。
+            for key, row in read_campaign_costs(base).items():
+                costs[f"{base.name}/{key}"] = row
+    except (OSError, TypeError, ValueError) as exc:
+        return None, f"读历史成本时出错（{type(exc).__name__}: {exc}）"
+    estimate = estimate_campaign(costs, planned_blocks=planned)
+    basis = estimate.get("basis_seconds_per_block") or {}
+    rows = int(basis.get("rows") or 0)
+    if not rows:
+        return None, (f"扫了 {len(recent_campaigns)} 份历史 campaign，没有一行同时写着 "
+                      "blocks 与 seconds 的 cost.json")
+    return _MeasuredTime(
+        low=float(estimate["low"]),
+        mid=float(estimate["mid"]),
+        high=float(estimate["high"]),
+        per_block_low=float(basis["low"]),
+        per_block_mid=float(basis["mid"]),
+        per_block_high=float(basis["high"]),
+        rows=rows,
+    ), ""
+
+
+def _time_check(*, settings: CampaignSettings, budget_hours: float,
+                recent_campaigns: Sequence[Path] = ()) -> Check:
+    """时间预算：整形墙钟期望值 vs 操作员给的设备占用预算。
+
+    期望值优先取**历史实测**（``cost_table``：每块秒 × 本次计划块数），没有可用实测
+    才回落到常数（``estimate_seconds``：总块数 × ``SECONDS_PER_BLOCK``）。常数不是
+    实测：它假设"同一条光路、同一套采集流程"，第一次跑新形状（块数、曝光、模型分辨率
+    都变了）就会偏，所以判据里必须写清这份数字是哪一种、以及两者差多少。
+    """
     rows = campaign_matrix(settings.shapes)
-    low, expected, high = estimate_seconds(rows)
+    blocks = matrix_totals(rows)["blocks"]
+    low, constant, high = estimate_seconds(rows)
+    measured, fallback_reason = _measured_time(recent_campaigns, blocks)
     budget_s = float(budget_hours) * 3600.0
-    evidence = (
-        "判据：estimate_seconds（总块数 × 24 s/块；112 块 → 2688 s，与实测整形墙钟 "
-        "2675.0 s 差 0.5 %，multishape_scale_wallclock_20261028.md:328）× ±40 % 区间"
-        f"（同报告逐块 10–35 s 的散布）。预算是设备占用提醒，不是正确性判据；"
-        f"本页缺省 {BUDGET_HOURS:g} h。注意：capture / fit / 重放不计入该估算。"
+    constant_note = (
+        f"常数估算 ≈{constant / 60:.0f} min（区间 {low / 60:.0f}–{high / 60:.0f} min，"
+        f"{blocks} 块 × {SECONDS_PER_BLOCK:g} s/块）"
     )
-    detail = (f"整形墙钟 ≈{expected / 60:.0f} min（区间 {low / 60:.0f}–{high / 60:.0f} min），"
-              f"预算 {float(budget_hours):g} h")
+    # 常数与实测的既有偏差：同一口径下的两个独立数字，留着当"常数还准不准"的参照。
+    constant_reference = (
+        "常数与实测的既有偏差：112 块 → 2688 s vs 实测整形墙钟 2675.0 s"
+        "（差 0.5 %，multishape_scale_wallclock_20261028.md:328）。"
+    )
+    tail = (
+        f"预算是设备占用提醒，不是正确性判据；本页缺省 {BUDGET_HOURS:g} h。"
+        "注意：capture / fit / 重放不计入该估算。"
+    )
+    if measured is not None:
+        expected = measured.mid
+        drift_pct = (measured.mid - constant) / constant * 100.0 if constant else 0.0
+        slower_faster = "实测更慢" if drift_pct > 0 else "实测更快"
+        detail = (
+            f"按实测：约 {measured.mid / 60:.0f} min（区间 {measured.low / 60:.0f}–"
+            f"{measured.high / 60:.0f} min，依据：{measured.rows} 段实测，每块 "
+            f"{measured.per_block_mid:.1f} s）；{constant_note}，差 {drift_pct:+.0f} %；"
+            f"预算 {float(budget_hours):g} h"
+        )
+        evidence = (
+            "判据：按历史 campaign 的**实测**成本外推 —— read_campaign_costs 从 "
+            f"{len(recent_campaigns)} 份历史里扫出 {measured.rows} 段 cost.json 的每块秒"
+            f"（min/中位/max = {measured.per_block_low:.1f}/{measured.per_block_mid:.1f}/"
+            f"{measured.per_block_high:.1f} s/块），乘本次计划 {blocks} 块；区间取历史"
+            "最快到最慢的包络（不是置信区间）。"
+            f"同时给出{constant_note}作对照，两者差 {drift_pct:+.0f} %（{slower_faster}）。"
+            + constant_reference + tail
+        )
+    else:
+        expected = constant
+        detail = (
+            f"常数估算：整形墙钟 ≈{constant / 60:.0f} min（区间 {low / 60:.0f}–"
+            f"{high / 60:.0f} min），预算 {float(budget_hours):g} h"
+        )
+        evidence = (
+            f"判据：estimate_seconds（总块数 × {SECONDS_PER_BLOCK:g} s/块；本页 {blocks} 块 "
+            f"→ {constant:.0f} s）× ±{ESTIMATE_SPREAD:.0%} 区间（同报告逐块 10–35 s 的散布）。"
+            f"这是**常数估算而不是实测**：{fallback_reason}；"
+            f"本次计划 {blocks} 块，没有与它同规模的实测可比。"
+            + constant_reference + tail
+        )
     if expected > budget_s:
         return Check(key="time", label="时间预算", status="warn",
                      detail=detail + "：超出预算，先确认设备能占这么久", evidence=evidence)
     return Check(key="time", label="时间预算", status="pass", detail=detail,
                  evidence=evidence)
+
 
 
 def _model_check(*, model_dir: Path | None) -> Check:
@@ -461,7 +568,8 @@ def build_check_card(*, settings: CampaignSettings, out_dir: Path,
         out_dir: ``--out`` 根目录（磁盘预算在它所在的盘上算）。
         model_dir: 复用的模型目录；``None`` = 从零重训。
         zero_xy: 实测零级位置（sensor px）；``None`` = 未测（几何检查将报 ``unknown``）。
-        recent_campaigns: 历史 campaign 目录（饱和预估取最新一份，曝光史扫全部）。
+        recent_campaigns: 历史 campaign 目录（时间预算读它们的 ``cost.json`` 实测成本，
+            饱和预估取最新一份，曝光史扫全部）。
         target_xy: 目标框中心（sensor px）。不给时取历史 ``geometry_plan.json`` 里
             同尺寸的规划中心；再取不到就报 ``unknown``（同心假设在 200 px 档会把
             5.61 % 算成 28 %，所以宁可说"不知道"）。
@@ -477,7 +585,8 @@ def build_check_card(*, settings: CampaignSettings, out_dir: Path,
         _geometry_check(settings=settings, target_xy=center, zero_xy=zero_xy,
                         cam_size=cam_size),
         _disk_check(settings=settings, out_dir=out_dir),
-        _time_check(settings=settings, budget_hours=budget_hours),
+        _time_check(settings=settings, budget_hours=budget_hours,
+                    recent_campaigns=recent_campaigns),
         _model_check(model_dir=model_dir),
         _saturation_check(recent_campaigns=recent_campaigns),
         _exposure_check(recent_campaigns=recent_campaigns),

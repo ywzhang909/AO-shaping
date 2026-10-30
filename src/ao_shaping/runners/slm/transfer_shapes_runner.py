@@ -44,30 +44,14 @@ from ao_shaping.tools.slm.transfer import fit as fit_stage
 from ao_shaping.tools.slm.transfer import recording, replay_phases, validate as validate_stage
 from ao_shaping.tools.slm.transfer.light_guard import OpticalPathInvalid
 from ao_shaping.tools.slm.transfer.protocol import derive_replay_exposures
+from ao_shaping.tools.slm.transfer.session_record import (
+    finish_segment, measured_peak_rates, optical_session_field, record_optical_session)
 from ao_shaping.tools.slm.transfer.stages import STAGE_RECIPES, StageRecipe
 from ao_shaping.utils.image.target import TRANSFER_SHAPE_CHOICES
 
 
 def _json(path: Path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
-
-
-def _measured_peak_rates(runs: list[Path]) -> list[tuple[float, float, float]]:
-    """``(core_peak, full_scale, exposure_ms)`` for every block already measured.
-
-    Read from the stage manifests of *this* lane, so the replay ladder is sized
-    by the same bench and the same shaped spot it will replay. A missing manifest
-    (``--resume`` into a half-done lane) simply contributes nothing.
-    """
-    observations: list[tuple[float, float, float]] = []
-    for run in runs:
-        manifest_path = Path(run) / "manifest.json"
-        if not manifest_path.is_file():
-            continue
-        for row in _json(manifest_path):
-            observations.append((row.get("core_peak"), row.get("full_scale"),
-                                 row.get("exposure_ms")))
-    return observations
 
 
 def _seed_kind(shape: str, requested: str) -> str:
@@ -466,7 +450,7 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
         journal.record("replay", "running")
         exposures = list(replay_exposures)
         if replay_exposures_auto:
-            observations = _measured_peak_rates(runs)
+            observations = measured_peak_rates(runs)
             exposures = derive_replay_exposures(observations)
             journal.record("replay", "ladder_derived", exposures=exposures,
                            n_blocks=len(observations))
@@ -502,7 +486,9 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
                                        title="多形状物理预测模型闭环整形 (逐 CCD 块)")
         journal.record("record", "complete", **saved)
         click.echo(json.dumps(saved, indent=2, ensure_ascii=False))
-    journal.record("session", "complete", out=str(out))
+    record_optical_session(out)
+    journal.record("session", "complete", out=str(out), **optical_session_field(out))
+    summary.update(optical_session_field(out))
     click.echo(f"Session complete: {out}")
     return summary
 
@@ -574,8 +560,18 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
     that cut inside a block would leave a half-written ``manifest.json`` on disk.
     The segment that never starts is journalled ``stopped``.
 
+    A completed segment also writes its measured wall-clock cost into its own
+    ``cost.json`` (elapsed from the journal's ``running``/``complete`` timestamps,
+    blocks from the segment manifest). After that, a **segment-boundary pause**
+    request found in the campaign directory (``campaign_control``) is honoured:
+    the segment is journalled ``paused``, the request file is cleared, and the
+    loop returns ``True`` so no replay starts. That request is the on-disk twin
+    of ``should_stop``; both stop at the same boundary, so a paused run resumes
+    as ``reused``.
+
     Returns:
-        ``True`` when a stop request ended the loop early, ``False`` otherwise.
+        ``True`` when a stop or pause request ended the loop early, ``False``
+        otherwise.
     """
     for shape, index in _stage_sequence(shapes, order):
         recipe = STAGE_RECIPES[index]
@@ -609,12 +605,18 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
         # validate.run only reads this optional flag; absent it keeps the
         # historical "new directory or fail" contract.
         args.resume = resume
-        journal.record(f"{shape}/{recipe.name}", "running")
+        key = f"{shape}/{recipe.name}"
+        journal.record(key, "running")
         validate_stage.run(args)
         if recorder is not None:
-            added = recording.append_run(recorder, stage_dir, f"{shape}/{recipe.name}")
+            added = recording.append_run(recorder, stage_dir, key)
             logger.info("recorded {} blocks from {}", added, stage_dir)
-        journal.record(f"{shape}/{recipe.name}", "complete", out=str(stage_dir))
+        journal.record(key, "complete", out=str(stage_dir))
+        # 段耗时（journal 里刚写下的两条时间戳）× manifest 的真实块数落进段目录的
+        # cost.json，供成本面板外推；段边界的协作式暂停也在这一步判定。
+        if finish_segment(journal, key, stage_dir, stage=recipe.name, shape=shape,
+                          fallback_blocks=recipe.blocks, out=out):
+            return True
     return False
 
 
