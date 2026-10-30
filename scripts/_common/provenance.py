@@ -96,12 +96,34 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         note=(
             "纯 GS 方斑控制组 (1000 px 目标): 平相位 / 直接 GS / GS+闪耀 P=10,12 三组实测, "
-            "外加同相位物理模型的同口径对比; 0 级用横向闪耀移出方框后 pib/cv 才可用; "
+            "外加同相位物理预测模型的同口径对比; 0 级用横向闪耀移出方框后 pib/cv 才可用; "
             "C 变体 (先矫正光路像差再发 GS) 因设备下线未采集, 图上留灰色占位; "
             "8 bit 量程把方斑平台压到 11-15 counts, 框外那层底的来源未定论"
         ),
     ),
     # -- sim2f 孪生 vs 2f 实验语料 (纯离线) ------------------------------------
+    "report/shape_trials/multishape_scale/square_1000_diff_abba_20261030.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线分析与实验；ABBA 及 v6/v7 局部响应诊断均使用 Santec #1 / Daheng Mono12",
+        note=(
+            "1000 px 正方形：平面起步展宽种子、formation 目标、原生 counts/ms、"
+            "同曝光 A-B-B-A 预注册验收；条件性轴向扫描最优在 -0.2 m 边界，未采用。"
+            "v6/v7 已完成且无本征饱和，但局部 Jacobian 未通过方向门槛；"
+            "离线提议不是实测结果，尚未证明均匀正方形整形成功。"
+        ),
+        extra_scripts=(
+            "scripts/slm/square_1000_diff_abba_20261030.py",
+            "scripts/slm/analyze_square1000_diff_live_20261030.py",
+            "scripts/slm/square_1000_model_diagnostic_20261030.py",
+            "scripts/slm/analyze_square1000_model_diagnostic_20261030.py",
+            "scripts/slm/square_1000_model_defect_sim_20261030.py",
+            "scripts/slm/square_1000_axial_archive_20261030.py",
+            "scripts/slm/square_plane_continuation_20261030.py",
+            "src/ao_shaping/tools/slm/transfer/radiometry.py",
+            "src/ao_shaping/tools/slm/transfer/axial.py",
+            "tests/ao_shaping/tools/slm/test_square1000_diff_abba_protocol.py",
+        ),
+    ),
     "report/sim2f_bench/twin_vs_hw_corpus/20261027/report.md": ReportProvenance(
         script="scripts/ml/validate_sim2f_vs_hw_corpus.py",
         command="python scripts/ml/validate_sim2f_vs_hw_corpus.py",
@@ -261,7 +283,7 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线（只读 data/shape_trials/blackbox_path_* 归档产物 + 代码走查，无设备）",
         note=(
             "D1 归一化缺陷（锚点除以 counts_scale=16 而模型是原生计数率）、D2 fit.valid 的 8-bit 门限、"
-            "F1 模型对得上能量却对不上残余结构（CV 差 2.1–3.3 倍）、F2 综合分以 EE 换 CV。"
+            "F1 模型对得上能量却对不上残余结构（CV 差 2.1–3.3 倍）、F2 复合分数以 EE 换 CV。"
         ),
         extra_scripts=(
             "scripts/slm/summarize_blackbox_path_20261029.py",
