@@ -369,8 +369,8 @@
    "qualname": "optimize_pib",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 209,
-   "end": 790,
+   "lineno": 451,
+   "end": 883,
    "args": [
     "center",
     "epochs",
@@ -586,8 +586,8 @@
    "qualname": "_objective_to_min",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 184,
-   "end": 206,
+   "lineno": 185,
+   "end": 207,
    "args": [
     "objective"
    ],
@@ -637,8 +637,8 @@
    "qualname": "_generate_search_candidates",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 83,
-   "end": 107,
+   "lineno": 84,
+   "end": 108,
    "args": [
     "anchor_v",
     "radius_scale",
@@ -727,8 +727,8 @@
    "qualname": "_should_trigger_adaptive_search",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 110,
-   "end": 124,
+   "lineno": 111,
+   "end": 125,
    "args": [
     "epoch",
     "enabled",
@@ -746,8 +746,8 @@
    "qualname": "_extract_optimizer_momentum",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 65,
-   "end": 69,
+   "lineno": 66,
+   "end": 70,
    "args": [
     "optimizer"
    ],
@@ -770,8 +770,8 @@
    "qualname": "_reset_optimizer_state",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 72,
-   "end": 80,
+   "lineno": 73,
+   "end": 81,
    "args": [
     "optimizer"
    ],

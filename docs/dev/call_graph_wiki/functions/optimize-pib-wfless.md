@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: function
 tags: [optimizer,pib,wfless]
-source: src/ao_shaping/optimizer/wfless/pib.py:209
+source: src/ao_shaping/optimizer/wfless/pib.py:451
 ---
 
 ## 签名
