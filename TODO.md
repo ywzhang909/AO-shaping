@@ -4314,6 +4314,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - module-size：`model_in_loop_shaping.py` 3193→3274（+81 = helper 签名/文档/胶合，无新逻辑），按棘轮口径在特性提交内重锚。顺带复核棘轮「余两笔」：`daheng` 869 / `miicam` 1144 已与 baseline 相等、`--check` 全绿（上游已重锚，无需再裁定）。
 - fixup 记入：首推后 CI `test_every_test_area_is_sharded` 正确判红 —— 新守卫文件未登记进 pytest.yml 的 root-guards shard（该 shard 对 root 级文件逐个点名，漏一个就红，这正是该守卫的设计意图）；登记后守卫 12/12 本地绿、随本条目一并提交。
 
+**2026-10-31 · ca63ee35 · #205 第一批 fixup：新守卫登记进 root-guards shard（shard 覆盖守卫正确判红 → 登记转绿）**
+- 红因：`896442f7` 首推后 CI 唯一红 = `test_pytest_workflow_shards_cover_tree.py::test_every_test_area_is_sharded` —— 新守卫位于 `tests/ao_shaping/` 根，root-guards shard 对 root 级文件逐个点名，漏一个即红；这正是该守卫的设计行为（点名清单漏文件 = 静默不跑还全绿）。
+- 修法：`test_issue205_function_shape.py` 登记进 pytest.yml 的 run_shard 行（`test_issue167_function_shape.py` 同款先例旁）。
+- 验收：覆盖守卫 12/12（容器）；rebase 到作者 `8a0e1941`（docs todoc 重钉锚）后 FF-push；`ca63ee35` CI Ruff / Pylint / CI 已绿，Pytest 复判在跑。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

@@ -18,10 +18,16 @@ where the measured value already sits: the two filter/fit blocks moved
 verbatim measure nesting 4, so their ceiling is 4 with flattening left to a
 later #205 batch, not hidden here by raising the bar repo-wide.
 
-Scope: these ten functions only. The rest of #205's inventory
+Scope: these functions only. The rest of #205's inventory
 (``optimize_slm_square`` at 1287, ``optimize_pib`` at nesting 8, ...) lands in
 its own batches with its own ceilings -- pinning it here would turn this guard
 into a repo-wide lint that no single batch can pay.
+
+Batch 2 (scripts/slm family) added the ``build_markdown`` split of
+``generate_diffraction_efficiency_sim_report.py`` (596 lines, nesting 0): the
+section f-strings moved line-exact into three helpers behind a rebind header,
+sealed here with the same span/nesting convention. Paths are repo-relative
+from batch 2 on, since the guard now covers ``scripts/`` as well as ``src/``.
 """
 
 from __future__ import annotations
@@ -31,9 +37,10 @@ from pathlib import Path
 
 import pytest
 
-SRC = Path(__file__).resolve().parents[2] / "src"
+REPO = Path(__file__).resolve().parents[2]
 
-_FILE = "ao_shaping/optimizer/wfless/model_in_loop_shaping.py"
+_FILE = "src/ao_shaping/optimizer/wfless/model_in_loop_shaping.py"
+_SCRIPT = "scripts/slm/generate_diffraction_efficiency_sim_report.py"
 
 #: (relative path under src, function name, span ceiling, nesting ceiling,
 #:  the span measured when the guard was written)
@@ -48,6 +55,12 @@ TARGETS = [
     (_FILE, "_defocus_asymmetry", 50, 3, 14),
     (_FILE, "_fit_joint_waist", 110, 4, 65),
     (_FILE, "_sweep_calibration_notes", 80, 3, 35),
+    (_SCRIPT, "build_markdown", 90, 2, 45),
+    (_SCRIPT, "_md_extend", 40, 2, 6),
+    (_SCRIPT, "_md_metrics", 90, 2, 42),
+    (_SCRIPT, "_md_sections_core", 230, 2, 160),
+    (_SCRIPT, "_md_sections_studies", 240, 2, 171),
+    (_SCRIPT, "_md_sections_tail", 330, 2, 245),
 ]
 
 NESTING_NODES = (ast.If, ast.For, ast.While, ast.Try, ast.With, ast.AsyncFor, ast.AsyncWith)
@@ -63,7 +76,7 @@ def _max_nesting(node: ast.AST, depth: int = 0) -> int:
 
 
 def _measure(rel_path: str, func_name: str) -> tuple[int, int]:
-    module = ast.parse((SRC / rel_path).read_text(encoding="utf-8"))
+    module = ast.parse((REPO / rel_path).read_text(encoding="utf-8"))
     hits = [
         node
         for node in ast.walk(module)
