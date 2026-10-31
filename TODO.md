@@ -1965,8 +1965,8 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     - **豁免按形状，不按血统**：三个桩各自是 `algorithm/gradient/adam.py:115 Base.update`
       （`@abstractmethod`，体是 `pass`）、`algorithm/signal_processing/iterative_base.py:58
       IterativeOptimizer.update`（`@abstractmethod`，体是 `...`）、
-      `optimizer/wfless/model_in_loop_shaping.py:760 _StepAOptimizer.update`（`Protocol` 成员，
-      体是 `...`）。**不写「类继承 `ABC` 即豁免」** —— ABC 里完全可以有一个具体的
+      `optimizer/wfless/model_in_loop_shaping.py:770 _StepAOptimizer.update`（`Protocol` 成员，
+      体是 `...`；行号 2026-10-31 复核 `896442f7` 触碰本文件时重钉，原 `:760` 已漂移至 `:770`，漂移主要来自 `59cb1db2`）。**不写「类继承 `ABC` 即豁免」** —— ABC 里完全可以有一个具体的
       `update()`，按祖先放行正是真实违规藏身的地方；也不用名字白名单。
     - **两个仪表陷阱被写死进守卫**：(1) `ast.walk(fn)` 会**下钻进嵌套闭包**，里面一个
       `return` 就能替一个不返回的外层 `update()` 顶罪 ⇒ 守卫用自己的栈，遇
