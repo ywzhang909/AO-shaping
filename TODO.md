@@ -4317,7 +4317,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 **2026-10-31 · ca63ee35 · #205 第一批 fixup：新守卫登记进 root-guards shard（shard 覆盖守卫正确判红 → 登记转绿）**
 - 红因：`896442f7` 首推后 CI 唯一红 = `test_pytest_workflow_shards_cover_tree.py::test_every_test_area_is_sharded` —— 新守卫位于 `tests/ao_shaping/` 根，root-guards shard 对 root 级文件逐个点名，漏一个即红；这正是该守卫的设计行为（点名清单漏文件 = 静默不跑还全绿）。
 - 修法：`test_issue205_function_shape.py` 登记进 pytest.yml 的 run_shard 行（`test_issue167_function_shape.py` 同款先例旁）。
-- 验收：覆盖守卫 12/12（容器）；rebase 到作者 `8a0e1941`（docs todoc 重钉锚）后 FF-push；`ca63ee35` CI Ruff / Pylint / CI 已绿，Pytest 复判在跑。
+- 验收：覆盖守卫 12/12（容器）；rebase 到作者 `8a0e1941`（docs todoc 重钉锚）后 FF-push；`ca63ee35` CI 全绿（Ruff / Pylint / CI / Pytest sharded 全部 completed success，复判于 2026-10-31 落定）。
+
+**2026-10-31 · 7f83c334 · #205 第二批：`generate_diffraction_efficiency_sim_report.py::build_markdown`（596 行/nest 0）拆为 metrics + 三段 helper（编排层 596→45）**
+- 复扫口径：当前树 52 项（span ≥500 或 nest ≥6）名单已刷新；本批选离线报告生成器的纯文本域。特征化 = `build_markdown` 返回串的字节级 golden（`run_all(n_steps=21, studies A-D)` + `build_markdown(results, quick=False)`：md5 `42dcc8df07d3e2698652dc7e27e4c84f` / 25601 字符 / 103 表）；`main()` 输出路径写死不可直接跑（会弄脏已提交 artifact），捕获链是一次性的、不进 CI。
+- 拆分 = 纯 AST 机械切段（段体逐字节、注释头随段吸收）：`_md_metrics` 42（指标区 + 嵌套 `bias_pct` → namespace）、`_md_sections_core` 160 / `_studies` 171 / `_tail` 245（自由名在段函数头部从累计 namespace 重绑 15/17/11 处）、`_md_extend` 6（合并 + 键冲突断言）。
+- 验收：拆后 golden 复跑 md5 逐字节一致（diff=0）；py_compile / ruff 干净；守卫根从 `src/` 泛化为仓库相对 + 新增批 2 六项 → 17/17（容器）；CI `7f83c334` Pytest completed success。
+- module-size：`scripts/` 不在棘轮 baseline（77 条全为 `src/`）⇒ 无需重锚；term / ruff / provenance / module-size 全绿。
+- 否决记入：`hw_defocus_zernike::build_markdown`（604/nest2）与 bench_twin `_render_report`（688）—— 复现语料（`data/debug/hw_groups_*` 等）不在盘上，属 #201-B 同类阻塞项，自主批次不动。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

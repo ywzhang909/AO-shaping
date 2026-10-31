@@ -28,6 +28,10 @@ Batch 2 (scripts/slm family) added the ``build_markdown`` split of
 section f-strings moved line-exact into three helpers behind a rebind header,
 sealed here with the same span/nesting convention. Paths are repo-relative
 from batch 2 on, since the guard now covers ``scripts/`` as well as ``src/``.
+Batch 3 (same family) added the ``render_retest_section`` split of
+``_hw_gs_square_scans_sections.py`` (537 lines, nesting 5) by the same
+rebind-header pattern; its nesting-5 zernike block moved verbatim and keeps
+ceiling 5 -- flattening is a later batch, not a raised bar here.
 """
 
 from __future__ import annotations
@@ -41,6 +45,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 _FILE = "src/ao_shaping/optimizer/wfless/model_in_loop_shaping.py"
 _SCRIPT = "scripts/slm/generate_diffraction_efficiency_sim_report.py"
+_SECTIONS = "scripts/slm/_hw_gs_square_scans_sections.py"
 
 #: (relative path under src, function name, span ceiling, nesting ceiling,
 #:  the span measured when the guard was written)
@@ -61,6 +66,17 @@ TARGETS = [
     (_SCRIPT, "_md_sections_core", 230, 2, 160),
     (_SCRIPT, "_md_sections_studies", 240, 2, 171),
     (_SCRIPT, "_md_sections_tail", 330, 2, 245),
+    (_SECTIONS, "render_retest_section", 60, 1, 14),
+    (_SECTIONS, "_rt_extend", 40, 2, 6),
+    (_SECTIONS, "_rt_preamble", 40, 1, 12),
+    (_SECTIONS, "_rt_intro", 90, 2, 39),
+    (_SECTIONS, "_rt_caliber", 160, 3, 95),
+    (_SECTIONS, "_rt_atomicity", 120, 3, 58),
+    (_SECTIONS, "_rt_blaze", 100, 4, 47),
+    (_SECTIONS, "_rt_zernike", 110, 5, 52),
+    (_SECTIONS, "_rt_verdict", 230, 1, 139),
+    (_SECTIONS, "_rt_jitter", 150, 2, 88),
+    (_SECTIONS, "_rt_contract", 120, 1, 69),
 ]
 
 NESTING_NODES = (ast.If, ast.For, ast.While, ast.Try, ast.With, ast.AsyncFor, ast.AsyncWith)
