@@ -523,7 +523,13 @@ def test_optimizer_guards_every_render_point_on_the_display_handle() -> None:
 
     import ao_shaping.optimizer.wfless.slm_model_in_loop as module
 
-    source = inspect.getsource(module.optimize_slm_model_in_loop)
+    # #205 batch-13 lifted the session into _run_model_in_loop_session: the
+    # None-guards and the close() live there now, so the contract pin follows
+    # the code (two-hop getsource, same pattern as test_validate_blocks).
+    source = (
+        inspect.getsource(module.optimize_slm_model_in_loop)
+        + inspect.getsource(module._run_model_in_loop_session)
+    )
     guarded = source.count("if live_display is not None")
     assert guarded >= 4, (
         "expected a None-guard for the baseline, the probe loop, the round "

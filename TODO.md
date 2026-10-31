@@ -4389,7 +4389,7 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 形态：编排层 516→250 行 / nest 2；helper 384 行 / nest 4；模块顶层 def/class 计数 22 保持。
 - 验收：守卫 `_SZP` 加 2 项 → 53/53；module-size 2328→2448 重锚；CI 首红 = **live-doc 行锚守卫**（`test_conventions::test_live_doc_line_anchors_still_point_at_their_code`——钉的是 TODO.md/docs 表格行里的代码行号, 不在 call_graph wiki `source:` 口径内），由作者 `f82a1175` 重钉后 success。**协议更新：每批拆后必跑 conventions 分片与 live-doc 行锚 grep 预扫描。**
 
-**2026-11-01 · caf3eeca · #205 第十二批：`optimizer_rms_slm`（466 行/nest 5）的 353 行 With 会话提为 `_run_rms_session`（**透传变体第二次使用**）**
+**2026-11-01 · caf3eeca · #205 第十二批：`optimizer_rms_slm`（466 行/nest 5）的 353 行 With 会话提为 `_run_rms_session`（透传变体第二次使用）**
 - 特征化网 = 现成两件：`test_rms_by_zernike.py` 14 项 + `test_rms_zernike_runner.py` 13 项——拆前基线 27 全绿、拆后 27/27（容器逐文件）。
 - With 恰为 fn 末语句（L552-904）⇒ 调用处 `return _run_rms_session(...)` 原样透传；区域 4 个 Return 中 2 个是函数真实出口、2 个属于区域内嵌套 def（calc_j/_evaluate_heuristic/_on_evaluate，随块原样搬移、不越界）；区域后无语句 ⇒ thread_out=∅、零 dedent。
 - 新增拆前断言: 区域内无 `nonlocal`/`global`/`yield`/`await`（任一存在都会改变「区域出口=函数出口」语义）; `module_defs` 计数 +1。
@@ -4397,6 +4397,15 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 形态：编排层 466→155 行 / nest 1；helper 397 行 / nest 5（含 155 行内层 With 深链，上限钉实测）。
 - **锚点随迁全链首跑（新协议）**：def 行 439→838 ⇒ 重钉 wiki `source:` 与 `index.md` 表格行；拆前 grep 预扫描确认该文件仅两处 pin。**conventions 自本批起每批必跑**（第十一批 live-doc 行锚红的教训）⇒ 72 passed / 1 skipped 绿。
 - 验收：守卫 `_RMS` 加 2 项 → 55/55；py_compile / ruff 干净；module-size 904→992（+88 胶合）重锚恰 1 行 diff；CI Pytest success（作者 `4a45a129` 又跟进重钉 rms wiki 行漂移）。
+
+**2026-11-01 · ac7f5c8c · #205 第十三批：`optimize_slm_model_in_loop`（1000 行/nest 5）的 930 行 Try 会话提为 `_run_model_in_loop_session`（透传变体第三次使用, Try 形态首例）**
+- 特征化网 = 现成九件（`test_model_in_loop_{cache_layout,shaping,sweep_diagnostics}` + `test_slm_model_in_loop{,_focus_preflight,_loop_invariants,_selfcal,_step_sink,_uncertainty}`）——拆前基线 283 项全绿、拆后九文件全绿零红。
+- Try 恰为 fn 末语句（无 except handler、finally 随块、区域唯一顶层 Return = 函数真实出口）⇒ 调用处 `return _run_model_in_loop_session(...)` 原样透传；零 dedent；thread_out = ∅。拆前断言补强：区域内无 `nonlocal`/`global`/`yield`/`await`；`module_defs` +1（=35）。
+- 参数面 = 12 只读形参（第六批模式: fn 级延迟 import 留编排层按引用传入）；**模块级名不进签名**——首放泄漏 61 项形参（`np`/`logger`/同模块 def 在 helper 内直接可见），此规则当场修复。
+- live-doc 锚随迁（守卫钉面之外主动）：import 块 2963-2973→3911-3921、验证集 3465-3487→3411-3433、连续 reject 3747-3755→3693-3701（区域 Δ=−54）、`require_camera_pixel_um` 3002→3950（Δ=+948）⇒ docs 四行 + TODO 一行重钉；call_graph wiki 零引用。
+- 形态：编排层 1000→84 行 / nest 1；helper 946 行 / nest 5（含 577 行 For 深链，上限钉实测）。
+- 验收：守卫 `_MIL` 加 2 项 → 57/57；conventions 72/1；module-size 3936→3968 重锚；push 走 rebase 越过 `4a45a129` 后纯 FF。
+- **CI 双红教训（fixup 修复）**：① 账本日期守卫——条目标题内嵌粗体（`…（**…**）`）使标题行 bold 标记数 ≠2、解析失败 ⇒ **标题行一律不内嵌 `**`**；② display 域源码钉——`test_slm_model_in_loop_display.py` 对 `optimize_slm_model_in_loop` 钉 4 处 None-guard + `close()`，代码随拆进 helper ⇒ found 0；按第六批 `test_validate_blocks` 两跳先例改钉 fn+helper 拼接源码。协议补强：**拆前 grep 全仓对被拆 fn 名的源码钉（getsource/inspect），不止同目录测试**；③④ ml 两案（sim2f L1 band、zernike mse 逐位一致）同 tip 本地与 CI 线程口径（AO_CPU_THREADS=4）均不可复现 ⇒ 环境敏感 flake 候选，留后续 tip CI 复判。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
