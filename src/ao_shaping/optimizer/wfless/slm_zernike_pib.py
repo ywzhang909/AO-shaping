@@ -1073,198 +1073,66 @@ def _debug_report(
         },
     )
 
-def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
-    """Optimize PIB (Power in Bucket) using SLM with Zernike coefficient control.
-
-    Zernike coefficients displayed on an SLM are searched to optimise an imaging
-    objective measured by a camera. Two search families are available:
-    ``algorithm="spgd"`` (Stochastic Parallel Gradient Descent, the default) or a
-    black-box heuristic (``ga``/``pso``/``sa``/``hc``/``rs``/``cem``/``de``).
-
-    Args:
-        config: Grouped configuration for the run. ``center`` and ``epochs``
-            are the run-level switches that used to be positional arguments
-            (center detection method or fixed (x, y) tuple, and the number of
-            optimization iterations). The camera/objective fields live on
-            ``config.camera`` (:class:`CameraParamsPib`) and the SLM/Zernike
-            fields on ``config.slm`` (:class:`SlmParamsPib`); ``config.kwargs``
-            is forwarded to the optimizer constructor (``create_optimizer``).
-
-    Returns:
-        Recorder: Optimization history recorder.
-    """
-    center = config.center
-    epochs = config.epochs
-    camera_config = config.camera
-    slm_config = config.slm
-    blaze_period_px = slm_config.blaze_period_px
-    blaze_direction = slm_config.blaze_direction
-    algorithm = config.algorithm
-    pop_size = config.pop_size
-    optimizer_type = config.optimizer_type
-    r_bucket = camera_config.r_bucket
-    delta = config.delta
-    lr = config.lr
-    # CLI token -> the legacy float every `exposure_time_ms == 0` branch below
-    # tests. Both tokens collapse onto 0.0, which is what `auto` meant here.
-    exposure_time_ms = exposure_ms_legacy(
-        resolve_exposure(
-            camera_config.exposure_time_ms, param_hint="--exposure-time-ms"
-        )
-    )
-    shrink_iter = config.shrink_iter
-    shrink_ratio = config.shrink_ratio
-    show = config.show
-    init_c = slm_config.init_c
-    cam_size = camera_config.cam_size
-    target_max_brightness = camera_config.target_max_brightness
-    n_max = slm_config.n_max
-    random_seed = config.random_seed
-    objective = camera_config.name
-    target_shape = camera_config.target_shape
-    target_size = camera_config.target_size
-    if blaze_period_px >= 0 and (target_size is None or exposure_time_ms <= 0):
-        raise ValueError("off-axis shaping requires target_size and a fixed exposure")
-    if blaze_period_px >= 0 and camera_config.cam_type == "sim":
-        raise ValueError("blaze calibration requires a full-frame hardware CCD")
-    target_aspect_ratio = camera_config.target_aspect_ratio
-    target_center_smooth = camera_config.target_center_smooth
-    shape_schedule = camera_config.shape_schedule
-    max_roi_energy_loss = camera_config.max_roi_energy_loss
-    w_uniformity = camera_config.w_uniformity
-    w_peak = camera_config.w_peak
-    w_pearson = camera_config.w_pearson
-    w_coverage = camera_config.w_coverage
-    w_loggrad = camera_config.w_loggrad
-    w_displacement = camera_config.w_displacement
-    log_uniformity = camera_config.log_uniformity
-    w_ema_decay = camera_config.w_ema_decay
-    w_floor = camera_config.w_floor
-    w_temperature = camera_config.w_temperature
-    w_pib_init = camera_config.w_pib_init
-    w_rms_init = camera_config.w_rms_init
-    w_ee_init = camera_config.w_ee_init
-    record_phase = config.record_phase
-    w_outside = config.w_outside
-    debug = config.debug
-    debug_dir = config.debug_dir
-    zernike_radius = slm_config.zernike_radius
-    if zernike_radius is None or zernike_radius <= 0:
-        zernike_radius = ZERNIKE_APERTURE_RADIUS
-
-    delta = abs(delta)
-    epochs = int(epochs)
-    rng = np.random.default_rng(random_seed)
-
-    algorithm = str(algorithm).lower()
-    if algorithm not in ALGORITHM_CHOICES:
-        raise ValueError(
-            f"algorithm must be one of {ALGORITHM_CHOICES}, got {algorithm!r}"
-        )
-
-    # Single authority for the objective/target-shape pairing. The rules used to
-    # be re-implemented inline here, which had already drifted from
-    # ``objective.py``: it omitted ``rmse_out`` entirely and hard-coded its own
-    # (shorter) shape-aware list, so any newly registered objective raised
-    # ``ValueError`` here even though ``ObjectiveSpec.resolve`` accepted it.
-    spec = ObjectiveSpec.resolve(objective, target_shape)
-    objective, target_shape = spec.name, spec.shape
-    shape_for_metric = cast(TargetShape, target_shape or "rectangle")
-    if target_center_smooth < 1:
-        raise ValueError(
-            f"target_center_smooth must be at least 1, got {target_center_smooth}"
-        )
-    if target_size is not None and (not np.isfinite(target_size) or target_size <= 0):
-        raise ValueError(f"target_size must be positive, got {target_size!r}")
-    if not np.isfinite(target_aspect_ratio) or target_aspect_ratio <= 0:
-        raise ValueError(
-            f"target_aspect_ratio must be positive, got {target_aspect_ratio!r}"
-        )
-    if not 0.0 <= w_ema_decay <= 1.0:
-        raise ValueError(f"w_ema_decay must be within 0..1, got {w_ema_decay!r}")
-    if not 0.0 <= w_floor < 0.5:
-        raise ValueError(f"w_floor must be within 0..0.5 (exclusive), got {w_floor!r}")
-    if not np.isfinite(w_temperature) or w_temperature <= 0.0:
-        raise ValueError(f"w_temperature must be positive, got {w_temperature!r}")
-    for _name, _w in (
-        ("w_pib_init", w_pib_init),
-        ("w_rms_init", w_rms_init),
-        ("w_ee_init", w_ee_init),
-    ):
-        if _w is not None and (not np.isfinite(_w) or _w < 0.0):
-            raise ValueError(
-                f"{_name} must be a finite, non-negative weight, got {_w!r}"
-            )
-
-    # Optimization mode mapping: pib, avg_radiu, shape, roi_pib and rms_pib are
-    # maximized; radiu and rmse are minimized.
-    if not 0.0 <= max_roi_energy_loss <= 1.0:
-        raise ValueError(
-            f"max_roi_energy_loss must be within 0..1 (0 disables the guard), "
-            f"got {max_roi_energy_loss!r}"
-        )
-    for _name, _w in (
-        ("w_uniformity", w_uniformity),
-        ("w_peak", w_peak),
-        ("w_pearson", w_pearson),
-        ("w_coverage", w_coverage),
-        ("w_displacement", w_displacement),
-    ):
-        if not np.isfinite(_w) or _w < 0.0:
-            raise ValueError(
-                f"{_name} must be a finite, non-negative weight, got {_w!r}"
-            )
-    objective_mode = objective_direction(objective)
-    recorder = Recorder(mark=objective, mode=objective_mode)
-
-    # History for convergence detection
-    _gradient_history: list[float] = []
-    _pib_history: list[float] = []
-    _max_history_len = 50
-
-    # Zernike mode count and index mapping
-    nk = calc_n_zernike_terms(n_max)
-    _zernike_indices(n_max)
-
-    # SLM pattern helper
-    pattern_helper = PatternHelper(resolution=SLM_RESOLUTION, bits=10)
-
-    if show:
-        # PIB (bucket ratio) is bounded 0..1 -> fixed y-axis; other objectives auto-scale.
-        _curve_y_range = (
-            (0.0, 1.0) if objective in ("pib", "roi_pib", "rms_pib") else None
-        )
-        # Target shape is only meaningful for the objectives that score against a
-        # target ROI; for pib/radiu/avg_radiu the bucket circle is the correct
-        # overlay. Use the shared tuple: a hand-written copy here had already
-        # drifted from the leaf (it was missing ``rmse_out`` and ``pearson``), and
-        # the sibling module carried a third, different spelling of the same list.
-        _display_shape = (
-            shape_for_metric if objective in DEFAULT_SHAPE_OBJECTIVES else None
-        )
-        display_ctx = SlmZernikeDisplay(
-            zernike_clip=ZERNIKE_CLIP,
-            curve_title=f"{objective} curve",
-            curve_y_range=_curve_y_range,
-            target_shape=_display_shape,
-            target_aspect_ratio=target_aspect_ratio,
-        )
-    else:
-        display_ctx = nullcontext(None)
-
-    # `create_camera(config.camera)` reads `exposure_time_ms` straight off the
-    # object, and that field carries the CLI token -- hand it a copy that holds
-    # the resolved float instead of mutating the caller's params object.
-    cam_ctx = create_camera(
-        replace(config.camera, exposure_time_ms=exposure_time_ms)
-    )
-    slm_ctx = Santec.from_params(config.slm)
-    # Send-pipeline overlay (GUI 离焦 / 底相位): apply to the SLM this run opens
-    # (driver slot on a real Santec; no-op for a sim SLM that lacks the setters).
-    # Default ``None`` leaves CLI runs untouched.
-    if config.send_overlay is not None:
-        apply_overlays_to_handle(slm_ctx, config.send_overlay)
-
+def _run_pib_session(
+    *,
+    _gradient_history: object,
+    _max_history_len: object,
+    _pib_history: object,
+    algorithm: object,
+    blaze_direction: object,
+    blaze_period_px: object,
+    cam_ctx: object,
+    cam_size: object,
+    camera_config: object,
+    center: object,
+    config: object,
+    debug: object,
+    debug_dir: object,
+    delta: object,
+    display_ctx: object,
+    epochs: object,
+    exposure_time_ms: object,
+    init_c: object,
+    log_uniformity: object,
+    lr: object,
+    max_roi_energy_loss: object,
+    n_max: object,
+    nk: object,
+    objective: object,
+    objective_mode: object,
+    optimizer_type: object,
+    pattern_helper: object,
+    pop_size: object,
+    r_bucket: object,
+    random_seed: object,
+    record_phase: object,
+    recorder: object,
+    rng: object,
+    shape_for_metric: object,
+    shape_schedule: object,
+    shrink_iter: object,
+    shrink_ratio: object,
+    slm_ctx: object,
+    target_aspect_ratio: object,
+    target_center_smooth: object,
+    target_max_brightness: object,
+    target_size: object,
+    w_coverage: object,
+    w_displacement: object,
+    w_ee_init: object,
+    w_ema_decay: object,
+    w_floor: object,
+    w_loggrad: object,
+    w_outside: object,
+    w_peak: object,
+    w_pearson: object,
+    w_pib_init: object,
+    w_rms_init: object,
+    w_temperature: object,
+    w_uniformity: object,
+    zernike_radius: object,
+):
+    """#205 batch-11: former 324-line With session of optimize_slm_zernike_pib."""
     with cam_ctx as cam, slm_ctx as slm, display_ctx as live_display:
         # 采集入口守卫 (#186): 驱动板不应答在第一帧前失败; 仿真面板 no-op。
         require_drive_board_entry(slm)
@@ -1589,6 +1457,258 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 last_best_epoch=state.last_best_epoch,
                 _initial_objective=_initial_objective,
             )
+
+
+def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
+    """Optimize PIB (Power in Bucket) using SLM with Zernike coefficient control.
+
+    Zernike coefficients displayed on an SLM are searched to optimise an imaging
+    objective measured by a camera. Two search families are available:
+    ``algorithm="spgd"`` (Stochastic Parallel Gradient Descent, the default) or a
+    black-box heuristic (``ga``/``pso``/``sa``/``hc``/``rs``/``cem``/``de``).
+
+    Args:
+        config: Grouped configuration for the run. ``center`` and ``epochs``
+            are the run-level switches that used to be positional arguments
+            (center detection method or fixed (x, y) tuple, and the number of
+            optimization iterations). The camera/objective fields live on
+            ``config.camera`` (:class:`CameraParamsPib`) and the SLM/Zernike
+            fields on ``config.slm`` (:class:`SlmParamsPib`); ``config.kwargs``
+            is forwarded to the optimizer constructor (``create_optimizer``).
+
+    Returns:
+        Recorder: Optimization history recorder.
+    """
+    center = config.center
+    epochs = config.epochs
+    camera_config = config.camera
+    slm_config = config.slm
+    blaze_period_px = slm_config.blaze_period_px
+    blaze_direction = slm_config.blaze_direction
+    algorithm = config.algorithm
+    pop_size = config.pop_size
+    optimizer_type = config.optimizer_type
+    r_bucket = camera_config.r_bucket
+    delta = config.delta
+    lr = config.lr
+    # CLI token -> the legacy float every `exposure_time_ms == 0` branch below
+    # tests. Both tokens collapse onto 0.0, which is what `auto` meant here.
+    exposure_time_ms = exposure_ms_legacy(
+        resolve_exposure(
+            camera_config.exposure_time_ms, param_hint="--exposure-time-ms"
+        )
+    )
+    shrink_iter = config.shrink_iter
+    shrink_ratio = config.shrink_ratio
+    show = config.show
+    init_c = slm_config.init_c
+    cam_size = camera_config.cam_size
+    target_max_brightness = camera_config.target_max_brightness
+    n_max = slm_config.n_max
+    random_seed = config.random_seed
+    objective = camera_config.name
+    target_shape = camera_config.target_shape
+    target_size = camera_config.target_size
+    if blaze_period_px >= 0 and (target_size is None or exposure_time_ms <= 0):
+        raise ValueError("off-axis shaping requires target_size and a fixed exposure")
+    if blaze_period_px >= 0 and camera_config.cam_type == "sim":
+        raise ValueError("blaze calibration requires a full-frame hardware CCD")
+    target_aspect_ratio = camera_config.target_aspect_ratio
+    target_center_smooth = camera_config.target_center_smooth
+    shape_schedule = camera_config.shape_schedule
+    max_roi_energy_loss = camera_config.max_roi_energy_loss
+    w_uniformity = camera_config.w_uniformity
+    w_peak = camera_config.w_peak
+    w_pearson = camera_config.w_pearson
+    w_coverage = camera_config.w_coverage
+    w_loggrad = camera_config.w_loggrad
+    w_displacement = camera_config.w_displacement
+    log_uniformity = camera_config.log_uniformity
+    w_ema_decay = camera_config.w_ema_decay
+    w_floor = camera_config.w_floor
+    w_temperature = camera_config.w_temperature
+    w_pib_init = camera_config.w_pib_init
+    w_rms_init = camera_config.w_rms_init
+    w_ee_init = camera_config.w_ee_init
+    record_phase = config.record_phase
+    w_outside = config.w_outside
+    debug = config.debug
+    debug_dir = config.debug_dir
+    zernike_radius = slm_config.zernike_radius
+    if zernike_radius is None or zernike_radius <= 0:
+        zernike_radius = ZERNIKE_APERTURE_RADIUS
+
+    delta = abs(delta)
+    epochs = int(epochs)
+    rng = np.random.default_rng(random_seed)
+
+    algorithm = str(algorithm).lower()
+    if algorithm not in ALGORITHM_CHOICES:
+        raise ValueError(
+            f"algorithm must be one of {ALGORITHM_CHOICES}, got {algorithm!r}"
+        )
+
+    # Single authority for the objective/target-shape pairing. The rules used to
+    # be re-implemented inline here, which had already drifted from
+    # ``objective.py``: it omitted ``rmse_out`` entirely and hard-coded its own
+    # (shorter) shape-aware list, so any newly registered objective raised
+    # ``ValueError`` here even though ``ObjectiveSpec.resolve`` accepted it.
+    spec = ObjectiveSpec.resolve(objective, target_shape)
+    objective, target_shape = spec.name, spec.shape
+    shape_for_metric = cast(TargetShape, target_shape or "rectangle")
+    if target_center_smooth < 1:
+        raise ValueError(
+            f"target_center_smooth must be at least 1, got {target_center_smooth}"
+        )
+    if target_size is not None and (not np.isfinite(target_size) or target_size <= 0):
+        raise ValueError(f"target_size must be positive, got {target_size!r}")
+    if not np.isfinite(target_aspect_ratio) or target_aspect_ratio <= 0:
+        raise ValueError(
+            f"target_aspect_ratio must be positive, got {target_aspect_ratio!r}"
+        )
+    if not 0.0 <= w_ema_decay <= 1.0:
+        raise ValueError(f"w_ema_decay must be within 0..1, got {w_ema_decay!r}")
+    if not 0.0 <= w_floor < 0.5:
+        raise ValueError(f"w_floor must be within 0..0.5 (exclusive), got {w_floor!r}")
+    if not np.isfinite(w_temperature) or w_temperature <= 0.0:
+        raise ValueError(f"w_temperature must be positive, got {w_temperature!r}")
+    for _name, _w in (
+        ("w_pib_init", w_pib_init),
+        ("w_rms_init", w_rms_init),
+        ("w_ee_init", w_ee_init),
+    ):
+        if _w is not None and (not np.isfinite(_w) or _w < 0.0):
+            raise ValueError(
+                f"{_name} must be a finite, non-negative weight, got {_w!r}"
+            )
+
+    # Optimization mode mapping: pib, avg_radiu, shape, roi_pib and rms_pib are
+    # maximized; radiu and rmse are minimized.
+    if not 0.0 <= max_roi_energy_loss <= 1.0:
+        raise ValueError(
+            f"max_roi_energy_loss must be within 0..1 (0 disables the guard), "
+            f"got {max_roi_energy_loss!r}"
+        )
+    for _name, _w in (
+        ("w_uniformity", w_uniformity),
+        ("w_peak", w_peak),
+        ("w_pearson", w_pearson),
+        ("w_coverage", w_coverage),
+        ("w_displacement", w_displacement),
+    ):
+        if not np.isfinite(_w) or _w < 0.0:
+            raise ValueError(
+                f"{_name} must be a finite, non-negative weight, got {_w!r}"
+            )
+    objective_mode = objective_direction(objective)
+    recorder = Recorder(mark=objective, mode=objective_mode)
+
+    # History for convergence detection
+    _gradient_history: list[float] = []
+    _pib_history: list[float] = []
+    _max_history_len = 50
+
+    # Zernike mode count and index mapping
+    nk = calc_n_zernike_terms(n_max)
+    _zernike_indices(n_max)
+
+    # SLM pattern helper
+    pattern_helper = PatternHelper(resolution=SLM_RESOLUTION, bits=10)
+
+    if show:
+        # PIB (bucket ratio) is bounded 0..1 -> fixed y-axis; other objectives auto-scale.
+        _curve_y_range = (
+            (0.0, 1.0) if objective in ("pib", "roi_pib", "rms_pib") else None
+        )
+        # Target shape is only meaningful for the objectives that score against a
+        # target ROI; for pib/radiu/avg_radiu the bucket circle is the correct
+        # overlay. Use the shared tuple: a hand-written copy here had already
+        # drifted from the leaf (it was missing ``rmse_out`` and ``pearson``), and
+        # the sibling module carried a third, different spelling of the same list.
+        _display_shape = (
+            shape_for_metric if objective in DEFAULT_SHAPE_OBJECTIVES else None
+        )
+        display_ctx = SlmZernikeDisplay(
+            zernike_clip=ZERNIKE_CLIP,
+            curve_title=f"{objective} curve",
+            curve_y_range=_curve_y_range,
+            target_shape=_display_shape,
+            target_aspect_ratio=target_aspect_ratio,
+        )
+    else:
+        display_ctx = nullcontext(None)
+
+    # `create_camera(config.camera)` reads `exposure_time_ms` straight off the
+    # object, and that field carries the CLI token -- hand it a copy that holds
+    # the resolved float instead of mutating the caller's params object.
+    cam_ctx = create_camera(
+        replace(config.camera, exposure_time_ms=exposure_time_ms)
+    )
+    slm_ctx = Santec.from_params(config.slm)
+    # Send-pipeline overlay (GUI 离焦 / 底相位): apply to the SLM this run opens
+    # (driver slot on a real Santec; no-op for a sim SLM that lacks the setters).
+    # Default ``None`` leaves CLI runs untouched.
+    if config.send_overlay is not None:
+        apply_overlays_to_handle(slm_ctx, config.send_overlay)
+
+    return _run_pib_session(
+        _gradient_history=_gradient_history,
+        _max_history_len=_max_history_len,
+        _pib_history=_pib_history,
+        algorithm=algorithm,
+        blaze_direction=blaze_direction,
+        blaze_period_px=blaze_period_px,
+        cam_ctx=cam_ctx,
+        cam_size=cam_size,
+        camera_config=camera_config,
+        center=center,
+        config=config,
+        debug=debug,
+        debug_dir=debug_dir,
+        delta=delta,
+        display_ctx=display_ctx,
+        epochs=epochs,
+        exposure_time_ms=exposure_time_ms,
+        init_c=init_c,
+        log_uniformity=log_uniformity,
+        lr=lr,
+        max_roi_energy_loss=max_roi_energy_loss,
+        n_max=n_max,
+        nk=nk,
+        objective=objective,
+        objective_mode=objective_mode,
+        optimizer_type=optimizer_type,
+        pattern_helper=pattern_helper,
+        pop_size=pop_size,
+        r_bucket=r_bucket,
+        random_seed=random_seed,
+        record_phase=record_phase,
+        recorder=recorder,
+        rng=rng,
+        shape_for_metric=shape_for_metric,
+        shape_schedule=shape_schedule,
+        shrink_iter=shrink_iter,
+        shrink_ratio=shrink_ratio,
+        slm_ctx=slm_ctx,
+        target_aspect_ratio=target_aspect_ratio,
+        target_center_smooth=target_center_smooth,
+        target_max_brightness=target_max_brightness,
+        target_size=target_size,
+        w_coverage=w_coverage,
+        w_displacement=w_displacement,
+        w_ee_init=w_ee_init,
+        w_ema_decay=w_ema_decay,
+        w_floor=w_floor,
+        w_loggrad=w_loggrad,
+        w_outside=w_outside,
+        w_peak=w_peak,
+        w_pearson=w_pearson,
+        w_pib_init=w_pib_init,
+        w_rms_init=w_rms_init,
+        w_temperature=w_temperature,
+        w_uniformity=w_uniformity,
+        zernike_radius=zernike_radius,
+    )
 
 def _apply_best_on_exit(
     *,

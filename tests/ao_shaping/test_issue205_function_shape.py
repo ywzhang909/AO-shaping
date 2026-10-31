@@ -68,6 +68,7 @@ _IO = "src/ao_shaping/utils/io/file.py"
 _DM = "src/ao_shaping/tools/kernels/device_mutex.py"
 _PAT = "src/ao_shaping/utils/image/target/patterns.py"
 _MEAS = "src/ao_shaping/tools/slm/calibration/diffraction_efficiency/measure.py"
+_SZP = "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py"
 _SCRIPT = "scripts/slm/generate_diffraction_efficiency_sim_report.py"
 _SECTIONS = "scripts/slm/_hw_gs_square_scans_sections.py"
 
@@ -124,6 +125,8 @@ TARGETS = [
     (_PAT, "_pat_poly", 60, 1, 33),
     (_MEAS, "run_measurement", 200, 1, 173),
     (_MEAS, "_run_measurement_session", 420, 3, 379),
+    (_SZP, "optimize_slm_zernike_pib", 280, 2, 250),
+    (_SZP, "_run_pib_session", 430, 4, 384),
 ]
 
 NESTING_NODES = (ast.If, ast.For, ast.While, ast.Try, ast.With, ast.AsyncFor, ast.AsyncWith)

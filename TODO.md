@@ -4375,6 +4375,13 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 形态：151→91 行 / nest 10→1；`_dispatch_shape` 28/nest 1；9 helper 23-33 行 / nest 0-1（链式嵌套由查表直接压平）。
 - 验收：守卫 `_PAT` 加 11 项 → 49/49；ruff/py_compile 干净；wiki 无 `source:` 引用；patterns.py 295→546 行仍在 800 行受管阈值之下（无需重锚）；CI Pytest success。
 
+**2026-11-01 · a6eda2fb · #205 第十批：`run_measurement`（497 行/nest 3）的 348 行 With 会话逐字节提为 `_run_measurement_session`**
+- 特征化网 = 现成 `test_slm_diffraction_efficiency.py` 61 项，拆前基线全绿、拆后 61/61。
+- 单语句逐字节（With 就在 fn 体缩进 4 ⇒ 零 dedent，第六批 validate 模式二次使用）：设备上下文在 helper 内开闭；L420-421 两条 fn 级驱动 import 经审计判为 region_only ⇒ 整体迁 helper（防 F401、保驱动延迟导入契约）。
+- **元组解包变体首现**：区域顶层无 Return（断言守卫）⇒ 16 个 thread_out 在 helper 末打包 tuple，调用处解包回绑原名，区域后 10 条语句逐字节不动。
+- 审计两条规则补强：区域内部 ImportFrom 别名计 store（区域内部延迟 import 随块走 ⇒ thread_in 收敛空集）；区域内 6 个嵌套 def 作用域隔离（形参与局部 store 不泄漏进区域自由名集）。
+- 形态：编排层 497→173 行 / nest 1；helper 379 行 / nest 3。验收：守卫 `_MEAS` 加 2 项 → 51/51；py_compile / ruff 干净；wiki 无 `source:` 引用；module-size 867→924（+57 胶合）在特性提交内重锚（恰 1 行 diff）；CI Pytest success。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
