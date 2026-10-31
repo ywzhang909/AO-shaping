@@ -419,7 +419,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 |---|---|---|
 | **`src/` 无标注的 `except Exception`** | **312** | 上表 31 条带 noqa 的只占 **9%**；主流写法是**完全不标注**，而 `BLE001` 不在 `select` ⇒ 这 312 条从未被任何工具看见。热点：`gui/zernike/zernike_response_matrix_ui.py` 19、`gui/slm/multi_slm_controller.py` 19、`gui/ccd/ccd_analyzer.py` 18、`drivers/ccd/miicam/driver.py` 16 |
 | **`src/` 把 `assert` 当运行期护栏** | **111**（37 文件） | `drivers/ccd/miicam/driver.py` 21、`daheng/driver.py` 18、`ffmpeg/driver.py` 8。含**设备已打开断言、曝光范围检查、安全检查** ⇒ `python -O` 下**全部消失**。对硬件安全护栏这是正确性问题，不是风格问题 |
-| `# type: ignore` | `src/` 44 · `scripts/` 7 · `tests/` 53 | 仅 4 处无理由：`utils/image/target/patterns.py:233`、`tools/slm/slm_train_data_collect.py:183,848,849` |
+| `# type: ignore` | `src/` 44 · `scripts/` 7 · `tests/` 53 | 仅 4 处无理由：`utils/image/target/patterns.py:531`（2026-11-01 复核 `2cfb0572` #205 第九批后由 `:233` 重钉至 `:531`）、`tools/slm/slm_train_data_collect.py:183,848,849` |
 | 其它 lint 配置 | — | `pyrightconfig.json` 存在但 `typeCheckingMode: "basic"`（宽松）；**无** mypy / flake8 / pylint / bandit；`.github/workflows` 于 2026-10-15 建立 ruff 硬门禁 + pylint 参考级，2026-10-19 曾整体移出跟踪，**2026-10-21 恢复入库**（现 `ci.yml`：ruff 硬门禁 + best-effort pytest，本地 `ruff check .` 仍须全绿）；`.pre-commit-config.yaml` 只有 ruff + ruff-format |
 
 ### 8.6 `ruff.toml` 重构顺序（**必须按序**）
@@ -737,7 +737,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    ⚠️ **顺带实测到热自旋**：失败路径立即返回，20 ms 窗口内**空转 40,800 次**（≈2M 次/秒），
    一边猛敲已失效的 DAQ、一边和电压更新循环抢 CPU ⇒ 加 `_ADC_READ_RETRY_S = 0.005` 的**仅错误路径**退避
    （成功路径的节拍由 DAQ 采样窗自身决定，**不动**）。
-   ② `optimizer/combined_optimizer.py:352`（2026-10-25 重钉：该行在 `9bfc7f18` 时代即 `:352`，原误记 `:353`）吞掉 `dm.send_voltages(zeros)` —— 这是 `finally` 里的**安全复位**。
+   ② `optimizer/combined_optimizer.py:326`（2026-10-25 重钉：该行在 `9bfc7f18` 时代即 `:352`，原误记 `:353`；2026-11-01 复核 `05401de9` #205 第五批把 epoch 块提为 `_run_combined_epochs` 后重钉至 `:326`）吞掉 `dm.send_voltages(zeros)` —— 这是 `finally` 里的**安全复位**。
    这里**不能抛**（会掩盖结束本轮的那个异常），但**静默更糟**：变形镜物理上停在最后一组（可能很大的）电压，
    下一个人站在实验系统前**无从得知**。改成 `logger.error`。
    证据分层（按可验证性选，不是一律写测试）：① 有离线行为测试 —— `adc` 是注入参数且模块离线可导入
@@ -1832,7 +1832,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       之类变异，也没有重绑定），且所有静态可见调用点都**显式传参**。另有两处经 `**kwargs` 转发，静态无法证明，
       因此我按「无法证明」记录，而不是宣称「从未被使用」。
     - **改法用的是仓库既有约定，不是我发明的风格**：`optimizer_rms_dm` 与 `optimize_pib` 的 `init_v` 改为
-      `... | None = None`，依据是 `optimizer/combined_optimizer.py:95` 早已写成
+      `... | None = None`，依据是 `optimizer/combined_optimizer.py:354` 早已写成（2026-11-01 复核 `05401de9` #205 第五批后由 `:95` 重钉至 `:354`）
       `init_v: list[float] | None = None`，且下游 `optimizer/spid_pib_loop.py:224` 本来就写
       `if init_v is None or len(init_v) == 0:` —— 在该路径上 `None` 与空**同义**；`rms.py` 侧的判据是
       `if not init_v:`，`None` 与 `[]` 同假。`grid_search_lr_delta` 的两个扫描列表改**元组**（体内只用
