@@ -4291,6 +4291,12 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 处置：新增 `factory.require_drive_board_entry`（鸭子类型助手：替身/仿真面板无该方法即 no-op），接线六处：`ZernikeSLM.open()`（覆盖 rms-zernike / ga-zernike / greedy-zernike 全部走点）、`slm_zernike_pib` `_make`/`_with_slm` 会话体、`slm_square_shaping`、`slm_gs_refine`、`slm_model_in_loop` `_HardwareBench.__init__`（失败由既有 except 回滚收口）、`zernike_matrix_runner.run()`；MIL 原本意图直调（`_MockSLM`/`_FakeMILSlm` 暴 AttributeError），换回鸭子类型 no-op 助手（仓库既有惯例）并以函数局部 import 保持替身可替换。
 - 验收：`test_drive_board_entry_guard.py` 8/8（FakeSdk byref 协议 + open 契约 + 全接线点 AST 钉住）；MIL 全文件 132 passed；提交以 FF 方式推上 master（force-with-lease，推送前已核铺基）；评论已发 #186 并回读逐字节一致（仅 jq 尾随换行）；AGENTS.md 补 `Santec.require_drive_board()` 接口行与接线图行；module-size ratchet 4 文件（slm_model_in_loop 等）；门禁 term / ruff / provenance / module-size 全绿；wfless 整树复测 1090 passed / 2 skipped / 0 failed。
 
+**2026-10-31 · 2885e577 · ml/sim2f 两条 l1 实测带复位：`acbc9292` 的重钉是 red-on-arrival（其声称的实测值从未被本代码路径产出）**
+- 归因：bisect（工作树、CI 同镜像容器）`9fbfaa67` 绿 → `03cdafe7` 绿 → `a529d495` 绿 → `acbc9292` 红，且残差 `0.0235755518078804` 与 tip/CI 逐位相同 ⇒ 翻转点就是重钉提交自身。重钉声称的 120 步 0.006281 / maxerr 0.003814 / argmax 第 2 行 / 4000 步 0.009964 从未被本路径产出；重钉前 docstring 的 0.0236 / 0.0228 / 第 0 行 / 4000 步 0.0127 与容器实测逐位吻合。其 low_lr 一半（0.003293 / 0.002763）为真；「4000 步比较反转」被实测证伪（4000 步下 0.02 的 0.0043 仍优于 0.05 的 0.0127）。
+- 处置：反摘 acbc9292 的 test_fit.py hunk（文件与最后绿态 `a529d495` 逐字节一致，diff 空）；其 bench.py 录制与 test_bench.py 新增保留（实测行为中性）。
+- 控制：上界收紧到 0.020 → 红；下界抬高到 0.024 → 红（两侧咬合，带非空转）。
+- 验收：test_fit.py 22/22；ml/sim2f 整树 317 passed / 11 skipped / 0 failed；conventions 72 passed / 1 skipped；门禁全绿；bisect 工作树已清理。并清 5c5ddd5e 尾账：CI tip 该分片的可读失败输出已拉取（该分片唯一红即本条所治的 l1 断言）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

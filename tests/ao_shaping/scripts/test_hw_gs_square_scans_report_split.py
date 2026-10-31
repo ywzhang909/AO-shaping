@@ -48,6 +48,8 @@ _SIBLINGS = (
     "scripts.slm._hw_gs_square_scans_figbase",
     "scripts.slm._hw_gs_square_scans_figures",
     "scripts.slm._hw_gs_square_scans_sections",
+    "scripts.slm._hw_gs_square_scans_sections_core",
+    "scripts.slm._hw_gs_square_scans_sections_scan",
     "scripts.slm._hw_gs_square_scans_atomic",
     "scripts.slm._hw_gs_square_scans_artifacts",
 )
