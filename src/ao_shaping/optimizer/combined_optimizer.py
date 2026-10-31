@@ -51,6 +51,7 @@ from ao_shaping.utils.io.recorder_keys import (
     RECORD_ROI_ENERGY,
     RECORD_VOLTAGES,
 )
+from types import SimpleNamespace
 
 BETA1: float = 0.9
 BETA2: float = 0.99
@@ -80,68 +81,36 @@ def learning_schedule(
     return 4.0, 5.0
 
 
-def optimize_pib(
-    center: str | tuple[int, int] | None,
-    epochs: int = 4_000,
-    r_bucket: float = 0.0,
-    delta: float = 1.0,
-    lr: float = 0.0,
-    exposure_time_ms: float = 0.0,
-    cam_type: str = "",
-    shrink_iter: int = 0,
-    shrink_ratio: float = 0.9,
-    cam_id: int = 0,
-    show: bool = False,
-    init_v: list[float] | None = None,
-    cam_size: int = 250,
-    target_max_brightness: float = 40.0,
-    dm_unit_mask: list[bool] | None = None,
-    dm_neibor_diff: float = 200.0,
-    dm_max_voltage: float | None = None,
-    dm_min_voltage: float | None = None,
-    dm: DM | None = None,
-    **kwargs: Any,
-) -> Recorder:
-    """Optimize PIB (Power in Bucket) with AdaMOD and adaptive bucket radius.
+def _run_combined_epochs(
+    *,
+    cam_id,
+    cam_size,
+    cam_type,
+    dm_max_voltage,
+    dm_min_voltage,
+    dm_neibor_diff,
+    epochs,
+    exposure_time_ms,
+    init_v,
+    kwargs,
+    lr,
+    recorder,
+    show,
+    shrink_iter,
+    shrink_ratio,
+    target_max_brightness,
+    center,
+    delta,
+    dm,
+    dm_unit_mask,
+    r_bucket,
+) -> SimpleNamespace:
+    """#205 batch-5: the open_pib_bench epoch loop of the former optimize_pib.
 
-    This optimizer opens the camera and DM, then runs a disturbance-based
-    gradient loop that dynamically shrinks the bucket radius as the spot
-    becomes more concentrated.
-
-    Args:
-        center: Spot center. Pass a ``(x, y)`` tuple, ``"mass"``, ``"max"``,
-            ``"shape"``, or ``None`` for auto-detection.
-        epochs: Optimisation iterations.
-        r_bucket: Initial bucket radius. ``0`` = auto-detect.
-        delta: Disturbance magnitude.
-        lr: AdaMOD learning rate. ``0`` = auto-schedule.
-        exposure_time_ms: Camera exposure (ms). ``0`` = auto.
-        shrink_iter: Shrink bucket every N steps. ``0`` = disable.
-        shrink_ratio: Bucket shrink factor per shrink step.
-        cam_id: Camera device ID.
-        show: Show live Pygame display.
-        init_v: Initial DM voltage vector.
-        cam_size: Camera region-of-interest size.
-        target_max_brightness: Target max pixel brightness. ``0`` = disable auto-exposure.
-        dm_unit_mask: Boolean mask for enabled DM actuators.
-        dm_neibor_diff: Max neighbour voltage difference safety check.
-        dm_max_voltage: DM max voltage limit. Forwarded to the DM factory and
-            filtered per registered type by ``create_dm``: no registered
-            hardware DM accepts it as a constructor argument (the limits are
-            the ``V_Min`` / ``V_Max`` properties, enforced when updates are
-            clipped), so on hardware it is inert; the simulation shim honours
-            it. Kept in the signature for that sim-parity contract (#91).
-        dm_min_voltage: Same as ``dm_max_voltage``, lower bound.
-        dm: DM instance. If ``None``, a default NlightDM is created.
-        **kwargs: Additional kwargs forwarded to the AdaMOD constructor.
-
-    Returns:
-        ``Recorder`` with full per-epoch history (J, pib, voltages, etc.).
+    The With block moved line-exact at the same indent. Read-only closure
+    names arrive as keyword params; the one outer local the loop mutates is
+    threaded back out in the returned namespace and re-bound by the caller.
     """
-    delta = abs(delta)
-    epochs = int(epochs)
-    recorder = Recorder(mark="pib", mode="max")
-
     with open_pib_bench(
         cam_type=cam_type,
         cam_id=cam_id,
@@ -367,5 +336,98 @@ def optimize_pib(
                 )
             if bench.owns_dm:
                 bench.dm.close()
+    return SimpleNamespace(center=center, delta=delta, dm=dm, dm_unit_mask=dm_unit_mask, r_bucket=r_bucket)
+
+
+def optimize_pib(
+    center: str | tuple[int, int] | None,
+    epochs: int = 4_000,
+    r_bucket: float = 0.0,
+    delta: float = 1.0,
+    lr: float = 0.0,
+    exposure_time_ms: float = 0.0,
+    cam_type: str = "",
+    shrink_iter: int = 0,
+    shrink_ratio: float = 0.9,
+    cam_id: int = 0,
+    show: bool = False,
+    init_v: list[float] | None = None,
+    cam_size: int = 250,
+    target_max_brightness: float = 40.0,
+    dm_unit_mask: list[bool] | None = None,
+    dm_neibor_diff: float = 200.0,
+    dm_max_voltage: float | None = None,
+    dm_min_voltage: float | None = None,
+    dm: DM | None = None,
+    **kwargs: Any,
+) -> Recorder:
+    """Optimize PIB (Power in Bucket) with AdaMOD and adaptive bucket radius.
+
+    This optimizer opens the camera and DM, then runs a disturbance-based
+    gradient loop that dynamically shrinks the bucket radius as the spot
+    becomes more concentrated.
+
+    Args:
+        center: Spot center. Pass a ``(x, y)`` tuple, ``"mass"``, ``"max"``,
+            ``"shape"``, or ``None`` for auto-detection.
+        epochs: Optimisation iterations.
+        r_bucket: Initial bucket radius. ``0`` = auto-detect.
+        delta: Disturbance magnitude.
+        lr: AdaMOD learning rate. ``0`` = auto-schedule.
+        exposure_time_ms: Camera exposure (ms). ``0`` = auto.
+        shrink_iter: Shrink bucket every N steps. ``0`` = disable.
+        shrink_ratio: Bucket shrink factor per shrink step.
+        cam_id: Camera device ID.
+        show: Show live Pygame display.
+        init_v: Initial DM voltage vector.
+        cam_size: Camera region-of-interest size.
+        target_max_brightness: Target max pixel brightness. ``0`` = disable auto-exposure.
+        dm_unit_mask: Boolean mask for enabled DM actuators.
+        dm_neibor_diff: Max neighbour voltage difference safety check.
+        dm_max_voltage: DM max voltage limit. Forwarded to the DM factory and
+            filtered per registered type by ``create_dm``: no registered
+            hardware DM accepts it as a constructor argument (the limits are
+            the ``V_Min`` / ``V_Max`` properties, enforced when updates are
+            clipped), so on hardware it is inert; the simulation shim honours
+            it. Kept in the signature for that sim-parity contract (#91).
+        dm_min_voltage: Same as ``dm_max_voltage``, lower bound.
+        dm: DM instance. If ``None``, a default NlightDM is created.
+        **kwargs: Additional kwargs forwarded to the AdaMOD constructor.
+
+    Returns:
+        ``Recorder`` with full per-epoch history (J, pib, voltages, etc.).
+    """
+    delta = abs(delta)
+    epochs = int(epochs)
+    recorder = Recorder(mark="pib", mode="max")
+
+    _epoch_state = _run_combined_epochs(
+        cam_id=cam_id,
+        cam_size=cam_size,
+        cam_type=cam_type,
+        dm_max_voltage=dm_max_voltage,
+        dm_min_voltage=dm_min_voltage,
+        dm_neibor_diff=dm_neibor_diff,
+        epochs=epochs,
+        exposure_time_ms=exposure_time_ms,
+        init_v=init_v,
+        kwargs=kwargs,
+        lr=lr,
+        recorder=recorder,
+        show=show,
+        shrink_iter=shrink_iter,
+        shrink_ratio=shrink_ratio,
+        target_max_brightness=target_max_brightness,
+        center=center,
+        delta=delta,
+        dm=dm,
+        dm_unit_mask=dm_unit_mask,
+        r_bucket=r_bucket,
+    )
+    center = _epoch_state.center
+    delta = _epoch_state.delta
+    dm = _epoch_state.dm
+    dm_unit_mask = _epoch_state.dm_unit_mask
+    r_bucket = _epoch_state.r_bucket
 
     return recorder

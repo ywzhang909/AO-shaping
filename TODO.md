@@ -4333,6 +4333,13 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 验收：守卫扩至 28 项（批 3 加 11 项）28/28；#201-A split 契约 19/19（`_SIBLINGS` 未破）；py_compile / ruff / term / provenance / module-size 全绿（scripts 不在棘轮 baseline）；CI `7a206031` Pytest completed success；#205 评论 `6541524486` 回读 diff=0。
 - 否决记入：`zernike_amp::build_report`（530/nest0）—— 主体是单个 477 行 f-string，且输入 logs artifact 不在盘上（report 目录 13 个文件无 JSON）、无仓库内测试网 ⇒ 自主批次不动。
 
+**2026-10-31 · 46c6a433 · #205 第四批：`optimize_pib`（582 行/nest 8，全仓最深）的 L592-784 193 行 `with tqdm` epoch 块提为模块级 `_run_spgd_epochs`（编排层 582→433、nest 8→5；helper 239 行/nest 6）**
+- 特征化零成本：`test_spid_pib_path_characterization.py` 逐 epoch 电压/扰动 sha256（两条路径、声明对线程数不敏感）——拆前基线全绿、拆后全绿（4/10/3/10/6）。
+- 拆分 = 单语句逐字节提升（dedent 8；块内无嵌套 def、无多行字符串）：30 只读自由名走关键字形参（`test_pib`/`_render_epoch_frame`/`_saturate_epoch`/`run_adaptive_search`/`calc_objective`/`_fix_bucket` 等闭包 def 作参数传入、不提升）；块内突变的 6 个外层局部（`_init_r/_init_v/best_objective/delta/last_best_epoch/r_bucket`）经 SimpleNamespace 回传、调用处重绑；块内唯一 `Break` 只打块自身 For，随迁合法。
+- 验收：wfless 整树复测 1090 passed / 2 skipped / 0 failed（与基线一致）；守卫加 pib 两项 → 30/30；py_compile / ruff 干净。
+- module-size：`pib.py` 790→883 首越 800 行线（+93 = helper 签名/文档/调用胶合，无新逻辑），按棘轮口径在特性提交内重锚 baseline（同第一批处置）。
+- fixup 记入：首推后 CI 唯一红 = `test_conventions.py::test_wiki_source_citations_land_on_definitions` —— helper 插入使 `optimize_pib` def 行漂移（209→451），调用图 wiki 的 `source:` 行号锚失效（守卫按设计判红）；按作者 `69bb3d64` 先例重钉（连同批 5 自身的 83→342 同批重钉），随批 5 提交，conventions 72/1 转绿。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

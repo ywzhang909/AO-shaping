@@ -40,6 +40,9 @@ and the per-epoch sha256 characterization in
 ``test_spid_pib_path_characterization.py`` is the behavior net. Nesting 8 fell
 to 5 in the orchestrator and 6 in the lifted block -- the block's own deep
 nesting moved verbatim and keeps its measured ceiling.
+Batch 5 (same family, ``combined_optimizer``) lifted the 225-line
+open_pib_bench With block the same way -- 16 read-only params, 5 threaded
+mutables; the orchestrator went from nesting 6 to 0.
 """
 
 from __future__ import annotations
@@ -53,6 +56,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 _FILE = "src/ao_shaping/optimizer/wfless/model_in_loop_shaping.py"
 _PIB = "src/ao_shaping/optimizer/wfless/pib.py"
+_COMB = "src/ao_shaping/optimizer/combined_optimizer.py"
 _SCRIPT = "scripts/slm/generate_diffraction_efficiency_sim_report.py"
 _SECTIONS = "scripts/slm/_hw_gs_square_scans_sections.py"
 
@@ -88,6 +92,8 @@ TARGETS = [
     (_SECTIONS, "_rt_contract", 120, 1, 69),
     (_PIB, "optimize_pib", 500, 5, 433),
     (_PIB, "_run_spgd_epochs", 300, 6, 239),
+    (_COMB, "optimize_pib", 150, 1, 92),
+    (_COMB, "_run_combined_epochs", 320, 6, 256),
 ]
 
 NESTING_NODES = (ast.If, ast.For, ast.While, ast.Try, ast.With, ast.AsyncFor, ast.AsyncWith)
