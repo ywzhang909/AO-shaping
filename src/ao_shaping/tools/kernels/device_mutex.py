@@ -1679,79 +1679,30 @@ def _other_hardware_processes(
     )
 
 
-def wait_until_idle(
-    seconds: float,
+def _wait_idle_loop(
     *,
-    lock: DeviceLock | None = None,
-    probe_cmd: Sequence[str] | None = None,
-    probe: Callable[[], ProbeResult] | None = None,
-    poll_s: float = PROBE_POLL_S,
-    slm_number: int = 1,
-    cam_id: int = 0,
-    cam_type: str = "daheng",
-    exposure_ms: float = 0.2,
-    keywords: Sequence[str] = OCCUPIER_KEYWORDS,
-    own_pids: Sequence[int] = (),
-    own_paths: Sequence[str | Path] = (),
-    process_source: Callable[[], Sequence[ProcessInfo]] | None = None,
-    report_interval_s: float = WAIT_REPORT_INTERVAL_S,
-) -> WaitVerdict:
-    """开跑前等设备空出来 —— **先看锁, 再看进程, 最后才探针**。
+    _run_probe,
+    deadline,
+    keywords,
+    own_pids,
+    paths,
+    poll_s,
+    process_source,
+    report_interval_s,
+    seconds,
+    started,
+    the_lock,
+    attempt,
+    last_report_at,
+    last_state,
+):
+    """#205 batch-8: the wait loop of the former 283-line wait_until_idle.
 
-    🔴 **顺序很重要** (2026-10-22 09:03-09:48 与 21:18-21:27 实测)
-
-    1. **锁**是权威: 锁被**别人**持有 ⇒ 等 (并报出 pid + 命令行); 锁被**自己
-       这棵进程树**持有 ⇒ **不是冲突**, 立刻放行 (旧判据在这里把「自己启动的
-       子进程」当成「别的会话」⇒ 永远抢不到设备)。
-    2. **没人在用互斥锁**的老脚本靠**进程扫描**兜底: 有别的会话的硬件进程 ⇒
-       **一次都不探针** (探针本身要开一次 SLM, 是干扰源), 直接等下一轮。
-    3. 才**探针**: 探针成功 ⇒ **再扫一次**进程 (探针开锁的那一瞬间可能刚好有
-       别的会话开始) —— 仍没人 ⇒ 放行。
-    4. 探针报**被占**: 若这是**真探针** (直接问过 SDK) 且**锁空**、也**没有别的
-       硬件进程** ⇒ 判为 **SDK 陈旧状态** ⇒ **立刻停**并给出「给 SLM 控制器
-       物理断电重置」的提示 (排队等不来); 否则继续等。
-
-    Args:
-        seconds: 最长等多久 (s)。
-        lock: 设备锁; ``None`` = 用默认路径上那把。
-        probe_cmd: 探针命令; ``None`` = 用内置探针 (真问过 SDK)。
-        probe: 直接给一个探针可调用对象 (测试用; 给了就**不**跑子进程)。
-        poll_s: 重试间隔 (s)。
-        slm_number: SLM 编号。
-        cam_id: 相机编号。
-        cam_type: 相机类型。
-        exposure_ms: 曝光 (ms)。
-        keywords: 占用者进程的命令行关键字。
-        own_pids: 额外算作「我们自己的」的 pid (同一条线上的另一个脚本)。
-        own_paths: 我们自己的脚本路径 (命令行里出现它们的不算占用者)。
-        process_source: 进程列表的来源 (可注入 ⇒ 测试不用真查 CIM);
-            ``None`` = 用 :func:`query_windows_python_processes`。
-        report_interval_s: 汇报间隔 (s) —— 状态变了就立刻报, 否则最多每分钟一行。
-
-    Returns:
-        :class:`WaitVerdict`; ``verdict.ok`` 为真时设备可用。
+    The While block moved line-exact at the same indent (zero dedent, so
+    its multi-line strings are untouched). Its six top-level returns are the
+    function's real exits, so they pass straight through the caller. Loop
+    state read before first store arrives as a keyword param.
     """
-    deadline = time.monotonic() + max(0.0, float(seconds))
-    started = time.monotonic()
-    paths = list(own_paths) or [Path(__file__).resolve()]
-    the_lock = lock if lock is not None else DeviceLock.default()
-    attempt = 0
-    last_report_at = float("-inf")
-    last_state = ""
-    last_reason = ""
-    detail_lines: list[str] = []
-
-    def _run_probe() -> ProbeResult:
-        if probe is not None:
-            return probe()
-        return run_device_probe(
-            probe_cmd,
-            slm_number=slm_number,
-            cam_id=cam_id,
-            cam_type=cam_type,
-            exposure_ms=exposure_ms,
-        )
-
     while True:
         attempt += 1
         waited = time.monotonic() - started
@@ -1964,40 +1915,92 @@ def wait_until_idle(
         time.sleep(sleep_s)
 
 
-# ---------------------------------------------------------------------------
-# 探针的 CLI 入口 (内置探针子进程跑的就是这里)
-# ---------------------------------------------------------------------------
-def _probe_main(argv: list[str]) -> int:
-    """``--probe-devices`` 模式: 探一次设备, 打一行协议行。
+def wait_until_idle(
+    seconds: float,
+    *,
+    lock: DeviceLock | None = None,
+    probe_cmd: Sequence[str] | None = None,
+    probe: Callable[[], ProbeResult] | None = None,
+    poll_s: float = PROBE_POLL_S,
+    slm_number: int = 1,
+    cam_id: int = 0,
+    cam_type: str = "daheng",
+    exposure_ms: float = 0.2,
+    keywords: Sequence[str] = OCCUPIER_KEYWORDS,
+    own_pids: Sequence[int] = (),
+    own_paths: Sequence[str | Path] = (),
+    process_source: Callable[[], Sequence[ProcessInfo]] | None = None,
+    report_interval_s: float = WAIT_REPORT_INTERVAL_S,
+) -> WaitVerdict:
+    """开跑前等设备空出来 —— **先看锁, 再看进程, 最后才探针**。
 
-    这一模式**只**探可用性然后退出: 真正的等待逻辑在父进程里, 子进程不持有
-    任何句柄 (见 :func:`probe_devices` 的第三条硬约束)。
+    🔴 **顺序很重要** (2026-10-22 09:03-09:48 与 21:18-21:27 实测)
+
+    1. **锁**是权威: 锁被**别人**持有 ⇒ 等 (并报出 pid + 命令行); 锁被**自己
+       这棵进程树**持有 ⇒ **不是冲突**, 立刻放行 (旧判据在这里把「自己启动的
+       子进程」当成「别的会话」⇒ 永远抢不到设备)。
+    2. **没人在用互斥锁**的老脚本靠**进程扫描**兜底: 有别的会话的硬件进程 ⇒
+       **一次都不探针** (探针本身要开一次 SLM, 是干扰源), 直接等下一轮。
+    3. 才**探针**: 探针成功 ⇒ **再扫一次**进程 (探针开锁的那一瞬间可能刚好有
+       别的会话开始) —— 仍没人 ⇒ 放行。
+    4. 探针报**被占**: 若这是**真探针** (直接问过 SDK) 且**锁空**、也**没有别的
+       硬件进程** ⇒ 判为 **SDK 陈旧状态** ⇒ **立刻停**并给出「给 SLM 控制器
+       物理断电重置」的提示 (排队等不来); 否则继续等。
+
+    Args:
+        seconds: 最长等多久 (s)。
+        lock: 设备锁; ``None`` = 用默认路径上那把。
+        probe_cmd: 探针命令; ``None`` = 用内置探针 (真问过 SDK)。
+        probe: 直接给一个探针可调用对象 (测试用; 给了就**不**跑子进程)。
+        poll_s: 重试间隔 (s)。
+        slm_number: SLM 编号。
+        cam_id: 相机编号。
+        cam_type: 相机类型。
+        exposure_ms: 曝光 (ms)。
+        keywords: 占用者进程的命令行关键字。
+        own_pids: 额外算作「我们自己的」的 pid (同一条线上的另一个脚本)。
+        own_paths: 我们自己的脚本路径 (命令行里出现它们的不算占用者)。
+        process_source: 进程列表的来源 (可注入 ⇒ 测试不用真查 CIM);
+            ``None`` = 用 :func:`query_windows_python_processes`。
+        report_interval_s: 汇报间隔 (s) —— 状态变了就立刻报, 否则最多每分钟一行。
 
     Returns:
-        0 = 设备可用; 1 = 不可用 / 探针自己坏了。
+        :class:`WaitVerdict`; ``verdict.ok`` 为真时设备可用。
     """
-    import argparse
+    deadline = time.monotonic() + max(0.0, float(seconds))
+    started = time.monotonic()
+    paths = list(own_paths) or [Path(__file__).resolve()]
+    the_lock = lock if lock is not None else DeviceLock.default()
+    attempt = 0
+    last_report_at = float("-inf")
+    last_state = ""
+    last_reason = ""
+    detail_lines: list[str] = []
 
-    parser = argparse.ArgumentParser(description="设备可用性探针")
-    parser.add_argument("--probe-devices", action="store_true")
-    parser.add_argument("--probe-slm-number", type=int, default=1)
-    parser.add_argument("--probe-cam-id", type=int, default=0)
-    parser.add_argument("--probe-cam-type", default="daheng")
-    parser.add_argument("--probe-exposure-ms", type=float, default=0.2)
-    args = parser.parse_args(argv)
-    if not args.probe_devices:
-        parser.error("本模块的 CLI 只有 --probe-devices 一个模式")
-    result = probe_devices(
-        slm_number=args.probe_slm_number,
-        cam_id=args.probe_cam_id,
-        cam_type=args.probe_cam_type,
-        exposure_ms=args.probe_exposure_ms,
+    def _run_probe() -> ProbeResult:
+        if probe is not None:
+            return probe()
+        return run_device_probe(
+            probe_cmd,
+            slm_number=slm_number,
+            cam_id=cam_id,
+            cam_type=cam_type,
+            exposure_ms=exposure_ms,
+        )
+
+    return _wait_idle_loop(
+        _run_probe=_run_probe,
+        deadline=deadline,
+        keywords=keywords,
+        own_pids=own_pids,
+        paths=paths,
+        poll_s=poll_s,
+        process_source=process_source,
+        report_interval_s=report_interval_s,
+        seconds=seconds,
+        started=started,
+        the_lock=the_lock,
+        attempt=attempt,
+        last_report_at=last_report_at,
+        last_state=last_state,
     )
-    if result.message:
-        print(f"{PROBE_NOTE_PREFIX} {result.message}", flush=True)
-    print(format_probe_line(result), flush=True)
-    return 0 if result.status == PROBE_IDLE else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(_probe_main(sys.argv[1:]))

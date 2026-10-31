@@ -4355,6 +4355,12 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 验收：conventions 72/1；守卫 `_VAL` 加 2 项 → 34/34；py_compile / ruff 干净；module-size `validate.py` 739→819 首越 800 线（+80 = 签名/形参表/回传胶合，无新逻辑）在特性提交内重锚；wiki 对 `validate.py` 无 `source:` 引用 ⇒ 无需重钉。
 - GH013 协议二次验证：本批 push 时远端已被作者两笔重钉（`0b30bc44`/`3c0c07fb`）推进 ⇒ rebase 零冲突 → 叠加态守卫网复验全绿 → 纯 FF push 成功。
 
+**2026-10-31 · a43d7d3c · #205 第七批：`render_recorder_gif`（276 行/nest 7）的 179 行 frame For 块提为 `_gif_frames`（编排层 276→113、nest 7→4；helper 202 行/nest 7）**
+- 特征化网 = 上游现成 `tests/ao_shaping/utils/test_recorder_gif.py`（14 项：gif 渲染 / Recorder 重建 / round-trip），拆前 14/14、拆后 14/14。
+- 提升 = 单语句逐字节（For 就在 fn 体缩进 4 ⇒ 无需 dedent）：13 只读形参 + 1 传入（`initial_phase_arr` 区域首现 Load）；**thread_out 判据为空**——循环后语句只读 fig/logger/out_path/plt/writer，与循环突变名交集为空 ⇒ 无回传重绑、无 side channel；该交集由审计直算（非空则强制回传，与第六批 first_ctx 同源）。
+- wiki 锚随迁：helper 插入使 `save_recorder_debug_artifacts` def 行 1380→1574，`debug-artifacts.md` 按先例口径仅重钉 `source:` 行；path-dirs(159)/recorder(472) 两锚在插入点之前不受影响。
+- 验收：conventions 72/1（重钉后）；守卫 `_IO` 加 2 项 → 36/36；py_compile / ruff 干净；module-size `file.py` 1845→1886（+41 胶合）在特性提交内重锚；CI `a43d7d3c` Pytest completed success。#205 评论 `6544541966` 回读 diff=0。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
