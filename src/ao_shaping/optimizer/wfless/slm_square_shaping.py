@@ -97,6 +97,7 @@ from ao_shaping.drivers.ccd.common import (
     resample_on_saturation,
 )
 from ao_shaping.drivers.slm import Santec
+from ao_shaping.drivers.slm.factory import require_drive_board_entry
 from ao_shaping.optimizer.constants import (
     CAM_SAMPLE_ITER,
     TEST_EXPOSURE_TIME_BRIGHTNESS,
@@ -1348,6 +1349,8 @@ def optimize_slm_square(
             slm_number=slm_number, wavelength=slm_wavelength or None
         ) as slm,
     ):
+        # 采集入口守卫 (#186): 驱动板不应答在第一帧前失败; 仿真面板 no-op。
+        require_drive_board_entry(slm)
         if cam_type == "daheng":
             # The exposure ceiling is set by the optical path, not the sensor,
             # so resolve it per session before any measurement can fire an

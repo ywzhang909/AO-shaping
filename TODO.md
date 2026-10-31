@@ -406,7 +406,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | **必须保持宽** | 遥测 12 处，按**函数名**引用（不再钉行号）：`ml/zernike/train_coeff.py` 的 `_init_wandb`/`_log_wandb_row`/`_log_comparison_image`/`_log_wandb_summary`/`_finish_wandb`（5 处）、`ml/zernike/train_amp.py` 的 `_init_wandb`/`_log_comparison_image`（2 处）、`ml/shaping/train.py` 的 `train`/`_init_wandb`/`_log_comparison_image`（3 处）、`ml/gsnet_debug/train.py` 的 `run_offline_training`（2 处） | wandb 从网络/文件系统/序列化多路抛错，且 `except Exception` 不吞 Ctrl-C ⇒ 保留宽捕获，理由已就地写成 `# policy:` 注释；机器校验由 §8.9 的盲捕棘轮计数承担（`tests/ao_shaping/test_conventions.py` 的 `_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC`），不再依赖行号。2026-10-28 复核更正两点：**其一**，旧措辞「保留 noqa + 理由」不成立——这四个文件里 `noqa` 出现 **0** 次，实际形态一直是宽捕获加就地理由注释；**其二**，旧行号 12 个中有 **8 个在本批复核之前就已失真**（落在 `)`、`n_val: int,`、docstring 等无关语句上），一行内堆 12 个行号本就不可维护，故改按函数名。 |
 | **必须保持宽** | `zernike_matrix_runner.py:846` | 包住**调用方传入的任意回调**，无法枚举 |
 | 边缘（建议保留） | `zernike_matrix_runner.py:1448`（整条多设备流水线）、`:1323`（显示回调） | 收窄会变脆 |
-| **改动前须单独复核 → 已复核，保留** | `optimizer/wfless/slm_zernike_pib.py:1709`（`BaseException`，在 `_apply_best_on_exit()` 退出清理里；原钉 `:1285`/`:1297` 两处已漂移，2026-10-25 实测**只剩 1 处**；2026-10-30 复核 `6b52f34c` #44 删除重复 `_init_c`/`_init_r` kwargs（净 −4 行，本锚点在两删除点之间）后上移 2 行至 `:1716`；同日复核 `ff288621` #44 持有者权威刀（入口净 −5 行，本站在两读回块之下）再上移 5 行至 `:1711`；同日复核 `ca0c7ea6` #44 值通道收口刀（调用点 −2 行在本钉之上、签名 −2 行在其下）再上移 2 行至 `:1709`） | 已逐行读：处理器把异常**类型与消息都写进日志**，再强制 `set_grayscale(0)` 回安全平场，内层兜底 `except Exception` 记 "SLM state unknown" ⇒ 不重抛但**不静默**；宽捕获是**必需**的（收窄后 Ctrl-C 走不到安全态）。无需改动 |
+| **改动前须单独复核 → 已复核，保留** | `optimizer/wfless/slm_zernike_pib.py:1712`（`BaseException`，在 `_apply_best_on_exit()` 退出清理里；原钉 `:1285`/`:1297` 两处已漂移，2026-10-25 实测**只剩 1 处**；2026-10-30 复核 `6b52f34c` #44 删除重复 `_init_c`/`_init_r` kwargs（净 −4 行，本锚点在两删除点之间）后上移 2 行至 `:1716`；同日复核 `ff288621` #44 持有者权威刀（入口净 −5 行，本站在两读回块之下）再上移 5 行至 `:1711`；同日复核 `ca0c7ea6` #44 值通道收口刀（调用点 −2 行在本钉之上、签名 −2 行在其下）再上移 2 行至 `:1709`；2026-10-31 复核 #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在上方）下移 3 行至 `:1712`） | 已逐行读：处理器把异常**类型与消息都写进日志**，再强制 `set_grayscale(0)` 回安全平场，内层兜底 `except Exception` 记 "SLM state unknown" ⇒ 不重抛但**不静默**；宽捕获是**必需**的（收窄后 Ctrl-C 走不到安全态）。无需改动 |
 
 ⚠️ **ruff 没有「故意宽 catch」的开关**：`lint.flake8-blind-except.allow-raise`
 **不存在**（官方 settings 无该节；GitHub 全仓 grep 无结果）。唯一相关选项是
@@ -496,7 +496,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 🔴 **同一坑的第二次，且这次是机器拦住的**：我在动手前用 `grep -rn 'except AssertionError' src/ scripts/` 得到 **0 命中**，据此以为没有窄处理器；AST 守卫一跑就报出 3 条元组写法。⇒ 判"不存在某类引用"**不得依赖单次 grep**：文本匹配看不见 `except (A, B)` 这种同一语义的不同写法。本会话已两次踩中（前一次是漏看 `test_frame_averaging.py:69` 的 `pytest.raises(AssertionError)`），区别是这次把规则写成了测试而非靠人复查。
 
-> 🔴 **`--max_peak` 不要动。** 它在 **optimizer**（`slm_zernike_pib.py:2069-2079`（行号 2026-10-28 复核；原 `:1585-1605`，#44 三步闭包上提与 `# policy:` 标记逐次下移；2026-10-30 复核 `6b52f34c` #44 删除重复 `_init_c`/`_init_r` kwargs（净 −4 行，本块在两删除点之下）后整体上移 4 行；同日复核 `ff288621` #44 持有者权威刀（入口净 −5 行，本块在其下）整体再上移 5 行；同日复核 `ca0c7ea6` #44 值通道收口刀（调用点 −2 行与签名 −2 行均在本块之上）整体再上移 4 行；区间右界取该告警调用的闭合行）），不在驱动（行号 2026-10-20 复核，原 `:1456-1474`；`1ce4717a` 常量收敛后整体 −1）；
+> 🔴 **`--max_peak` 不要动。** 它在 **optimizer**（`slm_zernike_pib.py:2072-2082`（行号 2026-10-28 复核；原 `:1585-1605`，#44 三步闭包上提与 `# policy:` 标记逐次下移；2026-10-30 复核 `6b52f34c` #44 删除重复 `_init_c`/`_init_r` kwargs（净 −4 行，本块在两删除点之下）后整体上移 4 行；同日复核 `ff288621` #44 持有者权威刀（入口净 −5 行，本块在其下）整体再上移 5 行；同日复核 `ca0c7ea6` #44 值通道收口刀（调用点 −2 行与签名 −2 行均在本块之上）整体再上移 4 行；区间右界取该告警调用的闭合行；2026-10-31 复核 #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在其上）整体下移至 `:2072-2082`，区间右界仍取告警调用闭合行）），不在驱动（行号 2026-10-20 复核，原 `:1456-1474`；`1ce4717a` 常量收敛后整体 −1）；
 > 且其 CLI 帮助与 archive R-57 **明文声明它不是安全联锁**（"NOT a safety interlock"，
 > 只拒绝提交下一轮更新，光已出）。把它搬进驱动等于把**策略**伪装成**机制** ——
 > 与 TODO 里 R-57 的结论直接冲突。
@@ -888,7 +888,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       §8.7 那张带日期的 2026-10-23 测量表**保留原数**（它记录的是当时口径）。
 
 14. ✅ **`except BaseException` 全量复核收口：实测 5 处，逐处判定正当，并把「线程边界不得收窄」钉成守卫**（2026-10-25）：
-     - **AST 实测 5 处**（不是 grep 计数）：`optimizer/wfless/slm_zernike_pib.py:1709`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `:1718` 上移 2 行；同日复核 `ff288621` 持有者权威刀入口净 −5 行后再上移 5 行至 `:1711`；同日复核 `ca0c7ea6` 值通道收口刀再上移 2 行至 `:1709`）、
+     - **AST 实测 5 处**（不是 grep 计数）：`optimizer/wfless/slm_zernike_pib.py:1712`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `:1718` 上移 2 行；同日复核 `ff288621` 持有者权威刀入口净 −5 行后再上移 5 行至 `:1711`；同日复核 `ca0c7ea6` 值通道收口刀再上移 2 行至 `:1709`；2026-10-31 复核 #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在上方）下移 3 行至 `:1712`）、
       `tools/slm/transfer/workflow.py:226`（旧行号 78 因上游 `5341b36b` 合并等后续提交在其上方插入阶段编排代码而下移，2026-10-29 复核重钉）、`utils/image/hardware_utils.py:666`、
       `scripts/slm/diff_beam_capture_flat.py:79`（旧行号 68 因上游 `a8673631`/`fe1cc504` 漂移，2026-10-29 复核）、`scripts/slm/hw_gs_defocus_probe.py:1071`
       ⇒ §8.4 的「真风险只有 2 处」与 R-64 行的「禁改 2 处」均为当时口径，已就地重钉。
@@ -898,7 +898,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       调用方确定重抛（实测 `:77 raise error[0]`、`:1082 raise box["error"]`）——
       它们正是把「原生 SDK 调用无限挂起」变成**有界且可归因**的机制
       （后者文档还引用了仓库里那次 900 s 强杀记录）；
-       `slm_zernike_pib.py:1709`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `:1718` 上移 2 行；同日复核 `ff288621` 持有者权威刀入口净 −5 行后再上移 5 行至 `:1711`；同日复核 `ca0c7ea6` 值通道收口刀再上移 2 行至 `:1709`）在 `_apply_best_on_exit()` 退出清理里：异常类型与消息都写进日志，
+       `slm_zernike_pib.py:1712`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `:1718` 上移 2 行；同日复核 `ff288621` 持有者权威刀入口净 −5 行后再上移 5 行至 `:1711`；同日复核 `ca0c7ea6` 值通道收口刀再上移 2 行至 `:1709`；2026-10-31 复核 #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在上方）下移 3 行至 `:1712`）在 `_apply_best_on_exit()` 退出清理里：异常类型与消息都写进日志，
       再强制 `set_grayscale(0)` 回安全平场，内层兜底 `except Exception` 记 "SLM state unknown"
       ⇒ 不重抛但**不静默**，且宽捕获是必需的：收窄后 Ctrl-C 走不到安全态。
     - **新守卫** `test_conventions.py::test_thread_boundary_exception_capture_keeps_base_exception`：
@@ -4280,6 +4280,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 处置：params 默认 0.0 + help 成文「0 = resolve from the camera model config, positive overrides」；守卫 `LIBRARY_ONLY[MIL]` 补 `camera_pixel_um_source`（库内派生出处，无 CLI 入口）。措辞变化点亮两条 CLI help golden 守卫——golden 用与 CI 同一 `ao-shaping-test:cpu` 镜像、读写挂载 + `AO_UPDATE_HELP_GOLDEN=1` 再生（harness 把仓库只读挂载，无法就地再生），`git diff` 实测仅 MIL 的 `--camera-pixel-um` 一处措辞，无 GS 扰动、无默认值渲染 churn。
 - 边界：GS 家族默认不动（GS config 仍是 2.2，其守卫本就绿）；会话打开处 `require_camera_pixel_um`（`slm_model_in_loop.py:2997`）实测存在，bare daheng 的 0 当场 `CameraError` 而非静默传播。
 - 验收：守卫 + MIL 依赖面 251 passed；三 CLI 守卫 134 passed；`runners-gui-misc` 分片 4 failed → 2 failed / 1555 passed（余 2 = 上游 #214/#215 在途 GUI 用例）；root-guards 136 passed / 1 skipped；门禁全绿。
+
+**2026-10-31 · 5c5ddd5e · ml 格网缩放守卫的 approx 边界换算改为先落显式 float 再断言，失配输出由不可读三元组变成可读数值差**
+- 处置：只动断言的数值准备与容差换算（实测/期望先各自落到同一口径的格子数），不改阈值、不改被测实现。
+- 动机：此前失配时输出的是原始合成值的三元组，肉眼对不出差在哪；换算成显式 float 后 CI 红输出直接给出数值差。
+- 验收：root-guards 136 passed / 1 skipped；ml 因子守卫本地绿。CI tip 上该分片的可读数值输出待拉取确认（本账本下一批项）。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

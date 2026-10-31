@@ -83,6 +83,7 @@ from ao_shaping.drivers.slm.factory import (
     DEFAULT_WAVELENGTH_NM,
     open_camera,
     open_slm,
+    require_drive_board_entry,
     sync_device_wavelength,
 )
 from ao_shaping.gui.utils.phase_overlay import (
@@ -1214,6 +1215,8 @@ def optimize_slm_gs_refine(config: SlmGsRefineConfig) -> Recorder:
     try:
         cam = open_camera(config)
         with slm, cam:
+            # 采集入口守卫 (#186): 驱动板不应答在第一帧前失败; 仿真面板 no-op。
+            require_drive_board_entry(slm)
             original_slot = None
             original_gray = None
             if config.cam_type != "sim":

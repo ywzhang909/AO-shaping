@@ -53,6 +53,7 @@ from ao_shaping.drivers.ccd.common import (
     resolve_initial_exposure,  # noqa: F401 -- intentional re-export, documented at the module header
 )
 from ao_shaping.drivers.slm import Santec
+from ao_shaping.drivers.slm.factory import require_drive_board_entry
 from ao_shaping.drivers.slm.santec import PANEL_RES
 from ao_shaping.gui.utils.phase_overlay import (
     PhaseOverlay,
@@ -1265,6 +1266,8 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         apply_overlays_to_handle(slm_ctx, config.send_overlay)
 
     with cam_ctx as cam, slm_ctx as slm, display_ctx as live_display:
+        # 采集入口守卫 (#186): 驱动板不应答在第一帧前失败; 仿真面板 no-op。
+        require_drive_board_entry(slm)
         blaze_choice = None
         if blaze_period_px >= 0:
             from ao_shaping.optimizer.wfless._blaze_calibration import select_blaze

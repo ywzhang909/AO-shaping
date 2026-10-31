@@ -79,6 +79,7 @@ Santec.save_phase_to_csv(phase, dest)            # → WavefrontCorrection.save_
 | `save_phase_to_csv(phase_rad, destination)` | **导出弧度制相位 CSV**（保留 `Y/X` 行列索引；目标可为路径、`BytesIO` 或文本流） |
 | `shift_phase(phase, sx, sy)` | **纯函数**平移 (static; 平移数学唯一实现, 空白填0) |
 | `apply_shift(sx, sy, *, wait_time_s, save_config)` | **平移 + 自动重绘当前显示相位** (绝对定位不累积, 槽轮换, 配置保存) → 驱动层统一入口, 与多SLM控制器"应用平移"按钮一致 |
+| `require_drive_board()` | **采集入口准入断言** (#186, 2026-10-22 实测): 驱动板不应答 (三路身份读取只剩选板一路) → 抛 `SLMDriveBoardError`; 此时面板硬件不调制, 整段测量数据全无效。在 `open()` 成功之后、第一帧测量之前调用。`--cam-type sim` 的仿真面板与测试替身没有此方法, 因此所有接线点统一走 duck-typed 的 `drivers/slm/factory.require_drive_board_entry(slm)` (无该方法即 no-op); 会话体接线由 `tests/ao_shaping/drivers/slm/test_drive_board_entry_guard.py` 的 AST 钉住。 |
 
 ## SLM 故障排查 (2026-09 固化)
 

@@ -6,7 +6,8 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.dm.zernike_dm import ZernikeDM
-from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.drivers.slm.factory import require_drive_board_entry
+from ao_shaping.drivers.slm.santec import SLMDriveBoardError, Santec
 
 
 class ZernikeSLMError(Exception):
@@ -73,6 +74,15 @@ class ZernikeSLM:
     def open(self) -> None:
         """打开SLM设备并初始化"""
         self._slm.open()
+        # 采集入口守卫 (#186): 驱动板不应答的控制器不得进入任何采集会话。
+        # 失败发生在 ``with ZernikeSLM(...)`` 的 __enter__ 里时, Python 不
+        # 会再调用 __exit__, 所以这里必须先关内部句柄再上抛 -- 否则这块
+        # 面板的 SDK 句柄一直被占用, 本进程内后续所有 open() 都会失败。
+        try:
+            require_drive_board_entry(self._slm)
+        except SLMDriveBoardError:
+            self._slm.close()
+            raise
         self._zernike_dm.open()
 
         try:

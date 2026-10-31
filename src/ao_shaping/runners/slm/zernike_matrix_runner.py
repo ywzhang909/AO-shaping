@@ -1146,6 +1146,8 @@ def run(
             use_custom_ref=wfs_driver.use_custom_ref,
         )
         slm.open()
+        # 采集入口守卫 (#186): 先于 WFS 打开就失败; 下方 finally 做 last-effort close。
+        slm.require_drive_board()
         wfs.open()
         ph = PatternHelper(resolution=(slm.Panel_Res[0], slm.Panel_Res[1]))
 

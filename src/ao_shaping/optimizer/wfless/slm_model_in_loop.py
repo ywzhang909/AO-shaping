@@ -1799,6 +1799,7 @@ class _HardwareBench:
 
     def __init__(self, config: SlmModelInLoopConfig) -> None:
         from ao_shaping.drivers.ccd.common import create_camera
+        from ao_shaping.drivers.slm.factory import require_drive_board_entry
         from ao_shaping.drivers.slm.santec import Santec
         from ao_shaping.tools.kernels.bench_kernels import capture_settled
         from ao_shaping.utils.slm.phase_disturbance import load_panel_disturbance
@@ -1834,6 +1835,10 @@ class _HardwareBench:
                 wavelength=config.slm_wavelength or None,
             )
             self._slm.open()
+            # 采集入口守卫 (#186): duck-typed -- 本类替身 (_MockSLM/_FakeMILSlm)
+            # 没有该方法即 no-op, 真 Santec 抛 SLMDriveBoardError; 失败由本
+            # __init__ 的 except 回滚收口。
+            require_drive_board_entry(self._slm)
             # Send-pipeline overlay (GUI 离焦 / 底相位): apply to the SLM this
             # run opens (driver slot; no-op for a sim SLM that lacks the
             # setters). Default ``None`` leaves CLI runs untouched.

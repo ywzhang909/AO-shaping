@@ -247,7 +247,7 @@ cls = registry.get_class(reachable[0])
 
 | 配置项 | 重复定义位置 |
 |--------|-------------|
-| `IDEAL_SPOT_RADIUS` | `optimizer/constants.py:37`（唯一定义处）, `pib.py:25`, `slm_zernike_pib.py:109`（2026-10-28 复核：`b11c4f04` 在导入块前新增一条 `zernike_calc` 导入致其 +1，与 #44 上提无关）, `combined_optimizer.py:43`, `pipeline_runner.py:99`（行号 2026-10-21 复核；原 `config.py`/`pib.py` 原 28 / `slm_zernike_pib.py` 原 56 /`combined_optimizer.py:36`/`pipeline_runner.py:69` 均已失效——`config.py` 实无此常量，定义早已收敛到 `optimizer/constants.py`） |
+| `IDEAL_SPOT_RADIUS` | `optimizer/constants.py:37`（唯一定义处）, `pib.py:25`, `slm_zernike_pib.py:110`（2026-10-28 复核：`b11c4f04` 在导入块前新增一条 `zernike_calc` 导入致其 +1，与 #44 上提无关；2026-10-31 复核 #186 采集入口守卫接线 factory 导入再 +1）, `combined_optimizer.py:43`, `pipeline_runner.py:99`（行号 2026-10-21 复核；原 `config.py`/`pib.py` 原 28 / `slm_zernike_pib.py` 原 56 /`combined_optimizer.py:36`/`pipeline_runner.py:69` 均已失效——`config.py` 实无此常量，定义早已收敛到 `optimizer/constants.py`） |
 | `Far_Cam_ID` | `config.py:118`, `envs.py:18`, `pipeline_runner.py:25`, `axis_beam_runner.py:42`, `gs_hologram_runner.py:283`, `combined_runner.py:29` |
 | `Near_Cam_ID` | `config.py:119`, `envs.py:19` |
 | `KMP_DUPLICATE_LIB_OK` | `rl_wfs.py:3`, `lr.py:3`, `lr_wfs.py:3` — 完全相同，3 次重复 |
