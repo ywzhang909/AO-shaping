@@ -476,7 +476,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 | | 现状 | 判定 |
 |---|---|---|
-| **SLM（范式）** | `Santec._ensure_open()`（`santec/driver.py:1807`，**18 处**调用）+ `ZernikeSLM._ensure_open()`（`zernike_slm.py:100`，**5 处**）—— 单一入口、`raise RuntimeError` | ✅ 照抄这个 |
+| **SLM（范式）** | `Santec._ensure_open()`（`santec/driver.py:1807`，**18 处**调用）+ `ZernikeSLM._ensure_open()`（`zernike_slm.py:110`，**5 处**）—— 单一入口、`raise RuntimeError` | ✅ 照抄这个 |
 | CCD（原反范式） | ✅ **已收口**：`assert self.cam, "camera not initialized"` 曾在 `miicam/driver.py` 重复 **18 处**、`daheng/driver.py` **12 处**（+1 处 `camera not found`）、`ffmpeg/driver.py` **6 处**（两种写法：`_cap.isOpened()` 与 `_folder_path`）| 现全部走 `BaseCamera._ensure_open()`（`base.py:77`）/ `_device_open()`，抛 `CameraError`；ffmpeg 覆写 `_device_open()`，录制源前置另设 `_ensure_recording()` |
 
 | 簇 | 条数 | 现状 | 应收口到 |
@@ -728,7 +728,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 9. ✅ **BLE001 `src/runners` + `src/optimizer` 片（5 处 silent）⇒ 2 处真缺陷；并修掉本账本自己守卫的「扫描盲区」（§8.10 第二次）**（2026-10-24）：
    3 处不动：`runners/slm/zernike_matrix_runner.py:1377`（`finally` 里的尽力 `dev.close()`）、
-   `optimizer/wfless/slm_square_shaping.py:1803/2180`（两处 `try` 头，包住 `display_ctx.update(...)` —— 显示刷新失败**不该**中断优化闭环。2026-10-28 重钉：原 `:1807/2183` 钉的是调用内部的参数行，随本行实参列表增删就会漂；改钉 `try` 头并对齐语义。此前 `# policy:` 标记插入使两者各 +1/+2）
+   `optimizer/wfless/slm_square_shaping.py:1806/2183`（两处 `try` 头，包住 `display_ctx.update(...)` —— 显示刷新失败**不该**中断优化闭环。2026-10-28 重钉：原 `:1807/2183` 钉的是调用内部的参数行，随本行实参列表增删就会漂；改钉 `try` 头并对齐语义。此前 `# policy:` 标记插入使两者各 +1/+2；2026-10-31 复核 `081f5dc7` #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在上方）再下移 3 行至 `:1806/2183`）
    **真缺陷两处，都在闭环热路径上**：
    ① `runners/micro_drive/voltage_runner.py:_adc_worker` 用 `except Exception: pass` 吞掉 ADC 读取失败。
    不可归因的关键实测：消费端 `:381`（2026-10-25 重钉，`a05f7e3f` 在 ADC 读取路径插入退避块 +22 行，原 `:359`）只 `logger.debug("Drained {} ADC samples this cycle", …)` —— 只数**收到多少**，
@@ -4278,7 +4278,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 **2026-10-30 · 30f2d617 · MIL 点击入口采纳 `0c07aa54` 的像元间距契约：params 默认 2.2 → 0（向相机型号配置解析）**
 - 根因：`SlmModelInLoopConfig.camera_pixel_um` 早已由 `0c07aa54` 改成 0（0 = 向相机型号配置解析，正数 = 显式覆盖，出处记 `camera_pixel_um_source`），六个 scripts 都接了；但点击入口 `SlmModelInLoopParams` 仍写死 `_DEFAULT_CAMERA_PIXEL_UM`(2.2) 并逐字转发给 config——正是该契约刻意删掉的「消费者各写一份 2.2」第二事实源，click 路径漏网。上游自己的接线守卫实测抓到两条：split 断言缺 `camera_pixel_um_source`、默认对齐断言报 `(2.2, 0.0)`。
 - 处置：params 默认 0.0 + help 成文「0 = resolve from the camera model config, positive overrides」；守卫 `LIBRARY_ONLY[MIL]` 补 `camera_pixel_um_source`（库内派生出处，无 CLI 入口）。措辞变化点亮两条 CLI help golden 守卫——golden 用与 CI 同一 `ao-shaping-test:cpu` 镜像、读写挂载 + `AO_UPDATE_HELP_GOLDEN=1` 再生（harness 把仓库只读挂载，无法就地再生），`git diff` 实测仅 MIL 的 `--camera-pixel-um` 一处措辞，无 GS 扰动、无默认值渲染 churn。
-- 边界：GS 家族默认不动（GS config 仍是 2.2，其守卫本就绿）；会话打开处 `require_camera_pixel_um`（`slm_model_in_loop.py:2997`）实测存在，bare daheng 的 0 当场 `CameraError` 而非静默传播。
+- 边界：GS 家族默认不动（GS config 仍是 2.2，其守卫本就绿）；会话打开处 `require_camera_pixel_um`（`slm_model_in_loop.py:3002`）实测存在，bare daheng 的 0 当场 `CameraError` 而非静默传播。
 - 验收：守卫 + MIL 依赖面 251 passed；三 CLI 守卫 134 passed；`runners-gui-misc` 分片 4 failed → 2 failed / 1555 passed（余 2 = 上游 #214/#215 在途 GUI 用例）；root-guards 136 passed / 1 skipped；门禁全绿。
 
 **2026-10-31 · 5c5ddd5e · ml 格网缩放守卫的 approx 边界换算改为先落显式 float 再断言，失配输出由不可读三元组变成可读数值差**
