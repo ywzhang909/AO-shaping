@@ -4368,6 +4368,13 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 形态：编排层 283→89 行 / nest 1；helper 234 行 / nest 7（While 深链随原文搬移，上限钉实测，扁平化留后续批次）。
 - 验收：守卫 `_DM` 加 2 项 → 38/38；call_graph wiki 对 device_mutex 无 `source:` 引用 ⇒ 无需重钉；module-size 2003→2006（+3 胶合）在特性提交内重锚；CI Pytest success。
 
+**2026-11-01 · 2cfb0572 · #205 第九批：`create_target_shape`（151 行/nest 10）9 层 if/elif 链改查表分发扁平化**
+- 「仅命中嵌套」判据首批：elif 链在 AST 是 If 套 If ⇒ 任何 if/elif 排布都必触嵌套上限 ⇒ 只能改 `_SHAPE_HELPERS` 查表分发。
+- 特征化网 = 现成四文件 227 项（数组数值断言即 golden），拆前全绿、拆后逐文件复跑全绿。
+- 火场固化**求值序 first_ctx**：天真 loads−stors 走 AST child 顺序（Assign 的 target 排在 value 前）⇒ grid 分支 `nx = nx or ...` 被误判为分支局部 ⇒ 首回放 2 红 grid + 4 F821；修法 = Assign 先走 value 再绑 target、For 先 iter 再绑 target、comprehension 按 Py3 作用域先 store、AugAssign 沿第八批 load→store ⇒ nx/ny 正确进入 17 项 shared 形参表。
+- 形态：151→91 行 / nest 10→1；`_dispatch_shape` 28/nest 1；9 helper 23-33 行 / nest 0-1（链式嵌套由查表直接压平）。
+- 验收：守卫 `_PAT` 加 11 项 → 49/49；ruff/py_compile 干净；wiki 无 `source:` 引用；patterns.py 295→546 行仍在 800 行受管阈值之下（无需重锚）；CI Pytest success。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

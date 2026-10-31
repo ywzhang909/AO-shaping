@@ -67,6 +67,7 @@ _VAL = "src/ao_shaping/tools/slm/transfer/validate.py"
 _IO = "src/ao_shaping/utils/io/file.py"
 _DM = "src/ao_shaping/tools/kernels/device_mutex.py"
 _PAT = "src/ao_shaping/utils/image/target/patterns.py"
+_MEAS = "src/ao_shaping/tools/slm/calibration/diffraction_efficiency/measure.py"
 _SCRIPT = "scripts/slm/generate_diffraction_efficiency_sim_report.py"
 _SECTIONS = "scripts/slm/_hw_gs_square_scans_sections.py"
 
@@ -121,6 +122,8 @@ TARGETS = [
     (_PAT, "_pat_rectangle", 60, 0, 28),
     (_PAT, "_pat_pentagon", 60, 1, 32),
     (_PAT, "_pat_poly", 60, 1, 33),
+    (_MEAS, "run_measurement", 200, 1, 173),
+    (_MEAS, "_run_measurement_session", 420, 3, 379),
 ]
 
 NESTING_NODES = (ast.If, ast.For, ast.While, ast.Try, ast.With, ast.AsyncFor, ast.AsyncWith)
