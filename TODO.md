@@ -4286,6 +4286,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 动机：此前失配时输出的是原始合成值的三元组，肉眼对不出差在哪；换算成显式 float 后 CI 红输出直接给出数值差。
 - 验收：root-guards 136 passed / 1 skipped；ml 因子守卫本地绿。CI tip 上该分片的可读数值输出待拉取确认（本账本下一批项）。
 
+**2026-10-31 · 081f5dc7 · #186 收口：驱动板应答断言前置 —— duck-typed `factory` 助手 + 6 处会话接线**
+- 根因：驱动板不应答时（三路身份读取只剩选板一路）原路径照常采集，整批采回 0.5 灰度平底数据；应在 open() 之后、首帧测量之前断言。驱动层 `Santec.require_drive_board()` 已有，上层会话均未接。
+- 处置：新增 `factory.require_drive_board_entry`（鸭子类型助手：替身/仿真面板无该方法即 no-op），接线六处：`ZernikeSLM.open()`（覆盖 rms-zernike / ga-zernike / greedy-zernike 全部走点）、`slm_zernike_pib` `_make`/`_with_slm` 会话体、`slm_square_shaping`、`slm_gs_refine`、`slm_model_in_loop` `_HardwareBench.__init__`（失败由既有 except 回滚收口）、`zernike_matrix_runner.run()`；MIL 原本意图直调（`_MockSLM`/`_FakeMILSlm` 暴 AttributeError），换回鸭子类型 no-op 助手（仓库既有惯例）并以函数局部 import 保持替身可替换。
+- 验收：`test_drive_board_entry_guard.py` 8/8（FakeSdk byref 协议 + open 契约 + 全接线点 AST 钉住）；MIL 全文件 132 passed；提交以 FF 方式推上 master（force-with-lease，推送前已核铺基）；评论已发 #186 并回读逐字节一致（仅 jq 尾随换行）；AGENTS.md 补 `Santec.require_drive_board()` 接口行与接线图行；module-size ratchet 4 文件（slm_model_in_loop 等）；门禁 term / ruff / provenance / module-size 全绿；wfless 整树复测 1090 passed / 2 skipped / 0 failed。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
