@@ -4348,6 +4348,13 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 验收：rebase 后复跑特征化 3 文件 + conventions 72/1 + 守卫 32/32；`tests/ao_shaping/optimizer` 整树复测 1312 passed / 3 skipped / 0 failed；py_compile / ruff / term / provenance / module-size 全绿（combined 371→433 未越 800 线）。
 - 协议适配记入：master 新增仓库规则 GH013「Cannot force-push」（连 `--force-with-lease` 一并拒）——首推 `812aa431` 被拦（当时远端已被作者推进到 `4d057af2`，规则恰好挡住一次覆盖作者提交的事故）；推送协议改为 rebase origin/master + 纯 FF，重推为 `05401de9`。
 
+**2026-10-31 · 517127a4 · #205 第六批：`validate.run`（535 行/nest 9，最大单语句体）的 L326-650 325 行 open-camera With 块提为 `_run_validate_session`（编排层 535→246、nest 9→5；helper 366 行/nest 9）**
+- 特征化 = transfer 家族 7 个测试文件（`test_transfer_workflow.py` 的 37 个用例端到端驱动 `run()`），拆前基线 92 tests 全绿、拆后 92/92。拆分 = 单语句逐字节提升（块就在 fn 体缩进 4 ⇒ 无需 dedent）；30 只读形参自算（`free ∩ 调用处预存名`，含 fn 早期 import 的 `torch/Santec/create_camera/Recorder/recording/hashlib` 与区域前 def `save_summary`——旧 `pre` 集漏收这批名字，靠 ruff F821 戳穿后并入）。
+- 火场判据固化：拆后 13 红 = `UnboundLocalError: stream` —— 旧双向判据把「区域首现即 Store」的突变名也当实参传入，强制了 `run` 里只存在于部分分支的前置绑定；`first_ctx` 判据（传入 = 区域首现 Load，回传 = 全部区域 store ∩ 预存名）此后为标配。
+- 契约锚随迁：`test_validate_blocks.py` 用 `inspect.getsource(validate.run)` 钉 gate 调用串在 run 源码内——调用点随区域进 helper 后，守卫改两跳断言（run 调用 session + session 调用 gate），原防回归意图（不得退回裸 `if not blocks`）完整保留，4/4。
+- 验收：conventions 72/1；守卫 `_VAL` 加 2 项 → 34/34；py_compile / ruff 干净；module-size `validate.py` 739→819 首越 800 线（+80 = 签名/形参表/回传胶合，无新逻辑）在特性提交内重锚；wiki 对 `validate.py` 无 `source:` 引用 ⇒ 无需重钉。
+- GH013 协议二次验证：本批 push 时远端已被作者两笔重钉（`0b30bc44`/`3c0c07fb`）推进 ⇒ rebase 零冲突 → 叠加态守卫网复验全绿 → 纯 FF push 成功。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

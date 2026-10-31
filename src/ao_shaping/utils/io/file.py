@@ -894,98 +894,29 @@ def _epoch_key(k):
         return (1, str(k))
 
 
-def render_recorder_gif(
-    source,
-    output_path: "str | Path",
+def _gif_frames(
     *,
-    fps: float = 4.0,
-    title: str | None = None,
-    max_frames: int | None = None,
-    font_path: str | None = None,
-) -> Path:
-    """Render a Recorder / pkl / dict / list of records into an animated GIF.
+    axes,
+    coeff_keys,
+    fig,
+    out_path,
+    phase_keys,
+    rows,
+    scalar_keys,
+    text_keys,
+    title,
+    top_keys,
+    total,
+    traj_key,
+    writer,
+    initial_phase_arr,
+) -> None:
+    """#205 batch-7: the frame loop of the former 276-line render_recorder_gif.
 
-    Panels are selected from the variable types actually present in the records:
-    2-D phase arrays (twilight, wrapped to [-pi, pi)), other 2-D arrays
-    (inferno), gradients (coolwarm), 1-D arrays (bar charts), scalars (metrics
-    text + trajectory). Matplotlib is imported lazily.
+    The For block moved line-exact at the same indent. Names the loop reads
+    from the renderer setup arrive as keyword params; nothing the loop
+    stores is read after the loop, so there is no threaded output.
     """
-    rows, mark = _resolve_recorder_rows(source)
-    if not rows:
-        raise ValueError("no records to render")
-
-    if max_frames is not None and len(rows) > max_frames:
-        idx = np.linspace(0, len(rows) - 1, max_frames, dtype=int)
-        rows = [rows[i] for i in idx]
-
-    cls = _classify_recorder_rows(rows)
-    phase_keys = cls["phase"]
-    image_keys = cls["image"]
-    grad_keys = cls["grad"]
-    coeff_keys = cls["coeff"]
-    scalar_keys = cls["scalar"]
-    text_keys = cls["text"]
-
-    # font setup
-    import os as _os
-
-    if font_path is None:
-        font_path = "C:/Windows/Fonts/msyh.ttc"
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.font_manager as fm
-    import matplotlib.pyplot as plt
-    from matplotlib.animation import PillowWriter
-
-    if font_path and _os.path.exists(font_path):
-        try:
-            fm.fontManager.addfont(font_path)
-            fp = fm.FontProperties(fname=font_path)
-            plt.rcParams["font.family"] = fp.get_name()
-            plt.rcParams["font.sans-serif"] = [fp.get_name(), "SimHei", "SimSun"]
-        # policy: font discovery is environment-dependent; the fallback list is the documented default
-        except Exception:
-            plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "SimSun"]
-    else:
-        plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "SimSun"]
-    plt.rcParams["axes.unicode_minus"] = False
-
-    # top image panels: phase first, then image, then grad (max 3)
-    top_keys: list[tuple[str, str]] = []  # (key, kind)
-    for k in phase_keys:
-        top_keys.append((k, "phase"))
-    for k in image_keys:
-        top_keys.append((k, "image"))
-    for k in grad_keys:
-        top_keys.append((k, "grad"))
-    # include 1D coeff as bar panel if room
-    if len(top_keys) < 3 and coeff_keys:
-        top_keys.append((coeff_keys[0], "coeff"))
-    top_keys = top_keys[:3]
-
-    # trajectory key: mark if scalar present else first scalar
-    traj_key = None
-    if mark and mark in scalar_keys:
-        traj_key = mark
-    elif scalar_keys:
-        # prefer loss/score/objective-like
-        for cand in ("loss", "score", "objective", "pib", "cv", "rmse"):
-            if cand in scalar_keys:
-                traj_key = cand
-                break
-        if traj_key is None:
-            traj_key = scalar_keys[0]
-
-    out_path = Path(output_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-
-    fig, axes = plt.subplots(2, 3, figsize=(14, 8.4))
-    writer = PillowWriter(fps=int(fps))
-
-    total = len(rows)
-    initial_phase_arr = None
-
     for index, rec in enumerate(rows):
         for row in axes:
             for ax in row:
@@ -1165,6 +1096,116 @@ def render_recorder_gif(
         if index == 0:
             writer.setup(fig, out_path, dpi=100)
         writer.grab_frame()
+
+
+def render_recorder_gif(
+    source,
+    output_path: "str | Path",
+    *,
+    fps: float = 4.0,
+    title: str | None = None,
+    max_frames: int | None = None,
+    font_path: str | None = None,
+) -> Path:
+    """Render a Recorder / pkl / dict / list of records into an animated GIF.
+
+    Panels are selected from the variable types actually present in the records:
+    2-D phase arrays (twilight, wrapped to [-pi, pi)), other 2-D arrays
+    (inferno), gradients (coolwarm), 1-D arrays (bar charts), scalars (metrics
+    text + trajectory). Matplotlib is imported lazily.
+    """
+    rows, mark = _resolve_recorder_rows(source)
+    if not rows:
+        raise ValueError("no records to render")
+
+    if max_frames is not None and len(rows) > max_frames:
+        idx = np.linspace(0, len(rows) - 1, max_frames, dtype=int)
+        rows = [rows[i] for i in idx]
+
+    cls = _classify_recorder_rows(rows)
+    phase_keys = cls["phase"]
+    image_keys = cls["image"]
+    grad_keys = cls["grad"]
+    coeff_keys = cls["coeff"]
+    scalar_keys = cls["scalar"]
+    text_keys = cls["text"]
+
+    # font setup
+    import os as _os
+
+    if font_path is None:
+        font_path = "C:/Windows/Fonts/msyh.ttc"
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.font_manager as fm
+    import matplotlib.pyplot as plt
+    from matplotlib.animation import PillowWriter
+
+    if font_path and _os.path.exists(font_path):
+        try:
+            fm.fontManager.addfont(font_path)
+            fp = fm.FontProperties(fname=font_path)
+            plt.rcParams["font.family"] = fp.get_name()
+            plt.rcParams["font.sans-serif"] = [fp.get_name(), "SimHei", "SimSun"]
+        # policy: font discovery is environment-dependent; the fallback list is the documented default
+        except Exception:
+            plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "SimSun"]
+    else:
+        plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "SimSun"]
+    plt.rcParams["axes.unicode_minus"] = False
+
+    # top image panels: phase first, then image, then grad (max 3)
+    top_keys: list[tuple[str, str]] = []  # (key, kind)
+    for k in phase_keys:
+        top_keys.append((k, "phase"))
+    for k in image_keys:
+        top_keys.append((k, "image"))
+    for k in grad_keys:
+        top_keys.append((k, "grad"))
+    # include 1D coeff as bar panel if room
+    if len(top_keys) < 3 and coeff_keys:
+        top_keys.append((coeff_keys[0], "coeff"))
+    top_keys = top_keys[:3]
+
+    # trajectory key: mark if scalar present else first scalar
+    traj_key = None
+    if mark and mark in scalar_keys:
+        traj_key = mark
+    elif scalar_keys:
+        # prefer loss/score/objective-like
+        for cand in ("loss", "score", "objective", "pib", "cv", "rmse"):
+            if cand in scalar_keys:
+                traj_key = cand
+                break
+        if traj_key is None:
+            traj_key = scalar_keys[0]
+
+    out_path = Path(output_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, axes = plt.subplots(2, 3, figsize=(14, 8.4))
+    writer = PillowWriter(fps=int(fps))
+
+    total = len(rows)
+    initial_phase_arr = None
+
+    _gif_frames(
+        axes=axes,
+        coeff_keys=coeff_keys,
+        fig=fig,
+        out_path=out_path,
+        phase_keys=phase_keys,
+        rows=rows,
+        scalar_keys=scalar_keys,
+        text_keys=text_keys,
+        title=title,
+        top_keys=top_keys,
+        total=total,
+        traj_key=traj_key,
+        writer=writer,
+        initial_phase_arr=initial_phase_arr,
+    )
 
     writer.finish()
     plt.close(fig)
