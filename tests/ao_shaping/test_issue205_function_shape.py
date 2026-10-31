@@ -32,6 +32,14 @@ Batch 3 (same family) added the ``render_retest_section`` split of
 ``_hw_gs_square_scans_sections.py`` (537 lines, nesting 5) by the same
 rebind-header pattern; its nesting-5 zernike block moved verbatim and keeps
 ceiling 5 -- flattening is a later batch, not a raised bar here.
+Batch 4 (wfless family) lifted the 193-line tqdm epoch block of
+``optimize_pib`` (582 lines, nesting 8 -- the repo's deepest) into
+``_run_spgd_epochs``: read-only closure names enter as keyword params, the six
+outer locals the loop mutates are threaded back through a returned namespace,
+and the per-epoch sha256 characterization in
+``test_spid_pib_path_characterization.py`` is the behavior net. Nesting 8 fell
+to 5 in the orchestrator and 6 in the lifted block -- the block's own deep
+nesting moved verbatim and keeps its measured ceiling.
 """
 
 from __future__ import annotations
@@ -44,6 +52,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 
 _FILE = "src/ao_shaping/optimizer/wfless/model_in_loop_shaping.py"
+_PIB = "src/ao_shaping/optimizer/wfless/pib.py"
 _SCRIPT = "scripts/slm/generate_diffraction_efficiency_sim_report.py"
 _SECTIONS = "scripts/slm/_hw_gs_square_scans_sections.py"
 
@@ -77,6 +86,8 @@ TARGETS = [
     (_SECTIONS, "_rt_verdict", 230, 1, 139),
     (_SECTIONS, "_rt_jitter", 150, 2, 88),
     (_SECTIONS, "_rt_contract", 120, 1, 69),
+    (_PIB, "optimize_pib", 500, 5, 433),
+    (_PIB, "_run_spgd_epochs", 300, 6, 239),
 ]
 
 NESTING_NODES = (ast.If, ast.For, ast.While, ast.Try, ast.With, ast.AsyncFor, ast.AsyncWith)

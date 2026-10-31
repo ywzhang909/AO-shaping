@@ -4326,6 +4326,13 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - module-size：`scripts/` 不在棘轮 baseline（77 条全为 `src/`）⇒ 无需重锚；term / ruff / provenance / module-size 全绿。
 - 否决记入：`hw_defocus_zernike::build_markdown`（604/nest2）与 bench_twin `_render_report`（688）—— 复现语料（`data/debug/hw_groups_*` 等）不在盘上，属 #201-B 同类阻塞项，自主批次不动。
 
+**2026-10-31 · 7a206031 · #205 第三批：`render_retest_section`（537 行/nest 5）拆为 preamble + 8 段 helper（编排层 537→14、nest 5→0）**
+- 标的 = 报告家族最大嵌套（nest 5，源自 §11.3/§11.4 的 For 链）。特征化复用 #201-A 的字节级锚：gs201 全链渲染（输入全部为已提交 run 目录），拆前复跑命中 `eb50db72dbbffbd54deae88c62e2462f`（54352 字符 / 25 表），拆后复跑逐字节一致（diff=0）。
+- 拆分 = 纯 AST 机械切段（段体逐字节、注释头随段吸收）：`_rt_preamble`（out/tables/`add` 闭包 + 入参 → namespace）+ `_rt_intro/caliber/atomicity/blaze/zernike/verdict/jitter/contract` 八段（39-139 行，自由名重绑 4-8 处/段）+ `_rt_extend`（合并 + 键冲突断言）；nest 5 的 For 链随原文进 `_rt_zernike`，守卫上限钉 5、扁平化留后续批次。
+- 变换脚本同轮修掉两个真问题：① 多段共有的顶层 For 目标（`value`）泄进 namespace 撞断言 ⇒ 暴露集收窄为「后续段 loads ∪ {out, tables}」，临时变量不外泄；② 嵌套闭包（`add` 的形参 `text`）被自由变量审计误报 ⇒ 形参计入局部绑定。
+- 验收：守卫扩至 28 项（批 3 加 11 项）28/28；#201-A split 契约 19/19（`_SIBLINGS` 未破）；py_compile / ruff / term / provenance / module-size 全绿（scripts 不在棘轮 baseline）；CI `7a206031` Pytest completed success；#205 评论 `6541524486` 回读 diff=0。
+- 否决记入：`zernike_amp::build_report`（530/nest0）—— 主体是单个 477 行 f-string，且输入 logs artifact 不在盘上（report 目录 13 个文件无 JSON）、无仓库内测试网 ⇒ 自主批次不动。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

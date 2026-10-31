@@ -43,6 +43,7 @@ from ao_shaping.utils.io.recorder_keys import (
     RECORD_ROI_ENERGY,
     RECORD_VOLTAGES,
 )
+from types import SimpleNamespace
 
 
 # 测试/仿真注入点: 设为 SimCamera 等替身即可替换真实驱动, None = 使用真实驱动。
@@ -204,6 +205,247 @@ def _objective_to_min(objective: str) -> int:
     through the vocabulary instead of through a scoping mistake.
     """
     return -1 if objective_direction(objective) == "max" else 1
+
+
+def _run_spgd_epochs(
+    *,
+    _fix_bucket,
+    _gradient_history,
+    _max_history_len,
+    _pib_history,
+    _render_epoch_frame,
+    _saturate_epoch,
+    adaptive_search_state,
+    calc_objective,
+    cam,
+    center,
+    dm,
+    dm_unit_mask,
+    enable_adaptive_search,
+    epochs,
+    lr,
+    objective,
+    optimizer,
+    optimizer_type,
+    recorder,
+    rng,
+    run_adaptive_search,
+    search_interval,
+    search_patience,
+    search_warmup,
+    shrink_iter,
+    shrink_ratio,
+    tabu_memory,
+    test_pib,
+    to_min,
+    update_iter,
+    _init_r,
+    _init_v,
+    best_objective,
+    delta,
+    last_best_epoch,
+    r_bucket,
+) -> SimpleNamespace:
+    """#205 batch-4: the tqdm epoch loop of the former 582-line optimize_pib.
+
+    The With block moved line-exact (dedent 4). Read-only closure names come
+    in as keyword params; the six outer locals the loop mutates are threaded
+    back out in the returned namespace by the caller.
+    """
+    with tqdm.tqdm(
+        total=epochs, desc=f"iter {epochs}", dynamic_ncols=True
+    ) as bar:
+        for epoch in range(1, epochs + 1):
+            _epoch = spid_pib_epoch(
+                dm=dm,
+                cam=cam,
+                init_v=_init_v,
+                delta=delta,
+                unit_mask=dm_unit_mask,
+                rng=rng,
+                optimizer=optimizer,
+                evaluate=calc_objective,
+                maximize=to_min == -1,
+                diff_sign=to_min,
+                epoch=epoch,
+                on_render=_render_epoch_frame,
+                on_saturation=_saturate_epoch,
+            )
+            if _epoch.aborted:
+                break
+            disturb_v = _epoch.disturb_v
+            pos_img = _epoch.pos_img
+            neg_img = _epoch.neg_img
+            pos_obj, pos_obj_ratio = _epoch.pos_value, _epoch.pos_ratio
+            neg_obj, neg_obj_ratio = _epoch.neg_value, _epoch.neg_ratio
+            pos_j, neg_j = pos_obj, neg_obj
+            diff = _epoch.diff
+            gradient = _epoch.gradient
+            _init_v = _epoch.init_v
+            max_brightness = _epoch.brightness
+            if not _epoch.applied:
+                logger.warning(
+                    f"相邻单元压差大于{dm.max_neibor_diff}，放弃本次结果"
+                )
+
+            objective_val, objective_ratio = (
+                test_pib(pos_img),
+                (pos_obj_ratio + neg_obj_ratio) / 2,
+            )
+            J = (pos_j + neg_j) / 2
+
+            if epoch % update_iter == update_iter - 1:
+                _init_r = max(_init_r * shrink_ratio, IDEAL_SPOT_RADIUS)
+
+            if (
+                (
+                    epoch % update_iter == update_iter - 1
+                    or (
+                        shrink_iter > 0
+                        and epoch % shrink_iter == shrink_iter - 1
+                    )
+                    or objective_ratio >= 0.99
+                )
+                and not _fix_bucket
+                and objective_val > 0
+            ):
+                power_radio = radius(pos_img, center=center, energy=0.8)
+                _pr = power_radio * shrink_ratio
+                _r = max(
+                    r_bucket * shrink_ratio + 1, IDEAL_SPOT_RADIUS, r_bucket
+                )
+                r_bucket = min(_r, _pr, _init_r)
+                if lr == 0:
+                    # 记录梯度幅值和目标值到历史记录
+                    _grad_mag = float(np.linalg.norm(gradient))
+                    _gradient_history.append(_grad_mag)
+                    _pib_history.append(float(objective_val))
+                    # 保持历史记录长度限制
+                    if len(_gradient_history) > _max_history_len:
+                        _gradient_history.pop(0)
+                        _pib_history.pop(0)
+                    optimizer.lr, delta = learning_schedule(
+                        power_radius=r_bucket,
+                        gradient_history=_gradient_history,
+                        pib_history=_pib_history,
+                        epoch=epoch,
+                    )
+
+            if (
+                objective_val
+                > best_objective + adaptive_search_state.improvement_tol
+            ):
+                best_objective = float(objective_val)
+                float(J)
+                float(objective_ratio)
+                # objective_val / pos_img were measured on the PERTURBED
+                # voltages (`_init_v + disturb_v`); saving the clean
+                # `_init_v` wrote a configuration that was never measured,
+                # so re-applying it did not reproduce the reported value.
+                best_v = (_init_v + disturb_v).copy()
+                pos_img.copy()
+                last_best_epoch = epoch
+
+            log = {
+                "J": J,
+                RECORD_ROI_ENERGY: objective_ratio,
+                "_max_r": _init_r,
+                # Column named after the objective itself: the Recorder is
+                # built with mark=objective, so a hardcoded "pib" key made
+                # `--objective radiu/avg_radiu` fail the append assert.
+                objective: objective_val,
+                RECORD_DIFF: diff,
+                "lr": optimizer.lr,
+                "r": r_bucket,
+                "delta": delta,
+                RECORD_EPOCH: epoch,
+                RECORD_VOLTAGES: _init_v,
+                RECORD_IMAGE: pos_img,
+                "exp_t": get_camera_exposure_ms(cam),
+                "max_brt": max_brightness,
+                RECORD_GRAD: gradient,
+                "_opt_m": _extract_optimizer_momentum(optimizer),
+                "search_radius": adaptive_search_state.radius,
+                "tabu_size": len(tabu_memory._queue),
+                "search_accept": False,
+                "search_eval": 0,
+                "search_tabu_hits": 0,
+                "search_safe_rejects": 0,
+            }
+            recorder.append(log)
+
+            if _should_trigger_adaptive_search(
+                epoch=epoch,
+                enabled=enable_adaptive_search,
+                warmup=search_warmup,
+                interval=search_interval,
+                patience=search_patience,
+                last_best_epoch=last_best_epoch,
+            ):
+                search_result = run_adaptive_search(
+                    epoch=epoch,
+                    current_v=_init_v,
+                    current_objective=objective_val,
+                )
+                if search_result is not None:
+                    log["search_eval"] = search_result["evaluated"]
+                    log["search_tabu_hits"] = search_result["tabu_hits"]
+                    log["search_safe_rejects"] = search_result["safe_rejects"]
+                    log["search_radius"] = search_result["radius"]
+                    log["tabu_size"] = len(tabu_memory._queue)
+                    if search_result["accepted"]:
+                        _init_v = search_result["voltages"].copy()
+                        _reset_optimizer_state(optimizer)
+                        log["search_accept"] = True
+                        if (
+                            search_result[objective]
+                            > best_objective
+                            + adaptive_search_state.improvement_tol
+                        ):
+                            best_v = _init_v.copy()
+                            best_objective = float(search_result[objective])
+                            float(search_result["J"])
+                            float(search_result["ratio"])
+                            search_result["img"].copy()
+                            last_best_epoch = epoch
+                        recorder.append(
+                            {
+                                "J": search_result["J"],
+                                RECORD_ROI_ENERGY: search_result["ratio"],
+                                "_max_r": _init_r,
+                                objective: search_result[objective],
+                                RECORD_DIFF: 0.0,
+                                "lr": optimizer.lr,
+                                "r": r_bucket,
+                                "delta": delta,
+                                RECORD_EPOCH: epoch,
+                                RECORD_VOLTAGES: _init_v.copy(),
+                                RECORD_IMAGE: search_result["img"],
+                                "exp_t": get_camera_exposure_ms(cam),
+                                "max_brt": search_result["max_brt"],
+                                RECORD_GRAD: np.zeros_like(_init_v),
+                                "_opt_m": _extract_optimizer_momentum(
+                                    optimizer
+                                ),
+                                "optimizer": optimizer_type,
+                                f"best_{objective}": best_objective,
+                                "search_radius": adaptive_search_state.radius,
+                                "tabu_size": len(tabu_memory._queue),
+                                "search_accept": True,
+                                "search_eval": search_result["evaluated"],
+                                "search_tabu_hits": search_result["tabu_hits"],
+                                "search_safe_rejects": search_result[
+                                    "safe_rejects"
+                                ],
+                                "search_anchor": search_result["anchor"],
+                            }
+                        )
+                    else:
+                        dm.send_voltages(_init_v)
+
+            bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
+            bar.update(1)
+    return SimpleNamespace(_init_r=_init_r, _init_v=_init_v, best_objective=best_objective, delta=delta, last_best_epoch=last_best_epoch, r_bucket=r_bucket)
 
 
 def optimize_pib(
@@ -589,199 +831,50 @@ def optimize_pib(
                     optimizer.scale_momentum(np.sum(resampled) / np.sum(pos_frame))
                 return peak
 
-            with tqdm.tqdm(
-                total=epochs, desc=f"iter {epochs}", dynamic_ncols=True
-            ) as bar:
-                for epoch in range(1, epochs + 1):
-                    _epoch = spid_pib_epoch(
-                        dm=dm,
-                        cam=cam,
-                        init_v=_init_v,
-                        delta=delta,
-                        unit_mask=dm_unit_mask,
-                        rng=rng,
-                        optimizer=optimizer,
-                        evaluate=calc_objective,
-                        maximize=to_min == -1,
-                        diff_sign=to_min,
-                        epoch=epoch,
-                        on_render=_render_epoch_frame,
-                        on_saturation=_saturate_epoch,
-                    )
-                    if _epoch.aborted:
-                        break
-                    disturb_v = _epoch.disturb_v
-                    pos_img = _epoch.pos_img
-                    neg_img = _epoch.neg_img
-                    pos_obj, pos_obj_ratio = _epoch.pos_value, _epoch.pos_ratio
-                    neg_obj, neg_obj_ratio = _epoch.neg_value, _epoch.neg_ratio
-                    pos_j, neg_j = pos_obj, neg_obj
-                    diff = _epoch.diff
-                    gradient = _epoch.gradient
-                    _init_v = _epoch.init_v
-                    max_brightness = _epoch.brightness
-                    if not _epoch.applied:
-                        logger.warning(
-                            f"相邻单元压差大于{dm.max_neibor_diff}，放弃本次结果"
-                        )
-
-                    objective_val, objective_ratio = (
-                        test_pib(pos_img),
-                        (pos_obj_ratio + neg_obj_ratio) / 2,
-                    )
-                    J = (pos_j + neg_j) / 2
-
-                    if epoch % update_iter == update_iter - 1:
-                        _init_r = max(_init_r * shrink_ratio, IDEAL_SPOT_RADIUS)
-
-                    if (
-                        (
-                            epoch % update_iter == update_iter - 1
-                            or (
-                                shrink_iter > 0
-                                and epoch % shrink_iter == shrink_iter - 1
-                            )
-                            or objective_ratio >= 0.99
-                        )
-                        and not _fix_bucket
-                        and objective_val > 0
-                    ):
-                        power_radio = radius(pos_img, center=center, energy=0.8)
-                        _pr = power_radio * shrink_ratio
-                        _r = max(
-                            r_bucket * shrink_ratio + 1, IDEAL_SPOT_RADIUS, r_bucket
-                        )
-                        r_bucket = min(_r, _pr, _init_r)
-                        if lr == 0:
-                            # 记录梯度幅值和目标值到历史记录
-                            _grad_mag = float(np.linalg.norm(gradient))
-                            _gradient_history.append(_grad_mag)
-                            _pib_history.append(float(objective_val))
-                            # 保持历史记录长度限制
-                            if len(_gradient_history) > _max_history_len:
-                                _gradient_history.pop(0)
-                                _pib_history.pop(0)
-                            optimizer.lr, delta = learning_schedule(
-                                power_radius=r_bucket,
-                                gradient_history=_gradient_history,
-                                pib_history=_pib_history,
-                                epoch=epoch,
-                            )
-
-                    if (
-                        objective_val
-                        > best_objective + adaptive_search_state.improvement_tol
-                    ):
-                        best_objective = float(objective_val)
-                        float(J)
-                        float(objective_ratio)
-                        # objective_val / pos_img were measured on the PERTURBED
-                        # voltages (`_init_v + disturb_v`); saving the clean
-                        # `_init_v` wrote a configuration that was never measured,
-                        # so re-applying it did not reproduce the reported value.
-                        best_v = (_init_v + disturb_v).copy()
-                        pos_img.copy()
-                        last_best_epoch = epoch
-
-                    log = {
-                        "J": J,
-                        RECORD_ROI_ENERGY: objective_ratio,
-                        "_max_r": _init_r,
-                        # Column named after the objective itself: the Recorder is
-                        # built with mark=objective, so a hardcoded "pib" key made
-                        # `--objective radiu/avg_radiu` fail the append assert.
-                        objective: objective_val,
-                        RECORD_DIFF: diff,
-                        "lr": optimizer.lr,
-                        "r": r_bucket,
-                        "delta": delta,
-                        RECORD_EPOCH: epoch,
-                        RECORD_VOLTAGES: _init_v,
-                        RECORD_IMAGE: pos_img,
-                        "exp_t": get_camera_exposure_ms(cam),
-                        "max_brt": max_brightness,
-                        RECORD_GRAD: gradient,
-                        "_opt_m": _extract_optimizer_momentum(optimizer),
-                        "search_radius": adaptive_search_state.radius,
-                        "tabu_size": len(tabu_memory._queue),
-                        "search_accept": False,
-                        "search_eval": 0,
-                        "search_tabu_hits": 0,
-                        "search_safe_rejects": 0,
-                    }
-                    recorder.append(log)
-
-                    if _should_trigger_adaptive_search(
-                        epoch=epoch,
-                        enabled=enable_adaptive_search,
-                        warmup=search_warmup,
-                        interval=search_interval,
-                        patience=search_patience,
-                        last_best_epoch=last_best_epoch,
-                    ):
-                        search_result = run_adaptive_search(
-                            epoch=epoch,
-                            current_v=_init_v,
-                            current_objective=objective_val,
-                        )
-                        if search_result is not None:
-                            log["search_eval"] = search_result["evaluated"]
-                            log["search_tabu_hits"] = search_result["tabu_hits"]
-                            log["search_safe_rejects"] = search_result["safe_rejects"]
-                            log["search_radius"] = search_result["radius"]
-                            log["tabu_size"] = len(tabu_memory._queue)
-                            if search_result["accepted"]:
-                                _init_v = search_result["voltages"].copy()
-                                _reset_optimizer_state(optimizer)
-                                log["search_accept"] = True
-                                if (
-                                    search_result[objective]
-                                    > best_objective
-                                    + adaptive_search_state.improvement_tol
-                                ):
-                                    best_v = _init_v.copy()
-                                    best_objective = float(search_result[objective])
-                                    float(search_result["J"])
-                                    float(search_result["ratio"])
-                                    search_result["img"].copy()
-                                    last_best_epoch = epoch
-                                recorder.append(
-                                    {
-                                        "J": search_result["J"],
-                                        RECORD_ROI_ENERGY: search_result["ratio"],
-                                        "_max_r": _init_r,
-                                        objective: search_result[objective],
-                                        RECORD_DIFF: 0.0,
-                                        "lr": optimizer.lr,
-                                        "r": r_bucket,
-                                        "delta": delta,
-                                        RECORD_EPOCH: epoch,
-                                        RECORD_VOLTAGES: _init_v.copy(),
-                                        RECORD_IMAGE: search_result["img"],
-                                        "exp_t": get_camera_exposure_ms(cam),
-                                        "max_brt": search_result["max_brt"],
-                                        RECORD_GRAD: np.zeros_like(_init_v),
-                                        "_opt_m": _extract_optimizer_momentum(
-                                            optimizer
-                                        ),
-                                        "optimizer": optimizer_type,
-                                        f"best_{objective}": best_objective,
-                                        "search_radius": adaptive_search_state.radius,
-                                        "tabu_size": len(tabu_memory._queue),
-                                        "search_accept": True,
-                                        "search_eval": search_result["evaluated"],
-                                        "search_tabu_hits": search_result["tabu_hits"],
-                                        "search_safe_rejects": search_result[
-                                            "safe_rejects"
-                                        ],
-                                        "search_anchor": search_result["anchor"],
-                                    }
-                                )
-                            else:
-                                dm.send_voltages(_init_v)
-
-                    bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
-                    bar.update(1)
+            _epoch_state = _run_spgd_epochs(
+                _fix_bucket=_fix_bucket,
+                _gradient_history=_gradient_history,
+                _max_history_len=_max_history_len,
+                _pib_history=_pib_history,
+                _render_epoch_frame=_render_epoch_frame,
+                _saturate_epoch=_saturate_epoch,
+                adaptive_search_state=adaptive_search_state,
+                calc_objective=calc_objective,
+                cam=cam,
+                center=center,
+                dm=dm,
+                dm_unit_mask=dm_unit_mask,
+                enable_adaptive_search=enable_adaptive_search,
+                epochs=epochs,
+                lr=lr,
+                objective=objective,
+                optimizer=optimizer,
+                optimizer_type=optimizer_type,
+                recorder=recorder,
+                rng=rng,
+                run_adaptive_search=run_adaptive_search,
+                search_interval=search_interval,
+                search_patience=search_patience,
+                search_warmup=search_warmup,
+                shrink_iter=shrink_iter,
+                shrink_ratio=shrink_ratio,
+                tabu_memory=tabu_memory,
+                test_pib=test_pib,
+                to_min=to_min,
+                update_iter=update_iter,
+                _init_r=_init_r,
+                _init_v=_init_v,
+                best_objective=best_objective,
+                delta=delta,
+                last_best_epoch=last_best_epoch,
+                r_bucket=r_bucket,
+            )
+            _init_r = _epoch_state._init_r
+            _init_v = _epoch_state._init_v
+            best_objective = _epoch_state.best_objective
+            delta = _epoch_state.delta
+            last_best_epoch = _epoch_state.last_best_epoch
+            r_bucket = _epoch_state.r_bucket
             if show:
                 window.close()
         finally:
