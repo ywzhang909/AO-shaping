@@ -4382,6 +4382,13 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 审计两条规则补强：区域内部 ImportFrom 别名计 store（区域内部延迟 import 随块走 ⇒ thread_in 收敛空集）；区域内 6 个嵌套 def 作用域隔离（形参与局部 store 不泄漏进区域自由名集）。
 - 形态：编排层 497→173 行 / nest 1；helper 379 行 / nest 3。验收：守卫 `_MEAS` 加 2 项 → 51/51；py_compile / ruff 干净；wiki 无 `source:` 引用；module-size 867→924（+57 胶合）在特性提交内重锚（恰 1 行 diff）；CI Pytest success。
 
+**2026-11-01 · 2a446813 · #205 第十一批：`optimize_slm_zernike_pib`（516 行/nest 4）的 324 行 With 会话提为 `_run_pib_session`（透传变体首现）**
+- 特征化网 = 现成九件 `test_slm_zernike_pib_*`（`online.py` 模块级 SKIPPED 无收集）——拆前基线 112 项全绿、拆后 112/112（容器逐文件）。
+- With 恰为 fn 末语句 ⇒ 区域 2 个 Return 即函数真实出口、fall-through = None 与尾语义一致 ⇒ 调用处 `return _run_pib_session(...)` 原样透传；thread_out = ∅、零 dedent。
+- 三条火场判据钉死（全部被测试网当场戳穿，固化进变换脚本）：① 尾段切片漏项（623 行截断 ⇒ 尾段并入 + `module_defs` 计数断言）；② **target 子树按 `Name.ctx` 分流**（`recorder.blaze_choice = x` 绑定的是属性、基座 Name 是**读**；天真标 store ⇒ `recorder` 漏出签名, 7 F821）；③ **形参面用 all_loads 而非 first-ctx**（Python 函数局部性判定是**静态**的, pre 绑定名即便区域首现于赋值处, 先读路径仍需传入初值 ⇒ `UnboundLocalError: center`, 46 红）。
+- 形态：编排层 516→250 行 / nest 2；helper 384 行 / nest 4；模块顶层 def/class 计数 22 保持。
+- 验收：守卫 `_SZP` 加 2 项 → 53/53；module-size 2328→2448 重锚；CI 首红 = **live-doc 行锚守卫**（`test_conventions::test_live_doc_line_anchors_still_point_at_their_code`——钉的是 TODO.md/docs 表格行里的代码行号, 不在 call_graph wiki `source:` 口径内），由作者 `f82a1175` 重钉后 success。**协议更新：每批拆后必跑 conventions 分片与 live-doc 行锚 grep 预扫描。**
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
