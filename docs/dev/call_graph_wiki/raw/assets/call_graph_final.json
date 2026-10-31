@@ -2361,8 +2361,8 @@
    "qualname": "optimize_pib",
    "module": "ao_shaping.optimizer.combined_optimizer",
    "file": "src/ao_shaping/optimizer/combined_optimizer.py",
-   "lineno": 83,
-   "end": 371,
+   "lineno": 342,
+   "end": 433,
    "args": [
     "center",
     "epochs",
