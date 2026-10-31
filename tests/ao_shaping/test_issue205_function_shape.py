@@ -66,6 +66,7 @@ _COMB = "src/ao_shaping/optimizer/combined_optimizer.py"
 _VAL = "src/ao_shaping/tools/slm/transfer/validate.py"
 _IO = "src/ao_shaping/utils/io/file.py"
 _DM = "src/ao_shaping/tools/kernels/device_mutex.py"
+_PAT = "src/ao_shaping/utils/image/target/patterns.py"
 _SCRIPT = "scripts/slm/generate_diffraction_efficiency_sim_report.py"
 _SECTIONS = "scripts/slm/_hw_gs_square_scans_sections.py"
 
@@ -109,6 +110,17 @@ TARGETS = [
     (_IO, "_gif_frames", 260, 7, 202),
     (_DM, "wait_until_idle", 150, 1, 89),
     (_DM, "_wait_idle_loop", 300, 7, 234),
+    (_PAT, "create_target_shape", 150, 1, 91),
+    (_PAT, "_dispatch_shape", 60, 1, 28),
+    (_PAT, "_pat_gaussian", 60, 0, 24),
+    (_PAT, "_pat_disk", 60, 0, 23),
+    (_PAT, "_pat_square", 60, 0, 26),
+    (_PAT, "_pat_annular", 60, 0, 27),
+    (_PAT, "_pat_grid", 60, 1, 32),
+    (_PAT, "_pat_cross", 60, 0, 24),
+    (_PAT, "_pat_rectangle", 60, 0, 28),
+    (_PAT, "_pat_pentagon", 60, 1, 32),
+    (_PAT, "_pat_poly", 60, 1, 33),
 ]
 
 NESTING_NODES = (ast.If, ast.For, ast.While, ast.Try, ast.With, ast.AsyncFor, ast.AsyncWith)

@@ -4361,6 +4361,13 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - wiki 锚随迁：helper 插入使 `save_recorder_debug_artifacts` def 行 1380→1574，`debug-artifacts.md` 按先例口径仅重钉 `source:` 行；path-dirs(159)/recorder(472) 两锚在插入点之前不受影响。
 - 验收：conventions 72/1（重钉后）；守卫 `_IO` 加 2 项 → 36/36；py_compile / ruff 干净；module-size `file.py` 1845→1886（+41 胶合）在特性提交内重锚；CI `a43d7d3c` Pytest completed success。#205 评论 `6544541966` 回读 diff=0。
 
+**2026-11-01 · fa27bd78 · #205 第八批：`wait_until_idle`（283 行/nest 7）的 210 行 `while True` 体提为 `_wait_idle_loop`**
+- 特征化网 = 上游现成两件：`test_device_mutex.py` 16 项 + `test_device_lock_callers.py` 44 项，拆前拆后全绿。
+- 提升 = 单语句逐字节（While 就是 fn 末语句、就在 fn 体缩进 4 ⇒ 零 dedent，区域内三处多行字符串随原文不动）：**返回值透传变体首现** —— 区域 6 个顶层 Return = 函数真实出口 ⇒ 调用处 `return _wait_idle_loop(...)` 原样透传，区域后无语句。
+- 火场修审计盲区（ruff F821 当场戳穿）：`attempt += 1`（AugAssign）target ctx 是 Store、隐式读不产生 Load 节点 ⇒ first_ctx 误判「首现即 Store」不传入；修法 = AugAssign target 并入 loads/aug_read 并强制 thread_in（此前各批区域无顶层 AugAssign，该规则本批才生效）。
+- 形态：编排层 283→89 行 / nest 1；helper 234 行 / nest 7（While 深链随原文搬移，上限钉实测，扁平化留后续批次）。
+- 验收：守卫 `_DM` 加 2 项 → 38/38；call_graph wiki 对 device_mutex 无 `source:` 引用 ⇒ 无需重钉；module-size 2003→2006（+3 胶合）在特性提交内重锚；CI Pytest success。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
