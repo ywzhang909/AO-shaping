@@ -18,7 +18,7 @@
   "src/ao_shaping/gui/r50/r50_tabs.py": 1034,
   "src/ao_shaping/gui/slm/bench_settings.py": 2378,
   "src/ao_shaping/gui/slm/multi_slm_controller.py": 1770,
-  "src/ao_shaping/gui/slm/multishape_campaign_ui.py": 909,
+  "src/ao_shaping/gui/slm/multishape_campaign_ui.py": 915,
   "src/ao_shaping/gui/slm/pattern_controls.py": 1287,
   "src/ao_shaping/gui/slm/shaping_controls.py": 2816,
   "src/ao_shaping/gui/slm/slm_calibration_ui.py": 838,

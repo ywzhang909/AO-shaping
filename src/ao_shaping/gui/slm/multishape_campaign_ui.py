@@ -429,8 +429,14 @@ def render_auto_assist(shapes: tuple[str, ...], side: float):
     settings = derive_settings(shapes, side, overrides=overrides or None)
 
     table_slot = st.empty()
+    # 开关要等面板在本轮末尾才写回 ``msc_overrides``；只看 dict 的话，「刚勾上
+    # 覆盖开关」的那一轮按钮恒 disabled —— 一帧滞后既让 AppTest 点到 disabled
+    # 控件，也是真实界面里「勾了却复位不了」。disabled 必须同时看本轮开关态
+    # （widget 实例化前读 key 拿到的是上一轮持久化值，正是本轮开关的落点）。
+    pending_override = any(st.session_state.get(f"msc_ov_on_{name}", False)
+                           for name, _, _ in OVERRIDE_FIELDS)
     if st.button("按尺寸重新推导（清空全部手工覆盖）", key="msc_reset_overrides",
-                 disabled=not overrides):
+                 disabled=not (overrides or pending_override)):
         st.session_state[_RESET_KEY] = True
         st.rerun()
 

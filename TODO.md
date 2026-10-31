@@ -4297,6 +4297,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 控制：上界收紧到 0.020 → 红；下界抬高到 0.024 → 红（两侧咬合，带非空转）。
 - 验收：test_fit.py 22/22；ml/sim2f 整树 317 passed / 11 skipped / 0 failed；conventions 72 passed / 1 skipped；门禁全绿；bisect 工作树已清理。并清 5c5ddd5e 尾账：CI tip 该分片的可读失败输出已拉取（该分片唯一红即本条所治的 l1 断言）。
 
+**2026-10-31 · c55d06ee · #201 A 档：render_report（1133 行）拆为 sections_core/sections_scan 分节 sibling（逐字节 golden 判据）**
+- 处置：纯 AST 机械切段 —— §0-§5 → `_hw_gs_square_scans_sections_core.py`，§6-§10 + 附录 A/B → `_hw_gs_square_scans_sections_scan.py`；分节函数体与原函数对应段逐字节一致，只新增 `add` 闭包与 ctx 解包；四个跨段中间量（policy / i18 / i40 / panel）经 `ReportCtx` 中转（追加进叶子 `_hw_gs_square_scans_model`，不新增 import）；§11-§13 胶合与正文收尾留在 facade。`render_report` 瘦身为 102 行编排层，最大分节 span 293（<300）。
+- 判据（A 档原文「需保证报告字节级不变」）：run-root / retest-root / retest-prior-root / atomic-root 全指 committed `artifacts/` 四批次归档时，拆分前后渲染的 md 逐字节一致 —— md5 `eb50db72dbbffbd54deae88c62e2462f`、54352 字符 / 25 张表，表格回读与结构不变量两侧都 0。
+- 验收：split-guard 19/19（新 sibling 登记进 `_SIBLINGS` 契约清单）；引用面审计：除守卫测试与 provenance 外无其他消费者；term / ruff / provenance / module-size 全绿。#201 其余 B 档项（`_run_bench` 667 等硬件脚本需实验回归）未动，issue 保持 open。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
