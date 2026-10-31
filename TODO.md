@@ -4302,6 +4302,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 判据（A 档原文「需保证报告字节级不变」）：run-root / retest-root / retest-prior-root / atomic-root 全指 committed `artifacts/` 四批次归档时，拆分前后渲染的 md 逐字节一致 —— md5 `eb50db72dbbffbd54deae88c62e2462f`、54352 字符 / 25 张表，表格回读与结构不变量两侧都 0。
 - 验收：split-guard 19/19（新 sibling 登记进 `_SIBLINGS` 契约清单）；引用面审计：除守卫测试与 provenance 外无其他消费者；term / ruff / provenance / module-size 全绿。#201 其余 B 档项（`_run_bench` 667 等硬件脚本需实验回归）未动，issue 保持 open。
 
+**2026-10-31 · 6c59fb5c · GUI 对两红收口：precheck 裸卡盘替身 + multishape 复位按钮一帧滞后 —— master 首个全绿 Pytest sharded run**
+- 归因：工作树 bisect —— 两测试文件在 `0ec5e32d` 的容器里各有同名 1 红，`d3fb61c5` 非肇事 ⇒ red-on-arrival（引入提交生来红）。CI 同镜像容器内探针钉死：`disk|stop`（容器盘余实测 4.3 GB < 本批预估 17.7 GB → 整卡 blocking=True；产品语义正确，夹具非 hermetic）；multishape 的 `disabled=not overrides` 在面板写回 `msc_overrides` 之前求值 —— 刚勾上开关的那一轮按钮恒 disabled（一帧滞后）。
+- 处置：precheck 沿用本文件磁盘三用例既有的 `disk_usage` 替身惯例钉成富余档；multishape 改判 `overrides or pending_override`（widget 实例化前读本轮 `msc_ov_on_*` 持久化态）。
+- 验收：test_precheck.py 30/30；test_multishape_campaign_ui.py 29/29（容器）；磁盘专项用例不动；棘轮 multishape 909→915 重锚（特性提交内重锚 + 写明理由，#205 口径）；CI `41168817340` = master 首个全绿 run（Module size / Ruff / Terminology / lint / Pytest sharded / build 全 success）；#214/#215 评论已发并回读一致。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

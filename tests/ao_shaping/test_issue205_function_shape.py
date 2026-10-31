@@ -1,0 +1,109 @@
+"""Shape guard for the sweep-calibration split, issue #205 batch 1.
+
+#205 registered the repo-wide long-function / deep-nesting debt and asked for
+per-family batches, each characterization-first and each sealed with a shape
+guard so a split cannot grow back. Batch 1 (wfless family) split
+``calibrate_bench_geometry_from_sweep`` (662 lines, nesting 4) into nine
+module-level helpers by **verbatim** block moves: the bit-for-bit numeric
+goldens already in ``test_model_in_loop_sweep_diagnostics.py``
+(``REF_ALL_NORMAL_NOTES`` / ``REF_ALL_NORMAL``) pin that the move did not move
+a single digit.
+
+The goldens pin equality for today; they do not stop any of the ten functions
+from growing back. So the ten are pinned here by AST: span (end_lineno -
+lineno + 1) and maximum nesting depth (if / for / while / try / with), the
+same convention as ``test_issue167_function_shape.py``. Ceilings are measured
+value plus headroom -- except the nesting ceilings at the #167 criterion (<=3)
+where the measured value already sits: the two filter/fit blocks moved
+verbatim measure nesting 4, so their ceiling is 4 with flattening left to a
+later #205 batch, not hidden here by raising the bar repo-wide.
+
+Scope: these ten functions only. The rest of #205's inventory
+(``optimize_slm_square`` at 1287, ``optimize_pib`` at nesting 8, ...) lands in
+its own batches with its own ceilings -- pinning it here would turn this guard
+into a repo-wide lint that no single batch can pay.
+"""
+
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+
+import pytest
+
+SRC = Path(__file__).resolve().parents[2] / "src"
+
+_FILE = "ao_shaping/optimizer/wfless/model_in_loop_shaping.py"
+
+#: (relative path under src, function name, span ceiling, nesting ceiling,
+#:  the span measured when the guard was written)
+TARGETS = [
+    (_FILE, "calibrate_bench_geometry_from_sweep", 360, 3, 283),
+    (_FILE, "_tilt_axis_slopes", 70, 3, 44),
+    (_FILE, "_ramp_focal_scale", 70, 3, 39),
+    (_FILE, "_fov_ratio_cross_check", 80, 3, 46),
+    (_FILE, "_tilt_physical_cross_check", 80, 3, 48),
+    (_FILE, "_sweep_width_groups", 140, 4, 100),
+    (_FILE, "_fit_curvature_offsets", 100, 3, 60),
+    (_FILE, "_defocus_asymmetry", 50, 3, 14),
+    (_FILE, "_fit_joint_waist", 110, 4, 65),
+    (_FILE, "_sweep_calibration_notes", 80, 3, 35),
+]
+
+NESTING_NODES = (ast.If, ast.For, ast.While, ast.Try, ast.With, ast.AsyncFor, ast.AsyncWith)
+
+
+def _max_nesting(node: ast.AST, depth: int = 0) -> int:
+    """Deepest if/for/while/try/with chain inside ``node``."""
+    best = depth
+    for child in ast.iter_child_nodes(node):
+        child_depth = depth + 1 if isinstance(child, NESTING_NODES) else depth
+        best = max(best, _max_nesting(child, child_depth))
+    return best
+
+
+def _measure(rel_path: str, func_name: str) -> tuple[int, int]:
+    module = ast.parse((SRC / rel_path).read_text(encoding="utf-8"))
+    hits = [
+        node
+        for node in ast.walk(module)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == func_name
+    ]
+    assert len(hits) == 1, (
+        f"expected exactly one {func_name} in {rel_path}, found {len(hits)} -- "
+        "the guard would silently measure the wrong one"
+    )
+    node = hits[0]
+    return node.end_lineno - node.lineno + 1, _max_nesting(node)
+
+
+@pytest.mark.parametrize(("rel_path", "func_name", "span_max", "nest_max", "measured"), TARGETS)
+def test_the_split_function_stays_within_its_shape_budget(
+    rel_path: str, func_name: str, span_max: int, nest_max: int, measured: int
+) -> None:
+    span, nesting = _measure(rel_path, func_name)
+
+    assert nesting <= nest_max, (
+        f"{rel_path}::{func_name} nests {nesting} deep, over the #205 ceiling of "
+        f"{nest_max}. Split the new branch out instead of nesting further."
+    )
+    assert span <= span_max, (
+        f"{rel_path}::{func_name} is {span} lines, over its #205 ceiling of "
+        f"{span_max} (measured {measured} when the guard was written). It is "
+        "growing back -- split it again rather than raising the ceiling."
+    )
+
+
+def test_the_depth_measurement_is_not_silently_zero() -> None:
+    """The walker must still see depth where depth exists.
+
+    Pinned against one of the two blocks that genuinely sit at nesting 4
+    (verbatim-moved filters, flattening left to a later batch): if the AST walk
+    ever degraded to 0, every nesting ceiling above would pass vacuously.
+    """
+    _span, nesting = _measure(_FILE, "_sweep_width_groups")
+    assert nesting == 4, (
+        f"expected _sweep_width_groups to measure exactly 4 deep, got {nesting}; "
+        "the nesting walker changed and the ceilings above mean nothing"
+    )
