@@ -4307,6 +4307,13 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - 处置：precheck 沿用本文件磁盘三用例既有的 `disk_usage` 替身惯例钉成富余档；multishape 改判 `overrides or pending_override`（widget 实例化前读本轮 `msc_ov_on_*` 持久化态）。
 - 验收：test_precheck.py 30/30；test_multishape_campaign_ui.py 29/29（容器）；磁盘专项用例不动；棘轮 multishape 909→915 重锚（特性提交内重锚 + 写明理由，#205 口径）；CI `41168817340` = master 首个全绿 run（Module size / Ruff / Terminology / lint / Pytest sharded / build 全 success）；#214/#215 评论已发并回读一致。
 
+**2026-10-31 · 896442f7 · #205 第一批：`calibrate_bench_geometry_from_sweep`（662 行/nest 4）拆为 9 个纯段 helper（编排层 662→283、nest 1）**
+- 口径：按模块族分批、先捕获后拆分、每批补形状守卫。标的选 wfless 家族唯一纯计算项（单入参 records、无设备无 IO）；特征化直接复用仓库现成逐位 golden（`test_model_in_loop_sweep_diagnostics.py` 的 `REF_ALL_NORMAL_NOTES` / `REF_ALL_NORMAL`）—— 拆后数字一位未动。
+- 拆分 = 函数体逐字节搬移、编排顺序不动：tilt 轴斜率 44 / ramp 焦比 39 / FOV 交叉核验 46 / tilt 物理核验 48 / 宽度响应分组 100 / 曲率偏移拟合 60 / defocus 非对称 14 / waist 联合拟合 65 / notes 汇编 35。两段逐字节搬移段实测嵌套 4，守卫上限钉 4、扁平化留给后续批次，不做全局放宽。
+- 验收：diagnostics 7/7；shaping 49/49；`tests/ao_shaping/optimizer/wfless` 整树复测 1090 passed / 2 skipped / 0 failed（与基线一致）；新增守卫 `test_issue205_function_shape.py` 11/11（10 项 span/nest 上限 + walker 自检防 vacuous 通过）。
+- module-size：`model_in_loop_shaping.py` 3193→3274（+81 = helper 签名/文档/胶合，无新逻辑），按棘轮口径在特性提交内重锚。顺带复核棘轮「余两笔」：`daheng` 869 / `miicam` 1144 已与 baseline 相等、`--check` 全绿（上游已重锚，无需再裁定）。
+- fixup 记入：首推后 CI `test_every_test_area_is_sharded` 正确判红 —— 新守卫文件未登记进 pytest.yml 的 root-guards shard（该 shard 对 root 级文件逐个点名，漏一个就红，这正是该守卫的设计意图）；登记后守卫 12/12 本地绿、随本条目一并提交。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
