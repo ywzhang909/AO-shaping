@@ -4340,6 +4340,14 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 - module-size：`pib.py` 790→883 首越 800 行线（+93 = helper 签名/文档/调用胶合，无新逻辑），按棘轮口径在特性提交内重锚 baseline（同第一批处置）。
 - fixup 记入：首推后 CI 唯一红 = `test_conventions.py::test_wiki_source_citations_land_on_definitions` —— helper 插入使 `optimize_pib` def 行漂移（209→451），调用图 wiki 的 `source:` 行号锚失效（守卫按设计判红）；按作者 `69bb3d64` 先例重钉（连同批 5 自身的 83→342 同批重钉），随批 5 提交，conventions 72/1 转绿。
 
+**2026-10-31 · 05401de9 · #205 第五批：`combined_optimizer::optimize_pib`（289 行/nest 6）的 225 行 `open_pib_bench` With 块提为 `_run_combined_epochs`（编排层 289→92、nest 6→0；helper 256 行/nest 6）**
+- 特征化复用 `test_spid_pib_path_characterization.py` 的 `COMBINED_VOLTAGE_DIGEST` / `COMBINED_DIFF_DIGEST`（与批 4 同文件、两条路径分别钉）——拆前基线全绿、拆后全绿（4/10/3/10/6）。
+- 拆分 = 单语句逐字节提升（与批 4 同构且更干净：块就在 fn 体缩进 4 ⇒ 无需 dedent）：16 只读形参 + 5 个回传重绑（`center/delta/dm/dm_unit_mask/r_bucket`）；区域自身嵌套 def（`_render_epoch_frame/_saturate_epoch`）随块搬移、块外无引用；`post-region reads ∩ 区域 stores = ∅`（区域后语句不再读被改名）。
+- 参数闭包两个真坑（都被 ruff F821 当场戳穿，固化为自算审计）：①「With-items 读、块体再绑定」的混合名在旧 free 与 outer_stored 判据里两头落空 ⇒ 漏传参；threaded 判据 = `(loads∩stors) ∩ (形参 ∪ 区域外赋值)`。② 块内定义名（`_mask/c/img/n_sample/t` + 嵌套 def）不得传参 ⇒ 形参集 = `free ∩ 调用处预存名`，弃用硬编码名单。
+- wiki 收口：批 4 漂移锚（pib 209→451）由作者 `4d057af2` 抢先重钉，本批同批重钉自身漂移（combined 83→342），同一改动 rebase 自动收敛无冲突。
+- 验收：rebase 后复跑特征化 3 文件 + conventions 72/1 + 守卫 32/32；`tests/ao_shaping/optimizer` 整树复测 1312 passed / 3 skipped / 0 failed；py_compile / ruff / term / provenance / module-size 全绿（combined 371→433 未越 800 线）。
+- 协议适配记入：master 新增仓库规则 GH013「Cannot force-push」（连 `--force-with-lease` 一并拒）——首推 `812aa431` 被拦（当时远端已被作者推进到 `4d057af2`，规则恰好挡住一次覆盖作者提交的事故）；推送协议改为 rebase origin/master + 纯 FF，重推为 `05401de9`。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

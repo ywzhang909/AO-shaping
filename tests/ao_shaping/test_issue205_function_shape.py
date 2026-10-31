@@ -43,6 +43,12 @@ nesting moved verbatim and keeps its measured ceiling.
 Batch 5 (same family, ``combined_optimizer``) lifted the 225-line
 open_pib_bench With block the same way -- 16 read-only params, 5 threaded
 mutables; the orchestrator went from nesting 6 to 0.
+Batch 6 (tools/slm/transfer) lifted the 325-line open-camera With block of
+``validate.run`` (535 lines, nesting 9) into ``_run_validate_session``; the
+net is 7 transfer suites (test_transfer_workflow.py drives run() end-to-end),
+and the resume-gate source pin in ``test_validate_blocks.py`` moved to two
+hops (run -> session -> gate). Nesting 9 in the lifted block keeps its
+measured ceiling -- flattening is a later batch.
 """
 
 from __future__ import annotations
@@ -57,6 +63,7 @@ REPO = Path(__file__).resolve().parents[2]
 _FILE = "src/ao_shaping/optimizer/wfless/model_in_loop_shaping.py"
 _PIB = "src/ao_shaping/optimizer/wfless/pib.py"
 _COMB = "src/ao_shaping/optimizer/combined_optimizer.py"
+_VAL = "src/ao_shaping/tools/slm/transfer/validate.py"
 _SCRIPT = "scripts/slm/generate_diffraction_efficiency_sim_report.py"
 _SECTIONS = "scripts/slm/_hw_gs_square_scans_sections.py"
 
@@ -94,6 +101,8 @@ TARGETS = [
     (_PIB, "_run_spgd_epochs", 300, 6, 239),
     (_COMB, "optimize_pib", 150, 1, 92),
     (_COMB, "_run_combined_epochs", 320, 6, 256),
+    (_VAL, "run", 300, 5, 246),
+    (_VAL, "_run_validate_session", 450, 9, 366),
 ]
 
 NESTING_NODES = (ast.If, ast.For, ast.While, ast.Try, ast.With, ast.AsyncFor, ast.AsyncWith)

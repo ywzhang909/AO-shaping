@@ -43,6 +43,7 @@ from ao_shaping.tools.slm.transfer.session_plan import (
     _frozen_groups, model_only_decision, session_plan, skips_shape,
 )
 from ao_shaping.utils.image.target import TRANSFER_SHAPE_CHOICES
+from types import SimpleNamespace
 
 
 def replay_seed(directory, shape, xy, target):
@@ -129,200 +130,46 @@ def _milliseconds(**segments: float) -> dict:
     return {name: round(float(value) * 1e3, 1) for name, value in segments.items()}
 
 
-def run(args):
-    if getattr(args, "plan_only", False):
-        # Plan mode: no torch, no seed synthesis, no device -- only the derived
-        # work list. It writes plan.json into a *new* directory and returns the
-        # path, so a later reader cannot mistake it for a stage that ran, and a
-        # re-plan cannot silently overwrite an existing one.
-        args.out.mkdir(parents=True, exist_ok=False)
-        plan = session_plan(args)
-        (args.out/"plan.json").write_text(json.dumps(plan, indent=2), encoding="utf-8")
-        logger.info(json.dumps(plan, indent=2))
-        return args.out
-    import torch
-    from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
-        DifferentiableUniformityOptimizer, FrozenDefocusForward, FrozenDefocusParameters, recentre_window,
-    )
-    torch.set_num_threads(4)
-    device = resolve_device(getattr(args, "device", None))
-    d = json.loads(args.checkpoint.read_text(encoding="utf-8"))
-    if d.get("local_response_only") and args.mode != "anchored":
-        raise ValueError("local-response checkpoint requires CCD anchored mode")
-    params = FrozenDefocusParameters.from_dicts(d, d["ramp_matrix"], grid_size=d["grid_size"],
-                                               fft_size=d["fft_size"], pixel_samples=d["pixel_samples"])
-    params = params.effective_parameters()
-    explore_temperature = float(getattr(args, "exploration_temperature", 0.))
-    explore_budget = float(getattr(args, "exploration_budget", .25))
-    if not np.isfinite([explore_temperature, explore_budget]).all() or explore_temperature < 0 or getattr(args, "exploration_window", 4) < 1 or explore_budget < 0:
-        raise ValueError("nonnegative exploration temperature/budget and positive window required")
-    if explore_temperature > 0 and (not getattr(args, "ccd_check", False) or getattr(args, "adaptive_exposure", False) or getattr(args, "abba", False)):
-        raise ValueError("exploration requires sequential CCD checks and fixed exposure across blocks")
-    bit_depth = int(getattr(args, "bit_depth", 8))
-    resume = bool(getattr(args, "resume", False))
-    if resume:
-        # A resumed stage keeps the bit depth its directory was recorded at;
-        # otherwise full_scale/counts_scale would disagree with stored frames.
-        recorded = args.out/"config.json"
-        saved_depth = (json.loads(recorded.read_text(encoding="utf-8")).get("bit_depth")
-                       if recorded.is_file() else None)
-        if saved_depth is not None and int(saved_depth) != bit_depth:
-            raise ValueError(f"resume bit depth {bit_depth} differs from recorded {saved_depth}")
-    full_scale = float(2**bit_depth - 1)
-    counts_scale = float(2**(bit_depth-8))
-    # Carrier displacement uses both camera axes. The target is kept away from zero order.
-    shift = np.asarray(params.ramp_matrix)[:, 0]/args.period
-    centre = np.asarray(args.zero_xy)+shift
-    if getattr(args, "target_xy", None) is not None:
-        centre = np.asarray(args.target_xy, dtype=float)
-    xy = recentre_window(tuple(args.zero_xy), half_span_px=getattr(args, "window_span", 220.),
-                         step_px=getattr(args, "window_step", 2.))
-    forward = FrozenDefocusForward(params, xy, device=device)
-    if not args.execute:
-        logger.info(json.dumps(dict(zero_xy=args.zero_xy, target_xy=centre.tolist(), shapes=args.shapes), indent=2))
-        return
-    prepared, seed_provenance = [], {}
-    for shape in args.shapes:
-        objective = ShapeObjective(target_at(xy, shape, centre, args.side),
-                                   cv_only=getattr(args, "objective", "shape") == "cv",
-                                   formation=getattr(args, "objective", "shape") == "formation")
-        if getattr(args, "core_margin", None) is not None:
-            from scipy.ndimage import binary_erosion
-            cells = max(1, int(np.ceil(args.core_margin/getattr(args, "window_step", 2.))))
-            objective.core = binary_erosion(objective.box, iterations=cells)
-        if getattr(args, "zero_radius", 0.) > 0:
-            radius = np.linalg.norm(xy - np.asarray(args.zero_xy), axis=-1)
-            objective.core &= radius > args.zero_radius
-            if not objective.core.any():
-                raise ValueError("zero-order exclusion removes the complete target core")
-        box = objective.box
-        if box[0].any() or box[-1].any() or box[:, 0].any() or box[:, -1].any():
-            raise ValueError("target intersects camera window boundary; adjust period/side")
-        if args.seed_run:
-            from .seeding import accepted_seed
-            source = json.loads((args.seed_run / "config.json").read_text(encoding="utf-8"))
-            if float(source["side"]) != float(args.side):
-                raise ValueError("accepted seed target size differs from requested target")
-            phase, seed_provenance[shape] = accepted_seed(args.seed_run, shape, forward, xy,
-                objective.target, policy=getattr(args, "seed_policy", "strict"), centre=centre)
-        elif getattr(args, "initial_phase", "gs") == "transport":
-            if shape != "square":
-                raise ValueError("transport initialization currently supports square only")
-            from .geometric_seed import square_transport_phase
-            phase = square_transport_phase(forward, centre, args.side)
-            seed_provenance[shape] = dict(kind="transport", gs_calls=0, historical_phase=False,
-                                          static_correction=True, side_ccd_px=args.side)
-        elif getattr(args, "initial_phase", "gs") == "backprojection":
-            # Shape-general non-GS seed: one analytic back-projection of the
-            # target through the fitted optics. A separable transport phase
-            # cannot produce a non-separable far field, so this is the
-            # non-GS construction available for triangle / star / circle.
-            from .geometric_seed import target_backprojection_phase
-            phase, diagnostics = target_backprojection_phase(forward, centre, args.side, shape)
-            seed_provenance[shape] = dict(kind="backprojection", gs_calls=0, historical_phase=False,
-                                          static_correction=True, side_ccd_px=args.side,
-                                          **diagnostics)
-        elif getattr(args, "initial_phase", "gs") != "gs":
-            from .cold_start import cold_phase
-            phase, seed_provenance[shape] = cold_phase(forward, centre,
-                kind=args.initial_phase, seed=getattr(args, "random_seed", 102626))
-        else:
-            phase = gs_seed(forward, centre, args.side, shape)
-        if not np.isfinite(phase).all():
-            raise ValueError("nonfinite seed phase")
-        prepared.append((shape, objective, phase))
-    # Resume: slice this stage's block range to the groups it has not measured
-    # yet; a fully measured stage measures nothing and only refreshes its record.
-    blocks_for: dict[str, list[int]] = {}
-    if resume:
-        for shape in args.shapes:
-            # A stage directory is one shape's run, so its measured groups are
-            # countable without re-planning; the remaining indices are this
-            # stage's outstanding work.
-            recorded = _frozen_groups(args.out)
-            blocks_for[shape] = list(range(recorded, getattr(args, "blocks", 0)))
-    from .hardware import prepare_camera_sdk
-    prepare_camera_sdk(args.camera)
-    from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_ms, get_camera_exposure_range
-    from ao_shaping.drivers.slm.santec import Santec
-    from ao_shaping.tools.slm.panel.focus_probe import adapt_exposure
-    from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
+def _run_validate_session(
+    *,
+    DifferentiableUniformityOptimizer,
+    Santec,
+    abba,
+    adapt_exposure,
+    args,
+    bit_depth,
+    blocks_for,
+    camera_options,
+    configured_daheng_exposure_limit,
+    counts_scale,
+    create_camera,
+    device,
+    explore_temperature,
+    forward,
+    full_scale,
+    get_camera_exposure_ms,
+    get_camera_exposure_range,
+    iterations,
+    last_phase,
+    phase,
+    prepared,
+    recorder,
+    recording,
+    records,
+    resume,
+    save_summary,
+    summary_entries,
+    torch,
+    writer,
+    xy,
+    objective,
+) -> SimpleNamespace:
+    """#205 batch-6: the open-camera session block of the former 535-line run.
 
-    args.out.mkdir(parents=True, exist_ok=resume)
-    import hashlib
-    abba = bool(getattr(args, "abba", False))
-    # Resume: the run directory already exists, so its JSON logs are extended,
-    # not replaced. An overwrite would erase the record of the blocks that made
-    # the resume necessary.
-    summary = (json.loads((args.out/"summary.json").read_text(encoding="utf-8"))
-               if resume and (args.out/"summary.json").is_file() else [])
-    records = (json.loads((args.out/"manifest.json").read_text(encoding="utf-8"))
-               if resume and (args.out/"manifest.json").is_file() else [])
-    summary_entries = list(summary)
-    iterations = (pickle.loads((args.out/"iterations.pkl").read_bytes())
-                  if resume and (args.out/"iterations.pkl").is_file() else [])
-
-    def save_summary() -> None:
-        (args.out/"summary.json").write_text(json.dumps(summary_entries), encoding="utf-8")
-
-    (args.out/"config.json").write_text(json.dumps(dict(checkpoint=str(args.checkpoint.resolve()), zero_xy=args.zero_xy,
-                                                       target_xy=centre.tolist(), shapes=args.shapes,
-                                                       period=args.period, side=args.side,
-                                                       window_span=getattr(args, "window_span", 220.),
-                                                       window_step=getattr(args, "window_step", 2.),
-                                                       zero_radius=getattr(args, "zero_radius", 0.),
-                                                       meter_target=getattr(args, "meter_target", False),
-                                                       bit_depth=bit_depth, full_scale=full_scale,
-                                                       counts_scale=counts_scale,
-                                                       core_margin=getattr(args, "core_margin", None),
-                                                       checkpoint_sha256=hashlib.sha256(args.checkpoint.read_bytes()).hexdigest(),
-                                                       script_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-                                                       gs_iterations=0 if args.seed_run or getattr(args, "initial_phase", "gs") != "gs" else 80,
-                                                       initial_phase=getattr(args, "initial_phase", "gs"),
-                                                       abba=abba,
-                                                       acceptance="nonmonotone_ccd" if explore_temperature > 0 else ("paired_abba" if abba else ("sequential_ccd" if getattr(args, "ccd_check", False) else "model_only")),
-                                                       ccd_check=getattr(args, "ccd_check", False),
-                                                       exploration_temperature=explore_temperature,
-                                                       exploration_budget=getattr(args, "exploration_budget", .25),
-                                                       exploration_window=getattr(args, "exploration_window", 4),
-                                                       exploration_seed=getattr(args, "random_seed", 102626),
-                                                       fixed_exposure_ms=getattr(args, "fixed_exposure_ms", None),
-                                                       device=device,
-                                                       device_requested=getattr(args, "device", None),
-                                                       accept_metric=getattr(args, "accept_metric", "loss"),
-                                                       objective=getattr(args, "objective", "shape"),
-                                                       seed_provenance=seed_provenance,
-                                                       phase_lr=getattr(args, "phase_lr", .01),
-                                                       phase_rms_cap=getattr(args, "phase_rms_cap", .2),
-                                                       adaptive_step=getattr(args, "adaptive_step", False),
-                                                       exposure_policy="per_block" if getattr(args, "adaptive_exposure", False) else "per_shape",
-                                                       camera=args.camera, cam_id=args.cam_id, slm_number=args.slm_number, wavelength_nm=1064,
-                                                       mode=args.mode, seed_run=str(args.seed_run) if args.seed_run else None,
-                                                       blocks=args.blocks, updates=args.updates, frames=args.frames,
-                                                       **clock()), indent=2), encoding="utf-8")
-    # The complete process, one Recorder record per CCD capture: the phase that
-    # was displayed, the measured far field (cropped to the target), the phase
-    # change since the previous capture of the same shape, and the numbers.
-    # Exported after the devices are closed, so a slow GIF render cannot hold
-    # the camera or the SLM.
-    from ao_shaping.utils.io.file import Recorder
-
-    from . import recording
-
-    recorder = Recorder(mark="cv", mode="min")
-    if resume and (args.out/"capture_records.pkl").is_file():
-        # The process recording is cumulative: a resumed stage appends its own
-        # blocks to the captures already archived instead of exporting a table
-        # that silently starts again from the resumed shape.
-        with (args.out/"capture_records.pkl").open("rb") as stream:
-            records.extend(pickle.load(stream))
-    last_phase: dict[str, np.ndarray] = {}
-    # Off by default: overlapping the npz write with the next capture's SLM
-    # settle changes when the bytes reach the disk, never what they contain --
-    # but a campaign compares lanes against each other, so the choice stays
-    # explicit at the call site instead of becoming an invisible default.
-    writer = _CaptureWriter() if getattr(args, "async_capture_write", False) else None
-    camera_options = {"bit_depth": bit_depth} if args.camera == "daheng" else {}
+    The With block moved line-exact at the same indent. Everything it reads
+    that pre-exists in run() arrives as a keyword param; the four outer
+    locals the session mutates thread back out in the returned namespace.
+    """
     with create_camera(args.camera, args.cam_id, exposure_time_ms=.02, **camera_options) as cam:
         with Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0) as slm:
             slm.set_phase_overlay(None)
@@ -648,6 +495,239 @@ def run(args):
             finally:
                 slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
                 time.sleep(.3)
+    return SimpleNamespace(objective=objective, shape=shape, stream=stream)
+
+
+def run(args):
+    if getattr(args, "plan_only", False):
+        # Plan mode: no torch, no seed synthesis, no device -- only the derived
+        # work list. It writes plan.json into a *new* directory and returns the
+        # path, so a later reader cannot mistake it for a stage that ran, and a
+        # re-plan cannot silently overwrite an existing one.
+        args.out.mkdir(parents=True, exist_ok=False)
+        plan = session_plan(args)
+        (args.out/"plan.json").write_text(json.dumps(plan, indent=2), encoding="utf-8")
+        logger.info(json.dumps(plan, indent=2))
+        return args.out
+    import torch
+    from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
+        DifferentiableUniformityOptimizer, FrozenDefocusForward, FrozenDefocusParameters, recentre_window,
+    )
+    torch.set_num_threads(4)
+    device = resolve_device(getattr(args, "device", None))
+    d = json.loads(args.checkpoint.read_text(encoding="utf-8"))
+    if d.get("local_response_only") and args.mode != "anchored":
+        raise ValueError("local-response checkpoint requires CCD anchored mode")
+    params = FrozenDefocusParameters.from_dicts(d, d["ramp_matrix"], grid_size=d["grid_size"],
+                                               fft_size=d["fft_size"], pixel_samples=d["pixel_samples"])
+    params = params.effective_parameters()
+    explore_temperature = float(getattr(args, "exploration_temperature", 0.))
+    explore_budget = float(getattr(args, "exploration_budget", .25))
+    if not np.isfinite([explore_temperature, explore_budget]).all() or explore_temperature < 0 or getattr(args, "exploration_window", 4) < 1 or explore_budget < 0:
+        raise ValueError("nonnegative exploration temperature/budget and positive window required")
+    if explore_temperature > 0 and (not getattr(args, "ccd_check", False) or getattr(args, "adaptive_exposure", False) or getattr(args, "abba", False)):
+        raise ValueError("exploration requires sequential CCD checks and fixed exposure across blocks")
+    bit_depth = int(getattr(args, "bit_depth", 8))
+    resume = bool(getattr(args, "resume", False))
+    if resume:
+        # A resumed stage keeps the bit depth its directory was recorded at;
+        # otherwise full_scale/counts_scale would disagree with stored frames.
+        recorded = args.out/"config.json"
+        saved_depth = (json.loads(recorded.read_text(encoding="utf-8")).get("bit_depth")
+                       if recorded.is_file() else None)
+        if saved_depth is not None and int(saved_depth) != bit_depth:
+            raise ValueError(f"resume bit depth {bit_depth} differs from recorded {saved_depth}")
+    full_scale = float(2**bit_depth - 1)
+    counts_scale = float(2**(bit_depth-8))
+    # Carrier displacement uses both camera axes. The target is kept away from zero order.
+    shift = np.asarray(params.ramp_matrix)[:, 0]/args.period
+    centre = np.asarray(args.zero_xy)+shift
+    if getattr(args, "target_xy", None) is not None:
+        centre = np.asarray(args.target_xy, dtype=float)
+    xy = recentre_window(tuple(args.zero_xy), half_span_px=getattr(args, "window_span", 220.),
+                         step_px=getattr(args, "window_step", 2.))
+    forward = FrozenDefocusForward(params, xy, device=device)
+    if not args.execute:
+        logger.info(json.dumps(dict(zero_xy=args.zero_xy, target_xy=centre.tolist(), shapes=args.shapes), indent=2))
+        return
+    prepared, seed_provenance = [], {}
+    for shape in args.shapes:
+        objective = ShapeObjective(target_at(xy, shape, centre, args.side),
+                                   cv_only=getattr(args, "objective", "shape") == "cv",
+                                   formation=getattr(args, "objective", "shape") == "formation")
+        if getattr(args, "core_margin", None) is not None:
+            from scipy.ndimage import binary_erosion
+            cells = max(1, int(np.ceil(args.core_margin/getattr(args, "window_step", 2.))))
+            objective.core = binary_erosion(objective.box, iterations=cells)
+        if getattr(args, "zero_radius", 0.) > 0:
+            radius = np.linalg.norm(xy - np.asarray(args.zero_xy), axis=-1)
+            objective.core &= radius > args.zero_radius
+            if not objective.core.any():
+                raise ValueError("zero-order exclusion removes the complete target core")
+        box = objective.box
+        if box[0].any() or box[-1].any() or box[:, 0].any() or box[:, -1].any():
+            raise ValueError("target intersects camera window boundary; adjust period/side")
+        if args.seed_run:
+            from .seeding import accepted_seed
+            source = json.loads((args.seed_run / "config.json").read_text(encoding="utf-8"))
+            if float(source["side"]) != float(args.side):
+                raise ValueError("accepted seed target size differs from requested target")
+            phase, seed_provenance[shape] = accepted_seed(args.seed_run, shape, forward, xy,
+                objective.target, policy=getattr(args, "seed_policy", "strict"), centre=centre)
+        elif getattr(args, "initial_phase", "gs") == "transport":
+            if shape != "square":
+                raise ValueError("transport initialization currently supports square only")
+            from .geometric_seed import square_transport_phase
+            phase = square_transport_phase(forward, centre, args.side)
+            seed_provenance[shape] = dict(kind="transport", gs_calls=0, historical_phase=False,
+                                          static_correction=True, side_ccd_px=args.side)
+        elif getattr(args, "initial_phase", "gs") == "backprojection":
+            # Shape-general non-GS seed: one analytic back-projection of the
+            # target through the fitted optics. A separable transport phase
+            # cannot produce a non-separable far field, so this is the
+            # non-GS construction available for triangle / star / circle.
+            from .geometric_seed import target_backprojection_phase
+            phase, diagnostics = target_backprojection_phase(forward, centre, args.side, shape)
+            seed_provenance[shape] = dict(kind="backprojection", gs_calls=0, historical_phase=False,
+                                          static_correction=True, side_ccd_px=args.side,
+                                          **diagnostics)
+        elif getattr(args, "initial_phase", "gs") != "gs":
+            from .cold_start import cold_phase
+            phase, seed_provenance[shape] = cold_phase(forward, centre,
+                kind=args.initial_phase, seed=getattr(args, "random_seed", 102626))
+        else:
+            phase = gs_seed(forward, centre, args.side, shape)
+        if not np.isfinite(phase).all():
+            raise ValueError("nonfinite seed phase")
+        prepared.append((shape, objective, phase))
+    # Resume: slice this stage's block range to the groups it has not measured
+    # yet; a fully measured stage measures nothing and only refreshes its record.
+    blocks_for: dict[str, list[int]] = {}
+    if resume:
+        for shape in args.shapes:
+            # A stage directory is one shape's run, so its measured groups are
+            # countable without re-planning; the remaining indices are this
+            # stage's outstanding work.
+            recorded = _frozen_groups(args.out)
+            blocks_for[shape] = list(range(recorded, getattr(args, "blocks", 0)))
+    from .hardware import prepare_camera_sdk
+    prepare_camera_sdk(args.camera)
+    from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_ms, get_camera_exposure_range
+    from ao_shaping.drivers.slm.santec import Santec
+    from ao_shaping.tools.slm.panel.focus_probe import adapt_exposure
+    from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
+
+    args.out.mkdir(parents=True, exist_ok=resume)
+    import hashlib
+    abba = bool(getattr(args, "abba", False))
+    # Resume: the run directory already exists, so its JSON logs are extended,
+    # not replaced. An overwrite would erase the record of the blocks that made
+    # the resume necessary.
+    summary = (json.loads((args.out/"summary.json").read_text(encoding="utf-8"))
+               if resume and (args.out/"summary.json").is_file() else [])
+    records = (json.loads((args.out/"manifest.json").read_text(encoding="utf-8"))
+               if resume and (args.out/"manifest.json").is_file() else [])
+    summary_entries = list(summary)
+    iterations = (pickle.loads((args.out/"iterations.pkl").read_bytes())
+                  if resume and (args.out/"iterations.pkl").is_file() else [])
+
+    def save_summary() -> None:
+        (args.out/"summary.json").write_text(json.dumps(summary_entries), encoding="utf-8")
+
+    (args.out/"config.json").write_text(json.dumps(dict(checkpoint=str(args.checkpoint.resolve()), zero_xy=args.zero_xy,
+                                                       target_xy=centre.tolist(), shapes=args.shapes,
+                                                       period=args.period, side=args.side,
+                                                       window_span=getattr(args, "window_span", 220.),
+                                                       window_step=getattr(args, "window_step", 2.),
+                                                       zero_radius=getattr(args, "zero_radius", 0.),
+                                                       meter_target=getattr(args, "meter_target", False),
+                                                       bit_depth=bit_depth, full_scale=full_scale,
+                                                       counts_scale=counts_scale,
+                                                       core_margin=getattr(args, "core_margin", None),
+                                                       checkpoint_sha256=hashlib.sha256(args.checkpoint.read_bytes()).hexdigest(),
+                                                       script_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                                                       gs_iterations=0 if args.seed_run or getattr(args, "initial_phase", "gs") != "gs" else 80,
+                                                       initial_phase=getattr(args, "initial_phase", "gs"),
+                                                       abba=abba,
+                                                       acceptance="nonmonotone_ccd" if explore_temperature > 0 else ("paired_abba" if abba else ("sequential_ccd" if getattr(args, "ccd_check", False) else "model_only")),
+                                                       ccd_check=getattr(args, "ccd_check", False),
+                                                       exploration_temperature=explore_temperature,
+                                                       exploration_budget=getattr(args, "exploration_budget", .25),
+                                                       exploration_window=getattr(args, "exploration_window", 4),
+                                                       exploration_seed=getattr(args, "random_seed", 102626),
+                                                       fixed_exposure_ms=getattr(args, "fixed_exposure_ms", None),
+                                                       device=device,
+                                                       device_requested=getattr(args, "device", None),
+                                                       accept_metric=getattr(args, "accept_metric", "loss"),
+                                                       objective=getattr(args, "objective", "shape"),
+                                                       seed_provenance=seed_provenance,
+                                                       phase_lr=getattr(args, "phase_lr", .01),
+                                                       phase_rms_cap=getattr(args, "phase_rms_cap", .2),
+                                                       adaptive_step=getattr(args, "adaptive_step", False),
+                                                       exposure_policy="per_block" if getattr(args, "adaptive_exposure", False) else "per_shape",
+                                                       camera=args.camera, cam_id=args.cam_id, slm_number=args.slm_number, wavelength_nm=1064,
+                                                       mode=args.mode, seed_run=str(args.seed_run) if args.seed_run else None,
+                                                       blocks=args.blocks, updates=args.updates, frames=args.frames,
+                                                       **clock()), indent=2), encoding="utf-8")
+    # The complete process, one Recorder record per CCD capture: the phase that
+    # was displayed, the measured far field (cropped to the target), the phase
+    # change since the previous capture of the same shape, and the numbers.
+    # Exported after the devices are closed, so a slow GIF render cannot hold
+    # the camera or the SLM.
+    from ao_shaping.utils.io.file import Recorder
+
+    from . import recording
+
+    recorder = Recorder(mark="cv", mode="min")
+    if resume and (args.out/"capture_records.pkl").is_file():
+        # The process recording is cumulative: a resumed stage appends its own
+        # blocks to the captures already archived instead of exporting a table
+        # that silently starts again from the resumed shape.
+        with (args.out/"capture_records.pkl").open("rb") as stream:
+            records.extend(pickle.load(stream))
+    last_phase: dict[str, np.ndarray] = {}
+    # Off by default: overlapping the npz write with the next capture's SLM
+    # settle changes when the bytes reach the disk, never what they contain --
+    # but a campaign compares lanes against each other, so the choice stays
+    # explicit at the call site instead of becoming an invisible default.
+    writer = _CaptureWriter() if getattr(args, "async_capture_write", False) else None
+    camera_options = {"bit_depth": bit_depth} if args.camera == "daheng" else {}
+    _session = _run_validate_session(
+        DifferentiableUniformityOptimizer=DifferentiableUniformityOptimizer,
+        Santec=Santec,
+        abba=abba,
+        adapt_exposure=adapt_exposure,
+        args=args,
+        bit_depth=bit_depth,
+        blocks_for=blocks_for,
+        camera_options=camera_options,
+        configured_daheng_exposure_limit=configured_daheng_exposure_limit,
+        counts_scale=counts_scale,
+        create_camera=create_camera,
+        device=device,
+        explore_temperature=explore_temperature,
+        forward=forward,
+        full_scale=full_scale,
+        get_camera_exposure_ms=get_camera_exposure_ms,
+        get_camera_exposure_range=get_camera_exposure_range,
+        iterations=iterations,
+        last_phase=last_phase,
+        phase=phase,
+        prepared=prepared,
+        recorder=recorder,
+        recording=recording,
+        records=records,
+        resume=resume,
+        save_summary=save_summary,
+        summary_entries=summary_entries,
+        torch=torch,
+        writer=writer,
+        xy=xy,
+        objective=objective,
+    )
+    objective = _session.objective
+    shape = _session.shape
+    stream = _session.stream
 
     # Every capture has been taken; wait for the queued writes before anything
     # reads a capture back (records export, replay, a later stage's seed).
