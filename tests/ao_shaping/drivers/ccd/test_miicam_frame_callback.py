@@ -148,3 +148,97 @@ class TestCounterIsPerSession:
             assert cam._callback_error_count == 0
         finally:
             session.stop()
+
+
+class TestSessionCallbackFallback:
+    """Hardware 2026-10-31: the SDK invokes ``_frame_callback(nEvent, ctx)`` with
+    exactly two positional args, so the explicit ``user_callback`` parameter is
+    always ``None`` in production. The real consumer callback lives in
+    ``_callback_user`` (written by ``_CallbackSession.start``). Without the
+    fallback every frame went to the internal buffer and the consumer callback
+    was never invoked -- the beam-quality GUI sat at 0 fps on real hardware.
+    """
+
+    def test_session_callback_receives_frame(self, cam) -> None:
+        cam._frame_puller = _WorkingPuller()
+        received: list[object] = []
+        cam._callback_user = lambda img, info: received.append(img)
+        cam._frame_callback(_EventConstants.MIICAM_EVENT_IMAGE, None)
+        assert len(received) == 1
+        assert not hasattr(cam, "_callback_buffer"), (
+            "session callback must win over the buffer path"
+        )
+
+    def test_explicit_user_callback_wins_over_session_callback(self, cam) -> None:
+        cam._frame_puller = _WorkingPuller()
+        explicit: list[object] = []
+        session: list[object] = []
+        cam._callback_user = lambda img, info: session.append(img)
+        cam._frame_callback(
+            _EventConstants.MIICAM_EVENT_IMAGE,
+            None,
+            user_callback=lambda img, info: explicit.append(img),
+        )
+        assert len(explicit) == 1
+        assert session == []
+
+
+class _FakeInfoV3:
+    def __init__(self) -> None:
+        for field in drv._FramePuller._V3_FIELDS:
+            setattr(self, field, 0)
+
+
+class _FakeInfoV4:
+    def __init__(self) -> None:
+        self.v3 = _FakeInfoV3()
+
+
+class _FakeCamForV4:
+    """Mimics the SDK binding layer, which unconditionally dereferences ``pInfo.v3``."""
+
+    def __init__(self) -> None:
+        self.seen_info: object = None
+
+    def PullImageV4(self, buffer, b1, bits, b2, info) -> None:
+        self.seen_info = info
+        if info is not None:
+            info.v3.width = 4
+            info.v3.height = 3
+            info.v3.seq = 42
+
+
+class TestPullImageV4InfoConversion:
+    """Hardware 2026-10-31: ``PullImageV4`` only accepts ``MiicamFrameInfoV4``;
+    handing it the driver's internal ``MiicamFrameInfoV3`` raised
+    ``AttributeError: 'MiicamFrameInfoV3' object has no attribute 'v3'`` on every
+    frame in callback mode."""
+
+    def test_v4_info_is_built_and_v3_fields_copied_back(self, cam, monkeypatch) -> None:
+        import types
+
+        fake = types.SimpleNamespace(
+            MiicamFrameInfoV3=_FakeInfoV3, MiicamFrameInfoV4=_FakeInfoV4
+        )
+        monkeypatch.setattr(drv, "miicam", fake)
+        fake_cam = _FakeCamForV4()
+        monkeypatch.setattr(cam, "cam", fake_cam)
+
+        out = _FakeInfoV3()
+        drv._FramePuller(cam).pull_image_v4(bytearray(12), 8, out)
+
+        assert isinstance(fake_cam.seen_info, _FakeInfoV4), "SDK must receive V4, not V3"
+        assert (out.width, out.height, out.seq) == (4, 3, 42)
+
+    def test_none_frame_info_is_passed_through(self, cam, monkeypatch) -> None:
+        import types
+
+        fake = types.SimpleNamespace(
+            MiicamFrameInfoV3=_FakeInfoV3, MiicamFrameInfoV4=_FakeInfoV4
+        )
+        monkeypatch.setattr(drv, "miicam", fake)
+        fake_cam = _FakeCamForV4()
+        monkeypatch.setattr(cam, "cam", fake_cam)
+
+        drv._FramePuller(cam).pull_image_v4(bytearray(12), 8, None)
+        assert fake_cam.seen_info is None

@@ -108,9 +108,34 @@ class _FramePuller:
         img_data = np.frombuffer(buffer, dtype=dtype)
         return self._owner._decode_image(img_data)
 
+    #: MiicamFrameInfoV3 的字段 (V4 的 ``v3`` 子结构同名字段需逐个拷回)
+    _V3_FIELDS: tuple[str, ...] = (
+        "width",
+        "height",
+        "flag",
+        "seq",
+        "timestamp",
+        "shutterseq",
+        "expotime",
+        "expogain",
+        "blacklevel",
+    )
+
     def pull_image_v4(self, buffer, bits, frame_info) -> None:
-        """PullImageV4."""
-        self._owner.cam.PullImageV4(buffer, 0, bits, 0, frame_info)
+        """PullImageV4。
+
+        ⚠️ SDK 的 ``PullImageV4`` 只接受 ``MiicamFrameInfoV4`` (其帧信息在
+        ``v3`` 子结构里)。驱动内部一律持有 ``MiicamFrameInfoV3``, 直接传进去会
+        在 SDK 绑定层 ``pInfo.v3`` 处抛 ``AttributeError`` —— 回调模式因此每帧
+        都失败 (真机 2026-10-31 实测)。这里按需构造 V4 再把 ``v3`` 字段拷回。
+        """
+        if frame_info is None:
+            self._owner.cam.PullImageV4(buffer, 0, bits, 0, None)
+            return
+        info_v4 = miicam.MiicamFrameInfoV4()
+        self._owner.cam.PullImageV4(buffer, 0, bits, 0, info_v4)
+        for name in self._V3_FIELDS:
+            setattr(frame_info, name, getattr(info_v4.v3, name))
 
     def pull_still_image(self, buffer, bits, frame_info) -> None:
         """PullStillImageV2."""
@@ -908,8 +933,14 @@ class MIICamera(BaseCamera):
                 img_data = np.frombuffer(buffer, dtype=dtype)
                 img = self._decode_image(img_data)
 
-                if user_callback is not None:
-                    user_callback(img, frame_info)
+                # SDK 仅传两个位置参数, 用户回调来自会话层 ``self._callback_user``;
+                # 显式传入 (测试/直接调用) 优先。
+                active_callback = user_callback
+                if active_callback is None:
+                    active_callback = getattr(self, "_callback_user", None)
+
+                if active_callback is not None:
+                    active_callback(img, frame_info)
                 else:
                     with self._callback_buffer_lock:
                         self._callback_buffer = img
@@ -927,8 +958,14 @@ class MIICamera(BaseCamera):
                 img_data = np.frombuffer(buffer, dtype=dtype)
                 img = self._decode_image(img_data)
 
-                if user_callback is not None:
-                    user_callback(img, frame_info)
+                # SDK 仅传两个位置参数, 用户回调来自会话层 ``self._callback_user``;
+                # 显式传入 (测试/直接调用) 优先。
+                active_callback = user_callback
+                if active_callback is None:
+                    active_callback = getattr(self, "_callback_user", None)
+
+                if active_callback is not None:
+                    active_callback(img, frame_info)
                 else:
                     with self._callback_buffer_lock:
                         self._callback_buffer = img
