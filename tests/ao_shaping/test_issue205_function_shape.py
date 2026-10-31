@@ -70,6 +70,7 @@ _PAT = "src/ao_shaping/utils/image/target/patterns.py"
 _MEAS = "src/ao_shaping/tools/slm/calibration/diffraction_efficiency/measure.py"
 _SZP = "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py"
 _RMS = "src/ao_shaping/optimizer/wf/rms_by_zernike.py"
+_MIL = "src/ao_shaping/optimizer/wfless/slm_model_in_loop.py"
 _SCRIPT = "scripts/slm/generate_diffraction_efficiency_sim_report.py"
 _SECTIONS = "scripts/slm/_hw_gs_square_scans_sections.py"
 
@@ -130,6 +131,8 @@ TARGETS = [
     (_SZP, "_run_pib_session", 430, 4, 384),
     (_RMS, "optimizer_rms_slm", 200, 1, 155),
     (_RMS, "_run_rms_session", 430, 5, 397),
+    (_MIL, "optimize_slm_model_in_loop", 130, 1, 84),
+    (_MIL, "_run_model_in_loop_session", 990, 5, 946),
 ]
 
 NESTING_NODES = (ast.If, ast.For, ast.While, ast.Try, ast.With, ast.AsyncFor, ast.AsyncWith)

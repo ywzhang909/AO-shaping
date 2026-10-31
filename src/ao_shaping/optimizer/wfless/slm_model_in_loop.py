@@ -2934,76 +2934,22 @@ def _seed_coefficients_from_run(config: SlmModelInLoopConfig) -> np.ndarray | No
 # ---------------------------------------------------------------------------
 
 
-def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResult:
-    """Shape the far field into a target on real SLM + CCD hardware.
-
-    Alternates two steps every round. **Step A** displays strong, varied random
-    pupil probes and refits one shared Zernike aberration of the forward model
-    against the measured frames, minimising loss(measured, predicted). **Step
-    B** freezes that aberration and optimises a full-pixel SLM phase for a
-    configured target, displays it, and measures the result. Each round's phase warm
-    starts the next.
-
-    Two guards keep the steps from chasing each other -- a trust region on the
-    coefficient change and an acceptance test that rolls back a round whose fit
-    or whose measured quality regressed. See the module docstring.
-
-    Args:
-        config: The resolved run configuration.
-
-    Returns:
-        A :class:`ModelInLoopResult` carrying the history recorder plus the
-        adopted phase, the geometry, and the flat/best scores.
-
-    Raises:
-        RuntimeError: If the geometry bake-off fails or the rejection streak is
-            exhausted -- both mean the bench is outside the model, and shaping
-            anyway would produce a worse spot than flat.
-    """
-    from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
-        create_target_mask,
-    )
-    from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
-        StepBConfig,
-        _fit_aberration_at_probes,
-        _probe_set_loss,
-        shape_phase_with_frozen_aberration,
-    )
-    from ao_shaping.utils.image.beam_metrics import zero_order_center
-    from ao_shaping.utils.io.file import Recorder
-
-    recorder = Recorder()
-    recorder.iteration_traces = {}
-    probe_records: list[dict[str, Any]] = []
-
-    # The loop's coefficient vector is piston-inclusive: index 0 is Noll 1
-    # (piston), so its length is the full term count, not the optimizer's
-    # piston-excluded count.
-    n_coeffs = calc_n_zernike_terms(int(config.n_orders))
-    # Build -- and validate -- the checkpoint seed *before any device opens*. The
-    # loader needs only the config and the file, so a geometry mismatch can and
-    # must fail here: doing it later costs a calibration pass and a flat-baseline
-    # measurement on hardware to discover a mistake that is knowable offline.
-    # With no checkpoint the seed is None and the historical all-zero start is
-    # used verbatim.
-    seeded = _seed_coefficients_from_run(config)
-    if seeded is None:
-        seeded = _seed_coefficients_from_checkpoint(config)
-    if seeded is None:
-        coefficients = np.zeros(n_coeffs, dtype=np.float64)
-    else:
-        coefficients = seeded
-
-    bench = _open_bench(config)
-    # The pitch is a device property and the camera is open here (sim has none, and
-    # its value was already resolved from the twin optics at construction), so this
-    # is the best source there is. It raises -- naming the registration command --
-    # rather than letting an unresolved pitch scale the whole forward model.
-    config.require_camera_pixel_um(getattr(bench, "_cam", None))
-    # Declared before the ``try`` so the ``finally`` teardown can always reach it.
-    # The window itself can only be opened further down, once the geometry solve
-    # has produced the target box that the CCD overlay needs.
-    live_display: Any = None
+def _run_model_in_loop_session(
+    *,
+    StepBConfig: object,
+    _fit_aberration_at_probes: object,
+    _probe_set_loss: object,
+    bench: object,
+    coefficients: object,
+    config: object,
+    create_target_mask: object,
+    live_display: object,
+    probe_records: object,
+    recorder: object,
+    shape_phase_with_frozen_aberration: object,
+    zero_order_center: object,
+):
+    """#205 batch-13: former 930-line Try session of optimize_slm_model_in_loop."""
     try:
         # ---------------- Stage 0: flat baseline, frozen ROI ---------------
         flat_phase = np.zeros((config.region, config.region), dtype=np.float64)
@@ -3934,3 +3880,89 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
         if live_display is not None:
             live_display.close()
         bench.close()
+
+
+def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResult:
+    """Shape the far field into a target on real SLM + CCD hardware.
+
+    Alternates two steps every round. **Step A** displays strong, varied random
+    pupil probes and refits one shared Zernike aberration of the forward model
+    against the measured frames, minimising loss(measured, predicted). **Step
+    B** freezes that aberration and optimises a full-pixel SLM phase for a
+    configured target, displays it, and measures the result. Each round's phase warm
+    starts the next.
+
+    Two guards keep the steps from chasing each other -- a trust region on the
+    coefficient change and an acceptance test that rolls back a round whose fit
+    or whose measured quality regressed. See the module docstring.
+
+    Args:
+        config: The resolved run configuration.
+
+    Returns:
+        A :class:`ModelInLoopResult` carrying the history recorder plus the
+        adopted phase, the geometry, and the flat/best scores.
+
+    Raises:
+        RuntimeError: If the geometry bake-off fails or the rejection streak is
+            exhausted -- both mean the bench is outside the model, and shaping
+            anyway would produce a worse spot than flat.
+    """
+    from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
+        create_target_mask,
+    )
+    from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
+        StepBConfig,
+        _fit_aberration_at_probes,
+        _probe_set_loss,
+        shape_phase_with_frozen_aberration,
+    )
+    from ao_shaping.utils.image.beam_metrics import zero_order_center
+    from ao_shaping.utils.io.file import Recorder
+
+    recorder = Recorder()
+    recorder.iteration_traces = {}
+    probe_records: list[dict[str, Any]] = []
+
+    # The loop's coefficient vector is piston-inclusive: index 0 is Noll 1
+    # (piston), so its length is the full term count, not the optimizer's
+    # piston-excluded count.
+    n_coeffs = calc_n_zernike_terms(int(config.n_orders))
+    # Build -- and validate -- the checkpoint seed *before any device opens*. The
+    # loader needs only the config and the file, so a geometry mismatch can and
+    # must fail here: doing it later costs a calibration pass and a flat-baseline
+    # measurement on hardware to discover a mistake that is knowable offline.
+    # With no checkpoint the seed is None and the historical all-zero start is
+    # used verbatim.
+    seeded = _seed_coefficients_from_run(config)
+    if seeded is None:
+        seeded = _seed_coefficients_from_checkpoint(config)
+    if seeded is None:
+        coefficients = np.zeros(n_coeffs, dtype=np.float64)
+    else:
+        coefficients = seeded
+
+    bench = _open_bench(config)
+    # The pitch is a device property and the camera is open here (sim has none, and
+    # its value was already resolved from the twin optics at construction), so this
+    # is the best source there is. It raises -- naming the registration command --
+    # rather than letting an unresolved pitch scale the whole forward model.
+    config.require_camera_pixel_um(getattr(bench, "_cam", None))
+    # Declared before the ``try`` so the ``finally`` teardown can always reach it.
+    # The window itself can only be opened further down, once the geometry solve
+    # has produced the target box that the CCD overlay needs.
+    live_display: Any = None
+    return _run_model_in_loop_session(
+        StepBConfig=StepBConfig,
+        _fit_aberration_at_probes=_fit_aberration_at_probes,
+        _probe_set_loss=_probe_set_loss,
+        bench=bench,
+        coefficients=coefficients,
+        config=config,
+        create_target_mask=create_target_mask,
+        live_display=live_display,
+        probe_records=probe_records,
+        recorder=recorder,
+        shape_phase_with_frozen_aberration=shape_phase_with_frozen_aberration,
+        zero_order_center=zero_order_center,
+    )

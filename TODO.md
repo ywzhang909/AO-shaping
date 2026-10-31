@@ -4278,7 +4278,7 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 **2026-10-30 · 30f2d617 · MIL 点击入口采纳 `0c07aa54` 的像元间距契约：params 默认 2.2 → 0（向相机型号配置解析）**
 - 根因：`SlmModelInLoopConfig.camera_pixel_um` 早已由 `0c07aa54` 改成 0（0 = 向相机型号配置解析，正数 = 显式覆盖，出处记 `camera_pixel_um_source`），六个 scripts 都接了；但点击入口 `SlmModelInLoopParams` 仍写死 `_DEFAULT_CAMERA_PIXEL_UM`(2.2) 并逐字转发给 config——正是该契约刻意删掉的「消费者各写一份 2.2」第二事实源，click 路径漏网。上游自己的接线守卫实测抓到两条：split 断言缺 `camera_pixel_um_source`、默认对齐断言报 `(2.2, 0.0)`。
 - 处置：params 默认 0.0 + help 成文「0 = resolve from the camera model config, positive overrides」；守卫 `LIBRARY_ONLY[MIL]` 补 `camera_pixel_um_source`（库内派生出处，无 CLI 入口）。措辞变化点亮两条 CLI help golden 守卫——golden 用与 CI 同一 `ao-shaping-test:cpu` 镜像、读写挂载 + `AO_UPDATE_HELP_GOLDEN=1` 再生（harness 把仓库只读挂载，无法就地再生），`git diff` 实测仅 MIL 的 `--camera-pixel-um` 一处措辞，无 GS 扰动、无默认值渲染 churn。
-- 边界：GS 家族默认不动（GS config 仍是 2.2，其守卫本就绿）；会话打开处 `require_camera_pixel_um`（`slm_model_in_loop.py:3002`）实测存在，bare daheng 的 0 当场 `CameraError` 而非静默传播。
+- 边界：GS 家族默认不动（GS config 仍是 2.2，其守卫本就绿）；会话打开处 `require_camera_pixel_um`（`slm_model_in_loop.py:3950`）实测存在，bare daheng 的 0 当场 `CameraError` 而非静默传播。
 - 验收：守卫 + MIL 依赖面 251 passed；三 CLI 守卫 134 passed；`runners-gui-misc` 分片 4 failed → 2 failed / 1555 passed（余 2 = 上游 #214/#215 在途 GUI 用例）；root-guards 136 passed / 1 skipped；门禁全绿。
 
 **2026-10-31 · 5c5ddd5e · ml 格网缩放守卫的 approx 边界换算改为先落显式 float 再断言，失配输出由不可读三元组变成可读数值差**
@@ -4388,6 +4388,15 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 三条火场判据钉死（全部被测试网当场戳穿，固化进变换脚本）：① 尾段切片漏项（623 行截断 ⇒ 尾段并入 + `module_defs` 计数断言）；② **target 子树按 `Name.ctx` 分流**（`recorder.blaze_choice = x` 绑定的是属性、基座 Name 是**读**；天真标 store ⇒ `recorder` 漏出签名, 7 F821）；③ **形参面用 all_loads 而非 first-ctx**（Python 函数局部性判定是**静态**的, pre 绑定名即便区域首现于赋值处, 先读路径仍需传入初值 ⇒ `UnboundLocalError: center`, 46 红）。
 - 形态：编排层 516→250 行 / nest 2；helper 384 行 / nest 4；模块顶层 def/class 计数 22 保持。
 - 验收：守卫 `_SZP` 加 2 项 → 53/53；module-size 2328→2448 重锚；CI 首红 = **live-doc 行锚守卫**（`test_conventions::test_live_doc_line_anchors_still_point_at_their_code`——钉的是 TODO.md/docs 表格行里的代码行号, 不在 call_graph wiki `source:` 口径内），由作者 `f82a1175` 重钉后 success。**协议更新：每批拆后必跑 conventions 分片与 live-doc 行锚 grep 预扫描。**
+
+**2026-11-01 · caf3eeca · #205 第十二批：`optimizer_rms_slm`（466 行/nest 5）的 353 行 With 会话提为 `_run_rms_session`（**透传变体第二次使用**）**
+- 特征化网 = 现成两件：`test_rms_by_zernike.py` 14 项 + `test_rms_zernike_runner.py` 13 项——拆前基线 27 全绿、拆后 27/27（容器逐文件）。
+- With 恰为 fn 末语句（L552-904）⇒ 调用处 `return _run_rms_session(...)` 原样透传；区域 4 个 Return 中 2 个是函数真实出口、2 个属于区域内嵌套 def（calc_j/_evaluate_heuristic/_on_evaluate，随块原样搬移、不越界）；区域后无语句 ⇒ thread_out=∅、零 dedent。
+- 新增拆前断言: 区域内无 `nonlocal`/`global`/`yield`/`await`（任一存在都会改变「区域出口=函数出口」语义）; `module_defs` 计数 +1。
+- 参数面 read_only 40 项（all_loads 静态绑定判据）；闭包读取 pre 绑定名 ⇒ 走只读形参、闭包结构不变。
+- 形态：编排层 466→155 行 / nest 1；helper 397 行 / nest 5（含 155 行内层 With 深链，上限钉实测）。
+- **锚点随迁全链首跑（新协议）**：def 行 439→838 ⇒ 重钉 wiki `source:` 与 `index.md` 表格行；拆前 grep 预扫描确认该文件仅两处 pin。**conventions 自本批起每批必跑**（第十一批 live-doc 行锚红的教训）⇒ 72 passed / 1 skipped 绿。
+- 验收：守卫 `_RMS` 加 2 项 → 55/55；py_compile / ruff 干净；module-size 904→992（+88 胶合）重锚恰 1 行 diff；CI Pytest success（作者 `4a45a129` 又跟进重钉 rms wiki 行漂移）。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
