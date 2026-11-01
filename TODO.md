@@ -4447,6 +4447,13 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 跨作用域陈旧性逐字节保留：`run_adaptive_search` / `evaluate_candidate` 的闭包 cell 属 `optimize_pib`（非 session 直接子 def，漂移断言天然通过），它们读外层 `best_v`/`best_objective`、循环重绑从不回传——既有性质不因拆分「修复」。
 - 形态：session 239→195 行 / nest 6→5；helper 100 行 / nest 4。验收：26/26；守卫 `_PIB` 改写（300/6→230/5 + 新增 `_apply_adaptive_search_epoch` 120/4）→ 63/63；wiki `optimize-pib-wfless` 两处钉 `:451→:509` 随迁（def 平移 +58，新代际区间实证）；module-size 883→941 重锚恰 1 行 diff；CI Pytest success。
 
+**2026-11-01 · b1699060 · #205 第十八批：`_wait_idle_loop`（234 行/nest 7）132 行锁/探针状态块提为 `_resolve_wait_state`（verdict 哨兵元组首用）**
+- 特征化网 = 现成两件（`test_device_mutex` 24 项 + `test_bench_kernels_settle` 44 项）——拆前基线 68 项全绿，拆后 68/68（容器逐文件）；区域出口 stale / timeout / holder_is_me 均有行为断言。
+- 区域级 4 个 Return 即 session 真实出口，且区域之后的截止/汇报块读区域绑定的 `state`/`last_reason`/`detail_lines` ⇒ 透传与普通解包都不成立 ⇒ **verdict 哨兵元组**：helper 返回 `(verdict, state, last_reason, detail_lines)`，区域出口闭合括号行机械改写 `)` → `), None, None, None`，尾行 `return None, state, last_reason, detail_lines`，调用处解包后 `if _exit_verdict is not None: return _exit_verdict` 原样透传。逐分支证明：每条 fall-through 路径绑定全部三名；出口路径上三个 Nones 不可观测（session 随即返回）；循环下一轮进入区域前三名从不被读。
+- 复用第十七批判据：thread_out = all_stores ∩ 区域外全部 loads；`others`/`result`/`verdict`/`stale` 首 ctx Store ⇒ helper 局部；`attempt`/`waited`/`holder` pre-store 只读形参；区域无 def（闭包漂移断言天然通过）。
+- 形态：session 234→116 行 / nest 7→4（全仓最深嵌套消除，仓内最大 nest 7→6）；helper 151 行 / nest 6。验收：68/68；守卫 `_DM` 改写（300/7→150/4 + 新增 `_resolve_wait_state` 180/6）→ 64/64；module-size 2006→2041 重锚。
+- flake 对第三数据点：本 tip 首轮 CI 红恰为该二项（`ml/sim2f/test_fit` + `ml/zernike/test_train_amp_loss`，与 `fce2b77b` 完全同签名），`--failed` 复跑同一 tip **转绿** ⇒ 不改测试、环境敏感 flake 判定维持。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

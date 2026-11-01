@@ -397,143 +397,31 @@ def _run_validate_shapes(
             if cutoff <= 0:
                 raise ValueError("spectral cutoff must be positive")
             spectral_mask = mtf_matched_mask(grid, cutoff=float(cutoff))
-        for block in blocks:
-            # Staged objective weights (issue #213 item 4c). Only the
-            # optimisation path moves; the acceptance criteria and the
-            # frozen-aperture read-out stay untouched (next_round §1.1).
-            # The weights actually used are written into the block's
-            # summary entry, so no block is ever unattributable.
-            if getattr(args, "weight_schedule", "constant") == "staged":
-                objective.set_weights(staged_weights(objective.mode, block, len(blocks)))
-            if policy is not None and block > 0 and block % getattr(args, "exploration_window", 4) == 0:
-                best = champion.copy()
-            if block > 0 and getattr(args, "adaptive_exposure", False):
-                exposure = tune_exposure(f"{shape}_{block}", best, exposure, objective)
-            # A1 only feeds the paired decision; "model" mode with the
-            # paired blocks switched off has no use for it, while
-            # "anchored" mode needs it as the optimizer's anchor.
-            anchor_row = (capture(f"{shape}_{block}_A1", best, objective)
-                          if abba or args.mode == "anchored" else None)
-            if args.mode == "anchored":
-                anchor_frames = capture_frames(args.out, anchor_row["file"])
-                anchor = count_rate(anchor_frames.mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)], anchor_row)
-                with torch.no_grad():
-                    anchor_prediction = forward.predict(best)[0].detach().cpu().numpy()
-            optimizer = DifferentiableUniformityOptimizer(forward, objective, best, lr=phase_lr,
-                step_rms_cap=(guard.cap if guard is not None
-                              else getattr(args, "phase_rms_cap", .2)),
-                spectral_mask=spectral_mask, spectral_weight=spectral_weight,
-                device=device)
-            iterations_before = len(iterations)
-            for iteration in range(args.updates):
-                start = clock()
-                if args.mode == "anchored":
-                    with torch.no_grad():
-                        current_prediction = forward.predict(optimizer.current_phase)[0].detach().cpu().numpy()
-                    optimizer.update(anchored_intensity(anchor, current_prediction, anchor_prediction))
-                else:
-                    optimizer.update()
-                iterations.append(dict(shape=shape, block=block, iteration=iteration,
-                                       phase=optimizer.current_phase.copy(), terms=optimizer.loss_history[-1],
-                                       **start, end_monotonic_ns=time.monotonic_ns()))
-            candidate = optimizer.current_phase
-            # Fresh optimizer per block: rejected proposals cannot advance its reference.
-            if abba:
-                b1 = capture(f"{shape}_{block}_B1", candidate, objective)
-                b2 = capture(f"{shape}_{block}_B2", candidate, objective)
-                a2 = capture(f"{shape}_{block}_A2", best, objective)
-                if block == 0:
-                    # Probe the same actual phase increment with both signs.
-                    # This separates a model Jacobian error from autograd errors.
-                    # It needs B1/B2, so it belongs to the paired apparatus.
-                    minus_phase = 2*best-candidate
-                    minus = capture(f"{shape}_direction_minus", minus_phase, objective)
-                    capture(f"{shape}_direction_reference", best, objective)
-                    with torch.no_grad():
-                        pplus = forward.predict(candidate)[0].detach().cpu().numpy()
-                        pminus = forward.predict(minus_phase)[0].detach().cpu().numpy()
-                        lplus, _ = objective.evaluate(torch.tensor(pplus), torch.zeros_like(torch.tensor(best)))
-                        lminus, _ = objective.evaluate(torch.tensor(pminus), torch.zeros_like(torch.tensor(best)))
-
-                    def observed(row):
-                        mean = capture_frames(args.out, row["file"]).mean(0)
-                        return count_rate(mean[xy[..., 1].astype(int), xy[..., 0].astype(int)], row)
-
-                    measured_difference = .5*(observed(b1)+observed(b2))-observed(minus)
-                    predicted_difference = pplus-pminus
-                    direction = dict(shape=shape, model_loss_plus=float(lplus), model_loss_minus=float(lminus),
-                                     ccd_loss_plus=.5*(b1["loss"]+b2["loss"]), ccd_loss_minus=minus["loss"],
-                                     difference_correlation=float(np.corrcoef(predicted_difference.ravel(), measured_difference.ravel())[0, 1]),
-                                     difference_relative_l2=float(np.linalg.norm(predicted_difference-measured_difference)
-                                                                  /max(np.linalg.norm(measured_difference), 1e-9)), **clock())
-                    np.savez_compressed(args.out/f"{shape}_direction_difference.npz",
-                                        predicted=predicted_difference, measured=measured_difference)
-                    (args.out/f"{shape}_direction.json").write_text(json.dumps(direction, indent=2), encoding="utf-8")
-                from .paired import paired_decision
-                decision = paired_decision(anchor_row, b1, b2, a2,
-                                           metric=getattr(args, "accept_metric", "loss"))
-                entry = dict(shape=shape, block=block, **decision, **clock())
-            elif getattr(args, "ccd_check", False):
-                if anchor_row is None:
-                    raise ValueError("sequential CCD check requires anchored mode")
-                b1 = capture(f"{shape}_{block}_B", candidate, objective)
-                metric = "cv" if getattr(args, "accept_metric", "loss") == "cv" else "loss"
-                av = anchor_row["metrics"][metric] if metric == "cv" else anchor_row[metric]
-                bv = b1["metrics"][metric] if metric == "cv" else b1[metric]
-                decision = dict(accepted=bool(bv < av), acceptance="sequential_ccd",
-                                accept_metric=metric, baseline=float(av), candidate=float(bv))
-                if guard is not None:
-                    with torch.no_grad():
-                        candidate_prediction = forward.predict(candidate)[0].detach().cpu().numpy()
-                    measured_candidate = count_rate(
-                        capture_frames(args.out, b1["file"]).mean(0)
-                        [xy[..., 1].astype(int), xy[..., 0].astype(int)], b1)
-                    agreement = direction_agreement(
-                        anchor_prediction, candidate_prediction,
-                        anchor, measured_candidate,
-                        low=guard.low, high=guard.high)
-                    guard.observe(agreement)
-                    decision["jacobian"] = dict(**agreement.as_dict(),
-                                                cap_next=float(guard.cap))
-                if policy is not None:
-                    if metric != "cv":
-                        raise ValueError("exploration currently requires core CV acceptance")
-                    decision.update(policy.update(av, bv))
-                    decision["acceptance"] = "nonmonotone_ccd"
-                    if decision["improved_best"]:
-                        champion = candidate.copy()
-                        np.save(args.out/f"{shape}_champion.npy", champion)
-                entry = dict(shape=shape, block=block, **decision, **clock())
-            else:
-                # No measured verdict: the model's own loss history decides,
-                # and the entry says so instead of implying a CCD acceptance.
-                decision = model_only_decision(optimizer.loss_history)
-                entry = dict(shape=shape, block=block, **decision, **clock())
-            accepted = decision["accepted"]
-            entry["phase_lr"] = phase_lr
-            # Which loss weights this block actually optimised
-            # (issue #213 item 4c): without it a staged run cannot be
-            # replayed, and "why did block 7 go that way" is unanswerable.
-            entry["weights"] = dict(objective.weights)
-            if getattr(args, "adaptive_step", False):
-                phase_lr = min(getattr(args, "phase_lr", .01), phase_lr*1.1) if accepted else max(.001, phase_lr*.5)
-            entry["next_phase_lr"] = phase_lr
-            if accepted:
-                best = candidate.copy()
-                optimizer.accept()
-            summary_entries.append(entry)
-            save_summary()
-            print(json.dumps(entry), flush=True)
-            # One dump per block, not per iteration: every history entry
-            # carries a full phase copy (~1.6 MB), so rewriting the whole
-            # history after each iteration writes O(n^2) bytes -- 21 GB for
-            # a 160-iteration stage, which dominated that stage's wall
-            # clock. The block is the transaction boundary (the accept /
-            # reject verdict is recorded just above), so the history is
-            # still flushed at the granularity the stage reports.
-            if len(iterations) > iterations_before:
-                with (args.out/"iterations.pkl").open("wb") as stream:
-                    pickle.dump(iterations, stream, protocol=5)
+        best, champion, exposure, stream = _run_validate_blocks(
+        DifferentiableUniformityOptimizer=DifferentiableUniformityOptimizer,
+        abba=abba,
+        args=args,
+        best=best,
+        blocks=blocks,
+        capture=capture,
+        champion=champion,
+        device=device,
+        exposure=exposure,
+        forward=forward,
+        guard=guard,
+        iterations=iterations,
+        objective=objective,
+        phase_lr=phase_lr,
+        policy=policy,
+        save_summary=save_summary,
+        shape=shape,
+        spectral_mask=spectral_mask,
+        spectral_weight=spectral_weight,
+        summary_entries=summary_entries,
+        torch=torch,
+        tune_exposure=tune_exposure,
+        xy=xy,
+        )
         if policy is not None:
             capture(f"{shape}_exploration_endpoint", best, objective)
             best = champion.copy()
@@ -549,6 +437,177 @@ def _run_validate_shapes(
         np.save(args.out/f"{shape}_best.npy", best)
         print(f"{shape}: seed CV={seed_record['metrics']['cv']:.4f} final CV={final['metrics']['cv']:.4f}", flush=True)
     return objective, shape, stream
+
+
+def _run_validate_blocks(
+    *,
+    DifferentiableUniformityOptimizer: object,
+    abba: object,
+    args: object,
+    best: object,
+    blocks: object,
+    capture: object,
+    champion: object,
+    device: object,
+    exposure: object,
+    forward: object,
+    guard: object,
+    iterations: object,
+    objective: object,
+    phase_lr: object,
+    policy: object,
+    save_summary: object,
+    shape: object,
+    spectral_mask: object,
+    spectral_weight: object,
+    summary_entries: object,
+    torch: object,
+    tune_exposure: object,
+    xy: object,
+) -> tuple:
+    """#205 batch-19: former decision If of _run_validate_shapes (L441-511).
+
+    Returns (champion, decision, entry); `champion` carries the caller's
+    value through when no branch re-binds it.
+    """
+    for block in blocks:
+        # Staged objective weights (issue #213 item 4c). Only the
+        # optimisation path moves; the acceptance criteria and the
+        # frozen-aperture read-out stay untouched (next_round §1.1).
+        # The weights actually used are written into the block's
+        # summary entry, so no block is ever unattributable.
+        if getattr(args, "weight_schedule", "constant") == "staged":
+            objective.set_weights(staged_weights(objective.mode, block, len(blocks)))
+        if policy is not None and block > 0 and block % getattr(args, "exploration_window", 4) == 0:
+            best = champion.copy()
+        if block > 0 and getattr(args, "adaptive_exposure", False):
+            exposure = tune_exposure(f"{shape}_{block}", best, exposure, objective)
+        # A1 only feeds the paired decision; "model" mode with the
+        # paired blocks switched off has no use for it, while
+        # "anchored" mode needs it as the optimizer's anchor.
+        anchor_row = (capture(f"{shape}_{block}_A1", best, objective)
+                      if abba or args.mode == "anchored" else None)
+        if args.mode == "anchored":
+            anchor_frames = capture_frames(args.out, anchor_row["file"])
+            anchor = count_rate(anchor_frames.mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)], anchor_row)
+            with torch.no_grad():
+                anchor_prediction = forward.predict(best)[0].detach().cpu().numpy()
+        optimizer = DifferentiableUniformityOptimizer(forward, objective, best, lr=phase_lr,
+            step_rms_cap=(guard.cap if guard is not None
+                          else getattr(args, "phase_rms_cap", .2)),
+            spectral_mask=spectral_mask, spectral_weight=spectral_weight,
+            device=device)
+        iterations_before = len(iterations)
+        for iteration in range(args.updates):
+            start = clock()
+            if args.mode == "anchored":
+                with torch.no_grad():
+                    current_prediction = forward.predict(optimizer.current_phase)[0].detach().cpu().numpy()
+                optimizer.update(anchored_intensity(anchor, current_prediction, anchor_prediction))
+            else:
+                optimizer.update()
+            iterations.append(dict(shape=shape, block=block, iteration=iteration,
+                                   phase=optimizer.current_phase.copy(), terms=optimizer.loss_history[-1],
+                                   **start, end_monotonic_ns=time.monotonic_ns()))
+        candidate = optimizer.current_phase
+        # Fresh optimizer per block: rejected proposals cannot advance its reference.
+        if abba:
+            b1 = capture(f"{shape}_{block}_B1", candidate, objective)
+            b2 = capture(f"{shape}_{block}_B2", candidate, objective)
+            a2 = capture(f"{shape}_{block}_A2", best, objective)
+            if block == 0:
+                # Probe the same actual phase increment with both signs.
+                # This separates a model Jacobian error from autograd errors.
+                # It needs B1/B2, so it belongs to the paired apparatus.
+                minus_phase = 2*best-candidate
+                minus = capture(f"{shape}_direction_minus", minus_phase, objective)
+                capture(f"{shape}_direction_reference", best, objective)
+                with torch.no_grad():
+                    pplus = forward.predict(candidate)[0].detach().cpu().numpy()
+                    pminus = forward.predict(minus_phase)[0].detach().cpu().numpy()
+                    lplus, _ = objective.evaluate(torch.tensor(pplus), torch.zeros_like(torch.tensor(best)))
+                    lminus, _ = objective.evaluate(torch.tensor(pminus), torch.zeros_like(torch.tensor(best)))
+
+                def observed(row):
+                    mean = capture_frames(args.out, row["file"]).mean(0)
+                    return count_rate(mean[xy[..., 1].astype(int), xy[..., 0].astype(int)], row)
+
+                measured_difference = .5*(observed(b1)+observed(b2))-observed(minus)
+                predicted_difference = pplus-pminus
+                direction = dict(shape=shape, model_loss_plus=float(lplus), model_loss_minus=float(lminus),
+                                 ccd_loss_plus=.5*(b1["loss"]+b2["loss"]), ccd_loss_minus=minus["loss"],
+                                 difference_correlation=float(np.corrcoef(predicted_difference.ravel(), measured_difference.ravel())[0, 1]),
+                                 difference_relative_l2=float(np.linalg.norm(predicted_difference-measured_difference)
+                                                              /max(np.linalg.norm(measured_difference), 1e-9)), **clock())
+                np.savez_compressed(args.out/f"{shape}_direction_difference.npz",
+                                    predicted=predicted_difference, measured=measured_difference)
+                (args.out/f"{shape}_direction.json").write_text(json.dumps(direction, indent=2), encoding="utf-8")
+            from .paired import paired_decision
+            decision = paired_decision(anchor_row, b1, b2, a2,
+                                       metric=getattr(args, "accept_metric", "loss"))
+            entry = dict(shape=shape, block=block, **decision, **clock())
+        elif getattr(args, "ccd_check", False):
+            if anchor_row is None:
+                raise ValueError("sequential CCD check requires anchored mode")
+            b1 = capture(f"{shape}_{block}_B", candidate, objective)
+            metric = "cv" if getattr(args, "accept_metric", "loss") == "cv" else "loss"
+            av = anchor_row["metrics"][metric] if metric == "cv" else anchor_row[metric]
+            bv = b1["metrics"][metric] if metric == "cv" else b1[metric]
+            decision = dict(accepted=bool(bv < av), acceptance="sequential_ccd",
+                            accept_metric=metric, baseline=float(av), candidate=float(bv))
+            if guard is not None:
+                with torch.no_grad():
+                    candidate_prediction = forward.predict(candidate)[0].detach().cpu().numpy()
+                measured_candidate = count_rate(
+                    capture_frames(args.out, b1["file"]).mean(0)
+                    [xy[..., 1].astype(int), xy[..., 0].astype(int)], b1)
+                agreement = direction_agreement(
+                    anchor_prediction, candidate_prediction,
+                    anchor, measured_candidate,
+                    low=guard.low, high=guard.high)
+                guard.observe(agreement)
+                decision["jacobian"] = dict(**agreement.as_dict(),
+                                            cap_next=float(guard.cap))
+            if policy is not None:
+                if metric != "cv":
+                    raise ValueError("exploration currently requires core CV acceptance")
+                decision.update(policy.update(av, bv))
+                decision["acceptance"] = "nonmonotone_ccd"
+                if decision["improved_best"]:
+                    champion = candidate.copy()
+                    np.save(args.out/f"{shape}_champion.npy", champion)
+            entry = dict(shape=shape, block=block, **decision, **clock())
+        else:
+            # No measured verdict: the model's own loss history decides,
+            # and the entry says so instead of implying a CCD acceptance.
+            decision = model_only_decision(optimizer.loss_history)
+            entry = dict(shape=shape, block=block, **decision, **clock())
+        accepted = decision["accepted"]
+        entry["phase_lr"] = phase_lr
+        # Which loss weights this block actually optimised
+        # (issue #213 item 4c): without it a staged run cannot be
+        # replayed, and "why did block 7 go that way" is unanswerable.
+        entry["weights"] = dict(objective.weights)
+        if getattr(args, "adaptive_step", False):
+            phase_lr = min(getattr(args, "phase_lr", .01), phase_lr*1.1) if accepted else max(.001, phase_lr*.5)
+        entry["next_phase_lr"] = phase_lr
+        if accepted:
+            best = candidate.copy()
+            optimizer.accept()
+        summary_entries.append(entry)
+        save_summary()
+        print(json.dumps(entry), flush=True)
+        # One dump per block, not per iteration: every history entry
+        # carries a full phase copy (~1.6 MB), so rewriting the whole
+        # history after each iteration writes O(n^2) bytes -- 21 GB for
+        # a 160-iteration stage, which dominated that stage's wall
+        # clock. The block is the transaction boundary (the accept /
+        # reject verdict is recorded just above), so the history is
+        # still flushed at the granularity the stage reports.
+        if len(iterations) > iterations_before:
+            with (args.out/"iterations.pkl").open("wb") as stream:
+                pickle.dump(iterations, stream, protocol=5)
+    return best, champion, exposure, stream
 
 
 def run(args):
