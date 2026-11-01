@@ -380,7 +380,9 @@ def test_camera_frame_source_uses_injected_backend() -> None:
     from ao_shaping.gui.ccd.beam_quality.frame_source import CameraFrameSource
 
     backend = _FakeBackend()
-    source = CameraFrameSource(camera_type="daheng", cam_id=2, exposure_ms=3.0, camera=backend)
+    source = CameraFrameSource(
+        camera_type="daheng", cam_id=2, exposure_ms=3.0, camera=backend
+    )
     assert source.is_running is False
     assert backend.opened is False, "构造期不得打开设备"
 
@@ -432,3 +434,178 @@ def test_camera_frame_source_keeps_backward_compatible_alias() -> None:
     )
 
     assert MIICamFrameSource is CameraFrameSource
+
+
+# ------------------------------------------------ 界面接线: 自动曝光 / 多帧平均
+class _FakeExposureSource:
+    """假帧源: 只提供界面用到的属性, ``set_exposure_ms`` 立即生效。"""
+
+    is_running = True
+    fps = 50.0
+    last_frame_info = None
+
+    def __init__(self, exposure_ms: float = 20.0) -> None:
+        self.exposure_ms = float(exposure_ms)
+        self.requests: list[float] = []
+
+    def set_exposure_ms(self, ms: float) -> float:
+        self.requests.append(float(ms))
+        self.exposure_ms = float(ms)
+        return self.exposure_ms
+
+    def drain_latest(self):
+        return None
+
+
+def _pump_until(qt_app, predicate, timeout: float = 5.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        qt_app.processEvents()
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return predicate()
+
+
+def test_auto_exposure_tick_pushes_exposure_toward_target(qt_app) -> None:
+    """帧最大值 100、目标 200、曝光 20ms → 一步翻倍到 40ms (后台作业执行)。"""
+    from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp
+
+    window = BeamQualityApp()
+    source = _FakeExposureSource(exposure_ms=20.0)
+    window._source = source  # type: ignore[assignment]
+    window._auto_check.setChecked(True)
+    window._auto_timer.stop()  # 只手动触发一次 tick, 免得泵事件时定时器又推一步
+    window._auto_stat_combo.setCurrentIndex(0)  # 最大值
+    window._auto_target_spin.setValue(200.0)
+    window._last_frame = np.full((8, 8), 100, dtype=np.uint8)
+    window._last_frame_ts = time.monotonic()
+
+    window._on_auto_exposure_tick()
+    assert _pump_until(qt_app, lambda: not window._busy), "曝光作业应完成"
+    assert source.requests == pytest.approx([40.0])
+    assert source.exposure_ms == pytest.approx(40.0)
+    assert "自动曝光" in window._auto_hint
+
+    window._source = None
+    window.close()
+
+
+def test_auto_exposure_tick_noop_when_converged(qt_app) -> None:
+    """已在容差带内不动相机 —— 每次改曝光都要重拉流, 不能空转。"""
+    from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp
+
+    window = BeamQualityApp()
+    source = _FakeExposureSource(exposure_ms=20.0)
+    window._source = source  # type: ignore[assignment]
+    window._auto_check.setChecked(True)
+    window._auto_timer.stop()
+    window._auto_target_spin.setValue(200.0)
+    window._last_frame = np.full((8, 8), 201, dtype=np.uint8)
+    window._last_frame_ts = time.monotonic()
+
+    window._on_auto_exposure_tick()
+    qt_app.processEvents()
+    assert source.requests == []
+    assert not window._busy
+    assert "已收敛" in window._auto_hint
+
+    window._source = None
+    window.close()
+
+
+def test_auto_exposure_tick_ignores_frames_from_old_exposure(qt_app) -> None:
+    """比上次改曝光更早拍到的帧不作反馈。
+
+    真机实测: 拿旧曝光下的画面当反馈, 闭环会一步步把曝光推到上限
+    (2026-11-01: 最大值≈90 时曝光被推到 10 s)。
+    """
+    from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp
+
+    window = BeamQualityApp()
+    source = _FakeExposureSource(exposure_ms=20.0)
+    window._source = source  # type: ignore[assignment]
+    window._auto_check.setChecked(True)
+    window._auto_timer.stop()
+    window._auto_target_spin.setValue(200.0)
+    window._last_frame = np.full((8, 8), 100, dtype=np.uint8)
+    window._last_frame_ts = 100.0
+    window._exposure_applied_at = 200.0  # 该帧比曝光切换更早
+
+    window._on_auto_exposure_tick()
+    qt_app.processEvents()
+    assert source.requests == [], "旧曝光下的帧不能驱动闭环"
+
+    # 来了一张曝光切换之后的帧 → 恢复动作
+    window._last_frame_ts = 200.5
+    window._on_auto_exposure_tick()
+    assert _pump_until(qt_app, lambda: not window._busy)
+    assert source.requests == pytest.approx([40.0])
+
+    window._source = None
+    window.close()
+
+
+def test_exposure_change_clears_average_window(qt_app) -> None:
+    """改曝光后必清平均窗口: 两个曝光下的帧不能平均成一个亮度。"""
+    from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp
+
+    window = BeamQualityApp()
+    source = _FakeExposureSource(exposure_ms=20.0)
+    window._source = source  # type: ignore[assignment]
+    window._avg_spin.setValue(3)
+    window._averager.push(np.full((4, 4), 5, dtype=np.uint8))
+    window._last_view = np.zeros((4, 4), dtype=np.float32)
+    window._exposure_spin.setValue(30.0)
+
+    window.apply_exposure()
+    assert _pump_until(qt_app, lambda: not window._busy)
+    assert window._averager.size == 3
+    assert window._averager.filled == 0, "旧曝光下的帧必须丢掉"
+    assert window._last_view is None
+    assert window._exposure_applied_at > 0.0
+
+    window._source = None
+    window.close()
+
+
+def test_average_spin_rebuilds_averager(qt_app) -> None:
+    """平均帧数改变 → 滚动窗口重建, 旧历史作废。"""
+    from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp
+
+    window = BeamQualityApp()
+    window._avg_spin.setValue(4)
+    assert window._averager.size == 4
+    window._averager.push(np.full((4, 4), 3, dtype=np.uint8))
+    assert window._averager.filled == 1
+
+    window._avg_spin.setValue(1)
+    assert window._averager.size == 1
+    assert window._averager.filled == 0
+    window.close()
+
+
+def test_poll_uses_averaged_frame_for_analysis(qt_app) -> None:
+    """多帧平均后的画面既用于显示, 也用于分析/自动曝光反馈。"""
+    from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp
+
+    window = BeamQualityApp()
+
+    class _OneShotSource(_FakeExposureSource):
+        def __init__(self) -> None:
+            super().__init__()
+            self.pending = np.full((32, 32), 40, dtype=np.uint8)
+
+        def drain_latest(self):
+            frame, self.pending = self.pending, None
+            return None if frame is None else (frame, time.time())
+
+    window._source = _OneShotSource()  # type: ignore[assignment]
+    window._avg_spin.setValue(2)  # 窗口未攒满 → 均值 = 当前帧
+    window._on_poll()
+    assert window._last_view is not None
+    assert window._last_view.shape == (32, 32)
+    assert window._processed == 1
+
+    window._source = None
+    window.close()

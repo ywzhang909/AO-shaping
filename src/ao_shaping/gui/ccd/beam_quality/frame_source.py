@@ -287,7 +287,10 @@ class CameraFrameSource:
             kwargs.setdefault("capture_mode", "callback")
         try:
             return common.create_camera(
-                self._camera_type, cam_id=self._cam_id, exposure_time_ms=self._exposure_ms, **kwargs
+                self._camera_type,
+                cam_id=self._cam_id,
+                exposure_time_ms=self._exposure_ms,
+                **kwargs,
             )
         except Exception:
             logger.exception("构造相机后端 {} 失败", self._camera_type)
@@ -312,10 +315,14 @@ class CameraFrameSource:
             return
         try:
             self._exposure_ms = float(cam.get_exposure_time_ms())
+        # policy: 曝光读不回来不影响取流, 退回构造时的设定值
         except Exception:
             try:
-                self._exposure_ms = float(getattr(cam, "exposure_time_ms", self._exposure_ms))
-            except Exception:
+                self._exposure_ms = float(
+                    getattr(cam, "exposure_time_ms", self._exposure_ms)
+                )
+            # policy: 属性缺失/不是数字的后端保持旧值, 不在取流路径上抛
+            except (TypeError, ValueError):
                 pass
 
 
