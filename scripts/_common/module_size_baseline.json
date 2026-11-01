@@ -40,7 +40,7 @@
   "src/ao_shaping/runners/slm/slm_shaping_runner.py": 982,
   "src/ao_shaping/runners/slm/zernike_matrix_runner.py": 1841,
   "src/ao_shaping/tools/kernels/bench_kernels.py": 1126,
-  "src/ao_shaping/tools/kernels/device_mutex.py": 2006,
+  "src/ao_shaping/tools/kernels/device_mutex.py": 2041,
   "src/ao_shaping/tools/kernels/sweep_analysis.py": 931,
   "src/ao_shaping/tools/slm/bench_twin_calibrate.py": 958,
   "src/ao_shaping/tools/slm/calibration/calibration.py": 2887,

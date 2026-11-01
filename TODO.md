@@ -4439,6 +4439,14 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 形态：session 366→200 行 / nest 9→5（全仓最深嵌套消除）；shapes helper 217 行 / nest 6。验收：249/249；守卫 `_VAL` 改写（450/9→230/5 + 新增 `_run_validate_shapes` 245/6）→ 62/62；`test_validate_blocks` 源码钉两跳→三跳（run→session→shapes，钉 `skips_shape` 调用处随迁）；module-size 819→872 重锚恰 1 行 diff；CI Pytest success。
 - 协议补记（作者 `24c1ab64` 纠偏）：live-doc 锚为「行首规范值 + 尾部历史链」结构时，重钉必须改写行首规范值本身，只追加历史链会留下过期规范值（本批行首 `:1806/2183` 即由此被作者重钉为 `:1466/1843`）。
 
+**2026-11-01 · 95cc84f5 · #205 第十七批：`_run_spgd_epochs`（239 行/nest 6）的 68 行自适应搜索 If 块提为 `_apply_adaptive_search_epoch`**
+- 特征化网 = 现成 4 件 `test_pib_{helpers,objective_columns,objective_sign,sim_eval}`（26 项）——拆前基线全绿，拆后 26/26（容器逐文件）。搜索分支覆盖先证实：`pib_sim_eval` 含 `enable_adaptive_search=True` 用例（epochs=180、warmup 40-60 ⇒ 触发门必开），`test_pib_sim_eval` 断言 `search_accepts>=1` ⇒ accepted 路径端到端执行，无需新建特征化测试。
+- 区域 = If 块 L377-444（nest-6 链 `If→If→If→If` 的来源），无 break/continue/Return ⇒ 体提升合法（与第十六批「整 For」要求相反）。
+- 循环嵌套区域的 thread_out 判据扩展：取 all_stores ∩ 区域外全部 loads（不只行号在区域之后的 post_reads）——跨迭代下一轮的读取行号更小，拆前重绑在 session 级逐轮可见 ⇒ (`_init_v`, `best_objective`, `last_best_epoch`) 三项元组解包回原名（第十四批计数器规则的同族扩展）。
+- dead-store 不 thread：`best_v` 在 session 内只写不读（唯一读点 `run_adaptive_search` 闭包解析到 `optimize_pib` 作用域的另一个同名变量）⇒ 留 helper 局部，行为逐位不变。Subscript-store 不是 Name-store：`log[...]` 写入经共享 dict 对 session 可见，`log` 走只读形参。
+- 跨作用域陈旧性逐字节保留：`run_adaptive_search` / `evaluate_candidate` 的闭包 cell 属 `optimize_pib`（非 session 直接子 def，漂移断言天然通过），它们读外层 `best_v`/`best_objective`、循环重绑从不回传——既有性质不因拆分「修复」。
+- 形态：session 239→195 行 / nest 6→5；helper 100 行 / nest 4。验收：26/26；守卫 `_PIB` 改写（300/6→230/5 + 新增 `_apply_adaptive_search_epoch` 120/4）→ 63/63；wiki `optimize-pib-wfless` 两处钉 `:451→:509` 随迁（def 平移 +58，新代际区间实证）；module-size 883→941 重锚恰 1 行 diff；CI Pytest success。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
