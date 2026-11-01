@@ -4461,6 +4461,14 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 区域含嵌套 def `observed`（def 内 Return 合法，随块走）与区域内 `from .paired import paired_decision`（第十批 ImportFrom-as-store 判据）。
 - 形态：shapes 217→105 行 / nest 6→3；blocks helper 169 行 / nest 5。验收：249/249；守卫 `_VAL` 改写（245/6→130/3 + 新增 `_run_validate_blocks` 200/5）→ 65/65；`run` def 560→613 无 live-doc 行号钉；module-size 872→931 重锚恰 1 行 diff；CI Pytest success。
 
+**2026-11-02 · 81b4206c · #205 第二十批：`combined_optimizer._run_combined_epochs` 225 行 bench With 提为 `_run_combined_session`（整 With + 元组解包）**
+- 区域 = fn 体内唯一 With（base indent 4，零缩进）；post 区仅 `return SimpleNamespace(...)` ⇒ thread_out = {center, delta, dm, dm_unit_mask, r_bucket}，五名全是形参兼区域重绑（第十四批计数器同族：形参携初值入、元组出）。形态：session 256→54 行 / nest 6→0；helper 255 行 / nest 6。
+- 闭包漂移断言**首次拦下真 NO-GO**：首版试提内层 For（L241-320），预区 def `_render_epoch_frame` 的 freevars ∩ 区域 stores = {r_bucket} ⇒ 「只提内层循环」非法；改提整 With 使 cell 与重绑同域后断言通过。同族预扫描另拦下 `_run_square_session`（947/nest 6）的循环提升（`_on_evaluate`/`_evaluate_quality` 闭 `last_eval`/`best_*`/`delta`），该文件留待先重构 cell 归属。
+- 区域级 Break 判据：Break 所属 For 同在区域内 ⇒ 随迁合法（与第十六批「Continue ⇒ 必须连 For 头」互补）。
+- 特征化网现成 6 件：`test_combined_dm_factory`（4 项，`optimize_pib(epochs=2)` 经 SimDM 注册表端到端穿过区域）+ `test_combined_optimizer_voltage_reset`（2 项，模块级 AST 走查 `send_voltages` 守卫，对函数内拆分天然免疫）。拆前 6/6，拆后 6/6。
+- 锚随迁（行首规范值改写 + 历史链追加）：wiki `optimize-pib-combined` source 行与 index 行 `:342→:397`；TODO `:326→:381`（teardown 行随块入 helper，新代际区间内容实证）；TODO `:354→:409`（helper 插入其上，+55）；TODO `:369` 属实验史叙述不动。
+- 验收：6/6；守卫 `_COMB` 改写（320/6→80/1 + 新增 `_run_combined_session` 290/6）→ 66/66；conventions 72 passed / 1 skipped；term / ruff / provenance 全绿；combined_optimizer 433→488 低于棘轮线不重锚；CI Pytest 首轮 success。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
