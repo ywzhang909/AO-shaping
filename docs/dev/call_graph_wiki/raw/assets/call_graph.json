@@ -369,8 +369,8 @@
    "qualname": "optimize_pib",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 451,
-   "end": 883,
+   "lineno": 509,
+   "end": 941,
    "args": [
     "center",
     "epochs",
