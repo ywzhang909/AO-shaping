@@ -275,6 +275,11 @@ def test_app_smoke_with_sim_source(qt_app) -> None:
     kinds = [kind for _label, kind in SOURCE_KINDS]
     window._source_combo.setCurrentIndex(kinds.index("sim"))
     window.open_source()
+    # open_source 是异步的 (后台线程执行硬件打开), 泵事件等 done 回调落地
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline and window._source is None:
+        qt_app.processEvents()
+        time.sleep(0.01)
     assert window._source is not None
 
     deadline = time.monotonic() + 3.0
@@ -292,3 +297,138 @@ def test_app_smoke_with_sim_source(qt_app) -> None:
     window.close()
     qt_app.processEvents()
     assert window._source is None
+
+
+def test_apply_exposure_does_not_block_ui_thread(qt_app) -> None:
+    """应用曝光必须在后台线程执行 (真机 MiiCam 改曝光 ~10s),
+    同步调用会把整个窗口冻住 (2026-10-31 真机实测)。"""
+    import threading
+
+    from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp
+
+    window = BeamQualityApp()
+    gate = threading.Event()
+
+    class _SlowSource:
+        is_running = True
+        fps = 1.0
+        exposure_ms = 20.0
+        last_frame_info = None
+
+        def set_exposure_ms(self, ms: float) -> float:
+            gate.wait(5.0)  # 模拟硬件阻塞
+            return ms
+
+    window._source = _SlowSource()  # type: ignore[assignment]
+    window._exposure_spin.setValue(5.0)
+
+    t0 = time.monotonic()
+    window.apply_exposure()
+    assert time.monotonic() - t0 < 0.5, "apply_exposure 必须立即返回"
+    assert window._busy
+
+    gate.set()
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline and window._busy:
+        qt_app.processEvents()
+        time.sleep(0.01)
+    assert not window._busy, "后台任务应在放行后完成"
+    assert window._exposure_spin.value() == 5.0
+    window._source = None
+    window.close()
+
+
+# ------------------------------------------------- 通用相机帧源 (注入假后端)
+class _FakeBackend:
+    """假 BaseCamera: 记录 open/start/close, ``start_stream`` 里立刻推 2 帧。"""
+
+    def __init__(self) -> None:
+        self.opened = False
+        self.closed = False
+        self.streaming = False
+        self.exposure_ms = 20.0
+        self.exposure_requests: list[float] = []
+        self.frames_pushed = 0
+        self.last_frame_info = None
+
+    def open(self) -> None:
+        self.opened = True
+
+    def close(self) -> None:
+        self.closed = True
+
+    def start_stream(self, on_frame) -> None:
+        self.streaming = True
+        for value in (7, 9):
+            self.frames_pushed += 1
+            on_frame(np.full((4, 4), value, dtype=np.uint8))
+
+    def stop_stream(self) -> None:
+        self.streaming = False
+
+    def set_exposure_ms(self, ms: float) -> float:
+        self.exposure_requests.append(float(ms))
+        self.exposure_ms = float(ms)
+        return self.exposure_ms
+
+    def get_exposure_time_ms(self) -> float:
+        return self.exposure_ms
+
+
+def test_camera_frame_source_uses_injected_backend() -> None:
+    """构造不碰硬件; start 走 open→start_stream, 信箱只留最新帧, stop 关闭设备。"""
+    from ao_shaping.gui.ccd.beam_quality.frame_source import CameraFrameSource
+
+    backend = _FakeBackend()
+    source = CameraFrameSource(camera_type="daheng", cam_id=2, exposure_ms=3.0, camera=backend)
+    assert source.is_running is False
+    assert backend.opened is False, "构造期不得打开设备"
+
+    forwarded: list[tuple[int, int]] = []
+    source.start(on_frame=lambda img, _ts: forwarded.append(img.shape))
+    try:
+        assert backend.opened and backend.streaming
+        assert source.is_running is True
+        assert forwarded == [(4, 4), (4, 4)], "on_frame 必须逐帧转发"
+
+        drained = source.drain_latest()
+        assert drained is not None
+        img, _ts = drained
+        assert int(img[0, 0]) == 9, "信箱只保留最新帧"
+        assert source.drain_latest() is None
+
+        assert source.set_exposure_ms(5.5) == pytest.approx(5.5)
+        assert backend.exposure_requests == pytest.approx([5.5])
+        assert source.exposure_ms == pytest.approx(5.5)
+    finally:
+        source.stop()
+
+    assert source.is_running is False
+    assert backend.closed is True
+    assert backend.streaming is False
+    source.stop()  # 幂等
+
+
+def test_camera_frame_source_closes_backend_when_stream_start_fails() -> None:
+    """起流失败必须先把设备关掉再抛, 否则下一次 open 会撞 REPEAT_OPENED。"""
+    from ao_shaping.gui.ccd.beam_quality.frame_source import CameraFrameSource
+
+    class _BadStream(_FakeBackend):
+        def start_stream(self, on_frame) -> None:
+            raise RuntimeError("no frames")
+
+    backend = _BadStream()
+    source = CameraFrameSource(camera_type="daheng", camera=backend)
+    with pytest.raises(RuntimeError):
+        source.start()
+    assert source.is_running is False
+    assert backend.closed is True
+
+
+def test_camera_frame_source_keeps_backward_compatible_alias() -> None:
+    from ao_shaping.gui.ccd.beam_quality.frame_source import (
+        CameraFrameSource,
+        MIICamFrameSource,
+    )
+
+    assert MIICamFrameSource is CameraFrameSource

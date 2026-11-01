@@ -109,6 +109,11 @@ cam.auto_exposure(
 | `get_cam_list()` | 获取可用相机列表 (static) |
 | `pixel_size_um` | 传感器像元边长 (µm), **类属性**, 默认 `0` = 未知 |
 | `require_pixel_size_um()` | 取像元边长; 未知时抛 `CameraError` 并说明补救办法 |
+| `supports_callback_stream` | 类属性: 后端是否由 SDK 在内部线程推帧 (MiiCam=True); False 时 `start_stream` 走基类轮询 |
+| `stream_poll_interval_s` | 类属性: 轮询取流帧间额外间隔 (秒); 0 = 由 `get_numpy_image` 自身阻塞 |
+| `start_stream(on_frame)` | 启动后台取流 (GUI 用); 默认轮询线程调 `get_numpy_image(1, skip_first=False)`, MiiCam 覆写为 SDK 回调模式 |
+| `stop_stream()` | 停止取流 (幂等); 保证取流线程退出 |
+| `set_exposure_ms(ms)` | 运行中改曝光的安全入口, 返回生效值; 默认委托 `reset_exposure_time` (MiiCam 走快速通道) |
 
 具体驱动 (MIICAM/FFmpeg/Daheng) 还提供 `set_auto_exposure_target(target)` 方法 (非抽象, 由各驱动自行实现)。
 

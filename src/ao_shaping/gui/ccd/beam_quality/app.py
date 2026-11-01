@@ -10,6 +10,8 @@
 ``QTimer`` 取"最新一帧" —— 处理不过来时丢中间帧而不是排队, 因此显示延迟有界。
 分析在 UI 线程同步执行 (单帧 ~10 ms; 超过 1080p 的画面先 2x2 binning 再分析,
 计算量降为 1/4, 坐标再用 ``FrameMetrics.rescaled(2.0)`` 还原)。
+生命周期操作 (打开/关闭/改曝光) 是 MiiCam 真机秒级阻塞 (~10-16s),
+一律下放到单线程 ``QThreadPool`` 串行执行, UI 保持响应, 忙碌期间按钮禁用。
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from pathlib import Path
 
 import numpy as np
 from loguru import logger
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import (
     QApplication,
@@ -47,7 +49,7 @@ from ao_shaping.gui.ccd.beam_quality.analyzer import (
 )
 from ao_shaping.gui.ccd.beam_quality.frame_source import (
     FrameSource,
-    MIICamFrameSource,
+    CameraFrameSource,
     SimBeamSource,
 )
 from ao_shaping.gui.ccd.beam_quality.profile_widget import ProfileWidget
@@ -63,6 +65,32 @@ SOURCE_KINDS: tuple[tuple[str, str], ...] = (
 
 ANALYSIS_MAX_WIDTH = 1920
 ANALYSIS_MAX_HEIGHT = 1080
+
+
+class _JobSignals(QObject):
+    """QRunnable 无法自带信号, 用伴随 QObject 桥接完成事件。"""
+
+    # (ok, result_or_error); 经 Qt 队列连接回到 UI 线程
+    done = Signal(bool, object)
+
+
+class _Job(QRunnable):
+    """把阻塞调用 (相机 open/stop/改曝光) 挪出 UI 线程。
+
+    MiiCam 的硬件操作是真机秒级阻塞 (open ~16s, 改曝光 ~10s),
+    同步调在 UI 线程会把整个窗口冻住 (2026-10-31 真机实测)。
+    """
+
+    def __init__(self, fn) -> None:
+        super().__init__()
+        self._fn = fn
+        self.signals = _JobSignals()
+
+    def run(self) -> None:
+        try:
+            self.signals.done.emit(True, self._fn())
+        except Exception as exc:  # policy: 结果统一回 UI 线程处理, 工作线程不碰界面
+            self.signals.done.emit(False, exc)
 
 
 class BeamQualityApp(QMainWindow):
@@ -88,7 +116,17 @@ class BeamQualityApp(QMainWindow):
         self._ui_fps_count = 0
         self._ui_fps_since = time.monotonic()
 
+        # 阻塞型硬件操作 (open/close/改曝光) 串行下到这个单线程池,
+        # UI 线程只收发结果; _busy 期间相关按钮禁用, 防止并发操作同一相机。
+        self._pool = QThreadPool(self)
+        self._pool.setMaxThreadCount(1)
+        self._busy = False
+        # 在飞任务的强引用 —— QRunnable autoDelete 后 Python 侧信号对象若被
+        # GC, 排队中的 done 信号会被 Qt 随发送者一并丢弃, 任务"永远不完成"。
+        self._jobs: set[_Job] = set()
+
         self._build_ui()
+        self._set_controls_enabled(True)
 
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(self.POLL_INTERVAL_MS)
@@ -195,76 +233,129 @@ class BeamQualityApp(QMainWindow):
         return panel
 
     # -------------------------------------------------------------- 源控制
+    def _set_controls_enabled(self, enabled: bool) -> None:
+        """按"是否忙碌 + 是否有源"刷新控制按钮可用态。"""
+        has_source = self._source is not None
+        self._open_btn.setEnabled(enabled and not has_source)
+        self._close_btn.setEnabled(enabled and has_source)
+        self._apply_btn.setEnabled(enabled and has_source)
+        self._snapshot_btn.setEnabled(enabled)
+        self._source_combo.setEnabled(enabled and not has_source)
+        self._cam_id_spin.setEnabled(enabled and not has_source)
+
+    def _start_job(self, label: str, fn, on_done) -> bool:
+        """把阻塞硬件操作下放到单线程池串行执行; 完成回调在 UI 线程。
+
+        忙碌期间拒绝新任务 (按钮已禁用, 这里是第二道闸)。
+        """
+        if self._busy:
+            self.statusBar().showMessage("正忙, 请稍候…", 3000)
+            return False
+        self._busy = True
+        self._set_controls_enabled(False)
+        self.statusBar().showMessage(label)
+        job = _Job(fn)
+        job.setAutoDelete(False)
+        self._jobs.add(job)
+
+        def _finish(ok: bool, payload: object) -> None:
+            self._jobs.discard(job)
+            self._busy = False
+            self._set_controls_enabled(True)
+            on_done(ok, payload)
+
+        job.signals.done.connect(_finish)
+        self._pool.start(job)
+        return True
+
     def open_source(self) -> None:
-        """按当前选择启动帧源 (硬件打开是同步调用, 约 1 s)。"""
-        if self._source is not None:
+        """按当前选择启动帧源 (MiiCam 硬件打开真机 ~16s, 后台线程执行)。"""
+        if self._source is not None or self._busy:
             return
         index = self._source_combo.currentIndex()
         kind = SOURCE_KINDS[index][1] if 0 <= index < len(SOURCE_KINDS) else "miicam"
         exposure = float(self._exposure_spin.value())
-        try:
+        cam_id = int(self._cam_id_spin.value())
+
+        def _work() -> FrameSource:
             source: FrameSource
             if kind == "sim":
                 source = SimBeamSource(exposure_ms=exposure)
             else:
-                source = MIICamFrameSource(
-                    cam_id=int(self._cam_id_spin.value()), exposure_ms=exposure
+                source = CameraFrameSource(
+                    camera_type=kind, cam_id=cam_id, exposure_ms=exposure
                 )
             source.start()
-        # policy: 设备打不开是可预期状态 (未接相机/被占用), 状态栏报错即可, 绝不弹模态框
-        except Exception as exc:
-            logger.exception("打开帧源失败")
-            self.statusBar().showMessage(f"打开失败: {exc}", 8000)
-            return
-        self._source = source
-        self._open_btn.setEnabled(False)
-        self._close_btn.setEnabled(True)
-        self._source_combo.setEnabled(False)
-        self._cam_id_spin.setEnabled(False)
-        self._last_append_ts = 0.0
-        self._poll_timer.start()
-        self._trend_timer.start()
-        self.statusBar().showMessage(
-            f"已启动 {SOURCE_KINDS[index][0]} (曝光 {source.exposure_ms:.3f} ms)", 5000
-        )
+            return source
+
+        def _done(ok: bool, payload: object) -> None:
+            if not ok:
+                # policy: 设备打不开是可预期状态 (未接相机/被占用), 状态栏报错, 不弹模态框
+                logger.opt(exception=payload).error("打开帧源失败")
+                self.statusBar().showMessage(f"打开失败: {payload}", 8000)
+                return
+            source = payload
+            self._source = source
+            self._last_append_ts = 0.0
+            self._poll_timer.start()
+            self._trend_timer.start()
+            self._set_controls_enabled(True)
+            self.statusBar().showMessage(
+                f"已启动 {SOURCE_KINDS[index][0]} (曝光 {source.exposure_ms:.3f} ms)",
+                5000,
+            )
+
+        self._start_job(f"正在打开 {SOURCE_KINDS[index][0]}…", _work, _done)
 
     def close_source(self) -> None:
-        """停止帧源并清画面; 可重复调用。"""
+        """停止帧源并清画面 (MiiCam 停止真机 ~7-12s, 后台执行); 可重复调用。"""
+        if self._busy:
+            return
         self._poll_timer.stop()
         self._trend_timer.stop()
         source = self._source
         self._source = None
-        if source is not None:
-            try:
-                source.stop()
-            # policy: 关停失败只记录, 不能让关窗口抛异常留下僵尸界面
-            except Exception:  # policy: SDK 关闭阶段错误类型不可枚举
-                logger.exception("停止帧源失败")
         self._video.clear()
         self._profile.clear()
         self._info_label.setText("分辨率: --\n曝光: --\n源帧率: --\n丢弃帧: --")
-        self._open_btn.setEnabled(True)
-        self._close_btn.setEnabled(False)
-        self._source_combo.setEnabled(True)
-        self._cam_id_spin.setEnabled(True)
-        self.statusBar().showMessage("已关闭", 3000)
+        self._set_controls_enabled(True)
+        if source is None:
+            self.statusBar().showMessage("已关闭", 3000)
+            return
+
+        def _work() -> None:
+            source.stop()
+
+        def _done(ok: bool, payload: object) -> None:
+            if not ok:
+                # policy: 关停失败只记录, 不能让关窗口抛异常留下僵尸界面
+                logger.opt(exception=payload).warning("停止帧源失败")
+            self.statusBar().showMessage("已关闭", 3000)
+
+        self._start_job("正在关闭…", _work, _done)
 
     def apply_exposure(self) -> None:
-        """把界面上的曝光值写给当前源 (MiiCam 会重启回调流, 约 1 s)。"""
+        """把界面上的曝光值写给当前源 (MiiCam 重启拉流真机 ~10s, 后台执行)。"""
         source = self._source
         if source is None:
             self.statusBar().showMessage("先打开帧源再改曝光", 4000)
             return
         request = float(self._exposure_spin.value())
-        try:
-            applied = source.set_exposure_ms(request)
-        # policy: 改曝光失败时设备状态未知, 状态栏报错并提示重新打开, 不弹模态框
-        except Exception as exc:
-            logger.exception("设置曝光失败")
-            self.statusBar().showMessage(f"设置曝光失败: {exc}", 8000)
-            return
-        self._exposure_spin.setValue(applied)
-        self.statusBar().showMessage(f"曝光已设为 {applied:.3f} ms", 4000)
+
+        def _work() -> float:
+            return source.set_exposure_ms(request)
+
+        def _done(ok: bool, payload: object) -> None:
+            if not ok:
+                # policy: 改曝光失败时设备状态未知, 状态栏报错并提示重新打开, 不弹模态框
+                logger.opt(exception=payload).error("设置曝光失败")
+                self.statusBar().showMessage(f"设置曝光失败: {payload}", 8000)
+                return
+            applied = float(payload)
+            self._exposure_spin.setValue(applied)
+            self.statusBar().showMessage(f"曝光已设为 {applied:.3f} ms", 4000)
+
+        self._start_job(f"正在设置曝光 {request:.3f} ms…", _work, _done)
 
     def save_snapshot(self) -> None:
         """把最近一帧原始画面存成 PNG。"""
@@ -377,6 +468,13 @@ class BeamQualityApp(QMainWindow):
     def _close_source_for_exit(self) -> None:
         self._poll_timer.stop()
         self._trend_timer.stop()
+        # 先等在飞的后台任务 (open/改曝光) 落地, 再停源 —— 否则停源与工作线程
+        # 会并发操作同一相机。done 回调排在 UI 事件队列里 (它负责赋值
+        # ``self._source``), 干等 waitForDone 会拿不到源, 必须 processEvents 驱动。
+        deadline = time.monotonic() + 30.0
+        while self._busy and time.monotonic() < deadline:
+            QApplication.processEvents()
+            time.sleep(0.02)
         source = self._source
         self._source = None
         if source is not None:

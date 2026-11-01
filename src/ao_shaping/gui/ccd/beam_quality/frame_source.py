@@ -1,4 +1,4 @@
-"""帧源抽象: MiiCam 真实相机 / 离屏仿真源。
+"""帧源抽象: 任意 ``BaseCamera`` 后端 (MiiCam / Daheng / ...) / 离屏仿真源。
 
 线程模型 (与参考 SDK demo 的反面做法相反, 这里刻意如此):
 
@@ -132,18 +132,34 @@ class _LatestFrameQueue:
         return self._dropped
 
 
-class MIICamFrameSource:
-    """MiiCam 相机帧源 (回调模式 + 最新帧信箱)。
+class CameraFrameSource:
+    """通用相机帧源 (回调/轮询 + 最新帧信箱)。
 
-    曝光变更走 ``MIICamera.reset_exposure_time`` —— 驱动内部是
-    Stop → put_ExpoTime → ``StartPullModeWithCallback(None, None)``, **会丢掉
-    用户回调**, 因此这里显式 ``stop_callback_mode`` → 改曝光 → 重新
-    ``start_callback_mode``, 否则界面会永久停在最后一帧。
+    通过 :mod:`ao_shaping.drivers.ccd.common` 构造任意 ``BaseCamera`` 后端
+    (``miicam`` / ``daheng`` / ...), 对外暴露统一的 :class:`FrameSource` 接口。
+    采集中的曝光变更一律走 ``cam.set_exposure_ms`` (MiiCam 有快速通道,
+    其它后端回落到 ``reset_exposure_time``)。
+
+    - 推流型后端 (MiiCam, ``supports_callback_stream=True``): SDK 回调线程只入
+      信箱, 不做分析。
+    - 轮询型后端 (Daheng): 单独取流线程以 ``stream_fps`` 调 ``get_numpy_image``
+      产帧, 仍只入信箱。
     """
 
-    def __init__(self, cam_id: int = 0, exposure_ms: float = 20.0) -> None:
+    def __init__(
+        self,
+        camera_type: str = "miicam",
+        cam_id: int = 0,
+        exposure_ms: float = 20.0,
+        camera: object | None = None,
+        **camera_kwargs: object,
+    ) -> None:
+        self._camera_type = str(camera_type).lower()
         self._cam_id = int(cam_id)
         self._exposure_ms = float(exposure_ms)
+        self._camera_kwargs = dict(camera_kwargs)
+        #: 已构造好的后端实例 (测试注入口); None 时在 start() 里按类型构造。
+        self._camera = camera
         self._cam: object | None = None
         self._running = False
         self._lock = threading.RLock()
@@ -152,6 +168,10 @@ class MIICamFrameSource:
         self.last_frame_info: object | None = None
 
     # ---------------------------------------------------------------- 状态
+    @property
+    def camera_type(self) -> str:
+        return self._camera_type
+
     @property
     def cam_id(self) -> int:
         return self._cam_id
@@ -175,65 +195,62 @@ class MIICamFrameSource:
 
     # ---------------------------------------------------------------- 生命周期
     def start(self, on_frame: FrameCallback | None = None) -> None:
-        """打开相机并启动回调流。失败时抛异常且不留下半开状态。"""
+        """打开相机并启动取流。失败时抛异常且不留下半开状态。"""
         with self._lock:
             if self._running:
                 return
             cam = self._create_camera()
             try:
                 cam.open()
-                cam.start_callback_mode(self._on_sdk_frame)
-            # policy: 起流失败必须先把设备关掉再抛, 否则下一次 start 会撞上被占用的句柄
+                self._cam = cam
+                self._on_frame = on_frame
+                cam.start_stream(self._on_camera_frame)
+            # policy: 起流失败必须先把设备关掉再抛, 否则下一次 open 会撞 REPEAT_OPENED
             except Exception:
-                logger.exception("MiiCam 启动失败 (cam_id={})", self._cam_id)
                 try:
                     cam.close()
-                except Exception:  # policy: 清理路径, 原始异常更重要
-                    logger.debug("启动失败后关闭相机也失败, 忽略")
+                except Exception:  # policy: 关闭阶段错误类型不可枚举
+                    logger.warning("起流失败后关闭相机也失败")
                 self._cam = None
+                self._running = False
                 raise
-            self._cam = cam
-            self._exposure_ms = float(cam.get_exposure_time_ms())
-            self._on_frame = on_frame
-            self._frames.reset()
             self._running = True
-            logger.info(
-                "MiiCam 帧源已启动: cam_id={} exposure={:.3f}ms",
-                self._cam_id,
-                self._exposure_ms,
-            )
-
-    def _create_camera(self):
-        """惰性构造 MIICamera (导入期才加载原生 SDK)。"""
-        from ao_shaping.drivers.ccd.miicam.driver import MIICamera
-
-        return MIICamera(
-            cam_id=self._cam_id,
-            exposure_time_ms=self._exposure_ms,
-            capture_mode="callback",
-        )
+            # 以设备实际生效值刷新缓存 (后端可能钳制/量化曝光)
+            self._refresh_exposure_from_cam()
 
     def stop(self) -> None:
-        """停止回调流并关闭设备; 可重复调用。"""
+        """幂等停止取流并关闭设备。"""
         with self._lock:
+            if not self._running:
+                # 未启动过: 仍尝试关掉可能半开的设备
+                cam = self._cam
+                self._cam = None
+                if cam is not None:
+                    try:
+                        cam.stop_stream()
+                    except Exception:  # policy: 同上
+                        logger.warning("停止取流失败 (未运行态)")
+                    try:
+                        cam.close()
+                    except Exception:  # policy: 同上
+                        logger.warning("关闭相机失败 (未运行态)")
+                return
+            self._running = False
             cam = self._cam
             self._cam = None
-            self._running = False
-            self._on_frame = None
+            if cam is not None:
+                try:
+                    cam.stop_stream()
+                # policy: SDK 关闭阶段错误类型不可枚举
+                except Exception:
+                    logger.warning("停止取流失败 (继续关闭设备)")
+                try:
+                    cam.close()
+                # policy: 同上
+                except Exception:
+                    logger.warning("关闭相机失败")
+            self._frames.reset()
             self.last_frame_info = None
-        self._frames.reset()
-        if cam is None:
-            return
-        try:
-            cam.stop_callback_mode()
-        # policy: 关停路径上的 SDK 异常不该阻止 close(), 只记录
-        except Exception:  # policy: SDK 关闭阶段错误类型不可枚举
-            logger.warning("停止 MiiCam 回调模式失败 (继续关闭设备)")
-        try:
-            cam.close()
-        except Exception:  # policy: 同上
-            logger.warning("关闭 MiiCam 设备失败")
-        logger.info("MiiCam 帧源已停止")
 
     # ---------------------------------------------------------------- 取帧
     def drain_latest(self) -> tuple[np.ndarray, float] | None:
@@ -241,59 +258,69 @@ class MIICamFrameSource:
 
     # ---------------------------------------------------------------- 曝光
     def set_exposure_ms(self, ms: float) -> float:
-        """改曝光并（若在采集中）重启回调流。"""
+        """设置曝光 (ms), 返回生效值。采集中/未采集都走 cam.set_exposure_ms。"""
         with self._lock:
             cam = self._cam
             if cam is None:
                 # 未打开: 只记录请求值, start() 时带入构造函数
                 self._exposure_ms = float(ms)
                 return self._exposure_ms
-            running = self._running
-            if running:
-                # reset_exposure_time 内部会把回调置空, 先自行退出回调模式
-                try:
-                    cam.stop_callback_mode()
-                # policy: 退出回调模式失败不该阻止改曝光, 后面统一重挂回调
-                except Exception:  # policy: SDK 错误类型不可枚举
-                    logger.warning("改曝光前停止回调模式失败")
             try:
-                applied = float(cam.reset_exposure_time(float(ms)))
+                applied = float(cam.set_exposure_ms(float(ms)))
             except Exception:
-                logger.exception("设置 MiiCam 曝光失败 (请求 {:.3f}ms)", ms)
-                if running:
-                    self._restart_callback_locked(cam)
+                logger.exception("设置相机曝光失败 (请求 {:.3f}ms)", ms)
                 raise
-            if running:
-                self._restart_callback_locked(cam)
             self._exposure_ms = applied
-            logger.info("MiiCam 曝光已设为 {:.3f}ms", applied)
+            logger.info("相机曝光已设为 {:.3f}ms", applied)
             return applied
 
-    def _restart_callback_locked(self, cam: object) -> bool:
-        """重新挂上帧回调 (调用方须持有 ``self._lock``), 成功返回 True。"""
-        try:
-            cam.start_callback_mode(self._on_sdk_frame)
-        # policy: 重挂回调失败会让界面停在最后一帧, 显式告警并让 is_running 反映真实状态,
-        # 但不抛出 —— 调用方此时通常正在传播另一个更重要的异常 (如改曝光失败)
-        except Exception:
-            logger.exception("改曝光后重启回调模式失败, 视频流已中断")
-            self._running = False
-            return False
-        return True
+    # ---------------------------------------------------------------- 内部
+    def _create_camera(self) -> object:
+        """惰性构造后端相机 (SDK 只在此刻加载)。"""
+        if self._camera is not None:
+            return self._camera
+        from ao_shaping.drivers.ccd import common
 
-    # ---------------------------------------------------------------- 回调
-    def _on_sdk_frame(self, img: np.ndarray, frame_info: object = None) -> None:
-        """SDK 内部线程回调 —— 只入信箱, 严禁重活/回调 SDK。"""
+        kwargs = dict(self._camera_kwargs)
+        # MiiCam 用回调模式; 其它后端回落到默认轮询
+        if self._camera_type == "miicam":
+            kwargs.setdefault("capture_mode", "callback")
+        try:
+            return common.create_camera(
+                self._camera_type, cam_id=self._cam_id, exposure_time_ms=self._exposure_ms, **kwargs
+            )
+        except Exception:
+            logger.exception("构造相机后端 {} 失败", self._camera_type)
+            raise
+
+    def _on_camera_frame(self, img: np.ndarray) -> None:
+        """SDK/轮询线程回调 —— 只入信箱, 严禁重活。"""
         timestamp = time.monotonic()
-        self.last_frame_info = frame_info
-        self._frames.push(img, timestamp)
+        self.last_frame_info = getattr(self._cam, "last_frame_info", None)
+        self._frames.push(np.asarray(img), timestamp)
         callback = self._on_frame
         if callback is not None:
             try:
-                callback(img, timestamp)
-            # policy: 用户回调异常绝不能抛回厂商 SDK 线程, 否则整条采集流报废
-            except Exception:  # policy: 见上
+                callback(np.asarray(img), timestamp)
+            # policy: 用户回调异常绝不能抛回厂商/取流线程
+            except Exception:
                 logger.exception("帧回调 (on_frame) 抛出异常, 已忽略")
+
+    def _refresh_exposure_from_cam(self) -> None:
+        cam = self._cam
+        if cam is None:
+            return
+        try:
+            self._exposure_ms = float(cam.get_exposure_time_ms())
+        except Exception:
+            try:
+                self._exposure_ms = float(getattr(cam, "exposure_time_ms", self._exposure_ms))
+            except Exception:
+                pass
+
+
+# 向后兼容别名 (旧名仍被测试/外部引用)
+MIICamFrameSource = CameraFrameSource
 
 
 class SimBeamSource:

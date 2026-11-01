@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Sequence
+import threading
+from typing import Callable, Sequence
 
 import numpy as np
 from loguru import logger
@@ -55,6 +56,18 @@ class BaseCamera(ABC):
     #: :meth:`require_pixel_size_um` 拿到带根因的报错)。
     pixel_size_um: float = 0.0
 
+    #: 后端是否提供原生推流回调 (MiiCam)。``False`` 时 :meth:`start_stream` 用
+    #: 后台线程轮询 :meth:`get_numpy_image` 产帧 (Daheng / ffmpeg / 仿真等)。
+    supports_callback_stream: bool = False
+
+    #: 轮询取流两次抓帧之间的额外间隔 (秒); 0 表示由 ``get_numpy_image`` 自身的
+    #: 阻塞/曝光时间限速。后端若一次性返回缓存帧, 可调大以避免空转。
+    stream_poll_interval_s: float = 0.0
+
+    # 取流线程状态 (惰性初始化; 未覆写 __init__ 的后端也能直接用 start_stream)
+    _stream_thread: threading.Thread | None = None
+    _stream_stop: threading.Event | None = None
+
     def __init__(
         self,
         cam_id: int = 0,
@@ -78,6 +91,8 @@ class BaseCamera(ABC):
         self._sn: str | None = None
         self.cam_width: int = 0
         self.cam_height: int = 0
+        self._stream_thread: threading.Thread | None = None
+        self._stream_stop: threading.Event | None = None
 
     def __enter__(self):
         """上下文管理器入口 —— 初始化相机。"""
@@ -98,6 +113,78 @@ class BaseCamera(ABC):
     def _device_open(self) -> bool:
         """设备是否已初始化。用 ``cv2`` 视频流 / 图像序列回放等后端时覆写本方法。"""
         return self.cam is not None
+
+    # ------------------------------------------------------------ 取流 (GUI 用)
+    def start_stream(self, on_frame: Callable[[np.ndarray], None] | None = None) -> None:
+        """启动后台取流, 每来一帧调用 ``on_frame(img)``。
+
+        默认实现用**轮询线程**: 反复调用 :meth:`get_numpy_image` (单帧, 不丢首帧),
+        因此任何实现了抽象 ``get_numpy_image`` 的后端都零改动可用。原生支持回调
+        推流的后端 (``supports_callback_stream=True``, 目前是 MiiCam) 应覆写本方法,
+        避免多一层线程与抓帧延迟。
+
+        回调运行在取流线程里, 必须保持轻量: 只入信箱, 不做分析, 不回头调 SDK。
+
+        参数:
+            on_frame: 帧回调, 签名 ``(img)``。``None`` 表示只启动流。
+        """
+        if self._stream_thread is not None and self._stream_thread.is_alive():
+            return
+        self._ensure_open()
+        stop = threading.Event()
+        thread = threading.Thread(
+            target=self._stream_loop,
+            args=(on_frame, stop),
+            name=f"{type(self).__name__}-stream",
+            daemon=True,
+        )
+        self._stream_stop = stop
+        self._stream_thread = thread
+        thread.start()
+
+    def stop_stream(self) -> None:
+        """停止 :meth:`start_stream` 启动的取流线程 (幂等)。"""
+        stop = getattr(self, "_stream_stop", None)
+        thread = getattr(self, "_stream_thread", None)
+        self._stream_stop = None
+        self._stream_thread = None
+        if stop is not None:
+            stop.set()
+        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=5.0)
+
+    def _stream_loop(
+        self,
+        on_frame: Callable[[np.ndarray], None] | None,
+        stop: threading.Event,
+    ) -> None:
+        """轮询取流循环 (基类默认实现)。"""
+        interval = max(0.0, float(getattr(self, "stream_poll_interval_s", 0.0) or 0.0))
+        while not stop.is_set():
+            try:
+                img = self.get_numpy_image(1, skip_first=False)
+            # policy: 单帧抓取失败不能让取流线程退出 (否则界面永久停帧), 限流后继续
+            except Exception:  # policy: 后端 SDK 异常类型不可枚举
+                logger.exception("{} 轮询取流失败, 200ms 后重试", type(self).__name__)
+                stop.wait(0.2)
+                continue
+            if on_frame is not None:
+                try:
+                    on_frame(img)
+                # policy: 用户回调异常绝不能打死取流线程
+                except Exception:  # policy: 同上
+                    logger.exception("帧回调 (on_frame) 抛出异常, 已忽略")
+            if interval > 0.0:
+                stop.wait(interval)
+
+    def set_exposure_ms(self, time_ms: float) -> float:
+        """设置曝光 (ms) 并返回生效值 —— 采集中改曝光的安全入口。
+
+        默认委托 :meth:`reset_exposure_time`。MiiCam 覆写为「回调流存续期间单次
+        Stop→put→Start」的快速通道; Daheng 等支持运行中写曝光的后端用默认实现
+        即可 (其 ``reset_exposure_time`` 会自行消费陈旧帧)。
+        """
+        return self.reset_exposure_time(time_ms)
 
     def require_pixel_size_um(self) -> float:
         """返回像元边长 (µm); 未提供时抛 :class:`CameraError`。

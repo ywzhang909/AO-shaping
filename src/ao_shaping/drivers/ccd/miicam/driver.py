@@ -160,6 +160,9 @@ class MIICamera(BaseCamera):
     #: 传感器像元边长 (µm)。MiiCam 后端目前只支持一款相机, 故写死; 换型号改这一处, 调用方一律读 ``cam.pixel_size_um``。
     pixel_size_um: float = 2.9
 
+    #: MiiCam 由 SDK 在内部线程推帧, 不走基类的轮询取流线程。
+    supports_callback_stream: bool = True
+
     @staticmethod
     def get_exposure_range() -> tuple[float, float]:
         """获取相机支持的曝光时间范围 (ms), 返回 (min, max)。"""
@@ -207,6 +210,8 @@ class MIICamera(BaseCamera):
         self._capture_mode = capture_mode
         self._callback_mode_active: bool = False
         self._callback_error_count: int = 0
+        #: start_stream 期间持有 SDK 回调闭包的引用 (防止被 GC)
+        self._stream_frame_callback: Callable | None = None
 
         # 曝光上下限 (ms) —— SDK 的硬件约束
         self._min_exposure_ms = MIICamera.MIN_EXPOSURE_MS
@@ -498,6 +503,80 @@ class MIICamera(BaseCamera):
     # 曝光控制
     # =========================================================================
 
+    def _clamp_exposure_ms(self, time_ms: float) -> float:
+        """钳制曝光到 [MIN, MAX], 写入 ``exposure_time_ms`` 并返回生效值。"""
+        if time_ms < MIICamera.MIN_EXPOSURE_MS:
+            self.exposure_time_ms = MIICamera.MIN_EXPOSURE_MS
+            logger.warning(
+                "exposure time must >= {:.4f}ms. clamped to {:.4f}ms.",
+                MIICamera.MIN_EXPOSURE_MS,
+                MIICamera.MIN_EXPOSURE_MS,
+            )
+        elif time_ms > MIICamera.MAX_EXPOSURE_MS:
+            self.exposure_time_ms = MIICamera.MAX_EXPOSURE_MS
+            logger.warning(
+                "exposure time must <= {:.1f}ms. clamped to {:.1f}ms.",
+                MIICamera.MAX_EXPOSURE_MS,
+                MIICamera.MAX_EXPOSURE_MS,
+            )
+        else:
+            self.exposure_time_ms = time_ms
+        return self.exposure_time_ms
+
+    def set_exposure_ms(self, time_ms: float) -> float:
+        """回调流存续期间改曝光的快速通道 (单次 Stop → put_ExpoTime → Start)。
+
+        ``reset_exposure_time`` 走通用契约, 重启拉流时回调置空
+        (``StartPullModeWithCallback(None, None)``); 调用方若要保住用户回调,
+        只能先 ``stop_callback_mode`` 再 ``start_callback_mode`` 重挂 ——
+        一次改曝光付出 3×Stop + 2×Start (真机 ~20-25s, UI 全程冻结)。
+        本方法在回调模式激活时只做一次 Stop/Start (真机 ~10s),
+        ``_callback_user`` 与缓冲区保持不动, 流恢复后帧回调继续送达。
+
+        非回调模式直接委托 :meth:`reset_exposure_time`。
+
+        参数/返回: 同 :meth:`reset_exposure_time`。
+        """
+        if not self._callback_mode_active:
+            return self.reset_exposure_time(time_ms)
+
+        self._ensure_open()
+        applied = self._clamp_exposure_ms(time_ms)
+
+        try:
+            self.cam.Stop()
+        # policy: Stop() against a stream that is not running is an SDK error, not a caller failure
+        except OSError:
+            pass
+        time.sleep(0.1)
+
+        self.cam.put_ExpoTime(int(applied * 1000))
+
+        # 保持自动曝光关闭 (防止 AGC 覆盖手动曝光)
+        try:
+            self.cam.put_AutoExpoEnable(0)
+        except miicam.HRESULTException:
+            pass
+
+        # 重启拉流并保留帧回调 (带短暂重试, 仿 reset_exposure_time)
+        for attempt in range(3):
+            try:
+                self.cam.StartPullModeWithCallback(self._frame_callback, self)
+                break
+            except miicam.HRESULTException:
+                if attempt < 2:
+                    try:
+                        self.cam.Stop()
+                    # policy: 同上
+                    except OSError:
+                        pass
+                    time.sleep(0.3 * (attempt + 1))
+                else:
+                    raise
+        # 丢弃切换后的前几帧 (可能仍为旧曝光残留)
+        time.sleep(0.15)
+        return applied
+
     def reset_exposure_time(self, time_ms: float) -> float:
         """Set the camera exposure time.
 
@@ -519,22 +598,7 @@ class MIICamera(BaseCamera):
             实际设定的曝光时间, 单位毫秒。
         """
         self._ensure_open()
-        if time_ms < MIICamera.MIN_EXPOSURE_MS:
-            self.exposure_time_ms = MIICamera.MIN_EXPOSURE_MS
-            logger.warning(
-                "exposure time must >= {:.4f}ms. clamped to {:.4f}ms.",
-                MIICamera.MIN_EXPOSURE_MS,
-                MIICamera.MIN_EXPOSURE_MS,
-            )
-        elif time_ms > MIICamera.MAX_EXPOSURE_MS:
-            self.exposure_time_ms = MIICamera.MAX_EXPOSURE_MS
-            logger.warning(
-                "exposure time must <= {:.1f}ms. clamped to {:.1f}ms.",
-                MIICamera.MAX_EXPOSURE_MS,
-                MIICamera.MAX_EXPOSURE_MS,
-            )
-        else:
-            self.exposure_time_ms = time_ms
+        self._clamp_exposure_ms(time_ms)
 
         # 关键: 流运行中 put_ExpoTime 不生效, 必须先 Stop
         try:
@@ -871,6 +935,31 @@ class MIICamera(BaseCamera):
     # =========================================================================
     # 回调模式 (连续拉流)
     # =========================================================================
+
+    def start_stream(
+        self,
+        on_frame: Callable[[np.ndarray], None] | None = None,
+    ) -> None:
+        """覆写基类: 直接进入 SDK 回调模式 (不额外开轮询线程)。
+
+        ``on_frame`` 只收图像 (基类契约); SDK 回调的 ``frame_info`` 仍可从
+        :meth:`get_callback_frame` 路径取, 本方法不转交。
+        """
+        if on_frame is None:
+            self.start_callback_mode(None)
+            return
+
+        def _adapter(image: np.ndarray, _frame_info: object = None) -> None:
+            on_frame(image)
+
+        # 持有引用, 防止回调闭包被 GC (SDK 侧只保存函数对象)
+        self._stream_frame_callback = _adapter
+        self.start_callback_mode(_adapter)
+
+    def stop_stream(self) -> None:
+        """覆写基类: 退出 SDK 回调模式。"""
+        self._stream_frame_callback = None
+        self.stop_callback_mode()
 
     def start_callback_mode(
         self,
