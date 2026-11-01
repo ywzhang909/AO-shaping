@@ -728,7 +728,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 9. ✅ **BLE001 `src/runners` + `src/optimizer` 片（5 处 silent）⇒ 2 处真缺陷；并修掉本账本自己守卫的「扫描盲区」（§8.10 第二次）**（2026-10-24）：
    3 处不动：`runners/slm/zernike_matrix_runner.py:1377`（`finally` 里的尽力 `dev.close()`）、
-   `optimizer/wfless/slm_square_shaping.py:1806/2183`（两处 `try` 头，包住 `display_ctx.update(...)` —— 显示刷新失败**不该**中断优化闭环。2026-10-28 重钉：原 `:1807/2183` 钉的是调用内部的参数行，随本行实参列表增删就会漂；改钉 `try` 头并对齐语义。此前 `# policy:` 标记插入使两者各 +1/+2；2026-10-31 复核 `081f5dc7` #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在上方）再下移 3 行至 `:1806/2183`）
+   `optimizer/wfless/slm_square_shaping.py:1806/2183`（两处 `try` 头，包住 `display_ctx.update(...)` —— 显示刷新失败**不该**中断优化闭环。2026-10-28 重钉：原 `:1807/2183` 钉的是调用内部的参数行，随本行实参列表增删就会漂；改钉 `try` 头并对齐语义。此前 `# policy:` 标记插入使两者各 +1/+2；2026-10-31 复核 `081f5dc7` #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在上方）再下移 3 行至 `:1806/2183`；2026-11-01 复核 #205 第十五批（886 行 With 会话提为 `_run_square_session`，区域整体平移 −340 行）两处 `try` 头重钉至 `:1466/1843`）
    **真缺陷两处，都在闭环热路径上**：
    ① `runners/micro_drive/voltage_runner.py:_adc_worker` 用 `except Exception: pass` 吞掉 ADC 读取失败。
    不可归因的关键实测：消费端 `:381`（2026-10-25 重钉，`a05f7e3f` 在 ADC 读取路径插入退避块 +22 行，原 `:359`）只 `logger.debug("Drained {} ADC samples this cycle", …)` —— 只数**收到多少**，
@@ -4412,6 +4412,14 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 红②（display 域源码钉 `test_optimizer_guards_every_render_point_on_the_display_handle`）：对 `optimize_slm_model_in_loop` 钉 4 处 None-guard + `close()`，代码随拆进 helper ⇒ found 0；按第六批 `test_validate_blocks` 两跳先例改钉 **fn+helper 拼接源码**（display 28/28）。协议固化：**拆前 grep 全仓对被拆 fn 名的源码钉（getsource/inspect），不止同目录测试**。
 - 红③④（ml `sim2f/test_fit` L1 band、`zernike/test_train_amp_loss` mse 逐位一致）：同 tip 本地 + CI 线程口径（`AO_CPU_THREADS=4`）均不可复现（22+9 全绿）⇒ 判环境敏感 flake 候选，不改测试，留后续 tip CI 复判。
 - 作者 `3c02d93f` 纠正本循环批 13 的 3 处 live-doc 锚**代际错钉**（全文件首个相同块 = 拆前旧代际）⇒ 协议固化：**锚点重钉的定位必须限定在拆分后目标函数/helper 的新代际行号区间内**（本批两处按守卫权威值 + 内容实证执行，Δ=−34 与区域平移一致）。
+
+**2026-11-01 · 5c315d16 · #205 第十四批：`_run_spgd`（432 行/nest 5）的 350 行 tqdm With 会话提为 `_run_spgd_session`（元组解包变体第二次）**
+- 特征化网 = 现成 9 件 `test_slm_zernike_pib_*`（online.py 模块级 SKIPPED 无收集）——拆前基线 112 项全绿，拆后 112/112（容器逐文件）。
+- With L2086-2435 不是 fn 末语句（区域后还有 12 行 logger 汇总）⇒ 元组解包变体（批 10 先例）：thread_out 的 3 个计数器（`_n_fold_gated` / `_n_noise_gated` / `_n_peak_gated`）在 helper 末打包成元组，调用处解包回原名；其余 28 个为只读形参。
+- 固化 AugAssign 输出侧双判据：thread_out 取 all_stores（任意 Store 出现）∩ post_reads ∩ (params ∪ pre_stores)——first-ctx 判据漏 `+=` 计数器（首现是 Load）⇒ 拆后汇总静默读旧值；计数器同时进形参面（携初值传入，否则 helper 内 `+=` UnboundLocalError）。
+- 零 dedent 判据：`_run_spgd` 早前从 #44 闭包提升后 fn 体保留历史缩进 12 ⇒ helper 体起始缩进跟随块实际缩进而非固定 4（首落 IndentationError 实证修正）。
+- live-doc 钉面内两处按新代际纪律重钉（Δ=−34，新代际区间内内容实证）：peak-gate 块 2192-2202→2158-2168、ABBA 探针 2279→2245 ⇒ conventions 72 passed / 1 skipped。
+- 形态：编排层 432→119 行 / nest 1；会话 helper 390 行 / nest 5。验收：守卫 `_SZP` +2 → 59/59；module-size 2448→2527 重锚恰 1 行 diff；CI Pytest success。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

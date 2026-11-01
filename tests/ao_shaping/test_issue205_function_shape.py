@@ -71,6 +71,7 @@ _MEAS = "src/ao_shaping/tools/slm/calibration/diffraction_efficiency/measure.py"
 _SZP = "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py"
 _RMS = "src/ao_shaping/optimizer/wf/rms_by_zernike.py"
 _MIL = "src/ao_shaping/optimizer/wfless/slm_model_in_loop.py"
+_SQ = "src/ao_shaping/optimizer/wfless/slm_square_shaping.py"
 _SCRIPT = "scripts/slm/generate_diffraction_efficiency_sim_report.py"
 _SECTIONS = "scripts/slm/_hw_gs_square_scans_sections.py"
 
@@ -131,6 +132,8 @@ TARGETS = [
     (_SZP, "_run_pib_session", 430, 4, 384),
     (_SZP, "_run_spgd", 160, 1, 119),
     (_SZP, "_run_spgd_session", 420, 5, 390),
+    (_SQ, "optimize_slm_square", 500, 4, 460),
+    (_SQ, "_run_square_session", 990, 6, 947),
     (_RMS, "optimizer_rms_slm", 200, 1, 155),
     (_RMS, "_run_rms_session", 430, 5, 397),
     (_MIL, "optimize_slm_model_in_loop", 130, 1, 84),
