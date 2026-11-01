@@ -129,6 +129,8 @@ TARGETS = [
     (_MEAS, "_run_measurement_session", 420, 3, 379),
     (_SZP, "optimize_slm_zernike_pib", 280, 2, 250),
     (_SZP, "_run_pib_session", 430, 4, 384),
+    (_SZP, "_run_spgd", 160, 1, 119),
+    (_SZP, "_run_spgd_session", 420, 5, 390),
     (_RMS, "optimizer_rms_slm", 200, 1, 155),
     (_RMS, "_run_rms_session", 430, 5, 397),
     (_MIL, "optimize_slm_model_in_loop", 130, 1, 84),

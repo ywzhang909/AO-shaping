@@ -2014,75 +2014,41 @@ def _run_heuristic(
 )
             return recorder
 
-def _run_spgd(
-    state: "_RunState",
+def _run_spgd_session(
     *,
-    _fix_bucket,
-    _gradient_history,
-    _max_history_len,
-    _pib_history,
-    cam,
-    config,
-    epochs,
-    exposure_time_ms,
-    init_img,
-    live_display,
-    lr,
-    nk,
-    objective,
-    objective_mode,
-    optimizer,
-    optimizer_type,
-    record_phase,
-    recorder,
-    rng,
-    session,
-    shaping,
-    shrink_iter,
-    shrink_ratio,
-    target_size,
-    update_iter,
-    w_loggrad,
-) -> None:
-            """SPGD branch: per-epoch perturbation, gating and coefficient update.
-
-            Nonlocal because these carry the run result out to ``_apply_best_on_exit``
-            (``best_c``/``best_objective``/``last_best_epoch``) and because the bucket
-            radius, the shrink schedule and the coefficient vector are live search state
-            that ``_log_row`` reads on every epoch.
-            """
-            # Evaluation-robustness state (see ``config.n_eval_frames`` /
-            # ``fold_ratio`` / ``noise_gate_k``): the fold baseline is armed from
-            # the initial (valid) frame; the noise-gate diff history starts empty,
-            # so the gate stays off until ``noise_gate_window`` diffs have been
-            # collected.
-            _fold_baseline_peak: float | None = float(np.max(init_img))
-            _fold_baseline_sum: float | None = float(
-                np.asarray(init_img, dtype=np.float64).sum()
-            )
-            _diff_history: deque[float] = deque(maxlen=config.noise_gate_window)
-            _n_fold_gated = 0
-            _n_noise_gated = 0
-            _n_peak_gated = 0
-
-            if config.abba_sampling:
-                logger.info(
-                    "SPGD ABBA sampling enabled: 4 captures/epoch (+ - - +), "
-                    "linear drift cancellation"
-                )
-
-            if config.max_peak > 0.0 and exposure_time_ms == 0:
-                # A counts cap under auto-exposure is not a power cap: the
-                # saturation path lowers exposure, so counts fall while optical
-                # power does not.
-                logger.warning(
-                    "max_peak={} is a camera-count threshold but "
-                    "exposure_time_ms=0 enables auto-exposure, which lowers "
-                    "exposure near saturation and can mask a real over-power "
-                    "event. Fix the exposure to make the cap meaningful.",
-                    config.max_peak,
-                )
-
+    _diff_history: object,
+    _fix_bucket: object,
+    _fold_baseline_peak: object,
+    _fold_baseline_sum: object,
+    _gradient_history: object,
+    _max_history_len: object,
+    _pib_history: object,
+    cam: object,
+    config: object,
+    epochs: object,
+    live_display: object,
+    lr: object,
+    nk: object,
+    objective: object,
+    objective_mode: object,
+    optimizer: object,
+    optimizer_type: object,
+    record_phase: object,
+    recorder: object,
+    rng: object,
+    session: object,
+    shaping: object,
+    shrink_iter: object,
+    shrink_ratio: object,
+    state: object,
+    target_size: object,
+    update_iter: object,
+    w_loggrad: object,
+    _n_fold_gated: object,
+    _n_noise_gated: object,
+    _n_peak_gated: object,
+) -> tuple:
+            """#205 batch-14: former 350-line tqdm With of _run_spgd."""
             with tqdm.tqdm(
                 total=epochs, desc=f"slm_zernike iter {epochs}", dynamic_ncols=True
             ) as bar:
@@ -2433,6 +2399,119 @@ def _run_spgd(
 
                     bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
                     bar.update(1)
+            return (
+        _n_fold_gated,
+        _n_noise_gated,
+        _n_peak_gated,
+            )
+
+
+def _run_spgd(
+    state: "_RunState",
+    *,
+    _fix_bucket,
+    _gradient_history,
+    _max_history_len,
+    _pib_history,
+    cam,
+    config,
+    epochs,
+    exposure_time_ms,
+    init_img,
+    live_display,
+    lr,
+    nk,
+    objective,
+    objective_mode,
+    optimizer,
+    optimizer_type,
+    record_phase,
+    recorder,
+    rng,
+    session,
+    shaping,
+    shrink_iter,
+    shrink_ratio,
+    target_size,
+    update_iter,
+    w_loggrad,
+) -> None:
+            """SPGD branch: per-epoch perturbation, gating and coefficient update.
+
+            Nonlocal because these carry the run result out to ``_apply_best_on_exit``
+            (``best_c``/``best_objective``/``last_best_epoch``) and because the bucket
+            radius, the shrink schedule and the coefficient vector are live search state
+            that ``_log_row`` reads on every epoch.
+            """
+            # Evaluation-robustness state (see ``config.n_eval_frames`` /
+            # ``fold_ratio`` / ``noise_gate_k``): the fold baseline is armed from
+            # the initial (valid) frame; the noise-gate diff history starts empty,
+            # so the gate stays off until ``noise_gate_window`` diffs have been
+            # collected.
+            _fold_baseline_peak: float | None = float(np.max(init_img))
+            _fold_baseline_sum: float | None = float(
+                np.asarray(init_img, dtype=np.float64).sum()
+            )
+            _diff_history: deque[float] = deque(maxlen=config.noise_gate_window)
+            _n_fold_gated = 0
+            _n_noise_gated = 0
+            _n_peak_gated = 0
+
+            if config.abba_sampling:
+                logger.info(
+                    "SPGD ABBA sampling enabled: 4 captures/epoch (+ - - +), "
+                    "linear drift cancellation"
+                )
+
+            if config.max_peak > 0.0 and exposure_time_ms == 0:
+                # A counts cap under auto-exposure is not a power cap: the
+                # saturation path lowers exposure, so counts fall while optical
+                # power does not.
+                logger.warning(
+                    "max_peak={} is a camera-count threshold but "
+                    "exposure_time_ms=0 enables auto-exposure, which lowers "
+                    "exposure near saturation and can mask a real over-power "
+                    "event. Fix the exposure to make the cap meaningful.",
+                    config.max_peak,
+                )
+
+            (
+        _n_fold_gated,
+        _n_noise_gated,
+        _n_peak_gated,
+            ) = _run_spgd_session(
+        _diff_history=_diff_history,
+        _fix_bucket=_fix_bucket,
+        _fold_baseline_peak=_fold_baseline_peak,
+        _fold_baseline_sum=_fold_baseline_sum,
+        _gradient_history=_gradient_history,
+        _max_history_len=_max_history_len,
+        _pib_history=_pib_history,
+        cam=cam,
+        config=config,
+        epochs=epochs,
+        live_display=live_display,
+        lr=lr,
+        nk=nk,
+        objective=objective,
+        objective_mode=objective_mode,
+        optimizer=optimizer,
+        optimizer_type=optimizer_type,
+        record_phase=record_phase,
+        recorder=recorder,
+        rng=rng,
+        session=session,
+        shaping=shaping,
+        shrink_iter=shrink_iter,
+        shrink_ratio=shrink_ratio,
+        state=state,
+        target_size=target_size,
+        update_iter=update_iter,
+        w_loggrad=w_loggrad,
+        _n_fold_gated=_n_fold_gated,
+        _n_noise_gated=_n_noise_gated,
+        _n_peak_gated=_n_peak_gated,
+            )
 
             logger.info(
                 "SPGD finished: {}/{} epochs updates applied, {} brightness-fold "

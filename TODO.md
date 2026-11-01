@@ -496,7 +496,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 🔴 **同一坑的第二次，且这次是机器拦住的**：我在动手前用 `grep -rn 'except AssertionError' src/ scripts/` 得到 **0 命中**，据此以为没有窄处理器；AST 守卫一跑就报出 3 条元组写法。⇒ 判"不存在某类引用"**不得依赖单次 grep**：文本匹配看不见 `except (A, B)` 这种同一语义的不同写法。本会话已两次踩中（前一次是漏看 `test_frame_averaging.py:69` 的 `pytest.raises(AssertionError)`），区别是这次把规则写成了测试而非靠人复查。
 
-> 🔴 **`--max_peak` 不要动。** 它在 **optimizer**（`slm_zernike_pib.py:2192-2202`（行号 2026-10-28 复核；原 `:1585-1605`，#44 三步闭包上提与 `# policy:` 标记逐次下移；2026-10-30 复核 `6b52f34c` #44 删除重复 `_init_c`/`_init_r` kwargs（净 −4 行，本块在两删除点之下）后整体上移 4 行；同日复核 `ff288621` #44 持有者权威刀（入口净 −5 行，本块在其下）整体再上移 5 行；同日复核 `ca0c7ea6` #44 值通道收口刀（调用点 −2 行与签名 −2 行均在本块之上）整体再上移 4 行；区间右界取该告警调用的闭合行；2026-10-31 复核 #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在其上）整体下移至 `:2072-2082`，区间右界仍取告警调用闭合行；2026-11-01 复核 `2a446813` #205 第十一批（324 行 With 会话提为 `_run_pib_session`，入口体下移）整体下移 120 行至 `:2192-2202`，区间右界仍取告警调用闭合行）），不在驱动（行号 2026-10-20 复核，原 `:1456-1474`；`1ce4717a` 常量收敛后整体 −1）；
+> 🔴 **`--max_peak` 不要动。** 它在 **optimizer**（`slm_zernike_pib.py:2158-2168`（行号 2026-10-28 复核；原 `:1585-1605`，#44 三步闭包上提与 `# policy:` 标记逐次下移；2026-10-30 复核 `6b52f34c` #44 删除重复 `_init_c`/`_init_r` kwargs（净 −4 行，本块在两删除点之下）后整体上移 4 行；同日复核 `ff288621` #44 持有者权威刀（入口净 −5 行，本块在其下）整体再上移 5 行；同日复核 `ca0c7ea6` #44 值通道收口刀（调用点 −2 行与签名 −2 行均在本块之上）整体再上移 4 行；区间右界取该告警调用的闭合行；2026-10-31 复核 #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在其上）整体下移至 `:2072-2082`，区间右界仍取告警调用闭合行；2026-11-01 复核 `2a446813` #205 第十一批（324 行 With 会话提为 `_run_pib_session`，入口体下移）整体下移 120 行至 `:2192-2202`，区间右界仍取告警调用闭合行；2026-11-01 复核 #205 第十四批（350 行 tqdm With 会话提为 `_run_spgd_session`，区域体上移）整体上移 34 行至 `:2158-2168`，区间右界仍取告警调用闭合行）），不在驱动（行号 2026-10-20 复核，原 `:1456-1474`；`1ce4717a` 常量收敛后整体 −1）；
 > 且其 CLI 帮助与 archive R-57 **明文声明它不是安全联锁**（"NOT a safety interlock"，
 > 只拒绝提交下一轮更新，光已出）。把它搬进驱动等于把**策略**伪装成**机制** ——
 > 与 TODO 里 R-57 的结论直接冲突。
@@ -4406,6 +4406,12 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 形态：编排层 1000→84 行 / nest 1；helper 946 行 / nest 5（含 577 行 For 深链，上限钉实测）。
 - 验收：守卫 `_MIL` 加 2 项 → 57/57；conventions 72/1；module-size 3936→3968 重锚；push 走 rebase 越过 `4a45a129` 后纯 FF。
 - **CI 双红教训（fixup 修复）**：① 账本日期守卫——条目标题内嵌粗体（`…（**…**）`）使标题行 bold 标记数 ≠2、解析失败 ⇒ **标题行一律不内嵌 `**`**；② display 域源码钉——`test_slm_model_in_loop_display.py` 对 `optimize_slm_model_in_loop` 钉 4 处 None-guard + `close()`，代码随拆进 helper ⇒ found 0；按第六批 `test_validate_blocks` 两跳先例改钉 fn+helper 拼接源码。协议补强：**拆前 grep 全仓对被拆 fn 名的源码钉（getsource/inspect），不止同目录测试**；③④ ml 两案（sim2f L1 band、zernike mse 逐位一致）同 tip 本地与 CI 线程口径（AO_CPU_THREADS=4）均不可复现 ⇒ 环境敏感 flake 候选，留后续 tip CI 复判。
+
+**2026-11-01 · d8cd6d24 · #205 第十三批 fixup：双红随迁修复（display 源码钉两跳 + 账本标题去内嵌粗体）**
+- 红①（账本日期守卫 `test_date_anchored_ledger_entries_stay_parseable`）：批 12 条目标题内嵌粗体使 bold 标记数=4≠2、解析失败 ⇒ 去内嵌 `**`；协议固化：**条目标题行一律不内嵌粗体**。
+- 红②（display 域源码钉 `test_optimizer_guards_every_render_point_on_the_display_handle`）：对 `optimize_slm_model_in_loop` 钉 4 处 None-guard + `close()`，代码随拆进 helper ⇒ found 0；按第六批 `test_validate_blocks` 两跳先例改钉 **fn+helper 拼接源码**（display 28/28）。协议固化：**拆前 grep 全仓对被拆 fn 名的源码钉（getsource/inspect），不止同目录测试**。
+- 红③④（ml `sim2f/test_fit` L1 band、`zernike/test_train_amp_loss` mse 逐位一致）：同 tip 本地 + CI 线程口径（`AO_CPU_THREADS=4`）均不可复现（22+9 全绿）⇒ 判环境敏感 flake 候选，不改测试，留后续 tip CI 复判。
+- 作者 `3c02d93f` 纠正本循环批 13 的 3 处 live-doc 锚**代际错钉**（全文件首个相同块 = 拆前旧代际）⇒ 协议固化：**锚点重钉的定位必须限定在拆分后目标函数/helper 的新代际行号区间内**（本批两处按守卫权威值 + 内容实证执行，Δ=−34 与区域平移一致）。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
