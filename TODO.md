@@ -737,7 +737,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    ⚠️ **顺带实测到热自旋**：失败路径立即返回，20 ms 窗口内**空转 40,800 次**（≈2M 次/秒），
    一边猛敲已失效的 DAQ、一边和电压更新循环抢 CPU ⇒ 加 `_ADC_READ_RETRY_S = 0.005` 的**仅错误路径**退避
    （成功路径的节拍由 DAQ 采样窗自身决定，**不动**）。
-   ② `optimizer/combined_optimizer.py:326`（2026-10-25 重钉：该行在 `9bfc7f18` 时代即 `:352`，原误记 `:353`；2026-11-01 复核 `05401de9` #205 第五批把 epoch 块提为 `_run_combined_epochs` 后重钉至 `:326`）吞掉 `dm.send_voltages(zeros)` —— 这是 `finally` 里的**安全复位**。
+   ② `optimizer/combined_optimizer.py:381`（2026-10-25 重钉：该行在 `9bfc7f18` 时代即 `:352`，原误记 `:353`；2026-11-01 复核 `05401de9` #205 第五批把 epoch 块提为 `_run_combined_epochs` 后重钉至 `:326`；2026-11-01 复核 #205 第二十批（225 行 bench With 提为 `_run_combined_session`）该行随块迁入 helper，重钉至 `:381`）吞掉 `dm.send_voltages(zeros)` —— 这是 `finally` 里的**安全复位**。
    这里**不能抛**（会掩盖结束本轮的那个异常），但**静默更糟**：变形镜物理上停在最后一组（可能很大的）电压，
    下一个人站在实验系统前**无从得知**。改成 `logger.error`。
    证据分层（按可验证性选，不是一律写测试）：① 有离线行为测试 —— `adc` 是注入参数且模块离线可导入
@@ -1832,7 +1832,7 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
       之类变异，也没有重绑定），且所有静态可见调用点都**显式传参**。另有两处经 `**kwargs` 转发，静态无法证明，
       因此我按「无法证明」记录，而不是宣称「从未被使用」。
     - **改法用的是仓库既有约定，不是我发明的风格**：`optimizer_rms_dm` 与 `optimize_pib` 的 `init_v` 改为
-      `... | None = None`，依据是 `optimizer/combined_optimizer.py:354` 早已写成（2026-11-01 复核 `05401de9` #205 第五批后由 `:95` 重钉至 `:354`）
+      `... | None = None`，依据是 `optimizer/combined_optimizer.py:409` 早已写成（2026-11-01 复核 `05401de9` #205 第五批后由 `:95` 重钉至 `:354`；2026-11-01 复核 #205 第二十批（helper 插在其上方）下移 55 行至 `:409`）
       `init_v: list[float] | None = None`，且下游 `optimizer/spid_pib_loop.py:224` 本来就写
       `if init_v is None or len(init_v) == 0:` —— 在该路径上 `None` 与空**同义**；`rms.py` 侧的判据是
       `if not init_v:`，`None` 与 `[]` 同假。`grid_search_lr_delta` 的两个扫描列表改**元组**（体内只用
@@ -4453,6 +4453,13 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 复用第十七批判据：thread_out = all_stores ∩ 区域外全部 loads；`others`/`result`/`verdict`/`stale` 首 ctx Store ⇒ helper 局部；`attempt`/`waited`/`holder` pre-store 只读形参；区域无 def（闭包漂移断言天然通过）。
 - 形态：session 234→116 行 / nest 7→4（全仓最深嵌套消除，仓内最大 nest 7→6）；helper 151 行 / nest 6。验收：68/68；守卫 `_DM` 改写（300/7→150/4 + 新增 `_resolve_wait_state` 180/6）→ 64/64；module-size 2006→2041 重锚。
 - flake 对第三数据点：本 tip 首轮 CI 红恰为该二项（`ml/sim2f/test_fit` + `ml/zernike/test_train_amp_loss`，与 `fce2b77b` 完全同签名），`--failed` 复跑同一 tip **转绿** ⇒ 不改测试、环境敏感 flake 判定维持。
+
+**2026-11-01 · 311bd30d · #205 第十九批：`_run_validate_shapes`（217 行/nest 6）block 循环整体提为 `_run_validate_blocks`（整 For 第二次）**
+- 特征化网 = 现成 18 件（test_transfer_workflow.py + transfer/ 17 件）——拆前基线 249 项全绿，拆后 249/249（容器逐文件）。
+- 边界教训（首跑 8 红 UnboundLocalError）：初版区域取判决链 If L441-511，但 `anchor`/`anchor_prediction` 只在 anchored 分支绑定、只在判决链深处加载 ⇒ 只读形参在调用处**无条件求值**，model 模式下拆前从不执行的加载变成拆后必然 Unbound。判据固化：**区域内加载的名字若在 session 侧只有条件绑定，区域边界必须上提到该条件块之前**——上提为整 For L400-536（137 行，第十六批同模板），`anchor_row`/`anchor`/`anchor_prediction` 四名字全部不越界。
+- thread_out = {best, champion, exposure, stream}：循环跨迭代 + fn return 读 `stream`（With 泄漏）；`champion` 兼 pre-store ⇒ 同时进 read_only（携初值入、元组出）。`decision`/`entry`/`accepted`/`phase_lr` 均在 For 体内闭环，不越界。
+- 区域含嵌套 def `observed`（def 内 Return 合法，随块走）与区域内 `from .paired import paired_decision`（第十批 ImportFrom-as-store 判据）。
+- 形态：shapes 217→105 行 / nest 6→3；blocks helper 169 行 / nest 5。验收：249/249；守卫 `_VAL` 改写（245/6→130/3 + 新增 `_run_validate_blocks` 200/5）→ 65/65；`run` def 560→613 无 live-doc 行号钉；module-size 872→931 重锚恰 1 行 diff；CI Pytest success。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

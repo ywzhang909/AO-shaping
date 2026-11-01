@@ -111,6 +111,61 @@ def _run_combined_epochs(
     names arrive as keyword params; the one outer local the loop mutates is
     threaded back out in the returned namespace and re-bound by the caller.
     """
+    center, delta, dm, dm_unit_mask, r_bucket = _run_combined_session(
+        cam_id=cam_id,
+        cam_size=cam_size,
+        cam_type=cam_type,
+        center=center,
+        delta=delta,
+        dm=dm,
+        dm_max_voltage=dm_max_voltage,
+        dm_min_voltage=dm_min_voltage,
+        dm_neibor_diff=dm_neibor_diff,
+        dm_unit_mask=dm_unit_mask,
+        epochs=epochs,
+        exposure_time_ms=exposure_time_ms,
+        init_v=init_v,
+        kwargs=kwargs,
+        lr=lr,
+        r_bucket=r_bucket,
+        recorder=recorder,
+        show=show,
+        shrink_iter=shrink_iter,
+        shrink_ratio=shrink_ratio,
+        target_max_brightness=target_max_brightness,
+    )
+    return SimpleNamespace(center=center, delta=delta, dm=dm, dm_unit_mask=dm_unit_mask, r_bucket=r_bucket)
+
+
+def _run_combined_session(
+    *,
+    cam_id: object,
+    cam_size: object,
+    cam_type: object,
+    center: object,
+    delta: object,
+    dm: object,
+    dm_max_voltage: object,
+    dm_min_voltage: object,
+    dm_neibor_diff: object,
+    dm_unit_mask: object,
+    epochs: object,
+    exposure_time_ms: object,
+    init_v: object,
+    kwargs: object,
+    lr: object,
+    r_bucket: object,
+    recorder: object,
+    show: object,
+    shrink_iter: object,
+    shrink_ratio: object,
+    target_max_brightness: object,
+) -> tuple:
+    """#205 batch-20: former 225-line bench With of _run_combined_epochs.
+
+    The five names the session re-binds from the bench harness and the
+    caller return reads are threaded back out as a tuple.
+    """
     with open_pib_bench(
         cam_type=cam_type,
         cam_id=cam_id,
@@ -336,7 +391,7 @@ def _run_combined_epochs(
                 )
             if bench.owns_dm:
                 bench.dm.close()
-    return SimpleNamespace(center=center, delta=delta, dm=dm, dm_unit_mask=dm_unit_mask, r_bucket=r_bucket)
+    return center, delta, dm, dm_unit_mask, r_bucket
 
 
 def optimize_pib(
