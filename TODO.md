@@ -4421,6 +4421,15 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - live-doc 钉面内两处按新代际纪律重钉（Δ=−34，新代际区间内内容实证）：peak-gate 块 2192-2202→2158-2168、ABBA 探针 2279→2245 ⇒ conventions 72 passed / 1 skipped。
 - 形态：编排层 432→119 行 / nest 1；会话 helper 390 行 / nest 5。验收：守卫 `_SZP` +2 → 59/59；module-size 2448→2527 重锚恰 1 行 diff；CI Pytest success。
 
+**2026-11-01 · 3e77c4b7 · #205 第十五批：`optimize_slm_square`（1287 行/nest 6）的 886 行 With 会话提为 `_run_square_session`（透传变体第四次）**
+- 特征化网 = 现成 5 件（`test_slm_square_{energy_guard,objective_search,pbr_objective}_sim` / `test_slm_square_zernike_basis` / `test_zernike_gui_vs_slm_square`）——拆前基线 69 项全绿，拆后 69/69（容器逐文件）。
+- With L1341-2226 恰为 fn 末语句 ⇒ 调用处 `return _run_square_session(...)` 原样透传；区域级 Return（If 内早退 + 末行 recorder）即函数真实出口，11 个 Return 中 9 个属区域 6 个嵌套 def（不越界）；57 个只读形参。
+- nonlocal 首批处置（区域 6 个嵌套 def 以 `nonlocal` 声明 8 个 `best_*`）：Nonlocal 声明名从 def-local 集减去 ⇒ 记入 helper 级，cell 归属整体迁 helper，闭包结构同构。
+- 闭包漂移断言（新危险类, 固化进变换脚本）：pre-region 绑定的 def 其 `co_freevars` ∩ 区域重绑集必须为空（pre-def 闭的是 fn 的 cell，拆后区域重绑在 helper 级，相交则读旧值）。本批 `_record_vec`（if/else 条件双定义）freevars = {_active_pos, _has_rotation, nk}，与区域 stores 交集为空 ⇒ 作只读形参传入 GO。
+- 绑定类别补全：FunctionDef/ClassDef 名与 `ExceptHandler.name` 的绑定不是 Name-Store 节点，pre_stores / all_stores 两个审计集必须都记（漏则 `_record_vec`、`_e` 误报进 thread_in）。
+- 锚随迁（守卫钉面外主动）：def 939→1889（wiki index 表行）、两处 `try` 头 1806/2183→1466/1843（Δ=−340，新代际区间实证）；`report/fouriergsnet_pipeline` 两处行号钉经拆前 HEAD 内容实证早已漂移 ⇒ 非本批产物不随迁。
+- 形态：编排层 1287→460 行 / nest 4；helper 947 行 / nest 6。验收：69/69；守卫 `_SQ` +2 → 61/61；module-size 2226→2348 重锚恰 1 行 diff；CI Pytest success（~40 分钟；flake 对本 tip 未复现，在作者纯文档 tip `fce2b77b` 上再现 ⇒ 环境敏感判定再添一数据点）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
