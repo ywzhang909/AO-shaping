@@ -4430,6 +4430,15 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 锚随迁（守卫钉面外主动）：def 939→1889（wiki index 表行）、两处 `try` 头 1806/2183→1466/1843（Δ=−340，新代际区间实证）；`report/fouriergsnet_pipeline` 两处行号钉经拆前 HEAD 内容实证早已漂移 ⇒ 非本批产物不随迁。
 - 形态：编排层 1287→460 行 / nest 4；helper 947 行 / nest 6。验收：69/69；守卫 `_SQ` +2 → 61/61；module-size 2226→2348 重锚恰 1 行 diff；CI Pytest success（~40 分钟；flake 对本 tip 未复现，在作者纯文档 tip `fce2b77b` 上再现 ⇒ 环境敏感判定再添一数据点）。
 
+**2026-11-01 · 14d2f681 · #205 第十六批：`_run_validate_session`（366 行/nest 9）形状循环整体提为 `_run_validate_shapes`（解包变体第三次）**
+- 特征化网 = 现成 18 件（test_transfer_workflow.py + transfer/ 17 件）——拆前基线 249 项全绿，拆后 249/249（容器逐文件）。
+- 区域 = 整条 For 语句（L307-494）：内含 `continue`（L312 resume 门）⇒ 不能只提循环体（SyntaxError 'continue' not properly in loop），必须连 For 头整体提升。
+- thread_out = all_stores ∩ post_reads = (`objective`, `shape`, `stream`)：`objective` 本身是 session 形参且被循环目标逐轮重绑；`stream` 由 L479 `with ... as stream` 泄漏到 session 并被 fn return 读 ⇒ 调用处（try 体末语句）解包回原名；`try/finally`（SLM 清零）与 return 留 session。`prepared` 为空的病态 NameError('shape') 次序保持：异常改从 helper 抛出但同样先经 finally。
+- 审计判据①（新）：pre_stores 不得进入 def 体——capture/tune_exposure 体内的 Name-store 是 def-local（`start`/`stream`/`guard` 曾被误录为 session 级绑定塞进形参面 ⇒ ruff F821×3 抓住）；只记 def 名与 decorator。
+- 审计判据②（新）：`co_freevars` 只解析一层——闭包漂移断言仅对 session 的直接子 code object 成立；`read_exposure`（`tune_exposure` 体内 def）的 freevar `objective` 解析到 `tune_exposure` 的形参（遮蔽循环目标），不是 session cell（首跑假阳性）。
+- 形态：session 366→200 行 / nest 9→5（全仓最深嵌套消除）；shapes helper 217 行 / nest 6。验收：249/249；守卫 `_VAL` 改写（450/9→230/5 + 新增 `_run_validate_shapes` 245/6）→ 62/62；`test_validate_blocks` 源码钉两跳→三跳（run→session→shapes，钉 `skips_shape` 调用处随迁）；module-size 819→872 重锚恰 1 行 diff；CI Pytest success。
+- 协议补记（作者 `24c1ab64` 纠偏）：live-doc 锚为「行首规范值 + 尾部历史链」结构时，重钉必须改写行首规范值本身，只追加历史链会留下过期规范值（本批行首 `:1806/2183` 即由此被作者重钉为 `:1466/1843`）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

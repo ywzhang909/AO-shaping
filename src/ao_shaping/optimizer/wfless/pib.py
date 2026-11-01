@@ -374,78 +374,136 @@ def _run_spgd_epochs(
             }
             recorder.append(log)
 
-            if _should_trigger_adaptive_search(
-                epoch=epoch,
-                enabled=enable_adaptive_search,
-                warmup=search_warmup,
-                interval=search_interval,
-                patience=search_patience,
-                last_best_epoch=last_best_epoch,
-            ):
-                search_result = run_adaptive_search(
-                    epoch=epoch,
-                    current_v=_init_v,
-                    current_objective=objective_val,
-                )
-                if search_result is not None:
-                    log["search_eval"] = search_result["evaluated"]
-                    log["search_tabu_hits"] = search_result["tabu_hits"]
-                    log["search_safe_rejects"] = search_result["safe_rejects"]
-                    log["search_radius"] = search_result["radius"]
-                    log["tabu_size"] = len(tabu_memory._queue)
-                    if search_result["accepted"]:
-                        _init_v = search_result["voltages"].copy()
-                        _reset_optimizer_state(optimizer)
-                        log["search_accept"] = True
-                        if (
-                            search_result[objective]
-                            > best_objective
-                            + adaptive_search_state.improvement_tol
-                        ):
-                            best_v = _init_v.copy()
-                            best_objective = float(search_result[objective])
-                            float(search_result["J"])
-                            float(search_result["ratio"])
-                            search_result["img"].copy()
-                            last_best_epoch = epoch
-                        recorder.append(
-                            {
-                                "J": search_result["J"],
-                                RECORD_ROI_ENERGY: search_result["ratio"],
-                                "_max_r": _init_r,
-                                objective: search_result[objective],
-                                RECORD_DIFF: 0.0,
-                                "lr": optimizer.lr,
-                                "r": r_bucket,
-                                "delta": delta,
-                                RECORD_EPOCH: epoch,
-                                RECORD_VOLTAGES: _init_v.copy(),
-                                RECORD_IMAGE: search_result["img"],
-                                "exp_t": get_camera_exposure_ms(cam),
-                                "max_brt": search_result["max_brt"],
-                                RECORD_GRAD: np.zeros_like(_init_v),
-                                "_opt_m": _extract_optimizer_momentum(
-                                    optimizer
-                                ),
-                                "optimizer": optimizer_type,
-                                f"best_{objective}": best_objective,
-                                "search_radius": adaptive_search_state.radius,
-                                "tabu_size": len(tabu_memory._queue),
-                                "search_accept": True,
-                                "search_eval": search_result["evaluated"],
-                                "search_tabu_hits": search_result["tabu_hits"],
-                                "search_safe_rejects": search_result[
-                                    "safe_rejects"
-                                ],
-                                "search_anchor": search_result["anchor"],
-                            }
-                        )
-                    else:
-                        dm.send_voltages(_init_v)
+            _init_v, best_objective, last_best_epoch = _apply_adaptive_search_epoch(
+        _init_r=_init_r,
+        _init_v=_init_v,
+        adaptive_search_state=adaptive_search_state,
+        best_objective=best_objective,
+        cam=cam,
+        delta=delta,
+        dm=dm,
+        enable_adaptive_search=enable_adaptive_search,
+        epoch=epoch,
+        last_best_epoch=last_best_epoch,
+        log=log,
+        objective=objective,
+        objective_val=objective_val,
+        optimizer=optimizer,
+        optimizer_type=optimizer_type,
+        r_bucket=r_bucket,
+        recorder=recorder,
+        run_adaptive_search=run_adaptive_search,
+        search_interval=search_interval,
+        search_patience=search_patience,
+        search_warmup=search_warmup,
+        tabu_memory=tabu_memory,
+            )
 
             bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
             bar.update(1)
     return SimpleNamespace(_init_r=_init_r, _init_v=_init_v, best_objective=best_objective, delta=delta, last_best_epoch=last_best_epoch, r_bucket=r_bucket)
+
+
+def _apply_adaptive_search_epoch(
+    *,
+    _init_r: object,
+    _init_v: object,
+    adaptive_search_state: object,
+    best_objective: object,
+    cam: object,
+    delta: object,
+    dm: object,
+    enable_adaptive_search: object,
+    epoch: object,
+    last_best_epoch: object,
+    log: object,
+    objective: object,
+    objective_val: object,
+    optimizer: object,
+    optimizer_type: object,
+    r_bucket: object,
+    recorder: object,
+    run_adaptive_search: object,
+    search_interval: object,
+    search_patience: object,
+    search_warmup: object,
+    tabu_memory: object,
+) -> tuple:
+    """#205 batch-17: former adaptive-search If block of _run_spgd_epochs.
+
+    The three session names the block rebinds (and that later epochs and
+    the epoch-loop return read back) are threaded out as a tuple; `log`
+    is mutated through the shared dict.
+    """
+    if _should_trigger_adaptive_search(
+        epoch=epoch,
+        enabled=enable_adaptive_search,
+        warmup=search_warmup,
+        interval=search_interval,
+        patience=search_patience,
+        last_best_epoch=last_best_epoch,
+    ):
+        search_result = run_adaptive_search(
+            epoch=epoch,
+            current_v=_init_v,
+            current_objective=objective_val,
+        )
+        if search_result is not None:
+            log["search_eval"] = search_result["evaluated"]
+            log["search_tabu_hits"] = search_result["tabu_hits"]
+            log["search_safe_rejects"] = search_result["safe_rejects"]
+            log["search_radius"] = search_result["radius"]
+            log["tabu_size"] = len(tabu_memory._queue)
+            if search_result["accepted"]:
+                _init_v = search_result["voltages"].copy()
+                _reset_optimizer_state(optimizer)
+                log["search_accept"] = True
+                if (
+                    search_result[objective]
+                    > best_objective
+                    + adaptive_search_state.improvement_tol
+                ):
+                    best_v = _init_v.copy()
+                    best_objective = float(search_result[objective])
+                    float(search_result["J"])
+                    float(search_result["ratio"])
+                    search_result["img"].copy()
+                    last_best_epoch = epoch
+                recorder.append(
+                    {
+                        "J": search_result["J"],
+                        RECORD_ROI_ENERGY: search_result["ratio"],
+                        "_max_r": _init_r,
+                        objective: search_result[objective],
+                        RECORD_DIFF: 0.0,
+                        "lr": optimizer.lr,
+                        "r": r_bucket,
+                        "delta": delta,
+                        RECORD_EPOCH: epoch,
+                        RECORD_VOLTAGES: _init_v.copy(),
+                        RECORD_IMAGE: search_result["img"],
+                        "exp_t": get_camera_exposure_ms(cam),
+                        "max_brt": search_result["max_brt"],
+                        RECORD_GRAD: np.zeros_like(_init_v),
+                        "_opt_m": _extract_optimizer_momentum(
+                            optimizer
+                        ),
+                        "optimizer": optimizer_type,
+                        f"best_{objective}": best_objective,
+                        "search_radius": adaptive_search_state.radius,
+                        "tabu_size": len(tabu_memory._queue),
+                        "search_accept": True,
+                        "search_eval": search_result["evaluated"],
+                        "search_tabu_hits": search_result["tabu_hits"],
+                        "search_safe_rejects": search_result[
+                            "safe_rejects"
+                        ],
+                        "search_anchor": search_result["anchor"],
+                    }
+                )
+            else:
+                dm.send_voltages(_init_v)
+    return _init_v, best_objective, last_best_epoch
 
 
 def optimize_pib(
