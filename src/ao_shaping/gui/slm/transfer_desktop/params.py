@@ -39,6 +39,7 @@ __all__ = [
     "STAGE_LABELS",
     "TransferFormValues",
     "build_session",
+    "effective_window_span",
     "plan_session_dir",
     "validate_form",
 ]
@@ -118,6 +119,8 @@ class TransferFormValues:
             :func:`build_session` 去空白后转成 ``Path``。
         seed_run: 历史接受相位目录原文（空 = 不用），由
             :func:`build_session` 去空白后转成 ``Path``。
+        window_span: 采样窗**半跨**（px）。``0`` = 自动派生（保持小目标行为完全
+            不变，见 :func:`effective_window_span`）；``>0`` = 显式指定。
     """
 
     shapes: tuple[str, ...] = ("square",)
@@ -143,6 +146,44 @@ class TransferFormValues:
     device: str = "auto"
     checkpoint: str = ""
     seed_run: str = ""
+    window_span: float = 0.0
+
+
+def effective_window_span(side: float, window_span: float = 0.0) -> float:
+    """采样窗**半跨**（px）：显式值优先，否则由目标边长派生。
+
+    为什么必须派生
+    --------------
+    采样窗是 ``validate.run`` 里 ``recentre_window(zero_xy, half_span_px=...)``
+    的半径：目标方斑整个落在窗内，两轴各再留 :data:`WINDOW_MARGIN_PX` 的边，
+    窗才既框住目标又不压窗边。管线默认半跨 220 px 只够 424 px 的目标，而实测
+    光路上 ``side=900`` 是跑通过的 —— 上限的唯一物理依据是 0 级到帧边的距离
+    （页面「读取零级」量出来），不是这个默认值。
+
+    于是：
+
+    * ``window_span > 0``（显式，例如命令行已验证过的 930）→ 原样返回；
+    * 否则 ``max(220, side/2 + 8)``：采样窗必须放下整个目标 + 两侧留白。
+      ``side`` 大到接近帧边时，派生出的半跨恰好等于 0 级到帧边的距离，
+      窗刚好不越界 —— 这正是「目标边长上限」的物理含义。
+
+    小目标行为不变：``side <= 424`` 时结果仍是 220.0，与管线默认值逐位相同。
+
+    Args:
+        side: 目标边长（CCD px）。
+        window_span: 显式半跨（px）；``0`` = 自动派生。
+
+    Returns:
+        采样窗半跨（px），**不是全宽**。
+    """
+    from ao_shaping.tools.slm.transfer.preflight import (
+        HALF_SPAN_PX,
+        WINDOW_MARGIN_PX,
+    )
+
+    if float(window_span) > 0:
+        return float(window_span)
+    return max(HALF_SPAN_PX, float(side) / 2.0 + WINDOW_MARGIN_PX)
 
 
 def validate_form(values: TransferFormValues) -> tuple[list[str], list[str]]:
@@ -186,6 +227,7 @@ def validate_form(values: TransferFormValues) -> tuple[list[str], list[str]]:
         updates=int(values.updates),
         frames=int(values.frames),
         shapes=tuple(values.shapes or ()),
+        half_span_px=effective_window_span(float(values.side), values.window_span),
     )
 
     errors: list[str] = []
@@ -238,8 +280,9 @@ def build_session(
 
     只做映射，不调用 ``TransferSession.validate`` —— 拒绝路径是
     :func:`validate_form` 的职责，运行端 (``run_session``) 自己还会再校验一次。
-    未在表单里出现的 ``TransferSession`` 字段（``initial_phase`` /
-    ``window_span`` 等）保持管线默认值，与 Streamlit 一致。
+    未在表单里出现的 ``TransferSession`` 字段（``initial_phase`` 等）保持管线
+    默认值，与 Streamlit 一致；``window_span`` 例外——它是派生量，见
+    :func:`effective_window_span`（``side`` 小的时候仍等于管线默认的 220）。
 
     Args:
         values: 表单快照。
@@ -264,6 +307,7 @@ def build_session(
         frames=int(values.frames),
         side=float(values.side),
         period=float(values.period),
+        window_span=effective_window_span(float(values.side), values.window_span),
         seed=int(values.seed),
         camera=str(values.camera),
         cam_id=int(values.cam_id),

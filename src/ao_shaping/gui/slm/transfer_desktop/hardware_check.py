@@ -1,0 +1,229 @@
+"""迁移学习闭环桌面页的中立硬件自检层。
+
+不 import Qt / Streamlit，只依赖标准库、相机驱动、``probe_slm`` 与
+``configured_daheng_exposure_limit``，供 Qt 页在后台线程调用。
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Literal
+
+from ao_shaping.drivers.ccd import DahengCamera, MIICamera
+from ao_shaping.drivers.slm.santec.probe import probe_slm
+from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
+
+__all__ = ["CheckItem", "HardwareReport", "check_hardware"]
+
+
+@dataclass(frozen=True)
+class CheckItem:
+    """单个自检项。"""
+
+    label: str
+    level: Literal["ok", "warn", "fail"]
+    detail: str
+    required: bool = True
+
+
+@dataclass(frozen=True)
+class HardwareReport:
+    """硬件自检报告。"""
+
+    items: tuple[CheckItem, ...]
+
+    @property
+    def ok(self) -> bool:
+        """所有必需项都不是 fail。"""
+        return all(not (item.required and item.level == "fail") for item in self.items)
+
+    def summary(self) -> str:
+        """一行中文结论。"""
+        failed = [item for item in self.items if item.required and item.level == "fail"]
+        if not failed:
+            return "硬件自检通过"
+        return f"硬件自检未通过（{len(failed)} 项必需项失败）"
+
+
+def _selected_cam_present(cam_list: object, cam_id: int) -> bool:
+    """判断所选 cam_id 是否在枚举列表中。"""
+    if cam_list is None:
+        return False
+    try:
+        materialised = list(cam_list)
+    except TypeError:  # policy: a non-iterable enumeration result is treated as "not present", not as a crash
+        return False
+    if not materialised:
+        return False
+
+    reported_indices: list[object] = []
+    for item in materialised:
+        idx = None
+        if isinstance(item, dict):
+            idx = item.get("index")
+        else:
+            idx = getattr(item, "index", None)
+        if idx is not None:
+            reported_indices.append(idx)
+
+    if reported_indices:
+        if cam_id in reported_indices:
+            return True
+        # Some backends report 1-based metadata indices.
+        if (cam_id + 1) in reported_indices:
+            return True
+
+    try:
+        return 0 <= cam_id < len(materialised)
+    except Exception:  # policy: defensive; membership must never raise
+        return False
+
+
+def check_hardware(camera: str, cam_id: int, slm_number: int) -> HardwareReport:
+    """执行中立硬件自检，返回报告。相机与 SLM 检查相互隔离。"""
+    items: list[CheckItem] = []
+
+    # 1. Daheng 枚举（必需）
+    try:
+        daheng_list = DahengCamera.get_cam_list()
+        daheng_items = [] if daheng_list is None else list(daheng_list)
+        count = len(daheng_items)
+        present = _selected_cam_present(daheng_items, cam_id)
+        if present:
+            items.append(
+                CheckItem(
+                    label="Daheng 枚举",
+                    level="ok",
+                    detail=f"枚举到 {count} 台 Daheng 相机，所选 cam_id={cam_id} 在列表中",
+                    required=True,
+                )
+            )
+        else:
+            items.append(
+                CheckItem(
+                    label="Daheng 枚举",
+                    level="fail",
+                    detail=f"枚举到 {count} 台 Daheng 相机，所选 cam_id={cam_id} 不在列表中",
+                    required=True,
+                )
+            )
+    except Exception as exc:  # policy: enumeration touches native SDK; one backend failing must not abort the other checks
+        items.append(
+            CheckItem(
+                label="Daheng 枚举",
+                level="fail",
+                detail=f"Daheng 枚举失败：{type(exc).__name__}: {exc}",
+                required=True,
+            )
+        )
+
+    # 2. MiiCam 枚举（非必需，仅供信息）
+    try:
+        miicam_list = MIICamera.get_cam_list()
+        miicam_items = [] if miicam_list is None else list(miicam_list)
+        count = len(miicam_items)
+        if count > 0:
+            items.append(
+                CheckItem(
+                    label="MiiCam 枚举",
+                    level="ok",
+                    detail=f"枚举到 {count} 台 MiiCam 相机（仅自检；Transfer 运行仍只接受 Daheng）",
+                    required=False,
+                )
+            )
+        else:
+            items.append(
+                CheckItem(
+                    label="MiiCam 枚举",
+                    level="warn",
+                    detail="未枚举到 MiiCam 相机（仅自检；Transfer 运行仍只接受 Daheng）",
+                    required=False,
+                )
+            )
+    except Exception as exc:  # policy: optional backend enumeration failure is informational only
+        items.append(
+            CheckItem(
+                label="MiiCam 枚举",
+                level="warn",
+                detail=f"MiiCam 枚举失败：{type(exc).__name__}（仅自检；Transfer 运行仍只接受 Daheng）",
+                required=False,
+            )
+        )
+
+    # 3. 所选 SLM（必需）
+    probe_error: Exception | None = None
+    device: dict | None = None
+    try:
+        device = probe_slm(slm_number)
+    except Exception as exc:  # policy: probe is best-effort; a raising probe must not abort the report
+        probe_error = exc
+    if probe_error is not None:
+        items.append(
+            CheckItem(
+                label="SLM 探测",
+                level="fail",
+                detail=f"SLM #{slm_number} 探测异常：{type(probe_error).__name__}",
+                required=True,
+            )
+        )
+    elif device is None:
+        items.append(
+            CheckItem(
+                label="SLM 探测",
+                level="fail",
+                detail=f"未发现 SLM #{slm_number}",
+                required=True,
+            )
+        )
+    elif bool(device.get("in_use")):
+        items.append(
+            CheckItem(
+                label="SLM 探测",
+                level="fail",
+                detail=f"SLM #{slm_number} 被占用",
+                required=True,
+            )
+        )
+    else:
+        serial = device.get("serial")
+        items.append(
+            CheckItem(
+                label="SLM 探测",
+                level="ok",
+                detail=f"SLM #{slm_number} 可用，序列号 {serial if serial else '-'}",
+                required=True,
+            )
+        )
+
+    # 4. 曝光安全上限（非必需）
+    try:
+        ceiling = configured_daheng_exposure_limit()
+        if ceiling and ceiling > 0:
+            items.append(
+                CheckItem(
+                    label="曝光安全上限",
+                    level="ok",
+                    detail=f"曝光安全上限已配置：{ceiling} ms",
+                    required=False,
+                )
+            )
+        else:
+            items.append(
+                CheckItem(
+                    label="曝光安全上限",
+                    level="warn",
+                    detail="曝光安全上限未配置，开激光后由画面探测",
+                    required=False,
+                )
+            )
+    except Exception as exc:  # policy: exposure ceiling read is best-effort and must not abort other checks
+        items.append(
+            CheckItem(
+                label="曝光安全上限",
+                level="warn",
+                detail=f"曝光安全上限读取异常：{type(exc).__name__}",
+                required=False,
+            )
+        )
+
+    return HardwareReport(items=tuple(items))

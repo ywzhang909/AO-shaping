@@ -25,6 +25,17 @@ P1 只暴露必设参数
 error 就禁用「开始运行」并把第一条写进 tooltip, warning 只提示。校验结论只来自 params
 层, 页面不另写一套判据。
 
+自检: 「设备自检」按钮显式触发一次只读硬件枚举 (相机列表 + 所选 SLM 探针), 结论落在
+① 设备区。它**不**挂在 ``_revalidate`` 上 —— 校验是纯参数判断, 每改一个数字就跑一遍
+硬件枚举既慢又会让「通过」变成噪音; 反过来, 设备参数改过之后旧结论只会标成「已过期」,
+不会自动重跑。自检本身走 :class:`HardwareCheckTask` (后台线程), 与运行中的会话互斥。
+
+读取零级: 「读取零级」按钮同样只在点击时发生, 走 :class:`_ZeroOrderTask` (后台线程,
+相机 SDK 不在 UI 线程里调), 同样与自检 / 运行互斥。「目标边长」的控件上限因此不再
+写死 400 px, 而是由实测 0 级到最近帧边的距离决定 (:mod:`~ao_shaping.gui.slm.transfer_desktop.zero_order`);
+采样窗半跨随之按边长派生 (``params.effective_window_span``), 所以 ``side=900`` 这类
+大目标能通过校验 —— 前提确实是 0 级离帧边够远。
+
 关窗: ``run_session`` 没有取消接口, 所以关窗**不假装能停** —— 停轮询, 最多等
 :data:`_CLOSE_GRACE_S` 秒让在飞作业落地 (期间泵事件队列, 让完成信号能送达), 超时就把
 窗口关掉; 会话本身仍在后台线程里按计划跑完并写进会话目录。
@@ -67,6 +78,7 @@ from PySide6.QtWidgets import (
 )
 
 from ao_shaping.gui.slm.transfer_desktop import params
+from ao_shaping.gui.slm.transfer_desktop.check_task import HardwareCheckTask
 from ao_shaping.gui.slm.transfer_progress import (
     MISSING,
     STATUS_LABELS,
@@ -87,6 +99,11 @@ _FORM_WIDTH = 560
 #: 关窗时等在飞会话落地的上限 (s)。会话没有取消接口, 无限等会把宿主窗口冻住。
 _CLOSE_GRACE_S = 5.0
 
+#: 「目标边长」的保守上限 (px)。没有量过 0 级位置时只能给这个值 —— 采样窗默认
+#: 半跨 220 px 扣掉两侧留白后正好 424 px, 400 是留了余量的保守档。
+#: 点「读取零级」后按实测 0 级到帧边的距离放宽 (物理上限), 见 ``zero_order``。
+_SIDE_MAX_CONSERVATIVE_PX = 400.0
+
 #: 相机类型的中文说明。代码值与 ``CAMERA_CHOICES`` 一一对应。
 _CAMERA_LABELS: dict[str, str] = {
     "daheng": "大恒（已验证）",
@@ -105,6 +122,10 @@ _STATUS_COLORS: dict[str, tuple[str, str]] = {
     "pending": ("#5f6368", "#9aa0a6"),
     "skipped": ("#5f6368", "#9aa0a6"),
 }
+
+#: ``CheckItem.level`` → 状态色档位。``fail`` 必须显式映射到 ``error``:
+#: ``_STATUS_COLORS`` 里没有 ``fail`` 这一档, 直接查表会静默退成 ``pending`` 的灰。
+_CHECK_LEVELS: dict[str, str] = {"ok": "ok", "warn": "warn", "fail": "error"}
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +221,43 @@ class _SessionTask(QRunnable):
         self.signals.stage.emit(name, status)
 
 
+class _ZeroSignals(QObject):
+    """「读取零级」后台任务 → 主线程 (``QRunnable`` 自己发不出信号)。"""
+
+    #: ``ZeroOrderReading`` 或异常实例 —— 全暗 / 贴边也是要上屏的结论。
+    done = Signal(object)
+
+
+class _ZeroOrderTask(QRunnable):
+    """在后台线程开一次相机读 0 级 (**只读**, 不碰 SLM)。
+
+    打开相机、改曝光、抓帧都是 SDK 调用, 快则几十毫秒、卡住则秒级; 落在 UI
+    线程会把窗口冻住。与 :class:`~ao_shaping.gui.slm.transfer_desktop.check_task.HardwareCheckTask`
+    同一套做法: 工作线程只发信号。
+    """
+
+    def __init__(self, camera: str, cam_id: int) -> None:
+        super().__init__()
+        self._camera = camera
+        self._cam_id = cam_id
+        self.signals = _ZeroSignals()
+
+    def run(self) -> None:
+        """线程池入口 (在后台线程执行)。"""
+        # 惰性 import: ``zero_order`` 会拉起相机 SDK, 页面冷启动不该先付这笔
+        # 代价; 也是测试 patch ``zero_order.read_zero_order`` 的接缝。
+        from ao_shaping.gui.slm.transfer_desktop.zero_order import read_zero_order
+
+        try:
+            reading = read_zero_order(self._camera, self._cam_id)
+        # policy: 工作线程不碰界面; 任何失败都变成一条回到主线程的结论
+        except Exception as exc:
+            logger.opt(exception=exc).warning("读取零级失败")
+            self.signals.done.emit(exc)
+        else:
+            self.signals.done.emit(reading)
+
+
 #: 在飞会话的强引用。页面先关、线程后完时任务对象不能被回收, 否则后台线程还在
 #: 跑的对象会先消失。平时由页面的 ``_task`` 持有, 这里只兜关窗那一段。
 _LIVE_TASKS: set[_SessionTask] = set()
@@ -221,6 +279,20 @@ class TransferPage(QWidget):
         self._task: _SessionTask | None = None
         self._running = False
         self._session_dir: Path | None = None
+        # 自检只在点按钮时发生。``_check_task`` 是强引用 (与 ``_task`` 同理, 掉引用
+        # 会让在飞任务被回收); 结论存成纯数据, 换主题时靠它重上色。
+        self._checking = False
+        self._check_task: HardwareCheckTask | None = None
+        self._check_key: tuple[str, int, int] | None = None
+        self._check_heading: tuple[str, str] | None = None
+        self._check_rows: list[tuple[str, str, str]] = []
+        # 「读取零级」同理只在点按钮时发生; ``_zero_task`` 是强引用, 掉引用会让
+        # 在飞任务被回收 (信号永远送不到)。``_zero_reading`` 同时是互斥标志。
+        self._zero_reading = False
+        self._zero_task: _ZeroOrderTask | None = None
+        self._zero_limit: int = int(_SIDE_MAX_CONSERVATIVE_PX)
+        #: ② 目标区常驻说明的 (色档, 正文)；``None`` = 还没读过零级。
+        self._zero_state: tuple[str, str] | None = None
         self._last_errors: list[str] = []
         self._last_warnings: list[str] = []
         self._status_kind = "pending"
@@ -309,6 +381,28 @@ class TransferPage(QWidget):
         form.addRow("CCD cam_id", self._cam_id)
         form.addRow("SLM 编号", self._slm_number)
         layout.addLayout(form)
+
+        # 自检按钮: 只有点它才会碰硬件 (枚举相机 + 探针 SLM)。默认可用 —— 参数
+        # 校验没过时, 恰恰更需要知道硬件是不是好的。
+        self._check_btn = QPushButton("设备自检")
+        self._check_btn.setToolTip(
+            "只读枚举相机并探测所选 SLM（会开关一次 SLM，不改显示内容）"
+        )
+        self._check_btn.clicked.connect(self._run_check)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(self._check_btn)
+        row.addStretch(1)
+        layout.addLayout(row)
+
+        self._check_view = QLabel()
+        self._check_view.setTextFormat(Qt.TextFormat.RichText)
+        self._check_view.setWordWrap(True)
+        self._check_view.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self._check_view.setVisible(False)
+        layout.addWidget(self._check_view)
         return box
 
     def _build_target(self) -> QGroupBox:
@@ -328,16 +422,43 @@ class TransferPage(QWidget):
             shape_row.addWidget(check)
         shape_row.addStretch(1)
 
-        self._side = self._dspin(_DEFAULTS.side, 8.0, 400.0, step=5.0)
+        self._side = self._dspin(
+            _DEFAULTS.side, 8.0, _SIDE_MAX_CONSERVATIVE_PX, step=5.0
+        )
         self._period = self._dspin(_DEFAULTS.period, 4.0, 1024.0, step=1.0)
+
+        # 「读取零级」: 让目标边长的上限来自实测光轴 (0 级到最近帧边的距离),
+        # 而不是写死的保守值。做法与自检一致 —— 点了才碰硬件, 且只读。
+        self._zero_btn = QPushButton("读取零级")
+        self._zero_btn.setToolTip(
+            "只读：开一次相机找 0 级，由 0 级到帧边的距离算出目标边长上限。"
+            "不改光路、不改 SLM 显示"
+        )
+        self._zero_btn.clicked.connect(self._read_zero_order)
+        side_row = QHBoxLayout()
+        side_row.setContentsMargins(0, 0, 0, 0)
+        side_row.setSpacing(8)
+        side_row.addWidget(self._side, 1)
+        side_row.addWidget(self._zero_btn, 0)
 
         form = QFormLayout()
         form.setContentsMargins(0, 0, 0, 0)
         form.setSpacing(8)
         form.addRow("目标形状", shape_host)
-        form.addRow("目标边长（CCD px）", self._side)
+        form.addRow("目标边长（CCD px）", side_row)
         form.addRow("载波周期（面板 px）", self._period)
         layout.addLayout(form)
+
+        # 常驻说明: 上限从哪来、现在是多少 —— 读不到时也要把「仍是保守值」讲清楚。
+        self._zero_view = QLabel()
+        self._zero_view.setTextFormat(Qt.TextFormat.RichText)
+        self._zero_view.setWordWrap(True)
+        self._zero_view.setVisible(True)
+        hint_font = self._zero_view.font()
+        hint_font.setPointSize(max(hint_font.pointSize() - 1, 7))
+        self._zero_view.setFont(hint_font)
+        layout.addWidget(self._zero_view)
+        self._render_zero()
         return box
 
     def _build_checks(self) -> QGroupBox:
@@ -490,6 +611,24 @@ class TransferPage(QWidget):
         """「开始运行」按钮 (自动化验证按它判断可启动性)。"""
         return self._run_btn
 
+    def check_button(self) -> QPushButton:
+        """「设备自检」按钮 (自动化验证按它判断自检是否可触发 / 已结束)。"""
+        return self._check_btn
+
+    def zero_order_button(self) -> QPushButton:
+        """「读取零级」按钮 (自动化验证按它判断读数是否可触发 / 已结束)。"""
+        return self._zero_btn
+
+    def check_report(self) -> str:
+        """最近一次自检的纯文本结论 (没自检过为空串; 供自动化断言)。"""
+        if self._check_heading is None:
+            return ""
+        lines = [self._check_heading[1]]
+        lines.extend(f"{label}：{detail}" for _, label, detail in self._check_rows)
+        if self._check_stale():
+            lines.append("设备参数已改，请重新点「设备自检」")
+        return "\n".join(lines)
+
     def set_camera(self, kind: str) -> None:
         """程序方式选相机后端, 联动与手工点选相同 (未知后端直接报错)。"""
         index = self._camera.findData(str(kind))
@@ -515,17 +654,33 @@ class TransferPage(QWidget):
 
     # ------------------------------------------------------------------ 校验
     def _revalidate(self) -> None:
-        """改动即校验: 有阻塞就禁用启动, 提醒只上色不拦。"""
+        """改动即校验: 有阻塞就禁用启动, 提醒只上色不拦。
+
+        只做参数判断 —— 硬件自检是「设备自检」按钮的事, 不在这里触发 (否则每敲
+        一个数字都枚举一次设备)。这里顺带重画自检区, 只是把旧结论标成过期。
+        """
         errors, warnings = params.validate_form(self.form_values())
         self._last_errors = errors
         self._last_warnings = warnings
         self._render_checks()
-        self._run_btn.setEnabled(not errors and not self._running)
-        self._run_btn.setToolTip(
-            errors[0]
-            if errors
-            else ("会话运行中" if self._running else "启动整场迁移学习会话")
+        self._run_btn.setEnabled(
+            not errors
+            and not self._running
+            and not self._checking
+            and not self._zero_reading
         )
+        if errors:
+            reason = errors[0]
+        elif self._running:
+            reason = "会话运行中"
+        elif self._checking:
+            reason = "正在自检设备，稍候"
+        elif self._zero_reading:
+            reason = "正在读取 0 级，稍候"
+        else:
+            reason = "启动整场迁移学习会话"
+        self._run_btn.setToolTip(reason)
+        self._render_check()
 
     def _render_checks(self) -> None:
         """把最近一次校验结论画成红 / 黄两段 (无结论 = 绿字通过)。"""
@@ -566,11 +721,177 @@ class TransferPage(QWidget):
             *self._shapes.values(),
         ):
             widget.setEnabled(enabled)
+        # 自检同样要锁: 会话正占着 SLM 时再探一次, 只会跟它对抢设备。
+        self._check_btn.setEnabled(enabled and not self._checking)
+        # 读零级要开相机: 会话跑起来后相机归它用, 关闭时也顺手复位。
+        self._zero_btn.setEnabled(enabled and not self._checking and not self._zero_reading)
+
+    # ------------------------------------------------------------------ 自检
+    def _device_key(self) -> tuple[str, int, int]:
+        """自检唯一关心的三个字段 (其余表单值与硬件无关)。"""
+        values = self.form_values()
+        return values.camera, values.cam_id, values.slm_number
+
+    def _check_stale(self) -> bool:
+        """结论是不是对着另一组设备参数跑的 —— 改过设备字段就算过期。"""
+        if self._check_key is None:
+            return False
+        return self._device_key() != self._check_key
+
+    def _run_check(self) -> None:
+        """「设备自检」按钮: 显式触发一次只读硬件枚举, 交给后台线程。"""
+        if self._checking or self._running or self._zero_reading:
+            # 按钮已禁用, 这里是第二道闸 (程序方式触发 clicked 时也拦住)。
+            return
+        key = self._device_key()
+        self._checking = True
+        self._check_key = key
+        self._check_heading = ("pending", "正在自检…（枚举相机 / 探测 SLM）")
+        self._check_rows = []
+        self._check_btn.setEnabled(False)  # 一次只跑一份; 也避免连点排两个任务
+        self._zero_btn.setEnabled(False)  # 自检正占着 SLM, 此刻读零级只会抢设备
+        self._render_check()
+        self._revalidate()
+
+        task = HardwareCheckTask(*key)
+        # 与 ``_SessionTask`` 一样不交给 Qt 自动回收: 回收早于信号送达就丢掉结论。
+        task.setAutoDelete(False)
+        self._check_task = task
+        task.signals.done.connect(self._on_check_done)
+        self._pool.start(task)
+
+    def _on_check_done(self, payload: object) -> None:
+        """自检结论回到 UI 线程: 逐项上屏, 再把两个按钮的决定权交回校验。"""
+        self._checking = False
+        self._check_task = None
+        if isinstance(payload, BaseException):
+            # 自检脚本自己炸了 (SDK 缺失、进程被占用……) 也是一种必须说清的结论。
+            self._check_heading = ("error", "自检未完成：检查本身出错")
+            self._check_rows = [
+                ("error", type(payload).__name__, str(payload) or "（无消息）")
+            ]
+        else:
+            ok = bool(getattr(payload, "ok", False))
+            summary = str(getattr(payload, "summary", lambda: "")())
+            self._check_heading = (
+                "ok" if ok else "error",
+                summary or "硬件自检完成",
+            )
+            self._check_rows = [
+                (
+                    _CHECK_LEVELS.get(str(getattr(item, "level", "")), "pending"),
+                    str(getattr(item, "label", "")),
+                    str(getattr(item, "detail", "")),
+                )
+                for item in getattr(payload, "items", ())
+            ]
+        self._check_btn.setEnabled(not self._running)
+        self._zero_btn.setEnabled(not self._running and not self._zero_reading)
+        self._render_check()
+        self._revalidate()
+
+    def _render_check(self) -> None:
+        """自检区: 结论 + 逐项明细, 颜色按当前主题取; 过期只是加一句提醒。"""
+        if self._check_heading is None:
+            self._check_view.clear()
+            self._check_view.setVisible(False)
+            return
+        self._check_view.setVisible(True)
+        kind, text = self._check_heading
+        color = self._colors.get(kind, self._colors["pending"])
+        parts = [
+            f'<p style="margin:0 0 2px 0"><b style="color:{color}">'
+            f"{escape(text)}</b></p>"
+        ]
+        for level, label, detail in self._check_rows:
+            item_color = self._colors.get(level, self._colors["pending"])
+            parts.append(
+                f'<p style="margin:0"><span style="color:{item_color}">■ '
+                f"{escape(label)}</span>{escape('：' + detail)}</p>"
+            )
+        if self._check_stale():
+            parts.append(
+                '<p style="margin:2px 0 0 0"><span style="color:'
+                f'{self._colors["warn"]}">设备参数已改，请重新点「设备自检」</span></p>'
+            )
+        self._check_view.setText("".join(parts))
+
+    # -------------------------------------------------------------- 读取零级
+    def _read_zero_order(self) -> None:
+        """「读取零级」按钮: 只读地开一次相机量 0 级, 交给后台线程。
+
+        与自检 / 运行同一套互斥: 自检正开着 SLM、会话正占着相机时再开一次,
+        只会跟它们对抢设备。
+        """
+        if self._zero_reading or self._checking or self._running:
+            # 按钮已禁用, 这里是第二道闸 (程序方式触发 clicked 时也拦住)。
+            return
+        values = self.form_values()
+        self._zero_reading = True
+        self._zero_btn.setEnabled(False)  # 一次只跑一份; 也避免连点排两个任务
+        self._set_run_state("running", "正在读取 0 级…（开关一次相机）")
+        self._revalidate()
+
+        task = _ZeroOrderTask(values.camera, int(values.cam_id))
+        # 与 ``_SessionTask`` 一样不交给 Qt 自动回收: 回收早于信号送达就丢掉结论。
+        task.setAutoDelete(False)
+        self._zero_task = task
+        task.signals.done.connect(self._on_zero_done)
+        self._pool.start(task)
+
+    def _on_zero_done(self, payload: object) -> None:
+        """读数回到 UI 线程: 按实测上限放宽控件, 再把按钮的决定权交回校验。"""
+        self._zero_reading = False
+        self._zero_task = None
+        if isinstance(payload, BaseException):
+            # 全暗 / 0 级贴边都是操作性结论: 原因原样上屏, 上限保持原值。
+            self._zero_state = (
+                "error",
+                f"读取零级失败：{payload}。"
+                f"目标边长上限仍为 {self._zero_limit} px（保守值）。",
+            )
+            self._set_run_state("failed", f"读取零级失败：{payload}")
+        else:
+            max_side = int(getattr(payload, "max_side_px", 0))
+            summary = str(getattr(payload, "summary", lambda: "")())
+            if max_side > 0:
+                self._zero_limit = max_side
+                # 上限就是物理依据: 0 级到最近帧边的距离折成的边长。
+                self._side.setMaximum(float(max_side))
+                if self._side.value() > max_side:
+                    self._side.setValue(float(max_side))
+            center = tuple(getattr(payload, "center", (0, 0)))
+            shape = tuple(getattr(payload, "frame_shape", (0, 0)))
+            self._zero_state = (
+                "ok",
+                f"已读零级：目标边长上限 {max_side} px"
+                f"（0 级 ({center[0]}, {center[1]})，帧 {shape[1]}×{shape[0]}）；"
+                "采样窗半跨按边长自动派生。",
+            )
+            self._set_run_state("complete", summary or "读取零级完成")
+        self._zero_btn.setEnabled(not self._running and not self._checking)
+        self._render_zero()
+        self._revalidate()
+
+    def _render_zero(self) -> None:
+        """② 目标的常驻说明: 上限从哪来、现在是多少 (跟随主题换色)。"""
+        if self._zero_state is None:
+            text = (
+                f"未读取零级：目标边长上限 {self._zero_limit} px（保守值）。"
+                "点「读取零级」按实际光轴放宽。"
+            )
+            color = self._muted()
+        else:
+            kind, text = self._zero_state
+            color = self._colors.get(kind, self._muted())
+        self._zero_view.setText(f'<span style="color:{color}">{escape(text)}</span>')
 
     # ------------------------------------------------------------------ 运行
     def _start_run(self) -> None:
         """启动会话: 目录在这一刻确定, 之后改表单不影响本次运行。"""
-        if self._running:
+        if self._running or self._checking or self._zero_reading:
+            # 自检正开着 SLM、读零级正开着相机, 此时开跑两边会抢设备
+            # (按钮已禁用, 这是第二道闸)。
             return
         values = self.form_values()
         errors, _ = params.validate_form(values)
@@ -703,6 +1024,8 @@ class TransferPage(QWidget):
         """按当前调色板重刷状态色 (亮 / 暗主题各一档)。"""
         self._colors = _palette_colors(self.palette())
         self._render_checks()
+        self._render_check()
+        self._render_zero()
         self._set_run_state(self._status_kind, self._status_message)
 
     def changeEvent(self, event: QEvent) -> None:
@@ -714,10 +1037,13 @@ class TransferPage(QWidget):
     def closeEvent(self, event: QCloseEvent) -> None:
         """关窗: 停轮询, 有限度地等在飞会话落地 —— ``run_session`` 没有取消接口。"""
         self._poll.stop()
-        if self._running:
+        if self._running or self._zero_reading:
             # 完成信号排在 UI 事件队列里, 干等会拿不到; 必须泵事件驱动回调。
+            # 读零级也要一起等: 相机还没关就退池, 下次打开会撞上占用。
             deadline = time.monotonic() + _CLOSE_GRACE_S
-            while self._running and time.monotonic() < deadline:
+            while (
+                self._running or self._zero_reading
+            ) and time.monotonic() < deadline:
                 QApplication.processEvents()
                 time.sleep(0.02)
         super().closeEvent(event)

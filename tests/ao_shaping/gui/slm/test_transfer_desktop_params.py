@@ -26,6 +26,7 @@ from ao_shaping.gui.slm.transfer_desktop.params import (
     plan_session_dir,
     validate_form,
 )
+from ao_shaping.tools.slm.transfer import preflight
 
 
 def _values(**overrides: object) -> TransferFormValues:
@@ -35,7 +36,7 @@ def _values(**overrides: object) -> TransferFormValues:
 # --- 常量与默认值 -----------------------------------------------------------
 
 
-def test_the_public_contract_is_the_documented_eight_names() -> None:
+def test_the_public_contract_is_the_documented_nine_names() -> None:
     assert set(params.__all__) == {
         "CAMERA_CHOICES",
         "SHAPE_CHOICES",
@@ -43,6 +44,7 @@ def test_the_public_contract_is_the_documented_eight_names() -> None:
         "STAGE_LABELS",
         "TransferFormValues",
         "build_session",
+        "effective_window_span",
         "plan_session_dir",
         "validate_form",
     }
@@ -390,3 +392,87 @@ def test_the_module_is_utf8_without_a_bom() -> None:
 
     assert not raw.startswith(b"\xef\xbb\xbf")
     raw.decode("utf-8")
+
+
+# --- 采样窗半跨的派生 -------------------------------------------------------
+
+
+def test_small_targets_keep_the_pipeline_default_half_span() -> None:
+    """小目标行为必须逐位不变: 220 px 半跨是管线默认值。"""
+    assert params.effective_window_span(80) == 220.0
+    assert params.effective_window_span(424) == 220.0
+    # 424 = 2 * (220 - 8): 恰好放得下, 不该被推到 220 以上。
+    assert params.effective_window_span(424, 0.0) == 220.0
+
+
+def test_large_targets_derive_a_window_that_holds_the_target() -> None:
+    """派生口径 = max(220, side/2 + 留白): 采样窗要放下整个目标 + 两侧留白。"""
+    assert params.effective_window_span(900) >= 458.0
+    assert params.effective_window_span(900) == 900 / 2 + 8.0
+
+
+def test_an_explicit_window_span_is_returned_verbatim() -> None:
+    """命令行验证过的显式半跨 (930) 不能被派生逻辑改写。"""
+    assert params.effective_window_span(900, 930.0) == 930.0
+    assert params.effective_window_span(80, 300.0) == 300.0
+
+
+def test_side_900_passes_validation_through_the_derived_half_span(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 只测「半跨怎么传给 preflight」, 不把 torch 安装状态混进来。
+    monkeypatch.setattr(params, "_torch_missing", lambda: None)
+    errors, _ = validate_form(_values(side=900.0))
+
+    assert errors == []
+    problems = preflight.check_parameters(
+        side=900.0,
+        period=64.0,
+        count=24,
+        iterations=60,
+        blocks=4,
+        updates=10,
+        frames=3,
+        shapes=("square",),
+        half_span_px=params.effective_window_span(900.0),
+    )
+    assert [problem.code for problem in problems] == []
+
+
+def test_an_explicit_span_below_the_derived_one_still_blocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """显式半跨优先: 写了 220 就必须按 220 判, 900 px 目标要被拦住。"""
+    monkeypatch.setattr(params, "_torch_missing", lambda: None)
+    errors, _ = validate_form(_values(side=900.0, window_span=220.0))
+
+    assert any(problem.code == "side_exceeds_window" for problem in _problems(900.0, 220.0))
+    assert any("采样窗" in error for error in errors)
+
+
+def _problems(side: float, half_span: float) -> list[preflight.Problem]:
+    return preflight.check_parameters(
+        side=side,
+        period=64.0,
+        count=24,
+        iterations=60,
+        blocks=4,
+        updates=10,
+        frames=3,
+        shapes=("square",),
+        half_span_px=half_span,
+    )
+
+
+def test_build_session_carries_the_effective_window_span(tmp_path) -> None:
+    values = TransferFormValues(side=900.0)
+    session = build_session(values, out=tmp_path / "session")
+
+    assert session.window_span == params.effective_window_span(values.side)
+
+
+def test_build_session_keeps_an_explicit_window_span(tmp_path) -> None:
+    values = TransferFormValues(side=900.0, window_span=930.0)
+    session = build_session(values, out=tmp_path / "session")
+
+    assert session.window_span == 930.0
