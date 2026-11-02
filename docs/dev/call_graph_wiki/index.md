@@ -103,7 +103,7 @@
 | [[functions/debug-mode]] | `get_debug_mode()` / `resolve_debug()` — DEBUG 判定 | `utils/io/cli_helpers.py:29` |
 | [[functions/path-dirs]] | `gen_date_dir()` / `make_date_dir()` / 时间戳 | `utils/io/file.py:159` |
 | [[functions/recorder]] | `Recorder` 类 — 优化过程逐行记录 | `utils/io/file.py:472` |
-| [[functions/debug-artifacts]] | `save_optimization_debug_artifacts()` / `save_recorder_debug_artifacts()` | `utils/io/file.py:1380` |
+| [[functions/debug-artifacts]] | `save_optimization_debug_artifacts()` / `save_recorder_debug_artifacts()` | `utils/io/file.py:1368` |
 | [[functions/zernike-calc]] | `zernike_modes(n)` / `calc_n_zernike_terms(n)` | `utils/wavefront/zernike_calc.py:90` |
 | [[functions/spots]] | `centroid()` / `radius()` / `pib_ratio_mask()` | `utils/image/spots_calc.py:218` |
 | [[functions/matrix-utils]] | `compute_pinv()` / `compute_lstsq()` / `safe_pinv()` / `effective_cond()` | `utils/wavefront/matrix_utils.py:16` |

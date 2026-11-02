@@ -923,65 +923,12 @@ def _gif_frames(
                 ax.clear()
 
         # top panels
-        for j in range(3):
-            ax = axes[0][j]
-            if j < len(top_keys):
-                key, kind = top_keys[j]
-                val = rec.get(key, None)
-                if val is None:
-                    ax.text(0.5, 0.5, f"no {key}", ha="center", va="center")
-                    ax.axis("off")
-                    continue
-                arr = np.asarray(val)
-                if kind == "phase":
-                    try:
-                        wrapped = np.mod(arr.astype(float) + np.pi, 2 * np.pi) - np.pi
-                    except (TypeError, ValueError):
-                        ax.text(
-                            0.5,
-                            0.5,
-                            f"{key} (non-numeric)",
-                            ha="center",
-                            va="center",
-                            fontsize=9,
-                        )
-                        ax.set_xticks([])
-                        ax.set_yticks([])
-                        continue
-                    ax.imshow(
-                        wrapped,
-                        cmap="twilight",
-                        origin="upper",
-                        vmin=-np.pi,
-                        vmax=np.pi,
-                    )
-                    ax.set_title(f"{key} 瞳面相位 (rad)", fontsize=10)
-                    if initial_phase_arr is None:
-                        initial_phase_arr = wrapped.copy()
-                elif kind == "grad":
-                    ax.imshow(arr, cmap="coolwarm", origin="upper")
-                    ax.set_title(f"{key}", fontsize=10)
-                elif kind == "coeff":
-                    try:
-                        arrf = np.asarray(arr, dtype=float)
-                        ax.bar(range(len(arrf)), arrf)
-                    except (TypeError, ValueError):
-                        ax.text(
-                            0.5,
-                            0.5,
-                            f"{key} (non-numeric)",
-                            ha="center",
-                            va="center",
-                            fontsize=9,
-                        )
-                    ax.set_title(f"{key}", fontsize=10)
-                else:
-                    ax.imshow(arr, cmap="inferno", origin="upper")
-                    ax.set_title(f"{key}", fontsize=10)
-                ax.set_xticks([])
-                ax.set_yticks([])
-            else:
-                ax.axis("off")
+        initial_phase_arr = _render_gif_top_panels(
+            axes=axes,
+            initial_phase_arr=initial_phase_arr,
+            rec=rec,
+            top_keys=top_keys,
+        )
 
         # bottom-left: phase diff if phase available
         ax_bl = axes[1][0]
@@ -1884,3 +1831,77 @@ class SLMConfigManager(DeviceConfigManager):
 
     def __init__(self, config_dir: str | Path):
         super().__init__(config_dir, device_type="slm")
+
+
+def _render_gif_top_panels(
+    *,
+    axes: object,
+    initial_phase_arr: object,
+    rec: object,
+    top_keys: object,
+):
+    """#205 batch-22: the former top-panels For block of _gif_frames.
+
+    Returns ``initial_phase_arr``: the only region store live across outer-loop
+    iterations (set on the first phase panel, read by the bottom-left diff
+    block). Every other name the block binds is re-bound before any read."""
+    for j in range(3):
+        ax = axes[0][j]
+        if j < len(top_keys):
+            key, kind = top_keys[j]
+            val = rec.get(key, None)
+            if val is None:
+                ax.text(0.5, 0.5, f"no {key}", ha="center", va="center")
+                ax.axis("off")
+                continue
+            arr = np.asarray(val)
+            if kind == "phase":
+                try:
+                    wrapped = np.mod(arr.astype(float) + np.pi, 2 * np.pi) - np.pi
+                except (TypeError, ValueError):
+                    ax.text(
+                        0.5,
+                        0.5,
+                        f"{key} (non-numeric)",
+                        ha="center",
+                        va="center",
+                        fontsize=9,
+                    )
+                    ax.set_xticks([])
+                    ax.set_yticks([])
+                    continue
+                ax.imshow(
+                    wrapped,
+                    cmap="twilight",
+                    origin="upper",
+                    vmin=-np.pi,
+                    vmax=np.pi,
+                )
+                ax.set_title(f"{key} 瞳面相位 (rad)", fontsize=10)
+                if initial_phase_arr is None:
+                    initial_phase_arr = wrapped.copy()
+            elif kind == "grad":
+                ax.imshow(arr, cmap="coolwarm", origin="upper")
+                ax.set_title(f"{key}", fontsize=10)
+            elif kind == "coeff":
+                try:
+                    arrf = np.asarray(arr, dtype=float)
+                    ax.bar(range(len(arrf)), arrf)
+                except (TypeError, ValueError):
+                    ax.text(
+                        0.5,
+                        0.5,
+                        f"{key} (non-numeric)",
+                        ha="center",
+                        va="center",
+                        fontsize=9,
+                    )
+                ax.set_title(f"{key}", fontsize=10)
+            else:
+                ax.imshow(arr, cmap="inferno", origin="upper")
+                ax.set_title(f"{key}", fontsize=10)
+            ax.set_xticks([])
+            ax.set_yticks([])
+        else:
+            ax.axis("off")
+    return initial_phase_arr

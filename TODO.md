@@ -4469,6 +4469,13 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 锚随迁（行首规范值改写 + 历史链追加）：wiki `optimize-pib-combined` source 行与 index 行 `:342→:397`；TODO `:326→:381`（teardown 行随块入 helper，新代际区间内容实证）；TODO `:354→:409`（helper 插入其上，+55）；TODO `:369` 属实验史叙述不动。
 - 验收：6/6；守卫 `_COMB` 改写（320/6→80/1 + 新增 `_run_combined_session` 290/6）→ 66/66；conventions 72 passed / 1 skipped；term / ruff / provenance 全绿；combined_optimizer 433→488 低于棘轮线不重锚；CI Pytest 首轮 success。
 
+**2026-11-02 · 31f67ed5 · #205 第二十一批：`optimize_pib`(433 行/nest 5) 322 行 bench With 提为 `_run_pib_bench_session`（整 With + 透明 pass-through）**
+- 区域 = fn 体末语句（post stmts ∅）⇒ 无 thread_out，调用点 `return` 直传区域级 Return；read_only 40 名（19 形参 + `kwargs` + 预区局部），thread_in = ∅。唯一预区 def `_show_probe_frame` 闭包漂移断言 GO（只读形参注入，第十五批 `_record_vec` 同族）；六个区域内 def（`test_pib`/`calc_objective` 各三分支、`run_adaptive_search`、`evaluate_candidate`、`_render_epoch_frame`、`_saturate_epoch`）cell 与重绑同域随块走；区域级 Continue 判据（所属 For 随块 ⇒ 合法）。
+- 形态：session 433→153 行 / nest 5→1；helper 366 行 / nest 5。**helper 追加 EOF 的新省锚路径**：`optimize_pib` def 行不动 ⇒ `pib.py:509`、`:95`、`:29` 全部既有锚逐字节不动、零随迁。
+- 验收：pib 四文件 26/26（拆前基线同计数）；守卫 `_PIB` 改写（500/5→200/2）+ 新增 `_run_pib_bench_session` 400/6 → 67/67；conventions 72 passed / 1 skipped；module-size 棘轮 941→1029 重锚（整 With 模板净 +88 = 40 元形参表与调用点样板税，与"只允许变小"方向相反 ⇒ 逐批重锚，棘轮防无界增长而非样板税）。
+- **跨 issue 护栏耦合（补记 `ed2174c7`）**：#167 的 walker-sanity 见证具名钉在 `optimize_pib`（写时 nest 8），本批合法拆到 nest 1 ⇒ **另一个 issue 的 sanity 断言因本次合法收敛而假红**。处置：见证改 `src/` 全树最大嵌套**聚合**断言（>=4），不重钉新见证名（重钉只是把雷推给下一批）。判据固化：**拆前先 `git grep` 测试树对被拆函数的具名引用**（`_measure(..., "optimize_pib")` 这类命名耦合），闭包漂移断言拦数据流耦合，本条拦测试↔实现的命名耦合。
+- flake 对新增两数据点：作者纯 JSON 资产提交 `f77e3341` 同签名红（sim2f + train_amp_loss），本批 tip 红为上述**真缺陷**（不同签名）⇒ 判定纪律不变：按签名区分 flake 与真红，不因 tip 红就复跑。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
@@ -4556,7 +4563,8 @@ AST 全量扫描（`src/**`，排除 `__pycache__`）：**10 个** ≥10 行的 
 > 🔴 **惰性契约的「磁盘半边」此前零执行**（本轮收口）。README/AGENTS 写「`import ao_shaping`
 > 及其子包不得加载原生 SDK、不得做磁盘 I/O」：SDK 半边有机制（惰性 `_load_sdk`），
 > **磁盘半边一个守卫都没有**，而且一直在被违反 —— `DeviceConfigManager.__init__`
-> （`utils/io/file.py:1145`）既 `mkdir(parents=True)` 又读 `defaults.json`，而它由**五个模块级
+> （`utils/io/file.py:1657`；2026-11-02 复核重钉：原钉 `:1145` 早已越靶——那行在
+> `render_recorder_gif` 内的字体检查，`__init__` 现在 1657）既 `mkdir(parents=True)` 又读 `defaults.json`，而它由**五个模块级
 > 单例**在 import 期实例化（`thorlab_wfs.py:193`、`santec/driver.py:276`、`daheng/driver.py:46`、
 > `micro/driver.py:96`、`nlight/driver.py:76`）；再叠上 `drivers/__init__.py:28` 急切
 > `from ...wfs import ThorlabWFS` ⇒ **任何** `ao_shaping.drivers.*` 的 import 都会建
