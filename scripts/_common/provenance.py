@@ -174,6 +174,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ml/sim2f/measurement.py",
             "src/ml/sim2f/optics.py",
             "src/ml/sim2f/pinn.py",
+            "scripts/ml/sim2f_fov_hw_figures.py",
         ),
     ),
     "report/shape_trials/multishape_scale/square_1000_diff_abba_20261030.md": ReportProvenance(

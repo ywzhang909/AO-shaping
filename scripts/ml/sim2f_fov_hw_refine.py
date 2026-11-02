@@ -20,6 +20,15 @@ Example::
       --calibration data/debug/sim2f_fov/calibration \
       --out data/debug/sim2f_fov/refine_ring --target ring --rounds 4 \
       --exposure-ms 0.4
+
+A drifted zero order is routine on site: with ``--zero-order-tolerance-px N``
+(default 0) a live zero order within ``N`` pixels (Chebyshev) of the recorded
+one is adopted instead of refusing the run, and the reference frame is then
+recaptured at the live alignment, so a frame cropped at the old zero order is
+never compared with one cropped at the new one.  ``--min-window-peak-count``
+(default 0, no guard) fails any capture whose peak inside the analysis window is
+below that many counts, which keeps a shape frame at the noise floor out of the
+acceptance record.
 """
 
 from __future__ import annotations
@@ -462,11 +471,15 @@ class _LazyInstrument:
         window_px: int,
         panel_shape: tuple[int, int] | None,
         pupil_center_xy: tuple[float, float] | None,
+        zero_order_tolerance_px: int = 0,
     ) -> None:
         self.dry_run = dry_run
         self.full_cfg = full_cfg
         self.expected_native = native_shape
         self.expected_zero_order = zero_order_xy
+        self.zero_order_tolerance_px = int(zero_order_tolerance_px)
+        self.zero_order_drift_px = 0
+        self.adopted_zero_order = False
         self.exposure_ms = exposure_ms
         self.settle_s = settle_s
         self.cam_type = cam_type
@@ -512,12 +525,32 @@ class _LazyInstrument:
                     )
             native = tuple(int(value) for value in instrument.enable_full_frame())
             zero_order = tuple(int(value) for value in instrument.zero_order_xy)
-            if native != self.expected_native or zero_order != self.expected_zero_order:
-                raise RuntimeError(
-                    "opened instrument metadata differs from the source session: "
-                    f"native {native} vs {self.expected_native}, zero order "
-                    f"{zero_order} vs {self.expected_zero_order}"
+            mismatch = (
+                "opened instrument metadata differs from the source session: "
+                f"native {native} vs {self.expected_native}, zero order "
+                f"{zero_order} vs {self.expected_zero_order}"
+            )
+            if native != self.expected_native:
+                raise RuntimeError(mismatch)
+            if zero_order != self.expected_zero_order:
+                drift = max(
+                    abs(zero_order[0] - self.expected_zero_order[0]),
+                    abs(zero_order[1] - self.expected_zero_order[1]),
                 )
+                adopted = (
+                    not self.dry_run
+                    and self.zero_order_tolerance_px > 0
+                    and drift <= self.zero_order_tolerance_px
+                )
+                if not adopted:
+                    raise RuntimeError(mismatch)
+                # A drifted zero order shifts every crop, so the live alignment
+                # wins and the recorded reference has to be recaptured: scoring
+                # a source frame cropped at the old zero order against a
+                # candidate cropped at the new one would compare two geometries.
+                self.expected_zero_order = zero_order
+                self.zero_order_drift_px = int(drift)
+                self.adopted_zero_order = True
             return instrument
         except Exception:
             self.instrument = None
@@ -538,6 +571,8 @@ def _capture_artifact(
     stem: str,
     phase: np.ndarray,
     exposure_ms: float,
+    layout: dict[str, Any],
+    min_window_peak_count: float = 0.0,
 ) -> dict[str, Any]:
     instrument = lazy.open()
     started = _utc_now()
@@ -555,6 +590,16 @@ def _capture_artifact(
     frame = np.asarray(instrument.capture_full_frame(phase))
     _atomic_npy(frame_path, frame)
     _load_npy(frame_path, lazy.expected_native)
+    native_frame = np.asarray(frame, dtype=np.float64)
+    frame_max = float(np.max(native_frame))
+    window_peak = float(np.max(_crop_native(native_frame, layout)))
+    if min_window_peak_count > 0.0 and window_peak < min_window_peak_count:
+        raise RuntimeError(
+            f"capture {stem!r} peaks at {window_peak:.6g} counts inside the "
+            "analysis window, below the required "
+            f"{min_window_peak_count:.6g} counts (--min-window-peak-count); the "
+            "frame is at the noise floor, so no measured gain can be trusted"
+        )
     return {
         "phase": phase_path.relative_to(out).as_posix(),
         "phase_sha256": _sha256(phase_path),
@@ -566,6 +611,8 @@ def _capture_artifact(
         "zero_order_xy": list(lazy.expected_zero_order),
         "exposure_ms": float(exposure_ms),
         "capture": instrument.describe(),
+        "frame_max": frame_max,
+        "window_peak": window_peak,
         "timestamps": {"started_utc": started, "completed_utc": _utc_now()},
         "capture_method": "sequential_native_full_frame",
     }
@@ -752,6 +799,43 @@ def run_refinement(args: argparse.Namespace) -> dict[str, Any]:
         update_sigma_px=float(args.update_sigma_px),
         min_gain=float(args.model_min_gain),
     )
+    grid = int(plan["grid"])
+    full_px = int(layout["full_px"])
+    full_cfg = replace(Sim2fConfig.calibrated(), grid=grid, ccd_px=full_px)
+    full_model: Any = Sim2f(full_cfg, device="cpu")
+    calibration_mode = "frozen_fitted_calibration"
+    if args.dry_run:
+        calibration_mode = "nominal_twin_dry_run_calibration_not_loaded"
+    else:
+        full_model = CalibratedBench(full_model, load_calibration(calibration))
+    lazy = _LazyInstrument(
+        dry_run=bool(args.dry_run),
+        full_cfg=full_cfg,
+        native_shape=source["native_shape"],
+        zero_order_xy=run_zero,
+        exposure_ms=exposure_ms,
+        settle_s=float(args.settle_s),
+        cam_type=args.cam_type,
+        cam_id=int(args.cam_id),
+        window_px=int(plan["window_px"]),
+        panel_shape=None if args.panel_shape is None else tuple(args.panel_shape),
+        pupil_center_xy=args.pupil_center_xy,
+        zero_order_tolerance_px=int(args.zero_order_tolerance_px),
+    )
+    # Reconcile the live zero order before any crop geometry is frozen: an
+    # adopted drift re-crops every native frame, so the analysis window and the
+    # model have to be rebuilt at the live alignment.
+    try:
+        lazy.open()
+    except Exception:
+        lazy.close()
+        raise
+    if lazy.adopted_zero_order:
+        run_zero = tuple(int(value) for value in lazy.expected_zero_order)
+        layout = _native_layout(source["native_shape"], run_zero, window_px)
+    model = WindowedBench(full_model, layout["window"])
+    target = torch.as_tensor(target_np, dtype=model.dtype)[None, None]
+    support = torch.as_tensor(support_np, dtype=model.dtype)[None, None]
     request = {
         "source": str(source["source"]),
         "plan_sha256": source["plan_sha256"],
@@ -780,32 +864,6 @@ def run_refinement(args: argparse.Namespace) -> dict[str, Any]:
             "request": request,
             "created_at_utc": _utc_now(),
         }
-
-    grid = int(plan["grid"])
-    full_px = int(layout["full_px"])
-    full_cfg = replace(Sim2fConfig.calibrated(), grid=grid, ccd_px=full_px)
-    full_model: Any = Sim2f(full_cfg, device="cpu")
-    calibration_mode = "frozen_fitted_calibration"
-    if args.dry_run:
-        calibration_mode = "nominal_twin_dry_run_calibration_not_loaded"
-    else:
-        full_model = CalibratedBench(full_model, load_calibration(calibration))
-    model = WindowedBench(full_model, layout["window"])
-    target = torch.as_tensor(target_np, dtype=model.dtype)[None, None]
-    support = torch.as_tensor(support_np, dtype=model.dtype)[None, None]
-    lazy = _LazyInstrument(
-        dry_run=bool(args.dry_run),
-        full_cfg=full_cfg,
-        native_shape=source["native_shape"],
-        zero_order_xy=run_zero,
-        exposure_ms=exposure_ms,
-        settle_s=float(args.settle_s),
-        cam_type=args.cam_type,
-        cam_id=int(args.cam_id),
-        window_px=int(plan["window_px"]),
-        panel_shape=None if args.panel_shape is None else tuple(args.panel_shape),
-        pupil_center_xy=args.pupil_center_xy,
-    )
     summary.update(
         {
             "acceptance": "sequential_ccd",
@@ -828,6 +886,11 @@ def run_refinement(args: argparse.Namespace) -> dict[str, Any]:
             "calibration_mode": calibration_mode,
             "limitation": NO_REFIT,
             "dry_run_warning": DRY_RUN_WARNING if args.dry_run else None,
+            "zero_order_recorded_xy": list(source_zero),
+            "zero_order_effective_xy": list(run_zero),
+            "zero_order_drift_px": int(lazy.zero_order_drift_px),
+            "zero_order_tolerance_px": int(args.zero_order_tolerance_px),
+            "zero_order_reference_recaptured": False,
         }
     )
     current_phase = source["phase"].copy()
@@ -836,6 +899,7 @@ def run_refinement(args: argparse.Namespace) -> dict[str, Any]:
     reference_phase_hash = _npy_sha256(current_phase)
     try:
         reference = summary.get("reference")
+        reference_captured = False
         reference_valid = bool(
             reference
             and _valid_record(
@@ -847,11 +911,15 @@ def run_refinement(args: argparse.Namespace) -> dict[str, Any]:
                 exposure_ms=exposure_ms,
             )
         )
-        can_reuse_source = not args.recapture_reference and (
-            args.exposure_ms is None
-            or (
-                source["source_exposure_ms"] is not None
-                and exposure_ms == float(source["source_exposure_ms"])
+        can_reuse_source = (
+            not args.recapture_reference
+            and not lazy.adopted_zero_order
+            and (
+                args.exposure_ms is None
+                or (
+                    source["source_exposure_ms"] is not None
+                    and exposure_ms == float(source["source_exposure_ms"])
+                )
             )
         )
         if not reference_valid:
@@ -875,8 +943,11 @@ def run_refinement(args: argparse.Namespace) -> dict[str, Any]:
                         stem="reference",
                         phase=current_phase,
                         exposure_ms=exposure_ms,
+                        layout=layout,
+                        min_window_peak_count=float(args.min_window_peak_count),
                     ),
                 }
+                reference_captured = True
             reference_frame = _load_npy(
                 _under(out, reference["native_frame"]), source["native_shape"]
             )
@@ -887,6 +958,9 @@ def run_refinement(args: argparse.Namespace) -> dict[str, Any]:
                 current_phase, _predict(model, current_phase), target, support, refine_cfg
             )
         summary["reference"] = reference
+        summary["zero_order_reference_recaptured"] = bool(
+            lazy.adopted_zero_order and reference_captured
+        )
         current_measured = dict(reference["measured"])
         if not old_rounds:
             _save_state(out, summary, current_phase, rounds, status="running")
@@ -952,6 +1026,8 @@ def run_refinement(args: argparse.Namespace) -> dict[str, Any]:
                     stem=item_id,
                     phase=candidate,
                     exposure_ms=exposure_ms,
+                    layout=layout,
+                    min_window_peak_count=float(args.min_window_peak_count),
                 )
                 candidate_frame = _load_npy(
                     _under(out, artifact["native_frame"]), source["native_shape"]
@@ -1057,6 +1133,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--update-sigma-px", type=float, default=RefineConfig.update_sigma_px)
     parser.add_argument("--exposure-ms", type=float, help="fixed; default source exposure")
     parser.add_argument("--recapture-reference", action="store_true")
+    parser.add_argument(
+        "--zero-order-tolerance-px",
+        type=int,
+        default=0,
+        help=(
+            "adopt a live zero order within this many pixels (Chebyshev) of the "
+            "recorded one and recapture the reference; 0 refuses any drift"
+        ),
+    )
+    parser.add_argument(
+        "--min-window-peak-count",
+        type=float,
+        default=0.0,
+        help=(
+            "fail a capture whose peak inside the analysis window is below this "
+            "many counts; 0 disables the guard"
+        ),
+    )
     parser.add_argument("--settle-s", type=float, default=0.05)
     parser.add_argument("--cam-type", default="daheng")
     parser.add_argument("--cam-id", type=int, default=0)
@@ -1071,6 +1165,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> dict[str, Any]:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if int(args.zero_order_tolerance_px) < 0:
+        parser.error("--zero-order-tolerance-px must be >= 0")
     try:
         _validate_output(Path(args.out), bool(args.dry_run))
         summary = run_refinement(args)

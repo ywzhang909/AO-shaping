@@ -9,6 +9,7 @@
 > **数据/关联脚本**: [`src/ml/sim2f/measurement.py`](../../../src/ml/sim2f/measurement.py)
 > **数据/关联脚本**: [`src/ml/sim2f/optics.py`](../../../src/ml/sim2f/optics.py)
 > **数据/关联脚本**: [`src/ml/sim2f/pinn.py`](../../../src/ml/sim2f/pinn.py)
+> **数据/关联脚本**: [`scripts/ml/sim2f_fov_hw_figures.py`](../../../scripts/ml/sim2f_fov_hw_figures.py)
 > **运行环境**: 离线分析（历史物理会话 + 生产会话对齐评分 + 约束残差拟合 + 名义孪生干跑；设备下线，无新增 CCD 采集）
 > **说明**: 顺序测量层/相干零级标定的验证集对照、生产会话探测器无关对齐评分与几何支持域、标定迁移与有界离焦/缩放扫描、约束残差拟合、历史会话驱动的任意形状代理闭环、名义孪生干跑与下一次实验步骤；全幅与逐目标分数只作模型诊断，孪生闭环和干跑只作流程证据，不作为物理整形成功或 CCD 验收证据。
 <!-- provenance:end -->
@@ -117,6 +118,17 @@ fft_length * far_field_pitch_m / (2 * ccd_pixel_um * 1e-6)
 - 质心误差没有同步改善：`ring` 从 `6.369808` 升到 `10.943594`、`cross` 从 `8.034896` 升到 `20.733086`、`frame` 从 `2.815795` 升到 `11.018500` px；只有两个 `two_spot` 变体明显下降。目标内能量提高可能以偏离目标中心为代价。
 - `EE_pred` 在 fitted `two_spot`/`two_spot_wide` 接近 `1`，而 `EE_meas` 只有约 `0.18`。模型在这两个目标上空间相关性高，但预测的能量集中度明显过强，不能把 `EE_pred` 当作实测形状读数。
 
+### 3.5 采集帧可视化（CCD GIF 与诊断图）
+
+下图是对同一 100 帧采集（`data/debug/sim2f_fov_hw_20261102`，曝光 `0.3 ms`，记录零级 `(1140, 940)`）的可视化诊断：动画按采集顺序回放，散点图与柱图只用于诊断帧质量与目标支持域能量分布，**不是**整形成功或 CCD 验收证据。
+
+- 全部 100 帧（平场/标定屏/probe/shape）按采集顺序回放，每帧裁到以记录零级为中心的 256 px 窗口：![采集帧序列](images/ccd_capture_sequence.gif)
+- 10 个 shape 帧（5 类目标 × 2 重复）回放，去背景后按 0–20 count 显示：![形状帧序列](images/ccd_shape_sequence.gif)
+- 左图：每帧窗口峰值 vs 去背景总能量（按类别着色）；右图：质心相对记录零级的偏移（flat/probe/shape）：![帧质量散点](figures/ccd_stats_scatter.png)
+- 逐目标能量落入支持域（r0/r1 两个重复；黑线为支持域面积占比）：![支持域能量](figures/shape_encircled_energy.png)
+
+从图中可读出的诊断结论（与 §3.3 一致）：shape 帧峰值仅约 `15–20` count，远低于 flat 的约 `125` count，说明 0.3 ms 曝光对 shape 命令的信噪比偏低；所有帧质心相对记录零级向左下方偏移约 `(-5.6, +0.15)` px，因此下一轮 refine 前应先做零级复测（见 §7）；能量落入支持域的差异主要由目标类型决定，`cross` 几乎全部能量落进支持域而 `two_spot`/`ring`/`frame` 只有约 `0.01–0.09`，与 §3.3 的 `EE_meas` 一致。
+
 ### 3.4 标定迁移与有界离焦/缩放扫描
 
 同一标定跨会话迁移并不等价：标定只在 `data/debug/sim2f_fov_calib` 的平/参考帧上拟合，生产会话的平场与整形帧没有参与拟合；生产平场组仍有约 `0.93` 的 NCC，说明平场层面可迁移，但不能据此把生产整形帧的残差归因于同一组标定参数。逐目标低 NCC 更可能来自模型对相位族的响应不足，而不是单一平移或增益错误。
@@ -178,7 +190,7 @@ fft_length * far_field_pitch_m / (2 * ccd_pixel_um * 1e-6)
 
 - 术语 dry-run 本轮已清零：`python scripts/_common/term_unify_20261016.py --check` 应报告 `0 个文件`；正文不使用旧术语写法。
 - 报告溯源校验 `python scripts/sync_report_provenance.py --check` 通过；`tests/ao_shaping/scripts/test_report_provenance.py` 为 `728 passed, 1 skipped`。`ruff check` 对本报告不适用（Markdown 不是 Python 源）；对改动的 Python 文件单独运行。
-- 聚焦测试覆盖 `scripts/ml/sim2f_fov_hw_session.py` 的对齐/支持域/评分契约与 `scripts/ml/sim2f_physical_residual.py` 的分割/查表/拟合契约；`tests/ao_shaping/scripts/test_sim2f_fov_hw_session.py` 共 26 项通过，其中 `TestAnalyzeZeroOrder` 用合成平场覆盖 `+2 px` 偏移和全零帧两条路径。生产会话回归为 120 项、`undefined_metrics` 为空、无 `NaN`，零级诊断见 §3.1。
+- 聚焦测试覆盖 `scripts/ml/sim2f_fov_hw_session.py` 的对齐/支持域/评分契约与 `scripts/ml/sim2f_physical_residual.py` 的分割/查表/拟合契约；`tests/ao_shaping/scripts/test_sim2f_fov_hw_session.py` 共 26 项通过，其中 `TestAnalyzeZeroOrder` 用合成平场覆盖 `+2 px` 偏移和全零帧两条路径。`tests/ao_shaping/scripts/test_sim2f_fov_hw_refine.py` 由 7 项增至 11 项：新增默认容差 `0` 仍拒绝 2 px 漂移、容差内采纳漂移并强制重采参考、超出容差仍拒绝、低峰值守卫使运行判 `failed` 四条；`test_sim2f_fov_hw_refine.py` 与 `test_sim2f_fov_hw_session.py` 合计 37 项通过。生产会话回归为 120 项、`undefined_metrics` 为空、无 `NaN`，零级诊断见 §3.1。
 - 模块体量门禁仍有一项与本报告无关的阻塞：`src/ao_shaping/gui/slm/transfer_desktop/page.py` 当前 879 行，超过 800 行基线且未登记；该文件不在本轮改动范围内，不抬高 baseline。
 - 全量测试收集受缺失的可选依赖限制（OOPAO/PySide6）。`TestPublishedReproduction.test_it_is_bit_exact_on_the_published_run_s_device` 是本轮唯一的既有失败项：CUDA/PyTorch 版本差异使逐位一致性不成立，但 `1e-4` 相对容差仍通过；不放松该容差。
 - **未决门禁**：全幅/逐目标分数只是模型诊断；物理接受仍以现场同曝光 `sequential_ccd` 为准，需要相机、SLM、光路和现场安全检查。
@@ -212,6 +224,11 @@ python scripts/ml/sim2f_fov_hw_refine.py `
 
 最后一条命令不含 `--dry-run`，才会打开真实设备。采集保持原生全幅，分析阶段再裁剪；不要用在线 ROI 改变零级位置。开始前先记录一帧平场并核对记录零级与实测峰值/质心的偏差；若偏差超过约 2 px，先修正零级记录再运行闭环。
 
+本轮针对实验时实际卡住的两点，给 `scripts/ml/sim2f_fov_hw_refine.py` 加了两个**默认关闭**的有界入口（默认行为与改动前逐字一致）：
+
+1. `--zero-order-tolerance-px N`（默认 `0`）：`0` 仍是原样拒绝（实测零级与记录不一致即报错，本轮实验时记录 `(1140, 940)`、实测 `(1140, 942)` 就卡在这里）。传入 `N > 0` 后，切比雪夫距离 ≤ `N` px 的漂移被采纳为本次运行的有效零级，同时**强制重采参考帧**，使参考帧与候选帧共用同一对齐，绝不把两种对齐的帧放在一起比较；漂移与是否重采参考都写进运行摘要（`zero_order_recorded_xy`、`zero_order_effective_xy`、`zero_order_drift_px`、`zero_order_tolerance_px`、`zero_order_reference_recaptured`）。超过 `N` 仍按原样拒绝。实验命令里可加 `--zero-order-tolerance-px 3`。
+2. `--min-window-peak-count C`（默认 `0`，即不检查）：任一采集帧在分析窗口内的峰值低于 `C` count 时直接判失败（`status="failed"`，错误信息给出 stem、实测峰值与要求值）。按 §3.5 的实测，0.3 ms 下 shape 帧窗口峰值只有 `15–20` count、flat 约 `125` count，因此该守卫让“接近噪声底却仍有微弱正向增益”的候选帧无法被接受；取值应随下一轮曝光重新定，不要照抄。
+
 下一轮采集建议同时补齐本轮暴露出的可辨识性问题：
 
 1. **多曝光探针**：至少两组曝光，用于分离探测器线性项与模型增益；单曝光数据无法拟合该项。
@@ -227,4 +244,6 @@ python scripts/ml/sim2f_fov_hw_refine.py `
 - [有界离焦/缩放扫描](artifacts/defocus_zoom_scan_20261102.json)
 - [名义孪生干跑摘要](artifacts/dryrun_aligned_summary.json)
 - [下一次硬件预检](artifacts/next_hardware_preflight.json)
+- [采集帧可视化摘要](artifacts/figures_summary.json)
 - 历史旧口径摘要保留为[旧标定分析](artifacts/production_analysis_old_summary.json)与[顺序标定分析](artifacts/production_analysis_seq_summary.json)，仅作评分口径演进的对照，不再作为当前结论。
+- 可视化资产：[采集帧 GIF](images/ccd_capture_sequence.gif)、[形状帧 GIF](images/ccd_shape_sequence.gif)、[帧质量散点图](figures/ccd_stats_scatter.png)、[支持域能量图](figures/shape_encircled_energy.png)；生成脚本 [`scripts/ml/sim2f_fov_hw_figures.py`](../../../scripts/ml/sim2f_fov_hw_figures.py)。
