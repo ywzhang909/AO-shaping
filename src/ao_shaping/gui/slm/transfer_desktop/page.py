@@ -427,6 +427,15 @@ class TransferPage(QWidget):
         )
         self._period = self._dspin(_DEFAULTS.period, 4.0, 1024.0, step=1.0)
 
+        # A–B–B–A 配对验收: 默认关 (只按模型损失接受, 跳过 CCD 实测配对与方向核对)。
+        self._abba = self._check(
+            "A–B–B–A 配对验收（CCD 实测）", _DEFAULTS.abba
+        )
+        self._abba.setToolTip(
+            "开 = 每块测 A1/B1/B2/A2, 由实测指标判定候选是否接受; "
+            "关（默认）= 保留 CCD 锚定反馈, 跳过 B1/B2/A2 与方向核对, "
+            "候选只按模型损失接受, 摘要写 acceptance=model_only（等价 CLI --no-abba）"
+        )
         # 「读取零级」: 让目标边长的上限来自实测光轴 (0 级到最近帧边的距离),
         # 而不是写死的保守值。做法与自检一致 —— 点了才碰硬件, 且只读。
         self._zero_btn = QPushButton("读取零级")
@@ -447,6 +456,7 @@ class TransferPage(QWidget):
         form.addRow("目标形状", shape_host)
         form.addRow("目标边长（CCD px）", side_row)
         form.addRow("载波周期（面板 px）", self._period)
+        form.addRow("配对验收", self._abba)
         layout.addLayout(form)
 
         # 常驻说明: 上限从哪来、现在是多少 —— 读不到时也要把「仍是保守值」讲清楚。
@@ -601,6 +611,7 @@ class TransferPage(QWidget):
             camera=str(self._camera.currentData()),
             cam_id=int(self._cam_id.value()),
             slm_number=int(self._slm_number.value()),
+            abba=bool(self._abba.isChecked()),
         )
 
     def current_problems(self) -> tuple[list[str], list[str]]:

@@ -157,7 +157,7 @@ def effective_window_span(side: float, window_span: float = 0.0) -> float:
     采样窗是 ``validate.run`` 里 ``recentre_window(zero_xy, half_span_px=...)``
     的半径：目标方斑整个落在窗内，两轴各再留 :data:`WINDOW_MARGIN_PX` 的边，
     窗才既框住目标又不压窗边。管线默认半跨 220 px 只够 424 px 的目标，而实测
-    光路上 ``side=900`` 是跑通过的 —— 上限的唯一物理依据是 0 级到帧边的距离
+    光路上 ``side=900`` 是在线实现过的 —— 上限的唯一物理依据是 0 级到帧边的距离
     （页面「读取零级」量出来），不是这个默认值。
 
     于是：

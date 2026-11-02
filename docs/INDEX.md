@@ -105,6 +105,12 @@
 | `slm/slm_patterns/shaping.md` | SLM 整形图案说明 |
 | `slm/slm_transfer_workflow.md` | 三形状（方/三角/星）物理预测模型整形统一入口 `python -m ao_shaping.tools.slm.transfer`：规划、物理迁移、GS 初始化、曝光响应、展宽校准、CCD 锚定可微优化与原始数据验收 |
 
+## GUI 桌面端（PySide6）
+
+| 文件 | 说明 |
+|------|------|
+| `GUI/slm/transfer_desktop/transfer_desktop_user_manual.md` | 迁移学习闭环整形桌面页用户手册：启动、设备 / 目标 / 校验 / 运行 / 进度操作流程，附截图与形状结果图 |
+
 ## GUI 前端（Streamlit）— 21 篇
 
 | 文档 | 说明 |

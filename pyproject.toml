@@ -80,6 +80,9 @@ dependencies = [
     "streamlit-aggrid>=1.2.1.post2",
     "plotly>=6.7.0",
     "streamlit-drawable-canvas>=0.9.3",
+    # 桌面控制台 (`gui/ccd/beam_quality`, 含迁移学习闭环页) 的 Qt 绑定。Essentials
+    # 已含 QtCharts / QtSvg; Addons (WebEngine/Qt3D) 不在本仓库用到的模块里。
+    "pyside6-essentials>=6.12.0",
     "pygame>=2.6.1",
     "cupy-cuda13x>=14.2.0",
     "pyarrow>=25.0.1",

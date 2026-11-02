@@ -10,6 +10,8 @@
 页 1 在切过去时才创建 (`torch` 由它导入时才拉起)；两页各自管理自己的设备
 生命周期与后台作业，切页不打断正在跑的会话或相机流。
 
+页 1 的操作手册见 [docs/GUI/slm/transfer_desktop/transfer_desktop_user_manual.md](../../../../../docs/GUI/slm/transfer_desktop/transfer_desktop_user_manual.md)。
+
 ## 启动
 
 ```bash
