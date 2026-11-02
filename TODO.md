@@ -4278,7 +4278,7 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 **2026-10-30 · 30f2d617 · MIL 点击入口采纳 `0c07aa54` 的像元间距契约：params 默认 2.2 → 0（向相机型号配置解析）**
 - 根因：`SlmModelInLoopConfig.camera_pixel_um` 早已由 `0c07aa54` 改成 0（0 = 向相机型号配置解析，正数 = 显式覆盖，出处记 `camera_pixel_um_source`），六个 scripts 都接了；但点击入口 `SlmModelInLoopParams` 仍写死 `_DEFAULT_CAMERA_PIXEL_UM`(2.2) 并逐字转发给 config——正是该契约刻意删掉的「消费者各写一份 2.2」第二事实源，click 路径漏网。上游自己的接线守卫实测抓到两条：split 断言缺 `camera_pixel_um_source`、默认对齐断言报 `(2.2, 0.0)`。
 - 处置：params 默认 0.0 + help 成文「0 = resolve from the camera model config, positive overrides」；守卫 `LIBRARY_ONLY[MIL]` 补 `camera_pixel_um_source`（库内派生出处，无 CLI 入口）。措辞变化点亮两条 CLI help golden 守卫——golden 用与 CI 同一 `ao-shaping-test:cpu` 镜像、读写挂载 + `AO_UPDATE_HELP_GOLDEN=1` 再生（harness 把仓库只读挂载，无法就地再生），`git diff` 实测仅 MIL 的 `--camera-pixel-um` 一处措辞，无 GS 扰动、无默认值渲染 churn。
-- 边界：GS 家族默认不动（GS config 仍是 2.2，其守卫本就绿）；会话打开处 `require_camera_pixel_um`（`slm_model_in_loop.py:3950`）实测存在，bare daheng 的 0 当场 `CameraError` 而非静默传播。
+- 边界：GS 家族默认不动（GS config 仍是 2.2，其守卫本就绿）；会话打开处 `require_camera_pixel_um`（`slm_model_in_loop.py:3408`，2026-11-02 随 #205 第二十四批重钉，原 `:3950`）实测存在，bare daheng 的 0 当场 `CameraError` 而非静默传播。
 - 验收：守卫 + MIL 依赖面 251 passed；三 CLI 守卫 134 passed；`runners-gui-misc` 分片 4 failed → 2 failed / 1555 passed（余 2 = 上游 #214/#215 在途 GUI 用例）；root-guards 136 passed / 1 skipped；门禁全绿。
 
 **2026-10-31 · 5c5ddd5e · ml 格网缩放守卫的 approx 边界换算改为先落显式 float 再断言，失配输出由不可读三元组变成可读数值差**
@@ -4482,6 +4482,14 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 特征化网 84 件（`recorder_gif` 14 + `frame_artifacts` 19 + `keys` 12 + `postprocess` 22 + `test_files` 17）：拆前 84/84，拆后 84/84。
 - 锚随迁：conventions 抓到 wiki `debug-artifacts` 的 source 行漂移 ⇒ `:1574→:1521`，index 行 `:1380→:1368`；另修 TODO 里一处**早就陈旧**的 `file.py:1145` ⇒ `:1657`（与本次拆分无关，按附着关系实证后重钉）。
 - 验收：84/84；守卫 `_IO` 改写（260/7→200/5 + 新增 `_render_gif_top_panels` 100/6）→ 68/68；conventions 72 passed / 1 skipped；module-size 棘轮 1886→1907 重锚；term / ruff / provenance 全绿；CI Pytest 首轮 success。
+
+**2026-11-02 · 835eb65a · #205 第二十三批：`device_mutex._resolve_wait_state`（151 行/nest 6）114 行探针链 else 分支提为 `_resolve_probe_state`（verdict 哨兵同形复用）**
+- 区域 = `if others:` 的 else 分支（L1836-1949，base indent 12）：探针 → 二次进程扫描 → 锁抢占 → 四类早退 verdict。形态：session 151→51 行 / nest 6→3；helper 136 行 / nest 4。
+- **哨兵零样板复用**：区域四条早退原本就写作 `return WaitVerdict(...), None, None, None`，与外层函数四元组**同形** ⇒ helper 直接返回同形四元组，调用点只需 `if _verdict is not None: return _verdict, None, None, None`，不必再引入第十八批那套解包协议。判据实测：thread_in = ∅、thread_out = 三个状态名（区域之后唯一区外读取点即函数尾 return）、pass_in 十名全部首 ctx 为 Load。
+- 跨 issue 命名耦合例行动作：`git grep` 确认测试树只经 `wait_until_idle` 端到端驱动，**无测试具名钉 `_resolve_wait_state` 形状** ⇒ 无见证需迁（第二十一批 #167 教训的固定前置检查）。
+- 锚零漂移（实证）：helper 追加 EOF 使其下 `wait_until_idle` 等 def −100，但全仓 `device_mutex.py:NNN` 引用只有 `:534-579`、`:1052`、`:1191` 三处，全在区域之上；call-graph wiki 无该文件条目。
+- 验收：网 93/93（`test_device_mutex` 24 + `test_bench_kernels_settle` 44 + `test_cli_argv_binding` 25，拆前用 `git stash` 单文件回退取基线、逐文件同计数）；守卫 `_DM` 改写（180/6→70/3 + 新增 `_resolve_probe_state` 150/4）→ 69/69；conventions 72 passed / 1 skipped；module-size 棘轮 2041→2080 重锚；term / ruff / provenance 全绿。
+- CI 首轮红为**已知 flake 对**（`ml/sim2f/test_fit::test_the_l1_default_stalls...` + `ml/zernike/test_train_amp_loss::test_mse_path_is_bit_identical...`，最大绝对差 1.2e-08），签名与作者纯资产提交复现一致 ⇒ 按纪律同 tip `--failed` 复跑后 success。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

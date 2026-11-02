@@ -145,7 +145,8 @@ TARGETS = [
     (_RMS, "optimizer_rms_slm", 200, 1, 155),
     (_RMS, "_run_rms_session", 430, 5, 397),
     (_MIL, "optimize_slm_model_in_loop", 130, 1, 84),
-    (_MIL, "_run_model_in_loop_session", 990, 5, 946),
+    (_MIL, "_run_model_in_loop_session", 450, 4, 404),
+    (_MIL, "_run_model_in_loop_rounds", 660, 4, 624),
 ]
 
 NESTING_NODES = (ast.If, ast.For, ast.While, ast.Try, ast.With, ast.AsyncFor, ast.AsyncWith)

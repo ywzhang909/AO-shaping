@@ -3255,583 +3255,41 @@ def _run_model_in_loop_session(
                 )
             )
 
-        for index in range(int(config.n_rounds)):
-            # --- Step A: probe the bench, refit one shared aberration -------
-            optimizer = _make_optimizer(
-                config,
-                coefficients,
-                source_amplitude,
-                affine=calibration_affine,
-                travel=calibration_travel,
-            )
-            step_a_lr = float(getattr(optimizer, "lr", step_a_lr)) or step_a_lr
-            train_seeds, holdout_seeds = _resolve_probe_seeds(
-                config.seed,
-                index,
-                probe_count,
-                int(config.holdout_probe_count + config.freeform_holdout_count),
-                config.probe_split_hook,
-            )
-            use_uncertainty = bool(
-                config.uncertainty_probes
-                or (config.uncertainty_on_rejection and rejection_streak > 0)
-            )
-            uncertainty_probes = (
-                _select_uncertainty_probes(
-                    optimizer,
-                    config,
-                    train_seeds,
-                    prev_probes=prev_uncertainty_probes,
-                )
-                if use_uncertainty
-                else None
-            )
-            frames: list[tuple[np.ndarray, np.ndarray]] = []
-            for probe_index, probe_seed in enumerate(train_seeds):
-                if uncertainty_probes is not None:
-                    probe = uncertainty_probes[probe_index]
-                else:
-                    probe = _probe_phase(
-                        config.region,
-                        config.probe_spread,
-                        probe_seed,
-                        smooth=config.cam_type != "sim",
-                    )
-                bench.display(probe)
-                raw_probe = bench.measure()
-                measured = prepare_frame(raw_probe)
-                if config.step_sink is not None:
-                    config.step_sink(
-                        "stepA-probe",
-                        _step_payload(
-                            phase_rad=probe,
-                            frame=measured,
-                            raw_scalars=_raw_frame_scalars(raw_probe),
-                            round_index=index + 1,
-                            probe_index=probe_index,
-                            probe_count=probe_count,
-                        ),
-                    )
-                if config.cam_type != "sim":
-                    probe_records.append(
-                        {
-                            "round": index + 1,
-                            "split": "train",
-                            "index": probe_index,
-                            "phase": probe.copy(),
-                            "raw_frame": getattr(bench, "last_raw_frame", None),
-                            "frame": measured.copy(),
-                            "exposure_ms": getattr(bench, "last_exposure_ms", None),
-                            "timestamp_utc": getattr(bench, "last_capture_utc", None),
-                        }
-                    )
-                if live_display is not None and not live_display.closed:
-                    # The most informative frame of the whole loop: the
-                    # prediction here uses the coefficients as they stand
-                    # *before* this probe is folded in, so watching the
-                    # prediction panel track the measurement panel is watching
-                    # Step A's fit improve. ``value`` is left at its default so
-                    # the intra-round probes redraw the curve without adding
-                    # points -- the curve is per *round*, not per probe.
-                    live_display.update(
-                        measured=measured,
-                        phase=probe,
-                        predicted=_predicted_far_field(
-                            optimizer, coefficients, probe, source_amplitude
-                        ),
-                        center=roi_center,
-                        r=target_camera / 2.0,
-                        info=(
-                            f"round {index + 1}/{config.n_rounds} "
-                            f"step A probe {probe_index + 1}/{probe_count}"
-                        ),
-                        target_size=target_camera,
-                    )
-                # Step A's loss needs the measurement on the model's own grid.
-                frames.append(
-                    (
-                        _to_model_grid(
-                            measured,
-                            roi_center,
-                            int(geometry.far_field_size),
-                            cell_scale,
-                            camera_rotation_quarters,
-                        ),
-                        probe,
-                    )
-                )
-            logger.info(
-                "round {}/{}: fitting the forward model on {} probes",
-                index + 1,
-                config.n_rounds,
-                probe_count,
-            )
-            loss_before = _probe_set_loss(optimizer, coefficients, frames)
-            step_a_trace: list[dict[str, Any]] = []
-            if config.step_a_iterations:
-                fitted, _, step_a_iters, optimizer = _fit_aberration_at_probes(
-                    optimizer,
-                    frames,
-                    int(config.step_a_iterations),
-                    on_iteration=lambda iteration,
-                    loss,
-                    _trace=step_a_trace: _trace.append(
-                        {
-                            "iteration": iteration,
-                            "loss": loss,
-                            "timestamp_utc": datetime.now(timezone.utc).isoformat(
-                                timespec="microseconds"
-                            ),
-                        }
-                    ),
-                )
-            else:
-                fitted, step_a_iters = coefficients.copy(), 0
-            # --- Guard 0: trust region on the self-calibration --------------
-            # The paper has NO trust region on its self-calibration quantities,
-            # which is exactly the failure mode this repository refuses: a
-            # calibration parameter that sprints away from its start means the
-            # forward model is being bent to fit the data instead of
-            # describing the bench. So the step is measured against the round's
-            # starting values, and a violation rolls the parameters back and
-            # rejects the round (see ``acceptance_verdict``).
-            affine_after = optimizer.affine
-            travel_after = optimizer.travel
-            calibration_violated, theta_step, gamma_step = (
-                calibration_trust_region_check(
-                    affine_after,
-                    calibration_affine,
-                    travel_after,
-                    calibration_travel,
-                    theta_step_max=float(config.selfcal_theta_step_max),
-                    gamma_step_max=float(config.selfcal_gamma_step_max),
-                )
-            )
-            if calibration_violated:
-                logger.warning(
-                    "round {}: self-calibration trust region exceeded (theta step "
-                    "{:.4g} > {:.4g}, gamma step {:.4g} > {:.4g}); rolling the "
-                    "calibration back and rejecting the round",
-                    index + 1,
-                    theta_step,
-                    float(config.selfcal_theta_step_max),
-                    gamma_step,
-                    float(config.selfcal_gamma_step_max),
-                )
-                optimizer.set_calibration(
-                    affine=calibration_affine, travel=calibration_travel
-                )
-                affine_after = optimizer.affine
-                travel_after = optimizer.travel
-            if config.uncertainty_probes or config.uncertainty_on_rejection:
-                prev_uncertainty_probes = [probe for _, probe in frames]
-            if config.cam_type != "sim":
-                recorder.iteration_traces[index + 1] = {"step_a_trace": step_a_trace}
-            # --- Guard 1: trust region on the coefficient change -----------
-            # The radius is fixed config.trust_region_c_l2 unless the adaptive
-            # schedule is on; the clamp itself is unchanged either way.
-            radius_now = (
-                float(trust_region.radius)
-                if trust_region is not None
-                else float(config.trust_region_c_l2)
-            )
-            clamped, step_l2, clamp_applied = trust_region_clamp(
-                fitted, coefficients, radius_now
-            )
-            loss_after = _probe_set_loss(optimizer, clamped, frames)
-            if clamp_applied:
-                logger.info(
-                    "trust region clipped a {:.3f} rad coefficient step to {:.3f} rad",
-                    step_l2,
-                    radius_now,
-                )
-
-            model_gain, leakage = 1.0, 0.0
-            if flat_grid is not None:
-                model_gain, leakage = _fit_flat_leakage(
-                    optimizer, clamped, frames, source_amplitude, flat_grid
-                )
-                logger.info(
-                    "round {} forward calibration: gain {:.4f}, flat leakage {:.4f}",
-                    index + 1,
-                    model_gain,
-                    leakage,
-                )
-            del frames
-
-            holdout_correlation = float("nan")
-            if config.cam_type != "sim" or config.holdout_on_sim:
-                holdout_correlations: list[float] = []
-                for holdout_index, holdout_seed in enumerate(holdout_seeds):
-                    holdout_phase, holdout_family = _holdout_phase(
-                        config.region,
-                        config.probe_spread,
-                        holdout_seed,
-                        holdout_index,
-                        int(config.holdout_probe_count),
-                    )
-                    bench.display(holdout_phase)
-                    holdout_frame = prepare_frame(bench.measure())
-                    holdout_grid = _to_model_grid(
-                        holdout_frame,
-                        roi_center,
-                        int(geometry.far_field_size),
-                        cell_scale,
-                        camera_rotation_quarters,
-                    )
-                    prediction = optimizer.forward_intensity(
-                        clamped, holdout_phase, source_amplitude
-                    )
-                    if flat_grid is not None:
-                        prediction = model_gain * prediction + leakage * flat_grid
-                    holdout_correlations.append(
-                        _prediction_correlation(prediction, holdout_grid)
-                    )
-                    probe_records.append(
-                        {
-                            "round": index + 1,
-                            "split": "holdout",
-                            "index": holdout_index,
-                            "family": holdout_family,
-                            "phase": holdout_phase.copy(),
-                            "raw_frame": getattr(bench, "last_raw_frame", None),
-                            "frame": holdout_frame.copy(),
-                            "model_grid": holdout_grid.copy(),
-                            "prediction": np.asarray(prediction).copy(),
-                            "correlation": holdout_correlations[-1],
-                            "exposure_ms": getattr(bench, "last_exposure_ms", None),
-                            "timestamp_utc": getattr(bench, "last_capture_utc", None),
-                        }
-                    )
-                holdout_correlation = float(np.mean(holdout_correlations))
-                logger.info(
-                    "round {} independent phase correlation: {:.4f} (each {})",
-                    index + 1,
-                    holdout_correlation,
-                    holdout_correlations,
-                )
-            if config.cam_type != "sim" and (
-                not np.isfinite(holdout_correlation)
-                or not all(
-                    np.isfinite(value) and value >= config.min_holdout_correlation
-                    for value in holdout_correlations
-                )
-            ):
-                recorder.history.append(
-                    {
-                        "stage": "round",
-                        "round": index + 1,
-                        RECORD_EPOCH: index + 1,
-                        "timestamp_utc": datetime.now(timezone.utc).isoformat(
-                            timespec="microseconds"
-                        ),
-                        "accepted": False,
-                        "reason": "holdout_forward_mismatch",
-                        "holdout_correlation": holdout_correlation,
-                        "probe_count": probe_count,
-                    }
-                )
-                status = ModelInLoopStatus.ABORTED_UNIDENTIFIABLE
-                break
-
-            # --- Step B: synthesise the square with that aberration frozen --
-            warm = phase if config.warm_start else flat_phase
-            step_b_trace: list[dict[str, Any]] = []
-            shaped, shaping_loss = shape_phase_with_frozen_aberration(
-                optimizer,
-                clamped,
-                target,
-                np.array(warm, dtype=np.float64, copy=True),
-                step_b_cfg,
-                dtype=str(config.dtype),
-                device=config.device,
-                seed=int(config.seed) + index,
-                source_amplitude=source_amplitude,
-                model_gain=model_gain,
-                background_intensity=(
-                    leakage * flat_grid if flat_grid is not None else None
-                ),
-                on_iteration=lambda iteration, loss, _trace=step_b_trace: _trace.append(
-                    {
-                        "iteration": iteration,
-                        "loss": loss,
-                        "timestamp_utc": datetime.now(timezone.utc).isoformat(
-                            timespec="microseconds"
-                        ),
-                    }
-                ),
-            )
-            if config.cam_type != "sim":
-                recorder.iteration_traces[index + 1]["step_b_trace"] = step_b_trace
-            shaped_phase = np.asarray(shaped, dtype=np.float64)
-            bench.display(shaped_phase)
-            raw_shaped = bench.measure()
-            shaped_frame = prepare_frame(raw_shaped)
-            if config.step_sink is not None:
-                config.step_sink(
-                    "stepB-shaped",
-                    _step_payload(
-                        phase_rad=shaped_phase,
-                        frame=shaped_frame,
-                        raw_scalars=_raw_frame_scalars(raw_shaped),
-                        round_index=index + 1,
-                        probe_index=None,
-                        probe_count=None,
-                    ),
-                )
-            shaped_prediction_correlation = float("nan")
-            if config.cam_type != "sim":
-                shaped_grid = _to_model_grid(
-                    shaped_frame,
-                    roi_center,
-                    int(geometry.far_field_size),
-                    cell_scale,
-                    camera_rotation_quarters,
-                )
-                shaped_prediction = optimizer.forward_intensity(
-                    clamped, shaped, source_amplitude
-                )
-                if flat_grid is not None:
-                    shaped_prediction = (
-                        model_gain * shaped_prediction + leakage * flat_grid
-                    )
-                shaped_prediction_correlation = _prediction_correlation(
-                    shaped_prediction, shaped_grid
-                )
-                probe_records.append(
-                    {
-                        "round": index + 1,
-                        "split": "shaped",
-                        "index": 0,
-                        "phase": shaped.copy(),
-                        "raw_frame": getattr(bench, "last_raw_frame", None),
-                        "frame": shaped_frame.copy(),
-                        "model_grid": shaped_grid.copy(),
-                        "prediction": np.asarray(shaped_prediction).copy(),
-                        "correlation": shaped_prediction_correlation,
-                        "exposure_ms": getattr(bench, "last_exposure_ms", None),
-                        "timestamp_utc": getattr(bench, "last_capture_utc", None),
-                    }
-                )
-                logger.info(
-                    "round {} shaped-phase forward correlation: {:.4f}",
-                    index + 1,
-                    shaped_prediction_correlation,
-                )
-            shaped_metrics = _metrics_at(
-                shaped_frame,
-                target_camera,
-                roi_center,
-                target_shape=config.target_shape,
-                camera_rotation_quarters=camera_rotation_quarters,
-            )
-            score_after = _quality(
-                shaped_metrics, config.w_efficiency, config.w_uniformity
-            )
-
-            # --- Guard 2: accept or roll the round back ----------------------
-            verdict = acceptance_verdict(
-                loss_before,
-                loss_after,
-                score_before,
-                score_after,
-                loss_delta=float(config.acceptance_loss_delta),
-                score_eps=float(config.acceptance_score_eps),
-                cv_before=best_accepted_cv,
-                cv_after=float(shaped_metrics["uniformity_cv"]),
-                max_cv_regression=float(config.max_cv_regression),
-                calibration_violated=calibration_violated,
-            )
-            applied_l2 = float(np.linalg.norm(clamped - coefficients))
-            if trust_region is not None:
-                # Feed the verdict back, then record both radii: the one this
-                # round actually clamped with, and the schedule state after the
-                # update. Reporting only the post-update radius would misdescribe
-                # the step the round committed.
-                trust_region.update(accepted=bool(verdict.accepted))
-                row_trust_state = trust_region.state()
-                row_trust_state["trust_region_c_l2"] = radius_now
-                row_trust_state["trust_region_next_c_l2"] = float(trust_region.radius)
-            else:
-                row_trust_state = {}
-            row = {
-                "stage": "round",
-                "round": index + 1,
-                # See the calibration record above: required by the shared pkl writer.
-                RECORD_EPOCH: index + 1,
-                "accepted": bool(verdict.accepted),
-                "reason": verdict.reason,
-                "loss_before": loss_before,
-                "loss_after": loss_after,
-                "step_a_iterations": int(step_a_iters),
-                "step_b_iterations": len(shaping_loss),
-                "coeff_step_l2": float(step_l2),
-                "coeff_step_applied": applied_l2,
-                "clamp_applied": bool(clamp_applied),
-                "coeff_norm": float(np.linalg.norm(clamped)),
-                "score_before": (
-                    float(score_before) if score_before is not None else float("nan")
-                ),
-                "score_after": float(score_after),
-                "cv_after": float(shaped_metrics.get("uniformity_cv", float("nan"))),
-                "ee_after": float(shaped_metrics.get("encircled_energy", float("nan"))),
-                "shape_iou_after": float(shaped_metrics["shape_iou"]),
-                "uniformity_cv": float(
-                    shaped_metrics.get("uniformity_cv", float("nan"))
-                ),
-                "probe_count": int(probe_count),
-                "step_a_lr": float(step_a_lr),
-                "rejection_streak": int(rejection_streak),
-                "shape_loss_initial": float(shaping_loss[0])
-                if shaping_loss
-                else float("nan"),
-                "shape_loss_final": float(shaping_loss[-1])
-                if shaping_loss
-                else float("nan"),
-            }
-            if config.cam_type != "sim" or config.holdout_on_sim:
-                # Recorded whenever the held-out probes were actually measured,
-                # which on sim is only under the explicit opt-in. The remaining
-                # fields stay hardware-only: they come from measurements the sim
-                # path does not take.
-                row["holdout_correlation"] = holdout_correlation
-            if affine_after is not None or travel_after is not None:
-                # Opt-in only: the default history keeps exactly the keys it
-                # had before the self-calibration existed. The per-round step
-                # sizes are recorded so a reader can see whether the calibration
-                # parameters are running away.
-                row["selfcal_affine"] = (
-                    {} if affine_after is None else affine_after.to_dict()
-                )
-                row["selfcal_travel"] = (
-                    {} if travel_after is None else travel_after.to_dict()
-                )
-                row["selfcal_theta_step"] = float(theta_step)
-                row["selfcal_gamma_step"] = float(gamma_step)
-                row["selfcal_violated"] = bool(calibration_violated)
-            if row_trust_state:
-                # Opt-in only, so the default history keeps exactly the keys it
-                # had before the adaptive schedule existed.
-                row.update(row_trust_state)
-            if config.cam_type != "sim":
-                row["shaped_prediction_correlation"] = shaped_prediction_correlation
-                row["model_gain"] = model_gain
-                row["flat_leakage"] = leakage
-                row["exposure_ms"] = getattr(bench, "last_exposure_ms", None)
-            recorder.history.append(row)
-
-            if live_display is not None and not live_display.closed:
-                # Prediction under the *clamped* coefficients -- the ones the
-                # acceptance test actually judged -- not the raw fit, so the
-                # picture matches the verdict in ``reason``.
-                live_display.update(
-                    measured=shaped_frame,
-                    phase=shaped_phase,
-                    predicted=_predicted_far_field(
-                        optimizer, clamped, shaped_phase, source_amplitude
-                    ),
-                    center=roi_center,
-                    r=target_camera / 2.0,
-                    info=(
-                        f"round {index + 1}/{config.n_rounds} "
-                        f"{'accepted' if verdict.accepted else 'rejected'} "
-                        f"({verdict.reason}) | score {score_after:.4f} | "
-                        f"loss {loss_before:.5f}->{loss_after:.5f}"
-                    ),
-                    value=float(score_after),
-                    epoch=index + 1,
-                    total_epochs=int(config.n_rounds),
-                    target_size=target_camera,
-                )
-
-            if verdict.accepted:
-                coefficients = clamped
-                # The self-calibration is part of the model, so it is committed
-                # with the round: a rejected round keeps the previous values,
-                # exactly like the coefficients.
-                if affine_after is not None:
-                    calibration_affine = affine_after
-                if travel_after is not None:
-                    calibration_travel = travel_after
-                # `.copy()` is load-bearing: `phase` is the warm start for the next
-                # round's Step B, and `np.asarray` on an already-float64 array is a
-                # no-op, so without it the committed phase would alias the one the
-                # live view and the step sink were handed.
-                phase = shaped_phase.copy()
-                score_before = score_after
-                candidate_cv = float(shaped_metrics["uniformity_cv"])
-                best_accepted_cv = (
-                    candidate_cv
-                    if best_accepted_cv is None
-                    else min(best_accepted_cv, candidate_cv)
-                )
-                rejection_streak = 0
-                if score_after > best_score:
-                    best_score, best_phase = score_after, phase.copy()
-                    best_frame = shaped_frame
-                logger.info(
-                    "round {}/{} accepted: score {} -> {:.4f} (CV {:.4f}, EE {:.4f})",
-                    index + 1,
-                    config.n_rounds,
-                    "n/a" if score_before is None else f"{score_before:.4f}",
-                    score_after,
-                    row["cv_after"],
-                    row["ee_after"],
-                )
-            else:
-                rejection_streak += 1
-                logger.warning(
-                    "round {}/{} REJECTED ({}): loss {:.5f} -> {:.5f}, score "
-                    "{:.4f} -> {:.4f}; streak {}",
-                    index + 1,
-                    config.n_rounds,
-                    verdict.reason,
-                    loss_before,
-                    loss_after,
-                    row["score_before"],
-                    score_after,
-                    rejection_streak,
-                )
-                if rejection_streak >= int(config.max_rejection_streak):
-                    status = ModelInLoopStatus.ABORTED_REJECTION_STREAK
-                    logger.error(
-                        "{} consecutive rounds rejected; the bench is outside the "
-                        "forward model. Aborting WITHOUT committing the phase. "
-                        "Fall back to slm-gs-refine.",
-                        rejection_streak,
-                    )
-                    break
-                # Damp the fit and widen its information base rather than pushing
-                # harder on a model that is already fighting us.
-                step_a_lr = max(step_a_lr * float(config.damp_lr_factor), 1e-4)
-                probe_count = min(
-                    probe_count + int(config.escalate_probe_count),
-                    int(config.max_probe_count),
-                )
-
-            if (
-                config.early_stop_score > 0
-                and score_before is not None
-                and score_before >= config.early_stop_score
-            ):
-                logger.info(
-                    "early stop: score {:.4f} reached the target {:.4f}",
-                    score_before,
-                    config.early_stop_score,
-                )
-                break
-            if live_display is not None and live_display.closed:
-                # Stop searching, but fall through to the final bake-off so the
-                # best already-verified phase is still committed -- closing a
-                # window is a request to stop looking, not to discard the work.
-                logger.info(
-                    "live display closed; stopping after round {}/{}",
-                    index + 1,
-                    config.n_rounds,
-                )
-                break
-            if config.callback is not None:
-                config.callback(index, row)
+        best_frame, best_phase, best_score, coefficients, status = _run_model_in_loop_rounds(
+            _fit_aberration_at_probes=_fit_aberration_at_probes,
+            _probe_set_loss=_probe_set_loss,
+            bench=bench,
+            best_accepted_cv=best_accepted_cv,
+            best_frame=best_frame,
+            best_phase=best_phase,
+            best_score=best_score,
+            calibration_affine=calibration_affine,
+            calibration_travel=calibration_travel,
+            camera_rotation_quarters=camera_rotation_quarters,
+            cell_scale=cell_scale,
+            coefficients=coefficients,
+            config=config,
+            flat_grid=flat_grid,
+            flat_phase=flat_phase,
+            geometry=geometry,
+            live_display=live_display,
+            phase=phase,
+            prev_uncertainty_probes=prev_uncertainty_probes,
+            probe_count=probe_count,
+            probe_records=probe_records,
+            recorder=recorder,
+            rejection_streak=rejection_streak,
+            roi_center=roi_center,
+            score_before=score_before,
+            shape_phase_with_frozen_aberration=shape_phase_with_frozen_aberration,
+            source_amplitude=source_amplitude,
+            status=status,
+            step_a_lr=step_a_lr,
+            step_b_cfg=step_b_cfg,
+            target=target,
+            target_camera=target_camera,
+            trust_region=trust_region,
+        )
 
         # ---------------- Stage 3: final bake-off against flat --------------
         if best_score <= flat_score:
@@ -3966,3 +3424,630 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
         shape_phase_with_frozen_aberration=shape_phase_with_frozen_aberration,
         zero_order_center=zero_order_center,
     )
+
+
+def _run_model_in_loop_rounds(
+    *,
+    _fit_aberration_at_probes: object,
+    _probe_set_loss: object,
+    bench: object,
+    best_accepted_cv: object,
+    best_frame: object,
+    best_phase: object,
+    best_score: object,
+    calibration_affine: object,
+    calibration_travel: object,
+    camera_rotation_quarters: object,
+    cell_scale: object,
+    coefficients: object,
+    config: object,
+    flat_grid: object,
+    flat_phase: object,
+    geometry: object,
+    live_display: object,
+    phase: object,
+    prev_uncertainty_probes: object,
+    probe_count: object,
+    probe_records: object,
+    recorder: object,
+    rejection_streak: object,
+    roi_center: object,
+    score_before: object,
+    shape_phase_with_frozen_aberration: object,
+    source_amplitude: object,
+    status: object,
+    step_a_lr: object,
+    step_b_cfg: object,
+    target: object,
+    target_camera: object,
+    trust_region: object,
+) -> tuple:
+    """#205 batch-24: former round loop of _run_model_in_loop_session.
+
+    One Step A / Step B round per iteration: refit the forward model on a
+    fresh random probe, synthesise the target-spot phase under the current
+    trust radius, then accept or reject the candidate against the measured
+    baseline.  The five loop-carried names (best_frame, best_phase,
+    best_score, coefficients, status) enter with their initial values and
+    leave through the returned tuple; every other name is read-only here.
+    The loop's `break` stays inside, so the caller resumes right after it.
+    """
+    for index in range(int(config.n_rounds)):
+        # --- Step A: probe the bench, refit one shared aberration -------
+        optimizer = _make_optimizer(
+            config,
+            coefficients,
+            source_amplitude,
+            affine=calibration_affine,
+            travel=calibration_travel,
+        )
+        step_a_lr = float(getattr(optimizer, "lr", step_a_lr)) or step_a_lr
+        train_seeds, holdout_seeds = _resolve_probe_seeds(
+            config.seed,
+            index,
+            probe_count,
+            int(config.holdout_probe_count + config.freeform_holdout_count),
+            config.probe_split_hook,
+        )
+        use_uncertainty = bool(
+            config.uncertainty_probes
+            or (config.uncertainty_on_rejection and rejection_streak > 0)
+        )
+        uncertainty_probes = (
+            _select_uncertainty_probes(
+                optimizer,
+                config,
+                train_seeds,
+                prev_probes=prev_uncertainty_probes,
+            )
+            if use_uncertainty
+            else None
+        )
+        frames: list[tuple[np.ndarray, np.ndarray]] = []
+        for probe_index, probe_seed in enumerate(train_seeds):
+            if uncertainty_probes is not None:
+                probe = uncertainty_probes[probe_index]
+            else:
+                probe = _probe_phase(
+                    config.region,
+                    config.probe_spread,
+                    probe_seed,
+                    smooth=config.cam_type != "sim",
+                )
+            bench.display(probe)
+            raw_probe = bench.measure()
+            measured = prepare_frame(raw_probe)
+            if config.step_sink is not None:
+                config.step_sink(
+                    "stepA-probe",
+                    _step_payload(
+                        phase_rad=probe,
+                        frame=measured,
+                        raw_scalars=_raw_frame_scalars(raw_probe),
+                        round_index=index + 1,
+                        probe_index=probe_index,
+                        probe_count=probe_count,
+                    ),
+                )
+            if config.cam_type != "sim":
+                probe_records.append(
+                    {
+                        "round": index + 1,
+                        "split": "train",
+                        "index": probe_index,
+                        "phase": probe.copy(),
+                        "raw_frame": getattr(bench, "last_raw_frame", None),
+                        "frame": measured.copy(),
+                        "exposure_ms": getattr(bench, "last_exposure_ms", None),
+                        "timestamp_utc": getattr(bench, "last_capture_utc", None),
+                    }
+                )
+            if live_display is not None and not live_display.closed:
+                # The most informative frame of the whole loop: the
+                # prediction here uses the coefficients as they stand
+                # *before* this probe is folded in, so watching the
+                # prediction panel track the measurement panel is watching
+                # Step A's fit improve. ``value`` is left at its default so
+                # the intra-round probes redraw the curve without adding
+                # points -- the curve is per *round*, not per probe.
+                live_display.update(
+                    measured=measured,
+                    phase=probe,
+                    predicted=_predicted_far_field(
+                        optimizer, coefficients, probe, source_amplitude
+                    ),
+                    center=roi_center,
+                    r=target_camera / 2.0,
+                    info=(
+                        f"round {index + 1}/{config.n_rounds} "
+                        f"step A probe {probe_index + 1}/{probe_count}"
+                    ),
+                    target_size=target_camera,
+                )
+            # Step A's loss needs the measurement on the model's own grid.
+            frames.append(
+                (
+                    _to_model_grid(
+                        measured,
+                        roi_center,
+                        int(geometry.far_field_size),
+                        cell_scale,
+                        camera_rotation_quarters,
+                    ),
+                    probe,
+                )
+            )
+        logger.info(
+            "round {}/{}: fitting the forward model on {} probes",
+            index + 1,
+            config.n_rounds,
+            probe_count,
+        )
+        loss_before = _probe_set_loss(optimizer, coefficients, frames)
+        step_a_trace: list[dict[str, Any]] = []
+        if config.step_a_iterations:
+            fitted, _, step_a_iters, optimizer = _fit_aberration_at_probes(
+                optimizer,
+                frames,
+                int(config.step_a_iterations),
+                on_iteration=lambda iteration,
+                loss,
+                _trace=step_a_trace: _trace.append(
+                    {
+                        "iteration": iteration,
+                        "loss": loss,
+                        "timestamp_utc": datetime.now(timezone.utc).isoformat(
+                            timespec="microseconds"
+                        ),
+                    }
+                ),
+            )
+        else:
+            fitted, step_a_iters = coefficients.copy(), 0
+        # --- Guard 0: trust region on the self-calibration --------------
+        # The paper has NO trust region on its self-calibration quantities,
+        # which is exactly the failure mode this repository refuses: a
+        # calibration parameter that sprints away from its start means the
+        # forward model is being bent to fit the data instead of
+        # describing the bench. So the step is measured against the round's
+        # starting values, and a violation rolls the parameters back and
+        # rejects the round (see ``acceptance_verdict``).
+        affine_after = optimizer.affine
+        travel_after = optimizer.travel
+        calibration_violated, theta_step, gamma_step = (
+            calibration_trust_region_check(
+                affine_after,
+                calibration_affine,
+                travel_after,
+                calibration_travel,
+                theta_step_max=float(config.selfcal_theta_step_max),
+                gamma_step_max=float(config.selfcal_gamma_step_max),
+            )
+        )
+        if calibration_violated:
+            logger.warning(
+                "round {}: self-calibration trust region exceeded (theta step "
+                "{:.4g} > {:.4g}, gamma step {:.4g} > {:.4g}); rolling the "
+                "calibration back and rejecting the round",
+                index + 1,
+                theta_step,
+                float(config.selfcal_theta_step_max),
+                gamma_step,
+                float(config.selfcal_gamma_step_max),
+            )
+            optimizer.set_calibration(
+                affine=calibration_affine, travel=calibration_travel
+            )
+            affine_after = optimizer.affine
+            travel_after = optimizer.travel
+        if config.uncertainty_probes or config.uncertainty_on_rejection:
+            prev_uncertainty_probes = [probe for _, probe in frames]
+        if config.cam_type != "sim":
+            recorder.iteration_traces[index + 1] = {"step_a_trace": step_a_trace}
+        # --- Guard 1: trust region on the coefficient change -----------
+        # The radius is fixed config.trust_region_c_l2 unless the adaptive
+        # schedule is on; the clamp itself is unchanged either way.
+        radius_now = (
+            float(trust_region.radius)
+            if trust_region is not None
+            else float(config.trust_region_c_l2)
+        )
+        clamped, step_l2, clamp_applied = trust_region_clamp(
+            fitted, coefficients, radius_now
+        )
+        loss_after = _probe_set_loss(optimizer, clamped, frames)
+        if clamp_applied:
+            logger.info(
+                "trust region clipped a {:.3f} rad coefficient step to {:.3f} rad",
+                step_l2,
+                radius_now,
+            )
+
+        model_gain, leakage = 1.0, 0.0
+        if flat_grid is not None:
+            model_gain, leakage = _fit_flat_leakage(
+                optimizer, clamped, frames, source_amplitude, flat_grid
+            )
+            logger.info(
+                "round {} forward calibration: gain {:.4f}, flat leakage {:.4f}",
+                index + 1,
+                model_gain,
+                leakage,
+            )
+        del frames
+
+        holdout_correlation = float("nan")
+        if config.cam_type != "sim" or config.holdout_on_sim:
+            holdout_correlations: list[float] = []
+            for holdout_index, holdout_seed in enumerate(holdout_seeds):
+                holdout_phase, holdout_family = _holdout_phase(
+                    config.region,
+                    config.probe_spread,
+                    holdout_seed,
+                    holdout_index,
+                    int(config.holdout_probe_count),
+                )
+                bench.display(holdout_phase)
+                holdout_frame = prepare_frame(bench.measure())
+                holdout_grid = _to_model_grid(
+                    holdout_frame,
+                    roi_center,
+                    int(geometry.far_field_size),
+                    cell_scale,
+                    camera_rotation_quarters,
+                )
+                prediction = optimizer.forward_intensity(
+                    clamped, holdout_phase, source_amplitude
+                )
+                if flat_grid is not None:
+                    prediction = model_gain * prediction + leakage * flat_grid
+                holdout_correlations.append(
+                    _prediction_correlation(prediction, holdout_grid)
+                )
+                probe_records.append(
+                    {
+                        "round": index + 1,
+                        "split": "holdout",
+                        "index": holdout_index,
+                        "family": holdout_family,
+                        "phase": holdout_phase.copy(),
+                        "raw_frame": getattr(bench, "last_raw_frame", None),
+                        "frame": holdout_frame.copy(),
+                        "model_grid": holdout_grid.copy(),
+                        "prediction": np.asarray(prediction).copy(),
+                        "correlation": holdout_correlations[-1],
+                        "exposure_ms": getattr(bench, "last_exposure_ms", None),
+                        "timestamp_utc": getattr(bench, "last_capture_utc", None),
+                    }
+                )
+            holdout_correlation = float(np.mean(holdout_correlations))
+            logger.info(
+                "round {} independent phase correlation: {:.4f} (each {})",
+                index + 1,
+                holdout_correlation,
+                holdout_correlations,
+            )
+        if config.cam_type != "sim" and (
+            not np.isfinite(holdout_correlation)
+            or not all(
+                np.isfinite(value) and value >= config.min_holdout_correlation
+                for value in holdout_correlations
+            )
+        ):
+            recorder.history.append(
+                {
+                    "stage": "round",
+                    "round": index + 1,
+                    RECORD_EPOCH: index + 1,
+                    "timestamp_utc": datetime.now(timezone.utc).isoformat(
+                        timespec="microseconds"
+                    ),
+                    "accepted": False,
+                    "reason": "holdout_forward_mismatch",
+                    "holdout_correlation": holdout_correlation,
+                    "probe_count": probe_count,
+                }
+            )
+            status = ModelInLoopStatus.ABORTED_UNIDENTIFIABLE
+            break
+
+        # --- Step B: synthesise the square with that aberration frozen --
+        warm = phase if config.warm_start else flat_phase
+        step_b_trace: list[dict[str, Any]] = []
+        shaped, shaping_loss = shape_phase_with_frozen_aberration(
+            optimizer,
+            clamped,
+            target,
+            np.array(warm, dtype=np.float64, copy=True),
+            step_b_cfg,
+            dtype=str(config.dtype),
+            device=config.device,
+            seed=int(config.seed) + index,
+            source_amplitude=source_amplitude,
+            model_gain=model_gain,
+            background_intensity=(
+                leakage * flat_grid if flat_grid is not None else None
+            ),
+            on_iteration=lambda iteration, loss, _trace=step_b_trace: _trace.append(
+                {
+                    "iteration": iteration,
+                    "loss": loss,
+                    "timestamp_utc": datetime.now(timezone.utc).isoformat(
+                        timespec="microseconds"
+                    ),
+                }
+            ),
+        )
+        if config.cam_type != "sim":
+            recorder.iteration_traces[index + 1]["step_b_trace"] = step_b_trace
+        shaped_phase = np.asarray(shaped, dtype=np.float64)
+        bench.display(shaped_phase)
+        raw_shaped = bench.measure()
+        shaped_frame = prepare_frame(raw_shaped)
+        if config.step_sink is not None:
+            config.step_sink(
+                "stepB-shaped",
+                _step_payload(
+                    phase_rad=shaped_phase,
+                    frame=shaped_frame,
+                    raw_scalars=_raw_frame_scalars(raw_shaped),
+                    round_index=index + 1,
+                    probe_index=None,
+                    probe_count=None,
+                ),
+            )
+        shaped_prediction_correlation = float("nan")
+        if config.cam_type != "sim":
+            shaped_grid = _to_model_grid(
+                shaped_frame,
+                roi_center,
+                int(geometry.far_field_size),
+                cell_scale,
+                camera_rotation_quarters,
+            )
+            shaped_prediction = optimizer.forward_intensity(
+                clamped, shaped, source_amplitude
+            )
+            if flat_grid is not None:
+                shaped_prediction = (
+                    model_gain * shaped_prediction + leakage * flat_grid
+                )
+            shaped_prediction_correlation = _prediction_correlation(
+                shaped_prediction, shaped_grid
+            )
+            probe_records.append(
+                {
+                    "round": index + 1,
+                    "split": "shaped",
+                    "index": 0,
+                    "phase": shaped.copy(),
+                    "raw_frame": getattr(bench, "last_raw_frame", None),
+                    "frame": shaped_frame.copy(),
+                    "model_grid": shaped_grid.copy(),
+                    "prediction": np.asarray(shaped_prediction).copy(),
+                    "correlation": shaped_prediction_correlation,
+                    "exposure_ms": getattr(bench, "last_exposure_ms", None),
+                    "timestamp_utc": getattr(bench, "last_capture_utc", None),
+                }
+            )
+            logger.info(
+                "round {} shaped-phase forward correlation: {:.4f}",
+                index + 1,
+                shaped_prediction_correlation,
+            )
+        shaped_metrics = _metrics_at(
+            shaped_frame,
+            target_camera,
+            roi_center,
+            target_shape=config.target_shape,
+            camera_rotation_quarters=camera_rotation_quarters,
+        )
+        score_after = _quality(
+            shaped_metrics, config.w_efficiency, config.w_uniformity
+        )
+
+        # --- Guard 2: accept or roll the round back ----------------------
+        verdict = acceptance_verdict(
+            loss_before,
+            loss_after,
+            score_before,
+            score_after,
+            loss_delta=float(config.acceptance_loss_delta),
+            score_eps=float(config.acceptance_score_eps),
+            cv_before=best_accepted_cv,
+            cv_after=float(shaped_metrics["uniformity_cv"]),
+            max_cv_regression=float(config.max_cv_regression),
+            calibration_violated=calibration_violated,
+        )
+        applied_l2 = float(np.linalg.norm(clamped - coefficients))
+        if trust_region is not None:
+            # Feed the verdict back, then record both radii: the one this
+            # round actually clamped with, and the schedule state after the
+            # update. Reporting only the post-update radius would misdescribe
+            # the step the round committed.
+            trust_region.update(accepted=bool(verdict.accepted))
+            row_trust_state = trust_region.state()
+            row_trust_state["trust_region_c_l2"] = radius_now
+            row_trust_state["trust_region_next_c_l2"] = float(trust_region.radius)
+        else:
+            row_trust_state = {}
+        row = {
+            "stage": "round",
+            "round": index + 1,
+            # See the calibration record above: required by the shared pkl writer.
+            RECORD_EPOCH: index + 1,
+            "accepted": bool(verdict.accepted),
+            "reason": verdict.reason,
+            "loss_before": loss_before,
+            "loss_after": loss_after,
+            "step_a_iterations": int(step_a_iters),
+            "step_b_iterations": len(shaping_loss),
+            "coeff_step_l2": float(step_l2),
+            "coeff_step_applied": applied_l2,
+            "clamp_applied": bool(clamp_applied),
+            "coeff_norm": float(np.linalg.norm(clamped)),
+            "score_before": (
+                float(score_before) if score_before is not None else float("nan")
+            ),
+            "score_after": float(score_after),
+            "cv_after": float(shaped_metrics.get("uniformity_cv", float("nan"))),
+            "ee_after": float(shaped_metrics.get("encircled_energy", float("nan"))),
+            "shape_iou_after": float(shaped_metrics["shape_iou"]),
+            "uniformity_cv": float(
+                shaped_metrics.get("uniformity_cv", float("nan"))
+            ),
+            "probe_count": int(probe_count),
+            "step_a_lr": float(step_a_lr),
+            "rejection_streak": int(rejection_streak),
+            "shape_loss_initial": float(shaping_loss[0])
+            if shaping_loss
+            else float("nan"),
+            "shape_loss_final": float(shaping_loss[-1])
+            if shaping_loss
+            else float("nan"),
+        }
+        if config.cam_type != "sim" or config.holdout_on_sim:
+            # Recorded whenever the held-out probes were actually measured,
+            # which on sim is only under the explicit opt-in. The remaining
+            # fields stay hardware-only: they come from measurements the sim
+            # path does not take.
+            row["holdout_correlation"] = holdout_correlation
+        if affine_after is not None or travel_after is not None:
+            # Opt-in only: the default history keeps exactly the keys it
+            # had before the self-calibration existed. The per-round step
+            # sizes are recorded so a reader can see whether the calibration
+            # parameters are running away.
+            row["selfcal_affine"] = (
+                {} if affine_after is None else affine_after.to_dict()
+            )
+            row["selfcal_travel"] = (
+                {} if travel_after is None else travel_after.to_dict()
+            )
+            row["selfcal_theta_step"] = float(theta_step)
+            row["selfcal_gamma_step"] = float(gamma_step)
+            row["selfcal_violated"] = bool(calibration_violated)
+        if row_trust_state:
+            # Opt-in only, so the default history keeps exactly the keys it
+            # had before the adaptive schedule existed.
+            row.update(row_trust_state)
+        if config.cam_type != "sim":
+            row["shaped_prediction_correlation"] = shaped_prediction_correlation
+            row["model_gain"] = model_gain
+            row["flat_leakage"] = leakage
+            row["exposure_ms"] = getattr(bench, "last_exposure_ms", None)
+        recorder.history.append(row)
+
+        if live_display is not None and not live_display.closed:
+            # Prediction under the *clamped* coefficients -- the ones the
+            # acceptance test actually judged -- not the raw fit, so the
+            # picture matches the verdict in ``reason``.
+            live_display.update(
+                measured=shaped_frame,
+                phase=shaped_phase,
+                predicted=_predicted_far_field(
+                    optimizer, clamped, shaped_phase, source_amplitude
+                ),
+                center=roi_center,
+                r=target_camera / 2.0,
+                info=(
+                    f"round {index + 1}/{config.n_rounds} "
+                    f"{'accepted' if verdict.accepted else 'rejected'} "
+                    f"({verdict.reason}) | score {score_after:.4f} | "
+                    f"loss {loss_before:.5f}->{loss_after:.5f}"
+                ),
+                value=float(score_after),
+                epoch=index + 1,
+                total_epochs=int(config.n_rounds),
+                target_size=target_camera,
+            )
+
+        if verdict.accepted:
+            coefficients = clamped
+            # The self-calibration is part of the model, so it is committed
+            # with the round: a rejected round keeps the previous values,
+            # exactly like the coefficients.
+            if affine_after is not None:
+                calibration_affine = affine_after
+            if travel_after is not None:
+                calibration_travel = travel_after
+            # `.copy()` is load-bearing: `phase` is the warm start for the next
+            # round's Step B, and `np.asarray` on an already-float64 array is a
+            # no-op, so without it the committed phase would alias the one the
+            # live view and the step sink were handed.
+            phase = shaped_phase.copy()
+            score_before = score_after
+            candidate_cv = float(shaped_metrics["uniformity_cv"])
+            best_accepted_cv = (
+                candidate_cv
+                if best_accepted_cv is None
+                else min(best_accepted_cv, candidate_cv)
+            )
+            rejection_streak = 0
+            if score_after > best_score:
+                best_score, best_phase = score_after, phase.copy()
+                best_frame = shaped_frame
+            logger.info(
+                "round {}/{} accepted: score {} -> {:.4f} (CV {:.4f}, EE {:.4f})",
+                index + 1,
+                config.n_rounds,
+                "n/a" if score_before is None else f"{score_before:.4f}",
+                score_after,
+                row["cv_after"],
+                row["ee_after"],
+            )
+        else:
+            rejection_streak += 1
+            logger.warning(
+                "round {}/{} REJECTED ({}): loss {:.5f} -> {:.5f}, score "
+                "{:.4f} -> {:.4f}; streak {}",
+                index + 1,
+                config.n_rounds,
+                verdict.reason,
+                loss_before,
+                loss_after,
+                row["score_before"],
+                score_after,
+                rejection_streak,
+            )
+            if rejection_streak >= int(config.max_rejection_streak):
+                status = ModelInLoopStatus.ABORTED_REJECTION_STREAK
+                logger.error(
+                    "{} consecutive rounds rejected; the bench is outside the "
+                    "forward model. Aborting WITHOUT committing the phase. "
+                    "Fall back to slm-gs-refine.",
+                    rejection_streak,
+                )
+                break
+            # Damp the fit and widen its information base rather than pushing
+            # harder on a model that is already fighting us.
+            step_a_lr = max(step_a_lr * float(config.damp_lr_factor), 1e-4)
+            probe_count = min(
+                probe_count + int(config.escalate_probe_count),
+                int(config.max_probe_count),
+            )
+
+        if (
+            config.early_stop_score > 0
+            and score_before is not None
+            and score_before >= config.early_stop_score
+        ):
+            logger.info(
+                "early stop: score {:.4f} reached the target {:.4f}",
+                score_before,
+                config.early_stop_score,
+            )
+            break
+        if live_display is not None and live_display.closed:
+            # Stop searching, but fall through to the final bake-off so the
+            # best already-verified phase is still committed -- closing a
+            # window is a request to stop looking, not to discard the work.
+            logger.info(
+                "live display closed; stopping after round {}/{}",
+                index + 1,
+                config.n_rounds,
+            )
+            break
+        if config.callback is not None:
+            config.callback(index, row)
+    return best_frame, best_phase, best_score, coefficients, status
+
