@@ -246,6 +246,18 @@ class TestAutograd:
         assert field.grad is not None
         assert torch.isfinite(field.grad).all()
 
+    def test_scalar_z_tensor_keeps_gradient(self) -> None:
+        """A learnable scalar distance must not be detached by the float cache."""
+        field = torch.from_numpy(_random_field()).to(torch.complex64)
+        z = torch.tensor(0.05, dtype=torch.float64, requires_grad=True)
+        out = angular_spectrum_propagate_torch(
+            field, DX, z, LAMBDA, band_limit=False
+        )
+        out.real.pow(2).sum().backward()
+        assert z.grad is not None
+        assert torch.isfinite(z.grad)
+        assert float(z.grad.abs()) > 0.0
+
 
 class TestModuleApi:
     def test_module_matches_function(self) -> None:

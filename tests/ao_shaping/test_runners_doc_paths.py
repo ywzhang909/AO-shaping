@@ -42,7 +42,7 @@ RUNNER_TREE_FILES = (
 
 
 def _agents() -> str:
-    return AGENTS.read_text(encoding="utf-8")
+    return (ROOT / "AGENTS.md").read_text(encoding="utf-8") + "\n" + (ROOT / "docs" / "dev" / "module_inventory.md").read_text(encoding="utf-8")
 
 
 def _runners_tree_slice() -> str:

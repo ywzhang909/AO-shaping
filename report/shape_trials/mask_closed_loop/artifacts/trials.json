@@ -1,0 +1,1001 @@
+{
+  "session": "D:\\Projects\\TIFO\\AO-shaping\\runs\\sim2f_bench\\session_hw",
+  "backend": "hw",
+  "calibration": {
+    "ok": true,
+    "reason": null,
+    "n_train": 72,
+    "n_holdout": 24,
+    "score": {
+      "train": {
+        "l1": 0.5654845833778381,
+        "ncc": 0.7475147843360901,
+        "gain": 1645.2615966796875
+      },
+      "holdout": {
+        "l1": 0.5498679876327515,
+        "ncc": 0.7740642428398132,
+        "gain": 1844.2783203125
+      }
+    },
+    "score_start": {
+      "train": {
+        "l1": 0.7287126183509827,
+        "ncc": 0.5217718482017517,
+        "gain": 280.7157897949219
+      },
+      "holdout": {
+        "l1": 0.7561825513839722,
+        "ncc": 0.46969693899154663,
+        "gain": 304.5446472167969
+      }
+    },
+    "beam": {
+      "width_scale_x": 0.49658530950546265,
+      "width_scale_y": 0.5827856063842773,
+      "w0_x_model_px": 8.475055948893228,
+      "w0_y_model_px": 9.946207682291666,
+      "angle_rad": 0.42925745248794556,
+      "center_x_px": -0.0348961241543293,
+      "center_y_px": 0.3124573230743408
+    },
+    "camera": {
+      "zoom": 1.7517366409301758,
+      "shift_x_px": 19.232614517211914,
+      "shift_y_px": -32.96864318847656
+    },
+    "aberration_rms_rad": 1.916234
+  },
+  "config": {
+    "rounds": 3,
+    "refine": {
+      "iters": 120,
+      "lr": 0.02,
+      "lr_final_frac": 0.05,
+      "w_ee": 0.25,
+      "w_tv": 0.0,
+      "metric": "l1",
+      "prepare": true,
+      "max_delta_rad": 0.5,
+      "trust_region": "clip",
+      "update_sigma_px": 0.0,
+      "min_gain": 0.0,
+      "keep_best": true
+    },
+    "n_modes": 14,
+    "fit_iters": 80,
+    "fit_lr": 0.02,
+    "trust_rad": 0.5,
+    "fit_frozen": [
+      1,
+      2,
+      3
+    ],
+    "w_ee": 0.25,
+    "metric": "l1",
+    "min_gain": 0.0,
+    "seed": 11
+  },
+  "trials": {
+    "nominal/ring": {
+      "kind": "mask",
+      "support_frac": 0.171692,
+      "arms": [
+        {
+          "arm": "flat",
+          "start": {
+            "l1": 1.440641,
+            "ncc": 0.164972,
+            "ee": 0.298634,
+            "cv_in_support": 1.085239,
+            "iou50": 0.095125,
+            "peak_ratio": 628.13092,
+            "objective": 1.615983
+          },
+          "final": {
+            "l1": 1.440641,
+            "ncc": 0.164972,
+            "ee": 0.298634,
+            "cv_in_support": 1.085239,
+            "iou50": 0.095125,
+            "peak_ratio": 628.13092,
+            "objective": 1.615983
+          },
+          "rounds": []
+        },
+        {
+          "arm": "net_open",
+          "start": {
+            "l1": 1.444264,
+            "ncc": 0.18941,
+            "ee": 0.294044,
+            "cv_in_support": 0.698983,
+            "iou50": 0.027977,
+            "peak_ratio": 351.935669,
+            "objective": 1.620753
+          },
+          "final": {
+            "l1": 1.444264,
+            "ncc": 0.18941,
+            "ee": 0.294044,
+            "cv_in_support": 0.698983,
+            "iou50": 0.027977,
+            "peak_ratio": 351.935669,
+            "objective": 1.620753
+          },
+          "rounds": []
+        },
+        {
+          "arm": "net_finetune",
+          "start": {
+            "l1": 1.444264,
+            "ncc": 0.18941,
+            "ee": 0.294044,
+            "cv_in_support": 0.698983,
+            "iou50": 0.027977,
+            "peak_ratio": 351.935669,
+            "objective": 1.620753
+          },
+          "final": {
+            "l1": 1.444264,
+            "ncc": 0.18941,
+            "ee": 0.294044,
+            "cv_in_support": 0.698983,
+            "iou50": 0.027977,
+            "peak_ratio": 351.935669,
+            "objective": 1.620753
+          },
+          "rounds": [
+            {
+              "round": 1,
+              "accepted_model": true,
+              "accepted_device": false,
+              "gain_device": -0.043737,
+              "objective": 1.620753,
+              "ee": 0.294044,
+              "ncc": 0.18941,
+              "cv_in_support": 0.698983,
+              "fit_residual_start": 0.792683,
+              "fit_residual": 0.552073,
+              "coeff_rms_rad": 0.347735,
+              "delta_rms_rad": 0.0
+            },
+            {
+              "round": 2,
+              "accepted_model": true,
+              "accepted_device": false,
+              "gain_device": -0.041047,
+              "objective": 1.620753,
+              "ee": 0.294044,
+              "ncc": 0.18941,
+              "cv_in_support": 0.698983,
+              "fit_residual_start": 0.55203,
+              "fit_residual": 0.506295,
+              "coeff_rms_rad": 0.604892,
+              "delta_rms_rad": 0.0
+            },
+            {
+              "round": 3,
+              "accepted_model": true,
+              "accepted_device": false,
+              "gain_device": -0.039875,
+              "objective": 1.620753,
+              "ee": 0.294044,
+              "ncc": 0.18941,
+              "cv_in_support": 0.698983,
+              "fit_residual_start": 0.506014,
+              "fit_residual": 0.476566,
+              "coeff_rms_rad": 0.858647,
+              "delta_rms_rad": 0.0
+            }
+          ]
+        }
+      ]
+    },
+    "nominal/cross": {
+      "kind": "mask",
+      "support_frac": 0.275208,
+      "arms": [
+        {
+          "arm": "flat",
+          "start": {
+            "l1": 0.947779,
+            "ncc": 0.546239,
+            "ee": 0.743239,
+            "cv_in_support": 0.991133,
+            "iou50": 0.245745,
+            "peak_ratio": 1047.917603,
+            "objective": 1.01197
+          },
+          "final": {
+            "l1": 0.947779,
+            "ncc": 0.546239,
+            "ee": 0.743239,
+            "cv_in_support": 0.991133,
+            "iou50": 0.245745,
+            "peak_ratio": 1047.917603,
+            "objective": 1.01197
+          },
+          "rounds": []
+        },
+        {
+          "arm": "net_open",
+          "start": {
+            "l1": 0.792186,
+            "ncc": 0.638036,
+            "ee": 0.698732,
+            "cv_in_support": 0.714516,
+            "iou50": 0.363419,
+            "peak_ratio": 425.774139,
+            "objective": 0.867503
+          },
+          "final": {
+            "l1": 0.792186,
+            "ncc": 0.638036,
+            "ee": 0.698732,
+            "cv_in_support": 0.714516,
+            "iou50": 0.363419,
+            "peak_ratio": 425.774139,
+            "objective": 0.867503
+          },
+          "rounds": []
+        },
+        {
+          "arm": "net_finetune",
+          "start": {
+            "l1": 0.792186,
+            "ncc": 0.638036,
+            "ee": 0.698732,
+            "cv_in_support": 0.714516,
+            "iou50": 0.363419,
+            "peak_ratio": 425.774139,
+            "objective": 0.867503
+          },
+          "final": {
+            "l1": 0.792186,
+            "ncc": 0.638036,
+            "ee": 0.698732,
+            "cv_in_support": 0.714516,
+            "iou50": 0.363419,
+            "peak_ratio": 425.774139,
+            "objective": 0.867503
+          },
+          "rounds": [
+            {
+              "round": 1,
+              "accepted_model": true,
+              "accepted_device": false,
+              "gain_device": -0.017932,
+              "objective": 0.867503,
+              "ee": 0.698732,
+              "ncc": 0.638036,
+              "cv_in_support": 0.714516,
+              "fit_residual_start": 0.780417,
+              "fit_residual": 0.500723,
+              "coeff_rms_rad": 0.268503,
+              "delta_rms_rad": 0.0
+            },
+            {
+              "round": 2,
+              "accepted_model": true,
+              "accepted_device": false,
+              "gain_device": -0.148655,
+              "objective": 0.867503,
+              "ee": 0.698732,
+              "ncc": 0.638036,
+              "cv_in_support": 0.714516,
+              "fit_residual_start": 0.500679,
+              "fit_residual": 0.450246,
+              "coeff_rms_rad": 0.497366,
+              "delta_rms_rad": 0.0
+            },
+            {
+              "round": 3,
+              "accepted_model": true,
+              "accepted_device": false,
+              "gain_device": -0.234262,
+              "objective": 0.867503,
+              "ee": 0.698732,
+              "ncc": 0.638036,
+              "cv_in_support": 0.714516,
+              "fit_residual_start": 0.450243,
+              "fit_residual": 0.425988,
+              "coeff_rms_rad": 0.664123,
+              "delta_rms_rad": 0.0
+            }
+          ]
+        }
+      ]
+    },
+    "nominal/frame": {
+      "kind": "mask",
+      "support_frac": 0.51416,
+      "arms": [
+        {
+          "arm": "flat",
+          "start": {
+            "l1": 1.575331,
+            "ncc": -0.190998,
+            "ee": 0.324375,
+            "cv_in_support": 2.015901,
+            "iou50": 0.027926,
+            "peak_ratio": 2910.627197,
+            "objective": 1.744237
+          },
+          "final": {
+            "l1": 1.575331,
+            "ncc": -0.190998,
+            "ee": 0.324375,
+            "cv_in_support": 2.015901,
+            "iou50": 0.027926,
+            "peak_ratio": 2910.627197,
+            "objective": 1.744237
+          },
+          "rounds": []
+        },
+        {
+          "arm": "net_open",
+          "start": {
+            "l1": 1.564521,
+            "ncc": -0.212238,
+            "ee": 0.308369,
+            "cv_in_support": 1.874576,
+            "iou50": 0.016556,
+            "peak_ratio": 2448.058594,
+            "objective": 1.737429
+          },
+          "final": {
+            "l1": 1.564521,
+            "ncc": -0.212238,
+            "ee": 0.308369,
+            "cv_in_support": 1.874576,
+            "iou50": 0.016556,
+            "peak_ratio": 2448.058594,
+            "objective": 1.737429
+          },
+          "rounds": []
+        },
+        {
+          "arm": "net_finetune",
+          "start": {
+            "l1": 1.564521,
+            "ncc": -0.212238,
+            "ee": 0.308369,
+            "cv_in_support": 1.874576,
+            "iou50": 0.016556,
+            "peak_ratio": 2448.058594,
+            "objective": 1.737429
+          },
+          "final": {
+            "l1": 1.564521,
+            "ncc": -0.212238,
+            "ee": 0.308369,
+            "cv_in_support": 1.874576,
+            "iou50": 0.016556,
+            "peak_ratio": 2448.058594,
+            "objective": 1.737429
+          },
+          "rounds": [
+            {
+              "round": 1,
+              "accepted_model": true,
+              "accepted_device": false,
+              "gain_device": -0.033768,
+              "objective": 1.737429,
+              "ee": 0.308369,
+              "ncc": -0.212238,
+              "cv_in_support": 1.874576,
+              "fit_residual_start": 0.538514,
+              "fit_residual": 0.397875,
+              "coeff_rms_rad": 0.413369,
+              "delta_rms_rad": 0.0
+            },
+            {
+              "round": 2,
+              "accepted_model": true,
+              "accepted_device": false,
+              "gain_device": -0.02765,
+              "objective": 1.737429,
+              "ee": 0.308369,
+              "ncc": -0.212238,
+              "cv_in_support": 1.874576,
+              "fit_residual_start": 0.397863,
+              "fit_residual": 0.335476,
+              "coeff_rms_rad": 0.663029,
+              "delta_rms_rad": 0.0
+            },
+            {
+              "round": 3,
+              "accepted_model": true,
+              "accepted_device": false,
+              "gain_device": -0.025529,
+              "objective": 1.737429,
+              "ee": 0.308369,
+              "ncc": -0.212238,
+              "cv_in_support": 1.874576,
+              "fit_residual_start": 0.335452,
+              "fit_residual": 0.328618,
+              "coeff_rms_rad": 0.724295,
+              "delta_rms_rad": 0.0
+            }
+          ]
+        }
+      ]
+    },
+    "nominal/two_spot": {
+      "kind": "mask",
+      "support_frac": 0.093597,
+      "arms": [
+        {
+          "arm": "flat",
+          "start": {
+            "l1": 1.997315,
+            "ncc": -0.158254,
+            "ee": 0.001411,
+            "cv_in_support": 3.114398,
+            "iou50": 0.0,
+            "peak_ratio": 342.712158,
+            "objective": 2.246962
+          },
+          "final": {
+            "l1": 1.997315,
+            "ncc": -0.158254,
+            "ee": 0.001411,
+            "cv_in_support": 3.114398,
+            "iou50": 0.0,
+            "peak_ratio": 342.712158,
+            "objective": 2.246962
+          },
+          "rounds": []
+        },
+        {
+          "arm": "net_open",
+          "start": {
+            "l1": 1.994894,
+            "ncc": -0.17691,
+            "ee": 0.002685,
+            "cv_in_support": 2.74335,
+            "iou50": 0.0,
+            "peak_ratio": 242.739304,
+            "objective": 2.244223
+          },
+          "final": {
+            "l1": 1.994894,
+            "ncc": -0.17691,
+            "ee": 0.002685,
+            "cv_in_support": 2.74335,
+            "iou50": 0.0,
+            "peak_ratio": 242.739304,
+            "objective": 2.244223
+          },
+          "rounds": []
+        },
+        {
+          "arm": "net_finetune",
+          "start": {
+            "l1": 1.994894,
+            "ncc": -0.17691,
+            "ee": 0.002685,
+            "cv_in_support": 2.74335,
+            "iou50": 0.0,
+            "peak_ratio": 242.739304,
+            "objective": 2.244223
+          },
+          "final": {
+            "l1": 1.356872,
+            "ncc": 0.351922,
+            "ee": 0.389929,
+            "cv_in_support": 1.267152,
+            "iou50": 0.081616,
+            "peak_ratio": 367.611969,
+            "objective": 1.50939
+          },
+          "rounds": [
+            {
+              "round": 1,
+              "accepted_model": true,
+              "accepted_device": true,
+              "gain_device": 0.034179,
+              "objective": 2.167517,
+              "ee": 0.037292,
+              "ncc": -0.10917,
+              "cv_in_support": 2.021058,
+              "fit_residual_start": 0.541746,
+              "fit_residual": 0.417863,
+              "coeff_rms_rad": 0.339762,
+              "delta_rms_rad": 0.329391
+            },
+            {
+              "round": 2,
+              "accepted_model": true,
+              "accepted_device": true,
+              "gain_device": 0.150312,
+              "objective": 1.841714,
+              "ee": 0.19677,
+              "ncc": 0.17002,
+              "cv_in_support": 1.635657,
+              "fit_residual_start": 0.640963,
+              "fit_residual": 0.592581,
+              "coeff_rms_rad": 0.62668,
+              "delta_rms_rad": 0.329621
+            },
+            {
+              "round": 3,
+              "accepted_model": true,
+              "accepted_device": true,
+              "gain_device": 0.180443,
+              "objective": 1.50939,
+              "ee": 0.389929,
+              "ncc": 0.351922,
+              "cv_in_support": 1.267152,
+              "fit_residual_start": 0.953435,
+              "fit_residual": 0.858523,
+              "coeff_rms_rad": 0.658624,
+              "delta_rms_rad": 0.271991
+            }
+          ]
+        }
+      ]
+    },
+    "calibrated/ring": {
+      "kind": "mask",
+      "support_frac": 0.171692,
+      "arms": [
+        {
+          "arm": "flat",
+          "start": {
+            "l1": 1.466173,
+            "ncc": 0.147887,
+            "ee": 0.285124,
+            "cv_in_support": 1.049242,
+            "iou50": 0.080094,
+            "peak_ratio": 634.989075,
+            "objective": 1.644892
+          },
+          "final": {
+            "l1": 1.466173,
+            "ncc": 0.147887,
+            "ee": 0.285124,
+            "cv_in_support": 1.049242,
+            "iou50": 0.080094,
+            "peak_ratio": 634.989075,
+            "objective": 1.644892
+          },
+          "rounds": []
+        },
+        {
+          "arm": "net_open",
+          "start": {
+            "l1": 1.471962,
+            "ncc": 0.166458,
+            "ee": 0.279805,
+            "cv_in_support": 0.695001,
+            "iou50": 0.00639,
+            "peak_ratio": 367.865784,
+            "objective": 1.652011
+          },
+          "final": {
+            "l1": 1.471962,
+            "ncc": 0.166458,
+            "ee": 0.279805,
+            "cv_in_support": 0.695001,
+            "iou50": 0.00639,
+            "peak_ratio": 367.865784,
+            "objective": 1.652011
+          },
+          "rounds": []
+        },
+        {
+          "arm": "net_finetune",
+          "start": {
+            "l1": 1.471962,
+            "ncc": 0.166458,
+            "ee": 0.279805,
+            "cv_in_support": 0.695001,
+            "iou50": 0.00639,
+            "peak_ratio": 367.865784,
+            "objective": 1.652011
+          },
+          "final": {
+            "l1": 0.645877,
+            "ncc": 0.798649,
+            "ee": 0.70537,
+            "cv_in_support": 0.432129,
+            "iou50": 0.641234,
+            "peak_ratio": 215.878021,
+            "objective": 0.719534
+          },
+          "rounds": [
+            {
+              "round": 1,
+              "accepted_model": true,
+              "accepted_device": true,
+              "gain_device": 0.311619,
+              "objective": 1.137212,
+              "ee": 0.515495,
+              "ncc": 0.553142,
+              "cv_in_support": 0.60508,
+              "fit_residual_start": 0.181344,
+              "fit_residual": 0.004328,
+              "coeff_rms_rad": 0.116423,
+              "delta_rms_rad": 0.281271
+            },
+            {
+              "round": 2,
+              "accepted_model": true,
+              "accepted_device": true,
+              "gain_device": 0.296544,
+              "objective": 0.799979,
+              "ee": 0.670856,
+              "ncc": 0.758045,
+              "cv_in_support": 0.47338,
+              "fit_residual_start": 0.004283,
+              "fit_residual": 0.004243,
+              "coeff_rms_rad": 0.113029,
+              "delta_rms_rad": 0.213236
+            },
+            {
+              "round": 3,
+              "accepted_model": true,
+              "accepted_device": true,
+              "gain_device": 0.100558,
+              "objective": 0.719534,
+              "ee": 0.70537,
+              "ncc": 0.798649,
+              "cv_in_support": 0.432129,
+              "fit_residual_start": 0.00474,
+              "fit_residual": 0.004278,
+              "coeff_rms_rad": 0.11134,
+              "delta_rms_rad": 0.167349
+            }
+          ]
+        }
+      ]
+    },
+    "calibrated/cross": {
+      "kind": "mask",
+      "support_frac": 0.275208,
+      "arms": [
+        {
+          "arm": "flat",
+          "start": {
+            "l1": 0.977464,
+            "ncc": 0.512976,
+            "ee": 0.70891,
+            "cv_in_support": 1.012118,
+            "iou50": 0.217528,
+            "peak_ratio": 1059.359253,
+            "objective": 1.050237
+          },
+          "final": {
+            "l1": 0.977464,
+            "ncc": 0.512976,
+            "ee": 0.70891,
+            "cv_in_support": 1.012118,
+            "iou50": 0.217528,
+            "peak_ratio": 1059.359253,
+            "objective": 1.050237
+          },
+          "rounds": []
+        },
+        {
+          "arm": "net_open",
+          "start": {
+            "l1": 0.842133,
+            "ncc": 0.611896,
+            "ee": 0.683765,
+            "cv_in_support": 0.760279,
+            "iou50": 0.310495,
+            "peak_ratio": 455.665039,
+            "objective": 0.921191
+          },
+          "final": {
+            "l1": 0.842133,
+            "ncc": 0.611896,
+            "ee": 0.683765,
+            "cv_in_support": 0.760279,
+            "iou50": 0.310495,
+            "peak_ratio": 455.665039,
+            "objective": 0.921191
+          },
+          "rounds": []
+        },
+        {
+          "arm": "net_finetune",
+          "start": {
+            "l1": 0.842133,
+            "ncc": 0.611896,
+            "ee": 0.683765,
+            "cv_in_support": 0.760279,
+            "iou50": 0.310495,
+            "peak_ratio": 455.665039,
+            "objective": 0.921191
+          },
+          "final": {
+            "l1": 0.331193,
+            "ncc": 0.919124,
+            "ee": 0.864163,
+            "cv_in_support": 0.284776,
+            "iou50": 0.826931,
+            "peak_ratio": 196.945404,
+            "objective": 0.365153
+          },
+          "rounds": [
+            {
+              "round": 1,
+              "accepted_model": true,
+              "accepted_device": true,
+              "gain_device": 0.397573,
+              "objective": 0.554951,
+              "ee": 0.784811,
+              "ncc": 0.800443,
+              "cv_in_support": 0.445011,
+              "fit_residual_start": 0.173827,
+              "fit_residual": 0.00417,
+              "coeff_rms_rad": 0.11269,
+              "delta_rms_rad": 0.273215
+            },
+            {
+              "round": 2,
+              "accepted_model": true,
+              "accepted_device": true,
+              "gain_device": 0.150206,
+              "objective": 0.471594,
+              "ee": 0.838772,
+              "ncc": 0.861134,
+              "cv_in_support": 0.386065,
+              "fit_residual_start": 0.004309,
+              "fit_residual": 0.005832,
+              "coeff_rms_rad": 0.11269,
+              "delta_rms_rad": 0.213599
+            },
+            {
+              "round": 3,
+              "accepted_model": true,
+              "accepted_device": true,
+              "gain_device": 0.225706,
+              "objective": 0.365153,
+              "ee": 0.864163,
+              "ncc": 0.919124,
+              "cv_in_support": 0.284776,
+              "fit_residual_start": 0.005506,
+              "fit_residual": 0.004264,
+              "coeff_rms_rad": 0.115892,
+              "delta_rms_rad": 0.173294
+            }
+          ]
+        }
+      ]
+    },
+    "calibrated/frame": {
+      "kind": "mask",
+      "support_frac": 0.51416,
+      "arms": [
+        {
+          "arm": "flat",
+          "start": {
+            "l1": 1.562644,
+            "ncc": -0.192572,
+            "ee": 0.324931,
+            "cv_in_support": 1.951713,
+            "iou50": 0.02373,
+            "peak_ratio": 2942.406494,
+            "objective": 1.731411
+          },
+          "final": {
+            "l1": 1.562644,
+            "ncc": -0.192572,
+            "ee": 0.324931,
+            "cv_in_support": 1.951713,
+            "iou50": 0.02373,
+            "peak_ratio": 2942.406494,
+            "objective": 1.731411
+          },
+          "rounds": []
+        },
+        {
+          "arm": "net_open",
+          "start": {
+            "l1": 1.544664,
+            "ncc": -0.212936,
+            "ee": 0.310248,
+            "cv_in_support": 1.784443,
+            "iou50": 0.009118,
+            "peak_ratio": 2523.618408,
+            "objective": 1.717102
+          },
+          "final": {
+            "l1": 1.544664,
+            "ncc": -0.212936,
+            "ee": 0.310248,
+            "cv_in_support": 1.784443,
+            "iou50": 0.009118,
+            "peak_ratio": 2523.618408,
+            "objective": 1.717102
+          },
+          "rounds": []
+        },
+        {
+          "arm": "net_finetune",
+          "start": {
+            "l1": 1.544664,
+            "ncc": -0.212936,
+            "ee": 0.310248,
+            "cv_in_support": 1.784443,
+            "iou50": 0.009118,
+            "peak_ratio": 2523.618408,
+            "objective": 1.717102
+          },
+          "final": {
+            "l1": 0.690469,
+            "ncc": 0.648705,
+            "ee": 0.958317,
+            "cv_in_support": 0.794647,
+            "iou50": 0.369058,
+            "peak_ratio": 843.979858,
+            "objective": 0.70089
+          },
+          "rounds": [
+            {
+              "round": 1,
+              "accepted_model": true,
+              "accepted_device": true,
+              "gain_device": 0.219149,
+              "objective": 1.340801,
+              "ee": 0.618389,
+              "ncc": 0.140207,
+              "cv_in_support": 1.421379,
+              "fit_residual_start": 0.203446,
+              "fit_residual": 0.002408,
+              "coeff_rms_rad": 0.110537,
+              "delta_rms_rad": 0.235862
+            },
+            {
+              "round": 2,
+              "accepted_model": true,
+              "accepted_device": true,
+              "gain_device": 0.258634,
+              "objective": 0.994024,
+              "ee": 0.879959,
+              "ncc": 0.462874,
+              "cv_in_support": 1.10294,
+              "fit_residual_start": 0.00606,
+              "fit_residual": 0.003528,
+              "coeff_rms_rad": 0.113802,
+              "delta_rms_rad": 0.228368
+            },
+            {
+              "round": 3,
+              "accepted_model": true,
+              "accepted_device": true,
+              "gain_device": 0.294897,
+              "objective": 0.70089,
+              "ee": 0.958317,
+              "ncc": 0.648705,
+              "cv_in_support": 0.794647,
+              "fit_residual_start": 0.002972,
+              "fit_residual": 0.001942,
+              "coeff_rms_rad": 0.112747,
+              "delta_rms_rad": 0.220584
+            }
+          ]
+        }
+      ]
+    },
+    "calibrated/two_spot": {
+      "kind": "mask",
+      "support_frac": 0.093597,
+      "arms": [
+        {
+          "arm": "flat",
+          "start": {
+            "l1": 1.996802,
+            "ncc": -0.159838,
+            "ee": 0.001678,
+            "cv_in_support": 2.707154,
+            "iou50": 0.0,
+            "peak_ratio": 346.45401,
+            "objective": 2.246382
+          },
+          "final": {
+            "l1": 1.996802,
+            "ncc": -0.159838,
+            "ee": 0.001678,
+            "cv_in_support": 2.707154,
+            "iou50": 0.0,
+            "peak_ratio": 346.45401,
+            "objective": 2.246382
+          },
+          "rounds": []
+        },
+        {
+          "arm": "net_open",
+          "start": {
+            "l1": 1.991511,
+            "ncc": -0.173258,
+            "ee": 0.004522,
+            "cv_in_support": 2.81142,
+            "iou50": 0.0,
+            "peak_ratio": 255.631622,
+            "objective": 2.24038
+          },
+          "final": {
+            "l1": 1.991511,
+            "ncc": -0.173258,
+            "ee": 0.004522,
+            "cv_in_support": 2.81142,
+            "iou50": 0.0,
+            "peak_ratio": 255.631622,
+            "objective": 2.24038
+          },
+          "rounds": []
+        },
+        {
+          "arm": "net_finetune",
+          "start": {
+            "l1": 1.991511,
+            "ncc": -0.173258,
+            "ee": 0.004522,
+            "cv_in_support": 2.81142,
+            "iou50": 0.0,
+            "peak_ratio": 255.631622,
+            "objective": 2.24038
+          },
+          "final": {
+            "l1": 0.879912,
+            "ncc": 0.734284,
+            "ee": 0.615843,
+            "cv_in_support": 0.662467,
+            "iou50": 0.400351,
+            "peak_ratio": 366.295837,
+            "objective": 0.975951
+          },
+          "rounds": [
+            {
+              "round": 1,
+              "accepted_model": true,
+              "accepted_device": true,
+              "gain_device": 0.148629,
+              "objective": 1.907395,
+              "ee": 0.157493,
+              "ncc": 0.144192,
+              "cv_in_support": 1.247767,
+              "fit_residual_start": 0.204662,
+              "fit_residual": 0.003932,
+              "coeff_rms_rad": 0.111778,
+              "delta_rms_rad": 0.267749
+            },
+            {
+              "round": 2,
+              "accepted_model": true,
+              "accepted_device": true,
+              "gain_device": 0.324747,
+              "objective": 1.287974,
+              "ee": 0.469783,
+              "ncc": 0.544166,
+              "cv_in_support": 1.060041,
+              "fit_residual_start": 0.006248,
+              "fit_residual": 0.005478,
+              "coeff_rms_rad": 0.1125,
+              "delta_rms_rad": 0.222073
+            },
+            {
+              "round": 3,
+              "accepted_model": true,
+              "accepted_device": true,
+              "gain_device": 0.242259,
+              "objective": 0.975951,
+              "ee": 0.615843,
+              "ncc": 0.734284,
+              "cv_in_support": 0.662467,
+              "fit_residual_start": 0.003411,
+              "fit_residual": 0.002951,
+              "coeff_rms_rad": 0.107387,
+              "delta_rms_rad": 0.232477
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

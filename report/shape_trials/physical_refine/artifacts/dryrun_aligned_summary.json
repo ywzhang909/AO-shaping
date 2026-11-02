@@ -1,0 +1,378 @@
+{
+  "acceptance": "sequential_ccd",
+  "acceptance_rule": "model_accepted AND measured_gain > measured_min_gain",
+  "accepted_phase": "accepted_phase.npy",
+  "accepted_phase_sha256": "c413bb08eda513b364ec0f90052d80972e58285d0016638a7ac90af5b2b254b1",
+  "accepted_rounds": 2,
+  "analysis_window": {
+    "center_xy": [
+      972.0,
+      972.0
+    ],
+    "frame_wh": [
+      1944,
+      1944
+    ],
+    "size": [
+      256,
+      256
+    ]
+  },
+  "calibration_mode": "nominal_twin_dry_run_calibration_not_loaded",
+  "created_at_utc": "2026-11-02T03:07:53.267821+00:00",
+  "dry_run_warning": "Dry-run plumbing only: SimInstrument and the nominal twin were used; the fitted calibration was not loaded and this is not real CCD success.",
+  "full_model_px": 1944,
+  "limitation": "The fitted calibration is frozen; no probe or refit is performed. Model metrics are predictions, never CCD acceptance.",
+  "measured_source": "native_full_frames_cropped_offline_no_device_roi",
+  "native_shape": [
+    1944,
+    2592
+  ],
+  "native_square_offset_xy": [
+    296,
+    0
+  ],
+  "reference": {
+    "capture": {
+      "backend": "sim",
+      "bench": {
+        "aperture_m": 0.0054,
+        "beam_w0_model_px": 17.066666666666666,
+        "ccd_fov_m": 0.0042768,
+        "ccd_px": 1944,
+        "defocus_m": 0.010084735,
+        "detector_enabled": true,
+        "exact_fft_n": 1080,
+        "far_field_pitch_m": 4.618055555555556e-06,
+        "fft_length": 512,
+        "fov_in_psf": 173.64451127819547,
+        "grid": 128,
+        "pixel_ratio_to_psf": 11.195286195286196,
+        "psf_scale_m": 2.462962962962963e-05,
+        "pupil_pitch_m": 5.625e-05,
+        "sampling_ratio": 2.0991161616161618,
+        "zero_order_eta": 0.1
+      },
+      "detector": false,
+      "dry_run_canvas": {
+        "native_shape": [
+          1944,
+          2592
+        ],
+        "twin_native_shape": [
+          1944,
+          1944
+        ],
+        "zero_order_xy": [
+          1268,
+          972
+        ]
+      },
+      "phase_input": "(grid, grid) pupil radians -> Sim2f.forward; the twin's grid IS the 900 px pupil region, so no panel embedding on this path"
+    },
+    "capture_method": "sequential_native_full_frame",
+    "exposure_ms": 1.753,
+    "id": "reference",
+    "measured": {
+      "ee": 0.0024158835876733065,
+      "l1": 1.9951682090759277,
+      "ncc": -0.060744378715753555,
+      "objective": 2.2445642948150635,
+      "tv": 50741.5078125
+    },
+    "native_frame": "frames/reference.npy",
+    "native_frame_sha256": "af60a9364e5953631a1f573768c5949564b7ef1272b9ca48e7948f38584ba94d",
+    "native_shape": [
+      1944,
+      2592
+    ],
+    "panel_gray": "panel_gray/reference.npy",
+    "panel_gray_sha256": "aae6f06c9aa0ec35ca5ed62e64bf75654fbf4f4077dfd203facbfc958206f7ac",
+    "phase": "phases/reference.npy",
+    "phase_sha256": "a3c309307230b3f7a5f971a0a29ba68c6854c37e795a514523a60131200a0ab9",
+    "predicted": {
+      "ee": 0.0024158835876733065,
+      "l1": 1.9951682090759277,
+      "ncc": -0.060744378715753555,
+      "objective": 2.2445642948150635,
+      "tv": 50741.5078125
+    },
+    "timestamps": {
+      "completed_utc": "2026-11-02T03:07:54.007974+00:00",
+      "started_utc": "2026-11-02T03:07:53.715831+00:00"
+    },
+    "zero_order_xy": [
+      1268,
+      972
+    ]
+  },
+  "request": {
+    "calibration": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\sim2f_fov_calib\\calibration",
+    "calibration_files": {
+      "calibrate_summary.json": "45fffce02185bc9a623858097269e6a6b501d8fa1b10504a43078f1111ac6e8f",
+      "calibration.json": "f48ba936e53760eed81cac16d0305c84377321801277db62f45465f8ecb247bc",
+      "calibration.npz": "b0cb8f5a9baf7c26cf318cd8b4a72825e517cc0e4c8cb023b9884d36915b5550"
+    },
+    "dry_run": true,
+    "effective_zero_order_xy": [
+      1268,
+      972
+    ],
+    "exposure_ms": 1.753,
+    "manifest_sha256": "e22bdc153e5f11db66f1e35f6609b32f8b2af8010122a2c0e9a5816e23814a52",
+    "measured_min_gain": 0.001,
+    "plan_sha256": "23ff7a1d5f2dc7a9085ddd3a636a3391ede65329cc1e3118536c545f035f02a6",
+    "recapture_reference": true,
+    "refine": {
+      "iters": 40,
+      "keep_best": true,
+      "lr": 0.02,
+      "lr_final_frac": 0.05,
+      "max_delta_rad": 0.5,
+      "metric": "l1",
+      "min_gain": 0.0,
+      "prepare": true,
+      "trust_region": "clip",
+      "update_sigma_px": 0.0,
+      "w_ee": 0.25,
+      "w_tv": 0.0
+    },
+    "rounds": 2,
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\sim2f_fov",
+    "source_zero_order_xy": [
+      1268,
+      942
+    ],
+    "starting_phase": "phases/shape_ring_nominal_r0.npy",
+    "starting_phase_sha256": "a3c309307230b3f7a5f971a0a29ba68c6854c37e795a514523a60131200a0ab9",
+    "target": "ring"
+  },
+  "rounds": [
+    {
+      "accepted": true,
+      "capture": {
+        "backend": "sim",
+        "bench": {
+          "aperture_m": 0.0054,
+          "beam_w0_model_px": 17.066666666666666,
+          "ccd_fov_m": 0.0042768,
+          "ccd_px": 1944,
+          "defocus_m": 0.010084735,
+          "detector_enabled": true,
+          "exact_fft_n": 1080,
+          "far_field_pitch_m": 4.618055555555556e-06,
+          "fft_length": 512,
+          "fov_in_psf": 173.64451127819547,
+          "grid": 128,
+          "pixel_ratio_to_psf": 11.195286195286196,
+          "psf_scale_m": 2.462962962962963e-05,
+          "pupil_pitch_m": 5.625e-05,
+          "sampling_ratio": 2.0991161616161618,
+          "zero_order_eta": 0.1
+        },
+        "detector": false,
+        "dry_run_canvas": {
+          "native_shape": [
+            1944,
+            2592
+          ],
+          "twin_native_shape": [
+            1944,
+            1944
+          ],
+          "zero_order_xy": [
+            1268,
+            972
+          ]
+        },
+        "phase_input": "(grid, grid) pupil radians -> Sim2f.forward; the twin's grid IS the 900 px pupil region, so no panel embedding on this path"
+      },
+      "capture_method": "sequential_native_full_frame",
+      "exposure_ms": 1.753,
+      "id": "round_0001",
+      "measured": {
+        "candidate": {
+          "ee": 0.1619134545326233,
+          "l1": 1.6987533569335938,
+          "ncc": -0.029324399307370186,
+          "objective": 1.9082750082015991,
+          "tv": 50514.42578125
+        },
+        "gain": 0.33628928661346436,
+        "reference": {
+          "ee": 0.0024158835876733065,
+          "l1": 1.9951682090759277,
+          "ncc": -0.060744378715753555,
+          "objective": 2.2445642948150635,
+          "tv": 50741.5078125
+        }
+      },
+      "model_accepted": true,
+      "model_iterations": 40,
+      "model_reason": "bounded_update_improved_model",
+      "model_wall_s": 5.065090699994471,
+      "native_frame": "frames/round_0001.npy",
+      "native_frame_sha256": "a70ed98d4b60069df3bfe35044ecd47fb5c6c15bfc4e1cf020a5ea8f5c685097",
+      "native_shape": [
+        1944,
+        2592
+      ],
+      "panel_gray": "panel_gray/round_0001.npy",
+      "panel_gray_sha256": "da06e977d8a06c949200ede90e1b4156ce617e4b5a2491f77d57b8882e57e903",
+      "phase": "phases/round_0001.npy",
+      "phase_sha256": "7c026ae13ecf269ae0313bbaaec2b1fd817aea3769429bd20334cdd0e3668cd6",
+      "predicted": {
+        "candidate": {
+          "ee": 0.1619134545326233,
+          "l1": 1.6987533569335938,
+          "ncc": -0.029324399307370186,
+          "objective": 1.9082750082015991,
+          "tv": 50514.42578125
+        },
+        "gain": 0.33628928661346436,
+        "reference": {
+          "ee": 0.0024158835876733065,
+          "l1": 1.9951682090759277,
+          "ncc": -0.060744378715753555,
+          "objective": 2.2445642948150635,
+          "tv": 50741.5078125
+        }
+      },
+      "reason": "measured_gain 0.33628929 > min_gain 0.001",
+      "reference_accepted_phase_sha256": "ad1654d44400b88f3d66c90171bfb9c72603d61dfff3fa9a66d4af99921b8544",
+      "reference_id": "reference",
+      "round": 1,
+      "status": "accepted",
+      "timestamps": {
+        "completed_utc": "2026-11-02T03:07:59.385732+00:00",
+        "started_utc": "2026-11-02T03:07:59.131251+00:00"
+      },
+      "zero_order_xy": [
+        1268,
+        972
+      ]
+    },
+    {
+      "accepted": true,
+      "capture": {
+        "backend": "sim",
+        "bench": {
+          "aperture_m": 0.0054,
+          "beam_w0_model_px": 17.066666666666666,
+          "ccd_fov_m": 0.0042768,
+          "ccd_px": 1944,
+          "defocus_m": 0.010084735,
+          "detector_enabled": true,
+          "exact_fft_n": 1080,
+          "far_field_pitch_m": 4.618055555555556e-06,
+          "fft_length": 512,
+          "fov_in_psf": 173.64451127819547,
+          "grid": 128,
+          "pixel_ratio_to_psf": 11.195286195286196,
+          "psf_scale_m": 2.462962962962963e-05,
+          "pupil_pitch_m": 5.625e-05,
+          "sampling_ratio": 2.0991161616161618,
+          "zero_order_eta": 0.1
+        },
+        "detector": false,
+        "dry_run_canvas": {
+          "native_shape": [
+            1944,
+            2592
+          ],
+          "twin_native_shape": [
+            1944,
+            1944
+          ],
+          "zero_order_xy": [
+            1268,
+            972
+          ]
+        },
+        "phase_input": "(grid, grid) pupil radians -> Sim2f.forward; the twin's grid IS the 900 px pupil region, so no panel embedding on this path"
+      },
+      "capture_method": "sequential_native_full_frame",
+      "exposure_ms": 1.753,
+      "id": "round_0002",
+      "measured": {
+        "candidate": {
+          "ee": 0.5360798239707947,
+          "l1": 1.1134366989135742,
+          "ncc": 0.12774664163589478,
+          "objective": 1.2294167280197144,
+          "tv": 50091.578125
+        },
+        "gain": 0.6788582801818848,
+        "reference": {
+          "ee": 0.1619134545326233,
+          "l1": 1.6987533569335938,
+          "ncc": -0.029324399307370186,
+          "objective": 1.9082750082015991,
+          "tv": 50514.42578125
+        }
+      },
+      "model_accepted": true,
+      "model_iterations": 40,
+      "model_reason": "bounded_update_improved_model",
+      "model_wall_s": 1.165652499999851,
+      "native_frame": "frames/round_0002.npy",
+      "native_frame_sha256": "07eb396078778a1d9d8c19637fa3474790289b52df3ee0934b0fbf929979054a",
+      "native_shape": [
+        1944,
+        2592
+      ],
+      "panel_gray": "panel_gray/round_0002.npy",
+      "panel_gray_sha256": "912fbae2079f8f8e40fe92217c95a80904017456e8eadfb05031a6de4fabb438",
+      "phase": "phases/round_0002.npy",
+      "phase_sha256": "c413bb08eda513b364ec0f90052d80972e58285d0016638a7ac90af5b2b254b1",
+      "predicted": {
+        "candidate": {
+          "ee": 0.5360798239707947,
+          "l1": 1.1134366989135742,
+          "ncc": 0.12774664163589478,
+          "objective": 1.2294167280197144,
+          "tv": 50091.578125
+        },
+        "gain": 0.6788582801818848,
+        "reference": {
+          "ee": 0.1619134545326233,
+          "l1": 1.6987533569335938,
+          "ncc": -0.029324399307370186,
+          "objective": 1.9082750082015991,
+          "tv": 50514.42578125
+        }
+      },
+      "reason": "measured_gain 0.67885828 > min_gain 0.001",
+      "reference_accepted_phase_sha256": "eb6f6d90089eab7bb45faac226f327e79f82092a44fbf27051f7a22670e118b6",
+      "reference_id": "round_0001",
+      "round": 2,
+      "status": "accepted",
+      "timestamps": {
+        "completed_utc": "2026-11-02T03:08:00.851849+00:00",
+        "started_utc": "2026-11-02T03:08:00.608552+00:00"
+      },
+      "zero_order_xy": [
+        1268,
+        972
+      ]
+    }
+  ],
+  "schema": "sim2f_fov_hw_refine_v1",
+  "source_zero_order_xy": [
+    1268,
+    942
+  ],
+  "square_zero_order_xy": [
+    972,
+    972
+  ],
+  "status": "complete",
+  "support": "support.npy",
+  "target": "target.npy",
+  "target_sum": 0.9999999403953552,
+  "updated_at_utc": "2026-11-02T03:08:00.923376+00:00",
+  "zero_order_xy": [
+    1268,
+    972
+  ]
+}

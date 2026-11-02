@@ -32,7 +32,7 @@ LEAD = r"(?<![A-Za-z0-9_])"
 
 def _drifts(rel_dir: str) -> list[str]:
     """Modules of rel_dir with neither a full-name nor a bare-stem mention."""
-    agents = AGENTS.read_text(encoding="utf-8")
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8") + "\n" + (ROOT / "docs" / "dev" / "module_inventory.md").read_text(encoding="utf-8")
     missing: list[str] = []
     for path in sorted((ROOT / "src" / "ao_shaping" / rel_dir).rglob("*.py")):
         if "__pycache__" in path.parts:

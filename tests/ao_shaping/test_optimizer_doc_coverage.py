@@ -26,7 +26,7 @@ PKG = ROOT / "src" / "ao_shaping" / "optimizer"
 
 def test_every_optimizer_module_is_documented() -> None:
     """Every optimizer module file name must occur in the root AGENTS.md."""
-    agents = AGENTS.read_text(encoding="utf-8")
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8") + "\n" + (ROOT / "docs" / "dev" / "module_inventory.md").read_text(encoding="utf-8")
     drifts: list[str] = []
     for path in sorted(PKG.rglob("*.py")):
         if "__pycache__" in path.parts:

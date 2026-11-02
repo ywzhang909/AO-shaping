@@ -20,31 +20,34 @@ multiplying its Fourier spectrum by the transfer function
 for the paraxial Helmholtz equation: it handles near field *and* far field, and
 unlike Fraunhofer it carries the physical distance ``z`` and the wavelength.
 
-🔴 THE VALIDITY BOUND — read before trusting an ASM number on this bench
----------------------------------------------------------------------
-At ``grid=64``, ``dx=8 um``, ``lambda=1064 nm`` (aperture ``B = 512 um``),
-**single-step ASM is invalid for every bench-relevant ``z``**, and this is a
-property of the WKB/paraxial approximation, not of this implementation:
+Sampling, window and model-scope limits
+---------------------------------------
+ASM is not ``FFT-only`` or ``near-field-only``. For a band-limited scalar field,
+away from the evanescent cutoff, it is a physically parameterised propagator.
+The practical limits are numerical and model-specific:
 
-* ASM requires ``2*pi*lambda*z*f_sig**2 << 1`` with ``f_sig = 1/B``, i.e.
-  ``z << B**2 / (2*pi*lambda) = 39 mm`` for a 512 um aperture.
-* The Fraunhofer pattern only *forms* at ``z >> a**2/lambda = 61.6 mm``
-  (``a = 256 um`` half-width).
-* **No ``z`` is both ASM-valid and in the far field** — the two windows do not
-  overlap. Measured against the closed-form far field: FFT ``relL2 = 7.7e-2``,
-  ASM ``relL2 = 1.53`` (i.e. worse than predicting nothing useful).
-* Splitting the propagation into ``N`` sub-steps is **algebraically vacuous**:
-  ``prod(H(z/N)) == H(z)`` because the propagators commute and the phases add.
-  Measured ``max|prod - H| <= 1.1e-10`` for ``N = 2..200`` (pure float64
-  round-off; exactly ``2.5e-16`` at ``N = 2``). Do not offer sub-stepping as a
-  remedy — it cannot fix a broken approximation, only add round-off.
+* ``H`` must be sampled densely enough. Near the evanescent cutoff ``kz`` varies
+  rapidly with transverse frequency; a coarse grid aliases the transfer function.
+* A finite FFT window imposes periodic wrapping. Energy that leaves one edge
+  returns from the opposite edge unless the field is padded or band-limited.
+* A single ASM step propagates between two parallel planes. It does **not**
+  replace ``SLM -> free space -> lens aperture -> lens phase -> free space ->
+  CCD``. Lens curvature, a finite stop, off-axis incidence and lens aberration
+  must be inserted explicitly; changing only the final FFT is not equivalent.
+* Propagating to the far field with a fixed FFT grid requires a window and
+  sampling that resolve the pattern. The Fraunhofer FFT is the exact asymptotic
+  limit and is usually the cheaper reference there.
+* Splitting one ASM step into ``N`` sub-steps does not repair any of these
+  limitations: ``prod(H(z/N)) == H(z)`` because the propagators commute and the
+  phases add. Sub-stepping only adds round-off.
 
-The Fraunhofer FFT is the exact ``z -> infinity`` limit of this operator and is
-correct everywhere; ASM is offered here as a *selectable, physically
-parameterised alternative* whose output is expected to differ from the FFT on
-this bench. Use it when you want ``z``, ``lambda`` and ``dx`` to enter the model
-explicitly (e.g. to study the transition regime), and validate against the FFT
-before trusting it.
+At ``grid=64``, ``dx=8 um``, ``lambda=1064 nm`` and a 512 um aperture, the
+single-step ASM was measured to disagree with the closed-form far field
+(``relL2 = 1.53`` versus ``7.7e-2`` for the Fraunhofer FFT). That is a statement
+about this under-resolved small-grid example, not a universal prohibition on
+ASM. Use ASM when the full chain and sampling are explicit, and validate a
+reference implementation against an independent focal-plane or Collins result
+before replacing a calibrated production kernel.
 
 Shift convention (load-bearing)
 -------------------------------
@@ -585,7 +588,9 @@ def _resolve_z_torch(z: float | Tensor, field: Tensor) -> tuple[Tensor | float, 
 
     Returns:
         ``(z_value, is_batched)`` where ``z_value`` is a ``float`` or a 1-D
-        tensor.
+        tensor. A scalar tensor that requires gradients is kept as a scalar
+        tensor so the propagation distance remains differentiable; otherwise a
+        scalar tensor is converted to a float to preserve the cached fast path.
 
     Raises:
         ValueError: If ``z`` is neither scalar nor batch-compatible.
@@ -598,10 +603,11 @@ def _resolve_z_torch(z: float | Tensor, field: Tensor) -> tuple[Tensor | float, 
                 f"z must be a float or a tensor, got {type(z).__name__}"
             ) from exc
 
-    if z.ndim == 0:
-        return float(z.item()), False
-    if z.numel() == 1:
-        return float(z.reshape(()).item()), False
+    if z.ndim == 0 or z.numel() == 1:
+        scalar = z.reshape(())
+        if scalar.requires_grad:
+            return scalar.to(field.device), False
+        return float(scalar.item()), False
     if field.ndim < 3:
         raise ValueError(
             "batched z requires a batched field (..., H, W) with at least 3 "
@@ -671,14 +677,12 @@ def angular_spectrum_propagate_torch(
         )
     dx_f, lam_f = _validate_geometry(dx, wavelength)
     shape = _validate_field_shape(tuple(field.shape))
-    z_value, _is_batched = _resolve_z_torch(z, field)
+    z_value, is_batched = _resolve_z_torch(z, field)
 
-    # `isinstance(z_value, Tensor)` is exactly `is_batched`: `_resolve_z_torch`
-    # collapses a scalar / 0-dim / single-element `z` to a python `float` and only
-    # returns a Tensor for the one-per-sample case. Narrowing on the value rather
-    # than the flag is what lets the type checker see that `z_values` gets a Tensor.
     spectrum = torch.fft.fft2(field, norm=FFT_NORM)
-    if isinstance(z_value, Tensor):
+    if is_batched:
+        # `_resolve_z_torch` guarantees a tensor for the per-sample path.
+        assert isinstance(z_value, Tensor)
         propagator = _build_propagator_batched(
             shape,
             dx_f,
@@ -687,6 +691,17 @@ def angular_spectrum_propagate_torch(
             z_values=z_value,
             band_limit=bool(band_limit),
         )
+    elif isinstance(z_value, Tensor):
+        # A scalar tensor with requires_grad must not enter the float-keyed
+        # cache: that would detach the distance and make it untrainable.
+        propagator = _build_propagator_batched(
+            shape,
+            dx_f,
+            lam_f,
+            str(field.device),
+            z_values=z_value.reshape(1),
+            band_limit=bool(band_limit),
+        )[0].to(dtype=field.dtype)
     else:
         propagator = asm_propagator(
             shape,

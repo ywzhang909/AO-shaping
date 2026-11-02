@@ -656,30 +656,56 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
             measured = torch.as_tensor(np.asarray(measured_intensity, dtype=np.float32), device=self._device)
             if measured.shape != prediction.shape:
                 raise ValueError(f"measured_intensity shape {tuple(measured.shape)} != {tuple(prediction.shape)}")
-            measured = measured.detach().clone().requires_grad_(True)
-            loss_meas, terms = self.objective.evaluate(measured, self._delta.detach())
-            loss_meas.backward()
-            prediction.backward(gradient=measured.grad)
+            # Anchored local model: I(phi) = I_anchor + F(phi_seed+delta) - F(phi_seed).
+            # The residual R = I_anchor - F(phi_seed) is constant w.r.t. delta, so the
+            # gradient flows only through the frozen-model prediction, but the loss is
+            # evaluated on the anchored irradiance, which carries the measured shape.
+            # This cancels the model's systematic offset at the anchor, unlike a raw
+            # VJP on the measured image, which leaves F(phi_seed) in the loss.
+            with torch.no_grad():
+                baseline_prediction = self.forward.predict(
+                    self._seed + self._accepted, focus_phase=self._focus,
+                    carrier_phase=self._carrier)
+                if baseline_prediction.ndim == 3:
+                    baseline_prediction = baseline_prediction[0]
+            measured = measured.detach()
+            anchored = (measured + prediction - baseline_prediction).clamp_min(1e-8)
+            loss, terms = self.objective.evaluate(anchored, self._delta)
             if penalty is not None:
-                # The measured path gives the delta no gradient of its own (the
-                # objective sees a detached copy), so the band-limit term has to
-                # be back-propagated separately or it would be a no-op on
-                # hardware -- exactly where it is needed.
-                penalty.backward()
-            loss = loss_meas
-            mode = "measured"
+                loss = loss + penalty
+            loss.backward()
+            mode = "anchored"
         if penalty is not None:
             terms = {**terms, "l_spectral": float(penalty.detach())}
         grad_norm = float(self._delta.grad.norm()) if self._delta.grad is not None else 0.0
+        raw_step = -self._lr * self._delta.grad.detach().clone()
         self._opt.step()
         rms_before = self._project_increment()
         self._remove_piston_and_tilt()
+        with torch.no_grad():
+            anchor_prediction = self.forward.predict(
+                self._seed + self._accepted, focus_phase=self._focus, carrier_phase=self._carrier)
+            candidate_prediction = self.forward.predict(self._seed + self._delta,
+                                                        focus_phase=self._focus, carrier_phase=self._carrier)
+            if anchor_prediction.ndim == 3:
+                anchor_prediction, candidate_prediction = anchor_prediction[0], candidate_prediction[0]
+            anchor_loss, _ = self.objective.evaluate(anchor_prediction, self._accepted)
+            candidate_loss, _ = self.objective.evaluate(candidate_prediction, self._delta)
+            if penalty is not None:
+                anchor_loss, candidate_loss = anchor_loss + penalty, candidate_loss + penalty
+            final_step = self._delta.detach() - self._accepted
+            denom = raw_step.norm().clamp_min(1e-20) * final_step.norm().clamp_min(1e-20)
+            step_cosine = float((raw_step * final_step).sum() / denom)
+            record_extra = dict(anchor_model_loss=float(anchor_loss),
+                                candidate_model_loss=float(candidate_loss),
+                                candidate_model_loss_change=float(candidate_loss-anchor_loss),
+                                raw_to_final_step_cosine=step_cosine)
         self._step += 1
         record = dict(step=self._step, mode=mode, loss=float(loss.detach()), gradient_norm=grad_norm,
                       increment_rms_before_projection=rms_before,
                       increment_rms=self.weighted_rms(self._delta - self._accepted),
                       phase_rms=float(self._delta.detach().norm() / np.sqrt(self._delta.numel())),
-                      **terms)
+                      **terms, **record_extra)
         self._history.append(record)
         self._record(record["loss"])
         return self.current_phase

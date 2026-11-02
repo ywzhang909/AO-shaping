@@ -19,6 +19,9 @@
 | `transfer_square1200/` | `scripts/slm/generate_transfer_square1200_report.py` | `transfer_square1200_20261027.md` |
 | `gs_refine/` | 手工撰写（GS 系列） | `gs_issue_live_20261015.md` 等 9 份 |
 | `model_in_loop/` | 手工撰写（MIL 系列） | `model_in_loop_live_20261013.md` 等 9 份 |
+| `physical_refine/` | 手工撰写（`sim2f_fov_hw_session.py` / `sim2f_fov_hw_refine.py`） | `physical_refine_plan_20261102.md`、`physical_refine_results_20261102.md` |
+| `mask_closed_loop/` | `scripts/ml/sim2f_shape_trials.py` | `mask_closed_loop_20261031.md` |
+| `fov_generalization/` | `scripts/ml/sim2f_fov_extrapolation.py` | `fov_generalization_20261101.md` |
 
 同一系列在**同一天**追加轮次时，文件名保留日期并加 `_rN` 轮次后缀（如 `hw_defocus_zernike_20261022_r2.md` 表示 10-22 当天的第二轮）；跨天追加则直接换日期（`hw_defocus_zernike_20261020.md` → `..._20261021.md` → `..._20261022.md`）。生成脚本从系列前缀之后的**整段后缀**推导图名戳（`_20261022`、`_20261022_r2`），所以同系列的多份报告不会互相覆盖图。
 

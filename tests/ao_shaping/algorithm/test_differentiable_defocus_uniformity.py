@@ -18,6 +18,7 @@ from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity im
     CoordinateTransform,
     DifferentiableUniformityOptimizer,
     FrozenDefocusForward,
+    FrozenDefocusParameters,
     UniformityObjective,
     load_frozen_parameters,
 )
@@ -150,3 +151,183 @@ def test_checkpoint_axis_map_disagreement_is_reported():
     fitted = [[465.146, 7174.691], [-7533.176, -30.278]]
     verdict = transform.compare_with_ramp_matrix(fitted)
     assert verdict["verdict"].startswith("axis map DISAGREES")
+
+
+def _small_forward():
+    """CPU 友好的小型冻结前向（32 网格 / FFT 64 / 13×13 相机窗）。"""
+    params = FrozenDefocusParameters(
+        defocus_diopter=-0.1, origin_xy=(1360.0, 1020.0),
+        amplitude_center_xy=(960.0, 600.0), amplitude_width_xy=(400.0, 300.0),
+        residual_noll_radians={5: 0.3}, gain=25.0, background=1.0, sigma_ccd_px=2.0,
+        ramp_matrix=((8000.0, 0.0), (0.0, -8000.0)),
+        fft_size=64, pixel_samples=1, grid_size=32,
+    )
+    offsets = np.arange(-12, 13, 2.0)
+    xx, yy = np.meshgrid(1360.0 + offsets, 1020.0 + offsets, indexing="xy")
+    camera_xy = np.stack([xx, yy], axis=-1)
+    return FrozenDefocusForward(params, camera_xy, device="cpu"), params
+
+
+def _small_masks():
+    box = np.zeros((13, 13), dtype=bool)
+    box[2:11, 2:11] = True
+    core = np.zeros((13, 13), dtype=bool)
+    core[4:9, 4:9] = True
+    return box, core
+
+
+def test_directional_derivative_matches_finite_difference():
+    """方向导数：autograd 与中心差分（方案 §7(2)），相对误差 < 1e-3。
+
+    方向取梯度最陡方向（随机方向的内积太小，相对误差被 float32 精度主导）。
+    """
+    import torch
+
+    fwd, _ = _small_forward()
+    box, core = _small_masks()
+    objective = UniformityObjective(box, core, w_phase=0.0)
+    rng = np.random.default_rng(0)
+    phi_np = (rng.standard_normal((32, 32)) * 0.1).astype(np.float32)
+
+    phi = torch.tensor(phi_np, requires_grad=True)
+    loss = objective.cv(fwd.predict(phi)[0])
+    loss.backward()
+    grad = phi.grad
+    direction = grad / grad.norm()
+
+    image_leaf = fwd.predict(torch.tensor(phi_np))[0].detach().clone().requires_grad_(True)
+    objective.cv(image_leaf).backward()
+    grad_image = image_leaf.grad
+    step = 1e-3
+    with torch.no_grad():
+        plus = fwd.predict(torch.tensor(phi_np) + step * direction)[0].flatten()
+        minus = fwd.predict(torch.tensor(phi_np) - step * direction)[0].flatten()
+    finite_diff = float(((plus - minus) / (2 * step)).dot(grad_image.flatten()))
+    autograd_dir = float(grad.flatten().dot(direction.flatten()))
+    relative = abs(finite_diff - autograd_dir) / max(abs(autograd_dir), 1e-9)
+    assert relative < 1e-3, f"directional derivative drift {relative:.3e}"
+
+
+def test_coordinate_transform_direction_flag_flips_mapped_direction():
+    """方向标记（方案 §7(2)）：映射主元符号翻转 ⇒ 面板倾斜的相机映射方向翻转。"""
+    positive = CoordinateTransform(rows=((8000.0, 0.1), (1.0, -8100.0)), sign=(1.0, -1.0))
+    flipped = CoordinateTransform(rows=((-8000.0, 0.1), (1.0, -8100.0)), sign=(-1.0, -1.0))
+    vector = np.array([1.0, 0.0])
+    assert positive.to_camera(vector)[0] > 0
+    assert flipped.to_camera(vector)[0] < 0
+    assert np.allclose(flipped.to_panel(flipped.to_camera(vector)), vector, atol=1e-9)
+
+
+def test_measured_anchoring_uses_frozen_model_jacobian():
+    """测量锚定同一完整模型 Jacobian（方案 §7(7)）。
+
+    相位梯度 ≠ 0，且与冻结前向（含离焦/展宽/辐照度标度/增益/背景）的有限差一致；
+    与**裸理想 FFT**（无离焦/展宽/标度）的 Jacobian 显著不同 —— 证明反传没有
+    回落到裸 FFT 路径。
+    """
+    import torch
+
+    from ao_shaping.algorithm.signal_processing import defocus_forward_core as core
+    from ao_shaping.utils.wavefront.fraunhofer import focal_intensity
+
+    fwd, params = _small_forward()
+    box, core_mask = _small_masks()
+    objective = UniformityObjective(box, core_mask, w_phase=0.0)
+    rng = np.random.default_rng(1)
+    phi_np = (rng.standard_normal((32, 32)) * 0.1).astype(np.float32)
+    with torch.no_grad():
+        prediction = fwd.predict(torch.tensor(phi_np))[0].numpy()
+    frame = prediction + 0.05 * np.abs(prediction) + 0.1
+
+    phi = torch.tensor(phi_np, requires_grad=True)
+    prediction_t = fwd.predict(phi)[0]
+    measured = torch.tensor(frame.astype(np.float32)).requires_grad_(True)
+    loss, _ = objective.evaluate(measured, torch.zeros((32, 32)))
+    loss.backward()
+    prediction_t.backward(gradient=measured.grad)
+    grad = phi.grad
+    assert grad is not None and float(grad.norm()) > 1e-8
+
+    grad_image = measured.grad
+    direction = grad / grad.norm()
+    step = 1e-3
+    with torch.no_grad():
+        plus = fwd.predict(phi.detach() + step * direction)[0].flatten()
+        minus = fwd.predict(phi.detach() - step * direction)[0].flatten()
+    finite_diff = float(((plus - minus) / (2 * step)).dot(grad_image.flatten()))
+    autograd_dir = float(grad.flatten().dot(direction.flatten()))
+    relative = abs(finite_diff - autograd_dir) / max(abs(autograd_dir), 1e-9)
+    assert relative < 1e-3, f"measured-anchored Jacobian drift {relative:.3e}"
+
+    grids = core.camera_sample_grids(
+        torch, fwd._xy_t, fwd.origin, fwd.inverse, fwd._grid_offsets,
+        fft_size=params.fft_size, pitch=fwd.pitch)
+
+    def raw_sampled(phase):
+        field = fwd.amplitude[None] * torch.exp(1j * phase[None])
+        return core.sample_intensity(torch, focal_intensity(field, params.fft_size), grids)[0]
+
+    raw_phi = torch.tensor(phi_np, requires_grad=True)
+    raw_sampled(raw_phi).backward(gradient=grad_image)
+    raw_dir = float(raw_phi.grad.flatten().dot(direction.flatten()))
+    contrast = abs(autograd_dir - raw_dir) / max(abs(autograd_dir), 1e-9)
+    assert contrast > 0.05, f"raw-FFT Jacobian too close: contrast {contrast:.3e}"
+
+
+def _anchored_opt(fwd, objective, phi_np, **kwargs):
+    return DifferentiableUniformityOptimizer(fwd, objective, phi_np, device="cpu", **kwargs)
+
+
+def test_anchored_mode_cancels_static_model_offset():
+    """Anchored update uses I_anchor + F(phi+delta) - F(phi) as the loss image.
+
+    With a constant additive residual R between the measured frame and the model
+    prediction at the anchor, the anchored irradiance at delta=0 equals the
+    measured frame, and its phase gradient comes from the frozen model Jacobian.
+    """
+    import torch
+
+    fwd, _ = _small_forward()
+    box, core = _small_masks()
+    objective = UniformityObjective(box, core, w_phase=0.0)
+    rng = np.random.default_rng(3)
+    phi_np = (rng.standard_normal((32, 32)) * 0.1).astype(np.float32)
+    with torch.no_grad():
+        prediction = fwd.predict(torch.tensor(phi_np))[0].numpy()
+    residual = 0.2 * np.abs(prediction) + 0.3
+    measured = prediction + residual
+
+    opt = _anchored_opt(fwd, objective, phi_np, lr=0.01, step_rms_cap=0.1)
+    opt.update(measured)
+    record = opt.loss_history[-1]
+    assert record["mode"] == "anchored"
+    assert record["gradient_norm"] > 1e-8
+
+    # At delta=0 the anchored image is exactly the measured frame, so the loss
+    # matches a direct evaluation on the measurement.
+    with torch.no_grad():
+        direct, _ = objective.evaluate(
+            torch.tensor(measured, dtype=torch.float32), torch.zeros((32, 32)))
+    assert record["loss"] == pytest.approx(float(direct), rel=1e-5)
+
+
+def test_anchored_mode_matches_model_mode_without_residual():
+    """When measured == model prediction at the anchor, anchored == model update."""
+    import torch
+
+    fwd, _ = _small_forward()
+    box, core = _small_masks()
+    objective = UniformityObjective(box, core, w_phase=0.0)
+    rng = np.random.default_rng(5)
+    phi_np = (rng.standard_normal((32, 32)) * 0.1).astype(np.float32)
+    with torch.no_grad():
+        prediction = fwd.predict(torch.tensor(phi_np))[0].numpy()
+
+    anchored = _anchored_opt(fwd, objective, phi_np, lr=0.01, step_rms_cap=0.1)
+    model = _anchored_opt(fwd, objective, phi_np, lr=0.01, step_rms_cap=0.1)
+    anchored.update(prediction)
+    model.update(None)
+    a_rec, m_rec = anchored.loss_history[-1], model.loss_history[-1]
+    assert a_rec["mode"] == "anchored" and m_rec["mode"] == "model"
+    assert a_rec["loss"] == pytest.approx(m_rec["loss"], rel=1e-5)
+    np.testing.assert_allclose(anchored.delta_phase, model.delta_phase, rtol=1e-4, atol=1e-6)

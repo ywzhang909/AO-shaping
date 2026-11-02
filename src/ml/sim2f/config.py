@@ -63,12 +63,13 @@ from __future__ import annotations
 
 import math
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
 __all__ = [
     "AberrationConfig",
+    "CalibrateConfig",
     "DEVICE_SPECS",
     "LoopConfig",
     "NDIM_BARE_MAP",
@@ -76,6 +77,8 @@ __all__ = [
     "NDIM_BATCH_MAP",
     "NDIM_MATRIX",
     "OpticsErrors",
+    "RefineConfig",
+    "ShapeLoopConfig",
     "Sim2fConfig",
     "SynthConfig",
     "TARGET_KINDS",
@@ -767,6 +770,306 @@ class TeacherConfig:
             "metric": str(self.metric),
             "prepare": bool(self.prepare),
             "init": str(self.init),
+        }
+
+
+@dataclass(frozen=True)
+class RefineConfig:
+    """Contract for the **local** differentiable phase update.
+
+    :class:`TeacherConfig` optimises a free per-pixel phase *from scratch* on the
+    ideal bench and is what labels the corpus.  This config governs the
+    different thing the closed loop needs: a **bounded** update of a phase that
+    already exists (a network forward pass, a teacher label, or the previous
+    round's accepted phase) against the **fitted** bench, i.e. a bench carrying
+    the aberration the probe/refit stages estimated
+    (:mod:`ml.sim2f.fit`).
+
+    Why bounded
+    -----------
+    The update is only trusted as far as the forward model is trusted.  An
+    unconstrained per-pixel Adam step on a mis-specified model lowers the
+    *predicted* objective by exploiting model error and raises the measured one
+    -- the failure the hardware session recorded as ``net`` losing to ``flat``
+    (``runs/sim2f_bench/session_hw/session.json``: ``ee_net 0.249 < ee_flat
+    0.352``, ``wins: 0``).  Two knobs keep the update inside the model's trusted
+    region:
+
+    * ``max_delta_rad`` -- a hard trust region on ``|phi - phi_init|``, applied
+      to the *update* (not to the phase), so the starting phase's global
+      structure is preserved;
+    * ``update_sigma_px`` -- a Gaussian blur of the update in pupil pixels.  At
+      ``0`` every pupil pixel moves on its own (the teacher's parameterisation);
+      above ~1 px the update is a smooth phase plate, which is what a
+      finite-resolution model can actually predict.
+
+    Attributes:
+        iters: Adam steps per call.  Fine-tuning starts from a shaped phase, so
+            the budget is a small fraction of the teacher's ``800``.
+        lr: Adam learning rate on the phase update, radians per step.
+        lr_final_frac: Final LR as a fraction of ``lr`` (cosine decay).
+        w_ee: Weight of the ``1 - EE`` term, same convention as
+            :class:`TeacherConfig` and :func:`ml.sim2f.losses.objective_terms`.
+        w_tv: Weight of the phasor total-variation penalty on the **refined**
+            phase.  ``0`` leaves the update's smoothness to
+            ``update_sigma_px``.
+        metric: ``"l1"`` or ``"mse"`` for ``L_shape``.
+        prepare: Median-subtract and clip the frame before forming ratios.  The
+            teacher and every reported number use ``True``.
+        max_delta_rad: Trust-region radius on the update, radians.
+        trust_region: ``"clip"`` (hard clamp of the update, gradient-free at the
+            boundary) or ``"tanh"`` (``max * tanh(delta / max)``, smooth).
+        update_sigma_px: Gaussian sigma, in pupil pixels, applied to the update
+            each step.  ``0`` disables it.
+        min_gain: Minimum *relative* objective improvement required to accept the
+            refined phase.  ``0`` accepts any improvement; the loop raises it
+            when a round must justify a hardware measurement.
+        keep_best: Keep the best-objective iterate instead of the last one.  On
+            with a decaying LR the last iterate is normally the best, but a
+            model-error excursion late in the schedule would otherwise win.
+    """
+
+    iters: int = 150
+    lr: float = 0.02
+    lr_final_frac: float = 0.05
+    w_ee: float = 0.25
+    w_tv: float = 0.0
+    metric: str = "l1"
+    prepare: bool = True
+    max_delta_rad: float = 0.5
+    trust_region: str = "clip"
+    update_sigma_px: float = 0.0
+    min_gain: float = 0.0
+    keep_best: bool = True
+
+    def __post_init__(self) -> None:
+        """Validate the fields this config can get wrong silently.
+
+        Raises:
+            ValueError: If a budget, weight or mode is out of range.
+        """
+        if int(self.iters) < 1:
+            raise ValueError(f"iters must be >= 1, got {self.iters}")
+        if float(self.lr) <= 0.0:
+            raise ValueError(f"lr must be > 0, got {self.lr}")
+        if not 0.0 < float(self.lr_final_frac) <= 1.0:
+            raise ValueError(f"lr_final_frac must be in (0, 1], got {self.lr_final_frac}")
+        if str(self.metric) not in ("l1", "mse"):
+            raise ValueError(f"metric must be 'l1' or 'mse', got {self.metric!r}")
+        if str(self.trust_region) not in ("clip", "tanh"):
+            raise ValueError(f"trust_region must be 'clip' or 'tanh', got {self.trust_region!r}")
+        if float(self.max_delta_rad) <= 0.0:
+            raise ValueError(f"max_delta_rad must be > 0, got {self.max_delta_rad}")
+        if float(self.update_sigma_px) < 0.0:
+            raise ValueError(f"update_sigma_px must be >= 0, got {self.update_sigma_px}")
+        if float(self.min_gain) < 0.0:
+            raise ValueError(f"min_gain must be >= 0, got {self.min_gain}")
+        if float(self.w_ee) < 0.0:
+            raise ValueError(f"w_ee must be >= 0, got {self.w_ee}")
+        if float(self.w_tv) < 0.0:
+            raise ValueError(f"w_tv must be >= 0, got {self.w_tv}")
+
+    def to_dict(self) -> dict[str, object]:
+        """Round-trippable field dump."""
+        return {
+            "iters": int(self.iters),
+            "lr": float(self.lr),
+            "lr_final_frac": float(self.lr_final_frac),
+            "w_ee": float(self.w_ee),
+            "w_tv": float(self.w_tv),
+            "metric": str(self.metric),
+            "prepare": bool(self.prepare),
+            "max_delta_rad": float(self.max_delta_rad),
+            "trust_region": str(self.trust_region),
+            "update_sigma_px": float(self.update_sigma_px),
+            "min_gain": float(self.min_gain),
+            "keep_best": bool(self.keep_best),
+        }
+
+
+@dataclass(frozen=True)
+class CalibrateConfig:
+    """Contract for fitting the **bench state** to measured frames.
+
+    :mod:`ml.sim2f.fit` estimates the aberration for a trusted geometry; this
+    stage fits what it would otherwise absorb -- beam width, ellipticity, angle,
+    centre and focal mapping scale -- from paired samples, as plain autograd
+    through :class:`ml.sim2f.optics.Sim2f` (package rule 1).
+
+    Attributes:
+        iters: Adam steps.
+        lr: Adam learning rate on the normalised parameter vector.
+        fit_zernike: Fit the pupil aberration (Noll 2..n); on, as beam shape and
+            low-order aberration are degenerate.
+        zernike_n_max: Highest Noll index fitted when ``fit_zernike``.
+        fit_beam: Fit the entrance beam's width scale, ellipticity and angle.
+        fit_center: Fit the entrance beam's centre offset in pupil pixels.
+        fit_scale: Fit the focal mapping (camera pixels per model pixel).
+        fit_gain: Fit the measured frame's gain and additive pedestal.
+        fit_measurement: After the geometry fit, freeze it and fit only the
+            detector-MTF sigma (``ml.sim2f.measurement``).  Off by default.
+        fit_measurement_background: Experimental: also fit the uniform pedestal
+            there.  Off because gain absorbs a pedestal on raw frames.
+        fit_zero_order: Last stage: fit the coherent zero-order fraction ``eta``
+            alone, bounded to ``[0, 0.5]``.  Off by default.
+        w_l1: Weight of the mean-absolute residual on prepared frames.
+        w_ncc: Weight of the ``1 - NCC`` term.
+        holdout_frac: Fraction held out for the generalisation gap; 0 uses all.
+        seed: Seed for the holdout split.
+    """
+
+    iters: int = 300
+    lr: float = 0.05
+    fit_zernike: bool = True
+    zernike_n_max: int = 8
+    fit_beam: bool = True
+    fit_center: bool = True
+    fit_scale: bool = True
+    fit_gain: bool = True
+    fit_measurement: bool = False
+    fit_measurement_background: bool = False
+    fit_zero_order: bool = False
+    w_l1: float = 1.0
+    w_ncc: float = 1.0
+    holdout_frac: float = 0.25
+    seed: int = 0
+
+    def __post_init__(self) -> None:
+        """Validate the fields this config can get wrong silently.
+
+        Raises:
+            ValueError: If a budget, weight or fraction is out of range.
+        """
+        if int(self.iters) < 1:
+            raise ValueError(f"iters must be >= 1, got {self.iters}")
+        if float(self.lr) <= 0.0:
+            raise ValueError(f"lr must be > 0, got {self.lr}")
+        if int(self.zernike_n_max) < 2:
+            raise ValueError(f"zernike_n_max must be >= 2, got {self.zernike_n_max}")
+        if float(self.w_l1) < 0.0 or float(self.w_ncc) < 0.0:
+            raise ValueError("w_l1 and w_ncc must be >= 0")
+        if float(self.w_l1) + float(self.w_ncc) <= 0.0:
+            raise ValueError("w_l1 + w_ncc must be > 0")
+        if not 0.0 <= float(self.holdout_frac) < 1.0:
+            raise ValueError(f"holdout_frac must be in [0, 1), got {self.holdout_frac}")
+
+    def to_dict(self) -> dict[str, object]:
+        """Round-trippable field dump."""
+        return {
+            "iters": int(self.iters),
+            "lr": float(self.lr),
+            "fit_zernike": bool(self.fit_zernike),
+            "zernike_n_max": int(self.zernike_n_max),
+            "fit_beam": bool(self.fit_beam),
+            "fit_center": bool(self.fit_center),
+            "fit_scale": bool(self.fit_scale),
+            "fit_gain": bool(self.fit_gain),
+            "fit_measurement": bool(self.fit_measurement),
+            "fit_measurement_background": bool(self.fit_measurement_background),
+            "fit_zero_order": bool(self.fit_zero_order),
+            "w_l1": float(self.w_l1),
+            "w_ncc": float(self.w_ncc),
+            "holdout_frac": float(self.holdout_frac),
+            "seed": int(self.seed),
+        }
+
+
+@dataclass(frozen=True)
+class ShapeLoopConfig:
+    """Contract for the iterative arbitrary-shape closed loop.
+
+    :mod:`ml.sim2f.shape_loop` alternates three steps per round: re-fit the
+    aberration estimate against the last measured frame
+    (:func:`ml.sim2f.fit.refine`), locally fine-tune the current phase through
+    the fitted bench (:class:`ml.sim2f.finetune.PhaseRefiner`), then accept or
+    reject the candidate by the objective measured **on the device** -- never
+    on the model.  The third step exists because the first two trust a model
+    that is only partly right: the hardware session recorded an unguarded
+    model-optimal phase losing to flat
+    (``runs/sim2f_bench/session_hw/session.json``), and a measured acceptance
+    test is what keeps a wrong model from walking the phase off a cliff.
+
+    Attributes:
+        rounds: Closed-loop rounds after the open-loop measurement of the
+            starting phase.
+        refine: Contract for one local phase update (trust region, budget,
+            model-side acceptance gate).
+        n_modes: Zernike coefficient count of the aberration refit, Noll
+            ``2 .. n_modes + 1``.
+        fit_iters: Adam steps of one refit.
+        fit_lr: Refit learning rate.  ``0.02`` is measured, not taste: on a
+            ground-truth twin the refit drives the residual to ~0.002 with a
+            coefficient cosine of 1.00 at lr 0.02, while 0.05 overshoots and
+            ends on a worse iterate than it visited (0.0088 vs 0.0040).
+        trust_rad: Per-mode refit box ``|c - c_start| <= trust_rad``, radians.
+        fit_frozen: Noll indices held at their incoming value by the refit.
+            Noll 1-3 stay frozen: once the target decides where the energy
+            goes, the spot position no longer identifies tilt (same argument
+            as :class:`AberrationConfig`).
+        w_ee: EE weight of the device-side acceptance objective.  This is the
+            same composition :func:`ml.sim2f.evaluate._row` reports, so a loop
+            gain and an eval gain are the same number.
+        metric: Residual metric of the acceptance objective.
+        min_gain: Relative device-objective gain required to accept a round's
+            candidate (``0`` accepts any non-worsening update, matching
+            :class:`RefineConfig` semantics).
+        seed: Seed for anything stochastic in the trial driver.
+    """
+
+    rounds: int = 3
+    refine: RefineConfig = field(default_factory=RefineConfig)
+    n_modes: int = 14
+    fit_iters: int = 120
+    fit_lr: float = 0.02
+    trust_rad: float = 0.5
+    fit_frozen: tuple[int, ...] = (1, 2, 3)
+    w_ee: float = 0.25
+    metric: str = "l1"
+    min_gain: float = 0.0
+    seed: int = 0
+
+    def __post_init__(self) -> None:
+        """Validate the fields this config can get wrong silently.
+
+        Raises:
+            ValueError: If a budget, weight or radius is out of range.
+        """
+        if int(self.rounds) < 0:
+            raise ValueError(f"rounds must be >= 0, got {self.rounds}")
+        if int(self.n_modes) < 1:
+            raise ValueError(f"n_modes must be >= 1, got {self.n_modes}")
+        for noll in self.fit_frozen:
+            if not 1 <= int(noll) <= int(self.n_modes) + 1:
+                raise ValueError(
+                    f"fit_frozen Noll {noll} is outside 1..{int(self.n_modes) + 1}"
+                )
+        if int(self.fit_iters) < 1:
+            raise ValueError(f"fit_iters must be >= 1, got {self.fit_iters}")
+        if float(self.fit_lr) <= 0.0:
+            raise ValueError(f"fit_lr must be > 0, got {self.fit_lr}")
+        if float(self.trust_rad) <= 0.0:
+            raise ValueError(f"trust_rad must be > 0, got {self.trust_rad}")
+        if float(self.w_ee) < 0.0:
+            raise ValueError(f"w_ee must be >= 0, got {self.w_ee}")
+        if self.metric not in ("l1", "mse"):
+            raise ValueError(f"metric must be 'l1' or 'mse', got {self.metric!r}")
+        if float(self.min_gain) < 0.0:
+            raise ValueError(f"min_gain must be >= 0, got {self.min_gain}")
+
+    def to_dict(self) -> dict[str, object]:
+        """Round-trippable field dump."""
+        return {
+            "rounds": int(self.rounds),
+            "refine": self.refine.to_dict(),
+            "n_modes": int(self.n_modes),
+            "fit_iters": int(self.fit_iters),
+            "fit_lr": float(self.fit_lr),
+            "trust_rad": float(self.trust_rad),
+            "fit_frozen": [int(noll) for noll in self.fit_frozen],
+            "w_ee": float(self.w_ee),
+            "metric": str(self.metric),
+            "min_gain": float(self.min_gain),
+            "seed": int(self.seed),
         }
 
 

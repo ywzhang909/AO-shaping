@@ -156,6 +156,7 @@ from ml.sim2f.config import (
     Sim2fConfig,
     TeacherConfig,
 )
+from ml.sim2f.full_frame import HwFullFrameMixin, SimFullFrameMixin
 from ml.sim2f.loop import _check_geometry, _finite, _load_network, _Measurer, _score
 from ml.sim2f.model import network_input
 from ml.sim2f.optics import Sim2f, draw_aberration, write_aberration
@@ -513,7 +514,7 @@ class Instrument(Protocol):
         ...
 
 
-class SimInstrument:
+class SimInstrument(SimFullFrameMixin):
     """The calibrated twin as an instrument -- the dry run of README §6 step 0.
 
     Construction is identical to ``loop.run_loop``'s ``a_no_noise`` arm: the same
@@ -624,7 +625,7 @@ class SimInstrument:
         }
 
 
-class HwInstrument:
+class HwInstrument(HwFullFrameMixin):
     """Santec SLM (memory mode) + CCD as an instrument.
 
     Acquisition, exactly as README §1.1/§6/§8 require:
@@ -648,6 +649,10 @@ class HwInstrument:
     loads no SDK.  The exposure ceiling :data:`MAX_EXPOSURE_ENV` is checked before
     any device is touched, and no ladder step may exceed it.
     """
+
+    _benchmark_error = BenchmarkError
+    _build_panel_phase = staticmethod(build_panel_phase)
+    _max_zero_order_offset_px = MAX_ZERO_ORDER_OFFSET_PX
 
     def __init__(
         self,
@@ -763,6 +768,13 @@ class HwInstrument:
         self._full_scale = 255.0
         self._window: tuple[int, int] | None = None
         self._center: tuple[int, int] | None = None
+        #: Native sensor shape ``(height, width)``, remembered from the one
+        #: full-frame grab :meth:`_locate_zero_order` already takes.
+        self._native_shape: tuple[int, int] | None = None
+        #: The 0-order in native-frame coordinates, kept after the ROI widens
+        #: (``_center`` then becomes the frame centre).
+        self._zero_order_xy: tuple[int, int] | None = None
+        self._full_frame: bool = False
         self._twin_bench: Sim2f | None = None
         self._twin_device = device
         self._pupil_center_xy = (
@@ -901,53 +913,6 @@ class HwInstrument:
         return dict(self._exposure_trace)
 
     # -- acquisition -----------------------------------------------------
-    def _locate_zero_order(self) -> None:
-        """Centre a ``ccd_px`` window on the 0-order, located by ``argmax``.
-
-        The 0-order is the frame's global maximum in a 2f bench and is **not** at
-        the geometric centre (measured 1441-1443, 705-706 against a centre of
-        1344, 760), so geometry is never assumed.  ``reset_window`` clamps the
-        offset and returns the window it really applied, so the spot is
-        re-located inside the window and one corrective move is made when the
-        peak is more than 4 px off-centre.
-        """
-        full = np.asarray(self._cam.get_numpy_image(1, skip_first=True))
-        if np.issubdtype(full.dtype, np.integer):
-            self._full_scale = float(np.iinfo(full.dtype).max)
-        row, col = np.unravel_index(int(np.argmax(full)), full.shape)
-        size = (self._ccd_px, self._ccd_px)
-        window, center = self._cam.reset_window((int(col), int(row)), size)
-        probe = np.asarray(self._cam.get_numpy_image(1, skip_first=True))
-        peak_row, peak_col = np.unravel_index(int(np.argmax(probe)), probe.shape)
-        half_r, half_c = probe.shape[0] // 2, probe.shape[1] // 2
-        if (
-            abs(peak_row - half_r) > MAX_ZERO_ORDER_OFFSET_PX
-            or abs(peak_col - half_c) > MAX_ZERO_ORDER_OFFSET_PX
-        ):
-            corrected = (
-                int(center[0]) + (int(peak_col) - half_c),
-                int(center[1]) + (int(peak_row) - half_r),
-            )
-            logger.warning(
-                "0-order sits {}px off the window centre after reset_window; "
-                "re-centring on {}",
-                max(abs(peak_row - half_r), abs(peak_col - half_c)),
-                corrected,
-            )
-            window, center = self._cam.reset_window(corrected, size)
-        self._window = (int(window[0]), int(window[1]))
-        self._center = (int(center[0]), int(center[1]))
-        logger.info(
-            "CCD window {}x{} centred on the 0-order at {} (full-frame peak was "
-            "{},{}, full scale {})",
-            self._window[0],
-            self._window[1],
-            self._center,
-            row,
-            col,
-            self._full_scale,
-        )
-
     def capture(self, phase_rad: Tensor | np.ndarray) -> np.ndarray:
         """Write the phase, settle, and read one averaged frame.
 
@@ -985,7 +950,9 @@ class HwInstrument:
         catch a misplaced or wrongly scaled phase, not to judge twin accuracy.
         """
         if self._twin_bench is None:
-            self._twin_bench = Sim2f(Sim2fConfig.calibrated(), device=str(self._twin_device))
+            self._twin_bench = Sim2f(
+                Sim2fConfig.calibrated(), device=str(self._twin_device)
+            )
         phase = _phase_array(phase_rad)
         tensor = torch.as_tensor(
             phase, dtype=self._twin_bench.dtype, device=self._twin_bench.device
@@ -1106,10 +1073,14 @@ class HwInstrument:
                 "center_xy": None if self._center is None else list(self._center),
                 "n_sample": self._n_sample,
                 "full_scale": self._full_scale,
+                **self._full_frame_metadata(),
             },
             "exposure": self.exposure_trace,
             "panel_shape": [int(v) for v in self._panel_shape],
-            "panel_center_xy": [int(self._panel_shape[1] // 2), int(self._panel_shape[0] // 2)],
+            "panel_center_xy": [
+                int(self._panel_shape[1] // 2),
+                int(self._panel_shape[0] // 2),
+            ],
             "pupil_center_xy": list(
                 pupil_center(self._panel_shape, self._pupil_center_xy)
             ),

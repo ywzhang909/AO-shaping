@@ -2827,7 +2827,7 @@ def _cli_command_inventory() -> dict[str, set[str]]:
     in_docstring = _docstring_commands(docstring)
 
     tree: set[str] = set()
-    agents = (REPO / "AGENTS.md").read_text(encoding="utf-8")
+    agents = (REPO / "AGENTS.md").read_text(encoding="utf-8") + "\n" + (REPO / "docs" / "dev" / "entry_points.md").read_text(encoding="utf-8")
     at = agents.find("main (click.group)")
     if at >= 0:
         block = agents[at:agents.index("```", at)]

@@ -102,6 +102,80 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
     ),
     # -- sim2f 孪生 vs 2f 实验语料 (纯离线) ------------------------------------
+    "report/shape_trials/mask_closed_loop/mask_closed_loop_20261031.md": ReportProvenance(
+        script="scripts/ml/sim2f_shape_trials.py",
+        command=(
+            "python scripts/ml/sim2f_shape_trials.py --execute"
+            " --out report/shape_trials/mask_closed_loop"
+        ),
+        environment="离线（session_hw 录制会话标定孪生 + 漂移代理）",
+        note=(
+            "任意位图形状（mask_target）迭代闭环整形离线验证：标定孪生 vs 裸模型的"
+            "两配对，实测验收门在模型失配下逐轮拦截；逐轮明细与每个变体相位在 artifacts/。"
+        ),
+        extra_scripts=(
+            "scripts/ml/sim2f_shape_trials_figures.py",
+            "src/ml/sim2f/shape_loop.py",
+            "src/ml/sim2f/calibrate.py",
+        ),
+    ),
+    "report/shape_trials/fov_generalization/fov_generalization_20261101.md": ReportProvenance(
+        script="scripts/ml/sim2f_fov_extrapolation.py",
+        command=(
+            "python scripts/ml/sim2f_fov_extrapolation.py"
+            " --out report/shape_trials/fov_generalization"
+        ),
+        environment="离线（带像差与粗糙度的仿真器件 + 冻结标称模型；器件与模型不是同一对象）",
+        note=(
+            "小视场相机下的超视场开环预测、D 最优主动探测、物理约束残差拟合三路仿真："
+            "窗内拟合 + 独立确认相位验收门，未确认一律回退零像差；"
+            "逐 trial 明细与主动探测/物理残差原始产物在 artifacts/。"
+        ),
+        extra_scripts=(
+            "scripts/ml/sim2f_probe_active.py",
+            "scripts/ml/sim2f_pinn_extrapolation.py",
+            "scripts/ml/sim2f_fov_hw.py",
+            "scripts/ml/sim2f_fov_hw_session.py",
+            "src/ml/sim2f/full_frame.py",
+            "src/ml/sim2f/window.py",
+            "src/ml/sim2f/extrapolate.py",
+            "src/ml/sim2f/probe_active.py",
+            "src/ml/sim2f/pinn.py",
+        ),
+    ),
+    "report/shape_trials/physical_refine/physical_refine_plan_20261102.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="规划（无新实测结论；历史数值来自 2026-11-01 标定/生产会话）",
+        note=(
+            "物理会话闭环相位微调与相差拟合规划：测量传递层与瞳面传播分离，"
+            "顺序拟合探测器 MTF，背景默认不拟合；相差仅在平/参考相位重拟合；"
+            "sequential_ccd 实测验收与独立重放，模型分数不作 CCD 证据。"
+        ),
+        extra_scripts=(
+            "scripts/ml/sim2f_fov_hw_session.py",
+            "scripts/ml/sim2f_fov_hw_refine.py",
+            "src/ml/sim2f/calibrate.py",
+        ),
+    ),
+    "report/shape_trials/physical_refine/physical_refine_results_20261102.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线分析（历史物理会话 + 生产会话对齐评分 + 约束残差拟合 + 名义孪生干跑；设备下线，无新增 CCD 采集）",
+        note=(
+            "顺序测量层/相干零级标定的验证集对照、生产会话探测器无关对齐评分与几何支持域、"
+            "标定迁移与有界离焦/缩放扫描、约束残差拟合、历史会话驱动的任意形状代理闭环、"
+            "名义孪生干跑与下一次实验步骤；全幅与逐目标分数只作模型诊断，孪生闭环和干跑只作流程证据，"
+            "不作为物理整形成功或 CCD 验收证据。"
+        ),
+        extra_scripts=(
+            "scripts/ml/sim2f_fov_hw_session.py",
+            "scripts/ml/sim2f_fov_hw_refine.py",
+            "scripts/ml/sim2f_physical_residual.py",
+            "src/ml/sim2f/calibrate.py",
+            "src/ml/sim2f/measurement.py",
+            "src/ml/sim2f/optics.py",
+            "src/ml/sim2f/pinn.py",
+        ),
+    ),
     "report/shape_trials/multishape_scale/square_1000_diff_abba_20261030.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线分析与实验；ABBA 及 v6/v7 局部响应诊断均使用 Santec #1 / Daheng Mono12",
@@ -766,12 +840,6 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
     ),
     # -- 优化器基准 / PIB --------------------------------------------------
-    "report/heuristic_pib/heuristic_pib_report/report.md": ReportProvenance(
-        script="scripts/slm/generate_heuristic_pib_report.py",
-        command="python scripts/slm/generate_heuristic_pib_report.py",
-        environment="离线",
-        note="7 种启发式 + PIB 目标；summary.csv 为本脚本产物",
-    ),
     "report/strehl_benchmark/strehl_benchmark_report/report.md": ReportProvenance(
         script="scripts/slm/generate_strehl_benchmark_report.py",
         command="python scripts/slm/generate_strehl_benchmark_report.py",
@@ -830,11 +898,23 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线",
         note="在线回归套件验收报告 (读 data/debug/slm_pib_online/)",
     ),
+    "report/slm_pib_online/measure_shape_sensitivity/sensitivity.md": ReportProvenance(
+        script="scripts/slm/measure_shape_sensitivity.py",
+        command="python scripts/slm/measure_shape_sensitivity.py",
+        environment="硬件",
+        note="在线套件采集帧上的整形目标函数灵敏度 (噪声地板) 实测",
+    ),
     "report/slm_pib_online/shape_objective_comparison/objective_comparison.md": ReportProvenance(
         script="scripts/slm/generate_shape_objective_comparison.py",
         command="python scripts/slm/generate_shape_objective_comparison.py",
         environment="离线",
         note="三种整形目标函数的排序一致性 (Spearman)",
+    ),
+    "report/slm_pib_online_hw/shape_objective_comparison/objective_comparison.md": ReportProvenance(
+        script="scripts/slm/generate_shape_objective_comparison.py",
+        command="python scripts/slm/generate_shape_objective_comparison.py",
+        environment="离线",
+        note="实验系统 CCD 帧上的三种整形目标函数排序对比",
     ),
     "report/slm_pib_sim/slm_pib_sim_report/report.md": ReportProvenance(
         script="scripts/slm/generate_slm_pib_sim_report.py",
@@ -867,12 +947,31 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线",
         note="PIB 优化器功能说明 (非实验测量)",
     ),
+    # -- 数据引用清单 --------------------------------------------------------
+    "report/data_reference_inventory.md": ReportProvenance(
+        script="scripts/_common/data_reference_inventory.py",
+        command="python scripts/_common/data_reference_inventory.py",
+        environment="离线",
+        note=(
+            "静态扫描 report/**/*.{md,json} 对 data/ 的引用并判定本机存在性；"
+            "只代表报告引用维度，不代表运行时依赖"
+        ),
+    ),
     # -- ML / 模型 ----------------------------------------------------------
     "report/models_analysis/models_report/report.md": ReportProvenance(
         script="scripts/rl/generate_models_report.py",
         command="python scripts/rl/generate_models_report.py",
         environment="离线",
         note="读 TensorBoard event 文件",
+    ),
+    "report/models_analysis/models_report/tmp_sac_run_showcase.md": ReportProvenance(
+        script="scripts/rl/generate_models_report.py",
+        command="python scripts/rl/generate_models_report.py",
+        environment="离线",
+        note=(
+            "临时调试家族最佳 run 成果展示；原始检查点与 tfevents 已随清理删除，"
+            "本文为删除前记录"
+        ),
     ),
     "report/models_analysis/reward_analysis.md": ReportProvenance(
         script=HANDWRITTEN,

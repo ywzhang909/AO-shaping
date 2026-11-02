@@ -43,7 +43,7 @@ SUBPACKAGES = {
 def _row_cells(label: str) -> list[str]:
     """The three non-empty pipe cells of one inventory row."""
     anchor = f"| `{label}` |"
-    text = AGENTS.read_text(encoding="utf-8")
+    text = (ROOT / "AGENTS.md").read_text(encoding="utf-8") + "\n" + (ROOT / "docs" / "dev" / "module_inventory.md").read_text(encoding="utf-8")
     rows = [l for l in text.split("\n") if l.startswith(anchor)]
     assert len(rows) == 1, f"expected exactly one {label} row, found {len(rows)}"
     cells = [c for c in rows[0].split("|") if c.strip()]

@@ -19,6 +19,7 @@ Pure torch/numpy -- no corpus, no hardware.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 
 import numpy as np
@@ -456,3 +457,28 @@ def test_zero_order_puts_light_in_an_unmodulated_component() -> None:
     )
 
 
+
+def test_zero_order_eta_override_defaults_to_the_config() -> None:
+    """No override is the old path; an override equal to the config matches it."""
+    cfg = dataclasses.replace(TINY, errors=OpticsErrors(zero_order_eta=0.2))
+    sim = Sim2f(cfg, device="cpu")
+    zero = np.zeros((1, cfg.grid, cfg.grid), dtype=np.float32)
+
+    nominal = sim.forward(zero)
+
+    assert torch.equal(nominal, sim.forward(zero, zero_order_eta=None))
+    assert torch.allclose(nominal, sim.forward(zero, zero_order_eta=0.2))
+    assert not torch.allclose(nominal, sim.forward(zero, zero_order_eta=0.4))
+
+
+def test_zero_order_eta_override_is_differentiable() -> None:
+    """The fitted eta reaches autograd: a finite, non-zero d(frame)/d(eta)."""
+    sim = Sim2f(TINY, device="cpu")
+    zero = np.zeros((1, TINY.grid, TINY.grid), dtype=np.float32)
+    eta = torch.tensor(0.2, dtype=sim.dtype, requires_grad=True)
+
+    sim.forward(zero, zero_order_eta=eta).sum().backward()
+
+    assert eta.grad is not None
+    assert torch.isfinite(eta.grad)
+    assert float(eta.grad) != 0.0

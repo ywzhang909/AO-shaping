@@ -923,6 +923,44 @@ class TestHwInstrument:
         assert fake_devices["slm"].closed is True
         assert fake_devices["cam"].closed is True
 
+    def test_full_frame_widens_the_roi_once_and_keeps_the_window_path(
+        self, monkeypatch, fake_devices
+    ) -> None:
+        """One command, one native read; the small-window path still checks its shape."""
+        monkeypatch.setenv("AO_DAHENG_MAX_EXPOSURE_MS", "0.8")
+        instrument = HwInstrument(exposure_ms=0.03, ccd_px=64, settle_s=0.0)
+        try:
+            cam = fake_devices["cam"]
+            # The constructor's discovery grab is the only full-frame read so far.
+            assert instrument.native_shape == (600, 800)
+            assert instrument.zero_order_xy == (400, 300)  # fake spot (row, col)
+            assert instrument.full_frame is False
+            small = instrument.capture(np.zeros((_GRID, _GRID), dtype=np.float32))
+            assert small.shape == (64, 64)
+
+            assert instrument.enable_full_frame() == (600, 800)
+            assert instrument.full_frame is True
+            assert cam.window == (600, 800)
+            frame = instrument.capture_full_frame(
+                np.zeros((_GRID, _GRID), dtype=np.float32)
+            )
+            assert frame.shape == (600, 800)
+            assert frame.dtype == np.float32
+
+            # Idempotent: the ROI is restored once, not re-applied per item.
+            assert instrument.enable_full_frame() == (600, 800)
+            assert cam.window == (600, 800)
+            described = instrument.describe()
+            assert described["camera"]["native_shape"] == [600, 800]
+            assert described["camera"]["zero_order_xy"] == [400, 300]
+            assert described["camera"]["full_frame"] is True
+
+            # ``capture`` is still the 64px window path and refuses a full frame.
+            with pytest.raises(ValueError, match="ROI changed mid-session"):
+                instrument.capture(np.zeros((_GRID, _GRID), dtype=np.float32))
+        finally:
+            instrument.close()
+
     def test_it_puts_the_pupil_square_where_the_operator_asked(
         self, monkeypatch, fake_devices
     ) -> None:

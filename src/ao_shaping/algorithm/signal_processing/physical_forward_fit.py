@@ -136,13 +136,15 @@ class PhysicalForwardFit:
             fft_size=self.fft_size, pitch=self.pitch)
         predictions = []
         for start in range(0, len(self.phases), self.batch_size):
-            phase = defocus_phase(torch, self.phases[start:start+self.batch_size], self.d,
+            command = self.phases[start:start+self.batch_size]
+            # The SLM response acts on commands, not static optical aberrations.
+            # Keep this order identical to FrozenDefocusForward.predict.
+            if getattr(self, "_slm_phase", None) is not None:
+                command = self._slm_phase(command)
+            phase = defocus_phase(torch, command, self.d,
                                   self.diopter_scale, self.z4,
                                   residual_values=self.residual,
                                   residual_basis=self.residual_basis)
-            # Optional SLM command -> effective phase nonlinearity (report 20261027 §4 item 2).
-            if getattr(self, "_slm_phase", None) is not None:
-                phase = self._slm_phase(phase)
             field = amplitude * torch.exp(1j * phase)
             intensity = self.propagate(field, self.fft_size)
             # Preserve physical irradiance units when input pitch or FFT changes.

@@ -26,7 +26,7 @@ STEM_TAIL = r"(?![A-Za-z0-9_.])"
 
 def test_every_tools_module_is_documented() -> None:
     """Every tools module name/stem must occur in the root AGENTS.md."""
-    agents = AGENTS.read_text(encoding="utf-8")
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8") + "\n" + (ROOT / "docs" / "dev" / "module_inventory.md").read_text(encoding="utf-8")
     missing: list[str] = []
     for path in sorted((ROOT / "src" / "ao_shaping" / "tools").rglob("*.py")):
         if "__pycache__" in path.parts:

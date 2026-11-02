@@ -1,0 +1,33 @@
+{
+  "json": "runs\\sim2f_fov_calib\\calibration\\calibration.json",
+  "n_holdout": 25,
+  "n_train": 75,
+  "npz": "runs\\sim2f_fov_calib\\calibration\\calibration.npz",
+  "ok": true,
+  "reason": null,
+  "schema": "sim2f_fov_hw_session/calibrate/v1",
+  "score": {
+    "holdout": {
+      "gain": 365.304443359375,
+      "l1": 0.46484503149986267,
+      "ncc": 0.9104582071304321
+    },
+    "train": {
+      "gain": 365.71484375,
+      "l1": 0.47424134612083435,
+      "ncc": 0.9177432656288147
+    }
+  },
+  "score_start": {
+    "holdout": {
+      "gain": 56.12278366088867,
+      "l1": 1.0252872705459595,
+      "ncc": 0.6628706455230713
+    },
+    "train": {
+      "gain": 55.78406524658203,
+      "l1": 1.043483853340149,
+      "ncc": 0.6557363271713257
+    }
+  }
+}

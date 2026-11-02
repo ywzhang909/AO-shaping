@@ -1,0 +1,42 @@
+{
+  "schema": "physical_refine/published_reproduction_comparison/v1",
+  "device": "NVIDIA GeForce RTX 5080 Laptop GPU",
+  "torch": "2.11.0+cu128",
+  "bit_exact_test": "failed",
+  "relative_tolerance_tests": "passed",
+  "relative_tolerance": 0.0001,
+  "metrics": {
+    "flat": {
+      "objective": {
+        "current": 1.115984360376994,
+        "published": 1.115984360376994,
+        "delta": 0.0,
+        "relative_delta": 0.0,
+        "bit_exact": true
+      },
+      "ncc": {
+        "current": 0.6343773828508953,
+        "published": 0.6343773927850028,
+        "delta": -9.934107536579972e-09,
+        "relative_delta": 1.565961783878819e-08,
+        "bit_exact": false
+      }
+    },
+    "net": {
+      "objective": {
+        "current": 1.4587823723753293,
+        "published": 1.4587994813919067,
+        "delta": -1.7109016577476766e-05,
+        "relative_delta": 1.1728148244988596e-05,
+        "bit_exact": false
+      },
+      "ncc": {
+        "current": 0.5437100762501359,
+        "published": 0.5436754791686932,
+        "delta": 3.459708144271101e-05,
+        "relative_delta": 6.363553768437684e-05,
+        "bit_exact": false
+      }
+    }
+  }
+}

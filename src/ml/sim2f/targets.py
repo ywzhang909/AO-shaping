@@ -61,6 +61,7 @@ __all__ = [
     "TARGET_KINDS",
     "TargetSample",
     "draw_target",
+    "mask_target",
     "thin_feature_px",
 ]
 
@@ -141,7 +142,9 @@ class TargetSample:
         support: ``(ccd_px, ccd_px)`` bool -- the analytic region the shape
             covers. Named support because it is what the teacher's encircled
             energy term integrates; it is *not* a threshold on ``intensity``.
-        kind: One of :data:`ml.sim2f.config.TARGET_KINDS`.
+        kind: One of :data:`ml.sim2f.config.TARGET_KINDS`, or ``"mask"`` for a
+            user-supplied bitmap (:func:`mask_target` -- deliberately not a
+            corpus family, since a cache stores ``kind`` as an integer index).
         geometry: The drawn geometry of this sample, in camera pixels / degrees,
             so a cache entry can be described without the generator.
     """
@@ -579,3 +582,202 @@ def draw_target(
     return TargetSample(
         intensity=intensity, support=support, kind=kind, geometry=geometry
     )
+
+
+def _resample_bilinear(
+    mask: np.ndarray, n: int, *, offset_x_px: float, offset_y_px: float, ccd_px: int
+) -> np.ndarray:
+    """Resample ``mask`` onto the ``(n, n)`` super-grid by bilinear interpolation.
+
+    The mask's full extent maps onto the full ``ccd_px`` camera frame, corner to
+    corner: row ``0`` of the super-grid samples the mask's first row and row
+    ``n - 1`` its last, so content drawn at the bitmap's edge lands at the
+    frame's edge (and is therefore caught by the border check below).  Sampling
+    is bilinear, and coordinates the offset pushes outside the mask read as zero
+    -- outside the bitmap there is nothing to sample, and replicating the edge
+    would invent shape the caller did not draw.
+
+    Args:
+        mask: ``(h, w)`` non-negative source bitmap.
+        n: Destination grid side (``ccd_px * SUPERSAMPLE``).
+        offset_x_px: Centre shift in camera pixels (positive moves the shape
+            towards larger columns).
+        offset_y_px: Centre shift in camera pixels (positive moves the shape
+            towards larger rows).
+        ccd_px: Camera grid side, to convert the offset into frame fractions.
+
+    Returns:
+        ``(n, n)`` float64 resampled coverage.
+    """
+    h, w = mask.shape
+    steps = np.arange(n, dtype=np.float64) / max(1, n - 1)
+    src_x = (steps[None, :] - float(offset_x_px) / float(ccd_px)) * (w - 1)
+    src_y = (steps[:, None] - float(offset_y_px) / float(ccd_px)) * (h - 1)
+
+    x0 = np.floor(src_x).astype(np.int64)
+    y0 = np.floor(src_y).astype(np.int64)
+    wx = src_x - x0
+    wy = src_y - y0
+    valid = (src_x >= 0.0) & (src_x <= w - 1.0) & (src_y >= 0.0) & (src_y <= h - 1.0)
+    x0c = np.clip(x0, 0, w - 1)
+    x1c = np.clip(x0 + 1, 0, w - 1)
+    y0c = np.clip(y0, 0, h - 1)
+    y1c = np.clip(y0 + 1, 0, h - 1)
+
+    out = (
+        (1.0 - wx) * (1.0 - wy) * mask[y0c, x0c]
+        + wx * (1.0 - wy) * mask[y0c, x1c]
+        + (1.0 - wx) * wy * mask[y1c, x0c]
+        + wx * wy * mask[y1c, x1c]
+    )
+    return np.where(valid, out, 0.0)
+
+
+def _median_run_length(support: np.ndarray) -> float:
+    """Thinnest-feature estimate of a binary mask, in camera pixels.
+
+    There is no analytic geometry to re-measure for a user-supplied bitmap, so
+    the thinnest feature is estimated from the mask itself: the median length
+    of the True runs along every row and every column.  The median (not the
+    minimum) is deliberate: a single aliased stair-step pixel is not a feature,
+    and a shape that is mostly thick with one thin neck is reported by its bulk
+    -- the floor exists to keep the *target's* structure above the PSF, not to
+    reject incidental single-pixel corners.
+
+    Args:
+        support: ``(n, n)`` boolean mask.
+
+    Returns:
+        Median run length, pixels; ``0.0`` for an empty mask.
+    """
+    runs: list[np.ndarray] = []
+    for axis in (0, 1):
+        lines = support if axis == 1 else support.T
+        for line in lines:
+            padded = np.concatenate(([False], line, [False]))
+            edges = np.diff(padded.astype(np.int8))
+            starts = np.flatnonzero(edges == 1)
+            ends = np.flatnonzero(edges == -1)
+            if starts.size:
+                runs.append(ends - starts)
+    if not runs:
+        return 0.0
+    return float(np.median(np.concatenate(runs)))
+
+
+def mask_target(
+    mask: np.ndarray,
+    ccd_px: int,
+    *,
+    center_px: tuple[float, float] = (0.0, 0.0),
+    min_feature_px: float | None = None,
+) -> TargetSample:
+    """Turn a user-supplied bitmap into an arbitrary-shape target.
+
+    This is the entry point the parameterised families do not cover: any shape
+    the caller can draw (a logo, a letter, a measured distribution) becomes a
+    target, under the same contract as :func:`draw_target` -- unit sum, an
+    anti-aliased intensity, an honest support, and the feature floor.
+
+    Placement
+    =========
+    The bitmap's full extent maps onto the full ``ccd_px`` camera frame, so the
+    caller controls size and position by where the shape sits in the bitmap
+    (a shape drawn in the middle third of a square bitmap lands as a
+    ``ccd_px / 3`` shape, centred).  ``center_px`` then shifts it in camera
+    pixels.  Unlike :func:`draw_target` there is **no silent shrink**: a shape
+    that would touch the frame border raises, because clipping a user's bitmap
+    would silently change what was asked for.
+
+    Values
+    ======
+    The bitmap need not be binary: values are a coverage/density, so a greyscale
+    bitmap requests a greyscale far field (the intensity carries the grey
+    levels, the support is wherever any coverage lands).
+
+    Args:
+        mask: ``(h, w)`` array-like, finite and non-negative, with some energy.
+        ccd_px: Camera grid side, in pixels.
+        center_px: ``(x, y)`` centre shift in camera pixels.
+        min_feature_px: Floor on the thinnest bright feature, in camera pixels;
+            ``None`` applies the default floor (see :func:`_resolve_floor`).
+
+    Returns:
+        The :class:`TargetSample` with ``kind="mask"``; ``geometry`` reports the
+        placement, the coverage and the measured thinnest feature
+        (``thin_px``, by :func:`_median_run_length`).
+
+    Raises:
+        ValueError: If the mask is not a finite non-negative 2-D array, has no
+            energy, if ``ccd_px`` is not an int ``>= 8``, if the placed shape
+            touches the frame border, or if its thinnest feature is below the
+            floor.
+    """
+    if isinstance(ccd_px, bool) or not isinstance(ccd_px, (int, np.integer)):
+        raise ValueError(f"ccd_px must be an int, got {ccd_px!r}")
+    ccd_px = int(ccd_px)
+    if ccd_px < 8:
+        raise ValueError(f"ccd_px must be >= 8, got {ccd_px}")
+    floor = _resolve_floor(min_feature_px, ccd_px)
+
+    source = np.asarray(mask, dtype=np.float64)
+    if source.ndim != 2:
+        raise ValueError(f"mask must be 2-D, got shape {source.shape}")
+    if not np.isfinite(source).all():
+        raise ValueError("mask contains non-finite values")
+    if float(source.min()) < 0.0:
+        raise ValueError("mask contains negative values")
+    if float(source.max()) <= 0.0:
+        raise ValueError("mask has no energy (max is zero)")
+    source = source / float(source.max())
+
+    center_x, center_y = float(center_px[0]), float(center_px[1])
+    n = ccd_px * SUPERSAMPLE
+    coverage = _resample_bilinear(
+        source, n, offset_x_px=center_x, offset_y_px=center_y, ccd_px=ccd_px
+    )
+
+    mask_super = coverage > 0.0
+    if _touches_border(mask_super):
+        raise ValueError(
+            "mask target touches the frame border; shrink or re-centre the shape "
+            "in the bitmap (mask_target never clips silently)"
+        )
+
+    intensity = _block_sum(coverage) / float(SUPERSAMPLE**2)
+    support = _block_max(mask_super)
+
+    if not np.isfinite(intensity).all():
+        raise ValueError("mask target contains non-finite values")
+    total = float(intensity.sum())
+    if total <= 0.0:
+        raise ValueError("mask target is empty after resampling")
+    intensity = (intensity / total).astype(np.float32)
+
+    support_count = int(support.sum())
+    if support_count < 16:
+        raise ValueError(
+            f"mask target support has {support_count} pixels, need >= 16 "
+            "(shape too small for the camera grid)"
+        )
+    if not bool((intensity[support] > 0.0).all()):
+        raise ValueError("mask target support includes pixels the image does not cover")
+
+    thin_px = _median_run_length(support)
+    if thin_px < floor:
+        raise ValueError(
+            f"mask target's thinnest feature is {thin_px:.1f}px < floor {floor:.1f}px "
+            f"(the bench PSF is {DEFAULT_MIN_FEATURE_PX:.0f}px FWHM on the "
+            f"{REFERENCE_CCD_PX}px reference window); coarsen the shape or lower "
+            "min_feature_px"
+        )
+
+    geometry = {
+        "center_x_px": center_x,
+        "center_y_px": center_y,
+        "coverage_px": float(support_count),
+        "thin_px": thin_px,
+        "mask_rows": float(source.shape[0]),
+        "mask_cols": float(source.shape[1]),
+    }
+    return TargetSample(intensity=intensity, support=support, kind="mask", geometry=geometry)

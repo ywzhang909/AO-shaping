@@ -26,30 +26,21 @@ Pupil -> focal plane
    repository's centred-FFT convention, optical axis at the array centre, and
    ``norm="ortho"`` so the transform preserves total power.
 4. Optional alignment: a beam tilt translates the *focal* pattern by
-   ``focal_length * tilt`` (Fourier shift).  Multiplying the focal field by a
-   linear phase instead would translate the *pupil* and leave the intensity
-   unchanged, which is not what a beam tilt does (``bench_twin`` measured this).
+   ``focal_length * tilt`` (Fourier shift); multiplying the focal field by a
+   linear phase would translate the *pupil* and leave the intensity unchanged.
 
 Camera sampling is *not* an FFT-grid read
 =========================================
-The FFT of an ``fft_n``-point pupil sample is sampled on its own natural pitch
-
-    ``far_field_pitch_m = wavelength * focal_length / (fft_n * pupil_pitch)``
-
-which has nothing to do with ``ccd_pixel_um``.  A camera pixel therefore covers
-
-    ``ccd_pitch_m / far_field_pitch_m = 1 / sampling_ratio``
-
-**model cells**, and :class:`Sim2f` integrates the model intensity over that area
-with two separable overlap matrices ``Wx`` / ``Wy``; each row sums to
-``1 / sampling_ratio``.  The reciprocal is not an accident of convention:
-:attr:`Sim2fConfig.sampling_ratio` is defined as ``far_field_pitch / ccd_pitch``
-(i.e. cell size over pixel size), so at the reference geometry (2.10) one camera
-pixel spans ``0.476`` of a model sample -- the camera oversamples and the model's
-sampling is the information limit.  Using ``sampling_ratio`` itself as the pixel
-width would mis-scale the frame by ``1 / sampling_ratio ** 2`` in area (4.4x
-here) and move a measured tilt by the same factor; the tests pin the correct
-version against the measured centroid.
+The FFT of an ``fft_n``-point pupil sample is sampled on its own natural pitch,
+``far_field_pitch_m = wavelength * focal_length / (fft_n * pupil_pitch)``, which
+has nothing to do with ``ccd_pixel_um``.  A camera pixel therefore covers
+``1 / sampling_ratio`` **model cells** (``sampling_ratio`` is
+``far_field_pitch / ccd_pitch``), and :class:`Sim2f` integrates the model
+intensity over that area with two separable overlap matrices whose rows sum to
+``1 / sampling_ratio``.  At the reference geometry one camera pixel spans
+``0.476`` of a model sample: the camera oversamples.  Using ``sampling_ratio``
+itself as the pixel width would mis-scale the frame by ``1 / sampling_ratio ** 2``
+in area; the tests pin the centroid against measurement.
 
 Detector
 ========
@@ -59,18 +50,15 @@ returns model intensity.  With ``exposure_ms > 0`` the frame goes through
 noise, ADC quantisation -- because a quantised, noisy frame must never be the
 default: quantisation kills the gradient the teacher optimises through.
 
-Selected non-idealities (``Sim2fConfig.errors``) also run on the *phase* path,
-which is why the device LUT round trip uses a straight-through estimator: its
-forward value is the phase the panel really displays, its derivative is the
-identity.  Without that, no gradient would reach the teacher's parameters at all.
+Selected non-idealities (``Sim2fConfig.errors``) also run on the *phase* path, so
+the LUT round trip uses a straight-through estimator: its forward value is the
+phase the panel displays, its derivative the identity.
 
 Precision policy
 ================
 The resampling matrices, the Zernike basis and the static error fields are built
-in ``numpy`` / ``float64`` because they are *constructed* numbers, not learned
-ones; they are then cast to the instance dtype (``float32`` unless a caller asks
-for ``float64`` to run a finite-difference check).  Everything downstream runs in
-that dtype with autograd on the phase.
+in ``numpy`` / ``float64`` (constructed numbers, not learned ones) and cast to
+the instance dtype; everything downstream runs in that dtype with autograd on.
 """
 
 from __future__ import annotations
@@ -312,14 +300,9 @@ class Sim2f:
         self.fft_n: int = int(cfg.fft_length)
 
         # -- pupil coordinates -------------------------------------------------
-        # Origin at ``(grid - 1) / 2``, i.e. the *same* coordinate grid the
-        # canonical Zernike engine uses (``zernike_calc._build_cached_grid``).
-        # Sharing it matters: with a half-pixel offset the engine's unit circle
-        # cuts a crescent through the support disc, every mode comes back NaN
-        # there, and the basis grows a zeroed rim that biased the tilt slope by
-        # 4%.  A half-pixel displacement of the sampled pupil does not move the
-        # far-field *intensity* (translating a pupil field only adds a linear
-        # phase to its transform), so this costs nothing downstream.
+        # Origin at ``(grid - 1) / 2``: the same grid the canonical Zernike
+        # engine uses, so the unit circle does not cut a crescent through the
+        # support disc (that zeroed rim biased the tilt slope by 4%).
         axis_px = np.arange(self.grid, dtype=np.float64) - (self.grid - 1) / 2.0
         self._x_px = np.broadcast_to(axis_px[None, :], (self.grid, self.grid)).copy()
         self._y_px = np.broadcast_to(axis_px[:, None], (self.grid, self.grid)).copy()
@@ -648,10 +631,9 @@ class Sim2f:
         """Smooth a commanded phase with the panel's crosstalk kernel.
 
         Separable Gaussian, ``sigma = phase_blur_px``, radius ``ceil(4 sigma)``,
-        reflect padding so the edge does not see a zero-phase ring. The kernel is
-        a fixed buffer, so this adds no parameter and no RNG. Off by default: the
-        calibrated twin does not model crosstalk, and the BenchTwin parity check
-        requires ``phase_blur_px == 0``.
+        reflect padding; a fixed buffer, so no parameter and no RNG. Off by
+        default: the calibrated twin has no crosstalk and BenchTwin parity needs
+        ``phase_blur_px == 0``.
 
         Args:
             phase: ``(B, grid, grid)`` phase in radians.
@@ -691,21 +673,24 @@ class Sim2f:
         *,
         aberration: torch.Tensor | np.ndarray | None = None,
         illumination: torch.Tensor | np.ndarray | None = None,
+        zero_order_eta: torch.Tensor | float | None = None,
         aligned: bool = True,
     ) -> torch.Tensor:
         """Propagate a batch of pupil phases to the (padded) focal field.
 
         Args:
             phase: ``(B, grid, grid)`` radians or ``(B, 2, grid, grid)``
-                ``(cos, sin)`` phasor -- the phasor is normalised to unit
-                magnitude and reduced to an angle, so its scale does not matter.
+                ``(cos, sin)`` phasor (normalised to unit magnitude).
             aberration: Optional aberration phase in radians, ``(grid, grid)``,
-                ``(1, grid, grid)`` or ``(B, grid, grid)``. Applied *after* the
+                ``(1, grid, grid)`` or ``(B, grid, grid)``, applied *after* the
                 panel round trip and the lens phase: it stands for the bench state
                 the loop must estimate, not for the panel's own error.
             illumination: Optional amplitude, ``(1, 1, grid, grid)`` or
                 ``(B, 1, grid, grid)``. Defaults to
                 :attr:`nominal_illumination`.
+            zero_order_eta: Optional runtime override of the coherent zero-order
+                fraction, as a tensor to keep it differentiable; ``None`` (the
+                default) uses ``OpticsErrors.zero_order_eta`` unchanged.
             aligned: When ``False`` the alignment stages (camera defocus and beam
                 tilt) are skipped. Only :meth:`counts` uses it, to build the fixed
                 "flat, in-focus" photometric reference.
@@ -737,12 +722,22 @@ class Sim2f:
 
         amplitude = self._as_illumination(illumination, actual.shape[0])
         u = torch.polar(amplitude, total)
-        if self._zero_weights is not None:
+        weights = self._zero_weights
+        if zero_order_eta is not None:
+            tiny = torch.finfo(self.dtype).tiny
+            eta_t = torch.as_tensor(
+                zero_order_eta, dtype=self.dtype, device=self.device
+            )
+            weights = (
+                torch.sqrt((1.0 - eta_t).clamp(min=tiny)),
+                torch.sqrt(eta_t.clamp(min=tiny)),
+            )
+        if weights is not None:
             # Two-component LCoS pupil: the unmodulated part keeps the incident
             # amplitude, so it interferes with the shaped field instead of merely
             # adding a background. Energy in the *modulated* channel therefore
             # drops by eta -- never assume energy conservation when it is on.
-            weight_mod, weight_zero = self._zero_weights
+            weight_mod, weight_zero = weights
             u = weight_mod * u + weight_zero * amplitude
 
         pad = self.fft_n - self.grid
@@ -854,6 +849,7 @@ class Sim2f:
         detector: bool | None = None,
         generator: torch.Generator | None = None,
         exposure_ms: float | None = None,
+        zero_order_eta: torch.Tensor | float | None = None,
     ) -> torch.Tensor:
         """Pupil phase -> camera frame (the single forward entry point).
 
@@ -868,6 +864,8 @@ class Sim2f:
             generator: Optional torch RNG for the detector noise.
             exposure_ms: Exposure for this call, overriding the config's. Passing
                 it always implies the detector.
+            zero_order_eta: Optional differentiable override of the coherent
+                zero-order fraction, see :meth:`field`; ``None`` uses the config.
 
         Returns:
             ``(B, 1, ccd_px, ccd_px)`` frame in the model dtype: model intensity,
@@ -877,7 +875,10 @@ class Sim2f:
             ValueError: If counts are requested from a bench with no exposure.
         """
         intensity = self.field(
-            phase, aberration=aberration, illumination=illumination
+            phase,
+            aberration=aberration,
+            illumination=illumination,
+            zero_order_eta=zero_order_eta,
         ).abs().square()
         frame = self.resample(intensity)
 
@@ -1136,10 +1137,8 @@ class Sim2f:
         Raises:
             ValueError: If the shape cannot broadcast to the batch.
         """
-        tensor = (
+        tensor = aberration if isinstance(aberration, torch.Tensor) else torch.as_tensor(
             aberration
-            if isinstance(aberration, torch.Tensor)
-            else torch.as_tensor(aberration)
         )
         if tensor.dim() == NDIM_BARE_MAP:
             tensor = tensor.unsqueeze(0)
