@@ -1833,120 +1833,20 @@ def _resolve_wait_state(
             last_reason = "别的会话在用设备"
             detail_lines = format_occupier_lines(others)
         else:
-            # -- 3) 探针 -------------------------------------------------
-            result = _run_probe()
-            if result.status == PROBE_IDLE:
-                # 探针开锁的那一瞬间可能刚好有别的会话开始 ⇒ 再扫一次。
-                others_after = _other_hardware_processes(
-                    process_source,
-                    keywords=keywords,
-                    own_pids=own_pids,
-                    own_paths=paths,
-                )
-                holder_after = the_lock.holder()
-                if others_after:
-                    state = "idle_but_others"
-                    last_reason = "设备可用, 但还有别的硬件进程 (抢早了)"
-                    detail_lines = format_occupier_lines(others_after)
-                elif holder_after is not None and not the_lock.is_held_by_me(
-                    holder_after
-                ):
-                    state = "locked_by_other"
-                    last_reason = (
-                        f"设备锁被别的进程持有 ({holder_after.describe()})"
-                    )
-                    detail_lines = [f"  {holder_after.describe()}"]
-                else:
-                    # 放行之前把锁**拿在手里** (调用方负责 release) ——
-                    # 否则两个会话可能同时通过检查。
-                    if not the_lock.acquire(timeout=0.0):
-                        state = "locked_by_other"
-                        last_reason = "设备锁刚被别人抢走"
-                        detail_lines = []
-                    else:
-                        print(
-                            "[等待] 设备可用, 且无其它硬件进程 ⇒ 开始采集",
-                            flush=True,
-                        )
-                        return WaitVerdict(
-                            ok=True,
-                            status="idle",
-                            exit_code=0,
-                            waited_s=time.monotonic() - started,
-                            reason="",
-                            detail="设备可用",
-                            attempts=attempt,
-                            lock=the_lock,
-                        ), None, None, None
-            elif result.status == PROBE_BROKEN:
-                print(
-                    f"[等待] 探针自己坏了, 无法判断设备是否被占: {result.message}",
-                    file=sys.stderr,
-                )
-                return WaitVerdict(
-                    ok=False,
-                    status="broken",
-                    exit_code=2,
-                    waited_s=waited,
-                    reason=result.message,
-                    detail=result.message,
-                    attempts=attempt,
-                ), None, None, None
-            else:
-                # 设备不可用: 分成「能等」与「等不来」两类。
-                kind = result.kind or KIND_SLM_BUSY
-                info = DEVICE_UNAVAILABLE_INFO.get(kind)
-                verdict = DeviceUnavailable(
-                    kind=kind,
-                    code=result.code,
-                    detail=result.message or (info[0] if info else "设备不可用"),
-                    remedy=info[1] if info else "",
-                )
-                if not verdict.waitable:
-                    print(
-                        f"[等待] 设备不可用且等不来: {verdict.headline()} —— "
-                        f"{verdict.advice()}",
-                        file=sys.stderr,
-                    )
-                    return WaitVerdict(
-                        ok=False,
-                        status="unavailable",
-                        exit_code=1,
-                        waited_s=waited,
-                        reason=verdict.headline(),
-                        detail=verdict.detail,
-                        remedy=verdict.remedy,
-                        kind=verdict.kind,
-                        code=verdict.code,
-                        attempts=attempt,
-                    ), None, None, None
-                # 可等的两类 (别人在用)。若这是**真探针**说的, 且**锁空**、
-                # 且**没有别的硬件进程** ⇒ SDK 陈旧状态 (排队等不来)。
-                if (
-                    result.source == PROBE_SOURCE_SDK
-                    and the_lock.holder() is None
-                    and not others
-                ):
-                    stale = escalate_stale_state(verdict)
-                    print(
-                        f"[等待] {stale.headline()} —— {stale.advice()}",
-                        file=sys.stderr,
-                    )
-                    return WaitVerdict(
-                        ok=False,
-                        status="stale",
-                        exit_code=1,
-                        waited_s=waited,
-                        reason=stale.headline(),
-                        detail=stale.detail,
-                        remedy=stale.remedy,
-                        kind=stale.kind,
-                        code=stale.code,
-                        attempts=attempt,
-                    ), None, None, None
-                state = "busy_unidentified"
-                last_reason = f"设备被占但没认出占用者 ({verdict.headline()})"
-                detail_lines = []
+            _verdict, state, last_reason, detail_lines = _resolve_probe_state(
+                _run_probe=_run_probe,
+                attempt=attempt,
+                keywords=keywords,
+                others=others,
+                own_pids=own_pids,
+                paths=paths,
+                process_source=process_source,
+                started=started,
+                the_lock=the_lock,
+                waited=waited,
+            )
+            if _verdict is not None:
+                return _verdict, None, None, None
     return None, state, last_reason, detail_lines
 
 
@@ -2039,3 +1939,142 @@ def wait_until_idle(
         last_report_at=last_report_at,
         last_state=last_state,
     )
+
+
+def _resolve_probe_state(
+    *,
+    _run_probe: object,
+    attempt: object,
+    keywords: object,
+    others: object,
+    own_pids: object,
+    paths: object,
+    process_source: object,
+    started: object,
+    the_lock: object,
+    waited: object,
+) -> tuple:
+    """#205 batch-23: former probe-chain else-arm of _resolve_wait_state.
+
+    Returns (verdict, state, last_reason, detail_lines). The verdict is
+    non-None on every early return; on that path the caller forwards it
+    verbatim and the three state names are None. On the fall-through path
+    (device busy but waitable, or idle-but-contended) the verdict is None
+    and the three state names are bound for the caller's tail return.
+    """
+    # -- 3) 探针 -------------------------------------------------
+    result = _run_probe()
+    if result.status == PROBE_IDLE:
+        # 探针开锁的那一瞬间可能刚好有别的会话开始 ⇒ 再扫一次。
+        others_after = _other_hardware_processes(
+            process_source,
+            keywords=keywords,
+            own_pids=own_pids,
+            own_paths=paths,
+        )
+        holder_after = the_lock.holder()
+        if others_after:
+            state = "idle_but_others"
+            last_reason = "设备可用, 但还有别的硬件进程 (抢早了)"
+            detail_lines = format_occupier_lines(others_after)
+        elif holder_after is not None and not the_lock.is_held_by_me(
+            holder_after
+        ):
+            state = "locked_by_other"
+            last_reason = (
+                f"设备锁被别的进程持有 ({holder_after.describe()})"
+            )
+            detail_lines = [f"  {holder_after.describe()}"]
+        else:
+            # 放行之前把锁**拿在手里** (调用方负责 release) ——
+            # 否则两个会话可能同时通过检查。
+            if not the_lock.acquire(timeout=0.0):
+                state = "locked_by_other"
+                last_reason = "设备锁刚被别人抢走"
+                detail_lines = []
+            else:
+                print(
+                    "[等待] 设备可用, 且无其它硬件进程 ⇒ 开始采集",
+                    flush=True,
+                )
+                return WaitVerdict(
+                    ok=True,
+                    status="idle",
+                    exit_code=0,
+                    waited_s=time.monotonic() - started,
+                    reason="",
+                    detail="设备可用",
+                    attempts=attempt,
+                    lock=the_lock,
+                ), None, None, None
+    elif result.status == PROBE_BROKEN:
+        print(
+            f"[等待] 探针自己坏了, 无法判断设备是否被占: {result.message}",
+            file=sys.stderr,
+        )
+        return WaitVerdict(
+            ok=False,
+            status="broken",
+            exit_code=2,
+            waited_s=waited,
+            reason=result.message,
+            detail=result.message,
+            attempts=attempt,
+        ), None, None, None
+    else:
+        # 设备不可用: 分成「能等」与「等不来」两类。
+        kind = result.kind or KIND_SLM_BUSY
+        info = DEVICE_UNAVAILABLE_INFO.get(kind)
+        verdict = DeviceUnavailable(
+            kind=kind,
+            code=result.code,
+            detail=result.message or (info[0] if info else "设备不可用"),
+            remedy=info[1] if info else "",
+        )
+        if not verdict.waitable:
+            print(
+                f"[等待] 设备不可用且等不来: {verdict.headline()} —— "
+                f"{verdict.advice()}",
+                file=sys.stderr,
+            )
+            return WaitVerdict(
+                ok=False,
+                status="unavailable",
+                exit_code=1,
+                waited_s=waited,
+                reason=verdict.headline(),
+                detail=verdict.detail,
+                remedy=verdict.remedy,
+                kind=verdict.kind,
+                code=verdict.code,
+                attempts=attempt,
+            ), None, None, None
+        # 可等的两类 (别人在用)。若这是**真探针**说的, 且**锁空**、
+        # 且**没有别的硬件进程** ⇒ SDK 陈旧状态 (排队等不来)。
+        if (
+            result.source == PROBE_SOURCE_SDK
+            and the_lock.holder() is None
+            and not others
+        ):
+            stale = escalate_stale_state(verdict)
+            print(
+                f"[等待] {stale.headline()} —— {stale.advice()}",
+                file=sys.stderr,
+            )
+            return WaitVerdict(
+                ok=False,
+                status="stale",
+                exit_code=1,
+                waited_s=waited,
+                reason=stale.headline(),
+                detail=stale.detail,
+                remedy=stale.remedy,
+                kind=stale.kind,
+                code=stale.code,
+                attempts=attempt,
+            ), None, None, None
+        state = "busy_unidentified"
+        last_reason = f"设备被占但没认出占用者 ({verdict.headline()})"
+        detail_lines = []
+    return None, state, last_reason, detail_lines
+

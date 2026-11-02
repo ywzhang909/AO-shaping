@@ -4476,6 +4476,13 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - **跨 issue 护栏耦合（补记 `ed2174c7`）**：#167 的 walker-sanity 见证具名钉在 `optimize_pib`（写时 nest 8），本批合法拆到 nest 1 ⇒ **另一个 issue 的 sanity 断言因本次合法收敛而假红**。处置：见证改 `src/` 全树最大嵌套**聚合**断言（>=4），不重钉新见证名（重钉只是把雷推给下一批）。判据固化：**拆前先 `git grep` 测试树对被拆函数的具名引用**（`_measure(..., "optimize_pib")` 这类命名耦合），闭包漂移断言拦数据流耦合，本条拦测试↔实现的命名耦合。
 - flake 对新增两数据点：作者纯 JSON 资产提交 `f77e3341` 同签名红（sim2f + train_amp_loss），本批 tip 红为上述**真缺陷**（不同签名）⇒ 判定纪律不变：按签名区分 flake 与真红，不因 tip 红就复跑。
 
+**2026-11-02 · f0ea5d1b · #205 第二十二批：`utils/io/file.py` 的 `_gif_frames`（202 行/nest 7）59 行 top-panels For 提为 `_render_gif_top_panels`（循环嵌套区域 + live-out 源码序判据）**
+- 区域 = `_gif_frames` 体内 top-panels 的整个 For（base indent 8，第十七批「连 For 头一起提」同族）；区域内 Continue 合法（所属 For 随块）。形态：session 202→149 行 / nest 7→5；helper 72 行 / nest 6。
+- **live-out 判据修正（本批新沉淀）**：朴素「区域 stores ∩ 区外 loads」在本批给出 6 个 thread_out，其中 5 个是**死名**——它们在区外先被重新赋值才被读，传出去只是噪声，且若区域某条件路径不执行还会引入 UnboundLocalError（与第十九批 pass_in 判据同族）。正确判据按**源码序支配**：`n` 真 live-out ⇔ 存在一个区外 Load，其源码序之前没有任何区外 Store。本批由此只剩 `initial_phase_arr` 一名；pass_in 四名（`axes`/`rec`/`top_keys`/`initial_phase_arr`）。
+- 特征化网 84 件（`recorder_gif` 14 + `frame_artifacts` 19 + `keys` 12 + `postprocess` 22 + `test_files` 17）：拆前 84/84，拆后 84/84。
+- 锚随迁：conventions 抓到 wiki `debug-artifacts` 的 source 行漂移 ⇒ `:1574→:1521`，index 行 `:1380→:1368`；另修 TODO 里一处**早就陈旧**的 `file.py:1145` ⇒ `:1657`（与本次拆分无关，按附着关系实证后重钉）。
+- 验收：84/84；守卫 `_IO` 改写（260/7→200/5 + 新增 `_render_gif_top_panels` 100/6）→ 68/68；conventions 72 passed / 1 skipped；module-size 棘轮 1886→1907 重锚；term / ruff / provenance 全绿；CI Pytest 首轮 success。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
