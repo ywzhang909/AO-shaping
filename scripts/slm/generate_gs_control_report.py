@@ -54,7 +54,7 @@ Flat-phase reference frames come from ``probe_optical_path_validity.py``
     python scripts/slm/generate_gs_control_report.py
 
     # 带 C: 四份输入缺一不可 —— C 帧、同曝光的 B 重放帧、矫正后的平相位帧、
-    # 以及采集脚本 ``scripts/slm/gs_control_corrected_arm.py`` 写出的
+    # 以及 (拟, 尚未实现的) 采集脚本 scripts/slm/gs_control_corrected_arm.py 写出的
     # correction_meta.json (含 probe_count / 验证集相关系数 / model_psf_fwhm_px)。
     # 该采集脚本本身尚未实现: 它要先从随机探针拟合光路像差, 再把 B 相位减像差下发。
     # ``--flat-frame`` 换成与 C 同一次会话的平相位帧时,
