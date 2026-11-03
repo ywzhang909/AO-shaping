@@ -449,9 +449,7 @@ class TransferPage(QWidget):
         self._period = self._dspin(_DEFAULTS.period, 4.0, 1024.0, step=1.0)
 
         # A–B–B–A 配对验收: 默认关 (只按模型损失接受, 跳过 CCD 实测配对与方向核对)。
-        self._abba = self._check(
-            "A–B–B–A 配对验收（CCD 实测）", _DEFAULTS.abba
-        )
+        self._abba = self._check("A–B–B–A 配对验收（CCD 实测）", _DEFAULTS.abba)
         self._abba.setToolTip(
             "开 = 每块测 A1/B1/B2/A2, 由实测指标判定候选是否接受; "
             "关（默认）= 保留 CCD 锚定反馈, 跳过 B1/B2/A2 与方向核对, "
@@ -545,7 +543,9 @@ class TransferPage(QWidget):
         head.addWidget(self._current, 1)
         head.addWidget(self._counts, 0, Qt.AlignmentFlag.AlignRight)
         self._replay_btn = QPushButton("归档回放…")
-        self._replay_btn.setToolTip("离线查看已落盘的每块 CCD 帧与 SLM 相位（只读，不碰硬件）")
+        self._replay_btn.setToolTip(
+            "离线查看已落盘的每块 CCD 帧与 SLM 相位（只读，不碰硬件）"
+        )
         self._replay_btn.clicked.connect(self._open_replay)
         head.addWidget(self._replay_btn, 0)
         layout.addLayout(head)
@@ -760,7 +760,9 @@ class TransferPage(QWidget):
         # 自检同样要锁: 会话正占着 SLM 时再探一次, 只会跟它对抢设备。
         self._check_btn.setEnabled(enabled and not self._checking)
         # 读零级要开相机: 会话跑起来后相机归它用, 关闭时也顺手复位。
-        self._zero_btn.setEnabled(enabled and not self._checking and not self._zero_reading)
+        self._zero_btn.setEnabled(
+            enabled and not self._checking and not self._zero_reading
+        )
 
     # ------------------------------------------------------------------ 自检
     def _device_key(self) -> tuple[str, int, int]:
@@ -993,13 +995,13 @@ class TransferPage(QWidget):
 
     # ------------------------------------------------------------------ 进度
     def _open_replay(self) -> None:
-        """打开归档回放弹窗: 优先当前会话目录, 否则规划目录 (只读, 无硬件)。"""
+        """打开归档回放弹窗: 扫描整个 debug 根下所有历史 pkl (只读, 无硬件)。"""
         from ao_shaping.gui.slm.transfer_desktop.archive_replay import (
+            DEBUG_ROOT,
             open_archive_replay,
         )
 
-        session = self._session_dir or params.plan_session_dir()
-        open_archive_replay(self, session)
+        open_archive_replay(self, DEBUG_ROOT, preselect=self._session_dir)
 
     def _refresh_progress(self) -> None:
         """读会话目录, 刷新阶段表 / 进度条 / 当前阶段 / 汇总。"""
@@ -1088,9 +1090,7 @@ class TransferPage(QWidget):
             # 完成信号排在 UI 事件队列里, 干等会拿不到; 必须泵事件驱动回调。
             # 读零级也要一起等: 相机还没关就退池, 下次打开会撞上占用。
             deadline = time.monotonic() + _CLOSE_GRACE_S
-            while (
-                self._running or self._zero_reading
-            ) and time.monotonic() < deadline:
+            while (self._running or self._zero_reading) and time.monotonic() < deadline:
                 QApplication.processEvents()
                 time.sleep(0.02)
         super().closeEvent(event)

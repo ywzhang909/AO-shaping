@@ -49,10 +49,11 @@
     gui_form.png       左侧表单列 ① 设备 / ② 目标与载波 / ③ 校验 / ④ 运行
     gui_progress.png   右侧 ⑤ 进度 (当前阶段 + 进度条 + 计数 + 阶段表)
 
-``--replay`` 模式不渲染页面, 只离屏打开归档回放弹窗 (只读 ``anchored/*.npz``,
-不碰设备), 输出到 ``docs/GUI/slm/transfer_desktop/``::
+``--replay`` 模式不渲染页面, 只离屏打开归档回放弹窗 (递归扫描整个 debug 根
+``data/debug/slm_transfer/`` 下的所有历史 ``*.pkl``, 不碰设备),
+输出到 ``docs/GUI/slm/transfer_desktop/``。可用 ``--debug-root`` 改扫描根::
 
-    gui_archive_replay.png          第 1 块 capture (CCD + 剖面 + 相位预览)
+    gui_archive_replay.png          预选会话第 1 块 capture (CCD + 剖面 + 相位预览, 左侧为归档列表)
     gui_archive_replay_middle.png   中间某块 (证明切块真的换了画面)
 
 脚本自己对每张图做自检 (尺寸、字节数、灰度标准差) 并把结论打出来, 任何一张像
@@ -396,17 +397,19 @@ def _inject_live_frame(page) -> None:
     page._live_view.apply_payload(payload)
 
 
-def _render_replay(app: QApplication) -> int:
-    """``--replay``: 只开归档回放弹窗, 用真实历史会话的 npz 离屏上屏。
+def _render_replay(app: QApplication, root: Path) -> int:
+    """``--replay``: 只开归档回放弹窗, 用整个 debug 根的历史 pkl 离屏上屏。
 
-    不建页面、不做硬件桩: 弹窗本身只读 ``anchored/capture_*.npz``, 与相机 / SLM
-    驱动无 import 关系。抓两块 (第 1 块 + 中间一块), 后者证明切块确实换了画面。
+    不建页面、不做硬件桩: 弹窗本身递归扫描 ``root`` 下所有 ``*.pkl`` (只读, 与
+    相机 / SLM 驱动无 import 关系), 左侧列表即真实历史全量。``preselect=SESSION``
+    把预选落到这次实验会话的 ``capture_records.pkl``, 由它带出 CCD 三视图。
+    抓两块 (第 1 块 + 中间一块), 后者证明切块确实换了画面。
     """
     from ao_shaping.gui.slm.transfer_desktop.archive_replay import (
         ArchiveReplayDialog,
     )
 
-    dialog = ArchiveReplayDialog(SESSION)
+    dialog = ArchiveReplayDialog(root, preselect=SESSION)
     dialog.resize(*REPLAY_WINDOW)
     dialog.show()
     for _ in range(3):
@@ -414,7 +417,7 @@ def _render_replay(app: QApplication) -> int:
 
     count = dialog.capture_count()
     if count == 0:
-        raise SystemExit(f"没有可回放的 capture: {SESSION / 'anchored'}")
+        raise SystemExit(f"归档列表为空或预选归档没有记录: {root}")
     targets = [(0, "gui_archive_replay.png")]
     if count > 1:
         targets.append((count // 2, "gui_archive_replay_middle.png"))
@@ -426,7 +429,9 @@ def _render_replay(app: QApplication) -> int:
             app.processEvents()
         lines.append(_grab(dialog, name, folder=REPLAY_DIR))
     print("\n".join(lines))
-    print(f"capture 共 {count} 块, 已截下标 {[index for index, _ in targets]}")
+    print(
+        f"归档共 {dialog.archive_count()} 个 pkl; 当前归档 {count} 条记录, 已截下标 {[index for index, _ in targets]}"
+    )
     print(f"提示行: {dialog.message_text()!r}")
     dialog.close()
     return 0
@@ -443,7 +448,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--replay",
         action="store_true",
-        help="归档回放模式: 只离屏渲染归档回放弹窗 (真实历史 npz, 不碰设备)",
+        help="归档回放模式: 只离屏渲染归档回放弹窗 (真实历史 pkl, 不碰设备)",
+    )
+    parser.add_argument(
+        "--debug-root",
+        default=str(SESSION.parent),
+        help="归档回放扫描根 (默认 data/debug/slm_transfer, 递归所有历史 pkl)",
     )
     parser.add_argument(
         "--sim-live",
@@ -467,7 +477,7 @@ def main(argv: list[str] | None = None) -> int:
         # 回放模式不建页面, 也不需要硬件桩 / torch 事实 —— 那些是页面路径的事。
         REPLAY_DIR.mkdir(parents=True, exist_ok=True)
         print(f"字体: {family}")
-        return _render_replay(app)
+        return _render_replay(app, Path(args.debug_root))
 
     # 顺序: 仿真模式先说好「不许碰硬件」, 再伪造 torch 事实, 最后才让页面存在。
     # 实验系统模式不装桩 —— 硬件调用留给页面自己的按钮路径。
@@ -509,7 +519,9 @@ def main(argv: list[str] | None = None) -> int:
         _inject_live_frame(page)
         for _ in range(3):
             app.processEvents()
-        lines.append(_grab(_live_box(page), "gui_live_closed_loop_sim.png", folder=REPLAY_DIR))
+        lines.append(
+            _grab(_live_box(page), "gui_live_closed_loop_sim.png", folder=REPLAY_DIR)
+        )
 
     errors, warnings = page.current_problems()
     label_count, min_label_width = _chinese_labels(page)
