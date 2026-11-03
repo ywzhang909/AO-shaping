@@ -168,12 +168,18 @@ def _loop_body(source: str, header: str) -> list[str]:
 def test_validate_emits_a_frame_inside_the_per_frame_read_loop():
     """取图循环里的每一次读出都要发帧 —— 这是本次改动的全部要点。
 
-    用源码级的钉子而不是跑一遍设备: ``run`` 需要真相机/真 SLM, 而这里要钉的是
+    用源码级的钉子而不是跑一遍设备: 会话段需要真相机/真 SLM, 而这里要钉的是
     「emit 在循环体内、不在循环后」这个结构性质。
+
+    #205 第二十六批把会话段从 ``run`` 提为 ``_run_validate_session`` (上游一次
+    合并把早先的拆分压回了 ``run``), 取图循环随之搬进该函数的嵌套 ``capture``。
+    钉子因此改钉新的归属者, 并额外钉住 ``run`` 仍然委派给它 —— 否则归属者再被
+    搬走时, 这个测试会静默地钉在一条 ``run`` 根本不再经过的路径上。
     """
     import inspect
 
-    source = inspect.getsource(validate.run)
+    source = inspect.getsource(validate._run_validate_session)
+    assert "_run_validate_session(" in inspect.getsource(validate.run)
     body = _loop_body(source, "for index in range(args.frames):")
     assert any("notify_frame(observer, frame_payload(" in line for line in body), body
     assert any('phase="validate"' in line for line in body)

@@ -4502,6 +4502,15 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 修法取**免疫形态**：改 `inspect.getsource(module)` 全模块扫描。该不变量本就说的是"模块内每个渲染点都被守卫"，与代码住所无关，故守卫数 4 的断言原样保留，且今后再拆不会再红。
 - 由此固化第 3 条拆分前置动作：**测试↔实现具名耦合扫描** `git grep -n "<函数名>" tests/`。第二十五批已照做——`slm_square_shaping` 侧仅形状守卫具名，robustness 网全部是 `getsource(module)` 免疫写法，故该网对拆分天然无感。
 
+**2026-11-03 · 9f8ac61f · #205 第二十五批：`slm_square_shaping._run_square_session`（947 行/nest 6）486 行搜索+epoch 阶段提为 `_run_square_search_stage`（557 行/nest 5）**
+- 形态：session 947→521 行 / nest 6→4，本文件最大函数 947→557。区域是 `With 1001-1886` 下 4 条兄弟语句（原 L1383-1868）——把闭包生产者（`_evaluate_quality`/`_on_evaluate`）、消费者（黑盒搜索的 1485/1493）与再绑定者（`w_*` 于 1540/1563）**关进同一个作用域**，漂移在结构上不可能发生。
+- 两种被实测否决的形状（勿重试）：只提循环 With ⇒ 闭包读到过期权重（目标函数静默改变，需 ~19 处 `wstate` (holder) 另案）；提 219 行无漂移带 ⇒ `thread_out` 20 + `pass_in` 36 + 其 `Continue` 绑到外层 For ⇒ 约 56 参数且返回两次的怪物。另：`_run_spgd_session`(390) 整循环提升后 helper ≈395，纯搬家不拆，已弃。
+- **一处声明的控制流改写**：原 L1507 `return recorder`（启发式分支早退）随区域进入 helper 后，该分支返回的是 recorder 而调用方按 6 名解包 ⇒ 网首轮即红 `too many values to unpack`。改为 helper `return True, <6 名>` / 正常路径 `return False, <6 名>`，调用方 `if _stage_early: return recorder`。安全性来自 `pass_in ⊇ thread_out` ⇒ 6 个回传名皆为形参，标志分支不可能撞未绑定局部。
+- 等价证明升级为「**改写后再要求全等**」：先把原树里那条 return 就地改写成预期 sentinel 形态，再要求整段 `ast.dump(include_attributes=False)` 全等 ⇒ 除这一处声明过的改写外，任何语句挪动都使证明失败。
+- 三条被修掉的脚本判据（固化进拆分脚本）：(a) 语句区间区域（`--parent=N`，闭包簇跨兄弟语句时使用）；(b) 区域内 def 的**名字与形参**都计入区域绑定（旧 `if/elif` 链让 `FunctionDef` 命中"加名字"分支，形参分支永不执行）；(c) Return 门禁必须按**身份**判定（探针把区域文本包进合成 `def HELPER()`，"存在外层 FunctionDef"因此恒真——正是这个洞让上面那条早退漏网）；Break/Continue 的祖先链须用真实父图，摊平父图会误报外逃。
+- 活钉重钉 2 处：`TODO.md` 两个 try 头 `:1466/1843→:2078/2455`（历史链已延长，两 try 头现居于 helper 内）、`docs/dev/call_graph_wiki/index.md` `:1889→:1463`。首次遇到**同一张表行的双向重钉**冲突（master 侧改 `greedy_zernike.py`，本批改 `slm_square_shaping.py`），按两侧意图都保留。
+- 验收：wfless 网 1098/1098 + runners 网 636/636（0 失败；比拆前 1090/626 多出的 8/10 例来自 master 新增的 gs-refine 测试，本批未碰该两域测试，已用 `git diff --stat` 核对）；形状守卫 `_SQ` 三条共 71 条；modsize 2348→2482（**只改本模块一行**，`--update-baseline` 会连带收紧 8 个无关模块，已回退不混入）；术语、报告溯源、ruff 归零。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
