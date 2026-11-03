@@ -453,6 +453,13 @@ class DahengCamera(BaseCamera):
             x_offset, y_offset = 0, 0
         else:
             width, height = int(size[0]), int(size[1])
+            # GenICam 的 Width.range 是**随当前 OffsetX 收缩**的 (max = WidthMax -
+            # OffsetX)，Height 同理。上一次的 ROI 若留下非零偏移，直接读范围会把
+            # "请求全幅" 误钳成小窗口 (实测残留 OffsetX=568 时 2592 被钳到 2024，
+            # 再叠 Height 约束后落到 1452×1122)，且 readback 看起来完全合法。
+            # 因此先把偏移归零，让 range 反映传感器全幅。
+            self.cam.OffsetX.set(0)
+            self.cam.OffsetY.set(0)
             range_w, range_h = self.cam.Width.get_range(), self.cam.Height.get_range()
             if not (range_w and range_h):
                 raise ValueError("camera width and height range not found")

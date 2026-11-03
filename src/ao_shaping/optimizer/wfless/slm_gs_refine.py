@@ -90,7 +90,12 @@ from ao_shaping.gui.utils.phase_overlay import (
     apply_overlays_to_handle,
 )
 from ao_shaping.optimizer.spgd import spgd_gradient
-from ao_shaping.optimizer.wfless._measure import display_and_average, locate_zero_order
+from ao_shaping.drivers.ccd.base import BaseCamera
+from ao_shaping.optimizer.wfless._measure import (
+    SLMHandle,
+    display_and_average,
+    locate_zero_order,
+)
 from ao_shaping.utils.image.exposure_control import (
     DAHENG_EXPOSURE_LIMIT_ENV,
     configured_daheng_exposure_limit,
@@ -138,28 +143,22 @@ _DEFAULT_BEAM_RADIUS_PX = 450.0
 # factor lambda/lambda_ref. Passing this makes the derived focal length
 # wavelength-invariant, as a lens focal length must be.
 _TILT_SHIFT_SCALE_MEASURED_AT_NM = 1064.0
-# The CCD pixel pitch is the measurement ANCHOR, not a derived quantity: it is a
-# per-camera datasheet constant (2.2 um for the Daheng MER2-507-23GM, recorded in
-# drivers/AGENTS.md), whereas the lens focal length is a bench ASSEMBLY choice
-# that changes whenever somebody swaps optics. The measured focal scale only
-# constrains the ratio f/p_cam, so exactly one anchor is unavoidable.
+# The CCD pixel pitch is the measurement ANCHOR, not a derived quantity: the
+# measured focal scale only constrains the ratio f/p_cam, so exactly one anchor
+# is unavoidable. It is a **per-camera-model property** owned by the driver layer
+# (``ao_shaping.drivers.ccd.pixel_size``: Daheng reads ``models.json`` by model
+# name, MiiCam is fixed, sim uses the twin optics), so no value is declared here
+# -- a constant in this module would be a second source that silently stayed
+# 2.2 um for the next camera.
 #
-# The value this replaces, 3.31 um, was a guess implying a focal scale of 5023 --
+# The value this replaced, 3.31 um, was a guess implying a focal scale of 5023 --
 # 33% below the measured 7400-7600 -- which biased the GS target angular size by
 # that same factor.
-_DEFAULT_CAMERA_PIXEL_UM = 2.2
-# Focal length is DERIVED from the anchor plus the measured scale: on this bench
+# Focal length is DERIVED from that anchor plus the measured scale: on this bench
 # (1064 nm, p_cam 2.2 um, d_slm 8 um, scale 7400) that is 0.1224 m, i.e. the
 # 125 mm nominal lens to within 2% -- the same 2% by which the three datasheet
 # values disagree with the measured scale. Pass ``focal_length_m`` explicitly to
 # pin a specific lens instead.
-_DEFAULT_FOCAL_LENGTH_M = focal_length_from_camera_pixel(
-    wavelength_nm=DEFAULT_WAVELENGTH_NM,
-    camera_pixel_um=_DEFAULT_CAMERA_PIXEL_UM,
-    slm_pixel_um=_DEFAULT_PANEL_PIXEL_UM,
-    focal_scale_px=_TILT_SHIFT_SCALE_PX,
-    scale_measured_at_nm=_TILT_SHIFT_SCALE_MEASURED_AT_NM,
-)
 # The GS far-field pixel pitch is ``lambda*f/(aperture*padding)`` -- independent
 # of ``n_grid`` -- so padding only sets how finely the focal plane is sampled,
 # at a cost quadratic in it. The simulation used 8 because its ``n_grid`` was
@@ -244,8 +243,17 @@ class SlmGsRefineConfig:
     """
 
     # --- control -----------------------------------------------------------
-    epochs: int = 400
-    """SPGD refinement iterations (each costs two far-field reads)."""
+    epochs: int = 0
+    """SPGD refinement iterations (each costs two far-field reads).
+
+    ``0`` (the default) means **GS only**: the run computes the GS phase and
+    writes it to the panel, and it never opens a camera -- the pitch, the focal
+    length and the target side all come from the camera *model* configuration,
+    so nothing has to be measured. ``> 0`` adds the refinement, which needs the
+    CCD: the camera is requested **after** the GS phase has been computed and
+    sent, so the shaping is on the panel before the detector is claimed (see
+    :attr:`spgd_enabled`).
+    """
 
     seed: int | None = None
     early_stop_score: float = 0.0
@@ -271,6 +279,21 @@ class SlmGsRefineConfig:
     """
 
     # --- objective ---------------------------------------------------------
+    target_side_mm: float = 0.0
+    """Characteristic target size in **millimetres on the camera sensor**.
+
+    This is the operator-facing unit: the target is a physical size on the
+    focal plane, and it has to stay the same size when the camera model
+    changes. ``> 0`` converts to camera pixels with the pitch --
+    ``round(mm * 1000 / camera_pixel_um)``, since 1 mm of sensor is
+    ``1000 / pitch_um`` pixels -- and that pitch is the only quantity the
+    conversion needs (no focal length involved: the CCD *is* the focal plane).
+    ``0`` (the default) falls back to :attr:`target_side`.
+
+    Setting both is refused: the same length in two units is an ambiguity, not
+    a precedence rule.
+    """
+
     target_side: int = 0
     """Characteristic target size in **camera** pixels. 0 = derive from the pupil
     image.
@@ -366,12 +389,29 @@ class SlmGsRefineConfig:
 
     # --- bench model (only used to compute the GS phase) -------------------
     panel_pixel_um: float = _DEFAULT_PANEL_PIXEL_UM
-    camera_pixel_um: float = _DEFAULT_CAMERA_PIXEL_UM
-    """Camera pixel pitch -- the bench model's measurement anchor. **Verify this
-    against your camera** (2.2 um for the Daheng MER2-507-23GM). The measured
-    focal scale fixes only the ratio ``f/p_cam``, so one anchor is unavoidable;
-    this is the one we chose because it is a datasheet constant rather than a
-    bench assembly choice."""
+    camera_pixel_um: float = 0.0
+    """Camera pixel pitch -- the bench model's measurement anchor (um).
+
+    ``0`` (the default) means "the camera model knows it": it is resolved from
+    ``cam_type`` / ``cam_id`` through
+    :func:`ao_shaping.drivers.ccd.pixel_size.camera_pixel_size_um_for`, which is
+    the single source for this device property (Daheng reads the model config,
+    MiiCam is fixed, sim uses the twin optics). A positive value is an override
+    and is used as given.
+
+    The pitch sets every far-field physical scale, so an unresolved 0 is **not**
+    a usable value: the run refuses it at session start (see
+    :meth:`require_camera_pixel_um`), after the camera is open, where the pitch
+    can also be read straight off the device.
+    """
+
+    camera_pixel_um_source: str = "input"
+    """Where :attr:`camera_pixel_um` came from, for the run log.
+
+    ``"input"`` = the caller passed it; ``"derived: ..."`` = read from the
+    camera-model configuration (the phrase names the backend and, for Daheng, the
+    model); ``"unresolved"`` = not passed and the backend could not answer yet.
+    """
 
     beam_radius_px: float = _DEFAULT_BEAM_RADIUS_PX
     """Illuminated pupil radius on the panel, in panel pixels."""
@@ -380,7 +420,8 @@ class SlmGsRefineConfig:
     focal_length_m: float = 0.0
     """2f lens focal length in metres. 0 (the default) derives it from
     ``camera_pixel_um`` and the measured focal scale; pass a value to pin a
-    specific lens."""
+    specific lens. With an unresolved pitch it stays 0 until the pitch is known
+    (:meth:`require_camera_pixel_um` re-derives it)."""
     far_field_padding: int = _DEFAULT_FAR_FIELD_PADDING
 
     # --- hardware ----------------------------------------------------------
@@ -431,15 +472,25 @@ class SlmGsRefineConfig:
         The wavelength is not known yet (the SLM is opened later, and 0 means
         "ask the device"), so this uses the bench fallback for the geometry and
         :func:`sync_device_wavelength` recomputes it from the device's answer.
+
+        The camera pixel pitch is a **device** property, so ``0`` is resolved
+        from ``cam_type`` / ``cam_id`` through the driver layer here. That
+        resolution is deliberately non-strict: constructing a config must not
+        require a connected camera (this host has none, and probing GigE at
+        construction is exactly what ``drivers/AGENTS.md`` forbids), so an
+        unknown pitch leaves the field at 0 and the derived focal length at 0
+        until :meth:`require_camera_pixel_um` resolves it -- from the open camera
+        when there is one -- and raises if it still cannot.
         """
+        self._resolve_camera_pixel_um()
         self._focal_length_pinned = self.focal_length_m > 0.0
-        if not self._focal_length_pinned:
+        if not self._focal_length_pinned and self.camera_pixel_um > 0.0:
             self.focal_length_m = self._derive_focal_length()
 
         # --- range validation (moved here from the optimizer body so a bad
         # value never reaches the hardware context managers) ---
-        if self.epochs < 1:
-            raise ValueError(f"epochs must be at least 1, got {self.epochs}")
+        if self.epochs < 0:
+            raise ValueError(f"epochs must be non-negative, got {self.epochs}")
         if self.blaze_period_px < -1 or 0 < self.blaze_period_px < BLAZE_PERIOD_MIN_PX:
             raise ValueError(
                 f"blaze_period_px must be -1 (off), 0 (auto), or >={BLAZE_PERIOD_MIN_PX}"
@@ -511,6 +562,24 @@ class SlmGsRefineConfig:
             raise ValueError(
                 f"target_side must be non-negative, got {self.target_side}"
             )
+        if self.target_side_mm < 0:
+            raise ValueError(
+                f"target_side_mm must be non-negative, got {self.target_side_mm}"
+            )
+        if self.target_side_mm > 0 and self.target_side > 0:
+            raise ValueError(
+                "target_side_mm and target_side describe the same length in two "
+                f"units (got {self.target_side_mm} mm and {self.target_side} px); "
+                "set exactly one"
+            )
+        # A run with neither refinement nor GS has nothing to compute; refusing it
+        # here keeps the "epochs=0 means GS only" promise honest instead of
+        # producing an empty session that silently shapes nothing.
+        if not self.spgd_enabled and not (self.gs_warm_start and self.gs_iters > 0):
+            raise ValueError(
+                "epochs=0 leaves only the GS warm start, which is disabled too: "
+                "enable gs_warm_start (or raise epochs above 0)"
+            )
         if self.target_shape not in TARGET_SHAPE_CHOICES:
             raise ValueError(
                 f"target_shape must be one of {TARGET_SHAPE_CHOICES}, "
@@ -552,9 +621,10 @@ class SlmGsRefineConfig:
             raise ValueError(
                 f"panel_pixel_um must be positive, got {self.panel_pixel_um}"
             )
-        if self.camera_pixel_um <= 0:
+        if self.camera_pixel_um < 0:
             raise ValueError(
-                f"camera_pixel_um must be positive, got {self.camera_pixel_um}"
+                f"camera_pixel_um must be non-negative (0 = read the camera "
+                f"model's pitch), got {self.camera_pixel_um}"
             )
         if self.beam_radius_px <= 0:
             raise ValueError(
@@ -605,6 +675,21 @@ class SlmGsRefineConfig:
         if self.lr_min_ratio < 0 or self.lr_min_ratio > 1:
             raise ValueError(f"lr_min_ratio must be in 0..1, got {self.lr_min_ratio}")
 
+    @property
+    def spgd_enabled(self) -> bool:
+        """Whether this run refines with SPGD -- i.e. whether it needs a camera.
+
+        ``epochs=0`` alone is not the whole answer: a chunked run sets
+        ``chunk_epochs`` (with ``epochs`` as the total horizon), and a resumed
+        chunk arrives with ``resume_state``. All three mean "measure far
+        fields", so all three request the CCD.
+        """
+        return (
+            int(self.epochs) > 0
+            or int(self.chunk_epochs) > 0
+            or self.resume_state is not None
+        )
+
     def _derive_focal_length(self) -> float:
         """Derive the 2f focal length from the anchor and the measured scale."""
         return focal_length_from_camera_pixel(
@@ -614,6 +699,64 @@ class SlmGsRefineConfig:
             focal_scale_px=_TILT_SHIFT_SCALE_PX,
             scale_measured_at_nm=_TILT_SHIFT_SCALE_MEASURED_AT_NM,
         )
+
+    def _resolve_camera_pixel_um(self) -> None:
+        """Fill ``camera_pixel_um`` from the camera model when it is 0.
+
+        Non-strict on purpose: a config may be built on a machine with no camera
+        attached (and probing a GigE bus is not a constructor's job), so an
+        unknown pitch stays 0 and :meth:`require_camera_pixel_um` owns the loud
+        failure. ``cam_type="sim"`` / ``"miicam"`` resolve here without hardware.
+        """
+        if self.camera_pixel_um > 0.0:
+            return
+        from ao_shaping.drivers.ccd.pixel_size import camera_pixel_size_um_for
+
+        resolved = camera_pixel_size_um_for(self.cam_type, self.cam_id, strict=False)
+        if resolved > 0.0:
+            self.camera_pixel_um = resolved
+            self.camera_pixel_um_source = f"derived: {_pitch_backend_label(self.cam_type)}"
+        else:
+            self.camera_pixel_um_source = "unresolved"
+
+    def require_camera_pixel_um(self, camera: Any | None = None) -> float:
+        """Return a usable pixel pitch, resolving it from the open camera if needed.
+
+        Called once per session, **after** the camera is open: that is the best
+        source (``camera.require_pixel_size_um()``), and it is where an unresolved
+        pitch must stop the run rather than scale every far-field number by a
+        wrong or zero factor.
+
+        Args:
+            camera: The opened camera handle, or ``None`` to keep using the model
+                configuration.
+
+        Returns:
+            The pitch in um (always > 0).
+
+        Raises:
+            CameraError: The pitch cannot be determined; the message names the
+                registration command.
+        """
+        if self.camera_pixel_um > 0.0:
+            return self.camera_pixel_um
+
+        from ao_shaping.drivers.ccd.pixel_size import camera_pixel_size_um_for
+
+        self.camera_pixel_um = camera_pixel_size_um_for(
+            self.cam_type, self.cam_id, camera=camera
+        )
+        self.camera_pixel_um_source = (
+            "derived: open camera"
+            if camera is not None
+            else f"derived: {_pitch_backend_label(self.cam_type)}"
+        )
+        if not self._focal_length_pinned:
+            # The pitch only became known now, so the focal length it anchors is
+            # re-derived here -- with the device's wavelength, which is also known
+            # only after the SLM is open.
+            self.focal_length_m = self._derive_focal_length()
+        return self.camera_pixel_um
 
 
 # ---------------------------------------------------------------------------
@@ -927,7 +1070,7 @@ def _target_mask(
     )
 
 
-def _camera_frame_shape(cam: Any) -> tuple[int, int] | None:
+def _camera_frame_shape(cam: BaseCamera | None) -> tuple[int, int] | None:
     """相机当前窗口的尺寸 ``(h, w)``; 拿不到就返回 ``None``。
 
     只用于「零级离传感器边缘太近」这个检查 —— 续跑块跳过了零级重定位, 手上
@@ -966,13 +1109,26 @@ def _resume_full_frame_center(
 
 
 def _derive_target_side(config: SlmGsRefineConfig, radius_px: float) -> int:
-    """Target square side in camera pixels.
+    """Target characteristic size in camera pixels.
 
-    An explicit ``target_side`` wins. Otherwise use the geometric image of the
-    illuminated pupil, ``D * f / (d_SLM * p_cam)`` -- the size a flat phase
-    naturally produces, which is a sensible starting target.
+    An explicit size wins, in either unit: ``target_side_mm`` (the operator
+    unit) is converted with the camera pitch -- 1 mm of sensor is
+    ``1000 / camera_pixel_um`` pixels -- and rounded to whole pixels, while
+    ``target_side`` is already in camera pixels and is used as given. Otherwise
+    use the geometric image of the illuminated pupil,
+    ``D * f / (d_SLM * p_cam)`` -- the size a flat phase naturally produces,
+    which is a sensible starting target.
+
+    Only the mm branch needs a pitch, and it takes it from the camera **model**
+    configuration (:meth:`SlmGsRefineConfig.require_camera_pixel_um`), so a
+    GS-only run converts without opening a camera.
     """
     factor = max(config.side_factor, 1e-6)
+    if config.target_side_mm > 0:
+        pitch_um = config.require_camera_pixel_um(None)
+        return max(
+            3, int(round(float(config.target_side_mm) * 1000.0 / pitch_um * factor))
+        )
     if config.target_side > 0:
         return max(3, int(round(config.target_side * factor)))
     aperture_m = 2.0 * radius_px * config.panel_pixel_um * 1e-6
@@ -1210,46 +1366,46 @@ def optimize_slm_gs_refine(config: SlmGsRefineConfig) -> Recorder:
     # untouched.
     if config.send_overlay is not None:
         apply_overlays_to_handle(slm, config.send_overlay)
-    cam = None
     try:
-        cam = open_camera(config)
-        with slm, cam:
-            original_slot = None
-            original_gray = None
-            if config.cam_type != "sim":
-                from ao_shaping.drivers.slm.santec import SantecError
+        if hasattr(slm, "open"):
+            slm.open()
+        original_slot = None
+        original_gray = None
+        if config.cam_type != "sim":
+            from ao_shaping.drivers.slm.santec import SantecError
 
+            try:
+                original_slot = slm.get_displayed_memory_number()
+            except SantecError as exc:
+                if exc.code != 1:
+                    raise
+            if original_slot is None:
+                original_gray = slm.get_current_grayscale()
+        try:
+            # The camera is **not** opened here: the session asks for it only
+            # when it reaches the measuring stages (see
+            # ``_run_gs_refine_session``), so a GS-only run never claims a
+            # detector it has no use for.
+            return _run_gs_refine_session(
+                config, slm, rng, recorder, protected_slot=original_slot
+            )
+        finally:
+            if config.cam_type != "sim":
                 try:
-                    original_slot = slm.get_displayed_memory_number()
-                except SantecError as exc:
-                    if exc.code != 1:
-                        raise
-                if original_slot is None:
-                    original_gray = slm.get_current_grayscale()
-            try:
-                return _run_gs_refine_session(
-                    config, slm, cam, rng, recorder, protected_slot=original_slot
-                )
-            finally:
-                if config.cam_type != "sim":
-                    try:
-                        if original_slot is None:
-                            slm.set_grayscale(original_gray)
-                        else:
-                            slm._display_memory(original_slot)
-                    # policy: restoring the panel's initial display is reported AND re-raised: an unrestored SLM is a real bench hazard for whoever runs next
-                    except Exception:
-                        logger.exception("failed to restore the initial SLM display")
-                        raise
+                    if original_slot is None:
+                        slm.set_grayscale(original_gray)
+                    else:
+                        slm._display_memory(original_slot)
+                # policy: restoring the panel's initial display is reported AND re-raised: an unrestored SLM is a real bench hazard for whoever runs next
+                except Exception:
+                    logger.exception("failed to restore the initial SLM display")
+                    raise
     finally:
-        for dev in (cam, slm):
-            if dev is None:
-                continue
-            try:
-                dev.close()
-            # policy: teardown closes what it can without masking the failure that ended the run
-            except Exception:  # cleanup must not mask the real error
-                logger.debug("device close failed during cleanup", exc_info=True)
+        try:
+            slm.close()
+        # policy: teardown closes what it can without masking the failure that ended the run
+        except Exception:  # cleanup must not mask the real error
+            logger.debug("device close failed during cleanup", exc_info=True)
 
 
 @dataclass
@@ -1264,8 +1420,8 @@ class _RefineContext:
     """
 
     config: SlmGsRefineConfig
-    slm: Any
-    cam: Any
+    slm: SLMHandle
+    cam: BaseCamera | None
     recorder: Recorder
     rng: np.random.Generator
     panel_shape: tuple[int, int]
@@ -1331,6 +1487,23 @@ class _RefineContext:
             if self.overlay is None
             else apply_zero_order_overlay(result, self.overlay)
         )
+
+    def display(self, phase: np.ndarray) -> None:
+        """Write a phase to the panel **without** reading a frame.
+
+        The GS-only run produces a phase with no camera attached, so the phase
+        has to reach the SLM without going through :meth:`measure` (which needs
+        one). Slot rotation matches ``measure``: hardware writes go to the work
+        slots -- the panel refuses a second write to the slot it is already
+        showing -- and the simulator takes the gray map alone.
+        """
+        gray = self.slm.create_phase_from_array(self.displayed_phase(phase))
+        if self.config.cam_type == "sim":
+            self.slm.display_data(gray)
+            return
+        slot = self.work_slots[self.measurement_count % len(self.work_slots)]
+        self.measurement_count += 1
+        self.slm.display_data(gray, memory_number=slot)
 
     def measure(self, phase: np.ndarray) -> np.ndarray:
         """Display a phase and return the measured frame."""
@@ -1689,15 +1862,26 @@ def _log_resolved_parameters(
         else "input"
     )
     side_source = "input" if config.target_side > 0 else "derived"
+    side_requested = f"{config.target_side}px" if config.target_side > 0 else "auto"
+    if config.target_side_mm > 0:
+        # The mm -> px conversion is the one place a pitch enters the target
+        # size, so the log prints the pitch it used: without it the resolved
+        # pixel side cannot be re-derived from the command line.
+        side_source = (
+            f"input {config.target_side_mm:g}mm / "
+            f"{config.camera_pixel_um:g}um-per-px"
+        )
+        side_requested = f"{config.target_side_mm:g}mm"
     lines = (
         f"target_shape={config.target_shape} "
         f"({_value_source(config.target_shape, 'target_shape')})",
-        f"target_side={'auto' if config.target_side <= 0 else config.target_side} "
+        f"target_side={side_requested} "
         f"-> {target_side}px x side_factor={config.side_factor} ({side_source})",
         f"gs_target_side_px={bench_side} (derived: camera px -> model far-field px)",
         f"focal_length_m={config.focal_length_m:.6f} "
         f"({'pinned' if config._focal_length_pinned else 'derived'})",
-        f"camera_pixel_um={config.camera_pixel_um} (anchor)",
+        f"camera_pixel_um={config.camera_pixel_um} "
+        f"({config.camera_pixel_um_source})",
         f"phase_grid={config.phase_grid} "
         f"({_value_source(config.phase_grid, 'phase_grid')})",
         f"w_pib={config.w_pib} w_unif={config.w_unif} ({weights_source})",
@@ -1711,26 +1895,36 @@ def _log_resolved_parameters(
 
 def _prepare_refine_context(
     config: SlmGsRefineConfig,
-    slm: Any,
-    cam: Any,
+    slm: SLMHandle,
     recorder: Recorder,
     rng: np.random.Generator,
     protected_slot: int | None,
 ) -> _RefineContext:
-    """Open the session: geometry, exposure ceiling, zero-order discovery, blaze.
+    """Resolve everything the stages need that does **not** need a camera.
 
-    Everything the stages need that does not change during the run is resolved
-    once, here. The Stage-A wall-clock budget and the chunk-resume state are
-    derived from ``config`` when :class:`_RefineContext` is created.
+    A GS-only run (``epochs=0``) stops after this: the pitch comes from the
+    camera **model** configuration (:mod:`ao_shaping.drivers.ccd.pixel_size`),
+    not from an open device, so the bench model, the focal length and the
+    target side are all determined without claiming a detector. Everything
+    that does measure lives in :func:`_attach_camera`.
+
+    The Stage-A wall-clock budget and the chunk-resume state are derived from
+    ``config`` when :class:`_RefineContext` is created.
     """
     sync_device_wavelength(config, slm)
+    # The pitch is a device property but not a *device session* property: the
+    # model configuration answers it, so a GS-only run resolves it without a
+    # camera. ``_attach_camera`` asks the open camera as well when there is one,
+    # which is the better source. Raises (with the registration command) rather
+    # than scaling every far-field number by an unresolved pitch.
+    config.require_camera_pixel_um(None)
     panel_shape = panel_shape_from_slm(slm)
     disturbance = load_panel_disturbance(config.phase_disturbance_file, panel_shape)
 
     ctx = _RefineContext(
         config=config,
         slm=slm,
-        cam=cam,
+        cam=None,
         recorder=recorder,
         rng=rng,
         panel_shape=panel_shape,
@@ -1754,15 +1948,12 @@ def _prepare_refine_context(
     ctx.center_xy = center_xy
     work_slots = [slot for slot in (126, 127, 124) if slot != protected_slot]
     ctx.work_slots = work_slots
-    if config.cam_type == "daheng":
-        ctx.ceiling = _resolve_daheng_ceiling(ctx)
     radius_px = max(8.0, float(config.beam_radius_px))
     ctx.radius_px = radius_px
     target_side = _derive_target_side(config, radius_px)
     ctx.target_side = target_side
     if config.blaze_period_px >= 0 and config.cam_type == "sim":
         raise ValueError("blaze calibration requires a full-frame hardware CCD")
-    _locate_zero_order_and_window(ctx)
     bench_side = bench_target_side_px(
         target_side,
         camera_pixel_um=config.camera_pixel_um,
@@ -1772,8 +1963,42 @@ def _prepare_refine_context(
         config, panel_shape=panel_shape, radius_px=radius_px,
         target_side=target_side, bench_side=bench_side,
     )
-    ctx.work_slots = work_slots[:2]
     return ctx
+
+
+def _attach_camera(ctx: _RefineContext) -> None:
+    """Finish the session setup that needs a detector: ceiling, ROI, blaze.
+
+    Called once, right after the camera opens -- which happens only when the run
+    has a measuring stage (:attr:`SlmGsRefineConfig.spgd_enabled`). The live
+    camera is the authoritative source for the pitch, so the target side is
+    re-derived from it when the model configuration and the device disagree
+    (the mask, the bench bridge and the GS target all have to sit on the same
+    pixel grid); the run log says when that happened.
+    """
+    config = ctx.config
+    cam = ctx.cam
+    if cam is None:
+        raise RuntimeError("_attach_camera requires an open camera")
+    pitch_before = float(config.camera_pixel_um)
+    config.require_camera_pixel_um(cam)
+    if config.camera_pixel_um != pitch_before:
+        # Same length, different pitch ⇒ the mm/px resolution has to follow the
+        # device, otherwise the delivered target is not the requested size.
+        ctx.target_side = _derive_target_side(config, ctx.radius_px)
+        logger.info(
+            "camera pixel pitch {:.4g}um (open camera) differs from the model "
+            "configuration ({:.4g}um); target side re-resolved to {}px",
+            config.camera_pixel_um,
+            pitch_before,
+            ctx.target_side,
+        )
+    if config.cam_type == "daheng":
+        ctx.ceiling = _resolve_daheng_ceiling(ctx)
+    _locate_zero_order_and_window(ctx)
+    # ``work_slots[2]`` was the blaze probe's scratch slot; the run proper keeps
+    # the pair that excludes the slot displayed before it started.
+    ctx.work_slots = ctx.work_slots[:2]
 
 
 def _apply_resume_state(ctx: _RefineContext) -> None:
@@ -1855,14 +2080,35 @@ def _stage_flat_baseline(ctx: _RefineContext) -> None:
     )
 
 
-def _stage_gs_warm_start(ctx: _RefineContext) -> None:
-    """Stage 1: GS warm start, admitted only if it wins."""
+def _gs_refine_panel(ctx: _RefineContext) -> np.ndarray | None:
+    """The GS warm-start phase for this run's pupil and target, or ``None``.
+
+    Pure bench-model arithmetic: no camera, no panel write. It is kept apart
+    from :func:`_stage_gs_warm_start` because a GS-only run (``epochs=0``) needs
+    exactly this and nothing else -- there is no detector to score it with.
+    """
     config = ctx.config
-    base_panel = ctx.base_panel
     gs_box = _gs_pupil_phase(config, ctx.radius_px, ctx.target_side)
     if gs_box is None:
+        return None
+    return embed_pupil_square(gs_box, ctx.panel_shape, ctx.radius_px, ctx.center_xy)
+
+
+def _stage_gs_warm_start(
+    ctx: _RefineContext, gs_panel: np.ndarray | None = None
+) -> None:
+    """Stage 1: GS warm start, admitted only if it wins the bake-off.
+
+    ``gs_panel`` lets the caller hand over the phase it already computed (and,
+    when the camera was requested late, already displayed): the phase is a pure
+    function of the bench model, so recomputing it would only risk the displayed
+    pattern and the scored pattern drifting apart.
+    """
+    config = ctx.config
+    if gs_panel is None:
+        gs_panel = _gs_refine_panel(ctx)
+    if gs_panel is None:
         return
-    gs_panel = embed_pupil_square(gs_box, ctx.panel_shape, ctx.radius_px, ctx.center_xy)
     gs_frame = ctx.measure(gs_panel)
     score_gs = ctx.record(_STAGE_GS, gs_frame, ctx.mask, gs_panel, cy=ctx.cy, cx=ctx.cx)
     if score_gs > ctx.best_score:
@@ -2018,36 +2264,123 @@ def _stage_spgd_refine(ctx: _RefineContext) -> None:
 
 def _run_gs_refine_session(
     config: SlmGsRefineConfig,
-    slm: Any,
-    cam: Any,
+    slm: SLMHandle,
     rng: np.random.Generator,
     recorder: Recorder,
     protected_slot: int | None = None,
 ) -> Recorder:
-    """Run one GS-refine session: flat baseline, GS warm start, SPGD refinement.
+    """Run one GS-refine session; the camera is opened only if it is needed.
+
+    Two orders, because the detector is only needed by the stages that measure:
+
+    * ``epochs=0`` (GS only, the default): compute the GS phase and write it to
+      the panel. **No camera is opened at all** -- the bench model and the
+      camera *model* configuration supply every number the GS solve needs.
+    * ``epochs>0``: compute and write the GS phase **first** (the operator can
+      see the shaping before any detector is claimed), then request the camera,
+      then the classic sequence -- flat baseline + zero-order locate, GS measure
+      with the bake-off against that flat frame, SPGD refinement. The frame
+      captured while locating the zero order *is* the baseline, so the bake-off
+      costs one extra measurement (the GS one), not two.
 
     A chunk resume (``config.resume_state``) skips the flat baseline and the GS
     warm start and continues from the previous chunk's end state instead.
     """
-    ctx = _prepare_refine_context(config, slm, cam, recorder, rng, protected_slot)
-    if ctx.resume is not None:
-        _apply_resume_state(ctx)
-    else:
-        _stage_flat_baseline(ctx)
-        _stage_gs_warm_start(ctx)
-    _stage_spgd_refine(ctx)
+    ctx = _prepare_refine_context(config, slm, recorder, rng, protected_slot)
+    gs_panel = _gs_refine_panel(ctx)
 
-    best_row = max(recorder.history, key=lambda r: r["score"])
+    if not config.spgd_enabled:
+        _send_gs_only(ctx, gs_panel)
+        return _finish_session(ctx)
+
+    # 1. GS 先算先发: 形状先落到面板上, 再去要相机 —— 相机可能是别人的, 也可能
+    #    根本不在, 不该为「看一眼 GS 的形状」而占着它。
+    if gs_panel is not None:
+        ctx.display(gs_panel)
+        logger.info(
+            "GS 相位已计算并下发到 SLM (epochs=0..{} 的精化随后进行); "
+            "现在申请相机以测量平场基线、对比择优并进入 SPGD",
+            config.epochs,
+        )
+
+    # 2. 唯一的「向用户请求相机」时刻: 从这里开始才有测量。
+    cam = open_camera(config)
+    if hasattr(cam, "open"):
+        cam.open()
+    try:
+        ctx.cam = cam
+        _attach_camera(ctx)
+        if ctx.resume is not None:
+            _apply_resume_state(ctx)
+        else:
+            _stage_flat_baseline(ctx)
+            _stage_gs_warm_start(ctx, gs_panel)
+        _stage_spgd_refine(ctx)
+        return _finish_session(ctx)
+    finally:
+        try:
+            cam.close()
+        # policy: teardown closes what it can without masking the failure that ended the run
+        except Exception:  # cleanup must not mask the real error
+            logger.debug("camera close failed during cleanup", exc_info=True)
+
+
+def _send_gs_only(ctx: _RefineContext, gs_panel: np.ndarray | None) -> None:
+    """Deliver the GS phase with no detector attached (``epochs=0``).
+
+    The run's product is the phase on the panel plus the phase array the CLI
+    saves; there is no frame to score, so no history row is fabricated -- every
+    column of a history row (``score``, ``pib``, ``cv``, ``shape_iou``) is a
+    measured quantity and an invented value would read as a measurement.
+    """
+    if gs_panel is None:
+        raise ValueError(
+            "epochs=0 leaves only the GS warm start, and the GS solve produced "
+            "no phase; enable gs_warm_start / raise gs_iters"
+        )
+    ctx.display(gs_panel)
+    ctx.base_panel = gs_panel
+    ctx.best_phase = gs_panel
+    ctx.best_stage = _STAGE_GS
+    ctx.best_score = math.nan
     logger.info(
-        "best composite {:.4f} at stage={} epoch={} ({} evaluations); "
-        "target_shape={} mask_area={:.3f}%",
-        best_row["score"],
-        best_row["stage"],
-        best_row.get("epoch", "-"),
-        len(recorder.history),
-        config.target_shape,
-        ctx.mask_area_frac * 100.0,
+        "GS 相位已下发到 SLM: shape={} target_side={}px ({}mm 目标, {:.2f}um/px); "
+        "epochs=0 ⇒ 未打开相机、未测量、未做 SPGD",
+        ctx.config.target_shape,
+        ctx.target_side,
+        ctx.config.target_side_mm,
+        ctx.config.camera_pixel_um,
     )
+
+
+def _finish_session(ctx: _RefineContext) -> Recorder:
+    """Attach the run summary to the recorder and log the outcome once."""
+    config = ctx.config
+    recorder = ctx.recorder
+    if recorder.history:
+        best_row = max(recorder.history, key=lambda r: r["score"])
+        logger.info(
+            "best composite {:.4f} at stage={} epoch={} ({} evaluations); "
+            "target_shape={} mask_area={:.3f}%",
+            best_row["score"],
+            best_row["stage"],
+            best_row.get("epoch", "-"),
+            len(recorder.history),
+            config.target_shape,
+            ctx.mask_area_frac * 100.0,
+        )
+    else:
+        # GS-only: nothing was measured, so there is no composite to report. The
+        # resolved target side is the only verifiable number, and it is the one
+        # the operator asked for (mm -> px), so print it with its pitch.
+        logger.info(
+            "GS-only run: no measurement (epochs=0); target_shape={} "
+            "target_side={}px ({}mm target @ {:.2f}um/px)",
+            config.target_shape,
+            ctx.target_side,
+            config.target_side_mm,
+            config.camera_pixel_um,
+        )
     # Summary-level shape record: the history rows carry it too, but a consumer
     # reading only the summary (the CLI banner, the saved debug JSON) must be able
     # to tell which shape was scored without opening the CSV.

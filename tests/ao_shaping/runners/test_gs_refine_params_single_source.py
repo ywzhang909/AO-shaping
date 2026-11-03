@@ -1,6 +1,6 @@
-"""``slm-gs-refine`` 参数单一来源: 一处尺寸输入、一张形状表、一处派生。
+"""``slm-gs-refine`` 参数单一来源: 一处尺寸输入、一张形状表、一处派生、一处像元。
 
-四条不变量, 每条都对应一种**静默**的错结果:
+五条不变量, 每条都对应一种**静默**的错结果:
 
 1. **目标尺寸只有一个输入。** ``--gs-target-side-px`` 曾能在
    ``--target-side`` 之外静默覆盖 GS 模型里的边长, 于是横幅、评分掩膜与 GS
@@ -14,13 +14,18 @@
    if 链。
 4. **验证配方只有一份。** ``VALIDATED_GS_REFINE_RECIPE`` 是 preset 而不是
    dataclass 默认值, GUI 的 ``GS_REFINE_RECIPE`` 是它的副本。
+5. **相机像元只有驱动层一个来源。** ``--camera-pixel-um`` 的默认值是 0 =
+   「问相机型号」, 由 :func:`_resolve_camera_pixel_um` 一个入口变成真实值;
+   optimizer 与 runner 里不再有 2.2 这类像元字面量。
 
 No hardware, no torch, no network, no files written.
 """
 
 from __future__ import annotations
 
+import ast
 import dataclasses
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -285,3 +290,173 @@ class TestValidatedRecipe:
         finally:
             shaping_controls.GS_REFINE_RECIPE.clear()
             shaping_controls.GS_REFINE_RECIPE.update(before)
+
+
+# ---------------------------------------------------------------------------
+# 5. one source for the camera pixel pitch (the driver layer)
+# ---------------------------------------------------------------------------
+
+#: Repo root, for the AST scans below.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+#: Files that used to carry a pixel-pitch literal (or a constant holding one).
+_PITCH_LITERAL_FILES = (
+    "src/ao_shaping/runners/runner_common.py",
+    "src/ao_shaping/optimizer/wfless/slm_gs_refine.py",
+    "src/ao_shaping/optimizer/wfless/slm_model_in_loop.py",
+)
+
+
+class TestCameraPitchComesFromTheDriver:
+    def test_both_cli_defaults_are_zero(self):
+        from ao_shaping.runners.runner_common import (
+            SlmGsRefineParams,
+            SlmModelInLoopParams,
+        )
+
+        assert SlmGsRefineParams().camera_pixel_um == 0.0
+        assert SlmModelInLoopParams().camera_pixel_um == 0.0
+
+    @pytest.mark.parametrize("flag", ["--camera-pixel-um"])
+    def test_the_help_says_zero_means_the_camera_model(self, flag: str):
+        from ao_shaping.runners.slm.gs_refine_runner import run
+
+        result = CliRunner().invoke(run, ["--help"])
+        assert result.exit_code == 0, result.output
+        assert flag in result.output
+        assert "model configuration" in result.output.lower()
+
+    def test_zero_asks_the_driver_layer(self, monkeypatch: pytest.MonkeyPatch):
+        """``0`` is not a value: it is a request to the driver layer."""
+        import ao_shaping.drivers.ccd.pixel_size as pixel_size
+        from ao_shaping.runners.runner_common import (
+            SlmGsRefineParams,
+            SlmModelInLoopParams,
+            _resolve_camera_pixel_um,
+        )
+
+        calls: list[tuple[str, int]] = []
+
+        def fake(cam_type: str = "daheng", cam_id: int = 0, **kwargs: Any) -> float:
+            calls.append((cam_type, cam_id))
+            return 3.45
+
+        monkeypatch.setattr(pixel_size, "camera_pixel_size_um_for", fake)
+        monkeypatch.setattr(pixel_size, "probe_daheng_models", lambda: [])
+
+        for params in (
+            SlmGsRefineParams(cam_type="sim", cam_id=1),
+            SlmModelInLoopParams(cam_type="sim", cam_id=1),
+        ):
+            value, source = _resolve_camera_pixel_um(params)
+            assert value == pytest.approx(3.45)
+            assert source.startswith("derived:")
+
+        assert calls == [("sim", 1), ("sim", 1)]
+
+    def test_a_positive_value_passes_through_untouched(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        import ao_shaping.drivers.ccd.pixel_size as pixel_size
+        from ao_shaping.runners.runner_common import (
+            SlmGsRefineParams,
+            _resolve_camera_pixel_um,
+        )
+
+        def boom(*args: Any, **kwargs: Any) -> float:
+            raise AssertionError("an explicit pitch must not consult the driver")
+
+        monkeypatch.setattr(pixel_size, "camera_pixel_size_um_for", boom)
+        value, source = _resolve_camera_pixel_um(
+            SlmGsRefineParams(camera_pixel_um=2.9, cam_type="daheng")
+        )
+        assert value == pytest.approx(2.9)
+        assert source == "input"
+
+    def test_an_unresolvable_pitch_is_reported_not_guessed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """No camera and no model ⇒ ``0`` + ``unresolved``; the session refuses it."""
+        import ao_shaping.drivers.ccd.pixel_size as pixel_size
+        from ao_shaping.runners.runner_common import (
+            SlmGsRefineParams,
+            _resolve_camera_pixel_um,
+            build_gs_refine_config,
+        )
+
+        monkeypatch.setattr(
+            pixel_size, "camera_pixel_size_um_for", lambda *a, **k: 0.0
+        )
+        params = SlmGsRefineParams(cam_type="daheng")
+        value, source = _resolve_camera_pixel_um(params)
+        assert value == 0.0
+        assert source == "unresolved"
+        config = build_gs_refine_config(params, debug=False)
+        assert config.camera_pixel_um == 0.0
+        assert config.camera_pixel_um_source == "unresolved"
+
+    def test_the_loud_failure_names_the_registration_command(self, tmp_path: Path):
+        """The error the session raises tells the operator what to run.
+
+        ``resolve_model_pixel_size_um`` is the driver-layer message the deferred
+        failure surfaces; it must carry the ``--store`` command, not just "unknown".
+        """
+        from ao_shaping.drivers.ccd.base import CameraError
+        from ao_shaping.drivers.ccd.pixel_size import resolve_model_pixel_size_um
+
+        with pytest.raises(CameraError) as excinfo:
+            resolve_model_pixel_size_um("NOT-A-REGISTERED-MODEL")
+        message = str(excinfo.value)
+        assert "--store" in message
+        assert "NOT-A-REGISTERED-MODEL" in message
+
+    @pytest.mark.parametrize("relative", _PITCH_LITERAL_FILES)
+    def test_no_pixel_pitch_literal_survives(self, relative: str):
+        """No ``2.2`` (or any non-zero pitch) may be a *default* for the pitch.
+
+        The AST is walked rather than grepped so comments and docstrings cannot
+        hide a literal -- and so what fails is a real assignment to a
+        ``camera_pixel*`` name, not a coincidence like the wavelength 1064.
+        ``0`` is allowed: it is the "ask the camera model" sentinel, not a pitch.
+        """
+        tree = ast.parse((_REPO_ROOT / relative).read_text(encoding="utf-8"))
+        offenders: list[str] = []
+
+        def check(lineno: int, name: str, value: ast.expr | None) -> None:
+            if "camera_pixel" not in name.lower():
+                return
+            if not isinstance(value, ast.Constant):
+                return
+            if not isinstance(value.value, (int, float)):
+                return
+            if value.value == 0:
+                return
+            offenders.append(f"{relative}:{lineno} {name} = {value.value!r}")
+
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = (
+                    node.targets if isinstance(node, ast.Assign) else [node.target]
+                )
+                for target in targets:
+                    if isinstance(target, ast.Name):
+                        check(node.lineno, target.id, node.value)
+            if isinstance(node, ast.ClassDef):
+                for item in node.body:
+                    if isinstance(item, ast.AnnAssign) and isinstance(
+                        item.target, ast.Name
+                    ):
+                        check(item.lineno, item.target.id, item.value)
+
+        assert not offenders, (
+            "a camera pixel pitch literal is a second source for a device "
+            f"constant: {offenders}"
+        )
+
+    def test_the_deleted_pitch_constants_are_gone(self):
+        import ao_shaping.optimizer.wfless.slm_gs_refine as gs
+        import ao_shaping.runners.runner_common as runner_common
+
+        for module in (gs, runner_common):
+            assert not hasattr(module, "_DEFAULT_CAMERA_PIXEL_UM")
+            assert not hasattr(module, "_DEFAULT_FOCAL_LENGTH_M")

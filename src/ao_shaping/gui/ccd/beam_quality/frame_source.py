@@ -25,6 +25,9 @@ from loguru import logger
 # 帧回调签名: (图像, 接收时刻 monotonic 秒)
 FrameCallback = Callable[[np.ndarray, float], None]
 
+#: 跨驱动兜底曝光量程 (ms): 源未打开或后端不暴露量程时, 界面用它占位
+FALLBACK_EXPOSURE_RANGE_MS: tuple[float, float] = (0.011, 10000.0)
+
 
 @runtime_checkable
 class FrameSource(Protocol):
@@ -43,6 +46,11 @@ class FrameSource(Protocol):
     @property
     def exposure_ms(self) -> float:
         """当前曝光 (ms); 仿真源只是记录值, 真实相机为设备回读/驱动缓存。"""
+        ...
+
+    @property
+    def exposure_range_ms(self) -> tuple[float, float]:
+        """设备真实量程 ``(min_ms, max_ms)``; 仿真源用宽量程。"""
         ...
 
     def start(self, on_frame: FrameCallback | None = None) -> None:
@@ -192,6 +200,25 @@ class CameraFrameSource:
     def dropped_frames(self) -> int:
         """因消费不及时而被挤掉的帧数。"""
         return self._frames.dropped
+
+    @property
+    def exposure_range_ms(self) -> tuple[float, float]:
+        """设备真实曝光量程 (ms); 未打开时退回跨驱动兜底量程。
+
+        量程是设备特征 (大恒真实量程如 ``(0.02, 1000.0)``), 只能在 open 之后读,
+        因此这里惰性 import 助手并包住当前相机实例。
+        """
+        cam = self._cam
+        if cam is None:
+            return FALLBACK_EXPOSURE_RANGE_MS
+        from ao_shaping.drivers.ccd.common import get_camera_exposure_range
+
+        try:
+            return get_camera_exposure_range(cam)
+        # policy: 量程读不回来只影响界面占位, 不能让打开源后的回调抛异常
+        except Exception:
+            logger.warning("读取相机曝光量程失败, 退回兜底量程")
+            return FALLBACK_EXPOSURE_RANGE_MS
 
     # ---------------------------------------------------------------- 生命周期
     def start(self, on_frame: FrameCallback | None = None) -> None:
@@ -383,6 +410,11 @@ class SimBeamSource:
         return self._exposure_ms
 
     @property
+    def exposure_range_ms(self) -> tuple[float, float]:
+        """仿真源没有设备约束, 用跨驱动兜底宽量程占位。"""
+        return FALLBACK_EXPOSURE_RANGE_MS
+
+    @property
     def frame_shape(self) -> tuple[int, int]:
         return (self._height, self._width)
 
@@ -441,7 +473,7 @@ class SimBeamSource:
             if callback is not None:
                 try:
                     callback(frame, timestamp)
-                # policy: 用户回调异常不终止仿真线程 (与真机源的取舍一致)
+                # policy: 用户回调异常不终止仿真线程 (与实验系统源的取舍一致)
                 except Exception:  # policy: 见上
                     logger.exception("仿真帧回调抛出异常, 已忽略")
             next_deadline += self._interval

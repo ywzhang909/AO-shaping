@@ -17,7 +17,10 @@
   解析标度与传入的实测标度一致; 默认路径的解析标度逐位不变; 非法输入抛 ValueError;
 * **序列化** —— ``to_dict`` → JSON → ``from_dict`` → 远场逐位相同;
 * **预补偿** —— LUT 往返与面板 Zernike 相差被消除 (残余 ≤ 一个量化级);
-* **可用性** —— import 期无副作用, 且不 import 任何驱动包。
+* **可用性** —— import 期无副作用, 且不 import 任何驱动包;
+* **SLM 轴向偏移** —— ``slm_axial_offset_m`` 默认 0 且对此前链路逐位恒等; δ≠0 时多走
+  一次瞳面角谱传播 (Parseval 守恒、±δ 往返还原), 只在相机离焦项非零时可测量地改变
+  远场 (口径见 §10 头的差异注记)。
 """
 
 from __future__ import annotations
@@ -762,3 +765,149 @@ class TestMeasuredScale:
             BenchTwinConfig.from_measured_scale(
                 MEASURED_SCALE_20261019, **kwargs
             )
+
+
+# ---------------------------------------------------------------------------
+# 10. SLM 轴向偏移 (``slm_axial_offset_m`` → ``slm_plane_to_lens``)
+# ---------------------------------------------------------------------------
+#
+# ⚠️ 两处口径差异 (2026-10-29 实测; 本节只登记, 不改源码):
+#
+# (1) ``slm_plane_to_lens`` 的 docstring 声称「``A == 0`` 时本方法对 ``|·|²``
+#     **逐位无影响** (理想透镜恒等式)」。实测**不成立**: 相机离焦项
+#     (``errors.defocus_m == 0``, 即 A == 0) 且其余误差项全零时, 把
+#     ``slm_axial_offset_m`` 从 0 改到 0.02 m 仍改变 ``far_field`` —— region=128
+#     下相对 L2 差 **9.1e-4** (region=64 / δ=0.05 m 下 1.3e-3), ``np.array_equal``
+#     为 False。差的不是物理: 连续极限下 ``|F(field ⊛ h_δ)|² ≡ |H_δ · F(field)|²``
+#     且 ``|H_δ| ≡ 1``。差异来自离散链不一致 —— δ 步是在 ``region`` 网格上做
+#     **循环**角谱传播 (有限窗内绕回), 而远场是补零后 ``M = region·padding`` 点
+#     FFT, 于是 H_δ 在频域上的色散被卷进 Dirichlet 泄漏核, 只剩二阶小量残留。
+#     ⇒ 本节断言的是「δ 单独作用时远场**近似**不变 (相对 L2 < 2e-3)」而不是
+#     「逐位不变」。单边上界对将来真正做成位级恒等的实现同样成立。
+#
+# (2) ``to_dict`` / ``from_dict`` **曾经不对称** (本轮发现并已修): ``to_dict`` 输出
+#     ``slm_axial_offset_m``, 而 ``from_dict`` (bench_twin.py 的 ``BenchTwinConfig(...)``
+#     构造) 不读该键 ⇒ 非零偏移经一次 JSON 往返就静默归 0 (远场随之改变, 而检查点里
+#     记着"有偏移")。修法是在 ``from_dict`` 里补上该键; 对应用例此前以
+#     ``xfail(strict=True)`` 钉住期望契约, 修好后已删标记, 现在是普通回归。
+# ---------------------------------------------------------------------------
+
+
+def _ramp_plus_defocus_phase(region: int) -> np.ndarray:
+    """固定的非平凡面板相位 (倾斜 + 离焦, raw 弧度), 供本节各断言共用。"""
+    idx = np.arange(region, dtype=np.float64) - (region - 1) / 2.0
+    r2 = idx[:, None] ** 2 + idx[None, :] ** 2
+    return 0.6 * idx[None, :] / region + 0.4 * r2 / region**2
+
+
+class TestAxialOffset:
+    def test_default_offset_is_zero(self) -> None:
+        assert BenchTwinConfig().slm_axial_offset_m == 0.0
+        assert BenchTwin(BenchTwinConfig()).config.slm_axial_offset_m == 0.0
+
+    def test_to_dict_records_the_offset(self) -> None:
+        """``to_dict`` 的键与 JSON 边界上的值都精确保持 0.05。"""
+        twin = BenchTwin(BenchTwinConfig(slm_axial_offset_m=0.05))
+        payload = twin.to_dict()
+        assert payload["slm_axial_offset_m"] == 0.05
+        reloaded = json.loads(json.dumps(payload))
+        assert reloaded["slm_axial_offset_m"] == 0.05
+
+    def test_json_round_trip_restores_the_offset(self) -> None:
+        """JSON 往返必须保住非零偏移 (曾因 ``from_dict`` 漏读该键静默归 0)。"""
+        config = BenchTwinConfig(slm_axial_offset_m=0.05)
+        payload = json.loads(json.dumps(BenchTwin(config).to_dict()))
+        restored = BenchTwin.from_dict(payload)
+        assert restored.config.slm_axial_offset_m == 0.05
+
+    @pytest.mark.parametrize(
+        "value",
+        [float("nan"), float("inf"), float("-inf")],
+    )
+    def test_non_finite_offset_raises(self, value: float) -> None:
+        with pytest.raises(ValueError, match="slm_axial_offset_m"):
+            BenchTwin(BenchTwinConfig(slm_axial_offset_m=value))
+
+    def test_zero_offset_is_a_true_no_op(self) -> None:
+        """δ=0 时新增那一步对远场逐位无影响 (与旧链路完全相同)。"""
+        phase = _ramp_plus_defocus_phase(128)
+        explicit = BenchTwin(
+            BenchTwinConfig(region=128, slm_axial_offset_m=0.0)
+        ).far_field(phase)
+        default = BenchTwin(BenchTwinConfig()).far_field(phase)
+        np.testing.assert_array_equal(explicit, default)
+
+    def test_slm_plane_to_lens_preserves_energy(self) -> None:
+        """δ≠0 的传播在浮点舍入量级上守恒能量 (此处无倏逝分量被截掉)。"""
+        twin = BenchTwin(BenchTwinConfig(region=128, slm_axial_offset_m=0.02))
+        field = twin.pupil_amplitude() * np.exp(
+            1j * _ramp_plus_defocus_phase(twin.region)
+        )
+        propagated = twin.slm_plane_to_lens(field)
+        # 该方法把倏逝分量 (λf > 1) 的传递函数置 0, 会真的丢能量; 但本几何下
+        # λ·f_max = 1064e-9 / (2 · 5.625e-5) ≈ 9.5e-3 ≪ 1, 没有任何频率命中截断
+        # (先断言这一前提, 否则下面的紧容差就失去理由), 传递函数处处 |H| = 1
+        # ⇒ Parseval 应只在舍入量级成立 (实测相对误差 3.5e-16)。
+        freq = np.fft.fftfreq(twin.region, d=twin.pupil_pitch_m)
+        assert float(np.max(np.abs(twin.config.wavelength_m * freq))) < 0.05
+        energy_in = float(np.sum(np.abs(field) ** 2))
+        energy_out = float(np.sum(np.abs(propagated) ** 2))
+        assert energy_out == pytest.approx(energy_in, rel=1e-10)
+
+    def test_forward_then_backward_offset_restores_the_field(self) -> None:
+        """+δ 再 −δ 还原输入场 (实测相对 L2 = 6.7e-16, 容差取 1e-12)。
+
+        ``slm_plane_to_lens`` 不接受 δ 参数 (δ 只来自配置), 故符号由两个孪生分别
+        给出 —— 这也顺手证明了负偏移被接受。
+        """
+        phase = _ramp_plus_defocus_phase(128)
+        forward = BenchTwin(BenchTwinConfig(region=128, slm_axial_offset_m=0.02))
+        backward = BenchTwin(BenchTwinConfig(region=128, slm_axial_offset_m=-0.02))
+        field = forward.pupil_amplitude() * np.exp(1j * phase)
+        twice = backward.slm_plane_to_lens(forward.slm_plane_to_lens(field))
+        rel = float(np.linalg.norm(twice - field) / np.linalg.norm(field))
+        assert rel < 1e-12
+
+    def test_offset_alone_barely_changes_the_far_field(self) -> None:
+        """相机在焦、其余误差全零时 δ 对远场的影响有界 (实测 9.1e-4)。
+
+        理想透镜下 δ 应当完全不可观测; 实测的 9.1e-4 是离散链残留而非物理
+        (见本节头注 (1))。这里给单边上界: 真出现耦合, 这个数会跳成 O(1)。
+        """
+        phase = _ramp_plus_defocus_phase(128)
+        focused = BenchTwin(BenchTwinConfig(region=128)).far_field(phase)
+        offset = BenchTwin(
+            BenchTwinConfig(region=128, slm_axial_offset_m=0.02)
+        ).far_field(phase)
+        rel = float(np.linalg.norm(offset - focused) / np.linalg.norm(focused))
+        assert rel < 2e-3
+
+    def test_offset_changes_the_far_field_through_the_defocus_term(self) -> None:
+        """离焦项非零时 δ 才可测量地改变远场 (实测 4.8e-3)。
+
+        docstring 的口径是 ``d' = d/(1 + d·δ)`` / ``B' = B + A·δ``: δ 通过与离焦
+        的耦合起作用, 故 A=0 时它接近不可见、A≠0 时可见。``defocus_m=0.5`` 被
+        校验接受 (``_validate`` 不限制其正负/量级)。
+        """
+        phase = _ramp_plus_defocus_phase(128)
+        defocused = TwinErrorModel(defocus_m=0.5)
+        focused = BenchTwin(BenchTwinConfig(region=128)).far_field(phase)
+        focused_offset = BenchTwin(
+            BenchTwinConfig(region=128, slm_axial_offset_m=0.02)
+        ).far_field(phase)
+        blurred_twin = BenchTwin(BenchTwinConfig(region=128, errors=defocused))
+        blurred = blurred_twin.far_field(phase)
+        blurred_offset = BenchTwin(
+            BenchTwinConfig(region=128, slm_axial_offset_m=0.02, errors=defocused)
+        ).far_field(phase)
+
+        assert blurred_twin.errors.defocus_m == 0.5
+        rel_without_defocus = float(
+            np.linalg.norm(focused_offset - focused) / np.linalg.norm(focused)
+        )
+        rel_with_defocus = float(
+            np.linalg.norm(blurred_offset - blurred) / np.linalg.norm(blurred)
+        )
+        assert rel_with_defocus > 1e-3
+        # 耦合是「离焦把 δ 放大」的方向, 而不是 δ 独立生效。
+        assert rel_with_defocus > 3.0 * rel_without_defocus

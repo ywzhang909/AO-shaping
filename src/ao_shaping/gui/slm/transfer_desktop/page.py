@@ -79,6 +79,7 @@ from PySide6.QtWidgets import (
 
 from ao_shaping.gui.slm.transfer_desktop import params
 from ao_shaping.gui.slm.transfer_desktop.check_task import HardwareCheckTask
+from ao_shaping.gui.slm.transfer_desktop.live_view import LiveView
 from ao_shaping.gui.slm.transfer_progress import (
     MISSING,
     STATUS_LABELS,
@@ -187,6 +188,8 @@ class _WorkerSignals(QObject):
     """后台会话 → 主线程的单向通道 (``QRunnable`` 不是 ``QObject``, 发不出信号)。"""
 
     stage = Signal(str, str)
+    #: 每块一帧的实时画面 (``dict`` 负载, 含 ``frame`` 数组与整数进度)。
+    frame = Signal(dict)
     finished = Signal(str)
     failed = Signal(str)
 
@@ -207,7 +210,7 @@ class _SessionTask(QRunnable):
 
         try:
             session = params.build_session(self._values, out=self._out)
-            run_session(session, on_stage=self._on_stage)
+            run_session(session, on_stage=self._on_stage, on_frame=self._on_frame)
         # policy: 后台线程的任何失败都必须变成界面上的结论; 这里只发信号、不吞细节,
         # 也不让异常逃出 QRunnable (Qt 会直接终止线程, 界面就永远停在「运行中」)。
         except Exception as exc:
@@ -219,6 +222,10 @@ class _SessionTask(QRunnable):
     def _on_stage(self, name: str, status: str) -> None:
         """``run_session`` 的阶段回调 (后台线程): 只发信号, 不碰控件。"""
         self.signals.stage.emit(name, status)
+
+    def _on_frame(self, payload: dict) -> None:
+        """``run_session`` 的帧回调 (后台线程): 只发信号, 不碰控件。"""
+        self.signals.frame.emit(payload)
 
 
 class _ZeroSignals(QObject):
@@ -320,8 +327,22 @@ class TransferPage(QWidget):
         body = QHBoxLayout()
         body.setSpacing(16)
         body.addWidget(self._build_form(), 0)
-        body.addWidget(self._build_progress(), 1)
+        body.addWidget(self._build_right(), 1)
         root.addLayout(body, 1)
+
+    def _build_right(self) -> QWidget:
+        """右栏: ⑥ 实时画面 (CCD / 剖面 / 块进度) + ⑤ 阶段进度表。"""
+        host = QWidget()
+        layout = QVBoxLayout(host)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        box, live_layout = _section("⑥ 实时画面（每块最后一帧）")
+        self._live_view = LiveView()
+        live_layout.addWidget(self._live_view)
+        layout.addWidget(box, 1)
+        layout.addWidget(self._build_progress(), 1)
+        return host
 
     def _build_header(self) -> QWidget:
         """标题与一句话说明。"""
@@ -523,6 +544,10 @@ class TransferPage(QWidget):
         self._counts = QLabel("")
         head.addWidget(self._current, 1)
         head.addWidget(self._counts, 0, Qt.AlignmentFlag.AlignRight)
+        self._replay_btn = QPushButton("归档回放…")
+        self._replay_btn.setToolTip("离线查看已落盘的每块 CCD 帧与 SLM 相位（只读，不碰硬件）")
+        self._replay_btn.clicked.connect(self._open_replay)
+        head.addWidget(self._replay_btn, 0)
         layout.addLayout(head)
 
         self._bar = QProgressBar()
@@ -921,6 +946,7 @@ class TransferPage(QWidget):
         self._current.setText("等待第一个阶段…")
         self._counts.setText("")
         self._session_label.setText(f"会话目录: {out}")
+        self._live_view.clear()
 
         self._running = True
         self._set_form_enabled(False)
@@ -932,6 +958,7 @@ class TransferPage(QWidget):
         # 不交给 Qt 自动回收: 回收早于信号送达就会丢掉最后一条结论。
         task.setAutoDelete(False)
         task.signals.stage.connect(self._on_stage)
+        task.signals.frame.connect(self._live_view.apply_payload)
         task.signals.finished.connect(self._on_finished)
         task.signals.failed.connect(self._on_failed)
         self._task = task
@@ -965,6 +992,15 @@ class TransferPage(QWidget):
         self._revalidate()
 
     # ------------------------------------------------------------------ 进度
+    def _open_replay(self) -> None:
+        """打开归档回放弹窗: 优先当前会话目录, 否则规划目录 (只读, 无硬件)。"""
+        from ao_shaping.gui.slm.transfer_desktop.archive_replay import (
+            open_archive_replay,
+        )
+
+        session = self._session_dir or params.plan_session_dir()
+        open_archive_replay(self, session)
+
     def _refresh_progress(self) -> None:
         """读会话目录, 刷新阶段表 / 进度条 / 当前阶段 / 汇总。"""
         view = collect_progress(self._session_dir)

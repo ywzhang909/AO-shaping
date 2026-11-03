@@ -54,8 +54,10 @@ Flat-phase reference frames come from ``probe_optical_path_validity.py``
     python scripts/slm/generate_gs_control_report.py
 
     # 带 C: 四份输入缺一不可 —— C 帧、同曝光的 B 重放帧、矫正后的平相位帧、
-    # 以及 acquisition 写出的 correction_meta.json (含 probe_count / 留出相关系数 /
-    # model_psf_fwhm_px)。``--flat-frame`` 换成与 C 同一次会话的平相位帧时,
+    # 以及采集脚本 ``scripts/slm/gs_control_corrected_arm.py`` 写出的
+    # correction_meta.json (含 probe_count / 验证集相关系数 / model_psf_fwhm_px)。
+    # 该采集脚本本身尚未实现: 它要先从随机探针拟合光路像差, 再把 B 相位减像差下发。
+    # ``--flat-frame`` 换成与 C 同一次会话的平相位帧时,
     # 图 9 的光斑峰值才与 C 的平相位帧可比 (峰值只在同曝光下可比)。
     python scripts/slm/generate_gs_control_report.py \\
         --corrected-frame <c.npz> --replay-b-frame <replay_b.npz> \\
@@ -1320,7 +1322,7 @@ def fig_corrected_compare(ctx: dict, out: pathlib.Path) -> pathlib.Path | None:
     if _is_num(cm.get("probe_count")):
         bits.append(f"探针 {int(cm['probe_count'])} 帧")
     if _is_num(cm.get("heldout_corr")):
-        bits.append(f"留出预测相关 {float(cm['heldout_corr']):.3f}")
+        bits.append(f"验证集预测相关 {float(cm['heldout_corr']):.3f}")
     if _is_num(cm.get("rms_before")) and _is_num(cm.get("rms_after")):
         bits.append(f"拟合残差 {float(cm['rms_before']):.2f} → {float(cm['rms_after']):.2f} rad")
     fig.text(0.5, 0.022,
@@ -1720,7 +1722,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="与 --corrected-flat-frame 同会话同曝光的平相位帧; "
                          "缺省用 --flat-dir 里的历史 1 ms 帧")
     ap.add_argument("--correction-meta", type=pathlib.Path, default=None,
-                    help="矫正臂的 JSON 记录 (拟合系数/探针数/留出预测/曝光)")
+                    help="矫正变体的 JSON 记录 (拟合系数/探针数/验证集预测/曝光)")
     ap.add_argument("--only", nargs="*", default=None,
                     help="只画指定图 (four_arms overview model profiles psf floor "
                          "raw ladder corrected)")

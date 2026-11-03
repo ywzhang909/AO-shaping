@@ -2986,6 +2986,7 @@ def calibrate_shared_aberration(
     seed: int = 0,
     frozen_modes: tuple[int, ...] = (1, 2, 3),
     far_field_size: int | None = None,
+    pupil_oversampling: int = 1,
 ) -> FitAberrationResult:
     """Fit ONE aberration shared by a whole set of records.
 
@@ -3055,6 +3056,20 @@ def calibrate_shared_aberration(
             native transform rescales every recovered coefficient. On this bench
             the mismatch is ~29.5x, which is larger than any coefficient being
             measured.
+        pupil_oversampling: Integer factor by which :class:`ZernikeCoefficientOptimizer`
+            bilinearly enlarges the pupil before the transform. The real 2f bench
+            displays the panel phase by bilinear upsampling, so a model grid of
+            ``region`` samples covers ``pupil_side / region`` panel pixels per
+            sample; leaving this at ``1`` propagates a piecewise-constant pupil
+            that the panel never shows. Measured on the GS 1000 px bench
+            (``region=64``, 900 px box, 512 far field) with an independent
+            bilinear-900 propagation as ground truth: ``1`` gave a far-field
+            correlation of 0.066 and recovered no aberration (residual 1.92 rad
+            against a 1.20 rad truth), ``14`` gave 0.9999 and 0.084 rad. Use
+            ``round(pupil_side_px / region)`` whenever records come off the real
+            display chain. Note that at ``factor > 1`` the model stops masking the
+            pupil to its circular aperture, which is what makes the two agree --
+            the panel applies the phase over the whole illuminated box.
 
     Returns:
         A :class:`FitAberrationResult`. When no data is available the
@@ -3107,6 +3122,7 @@ def calibrate_shared_aberration(
         dtype=dtype,
         frozen_modes=frozen_modes,
         far_field_size=far_field_size,
+        pupil_oversampling=pupil_oversampling,
     )
     history: list[float] = []
     frames: list[tuple[np.ndarray, np.ndarray]] = []
@@ -3114,8 +3130,14 @@ def calibrate_shared_aberration(
         image = np.asarray(record.image, dtype=np.float64)
         if image.size == 0:
             raise ValueError(f"record {record.label!r} has an empty image")
-        if image.shape != (int(region), int(region)):
-            image = _crop_to_grid(image, int(region))
+        # A real-bench record must land on the model's *far-field* grid: the
+        # forward model predicts ``far_field_size`` samples, so coercing the
+        # measurement to ``region`` would make ``update`` resample a
+        # ``region``-pixel CCD window up to ``far_field_size`` and fit a window
+        # that covers ~8x less sky than the model does.
+        meas_grid = int(far_field_size) if far_field_size else int(region)
+        if image.shape != (meas_grid, meas_grid):
+            image = _crop_to_grid(image, meas_grid)
         phase = np.asarray(record.phase, dtype=np.float64)
         if phase.size == 0:
             raise ValueError(f"record {record.label!r} has an empty phase")
@@ -3146,6 +3168,7 @@ def calibrate_shared_aberration(
             dtype=dtype,
             frozen_modes=frozen_modes,
             far_field_size=far_field_size,
+            pupil_oversampling=pupil_oversampling,
         )
 
     # All records are driven through consecutive ``update`` calls on ONE

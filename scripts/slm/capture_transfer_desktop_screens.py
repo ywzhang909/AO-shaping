@@ -49,12 +49,26 @@
     gui_form.png       左侧表单列 ① 设备 / ② 目标与载波 / ③ 校验 / ④ 运行
     gui_progress.png   右侧 ⑤ 进度 (当前阶段 + 进度条 + 计数 + 阶段表)
 
+``--replay`` 模式不渲染页面, 只离屏打开归档回放弹窗 (只读 ``anchored/*.npz``,
+不碰设备), 输出到 ``docs/GUI/slm/transfer_desktop/``::
+
+    gui_archive_replay.png          第 1 块 capture (CCD + 剖面 + 相位预览)
+    gui_archive_replay_middle.png   中间某块 (证明切块真的换了画面)
+
 脚本自己对每张图做自检 (尺寸、字节数、灰度标准差) 并把结论打出来, 任何一张像
 空白图 (std 过低) 或尺寸过小都以非零退出码结束 —— 手册图不能悄悄变成一片白。
 
 用法::
 
     python scripts/slm/capture_transfer_desktop_screens.py
+    python scripts/slm/capture_transfer_desktop_screens.py --replay
+    python scripts/slm/capture_transfer_desktop_screens.py --sim-live
+
+``--sim-live`` 额外抓一张 ⑥ 实时画面 (``gui_live_closed_loop_sim.png``)。帧不是画
+出来的: 直接读实验会话归档 ``anchored/capture_*.npz`` 的 ``raw_frames`` (与回放弹窗
+同源), 走 ``block_frame_payload`` → ``LiveView.apply_payload`` 这条**页面真正的消费
+路径** 上屏。``on_frame`` 是每块一次、由后台会话回调的, 而这里不跑会话, 所以直接喂
+负载 —— 被验证的是显示链路, 不是采集。
 """
 
 from __future__ import annotations
@@ -95,11 +109,18 @@ SESSION = ROOT / "data" / "debug" / "slm_transfer" / "physical_20261102c"
 #: 图落在这里; 手册 ``docs/GUI/slm/transfer_desktop/`` 按文件名引用。
 FIGURES = ROOT / "docs" / "GUI" / "slm" / "transfer_desktop" / "figures"
 
+#: 归档回放截图落在手册目录本身 (不是 ``figures/``), 文件名见 ``--replay``。
+REPLAY_DIR = FIGURES.parent
+
 #: 外壳窗口尺寸 —— 与 :class:`~ao_shaping.gui.ccd.beam_quality.shell.DesktopShellApp`
 #: 的默认尺寸一致 (1560x940), 图与操作员看到的比例相同。
 WINDOW = (1560, 940)
 
-#: 自检项的最小尺寸与灰度标准差 (防全空白)。
+#: 归档回放弹窗的离屏尺寸 (与弹窗默认一致)。
+REPLAY_WINDOW = (1360, 860)
+
+#: 自检项的最小尺寸与灰度标准差 (防全空白)。帧图 (gui_live_*) 的宽小于 300
+#: (它是弹窗/右栏的一部分), 所以只卡灰度标准差 —— 一片全黑同样会露馅。
 _MIN_SIDE = 300
 _MIN_STD = 8.0
 
@@ -285,9 +306,9 @@ def _inject_progress(page) -> None:
     page._set_run_state("complete", f"本次会话已完成：{SESSION}")
 
 
-def _grab(widget, name: str) -> str:
+def _grab(widget, name: str, folder: Path = FIGURES) -> str:
     """抓一张 PNG 并做空白 / 尺寸自检, 返回一行结论。"""
-    path = FIGURES / name
+    path = folder / name
     if not widget.grab().save(str(path), "PNG"):
         raise SystemExit(f"无法写出 {path}")
     with Image.open(path) as image:
@@ -334,6 +355,83 @@ def _progress_box(page) -> QGroupBox:
     raise SystemExit("页面上找不到 ⑤ 进度分组框")
 
 
+def _live_box(page) -> QGroupBox:
+    """右侧 ⑥ 实时画面分组框 (按标题找, 不依赖控件层级)。"""
+    for box in page.findChildren(QGroupBox):
+        if box.title().startswith("⑥"):
+            return box
+    raise SystemExit("页面上找不到 ⑥ 实时画面分组框")
+
+
+def _inject_live_frame(page) -> None:
+    """``--sim-live``: 用实验会话归档的真实 raw 帧喂出 ⑥ 实时画面。
+
+    后端 ``validate.block_frame_payload`` 就是会话每块发给 GUI 的负载构造器, 这里
+    拿同一构造器 + 同一批数据走 ``apply_payload``, 保证图上就是真实链路渲染的样子。
+    """
+    from ao_shaping.tools.slm.transfer.validate import block_frame_payload
+
+    archive = SESSION / "anchored"
+    files = sorted(archive.glob("capture_*.npz"))
+    if not files:
+        raise SystemExit(f"没有可用的采集归档: {archive}")
+    # 取中间一块: 它确有前后文, 进度条与倒计时都不会停在 0。
+    path = files[len(files) // 2]
+    with np.load(path) as data:
+        raw = data["raw_frames"]
+        xy = data["camera_xy"] if "camera_xy" in data.files else None
+    total = len(files)
+    payload = block_frame_payload(
+        frame=raw[-1],
+        xy=xy,
+        shape="triangle",
+        block=len(files) // 2,
+        block_index=len(files) // 2 + 1,
+        blocks_total=total,
+        iteration=12,
+        iterations_total=12,
+        remaining=12,
+        label="验收采集（最后一帧）",
+    )
+    page._live_view.apply_payload(payload)
+
+
+def _render_replay(app: QApplication) -> int:
+    """``--replay``: 只开归档回放弹窗, 用真实历史会话的 npz 离屏上屏。
+
+    不建页面、不做硬件桩: 弹窗本身只读 ``anchored/capture_*.npz``, 与相机 / SLM
+    驱动无 import 关系。抓两块 (第 1 块 + 中间一块), 后者证明切块确实换了画面。
+    """
+    from ao_shaping.gui.slm.transfer_desktop.archive_replay import (
+        ArchiveReplayDialog,
+    )
+
+    dialog = ArchiveReplayDialog(SESSION)
+    dialog.resize(*REPLAY_WINDOW)
+    dialog.show()
+    for _ in range(3):
+        app.processEvents()
+
+    count = dialog.capture_count()
+    if count == 0:
+        raise SystemExit(f"没有可回放的 capture: {SESSION / 'anchored'}")
+    targets = [(0, "gui_archive_replay.png")]
+    if count > 1:
+        targets.append((count // 2, "gui_archive_replay_middle.png"))
+
+    lines = []
+    for index, name in targets:
+        dialog.set_index(index)
+        for _ in range(2):
+            app.processEvents()
+        lines.append(_grab(dialog, name, folder=REPLAY_DIR))
+    print("\n".join(lines))
+    print(f"capture 共 {count} 块, 已截下标 {[index for index, _ in targets]}")
+    print(f"提示行: {dialog.message_text()!r}")
+    dialog.close()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """渲染 → (仿真注入 | 实验系统读取) → 抓图 → 自检; 返回进程退出码。"""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -342,6 +440,16 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="实验系统模式: 点页面的「读取零级」「设备自检」用真实 SLM + CCD (只读), 不注入伪造读数",
     )
+    parser.add_argument(
+        "--replay",
+        action="store_true",
+        help="归档回放模式: 只离屏渲染归档回放弹窗 (真实历史 npz, 不碰设备)",
+    )
+    parser.add_argument(
+        "--sim-live",
+        action="store_true",
+        help="额外抓一张 ⑥ 实时画面 (gui_live_closed_loop_sim.png, 用实验归档 raw 帧)",
+    )
     args = parser.parse_args(argv)
 
     _quiet_logs()
@@ -349,16 +457,23 @@ def main(argv: list[str] | None = None) -> int:
     SESSION_JSON = SESSION / "session.json"
     if not SESSION_JSON.exists():
         raise SystemExit(f"会话目录里没有 session.json: {SESSION_JSON}")
-    # 顺序: 仿真模式先说好「不许碰硬件」, 再伪造 torch 事实, 最后才让页面存在。
-    # 实验系统模式不装桩 —— 硬件调用留给页面自己的按钮路径。
-    if not args.live:
-        _forbid_hardware()
-    _pretend_torch_installed()
 
     app = QApplication.instance() or QApplication([])
     app.setApplicationName("AO-Shaping 截图")
     family = _apply_font(app)
     app.setStyle("Fusion")
+
+    if args.replay:
+        # 回放模式不建页面, 也不需要硬件桩 / torch 事实 —— 那些是页面路径的事。
+        REPLAY_DIR.mkdir(parents=True, exist_ok=True)
+        print(f"字体: {family}")
+        return _render_replay(app)
+
+    # 顺序: 仿真模式先说好「不许碰硬件」, 再伪造 torch 事实, 最后才让页面存在。
+    # 实验系统模式不装桩 —— 硬件调用留给页面自己的按钮路径。
+    if not args.live:
+        _forbid_hardware()
+    _pretend_torch_installed()
 
     shell = DesktopShellApp()
     shell.resize(*WINDOW)
@@ -389,6 +504,12 @@ def main(argv: list[str] | None = None) -> int:
         _grab(_form_host(page), "gui_form.png"),
         _grab(_progress_box(page), "gui_progress.png"),
     ]
+    if args.sim_live:
+        REPLAY_DIR.mkdir(parents=True, exist_ok=True)
+        _inject_live_frame(page)
+        for _ in range(3):
+            app.processEvents()
+        lines.append(_grab(_live_box(page), "gui_live_closed_loop_sim.png", folder=REPLAY_DIR))
 
     errors, warnings = page.current_problems()
     label_count, min_label_width = _chinese_labels(page)

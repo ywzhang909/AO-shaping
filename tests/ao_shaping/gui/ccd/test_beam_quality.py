@@ -300,8 +300,8 @@ def test_app_smoke_with_sim_source(qt_app) -> None:
 
 
 def test_apply_exposure_does_not_block_ui_thread(qt_app) -> None:
-    """应用曝光必须在后台线程执行 (真机 MiiCam 改曝光 ~10s),
-    同步调用会把整个窗口冻住 (2026-10-31 真机实测)。"""
+    """应用曝光必须在后台线程执行 (实验系统 MiiCam 改曝光 ~10s),
+    同步调用会把整个窗口冻住 (2026-10-31 实验系统实测)。"""
     import threading
 
     from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp
@@ -517,7 +517,7 @@ def test_auto_exposure_tick_noop_when_converged(qt_app) -> None:
 def test_auto_exposure_tick_ignores_frames_from_old_exposure(qt_app) -> None:
     """比上次改曝光更早拍到的帧不作反馈。
 
-    真机实测: 拿旧曝光下的画面当反馈, 闭环会一步步把曝光推到上限
+    实验系统实测: 拿旧曝光下的画面当反馈, 闭环会一步步把曝光推到上限
     (2026-11-01: 最大值≈90 时曝光被推到 10 s)。
     """
     from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp

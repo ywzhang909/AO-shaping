@@ -6,6 +6,8 @@
 
 ```
 ccd/
+├── _miicam_sdk/         # MiiCam 私有 SDK 封装
+│   └── miicam.py
 ├── base.py              # BaseCamera 抽象基类
 ├── common.py            # 通用工具
 ├── daheng/              # 大恒相机 (GigE)

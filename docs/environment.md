@@ -36,6 +36,16 @@ PYTHONPATH=src;libs
 PATH=libs\Drv_UDPST\x64\Release;libs\gxipy;${PATH}
 ```
 
+**`libs` 为什么还在 PYTHONPATH 上**: `libs/` 里是不进 pip 源的厂商 Python 包
+(大恒 `gxipy`、Santec SLM SDK 等), 只能由仓库把目录加进搜索路径。
+大恒 `gxipy` 现在可由 `python scripts/_common/link_vendor_sdks.py` 以目录符号链接
+装进 venv (指向 `libs/gxipy`), 装过之后 `import gxipy` **不再需要** PYTHONPATH。
+但符号链接不解决 **DLL 搜索**: `gxipy` 按名字加载原生库 (`gxwrapper.py` /
+`dxwrapper.py` 里的 `GxIAPI.dll` / `DxImageProc.dll`), 所以桌面界面
+`python -m ao_shaping.gui.ccd.beam_quality` 运行时 PATH 仍须含这些 DLL 所在目录
+(GalaxySDK 安装目录, 如 `...\GalaxySDK\APIDll\Win64`; 上面 PATH 里的
+`libs\Drv_UDPST\x64\Release` 提供的是 `Drv_UDPST.dll`)。
+
 ### VSCode Settings
 
 VSCode settings are configured in `.vscode/settings.json` (machine-local, **not tracked** since 2026-10-19 — create it yourself on a fresh clone if you use VS Code):
@@ -94,6 +104,7 @@ Python 之前设好, import 之后再 `os.environ[...]` 赋值不会生效。`te
 | `RMS_ZERNIKE_DEBUG` | `src/ao_shaping/optimizer/wf/rms_by_zernike.py` | `0` | 置 `1` 时打开 SLM Zernike RMS 优化器的逐轮调试输出 |
 | `RMS_ZERNIKE_WEIGHTS` | `src/ao_shaping/optimizer/wf/rms_by_zernike.py` | `(n+1)/n_max` | 逗号分隔的逐阶扰动权重; 解析失败会记 warning 并保留默认值 |
 | `NUMBA_CACHE_DIR` | `src/ao_shaping/__init__.py` 与 `src/ao_shaping/utils/numba_compat.py` (import 期) | 未设或非绝对路径 ⇒ `<tempdir>/ao_shaping_numba_cache` | numba JIT 缓存目录: 把 `@njit(cache=True)` 的 `.nbi`/`.nbc` 挪出 `src/`, 既守住「import 不落盘」契约也让只读挂载可用; 用户显式设**绝对路径**时不覆盖 |
+| `QT_QPA_PLATFORM` | `scripts/slm/capture_transfer_desktop_screens.py` (PySide6 import 前) | `offscreen` (setdefault) | 无显示环境 (CI / 无桌面会话) 下走离屏后端; Windows 离屏字体库为空, 需显式装字体 |
 
 平台自带变量 (`COMPUTERNAME`, `USERPROFILE`, `XDG_DATA_HOME`) 也被驱动用来定位配置落盘位置,
 但它们由操作系统提供而非本仓定义, 因此不列入上表, 并在该守卫里被显式豁免。

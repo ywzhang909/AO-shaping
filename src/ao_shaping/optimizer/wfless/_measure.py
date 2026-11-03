@@ -2,11 +2,38 @@
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
 
+from ao_shaping.drivers.ccd.base import BaseCamera
 from ao_shaping.utils.image.beam_metrics import locate_peak, prepare_frame
+
+
+class SLMHandle(Protocol):
+    """The SLM surface this module drives: ``Santec`` on the bench, ``SimSLMPib`` offline.
+
+    Only the methods the measurement helper actually calls are listed; anything
+    else (wavefront correction, shift, LUT) is the caller's concern.
+    """
+
+    def create_phase_from_array(self, phase_rad: np.ndarray) -> np.ndarray: ...
+
+    def display_data(
+        self, gray: np.ndarray, memory_number: int | None = None
+    ) -> None: ...
+
+    def get_displayed_memory_number(self) -> int | None: ...
+
+    def get_current_grayscale(self) -> np.ndarray: ...
+
+    def set_grayscale(self, gray: np.ndarray) -> None: ...
+
+    def close(self) -> None: ...
+
+    def __enter__(self) -> "SLMHandle": ...
+
+    def __exit__(self, *exc: Any) -> None: ...
 
 
 def locate_zero_order(frame: np.ndarray) -> tuple[int, int]:
@@ -20,8 +47,8 @@ def locate_zero_order(frame: np.ndarray) -> tuple[int, int]:
 
 
 def display_and_average(
-    cam: Any,
-    slm: Any,
+    cam: BaseCamera,
+    slm: SLMHandle,
     phase_rad: np.ndarray,
     *,
     n_frames: int,

@@ -127,7 +127,7 @@ class _FramePuller:
         ⚠️ SDK 的 ``PullImageV4`` 只接受 ``MiicamFrameInfoV4`` (其帧信息在
         ``v3`` 子结构里)。驱动内部一律持有 ``MiicamFrameInfoV3``, 直接传进去会
         在 SDK 绑定层 ``pInfo.v3`` 处抛 ``AttributeError`` —— 回调模式因此每帧
-        都失败 (真机 2026-10-31 实测)。这里按需构造 V4 再把 ``v3`` 字段拷回。
+        都失败 (实验系统 2026-10-31 实测)。这里按需构造 V4 再把 ``v3`` 字段拷回。
         """
         if frame_info is None:
             self._owner.cam.PullImageV4(buffer, 0, bits, 0, None)
@@ -529,8 +529,8 @@ class MIICamera(BaseCamera):
         ``reset_exposure_time`` 走通用契约, 重启拉流时回调置空
         (``StartPullModeWithCallback(None, None)``); 调用方若要保住用户回调,
         只能先 ``stop_callback_mode`` 再 ``start_callback_mode`` 重挂 ——
-        一次改曝光付出 3×Stop + 2×Start (真机 ~20-25s, UI 全程冻结)。
-        本方法在回调模式激活时只做一次 Stop/Start (真机 ~10s),
+        一次改曝光付出 3×Stop + 2×Start (实验系统 ~20-25s, UI 全程冻结)。
+        本方法在回调模式激活时只做一次 Stop/Start (实验系统 ~10s),
         ``_callback_user`` 与缓冲区保持不动, 流恢复后帧回调继续送达。
 
         非回调模式直接委托 :meth:`reset_exposure_time`。

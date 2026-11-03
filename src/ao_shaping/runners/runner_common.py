@@ -106,10 +106,6 @@ from ao_shaping.utils.image.target import (
     TARGET_SHAPE_CHOICES,
 )
 from ao_shaping.utils.io.cli_helpers import get_date_dir_name, parse_tuple
-from ao_shaping.utils.slm.bench_constants import (
-    TILT_SHIFT_SCALE as _TILT_SHIFT_SCALE_PX,
-)
-from ao_shaping.utils.wavefront.matrix_utils import focal_length_from_camera_pixel
 
 if TYPE_CHECKING:
     from ao_shaping.optimizer.wfless.slm_gs_refine import SlmGsRefineConfig
@@ -131,11 +127,15 @@ DEFAULT_ZERNIKE_RADIUS = min(PANEL_RES) / 2.0
 #     focal_scale = lambda * f / (d_slm * p_cam)
 #
 # so recovering either one needs one quantity from outside the alignment
-# measurement. We anchor on the CCD pixel pitch, because that is a per-camera
-# datasheet constant we have confirmed out of band (2.2 um for the Daheng
-# MER2-507-23GM, recorded in drivers/AGENTS.md), whereas the lens focal length
-# is a bench ASSEMBLY choice that silently changes whenever somebody swaps
-# optics -- which is exactly the kind of value that must not be baked in.
+# measurement: the CCD pixel pitch. That pitch is now a **driver-layer,
+# model-level property** (``ao_shaping.drivers.ccd.pixel_size``), not a number
+# this module owns -- a hardcoded value here would be the second source of a
+# device constant and would silently stay 2.2 um for a different camera.
+#
+# What remains here is the **resolution entry point** (``_resolve_camera_pixel_um``):
+# ``--camera-pixel-um 0`` (the default) means "read it from the camera model"
+# and any positive value is an explicit override. The lens focal length is still
+# derived from that anchor plus the measured scale, never baked in.
 #
 # Consequence worth knowing: the GS *target side* consumes f/p_cam only
 # (slm_gs_refine._derive_target_side), so it is pinned by the measured scale and
@@ -145,16 +145,9 @@ DEFAULT_ZERNIKE_RADIUS = min(PANEL_RES) / 2.0
 # Values this replaced, and why:
 #   * camera_pixel_um = 3.31 um implied a focal scale of 5023 -- 33% below the
 #     measured 7400 -- biasing the GS target angular size by the same factor.
-#   * focal_length_m = 0.125 m is now DERIVED (see _DEFAULT_FOCAL_LENGTH_M).
-# ``_TILT_SHIFT_SCALE_PX`` is imported from ``ao_shaping.utils.slm.bench_constants``
-# (single source of truth); do not re-declare it here.
-_DEFAULT_CAMERA_PIXEL_UM = 2.2
-_DEFAULT_FOCAL_LENGTH_M = focal_length_from_camera_pixel(
-    wavelength_nm=1064.0,
-    camera_pixel_um=_DEFAULT_CAMERA_PIXEL_UM,
-    slm_pixel_um=8.0,
-    focal_scale_px=_TILT_SHIFT_SCALE_PX,
-)
+# ``TILT_SHIFT_SCALE`` (the measured focal scale) lives in
+# ``ao_shaping.utils.slm.bench_constants`` (single source of truth); do not
+# re-declare it here.
 
 # `dm-matrix` deliberately offers one DM type fewer than every other command, so its
 # `--dm-type` help stays byte-identical to its pre-asyn_micro text (see
@@ -2369,11 +2362,27 @@ class SlmGsRefineParams:
     """SLM GS warm-start + sensorless freeform refinement (slm-gs-refine)."""
 
     # --- objective ---------------------------------------------------------
+    target_side_mm: Annotated[
+        float,
+        option(
+            "--target-side-mm",
+            help=(
+                "Target characteristic size in MILLIMETRES on the camera sensor; "
+                "converted to camera pixels with the model's pixel pitch and "
+                "rounded (1 mm = 1000/pitch_um px). The operator unit: the target "
+                "keeps its physical size when the camera changes. 0 = auto."
+            ),
+        ),
+    ] = 0.0
     target_side: Annotated[
         int,
         option(
             "--target-side",
-            help="Target square side in camera pixels (0 = derive from pupil image).",
+            help=(
+                "Target characteristic size in camera pixels (0 = derive from the "
+                "pupil image). Mutually exclusive with --target-side-mm; use it "
+                "when an exact pixel count is the point (replays, tests)."
+            ),
         ),
     ] = 0
     side_factor: Annotated[
@@ -2567,14 +2576,15 @@ class SlmGsRefineParams:
         option(
             "--camera-pixel-um",
             help=(
-                "CCD pixel pitch in um -- the measurement ANCHOR for the bench "
-                "model, because it is a per-camera datasheet constant (2.2um "
-                "for the Daheng MER2-507-23GM). The measured focal scale only "
-                "fixes the ratio f/p_cam, so one anchor is unavoidable; pass it "
-                "explicitly for any other camera."
+                "CCD pixel pitch in um. 0 (the default) reads it from the "
+                "camera MODEL configuration (Daheng: data/ccd_configs/ccd/"
+                "models.json; MiiCam: fixed 2.9um; sim: twin optics). An "
+                "unregistered model fails with the registration command "
+                "instead of guessing a pitch -- it sets every far-field "
+                "physical scale. A positive value overrides the model."
             ),
         ),
-    ] = _DEFAULT_CAMERA_PIXEL_UM
+    ] = 0.0
     beam_radius_px: Annotated[
         float,
         option(
@@ -2662,8 +2672,18 @@ class SlmGsRefineParams:
 
     # --- control -----------------------------------------------------------
     epochs: Annotated[
-        int, option("-e", "--epochs", help="SPGD refinement iterations.")
-    ] = 400
+        int,
+        option(
+            "-e",
+            "--epochs",
+            help=(
+                "SPGD refinement iterations. 0 (default) = GS only: the GS phase "
+                "is computed and sent, and NO camera is opened. >0 opens the "
+                "camera after the GS phase has been sent, measures the flat "
+                "baseline and refines."
+            ),
+        ),
+    ] = 0
     early_stop_score: Annotated[
         float,
         option("--early-stop-score", help="Stop once the composite reaches this."),
@@ -2966,11 +2986,13 @@ class SlmModelInLoopParams:
         option(
             "--camera-pixel-um",
             help=(
-                "CCD pixel pitch in um -- the bench model's measurement ANCHOR, "
-                "because the measured focal scale only fixes the ratio f/p_cam."
+                "CCD pixel pitch in um. 0 (the default) reads it from the "
+                "camera MODEL configuration (the measured focal scale only "
+                "fixes the ratio f/p_cam, so one anchor is unavoidable and it "
+                "is the device's own pitch); a positive value overrides it."
             ),
         ),
-    ] = _DEFAULT_CAMERA_PIXEL_UM
+    ] = 0.0
     panel_span_px: Annotated[
         float,
         option(
@@ -3412,6 +3434,73 @@ def _reject_irrelevant_shape_knobs(params: SlmGsRefineParams) -> None:
     )
 
 
+def _camera_pixel_um_source(cam_type: str, cam_id: int, value: float) -> str:
+    """Describe where ``value`` came from — **for the log only, it resolves nothing**.
+
+    Kept separate from :func:`_resolve_camera_pixel_um` so the resolution order
+    stays the driver's (``drivers.ccd.pixel_size``) and this function only names
+    the outcome. It re-enumerates the Daheng device list to print the model
+    name; that is a device *enumeration* (no camera is opened), and only the
+    ``daheng`` branch pays for it.
+    """
+    name = str(cam_type or "").strip().lower()
+    if name == "sim":
+        return "derived: sim twin"
+    if name == "miicam":
+        return f"derived: miicam {value:g}um"
+    if name == "daheng":
+        from ao_shaping.drivers.ccd.pixel_size import probe_daheng_models
+
+        models = probe_daheng_models()
+        model = models[int(cam_id)] if 0 <= int(cam_id) < len(models) else "?"
+        return f"derived: models.json {model}"
+    return f"derived: {name or 'unknown backend'}"
+
+
+def _resolve_camera_pixel_um(params: Any) -> tuple[float, str]:
+    """Resolve ``--camera-pixel-um`` into ``(value, provenance)``.
+
+    The **only** params -> pixel-size resolution for both shaping commands (the
+    GS-refine and model-in-loop builders call this one function). ``0`` means
+    "the camera model knows it": the driver layer maps the backend to a real
+    pitch (Daheng: enumerate the model, then ``models.json``; MiiCam: fixed
+    2.9 um; sim: the twin optics). A positive value is the operator's override
+    and is passed through untouched.
+
+    Resolution here is **non-strict**: this runs while the config is being built,
+    so a bench-less machine must not fail on it. When nothing can be resolved the
+    provenance is ``"unresolved"`` and the optimiser refuses the 0 at session
+    start (``require_camera_pixel_um``), where the camera is open and the error
+    can name the registration command.
+
+    Args:
+        params: A params dataclass carrying ``camera_pixel_um``, ``cam_type``
+            and ``cam_id``.
+
+    Returns:
+        ``(pitch_um, source)`` where ``source`` is ``"input"`` for an override,
+        a ``"derived: ..."`` phrase naming the backend (and model) for a read, or
+        ``"unresolved"`` when the model configuration cannot answer yet.
+    """
+    value = float(params.camera_pixel_um)
+    if value > 0:
+        return value, "input"
+
+    from ao_shaping.drivers.ccd.pixel_size import camera_pixel_size_um_for
+
+    # Non-strict: this runs while the config is being *built* (and the banner is
+    # about to be printed), which on a bench-less machine must not raise. The
+    # unresolved state is carried into the config, and the session refuses it --
+    # naming the registration command -- once the camera is open (or from the
+    # model configuration if that already knows the answer).
+    resolved = camera_pixel_size_um_for(
+        params.cam_type, int(params.cam_id), strict=False
+    )
+    if resolved <= 0.0:
+        return 0.0, "unresolved"
+    return resolved, _camera_pixel_um_source(params.cam_type, params.cam_id, resolved)
+
+
 def build_gs_refine_config(
     params: SlmGsRefineParams,
     *,
@@ -3431,12 +3520,14 @@ def build_gs_refine_config(
     from ao_shaping.optimizer.wfless.slm_gs_refine import SlmGsRefineConfig
 
     _reject_irrelevant_shape_knobs(params)
+    camera_pixel_um, camera_pixel_um_source = _resolve_camera_pixel_um(params)
 
     return SlmGsRefineConfig(
         epochs=params.epochs,
         seed=params.seed,
         early_stop_score=params.early_stop_score,
         target_side=params.target_side,
+        target_side_mm=params.target_side_mm,
         side_factor=params.side_factor,
         target_shape=params.target_shape,
         target_aspect_ratio=params.target_aspect_ratio,
@@ -3464,7 +3555,8 @@ def build_gs_refine_config(
         gs_beta=params.gs_beta,
         gs_hio_fraction=params.gs_hio_fraction,
         panel_pixel_um=params.panel_pixel_um,
-        camera_pixel_um=params.camera_pixel_um,
+        camera_pixel_um=camera_pixel_um,
+        camera_pixel_um_source=camera_pixel_um_source,
         beam_radius_px=params.beam_radius_px,
         pupil_center=parse_point(params.pupil_center) if params.pupil_center else None,
         confirm_best=params.confirm_best,
@@ -3606,6 +3698,8 @@ def build_model_in_loop_config(
     """
     from ao_shaping.optimizer.wfless.slm_model_in_loop import SlmModelInLoopConfig
 
+    camera_pixel_um, camera_pixel_um_source = _resolve_camera_pixel_um(params)
+
     return SlmModelInLoopConfig(
         show=params.show,
         n_rounds=params.n_rounds,
@@ -3634,7 +3728,8 @@ def build_model_in_loop_config(
         region=params.region,
         wavelength_nm=params.wavelength_nm,
         slm_pixel_um=params.slm_pixel_um,
-        camera_pixel_um=params.camera_pixel_um,
+        camera_pixel_um=camera_pixel_um,
+        camera_pixel_um_source=camera_pixel_um_source,
         panel_span_px=params.panel_span_px,
         pupil_center=parse_point(params.pupil_center),
         far_field_padding=params.far_field_padding,

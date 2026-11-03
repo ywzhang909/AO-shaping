@@ -1,0 +1,263 @@
+{
+  "refine_dir": "data\\debug\\sim2f_fov_hw_refine_ring_20261103_091657",
+  "capture_dir": "data\\debug\\sim2f_fov_hw_20261103",
+  "window": {
+    "center_xy": [
+      972,
+      942
+    ],
+    "native_offset_xy": [
+      168,
+      0
+    ],
+    "full_px": 1944
+  },
+  "objective": {
+    "w_ee": 0.25,
+    "metric": "l1",
+    "prepare": true
+  },
+  "refine": {
+    "rounds": {
+      "reference": {
+        "raw_vs_effective_max_abs_rad": 8.24966812133789,
+        "raw_vs_effective_mean_abs_rad": 3.396726131439209,
+        "effective_abs_gt_pi_fraction": 0.49951171875,
+        "alignment_raw_model": {
+          "shift_xy": [
+            -3,
+            32
+          ],
+          "ncc_at_zero": 0.0315531992032807,
+          "ncc_at_best": 0.6802495575769043
+        },
+        "measured": {
+          "objective": 2.0653014183044434,
+          "ee": 0.08208821713924408,
+          "ncc": -0.09635937958955765
+        },
+        "model_raw_zero_shift": {
+          "objective": 2.2198259830474854,
+          "ee": 0.013410797342658043,
+          "ncc": -0.046382516622543335
+        },
+        "model_effective_aligned": {
+          "objective": 2.0429391860961914,
+          "ee": 0.09202703833580017,
+          "ncc": -0.05740544945001602
+        },
+        "model_effective_zero_shift": {
+          "objective": 2.064971923828125,
+          "ee": 0.08223472535610199,
+          "ncc": -0.06115049868822098
+        }
+      },
+      "round_0001": {
+        "raw_vs_effective_max_abs_rad": 8.303749084472656,
+        "raw_vs_effective_mean_abs_rad": 3.4037351608276367,
+        "effective_abs_gt_pi_fraction": 0.501953125,
+        "alignment_raw_model": {
+          "shift_xy": [
+            -3,
+            33
+          ],
+          "ncc_at_zero": 0.017020349742414512,
+          "ncc_at_best": 0.6356425368429641
+        },
+        "measured": {
+          "objective": 2.0647921562194824,
+          "ee": 0.08231469988822937,
+          "ncc": -0.09863286465406418
+        },
+        "model_raw_zero_shift": {
+          "objective": 1.2630252838134766,
+          "ee": 0.46141234040260315,
+          "ncc": 0.06190808117389679
+        },
+        "model_effective_aligned": {
+          "objective": 1.9645452499389648,
+          "ee": 0.12772659957408905,
+          "ncc": -0.05996670573949814
+        },
+        "model_effective_zero_shift": {
+          "objective": 1.905827283859253,
+          "ee": 0.15533722937107086,
+          "ncc": -0.048496637493371964
+        }
+      },
+      "round_0002": {
+        "raw_vs_effective_max_abs_rad": 8.303749084472656,
+        "raw_vs_effective_mean_abs_rad": 3.4037351608276367,
+        "effective_abs_gt_pi_fraction": 0.501953125,
+        "alignment_raw_model": {
+          "shift_xy": [
+            -3,
+            32
+          ],
+          "ncc_at_zero": 0.018300043006632644,
+          "ncc_at_best": 0.6329255480271468
+        },
+        "measured": {
+          "objective": 2.0655438899993896,
+          "ee": 0.08198045194149017,
+          "ncc": -0.09904364496469498
+        },
+        "model_raw_zero_shift": {
+          "objective": 1.2630252838134766,
+          "ee": 0.46141234040260315,
+          "ncc": 0.06190808117389679
+        },
+        "model_effective_aligned": {
+          "objective": 1.9669792652130127,
+          "ee": 0.12663930654525757,
+          "ncc": -0.06041242182254791
+        },
+        "model_effective_zero_shift": {
+          "objective": 1.905827283859253,
+          "ee": 0.15533722937107086,
+          "ncc": -0.048496637493371964
+        }
+      },
+      "round_0003": {
+        "raw_vs_effective_max_abs_rad": 8.303749084472656,
+        "raw_vs_effective_mean_abs_rad": 3.4037351608276367,
+        "effective_abs_gt_pi_fraction": 0.501953125,
+        "alignment_raw_model": {
+          "shift_xy": [
+            -3,
+            32
+          ],
+          "ncc_at_zero": 0.01962301109943556,
+          "ncc_at_best": 0.6349647854263627
+        },
+        "measured": {
+          "objective": 2.0663950443267822,
+          "ee": 0.08160225301980972,
+          "ncc": -0.09954726696014404
+        },
+        "model_raw_zero_shift": {
+          "objective": 1.2630252838134766,
+          "ee": 0.46141234040260315,
+          "ncc": 0.06190808117389679
+        },
+        "model_effective_aligned": {
+          "objective": 1.9669792652130127,
+          "ee": 0.12663930654525757,
+          "ncc": -0.06041242182254791
+        },
+        "model_effective_zero_shift": {
+          "objective": 1.905827283859253,
+          "ee": 0.15533722937107086,
+          "ncc": -0.048496637493371964
+        }
+      },
+      "round_0004": {
+        "raw_vs_effective_max_abs_rad": 8.303749084472656,
+        "raw_vs_effective_mean_abs_rad": 3.4037351608276367,
+        "effective_abs_gt_pi_fraction": 0.501953125,
+        "alignment_raw_model": {
+          "shift_xy": [
+            -2,
+            32
+          ],
+          "ncc_at_zero": 0.01671393454064563,
+          "ncc_at_best": 0.6398691694359268
+        },
+        "measured": {
+          "objective": 2.0686540603637695,
+          "ee": 0.08059833943843842,
+          "ncc": -0.09877631813287735
+        },
+        "model_raw_zero_shift": {
+          "objective": 1.2630252838134766,
+          "ee": 0.46141234040260315,
+          "ncc": 0.06190808117389679
+        },
+        "model_effective_aligned": {
+          "objective": 1.9643386602401733,
+          "ee": 0.12783467769622803,
+          "ncc": -0.05993662774562836
+        },
+        "model_effective_zero_shift": {
+          "objective": 1.905827283859253,
+          "ee": 0.15533722937107086,
+          "ncc": -0.048496637493371964
+        }
+      }
+    },
+    "gains_vs_reference": {
+      "round_0001": {
+        "measured": 0.0005092620849609375,
+        "model_raw_zero_shift": 0.9568006992340088,
+        "model_effective_aligned": 0.07839393615722656,
+        "model_effective_zero_shift": 0.15914463996887207
+      },
+      "round_0002": {
+        "measured": -0.00024247169494628906,
+        "model_raw_zero_shift": 0.9568006992340088,
+        "model_effective_aligned": 0.07595992088317871,
+        "model_effective_zero_shift": 0.15914463996887207
+      },
+      "round_0003": {
+        "measured": -0.0010936260223388672,
+        "model_raw_zero_shift": 0.9568006992340088,
+        "model_effective_aligned": 0.07595992088317871,
+        "model_effective_zero_shift": 0.15914463996887207
+      },
+      "round_0004": {
+        "measured": -0.003352642059326172,
+        "model_raw_zero_shift": 0.9568006992340088,
+        "model_effective_aligned": 0.07860052585601807,
+        "model_effective_zero_shift": 0.15914463996887207
+      }
+    }
+  },
+  "capture": {
+    "stats": {
+      "flat_0000": {
+        "sum": 1437246.036084056,
+        "max": 134.0,
+        "p99_9": 1.0
+      },
+      "calib_screen_000": {
+        "sum": 1439581.3695276082,
+        "max": 112.0,
+        "p99_9": 1.0
+      },
+      "shape_ring_nominal_r0": {
+        "sum": 1511501.704381168,
+        "max": 18.0,
+        "p99_9": 1.0
+      },
+      "shape_cross_nominal_r0": {
+        "sum": 1516702.3703956008,
+        "max": 13.666666984558105,
+        "p99_9": 1.0
+      },
+      "shape_frame_nominal_r0": {
+        "sum": 1516409.7044384778,
+        "max": 18.0,
+        "p99_9": 1.0
+      },
+      "shape_two_spot_nominal_r0": {
+        "sum": 1484399.7033900917,
+        "max": 17.0,
+        "p99_9": 1.0
+      }
+    },
+    "ncc_vs_flat": {
+      "shape_ring_nominal_r0": 0.3115745324045056,
+      "shape_cross_nominal_r0": 0.26611489285471884,
+      "shape_frame_nominal_r0": 0.3180026517744982,
+      "shape_two_spot_nominal_r0": 0.3043168404584
+    },
+    "pairwise_ncc_shaped": {
+      "shape_ring_nominal_r0|shape_cross_nominal_r0": 0.25131061717437464,
+      "shape_ring_nominal_r0|shape_frame_nominal_r0": 0.2697427852380223,
+      "shape_ring_nominal_r0|shape_two_spot_nominal_r0": 0.25053799560171386,
+      "shape_cross_nominal_r0|shape_frame_nominal_r0": 0.252594046671328,
+      "shape_cross_nominal_r0|shape_two_spot_nominal_r0": 0.2539396427023473,
+      "shape_frame_nominal_r0|shape_two_spot_nominal_r0": 0.24748877508708966
+    }
+  }
+}

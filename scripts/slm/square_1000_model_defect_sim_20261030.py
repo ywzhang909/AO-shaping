@@ -46,6 +46,24 @@ Modes
                  radians) from zeros on the eight seeds -- two illuminations x two
                  held-out folds, near-duplicate seed phases never split -- and
                  then re-scores all three gates on the refit model.
+``n4-decompose``  what mechanism the bench's Noll-4 (defocus) response is.  The
+                 drift-corrected +-probe half-differences are projected onto a
+                 basis of mechanisms built from the anchor field -- global
+                 dimming, x/y shift, magnification, Laplacian blur -- and the
+                 identical decomposition is run on the model's own responses.
+                 Tilt is the control: it has to come out shift-dominated or the
+                 basis is not reading what it claims to read.  Separates a
+                 magnitude mismatch from a mechanism mismatch.
+``stage-probe``   where in the frozen chain a defocus stops being visible.  Pushes
+                 synthetic probes through the chain and reads the response at
+                 five taps (pupil phase, pupil amplitude, focal intensity,
+                 camera-sampled intensity, prediction).  Two ladders: pupil-edge
+                 hardness (Gaussian -> hard ellipse -> uniform panel), because a
+                 Fraunhofer far field answers a pupil curvature only through the
+                 pupil boundary; and far-field structure (extra speckle on the
+                 base phase), because a pupil curvature Fresnel-propagates the
+                 far field, so what it does to the intensity scales with how
+                 structured that far field already is.
 ``all``          seed-sweep + jacobian + aberration-fit + variants in one run.
 
 Collect-only.  No device access, no writes outside ``--out``.
@@ -1019,6 +1037,416 @@ def aberration_fit(plan, masks: dict, out_dir: Path) -> dict:
     return payload
 
 
+# --------------------------------------------------------------- N4 decomposition
+#: Mechanisms a far-field response can be made of, as differential operators on the
+#: anchor field.  ``dim`` is the whole field scaled -- a gain or an aperture
+#: coupling downstream; ``shift_*`` a translation; ``magnify`` a change of scale;
+#: ``blur`` the five-point Laplacian, the signature of a defocus softening a
+#: structured far field under Fraunhofer propagation.
+MECHANISM_BASIS = ("dim", "shift_x", "shift_y", "magnify", "blur")
+
+
+def mechanism_basis(field: np.ndarray) -> dict[str, np.ndarray]:
+    """Differential-operator basis built from one field (the drift-free anchor)."""
+    anchor = np.asarray(field, dtype=np.float64)
+    grad_y, grad_x = np.gradient(anchor)
+    height, width = anchor.shape
+    rows, cols = np.mgrid[0:height, 0:width].astype(np.float64)
+    cy, cx = 0.5 * (height - 1), 0.5 * (width - 1)
+    laplacian = (-4.0 * anchor + np.roll(anchor, 1, 0) + np.roll(anchor, -1, 0)
+                 + np.roll(anchor, 1, 1) + np.roll(anchor, -1, 1))
+    return {"dim": anchor, "shift_x": grad_x, "shift_y": grad_y,
+            "magnify": (cols - cx) * grad_x + (rows - cy) * grad_y, "blur": laplacian}
+
+
+def mechanism_fit(delta: np.ndarray, basis: dict[str, np.ndarray],
+                  mask: np.ndarray | None = None) -> dict:
+    """Project one response field onto the mechanism basis.
+
+    ``cosines`` is each direction's own share of the response; ``r2_joint`` is the
+    fraction of it the whole basis spans, i.e. the part *some* combination of these
+    mechanisms can produce.  What is left over is a restructuring no smooth
+    mechanism explains -- a repatterning of the field rather than a distortion of it.
+    """
+    response = np.asarray(delta, dtype=np.float64)
+    target = (response if mask is None else response[mask]).astype(np.float64).ravel()
+    target = target - target.mean()
+    norm_target = float(np.linalg.norm(target))
+    cosines: dict[str, float] = {}
+    columns: list[np.ndarray] = []
+    for name in MECHANISM_BASIS:
+        raw = basis[name] if mask is None else basis[name][mask]
+        centred = np.asarray(raw, dtype=np.float64).ravel()
+        vector = centred - centred.mean()
+        norm = float(np.linalg.norm(vector))
+        cosines[name] = (float(target @ vector) / (norm_target * norm)
+                         if norm_target and norm else float("nan"))
+        columns.append(vector / norm if norm else vector)
+    stacked = np.stack(columns, axis=1)
+    coefficients, *_ = np.linalg.lstsq(stacked, target, rcond=None)
+    residual = target - stacked @ coefficients
+    total = float(target @ target)
+    return {
+        "cosines": cosines,
+        "r2_joint": float(1.0 - float(residual @ residual) / total) if total else float("nan"),
+        "unexplained_fraction": (float(np.linalg.norm(residual) / norm_target)
+                                 if norm_target else 1.0),
+        "delta_rms": float(np.sqrt(np.mean(target ** 2))),
+    }
+
+
+def warp_fit(field: np.ndarray, delta: np.ndarray,
+             mask: np.ndarray | None = None) -> dict:
+    """Fit the bench response as a geometric warp of the field itself.
+
+    Searches the three parameters a relay that is not exactly 2f would couple a
+    pupil curvature into -- a magnification about the field centre and a shift --
+    and reports the part of the response that warp cannot produce.  A defocus that
+    scales and translates the existing far field is a geometry effect; one that
+    invents a new pattern is not, and no choice of warp will ever fit it.
+    """
+    from scipy.ndimage import affine_transform
+    from scipy.optimize import minimize
+
+    anchor = np.asarray(field, dtype=np.float64)
+    response = np.asarray(delta, dtype=np.float64)
+    height, width = anchor.shape
+    centre = np.array([0.5 * (height - 1), 0.5 * (width - 1)])
+
+    def warped_change(params: np.ndarray) -> np.ndarray:
+        scale, shift_y, shift_x = params
+        matrix = np.array([1.0 / scale, 1.0 / scale])
+        offset = centre * (1.0 - 1.0 / scale) + np.array([shift_y, shift_x])
+        moved = affine_transform(anchor, matrix, offset=offset, order=1, mode="nearest")
+        return moved - anchor
+
+    def cost(params: np.ndarray) -> float:
+        residual = response - warped_change(params)
+        if mask is not None:
+            residual = residual[mask]
+        return float(np.sum(residual**2))
+
+    norm = float(np.linalg.norm(response if mask is None else response[mask]))
+    best = minimize(cost, np.array([1.0, 0.0, 0.0]), method="Nelder-Mead",
+                    options={"xatol": 1e-7, "fatol": 1e-12, "maxiter": 2000})
+    residual = response - warped_change(best.x)
+    if mask is not None:
+        residual = residual[mask]
+    return {"scale": float(best.x[0]), "shift_y_px": float(best.x[1]),
+            "shift_x_px": float(best.x[2]),
+            "explained_fraction": float(1.0 - np.linalg.norm(residual) / norm) if norm else float("nan"),
+            "residual_fraction": float(np.linalg.norm(residual) / norm) if norm else 1.0}
+
+
+def energy_fraction(delta: np.ndarray, masks: dict) -> dict[str, float]:
+    """Where the squared response sits: box interior, box edge, or outside the box."""
+    array = np.asarray(delta, dtype=np.float64)
+    total = float(np.sum(array ** 2))
+    return {name: float(np.sum(array[mask] ** 2) / total) if total else float("nan")
+            for name, mask in (("inner", masks["inner"]), ("edge", masks["edge"]),
+                               ("box", masks["box"]), ("background", masks["background"]))}
+
+
+def n4_decompose(forward, masks: dict, out_dir: Path, diag_dir: Path = DIAG) -> dict:
+    """Which mechanism is the bench's Noll-4 response, and which can the model express?
+
+    Gate (b) fails on N4 with a cosine near zero, while the bench's own N4 response
+    is 282 counts/ms -- two thirds of its tilt response -- so the model is not
+    merely weak on this axis, it answers a different question.  Projecting both
+    sides onto mechanisms built from the anchor field separates the two readings:
+    a response the basis cannot span is a repatterning, while one it does span
+    names the coupling the model is missing.  Tilts are the control, and the
+    jacobian gate is re-run first so the model side stays anchored.
+    """
+    jacobian_gate(forward, masks, out_dir)
+
+    rates = diagnostic_v7_rates(diag_dir)
+    drift = drift_reference(rates)
+    measured = jacobian_measured_deltas(rates, drift)
+    # The drift-corrected residual at an anchor index is zero by construction --
+    # the drift model interpolates *between* anchor rate maps -- so the anchor
+    # field is the mean **raw** anchor rate map: same phase, drift apart.
+    anchor = np.mean([rates[index] for index in DRIFT_ANCHORS], axis=0)
+    basis = mechanism_basis(anchor)
+
+    probe_phases = load_probe_phases(forward, diag_dir)
+    predicted = {"frozen": jacobian_predicted_deltas(forward, probe_phases)}
+    saved = with_amplitude(forward, amplitude_variants(forward)["uniform_panel"])
+    predicted["uniform_panel"] = jacobian_predicted_deltas(forward, probe_phases)
+    forward.amplitude = saved
+
+    def describe(block: dict[str, np.ndarray]) -> dict:
+        return {axis: {
+                    "delta_norm": float(np.linalg.norm(value)),
+                    "energy": energy_fraction(value, masks),
+                    "full": mechanism_fit(value, basis),
+                    "box": mechanism_fit(value, basis, masks["box"]),
+                } for axis, value in block.items()}
+
+    payload = {
+        "checkpoint": str(CHECKPOINT),
+        "diagnostic_session": str(diag_dir),
+        "anchor_field": {"shape": list(anchor.shape), "box_mean": float(anchor[masks["box"]].mean()),
+                         "box_cv": float(anchor[masks["box"]].std() / anchor[masks["box"]].mean())},
+        "mechanism_basis": list(MECHANISM_BASIS),
+        "note": ("measured responses are drift-corrected rate-map half-differences in "
+                 "counts/ms; predicted responses are the model's own half-differences "
+                 "from the executed probe phases, so only their pattern is comparable, "
+                 "not their scale"),
+        "measured": describe(measured),
+        "predicted": {name: describe(block) for name, block in predicted.items()},
+    }
+    (out_dir / "n4_decompose.json").write_text(json.dumps(payload, indent=1))
+
+    print("\n== response mechanism: cosine with each mechanism (full grid) ==")
+    print(f"{'side':>16} {'axis':>4}" + "".join(f"{name:>10}" for name in MECHANISM_BASIS)
+          + f"{'r2_joint':>10}{'unexpl':>9}{'in_box':>8}")
+    for axis in DIAG_PROBE_GROUPS:
+        row = payload["measured"][axis]["full"]
+        print(f"{'measured':>16} {axis:>4}"
+              + "".join(f"{row['cosines'][name]:+10.4f}" for name in MECHANISM_BASIS)
+              + f"{row['r2_joint']:10.3f}{row['unexplained_fraction']:9.3f}"
+              + f"{payload['measured'][axis]['energy']['box']:8.3f}")
+    for name, block in payload["predicted"].items():
+        for axis in DIAG_PROBE_GROUPS:
+            row = block[axis]["full"]
+            print(f"{name:>16} {axis:>4}"
+                  + "".join(f"{row['cosines'][mechanism]:+10.4f}" for mechanism in MECHANISM_BASIS)
+                  + f"{row['r2_joint']:10.3f}{row['unexplained_fraction']:9.3f}"
+                  + f"{block[axis]['energy']['box']:8.3f}")
+    print(f"artifact -> {out_dir / 'n4_decompose.json'}")
+    return payload
+
+
+# --------------------------------------------------------------------- stage taps
+#: Synthetic quadratic probe peak-to-valley, radians over the inscribed pupil circle.
+STAGE_PV_SWEEP = (1.0, 5.0, 20.0, 50.0)
+#: Extra speckle on the base phase, as a multiple of a unit-std random field.
+STAGE_SPECKLE_SWEEP = (0.0, 0.1, 0.25, 0.5, 1.0)
+#: Pupil-edge hardness ladder: smooth apodisation -> hard edge -> full panel.
+STAGE_AMPLITUDES = ("gaussian_frozen", "hard_ellipse_x1.25", "uniform_panel")
+STAGE_RANDOM_SEED = 20261031
+
+
+def pupil_coords(forward) -> tuple[np.ndarray, np.ndarray]:
+    """Pupil coordinates normalised to the circle inscribed in the 1920 px panel.
+
+    Mirrors ``FrozenDefocusForward._mode_basis``: control-grid index ``i`` maps to
+    panel pixel ``i * (PANEL_PITCH_PX / grid_size) + 7``, and the Zernike pupil is
+    the circle inscribed in the 1920 px panel, centred on panel pixel 959.5.
+    """
+    from ao_shaping.algorithm.signal_processing.defocus_forward_core import PANEL_PITCH_PX
+
+    size = int(forward.params.grid_size)
+    axis = np.arange(size, dtype=np.float64) * (PANEL_PITCH_PX / size) + 7.0
+    centre = 0.5 * (PANEL_PITCH_PX - 1.0)
+    radius = 0.5 * PANEL_PITCH_PX
+    cols, rows = np.meshgrid(axis, axis, indexing="ij")
+    return (cols - centre) / radius, (rows - centre) / radius
+
+
+def camera_footprint(forward) -> tuple[slice, slice]:
+    """Bounding box, in focal-grid pixels, of the region the camera samples.
+
+    Inverts the sampling transform used by ``camera_sample_grids``: grid_sample
+    normalised coordinate ``g`` is focal index ``(g + 1) / 2 * (fft_size - 1)``.
+    """
+    import torch
+
+    from ao_shaping.algorithm.signal_processing.defocus_forward_core import (
+        camera_sample_grids,
+    )
+
+    params = forward.params
+    size = int(params.fft_size)
+    with torch.no_grad():
+        grids = camera_sample_grids(torch, forward._xy_t, forward.origin,
+                                    forward.inverse / forward.axial_scale,
+                                    forward._grid_offsets, fft_size=size,
+                                    pitch=forward.pitch)
+    grid = np.asarray(grids[0].detach().cpu().numpy(), dtype=np.float64)
+    indices = (grid + 1.0) * 0.5 * (size - 1)
+    row0 = int(np.clip(np.floor(indices[..., 1].min()), 0, size - 1))
+    row1 = int(np.clip(np.ceil(indices[..., 1].max()), 0, size - 1))
+    col0 = int(np.clip(np.floor(indices[..., 0].min()), 0, size - 1))
+    col1 = int(np.clip(np.ceil(indices[..., 0].max()), 0, size - 1))
+    return slice(row0, row1 + 1), slice(col0, col1 + 1)
+
+
+def forward_taps(forward, phase: np.ndarray, *, exposure_ms: float = 1.0) -> dict[str, np.ndarray]:
+    """Intermediate tensors of the frozen chain, read at five taps.
+
+    Mirrors ``FrozenDefocusForward.predict`` call for call -- same helpers, same
+    order -- so every tap *is* a true intermediate of the frozen prediction.  The
+    optional physical-model extensions are asserted off: the checkpoint carries
+    identity coefficients for all of them, and these taps replicate the bare chain.
+    """
+    import torch
+
+    from ao_shaping.algorithm.signal_processing.defocus_forward_core import (
+        camera_sample_grids,
+        defocus_phase,
+        irradiance_scale,
+        sample_intensity,
+    )
+    from ao_shaping.utils.wavefront.fraunhofer import focal_intensity
+
+    if (forward._slm_phase is not None or forward._amp_residual is not None
+            or forward._blaze_kernel is not None or forward._monotonic_ccd is not None):
+        raise AssertionError("taps replicate the bare chain; this checkpoint enables optional paths")
+    params = forward.params
+    with torch.no_grad():
+        total = forward.total_phase_grid(torch.as_tensor(np.asarray(phase, dtype=np.float32)))
+        if total.ndim == 2:
+            total = total[None]
+        phase_all = defocus_phase(torch, total, forward.effective_defocus, params.diopter_scale,
+                                  forward.z4, residual_values=forward.residual_values,
+                                  residual_basis=forward.residual_basis)
+        field = forward.amplitude * torch.exp(1j * phase_all)
+        focal = focal_intensity(field, params.fft_size)
+        scaled = focal * irradiance_scale(forward.pitch, params.fft_size) / forward.axial_scale**2
+        grids = camera_sample_grids(torch, forward._xy_t, forward.origin,
+                                    forward.inverse / forward.axial_scale,
+                                    forward._grid_offsets, fft_size=params.fft_size,
+                                    pitch=forward.pitch)
+        sampled = sample_intensity(torch, scaled, grids)
+        result = sampled * float(params.gain) + float(params.background)
+        if float(params.bias_counts) != 0.0:
+            result = result + float(params.bias_counts) / exposure_ms
+
+    def to_numpy(tensor) -> np.ndarray:
+        array = np.asarray(tensor.detach().cpu().numpy(), dtype=np.float64)
+        return array[0] if array.ndim == 3 else array
+
+    return {"pupil_phase": to_numpy(phase_all), "pupil_amplitude": to_numpy(forward.amplitude),
+            "focal_intensity": to_numpy(focal), "camera_intensity": to_numpy(sampled),
+            "prediction": to_numpy(result)}
+
+
+def tap_deltas(base: dict[str, np.ndarray], probe: dict[str, np.ndarray],
+               footprint: tuple[slice, slice]) -> dict:
+    """Per-tap response of one probe relative to the base phase."""
+    out: dict[str, dict] = {}
+    for tap, values in probe.items():
+        if tap == "pupil_amplitude":
+            continue
+        delta = values - base[tap]
+        norm = float(np.linalg.norm(delta))
+        norm_base = float(np.linalg.norm(base[tap]))
+        row = {"delta_norm": norm,
+               "relative": norm / norm_base if norm_base else float("nan")}
+        if tap == "focal_intensity":
+            total = float(np.sum(delta**2))
+            inside = float(np.sum(delta[footprint] ** 2))
+            row["focal_energy_in_camera_window"] = inside / total if total else float("nan")
+        out[tap] = row
+    return out
+
+
+def stage_probe(forward, base_phase: np.ndarray, masks: dict, out_dir: Path,
+                diag_dir: Path = DIAG) -> dict:
+    """Where along the frozen chain does a defocus stop being visible?
+
+    Two ladders, each read at every tap so a response that exists on the focal
+    grid but vanishes by the camera is told from one that never existed:
+
+    * pupil-edge hardness -- a Fraunhofer far field answers a pupil curvature only
+      through the pupil boundary: a smooth apodisation has none, so its defocus
+      response is second order.  This ladder measures how much of the dead N4
+      response the illumination model owns.
+    * far-field structure -- a pupil curvature Fresnel-propagates the far field by
+      a distance proportional to it, so the intensity change it produces scales
+      with how structured that far field already is.  A model whose predicted far
+      field is smooth cannot respond on this axis whatever its illumination.
+    """
+    cols, rows = pupil_coords(forward)
+    radius2 = cols**2 + rows**2
+    rng = np.random.default_rng(STAGE_RANDOM_SEED)
+    speckle = rng.standard_normal(np.asarray(base_phase).shape)
+
+    probes: dict[str, np.ndarray] = {}
+    for pv in STAGE_PV_SWEEP:
+        probes[f"quad_pv{pv:g}"] = base_phase + 0.5 * pv * radius2
+    probes["tilt_x_pv5"] = base_phase + 2.5 * cols
+    probes["speckle_std1"] = base_phase + speckle
+
+    z4 = np.asarray(forward.z4.detach().cpu().numpy(), dtype=np.float64)
+    quad = 0.5 * radius2 - np.mean(0.5 * radius2)
+    z4_centred = z4 - z4.mean()
+    direction_cosine = float((quad * z4_centred).sum()
+                             / (np.linalg.norm(quad) * np.linalg.norm(z4_centred)))
+
+    footprint = camera_footprint(forward)
+    variants = amplitude_variants(forward)
+    saved = forward.amplitude
+    pupil_ladder: dict[str, dict] = {}
+    for name in STAGE_AMPLITUDES:
+        forward.amplitude = variants[name]
+        base = forward_taps(forward, base_phase)
+        pupil_ladder[name] = {label: tap_deltas(base, forward_taps(forward, phase), footprint)
+                              for label, phase in probes.items()}
+    forward.amplitude = saved
+
+    # Ladder 2: the executed N4 +-probe pair on top of an increasingly structured
+    # far field, at the frozen amplitude.
+    probe_phases = load_probe_phases(forward, diag_dir)
+    structure_ladder: dict[str, dict] = {}
+    for scale in STAGE_SPECKLE_SWEEP:
+        plus = forward_taps(forward, probe_phases["N4+"] + scale * speckle)
+        minus = forward_taps(forward, probe_phases["N4-"] + scale * speckle)
+        row: dict[str, dict] = {}
+        for tap in plus:
+            if tap == "pupil_amplitude":
+                continue
+            delta = 0.5 * (plus[tap] - minus[tap])
+            norm = float(np.linalg.norm(delta))
+            base_norm = float(np.linalg.norm(minus[tap]))
+            entry = {"delta_norm": norm,
+                     "relative": norm / base_norm if base_norm else float("nan")}
+            if tap == "camera_intensity":
+                field = minus[tap][masks["box"]]
+                entry["box_cv"] = float(field.std() / field.mean()) if field.mean() else float("nan")
+            row[tap] = entry
+        structure_ladder[f"speckle_{scale:g}"] = row
+
+    payload = {
+        "checkpoint": str(CHECKPOINT),
+        "diagnostic_session": str(diag_dir),
+        "fft_size": int(forward.params.fft_size),
+        "grid_size": int(forward.params.grid_size),
+        "camera_window_focal_pixels": [[footprint[0].start, footprint[0].stop],
+                                       [footprint[1].start, footprint[1].stop]],
+        "quadratic_vs_z4_cosine": direction_cosine,
+        "note": ("every response is the difference against the base phase at the same "
+                 "amplitude; 'relative' is that difference over the norm of the base "
+                 "field at the same tap, so taps are comparable across amplitudes"),
+        "pupil_edge_ladder": pupil_ladder,
+        "far_field_structure_ladder": structure_ladder,
+    }
+    (out_dir / "stage_probe.json").write_text(json.dumps(payload, indent=1))
+
+    print("\n== stage probe: response at each tap ==")
+    print(f"quadratic vs model z4 direction cosine: {direction_cosine:+.4f}")
+    print(f"camera window on the focal grid: rows {footprint[0].start}-{footprint[0].stop - 1}, "
+          f"cols {footprint[1].start}-{footprint[1].stop - 1} "
+          f"of {int(forward.params.fft_size)}")
+    print(f"{'amplitude':>20} {'probe':>14}{'focal_rel':>12}{'in_win':>9}"
+          f"{'camera_rel':>12}{'pred_rel':>10}")
+    for name, block in pupil_ladder.items():
+        for label, taps in block.items():
+            print(f"{name:>20} {label:>14}{taps['focal_intensity']['relative']:12.5f}"
+                  f"{taps['focal_intensity']['focal_energy_in_camera_window']:9.3f}"
+                  f"{taps['camera_intensity']['relative']:12.5f}"
+                  f"{taps['prediction']['relative']:10.5f}")
+    print(f"\n{'speckle':>10}{'N4 focal_rel':>15}{'N4 camera_rel':>16}{'box_cv':>10}")
+    for label, taps in structure_ladder.items():
+        print(f"{label:>10}{taps['focal_intensity']['relative']:15.5f}"
+              f"{taps['camera_intensity']['relative']:16.5f}"
+              f"{taps['camera_intensity']['box_cv']:10.3f}")
+    print(f"artifact -> {out_dir / 'stage_probe.json'}")
+    return payload
+
+
 # --------------------------------------------------------------------------- main
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -1026,7 +1454,8 @@ def main() -> None:
     parser.add_argument("--no-shift", action="store_true", help="skip the registration sweep")
     parser.add_argument("--mode",
                         choices=("variants", "seed-sweep", "common-mode", "both",
-                                 "jacobian", "aberration-fit", "all"),
+                                 "jacobian", "aberration-fit", "n4-decompose",
+                                 "stage-probe", "all"),
                         default="both")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
@@ -1056,6 +1485,14 @@ def main() -> None:
         aberration_fit(plan, masks, args.out)
         if args.mode == "aberration-fit":
             return
+
+    if args.mode == "n4-decompose":
+        n4_decompose(forward, masks, args.out)
+        return
+
+    if args.mode == "stage-probe":
+        stage_probe(forward, phase, masks, args.out)
+        return
 
     meas, meas_meta = load_measured(camera_xy)
     floor = additive_floor(forward, 1.0)

@@ -280,6 +280,13 @@ class BenchTwinConfig:
         region_span_px: 瞳面网格覆盖的 SLM 面板边长 (px)。
         far_field_padding: 远场补零因子 (默认 10 = hwdataset 标定过的内点最优)。
         beam_w0_px: 瞳面上高斯入射光束的 1/e² 强度半径 (面板 px)。
+        slm_axial_offset_m: SLM 面板相对**透镜前焦面**的轴向偏移 δ (m, 正 = 远离透镜)。
+            ``0`` = 经典 2f 布置。非零时, 调制后的面板场先自由传播 δ 到达透镜面再进透镜 —
+            这是「SLM 不在前焦面」唯一需要新增的一步物理 (见
+            :meth:`BenchTwin.slm_plane_to_lens`)。照明按**准直**建模 (面板处为平面波);
+            若照明在面板附近有实腰, 该平面的光斑半径/曲率另按
+            ``w(δ) = w0·√(1+(δ/z_R)²)`` / ``1/R(δ) = δ/(δ²+z_R²)`` 修正 ——
+            孪生不替调用方猜照明, 故不在这里施加。
         center_crop: 是否把远场裁到光学轴居中的方形窗口。
         crop_px: 裁剪窗口边长 (模型采样点); ``None`` → ``region``
             (与 ``ml/zernike/models.py::_centre_crop`` 同口径)。
@@ -297,6 +304,7 @@ class BenchTwinConfig:
     region_span_px: float = 900.0
     far_field_padding: int = 10
     beam_w0_px: float = 250.0
+    slm_axial_offset_m: float = 0.0
     center_crop: bool = True
     crop_px: int | None = None
     peak_adu: float = 100.0
@@ -428,6 +436,10 @@ class BenchTwin:
             raise ValueError(f"lut_gamma must be > 0, got {cfg.errors.lut_gamma}")
         if float(cfg.region_span_px) <= 0.0:
             raise ValueError(f"region_span_px must be > 0, got {cfg.region_span_px}")
+        if not math.isfinite(float(cfg.slm_axial_offset_m)):
+            raise ValueError(
+                f"slm_axial_offset_m must be finite, got {cfg.slm_axial_offset_m}"
+            )
         table = cfg.errors.lut_table
         if table is not None:
             table_arr = np.asarray(table, dtype=np.float64)
@@ -744,6 +756,45 @@ class BenchTwin:
     # 正向
     # ------------------------------------------------------------------
 
+    def slm_plane_to_lens(self, field: np.ndarray) -> np.ndarray:
+        """把面板复场自由传播到**透镜面** (SLM 不在前焦面时的唯一新增一步)。
+
+        角谱传递函数 ``H = exp(i·k·δ·sqrt(1-(λf_x)²-(λf_y)²))``, 频率取自瞳面网格
+        (``pupil_pitch_m``), 倏逝分量置 0。``δ == 0`` 是恒等 (逐位相同)。
+
+        为什么只需要这一步: 面板在前焦面时, 透镜到相机是纯傅里叶变换 (尺度 ``λf``);
+        SLM 后移 δ 之后, 进入透镜的不再是面板场, 而是它传播 δ 后的场。在 ABCD 口径下
+        等价于把总矩阵右乘 ``P(δ)``, 即
+        :func:`~ao_shaping.algorithm.signal_processing.defocus_forward_core.axial_plane_correction`
+        的 ``B' = B + A·δ`` / ``d' = d/(1+d·δ)``: 只有当 ``A ≠ 0`` (相机不在傅里叶面)
+        时 δ 才可观测 —— ``A == 0`` 时本方法对 ``|·|²`` 逐位无影响 (理想透镜恒等式)。
+
+        Args:
+            field: 面板面复场 (``(region, region)``, 光学轴在中心)。
+
+        Returns:
+            透镜面复场 (同形状)。
+        """
+        dz = float(self.config.slm_axial_offset_m)
+        if dz == 0.0:
+            return field
+        arr = np.asarray(field)
+        n = arr.shape[0]
+        lam = float(self.config.wavelength_m)
+        k_wave = 2.0 * math.pi / lam
+        freq = np.fft.fftfreq(n, d=self.pupil_pitch_m)
+        arg = 1.0 - (lam * freq[None, :]) ** 2 - (lam * freq[:, None]) ** 2
+        transfer = np.zeros((n, n), dtype=np.complex128)
+        propagating = arg > 0.0
+        transfer[propagating] = np.exp(
+            1j * k_wave * dz * np.sqrt(arg[propagating])
+        )
+        un = np.fft.ifftshift(arr)
+        propagated = np.fft.ifft2(
+            np.fft.fft2(un, norm="ortho") * transfer, norm="ortho"
+        )
+        return np.fft.fftshift(propagated)
+
     def far_field(self, phase_rad: np.ndarray) -> np.ndarray:
         """无噪远场强度 (0..``peak_adu``)。
 
@@ -759,6 +810,7 @@ class BenchTwin:
         phase = self._as_pupil_phase(phase_rad)
         actual = self.apply_lut(self.apply_panel_aberration(phase))
         pupil = self.pupil_amplitude() * np.exp(1j * actual)
+        pupil = self.slm_plane_to_lens(pupil)
         pupil = self.apply_lens_aberration(pupil)
         focal = self._propagate(pupil)
         focal = self.apply_defocus(focal)
@@ -882,6 +934,7 @@ class BenchTwin:
             "region_span_px": float(cfg.region_span_px),
             "far_field_padding": int(cfg.far_field_padding),
             "beam_w0_px": float(cfg.beam_w0_px),
+            "slm_axial_offset_m": float(cfg.slm_axial_offset_m),
             "center_crop": bool(cfg.center_crop),
             "crop_px": None if cfg.crop_px is None else int(cfg.crop_px),
             "peak_adu": float(cfg.peak_adu),
@@ -962,6 +1015,7 @@ class BenchTwin:
             region_span_px=float(payload.get("region_span_px", 900.0)),
             far_field_padding=int(payload.get("far_field_padding", 10)),
             beam_w0_px=float(payload.get("beam_w0_px", 250.0)),
+            slm_axial_offset_m=float(payload.get("slm_axial_offset_m", 0.0)),
             center_crop=bool(payload.get("center_crop", True)),
             crop_px=None if crop_px is None else int(crop_px),
             peak_adu=float(payload.get("peak_adu", 100.0)),

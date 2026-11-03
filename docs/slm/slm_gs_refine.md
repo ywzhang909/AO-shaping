@@ -11,6 +11,22 @@
 2. **GS 预矫正 (对比择优)**：用 bench 物理预测模型算 GS 相位实测；**不优于平场就丢弃**
 3. **全频随机相位 SPGD 细化**：粗网格 (默认 24×24 = 576 自由度) 扰动正负两次读帧，差分估梯度，Adam 更新 + cosine 衰减
 
+### 两种执行顺序 (`--epochs` 决定)
+
+面板与探测器是共享资源，所以"只想看一眼 GS 形状"不该占一次相机会话：
+
+| `--epochs` | 顺序 | 相机会话 |
+|---|---|---|
+| `0` (默认) | 算 GS 相位 → **直接下发** | **不打开相机**，不测量 |
+| `>0` | 算 GS 相位 → **先下发** → 再请求相机 → 平场基线 + 对比择优 + SPGD | 打开 |
+
+`>0` 时 GS 相位仍然先发：操作员在下发那一刻就能看到整形结果，而请求相机是之后的事。
+定位 0 阶时采到的那一帧**就是**对比择优的平场基线，所以整轮只比纯 SPGD 多一次 (GS) 测量。
+
+`epochs=0` 的产物是**相位本身**：`best_phase` 已下发、`best_stage="gs"`、`best_score=nan`、
+`history` 为空 (每一列都是实测量，没有测量就不写行)。此路径要求 GS 可用：传
+`--no-gs-warm-start` 且 `epochs=0` 会直接报错，而不是静默什么都不做。
+
 ## 2. 调用关系
 
 ```mermaid
@@ -58,8 +74,9 @@ GS 相位来自模型 (光阑、焦距、像素间距)。若任何输入错，GS
 
 | 选项 | 说明 | 默认值 |
 |------|------|--------|
-| `-e, --epochs` | SPGD 细化轮数 (每轮 3 次远场读帧：±δ 差分估梯度 + 未扰动收敛点各 1 次；`--confirm-best` 触发时另加 1 次) | 400 |
-| `--target-side` | 目标方形边长 (相机像素, 0=由 `D·f/(d_SLM·p_cam)` 推导) | 0 |
+| `-e, --epochs` | SPGD 细化轮数 (每轮 3 次远场读帧：±δ 差分估梯度 + 未扰动收敛点各 1 次；`--confirm-best` 触发时另加 1 次)。**0 = 只做 GS**：下发相位、不打开相机、不测量 (见 §1) | 0 |
+| `--target-side-mm` | 目标方边长 (**相机传感器上的毫米**)，用模型像素间距换算成像素并取整 (`mm·1000/pitch_um`)。操作员的单位: 换相机时目标物理尺寸不变。与 `--target-side` 互斥 | 0 |
+| `--target-side` | 目标方形边长 (相机像素, 0=由 `D·f/(d_SLM·p_cam)` 推导)。用于重放/测试这种"必须精确到像素"的场合 | 0 |
 | `--phase-grid` | 全频随机相位粗网格边长 (默认 24 → 576 DOF) | 24 |
 | `--delta` / `--lr` / `--optimizer [adam\|adamw\|adamod\|sgd]` / `--lr-schedule` | SPGD 超参 | - |
 | `--gs-iters` / `--gs-warm-start/--no-gs-warm-start` | GS 迭代数 / 是否用平场热启动 | - |
@@ -69,7 +86,7 @@ GS 相位来自模型 (光阑、焦距、像素间距)。若任何输入错，GS
 | `--gs-beta` | HIO 反馈松弛 β (Fienup, 0≤β≤1; β=0 ⇒ 噪声区冻结) | 0.9 |
 | `--gs-hio-fraction` | `hio-weighted` 中 HIO 阶段占比 (0=全加权, 1=全 HIO) | 0.7 |
 | `--beam-radius-px` | 面板上照明光斑**半径** (实测实验系统值) | 450 |
-| `--camera-pixel-um` | 相机像素间距 (um) —— **光路模型的测量锚点** | 2.2 |
+| `--camera-pixel-um` | 相机像素间距 (um) —— **光路模型的测量锚点**。默认 0 = 读相机**型号**配置 (Daheng: `data/ccd_configs/ccd/models.json`; MiiCam 固定 2.9um; sim 走孪生光学)；正数则覆盖。未登记的型号直接报错并给出登记命令，不猜一个间距 | 0 |
 | `--focal-length-m` | 2f 透镜焦距 (m)。默认 0 = 由实测焦点标度 + `--camera-pixel-um` 派生 (本实验系统 ⇒ 0.1224 m) | 0 |
 | `--slm-wavelength` | SLM 工作波长 (nm)。默认 0 = 询问设备实际编程波长 | 0 |
 | `--far-field-padding` | GS 远场补零倍数 (默认 3; **代价是平方级**) | 3 |
@@ -111,8 +128,15 @@ padding=3, 60 步) 框内 CV 在 **0.37~1.50** 之间往复 —— 固定迭代�
 
 ### `--camera-pixel-um` 与 `--beam-radius-px` (红线)
 两者任一错，GS 相位会让真实光斑**更差** —— 因此强制 对比择优。
-- `--camera-pixel-um`：相机数据手册常数 (大恒 MER2-507-23GM = 2.2 µm)
+- `--camera-pixel-um`：默认 **0 = 读相机型号配置** (驱动层的型号级属性，见
+  `drivers/ccd/pixel_size.py`)，不要在这里另写一份常数 —— 大恒机型的 2.2 µm 由
+  `data/ccd_configs/ccd/models.json` 提供。未登记型号会直接报错并给出登记命令；
+  换相机时它随之改变，而不是停在某个旧值上
 - `--beam-radius-px`：面板照明半径 (实测 450 px)
+
+> 这个锚点只用于把**实测焦点标度**换成绝对焦距，而 GS 的目标边长只吃
+> `f/p_cam` 这个比值，因此目标边长对锚点的选择不敏感 —— 见
+> [`pre_run_characterization.md`](pre_run_characterization.md)。
 
 ### `--focal-length-m` 派生逻辑
 默认 0 = 由实测焦点标度 `K` + `--camera-pixel-um` 派生。
@@ -125,20 +149,30 @@ padding=3, 60 步) 框内 CV 在 **0.37~1.50** 之间往复 —— 固定迭代�
 ## 6. 仿真模式
 
 ```bash
+# 只做 GS (默认 epochs=0): 算相位、下发、不开相机
+python src/ao_shaping/main.py slm-gs-refine --cam-type sim
+
+# 带 SPGD 细化
 python src/ao_shaping/main.py slm-gs-refine --cam-type sim -e 20
 ```
 
 ## 7. 硬件示例
 
 ```bash
-# 大恒 CCD + Santec SLM #1 @1064nm
+# 只下发 GS 相位 (默认 epochs=0): 不打开相机、不测量
+python src/ao_shaping/main.py slm-gs-refine --cam-type daheng --cam-id 0
+
+# 大恒 CCD + Santec SLM #1 @1064nm, GS 预矫正 + SPGD 细化
 python src/ao_shaping/main.py slm-gs-refine --cam-type daheng --cam-id 0 -e 400
 
-# 显式指定目标方形边长 (相机像素)
+# 目标方边长按传感器上的毫米给 (与 --target-side 互斥)
+python src/ao_shaping/main.py slm-gs-refine --target-side-mm 0.2 -e 400
+
+# 显式指定目标方形边长 (相机像素, 用于重放/测试)
 python src/ao_shaping/main.py slm-gs-refine --target-side 90
 
-# 从平场起步 (跳过 GS 预矫正)
-python src/ao_shaping/main.py slm-gs-refine --no-gs-warm-start
+# 从平场起步 (跳过 GS 预矫正; 此时必须 -e > 0)
+python src/ao_shaping/main.py slm-gs-refine --no-gs-warm-start -e 400
 ```
 
 ## 8. 实验前必跑表征探针 (顺序不能反)
@@ -154,6 +188,8 @@ python -m ao_shaping.tools.zernike.abba_probe --exposure-ms 3.0
 ## 9. 输出契约
 
 - `data/slm_gs_refine/<日期>/`：优化历史 CSV (每轮一行标量)、`best_phase.npy` (**raw 未包裹弧度**，用 `Santec.create_phase_from_array()` 下发)、最优远场图 PNG
+- `epochs=0` (只做 GS)：`best_phase.npy` 是唯一产物；历史 CSV 只有表头 (每一列都是实测量，
+  这一轮没有测量)，最优远场图不写。不要把它当成"有行但是空的"去解析
 
 ## 10. 同一 seed 不保证逐帧复现
 

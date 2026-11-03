@@ -10,8 +10,9 @@
 ``QTimer`` 取"最新一帧" —— 处理不过来时丢中间帧而不是排队, 因此显示延迟有界。
 分析在 UI 线程同步执行 (单帧 ~10 ms; 超过 1080p 的画面先 2x2 binning 再分析,
 计算量降为 1/4, 坐标再用 ``FrameMetrics.rescaled(2.0)`` 还原)。
-生命周期操作 (打开/关闭/改曝光) 是 MiiCam 真机秒级阻塞 (~10-16s),
-一律下放到单线程 ``QThreadPool`` 串行执行, UI 保持响应, 忙碌期间按钮禁用。
+生命周期操作 (打开/关闭/改曝光) 是相机硬件的秒级阻塞 (大恒打开 ~0.6-3.6 s,
+MiiCam 打开 ~10-16 s、改曝光 ~10 s), 一律下放到单线程 ``QThreadPool`` 串行执行,
+UI 保持响应, 忙碌期间按钮禁用。
 
 自动曝光是同一条通道上的闭环: 每 ``AUTO_EXPOSURE_INTERVAL_MS`` 取最新一帧原始画面
 (不是多帧平均 —— 平均窗口里可能还是上一次曝光下的帧) 的一个统计量, 与目标灰度比较
@@ -69,6 +70,7 @@ from ao_shaping.gui.ccd.beam_quality.exposure_control import (
     next_exposure,
 )
 from ao_shaping.gui.ccd.beam_quality.frame_source import (
+    FALLBACK_EXPOSURE_RANGE_MS,
     FrameSource,
     CameraFrameSource,
     SimBeamSource,
@@ -80,9 +82,13 @@ from ao_shaping.gui.ccd.beam_quality.video_widget import VideoWidget, to_uint8
 
 # 源类型: (显示名, 内部键)
 SOURCE_KINDS: tuple[tuple[str, str], ...] = (
+    ("Daheng", "daheng"),
     ("MiiCam", "miicam"),
     ("仿真源 (离线)", "sim"),
 )
+
+#: 打开源之前的曝光控件占位值 (打开后按设备真实量程刷新, 关闭后恢复)
+DEFAULT_EXPOSURE_MS = 20.0
 
 ANALYSIS_MAX_WIDTH = 1920
 ANALYSIS_MAX_HEIGHT = 1080
@@ -98,8 +104,8 @@ class _JobSignals(QObject):
 class _Job(QRunnable):
     """把阻塞调用 (相机 open/stop/改曝光) 挪出 UI 线程。
 
-    MiiCam 的硬件操作是真机秒级阻塞 (open ~16s, 改曝光 ~10s),
-    同步调在 UI 线程会把整个窗口冻住 (2026-10-31 真机实测)。
+    MiiCam 的硬件操作是实验系统秒级阻塞 (open ~16s, 改曝光 ~10s),
+    同步调在 UI 线程会把整个窗口冻住 (2026-10-31 实验系统实测)。
     """
 
     def __init__(self, fn) -> None:
@@ -125,7 +131,7 @@ class BeamQualityApp(QMainWindow):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("光束质量分析 (MiiCam)")
+        self.setWindowTitle("光束质量分析")
         self.resize(1480, 900)
 
         self._source: FrameSource | None = None
@@ -231,10 +237,10 @@ class BeamQualityApp(QMainWindow):
         exposure_box = QGroupBox("曝光")
         exposure_form = QFormLayout(exposure_box)
         self._exposure_spin = QDoubleSpinBox()
-        self._exposure_spin.setRange(0.011, 10000.0)
+        self._exposure_spin.setRange(*FALLBACK_EXPOSURE_RANGE_MS)
         self._exposure_spin.setDecimals(3)
         self._exposure_spin.setSingleStep(1.0)
-        self._exposure_spin.setValue(20.0)
+        self._exposure_spin.setValue(DEFAULT_EXPOSURE_MS)
         self._exposure_spin.setSuffix(" ms")
         self._apply_btn = QPushButton("应用曝光")
         self._auto_check = QCheckBox("自动曝光")
@@ -339,6 +345,17 @@ class BeamQualityApp(QMainWindow):
         self._source_combo.setEnabled(enabled and not has_source)
         self._cam_id_spin.setEnabled(enabled and not has_source)
 
+    def _sync_exposure_range(self, source: FrameSource) -> None:
+        """按源的设备真实量程刷新曝光控件, 并把值同步到当前生效曝光。"""
+        lo, hi = source.exposure_range_ms
+        self._exposure_spin.setRange(float(lo), float(hi))
+        self._exposure_spin.setValue(float(source.exposure_ms))
+
+    def _reset_exposure_range(self) -> None:
+        """源关闭后把曝光控件退回占位量程与默认值。"""
+        self._exposure_spin.setRange(*FALLBACK_EXPOSURE_RANGE_MS)
+        self._exposure_spin.setValue(DEFAULT_EXPOSURE_MS)
+
     def _start_job(self, label: str, fn, on_done) -> bool:
         """把阻塞硬件操作下放到单线程池串行执行; 完成回调在 UI 线程。
 
@@ -365,11 +382,11 @@ class BeamQualityApp(QMainWindow):
         return True
 
     def open_source(self) -> None:
-        """按当前选择启动帧源 (MiiCam 硬件打开真机 ~16s, 后台线程执行)。"""
+        """按当前选择启动帧源 (相机硬件打开秒级阻塞, 后台线程执行)。"""
         if self._source is not None or self._busy:
             return
         index = self._source_combo.currentIndex()
-        kind = SOURCE_KINDS[index][1] if 0 <= index < len(SOURCE_KINDS) else "miicam"
+        kind = SOURCE_KINDS[index][1] if 0 <= index < len(SOURCE_KINDS) else "daheng"
         exposure = float(self._exposure_spin.value())
         cam_id = int(self._cam_id_spin.value())
 
@@ -402,6 +419,8 @@ class BeamQualityApp(QMainWindow):
             if self._auto_exposure:
                 self._auto_timer.start()
             self._set_controls_enabled(True)
+            # 打开后把曝光控件换成该设备的真实量程 (占位量程只用于打开前)
+            self._sync_exposure_range(source)
             self.statusBar().showMessage(
                 f"已启动 {SOURCE_KINDS[index][0]} (曝光 {source.exposure_ms:.3f} ms)",
                 5000,
@@ -410,7 +429,7 @@ class BeamQualityApp(QMainWindow):
         self._start_job(f"正在打开 {SOURCE_KINDS[index][0]}…", _work, _done)
 
     def close_source(self) -> None:
-        """停止帧源并清画面 (MiiCam 停止真机 ~7-12s, 后台执行); 可重复调用。"""
+        """停止帧源并清画面 (停相机秒级阻塞, 后台执行); 可重复调用。"""
         if self._busy:
             return
         self._poll_timer.stop()
@@ -426,6 +445,8 @@ class BeamQualityApp(QMainWindow):
         self._profile.clear()
         self._info_label.setText("分辨率: --\n曝光: --\n源帧率: --\n丢弃帧: --")
         self._set_controls_enabled(True)
+        # 源已摘掉, 曝光控件退回打开前的占位量程与默认值
+        self._reset_exposure_range()
         if source is None:
             self.statusBar().showMessage("已关闭", 3000)
             return
@@ -442,7 +463,7 @@ class BeamQualityApp(QMainWindow):
         self._start_job("正在关闭…", _work, _done)
 
     def apply_exposure(self) -> None:
-        """把界面上的曝光值写给当前源 (MiiCam 重启拉流真机 ~10s, 后台执行)。"""
+        """把界面上的曝光值写给当前源 (MiiCam 重启拉流实验系统 ~10s, 后台执行)。"""
         source = self._source
         if source is None:
             self.statusBar().showMessage("先打开帧源再改曝光", 4000)
@@ -501,7 +522,7 @@ class BeamQualityApp(QMainWindow):
         """UI 线程: 把曝光往目标推一步 (改曝光本身仍走后台作业)。
 
         反馈只取**最新一帧原始画面**, 不取多帧平均: 平均窗口里的帧可能来自上一次
-        曝光, 拿它们当反馈会让闭环对着旧画面一步步推, 真机上会把曝光一路推到上限
+        曝光, 拿它们当反馈会让闭环对着旧画面一步步推, 实验系统上会把曝光一路推到上限
         (2026-11-01 实测: 4 帧平均 + 90 灰度 → 10 s 曝光)。同理, 一张比上次改曝光
         更早拍到的帧也不接受 —— 那还是旧曝光下的画面。
 

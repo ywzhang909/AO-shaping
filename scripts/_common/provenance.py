@@ -177,6 +177,24 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/ml/sim2f_fov_hw_figures.py",
         ),
     ),
+    "report/shape_trials/physical_refine/physical_refine_results_20261103.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线分析（历史硬件采集会话 + 已完成的 ring refine 离线诊断；设备下线，无新增 CCD 采集）",
+        note=(
+            "从已完成的 ring refine 目录与捕获会话中提取的离线诊断；"
+            "模型喂进的是原始 128-grid 相位而非 SLM 实际显示相位（panel_gray 反解），"
+            "对齐窗口需 (-3, +32) px 位移，未解决实测增益差异。"
+            "这些数值来源见 artifacts/offline_diagnostics_20261103.json，"
+            "离线诊断脚本为 scripts/ml/sim2f_fov_hw_offline_diagnostics.py；"
+            "不视为物理整形成功或 CCD 验收证据。"
+        ),
+        extra_scripts=(
+            "scripts/ml/sim2f_fov_hw_refine.py",
+            "src/ml/sim2f/calibrate.py",
+            "src/ml/sim2f/optics.py",
+            "scripts/ml/sim2f_fov_hw_offline_diagnostics.py",
+        ),
+    ),
     "report/shape_trials/multishape_scale/square_1000_diff_abba_20261030.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线分析与实验；ABBA 及 v6/v7 局部响应诊断均使用 Santec #1 / Daheng Mono12",

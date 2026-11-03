@@ -129,7 +129,127 @@ def _milliseconds(**segments: float) -> dict:
     return {name: round(float(value) * 1e3, 1) for name, value in segments.items()}
 
 
-def run(args):
+def block_frame_payload(
+    *,
+    frame,
+    shape: str,
+    block: int,
+    block_index: int,
+    blocks_total: int,
+    iteration: int,
+    iterations_total: int,
+    remaining: int,
+    xy=None,
+    label: str = "",
+) -> dict:
+    """Plain-data payload for one live refresh (one per anchored block).
+
+    ``frame`` is the **last** raw frame of the block's anchored capture, copied so
+    a later capture (which reuses buffers) cannot mutate what the GUI holds.
+    ``xy`` and the two mean profiles are enough to draw X/Y cross-sections; the
+    GUI may instead re-analyse ``frame`` with ``beam_quality.analyzer`` -- no
+    Qt object crosses this boundary. All progress fields are plain ints.
+
+    ``remaining`` counts optimizer iterations until the *next* refresh (the next
+    block's last frame): one full block of iterations, or 0 after the last block.
+    """
+    raw = np.asarray(frame)
+    if raw.ndim == 3:
+        raw = raw[..., 0]
+    if raw.ndim != 2:
+        raise ValueError(f"live frame must be 2-D, got shape {raw.shape}")
+    raw = raw.copy()
+    return dict(
+        frame=raw,
+        xy=None if xy is None else np.array(xy, copy=True),
+        profile_x=raw.mean(axis=0),
+        profile_y=raw.mean(axis=1),
+        shape=str(shape),
+        block=int(block),
+        block_index=int(block_index),
+        blocks_total=int(blocks_total),
+        iteration=int(iteration),
+        iterations_total=int(iterations_total),
+        remaining=int(remaining),
+        label=str(label),
+    )
+
+
+def notify_frame(on_frame, payload: dict) -> None:
+    """Best-effort live observer, mirroring ``workflow._notify`` for stages.
+
+    A raising GUI hook must never abort a measured session: the journal and the
+    captures remain the source of truth, the exception is only logged.
+    """
+    if on_frame is None:
+        return
+    try:
+        on_frame(payload)
+    except Exception as exc:  # a UI hook must never abort a measured session
+        logger.warning("transfer live frame hook failed: {}", exc)
+
+
+def emit_block_frame(
+    on_frame,
+    *,
+    directory: Path,
+    capture_row: dict | None,
+    shape: str,
+    block: int,
+    block_index: int,
+    blocks_total: int,
+    iteration: int,
+    iterations_total: int,
+    remaining: int,
+    xy=None,
+) -> None:
+    """Build and deliver one block's last-frame payload. Never raises.
+
+    Pulled out of the optimizer loop so the per-iteration path stays untouched:
+    this runs exactly once per block, after the block's acceptance / anchor
+    capture, and only when an observer was supplied.
+    """
+    if on_frame is None or capture_row is None:
+        return
+    try:
+        raw = capture_frames(directory, capture_row["file"])
+        payload = block_frame_payload(
+            frame=raw[-1],
+            xy=xy,
+            shape=shape,
+            block=block,
+            block_index=block_index,
+            blocks_total=blocks_total,
+            iteration=iteration,
+            iterations_total=iterations_total,
+            remaining=remaining,
+            label=str(capture_row.get("label", "")),
+        )
+    except Exception as exc:
+        logger.warning("transfer live frame unavailable ({}): {}", capture_row.get("label", "?"), exc)
+        return
+    notify_frame(on_frame, payload)
+
+
+def _resolve_observer(args, on_frame):
+    """Explicit keyword wins; otherwise honour ``args.on_frame`` if present.
+
+    Two call shapes exist (a direct ``run(args, on_frame=...)`` and a forwarded
+    ``SimpleNamespace``), so both must reach the same observer.
+    """
+    return on_frame if on_frame is not None else getattr(args, "on_frame", None)
+
+
+def run(args, *, on_frame=None):
+    """Run the CCD blocks.
+
+    ``on_frame(payload)`` is an optional live observer, called once per block
+    with that block's last raw CCD frame and integer progress. The CLI / offline
+    path leaves it at ``None`` and is byte-for-byte unchanged. ``workflow`` also
+    passes it on the ``args`` namespace so callers that build a SimpleNamespace
+    need no new call signature.
+    """
+    observer = _resolve_observer(args, on_frame)
     if getattr(args, "plan_only", False):
         # Plan mode: no torch, no seed synthesis, no device -- only the derived
         # work list. It writes plan.json into a *new* directory and returns the
@@ -511,6 +631,11 @@ def run(args):
                         # "anchored" mode needs it as the optimizer's anchor.
                         anchor_row = (capture(f"{shape}_{block}_A1", best, objective)
                                       if abba or args.mode == "anchored" else None)
+                        # Live panel: prefer the block's acceptance capture (the
+                        # shaped result); fall back to its A1 anchor. Only the
+                        # LAST frame of that capture is ever shipped, once per
+                        # block, so the per-iteration loop pays nothing extra.
+                        live_row = anchor_row
                         if args.mode == "anchored":
                             anchor_frames = capture_frames(args.out, anchor_row["file"])
                             anchor = count_rate(anchor_frames.mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)], anchor_row)
@@ -537,6 +662,7 @@ def run(args):
                         # Fresh optimizer per block: rejected proposals cannot advance its reference.
                         if abba:
                             b1 = capture(f"{shape}_{block}_B1", candidate, objective)
+                            live_row = b1
                             b2 = capture(f"{shape}_{block}_B2", candidate, objective)
                             a2 = capture(f"{shape}_{block}_A2", best, objective)
                             if block == 0:
@@ -574,6 +700,7 @@ def run(args):
                             if anchor_row is None:
                                 raise ValueError("sequential CCD check requires anchored mode")
                             b1 = capture(f"{shape}_{block}_B", candidate, objective)
+                            live_row = b1
                             metric = "cv" if getattr(args, "accept_metric", "loss") == "cv" else "loss"
                             av = anchor_row["metrics"][metric] if metric == "cv" else anchor_row[metric]
                             bv = b1["metrics"][metric] if metric == "cv" else b1[metric]
@@ -621,6 +748,22 @@ def run(args):
                         summary_entries.append(entry)
                         save_summary()
                         print(json.dumps(entry), flush=True)
+                        # Live refresh: exactly once per block, with this block's
+                        # last captured frame. The next refresh is the next block's
+                        # last frame, i.e. one block of optimizer iterations away.
+                        emit_block_frame(
+                            observer,
+                            directory=args.out,
+                            capture_row=live_row,
+                            shape=shape,
+                            block=block,
+                            block_index=int(block) + 1,
+                            blocks_total=int(args.blocks),
+                            iteration=int(args.updates),
+                            iterations_total=int(args.updates),
+                            remaining=int(args.updates) if block != blocks[-1] else 0,
+                            xy=xy,
+                        )
                         # One dump per block, not per iteration: every history entry
                         # carries a full phase copy (~1.6 MB), so rewriting the whole
                         # history after each iteration writes O(n^2) bytes -- 21 GB for

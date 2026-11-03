@@ -88,8 +88,9 @@ class TestResetWindowClamp:
 
         mock_cam.Width.set.assert_called_once_with(632)
         mock_cam.Height.set.assert_called_once_with(930)
-        mock_cam.OffsetX.set.assert_called_once_with(316)  # 632 - 316
-        mock_cam.OffsetY.set.assert_called_once_with(208)  # 673 - 465
+        # 归零残留偏移在前, 末尾再设真实偏移: 只断言最终生效值
+        assert mock_cam.OffsetX.set.call_args_list[-1][0][0] == 316  # 632 - 316
+        assert mock_cam.OffsetY.set.call_args_list[-1][0][0] == 208  # 673 - 465
         assert warnings == [], f"不应有 warning, got {warnings}"
         assert result == ((632, 930), (632, 673))
 
@@ -116,8 +117,8 @@ class TestResetWindowClamp:
 
         mock_cam.Width.set.assert_called_once_with(1680)
         mock_cam.Height.set.assert_called_once_with(1138)
-        mock_cam.OffsetX.set.assert_called_once_with(0)
-        mock_cam.OffsetY.set.assert_called_once_with(0)
+        assert mock_cam.OffsetX.set.call_args_list[-1][0][0] == 0
+        assert mock_cam.OffsetY.set.call_args_list[-1][0][0] == 0
         assert "clamped" in str(warnings), f"缺失 offset 钳制 warning, got {warnings}"
         assert result == ((1680, 1138), (840, 569))
 
@@ -127,8 +128,47 @@ class TestResetWindowClamp:
             monkeypatch, readback_size=(1680, 1138)
         )
         result = cam.reset_window(center=(50, 50), size=(1680, 1138))
-        assert mock_cam.OffsetX.set.call_args[0][0] == 0
+        assert mock_cam.OffsetX.set.call_args_list[-1][0][0] == 0
         assert result == ((1680, 1138), (840, 569))
+
+    def test_stale_offset_is_zeroed_before_reading_size_range(self, monkeypatch):
+        """残留非零 offset 时, 全幅请求不能被收缩后的 Width.range 误钳。
+
+        2026-11-02 实验系统: 上一次 ROI 留下 OffsetX=568/OffsetY=410, 而
+        ``Width.get_range()['max'] == WidthMax - OffsetX == 2024``, 于是请求
+        2592x1944 被钳成 1452x1122, readback 却完全合法 —— 全画幅采集直接失败。
+        """
+        cam, mock_cam, _warnings = self._make_cam(
+            monkeypatch, readback_size=(2592, 1944)
+        )
+        # 相机 range 随 offset 收缩: 未归零时 max=2024/1534, 归零后才是全幅。
+        # 用动态 side_effect 让 mock 复现这个依赖, 否则测试只会复述常量。
+        def _zeroed() -> bool:
+            return any(
+                c[0] == "OffsetX.set" and c[1] == (0,) for c in mock_cam.mock_calls
+            )
+
+        mock_cam.Width.get_range.side_effect = lambda: {
+            "min": 4,
+            "max": 2592 if _zeroed() else 2024,
+            "inc": 4,
+        }
+        mock_cam.Height.get_range.side_effect = lambda: {
+            "min": 2,
+            "max": 1944 if _zeroed() else 1534,
+            "inc": 2,
+        }
+        mock_cam.OffsetX.get_range.return_value = {"min": 0, "max": 0, "inc": 4}
+        mock_cam.OffsetY.get_range.return_value = {"min": 0, "max": 0, "inc": 2}
+
+        result = cam.reset_window(center=(1296, 972), size=(2592, 1944))
+
+        calls = [c[0] for c in mock_cam.mock_calls]
+        assert calls.index("OffsetX.set") < calls.index("Width.get_range")
+        assert calls.index("OffsetY.set") < calls.index("Height.get_range")
+        mock_cam.Width.set.assert_called_once_with(2592)
+        mock_cam.Height.set.assert_called_once_with(1944)
+        assert result == ((2592, 1944), (1296, 972))
 
     def test_warns_and_uses_readback_when_sdk_kept_old_window(self, monkeypatch):
         # SDK 静默保留旧窗口 (Width.get != set 值) -> warning + 返回读回值

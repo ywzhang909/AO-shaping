@@ -103,3 +103,76 @@ CI 按 `.github/workflows/pytest.yml` 的 `run_shard` 目标**显式收集**这�
 
 Consider adding: 类型检查门禁（mypy / pyright 未配置）。pytest 硬门禁已于
 2026-10-24 入库（见上文 CI 条），ruff 门禁已入库，无需重新提交工作流文件。
+
+
+---
+
+# Build/Lint/Test Commands (moved from root AGENTS.md)
+
+
+### Running Tests
+
+> 🔴 **测试必须在容器里跑。** 本机 384 核 + 755 GiB 内存，数值库按「能看到的核数」
+> 开线程池；不受限的 `pytest` 会把整机跑满，**2026-10-21 就是这样把宿主机跑死、
+> 强制断电才恢复**。`conftest.py` 现在会**直接拒绝**宿主机上的测试运行（报
+> `Refusing to run the test suite directly on the host`），CI 同样走容器。
+
+```bash
+# 整棵树（唯一推荐入口）
+./run_pytest.sh
+
+# 子树
+./run_pytest.sh tests/ao_shaping/runners
+
+# 附加参数放在 -- 之后
+./run_pytest.sh -k "not slow" -- -x
+
+# 指定单个文件/类/函数
+./run_pytest.sh tests/ao_shaping/utils/test_spots_calc.py
+./run_pytest.sh tests/ao_shaping/utils/test_spots_calc.py::TestCentroid
+./run_pytest.sh tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_uniform
+
+# 按 pattern / marker 过滤
+./run_pytest.sh -k "spots_calc"
+./run_pytest.sh -k "test_centroid"
+./run_pytest.sh -m "not slow"
+
+# 带覆盖率（容器内）
+./run_pytest.sh -- --cov=ao_shaping
+```
+
+首次使用需先构建测试镜像（`run_pytest.sh` 只用现成镜像，不自己 build）：
+
+```bash
+docker build -f docker/Dockerfile.test -t ao-shaping-test:gpu .
+```
+
+**宿主机上确实只想跑一个文件时**（调试用），显式放行 —— 线程与显存上限仍然生效：
+
+```bash
+AO_ALLOW_HOST_PYTEST=1 .venv/bin/python -m pytest tests/ao_shaping/utils/test_spots_calc.py
+```
+
+CI 走同一套容器口径（CPU 镜像，无 GPU）：
+
+```bash
+docker build -f docker/Dockerfile.test.cpu -t ao-shaping-test:cpu .
+./scripts/build/run_pytest_ci.sh
+```
+
+
+> 🔴 **测试排除与分片策略**已外迁到 [docs/dev/ci_testing.md](docs/dev/ci_testing.md)（由 `tests/ao_shaping/scripts/test_pytest_workflow_shards_cover_tree.py::test_every_test_area_is_sharded` 与 `tests/ao_shaping/scripts/test_pytest_workflow_shards_cover_tree.py::test_no_harness_ignore_blanks_a_whole_test_area` 钉住）：
+> `pyproject.toml` 的 `addopts` 默认 `--ignore` 区域、drivers 排除的撤销与可见性事故、
+> `--hardware` 门必须位于 `drivers/conftest.py`、本地剪除与 CI 收集必须同向等细节。
+
+### Environment Setup
+
+```bash
+# Create virtual environment with uv
+uv venv .venv
+source .venv/bin/activate  # Linux/macOS
+# .venv\Scripts\activate   # Windows
+
+# Install dependencies
+uv add -e .
+```

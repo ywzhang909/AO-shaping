@@ -191,7 +191,7 @@ def _notify(on_stage, name, status):
         logger.warning("transfer stage hook failed for {} ({}): {}", name, status, exc)
 
 
-def run_session(config: TransferSession, *, offline=False, on_stage=None):
+def run_session(config: TransferSession, *, offline=False, on_stage=None, on_frame=None):
     """No subprocess chains; each completed/failed stage is journaled immediately.
 
     ``on_stage(name, status)`` is an optional observer called whenever a stage
@@ -200,6 +200,12 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None):
     re-implementing the stage sequence (a second orchestrator would drift).
     A raising observer must not wreck the session, so its errors are swallowed
     with a warning; the journal and the run itself stay authoritative.
+
+    ``on_frame(payload)`` is the live CCD observer, forwarded unchanged to the
+    anchored-block stage only: :func:`validate.emit_block_frame` fires it once
+    per block with that block's last raw frame plus integer progress, and wraps
+    the call in the same best-effort guard. ``None`` (the CLI / offline default)
+    leaves the measured path byte-for-byte unchanged.
     """
     config.validate()
     if offline and config.dataset is None:
@@ -365,7 +371,7 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None):
         stage("CCD_anchored_blocks", lambda: validate.run(SimpleNamespace(**options, out=out / "anchored",
               seed_run=config.seed_run if not config.calibration_enabled and (config.seed_run or config.initial_phase != "gs") else out / "model",
               seed_policy=config.seed_policy if config.seed_run and not config.calibration_enabled else "strict",
-              mode="anchored", blocks=config.blocks, execute=True)))
+              mode="anchored", blocks=config.blocks, execute=True, on_frame=on_frame)))
         def audit():
             result = audit_run(out / "anchored")
             (out / "audit.json").write_text(json.dumps(result, indent=2), encoding="utf-8")

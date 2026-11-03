@@ -25,6 +25,11 @@ history.png
 
 data/*
 !data/1300-5-enriched.csv
+# dump/ 是 2026-11-01 从 data/ 移出的运行产物归档 (~109 GB), 与 data/ 同类:
+# 机器本地数据, 不入库 (否则 109 GB 会被误提交, ruff 也会去扫里面的历史脚本)。
+# 目录说明保留入库。
+dump/*
+!dump/README.md
 ckpts*
 !data/data_analysis.py
 .marscode*
@@ -214,6 +219,8 @@ node_modules/
 
 # openchamber
 .openchamber/*
+
+tmp/*
 
 # >>> magpie: library skills placed here (magpie adds and removes these lines) >>>
 /.agents/skills/academic-communication-merged

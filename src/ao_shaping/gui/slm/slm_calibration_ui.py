@@ -327,6 +327,7 @@ def render_sidebar() -> None:
             help="选择SLM相位-灰度响应标定方法",
         )
 
+        # 任务级分隔线 1/2：任务选择（存储 / 方法） → 设备与标定参数。
         st.divider()
 
         # SLM settings
@@ -347,9 +348,7 @@ def render_sidebar() -> None:
             step=1,
         )
 
-        st.divider()
-
-        # Camera settings
+        # 相机参数与 SLM 参数同属「设备参数」区块，区块内不画线（靠小标题分层）。
         st.subheader("相机参数")
         st.session_state.slm_cal_exposure_time = st.number_input(
             "曝光时间 (ms)",
@@ -359,9 +358,7 @@ def render_sidebar() -> None:
             step=1,
         )
 
-        st.divider()
-
-        # Calibration parameters
+        # 标定参数与下面 ROI / 自动曝光同属「标定参数」区块，区块内不画线。
         st.subheader("标定参数")
 
         st.session_state.slm_cal_grating_period = st.number_input(
@@ -423,9 +420,7 @@ def render_sidebar() -> None:
             step=10,
         )
 
-        st.divider()
-
-        # ROI settings
+        # ROI settings（「标定参数」区块内，不画线）
         st.subheader("感兴趣区域 (ROI)")
         roi_auto = st.checkbox(
             "自动检测光斑中心",
@@ -466,9 +461,7 @@ def render_sidebar() -> None:
             step=10,
         )
 
-        st.divider()
-
-        # Auto-exposure settings
+        # Auto-exposure settings（「标定参数」区块内，不画线）
         st.subheader("自动曝光")
         st.session_state.slm_cal_auto_exposure = st.checkbox(
             "启用自动曝光",
@@ -495,11 +488,15 @@ def render_sidebar() -> None:
                     step=5,
                 )
 
+        # 任务级分隔线 2/2：参数设置 → 设备连接（连不连得上，决定上面那些参数能不能用）
         st.divider()
 
         # Device connection
         st.subheader("设备连接")
 
+        # 两个连接按钮里「连接SLM」是唯一 primary：它是整页的起点（没它，标定
+        # 按钮根本不渲染）。「连接相机」是同级并列的第二步，降为描边 secondary，
+        # 避免同屏两个 primary 互相抢注意力（Issue #215 规则 6）。
         st.write("**SLM**")
         col1, col2 = st.columns(2)
         with col1:
@@ -515,7 +512,11 @@ def render_sidebar() -> None:
         col1, col2 = st.columns(2)
         with col1:
             if not st.session_state.slm_cal_camera_connected:
-                if st.button("连接相机", type="primary", key="slm_cal_connect_cam"):
+                if st.button(
+                    "连接相机",
+                    type="secondary",
+                    key="slm_cal_connect_cam",
+                ):
                     connect_camera()
             else:
                 st.success("相机已连接")
@@ -659,7 +660,10 @@ def render_calibration() -> None:
         not st.session_state.slm_cal_slm_connected
         or not st.session_state.slm_cal_camera_connected
     ):
-        st.warning("请先连接SLM和相机设备")
+        # 空状态说清下一步: 缺哪台就点名哪台, 并给出侧栏里那两个按钮的名字。
+        st.warning(
+            "请先连接SLM和相机设备 —— 左侧「设备连接」里点「连接SLM」与「连接相机」"
+        )
         return
 
     # Show current configuration
@@ -671,7 +675,7 @@ def render_calibration() -> None:
     步长 {st.session_state.slm_cal_step}, 预计 {n_points} 个测量点
     """)
 
-    # Start calibration button
+    # 标定模式里唯一的 primary：按下就是「跑这一次标定」，本页只有这一个动作。
     if st.button("开始标定", type="primary", disabled=st.session_state.slm_cal_running):
         st.session_state.slm_cal_running = True
         st.session_state.slm_cal_full_rerun_done = False
@@ -749,18 +753,21 @@ def render_load_view() -> None:
     storage_dir = Path(st.session_state.slm_cal_storage_dir)
 
     if not storage_dir.exists():
-        st.warning(f"存储目录不存在: {storage_dir}")
+        st.warning(f"存储目录不存在: {storage_dir} —— 在左侧「存储设置」里改正存储目录")
         return
 
     json_files = list(storage_dir.glob("*.json"))
 
     if not json_files:
-        st.warning("未找到校准结果文件")
+        st.warning(
+            "未找到校准结果文件 —— 先切到上方「标定」跑一次标定, 结果会写进这个目录"
+        )
         return
 
     file_options = [f.stem for f in json_files]
     selected = st.selectbox("选择校定结果", file_options)
 
+    # 加载模式里唯一的 primary（两种模式互斥渲染, 所以主区任何时刻只有一个 primary）。
     if selected and st.button("加载", type="primary"):
         try:
             file_path = storage_dir / f"{selected}.json"
@@ -821,6 +828,10 @@ def main() -> None:
     render_sidebar()
 
     # Main area - mode selection
+    # 两种模式互斥渲染, 各自只有一个 primary（标定模式:「开始标定」; 加载模式:
+    # 「加载」）。侧栏另算一片界面, 那里唯一的 primary 是「连接SLM」—— 它不随
+    # 主区模式变化, 是整页的起点。规则 6 要防的是「一屏里一排同等高亮的按钮」,
+    # 不是要求把跨界面的唯一入口也降级。
     mode = st.radio(
         "操作模式",
         options=["calibrate", "load_view"],

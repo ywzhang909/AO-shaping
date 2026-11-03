@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import ctypes
 import threading
 import time
 from pathlib import Path
@@ -44,7 +43,13 @@ from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 # Timeout (s) for probing a single SLM during device discovery.  The Santec SDK
 # has historically hung on SLM_Ctrl_ReadSD after rapid open/close cycles, so the
 # probe runs in a daemon thread and is abandoned after this interval.
-SLM_PROBE_TIMEOUT_S = 3.0
+from ao_shaping.drivers.slm.santec.probe import (
+    probe_slm,
+)
+
+# 「未连接」不是一句话的全部。空状态要说清下一步点哪: 这里统一指向侧栏
+# 「SLM 设备」表格里那一列的「连接」按钮 —— 换了措辞也不会各自漂移。
+CONNECT_HINT = "在左侧「SLM 设备」表格里点「连接」"
 
 # 像元间距的探测与告警已搬到「CCD参数设置」区块（bench_settings）—— 那是一次
 # 实验内固定的量，不该和「刷新相机状态」这种一次性诊断按钮混在一起。下面三个名字
@@ -199,66 +204,12 @@ def _stop_toggle(slm_num: int) -> None:
 
 
 def _probe_slm(slm_num: int) -> dict | None:
-    """Probe a single SLM; return its device dict, or ``None`` when no device
-    is attached (including the SDK being unavailable on a non-Windows host).
-    An already-open device reports ``in_use=True``. Runs in a daemon thread
-    with a timeout so a hung SDK call cannot block the Streamlit server (the
-    Santec SDK has historically hung on ``SLM_Ctrl_ReadSD`` after rapid
-    open/close cycles).
+    """Thin delegate to :func:`ao_shaping.drivers.slm.santec.probe.probe_slm`.
+
+    Kept under the historical name so existing call sites and monkeypatches
+    that replace ``multi_slm_controller._probe_slm`` keep working.
     """
-    try:
-        import ao_shaping.drivers.slm.santec._slm_win as slm_sdk  # Windows-only
-    except (ImportError, OSError) as e:  # non-Windows host: degrade to "no device"
-        logger.debug(f"Santec SLM SDK unavailable, skipping SLM probe: {e}")
-        return None
-
-    result: list[dict | None] = [None]
-
-    def worker() -> None:
-        try:
-            ret = slm_sdk.SLM_Ctrl_Open(slm_num)
-            if ret == 0:
-                # Device is free — read its serial then release it.
-                device_id = ctypes.create_string_buffer(256)
-                ret2 = slm_sdk.SLM_Ctrl_ReadSD(slm_num, device_id)
-                serial = device_id.value.decode("utf-8").strip() if ret2 == 0 else None
-                result[0] = {
-                    "slm_number": slm_num,
-                    "serial": serial,
-                    "connected": False,
-                    "in_use": False,
-                    "status": "未连接",
-                }
-            elif ret > 0:
-                # Positive return codes (SLM_NG=1, SLM_IS_BUSY=2, …) mean the
-                # SDK recognised a device at this index but could not open it
-                # — almost always because another instance already holds it.
-                # Negative codes (SLM_NOT_OPEN_USB=-200,
-                # FT_DEVICE_NOT_FOUND=-10002, …) mean no device is attached.
-                logger.debug(f"SLM #{slm_num} 已被占用 (返回码 {ret})")
-                result[0] = {
-                    "slm_number": slm_num,
-                    "serial": None,
-                    "connected": False,
-                    "in_use": True,
-                    "status": "使用中",
-                }
-            else:
-                logger.debug(f"SLM #{slm_num} 无设备 (返回码 {ret})")
-        except Exception:  # policy: ctypes SDK open can raise on an invalid handle; a probe that cannot open reports not-responding and still reaches the finally-close, so one dead controller cannot abort scanning the rest
-            logger.debug(f"扫描 SLM #{slm_num} 时发生异常", exc_info=True)
-        finally:
-            try:
-                slm_sdk.SLM_Ctrl_Close(slm_num)
-            except Exception:  # policy: the handle may never have opened, so this close is best-effort cleanup and its failure carries no information
-                pass
-
-    t = threading.Thread(target=worker, daemon=True)
-    t.start()
-    t.join(timeout=SLM_PROBE_TIMEOUT_S)
-    if t.is_alive():
-        logger.warning(f"SLM #{slm_num} 扫描超时 ({SLM_PROBE_TIMEOUT_S}s)，跳过")
-    return result[0]
+    return probe_slm(slm_num)
 
 
 def _scan_available_slms(max_slms: int = 8) -> list[dict]:
@@ -508,7 +459,7 @@ def main():
     count = len(connected_slms)
     if count == 0:
         st.title("SLM200 控制器")
-        st.info("请在左侧连接至少一个 SLM")
+        st.info(f"尚未连接 SLM —— {CONNECT_HINT}, 连上后这里出现相位控制。")
         return
 
     st.title(f"{'双' if count == 2 else '单'}SLM200 控制器")
@@ -846,7 +797,7 @@ def display_slm_status(slm_num: int):
             st.write("**下一个内存槽**:")
             st.caption(str(st.session_state[next_memory_key]))
     else:
-        st.warning("未连接")
+        st.warning(f"未连接 —— {CONNECT_HINT}")
 
 
 def render_slm_sidebar():
@@ -855,7 +806,9 @@ def render_slm_sidebar():
 
     available = st.session_state.get("available_slms", [])
     if not available:
-        st.caption("未发现可用设备")
+        # 空状态要说清下一步: 列表为空时下方那个「刷新设备列表」才是动作,
+        # 只写「未发现可用设备」会让人以为是设备坏了。
+        st.caption("未发现可用设备 —— 检查 USB 与电源后点下方「刷新设备列表」")
 
     col_h1, col_h2, col_h3, col_h4 = st.columns([1, 2, 1, 1])
     with col_h1:
@@ -908,6 +861,7 @@ def render_slm_sidebar():
             elif in_use:
                 st.markdown("已被占用")
             else:
+                # 侧栏这一屏的唯一主要按钮: 没有连接, 后面的任何操作都没有对象。
                 if st.button("连接", key=f"{prefix}_connect_table", type="primary"):
                     connect_slm(slm_num)
 
@@ -941,8 +895,6 @@ def render_slm_sidebar():
     else:
         st.caption("未发现大恒相机 (点击刷新尝试)")
         st.caption("连接被占用时，此处会显示占用提示")
-
-    st.markdown("")
 
     st.markdown("")
 
@@ -998,7 +950,9 @@ def _render_slm_wavelength_mismatch(slm_num: int, prefix: str, slm_obj: Santec) 
     with col_wl1:
         st.warning(f"波长: 设定值 {widget_wl} nm ≠ 设备值 {int(slm_obj.wavelength)} nm")
     with col_wl2:
-        if st.button("同步", key=f"{prefix}_sync_wl_btn", type="primary"):
+        # 「同步」是告警行里的一次纠正, 不是这一屏的主要动作: 侧栏这一屏的
+        # 唯一主要按钮是表格里的「连接」（没有连接就没有波长可同步）。
+        if st.button("同步", key=f"{prefix}_sync_wl_btn", type="secondary"):
             st.session_state[f"{prefix}_wavelength"] = int(slm_obj.wavelength)
             st.rerun()
 
@@ -1116,7 +1070,7 @@ def _apply_uploaded_correction(slm_num: int, uploaded_correction: Any) -> None:
     try:
         slm = st.session_state.get(f"slm{slm_num}")
         if slm is None:
-            st.warning("SLM未连接，无法应用矫正")
+            st.warning(f"SLM未连接，无法应用矫正 —— {CONNECT_HINT}")
         elif uploaded_correction is None:
             st.warning("请先选择矫正 CSV 文件")
         else:
@@ -1132,7 +1086,7 @@ def _clear_correction(slm_num: int) -> None:
     try:
         slm = st.session_state.get(f"slm{slm_num}")
         if slm is None:
-            st.warning("SLM未连接")
+            st.warning(f"SLM未连接 —— {CONNECT_HINT}")
         else:
             slm.load_correction_from_csv(None)
             st.success("矫正已清除")
@@ -1197,7 +1151,7 @@ def _save_slm_config(slm_num: int, prefix: str) -> None:
     """Write the sidebar shift back to the device and save its configuration."""
     slm = st.session_state.get(prefix)
     if slm is None:
-        st.info("SLM未连接，配置将在连接后写入设备")
+        st.info(f"SLM未连接，配置将在连接后写入设备 —— {CONNECT_HINT}")
         return
     try:
         ui_shift_x = st.session_state.get(f"{prefix}_shift_x", 0)
@@ -1218,7 +1172,7 @@ def _save_slm_phase_csv(slm_num: int) -> None:
     try:
         slm = st.session_state.get(f"slm{slm_num}")
         if slm is None:
-            st.warning("SLM未连接，无法保存相位")
+            st.warning(f"SLM未连接，无法保存相位 —— {CONNECT_HINT}")
             return
         phase, _ = slm.get_displayed_phase()
         if phase is None:
@@ -1350,7 +1304,7 @@ def _capture_toggle_phase(prefix: str, slot: str) -> None:
         else:
             st.warning("无法获取当前显示相位")
     else:
-        st.warning("SLM 未连接")
+        st.warning(f"SLM 未连接 —— {CONNECT_HINT}")
 
 
 def _fill_toggle_phase_with_zeros(prefix: str, slot: str) -> None:
@@ -1364,7 +1318,7 @@ def _fill_toggle_phase_with_zeros(prefix: str, slot: str) -> None:
         )
         st.success(_toggle_phase_zero_label(slot, h, w))
     else:
-        st.warning("SLM 未连接")
+        st.warning(f"SLM 未连接 —— {CONNECT_HINT}")
 
 
 def _start_phase_toggle(slm_num: int, prefix: str) -> None:
@@ -1373,9 +1327,9 @@ def _start_phase_toggle(slm_num: int, prefix: str) -> None:
     phase_b = st.session_state.get(f"{prefix}_toggle_phase_b")
     slm = st.session_state.get(prefix)
     if phase_a is None or phase_b is None:
-        st.warning("请先设置相位 A 和相位 B")
+        st.warning("请先设置相位 A 和相位 B —— 上方「设为相位 A」/「设为相位 B」")
     elif slm is None or not getattr(slm, "is_open", False):
-        st.warning("SLM 未连接")
+        st.warning(f"SLM 未连接 —— {CONNECT_HINT}")
     else:
         old_stop = st.session_state.get(f"{prefix}_toggle_stop_event")
         if old_stop is not None:
@@ -1420,6 +1374,7 @@ def _render_phase_generate_section(slm_num: int, prefix: str) -> None:
     """Generate a phase from the pattern generator, or load one from a CSV."""
     pattern_type, params = render_pattern_controls(slm_num)
 
+    # 本页唯一的主要按钮: 生成并把相位下发到面板, 是这一屏的目的本身。
     if st.button(
         "从模式生成器生成相位", key=f"{prefix}_gen_pattern_btn", type="primary"
     ):
@@ -1500,16 +1455,19 @@ def _render_phase_generate_section(slm_num: int, prefix: str) -> None:
 
 def _render_phase_toggle_section(slm_num: int, prefix: str) -> None:
     """The two toggle slots, the toggle frequency, and start / stop."""
+    # 分级: 这一屏只有「从模式生成器生成相位」是主要按钮（那是本页真正要做的
+    # 下发动作）。设 A/B 是它的前置准备, 开始/停止切换是后续任务 —— 三档都降为
+    # 次要, 避免四个同等高亮的按钮让操作员挑不出先点哪个。
     col_ph_a, col_ph_b = st.columns(2)
     with col_ph_a:
-        if st.button("设为相位 A", key=f"{prefix}_set_phase_a", type="primary"):
+        if st.button("设为相位 A", key=f"{prefix}_set_phase_a", type="secondary"):
             _capture_toggle_phase(prefix, "A")
         if st.button(
             "设为全0相位 A", key=f"{prefix}_set_zero_phase_a", type="secondary"
         ):
             _fill_toggle_phase_with_zeros(prefix, "A")
     with col_ph_b:
-        if st.button("设为相位 B", key=f"{prefix}_set_phase_b", type="primary"):
+        if st.button("设为相位 B", key=f"{prefix}_set_phase_b", type="secondary"):
             _capture_toggle_phase(prefix, "B")
         if st.button(
             "设为全0相位 B", key=f"{prefix}_set_zero_phase_b", type="secondary"
@@ -1672,6 +1630,15 @@ def _render_defocus_overlay_block(slm_num: int):
         st.caption("离焦叠加：**已关闭**（未对发送叠加相位）")
 
 
+def _overlay_layer_heading(text: str) -> None:
+    """三层叠加各自的小标题。
+
+    用标题而不是分隔线区分这三层: 窄侧栏里三条横线只是噪点, 操作员需要的是
+    「这一段在配哪一层」。分隔线只留给跨任务的边界（见 issue #215 规则 19）。
+    """
+    st.markdown(f"**{text}**")
+
+
 def render_phase_overlay_block(slm_num: int) -> None:
     """相位叠加（底相位 / 载波 / 离焦）：三层可分别勾选，勾中的全部相加。
 
@@ -1694,6 +1661,7 @@ def render_phase_overlay_block(slm_num: int) -> None:
       应当被 LUT 重映射。
     """
     prefix = f"slm{slm_num}"
+    _overlay_layer_heading("底相位")
     st.caption("将当前显示相位保存为底相位，后续发送相位时可自动叠加")
 
     col_base1, col_base2 = st.columns(2)
@@ -1711,7 +1679,7 @@ def render_phase_overlay_block(slm_num: int) -> None:
                 else:
                     st.warning("无法获取当前显示相位，请先显示一个相位图案")
             else:
-                st.warning("SLM 未连接")
+                st.warning(f"SLM 未连接 —— {CONNECT_HINT}")
     with col_base2:
         overlay = st.checkbox(
             "发送时自动叠加底相位",
@@ -1741,7 +1709,7 @@ def render_phase_overlay_block(slm_num: int) -> None:
         st.caption("当前底相位: 未设置")
 
     # --- 载波（倾斜）-----------------------------------------------------
-    st.divider()
+    _overlay_layer_heading("载波（倾斜）")
     from ao_shaping.gui.slm import bench_settings as _bs
 
     busy = _bs.bench_busy()
@@ -1761,8 +1729,8 @@ def render_phase_overlay_block(slm_num: int) -> None:
         _apply_slm_overlays(slm_num)
 
     # --- 离焦 ------------------------------------------------------------
-    st.divider()
-    st.caption("离焦（菲涅尔粗调 + Zernike (2,0) 细调）")
+    _overlay_layer_heading("离焦")
+    st.caption("菲涅尔项粗调 + Zernike (2,0) 细调")
     _render_defocus_overlay_block(slm_num)
 
 

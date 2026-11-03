@@ -315,12 +315,16 @@ class TestTargetSide:
     def test_derived_side_follows_the_documented_focal_relation(self):
         """D*f/(d_SLM*p_cam) with the bench constants.
 
-        Both `p_cam` AND `f` are module values now -- the pitch is the
-        measurement anchor and the focal length is derived from it plus the
-        measured focal scale -- so this asserts the relation using the config's
-        own resolved values instead of re-pinning either one as a literal here.
+        Both `p_cam` AND `f` are resolved values now -- the pitch is the
+        measurement anchor (read from the camera model) and the focal length is
+        derived from it plus the measured focal scale -- so this asserts the
+        relation using the config's own resolved values instead of re-pinning
+        either one as a literal here. ``cam_type="sim"`` gives a resolvable pitch
+        without a camera.
         """
-        cfg = SlmGsRefineConfig()
+        cfg = SlmGsRefineConfig(cam_type="sim")
+        assert cfg.camera_pixel_um > 0.0
+        assert cfg.focal_length_m > 0.0
         radius = 450.0
         expected = (
             2
@@ -334,37 +338,60 @@ class TestTargetSide:
             round(expected), rel=0.01
         )
 
-    def test_camera_pitch_is_the_anchor_and_focal_length_is_derived(self):
-        """The pitch is the ANCHOR; the focal length is derived from it.
+    def test_camera_pitch_comes_from_the_driver_and_focal_length_is_derived(self):
+        """The pitch is the ANCHOR, and it is the **driver's** value, not ours.
 
-        This inverts an earlier design that derived the pitch from a hardcoded
-        125mm lens. That arrangement was what put a stale 3.31um here in the
-        first place (implying a focal scale of 5023, 33% below the measured
-        7400), so the test now guards both halves of the new contract:
-        the pitch stays the datasheet 2.2um, and the focal length follows from
-        the measured scale rather than from a lens somebody remembered.
+        This inverts two earlier designs: deriving the pitch from a hardcoded
+        125 mm lens (which put a stale 3.31 um here, implying a focal scale of
+        5023 -- 33 % below the measured 7400), and later declaring 2.2 um in this
+        module (which silently stayed 2.2 for the next camera). The contract now
+        is: the pitch is a per-camera-model property read through
+        ``drivers.ccd.pixel_size``, and the focal length follows from it plus the
+        measured scale rather than from a lens somebody remembered.
         """
         from ao_shaping.optimizer.wfless.slm_gs_refine import (
-            _DEFAULT_CAMERA_PIXEL_UM,
-            _DEFAULT_FOCAL_LENGTH_M,
             _TILT_SHIFT_SCALE_MEASURED_AT_NM,
             _TILT_SHIFT_SCALE_PX,
         )
 
-        assert _DEFAULT_CAMERA_PIXEL_UM == pytest.approx(2.2, rel=1e-6)
-        assert _DEFAULT_CAMERA_PIXEL_UM < 2.4, "must not be the stale 3.31 um"
+        cfg = SlmGsRefineConfig(cam_type="sim")
+        # The sim backend's pitch is the twin-optics value, i.e. the driver layer's
+        # answer -- not a number this module owns.
+        from ao_shaping.drivers.ccd.pixel_size import camera_pixel_size_um_for
+
+        assert cfg.camera_pixel_um == pytest.approx(camera_pixel_size_um_for("sim"))
+        assert cfg.camera_pixel_um_source == "derived: sim twin"
+        assert cfg.camera_pixel_um < 2.4, "must not be the stale 3.31 um"
 
         # f = p_cam * d_slm * K / lambda  ->  the 125mm nominal lens to ~2%
         expected_f = (
-            _DEFAULT_CAMERA_PIXEL_UM
+            cfg.camera_pixel_um
             * 1e-6
-            * 8.0
+            * cfg.panel_pixel_um
             * 1e-6
             * _TILT_SHIFT_SCALE_PX
             / (_TILT_SHIFT_SCALE_MEASURED_AT_NM * 1e-9)
         )
-        assert _DEFAULT_FOCAL_LENGTH_M == pytest.approx(expected_f, rel=1e-9)
-        assert _DEFAULT_FOCAL_LENGTH_M == pytest.approx(0.125, rel=0.03)
+        assert cfg.focal_length_m == pytest.approx(expected_f, rel=1e-9)
+        assert cfg.focal_length_m == pytest.approx(0.125, rel=0.03)
+
+    def test_an_explicit_pitch_is_the_anchor_and_is_not_overwritten(self):
+        cfg = SlmGsRefineConfig(camera_pixel_um=2.2)
+        assert cfg.camera_pixel_um == pytest.approx(2.2)
+        assert cfg.camera_pixel_um_source == "input"
+
+    def test_an_unresolvable_pitch_is_not_silently_guessed(self):
+        """No camera attached and none passed ⇒ 0 + ``unresolved``, never 2.2.
+
+        Construction must not enumerate a GigE bus (``drivers/AGENTS.md``: a
+        constructor may not load an SDK), so the failure is deferred to the
+        session, where ``require_camera_pixel_um`` resolves it from the open
+        camera or raises with the registration command.
+        """
+        cfg = SlmGsRefineConfig(cam_type="daheng", cam_id=99)
+        assert cfg.camera_pixel_um == 0.0
+        assert cfg.camera_pixel_um_source == "unresolved"
+        assert cfg.focal_length_m == 0.0, "no anchor ⇒ no derived focal length"
 
     def test_derived_focal_length_is_wavelength_invariant(self):
         """A lens focal length cannot depend on the laser.
@@ -374,13 +401,11 @@ class TestTargetSide:
         another. Without that, switching SLMs (1064nm vs 532nm) silently
         doubles the focal length.
         """
-        from ao_shaping.optimizer.wfless.slm_gs_refine import _DEFAULT_FOCAL_LENGTH_M
-
+        reference = SlmGsRefineConfig(camera_pixel_um=2.2, slm_wavelength=1064).focal_length_m
+        assert reference > 0.0
         for lam in (1064.0, 532.0, 780.0):
-            cfg = SlmGsRefineConfig(slm_wavelength=lam)
-            assert cfg.focal_length_m == pytest.approx(
-                _DEFAULT_FOCAL_LENGTH_M, rel=1e-9
-            )
+            cfg = SlmGsRefineConfig(camera_pixel_um=2.2, slm_wavelength=lam)
+            assert cfg.focal_length_m == pytest.approx(reference, rel=1e-9)
 
     def test_explicit_focal_length_is_respected_not_overwritten(self):
         cfg = SlmGsRefineConfig(focal_length_m=0.125)
@@ -413,6 +438,26 @@ class TestTargetSide:
     def test_never_degenerate(self):
         assert _derive_target_side(SlmGsRefineConfig(target_side=1), 10.0) >= 3
 
+    def test_mm_side_converts_through_the_camera_pitch(self):
+        """1 mm of sensor is ``1000 / p_cam`` pixels -- the operator's own unit.
+
+        The bench sizes are quoted in millimetres on the sensor, so ``--target-side-mm``
+        lets the operator say that directly; converting it here keeps the single
+        ``target_side`` field (camera pixels) as the only thing the stages see.
+        """
+        cfg = SlmGsRefineConfig(target_side_mm=1.5, camera_pixel_um=2.5)
+        assert _derive_target_side(cfg, 450.0) == round(1.5 * 1000.0 / 2.5)
+
+    def test_mm_side_works_without_a_camera(self):
+        """The conversion reads the camera *model* configuration, not a device."""
+        cfg = SlmGsRefineConfig(target_side_mm=2.0, cam_type="sim")
+        assert cfg.spgd_enabled is False
+        assert _derive_target_side(cfg, 450.0) == round(2.0 * 1000.0 / cfg.camera_pixel_um)
+
+    def test_mm_and_pixel_side_are_mutually_exclusive(self):
+        with pytest.raises(ValueError, match="target_side_mm"):
+            SlmGsRefineConfig(target_side=90, target_side_mm=1.5)
+
 
 class TestLearningRate:
     def test_auto_lr_tracks_delta(self):
@@ -441,6 +486,53 @@ class TestOptimizerFactory:
         step = opt.update(np.ones(16))
         assert np.asarray(step).shape == (16,)
         assert np.isfinite(np.asarray(step, dtype=float)).all()
+
+
+# ---------------------------------------------------------------------------
+# GS-only run (``epochs=0``): shape and send, claim no detector
+# ---------------------------------------------------------------------------
+
+
+class TestGsOnlyRun:
+    """``epochs=0`` is the default: the phase goes out, no camera is opened.
+
+    That ordering is the whole point -- the panel is shared and the detector may
+    belong to another experiment, so "look at the GS shape" must not cost a
+    camera session.
+    """
+
+    def test_the_default_is_gs_only(self):
+        assert SlmGsRefineConfig().epochs == 0
+        assert SlmGsRefineConfig().spgd_enabled is False
+        assert _fast_config().spgd_enabled is True
+
+    def test_gs_only_run_sends_the_phase_without_opening_a_camera(
+        self, small_sim_bench, monkeypatch
+    ):
+        import ao_shaping.optimizer.wfless.slm_gs_refine as module
+
+        def _no_camera(_config):
+            raise AssertionError("epochs=0 must not open a camera")
+
+        monkeypatch.setattr(module, "open_camera", _no_camera)
+
+        rec = optimize_slm_gs_refine(_fast_config(epochs=0))
+
+        # Nothing was measured, so there is no composite and no history row: every
+        # history column is a measured quantity.
+        assert rec.history == []
+        assert np.isnan(rec.best_score)
+        assert rec.epochs_executed == 0
+        # The run's product is the phase: computed, embedded and written.
+        assert rec.best_phase is not None
+        assert rec.best_phase.shape == SMALL_PANEL
+        assert np.isfinite(rec.best_phase).all()
+        assert rec.best_stage == "gs"
+
+    def test_gs_only_without_a_gs_warm_start_fails_loudly(self, small_sim_bench):
+        """No detector and no GS means there is nothing to send -- say so."""
+        with pytest.raises(ValueError, match="epochs=0"):
+            optimize_slm_gs_refine(_fast_config(epochs=0, gs_warm_start=False))
 
 
 # ---------------------------------------------------------------------------
@@ -659,6 +751,23 @@ class TestEndToEndSim:
         monkeypatch.setattr(
             module, "display_and_average", lambda *_args, **_kwargs: frame
         )
+        monkeypatch.setattr(
+            module, "open_camera", lambda *_args, **_kwargs: CameraStub()
+        )
+
+        class PanelHandle:
+            """Minimal hardware-like SLM handle: it accepts a phase to display.
+
+            The session now writes the GS phase **before** it asks for the camera,
+            so the handle has to take a panel write even though this test only
+            cares about where the ROI window lands.
+            """
+
+            def create_phase_from_array(self, phase):
+                return np.zeros(np.asarray(phase).shape, dtype=np.uint16)
+
+            def display_data(self, gray, memory_number=None):
+                pass
 
         class CameraStub:
             def reset_exposure_time(self, time_ms: float) -> float:
@@ -676,9 +785,15 @@ class TestEndToEndSim:
 
         with pytest.raises(RuntimeError, match="window configured"):
             module._run_gs_refine_session(
-                _fast_config(cam_type="daheng"),
-                object(),
-                CameraStub(),
+                # ``camera_pixel_um`` keeps the pitch an input: the point of this
+                # test is the ROI window, not pitch resolution from a camera model.
+                # ``slm_wavelength`` likewise stands in for the device read that
+                # ``sync_device_wavelength`` is stubbed out of here (0 leaves the
+                # far-field pitch undefined and the target side cannot be derived).
+                _fast_config(
+                    cam_type="daheng", camera_pixel_um=3.45, slm_wavelength=1064
+                ),
+                PanelHandle(),
                 np.random.default_rng(1),
                 Recorder(mark="score", mode="max"),
             )
@@ -753,7 +868,6 @@ def test_best_phase_is_convergence_point_not_probe(monkeypatch: pytest.MonkeyPat
     recorder = module._run_gs_refine_session(
         config,
         slm_stub,
-        object(),
         np.random.default_rng(config.seed),
         Recorder(mark="score", mode="max"),
     )
@@ -850,6 +964,10 @@ def _base_panel() -> np.ndarray:
 def _run_until_overlay_applied(cfg, monkeypatch, slm_handle):
     """Run ``optimize_slm_gs_refine`` and stop right after the apply line.
 
+    The apply line runs before the SLM is opened (and now before the camera is
+    requested), so the sentinel sits on ``open``: a handle with no ``open`` of
+    its own gets one for the duration of the run.
+
     Returns the handle that ``open_slm`` handed to the optimizer (the same
     object the apply line wrote to).
     """
@@ -860,8 +978,12 @@ def _run_until_overlay_applied(cfg, monkeypatch, slm_handle):
     def _fake_open_camera(_config):
         raise _OverlaySentinel()
 
+    def _stop(*_args, **_kwargs):
+        raise _OverlaySentinel()
+
     monkeypatch.setattr(gsr, "open_slm", _fake_open_slm)
     monkeypatch.setattr(gsr, "open_camera", _fake_open_camera)
+    monkeypatch.setattr(slm_handle, "open", _stop, raising=False)
     with pytest.raises(_OverlaySentinel):
         gsr.optimize_slm_gs_refine(cfg)
     return slm_handle
