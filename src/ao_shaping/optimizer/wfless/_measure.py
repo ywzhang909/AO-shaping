@@ -9,6 +9,7 @@ import numpy as np
 from ao_shaping.utils.image.beam_metrics import locate_peak, prepare_frame
 
 
+# AXIS: (row, col)
 def locate_zero_order(frame: np.ndarray) -> tuple[int, int]:
     """Locate the 0-order as the frame global maximum, returned as ``(cy, cx)``.
 

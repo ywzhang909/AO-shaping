@@ -847,11 +847,11 @@ def clamp_center_to_frame(
     )
 
 
+# AXIS: (row, col)
 def locate_peak(frame: np.ndarray, finite: bool = True) -> tuple[int, int]:
     """Locate the global peak as (row, col)."""
     masked = np.asarray(frame, dtype=np.float64)
-    if finite:
-        masked = np.where(np.isfinite(masked), masked, 0.0)
+    masked = np.where(np.isfinite(masked), masked, 0.0) if finite else masked
     iy, ix = np.unravel_index(int(np.argmax(masked)), masked.shape)
     return int(iy), int(ix)
 

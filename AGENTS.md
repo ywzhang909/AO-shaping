@@ -362,6 +362,21 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 
 尾注：`targets.py` 是 compat shim（其 docstring 的叶子枚举已过时——写了并不存在的 `metrics`、缺 `geometry`/`masks`/`shapes` 三个盘面叶），代码级 docstring 修正另行条目；`target/` 包消费方为 5 个 wfless 优化器与 `slm_shaping_runner`。
 
+## 2D 坐标轴序约定（#223）
+
+运行期所有 2D 点/中心/位移一律 **`(x, y)`**（x=列，x 在前）。库原生返回值
+（`np.unravel_index` / `scipy.ndimage.center_of_mass` / `np.argwhere`）一律 **row 先**，
+视为内部细节：只允许出现在生产者函数内部，出口必须转换。
+
+- **准入清单single source**：`utils/image/axis_order.py::ROW_FIRST_SURFACES` ——
+  row 先的生产者/入参接口只能在此登记，**不在文档里再抄一份**（两份必然漂移）。
+- 新增一条 row 先接口的三件事：①登记；②docstring 写明 `(row, col)`/`(cy, cx)`/`(y, x)`；
+  ③补非方帧断言（方帧上转置不可观测，`(120, 160)` 这类才算断言）。
+- 转换原语只有一对：`rowcol_to_xy` / `xy_to_rowcol`；运行期点用 `Point`（`.x`/`.y`）。
+- 守卫：`tests/ao_shaping/test_point_axis_convention.py`（AST 核对登记表 + 非方帧行为）。
+- 未完成项（#223 tier 2/3）：13 个 row 先生产者归一化为 `(x, y)`；磁盘工件
+  `calib["center"]` 仍是 `[row, col]`，迁移需版本判别。
+
 ## tools/ 模块逐名登记 (2026-10-26 普查)
 
 86 个模块逐一对照本文件叙述：名面（`name.py` 全名）未列 58 个 —— 46 个真零提及 + 12 个 stem 命中（4 个真命中：`floor_probe` / `abba_probe` 见 io 行收拢注记、`lut_runner` 见注册映射树、`panel_locate` 见 `cli/exposure` 行注记；3 个 `__main__.py` 通用 token 按同 `__init__.py` 的 floor 合同通过；4 个撞普通词假命中：`bootstrap` / `probes` / `response` / `simulation`；1 个特例 `calibration.py` 只被包目录路径串 `tools/slm/calibration/` 命中）。46 真缺 + 4 假命中 + `calibration.py` 共 51 行补录如下；全量覆盖由守卫 `tests/ao_shaping/test_tools_doc_coverage.py` 锁定（token 合同同 `utils/` 守卫）。**2026-10-26 复核**：上游合入 10 个新 transfer 模块（tools 总数 86 → 96），守卫当时恰红这 10 个，已一并登记，本表现共 61 行。**2026-10-29 复核**：上游 10-26 后又陆续合入 `jacobian_guard` / `parallel_fit` / `protocol` 三个 transfer 模块（此前漏登记），连同 `validate.py` 为过模块规模门禁拆分出的 `session_plan.py` 一并补登记 4 行，本表现共 64 行；同日 `48b8b55a` 把曝光阶梯自 `panel/focus_probe.py` 拆出为 `panel/exposure_adapt.py`，补登记 1 行，本表现共 65 行。**2026-10-29 二轮**：本轮 campaign 界面新增的 4 个 transfer 模块（`campaign_control` / `checkpoint_registry` / `cost_table` / `optical_session`）与拆分出的 `session_record.py` 补登记 5 行，本表现共 70 行。**2026-10-30 复核**：上游 `f6b3e186` 合入时 `jacobian_guard` / `parallel_fit` / `protocol` 三条被两条提交（`adbc2016` 短版 / `54782eec` 长版）重复登记，已去重各留一条（长版，与 docstring 一致），本表实为 75 行。

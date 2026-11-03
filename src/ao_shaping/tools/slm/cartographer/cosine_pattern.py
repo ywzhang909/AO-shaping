@@ -175,6 +175,7 @@ def estimate_phase_from_pattern(
     return grayscale_pattern.astype(np.float64) / max_gs * 2.0 * np.pi
 
 
+# AXIS: (row, col)
 def get_pattern_peak_position(
     pattern: np.ndarray,
 ) -> tuple[int, int]:
