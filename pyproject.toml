@@ -80,9 +80,13 @@ dependencies = [
     "streamlit-aggrid>=1.2.1.post2",
     "plotly>=6.7.0",
     "streamlit-drawable-canvas>=0.9.3",
-    # 桌面控制台 (`gui/ccd/beam_quality`, 含迁移学习闭环页) 的 Qt 绑定。Essentials
-    # 已含 QtCharts / QtSvg; Addons (WebEngine/Qt3D) 不在本仓库用到的模块里。
+    # 桌面控制台 (`gui/ccd/beam_quality`, 含迁移学习闭环页) 的 Qt 绑定。QtCharts
+    # 在 **Addons** 里, 不在 Essentials —— 2026-11-03 实测: 只装 essentials 时
+    # `from PySide6.QtCharts import ...` 直接 ModuleNotFoundError, 而
+    # `beam_quality/trend_widget.py` 与 `profile_widget.py` 都依赖它, 所以两个包
+    # 都要装。Addons 的其余模块 (WebEngine / Qt3D) 本仓库仍未用到。
     "pyside6-essentials>=6.12.0",
+    "pyside6-addons>=6.12.0",
     "pygame>=2.6.1",
     "cupy-cuda13x>=14.2.0",
     "pyarrow>=25.0.1",
