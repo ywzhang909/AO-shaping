@@ -225,6 +225,27 @@ class MyDriver(Device):
    `from _common import ...` 排在 `sys.path` 自举**之前**（E402 对 `sys.path`
    操作网开一面，只有真按文件方式启动才 `ModuleNotFoundError`）。
 7. **拆完立刻收紧棘轮**：`--update-baseline` 只改被拆那一条，然后 `--check` 必须是 0。
+   该命令现在会打印 `棘轮方向: 收紧 N / 抬高 M / 新增 K / 移除 J`，并把每一条**抬高**
+   逐条列出、附一句「本次重写放宽了门禁」的提示。原因是这条路径的两次实测事故
+   （`54782eec` focus_probe +42、`15ea0a22` 三个驱动/仿真文件 +77/+4/+4）在 diff 里
+   与正常拆分长得一模一样 —— 都是 baseline 里一个数字变了，评审看不出来。
+   看到「抬高」时的处置只有两种：写明这是经审查的功能性改动，或者先拆分再收紧。
+
+### 9.3 `Recorder(mark=...)` 必须是**目标列名**，不是算法标签（2026-11-03）
+
+`Recorder.append` 断言 `self.mark in record`，`get_best_iter()` 又拿 `self.mark`
+当列名去 `argmin/argmax`。所以 `mark` 只能是**每条记录里真的存在的那一列**
+（`"rms"` / `"pib"` / `"score"` / `"cv"`…），写算法名（`"ga_zernike"`、
+`"greedy_zernike"`）会让第一次 `append` 直接崩，或在被改写过的 `append` 里
+退化成"对常量列取 argmin"——永远返回第 0 条而不报错。
+
+- 出事过的两处：`optimizer/wf/ga_zernike.py`、`optimizer/wf/greedy_zernike.py`
+  （`greedy-zernike` / `ga-zernike` 两条命令一启动就 `AssertionError`）。
+- 曾被测试掩盖：`tests/.../test_ga_zernike.py` 在**模块导入期**全局改写
+  `Recorder.append` 往里塞一个常量键。这既让被测代码的崩溃看不见，又污染同一
+  pytest 进程里的其它用例。**修生产代码或改用法，绝不在测试里给共享类打补丁。**
+- 守卫：`tests/ao_shaping/optimizer/wf/test_greedy_zernike_characterization.py`
+  用假 SLM/WFS 驱动真优化器，钉住 `get_best_target` / `get_best_iter` 的取值来源。
 
 ### 10. 性能优化模式
 

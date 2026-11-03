@@ -108,6 +108,8 @@ def test_no_consecutive_writes_reuse_the_same_slot(monkeypatch: Any) -> None:
 
     monkeypatch.setattr(slm, "_write_phase", fake_write_phase)
     monkeypatch.setattr(slm, "_display_memory", fake_display_memory)
+    # no `_slm` handle on a bare instance: "displayed slot unknown" -> pure counter rotation
+    monkeypatch.setattr(slm, "get_displayed_memory_number", lambda: None)
 
     gray = np.zeros((1200, 1920), dtype=np.uint16)
     for _ in range(10):

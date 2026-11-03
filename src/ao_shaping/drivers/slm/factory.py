@@ -12,6 +12,10 @@ construction:
 - :func:`sync_device_wavelength` adopts the wavelength the SLM reports
   into the optimizer config, so the GS propagation sees the wavelength
   the panel is really programmed for.
+- :func:`require_drive_board_entry` guards every acquisition session:
+  the panel's drive board must answer before the first measurement of a
+  run; simulated panels (and test doubles without a drive board) are a
+  no-op.
 
 :func:`open_camera` lives beside the SLM factory rather than in
 ``ccd/`` because the two devices are always opened as one bench unit:
@@ -36,6 +40,7 @@ __all__ = [
     "DEFAULT_WAVELENGTH_NM",
     "open_slm",
     "open_camera",
+    "require_drive_board_entry",
     "sync_device_wavelength",
 ]
 
@@ -131,3 +136,22 @@ def open_camera(params: BenchDeviceParams) -> Any:
         cam_id=params.cam_id,
         exposure_time_ms=params.exposure_time_ms,
     )
+
+
+def require_drive_board_entry(slm: Any) -> str | None:
+    """Acquisition-entry guard: the panel's drive board must answer.
+
+    2026-10-22 实测: 驱动板不应答的控制器只剩选板应答, 而面板硬件上根本
+    不调制, 整轮实验的数据因此全无效, 却没有留下任何异常 (SDK 复现见
+    ``tests/ao_shaping/drivers/slm/test_slm_drive_board_health.py``)。
+    所以每个采集会话在第一帧测量之前必须先在这里失败。
+
+    判定委托驱动层 ``require_drive_board()``: 成功返回驱动板序列号, 失败
+    抛 ``SLMDriveBoardError``。仿真面板与测试替身没有该方法
+    (``--cam-type sim`` 会替换优化器模块里的全局 ``Santec`` 名字), 按
+    :func:`sync_device_wavelength` 的同一 duck-typing 模式视为 no-op。
+    """
+    check = getattr(slm, "require_drive_board", None)
+    if check is None:
+        return None
+    return check()

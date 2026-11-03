@@ -369,8 +369,8 @@
    "qualname": "optimize_pib",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 209,
-   "end": 790,
+   "lineno": 509,
+   "end": 661,
    "args": [
     "center",
     "epochs",
@@ -586,8 +586,8 @@
    "qualname": "_objective_to_min",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 184,
-   "end": 206,
+   "lineno": 185,
+   "end": 207,
    "args": [
     "objective"
    ],
@@ -637,8 +637,8 @@
    "qualname": "_generate_search_candidates",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 83,
-   "end": 107,
+   "lineno": 84,
+   "end": 108,
    "args": [
     "anchor_v",
     "radius_scale",
@@ -727,8 +727,8 @@
    "qualname": "_should_trigger_adaptive_search",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 110,
-   "end": 124,
+   "lineno": 111,
+   "end": 125,
    "args": [
     "epoch",
     "enabled",
@@ -746,8 +746,8 @@
    "qualname": "_extract_optimizer_momentum",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 65,
-   "end": 69,
+   "lineno": 66,
+   "end": 70,
    "args": [
     "optimizer"
    ],
@@ -770,8 +770,8 @@
    "qualname": "_reset_optimizer_state",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 72,
-   "end": 80,
+   "lineno": 73,
+   "end": 81,
    "args": [
     "optimizer"
    ],
@@ -1319,8 +1319,8 @@
    "qualname": "optimizer_rms_slm",
    "module": "ao_shaping.optimizer.wf.rms_by_zernike",
    "file": "src/ao_shaping/optimizer/wf/rms_by_zernike.py",
-   "lineno": 439,
-   "end": 904,
+   "lineno": 838,
+   "end": 992,
    "args": [
     "epochs",
     "init_z",
@@ -1700,7 +1700,7 @@
    "module": "ao_shaping.optimizer.wf.ga_zernike",
    "file": "src/ao_shaping/optimizer/wf/ga_zernike.py",
    "lineno": 138,
-   "end": 386,
+   "end": 389,
    "args": [
     "n_generations",
     "population_size",
@@ -1816,8 +1816,8 @@
    "qualname": "optimizer_greedy",
    "module": "ao_shaping.optimizer.wf.greedy_zernike",
    "file": "src/ao_shaping/optimizer/wf/greedy_zernike.py",
-   "lineno": 78,
-   "end": 403,
+   "lineno": 355,
+   "end": 519,
    "args": [
     "epochs",
     "n_init",
@@ -2361,8 +2361,8 @@
    "qualname": "optimize_pib",
    "module": "ao_shaping.optimizer.combined_optimizer",
    "file": "src/ao_shaping/optimizer/combined_optimizer.py",
-   "lineno": 83,
-   "end": 371,
+   "lineno": 397,
+   "end": 488,
    "args": [
     "center",
     "epochs",

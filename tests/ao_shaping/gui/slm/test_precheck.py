@@ -387,8 +387,17 @@ def test_warnings_need_an_acknowledgement_each(out_dir: Path, tmp_path: Path) ->
     assert card.acknowledged({"time": True, "saturation": True}) is True
 
 
-def test_unknown_checks_do_not_require_an_acknowledgement(out_dir: Path) -> None:
-    """"不知道"不是"已知风险"：不阻断、也不静默算通过（它仍是 unknown 一档）。"""
+def test_unknown_checks_do_not_require_an_acknowledgement(out_dir: Path,
+                                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    """"不知道"不是"已知风险"：不阻断、也不静默算通过（它仍是 unknown 一档）。
+
+    盘余量必须钉成夹具而不是读宿主：磁盘检查拿 ``shutil.disk_usage`` 的真实
+    余量与预估 17.7 GB 比较，CI 容器实测只剩 4.3 GB → disk 变 stop → 整卡
+    blocking=True。那是宿主盘状态，不是本用例盯的五项 unknown 语义。
+    沿用上面三个磁盘用例同款的 ``disk_usage`` 替身（富余档 → disk=pass）。
+    """
+    monkeypatch.setattr(shutil, "disk_usage",
+                        lambda _path: SimpleNamespace(total=10 ** 12, used=0, free=10 ** 12))
     card = _card(out_dir=out_dir)
     assert card.warnings == ()
     assert card.blocking is False

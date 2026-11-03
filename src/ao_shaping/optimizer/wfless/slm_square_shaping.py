@@ -97,6 +97,7 @@ from ao_shaping.drivers.ccd.common import (
     resample_on_saturation,
 )
 from ao_shaping.drivers.slm import Santec
+from ao_shaping.drivers.slm.factory import require_drive_board_entry
 from ao_shaping.optimizer.constants import (
     CAM_SAMPLE_ITER,
     TEST_EXPOSURE_TIME_BRIGHTNESS,
@@ -936,407 +937,67 @@ class SlmSquareConfig:
             )
 
 
-def optimize_slm_square(
-    center: tuple[int, int] | str | None,
-    epochs: int,
-    config: SlmSquareConfig | None = None,
-    n_max: int = 4,
-    target_side: int = 0,
-    target_mean_brightness: float = 0.0,
-    side_factor: float = 1.5,
-    delta: float = 0.1,
-    lr: float = 0,
-    exposure_time_ms: float = 0.0,
-    cam_id: int = 0,
-    cam_type: str = "daheng",
-    show: bool = False,
-    init_c: list[float] | np.ndarray | None = None,
-    cam_size: int = 300,
-    blaze_period_px: int = -1,
-    blaze_direction: str = "vertical",
-    target_max_brightness: int = 200,
-    slm_number: int = 1,
-    slm_type: str = "",
-    slm_wavelength: int = 0,
-    optimizer_type: str = "adamod",
-    random_seed: int | None = None,
-    w_uniformity: float = 0.4,
-    w_efficiency: float = 0.6,
-    w_aspect: float = 0.0,
-    w_pbr: float = 0.0,
-    basis: str = "freeform",
-    phase_grid: int = 24,
-    zernike_radius: float | int | None = None,
-    zernike_mask: np.ndarray | None = None,
-    rotation_search_deg: float = 0.0,
-    algorithm: str = "spgd",
-    pop_size: int | None = None,
-    objective: str = "quality",
-    max_roi_energy_loss: float = 0.6,
-    init_amplitude_rad: float = 0.0,
-    adaptive: bool = False,
-    stagnate_win: int = 10,
-    stagnate_boost: float = 1.5,
-    min_improve_frac: float = 0.01,
-    **kwargs,
-) -> Recorder:
-    """Optimize square beam uniformity using SLM with Zernike coefficient control.
-
-    This function uses the SPGD (Stochastic Parallel Gradient Descent) algorithm
-    to optimize Zernike coefficients displayed on an SLM, minimizing the
-    coefficient of variation (CV) of the intensity within a target square region.
-
-    Args:
-        center: Center position for the square target. Can be None (auto-detect
-            original-spot centroid, same as "shape"), "shape" (argmax-anchored
-            smart detection — argmax anchor + centroid refinement on flat cores),
-            "centroid_thresh" (brightness centroid, threshold=0.1×max),
-            "max" (brightest pixel / argmax), "mass" (full-image centroid,
-            stray-light sensitive), or tuple (x, y) for a fixed center
-            (not re-detected after exposure adjustment).
-        epochs: Number of optimization iterations.
-        n_max: Maximum Zernike radial order. Controls the number of modes.
-        target_side: Side length of the target square in pixels.
-            Mutually exclusive with target_mean_brightness (specify only one).
-            If 0 and target_mean_brightness is also 0, auto-computed from spot
-            size × side_factor.
-        target_mean_brightness: Target mean brightness (average pixel value /
-            gray level) of the square. Mutually exclusive with target_side.
-            When positive, the side length is auto-derived by energy
-            conservation: side = sqrt(total_brightness / target_mean_brightness),
-            where total_brightness is the integrated intensity of the initial
-            camera image.
-        side_factor: Multiplier for auto-computed side length (default 1.5).
-        delta: Perturbation amplitude for Zernike coefficients.
-        lr: Learning rate. If 0, auto-adjusted via learning_schedule.
-        exposure_time_ms: Camera exposure time in ms. If 0, auto-exposure.
-        cam_id: Camera device ID.
-        show: Whether to display images during optimization.
-        init_c: Initial Zernike coefficients. If None, starts from zeros.
-        cam_size: Camera window size.
-        target_max_brightness: Target max brightness for auto-exposure.
-        slm_number: SLM device number (1-8).
-        slm_wavelength: SLM wavelength in nm (0 = ask the device).
-        optimizer_type: Optimizer type (adam/adamod/sgd/muno).
-        random_seed: Random seed for reproducibility.
-        w_uniformity: Weight for uniformity (CV) in quality score.
-        w_efficiency: Weight for encircled energy in quality score.
-        w_aspect: Weight for aspect ratio in quality score.
-        basis: Parameterisation basis ("zernike" or "freeform").
-        phase_grid: Freeform grid side (dim = grid^2).
-        zernike_radius: Zernike aperture radius in pixels. Defaults to
-            min(SLM_HEIGHT, SLM_WIDTH) / 2 = 600, matching the GUI
-            (multi_slm_controller.py Zernike branch).
-        zernike_mask: 0/1 binary array selecting which Zernike Noll modes
-            participate in SPGD. Length must be ≥ 5; Noll indices 1-3 (piston,
-            tip, tilt) are forced to 0. When provided, overrides the hardcoded
-            ZERNIKE_ACTIVE_MODES ((2,0),(4,0)). E.g. [0,0,0,1,0,0,0,0,0,0,0,1]
-            activates only defocus (2,0) and spherical (4,0).
-        rotation_search_deg: SLM↔相机相对旋转搜索范围(度, 0~360)。0=不启用
-            旋转校正(默认); >0 时旋转角作为额外 SPGD 自由度, 在
-            [-range/2, +range/2] 内搜索, 每轮下发相位图按当前角旋转补偿。
-            起始值 0°, 扰动步长固定 1°。
-        objective: Square-shaping objective, one of
-            :data:`SQUARE_OBJECTIVE_CHOICES`. ``"quality"`` (default) is the
-            historical combined score; ``"pearson"`` is the FourierGSNet
-            ``1 - Pearson`` correlation loss, negated to higher-is-better by
-            :func:`square_objective_score`.
-        adaptive: Enable the adaptive SPGD closed loop (default False). When on,
-            the quality weights are scheduled from
-            :data:`AdaptiveSpgdConfig.stage_weights` — a
-            (w_uniformity, w_efficiency, w_aspect) triple — switching at epoch
-            thirds, and ``w_uniformity`` is temporarily boosted while the
-            best-CV improvement stays below ``min_improve_frac`` over the last
-            ``stagnate_win`` epochs. When off, behavior is identical to previous
-            releases.
-        stagnate_win: Stagnation-detection window in epochs (adaptive only).
-        stagnate_boost: Multiplicative boost applied to ``w_uniformity`` while
-            stagnating; 1.0 disables the boost (adaptive only).
-        min_improve_frac: Stagnation trigger — best-CV improvement below this
-            fraction over the window counts as stagnation (adaptive only).
-        **kwargs: Additional optimizer parameters.
-
-    Returns:
-        Recorder: Optimization history recorder.
-    """
-    if config is None:
-        config = SlmSquareConfig(
-            n_max=n_max,
-            target_side=target_side,
-            target_mean_brightness=target_mean_brightness,
-            side_factor=side_factor,
-            delta=delta,
-            lr=lr,
-            exposure_time_ms=exposure_time_ms,
-            cam_id=cam_id,
-            cam_type=cam_type,
-            show=show,
-            init_c=init_c,
-            cam_size=cam_size,
-            blaze_period_px=blaze_period_px,
-            blaze_direction=blaze_direction,
-            target_max_brightness=target_max_brightness,
-            slm_number=slm_number,
-            slm_wavelength=slm_wavelength,
-            optimizer_type=optimizer_type,
-            random_seed=random_seed,
-            w_uniformity=w_uniformity,
-            w_efficiency=w_efficiency,
-            w_aspect=w_aspect,
-            basis=basis,
-            phase_grid=phase_grid,
-            zernike_radius=zernike_radius,
-            zernike_mask=zernike_mask,
-            rotation_search_deg=rotation_search_deg,
-            algorithm=algorithm,
-            pop_size=pop_size,
-            objective=objective,
-            adaptive=adaptive,
-            stagnate_win=stagnate_win,
-            stagnate_boost=stagnate_boost,
-            min_improve_frac=min_improve_frac,
-            kwargs=kwargs,
-        )
-    else:
-        # Extra keyword args are merged into the config's escape-hatch dict.
-        config.kwargs.update(kwargs)
-
-    # `delta` is only adaptive when the caller did not pin it. Click collapses
-    # "user typed --delta 0.1" and "user typed nothing" into one value, so the
-    # runners resolve that distinction via ``resolve_spgd_delta`` and pass the
-    # answer through the config (or, for direct callers, through kwargs). Read
-    # it BEFORE the config block below, which folds it in further down.
-    _delta_pinned = bool(kwargs.pop("delta_pinned", False))
-
-    n_max = config.n_max
-    target_side = config.target_side
-    target_mean_brightness = config.target_mean_brightness
-    side_factor = config.side_factor
-    delta = config.delta
-    lr = config.lr
-    exposure_time_ms = config.exposure_time_ms
-    cam_id = config.cam_id
-    # Must be read back from the config: the ``cam_type`` function parameter
-    # keeps its ``"daheng"`` default whenever a caller passes ``config=``
-    # directly (e.g. the slm-gsnet runner), so without this line the camera
-    # backend is silently ignored.
-    cam_type = config.cam_type
-    show = config.show
-    init_c = config.init_c
-    cam_size = config.cam_size
-    blaze_period_px = config.blaze_period_px
-    blaze_direction = config.blaze_direction
-    target_max_brightness = config.target_max_brightness
-    slm_number = config.slm_number
-    slm_wavelength = config.slm_wavelength
-    optimizer_type = config.optimizer_type
-    random_seed = config.random_seed
-    w_uniformity = config.w_uniformity
-    w_efficiency = config.w_efficiency
-    w_aspect = config.w_aspect
-    w_pbr = float(config.w_pbr)
-    basis = config.basis
-    phase_grid = config.phase_grid
-    zernike_radius = config.zernike_radius
-    zernike_mask = config.zernike_mask
-    rotation_search_deg = config.rotation_search_deg
-    algorithm = config.algorithm
-    pop_size = config.pop_size
-    objective = str(config.objective).lower()
-    max_roi_energy_loss = float(config.max_roi_energy_loss)
-    init_amplitude_rad = float(config.init_amplitude_rad)
-    _delta_pinned = _delta_pinned or bool(config.delta_pinned)
-    _fix_target = bool(config.fix_target)
-    kwargs = config.kwargs
-
-    # Adaptive SPGD closed loop (opt-in via config.adaptive). The base weights
-    # are frozen here — best-* tracking must stay comparable across epochs while
-    # the scheduled weights (and the stagnation boost) only affect the SCORED
-    # quality during a run.
-    _base_w_uniformity, _base_w_efficiency, _base_w_aspect = (
-        w_uniformity,
-        w_efficiency,
-        w_aspect,
-    )
-    _adaptive_cfg = (
-        AdaptiveSpgdConfig(
-            stagnate_win=int(config.stagnate_win),
-            stagnate_boost=float(config.stagnate_boost),
-            min_improve_frac=float(config.min_improve_frac),
-            enable_stagnate_boost=True,
-            boost_w_u_only=True,
-        )
-        if bool(config.adaptive)
-        else None
-    )
-    _adaptive_boost_active = False
-
-    delta = abs(delta)
-    epochs = int(epochs)
-    rng = np.random.default_rng(random_seed)
-
-    # Reject an out-of-vocabulary objective HERE, before any device is opened.
-    # The only other validation sits at the bottom of square_objective_score, i.e. in
-    # per-epoch scoring -- after the SLM has been driven and the camera opened and
-    # probed, so a typo reached the hardware and left the panel on whatever phase the
-    # first perturbation wrote.
-    #
-    # This is deliberately STRICTER than square_objective_score, which still tolerates the
-    # legacy aliases ``("quality", "shape", "")`` at its first branch. Nothing in ``src/``
-    # passes ``"shape"`` or ``""`` -- the CLI and every runner default to ``"quality"`` and
-    # declare the same ``SQUARE_OBJECTIVE_CHOICES`` vocabulary (imported from
-    # ``utils.image.target.objective``) that this check enforces. The alias branch is left
-    # alone because it is reachable by direct callers of the scorer; do not "reconcile" the
-    # two by widening this check.
-    _objective = str(objective).lower()
-    if _objective not in SQUARE_OBJECTIVE_CHOICES:
-        raise ValueError(
-            f"objective must be one of {SQUARE_OBJECTIVE_CHOICES}, got {objective!r}"
-        )
-
-    # The recorded score is whatever ``objective`` selected, so name the column
-    # accordingly. The default (``quality``/``shape``/``""``) keeps the historical
-    # ``quality`` column name so existing default runs stay byte-identical; a
-    # non-default objective (e.g. ``pearson``) records under its own name so a
-    # downstream analysis can tell which objective produced the trace instead of
-    # reading a Pearson score out of a column labelled ``quality``.
-    _DEFAULT_OBJECTIVE_ALIASES = ("quality", "shape", "")
-    _objective_key = str(objective).lower()
-    _score_column = (
-        "quality" if _objective_key in _DEFAULT_OBJECTIVE_ALIASES else _objective_key
-    )
-    recorder = Recorder(mark=_score_column, mode="max")
-
-    # History for convergence detection
-    _gradient_history: list[float] = []
-    _cv_history: list[float] = []
-    _max_history_len = 50
-
-    # Phase parameterisation basis.
-    #   - "zernike": active-mode coefficient vector, dim = len(ZERNIKE_ACTIVE_MODES)
-    #   - "freeform": flat grid x grid phase map (radians), dim = grid^2
-    # Low-order Zernike modes are smooth and cannot synthesise a square
-    # far-field; freeform (the SLM's native per-pixel DOF) can, so it is the
-    # default for square shaping.
-    basis = str(basis).lower().strip()
-    if basis not in ("zernike", "freeform"):
-        raise ValueError(f"Unknown basis: {basis!r} (expected 'zernike' or 'freeform')")
-    if basis == "zernike":
-        # 与 GUI multi_slm_controller.py 一致: 默认孔径 = SLM 面板短边一半
-        if zernike_radius is None:
-            zernike_radius = min(SLM_HEIGHT, SLM_WIDTH) / 2.0
-        _noll_modes = _zernike_indices(n_max)
-        nk = len(_noll_modes)
-        if zernike_mask is not None:
-            # --- mask-based mode selection ---
-            _mask = np.asarray(zernike_mask, dtype=int).ravel()
-            if _mask.size < _ZERNIKE_MIN_MASK_LEN:
-                raise ValueError(
-                    f"zernike_mask 长度必须 >= {_ZERNIKE_MIN_MASK_LEN} "
-                    f"(piston+tip+tilt 强制为0), 实际 {_mask.size}"
-                )
-            # Pad to nk or truncate
-            if _mask.size < nk:
-                _mask = np.pad(_mask, (0, nk - _mask.size), constant_values=0)
-            elif _mask.size > nk:
-                logger.warning(
-                    "zernike_mask 长度 {} 超过 n_max={} 的 Noll 项数 {}, 截断",
-                    _mask.size,
-                    n_max,
-                    nk,
-                )
-                _mask = _mask[:nk]
-            # Noll 1,2,3 (piston, tip, tilt) 强制为 0
-            _mask[0] = _mask[1] = _mask[2] = 0
-            _active_modes: tuple[tuple[int, int], ...] = tuple(
-                _noll_modes[i] for i in range(nk) if _mask[i] == 1
-            )
-            if not _active_modes:
-                raise ValueError(
-                    "zernike_mask 全为 0 (强制屏蔽 piston/tip/tilt 后): "
-                    "至少需要一个活动模式"
-                )
-            logger.info(
-                "zernike_mask 活动模式: {} (Noll 索引 {})",
-                _active_modes,
-                [i for i in range(nk) if _mask[i] == 1],
-            )
-        else:
-            # --- default: hardcoded active modes (backward compatible) ---
-            _active_modes = tuple(
-                m for m in ZERNIKE_ACTIVE_MODES if m[0] <= n_max and abs(m[1]) <= n_max
-            )
-            if not _active_modes:
-                raise ValueError(
-                    f"n_max={n_max} 过小: Zernike 活动模式 {ZERNIKE_ACTIVE_MODES} "
-                    "超出最大径向阶数上限"
-                )
-        _dim = len(_active_modes)
-        logger.info(
-            "Zernike 基启用 {} 个活动模式 (dim={}): {}",
-            _dim,
-            _dim,
-            [(i + 1, m) for i, m in enumerate(_active_modes)],
-        )
-        _param_clip: tuple[float, float] | None = (-5.0, 5.0)
-        _param_scale = 1.0
-    else:
-        _active_modes = ()
-        _dim = int(phase_grid) * int(phase_grid)
-        _param_clip = None
-        # The auto learning schedule returns lr/delta ~1-3, tuned for Zernike
-        # amplitudes. Freeform parameters are radians, so scale down.
-        _param_scale = 0.1
-
-    # --- SLM↔camera relative rotation search (extra SPGD DOF) ---
-    _rotation_search_deg = float(rotation_search_deg)
-    _has_rotation = _rotation_search_deg > 0.0
-    _rot_clip: tuple[float, float] | None = (
-        (-_rotation_search_deg / 2.0, _rotation_search_deg / 2.0)
-        if _has_rotation
-        else None
-    )
-    _rot_delta = 1.0  # fixed 1° perturbation step for the rotation DOF
-    if _has_rotation:
-        _dim += 1  # rotation angle is the last element of the parameter vector
-        logger.info(
-            "启用 SLM↔相机旋转校正: 搜索范围 ±{:.1f}°, 作为第 {} 维 SPGD 自由度 (初始 0°, 扰动 {:.1f}°)",
-            _rotation_search_deg / 2.0,
-            _dim,
-            _rot_delta,
-        )
-
-    # Heuristic-search bounds: zernike coefficients are clipped to ±5, freeform
-    # parameters are radians. Rotation is an extra DOF with its own bounds, which
-    # the shared driver's single (lo, hi) cannot express — reject that combination
-    # instead of searching with wrong bounds.
-    if algorithm != "spgd" and _has_rotation:
-        raise ValueError(
-            "启发式搜索暂不支持 rotation_search_deg > 0 "
-            "(旋转角是额外自由度, 与统一 bounds 不兼容); 请使用 --algorithm spgd"
-        )
-    _heuristic_bounds: tuple[float, float] = (
-        _param_clip if _param_clip is not None else (-np.pi, np.pi)
-    )
-
-    # --- Debug-record representation -------------------------------------
-    # `_c` / `_grad` are recorded in FULL Noll order for the Zernike basis so
-    # `ml.hwdataset.index` classifies the debug record as ZERNIKE (rule 1) --
-    # an active-mode vector of length 2 matches no accepted length (TODO H-23).
-    # The optimiser's own work-vector stays active-mode; this only remaps what is
-    # *recorded*. Freeform (`_c` = grid*grid radians) is passed through untouched.
-    if basis == "zernike":
-        _noll_position = {mode: i for i, mode in enumerate(_noll_modes)}
-        _active_pos = [_noll_position[m] for m in _active_modes]
-
-        def _record_vec(vec: np.ndarray) -> np.ndarray:
-            return _scatter_active_to_noll(vec, _active_pos, nk, _has_rotation)
-
-    else:
-
-        def _record_vec(vec: np.ndarray) -> np.ndarray:
-            return vec
-
+def _run_square_session(
+    *,
+    _active_modes: object,
+    _adaptive_boost_active: object,
+    _adaptive_cfg: object,
+    _base_w_aspect: object,
+    _base_w_efficiency: object,
+    _base_w_uniformity: object,
+    _cv_history: object,
+    _delta_pinned: object,
+    _dim: object,
+    _fix_target: object,
+    _gradient_history: object,
+    _has_rotation: object,
+    _heuristic_bounds: object,
+    _max_history_len: object,
+    _param_clip: object,
+    _param_scale: object,
+    _record_vec: object,
+    _rot_clip: object,
+    _rot_delta: object,
+    _score_column: object,
+    algorithm: object,
+    basis: object,
+    blaze_direction: object,
+    blaze_period_px: object,
+    cam_id: object,
+    cam_size: object,
+    cam_type: object,
+    center: object,
+    delta: object,
+    epochs: object,
+    exposure_time_ms: object,
+    init_amplitude_rad: object,
+    init_c: object,
+    kwargs: object,
+    lr: object,
+    max_roi_energy_loss: object,
+    n_max: object,
+    objective: object,
+    optimizer_type: object,
+    phase_grid: object,
+    pop_size: object,
+    random_seed: object,
+    recorder: object,
+    rng: object,
+    show: object,
+    side_factor: object,
+    slm_number: object,
+    slm_type: object,
+    slm_wavelength: object,
+    target_max_brightness: object,
+    target_mean_brightness: object,
+    target_side: object,
+    w_aspect: object,
+    w_efficiency: object,
+    w_pbr: object,
+    w_uniformity: object,
+    zernike_radius: object,
+):
+    """#205 batch-15: former 886-line With session of optimize_slm_square."""
     with (
         create_camera(
             cam_type,
@@ -1348,6 +1009,8 @@ def optimize_slm_square(
             slm_number=slm_number, wavelength=slm_wavelength or None
         ) as slm,
     ):
+        # 采集入口守卫 (#186): 驱动板不应答在第一帧前失败; 仿真面板 no-op。
+        require_drive_board_entry(slm)
         if cam_type == "daheng":
             # The exposure ceiling is set by the optical path, not the sensor,
             # so resolve it per session before any measurement can fire an
@@ -2221,3 +1884,465 @@ def optimize_slm_square(
         display_stack.close()
 
         return recorder
+
+
+def optimize_slm_square(
+    center: tuple[int, int] | str | None,
+    epochs: int,
+    config: SlmSquareConfig | None = None,
+    n_max: int = 4,
+    target_side: int = 0,
+    target_mean_brightness: float = 0.0,
+    side_factor: float = 1.5,
+    delta: float = 0.1,
+    lr: float = 0,
+    exposure_time_ms: float = 0.0,
+    cam_id: int = 0,
+    cam_type: str = "daheng",
+    show: bool = False,
+    init_c: list[float] | np.ndarray | None = None,
+    cam_size: int = 300,
+    blaze_period_px: int = -1,
+    blaze_direction: str = "vertical",
+    target_max_brightness: int = 200,
+    slm_number: int = 1,
+    slm_type: str = "",
+    slm_wavelength: int = 0,
+    optimizer_type: str = "adamod",
+    random_seed: int | None = None,
+    w_uniformity: float = 0.4,
+    w_efficiency: float = 0.6,
+    w_aspect: float = 0.0,
+    w_pbr: float = 0.0,
+    basis: str = "freeform",
+    phase_grid: int = 24,
+    zernike_radius: float | int | None = None,
+    zernike_mask: np.ndarray | None = None,
+    rotation_search_deg: float = 0.0,
+    algorithm: str = "spgd",
+    pop_size: int | None = None,
+    objective: str = "quality",
+    max_roi_energy_loss: float = 0.6,
+    init_amplitude_rad: float = 0.0,
+    adaptive: bool = False,
+    stagnate_win: int = 10,
+    stagnate_boost: float = 1.5,
+    min_improve_frac: float = 0.01,
+    **kwargs,
+) -> Recorder:
+    """Optimize square beam uniformity using SLM with Zernike coefficient control.
+
+    This function uses the SPGD (Stochastic Parallel Gradient Descent) algorithm
+    to optimize Zernike coefficients displayed on an SLM, minimizing the
+    coefficient of variation (CV) of the intensity within a target square region.
+
+    Args:
+        center: Center position for the square target. Can be None (auto-detect
+            original-spot centroid, same as "shape"), "shape" (argmax-anchored
+            smart detection — argmax anchor + centroid refinement on flat cores),
+            "centroid_thresh" (brightness centroid, threshold=0.1×max),
+            "max" (brightest pixel / argmax), "mass" (full-image centroid,
+            stray-light sensitive), or tuple (x, y) for a fixed center
+            (not re-detected after exposure adjustment).
+        epochs: Number of optimization iterations.
+        n_max: Maximum Zernike radial order. Controls the number of modes.
+        target_side: Side length of the target square in pixels.
+            Mutually exclusive with target_mean_brightness (specify only one).
+            If 0 and target_mean_brightness is also 0, auto-computed from spot
+            size × side_factor.
+        target_mean_brightness: Target mean brightness (average pixel value /
+            gray level) of the square. Mutually exclusive with target_side.
+            When positive, the side length is auto-derived by energy
+            conservation: side = sqrt(total_brightness / target_mean_brightness),
+            where total_brightness is the integrated intensity of the initial
+            camera image.
+        side_factor: Multiplier for auto-computed side length (default 1.5).
+        delta: Perturbation amplitude for Zernike coefficients.
+        lr: Learning rate. If 0, auto-adjusted via learning_schedule.
+        exposure_time_ms: Camera exposure time in ms. If 0, auto-exposure.
+        cam_id: Camera device ID.
+        show: Whether to display images during optimization.
+        init_c: Initial Zernike coefficients. If None, starts from zeros.
+        cam_size: Camera window size.
+        target_max_brightness: Target max brightness for auto-exposure.
+        slm_number: SLM device number (1-8).
+        slm_wavelength: SLM wavelength in nm (0 = ask the device).
+        optimizer_type: Optimizer type (adam/adamod/sgd/muno).
+        random_seed: Random seed for reproducibility.
+        w_uniformity: Weight for uniformity (CV) in quality score.
+        w_efficiency: Weight for encircled energy in quality score.
+        w_aspect: Weight for aspect ratio in quality score.
+        basis: Parameterisation basis ("zernike" or "freeform").
+        phase_grid: Freeform grid side (dim = grid^2).
+        zernike_radius: Zernike aperture radius in pixels. Defaults to
+            min(SLM_HEIGHT, SLM_WIDTH) / 2 = 600, matching the GUI
+            (multi_slm_controller.py Zernike branch).
+        zernike_mask: 0/1 binary array selecting which Zernike Noll modes
+            participate in SPGD. Length must be ≥ 5; Noll indices 1-3 (piston,
+            tip, tilt) are forced to 0. When provided, overrides the hardcoded
+            ZERNIKE_ACTIVE_MODES ((2,0),(4,0)). E.g. [0,0,0,1,0,0,0,0,0,0,0,1]
+            activates only defocus (2,0) and spherical (4,0).
+        rotation_search_deg: SLM↔相机相对旋转搜索范围(度, 0~360)。0=不启用
+            旋转校正(默认); >0 时旋转角作为额外 SPGD 自由度, 在
+            [-range/2, +range/2] 内搜索, 每轮下发相位图按当前角旋转补偿。
+            起始值 0°, 扰动步长固定 1°。
+        objective: Square-shaping objective, one of
+            :data:`SQUARE_OBJECTIVE_CHOICES`. ``"quality"`` (default) is the
+            historical combined score; ``"pearson"`` is the FourierGSNet
+            ``1 - Pearson`` correlation loss, negated to higher-is-better by
+            :func:`square_objective_score`.
+        adaptive: Enable the adaptive SPGD closed loop (default False). When on,
+            the quality weights are scheduled from
+            :data:`AdaptiveSpgdConfig.stage_weights` — a
+            (w_uniformity, w_efficiency, w_aspect) triple — switching at epoch
+            thirds, and ``w_uniformity`` is temporarily boosted while the
+            best-CV improvement stays below ``min_improve_frac`` over the last
+            ``stagnate_win`` epochs. When off, behavior is identical to previous
+            releases.
+        stagnate_win: Stagnation-detection window in epochs (adaptive only).
+        stagnate_boost: Multiplicative boost applied to ``w_uniformity`` while
+            stagnating; 1.0 disables the boost (adaptive only).
+        min_improve_frac: Stagnation trigger — best-CV improvement below this
+            fraction over the window counts as stagnation (adaptive only).
+        **kwargs: Additional optimizer parameters.
+
+    Returns:
+        Recorder: Optimization history recorder.
+    """
+    if config is None:
+        config = SlmSquareConfig(
+            n_max=n_max,
+            target_side=target_side,
+            target_mean_brightness=target_mean_brightness,
+            side_factor=side_factor,
+            delta=delta,
+            lr=lr,
+            exposure_time_ms=exposure_time_ms,
+            cam_id=cam_id,
+            cam_type=cam_type,
+            show=show,
+            init_c=init_c,
+            cam_size=cam_size,
+            blaze_period_px=blaze_period_px,
+            blaze_direction=blaze_direction,
+            target_max_brightness=target_max_brightness,
+            slm_number=slm_number,
+            slm_wavelength=slm_wavelength,
+            optimizer_type=optimizer_type,
+            random_seed=random_seed,
+            w_uniformity=w_uniformity,
+            w_efficiency=w_efficiency,
+            w_aspect=w_aspect,
+            basis=basis,
+            phase_grid=phase_grid,
+            zernike_radius=zernike_radius,
+            zernike_mask=zernike_mask,
+            rotation_search_deg=rotation_search_deg,
+            algorithm=algorithm,
+            pop_size=pop_size,
+            objective=objective,
+            adaptive=adaptive,
+            stagnate_win=stagnate_win,
+            stagnate_boost=stagnate_boost,
+            min_improve_frac=min_improve_frac,
+            kwargs=kwargs,
+        )
+    else:
+        # Extra keyword args are merged into the config's escape-hatch dict.
+        config.kwargs.update(kwargs)
+
+    # `delta` is only adaptive when the caller did not pin it. Click collapses
+    # "user typed --delta 0.1" and "user typed nothing" into one value, so the
+    # runners resolve that distinction via ``resolve_spgd_delta`` and pass the
+    # answer through the config (or, for direct callers, through kwargs). Read
+    # it BEFORE the config block below, which folds it in further down.
+    _delta_pinned = bool(kwargs.pop("delta_pinned", False))
+
+    n_max = config.n_max
+    target_side = config.target_side
+    target_mean_brightness = config.target_mean_brightness
+    side_factor = config.side_factor
+    delta = config.delta
+    lr = config.lr
+    exposure_time_ms = config.exposure_time_ms
+    cam_id = config.cam_id
+    # Must be read back from the config: the ``cam_type`` function parameter
+    # keeps its ``"daheng"`` default whenever a caller passes ``config=``
+    # directly (e.g. the slm-gsnet runner), so without this line the camera
+    # backend is silently ignored.
+    cam_type = config.cam_type
+    show = config.show
+    init_c = config.init_c
+    cam_size = config.cam_size
+    blaze_period_px = config.blaze_period_px
+    blaze_direction = config.blaze_direction
+    target_max_brightness = config.target_max_brightness
+    slm_number = config.slm_number
+    slm_wavelength = config.slm_wavelength
+    optimizer_type = config.optimizer_type
+    random_seed = config.random_seed
+    w_uniformity = config.w_uniformity
+    w_efficiency = config.w_efficiency
+    w_aspect = config.w_aspect
+    w_pbr = float(config.w_pbr)
+    basis = config.basis
+    phase_grid = config.phase_grid
+    zernike_radius = config.zernike_radius
+    zernike_mask = config.zernike_mask
+    rotation_search_deg = config.rotation_search_deg
+    algorithm = config.algorithm
+    pop_size = config.pop_size
+    objective = str(config.objective).lower()
+    max_roi_energy_loss = float(config.max_roi_energy_loss)
+    init_amplitude_rad = float(config.init_amplitude_rad)
+    _delta_pinned = _delta_pinned or bool(config.delta_pinned)
+    _fix_target = bool(config.fix_target)
+    kwargs = config.kwargs
+
+    # Adaptive SPGD closed loop (opt-in via config.adaptive). The base weights
+    # are frozen here — best-* tracking must stay comparable across epochs while
+    # the scheduled weights (and the stagnation boost) only affect the SCORED
+    # quality during a run.
+    _base_w_uniformity, _base_w_efficiency, _base_w_aspect = (
+        w_uniformity,
+        w_efficiency,
+        w_aspect,
+    )
+    _adaptive_cfg = (
+        AdaptiveSpgdConfig(
+            stagnate_win=int(config.stagnate_win),
+            stagnate_boost=float(config.stagnate_boost),
+            min_improve_frac=float(config.min_improve_frac),
+            enable_stagnate_boost=True,
+            boost_w_u_only=True,
+        )
+        if bool(config.adaptive)
+        else None
+    )
+    _adaptive_boost_active = False
+
+    delta = abs(delta)
+    epochs = int(epochs)
+    rng = np.random.default_rng(random_seed)
+
+    # Reject an out-of-vocabulary objective HERE, before any device is opened.
+    # The only other validation sits at the bottom of square_objective_score, i.e. in
+    # per-epoch scoring -- after the SLM has been driven and the camera opened and
+    # probed, so a typo reached the hardware and left the panel on whatever phase the
+    # first perturbation wrote.
+    #
+    # This is deliberately STRICTER than square_objective_score, which still tolerates the
+    # legacy aliases ``("quality", "shape", "")`` at its first branch. Nothing in ``src/``
+    # passes ``"shape"`` or ``""`` -- the CLI and every runner default to ``"quality"`` and
+    # declare the same ``SQUARE_OBJECTIVE_CHOICES`` vocabulary (imported from
+    # ``utils.image.target.objective``) that this check enforces. The alias branch is left
+    # alone because it is reachable by direct callers of the scorer; do not "reconcile" the
+    # two by widening this check.
+    _objective = str(objective).lower()
+    if _objective not in SQUARE_OBJECTIVE_CHOICES:
+        raise ValueError(
+            f"objective must be one of {SQUARE_OBJECTIVE_CHOICES}, got {objective!r}"
+        )
+
+    # The recorded score is whatever ``objective`` selected, so name the column
+    # accordingly. The default (``quality``/``shape``/``""``) keeps the historical
+    # ``quality`` column name so existing default runs stay byte-identical; a
+    # non-default objective (e.g. ``pearson``) records under its own name so a
+    # downstream analysis can tell which objective produced the trace instead of
+    # reading a Pearson score out of a column labelled ``quality``.
+    _DEFAULT_OBJECTIVE_ALIASES = ("quality", "shape", "")
+    _objective_key = str(objective).lower()
+    _score_column = (
+        "quality" if _objective_key in _DEFAULT_OBJECTIVE_ALIASES else _objective_key
+    )
+    recorder = Recorder(mark=_score_column, mode="max")
+
+    # History for convergence detection
+    _gradient_history: list[float] = []
+    _cv_history: list[float] = []
+    _max_history_len = 50
+
+    # Phase parameterisation basis.
+    #   - "zernike": active-mode coefficient vector, dim = len(ZERNIKE_ACTIVE_MODES)
+    #   - "freeform": flat grid x grid phase map (radians), dim = grid^2
+    # Low-order Zernike modes are smooth and cannot synthesise a square
+    # far-field; freeform (the SLM's native per-pixel DOF) can, so it is the
+    # default for square shaping.
+    basis = str(basis).lower().strip()
+    if basis not in ("zernike", "freeform"):
+        raise ValueError(f"Unknown basis: {basis!r} (expected 'zernike' or 'freeform')")
+    if basis == "zernike":
+        # 与 GUI multi_slm_controller.py 一致: 默认孔径 = SLM 面板短边一半
+        if zernike_radius is None:
+            zernike_radius = min(SLM_HEIGHT, SLM_WIDTH) / 2.0
+        _noll_modes = _zernike_indices(n_max)
+        nk = len(_noll_modes)
+        if zernike_mask is not None:
+            # --- mask-based mode selection ---
+            _mask = np.asarray(zernike_mask, dtype=int).ravel()
+            if _mask.size < _ZERNIKE_MIN_MASK_LEN:
+                raise ValueError(
+                    f"zernike_mask 长度必须 >= {_ZERNIKE_MIN_MASK_LEN} "
+                    f"(piston+tip+tilt 强制为0), 实际 {_mask.size}"
+                )
+            # Pad to nk or truncate
+            if _mask.size < nk:
+                _mask = np.pad(_mask, (0, nk - _mask.size), constant_values=0)
+            elif _mask.size > nk:
+                logger.warning(
+                    "zernike_mask 长度 {} 超过 n_max={} 的 Noll 项数 {}, 截断",
+                    _mask.size,
+                    n_max,
+                    nk,
+                )
+                _mask = _mask[:nk]
+            # Noll 1,2,3 (piston, tip, tilt) 强制为 0
+            _mask[0] = _mask[1] = _mask[2] = 0
+            _active_modes: tuple[tuple[int, int], ...] = tuple(
+                _noll_modes[i] for i in range(nk) if _mask[i] == 1
+            )
+            if not _active_modes:
+                raise ValueError(
+                    "zernike_mask 全为 0 (强制屏蔽 piston/tip/tilt 后): "
+                    "至少需要一个活动模式"
+                )
+            logger.info(
+                "zernike_mask 活动模式: {} (Noll 索引 {})",
+                _active_modes,
+                [i for i in range(nk) if _mask[i] == 1],
+            )
+        else:
+            # --- default: hardcoded active modes (backward compatible) ---
+            _active_modes = tuple(
+                m for m in ZERNIKE_ACTIVE_MODES if m[0] <= n_max and abs(m[1]) <= n_max
+            )
+            if not _active_modes:
+                raise ValueError(
+                    f"n_max={n_max} 过小: Zernike 活动模式 {ZERNIKE_ACTIVE_MODES} "
+                    "超出最大径向阶数上限"
+                )
+        _dim = len(_active_modes)
+        logger.info(
+            "Zernike 基启用 {} 个活动模式 (dim={}): {}",
+            _dim,
+            _dim,
+            [(i + 1, m) for i, m in enumerate(_active_modes)],
+        )
+        _param_clip: tuple[float, float] | None = (-5.0, 5.0)
+        _param_scale = 1.0
+    else:
+        _active_modes = ()
+        _dim = int(phase_grid) * int(phase_grid)
+        _param_clip = None
+        # The auto learning schedule returns lr/delta ~1-3, tuned for Zernike
+        # amplitudes. Freeform parameters are radians, so scale down.
+        _param_scale = 0.1
+
+    # --- SLM↔camera relative rotation search (extra SPGD DOF) ---
+    _rotation_search_deg = float(rotation_search_deg)
+    _has_rotation = _rotation_search_deg > 0.0
+    _rot_clip: tuple[float, float] | None = (
+        (-_rotation_search_deg / 2.0, _rotation_search_deg / 2.0)
+        if _has_rotation
+        else None
+    )
+    _rot_delta = 1.0  # fixed 1° perturbation step for the rotation DOF
+    if _has_rotation:
+        _dim += 1  # rotation angle is the last element of the parameter vector
+        logger.info(
+            "启用 SLM↔相机旋转校正: 搜索范围 ±{:.1f}°, 作为第 {} 维 SPGD 自由度 (初始 0°, 扰动 {:.1f}°)",
+            _rotation_search_deg / 2.0,
+            _dim,
+            _rot_delta,
+        )
+
+    # Heuristic-search bounds: zernike coefficients are clipped to ±5, freeform
+    # parameters are radians. Rotation is an extra DOF with its own bounds, which
+    # the shared driver's single (lo, hi) cannot express — reject that combination
+    # instead of searching with wrong bounds.
+    if algorithm != "spgd" and _has_rotation:
+        raise ValueError(
+            "启发式搜索暂不支持 rotation_search_deg > 0 "
+            "(旋转角是额外自由度, 与统一 bounds 不兼容); 请使用 --algorithm spgd"
+        )
+    _heuristic_bounds: tuple[float, float] = (
+        _param_clip if _param_clip is not None else (-np.pi, np.pi)
+    )
+
+    # --- Debug-record representation -------------------------------------
+    # `_c` / `_grad` are recorded in FULL Noll order for the Zernike basis so
+    # `ml.hwdataset.index` classifies the debug record as ZERNIKE (rule 1) --
+    # an active-mode vector of length 2 matches no accepted length (TODO H-23).
+    # The optimiser's own work-vector stays active-mode; this only remaps what is
+    # *recorded*. Freeform (`_c` = grid*grid radians) is passed through untouched.
+    if basis == "zernike":
+        _noll_position = {mode: i for i, mode in enumerate(_noll_modes)}
+        _active_pos = [_noll_position[m] for m in _active_modes]
+
+        def _record_vec(vec: np.ndarray) -> np.ndarray:
+            return _scatter_active_to_noll(vec, _active_pos, nk, _has_rotation)
+
+    else:
+
+        def _record_vec(vec: np.ndarray) -> np.ndarray:
+            return vec
+
+    return _run_square_session(
+        _active_modes=_active_modes,
+        _adaptive_boost_active=_adaptive_boost_active,
+        _adaptive_cfg=_adaptive_cfg,
+        _base_w_aspect=_base_w_aspect,
+        _base_w_efficiency=_base_w_efficiency,
+        _base_w_uniformity=_base_w_uniformity,
+        _cv_history=_cv_history,
+        _delta_pinned=_delta_pinned,
+        _dim=_dim,
+        _fix_target=_fix_target,
+        _gradient_history=_gradient_history,
+        _has_rotation=_has_rotation,
+        _heuristic_bounds=_heuristic_bounds,
+        _max_history_len=_max_history_len,
+        _param_clip=_param_clip,
+        _param_scale=_param_scale,
+        _record_vec=_record_vec,
+        _rot_clip=_rot_clip,
+        _rot_delta=_rot_delta,
+        _score_column=_score_column,
+        algorithm=algorithm,
+        basis=basis,
+        blaze_direction=blaze_direction,
+        blaze_period_px=blaze_period_px,
+        cam_id=cam_id,
+        cam_size=cam_size,
+        cam_type=cam_type,
+        center=center,
+        delta=delta,
+        epochs=epochs,
+        exposure_time_ms=exposure_time_ms,
+        init_amplitude_rad=init_amplitude_rad,
+        init_c=init_c,
+        kwargs=kwargs,
+        lr=lr,
+        max_roi_energy_loss=max_roi_energy_loss,
+        n_max=n_max,
+        objective=objective,
+        optimizer_type=optimizer_type,
+        phase_grid=phase_grid,
+        pop_size=pop_size,
+        random_seed=random_seed,
+        recorder=recorder,
+        rng=rng,
+        show=show,
+        side_factor=side_factor,
+        slm_number=slm_number,
+        slm_type=slm_type,
+        slm_wavelength=slm_wavelength,
+        target_max_brightness=target_max_brightness,
+        target_mean_brightness=target_mean_brightness,
+        target_side=target_side,
+        w_aspect=w_aspect,
+        w_efficiency=w_efficiency,
+        w_pbr=w_pbr,
+        w_uniformity=w_uniformity,
+        zernike_radius=zernike_radius,
+    )

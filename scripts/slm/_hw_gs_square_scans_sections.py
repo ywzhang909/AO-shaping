@@ -58,11 +58,17 @@ from scripts.slm._hw_gs_square_scans_model import (
     Table,
     VARIABLE,
 )
+from types import SimpleNamespace
 
-def render_retest_section(
-    run: Run, f: Findings, retest: RetestRun, rf: RetestFindings
-) -> tuple[list[str], list[Table]]:
-    """§11 复测分节。数字全部从复测 CSV / metrics.json 现读, 现场记录单独标注。"""
+def _rt_extend(base: SimpleNamespace, extra: SimpleNamespace) -> SimpleNamespace:
+    """Merge a section namespace; section names must stay unique."""
+    clash = set(vars(extra)) & set(vars(base))
+    if clash:
+        raise AssertionError(f'section-name collision: {sorted(clash)}')
+    return SimpleNamespace(**vars(base), **vars(extra))
+
+def _rt_preamble(run: Run, f: Findings, retest: RetestRun, rf: RetestFindings) -> SimpleNamespace:
+    """#205 batch-3: preamble block of the former 537-line render_retest_section; body moved line-exact, free names re-bound from v."""
     tables: list[Table] = []
     out: list[str] = []
     base_blaze = run.stages["blaze"]
@@ -72,7 +78,16 @@ def render_retest_section(
 
     def add(text: str = "") -> None:
         out.append(text)
+    return SimpleNamespace(tables=tables, out=out, base_blaze=base_blaze, base_zern=base_zern, r_blaze=r_blaze, r_zern=r_zern, add=add, run=run, f=f, retest=retest, rf=rf)
 
+
+def _rt_intro(v: SimpleNamespace) -> SimpleNamespace:
+    """#205 batch-3: intro block of the former 537-line render_retest_section; body moved line-exact, free names re-bound from v."""
+    add = v.add
+    r_blaze = v.r_blaze
+    r_zern = v.r_zern
+    retest = v.retest
+    rf = v.rf
     add("## 11. 复测（功率已变）")
     add()
     add(
@@ -104,7 +119,19 @@ def render_retest_section(
             "仅作证据留存；本报告不引用它的任何数字。"
         )
     add()
+    return SimpleNamespace()
 
+
+def _rt_caliber(v: SimpleNamespace) -> SimpleNamespace:
+    """#205 batch-3: caliber block of the former 537-line render_retest_section; body moved line-exact, free names re-bound from v."""
+    add = v.add
+    base_blaze = v.base_blaze
+    f = v.f
+    r_blaze = v.r_blaze
+    retest = v.retest
+    rf = v.rf
+    run = v.run
+    tables = v.tables
     # -- 11.1 ---------------------------------------------------------------
     add("### 11.1 口径：为什么本节只做批内比较")
     add()
@@ -189,7 +216,16 @@ def render_retest_section(
         "跨批的绝对值一律不比。"
     )
     add()
+    return SimpleNamespace()
 
+
+def _rt_atomicity(v: SimpleNamespace) -> SimpleNamespace:
+    """#205 batch-3: atomicity block of the former 537-line render_retest_section; body moved line-exact, free names re-bound from v."""
+    add = v.add
+    r_blaze = v.r_blaze
+    retest = v.retest
+    rf = v.rf
+    tables = v.tables
     # -- 11.2 ---------------------------------------------------------------
     add("### 11.2 复测是怎么跑的（原子化 + 显式边长）")
     add()
@@ -240,7 +276,15 @@ def render_retest_section(
         "与基线「超时 ≠ 帧坏」的读法一致（§2.3）。"
     )
     add()
+    return SimpleNamespace()
 
+
+def _rt_blaze(v: SimpleNamespace) -> SimpleNamespace:
+    """#205 batch-3: blaze block of the former 537-line render_retest_section; body moved line-exact, free names re-bound from v."""
+    add = v.add
+    base_blaze = v.base_blaze
+    r_blaze = v.r_blaze
+    tables = v.tables
     # -- 11.3 ---------------------------------------------------------------
     add("### 11.3 光栅 32 / 40 / 48：基线与复测并排")
     add()
@@ -281,7 +325,17 @@ def render_retest_section(
     tables.append(blaze_tbl)
     add(blaze_tbl.render())
     add()
+    return SimpleNamespace(value=value)
 
+
+def _rt_zernike(v: SimpleNamespace) -> SimpleNamespace:
+    """#205 batch-3: zernike block of the former 537-line render_retest_section; body moved line-exact, free names re-bound from v."""
+    add = v.add
+    base_zern = v.base_zern
+    r_zern = v.r_zern
+    rf = v.rf
+    run = v.run
+    tables = v.tables
     # -- 11.4 ---------------------------------------------------------------
     add("### 11.4 Zernike 17 / 18 / 19：基线与复测并排")
     add()
@@ -325,7 +379,18 @@ def render_retest_section(
     tables.append(zern_tbl)
     add(zern_tbl.render())
     add()
+    return SimpleNamespace()
 
+
+def _rt_verdict(v: SimpleNamespace) -> SimpleNamespace:
+    """#205 batch-3: verdict block of the former 537-line render_retest_section; body moved line-exact, free names re-bound from v."""
+    add = v.add
+    base_blaze = v.base_blaze
+    base_zern = v.base_zern
+    r_blaze = v.r_blaze
+    r_zern = v.r_zern
+    retest = v.retest
+    rf = v.rf
     # -- 11.5 ---------------------------------------------------------------
     add("### 11.5 判定")
     add()
@@ -455,7 +520,17 @@ def render_retest_section(
         "内部一致性，不依赖任何跨批重复性，也不依赖基线的任何假设。"
     )
     add()
+    return SimpleNamespace()
 
+
+def _rt_jitter(v: SimpleNamespace) -> SimpleNamespace:
+    """#205 batch-3: jitter block of the former 537-line render_retest_section; body moved line-exact, free names re-bound from v."""
+    add = v.add
+    r_blaze = v.r_blaze
+    r_zern = v.r_zern
+    retest = v.retest
+    rf = v.rf
+    tables = v.tables
     # -- 11.6 ---------------------------------------------------------------
     add("### 11.6 0 级每次重定位都会抖，而光斑几乎不动")
     add()
@@ -535,7 +610,18 @@ def render_retest_section(
         "两条线的**绝对高度不要互相比较**（§11.1），只看各自段内的顺序与尖峰是否还在。"
     )
     add()
+    return SimpleNamespace(cfg=cfg)
 
+
+def _rt_contract(v: SimpleNamespace) -> SimpleNamespace:
+    """#205 batch-3: contract block of the former 537-line render_retest_section; body moved line-exact, free names re-bound from v."""
+    add = v.add
+    base_blaze = v.base_blaze
+    base_zern = v.base_zern
+    r_blaze = v.r_blaze
+    r_zern = v.r_zern
+    retest = v.retest
+    tables = v.tables
     # -- 11.7 ---------------------------------------------------------------
     add("### 11.7 列口径（两批的列集合不同）")
     add()
@@ -595,7 +681,23 @@ def render_retest_section(
         else "- 复测的 Zernike CSV 没有 `fit_seconds` 列。"
     )
     add()
-    return out, tables
+    return SimpleNamespace()
+
+
+def render_retest_section(
+    run: Run, f: Findings, retest: RetestRun, rf: RetestFindings
+) -> tuple[list[str], list[Table]]:
+    """§11 复测分节。数字全部从复测 CSV / metrics.json 现读, 现场记录单独标注。"""
+    v = _rt_preamble(run, f, retest, rf)
+    v = _rt_extend(v, _rt_intro(v))
+    v = _rt_extend(v, _rt_caliber(v))
+    v = _rt_extend(v, _rt_atomicity(v))
+    v = _rt_extend(v, _rt_blaze(v))
+    v = _rt_extend(v, _rt_zernike(v))
+    v = _rt_extend(v, _rt_verdict(v))
+    v = _rt_extend(v, _rt_jitter(v))
+    v = _rt_extend(v, _rt_contract(v))
+    return (v.out, v.tables)
 
 def render_farfield_section(
     run: Run, payload: dict[str, Any], figures: Sequence[Path],

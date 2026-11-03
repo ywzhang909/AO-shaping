@@ -785,3 +785,37 @@ class FrameRef:
 
     paths: tuple[Path, ...]
     layout: str  # "atomic" | "legacy" | "missing"
+
+@dataclass
+class ReportCtx:
+    """render_report 的分节共享上下文（#201-A 切段）。
+
+    字段即原 render_report 前导区的派生量与参数；跨段中间量（policy / i18 /
+    i40 / panel）由生产节写回、消费节读取。纯数据容器，无行为。
+    """
+
+    run: Any
+    f: Any
+    retest: Any
+    rf: Any
+    prior: Any
+    farfield: Any
+    farfield_figures: Any
+    atomic: Any
+    af: Any
+    atomic_figures: Any
+    residuals: Any
+    tables: Any
+    sides: Any
+    zern: Any
+    blaze: Any
+    cfg: Any
+    bench: Any
+    spot: Any
+    h: Any
+    w: Any
+    zo_x: Any
+    zo_y: Any
+    marks_s: Any
+    marks_z: Any
+    marks_b: Any

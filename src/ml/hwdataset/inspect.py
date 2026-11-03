@@ -210,51 +210,58 @@ def _build_report(
 def _print_report(report: Mapping[str, Any]) -> None:
     """Print the human-readable corpus report.
 
+    Writes to **stdout**: like the ``--json`` branch, this table is the CLI's
+    product, so it must not travel on loguru's default stderr sink (the
+    print->loguru sweep broke the six stdout-product scripts the same way;
+    67d8e327 reverted those, issue #211 this one). Diagnostics elsewhere in
+    this module (sample-failure warnings, index/empty-corpus errors,
+    cache-unavailable notice) stay on loguru/stderr.
+
     Args:
         report: Mapping produced by :func:`_build_report`.
     """
-    logger.info(
+    print(
         f"files scanned / usable : {report['files_scanned']} / {report['files_usable']}"
     )
-    logger.info(f"records                : {report['total_records']}")
+    print(f"records                : {report['total_records']}")
 
-    logger.info("\nby phase source")
+    print("\nby phase source")
     total = max(int(report["total_records"]), 1)
     for name, count in report["by_source"].items():
         share = 100.0 * int(count) / total
-        logger.info(f"  {name:<11s} {int(count):>7d}  {share:5.1f}%")
+        print(f"  {name:<11s} {int(count):>7d}  {share:5.1f}%")
 
-    logger.info("\nby family  (n_terms, n_max, freeform_grid)")
+    print("\nby family  (n_terms, n_max, freeform_grid)")
     shapes = report["family_shapes"]
     for family, count in report["by_family"].items():
         rendered = " ".join(
             f"({a},{b},{c})" for a, b, c in shapes.get(family, [])
         )
-        logger.info(f"  {family:<26s} {int(count):>6d}  {rendered}")
+        print(f"  {family:<26s} {int(count):>6d}  {rendered}")
 
-    logger.info("\nexcluded (not in the dataset)")
+    print("\nexcluded (not in the dataset)")
     excluded = report["excluded"]
     if not excluded:
-        logger.info("  (nothing excluded)")
+        print("  (nothing excluded)")
     else:
         for reason, count in excluded.items():
-            logger.info(f"  {reason:<26s} {int(count):>6d}")
-        logger.info("  reason codes: " + ", ".join(r.value for r in ExclusionReason))
+            print(f"  {reason:<26s} {int(count):>6d}")
+        print("  reason codes: " + ", ".join(r.value for r in ExclusionReason))
 
     exposure = report["exposure_ms"]
-    logger.info("\nexposure (ms)")
+    print("\nexposure (ms)")
     if exposure["count"] == 0:
-        logger.info("  no record carries a resolvable exposure")
+        print("  no record carries a resolvable exposure")
     else:
-        logger.info(
+        print(
             f"  count={exposure['count']} distinct={exposure['distinct']} "
             f"min={exposure['min']} median={exposure['median']} max={exposure['max']}"
         )
 
     fov = report["fov_px"]
-    logger.info(f"\nfield of view (sidecar hint, px): {fov['values']}")
+    print(f"\nfield of view (sidecar hint, px): {fov['values']}")
     if fov["differs_by_family"]:
-        logger.info(
+        print(
             f"  WARNING: {fov['distinct_count']} distinct fields of view in one corpus. "
             "A single output grid therefore means a different physical angular "
             "scale per family. This is surfaced per item as `fov_px`; filter or "
@@ -262,18 +269,18 @@ def _print_report(report: Mapping[str, Any]) -> None:
         )
 
     if report["samples"]:
-        logger.info("\nmaterialised samples")
+        print("\nmaterialised samples")
         for sample in report["samples"]:
-            logger.info(
+            print(
                 f"  #{sample['sample']} {sample['family']}/{sample['source']} "
                 f"exposure={sample['exposure_ms']}ms fov={sample['fov_px']}px "
                 f"{sample['elapsed_ms']:.1f}ms"
             )
-            logger.info(
+            print(
                 f"      phase_cos {tuple(sample['phase_cos_shape'])} "
                 f"{sample['phase_cos_dtype']}"
             )
-            logger.info(
+            print(
                 f"      image     {tuple(sample['image_shape'])} "
                 f"{sample['image_dtype']} "
                 f"range [{sample['image_min']:.4f}, {sample['image_max']:.4f}] "
@@ -306,7 +313,7 @@ def _maybe_build_cache(args: argparse.Namespace) -> int | None:
     if index is None:
         return EXIT_ERROR
     directories = prepare_hw_cache(index, config=MaterialiserConfig(grid=args.grid))
-    logger.info(f"built {len(directories)} cache directories")
+    print(f"built {len(directories)} cache directories")
     return EXIT_OK
 
 
@@ -401,6 +408,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         no usable records.
     """
     args = _parse_args(argv)
+
+    # CLI boundary contract: the product (table via print, --json via dump) is
+    # stdout; diagnostics are stderr. Rebind the sink here because loguru's
+    # default sink captured sys.stderr at import time, so warnings/errors would
+    # escape stream capture (and any redirection) made after the import.
+    logger.remove()
+    logger.add(sys.stderr, level="WARNING", colorize=False)
 
     cache_status = _maybe_build_cache(args)
     if cache_status is not None:

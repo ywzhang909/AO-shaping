@@ -436,119 +436,50 @@ def _zernike_indices_from_n(n_zernike: int) -> list[tuple[int, int]]:
     return _zernike_indices(n_max)[:n_zernike]
 
 
-def optimizer_rms_slm(
-    epochs: int,
-    init_z: Sequence[float | int] | dict[tuple[int, int], float] | None = None,
-    lr: float = 0.01,
-    delta: float = 0.0,
-    early_stop_threshold: float = 0.12,
-    # Zernike/SLM parameters
-    wavelength: int = SLM_WAVELENGTH_DEFAULT,
-    shift_x: int = SLM_SHIFT_X_DEFAULT,
-    shift_y: int = SLM_SHIFT_Y_DEFAULT,
-    n_max: int = 4,
-    # WFS parameters
-    wfs_res: MlaRes = MlaRes.Res1024,
-    remove_tilt: bool = False,
-    wfs_exposure_time: float = 0.2,
-    pupil_center: tuple[float, float] = (0, 0),
-    pupil_diameter: float = 4.6,
-    # Other parameters
-    slm_number: int = 1,
-    slm_wavelength: int | None = None,
-    slm_wait_time: float = 0.2,
-    n_init_positions: int = 0,
-    init_range: float = 20.0,
-    # NEW: Learning rate scheduling
-    lr_schedule: str = "static",
-    lr_min: float = 1e-6,
-    # NEW: Delta scheduling
-    delta_schedule: str = "static",
-    delta_min: float = 1e-7,
-    # NEW: Optimizer selection
-    optimizer_type: str = "adamod",
-    beta1: float = 0.95,
-    weight_decay: float = 1e-2,
-    # NEW: Mini-batch SPGD
-    mini_batch: int = 1,
-    # NEW: Gradient clipping
-    gradient_clip: float = 0.0,
-    # NEW: Stagnation detection and restart
-    stagnation_patience: int = 30,
-    stagnation_delta_boost: float = 1.5,
-    freeze_high_order_threshold: float | None = None,
-    # NEW: Early stopping with sliding window
-    early_stop_window: int = 0,
-    early_stop_min_epochs: int = 0,
-    early_stop_patience: int = 0,
-    # NEW: WFS frame averaging
-    n_frames: int = 10,
-    # NEW: search algorithm ("spgd" = gradient loop below, else a heuristic)
-    algorithm: str = "spgd",
-    pop_size: int | None = None,
-    wfs_type: str = "thorlab",
+def _run_rms_session(
+    *,
+    algorithm: object,
+    beta1: object,
+    delta: object,
+    delta_min: object,
+    delta_schedule: object,
+    early_stop_min_epochs: object,
+    early_stop_patience: object,
+    early_stop_threshold: object,
+    early_stop_window: object,
+    epochs: object,
+    freeze_high_order_threshold: object,
+    gradient_clip: object,
+    init_range: object,
+    init_z: object,
+    lr: object,
+    lr_min: object,
+    lr_schedule: object,
+    mini_batch: object,
+    n_frames: object,
+    n_init_positions: object,
+    n_max: object,
+    n_zernike: object,
+    optimizer_type: object,
+    pop_size: object,
+    pupil_center: object,
+    pupil_diameter: object,
+    recorder: object,
+    remove_tilt: object,
+    shift_x: object,
+    shift_y: object,
+    slm_number: object,
+    slm_wait_time: object,
+    slm_wavelength: object,
+    stagnation_delta_boost: object,
+    stagnation_patience: object,
+    weight_decay: object,
+    wfs_exposure_time: object,
+    wfs_res: object,
+    wfs_type: object,
+    zernike_modes: object,
 ):
-    """Optimize wavefront RMS using SLM with Zernike coefficient control.
-
-    This function uses AdaMOD or AdamW algorithm to optimize Zernike coefficients
-    displayed on an SLM, minimizing the wavefront RMS measured by a WFS.
-
-    Args:
-        epochs: Number of optimization iterations.
-        init_z: Initial Zernike coefficients. Can be:
-            - dict: {(n, m): value} form
-            - np.ndarray: Noll-ordered coefficients
-            - None: starts from zeros
-        lr: Initial learning rate.
-        delta: Initial perturbation delta.
-        early_stop_threshold: Stop if RMS drops below this threshold.
-        wavelength: SLM wavelength in nm.
-        shift_x: SLM X shift in pixels.
-        shift_y: SLM Y shift in pixels.
-        n_max: Maximum Zernike radial order.
-        wfs_res: WFS resolution.
-        remove_tilt: Remove tilt in WFS wavefront measurement.
-        slm_number: SLM device number (1-8).
-        slm_wavelength: Override SLM wavelength (deprecated, use wavelength).
-        n_init_positions: Number of random initial positions to try (0 = disabled).
-        init_range: Range for random initialization.
-        lr_schedule: Learning rate schedule type ("static", "cosine", "exp", "linear").
-        lr_min: Minimum learning rate for scheduling.
-        delta_schedule: Delta schedule type ("static", "cosine", "exp", "linear").
-        delta_min: Minimum delta for scheduling.
-        optimizer_type: Optimizer type ("adamod" or "adamw").
-        beta1: Adam beta1 parameter for momentum.
-        weight_decay: AdamW weight decay parameter.
-        mini_batch: Number of SPGD perturbations to average per gradient estimate.
-        gradient_clip: Maximum absolute gradient value (0 to disable).
-        stagnation_patience: Epochs without improvement before delta boost.
-        stagnation_delta_boost: Multiplier for delta boost on stagnation.
-        freeze_high_order_threshold: RMS threshold to freeze high-order modes.
-        early_stop_window: Sliding window size for early stopping validation.
-        early_stop_min_epochs: Minimum epochs before early stopping can trigger.
-        early_stop_patience: Consecutive non-improvement windows before stopping.
-        n_frames: Number of WFS images to average per measurement.
-        algorithm: Search algorithm: ``"spgd"`` (gradient loop, default) or a
-            black-box heuristic (``ga``/``pso``/``sa``/``hc``/``rs``/``cem``/``de``).
-        pop_size: Population size for population-based heuristics
-            (ga/pso/cem/de); ignored by SA/HC/RS and by ``"spgd"``.
-
-    Returns:
-        Recorder: Optimization history with RMS and coefficients.
-    """
-    epochs = int(epochs)
-    algorithm = str(algorithm).lower()
-    if algorithm not in heuristic_algorithm_choices(include_spgd=True):
-        raise ValueError(
-            f"algorithm must be one of {heuristic_algorithm_choices()}, got {algorithm!r}"
-        )
-
-    # Calculate number of Zernike terms
-    n_zernike = calc_n_zernike_terms(n_max)
-    zernike_modes = _zernike_indices(n_max)
-
-    recorder = Recorder(mark="rms", mode="min")
-
+    """#205 batch-12: former 353-line With session of optimizer_rms_slm."""
     with (
         ZernikeSLM(
             slm_number=slm_number,
@@ -902,3 +833,160 @@ def optimizer_rms_slm(
             )
 
         return recorder
+
+
+def optimizer_rms_slm(
+    epochs: int,
+    init_z: Sequence[float | int] | dict[tuple[int, int], float] | None = None,
+    lr: float = 0.01,
+    delta: float = 0.0,
+    early_stop_threshold: float = 0.12,
+    # Zernike/SLM parameters
+    wavelength: int = SLM_WAVELENGTH_DEFAULT,
+    shift_x: int = SLM_SHIFT_X_DEFAULT,
+    shift_y: int = SLM_SHIFT_Y_DEFAULT,
+    n_max: int = 4,
+    # WFS parameters
+    wfs_res: MlaRes = MlaRes.Res1024,
+    remove_tilt: bool = False,
+    wfs_exposure_time: float = 0.2,
+    pupil_center: tuple[float, float] = (0, 0),
+    pupil_diameter: float = 4.6,
+    # Other parameters
+    slm_number: int = 1,
+    slm_wavelength: int | None = None,
+    slm_wait_time: float = 0.2,
+    n_init_positions: int = 0,
+    init_range: float = 20.0,
+    # NEW: Learning rate scheduling
+    lr_schedule: str = "static",
+    lr_min: float = 1e-6,
+    # NEW: Delta scheduling
+    delta_schedule: str = "static",
+    delta_min: float = 1e-7,
+    # NEW: Optimizer selection
+    optimizer_type: str = "adamod",
+    beta1: float = 0.95,
+    weight_decay: float = 1e-2,
+    # NEW: Mini-batch SPGD
+    mini_batch: int = 1,
+    # NEW: Gradient clipping
+    gradient_clip: float = 0.0,
+    # NEW: Stagnation detection and restart
+    stagnation_patience: int = 30,
+    stagnation_delta_boost: float = 1.5,
+    freeze_high_order_threshold: float | None = None,
+    # NEW: Early stopping with sliding window
+    early_stop_window: int = 0,
+    early_stop_min_epochs: int = 0,
+    early_stop_patience: int = 0,
+    # NEW: WFS frame averaging
+    n_frames: int = 10,
+    # NEW: search algorithm ("spgd" = gradient loop below, else a heuristic)
+    algorithm: str = "spgd",
+    pop_size: int | None = None,
+    wfs_type: str = "thorlab",
+):
+    """Optimize wavefront RMS using SLM with Zernike coefficient control.
+
+    This function uses AdaMOD or AdamW algorithm to optimize Zernike coefficients
+    displayed on an SLM, minimizing the wavefront RMS measured by a WFS.
+
+    Args:
+        epochs: Number of optimization iterations.
+        init_z: Initial Zernike coefficients. Can be:
+            - dict: {(n, m): value} form
+            - np.ndarray: Noll-ordered coefficients
+            - None: starts from zeros
+        lr: Initial learning rate.
+        delta: Initial perturbation delta.
+        early_stop_threshold: Stop if RMS drops below this threshold.
+        wavelength: SLM wavelength in nm.
+        shift_x: SLM X shift in pixels.
+        shift_y: SLM Y shift in pixels.
+        n_max: Maximum Zernike radial order.
+        wfs_res: WFS resolution.
+        remove_tilt: Remove tilt in WFS wavefront measurement.
+        slm_number: SLM device number (1-8).
+        slm_wavelength: Override SLM wavelength (deprecated, use wavelength).
+        n_init_positions: Number of random initial positions to try (0 = disabled).
+        init_range: Range for random initialization.
+        lr_schedule: Learning rate schedule type ("static", "cosine", "exp", "linear").
+        lr_min: Minimum learning rate for scheduling.
+        delta_schedule: Delta schedule type ("static", "cosine", "exp", "linear").
+        delta_min: Minimum delta for scheduling.
+        optimizer_type: Optimizer type ("adamod" or "adamw").
+        beta1: Adam beta1 parameter for momentum.
+        weight_decay: AdamW weight decay parameter.
+        mini_batch: Number of SPGD perturbations to average per gradient estimate.
+        gradient_clip: Maximum absolute gradient value (0 to disable).
+        stagnation_patience: Epochs without improvement before delta boost.
+        stagnation_delta_boost: Multiplier for delta boost on stagnation.
+        freeze_high_order_threshold: RMS threshold to freeze high-order modes.
+        early_stop_window: Sliding window size for early stopping validation.
+        early_stop_min_epochs: Minimum epochs before early stopping can trigger.
+        early_stop_patience: Consecutive non-improvement windows before stopping.
+        n_frames: Number of WFS images to average per measurement.
+        algorithm: Search algorithm: ``"spgd"`` (gradient loop, default) or a
+            black-box heuristic (``ga``/``pso``/``sa``/``hc``/``rs``/``cem``/``de``).
+        pop_size: Population size for population-based heuristics
+            (ga/pso/cem/de); ignored by SA/HC/RS and by ``"spgd"``.
+
+    Returns:
+        Recorder: Optimization history with RMS and coefficients.
+    """
+    epochs = int(epochs)
+    algorithm = str(algorithm).lower()
+    if algorithm not in heuristic_algorithm_choices(include_spgd=True):
+        raise ValueError(
+            f"algorithm must be one of {heuristic_algorithm_choices()}, got {algorithm!r}"
+        )
+
+    # Calculate number of Zernike terms
+    n_zernike = calc_n_zernike_terms(n_max)
+    zernike_modes = _zernike_indices(n_max)
+
+    recorder = Recorder(mark="rms", mode="min")
+
+    return _run_rms_session(
+        algorithm=algorithm,
+        beta1=beta1,
+        delta=delta,
+        delta_min=delta_min,
+        delta_schedule=delta_schedule,
+        early_stop_min_epochs=early_stop_min_epochs,
+        early_stop_patience=early_stop_patience,
+        early_stop_threshold=early_stop_threshold,
+        early_stop_window=early_stop_window,
+        epochs=epochs,
+        freeze_high_order_threshold=freeze_high_order_threshold,
+        gradient_clip=gradient_clip,
+        init_range=init_range,
+        init_z=init_z,
+        lr=lr,
+        lr_min=lr_min,
+        lr_schedule=lr_schedule,
+        mini_batch=mini_batch,
+        n_frames=n_frames,
+        n_init_positions=n_init_positions,
+        n_max=n_max,
+        n_zernike=n_zernike,
+        optimizer_type=optimizer_type,
+        pop_size=pop_size,
+        pupil_center=pupil_center,
+        pupil_diameter=pupil_diameter,
+        recorder=recorder,
+        remove_tilt=remove_tilt,
+        shift_x=shift_x,
+        shift_y=shift_y,
+        slm_number=slm_number,
+        slm_wait_time=slm_wait_time,
+        slm_wavelength=slm_wavelength,
+        stagnation_delta_boost=stagnation_delta_boost,
+        stagnation_patience=stagnation_patience,
+        weight_decay=weight_decay,
+        wfs_exposure_time=wfs_exposure_time,
+        wfs_res=wfs_res,
+        wfs_type=wfs_type,
+        zernike_modes=zernike_modes,
+    )

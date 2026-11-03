@@ -13,6 +13,7 @@ from scipy.ndimage import zoom
 from ao_shaping.utils.math.array_shape import fit_exact
 
 
+# AXIS: (row, col)
 def crop_to_aspect(
     img: np.ndarray,
     aspect_ratio: float,
@@ -72,6 +73,7 @@ def upsample_bilinear_to_shape(
     return fit_exact(zoom(coarse, factors, order=1, mode="nearest"), shape)
 
 
+# AXIS: (row, col)
 def resample_to_grid(
     img: np.ndarray,
     target_shape: tuple[int, int],

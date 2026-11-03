@@ -53,6 +53,7 @@ from ao_shaping.drivers.ccd.common import (
     resolve_initial_exposure,  # noqa: F401 -- intentional re-export, documented at the module header
 )
 from ao_shaping.drivers.slm import Santec
+from ao_shaping.drivers.slm.factory import require_drive_board_entry
 from ao_shaping.drivers.slm.santec import PANEL_RES
 from ao_shaping.gui.utils.phase_overlay import (
     PhaseOverlay,
@@ -1072,199 +1073,69 @@ def _debug_report(
         },
     )
 
-def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
-    """Optimize PIB (Power in Bucket) using SLM with Zernike coefficient control.
-
-    Zernike coefficients displayed on an SLM are searched to optimise an imaging
-    objective measured by a camera. Two search families are available:
-    ``algorithm="spgd"`` (Stochastic Parallel Gradient Descent, the default) or a
-    black-box heuristic (``ga``/``pso``/``sa``/``hc``/``rs``/``cem``/``de``).
-
-    Args:
-        config: Grouped configuration for the run. ``center`` and ``epochs``
-            are the run-level switches that used to be positional arguments
-            (center detection method or fixed (x, y) tuple, and the number of
-            optimization iterations). The camera/objective fields live on
-            ``config.camera`` (:class:`CameraParamsPib`) and the SLM/Zernike
-            fields on ``config.slm`` (:class:`SlmParamsPib`); ``config.kwargs``
-            is forwarded to the optimizer constructor (``create_optimizer``).
-
-    Returns:
-        Recorder: Optimization history recorder.
-    """
-    center = config.center
-    epochs = config.epochs
-    camera_config = config.camera
-    slm_config = config.slm
-    blaze_period_px = slm_config.blaze_period_px
-    blaze_direction = slm_config.blaze_direction
-    algorithm = config.algorithm
-    pop_size = config.pop_size
-    optimizer_type = config.optimizer_type
-    r_bucket = camera_config.r_bucket
-    delta = config.delta
-    lr = config.lr
-    # CLI token -> the legacy float every `exposure_time_ms == 0` branch below
-    # tests. Both tokens collapse onto 0.0, which is what `auto` meant here.
-    exposure_time_ms = exposure_ms_legacy(
-        resolve_exposure(
-            camera_config.exposure_time_ms, param_hint="--exposure-time-ms"
-        )
-    )
-    shrink_iter = config.shrink_iter
-    shrink_ratio = config.shrink_ratio
-    show = config.show
-    init_c = slm_config.init_c
-    cam_size = camera_config.cam_size
-    target_max_brightness = camera_config.target_max_brightness
-    n_max = slm_config.n_max
-    random_seed = config.random_seed
-    objective = camera_config.name
-    target_shape = camera_config.target_shape
-    target_size = camera_config.target_size
-    if blaze_period_px >= 0 and (target_size is None or exposure_time_ms <= 0):
-        raise ValueError("off-axis shaping requires target_size and a fixed exposure")
-    if blaze_period_px >= 0 and camera_config.cam_type == "sim":
-        raise ValueError("blaze calibration requires a full-frame hardware CCD")
-    target_aspect_ratio = camera_config.target_aspect_ratio
-    target_center_smooth = camera_config.target_center_smooth
-    shape_schedule = camera_config.shape_schedule
-    max_roi_energy_loss = camera_config.max_roi_energy_loss
-    w_uniformity = camera_config.w_uniformity
-    w_peak = camera_config.w_peak
-    w_pearson = camera_config.w_pearson
-    w_coverage = camera_config.w_coverage
-    w_loggrad = camera_config.w_loggrad
-    w_displacement = camera_config.w_displacement
-    log_uniformity = camera_config.log_uniformity
-    w_ema_decay = camera_config.w_ema_decay
-    w_floor = camera_config.w_floor
-    w_temperature = camera_config.w_temperature
-    w_pib_init = camera_config.w_pib_init
-    w_rms_init = camera_config.w_rms_init
-    w_ee_init = camera_config.w_ee_init
-    record_phase = config.record_phase
-    w_outside = config.w_outside
-    debug = config.debug
-    debug_dir = config.debug_dir
-    zernike_radius = slm_config.zernike_radius
-    if zernike_radius is None or zernike_radius <= 0:
-        zernike_radius = ZERNIKE_APERTURE_RADIUS
-
-    delta = abs(delta)
-    epochs = int(epochs)
-    rng = np.random.default_rng(random_seed)
-
-    algorithm = str(algorithm).lower()
-    if algorithm not in ALGORITHM_CHOICES:
-        raise ValueError(
-            f"algorithm must be one of {ALGORITHM_CHOICES}, got {algorithm!r}"
-        )
-
-    # Single authority for the objective/target-shape pairing. The rules used to
-    # be re-implemented inline here, which had already drifted from
-    # ``objective.py``: it omitted ``rmse_out`` entirely and hard-coded its own
-    # (shorter) shape-aware list, so any newly registered objective raised
-    # ``ValueError`` here even though ``ObjectiveSpec.resolve`` accepted it.
-    spec = ObjectiveSpec.resolve(objective, target_shape)
-    objective, target_shape = spec.name, spec.shape
-    shape_for_metric = cast(TargetShape, target_shape or "rectangle")
-    if target_center_smooth < 1:
-        raise ValueError(
-            f"target_center_smooth must be at least 1, got {target_center_smooth}"
-        )
-    if target_size is not None and (not np.isfinite(target_size) or target_size <= 0):
-        raise ValueError(f"target_size must be positive, got {target_size!r}")
-    if not np.isfinite(target_aspect_ratio) or target_aspect_ratio <= 0:
-        raise ValueError(
-            f"target_aspect_ratio must be positive, got {target_aspect_ratio!r}"
-        )
-    if not 0.0 <= w_ema_decay <= 1.0:
-        raise ValueError(f"w_ema_decay must be within 0..1, got {w_ema_decay!r}")
-    if not 0.0 <= w_floor < 0.5:
-        raise ValueError(f"w_floor must be within 0..0.5 (exclusive), got {w_floor!r}")
-    if not np.isfinite(w_temperature) or w_temperature <= 0.0:
-        raise ValueError(f"w_temperature must be positive, got {w_temperature!r}")
-    for _name, _w in (
-        ("w_pib_init", w_pib_init),
-        ("w_rms_init", w_rms_init),
-        ("w_ee_init", w_ee_init),
-    ):
-        if _w is not None and (not np.isfinite(_w) or _w < 0.0):
-            raise ValueError(
-                f"{_name} must be a finite, non-negative weight, got {_w!r}"
-            )
-
-    # Optimization mode mapping: pib, avg_radiu, shape, roi_pib and rms_pib are
-    # maximized; radiu and rmse are minimized.
-    if not 0.0 <= max_roi_energy_loss <= 1.0:
-        raise ValueError(
-            f"max_roi_energy_loss must be within 0..1 (0 disables the guard), "
-            f"got {max_roi_energy_loss!r}"
-        )
-    for _name, _w in (
-        ("w_uniformity", w_uniformity),
-        ("w_peak", w_peak),
-        ("w_pearson", w_pearson),
-        ("w_coverage", w_coverage),
-        ("w_displacement", w_displacement),
-    ):
-        if not np.isfinite(_w) or _w < 0.0:
-            raise ValueError(
-                f"{_name} must be a finite, non-negative weight, got {_w!r}"
-            )
-    objective_mode = objective_direction(objective)
-    recorder = Recorder(mark=objective, mode=objective_mode)
-
-    # History for convergence detection
-    _gradient_history: list[float] = []
-    _pib_history: list[float] = []
-    _max_history_len = 50
-
-    # Zernike mode count and index mapping
-    nk = calc_n_zernike_terms(n_max)
-    _zernike_indices(n_max)
-
-    # SLM pattern helper
-    pattern_helper = PatternHelper(resolution=SLM_RESOLUTION, bits=10)
-
-    if show:
-        # PIB (bucket ratio) is bounded 0..1 -> fixed y-axis; other objectives auto-scale.
-        _curve_y_range = (
-            (0.0, 1.0) if objective in ("pib", "roi_pib", "rms_pib") else None
-        )
-        # Target shape is only meaningful for the objectives that score against a
-        # target ROI; for pib/radiu/avg_radiu the bucket circle is the correct
-        # overlay. Use the shared tuple: a hand-written copy here had already
-        # drifted from the leaf (it was missing ``rmse_out`` and ``pearson``), and
-        # the sibling module carried a third, different spelling of the same list.
-        _display_shape = (
-            shape_for_metric if objective in DEFAULT_SHAPE_OBJECTIVES else None
-        )
-        display_ctx = SlmZernikeDisplay(
-            zernike_clip=ZERNIKE_CLIP,
-            curve_title=f"{objective} curve",
-            curve_y_range=_curve_y_range,
-            target_shape=_display_shape,
-            target_aspect_ratio=target_aspect_ratio,
-        )
-    else:
-        display_ctx = nullcontext(None)
-
-    # `create_camera(config.camera)` reads `exposure_time_ms` straight off the
-    # object, and that field carries the CLI token -- hand it a copy that holds
-    # the resolved float instead of mutating the caller's params object.
-    cam_ctx = create_camera(
-        replace(config.camera, exposure_time_ms=exposure_time_ms)
-    )
-    slm_ctx = Santec.from_params(config.slm)
-    # Send-pipeline overlay (GUI 离焦 / 底相位): apply to the SLM this run opens
-    # (driver slot on a real Santec; no-op for a sim SLM that lacks the setters).
-    # Default ``None`` leaves CLI runs untouched.
-    if config.send_overlay is not None:
-        apply_overlays_to_handle(slm_ctx, config.send_overlay)
-
+def _run_pib_session(
+    *,
+    _gradient_history: object,
+    _max_history_len: object,
+    _pib_history: object,
+    algorithm: object,
+    blaze_direction: object,
+    blaze_period_px: object,
+    cam_ctx: object,
+    cam_size: object,
+    camera_config: object,
+    center: object,
+    config: object,
+    debug: object,
+    debug_dir: object,
+    delta: object,
+    display_ctx: object,
+    epochs: object,
+    exposure_time_ms: object,
+    init_c: object,
+    log_uniformity: object,
+    lr: object,
+    max_roi_energy_loss: object,
+    n_max: object,
+    nk: object,
+    objective: object,
+    objective_mode: object,
+    optimizer_type: object,
+    pattern_helper: object,
+    pop_size: object,
+    r_bucket: object,
+    random_seed: object,
+    record_phase: object,
+    recorder: object,
+    rng: object,
+    shape_for_metric: object,
+    shape_schedule: object,
+    shrink_iter: object,
+    shrink_ratio: object,
+    slm_ctx: object,
+    target_aspect_ratio: object,
+    target_center_smooth: object,
+    target_max_brightness: object,
+    target_size: object,
+    w_coverage: object,
+    w_displacement: object,
+    w_ee_init: object,
+    w_ema_decay: object,
+    w_floor: object,
+    w_loggrad: object,
+    w_outside: object,
+    w_peak: object,
+    w_pearson: object,
+    w_pib_init: object,
+    w_rms_init: object,
+    w_temperature: object,
+    w_uniformity: object,
+    zernike_radius: object,
+):
+    """#205 batch-11: former 324-line With session of optimize_slm_zernike_pib."""
     with cam_ctx as cam, slm_ctx as slm, display_ctx as live_display:
+        # 采集入口守卫 (#186): 驱动板不应答在第一帧前失败; 仿真面板 no-op。
+        require_drive_board_entry(slm)
         blaze_choice = None
         if blaze_period_px >= 0:
             from ao_shaping.optimizer.wfless._blaze_calibration import select_blaze
@@ -1471,21 +1342,22 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         # ------------------------------------------------------------------
 
 
+        # Constructed before the try (plain dataclass: cannot raise) so the
+        # finally-cleanup reads state.* unconditionally -- and on a branch
+        # exception now restores the branch's incremental best, not stale locals.
+        state = _RunState(
+            best_c=best_c,
+            best_objective=best_objective,
+            last_best_epoch=last_best_epoch,
+            delta=delta,
+            r_bucket=r_bucket,
+            _init_c=_init_c,
+            _init_r=_init_r,
+        )
         try:
-            state = _RunState(
-                best_c=best_c,
-                best_objective=best_objective,
-                last_best_epoch=last_best_epoch,
-                delta=delta,
-                r_bucket=r_bucket,
-                _init_c=_init_c,
-                _init_r=_init_r,
-            )
             if algorithm != "spgd":
                 _rec = _run_heuristic(
                     state,
-                    _init_c=_init_c,
-                    _init_r=_init_r,
                     algorithm=algorithm,
                     blaze_choice=blaze_choice,
                     cam=cam,
@@ -1494,7 +1366,6 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     center=center,
                     debug=debug,
                     debug_dir=debug_dir,
-                    delta=delta,
                     epochs=epochs,
                     live_display=live_display,
                     nk=nk,
@@ -1502,7 +1373,6 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     objective_mode=objective_mode,
                     optimizer_type=optimizer_type,
                     pop_size=pop_size,
-                    r_bucket=r_bucket,
                     random_seed=random_seed,
                     record_phase=record_phase,
                     recorder=recorder,
@@ -1513,9 +1383,6 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     w_loggrad=w_loggrad,
                     w_outside=w_outside,
                 )
-                best_c = state.best_c
-                best_objective = state.best_objective
-                last_best_epoch = state.last_best_epoch
                 return _rec
             _run_spgd(
                 state,
@@ -1546,11 +1413,6 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 update_iter=update_iter,
                 w_loggrad=w_loggrad,
             )
-            delta = state.delta
-            r_bucket = state.r_bucket
-            best_c = state.best_c
-            best_objective = state.best_objective
-            last_best_epoch = state.last_best_epoch
 
             # On exit, leave the SLM at the best phase found. The initial (flat or
             # loaded) phase is one of the candidates: if the search never improved
@@ -1563,11 +1425,11 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 camera_config=camera_config,
                 debug=debug,
                 debug_dir=debug_dir,
-                delta=delta,
+                delta=state.delta,
                 epochs=epochs,
                 objective=objective,
                 optimizer_type=optimizer_type,
-                r_bucket=r_bucket,
+                r_bucket=state.r_bucket,
                 recorder=recorder,
                 shape_for_metric=shape_for_metric,
                 target_size=target_size,
@@ -1590,11 +1452,263 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 center_full=center_full,
                 full_frame_shape=full_frame_shape,
                 initial_phase=initial_phase,
-                best_c=best_c,
-                best_objective=best_objective,
-                last_best_epoch=last_best_epoch,
+                best_c=state.best_c,
+                best_objective=state.best_objective,
+                last_best_epoch=state.last_best_epoch,
                 _initial_objective=_initial_objective,
             )
+
+
+def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
+    """Optimize PIB (Power in Bucket) using SLM with Zernike coefficient control.
+
+    Zernike coefficients displayed on an SLM are searched to optimise an imaging
+    objective measured by a camera. Two search families are available:
+    ``algorithm="spgd"`` (Stochastic Parallel Gradient Descent, the default) or a
+    black-box heuristic (``ga``/``pso``/``sa``/``hc``/``rs``/``cem``/``de``).
+
+    Args:
+        config: Grouped configuration for the run. ``center`` and ``epochs``
+            are the run-level switches that used to be positional arguments
+            (center detection method or fixed (x, y) tuple, and the number of
+            optimization iterations). The camera/objective fields live on
+            ``config.camera`` (:class:`CameraParamsPib`) and the SLM/Zernike
+            fields on ``config.slm`` (:class:`SlmParamsPib`); ``config.kwargs``
+            is forwarded to the optimizer constructor (``create_optimizer``).
+
+    Returns:
+        Recorder: Optimization history recorder.
+    """
+    center = config.center
+    epochs = config.epochs
+    camera_config = config.camera
+    slm_config = config.slm
+    blaze_period_px = slm_config.blaze_period_px
+    blaze_direction = slm_config.blaze_direction
+    algorithm = config.algorithm
+    pop_size = config.pop_size
+    optimizer_type = config.optimizer_type
+    r_bucket = camera_config.r_bucket
+    delta = config.delta
+    lr = config.lr
+    # CLI token -> the legacy float every `exposure_time_ms == 0` branch below
+    # tests. Both tokens collapse onto 0.0, which is what `auto` meant here.
+    exposure_time_ms = exposure_ms_legacy(
+        resolve_exposure(
+            camera_config.exposure_time_ms, param_hint="--exposure-time-ms"
+        )
+    )
+    shrink_iter = config.shrink_iter
+    shrink_ratio = config.shrink_ratio
+    show = config.show
+    init_c = slm_config.init_c
+    cam_size = camera_config.cam_size
+    target_max_brightness = camera_config.target_max_brightness
+    n_max = slm_config.n_max
+    random_seed = config.random_seed
+    objective = camera_config.name
+    target_shape = camera_config.target_shape
+    target_size = camera_config.target_size
+    if blaze_period_px >= 0 and (target_size is None or exposure_time_ms <= 0):
+        raise ValueError("off-axis shaping requires target_size and a fixed exposure")
+    if blaze_period_px >= 0 and camera_config.cam_type == "sim":
+        raise ValueError("blaze calibration requires a full-frame hardware CCD")
+    target_aspect_ratio = camera_config.target_aspect_ratio
+    target_center_smooth = camera_config.target_center_smooth
+    shape_schedule = camera_config.shape_schedule
+    max_roi_energy_loss = camera_config.max_roi_energy_loss
+    w_uniformity = camera_config.w_uniformity
+    w_peak = camera_config.w_peak
+    w_pearson = camera_config.w_pearson
+    w_coverage = camera_config.w_coverage
+    w_loggrad = camera_config.w_loggrad
+    w_displacement = camera_config.w_displacement
+    log_uniformity = camera_config.log_uniformity
+    w_ema_decay = camera_config.w_ema_decay
+    w_floor = camera_config.w_floor
+    w_temperature = camera_config.w_temperature
+    w_pib_init = camera_config.w_pib_init
+    w_rms_init = camera_config.w_rms_init
+    w_ee_init = camera_config.w_ee_init
+    record_phase = config.record_phase
+    w_outside = config.w_outside
+    debug = config.debug
+    debug_dir = config.debug_dir
+    zernike_radius = slm_config.zernike_radius
+    if zernike_radius is None or zernike_radius <= 0:
+        zernike_radius = ZERNIKE_APERTURE_RADIUS
+
+    delta = abs(delta)
+    epochs = int(epochs)
+    rng = np.random.default_rng(random_seed)
+
+    algorithm = str(algorithm).lower()
+    if algorithm not in ALGORITHM_CHOICES:
+        raise ValueError(
+            f"algorithm must be one of {ALGORITHM_CHOICES}, got {algorithm!r}"
+        )
+
+    # Single authority for the objective/target-shape pairing. The rules used to
+    # be re-implemented inline here, which had already drifted from
+    # ``objective.py``: it omitted ``rmse_out`` entirely and hard-coded its own
+    # (shorter) shape-aware list, so any newly registered objective raised
+    # ``ValueError`` here even though ``ObjectiveSpec.resolve`` accepted it.
+    spec = ObjectiveSpec.resolve(objective, target_shape)
+    objective, target_shape = spec.name, spec.shape
+    shape_for_metric = cast(TargetShape, target_shape or "rectangle")
+    if target_center_smooth < 1:
+        raise ValueError(
+            f"target_center_smooth must be at least 1, got {target_center_smooth}"
+        )
+    if target_size is not None and (not np.isfinite(target_size) or target_size <= 0):
+        raise ValueError(f"target_size must be positive, got {target_size!r}")
+    if not np.isfinite(target_aspect_ratio) or target_aspect_ratio <= 0:
+        raise ValueError(
+            f"target_aspect_ratio must be positive, got {target_aspect_ratio!r}"
+        )
+    if not 0.0 <= w_ema_decay <= 1.0:
+        raise ValueError(f"w_ema_decay must be within 0..1, got {w_ema_decay!r}")
+    if not 0.0 <= w_floor < 0.5:
+        raise ValueError(f"w_floor must be within 0..0.5 (exclusive), got {w_floor!r}")
+    if not np.isfinite(w_temperature) or w_temperature <= 0.0:
+        raise ValueError(f"w_temperature must be positive, got {w_temperature!r}")
+    for _name, _w in (
+        ("w_pib_init", w_pib_init),
+        ("w_rms_init", w_rms_init),
+        ("w_ee_init", w_ee_init),
+    ):
+        if _w is not None and (not np.isfinite(_w) or _w < 0.0):
+            raise ValueError(
+                f"{_name} must be a finite, non-negative weight, got {_w!r}"
+            )
+
+    # Optimization mode mapping: pib, avg_radiu, shape, roi_pib and rms_pib are
+    # maximized; radiu and rmse are minimized.
+    if not 0.0 <= max_roi_energy_loss <= 1.0:
+        raise ValueError(
+            f"max_roi_energy_loss must be within 0..1 (0 disables the guard), "
+            f"got {max_roi_energy_loss!r}"
+        )
+    for _name, _w in (
+        ("w_uniformity", w_uniformity),
+        ("w_peak", w_peak),
+        ("w_pearson", w_pearson),
+        ("w_coverage", w_coverage),
+        ("w_displacement", w_displacement),
+    ):
+        if not np.isfinite(_w) or _w < 0.0:
+            raise ValueError(
+                f"{_name} must be a finite, non-negative weight, got {_w!r}"
+            )
+    objective_mode = objective_direction(objective)
+    recorder = Recorder(mark=objective, mode=objective_mode)
+
+    # History for convergence detection
+    _gradient_history: list[float] = []
+    _pib_history: list[float] = []
+    _max_history_len = 50
+
+    # Zernike mode count and index mapping
+    nk = calc_n_zernike_terms(n_max)
+    _zernike_indices(n_max)
+
+    # SLM pattern helper
+    pattern_helper = PatternHelper(resolution=SLM_RESOLUTION, bits=10)
+
+    if show:
+        # PIB (bucket ratio) is bounded 0..1 -> fixed y-axis; other objectives auto-scale.
+        _curve_y_range = (
+            (0.0, 1.0) if objective in ("pib", "roi_pib", "rms_pib") else None
+        )
+        # Target shape is only meaningful for the objectives that score against a
+        # target ROI; for pib/radiu/avg_radiu the bucket circle is the correct
+        # overlay. Use the shared tuple: a hand-written copy here had already
+        # drifted from the leaf (it was missing ``rmse_out`` and ``pearson``), and
+        # the sibling module carried a third, different spelling of the same list.
+        _display_shape = (
+            shape_for_metric if objective in DEFAULT_SHAPE_OBJECTIVES else None
+        )
+        display_ctx = SlmZernikeDisplay(
+            zernike_clip=ZERNIKE_CLIP,
+            curve_title=f"{objective} curve",
+            curve_y_range=_curve_y_range,
+            target_shape=_display_shape,
+            target_aspect_ratio=target_aspect_ratio,
+        )
+    else:
+        display_ctx = nullcontext(None)
+
+    # `create_camera(config.camera)` reads `exposure_time_ms` straight off the
+    # object, and that field carries the CLI token -- hand it a copy that holds
+    # the resolved float instead of mutating the caller's params object.
+    cam_ctx = create_camera(
+        replace(config.camera, exposure_time_ms=exposure_time_ms)
+    )
+    slm_ctx = Santec.from_params(config.slm)
+    # Send-pipeline overlay (GUI 离焦 / 底相位): apply to the SLM this run opens
+    # (driver slot on a real Santec; no-op for a sim SLM that lacks the setters).
+    # Default ``None`` leaves CLI runs untouched.
+    if config.send_overlay is not None:
+        apply_overlays_to_handle(slm_ctx, config.send_overlay)
+
+    return _run_pib_session(
+        _gradient_history=_gradient_history,
+        _max_history_len=_max_history_len,
+        _pib_history=_pib_history,
+        algorithm=algorithm,
+        blaze_direction=blaze_direction,
+        blaze_period_px=blaze_period_px,
+        cam_ctx=cam_ctx,
+        cam_size=cam_size,
+        camera_config=camera_config,
+        center=center,
+        config=config,
+        debug=debug,
+        debug_dir=debug_dir,
+        delta=delta,
+        display_ctx=display_ctx,
+        epochs=epochs,
+        exposure_time_ms=exposure_time_ms,
+        init_c=init_c,
+        log_uniformity=log_uniformity,
+        lr=lr,
+        max_roi_energy_loss=max_roi_energy_loss,
+        n_max=n_max,
+        nk=nk,
+        objective=objective,
+        objective_mode=objective_mode,
+        optimizer_type=optimizer_type,
+        pattern_helper=pattern_helper,
+        pop_size=pop_size,
+        r_bucket=r_bucket,
+        random_seed=random_seed,
+        record_phase=record_phase,
+        recorder=recorder,
+        rng=rng,
+        shape_for_metric=shape_for_metric,
+        shape_schedule=shape_schedule,
+        shrink_iter=shrink_iter,
+        shrink_ratio=shrink_ratio,
+        slm_ctx=slm_ctx,
+        target_aspect_ratio=target_aspect_ratio,
+        target_center_smooth=target_center_smooth,
+        target_max_brightness=target_max_brightness,
+        target_size=target_size,
+        w_coverage=w_coverage,
+        w_displacement=w_displacement,
+        w_ee_init=w_ee_init,
+        w_ema_decay=w_ema_decay,
+        w_floor=w_floor,
+        w_loggrad=w_loggrad,
+        w_outside=w_outside,
+        w_peak=w_peak,
+        w_pearson=w_pearson,
+        w_pib_init=w_pib_init,
+        w_rms_init=w_rms_init,
+        w_temperature=w_temperature,
+        w_uniformity=w_uniformity,
+        zernike_radius=zernike_radius,
+    )
 
 def _apply_best_on_exit(
     *,
@@ -1752,8 +1866,6 @@ class _RunState:
 def _run_heuristic(
     state: "_RunState",
     *,
-    _init_c,
-    _init_r,
     algorithm,
     blaze_choice,
     cam,
@@ -1762,7 +1874,6 @@ def _run_heuristic(
     center,
     debug,
     debug_dir,
-    delta,
     epochs,
     live_display,
     nk,
@@ -1770,7 +1881,6 @@ def _run_heuristic(
     objective_mode,
     optimizer_type,
     pop_size,
-    r_bucket,
     random_seed,
     record_phase,
     recorder,
@@ -1820,15 +1930,15 @@ def _run_heuristic(
                         img=img,
                         phase=last_eval.get("phase"),
                         lr_val=0.0,
-                        delta_val=float(delta),
+                        delta_val=float(state.delta),
                         max_brt=float(np.max(img)),
                         loggrad=float(last_eval.get("loggrad", 0.0)),
-                                            _init_r=_init_r,
+                        _init_r=state._init_r,
                         best_objective=state.best_objective,
                         cam=cam,
                         objective=objective,
                         optimizer_type=optimizer_type,
-                        r_bucket=r_bucket,
+                        r_bucket=state.r_bucket,
                         record_phase=record_phase,
                         recorder=recorder,
                         shaping=shaping,
@@ -1838,14 +1948,14 @@ def _run_heuristic(
                         text = (
                             f"{algorithm} eval {index} | "
                             f"best {objective} {state.best_objective:.4f} @ {state.last_best_epoch} | "
-                            f"J {row['J']:.3g} | r {r_bucket:.1f}"
+                            f"J {row['J']:.3g} | r {state.r_bucket:.1f}"
                         )
                         live_display.update(
                             img,
                             last_eval["phase"],
                             candidate,
                             center,
-                            r_bucket,
+                            state.r_bucket,
                             text,
                             value=float(value),
                             epoch=index,
@@ -1860,7 +1970,7 @@ def _run_heuristic(
                     dim=nk,
                     iterations=epochs,
                     bounds=(-ZERNIKE_CLIP, ZERNIKE_CLIP),
-                    x0=_init_c,
+                    x0=state._init_c,
                     maximize=(objective_mode == "max"),
                     seed=random_seed,
                     pop_size=pop_size,
@@ -1892,11 +2002,11 @@ def _run_heuristic(
                 camera_config=camera_config,
                 debug=debug,
                 debug_dir=debug_dir,
-                delta=delta,
+                delta=state.delta,
                 epochs=epochs,
                 objective=objective,
                 optimizer_type=optimizer_type,
-                r_bucket=r_bucket,
+                r_bucket=state.r_bucket,
                 recorder=recorder,
                 shape_for_metric=shape_for_metric,
                 target_size=target_size,
@@ -1904,75 +2014,41 @@ def _run_heuristic(
 )
             return recorder
 
-def _run_spgd(
-    state: "_RunState",
+def _run_spgd_session(
     *,
-    _fix_bucket,
-    _gradient_history,
-    _max_history_len,
-    _pib_history,
-    cam,
-    config,
-    epochs,
-    exposure_time_ms,
-    init_img,
-    live_display,
-    lr,
-    nk,
-    objective,
-    objective_mode,
-    optimizer,
-    optimizer_type,
-    record_phase,
-    recorder,
-    rng,
-    session,
-    shaping,
-    shrink_iter,
-    shrink_ratio,
-    target_size,
-    update_iter,
-    w_loggrad,
-) -> None:
-            """SPGD branch: per-epoch perturbation, gating and coefficient update.
-
-            Nonlocal because these carry the run result out to ``_apply_best_on_exit``
-            (``best_c``/``best_objective``/``last_best_epoch``) and because the bucket
-            radius, the shrink schedule and the coefficient vector are live search state
-            that ``_log_row`` reads on every epoch.
-            """
-            # Evaluation-robustness state (see ``config.n_eval_frames`` /
-            # ``fold_ratio`` / ``noise_gate_k``): the fold baseline is armed from
-            # the initial (valid) frame; the noise-gate diff history starts empty,
-            # so the gate stays off until ``noise_gate_window`` diffs have been
-            # collected.
-            _fold_baseline_peak: float | None = float(np.max(init_img))
-            _fold_baseline_sum: float | None = float(
-                np.asarray(init_img, dtype=np.float64).sum()
-            )
-            _diff_history: deque[float] = deque(maxlen=config.noise_gate_window)
-            _n_fold_gated = 0
-            _n_noise_gated = 0
-            _n_peak_gated = 0
-
-            if config.abba_sampling:
-                logger.info(
-                    "SPGD ABBA sampling enabled: 4 captures/epoch (+ - - +), "
-                    "linear drift cancellation"
-                )
-
-            if config.max_peak > 0.0 and exposure_time_ms == 0:
-                # A counts cap under auto-exposure is not a power cap: the
-                # saturation path lowers exposure, so counts fall while optical
-                # power does not.
-                logger.warning(
-                    "max_peak={} is a camera-count threshold but "
-                    "exposure_time_ms=0 enables auto-exposure, which lowers "
-                    "exposure near saturation and can mask a real over-power "
-                    "event. Fix the exposure to make the cap meaningful.",
-                    config.max_peak,
-                )
-
+    _diff_history: object,
+    _fix_bucket: object,
+    _fold_baseline_peak: object,
+    _fold_baseline_sum: object,
+    _gradient_history: object,
+    _max_history_len: object,
+    _pib_history: object,
+    cam: object,
+    config: object,
+    epochs: object,
+    live_display: object,
+    lr: object,
+    nk: object,
+    objective: object,
+    objective_mode: object,
+    optimizer: object,
+    optimizer_type: object,
+    record_phase: object,
+    recorder: object,
+    rng: object,
+    session: object,
+    shaping: object,
+    shrink_iter: object,
+    shrink_ratio: object,
+    state: object,
+    target_size: object,
+    update_iter: object,
+    w_loggrad: object,
+    _n_fold_gated: object,
+    _n_noise_gated: object,
+    _n_peak_gated: object,
+) -> tuple:
+            """#205 batch-14: former 350-line tqdm With of _run_spgd."""
             with tqdm.tqdm(
                 total=epochs, desc=f"slm_zernike iter {epochs}", dynamic_ncols=True
             ) as bar:
@@ -2323,6 +2399,119 @@ def _run_spgd(
 
                     bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
                     bar.update(1)
+            return (
+        _n_fold_gated,
+        _n_noise_gated,
+        _n_peak_gated,
+            )
+
+
+def _run_spgd(
+    state: "_RunState",
+    *,
+    _fix_bucket,
+    _gradient_history,
+    _max_history_len,
+    _pib_history,
+    cam,
+    config,
+    epochs,
+    exposure_time_ms,
+    init_img,
+    live_display,
+    lr,
+    nk,
+    objective,
+    objective_mode,
+    optimizer,
+    optimizer_type,
+    record_phase,
+    recorder,
+    rng,
+    session,
+    shaping,
+    shrink_iter,
+    shrink_ratio,
+    target_size,
+    update_iter,
+    w_loggrad,
+) -> None:
+            """SPGD branch: per-epoch perturbation, gating and coefficient update.
+
+            Nonlocal because these carry the run result out to ``_apply_best_on_exit``
+            (``best_c``/``best_objective``/``last_best_epoch``) and because the bucket
+            radius, the shrink schedule and the coefficient vector are live search state
+            that ``_log_row`` reads on every epoch.
+            """
+            # Evaluation-robustness state (see ``config.n_eval_frames`` /
+            # ``fold_ratio`` / ``noise_gate_k``): the fold baseline is armed from
+            # the initial (valid) frame; the noise-gate diff history starts empty,
+            # so the gate stays off until ``noise_gate_window`` diffs have been
+            # collected.
+            _fold_baseline_peak: float | None = float(np.max(init_img))
+            _fold_baseline_sum: float | None = float(
+                np.asarray(init_img, dtype=np.float64).sum()
+            )
+            _diff_history: deque[float] = deque(maxlen=config.noise_gate_window)
+            _n_fold_gated = 0
+            _n_noise_gated = 0
+            _n_peak_gated = 0
+
+            if config.abba_sampling:
+                logger.info(
+                    "SPGD ABBA sampling enabled: 4 captures/epoch (+ - - +), "
+                    "linear drift cancellation"
+                )
+
+            if config.max_peak > 0.0 and exposure_time_ms == 0:
+                # A counts cap under auto-exposure is not a power cap: the
+                # saturation path lowers exposure, so counts fall while optical
+                # power does not.
+                logger.warning(
+                    "max_peak={} is a camera-count threshold but "
+                    "exposure_time_ms=0 enables auto-exposure, which lowers "
+                    "exposure near saturation and can mask a real over-power "
+                    "event. Fix the exposure to make the cap meaningful.",
+                    config.max_peak,
+                )
+
+            (
+        _n_fold_gated,
+        _n_noise_gated,
+        _n_peak_gated,
+            ) = _run_spgd_session(
+        _diff_history=_diff_history,
+        _fix_bucket=_fix_bucket,
+        _fold_baseline_peak=_fold_baseline_peak,
+        _fold_baseline_sum=_fold_baseline_sum,
+        _gradient_history=_gradient_history,
+        _max_history_len=_max_history_len,
+        _pib_history=_pib_history,
+        cam=cam,
+        config=config,
+        epochs=epochs,
+        live_display=live_display,
+        lr=lr,
+        nk=nk,
+        objective=objective,
+        objective_mode=objective_mode,
+        optimizer=optimizer,
+        optimizer_type=optimizer_type,
+        record_phase=record_phase,
+        recorder=recorder,
+        rng=rng,
+        session=session,
+        shaping=shaping,
+        shrink_iter=shrink_iter,
+        shrink_ratio=shrink_ratio,
+        state=state,
+        target_size=target_size,
+        update_iter=update_iter,
+        w_loggrad=w_loggrad,
+        _n_fold_gated=_n_fold_gated,
+        _n_noise_gated=_n_noise_gated,
+        _n_peak_gated=_n_peak_gated,
+            )
 
             logger.info(
                 "SPGD finished: {}/{} epochs updates applied, {} brightness-fold "

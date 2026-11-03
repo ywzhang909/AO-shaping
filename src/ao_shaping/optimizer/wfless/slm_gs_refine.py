@@ -83,6 +83,7 @@ from ao_shaping.drivers.slm.factory import (
     DEFAULT_WAVELENGTH_NM,
     open_camera,
     open_slm,
+    require_drive_board_entry,
     sync_device_wavelength,
 )
 from ao_shaping.gui.utils.phase_overlay import (

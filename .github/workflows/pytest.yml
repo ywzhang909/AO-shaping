@@ -125,7 +125,7 @@ jobs:
           run_shard "drivers" 0 1 tests/ao_shaping/drivers
           run_shard "tools" 0 1 tests/ao_shaping/tools
           run_shard "optimizer" 1 1 tests/ao_shaping/optimizer
-          run_shard "root-guards" 0 1 tests/ao_shaping/test_config.py tests/ao_shaping/test_conventions.py tests/ao_shaping/test_import_purity.py tests/ao_shaping/test_issue167_function_shape.py tests/ao_shaping/test_optimizer_doc_coverage.py tests/ao_shaping/test_runners_doc_paths.py tests/ao_shaping/test_tools_doc_coverage.py tests/ao_shaping/test_utils_display_doc_coverage.py tests/ao_shaping/test_wavefront_inventory_doc.py
+          run_shard "root-guards" 0 1 tests/ao_shaping/test_config.py tests/ao_shaping/test_conventions.py tests/ao_shaping/test_import_purity.py tests/ao_shaping/test_issue167_function_shape.py tests/ao_shaping/test_issue205_function_shape.py tests/ao_shaping/test_optimizer_doc_coverage.py tests/ao_shaping/test_runners_doc_paths.py tests/ao_shaping/test_tools_doc_coverage.py tests/ao_shaping/test_utils_display_doc_coverage.py tests/ao_shaping/test_wavefront_inventory_doc.py
           run_shard "runners-gui-misc" 0 1 tests/ao_shaping/runners tests/ao_shaping/gui tests/ao_shaping/model tests/ao_shaping/display tests/ao_shaping/report tests/ao_shaping/ao
           run_shard "scripts" 0 1 tests/ao_shaping/scripts
           run_shard "ml" 1 1 tests/ao_shaping/ml/gsnet tests/ao_shaping/ml/hwdataset tests/ao_shaping/ml/shaping tests/ao_shaping/ml/sim2f tests/ao_shaping/ml/zernike tests/ao_shaping/ml/test_csv_io.py tests/ao_shaping/ml/test_train_cli_runnable.py

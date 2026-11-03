@@ -34,7 +34,16 @@ def test_only_a_resume_with_nothing_outstanding_is_skipped():
 
 
 def test_run_uses_the_gate_and_not_a_bare_empty_check():
-    # The defect was the call site, not the predicate: pin that ``run`` consults
-    # ``skips_shape`` so a future edit cannot quietly restore ``if not blocks``.
-    source = inspect.getsource(validate.run)
-    assert "skips_shape(resume=resume, blocks=blocks)" in source
+    # The defect was the call site, not the predicate: pin that the session body
+    # consulted by ``run`` calls ``skips_shape``, so a future edit cannot quietly
+    # restore ``if not blocks``. Since #205 batch 6 the session block lives in
+    # ``_run_validate_session``; since batch 16 the shape loop lives one hop
+    # deeper in ``_run_validate_shapes`` -- pin all three hops: run must call the
+    # session body, the session body must call the shape loop, the shape loop
+    # must call the gate.
+    run_source = inspect.getsource(validate.run)
+    session_source = inspect.getsource(validate._run_validate_session)
+    shapes_source = inspect.getsource(validate._run_validate_shapes)
+    assert "_run_validate_session(" in run_source
+    assert "_run_validate_shapes(" in session_source
+    assert "skips_shape(resume=resume, blocks=blocks)" in shapes_source

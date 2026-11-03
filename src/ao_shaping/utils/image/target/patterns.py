@@ -30,6 +30,317 @@ TargetShape = Literal[
 ]
 
 
+def _pat_gaussian(
+    *,
+    aspect_ratio: object,
+    cx: object,
+    cy: object,
+    height: object,
+    inner_radius: object,
+    line_width: object,
+    nx: object,
+    ny: object,
+    outer_radius: object,
+    r: object,
+    radius: object,
+    shape: object,
+    side: object,
+    thickness: object,
+    width: object,
+    x: object,
+    y: object,
+) -> np.ndarray:
+    """#205 batch-9: gaussian branch of the former if/elif chain."""
+    sigma = radius / 2
+    pattern = np.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2 * sigma**2))
+    return pattern
+
+
+def _pat_disk(
+    *,
+    aspect_ratio: object,
+    cx: object,
+    cy: object,
+    height: object,
+    inner_radius: object,
+    line_width: object,
+    nx: object,
+    ny: object,
+    outer_radius: object,
+    r: object,
+    radius: object,
+    shape: object,
+    side: object,
+    thickness: object,
+    width: object,
+    x: object,
+    y: object,
+) -> np.ndarray:
+    """#205 batch-9: circle|spot branch of the former if/elif chain."""
+    pattern = (r <= radius).astype(np.float32)
+    return pattern
+
+
+def _pat_square(
+    *,
+    aspect_ratio: object,
+    cx: object,
+    cy: object,
+    height: object,
+    inner_radius: object,
+    line_width: object,
+    nx: object,
+    ny: object,
+    outer_radius: object,
+    r: object,
+    radius: object,
+    shape: object,
+    side: object,
+    thickness: object,
+    width: object,
+    x: object,
+    y: object,
+) -> np.ndarray:
+    """#205 batch-9: square branch of the former if/elif chain."""
+    half = (side if side is not None else int(radius)) / 2.0
+    pattern = ((np.abs(x - cx) <= half) & (np.abs(y - cy) <= half)).astype(
+        np.float32
+    )
+    return pattern
+
+
+def _pat_annular(
+    *,
+    aspect_ratio: object,
+    cx: object,
+    cy: object,
+    height: object,
+    inner_radius: object,
+    line_width: object,
+    nx: object,
+    ny: object,
+    outer_radius: object,
+    r: object,
+    radius: object,
+    shape: object,
+    side: object,
+    thickness: object,
+    width: object,
+    x: object,
+    y: object,
+) -> np.ndarray:
+    """#205 batch-9: annular branch of the former if/elif chain."""
+    inner_r = float(inner_radius if inner_radius is not None else 0.2 * radius)
+    outer_r = float(
+        outer_radius if outer_radius is not None else 0.5 * min(height, width) / 2
+    )
+    pattern = ((r >= inner_r) & (r <= outer_r)).astype(np.float32)
+    return pattern
+
+
+def _pat_grid(
+    *,
+    aspect_ratio: object,
+    cx: object,
+    cy: object,
+    height: object,
+    inner_radius: object,
+    line_width: object,
+    nx: object,
+    ny: object,
+    outer_radius: object,
+    r: object,
+    radius: object,
+    shape: object,
+    side: object,
+    thickness: object,
+    width: object,
+    x: object,
+    y: object,
+) -> np.ndarray:
+    """#205 batch-9: grid branch of the former if/elif chain."""
+    nx = int(nx if nx is not None else 5)
+    ny = int(ny if ny is not None else 5)
+    lw = float(line_width) * min(height, width) / 2
+    pattern = np.zeros((height, width), dtype=np.float32)
+    for i in range(nx):
+        x_pos = cx + (2 * i / max(nx - 1, 1) - 1) * (width / 2)
+        pattern[np.abs(x - x_pos) <= lw] = 1.0
+    for j in range(ny):
+        y_pos = cy + (2 * j / max(ny - 1, 1) - 1) * (height / 2)
+        pattern[np.abs(y - y_pos) <= lw] = 1.0
+    return pattern
+
+
+def _pat_cross(
+    *,
+    aspect_ratio: object,
+    cx: object,
+    cy: object,
+    height: object,
+    inner_radius: object,
+    line_width: object,
+    nx: object,
+    ny: object,
+    outer_radius: object,
+    r: object,
+    radius: object,
+    shape: object,
+    side: object,
+    thickness: object,
+    width: object,
+    x: object,
+    y: object,
+) -> np.ndarray:
+    """#205 batch-9: cross branch of the former if/elif chain."""
+    th = float(thickness) * min(height, width) / 2
+    pattern = ((np.abs(x - cx) <= th) | (np.abs(y - cy) <= th)).astype(np.float32)
+    return pattern
+
+
+def _pat_rectangle(
+    *,
+    aspect_ratio: object,
+    cx: object,
+    cy: object,
+    height: object,
+    inner_radius: object,
+    line_width: object,
+    nx: object,
+    ny: object,
+    outer_radius: object,
+    r: object,
+    radius: object,
+    shape: object,
+    side: object,
+    thickness: object,
+    width: object,
+    x: object,
+    y: object,
+) -> np.ndarray:
+    """#205 batch-9: rectangle branch of the former if/elif chain."""
+    short_side = side if side is not None else int(radius)
+    half_h = short_side / 2.0
+    half_w = short_side * aspect_ratio / 2.0
+    pattern = ((np.abs(x - cx) <= half_w) & (np.abs(y - cy) <= half_h)).astype(
+        np.float32
+    )
+    return pattern
+
+
+def _pat_pentagon(
+    *,
+    aspect_ratio: object,
+    cx: object,
+    cy: object,
+    height: object,
+    inner_radius: object,
+    line_width: object,
+    nx: object,
+    ny: object,
+    outer_radius: object,
+    r: object,
+    radius: object,
+    shape: object,
+    side: object,
+    thickness: object,
+    width: object,
+    x: object,
+    y: object,
+) -> np.ndarray:
+    """#205 batch-9: pentagon branch of the former if/elif chain."""
+    angles = -np.pi / 2 + 2 * np.pi * np.arange(5) / 5
+    vx = cx + radius * np.cos(angles)
+    vy = cy + radius * np.sin(angles)
+    inside = np.ones((height, width), dtype=bool)
+    for i in range(5):
+        x1, y1 = vx[i], vy[i]
+        x2, y2 = vx[(i + 1) % 5], vy[(i + 1) % 5]
+        cross = (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1)
+        inside &= cross >= 0
+    pattern = inside.astype(np.float32)
+    return pattern
+
+
+def _pat_poly(
+    *,
+    aspect_ratio: object,
+    cx: object,
+    cy: object,
+    height: object,
+    inner_radius: object,
+    line_width: object,
+    nx: object,
+    ny: object,
+    outer_radius: object,
+    r: object,
+    radius: object,
+    shape: object,
+    side: object,
+    thickness: object,
+    width: object,
+    x: object,
+    y: object,
+) -> np.ndarray:
+    """#205 batch-9: triangle|star branch of the former if/elif chain."""
+    if shape == "triangle":
+        angles = np.deg2rad([-90.0, 30.0, 150.0])
+        radii = np.full(3, radius)
+    else:
+        angles = np.deg2rad(-90.0 + np.arange(10) * 36.0)
+        radii = np.where(np.arange(10) % 2 == 0, radius, radius * 0.42)
+    vertices = np.column_stack(
+        (cx + radii * np.cos(angles), cy + radii * np.sin(angles))
+    )
+    inside = points_in_polygon(x, y, vertices)
+    pattern = inside.astype(np.float32)
+    return pattern
+
+
+_SHAPE_HELPERS: dict[str, object] = {
+    "gaussian": _pat_gaussian,
+    "circle": _pat_disk,
+    "spot": _pat_disk,
+    "square": _pat_square,
+    "annular": _pat_annular,
+    "grid": _pat_grid,
+    "cross": _pat_cross,
+    "rectangle": _pat_rectangle,
+    "pentagon": _pat_pentagon,
+    "triangle": _pat_poly,
+    "star": _pat_poly,
+}
+
+def _dispatch_shape(shape: str, *, aspect_ratio, cx, cy, height, inner_radius, line_width, nx, ny, outer_radius, r, radius, side, thickness, width, x, y) -> np.ndarray:
+    """#205 batch-9: table dispatch replacing the 9-deep if/elif chain."""
+    handler = _SHAPE_HELPERS.get(shape)
+    if handler is None:
+        raise ValueError(
+            f"Unknown shape: {shape}. Use 'gaussian', 'circle', 'spot', "
+            "'square', 'annular', 'grid', 'cross', 'rectangle', 'pentagon', "
+            "'triangle', or 'star'."
+        )
+    return handler(
+        aspect_ratio=aspect_ratio,
+        cx=cx,
+        cy=cy,
+        height=height,
+        inner_radius=inner_radius,
+        line_width=line_width,
+        nx=nx,
+        ny=ny,
+        outer_radius=outer_radius,
+        r=r,
+        radius=radius,
+        shape=shape,
+        side=side,
+        thickness=thickness,
+        width=width,
+        x=x,
+        y=y,
+    )
+
+
 def create_target_shape(
     shape: TargetShape,
     size: int | tuple[int, int],
@@ -96,85 +407,25 @@ def create_target_shape(
     radius = radius_ratio * min(height, width) / 2
     r = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
 
-    if shape == "gaussian":
-        sigma = radius / 2
-        pattern = np.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2 * sigma**2))
-    elif shape in {"circle", "spot"}:
-        pattern = (r <= radius).astype(np.float32)
-    elif shape == "square":
-        half = (side if side is not None else int(radius)) / 2.0
-        pattern = ((np.abs(x - cx) <= half) & (np.abs(y - cy) <= half)).astype(
-            np.float32
-        )
-    elif shape == "annular":
-        inner_r = float(inner_radius if inner_radius is not None else 0.2 * radius)
-        outer_r = float(
-            outer_radius if outer_radius is not None else 0.5 * min(height, width) / 2
-        )
-        pattern = ((r >= inner_r) & (r <= outer_r)).astype(np.float32)
-    elif shape == "grid":
-        nx = int(nx if nx is not None else 5)
-        ny = int(ny if ny is not None else 5)
-        lw = float(line_width) * min(height, width) / 2
-        pattern = np.zeros((height, width), dtype=np.float32)
-        for i in range(nx):
-            x_pos = cx + (2 * i / max(nx - 1, 1) - 1) * (width / 2)
-            pattern[np.abs(x - x_pos) <= lw] = 1.0
-        for j in range(ny):
-            y_pos = cy + (2 * j / max(ny - 1, 1) - 1) * (height / 2)
-            pattern[np.abs(y - y_pos) <= lw] = 1.0
-    elif shape == "cross":
-        th = float(thickness) * min(height, width) / 2
-        pattern = ((np.abs(x - cx) <= th) | (np.abs(y - cy) <= th)).astype(np.float32)
-    elif shape == "rectangle":
-        # ``side`` is the SHORT side; the long side (horizontal) is
-        # ``side * aspect_ratio``. The boolean mask clips to grid bounds.
-        short_side = side if side is not None else int(radius)
-        half_h = short_side / 2.0
-        half_w = short_side * aspect_ratio / 2.0
-        pattern = ((np.abs(x - cx) <= half_w) & (np.abs(y - cy) <= half_h)).astype(
-            np.float32
-        )
-    elif shape == "pentagon":
-        # Regular pentagon, point-up (one vertex at top), circumradius
-        # ``radius``. Vectorized convex-polygon point-in-polygon test over the
-        # 5 edges (half-plane checks) — no matplotlib dependency.
-        angles = -np.pi / 2 + 2 * np.pi * np.arange(5) / 5
-        vx = cx + radius * np.cos(angles)
-        vy = cy + radius * np.sin(angles)
-        inside = np.ones((height, width), dtype=bool)
-        for i in range(5):
-            x1, y1 = vx[i], vy[i]
-            x2, y2 = vx[(i + 1) % 5], vy[(i + 1) % 5]
-            cross = (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1)
-            inside &= cross >= 0
-        pattern = inside.astype(np.float32)
-    elif shape in {"triangle", "star"}:
-        # Even-odd (crossing-number) rasteriser through the shared primitive
-        # ``geometry.points_in_polygon`` (issue #199 R1: one rasteriser for the
-        # whole repo -- the formula below is bit-identical to the loop this
-        # replaces, so patterns' output does not move). Triangle is point-up;
-        # the star is a 5-pointed star with alternating outer/inner radii
-        # (inner = 0.42 * outer, the differentiable family's historical
-        # parameterisation; the transfer-side ``masks`` star keeps its own
-        # historical ratio, sin(36°)/sin(54°) ≈ 0.727).
-        if shape == "triangle":
-            angles = np.deg2rad([-90.0, 30.0, 150.0])
-            radii = np.full(3, radius)
-        else:
-            angles = np.deg2rad(-90.0 + np.arange(10) * 36.0)
-            radii = np.where(np.arange(10) % 2 == 0, radius, radius * 0.42)
-        vertices = np.column_stack(
-            (cx + radii * np.cos(angles), cy + radii * np.sin(angles))
-        )
-        inside = points_in_polygon(x, y, vertices)
-        pattern = inside.astype(np.float32)
-    else:
-        raise ValueError(
-            f"Unknown shape: {shape}. Use 'gaussian', 'circle', 'spot', "
-            "'square', 'annular', 'grid', 'cross', 'rectangle', 'pentagon', "
-            "'triangle', or 'star'."
-        )
+    pattern = _dispatch_shape(
+        shape,
+        aspect_ratio=aspect_ratio,
+        cx=cx,
+        cy=cy,
+        height=height,
+        inner_radius=inner_radius,
+        line_width=line_width,
+        nx=nx,
+        ny=ny,
+        outer_radius=outer_radius,
+        r=r,
+        radius=radius,
+        side=side,
+        thickness=thickness,
+        width=width,
+        x=x,
+        y=y,
+    )
 
     if as_amplitude:
         return np.sqrt(pattern).astype(np.float32)

@@ -86,6 +86,7 @@ from ao_shaping.tools.slm.calibration.diffraction_efficiency.simulate import (
     SimConfig,
     SimulatedBench,
 )
+from types import SimpleNamespace
 
 # ---------------------------------------------------------------------------
 # 路径常量 (写死, 见 report/AGENTS.md §2)
@@ -1003,8 +1004,15 @@ def _result_map(results: list[CaseResult]) -> dict[str, CaseResult]:
     return {r.case.key: r for r in results}
 
 
-def build_markdown(results: list[CaseResult], *, quick: bool) -> str:
-    """拼装报告正文 (数字全部来自本次运行的计算结果)。"""
+def _md_extend(base: SimpleNamespace, extra: SimpleNamespace) -> SimpleNamespace:
+    """Merge a section namespace; section names must stay unique."""
+    clash = set(vars(extra)) & set(vars(base))
+    if clash:
+        raise AssertionError(f'section-name collision: {sorted(clash)}')
+    return SimpleNamespace(**vars(base), **vars(extra))
+
+def _md_metrics(results: list[CaseResult]) -> SimpleNamespace:
+    """#205 batch-2: metrics block of the former 596-line build_markdown; body moved line-exact, free names re-bound from v."""
     by_key = _result_map(results)
     a_rows = _study_cases(results, "A")
     b_rows = _study_cases(results, "B")
@@ -1044,7 +1052,26 @@ def build_markdown(results: list[CaseResult], *, quick: bool) -> str:
 
     def bias_pct(r: CaseResult) -> str:
         return f"{r.depth_bias * 100.0:+.1f} %"
+    return SimpleNamespace(by_key=by_key, a_rows=a_rows, b_rows=b_rows, c_rows=c_rows, d_rows=d_rows, wrong=wrong, depth_bad=depth_bad, gamma_bad=gamma_bad, max_resid=max_resid, max_resid_sig=max_resid_sig, extreme_keys=extreme_keys, max_resid_normal=max_resid_normal, max_ell=max_ell, ref=ref, ff08=ff08, ff08bg=ff08bg, ff06=ff06, g14=g14, scurve=scurve, dead=dead, coma=coma, rough=rough, d3=d3, d6=d6, bias_pct=bias_pct)
 
+
+def _md_sections_core(v: SimpleNamespace, results: list[CaseResult], quick: bool) -> SimpleNamespace:
+    """#205 batch-2: core block of the former 596-line build_markdown; body moved line-exact, free names re-bound from v."""
+    bias_pct = v.bias_pct
+    c_rows = v.c_rows
+    d3 = v.d3
+    d6 = v.d6
+    d_rows = v.d_rows
+    dead = v.dead
+    depth_bad = v.depth_bad
+    ff06 = v.ff06
+    ff08 = v.ff08
+    ff08bg = v.ff08bg
+    g14 = v.g14
+    gamma_bad = v.gamma_bad
+    ref = v.ref
+    scurve = v.scurve
+    wrong = v.wrong
     # 稳健性表 (检出下限的影响)
     robust_rows = "\n".join(
         f"| {r.case.study}: {r.case.short} | {r.depth_pi:.4f} | {r.depth_pi_detectable:.4f} | "
@@ -1187,7 +1214,28 @@ def build_markdown(results: list[CaseResult], *, quick: bool) -> str:
             f"![研究 D: 光学离焦](figures/fig_de_defocus_{FIGURE_STAMP}.png)",
         ]
     )
+    return SimpleNamespace(robust_rows=robust_rows, detect_table=detect_table, summary=summary, scope=scope, fig_lines=fig_lines)
 
+
+def _md_sections_studies(v: SimpleNamespace, results: list[CaseResult]) -> SimpleNamespace:
+    """#205 batch-2: studies block of the former 596-line build_markdown; body moved line-exact, free names re-bound from v."""
+    a_rows = v.a_rows
+    b_rows = v.b_rows
+    bias_pct = v.bias_pct
+    by_key = v.by_key
+    c_rows = v.c_rows
+    d3 = v.d3
+    d6 = v.d6
+    d_rows = v.d_rows
+    dead = v.dead
+    detect_table = v.detect_table
+    ff06 = v.ff06
+    ff08 = v.ff08
+    ff08bg = v.ff08bg
+    g14 = v.g14
+    ref = v.ref
+    rough = v.rough
+    scurve = v.scurve
     study_a = f"""## 研究 A: 填充因子
 
 ![填充因子](figures/fig_de_fill_factor_{FIGURE_STAMP}.png)
@@ -1339,7 +1387,22 @@ def build_markdown(results: list[CaseResult], *, quick: bool) -> str:
 说明主因是模型失配 (填充因子 / 离焦改变了 η±1(u) 的形状), 而不是检出下限。
 **工程结论: 扫描点数不必多, 但命令段必须覆盖到 η±1 峰值附近; 低位"记 0"的点
 会系统性地把相位深度推高。**"""
+    return SimpleNamespace(study_a=study_a, study_b=study_b, study_c=study_c, study_d=study_d, detect=detect)
 
+
+def _md_sections_tail(v: SimpleNamespace, results: list[CaseResult]) -> SimpleNamespace:
+    """#205 batch-2: tail block of the former 596-line build_markdown; body moved line-exact, free names re-bound from v."""
+    bias_pct = v.bias_pct
+    d3 = v.d3
+    d6 = v.d6
+    d_rows = v.d_rows
+    ff08 = v.ff08
+    ff08bg = v.ff08bg
+    g14 = v.g14
+    max_resid_normal = v.max_resid_normal
+    ref = v.ref
+    scurve = v.scurve
+    wrong = v.wrong
     conclusions = f"""## 结论与对实验系统操作的影响
 
 1. **工具能可靠给出的**: 一级衍射效率的**峰值** (±1 级相对能量的最大值) 与它出现的
@@ -1571,7 +1634,27 @@ python scripts/slm/generate_diffraction_efficiency_sim_report.py --quick  # 冒�
 = {d3.n_points} 个点**全部**退出, 有效点 0 ⇒ 拟合抛错。
 ⇒ 反过来, **干净的扫描里被跳过的点仍然参与拟合** (它们信息量最大),
 所以这道"全丢"只在门禁真的触发时才发生。"""
+    return SimpleNamespace(conclusions=conclusions, falsified=falsified, repro=repro, gate_rows=gate_rows, gate_section=gate_section)
 
+
+def build_markdown(results: list[CaseResult], *, quick: bool) -> str:
+    """拼装报告正文 (数字全部来自本次运行的计算结果)。"""
+    v = _md_metrics(results)
+    v = _md_extend(v, _md_sections_core(v, results, quick))
+    v = _md_extend(v, _md_sections_studies(v, results))
+    v = _md_extend(v, _md_sections_tail(v, results))
+    conclusions = v.conclusions
+    detect = v.detect
+    falsified = v.falsified
+    fig_lines = v.fig_lines
+    gate_section = v.gate_section
+    repro = v.repro
+    scope = v.scope
+    study_a = v.study_a
+    study_b = v.study_b
+    study_c = v.study_c
+    study_d = v.study_d
+    summary = v.summary
     body = f"""# 衍射效率标定工具的非理想因素仿真（2026-10-22）
 
 {summary}

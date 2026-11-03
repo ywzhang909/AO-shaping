@@ -108,7 +108,9 @@ def _config(**overrides: Any) -> SlmGsRefineConfig:
 
 def _run(monkeypatch: pytest.MonkeyPatch, **overrides: Any) -> list[dict[str, Any]]:
     monkeypatch.setattr(gsr, "display_and_average", _stub_display_and_average)
-    monkeypatch.setattr(gsr, "sync_device_wavelength", lambda config, slm: None)
+    # Do NOT stub sync_device_wavelength: _bench_probe reads the post-sync
+    # slm_wavelength (2aa39d86); the real sim fallback pins it to
+    # DEFAULT_WAVELENGTH_NM deterministically, a no-op stub leaves 0.
     recorder = Recorder(mark="score", mode="max")
     gsr._run_gs_refine_session(
         _config(**overrides),

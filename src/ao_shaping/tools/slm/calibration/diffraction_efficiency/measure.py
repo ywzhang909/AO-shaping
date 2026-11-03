@@ -368,58 +368,19 @@ def calibration_is_required(config: MeasurementConfig) -> bool:
     return True
 
 
-def run_measurement(config: MeasurementConfig) -> MeasurementResult:
-    """跑完一整条实验扫描: 读光路标定 → 前置检查 → 扫描 → 拟合 → 诊断。
-
-    Args:
-        config: 扫描配置。
-
-    Returns:
-        :class:`MeasurementResult`。
-
-    Raises:
-        RuntimeError: 光路标定缺失/不完整, 零级漂移超限且
-            ``strict_geometry`` 为真, 或画面无有效信号。
-    """
-    mode = str(config.mode).strip().lower()
-    axis = str(config.axis).strip().lower()
-
-    # --- 光路标定 (前置条件) -------------------------------------------
-    # ``--focus-only`` 只做焦面扫描, 不用 Kx/Ky (那是"±1 级落在哪"的问题),
-    # 所以它**不**该被缺失的标定挡住 —— 否则"先判在焦"这一步在刚重新标定
-    # 之前根本跑不了, 而恰恰那时最需要确认焦面。
-    if not calibration_is_required(config):
-        logger.warning(
-            "--focus-only: 跳过光路标定前置条件 (焦面扫描不需要 Kx/Ky): {}",
-            config.calibration_path,
-        )
-        calib: dict[str, Any] = {}
-        calib_center = (float("nan"), float("nan"))
-        k_scale = float("nan")
-        predicted_separation = float("nan")
-    else:
-        calib = _load_calibration(config.calibration_path)
-        calib_center = _calib_center(calib)
-        k_scale = _k_scale(calib, axis)
-        predicted_separation = k_scale / float(config.period_px)
-        logger.info(
-            "光路标定 {}: Kx={:.2f} Ky={:.2f} 中心=({:.1f}, {:.1f}) → 预期间距 {:.2f}px",
-            config.calibration_path,
-            float(np.asarray(calib["Kx"], dtype=np.float64).ravel()[0]),
-            float(np.asarray(calib["Ky"], dtype=np.float64).ravel()[0]),
-            calib_center[0],
-            calib_center[1],
-            predicted_separation,
-        )
-
-    out_dir = Path(config.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    frames_dir = out_dir / "frames"
-
-    # 设备驱动在函数内惰性导入: 本模块被 import 时绝不能碰 SDK。
+def _run_measurement_session(
+    *,
+    axis: object,
+    calib_center: object,
+    config: object,
+    frames_dir: object,
+    mode: object,
+    out_dir: object,
+    predicted_separation: object,
+) -> tuple:
+    """#205 batch-10: former 348-line With session of run_measurement."""
     from ao_shaping.drivers.ccd.common import create_camera, full_scale
     from ao_shaping.drivers.slm.santec import Santec, SlotRotator
-
     with (
         Santec(
             slm_number=int(config.slm_number),
@@ -768,6 +729,102 @@ def run_measurement(config: MeasurementConfig) -> MeasurementResult:
             predicted_separation_px=predicted_separation,
             on_point=on_point,
         )
+    return (
+        defocus_focal_mm,
+        detector_full_scale,
+        device_two_pi_gray,
+        drift_px,
+        focus_info,
+        max_gray,
+        panel_shape,
+        points,
+        pupil_center,
+        pupil_radius,
+        scan_hi,
+        scan_lo,
+        slm,
+        use_defocus,
+        zero_cx,
+        zero_cy,
+    )
+
+
+def run_measurement(config: MeasurementConfig) -> MeasurementResult:
+    """跑完一整条实验扫描: 读光路标定 → 前置检查 → 扫描 → 拟合 → 诊断。
+
+    Args:
+        config: 扫描配置。
+
+    Returns:
+        :class:`MeasurementResult`。
+
+    Raises:
+        RuntimeError: 光路标定缺失/不完整, 零级漂移超限且
+            ``strict_geometry`` 为真, 或画面无有效信号。
+    """
+    mode = str(config.mode).strip().lower()
+    axis = str(config.axis).strip().lower()
+
+    # --- 光路标定 (前置条件) -------------------------------------------
+    # ``--focus-only`` 只做焦面扫描, 不用 Kx/Ky (那是"±1 级落在哪"的问题),
+    # 所以它**不**该被缺失的标定挡住 —— 否则"先判在焦"这一步在刚重新标定
+    # 之前根本跑不了, 而恰恰那时最需要确认焦面。
+    if not calibration_is_required(config):
+        logger.warning(
+            "--focus-only: 跳过光路标定前置条件 (焦面扫描不需要 Kx/Ky): {}",
+            config.calibration_path,
+        )
+        calib: dict[str, Any] = {}
+        calib_center = (float("nan"), float("nan"))
+        k_scale = float("nan")
+        predicted_separation = float("nan")
+    else:
+        calib = _load_calibration(config.calibration_path)
+        calib_center = _calib_center(calib)
+        k_scale = _k_scale(calib, axis)
+        predicted_separation = k_scale / float(config.period_px)
+        logger.info(
+            "光路标定 {}: Kx={:.2f} Ky={:.2f} 中心=({:.1f}, {:.1f}) → 预期间距 {:.2f}px",
+            config.calibration_path,
+            float(np.asarray(calib["Kx"], dtype=np.float64).ravel()[0]),
+            float(np.asarray(calib["Ky"], dtype=np.float64).ravel()[0]),
+            calib_center[0],
+            calib_center[1],
+            predicted_separation,
+        )
+
+    out_dir = Path(config.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    frames_dir = out_dir / "frames"
+
+    # 设备驱动在函数内惰性导入: 本模块被 import 时绝不能碰 SDK。
+
+    (
+        defocus_focal_mm,
+        detector_full_scale,
+        device_two_pi_gray,
+        drift_px,
+        focus_info,
+        max_gray,
+        panel_shape,
+        points,
+        pupil_center,
+        pupil_radius,
+        scan_hi,
+        scan_lo,
+        slm,
+        use_defocus,
+        zero_cx,
+        zero_cy,
+    ) = _run_measurement_session(
+        axis=axis,
+        calib_center=calib_center,
+        config=config,
+        frames_dir=frames_dir,
+        mode=mode,
+        out_dir=out_dir,
+        predicted_separation=predicted_separation,
+    )
 
     # --- 拟合与诊断 -------------------------------------------------------
     command_max = float(scan_hi) if mode == "gray" else 2.0 * math.pi

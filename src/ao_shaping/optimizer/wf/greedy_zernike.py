@@ -26,7 +26,7 @@ Example:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 import numpy as np
 import tqdm
@@ -73,6 +73,283 @@ def _generate_random_direction(param_dim: int, perturb_mask: np.ndarray | None =
     if perturb_mask is not None:
         direction = direction * perturb_mask
     return direction
+
+
+def _run_greedy_epochs(
+    *,
+    epochs: int,
+    n_directions: int,
+    n_zernike: int,
+    perturbation_scale: float,
+    perturb_mask: np.ndarray,
+    early_stop_threshold: float,
+    start_coeffs: np.ndarray,
+    start_rms: float,
+    patience: int,
+    evaluate_coefficients: Callable[[np.ndarray], float],
+    calc_wavefront: Callable[[], tuple[np.ndarray, dict]],
+    recorder: Recorder,
+) -> None:
+    """Phase 2: greedy local search from the best starting point.
+
+    Lifted verbatim out of :func:`optimizer_greedy` so the optimizer reads as
+    "init N positions -> search -> restore". ``evaluate_coefficients`` and
+    ``calc_wavefront`` are passed in because they close over the open SLM/WFS
+    pair; everything else is plain data.
+
+    The search record is the only output: it carries ``rms`` (the objective
+    column ``Recorder`` reads), the candidate RMS list, the greedy choice and
+    the stall counter, so the caller derives the winner via
+    ``recorder.get_best_target`` instead of a shadow copy.
+    """
+    current_c = start_coeffs
+    current_rms = start_rms
+    best_rms = current_rms
+    no_improvement_count = 0
+
+    with tqdm.tqdm(
+        total=epochs,
+        desc=f"Greedy-Zernike RMS={current_rms:.4f}",
+        dynamic_ncols=True,
+    ) as bar:
+        for epoch in range(1, epochs + 1):
+            # Generate n_directions random perturbation directions
+            candidates = [current_c.copy()]
+            candidate_rmss = [current_rms]
+
+            for _ in range(n_directions):
+                direction = _generate_random_direction(n_zernike, perturb_mask)
+                # Random magnitude between 0.5*scale and 1.5*scale
+                magnitude = perturbation_scale * np.random.uniform(0.5, 1.5)
+                perturbed = current_c + direction * magnitude
+                perturbed = np.clip(perturbed, ZERNIKE_MIN, ZERNIKE_MAX)
+
+                rms = evaluate_coefficients(perturbed)
+                candidates.append(perturbed)
+                candidate_rmss.append(rms)
+
+            # Pick the best candidate (greedy: take best among all)
+            best_candidate_idx = np.argmin(candidate_rmss)
+            new_c = candidates[best_candidate_idx].copy()
+            new_rms = candidate_rmss[best_candidate_idx]
+
+            # Check for improvement
+            if new_rms < current_rms:
+                current_c = new_c
+                current_rms = new_rms
+                no_improvement_count = 0
+
+                # Update global best
+                if current_rms < best_rms:
+                    best_rms = current_rms
+            else:
+                no_improvement_count += 1
+
+            # Record current state
+            wf, statics = calc_wavefront()
+            recorder.append(
+                {
+                    "rms": current_rms,
+                    RECORD_COEFFS: current_c.copy(),
+                    RECORD_EPOCH: epoch,
+                    RECORD_PHASE: "search",
+                    "_candidate_rmss": candidate_rmss,
+                    "_best_candidate_idx": best_candidate_idx,
+                    "_no_improvement": no_improvement_count,
+                    "_wavefront": wf[np.newaxis, ...],
+                    "_statics": statics,
+                    "best_rms": best_rms,
+                }
+            )
+
+            bar.set_postfix({
+                "rms": f"{current_rms:.4f}",
+                "best": f"{best_rms:.4f}",
+                "stall": no_improvement_count,
+            })
+
+            # Early stopping: RMS threshold
+            if best_rms < early_stop_threshold:
+                logger.info(
+                    f"Early stop at epoch {epoch} "
+                    f"with best RMS={best_rms:.4f}"
+                )
+                break
+
+            # Early stopping: patience (no improvement)
+            if no_improvement_count >= patience:
+                logger.info(
+                    f"Early stop at epoch {epoch} "
+                    f"due to no improvement for {patience} epochs"
+                )
+                break
+
+            bar.update(1)
+
+
+def _resolve_initial_coeffs(
+    init_z: Sequence[float | int] | dict[tuple[int, int], float] | None,
+    *,
+    n_zernike: int,
+    zernike_modes: Sequence[tuple[int, int]],
+) -> np.ndarray:
+    """Normalise the three ``init_z`` spellings to a length-``n_zernike`` vector.
+
+    ``None``/empty -> zeros; ``{(n, m): amp}`` -> placed by mode; a sequence ->
+    padded with zeros or truncated. Unknown modes in the dict form are ignored.
+    """
+    if init_z is None or (
+        isinstance(init_z, (list, tuple, np.ndarray)) and len(init_z) == 0
+    ):
+        return np.zeros(n_zernike, dtype=np.float64)
+
+    if isinstance(init_z, dict):
+        coeffs = np.zeros(n_zernike, dtype=np.float64)
+        for (n, m), amp in init_z.items():
+            if (n, m) in zernike_modes:
+                idx = zernike_modes.index((n, m))
+                coeffs[idx] = amp
+        return coeffs
+
+    coeffs = np.array(init_z, dtype=np.float64)
+    if len(coeffs) < n_zernike:
+        padded = np.zeros(n_zernike, dtype=np.float64)
+        padded[: len(coeffs)] = coeffs
+        return padded
+    if len(coeffs) > n_zernike:
+        return coeffs[:n_zernike]
+    return coeffs
+
+
+def _pick_best_initial_position(
+    *,
+    n_init: int,
+    n_zernike: int,
+    evaluate_coefficients: Callable[[np.ndarray], float],
+    calc_wavefront: Callable[[], tuple[np.ndarray, dict]],
+    recorder: Recorder,
+) -> tuple[np.ndarray, float]:
+    """Phase 1: sample ``n_init`` random positions, keep the lowest RMS.
+
+    Also writes the epoch-0 ``init`` record, which carries ``_init_rms`` (the
+    whole sample, not just the winner) so a later analysis can tell "the search
+    started from a good random draw" apart from "it climbed well".
+    """
+    logger.info(
+        f"Phase 1: Initializing {n_init} random positions "
+        f"to find best starting point"
+    )
+
+    init_positions = []
+    init_rmss = []
+
+    # Generate n_init random initial positions
+    for i in range(n_init):
+        random_c = np.random.uniform(
+            ZERNIKE_MIN, ZERNIKE_MAX, n_zernike
+        ).astype(np.float64)
+        init_positions.append(random_c)
+        rms = evaluate_coefficients(random_c)
+        init_rmss.append(rms)
+        logger.debug(f"  Init position {i+1}/{n_init}: RMS = {rms:.4f}")
+
+    # Find best initial position
+    best_init_idx = np.argmin(init_rmss)
+    best_init_rms = init_rmss[best_init_idx]
+    current_c = init_positions[best_init_idx].copy()
+    current_rms = best_init_rms
+
+    logger.info(
+        f"Best initial position: idx={best_init_idx+1}, "
+        f"RMS={best_init_rms:.4f}"
+    )
+
+    # Evaluate initial state for recording
+    wf, statics = calc_wavefront()
+
+    recorder.append(
+        {
+            "rms": current_rms,
+            RECORD_COEFFS: current_c.copy(),
+            RECORD_EPOCH: 0,
+            RECORD_PHASE: "init",
+            "_init_rms": init_rmss,
+            "_wavefront": wf[np.newaxis, ...],
+            "_statics": statics,
+        }
+    )
+    return current_c, current_rms
+
+
+def _run_heuristic_arm(
+    *,
+    algorithm: str,
+    epochs: int,
+    pop_size: int | None,
+    n_zernike: int,
+    start_coeffs: np.ndarray,
+    slm: ZernikeSLM,
+    calc_wavefront: Callable[[], tuple[np.ndarray, dict]],
+    recorder: Recorder,
+) -> None:
+    """Black-box heuristic search over Zernike coefficients (RMS minimised).
+
+    Same RMS objective and same per-evaluation record as the greedy arm, so the
+    two algorithms stay comparable; on exit the best coefficients found are
+    pushed back to the SLM.
+    """
+    last_measure: dict = {}
+
+    def _evaluate_heuristic(c: np.ndarray) -> float:
+        phase_h = slm.send_zernike(c)
+        wf_h, statics_h = calc_wavefront()
+        last_measure.update(
+            {"wf": wf_h, "statics": statics_h, "phase": phase_h}
+        )
+        return float(statics_h.get("rms", np.inf))
+
+    with tqdm.tqdm(
+        total=None, desc=f"Greedy-{algorithm}", dynamic_ncols=True
+    ) as hbar:
+
+        def _on_evaluate(c: np.ndarray, value: float, index: int) -> None:
+            recorder.append(
+                {
+                    "rms": value,
+                    RECORD_COEFFS: c,
+                    RECORD_EPOCH: index,
+                    RECORD_PHASE: "heuristic",
+                    "_candidate_rmss": [value],
+                    "_best_candidate_idx": 0,
+                    "_no_improvement": 0,
+                    "_wavefront": last_measure["wf"][np.newaxis, ...],
+                    "_statics": last_measure["statics"],
+                    "best_rms": value,
+                }
+            )
+            hbar.set_postfix(recorder.last_info_dict)
+            hbar.update(1)
+
+        result = run_heuristic_search(
+            algorithm,
+            _evaluate_heuristic,
+            dim=n_zernike,
+            iterations=epochs,
+            bounds=(ZERNIKE_MIN, ZERNIKE_MAX),
+            x0=start_coeffs,
+            maximize=False,
+            pop_size=pop_size,
+            on_evaluate=_on_evaluate,
+        )
+
+    slm.send_zernike(result.best_x)
+    logger.info(
+        "{} search finished: best RMS={:.4f} over {} evaluations; "
+        "restored best coefficients",
+        algorithm,
+        result.best_value,
+        result.evaluations,
+    )
 
 
 def optimizer_greedy(
@@ -144,7 +421,10 @@ def optimizer_greedy(
     n_zernike = calc_n_zernike_terms(n_max)
     zernike_modes = _zernike_indices(n_max)
 
-    recorder = Recorder(mark='greedy_zernike', mode='min')
+    # ``mark`` is the objective COLUMN Recorder reads (``get_best_iter`` argmin's
+    # it), not a label: the records below carry ``rms``. Passing the algorithm
+    # name made ``Recorder.append`` assert on the first record.
+    recorder = Recorder(mark="rms", mode="min")
 
     # Create perturb mask (exclude piston/constant term)
     perturb_mask = np.ones(n_zernike, dtype=np.float64)
@@ -169,24 +449,9 @@ def optimizer_greedy(
         ) as wfs,
     ):
         # Initialize Zernike coefficients
-        if init_z is None or (
-            isinstance(init_z, (list, tuple, np.ndarray)) and len(init_z) == 0
-        ):
-            _init_c = np.zeros(n_zernike, dtype=np.float64)
-        elif isinstance(init_z, dict):
-            _init_c = np.zeros(n_zernike, dtype=np.float64)
-            for (n, m), amp in init_z.items():
-                if (n, m) in zernike_modes:
-                    idx = zernike_modes.index((n, m))
-                    _init_c[idx] = amp
-        else:
-            _init_c = np.array(init_z, dtype=np.float64)
-            if len(_init_c) < n_zernike:
-                padded = np.zeros(n_zernike, dtype=np.float64)
-                padded[: len(_init_c)] = _init_c
-                _init_c = padded
-            elif len(_init_c) > n_zernike:
-                _init_c = _init_c[:n_zernike]
+        _init_c = _resolve_initial_coeffs(
+            init_z, n_zernike=n_zernike, zernike_modes=zernike_modes
+        )
 
         def calc_wavefront():
             wfs.take_image(5)
@@ -199,104 +464,25 @@ def optimizer_greedy(
             _, statics = calc_wavefront()
             return float(statics.get('rms', np.inf))
 
-        # Phase 1: Initialize N random positions and pick the best
-        logger.info(
-            f"Phase 1: Initializing {n_init} random positions "
-            f"to find best starting point"
-        )
-
-        init_positions = []
-        init_rmss = []
-
-        # Generate n_init random initial positions
-        for i in range(n_init):
-            random_c = np.random.uniform(
-                ZERNIKE_MIN, ZERNIKE_MAX, n_zernike
-            ).astype(np.float64)
-            init_positions.append(random_c)
-            rms = evaluate_coefficients(random_c)
-            init_rmss.append(rms)
-            logger.debug(f"  Init position {i+1}/{n_init}: RMS = {rms:.4f}")
-
-        # Find best initial position
-        best_init_idx = np.argmin(init_rmss)
-        best_init_rms = init_rmss[best_init_idx]
-        current_c = init_positions[best_init_idx].copy()
-        current_rms = best_init_rms
-
-        logger.info(
-            f"Best initial position: idx={best_init_idx+1}, "
-            f"RMS={best_init_rms:.4f}"
-        )
-
-        # Evaluate initial state for recording
-        wf, statics = calc_wavefront()
-
-        recorder.append(
-            {
-                "rms": current_rms,
-                RECORD_COEFFS: current_c.copy(),
-                RECORD_EPOCH: 0,
-                RECORD_PHASE: "init",
-                "_init_rms": init_rmss,
-                "_wavefront": wf[np.newaxis, ...],
-                "_statics": statics,
-            }
+        current_c, current_rms = _pick_best_initial_position(
+            n_init=n_init,
+            n_zernike=n_zernike,
+            evaluate_coefficients=evaluate_coefficients,
+            calc_wavefront=calc_wavefront,
+            recorder=recorder,
         )
 
         if algorithm != "spgd":
             # Black-box heuristic search over Zernike coefficients (RMS minimised).
-            last_measure: dict = {}
-
-            def _evaluate_heuristic(c: np.ndarray) -> float:
-                phase_h = slm.send_zernike(c)
-                wf_h, statics_h = calc_wavefront()
-                last_measure.update(
-                    {"wf": wf_h, "statics": statics_h, "phase": phase_h}
-                )
-                return float(statics_h.get("rms", np.inf))
-
-            with tqdm.tqdm(
-                total=None, desc=f"Greedy-{algorithm}", dynamic_ncols=True
-            ) as hbar:
-
-                def _on_evaluate(c: np.ndarray, value: float, index: int) -> None:
-                    recorder.append(
-                        {
-                            "rms": value,
-                            RECORD_COEFFS: c,
-                            RECORD_EPOCH: index,
-                            RECORD_PHASE: "heuristic",
-                            "_candidate_rmss": [value],
-                            "_best_candidate_idx": 0,
-                            "_no_improvement": 0,
-                            "_wavefront": last_measure["wf"][np.newaxis, ...],
-                            "_statics": last_measure["statics"],
-                            "best_rms": value,
-                        }
-                    )
-                    hbar.set_postfix(recorder.last_info_dict)
-                    hbar.update(1)
-
-                result = run_heuristic_search(
-                    algorithm,
-                    _evaluate_heuristic,
-                    dim=n_zernike,
-                    iterations=epochs,
-                    bounds=(ZERNIKE_MIN, ZERNIKE_MAX),
-                    x0=current_c,
-                    maximize=False,
-                    pop_size=pop_size,
-                    on_evaluate=_on_evaluate,
-                )
-
-            slm.send_zernike(result.best_x)
-            logger.info(
-                "{} search finished: best RMS={:.4f} over {} evaluations; "
-                "restored best coefficients",
-                algorithm,
-                result.best_value,
-                result.evaluations,
+            _run_heuristic_arm(
+                algorithm=algorithm,
+                epochs=epochs,
+                pop_size=pop_size,
+                n_zernike=n_zernike,
+                start_coeffs=current_c,
+                slm=slm,
+                calc_wavefront=calc_wavefront,
+                recorder=recorder,
             )
             return recorder
 
@@ -306,90 +492,20 @@ def optimizer_greedy(
             f"directions per iteration, max epochs={epochs}"
         )
 
-        best_rms = current_rms
-        best_c = current_c.copy()
-        no_improvement_count = 0
-        patience = 50  # Stop if no improvement for 50 epochs
-
-        with tqdm.tqdm(
-            total=epochs,
-            desc=f"Greedy-Zernike RMS={current_rms:.4f}",
-            dynamic_ncols=True,
-        ) as bar:
-            for epoch in range(1, epochs + 1):
-                # Generate n_directions random perturbation directions
-                candidates = [current_c.copy()]
-                candidate_rmss = [current_rms]
-
-                for _ in range(n_directions):
-                    direction = _generate_random_direction(n_zernike, perturb_mask)
-                    # Random magnitude between 0.5*scale and 1.5*scale
-                    magnitude = perturbation_scale * np.random.uniform(0.5, 1.5)
-                    perturbed = current_c + direction * magnitude
-                    perturbed = np.clip(perturbed, ZERNIKE_MIN, ZERNIKE_MAX)
-
-                    rms = evaluate_coefficients(perturbed)
-                    candidates.append(perturbed)
-                    candidate_rmss.append(rms)
-
-                # Pick the best candidate (greedy: take best among all)
-                best_candidate_idx = np.argmin(candidate_rmss)
-                new_c = candidates[best_candidate_idx].copy()
-                new_rms = candidate_rmss[best_candidate_idx]
-
-                # Check for improvement
-                if new_rms < current_rms:
-                    current_c = new_c
-                    current_rms = new_rms
-                    no_improvement_count = 0
-
-                    # Update global best
-                    if current_rms < best_rms:
-                        best_rms = current_rms
-                        best_c = current_c.copy()
-                else:
-                    no_improvement_count += 1
-
-                # Record current state
-                wf, statics = calc_wavefront()
-                recorder.append(
-                    {
-                        "rms": current_rms,
-                        RECORD_COEFFS: current_c.copy(),
-                        RECORD_EPOCH: epoch,
-                        RECORD_PHASE: "search",
-                        "_candidate_rmss": candidate_rmss,
-                        "_best_candidate_idx": best_candidate_idx,
-                        "_no_improvement": no_improvement_count,
-                        "_wavefront": wf[np.newaxis, ...],
-                        "_statics": statics,
-                        "best_rms": best_rms,
-                    }
-                )
-
-                bar.set_postfix({
-                    "rms": f"{current_rms:.4f}",
-                    "best": f"{best_rms:.4f}",
-                    "stall": no_improvement_count,
-                })
-
-                # Early stopping: RMS threshold
-                if best_rms < early_stop_threshold:
-                    logger.info(
-                        f"Early stop at epoch {epoch} "
-                        f"with best RMS={best_rms:.4f}"
-                    )
-                    break
-
-                # Early stopping: patience (no improvement)
-                if no_improvement_count >= patience:
-                    logger.info(
-                        f"Early stop at epoch {epoch} "
-                        f"due to no improvement for {patience} epochs"
-                    )
-                    break
-
-                bar.update(1)
+        _run_greedy_epochs(
+            epochs=epochs,
+            n_directions=n_directions,
+            n_zernike=n_zernike,
+            perturbation_scale=perturbation_scale,
+            perturb_mask=perturb_mask,
+            early_stop_threshold=early_stop_threshold,
+            start_coeffs=current_c,
+            start_rms=current_rms,
+            patience=50,  # Stop if no improvement for 50 epochs
+            evaluate_coefficients=evaluate_coefficients,
+            calc_wavefront=calc_wavefront,
+            recorder=recorder,
+        )
 
         # Restore best coefficients on exit
         best_c, _ = recorder.get_best_target('_c')

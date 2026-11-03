@@ -99,13 +99,26 @@ def test_the_split_function_stays_within_its_shape_budget(
 def test_the_depth_measurement_is_not_silently_zero() -> None:
     """The walker must still see depth where depth exists.
 
-    Written against a function that is genuinely deep (nesting 8 at the time of
-    writing) and that no issue has committed to flattening: if the AST walk ever
-    degrades to returning 0, the four budgets above pass vacuously and the guard
-    becomes decoration.
+    Originally pinned to one named witness (``optimize_pib``, nesting 8 when
+    written). That design has a false dependency: #205 flattens deep functions
+    on purpose, and ``31f67ed5`` did exactly that to the witness (8 -> 1), so a
+    *legitimate* improvement turned this sanity check red. The scan is now an
+    aggregate over every function under ``src/``: the deepest one anywhere must
+    still measure at least 4 deep. The repo-wide long-function debt keeps that
+    true for the foreseeable future; if it ever drops below 4, #205 has
+    finished and this guard retires with it.
     """
-    _span, nesting = _measure("ao_shaping/optimizer/wfless/pib.py", "optimize_pib")
-    assert nesting >= 4, (
-        f"expected optimize_pib to measure at least 4 deep, got {nesting}; the "
-        "nesting walker is broken and the budgets above mean nothing"
+    best_nesting, best_file, best_name = 0, "", ""
+    for path in SRC.rglob("*.py"):
+        module = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(module):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            nesting = _max_nesting(node)
+            if nesting > best_nesting:
+                best_nesting, best_file, best_name = nesting, path.name, node.name
+    assert best_nesting >= 4, (
+        f"the deepest function in src/ now measures {best_nesting} deep "
+        f"({best_name} in {best_file}); either the walker is broken or #205 has "
+        "finished flattening the repo, and this guard must be retired to match"
     )

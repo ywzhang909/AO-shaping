@@ -29,7 +29,11 @@
 ----
     python3 scripts/check_module_size.py                 # 报告（永远 exit 0）
     python3 scripts/check_module_size.py --check         # 门禁（有违规 exit 1）
-    python3 scripts/check_module_size.py --update-baseline
+    python3 scripts/check_module_size.py --update-baseline   # 重写并打印棘轮方向
+
+``--update-baseline`` 是本门禁**唯一的复位按钮**：它既能收紧也能放宽。收紧是
+拆分的结算动作，放宽则是把门禁对某个文件关掉。这两件事在 diff 里长得一样（都是
+baseline 里一个数字变了），所以写入时**必须报方向**——见 ``ratchet_changes``。
 
 ``--root`` 只作用于扫描范围（测试隔离用）；baseline 始终读仓库里那一份。
 """
@@ -122,6 +126,67 @@ def violations(
     return found
 
 
+def ratchet_changes(
+    previous: dict[str, int], current: dict[str, int]
+) -> tuple[
+    list[tuple[str, int, int]], list[tuple[str, int, int]], list[str], list[str]
+]:
+    """把一次 baseline 重写拨动的方向分成四类。
+
+    ``--update-baseline`` 是本门禁唯一的复位按钮，而它在 diff 里看不出方向：
+    「拆完把 1097 收紧成 989」与「特性改完把 870 抬高成 947」都是 JSON 里一个
+    数字变了。实测有两次特性提交是这样把门禁关掉的（`54782eec` focus_probe
+    +42、`15ea0a22` daheng/miicam/slm_pib_sim +77/+4/+4），两次都不是恶意，只是
+    写入动作没有报方向。所以这里把方向算出来给调用方打印。
+
+    返回 ``(raised, tightened, added, removed)``：
+    ``raised`` / ``tightened`` 是 ``(路径, 旧值, 新值)``，``added`` / ``removed``
+    是路径名。``added`` 指本次新进入受管集合的文件，``removed`` 指本次跌出集合
+    （或已删除）的文件——后者同样是收紧，只是表现成条目消失。
+    """
+    raised: list[tuple[str, int, int]] = []
+    tightened: list[tuple[str, int, int]] = []
+    for rel, lines in current.items():
+        if rel not in previous:
+            continue
+        if lines > previous[rel]:
+            raised.append((rel, previous[rel], lines))
+        elif lines < previous[rel]:
+            tightened.append((rel, previous[rel], lines))
+    added = sorted(rel for rel in current if rel not in previous)
+    removed = sorted(rel for rel in previous if rel not in current)
+    return (
+        sorted(raised, key=lambda item: item[0]),
+        sorted(tightened, key=lambda item: item[0]),
+        added,
+        removed,
+    )
+
+
+def _print_ratchet_direction(
+    previous: dict[str, int], current: dict[str, int]
+) -> None:
+    """按 ``ratchet_changes`` 的结果打印方向；抬高的一律逐条列出。"""
+    raised, tightened, added, removed = ratchet_changes(previous, current)
+    print(
+        f"棘轮方向: 收紧 {len(tightened)} / 抬高 {len(raised)} /"
+        f" 新增 {len(added)} / 移除 {len(removed)}"
+    )
+    for rel, old, new in tightened:
+        print(f"  收紧: {rel} {old} -> {new} 行 (-{old - new})")
+    for rel, old, new in raised:
+        print(f"  抬高: {rel} {old} -> {new} 行 (+{new - old})")
+    for rel in added:
+        print(f"  新增: {rel} ({current[rel]} 行) —— 新越线文件应拆分而非登记")
+    for rel in removed:
+        print(f"  移除: {rel} (不再 > {WARN} 行, 或已删除)")
+    if raised:
+        print(
+            "  注意: 本次重写**放宽**了门禁: 若这些增长不是经审查的功能性改动"
+            "（拆分应只产生『收紧』），请在提交信息里写明理由, 否则请先拆分。"
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="模块规模门禁：> %(WARN)s 行的模块受管，只允许变小。" % {"WARN": WARN}
@@ -148,6 +213,7 @@ def main(argv: list[str] | None = None) -> int:
     gated = {rel: n for rel, n in current.items() if _enforced(rel)}
 
     if args.update_baseline:
+        previous = load_baseline(baseline_path)
         baseline_path.parent.mkdir(parents=True, exist_ok=True)
         baseline_path.write_text(
             json.dumps(gated, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
@@ -157,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
             f"baseline 已更新: {len(gated)} 个受管模块 -> {baseline_path}"
             f"（scripts/ 另有 {len(current) - len(gated)} 个 > {WARN} 行，仅报告）"
         )
+        _print_ratchet_direction(previous, gated)
         return 0
 
     baseline = load_baseline(baseline_path)

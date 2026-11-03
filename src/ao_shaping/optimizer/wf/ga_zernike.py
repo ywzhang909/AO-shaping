@@ -193,7 +193,10 @@ def optimizer_ga(
     n_zernike = calc_n_zernike_terms(n_max)
     zernike_modes = _zernike_indices(n_max)
 
-    recorder = Recorder(mark='ga_zernike', mode='min')
+    # ``mark`` is the objective COLUMN Recorder reads (``get_best_iter`` argmin's
+    # it), not a label: the records below carry ``rms``. Passing the algorithm
+    # name made ``Recorder.append`` assert on the first record.
+    recorder = Recorder(mark="rms", mode="min")
 
     with (
         ZernikeSLM(

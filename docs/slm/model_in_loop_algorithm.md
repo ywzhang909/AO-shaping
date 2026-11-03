@@ -351,7 +351,7 @@ stateDiagram-v2
 | `settle_discard / n_eval_frames` | `2 / 4` |
 | `cam_type / cam_id / cam_size` | `daheng / 0 / 300` |
 | `panel_span_px / pupil_center` | `900.0 / BEAM_CENTER_PANEL` |
-| `camera_pixel_um / slm_pixel_um` | `2.2 / 8.0` |
+| `camera_pixel_um / slm_pixel_um` | `0.0 / 8.0` |
 | `wavelength_nm / focal_length_m` | `1064 / 0.0` |
 
 孪生侧的 `region` 原生光斑腰 `native_w0(region)` 由 `TWIN_REGION = 512` 线性缩放;
@@ -737,7 +737,7 @@ payload 的键:
 
 > 🔴 **不要为了让运行"过"而调低 `--min-geometry-correlation`。** 那个守卫存在的理由就是
 > 阻止运行提交一个**比平场更差**的相位 —— 几何不对时整形只会把光斑做坏
-> (`slm_model_in_loop.py:2963-2973` 的异常文案说的就是这件事，2026-10-27 复核)。调低它会把一次干净的拒绝换成
+> (`slm_model_in_loop.py:3011-3021` 的异常文案说的就是这件事，2026-11-01 复核)。调低它会把一次干净的拒绝换成
 > 一次看起来成功、实际更差的运行。
 
 **dump 恰好就是这一情况的诊断工具**: 中止的运行照样把盘写出来, 于是
@@ -745,9 +745,9 @@ payload 的键:
 
 | 终止状态 | 触发点 | dump 里的 stage 组成 |
 |---|---|---|
-| `aborted_unidentifiable` | 几何 对比择优 相关度不达标(`slm_model_in_loop.py:2963-2973` 抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:187-203`) | **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |
-| `aborted_unidentifiable` | **验证集**相关性不达标(`slm_model_in_loop.py:3465-3487`) | `stepA-probe` 在, `stepB-shaped` **不在** |
-| `aborted_rejection_streak` | 连续 reject 达 `--max-rejection-streak` (`slm_model_in_loop.py:3747-3755` → `model_in_loop_runner.py:269-275` 退出 `2`) | `stepA-probe` / `stepB-shaped` **都在**, 一直到最后被 reject 的那一轮 |
+| `aborted_unidentifiable` | 几何 对比择优 相关度不达标(`slm_model_in_loop.py:3011-3021` 抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:187-203`) | **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |
+| `aborted_unidentifiable` | **验证集**相关性不达标(`slm_model_in_loop.py:3730-3752`，2026-11-02 随 #205 第二十四批整轮循环迁入 `_run_model_in_loop_rounds` 后重钉，原 `:3513-3535`) | `stepA-probe` 在, `stepB-shaped` **不在** |
+| `aborted_rejection_streak` | 连续 reject 达 `--max-rejection-streak` (`slm_model_in_loop.py:4012-4020`，2026-11-02 随 #205 第二十四批迁入 `_run_model_in_loop_rounds`，原 `:3795-3803` → `model_in_loop_runner.py:269-275` 退出 `2`) | `stepA-probe` / `stepB-shaped` **都在**, 一直到最后被 reject 的那一轮 |
 
 **先看 stage 列表, 再看数字** —— 几何失败、验证集失败和持续 reject 要走的路完全不同。
 

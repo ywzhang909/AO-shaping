@@ -1926,6 +1926,466 @@ def _pupil_amplitude(
     return amp
 
 
+def _tilt_axis_slopes(tilts: Sequence[SweepRecord]) -> tuple[dict[str, float], dict[str, float], dict[str, str]]:
+    """Per-axis tilt slope/intercept/source: phase-correlation shift preferred,
+    centroid only when no usable correlation (see the sweep report rationale below).
+    """
+    # --- tilt -> far-field scale, per axis -----------------------------------
+    # Prefer the phase-correlation shift over the centroid: a tilt big enough to
+    # give a usable signal also deforms the spot, and the centroid of a
+    # split/multi-lobed spot jumps by several pixels between repeats of the same
+    # phase. Measured here: +/-1.5 rad gave centroid readings scattered over
+    # 1020.8..1035.9 and a slope of 1.72 cam px/rad, against 3.3-3.6 from the
+    # smaller single-lobed range -- a 2x error in the number the whole
+    # calibration rests on.
+    slopes: dict[str, float] = {}
+    intercepts: dict[str, float] = {}
+    sources: dict[str, str] = {}
+    for axis in ("x", "y"):
+        pts = [r for r in tilts if r.axis == axis]
+        if len(pts) < _MIN_SWEEP_POINTS:
+            continue
+        coeffs = np.array([r.coefficient for r in pts], dtype=np.float64)
+        use_shift = all(
+            np.isfinite(r.shift_x) and np.isfinite(r.shift_y) for r in pts
+        ) and all(r.shift_corr >= _MIN_SHIFT_CORRELATION for r in pts)
+        if use_shift:
+            sx, ix = _linear_slope(
+                coeffs, np.array([r.shift_x for r in pts], dtype=np.float64)
+            )
+            sy, iy = _linear_slope(
+                coeffs, np.array([r.shift_y for r in pts], dtype=np.float64)
+            )
+            sources[axis] = "phase-correlation"
+        else:
+            sx, ix = _linear_slope(
+                coeffs, np.array([r.centroid_y for r in pts], dtype=np.float64)
+            )
+            sy, iy = _linear_slope(
+                coeffs, np.array([r.centroid_x for r in pts], dtype=np.float64)
+            )
+            sources[axis] = "centroid (no usable phase correlation)"
+        if np.isfinite(sx) and abs(sx) >= abs(sy):
+            slopes[axis], intercepts[axis] = sx, ix
+        else:
+            slopes[axis], intercepts[axis] = sy, iy
+    return slopes, intercepts, sources
+
+def _ramp_focal_scale(ramps: Sequence[SweepRecord]) -> tuple[float, str]:
+    """Focal-scale route from a phase-ramp sweep: the authoritative camera-px-per-model-px
+    source; returns (nan, "") when no usable ramp sweep exists.
+    """
+    # --- focal scale ---------------------------------------------------------
+    # Preferred source: a **phase ramp** sweep. A 2*pi ramp over P panel px moves
+    # the spot by `S/P` camera px, measured cleanly and repeatably (2-3 repeats
+    # agreeing to 0.2 px, cleanly 1/P, consistent with theory). A Zernike tilt is
+    # equivalent to a ramp of period pi*R/c, so the two must agree -- but on this
+    # bench they did not: the Zernike route returned 1.63 cam px/rad where the
+    # ramp says 5.25, because a Zernike tilt large enough for signal deforms the
+    # spot and the centroid stops tracking the peak. The ramp has no such
+    # failure mode, so it wins.
+    #
+    # With k_tilt = S/(pi*R) and a model semi-axis of `a` model px covering the
+    # same physical R = a*model_to_panel panel px,
+    #     camera_px_per_model_px = k_tilt * pi * a / P_far_field
+    #                              = S / (model_to_panel * far_field_size)
+    ramp_scale = float("nan")
+    ramp_axis = ""
+    if len(ramps) >= _MIN_SWEEP_POINTS:
+        for ax in ("x", "y"):
+            pts = [r for r in ramps if r.axis == ax]
+            if len(pts) < _MIN_SWEEP_POINTS:
+                continue
+            periods = np.array([r.coefficient for r in pts], dtype=np.float64)
+            if np.any(periods <= 0):
+                continue
+            inv = 1.0 / periods
+            sx, _ = _linear_slope(
+                inv, np.array([r.centroid_x for r in pts], dtype=np.float64)
+            )
+            sy, _ = _linear_slope(
+                inv, np.array([r.centroid_y for r in pts], dtype=np.float64)
+            )
+            s = sx if abs(sx) >= abs(sy) else sy
+            if abs(s) > abs(ramp_scale) or not np.isfinite(ramp_scale):
+                ramp_scale, ramp_axis = float(s), ax
+    return ramp_scale, ramp_axis
+
+def _fov_ratio_cross_check(camera_px_per_model_px: float, focal_source: str, *, a: int, far_field_size: int, aperture_m: float | None, camera_pixel_m: float | None, focal_length_m: float | None, wavelength_m: float) -> float:
+    """Independent focal-scale cross-check from the model FOV over the camera FOV;
+    logs the disagreement band (>25%) instead of picking a side.
+    """
+    # Independent cross-check, derived a completely different way: the model's
+    # far-field field of view against the camera's.
+    #
+    #     p_fft = lambda*f / (P_far_field * model_pitch)   [m per model px]
+    #     model FOV  = far_field_size * p_fft
+    #     camera FOV = camera_px * camera_pixel
+    #     -> camera_px_per_model_px = FOV_model / FOV_camera
+    #
+    # Disagreement with the ramp route beyond ~25% means one of the two is wrong,
+    # and the honest response is to say so rather than pick one.
+    fov_ratio = float("nan")
+    if aperture_m and camera_pixel_m and focal_length_m and a > 0:
+        # One model pixel spans aperture_m / a metres, since `a` model pixels
+        # cover the illuminated radius. (Multiplying by model_to_panel here was a
+        # bug: it double-counts the panel->model scale and inflated the pitch 3.5x,
+        # which is most of why the two routes looked 124% apart.)
+        model_pitch_m = aperture_m / a
+        p_fft = wavelength_m * focal_length_m / (far_field_size * model_pitch_m)
+        fov_ratio = (far_field_size * p_fft) / (2592.0 * camera_pixel_m)
+        if np.isfinite(fov_ratio) and fov_ratio > 0:
+            rel = abs(camera_px_per_model_px / fov_ratio - 1.0)
+            logger.info(
+                "focal scale {:.4f} cam px per model px (from {}) vs {:.4f} from "
+                "the independent field-of-view ratio -- {:.0%} apart",
+                camera_px_per_model_px,
+                focal_source,
+                fov_ratio,
+                rel,
+            )
+            if rel > 0.25:
+                logger.warning(
+                    "the two focal-scale routes disagree by {:.0%} ({} vs {:.4f} "
+                    "from the FOV ratio). At least one assumption is wrong -- most "
+                    "likely the illuminated aperture radius, which is what both "
+                    "routes scale with. Re-measure it with "
+                    "`python -m ao_shaping.tools.slm.panel.beam_extent` before "
+                    "trusting either number.",
+                    rel,
+                    focal_source,
+                    fov_ratio,
+                )
+    return fov_ratio
+
+def _tilt_physical_cross_check(k_tilt: float, camera_px_per_model_px: float, *, aperture_m: float | None, camera_pixel_m: float | None, focal_length_m: float | None, wavelength_m: float) -> tuple[float, float]:
+    """Physical sanity band for the tilt slope against f*lambda/(pi*R*camera_pixel);
+    out-of-band values are labelled untrustworthy, not hidden.
+    """
+    # Physical cross-check on the Zernike tilt slope, kept as a diagnostic: the
+    # ramp route is authoritative, but if a Zernike sweep is present and its slope
+    # is nowhere near the ramp's equivalent, say so rather than silently ignoring
+    # it.
+
+    # Physical cross-check on the tilt measurement. A unit-RMS Zernike tilt of
+    # coefficient c over an aperture of radius R imposes a phase gradient 2c/R,
+    # which deflects by (1/k)(2c/R) = c*lambda/(pi*R) and shifts the focal spot by
+    # f times that. So the predicted slope is
+    #     k_pred = f * lambda / (pi * R * camera_pixel)   [camera px per rad]
+    # This is what makes the measurement falsifiable. The wide-angle runs measured
+    # 1.63-1.74 cam px/rad where 5.34 was predicted -- a ratio of 0.31, which
+    # back-solves to an effective aperture of 11 mm, larger than the panel's short
+    # side, so those runs were corrupted (the spot had deformed and the centroid
+    # stopped tracking the peak) rather than revealing a huge beam.
+    if aperture_m and camera_pixel_m and focal_length_m:
+        k_pred = focal_length_m * wavelength_m / (np.pi * aperture_m * camera_pixel_m)
+        ratio = k_tilt / k_pred if k_pred > 0 else float("nan")
+        tilt_ratio = float(ratio)
+        implied_aperture_mm = (
+            focal_length_m * wavelength_m / (np.pi * camera_pixel_m * k_tilt) * 1e3
+            if k_tilt > 0
+            else float("nan")
+        )
+        if not (0.4 <= ratio <= 1.6):
+            logger.warning(
+                "tilt slope {:.3f} cam px/rad is {:.2f}x the {:.3f} predicted for a "
+                "{:.1f} mm illuminated aperture -- OUTSIDE the credible band "
+                "0.4-1.6, so the focal scale derived from it ({:.4f} cam px per "
+                "model px) is NOT trustworthy. It back-solves to an effective "
+                "aperture of {:.1f} mm; the panel's short side is 9.6 mm, so a "
+                "measurement implying more than that is corrupted, not a discovery. "
+                "Re-run the tilt sweep with smaller coefficients.",
+                k_tilt,
+                ratio,
+                k_pred,
+                1e3 * aperture_m,
+                camera_px_per_model_px,
+                implied_aperture_mm,
+            )
+    else:
+        tilt_ratio = float("nan")
+        implied_aperture_mm = float("nan")
+    return tilt_ratio, implied_aperture_mm
+
+def _sweep_width_groups(records: Sequence[SweepRecord]) -> tuple[dict[str, tuple[np.ndarray, np.ndarray]], dict[str, str], dict[str, list[float]]]:
+    """Per-mode width series: min-point / finite-FWHM / single-lobe (hollowness) and
+    per-side monotonicity filters; unusable modes are recorded in dropped_modes.
+    """
+    # --- width responses: defocus + astigmatism, fitted jointly ---------------
+    # Defocus alone cannot identify the waist on this bench: its width response
+    # stayed 16% asymmetric after the bench's own defocus offset was removed,
+    # which is astigmatism/coma the defocus sweep does not contain. Sweeping both
+    # quadratic modes and fitting them together separates the two contributions.
+    groups: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    # Modes that were swept but could not contribute a width response, with the
+    # reason. This used to live only in a log line, which made "the mode does
+    # not respond on this bench" indistinguishable from "the measurement was
+    # noise" -- and a missing defocus group ended the run with a bare
+    # KeyError. The record travels with the result and with the error instead.
+    dropped_modes: dict[str, str] = {}
+    raw_widths: dict[str, list[float]] = {}
+    for mode in ("defocus", "astig_x", "astig_y", "coma_x", "coma_y", "spherical"):
+        pts = [r for r in records if r.mode == mode]
+        if pts:
+            raw_widths[mode] = [float(r.fwhm_px) for r in pts]
+        if len(pts) < _MIN_SWEEP_POINTS:
+            if pts:
+                dropped_modes[mode] = (
+                    f"only {len(pts)} sweep point(s); a width response needs at "
+                    "least two"
+                )
+            continue
+        c = np.array([r.coefficient for r in pts], dtype=np.float64)
+        w = np.array([r.fwhm_px for r in pts], dtype=np.float64)
+        h = np.array([r.hollowness for r in pts], dtype=np.float64)
+        ok = np.isfinite(w) & (w > 0) & np.isfinite(h)
+        if int(ok.sum()) < _MIN_SWEEP_POINTS:
+            dropped_modes[mode] = (
+                f"only {int(ok.sum())} point(s) with a finite positive FWHM"
+            )
+            continue
+        c, w, h = c[ok], w[ok], h[ok]
+
+        # A width of `w` is only meaningful while the focal plane is a SINGLE
+        # lobe. The direct measure of that is hollowness (intensity at the
+        # centroid / peak): a spherical -1.2 rad point read 38.2 px wide with
+        # hollowness 0.43, i.e. a ring whose "width" is a ring diameter, and
+        # fitting it as a Gaussian lobe is meaningless. The constant below was
+        # defined for this but never applied; it is used *alone* here, and only
+        # after an alternative was measured and rejected -- see the note on
+        # _DEFOCUS_SINGLE_LOBE_FACTOR.
+        single_lobe = h >= _DEFOCUS_MIN_HOLLOWNESS
+        if (
+            not single_lobe.all()
+            and int(single_lobe.sum()) >= _MIN_SWEEP_POINTS
+            and _has_both_signs(c[single_lobe])
+        ):
+            logger.info(
+                "{} sweep: dropped {} point(s) that are not a single spot lobe "
+                "(hollowness < {:.2f}): {}",
+                mode,
+                int((~single_lobe).sum()),
+                _DEFOCUS_MIN_HOLLOWNESS,
+                ", ".join(
+                    f"c={cc:+.2f} w={ww:.1f} hollow={hh:.2f}"
+                    for cc, ww, hh in zip(
+                        c[~single_lobe], w[~single_lobe], h[~single_lobe], strict=True
+                    )
+                ),
+            )
+            c, w, h = c[single_lobe], w[single_lobe], h[single_lobe]
+
+        # A single spot lobe under growing |coefficient| must broaden
+        # monotonically. Enforce that per side and drop the violators: a real
+        # sweep had a -4 rad point read *narrower* (12.5 px) than the -2.5 rad one
+        # (30.9 px), and that single outlier is enough to drive the fitted
+        # curvature negative. A width threshold and hollowness both fail to catch
+        # that one -- the outlier's hollowness (0.80) and width both sit inside
+        # the single-lobe range -- so the two filters are complementary and both
+        # are needed.
+        keep = np.ones(c.shape, dtype=bool)
+        for side in (np.sign(c) < 0, np.sign(c) > 0):
+            idx = np.flatnonzero(side)
+            if idx.size == 0:
+                continue
+            running = -np.inf
+            for j in idx[np.argsort(np.abs(c[idx]))]:
+                if w[j] >= running:
+                    running = w[j]
+                else:
+                    keep[j] = False
+        if int(keep.sum()) >= 4 and _has_both_signs(c[keep]):
+            dropped_points = int((~keep).sum())
+            if dropped_points:
+                logger.info(
+                    "{} sweep: dropped {} non-monotonic width point(s); "
+                    "fitting the remaining {}",
+                    mode,
+                    dropped_points,
+                    int(keep.sum()),
+                )
+            c, w = c[keep], w[keep]
+        groups[mode] = (c, w)
+    return groups, dropped_modes, raw_widths
+
+def _fit_curvature_offsets(groups: dict[str, tuple[np.ndarray, np.ndarray]], dropped_modes: dict[str, str]) -> tuple[dict[str, float], dict[str, float]]:
+    """Per-mode bench offset + width^2 curvature via a scanned quadratic fit; modes whose
+    curvature closes downward or whose minimum sits pinned at the scan edge are dropped.
+    """
+    # Per-mode bench offset: the width minimum is where the bench's own
+    # aberration cancels the command, so fit it rather than assuming it sits at
+    # zero (measured -0.171 rad here; assuming zero gave -1.7 rad).
+    offsets: dict[str, float] = {}
+    curvature_report: dict[str, float] = {}
+    for mode, (c, w) in list(groups.items()):
+        grid = np.linspace(c.min() - 1.0, c.max() + 1.0, 241)
+        best_q: tuple[float, float, float] | None = None
+        for c0 in grid:
+            basis = (c - c0) ** 2
+            design = np.stack([np.ones_like(basis), basis], axis=1)
+            sol, *_ = np.linalg.lstsq(design, w**2, rcond=None)
+            resid = design @ sol - w**2
+            rms = float(np.sqrt(np.mean(resid**2)))
+            if best_q is None or rms < best_q[0]:
+                best_q = (rms, float(c0), float(sol[1]))
+        assert best_q is not None
+        rms_q, c0_q, curv_q = best_q
+        # A width response that does not open upward has no physical
+        # interpretation, and an offset pinned to the scan edge means the
+        # minimum was never bracketed. Both happen when a mode simply does not
+        # respond -- emitting a number anyway is how an astig_y "offset" of
+        # +5.0 rad (the grid edge) with curvature -22 appeared. Drop the mode and
+        # keep the ones that do respond.
+        edge = (c0_q <= grid[0] + 1e-9) or (c0_q >= grid[-1] - 1e-9)
+        if curv_q <= 0.0 or edge:
+            reasons: list[str] = []
+            if curv_q <= 0.0:
+                reasons.append(
+                    f"width^2 curvature {curv_q:+.1f} <= 0 (the width does not "
+                    "open upward, so the mode has no usable width response)"
+                )
+            if edge:
+                reasons.append(
+                    f"the fitted minimum sits at coefficient {c0_q:+.3f}, pinned "
+                    f"to the scan edge [{grid[0]:+.2f}, {grid[-1]:+.2f}] (the "
+                    "width minimum was never bracketed)"
+                )
+            reason = "; ".join(reasons)
+            dropped_modes[mode] = reason
+            logger.warning(
+                "{} width response is degenerate (curvature {:.1f}, offset {:+.3f} "
+                "{}) -- dropping this mode from the fit rather than reporting a "
+                "meaningless offset. Check that the mode is actually reachable on "
+                "this bench: its spot widths were {}",
+                mode,
+                curv_q,
+                c0_q,
+                "at the scan edge" if edge else "",
+                ", ".join(f"{v:.1f}" for v in w),
+            )
+            groups.pop(mode)
+            continue
+        offsets[mode] = c0_q
+        curvature_report[mode] = curv_q
+    return offsets, curvature_report
+
+def _defocus_asymmetry(c_d: np.ndarray, w_d: np.ndarray) -> float:
+    """Width asymmetry at matched |c| in the defocus response: a direct read of residual
+    non-defocus aberration.
+    """
+    asym: list[float] = []
+    for c_pos in c_d[c_d > 0]:
+        neg = c_d[np.isclose(c_d, -c_pos)]
+        if neg.size:
+            w_p = float(w_d[c_d == c_pos][0])
+            w_n = float(w_d[c_d == neg[0]][0])
+            if w_p > 0 and w_n > 0:
+                asym.append((w_p - w_n) / (0.5 * (w_p + w_n)))
+    asymmetry = float(np.mean(asym)) if asym else float("nan")
+    return asymmetry
+
+def _fit_joint_waist(groups: dict[str, tuple[np.ndarray, np.ndarray]], dropped_modes: dict[str, str], *, opt: ZernikeCoefficientOptimizer, zeros: np.ndarray, resp_grid: np.ndarray, region: int, a: int, camera_px_per_model_px: float, waist_candidates: Sequence[float]) -> tuple[float, float, dict[str, float]] | None:
+    """Joint waist fit: per-candidate model width responses on resp_grid, per-mode offsets
+    by interpolation, weighted rel-RMS; None when no candidate is finite.
+    """
+    # Per waist: precompute each mode's model width response once, then fit the
+    # per-mode offsets by interpolating against it. Evaluating the model at every
+    # (waist, mode, coefficient, offset) would be ~500x more forward passes.
+    best: tuple[float, float, dict[str, float]] | None = None
+    for waist in waist_candidates:
+        amp = _pupil_amplitude(region, float(waist), a)
+        total = 0.0
+        n_pts = 0
+        per_mode: dict[str, float] = {}
+        ok_waist = True
+        for mode, (c, w) in list(groups.items()):
+            nm = _SWEEP_MODE_NM.get(mode)
+            if nm is None:
+                # A mode without a model response cannot be fitted. Drop it
+                # explicitly instead of dying with a bare KeyError -- the same
+                # failure shape this whole block exists to prevent.
+                logger.warning(
+                    "no model width response for mode {}; dropping it from the "
+                    "joint fit",
+                    mode,
+                )
+                dropped_modes[mode] = "no model response for this mode"
+                groups.pop(mode)
+                continue
+            curve = np.array(
+                [
+                    _spot_fwhm(
+                        opt.forward_intensity(
+                            zeros, _zernike_phase(region, a, nm, float(g)), amp
+                        )
+                    )
+                    * camera_px_per_model_px
+                    for g in resp_grid
+                ],
+                dtype=np.float64,
+            )
+            good = np.isfinite(curve) & (curve > 0)
+            if good.sum() < 3:
+                ok_waist = False
+                break
+            best_off, best_rms = 0.0, np.inf
+            for c0 in resp_grid:
+                pred = np.interp(c - c0, resp_grid, curve)
+                okp = np.isfinite(pred) & (pred > 0)
+                if int(okp.sum()) < _MIN_SWEEP_POINTS:
+                    continue
+                rms = float(np.sqrt(np.mean(((pred[okp] - w[okp]) / w[okp]) ** 2)))
+                if rms < best_rms:
+                    best_rms, best_off = rms, float(c0)
+            if not np.isfinite(best_rms):
+                ok_waist = False
+                break
+            per_mode[mode] = best_off
+            total += best_rms * c.size
+            n_pts += c.size
+        if not ok_waist or n_pts == 0:
+            continue
+        joint = total / n_pts
+        if best is None or joint < best[0]:
+            best = (joint, float(waist), per_mode)
+    return best
+
+def _sweep_calibration_notes(*, k_tilt: float, slopes: dict[str, float], sources: dict[str, str], a: int, far_field_size: int, tilt_ratio: float, focal_source: str, camera_px_per_model_px: float, fov_ratio: float, modes_used: str, fit_rms: float, offsets: dict[str, float], curvature_report: dict[str, float], asymmetry: float, waist_determined: bool, dropped_modes: dict[str, str]) -> str:
+    """One-line provenance string for bench_geometry.json: both focal routes, cross-checks,
+    fitted modes, offsets, curvatures, asymmetry, waist status, dropped modes.
+    """
+    notes = (
+        f"tilt slope {k_tilt:.3f} cam px/rad ("
+        + ", ".join(f"{ax}:{v:+.3f}" for ax, v in sorted(slopes.items()))
+        + f", via {sorted(set(sources.values()))}), semi-axis {a} model px, "
+        f"P={far_field_size}"
+        + (
+            f"; physical tilt check {tilt_ratio:.2f}x predicted"
+            if np.isfinite(tilt_ratio)
+            else ""
+        )
+        + f"; focal scale from {focal_source}"
+        + (
+            f", FOV cross-check {fov_ratio:.3f} ({abs(camera_px_per_model_px / fov_ratio - 1.0):.0%} apart)"
+            if np.isfinite(fov_ratio) and fov_ratio > 0
+            else ""
+        )
+        + f"; modes fitted {modes_used}; joint rel-RMS {fit_rms:.1%}; bench offsets "
+        + ", ".join(f"{m} {o:+.3f}" for m, o in sorted(offsets.items()))
+        + " rad; curvatures "
+        + ", ".join(f"{m} {v:.1f}" for m, v in sorted(curvature_report.items()))
+        + f"; defocus asymmetry {asymmetry:+.0%}; waist "
+        + ("fitted" if waist_determined else "NOT identifiable, flat-top default")
+    )
+    if dropped_modes:
+        # Persisted with the geometry (bench_geometry.json) so a later reader can
+        # tell "this mode did not respond" from "this mode was never swept".
+        # The wording keeps the numbers out of the report parser's way.
+        notes += "; dropped modes " + ", ".join(
+            f"{m} ({_dropped_summary(r)})" for m, r in sorted(dropped_modes.items())
+        )
+    return notes
+
 def calibrate_bench_geometry_from_sweep(
     records: Sequence[SweepRecord],
     *,
@@ -2023,85 +2483,14 @@ def calibrate_bench_geometry_from_sweep(
     if a < _MIN_PUPIL_SEMI_AXIS_PX:
         raise ValueError(f"semi_axis_model_px must be >= 8, got {a}")
 
-    # --- tilt -> far-field scale, per axis -----------------------------------
-    # Prefer the phase-correlation shift over the centroid: a tilt big enough to
-    # give a usable signal also deforms the spot, and the centroid of a
-    # split/multi-lobed spot jumps by several pixels between repeats of the same
-    # phase. Measured here: +/-1.5 rad gave centroid readings scattered over
-    # 1020.8..1035.9 and a slope of 1.72 cam px/rad, against 3.3-3.6 from the
-    # smaller single-lobed range -- a 2x error in the number the whole
-    # calibration rests on.
-    slopes: dict[str, float] = {}
-    intercepts: dict[str, float] = {}
-    sources: dict[str, str] = {}
-    for axis in ("x", "y"):
-        pts = [r for r in tilts if r.axis == axis]
-        if len(pts) < _MIN_SWEEP_POINTS:
-            continue
-        coeffs = np.array([r.coefficient for r in pts], dtype=np.float64)
-        use_shift = all(
-            np.isfinite(r.shift_x) and np.isfinite(r.shift_y) for r in pts
-        ) and all(r.shift_corr >= _MIN_SHIFT_CORRELATION for r in pts)
-        if use_shift:
-            sx, ix = _linear_slope(
-                coeffs, np.array([r.shift_x for r in pts], dtype=np.float64)
-            )
-            sy, iy = _linear_slope(
-                coeffs, np.array([r.shift_y for r in pts], dtype=np.float64)
-            )
-            sources[axis] = "phase-correlation"
-        else:
-            sx, ix = _linear_slope(
-                coeffs, np.array([r.centroid_y for r in pts], dtype=np.float64)
-            )
-            sy, iy = _linear_slope(
-                coeffs, np.array([r.centroid_x for r in pts], dtype=np.float64)
-            )
-            sources[axis] = "centroid (no usable phase correlation)"
-        if np.isfinite(sx) and abs(sx) >= abs(sy):
-            slopes[axis], intercepts[axis] = sx, ix
-        else:
-            slopes[axis], intercepts[axis] = sy, iy
+    slopes, intercepts, sources = _tilt_axis_slopes(tilts)
     if not slopes:
         raise ValueError("no tilt axis had two usable points")
     k_tilt = float(np.mean([abs(v) for v in slopes.values()]))
     if not np.isfinite(k_tilt) or k_tilt <= 0.0:
         raise ValueError(f"tilt slope is not usable: {slopes}")
 
-    # --- focal scale ---------------------------------------------------------
-    # Preferred source: a **phase ramp** sweep. A 2*pi ramp over P panel px moves
-    # the spot by `S/P` camera px, measured cleanly and repeatably (2-3 repeats
-    # agreeing to 0.2 px, cleanly 1/P, consistent with theory). A Zernike tilt is
-    # equivalent to a ramp of period pi*R/c, so the two must agree -- but on this
-    # bench they did not: the Zernike route returned 1.63 cam px/rad where the
-    # ramp says 5.25, because a Zernike tilt large enough for signal deforms the
-    # spot and the centroid stops tracking the peak. The ramp has no such
-    # failure mode, so it wins.
-    #
-    # With k_tilt = S/(pi*R) and a model semi-axis of `a` model px covering the
-    # same physical R = a*model_to_panel panel px,
-    #     camera_px_per_model_px = k_tilt * pi * a / P_far_field
-    #                              = S / (model_to_panel * far_field_size)
-    ramp_scale = float("nan")
-    ramp_axis = ""
-    if len(ramps) >= _MIN_SWEEP_POINTS:
-        for ax in ("x", "y"):
-            pts = [r for r in ramps if r.axis == ax]
-            if len(pts) < _MIN_SWEEP_POINTS:
-                continue
-            periods = np.array([r.coefficient for r in pts], dtype=np.float64)
-            if np.any(periods <= 0):
-                continue
-            inv = 1.0 / periods
-            sx, _ = _linear_slope(
-                inv, np.array([r.centroid_x for r in pts], dtype=np.float64)
-            )
-            sy, _ = _linear_slope(
-                inv, np.array([r.centroid_y for r in pts], dtype=np.float64)
-            )
-            s = sx if abs(sx) >= abs(sy) else sy
-            if abs(s) > abs(ramp_scale) or not np.isfinite(ramp_scale):
-                ramp_scale, ramp_axis = float(s), ax
+    ramp_scale, ramp_axis = _ramp_focal_scale(ramps)
     if np.isfinite(ramp_scale) and ramp_scale != 0.0:
         camera_px_per_model_px = abs(ramp_scale) / (
             model_to_panel * float(far_field_size)
@@ -2117,243 +2506,19 @@ def calibrate_bench_geometry_from_sweep(
             "with `python -m ao_shaping.tools.slm.panel.tilt_probe`."
         )
 
-    # Independent cross-check, derived a completely different way: the model's
-    # far-field field of view against the camera's.
-    #
-    #     p_fft = lambda*f / (P_far_field * model_pitch)   [m per model px]
-    #     model FOV  = far_field_size * p_fft
-    #     camera FOV = camera_px * camera_pixel
-    #     -> camera_px_per_model_px = FOV_model / FOV_camera
-    #
-    # Disagreement with the ramp route beyond ~25% means one of the two is wrong,
-    # and the honest response is to say so rather than pick one.
-    fov_ratio = float("nan")
-    if aperture_m and camera_pixel_m and focal_length_m and a > 0:
-        # One model pixel spans aperture_m / a metres, since `a` model pixels
-        # cover the illuminated radius. (Multiplying by model_to_panel here was a
-        # bug: it double-counts the panel->model scale and inflated the pitch 3.5x,
-        # which is most of why the two routes looked 124% apart.)
-        model_pitch_m = aperture_m / a
-        p_fft = wavelength_m * focal_length_m / (far_field_size * model_pitch_m)
-        fov_ratio = (far_field_size * p_fft) / (2592.0 * camera_pixel_m)
-        if np.isfinite(fov_ratio) and fov_ratio > 0:
-            rel = abs(camera_px_per_model_px / fov_ratio - 1.0)
-            logger.info(
-                "focal scale {:.4f} cam px per model px (from {}) vs {:.4f} from "
-                "the independent field-of-view ratio -- {:.0%} apart",
-                camera_px_per_model_px,
-                focal_source,
-                fov_ratio,
-                rel,
-            )
-            if rel > 0.25:
-                logger.warning(
-                    "the two focal-scale routes disagree by {:.0%} ({} vs {:.4f} "
-                    "from the FOV ratio). At least one assumption is wrong -- most "
-                    "likely the illuminated aperture radius, which is what both "
-                    "routes scale with. Re-measure it with "
-                    "`python -m ao_shaping.tools.slm.panel.beam_extent` before "
-                    "trusting either number.",
-                    rel,
-                    focal_source,
-                    fov_ratio,
-                )
+    fov_ratio = _fov_ratio_cross_check(camera_px_per_model_px, focal_source,
+                         a=a, far_field_size=far_field_size, aperture_m=aperture_m,
+                         camera_pixel_m=camera_pixel_m, focal_length_m=focal_length_m,
+                         wavelength_m=wavelength_m)
 
-    # Physical cross-check on the Zernike tilt slope, kept as a diagnostic: the
-    # ramp route is authoritative, but if a Zernike sweep is present and its slope
-    # is nowhere near the ramp's equivalent, say so rather than silently ignoring
-    # it.
+    tilt_ratio, implied_aperture_mm = _tilt_physical_cross_check(
+        k_tilt, camera_px_per_model_px, aperture_m=aperture_m,
+        camera_pixel_m=camera_pixel_m, focal_length_m=focal_length_m,
+        wavelength_m=wavelength_m)
 
-    # Physical cross-check on the tilt measurement. A unit-RMS Zernike tilt of
-    # coefficient c over an aperture of radius R imposes a phase gradient 2c/R,
-    # which deflects by (1/k)(2c/R) = c*lambda/(pi*R) and shifts the focal spot by
-    # f times that. So the predicted slope is
-    #     k_pred = f * lambda / (pi * R * camera_pixel)   [camera px per rad]
-    # This is what makes the measurement falsifiable. The wide-angle runs measured
-    # 1.63-1.74 cam px/rad where 5.34 was predicted -- a ratio of 0.31, which
-    # back-solves to an effective aperture of 11 mm, larger than the panel's short
-    # side, so those runs were corrupted (the spot had deformed and the centroid
-    # stopped tracking the peak) rather than revealing a huge beam.
-    if aperture_m and camera_pixel_m and focal_length_m:
-        k_pred = focal_length_m * wavelength_m / (np.pi * aperture_m * camera_pixel_m)
-        ratio = k_tilt / k_pred if k_pred > 0 else float("nan")
-        tilt_ratio = float(ratio)
-        implied_aperture_mm = (
-            focal_length_m * wavelength_m / (np.pi * camera_pixel_m * k_tilt) * 1e3
-            if k_tilt > 0
-            else float("nan")
-        )
-        if not (0.4 <= ratio <= 1.6):
-            logger.warning(
-                "tilt slope {:.3f} cam px/rad is {:.2f}x the {:.3f} predicted for a "
-                "{:.1f} mm illuminated aperture -- OUTSIDE the credible band "
-                "0.4-1.6, so the focal scale derived from it ({:.4f} cam px per "
-                "model px) is NOT trustworthy. It back-solves to an effective "
-                "aperture of {:.1f} mm; the panel's short side is 9.6 mm, so a "
-                "measurement implying more than that is corrupted, not a discovery. "
-                "Re-run the tilt sweep with smaller coefficients.",
-                k_tilt,
-                ratio,
-                k_pred,
-                1e3 * aperture_m,
-                camera_px_per_model_px,
-                implied_aperture_mm,
-            )
-    else:
-        tilt_ratio = float("nan")
-        implied_aperture_mm = float("nan")
+    groups, dropped_modes, raw_widths = _sweep_width_groups(records)
 
-    # --- width responses: defocus + astigmatism, fitted jointly ---------------
-    # Defocus alone cannot identify the waist on this bench: its width response
-    # stayed 16% asymmetric after the bench's own defocus offset was removed,
-    # which is astigmatism/coma the defocus sweep does not contain. Sweeping both
-    # quadratic modes and fitting them together separates the two contributions.
-    groups: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-    # Modes that were swept but could not contribute a width response, with the
-    # reason. This used to live only in a log line, which made "the mode does
-    # not respond on this bench" indistinguishable from "the measurement was
-    # noise" -- and a missing defocus group ended the run with a bare
-    # KeyError. The record travels with the result and with the error instead.
-    dropped_modes: dict[str, str] = {}
-    raw_widths: dict[str, list[float]] = {}
-    for mode in ("defocus", "astig_x", "astig_y", "coma_x", "coma_y", "spherical"):
-        pts = [r for r in records if r.mode == mode]
-        if pts:
-            raw_widths[mode] = [float(r.fwhm_px) for r in pts]
-        if len(pts) < _MIN_SWEEP_POINTS:
-            if pts:
-                dropped_modes[mode] = (
-                    f"only {len(pts)} sweep point(s); a width response needs at "
-                    "least two"
-                )
-            continue
-        c = np.array([r.coefficient for r in pts], dtype=np.float64)
-        w = np.array([r.fwhm_px for r in pts], dtype=np.float64)
-        h = np.array([r.hollowness for r in pts], dtype=np.float64)
-        ok = np.isfinite(w) & (w > 0) & np.isfinite(h)
-        if int(ok.sum()) < _MIN_SWEEP_POINTS:
-            dropped_modes[mode] = (
-                f"only {int(ok.sum())} point(s) with a finite positive FWHM"
-            )
-            continue
-        c, w, h = c[ok], w[ok], h[ok]
-
-        # A width of `w` is only meaningful while the focal plane is a SINGLE
-        # lobe. The direct measure of that is hollowness (intensity at the
-        # centroid / peak): a spherical -1.2 rad point read 38.2 px wide with
-        # hollowness 0.43, i.e. a ring whose "width" is a ring diameter, and
-        # fitting it as a Gaussian lobe is meaningless. The constant below was
-        # defined for this but never applied; it is used *alone* here, and only
-        # after an alternative was measured and rejected -- see the note on
-        # _DEFOCUS_SINGLE_LOBE_FACTOR.
-        single_lobe = h >= _DEFOCUS_MIN_HOLLOWNESS
-        if (
-            not single_lobe.all()
-            and int(single_lobe.sum()) >= _MIN_SWEEP_POINTS
-            and _has_both_signs(c[single_lobe])
-        ):
-            logger.info(
-                "{} sweep: dropped {} point(s) that are not a single spot lobe "
-                "(hollowness < {:.2f}): {}",
-                mode,
-                int((~single_lobe).sum()),
-                _DEFOCUS_MIN_HOLLOWNESS,
-                ", ".join(
-                    f"c={cc:+.2f} w={ww:.1f} hollow={hh:.2f}"
-                    for cc, ww, hh in zip(
-                        c[~single_lobe], w[~single_lobe], h[~single_lobe], strict=True
-                    )
-                ),
-            )
-            c, w, h = c[single_lobe], w[single_lobe], h[single_lobe]
-
-        # A single spot lobe under growing |coefficient| must broaden
-        # monotonically. Enforce that per side and drop the violators: a real
-        # sweep had a -4 rad point read *narrower* (12.5 px) than the -2.5 rad one
-        # (30.9 px), and that single outlier is enough to drive the fitted
-        # curvature negative. A width threshold and hollowness both fail to catch
-        # that one -- the outlier's hollowness (0.80) and width both sit inside
-        # the single-lobe range -- so the two filters are complementary and both
-        # are needed.
-        keep = np.ones(c.shape, dtype=bool)
-        for side in (np.sign(c) < 0, np.sign(c) > 0):
-            idx = np.flatnonzero(side)
-            if idx.size == 0:
-                continue
-            running = -np.inf
-            for j in idx[np.argsort(np.abs(c[idx]))]:
-                if w[j] >= running:
-                    running = w[j]
-                else:
-                    keep[j] = False
-        if int(keep.sum()) >= 4 and _has_both_signs(c[keep]):
-            dropped_points = int((~keep).sum())
-            if dropped_points:
-                logger.info(
-                    "{} sweep: dropped {} non-monotonic width point(s); "
-                    "fitting the remaining {}",
-                    mode,
-                    dropped_points,
-                    int(keep.sum()),
-                )
-            c, w = c[keep], w[keep]
-        groups[mode] = (c, w)
-
-    # Per-mode bench offset: the width minimum is where the bench's own
-    # aberration cancels the command, so fit it rather than assuming it sits at
-    # zero (measured -0.171 rad here; assuming zero gave -1.7 rad).
-    offsets: dict[str, float] = {}
-    curvature_report: dict[str, float] = {}
-    for mode, (c, w) in list(groups.items()):
-        grid = np.linspace(c.min() - 1.0, c.max() + 1.0, 241)
-        best_q: tuple[float, float, float] | None = None
-        for c0 in grid:
-            basis = (c - c0) ** 2
-            design = np.stack([np.ones_like(basis), basis], axis=1)
-            sol, *_ = np.linalg.lstsq(design, w**2, rcond=None)
-            resid = design @ sol - w**2
-            rms = float(np.sqrt(np.mean(resid**2)))
-            if best_q is None or rms < best_q[0]:
-                best_q = (rms, float(c0), float(sol[1]))
-        assert best_q is not None
-        rms_q, c0_q, curv_q = best_q
-        # A width response that does not open upward has no physical
-        # interpretation, and an offset pinned to the scan edge means the
-        # minimum was never bracketed. Both happen when a mode simply does not
-        # respond -- emitting a number anyway is how an astig_y "offset" of
-        # +5.0 rad (the grid edge) with curvature -22 appeared. Drop the mode and
-        # keep the ones that do respond.
-        edge = (c0_q <= grid[0] + 1e-9) or (c0_q >= grid[-1] - 1e-9)
-        if curv_q <= 0.0 or edge:
-            reasons: list[str] = []
-            if curv_q <= 0.0:
-                reasons.append(
-                    f"width^2 curvature {curv_q:+.1f} <= 0 (the width does not "
-                    "open upward, so the mode has no usable width response)"
-                )
-            if edge:
-                reasons.append(
-                    f"the fitted minimum sits at coefficient {c0_q:+.3f}, pinned "
-                    f"to the scan edge [{grid[0]:+.2f}, {grid[-1]:+.2f}] (the "
-                    "width minimum was never bracketed)"
-                )
-            reason = "; ".join(reasons)
-            dropped_modes[mode] = reason
-            logger.warning(
-                "{} width response is degenerate (curvature {:.1f}, offset {:+.3f} "
-                "{}) -- dropping this mode from the fit rather than reporting a "
-                "meaningless offset. Check that the mode is actually reachable on "
-                "this bench: its spot widths were {}",
-                mode,
-                curv_q,
-                c0_q,
-                "at the scan edge" if edge else "",
-                ", ".join(f"{v:.1f}" for v in w),
-            )
-            groups.pop(mode)
-            continue
-        offsets[mode] = c0_q
-        curvature_report[mode] = curv_q
+    offsets, curvature_report = _fit_curvature_offsets(groups, dropped_modes)
 
     # The dropped-mode record is published before any raise, so the caller gets
     # the same evidence whether the calibration succeeded or not.
@@ -2392,15 +2557,7 @@ def calibrate_bench_geometry_from_sweep(
     # Width asymmetry of the defocus response at matched |c| is a direct read of
     # residual non-defocus aberration.
     c_d, w_d = groups["defocus"]
-    asym: list[float] = []
-    for c_pos in c_d[c_d > 0]:
-        neg = c_d[np.isclose(c_d, -c_pos)]
-        if neg.size:
-            w_p = float(w_d[c_d == c_pos][0])
-            w_n = float(w_d[c_d == neg[0]][0])
-            if w_p > 0 and w_n > 0:
-                asym.append((w_p - w_n) / (0.5 * (w_p + w_n)))
-    asymmetry = float(np.mean(asym)) if asym else float("nan")
+    asymmetry = _defocus_asymmetry(c_d, w_d)
 
     if waist_candidates is None:
         waist_candidates = [region / float(2**k) for k in range(0, 8)]
@@ -2415,66 +2572,10 @@ def calibrate_bench_geometry_from_sweep(
     span = max(float(np.max(np.abs(c))) for c, _ in groups.values()) + 1.0
     resp_grid = np.linspace(-span, span, _SWEEP_RESPONSE_POINTS)
 
-    # Per waist: precompute each mode's model width response once, then fit the
-    # per-mode offsets by interpolating against it. Evaluating the model at every
-    # (waist, mode, coefficient, offset) would be ~500x more forward passes.
-    best: tuple[float, float, dict[str, float]] | None = None
-    for waist in waist_candidates:
-        amp = _pupil_amplitude(region, float(waist), a)
-        total = 0.0
-        n_pts = 0
-        per_mode: dict[str, float] = {}
-        ok_waist = True
-        for mode, (c, w) in list(groups.items()):
-            nm = _SWEEP_MODE_NM.get(mode)
-            if nm is None:
-                # A mode without a model response cannot be fitted. Drop it
-                # explicitly instead of dying with a bare KeyError -- the same
-                # failure shape this whole block exists to prevent.
-                logger.warning(
-                    "no model width response for mode {}; dropping it from the "
-                    "joint fit",
-                    mode,
-                )
-                dropped_modes[mode] = "no model response for this mode"
-                groups.pop(mode)
-                continue
-            curve = np.array(
-                [
-                    _spot_fwhm(
-                        opt.forward_intensity(
-                            zeros, _zernike_phase(region, a, nm, float(g)), amp
-                        )
-                    )
-                    * camera_px_per_model_px
-                    for g in resp_grid
-                ],
-                dtype=np.float64,
-            )
-            good = np.isfinite(curve) & (curve > 0)
-            if good.sum() < 3:
-                ok_waist = False
-                break
-            best_off, best_rms = 0.0, np.inf
-            for c0 in resp_grid:
-                pred = np.interp(c - c0, resp_grid, curve)
-                okp = np.isfinite(pred) & (pred > 0)
-                if int(okp.sum()) < _MIN_SWEEP_POINTS:
-                    continue
-                rms = float(np.sqrt(np.mean(((pred[okp] - w[okp]) / w[okp]) ** 2)))
-                if rms < best_rms:
-                    best_rms, best_off = rms, float(c0)
-            if not np.isfinite(best_rms):
-                ok_waist = False
-                break
-            per_mode[mode] = best_off
-            total += best_rms * c.size
-            n_pts += c.size
-        if not ok_waist or n_pts == 0:
-            continue
-        joint = total / n_pts
-        if best is None or joint < best[0]:
-            best = (joint, float(waist), per_mode)
+    best = _fit_joint_waist(groups, dropped_modes, opt=opt, zeros=zeros,
+                         resp_grid=resp_grid, region=region, a=a,
+                         camera_px_per_model_px=camera_px_per_model_px,
+                         waist_candidates=waist_candidates)
     if best is None:
         raise ValueError("no waist candidate produced a finite width response")
     fit_rms, waist_fit, mode_offsets = best
@@ -2514,36 +2615,16 @@ def calibrate_bench_geometry_from_sweep(
     flat_model_fwhm = float(_spot_fwhm(flat_model))
 
     modes_used = "+".join(sorted(groups))
-    notes = (
-        f"tilt slope {k_tilt:.3f} cam px/rad ("
-        + ", ".join(f"{ax}:{v:+.3f}" for ax, v in sorted(slopes.items()))
-        + f", via {sorted(set(sources.values()))}), semi-axis {a} model px, "
-        f"P={far_field_size}"
-        + (
-            f"; physical tilt check {tilt_ratio:.2f}x predicted"
-            if np.isfinite(tilt_ratio)
-            else ""
-        )
-        + f"; focal scale from {focal_source}"
-        + (
-            f", FOV cross-check {fov_ratio:.3f} ({abs(camera_px_per_model_px / fov_ratio - 1.0):.0%} apart)"
-            if np.isfinite(fov_ratio) and fov_ratio > 0
-            else ""
-        )
-        + f"; modes fitted {modes_used}; joint rel-RMS {fit_rms:.1%}; bench offsets "
-        + ", ".join(f"{m} {o:+.3f}" for m, o in sorted(offsets.items()))
-        + " rad; curvatures "
-        + ", ".join(f"{m} {v:.1f}" for m, v in sorted(curvature_report.items()))
-        + f"; defocus asymmetry {asymmetry:+.0%}; waist "
-        + ("fitted" if waist_determined else "NOT identifiable, flat-top default")
-    )
-    if dropped_modes:
-        # Persisted with the geometry (bench_geometry.json) so a later reader can
-        # tell "this mode did not respond" from "this mode was never swept".
-        # The wording keeps the numbers out of the report parser's way.
-        notes += "; dropped modes " + ", ".join(
-            f"{m} ({_dropped_summary(r)})" for m, r in sorted(dropped_modes.items())
-        )
+    notes = _sweep_calibration_notes(k_tilt=k_tilt, slopes=slopes, sources=sources,
+                                    a=a, far_field_size=far_field_size,
+                                    tilt_ratio=tilt_ratio, focal_source=focal_source,
+                                    camera_px_per_model_px=camera_px_per_model_px,
+                                    fov_ratio=fov_ratio, modes_used=modes_used,
+                                    fit_rms=fit_rms, offsets=offsets,
+                                    curvature_report=curvature_report,
+                                    asymmetry=asymmetry,
+                                    waist_determined=waist_determined,
+                                    dropped_modes=dropped_modes)
     _publish_dropped(dropped, dropped_modes)
     logger.info(
         "bench geometry from sweep: aperture={} panel px, w0={:.1f} panel px, "
