@@ -70,8 +70,8 @@
 ## 产物与复现
 
 - [逐轮、逐重放结果与摘要哈希](artifacts/results.json)。全部 205 个捕获的指标从原生帧重新计算，最大误差 0。
-- [最终相位](artifacts/accepted_phase.npz)、[相位基](artifacts/basis.npz)、[目标](artifacts/target.npz)、[支持域](artifacts/support.npz)、[重放平均帧](artifacts/replay_means.npz)。NPZ 数组键为 `data`，重放平均帧键为 `reference`/`candidate`。
-- 三轮完整图像响应：[第一轮](artifacts/r00_jacobian.npz)、[第二轮](artifacts/r01_jacobian.npz)、[第三轮](artifacts/r02_jacobian.npz)。
+- 最终相位 `artifacts/accepted_phase.npz`、相位基 `artifacts/basis.npz`、目标 `artifacts/target.npz`、支持域 `artifacts/support.npz`、重放平均帧 `artifacts/replay_means.npz`。NPZ 数组键为 `data`，重放平均帧键为 `reference`/`candidate`。
+- 三轮完整图像响应：`artifacts/r00_jacobian.npz`、`artifacts/r01_jacobian.npz`、`artifacts/r02_jacobian.npz`。
 - 原生帧、逐条相位、实际下发灰度及 summary：`data/debug/local_forward_cone_20261103_2242b`；失败对照：`data/debug/local_forward_ring_20261103_2230`。
 - 连续锥相位中心/斜率的探索记录：`data/debug/continuous_cone_scan_20261103/scan.json`；这些是探索值，结论只取后续独立重放。
 
