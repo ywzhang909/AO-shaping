@@ -23,7 +23,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pytest
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 
 from ao_shaping.gui.slm.transfer_desktop import archive_replay as replay
 
@@ -185,6 +186,22 @@ def _select(dialog: replay.ArchiveReplayDialog, predicate) -> replay.ArchiveEntr
             dialog.select_archive(row)
             return entry
     raise AssertionError("没有匹配的归档")
+
+
+def _visible_rows(dialog: replay.ArchiveReplayDialog) -> int:
+    """过滤后仍可见的行数 (过滤是 ``setRowHidden``, 不是重建)。"""
+    return sum(
+        1
+        for row in range(dialog._table.rowCount())
+        if not dialog._table.isRowHidden(row)
+    )
+
+
+def _dump_button(dialog: replay.ArchiveReplayDialog, row: int) -> QPushButton:
+    """「操作」列里那一行的归档按钮。"""
+    widget = dialog._table.cellWidget(row, 3)
+    assert isinstance(widget, QPushButton)
+    return widget
 
 
 # ---------------------------------------------------------------- import 契约
@@ -355,7 +372,7 @@ def test_dialog_lists_all_archives(app: QApplication, tree: Path) -> None:
     dialog = replay.ArchiveReplayDialog(tree)
     try:
         assert dialog.archive_count() == 3
-        assert dialog._list.count() == 3
+        assert dialog._table.rowCount() == 3
         assert len(dialog.archives()) == 3
         assert "3 个 pkl" in dialog._header.text()
     finally:
@@ -375,8 +392,8 @@ def test_dialog_capture_records_full_three_views(app: QApplication, tree: Path) 
         pixmap = dialog._phase.pixmap()
         assert pixmap is not None and not pixmap.isNull()
         assert dialog.message_text() == ""
-        # 加载后列表项补上记录数。
-        assert "2 条记录" in dialog._list.item(dialog._active_row).text()
+        # 加载后名称列 tooltip 补上记录数。
+        assert "2 条记录" in dialog._table.item(dialog._active_row, 0).toolTip()
 
         dialog.set_index(1)
         assert dialog.current_index() == 1
@@ -470,12 +487,229 @@ def test_dialog_empty_root_shows_message(app: QApplication, tmp_path: Path) -> N
 def test_filter_narrows_archive_list(app: QApplication, tree: Path) -> None:
     dialog = replay.ArchiveReplayDialog(tree)
     try:
+        assert _visible_rows(dialog) == 3
         dialog.apply_filter("fit")
-        assert dialog._list.count() == 1
+        assert _visible_rows(dialog) == 1
         dialog.apply_filter("")
-        assert dialog._list.count() == 3
+        assert _visible_rows(dialog) == 3
     finally:
         dialog.close()
+        dialog.deleteLater()
+
+
+# ------------------------------------------------------- 分列展示 / 归档 / 自动播放
+def test_dialog_table_shows_four_columns(app: QApplication, tree: Path) -> None:
+    """名称 / 时间 / 大小 / 操作: 名称是完整相对路径 (395 个归档只有两个文件名)。"""
+    dialog = replay.ArchiveReplayDialog(tree)
+    try:
+        headers = [
+            dialog._table.horizontalHeaderItem(column).text()
+            for column in range(dialog._table.columnCount())
+        ]
+        assert headers == ["名称", "时间", "大小", "操作"]
+        assert dialog._table.rowCount() == 3
+        for row in range(dialog._table.rowCount()):
+            assert isinstance(dialog._table.cellWidget(row, 3), QPushButton)
+        entry = dialog.archives()[0]
+        assert dialog._table.item(0, 0).text() == entry.relative
+        assert dialog._table.item(0, 0).toolTip().startswith(str(entry.path))
+        assert dialog._table.item(0, 1).text() == replay.format_mtime(entry.mtime)
+        assert dialog._table.item(0, 2).text() == replay._human_size(entry.size_bytes)
+        # 从新到旧: 时间列带 mtime, 且单调不增。
+        times = [
+            dialog._table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+            for row in range(dialog._table.rowCount())
+        ]
+        assert times == sorted(times, reverse=True)
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+
+
+def test_discover_archives_skips_dump_subtree(tmp_path: Path) -> None:
+    """ "已归档的 pkl 落在 ``dump/`` 下, 不能再出现在待归档列表里。"""
+    root = tmp_path / "root"
+    _write_capture_records(root / "s1" / "anchored", n=1)
+    dumped = _write_iterations_phase(
+        root / replay.DUMP_DIRNAME / "s1" / "iterations.pkl", n=1
+    )
+    entries = replay.discover_archives(root)
+    assert [entry.relative for entry in entries] == ["s1/anchored/capture_records.pkl"]
+    assert dumped.is_file()  # 只是不列出, 文件不动
+
+
+def test_archive_to_dump_keeps_relative_path(tmp_path: Path) -> None:
+    """目标 = ``<根>/dump/<相对路径>``; 只搬 pkl, 兄弟 npz 留在原处。"""
+    root = tmp_path / "root"
+    pkl = _write_capture_records(root / "s1" / "anchored", n=1)
+    sibling = pkl.parent / "capture_0000.npz"
+    entry = next(e for e in replay.discover_archives(root) if e.path == pkl)
+    dest = replay.archive_to_dump(entry)
+    assert (
+        dest == root / replay.DUMP_DIRNAME / "s1" / "anchored" / "capture_records.pkl"
+    )
+    assert dest.is_file()
+    assert not pkl.exists()
+    assert sibling.is_file()
+    assert replay.discover_archives(root) == []
+
+
+def test_archive_to_dump_refuses_overwrite(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    _write_capture_records(root / "s1" / "anchored", n=1)
+    first = replay.discover_archives(root)[0]
+    replay.archive_to_dump(first)
+    # 原位再冒出一个同名 pkl: 目标已存在 → 拒绝, 绝不覆盖。
+    again = _write_capture_records(root / "s1" / "anchored", n=1)
+    entry = next(e for e in replay.discover_archives(root) if e.path == again)
+    with pytest.raises(FileExistsError):
+        replay.archive_to_dump(entry)
+    assert again.is_file()
+
+
+def test_archive_to_dump_raises_on_move_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "root"
+    pkl = _write_capture_records(root / "s1" / "anchored", n=1)
+    entry = next(e for e in replay.discover_archives(root) if e.path == pkl)
+
+    def _boom(*_args, **_kwargs):
+        raise OSError("磁盘不见了")
+
+    monkeypatch.setattr(replay.shutil, "move", _boom)
+    with pytest.raises(OSError):
+        replay.archive_to_dump(entry)
+    assert pkl.is_file()
+
+
+def test_dump_button_needs_confirmation(
+    app: QApplication, tree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dialog = replay.ArchiveReplayDialog(tree)
+    try:
+        entry = _select(dialog, lambda e: e.kind == "capture_records")
+        monkeypatch.setattr(dialog, "_confirm_dump", lambda _entry: False)
+        _dump_button(dialog, dialog._row_of(entry)).click()
+        assert entry.path.is_file()
+        assert dialog.archive_count() == 3
+        assert dialog._table.rowCount() == 3
+        assert "已取消" in dialog.message_text()
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+
+
+def test_dump_button_moves_current_archive_out_of_list(
+    app: QApplication, tree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dialog = replay.ArchiveReplayDialog(tree)
+    try:
+        entry = _select(dialog, lambda e: e.kind == "capture_records")
+        sibling = entry.path.parent / "capture_0000.npz"
+        monkeypatch.setattr(dialog, "_confirm_dump", lambda _entry: True)
+        dialog.start_playback()
+        assert dialog.is_playing()
+        _dump_button(dialog, dialog._row_of(entry)).click()
+        dest = tree / replay.DUMP_DIRNAME / entry.relative
+        assert not entry.path.is_file()
+        assert dest.is_file()
+        assert sibling.is_file()  # 兄弟 npz 不动
+        assert dialog.archive_count() == 2
+        assert dialog._table.rowCount() == 2
+        assert dialog.current_archive is None
+        assert dialog.current_sample is None
+        assert not dialog.is_playing()
+        assert "已归档" in dialog.message_text()
+        assert "2 个 pkl" in dialog._header.text()
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+
+
+def test_dump_button_on_other_row_keeps_current_archive(
+    app: QApplication, tree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """按归档按钮不该顺手把那一行加载进来。"""
+    dialog = replay.ArchiveReplayDialog(tree)
+    try:
+        current = _select(dialog, lambda e: e.kind == "capture_records")
+        other = next(
+            e
+            for e in dialog.archives()
+            if e.relative.endswith("s2/fit/full/iterations.pkl")
+        )
+        monkeypatch.setattr(dialog, "_confirm_dump", lambda _entry: True)
+        _dump_button(dialog, dialog._row_of(other)).click()
+        assert not other.path.is_file()
+        assert dialog.current_archive == current
+        assert dialog.current_sample is not None
+        assert dialog.archive_count() == 2
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+
+
+def test_autoplay_interval_follows_fps(app: QApplication, tree: Path) -> None:
+    dialog = replay.ArchiveReplayDialog(tree)
+    try:
+        assert replay.fps_to_interval_ms(2.0) == 500
+        assert replay.fps_to_interval_ms(10.0) == 100
+        assert replay.fps_to_interval_ms(30.0) == 33
+        _select(dialog, lambda e: e.kind == "capture_records")
+        dialog.set_fps(10.0)
+        dialog.start_playback()
+        assert dialog.is_playing()
+        assert dialog._play_timer.interval() == 100
+        assert dialog._play.text() == "■ 停止"
+        dialog.set_fps(25.0)  # 播放中改 fps, 下一拍生效
+        assert dialog._play_timer.interval() == 40
+        dialog.stop_playback()
+        assert not dialog.is_playing()
+        assert dialog._play.text() == "▶ 自动播放"
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+
+
+def test_autoplay_wraps_at_last_record(app: QApplication, tree: Path) -> None:
+    """走到最后一条回到第 0 条 (指标口味: 没有画面也要推进)。"""
+    dialog = replay.ArchiveReplayDialog(tree)
+    try:
+        _select(dialog, lambda e: e.relative.endswith("s2/fit/full/iterations.pkl"))
+        total = dialog.capture_count()
+        assert total == 4
+        dialog.set_index(total - 1)
+        dialog.start_playback()
+        dialog._play_timer.timeout.emit()
+        assert dialog.current_index() == 0
+        dialog._play_timer.timeout.emit()
+        assert dialog.current_index() == 1
+        dialog.stop_playback()
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+
+
+def test_autoplay_stops_on_switch_and_manual_step(
+    app: QApplication, tree: Path
+) -> None:
+    dialog = replay.ArchiveReplayDialog(tree)
+    try:
+        _select(dialog, lambda e: e.kind == "capture_records")
+        dialog.start_playback()
+        assert dialog.is_playing()
+        _select(dialog, lambda e: e.relative.endswith("s1/anchored/iterations.pkl"))
+        assert not dialog.is_playing()  # 换归档 → 停
+
+        dialog.start_playback()
+        dialog._on_next()  # 手动翻 → 停
+        assert not dialog.is_playing()
+
+        dialog.start_playback()
+        dialog.close()
+        assert not dialog.is_playing()  # 关窗 → 停
+    finally:
         dialog.deleteLater()
 
 

@@ -22,7 +22,7 @@
   "src/ao_shaping/gui/slm/pattern_controls.py": 1287,
   "src/ao_shaping/gui/slm/shaping_controls.py": 2828,
   "src/ao_shaping/gui/slm/slm_calibration_ui.py": 849,
-  "src/ao_shaping/gui/slm/transfer_desktop/archive_replay.py": 1123,
+  "src/ao_shaping/gui/slm/transfer_desktop/archive_replay.py": 1480,
   "src/ao_shaping/gui/slm/transfer_desktop/page.py": 1096,
   "src/ao_shaping/gui/slm/transfer_progress.py": 1327,
   "src/ao_shaping/gui/zernike/zernike_debug_viewer.py": 867,

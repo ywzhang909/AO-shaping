@@ -14,10 +14,18 @@
 * ``iterations.pkl`` (拟合口味, ``fit/``) —— 一条一次迭代, 带 ``loss`` / ``parameters``,
   **既无相位也无 CCD 帧**。
 
-本模块把三者都列进左侧归档列表 (整个 debug 根递归扫, 按修改时间从新到旧), 点谁才
+本模块把三者都列进左侧归档表格 (整个 debug 根递归扫, 按修改时间从新到旧), 点谁才
 ``pickle.load`` 谁 (98 MB 的相位文件要几秒, 扫描阶段绝不打开 pkl)。三种口味都**能回放**:
 有 CCD 就出三视图, 只有相位就出相位预览 + CCD 占位, 只有拟合指标就出行文提示 —— 一个
 损坏文件也只是在窗口里显示一行红字, 弹窗不抛异常、不关窗。
+
+列表之外还有两件事
+------------------
+* **归档**: 每行一个「归档」按钮, 确认后把这个 ``*.pkl`` **移动**到
+  ``<根>/dump/`` 下 (保留原有相对路径 —— 几百个归档只有两个文件名, 平铺会互相覆盖;
+  兄弟 ``capture_*.npz`` 留在原处)。回收目录不参与扫描, 归档完该行即消失。
+* **自动播放**: 一个 fps 输入框 + 播放/停止开关, 用独立定时器按 ``1000/fps`` 毫秒
+  一拍循环推进记录 (走到最后一条回到第 0 条), 每拍直接渲染, 不走滑块防抖。
 
 为什么不用 ``pattern_controls._phase_to_preview``
 ------------------------------------------------
@@ -37,37 +45,54 @@ import 任何 ``drivers.ccd`` / ``drivers.slm`` 符号; 测试会把这一点钉
 from __future__ import annotations
 
 import pickle
+import shutil
 import zipfile
 from dataclasses import dataclass
-from pathlib import Path
+from datetime import datetime
+from functools import partial
+from pathlib import Path, PurePosixPath
 
 import numpy as np
 from loguru import logger
 from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtGui import QImage, QPixmap, QResizeEvent
+from PySide6.QtGui import QCloseEvent, QImage, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QDialog,
+    QDoubleSpinBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
-    QListWidget,
+    QMessageBox,
     QPushButton,
     QSlider,
     QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
 __all__ = [
+    "ARCHIVE_COLUMNS",
     "DEBUG_ROOT",
+    "DUMP_DIRNAME",
+    "FPS_DEFAULT",
+    "FPS_MAX",
+    "FPS_MIN",
     "ArchiveEntry",
     "ArchivePayload",
     "ArchiveRecord",
     "ArchiveReplayDialog",
     "CaptureData",
+    "archive_to_dump",
     "discover_archives",
     "discover_captures",
+    "dump_root_for",
+    "format_mtime",
+    "fps_to_interval_ms",
     "load_archive",
     "load_capture",
     "open_archive_replay",
@@ -83,6 +108,27 @@ CAPTURE_GLOB = "capture_*.npz"
 
 #: 所有历史归档的通配符: 只要满足 ``*.pkl`` 都能回放。
 ARCHIVE_GLOB = "*.pkl"
+
+#: 归档回收目录名: 行内「归档」按钮把 pkl **移动**到 ``<根>/dump`` 下, 且保留原有
+#: 相对路径 —— 几百个归档只有两个文件名 (``capture_records.pkl`` / ``iterations.pkl``),
+#: 平铺进一个目录会互相覆盖。
+DUMP_DIRNAME = "dump"
+
+#: 自动播放的 fps 区间与默认值 (一拍 = :func:`fps_to_interval_ms` 毫秒)。
+FPS_MIN = 0.5
+FPS_MAX = 30.0
+FPS_DEFAULT = 2.0
+
+#: 时间列的展示格式。
+TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+#: 归档列表的四列表头。
+ARCHIVE_COLUMNS: tuple[str, ...] = ("名称", "时间", "大小", "操作")
+_COL_NAME, _COL_TIME, _COL_SIZE, _COL_ACTION = range(len(ARCHIVE_COLUMNS))
+
+#: 自动播放按钮的两个状态文案。
+_PLAY_LABEL = "▶ 自动播放"
+_STOP_LABEL = "■ 停止"
 
 #: SLM 面板的灰度满量程 (10 bit)。与 ``Santec.MAX_GRAYSCALE_VALUE`` 同值; 这里写字面
 #: 量, 免得为了一个常数 import 驱动。
@@ -111,7 +157,7 @@ _LOAD_ERRORS: tuple[type[BaseException], ...] = (
 _SLIDER_DEBOUNCE_MS = 140
 
 #: 左侧归档列表面板宽度 (px)。
-_ARCHIVE_LIST_WIDTH = 320
+_ARCHIVE_LIST_WIDTH = 460
 
 #: 三种内容口味对应的可读提示 (无 CCD / 无相位时的占位文案)。
 _NOTICE_ITER_PHASE = "该归档只有迭代相位, 无 CCD 帧"
@@ -218,12 +264,21 @@ def discover_captures(session_dir: str | Path) -> list[Path]:
     return sorted(path for path in base.glob(CAPTURE_GLOB) if path.is_file())
 
 
+def is_in_dump(relative: str) -> bool:
+    """相对路径是否落在回收目录 ``dump/`` 下 (已归档的 pkl 不再出现在列表里)。"""
+    head = relative.replace("\\", "/").split("/", 1)[0]
+    return head == DUMP_DIRNAME
+
+
 def discover_archives(root: str | Path) -> list[ArchiveEntry]:
     """递归列出 ``root`` 下所有 ``*.pkl``, 按修改时间**从新到旧** (同 mtime 按相对路径升序)。
 
     只做文件系统枚举 (``rglob`` + ``stat``), **绝不打开任何 pkl** —— 根目录里有几百个
     pkl / 几十 GB, 单个相位 pkl 可达 98 MB, 扫描阶段解码会卡死界面。根目录不存在 /
     不是目录时返回 ``[]`` (界面显示提示, 不抛异常)。
+
+    回收目录 ``<根>/dump`` 下的 pkl 会被跳过: 它们是行内「归档」按钮搬过去的,
+    不该再出现在待归档列表里。
     """
     base = Path(root)
     if not base.is_dir():
@@ -244,6 +299,8 @@ def discover_archives(root: str | Path) -> list[ArchiveEntry]:
         kind = "capture_records" if path.stem == "capture_records" else "iterations"
         if path.stem not in ("capture_records", "iterations"):
             kind = "other"
+        if is_in_dump(relative):
+            continue
         entries.append(
             ArchiveEntry(
                 path=path,
@@ -542,6 +599,70 @@ def load_archive(entry: ArchiveEntry) -> ArchivePayload:
     return _payload_unknown(entry, records)
 
 
+def format_mtime(mtime: float) -> str:
+    """时间列文案: ``2026-11-02 13:04:05`` (越界 / 坏时间戳给 ``—``)。"""
+    try:
+        return datetime.fromtimestamp(float(mtime)).strftime(TIME_FORMAT)
+    except (OSError, OverflowError, ValueError):
+        return "—"
+
+
+def fps_to_interval_ms(fps: float) -> int:
+    """自动播放一拍的毫秒数 (``fps`` 越大间隔越短, 最小 1 ms 保证还能画)。"""
+    return max(1, int(round(1000.0 / max(0.01, float(fps)))))
+
+
+def dump_root_for(root: str | Path) -> Path:
+    """``root`` 下的归档回收目录 (``<root>/dump``)。"""
+    return Path(root) / DUMP_DIRNAME
+
+
+def archive_root_of(entry: ArchiveEntry) -> Path:
+    """由归档条目反推它当初的扫描根 (``path`` 去掉 ``relative`` 那几层)。"""
+    parts = [
+        part
+        for part in entry.relative.replace("\\", "/").split("/")
+        if part and part != "."
+    ]
+    if not parts or ".." in parts:
+        return Path(entry.path).parent
+    return Path(entry.path).parents[len(parts) - 1]
+
+
+def archive_to_dump(entry: ArchiveEntry, dump_root: str | Path | None = None) -> Path:
+    """把一个归档 **移动** 到回收目录并返回目标路径 (保留原有相对路径)。
+
+    只搬这一个 ``*.pkl`` —— 兄弟 ``capture_*.npz`` 留在原处: 一行代表的就是这一个
+    归档, 而 discovery 只认 pkl, 搬走它该行就消失了 (想复原把文件搬回去即可)。
+
+    * 目标已存在 → :class:`FileExistsError` (**绝不覆盖**);
+    * 相对路径不可用 → :class:`ValueError`;
+    * ``shutil.move`` 失败 → 原样抛 :class:`OSError` / :class:`shutil.Error`,
+      由界面接住上屏一行提示, 列表保留该行。
+
+    纯文件系统操作, 不解码 pkl, 可单独测。
+    """
+    dest_root = (
+        Path(dump_root)
+        if dump_root is not None
+        else dump_root_for(archive_root_of(entry))
+    )
+    relative = PurePosixPath(entry.relative.replace("\\", "/"))
+    if not relative.parts or relative.is_absolute() or ".." in relative.parts:
+        raise ValueError(f"归档相对路径不可用: {entry.relative!r}")
+    dest = dest_root / relative
+    if dest.exists():
+        raise FileExistsError(f"回收目录里已经有同名归档: {dest}")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.move(str(entry.path), str(dest))
+    except (OSError, shutil.Error) as exc:  # pragma: no cover - 依赖文件系统
+        logger.warning(f"归档移动失败: {entry.path} -> {dest}: {exc}")
+        raise
+    logger.info(f"已归档 (移动): {entry.relative} -> {dest}")
+    return dest
+
+
 # ---------------------------------------------------------------- 小工具
 def _human_size(num_bytes: int) -> str:
     if num_bytes >= 1 << 20:
@@ -593,6 +714,8 @@ class ArchiveReplayDialog(QDialog):
         self._root = Path(root)
         self._archives = discover_archives(self._root)
         self._visible: list[ArchiveEntry] = []
+        #: 表格行 → 归档 (过滤只是隐藏行, 所以行序恒等于 ``_archives`` 的顺序)。
+        self._rows: list[ArchiveEntry] = list(self._archives)
         self._record_counts: dict[Path, int] = {}
         self._payload: ArchivePayload | None = None
         self._index = 0
@@ -600,10 +723,16 @@ class ArchiveReplayDialog(QDialog):
         self._phase_full: QPixmap | None = None
         self._active_row = -1
 
+        # 滑块防抖: 拖动时不读盘, 停手 140 ms 才加载。
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(_SLIDER_DEBOUNCE_MS)
         self._timer.timeout.connect(self._reload_current)
+
+        # 自动播放: 单独的定时器, 每拍直接渲染 (不走防抖, 否则高 fps 会被饿死)。
+        self._play_timer = QTimer(self)
+        self._play_timer.setInterval(fps_to_interval_ms(FPS_DEFAULT))
+        self._play_timer.timeout.connect(self._on_play_tick)
 
         self.setModal(False)
         self.setWindowTitle("归档回放 · 离线")
@@ -643,6 +772,26 @@ class ArchiveReplayDialog(QDialog):
         controls.addWidget(self._slider, 1)
         controls.addWidget(self._next)
         controls.addWidget(self._position)
+
+        # 自动播放: fps + 播放/停止 (独立定时器, 见 ``_play_timer``)。
+        controls.addSpacing(12)
+        controls.addWidget(QLabel("fps", self))
+        self._fps = QDoubleSpinBox(self)
+        self._fps.setRange(FPS_MIN, FPS_MAX)
+        self._fps.setDecimals(1)
+        self._fps.setSingleStep(0.5)
+        self._fps.setValue(FPS_DEFAULT)
+        self._fps.setFixedWidth(88)
+        self._fps.setToolTip(
+            f"自动播放速度 ({FPS_MIN}–{FPS_MAX} fps), 播放中改动下一拍生效"
+        )
+        self._fps.valueChanged.connect(self._on_fps_changed)
+        self._play = QPushButton(_PLAY_LABEL, self)
+        self._play.setCheckable(True)
+        self._play.setToolTip("按当前 fps 循环播放本归档的所有记录")
+        self._play.toggled.connect(self._on_play_toggled)
+        controls.addWidget(self._fps)
+        controls.addWidget(self._play)
         root.addLayout(controls)
 
         outer = QSplitter(Qt.Orientation.Horizontal, self)
@@ -655,12 +804,25 @@ class ArchiveReplayDialog(QDialog):
         self._filter.setPlaceholderText("过滤归档 (路径 / 口味)…")
         self._filter.setClearButtonEnabled(True)
         self._filter.textChanged.connect(self._on_filter)
-        self._list = QListWidget(archive_panel)
-        self._list.setMinimumWidth(_ARCHIVE_LIST_WIDTH)
-        self._list.setStyleSheet("background-color: #12121a; color: #d8d8e0;")
-        self._list.currentRowChanged.connect(self._on_archive_activated)
+        self._table = QTableWidget(0, len(ARCHIVE_COLUMNS), archive_panel)
+        self._table.setHorizontalHeaderLabels(list(ARCHIVE_COLUMNS))
+        self._table.verticalHeader().setVisible(False)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        # 排序关掉: 行序就是 discover_archives 的"从新到旧", 行号 ↔ 归档一一对应。
+        self._table.setSortingEnabled(False)
+        self._table.setAlternatingRowColors(True)
+        self._table.setWordWrap(False)
+        self._table.setMinimumWidth(_ARCHIVE_LIST_WIDTH)
+        self._table.setStyleSheet("background-color: #12121a; color: #d8d8e0;")
+        header = self._table.horizontalHeader()
+        header.setSectionResizeMode(_COL_NAME, QHeaderView.ResizeMode.Stretch)
+        for column in (_COL_TIME, _COL_SIZE, _COL_ACTION):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.currentCellChanged.connect(self._on_current_cell_changed)
         archive_layout.addWidget(self._filter)
-        archive_layout.addWidget(self._list, 1)
+        archive_layout.addWidget(self._table, 1)
 
         # 右: 原有的 CCD/剖面 ↔ 相位  splitter。
         body = QSplitter(Qt.Orientation.Horizontal, outer)
@@ -698,7 +860,7 @@ class ArchiveReplayDialog(QDialog):
         outer.addWidget(body)
         outer.setStretchFactor(0, 0)
         outer.setStretchFactor(1, 1)
-        outer.setSizes([_ARCHIVE_LIST_WIDTH, 1040])
+        outer.setSizes([_ARCHIVE_LIST_WIDTH, 900])
         root.addWidget(outer, 1)
 
         self._meta = QLabel("", self)
@@ -712,32 +874,64 @@ class ArchiveReplayDialog(QDialog):
         root.addWidget(self._message)
 
     # ------------------------------------------------------------ 列表
-    def _item_text(self, entry: ArchiveEntry) -> str:
-        count = self._record_counts.get(entry.path)
-        suffix = f" · {count} 条记录" if count is not None else ""
-        return f"{entry.relative}\n[{entry.kind}] · {_human_size(entry.size_bytes)}{suffix}"
+    def _row_of(self, entry: ArchiveEntry) -> int:
+        """表格里 ``entry`` 所在的行号 (已归档 / 被过滤掉时为 ``-1``)。"""
+        for row, row_entry in enumerate(self._rows):
+            if row_entry.path == entry.path:
+                return row
+        return -1
+
+    def _set_row(self, row: int, entry: ArchiveEntry) -> None:
+        """填一行四列: 名称 / 时间 / 大小 / 操作 (归档按钮)。"""
+        flags = Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
+        name = QTableWidgetItem(entry.relative)
+        # 395 个归档只有两个文件名, 所以名称列必须是完整相对路径; 绝对路径进 tooltip。
+        name.setToolTip(f"{entry.path}\n[{entry.kind}]")
+        name.setData(Qt.ItemDataRole.UserRole, float(entry.mtime))
+        name.setFlags(flags)
+        self._table.setItem(row, _COL_NAME, name)
+
+        when = QTableWidgetItem(format_mtime(entry.mtime))
+        when.setData(Qt.ItemDataRole.UserRole, float(entry.mtime))
+        when.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        when.setFlags(flags)
+        self._table.setItem(row, _COL_TIME, when)
+
+        size = QTableWidgetItem(_human_size(entry.size_bytes))
+        size.setData(Qt.ItemDataRole.UserRole, int(entry.size_bytes))
+        size.setTextAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        size.setFlags(flags)
+        self._table.setItem(row, _COL_SIZE, size)
+
+        button = QPushButton("归档", self._table)
+        button.setFixedWidth(64)
+        button.setToolTip(
+            f"把 {entry.relative} 移动到 {DUMP_DIRNAME}/ 下 (保留相对路径, 只搬这个 pkl)"
+        )
+        # partial 绑 entry 而不是行号: 行会因为过滤/归档而移动, entry 不会。
+        button.clicked.connect(partial(self._on_dump_clicked, entry))
+        self._table.setCellWidget(row, _COL_ACTION, button)
+
+    def _rebuild_table(self) -> None:
+        """按 ``_archives`` (从新到旧) 重建整张表, 一行一个归档。"""
+        self._rows = list(self._archives)
+        self._table.blockSignals(True)
+        self._table.setRowCount(len(self._rows))
+        for row, entry in enumerate(self._rows):
+            self._set_row(row, entry)
+        self._table.blockSignals(False)
 
     def _update_item_text(self, entry: ArchiveEntry, count: int) -> None:
+        """加载完才知道记录数: 写进名称列的 tooltip (列宽留给路径)。"""
         self._record_counts[entry.path] = count
-        for row, visible in enumerate(self._visible):
-            if visible.path == entry.path:
-                item = self._list.item(row)
-                if item is not None:
-                    item.setText(self._item_text(entry))
-                break
-
-    def _rebuild_list(self, text: str) -> None:
-        needle = (text or "").strip().lower()
-        self._visible = [
-            entry
-            for entry in self._archives
-            if needle in entry.relative.lower() or needle in entry.kind.lower()
-        ]
-        self._list.blockSignals(True)
-        self._list.clear()
-        for entry in self._visible:
-            self._list.addItem(self._item_text(entry))
-        self._list.blockSignals(False)
+        row = self._row_of(entry)
+        if row < 0:
+            return
+        item = self._table.item(row, _COL_NAME)
+        if item is not None:
+            item.setToolTip(f"{entry.path}\n[{entry.kind}] · {count} 条记录")
 
     def _preselect_row(self, preselect: str | Path | None) -> int:
         if preselect is None:
@@ -753,23 +947,27 @@ class ArchiveReplayDialog(QDialog):
         return best if best >= 0 else 0
 
     def _populate_archives(self, preselect: str | Path | None) -> None:
-        self._header.setText(
-            f"归档根目录: {self._root}\n"
-            f"共 {len(self._archives)} 个 pkl 归档 (递归扫描, 按修改时间从新到旧) "
-            "· 只读, 不打开相机 / SLM"
-        )
-        self._rebuild_list("")
+        self._update_header()
+        self._rebuild_table()
+        self._visible = list(self._rows)
         if not self._visible:
             self._show_no_archives("")
             return
         row = self._preselect_row(preselect)
-        self._list.blockSignals(True)
-        self._list.setCurrentRow(row)
-        self._list.blockSignals(False)
-        item = self._list.item(row)
+        self._table.blockSignals(True)
+        self._table.setCurrentCell(row, _COL_NAME)
+        self._table.blockSignals(False)
+        item = self._table.item(row, _COL_NAME)
         if item is not None:
-            self._list.scrollToItem(item)
+            self._table.scrollToItem(item)
         self.select_archive(row)
+
+    def _update_header(self) -> None:
+        self._header.setText(
+            f"归档根目录: {self._root}\n"
+            f"共 {len(self._archives)} 个 pkl 归档 (递归扫描, 按修改时间从新到旧) "
+            f"· 归档按钮把 pkl 移到 {DUMP_DIRNAME}/ 下 · 只读, 不打开相机 / SLM"
+        )
 
     def apply_filter(self, text: str) -> None:
         """按 ``text`` (大小写不敏感, 匹配相对路径或口味) 过滤左侧列表。"""
@@ -779,22 +977,39 @@ class ArchiveReplayDialog(QDialog):
         self._on_filter(text)
 
     def _on_filter(self, text: str) -> None:
-        active = self._payload.entry if self._payload is not None else None
-        self._rebuild_list(text)
+        needle = (text or "").strip().lower()
+        self._table.blockSignals(True)
+        for row, entry in enumerate(self._rows):
+            hidden = bool(needle) and not (
+                needle in entry.relative.lower() or needle in entry.kind.lower()
+            )
+            self._table.setRowHidden(row, hidden)
+        self._table.blockSignals(False)
+        self._visible = [
+            entry
+            for row, entry in enumerate(self._rows)
+            if not self._table.isRowHidden(row)
+        ]
         if not self._visible:
             self._show_no_archives(text)
             return
         row = 0
+        active = self._payload.entry if self._payload is not None else None
         if active is not None:
             for index, entry in enumerate(self._visible):
                 if entry.path == active.path:
                     row = index
                     break
-        self._list.blockSignals(True)
-        self._list.setCurrentRow(row)
-        self._list.blockSignals(False)
+        self._table.blockSignals(True)
+        self._table.setCurrentCell(row, _COL_NAME)
+        self._table.blockSignals(False)
         if self._payload is None or self._payload.entry.path != self._visible[row].path:
             self.select_archive(row)
+
+    def _on_current_cell_changed(
+        self, row: int, _column: int, _prev_row: int, _prev_column: int
+    ) -> None:
+        self._on_archive_activated(row)
 
     def _on_archive_activated(self, row: int) -> None:
         """用户点选: 先把"加载中…"画出来再同步解码 (大 pkl 要几秒)。"""
@@ -811,9 +1026,80 @@ class ArchiveReplayDialog(QDialog):
         if not (0 <= row < len(self._visible)):
             return
         entry = self._visible[row]
+        # 换归档必须停自动播放: 记录条数与下标都换了。
+        self.stop_playback()
         self._active_row = row
         self._set_loading(entry)
         self._load_and_render(entry)
+
+    # ------------------------------------------------------------ 归档 (移到 dump)
+    def _confirm_dump(self, entry: ArchiveEntry) -> bool:
+        """归档确认框 (默认「否」): 单列一个函数, 测试可以整只换掉它。"""
+        dest = dump_root_for(self._root) / PurePosixPath(
+            entry.relative.replace("\\", "/")
+        )
+        answer = QMessageBox.question(
+            self,
+            "归档确认",
+            "把这个归档「移动」(不是复制、不是删除) 到回收目录?\n\n"
+            f"源文件: {entry.relative}\n"
+            f"目标: {dest}\n\n"
+            f"只移动这一个 pkl [{entry.kind} · {_human_size(entry.size_bytes)}], "
+            "同目录的兄弟 npz 留在原处; 想复原把它搬回原路径即可。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _on_dump_clicked(self, entry: ArchiveEntry) -> None:
+        """行内「归档」按钮: 确认 → :func:`archive_to_dump` → 从列表摘掉这一行。"""
+        row = self._row_of(entry)
+        if row < 0:
+            return
+        if not self._confirm_dump(entry):
+            self._message.setText(f"已取消归档: {entry.relative}")
+            return
+        try:
+            dest = archive_to_dump(entry, dump_root_for(self._root))
+        except FileExistsError as exc:
+            QMessageBox.warning(self, "归档未执行", str(exc))
+            self._message.setText(f"归档未执行 (目标已存在): {exc}")
+            return
+        except (OSError, shutil.Error, ValueError) as exc:
+            logger.warning(f"归档失败: {entry.path}: {exc}")
+            QMessageBox.warning(self, "归档失败", f"{entry.relative} 移动失败: {exc}")
+            self._message.setText(f"归档失败, 该归档仍在列表里: {exc}")
+            return
+        self._drop_archived_row(entry, row, dest)
+
+    def _drop_archived_row(self, entry: ArchiveEntry, row: int, dest: Path) -> None:
+        was_current = (
+            self._payload is not None and self._payload.entry.path == entry.path
+        )
+        self._archives = [item for item in self._archives if item.path != entry.path]
+        self._rows = [item for item in self._rows if item.path != entry.path]
+        self._visible = [item for item in self._visible if item.path != entry.path]
+        # 摘行时屏蔽信号: 否则 currentCellChanged 会把下一行当成"用户点选"重新加载。
+        self._table.blockSignals(True)
+        self._table.removeRow(row)
+        self._table.blockSignals(False)
+        self._update_header()
+        if not was_current:
+            if self._payload is not None:
+                self._active_row = self._row_of(self._payload.entry)
+            self._message.setText(f"已归档: {entry.relative} → {dest}")
+            return
+        self.stop_playback()
+        self._payload = None
+        self._sample = None
+        self._phase_full = None
+        self._active_row = -1
+        self._set_slider_range(0)
+        self._set_video_placeholder("当前归档已移入回收目录")
+        self._profiles.clear()
+        self._phase.setText("无相位预览")
+        self._meta.setText("")
+        self._message.setText(f"已归档并移出列表: {entry.relative} → {dest}")
 
     # ------------------------------------------------------------ 数据
     def _load_and_render(self, entry: ArchiveEntry) -> None:
@@ -926,11 +1212,13 @@ class ArchiveReplayDialog(QDialog):
             self._slider.setEnabled(False)
             self._prev.setEnabled(False)
             self._next.setEnabled(False)
+            self._play.setEnabled(False)
             self._position.setText("0 / 0")
             return
         self._slider.setEnabled(True)
         self._prev.setEnabled(True)
         self._next.setEnabled(True)
+        self._play.setEnabled(True)
         self._slider.setRange(0, count - 1)
 
     def set_index(self, index: int) -> None:
@@ -1083,15 +1371,84 @@ class ArchiveReplayDialog(QDialog):
     def _on_slider(self, value: int) -> None:
         if not self._record_count():
             return
+        # 手动拖动 = 接管播放。
+        self.stop_playback()
         self._index = max(0, min(self._record_count() - 1, int(value)))
         self._position.setText(self._position_text(self._index))
         self._timer.start()
 
     def _on_prev(self) -> None:
+        self.stop_playback()
         self.set_index(self._index - 1)
 
     def _on_next(self) -> None:
+        self.stop_playback()
         self.set_index(self._index + 1)
+
+    # ------------------------------------------------------------ 自动播放
+    def is_playing(self) -> bool:
+        """自动播放是否正在跑。"""
+        return self._play_timer.isActive()
+
+    def fps(self) -> float:
+        """当前 fps 设定。"""
+        return float(self._fps.value())
+
+    def set_fps(self, fps: float) -> None:
+        """设定 fps (钳到 :data:`FPS_MIN`–:data:`FPS_MAX`; 播放中下一拍生效)。"""
+        self._fps.setValue(max(FPS_MIN, min(FPS_MAX, float(fps))))
+
+    def start_playback(self) -> None:
+        """按当前 fps 起播 (没有记录时不起播, 按钮弹回)。"""
+        if not self._record_count():
+            self.stop_playback()
+            self._message.setText("当前归档没有可播放的记录")
+            return
+        self._play_timer.setInterval(fps_to_interval_ms(self._fps.value()))
+        self._play_timer.start()
+        self._refresh_play_button()
+
+    def stop_playback(self) -> None:
+        """停播并把按钮弹回「▶ 自动播放」(换归档 / 手动操作 / 关窗都走这里)。"""
+        if self._play_timer.isActive():
+            self._play_timer.stop()
+        if self._play.isChecked():
+            self._play.blockSignals(True)
+            self._play.setChecked(False)
+            self._play.blockSignals(False)
+        self._refresh_play_button()
+
+    def _refresh_play_button(self) -> None:
+        self._play.setText(_STOP_LABEL if self.is_playing() else _PLAY_LABEL)
+
+    def _on_play_toggled(self, checked: bool) -> None:
+        if checked:
+            self.start_playback()
+        else:
+            self.stop_playback()
+
+    def _on_fps_changed(self, value: float) -> None:
+        self._play_timer.setInterval(fps_to_interval_ms(value))
+
+    def _on_play_tick(self) -> None:
+        total = self._record_count()
+        if not total:
+            self.stop_playback()
+            return
+        # fps 改了就按新值走下一拍。
+        self._play_timer.setInterval(fps_to_interval_ms(self._fps.value()))
+        # 直接渲染: 走滑块防抖的话 fps 高一点就永远等不到那一拍。
+        self.set_index((self._index + 1) % total)
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # Qt 覆写点
+        self.stop_playback()
+        self._timer.stop()
+        super().closeEvent(event)
+
+    def done(self, result: int) -> None:  # Qt 覆写点
+        self.stop_playback()
+        self._timer.stop()
+        super().done(result)
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # Qt 覆写点
         super().resizeEvent(event)
