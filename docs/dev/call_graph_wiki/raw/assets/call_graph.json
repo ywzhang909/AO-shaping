@@ -2798,8 +2798,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 397,
-   "end": 662,
+   "lineno": 723,
+   "end": 789,
    "args": [
     "out_dir",
     "shapes",
