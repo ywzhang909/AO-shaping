@@ -13,6 +13,7 @@ slm/
 │   ├── errors.py                # 连接/USB 错误中文提示 (describe_santec_error / extract_error_code)
 │   ├── slm200_constants.py      # SLM-200 设备硬件常量 (像素/面板/翻转时间)
 │   ├── _slm_win.py              # SDK bindings (internal, Windows)
+│   ├── probe.py                 # 硬件探针 (驱动板/面板健康检测, 离线诊断用)
 │   └── wavefront_correction.py  # 波前误差校正 (CSV → correction map)
 ├── factory.py                 # Bench 设备工厂 (open_slm / open_camera / sync_device_wavelength)
 ├── zernike_slm.py               # Zernike 系数驱动 SLM
