@@ -232,7 +232,55 @@
 4. 先用实测数据对模型做幅度与离焦响应标定，再用它给方向和步长；在失配修正前不以模型增益作为接受依据。
 5. 对每个候选做至少两次独立重放，记录误差棒后再下结论。
 
-## 6 待补充
+## 6 问题链路示意
+
+```mermaid
+flowchart TD
+    A[光路/几何失配<br/>零级抖动 8-39 px, CCD 离焦] --> B[测量不可靠<br/>亮度漂移 86x, 噪声底 0.00295-0.0306]
+    B --> C[模型-实测脱节<br/>增益 ~100x 乐观, r2≈0.04]
+    C --> D[目标函数只匀化不成形<br/>填充率 ≤10.7%, 退化解 1 px]
+    D --> E[验收口径不闭环<br/>EE 与 PIB 重复, 无重复/误差棒]
+    E --> F[设备 IO 与采集限制<br/>SLM open -10003, 磁盘, 墙钟 gap]
+    F -.-> A
+```
+
+## 7 关键实验图
+
+### 7.1 零级双瓣诊断（Sim2f，2026-11-03）
+
+128×128 box 质心稳定（std ~0.1-0.2 px），单像素 argmax 在两个瓣间翻转，间距约 14-16 px；因此 16 px 守卫对 `effective-aligned` 与同会话 `raw` 对照是必要的。
+
+![zero_order_diagnosis_20261103](../physical_refine/figures/zero_order_diagnosis_20261103.png)
+
+### 7.2 预测增益 vs 实测增益（Sim2f 三模式）
+
+预测增益比实测高约两个数量级；每轮预测增益最大的一轮在实测中被拒绝。三模式实测增益：raw 2/3 接受（+0.004475、+0.005167；一轮 −0.005087 拒绝），effective 2/3 接受（+0.002324、+0.001160；一轮 −0.000809 拒绝），effective-aligned 0/3。
+
+![refine_measured_vs_predicted_gain_20261103](../physical_refine/figures/refine_measured_vs_predicted_gain_20261103.png)
+
+### 7.3 测量 CCD 轮次 GIF（raw16）
+
+同会话 `raw` 对照轮次的 CCD 测量序列，显示接受/拒绝轮次的光斑变化。
+
+![ccd_refine_rounds_raw16_20261103](../physical_refine/images/ccd_refine_rounds_raw16_20261103.gif)
+
+### 7.4 FourierGSNet 离线训练：损失曲线与预测-真值对比
+
+40 epoch 时损失仍单调下降（3.8014→3.3104），`best_epoch=40` 即最后一个 epoch；`uniformity_cv=1.8805`（std 超过 mean）却以高 `far_correlation`/`encircled_energy` 判“有条件通过”。
+
+![loss_curves](../../fouriergsnet_pipeline/offline_training/figures/loss_curves.png)
+
+![comparison_pred_vs_gt](../../fouriergsnet_pipeline/offline_training/figures/comparison_pred_vs_gt.png)
+
+### 7.5 FourierGSNet 仿真：方形目标帧序列（无湍流 vs 慢湍流）
+
+慢湍流下每个 square 场景的 final_uniformity 都低于无湍流（0.0519→0.0346、0.0138→0.0106、0.0191→0.0112），与报告写成“具有跟踪能力”矛盾。
+
+![square none off frames](../../fouriergsnet_sim/figures/square__none__off_frames.png)
+
+![square none slow frames](../../fouriergsnet_sim/figures/square__none__slow_frames.png)
+
+## 8 待补充
 
 - FourierGSNet 条目来自逐份通读后的摘录；源码状态（转置、EE guard、`np.kron`）只做了抽查，未在硬件上复验。
 - 摘录中标注“待核实”的长报告段落未逐行复核；引用的数字以原报告为准。
