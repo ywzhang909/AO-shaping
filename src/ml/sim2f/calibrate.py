@@ -59,6 +59,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from ao_shaping.utils.io.recorder_keys import RECORD_ID
+
 from . import measurement
 from .config import CalibrateConfig, OpticsErrors, Sim2fConfig
 from .losses import prepare_frame
@@ -253,7 +255,7 @@ def load_bench_session(
         sample_id = int(row.get("index", -1))
         if max_samples is not None and sample_id not in kept and len(kept) >= int(max_samples):
             continue
-        index = int(row["_id"])
+        index = int(row[RECORD_ID])
         phase = np.load(sidecars / f"bench_session__c_{index:04d}.npy")
         frame = np.load(sidecars / f"bench_session__img_{index:04d}.npy")
         if phase.ndim != 2 or phase.shape[0] != phase.shape[1]:

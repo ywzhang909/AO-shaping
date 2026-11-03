@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ao_shaping.utils.image.target.metrics import POLYGON_SHAPE_CHOICES
 from ao_shaping.utils.io.timestamp import format_ts
 
 if TYPE_CHECKING:
@@ -50,7 +51,7 @@ CAMERA_CHOICES: tuple[str, ...] = ("daheng", "miicam", "sim")
 
 #: 目标形状选项（顺序即下拉/勾选的显示顺序）。镜像
 #: ``utils.image.target.metrics.POLYGON_SHAPE_CHOICES``。
-SHAPE_CHOICES: tuple[str, ...] = ("square", "rectangle", "triangle", "star")
+SHAPE_CHOICES: tuple[str, ...] = POLYGON_SHAPE_CHOICES
 
 #: 形状 → 中文名。镜像 ``transfer_candidates.TRANSFER_SHAPE_LABELS``（该模块
 #: import Streamlit，桌面页不能依赖）。
