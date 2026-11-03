@@ -114,7 +114,7 @@ ROW_FIRST_SURFACES: Final[tuple[tuple[str, str], ...]] = (
     ("src/ao_shaping/utils/image/resample.py", "resample_to_grid"),
     # 目标掩膜: 方形支撑以 (cy, cx) 为中心。
     ("src/ao_shaping/utils/image/targets.py", "square_mask"),
-    # 自由相位整形: 目标图样以 (cy, cx) 为中心栅格化。
+    # 全频随机相位整形: 目标图样以 (cy, cx) 为中心栅格化。
     ("src/ao_shaping/optimizer/wfless/slm_gs_refine.py", "_rasterise_target"),
     # 数字孪生: 零级质心按 (row, col) 返回。
     ("src/ml/sim2f/bench.py", "_zero_order_centroid"),
