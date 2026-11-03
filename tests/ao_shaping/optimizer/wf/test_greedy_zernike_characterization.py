@@ -19,6 +19,8 @@ so the assertions are about observable behaviour:
 
 from __future__ import annotations
 
+import ast
+import pathlib
 from contextlib import contextmanager
 from typing import Any
 
@@ -214,3 +216,63 @@ class TestHeuristicArm:
             mod.optimizer_greedy(epochs=1, algorithm="not-an-algorithm")
 
         assert bench.sent == []
+class TestResolveInitialCoeffs:
+    """``init_z`` has three accepted spellings; all must land in one vector."""
+
+    def test_none_and_empty_sequence_become_zeros(self) -> None:
+        modes = mod._zernike_indices(2)
+        assert len(modes) == 6
+        for empty in (None, [], ()):
+            coeffs = mod._resolve_initial_coeffs(empty, n_zernike=6, zernike_modes=modes)
+            np.testing.assert_array_equal(coeffs, np.zeros(6))
+
+    def test_mode_dict_is_placed_by_index(self) -> None:
+        modes = mod._zernike_indices(2)
+        coeffs = mod._resolve_initial_coeffs({(1, 1): 3.0}, n_zernike=6, zernike_modes=modes)
+        assert coeffs[modes.index((1, 1))] == 3.0
+        assert coeffs.sum() == 3.0
+
+    def test_unknown_mode_is_ignored(self) -> None:
+        modes = mod._zernike_indices(1)
+        coeffs = mod._resolve_initial_coeffs({(9, 9): 5.0}, n_zernike=3, zernike_modes=modes)
+        np.testing.assert_array_equal(coeffs, np.zeros(3))
+
+    def test_short_sequence_is_zero_padded_and_long_is_truncated(self) -> None:
+        modes = mod._zernike_indices(2)
+        padded = mod._resolve_initial_coeffs([1.0, 2.0], n_zernike=6, zernike_modes=modes)
+        np.testing.assert_array_equal(padded, [1.0, 2.0, 0.0, 0.0, 0.0, 0.0])
+        cut = mod._resolve_initial_coeffs(list(range(10)), n_zernike=6, zernike_modes=modes)
+        np.testing.assert_array_equal(cut, list(range(6)))
+
+
+class TestFunctionShape:
+    """#205 shape guard: the greedy session must stay readable.
+
+    ``optimizer_greedy`` used to be one 326-line body that opened the devices,
+    seeded, ran two different searches and restored coefficients. The ceilings
+    below are what the split achieved; they exist so the file cannot silently
+    grow a third arm back into the orchestrator.
+    """
+
+    @staticmethod
+    def _span(name: str) -> int:
+        node = next(
+            n for n in ast.parse(pathlib.Path(mod.__file__).read_text(encoding="utf-8")).body
+            if isinstance(n, ast.FunctionDef) and n.name == name
+        )
+        return node.end_lineno - node.lineno + 1
+
+    def test_orchestrator_is_a_session_not_a_loop(self) -> None:
+        assert self._span("optimizer_greedy") <= 170
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "_run_greedy_epochs",
+            "_pick_best_initial_position",
+            "_run_heuristic_arm",
+            "_resolve_initial_coeffs",
+        ],
+    )
+    def test_helpers_stay_below_the_ceiling(self, name: str) -> None:
+        assert self._span(name) <= 120
