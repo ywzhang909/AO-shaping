@@ -115,7 +115,6 @@ def _run(monkeypatch: pytest.MonkeyPatch, **overrides: Any) -> list[dict[str, An
     gsr._run_gs_refine_session(
         _config(**overrides),
         _StubSLM(),
-        object(),
         np.random.default_rng(7),
         recorder,
     )
