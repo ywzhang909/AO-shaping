@@ -14,6 +14,16 @@
 - 自动曝光闭环 + 特征计算多帧平均。
 - `BaseCamera` 通用取流层接入 GUI 并兼容 Daheng；MiiCam callback stream 修复；Daheng 型号读取改用 `model_name`。
 
+## Windows / CUDA DLL
+- 迁移学习会话在 `fit` 段**静默退出**: 事件日志 `id=1000` 显示 `python.exe` 崩在
+  `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2\bin\x64\cublasLt64_13.dll`
+  (`0xc0000005`, 6.14.11.1340)。根因是 `import cupy` 按裸名加载 cuBLASLt, PATH 上的
+  toolkit 副本顶替了 torch 2.14.1+cu130 自带的 6.14.11.1300。修法在
+  `src/ao_shaping/_cublas_preload.py` (在 `import cupy` 之前按全路径预载 torch 那份);
+  `AO_SKIP_CUBLAS_PRELOAD` 是逃生开关。**判据**: torch 的 `cublas64_13.dll` 是**按裸名**
+  绑定 cuBLASLt 的, 所以决定崩不崩的是**先进进程的是哪一份** —— toolkit 副本先进
+  (PATH 默认如此) 则 torch 的大 matmul 必崩; 预载后进程里只剩 torch 一份。
+
 ## 文档与门禁
 - `docs/dev/module_inventory.md`、`docs/dev/report_subdir_index.md` 重钉计数与登记。
 - `scripts/_common/module_size_baseline.json` 更新。

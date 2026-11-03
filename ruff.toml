@@ -123,6 +123,12 @@ ignore = [
 "src/ao_shaping/gui/ccd/ccd_analyzer.py" = ["E402"]
 "src/ao_shaping/optimizer/wfless/bayes_opt_lr_delta.py" = ["E402"]
 
+# cuBLASLt has to be pinned to torch's own copy before `import cupy` can bind the
+# CUDA toolkit's build by bare name, so a guard call sits between the top-of-file
+# imports and the optional cupy probe (see `src/ao_shaping/_cublas_preload.py`:
+# the preload, the crash it prevents, and the measurement).
+"src/ao_shaping/utils/image/spots_calc.py" = ["E402"]
+
 # tests (104): three distinct reasons, listed narrow-to-broad.
 # optional-dependency gate -- `torch = pytest.importorskip(...)` (or gxipy) must run
 # before the imports it protects, else a missing torch becomes a collection-time

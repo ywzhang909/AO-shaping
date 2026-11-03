@@ -393,6 +393,7 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 | Standalone tools | `src/ao_shaping/tools/` | SLM phase capture, Micro-DM per-channel image collection, train data collection |
 | Visualization | `src/ao_shaping/display/` | Windows, frames for GUI 与渲染器全集: `windows.py` 窗口管理 (旧注记 `Windows` 的实现文件, 无 docstring, 头部为 ABC 基类), `frames.py`, `beam_profile.py` 远场/SLM 相位/XY 截面渲染器 (单一实现) |
 | GUI | `src/ao_shaping/gui/{r50,dm,slm,zernike,ccd}/` | Streamlit components, 按设备域分包 (见上方目录树) |
+| **Windows: torch + CuPy 混用导致进程静默退出** | `src/ao_shaping/_cublas_preload.py` | `import cupy` 按**裸名**加载 `cublasLt64_13.dll`, PATH 上的 CUDA toolkit 副本 (6.14.11.1340) 会抢在 torch 自带副本 (6.14.11.1300) 前面; torch 的 `cublas64_13.dll` 于是调进它没编译过的 cuBLASLt → 首次大 matmul `0xc0000005`, 无 traceback、无 atexit 落盘 (2026-11-03 transfer fit 即此)。修法: 在 `utils/image/spots_calc.py` 与 `drivers/sim/_oopao_compat.py` 于 `import cupy` **之前**按全路径预载 torch 那份 (≈50 ms、幂等、无 torch/无驱动时空转); 崩溃证据、代价与 CuPy 交叉验证见模块 docstring |
 | Tests | `tests/ao_shaping/` | Mirror of src structure |
 
 ---

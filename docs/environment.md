@@ -105,6 +105,7 @@ Python 之前设好, import 之后再 `os.environ[...]` 赋值不会生效。`te
 | `RMS_ZERNIKE_WEIGHTS` | `src/ao_shaping/optimizer/wf/rms_by_zernike.py` | `(n+1)/n_max` | 逗号分隔的逐阶扰动权重; 解析失败会记 warning 并保留默认值 |
 | `NUMBA_CACHE_DIR` | `src/ao_shaping/__init__.py` 与 `src/ao_shaping/utils/numba_compat.py` (import 期) | 未设或非绝对路径 ⇒ `<tempdir>/ao_shaping_numba_cache` | numba JIT 缓存目录: 把 `@njit(cache=True)` 的 `.nbi`/`.nbc` 挪出 `src/`, 既守住「import 不落盘」契约也让只读挂载可用; 用户显式设**绝对路径**时不覆盖 |
 | `QT_QPA_PLATFORM` | `scripts/slm/capture_transfer_desktop_screens.py` (PySide6 import 前) | `offscreen` (setdefault) | 无显示环境 (CI / 无桌面会话) 下走离屏后端; Windows 离屏字体库为空, 需显式装字体 |
+| `AO_SKIP_CUBLAS_PRELOAD` | `src/ao_shaping/_cublas_preload.py` (`import cupy` 之前, 经 `utils/image/spots_calc.py` 与 `drivers/sim/_oopao_compat.py`) | 未设 ⇒ 照常预载 | 置任意非空值即跳过「把 cuBLASLt 钉到 torch 自带副本」的预载; 只在排查 Windows torch/CuPy CUDA 冲突或量 import 成本时用 — 关掉后两者混用会 `0xc0000005` 静默退出 |
 
 平台自带变量 (`COMPUTERNAME`, `USERPROFILE`, `XDG_DATA_HOME`) 也被驱动用来定位配置落盘位置,
 但它们由操作系统提供而非本仓定义, 因此不列入上表, 并在该守卫里被显式豁免。

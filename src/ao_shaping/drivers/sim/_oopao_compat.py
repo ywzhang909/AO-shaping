@@ -30,6 +30,19 @@ from typing import Any
 
 import numpy as np
 
+# Pin cuBLASLt to torch's own copy **before** OOPAO can hand this process a CuPy
+# CUDA runtime: CuPy loads ``cublasLt64_13.dll`` by bare name, so on a bench with a
+# CUDA toolkit on ``PATH`` it binds the toolkit's build, and torch's
+# ``cublas64_13.dll`` then calls a cuBLASLt it was not built against -- an access
+# violation (0xc0000005) on the first large matmul, with no traceback. That killed
+# the 2026-11-03 transfer fit (``data/debug/slm_transfer/20261103_213400``).
+# ``utils/image/spots_calc.py`` carries the same call for the other CuPy entry
+# point; both are no-ops once the DLL is loaded, and on a torch-free or driver-free
+# bench. Rationale and measurements: ``ao_shaping._cublas_preload``.
+from ao_shaping._cublas_preload import preload_torch_cublaslt
+
+preload_torch_cublaslt()
+
 # =====================================================================
 # 数组后端互转 (NumPy ↔ CuPy)
 #
