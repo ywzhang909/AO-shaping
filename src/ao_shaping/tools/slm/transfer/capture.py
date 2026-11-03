@@ -40,6 +40,7 @@ import numpy as np
 from scipy.ndimage import gaussian_filter
 
 from .light_guard import LightGuard, OpticalPathInvalid, verify_light
+from .live_frame import _resolve_observer, frame_payload, notify_frame
 
 #: Exposure search for one probe: one exact correction + one verification read.
 #: The old loop allowed 12 multiplicative steps under a (0.15, 6.0) clamp; a cold
@@ -122,8 +123,13 @@ def probes(size: int, count: int, seed: int, periods=(64, 128)):
     yield "reference_end", "calibration", zero
 
 
-def capture(args):
+def capture(args, *, on_frame=None):
     """Measure the probe plan; return ``{manifest file name: fit payload}``.
+
+    ``on_frame(payload)`` is an optional live observer. Every CCD read in this
+    stage -- the light check, each exposure-ladder rung, and every probe frame --
+    delivers one frame through it (see :func:`.live_frame.frame_payload`). It is
+    best-effort: a raising observer is logged, never propagated.
 
     The returned mapping is what ``fit.load_dataset(samples=...)`` consumes, so
     the fit stage never needs the npz files. Payload keys are exactly the ones
@@ -144,6 +150,7 @@ def capture(args):
     from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
 
     save_dataset = bool(getattr(args, "save_dataset", False))
+    observer = _resolve_observer(args, on_frame)
     exposure_steps = int(getattr(args, "exposure_max_steps", EXPOSURE_MAX_STEPS))
     if exposure_steps < 2:
         raise ValueError("exposure_max_steps must be >= 2")
@@ -166,10 +173,20 @@ def capture(args):
                     ceiling = min(ceiling, limit)
                 exposure = max(floor, .02)
 
+                # 实时画面: read() 是这一段的唯一取图漏斗 —— 光路检查、曝光阶梯
+                # (probe_read) 与探针取帧都从它取图, 所以一处挂钩覆盖三处。
+                # 标签随探针更新; 帧序号在整段里单调, 便于对照 manifest。
+                live_label = [f"光路检查 · {args.out.name}"]
+                live_seen = [0]
+
                 def read():
                     raw = np.asarray(cam.get_numpy_image(n_sample=1, skip_first=False))
                     if raw.ndim != 2:
                         raise ValueError(f"Expected a monochrome 2D camera frame, got {raw.shape}")
+                    live_seen[0] += 1
+                    notify_frame(observer, frame_payload(
+                        frame=raw, label=live_label[0], phase="capture",
+                        frame_index=live_seen[0]))
                     return raw
 
                 # 便宜的光路检查, 在探针族之前: 2026-10-28 光路失效那次, 单条探针
@@ -188,6 +205,7 @@ def capture(args):
                     json.dumps({**light, **clock()}, default=str, indent=2), encoding="utf-8")
 
                 for label, split, grid in probes(args.grid, args.count, args.seed, getattr(args, "ramp_periods", (64, 128))):
+                    live_label[0] = f"探针 {label}"
                     # The parallel-fit worker (or an operator) may ask capture to
                     # stop early; honour it before taking the next probe.
                     if (args.out / "stop_acquisition.request").is_file():
@@ -267,7 +285,7 @@ def capture(args):
     return samples
 
 
-def precheck_light(*, camera: str, cam_id: int, label: str = "启动前光路检查") -> dict:
+def precheck_light(*, camera: str, cam_id: int, label: str = "启动前光路检查", on_frame=None) -> dict:
     """开一次相机, 读少数几帧, 回答「这一路现在有没有光」。
 
     只给**跳过采集**的启动路径用 (``--model-dir`` 复用一份已拟合的模型)。正常
@@ -303,8 +321,13 @@ def precheck_light(*, camera: str, cam_id: int, label: str = "启动前光路检
         limit = configured_daheng_exposure_limit() if camera == "daheng" else 0
         if limit > 0:
             ceiling = min(ceiling, limit)
+        def read():
+            raw = np.asarray(cam.get_numpy_image(n_sample=1, skip_first=False))
+            notify_frame(on_frame, frame_payload(frame=raw, label=label, phase="capture"))
+            return raw
+
         return verify_light(
-            lambda: np.asarray(cam.get_numpy_image(n_sample=1, skip_first=False)),
+            read,
             exposure_setter(cam), floor_ms=floor, ceiling_ms=ceiling, label=label)
 
 

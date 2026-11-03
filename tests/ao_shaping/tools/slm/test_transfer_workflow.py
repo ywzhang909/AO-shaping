@@ -838,8 +838,10 @@ def test_run_session_hands_capture_samples_to_the_fit(tmp_path, monkeypatch):
                                        raw_frames=np.zeros((2, 8, 8), np.uint8))}
     seen = {}
 
-    def fake_capture(args):
+    def fake_capture(args, *, on_frame=None):
         seen["capture"] = args
+        # 逐帧观察者以关键字传入 (config.json 是 {**vars(args)}, 观察者不进那里)。
+        seen["capture_on_frame"] = on_frame
         rows = [dict(label="reference_start", file="sample_0000.npz", split="calibration",
                      exposure_ms=1., peak=10., spot_xy=[4., 4.],
                      exposure_setting=dict(status="ok"))]
@@ -876,6 +878,21 @@ def test_run_session_hands_capture_samples_to_the_fit(tmp_path, monkeypatch):
     assert plan["resolved"]["acceptance"] == "model_only"
     assert "A-B-B-A acceptance skipped" in plan["note"].replace("\u2013", "-")
     assert "direction_check" not in plan["stages"]
+
+    # 逐帧观察者要走到每一个开相机的阶段。两种调用形状都在用: capture 收关键字,
+    # validate 收 namespace 上的字段 (validate._resolve_observer 归一两者)。
+    frames: list[dict] = []
+
+    def marker(payload):
+        frames.append(payload)
+
+    seen.clear()
+    workflow.run_session(session("observed", abba=False), on_frame=marker)
+    assert seen["capture_on_frame"] is marker
+    assert seen["validate"] and all(
+        getattr(args, "on_frame", None) is marker for args in seen["validate"])
+    # 假的 capture/validate 不发帧, 所以上面断言的是「转发到」而不是「被调用」。
+    assert frames == []
 
 
 # ---------------------------------------------------------------------------
@@ -924,7 +941,7 @@ def test_the_session_records_the_resolved_device(tmp_path, monkeypatch):
                                        raw_frames=np.zeros((2, 8, 8), np.uint8))}
     seen = {}
 
-    def fake_capture(args):
+    def fake_capture(args, *, on_frame=None):
         args.out.mkdir(parents=True, exist_ok=True)
         (args.out/"manifest.json").write_text(json.dumps([dict(
             label="reference_start", file="sample_0000.npz", split="calibration",

@@ -1,9 +1,11 @@
-"""每块一次的 live ``on_frame`` 回调契约 (后端 → GUI 的唯一数据通道)。
+"""逐帧的 live ``on_frame`` 回调契约 (后端 → GUI 的唯一数据通道)。
 
-钉住四件事:
+钉住五件事:
 
 * ``block_frame_payload`` 产生 plain-data 负载 (ndarray + int), 不含 Qt 对象;
-* ``emit_block_frame`` 每个块只发一次, 取的是该块采集的**最后一帧**;
+* ``frame_payload`` 是逐帧负载: 拷贝、纯 int、不算剖面;
+* ``emit_block_frame`` 每块发一次, 额外带上该块的优化器进度;
+* **每一次 CCD 读出都发一帧** —— 取图循环内与曝光阶梯内各有一个 emit;
 * 没有观察者 / 没有采集行时完全不发 (不构造负载、不开文件);
 * 观察者抛异常不会让会话失败 (与 ``workflow._notify`` 的 on_stage 同一策略)。
 """
@@ -114,3 +116,80 @@ def test_run_resolves_observer_from_args_when_not_passed():
     assert validate._resolve_observer(SimpleNamespace(), marker) is marker
     other = object()
     assert validate._resolve_observer(SimpleNamespace(on_frame=marker), other) is other
+
+
+# ---------------------------------------------------------------------------
+# 逐帧刷新 (2026-11-03): 每一次 CCD 读出都发一帧, 不再是每块一张快照
+# ---------------------------------------------------------------------------
+
+
+def test_frame_payload_is_a_copied_plain_dict_without_profiles():
+    """逐帧负载: 拷贝 (相机缓冲区会复用)、纯 int、不算剖面。
+
+    ``profile_x`` / ``profile_y`` 在整幅帧上是 8.7 ms, 而 ``LiveView`` 从图像自己
+    重算 —— 逐帧发帧时这笔开销不再值得。
+    """
+    from ao_shaping.tools.slm.transfer.live_frame import frame_payload
+
+    raw = np.arange(12, dtype=np.uint16).reshape(3, 4)
+    payload = frame_payload(frame=raw, label="探针 12", phase="capture",
+                            frame_index=2, frames_total=3)
+    raw[:] = 0  # 相机复用缓冲区
+    assert payload["frame"].max() == 11
+    assert payload["label"] == "探针 12"
+    assert payload["phase"] == "capture"
+    assert (payload["frame_index"], payload["frames_total"]) == (2, 3)
+    assert "profile_x" not in payload and "profile_y" not in payload
+
+    # 3 通道取第一通道; 真正的多维输入要报错而不是悄悄拍平。
+    assert frame_payload(frame=np.zeros((2, 3, 3), np.uint8))["frame"].shape == (2, 3)
+    with pytest.raises(ValueError):
+        frame_payload(frame=np.zeros((2, 3, 4, 5), np.uint8))
+
+
+def _loop_body(source: str, header: str) -> list[str]:
+    """``source`` 里以 ``header`` 开头那个块的循环体 (按缩进判断块边界)。"""
+    start = source.index(header)
+    lines = source[start:].splitlines()[1:]
+    body: list[str] = []
+    indent = None
+    for line in lines:
+        if not line.strip():
+            continue
+        current = len(line) - len(line.lstrip())
+        if indent is None:
+            indent = current
+        elif current < indent:
+            break
+        body.append(line)
+    return body
+
+
+def test_validate_emits_a_frame_inside_the_per_frame_read_loop():
+    """取图循环里的每一次读出都要发帧 —— 这是本次改动的全部要点。
+
+    用源码级的钉子而不是跑一遍设备: ``run`` 需要真相机/真 SLM, 而这里要钉的是
+    「emit 在循环体内、不在循环后」这个结构性质。
+    """
+    import inspect
+
+    source = inspect.getsource(validate.run)
+    body = _loop_body(source, "for index in range(args.frames):")
+    assert any("notify_frame(observer, frame_payload(" in line for line in body), body
+    assert any('phase="validate"' in line for line in body)
+
+    # 曝光阶梯的每一档也是一次读出, 同样逐帧上屏。
+    assert 'phase="exposure"' in source
+
+
+def test_capture_emits_a_frame_from_its_single_read_funnel():
+    """``capture.read()`` 是采集段唯一的取图漏斗: 光路检查/阶梯/探针都走它。"""
+    import inspect
+
+    from ao_shaping.tools.slm.transfer import capture as capture_mod
+
+    source = inspect.getsource(capture_mod.capture)
+    body = _loop_body(source, "def read():")
+    assert any("notify_frame(observer, frame_payload(" in line for line in body), body
+    # 标签必须在光路检查之前就位, 否则那些帧会带着上一段的标签上屏。
+    assert source.index("live_label") < source.index("verify_light(")

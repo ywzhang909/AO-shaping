@@ -4,7 +4,8 @@
 
 * ``_SessionTask._on_frame`` 只 ``emit``, 不碰控件 (QRunnable 不是 QObject);
 * ``frame`` 信号经事件队列排队到 ``LiveView.apply_payload``, 跨线程不直接改 UI;
-* 一帧上屏会同时更新 CCD 图、剖面、块进度条与「距下次刷新还剩 N iter」;
+* 一帧上屏会同时更新 CCD 图、剖面、块进度条与帧计数条;
+* 大靶面先降采样再归一化 (``display_preview``), 小图原样分析;
 * ⑤ 阶段进度面板仍然存在 (实时画面是新增列, 不是替换);
 * 开跑前清空实时画面, 避免上一场会话的残帧。
 """
@@ -23,7 +24,13 @@ from PySide6.QtCore import QCoreApplication
 from PySide6.QtWidgets import QApplication
 
 from ao_shaping.gui.slm.transfer_desktop import page as page_mod
-from ao_shaping.gui.slm.transfer_desktop.live_view import LiveView, display_frame
+from ao_shaping.gui.slm.transfer_desktop.live_view import (
+    PREVIEW_STEP,
+    LiveView,
+    display_frame,
+    display_preview,
+    preview_step,
+)
 
 
 @pytest.fixture(scope="module")
@@ -59,7 +66,9 @@ def _payload(**overrides) -> dict:
         blocks_total=4,
         iteration=12,
         iterations_total=12,
-        remaining=12,
+        frame_index=2,
+        frames_total=3,
+        phase="validate",
         label="验收采集",
     )
     payload.update(overrides)
@@ -95,8 +104,10 @@ def test_apply_payload_updates_frame_profiles_and_both_bars(app: QApplication):
     assert (view._block_bar.value(), view._block_bar.maximum()) == (2, 4)
     assert "2 / 4" in view._block_label.text()
     assert "triangle" in view._block_label.text()
-    assert (view._remaining_bar.value(), view._remaining_bar.maximum()) == (12, 12)
-    assert "距下次刷新还剩 12 iter" in view._info.text()
+    assert (view._remaining_bar.value(), view._remaining_bar.maximum()) == (2, 3)
+    # 第二根条不再是「距下次刷新还剩 N iter」: 刷新本来就是逐帧的。
+    assert "帧 2/3" in view._info.text()
+    assert "块内 iter 12/12" in view._info.text()
     view.close()
 
 
@@ -109,12 +120,48 @@ def test_bad_or_empty_payloads_do_not_touch_the_view(app: QApplication):
     view.close()
 
 
-def test_last_block_reports_zero_remaining(app: QApplication):
+def test_capture_phase_has_no_block_progress_but_counts_frames(app: QApplication):
+    """采集段没有块: 第一根条标阶段名, 第二根条数这一次采集的第几帧。
+
+    ``frame_index`` 是整段单调的帧号, 所以 ``frames_total`` 未知时 (曝光阶梯的档数
+    到读完才知道) 只显示「第 N 帧」而不是一个假的比例。
+    """
     view = LiveView()
-    view.apply_payload(_payload(block_index=4, remaining=0))
-    assert view._remaining_bar.value() == 0
-    assert "距下次刷新还剩 0 iter" in view._info.text()
+    view.apply_payload(
+        _payload(phase="capture", blocks_total=0, block_index=0, shape="",
+                 frames_total=0, frame_index=2, label="探针 12/34")
+    )
+    assert view._block_bar.maximum() == 1
+    assert "采集段" in view._block_bar.format()
+    assert "采集" in view._block_label.text()
+    assert view._remaining_bar.format() == "第 2 帧"
+    assert "第 2 帧" in view._info.text()
+    assert "探针 12/34" in view._info.text()
     view.close()
+
+
+def test_display_preview_decimates_only_large_sensor_frames():
+    """大靶面按 ``PREVIEW_STEP`` 抽稀; 仿真/测试的小图必须原样分析。
+
+    降采样是显示端的成本取舍: 2592x1944 一帧的归一化 + 分析是 ~220-337 ms,
+    抽稀 4 倍后只要 ~16 ms。小图不降采样, 否则 8x10 会变成 2x3, 连剖面都画不出来。
+    """
+    big = np.zeros((1944, 2592), dtype=np.uint8)
+    big[900:1000, 1200:1300] = 200
+    shown, step = display_preview(big)
+    assert step == PREVIEW_STEP
+    assert shown.shape == (1944 // PREVIEW_STEP, 2592 // PREVIEW_STEP)
+    assert shown.dtype == np.uint8
+    # 归一化按峰值缩放到 255.0, ``astype(uint8)`` 截断会掉到 254 (浮点 200*1.275).
+    assert shown.max() >= 254
+
+    shown, step = display_preview(np.zeros((40, 48), dtype=np.uint8))
+    assert step == 1
+    assert shown.shape == (40, 48)
+
+    # 3 通道与小图一样: 先降到 2-D 再判定。
+    assert preview_step((1944, 2592, 3)) == PREVIEW_STEP
+    assert preview_step((10,)) == 1
 
 
 def test_page_exposes_live_view_and_keeps_the_progress_panel(page):

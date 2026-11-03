@@ -16,7 +16,6 @@ import argparse
 import json
 import pickle
 import time
-from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -26,6 +25,19 @@ import numpy as np
 from ao_shaping.tools.slm.transfer.capture import clock, to_panel
 from ao_shaping.tools.slm.transfer.device import DEVICE_CHOICES, resolve_device
 from ao_shaping.tools.slm.transfer.light_guard import LightGuard, OpticalPathInvalid
+# 实时帧的缓存/负载/emit 住在 .live_frame (Qt-free, 测量线程可调); 这里按旧名字
+# 全部再导出 —— 内部调用点、既有测试与 scripts/ 都用这一批名字。
+from ao_shaping.tools.slm.transfer.live_frame import (
+    _CAPTURE_FRAMES,  # noqa: F401 - 测试夹具直接清空这个缓存
+    _CAPTURE_FRAMES_MAX,  # noqa: F401 - 同上, 只作公开名字再导出
+    _resolve_observer,
+    block_frame_payload,  # noqa: F401 - scripts/slm/capture_transfer_desktop_screens.py
+    capture_frames,
+    emit_block_frame,
+    frame_payload,
+    notify_frame,
+    remember_capture,
+)
 from ao_shaping.tools.slm.transfer.radiometry import count_rate
 
 
@@ -43,7 +55,6 @@ from ao_shaping.tools.slm.transfer.session_plan import (
     _frozen_groups, model_only_decision, session_plan, skips_shape,
 )
 from ao_shaping.utils.image.target import TRANSFER_SHAPE_CHOICES
-from types import SimpleNamespace
 
 
 def replay_seed(directory, shape, xy, target):
@@ -53,42 +64,6 @@ def replay_seed(directory, shape, xy, target):
         if not np.array_equal(saved["camera_xy"], xy) or not np.array_equal(saved["target"], target):
             raise ValueError("replay grid/target differs from current fixed geometry")
         return saved["model_phase"].copy()
-
-
-
-#: Captures whose raw frames are still in memory, newest last.
-#:
-#: ``capture`` builds ``raw`` and writes it to the npz; the anchored path then
-#: re-opened that same file to take its mean (~145 ms per 46 MB capture here,
-#: measured 2026-10-29). Keeping the array for the few blocks that still need it
-#: removes a disk round trip without changing what is written or what any later
-#: consumer reads -- the file remains the record of the measurement.
-_CAPTURE_FRAMES: "OrderedDict[str, np.ndarray]" = OrderedDict()
-#: Four covers the live needs (an anchored block reads back only its own A1;
-#: the paired direction probe reads the three captures it just took) and holds
-#: ~120 MB of uint16 frames rather than a session's worth.
-_CAPTURE_FRAMES_MAX = 4
-
-
-def remember_capture(file_name: str, raw: np.ndarray) -> None:
-    """Keep one capture's raw frames available to :func:`capture_frames`."""
-    _CAPTURE_FRAMES[file_name] = raw
-    _CAPTURE_FRAMES.move_to_end(file_name)
-    while len(_CAPTURE_FRAMES) > _CAPTURE_FRAMES_MAX:
-        _CAPTURE_FRAMES.popitem(last=False)
-
-
-def capture_frames(directory: Path, file_name: str) -> np.ndarray:
-    """Raw frames of a capture: from memory when this process still has them.
-
-    Falls back to the npz so a resumed run (a fresh process) still reads the
-    measurement it did not take.
-    """
-    cached = _CAPTURE_FRAMES.get(file_name)
-    if cached is not None:
-        return cached
-    with np.load(Path(directory) / file_name) as payload:
-        return payload["raw_frames"]
 
 
 class _CaptureWriter:
@@ -130,125 +105,20 @@ def _milliseconds(**segments: float) -> dict:
     return {name: round(float(value) * 1e3, 1) for name, value in segments.items()}
 
 
-def block_frame_payload(
-    *,
-    frame,
-    shape: str,
-    block: int,
-    block_index: int,
-    blocks_total: int,
-    iteration: int,
-    iterations_total: int,
-    remaining: int,
-    xy=None,
-    label: str = "",
-) -> dict:
-    """Plain-data payload for one live refresh (one per anchored block).
-
-    ``frame`` is the **last** raw frame of the block's anchored capture, copied so
-    a later capture (which reuses buffers) cannot mutate what the GUI holds.
-    ``xy`` and the two mean profiles are enough to draw X/Y cross-sections; the
-    GUI may instead re-analyse ``frame`` with ``beam_quality.analyzer`` -- no
-    Qt object crosses this boundary. All progress fields are plain ints.
-
-    ``remaining`` counts optimizer iterations until the *next* refresh (the next
-    block's last frame): one full block of iterations, or 0 after the last block.
-    """
-    raw = np.asarray(frame)
-    if raw.ndim == 3:
-        raw = raw[..., 0]
-    if raw.ndim != 2:
-        raise ValueError(f"live frame must be 2-D, got shape {raw.shape}")
-    raw = raw.copy()
-    return dict(
-        frame=raw,
-        xy=None if xy is None else np.array(xy, copy=True),
-        profile_x=raw.mean(axis=0),
-        profile_y=raw.mean(axis=1),
-        shape=str(shape),
-        block=int(block),
-        block_index=int(block_index),
-        blocks_total=int(blocks_total),
-        iteration=int(iteration),
-        iterations_total=int(iterations_total),
-        remaining=int(remaining),
-        label=str(label),
-    )
-
-
-def notify_frame(on_frame, payload: dict) -> None:
-    """Best-effort live observer, mirroring ``workflow._notify`` for stages.
-
-    A raising GUI hook must never abort a measured session: the journal and the
-    captures remain the source of truth, the exception is only logged.
-    """
-    if on_frame is None:
-        return
-    try:
-        on_frame(payload)
-    except Exception as exc:  # a UI hook must never abort a measured session
-        logger.warning("transfer live frame hook failed: {}", exc)
-
-
-def emit_block_frame(
-    on_frame,
-    *,
-    directory: Path,
-    capture_row: dict | None,
-    shape: str,
-    block: int,
-    block_index: int,
-    blocks_total: int,
-    iteration: int,
-    iterations_total: int,
-    remaining: int,
-    xy=None,
-) -> None:
-    """Build and deliver one block's last-frame payload. Never raises.
-
-    Pulled out of the optimizer loop so the per-iteration path stays untouched:
-    this runs exactly once per block, after the block's acceptance / anchor
-    capture, and only when an observer was supplied.
-    """
-    if on_frame is None or capture_row is None:
-        return
-    try:
-        raw = capture_frames(directory, capture_row["file"])
-        payload = block_frame_payload(
-            frame=raw[-1],
-            xy=xy,
-            shape=shape,
-            block=block,
-            block_index=block_index,
-            blocks_total=blocks_total,
-            iteration=iteration,
-            iterations_total=iterations_total,
-            remaining=remaining,
-            label=str(capture_row.get("label", "")),
-        )
-    except Exception as exc:
-        logger.warning("transfer live frame unavailable ({}): {}", capture_row.get("label", "?"), exc)
-        return
-    notify_frame(on_frame, payload)
-
-
-def _resolve_observer(args, on_frame):
-    """Explicit keyword wins; otherwise honour ``args.on_frame`` if present.
-
-    Two call shapes exist (a direct ``run(args, on_frame=...)`` and a forwarded
-    ``SimpleNamespace``), so both must reach the same observer.
-    """
-    return on_frame if on_frame is not None else getattr(args, "on_frame", None)
-
+# 实时帧的 payload 构造 / emit / observer 解析已移到 .live_frame:
+# block_frame_payload / notify_frame / emit_block_frame / _resolve_observer,
+# 并从那里再导出 —— 内部调用点与既有测试用的是同一批名字。
 
 def run(args, *, on_frame=None):
     """Run the CCD blocks.
 
-    ``on_frame(payload)`` is an optional live observer, called once per block
-    with that block's last raw CCD frame and integer progress. The CLI / offline
-    path leaves it at ``None`` and is byte-for-byte unchanged. ``workflow`` also
-    passes it on the ``args`` namespace so callers that build a SimpleNamespace
-    need no new call signature.
+    ``on_frame(payload)`` is an optional live observer. It fires **on every CCD
+    read** -- each frame of every anchored capture and every rung of an exposure
+    ladder -- with that frame plus whatever progress is known; see
+    :func:`~ao_shaping.tools.slm.transfer.live_frame.frame_payload`. The CLI /
+    offline path leaves it at ``None`` and is byte-for-byte unchanged.
+    ``workflow`` also passes it on the ``args`` namespace so callers that build a
+    SimpleNamespace need no new call signature.
     """
     observer = _resolve_observer(args, on_frame)
     if getattr(args, "plan_only", False):
@@ -462,11 +332,16 @@ def run(args, *, on_frame=None):
                 time.sleep(.6)
                 settled = time.perf_counter()
                 frames, stamps = [], []
-                for _ in range(args.frames):
+                for index in range(args.frames):
                     stamp = clock()
                     frame = np.asarray(cam.get_numpy_image(n_sample=1, skip_first=False))
                     frames.append(frame.copy())
                     stamps.append(dict(**stamp, end_monotonic_ns=time.monotonic_ns(), exposure_ms=float(get_camera_exposure_ms(cam))))
+                    # 逐帧上屏: 每一次 CCD 读出都刷新一次, 不再是每块一张快照。
+                    # 观察者是 best-effort 的, 抛异常只会记 warning (notify_frame)。
+                    notify_frame(observer, frame_payload(
+                        frame=frame, label=label, phase="validate",
+                        frame_index=index + 1, frames_total=args.frames))
                 raw = np.stack(frames)
                 read_done = time.perf_counter()
                 image = raw.mean(0)
@@ -528,9 +403,16 @@ def run(args, *, on_frame=None):
                     np.save(args.out/f"{label}_exposure_phase.npy", phase)
 
                     def read_exposure(_frames=exposure_reads, _stamps=exposure_stamps):
-                        _stamps.append(dict(**clock(), exposure_ms=float(get_camera_exposure_ms(cam))))
+                        exposure_ms = float(get_camera_exposure_ms(cam))
+                        _stamps.append(dict(**clock(), exposure_ms=exposure_ms))
                         raw = np.asarray(cam.get_numpy_image(n_sample=1, skip_first=False)).copy()
                         _frames.append(raw)
+                        # 曝光阶梯的每一档都是一次 CCD 读出, 所以也逐帧上屏: 一次
+                        # 阶梯 12 档 ≈ 48 s, 以前这 48 s 在 ⑥ 里完全看不见。标签带
+                        # 上曝光值, 否则逐帧归一化的亮度起伏会被读成波前在变。
+                        notify_frame(observer, frame_payload(
+                            frame=raw, label=f"{label} · 曝光 {exposure_ms:.3f} ms",
+                            phase="exposure", frame_index=len(_frames)))
                         np.save(args.out/f"{label}_exposure_read_{len(_frames):03d}.npy", raw)
                         (args.out/f"{label}_exposure_reads.json").write_text(json.dumps(_stamps, indent=2), encoding="utf-8")
                         if getattr(args, "meter_target", False):
@@ -749,9 +631,9 @@ def run(args, *, on_frame=None):
                         summary_entries.append(entry)
                         save_summary()
                         print(json.dumps(entry), flush=True)
-                        # Live refresh: exactly once per block, with this block's
-                        # last captured frame. The next refresh is the next block's
-                        # last frame, i.e. one block of optimizer iterations away.
+                        # 块级收尾: 逐帧刷新已经在每一次 CCD 读出时发过同一张图,
+                        # 这一条额外带上块的优化器进度 (块号 / iter), 那是一次孤立
+                        # 的取图读不出来的信息。
                         emit_block_frame(
                             observer,
                             directory=args.out,

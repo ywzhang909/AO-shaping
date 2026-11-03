@@ -17,18 +17,23 @@ from pathlib import Path
 import numpy as np
 
 from ao_shaping.tools.slm.transfer.capture import clock, to_panel
+from ao_shaping.tools.slm.transfer.live_frame import (
+    _resolve_observer, frame_payload, notify_frame,
+)
 from ao_shaping.utils.image.target import POLYGON_SHAPE_CHOICES
 
 FRACTIONS = (1.0, 0.25, 1.0, 0.5, 1.0, 0.125, 1.0, 0.5, 0.25, 0.125, 1.0)
 
 
-def capture(args):
+def capture(args, *, on_frame=None):
     from .hardware import prepare_camera_sdk
     prepare_camera_sdk(args.camera)
     from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_ms, get_camera_exposure_range
     from ao_shaping.drivers.slm.santec import Santec
     from ao_shaping.tools.slm.panel.focus_probe import adapt_exposure
     from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
+
+    observer = _resolve_observer(args, on_frame)
 
     manifest = json.loads((args.source / "manifest.json").read_text())
     record = next(r for r in manifest if r["label"] == f"{args.shape}_final")
@@ -74,12 +79,17 @@ def capture(args):
                     time.sleep(0.6)
                     reads, stamps = [], []
 
-                    def read_probe(_reads=reads, _stamps=stamps):
+                    def read_probe(_reads=reads, _stamps=stamps, _phase=phase_name):
                         start = clock()
                         frame = np.asarray(
                             cam.get_numpy_image(n_sample=1, skip_first=False)
                         ).copy()
                         _reads.append(frame)
+                        # 标定采集同样逐帧上屏; 这里是 adapt_exposure 的取图漏斗,
+                        # 一次 12 档阶梯就是 12 次读出。
+                        notify_frame(observer, frame_payload(
+                            frame=frame, label=f"{_phase} · 曝光标定",
+                            phase="exposure", frame_index=len(_reads)))
                         _stamps.append(
                             dict(
                                 **start,

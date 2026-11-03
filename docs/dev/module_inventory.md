@@ -335,6 +335,7 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 | `slm/transfer/` | `local_response.py` | 由已记录 signed CCD 相位探针标定局部 Jacobian 增益/模糊 |
 | `slm/transfer/` | `jacobian_guard.py` | 逐块 Jacobian 方向校验与它驱动的信任域收缩 (免设备): 用每个 CCD 校验块本来就采的 `A1`/`B` 两端差分, 拿模型预测差与实测差的**相关性**判方向是否可信, 不可信就收缩信任域 |
 | `slm/transfer/` | `light_guard.py` | 光路无光的早判与专用退出码: `OpticalPathInvalid` (`exit_code = 3`) + 曝光阶梯内的 `on_step` 守卫 (`LightGuard`, 峰值停在噪声底即中止) + 启动前 `verify_light`; 判据是「峰值 vs 该帧自己的噪声底」, 与探针的 `weak_path` 分工 (后者管「能测出来但已衰减」) |
+| `slm/transfer/` | `live_frame.py` | 逐帧实时画面的后端一半 (Qt-free, 可被测量线程调用): 每次 `get_numpy_image` 都构造一条 `frame_payload` (拷贝帧 + 纯 int 进度, **不算剖面** —— 整幅两个 mean 是 8.7 ms 而 GUI 从图像自己重算), `notify_frame` 是 best-effort 发送 (观察者抛异常只记 warning), 另含块级 `block_frame_payload`/`emit_block_frame` 与 `_CAPTURE_FRAMES` 内存缓存; 由 `validate.py` 拆分过模块规模门禁并按旧路径重导入 |
 | `slm/transfer/` | `parallel_fit.py` | 拟合并行监视进程 (不碰设备): capture 独占 SLM, 本进程流式写 `loss_trace.jsonl` / `parallel_fit_provenance.json`, 损失够好或停止下降时落 `stop_acquisition.request` 让 capture 提前收工 |
 | `slm/transfer/` | `protocol.py` | 孔径固定的指标口径与重复统计原语 (CV 单独用无法区分「均匀」与「空」, 故每条结论都配一个相对的桶内能量数) |
 | `slm/transfer/` | `preflight.py` | 迁移学习闭环整形的启动前参数检查 (2026-10-26 实测: `empty target core` 报错实为载波周期参数问题而非几何问题) |

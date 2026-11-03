@@ -188,7 +188,7 @@ class _WorkerSignals(QObject):
     """后台会话 → 主线程的单向通道 (``QRunnable`` 不是 ``QObject``, 发不出信号)。"""
 
     stage = Signal(str, str)
-    #: 每块一帧的实时画面 (``dict`` 负载, 含 ``frame`` 数组与整数进度)。
+    #: 逐帧的实时画面 (``dict`` 负载, 含 ``frame`` 数组与整数进度); 每次 CCD 读出都发。
     frame = Signal(dict)
     finished = Signal(str)
     failed = Signal(str)
@@ -337,7 +337,7 @@ class TransferPage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
-        box, live_layout = _section("⑥ 实时画面（每块最后一帧）")
+        box, live_layout = _section("⑥ 实时画面（每帧刷新）")
         self._live_view = LiveView()
         live_layout.addWidget(self._live_view)
         layout.addWidget(box, 1)

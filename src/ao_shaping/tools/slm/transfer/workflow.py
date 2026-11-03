@@ -201,11 +201,13 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None, on_fra
     A raising observer must not wreck the session, so its errors are swallowed
     with a warning; the journal and the run itself stay authoritative.
 
-    ``on_frame(payload)`` is the live CCD observer, forwarded unchanged to the
-    anchored-block stage only: :func:`validate.emit_block_frame` fires it once
-    per block with that block's last raw frame plus integer progress, and wraps
-    the call in the same best-effort guard. ``None`` (the CLI / offline default)
-    leaves the measured path byte-for-byte unchanged.
+    ``on_frame(payload)`` is the live CCD observer, forwarded unchanged to every
+    stage that opens the camera: the capture stage, the standalone light check,
+    the model and anchored blocks, and the exposure-response capture. Each of
+    those fires it **on every CCD read** (see
+    :func:`~ao_shaping.tools.slm.transfer.live_frame.frame_payload`), and every
+    call site wraps it in the same best-effort guard. ``None`` (the CLI /
+    offline default) leaves the measured path byte-for-byte unchanged.
     """
     config.validate()
     if offline and config.dataset is None:
@@ -248,14 +250,14 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None, on_fra
               count=config.count,
               frames=config.frames, seed=config.seed, execute=True,
               exposure_max_steps=config.exposure_max_steps,
-              save_dataset=config.save_dataset)))
+              save_dataset=config.save_dataset), on_frame=on_frame))
     elif not offline:
         # 复用已录数据集时采集段整个被跳过, 于是**没有任何人**看一眼光路就让拟合
         # 与整形跑起来。这里补一次便宜检查 (同一实现 verify_light): 2026-10-28
         # 的教训是光路失效要几十秒到几分钟才暴露, 而这一路本来可以几秒就停。
         stage("light_check", lambda: capture.precheck_light(
             camera=config.camera, cam_id=config.cam_id,
-            label=f"session {config.out.name}"))
+            label=f"session {config.out.name}", on_frame=on_frame))
     checkpoint = config.checkpoint.resolve() if config.checkpoint else out / "initial/frozen_parameters.json"
     if config.checkpoint is None:
         def initialize():
@@ -358,12 +360,14 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None, on_fra
         from .artifacts import audit_run
         if (not config.seed_run and config.initial_phase == "gs") or config.calibration_enabled:
             stage("CCD_model_blocks", lambda: validate.run(SimpleNamespace(**options, out=out / "model",
-                  seed_run=config.seed_run, seed_policy=config.seed_policy, mode="model", blocks=2, execute=True)))
+                  seed_run=config.seed_run, seed_policy=config.seed_policy, mode="model", blocks=2,
+                  execute=True, on_frame=on_frame)))
         if config.calibration_enabled:
             from . import blur, capture_response, response
             stage("exposure_response_capture", lambda: capture_response.capture(SimpleNamespace(
                   source=out / "model", out=out / "response", shape="square", frames=config.frames,
-                  camera=config.camera, cam_id=config.cam_id, slm_number=config.slm_number)))
+                  camera=config.camera, cam_id=config.cam_id, slm_number=config.slm_number,
+                  on_frame=on_frame)))
             stage("exposure_response_analysis", lambda: response.analyze(out / "response", out / "response_analysis"))
             stage("blur_calibration", lambda: blur.calibrate(SimpleNamespace(source=out / "model",
                   checkpoint=checkpoint, out=out / "blur", sigmas=[0., .5, 1., 2., 3.515916109085083])))
