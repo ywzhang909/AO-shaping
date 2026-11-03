@@ -13,6 +13,13 @@ fitted calibration.  It exercises the same artifacts, capture, acceptance, and
 resume logic, but is only a plumbing check.  Physical outputs must be children
 of ``data/debug``; dry runs may use a temporary directory.
 
+``--model-correction`` (default ``raw``, which changes nothing) alters only the
+*predicted* scoring, never the optimizer or the acceptance rule.  ``effective``
+predicts from the displayed phase recovered from each capture's ``panel_gray``
+instead of the commanded phase, and ``effective-aligned`` additionally shifts
+the scoring window by the template-match displacement between the prediction
+and the measured native frame.
+
 Example::
 
     python scripts/ml/sim2f_fov_hw_refine.py \
@@ -47,11 +54,12 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ml.sim2f.bench import HwInstrument, SimInstrument
+from ml.sim2f.bench import PUPIL_RADIUS_PX, HwInstrument, SimInstrument, panel_corner
 from ml.sim2f.calibrate import CalibratedBench, load_calibration
 from ml.sim2f.config import RefineConfig, Sim2fConfig
 from ml.sim2f.finetune import PhaseRefiner
@@ -70,6 +78,14 @@ DRY_RUN_WARNING = (
     "Dry-run plumbing only: SimInstrument and the nominal twin were used; "
     "the fitted calibration was not loaded and this is not real CCD success."
 )
+#: Opt-in scoring corrections.  ``raw`` is the historical behaviour and must stay
+#: byte-identical; the other two change only predicted/diagnostic scoring.
+MODEL_CORRECTIONS = ("raw", "effective", "effective-aligned")
+#: Grayscale corresponding to 2*pi on the SLM-200 at 1064 nm (device ``_max_gray``),
+#: the same constant ``sim2f_fov_hw_offline_diagnostics`` uses to invert panel_gray.
+PANEL_MAX_GRAY = 993.0
+#: Search margin (full-frame pixels) of the predicted/measured template match.
+ALIGN_MARGIN = 60
 
 
 def _utc_now() -> str:
@@ -279,6 +295,135 @@ def _predict(model: WindowedBench, phase: np.ndarray) -> np.ndarray:
     return frame[0, 0].detach().cpu().numpy()
 
 
+def _predict_full(model: WindowedBench, phase: np.ndarray) -> np.ndarray:
+    """The whole-sensor prediction, before any analysis-window crop."""
+    with torch.no_grad():
+        frame = model.full_forward(
+            torch.as_tensor(phase, dtype=model.dtype)[None], detector=False
+        )
+    return frame[0, 0].detach().cpu().numpy()
+
+
+def _predict_windowed(
+    model: WindowedBench, phase: np.ndarray, window: CameraWindow
+) -> np.ndarray:
+    """Prediction cropped by an explicit window (which may have been re-aligned)."""
+    return np.asarray(window.crop(_predict_full(model, phase)))
+
+
+def _effective_phase_from_gray(
+    gray: np.ndarray, *, pupil_center_xy: Any, grid: int
+) -> np.ndarray:
+    """Displayed pupil phase recovered from a recorded ``panel_gray`` array.
+
+    Inverts the panel write: crop the pupil square at the run's pupil centre,
+    scale by ``2*pi / PANEL_MAX_GRAY`` and area-resample to the model grid.  The
+    wavefront correction and LUT are already inside ``panel_gray``, so this is a
+    diagnostic approximation of what was displayed, not a device readback.  The
+    dry-run twin writes its grayscale with ``2*pi = 1023`` instead of the device
+    value, so there the recovered phase is only a plumbing stand-in.
+    """
+    array = np.asarray(gray, dtype=np.float64)
+    panel_shape = (int(array.shape[0]), int(array.shape[1]))
+    side = int(round(2.0 * PUPIL_RADIUS_PX))
+    x0, y0 = panel_corner(panel_shape, PUPIL_RADIUS_PX, pupil_center_xy)
+    if x0 < 0 or y0 < 0 or x0 + side > panel_shape[1] or y0 + side > panel_shape[0]:
+        raise ValueError(
+            f"pupil square {side} px at centre {pupil_center_xy} runs off the "
+            f"recorded panel {panel_shape}; cannot recover the effective phase"
+        )
+    square = array[y0 : y0 + side, x0 : x0 + side] * (2.0 * np.pi / PANEL_MAX_GRAY)
+    tensor = torch.as_tensor(square, dtype=torch.float32)[None, None]
+    return F.interpolate(tensor, size=(grid, grid), mode="area")[0, 0].numpy().astype(
+        np.float32
+    )
+
+
+def _align_shift(
+    predicted_full: np.ndarray, native_frame: np.ndarray, layout: dict[str, Any]
+) -> tuple[int, int]:
+    """Template-match displacement of the measurement against the prediction.
+
+    Same normalised-cross-correlation approach as
+    ``sim2f_fov_hw_offline_diagnostics._align``, but parameterised by the run's
+    analysis window instead of hardcoded corner/side constants.  Returns the
+    ``(dx, dy)`` that should be added to the scoring-window centre.
+    """
+    from skimage.feature import match_template
+
+    col0, row0 = (int(value) for value in layout["native_square_offset_xy"])
+    full_px = int(layout["full_px"])
+    window: CameraWindow = layout["window"]
+    size = window.width
+    x0, y0 = window.offset()
+    square = np.asarray(native_frame, dtype=np.float64)[
+        row0 : row0 + full_px, col0 : col0 + full_px
+    ]
+    measured = square[y0 : y0 + size, x0 : x0 + size]
+    rx0, ry0 = max(0, x0 - ALIGN_MARGIN), max(0, y0 - ALIGN_MARGIN)
+    rx1 = min(full_px, x0 + size + ALIGN_MARGIN)
+    ry1 = min(full_px, y0 + size + ALIGN_MARGIN)
+    region = np.asarray(predicted_full, dtype=np.float64)[ry0:ry1, rx0:rx1]
+    if region.shape[0] < size or region.shape[1] < size:
+        raise ValueError("analysis window is too large for the alignment search region")
+    ncc_map = match_template(region, measured, pad_input=False)
+    dy, dx = np.unravel_index(int(np.nanargmax(ncc_map)), ncc_map.shape)
+    return int(rx0 + dx - x0), int(ry0 + dy - y0)
+
+
+def _prediction_phase(
+    commanded: np.ndarray,
+    record: dict[str, Any],
+    *,
+    out: Path,
+    lazy: _LazyInstrument,
+    grid: int,
+    mode: str,
+) -> np.ndarray:
+    """Phase the predicted score should use: commanded, or the displayed one."""
+    if mode == "raw":
+        return commanded
+    relative = record.get("panel_gray")
+    if not relative:
+        raise ValueError(
+            "--model-correction needs a recorded panel_gray for every scored "
+            f"capture, but {record.get('id', 'this capture')!r} has none"
+        )
+    instrument = getattr(lazy, "instrument", None)
+    center = getattr(instrument, "pupil_center_xy", None) if instrument else None
+    pupil_center_xy = None if center is None else (int(center[0]), int(center[1]))
+    gray = _load_npy(_under(out, str(relative)))
+    return _effective_phase_from_gray(
+        gray, pupil_center_xy=pupil_center_xy, grid=grid
+    )
+
+
+def _scoring_window(
+    predicted_full: np.ndarray,
+    native_frame: np.ndarray,
+    layout: dict[str, Any],
+    mode: str,
+) -> CameraWindow:
+    """The window a measurement/prediction pair is scored over."""
+    window: CameraWindow = layout["window"]
+    if mode != "effective-aligned":
+        return window
+    dx, dy = _align_shift(predicted_full, native_frame, layout)
+    return window.shifted(dx, dy)
+
+
+def _crop_scoring(
+    native_frame: np.ndarray, layout: dict[str, Any], window: CameraWindow
+) -> np.ndarray:
+    """Crop a native frame to the physical pupil square, then to ``window``."""
+    col0, row0 = (int(value) for value in layout["native_square_offset_xy"])
+    full_px = int(layout["full_px"])
+    square = np.asarray(native_frame, dtype=np.float64)[
+        row0 : row0 + full_px, col0 : col0 + full_px
+    ]
+    return np.asarray(window.crop(square))
+
+
 def _validate_output(out: Path, dry_run: bool) -> Path:
     resolved = out.expanduser().resolve()
     if dry_run:
@@ -295,7 +440,37 @@ def _validate_output(out: Path, dry_run: bool) -> Path:
     return resolved
 
 
-def _load_source(source: Path, start_phase: str | None, target: str) -> dict[str, Any]:
+def _load_external_phase(path: Path, grid: int) -> np.ndarray:
+    """Load an externally supplied real start phase; the caller casts to float32."""
+    resolved = path.resolve()
+    if not resolved.is_file():
+        raise ValueError(f"external start phase does not exist: {resolved}")
+    value = np.load(resolved, allow_pickle=False)
+    if value.dtype not in (np.float32, np.float64):
+        raise ValueError(
+            "external start phase must be a real float32 or float64 array, "
+            f"got dtype {value.dtype}: {resolved}"
+        )
+    if value.ndim != 2 or value.shape[0] != value.shape[1]:
+        raise ValueError(
+            f"external start phase must be a square 2-D array, got shape {value.shape}: {resolved}"
+        )
+    if value.shape != (grid, grid):
+        raise ValueError(
+            f"external start phase must match the plan grid {grid}x{grid}, "
+            f"got {value.shape}: {resolved}"
+        )
+    if not np.isfinite(value).all():
+        raise ValueError(f"external start phase must be finite: {resolved}")
+    return value
+
+
+def _load_source(
+    source: Path,
+    start_phase: str | None,
+    target: str,
+    start_phase_file: Path | None = None,
+) -> dict[str, Any]:
     source = source.resolve()
     plan = json.loads((source / "plan.json").read_text(encoding="utf-8"))
     manifest = json.loads((source / "capture_manifest.json").read_text(encoding="utf-8"))
@@ -331,6 +506,37 @@ def _load_source(source: Path, start_phase: str | None, target: str) -> dict[str
         )
         if not valid:
             raise ValueError(f"source session is incomplete or corrupt at {item_id}")
+    if start_phase_file is not None:
+        if start_phase is not None:
+            raise ValueError("--start-phase and --start-phase-file are mutually exclusive")
+        grid = int(plan["grid"])
+        raw = _load_external_phase(start_phase_file, grid)
+        external_path = start_phase_file.resolve()
+        exposure = manifest.get("exposure_ms")
+        if exposure is not None and float(exposure) <= 0.0:
+            raise ValueError("source has a non-positive recorded exposure")
+        external_sha = _sha256(external_path)
+        return {
+            "source": source,
+            "plan": plan,
+            "manifest": manifest,
+            "plan_sha256": _sha256(source / "plan.json"),
+            "manifest_sha256": _sha256(source / "capture_manifest.json"),
+            "native_shape": native,
+            "zero_order_xy": zero_order,
+            "phase": raw.astype(np.float32, copy=False),
+            "phase_path": external_path,
+            "phase_name": "external_start_phase",
+            "phase_sha256": external_sha,
+            "source_item": None,
+            "source_exposure_ms": None if exposure is None else float(exposure),
+            "external_start_phase": {
+                "path": str(external_path),
+                "sha256": external_sha,
+                "shape": [int(value) for value in raw.shape],
+                "dtype": str(raw.dtype),
+            },
+        }
     start_name = start_phase or f"phases/shape_{target}_fitted_r0.npy"
     start_path = _under(source, start_name)
     matches = [item for item in plan["items"] if _under(source, item["phase"]) == start_path]
@@ -361,6 +567,7 @@ def _load_source(source: Path, start_phase: str | None, target: str) -> dict[str
         "phase_sha256": _sha256(start_path),
         "source_item": source_item,
         "source_exposure_ms": None if exposure is None else float(exposure),
+        "external_start_phase": None,
     }
 
 
@@ -684,6 +891,8 @@ def _reference_from_source(
     source: dict[str, Any], out: Path, exposure_ms: float
 ) -> dict[str, Any]:
     item = source["source_item"]
+    if item is None:
+        raise RuntimeError("an external start phase cannot reuse a source native frame")
     phase_path = out / "phases" / "reference.npy"
     frame_path = out / "frames" / "reference.npy"
     _ensure_array(phase_path, source["phase"])
@@ -736,8 +945,27 @@ def _save_state(
 
 
 def run_refinement(args: argparse.Namespace) -> dict[str, Any]:
+    mode = str(args.model_correction)
+    if mode not in MODEL_CORRECTIONS:
+        raise ValueError(
+            f"--model-correction must be one of {MODEL_CORRECTIONS}, got {mode!r}"
+        )
     out = _validate_output(Path(args.out), bool(args.dry_run))
-    source = _load_source(Path(args.source), args.start_phase, args.target)
+    start_phase_file = getattr(args, "start_phase_file", None)
+    if start_phase_file is not None and args.start_phase is not None:
+        raise ValueError("--start-phase and --start-phase-file are mutually exclusive")
+    if start_phase_file is not None and not args.recapture_reference:
+        raise ValueError(
+            "--start-phase-file requires --recapture-reference: an external start phase "
+            "has no captured native frame in any session, so the zero-order reference "
+            "must be measured live"
+        )
+    source = _load_source(
+        Path(args.source),
+        args.start_phase,
+        args.target,
+        None if start_phase_file is None else Path(start_phase_file),
+    )
     source_backend = source["manifest"].get("backend")
     expected_backend = "sim" if args.dry_run else "hw"
     physical_dry_run = bool(
@@ -853,9 +1081,20 @@ def run_refinement(args: argparse.Namespace) -> dict[str, Any]:
         "effective_zero_order_xy": list(run_zero),
         "refine": refine_cfg.to_dict(),
         "measured_min_gain": float(args.min_gain),
+        "model_correction": str(args.model_correction),
     }
+    external_start = source.get("external_start_phase")
+    if external_start is not None:
+        request["start_phase_external"] = dict(external_start)
     if summary_path.exists():
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        if external_start is not None:
+            previous = (summary.get("request") or {}).get("start_phase_external")
+            if not isinstance(previous, dict) or previous.get("sha256") != external_start["sha256"]:
+                raise RuntimeError(
+                    "resume refuses a different external start phase: the --start-phase-file "
+                    "sha256 does not match the one recorded in the existing summary"
+                )
         if summary.get("schema") != SUMMARY_SCHEMA or summary.get("request") != request:
             raise RuntimeError("resume metadata differs; choose a new --out instead of renumbering")
     else:
@@ -951,17 +1190,49 @@ def run_refinement(args: argparse.Namespace) -> dict[str, Any]:
             reference_frame = _load_npy(
                 _under(out, reference["native_frame"]), source["native_shape"]
             )
-            reference["measured"] = _score(
-                current_phase, _crop_native(reference_frame, layout), target, support, refine_cfg
-            )
-            reference["predicted"] = _score(
-                current_phase, _predict(model, current_phase), target, support, refine_cfg
-            )
+            if mode == "raw":
+                reference["measured"] = _score(
+                    current_phase,
+                    _crop_native(reference_frame, layout),
+                    target,
+                    support,
+                    refine_cfg,
+                )
+                reference["predicted"] = _score(
+                    current_phase,
+                    _predict(model, current_phase),
+                    target,
+                    support,
+                    refine_cfg,
+                )
+            else:
+                reference_phase = _prediction_phase(
+                    current_phase, reference, out=out, lazy=lazy, grid=grid, mode=mode
+                )
+                reference_full = _predict_full(model, reference_phase)
+                reference_window = _scoring_window(
+                    reference_full, reference_frame, layout, mode
+                )
+                reference["measured"] = _score(
+                    current_phase,
+                    _crop_scoring(reference_frame, layout, reference_window),
+                    target,
+                    support,
+                    refine_cfg,
+                )
+                reference["predicted"] = _score(
+                    reference_phase,
+                    _predict_windowed(model, reference_phase, reference_window),
+                    target,
+                    support,
+                    refine_cfg,
+                )
         summary["reference"] = reference
         summary["zero_order_reference_recaptured"] = bool(
             lazy.adopted_zero_order and reference_captured
         )
         current_measured = dict(reference["measured"])
+        current_reference = reference
         if not old_rounds:
             _save_state(out, summary, current_phase, rounds, status="running")
 
@@ -976,9 +1247,22 @@ def run_refinement(args: argparse.Namespace) -> dict[str, Any]:
 
         refiner = PhaseRefiner(model, refine_cfg)
         current_reference_id = "reference"
+        # Search start: follows the latest accepted phase, but advances to the
+        # rejected candidate when a round is rejected so later rounds explore
+        # new phases instead of replaying the identical candidate.
+        search_phase = current_phase.copy()
+        if old_rounds:
+            last_old = old_rounds[-1]
+            if str(last_old.get("status")) == "rejected":
+                # Resume: replay the pending search start from the last saved
+                # rejected candidate so the next round is reproduced exactly.
+                last_candidate = _load_npy(
+                    _under(out, str(last_old["phase"])), current_phase.shape
+                )
+                search_phase = np.asarray(last_candidate, dtype=np.float32).copy()
         for index in range(1, int(args.rounds) + 1):
             item_id = f"round_{index:04d}"
-            result = refiner.finetune(current_phase, target, support=support)
+            result = refiner.finetune(search_phase, target, support=support)
             candidate = np.asarray(result.phase, dtype=np.float32)
             candidate_hash = _npy_sha256(candidate)
             existing = old_by_id.get(item_id)
@@ -1032,23 +1316,88 @@ def run_refinement(args: argparse.Namespace) -> dict[str, Any]:
                 candidate_frame = _load_npy(
                     _under(out, artifact["native_frame"]), source["native_shape"]
                 )
-                measured = _score(
-                    candidate, _crop_native(candidate_frame, layout), target, support, refine_cfg
-                )
-                predicted_reference = _score(
-                    current_phase,
-                    _predict(model, current_phase),
-                    target,
-                    support,
-                    refine_cfg,
-                )
-                predicted_candidate = _score(
-                    candidate,
-                    np.asarray(result.intensity),
-                    target,
-                    support,
-                    refine_cfg,
-                )
+                if mode == "raw":
+                    measured = _score(
+                        candidate,
+                        _crop_native(candidate_frame, layout),
+                        target,
+                        support,
+                        refine_cfg,
+                    )
+                    predicted_reference = _score(
+                        current_phase,
+                        _predict(model, current_phase),
+                        target,
+                        support,
+                        refine_cfg,
+                    )
+                    predicted_candidate = _score(
+                        candidate,
+                        np.asarray(result.intensity),
+                        target,
+                        support,
+                        refine_cfg,
+                    )
+                else:
+                    reference_phase = _prediction_phase(
+                        current_phase,
+                        current_reference,
+                        out=out,
+                        lazy=lazy,
+                        grid=grid,
+                        mode=mode,
+                    )
+                    candidate_phase = _prediction_phase(
+                        candidate,
+                        artifact,
+                        out=out,
+                        lazy=lazy,
+                        grid=grid,
+                        mode=mode,
+                    )
+                    reference_full = _predict_full(model, reference_phase)
+                    candidate_full = _predict_full(model, candidate_phase)
+                    reference_native = _load_npy(
+                        _under(out, current_reference["native_frame"]),
+                        source["native_shape"],
+                    )
+                    reference_window = _scoring_window(
+                        reference_full, reference_native, layout, mode
+                    )
+                    candidate_window = _scoring_window(
+                        candidate_full, candidate_frame, layout, mode
+                    )
+                    measured = _score(
+                        candidate,
+                        _crop_scoring(candidate_frame, layout, candidate_window),
+                        target,
+                        support,
+                        refine_cfg,
+                    )
+                    predicted_reference = _score(
+                        reference_phase,
+                        _predict_windowed(model, reference_phase, reference_window),
+                        target,
+                        support,
+                        refine_cfg,
+                    )
+                    predicted_candidate = _score(
+                        candidate_phase,
+                        _predict_windowed(model, candidate_phase, candidate_window),
+                        target,
+                        support,
+                        refine_cfg,
+                    )
+                    # Aligned scoring re-crops the reference too, so the measured
+                    # gain compares equal-footing windows while the acceptance
+                    # rule itself is unchanged.
+                    current_measured = _score(
+                        current_phase,
+                        _crop_scoring(reference_native, layout, reference_window),
+                        target,
+                        support,
+                        refine_cfg,
+                    )
                 measured_gain = float(current_measured["objective"] - measured["objective"])
                 accepted = bool(result.accepted) and measured_gain > float(args.min_gain)
                 if not result.accepted:
@@ -1100,6 +1449,10 @@ def run_refinement(args: argparse.Namespace) -> dict[str, Any]:
                 current_phase = candidate.copy()
                 current_measured = dict(record["measured"]["candidate"])
                 current_reference_id = item_id
+                current_reference = record
+                search_phase = current_phase.copy()
+            else:
+                search_phase = candidate.copy()
             rounds.append(record)
             _save_state(out, summary, current_phase, rounds, status="running")
         _save_state(out, summary, current_phase, rounds, status="complete")
@@ -1120,6 +1473,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", required=True, help="new/resumable output session")
     parser.add_argument("--target", required=True, choices=TARGETS)
     parser.add_argument("--start-phase", help="source-relative phase; default fitted r0")
+    parser.add_argument(
+        "--start-phase-file",
+        metavar="PATH",
+        help=(
+            "external real .npy start phase on the plan grid (e.g. an offline "
+            "Gerchberg-Saxton seed); mutually exclusive with --start-phase and "
+            "requires --recapture-reference"
+        ),
+    )
     parser.add_argument("--rounds", type=int, default=4)
     parser.add_argument("--min-gain", type=float, default=1e-3, help="measured strict gain")
     parser.add_argument("--model-min-gain", type=float, default=0.0)
@@ -1158,6 +1520,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--pupil-center-xy", type=float, nargs=2, metavar=("X", "Y"), default=None
     )
+    parser.add_argument(
+        "--model-correction",
+        choices=MODEL_CORRECTIONS,
+        default="raw",
+        help=(
+            "predicted/diagnostic scoring: raw (historical), effective "
+            "(phase recovered from panel_gray), or effective-aligned "
+            "(effective plus per-round template-match window alignment)"
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser
 
@@ -1167,6 +1539,14 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     args = parser.parse_args(argv)
     if int(args.zero_order_tolerance_px) < 0:
         parser.error("--zero-order-tolerance-px must be >= 0")
+    if args.start_phase_file is not None and args.start_phase is not None:
+        parser.error("--start-phase and --start-phase-file are mutually exclusive")
+    if args.start_phase_file is not None and not args.recapture_reference:
+        parser.error(
+            "--start-phase-file requires --recapture-reference: an external start phase "
+            "has no captured native frame in any session, so the zero-order reference "
+            "must be measured live"
+        )
     try:
         _validate_output(Path(args.out), bool(args.dry_run))
         summary = run_refinement(args)

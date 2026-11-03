@@ -602,3 +602,208 @@ def test_min_window_peak_count_fails_the_run_and_marks_the_summary_failed(
     assert "peaks at" in summary["error"]
     assert "--min-window-peak-count" in summary["error"]
     assert (out / "accepted_phase.npy").is_file()
+
+
+def test_rejected_round_advances_the_search_start_to_its_candidate(
+    source_session: Path, calibration: Path, tmp_path: Path
+) -> None:
+    out = tmp_path / "rejected_advance"
+    refine_mod.main([*_arguments(source_session, calibration, out, rounds=2), "--min-gain", "1e9"])
+    summary = _summary(out)
+    rounds = summary["rounds"]
+    assert len(rounds) == 2
+    assert rounds[0]["status"] == "rejected"
+    # A rejected round must not replay the identical candidate next round.
+    assert rounds[1]["phase_sha256"] != rounds[0]["phase_sha256"]
+
+
+def test_model_correction_default_raw_is_identical_to_explicit_raw(
+    source_session: Path, calibration: Path, tmp_path: Path
+) -> None:
+    default_out = tmp_path / "default_mode"
+    explicit_out = tmp_path / "explicit_raw"
+    refine_mod.main(_arguments(source_session, calibration, default_out))
+    refine_mod.main(
+        [*_arguments(source_session, calibration, explicit_out), "--model-correction", "raw"]
+    )
+    default = _summary(default_out)
+    explicit = _summary(explicit_out)
+
+    assert default["request"]["model_correction"] == "raw"
+    assert default["request"] == explicit["request"]
+    assert default["accepted_phase_sha256"] == explicit["accepted_phase_sha256"]
+    assert [record["predicted"] for record in default["rounds"]] == [
+        record["predicted"] for record in explicit["rounds"]
+    ]
+    assert [record["measured"] for record in default["rounds"]] == [
+        record["measured"] for record in explicit["rounds"]
+    ]
+
+
+@pytest.mark.parametrize("mode", ["effective", "effective-aligned"])
+def test_model_correction_modes_change_only_prediction_and_record_the_mode(
+    source_session: Path, calibration: Path, tmp_path: Path, mode: str
+) -> None:
+    out = tmp_path / f"mode_{mode.replace('-', '_')}"
+    refine_mod.main(
+        [*_arguments(source_session, calibration, out), "--model-correction", mode]
+    )
+    summary = _summary(out)
+
+    assert summary["status"] == "complete"
+    assert summary["request"]["model_correction"] == mode
+    for record in summary["rounds"]:
+        # The acceptance rule itself is untouched by the scoring correction.
+        assert record["accepted"] == (
+            record["model_accepted"]
+            and record["measured"]["gain"] > summary["request"]["measured_min_gain"]
+        )
+
+
+def test_model_correction_rejects_unknown_mode(
+    source_session: Path, calibration: Path, tmp_path: Path
+) -> None:
+    with pytest.raises(SystemExit):
+        refine_mod.main(
+            [
+                *_arguments(source_session, calibration, tmp_path / "bad_mode"),
+                "--model-correction",
+                "bogus",
+            ]
+        )
+
+
+
+def _external_arguments(
+    source: Path, calibration: Path, out: Path, seed: Path, *, recapture: bool = True
+) -> list[str]:
+    arguments = [
+        "--source",
+        str(source),
+        "--calibration",
+        str(calibration),
+        "--out",
+        str(out),
+        "--target",
+        "ring",
+        "--start-phase-file",
+        str(seed),
+        "--rounds",
+        "1",
+        "--iters",
+        "2",
+        "--lr",
+        "0.02",
+        "--dry-run",
+    ]
+    if recapture:
+        arguments.append("--recapture-reference")
+    return arguments
+
+
+def _grid(source: Path) -> int:
+    return int(json.loads((source / "plan.json").read_text(encoding="utf-8"))["grid"])
+
+
+def test_external_start_phase_is_recorded_and_written_as_reference(
+    source_session: Path, calibration: Path, tmp_path: Path
+) -> None:
+    grid = _grid(source_session)
+    seed = tmp_path / "gs_seed.npy"
+    rng = np.random.default_rng(7)
+    np.save(seed, rng.normal(0.0, 0.2, (grid, grid)).astype(np.float64))
+    expected_sha = refine_mod._sha256(seed)
+
+    out = tmp_path / "external_seed"
+    refine_mod.main(_external_arguments(source_session, calibration, out, seed))
+
+    summary = _summary(out)
+    assert summary["status"] == "complete"
+    external = summary["request"]["start_phase_external"]
+    assert external == {
+        "path": str(seed.resolve()),
+        "sha256": expected_sha,
+        "shape": [grid, grid],
+        "dtype": "float64",
+    }
+    reference_phase = np.load(out / "phases" / "reference.npy", allow_pickle=False)
+    assert reference_phase.dtype == np.float32
+    assert refine_mod._sha256(out / "phases" / "reference.npy") == summary["reference"][
+        "phase_sha256"
+    ]
+    assert np.array_equal(
+        reference_phase, np.load(seed, allow_pickle=False).astype(np.float32)
+    )
+    assert summary["reference"]["capture_method"] == "sequential_native_full_frame"
+
+
+def test_external_start_phase_rejects_start_phase_and_missing_recapture(
+    source_session: Path, calibration: Path, tmp_path: Path
+) -> None:
+    grid = _grid(source_session)
+    seed = tmp_path / "seed.npy"
+    np.save(seed, np.zeros((grid, grid), dtype=np.float32))
+
+    both = [
+        *_external_arguments(source_session, calibration, tmp_path / "both", seed),
+        "--start-phase",
+        "phases/shape_ring_nominal_r0.npy",
+    ]
+    with pytest.raises(SystemExit):
+        refine_mod.main(both)
+    assert not (tmp_path / "both").exists()
+
+    no_recapture = tmp_path / "no_recapture"
+    with pytest.raises(SystemExit):
+        refine_mod.main(
+            _external_arguments(
+                source_session, calibration, no_recapture, seed, recapture=False
+            )
+        )
+    assert not (no_recapture / refine_mod.SUMMARY_NAME).exists()
+
+
+def test_external_start_phase_rejects_wrong_shape_or_dtype(
+    source_session: Path, calibration: Path, tmp_path: Path
+) -> None:
+    grid = _grid(source_session)
+    cases = {
+        "wrong_shape.npy": np.zeros((grid + 1, grid + 1), dtype=np.float32),
+        "not_square.npy": np.zeros((grid, grid + 2), dtype=np.float32),
+        "one_d.npy": np.zeros(grid * grid, dtype=np.float32),
+        "integer.npy": np.zeros((grid, grid), dtype=np.int32),
+        "complex.npy": np.zeros((grid, grid), dtype=np.complex64),
+    }
+    for name, value in cases.items():
+        seed = tmp_path / name
+        np.save(seed, value)
+        out = tmp_path / f"out_{name}"
+        with pytest.raises(SystemExit):
+            refine_mod.main(_external_arguments(source_session, calibration, out, seed))
+        assert not (out / refine_mod.SUMMARY_NAME).exists()
+
+
+def test_absent_start_phase_file_leaves_default_request_unchanged(
+    source_session: Path, calibration: Path, tmp_path: Path
+) -> None:
+    out = tmp_path / "default_path"
+    refine_mod.main(_arguments(source_session, calibration, out))
+    summary = _summary(out)
+    assert "start_phase_external" not in summary["request"]
+    assert summary["request"]["starting_phase"] == "phases/shape_ring_nominal_r0.npy"
+
+
+def test_resume_refuses_a_different_external_start_phase(
+    source_session: Path, calibration: Path, tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    grid = _grid(source_session)
+    seed = tmp_path / "seed.npy"
+    rng = np.random.default_rng(11)
+    np.save(seed, rng.normal(0.0, 0.2, (grid, grid)).astype(np.float32))
+    out = tmp_path / "resume_external"
+    refine_mod.main(_external_arguments(source_session, calibration, out, seed))
+
+    np.save(seed, rng.normal(0.0, 0.2, (grid, grid)).astype(np.float32))
+    with pytest.raises(SystemExit):
+        refine_mod.main(_external_arguments(source_session, calibration, out, seed))
+    assert "different external start phase" in capsys.readouterr().err
