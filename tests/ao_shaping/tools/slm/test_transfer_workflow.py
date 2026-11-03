@@ -219,11 +219,13 @@ class _Setting:
     reads: int = 1
 
 
-def _patch_capture_devices(monkeypatch) -> tuple[list[str], list[dict]]:
+def _patch_capture_devices(monkeypatch, *, statuses=None) -> tuple[list[str], list[dict]]:
     """Replace ``capture.capture``'s device layer.
 
     Returns the close log and every ``adapt_exposure`` keyword set, so a test can
-    pin how the exposure is armed as well as what was written.
+    pin how the exposure is armed as well as what was written. ``statuses`` feeds
+    the ladder's verdicts one per call (``"ok"`` once the list runs out): that is
+    how the re-arm path is driven without a camera.
     """
     from types import SimpleNamespace
     from ao_shaping.drivers.ccd import common
@@ -240,11 +242,14 @@ def _patch_capture_devices(monkeypatch) -> tuple[list[str], list[dict]]:
     monkeypatch.setitem(sys.modules, "ao_shaping.drivers.slm.santec",
                         SimpleNamespace(Santec=lambda **kwargs: _FakeSlm(closed)))
 
+    outcomes = list(statuses or [])
+
     def adapt(setter, read, **kwargs):
         calls.append(dict(kwargs))
         setter(.123)
         read()
-        return _Setting()
+        outcome = outcomes.pop(0) if outcomes else "ok"
+        return outcome if isinstance(outcome, _Setting) else _Setting(status=outcome)
 
     monkeypatch.setattr(focus_probe, "adapt_exposure", adapt)
     monkeypatch.setattr(capture_module.time, "sleep", lambda _: None)
@@ -370,6 +375,59 @@ def test_capture_arms_exposure_with_one_correction_and_a_wide_bound(tmp_path, mo
     # The operator's cold start read 13/255 at the 0.02 ms floor: a factor of 8.8,
     # which the historical (0.15, 6.0) clamp cannot apply in one step.
     assert capture.EXPOSURE_RATIO_BOUNDS[1] >= 0.45 / (13/255)
+
+
+def test_capture_rearms_the_exposure_ladder_instead_of_failing_the_lane(tmp_path, monkeypatch):
+    """A probe that overshoots into saturation gets another ladder, not a dead lane.
+
+    2026-11-03 17:40 的会话死在第 13 条探针上: probe_012_zernike 从上一个探针停住的
+    1.428 ms 起阶梯, 峰值 255 (饱和), 乘法修正到 0.642 ms 仍是 255 —— 两档用完, 阶梯
+    已经把下一档算成 0.289 ms 却没有档位去测它, 于是整条 24 条探针的会话 abort, 前面
+    12 条好数据一起作废。走不到接受带只是跨度问题, 换一档就回来。
+    """
+    from ao_shaping.tools.slm.transfer import capture as capture_module
+
+    _, calls = _patch_capture_devices(monkeypatch, statuses=["clipped", "ok"])
+    _one_probe(monkeypatch)
+
+    capture_module.capture(_capture_args(tmp_path))
+
+    row = json.loads((tmp_path / "capture/manifest.json").read_text())[0]
+    assert [call["max_steps"] for call in calls] == [2, capture_module.EXPOSURE_RETRY_STEPS]
+    assert row["exposure_setting"]["status"] == "ok"
+    assert row["exposure_attempts"] == 2
+
+
+def test_capture_resumes_from_the_exposure_the_ladder_computed(tmp_path, monkeypatch):
+    """The retry starts at the rung the ladder never got to measure, not at the clipped one.
+
+    阶梯跑到最后一档就停时会先把下一档算进 ``ExposureSetting.exposure_ms`` (那次是
+    0.642 → 0.289) 却没档位去测它。重试就该从 0.289 起, 而不是回到 0.642 再重测一次
+    饱和帧 —— 那一档换来的读数必然是 255, 白花一次阶梯。
+    """
+    from ao_shaping.tools.slm.transfer import capture as capture_module
+
+    _, calls = _patch_capture_devices(
+        monkeypatch,
+        statuses=[_Setting(status="clipped", exposure_ms=.289, peak=255., fraction=1.), "ok"],
+    )
+    _one_probe(monkeypatch)
+
+    capture_module.capture(_capture_args(tmp_path))
+
+    assert calls[1]["start_ms"] == pytest.approx(.289)
+
+
+def test_capture_still_fails_when_every_ladder_attempt_misses_the_band(tmp_path, monkeypatch):
+    """A genuinely impossible exposure (too bright at the floor) is still fatal — loudly."""
+    from ao_shaping.tools.slm.transfer import capture as capture_module
+
+    _, calls = _patch_capture_devices(monkeypatch, statuses=["clipped"] * 9)
+    _one_probe(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="Unusable exposure"):
+        capture_module.capture(_capture_args(tmp_path))
+    assert len(calls) == 1 + capture_module.EXPOSURE_RETRIES
 
 
 # ---------------------------------------------------------------------------

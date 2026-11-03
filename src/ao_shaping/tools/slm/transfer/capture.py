@@ -17,7 +17,11 @@ content as before, so a recorded dataset stays byte-compatible.
 Exposure is armed with **one** multiplicative correction plus one verification
 read (the sensor is linear in exposure, so the correction is exact); the bound is
 widened for the cold start, where the first probe reads a few percent of full
-scale and needs a factor of ~9.
+scale and needs a factor of ~9. When that single step lands outside the accepted
+band anyway — a probe that concentrates enough light to overshoot into
+saturation — the ladder is resumed from the exposure it computed but never
+measured, with a wider step budget (:data:`EXPOSURE_RETRY_STEPS`), instead of
+failing the whole lane: it already knows which way to go, it only ran out of rungs.
 """
 from __future__ import annotations
 from loguru import logger
@@ -43,6 +47,16 @@ from .light_guard import LightGuard, OpticalPathInvalid, verify_light
 #: that clamp cannot do in one step. Both values are recorded in ``config.json``.
 EXPOSURE_MAX_STEPS = 2
 EXPOSURE_RATIO_BOUNDS = (0.1, 50.0)
+
+#: 一次走不到接受带就接着走: ``EXPOSURE_RETRIES`` 次, 每次给 ``EXPOSURE_RETRY_STEPS``
+#: 档预算。2 档的阶梯只够「一次乘法修正 + 一次复核」, 那一步一旦跨过头就**没有档位
+#: 往下走**了 —— 2026-11-03 17:40 的会话正是这样死在 probe_012_zernike 上: 它从上一个
+#: 探针停住的 1.428 ms 起阶梯, 峰值 255 (饱和) → 修正到 0.642 ms 仍是 255 → 两档用完,
+#: 阶梯已经把下一档算成 0.289 ms 却没档位去测它, 于是第 13 条探针 abort 掉整个会话,
+#: 前面 12 条好数据一起作废。重试就从那个**算好但没测过**的档位接着走, 乘法阶梯自己
+#: 会收敛。
+EXPOSURE_RETRIES = 2
+EXPOSURE_RETRY_STEPS = 6
 
 
 
@@ -192,21 +206,36 @@ def capture(args):
                             _frames.append(frame.copy())
                         return frame
 
-                    setting = adapt_exposure(cam.reset_exposure_time, probe_read, start_ms=exposure,
-                                             floor_ms=floor, ceiling_ms=ceiling, full_scale=255,
-                                             max_steps=exposure_steps,
-                                             ratio_bounds=EXPOSURE_RATIO_BOUNDS,
-                                             on_step=LightGuard(label=f"probe {label}",
-                                                                max_steps=exposure_steps).observe)
-                    exposure = float(get_camera_exposure_ms(cam))
-                    frames, clocks = [], []
-                    for _ in range(args.frames):
-                        stamp = clock()
-                        frames.append(read().copy())
-                        clocks.append({**stamp, "end_monotonic_ns": time.monotonic_ns(),
-                                       "exposure_ms": float(get_camera_exposure_ms(cam))})
-                    raw = np.stack(frames)
-                    frame = raw.mean(0)
+                    budgets = (exposure_steps,) + (EXPOSURE_RETRY_STEPS,) * EXPOSURE_RETRIES
+                    for attempt, steps in enumerate(budgets, start=1):
+                        setting = adapt_exposure(cam.reset_exposure_time, probe_read, start_ms=exposure,
+                                                 floor_ms=floor, ceiling_ms=ceiling, full_scale=255,
+                                                 max_steps=steps,
+                                                 ratio_bounds=EXPOSURE_RATIO_BOUNDS,
+                                                 on_step=LightGuard(label=f"probe {label}",
+                                                                    max_steps=steps).observe)
+                        exposure = float(get_camera_exposure_ms(cam))
+                        frames, clocks = [], []
+                        for _ in range(args.frames):
+                            stamp = clock()
+                            frames.append(read().copy())
+                            clocks.append({**stamp, "end_monotonic_ns": time.monotonic_ns(),
+                                           "exposure_ms": float(get_camera_exposure_ms(cam))})
+                        raw = np.stack(frames)
+                        frame = raw.mean(0)
+                        if setting.status == "ok" and raw.max() < 250:
+                            break
+                        # 阶梯停在了接受带外 (clipped = 峰值达到量程饱和, dim = 到上限仍太暗)。
+                        # 从阶梯**算好、但还没测过**的那一档接着走, 而不是把整条 lane
+                        # 判死: 撞过头只是这一步跨度太大, 换一档就能回来。
+                        if attempt < len(budgets):
+                            logger.warning(
+                                f"{label}: exposure ladder ended {setting.status} "
+                                f"(measured {exposure:.5f} ms -> peak={setting.peak:.1f} "
+                                f"fraction={setting.fraction:.3f}, attempt={attempt}); "
+                                f"resuming at {float(setting.exposure_ms):.5f} ms with "
+                                f"{budgets[attempt]} steps")
+                            exposure = float(setting.exposure_ms)
                     path = f"sample_{len(manifest):04d}.npz"
                     if save_dataset:
                         np.savez_compressed(args.out / path, raw_frames=raw, frame=frame,
@@ -217,14 +246,18 @@ def capture(args):
                     row = dict(file=path, label=label, split=split, exposure_ms=exposure,
                                frames=clocks, exposure_probe_clocks=exposure_clocks,
                                exposure_setting=asdict(setting), peak=float(raw.max()),
-                               saturation_pixels=int((raw >= 255).sum()), spot_xy=[x, y], **clock())
+                               saturation_pixels=int((raw >= 255).sum()), exposure_attempts=attempt,
+                               spot_xy=[x, y], **clock())
                     manifest.append(row)
                     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
                     with (args.out / "capture_records.pkl").open("wb") as stream:
                         pickle.dump(manifest, stream, protocol=5)
                     logger.info(f'{label}: exposure={exposure:.5f} peak={raw.max():.1f} spot=({x:.1f},{y:.1f}) {setting.status}')
                     if setting.status != "ok" or raw.max() >= 250:
-                        raise RuntimeError("Unusable exposure; data retained, releasing devices")
+                        raise RuntimeError(
+                            f"Unusable exposure for {label} after {attempt} ladder "
+                            f"attempt(s): exposure={exposure:.5f} ms peak={raw.max():.1f} "
+                            f"status={setting.status}; data retained, releasing devices")
             finally:
                 slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
                 time.sleep(.3)
