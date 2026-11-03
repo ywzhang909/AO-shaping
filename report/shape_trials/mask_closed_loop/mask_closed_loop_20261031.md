@@ -184,7 +184,7 @@ python scripts/ml/sim2f_shape_trials.py --execute --out report/shape_trials/mask
 python scripts/ml/sim2f_shape_trials_figures.py --run report/shape_trials/mask_closed_loop
 ```
 
-参数: rounds=3, refine iters=120 (lr 0.02 余弦退火), fit iters=80 (lr 0.02), n_modes=14 (Noll 1–3 冻结), min_feature_px=24, seed=11。逐变体数值在 [artifacts/trials.csv](artifacts/trials.csv), 逐轮明细在 [artifacts/trials.json](artifacts/trials.json), 每个变体相位转储在 `artifacts/phases/`。
+参数: rounds=3, refine iters=120 (lr 0.02 余弦退火), fit iters=80 (lr 0.02), n_modes=14 (Noll 1–3 冻结), min_feature_px=24, seed=11。逐变体数值在 `artifacts/trials.csv`（机器本地产物，`*.csv` 已被 .gitignore 排除，不入库），逐轮明细在 [artifacts/trials.json](artifacts/trials.json), 每个变体相位转储在 `artifacts/phases/`。
 
 ## 6. 归因与边界
 

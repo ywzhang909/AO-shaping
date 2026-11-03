@@ -917,23 +917,11 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线",
         note="在线回归套件验收报告 (读 data/debug/slm_pib_online/)",
     ),
-    "report/slm_pib_online/measure_shape_sensitivity/sensitivity.md": ReportProvenance(
-        script="scripts/slm/measure_shape_sensitivity.py",
-        command="python scripts/slm/measure_shape_sensitivity.py",
-        environment="硬件",
-        note="在线套件采集帧上的整形目标函数灵敏度 (噪声地板) 实测",
-    ),
     "report/slm_pib_online/shape_objective_comparison/objective_comparison.md": ReportProvenance(
         script="scripts/slm/generate_shape_objective_comparison.py",
         command="python scripts/slm/generate_shape_objective_comparison.py",
         environment="离线",
         note="三种整形目标函数的排序一致性 (Spearman)",
-    ),
-    "report/slm_pib_online_hw/shape_objective_comparison/objective_comparison.md": ReportProvenance(
-        script="scripts/slm/generate_shape_objective_comparison.py",
-        command="python scripts/slm/generate_shape_objective_comparison.py",
-        environment="离线",
-        note="实验系统 CCD 帧上的三种整形目标函数排序对比",
     ),
     "report/slm_pib_sim/slm_pib_sim_report/report.md": ReportProvenance(
         script="scripts/slm/generate_slm_pib_sim_report.py",
@@ -982,15 +970,6 @@ REPORTS: dict[str, ReportProvenance] = {
         command="python scripts/rl/generate_models_report.py",
         environment="离线",
         note="读 TensorBoard event 文件",
-    ),
-    "report/models_analysis/models_report/tmp_sac_run_showcase.md": ReportProvenance(
-        script="scripts/rl/generate_models_report.py",
-        command="python scripts/rl/generate_models_report.py",
-        environment="离线",
-        note=(
-            "临时调试家族最佳 run 成果展示；原始检查点与 tfevents 已随清理删除，"
-            "本文为删除前记录"
-        ),
     ),
     "report/models_analysis/reward_analysis.md": ReportProvenance(
         script=HANDWRITTEN,

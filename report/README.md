@@ -206,7 +206,4 @@
 
 下列报告已在 `REPORTS` 登记但产物尚未提交（需要硬件，或尚未跑过），因此没有可点击的文件；生成脚本与复现命令见上表同条目：
 
-- `models_analysis/models_report/tmp_sac_run_showcase.md` ← `scripts/rl/generate_models_report.py` (离线)
 - `slm/pib_exit_safety/pib_exit_safety_20261025.md` ← `scripts/slm/generate_pib_exit_safety_report.py` (离线 (读硬件采集的 summary.json 与远场裁切))
-- `slm_pib_online/measure_shape_sensitivity/sensitivity.md` ← `scripts/slm/measure_shape_sensitivity.py` (硬件)
-- `slm_pib_online_hw/shape_objective_comparison/objective_comparison.md` ← `scripts/slm/generate_shape_objective_comparison.py` (离线)
