@@ -256,6 +256,59 @@ def test_oversized_scripts_are_reported_but_not_gated(tmp_path: Path) -> None:
     assert "仅报告" in proc.stdout, proc.stdout
 
 
+def test_update_baseline_reports_the_direction_it_turns_the_ratchet(
+    tmp_path: Path,
+) -> None:
+    """The reset button must say which way it moved; the diff cannot.
+
+    ``--update-baseline`` is the only way to move the ratchet, and both of its
+    uses land in the diff as "one number in a JSON changed". Two feature
+    commits (`54782eec` focus_probe +42, `15ea0a22` daheng/miicam/slm_pib_sim
+    +77/+4/+4) used it to re-open the gate on modules that had just grown, and
+    neither diff made that legible. Growing may still happen -- but the write
+    has to name it.
+    """
+    root = tmp_path / "repo"
+    _seed_module(root, "src/grown.py", 900)
+    _seed_module(root, "src/shrunk.py", 810)
+    _seed_module(root, "src/newcomer.py", 850)
+    baseline = _seed_baseline(
+        tmp_path,
+        {"src/grown.py": 880, "src/shrunk.py": 1200, "src/gone.py": 900},
+    )
+
+    proc = _run("--update-baseline", "--root", str(root), "--baseline", str(baseline))
+
+    assert proc.returncode == 0, proc.stdout
+    assert "棘轮方向: 收紧 1 / 抬高 1 / 新增 1 / 移除 1" in proc.stdout, proc.stdout
+    assert "抬高: src/grown.py 880 -> 900 行 (+20)" in proc.stdout, proc.stdout
+    assert "收紧: src/shrunk.py 1200 -> 810 行 (-390)" in proc.stdout, proc.stdout
+    assert "新增: src/newcomer.py" in proc.stdout, proc.stdout
+    assert "移除: src/gone.py" in proc.stdout, proc.stdout
+    assert "放宽" in proc.stdout, (
+        "a baseline rewrite that raises a managed file printed no warning; that "
+        "is exactly the silent gate-opening the ratchet exists to prevent"
+    )
+
+
+def test_update_baseline_stays_quiet_when_it_only_tightens(tmp_path: Path) -> None:
+    """A split settles its own debt: tightening must not cry wolf.
+
+    If "放宽" fired on every rewrite, the warning would become background noise
+    and the two real incidents would look the same as a normal post-split
+    ratchet tightening -- which is how warnings stop being read.
+    """
+    root = tmp_path / "repo"
+    _seed_module(root, "src/shrunk.py", 810)
+    baseline = _seed_baseline(tmp_path, {"src/shrunk.py": 1200})
+
+    proc = _run("--update-baseline", "--root", str(root), "--baseline", str(baseline))
+
+    assert proc.returncode == 0, proc.stdout
+    assert "棘轮方向: 收紧 1 / 抬高 0 / 新增 0 / 移除 0" in proc.stdout, proc.stdout
+    assert "放宽" not in proc.stdout, proc.stdout
+
+
 def test_baseline_only_covers_the_gated_root() -> None:
     """A baseline entry the gate never reads is debt nobody is tracking.
 
