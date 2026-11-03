@@ -1700,7 +1700,7 @@
    "module": "ao_shaping.optimizer.wf.ga_zernike",
    "file": "src/ao_shaping/optimizer/wf/ga_zernike.py",
    "lineno": 138,
-   "end": 386,
+   "end": 389,
    "args": [
     "n_generations",
     "population_size",
@@ -1816,8 +1816,8 @@
    "qualname": "optimizer_greedy",
    "module": "ao_shaping.optimizer.wf.greedy_zernike",
    "file": "src/ao_shaping/optimizer/wf/greedy_zernike.py",
-   "lineno": 78,
-   "end": 403,
+   "lineno": 355,
+   "end": 519,
    "args": [
     "epochs",
     "n_init",
