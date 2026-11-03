@@ -49,4 +49,6 @@ AO-Shaping：自适应光学（AO）系统，RL 波前校正与光束整形；�
    `cublasLt`（不钉 `cublas`）会让 cupy **全线报错**。
 5. 根治只有一条：**环境里只留一套 CUDA minor**，且它必须是完整集合（含 cusolver/cufft/
    curand）；torch 只自带 cublas/cublasLt/cudart 三个 `*64_13.dll`，永远构不成完整集合。
+   **本机已采用** `uv sync --all-groups --extra torch-cu132`（torch 自带 = toolkit v13.2 =
+   `6.14.11.1340`，两边字面同版本）；换机器时按本机 `PATH` 首位 toolkit 的 minor 选 extra。
    uv 侧对照见 `pyproject.toml` 的 extras 注释。

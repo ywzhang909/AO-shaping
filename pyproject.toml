@@ -192,6 +192,12 @@ data = [
 # cu132 to torch 2.14.0 (one patch below cu130's 2.14.1) -- that is the cost of
 # the match, not a mistake.
 #
+# The 2026-11-03 bench ADOPTED torch-cu132 for exactly this reason: the transfer
+# GUI's fit stage died with 0xc0000005 on the cu130 build, and after the switch
+# both copies report 6.14.11.1340, so the ordering hazard is gone rather than
+# merely guarded. `pin_cublas()` stays as the fallback for other machines (and
+# for a future extra whose minor does not match the local toolkit).
+#
 # Note what uv does NOT do here: an isolated `.venv` and `uv run` both inherit
 # the shell's PATH, so nothing about the resolution above is "cleaned up" by the
 # package manager. Only the extra choice and the runtime hook are.

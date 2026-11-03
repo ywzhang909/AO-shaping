@@ -115,8 +115,8 @@ Python 之前设好, import 之后再 `os.environ[...]` 赋值不会生效。`te
 Windows 上 torch 与 CuPy 抢的是**同一个裸名** (`cublasLt64_13.dll` / `cublas64_13.dll`),
 而加载器按「谁先进进程」定终身。两个名字落到**同一个 build**就一切正常, 落到**两个不同
 build**就出事 —— 崩的是 torch 的 matmul (`0xc0000005`, 无 traceback), 或者全线 CUDA 调用
-报错。2026-11-03 实测 (RTX 5080 Laptop, torch 2.14.1+cu130, cupy-cuda13x 14.2.0, PATH 首位
-= toolkit v13.2):
+报错。下表是 2026-11-03 在**切换前**的配置上实测的 (RTX 5080 Laptop, torch 2.14.1+cu130,
+cupy-cuda13x 14.2.0, PATH 首位 = toolkit v13.2):
 
 | 裸名最终落到 | cupy matmul | cupy `linalg.inv/pinv` | torch matmul |
 |---|---|---|---|
@@ -140,11 +140,22 @@ build**就出事 —— 崩的是 torch 的 matmul (`0xc0000005`, 无 traceback)
 | 「把 CUDA 目录从 `PATH` 删掉」 | 本机无效: scoop `C:\Users\<user>\scoop\apps\cuda\current\bin\x64` (6.14.11.1380) 仍在, 换成它而已 |
 | 「`PATH` 里把 `torch\lib` 置前」 | **有效** (实测 cupy 改绑 torch 那份), 但那是机器级配置、不随仓库走, 且仍留 cuSOLVER 异源问题 |
 
-**根治**: 让机器上只有**一套** CUDA minor, 且与所选 torch extra 同源。本机 `PATH` 首位是
-v13.2 = `6.14.11.1340`, 而 `torch 2.14.0+cu132` 自带的正是 `6.14.11.1340` —— 即用
-`uv sync --extra torch-cu132` 后两边字面同版本, 任何导入顺序都安全 (代价: torch 从 2.14.1
-退到 2.14.0)。各 DLL 版本: toolkit v13.0 = `6.14.11.1310` / v13.1 = `6.14.11.1321` /
-v13.2 = `6.14.11.1340` / scoop cuda current = `6.14.11.1380` / torch cu130 = `6.14.11.1300`。
+**根治 (本机已采用)**: 让机器上只有**一套** CUDA minor, 且与所选 torch extra 同源。本机
+`PATH` 首位是 v13.2 = `6.14.11.1340`, 而 `torch 2.14.0+cu132` 自带的正是 `6.14.11.1340` ——
+`uv sync --all-groups --extra torch-cu132` 之后两边**字面同版本**, 任何导入顺序都安全
+(代价: torch 2.14.1 → 2.14.0、torchvision 0.29.1 → 0.29.0)。
+
+切换后实测 (2026-11-03, 同机同 GPU):
+
+* `torch/lib/cublasLt64_13.dll` = `6.14.11.1340` = toolkit v13.2 那份 (切换前是 `1300`);
+* 先 `import torch` 或先走 `pin_cublas()` 两种顺序, 两个裸名都落在**同一目录**:
+  torch 先导入时是 `torch/lib` —— 它与 toolkit 那份同版本, 分叉不再有后果;
+* cupy `matmul` / `linalg.inv` / `linalg.pinv` 与 torch `matmul` 四个算子全 OK;
+* 因此 `pin_cublas()` 现在退居**兜底**: 比较结果是「相等 → 钉 toolkit」, 但 torch import
+  时已按全路径装好自己那份, 钩子只保证不会分叉。**主修法是 extra 选型**, 不是钩子。
+
+各 DLL 版本: toolkit v13.0 = `6.14.11.1310` / v13.1 = `6.14.11.1321` / v13.2 = `6.14.11.1340` /
+scoop cuda current = `6.14.11.1380` / torch cu130 = `6.14.11.1300` / torch cu132 = `6.14.11.1340`。
 入口规则见 `AGENTS.md` §CUDA 原生库入口, 门禁
 `tests/ao_shaping/test_native_cuda_import_gate.py`, 实现与全部证据
 `src/ao_shaping/_cublas_preload.py`。

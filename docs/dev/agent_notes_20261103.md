@@ -33,8 +33,13 @@
 - **已实测无效的"修法", 别再提**: `.venv` 隔离与 `uv run` 都不清理 `PATH`;
   `os.add_dll_directory(torch\lib)` 对 ctypes 裸名加载无效; 从 `PATH` 删 CUDA 目录后 scoop
   那份 (6.14.11.1380) 仍会被绑。把 `torch\lib` 置入 `PATH` 首位**有效**但是机器级配置。
-  根治 = 机器只留一套 CUDA minor 且与 torch extra 同源 (本机 `--extra torch-cu132` 自带的
-  正是 6.14.11.1340 = PATH 首位 v13.2)。
+  根治 = 机器只留一套 CUDA minor 且与 torch extra 同源。
+- ✅ **本机已切 `--extra torch-cu132` (2026-11-03 收口)**: `torch 2.14.0+cu132` 自带的
+  `cublasLt64_13.dll` = `6.14.11.1340` = PATH 首位 v13.2, 两个裸名**字面同版本**, 任何导入
+  顺序都不再分叉 (实测先 `import torch` 与先 `pin_cublas()` 两种顺序, cupy
+  `matmul/inv/pinv` + torch `matmul` 四算子全 OK)。代价: torch 2.14.1 → 2.14.0、
+  torchvision 0.29.1 → 0.29.0。因此 **extra 选型是主修法**, `pin_cublas()` 退居兜底
+  (给 minor 不匹配的机器和未来 extra)。
 
 ## 文档与门禁
 - `docs/dev/module_inventory.md`、`docs/dev/report_subdir_index.md` 重钉计数与登记。

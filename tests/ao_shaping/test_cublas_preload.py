@@ -30,6 +30,18 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 TORCH_VERSION = (6, 14, 11, 1300)
 TOOLKIT_VERSION = (6, 14, 11, 1340)
 
+#: Measured ``cublasLt64_13.dll`` builds and where each comes from (docs/environment.md
+#: §cuBLAS DLL 与 PATH). The real-DLL test below must not pin one torch extra: this bench
+#: ran cu130 (build 1300) when the hook landed and runs cu132 (build 1340) after the
+#: switch, so "the version this machine has" is a property of the install, not of the code.
+MEASURED_CUBLASLT_BUILDS = {
+    (6, 14, 11, 1300): "torch 2.14.x+cu130",
+    (6, 14, 11, 1310): "CUDA toolkit 13.0",
+    (6, 14, 11, 1321): "CUDA toolkit 13.1",
+    (6, 14, 11, 1340): "torch 2.14.0+cu132 / CUDA toolkit 13.2",
+    (6, 14, 11, 1380): "scoop cuda/current",
+}
+
 
 @pytest.fixture(autouse=True)
 def _fresh_process_latch(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -277,9 +289,17 @@ def test_file_version_reads_a_real_dll() -> None:
     if spec is None or not spec.origin:  # pragma: no cover - torch not installed
         pytest.skip("torch is not installed in this environment")
     dll = Path(spec.origin).parent / "lib" / "cublasLt64_13.dll"
-    if not dll.is_file():  # pragma: no cover - a non-cu130 torch build
+    if not dll.is_file():  # pragma: no cover - a torch build without CUDA
         pytest.skip(f"{dll} does not exist")
-    assert _cublas_preload._file_version(dll) == TORCH_VERSION
+    version = _cublas_preload._file_version(dll)
+    assert version[0] == 6, (
+        f"_file_version parsed {dll} as {version}; the CUDA 13 family reports 6.x"
+    )
+    assert version in MEASURED_CUBLASLT_BUILDS, (
+        f"unmeasured cuBLASLt build {version} in {dll}. Add it to MEASURED_CUBLASLT_BUILDS "
+        "(and the table in docs/environment.md) once you know which extra shipped it -- an "
+        "unknown build is how a version split goes unnoticed."
+    )
 
 
 def test_torch_origin_prefers_an_already_imported_module(monkeypatch: pytest.MonkeyPatch) -> None:
