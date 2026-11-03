@@ -43,7 +43,6 @@ from ao_shaping.tools.slm.transfer.session_plan import (
     _frozen_groups, model_only_decision, session_plan, skips_shape,
 )
 from ao_shaping.utils.image.target import TRANSFER_SHAPE_CHOICES
-from types import SimpleNamespace
 
 
 def replay_seed(directory, shape, xy, target):
