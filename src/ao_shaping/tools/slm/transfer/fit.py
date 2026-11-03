@@ -161,13 +161,21 @@ class FitComponents:
 
 
 def build_fit_model(dataset, checkpoint, *, span, device=None, adaptation="full",
-                   amplitude_center_lr=None, radiometry="exposure"):
+                   amplitude_center_lr=None, radiometry="exposure", samples=None):
     """Assemble a physical-forward fit model from a recorded dataset.
 
     Shared by :func:`fit` (offline) and the headless parallel worker. The model is
     warm-started from ``checkpoint`` and built fresh each call, so a monitoring
     worker can rebuild it per poll without touching this code. The caller owns
     the iteration loop.
+
+    ``samples`` is the capture stage's in-memory ``{manifest "file": payload}``
+    mapping (see :func:`load_dataset`). It must be threaded through here, not
+    just through :func:`load_dataset`: the extraction of this function dropped it
+    once (commit a35d5af0), and the symptom is a crash in the **fit** stage on a
+    capture that succeeded — ``save_dataset=False`` means no ``sample_*.npz`` was
+    ever written, so the disk fallback raises ``FileNotFoundError`` on a file that
+    was never supposed to exist (2026-11-03 19:26 session, ``sample_0009.npz``).
     """
     import torch
     from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
@@ -180,7 +188,7 @@ def build_fit_model(dataset, checkpoint, *, span, device=None, adaptation="full"
     old = load_frozen_parameters(checkpoint).effective_parameters()
     device = resolve_device(device)
     rows, phases, images, xy, matrix, ramp_samples, train = load_dataset(
-        dataset, old.grid_size, span)
+        dataset, old.grid_size, span, samples=samples)
     manifest_rows = json.loads((dataset / "manifest.json").read_text(encoding="utf-8"))
     reference_row = next(row for row in manifest_rows
                         if row["label"] == "reference_start" and valid(row))
@@ -270,7 +278,8 @@ def fit(args):
                             device=getattr(args, "device", None),
                             adaptation=adaptation,
                             amplitude_center_lr=getattr(args, "amplitude_center_lr", None),
-                            radiometry=getattr(args, "radiometry", "exposure"))
+                            radiometry=getattr(args, "radiometry", "exposure"),
+                            samples=getattr(args, "samples", None))
     import torch
     args.out.mkdir(parents=True, exist_ok=False)
     provenance = dict(dataset=str(args.dataset.resolve()), checkpoint=str(args.checkpoint.resolve()),

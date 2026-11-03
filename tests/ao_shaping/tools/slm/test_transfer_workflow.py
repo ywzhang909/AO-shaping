@@ -6,6 +6,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -488,6 +489,70 @@ def test_fit_still_reads_the_recorded_dataset_without_samples(tmp_path):
     assert [r["label"] for r in selected] == ["probe_000_a", "probe_003_b"]
     assert phases.shape == (2, 8, 8)
     assert images.shape == (2, 11, 11)
+
+
+def test_build_fit_model_threads_the_in_memory_samples_through(tmp_path, monkeypatch):
+    """``save_dataset=False`` writes no npz, so the fit must use the in-memory payload.
+
+    2026-11-03 19:26 的会话在 **fit** 段炸掉: ``FileNotFoundError:
+    .../capture/sample_0009.npz``。采集段成功, 但 ``save_dataset=False`` 意味着
+    那些 npz 从来没被写出来 —— 拟合本该走内存里的 payload。``build_fit_model``
+    被抽出来时 (``a35d5af0``) 把 ``samples=`` 丢了, 于是 ``load_dataset`` 掉回
+    磁盘分支, 去读一个本来就不该存在的文件。
+    """
+    from ao_shaping.tools.slm.transfer import fit
+
+    samples = _tiny_dataset(tmp_path)
+    checkpoint = tmp_path / "checkpoint.json"
+    checkpoint.write_text(json.dumps(dict(
+        defocus_diopter=0., origin=[20., 20.], amplitude_center=[960., 600.],
+        amplitude_width=[400., 300.], residual_noll_radians={str(j): 0. for j in range(5, 12)},
+        gain=1., background=0., sigma_ccd_px=0., ramp_matrix=[[0., 1.], [1., 0.]],
+        grid_size=8, fft_size=64, pixel_samples=3)), encoding="utf-8")
+    captured: dict = {}
+
+    class _Reached(Exception):
+        """Stops the test right after the wiring under test."""
+
+    def fake_load(directory, size, span, samples=None):
+        captured["samples"] = samples
+        raise _Reached
+
+    monkeypatch.setattr(fit, "load_dataset", fake_load)
+
+    with pytest.raises(_Reached):
+        fit.build_fit_model(tmp_path, checkpoint, span=10, samples=samples)
+
+    assert captured["samples"] is samples
+
+
+def test_fit_forwards_the_in_memory_samples_to_build_fit_model(tmp_path, monkeypatch):
+    """``fit.fit`` must hand its ``samples`` down to ``build_fit_model``.
+
+    Same defect as above, one hop further up: ``fit`` records
+    ``sample_source="memory"`` in its provenance, so a lost mapping shows up as a
+    provenance that claims memory while the arrays came from disk.
+    """
+    from ao_shaping.tools.slm.transfer import fit
+
+    samples = _tiny_dataset(tmp_path)
+    captured: dict = {}
+
+    class _Reached(Exception):
+        """Stops the test right after the wiring under test."""
+
+    def fake_build(dataset, checkpoint, *, span, **kwargs):
+        captured.update(kwargs)
+        raise _Reached
+
+    monkeypatch.setattr(fit, "build_fit_model", fake_build)
+
+    with pytest.raises(_Reached):
+        fit.fit(SimpleNamespace(dataset=tmp_path, checkpoint=tmp_path / "checkpoint.json",
+                                 out=tmp_path / "fit", iterations=1, span=10, samples=samples,
+                                 adaptation="full"))
+
+    assert captured["samples"] is samples
 
 
 # ---------------------------------------------------------------------------
