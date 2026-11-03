@@ -2,8 +2,8 @@
 
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
-> **运行环境**: 离线（只读汇总 `report/shape_trials/` 下已有报告；不产生新的硬件数据）
-> **说明**: 对 SPGD、黑盒、GS、model-in-loop、多形状/迁移、物理 refine 与 FourierGSNet 系列整形报告的问题汇总，按光路失配、物理设备受限、算法缺陷、测量与验收口径四类归并
+> **运行环境**: 离线只读综述（汇总 report/shape_trials/ 下既有报告；不产生新硬件数据）
+> **说明**: 光束整形报告问题综述：按光路失配、物理设备限制、算法缺陷、测量与验收口径归类，数字均来自所引原报告；FourierGSNet 条目经人工摘录核对，未在硬件上复验。
 <!-- provenance:end -->
 
 ## 0 结论摘要
@@ -18,7 +18,7 @@
 
 - 覆盖目录：`report/shape_trials/` 下 GS 系列（gs_refine、gs_refine_fwdmodel、gs_refine_zernike、gs_defocus_sim、gs_golden_reference、hw_gs_square_scans、cold_start）、SPGD/黑盒/学习类（spgd_drift_cancel_loop、blackbox_path、gui_closed_loop_shaping、no_gs_ccd_moved）、model-in-loop 系列（model_in_loop、model_in_loop_cv、defocus_differentiable、hw_defocus_zernike、experiment_summary）、多形状/迁移/物理 refine 系列（multishape_capability、multishape_scale、multishape1200、square1200、tri_plane、axial_plane、sim_vs_hw、mask_closed_loop、physical_refine）；以及 `report/benchmarks/device_less_full/` 的 SPGD/GS 仿真指标。
 - 每条问题给出：分类、一句话描述、证据位置（仓库相对路径与关键数字）、报告自身给出的状态。
-- **局限**：条目来自四组只读摘录，部分长报告正文被截断，标注“待核实”的条目未逐行复核；数字以原报告为准。FourierGSNet 系列四份报告的摘录仍在生成中，未纳入本版（见 §6）。
+- **局限**：条目来自只读摘录，部分长报告正文被截断，标注“待核实”的条目未逐行复核；数字以原报告为准。FourierGSNet 系列条目经逐份通读后的摘录核对源码状态（见 §2.5）。
 
 分类：**A** 光路失配；**B** 物理设备受限；**C** 算法缺陷；**D** 测量与验收口径。状态：已修复 / 已缓解 / 未解决 / 待硬件验证。
 
@@ -125,10 +125,86 @@
 - [C] 仅离线孪生验证，net_open ≈ 平场（无掩模先验）；two_spot 在 nominal 下假通过 — `mask_closed_loop/mask_closed_loop_20261031.md` — 未解决。
 - [C] 14 项 Zernike 适配器在高阶漂移下 Δcorr −0.018，对几何漂移无效 — `fast_recal_adapter/fast_recal_adapter.md` — 已验证无效。
 
+### 2.5 FourierGSNet 系列
+
+**`report/fouriergsnet_pipeline/fouriergsnet_pipeline_report/report.md`（离线集成测试）**
+
+- [A] 面板分辨率转置：驱动约定 `PANEL_RES=(1920,1200)` 被当作 `(h,w)`，产出 1920 行×1200 列，真实驱动要求 (1200,1920)，上机整体转置 90° — `report/fouriergsnet_pipeline/fouriergsnet_pipeline_report/report.md:105-108`；`driver.py` 的 `target_h=Panel_Res[1]` — 未解决（`src/ao_shaping/drivers/sim/fouriergsnet_env.py:77-82` 仍保持转置约定）。
+- [D] 仿真特意采用同一转置约定，故仿真无法暴露该错误 — 同上 `:107-108` — 未解决。
+- [D] 默认 `BeamParams(region=512, w0=250)` 在 K_px=256 下远场退化为亚像素点，`measure()` 抛“工作区无信号”；为通过 5 项测试改用 `w0=1.0`，平场覆盖 3522/4096 px，与台架 80 px 块情形无关 — 同上 `:37-44` — 已缓解（绕过而非修复）。
+- [D] 均匀度 `uni=min/mean` 对未填满 ROI 恒为 0（ROI 484 px vs 光斑约 8 px），测试被迫改为弱断言 `uni_final>uni_init`（仅 +0.03）— 同上 `:87-93` — 已缓解（换断言，指标未改）。
+- [B] 测试固定 `SETTLE_S=0.0`，仿真无建立时间（真实 0.3 s）— 同上 `:59-65` — 已缓解（主脚本 `SETTLE_S=0.2`）。
+- [C] `closed_loop` 对需梯度的 `phi` 调 `.numpy()` 抛错，真实 CLI 同样崩溃 — 同上 `:52-57,78-85` — 已修复（2026-10-01）。
+- [D] “5 passed + 21 passed”验收结论所依赖的脚本随后被删除，结论不可复现 — 同上 `:7,10,112-115` — 未解决（历史产物已失效）。
+
+**`report/fouriergsnet_pipeline/hardware_run_20261001.md`（2026-10-01 硬件方形整形，判定失败）**
+
+- [A] 零级实测 (672.3,1026.6)，帧中心 (1296,972)，x 偏 −624 px；以帧中心取窗会把光斑移出 ROI — `report/fouriergsnet_pipeline/hardware_run_20261001.md:80` — 未解决（需每次按实测零级定位）。
+- [A] `np.kron` 把 24×24 网格复制为 80×50 px/块，远场结构 ≥46–92 px，主瓣仅约 30 px，刻方需面板周期 ≳296 px — `hardware_run_20261001.md:141-144,181`；`gsnet_runner.py:557-562`（`np.kron`），`gsnet_runner.py:342`（`phase_grid=24`）— 未解决。
+- [A] 尺度常数自相矛盾：`132940/P` 与 `7600/P` 相差 17.5×，实测 7400 与一阶 `7557/P` 差 1–2% — `hardware_run_20261001.md:187` — 未解决。
+- [B] 曝光裁切拐点在 1.75–2.00 ms；2.0 ms 时 50 px box 内 0.6% 饱和 — `hardware_run_20261001.md:93-103` — 已缓解（固定 1.5 ms）。
+- [B] 激光功率漂移：平场峰值 15:30 为 202.5、15:38 为 246（+21%/8 min）— `:105-106` — 未解决。
+- [B] 噪声地板 σ=2.3017e-04，多模式 SNR 0.45–1.38，`usable_deltas()` 为空（门槛 ≥2）；同一台架单日波动 21 倍 — `:110-119` — 未解决。
+- [B] `SLM_RESPONSE_TIME_S=0.3`，正负帧间隔内漂移不被抵消 — `:169-170` — 未解决。
+- [B] SLM 仅 memory mode，挂起需物理断电，open+首帧采集可能无限阻塞 — `:214,224-225` — 已缓解（流程约束）。
+- [C] 优化为随机游走：`dec=0.487`，四分位均值平坦，末态比首态 −35.9% — `:25-29` — 未解决。
+- [C] 最优解即初始态：`best +0.0% @ epoch 1`；初始散斑 EE 0.158 高于搜索到的全部状态 — `:28,153-156` — 已修复（起点改平场，`slm_square_shaping.py:1076-1081`）。
+- [C] 目标被规避：CV 项 +0.0118，EE 项 −0.0792，EE 末/首 0.16×，0 阶峰值 225→17 — `:32-41` — 已修复（EE guard 0.6：`slm_square_shaping.py:816`，`gsnet_runner.py:350`；未在硬件复跑验证）。
+- [C] 方形路径无环围能量门（guard 行数 0），`w_efficiency=0.6` 不足以阻止以散光换 CV — `:30,158-163` — 已修复（待硬件验证）。
+- [C] DOF 稀释：576 DOF 中仅约 159 被照亮，逐 DOF SNR<1；`phase_grid` 仍为 24 — `:165-168` — 已缓解。
+- [C] 采样仅单帧 `CAM_SAMPLE_ITER = 1`，无 ABBA、无多帧平均（`slm_snr_probe.abba_signal` 已实现未接入）— `:169,184,198-199` — 未解决。
+- [C] `lr=0` 经 `learning_schedule()` 静默覆盖 `--delta`；freeform `_param_scale=1.0` 与 Zernike `0.1` 不可迁移 — `:64,179-180`；`slm_square_shaping.py:1163,1170,1596-1605` — 未解决。
+- [D] 预检已判不可用（`usable_deltas()=∅`、guard=0、目标不可达）仍跑满 80 epoch，缺拒绝开跑的门禁 — `:114-116,192-206` — 未解决。
+- [D] 验收判据退化：`quality` 全局最优近似平场，“成功”与“退回原点”不可区分 — `:139-149` — 未解决。
+- [D] 50 px 平顶方块要求 296 px 结构，80 px 块只能产生 46–92 px 结构；靠 `--target-side 100` 缓解 — `:62-63,141-144,202-204` — 已缓解。
+- [D] `--exposure-time-ms` 默认 80.0 ms（台架基线约 0.02 ms），显式传值后饱和保护成为死代码 — `:185-186` — 未解决。
+
+**`report/fouriergsnet_pipeline/offline_training/report.md`（离线训练，40 epoch / 6513 条）**
+
+- [C] `best_epoch=40` 即最后一个 epoch，损失仍单调下降 3.8014→3.3104（−12.9%），未收敛即被当作完成 — `report/fouriergsnet_pipeline/offline_training/report.md:40-50` — 未解决。
+- [C] `uniformity_cv=1.8805`（std 超过 mean），却以 `far_correlation=0.9805`、`encircled_energy=0.9957` 判“有条件通过” — `:56-70` — 未解决。
+- [C] 评估集等于训练集（`n_records=6513`＝`n_samples=6513`），无留出划分，指标为拟合值 — `:30-31` — 未解决。
+- [C] `phase_mae=1.4161 rad` 未与目标动态范围对照，无法判定好坏 — `:56,67` — 待硬件验证（缺口径）。
+- [C] 监督语料合并了未筛选的 debug 产物（`data/debug/slm_zernike_*`、`slm_pib_*`），包含失败运行，坏整形作为标签 — `:106-109,153-155` — 未解决。
+- [C] 损失权重 `w_shaping=40` vs `w_phase=1`，网络偏向拟合强度图 — `:24-25,119-120` — 未解决。
+- [C] 7,344,650 参数对 6,513 条（约 1128 参数/样本），单 seed=0，无方差估计 — `:29-34` — 未解决。
+- [C] 11 个非记录 pickle 曾致语料索引整体失败 — `hardware_run_20261001.md:188` — 已修复。
+- [B] 网络从未上台架，所有指标对实际光束整形无直接证据 — `offline_training/report.md:10` — 待硬件验证。
+
+**`report/fouriergsnet_sim/fouriergsnet_sim_report/report.md`（12 场景湍流仿真矩阵）**
+
+- [A] 仿真把 0 级钉在画面中心（`fftshift(fft2(...))`），台架零级偏 −624 px — `report/fouriergsnet_sim/fouriergsnet_sim_report/report.md:266` 与 `hardware_run_20261001.md:80` — 待硬件验证。
+- [A] 注入的标定失配比实测小 1–2 个数量级：sim 为中心偏移 2 px、旋转 0.3°、ΔK 2%；实测为零级偏 624 px、Kx 7546.4 vs Ky 7495.9（0.67%）、rot 0.12°±1° — `:32,292` — 未解决。
+- [A] 仿真面板为 64×64 原生方阵、无带限上采样，真实为 1920×1200 与 80×50 px 块，即台架上方形不可达的根因 — `:29,282-283`；`hardware_run_20261001.md:141-144` — 未解决（最关键的 sim–hw 结构性偏差）。
+- [A] 光路建模为严格 2f（Fraunhofer FFT）、无离焦；台架相机常驻离焦，需 D≈0.56–0.63 m⁻¹ 的 Fresnel 补偿 — `:265,277-283` — 未解决。
+- [B] LUT 为理想 2π 线性 256 点，无 10-bit 量化与灰度-相位非线性（真实 2π=993 gray）— `:268` — 未解决。
+- [B] 噪声模型远优于台架（50000 峰值光子 + 2 e⁻ 读出），硬件 54 DOF 时 SNR 仅 0.45–1.38 — `:30-31,291` — 未解决。
+- [B] 未建模 SLM 建立时间（0.3 s）与激光漂移（+21%/8 min）— `:289-294` — 未解决。
+- [B] 未建模零级与衍射效率损耗、面板填充因子；EE 仅在 ROI 内归一化 — `:389-399` — 未解决。
+- [C] 闭环末态劣于自身最佳且无 best-iterate 保留：square 三例 0.0138 vs best 0.0650、0.0191 vs 0.0417、0.0519 vs 0.0686 — `:40-44` — 未解决。
+- [C] 均匀度上升同时 EE 下降（0.931→0.926、0.914→0.887、0.941→0.921），仿真目标同样无 EE 门 — `:81,111,141,171` — 未解决。
+- [C] 矩阵没有微调网络（`ft_samples=0`，`replay=False`），“FourierGSNet 成功”仅验证了 GS 初值加未适配本台的 CNN — `:361-363,378,386` — 未解决。
+- [C] 模型-测量差距：`c_hat` max|ĉ|≈0.17 rad，而域随机采样池为低阶 {0.3,0.5,0.8} rad，网络只补偿注入像差的约 1/2–1/5 — `:366,410` — 未解决。
+- [C] fast 湍流档（σ=0.30、τ=12）定义后从未运行，跟踪上限未标定 — `:12,236-243,304` — 未解决。
+- [D] “12/12 ok”判据仅为“跑完没报错”，无 final_uniformity、EE 或 final≥best×k 的通过阈值，却 headline 写“全部成功” — `:12,33,37-50` — 未解决。
+- [D] 结论与数据相反：slow 湍流下每个 square 场景都低于无湍流（0.0519→0.0346、0.0138→0.0106、0.0191→0.0112），却写成“具有跟踪能力” — `:12,172,202,232,241-243` — 未解决（结论口径错误）。
+- [D] gaussian 目标的均匀度按定义恒为 0，仍作为结果列表，表格不可横向比较 — `:67,97,127` — 未解决。
+- [D] 数据根 `data/fouriergsnet_sim/native_w4b` 为另一台机器的 POSIX 绝对路径，矩阵不可复现 — `:15` — 未解决。
+
+**FourierGSNet 横切结论**
+
+1. 仿真与硬件存在同一失效模式（CV 改善以 EE 崩塌为代价），但只有硬件路径加了 EE guard（0.6，未硬件复验）；仿真目标仍无门，因此仿真预测不到自身复现出的失败。
+2. sim→hw 差距已量化但未闭合：零级偏移 2 px vs 624 px；64×64 无带限面板 vs 80×50 px 块；SPGD 仿真 quality 0.5874 对应硬件 dec=0.487 随机游走。
+3. 面板几何约定（1920 行×1200 列）只存在于仿真与管线内部，真实驱动为 (1200,1920)；所有 sim 结论以此为前提，属“条件成立”而非“已验证”。
+4. 硬件三大约束：SNR<2（54 DOF）、漂移 21%/8 min、SLM 0.3 s 建立；`CAM_SAMPLE_ITER=1`、无 ABBA、无多帧平均在多份报告中仍未解决，是当前最该先补的物理层缺口。
+
 ## 3 跨报告反复出现的问题
 
 | 主题 | 类别 | 代表证据 | 状态 |
 |------|------|----------|------|
+| FourierGSNet 面板转置、零级 −624 px、sim 无离焦/无带限面板 | A | fouriergsnet_pipeline §1；hardware_run_20261001 §2；fouriergsnet_sim §4 | 未解决 |
+| FourierGSNet 离线训练未收敛、评估集等于训练集、0.97 相关不可泛化 | C/D | offline_training/report.md | 未解决 |
+| FourierGSNet 采样单帧、无 ABBA、SNR<1.4、漂移 21%/8 min | B/C | hardware_run_20261001 §2 | 未解决 |
 | 模型-实测巨大落差（增益约 100× 乐观，r²≈0.04，Jacobian 对离焦失效） | C | square_1000 §12–13；physical_refine §3.3 | 未解决 |
 | 零级位置抖动与几何失配（8–39 px 抖动，200 px 零级误差，α≈0.48） | A/B | hw_gs_square_scans；no_gs F5；zero_order_blaze | 未解决 |
 | CCD 离焦（D=+0.559 m⁻¹，f≈1789 mm）与中心校正引入 −5.5 px/mm 偏移 | A | 标定层；tri_plane；physical_refine | 未解决 |
@@ -158,5 +234,5 @@
 
 ## 6 待补充
 
-- FourierGSNet 系列（`report/fouriergsnet_pipeline/`、`report/fouriergsnet_sim/`）四份报告的问题摘录仍在生成中，待返回后补入 §2 与 §3。
+- FourierGSNet 条目来自逐份通读后的摘录；源码状态（转置、EE guard、`np.kron`）只做了抽查，未在硬件上复验。
 - 摘录中标注“待核实”的长报告段落未逐行复核；引用的数字以原报告为准。

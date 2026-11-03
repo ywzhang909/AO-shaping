@@ -184,6 +184,14 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/ml/sim2f_fov_hw_figures.py",
         ),
     ),
+    "report/shape_trials/shaping_issues_review/shaping_issues_review_20261103.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线只读综述（汇总 report/shape_trials/ 下既有报告；不产生新硬件数据）",
+        note=(
+            "光束整形报告问题综述：按光路失配、物理设备限制、算法缺陷、测量与验收口径归类，"
+            "数字均来自所引原报告；FourierGSNet 条目经人工摘录核对，未在硬件上复验。"
+        ),
+    ),
     "report/shape_trials/physical_refine/physical_refine_results_20261103.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线分析 + 2026-11-03 当日硬件采集（daheng CCD、SLM panel、ring refine 三模式与 GS seed refine、零级诊断）；报告含实测 CCD GIF。",
