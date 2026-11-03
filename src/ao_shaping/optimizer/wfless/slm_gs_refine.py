@@ -1383,6 +1383,8 @@ def optimize_slm_gs_refine(config: SlmGsRefineConfig) -> Recorder:
             if original_slot is None:
                 original_gray = slm.get_current_grayscale()
         try:
+            # 采集入口守卫 (#186): 驱动板不应答在第一帧前失败; 仿真面板 no-op。
+            require_drive_board_entry(slm)
             # The camera is **not** opened here: the session asks for it only
             # when it reaches the measuring stages (see
             # ``_run_gs_refine_session``), so a GS-only run never claims a

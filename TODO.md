@@ -728,7 +728,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 9. ✅ **BLE001 `src/runners` + `src/optimizer` 片（5 处 silent）⇒ 2 处真缺陷；并修掉本账本自己守卫的「扫描盲区」（§8.10 第二次）**（2026-10-24）：
    3 处不动：`runners/slm/zernike_matrix_runner.py:1377`（`finally` 里的尽力 `dev.close()`）、
-   `optimizer/wfless/slm_square_shaping.py:1466/1843`（两处 `try` 头，包住 `display_ctx.update(...)` —— 显示刷新失败**不该**中断优化闭环。2026-10-28 重钉：原 `:1807/2183` 钉的是调用内部的参数行，随本行实参列表增删就会漂；改钉 `try` 头并对齐语义。此前 `# policy:` 标记插入使两者各 +1/+2；2026-10-31 复核 `081f5dc7` #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在上方）再下移 3 行至 `:1806/2183`；2026-11-01 复核 #205 第十五批（886 行 With 会话提为 `_run_square_session`，区域整体平移 −340 行）两处 `try` 头重钉至 `:1466/1843`）
+   `optimizer/wfless/slm_square_shaping.py:2078/2455`（两处 `try` 头，包住 `display_ctx.update(...)` —— 显示刷新失败**不该**中断优化闭环。2026-10-28 重钉：原 `:1807/2183` 钉的是调用内部的参数行，随本行实参列表增删就会漂；改钉 `try` 头并对齐语义。此前 `# policy:` 标记插入使两者各 +1/+2；2026-10-31 复核 `081f5dc7` #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在上方）再下移 3 行至 `:1806/2183`；2026-11-01 复核 #205 第十五批（886 行 With 会话提为 `_run_square_session`，区域整体平移 −340 行）两处 `try` 头重钉至 `:1466/1843`；2026-11-03 复核 #205 第二十五批（486 行"目标闭包 + 黑盒搜索 + epoch 循环"阶段提为模块级 `_run_square_search_stage`，两个 `try` 头随所属语句整体迁入该 helper，故不再与本文件主体行号同序）重钉至 `:2078/2455`）
    **真缺陷两处，都在闭环热路径上**：
    ① `runners/micro_drive/voltage_runner.py:_adc_worker` 用 `except Exception: pass` 吞掉 ADC 读取失败。
    不可归因的关键实测：消费端 `:381`（2026-10-25 重钉，`a05f7e3f` 在 ADC 读取路径插入退避块 +22 行，原 `:359`）只 `logger.debug("Drained {} ADC samples this cycle", …)` —— 只数**收到多少**，
@@ -4490,6 +4490,17 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 锚零漂移（实证）：helper 追加 EOF 使其下 `wait_until_idle` 等 def −100，但全仓 `device_mutex.py:NNN` 引用只有 `:534-579`、`:1052`、`:1191` 三处，全在区域之上；call-graph wiki 无该文件条目。
 - 验收：网 93/93（`test_device_mutex` 24 + `test_bench_kernels_settle` 44 + `test_cli_argv_binding` 25，拆前用 `git stash` 单文件回退取基线、逐文件同计数）；守卫 `_DM` 改写（180/6→70/3 + 新增 `_resolve_probe_state` 150/4）→ 69/69；conventions 72 passed / 1 skipped；module-size 棘轮 2041→2080 重锚；term / ruff / provenance 全绿。
 - CI 首轮红为**已知 flake 对**（`ml/sim2f/test_fit::test_the_l1_default_stalls...` + `ml/zernike/test_train_amp_loss::test_mse_path_is_bit_identical...`，最大绝对差 1.2e-08），签名与作者纯资产提交复现一致 ⇒ 按纪律同 tip `--failed` 复跑后 success。
+
+**2026-11-03 · e496e9dc · #205 第二十四批：`slm_model_in_loop._run_model_in_loop_session`（946 行/nest 5）577 行整轮 For 提为 `_run_model_in_loop_rounds`（624 行/nest 4）**
+- 形态：session 946→404 行 / nest 5→4；helper 624 行 / nest 4。区域就是那枚 For（探针 refit 的 Step A + 冻结像差合成目标斑相位的 Step B 逐轮循环）；**整 For 提升** ⇒ 区域内每个 Break/Continue 只能绑到随行移动的循环，控制流不外逃，无需哨兵。
+- 两条被实测逼出来的新审计判据（已固化进拆分脚本）：(a) **pass_in 取超集**——判据是"区域内任一 Load 且预区已绑定"，不是"首次出现是 Load"。自指赋值 `step_a_lr = float(getattr(optimizer, "lr", step_a_lr)) or step_a_lr` 在同一行内先 Store 后 Load，按"首判据"会漏传参并在运行期 NameError，而 ruff `F821` 只覆盖部分形态。(b) **lambda/def 形参计入区域内绑定**，否则 `on_iteration=lambda iteration, loss, _trace=...:` 被误报 thread_in。
+- thread_out 5（`best_frame`/`best_phase`/`best_score`/`coefficients`/`status`），pass_in 33。helper 追加至 EOF ⇒ 其下所有 def 下移，活钉重钉 3 处：`docs/slm/model_in_loop_algorithm.md` `:3513-3535→:3730-3752`、`:3795-3803→:4012-4020`，以及 `TODO.md` 的 `:3950→:3408`。
+- 验收：wfless 网 1090/1090 + runners 网 626/626（拆前用 `git stash push -q src/...` 单文件回退取**同计数**基线）；守卫 `_MIL` 990/5→450/4 并新增 helper 条目；modsize 3968→4053；术语、报告溯源、ruff 三门禁归零。
+
+**2026-11-03 · 3910a15e · #205 第二十四批补丁：display 守卫的见证由两个具名函数改为模块级扫描——拆函数即红的测试↔实现具名耦合**
+- 上一批 CI 真红的根因不在拆分本身：`tests/ao_shaping/display/test_slm_model_in_loop_display.py::test_optimizer_guards_every_render_point_on_the_display_handle` 以 `inspect.getsource(optimize_slm_model_in_loop) + inspect.getsource(_run_model_in_loop_session)` 统计 `display_ctx` 守卫处数，渲染点随 For 迁入新 helper 后见证只剩 2/4。
+- 修法取**免疫形态**：改 `inspect.getsource(module)` 全模块扫描。该不变量本就说的是"模块内每个渲染点都被守卫"，与代码住所无关，故守卫数 4 的断言原样保留，且今后再拆不会再红。
+- 由此固化第 3 条拆分前置动作：**测试↔实现具名耦合扫描** `git grep -n "<函数名>" tests/`。第二十五批已照做——`slm_square_shaping` 侧仅形状守卫具名，robustness 网全部是 `getsource(module)` 免疫写法，故该网对拆分天然无感。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

@@ -56,7 +56,6 @@
 | [`miicam_simulation/miicam_report.md`](miicam_simulation/miicam_report.md) | `人工撰写` | 离线（仿真 MiiCam，无需设备） | 仿真 MiiCam 的测试报告 (2026-10-15 生成, 2026-10-29 随上游 30cac66d 入库)。报告自带的 provenance 块原先指向 `tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py`, 而该文件**从未入库**（全仓 `git ls-files` 无此路径）——生成器缺失, 故按手工报告登记, 正文与图保留原样; 若要复活可复现性, 需补回该生成器而不是改这一行。 |
 | [`model_free_ao_survey/report.md`](model_free_ao_survey/report.md) | `人工撰写` | 人工调研 | 无模型 AO 综述 (Selim 等 2026, J. Optics) × 本项目 model-free 栈 (SPGD/GS/RL/ML/物理预测模型) 逐条映射 + 6 条可借鉴清单 (自适应增益 / TIE / Cn² 自适应超参 / scintillation index / hybrid 调度 / RL 动态基准); 与 zotero_objectives 与 beam_shaping 文献调研互补, 不重复目标函数公式 |
 | [`models_analysis/models_report/report.md`](models_analysis/models_report/report.md) | `scripts/rl/generate_models_report.py` | 离线 | 读 TensorBoard event 文件 |
-| [`models_analysis/models_report/tmp_sac_run_showcase.md`](models_analysis/models_report/tmp_sac_run_showcase.md) | `scripts/rl/generate_models_report.py` | 离线 | 临时调试家族最佳 run 成果展示；原始检查点与 tfevents 已随清理删除，本文为删除前记录 |
 | [`models_analysis/reward_analysis.md`](models_analysis/reward_analysis.md) | `人工撰写` | 离线 | 传统 AO 仿真环境 reward 问题分析与解决 |
 | [`oopao_impact/oopao_impact_report/report.md`](oopao_impact/oopao_impact_report/report.md) | `scripts/oopao/generate_oopao_impact_report.py` | 离线 | 端到端 AO 环境下的后端影响 |
 | [`oopao_vs_numpy/oopao_vs_numpy_report/report.md`](oopao_vs_numpy/oopao_vs_numpy_report/report.md) | `scripts/oopao/generate_oopao_vs_numpy_report.py` | 离线 | 像差 x 湍流 12 场景 x 2 后端对比 |
@@ -189,10 +188,8 @@
 | [`slm_pib_bench/pib_bench_report/report.md`](slm_pib_bench/pib_bench_report/report.md) | `scripts/slm/generate_pib_bench_report.py` | 离线 | 离线分析报告 (噪声地板 / 门控 / best-vs-sustained) |
 | [`slm_pib_heuristic_hw/measure_shape_sensitivity/sensitivity.md`](slm_pib_heuristic_hw/measure_shape_sensitivity/sensitivity.md) | `scripts/slm/measure_shape_sensitivity.py` | 硬件 | 整形目标函数灵敏度 (噪声地板) 实测；测量内核已下沉到 src/ao_shaping/tools/kernels/sweep_analysis.py |
 | [`slm_pib_heuristic_hw/slm_pib_heuristic_hw_report/report.md`](slm_pib_heuristic_hw/slm_pib_heuristic_hw_report/report.md) | `scripts/slm/generate_slm_pib_heuristic_hw_report.py` | 硬件 | 实验系统基准 (Santec SLM-200 + 大恒 MER2-507)；figures/ + summary.csv 为本脚本产物 |
-| [`slm_pib_online/measure_shape_sensitivity/sensitivity.md`](slm_pib_online/measure_shape_sensitivity/sensitivity.md) | `scripts/slm/measure_shape_sensitivity.py` | 硬件 | 在线套件采集帧上的整形目标函数灵敏度 (噪声地板) 实测 |
 | [`slm_pib_online/shape_objective_comparison/objective_comparison.md`](slm_pib_online/shape_objective_comparison/objective_comparison.md) | `scripts/slm/generate_shape_objective_comparison.py` | 离线 | 三种整形目标函数的排序一致性 (Spearman) |
 | [`slm_pib_online/slm_pib_online_report/report.md`](slm_pib_online/slm_pib_online_report/report.md) | `scripts/slm/generate_slm_pib_online_report.py` | 离线 | 在线回归套件验收报告 (读 data/debug/slm_pib_online/) |
-| [`slm_pib_online_hw/shape_objective_comparison/objective_comparison.md`](slm_pib_online_hw/shape_objective_comparison/objective_comparison.md) | `scripts/slm/generate_shape_objective_comparison.py` | 离线 | 实验系统 CCD 帧上的三种整形目标函数排序对比 |
 | [`slm_pib_shape_50px/slm_pib_sim_report/report.md`](slm_pib_shape_50px/slm_pib_sim_report/report.md) | `scripts/slm/generate_slm_pib_sim_report.py` | 离线 | 50px target 的仿真运行报告 |
 | [`slm_pib_sim/slm_pib_sim_report/report.md`](slm_pib_sim/slm_pib_sim_report/report.md) | `scripts/slm/generate_slm_pib_sim_report.py (+slm_pib_sim_run.py)` | 离线 | 2f-Fourier 数字孪生跑 slm-pib；数据由 slm_pib_sim_run.py 产生 |
 | [`slm_shaping_sim/slm_shaping_sim_report/report.md`](slm_shaping_sim/slm_shaping_sim_report/report.md) | `scripts/slm/generate_slm_shaping_sim_report.py (+run_sim_bench.py)` | 离线 | SLM+CCD 整形仿真: 三个 SLM 族 runner 的收敛与 DM 族烟测对照 |
