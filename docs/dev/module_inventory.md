@@ -386,7 +386,7 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 | Utilities | `src/ao_shaping/utils/{io,image,wavefront,slm}/` + root `cli_params.py` | 4 子包: io/, image/, wavefront/, slm/ (spots_calc, wavefront_calc, zernike_calc, display 等) + 零导入叶子 `cli_params.py` |
 | Standalone runners (未注册) | `src/ao_shaping/runners/` | `runners/slm/offset_runner.py` 计划迁移至 `tools/slm/`。⚠️ `slm_shaping_runner` **曾经**在此列 (2026-10-05 前它未注册); 现以 `slm-pib` **命令组**注册（子命令 `spgd` / `heuristic` / `square`）；⚠️ 无 `spgd-square` 顶层命令 ⇒ 写 `slm-pib square` |
 | ML training | `src/ml/` (standalone, not inside `ao_shaping/`) | U-Net+GAN, trainer, wandb_logger |
-| 硬件相位→相机图像 DataLoader | `src/ml/hwdataset/` | `data/debug` 全量转 PyTorch Dataset: 输入=SLM 相位+曝光, 输出=CCD 画面 (见 [docs/ml_hwdataset.md](docs/ml_hwdataset.md) 的 `## ml/hwdataset/ Module — 硬件调试转 Dataset` 节) |
+| 硬件相位→相机图像 DataLoader | `src/ml/hwdataset/` | `data/debug` 全量转 PyTorch Dataset: 输入=SLM 相位+曝光, 输出=CCD 画面 (见 [docs/ml_hwdataset.md](../ml_hwdataset.md) 的 `## ml/hwdataset/ Module — 硬件调试转 Dataset` 节) |
 | **Zernike 系数→远场强度 Dataset** | `src/ml/hwdataset/zernike_dataset.py` | 输入=136 维 Noll 序系数 (弧度), 输出=归一化远场强度; **绕过 `materialise()` 的瞳面重建**, 实测 136 → 10.5 ms/item 且输出逐位一致 |
 | 离线评估统计 (配对检验/canary skill) | `src/ml/zernike/eval_stats.py` | **纯 numpy, 报告引用的统计唯一来源** (sign-flip 精确置换检验 / `cohens_dz` / `holm_bonferroni` / `min_attainable_pvalue` / `skill_scores` / `seed_agreement`)。scripts/ 只做渲染, **不得复制第二份** |
 | Standalone tools | `src/ao_shaping/tools/` | SLM phase capture, Micro-DM per-channel image collection, train data collection |

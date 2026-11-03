@@ -161,7 +161,7 @@ docker build -f docker/Dockerfile.test.cpu -t ao-shaping-test:cpu .
 ```
 
 
-> 🔴 **测试排除与分片策略**已外迁到 [docs/dev/ci_testing.md](docs/dev/ci_testing.md)（由 `tests/ao_shaping/scripts/test_pytest_workflow_shards_cover_tree.py::test_every_test_area_is_sharded` 与 `tests/ao_shaping/scripts/test_pytest_workflow_shards_cover_tree.py::test_no_harness_ignore_blanks_a_whole_test_area` 钉住）：
+> 🔴 **测试排除与分片策略**已外迁到 [docs/dev/ci_testing.md](ci_testing.md)（由 `tests/ao_shaping/scripts/test_pytest_workflow_shards_cover_tree.py::test_every_test_area_is_sharded` 与 `tests/ao_shaping/scripts/test_pytest_workflow_shards_cover_tree.py::test_no_harness_ignore_blanks_a_whole_test_area` 钉住）：
 > `pyproject.toml` 的 `addopts` 默认 `--ignore` 区域、drivers 排除的撤销与可见性事故、
 > `--hardware` 门必须位于 `drivers/conftest.py`、本地剪除与 CI 收集必须同向等细节。
 
