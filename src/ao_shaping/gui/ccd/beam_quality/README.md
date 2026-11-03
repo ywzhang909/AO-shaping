@@ -20,6 +20,15 @@
 .venv\Scripts\python.exe -c "from ao_shaping.gui.ccd.beam_quality import main; main()"
 ```
 
+**环境前提**：torch 必须按显卡装好对应 extra（本机 RTX 5080 用
+`uv sync --extra torch-cu132`）。选 extra 的第二条规则是**让它自带的 CUDA minor 与
+`PATH` 上第一套 CUDA toolkit 一致**：本机 `PATH` 首位是 v13.2（cuBLAS `6.14.11.1340`），
+而 torch 2.14.0+cu132 自带的正是 `6.14.11.1340`，两边同源；用 `torch-cu130`（自带
+`6.14.11.1300`）时则依赖 `pin_cublas()` 把 cuBLAS 裸名钉到 toolkit 那一份。
+**现象**：装错时进程会在 fit / 首次大矩阵乘法处**无声退出**（无 traceback、无报错弹窗），
+排查与四种绑定组合的实测见 [`docs/environment.md`](../../../../../docs/environment.md)
+§cuBLAS DLL 与 PATH。
+
 单页仍可直接用：`from ao_shaping.gui.ccd.beam_quality import BeamQualityApp`。
 
 ## 页 0 — 光束质量

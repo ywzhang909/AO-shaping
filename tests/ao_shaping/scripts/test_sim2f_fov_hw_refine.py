@@ -602,3 +602,16 @@ def test_min_window_peak_count_fails_the_run_and_marks_the_summary_failed(
     assert "peaks at" in summary["error"]
     assert "--min-window-peak-count" in summary["error"]
     assert (out / "accepted_phase.npy").is_file()
+
+
+def test_rejected_round_advances_the_search_start_to_its_candidate(
+    source_session: Path, calibration: Path, tmp_path: Path
+) -> None:
+    out = tmp_path / "rejected_advance"
+    refine_mod.main([*_arguments(source_session, calibration, out, rounds=2), "--min-gain", "1e9"])
+    summary = _summary(out)
+    rounds = summary["rounds"]
+    assert len(rounds) == 2
+    assert rounds[0]["status"] == "rejected"
+    # A rejected round must not replay the identical candidate next round.
+    assert rounds[1]["phase_sha256"] != rounds[0]["phase_sha256"]

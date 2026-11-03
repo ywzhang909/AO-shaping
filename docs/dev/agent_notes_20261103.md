@@ -17,12 +17,24 @@
 ## Windows / CUDA DLL
 - 迁移学习会话在 `fit` 段**静默退出**: 事件日志 `id=1000` 显示 `python.exe` 崩在
   `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2\bin\x64\cublasLt64_13.dll`
-  (`0xc0000005`, 6.14.11.1340)。根因是 `import cupy` 按裸名加载 cuBLASLt, PATH 上的
-  toolkit 副本顶替了 torch 2.14.1+cu130 自带的 6.14.11.1300。修法在
-  `src/ao_shaping/_cublas_preload.py` (在 `import cupy` 之前按全路径预载 torch 那份);
-  `AO_SKIP_CUBLAS_PRELOAD` 是逃生开关。**判据**: torch 的 `cublas64_13.dll` 是**按裸名**
-  绑定 cuBLASLt 的, 所以决定崩不崩的是**先进进程的是哪一份** —— toolkit 副本先进
-  (PATH 默认如此) 则 torch 的大 matmul 必崩; 预载后进程里只剩 torch 一份。
+  (`0xc0000005`, 6.14.11.1340)。根因是 `import cupy` 按**裸名**加载 cuBLAS, PATH 上的
+  toolkit 副本与 torch 2.14.1+cu130 自带的 6.14.11.1300 **各绑一个名字**; 决定生死的是
+  「两个裸名是否落到同一个 build」, 不是「谁的版本新」。
+- ⚠️ **首版修法 (`8014f579`) 方向是错的, 已由 `pin_cublas()` 取代**: 它只把 `cublasLt`
+  钉到 torch 那份, 于是 `cublas` 仍走 PATH → 混合对, 实测 cupy 的 matmul / `linalg.inv` /
+  `random` 与 torch 的 matmul **全部报错** (`CUBLAS_STATUS_INVALID_VALUE` /
+  `CUSOLVER_STATUS_INTERNAL_ERROR`)。反过来把 torch 的一对全钉住也不通: torch 只 ship
+  `cublas/cublasLt/cudart`, cupy 还要 `cusolver/cufft/curand`, 而这些**只存在于 CUDA 安装里**
+  (OOPAO 的 `LiFT.py` 真用 `xp.linalg.pinv`)。
+- 现行做法: `pin_cublas()` 把**两个裸名一起钉到 PATH 上第一套完整 CUDA** (toolkit 版本 ≥
+  torch 自带版本时), torch 靠 CUDA minor 兼容跑在更新的 cuBLAS 上 —— 四种绑定组合的实测表见
+  `docs/environment.md` §cuBLAS DLL 与 PATH。入口规则与禁止项见根 `AGENTS.md` §CUDA 原生库入口,
+  门禁 `tests/ao_shaping/test_native_cuda_import_gate.py`, 逃生开关仍是 `AO_SKIP_CUBLAS_PRELOAD`。
+- **已实测无效的"修法", 别再提**: `.venv` 隔离与 `uv run` 都不清理 `PATH`;
+  `os.add_dll_directory(torch\lib)` 对 ctypes 裸名加载无效; 从 `PATH` 删 CUDA 目录后 scoop
+  那份 (6.14.11.1380) 仍会被绑。把 `torch\lib` 置入 `PATH` 首位**有效**但是机器级配置。
+  根治 = 机器只留一套 CUDA minor 且与 torch extra 同源 (本机 `--extra torch-cu132` 自带的
+  正是 6.14.11.1340 = PATH 首位 v13.2)。
 
 ## 文档与门禁
 - `docs/dev/module_inventory.md`、`docs/dev/report_subdir_index.md` 重钉计数与登记。

@@ -90,9 +90,16 @@ uv sync --all-groups
 >
 > ```bash
 > uv sync --all-groups --extra torch-cpu     # 无 GPU
-> uv sync --all-groups --extra torch-cu128   # RTX 50xx / sm_120
 > uv sync --all-groups --extra torch-cu126   # GTX 10xx / sm_61（cu126 是最后支持 Pascal 的 12.x）
+> uv sync --all-groups --extra torch-cu128   # RTX 50xx / sm_120，机器上装的是 CUDA 12.8
+> uv sync --all-groups --extra torch-cu130   # RTX 50xx / sm_120，机器上装的是 CUDA 13.0
+> uv sync --all-groups --extra torch-cu132   # RTX 50xx / sm_120，机器上装的是 CUDA 13.2（本仓开发机）
 > ```
+>
+> **第二条选择规则**：extra 的 CUDA **minor** 要与 `PATH` 上第一套 CUDA toolkit 对齐。
+> Windows 上 torch 与 CuPy（OOPAO 用）会绑同一批 cuBLAS **裸名** DLL，两边落到不同 build
+> 时进程会在首次大矩阵乘法处**无声退出**（`0xc0000005`，无 traceback）。绑定矩阵、无效修法
+> 清单与本仓的运行时守卫见 [`docs/environment.md`](docs/environment.md) §cuBLAS DLL 与 PATH。
 >
 > 完整算力对照与索引配置见 [`pyproject.toml`](pyproject.toml) 的
 > “PyTorch build selection” 注释。

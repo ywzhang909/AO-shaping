@@ -3,14 +3,14 @@ from __future__ import annotations
 import numpy as np
 
 # Importing CuPy is what hands this process a CUDA runtime, and on Windows cupy's
-# import loads ``cublasLt64_13.dll`` *by bare name* -- which resolves through PATH
-# to a CUDA toolkit build when one is installed. torch's ``cublas64_13.dll`` then
-# calls a cuBLASLt it was not built against and the process dies with 0xc0000005
-# inside cuBLASLt, no traceback (2026-11-03 transfer fit). Loading torch's own
-# copy first keeps the bare name bound to it; see ``ao_shaping._cublas_preload``.
-from ao_shaping._cublas_preload import preload_torch_cublaslt
+# import loads ``cublasLt64_13.dll`` / ``cublas64_13.dll`` *by bare name*, binding
+# whichever build PATH exposes. A *mixed* pair -- cupy's cuBLASLt from one build,
+# torch's cublas from another -- is what faulted with 0xC0000005 in the 2026-11-03
+# transfer fit. ``pin_cublas()`` pins both bare names to one coherent build first;
+# see ``ao_shaping._cublas_preload``.
+from ao_shaping._cublas_preload import pin_cublas
 
-preload_torch_cublaslt()
+pin_cublas()
 
 try:
     import cupy as cp

@@ -1,0 +1,361 @@
+{
+  "schema": "sim2f_fov_refine_gains_v1",
+  "date": "20261103",
+  "rows": [
+    {
+      "tag": "raw16_20261103",
+      "refine_dir": "data/debug/sim2f_fov_refine_ring_raw16_1103_211433",
+      "round_id": "round_0001",
+      "accepted": true,
+      "status": "accepted",
+      "has_frame": true,
+      "effective_zero_order_xy": [
+        1124,
+        940
+      ],
+      "measured_min_gain": 0.001,
+      "measured": {
+        "reference_objective": 2.0576279163360596,
+        "candidate_objective": 2.0531527996063232,
+        "gain": 0.004475116729736328,
+        "candidate_ee": 0.0874876081943512
+      },
+      "predicted": {
+        "reference_objective": 2.2229115962982178,
+        "candidate_objective": 1.9665515422821045,
+        "gain": 0.2563600540161133
+      }
+    },
+    {
+      "tag": "raw16_20261103",
+      "refine_dir": "data/debug/sim2f_fov_refine_ring_raw16_1103_211433",
+      "round_id": "round_0002",
+      "accepted": true,
+      "status": "accepted",
+      "has_frame": true,
+      "effective_zero_order_xy": [
+        1124,
+        940
+      ],
+      "measured_min_gain": 0.001,
+      "measured": {
+        "reference_objective": 2.0531527996063232,
+        "candidate_objective": 2.047985315322876,
+        "gain": 0.005167484283447266,
+        "candidate_ee": 0.08978430926799774
+      },
+      "predicted": {
+        "reference_objective": 1.9665515422821045,
+        "candidate_objective": 1.4660999774932861,
+        "gain": 0.5004515647888184
+      }
+    },
+    {
+      "tag": "raw16_20261103",
+      "refine_dir": "data/debug/sim2f_fov_refine_ring_raw16_1103_211433",
+      "round_id": "round_0003",
+      "accepted": false,
+      "status": "rejected",
+      "has_frame": true,
+      "effective_zero_order_xy": [
+        1124,
+        940
+      ],
+      "measured_min_gain": 0.001,
+      "measured": {
+        "reference_objective": 2.047985315322876,
+        "candidate_objective": 2.053071975708008,
+        "gain": -0.005086660385131836,
+        "candidate_ee": 0.0875234380364418
+      },
+      "predicted": {
+        "reference_objective": 1.4660999774932861,
+        "candidate_objective": 0.8533575534820557,
+        "gain": 0.6127424240112305
+      }
+    },
+    {
+      "tag": "effective_20261103",
+      "refine_dir": "data/debug/sim2f_fov_refine_ring_eff_1103_210858",
+      "round_id": "round_0001",
+      "accepted": true,
+      "status": "accepted",
+      "has_frame": true,
+      "effective_zero_order_xy": [
+        1140,
+        940
+      ],
+      "measured_min_gain": 0.001,
+      "measured": {
+        "reference_objective": 2.0735573768615723,
+        "candidate_objective": 2.0712335109710693,
+        "gain": 0.0023238658905029297,
+        "candidate_ee": 0.07945171743631363
+      },
+      "predicted": {
+        "reference_objective": 2.1540050506591797,
+        "candidate_objective": 2.1136152744293213,
+        "gain": 0.0403897762298584
+      }
+    },
+    {
+      "tag": "effective_20261103",
+      "refine_dir": "data/debug/sim2f_fov_refine_ring_eff_1103_210858",
+      "round_id": "round_0002",
+      "accepted": true,
+      "status": "accepted",
+      "has_frame": true,
+      "effective_zero_order_xy": [
+        1140,
+        940
+      ],
+      "measured_min_gain": 0.001,
+      "measured": {
+        "reference_objective": 2.0712335109710693,
+        "candidate_objective": 2.0700736045837402,
+        "gain": 0.0011599063873291016,
+        "candidate_ee": 0.07996729016304016
+      },
+      "predicted": {
+        "reference_objective": 2.1136152744293213,
+        "candidate_objective": 2.044769525527954,
+        "gain": 0.06884574890136719
+      }
+    },
+    {
+      "tag": "effective_20261103",
+      "refine_dir": "data/debug/sim2f_fov_refine_ring_eff_1103_210858",
+      "round_id": "round_0003",
+      "accepted": false,
+      "status": "rejected",
+      "has_frame": true,
+      "effective_zero_order_xy": [
+        1140,
+        940
+      ],
+      "measured_min_gain": 0.001,
+      "measured": {
+        "reference_objective": 2.0700736045837402,
+        "candidate_objective": 2.070882558822632,
+        "gain": -0.0008089542388916016,
+        "candidate_ee": 0.07960779964923859
+      },
+      "predicted": {
+        "reference_objective": 2.044769525527954,
+        "candidate_objective": 1.9362475872039795,
+        "gain": 0.10852193832397461
+      }
+    },
+    {
+      "tag": "effalign_20261103",
+      "refine_dir": "data/debug/sim2f_fov_refine_ring_effalign_1103_211304",
+      "round_id": "round_0001",
+      "accepted": false,
+      "status": "rejected",
+      "has_frame": true,
+      "effective_zero_order_xy": [
+        1124,
+        942
+      ],
+      "measured_min_gain": 0.001,
+      "measured": {
+        "reference_objective": 1.9648635387420654,
+        "candidate_objective": 1.9676132202148438,
+        "gain": -0.0027496814727783203,
+        "candidate_ee": 0.1293584406375885
+      },
+      "predicted": {
+        "reference_objective": 2.127920389175415,
+        "candidate_objective": 2.1221923828125,
+        "gain": 0.005728006362915039
+      }
+    },
+    {
+      "tag": "effalign_20261103",
+      "refine_dir": "data/debug/sim2f_fov_refine_ring_effalign_1103_211304",
+      "round_id": "round_0002",
+      "accepted": false,
+      "status": "rejected",
+      "has_frame": true,
+      "effective_zero_order_xy": [
+        1124,
+        942
+      ],
+      "measured_min_gain": 0.001,
+      "measured": {
+        "reference_objective": 1.9648635387420654,
+        "candidate_objective": 1.9649251699447632,
+        "gain": -6.16312026977539e-05,
+        "candidate_ee": 0.13084028661251068
+      },
+      "predicted": {
+        "reference_objective": 2.127920389175415,
+        "candidate_objective": 2.105386257171631,
+        "gain": 0.02253413200378418
+      }
+    },
+    {
+      "tag": "effalign_20261103",
+      "refine_dir": "data/debug/sim2f_fov_refine_ring_effalign_1103_211304",
+      "round_id": "round_0003",
+      "accepted": false,
+      "status": "rejected",
+      "has_frame": true,
+      "effective_zero_order_xy": [
+        1124,
+        942
+      ],
+      "measured_min_gain": 0.001,
+      "measured": {
+        "reference_objective": 1.9648635387420654,
+        "candidate_objective": 1.976148009300232,
+        "gain": -0.011284470558166504,
+        "candidate_ee": 0.12463913857936859
+      },
+      "predicted": {
+        "reference_objective": 2.127920389175415,
+        "candidate_objective": 2.0772221088409424,
+        "gain": 0.050698280334472656
+      }
+    },
+    {
+      "tag": "gsseed_20261103",
+      "refine_dir": "data/debug/sim2f_fov_refine_ring_gsringcentre_1103",
+      "round_id": "round_0001",
+      "accepted": false,
+      "status": "rejected",
+      "has_frame": true,
+      "effective_zero_order_xy": [
+        1140,
+        942
+      ],
+      "measured_min_gain": 0.001,
+      "measured": {
+        "reference_objective": 2.25,
+        "candidate_objective": 2.25,
+        "gain": 0.0,
+        "candidate_ee": 0.0
+      },
+      "predicted": {
+        "reference_objective": 1.571802020072937,
+        "candidate_objective": 1.3826735019683838,
+        "gain": 0.18912851810455322
+      }
+    },
+    {
+      "tag": "gsseed_20261103",
+      "refine_dir": "data/debug/sim2f_fov_refine_ring_gsringcentre_1103",
+      "round_id": "round_0002",
+      "accepted": false,
+      "status": "rejected",
+      "has_frame": true,
+      "effective_zero_order_xy": [
+        1140,
+        942
+      ],
+      "measured_min_gain": 0.001,
+      "measured": {
+        "reference_objective": 2.25,
+        "candidate_objective": 2.25,
+        "gain": 0.0,
+        "candidate_ee": 0.0
+      },
+      "predicted": {
+        "reference_objective": 1.571802020072937,
+        "candidate_objective": 1.155269742012024,
+        "gain": 0.4165322780609131
+      }
+    },
+    {
+      "tag": "gsseed_20261103",
+      "refine_dir": "data/debug/sim2f_fov_refine_ring_gsringcentre_1103",
+      "round_id": "round_0003",
+      "accepted": false,
+      "status": "rejected",
+      "has_frame": true,
+      "effective_zero_order_xy": [
+        1140,
+        942
+      ],
+      "measured_min_gain": 0.001,
+      "measured": {
+        "reference_objective": 2.25,
+        "candidate_objective": 2.25,
+        "gain": 0.0,
+        "candidate_ee": 0.0
+      },
+      "predicted": {
+        "reference_objective": 1.571802020072937,
+        "candidate_objective": 0.8491448163986206,
+        "gain": 0.7226572036743164
+      }
+    }
+  ],
+  "runs": [
+    {
+      "tag": "raw16_20261103",
+      "refine_dir": "data/debug/sim2f_fov_refine_ring_raw16_1103_211433",
+      "status": "complete",
+      "gif": "images/ccd_refine_rounds_raw16_20261103.gif",
+      "gif_frames": [
+        "reference",
+        "round_0001",
+        "round_0002",
+        "round_0003"
+      ],
+      "vmax": 23.33333396911621,
+      "gaps": [],
+      "notes": []
+    },
+    {
+      "tag": "effective_20261103",
+      "refine_dir": "data/debug/sim2f_fov_refine_ring_eff_1103_210858",
+      "status": "complete",
+      "gif": "images/ccd_refine_rounds_effective_20261103.gif",
+      "gif_frames": [
+        "reference",
+        "round_0001",
+        "round_0002",
+        "round_0003"
+      ],
+      "vmax": 23.0,
+      "gaps": [],
+      "notes": []
+    },
+    {
+      "tag": "effalign_20261103",
+      "refine_dir": "data/debug/sim2f_fov_refine_ring_effalign_1103_211304",
+      "status": "complete",
+      "gif": "images/ccd_refine_rounds_effalign_20261103.gif",
+      "gif_frames": [
+        "reference",
+        "round_0001",
+        "round_0002",
+        "round_0003"
+      ],
+      "vmax": 23.33333396911621,
+      "gaps": [],
+      "notes": [
+        "rounds_not_chained: every round is scored against the same reference, not the previous candidate"
+      ]
+    },
+    {
+      "tag": "gsseed_20261103",
+      "refine_dir": "data/debug/sim2f_fov_refine_ring_gsringcentre_1103",
+      "status": "complete",
+      "gif": "images/ccd_refine_rounds_gsseed_20261103.gif",
+      "gif_frames": [
+        "reference",
+        "round_0001",
+        "round_0002",
+        "round_0003"
+      ],
+      "vmax": 11.666666984558105,
+      "gaps": [],
+      "notes": [
+        "rounds_not_chained: every round is scored against the same reference, not the previous candidate",
+        "measured_objective_constant: the measured score cannot separate the rounds"
+      ]
+    }
+  ]
+}

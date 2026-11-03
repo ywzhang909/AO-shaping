@@ -976,9 +976,22 @@ def run_refinement(args: argparse.Namespace) -> dict[str, Any]:
 
         refiner = PhaseRefiner(model, refine_cfg)
         current_reference_id = "reference"
+        # Search start: follows the latest accepted phase, but advances to the
+        # rejected candidate when a round is rejected so later rounds explore
+        # new phases instead of replaying the identical candidate.
+        search_phase = current_phase.copy()
+        if old_rounds:
+            last_old = old_rounds[-1]
+            if str(last_old.get("status")) == "rejected":
+                # Resume: replay the pending search start from the last saved
+                # rejected candidate so the next round is reproduced exactly.
+                last_candidate = _load_npy(
+                    _under(out, str(last_old["phase"])), current_phase.shape
+                )
+                search_phase = np.asarray(last_candidate, dtype=np.float32).copy()
         for index in range(1, int(args.rounds) + 1):
             item_id = f"round_{index:04d}"
-            result = refiner.finetune(current_phase, target, support=support)
+            result = refiner.finetune(search_phase, target, support=support)
             candidate = np.asarray(result.phase, dtype=np.float32)
             candidate_hash = _npy_sha256(candidate)
             existing = old_by_id.get(item_id)
@@ -1100,6 +1113,9 @@ def run_refinement(args: argparse.Namespace) -> dict[str, Any]:
                 current_phase = candidate.copy()
                 current_measured = dict(record["measured"]["candidate"])
                 current_reference_id = item_id
+                search_phase = current_phase.copy()
+            else:
+                search_phase = candidate.copy()
             rounds.append(record)
             _save_state(out, summary, current_phase, rounds, status="running")
         _save_state(out, summary, current_phase, rounds, status="complete")

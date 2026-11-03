@@ -420,6 +420,22 @@ OOPAO 自带两个 GPU 旋钮, 都在 `libs/OOPAO/OOPAO/runtime.py`, 且都在**
 (`Atmosphere.py` ≈L607/641/650/705/750/765)。所以只有 `OOPAO_GPU_RESIDENT=1` 才让
 OOPAO 内部数学留在设备上 —— 而相位屏那条链连它也不管。
 
+### 🔴 CuPy 会把 cuBLAS 裸名带进进程 (2026-11-03 闪退)
+
+OOPAO 一旦选中 `cupy` 后端, `cublasLt64_13.dll` / `cublas64_13.dll` 这两个**裸名**就按
+`PATH` 解析, 与 torch 自带的同名副本互相覆盖绑定 —— 落到两个不同 build 时, 要么 torch 首次
+大 matmul 直接 `0xc0000005` **无 traceback 闪退**, 要么全线 `CUBLAS_STATUS_INVALID_VALUE`。
+
+- 规则: `src/` 下任何 import 期的 `import cupy` / `import OOPAO`, 之前必须调用
+  `ao_shaping._cublas_preload.pin_cublas()`。本包的挂钩点是
+  `_oopao_compat.py` (加载 OOPAO 之前) 与 `utils/image/spots_calc.py`。
+  门禁 `tests/ao_shaping/test_native_cuda_import_gate.py`。
+- **不要**在 `_oopao_compat.py` 里主动 `import cupy` (现有注释即为此), 也不要图省事把预载
+  挂到 `ao_shaping/__init__.py` (违反 import 纯度契约)。
+- 四种绑定组合的实测表、以及「`.venv`/`uv run`/`os.add_dll_directory` 都修不了它」的证据,
+  见 [`docs/environment.md`](../../../../docs/environment.md) §cuBLAS DLL 与 PATH;
+  根治 = 机器上只留一套 CUDA minor 且与所选 torch extra 同源。
+
 ### 实测表 (`scripts/oopao/benchmark_oopao_gpu.py` → `logs/oopao_gpu/`)
 
 四组配置各起一个**子进程** (后端进程级定死, 同进程测四组只会测到同一组);

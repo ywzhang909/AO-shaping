@@ -190,6 +190,7 @@ class MyDriver(Device):
 - 惰性名字**绝不能**在模块作用域出现同名赋值 —— 那会遮蔽 `__getattr__` 并退回 eager。
 - **禁止在任何类体/模块作用域做 I/O**。仓库**输入**资产 (如 `dm_adj.txt`) 经 `drivers/dm/_adjacency.py::load_adjacency()` 加载，路径锚定包位置；运行**输出** (如 `PATHS.root_dir`) CWD 相对是**正确**的。
 - **分层方向单一**: 硬件包不得 import 仿真包。仿真 DM 经同一个 `install_lazy_attrs` 惰性解析，`dm/_registry.py::_ensure_sim_dms_bound()` 保证 `"sim"` 在**首次注册表使用**时绑定。
+- **import 期不得绑定 CUDA 原生库**（2026-11-03 闪退后补）: `src/` 下任何模块级（含模块级 `try:` 与**类体内**）的 `import cupy` / `import OOPAO`，其**之前**必须调用 `ao_shaping._cublas_preload.pin_cublas()`，把 `cublas`/`cublasLt` 两个裸名钉到同一个自洽 build；门禁 `tests/ao_shaping/test_native_cuda_import_gate.py`，绑定矩阵与「`.venv`/`uv run`/`os.add_dll_directory` 都修不了它」的实测见 [`docs/environment.md`](../environment.md) §cuBLAS DLL 与 PATH。CuPy 只是可选加速时，更干净的做法是**函数内延迟 import**（`utils/image/spots_calc.py` 的四个 `*_cupy`），也别为了省事把这类 import 挂进 `ao_shaping/__init__.py`。
 
 ### 9.2 大文件拆分的落地口径（2026-10-29，Pilot 实战）
 

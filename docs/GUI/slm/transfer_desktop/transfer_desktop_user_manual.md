@@ -8,6 +8,18 @@
 .venv\Scripts\python.exe -m ao_shaping.gui.ccd.beam_quality
 ```
 
+**第一次运行前**先装好 PyTorch（本页在切过去时才导入 `torch`）：
+
+```bash
+uv sync --all-groups --extra torch-cu132   # 本机 RTX 5080 / CUDA 13.2
+```
+
+extra 的 CUDA minor 要与机器上 `PATH` 第一套 CUDA toolkit 一致，否则「运行」跑到
+**fit 阶段进程会无声退出**——没有报错框、没有 traceback，会话目录里只有 `fit/inputs.npz`
+而没有 `iteration_0000.npz`。遇到这种现象先按
+[用户手册索引 → `docs/environment.md`](../../../environment.md) §cuBLAS DLL 与 PATH 检查
+torch extra 与 CUDA 版本，不要改参数重跑。
+
 左侧导航栏选择第 1 页「迁移学习闭环整形」。该页在第一次切换时才创建，避免启动时加载 `torch`。
 
 ![桌面控制台总览](figures/gui_console.png)

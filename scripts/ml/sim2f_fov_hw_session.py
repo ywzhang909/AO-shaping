@@ -561,8 +561,15 @@ def _gs_phase(mask: np.ndarray, bench: Sim2f, iterations: int = GS_ITERS) -> np.
         bench.nominal_illumination[0, 0].detach().cpu().numpy(), fft_n
     )
     target = torch.as_tensor(mask, dtype=torch.float32)[None, None]
-    target = torch.nn.functional.interpolate(
-        target, size=(fft_n, fft_n), mode="nearest"
+    # FFT samples and CCD pixels have different physical pitches. Resizing the
+    # target over the entire FFT silently enlarges a 256px ring by about 4.2x.
+    fft_axis = torch.arange(fft_n, dtype=torch.float32) - fft_n // 2
+    camera_axis = fft_axis * float(bench.cfg.sampling_ratio) + int(bench.ccd_px) // 2
+    normalised = 2 * (camera_axis + 0.5) / int(bench.ccd_px) - 1
+    yy, xx = torch.meshgrid(normalised, normalised, indexing="ij")
+    coordinates = torch.stack((xx, yy), dim=-1)[None]
+    target = torch.nn.functional.grid_sample(
+        target, coordinates, mode="bilinear", padding_mode="zeros", align_corners=False
     )[0, 0]
     target = torch.sqrt(target / target.sum().clamp_min(1e-12))
     pupil = torch.as_tensor(amplitude, dtype=torch.float32)
@@ -574,13 +581,19 @@ def _gs_phase(mask: np.ndarray, bench: Sim2f, iterations: int = GS_ITERS) -> np.
         back = torch.fft.fftshift(torch.fft.ifft2(torch.fft.ifftshift(focal)))
         phase = torch.angle(back)
     top = (fft_n - grid) // 2
-    return (
+    wrapped = (
         phase[top : top + grid, top : top + grid]
         .detach()
         .cpu()
         .numpy()
         .astype(np.float32)
     )
+    # Panel embedding interpolates radians, so its input must be continuous.
+    # Unwrap preserves each grid sample's phasor; wrapping belongs to the driver
+    # after panel resampling, not to the low-resolution control grid.
+    from skimage.restoration import unwrap_phase
+
+    return unwrap_phase(wrapped, rng=0).astype(np.float32)
 
 
 def _fit_phase(

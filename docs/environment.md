@@ -105,10 +105,49 @@ Python 之前设好, import 之后再 `os.environ[...]` 赋值不会生效。`te
 | `RMS_ZERNIKE_WEIGHTS` | `src/ao_shaping/optimizer/wf/rms_by_zernike.py` | `(n+1)/n_max` | 逗号分隔的逐阶扰动权重; 解析失败会记 warning 并保留默认值 |
 | `NUMBA_CACHE_DIR` | `src/ao_shaping/__init__.py` 与 `src/ao_shaping/utils/numba_compat.py` (import 期) | 未设或非绝对路径 ⇒ `<tempdir>/ao_shaping_numba_cache` | numba JIT 缓存目录: 把 `@njit(cache=True)` 的 `.nbi`/`.nbc` 挪出 `src/`, 既守住「import 不落盘」契约也让只读挂载可用; 用户显式设**绝对路径**时不覆盖 |
 | `QT_QPA_PLATFORM` | `scripts/slm/capture_transfer_desktop_screens.py` (PySide6 import 前) | `offscreen` (setdefault) | 无显示环境 (CI / 无桌面会话) 下走离屏后端; Windows 离屏字体库为空, 需显式装字体 |
-| `AO_SKIP_CUBLAS_PRELOAD` | `src/ao_shaping/_cublas_preload.py` (`import cupy` 之前, 经 `utils/image/spots_calc.py` 与 `drivers/sim/_oopao_compat.py`) | 未设 ⇒ 照常预载 | 置任意非空值即跳过「把 cuBLASLt 钉到 torch 自带副本」的预载; 只在排查 Windows torch/CuPy CUDA 冲突或量 import 成本时用 — 关掉后两者混用会 `0xc0000005` 静默退出 |
+| `AO_SKIP_CUBLAS_PRELOAD` | `src/ao_shaping/_cublas_preload.py` (`import cupy` 之前, 经 `utils/image/spots_calc.py` 与 `drivers/sim/_oopao_compat.py`) | 未设 ⇒ 照常钉住 | 置任意非空值即跳过「把 `cublas`/`cublasLt` 两个裸名钉到同一个自洽 build」的预载; 只在排查 Windows torch/CuPy CUDA 冲突或量 import 成本时用 — 后果见下方 §cuBLAS DLL 与 PATH |
 
 平台自带变量 (`COMPUTERNAME`, `USERPROFILE`, `XDG_DATA_HOME`) 也被驱动用来定位配置落盘位置,
 但它们由操作系统提供而非本仓定义, 因此不列入上表, 并在该守卫里被显式豁免。
+
+### cuBLAS DLL 与 PATH
+
+Windows 上 torch 与 CuPy 抢的是**同一个裸名** (`cublasLt64_13.dll` / `cublas64_13.dll`),
+而加载器按「谁先进进程」定终身。两个名字落到**同一个 build**就一切正常, 落到**两个不同
+build**就出事 —— 崩的是 torch 的 matmul (`0xc0000005`, 无 traceback), 或者全线 CUDA 调用
+报错。2026-11-03 实测 (RTX 5080 Laptop, torch 2.14.1+cu130, cupy-cuda13x 14.2.0, PATH 首位
+= toolkit v13.2):
+
+| 裸名最终落到 | cupy matmul | cupy `linalg.inv/pinv` | torch matmul |
+|---|---|---|---|
+| 都 = PATH toolkit (1340) | OK | OK | OK (跑在更新的 cuBLAS 上, minor 兼容) |
+| Lt = torch (1300), cublas = toolkit (1340) | **FAIL** `CUBLAS_STATUS_INVALID_VALUE` | **FAIL** `CUSOLVER_STATUS_INTERNAL_ERROR` | **FAIL** |
+| 都 = torch (1300) | OK | **FAIL** (cusolver 只存在于 CUDA 安装里, 与 1300 异源) | OK |
+| **都 = PATH toolkit, 由 `pin_cublas()` 钉住** | OK | OK | OK |
+
+因此 `pin_cublas()` 钉的是 **PATH 上第一个含同名 DLL 的 CUDA 目录里的那一对** (toolkit 版本
+≥ torch 自带版本时), 而不是 torch 自带的副本 —— torch 只 ship `cublas/cublasLt/cudart` 三个
+`*64_13.dll`, 供不上 cupy 需要的 `cusolver/cufft/curand`, 反过来钉会让 cuSOLVER 路径坏掉
+(OOPAO 的 `LiFT.py` 用 `xp.linalg.pinv`, 是真实调用点)。成本实测 65 ms。
+
+**以下做法已实测无效, 不要再试**:
+
+| 说法 | 实测 |
+|---|---|
+| 「`.venv` 隔离就不继承全局 CUDA 了」 | 不成立: 虚拟环境不改 `PATH`, cupy 照旧绑到 `C:\Program Files\...\v13.2` |
+| 「用 `uv run` 就干净了」 | 不成立: `uv run` 继承调用方 shell 的 `PATH` |
+| 「用 `os.add_dll_directory(torch\lib)` 提优先级」 | 无效: ctypes 裸名 `LoadLibraryExW(..., 0)` 不查 user dirs, 绑定的仍是 v13.2 那份 |
+| 「把 CUDA 目录从 `PATH` 删掉」 | 本机无效: scoop `C:\Users\<user>\scoop\apps\cuda\current\bin\x64` (6.14.11.1380) 仍在, 换成它而已 |
+| 「`PATH` 里把 `torch\lib` 置前」 | **有效** (实测 cupy 改绑 torch 那份), 但那是机器级配置、不随仓库走, 且仍留 cuSOLVER 异源问题 |
+
+**根治**: 让机器上只有**一套** CUDA minor, 且与所选 torch extra 同源。本机 `PATH` 首位是
+v13.2 = `6.14.11.1340`, 而 `torch 2.14.0+cu132` 自带的正是 `6.14.11.1340` —— 即用
+`uv sync --extra torch-cu132` 后两边字面同版本, 任何导入顺序都安全 (代价: torch 从 2.14.1
+退到 2.14.0)。各 DLL 版本: toolkit v13.0 = `6.14.11.1310` / v13.1 = `6.14.11.1321` /
+v13.2 = `6.14.11.1340` / scoop cuda current = `6.14.11.1380` / torch cu130 = `6.14.11.1300`。
+入口规则见 `AGENTS.md` §CUDA 原生库入口, 门禁
+`tests/ao_shaping/test_native_cuda_import_gate.py`, 实现与全部证据
+`src/ao_shaping/_cublas_preload.py`。
 
 Access in code:
 ```python

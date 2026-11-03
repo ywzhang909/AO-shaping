@@ -2,6 +2,12 @@
 
 This directory contains various utility scripts for the AO-Shaping project, including build scripts, simulation scripts, training scripts, and analysis tools.
 
+`ml/sim2f_local_forward_experiment.py` identifies a local CCD intensity response
+from paired smooth phase probes, differentiates that forward model for shaping,
+and verifies candidates and the final phase using independent ABBA captures.
+`ml/sim2f_local_forward_report.py` audits the saved CCD metrics and renders the
+2026-11-03 report under `report/shape_trials/local_forward/`.
+
 `slm/analyze_no_gs_session.py` audits a saved capture/fit pair; `slm/analyze_no_gs_run.py`
 compares square endpoints on the native CCD grid; `slm/analyze_no_gs_response.py`
 reuses the exact shaping core to diagnose exposure-dependent CV. All three are

@@ -86,6 +86,13 @@ class ReportProvenance:
 #:   ``硬件``   -- needs a real bench (SLM / CCD / WFS / DM / micro-DM).
 #:   ``离线+硬件`` -- renders offline, but the numbers were measured on hardware.
 REPORTS: dict[str, ReportProvenance] = {
+    "report/shape_trials/local_forward/local_forward_20261103.md": ReportProvenance(
+        script="scripts/ml/sim2f_local_forward_report.py",
+        command="python scripts/ml/sim2f_local_forward_report.py",
+        environment="离线+硬件（Santec #1 1064 nm；Daheng CCD；2026-11-03 原生帧）",
+        note="局部图像正向响应模型自动微分整形；三轮更新与五组独立 ABBA 重放，含失败起点对照。",
+        extra_scripts=("scripts/ml/sim2f_local_forward_experiment.py",),
+    ),
     "report/slm/gs_control_1000px/report.md": ReportProvenance(
         script="scripts/slm/generate_gs_control_report.py",
         command="python scripts/slm/generate_gs_control_report.py",
@@ -179,13 +186,15 @@ REPORTS: dict[str, ReportProvenance] = {
     ),
     "report/shape_trials/physical_refine/physical_refine_results_20261103.md": ReportProvenance(
         script=HANDWRITTEN,
-        environment="离线分析（历史硬件采集会话 + 已完成的 ring refine 离线诊断；设备下线，无新增 CCD 采集）",
+        environment="离线分析 + 2026-11-03 当日硬件采集（daheng CCD、SLM panel、ring refine 三模式与 GS seed refine、零级诊断）；报告含实测 CCD GIF。",
         note=(
-            "从已完成的 ring refine 目录与捕获会话中提取的离线诊断；"
-            "模型喂进的是原始 128-grid 相位而非 SLM 实际显示相位（panel_gray 反解），"
-            "对齐窗口需 (-3, +32) px 位移，未解决实测增益差异。"
-            "这些数值来源见 artifacts/offline_diagnostics_20261103.json，"
-            "离线诊断脚本为 scripts/ml/sim2f_fov_hw_offline_diagnostics.py；"
+            "保留 sections 1-3 离线诊断原值；新增 2026-11-03 硬件测量："
+            "raw/effective/effective-aligned 三模式增益表、GS seed refine 负结果、"
+            "零级 argmax 双瓣诊断与 measured CCD GIF。"
+            "effalign 实测元数据存在未解释偏差（见正文 §5）；"
+            "零级诊断仅证据，不修改 _locate_zero_order。"
+            "这些数值来源见 artifacts/offline_diagnostics_20261103.json、"
+            "artifacts/refine_gains_20261103.json、artifacts/zero_order_diagnosis_20261103.json；"
             "不视为物理整形成功或 CCD 验收证据。"
         ),
         extra_scripts=(
@@ -193,6 +202,9 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ml/sim2f/calibrate.py",
             "src/ml/sim2f/optics.py",
             "scripts/ml/sim2f_fov_hw_offline_diagnostics.py",
+            "scripts/ml/sim2f_fov_hw_figures.py",
+            "scripts/ml/sim2f_fov_zero_order_diag.py",
+            "scripts/ml/sim2f_fov_zero_order_figure.py",
         ),
     ),
     "report/shape_trials/multishape_scale/square_1000_diff_abba_20261030.md": ReportProvenance(
@@ -235,7 +247,6 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ml/sim2f/config.py",
         ),
     ),
-
     # -- sim2f 闭环归因 (ml.sim2f) -------------------------------------------
     "report/sim2f_shaping/closed_loop_20261025/report.md": ReportProvenance(
         script="scripts/ml/generate_sim2f_shaping_report.py",
@@ -259,7 +270,6 @@ REPORTS: dict[str, ReportProvenance] = {
             "tests/ao_shaping/ml/sim2f/test_twin_parity.py",
         ),
     ),
-
     "report/sim2f_bench/twin_vs_hw_corpus/20261027/pupil_center_sweep.md": ReportProvenance(
         script="scripts/ml/calibrate_sim2f_pupil_center.py",
         command="python scripts/ml/calibrate_sim2f_pupil_center.py",
@@ -280,7 +290,6 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/utils/slm/phase_embed.py",
         ),
     ),
-
     "report/sim2f_bench/optical_scale_20261027/report.md": ReportProvenance(
         script="scripts/ml/diagnose_sim2f_optical_scale.py",
         command="python scripts/ml/diagnose_sim2f_optical_scale.py",
@@ -304,7 +313,6 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/tools/slm/bench_twin_calibrate.py",
         ),
     ),
-
     "report/sim2f_bench/alignment_20261027/report.md": ReportProvenance(
         script=HANDWRITTEN,
         command="",
@@ -317,7 +325,6 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         extra_scripts=("src/ml/sim2f/bench.py",),
     ),
-
     "report/shape_trials/axial_move_sim/axial_move_sim_20261029.md": ReportProvenance(
         script="scripts/slm/generate_axial_move_sim_report.py",
         command="python scripts/slm/generate_axial_move_sim_report.py",
@@ -328,7 +335,6 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/drivers/sim/bench_twin.py",
         ),
     ),
-
     "report/shape_trials/blackbox_path/planning_20261029.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线（写于采集之前，无设备）",
@@ -341,7 +347,6 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/tools/slm/transfer/protocol.py",
         ),
     ),
-
     "report/shape_trials/blackbox_path/artifacts/live_acquisition_20261029.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="实验（Santec #1、Daheng Mono12）同曝光同位深重放 + 离线核对",
@@ -354,7 +359,6 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/tools/slm/transfer/replay_phases.py",
         ),
     ),
-
     "report/shape_trials/blackbox_path/live_20261029.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="实验（Santec #1、Daheng Mono12，2f 实验系统）采集 + 离线复核（无设备）",
@@ -370,7 +374,6 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
         ),
     ),
-
     "report/shape_trials/blackbox_path/analysis_20261029.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线（只读 data/shape_trials/blackbox_path_* 归档产物 + 代码走查，无设备）",
@@ -386,7 +389,6 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/tools/slm/transfer/fit.py",
         ),
     ),
-
     "report/shape_trials/blackbox_path/sim_units_20261029.md": ReportProvenance(
         script="scripts/slm/simulate_transfer_units_20261029.py",
         command="python scripts/slm/simulate_transfer_units_20261029.py",
@@ -399,115 +401,130 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/tools/slm/transfer/blur.py",
         ),
     ),
-
     "report/shape_trials/axial_plane/axial_plane_20261026.md": ReportProvenance(
         script="scripts/slm/generate_axial_plane_report.py",
         command="python scripts/slm/generate_axial_plane_report.py",
         environment="实验（Santec #1、Daheng Mono12，SLM 输入平面轴向校正）",
         note="ABCD 条件距离扫描、相位分组验证与可辨识性边界。",
-        extra_scripts=("src/ao_shaping/tools/slm/transfer/axial.py",
-                       "src/ao_shaping/tools/slm/transfer/replay_phases.py",
-                       "src/ao_shaping/algorithm/signal_processing/defocus_forward_core.py"),
+        extra_scripts=(
+            "src/ao_shaping/tools/slm/transfer/axial.py",
+            "src/ao_shaping/tools/slm/transfer/replay_phases.py",
+            "src/ao_shaping/algorithm/signal_processing/defocus_forward_core.py",
+        ),
     ),
-
     "report/shape_trials/square1200_exploration/exploration_20261026.md": ReportProvenance(
         script="scripts/slm/generate_square1200_exploration_report.py",
         command="python scripts/slm/generate_square1200_exploration_report.py",
         environment="实验（Santec #1、Daheng Mono12，1200 CCD 像元方形）",
         note="同初相位、同预算的严格 CV 验收与非单调探索对照及固定曝光重放。",
-        extra_scripts=("scripts/slm/render_square1200_exploration.py",
-                       "src/ao_shaping/tools/slm/transfer/validate.py",
-                       "src/ao_shaping/tools/slm/transfer/exploration.py",
-                       "src/ao_shaping/tools/slm/transfer/artifacts.py",
-                       "src/ao_shaping/tools/slm/transfer/replay_phases.py"),
+        extra_scripts=(
+            "scripts/slm/render_square1200_exploration.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/exploration.py",
+            "src/ao_shaping/tools/slm/transfer/artifacts.py",
+            "src/ao_shaping/tools/slm/transfer/replay_phases.py",
+        ),
     ),
-
     "report/shape_trials/square1200/square1200_20261026.md": ReportProvenance(
         script="scripts/slm/generate_square1200_report.py",
         command="python scripts/slm/generate_square1200_report.py",
         environment="实验（Santec #1 与 Daheng，1064 nm，1200 CCD 像元方形）",
         note="非 GS 物理映射初相位、曝光感知迁移学习、Mono12 及 CCD 核心 CV 验收。",
-        extra_scripts=("src/ao_shaping/tools/slm/transfer/validate.py",
-                       "src/ao_shaping/tools/slm/transfer/geometric_seed.py",
-                       "src/ao_shaping/tools/slm/transfer/camera_probe.py",
-                       "src/ao_shaping/tools/slm/transfer/replay_phases.py",
-                       "src/ao_shaping/tools/slm/transfer/capture.py",
-                       "src/ao_shaping/tools/slm/transfer/fit.py"),
+        extra_scripts=(
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/geometric_seed.py",
+            "src/ao_shaping/tools/slm/transfer/camera_probe.py",
+            "src/ao_shaping/tools/slm/transfer/replay_phases.py",
+            "src/ao_shaping/tools/slm/transfer/capture.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+        ),
     ),
-
     "report/shape_trials/cold_start/cv_diagnosis_20261026.md": ReportProvenance(
         script="scripts/slm/analyze_cold_start_cv.py",
         command="python scripts/slm/analyze_cold_start_cv.py",
         environment="离线（已存档的 Santec #1 与 Daheng 同相位、同曝光数据）",
         note="训练相位拟合曝光偏置，验证整体窗口与目标核心 CV，并检查传播采样收敛。",
-        extra_scripts=("src/ao_shaping/tools/slm/transfer/radiometry.py",
-                       "src/ao_shaping/tools/slm/transfer/fit.py",
-                       "src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py"),
+        extra_scripts=(
+            "src/ao_shaping/tools/slm/transfer/radiometry.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+            "src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py",
+        ),
     ),
-
     "report/shape_trials/cold_start/cold_start_20261026.md": ReportProvenance(
         script="scripts/slm/generate_cold_start_report.py",
         command="python scripts/slm/generate_cold_start_report.py",
         environment="离线（重算 Santec #1 与 Daheng 当前光路实验数据）",
         note="无历史权重、平面或随机整形初相位，物理预测模型从零拟合与 CCD 配对验收。",
-        extra_scripts=("src/ao_shaping/tools/slm/transfer/capture.py",
-                       "src/ao_shaping/tools/slm/transfer/bootstrap.py",
-                       "src/ao_shaping/tools/slm/transfer/fit.py",
-                       "src/ao_shaping/tools/slm/transfer/validate.py",
-                       "src/ao_shaping/tools/slm/transfer/cold_start.py",
-                       "src/ao_shaping/tools/slm/transfer/progress.py"),
+        extra_scripts=(
+            "src/ao_shaping/tools/slm/transfer/capture.py",
+            "src/ao_shaping/tools/slm/transfer/bootstrap.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/cold_start.py",
+            "src/ao_shaping/tools/slm/transfer/progress.py",
+        ),
     ),
-
     "report/shape_trials/sim_pretrain_transfer/sim_pretrain_transfer_20261024.md": ReportProvenance(
         script="scripts/slm/generate_sim_pretrain_transfer_report.py",
         command="python scripts/slm/generate_sim_pretrain_transfer_report.py",
         environment="离线（仿真先验 + 已存档的 Santec/Daheng 实验数据）",
         note="仿真预训练的分组 CV 指标与「无 GS 的逐位复现」；两部分的检查点互不共用，报告 §1 明确分开。",
-        extra_scripts=("scripts/slm/reproduce_transfer_block_without_gs.py",
-                       "scripts/slm/generate_transfer_no_gs_gif.py",
-                       "src/ao_shaping/tools/slm/transfer/pretrain.py",
-                       "src/ao_shaping/tools/slm/transfer/workflow.py",
-                       "src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py",
-                       "src/ao_shaping/algorithm/signal_processing/multishape_objective.py"),
+        extra_scripts=(
+            "scripts/slm/reproduce_transfer_block_without_gs.py",
+            "scripts/slm/generate_transfer_no_gs_gif.py",
+            "src/ao_shaping/tools/slm/transfer/pretrain.py",
+            "src/ao_shaping/tools/slm/transfer/workflow.py",
+            "src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py",
+            "src/ao_shaping/algorithm/signal_processing/multishape_objective.py",
+        ),
     ),
-
     "report/shape_trials/multishape1200/multishape1200_20261027.md": ReportProvenance(
         script="scripts/slm/generate_multishape1200_report.py",
         command="python scripts/slm/generate_multishape1200_report.py",
         environment="实验（Santec #1 与 Daheng，1064 nm，1200 CCD 像元）",
         note="从零训练物理预测模型 + 四种形状的 CCD 锚定整形 + 初相位实测择优 + Recorder 过程记录。",
-        extra_scripts=("src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-                       "src/ao_shaping/tools/slm/transfer/recording.py",
-                       "src/ao_shaping/tools/slm/transfer/geometric_seed.py",
-                       "src/ao_shaping/tools/slm/transfer/validate.py",
-                       "src/ao_shaping/tools/slm/transfer/capture.py",
-                       "src/ao_shaping/tools/slm/transfer/fit.py",
-                       "src/ao_shaping/tools/slm/transfer/replay_phases.py",
-                       "src/ao_shaping/algorithm/signal_processing/multishape_objective.py"),
+        extra_scripts=(
+            "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+            "src/ao_shaping/tools/slm/transfer/recording.py",
+            "src/ao_shaping/tools/slm/transfer/geometric_seed.py",
+            "src/ao_shaping/tools/slm/transfer/validate.py",
+            "src/ao_shaping/tools/slm/transfer/capture.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+            "src/ao_shaping/tools/slm/transfer/replay_phases.py",
+            "src/ao_shaping/algorithm/signal_processing/multishape_objective.py",
+        ),
     ),
-
     "report/shape_trials/multishape_capability/physical_multishape_reproduction_20261023.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线（读取已保存的 Santec/Daheng 实验数据）",
         note="三形状从零探测、物理参数微调、GS 与 CCD 锚定闭环复现手册；图片和参数 CSV 由离线脚本生成。",
-        extra_scripts=("scripts/slm/generate_multishape_reproduction_figures.py",
-                       "src/ao_shaping/tools/slm/transfer/workflow.py",
-                       "src/ao_shaping/tools/slm/transfer/artifacts.py",
-                       "src/ao_shaping/algorithm/signal_processing/physical_forward_fit.py",
-                       "src/ao_shaping/algorithm/signal_processing/multishape_objective.py",
-                       "scripts/slm/bootstrap_transfer_checkpoint.py",
-                       "scripts/slm/transfer_multishape_experiment.py",
-                       "scripts/slm/fit_transfer_multishape.py", "scripts/slm/validate_transfer_shapes.py",
-                       "scripts/slm/calibrate_transfer_blur.py"),
+        extra_scripts=(
+            "scripts/slm/generate_multishape_reproduction_figures.py",
+            "src/ao_shaping/tools/slm/transfer/workflow.py",
+            "src/ao_shaping/tools/slm/transfer/artifacts.py",
+            "src/ao_shaping/algorithm/signal_processing/physical_forward_fit.py",
+            "src/ao_shaping/algorithm/signal_processing/multishape_objective.py",
+            "scripts/slm/bootstrap_transfer_checkpoint.py",
+            "scripts/slm/transfer_multishape_experiment.py",
+            "scripts/slm/fit_transfer_multishape.py",
+            "scripts/slm/validate_transfer_shapes.py",
+            "scripts/slm/calibrate_transfer_blur.py",
+        ),
     ),
     "report/shape_trials/multishape_capability/diagnosis_and_transfer_20261023.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件（Santec SLM #1 + Daheng CCD）",
         note="原始 CCD 区域复算、载波几何纠正、物理参数迁移拟合和多形状配对实验；按时间追加记录。",
-        extra_scripts=("scripts/slm/transfer_multishape_experiment.py", "scripts/slm/fit_transfer_multishape.py",
-                       "scripts/slm/validate_transfer_shapes.py", "scripts/slm/summarize_transfer_shapes.py",
-                       "scripts/slm/capture_transfer_response.py", "scripts/slm/analyze_transfer_response.py",
-                       "scripts/slm/calibrate_transfer_blur.py", "scripts/slm/analyze_transfer_direction.py"),
+        extra_scripts=(
+            "scripts/slm/transfer_multishape_experiment.py",
+            "scripts/slm/fit_transfer_multishape.py",
+            "scripts/slm/validate_transfer_shapes.py",
+            "scripts/slm/summarize_transfer_shapes.py",
+            "scripts/slm/capture_transfer_response.py",
+            "scripts/slm/analyze_transfer_response.py",
+            "scripts/slm/calibrate_transfer_blur.py",
+            "scripts/slm/analyze_transfer_direction.py",
+        ),
     ),
     "report/zernike_coeff2amp/zernike_coeff_report/report.md": ReportProvenance(
         script="scripts/ml/generate_zernike_coeff_report.py",
@@ -834,7 +851,7 @@ REPORTS: dict[str, ReportProvenance] = {
         command="python scripts/slm/generate_fouriergsnet_pipeline_report.py",
         environment="离线",
         note="2026-09-22 集成测试记录（冻结：正文与生成时间逐字重发；"
-             "被测脚本已在 f19dced5 删除，测试已在 baefba2d 删除）",
+        "被测脚本已在 f19dced5 删除，测试已在 baefba2d 删除）",
     ),
     "report/fouriergsnet_pipeline/hardware_run_20261001.md": ReportProvenance(
         script=HANDWRITTEN,
@@ -2180,9 +2197,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "--retest-root data/debug/hw_gs_square_scans/20261023_retest_frozen"
         ),
         environment="离线+硬件",
-        extra_scripts=(
-            "scripts/slm/hw_gs_square_scans.py",
-        ),
+        extra_scripts=("scripts/slm/hw_gs_square_scans.py",),
         note=(
             "GS 方形光斑三段扫描（边长 18 行 / Zernike 阶数 24 行 / 闪耀光栅 8 行）加激光功率变化后的"
             "复测（光栅 32/40/48、Zernike 17/18/19，同一脚本版本、每配置一个原子进程）。数字全部从落盘 "

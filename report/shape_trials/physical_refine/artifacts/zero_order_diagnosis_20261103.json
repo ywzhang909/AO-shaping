@@ -1,0 +1,164 @@
+{
+  "schema": "sim2f_zero_order_diagnosis_figure_v1",
+  "sources": {
+    "diag_dir": "data/debug/sim2f_zero_order_diag_20261103_215142",
+    "session_dir": "data/debug/sim2f_fov_hw_20261103_210641",
+    "flat_item": "flat_0000",
+    "refine_dir": "data/debug/sim2f_fov_refine_ring_raw16_1103_211433",
+    "exposure_ms": 0.182
+  },
+  "reference_column": {
+    "x": 1140,
+    "y": 942,
+    "ring_phase_zero_xy": [
+      1124,
+      940
+    ]
+  },
+  "profile_peaks": {
+    "flat_0000 平相位 21:06 (峰值 101)": {
+      "lobe_offsets_px": [
+        2.0,
+        -14.0
+      ],
+      "profile_at_lobes": [
+        0.028465596625118075,
+        0.026347887713961498
+      ]
+    },
+    "diag 平相位 21:51 (峰值 99)": {
+      "lobe_offsets_px": [
+        2.0,
+        -14.0
+      ],
+      "profile_at_lobes": [
+        0.0274382264718322,
+        0.022683264156965696
+      ]
+    },
+    "ring 相位参考帧 21:14 (峰值 23)": {
+      "lobe_offsets_px": [
+        4.0
+      ],
+      "profile_at_lobes": [
+        0.019663125741523707
+      ]
+    }
+  },
+  "lobe_evidence_xy_value": {
+    "flat_2106": [
+      [
+        1142,
+        942,
+        101.0
+      ],
+      [
+        1126,
+        942,
+        93.0
+      ]
+    ],
+    "diag_2151": [
+      [
+        1142,
+        943,
+        99.33333587646484
+      ],
+      [
+        1126,
+        941,
+        79.33333587646484
+      ]
+    ],
+    "ring_ref_2114": [
+      [
+        1128,
+        941,
+        23.33333396911621
+      ]
+    ]
+  },
+  "frame_cloud": {
+    "argmax_raw": {
+      "mean_xy": [
+        1141.8333333333333,
+        942.4
+      ],
+      "std_x_px": 0.6871842709362768,
+      "std_y_px": 0.66332495807108,
+      "ptp_x_px": 2.0,
+      "ptp_y_px": 3.0,
+      "radial_std_px": 0.3875860104113125,
+      "radial_ptp_px": 1.5468462320372742
+    },
+    "argmax_blurred": {
+      "mean_xy": [
+        1142.4,
+        942.8
+      ],
+      "std_x_px": 0.5537749241945383,
+      "std_y_px": 0.5416025603090641,
+      "ptp_x_px": 2.0,
+      "ptp_y_px": 2.0,
+      "radial_std_px": 0.29174510691683964,
+      "radial_ptp_px": 0.9669999668731319
+    },
+    "centroid_box": {
+      "mean_xy": [
+        1134.9826602063986,
+        941.4175922034211
+      ],
+      "std_x_px": 0.418367621966793,
+      "std_y_px": 0.45358564130423584,
+      "ptp_x_px": 1.8673404776945972,
+      "ptp_y_px": 2.1386233573279014,
+      "radial_std_px": 0.31707581638522786,
+      "radial_ptp_px": 1.2591111921443592
+    },
+    "centroid_despiked_box": {
+      "mean_xy": [
+        1134.9856764173107,
+        941.4186229984656
+      ],
+      "std_x_px": 0.4182345284315604,
+      "std_y_px": 0.454550450325605,
+      "ptp_x_px": 1.8666353369296758,
+      "ptp_y_px": 2.143761070749747,
+      "radial_std_px": 0.3169606404080021,
+      "radial_ptp_px": 1.2640934536837993
+    }
+  },
+  "estimator_repeatability": {
+    "argmax_raw": {
+      "radial_std_px": 0.3942118922608597,
+      "radial_ptp_px": 1.5468462320372742
+    },
+    "argmax_despiked": {
+      "radial_std_px": 0.30370087567601517,
+      "radial_ptp_px": 1.0803884080590067
+    },
+    "argmax_blurred": {
+      "radial_std_px": 0.2967325640403903,
+      "radial_ptp_px": 0.9669999668731319
+    },
+    "centroid_box": {
+      "radial_std_px": 0.32249630845742083,
+      "radial_ptp_px": 1.2591111921445626
+    },
+    "centroid_box_halfmax": {
+      "radial_std_px": 0.3302109924795128,
+      "radial_ptp_px": 1.3845202782707022
+    },
+    "centroid_despiked_box": {
+      "radial_std_px": 0.3223791635174056,
+      "radial_ptp_px": 1.2640934536836088
+    }
+  },
+  "from_diag_json": {
+    "argmax_distinct_pixels_30_frames": 7,
+    "median_abs_argmax_vs_centroid_box_px": 6.788907521211627,
+    "reopen_open_to_open_spread_px": 3.3541019662496847,
+    "peak_over_ring_median": 1.042794036677174
+  },
+  "figure": "report/shape_trials/physical_refine/figures/zero_order_diagnosis_20261103.png"
+}

@@ -88,7 +88,23 @@ dependencies = [
     "pyside6-essentials>=6.12.0",
     "pyside6-addons>=6.12.0",
     "pygame>=2.6.1",
-    "cupy-cuda13x>=14.2.0",
+    # CuPy brings its own CUDA runtime problem: it loads `cublasLt64_<major>.dll`
+    # and `cublas64_<major>.dll` *by bare name*, i.e. through PATH, while torch
+    # ships its own copies of exactly those two files in `torch/lib`. Whatever
+    # binds the names first wins, and a split pair (one bare name on the toolkit's
+    # build, the other on torch's) does not warn anyone: torch dies with
+    # 0xC0000005 inside cuBLASLt, CuPy raises CUBLAS_STATUS_INVALID_VALUE. The
+    # runtime hook that makes the binding deterministic is
+    # `ao_shaping._cublas_preload.pin_cublas`; the measured DLL table, the four
+    # orderings, and why `.venv` / `uv run` / `os.add_dll_directory()` do NOT fix
+    # it are in docs/environment.md (cuBLAS DLL 与 PATH).
+    #
+    # uv-side invariant: the CUDA *major* in the CuPy flavor must be a major some
+    # torch extra actually provides, and the bound must stay `<15` so a CuPy major
+    # bump cannot silently move it to another CUDA series. The *minor* is the part
+    # no requirement can pin -- see the extras block below for which extra matches
+    # the toolkit installed on the machine.
+    "cupy-cuda13x>=14.2.0,<15",
     "pyarrow>=25.0.1",
     "jsonpickle>=4.1.2",
     "scikit-image>=0.26.0",
@@ -162,6 +178,23 @@ data = [
 #   sm_90  (RTX 40xx)  -> torch-cu126 or newer
 #   sm_61  (GTX 10xx)  -> torch-cu126 ONLY (last CUDA 12.x with Pascal)
 #   no CUDA            -> torch-cpu
+#
+# A second, independent rule for the same choice: pick the extra whose CUDA
+# *minor* matches the toolkit that PATH resolves first, so that torch's bundled
+# cuBLAS and CuPy's cuBLAS are literally the same build. Measured file versions
+# on the 2026-11-03 bench (RTX 5080 Laptop, PATH first CUDA dir = v13.2):
+#     torch 2.14.1+cu130 -> cublasLt64_13.dll 6.14.11.1300
+#     torch 2.14.0+cu132 -> cublasLt64_13.dll 6.14.11.1340  (== toolkit v13.2)
+#     CUDA toolkit       -> v13.0 = .1310 / v13.1 = .1321 / v13.2 = .1340
+# So `--extra torch-cu132` on a v13.2 box removes the version split entirely and
+# every import ordering is safe; `--extra torch-cu130` there relies on the
+# `pin_cublas()` hook plus CUDA minor compatibility instead. uv.lock resolves
+# cu132 to torch 2.14.0 (one patch below cu130's 2.14.1) -- that is the cost of
+# the match, not a mistake.
+#
+# Note what uv does NOT do here: an isolated `.venv` and `uv run` both inherit
+# the shell's PATH, so nothing about the resolution above is "cleaned up" by the
+# package manager. Only the extra choice and the runtime hook are.
 #
 # torch-cu126 is capped at <2.15: NVIDIA stopped publishing cu126 wheels from
 # PyTorch 2.15 onward, so an uncapped requirement silently resolves to a CPU
