@@ -105,7 +105,7 @@
 | [[functions/recorder]] | `Recorder` 类 — 优化过程逐行记录 | `utils/io/file.py:472` |
 | [[functions/debug-artifacts]] | `save_optimization_debug_artifacts()` / `save_recorder_debug_artifacts()` | `utils/io/file.py:1368` |
 | [[functions/zernike-calc]] | `zernike_modes(n)` / `calc_n_zernike_terms(n)` | `utils/wavefront/zernike_calc.py:90` |
-| [[functions/spots]] | `centroid()` / `radius()` / `pib_ratio_mask()` | `utils/image/spots_calc.py:218` |
+| [[functions/spots]] | `centroid()` / `radius()` / `pib_ratio_mask()` | `utils/image/spots_calc.py:228` |
 | [[functions/matrix-utils]] | `compute_pinv()` / `compute_lstsq()` / `safe_pinv()` / `effective_cond()` | `utils/wavefront/matrix_utils.py:16` |
 | [[functions/slm-lut]] | `build_inverse_lut()` / `invert_depth_scan()` / `depth_pattern()` | `utils/slm/slm_lut.py:248` |
 | [[functions/runner-common]] | `runner_common` 共享工具（center 解析 / 配置构建 / 结果保存） | `runners/runner_common.py` |
