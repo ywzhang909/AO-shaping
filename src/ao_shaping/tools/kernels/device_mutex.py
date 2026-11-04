@@ -2078,3 +2078,42 @@ def _resolve_probe_state(
         detail_lines = []
     return None, state, last_reason, detail_lines
 
+
+# ---------------------------------------------------------------------------
+# 探针的 CLI 入口 (内置探针子进程跑的就是这里)
+# ---------------------------------------------------------------------------
+def _probe_main(argv: list[str]) -> int:
+    """``--probe-devices`` 模式: 探一次设备, 打一行协议行。
+
+    这一模式**只**探可用性然后退出: 真正的等待逻辑在父进程里, 子进程不持有
+    任何句柄 (见 :func:`probe_devices` 的第三条硬约束)。
+
+    Returns:
+        0 = 设备可用; 1 = 不可用 / 探针自己坏了。
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(description="设备可用性探针")
+    parser.add_argument("--probe-devices", action="store_true")
+    parser.add_argument("--probe-slm-number", type=int, default=1)
+    parser.add_argument("--probe-cam-id", type=int, default=0)
+    parser.add_argument("--probe-cam-type", default="daheng")
+    parser.add_argument("--probe-exposure-ms", type=float, default=0.2)
+    args = parser.parse_args(argv)
+    if not args.probe_devices:
+        parser.error("本模块的 CLI 只有 --probe-devices 一个模式")
+    result = probe_devices(
+        slm_number=args.probe_slm_number,
+        cam_id=args.probe_cam_id,
+        cam_type=args.probe_cam_type,
+        exposure_ms=args.probe_exposure_ms,
+    )
+    if result.message:
+        print(f"{PROBE_NOTE_PREFIX} {result.message}", flush=True)
+    print(format_probe_line(result), flush=True)
+    return 0 if result.status == PROBE_IDLE else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(_probe_main(sys.argv[1:]))
+
