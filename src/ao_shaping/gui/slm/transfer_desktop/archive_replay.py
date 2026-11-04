@@ -10,7 +10,10 @@
   ``panel_gray`` (送到 SLM 的相位)、``camera_xy`` 与 ``core`` 采样网格。回放它 =
   逐条用 :func:`load_capture` 读兄弟 npz, 得到页面里同样的三块视图。
 * ``iterations.pkl`` (相位口味, ``anchored/`` / ``model/`` / ``response/``) ——
-  一条一次迭代, 带 ``phase`` (弧度 ndarray)、``terms`` (loss / ee_roi / ...), **无 CCD 帧**。
+  一条一次迭代, 带 ``phase`` (弧度 ndarray)、``terms`` (loss / ee_roi / ...), 本身
+  **不内嵌 CCD 帧**, 但当它与同目录的 ``capture_records.pkl`` + 兄弟 ``capture_*.npz``
+  一起落盘时, 回放按 ``(shape, block)`` join 到块首的实测 CCD 画面 (见
+  :func:`_sibling_ccd_by_block`)。
 * ``iterations.pkl`` (拟合口味, ``fit/``) —— 一条一次迭代, 带 ``loss`` / ``parameters``,
   **既无相位也无 CCD 帧**。
 
@@ -536,9 +539,45 @@ def _payload_capture_records(
     return ArchivePayload(entry, out, "capture_records", "")
 
 
+def _sibling_ccd_by_block(entry: ArchiveEntry) -> dict[tuple[str, int], Path]:
+    """把同目录 ``capture_records.pkl`` 的 CCD 帧按 ``(shape, block)`` 索引成表。
+
+    相位回放 (``iterations.pkl``) 本身不带 CCD 帧 —— 但 2026-11-04 起一套迁移会话
+    往往在**同一个目录**里把 ``iterations.pkl`` 与 ``capture_records.pkl`` + 兄弟
+    ``capture_*.npz`` 一起落盘: 前者是每次相位更新, 后者是每块实测的 CCD 画面。
+    缺 CCD 的相位口味本来只能显示「只迭代相位」占位, 明明照片就在隔壁躺着。
+
+    这里按 ``({shape}_{block}_A1)`` 锚记录找回块首的 CCD npz (join 键与
+    :func:`recording.block_records` 一致, 全库 932 块实测 100% 命中)。任何读取失败都
+    退回空表 —— 回放不能因为缺一张图就抛异常, 由原来的占位提示接管。
+    """
+    sibling = entry.path.with_name("capture_records.pkl")
+    if not sibling.is_file():
+        return {}
+    try:
+        with sibling.open("rb") as stream:
+            raw = pickle.load(stream)
+    except _LOAD_ERRORS:
+        return {}
+    out: dict[tuple[str, int], Path] = {}
+    recs = _as_records(raw)
+    files = {r.get("label"): r.get("file") for r in recs}
+    for label, name in files.items():
+        if not isinstance(label, str) or not name:
+            continue
+        shape, _, rest = label.partition("_")
+        blk_part, sep, _suffix = rest.partition("_")
+        if sep != "_" or not blk_part.isdigit():
+            continue
+        blk = int(blk_part)
+        out.setdefault((shape, blk), entry.path.parent / str(name))
+    return out
+
+
 def _payload_iterations_phase(
     entry: ArchiveEntry, records: list[dict]
 ) -> ArchivePayload:
+    ccd_by_block = _sibling_ccd_by_block(entry)
     out: list[ArchiveRecord] = []
     for i, rec in enumerate(records):
         phase = rec.get("phase")
@@ -554,7 +593,14 @@ def _payload_iterations_phase(
             f"{rec.get('shape', '?')} · block {rec.get('block', '?')} · "
             f"iter {rec.get('iteration', i)}"
         )
-        out.append(ArchiveRecord(i, label, None, arr, metrics))
+        ccd = None
+        shape = rec.get("shape")
+        block = rec.get("block")
+        if isinstance(shape, str) and isinstance(block, int):
+            ccd = ccd_by_block.get((shape, block))
+        out.append(ArchiveRecord(i, label, ccd, arr, metrics))
+    if ccd_by_block:
+        return ArchivePayload(entry, out, "iterations_phase", "")
     return ArchivePayload(entry, out, "iterations_phase", _NOTICE_ITER_PHASE)
 
 

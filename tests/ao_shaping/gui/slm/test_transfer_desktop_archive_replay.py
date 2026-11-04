@@ -343,7 +343,55 @@ def test_load_archive_iterations_phase_yields_phase(tmp_path: Path) -> None:
     assert "loss" in payload.records[0].metrics
 
 
-def test_load_archive_iterations_fit_degrades(tmp_path: Path) -> None:
+def test_load_archive_iterations_phase_picks_up_sibling_ccd(tmp_path: Path) -> None:
+    """相位口味与兄弟 capture_records 同目录时, 逐块附上实测 CCD 帧。
+
+    2026-11-04 起一套迁移会话把 ``iterations.pkl`` (相位更新) 与同目录
+    ``capture_records.pkl`` + 兄弟 ``capture_*.npz`` (每块 CCD 画面) 一起落盘;
+    之前回放相位口味只显示「只迭代相位, 无 CCD 帧」占位, 照片明明就在隔壁。
+    这里钉住: load 相位 pkl 时, 每个 ``(shape, block)`` 都 join 到 ``{shape}_{block}_A1``
+    那条捕获 → ``ccd_path`` 指向兄弟 npz, notice 清空 (不再写「无 CCD 帧」)。
+    """
+    folder = tmp_path / "root" / "plane"
+    folder.mkdir(parents=True, exist_ok=True)
+    # 兄弟捕获: 每个 block 一条 A1 锚 (join 键与 recording.block_records 一致)。
+    _write_capture(folder / "capture_0000.npz", seed=7)
+    _write_capture(folder / "capture_0001.npz", seed=8)
+    _dump(
+        folder / "capture_records.pkl",
+        [
+            {"label": "square_0_A1", "file": "capture_0000.npz",
+             "metrics": {"cv": 0.2, "ee_roi": 0.6, "target_peak": 1500.0}},
+            {"label": "square_1_A1", "file": "capture_0001.npz",
+             "metrics": {"cv": 0.3, "ee_roi": 0.7, "target_peak": 1600.0}},
+            {"label": "square_0_B1", "file": "capture_0000.npz",
+             "metrics": {}},  # 非 A1 不参与 join, 不覆盖
+        ],
+    )
+    _write_iterations_phase(folder / "iterations.pkl", n=4)  # 2 块 x 2 迭代
+    # 覆盖成两块的相位记录。
+    with (folder / "iterations.pkl").open("rb") as stream:
+        it_recs = pickle.load(stream)
+    it_recs[2]["block"] = 1
+    it_recs[3]["block"] = 1
+    _dump(folder / "iterations.pkl", it_recs)
+
+    entry = next(
+        e for e in replay.discover_archives(tmp_path / "root")
+        if e.path == folder / "iterations.pkl"
+    )
+    payload = replay.load_archive(entry)
+    assert payload.flavor == "iterations_phase"
+    assert payload.notice == ""          # 有 CCD 侧撑, 不再写「无 CCD 帧」
+    assert len(payload.records) == 4
+    # block 0 的两条迭代 -> capture_0000.npz; block 1 的两条 -> capture_0001.npz。
+    assert payload.records[0].ccd_path == folder / "capture_0000.npz"
+    assert payload.records[1].ccd_path == folder / "capture_0000.npz"
+    assert payload.records[2].ccd_path == folder / "capture_0001.npz"
+    assert payload.records[3].ccd_path == folder / "capture_0001.npz"
+    # 相位仍在 (CCD 只是附加, 不顶掉迭代相位)。
+    assert payload.records[0].phase is not None
+    assert payload.records[0].phase.shape == (16, 16)
     pkl = _write_iterations_fit(
         tmp_path / "root" / "fit" / "full" / "iterations.pkl", n=4
     )
