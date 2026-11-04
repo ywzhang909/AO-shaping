@@ -1,4 +1,4 @@
-# 光束整形经验报告：有效方法、适用条件与失败防线（2026-11-03 收口）
+﻿# 光束整形经验报告：有效方法、适用条件与失败防线（2026-11-03 收口）
 
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
@@ -116,6 +116,13 @@
 | 设备收尾 | 实验系统恢复槽 27，设备关闭记录为 `True`；槽内容未逐字节核对，不宣称已还原 |
 
 复现命令见 [本次实验报告 §产物与复现](../local_forward/local_forward_20261103.md)。命令只在设备重新就绪、且 §3 就绪门禁通过后执行；本报告整理阶段没有再操作设备。
+
+## 5.1 2026-11-04 现场复核与收尾
+
+设备重新就绪后只完成了不写相机的部分，尚未跑真机优化。11-04 复核设备探针结论：Santec #1 在线（driveboardID/serial `22030108`，2π=993 灰度，memory 模式）；Daheng `cam_id=0` 与 MiiCam `cam_id=0` 都枚举不到，设备探针归类 `camera_absent`。这说明 SLM 链路正常、相机物理链路缺失，真机采集实验（11-03 配方复现 / 算法优化）必须等人检查相机供电、网线或占用后恢复，不能在缺相机下假装跑硬件。
+
+同一天已把「落盘 `shaped_phase.npy` + GS 误差棒分组」的改动提交（`e10f5a9` `fix(reporting): persist shaped_phase.npy and add GS metric grouping`），并用同步后的代码跑通 `scripts/ml/sim2f_local_forward_experiment.py --dry-run`：sim 后端 1 轮从 `continuous_cone055_20261103.npy` 起点完成可微更新，模型预测增益 0.0321 对实测 0.0330、NCC 0.999987，产物含 `accepted_phase.npy`、`basis.npy`、`r00_jacobian.npy` 与 `summary.json`。这只是链路验证，不是整形实验证据。相机恢复后的第一个真机动作为：按 §3 就绪门禁通过后，跑 11-03 成功配方的短版复现（`--rounds 1 --replays 2`）确认设备状态，再继续完整轮次；若仍卡相机缺失，保留负结果并报给人工处理。
+
 
 ## 6 仍未解决与「不要再按原样重试」
 
