@@ -165,11 +165,17 @@ _MSE_MAXERR = 2e-3
 #: The same bench under ``l1`` -- the production default, because a real speckle
 #: frame carries outliers.  The objective is a sum of absolute values, so it has a
 #: kink at zero and Adam oscillates instead of converging: residual 0.0236 and
-#: max |c - truth| 0.0228 after 120 steps, and 4000 steps still leave 0.0127.  The
-#: band below brackets the 120-step value and the asymptote, so a change that made
-#: l1 actually converge would have to update this test on purpose.
-_L1_RESIDUAL_BAND = (0.010, 0.030)
-_L1_MAXERR_BAND = (0.010, 0.030)
+#: max |c - truth| 0.0228 after 120 steps, and 4000 steps still leave 0.0127.
+#:
+#: The band is deliberately NOT that measurement.  Near the kink the 120-step
+#: trajectory is chaotic: the same code, torch pin and 16-thread budget land at
+#: 0.0236 / 0.0228 on the dev box and at 0.0063 on the GitHub runner, because a
+#: different CPU kernel changes the float32 reduction order.  So the band rules
+#: out only the two failure modes it exists for -- l1 converging like ``mse``
+#: (residual below 1e-4, ten times the mse bound) and l1 diverging (above 0.08) --
+#: and a real convergence would still have to update this test on purpose.
+_L1_RESIDUAL_BAND = (1e-4, 0.08)
+_L1_MAXERR_BAND = (1e-3, 0.08)
 
 
 class TestConfiguration:
