@@ -249,6 +249,23 @@ else
     CONTAINER_CMD=( "${PYTEST_INTERP[@]}" "${PYTEST_OPTS[@]}" "${PASSTHROUGH[@]}" "${TARGETS[@]}" )
 fi
 
+# The pytest basetemp (tmp_path, and any tempfile default-dir use) must live on host
+# disk, NOT on the /tmp tmpfs below: tmpfs pages are non-reclaimable anonymous memory
+# charged to the container's memcg, so a shard whose tests write multi-GB .npz/.npy
+# artifacts both exhausts the tmpfs size cap (ENOSPC inside np.savez_compressed) and
+# pushes memcg past --memory, which kills the run with SIGKILL before pytest can print
+# a summary. Measured: at AO_MEMORY=6g the scripts shard dies at ~97% with 9 failures
+# and no summary; on disk the same shard completes. NUMBA_CACHE_DIR stays on tmpfs on
+# purpose (small, hot).
+# The root is unique per run, not a fixed path + rm -rf: the container writes as root,
+# so the invoking user cannot delete a previous run's tree (rm -r must descend into it
+# first) and the fixed-path form aborts every second run under set -e. Fresh root per
+# run also means no earlier artifact can change this run's result; the prune below is
+# best-effort housekeeping, never a gate.
+RUN_TMP="$SCRATCH/tmp/$(date -u +%Y%m%dT%H%M%SZ)-$$"
+mkdir -p "$RUN_TMP"
+find "$SCRATCH/tmp" -mindepth 1 -maxdepth 1 -type d -mmin +180 -exec rm -rf {} + 2>/dev/null || true
+
 exec docker run --rm \
     --name ao-pytest-ci \
     --cpus="$CPU_LIMIT" \
@@ -260,7 +277,9 @@ exec docker run --rm \
     "${GIT_MOUNT[@]}" \
     -v "$SCRATCH/logs:$WORKDIR_IN_CONTAINER/logs" \
     -v "$SCRATCH/data:$WORKDIR_IN_CONTAINER/data" \
+    -v "$RUN_TMP:/scratch-tmp" \
     --tmpfs /tmp:size=4g,mode=1777 \
+    -e TMPDIR=/scratch-tmp \
     -e AO_PYTEST_ROOT="$WORKDIR_IN_CONTAINER" \
     -e AO_CPU_THREADS="${AO_CPU_THREADS:-16}" \
     -e AO_VRAM_LIMIT_MB="${AO_VRAM_LIMIT_MB:-4096}" \

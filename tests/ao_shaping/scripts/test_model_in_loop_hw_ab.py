@@ -295,6 +295,23 @@ def test_manifest_carries_the_required_keys_and_serialises(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+def _only_session(root: Path) -> Path:
+    """The campaign's single session directory under ``root``.
+
+    ``iterdir()`` yields raw filesystem readdir order -- not sorted order, and it
+    differs between a tmpfs ``/tmp`` and a disk-backed temp root. The session
+    directory legitimately shares ``root`` with caller-supplied files (e.g.
+    ``model_error_terms.json``), so taking ``list(root.iterdir())[0]`` silently
+    picks up one of those files as soon as the temp root moves. Select by kind
+    and pin the count instead.
+    """
+    sessions = sorted(p.name for p in root.iterdir() if p.is_dir())
+    assert len(sessions) == 1, (
+        f"expected exactly one session dir under {root}, got {sessions}"
+    )
+    return root / sessions[0]
+
+
 def _fake_runner(monkeypatch, calls: list, light_state: str = "ok"):
     """Replace the subprocess call with a stand-in that records a run."""
 
@@ -390,7 +407,7 @@ def test_a_dark_bench_stops_the_campaign_before_any_run(tmp_path, monkeypatch):
         ["--out-root", str(tmp_path), "--large-sides", "1000", "--wait-until-idle", "0"]
     )
     assert code == 2
-    session = list(tmp_path.iterdir())[0]
+    session = _only_session(tmp_path)
     manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["campaign_state"] == "blocked_no_light"
     assert [stage["name"] for stage in manifest["stages"]] == ["light"]
@@ -415,7 +432,7 @@ def test_the_light_gate_can_be_switched_off(tmp_path, monkeypatch):
         ]
     )
     assert code == 0
-    session = list(tmp_path.iterdir())[0]
+    session = _only_session(tmp_path)
     manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
     light = next(stage for stage in manifest["stages"] if stage["name"] == "light")
     assert light["outcome"] == "skipped"
@@ -484,7 +501,7 @@ def test_the_later_arms_run_with_the_donors_geometry(tmp_path, monkeypatch):
         ["--out-root", str(tmp_path), "--large-sides", "1000", "--wait-until-idle", "0"]
     )
     assert code == 0
-    session = list(tmp_path.iterdir())[0]
+    session = _only_session(tmp_path)
     manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
     stages = {stage["name"]: stage for stage in manifest["stages"]}
 
@@ -522,7 +539,7 @@ def test_without_a_donor_geometry_the_arms_fall_back_and_say_so(tmp_path, monkey
         ["--out-root", str(tmp_path), "--large-sides", "1000", "--wait-until-idle", "0"]
     )
     assert code == 0
-    session = list(tmp_path.iterdir())[0]
+    session = _only_session(tmp_path)
     manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
     stages = {stage["name"]: stage for stage in manifest["stages"]}
 
@@ -556,7 +573,7 @@ def test_an_external_geometry_file_is_used_by_every_arm(tmp_path, monkeypatch):
         ]
     )
     assert code == 0
-    session = list((tmp_path / "runs").iterdir())[0]
+    session = _only_session(tmp_path / "runs")
     manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
     stages = {stage["name"]: stage for stage in manifest["stages"]}
     for name in ("baseline_a", "baseline_b", "large_1000"):
@@ -583,7 +600,7 @@ def test_the_error_params_reach_every_arm(tmp_path, monkeypatch):
         ]
     )
     assert code == 0
-    session = list(tmp_path.iterdir())[0]
+    session = _only_session(tmp_path)
     manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
     for stage in manifest["stages"]:
         if stage["kind"] == "light":

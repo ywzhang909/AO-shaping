@@ -4530,6 +4530,13 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 换成集合判据：最差两个模式必须是 `{0, 2}`（tip + Noll 4 defocus），且对第三名保持约 3 倍余量——本地 3.1x、CI 3.1x，两台机器同余量。单点排序会翻转，模式对不会。
 - 验证：`test_fit.py` 全文件 22 通过；逐模实测由临时探针取得（已删，未入库）。
 
+**2026-11-04 · 16ab4447 · scripts 分片长期红的定因不是那九条失败，而是四个测试文件从未属于任何分片**
+- 未覆盖集合为空不等于覆盖完整：`test_pytest_workflow_shards_cover_tree.py::test_every_test_area_is_sharded` 本身是**逐文件**判定（枚举每个 `test_*.py`，要求命中某条 `run_shard` 目标），但它自己住在 `scripts` 分片里，而那一片长期整片红 ⇒ 门禁的红被埋在整片红下面，消息从未被人读到。四个文件因此静默逃过：root-guards 的 `test_cublas_preload.py` / `test_native_cuda_import_gate.py` / `test_point_axis_convention.py`，ml 的 `test_shape_loop.py`。登记进各自分片后 CI 的 scripts 失败计数 10→9，正是这条门禁自身。
+- **一条门禁红住在一条必然红的分片里，就等于没有门禁**。任何"覆盖完整性"守卫都必须放在**已知干净**的分片，或独立于被测对象单列一条；否则它只能在已经全红时才恰好变红。
+- `test_point_axis_convention.py` 不是数值容差问题：它钉的是 `locate_zero_order` 的返回轴约定，而被测源码从未写出该约定，测试只能反推实现意图。改法是给函数落一行机器可读的 `# AXIS: (row, col)`，测试读标记而非猜意图——约定要有唯一出处。
+- `test_shape_loop.py::test_run_shape_trial_improves_on_a_synthetic_twin` 在默认幅度下孪生面残差于 `fit_iters` 预算内不可能低于判据（本地与 CI 同红，非跨机器问题）。改 `amplitude=0.3` / `fit_iters=120`，判据本身不动。
+- 验收：CI run 41846005723 为 12 片中 11 片绿，仅 `scripts` 阻塞；该片剩余失败与 ~97% 处无 summary 静默死亡的定因在容器资源侧（tmpfs 空间上限与其页对 memcg 的计费同时触顶），与分片目标列表无关。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
