@@ -406,28 +406,30 @@ class TestZernikeEditorFallback:
 
 
 class TestMaxGrayOverride:
-    """Group 5 — the driver's real 2π max-grayscale (slm._max_gray) overrides
-    the bits-derived fallback in __init__ and flows into defaults/ranges."""
+    """Group 5 — 2π 编码口径 (2026-11-04): 一律取面板满量程
+    ``Santec.MAX_GRAYSCALE_VALUE`` (1023)，不随设备 ``_max_gray``（物理 2π，
+    如 993 @1064nm）改变；``_max_gray`` 只作诊断。"""
 
-    def test_max_gray_override(self) -> None:
-        ctrl = FlatControl(max_gray=993)
-        assert ctrl.max_gray == 993
+    def test_max_gray_encoding_scale(self) -> None:
+        # 默认 10-bit → 1023
+        ctrl = FlatControl()
+        assert ctrl.max_gray == 1023
         assert ctrl.defaults["flat_gray"] == 0
-        assert ctrl.ranges["flat_gray"] == (0, 993)
+        assert ctrl.ranges["flat_gray"] == (0, 1023)
 
-        ctrl2 = HalfHalfPhaseControl(max_gray=993)
-        assert ctrl2.max_gray == 993
-        assert ctrl2.defaults["flat_gray"] == 496
-        assert ctrl2.ranges["flat_gray"] == (0, 993)
+        ctrl2 = HalfHalfPhaseControl(max_gray=1023)
+        assert ctrl2.max_gray == 1023
+        assert ctrl2.defaults["flat_gray"] == 511
+        assert ctrl2.ranges["flat_gray"] == (0, 1023)
 
-        # No override -> bits-derived fallback (10 bits -> 1023).
-        ctrl3 = FlatControl()
-        assert ctrl3.max_gray == 1023
-        assert ctrl3.defaults["flat_gray"] == 0
+        # 显式非 1023 的 2π 灰度仍被尊重（预览/换算按传入标度）
+        ctrl3 = FlatControl(max_gray=993)
+        assert ctrl3.max_gray == 993
+        assert ctrl3.ranges["flat_gray"] == (0, 993)
 
     def test_generate_phase_rad_uses_max_gray(self) -> None:
-        ctrl = FlatControl(max_gray=993)
-        phase = ctrl.generate_phase_rad({"flat_gray": 993})
+        ctrl = FlatControl(max_gray=1023)
+        phase = ctrl.generate_phase_rad({"flat_gray": 1023})
         assert phase.shape == (1200, 1920)
         assert np.allclose(phase, 2 * np.pi)
 
@@ -438,17 +440,12 @@ class TestMaxGrayOverride:
         assert BlazedGratingControl.CONTEXT_SYNCED_WIDGETS == ("blazed_calc_wl",)
         assert VortexPhaseControl.CONTEXT_SYNCED_WIDGETS == ("vortex_wavelength",)
 
-    def test_build_control_propagates_max_gray(self) -> None:
+    def test_build_control_uses_full_scale_encoding(self) -> None:
+        # 即使设备 _max_gray=993，_build_control 也强制编码标度 1023
         slm_with = _mock_slm()
         slm_with._max_gray = 993
         ctrl = _build_control("平场", slm_with)
-        assert ctrl.max_gray == 993
-
-        # No _max_gray attribute → MagicMock child is not an int → None →
-        # bits-derived fallback (proves the isinstance guard).
-        slm_without = _mock_slm()
-        ctrl2 = _build_control("平场", slm_without)
-        assert ctrl2.max_gray == 1023
+        assert ctrl.max_gray == 1023
 
 
 class TestPhaseRangeNPiUnits:

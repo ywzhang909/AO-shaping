@@ -174,9 +174,11 @@ class TestResetContextWidgets:
         # Unrelated keys survive.
         assert session["slm1_phase_source"] == "暂无"
 
-    def test_build_control_connected_propagates_max_gray(self, monkeypatch):
+    def test_build_control_connected_uses_full_scale(self, monkeypatch):
         slm = _mock_slm(width=128, height=96)
         slm._max_gray = 993
         monkeypatch.setattr(st, "session_state", {"slm1": slm})
         ctrl = _build_control("平场", 1)
-        assert ctrl.max_gray == 993
+        # 编码口径: 一律面板满量程 1023, 不随设备物理 2π 灰度 (993) 改变。
+        assert ctrl.max_gray == 1023
+        assert ctrl.ranges["flat_gray"] == (0, 1023)

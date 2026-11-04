@@ -850,8 +850,8 @@ class ShapingMethod(ABC):
                 phase_gray = slm.create_phase_from_array(outcome.panel_phase)
                 slm.display_data(phase_gray, memory_mode=MEMORY_MODE_INTERNAL)
                 refresh_phase_preview(self.slm_num)
-                max_gray = getattr(slm, "_max_gray", None) or Santec.MAX_GRAYSCALE_VALUE
-                st.success(f"最佳相位已下发（raw 弧度走驱动管线，2π={max_gray}）")
+                max_gray = Santec.MAX_GRAYSCALE_VALUE
+                st.success(f"最佳相位已下发（raw 弧度走驱动管线，2π 编码灰度={max_gray}）")
             except Exception as exc:  # policy: surfaced to the operator: a failed best-phase send must not look like a completed one, and the run returns instead of falling through to the success message
                 logger.exception("下发最佳相位失败: {}", exc)
                 st.error(f"最佳相位下发失败: {exc}")

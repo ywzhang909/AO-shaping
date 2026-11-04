@@ -74,8 +74,9 @@ class PatternControl(ABC):
         self.width = int(width)
         self.height = int(height)
         self.bits = int(bits)
-        #: 2π max-grayscale: the driver's real device value (slm._max_gray,
-        #: e.g. 993 @1064nm) when provided, else derived from bit depth.
+        #: 2π max-grayscale (encoding scale): the panel full scale
+        #: (1023 = MAX_GRAYSCALE_VALUE); device's physical 2π (slm._max_gray,
+        #: e.g. 993 @1064nm) stays diagnostic only and is never used here.
         self.max_gray = int(max_gray) if max_gray is not None else (1 << self.bits) - 1
         # Instance specs: render() pulls every widget's value/min/max from
         # these (never from st.session_state, never falling back to min_value).
@@ -1200,9 +1201,11 @@ def _phase_to_preview(
     through the cyclic ``twilight`` colormap — smooth, hue-based rendering that
     keeps fine phase structure visible (0 ≈ 2π wrap at the same color).
     ``colormap="灰度"`` falls back to a plain grayscale normalization
-    replicated over RGB. ``max_gray`` is the device's 2π maximum grayscale
-    value (``slm._max_gray``); when ``None``, falls back to
-    ``Santec.MAX_GRAYSCALE_VALUE`` (full 10-bit range).
+    replicated over RGB. ``max_gray`` is the 2π **encoding** scale — the panel
+    full scale (``Santec.MAX_GRAYSCALE_VALUE`` = 1023); when ``None`` it falls
+    back to that same constant. Never pass the device's physical 2π gray
+    (``slm._max_gray``, e.g. 993 @1064 nm): previewing with it would rescale
+    every frame by 1023/993 and hide the real gray codes being sent.
     """
     if max_gray is None:
         max_gray = Santec.MAX_GRAYSCALE_VALUE
@@ -1235,7 +1238,7 @@ def refresh_phase_preview(slm_num: int) -> None:
         return
 
     phase_gray, source = slm.get_displayed_phase()
-    max_gray = getattr(slm, "_max_gray", Santec.MAX_GRAYSCALE_VALUE)
+    max_gray = Santec.MAX_GRAYSCALE_VALUE
     colormap = st.session_state.get(colormap_key, PREVIEW_COLORMAP_DEFAULT)
     st.session_state[phase_key] = (
         None
@@ -1251,7 +1254,6 @@ def _build_control(pattern_type: str, slm: Santec) -> PatternControl:
     if cls is None:
         raise ValueError(f"未知相位图类型: {pattern_type}")
     panel_res = getattr(slm, "Panel_Res", (1920, 1200))
-    raw_max_gray = getattr(slm, "_max_gray", None)
     return cls(
         slm_id=int(getattr(slm, "slm_number", 0)),
         wavelength=float(getattr(slm, "wavelength", None) or 1064.0),
@@ -1259,7 +1261,7 @@ def _build_control(pattern_type: str, slm: Santec) -> PatternControl:
         width=int(panel_res[0]),
         height=int(panel_res[1]),
         bits=int(getattr(slm, "Gray_Scale_bits", 10)),
-        max_gray=int(raw_max_gray) if isinstance(raw_max_gray, int) else None,
+        max_gray=Santec.MAX_GRAYSCALE_VALUE,
     )
 
 

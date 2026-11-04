@@ -119,7 +119,8 @@ class PhaseOverlay:
         panel_phase:
             **已 resize 到面板尺寸**的弧度制输入相位（弧度域，未转换）。
         max_grayscale:
-            2π 弧度对应的灰度值（``Santec._max_gray``，默认 1023）。
+            2π 弧度对应的灰度值（``Santec.MAX_GRAYSCALE_VALUE`` = 1023）。
+             如有需要可显式传入其它编码标度。
 
         注意：本方法只做「离焦(弧度)→弧度→灰度→底相位(灰度)→mod」的**裸叠加**，
         不含 矫正CSV / LUT / 平移——那些是驱动的职责。实际发送路径用
@@ -242,7 +243,7 @@ class OverlaidSantec:
         """
         slm = self._slm
         if max_grayscale is None:
-            max_grayscale = int(getattr(slm, "_max_gray", 1023))
+            max_grayscale = int(getattr(slm, "MAX_GRAYSCALE_VALUE", 1023) or 1023)
         # 离焦（弧度）：相位空间，先于 弧度→灰度 转换。输入先对齐到面板尺寸。
         panel_phase = slm._resize_to_panel(phase_rad)
         if self._overlay.has_phase:

@@ -187,6 +187,6 @@ X 粗扫 tip 几乎不变 (+0.39→+0.22) 而 tilt 强线性 (+2.72→−1.50); 
 - 输入必须是**弧度制**相位数组，shape 为 `(PANEL_RES[1], PANEL_RES[0])`，即 `(1200, 1920)`；函数拒绝非面板尺寸及 NaN/无穷值。
 - 输出保留 Santec 索引格式：首行首列为 `Y/X`，随后是列索引 `0..1919`；每行首列为行索引 `0..1199`，数据区为 float 弧度值。
 - `destination` 可为文件路径、`io.BytesIO` 或文本流；写入路径不存在时自动创建父目录。
-- GUI 导出前按当前设备的 `_max_gray` 将灰度相位转换为弧度，再调用该函数；导出的弧度 CSV **不能**交给 `load_gray_from_csv()` 或 `csv_to_phase()`，后两者只接受 0..1023 灰度 CSV。需要重新加载时，应读取数据区为弧度并传入 `create_phase_from_array()`。
+- GUI 导出前按满量程 1023 (`Santec.MAX_GRAYSCALE_VALUE`) 将灰度相位转换为弧度，再调用该函数；导出的弧度 CSV **不能**交给 `load_gray_from_csv()` 或 `csv_to_phase()`，后两者只接受 0..1023 灰度 CSV。需要重新加载时，应读取数据区为弧度并传入 `create_phase_from_array()`。
 
 **注意**: CSV 灰度值必须走 `csv_to_phase`（视为原始灰度），**不能**直接当弧度传入 `create_phase_from_array()`。扁平相位仍须用 `np.full((h,w), gray, dtype=np.uint16)` 直接发送。

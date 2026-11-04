@@ -121,8 +121,11 @@ class TestCsvToPhase:
 
         gray_roundtrip = slm.create_phase_from_array(phase_rad)
 
+        # — 2026-11-04 口径：create_phase_from_array 的 2π 编码灰度一律为面板
+        # 满量程 MAX_GRAYSCALE_VALUE (1023)，不随设备 _max_gray 改变 ——
+        # 与下方 /1023 的换算配对，确保往返一致。
         phase_roundtrip = (
-            gray_roundtrip.astype(np.float64) / slm._max_gray * 2 * np.pi
+            gray_roundtrip.astype(np.float64) / slm.MAX_GRAYSCALE_VALUE * 2 * np.pi
         )
         np.testing.assert_allclose(
             np.mod(phase_roundtrip, 2 * np.pi),
@@ -230,7 +233,7 @@ class TestGrayToPhasePipeline:
         assert gray_from_phase.shape == gray.shape
         assert gray_from_phase.dtype == np.uint16
         phase_roundtrip = (
-            gray_from_phase.astype(np.float64) / slm._max_gray * 2 * np.pi
+            gray_from_phase.astype(np.float64) / slm.MAX_GRAYSCALE_VALUE * 2 * np.pi
         )
         np.testing.assert_allclose(
             np.mod(phase_roundtrip, 2 * np.pi),

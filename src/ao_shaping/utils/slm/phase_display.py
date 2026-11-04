@@ -53,7 +53,8 @@ def phase_to_slm_grayscale(
     """将相位图 (弧度) 转换为 SLM uint16 灰度图。
 
     优先走 SLM 驱动的统一实现 :meth:`create_phase_from_array` (弧度→灰度 +
-    波前矫正 + LUT + 平移 + mod 2π, 2π 灰度取设备波长相关的 ``_max_gray``);
+    波前矫正 + LUT + 平移 + mod 2π, 2π 编码灰度取面板满量程
+    ``Santec.MAX_GRAYSCALE_VALUE`` = 1023);
     ``slm`` 为 ``None`` (纯模拟/离线保存/单元测试) 时回退到本函数内置的
     纯数学转换: 相位折叠到 ``[0, 2π)`` 后缩放到 ``[0, max_grayscale]``
     并截断为 ``uint16``。
@@ -61,7 +62,8 @@ def phase_to_slm_grayscale(
     Args:
         phase: 以弧度表示的二维相位数组。
         max_grayscale: 对应 ``2*pi`` 的灰度值 (10 位 LCOS 设备默认 1023)。
-            传给驱动时为 ``None`` 则使用设备波长相关的 ``_max_gray``。
+            传给驱动时为 ``None`` 则使用设备满量程 ``MAX_GRAYSCALE_VALUE``
+             (1023)，与矫正 CSV / 官方软件口径一致。
         slm: 已打开的 SLM 设备 (鸭子类型, 暴露 ``create_phase_from_array``),
             可为 ``None`` 以使用纯数学转换。
 
