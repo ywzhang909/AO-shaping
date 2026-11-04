@@ -4518,6 +4518,17 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - ④ #90 的 sim 注解重定向：`AGENTS.md` 已由 `71d7a9ec` 瘦身为 51 行索引，注解随之迁到 `docs/dev/module_inventory.md` 的 signal_processing 行；测试改读该文件并断言现措辞（`演示体已于 14b1cda 迁至 …`），不把注解塞回索引，测试名同步为 `test_module_inventory_annotation_states_final_split`。
 - 验证：`test_conventions.py` 全文件 72 通过 / 1 跳过；`test_sim_library_split.py` 4 通过；`ruff check` 通过；术语 dry-run 0 文件 0 行。镜像与 GUI 收集的最终确认以 CI 为准（本地无法在不重建镜像的前提下验证）。
 
+**2026-11-04 · 60e0bce0 · CI 红转绿：三条把单机数值当不变量的 ml 断言改为跨机器稳健判据**
+- `test_train_amp_loss::test_mse_path_is_bit_identical_to_the_hard_captured_reference`：参考系数本地逐位复现（`max|diff| = 0.0`），CI（不同 CPU 内核 → float32 归约顺序不同）漂 `1.21e-8`。`assert_array_equal` → `assert_allclose(atol=1e-6, rtol=0)`。判据效力不变：真实路径变化（`loss="physical"`）把系数移动 `6.2e-2`，是容差的 6 万倍。
+- `test_fit::test_the_l1_default_stalls_at_a_measured_floor`：l1 在 kink 附近的 120 步轨迹是混沌的，同一镜像本地 `0.0236`、CI `0.0063`（原 0.010 下限因此失效）。双侧带改为 `(1e-4, 0.08)` / `(1e-3, 0.08)`，只排除两种失效模式——l1 像 mse 一样收敛（<1e-4）或发散（>0.08）；形状关系（更低 lr 更优）保留。
+- `test_pinn::test_physics_terms_suppress_the_out_of_band_residual`：跨变体带外能量比本地 `0.43x`、CI `1.41x`，符号会翻转（60 步 Adam 停在不同的近似不动点）。撤回符号断言，改钉两件可复现的事——band 项只在 `physics=True` 侧计费、且不把残差放大一个数量级以上；测试改名 `test_physics_arm_keeps_the_out_of_band_residual_bounded`。
+- 验证：CI 同款镜像逐文件 9 / 22 / 7 通过；`ruff check` 通过；术语 dry-run 0 文件。CI 实测在 `3c7c09bb` 那次给出 `##[notice]ml PASS`。
+
+**2026-11-04 · 3c7c09bb · l1 停摆测试的形状判据改为 top-2 集合而非单点 argmax**
+- CI 实测逐模误差 `[0.0037, 0.0001, 0.0038, 0.0012, 0.0012, 0.0005]`：tip 与 defocus 只差 2%（`3.734e-3` vs `3.814e-3`）⇒ `argmax == 0` 在另一台 CPU 内核上必红；本地同判据为 `argmax = 0`（`0.0228` vs `0.0185`）。
+- 换成集合判据：最差两个模式必须是 `{0, 2}`（tip + Noll 4 defocus），且对第三名保持约 3 倍余量——本地 3.1x、CI 3.1x，两台机器同余量。单点排序会翻转，模式对不会。
+- 验证：`test_fit.py` 全文件 22 通过；逐模实测由临时探针取得（已删，未入库）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

@@ -36,6 +36,7 @@ class SLMHandle(Protocol):
     def __exit__(self, *exc: Any) -> None: ...
 
 
+# AXIS: (row, col)
 def locate_zero_order(frame: np.ndarray) -> tuple[int, int]:
     """Locate the 0-order as the frame global maximum, returned as ``(cy, cx)``.
 
