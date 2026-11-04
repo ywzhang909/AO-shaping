@@ -4,6 +4,7 @@
 
 | 子目录 | 生成脚本 | 报告 |
 |--------|----------|------|
+| `transfer_uncertainty/` | `scripts/slm/transfer_uncertainty_experiment.py` | `transfer_uncertainty_20261104.md` |
 | `gs_defocus_sim/` | `scripts/slm/generate_gs_defocus_sim_report.py` | `gs_defocus_sim_20261019.md` |
 | `hw_defocus_zernike/` | `scripts/slm/generate_hw_defocus_zernike_report.py` | `hw_defocus_zernike_20261020.md`、`hw_defocus_zernike_20261021.md`、`hw_defocus_zernike_20261022.md` |
 | `sim_vs_hw/` | `scripts/slm/compare_sim_vs_hw.py` | `sim_vs_hw_20261022.md` |

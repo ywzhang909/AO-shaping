@@ -1,0 +1,13 @@
+{
+  "root": "data\\debug\\transfer_uncertainty_20261104",
+  "checkpoint": "data\\debug\\slm_transfer\\20261104_192122\\fit\\frozen_parameters.json",
+  "device": "cuda",
+  "iterations": 60,
+  "span": 120,
+  "seed": 110421,
+  "execute": false,
+  "script_sha256": "4f1600e0b5dff8d311300b7e2c762a27293d12f62d9936fa883736549be4e9bc",
+  "checkpoint_sha256": "8259360425667c9e58e6204dbc91cdbc601e70e727ce051a50d54af4704dfa22",
+  "uncertainty": "phase bootstrap ensemble; normalized intensity disagreement",
+  "protocol": "12 initial train, 12 validation; +4 active vs +4 random; 8 untouched test"
+}

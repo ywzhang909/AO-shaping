@@ -86,6 +86,15 @@ class ReportProvenance:
 #:   ``硬件``   -- needs a real bench (SLM / CCD / WFS / DM / micro-DM).
 #:   ``离线+硬件`` -- renders offline, but the numbers were measured on hardware.
 REPORTS: dict[str, ReportProvenance] = {
+    "report/shape_trials/transfer_uncertainty/transfer_uncertainty_20261104.md": ReportProvenance(
+        "scripts/slm/transfer_uncertainty_experiment.py",
+        command=("python scripts/slm/transfer_uncertainty_experiment.py "
+                 "--root data/debug/transfer_uncertainty_20261104 "
+                 "--checkpoint data/debug/slm_transfer/20261104_192122/fit/frozen_parameters.json "
+                 "--execute"),
+        environment="硬件：1064 nm Santec SLM + Daheng CCD；拟合使用 CUDA",
+        note="先使用生产 capture --grid 128 --count 24 --frames 3 --seed 110421 --save-dataset 采集 capture/。",
+    ),
     "report/shape_trials/experience_review/shaping_experience_20261103.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线整理 + 11-04 实测收尾（169 份整形相关报告清单、11-03 已归档实验 / 仿真结论；11-04 在 Santec #1 + Daheng 实测补一轮短验证与一轮完整可微优化）",

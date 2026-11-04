@@ -2,6 +2,12 @@
 
 This directory contains various utility scripts for the AO-Shaping project, including build scripts, simulation scripts, training scripts, and analysis tools.
 
+`slm/transfer_uncertainty_experiment.py` tests phase-bootstrap uncertainty for the
+production `slm-transfer-shapes` physical model. It compares four actively
+selected CCD samples with four random controls on eight untouched commands;
+`--execute` enables real SLM acquisition. Its saved checkpoints and evaluation
+arrays support the report in `report/shape_trials/transfer_uncertainty/`.
+
 `ml/sim2f_local_forward_experiment.py` identifies a local CCD intensity response
 from paired smooth phase probes, differentiates that forward model for shaping,
 and verifies candidates and the final phase using independent ABBA captures.
