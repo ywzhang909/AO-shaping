@@ -16,7 +16,7 @@ closed-loop pipeline the CLI runners drive:
   (``report/shape_trials/model_in_loop_live_20261013.md``), best uniformity so
   far but not yet an accepted uniform square; needs torch.
 - **迁移学习** (``slm_transfer`` / ``ao_shaping.tools.slm.transfer``): 少参数物理
-  物理预测模型 + 当前光路重测几何 + 检查点迁移，再用 CCD 锚定短块与 A–B–B–A 配对
+  物理预测模型 + 当前光路重测几何 + 检查点迁移，再用按 CCD 实测校正短块与 A–B–B–A 配对
   验收（``report/shape_trials/multishape_capability/``）；同样需要 torch。
 
 Architecture — why adapters + decorators
@@ -2036,13 +2036,13 @@ TRANSFER_RECIPE: dict[str, Any] = {
 TRANSFER_STAGE_LABELS: dict[str, str] = {
     "capture": "当前光路采集（探针 + 逐帧自动曝光）",
     "reuse_capture": "复用已有采集",
-    "nominal_initialization": "名义模型初始化（冷启动，未标定）",
+    "nominal_initialization": "初始模型准备（冷启动，先用出厂标定值起手，未实测标定）",
     "fit": "物理预测模型迁移 / 拟合",
-    "CCD_model_blocks": "CCD 模型配对块",
+    "CCD_model_blocks": "CCD 实测对照块（模型预测 vs 实测）",
     "exposure_response_capture": "曝光阶梯诊断",
     "exposure_response_analysis": "曝光响应分析",
     "blur_calibration": "有效展宽 / 辐射尺度校准",
-    "CCD_anchored_blocks": "CCD 锚定优化（验收：A–B–B–A 或仅模型损失）",
+    "CCD_anchored_blocks": "CCD 实测校正优化块（按实测迭代，验收：A–B–B–A 或仅模型损失）",
     "GS_and_differentiable_synthesis": "GS + 可微相位合成（离线）",
     "transferred_phase_differentiable_synthesis": "历史接受相位迁移 + 可微合成（离线）",
     "raw_data_audit": "原始数据审计",
@@ -2241,7 +2241,7 @@ class TransferMethod(ShapingMethod):
     applies_send_overlay: ClassVar[bool] = False
     phase_carries_carrier: ClassVar[bool] = True
     blurb: ClassVar[str] = (
-        "少参数物理预测模型 + 当前光路重测几何 + 检查点迁移，再用 CCD 锚定短块与 "
+        "少参数物理预测模型 + 当前光路重测几何 + 检查点迁移，再用按 CCD 实测校正短块与 "
         "A–B–B–A 配对验收生成目标相位（配对验收可关闭，关闭后只按模型损失接受）。"
         "与 CLI ``-m ao_shaping.tools.slm.transfer`` "
         "同一入口；配方与验收见 "
@@ -2304,14 +2304,14 @@ class TransferMethod(ShapingMethod):
         )
 
     def render_budget(self, values: dict[str, Any]) -> None:
-        """预算：探针数 / 拟合迭代 / 锚定块数 / 每块更新数 / 每点帧数 / 随机种子。"""
+        """预算：探针数 / 拟合迭代 / 按实测校正块数 / 每块更新数 / 每点帧数 / 随机种子。"""
         d = TRANSFER_RECIPE
         for cell, (name, label, lo, hi, step, help_text) in zip(
             _param_cells(4),
             (
                 ("count", "探针数", 6, 96, 6, "分组随机探针数（CLI --count）"),
                 ("iterations", "拟合迭代", 0, 99999, 10, "模型参数拟合迭代（CLI --iterations）；上限由时间预算约束"),
-                ("blocks", "锚定块数", 1, 99999, 1, "CCD 锚定短块数，每块一次 A–B–B–A 验收；上限由时间预算约束"),
+                ("blocks", "校正块数", 1, 99999, 1, "CCD 按实测校正的短块数，每块一次 A–B–B–A 验收；上限由时间预算约束"),
                 ("updates", "每块更新数", 1, 99999, 1, "每块内的模型更新次数；上限由时间预算约束"),
             ),
             strict=True,
@@ -2391,7 +2391,7 @@ class TransferMethod(ShapingMethod):
             value=bool(d["abba"]),
             key=self.wkey("abba"),
             help="开 = 每块测 A1/B1/B2/A2，由实测指标判定候选是否接受；"
-            "关（默认）= 保留 CCD 锚定反馈，跳过 B1/B2/A2 与方向核对，候选只按模型损失接受，"
+            "关（默认）= 保留按 CCD 实测校正的反馈，跳过 B1/B2/A2 与方向核对，候选只按模型损失接受，"
             "摘要写 acceptance=model_only（等价 CLI --no-abba）",
         )
         values["adaptive_exposure"] = st.checkbox(
@@ -2477,13 +2477,13 @@ class TransferMethod(ShapingMethod):
             options=labels,
             index=0,
             key=self.wkey("checkpoint_pick"),
-            help="首项 = 冷启动（先名义模型初始化再完整拟合，慢且初值未标定）；"
+            help="首项 = 冷启动（先用出厂标定值起手再完整拟合，慢且初值未实测标定）；"
             "其余项的「兼容分」由 optical_session 按当前光路指纹打分，"
             "未提供当前指纹时留空",
         )
         index = labels.index(choice)
         if index == 0:
-            st.caption("不使用历史检查点：本轮先名义模型初始化，再完整拟合。")
+            st.caption("不使用历史检查点：本轮先用出厂标定值起手，再完整拟合。")
             return None
         picked = rows[index - 1]
         st.caption(f"选用检查点：{picked['file']}")
@@ -2528,7 +2528,7 @@ class TransferMethod(ShapingMethod):
             "历史检查点 (frozen_parameters.json)",
             value=str(found) if found is not None else "",
             key=self.wkey("checkpoint"),
-            help="留空 = 冷启动（先名义模型初始化再完整拟合，慢且初值未标定）。"
+            help="留空 = 冷启动（先用出厂标定值起手再完整拟合，慢且初值未实测标定）。"
             "默认自动填入最近一次 transfer 会话的冻结检查点",
         )
         if found is not None:

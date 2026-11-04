@@ -7,7 +7,7 @@
 P1 只暴露必设参数
 -----------------
 表单只给相机类型、cam_id、SLM 编号、目标形状、目标短边/边长、倾斜相位周期与开关。其余字段 (探针数、
-拟合迭代、锚定块数、验收口径、检查点路径……) 一律用 :class:`TransferFormValues` 的
+拟合迭代、按实测校正块数、验收口径、检查点路径……) 一律用 :class:`TransferFormValues` 的
 默认值透传 —— 它们默认值已镜像 Streamlit 的 ``TRANSFER_RECIPE``, 少开一个控件就少一处
 两套默认值漂移的机会。
 
@@ -363,7 +363,7 @@ class TransferPage(QWidget):
         title.setFont(font)
 
         subtitle = QLabel(
-            "物理预测模型 · 探针采集 · CCD 锚定验收：一次会话跑完采集、迁移、整形与审计"
+            "物理预测模型 · 探针采集 · 按 CCD 实测验收：一次会话跑完采集、迁移、整形与审计"
         )
         subtitle.setWordWrap(True)
         layout.addWidget(title)
@@ -481,7 +481,7 @@ class TransferPage(QWidget):
         self._abba = self._check("A–B–B–A 配对验收（CCD 实测）", _DEFAULTS.abba)
         self._abba.setToolTip(
             "开 = 每块测 A1/B1/B2/A2, 由实测指标判定候选是否接受; "
-            "关（默认）= 保留 CCD 锚定反馈, 跳过 B1/B2/A2 与方向核对, "
+            "关（默认）= 保留按 CCD 实测校正的反馈, 跳过 B1/B2/A2 与方向核对, "
             "候选只按模型损失接受, 摘要写 acceptance=model_only（等价 CLI --no-abba）"
         )
         # 「读取零级」: 让目标边长的上限来自实测光轴 (0 级到最近帧边的距离),

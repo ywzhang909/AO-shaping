@@ -90,10 +90,11 @@ REPORTS: dict[str, ReportProvenance] = {
         "scripts/slm/transfer_uncertainty_experiment.py",
         command=("python scripts/slm/transfer_uncertainty_experiment.py "
                  "--root data/debug/transfer_uncertainty_20261104 "
-                 "--checkpoint data/debug/slm_transfer/20261104_192122/fit/frozen_parameters.json "
-                 "--execute"),
+                 "--render-only"),
         environment="硬件：1064 nm Santec SLM + Daheng CCD；拟合使用 CUDA",
-        note="先使用生产 capture --grid 128 --count 24 --frames 3 --seed 110421 --save-dataset 采集 capture/。",
+        note=("先使用生产 capture --grid 128 --count 24 --frames 3 --seed 110421 "
+              "--save-dataset 采集 capture/，再以 --execute 完成选样采集；"
+              "离线渲染用 --render-only，不触碰设备。"),
     ),
     "report/shape_trials/experience_review/shaping_experience_20261103.md": ReportProvenance(
         script=HANDWRITTEN,
@@ -190,11 +191,11 @@ REPORTS: dict[str, ReportProvenance] = {
     ),
     "report/shape_trials/physical_refine/physical_refine_results_20261102.md": ReportProvenance(
         script=HANDWRITTEN,
-        environment="离线分析（历史物理会话 + 生产会话对齐评分 + 约束残差拟合 + 名义孪生干跑；设备下线，无新增 CCD 采集）",
+        environment="离线分析（历史物理会话 + 生产会话对齐评分 + 约束残差拟合 + 几何初值孪生干跑；设备下线，无新增 CCD 采集）",
         note=(
             "顺序测量层/相干零级标定的验证集对照、生产会话探测器无关对齐评分与几何支持域、"
             "标定迁移与有界离焦/缩放扫描、约束残差拟合、历史会话驱动的任意形状代理闭环、"
-            "名义孪生干跑与下一次实验步骤；全幅与逐目标分数只作模型诊断，孪生闭环和干跑只作流程证据，"
+            "几何初值孪生干跑与下一次实验步骤；全幅与逐目标分数只作模型诊断，孪生闭环和干跑只作流程证据，"
             "不作为物理整形成功或 CCD 验收证据。"
         ),
         extra_scripts=(
@@ -2462,7 +2463,7 @@ def render_index() -> str:
     pending: list[tuple[str, ReportProvenance]] = []
     for report, script, env, note in index_rows():
         prov = REPORTS[report]
-        if not Path(report).is_file():
+        if not (Path(__file__).resolve().parents[2] / report).is_file():
             pending.append((report, prov))
             continue
         rel = report[len("report/") :]

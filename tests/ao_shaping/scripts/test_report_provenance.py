@@ -36,7 +36,16 @@ REPORT_DIR = REPO / "report"
 SYNC = REPO / "scripts" / "sync_report_provenance.py"
 
 sys.path.insert(0, str(REPO))
-from scripts._common.provenance import REPORTS, script_link
+from scripts._common.provenance import REPORTS, render_index, script_link
+
+
+def test_index_resolves_reports_from_repository_root(monkeypatch):
+    """Rendering outside the checkout must keep existing report links."""
+    monkeypatch.chdir(REPORT_DIR)
+    index = render_index()
+    report = "shape_trials/transfer_uncertainty/transfer_uncertainty_20261104.md"
+    assert f"]({report})" in index
+    assert f"- `{report}`" not in index
 
 _MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 

@@ -709,7 +709,7 @@ class TestRenderProgress:
         tp.render_progress(tp.collect_progress(out), running=False)
 
         assert stub.markdown[0] == (
-            "**已结束** · 第 2 个阶段失败：名义模型初始化（冷启动，未标定）"
+            "**已结束** · 第 2 个阶段失败：初始模型准备（冷启动，先用出厂标定值起手，未实测标定）"
         )
         assert "错误：RuntimeError: Unusable exposure" in stub.markdown[1]
 
@@ -722,7 +722,7 @@ class TestRenderProgress:
         tp.render_progress(tp.collect_progress(out), running=True)
 
         assert stub.markdown[0] == (
-            "**运行中** · 下一步：名义模型初始化（冷启动，未标定）（2/7）"
+            "**运行中** · 下一步：初始模型准备（冷启动，先用出厂标定值起手，未实测标定）（2/7）"
         )
 
     def test_a_run_that_ended_between_stages_says_where_it_stopped(self, tmp_path, stub):
@@ -816,7 +816,7 @@ class TestCollectTraces:
 
         ccd = tp.collect_traces(out)["ccd"]
 
-        assert [run["label"] for run in ccd["runs"]] == ["模型块", "锚定块"]
+        assert [run["label"] for run in ccd["runs"]] == ["对照块", "校正块"]
         first = ccd["runs"][0]["series"][0]
         assert first == {"label": "square_seed", "shape": "square", "cv": 0.59,
                          "core_peak": 1011.0, "model_loss": 1.36, "exposure_ms": 12.5}

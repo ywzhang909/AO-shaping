@@ -179,6 +179,13 @@ def capture(args, *, on_frame=None):
                 # 标签随探针更新; 帧序号在整段里单调, 便于对照 manifest。
                 live_label = [f"光路检查 · {args.out.name}"]
                 live_seen = [0]
+                # SLM 当前被驱动到的**控制网格**相位 (与 validate.py 的约定一致:
+                # ``phase_grid`` 是控制网格, 不是面板位图)。``read()`` 是光路检查 /
+                # 曝光阶梯 / 探针取帧共用的单一读取漏斗, 而这三个来源的相位各不相同,
+                # 所以用一个可变单元格跟踪「此刻 SLM 上是什么相位」, 在每次真的写进
+                # SLM 之前落值。没有有效相位 (尚无探针、也没有可供显示的网格) 就记
+                # None —— 绝不伪造一个相位; 但它不是坏状态, 只是还没轮到驱动 SLM。
+                live_phase = [None]
 
                 def read():
                     raw = np.asarray(cam.get_numpy_image(n_sample=1, skip_first=False))
@@ -187,6 +194,7 @@ def capture(args, *, on_frame=None):
                     live_seen[0] += 1
                     notify_frame(observer, frame_payload(
                         frame=raw, label=live_label[0], phase="capture",
+                        phase_grid=live_phase[0],
                         frame_index=live_seen[0]))
                     return raw
 
@@ -198,6 +206,7 @@ def capture(args, *, on_frame=None):
                 # OpticalPathInvalid (exit code 3), 不进探针族。
                 slm.display_data(slm.create_phase_from_array(to_panel(
                     np.zeros((args.grid, args.grid), np.float32))))
+                live_phase[0] = np.zeros((args.grid, args.grid), np.float32)
                 time.sleep(.6)
                 light = verify_light(read, exposure_setter(cam),
                                      floor_ms=floor, ceiling_ms=ceiling,
@@ -215,6 +224,7 @@ def capture(args, *, on_frame=None):
                     panel = to_panel(grid)
                     gray = slm.create_phase_from_array(panel)
                     slm.display_data(gray)
+                    live_phase[0] = grid
                     time.sleep(.6)
                     exposure_frames, exposure_clocks = [], []
 

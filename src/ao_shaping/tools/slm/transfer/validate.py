@@ -25,7 +25,7 @@ from loguru import logger
 from ao_shaping.tools.slm.transfer.capture import clock, exposure_setter, to_panel
 from ao_shaping.tools.slm.transfer.device import DEVICE_CHOICES, resolve_device
 from ao_shaping.tools.slm.transfer.light_guard import LightGuard, OpticalPathInvalid, verify_light
-from ao_shaping.tools.slm.transfer.hardware import DeviceOpenError, opened_device
+from ao_shaping.tools.slm.transfer.hardware import DeviceOpenError
 # 实时帧的缓存/负载/emit 住在 .live_frame (Qt-free, 测量线程可调); 这里按旧名字
 # 全部再导出 —— 内部调用点、既有测试与 scripts/ 都用这一批名字。
 from ao_shaping.tools.slm.transfer.live_frame import (
@@ -396,9 +396,8 @@ def run(args, *, on_frame=None):
     # explicit at the call site instead of becoming an invisible default.
     writer = _CaptureWriter() if getattr(args, "async_capture_write", False) else None
     camera_options = {"bit_depth": bit_depth} if args.camera == "daheng" else {}
-    with opened_device(create_camera(
-            args.camera, args.cam_id, exposure_time_ms=.02, **camera_options)) as cam:
-        with opened_device(Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0)) as slm:
+    with create_camera(args.camera, args.cam_id, exposure_time_ms=.02, **camera_options) as cam:
+        with Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0) as slm:
             slm.set_phase_overlay(None)
             floor, ceiling = get_camera_exposure_range(cam)
             configured = configured_daheng_exposure_limit() if args.camera == "daheng" else 0.

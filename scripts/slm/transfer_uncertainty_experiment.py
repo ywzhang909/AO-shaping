@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import pickle
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,11 +20,13 @@ from loguru import logger
 from scipy.stats import spearmanr
 
 from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
-    FrozenDefocusForward,
     load_frozen_parameters,
 )
 from ao_shaping.tools.slm.transfer import capture, fit
 from ao_shaping.tools.slm.transfer.probes import probe_grid
+from ao_shaping.tools.slm.transfer.uncertainty import (
+    disagreement, evaluate, fit_recorded_subset, normalized, predict, select_diverse,
+)
 
 
 def write_json(path: Path, value: object) -> None:
@@ -49,58 +52,9 @@ def fit_subset(args, name: str, calibration: list, training: list, validation: l
     directory = args.root / name
     if (directory / "fit/frozen_parameters.json").is_file():
         return directory / "fit/frozen_parameters.json"
-    dataset = directory / "dataset"
-    rows = calibration + [dict(row, split="train") for row in training]
-    rows += [dict(row, split="validation") for row in validation]
-    write_json(dataset / "manifest.json", rows)
-    write_json(dataset / "config.json", {"experiment": name})
-    fit.fit(SimpleNamespace(dataset=dataset, checkpoint=checkpoint, out=directory / "fit",
-                            iterations=args.iterations, span=args.span, device=args.device,
-                            adaptation="full", radiometry="exposure", samples=payloads))
-    return directory / "fit/frozen_parameters.json"
-
-
-def predict(checkpoint: Path, phases: np.ndarray, xy: np.ndarray, exposure: np.ndarray,
-            device: str) -> np.ndarray:
-    import torch
-
-    model = FrozenDefocusForward(load_frozen_parameters(checkpoint), xy, device=device)
-    with torch.no_grad():
-        return np.concatenate([model.predict(phases[i:i+4], exposure_ms=exposure[i:i+4])
-                               .cpu().numpy() for i in range(0, len(phases), 4)])
-
-
-def normalized(images: np.ndarray) -> np.ndarray:
-    return images / np.maximum(images.mean(axis=(-2, -1), keepdims=True), 1e-9)
-
-
-def disagreement(predictions: np.ndarray) -> np.ndarray:
-    """Dimensionless committee disagreement; a ranking, not a probability."""
-    unit = normalized(predictions)
-    return np.sqrt(unit.var(axis=0).mean(axis=(-2, -1)))
-
-
-def select_diverse(scores: np.ndarray, phases: np.ndarray, count: int) -> list[int]:
-    """Reject effectively identical wrapped commands while following UQ rank."""
-    selected = []
-    for index in np.argsort(-scores, kind="stable"):
-        if all(float(np.mean(1 - np.cos(phases[index] - phases[old]))) > .05
-               for old in selected):
-            selected.append(int(index))
-        if len(selected) == count:
-            return selected
-    raise ValueError("insufficient diverse candidate phases")
-
-
-def evaluate(prediction: np.ndarray, measured: np.ndarray) -> dict:
-    details = fit.metrics(prediction, measured)
-    shape_error = np.sqrt(((normalized(prediction) - normalized(measured)) ** 2)
-                          .mean(axis=(-2, -1))
-                          / np.maximum((normalized(measured) ** 2).mean(axis=(-2, -1)), 1e-9))
-    return dict(mean_ncc=float(np.mean([row["correlation"] for row in details])),
-                mean_relative_l2=float(np.mean([row["relative_l2"] for row in details])),
-                mean_shape_relative_l2=float(shape_error.mean()),
-                shape_relative_l2=shape_error.tolist(), per_phase=details)
+    return fit_recorded_subset(
+        directory, checkpoint, calibration, training, validation, payloads,
+        iterations=args.iterations, span=args.span, device=args.device)
 
 
 def run(args) -> None:
@@ -269,7 +223,7 @@ def run(args) -> None:
     render(args.root)
 
 
-def render(root: Path) -> None:
+def render(root: Path, output: Path | None = None) -> None:
     """Render saved observations only; this function never opens devices."""
     import matplotlib
 
@@ -277,10 +231,17 @@ def render(root: Path) -> None:
     import matplotlib.pyplot as plt
 
     summary = read_json(root / "summary.json")
-    output = Path(__file__).resolve().parents[2] / "report/shape_trials/transfer_uncertainty"
+    if output is None:
+        output = Path(__file__).resolve().parents[2] / "report/shape_trials/transfer_uncertainty"
     write_json(output / "artifacts/summary_20261104.json", summary)
     for name, path in summary["model_paths"].items():
-        write_json(output / f"artifacts/{name}_parameters_20261104.json", read_json(Path(path)))
+        model_path = Path(path)
+        if not model_path.is_absolute():
+            parts = model_path.parts
+            if "transfer_uncertainty_20261104" in parts:
+                parts = parts[parts.index("transfer_uncertainty_20261104") + 1:]
+            model_path = root.joinpath(*parts)
+        write_json(output / f"artifacts/{name}_parameters_20261104.json", read_json(model_path))
     write_json(output / "artifacts/experiment_20261104.json", read_json(root / "experiment.json"))
     write_json(output / "artifacts/analysis_execution_20261104.json",
                read_json(root / "analysis_execution.json"))
@@ -297,6 +258,7 @@ def render(root: Path) -> None:
         figure.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(figure, dpi=140)
         plt.close(fig)
+    render_diagnostics(root, output, summary)
     table = "\n".join(
         f"| {name} | {value['mean_ncc']:.5f} | {value['mean_shape_relative_l2']:.5f} | "
         f"{value['mean_relative_l2']:.5f} |"
@@ -331,6 +293,16 @@ def render(root: Path) -> None:
 不是带 Dropout 的深度网络。权重起点是今天 19:21 会话的
 `data/debug/slm_transfer/20261104_192122/fit/frozen_parameters.json`。
 原文件不改；当前零点与 signed-ramp 几何重测后用于所有模型。
+
+模型键读法：
+
+| 键 | 含义 |
+|---|---|
+| ideal | 理想 2f 基准模型：采用实测几何但把离焦与像差设为 0，高斯幅度为假设值，增益沿用起点 |
+| ideal_fit | 理想 2f 基准模型经少样本 CCD 实测标定后的物理预测模型 |
+| historical | 历史标定物理预测模型：沿用历史会话拟合参数并更新本轮几何，未用本轮光路数据重新拟合 |
+| baseline | 当前光路用 12 条实测训练命令拟合后的热启动物理预测模型 |
+| active / random | 从同一 baseline 追加 4 条实测命令标定后的物理预测模型（主动/随机选样） |
 
 实验数据在 `data/debug/transfer_uncertainty_20261104/`。
 `experiment.json` 保留实验执行时的脚本和输入权重 SHA256；
@@ -394,6 +366,18 @@ NCC 越高越好，两种 L2 越低越好。所有数值为 8 条独立命令的
 这只是同命令短时间重复性诊断，包含量化、散粒、读出和微小漂移；
 不是模型的认知不确定性，也不能与形状误差直接相减。
 
+## 诊断图
+
+![按测试相位族的形状误差](figures/family_shape_error_20261104.png)
+
+![委员会分歧与形状误差的关系](figures/disagreement_error_20261104.png)
+
+![随机与主动追加误差差的配对 bootstrap](figures/bootstrap_ab_20261104.png)
+
+![训练损失曲线](figures/training_loss_20261104.png)
+
+![候选分歧排序](figures/candidate_ranking_20261104.png)
+
 ## 可复用的方法与条件
 
 | 方法 | 适用场景和条件 | 必须保留的检查 |
@@ -417,16 +401,149 @@ CCD 锚定目标、有限相位步长、方向导数检查与独立重放验收�
     (output / "transfer_uncertainty_20261104.md").write_text(report, encoding="utf-8")
 
 
+def render_diagnostics(root: Path, output: Path, summary: dict) -> None:
+    """Render device-free diagnostics over saved arrays (never opens hardware)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import MaxNLocator
+
+    figure = output / "figures"
+    figure.mkdir(parents=True, exist_ok=True)
+    rc = {"axes.grid": True, "grid.alpha": .3, "figure.dpi": 140,
+          "font.size": 9, "axes.titlesize": 10,
+          "font.sans-serif": ["Microsoft YaHei", "SimHei", "DejaVu Sans"],
+          "axes.unicode_minus": False}
+    plt.rcParams.update(rc)
+    families = ["zernike", "smooth", "bandlimited"]
+    family_values = summary["holdout_family"]
+
+    # 1. Per-family shape error: baseline vs +4 active vs +4 random.
+    fig, ax = plt.subplots(figsize=(6.4, 3.6))
+    x = np.arange(len(families))
+    width = .25
+    for offset, arm, color in ((-width, "baseline", "#4C72B0"),
+                               (0, "active", "#55A868"), (width, "random", "#C44E52")):
+        ax.bar(x + offset, [family_values[f][arm] for f in families], width,
+               label=arm, color=color)
+    ax.set_xticks(x)
+    ax.set_xticklabels([f.capitalize() for f in families])
+    ax.set_ylabel("形状相对 L2")
+    ax.set_title("按测试相位族的形状误差（越低越好）")
+    ax.legend(frameon=False, ncol=3, loc="upper center", bbox_to_anchor=(.5, 1.14))
+    fig.tight_layout()
+    fig.savefig(figure / "family_shape_error_20261104.png")
+    plt.close(fig)
+
+    # 2. Disagreement vs baseline shape error, validation and final holdout.
+    fig, axes = plt.subplots(1, 2, figsize=(8.8, 3.6))
+    for ax, key, title in (
+        (axes[0], "validation_uncertainty", "验证集（12 命令）"),
+        (axes[1], "holdout_uncertainty", "最终测试（8 命令）"),
+    ):
+        uq = np.array(summary[key] if key == "holdout_uncertainty"
+                      else summary["validation_uncertainty"]["uncertainty"])
+        err = np.array(summary[key] if key == "holdout_uncertainty"
+                       else summary["validation_uncertainty"]["shape_error"])
+        ax.scatter(uq, err, s=22, alpha=.8, color="#4C72B0")
+        ax.set_xlabel("委员会分歧（RMS 集成标准差）")
+        ax.set_ylabel("baseline 形状相对 L2")
+        ax.set_title(title)
+    fig.tight_layout()
+    fig.savefig(figure / "disagreement_error_20261104.png")
+    plt.close(fig)
+
+    # 3. Paired bootstrap distribution of random-minus-active mean error.
+    comparison = summary["active_vs_random_error_reduction"]
+    active_error = np.array(summary["models"]["active"]["shape_relative_l2"])
+    random_error = np.array(summary["models"]["random"]["shape_relative_l2"])
+    rng = np.random.default_rng(110421 + 30000)
+    indices = rng.integers(0, len(active_error), (10000, len(active_error)))
+    deltas = (random_error - active_error)[indices].mean(1)
+    fig, ax = plt.subplots(figsize=(6.4, 3.6))
+    ax.hist(deltas, bins=48, color="#8172B2", alpha=.85)
+    ax.axvline(0, color="k", lw=1)
+    ax.axvline(comparison["mean"], color="#C44E52", lw=1.4,
+               label=f"均值 {comparison['mean']:.4f}")
+    for bound in comparison["paired_bootstrap_95_ci"]:
+        ax.axvline(bound, color="k", ls="--", lw=1)
+    ax.set_xlabel("随机减主动的平均形状误差")
+    ax.set_ylabel("bootstrap 计数")
+    ax.set_title("配对 bootstrap：随机与主动追加的误差差（含零）")
+    ax.legend(frameon=False)
+    fig.tight_layout()
+    fig.savefig(figure / "bootstrap_ab_20261104.png")
+    plt.close(fig)
+
+    # 4. Training loss curves for baseline and ideal_fit.
+    fig, ax = plt.subplots(figsize=(6.4, 3.6))
+    for name, color in (("baseline", "#4C72B0"), ("ideal_fit", "#55A868")):
+        history = _load_iterations(root / name / "fit" / "iterations.pkl")
+        losses = np.array([entry["loss"] for entry in history])
+        ax.plot(losses, color=color, label=f"{name}（{len(losses)} 次更新）")
+    ax.set_xlabel("更新次数")
+    ax.set_ylabel("训练损失")
+    ax.set_title("训练损失曲线（仅训练集，无验证选代）")
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.legend(frameon=False)
+    fig.tight_layout()
+    fig.savefig(figure / "training_loss_20261104.png")
+    plt.close(fig)
+
+    # 5. Candidate ranking by disagreement, coloured by phase family.
+    with np.load(root / "candidates.npz", allow_pickle=False) as data:
+        scores = np.asarray(data["scores"])
+    fig, ax = plt.subplots(figsize=(6.4, 3.6))
+    families_c = summary["selection"]["families"]
+    colors = {"zernike": "#4C72B0", "smooth": "#55A868", "bandlimited": "#C44E52"}
+    for fam in ("zernike", "smooth", "bandlimited"):
+        mask = np.array([f == fam for f in families_c])
+        ax.scatter(np.flatnonzero(mask), scores[mask], s=20, alpha=.85,
+                   color=colors[fam], label=fam)
+    selected = summary["selection"]["active"] + summary["selection"]["random"]
+    for index in selected:
+        ax.axvline(index, color="k", lw=.6, alpha=.3)
+    ax.set_xlabel("候选编号")
+    ax.set_ylabel("分歧评分")
+    ax.set_title("60 条候选的分歧排序（按相位族着色）")
+    ax.legend(frameon=False)
+    fig.tight_layout()
+    fig.savefig(figure / "candidate_ranking_20261104.png")
+    plt.close(fig)
+
+
+def _load_iterations(path: Path) -> list:
+    """Read a fit iteration pickle; unknown format raises rather than hiding it."""
+    with path.open("rb") as stream:
+        history = pickle.load(stream)
+    if not isinstance(history, list) or not history:
+        raise ValueError(f"unexpected iteration history in {path}")
+    for entry in history:
+        if not isinstance(entry, dict) or "loss" not in entry:
+            raise ValueError(f"unexpected iteration record in {path}: {type(entry)}")
+    return history
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--checkpoint", type=Path)
+    parser.add_argument("--render-only", action="store_true",
+                        help="Only render saved results; never fit or open devices")
+    parser.add_argument("--report-out", type=Path, help="Alternate offline report directory")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--iterations", type=int, default=60)
     parser.add_argument("--span", type=int, default=120)
     parser.add_argument("--seed", type=int, default=110421)
     parser.add_argument("--execute", action="store_true")
-    run(parser.parse_args())
+    args = parser.parse_args()
+    if args.render_only:
+        render(args.root, args.report_out)
+    else:
+        if args.checkpoint is None:
+            parser.error("--checkpoint is required unless --render-only is used")
+        run(args)
 
 
 if __name__ == "__main__":

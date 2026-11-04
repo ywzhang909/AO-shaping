@@ -237,12 +237,24 @@ def test_rectangle_rejects_an_extreme_aspect_ratio() -> None:
     assert len(errors) == 1 and "上限" in errors[0]
 
 
-def test_rectangle_rejects_a_long_side_beyond_the_window() -> None:
+def test_rectangle_auto_grows_the_window_to_fit_its_long_side() -> None:
     pytest.importorskip("torch")
 
-    # 短边 80 × 长/短比 10 → 长边 800, 远超采样窗半跨 220。
+    # 短边 80 × 长/短比 10 → 长边 800。旧逻辑拿固定半跨 220 只比长边 800,
+    # 直接误判「放不进窗」；现在采样窗随输入派生放大 (半跨 408), 应通过。
     errors, _ = validate_form(
         _values(shapes=("rectangle",), aspect_ratio=10.0)
+    )
+    assert errors == []
+
+
+def test_rectangle_rejects_a_long_side_beyond_an_explicit_window() -> None:
+    pytest.importorskip("torch")
+
+    # 显式把窗压死到 300 半跨 (可容纳整边 600-8): 短边 80 × 比 10 的长边 800
+    # 仍溢出 → 报「长边超出采样窗可容纳」。
+    errors, _ = validate_form(
+        _values(shapes=("rectangle",), aspect_ratio=10.0, window_span=304.0)
     )
     assert len(errors) == 1 and "长边" in errors[0]
 
@@ -482,6 +494,18 @@ def test_large_targets_derive_a_window_that_holds_the_target() -> None:
     """派生口径 = max(220, side/2 + 留白): 采样窗要放下整个目标 + 两侧留白。"""
     assert params.effective_window_span(900) >= 458.0
     assert params.effective_window_span(900) == 900 / 2 + 8.0
+
+
+def test_rectangle_derives_the_window_from_its_long_side() -> None:
+    """矩形按长边 (side×aspect_ratio) 派生: 采样窗是方形, 必须放下轴上的最大跨度。"""
+    # 短边 200 × 比 2 → 长边 400 → 半跨 = max(220, 400/2+8) = 208 → 220 下限
+    assert params.effective_window_span(200, 0.0, aspect_ratio=2.0) == 220.0
+    # 短边 500 × 比 2 → 长边 1000 → 半跨 508 (远大于按短边 250/2+8=133)
+    assert params.effective_window_span(500, 0.0, aspect_ratio=2.0) == 508.0
+    # 非矩形 (aspect_ratio=1.0) 行为与旧版逐位一致。
+    assert params.effective_window_span(500, 0.0, aspect_ratio=1.0) == 258.0
+    # 派生不应主动压到超长; 但显式窗口优先、原样返回。
+    assert params.effective_window_span(500, 930.0, aspect_ratio=2.0) == 930.0
 
 
 def test_an_explicit_window_span_is_returned_verbatim() -> None:

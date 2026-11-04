@@ -2,9 +2,9 @@
 
 <!-- provenance:start -->
 > **生成脚本**: [`scripts/slm/transfer_uncertainty_experiment.py`](../../../scripts/slm/transfer_uncertainty_experiment.py)
-> **复现命令**: `python scripts/slm/transfer_uncertainty_experiment.py --root data/debug/transfer_uncertainty_20261104 --checkpoint data/debug/slm_transfer/20261104_192122/fit/frozen_parameters.json --execute`
+> **复现命令**: `python scripts/slm/transfer_uncertainty_experiment.py --root data/debug/transfer_uncertainty_20261104 --render-only`
 > **运行环境**: 硬件：1064 nm Santec SLM + Daheng CCD；拟合使用 CUDA
-> **说明**: 先使用生产 capture --grid 128 --count 24 --frames 3 --seed 110421 --save-dataset 采集 capture/。
+> **说明**: 先使用生产 capture --grid 128 --count 24 --frames 3 --seed 110421 --save-dataset 采集 capture/，再以 --execute 完成选样采集；离线渲染用 --render-only，不触碰设备。
 <!-- provenance:end -->
 
 ## 实测结论
@@ -26,6 +26,16 @@
 不是带 Dropout 的深度网络。权重起点是今天 19:21 会话的
 `data/debug/slm_transfer/20261104_192122/fit/frozen_parameters.json`。
 原文件不改；当前零点与 signed-ramp 几何重测后用于所有模型。
+
+模型键读法：
+
+| 键 | 含义 |
+|---|---|
+| ideal | 理想 2f 基准模型：采用实测几何但把离焦与像差设为 0，高斯幅度为假设值，增益沿用起点 |
+| ideal_fit | 理想 2f 基准模型经少样本 CCD 实测标定后的物理预测模型 |
+| historical | 历史标定物理预测模型：沿用历史会话拟合参数并更新本轮几何，未用本轮光路数据重新拟合 |
+| baseline | 当前光路用 12 条实测训练命令拟合后的热启动物理预测模型 |
+| active / random | 从同一 baseline 追加 4 条实测命令标定后的物理预测模型（主动/随机选样） |
 
 实验数据在 `data/debug/transfer_uncertainty_20261104/`。
 `experiment.json` 保留实验执行时的脚本和输入权重 SHA256；
@@ -95,6 +105,18 @@ NCC 越高越好，两种 L2 越低越好。所有数值为 8 条独立命令的
 `[0.09464669538681994, 0.13278764394657463, 0.06934596757943257, 0.12728711453592564, 0.15597230640411405, 0.06189973107928127, 0.11609444443538579, 0.14415808536468164]`。
 这只是同命令短时间重复性诊断，包含量化、散粒、读出和微小漂移；
 不是模型的认知不确定性，也不能与形状误差直接相减。
+
+## 诊断图
+
+![按测试相位族的形状误差](figures/family_shape_error_20261104.png)
+
+![委员会分歧与形状误差的关系](figures/disagreement_error_20261104.png)
+
+![随机与主动追加误差差的配对 bootstrap](figures/bootstrap_ab_20261104.png)
+
+![训练损失曲线](figures/training_loss_20261104.png)
+
+![候选分歧排序](figures/candidate_ranking_20261104.png)
 
 ## 可复用的方法与条件
 

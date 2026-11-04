@@ -7,6 +7,13 @@ production `slm-transfer-shapes` physical model. It compares four actively
 selected CCD samples with four random controls on eight untouched commands;
 `--execute` enables real SLM acquisition. Its saved checkpoints and evaluation
 arrays support the report in `report/shape_trials/transfer_uncertainty/`.
+After acquisition, the same script renders the report offline:
+`python scripts/slm/transfer_uncertainty_experiment.py --render-only
+--root data/debug/transfer_uncertainty_20261104`. The reusable, device-free
+ranking helpers (mean-normalised disagreement, wrapped-command diversity
+selection, paired shape error) live in
+`src/ao_shaping/tools/slm/transfer/uncertainty.py` with an offline
+`rank`/`evaluate` CLI; they are experimental diagnostics, not an acceptance gate.
 
 `ml/sim2f_local_forward_experiment.py` identifies a local CCD intensity response
 from paired smooth phase probes, differentiates that forward model for shaping,

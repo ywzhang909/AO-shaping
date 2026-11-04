@@ -1,4 +1,4 @@
-"""Create a nominal physical checkpoint from a fresh signed-ramp capture.
+"""Create an uncalibrated geometric-initialization physical checkpoint.
 
 No device imports. This is an initialization, not a calibrated model. Fit it on
 phase-diverse measurements before using its gradients for physical control.
@@ -38,7 +38,7 @@ def bootstrap(dataset: Path, *, center=(960., 600.), width=(400., 300.), defocus
                   fft_size=max(1024, grid), pixel_samples=3)
     provenance = dict(dataset=str(dataset.resolve()), ramp_samples=samples,
                       manifest_sha256=hashlib.sha256((dataset / "manifest.json").read_bytes()).hexdigest(),
-                      status="nominal initialization; not fitted or physically validated",
+                      status="uncalibrated geometric initialization; not fitted or physically validated",
                       assumption="Santec 1200x1920, 8um pitch, 1064nm; Gaussian input amplitude")
     return params, provenance
 

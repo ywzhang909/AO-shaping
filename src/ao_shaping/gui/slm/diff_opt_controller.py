@@ -3,7 +3,7 @@
 定位
 ----
 本页是**迁移学习闭环整形**（``ao_shaping.tools.slm.transfer``，少参数物理预测
-模型 + 当前光路重测几何 + 检查点迁移 + CCD 锚定 A–B–B–A 验收）的专用操作台：
+模型 + 当前光路重测几何 + 检查点迁移 + 按 CCD 实测校正 A–B–B–A 验收）的专用操作台：
 单 SLM + 单相机，页面内容只有这条管线需要的控件。
 
 与 ``multi_slm_controller.py`` 的关系
@@ -125,8 +125,8 @@ def render_status_header(slm_num: int, prefix: str) -> None:
     st.title(PAGE_TITLE)
     st.caption(
         f"SLM {slm_num} · 单相机 · 迁移学习闭环整形（物理预测模型）。与 CLI "
-        "`python -m ao_shaping.tools.slm.transfer` 同一入口：先名义初始化 / "
-        "迁移历史检查点，再用 CCD 锚定短块与 A–B–B–A 配对验收生成目标相位。"
+        "`python -m ao_shaping.tools.slm.transfer` 同一入口：先出厂标定值起手 / "
+        "迁移历史检查点，再用按 CCD 实测校正短块与 A–B–B–A 验收生成目标相位。"
     )
     status = render_bench_status(prefix, slm_num)
     if status:

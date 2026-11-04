@@ -63,13 +63,13 @@ Daheng 绑定优先使用已安装的 `gxipy`；设备操作时若未安装，�
 
 ## 3. 没有历史检查点
 
-省略 `--checkpoint` 即从新采集的几何建立名义初始化，再拟合：
+省略 `--checkpoint` 即从新采集的几何建立未标定物理预测模型初始化，再拟合：
 
 ```powershell
 & $py -m ao_shaping.tools.slm.transfer run --out $out --execute
 ```
 
-名义入射中心、宽度和零离焦只是初值，不代表已标定。较强离焦或入射偏移需要先用面板/离焦探测缩小初始化范围。需要控制初值时，先采集、显式生成初始化文件，再用该文件执行统一流程：
+未标定物理预测模型中的入射中心、宽度和零离焦只是初值，不代表已标定。较强离焦或入射偏移需要先用面板/离焦探测缩小初始化范围。需要控制初值时，先采集、显式生成初始化文件，再用该文件执行统一流程：
 
 ```powershell
 & $py -m ao_shaping.tools.slm.transfer.capture --out "$out-capture" --count 24 --execute
@@ -77,7 +77,7 @@ Daheng 绑定优先使用已安装的 `gxipy`；设备操作时若未安装，�
 & $py -m ao_shaping.tools.slm.transfer run --out $out --dataset "$out-capture" --checkpoint "$out-initial/frozen_parameters.json" --execute
 ```
 
-`--dataset` 仅适合光路未变化的当前采集，或离线检验；它会跳过重新采集。若位置、像差、功率或几何发生变化，默认重新采集。名义模型不能保证从任意光路一次收敛。
+`--dataset` 仅适合光路未变化的当前采集，或离线检验；它会跳过重新采集。若位置、像差、功率或几何发生变化，默认重新采集。未标定物理预测模型（冷启动，先用几何设计初值起手，未实测标定）不能保证从任意光路一次收敛。
 
 ## 4. 设备不可用时完整检查计算流程
 
@@ -107,7 +107,7 @@ $run = 'data/debug/validate_transfer_shapes/anchored_20261023_2002'
 | `session.json` | 本轮参数、阶段计划、时间与设备操作模式 |
 | `journal.json` | 各阶段开始/结束/失败状态，失败原因随即落盘 |
 | `capture/` | 当前探针、原始帧、曝光搜索帧、相位和几何 |
-| `initial/` | 冷启动名义模型及来源，仅省略检查点时生成 |
+| `initial/` | 冷启动未标定物理预测模型（先用几何设计初值起手，未实测标定）及来源，仅省略检查点时生成 |
 | `fit/` | 逐次参数/预测、训练验证指标、自动模式的 `adaptation.json` 与 `alignment/`、可选 `full/` 子阶段、最终冻结检查点 |
 | `model/` | GS 种子与模型模式配对记录 |
 | `response/`、`response_analysis/` | 曝光阶梯与诊断，尚未自动施加逐像元反响应 LUT |
@@ -325,7 +325,7 @@ CCD 恰在后焦面且不存在截光时，SLM 轴向位置不改变远场强度
   --device cuda --execute
 ```
 
-- **从零**：不传 `--checkpoint` 时，模型由当前光路的一次探针采集单独初始化（`bootstrap` 给出名义检查点）并在探针上拟合，不使用任何历史模型。标称初始化给出的照明位置与实测相差约 150 面板像元，Adam 的默认位置学习率走不完这段距离，因此从零训练应显式给 `--amplitude-center-lr`（本轮用 4 面板像元/步）并把 `--fit-iterations` 提到 150 量级。
+- **从零**：不传 `--checkpoint` 时，模型由当前光路的一次探针采集单独初始化（`bootstrap` 给出未标定检查点）并在探针上拟合，不使用任何历史模型。未标定物理预测模型初始化给出的照明位置与实测相差约 150 面板像元，Adam 的默认位置学习率走不完这段距离，因此从零训练应显式给 `--amplitude-center-lr`（本轮用 4 面板像元/步）并把 `--fit-iterations` 提到 150 量级。
 - **复用**：`--model-dir <session>` 复用该会话已采的探针与已拟合的模型，只跑整形段。
 - **形状**：目标边长由 `--side`（CCD 原生像元）给出，四种形状用同一边长。`circle` 属于 `TRANSFER_SHAPE_CHOICES`（多边形族 + 均匀圆盘），它是目标栅格而不是多边形掩膜，所以 `utils.image.target.masks` 的多边形族不变。
 - **四段流程**：初相位 → Mono12 → 续跑 → 稠密（`--window-step 2` + 宽带载波模型），与 2026-10-26 的正方形链一致；接受判据是**实测**核心 CV 下降。

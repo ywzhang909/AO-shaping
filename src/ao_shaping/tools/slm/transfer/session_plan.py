@@ -82,46 +82,21 @@ def _frozen_groups(directory: Path) -> int:
     return len(blocks)
 
 
-def _manifest_rows(directory: Path) -> list:
-    """Read the seed record and completed block verdicts for one shape."""
-    manifest_path = Path(directory) / "manifest.json"
-    if not manifest_path.is_file():
-        return []
-    try:
-        rows = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise ValueError(f"unreadable manifest {manifest_path}: {exc}") from exc
-    if not isinstance(rows, list):
-        raise ValueError(f"manifest {manifest_path} must be a JSON list")
-    return rows
-
-
 def remaining_blocks(directory: Path, blocks: int, *, resume: bool) -> list[int]:
     """Return this shape directory's outstanding block indices.
 
     A stage may contain several shapes, but the runner invokes ``validate``
     with one shape-specific directory at a time. The checkpoint offset is
     therefore local to ``directory``; it must never be shared across shapes.
-    Capture groups alone do not prove that a block verdict was recorded, so
-    resume uses the same manifest as :func:`stage_complete`, minus its seed row.
     """
-    recorded = max(0, len(_manifest_rows(directory)) - 1) if resume else 0
+    recorded = _frozen_groups(directory) if resume else 0
     return list(range(min(recorded, int(blocks)), int(blocks)))
 
 
 def stage_complete(directory: Path, blocks: int) -> bool:
-    """Whether a shape stage recorded every expected block verdict.
-
-    The manifest is the verdict record: ``blocks + 1`` rows (the seed re-measure
-    plus one row per block). A manifest whose presence is the *only* evidence is
-    a started-but-partial stage, so its bare existence is not enough - re-enter
-    it with ``resume=True`` and continue the unmeasured blocks.
-    """
-    try:
-        rows = _manifest_rows(directory)
-    except ValueError:
-        return False
-    return len(rows) >= int(blocks) + 1
+    """Whether a shape stage has capture evidence and every block verdict."""
+    return ((directory / "manifest.json").is_file()
+            and _frozen_groups(directory) >= int(blocks))
 
 
 def skips_shape(*, resume: bool, blocks) -> bool:

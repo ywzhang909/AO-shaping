@@ -15,7 +15,9 @@
 * 入口 :func:`render_pattern_helper_tab`，父 ``main()`` 重构后的 tab 调用它。
 * 纯/离线部分（类型注册表 :data:`PATTERN_TYPES`、参数规格 :data:`ParamSpec`、
   :func:`generate_phase_radians`、:data:`CONNECT_HINT`）与 ``st.*`` 调用隔离，
-  可脱离 Streamlit 做单元测试。
+  可脱离 Streamlit 做单元测试。这套纯规格的**单一真源**抽在
+  :mod:`~ao_shaping.gui.slm.pattern_specs`（不 import Streamlit），PySide6 桌面页
+  与本 tab 共享同一份；本模块透传并保留公开名。
 * 遵循 gui/slm 三纪律：不调 ``st.divider()``；本模块不建 ``type="primary"`` 按钮；
   空状态文案一律点名下一步（侧重栏表格的「连接」：:data:`CONNECT_HINT`）。
 * 每个 SLM 复用 ``session_state["slm{N}_pattern_helper"]`` 上的缓存
@@ -30,7 +32,15 @@ import numpy as np
 import streamlit as st
 from loguru import logger
 
-from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
+from ao_shaping.gui.slm.pattern_specs import (
+    MethodCall,
+    ParamSpec,
+    PatternTypeSpec,
+    PATTERN_TYPES,
+    PARAM_SPECS,
+    generate_phase_radians,
+    specs_for,
+)
 
 # 侧重栏「SLM 设备」表格的引导语（与 multi_slm_controller.CONNECT_HINT 同文）。
 CONNECT_HINT = "在左侧「SLM 设备」表格里点「连接」"
@@ -42,268 +52,25 @@ _DEFAULT_BITS: int = 10
 #: 每个 SLM 复用 / 重建的 PatternHelper 在 session_state 里的缓存键。
 HELPER_CACHE_KEY = "slm{slm_num}_pattern_helper"
 
-
-class ParamSpec:
-    """单个图案参数的可渲染/可选配置。
-
-    纯数据、无 ``st`` 依赖，供测试和 :func:`_render_params` 消费。
-    """
-
-    def __init__(
-        self,
-        name: str,
-        label: str,
-        kind: Literal["int", "float", "select", "seed"],
-        default: float | int | str | None,
-        *,
-        min: float | int | None = None,
-        max: float | int | None = None,
-        step: float | None = None,
-        options: tuple[str, ...] = (),
-    ) -> None:
-        self.name = name
-        self.label = label
-        self.kind = kind
-        self.default = default
-        self.min = min
-        self.max = max
-        self.step = step
-        self.options = options
-
-
-class MethodCall:
-    """``PatternHelper`` 上的一次方法调用：``helper.<method>(**params)``。
-
-    图案类型可含多步调用（如湍流先 ``init_turbulence_screen`` 再
-    ``generate_turbulence_screen``）；最终输出取自**最后一次**调用的返回值。
-    """
-
-    def __init__(self, method: str, params: tuple[str, ...]) -> None:
-        self.method = method
-        self.params = params
-
-
-class PatternTypeSpec:
-    """一种图案类型的完整规格：显示名 + 一串对 helper 的方法调用。
-
-    ``requires_init`` 为真表示生成前必须经过一次预初始化调用
-    （当前仅湍流相位屏）。
-    """
-
-    def __init__(
-        self,
-        key: str,
-        label: str,
-        calls: tuple[MethodCall, ...],
-    ) -> None:
-        self.key = key
-        self.label = label
-        self.calls = calls
-
-    @property
-    def requires_init(self) -> bool:
-        return len(self.calls) > 1
-
-    @property
-    def param_names(self) -> tuple[str, ...]:
-        names: list[str] = []
-        for call in self.calls:
-            for name in call.params:
-                if name not in names:
-                    names.append(name)
-        return tuple(names)
-
-
-#: 完整图案注册表：key → 规格。key 即 exposed 的图案类型标识。
-PATTERN_TYPES: dict[str, PatternTypeSpec] = {
-    "checkerboard": PatternTypeSpec(
-        "checkerboard",
-        "棋盘格",
-        (MethodCall("generate_checkerboard", ("period",)),),
-    ),
-    "binary_grating": PatternTypeSpec(
-        "binary_grating",
-        "二元光栅",
-        (
-            MethodCall(
-                "generate_binary_grating",
-                ("a", "b", "direction"),
-            ),
-        ),
-    ),
-    "microlens_array": PatternTypeSpec(
-        "microlens_array",
-        "微透镜阵列",
-        (
-            MethodCall(
-                "generate_microlens_array",
-                ("lens_size", "focal_length", "wavelength", "pixel_size"),
-            ),
-        ),
-    ),
-    "turbulence": PatternTypeSpec(
-        "turbulence",
-        "湍流相位屏",
-        (
-            MethodCall(
-                "init_turbulence_screen",
-                ("r0", "L0", "pixel_scale", "random_seed"),
-            ),
-            MethodCall("generate_turbulence_screen", ()),
-        ),
-    ),
-    "zernike": PatternTypeSpec(
-        "zernike",
-        "Zernike",
-        (MethodCall("generate_zernike", ("n", "m", "amplitude")),),
-    ),
-    "focus": PatternTypeSpec(
-        "focus",
-        "聚焦",
-        (MethodCall("generate_focus", ("focal_length", "lens_radius")),),
-    ),
-    "linear_grating": PatternTypeSpec(
-        "linear_grating",
-        "线性光栅",
-        (
-            MethodCall(
-                "linear_grating",
-                ("period", "phase_range", "direction"),
-            ),
-        ),
-    ),
-    "circular_grating": PatternTypeSpec(
-        "circular_grating",
-        "圆形光栅",
-        (MethodCall("circular_grating", ("radius", "phase_range")),),
-    ),
-    "lens": PatternTypeSpec(
-        "lens",
-        "透镜",
-        (MethodCall("lens", ("focal_length", "lens_radius")),),
-    ),
-    "vortex": PatternTypeSpec(
-        "vortex",
-        "涡旋相位",
-        (MethodCall("generate_vortex", ("topological_charge",)),),
-    ),
-    "dammann": PatternTypeSpec(
-        "dammann",
-        "达曼光栅",
-        (MethodCall("generate_dammann_grating", ("order", "fill_factor")),),
-    ),
-    "hologram": PatternTypeSpec(
-        "hologram",
-        "全息图",
-        (
-            MethodCall(
-                "hologram",
-                ("period", "phase_range", "direction"),
-            ),
-        ),
-    ),
-}
-
-#: 每种图案类型的参数规格（按 key → 规格里的参数名对齐）。
-PARAM_SPECS: dict[str, tuple[ParamSpec, ...]] = {
-    "checkerboard": (ParamSpec("period", "周期 (像素)", "int", 100, min=1),),
-    "binary_grating": (
-        ParamSpec("a", "明条纹宽度", "int", 2, min=1),
-        ParamSpec("b", "暗条纹宽度", "int", 3, min=1),
-        ParamSpec(
-            "direction",
-            "方向",
-            "select",
-            "horizontal",
-            options=("horizontal", "vertical"),
-        ),
-    ),
-    "microlens_array": (
-        ParamSpec("lens_size", "单透镜尺寸 (像素)", "int", 200, min=2),
-        ParamSpec("focal_length", "焦距 (m)", "float", 0.1, min=1e-6, step=1e-3),
-        ParamSpec("wavelength", "波长 (m)", "float", 532e-9, min=1e-9, step=1e-9),
-        ParamSpec("pixel_size", "像素大小 (m)", "float", 8e-6, min=1e-9, step=1e-7),
-    ),
-    "turbulence": (
-        ParamSpec("r0", "Fried 参数 r0 (m)", "float", 0.2, min=1e-3, step=1e-3),
-        ParamSpec("L0", "外尺度 L0 (m)", "float", 25.0, min=0.1, step=0.5),
-        ParamSpec(
-            "pixel_scale", "每像素物理尺寸 (m)", "float", 8e-6, min=1e-9, step=1e-7
-        ),
-        ParamSpec("random_seed", "随机种子 (可选)", "seed", None, min=0),
-    ),
-    "zernike": (
-        ParamSpec("n", "径向阶数 n", "int", 4, min=0, max=20),
-        ParamSpec("m", "角向阶数 m", "int", 0, min=-20, max=20),
-        ParamSpec("amplitude", "幅度", "float", 1.0, min=1e-3, step=0.1),
-    ),
-    "focus": (
-        ParamSpec("focal_length", "焦距 (m)", "float", 0.5, min=1e-6, step=1e-3),
-        ParamSpec("lens_radius", "透镜半径 (像素, 可选)", "float", None, min=1),
-    ),
-    "linear_grating": (
-        ParamSpec("period", "周期 (像素)", "float", 100.0, min=0.1, step=1.0),
-        ParamSpec("phase_range", "相位范围 (弧度)", "float", 2 * np.pi, min=1e-3),
-        ParamSpec(
-            "direction",
-            "方向",
-            "select",
-            "vertical",
-            options=("vertical", "horizontal"),
-        ),
-    ),
-    "circular_grating": (
-        ParamSpec("radius", "光栅半径 (像素)", "float", 100.0, min=0.1, step=1.0),
-        ParamSpec("phase_range", "相位范围 (弧度)", "float", 2 * np.pi, min=1e-3),
-    ),
-    "lens": (
-        ParamSpec("focal_length", "焦距 (m)", "float", 0.5, min=1e-6, step=1e-3),
-        ParamSpec("lens_radius", "透镜半径 (像素, 可选)", "float", None, min=1),
-    ),
-    "vortex": (
-        ParamSpec("topological_charge", "拓扑荷", "int", 1, min=-10, max=10, step=1),
-    ),
-    "dammann": (
-        ParamSpec("order", "衍射级次", "int", 3, min=1, max=16),
-        ParamSpec("fill_factor", "填充因子", "float", 0.5, min=0.0, max=1.0, step=0.05),
-    ),
-    "hologram": (
-        ParamSpec("period", "周期 (像素)", "float", 100.0, min=0.1, step=1.0),
-        ParamSpec("phase_range", "相位范围 (弧度)", "float", 2 * np.pi, min=1e-3),
-        ParamSpec(
-            "direction",
-            "方向",
-            "select",
-            "vertical",
-            options=("vertical", "horizontal"),
-        ),
-    ),
-}
+#: 重导出给既有消费者（测试 / 其他模块直接 ``from helper_tab import ...``）。
+#: 纯规格单一真源在 :mod:`~ao_shaping.gui.slm.pattern_specs`，本模块只透传。
+#: ``_specs_for`` 是本地渲染用别名，保留原名以免移动破坏既有调用。
+__all__ = [
+    "CONNECT_HINT",
+    "MethodCall",
+    "ParamSpec",
+    "PatternTypeSpec",
+    "PATTERN_TYPES",
+    "PARAM_SPECS",
+    "HELPER_CACHE_KEY",
+    "generate_phase_radians",
+    "render_pattern_helper_tab",
+]
 
 
 def _specs_for(key: str) -> tuple[ParamSpec, ...]:
     """返回图案类型 key 的参数规格（缺省空元组）。"""
-    return PARAM_SPECS.get(key, ())
-
-
-def generate_phase_radians(
-    helper: PatternHelper,
-    pattern_type: str,
-    params: dict[str, Any],
-) -> np.ndarray:
-    """纯函数：按 ``pattern_type`` 的调用链在 ``helper`` 上生成弧度相位。
-
-    校验 key 存在；逐条执行 :class:`MethodCall`，提前注入 ``params`` 里同名参数，
-    缺失参数沿用各生成器的签名默认值。最终返回 helper 最后一次调用的
-    ``float64 (height, width)`` 弧度数组。
-    """
-    spec = PATTERN_TYPES[pattern_type]
-    phase: np.ndarray | None = None
-    for call in spec.calls:
-        kwargs = {name: params[name] for name in call.params if name in params}
-        phase = getattr(helper, call.method)(**kwargs)
-    assert phase is not None
-    return phase
+    return specs_for(key)
 
 
 def _slm_panel_geometry(slm: Any) -> tuple[int, int, int]:

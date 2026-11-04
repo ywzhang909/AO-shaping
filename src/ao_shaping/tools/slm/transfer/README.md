@@ -28,3 +28,13 @@ the measured carrier mapping; `strict` requires identical grids and targets.
 With `--skip-calibration`, this warm start goes straight from current-path
 capture and fitting to anchored CCD blocks. It records `gs_iterations: 0` and
 per-shape phase-transfer provenance in the validation configuration.
+
+`uncertainty.py` is an experimental, device-free diagnostic: `disagreement`
+ranks saved predictions by mean-normalised ensemble RMS spread, `select_diverse`
+adds a wrapped-command diversity constraint, and `evaluate` reports paired
+shape error on a fixed camera grid. It also offers an offline CLI:
+`python -m ao_shaping.tools.slm.transfer.uncertainty rank --input <npz>
+--count N --out <json>` and the matching `evaluate` subcommand. The ranking
+score is not calibrated to a probability and is not an acceptance gate; always
+validate it against residuals, family quotas and a random control. No function
+in this module opens a device.

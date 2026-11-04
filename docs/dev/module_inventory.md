@@ -321,11 +321,12 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 | `slm/shaping/` | `router.py` | 按经验表 §1.1 把探测报告路由到六条整形方法路线 (纯离线, 只给建议不执行) |
 | `slm/shaping/` | `probe.py` | 路由判据采集 (从会话产物离线提取 + `--set` 人工补实测) 与建议器 CLI (`__main__.py`) |
 | `slm/transfer/` | `blur.py` | 用实测形状标定等效模糊/辐射度量 (带形状族验证) |
-| `slm/transfer/` | `bootstrap.py` | 由新鲜 signed-ramp 采集建名义物理检查点 (零设备 import) |
+| `slm/transfer/` | `bootstrap.py` | 由新鲜 signed-ramp 采集建未标定物理预测模型初始化检查点（冷启动，先用出厂标定值起手，未实测标定）(零设备 import) |
 | `slm/transfer/` | `capture_response.py` | 交错定相位曝光响应采集, 保留每一帧 (需显式执行旗标) |
 | `slm/transfer/` | `direction.py` | 已存相位上的全局模型 vs 实测锚点方向性目标比较 |
 | `slm/transfer/` | `paired.py` | 定曝光配对判定 (带显式实测验收指标) |
 | `slm/transfer/` | `probes.py` | 确定性相位族 + canonical Zernike 求值 |
+| `slm/transfer/` | `uncertainty.py` | 离线预测诊断与实验性委员会排序: 均值归一化分歧、wrapped 去重选样、配对形状误差与冻结预测复用 (零设备 import, 非生产验收门) |
 | `slm/transfer/` | `response.py` | 固定 CCD 网格上的照明曝光响应拟合与独立校验 |
 | `slm/transfer/` | `simulation.py` | 生成已知真值的线性相机探针, 供免设备迁移测试 |
 | `slm/transfer/` | `summary.py` | 免开设备的配对实验运行汇总 |
@@ -381,7 +382,7 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 | GS 预整形 + 全频随机相位 SPGD 细化 (硬件) | `src/ao_shaping/optimizer/wfless/slm_gs_refine.py` + `runners/slm/gs_refine_runner.py` | 仿真 `iterative_zernike_shaping.py` 的硬件移植: GS 开环预矫正 (仅当实测优于平场才采用) + 无感知 SPGD 细化 (CLI: `slm-gs-refine`) |
 | 物理预测模型闭环校正 + 反复迭代 (硬件) | `src/ao_shaping/optimizer/wfless/slm_model_in_loop.py` + `runners/slm/model_in_loop_runner.py` | 仿真 `model_in_loop_shaping.simulate_iterative_shaping` 的硬件移植: 每轮用强随机探针重拟合物理预测模型的 Zernike 像差 (Step A), 再冻结该像差合成目标方斑相位 (Step B), 用 trust region + 逐轮验收抑制两者相互耦合振荡 (CLI: `slm-model-in-loop`) |
 | **迁移学习闭环整形（物理预测模型）** | `src/ao_shaping/tools/slm/transfer/` + `src/ao_shaping/gui/slm/shaping_controls.py` | 单一入口 `run_session` / `TransferSession`（CLI `python -m ao_shaping.tools.slm.transfer`，GUI 闭环整形「迁移学习」同入口）: `capture.py` 采集 + `to_panel`、`workflow.py` 阶段编排与 journal、`validate.py` A–B–B–A 验收、`fit.py` / `adaptation.py` / `seeding.py` / `pretrain.py`。每次 CCD 采集同时写入 Recorder 记录（`recording.py`：`process.csv` + `process.h5` + 过程 GIF，设备关闭后才导出），大尺寸目标用 `--window-span/--window-step/--zero-radius/--core-margin/--control-grid` 打开采样窗与控制分辨率。接受相位自带载波（`ramp_matrix`），下发时跳过侧栏载波层 |
-| **多形状物理预测模型闭环整形（从零训练）** | `src/ao_shaping/runners/slm/transfer_shapes_runner.py` | 单一 runner 编排「从零训练物理预测模型 → 逐形状 CCD 锚定整形 → 共同重放 → Recorder 记录」：探针采集 (`capture`) → 名义初始化 (`bootstrap`) → 拟合 (`fit`) → 控制分辨率导出 (`geometric_seed`) → 四段整形 (`validate`：非 GS 初相位 / Mono12 / 续跑 / 稠密) → 同曝光同位深重放 (`replay_phases`) → 逐 CCD 块的 Recorder 记录 (`transfer/recording.py`，CSV + HDF5 + 过程 GIF)。CLI: `slm-transfer-shapes`。初相位有三种构造并**实测择优**：传输 (`square_transport_phase`，仅正方形精确) / 反投影 (`target_backprojection_phase`，形状通用但受控制 Nyquist 限制) / GS (`gs_seed`) |
+| **多形状物理预测模型闭环整形（从零训练）** | `src/ao_shaping/runners/slm/transfer_shapes_runner.py` | 单一 runner 编排「从零训练物理预测模型 → 逐形状 CCD 锚定整形 → 共同重放 → Recorder 记录」：探针采集 (`capture`) → 未标定物理预测模型初始化 (`bootstrap`) → 拟合 (`fit`) → 控制分辨率导出 (`geometric_seed`) → 四段整形 (`validate`：非 GS 初相位 / Mono12 / 续跑 / 稠密) → 同曝光同位深重放 (`replay_phases`) → 逐 CCD 块的 Recorder 记录 (`transfer/recording.py`，CSV + HDF5 + 过程 GIF)。CLI: `slm-transfer-shapes`。初相位有三种构造并**实测择优**：传输 (`square_transport_phase`，仅正方形精确) / 反投影 (`target_backprojection_phase`，形状通用但受控制 Nyquist 限制) / GS (`gs_seed`) |
 | Zernike 工具 | `src/ao_shaping/utils/wavefront/zernike_utils.py` | 系数解析 (Noll/(n,m)/数组) + 相位生成，Noll 1976 约定 |
 | **SLM 闪耀光栅衍射效率 / 相位响应标定** | `src/ao_shaping/tools/slm/calibration/diffraction_efficiency/` | 2f 实验系统里用一维闪耀光栅测器件的相位调制深度与衍射效率: `core.py` (纯算法: 图案/阶次识别/**离散器件模型**/拟合/诊断) + `simulate.py` (数字孪生: 填充因子/LUT/面板相差/离焦) + `measure.py` (Santec+Daheng 硬件后端) + `artifacts.py` (CSV/JSON/PNG)。CLI: `python -m ao_shaping.tools.slm.calibration.diffraction_efficiency {simulate,measure,analyze}`。**硬件前置条件**: 必须先有光路标定 `.npz` (几何标定产出), 否则无法预测 ±1 级落点。⚠️ **可信范围** (见 `report/slm/diffraction_efficiency/sim_nonideality_20261022.md`): **相对效率曲线可信, 但拟合出的相位深度只在"幂律器件 + 在焦 + 填充因子≈1"三前提同时成立时可信** —— 填充因子 0.8 会把标称器件报成过调制 (+16%), 非幂律 LUT 偏 +42%, 离焦偏 +11%。**光斑宽度门禁** (`--fwhm-gate-ratio`, 默认 3×; `--reference-fwhm-px` 给一条**在焦**的绝对参照) 把这类失真变成显式失败: 门禁触发时越限点与"零级被熄灭"的点**一并**退出拟合, 有效点不足即**拟合报错**而不是给出一个偏了的深度 |
 | RL training | `src/ao_shaping/optimizer/rl/` | SAC, LR-WFS |

@@ -295,3 +295,56 @@ def test_clear_resets_phase_and_predicted_panels(app: QApplication):
     assert view._phase.image._array is None
     assert view._predicted.image._array is None
     view.close()
+
+
+def test_predicted_absent_with_live_phase_shows_model_not_ready(app: QApplication):
+    """采集段: 相位在驱动 (phase_grid 非空) 但物理预测模型未拟合 → 诚实的占位。
+
+    物理约束: 预测远场依赖 ``fit`` 阶段拟合出的物理预测模型, 采集段根本没有它,
+    所以 ``predicted`` 为 None 不是"数据丢了", 而是"还没到有预测的阶段" —— 面板
+    必须把这个状态说出来, 而不是丢一个像坏了/没数据的黑框。
+    """
+    view = LiveView()
+    view.show()
+    app.processEvents()
+    view.apply_payload(_payload(phase_grid=np.zeros((16, 16)), predicted=None))
+    app.processEvents()
+    # SLM 相位已上屏 (采集段确实在驱动相位)。
+    assert view._phase.image._array is not None
+    # 预测面板没有可显示的远场, 但状态行说清了缘由而不是空黑框。
+    assert view._predicted.image._array is None
+    assert view._predicted._state.isVisible()
+    assert "模型未就绪" in view._predicted._state.text()
+    view.close()
+
+
+def test_predicted_present_clears_the_not_ready_state(app: QApplication):
+    """validate 段: 有了拟合模型 (predicted 非 None) → 画远场, 状态行收起。"""
+    view = LiveView()
+    view.show()
+    app.processEvents()
+    view.apply_payload(_payload(phase_grid=np.zeros((16, 16)), predicted=None))
+    app.processEvents()
+    assert view._predicted._state.isVisible()
+
+    view.apply_payload(_payload(phase_grid=np.zeros((16, 16)), predicted=np.ones((8, 8))))
+    app.processEvents()
+    assert view._predicted.image._array is not None
+    assert not view._predicted._state.isVisible()
+    view.close()
+
+
+def test_predicted_absent_without_phase_stays_plain_empty(app: QApplication):
+    """会话还没驱动任何相位 (phase_grid 也 None): 面板回"无画面", 不提"模型"。
+
+    双 None 是干净的复位语义, 搬出"模型未就绪"会误导 —— 此时连相位都还没有。
+    """
+    view = LiveView()
+    view.show()
+    app.processEvents()
+    view.apply_payload(_payload(phase_grid=None, predicted=None))
+    app.processEvents()
+    assert view._phase.image._array is None
+    assert view._predicted.image._array is None
+    assert not view._predicted._state.isVisible()
+    view.close()

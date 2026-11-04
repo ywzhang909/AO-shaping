@@ -30,7 +30,10 @@ from typing import TYPE_CHECKING
 
 from ao_shaping.utils.image.target.metrics import POLYGON_SHAPE_CHOICES
 from ao_shaping.utils.io.timestamp import format_ts
-from ao_shaping.tools.slm.transfer.preflight import MIN_SIDE_PX as _MIN_SIDE_PX
+from ao_shaping.tools.slm.transfer.preflight import (
+    MIN_SIDE_PX as _MIN_SIDE_PX,
+    WINDOW_MARGIN_PX as _WINDOW_MARGIN_PX,
+)
 
 if TYPE_CHECKING:
     from ao_shaping.tools.slm.transfer.workflow import TransferSession
@@ -98,13 +101,13 @@ SHAPE_LABELS: dict[str, str] = {
 STAGE_LABELS: dict[str, str] = {
     "capture": "当前光路采集（探针 + 逐帧自动曝光）",
     "reuse_capture": "复用已有采集",
-    "nominal_initialization": "名义模型初始化（冷启动，未标定）",
+    "nominal_initialization": "初始模型准备（冷启动，先用出厂标定值起手，未实测标定）",
     "fit": "物理预测模型迁移 / 拟合",
-    "CCD_model_blocks": "CCD 配对块",
+    "CCD_model_blocks": "CCD 实测对照块（模型预测 vs 实测）",
     "exposure_response_capture": "曝光阶梯诊断",
     "exposure_response_analysis": "曝光响应分析",
     "blur_calibration": "有效展宽 / 辐射尺度校准",
-    "CCD_anchored_blocks": "CCD 锚定优化（验收：A–B–B–A 或仅模型损失）",
+    "CCD_anchored_blocks": "CCD 实测校正优化块（按实测迭代，验收：A–B–B–A 或仅模型损失）",
     "GS_and_differentiable_synthesis": "GS + 可微相位合成（离线）",
     "transferred_phase_differentiable_synthesis": (
         "历史接受相位迁移 + 可微合成（离线）"
@@ -133,7 +136,7 @@ class TransferFormValues:
         period: 倾斜相位周期 (panel px)。
         count: 分组随机探针数（必须是 6 的倍数）。
         iterations: 模型参数拟合迭代数。
-        blocks: CCD 锚定短块数。
+        blocks: 按 CCD 实测校正的短块数。
         updates: 每块内的模型更新次数。
         frames: 每个测量点的原始帧数。
         seed: 探针/初始化随机种子。
@@ -186,13 +189,17 @@ class TransferFormValues:
     window_span: float = 0.0
 
 
-def effective_window_span(side: float, window_span: float = 0.0) -> float:
+def effective_window_span(
+    side: float,
+    window_span: float = 0.0,
+    aspect_ratio: float = 1.0,
+) -> float:
     """采样窗**半跨**（px）：显式值优先，否则由目标边长派生。
 
     为什么必须派生
     --------------
     采样窗是 ``validate.run`` 里 ``recentre_window(zero_xy, half_span_px=...)``
-    的半径：目标方斑整个落在窗内，两轴各再留 :data:`WINDOW_MARGIN_PX` 的边，
+    的半径：目标斑整个落在窗内，两轴各再留 :data:`WINDOW_MARGIN_PX` 的边，
     窗才既框住目标又不压窗边。管线默认半跨 220 px 只够 424 px 的目标，而实测
     光路上 ``side=900`` 是在线实现过的 —— 上限的唯一物理依据是 0 级到帧边的距离
     （页面「读取零级」量出来），不是这个默认值。
@@ -200,8 +207,8 @@ def effective_window_span(side: float, window_span: float = 0.0) -> float:
     于是：
 
     * ``window_span > 0``（显式，例如命令行已验证过的 930）→ 原样返回；
-    * 否则 ``max(220, side/2 + 8)``：采样窗必须放下整个目标 + 两侧留白。
-      ``side`` 大到接近帧边时，派生出的半跨恰好等于 0 级到帧边的距离，
+    * 否则 ``max(220, extent/2 + 8)``：采样窗必须放下整个目标 + 两侧留白。
+      ``extent`` 大到接近帧边时，派生出的半跨恰好等于 0 级到帧边的距离，
       窗刚好不越界 —— 这正是「目标边长上限」的物理含义。
 
     小目标行为不变：``side <= 424`` 时结果仍是 220.0，与管线默认值逐位相同。
@@ -209,6 +216,11 @@ def effective_window_span(side: float, window_span: float = 0.0) -> float:
     Args:
         side: 目标边长（CCD px）。
         window_span: 显式半跨（px）；``0`` = 自动派生。
+        aspect_ratio: 矩形长/短比。采样窗的
+            ``recentre_window`` 裁的是方形半跨（两轴同半径），所以派生时必须按
+            目标在轴上占到的**最大跨度** ``side * aspect_ratio`` 来算 —— 只按短边
+            派生会让长边溢出窗（短 130 × 比 2 → 长边 260 > 窗 220）。非矩形传
+            ``1.0``，此时 ``extent == side``，行为不变。
 
     Returns:
         采样窗半跨（px），**不是全宽**。
@@ -220,7 +232,8 @@ def effective_window_span(side: float, window_span: float = 0.0) -> float:
 
     if float(window_span) > 0:
         return float(window_span)
-    return max(HALF_SPAN_PX, float(side) / 2.0 + WINDOW_MARGIN_PX)
+    extent = float(side) * max(float(aspect_ratio), 1.0)
+    return max(HALF_SPAN_PX, extent / 2.0 + WINDOW_MARGIN_PX)
 
 
 def validate_form(values: TransferFormValues) -> tuple[list[str], list[str]]:
@@ -276,14 +289,19 @@ def validate_form(values: TransferFormValues) -> tuple[list[str], list[str]]:
                 f"矩形长/短比 {aspect_ratio:g} 超出合理上限 {_RECT_ASPECT_MAX:g}。"
                 "\n    → 太大在采样窗里既难容纳也失真，请调小。"
             ], []
-        window_span = effective_window_span(side, values.window_span)
+        window_span = effective_window_span(side, values.window_span, aspect_ratio)
         long_side = side * aspect_ratio
+        # 采样窗是半跨：两轴各能容纳 ``window_span - 留白`` 的半个目标，故整边能放进
+        # ``2*(window_span - margin)`` —— 与 preflight._max_side_px 同语义。只按半跨
+        # 硬比会把「放得进窗」的目标误判成超窗（如短边 130×比 2，长边 260 落在
+        # 半跨 220 已经派生放大的窗里）。
+        side_limit = 2.0 * (window_span - _WINDOW_MARGIN_PX)
         for label, value in ("短边", side), ("长边", long_side):
             if not math.isfinite(value) or value <= 0:
                 return [f"矩形{label} {value!r} 不是正数。"], []
-            if value > window_span:
+            if value > side_limit:
                 return [
-                    f"矩形{label} {value:g} px 超过采样窗半跨 {window_span:g} px，"
+                    f"矩形{label} {value:g} px 超出采样窗可容纳的 {side_limit:g} px，"
                     "放不进窗。"
                     "\n    → 请缩小边长或长/短比。"
                 ], []
@@ -305,7 +323,7 @@ def validate_form(values: TransferFormValues) -> tuple[list[str], list[str]]:
         updates=int(values.updates),
         frames=int(values.frames),
         shapes=shapes,
-        half_span_px=effective_window_span(side, values.window_span),
+        half_span_px=effective_window_span(side, values.window_span, aspect_ratio),
     )
     if not tilt:
         problems = [
@@ -389,7 +407,13 @@ def build_session(
         frames=int(values.frames),
         side=float(values.side),
         period=float(values.period),
-        window_span=effective_window_span(float(values.side), values.window_span),
+        window_span=effective_window_span(
+            float(values.side),
+            values.window_span,
+            float(values.aspect_ratio)
+            if "rectangle" in tuple(values.shapes or ())
+            else 1.0,
+        ),
         seed=int(values.seed),
         camera=str(values.camera),
         cam_id=int(values.cam_id),

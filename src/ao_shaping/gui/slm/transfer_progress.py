@@ -79,13 +79,13 @@ MAX_DETAIL_LINES = 8
 STAGE_LABELS: dict[str, str] = {
     "capture": "当前光路采集（探针 + 逐帧自动曝光）",
     "reuse_capture": "复用已有采集",
-    "nominal_initialization": "名义模型初始化（冷启动，未标定）",
+    "nominal_initialization": "初始模型准备（冷启动，先用出厂标定值起手，未实测标定）",
     "fit": "物理预测模型迁移 / 拟合",
-    "CCD_model_blocks": "CCD 模型配对块",
+    "CCD_model_blocks": "CCD 实测对照块（模型预测 vs 实测）",
     "exposure_response_capture": "曝光阶梯诊断",
     "exposure_response_analysis": "曝光响应分析",
     "blur_calibration": "有效展宽 / 辐射尺度校准",
-    "CCD_anchored_blocks": "CCD 锚定优化（验收：A–B–B–A 或仅模型损失）",
+    "CCD_anchored_blocks": "CCD 实测校正优化块（按实测迭代，验收：A–B–B–A 或仅模型损失）",
     "GS_and_differentiable_synthesis": "GS + 可微相位合成（离线）",
     "transferred_phase_differentiable_synthesis": "历史接受相位迁移 + 可微合成（离线）",
     "raw_data_audit": "原始数据审计",
@@ -819,7 +819,7 @@ _READERS: dict[str, Any] = {
 _CCD_TRACE_COLUMNS = ("cv", "core_peak", "model_loss", "exposure_ms")
 
 #: 每个 stage 目录名 → 图上用的中文标签。
-_TRACE_RUNS: tuple[tuple[str, str], ...] = (("model", "模型块"), ("anchored", "锚定块"))
+_TRACE_RUNS: tuple[tuple[str, str], ...] = (("model", "对照块"), ("anchored", "校正块"))
 
 
 def collect_traces(out_dir: str | Path | None) -> dict[str, Any]:
@@ -1175,7 +1175,7 @@ def _show(fig: Any, caption: str) -> None:
 def _render_ccd(ccd: Mapping[str, Any], *, has_blocks: bool) -> None:
     """每次 CCD 采集的 CV / 核心峰值随采集序号 —— 上升段与 A–B–B–A 交错都能看出来。
 
-    颜色区分阶段（模型块 / 锚定块），空心点是种子的那几帧（``*_seed``）—— 种子
+    颜色区分阶段（实测对照块 / 按实测校正块），空心点是种子的那几帧（``*_seed``）—— 种子
     是两条链路共同的起点，用它对齐两次运行的基线。
     """
     plt = _pyplot()

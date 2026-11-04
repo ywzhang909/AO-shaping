@@ -103,7 +103,11 @@ def display_preview(frame) -> tuple[np.ndarray, int]:
 
 
 class _TitledPanel(QWidget):
-    """标题 + 底层画面的小面板 (供 SLM 相位 / 预测远场两栏复用)。"""
+    """标题 + 底层画面的小面板 (供 SLM 相位 / 预测远场两栏复用)。
+
+    ``set_state(text)`` 把一行状态文字画进画面区 (供「物理预测模型未就绪」这类
+    诚实占位用), ``clear_state()`` 撤掉它 —— 画面本身就够时不需要状态行。
+    """
 
     def __init__(self, title: str, image: VideoWidget, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -116,6 +120,22 @@ class _TitledPanel(QWidget):
         layout.setSpacing(2)
         layout.addWidget(self._caption)
         layout.addWidget(image, 1)
+        # 覆盖在画面区上的状态行: 平时隐藏, "模型未就绪" 这类时候用它替掉空图。
+        self._state = QLabel("")
+        self._state.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._state.setStyleSheet(
+            "background-color: #12121a; color: #9a9aa6; border: 1px dashed #4a4a5a;"
+        )
+        self._state.setVisible(False)
+        layout.addWidget(self._state)
+
+    def set_state(self, text: str) -> None:
+        self._state.setText(text)
+        self._state.setVisible(True)
+
+    def clear_state(self) -> None:
+        self._state.clear()
+        self._state.setVisible(False)
 
 
 class LiveView(QWidget):
@@ -203,8 +223,9 @@ class LiveView(QWidget):
         self._profile.update_metrics(metrics)
 
         # —— 新增面板: SLM 相位 / 预测远场 (可能缺失或为 None, 容错复位) ——
-        self._render_phase(payload.get("phase_grid"))
-        self._render_predicted(payload.get("predicted"))
+        phase_grid = payload.get("phase_grid")
+        self._render_phase(phase_grid)
+        self._render_predicted(payload.get("predicted"), phase_grid)
 
         blocks_total = int(payload.get("blocks_total", 0) or 0)
         block_index = int(payload.get("block_index", 0) or 0)
@@ -256,11 +277,25 @@ class LiveView(QWidget):
             return
         self._phase.image.set_frame(display_phase(phase))
 
-    def _render_predicted(self, predicted) -> None:
-        """把预测远场强度画进 ``_predicted`` 面板; ``None``/缺省 → 空态。"""
+    def _render_predicted(self, predicted, phase_grid) -> None:
+        """把预测远场强度画进 ``_predicted`` 面板。
+
+        ``None`` 分两种, 不许把两者混成一个「黑框」: (1) **采集段** —— SLM 上真
+        的在驱动相位 (``phase_grid`` 非空), 但物理预测模型要到 ``fit`` 阶段之后才
+        拟合出来, **此刻没有可算的远场**, 面板给一个诚实的「模型未就绪」占位而
+        不是一个看起来坏了/没数据的黑框; (2) **空态/无相位** —— 会话还没开始或
+        干净的复位, ``VideoWidget.clear()`` 的"无画面"就够诚实。``_phase`` 上屏
+        与否就是「此刻有没有相位」的可靠记号, 不必再额外读一个键。
+        """
         if predicted is None:
-            self._predicted.image.clear()
+            if self._phase.image._array is not None:
+                self._predicted.set_state("物理预测模型未就绪")
+                self._predicted.image.clear()
+            else:
+                self._predicted.clear_state()
+                self._predicted.image.clear()
             return
+        self._predicted.clear_state()
         self._predicted.image.set_frame(display_frame(predicted))
 
     def clear(self) -> None:
@@ -268,7 +303,9 @@ class LiveView(QWidget):
         self._video.clear()
         self._profile.clear()
         self._phase.image.clear()
+        self._phase.clear_state()
         self._predicted.image.clear()
+        self._predicted.clear_state()
         self._block_bar.setRange(0, 1)
         self._block_bar.setValue(0)
         self._remaining_bar.setRange(0, 1)
