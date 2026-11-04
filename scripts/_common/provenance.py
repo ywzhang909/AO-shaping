@@ -86,6 +86,14 @@ class ReportProvenance:
 #:   ``硬件``   -- needs a real bench (SLM / CCD / WFS / DM / micro-DM).
 #:   ``离线+硬件`` -- renders offline, but the numbers were measured on hardware.
 REPORTS: dict[str, ReportProvenance] = {
+    "report/shape_trials/physical_refine/forward_model_transfer_plan_20261104.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线（代码与历史报告分析；硬件步骤为规划）",
+        note=(
+            "物理预测模型结构/分层微调(zernike_block)/光路探测(结构化±Zernike 主动探针)/"
+            "可微优化与在线训练集扩展技术报告；整合 issue #229 的迁移学习修订方案与实验计划"
+        ),
+    ),
     "report/shape_trials/local_forward/local_forward_20261103.md": ReportProvenance(
         script="scripts/ml/sim2f_local_forward_report.py",
         command="python scripts/ml/sim2f_local_forward_report.py",
