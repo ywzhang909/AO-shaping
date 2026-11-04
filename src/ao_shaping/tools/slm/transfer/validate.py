@@ -25,6 +25,7 @@ from loguru import logger
 from ao_shaping.tools.slm.transfer.capture import clock, exposure_setter, to_panel
 from ao_shaping.tools.slm.transfer.device import DEVICE_CHOICES, resolve_device
 from ao_shaping.tools.slm.transfer.light_guard import LightGuard, OpticalPathInvalid, verify_light
+from ao_shaping.tools.slm.transfer.hardware import DeviceOpenError, opened_device
 # 实时帧的缓存/负载/emit 住在 .live_frame (Qt-free, 测量线程可调); 这里按旧名字
 # 全部再导出 —— 内部调用点、既有测试与 scripts/ 都用这一批名字。
 from ao_shaping.tools.slm.transfer.live_frame import (
@@ -52,7 +53,7 @@ from ao_shaping.tools.slm.transfer.jacobian_guard import (
     TrustRegionSchedule, direction_agreement,
 )
 from ao_shaping.tools.slm.transfer.session_plan import (
-    _frozen_groups, model_only_decision, session_plan, skips_shape,
+    model_only_decision, remaining_blocks, session_plan, skips_shape,
 )
 from ao_shaping.utils.image.target import TRANSFER_SHAPE_CHOICES
 
@@ -308,11 +309,11 @@ def run(args, *, on_frame=None):
     blocks_for: dict[str, list[int]] = {}
     if resume:
         for shape in args.shapes:
-            # A stage directory is one shape's run, so its measured groups are
-            # countable without re-planning; the remaining indices are this
-            # stage's outstanding work.
-            recorded = _frozen_groups(args.out)
-            blocks_for[shape] = list(range(recorded, getattr(args, "blocks", 0)))
+            # The runner gives each shape its own stage directory. Count only
+            # that directory's completed block rows; never use a stage-global
+            # offset or a sibling shape's checkpoint.
+            blocks_for[shape] = remaining_blocks(
+                args.out, int(getattr(args, "blocks", 0)), resume=True)
     from .hardware import prepare_camera_sdk
     prepare_camera_sdk(args.camera)
     from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_ms, get_camera_exposure_range
@@ -395,8 +396,9 @@ def run(args, *, on_frame=None):
     # explicit at the call site instead of becoming an invisible default.
     writer = _CaptureWriter() if getattr(args, "async_capture_write", False) else None
     camera_options = {"bit_depth": bit_depth} if args.camera == "daheng" else {}
-    with create_camera(args.camera, args.cam_id, exposure_time_ms=.02, **camera_options) as cam:
-        with Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0) as slm:
+    with opened_device(create_camera(
+            args.camera, args.cam_id, exposure_time_ms=.02, **camera_options)) as cam:
+        with opened_device(Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0)) as slm:
             slm.set_phase_overlay(None)
             floor, ceiling = get_camera_exposure_range(cam)
             configured = configured_daheng_exposure_limit() if args.camera == "daheng" else 0.
@@ -682,7 +684,9 @@ def run(args, *, on_frame=None):
                                 (args.out/f"{shape}_direction.json").write_text(json.dumps(direction, indent=2), encoding="utf-8")
                             from .paired import paired_decision
                             decision = paired_decision(anchor_row, b1, b2, a2,
-                                                       metric=getattr(args, "accept_metric", "loss"))
+                                                       metric=getattr(args, "accept_metric", "loss"),
+                                                       rel_tol=float(getattr(args, "accept_rel_tol", 0.0)),
+                                                       abs_tol=float(getattr(args, "accept_abs_tol", 0.0)))
                             entry = dict(shape=shape, block=block, **decision, **clock())
                         elif getattr(args, "ccd_check", False):
                             if anchor_row is None:
@@ -692,8 +696,15 @@ def run(args, *, on_frame=None):
                             metric = "cv" if getattr(args, "accept_metric", "loss") == "cv" else "loss"
                             av = anchor_row["metrics"][metric] if metric == "cv" else anchor_row[metric]
                             bv = b1["metrics"][metric] if metric == "cv" else b1[metric]
-                            decision = dict(accepted=bool(bv < av), acceptance="sequential_ccd",
-                                            accept_metric=metric, baseline=float(av), candidate=float(bv))
+                            # 验收容差: 顺序 CCD 判据允许在端点漂移之上再留一个
+                            # 相对/绝对余量, 避免设备抖动把本应接受的候选判死。
+                            seq_rel_tol = float(getattr(args, "accept_rel_tol", 0.0))
+                            seq_abs_tol = float(getattr(args, "accept_abs_tol", 0.0))
+                            seq_tolerance = max(abs(float(av)) * seq_rel_tol, seq_abs_tol)
+                            decision = dict(accepted=bool(bv < float(av) - seq_tolerance),
+                                            acceptance="sequential_ccd",
+                                            accept_metric=metric, baseline=float(av),
+                                            candidate=float(bv), tolerance=seq_tolerance)
                             if guard is not None:
                                 with torch.no_grad():
                                     candidate_prediction = forward.predict(candidate)[0].detach().cpu().numpy()
@@ -703,7 +714,8 @@ def run(args, *, on_frame=None):
                                 agreement = direction_agreement(
                                     anchor_prediction, candidate_prediction,
                                     anchor, measured_candidate,
-                                    low=guard.low, high=guard.high)
+                                    low=guard.low, high=guard.high,
+                                    min_signal=float(getattr(args, "jacobian_min_signal", 2e-3)))
                                 guard.observe(agreement)
                                 decision["jacobian"] = dict(**agreement.as_dict(),
                                                             cap_next=float(guard.cap))
@@ -839,6 +851,12 @@ def main():
     parser.add_argument("--exploration-budget", type=float, default=.25, help="Maximum relative CV degradation from retained champion")
     parser.add_argument("--exploration-window", type=int, default=4, help="Restore champion after this many exploration blocks")
     parser.add_argument("--accept-metric", choices=("loss", "cv"), default="loss")
+    parser.add_argument("--accept-rel-tol", type=float, default=0.0,
+                        help="Relative acceptance tolerance (fraction of baseline); 0.0 keeps strict improvement")
+    parser.add_argument("--accept-abs-tol", type=float, default=0.0,
+                        help="Absolute acceptance tolerance (in metric units); 0.0 keeps strict improvement")
+    parser.add_argument("--jacobian-min-signal", type=float, default=2e-3,
+                        help="Minimum measured signal for Jacobian direction agreement to count")
     parser.add_argument("--objective", choices=("shape", "cv", "formation"), default="shape")
     parser.add_argument("--no-abba", dest="abba", action="store_false",
                         help="Skip the A–B–B–A blocks; accept on the model loss only (no CCD verdict)")
@@ -863,6 +881,9 @@ def main():
         run(args)
     except OpticalPathInvalid as exc:
         logger.error(exc.report())
+        raise SystemExit(exc.exit_code) from None
+    except DeviceOpenError as exc:
+        logger.error(str(exc))
         raise SystemExit(exc.exit_code) from None
 
 

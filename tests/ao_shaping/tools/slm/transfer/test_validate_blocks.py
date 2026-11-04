@@ -34,16 +34,20 @@ def test_only_a_resume_with_nothing_outstanding_is_skipped():
 
 
 def test_run_uses_the_gate_and_not_a_bare_empty_check():
-    # The defect was the call site, not the predicate: pin that the session body
-    # consulted by ``run`` calls ``skips_shape``, so a future edit cannot quietly
-    # restore ``if not blocks``. Since #205 batch 6 the session block lives in
-    # ``_run_validate_session``; since batch 16 the shape loop lives one hop
-    # deeper in ``_run_validate_shapes`` -- pin all three hops: run must call the
-    # session body, the session body must call the shape loop, the shape loop
-    # must call the gate.
+    # The defect was the call site, not the predicate: pin that ``run`` consults
+    # ``skips_shape``, so a future edit cannot quietly restore ``if not blocks``.
+    # The session body and shape loop both live inline in ``run`` (the earlier
+    # ``_run_validate_session`` / ``_run_validate_shapes`` helpers are gone), so
+    # the whole chain is pinned against ``run``'s own source.
     run_source = inspect.getsource(validate.run)
-    session_source = inspect.getsource(validate._run_validate_session)
-    shapes_source = inspect.getsource(validate._run_validate_shapes)
-    assert "_run_validate_session(" in run_source
-    assert "_run_validate_shapes(" in session_source
-    assert "skips_shape(resume=resume, blocks=blocks)" in shapes_source
+    assert "skips_shape(resume=resume, blocks=blocks)" in run_source
+    # The resume offset must feed the gate from ``remaining_blocks`` -- the gate
+    # is consulted on the *outstanding* block list, never the raw recipe range.
+    assert "remaining_blocks(" in run_source
+    assert "if not blocks" not in run_source
+
+
+def test_run_opens_both_devices_through_the_retry_wrapper():
+    run_source = inspect.getsource(validate.run)
+    assert "with opened_device(create_camera(" in run_source
+    assert "with opened_device(Santec(" in run_source

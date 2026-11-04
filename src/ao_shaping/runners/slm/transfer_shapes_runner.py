@@ -43,7 +43,9 @@ from ao_shaping.tools.slm.transfer import capture as capture_stage
 from ao_shaping.tools.slm.transfer import fit as fit_stage
 from ao_shaping.tools.slm.transfer import recording, replay_phases, validate as validate_stage
 from ao_shaping.tools.slm.transfer.light_guard import OpticalPathInvalid
+from ao_shaping.tools.slm.transfer.hardware import DeviceOpenError
 from ao_shaping.tools.slm.transfer.protocol import derive_replay_exposures
+from ao_shaping.tools.slm.transfer.session_plan import stage_complete
 from ao_shaping.tools.slm.transfer.session_record import (
     finish_segment, measured_peak_rates, optical_session_field, record_optical_session)
 from ao_shaping.tools.slm.transfer.stages import STAGE_RECIPES, StageRecipe
@@ -98,8 +100,9 @@ def _validate_args(*, checkpoint: Path, out: Path, zero_xy, shapes, recipe: Stag
                    adaptive_exposure: bool = True, profile_timing: bool = False,
                    async_capture_write: bool = False, jacobian_guard: bool = True,
                    jacobian_low: float = 0.5, jacobian_high: float = 0.85,
-                   jacobian_floor: float = 0.02, spectral_weight: float = 0.0,
-                   spectral_cutoff: float | None = None,
+                   jacobian_floor: float = 0.02, jacobian_min_signal: float = 2e-3,
+                   accept_rel_tol: float = 0.0, accept_abs_tol: float = 0.0,
+                   spectral_weight: float = 0.0, spectral_cutoff: float | None = None,
                    objective: str = "cv", weight_schedule: str = "constant",
                     tilt: bool = False, aspect_ratio: float = 2.0) -> SimpleNamespace:
     """Build the argument namespace ``validate.run`` expects."""
@@ -128,6 +131,8 @@ def _validate_args(*, checkpoint: Path, out: Path, zero_xy, shapes, recipe: Stag
         profile_timing=profile_timing, async_capture_write=async_capture_write,
         jacobian_guard=jacobian_guard, jacobian_low=jacobian_low,
         jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
+        jacobian_min_signal=jacobian_min_signal,
+        accept_rel_tol=accept_rel_tol, accept_abs_tol=accept_abs_tol,
         spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
         weight_schedule=weight_schedule,
         tilt=tilt, aspect_ratio=aspect_ratio,
@@ -265,6 +270,9 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
     jacobian_low = values["jacobian_low"]
     jacobian_high = values["jacobian_high"]
     jacobian_floor = values["jacobian_floor"]
+    jacobian_min_signal = values["jacobian_min_signal"]
+    accept_rel_tol = values["accept_rel_tol"]
+    accept_abs_tol = values["accept_abs_tol"]
     spectral_weight = values["spectral_weight"]
     spectral_cutoff = values["spectral_cutoff"]
     objective = values["objective"]
@@ -438,6 +446,8 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
         async_capture_write=async_capture_write,
         jacobian_guard=jacobian_guard, jacobian_low=jacobian_low,
         jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
+        jacobian_min_signal=jacobian_min_signal,
+        accept_rel_tol=accept_rel_tol, accept_abs_tol=accept_abs_tol,
         spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
         objective=objective, weight_schedule=weight_schedule,
         tilt=tilt, aspect_ratio=aspect_ratio,
@@ -571,6 +581,8 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
                profile_timing: bool = False, async_capture_write: bool = False,
                jacobian_guard: bool = True, jacobian_low: float = 0.5,
                jacobian_high: float = 0.85, jacobian_floor: float = 0.02,
+               jacobian_min_signal: float = 2e-3,
+               accept_rel_tol: float = 0.0, accept_abs_tol: float = 0.0,
                spectral_weight: float = 0.0,
                spectral_cutoff: float | None = None,
                objective: str = "cv", weight_schedule: str = "constant",
@@ -581,10 +593,11 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
     Split out of :func:`run` so the ordering and the reuse rule are testable
     without opening a device: a caller can drive this with ``validate.run``
     monkeypatched and read back which stage directories were entered. On
-    ``--resume`` a stage whose ``manifest.json`` exists is *not* re-entered --
-    it is journalled ``reused`` and its directory becomes the next stage's seed,
-    which is what makes finishing a half-done shape a continuation rather than a
-    re-measurement. Without ``--resume`` the old contract holds and a populated
+    ``--resume`` a stage with every expected block verdict is *not* re-entered
+    -- it is journalled ``reused`` and its directory becomes the next stage's
+    seed. A partial manifest instead re-enters the same shape directory and
+    resumes at its first unmeasured block. Without ``--resume`` the old contract
+    holds and a populated
     directory raises ``FileExistsError`` inside ``validate.run``.
 
     ``should_stop`` is checked **before each segment only** (return value ``True``
@@ -609,7 +622,11 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
     for shape, index in _stage_sequence(shapes, order):
         recipe = STAGE_RECIPES[index]
         stage_dir = out / "shape" / shape / recipe.name
-        if resume and (stage_dir / "manifest.json").is_file():
+        # The manifest is rewritten after every block, so its presence alone
+        # only proves that this stage started. Reuse a stage solely when this
+        # shape directory contains every expected block verdict; otherwise
+        # re-enter with resume=True and continue its outstanding blocks.
+        if resume and stage_complete(stage_dir, recipe.blocks):
             journal.record(f"{shape}/{recipe.name}", "reused", out=str(stage_dir))
             continue
         if should_stop is not None and should_stop():
@@ -633,6 +650,8 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
             profile_timing=profile_timing, async_capture_write=async_capture_write,
             jacobian_guard=jacobian_guard, jacobian_low=jacobian_low,
             jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
+            jacobian_min_signal=jacobian_min_signal,
+            accept_rel_tol=accept_rel_tol, accept_abs_tol=accept_abs_tol,
             spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
             objective=objective, weight_schedule=weight_schedule,
             tilt=tilt, aspect_ratio=aspect_ratio)
@@ -742,6 +761,12 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
               help="方向相关性高于此值判为 agree (cap 恢复)")
 @click.option("--jacobian-floor", type=float, default=0.02, show_default=True,
               help="连续被否定时 cap 的下限 (rad, 照明加权 RMS)")
+@click.option("--jacobian-min-signal", type=float, default=2e-3, show_default=True,
+              help="实测信号低于此值不计入 Jacobian 方向一致性统计")
+@click.option("--accept-rel-tol", type=float, default=0.0, show_default=True,
+              help="相对接受容差 (占基线的比例); 默认 0.0 保持严格改进判定")
+@click.option("--accept-abs-tol", type=float, default=0.0, show_default=True,
+              help="绝对接受容差 (指标单位); 默认 0.0 保持严格改进判定")
 @click.option("--spectral-weight", type=float, default=0.0, show_default=True,
               help="相位增量带外功率占比的惩罚权重 (issue #213 质量项 1b)。"
                    "默认 0 = 关闭: 器件 MTF 尚未实测, 开启前应先确认 cutoff。")
@@ -770,7 +795,8 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         model_dir: Path | None, records_only: bool, resume: bool, order: str,
         execute: bool, profile_timing: bool, async_capture_write: bool,
         jacobian_guard: bool, jacobian_low: float, jacobian_high: float,
-        jacobian_floor: float, spectral_weight: float,
+        jacobian_floor: float, jacobian_min_signal: float,
+        accept_rel_tol: float, accept_abs_tol: float, spectral_weight: float,
         spectral_cutoff: float | None, objective: str,
         weight_schedule: str, tilt: bool = False, aspect_ratio: float = 2.0) -> None:
     """物理预测模型闭环整形：从零训练模型 + 目标整形，逐形状执行。
@@ -804,7 +830,9 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         model_dir=model_dir, resume=resume, order=order, profile_timing=profile_timing,
         async_capture_write=async_capture_write, jacobian_guard=jacobian_guard,
         jacobian_low=jacobian_low, jacobian_high=jacobian_high,
-        jacobian_floor=jacobian_floor, spectral_weight=spectral_weight,
+        jacobian_floor=jacobian_floor, jacobian_min_signal=jacobian_min_signal,
+        accept_rel_tol=accept_rel_tol, accept_abs_tol=accept_abs_tol,
+        spectral_weight=spectral_weight,
         spectral_cutoff=spectral_cutoff, objective=objective,
         weight_schedule=weight_schedule, tilt=tilt, aspect_ratio=aspect_ratio)
     plan = _plan_dict(out=out, execute=execute, **params)
@@ -828,6 +856,12 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         execute_campaign(out=out, **params)
     except OpticalPathInvalid as exc:
         click.echo(exc.report(), err=True)
+        raise SystemExit(exc.exit_code) from None
+    except DeviceOpenError as exc:
+        # 设备打开在多次重试后仍失败: 物理硬件掉了/被占用。这不是代码缺陷,
+        # 但也不像光路那样「查一下就能继续」——固定退出码 4 让 lane 脚本清除残留
+        # 进程后重试。只在库入口翻码, 异常对象(device/attempts/cause)留给 GUI 调用方。
+        click.echo(str(exc), err=True)
         raise SystemExit(exc.exit_code) from None
 
 

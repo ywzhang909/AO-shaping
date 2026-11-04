@@ -12,7 +12,6 @@ import numpy as np
 
 from ao_shaping.algorithm.signal_processing.multishape_objective import ShapeObjective, image_metrics
 from .capture import clock, to_panel
-from .hardware import prepare_camera_sdk
 
 
 def _selections(args) -> list[tuple[Path, str]]:
@@ -63,6 +62,7 @@ def _selections(args) -> list[tuple[Path, str]]:
 
 
 def replay(args):
+    from .hardware import opened_device, prepare_camera_sdk
     prepare_camera_sdk(getattr(args, "camera", "daheng"))
     from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_ms, get_camera_exposure_range
     from ao_shaping.drivers.slm.santec import Santec
@@ -101,13 +101,13 @@ def replay(args):
                for key, members in groups.items()}, **clock()), default=str, indent=2),
         encoding="utf-8")
     records = []
-    with create_camera(getattr(args, "camera", "daheng"), int(getattr(args, "cam_id", 0)),
-                       exposure_time_ms=.02, bit_depth=12) as camera:
+    with opened_device(create_camera(getattr(args, "camera", "daheng"), int(getattr(args, "cam_id", 0)),
+                       exposure_time_ms=.02, bit_depth=12)) as camera:
         floor, ceiling = get_camera_exposure_range(camera)
         limit = configured_daheng_exposure_limit()
         if min(args.exposures) < floor or max(args.exposures) > min(ceiling, limit if limit > 0 else ceiling):
             raise ValueError("replay exposure outside current session range")
-        with Santec(slm_number=int(getattr(args, "slm_number", 1)), wavelength=1064, video_mode=0) as slm:
+        with opened_device(Santec(slm_number=int(getattr(args, "slm_number", 1)), wavelength=1064, video_mode=0)) as slm:
             slm.set_phase_overlay(None)
             try:
                 for exposure in args.exposures:

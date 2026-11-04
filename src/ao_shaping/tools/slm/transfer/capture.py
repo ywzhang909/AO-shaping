@@ -40,6 +40,7 @@ import numpy as np
 from scipy.ndimage import gaussian_filter
 
 from .light_guard import LightGuard, OpticalPathInvalid, verify_light
+from .hardware import DeviceOpenError
 from .live_frame import _resolve_observer, frame_payload, notify_frame
 
 #: Exposure search for one probe: one exact correction + one verification read.
@@ -142,7 +143,7 @@ def capture(args, *, on_frame=None):
     averages it, so a mean-frame payload would cut that to ~40 MB — deliberately
     not done, because that would change what the fit consumes.
     """
-    from .hardware import prepare_camera_sdk
+    from .hardware import opened_device, prepare_camera_sdk
     prepare_camera_sdk(args.camera)
     from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_ms, get_camera_exposure_range
     from ao_shaping.drivers.slm.santec import Santec
@@ -163,8 +164,8 @@ def capture(args, *, on_frame=None):
     (args.out / "config.json").write_text(json.dumps(config, default=str, indent=2), encoding="utf-8")
     manifest, samples = [], {}
     early_stopped = False
-    with create_camera(args.camera, args.cam_id, exposure_time_ms=.02) as cam:
-        with Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0) as slm:
+    with opened_device(create_camera(args.camera, args.cam_id, exposure_time_ms=.02)) as cam:
+        with opened_device(Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0)) as slm:
             slm.set_phase_overlay(None)
             try:
                 floor, ceiling = get_camera_exposure_range(cam)
@@ -311,12 +312,12 @@ def precheck_light(*, camera: str, cam_id: int, label: str = "启动前光路检
     Raises:
         OpticalPathInvalid: 每一档都只有噪声底。
     """
-    from .hardware import prepare_camera_sdk
+    from .hardware import opened_device, prepare_camera_sdk
     prepare_camera_sdk(camera)
     from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_range
     from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
 
-    with create_camera(camera, cam_id, exposure_time_ms=.02) as cam:
+    with opened_device(create_camera(camera, cam_id, exposure_time_ms=.02)) as cam:
         floor, ceiling = get_camera_exposure_range(cam)
         limit = configured_daheng_exposure_limit() if camera == "daheng" else 0
         if limit > 0:
@@ -361,6 +362,9 @@ def main():
             capture(args)
         except OpticalPathInvalid as exc:
             logger.error(exc.report())
+            raise SystemExit(exc.exit_code) from None
+        except DeviceOpenError as exc:
+            logger.error(str(exc))
             raise SystemExit(exc.exit_code) from None
     else:
         logger.info(json.dumps(plan, indent=2))

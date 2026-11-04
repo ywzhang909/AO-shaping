@@ -26,7 +26,7 @@ FRACTIONS = (1.0, 0.25, 1.0, 0.5, 1.0, 0.125, 1.0, 0.5, 0.25, 0.125, 1.0)
 
 
 def capture(args, *, on_frame=None):
-    from .hardware import prepare_camera_sdk
+    from .hardware import opened_device, prepare_camera_sdk
     prepare_camera_sdk(args.camera)
     from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_ms, get_camera_exposure_range
     from ao_shaping.drivers.slm.santec import Santec
@@ -57,8 +57,8 @@ def capture(args, *, on_frame=None):
     )
     (args.out / "config.json").write_text(json.dumps(cfg, indent=2))
     rows = []
-    with create_camera(args.camera, args.cam_id, exposure_time_ms=0.02) as cam:
-        with Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0) as slm:
+    with opened_device(create_camera(args.camera, args.cam_id, exposure_time_ms=0.02)) as cam:
+        with opened_device(Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0)) as slm:
             slm.set_phase_overlay(None)
             try:
                 floor, ceiling = get_camera_exposure_range(cam)

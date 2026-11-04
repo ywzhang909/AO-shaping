@@ -63,14 +63,17 @@ def _stage_args(tmp_path, *, stage_resume=True, order="stage", shapes=("square",
 
 
 def _record_entered_stages(monkeypatch):
-    """Replace ``validate.run`` with a stub that only leaves a manifest behind."""
+    """Replace ``validate.run`` with a stub that leaves a complete verdict manifest."""
     from ao_shaping.runners.slm import transfer_shapes_runner as module
 
     entered = []
 
     def fake_validate(args):
         args.out.mkdir(parents=True, exist_ok=True)
-        (args.out / "manifest.json").write_text("[]")
+        # A finished stage's manifest records the seed re-measure plus every
+        # block verdict (blocks + 1 rows); resume completion depends on it.
+        rows = [{"block": index} for index in range(int(getattr(args, "blocks", 0)) + 1)]
+        (args.out / "manifest.json").write_text(json.dumps(rows))
         entered.append((args.out.parent.name, args.out.name, args.seed_run, args.resume))
 
     monkeypatch.setattr(module.validate_stage, "run", fake_validate)
@@ -78,9 +81,13 @@ def _record_entered_stages(monkeypatch):
 
 
 def _fake_stage(tmp_path, shape, recipe_name):
+    from ao_shaping.runners.slm.transfer_shapes_runner import STAGE_RECIPES
+    recipe = next(r for r in STAGE_RECIPES if r.name == recipe_name)
     stage_dir = tmp_path / "shape" / shape / recipe_name
     stage_dir.mkdir(parents=True)
-    (stage_dir / "manifest.json").write_text("[]")
+    # Complete: the seed re-measure plus every block verdict.
+    rows = [{"block": index} for index in range(recipe.blocks + 1)]
+    (stage_dir / "manifest.json").write_text(json.dumps(rows))
     return stage_dir
 
 
@@ -102,6 +109,35 @@ def test_resume_reuses_a_stage_whose_manifest_exists(tmp_path, monkeypatch):
     # Stage 2 continued from the reused directory, not from nothing.
     assert entered[0][:2] == ("square", STAGE_RECIPES[1].name)
     assert entered[0][2] == frozen
+
+
+def test_resume_reenters_a_partial_stage_to_finish_its_blocks(tmp_path, monkeypatch):
+    """A manifest alone is not completion: a stage with missing block verdicts
+    re-enters with resume=True and continues, rather than being treated as done."""
+    from ao_shaping.runners.slm.transfer_shapes_runner import STAGE_RECIPES, run_stages
+
+    entered = _record_entered_stages(monkeypatch)
+    # A partial stage: the manifest records only the seed re-measure plus three
+    # of the four transport_cv blocks -- one verdict is still outstanding.
+    partial = tmp_path / "shape" / "square" / STAGE_RECIPES[0].name
+    partial.mkdir(parents=True)
+    (partial / "manifest.json").write_text(
+        json.dumps([{"block": i} for i in range(STAGE_RECIPES[0].blocks)]), encoding="utf-8")
+
+    run_stages(**_stage_args(tmp_path, shapes=("square",)))
+
+    reused = [entry["stage"] for entry in
+              json.loads((tmp_path / "journal.json").read_text(encoding="utf-8"))
+              if entry["status"] == "reused"]
+    assert reused == []            # nothing was treated as done
+    # The partial stage itself was re-entered (not reused and not skipped to the
+    # next one): it is the first stage entered, and it went in with resume=True.
+    assert len(entered) == len(STAGE_RECIPES)   # every stage ran for real
+    assert entered[0][:2] == ("square", STAGE_RECIPES[0].name)
+    assert entered[0][3] is True
+    # Its seed came from the earlier finished stage on the same shape, if any --
+    # here there is none, so the continuation has no cached seed to stand on.
+    assert entered[0][2] is None
 
 
 def test_without_resume_a_populated_stage_directory_still_fails(tmp_path):
