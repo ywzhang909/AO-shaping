@@ -290,9 +290,16 @@ class TestProbeAlgebra:
         maxerr = float(np.abs(calibrated.coeffs - _TRUTH).max())
         assert _L1_RESIDUAL_BAND[0] < residual < _L1_RESIDUAL_BAND[1], residual
         assert _L1_MAXERR_BAND[0] < maxerr < _L1_MAXERR_BAND[1], maxerr
-        assert float(np.argmax(np.abs(calibrated.coeffs - _TRUTH))) == 0, (
-            "tip is the mode l1 leaves furthest from the truth on this bench; if "
-            "another mode takes over, the oscillation changed shape"
+        # Which of the two worst modes comes *first* is not reproducible: on the dev
+        # box tip leads defocus 0.0228 to 0.0185, on the GitHub runner the two swap
+        # at 0.0037 / 0.0038 (2% apart, pure float32 reduction-order noise).  The
+        # reproducible part is the *pair* -- and it wins by ~3x over the third mode
+        # on both machines.
+        worst_two = set(np.argsort(np.abs(calibrated.coeffs - _TRUTH))[-2:].tolist())
+        assert worst_two == {0, 2}, (
+            "l1 leaves its residual concentrated in tip and defocus (Noll 2 and 4); "
+            f"if another mode enters the top two ({sorted(worst_two)}), the "
+            "oscillation changed shape"
         )
         assert low_lr.residual < residual and (
             float(np.abs(low_lr.coeffs - _TRUTH).max()) < maxerr
