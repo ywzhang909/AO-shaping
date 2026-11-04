@@ -88,7 +88,7 @@ class ReportProvenance:
 REPORTS: dict[str, ReportProvenance] = {
     "report/shape_trials/experience_review/shaping_experience_20261103.md": ReportProvenance(
         script=HANDWRITTEN,
-        environment="离线只读整理（169 份整形相关报告清单 + 已归档实验 / 仿真结论；设备已下线，不产生新硬件数据）",
+        environment="离线整理 + 11-04 实测收尾（169 份整形相关报告清单、11-03 已归档实验 / 仿真结论；11-04 在 Santec #1 + Daheng 实测补一轮短验证与一轮完整可微优化）",
         note=(
             "按证据等级汇总有效方法、适用条件、失败防线与下次实验固定协议；"
             "E1 数字来自同曝光 CCD 独立复测，仿真修复不标为实测。"
