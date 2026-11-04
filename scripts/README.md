@@ -7,6 +7,12 @@ from paired smooth phase probes, differentiates that forward model for shaping,
 and verifies candidates and the final phase using independent ABBA captures.
 `ml/sim2f_local_forward_report.py` audits the saved CCD metrics and renders the
 2026-11-03 report under `report/shape_trials/local_forward/`.
+`ml/shaping_experience_inventory.py` is a device-free inventory of shaping-related
+reports; it records source hashes and line-numbered evidence in
+`report/shape_trials/experience_review/artifacts/`. The human-written synthesis
+beside those artifacts grades each result by its independent repeated-measurement
+evidence and records the
+methods' applicable conditions, failure checks, and the next-session protocol.
 
 `slm/analyze_no_gs_session.py` audits a saved capture/fit pair; `slm/analyze_no_gs_run.py`
 compares square endpoints on the native CCD grid; `slm/analyze_no_gs_response.py`

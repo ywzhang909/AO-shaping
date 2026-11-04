@@ -2,7 +2,7 @@
 
 > 本文件约束 `report/` 下的目录布局、文件命名、资产归属与溯源登记。
 > 与仓库根 `AGENTS.md` 冲突时，**以本文件为准**（`report/` 专用规则）。
-> 详表：子目录对照 [docs/dev/report_subdir_index.md](../docs/dev/report_subdir_index.md)；反模式 [docs/dev/report_antipatterns.md](../docs/dev/report_antipatterns.md)；资产/链接 [docs/dev/report_asset_rules.md](../docs/dev/report_asset_rules.md)。
+> 详表：子目录对照 [docs/dev/report_subdir_index.md](../docs/dev/report_subdir_index.md)；反模式 [docs/dev/report_antipatterns.md](../docs/dev/report_antipatterns.md)；资产/链接 [docs/dev/report_asset_rules.md](../docs/dev/report_asset_rules.md)；溯源/校验 [docs/dev/report_provenance.md](../docs/dev/report_provenance.md)。
 
 ---
 
@@ -30,17 +30,7 @@ report/<topic>/<系列名>/
 
 ## 3. 溯源登记（硬性）
 
-`scripts/_common/provenance.py::REPORTS` 是唯一映射源，键 = 仓库根相对路径（精确匹配）。
-
-新增/移动报告后同步三处：
-
-| 位置 | 改什么 |
-|------|--------|
-| `scripts/_common/provenance.py::REPORTS` | 键改新路径；`script`/`extra_scripts` 填脚本 |
-| `tests/ao_shaping/scripts/test_report_provenance.py::_PREEXISTING_BROKEN` | 键跟着改 |
-| 报告正文 | 跑 `python scripts/sync_report_provenance.py` 重生成溯源块与 `report/README.md` 索引 |
-
-生成脚本路径常量必须写死新目录（`REPORT_KEY`/`OUT_DIR`/`FIG_DIR`）。
+详见 [docs/dev/report_provenance.md](../docs/dev/report_provenance.md)（`scripts/_common/provenance.py::REPORTS` 唯一映射源；新增/移动后同步三处）。
 
 ## 4. 资产归属与链接
 
@@ -48,13 +38,7 @@ report/<topic>/<系列名>/
 
 ## 5. 校验
 
-```bash
-python scripts/sync_report_provenance.py --check
-python -m pytest tests/ao_shaping/scripts/test_report_provenance.py -q
-ruff check .
-```
-
-`test_report_provenance.py` 校验：每份报告有且仅有一个溯源块、注册表脚本路径存在、报告内相对链接可解析、索引链接可解析、基线断链合理豁免。
+详见 [docs/dev/report_provenance.md](../docs/dev/report_provenance.md)（`sync_report_provenance.py --check` + `test_report_provenance.py` + `ruff check .`）。
 
 ## 6. 反模式
 

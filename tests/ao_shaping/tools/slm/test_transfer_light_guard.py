@@ -144,6 +144,27 @@ def test_a_weak_but_rising_peak_is_not_declared_dark():
     assert setting.status == "ok"
 
 
+def test_a_monotonic_sub_floor_rise_is_real_light_not_a_dark_path():
+    """2026-11-04: 16.7 counts/ms 的真光路在首档量化为 1→2 counts, 压在噪声底下。
+
+    0.02 ms 处真信号只有 0.33 counts, 被 8-bit 量化步挡成一档 1 count; 曝光 ×6
+    后涨到 2。这种**单调上升**是信号的形状, 不是平坦 —— 先前它被 ``_not_rising``
+    外推判成 ``flat``, 在 rung 2 就把整次会话 (``square_exposure`` 首块探针) 判成
+    「光路无光」中止掉。阶梯本应继续往下走, 把信号抬进可用带。
+    """
+    guard = LightGuard(label="probe square_exposure", max_steps=12)
+    guard.observe(_step(1, 0.02, 1.0))   # 真信号 0.33 counts, 8-bit 量化到 1
+    guard.observe(_step(2, 0.12, 2.0))   # 曝光 ×6, 峰值涨到 2 —— 单调上升
+    # 第 2 档不该抛 flat/exhausted: 有信号, 阶梯应继续。
+    assert guard.readings[-1].peak_counts == 2.0
+    assert not guard.seen_light
+    # 继续走到噪声底之上 → 看到光, 放行。
+    guard.observe(_step(3, 0.48, 8.0))   # 8 > 噪声底 4
+    assert guard.seen_light
+    guard.observe(_step(4, 1.92, 24.0, is_last=True))   # 已有光, 永不判无光
+    assert guard.readings[-1].peak_counts == 24.0
+
+
 def test_light_once_seen_is_never_revoked():
     guard = LightGuard(label="probe test", max_steps=3)
     guard.observe(_step(1, 0.02, 40.0))

@@ -41,10 +41,64 @@
   torchvision 0.29.1 → 0.29.0。因此 **extra 选型是主修法**, `pin_cublas()` 退居兜底
   (给 minor 不匹配的机器和未来 extra)。
 
-## 文档与门禁
+## utils/image · axis_order (#223 tier 1)
+- 2D 点的轴序有了名字、准入清单与非方帧守卫：新增 `src/ao_shaping/utils/image/axis_order.py`（`AxisOrder`、`VALID_AXIS_ORDERS`、`normalize_axis_order`、`assert_square_frame`）。
+- 涉及 `resample.py`、`beam_metrics.py`、`spots_calc.py`；所有新代码必须用 `AxisOrder` 命名轴序，非方帧必须经 `assert_square_frame` 守卫；注记统一用术语「全频随机相位」。
+- 门禁：`tests/ao_shaping/utils/test_axis_order.py`。
+
+## optimizer/wf · Recorder(mark=)
+- `Recorder(mark=)` 必须传目标列名；`greedy_zernike.py` 与 `ga_zernike.py` 已修，启动即崩回归已闭合。
+- 修改 Recorder 调用时务必确认 `mark` 列名与输出列一致。
+
+## module-size gate / SSoT
+- 模块规模门禁的复位按钮现在会报棘棘轮方向（`scripts/_common/module_size_baseline.json` 需与代码同步）。
+- 两处 SSoT 单源违规收口：shape-vocab 与 recorder key；新增 shape/Recorder 字段时只允许一个源头。
+- `tests/ao_shaping/test_conventions.py::test_all_ruff_pins_agree_and_are_exact`、`tests/ao_shaping/ml/test_train_cli_runnable.py::test_ruff_excludes_nothing_under_src` 仍为硬门禁。
+
+## transfer / 工具链
+- 曝光阶梯走不到接受带时续档重试，不再 abort 整条采集 lane（`tools/slm/transfer/capture.py` / `capture_response.py` / `validate.py`）。
+- fit 段改回内存 payload：`build_fit_model` 必须保留 `samples=`（`tools/slm/transfer/fit.py`）。
+- 归档列表分列 + 行内归档按钮 + fps 自动播放；归档回放扫描整个 debug 根下所有历史 pkl（`gui/slm/transfer_desktop/archive_replay.py`、`live_view.py`、`page.py`）。
+- 实时画面改为逐帧刷新（`transfer_desktop/live_view.py`）。
+
+## transfer-desktop / GUI
+- PySide6 依赖补 `pyside6-addons`（QtCharts 只在 Addons 里）；`pyproject.toml` 已更新。
+- 设备自检与只读零级读取；截图脚本无显示环境需 `QT_QPA_PLATFORM=offscreen`（见 `docs/environment.md`）。
+- 用户手册与实验截图落地：`docs/GUI/slm/transfer_desktop/`。
+
+## beam-quality / ccd
+- 自动曝光闭环 + 特征计算多帧平均；`BaseCamera` 通用取流层接入 GUI 并兼容 Daheng。
+- MiiCam callback stream 修复；Daheng 型号读取改用 `model_name`（`drivers/ccd/miicam/driver.py`、`drivers/ccd/daheng/driver.py`）。
+- `drivers/sim/bench_twin.py`、`drivers/slm/santec/probe.py` 登记到 `module_inventory.md`。
+
+## gs-refine / 调用点
+- `_run_gs_refine_session` 调用点残留 cam 占位参数已修复；新增会话时勿再传占位 cam。
+- `gs_control_corrected_arm.py` 尚未实现，docstring 已明示（跟进 `e496d08a`），勿当作可用 API。
+
+## sim2f / 仿真（补充）
+- 采集帧可视化与下一轮闭环新增零级漂移 / 低信噪比守卫；物理残差拟合新增契约测试。
+- offline diagnostics + 11-03 报告（CCD GIFs）；`report/shape_trials/.../physical_refine` 新增 CCD 统计散点、整形能量图与采集序列 GIF；溯源登记同步。
+
+## docs / drivers / wiki
+- `docs/drivers` doc-tree 漂移修复：ccd 幻影 `_miicam_sdk`、slm 漏登 `probe.py`。
+- call_graph wiki 行号重钉（optimizer_greedy 78/403 → 355/519、slm-transfer-shapes 721 → 723）。
+- 术语门禁 4 文件 17 行机械统一（`--apply`）；新词登记 §3。
 - `docs/dev/module_inventory.md`、`docs/dev/report_subdir_index.md` 重钉计数与登记。
+
+## report / 溯源
+- local_forward 报告 8 个 gitignored npz 改行内 code，修 relative_links 断链。
+- prune 3 phantom REPORTS entries；sync README — 3 登记报告产物未入库移入「产物尚未提交」清单。
+- 新增/移动报告后同步 `provenance.py::REPORTS` 与 `test_report_provenance.py::_PREEXISTING_BROKEN`，跑 `sync_report_provenance.py`。
+
+## 文档与门禁
 - `scripts/_common/module_size_baseline.json` 更新。
-- 根 `AGENTS.md` 与 `report/AGENTS.md` 压缩：规则外迁至 `docs/dev/*`，编码规范见 `coding_conventions.md`，包位置见 `module_inventory.md`。
+- 根 `AGENTS.md` 与 `report/AGENTS.md` 压缩：规则外迁至 `docs/dev/*`（CUDA → `docs/dev/cuda_native_libs.md`，溯源 → `docs/dev/report_provenance.md`），编码规范见 `coding_conventions.md`，包位置见 `module_inventory.md`。
+- 新增环境变量必须登记到 `docs/environment.md`（`test_env_names_read_by_code_are_documented` 门禁）。
+
+## 代理执行提醒
+- 修改报告/移动文件后同步 `scripts/_common/provenance.py::REPORTS` 与 `tests/ao_shaping/scripts/test_report_provenance.py::_PREEXISTING_BROKEN`，并跑 `python scripts/sync_report_provenance.py`。
+- 代码改动保持绝对导入、`from __future__ import annotations`、类型注解与 ruff 门禁。
+- CUDA 原生库入口规则见 [docs/dev/cuda_native_libs.md](cuda_native_libs.md)；`pin_cublas()` 必须在 `import cupy`/OOPAO 之前。
 
 ## 代理执行提醒
 - 修改报告/移动文件后同步 `scripts/_common/provenance.py::REPORTS` 与 `tests/ao_shaping/scripts/test_report_provenance.py::_PREEXISTING_BROKEN`，并跑 `python scripts/sync_report_provenance.py`。

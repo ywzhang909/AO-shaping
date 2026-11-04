@@ -86,11 +86,26 @@ class ReportProvenance:
 #:   ``硬件``   -- needs a real bench (SLM / CCD / WFS / DM / micro-DM).
 #:   ``离线+硬件`` -- renders offline, but the numbers were measured on hardware.
 REPORTS: dict[str, ReportProvenance] = {
+    "report/shape_trials/experience_review/shaping_experience_20261103.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线只读整理（169 份整形相关报告清单 + 已归档实验 / 仿真结论；设备已下线，不产生新硬件数据）",
+        note=(
+            "按证据等级汇总有效方法、适用条件、失败防线与下次实验固定协议；"
+            "E1 数字来自同曝光 CCD 独立复测，仿真修复不标为实测。"
+        ),
+        extra_scripts=("scripts/ml/shaping_experience_inventory.py",),
+    ),
+    "report/shape_trials/experience_review/artifacts/source_inventory.md": ReportProvenance(
+        script="scripts/ml/shaping_experience_inventory.py",
+        command="python scripts/ml/shaping_experience_inventory.py",
+        environment="离线只读扫描 report/ 下整形相关 Markdown；无设备",
+        note="169 份报告的标题、行数、SHA-256 与逐行证据摘录；正文主报告为人工撰写。",
+    ),
     "report/shape_trials/local_forward/local_forward_20261103.md": ReportProvenance(
         script="scripts/ml/sim2f_local_forward_report.py",
         command="python scripts/ml/sim2f_local_forward_report.py",
         environment="离线+硬件（Santec #1 1064 nm；Daheng CCD；2026-11-03 原生帧）",
-        note="局部图像正向响应模型自动微分整形；三轮更新与五组独立 ABBA 重放，含失败起点对照。",
+        note="局部图像响应预测模型自动微分整形；三轮更新与五组独立 ABBA 复测，含失败起点对照。",
         extra_scripts=("scripts/ml/sim2f_local_forward_experiment.py",),
     ),
     "report/slm/gs_control_1000px/report.md": ReportProvenance(
@@ -942,11 +957,23 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线",
         note="在线回归套件验收报告 (读 data/debug/slm_pib_online/)",
     ),
+    "report/slm_pib_online/measure_shape_sensitivity/sensitivity.md": ReportProvenance(
+        script="scripts/slm/measure_shape_sensitivity.py",
+        command="python scripts/slm/measure_shape_sensitivity.py",
+        environment="硬件",
+        note="整形目标函数灵敏度 (噪声地板) 实测；测量内核已下沉到 src/ao_shaping/tools/kernels/sweep_analysis.py",
+    ),
     "report/slm_pib_online/shape_objective_comparison/objective_comparison.md": ReportProvenance(
         script="scripts/slm/generate_shape_objective_comparison.py",
         command="python scripts/slm/generate_shape_objective_comparison.py",
         environment="离线",
         note="三种整形目标函数的排序一致性 (Spearman)",
+    ),
+    "report/slm_pib_online_hw/shape_objective_comparison/objective_comparison.md": ReportProvenance(
+        script="scripts/slm/generate_shape_objective_comparison.py",
+        command="python scripts/slm/generate_shape_objective_comparison.py",
+        environment="离线",
+        note="实验系统 CCD 帧上的三种整形目标函数排序 (Spearman)",
     ),
     "report/slm_pib_sim/slm_pib_sim_report/report.md": ReportProvenance(
         script="scripts/slm/generate_slm_pib_sim_report.py",
@@ -995,6 +1022,12 @@ REPORTS: dict[str, ReportProvenance] = {
         command="python scripts/rl/generate_models_report.py",
         environment="离线",
         note="读 TensorBoard event 文件",
+    ),
+    "report/models_analysis/models_report/tmp_sac_run_showcase.md": ReportProvenance(
+        script="scripts/rl/generate_models_report.py",
+        command="python scripts/rl/generate_models_report.py",
+        environment="离线",
+        note="临时调试家族最佳 run 成果展示；原始检查点与 tfevents 已随清理删除",
     ),
     "report/models_analysis/reward_analysis.md": ReportProvenance(
         script=HANDWRITTEN,

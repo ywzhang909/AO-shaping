@@ -212,9 +212,19 @@ def _not_rising(previous: LadderReading, last: LadderReading, *,
                 min_span: float = MIN_EXPOSURE_SPAN) -> bool:
     """相邻两档 (都已在噪声底之下) 的峰值涨得够不够「跟曝光走」。
 
-    ``previous`` 与 ``last`` 必须都是暗读数, 所以峰值只有几个 counts: 判据是
-    「涨幅达不到线性预测的一半」, 用一半是因为 8 bit 量化的台阶就有一个 count。
+    ``previous`` 与 ``last`` 必须都是暗读数, 所以峰值只有几个 counts。判据先问
+    「到底涨没涨」再问「按前档外推涨得够不够」:
+
+    * 峰值**单调上升** (``last.peak_counts > previous.peak_counts``) ⇒ 有信号,
+      直接放行 —— 哪怕它压在噪声底下面, 也是真光被 8-bit 量化挡在量化步之内
+      (2026-11-04 实测: 16.7 counts/ms 在 0.02 ms 的真信号只有 0.33 counts,
+      读出来是 1→2 counts 的单调上升, 前档读数已被四舍五入), 阶梯再走几档就能
+      把它抬进可用带, **不许判死**;
+    * 持平或回落才进外推判据: 依旧能抓住真暗的 ``0→0``, 和上升后回落的噪声抖动
+      (最终走到最后一档由 ``exhausted`` / ``_cause_from`` 收住)。
     """
+    if float(last.peak_counts) > float(previous.peak_counts):
+        return False  # 单调上升 = 有信号 (即使还没过噪声底), 不许判成 flat
     if previous.exposure_ms <= 0:
         return False
     span = float(last.exposure_ms) / float(previous.exposure_ms)
