@@ -2036,7 +2036,7 @@ TRANSFER_RECIPE: dict[str, Any] = {
 TRANSFER_STAGE_LABELS: dict[str, str] = {
     "capture": "当前光路采集（探针 + 逐帧自动曝光）",
     "reuse_capture": "复用已有采集",
-    "nominal_initialization": "初始模型准备（冷启动，先用出厂标定值起手，未实测标定）",
+    "nominal_initialization": "初始模型准备（冷启动，先用几何设计初值起手，未实测标定）",
     "fit": "物理预测模型迁移 / 拟合",
     "CCD_model_blocks": "CCD 实测对照块（模型预测 vs 实测）",
     "exposure_response_capture": "曝光阶梯诊断",
@@ -2477,13 +2477,13 @@ class TransferMethod(ShapingMethod):
             options=labels,
             index=0,
             key=self.wkey("checkpoint_pick"),
-            help="首项 = 冷启动（先用出厂标定值起手再完整拟合，慢且初值未实测标定）；"
+            help="首项 = 冷启动（先用几何设计初值起手再完整拟合，慢且初值未实测标定）；"
             "其余项的「兼容分」由 optical_session 按当前光路指纹打分，"
             "未提供当前指纹时留空",
         )
         index = labels.index(choice)
         if index == 0:
-            st.caption("不使用历史检查点：本轮先用出厂标定值起手，再完整拟合。")
+            st.caption("不使用历史检查点：本轮先用几何设计初值起手，再完整拟合。")
             return None
         picked = rows[index - 1]
         st.caption(f"选用检查点：{picked['file']}")
@@ -2528,7 +2528,7 @@ class TransferMethod(ShapingMethod):
             "历史检查点 (frozen_parameters.json)",
             value=str(found) if found is not None else "",
             key=self.wkey("checkpoint"),
-            help="留空 = 冷启动（先用出厂标定值起手再完整拟合，慢且初值未实测标定）。"
+            help="留空 = 冷启动（先用几何设计初值起手再完整拟合，慢且初值未实测标定）。"
             "默认自动填入最近一次 transfer 会话的冻结检查点",
         )
         if found is not None:

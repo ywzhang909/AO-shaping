@@ -561,7 +561,7 @@ def render_model_choice(models: list[Path], campaigns: list[Path]) -> Path | Non
                           help="只列出含 fit/result.json 的目录（其余目录不是可用模型）")
     if choice == options[0]:
         st.session_state[_MODEL_KEY] = None
-        st.caption("从零重训：capture → 出厂标定值起手 → 拟合 → 几何重导出，多约 20 min 设备时间。")
+        st.caption("从零重训：capture → 几何设计初值起手 → 拟合 → 几何重导出，多约 20 min 设备时间。")
         return None
     if choice == options[-1]:
         custom = st.text_input(

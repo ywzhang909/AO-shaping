@@ -125,7 +125,7 @@ def render_status_header(slm_num: int, prefix: str) -> None:
     st.title(PAGE_TITLE)
     st.caption(
         f"SLM {slm_num} · 单相机 · 迁移学习闭环整形（物理预测模型）。与 CLI "
-        "`python -m ao_shaping.tools.slm.transfer` 同一入口：先出厂标定值起手 / "
+        "`python -m ao_shaping.tools.slm.transfer` 同一入口：先几何设计初值起手 / "
         "迁移历史检查点，再用按 CCD 实测校正短块与 A–B–B–A 验收生成目标相位。"
     )
     status = render_bench_status(prefix, slm_num)

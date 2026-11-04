@@ -79,7 +79,7 @@ MAX_DETAIL_LINES = 8
 STAGE_LABELS: dict[str, str] = {
     "capture": "当前光路采集（探针 + 逐帧自动曝光）",
     "reuse_capture": "复用已有采集",
-    "nominal_initialization": "初始模型准备（冷启动，先用出厂标定值起手，未实测标定）",
+    "nominal_initialization": "初始模型准备（冷启动，先用几何设计初值起手，未实测标定）",
     "fit": "物理预测模型迁移 / 拟合",
     "CCD_model_blocks": "CCD 实测对照块（模型预测 vs 实测）",
     "exposure_response_capture": "曝光阶梯诊断",
