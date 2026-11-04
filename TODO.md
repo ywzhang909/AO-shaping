@@ -4511,6 +4511,13 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 活钉重钉 2 处：`TODO.md` 两个 try 头 `:1466/1843→:2078/2455`（历史链已延长，两 try 头现居于 helper 内）、`docs/dev/call_graph_wiki/index.md` `:1889→:1463`。首次遇到**同一张表行的双向重钉**冲突（master 侧改 `greedy_zernike.py`，本批改 `slm_square_shaping.py`），按两侧意图都保留。
 - 验收：wfless 网 1098/1098 + runners 网 636/636（0 失败；比拆前 1090/626 多出的 8/10 例来自 master 新增的 gs-refine 测试，本批未碰该两域测试，已用 `git diff --stat` 核对）；形状守卫 `_SQ` 三条共 71 条；modsize 2348→2482（**只改本模块一行**，`--update-baseline` 会连带收紧 8 个无关模块，已回退不混入）；术语、报告溯源、ruff 归零。
 
+**2026-11-04 · 6875ba03 · 收口 master 四处门禁红：盲捕棘轮 347→377、报告末节登记 3 份、CI 镜像补 PySide6、#90 注解重定向到 module_inventory**
+- ① 盲捕棘轮 `_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC` 347→377。基线取设定 347 的 `a5dd02e8`，逐文件对比实测净增 30：`frame_source` 12、`hardware_check` 5、`beam_quality/app` 3、`live_frame` 2、`transfer_desktop/page` 2、`santec/probe` 2、`ccd/base` 2、`slm_gs_refine` 1、`check_task` 1、`analyzer` 1、`_cublas_preload` 1，`multi_slm_controller` 减 2。新增 32 处到达时都已就地写明判断（未标记棘轮仍为 0），故按 `a5dd02e8` 同形记录整合实测，而非放行未判定捕获。
+- ② `_UNEMITTED_FINAL_SECTIONS` 增 3 条：三份报告分别收于「附录 B. 原始产物契约」「6. 归因与边界」「9 本次运行的边界」。三者的生成器分别依赖硬件采集帧与已冻结的会话标定，本树无法复跑；按该字典既有语义（能运行生成器就搬进生成器，不能运行才固定）登记。
+- ③ `docker/Dockerfile.test.cpu` 漏装 `pyside6-essentials` / `pyside6-addons`：`pyproject.toml` 早已把两者列为主依赖，镜像未装使 8 个 GUI 测试在收集期 `ModuleNotFoundError: No module named 'PySide6'`。同批补 Qt 离屏所需系统库 `libegl1` / `libxkbcommon0` / `libdbus-1-3` / `libfontconfig1`；这些测试显式设置 `QT_QPA_PLATFORM=offscreen`，本就为 CI 设计，故修镜像是正解而非加跳过。
+- ④ #90 的 sim 注解重定向：`AGENTS.md` 已由 `71d7a9ec` 瘦身为 51 行索引，注解随之迁到 `docs/dev/module_inventory.md` 的 signal_processing 行；测试改读该文件并断言现措辞（`演示体已于 14b1cda 迁至 …`），不把注解塞回索引，测试名同步为 `test_module_inventory_annotation_states_final_split`。
+- 验证：`test_conventions.py` 全文件 72 通过 / 1 跳过；`test_sim_library_split.py` 4 通过；`ruff check` 通过；术语 dry-run 0 文件 0 行。镜像与 GUI 收集的最终确认以 CI 为准（本地无法在不重建镜像的前提下验证）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
