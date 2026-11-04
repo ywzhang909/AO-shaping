@@ -26,7 +26,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 import streamlit as st
@@ -41,6 +41,7 @@ from ao_shaping.gui.slm.pattern_specs import (
     generate_phase_radians,
     specs_for,
 )
+from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 # 侧重栏「SLM 设备」表格的引导语（与 multi_slm_controller.CONNECT_HINT 同文）。
 CONNECT_HINT = "在左侧「SLM 设备」表格里点「连接」"

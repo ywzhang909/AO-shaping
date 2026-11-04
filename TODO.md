@@ -4537,6 +4537,13 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - `test_shape_loop.py::test_run_shape_trial_improves_on_a_synthetic_twin` 在默认幅度下孪生面残差于 `fit_iters` 预算内不可能低于判据（本地与 CI 同红，非跨机器问题）。改 `amplitude=0.3` / `fit_iters=120`，判据本身不动。
 - 验收：CI run 41846005723 为 12 片中 11 片绿，仅 `scripts` 阻塞；该片剩余失败与 ~97% 处无 summary 静默死亡的定因在容器资源侧（tmpfs 空间上限与其页对 memcg 的计费同时触顶），与分片目标列表无关。
 
+**2026-11-05 · c925360f · scripts 分片的静默死亡定因是 tmpfs 双重触顶，改 TMPDIR 后又照出一条文件系统顺序依赖**
+- 定因不在测试而在容器资源：`/tmp` 以 `--tmpfs size=4g` 挂载时，tmpfs 页是**不可回收的匿名内存**，既受 4g 空间上限约束（`np.savez_compressed` 内 ENOSPC）又整页计入 `--memory` 的 memcg。CI 参数（4 CPU / 6g）下整片跑到 ~97% 被 SIGKILL，**连 summary 都打印不出**——"看不到失败列表"本身就是这个机型的特征，不是日志被截断。
+- 处置：pytest basetemp 移到宿主磁盘（`TMPDIR=/scratch-tmp`），`NUMBA_CACHE_DIR` 故意留在 tmpfs（小且热）。根目录**每-run 唯一**而非固定路径 + `rm -rf`：容器以 root 落盘，宿主用户删不进 root 拥有的子树（`rm -r` 必须先递归进去），固定路径写法会在**第二次**运行被 `set -e` 中止——本条是改第一版时实测踩到的。
+- 验收：CI 同参数整片**连续两次**均为 `1 failed, 3083 passed, 87 skipped`，两次逐字相同且能出 summary；余下 1 条是本地镜像缺 PySide6（镜像构建于 2026-10-21，而该依赖 2026-11-02 才进 `pyproject`；`docker/Dockerfile.test.cpu` 已装且 CI 每次 `docker build` 重建），非本仓缺陷。
+- 顺带照出的潜伏缺陷（与内存无关，纯粹被 TMPDIR 换到磁盘才显形）：`test_model_in_loop_hw_ab.py` 用 `list(tmp_path.iterdir())[0]` 取会话目录，而 `iterdir()` 返回的是**文件系统 readdir 顺序**（既非字典序，也在 tmpfs 与磁盘之间不同），同一目录下还有测试自己写的 `model_error_terms.json` ⇒ 落到磁盘后第一个命中就是那个文件，报 `NotADirectoryError`。6 处统一改为按目录性质选取并钉死数量为 1（`_only_session`）。
+- 可推广的判据：**凡"取目录遍历第一个"都是对文件系统顺序的隐性依赖**；同目录一旦混入非目录条目或更换底层文件系统即翻车。按 `is_dir()` 过滤 + 断言数量，才既确定又顺带钉住"只产出一个会话目录"。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

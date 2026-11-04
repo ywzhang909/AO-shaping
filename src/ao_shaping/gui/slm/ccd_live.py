@@ -1,4 +1,4 @@
-"""「实时 CCD 画面」: 复用台架相机配置的 streamlit 直播页 (fragment 自动刷新)。
+"""「实时 CCD 画面」: 复用实验系统相机配置的 streamlit 直播页 (fragment 自动刷新)。
 
 设计契约 (父级 ``multi_slm_controller`` 依赖这些名字)
 ------------------------------------------------------
@@ -183,7 +183,7 @@ def _render_live_frame(cam: BaseCamera) -> None:
     except Exception as exc:  # policy: 后端异常类型不可枚举
         logger.exception("实时抓帧失败")
         st.warning(
-            f"实时抓帧失败: {exc!r} —— 请确认台架相机在侧栏「CCD参数设置」配置正确,"
+            f"实时抓帧失败: {exc!r} —— 请确认实验系统相机在侧栏「CCD参数设置」配置正确,"
             " 且句柄未被其他进程占用 (点「关闭/释放相机」后重试, 或换台机器再拉流)。"
         )
         return
@@ -210,13 +210,13 @@ def close_bench_camera() -> None:
 
 
 def render_ccd_live() -> None:
-    """「实时 CCD 画面」tab 入口: 复用台架相机配置的连续抓帧直播。
+    """「实时 CCD 画面」tab 入口: 复用实验系统相机配置的连续抓帧直播。
 
     空态/错误一律点名具体操作 (侧栏「CCD参数设置」、开始时按钮、释放按钮),
     不出现无指引的一句话提示; 全程无 ``st.divider``, 无 ``type="primary"`` 按钮。
     """
     cam_type, cam_id = bench_camera()
-    st.caption(f"台架相机: {cam_type} (id={cam_id}) —— 在侧栏「CCD参数设置」修改")
+    st.caption(f"实验系统相机: {cam_type} (id={cam_id}) —— 在侧栏「CCD参数设置」修改")
 
     running = bool(st.session_state.get(_RUNNING_KEY, False))
 
@@ -234,7 +234,7 @@ def render_ccd_live() -> None:
                 return
         st.info(
             "采集已暂停 —— 点上方「▶ 开始实时采集」开始连续抓帧;"
-            " 台架相机来自侧栏「CCD参数设置」的「bench_camera」配置."
+            " 实验系统相机来自侧栏「CCD参数设置」的「bench_camera」配置."
         )
         return
 
@@ -242,7 +242,7 @@ def render_ccd_live() -> None:
     cam = ensure_camera_handle(st, cam_type, cam_id)
     if cam is None:
         st.warning(
-            f"无法打开台架相机 {cam_type} (id={cam_id}) —— 请在侧栏「CCD参数设置」"
+            f"无法打开实验系统相机 {cam_type} (id={cam_id}) —— 请在侧栏「CCD参数设置」"
             "核对型号与 ID; 若句柄被其他进程占用, 先释放再点「▶ 开始实时采集」重试。"
         )
         return

@@ -1151,6 +1151,35 @@ def main():
         logger.error(str(exc))
         raise SystemExit(exc.exit_code) from None
 
+def _run_validate_blocks(
+    *,
+    DifferentiableUniformityOptimizer: object,
+    abba: object,
+    args: object,
+    best: object,
+    blocks: object,
+    capture: object,
+    champion: object,
+    device: object,
+    exposure: object,
+    forward: object,
+    guard: object,
+    iterations: object,
+    objective: object,
+    observer: object,
+    phase_lr: object,
+    policy: object,
+    save_summary: object,
+    shape: object,
+    spectral_mask: object,
+    spectral_weight: object,
+    summary_entries: object,
+    torch: object,
+    tune_exposure: object,
+    xy: object,
+) -> tuple:
+    """#205 batch-26: the per-block refinement stage of the shape loop.
+
     The block loop moved line-exact at the same indent. best, champion
     and exposure are rebound per block and read by the code that follows
     the loop, so they leave through the returned tuple rather than by
