@@ -268,6 +268,7 @@ def check_geometry(
     shapes: Sequence[str],
     half_span_px: float = HALF_SPAN_PX,
     step_px: float = STEP_PX,
+    tilt: bool = True,
 ) -> list[Problem]:
     """用**实测**零点与拟合斜坡复算目标几何（采集/拟合之后、CCD 分块之前）。
 
@@ -278,10 +279,12 @@ def check_geometry(
         zero_xy: 本次实测零点 ``(x, y)``（相机像元）。
         ramp_matrix: 拟合出的斜坡矩阵（2×2，第一列是 x 轴斜坡的位移向量）。
         side: 目标方斑边长（px）。
-        period: 载波周期（panel px）。
+        period: 倾斜相位周期（panel px）。
         shapes: 目标形状名。
         half_span_px: 采样窗单边跨度（px）。
         step_px: 采样窗步长（px）。
+        tilt: 是否启用倾斜相位（把目标推离零级）。关闭时没有载波位移，
+            本预检的「位移越界/目标出窗」判据失去对象，直接返回通过。
 
     Returns:
         检查结论列表（空列表 = 通过）。
@@ -293,6 +296,9 @@ def check_geometry(
     from scipy.ndimage import binary_erosion
 
     problems: list[Problem] = []
+    if not tilt:
+        # 无载波位移：预检的「位移越界/目标出窗」判据失去对象，直接通过。
+        return []
     matrix = np.asarray(ramp_matrix, dtype=float)
     if matrix.ndim != 2 or matrix.shape[0] != 2 or matrix.shape[1] < 1:
         return [

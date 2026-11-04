@@ -298,6 +298,7 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None, on_fra
         shapes=tuple(config.shapes),
         half_span_px=float(config.window_span),
         step_px=float(config.window_step),
+        tilt=getattr(config, "tilt", False),
     )
     geometry_errors = [problem for problem in geometry_problems if problem.severity == "error"]
     if geometry_errors:
@@ -313,7 +314,9 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None, on_fra
                    accept_metric=config.accept_metric, objective=config.objective,
                    shapes=list(config.shapes), updates=config.updates, frames=config.frames,
                    abba=config.abba, device=device,
-                   camera=config.camera, cam_id=config.cam_id, slm_number=config.slm_number)
+                   camera=config.camera, cam_id=config.cam_id, slm_number=config.slm_number,
+                   tilt=getattr(config, "tilt", False),
+                   aspect_ratio=getattr(config, "aspect_ratio", 2.0))
     if offline:
         def synthesize():
             from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
@@ -323,9 +326,13 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None, on_fra
             xy = recentre_window(tuple(zero), half_span_px=220., step_px=2.)
             forward = FrozenDefocusForward(params, xy, device=device)
             forward.exposure_ms = float(reference["exposure_ms"])
-            center = np.asarray(zero)+np.asarray(params.ramp_matrix)[:, 0]/config.period
+            tilt = bool(getattr(config, "tilt", False))
+            shift = (np.asarray(params.ramp_matrix)[:, 0] / config.period
+                     if tilt else np.zeros(2, dtype=float))
+            center = np.asarray(zero) + shift
+            aspect = float(getattr(config, "aspect_ratio", 2.0))
             for shape in config.shapes:
-                target = validate.target_at(xy, shape, center, config.side)
+                target = validate.target_at(xy, shape, center, config.side, aspect_ratio=aspect)
                 if config.seed_run:
                     from .seeding import accepted_seed
                     phase, _ = accepted_seed(config.seed_run, shape, forward, xy, target,

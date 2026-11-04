@@ -100,7 +100,8 @@ def _validate_args(*, checkpoint: Path, out: Path, zero_xy, shapes, recipe: Stag
                    jacobian_low: float = 0.5, jacobian_high: float = 0.85,
                    jacobian_floor: float = 0.02, spectral_weight: float = 0.0,
                    spectral_cutoff: float | None = None,
-                   objective: str = "cv", weight_schedule: str = "constant") -> SimpleNamespace:
+                   objective: str = "cv", weight_schedule: str = "constant",
+                    tilt: bool = False, aspect_ratio: float = 2.0) -> SimpleNamespace:
     """Build the argument namespace ``validate.run`` expects."""
     if weight_schedule not in ("constant", "staged"):
         raise ValueError(f"unknown weight schedule {weight_schedule!r}")
@@ -129,6 +130,7 @@ def _validate_args(*, checkpoint: Path, out: Path, zero_xy, shapes, recipe: Stag
         jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
         spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
         weight_schedule=weight_schedule,
+        tilt=tilt, aspect_ratio=aspect_ratio,
     )
 
 
@@ -158,6 +160,7 @@ def _plan_dict(*, out: Path, execute: bool, **params: Any) -> dict[str, Any]:
                 spectral_weight=params["spectral_weight"],
                 spectral_cutoff=params["spectral_cutoff"],
                 objective=params["objective"], weight_schedule=params["weight_schedule"],
+                tilt=params.get("tilt", False), aspect_ratio=params.get("aspect_ratio", 2.0),
                 stages=[dict(name=recipe.name, blocks=recipe.blocks, updates=recipe.updates,
                              bit_depth=recipe.bit_depth, ccd_check=recipe.ccd_check,
                              window_step=recipe.window_step) for recipe in STAGE_RECIPES])
@@ -266,6 +269,8 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
     spectral_cutoff = values["spectral_cutoff"]
     objective = values["objective"]
     weight_schedule = values["weight_schedule"]
+    tilt = bool(values["tilt"])
+    aspect_ratio = float(values["aspect_ratio"])
 
     totals = matrix_totals(campaign_matrix(shapes))
     summary = {"out": str(out), "stages": totals["segments"], "blocks": totals["blocks"],
@@ -276,6 +281,8 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
 
     out.mkdir(parents=True, exist_ok=True)
     journal = _Journal(path=out / "journal.json")
+    if resume and journal.path.is_file():
+        journal.entries = _json(journal.path)
     journal.record("plan", "complete",
                    plan=_plan_dict(out=out, execute=True, **values))
 
@@ -301,37 +308,43 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
     else:
         root = out
         capture_dir = root / "capture"
-        journal.record("capture", "running")
-        capture_stage.capture(SimpleNamespace(
-            out=capture_dir, camera=camera, cam_id=cam_id, slm_number=slm_number,
-            grid=capture_grid, count=capture_count, frames=frames, seed=seed,
-            execute=True, exposure_max_steps=12, save_dataset=True))
-        journal.record("capture", "complete", out=str(capture_dir))
+        if resume and (capture_dir / "manifest.json").is_file():
+            journal.record("capture", "reused", out=str(capture_dir))
+        else:
+            journal.record("capture", "running")
+            capture_stage.capture(SimpleNamespace(
+                out=capture_dir, camera=camera, cam_id=cam_id, slm_number=slm_number,
+                grid=capture_grid, count=capture_count, frames=frames, seed=seed,
+                execute=True, exposure_max_steps=12, save_dataset=True))
+            journal.record("capture", "complete", out=str(capture_dir))
 
         # The nominal checkpoint comes from this capture alone: the model is
         # trained from zero, not warm-started from a historical one.
         nominal = root / "initial"
-        nominal.mkdir(parents=True, exist_ok=True)
-        frozen, provenance = bootstrap_stage.bootstrap(capture_dir)
-        (nominal / "frozen_parameters.json").write_text(json.dumps(frozen, indent=2), encoding="utf-8")
-        (nominal / "provenance.json").write_text(json.dumps(provenance, indent=2), encoding="utf-8")
+        if not (resume and (nominal / "frozen_parameters.json").is_file()):
+            nominal.mkdir(parents=True, exist_ok=True)
+            frozen, provenance = bootstrap_stage.bootstrap(capture_dir)
+            (nominal / "frozen_parameters.json").write_text(
+                json.dumps(frozen, indent=2), encoding="utf-8")
+            (nominal / "provenance.json").write_text(
+                json.dumps(provenance, indent=2), encoding="utf-8")
 
         fit_dir = root / "fit"
         model_640 = fit_dir / "model640"
         wide_dir = fit_dir / "model_wide640"
-        journal.record("fit", "running")
-        fit_stage.fit(SimpleNamespace(
-            dataset=capture_dir, checkpoint=nominal / "frozen_parameters.json",
-            out=fit_dir, iterations=fit_iterations, span=fit_span, device=device,
-            adaptation="full", amplitude_center_lr=amplitude_center_lr, radiometry="exposure",
-            record_responses=record_responses))
-        journal.record("fit", "complete", out=str(fit_dir))
+        if resume and (fit_dir / "frozen_parameters.json").is_file():
+            journal.record("fit", "reused", out=str(fit_dir))
+        else:
+            journal.record("fit", "running")
+            fit_stage.fit(SimpleNamespace(
+                dataset=capture_dir, checkpoint=nominal / "frozen_parameters.json",
+                out=fit_dir, iterations=fit_iterations, span=fit_span, device=device,
+                adaptation="full", amplitude_center_lr=amplitude_center_lr, radiometry="exposure",
+                record_responses=record_responses))
+            journal.record("fit", "complete", out=str(fit_dir))
 
         model_640 = root / "model640"
         wide_dir = root / "model_wide640"
-        geometric_seed.export_frozen_parameters(fit_dir / "frozen_parameters.json", model_640,
-                                                grid=control_grid, fft=fft_size)
-        journal.record("model", "complete", model640=str(model_640))
 
     # The zero order is measured on this path, never assumed.
     rows = _json(capture_dir / "manifest.json")
@@ -377,7 +390,8 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
                 continue
             scores: dict[str, float] = {}
             for kind in candidates:
-                bake_dir = out / "seed_bakeoff" / f"{shape}_{kind}"
+                base_dir = out / "seed_bakeoff" / f"{shape}_{kind}"
+                bake_dir = _bakeoff_attempt_dir(base_dir, resume=resume)
                 manifest_path = bake_dir / "manifest.json"
                 if manifest_path.is_file():
                     scores[kind] = float(_json(manifest_path)[0]["metrics"]["cv"])
@@ -388,7 +402,8 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
                     initial_phase=kind, seed_run=None, device=device, camera=camera,
                     cam_id=cam_id, slm_number=slm_number, frames=frames, side=side,
                     period=period, window_span=window_span, zero_radius=zero_radius,
-                    window_step=window_step, blocks=0, updates=0, adaptive_exposure=False)
+                    window_step=window_step, blocks=0, updates=0, adaptive_exposure=False,
+                    tilt=tilt, aspect_ratio=aspect_ratio)
                 validate_stage.run(args)
                 if not manifest_path.is_file():
                     raise RuntimeError(
@@ -425,6 +440,7 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
         jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
         spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
         objective=objective, weight_schedule=weight_schedule,
+        tilt=tilt, aspect_ratio=aspect_ratio,
         should_stop=should_stop)
 
     # -------------------------------------------------------------- replay
@@ -516,6 +532,22 @@ def _rebuild_records(out: Path, shapes: list[str]) -> None:
     click.echo(json.dumps(saved, indent=2, ensure_ascii=False))
 
 
+def _bakeoff_attempt_dir(base: Path, *, resume: bool) -> Path:
+    """Preserve an incomplete attempt's raw evidence when resuming.
+
+    A completed retry is reused; an incomplete one is never reopened because
+    exposure tuning writes deterministic frame names into its output folder.
+    """
+    if not resume or not base.exists() or (base / "manifest.json").is_file():
+        return base
+    index = 1
+    while True:
+        candidate = base.with_name(f"{base.name}_retry{index:02d}")
+        if not candidate.exists() or (candidate / "manifest.json").is_file():
+            return candidate
+        index += 1
+
+
 def _stage_sequence(shapes, order: str) -> list:
     """The order in which ``(shape, stage index)`` pairs run.
 
@@ -542,6 +574,7 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
                spectral_weight: float = 0.0,
                spectral_cutoff: float | None = None,
                objective: str = "cv", weight_schedule: str = "constant",
+               tilt: bool = False, aspect_ratio: float = 2.0,
                should_stop: Callable[[], bool] | None = None) -> bool:
     """Run every ``(shape, stage)`` in ``order``, reusing finished stages on ``--resume``.
 
@@ -601,7 +634,8 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
             jacobian_guard=jacobian_guard, jacobian_low=jacobian_low,
             jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
             spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
-            objective=objective, weight_schedule=weight_schedule)
+            objective=objective, weight_schedule=weight_schedule,
+            tilt=tilt, aspect_ratio=aspect_ratio)
         # validate.run only reads this optional flag; absent it keeps the
         # historical "new directory or fail" contract.
         args.resume = resume
@@ -629,7 +663,12 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
 @click.option("--side", type=float, default=1200.0, show_default=True,
               help="目标边长 (CCD 原生像元)")
 @click.option("--period", type=float, default=128.0, show_default=True,
-              help="载波周期 (面板像元)")
+              help="载波周期 (面板像元); --no-tilt 时被忽略 (目标停在零级)")
+@click.option("--tilt/--no-tilt", "tilt", default=False, show_default=True,
+              help="是否用载波相位把目标推离零级; 默认关 (--no-tilt), 目标位于零级。"
+                   "由 --period 驱动的位移只在此开关打开时才生效。")
+@click.option("--aspect-ratio", type=float, default=2.0, show_default=True,
+              help="矩形目标的长 : 短边比 (只对 --shapes rectangle 生效)")
 @click.option("--window-span", type=float, default=820.0, show_default=True,
               help="相机窗口半宽 (CCD 原生像元)")
 @click.option("--window-step", type=float, default=4.0, show_default=True,
@@ -733,7 +772,7 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         jacobian_guard: bool, jacobian_low: float, jacobian_high: float,
         jacobian_floor: float, spectral_weight: float,
         spectral_cutoff: float | None, objective: str,
-        weight_schedule: str) -> None:
+        weight_schedule: str, tilt: bool = False, aspect_ratio: float = 2.0) -> None:
     """物理预测模型闭环整形：从零训练模型 + 目标整形，逐形状执行。
 
     典型用法::
@@ -767,9 +806,12 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         jacobian_low=jacobian_low, jacobian_high=jacobian_high,
         jacobian_floor=jacobian_floor, spectral_weight=spectral_weight,
         spectral_cutoff=spectral_cutoff, objective=objective,
-        weight_schedule=weight_schedule)
+        weight_schedule=weight_schedule, tilt=tilt, aspect_ratio=aspect_ratio)
     plan = _plan_dict(out=out, execute=execute, **params)
     click.echo(json.dumps(plan, indent=2, ensure_ascii=False))
+    if not tilt:
+        click.echo("注意: --no-tilt (默认), 载波 --period 被忽略, 目标停在零级。",
+                   err=True)
     if not execute:
         click.echo("\n未指定 --execute : 只打印计划, 不打开设备。")
         return

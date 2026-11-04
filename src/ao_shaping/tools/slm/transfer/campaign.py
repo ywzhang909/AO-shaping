@@ -144,7 +144,7 @@ RUNNER_CLI_DEFAULTS: dict[str, Any] = {
 
 #: 每个 DEFAULT 来源参数的中文说明（说明里点名它替身的 CLI 选项）。
 _DEFAULT_NOTES: dict[str, str] = {
-    "period": "CLI 默认（--period）：载波周期 panel px。只在 64 / 128 上标定过"
+    "period": "CLI 默认（--period）：倾斜相位周期 panel px。只在 64 / 128 上标定过"
               "（preflight.CALIBRATED_PERIODS_PX），其它值是按「位移 ∝ 1/period」外推的；"
               "低于 preflight.MIN_PERIOD_PX=16 会先把目标整体推出采样窗",
     "zero_radius": "CLI 默认（--zero-radius）：零级剔除圆盘半径。剔除只改指标不改物理"
@@ -401,7 +401,7 @@ def derive_settings(
 
     if period is not None:
         put("period", float(period), FieldSource.MANUAL,
-            f"手工覆盖：CLI 默认 {RUNNER_CLI_DEFAULTS['period']:g} 被替换（载波位移 ∝ 1/period）")
+            f"手工覆盖：CLI 默认 {RUNNER_CLI_DEFAULTS['period']:g} 被替换（倾斜相位位移 ∝ 1/period）")
     else:
         put("period", RUNNER_CLI_DEFAULTS["period"], FieldSource.DEFAULT, _DEFAULT_NOTES["period"])
 

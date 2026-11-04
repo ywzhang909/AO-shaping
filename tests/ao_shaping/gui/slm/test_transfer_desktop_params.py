@@ -36,12 +36,14 @@ def _values(**overrides: object) -> TransferFormValues:
 # --- 常量与默认值 -----------------------------------------------------------
 
 
-def test_the_public_contract_is_the_documented_nine_names() -> None:
+def test_the_public_contract_is_the_documented_eleven_names() -> None:
     assert set(params.__all__) == {
+        "ASPECT_RATIO_SESSION_FIELD",
         "CAMERA_CHOICES",
         "SHAPE_CHOICES",
         "SHAPE_LABELS",
         "STAGE_LABELS",
+        "TILT_SESSION_FIELD",
         "TransferFormValues",
         "build_session",
         "effective_window_span",
@@ -87,7 +89,8 @@ def test_stage_labels_cover_every_stage_run_session_emits() -> None:
 def test_stage_labels_do_not_drift_from_the_shared_progress_mapping() -> None:
     from ao_shaping.gui.slm.transfer_progress import STAGE_LABELS as shared
 
-    assert STAGE_LABELS == shared
+    # 键必须一一对应 (阶段名不变); 值允许桌面页把措辞写得更直白 (例如「CCD 配对块」)。
+    assert set(STAGE_LABELS) == set(shared)
 
 
 def test_form_defaults_mirror_the_streamlit_recipe() -> None:
@@ -95,6 +98,8 @@ def test_form_defaults_mirror_the_streamlit_recipe() -> None:
 
     assert values.shapes == ("square",)
     assert values.side == 80.0
+    assert values.tilt is False
+    assert values.aspect_ratio == 2.0
     assert values.period == 64.0
     assert values.count == 24
     assert values.iterations == 60
@@ -163,7 +168,7 @@ def test_the_default_parameters_pass_with_no_errors_or_warnings() -> None:
 def test_the_carrier_period_that_broke_the_run_is_an_error_with_a_fix() -> None:
     pytest.importorskip("torch")
 
-    errors, warnings = validate_form(_values(period=4.0))
+    errors, warnings = validate_form(_values(period=4.0, tilt=True))
 
     assert warnings == []
     assert len(errors) == 1
@@ -174,7 +179,7 @@ def test_the_carrier_period_that_broke_the_run_is_an_error_with_a_fix() -> None:
 def test_an_uncalibrated_period_is_a_warning_not_an_error() -> None:
     pytest.importorskip("torch")
 
-    errors, warnings = validate_form(_values(period=100.0))
+    errors, warnings = validate_form(_values(period=100.0, tilt=True))
 
     assert errors == []
     assert len(warnings) == 1
@@ -194,9 +199,72 @@ def test_a_probe_count_that_is_not_a_multiple_of_six_is_rejected() -> None:
 def test_every_validation_entry_is_display_text_not_a_problem_object() -> None:
     pytest.importorskip("torch")
 
-    errors, warnings = validate_form(_values(period=100.0, side=4.0, count=10))
+    errors, warnings = validate_form(
+        _values(period=100.0, side=4.0, count=10, tilt=True)
+    )
 
     assert all(isinstance(text, str) for text in (*errors, *warnings))
+
+
+def test_tilt_off_skips_the_tilt_dependent_period_checks() -> None:
+    """倾斜相位默认关: 周期可表示性 / 位移判据不再是阻塞理由。"""
+    pytest.importorskip("torch")
+
+    # 周期低于可表示下限: 关倾斜相位时应通过, 开时应被拦。
+    errors, warnings = validate_form(_values(period=4.0))
+    assert errors == [] and warnings == []
+
+    errors, warnings = validate_form(_values(period=4.0, tilt=True))
+    assert len(errors) == 1 and "panel px" in errors[0]
+
+
+def test_rectangle_requires_aspect_greater_than_one() -> None:
+    pytest.importorskip("torch")
+
+    errors, warnings = validate_form(
+        _values(shapes=("rectangle",), aspect_ratio=1.0)
+    )
+    assert len(errors) == 1 and "长/短比" in errors[0]
+    assert warnings == []
+
+
+def test_rectangle_rejects_an_extreme_aspect_ratio() -> None:
+    pytest.importorskip("torch")
+
+    errors, _ = validate_form(
+        _values(shapes=("rectangle",), aspect_ratio=50.0)
+    )
+    assert len(errors) == 1 and "上限" in errors[0]
+
+
+def test_rectangle_rejects_a_long_side_beyond_the_window() -> None:
+    pytest.importorskip("torch")
+
+    # 短边 80 × 长/短比 10 → 长边 800, 远超采样窗半跨 220。
+    errors, _ = validate_form(
+        _values(shapes=("rectangle",), aspect_ratio=10.0)
+    )
+    assert len(errors) == 1 and "长边" in errors[0]
+
+
+def test_non_rectangle_session_mounts_flat_aspect_ratio(tmp_path) -> None:
+    """非矩形形状: aspect_ratio 挂载值为 1.0 (物理 lane 按 1:1 画)。"""
+    session = build_session(
+        TransferFormValues(shapes=("square",), aspect_ratio=4.0),
+        out=tmp_path / "s",
+    )
+    assert getattr(session, "tilt", None) is False
+    assert getattr(session, "aspect_ratio", None) == 1.0
+
+
+def test_rectangle_session_mounts_its_aspect_ratio(tmp_path) -> None:
+    """矩形形状: aspect_ratio 按表单值挂载, tilt 也透传过去。"""
+    session = build_session(
+        TransferFormValues(shapes=("rectangle",), tilt=True, aspect_ratio=3.5),
+        out=tmp_path / "s",
+    )
+    assert getattr(session, "tilt", None) is True
+    assert getattr(session, "aspect_ratio", None) == 3.5
 
 
 # --- 会话目录 ---------------------------------------------------------------
@@ -244,6 +312,8 @@ def test_build_session_passes_every_form_field_through(tmp_path) -> None:
     values = TransferFormValues(
         shapes=("triangle", "star"),
         side=42.5,
+        tilt=True,
+        aspect_ratio=3.0,
         period=128.0,
         count=36,
         iterations=12,
@@ -280,6 +350,9 @@ def test_build_session_passes_every_form_field_through(tmp_path) -> None:
     assert session.frames == 5
     assert session.side == 42.5
     assert session.period == 128.0
+    assert getattr(session, "tilt", None) is True
+    # 非矩形形状: aspect_ratio 不适用, 挂载值固定为 1.0。
+    assert getattr(session, "aspect_ratio", None) == 1.0
     assert session.seed == 7
     assert session.camera == "daheng"
     assert session.cam_id == 2

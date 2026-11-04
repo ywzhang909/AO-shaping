@@ -28,6 +28,7 @@ from ao_shaping.gui.slm.transfer_desktop.live_view import (
     PREVIEW_STEP,
     LiveView,
     display_frame,
+    display_phase,
     display_preview,
     preview_step,
 )
@@ -204,3 +205,93 @@ def test_start_run_clears_the_previous_frame(page, monkeypatch: pytest.MonkeyPat
     assert page._live_view._video._array is None
     assert page._live_view._block_bar.value() == 0
     page._poll.stop()
+
+
+def test_display_phase_wraps_2pi_into_uint8_greyscale():
+    """相位转显示: mod(2π) → 线性映射, wrap 线性 (2π≈0) 必须叠在一起。"""
+    phase = np.array([-np.pi, 0.0, np.pi, 2 * np.pi, 3 * np.pi])
+    shown = display_phase(phase)
+    assert shown.dtype == np.uint8
+    assert shown.shape == (5,)
+    # 0 与 2π 同值 (mod 2π); −π 与 π、3π 同值。
+    assert shown[1] == shown[3]
+    assert shown[0] == shown[2] == shown[4]
+    # π(wrap 到 127) 高于 0; 最大值恰好是半满 (π/2π · 255 ≈ 127)。
+    assert shown[0] > shown[1]
+    assert shown.max() == 127
+    # 二维网格也工作, 中分点 (π/2) 落在 ~64 (1/4 圈) 处。
+    grid = np.linspace(0.0, np.pi, 3).reshape(3, 1)
+    wrapped = display_phase(grid)
+    assert wrapped.shape == (3, 1)
+    assert wrapped[1, 0] == pytest.approx(64, abs=2)
+    # nan/inf 平 0, 空数组给 1x1 占位; 1.0 rad → 1/(2π)·255 ≈ 40。
+    sanitised = display_phase(np.array([[np.nan, np.inf], [-np.inf, 1.0]]))
+    assert sanitised.shape == (2, 2)
+    assert sanitised[0, 0] == 0
+    assert sanitised[1, 1] == pytest.approx(40, abs=2)
+    assert display_phase(np.zeros((0, 0))).shape == (1, 1)
+
+
+def test_apply_payload_renders_phase_and_predicted_panels(app: QApplication):
+    """新增的 phase_grid / predicted 键被刷进两张灰度面板, 旧键路径不受影响。"""
+    view = LiveView()
+    view.show()
+    app.processEvents()
+    phase = (
+        np.mod(np.linspace(0.0, 3.0 * np.pi, 128 * 128), 2 * np.pi).reshape(128, 128)
+    )
+    predicted = np.zeros((48, 64), dtype=np.float64)
+    predicted[20:30, 26:38] = 500.0
+    view.apply_payload(_payload(phase_grid=phase, predicted=predicted))
+    app.processEvents()
+
+    assert view._video._array is not None          # CCD 栏照旧
+    assert view._profile._x_panel._data.count() > 0
+    # 相位面板: 数组已上屏, 尺寸与 phase 一致。
+    assert view._phase.image._array is not None
+    assert view._phase.image._array.shape == (128, 128)
+    # 预测面板: 灰度值已落满 (非零处有亮度)。
+    assert view._predicted.image._array is not None
+    assert view._predicted.image._array.shape == (48, 64)
+    assert view._predicted.image._array.max() > 0
+    # 标题标签存在。
+    assert "SLM 相位" in view._phase._caption.text()
+    assert "预测远场" in view._predicted._caption.text()
+    view.close()
+
+
+def test_phase_or_predicted_absent_or_none_clears_but_does_not_crash(
+    app: QApplication,
+):
+    """采集段没有相位/预测时 (缺失或 None), 面板回空态, 其他键照常刷新。"""
+    view = LiveView()
+    view.show()
+    app.processEvents()
+    view.apply_payload(_payload())
+    assert view._video._array is not None
+    assert view._phase.image._array is None
+    assert view._predicted.image._array is None
+
+    # 上一帧有数据后, 新帧两个键为 None → 面板清空而不是残留旧帧。
+    phase = np.zeros((16, 16))
+    view.apply_payload(_payload(phase_grid=phase, predicted=np.ones((8, 8))))
+    assert view._phase.image._array is not None
+    # 显式 None 复原。
+    view.apply_payload(_payload(phase_grid=None, predicted=None))
+    assert view._phase.image._array is None
+    assert view._predicted.image._array is None
+    assert view._last_payload is not None
+    view.close()
+
+
+def test_clear_resets_phase_and_predicted_panels(app: QApplication):
+    view = LiveView()
+    view.apply_payload(
+        _payload(phase_grid=np.zeros((8, 8)), predicted=np.ones((4, 4)))
+    )
+    assert view._phase.image._array is not None
+    assert view._predicted.image._array is not None
+    view.clear()
+    assert view._phase.image._array is None
+    assert view._predicted.image._array is None
+    view.close()

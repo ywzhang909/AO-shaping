@@ -317,6 +317,9 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 | `slm/panel/` | `session_profile.py` | 会话级实验系统配置校验与按需重建 (2026-10-23 实测事故驱动) |
 | `slm/panel/` | `target_size.py` | 方形目标边长自动标定与推荐 (过小则零级能量堆中心/散斑) |
 | `slm/panel/` | `tilt_probe.py` | 以 SLM 倾斜给出面板是否真在调制的判定性证据 |
+| `slm/shaping/` | `__init__.py` | 整形「先探测后选路线」包出口 (re-export `router` 公共名) |
+| `slm/shaping/` | `router.py` | 按经验表 §1.1 把探测报告路由到六条整形方法路线 (纯离线, 只给建议不执行) |
+| `slm/shaping/` | `probe.py` | 路由判据采集 (从会话产物离线提取 + `--set` 人工补实测) 与建议器 CLI (`__main__.py`) |
 | `slm/transfer/` | `blur.py` | 用实测形状标定等效模糊/辐射度量 (带形状族验证) |
 | `slm/transfer/` | `bootstrap.py` | 由新鲜 signed-ramp 采集建名义物理检查点 (零设备 import) |
 | `slm/transfer/` | `capture_response.py` | 交错定相位曝光响应采集, 保留每一帧 (需显式执行旗标) |

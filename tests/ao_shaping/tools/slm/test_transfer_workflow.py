@@ -583,6 +583,7 @@ class _PhaseCamera:
 
     def __init__(self, closed):
         self._closed = closed
+        self.exposures = []
 
     def __enter__(self):
         return self
@@ -592,6 +593,7 @@ class _PhaseCamera:
 
     def reset_exposure_time(self, value):
         self.readback_ms = value
+        self.exposures.append(float(value))
 
     def get_numpy_image(self, **kwargs):
         yy, xx = np.mgrid[:50, :60]
@@ -605,6 +607,7 @@ class _LevelSlm:
     def __init__(self, camera, closed):
         self._camera = camera
         self._closed = closed
+        self.displays = []
 
     def __enter__(self):
         return self
@@ -621,16 +624,20 @@ class _LevelSlm:
 
     def display_data(self, gray, *args, **kwargs):
         self._camera.level = int(np.asarray(gray).ravel()[0])
+        self.displays.append(self._camera.level)
 
 
 def _run_validate(tmp_path, monkeypatch, *, abba, mode="model", updates=2, device=None, seen=None,
-                  adaptive_exposure=False, blocks=1, **extra):
+                  adaptive_exposure=False, blocks=1, seed_value=0., target_at_impl=None, **extra):
     """Drive ``validate.run`` end to end with fakes: devices, forward and optimizer.
 
     Everything above the device layer is the production code, so the set of
     captures actually taken is what is asserted -- not a re-implementation of it.
     ``seen`` (a dict) collects the ``device`` each stubbed stage construction
     received, which is how the resolver plumbing is asserted without a GPU.
+    ``target_at_impl`` overrides the ``validate.target_at`` stub (same signature),
+    so a test can return a box that would touch the window edge and pin the
+    ``tilt`` boundary-skip behaviour.
     """
     from types import SimpleNamespace
     import torch
@@ -697,15 +704,18 @@ def _run_validate(tmp_path, monkeypatch, *, abba, mode="model", updates=2, devic
     monkeypatch.setattr(ddu, "FrozenDefocusForward", _Forward)
     monkeypatch.setattr(ddu, "DifferentiableUniformityOptimizer", _Optimizer)
     monkeypatch.setattr(ddu, "recentre_window", lambda centre, *, half_span_px, step_px: xy)
-    monkeypatch.setattr(validate, "target_at",
-                        lambda xy, shape, centre, side: np.pad(np.ones((5, 5), np.float32), 2))
+    if target_at_impl is None:
+        target_at_impl = lambda xy, shape, centre, side, aspect_ratio=2.0: \
+            np.pad(np.ones((5, 5), np.float32), 2)
+    monkeypatch.setattr(validate, "target_at", target_at_impl)
     monkeypatch.setattr(validate, "gs_seed",
-                        lambda forward, centre, side, shape: np.zeros((8, 8), np.float32))
+                        lambda forward, centre, side, shape: np.full((8, 8), seed_value, np.float32))
     monkeypatch.setattr(hardware, "prepare_camera_sdk", lambda _: None)
     monkeypatch.setattr(validate.time, "sleep", lambda _: None)
 
     closed = []
     camera = _PhaseCamera(closed)
+    seen["camera"] = camera
     monkeypatch.setattr(common, "create_camera", lambda *a, **kw: camera)
     monkeypatch.setattr(common, "get_camera_exposure_range", lambda _: (.02, 10.))
     monkeypatch.setattr(common, "get_camera_exposure_ms", lambda cam: cam.readback_ms)
@@ -713,6 +723,7 @@ def _run_validate(tmp_path, monkeypatch, *, abba, mode="model", updates=2, devic
                         SimpleNamespace(Santec=lambda **kwargs: _LevelSlm(camera, closed)))
 
     def adapt(setter, read, **kwargs):
+        seen.setdefault("exposure_state", []).append((camera.level, camera.readback_ms))
         level = .5 + .2*len(seen.setdefault("exposure", [])) if adaptive_exposure else .5
         seen.setdefault("exposure", []).append(level)
         setter(level)
@@ -735,6 +746,24 @@ def _labels(args):
     return [row["label"] for row in json.loads((args.out/"manifest.json").read_text())]
 
 
+def test_flat_light_precheck_restores_shaped_state_before_exposure_ladder(tmp_path, monkeypatch):
+    seen = {}
+    _run_validate(
+        tmp_path,
+        monkeypatch,
+        abba=False,
+        updates=0,
+        blocks=0,
+        seed_value=.2,
+        seen=seen,
+    )
+
+    # The flat probe used 0.05 ms; both restoration and the shaped ladder start
+    # from the original 0.5 ms, and the ladder sees the restored shaped level 5.
+    assert seen["camera"].exposures[:3] == [.05, .5, .5]
+    assert seen["exposure_state"][0] == (5, .5)
+
+
 def test_runtime_exposure_changes_between_blocks_but_not_within_pair(tmp_path, monkeypatch):
     args = _run_validate(tmp_path, monkeypatch, abba=True, mode="anchored", adaptive_exposure=True, blocks=2)
     rows = {r["label"]: r for r in json.loads((args.out/"manifest.json").read_text())}
@@ -744,7 +773,44 @@ def test_runtime_exposure_changes_between_blocks_but_not_within_pair(tmp_path, m
     assert (args.out/"square_1_exposure.npz").exists()
 
 
-def test_audit_allows_block_exposure_but_rejects_mixed_pair(tmp_path):
+def test_tilt_off_skips_boundary_check_without_target_xy(tmp_path, monkeypatch):
+    """``tilt=False`` 且无 ``target_xy`` 时, 即使目标其实会越界也不抛 boundary 错。
+
+    构造一个 ``target_at`` 返回满窗矩形 (box 顶到窗口边缘) 的 stub: 若倾斜开着
+    该 branch 会 ``raise``, 而 ``tilt=False`` 时要跳过检查并正常跑完 blocks=0。
+    同时确认 ``centre == zero_xy`` (目标停在零级, ``shift`` 被置零)。
+    """
+    full_rect = np.ones((9, 9), np.float32)  # 填满 9x9 窗口, 必然触碰边缘
+    args = _run_validate(
+        tmp_path,
+        monkeypatch,
+        abba=False,
+        mode="anchored",
+        updates=0,
+        blocks=0,
+        target_at_impl=lambda xy, shape, centre, side, aspect_ratio=2.0: full_rect,
+        tilt=False,
+        target_xy=None,
+    )
+    # centre 必须等于 zero_xy (shift=0)。
+    assert args.target_xy is None
+    assert (args.out / "config.json").exists()  # 跑完了, 没有抛 boundary
+
+
+def test_tilt_on_still_enforces_boundary_check(tmp_path, monkeypatch):
+    """``tilt=True`` (默认 aspect=2.0) 保持既有 boundary 判定: 越界仍抛错。"""
+    full_rect = np.ones((9, 9), np.float32)
+    with pytest.raises(ValueError, match="window boundary"):
+        _run_validate(
+            tmp_path,
+            monkeypatch,
+            abba=False,
+            mode="anchored",
+            updates=0,
+            blocks=0,
+            target_at_impl=lambda xy, shape, centre, side, aspect_ratio=2.0: full_rect,
+            tilt=True,
+        )
     rows = make_run(tmp_path)
     config = json.loads((tmp_path/"config.json").read_text())
     config["exposure_policy"] = "per_block"

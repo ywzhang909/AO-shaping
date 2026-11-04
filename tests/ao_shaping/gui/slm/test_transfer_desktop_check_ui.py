@@ -84,6 +84,35 @@ def test_form_edits_never_start_a_self_check(page, monkeypatch) -> None:
     assert page.check_report() == ""
 
 
+def test_repeating_the_same_check_is_reused_not_rerun(page, app, monkeypatch) -> None:
+    """同一设备再次点自检: 直接复用已有结论, 不重跑硬件, 也不阻塞。"""
+    calls: list[tuple[str, int, int]] = []
+
+    def _fake(camera: str, cam_id: int, slm_number: int) -> HardwareReport:
+        calls.append((camera, cam_id, slm_number))
+        return _ALL_OK
+
+    monkeypatch.setattr(hc, "check_hardware", _fake)
+
+    page.check_button().click()
+    _wait_check_done(app, page)
+    assert len(calls) == 1
+
+    # 第二次点同一设备: 复用, 不新增硬件调用, 按钮保持可用。
+    page.check_button().click()
+    app.processEvents()
+    assert page.check_button().isEnabled()
+    assert len(calls) == 1
+    assert "复用上次自检" in page.check_report()
+
+    # 换设备后不再复用, 重新跑。
+    page._slm_number.setValue(2)
+    page.check_button().click()
+    _wait_check_done(app, page)
+    assert len(calls) == 2
+    assert "复用上次自检" not in page.check_report()
+
+
 def test_clicking_the_button_runs_one_check_and_renders_it(page, app, monkeypatch) -> None:
     calls: list[tuple[str, int, int]] = []
 
@@ -129,6 +158,35 @@ def test_failing_report_says_so_and_edits_only_mark_it_stale(
     assert "请重新点「设备自检」" in report
     # 只是标注过期: 结论与「未通过」都还在, 也没有重跑。
     assert "未发现 SLM #1" in report
+
+
+# ------------------------------------------------------- boundary 自动增大周期回填
+def test_boundary_failure_auto_bumps_period_and_backfills(page, app) -> None:
+    """boundary 失败后自动**增大**倾斜相位周期并回填输入栏 (只回填, 不自动重跑)。"""
+    page._tilt.setChecked(True)
+    page.set_period(64.0)
+    before = page._period.value()
+    page._on_failed("ValueError: target intersects camera window boundary; adjust period/side")
+    assert page._period.value() > before
+    assert page._task is None  # 会话已收尾
+    assert "已自动增大倾斜相位周期" in page._status_message
+
+
+def test_boundary_failure_at_period_cap_does_not_change(page, app) -> None:
+    """周期已到控件上限时, boundary 失败不改值 (避免死循环)。"""
+    page._tilt.setChecked(True)
+    cap = page._period.maximum()
+    page.set_period(cap)
+    page._on_failed("ValueError: target intersects camera window boundary; adjust period/side")
+    assert page._period.value() == cap
+
+
+def test_non_boundary_failure_does_not_bump_period(page, app) -> None:
+    """无关失败 (如设备枚举) 不回填倾斜相位周期。"""
+    page._tilt.setChecked(True)
+    page.set_period(64.0)
+    page._on_failed("RuntimeError: no daheng camera found")
+    assert page._period.value() == 64.0
 
 
 def test_check_and_run_are_mutually_exclusive(page, app, monkeypatch) -> None:

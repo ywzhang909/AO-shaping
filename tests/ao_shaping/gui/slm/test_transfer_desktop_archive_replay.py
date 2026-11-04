@@ -698,6 +698,128 @@ def test_dump_button_on_other_row_keeps_current_archive(
         dialog.deleteLater()
 
 
+# ------------------------------------------------------- 导出契约 (纯读写, 不碰硬件)
+def _csv_rows(path: Path) -> list[str]:
+    return path.read_text(encoding="utf-8").strip().splitlines()
+
+
+def test_write_phase_csv_slm_gray_contract(tmp_path: Path) -> None:
+    """SLM 灰度口径把 0..1023 灰度回读成弧度制 (Santec 契约: Y/X 表头)。"""
+    phase = np.full((2, 3), 0.25, dtype=np.float64)
+    dest = replay.export_phase_slm_csv(tmp_path / "phase.csv", phase)
+    assert dest.is_file()
+    rows = _csv_rows(dest)
+    assert rows[0].startswith("Y/X,0,1,2")
+    assert rows[1].startswith("0,")
+    assert rows[2].startswith("1,")
+
+
+def test_write_phase_csv_radians_contract(tmp_path: Path) -> None:
+    """弧度制口径原样写原始相位, 表头按 Y/X 契约。"""
+    phase = np.array([[0.0, np.pi / 2, np.pi], [3 * np.pi / 2, 2 * np.pi, 1.0]])
+    dest = replay.export_phase_radians_csv(tmp_path / "phase.csv", phase)
+    assert dest.is_file()
+    rows = _csv_rows(dest)
+    assert rows[0].startswith("Y/X,0,1")
+    data = rows[1].split(",")
+    assert len(data) == 4  # 行号 + 3 列
+    assert data[0] == "0"
+
+def test_phase_slm_vs_radians_roundtrip(tmp_path: Path) -> None:
+    """同一份灰度, SLM灰度导出与「灰转弧度后弧度导出」结果一致 (都是弧度制契约)。"""
+    rng = np.random.default_rng(3)
+    gray = rng.integers(0, 1024, size=(5, 6)).astype(np.uint16)
+    slm = replay.export_phase_slm_csv(tmp_path / "slm.csv", gray)
+    rad = replay.export_phase_radians_csv(tmp_path / "rad.csv", replay.gray_to_phase(gray))
+    slm_rows = _csv_rows(slm)[1:]
+    rad_rows = _csv_rows(rad)[1:]
+    for sr, rr in zip(slm_rows, rad_rows):
+        slm_vals = [float(v) for v in sr.split(",")[1:]]
+        rad_vals = [float(v) for v in rr.split(",")[1:]]
+        assert slm_vals == pytest.approx(rad_vals)
+
+
+def test_export_ccd_png_writes_readable_file(tmp_path: Path) -> None:
+    frame = np.stack(
+        [np.tile(np.linspace(0, 255, 10, dtype=np.uint8), (8, 1)) for _ in range(3)],
+        axis=-1,
+    )
+    dest = replay.export_ccd_png(tmp_path / "ccd.png", frame)
+    assert dest.is_file()
+    from PIL import Image
+    with Image.open(dest) as img:
+        assert img.size == (10, 8)
+
+
+def test_export_ccd_tiff_writes_readable_file(tmp_path: Path) -> None:
+    frame = np.tile(np.linspace(0, 65535, 12, dtype=np.uint16), (7, 1))
+    dest = replay.export_ccd_tiff(tmp_path / "ccd.tiff", frame)
+    assert dest.is_file()
+    from PIL import Image
+    with Image.open(dest) as img:
+        assert img.size == (12, 7)
+
+
+def test_dialog_export_phase_slm_sets_message(
+    app: QApplication, tree: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """导出按钮走 QFileDialog 路径, 成功后提示已导出。"""
+    dest = tmp_path / "out" / "phase.csv"
+    dialog = replay.ArchiveReplayDialog(tree)
+    try:
+        _select(dialog, lambda e: e.kind == "capture_records")
+        monkeypatch.setattr(
+            replay.QFileDialog,
+            "getSaveFileName",
+            lambda *a, **k: (str(dest), "CSV 文件 (*.csv)"),
+        )
+        dialog._on_export_phase_slm()
+        assert dest.is_file()
+        assert "已导出相位" in dialog.message_text()
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+
+
+def test_dialog_export_phase_radians_sets_message(
+    app: QApplication, tree: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    dest = tmp_path / "out" / "phase.csv"
+    dialog = replay.ArchiveReplayDialog(tree)
+    try:
+        _select(dialog, lambda e: e.kind == "capture_records")
+        monkeypatch.setattr(
+            replay.QFileDialog,
+            "getSaveFileName",
+            lambda *a, **k: (str(dest), "CSV 文件 (*.csv)"),
+        )
+        dialog._on_export_phase_radians()
+        assert dest.is_file()
+        assert "已导出相位" in dialog.message_text()
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+
+
+def test_dialog_export_no_frame_is_noop(
+    app: QApplication, tree: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """没有当前帧时导出不写文件, 只提示。"""
+    dialog = replay.ArchiveReplayDialog(tree)
+    try:
+        monkeypatch.setattr(
+            replay.QFileDialog,
+            "getSaveFileName",
+            lambda *a, **k: (str(tmp_path / "no.csv"), "CSV 文件 (*.csv)"),
+        )
+        dialog._on_export_phase_slm()
+        assert not (tmp_path / "no.csv").exists()
+        assert "无法导出" in dialog.message_text()
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+
+
 def test_autoplay_interval_follows_fps(app: QApplication, tree: Path) -> None:
     dialog = replay.ArchiveReplayDialog(tree)
     try:

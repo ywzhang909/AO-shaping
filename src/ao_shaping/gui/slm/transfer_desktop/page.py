@@ -6,7 +6,7 @@
 
 P1 只暴露必设参数
 -----------------
-表单只给相机类型、cam_id、SLM 编号、目标形状、目标边长、载波周期。其余字段 (探针数、
+表单只给相机类型、cam_id、SLM 编号、目标形状、目标短边/边长、倾斜相位周期与开关。其余字段 (探针数、
 拟合迭代、锚定块数、验收口径、检查点路径……) 一律用 :class:`TransferFormValues` 的
 默认值透传 —— 它们默认值已镜像 Streamlit 的 ``TRANSFER_RECIPE``, 少开一个控件就少一处
 两套默认值漂移的机会。
@@ -291,6 +291,8 @@ class TransferPage(QWidget):
         self._checking = False
         self._check_task: HardwareCheckTask | None = None
         self._check_key: tuple[str, int, int] | None = None
+        self._check_at: float = 0.0
+        self._check_reused = False
         self._check_heading: tuple[str, str] | None = None
         self._check_rows: list[tuple[str, str, str]] = []
         # 「读取零级」同理只在点按钮时发生; ``_zero_task`` 是强引用, 掉引用会让
@@ -312,6 +314,9 @@ class TransferPage(QWidget):
 
         self._build()
         self._apply_theme()
+        # 先把「矩形长边隐藏 / 倾斜相位周期禁用」的初始态摆正, 再跑首次校验。
+        self._sync_shape_widgets()
+        self._sync_tilt()
         # 首次校验会 import torch (数秒), 但按钮状态必须一开始就是真的:
         # 同步校验, 免得「能点」被读成「参数没问题」。
         self._revalidate()
@@ -427,8 +432,8 @@ class TransferPage(QWidget):
         return box
 
     def _build_target(self) -> QGroupBox:
-        """② 目标: 跑什么形状、多大、什么载波周期。"""
-        box, layout = _section("② 目标与载波")
+        """② 目标: 跑什么形状、多大、加不加倾斜相位。"""
+        box, layout = _section("② 目标与倾斜相位")
 
         self._shapes: dict[str, QCheckBox] = {}
         shape_host = QWidget()
@@ -441,12 +446,36 @@ class TransferPage(QWidget):
             )
             self._shapes[name] = check
             shape_row.addWidget(check)
+            # 勾选 rectangle 时显示「长边」框、把「边长」当短边; 其余形状隐藏长边框。
+            check.toggled.connect(self._sync_shape_widgets)
         shape_row.addStretch(1)
 
         self._side = self._dspin(
             _DEFAULTS.side, 8.0, _SIDE_MAX_CONSERVATIVE_PX, step=5.0
         )
+        # 矩形长边（仅勾选 rectangle 时可见）：默认短边 × 默认长/短比。
+        self._side_long = self._dspin(
+            _DEFAULTS.side * _DEFAULTS.aspect_ratio,
+            8.0,
+            _SIDE_MAX_CONSERVATIVE_PX,
+            step=5.0,
+        )
+        self._side_host = QWidget()
+        side_qh = QHBoxLayout(self._side_host)
+        side_qh.setContentsMargins(0, 0, 0, 0)
+        side_qh.setSpacing(8)
+        side_qh.addWidget(self._side, 1)
+        side_qh.addWidget(self._side_long, 1)
         self._period = self._dspin(_DEFAULTS.period, 4.0, 1024.0, step=1.0)
+
+        # 倾斜相位开关: 默认关。关了之后目标留在 0 级 (zero order)、周期不适用,
+        # 于是周期框随之禁用并置灰。
+        self._tilt = self._check("添加倾斜相位", _DEFAULTS.tilt)
+        self._tilt.setToolTip(
+            "开 = 用斜坡把目标推离 0 级, 需给出倾斜相位周期; "
+            "关（默认）= 目标留在 0 级, 倾斜相位周期无意义"
+        )
+        self._tilt.toggled.connect(self._sync_tilt)
 
         # A–B–B–A 配对验收: 默认关 (只按模型损失接受, 跳过 CCD 实测配对与方向核对)。
         self._abba = self._check("A–B–B–A 配对验收（CCD 实测）", _DEFAULTS.abba)
@@ -466,15 +495,16 @@ class TransferPage(QWidget):
         side_row = QHBoxLayout()
         side_row.setContentsMargins(0, 0, 0, 0)
         side_row.setSpacing(8)
-        side_row.addWidget(self._side, 1)
+        side_row.addWidget(self._side_host, 1)
         side_row.addWidget(self._zero_btn, 0)
 
         form = QFormLayout()
         form.setContentsMargins(0, 0, 0, 0)
         form.setSpacing(8)
         form.addRow("目标形状", shape_host)
-        form.addRow("目标边长（CCD px）", side_row)
-        form.addRow("载波周期（面板 px）", self._period)
+        form.addRow("目标短边 / 边长（CCD px）", side_row)
+        form.addRow("倾斜相位周期（面板 px）", self._period)
+        form.addRow(self._tilt)
         form.addRow("配对验收", self._abba)
         layout.addLayout(form)
 
@@ -597,7 +627,7 @@ class TransferPage(QWidget):
     def _dspin(
         self, value: float, low: float, high: float, *, step: float = 1.0
     ) -> QDoubleSpinBox:
-        """浮点框 (目标边长 / 载波周期), 一位小数。"""
+        """浮点框 (目标边长 / 倾斜相位周期), 一位小数。"""
         widget = QDoubleSpinBox()
         widget.setRange(low, high)
         widget.setDecimals(1)
@@ -629,9 +659,18 @@ class TransferPage(QWidget):
         shapes = tuple(
             name for name in params.SHAPE_CHOICES if self._shapes[name].isChecked()
         )
+        short_side = float(self._side.value())
+        aspect_ratio: float
+        if "rectangle" in shapes:
+            long_side = float(self._side_long.value())
+            aspect_ratio = long_side / short_side if short_side > 0 else 1.0
+        else:
+            aspect_ratio = 1.0
         return params.TransferFormValues(
             shapes=shapes,
-            side=float(self._side.value()),
+            side=short_side,
+            tilt=bool(self._tilt.isChecked()),
+            aspect_ratio=aspect_ratio,
             period=float(self._period.value()),
             camera=str(self._camera.currentData()),
             cam_id=int(self._cam_id.value()),
@@ -663,6 +702,8 @@ class TransferPage(QWidget):
         lines.extend(f"{label}：{detail}" for _, label, detail in self._check_rows)
         if self._check_stale():
             lines.append("设备参数已改，请重新点「设备自检」")
+        elif self._check_reused:
+            lines.append("复用上次自检（同设备、未过期）")
         return "\n".join(lines)
 
     def set_camera(self, kind: str) -> None:
@@ -675,7 +716,7 @@ class TransferPage(QWidget):
         self._revalidate()
 
     def set_period(self, value: float) -> None:
-        """程序方式填载波周期 (面板 px), 联动与手工输入相同。"""
+        """程序方式填倾斜相位周期 (面板 px), 联动与手工输入相同。"""
         self._period.setValue(float(value))
         self._revalidate()
 
@@ -686,7 +727,25 @@ class TransferPage(QWidget):
             check.blockSignals(True)
             check.setChecked(name in chosen)
             check.blockSignals(False)
+        self._sync_shape_widgets()
         self._revalidate()
+
+    def _sync_shape_widgets(self) -> None:
+        """矩形勾选时显示「长边」框（此时边长框当短边）；其余形状隐藏长边框。"""
+        rect = bool(self._shapes.get("rectangle", None) and self._shapes["rectangle"].isChecked())
+        self._side_long.setVisible(rect)
+        if rect:
+            self._side.setToolTip("矩形短边（CCD px）")
+        else:
+            self._side.setToolTip("目标边长（CCD px）")
+
+    def _sync_tilt(self) -> None:
+        """倾斜相位关（默认）时目标留在 0 级, 周期框禁用置灰; 开时恢复。"""
+        enabled = bool(self._tilt.isChecked())
+        self._period.setEnabled(enabled)
+        self._period.setToolTip(
+            None if enabled else "倾斜相位关闭：目标留在 0 级，周期无意义"
+        )
 
     # ------------------------------------------------------------------ 校验
     def _revalidate(self) -> None:
@@ -742,7 +801,7 @@ class TransferPage(QWidget):
             )
             parts.append(
                 f'<p style="margin:4px 0 0 0;color:{self._muted()}">'
-                "载波周期与目标尺寸放得进采样窗，探针数是 6 的倍数。</p>"
+                "倾斜相位与目标尺寸放得进采样窗，探针数是 6 的倍数。</p>"
             )
         self._checks.setText("".join(parts))
 
@@ -753,10 +812,13 @@ class TransferPage(QWidget):
             self._cam_id,
             self._slm_number,
             self._side,
-            self._period,
+            self._side_long,
+            self._tilt,
             *self._shapes.values(),
         ):
             widget.setEnabled(enabled)
+        # 倾斜相位周期只在开启时才能点; 运行中一律锁。
+        self._period.setEnabled(enabled and self._tilt.isChecked())
         # 自检同样要锁: 会话正占着 SLM 时再探一次, 只会跟它对抢设备。
         self._check_btn.setEnabled(enabled and not self._checking)
         # 读零级要开相机: 会话跑起来后相机归它用, 关闭时也顺手复位。
@@ -777,13 +839,31 @@ class TransferPage(QWidget):
         return self._device_key() != self._check_key
 
     def _run_check(self) -> None:
-        """「设备自检」按钮: 显式触发一次只读硬件枚举, 交给后台线程。"""
+        """「设备自检」按钮: 显式触发一次只读硬件枚举, 交给后台线程。
+
+        若已有结论满足「同设备、未过期、且有非空结论」就直接**复用**而不启动线程
+        (同一台设备的只读枚举在会话内随时重复点都该立即给出结论)。复用时要带上时间
+        印记, 好让界面标出「复用上次自检」; 不改变结论的只读性质。
+        """
         if self._checking or self._running or self._zero_reading:
             # 按钮已禁用, 这里是第二道闸 (程序方式触发 clicked 时也拦住)。
             return
         key = self._device_key()
+        if (
+            key == self._check_key
+            and self._check_heading is not None
+            and self._check_rows
+            and not self._check_stale()
+        ):
+            # 同一设备、同一份结论还在 (非空), 直接复用, 不碰硬件。
+            self._check_at = time.monotonic()
+            self._check_reused = True
+            self._render_check()
+            return
         self._checking = True
         self._check_key = key
+        self._check_at = time.monotonic()
+        self._check_reused = False
         self._check_heading = ("pending", "正在自检…（枚举相机 / 探测 SLM）")
         self._check_rows = []
         self._check_btn.setEnabled(False)  # 一次只跑一份; 也避免连点排两个任务
@@ -802,6 +882,8 @@ class TransferPage(QWidget):
         """自检结论回到 UI 线程: 逐项上屏, 再把两个按钮的决定权交回校验。"""
         self._checking = False
         self._check_task = None
+        self._check_at = time.monotonic()
+        self._check_reused = False
         if isinstance(payload, BaseException):
             # 自检脚本自己炸了 (SDK 缺失、进程被占用……) 也是一种必须说清的结论。
             self._check_heading = ("error", "自检未完成：检查本身出错")
@@ -851,6 +933,12 @@ class TransferPage(QWidget):
             parts.append(
                 '<p style="margin:2px 0 0 0"><span style="color:'
                 f'{self._colors["warn"]}">设备参数已改，请重新点「设备自检」</span></p>'
+            )
+        # 这次结论来自「直接复用」而不是重跑硬件时, 标出来让操作员知道。
+        if self._check_reused and not self._check_stale():
+            parts.append(
+                '<p style="margin:2px 0 0 0"><span style="color:'
+                f'{self._colors["pending"]}">复用上次自检（同设备、未过期）</span></p>'
             )
         self._check_view.setText("".join(parts))
 
@@ -980,6 +1068,32 @@ class TransferPage(QWidget):
     def _on_failed(self, message: str) -> None:
         """会话失败: 停轮询, 把 journal 里已写下的阶段留在表上。"""
         self._settle("failed", f"会话失败：{message}")
+        # 边界: 目标被倾斜相位位移推出采样窗边 → 自动**增大**倾斜相位周期
+        # (位移 ∝ 1/period), 并回填输入栏; 只回填、不自动重跑 (操作员确认几何
+        # 后再手动启动)。只有打开倾斜相位时位移才存在, 关着时不触发。
+        if self._tilt.isChecked() and self._auto_bump_period(message):
+            self._set_run_state(
+                "failed",
+                "目标触碰相机窗口边界：已自动增大倾斜相位周期并回填输入栏，"
+                "请确认几何（或点「读取零级」核准边长）后再手动运行。",
+            )
+
+    def _auto_bump_period(self, message: str) -> bool:
+        """识别 ``target intersects camera window boundary`` 失败并回填更大的周期。
+
+        返回 ``True`` 表示本次失败确属边界且已回填大周期; ``False`` 表示无关 / 已在
+        倾斜相位周期上限 (不再改, 避免死循环)。纯逻辑、不跑硬件, 供自动化直接调用。
+        """
+        if "target intersects camera window boundary" not in message:
+            return False
+        if self._running or self._task is not None:
+            return False  # 会话尚未真正收尾, 不改。
+        period = self._period.value()
+        if period >= self._period.maximum() - 1e-9:
+            return False  # 已到上限, 改不动。
+        new_period = min(period * 1.5, float(self._period.maximum()))
+        self.set_period(new_period)
+        return True
 
     def _settle(self, kind: str, message: str) -> None:
         """运行结束后的共同收尾 (完成 / 失败 / 停止都走这里复位)。"""

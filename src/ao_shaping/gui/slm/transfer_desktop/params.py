@@ -24,26 +24,56 @@ PySide6 桌面页 (``transfer_desktop/page.py``) 与 Streamlit 页
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ao_shaping.utils.image.target.metrics import POLYGON_SHAPE_CHOICES
 from ao_shaping.utils.io.timestamp import format_ts
+from ao_shaping.tools.slm.transfer.preflight import MIN_SIDE_PX as _MIN_SIDE_PX
 
 if TYPE_CHECKING:
     from ao_shaping.tools.slm.transfer.workflow import TransferSession
 
 __all__ = [
+    "ASPECT_RATIO_SESSION_FIELD",
     "CAMERA_CHOICES",
     "SHAPE_CHOICES",
     "SHAPE_LABELS",
     "STAGE_LABELS",
+    "TILT_SESSION_FIELD",
     "TransferFormValues",
     "build_session",
     "effective_window_span",
     "plan_session_dir",
     "validate_form",
 ]
+
+#: 物理 lane（``validate.run`` / ``transfer_shapes_runner``）消费倾斜相位开关时要
+#: 找的会话字段名。``TransferSession`` 当前没有这个字段（workflow.py 不在本模块的
+#: 写域），:func:`build_session` 会把它以运行时属性挂到返回值上，契约字段名就是这串
+#: 常量。物理 lane 读 ``session.tilt``（等价 ``args.tilt``）决定要不要把目标用斜坡推离
+#: 零级；关闭（默认）时目标留在零级、倾斜相位周期不适用。
+TILT_SESSION_FIELD = "tilt"
+
+#: 物理 lane 消费矩形「长/短比」要找的会话字段名。语义：``side`` 是矩形的**短边**，
+#: ``aspect_ratio`` 是**长/短比**（长边 = 短边 × 长/短比）。非矩形形状固定 ``1.0``。
+#: 与 ``TILT_SESSION_FIELD`` 一样以运行时属性挂在 :func:`build_session` 的返回值上。
+ASPECT_RATIO_SESSION_FIELD = "aspect_ratio"
+
+#: 未启用倾斜相位（tilt=False）时倾斜相位周期 / 位移不适用，需要屏蔽掉的 preflight 结论码。
+#: 没有斜坡把目标推出零级，这些判据（周期可表示性、位移是否溢出采样窗）就无从谈起。
+_TILT_DEPENDENT_CHECK_CODES: frozenset[str] = frozenset(
+    {
+        "period_invalid",
+        "period_below_nyquist",
+        "period_extrapolated",
+        "side_offset_overflow",
+    }
+)
+
+#: 矩形长/短比的合理上限（越大越极端，超过它在采样窗里既难容纳也失真）。
+_RECT_ASPECT_MAX = 10.0
 
 #: 相机后端选项，与 ``bench_settings.CAM_TYPE_OPTIONS`` 同序。迁移学习只对大恒
 #: 相机做过实验验证，其余后端由 :func:`validate_form` 在启动前拒绝。
@@ -62,15 +92,15 @@ SHAPE_LABELS: dict[str, str] = {
     "star": "五角星",
 }
 
-#: ``run_session`` 发出的阶段名 → 操作员读得懂的标签。镜像
-#: ``shaping_controls.TRANSFER_STAGE_LABELS``（与 ``transfer_progress.STAGE_LABELS``
-#: 是同一份内容）；测试直接比较两者，防止漂移。
+#: ``run_session`` 发出的阶段名 → 操作员读得懂的标签。values 与
+#: ``transfer_progress.STAGE_LABELS`` 的**键**一一对应（阶段名不能漂移），个别**值**
+#: 这里写得更直白（例如阶段名 ``CCD_model_blocks`` →「CCD 配对块」）。测试钉住键集。
 STAGE_LABELS: dict[str, str] = {
     "capture": "当前光路采集（探针 + 逐帧自动曝光）",
     "reuse_capture": "复用已有采集",
     "nominal_initialization": "名义模型初始化（冷启动，未标定）",
     "fit": "物理预测模型迁移 / 拟合",
-    "CCD_model_blocks": "CCD 模型配对块",
+    "CCD_model_blocks": "CCD 配对块",
     "exposure_response_capture": "曝光阶梯诊断",
     "exposure_response_analysis": "曝光响应分析",
     "blur_calibration": "有效展宽 / 辐射尺度校准",
@@ -95,8 +125,12 @@ class TransferFormValues:
 
     Attributes:
         shapes: 目标形状（``SHAPE_CHOICES`` 的子集）。
-        side: 目标尺寸 (CCD px)。
-        period: 载波周期 (panel px)。
+        side: 目标尺寸 (CCD px)。矩形时为**短边**（长边 = 短边 × ``aspect_ratio``）。
+        tilt: 是否添加倾斜相位。``False``（默认）时目标留在零级 (0 级)，
+            倾斜相位周期 / 位移不适用；``True`` 时用斜坡把目标推离零级。
+        aspect_ratio: 矩形**长/短比**（仅 ``shapes`` 含 ``rectangle`` 时有意义，
+            见 :data:`_RECT_ASPECT_MAX`）；非矩形形状固定 ``1.0``。
+        period: 倾斜相位周期 (panel px)。
         count: 分组随机探针数（必须是 6 的倍数）。
         iterations: 模型参数拟合迭代数。
         blocks: CCD 锚定短块数。
@@ -126,6 +160,8 @@ class TransferFormValues:
 
     shapes: tuple[str, ...] = ("square",)
     side: float = 80.0
+    tilt: bool = False
+    aspect_ratio: float = 2.0
     period: float = 64.0
     count: int = 24
     iterations: int = 60
@@ -192,8 +228,14 @@ def validate_form(values: TransferFormValues) -> tuple[list[str], list[str]]:
 
     顺序固定（与 ``TransferMethod.validate`` 一致）：torch 未安装 → 相机类型
     不是大恒 → 没选形状 → ``preflight.check_parameters``。前三条任何一条不通过
-    都直接返回：缺 torch 时讨论载波周期没有意义，也不会把一条"周期性"提示混进
+    都直接返回：缺 torch 时讨论倾斜相位没有意义，也不会把一条"周期性"提示混进
     真正的阻塞原因里。
+
+    ``values.tilt`` 关闭（默认）时目标留在零级 (0 级)，倾斜相位周期 / 位移不适用，
+    因此屏蔽掉那些倾斜相位专属的 preflight 判据（可表示性、位移是否溢出采样窗）——
+    否则关掉倾斜相位仍会收到"周期不在标定档"之类的报错。``tilt=True`` 时行为
+    与旧版完全一致。矩形额外要求长 > 短 > 0、长/短都在采样窗内、长/短比在
+    :data:`_RECT_ASPECT_MAX` 以内。
 
     Args:
         values: 表单快照。
@@ -201,7 +243,7 @@ def validate_form(values: TransferFormValues) -> tuple[list[str], list[str]]:
     Returns:
         ``(errors, warnings)``。元素是可直接显示的中文文本；``preflight`` 的结论
         写成「哪里不对 + ``→`` 怎么改」两行。``errors`` 非空即禁止启动，
-        ``warnings`` 只提示（例如未标定档的载波周期）。
+        ``warnings`` 只提示（例如未标定档的倾斜相位周期）。
     """
     torch_error = _torch_missing()
     if torch_error is not None:
@@ -217,19 +259,58 @@ def validate_form(values: TransferFormValues) -> tuple[list[str], list[str]]:
     if not values.shapes:
         return ["至少选择一个目标形状"], []
 
+    tilt = bool(values.tilt)
+    shapes = tuple(values.shapes or ())
+    side = float(values.side)
+    period = float(values.period)
+
+    if "rectangle" in shapes:
+        aspect_ratio = float(values.aspect_ratio)
+        if not math.isfinite(aspect_ratio) or aspect_ratio <= 1.0:
+            return [
+                f"矩形长/短比 {aspect_ratio!r} 必须大于 1（长边须严格大于短边）。"
+                "\n    → 填 1–10 之间的值。"
+            ], []
+        if aspect_ratio > _RECT_ASPECT_MAX:
+            return [
+                f"矩形长/短比 {aspect_ratio:g} 超出合理上限 {_RECT_ASPECT_MAX:g}。"
+                "\n    → 太大在采样窗里既难容纳也失真，请调小。"
+            ], []
+        window_span = effective_window_span(side, values.window_span)
+        long_side = side * aspect_ratio
+        for label, value in ("短边", side), ("长边", long_side):
+            if not math.isfinite(value) or value <= 0:
+                return [f"矩形{label} {value!r} 不是正数。"], []
+            if value > window_span:
+                return [
+                    f"矩形{label} {value:g} px 超过采样窗半跨 {window_span:g} px，"
+                    "放不进窗。"
+                    "\n    → 请缩小边长或长/短比。"
+                ], []
+            if value < _MIN_SIDE_PX:
+                return [
+                    f"矩形{label} {value:g} px 小于最小边长 {_MIN_SIDE_PX:g} px。"
+                ], []
+    else:
+        aspect_ratio = 1.0
+
     from ao_shaping.tools.slm.transfer.preflight import check_parameters
 
     problems = check_parameters(
-        side=float(values.side),
-        period=float(values.period),
+        side=side,
+        period=period,
         count=int(values.count),
         iterations=int(values.iterations),
         blocks=int(values.blocks),
         updates=int(values.updates),
         frames=int(values.frames),
-        shapes=tuple(values.shapes or ()),
-        half_span_px=effective_window_span(float(values.side), values.window_span),
+        shapes=shapes,
+        half_span_px=effective_window_span(side, values.window_span),
     )
+    if not tilt:
+        problems = [
+            problem for problem in problems if problem.code not in _TILT_DEPENDENT_CHECK_CODES
+        ]
 
     errors: list[str] = []
     warnings: list[str] = []
@@ -296,7 +377,7 @@ def build_session(
 
     checkpoint = str(values.checkpoint or "").strip()
     seed_run = str(values.seed_run or "").strip()
-    return TransferSession(
+    session = TransferSession(
         out=Path(out) if out is not None else plan_session_dir(),
         checkpoint=Path(checkpoint) if checkpoint else None,
         seed_run=Path(seed_run) if seed_run else None,
@@ -323,3 +404,13 @@ def build_session(
         save_dataset=bool(values.save_dataset),
         device=str(values.device),
     )
+    # ``TransferSession`` 没有 tilt / aspect_ratio 字段（workflow.py 不在写域），
+    # 物理 lane（``validate.run``）按 :data:`TILT_SESSION_FIELD` /
+    # :data:`ASPECT_RATIO_SESSION_FIELD` 这对契约字段名从会话上读，于是这里把
+    # 它们以运行时属性挂上去；``frozen`` 会话直接赋值会抛，故走 object.__setattr__。
+    object.__setattr__(session, TILT_SESSION_FIELD, bool(values.tilt))
+    aspect_hook = 1.0
+    if "rectangle" in (values.shapes or ()):
+        aspect_hook = float(values.aspect_ratio)
+    object.__setattr__(session, ASPECT_RATIO_SESSION_FIELD, aspect_hook)
+    return session

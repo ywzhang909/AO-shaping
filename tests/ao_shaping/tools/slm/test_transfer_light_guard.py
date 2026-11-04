@@ -187,6 +187,26 @@ def test_light_that_never_reaches_the_band_keeps_the_old_non_convergence_error()
     assert guard.seen_light
 
 
+def test_flat_light_precheck_does_not_hide_shaped_ladder_nonconvergence():
+    """A 1 -> 1 shaped-mask plateau is not blocked, but still ends ``dim``."""
+    guard = LightGuard(label="probe square_exposure", max_steps=2)
+    guard.seen_light = True  # seeded only by the successful flat full-frame probe
+
+    setting = adapt_exposure(
+        lambda _: None,
+        lambda: _frame(1),
+        start_ms=0.02,
+        floor_ms=0.02,
+        ceiling_ms=0.04,
+        full_scale=255,
+        max_steps=2,
+        on_step=guard.observe,
+    )
+
+    assert [reading.peak_counts for reading in guard.readings] == [1.0, 1.0]
+    assert setting.status == "dim"  # validate still raises exposure-did-not-converge
+
+
 # -- 4. 启动前的便宜检查 ---------------------------------------------------
 
 def test_the_precheck_returns_at_the_first_rung_that_sees_light():

@@ -24,17 +24,25 @@ DEFAULT_WEIGHTS: dict[str, dict[str, float]] = {
 }
 
 
-def target_at(xy, shape, centre, side):
-    """Sample the canonical shape raster in physical CCD coordinates."""
+def target_at(xy, shape, centre, side, aspect_ratio: float = 2.0):
+    """Sample the canonical shape raster in physical CCD coordinates.
+
+    ``aspect_ratio`` only matters for an axis-aligned ``"rectangle"``: it is the
+    long : short width ratio the raster is drawn with, and the sampling extent
+    covers the **long** axis (``extent = side * aspect_ratio``). For every other
+    shape the extent stays ``side`` regardless of the value passed, so callers
+    that only ever pass the four positional arguments (``aspect_ratio`` keeps its
+    2.0 default) observe no behaviour change.
+    """
     from ao_shaping.utils.image.target.patterns import create_target_shape
 
     if not np.isfinite(side) or side <= 0:
         raise ValueError("target side must be finite and positive")
-    extent = side * (2 if shape == "rectangle" else 1)
+    extent = side * (aspect_ratio if shape == "rectangle" else 1)
     size = max(512, 2 * int(np.ceil((extent + 8) / 2)))
     middle = size / 2
     raster = create_target_shape(shape, (size, size), side=side, radius_ratio=side/size,
-                                 aspect_ratio=2., center=(middle, middle))
+                                 aspect_ratio=aspect_ratio, center=(middle, middle))
     return map_coordinates(raster, [xy[..., 1]-centre[1]+middle, xy[..., 0]-centre[0]+middle],
                            order=1, mode="constant")
 

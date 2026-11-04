@@ -37,6 +37,8 @@ from ao_shaping.gui.slm.pattern_controls import (
     generate_phase_gray,
     refresh_phase_preview,
 )
+from ao_shaping.gui.slm.ccd_live import render_ccd_live
+from ao_shaping.gui.slm.helper_tab import render_pattern_helper_tab
 from ao_shaping.gui.slm.shaping_controls import render_closed_loop_shaping
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
@@ -469,22 +471,29 @@ def main():
 
     st.title(f"{'双' if count == 2 else '单'}SLM200 控制器")
 
-    if count == 1:
-        slm_num = connected_slms[0]
-        st.header(f"SLM {slm_num} 相位控制")
-        display_slm_status(slm_num)
-        render_phase_control(slm_num)
-        render_phase_preview(slm_num)
-        with st.expander("闭环整形", expanded=False):
-            render_closed_loop_shaping(slm_num)
-    else:
-        for slm_num in (1, 2):
+    # 主区分 tab: 每台已连接 SLM 各一个「相位控制」(沿用既有管线) 与一个
+    # 「PatternHelper」(直接暴露底层生成 API), 再加一个共用「实时 CCD 画面」。
+    # 空状态 (count == 0) 已在上方 early-return, 这里只管已连接的情形。
+    tab_labels: list[str] = []
+    for slm_num in connected_slms:
+        tab_labels.append(f"SLM {slm_num} 相位控制")
+        tab_labels.append(f"SLM {slm_num} PatternHelper")
+    tab_labels.append("实时 CCD 画面")
+
+    tabs = st.tabs(tab_labels)
+    tab_iter = iter(tabs)
+    for slm_num in connected_slms:
+        with next(tab_iter):
             st.header(f"SLM {slm_num} 相位控制")
             display_slm_status(slm_num)
             render_phase_control(slm_num)
             render_phase_preview(slm_num)
             with st.expander("闭环整形", expanded=False):
                 render_closed_loop_shaping(slm_num)
+        with next(tab_iter):
+            render_pattern_helper_tab(slm_num)
+    with next(tab_iter):
+        render_ccd_live()
 
 
 def _safe_set_state(key: str, value: Any) -> None:

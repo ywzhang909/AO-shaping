@@ -64,6 +64,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QDoubleSpinBox,
+    QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -206,6 +207,8 @@ class CaptureData:
     raw_frame: np.ndarray
     #: SLM 相位预览 (float32 RGB, 值域 0..1)。
     phase_rgb: np.ndarray
+    #: 原始 SLM 相位灰度 (uint16, 值域 0..1023, 取自 ``panel_gray``)。
+    phase_gray: np.ndarray
     #: 裁剪区 ``(y0, y1, x0, x1)``, 在原始 CCD 像素坐标下。
     roi: tuple[int, int, int, int]
     #: 这块 capture 里平均了几帧 ``raw_frames``。
@@ -472,6 +475,7 @@ def load_capture(path: str | Path, index: int | None = None) -> CaptureData:
         display_frame=_display_uint8(cropped),
         raw_frame=cropped,
         phase_rgb=phase_rgb,
+        phase_gray=np.asarray(gray),
         roi=roi,
         frame_count=frame_count,
         raw_peak=float(cropped.max()) if cropped.size else 0.0,
@@ -742,6 +746,117 @@ def _format_metrics(metrics: dict, keys: tuple[str, ...]) -> str:
 
 
 # ------------------------------------------------------------------- 弹窗
+# ---------------------------------------------------------------- 导出 (纯逻辑, 不碰硬件)
+_EXPORT_MAX_GRAY = 1023
+
+
+def phase_to_gray(phase):
+    arr = np.asarray(phase, dtype=np.float64)
+    wrapped = np.mod(np.nan_to_num(arr), 2.0 * np.pi)
+    return np.rint(wrapped / (2.0 * np.pi) * float(_EXPORT_MAX_GRAY)).astype(np.uint16)
+
+
+def gray_to_phase(gray):
+    arr = np.asarray(gray, dtype=np.float64)
+    return arr / float(_EXPORT_MAX_GRAY) * 2.0 * np.pi
+
+
+def _rad_to_gray(phase):
+    return phase_to_gray(phase)
+
+
+def _fmt_phase_value(value, radians=False):
+    if radians:
+        return repr(float(value))
+    return str(int(round(float(value))))
+
+
+def write_phase_csv(dest, data, radians=False):
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    arr = np.asarray(data)
+    if arr.ndim != 2:
+        raise ValueError("phase array must be 2D")
+    height, width = int(arr.shape[0]), int(arr.shape[1])
+    lines = []
+    lines.append("Y/X," + ",".join(str(j) for j in range(width)))
+    for i in range(height):
+        vals = [_fmt_phase_value(v, radians=radians) for v in arr[i].ravel()]
+        lines.append(str(i) + "," + ",".join(vals))
+    dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return dest
+
+
+def export_phase_csv(dest, data, radians=False):
+    return write_phase_csv(dest, data, radians=radians)
+
+
+def export_phase_slm_csv(dest, data):
+    arr = np.asarray(data)
+    if np.issubdtype(arr.dtype, np.integer):
+        gray = arr
+    else:
+        gray = phase_to_gray(arr)
+    rad = gray_to_phase(gray)
+    return write_phase_csv(dest, rad, radians=True)
+
+
+def export_phase_radians_csv(dest, data):
+    return write_phase_csv(dest, np.asarray(data, dtype=np.float64), radians=True)
+
+
+def _arr_to_uint8(frame):
+    arr = np.asarray(frame)
+    if np.issubdtype(arr.dtype, np.floating):
+        if arr.size == 0:
+            return np.zeros(arr.shape, dtype=np.uint8)
+        lo, hi = np.percentile(arr, (1.0, 99.9))
+        if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+            lo, hi = float(np.nanmin(arr)), float(np.nanmax(arr))
+            if hi <= lo:
+                hi = lo + 1.0
+        out = np.clip((arr - lo) / (hi - lo) * 255.0, 0.0, 255.0)
+        return out.astype(np.uint8)
+    if arr.dtype == np.uint8:
+        return arr
+    if np.issubdtype(arr.dtype, np.integer):
+        if arr.size and int(arr.max()) > 255:
+            return np.clip(arr.astype(np.float64) / 65535.0 * 255.0, 0, 255).astype(np.uint8)
+        return arr.astype(np.uint8)
+    return arr.astype(np.uint8)
+
+
+def write_ccd_image(dest, frame, fmt=None):
+    from PIL import Image
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    arr = _arr_to_uint8(frame)
+    if arr.ndim == 2:
+        img = Image.fromarray(arr, mode="L")
+    else:
+        img = Image.fromarray(arr)
+    if fmt is None:
+        fmt = dest.suffix.lstrip(".").lower() or "png"
+    fmt = fmt.lower()
+    if fmt in ("tif", "tiff"):
+        img.save(dest, format="TIFF")
+    elif fmt == "png":
+        img.save(dest, format="PNG")
+    else:
+        img.save(dest)
+    return dest
+
+
+def export_ccd_png(dest, frame):
+    return write_ccd_image(dest, frame, fmt="png")
+
+
+def export_ccd_tiff(dest, frame):
+    return write_ccd_image(dest, frame, fmt="tiff")
+
+
+def export_ccd_image(dest, frame, fmt="png"):
+    return write_ccd_image(dest, frame, fmt=fmt)
 class ArchiveReplayDialog(QDialog):
     """离线回放弹窗: 左侧归档列表 + CCD 画面 + X/Y 剖面 + SLM 相位预览, 只读。
 
@@ -839,6 +954,20 @@ class ArchiveReplayDialog(QDialog):
         controls.addWidget(self._fps)
         controls.addWidget(self._play)
         root.addLayout(controls)
+
+        # 导出按钮行 (选中帧的相位 / CCD 图)
+        export_row = QHBoxLayout()
+        self._btn_phase_slm = QPushButton("导出相位 (SLM灰度)", self)
+        self._btn_phase_rad = QPushButton("导出相位 (弧度CSV)", self)
+        self._btn_ccd_png = QPushButton("导出CCD (PNG)", self)
+        self._btn_ccd_tiff = QPushButton("导出CCD (TIFF)", self)
+        for b in (self._btn_phase_slm, self._btn_phase_rad, self._btn_ccd_png, self._btn_ccd_tiff):
+            export_row.addWidget(b)
+        self._btn_phase_slm.clicked.connect(self._on_export_phase_slm)
+        self._btn_phase_rad.clicked.connect(self._on_export_phase_radians)
+        self._btn_ccd_png.clicked.connect(self._on_export_ccd_png)
+        self._btn_ccd_tiff.clicked.connect(self._on_export_ccd_tiff)
+        root.addLayout(export_row)
 
         outer = QSplitter(Qt.Orientation.Horizontal, self)
 
@@ -1485,6 +1614,79 @@ class ArchiveReplayDialog(QDialog):
         self._play_timer.setInterval(fps_to_interval_ms(self._fps.value()))
         # 直接渲染: 走滑块防抖的话 fps 高一点就永远等不到那一拍。
         self.set_index((self._index + 1) % total)
+
+    # ------------------------------------------------------------ 导出
+    def _current_phase_gray(self) -> np.ndarray | None:
+        """当前帧的原始 SLM 相位灰度 (uint16 0..1023); 无当前帧返回 ``None``。"""
+        sample = self._sample
+        if sample is None or sample.phase_gray.size == 0:
+            return None
+        return sample.phase_gray
+
+    def _current_ccd(self) -> np.ndarray | None:
+        """当前帧的原始 CCD 灰度 (ROI 裁剪后); 无当前帧返回 ``None``。"""
+        sample = self._sample
+        if sample is None or sample.raw_frame.size == 0:
+            return None
+        return sample.raw_frame
+
+    def _pick_save_path(self, title: str, default_name: str, flt: str) -> Path | None:
+        path, _ = QFileDialog.getSaveFileName(self, title, default_name, flt)
+        if not path:
+            return None
+        return Path(path)
+
+    def _on_export_phase_slm(self) -> None:
+        gray = self._current_phase_gray()
+        if gray is None:
+            self._message.setText("没有已加载的相位帧, 无法导出 (SLM灰度)")
+            return
+        dest = self._pick_save_path(
+            "导出相位 · SLM灰度口径", "phase_slm.csv", "CSV 文件 (*.csv);;所有文件 (*)"
+        )
+        if dest is None:
+            return
+        export_phase_slm_csv(dest, gray)
+        self._message.setText(f"已导出相位 (SLM灰度口径): {Path(dest).name}")
+
+    def _on_export_phase_radians(self) -> None:
+        gray = self._current_phase_gray()
+        if gray is None:
+            self._message.setText("没有已加载的相位帧, 无法导出 (弧度CSV)")
+            return
+        dest = self._pick_save_path(
+            "导出相位 · 弧度制", "phase_radians.csv", "CSV 文件 (*.csv);;所有文件 (*)"
+        )
+        if dest is None:
+            return
+        export_phase_radians_csv(dest, gray_to_phase(gray))
+        self._message.setText(f"已导出相位 (弧度制): {Path(dest).name}")
+
+    def _on_export_ccd_png(self) -> None:
+        frame = self._current_ccd()
+        if frame is None:
+            self._message.setText("没有已加载的 CCD 帧, 无法导出 (PNG)")
+            return
+        dest = self._pick_save_path(
+            "导出 CCD 帧 · PNG", "ccd.png", "PNG 图片 (*.png);;所有文件 (*)"
+        )
+        if dest is None:
+            return
+        export_ccd_png(dest, frame)
+        self._message.setText(f"已导出 CCD (PNG): {Path(dest).name}")
+
+    def _on_export_ccd_tiff(self) -> None:
+        frame = self._current_ccd()
+        if frame is None:
+            self._message.setText("没有已加载的 CCD 帧, 无法导出 (TIFF)")
+            return
+        dest = self._pick_save_path(
+            "导出 CCD 帧 · TIFF", "ccd.tiff", "TIFF 图片 (*.tif *.tiff);;所有文件 (*)"
+        )
+        if dest is None:
+            return
+        export_ccd_tiff(dest, frame)
+        self._message.setText(f"已导出 CCD (TIFF): {Path(dest).name}")
 
     def closeEvent(self, event: QCloseEvent) -> None:  # Qt 覆写点
         self.stop_playback()

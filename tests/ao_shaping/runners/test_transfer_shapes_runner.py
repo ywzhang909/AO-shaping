@@ -213,6 +213,39 @@ def test_the_new_modules_are_tracked_by_the_repository(path):
         f"{path} is not tracked by git -- add it with `git add {path}`"
     )
 
+def test_resume_allocates_a_fresh_bakeoff_dir_without_touching_failed_evidence(tmp_path):
+    from ao_shaping.runners.slm.transfer_shapes_runner import _bakeoff_attempt_dir
+
+    base = tmp_path / "square_transport"
+    base.mkdir()
+    evidence = base / "square_exposure_read_001.npy"
+    evidence.write_bytes(b"original failed capture")
+
+    retry = _bakeoff_attempt_dir(base, resume=True)
+
+    assert retry == tmp_path / "square_transport_retry01"
+    assert evidence.read_bytes() == b"original failed capture"
+    assert _bakeoff_attempt_dir(base, resume=False) == base
+
+
+def test_resume_reuses_completed_bakeoff_and_skips_incomplete_retries(tmp_path):
+    from ao_shaping.runners.slm.transfer_shapes_runner import _bakeoff_attempt_dir
+
+    base = tmp_path / "square_transport"
+    base.mkdir()
+    (base / "manifest.json").write_text("[]", encoding="utf-8")
+    assert _bakeoff_attempt_dir(base, resume=True) == base
+
+    (base / "manifest.json").unlink()
+    retry01 = tmp_path / "square_transport_retry01"
+    retry01.mkdir()
+    (retry01 / "square_exposure_read_001.npy").write_bytes(b"failed retry")
+    assert _bakeoff_attempt_dir(base, resume=True).name == "square_transport_retry02"
+
+    (retry01 / "manifest.json").write_text("[]", encoding="utf-8")
+    assert _bakeoff_attempt_dir(base, resume=True) == retry01
+
+
 def test_objective_and_weight_schedule_reach_the_plan(tmp_path):
     """Both default to the historical behaviour (cv / constant)."""
     result = CliRunner().invoke(run, ["--out", str(tmp_path / "session"), "--shapes", "square"])

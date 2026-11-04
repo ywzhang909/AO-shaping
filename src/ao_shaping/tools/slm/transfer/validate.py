@@ -10,7 +10,6 @@ never measured. An explicit ``ccd_check`` instead measures sequential A/B
 captures; optional nonmonotone exploration retains a separate best phase.
 """
 from __future__ import annotations
-from loguru import logger
 
 import argparse
 import json
@@ -18,13 +17,14 @@ import pickle
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 
 import numpy as np
+from loguru import logger
 
-
-from ao_shaping.tools.slm.transfer.capture import clock, to_panel
+from ao_shaping.tools.slm.transfer.capture import clock, exposure_setter, to_panel
 from ao_shaping.tools.slm.transfer.device import DEVICE_CHOICES, resolve_device
-from ao_shaping.tools.slm.transfer.light_guard import LightGuard, OpticalPathInvalid
+from ao_shaping.tools.slm.transfer.light_guard import LightGuard, OpticalPathInvalid, verify_light
 # 实时帧的缓存/负载/emit 住在 .live_frame (Qt-free, 测量线程可调); 这里按旧名字
 # 全部再导出 —— 内部调用点、既有测试与 scripts/ 都用这一批名字。
 from ao_shaping.tools.slm.transfer.live_frame import (
@@ -109,6 +109,76 @@ def _milliseconds(**segments: float) -> dict:
 # block_frame_payload / notify_frame / emit_block_frame / _resolve_observer,
 # 并从那里再导出 —— 内部调用点与既有测试用的是同一批名字。
 
+def flat_phase_light_precheck(
+    *,
+    cam: Any,
+    slm: Any,
+    args: Any,
+    observer: Any = None,
+    label: str = "exposure",
+    phase: np.ndarray,
+    floor_ms: float,
+    ceiling_ms: float,
+) -> dict[str, Any]:
+    """Display a flat phase, prove the optical path has light, then restore state.
+
+    The probe is deliberately **full-frame**: the shaping target mask may be dark
+    even when light exists, so it is never used for this decision.  On success
+    and on failure the original shaping phase and exposure are restored in a
+    ``finally`` block; the flat frames are written under their own evidence
+    names and never reuse the shaping frame slots or phase provenance.
+    """
+    from ao_shaping.drivers.ccd.common import get_camera_exposure_ms
+
+    prior_exposure_ms = float(get_camera_exposure_ms(cam))
+    flat_phase = np.zeros_like(phase)
+    flat_reads: list[np.ndarray] = []
+    flat_stamps: list[dict[str, Any]] = []
+
+    def read_flat_frame() -> np.ndarray:
+        raw = np.asarray(cam.get_numpy_image(n_sample=1, skip_first=False)).copy()
+        exposure_ms = float(get_camera_exposure_ms(cam))
+        stamp = dict(**clock(), exposure_ms=exposure_ms)
+        flat_reads.append(raw)
+        flat_stamps.append(stamp)
+        notify_frame(
+            observer,
+            frame_payload(
+                frame=raw,
+                label=f"{label} · 平面相位验光 · 曝光 {exposure_ms:.3f} ms",
+                phase="light_check_flat",
+                frame_index=len(flat_reads),
+            ),
+        )
+        np.save(args.out / f"{label}_flat_light_read_{len(flat_reads):03d}.npy", raw)
+        (args.out / f"{label}_flat_light_reads.json").write_text(
+            json.dumps(flat_stamps, indent=2), encoding="utf-8"
+        )
+        return raw
+
+    np.save(args.out / f"{label}_flat_light_phase.npy", flat_phase)
+    try:
+        gray = slm.create_phase_from_array(to_panel(flat_phase))
+        slm.display_data(gray)
+        time.sleep(.6)
+        return verify_light(
+            read_flat_frame,
+            exposure_setter(cam),
+            floor_ms=float(floor_ms),
+            ceiling_ms=float(ceiling_ms),
+            label=label,
+        )
+    finally:
+        # Both restores are attempted even when one fails. A restore failure
+        # must stop the session rather than meter a shaped target in flat state.
+        try:
+            exposure_setter(cam)(prior_exposure_ms)
+        finally:
+            gray = slm.create_phase_from_array(to_panel(phase))
+            slm.display_data(gray)
+            time.sleep(.6)
+
+
 def run(args, *, on_frame=None):
     """Run the CCD blocks.
 
@@ -162,7 +232,11 @@ def run(args, *, on_frame=None):
     full_scale = float(2**bit_depth - 1)
     counts_scale = float(2**(bit_depth-8))
     # Carrier displacement uses both camera axes. The target is kept away from zero order.
-    shift = np.asarray(params.ramp_matrix)[:, 0]/args.period
+    # ``tilt`` (共享的 `--tilt`) switches that carrier ramped; with it off the target stays
+    # on the zero order and the boundary check below is skipped (no target_xy given).
+    tilt = bool(getattr(args, "tilt", False))
+    aspect_ratio = float(getattr(args, "aspect_ratio", 2.0))
+    shift = np.asarray(params.ramp_matrix)[:, 0]/args.period if tilt else np.zeros(2)
     centre = np.asarray(args.zero_xy)+shift
     if getattr(args, "target_xy", None) is not None:
         centre = np.asarray(args.target_xy, dtype=float)
@@ -174,7 +248,8 @@ def run(args, *, on_frame=None):
         return
     prepared, seed_provenance = [], {}
     for shape in args.shapes:
-        objective = ShapeObjective(target_at(xy, shape, centre, args.side),
+        objective = ShapeObjective(target_at(xy, shape, centre, args.side,
+                                             aspect_ratio=aspect_ratio),
                                    cv_only=getattr(args, "objective", "shape") == "cv",
                                    formation=getattr(args, "objective", "shape") == "formation")
         if getattr(args, "core_margin", None) is not None:
@@ -187,7 +262,13 @@ def run(args, *, on_frame=None):
             if not objective.core.any():
                 raise ValueError("zero-order exclusion removes the complete target core")
         box = objective.box
-        if box[0].any() or box[-1].any() or box[:, 0].any() or box[:, -1].any():
+        # A tilted carrier pushes the target off the zero order, so its box can
+        # run into the camera window and the boundary check is meaningful. With tilt
+        # off the target sits on zero order (centre == zero_xy), can never approach the
+        # edge on its own, and a `shift`-derived displacement no longer exists -- so the
+        # check is skipped unless an explicit target_xy pinned the centre.
+        if (tilt or getattr(args, "target_xy", None) is not None) and (
+                box[0].any() or box[-1].any() or box[:, 0].any() or box[:, -1].any()):
             raise ValueError("target intersects camera window boundary; adjust period/side")
         if args.seed_run:
             from .seeding import accepted_seed
@@ -323,6 +404,21 @@ def run(args, *, on_frame=None):
                 ceiling = min(ceiling, configured)
             exposure = max(floor, .02)
 
+            def _predicted_frame(forward, phase):
+                """Far-field intensity on the camera grid for ``phase``.
+
+                Best-effort like ``notify_frame``: never raises the measurement
+                thread. Intended for per-frame live display; the cost is accepted
+                ("每帧都算"). Returns None when there is no forward or phase.
+                """
+                if forward is None or phase is None:
+                    return None
+                try:
+                    return forward.predict(phase)[0].detach().cpu().numpy()
+                except Exception:  # best-effort, 与 notify_frame 同一语义
+                    logger.warning("frame_payload: predicted far field unavailable, skipping")
+                    return None
+
             def capture(label, phase, objective):
                 start = time.perf_counter()
                 panel = to_panel(phase)
@@ -341,6 +437,8 @@ def run(args, *, on_frame=None):
                     # 观察者是 best-effort 的, 抛异常只会记 warning (notify_frame)。
                     notify_frame(observer, frame_payload(
                         frame=frame, label=label, phase="validate",
+                        phase_grid=phase if phase is not None else None,
+                        predicted=_predicted_frame(forward, phase) if phase is not None else None,
                         frame_index=index + 1, frames_total=args.frames))
                 raw = np.stack(frames)
                 read_done = time.perf_counter()
@@ -397,8 +495,12 @@ def run(args, *, on_frame=None):
 
             try:
                 def tune_exposure(label, phase, start_ms, objective):
-                    slm.display_data(slm.create_phase_from_array(to_panel(phase)))
-                    time.sleep(.6)
+                    # 先用平面相位证明光路有光; 真正无光在这里就失败, 不会把整形
+                    # 掩模的低峰值误判成 blocked。原整形相位与曝光在 helper 的
+                    # finally 中恢复, 随后才基于真实整形相位调曝光。
+                    flat_light = flat_phase_light_precheck(
+                        cam=cam, slm=slm, args=args, observer=observer,
+                        label=label, phase=phase, floor_ms=floor, ceiling_ms=ceiling)
                     exposure_reads, exposure_stamps = [], []
                     np.save(args.out/f"{label}_exposure_phase.npy", phase)
 
@@ -446,6 +548,9 @@ def run(args, *, on_frame=None):
                         ladder_steps = 12
                         guard = LightGuard(label=f"{label}_exposure",
                                            max_steps=ladder_steps)
+                        # Full-frame flat light is the optical-path verdict. A dark
+                        # shaped target must not reclassify it as an early-flat fault.
+                        guard.seen_light = bool(flat_light["ok"])
                         setting = adapt_exposure(cam.reset_exposure_time, read_exposure, start_ms=start_ms,
                                                  floor_ms=floor, ceiling_ms=ceiling, full_scale=full_scale,
                                                  max_steps=ladder_steps, on_step=guard.observe)

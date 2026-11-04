@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from loguru import logger
@@ -100,13 +101,20 @@ def frame_payload(
     frames_total: int = 1,
     remaining: int = 0,
     xy=None,
+    phase_grid: Any = None,
+    predicted: Any = None,
 ) -> dict:
     """One live refresh: a single CCD read, plus whatever progress is known.
 
-    ``phase`` says which stage produced the read -- ``"capture"`` (探针族),
-    ``"exposure"`` (曝光阶梯, 逐档亮度变化是预期的) or ``"validate"`` (锚定块).
-    The GUI labels the frame with it so an exposure sweep is not mistaken for a
-    wavefront change.
+    ``phase`` (a stage name str) says which stage produced the read --
+    ``"capture"`` (探针族), ``"exposure"`` (曝光阶梯, 逐档亮度变化是预期的) or
+    ``"validate"`` (锚定块). The GUI labels the frame with it so an exposure
+    sweep is not mistaken for a wavefront change.
+
+    Optional ``phase_grid`` (current SLM phase mask, e.g. 128x128) and
+    ``predicted`` (far-field intensity from ``forward.predict(phase_grid)`` on the
+    camera sampling grid) let the GUI show the three-panel live view. Both are
+    ``None``-safe and copied so a reused backing buffer is never rewritten.
 
     Deliberately no ``profile_x`` / ``profile_y``: computing those means cost
     8.7 ms per frame on the measurement thread and ``LiveView`` re-derives them
@@ -127,6 +135,8 @@ def frame_payload(
         frame_index=int(frame_index),
         frames_total=int(frames_total),
         remaining=int(remaining),
+        phase_grid=None if phase_grid is None else np.array(phase_grid, copy=True),
+        predicted=None if predicted is None else np.array(predicted, copy=True),
     )
 
 
@@ -165,6 +175,8 @@ def block_frame_payload(
         remaining=int(remaining),
         label=str(label),
         phase="validate",
+        phase_grid=None,
+        predicted=None,
     )
 
 

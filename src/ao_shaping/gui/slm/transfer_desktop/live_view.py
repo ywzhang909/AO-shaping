@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 import numpy as np
-from PySide6.QtCore import QSize, Slot
+from PySide6.QtCore import QSize, Qt, Slot
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 from ao_shaping.gui.ccd.beam_quality.profile_widget import ProfileWidget
 from ao_shaping.gui.ccd.beam_quality.video_widget import VideoWidget
 
-__all__ = ["LiveView", "display_frame", "display_preview"]
+__all__ = ["LiveView", "display_frame", "display_phase", "display_preview"]
 
 #: 大靶面相机的显示降采样步长: 4 ⇒ 分析尺寸 1/16, 坐标用 ``rescaled(4)`` 还原。
 PREVIEW_STEP = 4
@@ -59,6 +59,23 @@ def display_frame(frame: np.ndarray) -> np.ndarray:
     return arr.astype(np.uint8)
 
 
+def display_phase(phase: np.ndarray) -> np.ndarray:
+    """把 SLM 相位网格压成 0..255 的 uint8 视图。
+
+    相位用几何结构最清楚的方式: 先 ``np.mod(phase, 2π)`` 把 rad 值卷到 [0, 2π),
+    再线性映射到 [0, 255] —— 相位不连续即跳变清晰可辨, 也避免 minmax 里
+    离群相位把整幅对比度压死。虚值/全 NaN 平 0。
+    """
+    arr = np.asarray(phase, dtype=np.float64)
+    if arr.ndim == 3:
+        arr = arr[..., 0]
+    arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+    if arr.size == 0:
+        return np.zeros((1, 1), dtype=np.uint8)
+    wrapped = np.mod(arr, 2.0 * np.pi)
+    return (wrapped * (255.0 / (2.0 * np.pi))).astype(np.uint8)
+
+
 def preview_step(shape) -> int:
     """这一帧该按几倍降采样 (1 = 不降采样)。"""
     if len(shape) < 2:
@@ -85,16 +102,44 @@ def display_preview(frame) -> tuple[np.ndarray, int]:
     return display_frame(arr), step
 
 
+class _TitledPanel(QWidget):
+    """标题 + 底层画面的小面板 (供 SLM 相位 / 预测远场两栏复用)。"""
+
+    def __init__(self, title: str, image: VideoWidget, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.image = image
+        self._caption = QLabel(title)
+        self._caption.setStyleSheet("color: #b8b8c6; padding: 2px 2px 0 2px;")
+        self._caption.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+        layout.addWidget(self._caption)
+        layout.addWidget(image, 1)
+
+
 class LiveView(QWidget):
-    """CCD 画面 + X/Y 剖面 + 块进度条 + 帧进度条。"""
+    """CCD 画面 + X/Y 剖面 + SLM 相位 + 预测远场 + 两根进度条。"""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+
+        # —— CCD 栏: 实测画面 + X/Y 剖面 (剖面作为 CCD 栏的附属, 占小头) ——
         self._video = VideoWidget()
         self._video._label.setMinimumSize(QSize(320, 200))
         self._video.setMinimumSize(QSize(320, 200))
         self._profile = ProfileWidget()
         self._profile.setMinimumHeight(140)
+
+        # —— 新面板: SLM 当前相位 / 预测远场 (只读灰度图) ——
+        phase_image = VideoWidget()
+        phase_image._label.setMinimumSize(QSize(200, 200))
+        phase_image.setMinimumSize(QSize(200, 200))
+        self._phase = _TitledPanel("SLM 相位", phase_image)
+        predicted_image = VideoWidget()
+        predicted_image._label.setMinimumSize(QSize(200, 200))
+        predicted_image.setMinimumSize(QSize(200, 200))
+        self._predicted = _TitledPanel("预测远场", predicted_image)
 
         self._info = QLabel("等待第一块采集完成…")
         self._info.setWordWrap(True)
@@ -110,10 +155,18 @@ class LiveView(QWidget):
         self._remaining_bar.setValue(0)
         self._remaining_bar.setFormat("距下次刷新还剩 %v iter")
 
+        # 三栏并排: CCD 栏更大 (视频 + 剖面), 相位 / 预测各占一份。
+        ccd_column = QVBoxLayout()
+        ccd_column.setContentsMargins(0, 0, 0, 0)
+        ccd_column.setSpacing(4)
+        ccd_column.addWidget(self._video, 3)
+        ccd_column.addWidget(self._profile, 2)
+
         frames = QHBoxLayout()
         frames.setSpacing(8)
-        frames.addWidget(self._video, 1)
-        frames.addWidget(self._profile, 1)
+        frames.addLayout(ccd_column, 2)
+        frames.addWidget(self._phase, 1)
+        frames.addWidget(self._predicted, 1)
 
         bars = QHBoxLayout()
         bars.setSpacing(10)
@@ -148,6 +201,10 @@ class LiveView(QWidget):
             metrics = metrics.rescaled(step)
         self._video.set_frame(shown, metrics)
         self._profile.update_metrics(metrics)
+
+        # —— 新增面板: SLM 相位 / 预测远场 (可能缺失或为 None, 容错复位) ——
+        self._render_phase(payload.get("phase_grid"))
+        self._render_predicted(payload.get("predicted"))
 
         blocks_total = int(payload.get("blocks_total", 0) or 0)
         block_index = int(payload.get("block_index", 0) or 0)
@@ -191,10 +248,27 @@ class LiveView(QWidget):
         self._info.setText(f"实时画面：{label} · " + " · ".join(detail))
         self._last_payload = payload
 
+    # ------------------------------------------------------------------ 新面板
+    def _render_phase(self, phase) -> None:
+        """把 SLM 相位网格画进 ``_phase`` 面板; ``None``/缺省 → 空态。"""
+        if phase is None:
+            self._phase.image.clear()
+            return
+        self._phase.image.set_frame(display_phase(phase))
+
+    def _render_predicted(self, predicted) -> None:
+        """把预测远场强度画进 ``_predicted`` 面板; ``None``/缺省 → 空态。"""
+        if predicted is None:
+            self._predicted.image.clear()
+            return
+        self._predicted.image.set_frame(display_frame(predicted))
+
     def clear(self) -> None:
         """会话开始前/结束后回到空态 (不改动 ⑤ 进度表)。"""
         self._video.clear()
         self._profile.clear()
+        self._phase.image.clear()
+        self._predicted.image.clear()
         self._block_bar.setRange(0, 1)
         self._block_bar.setValue(0)
         self._remaining_bar.setRange(0, 1)
