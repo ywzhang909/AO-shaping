@@ -258,6 +258,11 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
             f"Best phase saved    : {save_result.phase_file} "
             "(raw radians; display via Santec.create_phase_from_array)"
         )
+    if save_result.shaped_phase_file is not None:
+        click.echo(
+            f"Shaped phase saved  : {save_result.shaped_phase_file} "
+            "(raw radians; the phase actually uploaded in Step B)"
+        )
     if save_result.geometry_file is not None:
         click.echo(f"Geometry saved      : {save_result.geometry_file}")
     if save_result.image_file is not None:

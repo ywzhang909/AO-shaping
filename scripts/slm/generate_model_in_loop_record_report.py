@@ -19,7 +19,8 @@
         run_config.json           本次运行的全部参数
         bench_geometry.json       实测几何
         fitted_coefficients.npy   Step A 拟合出的像差系数（Noll 序、弧度）
-        best_phase.npy            落盘的最佳 SLM 相位（raw 未包裹弧度）
+        best_phase.npy            落盘的最佳 SLM 相位（raw 未包裹弧度）—— 最终采纳下发相位，bake-off 被拒时是全零平场
+        shaped_phase.npy          Step B 实际下发的那条整形相位（raw 未包裹弧度；有 shaped 探针才写盘）
         source_amplitude.npy      标定出的瞳面照明幅度
         probes/manifest.json      逐探针清单
         probes/round_XX_*.npz     逐探针（相位 / 原始帧 / 处理后帧 / 模型网格 / 预测）
@@ -204,6 +205,7 @@ class RunBundle:
     rows: list[dict[str, str]]
     coefficients: np.ndarray | None
     best_phase: np.ndarray | None
+    shaped_phase: np.ndarray | None
     source_amplitude: np.ndarray | None
     flat_frame: np.ndarray | None
     probes: list[ProbeEntry]
@@ -940,6 +942,7 @@ def load_run(run_dir: Path, stamp: str) -> RunBundle:
         rows=rows,
         coefficients=_load_npy(run_dir / "fitted_coefficients.npy"),
         best_phase=_load_npy(run_dir / "best_phase.npy"),
+        shaped_phase=_load_npy(run_dir / "shaped_phase.npy"),
         source_amplitude=_load_npy(run_dir / "source_amplitude.npy"),
         flat_frame=flat_frame,
         probes=probes,
@@ -1015,6 +1018,33 @@ def _shaped_probe(bundle: RunBundle) -> ProbeEntry | None:
     return shaped[-1] if shaped else None
 
 
+def _shaped_phase(bundle: RunBundle) -> np.ndarray | None:
+    """Step B 实际下发的那条整形相位（raw 弧度）。
+
+    优先读根目录新落盘的 ``shaped_phase.npy``（与保存端同一口径，float64）；没有时
+    回退到最后一个 ``split == "shaped"`` 的 probe 相位。两者都缺时返回 ``None``，
+    用于区分「真有非零整形相位」与「bake-off 被拒 / 从未合成整形相位」。
+    """
+    if bundle.shaped_phase is not None:
+        return np.asarray(bundle.shaped_phase, dtype=np.float64)
+    shaped = _shaped_probe(bundle)
+    return np.asarray(shaped.phase, dtype=np.float64) if shaped is not None else None
+
+
+def _shaped_source_label(bundle: RunBundle) -> str:
+    """整形相位的实际来源：新根文件 ``shaped_phase.npy`` 或历史 probe 回退。
+
+    报告只按数据说来源，绝不把 probe 回退的相位说成来自 ``shaped_phase.npy``。
+    返回 ``None`` 表示没有可用来源（此时 ``_shaped_phase`` 也是 ``None``）。
+    """
+    if bundle.shaped_phase is not None:
+        return "shaped_phase.npy"
+    probe = _shaped_probe(bundle)
+    if probe is not None:
+        return probe.name
+    return "未记录"
+
+
 def _probe_order(bundle: RunBundle) -> list[ProbeEntry]:
     """探针的展示顺序：平场 → 训练 → 验证集 → 整形。"""
     order = {"flat": 0, "train": 1, "holdout": 2, "shaped": 3}
@@ -1044,12 +1074,12 @@ def _consistency(bundle: RunBundle) -> dict[str, Any]:
         return out
     out["aberration_rms"] = _rms(aberration, aperture)
     out["aperture_px"] = int(aperture.sum())
-    shaped = _shaped_probe(bundle)
+    shaped = _shaped_phase(bundle)
     if shaped is not None:
-        residual = shaped.phase + aberration
-        out["shaped_rms"] = _rms(shaped.phase, aperture)
+        residual = shaped + aberration
+        out["shaped_rms"] = _rms(shaped, aperture)
         out["residual_rms"] = _rms(residual, aperture)
-        out["correlation"] = _pearson(shaped.phase, -aberration)
+        out["correlation"] = _pearson(shaped, -aberration)
     if bundle.best_phase is not None:
         best = np.asarray(bundle.best_phase, dtype=np.float64)
         if best.shape == aberration.shape:
@@ -1230,10 +1260,10 @@ def _phase_stats(phase: np.ndarray, mask: np.ndarray | None = None) -> str:
 
 
 def figure_phase(bundle: RunBundle, path: Path) -> Path:
-    """最佳 SLM 相位图 + 统计标注 + 与像差的残余。"""
+    """SLM 相位三联图：最终采纳相位 / Step B 实际下发整形相位 / 残余。"""
     fig, axes = plt.subplots(1, 3, figsize=(15, 5.0))
     aberration, aperture = _aberration_phase(bundle)
-    shaped = _shaped_probe(bundle)
+    shaped = _shaped_phase(bundle)
 
     if bundle.best_phase is not None:
         best = np.asarray(bundle.best_phase, dtype=np.float64)
@@ -1247,19 +1277,27 @@ def figure_phase(bundle: RunBundle, path: Path) -> Path:
         axes[0].axis("off")
 
     if shaped is not None:
-        title = "Step B 合成的相位（实测下发）"
-        outside = _rms(shaped.phase, None if aperture is None else ~aperture)
+        title = "Step B 实际下发整形相位"
+        if bundle.shaped_phase is not None:
+            title = "Step B 下发整形相位 shaped_phase.npy"
+        else:
+            probe = _shaped_probe(bundle)
+            if probe is not None:
+                title += f"\n来源：探针 {probe.name}"
+        outside = _rms(shaped, None if aperture is None else ~aperture)
         if outside is not None:
             title += f"\n瞳面外 RMS {outside:.3f} rad（照明盘之外，模型里被掩膜）"
-        _imshow_phase(axes[1], shaped.phase, title)
-        axes[1].set_xlabel(_phase_stats(shaped.phase, aperture), fontsize=10)
+        _imshow_phase(axes[1], shaped, title)
+        axes[1].set_xlabel(_phase_stats(shaped, aperture), fontsize=10)
     else:
-        axes[1].text(0.5, 0.5, f"Step B 合成相位\n{MISSING}", ha="center", va="center")
+        axes[1].text(
+            0.5, 0.5, f"Step B 下发整形相位\n{MISSING}", ha="center", va="center"
+        )
         axes[1].axis("off")
 
     if aberration is not None and shaped is not None:
-        residual = shaped.phase + aberration
-        _imshow_phase(axes[2], residual, "残余瞳面相位 = 合成相位 + 像差")
+        residual = shaped + aberration
+        _imshow_phase(axes[2], residual, "残余瞳面相位 = 整形相位 + 像差")
         axes[2].set_xlabel(_phase_stats(residual, aperture), fontsize=10)
     else:
         axes[2].text(0.5, 0.5, f"残余瞳面相位\n{MISSING}", ha="center", va="center")
@@ -2157,11 +2195,24 @@ def build_report(
         )
     lines.append("")
     if bundle.status == "bake_off_rejected":
+        shaped_phase_present = _shaped_phase(bundle) is not None
+        if not shaped_phase_present:
+            shaped_note = "本次运行没有落盘 Step B 下发整形相位（见 §5）。"
+        elif bundle.shaped_phase is not None:
+            shaped_note = "真正合成并下发的整形相位落在 `shaped_phase.npy`（见 §5）。"
+        else:
+            probe = _shaped_probe(bundle)
+            probe_name = probe.name if probe is not None else MISSING
+            shaped_note = (
+                "真正合成并下发的整形相位来自历史目录的探针 "
+                f"`{probe_name}`（无 `shaped_phase.npy`，见 §5）。"
+            )
         lines.append(
             "**没有提交相位的原因**：最终对比择优判定整形相位没有打赢平场"
             f"（{fmt_metric(shaped_score)} ≤ {fmt_metric(flat_score)}），于是保留平场，"
             "运行状态置为 `bake_off_rejected`。因此落盘的 `best_phase.npy` 是**全零的平场相位**，"
             "它不是「整形失败后随便存的一个相位」，而是「择优之后仍然选中的那一个」。"
+            + shaped_note
         )
     else:
         lines.append(
@@ -2358,11 +2409,12 @@ def build_report(
     # --- 5. SLM 相位 -------------------------------------------------------
     lines.append("## 5. SLM 相位与一致性检查")
     lines.append("")
+    shaped_phase = _shaped_phase(bundle)
     if bundle.best_phase is not None:
         best = np.asarray(bundle.best_phase, dtype=np.float64)
         lines.append(
-            f"落盘的最佳相位 `best_phase.npy`（raw 未包裹弧度，"
-            f"{best.shape[0]}×{best.shape[1]}）："
+            f"最终采纳相位 `best_phase.npy`（raw 未包裹弧度，"
+            f"{best.shape[0]}×{best.shape[1]}，即**最后确立下发**的那一个）："
             f"min {best.min():+.6f} rad、max {best.max():+.6f} rad、"
             f"RMS {float(np.sqrt(np.mean(best**2))):.6f} rad。"
             + (
@@ -2371,8 +2423,55 @@ def build_report(
                 else ""
             )
         )
+        if shaped_phase is not None:
+            shaped = np.asarray(shaped_phase, dtype=np.float64)
+            source = _shaped_source_label(bundle)
+            same_as_best = (
+                shaped.shape == best.shape and float(np.abs(shaped - best).max()) == 0
+            )
+            if same_as_best:
+                lines.append(
+                    "Step B 实际下发整形相位与最终采纳的 `best_phase.npy` **内容一致**"
+                    "（本运行整形相位通过了对比择优，`best_phase.npy` 就是真正下发的整形相位）。"
+                )
+            else:
+                lines.append(
+                    "Step B 实际下发整形相位"
+                    + (f" `{source}`" if source != "未记录" else "")
+                    + "（raw 未包裹弧度，"
+                    f"{shaped.shape[0]}×{shaped.shape[1]}）："
+                    f"min {shaped.min():+.6f} rad、max {shaped.max():+.6f} rad、"
+                    f"RMS {float(np.sqrt(np.mean(shaped**2))):.6f} rad。"
+                )
+                if bundle.status == "bake_off_rejected":
+                    if bundle.shaped_phase is not None:
+                        lines.append(
+                            "本运行 `bake_off_rejected`：整形相位**没有**通过对比择优，"
+                            "所以最终采纳相位 `best_phase.npy` 是**全零平场**，而"
+                            "`shaped_phase.npy` 才是 Step B 真正合成并下发的整形相位（两者不同）。"
+                        )
+                    else:
+                        probe = _shaped_probe(bundle)
+                        probe_name = probe.name if probe is not None else MISSING
+                        lines.append(
+                            "本运行 `bake_off_rejected`：整形相位**没有**通过对比择优，"
+                            "所以最终采纳相位 `best_phase.npy` 是**全零平场**，而"
+                            "真正合成并下发的整形相位来自探针 "
+                            f"`{probe_name}`（历史目录无 `shaped_phase.npy`，两者不同）。"
+                        )
     else:
-        lines.append(f"落盘的最佳相位：{MISSING}。")
+        lines.append(f"最终采纳相位：{MISSING}。")
+        if shaped_phase is not None:
+            shaped = np.asarray(shaped_phase, dtype=np.float64)
+            source = _shaped_source_label(bundle)
+            lines.append(
+                "Step B 实际下发整形相位"
+                + (f" `{source}`" if source != "未记录" else "")
+                + "（raw 未包裹弧度，"
+                f"{shaped.shape[0]}×{shaped.shape[1]}）："
+                f"min {shaped.min():+.6f} rad、max {shaped.max():+.6f} rad、"
+                f"RMS {float(np.sqrt(np.mean(shaped**2))):.6f} rad。"
+            )
     lines.append("")
     lines.append("### 5.1 与 Step A 拟合像差的关系（一致性检查）")
     lines.append("")
@@ -2405,10 +2504,19 @@ def build_report(
     lines.append(markdown_table(["项", "取值"], consistency_rows))
     lines.append("")
     if consistency.get("residual_rms") is not None:
+        zero_best = (
+            bundle.best_phase is not None
+            and float(np.abs(np.asarray(bundle.best_phase, dtype=np.float64)).max()) == 0
+        )
         lines.append(
             "**读法**：本次运行 Step B 的目标是**矩形**而不是平坦，所以残余瞳面相位**不会**为 0；"
             "上面三个数给出的是「相位里有多少是像差抵消、多少是整形结构」的实际比例。"
-            "落盘最佳相位是全零的平场，所以它的「残余」就是像差本身。"
+            + (
+                "最终采纳相位 `best_phase.npy` 是全零平场，所以它的「残余」就是像差本身；"
+                "shaped 相位的残余才是整形真实留下的那部分。"
+                if zero_best
+                else ""
+            )
         )
     else:
         lines.append(f"一致性检查：{MISSING}。")

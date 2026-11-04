@@ -187,3 +187,124 @@ class TestPlotPibDebugGrid:
 
         assert out.exists()
         assert out.stat().st_size > 0
+
+
+class TestSaveModelInLoopShapedPhase:
+    """``save_model_in_loop_results`` persists the Step B shaped phase to
+    ``shaped_phase.npy`` (in addition to ``best_phase.npy``) when a shaped
+    probe was really dropped, and never fabricates one otherwise."""
+
+    def _result(self, probe_records, *, best_phase):
+        from ao_shaping.optimizer.wfless.slm_model_in_loop import (
+            ModelInLoopResult,
+            SlmModelInLoopConfig,
+        )
+        from ao_shaping.utils.io.file import Recorder
+
+        config = SlmModelInLoopConfig(
+            region=64,
+            far_field_padding=4,
+            panel_span_px=900.0,
+        )
+        return ModelInLoopResult(
+            recorder=Recorder(),
+            status="bake_off_rejected",
+            best_phase=np.asarray(best_phase),
+            best_frame=None,
+            geometry=None,
+            target_side_camera=60,
+            target_side_model=30,
+            flat_score=0.5,
+            best_score=0.3,
+            config=config,
+            probe_records=probe_records,
+        )
+
+    def _params(self, *, debug):
+        from ao_shaping.runners.runner_common import SlmModelInLoopParams
+
+        params = SlmModelInLoopParams()
+        return params
+
+    def test_zero_best_and_nonzero_shaped_are_both_written(self, tmp_path):
+        """A rejected bake-off still writes the real shaped phase."""
+        from ao_shaping.runners.runner_common import save_model_in_loop_results
+
+        shaped = np.ones((64, 64), dtype=np.float64) * 0.7
+        result = self._result(
+            [
+                {"round": 1, "split": "shaped", "index": 0, "phase": shaped},
+                {"round": 1, "split": "flat", "index": 0, "phase": np.zeros((64, 64))},
+            ],
+            best_phase=np.zeros((64, 64)),
+        )
+        saved = save_model_in_loop_results(
+            result,
+            self._params(debug=True),
+            root_dir=tmp_path,
+            debug=True,
+        )
+        best_file = saved.phase_file
+        shaped_file = saved.shaped_phase_file
+        assert best_file is not None and best_file.name == "best_phase.npy"
+        assert shaped_file is not None and shaped_file.name == "shaped_phase.npy"
+        assert best_file.is_file() and shaped_file.is_file()
+        assert np.load(best_file).dtype == np.float64
+        assert np.load(shaped_file).dtype == np.float64
+        np.testing.assert_allclose(np.load(best_file), np.zeros((64, 64)))
+        np.testing.assert_allclose(np.load(shaped_file), shaped)
+
+    def test_no_shaped_probe_does_not_write_a_shaped_file(self, tmp_path):
+        """No shaped probe -> no fabricated shaped_phase.npy."""
+        from ao_shaping.runners.runner_common import save_model_in_loop_results
+
+        result = self._result([], best_phase=np.zeros((64, 64)))
+        saved = save_model_in_loop_results(
+            result,
+            self._params(debug=True),
+            root_dir=tmp_path,
+            debug=True,
+        )
+        assert saved.shaped_phase_file is None
+        assert not (saved.save_dir / "shaped_phase.npy").exists()
+        # best_phase is still written as before.
+        assert saved.phase_file is not None and saved.phase_file.is_file()
+        np.testing.assert_allclose(np.load(saved.phase_file), np.zeros((64, 64)))
+
+    def test_shaped_probe_without_phase_does_not_write(self, tmp_path):
+        """A shaped probe carrying no phase must not trigger a write."""
+        from ao_shaping.runners.runner_common import save_model_in_loop_results
+
+        result = self._result(
+            [{"round": 1, "split": "shaped", "index": 0}],
+            best_phase=np.zeros((64, 64)),
+        )
+        saved = save_model_in_loop_results(
+            result,
+            self._params(debug=True),
+            root_dir=tmp_path,
+            debug=True,
+        )
+        assert saved.shaped_phase_file is None
+        assert not (saved.save_dir / "shaped_phase.npy").exists()
+
+    def test_last_shaped_probe_wins(self, tmp_path):
+        """The LAST shaped probe's phase is what ends up on disk."""
+        from ao_shaping.runners.runner_common import save_model_in_loop_results
+
+        first = np.ones((64, 64)) * 0.2
+        last = np.ones((64, 64)) * 0.9
+        result = self._result(
+            [
+                {"round": 1, "split": "shaped", "index": 0, "phase": first},
+                {"round": 2, "split": "shaped", "index": 0, "phase": last},
+            ],
+            best_phase=np.zeros((64, 64)),
+        )
+        saved = save_model_in_loop_results(
+            result,
+            self._params(debug=True),
+            root_dir=tmp_path,
+            debug=True,
+        )
+        np.testing.assert_allclose(np.load(saved.shaped_phase_file), last)

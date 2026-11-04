@@ -17,6 +17,7 @@ from loguru import logger
 import csv
 import json
 import pickle
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -26,6 +27,51 @@ from ao_shaping.utils.image.targets import square_mask
 from ao_shaping.utils.io.recorder_keys import (
     RECORD_IMAGE,
 )
+
+
+# ---------------------------------------------------------------------------
+# Aggregation helpers
+# ---------------------------------------------------------------------------
+
+_METRIC_KEYS = ("score", "pib", "cv", "shape_iou", "frame_peak")
+
+
+def _aggregate_grouped(summary: list[dict]) -> list[dict]:
+    """Aggregate measurements by (gs_method, stage).
+
+    Returns a list of dicts with keys:
+      - gs_method
+      - stage
+      - n  (number of independent runs contributing)
+      - metrics: {metric_name: {"mean": float, "std": float|None}}
+        where std is None when n == 1 (no error bar), else sample std (ddof=1).
+    """
+    groups: dict[tuple[str, str], dict[str, list[float]]] = defaultdict(
+        lambda: {k: [] for k in _METRIC_KEYS}
+    )
+    for run in summary:
+        gs_method = run["gs_method"]
+        for m in run["measurements"]:
+            key = (gs_method, m["stage"])
+            for mk in _METRIC_KEYS:
+                groups[key][mk].append(m[mk])
+
+    result = []
+    for (gs_method, stage), vals in sorted(groups.items()):
+        n = len(vals[_METRIC_KEYS[0]])
+        metrics_out = {}
+        for mk in _METRIC_KEYS:
+            v = vals[mk]
+            mean_val = float(np.mean(v))
+            std_val = float(np.std(v, ddof=1)) if n > 1 else None
+            metrics_out[mk] = {"mean": mean_val, "std": std_val}
+        result.append({
+            "gs_method": gs_method,
+            "stage": stage,
+            "n": n,
+            "metrics": metrics_out,
+        })
+    return result
 
 
 def summarize_run(run_dir: Path) -> dict:
@@ -71,8 +117,13 @@ def main() -> None:
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     summary = [summarize_run(path) for path in args.run_dirs]
+    grouped = _aggregate_grouped(summary)
+    payload = {
+        "runs": summary,
+        "grouped": grouped,
+    }
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    args.output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     logger.info(args.output)
 
 

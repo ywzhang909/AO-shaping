@@ -3346,11 +3346,18 @@ class GsRefineSaveResult:
 
 @dataclass
 class ModelInLoopSaveResult:
-    """``save_model_in_loop_results`` 的落盘产物路径。"""
+    """``save_model_in_loop_results`` 的落盘产物路径。
+
+    ``phase_file`` 是最终采纳下发相位（``best_phase.npy``）—— 对比择优被拒时它是
+    全零的平场相位。``shaped_phase_file`` 是 Step B 实际下发的那条整形相位
+    （``split == "shaped"`` 的最后一条探针，``shaped_phase.npy``）；只有当 probe
+    records 里真有形状化探针时才写盘，否则为 ``None``。
+    """
 
     save_dir: Path
     csv_file: Path
     phase_file: Path | None
+    shaped_phase_file: Path | None
     geometry_file: Path | None
     image_file: Path | None
     recorder_png: Path
@@ -4056,6 +4063,21 @@ def save_model_in_loop_results(
     if best_phase is not None:
         phase_file = save_dir / "best_phase.npy"
         np.save(phase_file, np.asarray(best_phase, dtype=np.float64))
+
+    # The phase actually written to the SLM during Step B (split == "shaped"),
+    # the LAST such dropped probe. best_phase.npy is the phase finally ADOPTED
+    # (rolls back to a flat zero field when bake-off fails), which is NOT the
+    # shaping phase that was really uploaded. The two differ exactly when
+    # bake_off_rejected.  Only written when a shaped probe with a phase exists —
+    # never fabricate an empty file.
+    shaped_phase_file = None
+    shaped_phase = None
+    for record in result.probe_records:
+        if record.get("split") == "shaped" and record.get("phase") is not None:
+            shaped_phase = record["phase"]
+    if shaped_phase is not None:
+        shaped_phase_file = save_dir / "shaped_phase.npy"
+        np.save(shaped_phase_file, np.asarray(shaped_phase, dtype=np.float64))
     blaze_params = getattr(result, "blaze_params", None)
     if best_phase is not None and blaze_params is not None:
         from ao_shaping.tools.kernels.bench_kernels import phase_to_panel
@@ -4162,6 +4184,7 @@ def save_model_in_loop_results(
         save_dir=save_dir,
         csv_file=csv_file,
         phase_file=phase_file,
+        shaped_phase_file=shaped_phase_file,
         geometry_file=geometry_file,
         image_file=image_file,
         recorder_png=recorder_png,
