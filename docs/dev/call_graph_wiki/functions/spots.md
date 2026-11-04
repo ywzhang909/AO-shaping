@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: function
 tags: [image,spots,utils]
-source: src/ao_shaping/utils/image/spots_calc.py:218
+source: src/ao_shaping/utils/image/spots_calc.py:228
 ---
 
 ## 签名

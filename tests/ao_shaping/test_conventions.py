@@ -2163,7 +2163,14 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
 #: arrived already judged -- the marked-count ratchet below is still zero -- so this raise
 #: records the integrated measurement rather than blessing new undecided catches. Reason
 #: recorded in TODO.md section 8.9.
-_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 347
+#: Raised 347 -> 377 on 2026-11-03 (measured on fac26e1a against the a5dd02e8 baseline): the
+#: transfer-desktop / beam-quality workstream brought 32 handlers in ten files (frame_source 12,
+#: hardware_check 5, beam_quality/app 3, live_frame 2, transfer_desktop/page 2, santec/probe 2,
+#: ccd/base 2, slm_gs_refine 1, check_task 1, analyzer 1, _cublas_preload 1) while
+#: multi_slm_controller lost 2, for a net 347 -> 377. Every one of the 32 arrived already
+#: judged -- the marked-count ratchet below is still zero -- so this raise again records the
+#: integrated measurement rather than blessing new undecided catches. Reason in TODO.md 8.9.
+_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 377
 
 #: Second ratchet over the same population: a broad catch that has actually been *judged*
 #: carries a ``# policy:`` marker naming what the layer is protecting -- within two lines
@@ -3004,6 +3011,9 @@ _UNEMITTED_FINAL_SECTIONS: dict[str, str] = {
     'report/slm_pib_heuristic_hw/slm_pib_heuristic_hw_report/report.md': '### 5. 原始产物',
     'report/slm_zernike_shaping/slm_zernike_shaping_report/report.md': '## 4. SPGD',
     'report/zernike_r2_baseline/pod_ridge/report.md': '### 若仍要继续,建议的顺序',
+    'report/shape_trials/fov_generalization/fov_generalization_20261101.md': '## 附录 B. 原始产物契约',
+    'report/shape_trials/mask_closed_loop/mask_closed_loop_20261031.md': '## 6. 归因与边界',
+    'report/slm/gs_control_1000px/report.md': '## 9 本次运行的边界（写清楚，避免被引用成结论）',
 }
 
 

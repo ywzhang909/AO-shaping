@@ -254,10 +254,20 @@ def test_run_shape_trial_rejects_mismatched_target_grid() -> None:
 
 
 def test_run_shape_trial_improves_on_a_synthetic_twin() -> None:
-    """On a ground-truth twin all arms run and opt_finetune improves."""
-    device, model = _twin(amplitude=0.2, seed=12345)
+    """On a ground-truth twin all arms run and opt_finetune improves.
+
+    The twin's aberration must be large enough -- and the per-round refit budget
+    must stay at the module default -- for the *measured* gain to clear
+    ``min_gain``.  With the fast ``fit_iters=25`` used elsewhere in this file the
+    refit recovers only part of the true map and the device gain comes out
+    negative (~-0.8%), so the acceptance guard rejects every round and
+    ``final == start``; that is the guard working, not the loop improving.  At
+    ``amplitude=0.3`` / ``fit_iters=120`` both rounds are accepted on the device
+    (+9.5%, +11.5%): objective 1.5334 -> 1.2287, EE 0.3801 -> 0.5413.
+    """
+    device, model = _twin(amplitude=0.3, seed=12345)
     target = _ring_target()
-    config = _loop_config()
+    config = _loop_config(fit_iters=120)
     result = run_shape_trial(device, model, target, config=config)
 
     # The flat baseline is static: one measurement, no rounds.

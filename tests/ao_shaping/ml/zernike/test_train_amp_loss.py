@@ -153,14 +153,21 @@ def test_mse_path_is_bit_identical_to_the_hard_captured_reference(tmp_path):
     """Non-regression anchor for the incumbent objective.
 
     Any change to the default optimisation path -- an added term, a reordered
-    statement, a different reduction -- moves these coefficients and fails.
+    statement, a different reduction -- moves these coefficients and fails: the
+    ``loss="physical"`` arm shifts them by 6.2e-2, sixty thousand times the bound.
+
+    The comparison is 1e-6 rather than bit-equality because the reference is a
+    capture from one numeric stack: it reproduces exactly on the dev box and
+    drifts 1.2e-8 on the GitHub runner (float32 reduction order), the same drift
+    the comment above ``_MSE_REFERENCE_COEFFICIENTS`` already treats as a
+    reviewable re-pin rather than corpus drift.
     """
     index = _synthetic_corpus(tmp_path)
     result = train(_base_cfg(index, tmp_path))
     got = np.asarray(result.coefficients, dtype=np.float64)
     expected = np.asarray(_MSE_REFERENCE_COEFFICIENTS, dtype=np.float64)
     assert got.shape == expected.shape
-    np.testing.assert_array_equal(got, expected)
+    np.testing.assert_allclose(got, expected, rtol=0.0, atol=1e-6)
 
 
 def test_physical_loss_changes_the_solution_away_from_the_mse_one(tmp_path):

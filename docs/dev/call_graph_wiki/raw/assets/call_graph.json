@@ -654,8 +654,8 @@
    "qualname": "radius",
    "module": "ao_shaping.utils.image.spots_calc",
    "file": "src/ao_shaping/utils/image/spots_calc.py",
-   "lineno": 376,
-   "end": 436,
+   "lineno": 386,
+   "end": 446,
    "args": [
     "intensity",
     "center",
@@ -783,8 +783,8 @@
    "qualname": "make_coord",
    "module": "ao_shaping.utils.image.spots_calc",
    "file": "src/ao_shaping/utils/image/spots_calc.py",
-   "lineno": 251,
-   "end": 259,
+   "lineno": 261,
+   "end": 269,
    "args": [
     "img"
    ],
@@ -901,8 +901,8 @@
    "qualname": "centroid",
    "module": "ao_shaping.utils.image.spots_calc",
    "file": "src/ao_shaping/utils/image/spots_calc.py",
-   "lineno": 218,
-   "end": 235,
+   "lineno": 228,
+   "end": 245,
    "args": [
     "intensity",
     "moment",
@@ -2393,8 +2393,8 @@
    "qualname": "power_in_bucket_mask",
    "module": "ao_shaping.utils.image.spots_calc",
    "file": "src/ao_shaping/utils/image/spots_calc.py",
-   "lineno": 515,
-   "end": 533,
+   "lineno": 525,
+   "end": 543,
    "args": [
     "img",
     "mask"
@@ -2407,8 +2407,8 @@
    "qualname": "pib_ratio_mask",
    "module": "ao_shaping.utils.image.spots_calc",
    "file": "src/ao_shaping/utils/image/spots_calc.py",
-   "lineno": 536,
-   "end": 553,
+   "lineno": 546,
+   "end": 563,
    "args": [
     "img",
     "mask",
@@ -2798,8 +2798,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 397,
-   "end": 662,
+   "lineno": 723,
+   "end": 789,
    "args": [
     "out_dir",
     "shapes",

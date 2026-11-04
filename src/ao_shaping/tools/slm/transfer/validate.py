@@ -396,6 +396,176 @@ def run(args, *, on_frame=None):
     # explicit at the call site instead of becoming an invisible default.
     writer = _CaptureWriter() if getattr(args, "async_capture_write", False) else None
     camera_options = {"bit_depth": bit_depth} if args.camera == "daheng" else {}
+    _run_validate_session(
+        DifferentiableUniformityOptimizer=DifferentiableUniformityOptimizer,
+        Santec=Santec,
+        abba=abba,
+        adapt_exposure=adapt_exposure,
+        args=args,
+        bit_depth=bit_depth,
+        blocks_for=blocks_for,
+        camera_options=camera_options,
+        configured_daheng_exposure_limit=configured_daheng_exposure_limit,
+        counts_scale=counts_scale,
+        create_camera=create_camera,
+        device=device,
+        explore_temperature=explore_temperature,
+        forward=forward,
+        full_scale=full_scale,
+        get_camera_exposure_ms=get_camera_exposure_ms,
+        get_camera_exposure_range=get_camera_exposure_range,
+        iterations=iterations,
+        last_phase=last_phase,
+        objective=objective,
+        observer=observer,
+        phase=phase,
+        prepared=prepared,
+        recorder=recorder,
+        recording=recording,
+        records=records,
+        resume=resume,
+        save_summary=save_summary,
+        summary_entries=summary_entries,
+        torch=torch,
+        writer=writer,
+        xy=xy,
+    )
+
+    # Every capture has been taken; wait for the queued writes before anything
+    # reads a capture back (records export, replay, a later stage's seed).
+    if writer is not None:
+        writer.close()
+
+    # Table first, animation second: a GIF failure must never cost a measured
+    # run, and both are written with the devices already released.
+    if recorder.history:
+        try:
+            recording.save_records(recorder, args.out/"recording", mark="process",
+                                   gif_name="process.gif", fps=2.0,
+                                   title=f"{args.mode} — {','.join(args.shapes)} "
+                                         f"(逐 CCD 块, {bit_depth} bit)")
+        except Exception as exc:  # a rendering defect must not fail the session
+            logger.warning("process recording export failed: {}", exc)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--checkpoint", type=Path, required=True, help="frozen_parameters.json")
+    parser.add_argument("--camera", default="daheng")
+    parser.add_argument("--cam-id", type=int, default=0)
+    parser.add_argument("--bit-depth", type=int, choices=(8, 12), default=8)
+    parser.add_argument("--slm-number", type=int, default=1)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--zero-xy", type=float, nargs=2, required=True)
+    parser.add_argument("--target-xy", type=float, nargs=2, help="Freeze target centre independently of updated ramp geometry")
+    parser.add_argument("--period", type=float, default=64.)
+    parser.add_argument("--side", type=float, default=80.)
+    parser.add_argument("--window-span", type=float, default=220., help="Camera window half-span in physical CCD pixels")
+    parser.add_argument("--window-step", type=float, default=2., help="Camera sampling step in physical CCD pixels")
+    parser.add_argument("--zero-radius", type=float, default=0., help="Exclude a fixed measured zero-order disk from core CV (CCD px)")
+    parser.add_argument("--core-margin", type=float, help="Physical CCD pixel erosion; default is two sampling cells")
+    parser.add_argument("--meter-target", action="store_true", help="Meter target core; permit saturation outside the core and retain full raw frames")
+    parser.add_argument("--shapes", nargs="+", choices=TRANSFER_SHAPE_CHOICES, default=list(TRANSFER_SHAPE_CHOICES))
+    parser.add_argument("--blocks", type=int, default=2)
+    parser.add_argument("--updates", type=int, default=10)
+    parser.add_argument("--frames", type=int, default=3)
+    parser.add_argument("--profile-timing", action="store_true",
+                        help="Write a per-capture `timing` split (slm_write/settle/read/reduce/save, ms) "
+                             "into every manifest row. Measurement only; no capture changes.")
+    parser.add_argument("--async-capture-write", action="store_true",
+                        help="Overlap the capture npz write with the next capture's SLM settle. "
+                             "Off by default so a campaign's lanes stay comparable.")
+    parser.add_argument("--mode", choices=("model", "anchored"), default=None,
+                        help="Accepted-phase continuation defaults to anchored; cold synthesis defaults to model")
+    parser.add_argument("--seed-run", type=Path, help="Replay accepted phases; exact grid/target match required")
+    parser.add_argument("--seed-policy", choices=("strict", "transfer"), default="strict")
+    parser.add_argument("--initial-phase", choices=("gs", "plane", "random", "transport", "backprojection"), default="gs")
+    parser.add_argument("--random-seed", type=int, default=102626)
+    parser.add_argument("--phase-lr", type=float, default=.01)
+    parser.add_argument("--phase-rms-cap", type=float, default=.2)
+    parser.add_argument("--adaptive-step", action="store_true", help="Shrink learning rate after CCD rejection")
+    parser.add_argument("--adaptive-exposure", action="store_true", help="Re-meter between optimization blocks; each A/B block stays at one exposure")
+    parser.add_argument("--fixed-exposure-ms", type=float, help="Use a specified exposure within current session limits")
+    parser.add_argument("--exploration-temperature", type=float, default=0., help="Absolute CV Metropolis temperature; zero retains strict acceptance")
+    parser.add_argument("--exploration-budget", type=float, default=.25, help="Maximum relative CV degradation from retained champion")
+    parser.add_argument("--exploration-window", type=int, default=4, help="Restore champion after this many exploration blocks")
+    parser.add_argument("--accept-metric", choices=("loss", "cv"), default="loss")
+    parser.add_argument("--objective", choices=("shape", "cv", "formation"), default="shape")
+    parser.add_argument("--no-abba", dest="abba", action="store_false",
+                        help="Skip the A–B–B–A blocks; accept on the model loss only (no CCD verdict)")
+    parser.add_argument("--abba", dest="abba", action="store_true", help="Enable optional four-capture CCD acceptance")
+    parser.add_argument("--ccd-check", action="store_true", help="Compare one same-exposure CCD candidate with its anchor, without ABBA drift cancellation")
+    parser.set_defaults(abba=False)
+    parser.add_argument("--device", choices=DEVICE_CHOICES, default="auto",
+                        help="auto = CUDA when available else CPU; cpu pins the historical numbers")
+    parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--plan-only", action="store_true",
+                        help="Without a device: write plan.json (frozen/todo/estimate) into a new --out, then stop")
+    parser.add_argument("--resume", action="store_true",
+                        help="Re-enter an existing --out: measure only the missing block groups")
+    args = parser.parse_args()
+    args.mode = args.mode or ("anchored" if args.seed_run or args.initial_phase != "gs" else "model")
+    if args.seed_run and args.initial_phase != "gs":
+        parser.error("--seed-run cannot be combined with a cold --initial-phase")
+    if args.phase_lr <= 0 or args.phase_rms_cap <= 0 or args.period < 4 or args.side <= 0 or min(args.blocks, args.updates, args.frames) < 1:
+        parser.error("invalid sampling or iteration parameters")
+    # 光路无光是预期状态: 报实测数字 + 退出码 3, 不打印 traceback。
+    try:
+        run(args)
+    except OpticalPathInvalid as exc:
+        logger.error(exc.report())
+        raise SystemExit(exc.exit_code) from None
+
+
+if __name__ == "__main__":
+    main()
+
+
+def _run_validate_session(
+    *,
+    DifferentiableUniformityOptimizer: object,
+    Santec: object,
+    abba: object,
+    adapt_exposure: object,
+    args: object,
+    bit_depth: object,
+    blocks_for: object,
+    camera_options: object,
+    configured_daheng_exposure_limit: object,
+    counts_scale: object,
+    create_camera: object,
+    device: object,
+    explore_temperature: object,
+    forward: object,
+    full_scale: object,
+    get_camera_exposure_ms: object,
+    get_camera_exposure_range: object,
+    iterations: object,
+    last_phase: object,
+    objective: object,
+    observer: object,
+    phase: object,
+    prepared: object,
+    recorder: object,
+    recording: object,
+    records: object,
+    resume: object,
+    save_summary: object,
+    summary_entries: object,
+    torch: object,
+    writer: object,
+    xy: object,
+) -> None:
+    """#205 batch-26: the open-camera session block of run().
+
+    The With block moved line-exact at the same indent, restoring the
+    split an upstream merge collapsed back into run(). Its nested defs
+    (capture, tune_exposure, read_exposure) travel with it, so every
+    cell they close over stays in the same scope as the code that
+    rebinds it. Names that pre-exist in run() arrive as keyword params;
+    save_summary stays behind in run() and is passed in.
+    Moved verbatim.
+    """
     with create_camera(args.camera, args.cam_id, exposure_time_ms=.02, **camera_options) as cam:
         with Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0) as slm:
             slm.set_phase_overlay(None)
@@ -791,21 +961,117 @@ def run(args, *, on_frame=None):
                 slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
                 time.sleep(.3)
 
-    # Every capture has been taken; wait for the queued writes before anything
-    # reads a capture back (records export, replay, a later stage's seed).
-    if writer is not None:
-        writer.close()
 
-    # Table first, animation second: a GIF failure must never cost a measured
-    # run, and both are written with the devices already released.
-    if recorder.history:
-        try:
-            recording.save_records(recorder, args.out/"recording", mark="process",
-                                   gif_name="process.gif", fps=2.0,
-                                   title=f"{args.mode} — {','.join(args.shapes)} "
-                                         f"(逐 CCD 块, {bit_depth} bit)")
-        except Exception as exc:  # a rendering defect must not fail the session
-            logger.warning("process recording export failed: {}", exc)
+def _run_validate_shapes(
+    *,
+    DifferentiableUniformityOptimizer: object,
+    abba: object,
+    args: object,
+    blocks_for: object,
+    cam: object,
+    capture: object,
+    device: object,
+    explore_temperature: object,
+    exposure: object,
+    forward: object,
+    get_camera_exposure_ms: object,
+    iterations: object,
+    observer: object,
+    prepared: object,
+    resume: object,
+    save_summary: object,
+    summary_entries: object,
+    torch: object,
+    tune_exposure: object,
+    xy: object,
+) -> None:
+    """#205 batch-26: the per-shape stage of the open-camera session.
+
+    The shape loop moved line-exact at the same indent, so the
+    skips_shape resume gate stays exactly one hop above the block
+    stage, which is the hop the seed-only regression depended on.
+    read_exposure is not a closure on the objective this header
+    rebinds: it lives inside tune_exposure, whose own objective
+    parameter binds first.
+    Moved verbatim.
+    """
+    for shape, objective, best in prepared:
+        seed_phase = best.copy()
+        # Resume: only the groups this stage has not measured yet.
+        blocks = blocks_for.get(shape, list(range(args.blocks)))
+        if skips_shape(resume=resume, blocks=blocks):
+            continue
+        exposure = tune_exposure(shape, best, exposure, objective)
+        seed_exposure = exposure
+        seed_record = capture(f"{shape}_seed", best, objective)
+        champion = best.copy()
+        policy = None
+        if explore_temperature > 0:
+            from .exploration import NonmonotoneAcceptance
+            policy = NonmonotoneAcceptance(seed_record["metrics"]["cv"], temperature=explore_temperature,
+                relative_budget=getattr(args, "exploration_budget", .25), seed=getattr(args, "random_seed", 102626))
+        phase_lr = getattr(args, "phase_lr", .01)
+        # Per-block Jacobian direction check (issue #213 item 3a).
+        # It reuses the A1/B frames the block captures anyway, so it
+        # costs one extra forward pass and no device time. It never
+        # changes accept/reject -- only the next block's step cap.
+        guard = None
+        if getattr(args, "jacobian_guard", True) and getattr(args, "ccd_check", False):
+            guard = TrustRegionSchedule(
+                cap=float(getattr(args, "phase_rms_cap", .2)),
+                floor=float(getattr(args, "jacobian_floor", .02)),
+                low=float(getattr(args, "jacobian_low", .5)),
+                high=float(getattr(args, "jacobian_high", .85)))
+        spectral_weight = float(getattr(args, "spectral_weight", 0.0) or 0.0)
+        spectral_mask = None
+        if spectral_weight > 0:
+            grid = int(best.shape[0])
+            cutoff = getattr(args, "spectral_cutoff", None)
+            if cutoff is None:
+                cutoff = control_grid_cutoff(grid)
+            if cutoff <= 0:
+                raise ValueError("spectral cutoff must be positive")
+            spectral_mask = mtf_matched_mask(grid, cutoff=float(cutoff))
+        best, champion, exposure = _run_validate_blocks(
+            DifferentiableUniformityOptimizer=DifferentiableUniformityOptimizer,
+            abba=abba,
+            args=args,
+            best=best,
+            blocks=blocks,
+            capture=capture,
+            champion=champion,
+            device=device,
+            exposure=exposure,
+            forward=forward,
+            guard=guard,
+            iterations=iterations,
+            objective=objective,
+            observer=observer,
+            phase_lr=phase_lr,
+            policy=policy,
+            save_summary=save_summary,
+            shape=shape,
+            spectral_mask=spectral_mask,
+            spectral_weight=spectral_weight,
+            summary_entries=summary_entries,
+            torch=torch,
+            tune_exposure=tune_exposure,
+            xy=xy,
+        )
+        if policy is not None:
+            capture(f"{shape}_exploration_endpoint", best, objective)
+            best = champion.copy()
+            (args.out/f"{shape}_champion.json").write_text(json.dumps(dict(best_cv=policy.best,
+                final_policy="restore measured champion", **clock()), indent=2), encoding="utf-8")
+        if getattr(args, "adaptive_exposure", False):
+            capture(f"{shape}_final_adaptive", best, objective)
+            cam.reset_exposure_time(min(seed_exposure, exposure))
+            exposure = float(get_camera_exposure_ms(cam))
+            time.sleep(.3)
+            capture(f"{shape}_seed_replay", seed_phase, objective)
+        final = capture(f"{shape}_final", best, objective)
+        np.save(args.out/f"{shape}_best.npy", best)
+        print(f"{shape}: seed CV={seed_record['metrics']['cv']:.4f} final CV={final['metrics']['cv']:.4f}", flush=True)
 
 
 def main():
@@ -885,6 +1151,173 @@ def main():
         logger.error(str(exc))
         raise SystemExit(exc.exit_code) from None
 
+    The block loop moved line-exact at the same indent. best, champion
+    and exposure are rebound per block and read by the code that follows
+    the loop, so they leave through the returned tuple rather than by
+    closure. tune_exposure is passed in, and its nested read_exposure
+    binds objective from tune_exposure own parameter, so no cell is
+    left behind in the shape-loop scope.
+    Moved verbatim.
+    """
+    for block in blocks:
+        # Staged objective weights (issue #213 item 4c). Only the
+        # optimisation path moves; the acceptance criteria and the
+        # frozen-aperture read-out stay untouched (next_round §1.1).
+        # The weights actually used are written into the block's
+        # summary entry, so no block is ever unattributable.
+        if getattr(args, "weight_schedule", "constant") == "staged":
+            objective.set_weights(staged_weights(objective.mode, block, len(blocks)))
+        if policy is not None and block > 0 and block % getattr(args, "exploration_window", 4) == 0:
+            best = champion.copy()
+        if block > 0 and getattr(args, "adaptive_exposure", False):
+            exposure = tune_exposure(f"{shape}_{block}", best, exposure, objective)
+        # A1 only feeds the paired decision; "model" mode with the
+        # paired blocks switched off has no use for it, while
+        # "anchored" mode needs it as the optimizer's anchor.
+        anchor_row = (capture(f"{shape}_{block}_A1", best, objective)
+                      if abba or args.mode == "anchored" else None)
+        # Live panel: prefer the block's acceptance capture (the
+        # shaped result); fall back to its A1 anchor. Only the
+        # LAST frame of that capture is ever shipped, once per
+        # block, so the per-iteration loop pays nothing extra.
+        live_row = anchor_row
+        if args.mode == "anchored":
+            anchor_frames = capture_frames(args.out, anchor_row["file"])
+            anchor = count_rate(anchor_frames.mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)], anchor_row)
+            with torch.no_grad():
+                anchor_prediction = forward.predict(best)[0].detach().cpu().numpy()
+        optimizer = DifferentiableUniformityOptimizer(forward, objective, best, lr=phase_lr,
+            step_rms_cap=(guard.cap if guard is not None
+                          else getattr(args, "phase_rms_cap", .2)),
+            spectral_mask=spectral_mask, spectral_weight=spectral_weight,
+            device=device)
+        iterations_before = len(iterations)
+        for iteration in range(args.updates):
+            start = clock()
+            if args.mode == "anchored":
+                with torch.no_grad():
+                    current_prediction = forward.predict(optimizer.current_phase)[0].detach().cpu().numpy()
+                optimizer.update(anchored_intensity(anchor, current_prediction, anchor_prediction))
+            else:
+                optimizer.update()
+            iterations.append(dict(shape=shape, block=block, iteration=iteration,
+                                   phase=optimizer.current_phase.copy(), terms=optimizer.loss_history[-1],
+                                   **start, end_monotonic_ns=time.monotonic_ns()))
+        candidate = optimizer.current_phase
+        # Fresh optimizer per block: rejected proposals cannot advance its reference.
+        if abba:
+            b1 = capture(f"{shape}_{block}_B1", candidate, objective)
+            live_row = b1
+            b2 = capture(f"{shape}_{block}_B2", candidate, objective)
+            a2 = capture(f"{shape}_{block}_A2", best, objective)
+            if block == 0:
+                # Probe the same actual phase increment with both signs.
+                # This separates a model Jacobian error from autograd errors.
+                # It needs B1/B2, so it belongs to the paired apparatus.
+                minus_phase = 2*best-candidate
+                minus = capture(f"{shape}_direction_minus", minus_phase, objective)
+                capture(f"{shape}_direction_reference", best, objective)
+                with torch.no_grad():
+                    pplus = forward.predict(candidate)[0].detach().cpu().numpy()
+                    pminus = forward.predict(minus_phase)[0].detach().cpu().numpy()
+                    lplus, _ = objective.evaluate(torch.tensor(pplus), torch.zeros_like(torch.tensor(best)))
+                    lminus, _ = objective.evaluate(torch.tensor(pminus), torch.zeros_like(torch.tensor(best)))
 
-if __name__ == "__main__":
-    main()
+                def observed(row):
+                    mean = capture_frames(args.out, row["file"]).mean(0)
+                    return count_rate(mean[xy[..., 1].astype(int), xy[..., 0].astype(int)], row)
+
+                measured_difference = .5*(observed(b1)+observed(b2))-observed(minus)
+                predicted_difference = pplus-pminus
+                direction = dict(shape=shape, model_loss_plus=float(lplus), model_loss_minus=float(lminus),
+                                 ccd_loss_plus=.5*(b1["loss"]+b2["loss"]), ccd_loss_minus=minus["loss"],
+                                 difference_correlation=float(np.corrcoef(predicted_difference.ravel(), measured_difference.ravel())[0, 1]),
+                                 difference_relative_l2=float(np.linalg.norm(predicted_difference-measured_difference)
+                                                              /max(np.linalg.norm(measured_difference), 1e-9)), **clock())
+                np.savez_compressed(args.out/f"{shape}_direction_difference.npz",
+                                    predicted=predicted_difference, measured=measured_difference)
+                (args.out/f"{shape}_direction.json").write_text(json.dumps(direction, indent=2), encoding="utf-8")
+            from .paired import paired_decision
+            decision = paired_decision(anchor_row, b1, b2, a2,
+                                       metric=getattr(args, "accept_metric", "loss"))
+            entry = dict(shape=shape, block=block, **decision, **clock())
+        elif getattr(args, "ccd_check", False):
+            if anchor_row is None:
+                raise ValueError("sequential CCD check requires anchored mode")
+            b1 = capture(f"{shape}_{block}_B", candidate, objective)
+            live_row = b1
+            metric = "cv" if getattr(args, "accept_metric", "loss") == "cv" else "loss"
+            av = anchor_row["metrics"][metric] if metric == "cv" else anchor_row[metric]
+            bv = b1["metrics"][metric] if metric == "cv" else b1[metric]
+            decision = dict(accepted=bool(bv < av), acceptance="sequential_ccd",
+                            accept_metric=metric, baseline=float(av), candidate=float(bv))
+            if guard is not None:
+                with torch.no_grad():
+                    candidate_prediction = forward.predict(candidate)[0].detach().cpu().numpy()
+                measured_candidate = count_rate(
+                    capture_frames(args.out, b1["file"]).mean(0)
+                    [xy[..., 1].astype(int), xy[..., 0].astype(int)], b1)
+                agreement = direction_agreement(
+                    anchor_prediction, candidate_prediction,
+                    anchor, measured_candidate,
+                    low=guard.low, high=guard.high)
+                guard.observe(agreement)
+                decision["jacobian"] = dict(**agreement.as_dict(),
+                                            cap_next=float(guard.cap))
+            if policy is not None:
+                if metric != "cv":
+                    raise ValueError("exploration currently requires core CV acceptance")
+                decision.update(policy.update(av, bv))
+                decision["acceptance"] = "nonmonotone_ccd"
+                if decision["improved_best"]:
+                    champion = candidate.copy()
+                    np.save(args.out/f"{shape}_champion.npy", champion)
+            entry = dict(shape=shape, block=block, **decision, **clock())
+        else:
+            # No measured verdict: the model's own loss history decides,
+            # and the entry says so instead of implying a CCD acceptance.
+            decision = model_only_decision(optimizer.loss_history)
+            entry = dict(shape=shape, block=block, **decision, **clock())
+        accepted = decision["accepted"]
+        entry["phase_lr"] = phase_lr
+        # Which loss weights this block actually optimised
+        # (issue #213 item 4c): without it a staged run cannot be
+        # replayed, and "why did block 7 go that way" is unanswerable.
+        entry["weights"] = dict(objective.weights)
+        if getattr(args, "adaptive_step", False):
+            phase_lr = min(getattr(args, "phase_lr", .01), phase_lr*1.1) if accepted else max(.001, phase_lr*.5)
+        entry["next_phase_lr"] = phase_lr
+        if accepted:
+            best = candidate.copy()
+            optimizer.accept()
+        summary_entries.append(entry)
+        save_summary()
+        print(json.dumps(entry), flush=True)
+        # 块级收尾: 逐帧刷新已经在每一次 CCD 读出时发过同一张图,
+        # 这一条额外带上块的优化器进度 (块号 / iter), 那是一次孤立
+        # 的取图读不出来的信息。
+        emit_block_frame(
+            observer,
+            directory=args.out,
+            capture_row=live_row,
+            shape=shape,
+            block=block,
+            block_index=int(block) + 1,
+            blocks_total=int(args.blocks),
+            iteration=int(args.updates),
+            iterations_total=int(args.updates),
+            remaining=int(args.updates) if block != blocks[-1] else 0,
+            xy=xy,
+        )
+        # One dump per block, not per iteration: every history entry
+        # carries a full phase copy (~1.6 MB), so rewriting the whole
+        # history after each iteration writes O(n^2) bytes -- 21 GB for
+        # a 160-iteration stage, which dominated that stage's wall
+        # clock. The block is the transaction boundary (the accept /
+        # reject verdict is recorded just above), so the history is
+        # still flushed at the granularity the stage reports.
+        if len(iterations) > iterations_before:
+            with (args.out/"iterations.pkl").open("wb") as stream:
+                pickle.dump(iterations, stream, protocol=5)
+    return best, champion, exposure
+

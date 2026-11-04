@@ -6,8 +6,9 @@ Contract (verified 2026-10-25/26):
   was extracted to ``scripts/signal_processing/demo_wavefront_sim.py``
   by ``14b1cda`` and that script imports four symbols from the library,
   so relocating the module itself would break the import.
-- The root ``AGENTS.md`` signal_processing row must state this final
-  split (``14b1cda``) instead of the stale "migrate to scripts/" wording.
+- The ``docs/dev/module_inventory.md`` signal_processing row must state this
+  final split (``14b1cda``) instead of the stale "migrate to scripts/" wording.
+  The row moved out of ``AGENTS.md`` when that file was slimmed to an index.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[3]
 SIM = ROOT / "src/ao_shaping/algorithm/signal_processing/sim.py"
 DEMO = ROOT / "scripts/signal_processing/demo_wavefront_sim.py"
 RECON = ROOT / "scripts/signal_processing/demo_wavefront_reconstruction.py"
-AGENTS = ROOT / "AGENTS.md"
+INVENTORY = ROOT / "docs/dev/module_inventory.md"
 
 DOCUMENTED_SYMBOLS = (
     "VectorAdaptiveOptics",
@@ -53,10 +54,11 @@ def test_reconstruction_demo_companion_exists() -> None:
     assert RECON.is_file()
 
 
-def test_agents_annotation_states_final_split() -> None:
-    agents = AGENTS.read_text(encoding="utf-8")
+def test_module_inventory_annotation_states_final_split() -> None:
+    inventory = INVENTORY.read_text(encoding="utf-8")
     assert (
-        "已于 `14b1cda` 迁至 `scripts/signal_processing/demo_wavefront_sim.py`" in agents
+        "演示体已于 `14b1cda` 迁至 `scripts/signal_processing/demo_wavefront_sim.py`"
+        in inventory
     ), "sim annotation must record the completed 14b1cda extraction"
     for stale in ("反模式表已注记其应迁", "本条只落册不动码"):
-        assert stale not in agents, f"stale relocation wording still present: {stale!r}"
+        assert stale not in inventory, f"stale relocation wording still present: {stale!r}"
