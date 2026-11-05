@@ -43,7 +43,9 @@ def test_run_uses_the_gate_and_not_a_bare_empty_check():
     run_source = inspect.getsource(validate.run)
     assert "_run_validate_session(" in run_source
     session_source = inspect.getsource(validate._run_validate_session)
-    assert "skips_shape(resume=resume, blocks=blocks)" in session_source
+    assert "_run_validate_shapes(" in session_source
+    shapes_source = inspect.getsource(validate._run_validate_shapes)
+    assert "skips_shape(resume=resume, blocks=blocks)" in shapes_source
     # The resume offset must feed the gate from ``remaining_blocks`` -- the gate
     # is consulted on the *outstanding* block list, never the raw recipe range.
     assert "remaining_blocks(" in run_source
