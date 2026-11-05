@@ -4,6 +4,7 @@
 
 ## 🔴 必读（所有 AI 工具）
 
+- **硬件设备纪律（SLM/CCD/激光）**：任何占用物理设备的操作（采集、探针、诊断脚本），开始前和结束后都必须在回复中**明确报告**：占用了什么设备（SLM #编号 / 相机 / 激光）、做了什么、何时释放、是否正常关闭。采集类脚本须在后台运行时同样遵守；设备被占用期间不要并行启动第二个占用同一设备的进程（脚本自带 `--wait-until-idle` 时可用）。
 - 术语：[docs/terminology_glossary.md](docs/terminology_glossary.md)（校验 `python3 scripts/_common/term_unify_20261016.py` dry-run `0 个文件`；新词 §3 登记）。
 - **全局编码规范**：[docs/dev/coding_conventions.md](docs/dev/coding_conventions.md)（Python 3.12+、绝对导入、类型注解、日志等）。
 - **包/函数放置**：[docs/dev/module_inventory.md](docs/dev/module_inventory.md) §WHERE TO LOOK。
