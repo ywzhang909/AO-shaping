@@ -35,7 +35,7 @@
 | [Forward-model / loss defect investigation](../../../loss_defects/README.md) | 373 | `c84a51dc6119` |
 | [MiiCam 自动曝光算法实验报告](../../../miicam_auto_exposure/miicam_auto_exposure_probe/report.md) | 296 | `63891cd4a6c9` |
 | [SAC / Robust-RL 训练运行分析报告](../../../models_analysis/models_report/report.md) | 191 | `37edb3027a2b` |
-| [tmp_sac_run — 临时调试家族最佳 run 成果展示](../../../models_analysis/models_report/tmp_sac_run_showcase.md) | 99 | `b7afe559337e` |
+| `models_analysis/models_report/tmp_sac_run_showcase.md` — tmp_sac_run 临时调试家族最佳 run 成果展示（被 `.gitignore` 匹配，不入库） | 99 | `b7afe559337e` |
 | [传统AO仿真环境Reward问题分析与解决](../../../models_analysis/reward_analysis.md) | 170 | `0f6669ecdaa4` |
 | [闭环整形目标函数：物理误差感知 Loss 的取舍记录](../../../pib_loss_terms/README.md) | 155 | `62ef810aa5c1` |
 | [PIB 优化器功能报告（完整增强版）](../../../pib_optimizer_functional_report.md) | 208 | `e45ff7f3dd85` |
@@ -165,10 +165,10 @@
 | [SLM PIB 整形实验系统验收报告 (离线分析)](../../../slm_pib_bench/pib_bench_report/report.md) | 232 | `54ef01601c6e` |
 | [整形目标函数灵敏度 (噪声地板) 实测](../../../slm_pib_heuristic_hw/measure_shape_sensitivity/sensitivity.md) | 24 | `8996e203897a` |
 | [SLM 相位优化实验系统基准报告 (目标: 整形评分 (shape))](../../../slm_pib_heuristic_hw/slm_pib_heuristic_hw_report/report.md) | 240 | `aa7c913b175d` |
-| [整形目标函数灵敏度 (噪声地板) 实测](../../../slm_pib_online/measure_shape_sensitivity/sensitivity.md) | 21 | `a84216f1b583` |
+| `slm_pib_online/measure_shape_sensitivity/sensitivity.md` — 整形目标函数灵敏度 (噪声地板) 实测（被 `.gitignore` 匹配，不入库） | 21 | `a84216f1b583` |
 | [整形目标函数对比报告](../../../slm_pib_online/shape_objective_comparison/objective_comparison.md) | 208 | `654697b5f59d` |
 | [SLM-PIB 在线验收报告 (Daheng CCD)](../../../slm_pib_online/slm_pib_online_report/report.md) | 259 | `6c6690d06871` |
-| [Shape Objective Comparison Report](../../../slm_pib_online_hw/shape_objective_comparison/objective_comparison.md) | 153 | `135ec40fe2f7` |
+| `slm_pib_online_hw/shape_objective_comparison/objective_comparison.md` — Shape Objective Comparison Report（被 `.gitignore` 匹配，不入库） | 153 | `135ec40fe2f7` |
 | [slm-pib 仿真运行报告 (SPGD 方形目标, 2f-Fourier 数字孪生)](../../../slm_pib_shape_50px/slm_pib_sim_report/report.md) | 75 | `92bb8a4999da` |
 | [slm-pib 仿真运行报告 (SPGD 方形目标, 2f-Fourier 数字孪生)](../../../slm_pib_sim/slm_pib_sim_report/report.md) | 157 | `4f55365ac6af` |
 | [SLM 整形仿真运行报告 (2f-Fourier 数字孪生)](../../../slm_shaping_sim/slm_shaping_sim_report/report.md) | 58 | `189ffc3bc6b1` |

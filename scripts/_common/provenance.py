@@ -240,6 +240,14 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/ml/sim2f_fov_zero_order_figure.py",
         ),
     ),
+    "report/shape_trials/physical_refine/forward_model_transfer_plan_20261104.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线（代码与历史报告分析；硬件步骤为规划）",
+        note=(
+            "物理预测模型结构/分层微调(zernike_block)/光路探测(结构化±Zernike 主动探针)/"
+            "可微优化与在线训练集扩展技术报告；整合 issue #229 的迁移学习修订方案与实验计划"
+        ),
+    ),
     "report/shape_trials/multishape_scale/square_1000_diff_abba_20261030.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线分析与实验；ABBA 及 v6/v7 局部响应诊断均使用 Santec #1 / Daheng Mono12",
@@ -967,23 +975,11 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线",
         note="在线回归套件验收报告 (读 data/debug/slm_pib_online/)",
     ),
-    "report/slm_pib_online/measure_shape_sensitivity/sensitivity.md": ReportProvenance(
-        script="scripts/slm/measure_shape_sensitivity.py",
-        command="python scripts/slm/measure_shape_sensitivity.py",
-        environment="硬件",
-        note="整形目标函数灵敏度 (噪声地板) 实测；测量内核已下沉到 src/ao_shaping/tools/kernels/sweep_analysis.py",
-    ),
     "report/slm_pib_online/shape_objective_comparison/objective_comparison.md": ReportProvenance(
         script="scripts/slm/generate_shape_objective_comparison.py",
         command="python scripts/slm/generate_shape_objective_comparison.py",
         environment="离线",
         note="三种整形目标函数的排序一致性 (Spearman)",
-    ),
-    "report/slm_pib_online_hw/shape_objective_comparison/objective_comparison.md": ReportProvenance(
-        script="scripts/slm/generate_shape_objective_comparison.py",
-        command="python scripts/slm/generate_shape_objective_comparison.py",
-        environment="离线",
-        note="实验系统 CCD 帧上的三种整形目标函数排序 (Spearman)",
     ),
     "report/slm_pib_sim/slm_pib_sim_report/report.md": ReportProvenance(
         script="scripts/slm/generate_slm_pib_sim_report.py",
@@ -1032,12 +1028,6 @@ REPORTS: dict[str, ReportProvenance] = {
         command="python scripts/rl/generate_models_report.py",
         environment="离线",
         note="读 TensorBoard event 文件",
-    ),
-    "report/models_analysis/models_report/tmp_sac_run_showcase.md": ReportProvenance(
-        script="scripts/rl/generate_models_report.py",
-        command="python scripts/rl/generate_models_report.py",
-        environment="离线",
-        note="临时调试家族最佳 run 成果展示；原始检查点与 tfevents 已随清理删除",
     ),
     "report/models_analysis/reward_analysis.md": ReportProvenance(
         script=HANDWRITTEN,

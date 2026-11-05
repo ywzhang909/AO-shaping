@@ -4564,6 +4564,13 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 验收：`gui/slm` 726 passed / 0 failed / 0 skipped（4 个 PySide6 文件是本机镜像陈旧所致，CI 每次重建镜像）；门禁测试 12 + 13 passed。
 - 顺带照出下一批的成因：`556bb7cc` 的 CI 在 `runners-gui-misc` 有 9 个收集错误，使 5 条 `slm-transfer-shapes` 测试**从未真正执行过**；错误一消，它们立刻变红。"红着的门禁住在必红的分片里"与 16ab4447 是同一条教训，这次只是换了一层。
 
+**2026-11-05 · bcfec136 · 收口 slm-transfer-shapes 5 条"从未执行过"的红：真 bug 是 params 吞掉三条新开关**
+- 真 bug 在 `runners/slm/transfer_shapes_runner.py`：`run` 组装 `params` 时漏了 `jacobian_min_signal` / `accept_rel_tol` / `accept_abs_tol`，下游全靠 `getattr(args, …, 默认)` 兜底，于是用户显式传的值被**静默丢弃**、测试断言的自定义阈值永远落回默认。三键补入 params（867→869 行，规模基线点名 +2）。
+- 测试替身不忠实：`fake_validate` 不读 `args.blocks`，`_fake_stage` 也凭 STAGE_RECIPES 凭空凑 block 列表，两边对不上。新增 `_write_block_groups(stage_dir, blocks)` 落 `f"{stage_dir.name}_groups.json"`，替身按 `STAGE_RECIPES` 取真实 blocks ⇒ 替身与生产走同一条数据路径。
+- CLI 快照过期：`cli_help_golden.json` 不是 `json.dumps` 规范排版，整份重写会重排 73 条；用 `raw_decode` 定界只替换 `main:slm-transfer-shapes` 一条，diff 保持 1 行，`:exit` 条目实测未变。
+- 验收：`test_transfer_shapes_runner.py` 30 passed；`gui/slm` 与 transfer 相关 77 / 39 / 72+1skip / 44 / 8 全绿；ruff、术语门禁、规模门禁均绿。
+- 教训与 `16ab4447` 同源、只是换了一层：红着的 5 条测试住在**必然失败的分片**里（`runners-gui-misc` 的收集期 ImportError），所以"真正执行过"与"从未执行过"在报告上看起来一模一样 —— 判断一个门禁是否有效，必须先确认它所在的分片能收集。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
