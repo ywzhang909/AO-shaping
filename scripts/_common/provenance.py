@@ -255,14 +255,6 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/ml/sim2f_fov_zero_order_figure.py",
         ),
     ),
-    "report/shape_trials/physical_refine/forward_model_transfer_plan_20261104.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="离线（代码与历史报告分析；硬件步骤为规划）",
-        note=(
-            "物理预测模型结构/分层微调(zernike_block)/光路探测(结构化±Zernike 主动探针)/"
-            "可微优化与在线训练集扩展技术报告；整合 issue #229 的迁移学习修订方案与实验计划"
-        ),
-    ),
     "report/shape_trials/multishape_scale/square_1000_diff_abba_20261030.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线分析与实验；ABBA 及 v6/v7 局部响应诊断均使用 Santec #1 / Daheng Mono12",
