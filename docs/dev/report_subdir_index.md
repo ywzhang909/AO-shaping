@@ -18,7 +18,7 @@ report/<topic>/<系列名>/
 | 子目录 | 生成脚本 | 报告 |
 |--------|----------|------|
 | `hw_depth_matched/` | 手工撰写（`_harness_task2_run02.py` 口径） | `hw_depth_matched_20261105.md` |
-| `issue230_refeed/` | 手工撰写（上机脚本 `scripts/slm/issue230_refeed_probe.py`，pass1/pass2 独立目录） | `issue230_refeed_20261105.md` |
+| `issue230_refeed/` | 手工撰写（实验脚本 `scripts/slm/issue230_refeed_probe.py`，pass1/pass2 独立目录） | `issue230_refeed_20261105.md` |
 | `zernike_probe_sim/` | 手工撰写（仿真，`utils/image/zernike_probe.py` + `PatternHelper.generate_probe_phase`） | `zernike_probe_sim_20261105.md` |
 | `transfer_uncertainty/` | `scripts/slm/transfer_uncertainty_experiment.py` | `transfer_uncertainty_20261104.md` |
 | `gs_defocus_sim/` | `scripts/slm/generate_gs_defocus_sim_report.py` | `gs_defocus_sim_20261019.md` |

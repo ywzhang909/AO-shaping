@@ -1189,11 +1189,15 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
     # never opens an SLM) landed upstream. 35 -> 36 (camera only) on 2026-10-29
     # when transfer/capture.py gained its "is there light on this path" probe —
     # a second, independent camera-open (0 Santec) that deliberately does not
-    # touch the measurement loop. This guard pins the census so a
-    # *refactor* cannot quietly consolidate device sessions; adding a genuinely
-    # new probe is a legitimate change and must be re-baselined here deliberately.
-    assert sum(santec.values()) == 35, f"Santec( construction sites changed: {santec}"
-    assert sum(camera.values()) == 36, f"camera-open call sites changed: {camera}"
+    # touch the measurement loop. 36 -> 37 (Santec) and 36 -> 37 (camera) on
+    # 2026-11-05 when transfer/optical_probe.py landed (1 Santec + 1 camera — the
+    # light-path reuse probe that verifies the measured and reused paths agree);
+    # a genuine new probe, re-baselined here deliberately. This guard pins the
+    # census so a *refactor* cannot quietly consolidate device sessions; adding a
+    # genuinely new probe is a legitimate change and must be re-baselined here
+    # deliberately.
+    assert sum(santec.values()) == 36, f"Santec( construction sites changed: {santec}"
+    assert sum(camera.values()) == 37, f"camera-open call sites changed: {camera}"
 
     assert santec == {
         "slm/calibration/calibration.py": 2,
@@ -1216,6 +1220,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/replay_disturbance.py": 1,
         "slm/transfer/capture.py": 1,
         "slm/transfer/capture_response.py": 1,
+        "slm/transfer/optical_probe.py": 1,
         "slm/transfer/replay_phases.py": 1,
         "slm/transfer/validate.py": 1,
         "ccd/drift_probe.py": 1,
@@ -1252,6 +1257,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/transfer/camera_probe.py": 1,
         "slm/transfer/capture.py": 2,
         "slm/transfer/capture_response.py": 1,
+        "slm/transfer/optical_probe.py": 1,
         "slm/transfer/replay_phases.py": 1,
         "slm/transfer/validate.py": 1,
         "ccd/drift_probe.py": 1,

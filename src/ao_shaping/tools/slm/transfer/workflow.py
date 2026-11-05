@@ -349,15 +349,15 @@ def acceptance_verdict(session_dir):
         lower = float(settings.get("acceptance_lower", lower))
         upper = float(settings.get("acceptance_upper", upper))
         metric = str(settings.get("acceptance_metric", metric))
-    except Exception:
-        pass
+    except Exception:  # policy: 会话配置读取失败时沿用上方默认值，不中断验收判定
+        logger.debug("读取会话验收配置失败，沿用默认值: {}", session_dir)
     rounds = []
     rounds_path = session_dir / "rounds.json"
     if rounds_path.is_file():
         try:
             loaded = json.loads(rounds_path.read_text(encoding="utf-8"))
             rounds = [dict(record) for record in loaded if isinstance(record, dict)]
-        except Exception:
+        except Exception:  # policy: 轮次记录损坏时回退为空列表，后续按无历史轮次处理
             rounds = []
     measured_correlation = None
     measured_relative_l2 = None

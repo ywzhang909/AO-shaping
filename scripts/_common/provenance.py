@@ -105,8 +105,8 @@ REPORTS: dict[str, ReportProvenance] = {
         script=HANDWRITTEN,
         environment="硬件（待采集）：SLM #1 + Daheng CCD 或 miicam 2.9 µm + SLM-300 + 激光（驱动参数物理相同）；分析离线 CPU",
         note=(
-            "issue230 在线回灌留出 NRMSE 判据；本版为方法/计划稿，采集与离线分析均未执行，"
-            "所有结果区标 PENDING 待回填。判据：refeed < stale 且 ≤ fresh 上限 ⇒ 在线回灌提升留出 NRMSE。"
+            "issue230 在线回灌验证集 NRMSE 判据；本版为方法/计划稿，采集与离线分析均未执行，"
+            "所有结果区标 PENDING 待回填。判据：refeed < stale 且 ≤ fresh 上限 ⇒ 在线回灌提升验证集 NRMSE。"
         ),
         extra_scripts=("scripts/slm/issue230_refeed_probe.py",),
     ),

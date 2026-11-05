@@ -311,7 +311,7 @@ def capture(args, *, on_frame=None):
             # 不报错 (离线/仿真面板没有该属性或读不到)。
             try:
                 slm_serial[0] = getattr(slm, "serial_number", None)
-            except Exception as exc:
+            except Exception as exc:  # policy: 序列号读不到仅跳过按序列号保存（离线/仿真面板无此属性）
                 logger.warning(f"无法读取 SLM 序列号, 跳过最新模型按序列号保存: {exc!r}")
             slm.set_phase_overlay(None)
             try:

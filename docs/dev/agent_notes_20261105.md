@@ -74,7 +74,7 @@
 - 复现清单：transfer `reference_start` 饱和 → 先查 run log 是否 `驱动板 (Drive board) ID 读不到`；勿误判为光路/曝光问题。
 
 ## SLM transfer 复现于 miicam+SLM#1 成功（下午 17:19 run，EXIT=0）
-- 完整跑通 capture→fit→response→blur→CCD blocks→audit→summary，数据全在 `data/debug/slm_transfer/20261105_171947/`。
+- 完整在线实现 capture→fit→response→blur→CCD blocks→audit→summary，数据全在 `data/debug/slm_transfer/20261105_171947/`。
 - 前后堵点与解除：驱动板间歇不应答（需物理断电重置，见上"16:05-16:15"节）→ 平场/平方在 0.011ms 钳到单档使
   `exposure_response_analysis` 失败（≥3 档门禁，`utils/image/exposure_response.py:18`，有测试守卫勿删）→ 装 ND 后
   平场/平方各得 4 个不同曝光档，响应拟合通过。
