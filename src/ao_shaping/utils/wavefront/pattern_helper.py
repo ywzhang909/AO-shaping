@@ -561,6 +561,55 @@ class PatternHelper:
         phase = np.where(gen.mask.astype(bool), phase, 0.0)
         return phase
 
+    def generate_probe_phase(
+        self,
+        coefficients: dict[tuple[int, int], float] | None = None,
+        bias_rad: float = 0.0,
+        radius: float | None = None,
+        n_max: int | None = None,
+    ) -> np.ndarray:
+        """Generate a **probe phase** template for HMWS modal sensing.
+
+        探测相位 = 若干 Zernike 模式的叠加 + 一个可选的常数偏置阶跃 ``bias_rad``
+        (全孔径常数, 可为负/0)。这是给"随后在焦面收 5 帧做 HMWS 五点估计"的探测
+        模板 —— PatternHelper 只生成相位, 不负责收图(/焦面强度)或做估计。
+
+        与 :meth:`generate_zernike_polynomial` 一致:
+
+        * Zernike 数学**完全委托** canonical ``ZernikeGenerator.generate_polynomial``
+          (zernike_usage 红线 1, 不自写/不重复)。
+        * 返回 **raw 未包裹弧度 float64** (绝不 mod-2π、绝不 min-max 归一化 ——
+          红线 2/3; mod-2π 是 SLM 驱动 ``create_phase_from_array`` 的唯一职责)。
+        * 孔径外置 0 弧度 (与 ``generate_zernike`` 一致)。
+
+        Args:
+            coefficients: ``{(n, m): amplitude}`` (弧度), 各模式按其系数生成后相加。
+            bias_rad: 叠加到整体上的常数偏置 (全孔径常数, 可为负/0), 弧度。
+            radius: 孔径半径 (像素), 默认短边一半。
+            n_max: 最大径向阶数, 默认 6。
+
+        Returns:
+            2D float64 未包裹弧度相位 (孔径外为 0)。
+        """
+        coeffs = coefficients or {}
+        gen = self._get_zernike_generator(radius, n_orders=n_max or 6)
+        gen.set_bits(self.bits)
+
+        if not coeffs and bias_rad == 0.0:
+            return np.zeros((self._height, self._width), dtype=np.float64)
+
+        if coeffs:
+            phase = gen.generate_polynomial(coeffs)
+            phase = np.nan_to_num(phase, nan=0.0)
+        else:
+            phase = np.zeros((self._height, self._width), dtype=np.float64)
+
+        if bias_rad != 0.0:
+            phase = phase + bias_rad
+
+        # 孔径外置 0 弧度 (与 generate_zernike_polynomial 一致)。
+        return np.where(gen.mask.astype(bool), phase, 0.0)
+
     def to_uint16(self, phase_radians: np.ndarray) -> np.ndarray:
         """将弧度相位转换为uint16格式 (委托至 phase_display.phase_to_slm_grayscale)。
 

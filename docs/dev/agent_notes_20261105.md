@@ -61,6 +61,29 @@
   `tests/ao_shaping/tools/slm/transfer/test_hardware_retry.py`、
   `tests/ao_shaping/tools/slm/transfer/test_session_plan.py`。
 
+## SLM transfer 复现：capture 饱和 255 的根因（当日 16:05-16:15 三连诊断）
+- 现象：`transfer run --execute` 两次在 `reference_start` 失败——最低曝光 0.011 ms 下平场 peak=255、仅 2 饱和像素，
+  `light_check` 计数率 5100/ms（全饱和）；而 15:49 的 `slm300_shaping_probe` 平场=51 @ 0.011 ms。
+- 根因：**不是 SLM 相位残留，是驱动板（Drive board）间歇性不应答**。日志证据：SLM #1 驱动板 ID 读不到、
+  只拿到选板（optionboard 23040015）→ 面板不调制 → 未调制的整束光直接打到相机，故任何图案（含平场）都饱和。
+  15:49 那次 probe 驱动板应答（22030090）才正常。运行库警告原话即指此事，且 probe 脚本用 `require_drive_board`
+  硬门禁中止（`SLMDriveBoardError` exit 1），transfer capture 却**没有**该门禁、径直采集无效数据。
+- 处置：需**物理断电 SLM-300 控制器重置驱动板**。预期稳定应答后 transfer 平场回到 ~51 形态、capture 可过。
+- 复现清单：transfer `reference_start` 饱和 → 先查 run log 是否 `驱动板 (Drive board) ID 读不到`；勿误判为光路/曝光问题。
+
+## SLM transfer 复现于 miicam+SLM#1 成功（下午 17:19 run，EXIT=0）
+- 完整跑通 capture→fit→response→blur→CCD blocks→audit→summary，数据全在 `data/debug/slm_transfer/20261105_171947/`。
+- 前后堵点与解除：驱动板间歇不应答（需物理断电重置，见上"16:05-16:15"节）→ 平场/平方在 0.011ms 钳到单档使
+  `exposure_response_analysis` 失败（≥3 档门禁，`utils/image/exposure_response.py:18`，有测试守卫勿删）→ 装 ND 后
+  平场/平方各得 4 个不同曝光档，响应拟合通过。
+- **科学口径守住**：12/12 块均 `acceptance=model_only`（`session_plan.model_only_decision`）——只表示模型损失下降，
+  **不代表 CCCT 收到的确有改善**。audit `status=passed` 同样只是流水线通过。三者不能互替。
+- **关键未解**：三个形状 seed→final 的 CCD measured CV/EE/Pearson 几乎不动，而模型 loss 下降、predicted pearson 约
+  0.95→0.84；predicted↔measured 相关从 ~0.5-0.6 跌到 ~0.34-0.41。即模型自洽优化，但**预测与实测在优化中背离**。
+  方向：量纲（预测 CV 0.1-0.47 vs 实测更均匀 0.5-0.75）、或当前 bench ramp 几何/ND 后光场与模型几何不匹配。
+- 若下一步要真实 CCD 改善：喂当前 round ramp 几何/效标后重拟合、给 measured 指标加权、或先定位预测-实测分歧在
+  peak/能量/CV 哪个成分最大。
+
 ## 已知未解（提交时）
 - `ao_shaping.gui.slm.pattern_specs` 提交时不存在于任何 ref/磁盘 → `helper_tab` 及其下游 9 个
   测试模块收集期 `ImportError`。⚠️ 工作区已新增 `pattern_specs.py` / `static_shaping_page.py`

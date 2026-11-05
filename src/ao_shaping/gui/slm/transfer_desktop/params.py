@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -39,6 +40,8 @@ if TYPE_CHECKING:
     from ao_shaping.tools.slm.transfer.workflow import TransferSession
 
 __all__ = [
+    "ACCEPTANCE_LOWER_DEFAULT",
+    "ACCEPTANCE_UPPER_DEFAULT",
     "ASPECT_RATIO_SESSION_FIELD",
     "CAMERA_CHOICES",
     "SHAPE_CHOICES",
@@ -78,6 +81,15 @@ _TILT_DEPENDENT_CHECK_CODES: frozenset[str] = frozenset(
 #: 矩形长/短比的合理上限（越大越极端，超过它在采样窗里既难容纳也失真）。
 _RECT_ASPECT_MAX = 10.0
 
+#: 验收阈值循环：相关性（correlation）下界的算法建议值，也是页面控件的默认值。
+#: 与 :class:`TransferFormValues` 里 ``acceptance_lower`` 的默认一致（镜像
+#: ``TransferSession.acceptance_lower``）；页面「算法建议」提示读取这里。
+ACCEPTANCE_LOWER_DEFAULT = 0.85  # correlation 下界（算法建议）
+
+#: 验收阈值循环：relative_l2 上界的算法建议值，页面控件的默认值。
+#: 与 ``acceptance_upper`` 默认一致（镜像 ``TransferSession.acceptance_upper``）。
+ACCEPTANCE_UPPER_DEFAULT = 0.25  # relative_l2 上界（算法建议）
+
 #: 相机后端选项，与 ``bench_settings.CAM_TYPE_OPTIONS`` 同序。迁移学习只对大恒
 #: 相机做过实验验证，其余后端由 :func:`validate_form` 在启动前拒绝。
 CAMERA_CHOICES: tuple[str, ...] = ("daheng", "miicam", "sim")
@@ -101,6 +113,7 @@ SHAPE_LABELS: dict[str, str] = {
 STAGE_LABELS: dict[str, str] = {
     "capture": "当前光路采集（探针 + 逐帧自动曝光）",
     "reuse_capture": "复用已有采集",
+    "optical_probe": "光路探测（复用判定）",
     "nominal_initialization": "初始模型准备（冷启动，先用几何设计初值起手，未实测标定）",
     "fit": "物理预测模型迁移 / 拟合",
     "CCD_model_blocks": "CCD 实测对照块（模型预测 vs 实测）",
@@ -116,6 +129,22 @@ STAGE_LABELS: dict[str, str] = {
     "summary": "指标摘要",
     "direction_check": "方向核对",
 }
+
+#: 验收阈值循环第 N 轮（N ≥ 1）的阶段名前缀，由 ``run_session`` 拼出：
+#: ``acceptance_round_{N}_{base}``。第 0 轮不带前缀。
+_ROUND_PREFIX_RE = re.compile(r"^acceptance_round_(\d+)_(.+)$")
+
+
+def stage_label(name: str, fallback: str | None = None) -> str:
+    """阶段名 → 操作员标签；循环第 N 轮的阶段显示为「第 N 轮 · 基础标签」。
+
+    未知名称回落到 ``fallback``（缺省则原样返回名称）。
+    """
+    match = _ROUND_PREFIX_RE.match(name)
+    if match:
+        base = STAGE_LABELS.get(match.group(2), match.group(2))
+        return f"第 {match.group(1)} 轮 · {base}"
+    return STAGE_LABELS.get(name, fallback if fallback is not None else name)
 
 
 @dataclass(frozen=True)
@@ -161,6 +190,16 @@ class TransferFormValues:
             :func:`build_session` 去空白后转成 ``Path``。
         window_span: 采样窗**半跨**（px）。``0`` = 自动派生（保持小目标行为完全
             不变，见 :func:`effective_window_span`）；``>0`` = 显式指定。
+        acceptance_enabled: 是否开启验收阈值循环。``False``（默认）保持当前单轮
+            行为完全不变；``True`` 时 ``run_session`` 拟合后在验收行上比对 CCD 与
+            模型预测，不达标则把验证数据并入训练并重训，直到达标、用户点「停止」
+            或达到 :data:`acceptance_max_rounds` 上限。
+        acceptance_metric: 循环用的验收口径（``quality`` 结合相关性与 relative_l2）。
+        acceptance_lower: 相关性（correlation）下界，算法建议之（见
+            :data:`ACCEPTANCE_LOWER_DEFAULT`）。区间 (0, 1]。
+        acceptance_upper: relative_l2 上界，算法建议值（见
+            :data:`ACCEPTANCE_UPPER_DEFAULT`）。须 > 0。
+        acceptance_max_rounds: 循环的安全上限（重训轮数），到限即优雅停止。
     """
 
     shapes: tuple[str, ...] = ("square",)
@@ -191,6 +230,14 @@ class TransferFormValues:
     checkpoint: str = ""
     seed_run: str = ""
     window_span: float = 0.0
+    acceptance_enabled: bool = False
+    acceptance_metric: str = "quality"
+    acceptance_lower: float = 0.85
+    acceptance_upper: float = 0.25
+    acceptance_max_rounds: int = 8
+    #: 光路复用：True = 先探测光路是否与最近一份 latest 模型一致，一致则跳过
+    #: 采集 / 拟合，直接把那次 CCD 对照重做一遍；False = 当前全流程重采集。
+    reuse_latest: bool = False
 
 
 def effective_window_span(
@@ -246,7 +293,8 @@ def validate_form(values: TransferFormValues) -> tuple[list[str], list[str]]:
     顺序固定（与 ``TransferMethod.validate`` 一致）：torch 未安装 → 相机类型
     不是大恒 → 没选形状 → ``preflight.check_parameters``。前三条任何一条不通过
     都直接返回：缺 torch 时讨论倾斜相位没有意义，也不会把一条"周期性"提示混进
-    真正的阻塞原因里。
+    真正的阻塞原因里。开启验收阈值循环时，另对相关性下界 / relative_l2 上界做
+    一次**提醒级**边界检查（不阻塞）。
 
     ``values.tilt`` 关闭（默认）时目标留在零级 (0 级)，倾斜相位周期 / 位移不适用，
     因此屏蔽掉那些倾斜相位专属的 preflight 判据（可表示性、位移是否溢出采样窗）——
@@ -267,10 +315,10 @@ def validate_form(values: TransferFormValues) -> tuple[list[str], list[str]]:
         return [torch_error], []
 
     camera = str(values.camera)
-    if camera != "daheng":
+    if camera not in ("daheng", "miicam"):
         return [
-            f"迁移学习闭环目前只对大恒相机做过实验验证（相机类型 {camera!r}）。"
-            "其他后端仅有接口支持；请在「相机类型」里选择 daheng"
+            f"迁移学习闭环目前只对大恒 / MiiCam 相机做过实验验证（相机类型 {camera!r}）。"
+            "其他后端仅有接口支持；请在「相机类型」里选择 daheng 或 miicam"
         ], []
 
     if not values.shapes:
@@ -342,6 +390,22 @@ def validate_form(values: TransferFormValues) -> tuple[list[str], list[str]]:
             errors.append(text)
         else:
             warnings.append(text)
+    # 验收阈值循环的边界（只在校验开启时把关, 关闭 = 当前单轮行为, 不拦不提示）。
+    # 阈值是算法建议的浮动下/上界: 给越界一个提醒, 不阻塞——操作员可以按自己的
+    # 判定放宽, 但提醒能防住把 correlation 拖到 0 以下这类明显笔误。
+    if bool(values.acceptance_enabled):
+        lower = float(values.acceptance_lower)
+        upper = float(values.acceptance_upper)
+        if not math.isfinite(lower) or lower <= 0.0 or lower > 1.0:
+            warnings.append(
+                f"相关性下界 {lower!r} 不在 (0, 1] 区间内（算法建议 {ACCEPTANCE_LOWER_DEFAULT}）。"
+                "\n    → 验收循环会拿它对比模型预测的相关性，请填 0 到 1 之间的值。"
+            )
+        if not math.isfinite(upper) or upper <= 0.0:
+            warnings.append(
+                f"relative_l2 上界 {upper!r} 不是正数（算法建议 {ACCEPTANCE_UPPER_DEFAULT}）。"
+                "\n    → 验收循环会拿它对比模型预测的相对 L2 误差，请填大于 0 的值。"
+            )
     return errors, warnings
 
 
@@ -433,6 +497,12 @@ def build_session(
         adaptive_exposure=bool(values.adaptive_exposure),
         save_dataset=bool(values.save_dataset),
         device=str(values.device),
+        acceptance_enabled=bool(values.acceptance_enabled),
+        acceptance_metric=str(values.acceptance_metric),
+        acceptance_lower=float(values.acceptance_lower),
+        acceptance_upper=float(values.acceptance_upper),
+        acceptance_max_rounds=int(values.acceptance_max_rounds),
+        reuse_latest=bool(values.reuse_latest),
     )
     # ``TransferSession`` 没有 tilt / aspect_ratio 字段（workflow.py 不在写域），
     # 物理 lane（``validate.run``）按 :data:`TILT_SESSION_FIELD` /

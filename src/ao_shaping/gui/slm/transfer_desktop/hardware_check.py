@@ -83,72 +83,55 @@ def check_hardware(camera: str, cam_id: int, slm_number: int) -> HardwareReport:
     """执行中立硬件自检，返回报告。相机与 SLM 检查相互隔离。"""
     items: list[CheckItem] = []
 
-    # 1. Daheng 枚举（必需）
-    try:
-        daheng_list = DahengCamera.get_cam_list()
-        daheng_items = [] if daheng_list is None else list(daheng_list)
-        count = len(daheng_items)
-        present = _selected_cam_present(daheng_items, cam_id)
-        if present:
+    # 1/2. 相机枚举: 所选后端为必需项, 另一后端仅供信息。
+    #    miicam 已验证 (beam-quality 台面 + 迁移学习闭环接口), 选它时 MiiCam
+    #    枚举成为必需项, Daheng 只作提示。
+    for backend, cam_cls, label in (
+        ("daheng", DahengCamera, "Daheng 枚举"),
+        ("miicam", MIICamera, "MiiCam 枚举"),
+    ):
+        required = backend == str(camera)
+        try:
+            cam_list = cam_cls.get_cam_list()
+            cam_items = [] if cam_list is None else list(cam_list)
+            count = len(cam_items)
+            present = _selected_cam_present(cam_items, cam_id)
+            if present:
+                items.append(
+                    CheckItem(
+                        label=label,
+                        level="ok",
+                        detail=(
+                            f"枚举到 {count} 台 {backend} 相机，所选 cam_id={cam_id} 在列表中"
+                            + ("" if required else "（仅自检）")
+                        ),
+                        required=required,
+                    )
+                )
+            else:
+                items.append(
+                    CheckItem(
+                        label=label,
+                        level="fail" if required else "warn",
+                        detail=(
+                            f"枚举到 {count} 台 {backend} 相机，所选 cam_id={cam_id} 不在列表中"
+                            + ("" if required else "（仅自检；当前所选相机非此后端）")
+                        ),
+                        required=required,
+                    )
+                )
+        except Exception as exc:  # policy: one backend failing must not abort the other checks
             items.append(
                 CheckItem(
-                    label="Daheng 枚举",
-                    level="ok",
-                    detail=f"枚举到 {count} 台 Daheng 相机，所选 cam_id={cam_id} 在列表中",
-                    required=True,
+                    label=label,
+                    level="fail" if required else "warn",
+                    detail=(
+                        f"{backend} 枚举失败：{type(exc).__name__}: {exc}"
+                        + ("" if required else "（仅自检；当前所选相机非此后端）")
+                    ),
+                    required=required,
                 )
             )
-        else:
-            items.append(
-                CheckItem(
-                    label="Daheng 枚举",
-                    level="fail",
-                    detail=f"枚举到 {count} 台 Daheng 相机，所选 cam_id={cam_id} 不在列表中",
-                    required=True,
-                )
-            )
-    except Exception as exc:  # policy: enumeration touches native SDK; one backend failing must not abort the other checks
-        items.append(
-            CheckItem(
-                label="Daheng 枚举",
-                level="fail",
-                detail=f"Daheng 枚举失败：{type(exc).__name__}: {exc}",
-                required=True,
-            )
-        )
-
-    # 2. MiiCam 枚举（非必需，仅供信息）
-    try:
-        miicam_list = MIICamera.get_cam_list()
-        miicam_items = [] if miicam_list is None else list(miicam_list)
-        count = len(miicam_items)
-        if count > 0:
-            items.append(
-                CheckItem(
-                    label="MiiCam 枚举",
-                    level="ok",
-                    detail=f"枚举到 {count} 台 MiiCam 相机（仅自检；Transfer 运行仍只接受 Daheng）",
-                    required=False,
-                )
-            )
-        else:
-            items.append(
-                CheckItem(
-                    label="MiiCam 枚举",
-                    level="warn",
-                    detail="未枚举到 MiiCam 相机（仅自检；Transfer 运行仍只接受 Daheng）",
-                    required=False,
-                )
-            )
-    except Exception as exc:  # policy: optional backend enumeration failure is informational only
-        items.append(
-            CheckItem(
-                label="MiiCam 枚举",
-                level="warn",
-                detail=f"MiiCam 枚举失败：{type(exc).__name__}（仅自检；Transfer 运行仍只接受 Daheng）",
-                required=False,
-            )
-        )
 
     # 3. 所选 SLM（必需）
     probe_error: Exception | None = None

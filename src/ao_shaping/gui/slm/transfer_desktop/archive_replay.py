@@ -34,7 +34,7 @@
 ------------------------------------------------
 那个函数本身是纯 numpy + matplotlib, 但它的模块顶部 ``import`` 了
 :class:`~ao_shaping.drivers.slm.santec.Santec` —— 为了一个色图把 SLM 驱动拉进
-无设备的回放进程不合适。所以这里给出同口径的 :func:`phase_to_preview`
+无设备的回放进程不合适。所以这里给出同阈值的 :func:`phase_to_preview`
 (同样的 ``0..max_gray`` 归一化、同样的 ``twilight`` / 灰度两种色图), 不在本模块
 import 任何 ``drivers.ccd`` / ``drivers.slm`` 符号; 测试会把这一点钉住。
 
@@ -398,7 +398,7 @@ def phase_to_preview(
 ) -> np.ndarray:
     """原始 SLM 灰度 → RGB 预览图 (float32, 值域 0..1)。
 
-    与 ``pattern_controls._phase_to_preview`` 同口径: 先除以面板满量程并钳到
+    与 ``pattern_controls._phase_to_preview`` 同阈值: 先除以面板满量程并钳到
     ``0..1``, 再走 ``twilight`` (循环色图, 0 与 2π 同色) 或灰度; 不 import 驱动。
     """
     if max_gray is None:
@@ -1642,12 +1642,12 @@ class ArchiveReplayDialog(QDialog):
             self._message.setText("没有已加载的相位帧, 无法导出 (SLM灰度)")
             return
         dest = self._pick_save_path(
-            "导出相位 · SLM灰度口径", "phase_slm.csv", "CSV 文件 (*.csv);;所有文件 (*)"
+            "导出相位 · SLM灰度阈值", "phase_slm.csv", "CSV 文件 (*.csv);;所有文件 (*)"
         )
         if dest is None:
             return
         export_phase_slm_csv(dest, gray)
-        self._message.setText(f"已导出相位 (SLM灰度口径): {Path(dest).name}")
+        self._message.setText(f"已导出相位 (SLM灰度阈值): {Path(dest).name}")
 
     def _on_export_phase_radians(self) -> None:
         gray = self._current_phase_gray()

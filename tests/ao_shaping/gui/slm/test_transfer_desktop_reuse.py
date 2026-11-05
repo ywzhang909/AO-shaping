@@ -1,0 +1,176 @@
+"""迁移学习闭环页「光路复用」的离屏交互契约。
+
+光路复用 = 用一次廉价探针量当前光路条件并与最近一份 latest 模型比对；一致则跳过
+采集与拟合，直接把那次 CCD 对照重做一遍。页面端只做三件事:
+
+* 一个开关「光路复用」, 默认关（= 当前全流程重新采集）, 值原样进表单快照, 进而随
+  :func:`build_session` 作为 native 字段进会话;
+* 运行期间随其余必设参数一起锁住;
+* 结算时若会话复用过, 状态行补一行「光路复用：一致 / 已变化」。
+
+这里不该也不需要碰任何硬件: 全部离屏、参数校验换成常量、会话 tasks 用桩。
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import types
+
+# 必须在任何 QApplication 之前设置: CI / 无显示环境走离屏后端。
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import pytest
+from PySide6.QtWidgets import QApplication
+
+from ao_shaping.gui.slm.transfer_desktop import page as page_mod
+from ao_shaping.gui.slm.transfer_desktop import params
+
+
+class _StubSignal:
+    def connect(self, *args, **kwargs):
+        pass
+
+
+class _StubTask(page_mod.QRunnable):
+    """接住 ``_start_run`` 建的任务, 不真正开会话 (不碰硬件)。"""
+
+    def __init__(self, values, out, should_stop=None):
+        super().__init__()
+        self.values = values
+        self.out = out
+        self.should_stop = should_stop
+        self.signals = types.SimpleNamespace(
+            stage=_StubSignal(),
+            frame=_StubSignal(),
+            finished=_StubSignal(),
+            failed=_StubSignal(),
+        )
+
+    def run(self):
+        pass
+
+
+@pytest.fixture(scope="module")
+def app() -> QApplication:
+    """离屏 QApplication (一个进程只能有一个)。"""
+    instance = QApplication.instance()
+    if instance is None:
+        instance = QApplication([])
+    return instance
+
+
+@pytest.fixture()
+def page(app: QApplication, monkeypatch: pytest.MonkeyPatch, tmp_path):
+    """离屏页面; 校验换成常量, tasks 换成桩, 免得拉进 torch / 硬件。"""
+    monkeypatch.setattr(page_mod.params, "validate_form", lambda values: ([], []))
+    monkeypatch.setattr(page_mod.params, "plan_session_dir", lambda: tmp_path / "s")
+    monkeypatch.setattr(page_mod, "_SessionTask", _StubTask)
+    widget = page_mod.TransferPage()
+    app.processEvents()
+    yield widget
+    widget.close()
+    app.processEvents()
+
+
+# --- 光路复用控件 ---------------------------------------------------------
+
+
+def test_reuse_control_exists_and_defaults_off(page) -> None:
+    """开关存在、默认关 (= 当前全流程重新采集)。"""
+    assert hasattr(page, "_reuse_latest")
+    assert page._reuse_latest.isChecked() is False
+
+
+def test_form_values_reflect_the_reuse_toggle(page) -> None:
+    """控件的勾选状态原样进表单快照 (= params 层建会话要读的字段)。"""
+    page._reuse_latest.setChecked(True)
+    assert page.form_values().reuse_latest is True
+
+    page._reuse_latest.setChecked(False)
+    assert page.form_values().reuse_latest is False
+
+
+def test_reuse_defaults_match_params_layer(page) -> None:
+    """页面控件默认值就是 params 层的默认值 (单一口径, 不另立一套)。"""
+    values = params.TransferFormValues()
+    assert page._reuse_latest.isChecked() == bool(values.reuse_latest)
+
+
+def test_reuse_control_is_in_the_runtime_lock_set(page, monkeypatch) -> None:
+    """运行期间复选框随必设参数一起锁住 (本次用的是启动时的快照)。"""
+    assert page._reuse_latest.isEnabled() is True
+    monkeypatch.setattr(page._pool, "start", lambda task: None)
+    monkeypatch.setattr(page._poll, "start", lambda *args: None)
+    page._start_run()
+    assert page._reuse_latest.isEnabled() is False
+    page._on_failed("cleanup")
+    assert page._reuse_latest.isEnabled() is True
+
+
+# --- 光路复用结论的显示 ---------------------------------------------------
+
+
+def _write_reused_session(tmp_path, same_path):
+    """造一个写有 ``optical_probe.json`` 的会话, 供显示测试。"""
+    session_dir = tmp_path / "s"
+    session_dir.mkdir(exist_ok=True)
+    (session_dir / "optical_probe.json").write_text(
+        json.dumps(
+            {
+                "serial": "sn-1",
+                "latest": str(session_dir / "latest"),
+                "same_path": bool(same_path),
+                "verdict": "same" if same_path else "different",
+            }
+        ),
+        encoding="utf-8",
+    )
+    return session_dir
+
+
+def test_reuse_verdict_line_skips_when_not_run(tmp_path) -> None:
+    session_dir = tmp_path / "s"
+    session_dir.mkdir()
+    # 没写 optical_probe.json = 本场没走光路复用 → 空串。
+    assert page_mod.reuse_latest_verdict_line(session_dir) == ""
+
+
+def test_reuse_verdict_line_shows_same_when_reused(tmp_path) -> None:
+    session_dir = _write_reused_session(tmp_path, same_path=True)
+    line = page_mod.reuse_latest_verdict_line(session_dir)
+    assert "光路复用" in line
+    assert "一致" in line
+
+
+def test_reuse_verdict_line_shows_different_when_changed(tmp_path) -> None:
+    session_dir = _write_reused_session(tmp_path, same_path=False)
+    line = page_mod.reuse_latest_verdict_line(session_dir)
+    assert "光路复用" in line
+    assert "变化" in line
+
+
+def test_reuse_verdict_line_never_raises_on_missing_dir(tmp_path) -> None:
+    assert page_mod.reuse_latest_verdict_line(tmp_path / "nope") == ""
+
+
+def test_reuse_verdict_line_never_raises_on_partial_artifacts(tmp_path) -> None:
+    session_dir = tmp_path / "s"
+    session_dir.mkdir()
+    # 文件在但是坏 JSON → 不报错, 返回空串 (没值可显示)。
+    (session_dir / "optical_probe.json").write_text("{not json", encoding="utf-8")
+    assert page_mod.reuse_latest_verdict_line(session_dir) == ""
+
+
+def test_on_finished_appends_reuse_verdict(page, tmp_path, monkeypatch) -> None:
+    """会话写完 ``optical_probe.json`` 结算时, 状态行补一行光路复用结论。"""
+    session_dir = tmp_path / "s"
+    session_dir.mkdir()
+    (session_dir / "optical_probe.json").write_text(
+        json.dumps({"serial": "sn-1", "latest": "x", "same_path": True}),
+        encoding="utf-8",
+    )
+    # 直接调 _on_finished: 它内部先 _settle 复位状态, 再补一行光路复用结论。
+    page._on_finished(str(session_dir))
+    assert "光路复用" in page._status.text()
+    page._on_failed("cleanup")

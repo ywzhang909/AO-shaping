@@ -38,6 +38,8 @@ def _values(**overrides: object) -> TransferFormValues:
 
 def test_the_public_contract_is_the_documented_eleven_names() -> None:
     assert set(params.__all__) == {
+        "ACCEPTANCE_LOWER_DEFAULT",
+        "ACCEPTANCE_UPPER_DEFAULT",
         "ASPECT_RATIO_SESSION_FIELD",
         "CAMERA_CHOICES",
         "SHAPE_CHOICES",
@@ -71,6 +73,7 @@ def test_stage_labels_cover_every_stage_run_session_emits() -> None:
     assert set(STAGE_LABELS) == {
         "capture",
         "reuse_capture",
+        "optical_probe",
         "nominal_initialization",
         "fit",
         "CCD_model_blocks",
@@ -123,6 +126,20 @@ def test_form_defaults_mirror_the_streamlit_recipe() -> None:
     assert values.device == "auto"
     assert values.checkpoint == ""
     assert values.seed_run == ""
+    assert values.acceptance_enabled is False
+    assert values.acceptance_metric == "quality"
+    assert values.acceptance_lower == 0.85
+    assert values.acceptance_upper == 0.25
+    assert values.acceptance_max_rounds == 8
+
+
+def test_acceptance_default_constants_are_exported_and_match_form_defaults() -> None:
+    """页面「算法建议」提示读的两个常量, 与表单默认值必须一致。"""
+    values = TransferFormValues()
+    assert params.ACCEPTANCE_LOWER_DEFAULT == values.acceptance_lower
+    assert params.ACCEPTANCE_UPPER_DEFAULT == values.acceptance_upper
+    assert params.ACCEPTANCE_LOWER_DEFAULT == 0.85
+    assert params.ACCEPTANCE_UPPER_DEFAULT == 0.25
 
 
 # --- 校验顺序 ---------------------------------------------------------------
@@ -145,7 +162,18 @@ def test_a_non_daheng_camera_is_reported_before_shapes_and_preflight() -> None:
 
     assert len(errors) == 1
     assert "大恒" in errors[0]
+    assert "MiiCam" in errors[0]
     assert "sim" in errors[0]
+    assert warnings == []
+
+
+def test_miicam_camera_passes_the_camera_gate() -> None:
+    pytest.importorskip("torch")
+
+    # miicam 已验证, 应通过相机类型门禁 (后续判据仍是形状/参数)。
+    errors, warnings = validate_form(_values(camera="miicam", shapes=(), period=4.0))
+
+    assert errors == ["至少选择一个目标形状"]
     assert warnings == []
 
 
@@ -575,3 +603,67 @@ def test_build_session_keeps_an_explicit_window_span(tmp_path) -> None:
     session = build_session(values, out=tmp_path / "session")
 
     assert session.window_span == 930.0
+
+
+# --- 验收阈值循环 -----------------------------------------------------------
+
+
+def test_build_session_threads_acceptance_fields_into_the_session(tmp_path) -> None:
+    """验收阈值循环的五个字段原样透传进 ``TransferSession``。"""
+    values = TransferFormValues(
+        acceptance_enabled=True,
+        acceptance_metric="quality",
+        acceptance_lower=0.9,
+        acceptance_upper=0.2,
+        acceptance_max_rounds=5,
+    )
+
+    session = build_session(values, out=tmp_path / "session")
+
+    assert session.acceptance_enabled is True
+    assert session.acceptance_metric == "quality"
+    assert session.acceptance_lower == 0.9
+    assert session.acceptance_upper == 0.2
+    assert session.acceptance_max_rounds == 5
+
+
+def test_build_session_threads_reuse_latest_into_the_session(tmp_path) -> None:
+    """光路复用开关原样透传进 ``TransferSession``（native 字段，无需运行时挂载）。"""
+    on = build_session(
+        TransferFormValues(reuse_latest=True), out=tmp_path / "session"
+    )
+    assert on.reuse_latest is True
+
+    off = build_session(TransferFormValues(), out=tmp_path / "session")
+    assert off.reuse_latest is False
+
+
+def test_accepted_value_defaults_thread_into_the_session(tmp_path) -> None:
+    """默认关闭时建出的会话也带默认阈值（费心传给 workflow 才有意义）。"""
+    session = build_session(TransferFormValues(), out=tmp_path / "session")
+
+    assert session.acceptance_enabled is False
+    assert session.acceptance_metric == "quality"
+    assert session.acceptance_lower == 0.85
+    assert session.acceptance_upper == 0.25
+    assert session.acceptance_max_rounds == 8
+
+
+def test_validate_form_warns_on_out_of_range_thresholds_only_when_loop_on() -> None:
+    pytest.importorskip("torch")
+
+    # 关闭时越界阈值不产生任何提醒 (当前单轮行为不受影响)。
+    errors, warnings = validate_form(
+        _values(acceptance_enabled=False, acceptance_lower=0.0, acceptance_upper=-1.0)
+    )
+    assert errors == []
+    assert warnings == []
+
+    # 开启时越界 → 提醒但不阻塞。
+    errors, warnings = validate_form(
+        _values(acceptance_enabled=True, acceptance_lower=0.0, acceptance_upper=-1.0)
+    )
+    assert errors == []
+    assert len(warnings) == 2
+    assert any("相关性下界" in w for w in warnings)
+    assert any("relative_l2 上界" in w for w in warnings)

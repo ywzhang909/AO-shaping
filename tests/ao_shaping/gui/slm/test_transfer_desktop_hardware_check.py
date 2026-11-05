@@ -142,7 +142,42 @@ def test_miicam_missing_does_not_fail(monkeypatch):
     miicam_item = [i for i in report.items if i.label == "MiiCam 枚举"][0]
     assert miicam_item.required is False
     assert miicam_item.level == "warn"
-    assert "仅自检；Transfer 运行仍只接受 Daheng" in miicam_item.detail
+    assert "当前所选相机非此后端" in miicam_item.detail
+
+
+def test_miicam_selected_becomes_required_and_daheng_informational(monkeypatch):
+    _patch_all(
+        monkeypatch,
+        daheng_list=[SimpleNamespace()],
+        miicam_list=[SimpleNamespace()],
+        slm_device={"slm_number": 1, "serial": "SN", "in_use": False},
+        exposure=1.0,
+    )
+    report = hc.check_hardware("miicam", 0, 1)
+
+    assert report.ok is True
+    daheng_item = [i for i in report.items if i.label == "Daheng 枚举"][0]
+    miicam_item = [i for i in report.items if i.label == "MiiCam 枚举"][0]
+    assert miicam_item.required is True
+    assert miicam_item.level == "ok"
+    assert daheng_item.required is False
+    assert "仅自检" in daheng_item.detail
+
+
+def test_miicam_selected_but_missing_fails(monkeypatch):
+    _patch_all(
+        monkeypatch,
+        daheng_list=[SimpleNamespace()],
+        miicam_list=[],
+        slm_device={"slm_number": 1, "serial": "SN", "in_use": False},
+        exposure=1.0,
+    )
+    report = hc.check_hardware("miicam", 0, 1)
+
+    assert report.ok is False
+    miicam_item = [i for i in report.items if i.label == "MiiCam 枚举"][0]
+    assert miicam_item.required is True
+    assert miicam_item.level == "fail"
 
 
 def test_resolve_not_called(monkeypatch):

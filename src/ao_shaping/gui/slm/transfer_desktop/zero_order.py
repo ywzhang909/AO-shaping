@@ -59,7 +59,7 @@ class ZeroOrderReading:
     """一次「读取零级」的结论（纯数据，可跨线程传递）。
 
     Attributes:
-        center: 0 级中心 ``(x, y)``（相机 px，帧最亮点口径）。
+        center: 0 级中心 ``(x, y)``（相机 px，帧最亮点阈值）。
         max_side_px: 目标边长上限（px）—— 0 级到最近帧边、扣留白后折成的边长。
         exposure_ms: 本次使用的曝光时间（ms）。
         peak: 用于定量的一帧的峰值强度 (ADU)。
@@ -102,7 +102,7 @@ def read_zero_order(camera: str, cam_id: int) -> ZeroOrderReading:
     相机生命周期交给 ``create_camera`` 的 context manager。
 
     Args:
-        camera: 相机后端名（``params.CAMERA_CHOICES`` 之一，实测走 ``daheng``）。
+        camera: 相机后端名（``params.CAMERA_CHOICES`` 之一，实测走 ``daheng`` / ``miicam``）。
         cam_id: 相机序号（大恒驱动按下标取设备，用 0）。
 
     Returns:

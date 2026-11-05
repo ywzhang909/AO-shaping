@@ -162,7 +162,7 @@ class OpticalPathInvalid(RuntimeError):
 
     @property
     def counts_per_ms(self) -> float:
-        """最后一档的峰值率 —— 与探针的 ``counts_per_ms`` 同一口径, 可直接对比。"""
+        """最后一档的峰值率 —— 与探针的 ``counts_per_ms`` 同一阈值, 可直接对比。"""
         if not self.readings or self.readings[-1]["exposure_ms"] <= 0:
             return 0.0
         return float(self.readings[-1]["peak_counts"] / self.readings[-1]["exposure_ms"])

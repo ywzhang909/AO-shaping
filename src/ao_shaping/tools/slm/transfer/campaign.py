@@ -29,7 +29,7 @@
   ``transfer_shapes_runner.run.params`` 比对 —— 改 runner 默认值而漏改这里会直接红。
 - **不重算物理**：窗口档位、阶段配方分别来自
   ``live_20261028.md:41``（§5.2 尺寸窗口 420/620/900）与
-  ``tools.slm.transfer.stages.STAGE_RECIPES``；本模块只做查表与配对，不另立口径。
+  ``tools.slm.transfer.stages.STAGE_RECIPES``；本模块只做查表与配对，不另立阈值。
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ __all__ = [
 #: 键是 campaign 实测过的三档尺寸，值是规划报告给每档定的半跨：报告
 #: ``multishape_scale_live_20261028.md:41`` 记「窗口半跨 1200→900、600→620、
 #: 200→420」，§5.2（同文件 ``:233``）记「窗口 420 / 620 / 900」。窗口必须比目标
-#: 与零级圆盘都宽：200 px 方框与零级圆盘重叠 5.61 %（实测），这是**指标口径**问题，
+#: 与零级圆盘都宽：200 px 方框与零级圆盘重叠 5.61 %（实测），这是**指标阈值**问题，
 #: 不是靠缩窗解决的 —— 所以 200 档的 420 px 反而是三档里余量最小的。
 SIZE_WINDOWS: dict[float, float] = {200.0: 420.0, 600.0: 620.0, 1200.0: 900.0}
 
@@ -148,7 +148,7 @@ _DEFAULT_NOTES: dict[str, str] = {
               "（preflight.CALIBRATED_PERIODS_PX），其它值是按「位移 ∝ 1/period」外推的；"
               "低于 preflight.MIN_PERIOD_PX=16 会先把目标整体推出采样窗",
     "zero_radius": "CLI 默认（--zero-radius）：零级剔除圆盘半径。剔除只改指标不改物理"
-                   "（live_20261028.md §3.2 表注），所以半径必须与报告那个 5.61 % 同口径",
+                   "（live_20261028.md §3.2 表注），所以半径必须与报告那个 5.61 % 同阈值",
     "capture_grid": "CLI 默认（--capture-grid）：模型探针的 SLM 采样网格",
     "fit_iterations": "CLI 默认（--fit-iterations）：物理预测模型的拟合迭代数",
     "control_grid": "CLI 默认（--control-grid）：导出到控制分辨率用的网格（几何种子的相位面）",
@@ -175,7 +175,7 @@ class FieldSource(StrEnum):
     """一个参数值的来源。GUI 用它决定表格里那一列的灰/黑/高亮。"""
 
     MEASURED = "measured"  # 本会话实测（如零级位置、曝光）
-    DERIVED = "derived"  # 由「形状 + 尺寸」或报告口径推出来（如窗口半跨）
+    DERIVED = "derived"  # 由「形状 + 尺寸」或报告阈值推出来（如窗口半跨）
     DEFAULT = "default"  # runner 的 CLI 默认值（只读，改了就是 MANUAL）
     MANUAL = "manual"  # 人改过；说明里必须记下被替换掉的值
 
@@ -232,7 +232,7 @@ class CampaignSettings:
 
         只判两条**结构性**的错（参数本身能不能跑），不判"结果好不好"：
         目标放不进采样窗、目标小于采样网格下限。零级重叠**不在这里**：200 px 档
-        实测重叠 5.61 % 仍然跑完了（live_20261028.md:23），它是读数口径问题，
+        实测重叠 5.61 % 仍然跑完了（live_20261028.md:23），它是读数阈值问题，
         由 :func:`ao_shaping.tools.slm.transfer.preflight.check_zero_overlap` 报给操作员。
         """
         problems: list[str] = []
@@ -365,7 +365,7 @@ def derive_settings(
     if zero_xy is None:
         warnings.append(
             "零级位置未测：几何检查只能按标称位置，运行前请做光路探针"
-            "（scripts/slm/probe_optical_path_validity.py；零级与目标框的重叠面积是读数口径的一部分）"
+            "（scripts/slm/probe_optical_path_validity.py；零级与目标框的重叠面积是读数阈值的一部分）"
         )
     else:
         x, y = (float(v) for v in zero_xy)
@@ -408,7 +408,7 @@ def derive_settings(
     if zero_radius is not None:
         put("zero_radius", float(zero_radius), FieldSource.MANUAL,
             f"手工覆盖：CLI 默认 {RUNNER_CLI_DEFAULTS['zero_radius']:g} 被替换"
-            "（改半径就改了零级剔除面积，须与报告口径一起读）")
+            "（改半径就改了零级剔除面积，须与报告阈值一起读）")
     else:
         put("zero_radius", RUNNER_CLI_DEFAULTS["zero_radius"], FieldSource.DEFAULT,
             _DEFAULT_NOTES["zero_radius"])
@@ -527,7 +527,7 @@ def estimate_seconds(rows: Sequence[MatrixRow]) -> tuple[float, float, float]:
     交叉校验：112 块 → 2688 s，实测四形状整形合计 2675.0 s
     （``multishape_scale_wallclock_20261028.md:328``）。
 
-    口径：**只算整形块**。capture / fit / 几何重导出 / 重放不在内 —— 它们与块数无关，
+    阈值：**只算整形块**。capture / fit / 几何重导出 / 重放不在内 —— 它们与块数无关，
     复用已有模型时整段跳过（同一份报告记 capture 173.2 + fit 31.2 + capture_geometry
     132.3 s，``:252``）。
     """

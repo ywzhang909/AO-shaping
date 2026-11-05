@@ -8,7 +8,7 @@ journal 抢同一个文件（journal 是 append-only 的，成本是覆盖写的
 "哪一段算不出来就只是缺这一行"的粒度。:func:`read_campaign_costs` 反向扫回来，
 按 ``<形状>/<阶段>`` 归并成一张表。
 
-估算口径
+估算阈值
 --------
 只用**每块秒**（``seconds / blocks``）做外推：段长的绝对秒数没有可比性（段与段的
 块数不同），而"每块多少秒"是同一条光路上最稳定的量。低/中/高取已测每块秒的
@@ -70,7 +70,7 @@ def record_stage_cost(stage_dir: str | Path, *, stage: str, shape: str, seconds:
     Args:
         stage_dir: 段目录（``out/shape/<形状>/<阶段>``）。
         stage: 阶段名（与 :data:`~ao_shaping.tools.slm.transfer.stages.STAGE_RECIPES`
-            的 ``name`` 同一口径）。
+            的 ``name`` 同一阈值）。
         shape: 形状键（``square`` / ``rectangle`` ...）。
         seconds: 实测墙钟秒数。
         blocks: 这段真正测过的块数（由段 manifest 的行数给出）。0 表示"只有段首

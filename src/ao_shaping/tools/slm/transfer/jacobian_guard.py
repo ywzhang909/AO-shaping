@@ -24,7 +24,7 @@ anchored 模式的前提是**冻结**的物理预测模型给出的梯度方向�
 ----------
 ``low=0.5`` / ``high=0.85`` 是先验起点, 不是标定值: 数字孪生
 (:mod:`ao_shaping.drivers.sim.bench_twin`) 上可以先注入已知的 Jacobian 误差
-再回放, 用同一口径标定 (见 ``report/shape_trials/multishape_scale`` 的下一步
+再回放, 用同一阈值标定 (见 ``report/shape_trials/multishape_scale`` 的下一步
 方案)。方向一致性是**相对**量, 换设备不需要重标定, 换控制分辨率才需要。
 
 本模块纯 numpy, 不 import torch / 设备层, 因此可以在无设备的机器上单测。

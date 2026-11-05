@@ -9,14 +9,93 @@ import numpy as np
 import pytest
 
 from ao_shaping.tools.slm.transfer.pretrain import (
+    NOMINAL_CENTER,
+    NOMINAL_DEFOCUS,
+    NOMINAL_WIDTH,
     PARAM_NAMES,
     combo_grid,
+    combo_target,
     grouped_folds,
+    load_bench,
+    nominal_parameters,
     pretrain,
     train_estimator,
+    truth_parameters,
 )
 
 TINY = dict(combos=6, probes_per_combo=4, fft_size=64, grid_size=32)
+
+
+def _write_bench_fixture(path):
+    """A distinctive bench-shaped ``frozen_parameters.json`` (values != old-bench defaults)."""
+    from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
+        FrozenDefocusParameters,
+    )
+
+    bench = FrozenDefocusParameters.from_dicts(
+        dict(defocus_diopter=0.0815, origin=[1352.5, 635.5],
+             amplitude_center=[949.0, 582.75], amplitude_width=[586.0, 388.5],
+             residual_noll_radians={"5": 0.01, "6": -0.02, "7": 0.0, "8": 0.0,
+                                    "9": 0.0, "10": 0.0, "11": 0.03},
+             gain=7.5, background=0.215, sigma_ccd_px=0.0),
+        [[-192.8, -8263.6], [-8428.1, 23.5]],
+        fft_size=1024, pixel_samples=3, grid_size=128)
+    payload = bench.to_dict()
+    payload["ramp_matrix"] = [list(row) for row in bench.ramp_matrix]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return bench, path
+
+
+def test_default_nominal_keeps_historical_placeholders():
+    """bench=None must keep the shipped NOMINAL_* values and the (historical) fft//2 origin."""
+    nominal = nominal_parameters(fft_size=64, pixel_samples=1, grid_size=32)
+    assert nominal.defocus_diopter == NOMINAL_DEFOCUS
+    assert nominal.amplitude_center_xy == NOMINAL_CENTER
+    assert nominal.amplitude_width_xy == NOMINAL_WIDTH
+    assert nominal.origin_xy == (32.0, 32.0)
+    assert nominal.ramp_matrix == ((0.0, 5000.0), (-5000.0, 0.0))
+    assert nominal.fft_size == 64 and nominal.grid_size == 32
+
+
+def test_bench_injection_takes_geometry_origin_and_ramp_from_bench(tmp_path):
+    bench, path = _write_bench_fixture(tmp_path / "frozen_parameters.json")
+
+    loaded = load_bench(path)
+    assert loaded == bench
+    nominal = nominal_parameters(bench=path)
+
+    # Frame fix: origin is the bench camera-pixel intercept, not the FFT index fft//2.
+    assert nominal.origin_xy == pytest.approx(bench.origin_xy)
+    assert nominal.origin_xy != (512.0, 512.0)
+    assert nominal.defocus_diopter == pytest.approx(bench.defocus_diopter)
+    assert nominal.amplitude_center_xy == pytest.approx(bench.amplitude_center_xy)
+    assert nominal.amplitude_width_xy == pytest.approx(bench.amplitude_width_xy)
+    assert nominal.ramp_matrix == bench.ramp_matrix
+    assert nominal.residual_noll_radians == bench.residual_noll_radians
+    assert nominal.gain == pytest.approx(bench.gain)
+    assert nominal.background == pytest.approx(bench.background)
+    # Geometry comes from the bench when the caller does not override it.
+    assert (nominal.fft_size, nominal.grid_size, nominal.pixel_samples) == (1024, 128, 3)
+    # Explicit caller overrides still win.
+    assert nominal_parameters(bench=path, fft_size=256).fft_size == 256
+
+
+def test_truth_and_target_share_the_bench_nominal(tmp_path):
+    """Truth = nominal + offset for every field, and the target is exactly that offset."""
+    bench, path = _write_bench_fixture(tmp_path / "frozen_parameters.json")
+    combo = dict(combo=0, defocus=0.06, shift=(12.0, -8.0), width_scale=1.2, aberration=0.05)
+
+    truth = truth_parameters(combo, bench=path)
+    nominal = nominal_parameters(bench=path)
+    assert truth.defocus_diopter == pytest.approx(nominal.defocus_diopter + 0.06)
+    assert truth.amplitude_center_xy == pytest.approx(
+        (nominal.amplitude_center_xy[0] + 12.0, nominal.amplitude_center_xy[1] - 8.0))
+    assert truth.amplitude_width_xy == pytest.approx(
+        (nominal.amplitude_width_xy[0] * 1.2, nominal.amplitude_width_xy[1] * 1.2))
+    for j in range(5, 12):
+        assert truth.residual_noll_radians[j] == pytest.approx(
+            nominal.residual_noll_radians[j] + 0.05)
+    assert combo_target(combo).tolist() == pytest.approx([0.06, 12.0, -8.0, np.log(1.2), 0.05])
 
 
 def test_pretrain_imports_without_drivers_or_torch():

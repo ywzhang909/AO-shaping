@@ -80,7 +80,7 @@ def valid(row, full_scale=None):
             and float(row["exposure_ms"]) > 0)
 
 
-def load_dataset(directory, size, span, samples=None):
+def load_dataset(directory, size, span, samples=None, *, train_all=False):
     """Assemble training/validation pairs from a capture manifest.
 
     ``samples`` is an optional ``{manifest "file": payload}`` mapping — the
@@ -94,6 +94,13 @@ def load_dataset(directory, size, span, samples=None):
     The ``panel_gray`` marker keeps old on-disk datasets on their resampling
     path: a payload with neither ``panel_gray`` nor ``panel_phase`` (the
     in-memory form) is a control-grid capture by construction.
+
+    ``train_all=False`` keeps the historical split: the returned ``train`` mask
+    marks exactly the ``split == "train"`` rows. Setting ``train_all=True``
+    folds validation/test rows into the training set (the returned ``train``
+    mask is all-true), which is what a re-fit after a failed acceptance round
+    uses to squeeze more performance from the fixed data. The two-phase guard
+    is skipped in that mode, since a deliberately single-fold dataset is legal.
     """
     rows = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
     usable = [row for row in rows if valid(row)]
@@ -127,7 +134,9 @@ def load_dataset(directory, size, span, samples=None):
         images.append(count_rate(frame[xy[..., 1].astype(int), xy[..., 0].astype(int)], row))
         phases.append(phase)
     train = np.array([row["split"] == "train" for row in selected])
-    if not train.any() or train.all():
+    if train_all:
+        train = np.ones(train.shape, dtype=bool)
+    elif not train.any() or train.all():
         raise ValueError("independent training and validation phases required")
     return selected, np.stack(phases), np.stack(images), xy, matrix, ramp_samples, train
 
@@ -163,7 +172,8 @@ class FitComponents:
 
 
 def build_fit_model(dataset, checkpoint, *, span, device=None, adaptation="full",
-                   amplitude_center_lr=None, radiometry="exposure", samples=None):
+                   amplitude_center_lr=None, radiometry="exposure", samples=None,
+                   train_all=False):
     """Assemble a physical-forward fit model from a recorded dataset.
 
     Shared by :func:`fit` (offline) and the headless parallel worker. The model is
@@ -189,8 +199,14 @@ def build_fit_model(dataset, checkpoint, *, span, device=None, adaptation="full"
     dataset = Path(dataset)
     old = load_frozen_parameters(checkpoint).effective_parameters()
     device = resolve_device(device)
+        # Only the retrain loop deviates from the historical split, so the extra
+    # keyword is passed *only* when it is set: a caller (or a test) that
+    # replaces ``load_dataset`` keeps working unchanged.
+    load_kwargs: dict[str, Any] = {"samples": samples}
+    if train_all:
+        load_kwargs["train_all"] = True
     rows, phases, images, xy, matrix, ramp_samples, train = load_dataset(
-        dataset, old.grid_size, span, samples=samples)
+        dataset, old.grid_size, span, **load_kwargs)
     manifest_rows = json.loads((dataset / "manifest.json").read_text(encoding="utf-8"))
     reference_row = next(row for row in manifest_rows
                         if row["label"] == "reference_start" and valid(row))
@@ -281,7 +297,8 @@ def fit(args):
                             adaptation=adaptation,
                             amplitude_center_lr=getattr(args, "amplitude_center_lr", None),
                             radiometry=getattr(args, "radiometry", "exposure"),
-                            samples=getattr(args, "samples", None))
+                            samples=getattr(args, "samples", None),
+                            train_all=bool(getattr(args, "train_all", False)))
     import torch
     args.out.mkdir(parents=True, exist_ok=False)
     provenance = dict(dataset=str(args.dataset.resolve()), checkpoint=str(args.checkpoint.resolve()),
@@ -295,6 +312,7 @@ def fit(args):
                       amplitude_center_lr=getattr(args, "amplitude_center_lr", None),
                       radiometry=getattr(args, "radiometry", "exposure"),
                       exposure_assumption="counts/exposure_ms; linearity and illuminated offset not independently calibrated",
+                      train_all=bool(getattr(args, "train_all", False)),
                       window_step_px=2, window_span_px=args.span, rows=comps.rows, **clock())
     (args.out / "provenance.json").write_text(json.dumps(provenance, indent=2), encoding="utf-8")
     np.savez_compressed(args.out / "inputs.npz", phases=comps.phases, measured=comps.images,

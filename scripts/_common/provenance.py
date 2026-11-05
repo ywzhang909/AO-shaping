@@ -99,7 +99,30 @@ REPORTS: dict[str, ReportProvenance] = {
             "三臂离线分析复用 _harness_task2 口径（_harness_task2_run02.py）；"
             "结论：深度混杂不解释 run01 边际，主动探针样本效率无可测收益，twin NCC 结构失配待诊断。"
         ),
-        extra_scripts=("data/debug/zernike_probe_hardware/issue229/analysis/_harness_task2_run02.py",),
+        extra_scripts=(),
+    ),
+    "report/shape_trials/issue230_refeed/issue230_refeed_20261105.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件（待采集）：SLM #1 + Daheng CCD 或 miicam 2.9 µm + SLM-300 + 激光（驱动参数物理相同）；分析离线 CPU",
+        note=(
+            "issue230 在线回灌留出 NRMSE 判据；本版为方法/计划稿，采集与离线分析均未执行，"
+            "所有结果区标 PENDING 待回填。判据：refeed < stale 且 ≤ fresh 上限 ⇒ 在线回灌提升留出 NRMSE。"
+        ),
+        extra_scripts=("scripts/slm/issue230_refeed_probe.py",),
+    ),
+    "report/shape_trials/zernike_probe_sim/zernike_probe_sim_20261105.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线：纯 CPU 仿真（Sim2f 64x64 数字孪生），无 SLM/CCD/激光硬件",
+        note=(
+            "基于 Pathak & Jomy 2026 HMWS 五点估计的探测相位与 CCD→Zernike 解析算法仿真验证："
+            "PatternHelper.generate_probe_phase + utils/image/zernike_probe.py；"
+            "端到端 2f 恢复误差 <0.01 rad（defocus/spherical/astigmatism，a_true=0.2 rad）。"
+        ),
+        extra_scripts=(
+            "tests/ao_shaping/utils/image/test_zernike_probe.py",
+            "src/ao_shaping/utils/image/zernike_probe.py",
+            "src/ao_shaping/utils/wavefront/pattern_helper.py",
+        ),
     ),
     "report/shape_trials/transfer_uncertainty/transfer_uncertainty_20261104.md": ReportProvenance(
         "scripts/slm/transfer_uncertainty_experiment.py",

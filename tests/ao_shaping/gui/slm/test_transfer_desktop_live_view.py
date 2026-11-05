@@ -383,7 +383,7 @@ def test_completed_run_shows_export_buttons_and_next_run_hides_them(
             pass
 
     class _StubTask(page_mod.QRunnable):
-        def __init__(self, values, out):
+        def __init__(self, values, out, should_stop=None):
             super().__init__()
             self.signals = types.SimpleNamespace(
                 stage=_StubSignal(),

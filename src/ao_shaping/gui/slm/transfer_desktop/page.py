@@ -46,7 +46,9 @@ error 就禁用「开始运行」并把第一条写进 tooltip, warning 只提�
 
 from __future__ import annotations
 
+import json
 import shutil
+import threading
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from html import escape
@@ -114,7 +116,7 @@ _SIDE_MAX_CONSERVATIVE_PX = 400.0
 #: 相机类型的中文说明。代码值与 ``CAMERA_CHOICES`` 一一对应。
 _CAMERA_LABELS: dict[str, str] = {
     "daheng": "大恒（已验证）",
-    "miicam": "MiiCam（仅有接口）",
+    "miicam": "MiiCam（已验证）",
     "sim": "仿真源（仅有接口）",
 }
 
@@ -165,6 +167,75 @@ def _stage_summary(stage: Mapping[str, Any]) -> str:
     return " · ".join(f"{metric['label']} {metric['text']}" for metric in metrics)
 
 
+def acceptance_verdict_line(session_dir: Path) -> str:
+    """会话目录 → 一行验收阈值结论 (缺失产物绝不抛)。
+
+    核心 lane 的 :func:`~ao_shaping.tools.slm.transfer.workflow.acceptance_verdict`
+    只读 ``session.json`` / ``rounds.json`` 等文件得出 ``{metric, lower, upper,
+    measured_correlation, measured_relative_l2, accepted, rounds}``；是否开过验收
+    循环则看 ``session.json`` 里 ``resolved.acceptance == "looped"``。本函数把
+    两者压成给操作员看的一行字。目录不存在、产物缺失或该会话根本没开验收循环时
+    返回空串（调用方自行决定何时显示）。
+    """
+    if not session_dir or not Path(session_dir).is_dir():
+        return ""
+    from ao_shaping.tools.slm.transfer.workflow import acceptance_verdict
+
+    # 只开过 A–B–B–A 或纯模型验收的会话不予显示; 只有 acceptance=="looped" 才算
+    # 开了验收阈值循环。
+    enabled = False
+    try:
+        cfg = json.loads(Path(session_dir).joinpath("session.json").read_text(encoding="utf-8"))
+        enabled = cfg.get("resolved", {}).get("acceptance") == "looped"
+    except Exception:
+        return ""
+    if not enabled:
+        return ""
+    try:
+        verdict = acceptance_verdict(session_dir)
+    except Exception:  # 读文件失败也绝不把完成界面打崩
+        logger.warning("读取验收阈值结论失败: {}", session_dir)
+        return ""
+    accepted = bool(verdict.get("accepted"))
+    rounds = int(verdict.get("rounds") or 0)
+    corr = verdict.get("measured_correlation")
+    l2 = verdict.get("measured_relative_l2")
+    if not accepted and (corr is None or l2 is None):
+        return ""
+    tail = "通过" if accepted else "未达标至上限后停止"
+    detail = ["验收阈值:"]
+    for label, value in (("相关性", corr), ("相对 L2", l2)):
+        if value is not None:
+            try:
+                detail.append(f"{label} {float(value):.3f}")
+            except (TypeError, ValueError):
+                detail.append(f"{label} —")
+    detail.append(f"{rounds} 轮")
+    return " · ".join(detail) + f" · {tail}"
+
+
+def reuse_latest_verdict_line(session_dir: Path) -> str:
+    """会话目录 → 一行光路复用结论 (缺失产物 / 未开启绝不抛)。
+
+    ``run_session`` 的复用快路径把判定写进 ``<out>/optical_probe.json``（键
+    ``serial`` / ``latest`` / ``same_path`` / ``verdict``）。目录不存在、产物缺失
+    或当前会话根本没走复用 (没写该文件) 时返回空串 (调用方自行决定何时显示)。
+    """
+    if not session_dir or not Path(session_dir).is_dir():
+        return ""
+    probe = Path(session_dir).joinpath("optical_probe.json")
+    if not probe.is_file():
+        return ""
+    try:
+        data = json.loads(probe.read_text(encoding="utf-8"))
+    except Exception:
+        logger.warning("读取光路复用结论失败: {}", session_dir)
+        return ""
+    same = bool(data.get("same_path"))
+    tail = "光路复用：一致 → 已复用最近一次模型；差异已并入本场" if same else "光路复用：已变化 → 走正常全流程"
+    return tail
+
+
 def _section(title: str) -> tuple[QGroupBox, QVBoxLayout]:
     """带序号的分组框 (序号就是操作顺序) + 内边距已设好的竖排布局。"""
     box = QGroupBox(title)
@@ -203,10 +274,16 @@ class _WorkerSignals(QObject):
 class _SessionTask(QRunnable):
     """在后台线程跑一整场迁移学习会话。"""
 
-    def __init__(self, values: params.TransferFormValues, out: Path) -> None:
+    def __init__(
+        self,
+        values: params.TransferFormValues,
+        out: Path,
+        should_stop: object | None = None,
+    ) -> None:
         super().__init__()
         self._values = values
         self._out = out
+        self._should_stop = should_stop
         self.signals = _WorkerSignals()
 
     def run(self) -> None:
@@ -216,7 +293,12 @@ class _SessionTask(QRunnable):
 
         try:
             session = params.build_session(self._values, out=self._out)
-            run_session(session, on_stage=self._on_stage, on_frame=self._on_frame)
+            run_session(
+                session,
+                on_stage=self._on_stage,
+                on_frame=self._on_frame,
+                should_stop=self._should_stop,
+            )
         # policy: 后台线程的任何失败都必须变成界面上的结论; 这里只发信号、不吞细节,
         # 也不让异常逃出 QRunnable (Qt 会直接终止线程, 界面就永远停在「运行中」)。
         except Exception as exc:
@@ -295,6 +377,10 @@ class TransferPage(QWidget):
         self._task: _SessionTask | None = None
         self._running = False
         self._session_dir: Path | None = None
+        # 验收阈值循环的「在两轮间停止」旗标。只被 Stop 按钮置位、每次启动复位;
+        # 后台线程通过 ``should_stop=self._acceptance_stop.is_set`` 在两轮之间查询。
+        # 它是 threading.Event, 不是 Qt 信号 —— 跨线程「只读布尔」用标准库最稳。
+        self._acceptance_stop = threading.Event()
         # 自检只在点按钮时发生。``_check_task`` 是强引用 (与 ``_task`` 同理, 掉引用
         # 会让在飞任务被回收); 结论存成纯数据, 换主题时靠它重上色。
         self._checking = False
@@ -499,6 +585,60 @@ class TransferPage(QWidget):
             "关（默认）= 保留按 CCD 实测校正的反馈, 跳过 B1/B2/A2 与方向核对, "
             "候选只按模型损失接受, 摘要写 acceptance=model_only（等价 CLI --no-abba）"
         )
+
+        # 验收阈值循环 (CCD 与模型预测比对): 默认关 = 当前单轮行为。开 = 拟合后在
+        # 验收行上比对模型预测的相关性 / 相对 L2, 不达标就把验证数据并入训练重训,
+        # 直到达标、用户点「停止」或达到安全上限。阈值属于高级口径, 只在开启时
+        # 可编辑 (关 → 禁用置灰), 布局跟随本表单其余行。
+        self._accept = self._check(
+            "验收阈值循环（CCD 与模型预测比对，不达标则重训）",
+            _DEFAULTS.acceptance_enabled,
+        )
+        self._accept.setToolTip(
+            "开 = 拟合后比对模型预测与实测 CCD, 不达标则把验证数据并入训练并重训, "
+            "直到达标 / 点「停止」/ 到安全上限; 关（默认）= 保持当前单轮行为。"
+        )
+        self._accept_lower = self._dspin(
+            _DEFAULTS.acceptance_lower, 0.0, 1.0, step=0.05
+        )
+        self._accept_lower.setDecimals(2)
+        self._accept_lower.setValue(_DEFAULTS.acceptance_lower)
+        self._accept_lower.setToolTip(
+            f"相关性（correlation）下界；越界时循环继续重训（算法建议 "
+            f"{params.ACCEPTANCE_LOWER_DEFAULT}）"
+        )
+        self._accept_upper = self._dspin(
+            _DEFAULTS.acceptance_upper, 0.0, 1000.0, step=0.05
+        )
+        self._accept_upper.setDecimals(2)
+        self._accept_upper.setValue(_DEFAULTS.acceptance_upper)
+        self._accept_upper.setToolTip(
+            f"相对 L2（relative_l2）上界；越界时循环继续重训（算法建议 "
+            f"{params.ACCEPTANCE_UPPER_DEFAULT}）"
+        )
+        self._accept_hint = QLabel(
+            f"算法建议: 相关性 ≥ {params.ACCEPTANCE_LOWER_DEFAULT}"
+            f" · 相对L2 ≤ {params.ACCEPTANCE_UPPER_DEFAULT}"
+        )
+        self._accept_hint.setWordWrap(True)
+        hint_font = self._accept_hint.font()
+        hint_font.setPointSize(max(hint_font.pointSize() - 1, 7))
+        self._accept_hint.setFont(hint_font)
+        self._accept.toggled.connect(self._sync_acceptance)
+        self._sync_acceptance()
+
+        # 光路复用: 默认关 = 当前全流程。开 = 先用一次廉价探针量当前光路条件,
+        # 与最近一份 latest 模型比对; 一致 (序列号同、光路未变) 就跳过采集与拟合,
+        # 直接把那次 CCD 对照重做一遍。各阶段表会把这一步显示成「optical_probe」。
+        self._reuse_latest = self._check(
+            "光路复用（光路未变则跳过采集/拟合，直接CCD对照）",
+            _DEFAULTS.reuse_latest,
+        )
+        self._reuse_latest.setToolTip(
+            "开 = 开设备量一次当前光路探针, 与最近一份 latest 模型比对; 若光路未变就"
+            "跳过采集与拟合, 直接复用那份 CCD 对照重做; 关（默认）= 当前全流程重新采集。"
+        )
+
         # 「读取零级」: 让目标边长的上限来自实测光轴 (0 级到最近帧边的距离),
         # 而不是写死的保守值。做法与自检一致 —— 点了才碰硬件, 且只读。
         self._zero_btn = QPushButton("读取零级")
@@ -521,6 +661,15 @@ class TransferPage(QWidget):
         form.addRow("倾斜相位周期（面板 px）", self._period)
         form.addRow(self._tilt)
         form.addRow("配对验收", self._abba)
+        accept_row = QHBoxLayout()
+        accept_row.setContentsMargins(0, 0, 0, 0)
+        accept_row.setSpacing(8)
+        accept_row.addWidget(self._accept)
+        accept_row.addWidget(self._accept_lower)
+        accept_row.addWidget(self._accept_upper)
+        form.addRow(accept_row)
+        form.addRow(self._accept_hint)
+        form.addRow(self._reuse_latest)
         layout.addLayout(form)
 
         # 常驻说明: 上限从哪来、现在是多少 —— 读不到时也要把「仍是保守值」讲清楚。
@@ -555,12 +704,27 @@ class TransferPage(QWidget):
         """④ 运行: 一个按钮 + 状态 + 会话目录。"""
         box, layout = _section("④ 运行")
 
+        run_row = QHBoxLayout()
+        run_row.setContentsMargins(0, 0, 0, 0)
+        run_row.setSpacing(8)
         self._run_btn = _bold(QPushButton("开始运行"))
         self._run_btn.setMinimumHeight(38)
         # 首次校验通过前不允许启动 —— 默认禁用, 免得「能点」被读成「参数没问题」。
         self._run_btn.setEnabled(False)
         self._run_btn.clicked.connect(self._start_run)
-        layout.addWidget(self._run_btn)
+        run_row.addWidget(self._run_btn, 1)
+        # 软停止: 只在验收阈值循环跑着的时候有意义 (两轮之间生效), 平时禁用。
+        # 它只是置位一个 flag, 让 run_session 在下一轮开始前优雅收尾 —— 不打断
+        # 正在进行的单轮, 也不走关窗那套「等落地」。
+        self._stop_btn = QPushButton("停止（两轮间生效）")
+        self._stop_btn.setToolTip(
+            "点击后当前这一轮跑完、下一轮开始前停下；保留已得的最好结果。"
+            "只对开启验收阈值循环的会话生效。"
+        )
+        self._stop_btn.setEnabled(False)
+        self._stop_btn.clicked.connect(self._request_acceptance_stop)
+        run_row.addWidget(self._stop_btn, 0)
+        layout.addLayout(run_row)
 
         self._status = QLabel()
         self._status.setTextFormat(Qt.TextFormat.RichText)
@@ -718,6 +882,12 @@ class TransferPage(QWidget):
             cam_id=int(self._cam_id.value()),
             slm_number=int(self._slm_number.value()),
             abba=bool(self._abba.isChecked()),
+            acceptance_enabled=bool(self._accept.isChecked()),
+            acceptance_metric=_DEFAULTS.acceptance_metric,
+            acceptance_lower=float(self._accept_lower.value()),
+            acceptance_upper=float(self._accept_upper.value()),
+            acceptance_max_rounds=_DEFAULTS.acceptance_max_rounds,
+            reuse_latest=bool(self._reuse_latest.isChecked()),
         )
 
     def current_problems(self) -> tuple[list[str], list[str]]:
@@ -735,6 +905,25 @@ class TransferPage(QWidget):
     def zero_order_button(self) -> QPushButton:
         """「读取零级」按钮 (自动化验证按它判断读数是否可触发 / 已结束)。"""
         return self._zero_btn
+
+    def stop_button(self) -> QPushButton:
+        """「停止（两轮间生效）」按钮 (自动化验证按它判断可停止性)。"""
+        return self._stop_btn
+
+    def acceptance_stop_is_set(self) -> bool:
+        """验收停止 flag 是否已置位 (自动化验证用; 启动后自动复位)。"""
+        return self._acceptance_stop.is_set()
+
+    def _request_acceptance_stop(self) -> None:
+        """「停止」按钮: 只是置位 flag, 让 run_session 在两轮之间优雅收尾。
+
+        它是软停止: 不打断正在进行的单轮, 也不走关窗那套「最多等
+        :data:`_CLOSE_GRACE_S`」的心跳。置位后按钮立即禁用, 防止连点。
+        """
+        if not self._running:
+            return
+        self._acceptance_stop.set()
+        self._stop_btn.setEnabled(False)
 
     def check_report(self) -> str:
         """最近一次自检的纯文本结论 (没自检过为空串; 供自动化断言)。"""
@@ -798,6 +987,27 @@ class TransferPage(QWidget):
         self._period.setEnabled(enabled)
         self._period.setToolTip(
             None if enabled else "倾斜相位关闭：目标留在 0 级，周期无意义"
+        )
+
+    def _sync_acceptance(self) -> None:
+        """验收阈值循环关（默认）时上下界框禁用置灰; 开时恢复。"""
+        enabled = bool(self._accept.isChecked())
+        self._accept_lower.setEnabled(enabled)
+        self._accept_upper.setEnabled(enabled)
+        hint = (
+            None if enabled else "开启验收阈值循环后可设置阈值"
+        )
+        self._accept_lower.setToolTip(
+            hint
+            if not enabled
+            else f"相关性（correlation）下界；越界时循环继续重训（算法建议 "
+            f"{params.ACCEPTANCE_LOWER_DEFAULT}）"
+        )
+        self._accept_upper.setToolTip(
+            hint
+            if not enabled
+            else f"相对 L2（relative_l2）上界；越界时循环继续重训（算法建议 "
+            f"{params.ACCEPTANCE_UPPER_DEFAULT}）"
         )
 
     # ------------------------------------------------------------------ 校验
@@ -867,11 +1077,16 @@ class TransferPage(QWidget):
             self._side,
             self._side_long,
             self._tilt,
+            self._accept,
+            self._reuse_latest,
             *self._shapes.values(),
         ):
             widget.setEnabled(enabled)
         # 倾斜相位周期只在开启时才能点; 运行中一律锁。
         self._period.setEnabled(enabled and self._tilt.isChecked())
+        # 验收阈值上下界只在循环开启时才能点; 运行中一律锁。
+        self._accept_lower.setEnabled(enabled and self._accept.isChecked())
+        self._accept_upper.setEnabled(enabled and self._accept.isChecked())
         # 自检同样要锁: 会话正占着 SLM 时再探一次, 只会跟它对抢设备。
         self._check_btn.setEnabled(enabled and not self._checking)
         # 读零级要开相机: 会话跑起来后相机归它用, 关闭时也顺手复位。
@@ -1097,13 +1312,24 @@ class TransferPage(QWidget):
         self._session_label.setText(f"会话目录: {out}")
         self._live_view.clear()
 
+        # 新一轮: 复位验收停止 flag, 并按本次快照决定「停止」按钮可不可用
+        # (只有开着验收阈值循环的会话在两轮之间才有得可停)。
+        self._acceptance_stop.clear()
+        stop_enabled = bool(values.acceptance_enabled)
+
         self._running = True
         self._set_form_enabled(False)
         self._run_btn.setEnabled(False)
         self._run_btn.setToolTip("会话运行中")
+        self._stop_btn.setEnabled(stop_enabled)
+        self._stop_btn.setToolTip(
+            "点击后当前这一轮跑完、下一轮开始前停下（保留已得的最好结果）"
+            if stop_enabled
+            else "验收阈值循环未开启：无跨轮可停，此按钮不起作用"
+        )
         self._set_run_state("running", "运行中：本次会话的参数已锁定，改表单不影响它。")
 
-        task = _SessionTask(values, out)
+        task = _SessionTask(values, out, should_stop=self._acceptance_stop.is_set)
         # 不交给 Qt 自动回收: 回收早于信号送达就会丢掉最后一条结论。
         task.setAutoDelete(False)
         task.signals.stage.connect(self._on_stage)
@@ -1124,6 +1350,14 @@ class TransferPage(QWidget):
         """会话跑完: 停轮询, 把最终产物再读一遍, 放回可编辑状态。"""
         self._settle("complete", f"会话完成：{out}")
         self._show_exports(True)
+        # 开过验收阈值循环的会话, 补一行「验收阈值: 通过 / 未达标至上限后停止」。
+        # 只读文件, 产物缺失时 :func:`acceptance_verdict_line` 返回空串、绝不抛。
+        line = acceptance_verdict_line(Path(out))
+        if line:
+            self._status.setText(f"{self._status.text()}<br>{line}")
+        reuse_line = reuse_latest_verdict_line(Path(out))
+        if reuse_line:
+            self._status.setText(f"{self._status.text()}<br>{reuse_line}")
 
     def _on_failed(self, message: str) -> None:
         """会话失败: 停轮询, 把 journal 里已写下的阶段留在表上。"""
@@ -1163,6 +1397,12 @@ class TransferPage(QWidget):
         task, self._task = self._task, None
         if task is not None:
             _LIVE_TASKS.discard(task)
+        # 「停止」只在会话跑着的时候可用; 收尾一律禁用并复位 tooltip。
+        self._stop_btn.setEnabled(False)
+        self._stop_btn.setToolTip(
+            "点击后当前这一轮跑完、下一轮开始前停下；保留已得的最好结果。"
+            "只对开启验收阈值循环的会话生效。"
+        )
         self._refresh_progress()
         self._set_form_enabled(True)
         self._set_run_state(kind, message)
@@ -1292,7 +1532,7 @@ class TransferPage(QWidget):
             status = str(stage["status"])
             cells = (
                 str(stage["index"]),
-                params.STAGE_LABELS.get(name, str(stage["label"])),
+                params.stage_label(name, str(stage["label"])),
                 STATUS_LABELS.get(status, status),
                 _duration_text(stage["duration_s"]),
                 _stage_summary(stage),

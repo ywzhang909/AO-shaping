@@ -48,6 +48,32 @@ class TransferSession:
     #: candidate is accepted on the optimizer's own loss and no CCD verdict is
     #: measured -- the summary then says ``acceptance="model_only"``.
     abba: bool = False
+    #: Retrain loop driven by a CCD-vs-model acceptance threshold (default off).
+    #: Off keeps the historical single-round behaviour exactly. On, ``run_session``
+    #: fits, folds validation data in on retrains, and re-runs the CCD validation
+    #: stages until the bound below is met, the user hits Stop, or the safety cap
+    #: :attr:`acceptance_max_rounds` is reached.
+    acceptance_enabled: bool = False
+    #: Which acceptance score to gate the loop on. ``"quality"`` combines
+    #: correlation and relative_l2 via :func:`validation_quality`.
+    acceptance_metric: str = "quality"
+    #: Algorithm-suggested lower bound on the mean validation correlation
+    #: (also :func:`needs_full_adaptation`'s escalation edge). Must be in [0, 1].
+    acceptance_lower: float = 0.85
+    #: Algorithm-suggested upper bound on the mean validation relative_l2
+    #: (also :func:`needs_full_adaptation`'s escalation edge). Must be > 0.
+    acceptance_upper: float = 0.25
+    #: Safety cap on retrain rounds; the loop stops gracefully when reached.
+    acceptance_max_rounds: int = 8
+    #: Lightweight optical-path reuse (default off). Off keeps the historical
+    #: capture+fit+predict sequence byte-for-byte. On, ``run_session`` first runs
+    #: a cheap :class:`~ao_shaping.tools.slm.transfer.optical_probe.OpticalProbe`
+    #: comparing the current path (zero spot, exposure range, camera format) with
+    #: the saved latest model's conditions; if unchanged it skips capture AND fit
+    #: and jumps straight to the CCD-anchored blocks using the reused checkpoint.
+    #: When reuse takes the fast path the acceptance loop is skipped entirely
+    #: (the reused result is recorded as accepted).
+    reuse_latest: bool = False
     #: Write one ``sample_*.npz`` per probe. Off (default) keeps the measurements
     #: in memory and hands them straight to the fit; on, the capture writes the
     #: same keys/content as before, for the offline ``--dataset`` path and the
@@ -112,6 +138,14 @@ class TransferSession:
             raise ValueError("unknown objective")
         if self.accept_metric not in {"loss", "cv"}:
             raise ValueError("unknown acceptance metric")
+        if self.acceptance_metric not in {"quality"}:
+            raise ValueError("unknown acceptance metric")
+        if self.acceptance_max_rounds < 1:
+            raise ValueError("acceptance_max_rounds >= 1 required")
+        if not 0.0 <= self.acceptance_lower <= 1.0:
+            raise ValueError("acceptance_lower must be in [0, 1]")
+        if self.acceptance_upper <= 0.0:
+            raise ValueError("acceptance_upper must be > 0")
         if self.seed_policy not in {"strict", "transfer"}:
             raise ValueError("unknown seed policy")
         if self.seed_run:
@@ -194,13 +228,24 @@ class TransferSession:
             resolved=dict(
                 adaptation=self.adaptation if self.checkpoint else "full",
                 calibration=self.calibration_enabled,
-                acceptance="paired_abba" if self.abba else "model_only",
+                acceptance=(
+                    "paired_abba"
+                    if self.abba
+                    else "looped"
+                    if self.acceptance_enabled
+                    else "model_only"
+                ),
+                acceptance_metric=self.acceptance_metric,
+                acceptance_lower=self.acceptance_lower,
+                acceptance_upper=self.acceptance_upper,
+                acceptance_max_rounds=self.acceptance_max_rounds,
                 save_dataset=self.save_dataset,
                 # The request; ``run_session`` replaces it with the
                 # resolved device before writing session.json.
                 device=self.device,
             ),
-            stages=(["reuse_capture"] if self.dataset else ["capture"])
+            stages=([] if not self.reuse_latest else ["optical_probe"])
+            + (["reuse_capture"] if self.dataset else ["capture"])
             + ([] if self.checkpoint else ["nominal_initialization"])
             + ["fit"]
             + (["control_resolution_export"] if self.control_grid else [])
@@ -249,8 +294,337 @@ def _notify(on_stage, name, status):
         logger.warning("transfer stage hook failed for {} ({}): {}", name, status, exc)
 
 
+def _fit_quality(session_dir, fit_dir=None):
+    """Mean validation correlation/relative_l2 from a finished fit directory.
+
+    Reads the fit's ``result.json`` (per-row ``metrics``) against the manifest
+    split in ``provenance.json`` (``rows``), restricted to non-``train`` rows,
+    matching :func:`validation_quality`. ``fit_dir`` overrides the default
+    ``<session_dir>/fit`` (the retrain loop names later rounds
+    ``fit.roundN``). Returns ``None`` when any artifact is missing/incomplete --
+    never raises.
+    """
+    fit_dir = Path(fit_dir) if fit_dir is not None else Path(session_dir) / "fit"
+    result_path = fit_dir / "result.json"
+    provenance_path = fit_dir / "provenance.json"
+    try:
+        if not result_path.is_file() or not provenance_path.is_file():
+            return None
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+        rows = json.loads(provenance_path.read_text(encoding="utf-8"))["rows"]
+        metrics_list = result.get("metrics") or []
+        if len(metrics_list) != len(rows):
+            return None
+        selected = [
+            m for row, m in zip(rows, metrics_list) if row.get("split") != "train"
+        ]
+        if not selected:
+            return None
+        correlation = float(np.mean([m["correlation"] for m in selected]))
+        relative_l2 = float(np.mean([m["relative_l2"] for m in selected]))
+        if not np.isfinite([correlation, relative_l2]).all():
+            return None
+        return dict(correlation=correlation, relative_l2=relative_l2)
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        return None
+
+
+def acceptance_verdict(session_dir):
+    """Derive the acceptance verdict for a finished session from files alone.
+
+    Pure reader (GUI-facing): never touches devices, only reads ``session.json``
+    (threshold config) and either the per-round ``rounds.json`` record written by
+    :func:`run_session` or, failing that, the round-0 fit artifacts. Returns a
+    dict with keys ``{metric, lower, upper, measured_correlation,
+    measured_relative_l2, accepted, rounds}``. Bulletproof: any missing artifact
+    yields a safe ``accepted=False`` verdict rather than raising.
+    """
+    session_dir = Path(session_dir)
+    lower = 0.85
+    upper = 0.25
+    metric = "quality"
+    try:
+        session = json.loads((session_dir / "session.json").read_text(encoding="utf-8"))
+        settings = session.get("settings", {})
+        lower = float(settings.get("acceptance_lower", lower))
+        upper = float(settings.get("acceptance_upper", upper))
+        metric = str(settings.get("acceptance_metric", metric))
+    except Exception:
+        pass
+    rounds = []
+    rounds_path = session_dir / "rounds.json"
+    if rounds_path.is_file():
+        try:
+            loaded = json.loads(rounds_path.read_text(encoding="utf-8"))
+            rounds = [dict(record) for record in loaded if isinstance(record, dict)]
+        except Exception:
+            rounds = []
+    measured_correlation = None
+    measured_relative_l2 = None
+    if rounds:
+        last = dict(rounds[-1])
+        measured_correlation = last.get("measured_correlation")
+        measured_relative_l2 = last.get("measured_relative_l2")
+    else:
+        quality = _fit_quality(session_dir)
+        if quality is not None:
+            measured_correlation = quality["correlation"]
+            measured_relative_l2 = quality["relative_l2"]
+            rounds = [dict(round=0, **quality, accepted=None)]
+    if measured_correlation is None or measured_relative_l2 is None:
+        accepted = False
+    else:
+        accepted = (
+            measured_correlation >= lower and measured_relative_l2 <= upper
+        )
+    return dict(
+        metric=metric,
+        lower=lower,
+        upper=upper,
+        measured_correlation=measured_correlation,
+        measured_relative_l2=measured_relative_l2,
+        accepted=accepted,
+        rounds=len(rounds),
+    )
+
+
+def _write_reference_probe(fit_out: Path, dataset: Path, checkpoint: Path) -> None:
+    """把本次会话的光路条件写成参照侧车, 随模型存进 ``latest``。
+
+    零点来自本次拟合的 ``frozen_parameters.json`` (``origin``), 曝光区间与取图
+    格式来自采集段写下的 ``_optical_probe.json``。缺哪一项就少写哪一项 ——
+    下次复用判比时缺项视作「不可比」, 于是走正常全流程。
+
+    Args:
+        fit_out: 拟合输出目录 (侧车写在这里, ``save_latest_model`` 会一并复制)。
+        dataset: 采集目录 (读采集写下的侧车)。
+        checkpoint: 冻结参数文件 (读零点)。
+    """
+    from ao_shaping.tools.slm.transfer.optical_probe import FLAT_FROZEN_SIDECAR
+
+    record: dict = {}
+    try:
+        frozen = json.loads(Path(checkpoint).read_text(encoding="utf-8"))
+        origin = frozen.get("origin")
+        if isinstance(origin, (list, tuple)) and len(origin) == 2:
+            record["origin"] = [float(origin[0]), float(origin[1])]
+    except (OSError, ValueError, TypeError):
+        pass
+    sidecar = Path(dataset) / FLAT_FROZEN_SIDECAR
+    if sidecar.is_file():
+        try:
+            captured = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            captured = {}
+        for key in ("exposure_range_ms", "camera_format", "bit_depth", "slm_serial"):
+            if captured.get(key) is not None:
+                record[key] = captured[key]
+    try:
+        (Path(fit_out) / FLAT_FROZEN_SIDECAR).write_text(
+            json.dumps(record, indent=2), encoding="utf-8"
+        )
+    except OSError as exc:  # 写不了侧车只是少一条判比依据, 不阻断会话
+        logger.warning("光路复用参照侧车写不下: {!r}", exc)
+
+
+@dataclass(frozen=True)
+class _ReusePlan:
+    """光路复用快路径的结果: 复用哪一份 latest 模型, 以及为什么。"""
+
+    #: 复用的冻结参数文件 (``latest/frozen_parameters.json``)。
+    checkpoint: Path
+    #: 复用的零点 (相机像元), 取自 latest 模型的 ``origin``。
+    zero_xy: list[float]
+    #: 本次实测探针。
+    current: object
+    #: latest 里记录的参照探针。
+    reference: object
+    #: 人类可读的判决文案。
+    verdict: str
+
+
+def _attempt_optical_reuse(config: TransferSession, out: Path, *, device=None, on_stage=None):
+    """试一次光路复用: 开设备 → 读序列号 → 找 latest → 量探针 → 比对。
+
+    任何一步失败 (设备打不开、没有 latest、探针读不出、光路已变) 都返回
+    ``None`` —— 调用方据此走正常全流程。**不抛异常**: 复用是可选加速, 不是
+    会话成败的判据。
+
+    Args:
+        config: 本次会话配置。
+        out: 会话输出目录 (写探针记录)。
+        device: 已解析的 torch 设备 (本函数不用于计算, 只透传记录)。
+        on_stage: 阶段观察者 (被通知 ``optical_probe`` 的 running/complete/failed)。
+
+    Returns:
+        :class:`_ReusePlan`, 或 None (不能复用)。
+    """
+    from . import optical_probe
+    from .latest_model import models_root
+
+    del device  # 探针不需要 torch 计算
+    _notify(on_stage, "optical_probe", "running")
+    try:
+        # 探针自己开相机 + SLM (一次), 并在打开后读序列号 (与 capture.py 同口径)。
+        current = optical_probe.measure_probe(
+            camera=config.camera,
+            cam_id=config.cam_id,
+            slm_number=config.slm_number,
+        )
+    except Exception as exc:  # 探针失败不是会话失败
+        logger.warning("光路复用: 探针失败, 走正常全流程: {!r}", exc)
+        _notify(on_stage, "optical_probe", "failed")
+        return None
+    serial = current.slm_serial
+    if not serial:
+        logger.info("光路复用: 读不到 SLM 序列号, 走正常全流程")
+        _notify(on_stage, "optical_probe", "complete")
+        return None
+    latest = models_root() / str(serial) / "latest"
+    if not (latest / "frozen_parameters.json").is_file():
+        logger.info("光路复用: {} 没有 latest 模型, 走正常全流程", latest)
+        _notify(on_stage, "optical_probe", "complete")
+        return None
+    reference = optical_probe.probe_from_latest(latest)
+    same = optical_probe.same_path(current, reference)
+    verdict = optical_probe.format_probe_verdict(
+        same, current=current, reference=reference
+    )
+    logger.info(verdict)
+    (out / "optical_probe.json").write_text(
+        json.dumps(
+            dict(
+                serial=str(serial),
+                latest=str(latest),
+                same_path=bool(same),
+                current=current.to_dict(),
+                reference=None if reference is None else reference.to_dict(),
+                verdict=verdict,
+            ),
+            default=str,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    _notify(on_stage, "optical_probe", "complete")
+    if not same:
+        return None
+    # 复用: 零点取自 latest 模型自身的 ``origin`` (拟合时写入的实测零点)。
+    try:
+        frozen = json.loads(
+            (latest / "frozen_parameters.json").read_text(encoding="utf-8")
+        )
+        origin = frozen["origin"]
+        zero_xy = [float(origin[0]), float(origin[1])]
+    except (OSError, ValueError, KeyError, IndexError, TypeError) as exc:
+        logger.warning("光路复用: latest 模型零点读不出, 走正常全流程: {!r}", exc)
+        return None
+    return _ReusePlan(
+        checkpoint=latest / "frozen_parameters.json",
+        zero_xy=zero_xy,
+        current=current,
+        reference=reference,
+        verdict=verdict,
+    )
+
+
+def _run_reused_session(
+    config: TransferSession,
+    out: Path,
+    reuse: "_ReusePlan",
+    *,
+    device,
+    on_stage=None,
+    on_frame=None,
+    stage,
+    validate,
+    summary,
+    direction,
+):
+    """光路复用命中后的会话: 跳过采集与拟合, 直接跑 CCD 锚定块。
+
+    只跑 CCD-anchored 块 (不跑 CCD-model 块, 不跑曝光响应标定) —— 复用的
+    模型已经是「这条光路上的标定模型」, 缺的是这次会话的**实测**判定。
+
+    复用路径下**跳过验收回路**: 没有新的拟合, 就没有可比的验证集指标, 复用
+    结果直接记为 accepted (见 ``rounds.json``)。
+
+    Returns:
+        会话输出目录。
+    """
+    from .artifacts import audit_run
+
+    anchored_out = out / "anchored"
+    checkpoint = reuse.checkpoint
+    zero = list(reuse.zero_xy)
+    options = dict(
+        checkpoint=checkpoint,
+        zero_xy=zero,
+        period=config.period,
+        side=config.side,
+        window_span=config.window_span,
+        window_step=config.window_step,
+        zero_radius=config.zero_radius,
+        core_margin=config.core_margin,
+        bit_depth=config.bit_depth,
+        initial_phase=config.initial_phase,
+        random_seed=config.seed,
+        phase_lr=config.phase_lr,
+        phase_rms_cap=config.phase_rms_cap,
+        adaptive_step=config.adaptive_step,
+        adaptive_exposure=config.adaptive_exposure,
+        accept_metric=config.accept_metric,
+        objective=config.objective,
+        shapes=list(config.shapes),
+        updates=config.updates,
+        frames=config.frames,
+        abba=config.abba,
+        device=device,
+        camera=config.camera,
+        cam_id=config.cam_id,
+        slm_number=config.slm_number,
+        tilt=getattr(config, "tilt", False),
+        aspect_ratio=getattr(config, "aspect_ratio", 2.0),
+    )
+    # 复用路径没有 ``model`` 目录可播种, 因此 ``seed_run=None``: 锚定块走
+    # GS 种子 (validate.run 的 gs_seed 分支), 用复用的冻结模型做前向。
+    stage(
+        "CCD_anchored_blocks",
+        lambda: validate.run(
+            SimpleNamespace(
+                **options,
+                out=anchored_out,
+                seed_run=None,
+                seed_policy="strict",
+                mode="anchored",
+                blocks=config.blocks,
+                execute=True,
+                on_frame=on_frame,
+            )
+        ),
+    )
+
+    def audit():
+        result = audit_run(anchored_out)
+        (out / "audit.json").write_text(
+            json.dumps(result, indent=2), encoding="utf-8"
+        )
+
+    stage("raw_data_audit", audit)
+    # 复用路径没有新的拟合 → 没有可比的验证集指标 → 复用结果直接记为 accepted。
+    rounds = [dict(round=0, train_all=False, reused=True, accepted=True)]
+    (out / "rounds.json").write_text(json.dumps(rounds, indent=2), encoding="utf-8")
+    stage("summary", lambda: summary.summarize(anchored_out, out / "summary"))
+    if config.abba:
+        stage("direction_check", lambda: direction.analyze(anchored_out, out / "direction"))
+    logger.info("光路复用: 跳过采集+拟合, 直接复用 latest 模型跑 CCD 锚定块")
+    print(f"Session complete: {out}", flush=True)
+    return out
+
+
 def run_session(
-    config: TransferSession, *, offline=False, on_stage=None, on_frame=None
+    config: TransferSession, *, offline=False, on_stage=None, on_frame=None,
+    should_stop=None,
 ):
     """No subprocess chains; each completed/failed stage is journaled immediately.
 
@@ -268,6 +642,11 @@ def run_session(
     :func:`~ao_shaping.tools.slm.transfer.live_frame.frame_payload`), and every
     call site wraps it in the same best-effort guard. ``None`` (the CLI /
     offline default) leaves the measured path byte-for-byte unchanged.
+
+    ``should_stop`` is an optional no-arg callback consulted between acceptance
+    retrain rounds. When it returns True (the GUI's Stop button), the loop halts
+    gracefully, keeps the best result so far, and does not error. Ignored unless
+    ``config.acceptance_enabled``.
     """
     config.validate()
     if offline and config.dataset is None:
@@ -307,7 +686,29 @@ def run_session(
         _notify(on_stage, name, "complete")
         return result
 
-    from . import bootstrap, capture, fit, validate
+    from . import bootstrap, capture, direction, fit, summary, validate
+
+    # --- Optical-path reuse fast path (opt-in via ``reuse_latest``) ----------
+    # Off (the default) the code below is byte-for-byte the historical one.
+    # On, and only on, we first spend one cheap probe (camera + SLM open, one
+    # frame) to compare the *current* optical path against the saved latest
+    # model. Unchanged -> the capture and the fit are skipped and the session
+    # jumps straight to the CCD-anchored blocks with the reused checkpoint.
+    if config.reuse_latest and config.dataset is None and not offline:
+        reuse = _attempt_optical_reuse(config, out, device=device, on_stage=on_stage)
+        if reuse is not None:
+            return _run_reused_session(
+                config,
+                out,
+                reuse,
+                device=device,
+                on_stage=on_stage,
+                on_frame=on_frame,
+                stage=stage,
+                validate=validate,
+                summary=summary,
+                direction=direction,
+            )
 
     dataset = config.dataset.resolve() if config.dataset else out / "capture"
     samples = None
@@ -333,6 +734,32 @@ def run_session(
                 on_frame=on_frame,
             ),
         )
+        # 采集刚结束 (不是复用已录数据集): 用这一批 manifest 行提前判「倾斜 + 目标
+        # 边长」是否越界, 不等整轮拟合跑完再暴露 (2026-10-26 "empty target core"
+        # 的教训)。与拟合后判同一把尺子 (同 batch 行现拟合斜坡矩阵), 是提前量而
+        # 非另一套近似; 条件不足 (无有效斜坡/零点) 时不阻断。
+        if config.dataset is None:
+            from .early_geometry import check_early_geometry, format_early_geometry
+
+            rows = json.loads((dataset / "manifest.json").read_text(encoding="utf-8"))
+            early = check_early_geometry(
+                rows,
+                side=config.side,
+                period=config.period,
+                shapes=config.shapes,
+                half_span_px=config.window_span,
+                step_px=config.window_step,
+                tilt=getattr(config, "tilt", False),
+            )
+            if early.ok:
+                text = format_early_geometry(early)
+                if text:
+                    logger.info("early geometry check passed:\n{}", text)
+            else:
+                raise RuntimeError(
+                    "采集阶段几何预检拦截越界: \n"
+                    + format_early_geometry(early)
+                )
     elif not offline:
         # 复用已录数据集时采集段整个被跳过, 于是**没有任何人**看一眼光路就让拟合
         # 与整形跑起来。这里补一次便宜检查 (同一实现 verify_light): 2026-10-28
@@ -364,295 +791,418 @@ def run_session(
         stage("nominal_initialization", initialize)
     # The capture stage's in-memory payloads go straight into the fit; only a
     # reused (recorded) dataset is read back from disk.
-    stage(
-        "fit",
-        lambda: fit.fit(
-            SimpleNamespace(
-                dataset=dataset,
-                checkpoint=checkpoint,
-                out=out / "fit",
-                iterations=config.iterations,
-                patience=config.patience,
-                min_delta=config.min_delta,
-                span=120,
-                samples=samples,
-                device=device,
-                amplitude_center_lr=config.amplitude_center_lr,
-                adaptation=config.adaptation if config.checkpoint else "full",
+    # The fit and the CCD validation stages form one *round*: the acceptance
+    # loop below repeats them. Round 0 keeps the historical names and paths
+    # byte-for-byte; re-rounds get their own directories (``fit.round1`` ...)
+    # because every one of these stages refuses to write into an existing
+    # directory.
+    max_rounds = config.acceptance_max_rounds if config.acceptance_enabled else 1
+    rounds: list[dict] = []
+    accepted = not config.acceptance_enabled
+    stopped_by_user = False
+    last_round = 0
+    # The warm start stays the *initial* checkpoint for every round: each round
+    # refits from the same nominal model with a different training fold, so the
+    # rounds stay comparable (a warm start from the previous round would
+    # confound "more data" with "better initial guess").
+    warm_start = checkpoint
+    for round_index in range(max_rounds):
+        if round_index > 0:
+            # The user may have pressed Stop while the previous round ran.
+            if should_stop is not None:
+                try:
+                    stopped_by_user = bool(should_stop())
+                except Exception as exc:  # a raising observer must not abort
+                    logger.warning("acceptance stop callback failed ({}): {}", type(exc).__name__, exc)
+                    stopped_by_user = False
+                if stopped_by_user:
+                    logger.warning("acceptance loop stopped by user before round {}", round_index)
+                    break
+            logger.warning(
+                "acceptance threshold not met after round {}; retraining with validation data folded in",
+                round_index - 1,
             )
-        ),
-    )
-    checkpoint = out / "fit/frozen_parameters.json"
-    if config.control_grid:
-        from .geometric_seed import export_frozen_parameters
-
-        control_out = out / f"model{config.control_grid}"
+        last_round = round_index
+        suffix = "" if round_index == 0 else f".round{round_index}"
+        fit_out = out / f"fit{suffix}"
+        model_out = out / f"model{suffix}"
+        anchored_out = out / f"anchored{suffix}"
+        prefix = "" if round_index == 0 else f"acceptance_round_{round_index}_"
+        # Round >= 1 folds the validation phases into training: the acceptance
+        # bound was not met with them held out, so the extra data has to earn
+        # its keep. The first round keeps the split so the bound is measured
+        # on genuinely disjoint phases.
+        train_all = round_index > 0
         stage(
-            "control_resolution_export",
-            lambda: export_frozen_parameters(
-                checkpoint, control_out, grid=config.control_grid, fft=config.fft_size
+            f"{prefix}fit",
+            lambda fit_out=fit_out, train_all=train_all: fit.fit(
+                SimpleNamespace(
+                    dataset=dataset,
+                    checkpoint=warm_start,
+                    out=fit_out,
+                    iterations=config.iterations,
+                    patience=config.patience,
+                    min_delta=config.min_delta,
+                    span=120,
+                    samples=samples,
+                    device=device,
+                    amplitude_center_lr=config.amplitude_center_lr,
+                    adaptation=config.adaptation if config.checkpoint else "full",
+                    train_all=train_all,
+                )
             ),
         )
-        checkpoint = control_out / "frozen_parameters.json"
-    rows = json.loads((dataset / "manifest.json").read_text(encoding="utf-8"))
-    reference = next(
-        r for r in rows if r["label"] == "reference_start" and fit.valid(r)
-    )
-    zero = np.round(fit.spot(reference)).tolist()
-    # Geometry pre-flight: with the *measured* zero and the *fitted* ramp gain,
-    # recompute where the target lands in this session's sampling window. The
-    # parameter check above cannot see that combination (it needs the measured
-    # gain), and the alternative was discovering it in the first CCD block as
-    # "empty target core" (2026-10-26). Fail here, with the numbers that say
-    # which knob to turn.
-    frozen = json.loads(checkpoint.read_text(encoding="utf-8"))
-    geometry_problems = check_geometry(
-        zero_xy=zero,
-        ramp_matrix=np.asarray(frozen["ramp_matrix"], dtype=float),
-        side=float(config.side),
-        period=float(config.period),
-        shapes=tuple(config.shapes),
-        half_span_px=float(config.window_span),
-        step_px=float(config.window_step),
-        tilt=getattr(config, "tilt", False),
-    )
-    geometry_errors = [
-        problem for problem in geometry_problems if problem.severity == "error"
-    ]
-    if geometry_errors:
-        first = geometry_errors[0]
-        raise ValueError(f"{first.message} → {first.hint}")
-    options = dict(
-        checkpoint=checkpoint,
-        zero_xy=zero,
-        period=config.period,
-        side=config.side,
-        window_span=config.window_span,
-        window_step=config.window_step,
-        zero_radius=config.zero_radius,
-        core_margin=config.core_margin,
-        bit_depth=config.bit_depth,
-        initial_phase=config.initial_phase,
-        random_seed=config.seed,
-        phase_lr=config.phase_lr,
-        phase_rms_cap=config.phase_rms_cap,
-        adaptive_step=config.adaptive_step,
-        adaptive_exposure=config.adaptive_exposure,
-        accept_metric=config.accept_metric,
-        objective=config.objective,
-        shapes=list(config.shapes),
-        updates=config.updates,
-        frames=config.frames,
-        abba=config.abba,
-        device=device,
-        camera=config.camera,
-        cam_id=config.cam_id,
-        slm_number=config.slm_number,
-        tilt=getattr(config, "tilt", False),
-        aspect_ratio=getattr(config, "aspect_ratio", 2.0),
-    )
-    if offline:
+        checkpoint = fit_out / "frozen_parameters.json"
+        if config.control_grid:
+            from .geometric_seed import export_frozen_parameters
 
-        def synthesize():
-            from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
-                FrozenDefocusForward,
-                load_frozen_parameters,
-                recentre_window,
-            )
-
-            params = load_frozen_parameters(checkpoint)
-            xy = recentre_window(
-                tuple(zero),
-                half_span_px=float(config.window_span),
-                step_px=float(config.window_step),
-            )
-            forward = FrozenDefocusForward(params, xy, device=device)
-            forward.exposure_ms = float(reference["exposure_ms"])
-            tilt = bool(getattr(config, "tilt", False))
-            shift = (
-                np.asarray(params.ramp_matrix)[:, 0] / config.period
-                if tilt
-                else np.zeros(2, dtype=float)
-            )
-            center = np.asarray(zero) + shift
-            aspect = float(getattr(config, "aspect_ratio", 2.0))
-            for shape in config.shapes:
-                target = validate.target_at(
-                    xy, shape, center, config.side, aspect_ratio=aspect
-                )
-                if config.seed_run:
-                    from .seeding import accepted_seed
-
-                    phase, _ = accepted_seed(
-                        config.seed_run,
-                        shape,
-                        forward,
-                        xy,
-                        target,
-                        policy=config.seed_policy,
-                        centre=center,
-                    )
-                elif config.initial_phase != "gs":
-                    from .cold_start import cold_phase
-
-                    phase, _ = cold_phase(
-                        forward, center, kind=config.initial_phase, seed=config.seed
-                    )
-                else:
-                    phase = validate.gs_seed(forward, center, config.side, shape)
-                objective = validate.ShapeObjective(
-                    target,
-                    cv_only=config.objective == "cv",
-                    formation=config.objective == "formation",
-                )
-                from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
-                    DifferentiableUniformityOptimizer,
-                )
-
-                optimizer = DifferentiableUniformityOptimizer(
-                    forward,
-                    objective,
-                    phase,
-                    lr=config.phase_lr,
-                    step_rms_cap=config.phase_rms_cap,
-                    device=device,
-                )
-                for _ in range(config.updates):
-                    optimizer.update()
-                if not np.isfinite(optimizer.current_phase).all():
-                    raise RuntimeError("nonfinite offline optimized phase")
-                np.savez_compressed(
-                    out / f"{shape}_offline_seed.npz",
-                    model_phase=phase,
-                    optimized_phase=optimizer.current_phase,
-                    prediction=forward.predict(phase).detach().cpu().numpy(),
-                    optimized_prediction=forward.predict(optimizer.current_phase)
-                    .detach()
-                    .cpu()
-                    .numpy(),
-                    target=target,
-                    camera_xy=xy,
-                    exposure_ms=forward.exposure_ms,
-                )
-                (out / f"{shape}_offline_iterations.json").write_text(
-                    json.dumps(optimizer.loss_history, indent=2), encoding="utf-8"
-                )
-            # Self-describing: which device actually produced these phases.
-            (out / "synthesis.json").write_text(
-                json.dumps(
-                    dict(
-                        device=device,
-                        device_requested=config.device,
-                        shapes=list(config.shapes),
-                        initial_phase=config.initial_phase,
-                        updates=config.updates,
-                        **clock(),
-                    ),
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-
-        stage(
-            "transferred_phase_differentiable_synthesis"
-            if config.seed_run
-            else "GS_and_differentiable_synthesis"
-            if config.initial_phase == "gs"
-            else "cold_differentiable_synthesis",
-            synthesize,
-        )
-    else:
-        from . import direction, summary
-        from .artifacts import audit_run
-
-        if (
-            not config.seed_run and config.initial_phase == "gs"
-        ) or config.calibration_enabled:
+            control_out = out / f"model{config.control_grid}{suffix}"
             stage(
-                "CCD_model_blocks",
-                lambda: validate.run(
+                f"{prefix}control_resolution_export",
+                lambda checkpoint=checkpoint, control_out=control_out: export_frozen_parameters(
+                    checkpoint, control_out, grid=config.control_grid, fft=config.fft_size
+                ),
+            )
+            checkpoint = control_out / "frozen_parameters.json"
+        rows = json.loads((dataset / "manifest.json").read_text(encoding="utf-8"))
+        reference = next(
+            r for r in rows if r["label"] == "reference_start" and fit.valid(r)
+        )
+        zero = np.round(fit.spot(reference)).tolist()
+        # Geometry pre-flight: with the *measured* zero and the *fitted* ramp gain,
+        # recompute where the target lands in this session's sampling window. The
+        # parameter check above cannot see that combination (it needs the measured
+        # gain), and the alternative was discovering it in the first CCD block as
+        # "empty target core" (2026-10-26). Fail here, with the numbers that say
+        # which knob to turn.
+        frozen = json.loads(checkpoint.read_text(encoding="utf-8"))
+        geometry_problems = check_geometry(
+            zero_xy=zero,
+            ramp_matrix=np.asarray(frozen["ramp_matrix"], dtype=float),
+            side=float(config.side),
+            period=float(config.period),
+            shapes=tuple(config.shapes),
+            half_span_px=float(config.window_span),
+            step_px=float(config.window_step),
+            tilt=getattr(config, "tilt", False),
+        )
+        geometry_errors = [
+            problem for problem in geometry_problems if problem.severity == "error"
+        ]
+        if geometry_errors:
+            first = geometry_errors[0]
+            raise ValueError(f"{first.message} → {first.hint}")
+        # Keep the latest fitted model per SLM serial, both on the first fit and
+        # after every threshold retrain. Offline sessions have no serial and skip.
+        from .latest_model import save_latest_model, serial_from_capture
+
+        # 光路复用探针的**参照条件**随模型一起存进 latest: 曝光区间与取图格式
+        # 来自本次采集写下的侧车, 零点来自本次拟合的 frozen_parameters.json。
+        _write_reference_probe(fit_out, dataset, checkpoint)
+        save_latest_model(checkpoint.parent, serial_from_capture(out))
+        options = dict(
+            checkpoint=checkpoint,
+            zero_xy=zero,
+            period=config.period,
+            side=config.side,
+            window_span=config.window_span,
+            window_step=config.window_step,
+            zero_radius=config.zero_radius,
+            core_margin=config.core_margin,
+            bit_depth=config.bit_depth,
+            initial_phase=config.initial_phase,
+            random_seed=config.seed,
+            phase_lr=config.phase_lr,
+            phase_rms_cap=config.phase_rms_cap,
+            adaptive_step=config.adaptive_step,
+            adaptive_exposure=config.adaptive_exposure,
+            accept_metric=config.accept_metric,
+            objective=config.objective,
+            shapes=list(config.shapes),
+            updates=config.updates,
+            frames=config.frames,
+            abba=config.abba,
+            device=device,
+            camera=config.camera,
+            cam_id=config.cam_id,
+            slm_number=config.slm_number,
+            tilt=getattr(config, "tilt", False),
+            aspect_ratio=getattr(config, "aspect_ratio", 2.0),
+        )
+        if offline:
+
+            def synthesize(checkpoint=checkpoint, zero=zero, reference=reference):
+                from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
+                    FrozenDefocusForward,
+                    load_frozen_parameters,
+                    recentre_window,
+                )
+
+                params = load_frozen_parameters(checkpoint)
+                xy = recentre_window(
+                    tuple(zero),
+                    half_span_px=float(config.window_span),
+                    step_px=float(config.window_step),
+                )
+                forward = FrozenDefocusForward(params, xy, device=device)
+                forward.exposure_ms = float(reference["exposure_ms"])
+                tilt = bool(getattr(config, "tilt", False))
+                shift = (
+                    np.asarray(params.ramp_matrix)[:, 0] / config.period
+                    if tilt
+                    else np.zeros(2, dtype=float)
+                )
+                center = np.asarray(zero) + shift
+                aspect = float(getattr(config, "aspect_ratio", 2.0))
+                for shape in config.shapes:
+                    target = validate.target_at(
+                        xy, shape, center, config.side, aspect_ratio=aspect
+                    )
+                    if config.seed_run:
+                        from .seeding import accepted_seed
+
+                        phase, _ = accepted_seed(
+                            config.seed_run,
+                            shape,
+                            forward,
+                            xy,
+                            target,
+                            policy=config.seed_policy,
+                            centre=center,
+                        )
+                    elif config.initial_phase != "gs":
+                        from .cold_start import cold_phase
+
+                        phase, _ = cold_phase(
+                            forward, center, kind=config.initial_phase, seed=config.seed
+                        )
+                    else:
+                        phase = validate.gs_seed(forward, center, config.side, shape)
+                    objective = validate.ShapeObjective(
+                        target,
+                        cv_only=config.objective == "cv",
+                        formation=config.objective == "formation",
+                    )
+                    from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
+                        DifferentiableUniformityOptimizer,
+                    )
+
+                    optimizer = DifferentiableUniformityOptimizer(
+                        forward,
+                        objective,
+                        phase,
+                        lr=config.phase_lr,
+                        step_rms_cap=config.phase_rms_cap,
+                        device=device,
+                    )
+                    for _ in range(config.updates):
+                        optimizer.update()
+                    if not np.isfinite(optimizer.current_phase).all():
+                        raise RuntimeError("nonfinite offline optimized phase")
+                    np.savez_compressed(
+                        out / f"{shape}_offline_seed.npz",
+                        model_phase=phase,
+                        optimized_phase=optimizer.current_phase,
+                        prediction=forward.predict(phase).detach().cpu().numpy(),
+                        optimized_prediction=forward.predict(optimizer.current_phase)
+                        .detach()
+                        .cpu()
+                        .numpy(),
+                        target=target,
+                        camera_xy=xy,
+                        exposure_ms=forward.exposure_ms,
+                    )
+                    (out / f"{shape}_offline_iterations.json").write_text(
+                        json.dumps(optimizer.loss_history, indent=2), encoding="utf-8"
+                    )
+                # Self-describing: which device actually produced these phases.
+                (out / "synthesis.json").write_text(
+                    json.dumps(
+                        dict(
+                            device=device,
+                            device_requested=config.device,
+                            shapes=list(config.shapes),
+                            initial_phase=config.initial_phase,
+                            updates=config.updates,
+                            **clock(),
+                        ),
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+
+            stage(
+                "transferred_phase_differentiable_synthesis"
+                if config.seed_run
+                else "GS_and_differentiable_synthesis"
+                if config.initial_phase == "gs"
+                else "cold_differentiable_synthesis",
+                synthesize,
+            )
+        else:
+            from .artifacts import audit_run
+
+            if (
+                not config.seed_run and config.initial_phase == "gs"
+            ) or config.calibration_enabled:
+                stage(
+                    f"{prefix}CCD_model_blocks",
+                    lambda options=options, model_out=model_out: validate.run(
+                        SimpleNamespace(
+                            **options,
+                            out=model_out,
+                            seed_run=config.seed_run,
+                            seed_policy=config.seed_policy,
+                            mode="model",
+                            blocks=2,
+                            execute=True,
+                            on_frame=on_frame,
+                        )
+                    ),
+                )
+            if config.calibration_enabled:
+                from . import blur, capture_response, response
+
+                response_out = out / f"response{suffix}"
+                response_analysis_out = out / f"response_analysis{suffix}"
+                blur_out = out / f"blur{suffix}"
+                stage(
+                    f"{prefix}exposure_response_capture",
+                    lambda model_out=model_out, response_out=response_out: capture_response.capture(
+                        SimpleNamespace(
+                            source=model_out,
+                            out=response_out,
+                            shape="square",
+                            frames=config.frames,
+                            camera=config.camera,
+                            cam_id=config.cam_id,
+                            slm_number=config.slm_number,
+                            on_frame=on_frame,
+                        )
+                    ),
+                )
+                stage(
+                    f"{prefix}exposure_response_analysis",
+                    lambda response_out=response_out, response_analysis_out=response_analysis_out: response.analyze(
+                        response_out, response_analysis_out
+                    ),
+                )
+                stage(
+                    f"{prefix}blur_calibration",
+                    lambda model_out=model_out, checkpoint=checkpoint, blur_out=blur_out: blur.calibrate(
+                        SimpleNamespace(
+                            source=model_out,
+                            checkpoint=checkpoint,
+                            out=blur_out,
+                            sigmas=[0.0, 0.5, 1.0, 2.0, 3.515916109085083],
+                        )
+                    ),
+                )
+                options["checkpoint"] = blur_out / "frozen_parameters.json"
+            stage(
+                f"{prefix}CCD_anchored_blocks",
+                lambda options=options, anchored_out=anchored_out, model_out=model_out: validate.run(
                     SimpleNamespace(
                         **options,
-                        out=out / "model",
-                        seed_run=config.seed_run,
-                        seed_policy=config.seed_policy,
-                        mode="model",
-                        blocks=2,
+                        out=anchored_out,
+                        seed_run=config.seed_run
+                        if not config.calibration_enabled
+                        and (config.seed_run or config.initial_phase != "gs")
+                        else model_out,
+                        seed_policy=config.seed_policy
+                        if config.seed_run and not config.calibration_enabled
+                        else "strict",
+                        mode="anchored",
+                        blocks=config.blocks,
                         execute=True,
                         on_frame=on_frame,
                     )
                 ),
             )
-        if config.calibration_enabled:
-            from . import blur, capture_response, response
 
-            stage(
-                "exposure_response_capture",
-                lambda: capture_response.capture(
-                    SimpleNamespace(
-                        source=out / "model",
-                        out=out / "response",
-                        shape="square",
-                        frames=config.frames,
-                        camera=config.camera,
-                        cam_id=config.cam_id,
-                        slm_number=config.slm_number,
-                        on_frame=on_frame,
-                    )
-                ),
-            )
-            stage(
-                "exposure_response_analysis",
-                lambda: response.analyze(out / "response", out / "response_analysis"),
-            )
-            stage(
-                "blur_calibration",
-                lambda: blur.calibrate(
-                    SimpleNamespace(
-                        source=out / "model",
-                        checkpoint=checkpoint,
-                        out=out / "blur",
-                        sigmas=[0.0, 0.5, 1.0, 2.0, 3.515916109085083],
-                    )
-                ),
-            )
-            options["checkpoint"] = out / "blur/frozen_parameters.json"
-        stage(
-            "CCD_anchored_blocks",
-            lambda: validate.run(
-                SimpleNamespace(
-                    **options,
-                    out=out / "anchored",
-                    seed_run=config.seed_run
-                    if not config.calibration_enabled
-                    and (config.seed_run or config.initial_phase != "gs")
-                    else out / "model",
-                    seed_policy=config.seed_policy
-                    if config.seed_run and not config.calibration_enabled
-                    else "strict",
-                    mode="anchored",
-                    blocks=config.blocks,
-                    execute=True,
-                    on_frame=on_frame,
+            def audit(anchored_out=anchored_out, suffix=suffix):
+                result = audit_run(anchored_out)
+                (out / f"audit{suffix}.json").write_text(
+                    json.dumps(result, indent=2), encoding="utf-8"
                 )
-            ),
-        )
 
-        def audit():
-            result = audit_run(out / "anchored")
-            (out / "audit.json").write_text(
-                json.dumps(result, indent=2), encoding="utf-8"
+            stage(f"{prefix}raw_data_audit", audit)
+            # The acceptance verdict for this round: the mean correlation and
+            # relative_l2 over the fit's *validation* phases. A missing or
+            # unreadable fit artifact yields ``None`` -> the round counts as
+            # not accepted and the loop tries again (bounded by the cap).
+            quality = _fit_quality(out, fit_out)
+            measured_correlation = None if quality is None else quality["correlation"]
+            measured_relative_l2 = None if quality is None else quality["relative_l2"]
+            if quality is None:
+                accepted = False
+            else:
+                accepted = (
+                    measured_correlation >= config.acceptance_lower
+                    and measured_relative_l2 <= config.acceptance_upper
+                )
+            rounds.append(
+                dict(
+                    round=round_index,
+                    train_all=train_all,
+                    measured_correlation=measured_correlation,
+                    measured_relative_l2=measured_relative_l2,
+                    accepted=accepted,
+                    fit_directory=str(fit_out.relative_to(out)),
+                    anchored_directory=str(anchored_out.relative_to(out)),
+                )
             )
+            if config.acceptance_enabled:
+                # Only the looped path writes the round record: with the gate
+                # off the session directory keeps exactly the artifacts it had
+                # before.
+                (out / "rounds.json").write_text(
+                    json.dumps(rounds, indent=2), encoding="utf-8"
+                )
+            if not config.acceptance_enabled:
+                break
+            if accepted:
+                logger.info(
+                    "acceptance threshold met at round {}: correlation={:.4f} relative_l2={:.4f}",
+                    round_index,
+                    measured_correlation,
+                    measured_relative_l2,
+                )
+                break
+            logger.warning(
+                "acceptance threshold not met at round {}: correlation={} relative_l2={} "
+                "(need correlation >= {} and relative_l2 <= {})",
+                round_index,
+                measured_correlation,
+                measured_relative_l2,
+                config.acceptance_lower,
+                config.acceptance_upper,
+            )
+        if offline:
+            # The offline path has no CCD round to loop over; it stays a
+            # single pass.
+            break
 
-        stage("raw_data_audit", audit)
-        stage("summary", lambda: summary.summarize(out / "anchored", out / "summary"))
+    # The summary and the direction check read the *last* round's anchored
+    # blocks, so they run once, after the loop converges or stops. The offline
+    # path never produces anchored blocks, so it has no summary (unchanged).
+    if not offline:
+        summary_run = out / (f"anchored.round{last_round}" if last_round else "anchored")
+        stage("summary", lambda: summary.summarize(summary_run, out / "summary"))
         if config.abba:
             # The direction check reads B1/B2 and the minus probe; with the paired
             # blocks switched off those captures do not exist.
             stage(
                 "direction_check",
-                lambda: direction.analyze(out / "anchored", out / "direction"),
+                lambda: direction.analyze(summary_run, out / "direction"),
             )
+    if config.acceptance_enabled:
+        logger.info(
+            "acceptance loop finished: rounds={} accepted={} stopped_by_user={}",
+            len(rounds),
+            accepted,
+            stopped_by_user,
+        )
     print(f"Session complete: {out}", flush=True)
     return out
 

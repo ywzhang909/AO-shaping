@@ -38,7 +38,7 @@ FINGERPRINT_NAME = "fingerprint.json"
 COMPAT_THRESHOLD = 0.60
 #: 「推荐 / 可自动应用」的下限：分数达到它才允许不经确认自动应用。
 AUTO_APPLY_THRESHOLD = 0.80
-#: 逐维度权重。改这里等于改推荐口径，必须同时改 GUI 的文案阈值。
+#: 逐维度权重。改这里等于改推荐阈值，必须同时改 GUI 的文案阈值。
 DIMENSION_WEIGHTS: dict[str, float] = {
     "照明重叠": 0.40,
     "曝光": 0.20,

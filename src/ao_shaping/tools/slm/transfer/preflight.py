@@ -16,16 +16,16 @@
    下限、探针数不是 6 的倍数、目标边长超出采样窗的绝对上限。
 2. :func:`check_geometry` —— 采集与拟合之后、CCD 分块之前，用**实测**零点与
    拟合出的斜坡矩阵复算目标几何（与 :mod:`ao_shaping.tools.slm.transfer.validate`
-   同一口径），空核心这类错误在这里被拦下。
+   同一阈值），空核心这类错误在这里被拦下。
 
 两级都要有：只有第一级时，``period`` 与 ``side`` 的**组合**是否放得下要等到
 实测斜坡才知道；只有第二级时，操作员已经等了几分钟才知道参数填错。
 
 第三级（只在有实测零点时可用）：:func:`check_zero_overlap` —— 零级剔除圆盘与
-目标框的重叠面积。它是**读数口径**检查，不是"能不能跑"：200 px 档实测重叠
+目标框的重叠面积。它是**读数阈值**检查，不是"能不能跑"：200 px 档实测重叠
 5.61 % 的那次仍然跑完了，但那段 CV 只能带重叠面积一起读（规划报告 §1 H3 勘误）。
 
-口径来源（不要另立一套）
+阈值来源（不要另立一套）
 ------------------------
 - 采样窗：``validate.run`` 用 ``recentre_window(zero_xy, half_span_px=220, step_px=2)``；
 - 载波位移：``validate.run`` 用 ``ramp_matrix[:, 0] / period``；
@@ -272,7 +272,7 @@ def check_geometry(
 ) -> list[Problem]:
     """用**实测**零点与拟合斜坡复算目标几何（采集/拟合之后、CCD 分块之前）。
 
-    口径与 :mod:`ao_shaping.tools.slm.transfer.validate` 完全一致：采样窗用
+    阈值与 :mod:`ao_shaping.tools.slm.transfer.validate` 完全一致：采样窗用
     ``recentre_window``，目标用 ``target_at``，核心用 ``binary_erosion``。
 
     Args:
@@ -392,13 +392,13 @@ def _period_hint(offset_vec: np.ndarray, side: float, half_span_px: float) -> st
 
 #: 零级剔除圆盘的默认半径（px）。与 ``--zero-radius`` 的 CLI 默认 60.0 一致 ——
 #: 报告 §3.2 的 0.79 % / 3.14 % / 5.61 % 三个剔除面积都按 60 px 圆盘算的，
-#: 换半径就换了口径。
+#: 换半径就换了阈值。
 DEFAULT_ZERO_RADIUS_PX: float = 60.0
 
 
 @dataclass(frozen=True)
 class ZeroOverlap:
-    """零级剔除圆盘与目标方框的重叠（读数口径，不是"能不能跑"）。
+    """零级剔除圆盘与目标方框的重叠（读数阈值，不是"能不能跑"）。
 
     Attributes:
         intersects: 是否重叠（重叠面积为 0 时为 ``False``）。
@@ -431,7 +431,7 @@ def check_zero_overlap(
     重叠面积必须与 CV 一起读 —— 否则「200 px 的 CV 更差」会被读成优化变差，
     而不是核心里有 5.61 % 属于零级。
 
-    几何口径：目标框是以 ``(target_x, target_y)`` 为中心、边长 ``side`` 的轴对齐正方形；
+    几何阈值：目标框是以 ``(target_x, target_y)`` 为中心、边长 ``side`` 的轴对齐正方形；
     零级是圆心 ``zero_xy``、半径 ``zero_radius`` 的圆盘。两个输入都用**同一坐标系**
     （相机 sensor px）—— 全幅坐标与窗口局部坐标混用会把重叠面积算成 0（见 AGENTS
     反模式表里 `full-frame centre leaking into window-local metrics` 那一条）。
@@ -582,7 +582,7 @@ def _distance_to_box(x: float, y: float, x0: float, x1: float, y0: float, y1: fl
 
 
 def _nearest_edge(x: float, y: float, x0: float, x1: float, y0: float, y1: float) -> float:
-    """点在矩形内时到最近边的距离（点在矩形外时按 :func:`_distance_to_box` 口径返回 0）。"""
+    """点在矩形内时到最近边的距离（点在矩形外时按 :func:`_distance_to_box` 阈值返回 0）。"""
     if not (x0 <= x <= x1 and y0 <= y <= y1):
         return 0.0
     return min(x - x0, x1 - x, y - y0, y1 - y)

@@ -45,13 +45,22 @@ Feature/penalty notes (measured on the 60-combination library, ``fft_size=128``,
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from ao_shaping.tools.slm.transfer.capture import clock, probes
+
+if TYPE_CHECKING:  # pragma: no cover - typing only; runtime import stays lazy (device-free)
+    from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
+        FrozenDefocusParameters,
+    )
+
+logger = logging.getLogger(__name__)
 
 #: Axis values of the synthetic optical-path grid. Deterministic, documented, small.
 DEFOCUS_AXIS = (-0.12, -0.06, 0.0, 0.06, 0.12)
@@ -72,10 +81,58 @@ DEFAULT_ALPHA = 0.01
 #: Candidate penalties reported by :func:`alpha_sweep` (same grouped CV, no re-split).
 ALPHA_GRID = (0.01, 0.1, 1.0, 10.0)
 
-#: Nominal prior the residual estimator is expressed against.
+#: Fallback nominal prior the residual estimator is expressed against (old-bench
+#: placeholders). Used only when no ``bench`` checkpoint is injected.
 NOMINAL_DEFOCUS = 0.025
 NOMINAL_CENTER = (960.0, 600.0)
 NOMINAL_WIDTH = (300.0, 260.0)
+
+#: Geometry used when neither a caller nor a bench checkpoint specifies it.
+DEFAULT_FFT_SIZE = 128
+DEFAULT_PIXEL_SAMPLES = 1
+DEFAULT_GRID_SIZE = 32
+
+
+def load_bench(path: str | Path) -> FrozenDefocusParameters:
+    """Read a bench ``frozen_parameters.json`` (e.g. a ``fit/`` output) as a nominal base.
+
+    The fit JSON keeps ``ramp_matrix`` inline, so it is passed to
+    :meth:`FrozenDefocusParameters.from_dicts` directly (same as
+    ``load_frozen_parameters``). ``fft_size`` / ``pixel_samples`` / ``grid_size`` are read
+    from the file when present, otherwise the class defaults apply.
+    """
+    from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
+        FrozenDefocusParameters,
+    )
+
+    source = Path(path)
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    bench = FrozenDefocusParameters.from_dicts(
+        payload, payload["ramp_matrix"],
+        fft_size=int(payload.get("fft_size", 1024)),
+        pixel_samples=int(payload.get("pixel_samples", 3)),
+        grid_size=int(payload.get("grid_size", 128)))
+    logger.info("loaded bench nominal from %s", source)
+    return bench
+
+
+def _as_bench(bench: FrozenDefocusParameters | str | Path | None) -> FrozenDefocusParameters | None:
+    """Normalise ``bench`` to an instance (``None`` stays ``None`` = shipped defaults)."""
+    from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
+        FrozenDefocusParameters,
+    )
+
+    if bench is None or isinstance(bench, FrozenDefocusParameters):
+        return bench
+    return load_bench(bench)
+
+
+def _nominal_source_label(bench: FrozenDefocusParameters | str | Path | None) -> str:
+    if bench is None:
+        return "defaults (NOMINAL_* placeholders)"
+    if isinstance(bench, (str, Path)):
+        return f"bench checkpoint: {bench}"
+    return "bench instance"
 
 
 def combo_grid(limit: int | None = None) -> list[dict]:
@@ -104,41 +161,80 @@ def combo_grid(limit: int | None = None) -> list[dict]:
     return combos
 
 
-def nominal_parameters(*, fft_size: int = 128, pixel_samples: int = 1, grid_size: int = 32):
-    """The prior that the residual estimator predicts *deviations from*."""
+def nominal_parameters(*, fft_size: int | None = None, pixel_samples: int | None = None,
+                       grid_size: int | None = None,
+                       bench: FrozenDefocusParameters | str | Path | None = None,
+                       ) -> FrozenDefocusParameters:
+    """The prior that the residual estimator predicts *deviations from*.
+
+    Args:
+        fft_size, pixel_samples, grid_size: explicit overrides. ``None`` means "take the
+            bench value when a bench is given, else the ``DEFAULT_*`` constants".
+        bench: optional bench nominal (instance or ``frozen_parameters.json`` path). ``None``
+            keeps the shipped ``NOMINAL_*`` placeholders bit-identical to the historical path.
+
+    With a bench, ``origin_xy`` is the camera-pixel optical-axis intercept of the bench
+    (previously this was the FFT grid index ``fft_size // 2`` — a frame mismatch). Without a
+    bench the origin keeps the historical ``(fft_size // 2, fft_size // 2)`` for
+    reproducibility; that frame bug is intentionally not changed on the default path.
+    """
     from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
         FrozenDefocusParameters,
     )
 
-    half = fft_size // 2
-    return FrozenDefocusParameters(
-        defocus_diopter=NOMINAL_DEFOCUS, origin_xy=(float(half), float(half)),
-        amplitude_center_xy=NOMINAL_CENTER, amplitude_width_xy=NOMINAL_WIDTH,
-        residual_noll_radians={j: 0.0 for j in range(5, 12)},
-        gain=1.0, background=0.0, sigma_ccd_px=0.0,
-        ramp_matrix=((0.0, 5000.0), (-5000.0, 0.0)),
-        grid_size=grid_size, fft_size=fft_size, pixel_samples=pixel_samples)
+    base = _as_bench(bench)
+    if base is None:
+        fft_size = DEFAULT_FFT_SIZE if fft_size is None else int(fft_size)
+        pixel_samples = DEFAULT_PIXEL_SAMPLES if pixel_samples is None else int(pixel_samples)
+        grid_size = DEFAULT_GRID_SIZE if grid_size is None else int(grid_size)
+        half = fft_size // 2
+        return FrozenDefocusParameters(
+            defocus_diopter=NOMINAL_DEFOCUS, origin_xy=(float(half), float(half)),
+            amplitude_center_xy=NOMINAL_CENTER, amplitude_width_xy=NOMINAL_WIDTH,
+            residual_noll_radians={j: 0.0 for j in range(5, 12)},
+            gain=1.0, background=0.0, sigma_ccd_px=0.0,
+            ramp_matrix=((0.0, 5000.0), (-5000.0, 0.0)),
+            grid_size=grid_size, fft_size=fft_size, pixel_samples=pixel_samples)
+
+    fft_size = base.fft_size if fft_size is None else int(fft_size)
+    pixel_samples = base.pixel_samples if pixel_samples is None else int(pixel_samples)
+    grid_size = base.grid_size if grid_size is None else int(grid_size)
+    return replace(base, fft_size=fft_size, pixel_samples=pixel_samples, grid_size=grid_size,
+                   residual_noll_radians=dict(base.residual_noll_radians))
 
 
-def truth_parameters(combo: dict, *, fft_size: int = 128, pixel_samples: int = 1,
-                     grid_size: int = 32):
-    """Build the ground-truth parameters of one library combination."""
+def truth_parameters(combo: dict, *, fft_size: int | None = None,
+                     pixel_samples: int | None = None, grid_size: int | None = None,
+                     bench: FrozenDefocusParameters | str | Path | None = None):
+    """Build the ground-truth parameters of one library combination.
+
+    Every field is expressed *relative to the same nominal* that :func:`combo_target`
+    regresses against: defocus = nominal + ``combo["defocus"]``, centre/width/residual
+    are offsets from the nominal centre/width/residual.
+    """
     nominal = nominal_parameters(fft_size=fft_size, pixel_samples=pixel_samples,
-                                 grid_size=grid_size)
-    center = (NOMINAL_CENTER[0] + combo["shift"][0], NOMINAL_CENTER[1] + combo["shift"][1])
-    width = (NOMINAL_WIDTH[0] * combo["width_scale"], NOMINAL_WIDTH[1] * combo["width_scale"])
-    residual = {j: float(combo["aberration"]) for j in range(5, 12)}
-    return replace(nominal, defocus_diopter=float(combo["defocus"]),
+                                 grid_size=grid_size, bench=bench)
+    center = (nominal.amplitude_center_xy[0] + combo["shift"][0],
+              nominal.amplitude_center_xy[1] + combo["shift"][1])
+    width = (nominal.amplitude_width_xy[0] * combo["width_scale"],
+             nominal.amplitude_width_xy[1] * combo["width_scale"])
+    residual = {j: float(nominal.residual_noll_radians.get(j, 0.0)) + float(combo["aberration"])
+                for j in range(5, 12)}
+    return replace(nominal, defocus_diopter=float(nominal.defocus_diopter + combo["defocus"]),
                    amplitude_center_xy=center, amplitude_width_xy=width,
                    residual_noll_radians=residual)
 
 
 def combo_target(combo: dict) -> np.ndarray:
-    """The regression target of a combination: deviation from the nominal prior."""
+    """The regression target of a combination: deviation from the nominal prior.
+
+    :func:`truth_parameters` sets truth = nominal + offset for every field, so the target is
+    exactly the combo offsets, whichever nominal base (defaults or bench) is in use.
+    """
     width_scale = float(combo["width_scale"])
     if width_scale <= 0:
         raise ValueError("width_scale must be positive")
-    return np.array([float(combo["defocus"]) - NOMINAL_DEFOCUS,
+    return np.array([float(combo["defocus"]),
                      float(combo["shift"][0]), float(combo["shift"][1]),
                      float(np.log(width_scale)), float(combo["aberration"])], dtype=np.float64)
 
@@ -195,9 +291,11 @@ def pair_features(measured: np.ndarray, predicted: np.ndarray) -> np.ndarray:
                      peak_ratio, float(np.log(ratio).std())], dtype=np.float64)
 
 
-def build_library(*, combos: int | None = 60, probes_per_combo: int = 8, fft_size: int = 128,
-                  pixel_samples: int = 1, grid_size: int = 32, seed: int = 102419,
-                  power: float = 1.0) -> dict:
+def build_library(*, combos: int | None = 60, probes_per_combo: int = 8,
+                  fft_size: int | None = None, pixel_samples: int | None = None,
+                  grid_size: int | None = None, seed: int = 102419,
+                  power: float = 1.0,
+                  bench: FrozenDefocusParameters | str | Path | None = None) -> dict:
     """Synthesize the library with the frozen forward model (matched propagation).
 
     Exposure cycles over 0.5/1/1.5 ms exactly like
@@ -219,16 +317,19 @@ def build_library(*, combos: int | None = 60, probes_per_combo: int = 8, fft_siz
 
     if probes_per_combo < 1:
         raise ValueError("probes_per_combo must be positive")
+    nominal = nominal_parameters(fft_size=fft_size, pixel_samples=pixel_samples,
+                                 grid_size=grid_size, bench=bench)
+    fft_size, pixel_samples, grid_size = nominal.fft_size, nominal.pixel_samples, nominal.grid_size
     if grid_size < 2 or fft_size < 8:
         raise ValueError("grid_size >= 2 and fft_size >= 8 required")
+    logger.info("pretrain nominal base: %s (fft=%d grid=%d pixel_samples=%d)",
+                _nominal_source_label(bench), fft_size, grid_size, pixel_samples)
     rows = combo_grid(combos)
     yy, xx = np.mgrid[:fft_size, :fft_size]
     camera_xy = np.stack((xx, yy), axis=-1).astype(np.float64)
 
     probe_list = [entry for entry in probes(grid_size, probes_per_combo, seed)
                   if entry[0].startswith("probe_")]
-    nominal = nominal_parameters(fft_size=fft_size, pixel_samples=pixel_samples,
-                                 grid_size=grid_size)
     nominal_forward = FrozenDefocusForward(nominal, camera_xy, device="cpu")
     with np.errstate(all="ignore"):
         nominal_images = [nominal_forward.predict(phase).detach().numpy()[0]
@@ -239,7 +340,7 @@ def build_library(*, combos: int | None = 60, probes_per_combo: int = 8, fft_siz
     feature_rows, target_rows, combo_ids = [], [], []
     for row in rows:
         truth = truth_parameters(row, fft_size=fft_size, pixel_samples=pixel_samples,
-                                 grid_size=grid_size)
+                                 grid_size=grid_size, bench=bench)
         forward = FrozenDefocusForward(truth, camera_xy, device="cpu")
         per_probe = []
         for index, (_, _, phase) in enumerate(probe_list):
@@ -260,6 +361,7 @@ def build_library(*, combos: int | None = 60, probes_per_combo: int = 8, fft_siz
                 combo_ids=np.asarray(combo_ids, dtype=int), combo_rows=rows,
                 probes=[label for label, _, _ in probe_list],
                 setup=dict(fft_size=fft_size, pixel_samples=pixel_samples, grid_size=grid_size,
+                           nominal_source=_nominal_source_label(bench),
                            seed=seed, power=power, probes_per_combo=len(probe_list),
                            exposure_cycle=[0.5, 1.0, 1.5], scale=scale))
 
@@ -376,15 +478,19 @@ def alpha_sweep(library: dict, alphas: tuple[float, ...] = ALPHA_GRID) -> dict:
     return sweep
 
 
-def _prior_checkpoint(library: dict, model: dict, *, fft_size: int, pixel_samples: int,
-                      grid_size: int) -> dict:
-    """Translate the mean predicted deviation into a ``FrozenDefocusParameters`` dict."""
+def _prior_checkpoint(library: dict, model: dict, *, fft_size: int | None = None,
+                      pixel_samples: int | None = None, grid_size: int | None = None,
+                      bench: FrozenDefocusParameters | str | Path | None = None) -> dict:
+    """Translate the mean predicted deviation into a ``FrozenDefocusParameters`` dict.
+
+    The base is the same nominal (defaults or ``bench``) the library was built against.
+    """
     prediction = (library["features"] - model["feature_mean"]) / model["feature_scale"]
     delta = (prediction @ model["coef"] + model["intercept"]) * model["target_scale"] \
         + model["target_mean"]
     mean_delta = delta.mean(0)
     base = nominal_parameters(fft_size=fft_size, pixel_samples=pixel_samples,
-                              grid_size=grid_size)
+                              grid_size=grid_size, bench=bench)
     width_scale = float(np.exp(np.clip(mean_delta[3], -0.7, 0.7)))
     updated = replace(
         base,
@@ -403,10 +509,15 @@ def _prior_checkpoint(library: dict, model: dict, *, fft_size: int, pixel_sample
 
 
 def pretrain(out: str | Path, *, combos: int | None = 60, probes_per_combo: int = 8,
-             fft_size: int = 128, pixel_samples: int = 1, grid_size: int = 32,
+             fft_size: int | None = None, pixel_samples: int | None = None,
+             grid_size: int | None = None,
              seed: int = 102419, alpha: float = DEFAULT_ALPHA, power: float = 1.0,
-             keep_raw: bool = False) -> dict:
+             keep_raw: bool = False,
+             bench: FrozenDefocusParameters | str | Path | None = None) -> dict:
     """Build the library, fit the estimator and write the three artifacts.
+
+    ``bench`` (optional) injects the bench nominal (instance or ``frozen_parameters.json``
+    path, see :func:`load_bench`). ``None`` keeps the shipped ``NOMINAL_*`` defaults.
 
     Artifacts written under ``out``:
 
@@ -422,7 +533,7 @@ def pretrain(out: str | Path, *, combos: int | None = 60, probes_per_combo: int 
     started = time.perf_counter()
     library = build_library(combos=combos, probes_per_combo=probes_per_combo,
                             fft_size=fft_size, pixel_samples=pixel_samples,
-                            grid_size=grid_size, seed=seed, power=power)
+                            grid_size=grid_size, seed=seed, power=power, bench=bench)
     built = time.perf_counter()
     model = train_estimator(library, alpha=alpha)
     sweep = alpha_sweep(library)
@@ -435,7 +546,7 @@ def pretrain(out: str | Path, *, combos: int | None = 60, probes_per_combo: int 
                         target_mean=model["target_mean"], target_scale=model["target_scale"],
                         params=np.asarray(PARAM_NAMES))
     prior = _prior_checkpoint(library, model, fft_size=fft_size,
-                              pixel_samples=pixel_samples, grid_size=grid_size)
+                              pixel_samples=pixel_samples, grid_size=grid_size, bench=bench)
     (out / "frozen_parameters.json").write_text(json.dumps(prior, indent=2), encoding="utf-8")
     per_combo = int(library["features"].shape[1])
     report = dict(

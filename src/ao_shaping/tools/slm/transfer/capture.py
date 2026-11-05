@@ -205,7 +205,7 @@ class _LivePrediction:
         )
 
     def _model_phase(self, phase_grid: np.ndarray) -> np.ndarray:
-        """按 fit.load_dataset 的面板口径，把当前采集控制网格送到模型网格。"""
+        """按 fit.load_dataset 的面板阈值，把当前采集控制网格送到模型网格。"""
         phase = np.asarray(phase_grid, dtype=np.float32)
         if self._panel is None:
             return phase
@@ -299,12 +299,20 @@ def capture(args, *, on_frame=None):
     )
     manifest, samples = [], {}
     early_stopped = False
+    slm_serial: list[str | None] = [None]
     with opened_device(
         create_camera(args.camera, args.cam_id, exposure_time_ms=0.02)
     ) as cam:
         with opened_device(
             Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0)
         ) as slm:
+            # 读取这台 SLM 的设备标识 (open() 时已读到); 供 workflow 在 fit/
+            # 重训后按序列号保存最新模型。读不到时保持 None —— 只是不留序列号,
+            # 不报错 (离线/仿真面板没有该属性或读不到)。
+            try:
+                slm_serial[0] = getattr(slm, "serial_number", None)
+            except Exception as exc:
+                logger.warning(f"无法读取 SLM 序列号, 跳过最新模型按序列号保存: {exc!r}")
             slm.set_phase_overlay(None)
             try:
                 floor, ceiling = get_camera_exposure_range(cam)
@@ -553,9 +561,35 @@ def capture(args, *, on_frame=None):
             finally:
                 slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
                 time.sleep(0.3)
+        # 光路复用探针的**参照条件**: 本次采集用的相机曝光区间与取图格式。
+        # 与实测零点 (拟合后写进 frozen_parameters.json 的 origin) 一起构成
+        # 「这条光路的条件」, 供下次会话的光路复用判比用。
+        from ao_shaping.tools.slm.transfer.optical_probe import (
+            read_bit_depth as _camera_bit_depth,
+            read_camera_format as _camera_format,
+        )
+
+        (args.out / "_optical_probe.json").write_text(
+            json.dumps(
+                dict(
+                    exposure_range_ms=[float(floor), float(ceiling)],
+                    camera_format=_camera_format(cam),
+                    bit_depth=_camera_bit_depth(cam),
+                    slm_serial=slm_serial[0],
+                ),
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
     (args.out / ".capture_done").write_text(
         json.dumps(
-            dict(early_stopped=early_stopped, probes=len(manifest), **clock()), indent=2
+            dict(
+                early_stopped=early_stopped,
+                probes=len(manifest),
+                slm_serial=slm_serial[0],
+                **clock(),
+            ),
+            indent=2,
         ),
         encoding="utf-8",
     )

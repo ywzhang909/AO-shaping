@@ -12,7 +12,7 @@ GUI 要显示"跑到第几段第几块、每段首末 CV、段内峰值"，只�
 因此本模块的契约是：**不抛异常**。缺文件、半截 JSON、未知字段一律降级成
 :data:`MISSING`（``"—"``），因为没有一行能读而让整个页面报错，比显示"未知"糟糕得多。
 
-字段口径来自写侧代码，不是猜的
+字段阈值来自写侧代码，不是猜的
 --------------------------------
 - 每块一行 ``label``：``validate.run`` 用 ``capture(label, ...)`` 写出
   ``<shape>_<block>_A1`` / ``<shape>_<block>_B``；``transport_cv`` 只有 A1
@@ -31,7 +31,7 @@ GUI 要显示"跑到第几段第几块、每段首末 CV、段内峰值"，只�
 ----------------
 ``StageRow.peak_full`` 对**全部 manifest 行**（含 ``seed`` / ``seed_replay`` /
 ``_final``，不只是块行）取全幅 ``peak`` 的最大值 —— 这正是报告 §3.2「段内峰值」列的
-口径（``multishape_scale_live_20261028.md`` 该表表注：「``段内峰值`` = 该阶段
+阈值（``multishape_scale_live_20261028.md`` 该表表注：「``段内峰值`` = 该阶段
 ``manifest.json`` **全部行**的最大全幅峰值」）。判**饱和余量**必须用全幅峰值对
 ``full_scale`` 比，所以那一列只能由它回答。
 ``StageRow.peak_inside`` 取**核心峰值** ``core_peak`` 的段内最大值，回答的是另一个
@@ -118,7 +118,7 @@ class StageRow:
         final_cv: 段末 CV（最后一次 ``<shape>_final`` 行）。
         peak_inside: 段内**核心**峰值最大值（``core_peak``），答"目标框里多亮"。
         peak_full: 段内**全幅**峰值最大值（全部 manifest 行的 ``peak``，含 seed /
-            ``seed_replay`` / final），与报告 §3.2「段内峰值」列同口径，用来对
+            ``seed_replay`` / final），与报告 §3.2「段内峰值」列同阈值，用来对
             ``full_scale`` 判饱和余量。没有任何一行带 ``peak``（旧 manifest）时为
             ``None``，**不是** ``0.0``。
         exposure_ms: 该段的曝光（段首行，缺失时退到第一块）。
@@ -229,7 +229,7 @@ def _journal_entries(root: Path) -> tuple[dict[str, Any], ...]:
 def _stage_status(
     journal: tuple[dict[str, Any], ...], shape: str, recipe: StageRecipe, stage_dir: Path,
 ) -> str | None:
-    """阶段状态：journal 为主口径，``manifest.json`` 只在 journal 缺该段时兜底。
+    """阶段状态：journal 为主阈值，``manifest.json`` 只在 journal 缺该段时兜底。
 
     兜底是为了 ``--model-dir`` 复用或手工拷进来的目录：它们没有本会话的 journal 行，
     但 ``shape/<shape>/<stage>/manifest.json`` 是有的。
@@ -282,7 +282,7 @@ def _stage_row(shape: str, stage: str, status: str, stage_dir: Path) -> StageRow
     core_peaks = [_number(row.get("core_peak")) for row in rows]
     core_peaks = [peak for peak in core_peaks if isinstance(peak, float)]
     # 全幅峰值取**全部行**（seed / seed_replay / final_adaptive / final 都算），
-    # 这是报告 §3.2「段内峰值」列的口径；旧 manifest 没有 ``peak`` 字段 ⇒ None。
+    # 这是报告 §3.2「段内峰值」列的阈值；旧 manifest 没有 ``peak`` 字段 ⇒ None。
     full_peaks = [_number(row.get("peak")) for row in rows]
     full_peaks = [peak for peak in full_peaks if isinstance(peak, float)]
     exposure_source = seed_row if seed_row is not None else (rows[0] if rows else None)

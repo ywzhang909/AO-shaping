@@ -43,7 +43,7 @@ def display_frame(frame: np.ndarray) -> np.ndarray:
     """把任意灰度 raw 帧压成 0..255 的 uint8 供 ``VideoWidget`` 显示。
 
     SimPibCCD 返回 float 计数帧、大恒返回 uint8/uint16; 直接 ``clip`` 会让
-    counts 口径下的一帧几乎全黑。减掉 1% 分位背景再按峰值归一, 只改显示对比度,
+    counts 阈值下的一帧几乎全黑。减掉 1% 分位背景再按峰值归一, 只改显示对比度,
     不改剖面形状。
     """
     arr = np.asarray(frame, dtype=np.float64)
