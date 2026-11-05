@@ -17,6 +17,7 @@ report/<topic>/<系列名>/
 
 | 子目录 | 生成脚本 | 报告 |
 |--------|----------|------|
+| `hw_depth_matched/` | 手工撰写（`_harness_task2_run02.py` 口径） | `hw_depth_matched_20261105.md` |
 | `transfer_uncertainty/` | `scripts/slm/transfer_uncertainty_experiment.py` | `transfer_uncertainty_20261104.md` |
 | `gs_defocus_sim/` | `scripts/slm/generate_gs_defocus_sim_report.py` | `gs_defocus_sim_20261019.md` |
 | `hw_defocus_zernike/` | `scripts/slm/generate_hw_defocus_zernike_report.py` | `hw_defocus_zernike_20261020.md`、`hw_defocus_zernike_20261021.md`、`hw_defocus_zernike_20261022.md` |
@@ -33,7 +34,7 @@ report/<topic>/<系列名>/
 | `transfer_square1200/` | `scripts/slm/generate_transfer_square1200_report.py` | `transfer_square1200_20261027.md` |
 | `gs_refine/` | 手工撰写（GS 系列） | `gs_issue_live_20261015.md` 等 9 份 |
 | `model_in_loop/` | 手工撰写（MIL 系列） | `model_in_loop_live_20261013.md` 等 9 份 |
-| `physical_refine/` | 手工撰写（`sim2f_fov_hw_session.py` / `sim2f_fov_hw_refine.py`） | `physical_refine_plan_20261102.md`、`physical_refine_results_20261102.md` |
+| `physical_refine/` | 手工撰写（`sim2f_fov_hw_session.py` / `sim2f_fov_hw_refine.py`） | `physical_refine_plan_20261102.md`、`physical_refine_results_20261102.md`、`physical_refine_results_20261103.md`、`forward_model_transfer_plan_20261104.md` |
 | `mask_closed_loop/` | `scripts/ml/sim2f_shape_trials.py` | `mask_closed_loop_20261031.md` |
 | `fov_generalization/` | `scripts/ml/sim2f_fov_extrapolation.py` | `fov_generalization_20261101.md` |
 
