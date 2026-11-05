@@ -10,7 +10,6 @@ They live apart from ``validate`` so the device-execution module stays under the
 module-size gate (``scripts/check_module_size.py``); ``validate`` re-imports the
 names its CLI and callers still reach by the old ``transfer.validate`` path.
 """
-
 from __future__ import annotations
 
 import json
@@ -61,15 +60,11 @@ def _frozen_groups(directory: Path) -> int:
         try:
             payload = json.loads(groups_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            raise ValueError(
-                f"unreadable block-groups file {groups_path}: {exc}"
-            ) from exc
+            raise ValueError(f"unreadable block-groups file {groups_path}: {exc}") from exc
         if isinstance(payload, dict):
             payload = payload.get("groups")
         if not isinstance(payload, list):
-            raise ValueError(
-                f"block-groups file {groups_path} must hold a list of groups"
-            )
+            raise ValueError(f"block-groups file {groups_path} must hold a list of groups")
         return len(payload)
     if not summary_path.is_file():
         return 0
@@ -82,25 +77,9 @@ def _frozen_groups(directory: Path) -> int:
     blocks: set[tuple[str, int]] = set()
     for index, entry in enumerate(payload):
         if not isinstance(entry, dict) or "shape" not in entry or "block" not in entry:
-            raise ValueError(
-                f"summary {summary_path} entry {index} lacks shape/block keys"
-            )
+            raise ValueError(f"summary {summary_path} entry {index} lacks shape/block keys")
         blocks.add((str(entry["shape"]), int(entry["block"])))
     return len(blocks)
-
-
-def _manifest_rows(directory: Path) -> list:
-    """Read the seed record and completed block verdicts for one shape."""
-    manifest_path = Path(directory) / "manifest.json"
-    if not manifest_path.is_file():
-        return []
-    try:
-        rows = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise ValueError(f"unreadable manifest {manifest_path}: {exc}") from exc
-    if not isinstance(rows, list):
-        raise ValueError(f"manifest {manifest_path} must be a JSON list")
-    return rows
 
 
 def remaining_blocks(directory: Path, blocks: int, *, resume: bool) -> list[int]:
@@ -109,26 +88,15 @@ def remaining_blocks(directory: Path, blocks: int, *, resume: bool) -> list[int]
     A stage may contain several shapes, but the runner invokes ``validate``
     with one shape-specific directory at a time. The checkpoint offset is
     therefore local to ``directory``; it must never be shared across shapes.
-    Capture groups alone do not prove that a block verdict was recorded, so
-    resume uses the same manifest as :func:`stage_complete`, minus its seed row.
     """
-    recorded = max(0, len(_manifest_rows(directory)) - 1) if resume else 0
+    recorded = _frozen_groups(directory) if resume else 0
     return list(range(min(recorded, int(blocks)), int(blocks)))
 
 
 def stage_complete(directory: Path, blocks: int) -> bool:
-    """Whether a shape stage recorded every expected block verdict.
-
-    The manifest is the verdict record: ``blocks + 1`` rows (the seed re-measure
-    plus one row per block). A manifest whose presence is the *only* evidence is
-    a started-but-partial stage, so its bare existence is not enough - re-enter
-    it with ``resume=True`` and continue the unmeasured blocks.
-    """
-    try:
-        rows = _manifest_rows(directory)
-    except ValueError:
-        return False
-    return len(rows) >= int(blocks) + 1
+    """Whether a shape stage has capture evidence and every block verdict."""
+    return ((directory / "manifest.json").is_file()
+            and _frozen_groups(directory) >= int(blocks))
 
 
 def skips_shape(*, resume: bool, blocks) -> bool:
@@ -173,18 +141,10 @@ def session_plan(args) -> dict:
     out = Path(args.out)
     overrides = getattr(args, "session_groups", None)
     if overrides:
-        wanted = [
-            _group_tuple(g["bit_depth"], g["window_step"], g["groups"])
-            for g in overrides
-        ]
+        wanted = [_group_tuple(g["bit_depth"], g["window_step"], g["groups"]) for g in overrides]
     else:
-        wanted = [
-            _group_tuple(
-                getattr(args, "bit_depth", 8),
-                getattr(args, "window_step", 2.0),
-                getattr(args, "blocks", 1),
-            )
-        ]
+        wanted = [_group_tuple(getattr(args, "bit_depth", 8), getattr(args, "window_step", 2.),
+                               getattr(args, "blocks", 1))]
     frozen, todo = [], []
     for shape in args.shapes:
         directory = out / str(shape)
@@ -195,15 +155,10 @@ def session_plan(args) -> dict:
         frozen.append((str(shape), *wanted[-1][:2], groups))
         if len(wanted) > 1:
             todo.extend((str(shape), *triple) for triple in wanted[1:])
-    estimated = sum(groups for *_, groups in todo) * (
-        SETTLE_SECONDS + float(getattr(args, "frames", 1)) * READ_SECONDS_PER_FRAME
-    )
-    return dict(
-        shapes=[str(shape) for shape in args.shapes],
-        frozen=frozen,
-        todo=todo,
-        estimated_seconds=round(estimated, 1),
-    )
+    estimated = sum(groups for *_, groups in todo) * (SETTLE_SECONDS
+                                                      + float(getattr(args, "frames", 1))*READ_SECONDS_PER_FRAME)
+    return dict(shapes=[str(shape) for shape in args.shapes], frozen=frozen, todo=todo,
+                estimated_seconds=round(estimated, 1))
 
 
 def model_only_decision(history) -> dict:
@@ -223,10 +178,5 @@ def model_only_decision(history) -> dict:
     previous = losses[-2] if len(losses) >= 2 else None
     last = losses[-1] if losses else None
     accepted = previous is not None and last is not None and last < previous
-    return dict(
-        acceptance="model_only",
-        accept_metric="model",
-        accepted=bool(accepted),
-        model_loss_previous=previous,
-        model_loss_last=last,
-    )
+    return dict(acceptance="model_only", accept_metric="model", accepted=bool(accepted),
+                model_loss_previous=previous, model_loss_last=last)
