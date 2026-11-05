@@ -58,6 +58,7 @@ from PySide6.QtGui import QCloseEvent, QColor, QFont, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -69,6 +70,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QProgressBar,
     QPushButton,
+    QRadioButton,
     QScrollArea,
     QSpinBox,
     QTableWidget,
@@ -435,19 +437,25 @@ class TransferPage(QWidget):
         """② 目标: 跑什么形状、多大、加不加倾斜相位。"""
         box, layout = _section("② 目标与倾斜相位")
 
-        self._shapes: dict[str, QCheckBox] = {}
+        # 目标形状**互斥单选**（用户要求: 4 个形状一次只能选一个）——
+        # 用独占 QButtonGroup 包 QRadioButton, 而不是复选, 语义上与「一场会话跑一个
+        # 目标」一致; 也顺带消除了「空形状 → 至少选一个」的错误路径。
+        self._shapes: dict[str, QRadioButton] = {}
+        self._shape_group = QButtonGroup(self)
+        self._shape_group.setExclusive(True)
         shape_host = QWidget()
         shape_row = QHBoxLayout(shape_host)
         shape_row.setContentsMargins(0, 0, 0, 0)
         shape_row.setSpacing(12)
         for name in params.SHAPE_CHOICES:
-            check = self._check(
+            radio = self._radio(
                 params.SHAPE_LABELS.get(name, name), name in _DEFAULTS.shapes
             )
-            self._shapes[name] = check
-            shape_row.addWidget(check)
+            self._shape_group.addButton(radio)
+            self._shapes[name] = radio
+            shape_row.addWidget(radio)
             # 勾选 rectangle 时显示「长边」框、把「边长」当短边; 其余形状隐藏长边框。
-            check.toggled.connect(self._sync_shape_widgets)
+            radio.toggled.connect(self._sync_shape_widgets)
         shape_row.addStretch(1)
 
         self._side = self._dspin(
@@ -653,6 +661,13 @@ class TransferPage(QWidget):
         widget.toggled.connect(self._revalidate)
         return widget
 
+    def _radio(self, text: str, checked: bool) -> QRadioButton:
+        """单选钮（形状互斥用）。"""
+        widget = QRadioButton(text)
+        widget.setChecked(checked)
+        widget.toggled.connect(self._revalidate)
+        return widget
+
     # -------------------------------------------------------------- 公开接口
     def form_values(self) -> params.TransferFormValues:
         """控件当前值 → 纯表单快照 (交给 params 层校验与建会话)。"""
@@ -721,18 +736,29 @@ class TransferPage(QWidget):
         self._revalidate()
 
     def set_shapes(self, shapes: Iterable[str]) -> None:
-        """程序方式勾选目标形状; 一次改完只校验一次。"""
+        """程序方式选择目标形状（互斥单选）; 一次改完只校验一次。
+
+        允许传入空集合以清空（供「至少选一个」错误路径的测试使用）——独占组
+        正常不允许清空, 这里临时关掉独占再恢复。
+        """
         chosen = {str(name) for name in shapes}
-        for name, check in self._shapes.items():
-            check.blockSignals(True)
-            check.setChecked(name in chosen)
-            check.blockSignals(False)
+        self._shape_group.setExclusive(False)
+        try:
+            for name, radio in self._shapes.items():
+                radio.blockSignals(True)
+                radio.setChecked(name in chosen)
+                radio.blockSignals(False)
+        finally:
+            self._shape_group.setExclusive(True)
         self._sync_shape_widgets()
         self._revalidate()
 
     def _sync_shape_widgets(self) -> None:
         """矩形勾选时显示「长边」框（此时边长框当短边）；其余形状隐藏长边框。"""
-        rect = bool(self._shapes.get("rectangle", None) and self._shapes["rectangle"].isChecked())
+        rect = bool(
+            self._shapes.get("rectangle", None)
+            and self._shapes["rectangle"].isChecked()
+        )
         self._side_long.setVisible(rect)
         if rect:
             self._side.setToolTip("矩形短边（CCD px）")
@@ -983,9 +1009,14 @@ class TransferPage(QWidget):
             if max_side > 0:
                 self._zero_limit = max_side
                 # 上限就是物理依据: 0 级到最近帧边的距离折成的边长。
-                self._side.setMaximum(float(max_side))
-                if self._side.value() > max_side:
-                    self._side.setValue(float(max_side))
+                # 短边与矩形长边都按同一物理极限放宽 —— 长边是矩形两维中更大者,
+                # 任一单边都不能超过帧可容纳的极限 (0 级到帧边距离 - 留白)。
+                # 此前只有 _side 更新、_side_long 仍锁保守值, 矩形长边敲不进探测
+                # 允许的值 (用户反馈"被限制在 400") —— 一并放宽并夹回越限值。
+                for spin in (self._side, self._side_long):
+                    spin.setMaximum(float(max_side))
+                    if spin.value() > max_side:
+                        spin.setValue(float(max_side))
             center = tuple(getattr(payload, "center", (0, 0)))
             shape = tuple(getattr(payload, "frame_shape", (0, 0)))
             self._zero_state = (

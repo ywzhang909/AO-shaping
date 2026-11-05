@@ -2,7 +2,7 @@
 
 > 本文件约束 `report/` 下的目录布局、文件命名、资产归属与溯源登记。
 > 与仓库根 `AGENTS.md` 冲突时，**以本文件为准**（`report/` 专用规则）。
-> 详表：子目录对照 [docs/dev/report_subdir_index.md](../docs/dev/report_subdir_index.md)；反模式 [docs/dev/report_antipatterns.md](../docs/dev/report_antipatterns.md)；资产/链接 [docs/dev/report_asset_rules.md](../docs/dev/report_asset_rules.md)；溯源/校验 [docs/dev/report_provenance.md](../docs/dev/report_provenance.md)。
+> 详表见 [docs/dev/report_subdir_index.md](../docs/dev/report_subdir_index.md)（§2.0 布局模板 / §2.1 子目录对照）。
 
 ---
 
@@ -17,16 +17,9 @@
 
 ## 2. 目录布局：一份报告 = 一个子目录
 
-报告不平铺在 `report/<topic>/` 根下；按生成脚本/实验系列分子目录，报告与其独占资产同住。结构与对照表见 [docs/dev/report_subdir_index.md](../docs/dev/report_subdir_index.md)。
-
-```
-report/<topic>/<系列名>/
-├── <报告名>.md
-├── figures/       # 正文引用的图
-├── images/        # 插图/动画
-├── artifacts/     # 上游脚本原始产物 (CSV/JSON)，输入契约
-└── assets/        # 现场抓取的原始资产
-```
+报告不平铺在 `report/<topic>/` 根下；按生成脚本/实验系列分子目录，报告与其独占资产同住。
+布局模板（`<报告名>.md` 与 `figures/` `images/` `artifacts/` `assets/`）见
+[docs/dev/report_subdir_index.md](../docs/dev/report_subdir_index.md) §2.0；子目录对照见 §2.1。
 
 ## 3. 溯源登记（硬性）
 

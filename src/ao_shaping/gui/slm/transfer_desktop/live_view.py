@@ -15,6 +15,7 @@
 先降采样再归一化, 从整幅的 ~220-337 ms 降到 ~16 ms, 所以逐帧刷新比原来的块级
 快照还便宜; 测量线程每帧只多一次 ``ndarray.copy()`` (~1.3 ms, 帧周期的 0.15%)。
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -105,11 +106,13 @@ def display_preview(frame) -> tuple[np.ndarray, int]:
 class _TitledPanel(QWidget):
     """标题 + 底层画面的小面板 (供 SLM 相位 / 预测远场两栏复用)。
 
-    ``set_state(text)`` 把一行状态文字画进画面区 (供「物理预测模型未就绪」这类
-    诚实占位用), ``clear_state()`` 撤掉它 —— 画面本身就够时不需要状态行。
+    ``set_state(text)`` 把一行状态文字画进画面区 (供「物理预测模型初始化中」
+    这类短暂占位用), ``clear_state()`` 撤掉它 —— 画面本身就够时不需要状态行。
     """
 
-    def __init__(self, title: str, image: VideoWidget, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, title: str, image: VideoWidget, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self.image = image
         self._caption = QLabel(title)
@@ -120,7 +123,7 @@ class _TitledPanel(QWidget):
         layout.setSpacing(2)
         layout.addWidget(self._caption)
         layout.addWidget(image, 1)
-        # 覆盖在画面区上的状态行: 平时隐藏, "模型未就绪" 这类时候用它替掉空图。
+        # 覆盖在画面区上的状态行: 平时隐藏, 模型初始化期间用它替掉空图。
         self._state = QLabel("")
         self._state.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._state.setStyleSheet(
@@ -248,7 +251,8 @@ class LiveView(QWidget):
             self._block_bar.setFormat("采集段")
             self._block_bar.setValue(1)
             self._block_label.setText(
-                f"当前阶段：{'曝光标定' if payload.get('phase') == 'exposure' else '采集'}")
+                f"当前阶段：{'曝光标定' if payload.get('phase') == 'exposure' else '采集'}"
+            )
 
         # 第二根条: 这次采集的第几帧。刷新已经是逐帧的, 所以它不再是倒计时。
         if frames_total > 0:
@@ -263,8 +267,11 @@ class LiveView(QWidget):
         detail = []
         if blocks_total > 0:
             detail.append(f"块内 iter {iteration}/{iterations_total}")
-        detail.append(f"帧 {frame_index}/{frames_total}" if frames_total > 0
-                      else f"第 {max(frame_index, 1)} 帧")
+        detail.append(
+            f"帧 {frame_index}/{frames_total}"
+            if frames_total > 0
+            else f"第 {max(frame_index, 1)} 帧"
+        )
         label = payload.get("label", "") or "实时帧"
         self._info.setText(f"实时画面：{label} · " + " · ".join(detail))
         self._last_payload = payload
@@ -280,16 +287,18 @@ class LiveView(QWidget):
     def _render_predicted(self, predicted, phase_grid) -> None:
         """把预测远场强度画进 ``_predicted`` 面板。
 
-        ``None`` 分两种, 不许把两者混成一个「黑框」: (1) **采集段** —— SLM 上真
-        的在驱动相位 (``phase_grid`` 非空), 但物理预测模型要到 ``fit`` 阶段之后才
-        拟合出来, **此刻没有可算的远场**, 面板给一个诚实的「模型未就绪」占位而
-        不是一个看起来坏了/没数据的黑框; (2) **空态/无相位** —— 会话还没开始或
-        干净的复位, ``VideoWidget.clear()`` 的"无画面"就够诚实。``_phase`` 上屏
-        与否就是「此刻有没有相位」的可靠记号, 不必再额外读一个键。
+        ``None`` 分两种, 不许把两者混成一个「黑框」: (1) **短暂初始化** ——
+        SLM 已在驱动相位 (``phase_grid`` 非空), 但本次平场定位或 signed-ramp
+        几何尚未到齐; 历史模型与零校正理想模型都走这条初始化路径, 不采用
+        「无 checkpoint 就无预测」的旧语义。(2) **空态/无相位** —— 会话还没
+        开始或干净复位, ``VideoWidget.clear()`` 的"无画面"就够诚实。模型一旦
+        可用, 后端逐帧给 ``predicted``, 这里立即收起状态行并显示远场。
         """
         if predicted is None:
             if self._phase.image._array is not None:
-                self._predicted.set_state("物理预测模型未就绪")
+                self._predicted.set_state(
+                    "物理预测模型初始化中（等待平场帧定位与几何）…"
+                )
                 self._predicted.image.clear()
             else:
                 self._predicted.clear_state()

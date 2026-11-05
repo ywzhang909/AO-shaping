@@ -9,6 +9,7 @@
 * 没有观察者 / 没有采集行时完全不发 (不构造负载、不开文件);
 * 观察者抛异常不会让会话失败 (与 ``workflow._notify`` 的 on_stage 同一策略)。
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -22,9 +23,7 @@ from ao_shaping.tools.slm.transfer import validate
 @pytest.fixture()
 def capture(tmp_path):
     """一块采集的 npz: 3 帧, 每帧一个不同常量, 用来辨认「最后一帧」。"""
-    raw = np.stack(
-        [np.full((8, 10), v, dtype=np.uint16) for v in (10, 20, 30)]
-    )
+    raw = np.stack([np.full((8, 10), v, dtype=np.uint16) for v in (10, 20, 30)])
     name = "capture_0000.npz"
     np.savez_compressed(tmp_path / name, raw_frames=raw)
     # 内存缓存是模块级的, 同名文件可能命中上一次测试的缓存 —— 先清干净。
@@ -58,11 +57,22 @@ def test_payload_uses_the_last_frame_and_integer_progress(capture):
     raw = capture[2]
     np.testing.assert_array_equal(payload["frame"], raw[-1])
     assert payload["shape"] == "triangle"
-    assert (payload["block"], payload["block_index"], payload["blocks_total"]) == (2, 3, 4)
+    assert (payload["block"], payload["block_index"], payload["blocks_total"]) == (
+        2,
+        3,
+        4,
+    )
     assert (payload["iteration"], payload["iterations_total"]) == (12, 12)
     assert payload["remaining"] == 12
     assert payload["label"] == "验收采集"
-    for key in ("block", "block_index", "blocks_total", "iteration", "iterations_total", "remaining"):
+    for key in (
+        "block",
+        "block_index",
+        "blocks_total",
+        "iteration",
+        "iterations_total",
+        "remaining",
+    ):
         assert isinstance(payload[key], int)
     # 剖面是纯 numpy, GUI 可以直接画, 不必接触任何 Qt 对象。
     np.testing.assert_allclose(payload["profile_x"], raw[-1].mean(axis=0))
@@ -72,8 +82,14 @@ def test_payload_uses_the_last_frame_and_integer_progress(capture):
 def test_payload_copies_the_frame_so_reused_buffers_cannot_mutate_it():
     frame = np.ones((4, 4), dtype=np.uint16)
     payload = validate.block_frame_payload(
-        frame=frame, shape="s", block=0, block_index=1, blocks_total=1,
-        iteration=1, iterations_total=1, remaining=0,
+        frame=frame,
+        shape="s",
+        block=0,
+        block_index=1,
+        blocks_total=1,
+        iteration=1,
+        iterations_total=1,
+        remaining=0,
     )
     frame[:] = 99
     assert payload["frame"].max() == 1
@@ -132,8 +148,9 @@ def test_frame_payload_is_a_copied_plain_dict_without_profiles():
     from ao_shaping.tools.slm.transfer.live_frame import frame_payload
 
     raw = np.arange(12, dtype=np.uint16).reshape(3, 4)
-    payload = frame_payload(frame=raw, label="探针 12", phase="capture",
-                            frame_index=2, frames_total=3)
+    payload = frame_payload(
+        frame=raw, label="探针 12", phase="capture", frame_index=2, frames_total=3
+    )
     raw[:] = 0  # 相机复用缓冲区
     assert payload["frame"].max() == 11
     assert payload["label"] == "探针 12"
@@ -199,3 +216,28 @@ def test_capture_emits_a_frame_from_its_single_read_funnel():
     assert any("notify_frame(observer, frame_payload(" in line for line in body), body
     # 标签必须在光路检查之前就位, 否则那些帧会带着上一段的标签上屏。
     assert source.index("live_label") < source.index("verify_light(")
+
+
+def test_capture_read_funnel_threads_the_displayed_phase_grid():
+    """采集段逐帧负载也要带 ``phase_grid`` —— 用户要"每次给 SLM 发相位都展示"。
+
+    不可用源码钉子钉: ``read()`` 闭包把 ``live_phase`` 细胞取出来放进负载, 而
+    ``live_phase`` 只在真的 ``slm.display_data`` 之前落值。这里钉三点结构性定律:
+    (1) ``read()`` 负载里出现 ``phase_grid=live_phase[0]``; (2) 该细胞在读漏斗的
+    作用域里先初始化 (读到它之前已定义); (3) 探针循环里 ``slm.display_data(gray)``
+    之后紧跟落值 —— 相位写进 SLM 的那一帧起就带上它, 光路检查的平场也走同一条路。
+    """
+    import inspect
+
+    from ao_shaping.tools.slm.transfer import capture as capture_mod
+
+    source = inspect.getsource(capture_mod.capture)
+    # (1) read() 闭包把相位细胞带进负载 (多行调用, 逐行搜)。
+    read_body = _loop_body(source, "def read():")
+    read_text = "\n".join(read_body)
+    assert "phase_grid=live_phase[0]" in read_text
+    # (2) 细胞在 read 定义之前就位 (同作用域, 不含 probe_read 那种子闭包)。
+    assert source.index("live_phase = [None]") < source.index("def read():")
+    # (3) 光路检查与每条探针在写 SLM 之后落值; 平场是第一份相位。
+    assert "live_phase[0] = np.zeros" in source
+    assert "live_phase[0] = grid" in source

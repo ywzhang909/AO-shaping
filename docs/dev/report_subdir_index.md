@@ -1,5 +1,18 @@
 # report/ 子目录索引（外迁自 report/AGENTS.md §2.1）
 
+### 2.0 目录布局模板（外迁自 report/AGENTS.md §2）
+
+一份报告 = 一个子目录，报告与其独占资产同住，不平铺在 `report/<topic>/` 根下：
+
+```
+report/<topic>/<系列名>/
+├── <报告名>.md
+├── figures/       # 正文引用的图
+├── images/        # 插图/动画
+├── artifacts/     # 上游脚本原始产物 (CSV/JSON)，输入契约
+└── assets/        # 现场抓取的原始资产
+```
+
 ### 2.1 已确立的子目录（`report/shape_trials/`）
 
 | 子目录 | 生成脚本 | 报告 |

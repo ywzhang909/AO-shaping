@@ -97,6 +97,9 @@ def test_clicking_reads_in_a_worker_thread_and_widens_the_limit(
     assert thread is not threading.main_thread()
 
     assert page._side.maximum() == 1858.0
+    # 矩形长边同样按实测上限放宽 —— 此前只更新 _side, _side_long 仍锁保守值,
+    # 矩形长边敲不进探测允许的值 (用户反馈「被限制在 350/400」)。
+    assert page._side_long.maximum() == 1858.0
     assert "1858" in page._status.text()
     assert "1858" in page._zero_view.text()
 
@@ -109,12 +112,16 @@ def test_a_current_value_above_the_limit_is_pulled_down(page, app, monkeypatch) 
     )
     monkeypatch.setattr(zo, "read_zero_order", lambda *args: small)
     page._side.setValue(400.0)
+    page._side_long.setValue(400.0)
 
     page.zero_order_button().click()
     _wait_zero_done(app, page)
 
     assert page._side.maximum() == 300.0
     assert page._side.value() == 300.0
+    # 长边超出新上限时同样被夹回 (矩形两维都不能超过帧可容纳极限)。
+    assert page._side_long.maximum() == 300.0
+    assert page._side_long.value() == 300.0
 
 
 def test_a_failed_read_keeps_the_conservative_limit_and_says_why(

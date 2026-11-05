@@ -55,9 +55,9 @@ def page(app: QApplication, monkeypatch: pytest.MonkeyPatch):
 
 def _payload(**overrides) -> dict:
     yy, xx = np.mgrid[0:40, 0:48]
-    frame = (2000 * np.exp(-(((xx - 24) ** 2) / 60.0 + ((yy - 20) ** 2) / 40.0))).astype(
-        np.float64
-    )
+    frame = (
+        2000 * np.exp(-(((xx - 24) ** 2) / 60.0 + ((yy - 20) ** 2) / 40.0))
+    ).astype(np.float64)
     payload = dict(
         frame=frame,
         xy=None,
@@ -129,8 +129,15 @@ def test_capture_phase_has_no_block_progress_but_counts_frames(app: QApplication
     """
     view = LiveView()
     view.apply_payload(
-        _payload(phase="capture", blocks_total=0, block_index=0, shape="",
-                 frames_total=0, frame_index=2, label="探针 12/34")
+        _payload(
+            phase="capture",
+            blocks_total=0,
+            block_index=0,
+            shape="",
+            frames_total=0,
+            frame_index=2,
+            label="探针 12/34",
+        )
     )
     assert view._block_bar.maximum() == 1
     assert "采集段" in view._block_bar.format()
@@ -237,15 +244,15 @@ def test_apply_payload_renders_phase_and_predicted_panels(app: QApplication):
     view = LiveView()
     view.show()
     app.processEvents()
-    phase = (
-        np.mod(np.linspace(0.0, 3.0 * np.pi, 128 * 128), 2 * np.pi).reshape(128, 128)
+    phase = np.mod(np.linspace(0.0, 3.0 * np.pi, 128 * 128), 2 * np.pi).reshape(
+        128, 128
     )
     predicted = np.zeros((48, 64), dtype=np.float64)
     predicted[20:30, 26:38] = 500.0
     view.apply_payload(_payload(phase_grid=phase, predicted=predicted))
     app.processEvents()
 
-    assert view._video._array is not None          # CCD 栏照旧
+    assert view._video._array is not None  # CCD 栏照旧
     assert view._profile._x_panel._data.count() > 0
     # 相位面板: 数组已上屏, 尺寸与 phase 一致。
     assert view._phase.image._array is not None
@@ -286,9 +293,7 @@ def test_phase_or_predicted_absent_or_none_clears_but_does_not_crash(
 
 def test_clear_resets_phase_and_predicted_panels(app: QApplication):
     view = LiveView()
-    view.apply_payload(
-        _payload(phase_grid=np.zeros((8, 8)), predicted=np.ones((4, 4)))
-    )
+    view.apply_payload(_payload(phase_grid=np.zeros((8, 8)), predicted=np.ones((4, 4))))
     assert view._phase.image._array is not None
     assert view._predicted.image._array is not None
     view.clear()
@@ -297,12 +302,12 @@ def test_clear_resets_phase_and_predicted_panels(app: QApplication):
     view.close()
 
 
-def test_predicted_absent_with_live_phase_shows_model_not_ready(app: QApplication):
-    """采集段: 相位在驱动 (phase_grid 非空) 但物理预测模型未拟合 → 诚实的占位。
+def test_predicted_absent_with_live_phase_shows_initialization(app: QApplication):
+    """相位已驱动而预测尚为 None → 显示短暂的平场/几何初始化提示。
 
-    物理约束: 预测远场依赖 ``fit`` 阶段拟合出的物理预测模型, 采集段根本没有它,
-    所以 ``predicted`` 为 None 不是"数据丢了", 而是"还没到有预测的阶段" —— 面板
-    必须把这个状态说出来, 而不是丢一个像坏了/没数据的黑框。
+    无 checkpoint 时也会用本次平场与 signed-ramp 构造零校正理想模型，因此
+    这里不再表示「模型未就绪」或「冷启动永远没有预测」。提示必须说明当前
+    只是在初始化，而不是丢一个像坏了/没数据的黑框。
     """
     view = LiveView()
     view.show()
@@ -314,12 +319,13 @@ def test_predicted_absent_with_live_phase_shows_model_not_ready(app: QApplicatio
     # 预测面板没有可显示的远场, 但状态行说清了缘由而不是空黑框。
     assert view._predicted.image._array is None
     assert view._predicted._state.isVisible()
-    assert "模型未就绪" in view._predicted._state.text()
+    assert "初始化中" in view._predicted._state.text()
+    assert "平场" in view._predicted._state.text()
     view.close()
 
 
-def test_predicted_present_clears_the_not_ready_state(app: QApplication):
-    """validate 段: 有了拟合模型 (predicted 非 None) → 画远场, 状态行收起。"""
+def test_predicted_present_clears_the_initialization_state(app: QApplication):
+    """模型可用后: predicted 非 None → 画远场，初始化状态行立即收起。"""
     view = LiveView()
     view.show()
     app.processEvents()
@@ -327,7 +333,9 @@ def test_predicted_present_clears_the_not_ready_state(app: QApplication):
     app.processEvents()
     assert view._predicted._state.isVisible()
 
-    view.apply_payload(_payload(phase_grid=np.zeros((16, 16)), predicted=np.ones((8, 8))))
+    view.apply_payload(
+        _payload(phase_grid=np.zeros((16, 16)), predicted=np.ones((8, 8)))
+    )
     app.processEvents()
     assert view._predicted.image._array is not None
     assert not view._predicted._state.isVisible()
@@ -337,7 +345,7 @@ def test_predicted_present_clears_the_not_ready_state(app: QApplication):
 def test_predicted_absent_without_phase_stays_plain_empty(app: QApplication):
     """会话还没驱动任何相位 (phase_grid 也 None): 面板回"无画面", 不提"模型"。
 
-    双 None 是干净的复位语义, 搬出"模型未就绪"会误导 —— 此时连相位都还没有。
+    双 None 是干净的复位语义, 搬出"初始化中"会误导 —— 此时连相位都还没有。
     """
     view = LiveView()
     view.show()

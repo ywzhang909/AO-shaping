@@ -12,12 +12,14 @@
 * **页 0 直接嵌入既有的 :class:`BeamQualityApp`** (整个窗口, 不只是它的内容区)。
   它自带菜单栏与状态栏, 而状态栏上有「已处理 N 帧 | UI x fps」——那是操作员判断
   画面流是否正常的唯一读数, 丢了就没法用。所以外壳**不设自己的状态栏**, 否则两条
-  状态栏上下叠在一起, 像两个应用挤在一个框里。切页提示改放在导航栏底部。
-* **页 1 惰性创建**。迁移学习闭环整形那一页在导入时会拉起 torch (物理预测模型的
-  拟合与可微合成都在 torch 上), 冷启动要多花好几秒; 而看光束质量页的人不该为此
-  付这个代价。所以只有当操作员真的切到第 1 页时, 才 import 并实例化。
-* **窄导航栏**: 220 px 一列, 每项两行 —— 一行标题、一行副标题, 说明那一页管什么。
-  副标题用小号灰字, 是这一页的「一句话说明书」。
+  状态栏上下叠在一起, 像两个应用挤在一个框里。切页只更新导航项的选中态,
+  不再显示额外提示。
+* **页 1 / 页 2 惰性创建**。迁移学习闭环整形页在导入时会拉起 torch (物理预测模型
+  的拟合与可微合成都在 torch 上), 冷启动要多花好几秒; SLM 静态整形页也只在实际
+  切到时创建。看光束质量页的人不该为这些页面的初始化代价买单。
+* **窄导航栏**: 120 px 一列, 每项只有一行短标题与状态点, 不放副标题或底部提示,
+  把尽可能多的横向空间留给页面内容。超过可用宽度的长名 (如「迁移学习闭环整形」)
+  在导航栏缩成短标签, 全名由页面自身标题承担, 悬停可看全名提示。
 
 配色
 ----
@@ -35,7 +37,7 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
@@ -53,20 +55,27 @@ from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp
 
 __all__ = ["DesktopShellApp", "main"]
 
-#: 导航项: (标题, 副标题)。副标题写「这一页管什么」, 不是「这一页是什么模块」。
+#: 导航项: (导航短标签, 页面全名)。副标题 (页面一句话说明书) 已按用户要求移除 ——
+#: 导航栏只做页面切换, 说明交给页面内部的空状态文案。
+#: 导航栏只放**短标签** (120 px 单行放得下, 不裁切): 「迁移学习闭环整形」是 8 个
+#: 汉字 (≈96 px), 在 86 px 的可用标题宽度里必然被切; 所以第 2 页的导航标签缩成
+#: 「闭环整形」, 全名由页面自身的标题承担 (transfer_desktop 页头仍是全称), 悬停
+#: 时用全名做提示。
 _NAV_ITEMS: tuple[tuple[str, str], ...] = (
-    ("光束质量", "实时画面 · 峰值趋势 · 剖面拟合"),
-    ("迁移学习闭环整形", "物理预测模型 · 探针采集 · CCD 锚定验收"),
+    ("光束质量", "光束质量"),
+    ("闭环整形", "迁移学习闭环整形"),
+    ("SLM静态整形", "SLM静态整形"),
 )
 
-#: 切页时导航栏底部显示的一句话。
+#: 切页说明（保留给程序性索引访问，导航栏本身不再显示 —— 见模块 docstring）。
 _NAV_HINTS: tuple[str, ...] = (
     "光束质量: 选信号源后点「打开」; 相机操作在后台线程, 不冻界面",
     "迁移学习闭环整形: 需要 torch; 切页不会打断正在跑的会话",
+    "SLM静态整形: 选图案类型、调参数、生成预览, 再下发到所选 SLM",
 )
 
-#: 导航栏宽度 (px)。窄到只放标题 + 副标题, 不抢页面。
-_RAIL_WIDTH = 220
+#: 导航栏宽度 (px)。压缩到只放单行标题 + 状态点, 不抢页面。
+_RAIL_WIDTH = 120
 
 #: 状态点 / 标题高亮的强调色。蓝在暗色与亮色主题下都够醒目。
 _ACCENT = QColor("#4a9eff")
@@ -109,58 +118,55 @@ class _Dot(QWidget):
 
 
 class _RailItem(QWidget):
-    """导航项: 状态点 + 标题 + 副标题。
+    """导航项: 状态点 + 单行标题。
 
+    用户要求「压缩宽度、不显示说明」: 副标题已移除, 每项只占一行 (状态点 + 标题)。
     选中态靠状态点与标题提亮表达, 不靠整块底色 —— 底色在暗色主题下容易和页面
     自己的分组框撞色。
 
     导航项是**可激活控件**, 不是装饰: 鼠标点击与键盘 (Tab 聚焦 + Enter/空格) 都
     发出 :attr:`activated`, 由 :class:`_Rail` 汇总成带页索引的 ``pageRequested``。
-    少了这层接线, 整个外壳只剩页 0 能看 —— 页 1 会被惰性创建逻辑永远藏着。
+    少了这层接线, 整个外壳只剩页 0 能看 —— 页 1 / 页 2 会被惰性创建逻辑永远藏着。
     """
 
     #: 用户要求切到本项 (鼠标或键盘)。
     activated = Signal()
 
     def __init__(
-        self, title: str, subtitle: str, parent: QWidget | None = None
+        self,
+        title: str,
+        parent: QWidget | None = None,
+        *,
+        tooltip: str | None = None,
     ) -> None:
         super().__init__(parent)
         self._selected = False
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAccessibleName(title)
+        if tooltip:
+            self.setToolTip(tooltip)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 9, 10, 9)
-        layout.setSpacing(1)
-
-        head = QHBoxLayout()
-        head.setContentsMargins(0, 0, 0, 0)
-        head.setSpacing(7)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 7, 8, 7)
+        layout.setSpacing(6)
 
         self._dot = _Dot()
-        head.addWidget(self._dot, 0, Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self._dot, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self._title = QLabel(title)
-        head.addWidget(self._title, 1)
-        layout.addLayout(head)
+        layout.addWidget(self._title, 1)
 
-        self._subtitle = QLabel(subtitle)
-        self._subtitle.setWordWrap(True)
-        layout.addWidget(self._subtitle)
-
-        self.setFixedHeight(56)
+        # 单行: 高度只容纳标题, 压缩纵向占用。
+        self.setFixedHeight(34)
         self._restyle()
 
     def _restyle(self) -> None:
         """按当前调色板刷一遍文字颜色 (换主题时也要重刷)。"""
         text = self.palette().color(self.foregroundRole())
-        dim = _dim(text)
         self._title.setStyleSheet(
             f"color: {text.name()}; font-weight: {'600' if self._selected else '400'};"
         )
-        self._subtitle.setStyleSheet(f"color: {dim.name()};")
 
     def set_selected(self, selected: bool) -> None:
         """切换选中态。"""
@@ -217,8 +223,8 @@ class _Rail(QWidget):
         layout.addWidget(self._rule)
 
         self._items: list[_RailItem] = []
-        for position, (title, note) in enumerate(_NAV_ITEMS):
-            item = _RailItem(title, note)
+        for position, (title, full_name) in enumerate(_NAV_ITEMS):
+            item = _RailItem(title, tooltip=full_name)
             # 绑死当前索引: 直接引用循环变量会让所有项都指向最后一页。
             item.activated.connect(
                 lambda position=position: self.pageRequested.emit(position)
@@ -227,34 +233,56 @@ class _Rail(QWidget):
             layout.addWidget(item)
 
         layout.addStretch(1)
-
-        self._hint = QLabel(_NAV_HINTS[0])
-        self._hint.setWordWrap(True)
-        layout.addWidget(self._hint)
         self._restyle()
 
     def _restyle(self) -> None:
-        """品牌字样与提示按调色板着色。"""
+        """品牌字样按调色板着色 (导航栏不再有逐页提示文本)。"""
         text = self.palette().color(self.foregroundRole())
         dim = _dim(text)
-        self._brand.setStyleSheet(f"color: {text.name()}; padding: 18px 14px 2px 14px;")
-        self._subtitle.setStyleSheet(f"color: {dim.name()}; padding: 0 14px 14px 14px;")
+        self._brand.setStyleSheet(f"color: {text.name()}; padding: 18px 12px 2px 12px;")
+        self._subtitle.setStyleSheet(f"color: {dim.name()}; padding: 0 12px 10px 12px;")
         self._rule.setStyleSheet(f"color: {_dim(text, 0.5).name()};")
-        self._hint.setStyleSheet(f"color: {dim.name()}; padding: 10px 14px 16px 14px;")
 
     def set_current(self, index: int) -> None:
         for position, item in enumerate(self._items):
             item.set_selected(position == index)
-        if 0 <= index < len(_NAV_HINTS):
-            self._hint.setText(_NAV_HINTS[index])
+
+
+class _WarmSignals(QObject):
+    """后台预热的结果信号 (只经信号回主线程, 不碰控件)。"""
+
+    ready = Signal()
+    failed = Signal(str)
+
+
+class _WarmTask(QRunnable):
+    """后台线程预热迁移学习页的重依赖 (torch 与页面模块)。
+
+    只做 import: 实测 ``import torch`` 约 3.5 s、页面模块导入约 4.5 s, 都是 GUI
+    线程上最大的卡顿来源。控件构造留在主线程 (Qt 控件不能跨线程创建)。
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.signals = _WarmSignals()
+
+    def run(self) -> None:
+        try:
+            import torch  # noqa: F401
+            import ao_shaping.gui.slm.transfer_desktop.page  # noqa: F401
+        except Exception as exc:  # pragma: no cover - 环境相关
+            self.signals.failed.emit(str(exc))
+            return
+        self.signals.ready.emit()
 
 
 class DesktopShellApp(QMainWindow):
     """AO-Shaping 桌面外壳: 窄导航 + 页面栈。
 
     页 0 是既有的光束质量分析 (整个窗口嵌进来), 页 1 是 SLM 迁移学习闭环整形
-    (惰性创建)。窗口标题由外壳统一持有, 切页不会换标题 —— 操作员在两页之间移动
-    时, 标题栏始终说明「这是哪个应用」。
+    (惰性创建), 页 2 是 SLM 静态整形 (惰性创建, 会拉 SLM 驱动只在下发时)。
+    窗口标题由外壳统一持有, 切页不会换标题 —— 操作员在各页之间移动时, 标题栏始终
+    说明「这是哪个应用」。
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -273,8 +301,17 @@ class DesktopShellApp(QMainWindow):
         self._beam_app = BeamQualityApp()
         self._stack.addWidget(self._beam_app)
 
-        # 页 1: 迁移学习闭环整形 —— 惰性, 切过去才建。
+        # 页 1: 迁移学习闭环整形 —— 惰性, 切过去才建。切过去时先放占位页,
+        # 后台预热依赖, 预热完成后在主线程构造真页面并替换占位 (见 _start_transfer_warmup)。
         self._transfer_page: QWidget | None = None
+        self._transfer_placeholder: QLabel | None = None
+        self._warm_pool = QThreadPool(self)
+        self._warm_pool.setMaxThreadCount(1)
+        self._warm_started = False
+        self._closing = False
+
+        # 页 2: SLM 静态整形 —— 惰性, 切过去才建 (不会拖慢冷启动)。
+        self._static_page: QWidget | None = None
 
         central = QWidget(self)
         layout = QHBoxLayout(central)
@@ -288,26 +325,93 @@ class DesktopShellApp(QMainWindow):
 
     # ------------------------------------------------------------------ 页面
     def _transfer(self) -> QWidget:
-        """惰性创建页 1; 建好之后缓存, 切回来不重建 (重建会丢掉运行进度)。"""
+        """页 1 的真页面; 同步建好并缓存 (只在预热完成后调用, 切回来不重建)。"""
         if self._transfer_page is None:
             from ao_shaping.gui.slm.transfer_desktop import TransferPage
 
             self._transfer_page = TransferPage()
         return self._transfer_page
 
+    def _show_transfer_placeholder(self) -> None:
+        """页 1 还没准备好: 栈里放一个占位页, 并启动后台预热 (只启动一次)。"""
+        if self._transfer_placeholder is None:
+            placeholder = QLabel("正在准备迁移学习闭环整形页…")
+            placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            placeholder.setObjectName("transferPlaceholder")
+            self._transfer_placeholder = placeholder
+            self._stack.addWidget(placeholder)
+        self._stack.setCurrentWidget(self._transfer_placeholder)
+        self._start_transfer_warmup()
+
+    def _start_transfer_warmup(self) -> None:
+        if self._warm_started or self._transfer_page is not None:
+            return
+        self._warm_started = True
+        task = _WarmTask()
+        task.signals.ready.connect(self._on_transfer_warm_ready)
+        task.signals.failed.connect(self._on_transfer_warm_failed)
+        self._warm_pool.start(task)
+
+    def _on_transfer_warm_ready(self) -> None:
+        """预热完成 (主线程): 构造真页面, 替换占位。窗口已关则不再建。"""
+        if self._closing or self._transfer_page is not None:
+            return
+        page = self._transfer()
+        placeholder = self._transfer_placeholder
+        if placeholder is None:
+            return
+        was_current = self._stack.currentWidget() is placeholder
+        self._stack.insertWidget(self._stack.indexOf(placeholder), page)
+        self._stack.removeWidget(placeholder)
+        placeholder.deleteLater()
+        self._transfer_placeholder = None
+        if was_current:
+            self._stack.setCurrentWidget(page)
+
+    def _on_transfer_warm_failed(self, message: str) -> None:
+        """预热失败: 占位改成错误提示; 允许再次点击重试。"""
+        self._warm_started = False
+        if self._transfer_placeholder is not None:
+            self._transfer_placeholder.setText(
+                f"迁移学习闭环整形页加载失败：{message}\n请重新点击导航重试。"
+            )
+
+    def _static(self) -> QWidget:
+        """惰性创建页 2 (SLM 静态整形); 建好之后缓存, 切回来不重建。
+
+        静态整形页本身不 import SLM SDK, 慢的东西在下发时才在后台线程拉起; 惰性
+        创建只是为了不在冷启动时多建一个页面对象。
+        """
+        if self._static_page is None:
+            from ao_shaping.gui.slm.static_shaping_page import StaticShapingPage
+
+            self._static_page = StaticShapingPage()
+        return self._static_page
+
+    def _page_for(self, index: int) -> QWidget:
+        """按页索引取页面实例 (惰性建页 1 / 页 2)。"""
+        if index == 1:
+            return self._transfer()
+        if index == 2:
+            return self._static()
+        return self._beam_app
+
     def _sync_stack(self, index: int) -> None:
         """把导航栏的选中态与页面栈对齐。"""
         self._rail.set_current(index)
-        if index == 1:
-            widget = self._transfer()
-            if self._stack.indexOf(widget) < 0:
-                self._stack.addWidget(widget)
-            self._stack.setCurrentWidget(widget)
-        else:
+        if index == 0:
             self._stack.setCurrentIndex(0)
+            return
+        if index == 1 and self._transfer_page is None:
+            self._show_transfer_placeholder()
+            return
+        widget = self._page_for(index)
+        if self._stack.indexOf(widget) < 0:
+            self._stack.addWidget(widget)
+        self._stack.setCurrentWidget(widget)
 
     def select_page(self, index: int) -> None:
-        """切页 (0 = 光束质量, 1 = 迁移学习闭环整形)。"""
+        """切页 (0 = 光束质量, 1 = 迁移学习闭环整形, 2 = SLM 静态整形)。"""
         self._sync_stack(max(0, min(index, len(_NAV_ITEMS) - 1)))
 
     # ------------------------------------------------------------------ 事件
@@ -317,7 +421,8 @@ class DesktopShellApp(QMainWindow):
         子页面的 ``closeEvent`` 不会被 Qt 自动转发, 所以这里显式转发 ——
         光束质量页的相机流不关就会占着设备。
         """
-        for widget in (self._beam_app, self._transfer_page):
+        self._closing = True
+        for widget in (self._beam_app, self._transfer_page, self._static_page):
             if widget is None:
                 continue
             widget.close()

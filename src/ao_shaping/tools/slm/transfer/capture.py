@@ -23,6 +23,7 @@ saturation — the ladder is resumed from the exposure it computed but never
 measured, with a wider step budget (:data:`EXPOSURE_RETRY_STEPS`), instead of
 failing the whole lane: it already knows which way to go, it only ran out of rungs.
 """
+
 from __future__ import annotations
 from loguru import logger
 
@@ -32,7 +33,7 @@ import json
 import pickle
 import time
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -61,10 +62,11 @@ EXPOSURE_RETRIES = 2
 EXPOSURE_RETRY_STEPS = 6
 
 
-
 def clock() -> dict:
-    return dict(timestamp_utc=datetime.now(timezone.utc).isoformat(timespec="microseconds"),
-                monotonic_ns=time.monotonic_ns())
+    return dict(
+        timestamp_utc=datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+        monotonic_ns=time.monotonic_ns(),
+    )
 
 
 def exposure_setter(cam) -> Callable[[float], float]:
@@ -104,7 +106,121 @@ def locate(frame: np.ndarray) -> tuple[float, float]:
     x0, x1 = max(0, col - 30), min(frame.shape[1], col + 31)
     weights = np.maximum(frame[y0:y1, x0:x1] - np.median(frame), 0)
     yy, xx = np.mgrid[y0:y1, x0:x1]
-    return float((xx * weights).sum() / weights.sum()), float((yy * weights).sum() / weights.sum())
+    return float((xx * weights).sum() / weights.sum()), float(
+        (yy * weights).sum() / weights.sum()
+    )
+
+
+class _LivePrediction:
+    """采集段实时预测：有 checkpoint 用历史参数，没有则用理想物理参数。
+
+    两条路径都只初始化一次，并等本次 ``reference_start`` 的实测零点出现后
+    重建 origin/相机窗；否则旧会话的零点会平移当前预测。理想模型还必须等
+    本次 signed-ramp 几何到齐，不能借用历史几何，也不必先写 bootstrap 文件。
+    """
+
+    def __init__(
+        self, checkpoint: Path | None, *, capture_grid: int, device: str | None
+    ) -> None:
+        self.device = device
+        self.capture_grid = capture_grid
+        self.params = None
+        if checkpoint is not None:
+            from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
+                load_frozen_parameters,
+            )
+
+            self.params = load_frozen_parameters(checkpoint)
+        self.model_grid = (
+            int(self.params.grid_size) if self.params is not None else capture_grid
+        )
+        self.forward = None
+        self.origin: tuple[float, float] | None = None
+        self.camera_xy: np.ndarray | None = None
+        # 历史网格不同才准备转换缓存。坐标与零面板只分配一次；逐帧成本是
+        # 一次 to_panel + map_coordinates + forward，不重复读 JSON 或重建模型。
+        self._panel: np.ndarray | None = None
+        self._sample_coordinates: tuple[np.ndarray, np.ndarray] | None = None
+        if capture_grid != self.model_grid:
+            gy, gx = np.mgrid[: self.model_grid, : self.model_grid] * (
+                1920 / self.model_grid
+            )
+            self._sample_coordinates = (gy, gx)
+            self._panel = np.zeros((1920, 1920), dtype=np.float32)
+
+    def attach_reference(self, reference_row: dict) -> None:
+        """保存本次平场实测零点；历史模型可随即建 forward，理想模型继续等几何。"""
+        if self.forward is not None or self.camera_xy is not None:
+            return
+        from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
+            recentre_window,
+        )
+        from ao_shaping.tools.slm.transfer.fit import spot
+
+        measured = spot(reference_row)
+        self.origin = (float(measured[0]), float(measured[1]))
+        self.camera_xy = recentre_window(self.origin, half_span_px=120.0)
+        if self.params is not None:
+            self._build_forward(self.params)
+
+    def _build_forward(self, params) -> None:
+        """以当前会话零点覆盖参数中的 origin，再创建唯一的 frozen forward。"""
+        if self.origin is None or self.camera_xy is None:
+            raise RuntimeError("reference_start is required before live prediction")
+        from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
+            FrozenDefocusForward,
+        )
+
+        self.params = replace(params, origin_xy=self.origin)
+        self.forward = FrozenDefocusForward(
+            self.params, self.camera_xy, device=self.device
+        )
+
+    def attach_geometry(self, rows: list[dict]) -> None:
+        """signed-ramp 到齐后直接构造零校正理想模型，不等待离线 bootstrap。"""
+        if self.params is not None:
+            return
+        from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
+            FrozenDefocusParameters,
+        )
+        from ao_shaping.tools.slm.transfer.fit import geometry, valid
+
+        matrix, _ = geometry([row for row in rows if valid(row)])
+        ramp_matrix = tuple(tuple(float(value) for value in row) for row in matrix)
+        self._build_forward(
+            FrozenDefocusParameters(
+                defocus_diopter=0.0,
+                origin_xy=self.origin,
+                amplitude_center_xy=(960.0, 600.0),
+                amplitude_width_xy=(400.0, 300.0),
+                residual_noll_radians={j: 0.0 for j in range(5, 12)},
+                gain=1.0,
+                background=0.0,
+                sigma_ccd_px=0.0,
+                ramp_matrix=ramp_matrix,
+                fft_size=max(1024, self.capture_grid),
+                pixel_samples=3,
+                grid_size=self.capture_grid,
+            )
+        )
+
+    def _model_phase(self, phase_grid: np.ndarray) -> np.ndarray:
+        """按 fit.load_dataset 的面板口径，把当前采集控制网格送到模型网格。"""
+        phase = np.asarray(phase_grid, dtype=np.float32)
+        if self._panel is None:
+            return phase
+        from scipy.ndimage import map_coordinates
+
+        # 与 fit.load_dataset 的非控制网格分支一致：1920² 画布的上方 1200
+        # 行是实际面板，其余保持零；不能直接把控制数组 zoom 到另一尺寸。
+        self._panel[:1200] = to_panel(phase)
+        return map_coordinates(self._panel, self._sample_coordinates, order=1)
+
+    def predict(self, phase_grid: np.ndarray | None) -> np.ndarray | None:
+        if self.forward is None or phase_grid is None:
+            return None
+        model_phase = self._model_phase(phase_grid)
+        return self.forward.predict(model_phase)[0].detach().cpu().numpy()
 
 
 def probes(size: int, count: int, seed: int, periods=(64, 128)):
@@ -116,11 +232,19 @@ def probes(size: int, count: int, seed: int, periods=(64, 128)):
     for axis, coord in (("x", xx), ("y", yy)):
         for period in periods:
             for sign in (-1, 1):
-                yield f"ramp_{axis}_{period}_{sign}", "calibration", sign * 2 * np.pi * coord / period
+                yield (
+                    f"ramp_{axis}_{period}_{sign}",
+                    "calibration",
+                    sign * 2 * np.pi * coord / period,
+                )
     for index in range(count):
         family, grid = probe_grid(index, size, seed)
         # All families occur in both disjoint splits.
-        yield f"probe_{index:03d}_{family}", "validation" if index % 6 >= 3 else "train", grid
+        yield (
+            f"probe_{index:03d}_{family}",
+            "validation" if index % 6 >= 3 else "train",
+            grid,
+        )
     yield "reference_end", "calibration", zero
 
 
@@ -144,8 +268,13 @@ def capture(args, *, on_frame=None):
     not done, because that would change what the fit consumes.
     """
     from .hardware import opened_device, prepare_camera_sdk
+
     prepare_camera_sdk(args.camera)
-    from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_ms, get_camera_exposure_range
+    from ao_shaping.drivers.ccd.common import (
+        create_camera,
+        get_camera_exposure_ms,
+        get_camera_exposure_range,
+    )
     from ao_shaping.drivers.slm.santec import Santec
     from ao_shaping.tools.slm.panel.focus_probe import adapt_exposure
     from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
@@ -156,23 +285,35 @@ def capture(args, *, on_frame=None):
     if exposure_steps < 2:
         raise ValueError("exposure_max_steps must be >= 2")
     args.out.mkdir(parents=True, exist_ok=False)
-    config = {**vars(args), **clock(),
-              "save_dataset": save_dataset,
-              "exposure_adaptation": dict(max_steps=exposure_steps,
-                                          ratio_bounds=list(EXPOSURE_RATIO_BOUNDS)),
-              "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
-    (args.out / "config.json").write_text(json.dumps(config, default=str, indent=2), encoding="utf-8")
+    config = {
+        **vars(args),
+        **clock(),
+        "save_dataset": save_dataset,
+        "exposure_adaptation": dict(
+            max_steps=exposure_steps, ratio_bounds=list(EXPOSURE_RATIO_BOUNDS)
+        ),
+        "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+    }
+    (args.out / "config.json").write_text(
+        json.dumps(config, default=str, indent=2), encoding="utf-8"
+    )
     manifest, samples = [], {}
     early_stopped = False
-    with opened_device(create_camera(args.camera, args.cam_id, exposure_time_ms=.02)) as cam:
-        with opened_device(Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0)) as slm:
+    with opened_device(
+        create_camera(args.camera, args.cam_id, exposure_time_ms=0.02)
+    ) as cam:
+        with opened_device(
+            Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0)
+        ) as slm:
             slm.set_phase_overlay(None)
             try:
                 floor, ceiling = get_camera_exposure_range(cam)
-                limit = configured_daheng_exposure_limit() if args.camera == "daheng" else 0
+                limit = (
+                    configured_daheng_exposure_limit() if args.camera == "daheng" else 0
+                )
                 if limit > 0:
                     ceiling = min(ceiling, limit)
-                exposure = max(floor, .02)
+                exposure = max(floor, 0.02)
 
                 # 实时画面: read() 是这一段的唯一取图漏斗 —— 光路检查、曝光阶梯
                 # (probe_read) 与探针取帧都从它取图, 所以一处挂钩覆盖三处。
@@ -186,16 +327,57 @@ def capture(args, *, on_frame=None):
                 # SLM 之前落值。没有有效相位 (尚无探针、也没有可供显示的网格) 就记
                 # None —— 绝不伪造一个相位; 但它不是坏状态, 只是还没轮到驱动 SLM。
                 live_phase = [None]
+                live_prediction = [None]
+                checkpoint_value = getattr(args, "checkpoint", None)
+                if observer is not None:
+                    checkpoint = Path(checkpoint_value) if checkpoint_value else None
+                    try:
+                        if checkpoint is None or checkpoint.exists():
+                            # 无 checkpoint 也创建预测器：平场定位后、本次 signed-ramp
+                            # 几何到齐时直接构造零校正理想模型，而非等离线 bootstrap。
+                            live_prediction[0] = _LivePrediction(
+                                checkpoint,
+                                capture_grid=args.grid,
+                                device=getattr(args, "device", None),
+                            )
+                        else:
+                            logger.warning(
+                                f"Live capture prediction checkpoint does not exist: {checkpoint}"
+                            )
+                    except Exception as exc:
+                        # 实时预测只是辅助画面；模型不可用时采集仍须继续。
+                        logger.warning(
+                            f"Live capture prediction disabled during initialization: {exc!r}"
+                        )
 
                 def read():
                     raw = np.asarray(cam.get_numpy_image(n_sample=1, skip_first=False))
                     if raw.ndim != 2:
-                        raise ValueError(f"Expected a monochrome 2D camera frame, got {raw.shape}")
+                        raise ValueError(
+                            f"Expected a monochrome 2D camera frame, got {raw.shape}"
+                        )
                     live_seen[0] += 1
-                    notify_frame(observer, frame_payload(
-                        frame=raw, label=live_label[0], phase="capture",
-                        phase_grid=live_phase[0],
-                        frame_index=live_seen[0]))
+                    predicted = None
+                    if live_prediction[0] is not None:
+                        try:
+                            predicted = live_prediction[0].predict(live_phase[0])
+                        except Exception as exc:
+                            # 第一次失败即停用，避免每帧重复报错；原始测量不受影响。
+                            logger.warning(
+                                f"Live capture prediction disabled after a frame failed: {exc!r}"
+                            )
+                            live_prediction[0] = None
+                    notify_frame(
+                        observer,
+                        frame_payload(
+                            frame=raw,
+                            label=live_label[0],
+                            phase="capture",
+                            phase_grid=live_phase[0],
+                            predicted=predicted,
+                            frame_index=live_seen[0],
+                        ),
+                    )
                     return raw
 
                 # 便宜的光路检查, 在探针族之前: 2026-10-28 光路失效那次, 单条探针
@@ -204,52 +386,100 @@ def capture(args, *, on_frame=None):
                 # 探针 reference_start 本来就是它, 所以不多一次显示语义), 再用
                 # 0.05/0.4/3.2 ms 三档少数几帧回答「有没有光」; 没有光就直接抛
                 # OpticalPathInvalid (exit code 3), 不进探针族。
-                slm.display_data(slm.create_phase_from_array(to_panel(
-                    np.zeros((args.grid, args.grid), np.float32))))
+                slm.display_data(
+                    slm.create_phase_from_array(
+                        to_panel(np.zeros((args.grid, args.grid), np.float32))
+                    )
+                )
                 live_phase[0] = np.zeros((args.grid, args.grid), np.float32)
-                time.sleep(.6)
-                light = verify_light(read, exposure_setter(cam),
-                                     floor_ms=floor, ceiling_ms=ceiling,
-                                     label=f"capture {args.out.name}")
+                time.sleep(0.6)
+                light = verify_light(
+                    read,
+                    exposure_setter(cam),
+                    floor_ms=floor,
+                    ceiling_ms=ceiling,
+                    label=f"capture {args.out.name}",
+                )
                 (args.out / "light_check.json").write_text(
-                    json.dumps({**light, **clock()}, default=str, indent=2), encoding="utf-8")
+                    json.dumps({**light, **clock()}, default=str, indent=2),
+                    encoding="utf-8",
+                )
 
-                for label, split, grid in probes(args.grid, args.count, args.seed, getattr(args, "ramp_periods", (64, 128))):
+                for label, split, grid in probes(
+                    args.grid,
+                    args.count,
+                    args.seed,
+                    getattr(args, "ramp_periods", (64, 128)),
+                ):
                     live_label[0] = f"探针 {label}"
                     # The parallel-fit worker (or an operator) may ask capture to
                     # stop early; honour it before taking the next probe.
                     if (args.out / "stop_acquisition.request").is_file():
                         early_stopped = True
                         break
+                    if (
+                        live_prediction[0] is not None
+                        and manifest
+                        and manifest[-1]["label"].startswith("ramp_")
+                        and not label.startswith("ramp_")
+                    ):
+                        try:
+                            # 最后一个 ramp 行已写入 manifest；在首个非 ramp 帧
+                            # 读图前建好理想模型，让该帧就能携带 predicted。
+                            live_prediction[0].attach_geometry(manifest)
+                        except Exception as exc:
+                            logger.warning(
+                                f"Live capture prediction disabled while building the ideal model: {exc!r}"
+                            )
+                            live_prediction[0] = None
                     panel = to_panel(grid)
                     gray = slm.create_phase_from_array(panel)
                     slm.display_data(gray)
                     live_phase[0] = grid
-                    time.sleep(.6)
+                    time.sleep(0.6)
                     exposure_frames, exposure_clocks = [], []
 
                     def probe_read(_clocks=exposure_clocks, _frames=exposure_frames):
-                        _clocks.append({**clock(), "exposure_ms": float(get_camera_exposure_ms(cam))})
+                        _clocks.append(
+                            {
+                                **clock(),
+                                "exposure_ms": float(get_camera_exposure_ms(cam)),
+                            }
+                        )
                         frame = read()
                         if save_dataset:
                             _frames.append(frame.copy())
                         return frame
 
-                    budgets = (exposure_steps,) + (EXPOSURE_RETRY_STEPS,) * EXPOSURE_RETRIES
+                    budgets = (exposure_steps,) + (
+                        EXPOSURE_RETRY_STEPS,
+                    ) * EXPOSURE_RETRIES
                     for attempt, steps in enumerate(budgets, start=1):
-                        setting = adapt_exposure(cam.reset_exposure_time, probe_read, start_ms=exposure,
-                                                 floor_ms=floor, ceiling_ms=ceiling, full_scale=255,
-                                                 max_steps=steps,
-                                                 ratio_bounds=EXPOSURE_RATIO_BOUNDS,
-                                                 on_step=LightGuard(label=f"probe {label}",
-                                                                    max_steps=steps).observe)
+                        setting = adapt_exposure(
+                            cam.reset_exposure_time,
+                            probe_read,
+                            start_ms=exposure,
+                            floor_ms=floor,
+                            ceiling_ms=ceiling,
+                            full_scale=255,
+                            max_steps=steps,
+                            ratio_bounds=EXPOSURE_RATIO_BOUNDS,
+                            on_step=LightGuard(
+                                label=f"probe {label}", max_steps=steps
+                            ).observe,
+                        )
                         exposure = float(get_camera_exposure_ms(cam))
                         frames, clocks = [], []
                         for _ in range(args.frames):
                             stamp = clock()
                             frames.append(read().copy())
-                            clocks.append({**stamp, "end_monotonic_ns": time.monotonic_ns(),
-                                           "exposure_ms": float(get_camera_exposure_ms(cam))})
+                            clocks.append(
+                                {
+                                    **stamp,
+                                    "end_monotonic_ns": time.monotonic_ns(),
+                                    "exposure_ms": float(get_camera_exposure_ms(cam)),
+                                }
+                            )
                         raw = np.stack(frames)
                         frame = raw.mean(0)
                         if setting.status == "ok" and raw.max() < 250:
@@ -263,40 +493,78 @@ def capture(args, *, on_frame=None):
                                 f"(measured {exposure:.5f} ms -> peak={setting.peak:.1f} "
                                 f"fraction={setting.fraction:.3f}, attempt={attempt}); "
                                 f"resuming at {float(setting.exposure_ms):.5f} ms with "
-                                f"{budgets[attempt]} steps")
+                                f"{budgets[attempt]} steps"
+                            )
                             exposure = float(setting.exposure_ms)
                     path = f"sample_{len(manifest):04d}.npz"
                     if save_dataset:
-                        np.savez_compressed(args.out / path, raw_frames=raw, frame=frame,
-                                            model_phase=grid.astype(np.float32), panel_phase=panel.astype(np.float32),
-                                            panel_gray=gray, exposure_probe_frames=np.stack(exposure_frames))
-                    samples[path] = dict(model_phase=grid.astype(np.float32), raw_frames=raw)
+                        np.savez_compressed(
+                            args.out / path,
+                            raw_frames=raw,
+                            frame=frame,
+                            model_phase=grid.astype(np.float32),
+                            panel_phase=panel.astype(np.float32),
+                            panel_gray=gray,
+                            exposure_probe_frames=np.stack(exposure_frames),
+                        )
+                    samples[path] = dict(
+                        model_phase=grid.astype(np.float32), raw_frames=raw
+                    )
                     x, y = locate(frame)
-                    row = dict(file=path, label=label, split=split, exposure_ms=exposure,
-                               frames=clocks, exposure_probe_clocks=exposure_clocks,
-                               exposure_setting=asdict(setting), peak=float(raw.max()),
-                               saturation_pixels=int((raw >= 255).sum()), exposure_attempts=attempt,
-                               spot_xy=[x, y], **clock())
+                    row = dict(
+                        file=path,
+                        label=label,
+                        split=split,
+                        exposure_ms=exposure,
+                        frames=clocks,
+                        exposure_probe_clocks=exposure_clocks,
+                        exposure_setting=asdict(setting),
+                        peak=float(raw.max()),
+                        saturation_pixels=int((raw >= 255).sum()),
+                        exposure_attempts=attempt,
+                        spot_xy=[x, y],
+                        **clock(),
+                    )
+                    if label == "reference_start" and live_prediction[0] is not None:
+                        try:
+                            # 第一张平场读完后才有一次会话的零点；下一张曝光/
+                            # 探针帧开始即可预测，参考帧自身不伪造 predicted。
+                            live_prediction[0].attach_reference(row)
+                        except Exception as exc:
+                            logger.warning(
+                                f"Live capture prediction disabled while building the forward model: {exc!r}"
+                            )
+                            live_prediction[0] = None
                     manifest.append(row)
-                    (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+                    (args.out / "manifest.json").write_text(
+                        json.dumps(manifest, indent=2), encoding="utf-8"
+                    )
                     with (args.out / "capture_records.pkl").open("wb") as stream:
                         pickle.dump(manifest, stream, protocol=5)
-                    logger.info(f'{label}: exposure={exposure:.5f} peak={raw.max():.1f} spot=({x:.1f},{y:.1f}) {setting.status}')
+                    logger.info(
+                        f"{label}: exposure={exposure:.5f} peak={raw.max():.1f} spot=({x:.1f},{y:.1f}) {setting.status}"
+                    )
                     if setting.status != "ok" or raw.max() >= 250:
                         raise RuntimeError(
                             f"Unusable exposure for {label} after {attempt} ladder "
                             f"attempt(s): exposure={exposure:.5f} ms peak={raw.max():.1f} "
-                            f"status={setting.status}; data retained, releasing devices")
+                            f"status={setting.status}; data retained, releasing devices"
+                        )
             finally:
                 slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
-                time.sleep(.3)
+                time.sleep(0.3)
     (args.out / ".capture_done").write_text(
-        json.dumps(dict(early_stopped=early_stopped, probes=len(manifest), **clock()), indent=2),
-        encoding="utf-8")
+        json.dumps(
+            dict(early_stopped=early_stopped, probes=len(manifest), **clock()), indent=2
+        ),
+        encoding="utf-8",
+    )
     return samples
 
 
-def precheck_light(*, camera: str, cam_id: int, label: str = "启动前光路检查", on_frame=None) -> dict:
+def precheck_light(
+    *, camera: str, cam_id: int, label: str = "启动前光路检查", on_frame=None
+) -> dict:
     """开一次相机, 读少数几帧, 回答「这一路现在有没有光」。
 
     只给**跳过采集**的启动路径用 (``--model-dir`` 复用一份已拟合的模型)。正常
@@ -323,23 +591,27 @@ def precheck_light(*, camera: str, cam_id: int, label: str = "启动前光路检
         OpticalPathInvalid: 每一档都只有噪声底。
     """
     from .hardware import opened_device, prepare_camera_sdk
+
     prepare_camera_sdk(camera)
     from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_range
     from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
 
-    with opened_device(create_camera(camera, cam_id, exposure_time_ms=.02)) as cam:
+    with opened_device(create_camera(camera, cam_id, exposure_time_ms=0.02)) as cam:
         floor, ceiling = get_camera_exposure_range(cam)
         limit = configured_daheng_exposure_limit() if camera == "daheng" else 0
         if limit > 0:
             ceiling = min(ceiling, limit)
+
         def read():
             raw = np.asarray(cam.get_numpy_image(n_sample=1, skip_first=False))
-            notify_frame(on_frame, frame_payload(frame=raw, label=label, phase="capture"))
+            notify_frame(
+                on_frame, frame_payload(frame=raw, label=label, phase="capture")
+            )
             return raw
 
         return verify_light(
-            read,
-            exposure_setter(cam), floor_ms=floor, ceiling_ms=ceiling, label=label)
+            read, exposure_setter(cam), floor_ms=floor, ceiling_ms=ceiling, label=label
+        )
 
 
 def main():
@@ -355,16 +627,28 @@ def main():
     parser.add_argument("--frames", type=int, default=3)
     parser.add_argument("--seed", type=int, default=102319)
     parser.add_argument("--exposure-max-steps", type=int, default=EXPOSURE_MAX_STEPS)
-    parser.add_argument("--save-dataset", dest="save_dataset", action="store_true", default=True,
-                        help="Write one sample_*.npz per probe (the standalone recorder's "
-                             "default). Off keeps the measurements in memory only.")
-    parser.add_argument("--no-save-dataset", dest="save_dataset", action="store_false",
-                        help="Skip the per-probe npz files; the fit stage consumes the "
-                             "in-memory payload instead")
+    parser.add_argument(
+        "--save-dataset",
+        dest="save_dataset",
+        action="store_true",
+        default=True,
+        help="Write one sample_*.npz per probe (the standalone recorder's "
+        "default). Off keeps the measurements in memory only.",
+    )
+    parser.add_argument(
+        "--no-save-dataset",
+        dest="save_dataset",
+        action="store_false",
+        help="Skip the per-probe npz files; the fit stage consumes the "
+        "in-memory payload instead",
+    )
     args = parser.parse_args()
     if args.frames < 2 or args.count < 6:
         parser.error("frames >= 2 and count >= 6 required")
-    plan = [(label, split, list(grid.shape)) for label, split, grid in probes(args.grid, args.count, args.seed)]
+    plan = [
+        (label, split, list(grid.shape))
+        for label, split, grid in probes(args.grid, args.count, args.seed)
+    ]
     if args.execute:
         # 光路无光是实验系统上的预期状态, 不是缺陷: 只报实测数字, 退出码 3, 不打
         # traceback (与探针的 2、普通异常的 1 分开)。

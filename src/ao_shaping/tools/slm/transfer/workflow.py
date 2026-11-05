@@ -1,4 +1,5 @@
 """One session directory for capture, transfer, shaping and independent audit."""
+
 from __future__ import annotations
 from loguru import logger
 
@@ -29,8 +30,8 @@ class TransferSession:
     blocks: int = 4
     updates: int = 10
     frames: int = 3
-    side: float = 80.
-    period: float = 64.
+    side: float = 80.0
+    period: float = 64.0
     seed: int = 102319
     camera: str = "daheng"
     cam_id: int = 0
@@ -57,19 +58,19 @@ class TransferSession:
     device: str = "auto"
     initial_phase: str = "gs"
     exposure_max_steps: int = 2
-    phase_lr: float = .01
-    phase_rms_cap: float = .2
+    phase_lr: float = 0.01
+    phase_rms_cap: float = 0.2
     adaptive_step: bool = False
     adaptive_exposure: bool = False
     #: CCD sampling window for the anchored blocks: half-span and step in
     #: native CCD pixels. The 220/2 default is a small-target setting; a
     #: 1200-px target needs a half-span of at least ~640 or its box leaves the
     #: window and the run fails the boundary check.
-    window_span: float = 220.
-    window_step: float = 2.
+    window_span: float = 220.0
+    window_step: float = 2.0
     #: Radius (native CCD px) excluded from the core metric around the zero
     #: order, and the extra erosion applied to the core beyond the window step.
-    zero_radius: float = 0.
+    zero_radius: float = 0.0
     core_margin: float | None = None
     #: Control grid of the probe capture; must tile the panel exactly.
     capture_grid: int = 128
@@ -88,12 +89,17 @@ class TransferSession:
 
     @property
     def calibration_enabled(self):
-        return (self.calibration if self.calibration is not None else
-                {"square", "triangle", "rectangle"}.issubset(self.shapes))
+        return (
+            self.calibration
+            if self.calibration is not None
+            else {"square", "triangle", "rectangle"}.issubset(self.shapes)
+        )
 
     def validate(self):
         if str(self.device).strip().lower() not in DEVICE_CHOICES:
-            raise ValueError(f"unknown device {self.device!r}; expected one of {list(DEVICE_CHOICES)}")
+            raise ValueError(
+                f"unknown device {self.device!r}; expected one of {list(DEVICE_CHOICES)}"
+            )
         if self.exposure_max_steps < 2 or self.phase_lr <= 0 or self.phase_rms_cap <= 0:
             raise ValueError("invalid exposure search or phase step budget")
         if self.initial_phase not in {"gs", "plane", "random"}:
@@ -120,13 +126,25 @@ class TransferSession:
             raise ValueError("invalid camera window or zero-order exclusion")
         if self.bit_depth not in (8, 12):
             raise ValueError("bit depth must be 8 or 12")
-        if self.capture_grid < 16 or 1920 % self.capture_grid or 1200 % (1920 // self.capture_grid):
+        if (
+            self.capture_grid < 16
+            or 1920 % self.capture_grid
+            or 1200 % (1920 // self.capture_grid)
+        ):
             raise ValueError("capture grid must exactly tile the 1920x1200 panel")
-        if self.control_grid and (1920 % self.control_grid
-                                  or 1200 % (1920 // self.control_grid)
-                                  or self.fft_size < self.control_grid):
-            raise ValueError("control grid must tile the panel exactly and FFT must cover it")
-        if not self.shapes or len(set(self.shapes)) != len(self.shapes) or not set(self.shapes) <= set(POLYGON_SHAPE_CHOICES):
+        if self.control_grid and (
+            1920 % self.control_grid
+            or 1200 % (1920 // self.control_grid)
+            or self.fft_size < self.control_grid
+        ):
+            raise ValueError(
+                "control grid must tile the panel exactly and FFT must cover it"
+            )
+        if (
+            not self.shapes
+            or len(set(self.shapes)) != len(self.shapes)
+            or not set(self.shapes) <= set(POLYGON_SHAPE_CHOICES)
+        ):
             raise ValueError("unique supported shapes required")
         # Parameter-level pre-flight. A carrier period the calibration never
         # measured (or a target that cannot fit the sampling window at all) used
@@ -151,32 +169,70 @@ class TransferSession:
             raise FileNotFoundError(self.dataset / "manifest.json")
         if self.checkpoint and not self.checkpoint.exists():
             raise FileNotFoundError(self.checkpoint)
-        if self.calibration_enabled and not {"square", "triangle", "rectangle"}.issubset(self.shapes):
-            raise ValueError("calibration requires square/triangle/rectangle; use --skip-calibration for other selections")
+        if self.calibration_enabled and not {
+            "square",
+            "triangle",
+            "rectangle",
+        }.issubset(self.shapes):
+            raise ValueError(
+                "calibration requires square/triangle/rectangle; use --skip-calibration for other selections"
+            )
 
     def plan(self, offline=False):
         self.validate()
         note = "Device stages require --execute; nominal cold start is not a calibrated model"
         if not self.abba:
-            note += ("; A–B–B–A acceptance skipped: candidates are accepted on the model loss "
-                     "only and no CCD verdict is measured (summary acceptance=\"model_only\")")
-        return dict(settings=asdict(self), opens_devices=not offline,
-                    resolved=dict(adaptation=self.adaptation if self.checkpoint else "full",
-                                  calibration=self.calibration_enabled,
-                                  acceptance="paired_abba" if self.abba else "model_only",
-                                  save_dataset=self.save_dataset,
-                                  # The request; ``run_session`` replaces it with the
-                                  # resolved device before writing session.json.
-                                  device=self.device),
-                    stages=(["reuse_capture"] if self.dataset else ["capture"])
-                    + ([] if self.checkpoint else ["nominal_initialization"])
-                    + ["fit"]
-                    + (["control_resolution_export"] if self.control_grid else [])
-                    + ([("transferred_phase_differentiable_synthesis" if self.seed_run else "GS_and_differentiable_synthesis" if self.initial_phase == "gs" else "cold_differentiable_synthesis")] if offline else ([] if (self.seed_run or self.initial_phase != "gs") and not self.calibration_enabled else ["CCD_model_blocks"])
-                       + (["exposure_response_capture", "exposure_response_analysis", "blur_calibration"] if self.calibration_enabled else [])
-                       + ["CCD_anchored_blocks", "raw_data_audit", "summary"]
-                       + (["direction_check"] if self.abba else [])),
-                    note=note)
+            note += (
+                "; A–B–B–A acceptance skipped: candidates are accepted on the model loss "
+                'only and no CCD verdict is measured (summary acceptance="model_only")'
+            )
+        return dict(
+            settings=asdict(self),
+            opens_devices=not offline,
+            resolved=dict(
+                adaptation=self.adaptation if self.checkpoint else "full",
+                calibration=self.calibration_enabled,
+                acceptance="paired_abba" if self.abba else "model_only",
+                save_dataset=self.save_dataset,
+                # The request; ``run_session`` replaces it with the
+                # resolved device before writing session.json.
+                device=self.device,
+            ),
+            stages=(["reuse_capture"] if self.dataset else ["capture"])
+            + ([] if self.checkpoint else ["nominal_initialization"])
+            + ["fit"]
+            + (["control_resolution_export"] if self.control_grid else [])
+            + (
+                [
+                    (
+                        "transferred_phase_differentiable_synthesis"
+                        if self.seed_run
+                        else "GS_and_differentiable_synthesis"
+                        if self.initial_phase == "gs"
+                        else "cold_differentiable_synthesis"
+                    )
+                ]
+                if offline
+                else (
+                    []
+                    if (self.seed_run or self.initial_phase != "gs")
+                    and not self.calibration_enabled
+                    else ["CCD_model_blocks"]
+                )
+                + (
+                    [
+                        "exposure_response_capture",
+                        "exposure_response_analysis",
+                        "blur_calibration",
+                    ]
+                    if self.calibration_enabled
+                    else []
+                )
+                + ["CCD_anchored_blocks", "raw_data_audit", "summary"]
+                + (["direction_check"] if self.abba else [])
+            ),
+            note=note,
+        )
 
 
 def _notify(on_stage, name, status):
@@ -191,7 +247,9 @@ def _notify(on_stage, name, status):
         logger.warning("transfer stage hook failed for {} ({}): {}", name, status, exc)
 
 
-def run_session(config: TransferSession, *, offline=False, on_stage=None, on_frame=None):
+def run_session(
+    config: TransferSession, *, offline=False, on_stage=None, on_frame=None
+):
     """No subprocess chains; each completed/failed stage is journaled immediately.
 
     ``on_stage(name, status)`` is an optional observer called whenever a stage
@@ -219,20 +277,26 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None, on_fra
     device = resolve_device(config.device)
     plan = config.plan(offline)
     plan["resolved"]["device"] = device
-    (out / "session.json").write_text(json.dumps(dict(**plan, **clock()), default=str, indent=2), encoding="utf-8")
+    (out / "session.json").write_text(
+        json.dumps(dict(**plan, **clock()), default=str, indent=2), encoding="utf-8"
+    )
     journal = []
 
     def stage(name, operation):
         entry = dict(stage=name, status="running", **clock())
         journal.append(entry)
-        write = lambda: (out / "journal.json").write_text(json.dumps(journal, default=str, indent=2), encoding="utf-8")
+        write = lambda: (out / "journal.json").write_text(
+            json.dumps(journal, default=str, indent=2), encoding="utf-8"
+        )
         write()
         print(f"[{name}] started", flush=True)
         _notify(on_stage, name, "running")
         try:
             result = operation()
         except BaseException as exc:
-            entry.update(status="failed", error=f"{type(exc).__name__}: {exc}", end=clock())
+            entry.update(
+                status="failed", error=f"{type(exc).__name__}: {exc}", end=clock()
+            )
             write()
             _notify(on_stage, name, "failed")
             raise
@@ -242,46 +306,94 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None, on_fra
         return result
 
     from . import bootstrap, capture, fit, validate
+
     dataset = config.dataset.resolve() if config.dataset else out / "capture"
     samples = None
     if config.dataset is None:
-        samples = stage("capture", lambda: capture.capture(SimpleNamespace(out=dataset, camera=config.camera,
-              cam_id=config.cam_id, slm_number=config.slm_number, grid=config.capture_grid,
-              count=config.count,
-              frames=config.frames, seed=config.seed, execute=True,
-              exposure_max_steps=config.exposure_max_steps,
-              save_dataset=config.save_dataset), on_frame=on_frame))
+        samples = stage(
+            "capture",
+            lambda: capture.capture(
+                SimpleNamespace(
+                    out=dataset,
+                    camera=config.camera,
+                    cam_id=config.cam_id,
+                    slm_number=config.slm_number,
+                    grid=config.capture_grid,
+                    count=config.count,
+                    frames=config.frames,
+                    seed=config.seed,
+                    execute=True,
+                    exposure_max_steps=config.exposure_max_steps,
+                    save_dataset=config.save_dataset,
+                    checkpoint=config.checkpoint,
+                    device=device,
+                ),
+                on_frame=on_frame,
+            ),
+        )
     elif not offline:
         # 复用已录数据集时采集段整个被跳过, 于是**没有任何人**看一眼光路就让拟合
         # 与整形跑起来。这里补一次便宜检查 (同一实现 verify_light): 2026-10-28
         # 的教训是光路失效要几十秒到几分钟才暴露, 而这一路本来可以几秒就停。
-        stage("light_check", lambda: capture.precheck_light(
-            camera=config.camera, cam_id=config.cam_id,
-            label=f"session {config.out.name}", on_frame=on_frame))
-    checkpoint = config.checkpoint.resolve() if config.checkpoint else out / "initial/frozen_parameters.json"
+        stage(
+            "light_check",
+            lambda: capture.precheck_light(
+                camera=config.camera,
+                cam_id=config.cam_id,
+                label=f"session {config.out.name}",
+                on_frame=on_frame,
+            ),
+        )
+    checkpoint = (
+        config.checkpoint.resolve()
+        if config.checkpoint
+        else out / "initial/frozen_parameters.json"
+    )
     if config.checkpoint is None:
+
         def initialize():
             params, provenance = bootstrap.bootstrap(dataset)
             checkpoint.parent.mkdir()
             checkpoint.write_text(json.dumps(params, indent=2), encoding="utf-8")
-            (checkpoint.parent / "provenance.json").write_text(json.dumps(provenance, indent=2), encoding="utf-8")
+            (checkpoint.parent / "provenance.json").write_text(
+                json.dumps(provenance, indent=2), encoding="utf-8"
+            )
+
         stage("nominal_initialization", initialize)
     # The capture stage's in-memory payloads go straight into the fit; only a
     # reused (recorded) dataset is read back from disk.
-    stage("fit", lambda: fit.fit(SimpleNamespace(dataset=dataset, checkpoint=checkpoint,
-          out=out / "fit", iterations=config.iterations, span=120, samples=samples,
-          device=device, amplitude_center_lr=config.amplitude_center_lr,
-          adaptation=config.adaptation if config.checkpoint else "full")))
+    stage(
+        "fit",
+        lambda: fit.fit(
+            SimpleNamespace(
+                dataset=dataset,
+                checkpoint=checkpoint,
+                out=out / "fit",
+                iterations=config.iterations,
+                span=120,
+                samples=samples,
+                device=device,
+                amplitude_center_lr=config.amplitude_center_lr,
+                adaptation=config.adaptation if config.checkpoint else "full",
+            )
+        ),
+    )
     checkpoint = out / "fit/frozen_parameters.json"
     if config.control_grid:
         from .geometric_seed import export_frozen_parameters
 
         control_out = out / f"model{config.control_grid}"
-        stage("control_resolution_export", lambda: export_frozen_parameters(
-            checkpoint, control_out, grid=config.control_grid, fft=config.fft_size))
+        stage(
+            "control_resolution_export",
+            lambda: export_frozen_parameters(
+                checkpoint, control_out, grid=config.control_grid, fft=config.fft_size
+            ),
+        )
         checkpoint = control_out / "frozen_parameters.json"
     rows = json.loads((dataset / "manifest.json").read_text(encoding="utf-8"))
-    reference = next(r for r in rows if r["label"] == "reference_start" and fit.valid(r))
+    reference = next(
+        r for r in rows if r["label"] == "reference_start" and fit.valid(r)
+    )
     zero = np.round(fit.spot(reference)).tolist()
     # Geometry pre-flight: with the *measured* zero and the *fitted* ramp gain,
     # recompute where the target lands in this session's sampling window. The
@@ -300,98 +412,239 @@ def run_session(config: TransferSession, *, offline=False, on_stage=None, on_fra
         step_px=float(config.window_step),
         tilt=getattr(config, "tilt", False),
     )
-    geometry_errors = [problem for problem in geometry_problems if problem.severity == "error"]
+    geometry_errors = [
+        problem for problem in geometry_problems if problem.severity == "error"
+    ]
     if geometry_errors:
         first = geometry_errors[0]
         raise ValueError(f"{first.message} → {first.hint}")
-    options = dict(checkpoint=checkpoint, zero_xy=zero, period=config.period, side=config.side,
-                   window_span=config.window_span, window_step=config.window_step,
-                   zero_radius=config.zero_radius, core_margin=config.core_margin,
-                   bit_depth=config.bit_depth,
-                   initial_phase=config.initial_phase, random_seed=config.seed,
-                   phase_lr=config.phase_lr, phase_rms_cap=config.phase_rms_cap, adaptive_step=config.adaptive_step,
-                   adaptive_exposure=config.adaptive_exposure,
-                   accept_metric=config.accept_metric, objective=config.objective,
-                   shapes=list(config.shapes), updates=config.updates, frames=config.frames,
-                   abba=config.abba, device=device,
-                   camera=config.camera, cam_id=config.cam_id, slm_number=config.slm_number,
-                   tilt=getattr(config, "tilt", False),
-                   aspect_ratio=getattr(config, "aspect_ratio", 2.0))
+    options = dict(
+        checkpoint=checkpoint,
+        zero_xy=zero,
+        period=config.period,
+        side=config.side,
+        window_span=config.window_span,
+        window_step=config.window_step,
+        zero_radius=config.zero_radius,
+        core_margin=config.core_margin,
+        bit_depth=config.bit_depth,
+        initial_phase=config.initial_phase,
+        random_seed=config.seed,
+        phase_lr=config.phase_lr,
+        phase_rms_cap=config.phase_rms_cap,
+        adaptive_step=config.adaptive_step,
+        adaptive_exposure=config.adaptive_exposure,
+        accept_metric=config.accept_metric,
+        objective=config.objective,
+        shapes=list(config.shapes),
+        updates=config.updates,
+        frames=config.frames,
+        abba=config.abba,
+        device=device,
+        camera=config.camera,
+        cam_id=config.cam_id,
+        slm_number=config.slm_number,
+        tilt=getattr(config, "tilt", False),
+        aspect_ratio=getattr(config, "aspect_ratio", 2.0),
+    )
     if offline:
+
         def synthesize():
             from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
-                FrozenDefocusForward, load_frozen_parameters, recentre_window,
+                FrozenDefocusForward,
+                load_frozen_parameters,
+                recentre_window,
             )
+
             params = load_frozen_parameters(checkpoint)
-            xy = recentre_window(tuple(zero), half_span_px=220., step_px=2.)
+            xy = recentre_window(tuple(zero), half_span_px=220.0, step_px=2.0)
             forward = FrozenDefocusForward(params, xy, device=device)
             forward.exposure_ms = float(reference["exposure_ms"])
             tilt = bool(getattr(config, "tilt", False))
-            shift = (np.asarray(params.ramp_matrix)[:, 0] / config.period
-                     if tilt else np.zeros(2, dtype=float))
+            shift = (
+                np.asarray(params.ramp_matrix)[:, 0] / config.period
+                if tilt
+                else np.zeros(2, dtype=float)
+            )
             center = np.asarray(zero) + shift
             aspect = float(getattr(config, "aspect_ratio", 2.0))
             for shape in config.shapes:
-                target = validate.target_at(xy, shape, center, config.side, aspect_ratio=aspect)
+                target = validate.target_at(
+                    xy, shape, center, config.side, aspect_ratio=aspect
+                )
                 if config.seed_run:
                     from .seeding import accepted_seed
-                    phase, _ = accepted_seed(config.seed_run, shape, forward, xy, target,
-                                             policy=config.seed_policy, centre=center)
+
+                    phase, _ = accepted_seed(
+                        config.seed_run,
+                        shape,
+                        forward,
+                        xy,
+                        target,
+                        policy=config.seed_policy,
+                        centre=center,
+                    )
                 elif config.initial_phase != "gs":
                     from .cold_start import cold_phase
-                    phase, _ = cold_phase(forward, center, kind=config.initial_phase, seed=config.seed)
+
+                    phase, _ = cold_phase(
+                        forward, center, kind=config.initial_phase, seed=config.seed
+                    )
                 else:
                     phase = validate.gs_seed(forward, center, config.side, shape)
-                objective = validate.ShapeObjective(target, cv_only=config.objective == "cv",
-                                                     formation=config.objective == "formation")
-                from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import DifferentiableUniformityOptimizer
-                optimizer = DifferentiableUniformityOptimizer(forward, objective, phase,
-                    lr=config.phase_lr, step_rms_cap=config.phase_rms_cap, device=device)
+                objective = validate.ShapeObjective(
+                    target,
+                    cv_only=config.objective == "cv",
+                    formation=config.objective == "formation",
+                )
+                from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
+                    DifferentiableUniformityOptimizer,
+                )
+
+                optimizer = DifferentiableUniformityOptimizer(
+                    forward,
+                    objective,
+                    phase,
+                    lr=config.phase_lr,
+                    step_rms_cap=config.phase_rms_cap,
+                    device=device,
+                )
                 for _ in range(config.updates):
                     optimizer.update()
                 if not np.isfinite(optimizer.current_phase).all():
                     raise RuntimeError("nonfinite offline optimized phase")
-                np.savez_compressed(out / f"{shape}_offline_seed.npz", model_phase=phase,
-                                    optimized_phase=optimizer.current_phase,
-                                    prediction=forward.predict(phase).detach().cpu().numpy(),
-                                    optimized_prediction=forward.predict(optimizer.current_phase).detach().cpu().numpy(),
-                                    target=target, camera_xy=xy, exposure_ms=forward.exposure_ms)
-                (out / f"{shape}_offline_iterations.json").write_text(json.dumps(optimizer.loss_history, indent=2), encoding="utf-8")
+                np.savez_compressed(
+                    out / f"{shape}_offline_seed.npz",
+                    model_phase=phase,
+                    optimized_phase=optimizer.current_phase,
+                    prediction=forward.predict(phase).detach().cpu().numpy(),
+                    optimized_prediction=forward.predict(optimizer.current_phase)
+                    .detach()
+                    .cpu()
+                    .numpy(),
+                    target=target,
+                    camera_xy=xy,
+                    exposure_ms=forward.exposure_ms,
+                )
+                (out / f"{shape}_offline_iterations.json").write_text(
+                    json.dumps(optimizer.loss_history, indent=2), encoding="utf-8"
+                )
             # Self-describing: which device actually produced these phases.
-            (out / "synthesis.json").write_text(json.dumps(dict(
-                device=device, device_requested=config.device, shapes=list(config.shapes),
-                initial_phase=config.initial_phase, updates=config.updates, **clock()), indent=2), encoding="utf-8")
-        stage("transferred_phase_differentiable_synthesis" if config.seed_run else "GS_and_differentiable_synthesis" if config.initial_phase == "gs" else "cold_differentiable_synthesis", synthesize)
+            (out / "synthesis.json").write_text(
+                json.dumps(
+                    dict(
+                        device=device,
+                        device_requested=config.device,
+                        shapes=list(config.shapes),
+                        initial_phase=config.initial_phase,
+                        updates=config.updates,
+                        **clock(),
+                    ),
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+        stage(
+            "transferred_phase_differentiable_synthesis"
+            if config.seed_run
+            else "GS_and_differentiable_synthesis"
+            if config.initial_phase == "gs"
+            else "cold_differentiable_synthesis",
+            synthesize,
+        )
     else:
         from . import direction, summary
         from .artifacts import audit_run
-        if (not config.seed_run and config.initial_phase == "gs") or config.calibration_enabled:
-            stage("CCD_model_blocks", lambda: validate.run(SimpleNamespace(**options, out=out / "model",
-                  seed_run=config.seed_run, seed_policy=config.seed_policy, mode="model", blocks=2,
-                  execute=True, on_frame=on_frame)))
+
+        if (
+            not config.seed_run and config.initial_phase == "gs"
+        ) or config.calibration_enabled:
+            stage(
+                "CCD_model_blocks",
+                lambda: validate.run(
+                    SimpleNamespace(
+                        **options,
+                        out=out / "model",
+                        seed_run=config.seed_run,
+                        seed_policy=config.seed_policy,
+                        mode="model",
+                        blocks=2,
+                        execute=True,
+                        on_frame=on_frame,
+                    )
+                ),
+            )
         if config.calibration_enabled:
             from . import blur, capture_response, response
-            stage("exposure_response_capture", lambda: capture_response.capture(SimpleNamespace(
-                  source=out / "model", out=out / "response", shape="square", frames=config.frames,
-                  camera=config.camera, cam_id=config.cam_id, slm_number=config.slm_number,
-                  on_frame=on_frame)))
-            stage("exposure_response_analysis", lambda: response.analyze(out / "response", out / "response_analysis"))
-            stage("blur_calibration", lambda: blur.calibrate(SimpleNamespace(source=out / "model",
-                  checkpoint=checkpoint, out=out / "blur", sigmas=[0., .5, 1., 2., 3.515916109085083])))
+
+            stage(
+                "exposure_response_capture",
+                lambda: capture_response.capture(
+                    SimpleNamespace(
+                        source=out / "model",
+                        out=out / "response",
+                        shape="square",
+                        frames=config.frames,
+                        camera=config.camera,
+                        cam_id=config.cam_id,
+                        slm_number=config.slm_number,
+                        on_frame=on_frame,
+                    )
+                ),
+            )
+            stage(
+                "exposure_response_analysis",
+                lambda: response.analyze(out / "response", out / "response_analysis"),
+            )
+            stage(
+                "blur_calibration",
+                lambda: blur.calibrate(
+                    SimpleNamespace(
+                        source=out / "model",
+                        checkpoint=checkpoint,
+                        out=out / "blur",
+                        sigmas=[0.0, 0.5, 1.0, 2.0, 3.515916109085083],
+                    )
+                ),
+            )
             options["checkpoint"] = out / "blur/frozen_parameters.json"
-        stage("CCD_anchored_blocks", lambda: validate.run(SimpleNamespace(**options, out=out / "anchored",
-              seed_run=config.seed_run if not config.calibration_enabled and (config.seed_run or config.initial_phase != "gs") else out / "model",
-              seed_policy=config.seed_policy if config.seed_run and not config.calibration_enabled else "strict",
-              mode="anchored", blocks=config.blocks, execute=True, on_frame=on_frame)))
+        stage(
+            "CCD_anchored_blocks",
+            lambda: validate.run(
+                SimpleNamespace(
+                    **options,
+                    out=out / "anchored",
+                    seed_run=config.seed_run
+                    if not config.calibration_enabled
+                    and (config.seed_run or config.initial_phase != "gs")
+                    else out / "model",
+                    seed_policy=config.seed_policy
+                    if config.seed_run and not config.calibration_enabled
+                    else "strict",
+                    mode="anchored",
+                    blocks=config.blocks,
+                    execute=True,
+                    on_frame=on_frame,
+                )
+            ),
+        )
+
         def audit():
             result = audit_run(out / "anchored")
-            (out / "audit.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+            (out / "audit.json").write_text(
+                json.dumps(result, indent=2), encoding="utf-8"
+            )
+
         stage("raw_data_audit", audit)
         stage("summary", lambda: summary.summarize(out / "anchored", out / "summary"))
         if config.abba:
             # The direction check reads B1/B2 and the minus probe; with the paired
             # blocks switched off those captures do not exist.
-            stage("direction_check", lambda: direction.analyze(out / "anchored", out / "direction"))
+            stage(
+                "direction_check",
+                lambda: direction.analyze(out / "anchored", out / "direction"),
+            )
     print(f"Session complete: {out}", flush=True)
     return out
 
@@ -419,89 +672,185 @@ def main():
         p.add_argument("--out", type=Path, required=True)
         p.add_argument("--dataset", type=Path)
         p.add_argument("--checkpoint", type=Path)
-        p.add_argument("--seed-run", type=Path, help="Start from accepted phases; never invoke GS")
-        p.add_argument("--seed-policy", choices=("strict", "transfer"), default="strict")
-        p.add_argument("--initial-phase", choices=("gs", "plane", "random"), default="gs")
+        p.add_argument(
+            "--seed-run", type=Path, help="Start from accepted phases; never invoke GS"
+        )
+        p.add_argument(
+            "--seed-policy", choices=("strict", "transfer"), default="strict"
+        )
+        p.add_argument(
+            "--initial-phase", choices=("gs", "plane", "random"), default="gs"
+        )
         p.add_argument("--exposure-max-steps", type=int, default=2)
-        p.add_argument("--phase-lr", type=float, default=.01)
-        p.add_argument("--phase-rms-cap", type=float, default=.2)
+        p.add_argument("--phase-lr", type=float, default=0.01)
+        p.add_argument("--phase-rms-cap", type=float, default=0.2)
         p.add_argument("--adaptive-step", action="store_true")
         p.add_argument("--adaptive-exposure", action="store_true")
-        p.add_argument("--shapes", nargs="+", default=["square", "rectangle", "triangle"])
-        for key, default in (("count", 24), ("iterations", 60), ("blocks", 4), ("updates", 10), ("frames", 3), ("seed", 102319), ("cam-id", 0), ("slm-number", 1)):
-            p.add_argument("--"+key, type=int, default=default)
+        p.add_argument(
+            "--shapes", nargs="+", default=["square", "rectangle", "triangle"]
+        )
+        for key, default in (
+            ("count", 24),
+            ("iterations", 60),
+            ("blocks", 4),
+            ("updates", 10),
+            ("frames", 3),
+            ("seed", 102319),
+            ("cam-id", 0),
+            ("slm-number", 1),
+        ):
+            p.add_argument("--" + key, type=int, default=default)
         p.add_argument("--camera", default="daheng")
-        p.add_argument("--device", choices=DEVICE_CHOICES, default="auto",
-                       help="Compute device for fit/synthesis/CCD blocks: auto = CUDA when "
-                            "available else CPU; cpu reproduces the historical numbers")
-        p.add_argument("--side", type=float, default=80.)
-        p.add_argument("--period", type=float, default=64.)
-        p.add_argument("--window-span", type=float, default=220.,
-                       help="CCD window half-span (native px); a 1200-px target needs >= ~640")
-        p.add_argument("--window-step", type=float, default=2.,
-                       help="CCD sampling step (native px) used for the mask and metrics")
-        p.add_argument("--zero-radius", type=float, default=0.,
-                       help="Radius (native px) excluded from the core around the zero order")
-        p.add_argument("--core-margin", type=float, default=None,
-                       help="Extra erosion (native px) of the core beyond the window step")
-        p.add_argument("--capture-grid", type=int, default=128,
-                       help="Control grid of the probe capture (must tile the panel)")
-        p.add_argument("--bit-depth", type=int, choices=(8, 12), default=8,
-                       help="ADC bit depth of the CCD blocks")
-        p.add_argument("--control-grid", type=int, default=0,
-                       help="Export the fitted optics at this control grid before shaping "
-                            "(0 = keep the fit resolution; a 1200-px target uses 640)")
-        p.add_argument("--fft-size", type=int, default=2048,
-                       help="FFT size of the exported control-resolution checkpoint")
-        p.add_argument("--amplitude-center-lr", type=float, default=None,
-                       help="Learning rate of the illumination position (panel px/step); "
-                            "a disturbed bench needs more than the default to reach it")
-        p.add_argument("--adaptation", choices=("auto", "alignment", "full"), default="auto")
+        p.add_argument(
+            "--device",
+            choices=DEVICE_CHOICES,
+            default="auto",
+            help="Compute device for fit/synthesis/CCD blocks: auto = CUDA when "
+            "available else CPU; cpu reproduces the historical numbers",
+        )
+        p.add_argument("--side", type=float, default=80.0)
+        p.add_argument("--period", type=float, default=64.0)
+        p.add_argument(
+            "--window-span",
+            type=float,
+            default=220.0,
+            help="CCD window half-span (native px); a 1200-px target needs >= ~640",
+        )
+        p.add_argument(
+            "--window-step",
+            type=float,
+            default=2.0,
+            help="CCD sampling step (native px) used for the mask and metrics",
+        )
+        p.add_argument(
+            "--zero-radius",
+            type=float,
+            default=0.0,
+            help="Radius (native px) excluded from the core around the zero order",
+        )
+        p.add_argument(
+            "--core-margin",
+            type=float,
+            default=None,
+            help="Extra erosion (native px) of the core beyond the window step",
+        )
+        p.add_argument(
+            "--capture-grid",
+            type=int,
+            default=128,
+            help="Control grid of the probe capture (must tile the panel)",
+        )
+        p.add_argument(
+            "--bit-depth",
+            type=int,
+            choices=(8, 12),
+            default=8,
+            help="ADC bit depth of the CCD blocks",
+        )
+        p.add_argument(
+            "--control-grid",
+            type=int,
+            default=0,
+            help="Export the fitted optics at this control grid before shaping "
+            "(0 = keep the fit resolution; a 1200-px target uses 640)",
+        )
+        p.add_argument(
+            "--fft-size",
+            type=int,
+            default=2048,
+            help="FFT size of the exported control-resolution checkpoint",
+        )
+        p.add_argument(
+            "--amplitude-center-lr",
+            type=float,
+            default=None,
+            help="Learning rate of the illumination position (panel px/step); "
+            "a disturbed bench needs more than the default to reach it",
+        )
+        p.add_argument(
+            "--adaptation", choices=("auto", "alignment", "full"), default="auto"
+        )
         p.add_argument("--accept-metric", choices=("loss", "cv"), default="loss")
-        p.add_argument("--objective", choices=("shape", "cv", "formation"), default="shape")
-        p.add_argument("--no-abba", dest="abba", action="store_false",
-                       help="Skip the A–B–B–A acceptance; accept on the model loss only "
-                            "(summary acceptance=model_only, no CCD verdict)")
-        p.add_argument("--abba", dest="abba", action="store_true", help="Enable optional A–B–B–A CCD acceptance")
+        p.add_argument(
+            "--objective", choices=("shape", "cv", "formation"), default="shape"
+        )
+        p.add_argument(
+            "--no-abba",
+            dest="abba",
+            action="store_false",
+            help="Skip the A–B–B–A acceptance; accept on the model loss only "
+            "(summary acceptance=model_only, no CCD verdict)",
+        )
+        p.add_argument(
+            "--abba",
+            dest="abba",
+            action="store_true",
+            help="Enable optional A–B–B–A CCD acceptance",
+        )
         p.set_defaults(abba=False)
-        p.add_argument("--save-dataset", action="store_true",
-                       help="Write one sample_*.npz per probe (needed by the offline --dataset "
-                            "path and scripts/slm analyses); off keeps them in memory")
+        p.add_argument(
+            "--save-dataset",
+            action="store_true",
+            help="Write one sample_*.npz per probe (needed by the offline --dataset "
+            "path and scripts/slm analyses); off keeps them in memory",
+        )
         p.add_argument("--skip-calibration", dest="calibration", action="store_false")
         p.add_argument("--calibration", dest="calibration", action="store_true")
         p.set_defaults(calibration=None)
         mode = p.add_mutually_exclusive_group()
         mode.add_argument("--offline", action="store_true")
         mode.add_argument("--execute", action="store_true")
-    replay = commands.add_parser("replay", help="Audit and recompute saved measurements, without devices")
+    replay = commands.add_parser(
+        "replay", help="Audit and recompute saved measurements, without devices"
+    )
     replay.add_argument("--run", type=Path, required=True)
     replay.add_argument("--out", type=Path, required=True)
-    audit = commands.add_parser("audit", help="Check raw frames, exposures, phases, masks and A/B decisions")
+    audit = commands.add_parser(
+        "audit", help="Check raw frames, exposures, phases, masks and A/B decisions"
+    )
     audit.add_argument("--run", type=Path, required=True)
     audit.add_argument("--out", type=Path)
-    record = commands.add_parser("record", help="Rebuild a finished run's Recorder "
-                                 "table and GIF; no devices")
-    record.add_argument("--run", type=Path, required=True,
-                        help="the anchored/ or model/ directory of a finished run")
-    record.add_argument("--out", type=Path, help="output directory (default <run>/recording)")
+    record = commands.add_parser(
+        "record", help="Rebuild a finished run's Recorder table and GIF; no devices"
+    )
+    record.add_argument(
+        "--run",
+        type=Path,
+        required=True,
+        help="the anchored/ or model/ directory of a finished run",
+    )
+    record.add_argument(
+        "--out", type=Path, help="output directory (default <run>/recording)"
+    )
     record.add_argument("--fps", type=float, default=2.0)
-    doctor = commands.add_parser("doctor", help="Enumerate Daheng without opening a stream or accessing SLM")
+    doctor = commands.add_parser(
+        "doctor", help="Enumerate Daheng without opening a stream or accessing SLM"
+    )
     doctor.add_argument("--out", type=Path)
-    simulate = commands.add_parser("simulate", help="Create known-truth linear-camera transfer probes; no devices")
+    simulate = commands.add_parser(
+        "simulate", help="Create known-truth linear-camera transfer probes; no devices"
+    )
     simulate.add_argument("--out", type=Path, required=True)
     simulate.add_argument("--power", type=float, default=1.2)
-    simulate.add_argument("--shift", type=float, nargs=2, default=(12., -8.))
+    simulate.add_argument("--shift", type=float, nargs=2, default=(12.0, -8.0))
     simulate.add_argument("--count", type=int, default=12)
     simulate.add_argument("--seed", type=int, default=102419)
-    pretrain = commands.add_parser("pretrain", help="Fit the low-dimensional estimator on a "
-                                  "matched-model synthetic library; no devices")
+    pretrain = commands.add_parser(
+        "pretrain",
+        help="Fit the low-dimensional estimator on a "
+        "matched-model synthetic library; no devices",
+    )
     pretrain.add_argument("--out", type=Path, required=True)
     pretrain.add_argument("--combos", type=int, default=60)
     pretrain.add_argument("--probes", type=int, default=8)
     pretrain.add_argument("--fft", type=int, default=128)
     pretrain.add_argument("--grid", type=int, default=32)
-    pretrain.add_argument("--alpha", type=float, default=None,
-                          help="ridge penalty; default is pretrain.DEFAULT_ALPHA")
+    pretrain.add_argument(
+        "--alpha",
+        type=float,
+        default=None,
+        help="ridge penalty; default is pretrain.DEFAULT_ALPHA",
+    )
     pretrain.add_argument("--seed", type=int, default=102419)
     args = parser.parse_args()
 
@@ -509,31 +858,54 @@ def main():
     # callers parse, so they belong on stdout, not on loguru's default stderr sink.  This
     # also keeps routine INFO records from becoming PowerShell NativeCommandError entries.
     import sys
+
     logger.remove()
     logger.add(sys.stdout, level="INFO", colorize=False)
 
     if args.command == "pretrain":
         from .pretrain import DEFAULT_ALPHA, pretrain as run_pretrain
+
         if args.probes < 2:
             parser.error("probes >= 2 required")
-        result = run_pretrain(args.out, combos=args.combos, probes_per_combo=args.probes,
-                              fft_size=args.fft, grid_size=args.grid,
-                              alpha=DEFAULT_ALPHA if args.alpha is None else args.alpha,
-                              seed=args.seed)
-        logger.info(json.dumps(dict(out=str(result["out"]), combinations=result["combinations"],
-                              timings=result["timings"], metrics=result["metrics"]),
-                         indent=2))
+        result = run_pretrain(
+            args.out,
+            combos=args.combos,
+            probes_per_combo=args.probes,
+            fft_size=args.fft,
+            grid_size=args.grid,
+            alpha=DEFAULT_ALPHA if args.alpha is None else args.alpha,
+            seed=args.seed,
+        )
+        logger.info(
+            json.dumps(
+                dict(
+                    out=str(result["out"]),
+                    combinations=result["combinations"],
+                    timings=result["timings"],
+                    metrics=result["metrics"],
+                ),
+                indent=2,
+            )
+        )
         return
 
     if args.command == "simulate":
         from .simulation import generate_dataset
+
         if args.count < 6:
             parser.error("count >= 6 required")
-        checkpoint = generate_dataset(args.out, power=args.power, shift=args.shift, count=args.count, seed=args.seed)
+        checkpoint = generate_dataset(
+            args.out,
+            power=args.power,
+            shift=args.shift,
+            count=args.count,
+            seed=args.seed,
+        )
         logger.info(f"Synthetic probes complete; nominal checkpoint: {checkpoint}")
         return
     if args.command == "doctor":
         from .hardware import enumerate_camera
+
         result = enumerate_camera()
         if args.out:
             args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -549,20 +921,34 @@ def main():
         return
     if args.command in {"audit", "replay"}:
         from .artifacts import audit_run
+
         result = audit_run(args.run)
         if args.command == "replay":
             from . import direction, summary
+
             args.out.mkdir(parents=True, exist_ok=False)
-            (args.out / "audit.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+            (args.out / "audit.json").write_text(
+                json.dumps(result, indent=2), encoding="utf-8"
+            )
             summary.summarize(args.run, args.out / "summary")
             direction.analyze(args.run, args.out / "direction")
         elif args.out:
             args.out.parent.mkdir(parents=True, exist_ok=True)
             with args.out.open("x", encoding="utf-8") as stream:
                 json.dump(result, stream, indent=2)
-        logger.info(json.dumps({k: v for k, v in result.items() if k != "file_sha256"}, indent=2))
+        logger.info(
+            json.dumps(
+                {k: v for k, v in result.items() if k != "file_sha256"}, indent=2
+            )
+        )
         return
-    config = TransferSession(**{k: v for k, v in vars(args).items() if k not in {"command", "offline", "execute"}})
+    config = TransferSession(
+        **{
+            k: v
+            for k, v in vars(args).items()
+            if k not in {"command", "offline", "execute"}
+        }
+    )
     if args.command == "plan" or not (args.execute or args.offline):
         _log_to_stdout()
         logger.info(json.dumps(config.plan(args.offline), default=str, indent=2))

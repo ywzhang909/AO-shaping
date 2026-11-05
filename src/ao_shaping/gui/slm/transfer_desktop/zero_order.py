@@ -27,6 +27,7 @@ from loguru import logger
 
 from ao_shaping.utils.image.frame_analysis import max_target_side_at_zero_order
 from ao_shaping.utils.image.hardware_utils import (
+    call_with_timeout,
     find_exposure_ms,
     find_zero_order_center,
 )
@@ -37,6 +38,12 @@ __all__ = ["ZeroOrderReading", "read_zero_order"]
 #: :func:`~ao_shaping.utils.image.hardware_utils.find_exposure_ms` 会把它调到
 #: 峰值落在 [100, 245] 的那一档 (大恒 12-bit 上通常是 0.5 ms 量级)。
 _INITIAL_EXPOSURE_MS = 0.05
+
+#: 裸 SDK 调用的看门狗 (s)。打开相机 (GigE 枚举/连接) 与末帧抓取是仅有的两处
+#: 未经 :func:`~ao_shaping.utils.image.hardware_utils.call_with_timeout` 保护的
+#: 调用 —— 设备不可达时它们可无限挂起, 页面会停在「正在读取 0 级…」; 超时后
+#: 走既有异常路径恢复界面 (见 :func:`read_zero_order` 内注释)。
+_SDK_CALL_TIMEOUT_S = 20.0
 
 #: 目标边长读数下限 (px)。比这还小，说明 0 级贴在帧边（或帧整体全暗），
 #: 拿它当上限只会把表单锁死 —— 那是光路 / 曝光问题，要报出来让人查，
@@ -111,10 +118,31 @@ def read_zero_order(camera: str, cam_id: int) -> ZeroOrderReading:
     from ao_shaping.tools.slm.transfer.hardware import prepare_camera_sdk
 
     prepare_camera_sdk(camera)
-    with create_camera(camera, cam_id, exposure_time_ms=_INITIAL_EXPOSURE_MS) as cam:
+    # 打开/关闭相机与末帧抓取都是 SDK 调用: 大恒是 GigE (IP 192.168.0.11),
+    # 设备掉线时 open/读帧可无限挂起。find_exposure_ms / find_zero_order_center
+    # 内部经 _grab_frame 已有 10 s/帧 保护, 这里补上仅剩的两处裸调用。
+    # call_with_timeout 超时后抛 TimeoutError (子类 OSError→Exception),
+    # 由 _ZeroOrderTask.run 的 except 捕获并送回 _on_zero_done 错误路径。
+    cam_cm = create_camera(camera, cam_id, exposure_time_ms=_INITIAL_EXPOSURE_MS)
+    cam = call_with_timeout(cam_cm.__enter__, _SDK_CALL_TIMEOUT_S, "打开相机")
+    try:
         exposure_ms = float(find_exposure_ms(cam))
         center = find_zero_order_center(cam)
-        frame = _as_frame(cam.get_numpy_image(n_sample=1, skip_first=False))
+        frame = _as_frame(
+            call_with_timeout(
+                lambda: cam.get_numpy_image(n_sample=1, skip_first=False),
+                _SDK_CALL_TIMEOUT_S,
+                "抓取 0 级帧",
+            )
+        )
+    finally:
+        # 只有真正打开过才关; 打开超时 (设备不可达) 时 __enter__ 未成功, 不再关。
+        if cam is not None:
+            call_with_timeout(
+                lambda: cam_cm.__exit__(None, None, None),
+                _SDK_CALL_TIMEOUT_S,
+                "关闭相机",
+            )
 
     peak = float(np.max(frame)) if frame.size else 0.0
     if not np.isfinite(peak) or peak < _DARK_PEAK:
