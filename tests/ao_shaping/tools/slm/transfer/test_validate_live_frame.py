@@ -182,6 +182,19 @@ def _loop_body(source: str, header: str) -> list[str]:
     return body
 
 
+def _emits_payload(body: list[str]) -> bool:
+    """循环体是否包含一次 ``notify_frame(observer, frame_payload(...))`` 调用。
+
+    调用是**多行**的 (``notify_frame(`` 换行 ``observer,`` 再换行 ``frame_payload(``),
+    所以不能按单行子串匹配。这里把循环体拼接成一段 (去掉缩进), 再用正则找
+    ``notify_frame(`` 与紧随其后的 ``frame_payload(`` (中间允许换行/参数行)。
+    """
+    import re
+
+    joined = "\n".join(body)
+    return re.search(r"notify_frame\s*\([^)]*frame_payload\s*\(", joined) is not None
+
+
 def test_validate_emits_a_frame_inside_the_per_frame_read_loop():
     """取图循环里的每一次读出都要发帧 —— 这是本次改动的全部要点。
 
@@ -198,7 +211,7 @@ def test_validate_emits_a_frame_inside_the_per_frame_read_loop():
     source = inspect.getsource(validate._run_validate_session)
     assert "_run_validate_session(" in inspect.getsource(validate.run)
     body = _loop_body(source, "for index in range(args.frames):")
-    assert any("notify_frame(observer, frame_payload(" in line for line in body), body
+    assert _emits_payload(body), body
     assert any('phase="validate"' in line for line in body)
 
     # 曝光阶梯的每一档也是一次读出, 同样逐帧上屏。
@@ -213,7 +226,7 @@ def test_capture_emits_a_frame_from_its_single_read_funnel():
 
     source = inspect.getsource(capture_mod.capture)
     body = _loop_body(source, "def read():")
-    assert any("notify_frame(observer, frame_payload(" in line for line in body), body
+    assert _emits_payload(body), body
     # 标签必须在光路检查之前就位, 否则那些帧会带着上一段的标签上屏。
     assert source.index("live_label") < source.index("verify_light(")
 

@@ -37,11 +37,13 @@ def test_only_a_resume_with_nothing_outstanding_is_skipped():
 def test_run_uses_the_gate_and_not_a_bare_empty_check():
     # The defect was the call site, not the predicate: pin that ``run`` consults
     # ``skips_shape``, so a future edit cannot quietly restore ``if not blocks``.
-    # The session body and shape loop both live inline in ``run`` (the earlier
-    # ``_run_validate_session`` / ``_run_validate_shapes`` helpers are gone), so
-    # the whole chain is pinned against ``run``'s own source.
+    # ``run`` delegates the per-shape loop to ``_run_validate_session``, so pin
+    # the delegation and the gate against that helper's source (the helpers are
+    # the ones that survive refactors; pinning ``run`` alone would drift).
     run_source = inspect.getsource(validate.run)
-    assert "skips_shape(resume=resume, blocks=blocks)" in run_source
+    assert "_run_validate_session(" in run_source
+    session_source = inspect.getsource(validate._run_validate_session)
+    assert "skips_shape(resume=resume, blocks=blocks)" in session_source
     # The resume offset must feed the gate from ``remaining_blocks`` -- the gate
     # is consulted on the *outstanding* block list, never the raw recipe range.
     assert "remaining_blocks(" in run_source
