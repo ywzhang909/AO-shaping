@@ -62,8 +62,22 @@ def _stage_args(tmp_path, *, stage_resume=True, order="stage", shapes=("square",
         zero_radius=0., window_step=4., recorder=None)
 
 
+def _write_block_groups(stage_dir, blocks):
+    """Leave the block-groups file ``stage_complete`` actually counts.
+
+    ``stage_complete`` does not trust ``manifest.json`` alone: a manifest only
+    proves the stage *started* (it is rewritten after every block), so reuse needs
+    one recorded group per expected block. A stub that writes just ``manifest.json``
+    therefore simulates a started-but-empty stage, which must be re-entered.
+    """
+    (stage_dir / f"{stage_dir.name}_groups.json").write_text(
+        json.dumps([{"block": index} for index in range(int(blocks))]),
+        encoding="utf-8",
+    )
+
+
 def _record_entered_stages(monkeypatch):
-    """Replace ``validate.run`` with a stub that only leaves a manifest behind."""
+    """Replace ``validate.run`` with a stub that leaves a *finished* stage behind."""
     from ao_shaping.runners.slm import transfer_shapes_runner as module
 
     entered = []
@@ -71,6 +85,7 @@ def _record_entered_stages(monkeypatch):
     def fake_validate(args):
         args.out.mkdir(parents=True, exist_ok=True)
         (args.out / "manifest.json").write_text("[]")
+        _write_block_groups(args.out, args.blocks)
         entered.append((args.out.parent.name, args.out.name, args.seed_run, args.resume))
 
     monkeypatch.setattr(module.validate_stage, "run", fake_validate)
@@ -78,9 +93,14 @@ def _record_entered_stages(monkeypatch):
 
 
 def _fake_stage(tmp_path, shape, recipe_name):
+    from ao_shaping.runners.slm.transfer_shapes_runner import STAGE_RECIPES
+
     stage_dir = tmp_path / "shape" / shape / recipe_name
     stage_dir.mkdir(parents=True)
     (stage_dir / "manifest.json").write_text("[]")
+    _write_block_groups(
+        stage_dir, next(r.blocks for r in STAGE_RECIPES if r.name == recipe_name)
+    )
     return stage_dir
 
 

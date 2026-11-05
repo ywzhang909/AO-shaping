@@ -830,7 +830,9 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         model_dir=model_dir, resume=resume, order=order, profile_timing=profile_timing,
         async_capture_write=async_capture_write, jacobian_guard=jacobian_guard,
         jacobian_low=jacobian_low, jacobian_high=jacobian_high,
-        jacobian_floor=jacobian_floor, spectral_weight=spectral_weight,
+        jacobian_floor=jacobian_floor, jacobian_min_signal=jacobian_min_signal,
+        accept_rel_tol=accept_rel_tol, accept_abs_tol=accept_abs_tol,
+        spectral_weight=spectral_weight,
         spectral_cutoff=spectral_cutoff, objective=objective,
         weight_schedule=weight_schedule, tilt=tilt, aspect_ratio=aspect_ratio)
     plan = _plan_dict(out=out, execute=execute, **params)
