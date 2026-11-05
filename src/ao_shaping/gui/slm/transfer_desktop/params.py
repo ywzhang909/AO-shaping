@@ -135,7 +135,9 @@ class TransferFormValues:
             见 :data:`_RECT_ASPECT_MAX`）；非矩形形状固定 ``1.0``。
         period: 倾斜相位周期 (panel px)。
         count: 分组随机探针数（必须是 6 的倍数）。
-        iterations: 模型参数拟合迭代数。
+        iterations: 模型参数拟合迭代数（最大预算；早停可提前终止）。
+        patience: 早停 patience（连续无改进的迭代数）。
+        min_delta: 早停最小改进幅度。
         blocks: 按 CCD 实测校正的短块数。
         updates: 每块内的模型更新次数。
         frames: 每个测量点的原始帧数。
@@ -167,7 +169,9 @@ class TransferFormValues:
     aspect_ratio: float = 2.0
     period: float = 64.0
     count: int = 24
-    iterations: int = 60
+    iterations: int = 200
+    patience: int = 8
+    min_delta: float = 1e-4
     blocks: int = 4
     updates: int = 10
     frames: int = 3
@@ -406,6 +410,8 @@ def build_session(
         updates=int(values.updates),
         frames=int(values.frames),
         side=float(values.side),
+        patience=int(values.patience),
+        min_delta=float(values.min_delta),
         period=float(values.period),
         window_span=effective_window_span(
             float(values.side),

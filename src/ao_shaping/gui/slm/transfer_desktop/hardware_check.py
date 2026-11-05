@@ -162,7 +162,7 @@ def check_hardware(camera: str, cam_id: int, slm_number: int) -> HardwareReport:
             CheckItem(
                 label="SLM 探测",
                 level="fail",
-                detail=f"SLM #{slm_number} 探测异常：{type(probe_error).__name__}",
+                detail=f"SLM #{slm_number} 探测异常：{type(probe_error).__name__}（请重试或检查 SDK）",
                 required=True,
             )
         )
@@ -171,7 +171,7 @@ def check_hardware(camera: str, cam_id: int, slm_number: int) -> HardwareReport:
             CheckItem(
                 label="SLM 探测",
                 level="fail",
-                detail=f"未发现 SLM #{slm_number}",
+                detail=f"未发现 SLM #{slm_number}（探针超时或设备未连接）",
                 required=True,
             )
         )
@@ -180,7 +180,7 @@ def check_hardware(camera: str, cam_id: int, slm_number: int) -> HardwareReport:
             CheckItem(
                 label="SLM 探测",
                 level="fail",
-                detail=f"SLM #{slm_number} 被占用",
+                detail=f"SLM #{slm_number} 被占用（请关闭占用该设备的程序后重试）",
                 required=True,
             )
         )
@@ -190,7 +190,7 @@ def check_hardware(camera: str, cam_id: int, slm_number: int) -> HardwareReport:
             CheckItem(
                 label="SLM 探测",
                 level="ok",
-                detail=f"SLM #{slm_number} 可用，序列号 {serial if serial else '-'}",
+                detail=f"SLM #{slm_number} 可用，序列号 {serial if serial else '读取失败'}",
                 required=True,
             )
         )
@@ -212,7 +212,7 @@ def check_hardware(camera: str, cam_id: int, slm_number: int) -> HardwareReport:
                 CheckItem(
                     label="曝光安全上限",
                     level="warn",
-                    detail="曝光安全上限未配置，开激光后由画面探测",
+                    detail="曝光安全上限未配置（运行时按画面自动探测；或设 AO_DAHENG_MAX_EXPOSURE_MS）",
                     required=False,
                 )
             )
@@ -221,7 +221,7 @@ def check_hardware(camera: str, cam_id: int, slm_number: int) -> HardwareReport:
             CheckItem(
                 label="曝光安全上限",
                 level="warn",
-                detail=f"曝光安全上限读取异常：{type(exc).__name__}",
+                detail=f"曝光安全上限读取异常：{type(exc).__name__}（请检查环境变量）",
                 required=False,
             )
         )

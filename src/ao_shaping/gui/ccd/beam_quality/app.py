@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy as np
 from loguru import logger
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, Signal
-from PySide6.QtGui import QImage
+from PySide6.QtGui import QIcon, QImage
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -56,6 +56,8 @@ from PySide6.QtWidgets import (
 )
 
 from ao_shaping.gui.ccd.beam_quality.analyzer import (
+    CENTER_METHODS,
+    DEFAULT_CENTER_METHOD,
     FrameMetrics,
     analyze_frame,
     bin_2x2,
@@ -79,6 +81,7 @@ from ao_shaping.gui.ccd.beam_quality.profile_widget import ProfileWidget
 from ao_shaping.gui.ccd.beam_quality.trend_buffer import TrendBuffer
 from ao_shaping.gui.ccd.beam_quality.trend_widget import TrendWidget
 from ao_shaping.gui.ccd.beam_quality.video_widget import VideoWidget, to_uint8
+from ao_shaping.utils.io.file import ROOT_DIR
 
 # 源类型: (显示名, 内部键)
 SOURCE_KINDS: tuple[tuple[str, str], ...] = (
@@ -132,6 +135,9 @@ class BeamQualityApp(QMainWindow):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("光束质量分析")
+        _icon = ROOT_DIR / "camera_rotate.ico"
+        if _icon.exists():
+            self.setWindowIcon(QIcon(str(_icon)))
         self.resize(1480, 900)
 
         self._source: FrameSource | None = None
@@ -148,6 +154,8 @@ class BeamQualityApp(QMainWindow):
         #: 自动曝光最近一步的说明 (信息栏显示, 状态栏留给硬件操作的即时反馈)
         self._auto_hint = ""
         self._last_metrics: FrameMetrics | None = None
+        #: 中心计算方法键 (见 analyzer.CENTER_METHODS); 变更后重析当前帧
+        self._center_method = DEFAULT_CENTER_METHOD
         self._last_append_ts = 0.0
         self._processed = 0
         self._ui_fps = 0.0
@@ -272,6 +280,27 @@ class BeamQualityApp(QMainWindow):
         average_hint.setStyleSheet("color: #808088;")
         average_form.addRow(average_hint)
         layout.addWidget(average_box)
+
+        calc_box = QGroupBox("中心计算")
+        calc_form = QFormLayout(calc_box)
+        self._center_method_combo = QComboBox()
+        for key, label in CENTER_METHODS:
+            self._center_method_combo.addItem(label, userData=key)
+        self._center_method_combo.setCurrentIndex(
+            next(
+                i
+                for i, (key, _label) in enumerate(CENTER_METHODS)
+                if key == DEFAULT_CENTER_METHOD
+            )
+        )
+        self._center_method_combo.setToolTip(
+            "过中心剖面与十字准线所用的 (cx, cy) 按所选口径计算"
+        )
+        self._center_method_combo.currentIndexChanged.connect(
+            self._on_center_method_changed
+        )
+        calc_form.addRow("方法", self._center_method_combo)
+        layout.addWidget(calc_box)
 
         self._snapshot_btn = QPushButton("保存快照 PNG")
         layout.addWidget(self._snapshot_btn)
@@ -636,12 +665,27 @@ class BeamQualityApp(QMainWindow):
             if arr.shape[0] > ANALYSIS_MAX_HEIGHT or arr.shape[1] > ANALYSIS_MAX_WIDTH:
                 arr = bin_2x2(arr)
                 scale = 2.0
-            metrics = analyze_frame(arr)
+            metrics = analyze_frame(arr, center_method=self._center_method)
             return metrics.rescaled(scale) if scale != 1.0 else metrics
         # policy: 分析异常不该杀掉 30 Hz 定时器; 记录并让界面继续显示上一帧的结果
         except Exception:  # policy: 逐帧分析横跨 numpy/scipy, 异常类型不可枚举
             logger.exception("帧分析失败, 跳过该帧")
             return None
+
+    def _on_center_method_changed(self, index: int) -> None:
+        """中心计算方法变更: 记下键并立即用最新一帧重析, 刷新准线/剖面。"""
+        key = self._center_method_combo.itemData(index)
+        if key is None:
+            return
+        self._center_method = str(key)
+        if self._last_view is None or self._source is None:
+            return
+        metrics = self._analyze(self._last_view)
+        if metrics is None:
+            return
+        self._last_metrics = metrics
+        self._video.set_frame(self._last_view, metrics, self._source.fps)
+        self._profile.update_metrics(metrics)
 
     def _on_trend_tick(self) -> None:
         if self._source is None:

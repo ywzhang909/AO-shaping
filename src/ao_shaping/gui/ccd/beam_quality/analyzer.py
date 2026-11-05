@@ -35,6 +35,19 @@ HALF_MAX_TO_SIGMA = float(np.sqrt(2.0 * np.log(2.0)))
 # 全宽 (FWHM) / sigma
 FWHM_TO_SIGMA = 2.0 * HALF_MAX_TO_SIGMA
 
+#: 可选的中心计算方法: (键, 界面显示名)。
+#: 默认 ``"centroid"`` (质心, 与历史行为一致); 其余为操作员可选的替代口径。
+#: 三者都来自本模块的纯 numpy/scipy 计算 —— ``utils/image`` 提供了质心
+#: (``windowed_centroid``) 与峰值 (``locate_peak``) 同口径原语, 但椭圆拟合中心
+#: 只存在于 :func:`_ellipse_from_mask`; 且引入 ``utils/image`` 会连带把
+#: ``spots_calc`` 的 cuBLAS 预载链拉进 CCD GUI, 故统一在此维护。
+CENTER_METHODS: tuple[tuple[str, str], ...] = (
+    ("centroid", "质心"),
+    ("ellipse", "椭圆拟合中心"),
+    ("peak", "最大值"),
+)
+DEFAULT_CENTER_METHOD = "centroid"
+
 
 @dataclass
 class EllipseParams:
@@ -288,21 +301,51 @@ def bin_2x2(img: np.ndarray) -> np.ndarray:
     return view.mean(axis=(1, 3), dtype=np.float32)
 
 
+def _validate_center_method(method: str) -> None:
+    """校验中心计算方法键; 未知键抛 ``ValueError``。"""
+    if method not in dict(CENTER_METHODS):
+        raise ValueError(
+            f"未知中心计算方法: {method!r} (可选 {[k for k, _ in CENTER_METHODS]})"
+        )
+
+
+def _select_center(
+    method: str,
+    *,
+    centroid: tuple[float, float],
+    ellipse: EllipseParams | None,
+    peak: tuple[float, float],
+) -> tuple[float, float]:
+    """按方法键选出中心 ``(cx, cy)``。
+
+    椭圆口径在无椭圆 (全黑/纯背景) 时回退质心; 峰值口径总是可取。
+    """
+    if method == "ellipse":
+        return ellipse.center if ellipse is not None else centroid
+    if method == "peak":
+        return peak
+    return centroid
+
+
 def analyze_frame(
     img: np.ndarray,
     *,
     background: float | None = None,
     threshold_ratio: float = 0.5,
     profile_band: int = 1,
+    center_method: str = DEFAULT_CENTER_METHOD,
 ) -> FrameMetrics:
-    """分析一帧灰度图, 返回 :class:`FrameMetrics`。
+    """分析一帧灰度图, 返回 :class:`FrameMetrics`.
 
     参数:
         img: 2D 灰度图 (uint8/uint16/float 均可, 多通道输入取首通道)。
         background: 背景电平; 默认取全图中值。
         threshold_ratio: 二值化阈值相对 (峰值 - 背景) 的比例, 默认 0.5 = 半高。
         profile_band: 剖面取样时在中心行/列两侧各取多少像素做均值 (>=0)。
+        center_method: 中心计算方法键 (见 :data:`CENTER_METHODS`);
+            决定过中心剖面与十字准线所用的 ``(cx, cy)``。
     """
+    _validate_center_method(center_method)
     arr = _as_2d(img)
     height, width = (int(arr.shape[0]), int(arr.shape[1]))
 
@@ -332,6 +375,16 @@ def analyze_frame(
     level = bg + float(threshold_ratio) * (peak - bg)
     component = _largest_component(arr > level)
     ellipse = None if component is None else _ellipse_from_mask(component)
+
+    # --- 峰值位置 (最大值口径) + 中心口径选择 ---
+    flat = int(np.argmax(arr)) if arr.size else 0
+    peak_xy = (float(flat % width), float(flat // width)) if width else (0.0, 0.0)
+    cx, cy = _select_center(
+        center_method,
+        centroid=(cx, cy),
+        ellipse=ellipse,
+        peak=peak_xy,
+    )
 
     # --- 过中心剖面 ---
     band = max(int(profile_band), 0)

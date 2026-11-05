@@ -74,5 +74,5 @@ def probe_slm(slm_num: int, timeout_s: float = SLM_PROBE_TIMEOUT_S) -> dict[str,
     t.start()
     t.join(timeout=timeout_s)
     if t.is_alive():
-        logger.warning(f"SLM #{slm_num} 扫描超时 ({timeout_s}s)，跳过")
+        logger.warning(f"SLM #{slm_num} 扫描超时 ({timeout_s}s)，跳过（设备未响应或被占用）")
     return result[0]

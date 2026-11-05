@@ -26,7 +26,9 @@ class TransferSession:
     checkpoint: Path | None = None
     shapes: tuple[str, ...] = ("square", "rectangle", "triangle")
     count: int = 24
-    iterations: int = 60
+    iterations: int = 200
+    patience: int = 8
+    min_delta: float = 1e-4
     blocks: int = 4
     updates: int = 10
     frames: int = 3
@@ -370,6 +372,8 @@ def run_session(
                 checkpoint=checkpoint,
                 out=out / "fit",
                 iterations=config.iterations,
+                patience=config.patience,
+                min_delta=config.min_delta,
                 span=120,
                 samples=samples,
                 device=device,
@@ -457,7 +461,11 @@ def run_session(
             )
 
             params = load_frozen_parameters(checkpoint)
-            xy = recentre_window(tuple(zero), half_span_px=220.0, step_px=2.0)
+            xy = recentre_window(
+                tuple(zero),
+                half_span_px=float(config.window_span),
+                step_px=float(config.window_step),
+            )
             forward = FrozenDefocusForward(params, xy, device=device)
             forward.exposure_ms = float(reference["exposure_ms"])
             tilt = bool(getattr(config, "tilt", False))

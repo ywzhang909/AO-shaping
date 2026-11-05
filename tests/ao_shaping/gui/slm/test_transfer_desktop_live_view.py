@@ -4,7 +4,7 @@
 
 * ``_SessionTask._on_frame`` 只 ``emit``, 不碰控件 (QRunnable 不是 QObject);
 * ``frame`` 信号经事件队列排队到 ``LiveView.apply_payload``, 跨线程不直接改 UI;
-* 一帧上屏会同时更新 CCD 图、剖面、块进度条与帧计数条;
+* 一帧上屏会同时更新 CCD 图、块进度条与帧计数条;
 * 大靶面先降采样再归一化 (``display_preview``), 小图原样分析;
 * ⑤ 阶段进度面板仍然存在 (实时画面是新增列, 不是替换);
 * 开跑前清空实时画面, 避免上一场会话的残帧。
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import threading
+import types
 
 # 必须在任何 QApplication 之前设置: CI / 无显示环境走离屏后端。
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -91,7 +92,7 @@ def test_display_frame_normalises_arbitrary_raw_frames():
     assert display_frame(nan_frame).max() == 255
 
 
-def test_apply_payload_updates_frame_profiles_and_both_bars(app: QApplication):
+def test_apply_payload_updates_frame_and_both_bars(app: QApplication):
     view = LiveView()
     view.show()
     app.processEvents()
@@ -99,9 +100,6 @@ def test_apply_payload_updates_frame_profiles_and_both_bars(app: QApplication):
     app.processEvents()
 
     assert view._video._array is not None
-    # X/Y 两条剖面都被填了数据点 (ProfileWidget 不自存 metrics)。
-    assert view._profile._x_panel._data.count() > 0
-    assert view._profile._y_panel._data.count() > 0
     assert (view._block_bar.value(), view._block_bar.maximum()) == (2, 4)
     assert "2 / 4" in view._block_label.text()
     assert "triangle" in view._block_label.text()
@@ -253,7 +251,6 @@ def test_apply_payload_renders_phase_and_predicted_panels(app: QApplication):
     app.processEvents()
 
     assert view._video._array is not None  # CCD 栏照旧
-    assert view._profile._x_panel._data.count() > 0
     # 相位面板: 数组已上屏, 尺寸与 phase 一致。
     assert view._phase.image._array is not None
     assert view._phase.image._array.shape == (128, 128)
@@ -356,3 +353,54 @@ def test_predicted_absent_without_phase_stays_plain_empty(app: QApplication):
     assert view._predicted.image._array is None
     assert not view._predicted._state.isVisible()
     view.close()
+
+
+def test_completed_run_shows_export_buttons_and_next_run_hides_them(
+    app: QApplication,
+    page,
+    monkeypatch,
+    tmp_path,
+):
+    """⑤ 进度: 完成后导出按钮行替换进度条; 失败 / 下次运行 → 还原进度条。"""
+    # 完成 → 导出按钮行可见, 进度条与当前阶段标签隐藏。
+    page._on_finished("out")
+    assert page._export_row.isVisible()
+    assert not page._bar.isVisible()
+    assert not page._current.isVisible()
+
+    # 失败 → 不显示导出, 还原进度条 / 当前阶段标签。
+    page._on_failed("boom")
+    assert not page._export_row.isVisible()
+    assert page._bar.isVisible()
+    assert page._current.isVisible()
+
+    # 再完成 → 导出; 下一次启动 (reset 路径) → 还原进度条。
+    page._on_finished("out")
+    assert page._export_row.isVisible()
+
+    class _StubSignal:
+        def connect(self, *args, **kwargs):
+            pass
+
+    class _StubTask(page_mod.QRunnable):
+        def __init__(self, values, out):
+            super().__init__()
+            self.signals = types.SimpleNamespace(
+                stage=_StubSignal(),
+                frame=_StubSignal(),
+                finished=_StubSignal(),
+                failed=_StubSignal(),
+            )
+
+        def run(self):
+            pass
+
+    monkeypatch.setattr(page_mod, "_SessionTask", _StubTask)
+    monkeypatch.setattr(page_mod.params, "plan_session_dir", lambda: tmp_path)
+    page._start_run()
+    assert not page._export_row.isVisible()
+    assert page._bar.isVisible()
+    assert page._current.isVisible()
+
+    # 收尾: 让 ``_settle`` 跑一遍, 免得 fixture 关窗时等 5 s。
+    page._on_failed("cleanup")

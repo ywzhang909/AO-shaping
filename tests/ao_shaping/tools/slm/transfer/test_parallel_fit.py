@@ -28,6 +28,16 @@ def test_early_stopper_good_enough_fires_immediately():
     assert es.good_enough and es.stop_fit is False
 
 
+def test_early_stopper_flat_loss_triggers_after_patience_polls():
+    es = EarlyStopper(patience=8, min_delta=1e-4)
+    # First poll establishes the best; then `patience` non-improving polls.
+    assert es.update(1.00) is False
+    for _ in range(7):
+        assert es.update(1.00) is False
+    assert es.update(1.00) is True
+    assert es.stop_fit and not es.good_enough
+
+
 def test_early_stopper_good_enough_disabled_when_zero():
     es = EarlyStopper(good_enough_loss=0.0, patience=100)
     for _ in range(50):

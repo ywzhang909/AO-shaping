@@ -55,7 +55,7 @@ from typing import Any
 import numpy as np
 from loguru import logger
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal, Slot
-from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtGui import QIcon, QImage, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -77,6 +77,7 @@ from ao_shaping.gui.slm.pattern_specs import (
     generate_phase_radians,
     specs_for,
 )
+from ao_shaping.utils.io.file import ROOT_DIR
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 __all__ = ["StaticShapingPage", "make_preview_pixmap", "pattern_to_gray"]
@@ -241,6 +242,9 @@ class StaticShapingPage(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        _icon = ROOT_DIR / "camera_rotate.ico"
+        if _icon.exists():
+            self.setWindowIcon(QIcon(str(_icon)))
         self._helper = PatternHelper(_DEFAULT_PANEL_RES, bits=_DEFAULT_BITS)
         self._last_phase: np.ndarray | None = None
 

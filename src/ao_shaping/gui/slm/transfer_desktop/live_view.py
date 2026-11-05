@@ -1,4 +1,4 @@
-"""⑥ 实时画面: 逐帧 CCD 图 / X-Y 剖面 / 块进度 / 帧进度。
+"""⑥ 实时画面: 逐帧 CCD 图 / 块进度 / 帧进度。
 
 线程边界
 --------
@@ -28,7 +28,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ao_shaping.gui.ccd.beam_quality.profile_widget import ProfileWidget
 from ao_shaping.gui.ccd.beam_quality.video_widget import VideoWidget
 
 __all__ = ["LiveView", "display_frame", "display_phase", "display_preview"]
@@ -142,17 +141,15 @@ class _TitledPanel(QWidget):
 
 
 class LiveView(QWidget):
-    """CCD 画面 + X/Y 剖面 + SLM 相位 + 预测远场 + 两根进度条。"""
+    """CCD 画面 + SLM 相位 + 预测远场 + 两根进度条。"""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        # —— CCD 栏: 实测画面 + X/Y 剖面 (剖面作为 CCD 栏的附属, 占小头) ——
+        # —— CCD 栏: 实测画面 ——
         self._video = VideoWidget()
         self._video._label.setMinimumSize(QSize(320, 200))
         self._video.setMinimumSize(QSize(320, 200))
-        self._profile = ProfileWidget()
-        self._profile.setMinimumHeight(140)
 
         # —— 新面板: SLM 当前相位 / 预测远场 (只读灰度图) ——
         phase_image = VideoWidget()
@@ -178,12 +175,11 @@ class LiveView(QWidget):
         self._remaining_bar.setValue(0)
         self._remaining_bar.setFormat("距下次刷新还剩 %v iter")
 
-        # 三栏并排: CCD 栏更大 (视频 + 剖面), 相位 / 预测各占一份。
+        # 三栏并排: CCD 栏 (视频), 相位 / 预测各占一份。
         ccd_column = QVBoxLayout()
         ccd_column.setContentsMargins(0, 0, 0, 0)
         ccd_column.setSpacing(4)
         ccd_column.addWidget(self._video, 3)
-        ccd_column.addWidget(self._profile, 2)
 
         frames = QHBoxLayout()
         frames.setSpacing(8)
@@ -223,7 +219,6 @@ class LiveView(QWidget):
         if step != 1:
             metrics = metrics.rescaled(step)
         self._video.set_frame(shown, metrics)
-        self._profile.update_metrics(metrics)
 
         # —— 新增面板: SLM 相位 / 预测远场 (可能缺失或为 None, 容错复位) ——
         phase_grid = payload.get("phase_grid")
@@ -310,7 +305,6 @@ class LiveView(QWidget):
     def clear(self) -> None:
         """会话开始前/结束后回到空态 (不改动 ⑤ 进度表)。"""
         self._video.clear()
-        self._profile.clear()
         self._phase.image.clear()
         self._phase.clear_state()
         self._predicted.image.clear()
@@ -335,9 +329,6 @@ class LiveView(QWidget):
 
     def video(self) -> VideoWidget:
         return self._video
-
-    def profile(self) -> ProfileWidget:
-        return self._profile
 
     def message(self) -> str:
         return self._info.text()

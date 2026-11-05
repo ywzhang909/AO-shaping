@@ -23,6 +23,8 @@ from ao_shaping.tools.slm.transfer.capture import clock
 from ao_shaping.tools.slm.transfer.device import DEVICE_CHOICES, resolve_device
 from ao_shaping.tools.slm.transfer.radiometry import count_rate
 
+from .parallel_fit import EarlyStopper
+
 
 def spot(row):
     if "spot_xy" in row:
@@ -308,6 +310,11 @@ def fit(args):
         comps.model.diagnostic_callback = record_response
     best_loss, history = float("inf"), []
     radiometry_mode = getattr(args, "radiometry", "exposure")
+    early_stopper = EarlyStopper(
+        patience=getattr(args, "patience", 8),
+        min_delta=getattr(args, "min_delta", 1e-4),
+    )
+    stopped_at = None
     for iteration in range(args.iterations + 1):
         comps.model.optimizer.zero_grad()
         loss, entry, predicted = fit_loss(comps.model, comps, radiometry_mode, iteration)
@@ -328,6 +335,13 @@ def fit(args):
         if entry["loss"] < best_loss:
             best_loss = entry["loss"]
             (args.out / "result.json").write_text(json.dumps(entry, indent=2), encoding="utf-8")
+        if early_stopper.update(entry["loss"]):
+            stopped_at = iteration
+            print(
+                f"fit early-stop at iteration {iteration}: loss={entry['loss']:.6f}",
+                flush=True,
+            )
+            break
         if iteration % 10 == 0:
             print(f"{iteration}: train loss={entry['loss']:.5f}", flush=True)
         if iteration < args.iterations:
@@ -338,6 +352,11 @@ def fit(args):
                 comps.model.center.clamp_(0, 1920)
                 comps.model.log_width.clamp_(float(np.log(80)), float(np.log(800)))
     best = json.loads((args.out / "result.json").read_text())
+    provenance["early_stopped"] = stopped_at is not None
+    provenance["stopped_iteration"] = stopped_at
+    (args.out / "provenance.json").write_text(
+        json.dumps(provenance, indent=2), encoding="utf-8"
+    )
     # Self-contained checkpoint, with explicit geometry rather than a stale upstream chain.
     (args.out / "frozen_parameters.json").write_text(json.dumps(dict(
         **best["parameters"], ramp_matrix=comps.matrix.tolist(), grid_size=comps.old.grid_size,
@@ -401,6 +420,18 @@ def main():
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--iterations", type=int, default=100)
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=8,
+        help="Early-stop after this many iterations without an improvement larger than --min-delta",
+    )
+    parser.add_argument(
+        "--min-delta",
+        type=float,
+        default=1e-4,
+        help="Minimum loss improvement (absolute) that resets the early-stop patience",
+    )
     parser.add_argument("--span", type=int, default=160)
     parser.add_argument("--adaptation", choices=("auto", "alignment", "full"), default="auto")
     parser.add_argument("--amplitude-center-lr", type=float, help="Override illumination position learning rate (panel px/update)")

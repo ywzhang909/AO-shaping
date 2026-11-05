@@ -46,6 +46,7 @@ error 就禁用「开始运行」并把第一条写进 tooltip, warning 只提�
 
 from __future__ import annotations
 
+import shutil
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from html import escape
@@ -54,7 +55,7 @@ from typing import Any
 
 from loguru import logger
 from PySide6.QtCore import QEvent, QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
-from PySide6.QtGui import QCloseEvent, QColor, QFont, QPalette
+from PySide6.QtGui import QCloseEvent, QColor, QFont, QIcon, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -62,12 +63,14 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QRadioButton,
@@ -87,6 +90,7 @@ from ao_shaping.gui.slm.transfer_progress import (
     STATUS_LABELS,
     collect_progress,
 )
+from ao_shaping.utils.io.file import ROOT_DIR
 
 __all__ = ["TransferPage"]
 
@@ -282,6 +286,9 @@ class TransferPage(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        _icon = ROOT_DIR / "camera_rotate.ico"
+        if _icon.exists():
+            self.setWindowIcon(QIcon(str(_icon)))
         self._pool = QThreadPool(self)
         self._pool.setMaxThreadCount(1)
 
@@ -592,6 +599,26 @@ class TransferPage(QWidget):
         self._bar.setRange(0, 1)
         self._bar.setFormat("已结束 %v / 计划 %m 阶段")
         layout.addWidget(self._bar)
+
+        # 完成后的导出行: 平时隐藏, 只在「会话完成」时替换进度条 / 当前阶段标签。
+        self._export_row = QWidget()
+        export_layout = QHBoxLayout(self._export_row)
+        export_layout.setContentsMargins(0, 0, 0, 0)
+        export_layout.setSpacing(8)
+        self._btn_export_png = QPushButton("导出 PNG…")
+        self._btn_export_png.setToolTip("导出总结对比图（或最后一帧 CCD）")
+        self._btn_export_phase = QPushButton("导出相位 CSV…")
+        self._btn_export_phase.setToolTip("导出最终 best 相位（弧度）为 CSV")
+        self._btn_export_gray = QPushButton("导出 SLM 灰度 CSV…")
+        self._btn_export_gray.setToolTip("导出 SLM 实际下发的灰度相位为 CSV")
+        self._btn_export_png.clicked.connect(self._export_png)
+        self._btn_export_phase.clicked.connect(self._export_phase_csv)
+        self._btn_export_gray.clicked.connect(self._export_gray_csv)
+        export_layout.addWidget(self._btn_export_png)
+        export_layout.addWidget(self._btn_export_phase)
+        export_layout.addWidget(self._btn_export_gray)
+        self._export_row.setVisible(False)
+        layout.addWidget(self._export_row)
 
         layout.addWidget(self._build_table(), 1)
         return box
@@ -1065,6 +1092,7 @@ class TransferPage(QWidget):
         self._bar.setRange(0, 1)
         self._bar.setValue(0)
         self._current.setText("等待第一个阶段…")
+        self._show_exports(False)
         self._counts.setText("")
         self._session_label.setText(f"会话目录: {out}")
         self._live_view.clear()
@@ -1095,10 +1123,12 @@ class TransferPage(QWidget):
     def _on_finished(self, out: str) -> None:
         """会话跑完: 停轮询, 把最终产物再读一遍, 放回可编辑状态。"""
         self._settle("complete", f"会话完成：{out}")
+        self._show_exports(True)
 
     def _on_failed(self, message: str) -> None:
         """会话失败: 停轮询, 把 journal 里已写下的阶段留在表上。"""
         self._settle("failed", f"会话失败：{message}")
+        self._show_exports(False)
         # 边界: 目标被倾斜相位位移推出采样窗边 → 自动**增大**倾斜相位周期
         # (位移 ∝ 1/period), 并回填输入栏; 只回填、不自动重跑 (操作员确认几何
         # 后再手动启动)。只有打开倾斜相位时位移才存在, 关着时不触发。
@@ -1137,6 +1167,81 @@ class TransferPage(QWidget):
         self._set_form_enabled(True)
         self._set_run_state(kind, message)
         self._revalidate()
+
+    def _show_exports(self, shown: bool) -> None:
+        """⑤ 进度区: 完成后换成导出按钮行, 下次运行 / 失败时还原进度条。"""
+        self._export_row.setVisible(shown)
+        self._bar.setVisible(not shown)
+        self._current.setVisible(not shown)
+
+    def _best_phase_path(self) -> Path | None:
+        """最终 best 相位文件 (首个形状); 缺失时提示并返回 ``None``。"""
+        if not self._session_dir:
+            return None
+        shapes = self.form_values().shapes
+        shape = shapes[0] if shapes else "square"
+        path = self._session_dir / "anchored" / f"{shape}_best.npy"
+        if not path.exists():
+            QMessageBox.warning(self, "导出", f"未找到最终相位文件：\n{path}")
+            return None
+        return path
+
+    def _export_png(self) -> None:
+        """导出总结对比图; 没有就回退到实时画面的最后一帧 CCD。"""
+        if not self._session_dir:
+            return
+        dest, _ = QFileDialog.getSaveFileName(
+            self, "导出 PNG", str(self._session_dir), "PNG (*.png)"
+        )
+        if not dest:
+            return
+        src = self._session_dir / "summary" / "ccd_model_comparison.png"
+        if src.exists():
+            shutil.copyfile(src, dest)
+            return
+        from ao_shaping.gui.slm.transfer_desktop.archive_replay import export_ccd_png
+
+        payload = self._live_view.last_payload()
+        frame = payload.get("frame") if payload else None
+        if frame is None:
+            QMessageBox.warning(self, "导出 PNG", "没有可导出的 CCD 帧。")
+            return
+        export_ccd_png(dest, frame)
+
+    def _export_phase_csv(self) -> None:
+        """导出最终 best 相位 (弧度) 为 CSV。"""
+        best = self._best_phase_path()
+        if best is None:
+            return
+        dest, _ = QFileDialog.getSaveFileName(
+            self, "导出相位 CSV", str(best), "CSV (*.csv)"
+        )
+        if not dest:
+            return
+        from ao_shaping.gui.slm.transfer_desktop.archive_replay import write_phase_csv
+
+        import numpy as np
+
+        write_phase_csv(dest, np.load(best), radians=True)
+
+    def _export_gray_csv(self) -> None:
+        """导出 SLM 实际下发的灰度相位为 CSV (0..1023 整数)。"""
+        best = self._best_phase_path()
+        if best is None:
+            return
+        dest, _ = QFileDialog.getSaveFileName(
+            self, "导出 SLM 灰度 CSV", str(best), "CSV (*.csv)"
+        )
+        if not dest:
+            return
+        from ao_shaping.gui.slm.transfer_desktop.archive_replay import (
+            phase_to_gray,
+            write_phase_csv,
+        )
+
+        import numpy as np
+
+        write_phase_csv(dest, phase_to_gray(np.load(best)), radians=False)
 
     # ------------------------------------------------------------------ 进度
     def _open_replay(self) -> None:

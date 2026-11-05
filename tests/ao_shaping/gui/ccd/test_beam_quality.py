@@ -147,6 +147,49 @@ def test_analyze_frame_scalars_and_rescale() -> None:
     )
 
 
+def test_analyze_frame_center_methods() -> None:
+    """中心口径可选: 质心 (默认) / 椭圆拟合中心 / 峰值, 未知键报错。"""
+    cx, cy = 120.4, 150.7
+    img = _gaussian_frame(cx=cx, cy=cy, sigma_x=18.0, sigma_y=11.0, noise=0.8)
+
+    centroid_metrics = analyze_frame(img)  # 默认 = 质心
+    assert centroid_metrics.cx == pytest.approx(cx, abs=1.0)
+    assert centroid_metrics.cy == pytest.approx(cy, abs=1.0)
+
+    # 椭圆口径: 中心取包围椭圆中心 (与质心接近但口径不同)
+    ellipse_metrics = analyze_frame(img, center_method="ellipse")
+    assert ellipse_metrics.ellipse is not None
+    assert ellipse_metrics.cx == pytest.approx(
+        ellipse_metrics.ellipse.center[0], abs=1e-6
+    )
+    assert ellipse_metrics.cy == pytest.approx(
+        ellipse_metrics.ellipse.center[1], abs=1e-6
+    )
+
+    # 峰值口径: 中心取全局 argmax
+    peak_metrics = analyze_frame(img, center_method="peak")
+    peak_row, peak_col = np.unravel_index(int(np.argmax(img)), img.shape)
+    assert peak_metrics.cx == pytest.approx(float(peak_col), abs=1e-6)
+    assert peak_metrics.cy == pytest.approx(float(peak_row), abs=1e-6)
+
+    # 剖面都过各自口径的中心 (x_profile 长度仍为图宽)
+    assert centroid_metrics.x_profile.size == img.shape[1]
+    assert ellipse_metrics.x_profile.size == img.shape[1]
+    assert peak_metrics.x_profile.size == img.shape[1]
+
+    # 未知键必须抛 ValueError, 不静默回退
+    with pytest.raises(ValueError):
+        analyze_frame(img, center_method="nope")
+
+
+def test_analyze_frame_center_ellipse_falls_back_when_blank() -> None:
+    """全黑帧没有椭圆: 椭圆口径回退质心, 不抛异常。"""
+    blank = np.zeros((40, 50), dtype=np.uint8)
+    metrics = analyze_frame(blank, center_method="ellipse")
+    assert metrics.ellipse is None
+    assert np.isfinite(metrics.cx) and np.isfinite(metrics.cy)
+
+
 # ------------------------------------------------------------------ 趋势缓冲
 def _fake_scalars(value: float) -> dict[str, float]:
     return {
@@ -297,6 +340,55 @@ def test_app_smoke_with_sim_source(qt_app) -> None:
     window.close()
     qt_app.processEvents()
     assert window._source is None
+
+
+def test_app_center_method_combo_default_and_change(qt_app) -> None:
+    """中心计算下拉框默认质心; 切换口径立即重析当前帧并刷新准线。"""
+    from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp, SOURCE_KINDS
+    from ao_shaping.gui.ccd.beam_quality.analyzer import (
+        CENTER_METHODS,
+        DEFAULT_CENTER_METHOD,
+    )
+
+    window = BeamQualityApp()
+    window.show()
+
+    # 下拉框项与 CENTER_METHODS 一一对应, 默认选中质心
+    assert window._center_method_combo.count() == len(CENTER_METHODS)
+    default_index = next(
+        i
+        for i, (key, _label) in enumerate(CENTER_METHODS)
+        if key == DEFAULT_CENTER_METHOD
+    )
+    assert window._center_method_combo.currentIndex() == default_index
+    assert window._center_method == DEFAULT_CENTER_METHOD
+
+    # 开仿真源, 等分析出第一帧
+    kinds = [kind for _label, kind in SOURCE_KINDS]
+    window._source_combo.setCurrentIndex(kinds.index("sim"))
+    window.open_source()
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline and window._source is None:
+        qt_app.processEvents()
+        time.sleep(0.01)
+    assert window._source is not None
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline and window._last_metrics is None:
+        qt_app.processEvents()
+        time.sleep(0.01)
+    assert window._last_metrics is not None
+
+    # 切到峰值口径: 键更新且重析出可用结果
+    peak_index = next(
+        i for i, (key, _label) in enumerate(CENTER_METHODS) if key == "peak"
+    )
+    window._center_method_combo.setCurrentIndex(peak_index)
+    qt_app.processEvents()
+    assert window._center_method == "peak"
+    assert window._last_metrics is not None
+
+    window.close()
+    qt_app.processEvents()
 
 
 def test_apply_exposure_does_not_block_ui_thread(qt_app) -> None:

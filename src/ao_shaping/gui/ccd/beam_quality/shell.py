@@ -38,7 +38,7 @@ from __future__ import annotations
 import sys
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -52,6 +52,7 @@ from PySide6.QtWidgets import (
 )
 
 from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp
+from ao_shaping.utils.io.file import ROOT_DIR
 
 __all__ = ["DesktopShellApp", "main"]
 
@@ -288,6 +289,9 @@ class DesktopShellApp(QMainWindow):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("AO-Shaping 实验系统控制台")
+        _icon = ROOT_DIR / "camera_rotate.ico"
+        if _icon.exists():
+            self.setWindowIcon(QIcon(str(_icon)))
         self.resize(1560, 940)
 
         self._rail = _Rail(self)

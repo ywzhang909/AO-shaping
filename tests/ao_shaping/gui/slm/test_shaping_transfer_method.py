@@ -104,7 +104,9 @@ class TestParamMapping:
         assert session.seed == 102319
         assert session.count == 24
         assert session.shapes == ("square",)
-        assert session.iterations == 60
+        assert session.iterations == 200
+        assert session.patience == 8
+        assert session.min_delta == 1e-4
         assert session.blocks == 4
         assert session.updates == 10
         assert session.frames == 3

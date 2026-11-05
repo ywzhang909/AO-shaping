@@ -102,7 +102,9 @@ def test_form_defaults_mirror_the_streamlit_recipe() -> None:
     assert values.aspect_ratio == 2.0
     assert values.period == 64.0
     assert values.count == 24
-    assert values.iterations == 60
+    assert values.iterations == 200
+    assert values.patience == 8
+    assert values.min_delta == 1e-4
     assert values.blocks == 4
     assert values.updates == 10
     assert values.frames == 3

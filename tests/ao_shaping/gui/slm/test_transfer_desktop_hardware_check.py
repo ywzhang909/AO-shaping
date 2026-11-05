@@ -124,7 +124,8 @@ def test_exposure_zero_warn_and_ok(monkeypatch):
     assert report.ok is True
     exp_item = [i for i in report.items if i.label == "曝光安全上限"][0]
     assert exp_item.level == "warn"
-    assert "未配置，开激光后由画面探测" in exp_item.detail
+    assert "未配置" in exp_item.detail
+    assert "AO_DAHENG_MAX_EXPOSURE_MS" in exp_item.detail
 
 
 def test_miicam_missing_does_not_fail(monkeypatch):
