@@ -4544,6 +4544,14 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 顺带照出的潜伏缺陷（与内存无关，纯粹被 TMPDIR 换到磁盘才显形）：`test_model_in_loop_hw_ab.py` 用 `list(tmp_path.iterdir())[0]` 取会话目录，而 `iterdir()` 返回的是**文件系统 readdir 顺序**（既非字典序，也在 tmpfs 与磁盘之间不同），同一目录下还有测试自己写的 `model_error_terms.json` ⇒ 落到磁盘后第一个命中就是那个文件，报 `NotADirectoryError`。6 处统一改为按目录性质选取并钉死数量为 1（`_only_session`）。
 - 可推广的判据：**凡"取目录遍历第一个"都是对文件系统顺序的隐性依赖**；同目录一旦混入非目录条目或更换底层文件系统即翻车。按 `is_dir()` 过滤 + 断言数量，才既确定又顺带钉住"只产出一个会话目录"。
 
+**2026-11-05 · 840f1c8e · 收口 master 三处继承门禁红：合并吞掉的函数头、从未导入的 PatternHelper、术语漂移**
+- `tools/slm/transfer/validate.py` **无法解析**（ruff 46 条 `invalid-syntax` 的唯一根因，也是"49 条红"的绝大部分）：合并 `d720981b` 把 `_run_validate_blocks` 的 def 签名与 docstring 首行整块丢掉，只剩散文体与孤立的闭合三引号，于是 1161 行起被当作未闭合字符串。判据是**两个父提交各自都能解析、合并结果不能** ⇒ 这是解析损坏而非风格问题，"加个 noqa"之类一律不成立。
+- 修复的正确性可证明而非可信：合并结果里该函数体（`for block in blocks:` 到 `return`，162 行）与 `d720981b^2` 已**逐字节相同**，故只需按 `^2` 原文补回头部；补回后整函数 `ast.dump` 与 `^2` **全等** ⇒ 没有掺入任何自造语义。
+- `gui/slm/helper_tab.py`：`PatternHelper` 用于返回注解与构造，却从未导入——**`^1` 即如此，不是合并损坏**。注解因 `from __future__ import annotations` 惰性化而未先炸，构造点 `PatternHelper((w,h), bits=…)` 是实打实的运行期 `NameError`；这类"注解掩盖未导入名"是 `__future__ annotations` 的固有盲区，lint 查得出、导入不查得出。按其 docstring 自述的规范路径补导入，并删未用的 `Literal`（`__all__` 不含它、外部只 import `render_pattern_helper_tab`，不触透传契约）；构造签名与 `to_uint16` 均回源码核对，避免把 `NameError` 换成 `TypeError`。
+- `gui/slm/ccd_live.py`：术语门禁 6 行漂移，走 `term_unify_20261016.py --apply` 统一为规范术语「实验系统相机」（纯中文措辞，`bench_camera()` 等标识符与配置键逐字未动）。**先确认没有测试钉住旧措辞再改**：全仓只有两处测试含该被禁旧称谓，一处是禁止词清单本身、一处是门禁自己植入的违例样本，都不是对本页文案的断言。
+- 结果：`840f1c8e` 上 CI 的 **Ruff success**（49→0）与 **Terminology success** 已确认。
+- 已知未解并已写进提交信息：`ao_shaping.gui.slm.pattern_specs` **从未以任何形式存在**（磁盘、任何 ref、悬空 commit、`.pyc` 四处全搜为空），而 `640f4584` 提交了导入它的 `helper_tab.py` 与其测试，于是经 `multi_slm_controller` 级联使 9 个测试模块在收集期 `ImportError`，落在阻塞分片 `runners-gui-misc`。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

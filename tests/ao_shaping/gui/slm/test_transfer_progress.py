@@ -709,7 +709,7 @@ class TestRenderProgress:
         tp.render_progress(tp.collect_progress(out), running=False)
 
         assert stub.markdown[0] == (
-            "**已结束** · 第 2 个阶段失败：初始模型准备（冷启动，先用出厂标定值起手，未实测标定）"
+            "**已结束** · 第 2 个阶段失败：初始模型准备（冷启动，先用几何设计初值起手，未实测标定）"
         )
         assert "错误：RuntimeError: Unusable exposure" in stub.markdown[1]
 
@@ -722,7 +722,7 @@ class TestRenderProgress:
         tp.render_progress(tp.collect_progress(out), running=True)
 
         assert stub.markdown[0] == (
-            "**运行中** · 下一步：初始模型准备（冷启动，先用出厂标定值起手，未实测标定）（2/7）"
+            "**运行中** · 下一步：初始模型准备（冷启动，先用几何设计初值起手，未实测标定）（2/7）"
         )
 
     def test_a_run_that_ended_between_stages_says_where_it_stopped(self, tmp_path, stub):
