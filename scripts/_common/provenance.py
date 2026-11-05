@@ -88,15 +88,15 @@ class ReportProvenance:
 REPORTS: dict[str, ReportProvenance] = {
     "report/shape_trials/physical_refine/forward_model_transfer_plan_20261104.md": ReportProvenance(
         script=HANDWRITTEN,
-        environment="离线规划文档；其 P1 已于 2026-11-05 上机执行（probe_optical_path_validity）",
-        note="物理正向模型迁移实验计划（P0–P6 阶段、探针族、zernike_block 档与在线回灌门）；人工撰写。",
+        environment="离线规划文档；其 P1 已于 2026-11-05 实验执行（probe_optical_path_validity）",
+        note="物理预测模型迁移实验计划（P0–P6 阶段、探针族、zernike_block 档与在线回灌门）；人工撰写。",
     ),
     "report/shape_trials/hw_depth_matched/hw_depth_matched_20261105.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件：1064 nm Santec SLM #1 + Daheng CCD（run02 采集 2026-11-05 09:33–09:49）；分析离线 CPU",
         note=(
             "run02_depthmatched 将 ztrain 振幅提至 ±1.0/2.0 rad 消除激励深度混杂；"
-            "三臂离线分析复用 _harness_task2 口径（_harness_task2_run02.py）；"
+            "三个变体离线分析复用 _harness_task2 口径（_harness_task2_run02.py）；"
             "结论：深度混杂不解释 run01 边际，主动探针样本效率无可测收益，twin NCC 结构失配待诊断。"
         ),
         extra_scripts=(),
@@ -276,14 +276,6 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/ml/sim2f_fov_hw_figures.py",
             "scripts/ml/sim2f_fov_zero_order_diag.py",
             "scripts/ml/sim2f_fov_zero_order_figure.py",
-        ),
-    ),
-    "report/shape_trials/physical_refine/forward_model_transfer_plan_20261104.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="离线（代码与历史报告分析；硬件步骤为规划）",
-        note=(
-            "物理预测模型结构/分层微调(zernike_block)/光路探测(结构化±Zernike 主动探针)/"
-            "可微优化与在线训练集扩展技术报告；整合 issue #229 的迁移学习修订方案与实验计划"
         ),
     ),
     "report/shape_trials/multishape_scale/square_1000_diff_abba_20261030.md": ReportProvenance(

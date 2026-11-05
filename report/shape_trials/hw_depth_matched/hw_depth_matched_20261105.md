@@ -3,10 +3,10 @@
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
 > **运行环境**: 硬件：1064 nm Santec SLM #1 + Daheng CCD（run02 采集 2026-11-05 09:33–09:49）；分析离线 CPU
-> **说明**: run02_depthmatched 将 ztrain 振幅提至 ±1.0/2.0 rad 消除激励深度混杂；三臂离线分析复用 _harness_task2 口径（_harness_task2_run02.py）；结论：深度混杂不解释 run01 边际，主动探针样本效率无可测收益，twin NCC 结构失配待诊断。
+> **说明**: run02_depthmatched 将 ztrain 振幅提至 ±1.0/2.0 rad 消除激励深度混杂；三个变体离线分析复用 _harness_task2 口径（_harness_task2_run02.py）；结论：深度混杂不解释 run01 边际，主动探针样本效率无可测收益，twin NCC 结构失配待诊断。
 <!-- provenance:end -->
 
-**一句话结论**：激励深度匹配后（±1.0/2.0 rad vs 随机族 RMS 0.99–2.28 rad），±Zernike 主动臂与随机臂在所有帧预算（n=2–32）下与无适应基线差异仍在 ±2% 内，主动选样无可测样本效率收益；全 harness 口径的 hw2f 仿真同样无区分力，且 twin 与硬件的 NCC 差距（0.97 vs 0.81）证明当前 twin 空间结构不足，不能作为在线回灌/闭环收益的判据。
+**一句话结论**：激励深度匹配后（±1.0/2.0 rad vs 随机族 RMS 0.99–2.28 rad），±Zernike 主动变体与随机变体在所有帧预算（n=2–32）下与无适应基线差异仍在 ±2% 内，主动选样无可测样本效率收益；全 harness 口径的 hw2f 仿真同样无区分力，且 twin 与硬件的 NCC 差距（0.97 vs 0.81）证明当前 twin 空间结构不足，不能作为在线回灌/闭环收益的判据。
 
 ## 1. 采集（run02_depthmatched，深度匹配）
 
@@ -21,7 +21,7 @@
 
 标定行、`model_phase`/`raw_frames` npz 结构与 run01 完全一致，`transfer/fit.load_dataset` 直接可用。
 
-## 2. 三臂离线对比（同一 harness 口径）
+## 2. 三个变体离线对比（同一 harness 口径）
 
 harness：`PhysicalForwardFit`（Z4+残差 Z5–Z11, staged, trust region, Adam 120 it），曝光 radiometry，FFT 256，窗口 161px，σ=8.0px；holdout 12 帧不变。
 
@@ -47,7 +47,7 @@ harness：`PhysicalForwardFit`（Z4+残差 Z5–Z11, staged, trust region, Adam 
 | 微调后 NRMSE（所有 n） | 0.0152 | 0.0228–0.0238 |
 | 微调后 NCC（所有 n） | 0.9679 | 0.816–0.825 |
 
-- 仿真中两臂在所有 n 完全相同（0.0152/0.9679），说明 twin 太"容易"：模型结构完全覆盖 twin 的像差结构，主动/随机探针没有差别。
+- 仿真中两个变体在所有 n 完全相同（0.0152/0.9679），说明 twin 太"容易"：模型结构完全覆盖 twin 的像差结构，主动/随机探针没有差别。
 - NCC 0.97 vs 0.81 的差距是空间结构不一致，不只是噪声/幅度问题。
 
 ## 4. twin 空间结构诊断（已定论）

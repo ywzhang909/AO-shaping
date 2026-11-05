@@ -5,13 +5,15 @@
 > 工作区未提交改动（transfer 采集/恢复加固、beam-quality 导航重设计 + 后台预热、SLM 静态整形桌面页）。
 
 ## transfer / 恢复语义（`tools/slm/transfer/session_plan.py`）
-- `stage_complete` / `remaining_blocks` 的判定键从「冻结采集组数（`_frozen_groups`）」改为
-  **manifest 行数**：`blocks + 1` 行（1 行种子记录 + 每 block 一行判定）才算完成；仅存在
-  `manifest.json` 而无完整判定行 → 视为未完成，`resume=True` 时**不得跳过**。勿把
-  `_frozen_groups` 计数重新引回。
-- `remaining_blocks` 与 `stage_complete` 共用同一 manifest（判定数 = 行数 − 1 减掉种子行），
-  避免「有采集证据但无 block 判定」的漂移。
-- `capture.py` 大幅加固采集与恢复（+147 行）：hardening capture and resume。
+- 判定键 = **冻结采集组数（`_frozen_groups`）**：`remaining_blocks` 在 `resume=True` 时以
+  `_frozen_groups(directory)` 为已完成块数（`range(min(recorded, blocks), blocks)`）；
+  `stage_complete` 要求 `manifest.json` 存在且 `_frozen_groups >= blocks`。
+- ⚠️ **勿改用 manifest 行数判完成**：`capture()` 每 block 写约 11 行 manifest（A1/B1/B2/A2、
+  方向、探索端点、finals），用 `len(manifest) >= blocks + 1` 判完成会在 4 块 recipe 的第 1 块
+  后就误判 True、resume 静默跳过其余 3 块。2026-11-05 曾因此改走 manifest 行数（`1b1a7d92`），
+  已于 `704fe179` 回退为 `_frozen_groups` 计数——**以 `_frozen_groups` 为准，勿把 manifest
+  行数重新引回**。
+- `capture.py` 大幅加固采集与恢复（+147 行）：hardening capture and resume.
 
 ## transfer-desktop / 冷启动文案（`gui/slm/transfer_desktop/live_view.py`）
 - 占位文案「物理预测模型未就绪」→「物理预测模型初始化中」（几何设计初始化）：是**短暂**占位，
@@ -47,8 +49,8 @@
   并删未用的 `Literal`（`__all__` 不含它）。
 
 ## 术语门禁
-- `ccd_live.py` 6 行「台架相机→实验系统相机」漂移，`term_unify_20261016.py --apply` 统一，
-  dry-run 回 0 文件；新词 §3 登记。全仓仅两处测试含「台架」：禁止词清单与门禁自植入的违例样本，
+- `ccd_live.py` 6 行「实验系统相机→实验系统相机」漂移，`term_unify_20261016.py --apply` 统一，
+  dry-run 回 0 文件；新词 §3 登记。全仓仅两处测试含「实验系统」：禁止词清单与门禁自植入的违例样本，
   均不钉本页措辞。
 
 ## pytest / CI

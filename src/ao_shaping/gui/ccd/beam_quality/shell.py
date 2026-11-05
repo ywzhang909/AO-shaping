@@ -271,7 +271,7 @@ class _WarmTask(QRunnable):
         try:
             import torch  # noqa: F401
             import ao_shaping.gui.slm.transfer_desktop.page  # noqa: F401
-        except Exception as exc:  # pragma: no cover - 环境相关
+        except Exception as exc:  # pragma: no cover  # policy: 环境/依赖缺失时降级为界面报错
             self.signals.failed.emit(str(exc))
             return
         self.signals.ready.emit()

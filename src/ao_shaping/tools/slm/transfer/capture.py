@@ -435,7 +435,7 @@ def capture(args, *, on_frame=None):
                             # 最后一个 ramp 行已写入 manifest；在首个非 ramp 帧
                             # 读图前建好理想模型，让该帧就能携带 predicted。
                             live_prediction[0].attach_geometry(manifest)
-                        except Exception as exc:
+                        except Exception as exc:  # policy: 理想模型构建失败 → 禁用 live 预测并继续采集
                             logger.warning(
                                 f"Live capture prediction disabled while building the ideal model: {exc!r}"
                             )
@@ -538,7 +538,7 @@ def capture(args, *, on_frame=None):
                             # 第一张平场读完后才有一次会话的零点；下一张曝光/
                             # 探针帧开始即可预测，参考帧自身不伪造 predicted。
                             live_prediction[0].attach_reference(row)
-                        except Exception as exc:
+                        except Exception as exc:  # policy: 物理预测模型构建失败 → 禁用 live 预测并继续采集
                             logger.warning(
                                 f"Live capture prediction disabled while building the forward model: {exc!r}"
                             )

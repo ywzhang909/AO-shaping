@@ -181,7 +181,7 @@ class _PreviewTask(QRunnable):
             label = PATTERN_TYPES[self._pattern_type].label
             self.signals.preview_ready.emit(phase, gray, label)
         except Exception as e:  # 后台不吞细节：异常必须变成界面结论
-            logger.exception("Pattern helper preview failed: %s", e)
+            logger.exception("Pattern helper preview failed: {}", e)
             self.signals.preview_failed.emit(str(e))
 
 
@@ -221,7 +221,7 @@ class _SendTask(QRunnable):
             self.signals.sent.emit(f"相位已下发到 SLM {self._slm_number} 并显示。")
         except Exception as e:  # 设备错误必须变成界面可读结论
             logger.exception(
-                "Pattern helper display failed for SLM %s: %s", self._slm_number, e
+                "Pattern helper display failed for SLM {}: {}", self._slm_number, e
             )
             self.signals.send_failed.emit(
                 f"下发失败: {e} —— 请先确认 SLM {self._slm_number} 已连接。"
