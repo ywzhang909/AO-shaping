@@ -64,11 +64,11 @@ def test_evaluate_reports_paired_shape_error() -> None:
     assert len(result["shape_relative_l2"]) == 2
 
 
-def test_main_does_not_import_device_modules() -> None:
+def test_main_does_not_import_device_modules(tmp_path) -> None:
     """The CLI entry must rank/evaluate without loading any camera/SLM SDK."""
-    root = Path(__file__).resolve().parents[6]
+    root = Path(__file__).resolve().parents[5]
     env = dict(os.environ, PYTHONPATH=str(root / "src"))
-    npz = Path(__file__).resolve().parents[1] / "_uncertainty_cli_dummy.npz"
+    npz = tmp_path / "_uncertainty_cli_dummy.npz"
     np.savez(npz, predictions=np.stack([np.stack([np.array([[1., 2.], [3., 4.]])])
                                         for _ in range(2)]),
              phases=np.zeros((1, 4, 4)))
@@ -88,7 +88,7 @@ def test_main_does_not_import_device_modules() -> None:
 
 def test_ranking_module_and_cli_do_not_import_driver_sdks() -> None:
     """Clean-subprocess check that drivers stay out of sys.modules."""
-    root = Path(__file__).resolve().parents[6]
+    root = Path(__file__).resolve().parents[5]
     env = dict(os.environ, PYTHONPATH=str(root / "src"))
     code = (
         "import sys, json;\n"

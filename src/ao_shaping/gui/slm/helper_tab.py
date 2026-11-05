@@ -205,7 +205,7 @@ def render_pattern_helper_tab(slm_num: int) -> None:
                 clamp=True,
             )
             generated = phase
-        except Exception as e:
+        except Exception as e:  # policy: 预览失败只 UI 报错并记日志，不中断渲染
             st.error(f"生成相位失败: {e}")
             logger.exception(f"Pattern helper preview failed for SLM {slm_num}: {e}")
 
@@ -220,6 +220,6 @@ def render_pattern_helper_tab(slm_num: int) -> None:
             st.success(
                 f"相位已下发到 SLM {slm_num} 并显示（灰度经 create_phase_from_array 编码）。"
             )
-        except Exception as e:
+        except Exception as e:  # policy: 下发失败只 UI 报错并记日志，不中断渲染
             st.error(f"下发失败: {e} —— 请先回到「生成预览」确认参数后重试。")
             logger.exception(f"Pattern helper display failed for SLM {slm_num}: {e}")

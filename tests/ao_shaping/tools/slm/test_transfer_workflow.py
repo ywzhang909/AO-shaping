@@ -177,6 +177,12 @@ class _FakeCamera:
     def __init__(self, closed: list[str]) -> None:
         self._closed = closed
 
+    def open(self) -> None:
+        pass
+
+    def close(self) -> None:
+        self._closed.append("camera")
+
     def __enter__(self):
         return self
 
@@ -194,6 +200,12 @@ class _FakeCamera:
 class _FakeSlm:
     def __init__(self, closed: list[str]) -> None:
         self._closed = closed
+
+    def open(self) -> None:
+        pass
+
+    def close(self) -> None:
+        self._closed.append("slm")
 
     def __enter__(self):
         return self
@@ -585,6 +597,12 @@ class _PhaseCamera:
         self._closed = closed
         self.exposures = []
 
+    def open(self) -> None:
+        pass
+
+    def close(self) -> None:
+        self._closed.append("camera")
+
     def __enter__(self):
         return self
 
@@ -608,6 +626,12 @@ class _LevelSlm:
         self._camera = camera
         self._closed = closed
         self.displays = []
+
+    def open(self) -> None:
+        pass
+
+    def close(self) -> None:
+        self._closed.append("slm")
 
     def __enter__(self):
         return self

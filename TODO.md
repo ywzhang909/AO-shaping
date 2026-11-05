@@ -4552,6 +4552,11 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 结果：`840f1c8e` 上 CI 的 **Ruff success**（49→0）与 **Terminology success** 已确认。
 - 已知未解并已写进提交信息：`ao_shaping.gui.slm.pattern_specs` **从未以任何形式存在**（磁盘、任何 ref、悬空 commit、`.pyc` 四处全搜为空），而 `640f4584` 提交了导入它的 `helper_tab.py` 与其测试，于是经 `multi_slm_controller` 级联使 9 个测试模块在收集期 `ImportError`，落在阻塞分片 `runners-gui-misc`。
 
+**2026-11-05 · 窗口 d3b8a016→840f1c8e · 盲 except 总量棘轮 377→388（+11），全部来自窗口新增文件**
+- 本窗口 4 个文件新增 11 个盲 `except`：`gui/slm/ccd_live.py` 0→6、`gui/slm/helper_tab.py` 0→2、`tools/slm/transfer/hardware.py` 0→2、`tools/slm/transfer/validate.py` 1→2（对照 d3b8a016 基线逐文件测得，无删减）。
+- 这 11 个全是窗口新代码，不是已判定群体的自然增长：`helper_tab` 与 `hardware` 的 4 个在收口时已带 `# policy:` 标注，未标注棘轮（`_MAX_UNMARKED...`）仍为 0；其余 7 个在合入时已判定。故总量 388 是"整合后实测"的登记，不是为新判定未决的宽泛捕获背书。
+- 未标注棘轮之所以守住 0，正是本轮给 4 个新 handler 补 `# policy:` 的结果——登记总量与登记"未判定"是两件事，前者随窗口涨，后者必须钉住。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

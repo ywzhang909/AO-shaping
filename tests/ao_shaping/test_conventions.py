@@ -2170,7 +2170,15 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
 #: multi_slm_controller lost 2, for a net 347 -> 377. Every one of the 32 arrived already
 #: judged -- the marked-count ratchet below is still zero -- so this raise again records the
 #: integrated measurement rather than blessing new undecided catches. Reason in TODO.md 8.9.
-_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 377
+#: Raised 377 -> 388 on 2026-11-05 (measured on 840f1c8e against the d3b8a016 baseline): the
+#: helper-tab / live-CCD / transfer-tooling window added 11 handlers in four files, all new code
+#: that did not exist at the baseline (ccd_live 0->6, helper_tab 0->2, hardware 0->2,
+#: validate 1->2), so the whole increment is new rather than growth of a judged population.
+#: The two helper_tab and two hardware handlers were written in this pass already carrying a
+#: ``# policy:`` marker, so the unmarked-count ratchet below stays zero; the rest arrived judged.
+#: This raise records the integrated measurement, not a blessing of new undecided catches.
+#: Reason in TODO.md 8.9.
+_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 388
 
 #: Second ratchet over the same population: a broad catch that has actually been *judged*
 #: carries a ``# policy:`` marker naming what the layer is protecting -- within two lines

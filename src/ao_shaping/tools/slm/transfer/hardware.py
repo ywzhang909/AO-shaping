@@ -87,7 +87,7 @@ def opened_device(device, *, attempts: int = 3, delay_seconds: float = 0.5):
         except _NON_RETRYABLE:
             # 配置/SDK 缺失异常立即 re-raise, 保留其 cause, 不做无意义重试。
             raise
-        except Exception as e:
+        except Exception as e:  # policy: 硬件打开失败重试, 耗尽后由调用方抛 DeviceOpenError
             opened = False
             exc = e
             logger.warning(
@@ -122,5 +122,5 @@ def best_effort_close(device) -> None:
         return
     try:
         close()
-    except Exception as e:
+    except Exception as e:  # policy: 关闭失败仅记日志, 不掩盖原始异常
         logger.warning(f"关闭设备时出错: {type(e).__name__}: {e}")
