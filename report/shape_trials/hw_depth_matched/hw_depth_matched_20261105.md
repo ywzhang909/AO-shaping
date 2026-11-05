@@ -2,7 +2,6 @@
 
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
-> **数据/关联脚本**: [`data/debug/zernike_probe_hardware/issue229/analysis/_harness_task2_run02.py`](../../../data/debug/zernike_probe_hardware/issue229/analysis/_harness_task2_run02.py)
 > **运行环境**: 硬件：1064 nm Santec SLM #1 + Daheng CCD（run02 采集 2026-11-05 09:33–09:49）；分析离线 CPU
 > **说明**: run02_depthmatched 将 ztrain 振幅提至 ±1.0/2.0 rad 消除激励深度混杂；三臂离线分析复用 _harness_task2 口径（_harness_task2_run02.py）；结论：深度混杂不解释 run01 边际，主动探针样本效率无可测收益，twin NCC 结构失配待诊断。
 <!-- provenance:end -->

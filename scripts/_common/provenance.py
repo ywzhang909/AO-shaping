@@ -99,7 +99,6 @@ REPORTS: dict[str, ReportProvenance] = {
             "三臂离线分析复用 _harness_task2 口径（_harness_task2_run02.py）；"
             "结论：深度混杂不解释 run01 边际，主动探针样本效率无可测收益，twin NCC 结构失配待诊断。"
         ),
-        extra_scripts=("data/debug/zernike_probe_hardware/issue229/analysis/_harness_task2_run02.py",),
     ),
     "report/shape_trials/transfer_uncertainty/transfer_uncertainty_20261104.md": ReportProvenance(
         "scripts/slm/transfer_uncertainty_experiment.py",
