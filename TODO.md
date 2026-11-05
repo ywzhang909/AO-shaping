@@ -4571,6 +4571,12 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 验收：`test_transfer_shapes_runner.py` 30 passed；`gui/slm` 与 transfer 相关 77 / 39 / 72+1skip / 44 / 8 全绿；ruff、术语门禁、规模门禁均绿。
 - 教训与 `16ab4447` 同源、只是换了一层：红着的 5 条测试住在**必然失败的分片**里（`runners-gui-misc` 的收集期 ImportError），所以"真正执行过"与"从未执行过"在报告上看起来一模一样 —— 判断一个门禁是否有效，必须先确认它所在的分片能收集。
 
+**2026-11-05 · 77ae3245 · 溯源映射只收可入库的报告：剔 3 条被忽略的死条目、补 1 份迁移规划**
+- `test_report_provenance.py` 5 项红的根因是映射表里有 3 条路径被 `.gitignore` 整体匹配（`report/**/tmp_*` 与 `report/slm_pib_online*`），即"永远不可能出现在提交里"，于是"已登记但文件缺失"这条断言必然红。剔除这 3 条，保留唯一允许的待生成报告 `pib_exit_safety_20261025.md`（未被忽略，等硬件）。
+- 新报告 `report/shape_trials/physical_refine/forward_model_transfer_plan_20261104.md` 登记为 `HANDWRITTEN` + 离线环境，说明文字逐字取报告头，故 header 更新 0 处（不为凑登记而改写正文）。
+- `source_inventory.md` 的 3 个死链改为行内 code 并标注「被 `.gitignore` 匹配，不入库」：文档保留可读的路径说明，但不再是可点击的承诺。
+- 验收：`sync_report_provenance.py` 幂等（185 份登记、header 更新 0）、`--check` 干净；同批相关测试 745 passed / 1 skipped。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
