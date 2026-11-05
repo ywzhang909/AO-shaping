@@ -2178,7 +2178,14 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
 #: ``# policy:`` marker, so the unmarked-count ratchet below stays zero; the rest arrived judged.
 #: This raise records the integrated measurement, not a blessing of new undecided catches.
 #: Reason in TODO.md 8.9.
-_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 388
+#: Raised 388 -> 395 on 2026-11-05 (measured on a1a827ba against the 840f1c8e baseline): the
+#: transfer-desktop hardening window added 7 handlers in three brand-new files
+#: (beam_quality/shell 0->1, static_shaping_page 0->2, transfer/capture 0->4). The shell
+#: handler and two capture live-prediction handlers arrived this scan without a marker and were
+#: annotated at discovery; the remaining four already carried rationale comments. This raise
+#: records the integrated measurement, not a blessing of new undecided catches -- the
+#: unmarked-count ratchet below is back to zero. Reason in TODO.md 8.9.
+_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 395
 
 #: Second ratchet over the same population: a broad catch that has actually been *judged*
 #: carries a ``# policy:`` marker naming what the layer is protecting -- within two lines

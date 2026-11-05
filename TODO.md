@@ -4557,6 +4557,10 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 这 11 个全是窗口新代码，不是已判定群体的自然增长：`helper_tab` 与 `hardware` 的 4 个在收口时已带 `# policy:` 标注，未标注棘轮（`_MAX_UNMARKED...`）仍为 0；其余 7 个在合入时已判定。故总量 388 是"整合后实测"的登记，不是为新判定未决的宽泛捕获背书。
 - 未标注棘轮之所以守住 0，正是本轮给 4 个新 handler 补 `# policy:` 的结果——登记总量与登记"未判定"是两件事，前者随窗口涨，后者必须钉住。
 
+**2026-11-05 · 窗口 840f1c8e→a1a827ba · 盲 except 总量棘轮 388→395（+7），全部来自窗口新增文件**
+- 本窗口 3 个新文件新增 7 个盲 `except`：`gui/ccd/beam_quality/shell.py` 0→1、`gui/slm/static_shaping_page.py` 0→2、`tools/slm/transfer/capture.py` 0→4（对照 840f1c8e 基线逐文件实测，无删减）。
+- 3 个新 handler 在合入时**未带任何标注**（shell 的 `# pragma: no cover - 环境相关` 是装饰注释不是判断、两处 live-prediction 捕获裸奔），未标注棘轮由 0 变 3；本轮给这 3 个补 `# policy:` 后未标注棘轮回到 0，总量 395 是"整合后实测"的登记，不是为未判定捕获背书。
+
 **2026-11-05 · 556bb7cc · gui/slm 收口：补上从未存在的 pattern_specs、同步两处过时术语断言、显式抬 8 条模块规模基线**
 - `ao_shaping.gui.slm.pattern_specs` 不是"缺文件"而是**从未存在过**：磁盘、全部 ref、悬空 commit、`.pyc` 四处全搜为空，而 `640f4584` 已提交导入它的 `helper_tab.py` 与可执行规格 `test_helper_tab.py`。新模块按该测试反推（11 个键 + `ParamSpec`/`MethodCall`/`PatternTypeSpec`），默认值与区间逐条转录 `pattern_controls.py` 的 `DEFAULTS`/`RANGES`；`ParamSpec.name` 必须等于方法形参名，mm/nm/um→m 的量纲换算集中在 `_UNIT_SCALE`，不下沉到控件层。这一处的收集期 ImportError 级联牵动 9 个测试模块。
 - `test_transfer_progress.py` 两处断言钉的是**已改名的旧措辞**：`18227e6b` 把冷启动基准改称「几何设计初值」（面板中心 `(960,600)`、宽度 `(400,300)`、离焦 `0`，术语表 T-72）并同步 5 个生产文件，**唯独没扫测试**；生产侧 `transfer_progress.py:82` 是事实源。教训：术语重命名必须连测试一起扫，但"断言页面文案"本身是合法的，不能为了绿而删断言。

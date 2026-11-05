@@ -88,15 +88,15 @@ class ReportProvenance:
 REPORTS: dict[str, ReportProvenance] = {
     "report/shape_trials/physical_refine/forward_model_transfer_plan_20261104.md": ReportProvenance(
         script=HANDWRITTEN,
-        environment="离线规划文档；其 P1 已于 2026-11-05 上机执行（probe_optical_path_validity）",
-        note="物理正向模型迁移实验计划（P0–P6 阶段、探针族、zernike_block 档与在线回灌门）；人工撰写。",
+        environment="离线规划文档；其 P1 已于 2026-11-05 实验执行（probe_optical_path_validity）",
+        note="物理预测模型迁移实验计划（P0–P6 阶段、探针族、zernike_block 档与在线回灌门）；人工撰写。",
     ),
     "report/shape_trials/hw_depth_matched/hw_depth_matched_20261105.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件：1064 nm Santec SLM #1 + Daheng CCD（run02 采集 2026-11-05 09:33–09:49）；分析离线 CPU",
         note=(
             "run02_depthmatched 将 ztrain 振幅提至 ±1.0/2.0 rad 消除激励深度混杂；"
-            "三臂离线分析复用 _harness_task2 口径（_harness_task2_run02.py）；"
+            "三个变体离线分析复用 _harness_task2 口径（_harness_task2_run02.py）；"
             "结论：深度混杂不解释 run01 边际，主动探针样本效率无可测收益，twin NCC 结构失配待诊断。"
         ),
     ),
