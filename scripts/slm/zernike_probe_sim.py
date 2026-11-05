@@ -28,6 +28,22 @@ AMPLITUDES = {4: 0.2, 5: 0.2, 6: 0.2, 7: 0.2, 8: 0.2, 9: 0.3, 10: 0.3, 11: 0.3}
 TRUE_C = np.array([0.16, 0.10, -0.08, 0.07, -0.06, 0.05, -0.04, 0.03])
 CCD_SCALE = 100.0  # Fixed nominal electrons/count calibration; twin gain remains unknown.
 
+# Photometric/PSF profile of the twin. --twin-profile swaps between the
+# pre-2026-11-04 "clean" twin (no CCD blur, unit-ish gain) and a twin that adds
+# the structural non-idealities measured offline on the physical device
+# (issue #229 run01 sigma_scan.json): a Gaussian CCD PSF sigma=8 px, the
+# measured irradiance offset, and larger ccount read noise. The absolute gain
+# slope (fitted 337 vs 1.08) is normalized away by the ptp-normalised NRMSE/NCC
+# metrics and the shared exposure-normalisation, so it is not applied here
+# directly; what matters for sample efficiency is blur + offset + noise floor.
+TWIN_PROFILES = {
+    "clean": dict(name="clean", gain=1.08, background=2.0, sigma_ccd_px=0.0, noise_std=0.25),
+    # sigma_ccd_px/background from sigma_scan.json (issue #229 run01); noise_std ~
+    # measured temporal std of 3 repeated holdout frames (0.9-1.6 counts RMS on
+    # peaks 69-206), not the earlier 6.0 guess which over-weights read noise.
+    "hardware": dict(name="hardware", gain=1.08, background=0.72, sigma_ccd_px=8.0, noise_std=1.2),
+}
+
 
 def basis(size: int, scale: float = 1.0) -> dict[int, np.ndarray]:
     return {j: np.nan_to_num(generate_zernike_phase({j: 1.0}, (size, size), radius=size*scale/2)).astype(np.float32)
@@ -41,15 +57,57 @@ def camera_grid(size: int, scale: float = 1.0) -> np.ndarray:
     return np.stack([1360. + xx, 1020. + yy], axis=-1)
 
 
+HW2F_MANIFEST = Path("D:/Projects/TIFO/AO-shaping/data/debug/zernike_probe_hardware/issue229/run01/manifest.json")
+HW2F_SPAN = 160  # camera window half-span (px), matches _harness_task2.py SPAN
+
+
+def hw2f_geometry(manifest: Path = HW2F_MANIFEST) -> dict:
+    """Real 2f geometry from the recorded run01 manifest, exactly as _harness_task2.load_window.
+
+    Reads only the manifest (no device imports): ramp-fitted matrix, reference spot as the
+    optical-axis centre, and the same even-step camera window centred on the rounded spot.
+    """
+    from ao_shaping.tools.slm.transfer.fit import geometry, spot, valid
+    rows = json.loads(Path(manifest).read_text(encoding="utf-8"))
+    usable = [r for r in rows if valid(r)]
+    matrix, _ = geometry(usable)
+    ref = next(r for r in usable if r["label"] == "reference_start")
+    centre = spot(ref)
+    yy, xx = np.mgrid[-HW2F_SPAN:HW2F_SPAN + 1:2, -HW2F_SPAN:HW2F_SPAN + 1:2]
+    xy = np.stack((xx + round(centre[0]), yy + round(centre[1])), axis=-1)
+    return {"mode": "hw2f", "source": str(manifest), "n_total": len(rows), "n_usable": len(usable),
+            "matrix": np.asarray(matrix, dtype=float).tolist(), "centre": [float(v) for v in centre],
+            "amplitude_center": [960., 600.], "camera_window": {"span": HW2F_SPAN, "step": 2,
+                                                                "size": int(xy.shape[0])},
+            "camera_xy": xy}
+
+
+def geometry_record(geom: dict | None) -> dict:
+    """JSON-safe geometry description for config.json / report.md (no arrays)."""
+    if geom is None:
+        return {"mode": "synthetic", "matrix": [[1500., 0.], [0., 1500.]], "centre": [1360., 1020.],
+                "amplitude_center": [960., 960.]}
+    return {k: v for k, v in geom.items() if k != "camera_xy"}
+
+
 def make_fit(phases: np.ndarray, images: np.ndarray, *, size: int, camera_size: int,
-             scale: float = 1.0, true: bool = False) -> PhysicalForwardFit:
+             scale: float = 1.0, true: bool = False, fft_size: int = 128,
+             geom: dict | None = None) -> PhysicalForwardFit:
+    if geom is None:
+        camera_xy, matrix, amp_center = camera_grid(camera_size, scale), np.array([[1500., 0.], [0., 1500.]]), (960., 960.)
+    else:
+        camera_xy, matrix, amp_center = geom["camera_xy"], np.asarray(geom["matrix"], dtype=float), tuple(geom["amplitude_center"])
     fit = PhysicalForwardFit(
-        phases=phases, images=images, camera_xy=camera_grid(camera_size, scale),
-        matrix=np.array([[1500., 0.], [0., 1500.]]), focus_diopter=0.,
-        train_mask=np.ones(len(phases), dtype=bool), amplitude_center=(960., 960.),
-        learn_residual=True, fft_size=128, pixel_samples=1, basis_arrays=basis(size, scale=.985 if true else 1.0),
+        phases=phases, images=images, camera_xy=camera_xy,
+        matrix=matrix, focus_diopter=0.,
+        train_mask=np.ones(len(phases), dtype=bool), amplitude_center=amp_center,
+        learn_residual=True, fft_size=fft_size, pixel_samples=1, basis_arrays=basis(size, scale=.985 if true else 1.0),
         batch_size=24, device="cpu", slm_phase_a=0.08 if true else 0.,
         slm_phase_b=0.025 if true else 0.)
+    if geom is not None:
+        # Shared optical-axis intercept at the measured reference spot (harness build_fit).
+        with fit.torch.no_grad():
+            fit.origin.copy_(fit.torch.as_tensor(geom["centre"], dtype=fit.origin.dtype))
     fit.origin.requires_grad_(False)
     fit.center.requires_grad_(False)
     fit.log_width.requires_grad_(False)
@@ -60,18 +118,41 @@ def make_fit(phases: np.ndarray, images: np.ndarray, *, size: int, camera_size: 
     return fit
 
 
-def twin_render(fit: PhysicalForwardFit, rng: np.random.Generator) -> np.ndarray:
+def blaze_kernel(sigma: float):
+    """Identical Gaussian CCD-PSF kernel to production ``_build_blaze_kernel``."""
+    if sigma <= 0.:
+        return None
+    import torch
+    g = torch.arange(-12, 13, dtype=torch.float32)
+    k = torch.exp(-0.5 * (g / (sigma / 2.0)) ** 2)
+    k = k / k.sum()
+    return (k[:, None] * k[None, :])[None, None]
+
+
+def twin_render(fit: PhysicalForwardFit, rng: np.random.Generator,
+                profile: dict | None = None) -> np.ndarray:
+    profile = profile or TWIN_PROFILES["clean"]
+    from scipy.ndimage import convolve as ndi_convolve
     ideal = fit.prediction().detach().cpu().numpy()
-    gain = 1.08
-    background = 2.0
+    gain = profile["gain"]
+    background = profile["background"]
     saturation = 255.0
+    # Apply the CCD PSF first (production blurs the *prediction*), so the twin
+    # and the fitter share the same operator ordering with a non-ideal CCD.
+    if profile["sigma_ccd_px"] > 0.:
+        k = blaze_kernel(profile["sigma_ccd_px"]).numpy()[0, 0]
+        ideal = np.stack([ndi_convolve(fr, k, mode="constant", cval=0.0) for fr in ideal])
     measured = np.clip(gain * ideal * CCD_SCALE + background, 0., saturation)
     # Quantisation and CCD read noise are only on the ground-truth side.
     measured = np.floor(measured * 16. + 0.5) / 16.
-    return (measured + rng.normal(0., 0.25, measured.shape)).astype(np.float32)
+    return (measured + rng.normal(0., profile["noise_std"], measured.shape)).astype(np.float32)
 
 
-def image_metrics(predicted: np.ndarray, measured: np.ndarray) -> dict[str, float]:
+def image_metrics(predicted: np.ndarray, measured: np.ndarray,
+                  kernel: np.ndarray | None = None) -> dict[str, float]:
+    if kernel is not None:
+        from scipy.ndimage import convolve as ndi_convolve
+        predicted = np.stack([ndi_convolve(fr, kernel, mode="constant", cval=0.0) for fr in predicted])
     predicted = predicted.reshape(len(predicted), -1)
     measured = measured.reshape(len(measured), -1)
     pred = np.maximum(predicted * CCD_SCALE, 0.)
@@ -87,10 +168,15 @@ def image_metrics(predicted: np.ndarray, measured: np.ndarray) -> dict[str, floa
     return {"nrmse": float(nrmse.mean()), "ncc": float(ncc.mean()), "ssim": float(ssim.mean())}
 
 
-def loss_and_ncc(pred, measured, torch):
+def loss_and_ncc(pred, measured, torch, kernel=None):
+    if kernel is not None:
+        pred = torch.nn.functional.conv2d(pred[:, None], kernel, padding=12)[:, 0]
     pred = pred.flatten(1)
     measured = measured.flatten(1)
-    scale = CCD_SCALE / 255.0
+    # Keep the training objective on the SAME scale as image_metrics and the
+    # twin's measured counts: pred*CCD_SCALE (~0..2.4*100) vs measured (~0..255).
+    # (was CCD_SCALE/255, ~255x smaller, distorting gradients for issue #229.)
+    scale = CCD_SCALE
     l1 = torch.mean(torch.abs(pred * scale - measured))
     p = pred * scale
     p = p - p.mean(dim=1, keepdim=True)
@@ -116,15 +202,20 @@ def fit_arm(probes: np.ndarray, measured: np.ndarray, *, size: int, camera_size:
             holdout: tuple[np.ndarray, np.ndarray], iterations: int = 120,
             patience: int = 18, threshold: float = 0.85,
             allowed_modes: tuple[int, ...] = MODES,
-            evaluation: tuple[np.ndarray, np.ndarray] | None = None) -> dict:
-    fit = make_fit(probes, measured, size=size, camera_size=camera_size)
+            evaluation: tuple[np.ndarray, np.ndarray] | None = None,
+            kernel: np.ndarray | None = None, fft_size: int = 128,
+             geom: dict | None = None) -> dict:
+    fit = make_fit(probes, measured, size=size, camera_size=camera_size, fft_size=fft_size, geom=geom)
     if evaluation is not None:
         holdout = evaluation
     torch = fit.torch
+    kt = None
+    if kernel is not None:
+        kt = torch.as_tensor(kernel[None, None], dtype=torch.float32)
     opt = torch.optim.Adam([{"params": [fit.d], "lr": .018 / fit.diopter_scale},
                             {"params": [fit.residual], "lr": .018}])
-    hold_fit = make_fit(holdout[0], holdout[1], size=size, camera_size=camera_size)
-    baseline_metrics = image_metrics(hold_fit.prediction().detach().numpy(), holdout[1])
+    hold_fit = make_fit(holdout[0], holdout[1], size=size, camera_size=camera_size, fft_size=fft_size, geom=geom)
+    baseline_metrics = image_metrics(hold_fit.prediction().detach().numpy(), holdout[1], kernel)
     threshold *= baseline_metrics["nrmse"]
     history = []
     best = (float("inf"), 0., np.zeros(8))
@@ -136,7 +227,7 @@ def fit_arm(probes: np.ndarray, measured: np.ndarray, *, size: int, camera_size:
         # Only low order updates first; middle order follows, never both at once.
         fit.d.requires_grad_(step < iterations // 2)
         opt.zero_grad()
-        loss, _ = loss_and_ncc(fit.prediction(), torch.as_tensor(measured), torch)
+        loss, _ = loss_and_ncc(fit.prediction(), torch.as_tensor(measured), torch, kt)
         loss.backward()
         if step < iterations // 2:
             fit.residual.grad[4:] = 0.
@@ -153,7 +244,7 @@ def fit_arm(probes: np.ndarray, measured: np.ndarray, *, size: int, camera_size:
             with torch.no_grad():
                 hold_fit.d.copy_(fit.d)
                 hold_fit.residual.copy_(fit.residual)
-                metrics = image_metrics(hold_fit.prediction().numpy(), holdout[1])
+                metrics = image_metrics(hold_fit.prediction().numpy(), holdout[1], kernel)
             history.append({"step": step + 1, **metrics})
             if threshold_step is None and metrics["nrmse"] <= threshold:
                 threshold_step = step + 1
@@ -172,9 +263,13 @@ def fit_arm(probes: np.ndarray, measured: np.ndarray, *, size: int, camera_size:
         hold_fit.d.copy_(fit.d)
         hold_fit.residual.copy_(fit.residual)
         hold_prediction = hold_fit.prediction().numpy()
-        final = image_metrics(hold_prediction, holdout[1])
-        downstream = image_metrics(hold_prediction[-1:], holdout[1][-1:])
-        train_l1 = float(torch.mean(torch.abs(fit.prediction() * CCD_SCALE / 255. - torch.as_tensor(measured).reshape_as(fit.prediction()))))
+        final = image_metrics(hold_prediction, holdout[1], kernel)
+        downstream = image_metrics(hold_prediction[-1:], holdout[1][-1:], kernel)
+        if kt is None:
+            train_pred = fit.prediction() * CCD_SCALE
+        else:
+            train_pred = torch.nn.functional.conv2d(fit.prediction()[:, None], kt, padding=12)[:, 0] * CCD_SCALE
+        train_l1 = float(torch.mean(torch.abs(train_pred - torch.as_tensor(measured).reshape_as(train_pred))))
     return {**final, "downstream_nrmse": downstream["nrmse"],
             "downstream_ncc": downstream["ncc"], "downstream_ssim": downstream["ssim"],
             "train_l1": train_l1, "iterations": len(history) and history[-1]["step"],
@@ -203,7 +298,9 @@ def zernike_phases(n: int, size: int, rng: np.random.Generator) -> np.ndarray:
     return np.stack(pairs).astype(np.float32)
 
 
-def make_holdout(size: int, camera_size: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
+def make_holdout(size: int, camera_size: int, seed: int,
+                 profile: dict | None = None, fft_size: int = 128,
+                 geom: dict | None = None) -> tuple[np.ndarray, np.ndarray]:
     rng = np.random.default_rng(seed)
     z = np.stack(list(basis(size).values()))
     probes = []
@@ -214,8 +311,8 @@ def make_holdout(size: int, camera_size: int, seed: int) -> tuple[np.ndarray, np
         probes.append(np.tensordot(np.asarray(coeff) + rng.normal(0., .025, len(MODES)), z, axes=1))
     phases = np.stack(probes).astype(np.float32)
     twin = make_fit(phases, np.zeros((3, camera_size), np.float32), size=size,
-                    camera_size=camera_size, scale=.985, true=True)
-    return phases, twin_render(twin, rng)
+                    camera_size=camera_size, scale=.985, true=True, fft_size=fft_size, geom=geom)
+    return phases, twin_render(twin, rng, profile)
 
 
 def dominance_ratios(matrix: np.ndarray) -> np.ndarray:
@@ -224,7 +321,9 @@ def dominance_ratios(matrix: np.ndarray) -> np.ndarray:
     return np.abs(np.diag(matrix)) / np.maximum(cross.max(axis=0), 1e-12)
 
 
-def response_identification(size: int, camera_size: int) -> dict:
+def response_identification(size: int, camera_size: int,
+                           profile: dict | None = None, fft_size: int = 128,
+                           geom: dict | None = None) -> dict:
     rng = np.random.default_rng(19229)
     columns, measured_columns, agreements = [], [], []
     z = np.stack(list(basis(size).values()))
@@ -232,10 +331,10 @@ def response_identification(size: int, camera_size: int) -> dict:
         amp = AMPLITUDES[mode]
         phases = np.stack([-amp*z[j], amp*z[j]]).astype(np.float32)
         twin = make_fit(phases, np.zeros((2, camera_size), np.float32), size=size,
-                        camera_size=camera_size, scale=.985, true=True)
-        measured = twin_render(twin, rng).reshape(2, -1)
+                        camera_size=camera_size, scale=.985, true=True, fft_size=fft_size, geom=geom)
+        measured = twin_render(twin, rng, profile).reshape(2, -1)
         model = make_fit(phases, np.zeros((2, camera_size), np.float32), size=size,
-                         camera_size=camera_size)
+                         camera_size=camera_size, fft_size=fft_size, geom=geom)
         nominal = model.prediction().detach().numpy().reshape(2, -1)
         columns.append((nominal[1]-nominal[0])/(2*amp))
         measured_columns.append((measured[1]-measured[0])/(2*amp*CCD_SCALE))
@@ -258,11 +357,11 @@ def response_identification(size: int, camera_size: int) -> dict:
         for amp in (.1, .2, .3, .5):
             phases = np.stack([-amp*z[j], amp*z[j]]).astype(np.float32)
             fit = make_fit(phases, np.zeros((2, camera_size), np.float32),
-                           size=size, camera_size=camera_size)
+                           size=size, camera_size=camera_size, fft_size=fft_size, geom=geom)
             outputs.append(fit.prediction().detach().numpy())
         nominal = make_fit(np.zeros((1, size, size), np.float32),
                            np.zeros((1, camera_size), np.float32), size=size,
-                           camera_size=camera_size).prediction().detach().numpy()[0]
+                           camera_size=camera_size, fft_size=fft_size, geom=geom).prediction().detach().numpy()[0]
         rel = [float(np.linalg.norm((out[1]+out[0])/2-nominal) / max(np.linalg.norm(out[1]-out[0]), 1e-12))
                for out in outputs]
         linearity.append({"mode": mode, "amplitudes": [.1, .2, .3, .5], "oddness_error": rel})
@@ -283,38 +382,65 @@ def response_identification(size: int, camera_size: int) -> dict:
 
 
 def run(output: Path, seeds: list[int], sizes: list[int], grid: int, camera_size: int,
-        iterations: int) -> dict:
+        iterations: int, profile: dict | None = None, use_gate: bool = True,
+        fft_size: int = 128, frame_budget: str = "16n", geom: dict | None = None) -> dict:
+    profile = profile or TWIN_PROFILES["clean"]
+    if geom is not None:
+        # hw2f: the camera window is set by the recorded geometry, not --camera-size.
+        camera_size = geom["camera_xy"].shape[0]
+        print(f"几何(hw2f): matrix={np.asarray(geom['matrix']).round(3).tolist()} "
+              f"centre={[round(v, 2) for v in geom['centre']]} window={camera_size}px "
+              f"source={geom['source']}", flush=True)
+    sig = float(profile.get("sigma_ccd_px", 0.0))
+    kernel = None
+    if sig > 0.:
+        kernel = blaze_kernel(sig).numpy()[0, 0]
+    budget_mult = 16 if frame_budget == "16n" else 1  # hardware comparison: n frames/arm
     output.mkdir(parents=True, exist_ok=False)
-    identification = response_identification(grid, camera_size)
+    identification = response_identification(grid, camera_size, profile, fft_size=fft_size, geom=geom)
     gate = {j for j, ratio in zip(MODES, identification["dominance_ratio"])
             if ratio >= 1.2 and identification["agreement"][j-4]["correlation"] >= .85}
+    if not use_gate:
+        # Under a real CCD PSF the L2 dominance-ratio gate collapses to empty even
+        # though production fitting (harness, no gate) reaches 0.024 on hardware.
+        # Bypass the sim-only gate to expose sample-efficiency rather than a
+        # frozen floor, matching how production fits blurs+radiometry per call.
+        gate = set(MODES)
     identification["allowed_modes"] = sorted(gate)
     print(f"可辨识门禁: {sorted(gate)}; 其余模态冻结为残差（待联合辨识）", flush=True)
     rows = []
     for seed in seeds:
-        holdout = make_holdout(grid, camera_size, seed+5000)
+        holdout = make_holdout(grid, camera_size, seed+5000, profile, fft_size=fft_size, geom=geom)
         for n in sizes:
             rng = np.random.default_rng(seed*100+n)
-            frames = 16*n
+            frames = budget_mult*n
             for arm in ("none", "random", "zernike"):
                 if arm == "none":
                     phases = holdout[0]
                     measured = np.zeros((len(phases), camera_size, camera_size), np.float32)
-                    fit = make_fit(phases, measured, size=grid, camera_size=camera_size)
-                    metrics = image_metrics(fit.prediction().detach().numpy(), holdout[1])
-                    downstream = image_metrics(fit.prediction().detach().numpy()[-1:], holdout[1][-1:])
+                    fit = make_fit(phases, measured, size=grid, camera_size=camera_size, fft_size=fft_size, geom=geom)
+                    metrics = image_metrics(fit.prediction().detach().numpy(), holdout[1], kernel)
+                    downstream = image_metrics(fit.prediction().detach().numpy()[-1:], holdout[1][-1:], kernel)
                     result = {**metrics, "iterations": 0, "seconds": 0., "threshold_step": None,
                               "threshold_seconds": None, "downstream_nrmse": downstream["nrmse"],
                               "downstream_ncc": downstream["ncc"], "downstream_ssim": downstream["ssim"],
                               "train_l1": 0., "coefficients": [0.]*8, "history": []}
                 else:
-                    phases = (random_phases(frames, grid, rng) if arm == "random"
-                              else zernike_phases(n, grid, rng))
+                    if arm == "random":
+                        phases = random_phases(frames, grid, rng)
+                    else:
+                        # Active arm: zernike_phases produces 16 frames per rep
+                        # (8 modes x 2 signs); with the hardware comparison budget
+                        # we draw the same frame budget as the random arm.
+                        phases = zernike_phases(n, grid, rng)
+                        if budget_mult != 16:
+                            phases = phases[:frames]
                     twin = make_fit(phases, np.zeros((frames, camera_size), np.float32),
-                                    size=grid, camera_size=camera_size, scale=.985, true=True)
-                    measured = twin_render(twin, rng)
+                                    size=grid, camera_size=camera_size, scale=.985, true=True, fft_size=fft_size, geom=geom)
+                    measured = twin_render(twin, rng, profile)
                     result = fit_arm(phases, measured, size=grid, camera_size=camera_size,
-                                     holdout=holdout, iterations=iterations, allowed_modes=tuple(gate))
+                                     holdout=holdout, iterations=iterations,
+                                     allowed_modes=tuple(gate), kernel=kernel, fft_size=fft_size, geom=geom)
                 row = {"seed": seed, "n": n, "arm": arm, "frames": 0 if arm == "none" else frames,
                        "evaluation_frames": 3, **result}
                 rows.append(row)
@@ -324,12 +450,18 @@ def run(output: Path, seeds: list[int], sizes: list[int], grid: int, camera_size
                       f"wall={result['seconds']:.2f}s", flush=True)
     config = {"issue": 229, "modes": list(MODES), "true_coefficients": TRUE_C.tolist(),
               "amplitudes": AMPLITUDES, "sizes": sizes, "seeds": seeds, "grid": grid,
-              "camera_size": camera_size, "fft_size": 128, "iterations": iterations,
-              "frame_budget": "16*n for both learned arms; none=0; +3 common evaluation frames",
+              "camera_size": camera_size, "fft_size": fft_size, "iterations": iterations,
+              "twin_profile": profile,
+              "geometry": geometry_record(geom),
+              "use_gate": use_gate,
+              "frame_budget": ("n frames per learned arm (hardware comparison); active arm is a "
+                               "prefix draw of the n-frame zernike set; none=0; +3 common evaluation frames"
+                               if budget_mult != 16 else
+                               "16*n for both learned arms; none=0; +3 common evaluation frames"),
               "trust_region": {"Z4": .3, "Z5_Z11": .15, "global_l2": .5},
               "twin_only": ["slm_phase_a=.08", "slm_phase_b=.025", "camera_scale=.985",
-                            "gain=1.08", "background=2", "saturation=255", "4-bit fractional quantisation",
-                            "read_noise_sigma=.25"], "threshold_nrmse_fraction_of_baseline": .85}
+                            "saturation=255", "4-bit fractional quantisation"],
+              "threshold_nrmse_fraction_of_baseline": .85}
     (output/"config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
     (output/"identifiability.json").write_text(json.dumps(identification, ensure_ascii=False, indent=2), encoding="utf-8")
     (output/"learning_curves.json").write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -348,12 +480,17 @@ def render_report(rows: list[dict], ident: dict, config: dict) -> str:
              "> 纯合成 twin 证据，不代表实测。ground truth 与拟合器共享 `PhysicalForwardFit` 算子族；",
              "> SLM 非线性先作用于命令，静态像差后加。无硬件、无 GUI、无未知波前反演。", "",
              "## 口径", "", f"- 模态：Noll Z4–Z11；真值：{config['true_coefficients']} rad。",
-             "- 两种学习臂均使用 `16*n` 帧；主动臂每模态 n 次随机顺序 ±A；随机臂相同总帧数与匹配 RMS。",
+             f"- 帧预算：{config['frame_budget']}。{('主动臂每模态 n 次随机顺序 ±A；随机臂相同总帧数与匹配 RMS。' if '16*n' in str(config['frame_budget']) else '主动臂取 n 帧 Zernike 集前缀；随机臂同帧数。')}",
+             f"- 传播 FFT 尺寸：{config['fft_size']}。",
+             f"- 几何：`{config['geometry']['mode']}`；matrix={config['geometry']['matrix']}，centre={[round(v, 2) for v in config['geometry']['centre']]}，amplitude_center={config['geometry']['amplitude_center']}"
+             + (f"，窗口 {config['geometry']['camera_window']['size']}px（span {config['geometry']['camera_window']['span']}, step {config['geometry']['camera_window']['step']}），源 `{config['geometry']['source']}`" if config['geometry']['mode'] == 'hw2f' else "") + "。",
              "- 无微调 0 帧；公共留出集 3 帧（两个未见混合模态/幅度 + 一个下游 +离焦方向）。",
              "- 主损失图像域 L1 + 0.10(1-NCC)；先 Z4–Z8、后 Z9–Z11；留出 NRMSE 早停。",
              f"- L2 门禁（对角比≥1.2 且方向相关≥0.85）允许：{ident['allowed_modes']}；未过门禁者冻结为残差。",
              "- 信任域：Z4≤0.3 rad、Z5–Z11≤0.15 rad、全局 L2≤0.5 rad。",
-             "- twin 独有：SLM LUT 非线性、瞳孔缩放 .985、CCD 增益/背景/饱和/量化/读出噪声。", "",
+             "- twin 独有：SLM LUT 非线性、瞳孔缩放 .985、CCD 增益/背景/饱和/量化/读出噪声。",
+             f"- twin 光度/PSF 档位：`{config['twin_profile']['name']}`（σ={config['twin_profile']['sigma_ccd_px']}px、背景={config['twin_profile']['background']}、噪声σ={config['twin_profile']['noise_std']}）。",
+             f"- 残留限制：twin 与拟合器**共享固定增益**（`CCD_SCALE=100`、`gain={config['twin_profile']['gain']}`），未建模绝对辐射标定，故绝对 counts 不代表硬件；样本效率差异来自 blur+offset+噪声地板，增益斜率被 ptp 归一化 NRMSE/NCC 与共享曝光归一化吸收。", "",
              "## 样本效率（各 seed 均值）", "", "| n | 臂 | 训练帧 | 留出 NRMSE | NCC | SSIM | 训练 L1 | 迭代 | 秒 |", "|---:|---|---:|---:|---:|---:|---:|---:|---:|"]
     for n in config["sizes"]:
         for arm in ("none", "random", "zernike"):
@@ -396,9 +533,27 @@ def main() -> None:
     parser.add_argument("--grid", type=int, default=48)
     parser.add_argument("--camera-size", type=int, default=48)
     parser.add_argument("--iterations", type=int, default=120)
+    parser.add_argument("--fft-size", type=int, default=128,
+                        help="FFT size for propagation (128 clean/hardware default; 256 for the "
+                             "hardware comparison mode with grid=128, camera=320)")
+    parser.add_argument("--frame-budget", choices=["16n", "n"], default="16n",
+                        help="frame scaling: '16n' legacy (16 frames per n, both learned arms); "
+                             "'n' hardware-comparison budget (n frames per arm, active arm is a "
+                             "prefix of the n-frame zernike set)")
+    parser.add_argument("--twin-profile", choices=sorted(TWIN_PROFILES), default="clean")
+    parser.add_argument("--no-gate", action="store_true",
+                        help="bypass L2 dominance gate (fit all Z4-Z11), matching production/harness")
+    parser.add_argument("--geometry", choices=["synthetic", "hw2f"], default="synthetic",
+                        help="synthetic: legacy hardcoded 1500px matrix / (1360,1020) origin (default); "
+                             "hw2f: real 2f geometry from --manifest (matches _harness_task2.py)")
+    parser.add_argument("--manifest", type=Path, default=HW2F_MANIFEST,
+                        help="run01 manifest.json used when --geometry hw2f")
     args = parser.parse_args()
     output = args.output or REPO/"logs"/"zernike_probe_sim"/time.strftime("%Y%m%d_%H%M%S", time.gmtime())
-    run(output, args.seeds, args.sizes, args.grid, args.camera_size, args.iterations)
+    profile = TWIN_PROFILES[args.twin_profile]
+    geom = hw2f_geometry(args.manifest) if args.geometry == "hw2f" else None
+    run(output, args.seeds, args.sizes, args.grid, args.camera_size, args.iterations, profile,
+        use_gate=not args.no_gate, fft_size=args.fft_size, frame_budget=args.frame_budget, geom=geom)
     print(f"报告: {output/'report.md'}")
 
 
