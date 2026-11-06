@@ -4585,6 +4585,13 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - `source_inventory.md` 的 3 个死链改为行内 code 并标注「被 `.gitignore` 匹配，不入库」：文档保留可读的路径说明，但不再是可点击的承诺。
 - 验收：`sync_report_provenance.py` 幂等（185 份登记、header 更新 0）、`--check` 干净；同批相关测试 745 passed / 1 skipped。
 
+**2026-11-05 · 62676d6b · 修掉合并造成的内联重复：validate.py 恢复三层委托，并把 3 处主线新特性折进 helper**
+- `d720981b` 合并把 `^2` 的 `_run_validate_shapes(...)` 调用换成 `^1` 的内联循环：`_run_validate_session` 涨到 **439 行 / 嵌套 9**（上限 230/5），而 `_run_validate_shapes` 与 `_run_validate_blocks` 从此**全是死代码**（只彼此调用，入口无人调用）。判据是两个父提交各自可解析、且 `^2` 里该函数只有 216/5 ⇒ 这是合并取侧错误，不是设计意图。
+- **不能直接恢复调用**：把内联块与 `_run_validate_blocks` 逐行比对（219 条非空行），只有 14 行在两个 helper 里都找不到，而这 14 行**全是主线新增特性**（`paired_decision` 的 `rel_tol`/`abs_tol`、顺序 CCD 的 `tolerance` 带、`direction_agreement` 的 `min_signal`）⇒ 先把这 3 处折进 helper，再恢复委托，否则"修重复"会变成"丢功能"。
+- 折完仍差一点（240/230 与 208/200），于是**再抽两个纯函数而不是抬上限**：嵌套的 `_predicted_frame` 提到模块级；顺序 CCD 判据抽成 `_sequential_ccd_decision`，并让它**连 `metric`/`av`/`bv` 一起返回**——后续 non-monotone policy 还要用这三个值，只返回 `decision` 就会逼调用方把取值的三行再抄一遍。
+- 终值：`run` 266/300、`_run_validate_session` 225/230、`_run_validate_shapes` 110/130、`_run_validate_blocks` 197/200；+65/−243 行。
+- 验收：形状门禁 71 passed；transfer 7 文件 178 passed / 1 skipped；ruff、术语门禁、模块规模门禁全绿。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
