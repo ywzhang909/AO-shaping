@@ -3,11 +3,14 @@
 Only --execute opens devices. Each run uses a new directory. This script reads
 the self-contained physical checkpoint from fit_transfer_multishape.py.
 
-The A–B–B–A acceptance is optional (``abba``): with it off the candidate is
-accepted on the optimizer's own loss history and every summary entry carries
-``acceptance="model_only"``, so no artefact can imply a CCD verdict that was
-never measured. An explicit ``ccd_check`` instead measures sequential A/B
-captures; optional nonmonotone exploration retains a separate best phase.
+The A–B–B–A acceptance is optional (``abba``): with it off but a CCD anchor
+present (anchored mode), the candidate is accepted by one sequential CCD
+measurement (B vs anchor A), ``acceptance="sequential_ccd"`` — the optimizer's
+own loss history is still recorded as ``model_loss_*`` reference; without an
+anchor (model mode) it stays ``acceptance="model_only"``, so no artefact can
+imply a CCD verdict that was never measured. An explicit ``ccd_check`` instead
+measures sequential A/B captures; optional nonmonotone exploration retains a
+separate best phase.
 """
 from __future__ import annotations
 
