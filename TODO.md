@@ -4631,12 +4631,17 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 等价证明：把 14 处 `X -> scan.X` 改名**施加到原循环 AST** 上再逐语句 `ast.dump` 比对，完全相等；`_GrayScan` 9 字段全部由同名局部量绑定（唯一两处例外是漂移中心快照 `ref_calib_center=ref_center` / `test_calib_center=test_center`，即原语义）；helper 自由名 ⊆ 形参 ∪ 模块级名。
 - 扫描中途会变的 `ref_center` / `test_center` 不进快照（下游 artifacts 要写最终位置）；曝光恒定不变量原样保留在函数体内。
 - **教训一（差点静默上线）**：新代码插在 `def run(` 之前，而 `run` 上挂着 `@click.command()` + `@with_params(...)` —— 插入等于把这两个装饰器**改挂到 `_GrayScan`**，`run` 退化为裸函数。import 不报错、ruff 干净、AST 等价证明全过、1515 个测试绿；抓住它的是 `test_cli_argv_binding`（"run is not a Command"）与 `test_every_click_command_has_a_guard_case` 两条守卫。现插入点按装饰器行号计算，证明脚本加"全部既有符号的装饰器列表逐条不变"一条。
-- **教训二**：`test_probe_flags` 锁探针每个函数体内**全部字符串常量**（docstring 也算），新函数加 docstring 会让 `slm_lut_runner` 金标准 114→115。改用注释表达同一批不变量，金标准零漂移——不重定基线，也不用重定基线掩盖真实 diff。
+- **教训二**：`test_probe_flags` 锁探针每个函数体内**全部字符串常量**（docstring 也算），新函数加 docstring 会让 `slm_lut_runner` 参考真值 114→115。改用注释表达同一批不变量，参考真值零漂移——不重定基线，也不用重定基线掩盖真实 diff。
 - 顺带纠正误判：`test_every_click_command_has_a_guard_case` 不是间歇 flake，只在装饰器被劫持的那两次整片运行里红，修好即绿——是教训一的连带症状。TODO:3757 那条历史悬案**仍未结**，不能借这次冒充破案。
 - 门禁与基线：新增 `_LUT` 两枚钉（`run` 380/3/329、`_run_gray_scan` 115/2/91），棘轮表 79→81 行（2026-11-07 AST 实测复核）；模块 877→929 已在基线点名。
 - 文档同步：`call_graph_wiki/commands/slm-lut.md` 两处 `lut_runner.py:473` 重锚至 `:585`（`test_wiki_source_citations_land_on_definitions` 要求引用落在定义行）；raw 图资产仍是旧行号，等下次整条 call-graph 流水线重跑统一刷新。
 - 验收：tools 分片整片 **1517 passed / 6 skipped / 0 failed**；root-guards 组（形状门禁 + conventions + import purity）164 passed；LUT 与探针定向 246 passed；ruff、术语门禁全绿。
 - **两处门禁红（2026-11-07 文档审核发现，非本批引入）**：① 形状门禁 `validate.py` 两枚钉被上游 `7f7bd578` 越界——`_run_validate_session` 238>230、`_run_validate_blocks` 241>200（嵌套 7/6 > 5；`7f7bd578` 给 validate 加时序/转储 CLI +76 行时未同步重钉/拆段，`62676d6b` 时代的 225/197 基线已被其打穿）；② 模块规模门禁在本提交即红（CI `Module size gate` failure，`62fa558d` 干净 worktree 本地复现一致）：`page.py` 1586→1827（+241）、`archive_replay.py` 1728→1799（+71）、`workflow.py` 1602→1604（+2）、`transfer_progress.py` 1328→1333（+5），均为上游 transfer 桌面批次（`7f7bd578` / `75f7f846`）涨行未同步基线。注意 `62fa558d` 提交信息里"模块规模门禁全绿"一句与 CI 事实不符。两处均属上游特性债：按 `62676d6b` 先例应继续拆段（而非抬上限）/ 基线按脚本口径 `--update-baseline` 结算，留给下一批处理。
+
+**2026-11-07 · 7f7bd578 · blind-except 总数棘轮 406→409：桌面合并窗口净增 3 个宽泛捕获，两处补上判据**
+- **先归属，再处置**：把工作树 stash 掉、在已推送的 `62fa558d` 上整跑 `test_conventions.py`，两条棘轮同样红 ⇒ 红灯来自合并窗口，不是同批的 #205 拆分。计数不靠 grep 猜，直接复用守卫自己的探测器 `_blind_except_handlers_in_src()` 在两个版本上各跑一遍按文件求差：`transfer_desktop/page.py` 5→7、`tools/slm/transfer/validate.py` 2→3，总数 406→409。
+- 未记判据的两处都在 `page.py`，且都是"读不到就隐藏该行、绝不打断面板"的降级：一个从盘上取验收阈值实时读数（产物可能正在写），一个是可选探针默认容差导入。按守卫指定的出路补 `# policy:` 判据行，**不收窄**——界面读路径上的窄化不是清理（见 issues #145 与 #45）。`validate.py` 那一个是收尾时把最优相位留在面板上的显示写入，本来就带理由注释，只进总数。
+- 上一条 `62fa558d` 条目末尾点名的两处门禁红（形状钉越界、模块规模基线未同步）已由第 31 批处理：两处函数拆回天花板内、基线逐条点名，与本节同一提交进仓。总数棘轮按该常量上方的既有格式记来源，本节即守卫要求的那条 reason。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

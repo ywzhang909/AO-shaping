@@ -273,7 +273,7 @@ def acceptance_progress_line(session_dir: Path) -> str:
 
     try:
         verdict = acceptance_verdict(session_dir)
-    except Exception:
+    except Exception:  # policy: 阈值读数是展示层附加信息, 读不到只隐藏该行, 不打断面板
         logger.warning("读取验收阈值实时读数失败: {}", session_dir)
         return ""
     rounds = int(verdict.get("rounds") or 0)
@@ -340,7 +340,7 @@ def _reuse_latest_failure_reason(data: dict) -> str:
             DEFAULT_TOL_EXPOSURE_FACTOR,
             DEFAULT_TOL_ZERO_PX,
         )
-    except Exception:
+    except Exception:  # policy: 探针默认容差是可选依赖, 拿不到就按「不可比」隐藏该行
         return ""
     cur = data.get("current")
     ref = data.get("reference")

@@ -2192,7 +2192,17 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
 #: Five of those (two page, one capture serial-read, two workflow json reads) arrived without a
 #: marker and were annotated with a `# policy:` judgement at discovery; the rest already carried
 #: rationale comments. The unmarked-count ratchet below is back to zero. Reason in TODO.md 8.9.
-_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 406
+#: Raised 406 -> 409 on 2026-11-07 (measured on 62fa558d against the 10a0240e baseline):
+#: the 7f7bd578 merge window added a net 3 handlers -- transfer_desktop/page 5->7 (+2) and
+#: tools/slm/transfer/validate 2->3 (+1, the SLM hold-best-phase teardown write). The two page
+#: handlers arrived without a marker and now carry a `# policy:` judgement at the handler (a
+#: live acceptance read-out taken off disk, and an optional optical_probe tolerance import --
+#: each hides its own row instead of breaking the panel); the validate one already carried its
+#: rationale comment. None of the three was narrowed: two are GUI read paths where any failure
+#: of a partial on-disk artifact must degrade to "no row", the third is a best-effort display
+#: write during teardown -- see issues #145 and #45. The unmarked-count ratchet below is back
+#: to zero. Reason in TODO.md 8.9.
+_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 409
 
 #: Second ratchet over the same population: a broad catch that has actually been *judged*
 #: carries a ``# policy:`` marker naming what the layer is protecting -- within two lines
