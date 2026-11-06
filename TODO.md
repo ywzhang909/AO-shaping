@@ -4610,7 +4610,21 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 这批**不是逐字搬移**（记录化动了数据流），所以等价性只能靠数值证明：新增 `tests/ao_shaping/optimizer/wfless/test_slm_square_epoch_characterization.py`。
 - 要害是**夹具必须随面板而变**：既有 sim 夹具下发的是固定高斯 blob ⇒ `pos["q"] == neg["q"]` 恒成立、SPGD 梯度恒为 0，把 pos/neg 写反它根本看不见。换成相位驱动帧（光斑偏移与各向异性取决于最近一次下发的相位）后梯度非零，best 追踪、能量护栏、`lr==0` 调度、Recorder 行才真的读到这一对。
 - 参考（真值） = (行数, 行摘要 sha1, SLM 下发序列 sha1, 下发次数) × 6 配置（quality / pearson+lr0 / adaptive 停滞放大 / 护栏收紧 / pbr+aspect 权重 / zernike 基）。**重构前源码跑同一组参考真值 7 passed** ⇒ 行为逐位不变；网的牙单独验过：把 `-disturb_c` 改成 `+disturb_c` ⇒ **6 failed**。另加 `test_the_camera_actually_depends_on_the_panel` 守住夹具前提本身——前提被改回去时测试立刻失效，而不是静默失去灵敏度。
-- **方法论教训**：表征测试"在旧代码上也通过"**不是没牙**，那恰恰是行为保持型重构的正确签名；要证明有牙必须做**故意变异**（改符号、换 pos/neg）看它是否失败。差点因为这个误判去"修"一张本来正确的网。
+- 教训：表征测试"在旧代码上也通过"**不是没牙**，那恰恰是行为保持型重构的正确签名；要证明有牙必须做**故意变异**（改符号、换 pos/neg）看它是否失败。差点因为这个误判去"修"一张本来正确的网。
+
+**2026-11-06 · bfbfdf5e · #205 第二十九批：`run_session` 583→378，并给全 src 最长的"无门禁"函数补上第一枚钉**
+- `tools/slm/transfer/workflow.py::run_session` 是当时全 src 最长**且完全没有形状登记**的函数（583 行 / nest 5）。四段逐字搬移到模块级：`_acquire_session_dataset`（63）、`_round_geometry_preflight`（28）、`_offline_synthesize`（98，原 `if offline:` 里的嵌套 `synthesize` 闭包）、`_round_calibration_stages`（39）；拆完 378 行 / nest 5→4。
+- 证明照旧：每段语句序列 `ast.dump` 与原块逐条相等（3 / 7 / 1 / 11 条）；每个 helper 的自由名 ⊆ 声明形参 ∪ 模块级名。`validate` / `fit` / `capture` 在本文件里是 `run_session` 内的**延迟导入**（顶层导入会成环），所以 helper 各自补 `from . import …`，与该文件既有风格一致；顺带把 `run_session` 那行延迟导入里已无引用的 `capture` 摘掉（留着就是 F401）。
+- 5 枚钉进 `test_issue205_function_shape.py`（新增 `_WF` 分组），棘轮表 75→80 行。**拆完不上钉等于没拆**——没有钉，下一次改动可以把它悄悄长回去。
+- 代价点名：模块 1521→1602（+81，基线已点名），约一半是 4 个签名与调用点样板，另一半是 4 段说明"这块为什么在这儿"的 docstring；函数体净减 205 行。
+- 验收：transfer 全套 16 组 247 passed、**tools 分片整片 1517 passed / 6 skipped**（CI 包络 AO_CPUS=4 / AO_MEMORY=6g）、optimizer 分片整片 1345 passed、形状门禁 80、conventions 757。
+
+**2026-11-06 · a1b405fe · 表征网逐位哈希 → 量化哈希：根因是测试镜像依赖无上界（本仓库第一个受害者）**
+- 现象：`10a0240e` 绿，其后的纯文档提交 `176bf838` 红、`d3b351da` 红、`bfbfdf5e` 红；而本地**整片** optimizer 1345 passed 全绿，怎么都复现不出来。
+- **取证方法（记死，别再靠肉眼翻日志）**：`GET /repos/{o}/{r}/commits/{sha}/check-runs` 取 `check_run_id` → `GET /repos/{o}/{r}/check-runs/{id}/annotations`。工作流里 `::error::$name failed (blocking)` 会原样落在注解里，本次直接给出 **`optimizer failed (blocking)`**，其余 11 个分片逐条 PASS。对照：`actions/runs/{id}/logs` 与 `/summary` 需要鉴权（本机 `gh` 令牌已失效，经 gh-proxy 分别返回 http 000 / 404）。§8.9 那条"tools 分片 1 failed / 1107 passed，当时只 grep 汇总行、丢掉失败用例名"的悬案，用这条路可以复活。
+- 根因链：第二十八批的表征参考真值哈希的是**全精度浮点字节**（数组 raw bytes、浮点 `.12g`）；而 `docker/Dockerfile.test.cpu:67` 以 `"numpy>=2.2.6" "pandas>=2.3.2" …` 安装依赖——**无上界、无 lock**，CI 每次 `docker build` 都可能装到更新的 numpy（本地镜像实测 numpy 2.5.4 / CPython 3.13）。于是"本地绿、CI 红、且只红装有该测试的那一片"完全成立：**参考真值不是被代码改动打败，是被依赖版本漂移打败**。
+- 处置：量化到 4 位小数 / 5 位有效数字，`_quant` 显式转 `<f8`（按本机字节序哈希等于把参考真值绑死在机器类别上）。牙未钝——`-disturb_c`→`+disturb_c` 仍 **6 failed**；`176bf838` 的重构前源码跑同一参考真值仍 **7 passed**。失败消息改为**自带前两行逐列数值**（本次变异当场暴露 `_diff` 由 `0` 变 `"0"`、`_grad` 哈希改变，即 pos/neg 写死后梯度归零的签名），红一次就能定案；另加 `AO_SQUARE_CHAR_UPDATE=<path>` opt-in 重定基线（沿用仓库既有 `AO_PROBE_HELP_UPDATE=1` 惯例，不设变量时行为逐字不变）。
+- **仍未结的基础设施债**：测试镜像依赖无上界 ⇒ 任何逐位/数值参考真值都会腐烂，CI 不可复现。两条候选处置：`Dockerfile.test.cpu` 改 lock 安装（`uv sync --frozen` 或 pip constraints），或约定数值参考真值一律容差比较而非哈希。**暂不动 Dockerfile**：它会触发全镜像重建，先观察 `a1b405fe` 的分片结果再决定。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

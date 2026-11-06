@@ -49,7 +49,7 @@
   "src/ao_shaping/tools/slm/calibration/calibration.py": 2887,
   "src/ao_shaping/tools/slm/calibration/diffraction_efficiency/core.py": 1534,
   "src/ao_shaping/tools/slm/calibration/diffraction_efficiency/measure.py": 924,
-  "src/ao_shaping/tools/slm/calibration/lut_runner.py": 877,
+  "src/ao_shaping/tools/slm/calibration/lut_runner.py": 929,
   "src/ao_shaping/tools/slm/calibration/train_data_collect.py": 987,
   "src/ao_shaping/tools/slm/panel/focus_preflight.py": 921,
   "src/ao_shaping/tools/slm/panel/focus_probe.py": 944,

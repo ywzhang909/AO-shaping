@@ -65,6 +65,7 @@ _PIB = "src/ao_shaping/optimizer/wfless/pib.py"
 _COMB = "src/ao_shaping/optimizer/combined_optimizer.py"
 _VAL = "src/ao_shaping/tools/slm/transfer/validate.py"
 _WF = "src/ao_shaping/tools/slm/transfer/workflow.py"
+_LUT = "src/ao_shaping/tools/slm/calibration/lut_runner.py"
 _IO = "src/ao_shaping/utils/io/file.py"
 _DM = "src/ao_shaping/tools/kernels/device_mutex.py"
 _PAT = "src/ao_shaping/utils/image/target/patterns.py"
@@ -122,6 +123,8 @@ TARGETS = [
     (_WF, "_round_geometry_preflight", 60, 1, 42),
     (_WF, "_offline_synthesize", 130, 3, 108),
     (_WF, "_round_calibration_stages", 70, 1, 52),
+    (_LUT, "run", 380, 3, 329),
+    (_LUT, "_run_gray_scan", 115, 2, 91),
     (_IO, "render_recorder_gif", 160, 4, 113),
     (_IO, "_gif_frames", 200, 5, 149),
     (_IO, "_render_gif_top_panels", 100, 6, 72),

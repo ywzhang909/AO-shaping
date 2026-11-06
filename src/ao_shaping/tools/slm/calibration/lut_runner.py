@@ -468,6 +468,118 @@ class LutRunnerParams:
     ] = False
 
 
+@dataclass(frozen=True)
+class _GrayScan:
+    """What a gray scan reads but never changes, frozen once before the loop.
+
+    Carrying those nine values as one snapshot keeps ``_run_gray_scan`` down to
+    six arguments.  The drift-tracking centers deliberately are NOT fields: they
+    move during the scan, so they stay plain arguments and come back as results.
+    """
+
+    g_values: np.ndarray
+    ref_pattern: np.ndarray
+    ref_calib_center: tuple
+    test_calib_center: tuple
+    half_h: int
+    slm_width: int
+    slm_bits: int
+    gray_for_2pi: int
+    final_exposure_ms: float
+
+
+def _run_gray_scan(params, *, slm, camera, scan: _GrayScan, ref_center, test_center):
+    # Body is the loop that used to sit inline in run(), verbatim apart from the
+    # nine read-only values now reached through ``scan``.
+    #
+    # Exposure stays fixed for the whole scan (set beforehand by
+    # _joint_exposure_settle): invert_depth_scan assumes one constant exposure
+    # across gray points, so nothing in here may touch it.
+    #
+    # The centers come back because spot-drift re-tracking updates them mid-scan
+    # and the artifact records write the final positions.
+    #
+    # Written as comments, not a docstring: test_probe_flags pins every string
+    # constant inside every function body of a hardware probe (it is the guard
+    # against a body rename corrupting a dict key or log format), and a docstring
+    # is one of those constants. Comments keep that golden at zero churn.
+    eta = np.zeros(len(scan.g_values), dtype=np.float64)
+    p_ref_arr = np.zeros(len(scan.g_values), dtype=np.float64)
+    p_test_arr = np.zeros(len(scan.g_values), dtype=np.float64)
+
+    for i, g in enumerate(scan.g_values):
+        if params.method == "depth":
+            # Test half: blaze with peak_gray = g
+            test_pattern = depth_pattern(
+                params.period_test, int(g), scan.half_h, scan.slm_width
+            )
+        else:
+            # Test half: offset blaze (full depth + gray_offset = g)
+            test_pattern = offset_pattern(
+                params.period_test,
+                scan.gray_for_2pi,
+                int(g),
+                scan.slm_bits,
+                scan.half_h,
+                scan.slm_width,
+            )
+
+        combined = stack_halves(scan.ref_pattern, test_pattern, axis=0)
+        slm.display_data(combined, wait_time_s=params.settle_time)
+
+        # Capture and average
+        frame = np.asarray(
+            camera.get_numpy_image(n_sample=params.n_frames, skip_first=True),
+            dtype=np.float64,
+        )
+
+        # Period-check: re-track spots if drift exceeds threshold
+        ref_center = _check_spot_drift(
+            ref_center,
+            frame,
+            scan.ref_calib_center,
+            params.period_ref,
+            params.spot_window,
+        )
+        test_center = _check_spot_drift(
+            test_center,
+            frame,
+            scan.test_calib_center,
+            params.period_test,
+            params.spot_window,
+        )
+
+        # NOTE: exposure is fixed for the whole scan (set before the loop
+        # via _joint_exposure_settle).  Do NOT adjust exposure here —
+        # invert_depth_scan assumes a constant exposure across gray points.
+
+        # Measure both powers from the same frame (drift-canceled ratio)
+        p_ref, _ = _measure_power(frame, ref_center, params.spot_window)
+        p_test, _ = _measure_power(frame, test_center, params.spot_window)
+
+        # Drift-canceled ratio
+        if p_ref > 0:
+            eta[i] = p_test / p_ref
+        else:
+            eta[i] = 0.0
+            logger.warning("g={}: P_ref=0, ratio undefined (set to 0)", g)
+
+        p_ref_arr[i] = p_ref
+        p_test_arr[i] = p_test
+
+        if (i + 1) % max(1, len(scan.g_values) // 10) == 0 or i == len(scan.g_values) - 1:
+            logger.info(
+                "[{}/{}] g={}, eta={:.4f}, P_ref={:.1f}, P_test={:.1f}, exp={:.3f}ms",
+                i + 1,
+                len(scan.g_values),
+                g,
+                eta[i],
+                p_ref,
+                p_test,
+                scan.final_exposure_ms,
+            )
+    return eta, p_ref_arr, p_test_arr, ref_center, test_center
+
 @click.command()
 @with_params(LutRunnerParams, kw_name="params")
 def run(params: LutRunnerParams) -> None:
@@ -631,90 +743,30 @@ def run(params: LutRunnerParams) -> None:
         # ═══════════════════════════════════════════════════════════════════
         # 5. Scan loop
         # ═══════════════════════════════════════════════════════════════════
-        eta = np.zeros(len(g_values), dtype=np.float64)
-        p_ref_arr = np.zeros(len(g_values), dtype=np.float64)
-        p_test_arr = np.zeros(len(g_values), dtype=np.float64)
-
         # Reference pattern (always full-depth blaze at gray_for_2pi), top half
         ref_pattern = depth_pattern(
             params.period_ref, gray_for_2pi, half_h, slm_width
         )
-
         # Per-spot expected calibration centers for drift detection
-        ref_calib_center = ref_center
-        test_calib_center = test_center
-
-        for i, g in enumerate(g_values):
-            if params.method == "depth":
-                # Test half: blaze with peak_gray = g
-                test_pattern = depth_pattern(
-                    params.period_test, int(g), half_h, slm_width
-                )
-            else:
-                # Test half: offset blaze (full depth + gray_offset = g)
-                test_pattern = offset_pattern(
-                    params.period_test,
-                    gray_for_2pi,
-                    int(g),
-                    slm_bits,
-                    half_h,
-                    slm_width,
-                )
-
-            combined = stack_halves(ref_pattern, test_pattern, axis=0)
-            slm.display_data(combined, wait_time_s=params.settle_time)
-
-            # Capture and average
-            frame = np.asarray(
-                camera.get_numpy_image(n_sample=params.n_frames, skip_first=True),
-                dtype=np.float64,
-            )
-
-            # Period-check: re-track spots if drift exceeds threshold
-            ref_center = _check_spot_drift(
-                ref_center,
-                frame,
-                ref_calib_center,
-                params.period_ref,
-                params.spot_window,
-            )
-            test_center = _check_spot_drift(
-                test_center,
-                frame,
-                test_calib_center,
-                params.period_test,
-                params.spot_window,
-            )
-
-            # NOTE: exposure is fixed for the whole scan (set before the loop
-            # via _joint_exposure_settle).  Do NOT adjust exposure here —
-            # invert_depth_scan assumes a constant exposure across gray points.
-
-            # Measure both powers from the same frame (drift-canceled ratio)
-            p_ref, _ = _measure_power(frame, ref_center, params.spot_window)
-            p_test, _ = _measure_power(frame, test_center, params.spot_window)
-
-            # Drift-canceled ratio
-            if p_ref > 0:
-                eta[i] = p_test / p_ref
-            else:
-                eta[i] = 0.0
-                logger.warning("g={}: P_ref=0, ratio undefined (set to 0)", g)
-
-            p_ref_arr[i] = p_ref
-            p_test_arr[i] = p_test
-
-            if (i + 1) % max(1, len(g_values) // 10) == 0 or i == len(g_values) - 1:
-                logger.info(
-                    "[{}/{}] g={}, eta={:.4f}, P_ref={:.1f}, P_test={:.1f}, exp={:.3f}ms",
-                    i + 1,
-                    len(g_values),
-                    g,
-                    eta[i],
-                    p_ref,
-                    p_test,
-                    final_exposure_ms,
-                )
+        scan = _GrayScan(
+            g_values=g_values,
+            ref_pattern=ref_pattern,
+            ref_calib_center=ref_center,
+            test_calib_center=test_center,
+            half_h=half_h,
+            slm_width=slm_width,
+            slm_bits=slm_bits,
+            gray_for_2pi=gray_for_2pi,
+            final_exposure_ms=final_exposure_ms,
+        )
+        eta, p_ref_arr, p_test_arr, ref_center, test_center = _run_gray_scan(
+            params,
+            slm=slm,
+            camera=camera,
+            scan=scan,
+            ref_center=ref_center,
+            test_center=test_center,
+        )
 
         logger.info(
             "Scan complete — max eta={:.4f} at g={}",
