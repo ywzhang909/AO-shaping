@@ -48,6 +48,7 @@ import 任何 ``drivers.ccd`` / ``drivers.slm`` 符号; 测试会把这一点钉
 from __future__ import annotations
 
 import pickle
+import re
 import shutil
 import zipfile
 from dataclasses import dataclass
@@ -62,6 +63,7 @@ from PySide6.QtGui import QCloseEvent, QImage, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QCheckBox,
     QDialog,
     QDoubleSpinBox,
     QFileDialog,
@@ -97,6 +99,7 @@ __all__ = [
     "dump_root_for",
     "format_mtime",
     "fps_to_interval_ms",
+    "is_own_session_archive",
     "load_archive",
     "load_capture",
     "open_archive_replay",
@@ -274,6 +277,24 @@ def is_in_dump(relative: str) -> bool:
     """相对路径是否落在回收目录 ``dump/`` 下 (已归档的 pkl 不再出现在列表里)。"""
     head = relative.replace("\\", "/").split("/", 1)[0]
     return head == DUMP_DIRNAME
+
+
+#: 本程序 (迁移学习桌面页) 会话目录名的模式: ``YYYYMMDD_HHMMSS`` 或同秒冲突时
+#: 的 ``YYYYMMDD_HHMMSS-N`` —— 与 :func:`ao_shaping.gui.slm.transfer_desktop.
+#: params.plan_session_dir` 的产出一致。CLI / campaign 等其他来源用的是
+#: ``physical_20261102c`` / ``multishape_nogs_20261104`` 这类带名字前缀的目录,
+#: 不匹配这个模式。「只看本程序保存的归档」开关按它区分。
+_OWN_SESSION_RE = re.compile(r"^\d{8}_\d{6}(-\d+)?$")
+
+
+def is_own_session_archive(relative: str) -> bool:
+    """归档是否落在本程序 (``plan_session_dir`` 时间戳目录) 保存的会话里。
+
+    只看相对路径**第一段** (会话目录名), 不打开任何文件 —— 与扫描阶段「绝不
+    解码」的约定一致。dump/ 下的路径不会出现在列表里, 这里不特殊处理。
+    """
+    head = relative.replace("\\", "/").split("/", 1)[0]
+    return _OWN_SESSION_RE.match(head) is not None
 
 
 def discover_archives(root: str | Path) -> list[ArchiveEntry]:
@@ -881,6 +902,7 @@ class ArchiveReplayDialog(QDialog):
         self._payload: ArchivePayload | None = None
         self._index = 0
         self._sample: CaptureData | None = None
+        self._sample_mtime: float | None = None
         self._phase_full: QPixmap | None = None
         self._active_row = -1
 
@@ -997,6 +1019,15 @@ class ArchiveReplayDialog(QDialog):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
         self._table.currentCellChanged.connect(self._on_current_cell_changed)
         archive_layout.addWidget(self._filter)
+        # 「只看本程序保存的归档」: 只保留迁移学习桌面页自己跑出来的会话
+        # (``plan_session_dir`` 的时间戳目录名), 把 CLI / campaign 的历史归档藏掉。
+        self._own_only = QCheckBox("只看本程序保存的归档", archive_panel)
+        self._own_only.setToolTip(
+            "开 = 只列迁移学习桌面页保存的会话 (时间戳目录);\n"
+            "关 = 递归列出整个 debug 根下所有历史归档"
+        )
+        self._own_only.toggled.connect(self._on_filter)
+        archive_layout.addWidget(self._own_only)
         archive_layout.addWidget(self._table, 1)
 
         # 右: 原有的 CCD/剖面 ↔ 相位  splitter。
@@ -1138,9 +1169,15 @@ class ArchiveReplayDialog(QDialog):
         self.select_archive(row)
 
     def _update_header(self) -> None:
+        own_only = self._own_only.isChecked() if hasattr(self, "_own_only") else False
+        scope = (
+            f"本程序会话 {len(self._visible)} 个"
+            if own_only
+            else f"共 {len(self._archives)} 个"
+        )
         self._header.setText(
             f"归档根目录: {self._root}\n"
-            f"共 {len(self._archives)} 个 pkl 归档 (递归扫描, 按修改时间从新到旧) "
+            f"{scope} pkl 归档 (递归扫描, 按修改时间从新到旧) "
             f"· 归档按钮把 pkl 移到 {DUMP_DIRNAME}/ 下 · 只读, 不打开相机 / SLM"
         )
 
@@ -1151,13 +1188,17 @@ class ArchiveReplayDialog(QDialog):
         self._filter.blockSignals(False)
         self._on_filter(text)
 
-    def _on_filter(self, text: str) -> None:
-        needle = (text or "").strip().lower()
+    def _on_filter(self, *args: object) -> None:
+        # textChanged 带文本参数、toggled 带布尔参数 —— 统一忽略, 现读控件。
+        needle = (self._filter.text() or "").strip().lower()
+        own_only = self._own_only.isChecked()
         self._table.blockSignals(True)
         for row, entry in enumerate(self._rows):
             hidden = bool(needle) and not (
                 needle in entry.relative.lower() or needle in entry.kind.lower()
             )
+            if not hidden and own_only and not is_own_session_archive(entry.relative):
+                hidden = True
             self._table.setRowHidden(row, hidden)
         self._table.blockSignals(False)
         self._visible = [
@@ -1166,8 +1207,9 @@ class ArchiveReplayDialog(QDialog):
             if not self._table.isRowHidden(row)
         ]
         if not self._visible:
-            self._show_no_archives(text)
+            self._show_no_archives(self._filter.text())
             return
+        self._update_header()
         row = 0
         active = self._payload.entry if self._payload is not None else None
         if active is not None:
@@ -1419,15 +1461,33 @@ class ArchiveReplayDialog(QDialog):
         self._position.setText(self._position_text(index))
 
         if record.ccd_path is not None and record.ccd_path.is_file():
+            # 块内多条迭代共用同一兄弟 npz: 路径与 mtime 没变就直接复用已解码的
+            # sample (只重画逐拍相位), 免得每拍重读几十 MB 把播放拖成幻灯片。
+            try:
+                mtime = record.ccd_path.stat().st_mtime
+            except OSError:
+                mtime = None
+            if (
+                self._sample is not None
+                and self._sample.path == record.ccd_path
+                and mtime is not None
+                and self._sample_mtime == mtime
+            ):
+                self._render_capture(self._sample, record)
+                return
             try:
                 sample = load_capture(record.ccd_path, index=record.index)
             except _LOAD_ERRORS as exc:
                 self._render_no_ccd(payload, record, f"兄弟 npz 读取失败: {exc}")
+                self._sample = None
+                self._sample_mtime = None
                 return
             self._sample = sample
+            self._sample_mtime = mtime
             self._render_capture(sample, record)
             return
         self._sample = None
+        self._sample_mtime = None
         missing = (
             f"归档中的 CCD 帧缺失: {record.ccd_path.name}"
             if record.ccd_path is not None
@@ -1452,12 +1512,23 @@ class ArchiveReplayDialog(QDialog):
     def _render_capture(self, sample: CaptureData, record: ArchiveRecord) -> None:
         self._frame_caption.setText("CCD 画面 (raw_frames 多帧平均)")
         self._profile_caption.setText("X / Y 剖面 (高斯拟合)")
-        self._phase_caption.setText("SLM 相位预览 (panel_phase · twilight)")
         metrics = self._analyze(sample.raw_frame)
         self._video.set_frame(sample.display_frame, metrics, fps=0.0)
         self._profiles.update_metrics(metrics)
 
-        self._phase_full = _to_pixmap(sample.phase_rgb)
+        # 相位预览优先画**逐条迭代相位** (与无 CCD 分支同口径): 兄弟 npz 里的
+        # panel_phase 是块级采集那一刻的相位, 一个块 ~10 条迭代共用同一份 —— 画
+        # 它的话块内播放时相位和 CCD 一起冻住, 看着就像「没法动态播放」。迭代
+        # 相位每条都在变, 画面逐拍推进; CCD 仍按块 (实测每块只有一张, 不编造)。
+        phase = record.phase
+        if phase is not None and np.asarray(phase).ndim == 2:
+            self._phase_caption.setText("SLM 相位预览 (迭代 phase · twilight)")
+            self._phase_full = _to_pixmap(
+                phase_to_preview(_phase_array_to_gray(phase))
+            )
+        else:
+            self._phase_caption.setText("SLM 相位预览 (panel_phase · twilight)")
+            self._phase_full = _to_pixmap(sample.phase_rgb)
         if self._phase_full.isNull():
             self._phase.clear()
             self._phase.setText("相位不可用")

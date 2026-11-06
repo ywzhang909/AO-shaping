@@ -428,6 +428,60 @@ def test_dialog_lists_all_archives(app: QApplication, tree: Path) -> None:
         dialog.deleteLater()
 
 
+# --- 「只看本程序保存的归档」开关 -------------------------------------------
+
+
+def _own_tree(tmp_path: Path) -> Path:
+    """本程序时间戳会话 + 外部会话各一份, 专给开关测试用。"""
+    root = tmp_path / "debug" / "slm_transfer"
+    _write_capture_records(root / "20261105_203528" / "anchored", n=2)
+    _write_iterations_phase(
+        root / "20261105_203528" / "anchored" / "iterations.pkl", n=3
+    )
+    _write_capture_records(root / "s1" / "anchored", n=2)
+    _write_iterations_phase(root / "s1" / "anchored" / "iterations.pkl", n=3)
+    _write_iterations_fit(root / "s2" / "fit" / "full" / "iterations.pkl", n=4)
+    return root
+
+
+def test_is_own_session_archive_matches_timestamp_dirs_only() -> None:
+    """纯函数: 时间戳目录名 (含同秒 -N 后缀) 命中, 其余一律不命中。"""
+    assert replay.is_own_session_archive("20261105_203528/anchored/iterations.pkl")
+    assert replay.is_own_session_archive("20261105_203528-2/model/capture_records.pkl")
+    assert not replay.is_own_session_archive("physical_20261102c/anchored/x.pkl")
+    assert not replay.is_own_session_archive("multishape_nogs_20261104/iterations.pkl")
+    assert not replay.is_own_session_archive("s1/anchored/capture_records.pkl")
+
+
+def test_own_only_toggle_hides_foreign_sessions(
+    app: QApplication, tmp_path: Path
+) -> None:
+    """开关开 = 只剩本程序时间戳会话; 关 = 恢复全部。"""
+    dialog = replay.ArchiveReplayDialog(_own_tree(tmp_path))
+    try:
+        assert _visible_rows(dialog) == 5
+        dialog._own_only.setChecked(True)
+        app.processEvents()
+        assert _visible_rows(dialog) == 2
+        visible = {e.relative for e in dialog._visible}
+        assert visible == {
+            "20261105_203528/anchored/capture_records.pkl",
+            "20261105_203528/anchored/iterations.pkl",
+        }
+        assert "本程序会话 2 个" in dialog._header.text()
+        # 与文本过滤叠加: 只剩 iterations 那一个。
+        dialog.apply_filter("iterations")
+        app.processEvents()
+        assert _visible_rows(dialog) == 1
+        # 关掉开关: 文本过滤仍生效, 三个 iterations 文件 (本程序 + 两个外部) 都回来。
+        dialog._own_only.setChecked(False)
+        app.processEvents()
+        assert _visible_rows(dialog) == 3
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+
+
 def test_dialog_capture_records_full_three_views(app: QApplication, tree: Path) -> None:
     dialog = replay.ArchiveReplayDialog(tree)
     try:
@@ -880,6 +934,86 @@ def test_autoplay_stops_on_switch_and_manual_step(
         dialog.close()
         assert not dialog.is_playing()  # 关窗 → 停
     finally:
+        dialog.deleteLater()
+
+
+def _write_session_with_sibling_ccd(root: Path, per_block: int = 3) -> Path:
+    """一个本程序口味会话: 2 块, 每块一张兄弟 npz + ``per_block`` 条迭代相位。"""
+    folder = root / "20261105_203528" / "anchored"
+    _write_capture(folder / "capture_0000.npz", seed=7)
+    _write_capture(folder / "capture_0001.npz", seed=8)
+    _dump(
+        folder / "capture_records.pkl",
+        [
+            {"label": "square_0_A1", "file": "capture_0000.npz", "metrics": {}},
+            {"label": "square_1_A1", "file": "capture_0001.npz", "metrics": {}},
+        ],
+    )
+    pkl = _write_iterations_phase(folder / "iterations.pkl", n=per_block * 2)
+    with pkl.open("rb") as stream:
+        records = pickle.load(stream)
+    for i, record in enumerate(records):
+        record["block"] = i // per_block
+    _dump(pkl, records)
+    return root
+
+
+def _phase_signature(dialog: replay.ArchiveReplayDialog) -> tuple | None:
+    """相位预览的像素摘要 (不同状态 → 不同摘要)。"""
+    pixmap = dialog._phase_full
+    if pixmap is None or pixmap.isNull():
+        return None
+    image = pixmap.toImage()
+    return (image.width(), image.height(), image.pixel(0, 0), image.pixel(8, 8))
+
+
+def test_iterations_phase_animates_inside_a_block(
+    app: QApplication, tmp_path: Path
+) -> None:
+    """块内逐条迭代必须换相位画面, 不能冻在兄弟 npz 的块级相位上。
+
+    回归: 以前有 CCD 时相位预览画的是兄弟 npz 的 ``panel_phase`` (一块只有
+    一张), 2 fps 下块内约 5 秒相位与 CCD 都不动, 看着像「没法动态播放」。
+    """
+    dialog = replay.ArchiveReplayDialog(_write_session_with_sibling_ccd(tmp_path))
+    try:
+        _select(dialog, lambda e: e.kind == "iterations")
+        assert dialog.capture_count() == 6
+        signatures = []
+        for index in range(3):  # 同一块的 3 条迭代
+            dialog.set_index(index)
+            assert dialog.current_sample is not None  # CCD 仍按块上屏
+            signatures.append(_phase_signature(dialog))
+        assert all(sig is not None for sig in signatures)
+        assert len(set(signatures)) == 3
+        assert "迭代 phase" in dialog._phase_caption.text()
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+
+
+def test_sibling_npz_decoded_once_per_block(
+    app: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """同块多条迭代共用一份 npz: 只解码一次, 块变了才重读。"""
+    calls: list[Path] = []
+    original = replay.load_capture
+
+    def counting(path, index=None):
+        calls.append(Path(path))
+        return original(path, index=index)
+
+    monkeypatch.setattr(replay, "load_capture", counting)
+    dialog = replay.ArchiveReplayDialog(_write_session_with_sibling_ccd(tmp_path))
+    try:
+        _select(dialog, lambda e: e.kind == "iterations")
+        for index in range(3):
+            dialog.set_index(index)
+        assert len(calls) == 1  # 块内 3 拍只读一次
+        dialog.set_index(3)  # 切到下一块
+        assert len(calls) == 2
+    finally:
+        dialog.close()
         dialog.deleteLater()
 
 

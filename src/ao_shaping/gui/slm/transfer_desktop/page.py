@@ -51,6 +51,7 @@ import shutil
 import threading
 import time
 from collections.abc import Iterable, Mapping, Sequence
+from datetime import datetime
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -236,6 +237,74 @@ def reuse_latest_verdict_line(session_dir: Path) -> str:
     return tail
 
 
+#: 本场会话里模型权重 (冻结参数) 的候选位置, 按优先级排列 (相对会话目录)。
+_WEIGHT_GLOBS = (
+    "model*/frozen_parameters.json",
+    "fit*/frozen_parameters.json",
+    "initial/frozen_parameters.json",
+)
+
+
+def _newest_file(paths: Iterable[Path]) -> Path | None:
+    """mtime 最新的一个文件; 全读不到 (不存在 / 无权限) 时返回 ``None``。"""
+    newest: Path | None = None
+    newest_mtime = float("-inf")
+    for path in paths:
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        if mtime > newest_mtime:
+            newest, newest_mtime = path, mtime
+    return newest
+
+
+def model_weight_saved_line(session_dir: Path) -> str:
+    """会话目录 → 一行「所用模型权重 · 保存于 …」(缺产物返回空串, 绝不抛)。
+
+    日期口径是权重文件在文件系统里的 mtime。复用光路时本场没拟合新模型, 用的是
+    ``<models_root>/<serial>/latest`` 里那一份 (见 ``optical_probe.json`` 的
+    ``latest`` / ``same_path``), 所以优先读它; 否则取本场 ``model*`` → ``fit*``
+    → ``initial`` 里最新的 ``frozen_parameters.json``。
+    """
+    root = Path(session_dir) if session_dir else None
+    if root is None or not root.is_dir():
+        return ""
+    weight: Path | None = None
+    probe = root / "optical_probe.json"
+    if probe.is_file():
+        try:
+            data = json.loads(probe.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        latest = data.get("latest")
+        if data.get("same_path") and latest:
+            candidate = Path(str(latest)) / "frozen_parameters.json"
+            if candidate.is_file():
+                weight = candidate
+    if weight is None:
+        for pattern in _WEIGHT_GLOBS:
+            weight = _newest_file(p for p in root.glob(pattern) if p.is_file())
+            if weight is not None:
+                break
+    if weight is None:
+        return ""
+    try:
+        mtime = weight.stat().st_mtime
+    except OSError:
+        return ""
+    try:
+        shown = weight.relative_to(root).as_posix()
+    except ValueError:
+        # 复用来的 latest 在 models_root 下, 不在本场目录: 用末三级定位。
+        parts = list(weight.parts)
+        shown = "/".join(parts[-3:]) if len(parts) >= 3 else str(weight)
+    saved = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+    return f"模型权重：{shown} · 保存于 {saved}"
+
+
 def _section(title: str) -> tuple[QGroupBox, QVBoxLayout]:
     """带序号的分组框 (序号就是操作顺序) + 内边距已设好的竖排布局。"""
     box = QGroupBox(title)
@@ -407,7 +476,12 @@ class TransferPage(QWidget):
         self._poll.setInterval(_POLL_MS)
         self._poll.timeout.connect(self._refresh_progress)
 
+        # 控件在 ``_build`` 里逐个创建, 而创建途中的 ``setValue`` 会触发已连好的
+        # ``valueChanged → _revalidate``; 此时后面的控件还不存在。在表单搭完前
+        # ``_revalidate`` 直接跳过, 搭完后再手动跑一次首次校验。
+        self._form_ready = False
         self._build()
+        self._form_ready = True
         self._apply_theme()
         # 先把「矩形长边隐藏 / 倾斜相位周期禁用」的初始态摆正, 再跑首次校验。
         self._sync_shape_widgets()
@@ -1017,6 +1091,8 @@ class TransferPage(QWidget):
         只做参数判断 —— 硬件自检是「设备自检」按钮的事, 不在这里触发 (否则每敲
         一个数字都枚举一次设备)。这里顺带重画自检区, 只是把旧结论标成过期。
         """
+        if not getattr(self, "_form_ready", True):
+            return
         errors, warnings = params.validate_form(self.form_values())
         self._last_errors = errors
         self._last_warnings = warnings
@@ -1358,6 +1434,9 @@ class TransferPage(QWidget):
         reuse_line = reuse_latest_verdict_line(Path(out))
         if reuse_line:
             self._status.setText(f"{self._status.text()}<br>{reuse_line}")
+        weight_line = model_weight_saved_line(Path(out))
+        if weight_line:
+            self._status.setText(f"{self._status.text()}<br>{weight_line}")
 
     def _on_failed(self, message: str) -> None:
         """会话失败: 停轮询, 把 journal 里已写下的阶段留在表上。"""

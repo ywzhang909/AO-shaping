@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import types
+from datetime import datetime
 
 # 必须在任何 QApplication 之前设置: CI / 无显示环境走离屏后端。
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -71,6 +72,23 @@ def page(app: QApplication, monkeypatch: pytest.MonkeyPatch, tmp_path):
     yield widget
     widget.close()
     app.processEvents()
+
+
+# --- 构造回归 --------------------------------------------------------------
+
+
+def test_page_constructs_without_attribute_error(app: QApplication, monkeypatch, tmp_path) -> None:
+    """回归: 控件创建途中的 setValue 不得触发 _revalidate 读到未建好的控件。"""
+    monkeypatch.setattr(page_mod.params, "validate_form", lambda values: ([], []))
+    monkeypatch.setattr(page_mod.params, "plan_session_dir", lambda: tmp_path / "s")
+    monkeypatch.setattr(page_mod, "_SessionTask", _StubTask)
+    widget = page_mod.TransferPage()
+    try:
+        assert widget.form_values().acceptance_upper == params.ACCEPTANCE_UPPER_DEFAULT
+        assert widget.form_values().reuse_latest is False
+    finally:
+        widget.close()
+        app.processEvents()
 
 
 # --- 光路复用控件 ---------------------------------------------------------
@@ -173,4 +191,64 @@ def test_on_finished_appends_reuse_verdict(page, tmp_path, monkeypatch) -> None:
     # 直接调 _on_finished: 它内部先 _settle 复位状态, 再补一行光路复用结论。
     page._on_finished(str(session_dir))
     assert "光路复用" in page._status.text()
+    page._on_failed("cleanup")
+
+
+# --- 所用模型权重的保存日期 -----------------------------------------------
+
+
+def _write_weight(path, stamp: float):
+    """写一个假权重文件并把 mtime 钉到 ``stamp``。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{}", encoding="utf-8")
+    os.utime(path, (stamp, stamp))
+    return path
+
+
+def test_model_weight_line_skips_without_artifacts(tmp_path) -> None:
+    session_dir = tmp_path / "s"
+    session_dir.mkdir()
+    assert page_mod.model_weight_saved_line(session_dir) == ""
+    assert page_mod.model_weight_saved_line(tmp_path / "nope") == ""
+
+
+def test_model_weight_line_uses_newest_fit_weight(tmp_path) -> None:
+    """本场拟合产物: 取 ``model*`` / ``fit*`` 里 mtime 最新的冻结参数。"""
+    session_dir = tmp_path / "s"
+    _write_weight(session_dir / "fit" / "frozen_parameters.json", 1_700_000_000)
+    newest = _write_weight(
+        session_dir / "model" / "frozen_parameters.json", 1_700_003_600
+    )
+    line = page_mod.model_weight_saved_line(session_dir)
+    assert "model/frozen_parameters.json" in line
+    assert "保存于" in line
+    stamp = datetime.fromtimestamp(newest.stat().st_mtime).strftime("%Y-%m-%d")
+    assert stamp in line
+
+
+def test_model_weight_line_prefers_reused_latest(tmp_path) -> None:
+    """复用光路 = 本场没拟合新模型: 显示 models_root 里那份 latest 的 mtime。"""
+    session_dir = tmp_path / "s"
+    latest = _write_weight(
+        tmp_path / "models" / "sn-1" / "latest" / "frozen_parameters.json",
+        1_700_010_000,
+    ).parent
+    _write_weight(session_dir / "fit" / "frozen_parameters.json", 1_700_000_000)
+    (session_dir / "optical_probe.json").write_text(
+        json.dumps({"serial": "sn-1", "latest": str(latest), "same_path": True}),
+        encoding="utf-8",
+    )
+    line = page_mod.model_weight_saved_line(session_dir)
+    assert "sn-1/latest/frozen_parameters.json" in line
+    stamp = datetime.fromtimestamp(1_700_010_000).strftime("%Y-%m-%d")
+    assert stamp in line
+
+
+def test_on_finished_appends_weight_saved_date(page, tmp_path) -> None:
+    """会话完成状态行补一行「模型权重 · 保存于 …」。"""
+    session_dir = tmp_path / "s"
+    _write_weight(session_dir / "fit" / "frozen_parameters.json", 1_700_000_000)
+    page._on_finished(str(session_dir))
+    assert "模型权重" in page._status.text()
+    assert "保存于" in page._status.text()
     page._on_failed("cleanup")
