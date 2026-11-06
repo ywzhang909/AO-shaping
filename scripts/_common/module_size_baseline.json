@@ -36,7 +36,7 @@
   "src/ao_shaping/optimizer/wfless/sim_spgd.py": 1019,
   "src/ao_shaping/optimizer/wfless/slm_gs_refine.py": 2437,
   "src/ao_shaping/optimizer/wfless/slm_model_in_loop.py": 4053,
-  "src/ao_shaping/optimizer/wfless/slm_square_shaping.py": 2681,
+  "src/ao_shaping/optimizer/wfless/slm_square_shaping.py": 2684,
   "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py": 2527,
   "src/ao_shaping/runners/runner_common.py": 4296,
   "src/ao_shaping/runners/slm/slm_shaping_runner.py": 982,
