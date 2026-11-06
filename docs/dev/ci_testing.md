@@ -98,6 +98,11 @@ CI 按 `.github/workflows/pytest.yml` 的 `run_shard` 目标**显式收集**这�
   在 0.11.10 是 preview 规则（**0** 命中，ruff 自己会打印 "Selection `PLC0415` has no
   effect because preview is not enabled"），在 0.15.12 已稳定（**1476** 命中）；
   `SLF001` 差 2 条。硬门禁不得写 `>=`（新版本能在两次推送之间无代码变化地把门禁翻红）。
+- **模块登记门禁（doc 覆盖）**: 每个 `tools/`、`runners/`、`optimizer/` 模块须在根
+  `AGENTS.md` 与 `docs/dev/module_inventory.md` 的合并文本中按文件名或裸 stem 出现一次：
+  `tests/ao_shaping/test_tools_doc_coverage.py::test_every_tools_module_is_documented`、
+  `tests/ao_shaping/test_runners_doc_paths.py::test_every_runner_module_is_documented`、
+  `tests/ao_shaping/test_optimizer_doc_coverage.py::test_every_optimizer_module_is_documented`。
 - **machine-local 开发工具配置**: `.mcp.json`、`.pre-commit-config.yaml`、`opencode.jsonc`、`pyrightconfig.json`、`skills-lock.json` 已移出 git 跟踪并加入根 `.gitignore`（2026-10-19，仅保留在开发者本机，不再入库）；同日 7 个 machine-local 目录整体移出跟踪并忽略：`.auto_doc_review`/`.claude`/`.codegraph`/`.slim`/`.streamlit`/`.vscode`/`_scripts`（本地副本保留，不随仓库分发）。**注意 `.github/` 不在其列**：它 2026-10-19 曾一并移出，2026-10-21 已恢复入库（见上文 CI 条，`1d33d078`），根 `.gitignore` 中 `.github` 的忽略行同日删除。
 - **No requirements.txt**: Only `pyproject.toml` and `uv.lock`
 

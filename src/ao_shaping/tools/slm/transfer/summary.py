@@ -96,7 +96,7 @@ def summarize(run: Path, out: Path):
 def acceptance_scope(run: Path) -> dict:
     """Say what "accepted" means here, so a model-only run is never read as CCD-verified.
 
-    The A–B–B–A blocks measure the candidate and its anchor on the CCD; with them
+    The ABBA 交错测量 blocks measure the candidate and its anchor on the CCD; with them
     switched off the candidate is accepted on the optimizer's own loss and no
     measurement of the candidate exists. Reporting both under one word would
     overstate the evidence, so the scope is explicit and per block.
@@ -105,10 +105,13 @@ def acceptance_scope(run: Path) -> dict:
     blocks = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else []
     scopes = sorted({str(block.get("acceptance", "paired")) for block in blocks})
     if scopes == ["paired"] or not scopes:
-        verdict = "paired CCD A–B–B–A; the candidate and both anchors were measured"
+        verdict = "paired CCD ABBA 交错测量; the candidate and both anchors were measured"
     elif scopes == ["model_only"]:
-        verdict = ("model_only: A–B–B–A acceptance skipped — candidates accepted on the model "
+        verdict = ("model_only: ABBA 交错测量 acceptance skipped — candidates accepted on the model "
                    "loss only, no CCD verdict was measured for them")
+    elif scopes == ["sequential_ccd"]:
+        verdict = ("sequential_ccd: candidates accepted on a sequential CCD measurement "
+                   "(B1 vs anchor A1), with the model loss recorded as reference")
     else:
         verdict = "mixed: some blocks are paired CCD, others are model-loss only"
     return dict(scopes=scopes, verdict=verdict,

@@ -867,10 +867,26 @@ def test_abba_off_in_model_mode_skips_a1_b1_b2_a2(tmp_path, monkeypatch):
     assert config["acceptance"] == "model_only"
 
 
-def test_abba_off_in_anchored_mode_keeps_only_the_anchor(tmp_path, monkeypatch):
+def test_abba_off_in_anchored_mode_measures_the_candidate_on_ccd(tmp_path, monkeypatch):
     args = _run_validate(tmp_path, monkeypatch, abba=False, mode="anchored")
 
-    # The optimizer is anchored on A1, so that one capture stays.
+    # 非配对默认路径: 用户要求 CCD 实测主导 —— 锚点 A1 之外再捕 B1,
+    # 由实测指标决定接受/拒绝 (sequential_ccd), 模型损失仍作参考。
+    assert _labels(args) == ["square_seed", "square_0_A1", "square_0_B", "square_final"]
+    entry = json.loads((args.out/"summary.json").read_text())[0]
+    assert entry["acceptance"] == "sequential_ccd"
+    assert entry["accept_metric"] == "loss"
+    # 接受与否由 CCD 实测判定 (candidate < baseline - tolerance), 不依赖模型损失。
+    assert entry["accepted"] == (entry["candidate"] < entry["baseline"] - entry["tolerance"])
+    assert "model_loss_last" in entry and "model_loss_previous" in entry
+    assert entry["model_loss_last"] < entry["model_loss_previous"]  # 模型损失其实在改善
+
+
+def test_abba_off_looped_round_keeps_model_only_acceptance(tmp_path, monkeypatch):
+    # 验收阈值循环路径不动: acceptance_enabled=True 时即使有锚点也不加 B1,
+    # 维持原 model_only 判定, 避免改变循环时序。
+    args = _run_validate(tmp_path, monkeypatch, abba=False, mode="anchored",
+                         acceptance_enabled=True)
     assert _labels(args) == ["square_seed", "square_0_A1", "square_final"]
     assert json.loads((args.out/"summary.json").read_text())[0]["acceptance"] == "model_only"
 

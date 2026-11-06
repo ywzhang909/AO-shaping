@@ -540,6 +540,11 @@ def main():
                         help="Without a device: write plan.json (frozen/todo/estimate) into a new --out, then stop")
     parser.add_argument("--resume", action="store_true",
                         help="Re-enter an existing --out: measure only the missing block groups")
+    parser.add_argument("--dump-history", action="store_true",
+                        help="Write the per-step gradient/optimization record for each shape "
+                             "(optimizer loss_history terms) to history/{shape}.jsonl")
+    parser.add_argument("--timing-out", action="store_true",
+                        help="Write per-shape wall-clock timing + iteration count + model_cv to timing.jsonl")
     args = parser.parse_args()
     args.mode = args.mode or ("anchored" if args.seed_run or args.initial_phase != "gs" else "model")
     if args.seed_run and args.initial_phase != "gs":
@@ -686,6 +691,7 @@ def _run_validate_session(
                     raise RuntimeError("saturated capture retained; stop paired comparison")
                 return row
 
+            last_best = None
             try:
                 def tune_exposure(label, phase, start_ms, objective):
                     # 先用平面相位证明光路有光; 真正无光在这里就失败, 不会把整形
@@ -758,7 +764,7 @@ def _run_validate_session(
                     forward.exposure_ms = float(get_camera_exposure_ms(cam))
                     return float(get_camera_exposure_ms(cam))
 
-                _run_validate_shapes(
+                last_best = _run_validate_shapes(
                     DifferentiableUniformityOptimizer=DifferentiableUniformityOptimizer,
                     abba=abba,
                     args=args,
@@ -781,7 +787,19 @@ def _run_validate_session(
                     xy=xy,
                 )
             finally:
-                slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
+                # 闭环结束后 SLM 保持在最优整形相位上 (用户要求: 不要还原成平相位);
+                # 只有没跑出任何 best (全跳过 / 异常) 才退回平相位。
+                if last_best is not None:
+                    try:
+                        panel = to_panel(last_best)
+                        slm.display_data(slm.create_phase_from_array(panel))
+                    except Exception as exc:  # best-effort, 不让显示失败打崩 teardown
+                        logger.warning("SLM 保持最优相位失败 ({}): {}", type(exc).__name__, exc)
+                        slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
+                else:
+                    print("SLM: 无最优整形相位 (全跳过 / 异常), 退回平相位", flush=True)
+                    logger.warning("SLM 无最优整形相位 (全跳过 / 异常), 退回平相位")
+                    slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
                 time.sleep(.3)
 
 
@@ -818,6 +836,7 @@ def _run_validate_shapes(
     parameter binds first.
     Moved verbatim.
     """
+    last_best = None
     for shape, objective, best in prepared:
         seed_phase = best.copy()
         # Resume: only the groups this stage has not measured yet.
@@ -894,7 +913,10 @@ def _run_validate_shapes(
             capture(f"{shape}_seed_replay", seed_phase, objective)
         final = capture(f"{shape}_final", best, objective)
         np.save(args.out/f"{shape}_best.npy", best)
+        last_best = best
         print(f"{shape}: seed CV={seed_record['metrics']['cv']:.4f} final CV={final['metrics']['cv']:.4f}", flush=True)
+
+    return last_best
 
 
 def main():
@@ -958,6 +980,11 @@ def main():
                         help="Without a device: write plan.json (frozen/todo/estimate) into a new --out, then stop")
     parser.add_argument("--resume", action="store_true",
                         help="Re-enter an existing --out: measure only the missing block groups")
+    parser.add_argument("--dump-history", action="store_true",
+                        help="Write the per-step gradient/optimization record for each shape "
+                             "(optimizer loss_history terms) to history/{shape}.jsonl")
+    parser.add_argument("--timing-out", action="store_true",
+                        help="Write per-shape wall-clock timing + iteration count + model_cv to timing.jsonl")
     args = parser.parse_args()
     args.mode = args.mode or ("anchored" if args.seed_run or args.initial_phase != "gs" else "model")
     if args.seed_run and args.initial_phase != "gs":
@@ -1011,6 +1038,7 @@ def _run_validate_blocks(
     left behind in the shape-loop scope.
     Moved verbatim.
     """
+    shape_start = time.monotonic()
     for block in blocks:
         # Staged objective weights (issue #213 item 4c). Only the
         # optimisation path moves; the acceptance criteria and the
@@ -1125,9 +1153,20 @@ def _run_validate_blocks(
                     np.save(args.out/f"{shape}_champion.npy", champion)
             entry = dict(shape=shape, block=block, **decision, **clock())
         else:
-            # No measured verdict: the model's own loss history decides,
-            # and the entry says so instead of implying a CCD acceptance.
-            decision = model_only_decision(optimizer.loss_history)
+            # 非配对默认路径: 用户要求 CCD 实测主导 —— 不再只凭模型损失判定,
+            # 而是对候选相位做一次顺序 CCD 实测 (B1 vs 锚点 A1), 由实测指标
+            # 决定接受/拒绝; 模型损失仍记录作参考。验收阈值循环 (acceptance
+            # loop) 有自己独立的 CCD-vs-模型判定, 保持原状不动 (有锚点但
+            # acceptance_enabled 时不加 B1, 避免改变循环时序)。
+            if anchor_row is not None and not getattr(args, "acceptance_enabled", False):
+                b1 = capture(f"{shape}_{block}_B", candidate, objective)
+                live_row = b1
+                _metric, _av, _bv, decision = _sequential_ccd_decision(args, anchor_row, b1)
+                loss_ref = model_only_decision(optimizer.loss_history)
+                decision["model_loss_previous"] = loss_ref["model_loss_previous"]
+                decision["model_loss_last"] = loss_ref["model_loss_last"]
+            else:
+                decision = model_only_decision(optimizer.loss_history)
             entry = dict(shape=shape, block=block, **decision, **clock())
         accepted = decision["accepted"]
         entry["phase_lr"] = phase_lr
@@ -1170,5 +1209,37 @@ def _run_validate_blocks(
         if len(iterations) > iterations_before:
             with (args.out/"iterations.pkl").open("wb") as stream:
                 pickle.dump(iterations, stream, protocol=5)
+
+    # ---- 可选：每形状逐步梯度历史 + 墙钟计时（--dump-history / --timing-out，
+    #      默认关、老行为逐位不变）。逐步记录复用共享 iterations（每步含
+    #      terms=optimizer.loss_history[-1]，即 gradient_norm / increment_rms /
+    #      phase_rms / raw_to_final_step_cosine / candidate_model_loss_change）。
+    #      model_cv 在形状末用最终 best 相位过前向算核心 CV。----
+    if getattr(args, "dump_history", False) or getattr(args, "timing_out", False):
+        shape_iters = [it for it in iterations if it.get("shape") == shape]
+        model_cv_val = None
+        if shape_iters:
+            with torch.no_grad():
+                pred = forward.predict(best)[0].detach().cpu().numpy()
+            model_cv_val = image_metrics(pred, objective)["cv"]
+        if getattr(args, "dump_history", False):
+            hist_dir = args.out / "history"
+            hist_dir.mkdir(parents=True, exist_ok=True)
+            with (hist_dir / f"{shape}.jsonl").open("w", encoding="utf-8") as fh:
+                for step, it in enumerate(shape_iters, start=1):
+                    terms = dict(it.get("terms") or {})
+                    terms = {k: (float(v) if isinstance(v, (int, float, np.floating)) else v)
+                             for k, v in terms.items()}
+                    fh.write(json.dumps({"step": step, **terms}) + "\n")
+        if getattr(args, "timing_out", False):
+            timing_row = dict(
+                shape=shape,
+                iterations=len(shape_iters),
+                seconds=round(time.monotonic() - shape_start, 4),
+                model_cv=(None if model_cv_val is None else round(model_cv_val, 6)),
+            )
+            with (args.out / "timing.jsonl").open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(timing_row) + "\n")
+
     return best, champion, exposure
 

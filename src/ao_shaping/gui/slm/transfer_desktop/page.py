@@ -182,7 +182,7 @@ def acceptance_verdict_line(session_dir: Path) -> str:
         return ""
     from ao_shaping.tools.slm.transfer.workflow import acceptance_verdict
 
-    # 只开过 A–B–B–A 或纯模型验收的会话不予显示; 只有 acceptance=="looped" 才算
+    # 只开过 ABBA 交错测量 或纯模型验收的会话不予显示; 只有 acceptance=="looped" 才算
     # 开了验收阈值循环。
     enabled = False
     try:
@@ -204,23 +204,106 @@ def acceptance_verdict_line(session_dir: Path) -> str:
     if not accepted and (corr is None or l2 is None):
         return ""
     tail = "通过" if accepted else "未达标至上限后停止"
-    detail = ["验收阈值:"]
-    for label, value in (("相关性", corr), ("相对 L2", l2)):
-        if value is not None:
+    lower = verdict.get("lower")
+    upper = verdict.get("upper")
+    metrics = []
+    for label, value, bound, is_lower in (
+        ("相关性", corr, lower, True),
+        ("相对 L2", l2, upper, False),
+    ):
+        if value is None:
+            continue
+        if bound is None:
             try:
-                detail.append(f"{label} {float(value):.3f}")
+                metrics.append(f"{label} {float(value):.3f}")
             except (TypeError, ValueError):
-                detail.append(f"{label} —")
-    detail.append(f"{rounds} 轮")
-    return " · ".join(detail) + f" · {tail}"
+                metrics.append(f"{label} —")
+            continue
+        metrics.append(_metric_with_shortfall(label, value, bound, lower_bound=is_lower))
+    if not metrics and not accepted:
+        return ""
+    return "验收阈值: " + " · ".join(metrics + [f"{rounds} 轮"]) + f" · {tail}"
+
+
+def _metric_with_shortfall(
+    label: str, value, bound, *, lower_bound: bool
+) -> str:
+    """格式化单个验收指标; 未达标时追加「（还差 X · 阈值 Y）」。
+
+    ``lower_bound=True`` 表示指标 >= 阈值才算达标 (相关性下界), False 表示
+    <= (相对 L2 上界)。值 / 阈值无法解析时退化为纯值或 ``—``。
+    """
+    try:
+        value_f = float(value)
+    except (TypeError, ValueError):
+        return f"{label} —"
+    text = f"{label} {value_f:.3f}"
+    try:
+        bound_f = float(bound)
+    except (TypeError, ValueError):
+        return text
+    if lower_bound:
+        if value_f >= bound_f:
+            return text
+        deficit = bound_f - value_f
+    else:
+        if value_f <= bound_f:
+            return text
+        deficit = value_f - bound_f
+    return f"{text}（还差 {deficit:.3f} · 阈值 {bound_f:.3f}）"
+
+
+def acceptance_progress_line(session_dir: Path) -> str:
+    """运行中 (非完成) 的验收阈值实时读数; 未开循环 / 无轮次 / 已达标返回空串。
+
+    取 ``rounds.json`` 最后一轮的实测值, 未达标时给出「当前 X · 还差 Y」,
+    便于操作员在循环进行时看见还差多少。绝不抛异常。
+    """
+    if not session_dir or not Path(session_dir).is_dir():
+        return ""
+    try:
+        cfg = json.loads(Path(session_dir).joinpath("session.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    if not isinstance(cfg, dict):
+        return ""
+    if cfg.get("resolved", {}).get("acceptance") != "looped":
+        return ""
+    from ao_shaping.tools.slm.transfer.workflow import acceptance_verdict
+
+    try:
+        verdict = acceptance_verdict(session_dir)
+    except Exception:
+        logger.warning("读取验收阈值实时读数失败: {}", session_dir)
+        return ""
+    rounds = int(verdict.get("rounds") or 0)
+    if rounds <= 0 or bool(verdict.get("accepted")):
+        return ""
+    corr = verdict.get("measured_correlation")
+    l2 = verdict.get("measured_relative_l2")
+    lower = verdict.get("lower")
+    upper = verdict.get("upper")
+    parts = []
+    if corr is not None and lower is not None:
+        parts.append(_metric_with_shortfall("相关性", corr, lower, lower_bound=True))
+    if l2 is not None and upper is not None:
+        parts.append(_metric_with_shortfall("相对 L2", l2, upper, lower_bound=False))
+    if not parts:
+        return ""
+    return f"验收阈值（第 {rounds} 轮）: " + " · ".join(parts)
 
 
 def reuse_latest_verdict_line(session_dir: Path) -> str:
     """会话目录 → 一行光路复用结论 (缺失产物 / 未开启绝不抛)。
 
     ``run_session`` 的复用快路径把判定写进 ``<out>/optical_probe.json``（键
-    ``serial`` / ``latest`` / ``same_path`` / ``verdict``）。目录不存在、产物缺失
-    或当前会话根本没走复用 (没写该文件) 时返回空串 (调用方自行决定何时显示)。
+    ``serial`` / ``latest`` / ``same_path`` / ``verdict`` / ``current`` /
+    ``reference``）。目录不存在、产物缺失或当前会话根本没走复用 (没写该文件)
+    时返回空串 (调用方自行决定何时显示)。
+
+    通过时一行简短结论; 未通过时**列出每一条不通过的原因** (0 级零点漂移 /
+    相机曝光上界 / 取图格式 / 像素位深 / SLM 序列号 / 无 latest 参照),
+    便于操作员定位是哪一项光路变了。
     """
     if not session_dir or not Path(session_dir).is_dir():
         return ""
@@ -233,8 +316,84 @@ def reuse_latest_verdict_line(session_dir: Path) -> str:
         logger.warning("读取光路复用结论失败: {}", session_dir)
         return ""
     same = bool(data.get("same_path"))
-    tail = "光路复用：一致 → 已复用最近一次模型；差异已并入本场" if same else "光路复用：已变化 → 走正常全流程"
-    return tail
+    if same:
+        return "光路复用：一致 → 已复用最近一次模型；差异已并入本场"
+    # 未采用: 列出每一条不通过的原因 (尽量详细)。
+    reason = _reuse_latest_failure_reason(data)
+    if reason:
+        return f"光路复用：未采用（{reason}） → 走正常全流程"
+    # 兜底: 用 workflow 写入的 verdict 字符串 (可能只有粗粒度文案)。
+    verdict = data.get("verdict")
+    if isinstance(verdict, str) and verdict.strip():
+        return f"光路复用：{verdict.strip()}"
+    return "光路复用：已变化 → 走正常全流程"
+
+
+def _reuse_latest_failure_reason(data: dict) -> str:
+    """从 ``optical_probe.json`` 的 current/reference 探针里推断不通过的**具体原因**。
+
+    每条 reason 对应 ``same_path`` 的一个判据 (零点 / 曝光 / 格式 / 位深 /
+    序列号), 任一项不满足就 listed。绝不抛异常; 读不到字段时给「不可比」。
+    """
+    try:
+        from ao_shaping.tools.slm.transfer.optical_probe import (
+            DEFAULT_TOL_EXPOSURE_FACTOR,
+            DEFAULT_TOL_ZERO_PX,
+        )
+    except Exception:
+        return ""
+    cur = data.get("current")
+    ref = data.get("reference")
+    serial = data.get("serial")
+    if not isinstance(cur, dict) or not isinstance(ref, dict):
+        if ref is None:
+            return f"无 latest 参照模型 (SLM 序列号 {serial or '—'} 下没有已保存的 latest，或探针失败)"
+        return "当前 / 参照探针数据不完整，无法比对"
+    reasons: list[str] = []
+    # SLM 序列号
+    cur_serial = cur.get("slm_serial")
+    if cur_serial is not None and serial is not None and str(cur_serial) != str(serial):
+        reasons.append(f"SLM 序列号不同 (当前 {cur_serial} vs 参照 {serial})")
+    # 0 级光斑零点
+    try:
+        cx, cy = cur["zero_xy"]
+        rx, ry = ref["zero_xy"]
+        dx, dy = abs(float(cx) - float(rx)), abs(float(cy) - float(ry))
+        if dx > DEFAULT_TOL_ZERO_PX or dy > DEFAULT_TOL_ZERO_PX:
+            reasons.append(
+                f"0 级光斑零点漂移 Δx={dx:.1f}px Δy={dy:.1f}px "
+                f"(容忍 {DEFAULT_TOL_ZERO_PX}px)"
+            )
+    except (KeyError, TypeError, ValueError, IndexError):
+        reasons.append("0 级光斑零点不可比")
+    # 相机曝光上界
+    try:
+        cur_hi = float(cur["exposure_range_ms"][1])
+        ref_hi = float(ref["exposure_range_ms"][1])
+        if ref_hi > 0 and not (
+            ref_hi / DEFAULT_TOL_EXPOSURE_FACTOR
+            <= cur_hi
+            <= ref_hi * DEFAULT_TOL_EXPOSURE_FACTOR
+        ):
+            reasons.append(
+                f"相机曝光上界 {cur_hi:.3f}ms vs 参照 {ref_hi:.3f}ms "
+                f"(容忍 ×{DEFAULT_TOL_EXPOSURE_FACTOR})"
+            )
+    except (KeyError, TypeError, ValueError, IndexError):
+        reasons.append("相机曝光不可比")
+    # 取图格式
+    cf_cur = cur.get("camera_format")
+    cf_ref = ref.get("camera_format")
+    if cf_cur is None or cf_ref is None or cf_cur != cf_ref:
+        reasons.append(f"相机取图格式 {cf_cur!r} vs 参照 {cf_ref!r}")
+    # 像素位深
+    bd_cur = cur.get("bit_depth")
+    bd_ref = ref.get("bit_depth")
+    if bd_cur is None or bd_ref is None or bd_cur != bd_ref:
+        reasons.append(f"像素位深 {bd_cur!r} vs 参照 {bd_ref!r}")
+    if not reasons:
+        reasons.append("探针参数不可比")
+    return "；".join(reasons)
 
 
 #: 本场会话里模型权重 (冻结参数) 的候选位置, 按优先级排列 (相对会话目录)。
@@ -652,12 +811,12 @@ class TransferPage(QWidget):
         )
         self._tilt.toggled.connect(self._sync_tilt)
 
-        # A–B–B–A 配对验收: 默认关 (只按模型损失接受, 跳过 CCD 实测配对与方向核对)。
-        self._abba = self._check("A–B–B–A 配对验收（CCD 实测）", _DEFAULTS.abba)
+        # ABBA 交错测量 配对验收: 默认关 (只按模型损失接受, 跳过 CCD 实测配对与方向核对)。
+        self._abba = self._check("ABBA 交错测量 配对验收（CCD 实测）", _DEFAULTS.abba)
         self._abba.setToolTip(
             "开 = 每块测 A1/B1/B2/A2, 由实测指标判定候选是否接受; "
             "关（默认）= 保留按 CCD 实测校正的反馈, 跳过 B1/B2/A2 与方向核对, "
-            "候选只按模型损失接受, 摘要写 acceptance=model_only（等价 CLI --no-abba）"
+            "候选仅按模型损失接受（模型损失验收，无 CCD 实测配对）, 摘要写 acceptance=model_only（等价 CLI --no-abba）"
         )
 
         # 验收阈值循环 (CCD 与模型预测比对): 默认关 = 当前单轮行为。开 = 拟合后在
@@ -1594,6 +1753,9 @@ class TransferPage(QWidget):
             self._current.setText("尚未开始")
         else:
             self._current.setText("尚无阶段计划")
+        progress_line = acceptance_progress_line(self._session_dir)
+        if progress_line:
+            self._current.setText(f"{self._current.text()}  |  {progress_line}")
 
         self._counts.setText(
             " · ".join(

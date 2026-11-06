@@ -373,7 +373,7 @@ class TestAcceptanceMetrics:
         assert _metric(stage, "accepted")["text"] == "1/2 块"
         assert _metric(stage, "baseline_candidate")["text"] == "基线 0.0850 → 候选 0.0800"
         assert _metric(stage, "drift")["text"] == "0.0040"
-        assert _metric(stage, "scope")["text"] == "配对 A–B–B–A（损失）"
+        assert _metric(stage, "scope")["text"] == "CCD 配对 ABBA 交错测量 验收（损失）"
 
     def test_each_block_is_one_nested_detail_line(self, tmp_path):
         out = _session(
@@ -411,7 +411,7 @@ class TestAcceptanceMetrics:
         for key in ("baseline_candidate", "drift"):
             assert _metric(stage, key)["value"] is None
             assert _metric(stage, key)["text"] == tp.MISSING
-        assert _metric(stage, "scope")["text"] == "仅模型损失"
+        assert _metric(stage, "scope")["text"] == "模型损失验收（无 CCD 实测）"
         assert stage["details"][0] == "第 1 块（正方形）：接受 · 模型损失 0.0900 → 0.0700"
 
     def test_more_blocks_than_the_cap_point_at_the_session_directory(self, tmp_path):
@@ -456,7 +456,7 @@ class TestAcceptanceMetrics:
 
         stage = _stage(tp.collect_progress(out), "summary")
 
-        assert _metric(stage, "acceptance")["text"] == "配对 A–B–B–A"
+        assert _metric(stage, "acceptance")["text"] == "CCD 配对 ABBA 交错测量 验收"
         assert _metric(stage, "accepted")["text"] == "3 块"
         assert stage["details"] == ["正方形：CV 0.612 → 0.524 · 模型相关系数 0.941"]
 

@@ -86,7 +86,7 @@ STAGE_LABELS: dict[str, str] = {
     "exposure_response_capture": "曝光阶梯诊断",
     "exposure_response_analysis": "曝光响应分析",
     "blur_calibration": "有效展宽 / 辐射尺度校准",
-    "CCD_anchored_blocks": "CCD 实测校正优化块（按实测迭代，验收：A–B–B–A 或仅模型损失）",
+    "CCD_anchored_blocks": "CCD 实测校正优化块（按实测迭代，验收：CCD 配对 ABBA 交错测量 验收 或 模型损失验收（无 CCD 实测））",
     "GS_and_differentiable_synthesis": "GS + 可微相位合成（离线）",
     "transferred_phase_differentiable_synthesis": "历史接受相位迁移 + 可微合成（离线）",
     "raw_data_audit": "原始数据审计",
@@ -401,14 +401,16 @@ def _shape_name(value: Any) -> str:
 
 
 def _scope_text(scopes: Sequence[str], metric: str = "") -> str:
-    """验收口径：配对 A–B–B–A / 仅模型损失 / 混合（各块口径不同）。"""
+    """验收口径：CCD 配对 ABBA 交错测量 验收 / 模型损失验收（无 CCD 实测） / 混合口径（逐块）。"""
     unique = sorted({scope for scope in scopes if scope})
     if unique == ["model_only"]:
-        body = "仅模型损失"
+        body = "模型损失验收（无 CCD 实测）"
+    elif unique == ["sequential_ccd"]:
+        body = "CCD 顺序实测验收"
     elif unique in ([], ["paired"]):
-        body = "配对 A–B–B–A"
+        body = "CCD 配对 ABBA 交错测量 验收"
     else:
-        body = "混合（逐块见细节）"
+        body = "混合口径（逐块）"
     return f"{body}（{metric}）" if metric else body
 
 
@@ -606,8 +608,11 @@ def _block_line(block: Mapping[str, Any]) -> str:
     verdict = "接受" if block.get("accepted") else "拒绝"
     if "baseline" in block:
         body = (f"基线 {_figure(block.get('baseline'))} → "
-                f"候选 {_figure(block.get('candidate'))} · "
-                f"漂移 {_figure(block.get('drift'))}")
+                f"候选 {_figure(block.get('candidate'))}")
+        if block.get("drift") is not None:
+            body += f" · 漂移 {_figure(block.get('drift'))}"
+        elif block.get("tolerance") is not None:
+            body += f" · 容差 {_figure(block.get('tolerance'))}"
     else:
         body = (f"模型损失 {_figure(block.get('model_loss_previous'))} → "
                 f"{_figure(block.get('model_loss_last'))}")
@@ -1174,7 +1179,7 @@ def _show(fig: Any, caption: str) -> None:
 
 
 def _render_ccd(ccd: Mapping[str, Any], *, has_blocks: bool) -> None:
-    """每次 CCD 采集的 CV / 核心峰值随采集序号 —— 上升段与 A–B–B–A 交错都能看出来。
+    """每次 CCD 采集的 CV / 核心峰值随采集序号 —— 上升段与 ABBA 交错测量 交错都能看出来。
 
     颜色区分阶段（实测对照块 / 按实测校正块），空心点是种子的那几帧（``*_seed``）—— 种子
     是两条链路共同的起点，用它对齐两次运行的基线。

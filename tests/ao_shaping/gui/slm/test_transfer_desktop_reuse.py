@@ -165,11 +165,42 @@ def test_reuse_verdict_line_shows_different_when_changed(tmp_path) -> None:
     session_dir = _write_reused_session(tmp_path, same_path=False)
     line = page_mod.reuse_latest_verdict_line(session_dir)
     assert "光路复用" in line
-    assert "变化" in line
+    assert "未采用" in line
+    assert "走正常全流程" in line
 
 
-def test_reuse_verdict_line_never_raises_on_missing_dir(tmp_path) -> None:
-    assert page_mod.reuse_latest_verdict_line(tmp_path / "nope") == ""
+def test_reuse_verdict_line_lists_detailed_reasons(tmp_path) -> None:
+    """未通过时列出每一条不通过的原因 (零点 / 曝光 / 格式 / 位深)。"""
+    session_dir = tmp_path / "s"
+    session_dir.mkdir()
+    cur = {
+        "zero_xy": [100.0, 200.0],
+        "exposure_range_ms": [0.02, 5.0],
+        "camera_format": "MONO8",
+        "bit_depth": 8,
+        "slm_serial": "sn-1",
+    }
+    ref = {
+        "zero_xy": [100.0, 210.0],  # 零点漂移 10 px
+        "exposure_range_ms": [0.02, 8.0],  # 曝光上界超容忍
+        "camera_format": "MONO12",  # 格式不同
+        "bit_depth": 12,  # 位深不同
+        "slm_serial": "sn-1",
+    }
+    (session_dir / "optical_probe.json").write_text(
+        json.dumps(
+            {"serial": "sn-1", "latest": "x", "same_path": False,
+             "current": cur, "reference": ref, "verdict": "drift"}
+        ),
+        encoding="utf-8",
+    )
+    line = page_mod.reuse_latest_verdict_line(session_dir)
+    assert "光路复用" in line
+    assert "未采用" in line
+    assert "零点漂移" in line
+    assert "曝光上界" in line
+    assert "取图格式" in line
+    assert "位深" in line
 
 
 def test_reuse_verdict_line_never_raises_on_partial_artifacts(tmp_path) -> None:
