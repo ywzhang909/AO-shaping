@@ -64,6 +64,7 @@ _FILE = "src/ao_shaping/optimizer/wfless/model_in_loop_shaping.py"
 _PIB = "src/ao_shaping/optimizer/wfless/pib.py"
 _COMB = "src/ao_shaping/optimizer/combined_optimizer.py"
 _VAL = "src/ao_shaping/tools/slm/transfer/validate.py"
+_WF = "src/ao_shaping/tools/slm/transfer/workflow.py"
 _IO = "src/ao_shaping/utils/io/file.py"
 _DM = "src/ao_shaping/tools/kernels/device_mutex.py"
 _PAT = "src/ao_shaping/utils/image/target/patterns.py"
@@ -116,6 +117,11 @@ TARGETS = [
     (_VAL, "_run_validate_session", 230, 5, 200),
     (_VAL, "_run_validate_shapes", 130, 3, 105),
     (_VAL, "_run_validate_blocks", 200, 5, 169),
+    (_WF, "run_session", 430, 4, 378),
+    (_WF, "_acquire_session_dataset", 95, 4, 78),
+    (_WF, "_round_geometry_preflight", 60, 1, 42),
+    (_WF, "_offline_synthesize", 130, 3, 108),
+    (_WF, "_round_calibration_stages", 70, 1, 52),
     (_IO, "render_recorder_gif", 160, 4, 113),
     (_IO, "_gif_frames", 200, 5, 149),
     (_IO, "_render_gif_top_panels", 100, 6, 72),
