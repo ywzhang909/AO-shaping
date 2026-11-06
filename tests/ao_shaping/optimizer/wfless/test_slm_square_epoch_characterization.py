@@ -15,20 +15,46 @@ and every downstream consumer -- best-tracking, the in-ROI energy guard, the
 ``lr == 0`` schedule, the recorder rows -- actually reads the pair.
 
 Golden tuple is ``(n_rows, rows_hash, writes_hash, n_slm_writes)``: the row
-hash covers every column of every epoch (floats at 12 significant digits,
-arrays digested), the write hash covers the exact arrays pushed to the SLM.
+hash covers every column of every epoch, the write hash covers the arrays
+pushed to the SLM.
+
+Both hashes are **quantized, not bit-exact, on purpose**.  A bit-exact golden is
+a flake generator: the SPGD chain is float32/float64 arithmetic whose reduction
+order depends on how BLAS/FFT split work across the cores a runner happens to
+have, so the last bits legitimately differ between machines, and a golden that
+hashes them turns that into a red shard that disappears on re-run -- the exact
+"intermittent, name lost" class this repository already has one open case of
+(TODO.md 8.9, tools shard 1 failed / 1107 passed).  Quantizing to 4 decimals /
+5 significant digits sits ~4 orders of magnitude above that drift and ~2 below
+the smallest behavior change worth catching: mutating ``-disturb_c`` to
+``+disturb_c`` (a real pos/neg swap) still turns all six cases red, which is the
+property this net is for.
+
+Re-baseline after an *intentional* behavior change (repo's opt-in convention):
+
+    AO_SQUARE_CHAR_UPDATE=/tmp/square_golden.json \
+        ./scripts/build/run_pytest_ci.sh <this file> -q
+
+then paste the JSON into ``EXPECTED``.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 
 from ao_shaping.optimizer.wfless import slm_square_shaping as sq
+
+#: Quantization applied before hashing.  See the module docstring: this is a
+#: platform-drift margin, not a tolerance for behavior.
+_QUANT_DECIMALS = 4
+_FLOAT_SIG_DIGITS = ".5g"
 
 _H, _W = 64, 64
 
@@ -45,49 +71,58 @@ CASES: dict[str, dict[str, Any]] = {
 EXPECTED: dict[str, tuple[int, str, str, int]] = {
     "adaptive": (
         7,
-        "6f9f757774f77c7bc4a1190bf988a44ecd59217c",
-        "7040b70b119313f8b3a4fd24002ac4165bda7c25",
+        "295b27254f0a576b5453bbb60c5a64e3ca269cbb",
+        "250dab79dcf19359693381f681f1b1669eed74f6",
         38,
     ),
     "pearson_lr0": (
         4,
-        "9ce542b5d501627fd0dce8b96f4f90850b26ce1b",
-        "57d10a3c767fa8ba255088691a5011044e4c5665",
+        "73e3b07574416a296e3aa62511fa3df552e55a01",
+        "7363dbbb25e0b3d336928134e626c3e23ab623dd",
         20,
     ),
     "quality_default": (
         4,
-        "61408bce05e78e83caeb3820d46a9ca779e8b2ba",
-        "57d10a3c767fa8ba255088691a5011044e4c5665",
+        "e82677ca57eb81a7d9e1a366e7d2e442db61f5a6",
+        "7363dbbb25e0b3d336928134e626c3e23ab623dd",
         20,
     ),
     "tight_guard": (
         4,
-        "61408bce05e78e83caeb3820d46a9ca779e8b2ba",
-        "57d10a3c767fa8ba255088691a5011044e4c5665",
+        "e82677ca57eb81a7d9e1a366e7d2e442db61f5a6",
+        "7363dbbb25e0b3d336928134e626c3e23ab623dd",
         20,
     ),
     "w_pbr_aspect": (
         4,
-        "20611de49d3ec3e71a618dee59897c15d8fbd746",
-        "57d10a3c767fa8ba255088691a5011044e4c5665",
+        "c6161cd6667d7337809f5886c758879ed91d229e",
+        "7363dbbb25e0b3d336928134e626c3e23ab623dd",
         20,
     ),
     "zernike_basis": (
         3,
-        "36af9d5ac5e92f933a45283a632c3f4c0ce449f7",
-        "01507d97658aede2b37c987ab8c180a7fd0ffd71",
+        "cbcd94790dfc545f01caa39a4fb0b1a35c6d9ddb",
+        "2c0cf84446c95777490b1ef80d476e7d98678829",
         14,
     ),
 }
 
 
+def _quant(v: Any) -> np.ndarray:
+    """Round to the golden's quantization, in a fixed dtype and byte order.
+
+    ``<f8`` is not decoration: hashing native-endian bytes would make the golden
+    machine-class dependent for no benefit.
+    """
+    return np.round(np.asarray(v, dtype=np.float64), _QUANT_DECIMALS).astype("<f8")
+
+
 def _cell(v: Any) -> Any:
     """Canonical, order-stable form of one recorded value."""
     if isinstance(v, np.ndarray):
-        return "arr:" + hashlib.sha1(np.ascontiguousarray(v).tobytes()).hexdigest()[:12]
+        return "arr:" + hashlib.sha1(_quant(v).tobytes()).hexdigest()[:12]
     if isinstance(v, (float, np.floating)):
-        return None if not np.isfinite(float(v)) else f"{float(v):.12g}"
+        return None if not np.isfinite(float(v)) else format(float(v), _FLOAT_SIG_DIGITS)
     if isinstance(v, (int, np.integer)) and not isinstance(v, bool):
         return int(v)
     return str(v)
@@ -211,7 +246,13 @@ class _BenchSLM:
         return 1023
 
 
-def _digest(case: str, monkeypatch: pytest.MonkeyPatch) -> tuple[int, str, str, int]:
+def _digest(case: str, monkeypatch: pytest.MonkeyPatch) -> tuple[tuple[int, str, str, int], list]:
+    """Golden tuple for one case, plus the canonical rows behind it.
+
+    The rows come back alongside the hash so a failure can print actual numbers:
+    a golden that only reports "hash mismatch" is how an intermittent red ends up
+    with no named cause (TODO.md 8.9, the unresolved tools-shard flake).
+    """
     bench = _Bench()
     monkeypatch.setattr(sq, "create_camera", lambda *a, **k: bench.camera())
     monkeypatch.setattr(sq, "Santec", lambda *a, **k: bench.slm())
@@ -223,10 +264,16 @@ def _digest(case: str, monkeypatch: pytest.MonkeyPatch) -> tuple[int, str, str, 
                                  config=sq.SlmSquareConfig(**base))
     rows = [{str(k): _cell(v) for k, v in row.items()} for row in rec.history]
     writes = hashlib.sha1(
-        b"".join(np.ascontiguousarray(w).tobytes() for w in bench.writes)
+        b"".join(_quant(w).tobytes() for w in bench.writes)
     ).hexdigest()
     return (len(rows), hashlib.sha1(json.dumps(rows, sort_keys=True).encode()).hexdigest(),
-            writes, len(bench.writes))
+            writes, len(bench.writes)), rows
+
+
+def _preview(rows: list) -> str:
+    """The first two canonical rows, shortened enough to live in an assert message."""
+    text = json.dumps(rows[:2], sort_keys=True)
+    return text if len(text) <= 700 else text[:700] + "...(truncated)"
 
 
 class TestSquareEpochCharacterization:
@@ -235,12 +282,25 @@ class TestSquareEpochCharacterization:
     @pytest.mark.parametrize("case", sorted(CASES))
     def test_epoch_loop_matches_its_golden_digest(self, case: str,
                                                   monkeypatch: pytest.MonkeyPatch) -> None:
-        got = _digest(case, monkeypatch)
+        got, rows = _digest(case, monkeypatch)
         want = EXPECTED[case]
+        update = os.environ.get("AO_SQUARE_CHAR_UPDATE")
+        if update:
+            path = Path(update)
+            captured = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+            captured[case] = list(got)
+            path.write_text(json.dumps(captured, indent=1, sort_keys=True), encoding="utf-8")
+            pytest.skip(f"{case}: golden captured into {update}")
         assert got[0] == want[0], f"{case}: {got[0]} rows, golden {want[0]}"
         assert got[3] == want[3], f"{case}: {got[3]} SLM writes, golden {want[3]}"
-        assert got[1] == want[1], f"{case}: recorded metrics drifted from the golden rows"
-        assert got[2] == want[2], f"{case}: phases sent to the SLM drifted"
+        assert got[1] == want[1], (
+            f"{case}: recorded metrics drifted from the golden rows; "
+            f"first rows now = {_preview(rows)}"
+        )
+        assert got[2] == want[2], (
+            f"{case}: phases sent to the SLM drifted; "
+            f"first rows now = {_preview(rows)}"
+        )
 
     def test_the_camera_actually_depends_on_the_panel(self) -> None:
         """Guard the guard: a phase-independent blob makes the gradient zero.
