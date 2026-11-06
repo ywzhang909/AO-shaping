@@ -71,7 +71,7 @@ def defocus_pattern(a: float = 6.0) -> tuple[str, np.ndarray, str]:
     yy, xx = _grid(PANEL_SHAPE)
     r2 = ((xx - _CX) ** 2 + (yy - _CY) ** 2) / _R**2
     phase = a * (2.0 * r2 - 1.0)
-    return "defocus", phase, f"离焦 6.0 rad (甜甜圈形远场)"
+    return "defocus", phase, "离焦 6.0 rad (甜甜圈形远场)"
 
 
 def tilt_x_pattern(a: float = 6.0) -> tuple[str, np.ndarray, str]:
@@ -255,7 +255,7 @@ def run_execute(args) -> int:
             json.dump(summary, f, ensure_ascii=False, indent=2)
         print(f"完成: 摘要已写入 {out / 'probe_summary.json'}")
         return 0
-    except Exception as exc:  # noqa: BLE001 - report and let finally close
+    except Exception as exc:  # report and let finally close
         print(f"执行失败: {exc!r}", file=sys.stderr)
         return 1
     finally:
@@ -264,13 +264,13 @@ def run_execute(args) -> int:
             try:
                 cam.close()
                 print("相机已关闭 (miicam released).")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 print(f"相机关闭失败: {exc!r}", file=sys.stderr)
         if slm is not None:
             try:
                 slm.close()
                 print(f"SLM #{args.slm_number} 已关闭 (释放).")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 print(f"SLM 关闭失败: {exc!r}", file=sys.stderr)
 
 

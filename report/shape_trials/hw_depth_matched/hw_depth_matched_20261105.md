@@ -64,10 +64,10 @@ harness：`PhysicalForwardFit`（Z4+残差 Z5–Z11, staged, trust region, Adam 
 | 真硬件 | 0.8101 |
 | sim twin 渲染 | 0.7133 |
 
-两者同相位、同 span、同收集；唯一变化量是 `phase→irradiance` 前向模型本身。
-**因此 NCC 差距源于前向模型失配，而非探针采样/span**。早前草稿曾把 0.71 读作
+两者同相位、同 span、同收集；唯一变化量是 `phase→irradiance` 物理预测模型本身。
+**因此 NCC 差距源于物理预测模型失配，而非探针采样/span**。早前草稿曾把 0.71 读作
 "holdout 出 span 导致"的证据，系误读——受控反事实恰好在同 span 内把 0.71 定格为
-前向模型问题，这里明确修正。
+物理预测模型问题，这里明确修正。
 
 辅助证据：
 - σ 扫描（frozen）：σ=8 为最佳（0.8101），σ 继续加大反而下降（σ=16 → 0.7847），
@@ -77,12 +77,12 @@ harness：`PhysicalForwardFit`（Z4+残差 Z5–Z11, staged, trust region, Adam 
   r=10→540×、r=20→2500× 因质心/归一化口径不同，仅作定性参考）。
 
 **twin 修复方向**：在 forward 模型（phase→irradiance，含宽晕/pedestal 结构），
-而非探针分布。候选：加未建模宽带底盘（残差散射/stray）、瞳孔边缘效应、更宽 CCD PSF 尾巴。
+而非探针分布。候选：加未建模宽带底盘（残差散射/stray）、瞳面边缘效应、更宽 CCD PSF 尾巴。
 
 ## 5. 结论与对闭环方案的影响
 
 1. **主动探针样本效率主张撤销**：run01 的配对显著性（NCC n=2/8/24, NRMSE n=8）不构成样本效率优势的证据——run02 深度匹配后消失，且效应量 ≤2%。
 2. **闭环主动选样暂停**：在 twin 空间结构改进前，不值得写闭环脚本。
-3. **twin 改进优先，且方向锁定为前向模型**：NCC 差距（0.97 vs 0.81）是空间结构失配——受控反事实证明是 `phase→irradiance` 前向模型问题（同 span 同收集下 sim-twin 0.7133 < 真硬件 0.8101），而非探针分布。修复方向候选：未建模宽带底盘（stray/residual scattering）、瞳孔边缘效应、更宽 CCD PSF 尾巴；避开探针/span 侧改动。
+3. **twin 改进优先，且方向锁定为物理预测模型**：NCC 差距（0.97 vs 0.81）是空间结构失配——受控反事实证明是 `phase→irradiance` 物理预测模型问题（同 span 同收集下 sim-twin 0.7133 < 真硬件 0.8101），而非探针分布。修复方向候选：未建模宽带底盘（stray/residual scattering）、瞳面边缘效应、更宽 CCD PSF 尾巴；避开探针/span 侧改动。
 4. forward_model_transfer_plan 的 P3–P6 闭环阶段全部推迟，直到 P2 几何对齐 + twin 结构改进后复测通过。
 5. run01 结论（ISSUE229_FINAL.md 已加 addendum）：dataset 有效、方法可复跑、PSF/radiometry 管线在生产口径下复现质量——这三点维持成立。

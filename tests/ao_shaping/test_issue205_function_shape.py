@@ -64,6 +64,7 @@ _FILE = "src/ao_shaping/optimizer/wfless/model_in_loop_shaping.py"
 _PIB = "src/ao_shaping/optimizer/wfless/pib.py"
 _COMB = "src/ao_shaping/optimizer/combined_optimizer.py"
 _VAL = "src/ao_shaping/tools/slm/transfer/validate.py"
+_WF = "src/ao_shaping/tools/slm/transfer/workflow.py"
 _IO = "src/ao_shaping/utils/io/file.py"
 _DM = "src/ao_shaping/tools/kernels/device_mutex.py"
 _PAT = "src/ao_shaping/utils/image/target/patterns.py"
@@ -116,6 +117,11 @@ TARGETS = [
     (_VAL, "_run_validate_session", 230, 5, 200),
     (_VAL, "_run_validate_shapes", 130, 3, 105),
     (_VAL, "_run_validate_blocks", 200, 5, 169),
+    (_WF, "run_session", 430, 4, 378),
+    (_WF, "_acquire_session_dataset", 95, 4, 78),
+    (_WF, "_round_geometry_preflight", 60, 1, 42),
+    (_WF, "_offline_synthesize", 130, 3, 108),
+    (_WF, "_round_calibration_stages", 70, 1, 52),
     (_IO, "render_recorder_gif", 160, 4, 113),
     (_IO, "_gif_frames", 200, 5, 149),
     (_IO, "_render_gif_top_panels", 100, 6, 72),
@@ -142,7 +148,11 @@ TARGETS = [
     (_SZP, "_run_spgd_session", 420, 5, 390),
     (_SQ, "optimize_slm_square", 500, 4, 460),
     (_SQ, "_run_square_session", 560, 4, 521),
-    (_SQ, "_run_square_search_stage", 600, 5, 557),
+    (_SQ, "_run_square_search_stage", 430, 5, 387),
+    (_SQ, "_run_square_heuristic_stage", 210, 3, 168),
+    (_SQ, "_square_stage_weights", 95, 3, 52),
+    (_SQ, "_square_perturbation_measurement", 95, 0, 52),
+    (_SQ, "_select_better_square_perturbation", 135, 1, 92),
     (_RMS, "optimizer_rms_slm", 200, 1, 155),
     (_RMS, "_run_rms_session", 430, 5, 397),
     (_MIL, "optimize_slm_model_in_loop", 130, 1, 84),

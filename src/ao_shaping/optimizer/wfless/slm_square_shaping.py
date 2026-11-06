@@ -1312,7 +1312,7 @@ def _run_square_session(
         #
         # Deliberately NOT a bare sentinel: the slm-pib family only subtracts
         # 1e3 from the objective, which protects the best-so-far track but still
-        # lets `diff = pos_q - neg_q` build a huge REAL gradient from the
+        # lets `diff = pos["q"] - neg["q"]` build a huge REAL gradient from the
         # penalised pair. Here the epoch is SKIPPED outright, so the
         # coefficients never move toward a state that empties the box.
         # ------------------------------------------------------------------
@@ -1922,6 +1922,378 @@ def optimize_slm_square(
     )
 
 
+def _run_square_heuristic_stage(
+    *,
+    algorithm: object,
+    best_ar: object,
+    best_cv: object,
+    best_ee: object,
+    best_quality: object,
+    cam: object,
+    center: object,
+    delta: object,
+    display_ctx: object,
+    display_stack: object,
+    epochs: object,
+    last_best_epoch: object,
+    objective: object,
+    pop_size: object,
+    random_seed: object,
+    recorder: object,
+    slm: object,
+    target_mean_brightness: object,
+    target_side: object,
+    _dim: object,
+    _heuristic_bounds: object,
+    _n_energy_gated: object,
+    _params: object,
+    _params_to_gray: object,
+    _record_vec: object,
+    _score_column: object,
+    w_aspect: object,
+    w_efficiency: object,
+    w_pbr: object,
+    w_uniformity: object,
+) -> tuple:
+    """#205 batch-26: the non-SPGD heuristic branch of the search stage.
+
+    Verbatim move out of ``_run_square_search_stage``. The branch ends the
+    session itself, so it needs no epoch-loop state back. ``best_cost`` /
+    ``best_c`` / ``best_img`` are local to this branch (the SPGD loop only
+    wrote them), hence the explicit initialisation before ``_on_evaluate``
+    first stores into them; the five names the caller keeps are parameters.
+    """
+    best_cost = 0.0
+    best_c = np.asarray(_params, dtype=np.float64).copy()
+    best_img = None
+    last_eval: dict = {}
+
+    def _evaluate_quality(params: np.ndarray) -> float:
+        """Load one phase and return its HIGHER-IS-BETTER square score."""
+        slm.display_data(_params_to_gray(params))
+        time.sleep(SLM_RESPONSE_TIME_S)
+        img = cam.get_numpy_image(CAM_SAMPLE_ITER)
+        _cost, _cv, _mean = square_uniformity_cost(img, center, target_side)
+        _ee = square_encircled_energy(img, center, target_side)
+        _ar = square_aspect_ratio(img, center, target_side)
+        _pbr = square_peak_to_background_ratio(img, center, target_side)
+        _q = square_objective_score(
+            img,
+            _cv,
+            _ee,
+            _ar,
+            center,
+            target_side,
+            objective,
+            w_uniformity,
+            w_efficiency,
+            w_aspect,
+            peak_to_background=_pbr,
+            w_pbr=w_pbr,
+        )
+        last_eval.update(
+            {
+                "img": img,
+                "cost": float(_cost),
+                "cv": float(_cv),
+                "ee": float(_ee),
+                "ar": float(_ar),
+                "pbr": float(_pbr),
+                "mean": float(_mean),
+                "gray": _params_to_gray(params),
+            }
+        )
+        return float(_q)
+
+    with tqdm.tqdm(
+        total=None, desc=f"slm_square {algorithm}", dynamic_ncols=True
+    ) as hbar:
+
+        def _on_evaluate(params: np.ndarray, value: float, index: int) -> None:
+            nonlocal best_quality, best_cost, best_cv, best_ee, best_ar
+            nonlocal best_c, best_img, last_best_epoch
+            if value > best_quality + 1e-6:
+                best_quality = float(value)
+                best_cost = last_eval["cost"]
+                best_cv = last_eval["cv"]
+                best_ee = last_eval["ee"]
+                best_ar = last_eval["ar"]
+                best_c = np.asarray(params, dtype=np.float64).copy()
+                best_img = last_eval["img"].copy()
+                last_best_epoch = index
+
+            row = {
+                "J": last_eval["cost"],
+                _score_column: float(value),
+                "cv": last_eval["cv"],
+                "ee": last_eval["ee"],
+                "ar": last_eval["ar"],
+                "pbr": last_eval["pbr"],
+                "side": target_side,
+                RECORD_COEFFS: _record_vec(
+                    np.asarray(params, dtype=np.float64)
+                ),
+                RECORD_IMAGE: last_eval["img"],
+                RECORD_DIFF: 0.0,
+                "lr": 0.0,
+                "delta": float(delta),
+                RECORD_EPOCH: index,
+                "exp_t": get_camera_exposure_ms(cam),
+                "max_brt": float(np.max(last_eval["img"])),
+                "mean_b": last_eval["mean"],
+                "target_mean_b": target_mean_brightness,
+                RECORD_GRAD: _record_vec(np.zeros_like(params)),
+                "optimizer": algorithm,
+            }
+            recorder.append(row)
+
+            if display_ctx is not None:
+                try:
+                    display_ctx.update(
+                        img=last_eval["img"],
+                        phase=last_eval["gray"],
+                        quality=float(value),
+                        cv=last_eval["cv"],
+                        ee=last_eval["ee"],
+                        epoch=index,
+                        total_epochs=epochs,
+                    )
+                # policy: a display refresh inside the heuristic callback must not abort a search that is already driving the SLM
+                except Exception:
+                    pass
+
+            hbar.set_postfix({k: v for k, v in row.items() if k[0] != "_"})
+            hbar.update(1)
+
+        result = run_heuristic_search(
+            algorithm,
+            _evaluate_quality,
+            dim=_dim,
+            iterations=epochs,
+            bounds=_heuristic_bounds,
+            x0=_params,
+            maximize=True,
+            seed=random_seed,
+            pop_size=pop_size,
+            on_evaluate=_on_evaluate,
+        )
+
+    # Leave the best phase found on the SLM.
+    slm.display_data(_params_to_gray(result.best_x))
+    logger.info(
+        "{} search finished: best quality={:.4f} over {} evaluations "
+        "(epoch {})",
+        algorithm,
+        result.best_value,
+        result.evaluations,
+        last_best_epoch,
+    )
+    display_stack.close()
+    return True, _n_energy_gated, best_ar, best_cv, best_ee, best_quality, last_best_epoch
+
+
+def _square_stage_weights(
+    *,
+    _adaptive_boost_active: object,
+    _adaptive_cfg: object,
+    _cv_history: object,
+    epoch: int,
+    epochs: int,
+    w_aspect: object,
+    w_efficiency: object,
+    w_uniformity: object,
+) -> tuple:
+    """#205 batch-27: per-epoch adaptive weights for the square objective.
+
+    Verbatim move of the ``if _adaptive_cfg is not None`` block: schedule the
+    quality weights by epoch thirds, then temporarily boost ``w_uniformity``
+    while best-CV stagnates. Returns the four names the loop keeps, so the
+    None case (adaptive off) simply hands them back unchanged.
+    """
+    if _adaptive_cfg is None:
+        return w_uniformity, w_efficiency, w_aspect, _adaptive_boost_active
+    # Adaptive SPGD (only active when --adaptive is on): schedule the
+    # quality weights from stage_weights by epoch thirds, then detect
+    # best-CV stagnation over the last `stagnate_win` epochs and
+    # temporarily boost w_uniformity.
+    if _adaptive_cfg is not None:
+        w_uniformity, w_efficiency, w_aspect = get_stage_weights(
+            _adaptive_cfg, epoch, epochs
+        )
+        if (
+            _adaptive_cfg.enable_stagnate_boost
+            and _adaptive_cfg.stagnate_boost > 1.0
+            and should_boost_stagnation(
+                _cv_history,
+                win=_adaptive_cfg.stagnate_win,
+                min_improve_frac=_adaptive_cfg.min_improve_frac,
+            )
+        ):
+            if not _adaptive_boost_active:
+                logger.info(
+                    "Adaptive SPGD: best-CV stagnation over the last "
+                    "{} epochs (win={}, min_improve_frac={}); boosting "
+                    "w_uniformity x{} for this epoch",
+                    _adaptive_cfg.stagnate_win,
+                    _adaptive_cfg.stagnate_win,
+                    _adaptive_cfg.min_improve_frac,
+                    _adaptive_cfg.stagnate_boost,
+                )
+            _adaptive_boost_active = True
+            w_uniformity *= _adaptive_cfg.stagnate_boost
+        else:
+            _adaptive_boost_active = False
+    return w_uniformity, w_efficiency, w_aspect, _adaptive_boost_active
+
+
+def _square_perturbation_measurement(
+    *,
+    _params_to_gray: object,
+    c: object,
+    cam: object,
+    center: object,
+    objective: object,
+    slm: object,
+    target_side: object,
+    w_aspect: object,
+    w_efficiency: object,
+    w_pbr: object,
+    w_uniformity: object,
+) -> dict:
+    """#205 batch-28: load one perturbed phase and measure its far field.
+
+    The SPGD epoch needs the identical procedure twice, on ``+/- disturb_c``;
+    the two copies differed only in their variable prefixes, which is how a
+    one-sided change (a metric dropped from the record, a stale weight) would
+    silently desynchronise the pair. One measurement, one record.
+    """
+    slm.display_data(_params_to_gray(c))
+    time.sleep(SLM_RESPONSE_TIME_S)
+    img = cam.get_numpy_image(CAM_SAMPLE_ITER)
+    cost, cv, mean = square_uniformity_cost(img, center, target_side)
+    ee = square_encircled_energy(img, center, target_side)
+    ar = square_aspect_ratio(img, center, target_side)
+    pbr = square_peak_to_background_ratio(img, center, target_side)
+    return {
+        "c": c,
+        "img": img,
+        "cost": cost,
+        "cv": cv,
+        "mean": mean,
+        "ee": ee,
+        "ar": ar,
+        "pbr": pbr,
+        "q": square_objective_score(
+            img,
+            cv,
+            ee,
+            ar,
+            center,
+            target_side,
+            objective,
+            w_uniformity,
+            w_efficiency,
+            w_aspect,
+            peak_to_background=pbr,
+            w_pbr=w_pbr,
+        ),
+    }
+
+
+def _select_better_square_perturbation(
+    *,
+    _adaptive_cfg: object,
+    _base_w_aspect: object,
+    _base_w_efficiency: object,
+    _base_w_uniformity: object,
+    center: object,
+    neg: dict,
+    objective: object,
+    pos: dict,
+    target_side: object,
+    w_aspect: object,
+    w_efficiency: object,
+    w_pbr: object,
+    w_uniformity: object,
+) -> tuple:
+    """#205 batch-27: pick the better perturbation and score it.
+
+    Verbatim move of the selection plus the two score computations. Pure: it
+    reads the paired measurements and returns what the loop records, tracks
+    and schedules from. ``quality`` uses the (possibly boosted) weights while
+    ``_track_quality`` uses the frozen base weights -- that asymmetry is the
+    adaptive contract, so the two stay computed side by side.
+    """
+    # Metrics for the better perturbation
+    if pos["q"] >= neg["q"]:
+        eval_img, eval_cv, eval_ee, eval_ar, eval_c, eval_pbr = (
+            pos["img"],
+            pos["cv"],
+            pos["ee"],
+            pos["ar"],
+            pos["c"].copy(),
+            pos["pbr"],
+        )
+    else:
+        eval_img, eval_cv, eval_ee, eval_ar, eval_c, eval_pbr = (
+            neg["img"],
+            neg["cv"],
+            neg["ee"],
+            neg["ar"],
+            neg["c"].copy(),
+            neg["pbr"],
+        )
+
+    quality = square_objective_score(
+        eval_img,
+        eval_cv,
+        eval_ee,
+        eval_ar,
+        center,
+        target_side,
+        objective,
+        w_uniformity,
+        w_efficiency,
+        w_aspect,
+        peak_to_background=eval_pbr,
+        w_pbr=w_pbr,
+    )
+    J = (pos["cost"] + neg["cost"]) / 2
+
+    # Best-tracking uses the FROZEN base weights (adaptive contract):
+    # the logged `quality` reflects the scheduled/boosted weights,
+    # while best-* selection must stay comparable across epochs.
+    _track_quality = (
+        square_objective_score(
+            eval_img,
+            eval_cv,
+            eval_ee,
+            eval_ar,
+            center,
+            target_side,
+            objective,
+            _base_w_uniformity,
+            _base_w_efficiency,
+            _base_w_aspect,
+            peak_to_background=eval_pbr,
+            w_pbr=w_pbr,
+        )
+        if _adaptive_cfg is not None
+        else quality
+    )
+    return (
+        eval_img,
+        eval_cv,
+        eval_ee,
+        eval_ar,
+        eval_c,
+        eval_pbr,
+        quality,
+        J,
+        _track_quality,
+    )
+
+
 def _run_square_search_stage(
     *,
     _adaptive_boost_active: object,
@@ -1993,131 +2365,38 @@ def _run_square_search_stage(
     still leaves _run_square_session without touching the epoch loop.
     """
     if algorithm != "spgd":
-        last_eval: dict = {}
-
-        def _evaluate_quality(params: np.ndarray) -> float:
-            """Load one phase and return its HIGHER-IS-BETTER square score."""
-            slm.display_data(_params_to_gray(params))
-            time.sleep(SLM_RESPONSE_TIME_S)
-            img = cam.get_numpy_image(CAM_SAMPLE_ITER)
-            _cost, _cv, _mean = square_uniformity_cost(img, center, target_side)
-            _ee = square_encircled_energy(img, center, target_side)
-            _ar = square_aspect_ratio(img, center, target_side)
-            _pbr = square_peak_to_background_ratio(img, center, target_side)
-            _q = square_objective_score(
-                img,
-                _cv,
-                _ee,
-                _ar,
-                center,
-                target_side,
-                objective,
-                w_uniformity,
-                w_efficiency,
-                w_aspect,
-                peak_to_background=_pbr,
-                w_pbr=w_pbr,
-            )
-            last_eval.update(
-                {
-                    "img": img,
-                    "cost": float(_cost),
-                    "cv": float(_cv),
-                    "ee": float(_ee),
-                    "ar": float(_ar),
-                    "pbr": float(_pbr),
-                    "mean": float(_mean),
-                    "gray": _params_to_gray(params),
-                }
-            )
-            return float(_q)
-
-        with tqdm.tqdm(
-            total=None, desc=f"slm_square {algorithm}", dynamic_ncols=True
-        ) as hbar:
-
-            def _on_evaluate(params: np.ndarray, value: float, index: int) -> None:
-                nonlocal best_quality, best_cost, best_cv, best_ee, best_ar
-                nonlocal best_c, best_img, last_best_epoch
-                if value > best_quality + 1e-6:
-                    best_quality = float(value)
-                    best_cost = last_eval["cost"]
-                    best_cv = last_eval["cv"]
-                    best_ee = last_eval["ee"]
-                    best_ar = last_eval["ar"]
-                    best_c = np.asarray(params, dtype=np.float64).copy()
-                    best_img = last_eval["img"].copy()
-                    last_best_epoch = index
-
-                row = {
-                    "J": last_eval["cost"],
-                    _score_column: float(value),
-                    "cv": last_eval["cv"],
-                    "ee": last_eval["ee"],
-                    "ar": last_eval["ar"],
-                    "pbr": last_eval["pbr"],
-                    "side": target_side,
-                    RECORD_COEFFS: _record_vec(
-                        np.asarray(params, dtype=np.float64)
-                    ),
-                    RECORD_IMAGE: last_eval["img"],
-                    RECORD_DIFF: 0.0,
-                    "lr": 0.0,
-                    "delta": float(delta),
-                    RECORD_EPOCH: index,
-                    "exp_t": get_camera_exposure_ms(cam),
-                    "max_brt": float(np.max(last_eval["img"])),
-                    "mean_b": last_eval["mean"],
-                    "target_mean_b": target_mean_brightness,
-                    RECORD_GRAD: _record_vec(np.zeros_like(params)),
-                    "optimizer": algorithm,
-                }
-                recorder.append(row)
-
-                if display_ctx is not None:
-                    try:
-                        display_ctx.update(
-                            img=last_eval["img"],
-                            phase=last_eval["gray"],
-                            quality=float(value),
-                            cv=last_eval["cv"],
-                            ee=last_eval["ee"],
-                            epoch=index,
-                            total_epochs=epochs,
-                        )
-                    # policy: a display refresh inside the heuristic callback must not abort a search that is already driving the SLM
-                    except Exception:
-                        pass
-
-                hbar.set_postfix({k: v for k, v in row.items() if k[0] != "_"})
-                hbar.update(1)
-
-            result = run_heuristic_search(
-                algorithm,
-                _evaluate_quality,
-                dim=_dim,
-                iterations=epochs,
-                bounds=_heuristic_bounds,
-                x0=_params,
-                maximize=True,
-                seed=random_seed,
-                pop_size=pop_size,
-                on_evaluate=_on_evaluate,
-            )
-
-        # Leave the best phase found on the SLM.
-        slm.display_data(_params_to_gray(result.best_x))
-        logger.info(
-            "{} search finished: best quality={:.4f} over {} evaluations "
-            "(epoch {})",
-            algorithm,
-            result.best_value,
-            result.evaluations,
-            last_best_epoch,
+        return _run_square_heuristic_stage(
+            algorithm=algorithm,
+            best_ar=best_ar,
+            best_cv=best_cv,
+            best_ee=best_ee,
+            best_quality=best_quality,
+            cam=cam,
+            center=center,
+            delta=delta,
+            display_ctx=display_ctx,
+            display_stack=display_stack,
+            epochs=epochs,
+            last_best_epoch=last_best_epoch,
+            objective=objective,
+            pop_size=pop_size,
+            random_seed=random_seed,
+            recorder=recorder,
+            slm=slm,
+            target_mean_brightness=target_mean_brightness,
+            target_side=target_side,
+            _dim=_dim,
+            _heuristic_bounds=_heuristic_bounds,
+            _n_energy_gated=_n_energy_gated,
+            _params=_params,
+            _params_to_gray=_params_to_gray,
+            _record_vec=_record_vec,
+            _score_column=_score_column,
+            w_aspect=w_aspect,
+            w_efficiency=w_efficiency,
+            w_pbr=w_pbr,
+            w_uniformity=w_uniformity,
         )
-        display_stack.close()
-        return True, _n_energy_gated, best_ar, best_cv, best_ee, best_quality, last_best_epoch
-
     # Create optimizer
     optimizer = create_optimizer(
         optimizer_type=optimizer_type,
@@ -2144,37 +2423,18 @@ def _run_square_search_stage(
         total=epochs, desc=f"slm_square iter {epochs}", dynamic_ncols=True
     ) as bar:
         for epoch in range(1, epochs + 1):
-            # Adaptive SPGD (only active when --adaptive is on): schedule the
-            # quality weights from stage_weights by epoch thirds, then detect
-            # best-CV stagnation over the last `stagnate_win` epochs and
-            # temporarily boost w_uniformity.
-            if _adaptive_cfg is not None:
-                w_uniformity, w_efficiency, w_aspect = get_stage_weights(
-                    _adaptive_cfg, epoch, epochs
+            w_uniformity, w_efficiency, w_aspect, _adaptive_boost_active = (
+                _square_stage_weights(
+                    _adaptive_boost_active=_adaptive_boost_active,
+                    _adaptive_cfg=_adaptive_cfg,
+                    _cv_history=_cv_history,
+                    epoch=epoch,
+                    epochs=epochs,
+                    w_aspect=w_aspect,
+                    w_efficiency=w_efficiency,
+                    w_uniformity=w_uniformity,
                 )
-                if (
-                    _adaptive_cfg.enable_stagnate_boost
-                    and _adaptive_cfg.stagnate_boost > 1.0
-                    and should_boost_stagnation(
-                        _cv_history,
-                        win=_adaptive_cfg.stagnate_win,
-                        min_improve_frac=_adaptive_cfg.min_improve_frac,
-                    )
-                ):
-                    if not _adaptive_boost_active:
-                        logger.info(
-                            "Adaptive SPGD: best-CV stagnation over the last "
-                            "{} epochs (win={}, min_improve_frac={}); boosting "
-                            "w_uniformity x{} for this epoch",
-                            _adaptive_cfg.stagnate_win,
-                            _adaptive_cfg.stagnate_win,
-                            _adaptive_cfg.min_improve_frac,
-                            _adaptive_cfg.stagnate_boost,
-                        )
-                    _adaptive_boost_active = True
-                    w_uniformity *= _adaptive_cfg.stagnate_boost
-                else:
-                    _adaptive_boost_active = False
+            )
 
             # Generate random perturbation (±1 pattern), dim = _dim
             disturb_c = rng.binomial(1, 0.5, (_dim,)).astype(float) * 2.0 - 1.0
@@ -2186,63 +2446,40 @@ def _run_square_search_stage(
                 if disturb_c[-1] == 0.0:
                     disturb_c[-1] = _rot_delta
 
-            # Positive perturbation
-            _pos_c = _apply_update(_params, disturb_c)
-            slm.display_data(_params_to_gray(_pos_c))
-            time.sleep(SLM_RESPONSE_TIME_S)
-            pos_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
-            pos_cost, pos_cv, pos_mean = square_uniformity_cost(
-                pos_img, center, target_side
-            )
-            pos_ee = square_encircled_energy(pos_img, center, target_side)
-            pos_ar = square_aspect_ratio(pos_img, center, target_side)
-            pos_pbr = square_peak_to_background_ratio(pos_img, center, target_side)
-            pos_q = square_objective_score(
-                pos_img,
-                pos_cv,
-                pos_ee,
-                pos_ar,
-                center,
-                target_side,
-                objective,
-                w_uniformity,
-                w_efficiency,
-                w_aspect,
-                peak_to_background=pos_pbr,
+            # Positive / negative perturbation. The two measurements are the
+            # same procedure on +/- disturb_c, so they share one record.
+            pos = _square_perturbation_measurement(
+                _params_to_gray=_params_to_gray,
+                c=_apply_update(_params, disturb_c),
+                cam=cam,
+                center=center,
+                objective=objective,
+                slm=slm,
+                target_side=target_side,
+                w_aspect=w_aspect,
+                w_efficiency=w_efficiency,
                 w_pbr=w_pbr,
+                w_uniformity=w_uniformity,
             )
-
-            # Negative perturbation
-            _neg_c = _apply_update(_params, -disturb_c)
-            slm.display_data(_params_to_gray(_neg_c))
-            time.sleep(SLM_RESPONSE_TIME_S)
-            neg_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
-            neg_cost, neg_cv, neg_mean = square_uniformity_cost(
-                neg_img, center, target_side
-            )
-            neg_ee = square_encircled_energy(neg_img, center, target_side)
-            neg_ar = square_aspect_ratio(neg_img, center, target_side)
-            neg_pbr = square_peak_to_background_ratio(neg_img, center, target_side)
-            neg_q = square_objective_score(
-                neg_img,
-                neg_cv,
-                neg_ee,
-                neg_ar,
-                center,
-                target_side,
-                objective,
-                w_uniformity,
-                w_efficiency,
-                w_aspect,
-                peak_to_background=neg_pbr,
+            neg = _square_perturbation_measurement(
+                _params_to_gray=_params_to_gray,
+                c=_apply_update(_params, -disturb_c),
+                cam=cam,
+                center=center,
+                objective=objective,
+                slm=slm,
+                target_side=target_side,
+                w_aspect=w_aspect,
+                w_efficiency=w_efficiency,
                 w_pbr=w_pbr,
+                w_uniformity=w_uniformity,
             )
 
             # Auto-exposure adjustment if saturated
-            max_brightness = max(np.max(pos_img), np.max(neg_img))
+            max_brightness = max(np.max(pos["img"]), np.max(neg["img"]))
             if max_brightness == 255 and exposure_time_ms == 0:
                 _resample_img = resample_on_saturation(
-                    pos_img,
+                    pos["img"],
                     cam,
                     exposure_time_ms,
                     target_max_brightness,
@@ -2251,7 +2488,7 @@ def _run_square_search_stage(
                     ),
                     saturation_threshold=float(max_brightness),
                 )
-                optimizer.scale_momentum(np.sum(_resample_img) / np.sum(pos_img))
+                optimizer.scale_momentum(np.sum(_resample_img) / np.sum(pos["img"]))
 
             # In-ROI energy guard: abandon the whole epoch if either
             # perturbation has driven the in-box energy fraction below
@@ -2260,8 +2497,8 @@ def _run_square_search_stage(
             # arming comment above.
             _gated = False
             if _guard_enabled and _guard_ref_ee is not None:
-                _pos_loss = (_guard_ref_ee - pos_ee) / _guard_ref_ee
-                _neg_loss = (_guard_ref_ee - neg_ee) / _guard_ref_ee
+                _pos_loss = (_guard_ref_ee - pos["ee"]) / _guard_ref_ee
+                _neg_loss = (_guard_ref_ee - neg["ee"]) / _guard_ref_ee
                 if (
                     _pos_loss > max_roi_energy_loss
                     or _neg_loss > max_roi_energy_loss
@@ -2283,22 +2520,22 @@ def _run_square_search_stage(
                 # Record honestly (unchanged coefficients, diff=0) and skip.
                 recorder.append(
                     {
-                        "J": (pos_cost + neg_cost) / 2,
+                        "J": (pos["cost"] + neg["cost"]) / 2,
                         _score_column: float("nan"),
-                        "cv": (pos_cv + neg_cv) / 2,
-                        "ee": (pos_ee + neg_ee) / 2,
-                        "ar": (pos_ar + neg_ar) / 2,
-                        "pbr": (pos_pbr + neg_pbr) / 2,
+                        "cv": (pos["cv"] + neg["cv"]) / 2,
+                        "ee": (pos["ee"] + neg["ee"]) / 2,
+                        "ar": (pos["ar"] + neg["ar"]) / 2,
+                        "pbr": (pos["pbr"] + neg["pbr"]) / 2,
                         "side": target_side,
                         RECORD_DIFF: 0.0,
                         "lr": optimizer.lr,
                         "delta": delta,
                         RECORD_EPOCH: epoch,
                         RECORD_COEFFS: _record_vec(_params.copy()),
-                        RECORD_IMAGE: pos_img,
+                        RECORD_IMAGE: pos["img"],
                         "exp_t": get_camera_exposure_ms(cam),
                         "max_brt": max_brightness,
-                        "mean_b": (pos_mean + neg_mean) / 2,
+                        "mean_b": (pos["mean"] + neg["mean"]) / 2,
                         "target_mean_b": target_mean_brightness,
                         RECORD_GRAD: _record_vec(np.zeros_like(disturb_c)),
                         "gate": _gate,
@@ -2315,78 +2552,43 @@ def _run_square_search_stage(
             # score (uniformity + energy + aspect), NOT -CV alone: optimising
             # -CV alone lets the optimizer minimise CV by EMPTYING the target
             # box (observed on hardware: EE collapsed to ~0.002).
-            diff = pos_q - neg_q
+            diff = pos["q"] - neg["q"]
             gradient = diff * disturb_c
             update = optimizer.update(gradient)
             _params = _apply_update(_params, update)
 
-            # Metrics for the better perturbation
-            if pos_q >= neg_q:
-                eval_img, eval_cv, eval_ee, eval_ar, eval_c, eval_pbr = (
-                    pos_img,
-                    pos_cv,
-                    pos_ee,
-                    pos_ar,
-                    _pos_c.copy(),
-                    pos_pbr,
-                )
-            else:
-                eval_img, eval_cv, eval_ee, eval_ar, eval_c, eval_pbr = (
-                    neg_img,
-                    neg_cv,
-                    neg_ee,
-                    neg_ar,
-                    _neg_c.copy(),
-                    neg_pbr,
-                )
-
-            quality = square_objective_score(
+            (
                 eval_img,
                 eval_cv,
                 eval_ee,
                 eval_ar,
-                center,
-                target_side,
-                objective,
-                w_uniformity,
-                w_efficiency,
-                w_aspect,
-                peak_to_background=eval_pbr,
+                eval_c,
+                eval_pbr,
+                quality,
+                J,
+                _track_quality,
+            ) = _select_better_square_perturbation(
+                _adaptive_cfg=_adaptive_cfg,
+                _base_w_aspect=_base_w_aspect,
+                _base_w_efficiency=_base_w_efficiency,
+                _base_w_uniformity=_base_w_uniformity,
+                center=center,
+                neg=neg,
+                objective=objective,
+                pos=pos,
+                target_side=target_side,
+                w_aspect=w_aspect,
+                w_efficiency=w_efficiency,
                 w_pbr=w_pbr,
-            )
-            J = (pos_cost + neg_cost) / 2
-
-            # Best-tracking uses the FROZEN base weights (adaptive contract):
-            # the logged `quality` reflects the scheduled/boosted weights,
-            # while best-* selection must stay comparable across epochs.
-            _track_quality = (
-                square_objective_score(
-                    eval_img,
-                    eval_cv,
-                    eval_ee,
-                    eval_ar,
-                    center,
-                    target_side,
-                    objective,
-                    _base_w_uniformity,
-                    _base_w_efficiency,
-                    _base_w_aspect,
-                    peak_to_background=eval_pbr,
-                    w_pbr=w_pbr,
-                )
-                if _adaptive_cfg is not None
-                else quality
+                w_uniformity=w_uniformity,
             )
 
             # Track best
             if _track_quality > best_quality + 1e-6:
                 best_quality = _track_quality
-                best_cost = float(J)
                 best_cv = eval_cv
                 best_ee = eval_ee
                 best_ar = eval_ar
-                best_c = eval_c.copy()
-                best_img = eval_img.copy()
                 last_best_epoch = epoch
 
             # Adaptive learning schedule. Only touches `delta` when the caller
@@ -2445,7 +2647,7 @@ def _run_square_search_stage(
                 RECORD_IMAGE: eval_img,
                 "exp_t": get_camera_exposure_ms(cam),
                 "max_brt": max_brightness,
-                "mean_b": (pos_mean + neg_mean) / 2,
+                "mean_b": (pos["mean"] + neg["mean"]) / 2,
                 "target_mean_b": target_mean_brightness,
                 RECORD_GRAD: _record_vec(gradient),
             }
@@ -2470,7 +2672,7 @@ def _run_square_search_stage(
             bar.update(1)
 
             # Re-display the ACCEPTED state. Without this the last write of
-            # every epoch is `_neg_c` (the rejected -delta perturbation), so
+            # every epoch is `neg["c"]` (the rejected -delta perturbation), so
             # the panel sits on a state 2*delta away in all 576 dimensions
             # while the loop believes it is at `_params`. That desync is a
             # plausible contributor to the 0-order collapse seen on hardware

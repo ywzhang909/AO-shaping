@@ -349,15 +349,15 @@ def acceptance_verdict(session_dir):
         lower = float(settings.get("acceptance_lower", lower))
         upper = float(settings.get("acceptance_upper", upper))
         metric = str(settings.get("acceptance_metric", metric))
-    except Exception:
-        pass
+    except Exception:  # policy: 会话配置读取失败时沿用上方默认值，不中断验收判定
+        logger.debug("读取会话验收配置失败，沿用默认值: {}", session_dir)
     rounds = []
     rounds_path = session_dir / "rounds.json"
     if rounds_path.is_file():
         try:
             loaded = json.loads(rounds_path.read_text(encoding="utf-8"))
             rounds = [dict(record) for record in loaded if isinstance(record, dict)]
-        except Exception:
+        except Exception:  # policy: 轮次记录损坏时回退为空列表，后续按无历史轮次处理
             rounds = []
     measured_correlation = None
     measured_relative_l2 = None
@@ -623,93 +623,19 @@ def _run_reused_session(
     return out
 
 
-def run_session(
-    config: TransferSession, *, offline=False, on_stage=None, on_frame=None,
-    should_stop=None,
-):
-    """No subprocess chains; each completed/failed stage is journaled immediately.
+def _acquire_session_dataset(config, *, out, device, stage, on_frame, offline):
+    """Capture a fresh dataset, or pre-check the path of a recorded one.
 
-    ``on_stage(name, status)`` is an optional observer called whenever a stage
-    starts / completes / fails -- the same moment the journal line is written.
-    It exists so the GUI can show progress through *this* entry point instead of
-    re-implementing the stage sequence (a second orchestrator would drift).
-    A raising observer must not wreck the session, so its errors are swallowed
-    with a warning; the journal and the run itself stay authoritative.
+    Verbatim from the prologue of ``run_session``: with no recorded dataset the
+    capture stage runs and its manifest feeds the early geometry gate; with a
+    recorded dataset the capture is skipped entirely, so the cheap light check is
+    the only thing that can notice a broken optical path before the fit.
 
-    ``on_frame(payload)`` is the live CCD observer, forwarded unchanged to every
-    stage that opens the camera: the capture stage, the standalone light check,
-    the model and anchored blocks, and the exposure-response capture. Each of
-    those fires it **on every CCD read** (see
-    :func:`~ao_shaping.tools.slm.transfer.live_frame.frame_payload`), and every
-    call site wraps it in the same best-effort guard. ``None`` (the CLI /
-    offline default) leaves the measured path byte-for-byte unchanged.
-
-    ``should_stop`` is an optional no-arg callback consulted between acceptance
-    retrain rounds. When it returns True (the GUI's Stop button), the loop halts
-    gracefully, keeps the best result so far, and does not error. Ignored unless
-    ``config.acceptance_enabled``.
+    Returns ``(dataset, samples)``; ``samples`` is the in-memory capture payload
+    (``None`` when a recorded dataset was reused, which is what tells the fit to
+    read from disk).
     """
-    config.validate()
-    if offline and config.dataset is None:
-        raise ValueError("--offline requires a recorded --dataset")
-    out = config.out.resolve()
-    out.mkdir(parents=True, exist_ok=False)
-    # Resolve the compute device once, here, so ``session.json`` records the one
-    # the stages will actually use (``config.device`` is the *request*: "auto").
-    device = resolve_device(config.device)
-    plan = config.plan(offline)
-    plan["resolved"]["device"] = device
-    (out / "session.json").write_text(
-        json.dumps(dict(**plan, **clock()), default=str, indent=2), encoding="utf-8"
-    )
-    journal = []
-
-    def stage(name, operation):
-        entry = dict(stage=name, status="running", **clock())
-        journal.append(entry)
-        write = lambda: (out / "journal.json").write_text(
-            json.dumps(journal, default=str, indent=2), encoding="utf-8"
-        )
-        write()
-        print(f"[{name}] started", flush=True)
-        _notify(on_stage, name, "running")
-        try:
-            result = operation()
-        except BaseException as exc:
-            entry.update(
-                status="failed", error=f"{type(exc).__name__}: {exc}", end=clock()
-            )
-            write()
-            _notify(on_stage, name, "failed")
-            raise
-        entry.update(status="complete", end=clock())
-        write()
-        _notify(on_stage, name, "complete")
-        return result
-
-    from . import bootstrap, capture, direction, fit, summary, validate
-
-    # --- Optical-path reuse fast path (opt-in via ``reuse_latest``) ----------
-    # Off (the default) the code below is byte-for-byte the historical one.
-    # On, and only on, we first spend one cheap probe (camera + SLM open, one
-    # frame) to compare the *current* optical path against the saved latest
-    # model. Unchanged -> the capture and the fit are skipped and the session
-    # jumps straight to the CCD-anchored blocks with the reused checkpoint.
-    if config.reuse_latest and config.dataset is None and not offline:
-        reuse = _attempt_optical_reuse(config, out, device=device, on_stage=on_stage)
-        if reuse is not None:
-            return _run_reused_session(
-                config,
-                out,
-                reuse,
-                device=device,
-                on_stage=on_stage,
-                on_frame=on_frame,
-                stage=stage,
-                validate=validate,
-                summary=summary,
-                direction=direction,
-            )
+    from . import capture
 
     dataset = config.dataset.resolve() if config.dataset else out / "capture"
     samples = None
@@ -774,6 +700,306 @@ def run_session(
                 on_frame=on_frame,
             ),
         )
+    return dataset, samples
+
+
+def _round_geometry_preflight(config, *, dataset, checkpoint):
+    """Locate the measured zero order and fail early on an out-of-window target.
+
+    Verbatim from the round loop of ``run_session``.  The parameter check upstream
+    cannot see this combination: it needs the *measured* ramp gain, and the
+    alternative was discovering the problem in the first CCD block as an "empty
+    target core" (2026-10-26).
+
+    Returns ``(zero, reference)`` -- the rounded zero-order position and the
+    ``reference_start`` manifest row the synthesis needs for its exposure.
+    """
+    from . import fit
+
+    rows = json.loads((dataset / "manifest.json").read_text(encoding="utf-8"))
+    reference = next(
+        r for r in rows if r["label"] == "reference_start" and fit.valid(r)
+    )
+    zero = np.round(fit.spot(reference)).tolist()
+    # Geometry pre-flight: with the *measured* zero and the *fitted* ramp gain,
+    # recompute where the target lands in this session's sampling window. The
+    # parameter check above cannot see that combination (it needs the measured
+    # gain), and the alternative was discovering it in the first CCD block as
+    # "empty target core" (2026-10-26). Fail here, with the numbers that say
+    # which knob to turn.
+    frozen = json.loads(checkpoint.read_text(encoding="utf-8"))
+    geometry_problems = check_geometry(
+        zero_xy=zero,
+        ramp_matrix=np.asarray(frozen["ramp_matrix"], dtype=float),
+        side=float(config.side),
+        period=float(config.period),
+        shapes=tuple(config.shapes),
+        half_span_px=float(config.window_span),
+        step_px=float(config.window_step),
+        tilt=getattr(config, "tilt", False),
+    )
+    geometry_errors = [
+        problem for problem in geometry_problems if problem.severity == "error"
+    ]
+    if geometry_errors:
+        first = geometry_errors[0]
+        raise ValueError(f"{first.message} → {first.hint}")
+    return zero, reference
+
+
+def _offline_synthesize(config, *, checkpoint, zero, reference, out, device):
+    """Synthesize shaping phases from the frozen model, without any device.
+
+    Verbatim from the nested ``synthesize`` closure of ``run_session``'s offline
+    branch.  The seed comes from ``--seed-run``, a cold start, or GS depending on
+    ``config.initial_phase``; every shape writes its own npz plus the loss trace,
+    and the run is stamped with the device that actually produced it.
+    """
+    from . import validate
+
+    from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
+        FrozenDefocusForward,
+        load_frozen_parameters,
+        recentre_window,
+    )
+
+    params = load_frozen_parameters(checkpoint)
+    xy = recentre_window(
+        tuple(zero),
+        half_span_px=float(config.window_span),
+        step_px=float(config.window_step),
+    )
+    forward = FrozenDefocusForward(params, xy, device=device)
+    forward.exposure_ms = float(reference["exposure_ms"])
+    tilt = bool(getattr(config, "tilt", False))
+    shift = (
+        np.asarray(params.ramp_matrix)[:, 0] / config.period
+        if tilt
+        else np.zeros(2, dtype=float)
+    )
+    center = np.asarray(zero) + shift
+    aspect = float(getattr(config, "aspect_ratio", 2.0))
+    for shape in config.shapes:
+        target = validate.target_at(
+            xy, shape, center, config.side, aspect_ratio=aspect
+        )
+        if config.seed_run:
+            from .seeding import accepted_seed
+
+            phase, _ = accepted_seed(
+                config.seed_run,
+                shape,
+                forward,
+                xy,
+                target,
+                policy=config.seed_policy,
+                centre=center,
+            )
+        elif config.initial_phase != "gs":
+            from .cold_start import cold_phase
+
+            phase, _ = cold_phase(
+                forward, center, kind=config.initial_phase, seed=config.seed
+            )
+        else:
+            phase = validate.gs_seed(forward, center, config.side, shape)
+        objective = validate.ShapeObjective(
+            target,
+            cv_only=config.objective == "cv",
+            formation=config.objective == "formation",
+        )
+        from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
+            DifferentiableUniformityOptimizer,
+        )
+
+        optimizer = DifferentiableUniformityOptimizer(
+            forward,
+            objective,
+            phase,
+            lr=config.phase_lr,
+            step_rms_cap=config.phase_rms_cap,
+            device=device,
+        )
+        for _ in range(config.updates):
+            optimizer.update()
+        if not np.isfinite(optimizer.current_phase).all():
+            raise RuntimeError("nonfinite offline optimized phase")
+        np.savez_compressed(
+            out / f"{shape}_offline_seed.npz",
+            model_phase=phase,
+            optimized_phase=optimizer.current_phase,
+            prediction=forward.predict(phase).detach().cpu().numpy(),
+            optimized_prediction=forward.predict(optimizer.current_phase)
+            .detach()
+            .cpu()
+            .numpy(),
+            target=target,
+            camera_xy=xy,
+            exposure_ms=forward.exposure_ms,
+        )
+        (out / f"{shape}_offline_iterations.json").write_text(
+            json.dumps(optimizer.loss_history, indent=2), encoding="utf-8"
+        )
+    # Self-describing: which device actually produced these phases.
+    (out / "synthesis.json").write_text(
+        json.dumps(
+            dict(
+                device=device,
+                device_requested=config.device,
+                shapes=list(config.shapes),
+                initial_phase=config.initial_phase,
+                updates=config.updates,
+                **clock(),
+            ),
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+def _round_calibration_stages(config, *, out, suffix, prefix, model_out, checkpoint,
+                              options, stage, on_frame):
+    """Exposure-response capture/analysis and the blur calibration for one round.
+
+    Verbatim from the hardware branch of ``run_session``'s round loop, including
+    its guard: a single-shape run leaves ``calibration_enabled`` false and none of
+    these stages run.
+
+    Mutates ``options["checkpoint"]`` to the blur-calibrated parameters, exactly
+    as the inline block did -- the anchored blocks downstream read the calibrated
+    model through ``options``, not through the local ``checkpoint``.
+    """
+
+    if config.calibration_enabled:
+        from . import blur, capture_response, response
+
+        response_out = out / f"response{suffix}"
+        response_analysis_out = out / f"response_analysis{suffix}"
+        blur_out = out / f"blur{suffix}"
+        stage(
+            f"{prefix}exposure_response_capture",
+            lambda model_out=model_out, response_out=response_out: capture_response.capture(
+                SimpleNamespace(
+                    source=model_out,
+                    out=response_out,
+                    shape="square",
+                    frames=config.frames,
+                    camera=config.camera,
+                    cam_id=config.cam_id,
+                    slm_number=config.slm_number,
+                    on_frame=on_frame,
+                )
+            ),
+        )
+        stage(
+            f"{prefix}exposure_response_analysis",
+            lambda response_out=response_out, response_analysis_out=response_analysis_out: response.analyze(
+                response_out, response_analysis_out
+            ),
+        )
+        stage(
+            f"{prefix}blur_calibration",
+            lambda model_out=model_out, checkpoint=checkpoint, blur_out=blur_out: blur.calibrate(
+                SimpleNamespace(
+                    source=model_out,
+                    checkpoint=checkpoint,
+                    out=blur_out,
+                    sigmas=[0.0, 0.5, 1.0, 2.0, 3.515916109085083],
+                )
+            ),
+        )
+        options["checkpoint"] = blur_out / "frozen_parameters.json"
+
+def run_session(
+    config: TransferSession, *, offline=False, on_stage=None, on_frame=None,
+    should_stop=None,
+):
+    """No subprocess chains; each completed/failed stage is journaled immediately.
+
+    ``on_stage(name, status)`` is an optional observer called whenever a stage
+    starts / completes / fails -- the same moment the journal line is written.
+    It exists so the GUI can show progress through *this* entry point instead of
+    re-implementing the stage sequence (a second orchestrator would drift).
+    A raising observer must not wreck the session, so its errors are swallowed
+    with a warning; the journal and the run itself stay authoritative.
+
+    ``on_frame(payload)`` is the live CCD observer, forwarded unchanged to every
+    stage that opens the camera: the capture stage, the standalone light check,
+    the model and anchored blocks, and the exposure-response capture. Each of
+    those fires it **on every CCD read** (see
+    :func:`~ao_shaping.tools.slm.transfer.live_frame.frame_payload`), and every
+    call site wraps it in the same best-effort guard. ``None`` (the CLI /
+    offline default) leaves the measured path byte-for-byte unchanged.
+
+    ``should_stop`` is an optional no-arg callback consulted between acceptance
+    retrain rounds. When it returns True (the GUI's Stop button), the loop halts
+    gracefully, keeps the best result so far, and does not error. Ignored unless
+    ``config.acceptance_enabled``.
+    """
+    config.validate()
+    if offline and config.dataset is None:
+        raise ValueError("--offline requires a recorded --dataset")
+    out = config.out.resolve()
+    out.mkdir(parents=True, exist_ok=False)
+    # Resolve the compute device once, here, so ``session.json`` records the one
+    # the stages will actually use (``config.device`` is the *request*: "auto").
+    device = resolve_device(config.device)
+    plan = config.plan(offline)
+    plan["resolved"]["device"] = device
+    (out / "session.json").write_text(
+        json.dumps(dict(**plan, **clock()), default=str, indent=2), encoding="utf-8"
+    )
+    journal = []
+
+    def stage(name, operation):
+        entry = dict(stage=name, status="running", **clock())
+        journal.append(entry)
+        write = lambda: (out / "journal.json").write_text(
+            json.dumps(journal, default=str, indent=2), encoding="utf-8"
+        )
+        write()
+        print(f"[{name}] started", flush=True)
+        _notify(on_stage, name, "running")
+        try:
+            result = operation()
+        except BaseException as exc:
+            entry.update(
+                status="failed", error=f"{type(exc).__name__}: {exc}", end=clock()
+            )
+            write()
+            _notify(on_stage, name, "failed")
+            raise
+        entry.update(status="complete", end=clock())
+        write()
+        _notify(on_stage, name, "complete")
+        return result
+
+    from . import bootstrap, direction, fit, summary, validate
+
+    # --- Optical-path reuse fast path (opt-in via ``reuse_latest``) ----------
+    # Off (the default) the code below is byte-for-byte the historical one.
+    # On, and only on, we first spend one cheap probe (camera + SLM open, one
+    # frame) to compare the *current* optical path against the saved latest
+    # model. Unchanged -> the capture and the fit are skipped and the session
+    # jumps straight to the CCD-anchored blocks with the reused checkpoint.
+    if config.reuse_latest and config.dataset is None and not offline:
+        reuse = _attempt_optical_reuse(config, out, device=device, on_stage=on_stage)
+        if reuse is not None:
+            return _run_reused_session(
+                config,
+                out,
+                reuse,
+                device=device,
+                on_stage=on_stage,
+                on_frame=on_frame,
+                stage=stage,
+                validate=validate,
+                summary=summary,
+                direction=direction,
+            )
+
+    dataset, samples = _acquire_session_dataset(
+        config, out=out, device=device, stage=stage, on_frame=on_frame, offline=offline
+    )
     checkpoint = (
         config.checkpoint.resolve()
         if config.checkpoint
@@ -865,34 +1091,9 @@ def run_session(
                 ),
             )
             checkpoint = control_out / "frozen_parameters.json"
-        rows = json.loads((dataset / "manifest.json").read_text(encoding="utf-8"))
-        reference = next(
-            r for r in rows if r["label"] == "reference_start" and fit.valid(r)
+        zero, reference = _round_geometry_preflight(
+            config, dataset=dataset, checkpoint=checkpoint
         )
-        zero = np.round(fit.spot(reference)).tolist()
-        # Geometry pre-flight: with the *measured* zero and the *fitted* ramp gain,
-        # recompute where the target lands in this session's sampling window. The
-        # parameter check above cannot see that combination (it needs the measured
-        # gain), and the alternative was discovering it in the first CCD block as
-        # "empty target core" (2026-10-26). Fail here, with the numbers that say
-        # which knob to turn.
-        frozen = json.loads(checkpoint.read_text(encoding="utf-8"))
-        geometry_problems = check_geometry(
-            zero_xy=zero,
-            ramp_matrix=np.asarray(frozen["ramp_matrix"], dtype=float),
-            side=float(config.side),
-            period=float(config.period),
-            shapes=tuple(config.shapes),
-            half_span_px=float(config.window_span),
-            step_px=float(config.window_step),
-            tilt=getattr(config, "tilt", False),
-        )
-        geometry_errors = [
-            problem for problem in geometry_problems if problem.severity == "error"
-        ]
-        if geometry_errors:
-            first = geometry_errors[0]
-            raise ValueError(f"{first.message} → {first.hint}")
         # Keep the latest fitted model per SLM serial, both on the first fit and
         # after every threshold retrain. Offline sessions have no serial and skip.
         from .latest_model import save_latest_model, serial_from_capture
@@ -933,113 +1134,21 @@ def run_session(
         )
         if offline:
 
-            def synthesize(checkpoint=checkpoint, zero=zero, reference=reference):
-                from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
-                    FrozenDefocusForward,
-                    load_frozen_parameters,
-                    recentre_window,
-                )
-
-                params = load_frozen_parameters(checkpoint)
-                xy = recentre_window(
-                    tuple(zero),
-                    half_span_px=float(config.window_span),
-                    step_px=float(config.window_step),
-                )
-                forward = FrozenDefocusForward(params, xy, device=device)
-                forward.exposure_ms = float(reference["exposure_ms"])
-                tilt = bool(getattr(config, "tilt", False))
-                shift = (
-                    np.asarray(params.ramp_matrix)[:, 0] / config.period
-                    if tilt
-                    else np.zeros(2, dtype=float)
-                )
-                center = np.asarray(zero) + shift
-                aspect = float(getattr(config, "aspect_ratio", 2.0))
-                for shape in config.shapes:
-                    target = validate.target_at(
-                        xy, shape, center, config.side, aspect_ratio=aspect
-                    )
-                    if config.seed_run:
-                        from .seeding import accepted_seed
-
-                        phase, _ = accepted_seed(
-                            config.seed_run,
-                            shape,
-                            forward,
-                            xy,
-                            target,
-                            policy=config.seed_policy,
-                            centre=center,
-                        )
-                    elif config.initial_phase != "gs":
-                        from .cold_start import cold_phase
-
-                        phase, _ = cold_phase(
-                            forward, center, kind=config.initial_phase, seed=config.seed
-                        )
-                    else:
-                        phase = validate.gs_seed(forward, center, config.side, shape)
-                    objective = validate.ShapeObjective(
-                        target,
-                        cv_only=config.objective == "cv",
-                        formation=config.objective == "formation",
-                    )
-                    from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
-                        DifferentiableUniformityOptimizer,
-                    )
-
-                    optimizer = DifferentiableUniformityOptimizer(
-                        forward,
-                        objective,
-                        phase,
-                        lr=config.phase_lr,
-                        step_rms_cap=config.phase_rms_cap,
-                        device=device,
-                    )
-                    for _ in range(config.updates):
-                        optimizer.update()
-                    if not np.isfinite(optimizer.current_phase).all():
-                        raise RuntimeError("nonfinite offline optimized phase")
-                    np.savez_compressed(
-                        out / f"{shape}_offline_seed.npz",
-                        model_phase=phase,
-                        optimized_phase=optimizer.current_phase,
-                        prediction=forward.predict(phase).detach().cpu().numpy(),
-                        optimized_prediction=forward.predict(optimizer.current_phase)
-                        .detach()
-                        .cpu()
-                        .numpy(),
-                        target=target,
-                        camera_xy=xy,
-                        exposure_ms=forward.exposure_ms,
-                    )
-                    (out / f"{shape}_offline_iterations.json").write_text(
-                        json.dumps(optimizer.loss_history, indent=2), encoding="utf-8"
-                    )
-                # Self-describing: which device actually produced these phases.
-                (out / "synthesis.json").write_text(
-                    json.dumps(
-                        dict(
-                            device=device,
-                            device_requested=config.device,
-                            shapes=list(config.shapes),
-                            initial_phase=config.initial_phase,
-                            updates=config.updates,
-                            **clock(),
-                        ),
-                        indent=2,
-                    ),
-                    encoding="utf-8",
-                )
-
             stage(
                 "transferred_phase_differentiable_synthesis"
                 if config.seed_run
                 else "GS_and_differentiable_synthesis"
                 if config.initial_phase == "gs"
                 else "cold_differentiable_synthesis",
-                synthesize,
+                lambda checkpoint=checkpoint, zero=zero, reference=reference:
+                _offline_synthesize(
+                    config,
+                    checkpoint=checkpoint,
+                    zero=zero,
+                    reference=reference,
+                    out=out,
+                    device=device,
+                ),
             )
         else:
             from .artifacts import audit_run
@@ -1062,45 +1171,17 @@ def run_session(
                         )
                     ),
                 )
-            if config.calibration_enabled:
-                from . import blur, capture_response, response
-
-                response_out = out / f"response{suffix}"
-                response_analysis_out = out / f"response_analysis{suffix}"
-                blur_out = out / f"blur{suffix}"
-                stage(
-                    f"{prefix}exposure_response_capture",
-                    lambda model_out=model_out, response_out=response_out: capture_response.capture(
-                        SimpleNamespace(
-                            source=model_out,
-                            out=response_out,
-                            shape="square",
-                            frames=config.frames,
-                            camera=config.camera,
-                            cam_id=config.cam_id,
-                            slm_number=config.slm_number,
-                            on_frame=on_frame,
-                        )
-                    ),
+                _round_calibration_stages(
+                    config,
+                    out=out,
+                    suffix=suffix,
+                    prefix=prefix,
+                    model_out=model_out,
+                    checkpoint=checkpoint,
+                    options=options,
+                    stage=stage,
+                    on_frame=on_frame,
                 )
-                stage(
-                    f"{prefix}exposure_response_analysis",
-                    lambda response_out=response_out, response_analysis_out=response_analysis_out: response.analyze(
-                        response_out, response_analysis_out
-                    ),
-                )
-                stage(
-                    f"{prefix}blur_calibration",
-                    lambda model_out=model_out, checkpoint=checkpoint, blur_out=blur_out: blur.calibrate(
-                        SimpleNamespace(
-                            source=model_out,
-                            checkpoint=checkpoint,
-                            out=blur_out,
-                            sigmas=[0.0, 0.5, 1.0, 2.0, 3.515916109085083],
-                        )
-                    ),
-                )
-                options["checkpoint"] = blur_out / "frozen_parameters.json"
             stage(
                 f"{prefix}CCD_anchored_blocks",
                 lambda options=options, anchored_out=anchored_out, model_out=model_out: validate.run(

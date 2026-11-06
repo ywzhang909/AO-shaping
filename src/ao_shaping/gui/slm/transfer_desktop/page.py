@@ -188,7 +188,7 @@ def acceptance_verdict_line(session_dir: Path) -> str:
     try:
         cfg = json.loads(Path(session_dir).joinpath("session.json").read_text(encoding="utf-8"))
         enabled = cfg.get("resolved", {}).get("acceptance") == "looped"
-    except Exception:
+    except Exception:  # policy: 会话产物缺失/损坏时不显示该行，绝不把完成界面打崩
         return ""
     if not enabled:
         return ""
@@ -312,7 +312,7 @@ def reuse_latest_verdict_line(session_dir: Path) -> str:
         return ""
     try:
         data = json.loads(probe.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception:  # policy: 光路复用结论产物缺失/损坏时降级为空行
         logger.warning("读取光路复用结论失败: {}", session_dir)
         return ""
     same = bool(data.get("same_path"))

@@ -2185,7 +2185,14 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
 #: annotated at discovery; the remaining four already carried rationale comments. This raise
 #: records the integrated measurement, not a blessing of new undecided catches -- the
 #: unmarked-count ratchet below is back to zero. Reason in TODO.md 8.9.
-_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 395
+#: Raised 395 -> 406 on 2026-11-05 (measured on e0dd5d5f against the a1a827ba baseline):
+#: the transfer-desktop / optical-probe merge window (18b3f3ef + 9302ffb7 + e0dd5d5f) added a
+#: net 11 handlers -- page 2->5 (+3), workflow 2->6 (+4), optical_probe 0->3, capture 4->5,
+#: latest_model 0->1, hardware_check 5->4 (-1, one handler re-attached to a sibling catch).
+#: Five of those (two page, one capture serial-read, two workflow json reads) arrived without a
+#: marker and were annotated with a `# policy:` judgement at discovery; the rest already carried
+#: rationale comments. The unmarked-count ratchet below is back to zero. Reason in TODO.md 8.9.
+_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 406
 
 #: Second ratchet over the same population: a broad catch that has actually been *judged*
 #: carries a ``# policy:`` marker naming what the layer is protecting -- within two lines

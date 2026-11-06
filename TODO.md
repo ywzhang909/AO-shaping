@@ -729,7 +729,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 9. ✅ **BLE001 `src/runners` + `src/optimizer` 片（5 处 silent）⇒ 2 处真缺陷；并修掉本账本自己守卫的「扫描盲区」（§8.10 第二次）**（2026-10-24）：
    3 处不动：`runners/slm/zernike_matrix_runner.py:1377`（`finally` 里的尽力 `dev.close()`）、
-   `optimizer/wfless/slm_square_shaping.py:2078/2455`（两处 `try` 头，包住 `display_ctx.update(...)` —— 显示刷新失败**不该**中断优化闭环。2026-10-28 重钉：原 `:1807/2183` 钉的是调用内部的参数行，随本行实参列表增删就会漂；改钉 `try` 头并对齐语义。此前 `# policy:` 标记插入使两者各 +1/+2；2026-10-31 复核 `081f5dc7` #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在上方）再下移 3 行至 `:1806/2183`；2026-11-01 复核 #205 第十五批（886 行 With 会话提为 `_run_square_session`，区域整体平移 −340 行）两处 `try` 头重钉至 `:1466/1843`；2026-11-03 复核 #205 第二十五批（486 行"目标闭包 + 黑盒搜索 + epoch 循环"阶段提为模块级 `_run_square_search_stage`，两个 `try` 头随所属语句整体迁入该 helper，故不再与本文件主体行号同序）重钉至 `:2078/2455`）
+   `optimizer/wfless/slm_square_shaping.py:2051/2657`（两处 `try` 头，包住 `display_ctx.update(...)` —— 显示刷新失败**不该**中断优化闭环。2026-10-28 重钉：原 `:1807/2183` 钉的是调用内部的参数行，随本行实参列表增删就会漂；改钉 `try` 头并对齐语义。此前 `# policy:` 标记插入使两者各 +1/+2；2026-10-31 复核 `081f5dc7` #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在上方）再下移 3 行至 `:1806/2183`；2026-11-01 复核 #205 第十五批（886 行 With 会话提为 `_run_square_session`，区域整体平移 −340 行）两处 `try` 头重钉至 `:1466/1843`；2026-11-03 复核 #205 第二十五批（486 行"目标闭包 + 黑盒搜索 + epoch 循环"阶段提为模块级 `_run_square_search_stage`，两个 `try` 头随所属语句整体迁入该 helper，故不再与本文件主体行号同序）重钉至 `:2078/2455`；2026-11-06 复核 `be6a5332` #205 第二十六批（非 SPGD 启发式支 168 行提为模块级 `_run_square_heuristic_stage`，插在 1922–2097：第一处 `try` 头随所属语句整体迁入新函数 2078→2051，第二处被新增函数顶下 2455→2529）重钉至 `:2051/2529`；2026-11-06 复核 `10a0240e` #205 第二十七批（自适应权重调度/较优扰动选取提为 168 行纯函数，插于 2092：第一处 `try` 头不受影响仍在 2051，第二处再被顶下 2529→2654）重钉至 `:2051/2654`；2026-11-06 复核 #205 第二十八批（成对扰动测量收为 `_square_perturbation_measurement`，净 +3 行全部落在第一处 `try` 头之下，故第一处仍在 2051，第二处 2654→2657）重钉至 `:2051/2657`）
    **真缺陷两处，都在闭环热路径上**：
    ① `runners/micro_drive/voltage_runner.py:_adc_worker` 用 `except Exception: pass` 吞掉 ADC 读取失败。
    不可归因的关键实测：消费端 `:381`（2026-10-25 重钉，`a05f7e3f` 在 ADC 读取路径插入退避块 +22 行，原 `:359`）只 `logger.debug("Drained {} ADC samples this cycle", …)` —— 只数**收到多少**，
@@ -890,11 +890,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 14. ✅ **`except BaseException` 全量复核收口：实测 5 处，逐处判定正当，并把「线程边界不得收窄」钉成守卫**（2026-10-25）：
 slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `:1718` 上移 2 行；同日复核 `ff288621` #44 持有者权威刀入口净 −5 行后再上移 5 行至 `:1711`；同日复核 `ca0c7ea6` #44 值通道收口刀再上移 2 行至 `:1709`；2026-10-31 复核 #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在上方）下移 3 行至 `:1712`；2026-11-01 复核 `2a446813` #205 第十一批（324 行 With 会话提为 `_run_pib_session`，入口体下移）整体下移 120 行至 `:1832`）
-      `tools/slm/transfer/workflow.py:226`（旧行号 78 因上游 `5341b36b` 合并等后续提交在其上方插入阶段编排代码而下移，2026-10-29 复核重钉）、`utils/image/hardware_utils.py:666`、
+      `tools/slm/transfer/workflow.py:963`（旧行号 78 因上游 `5341b36b` 合并等后续提交在其上方插入阶段编排代码而下移，2026-10-29 复核重钉为 226；其后 transfer 桌面/离线诊断等批次使其漂至 677（未及重钉）；2026-11-06 复核 `bfbfdf5e` 第二十九批把 `run_session` 拆出 4 个模块级 helper，使该块再由 677 下移 286 行至 963，重钉）、`utils/image/hardware_utils.py:666`、
       `scripts/slm/diff_beam_capture_flat.py:79`（旧行号 68 因上游 `a8673631`/`fe1cc504` 漂移，2026-10-29 复核）、`scripts/slm/hw_gs_defocus_probe.py:1071`
       ⇒ §8.4 的「真风险只有 2 处」与 R-64 行的「禁改 2 处」均为当时口径，已就地重钉。
     - **逐处判定：没有一处需要改**（本项初始假设「能在硬件运动中途静默吞掉中断」被实测推翻）：
-      `workflow.py:226` 记录状态后 `raise`（本就重抛）；`hardware_utils.py:666`、
+      `workflow.py:963` 记录状态后 `raise`（本就重抛）；`hardware_utils.py:666`、
       `diff_beam_capture_flat.py:79`（旧行号 68 因上游 `a8673631`/`fe1cc504` 漂移，2026-10-29 复核）、`hw_gs_defocus_probe.py:1071` 是三处**同构的线程边界捕获**，
       调用方确定重抛（实测 `:77 raise error[0]`、`:1082 raise box["error"]`）——
       它们正是把「原生 SDK 调用无限挂起」变成**有界且可归因**的机制
@@ -4561,6 +4561,10 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 本窗口 3 个新文件新增 7 个盲 `except`：`gui/ccd/beam_quality/shell.py` 0→1、`gui/slm/static_shaping_page.py` 0→2、`tools/slm/transfer/capture.py` 0→4（对照 840f1c8e 基线逐文件实测，无删减）。
 - 3 个新 handler 在合入时**未带任何标注**（shell 的 `# pragma: no cover - 环境相关` 是装饰注释不是判断、两处 live-prediction 捕获裸奔），未标注棘轮由 0 变 3；本轮给这 3 个补 `# policy:` 后未标注棘轮回到 0，总量 395 是"整合后实测"的登记，不是为未判定捕获背书。
 
+**2026-11-05 · 窗口 a1a827ba→e0dd5d5f · 盲 except 总量棘轮 395→406（+11），来自 transfer 光学探针合并窗口**
+- 本窗口（`18b3f3ef` + `9302ffb7` + `e0dd5d5f`，transfer-desktop / optical-probe 合并）净增 11 个盲 `except`：`transfer_desktop/page.py` 2→5（+3）、`transfer/workflow.py` 2→6（+4）、`transfer/optical_probe.py` 0→3、`transfer/capture.py` 4→5（+1）、`transfer/latest_model.py` 0→1，`transfer_desktop/hardware_check.py` 5→4（−1，一处 handler 重新挂到相邻捕获）（对照 a1a827ba 基线逐文件实测，无删减）。
+- 其中 5 个合入时**未带标注**（page 两处 session 读取、capture 序列号读取、workflow 两处 json 读取），本轮给这 5 个补 `# policy:` 后未标注棘轮回到 0；workflow:352 那处原为 `except: pass` 纯静默，补 `logger.debug` 后同时移出盲静默集合（silent 45→44，回基线 44）。总量 406 是"整合后实测"的登记，不是为未判定捕获背书。
+
 **2026-11-05 · 556bb7cc · gui/slm 收口：补上从未存在的 pattern_specs、同步两处过时术语断言、显式抬 8 条模块规模基线**
 - `ao_shaping.gui.slm.pattern_specs` 不是"缺文件"而是**从未存在过**：磁盘、全部 ref、悬空 commit、`.pyc` 四处全搜为空，而 `640f4584` 已提交导入它的 `helper_tab.py` 与可执行规格 `test_helper_tab.py`。新模块按该测试反推（11 个键 + `ParamSpec`/`MethodCall`/`PatternTypeSpec`），默认值与区间逐条转录 `pattern_controls.py` 的 `DEFAULTS`/`RANGES`；`ParamSpec.name` 必须等于方法形参名，mm/nm/um→m 的量纲换算集中在 `_UNIT_SCALE`，不下沉到控件层。这一处的收集期 ImportError 级联牵动 9 个测试模块。
 - `test_transfer_progress.py` 两处断言钉的是**已改名的旧措辞**：`18227e6b` 把冷启动基准改称「几何设计初值」（面板中心 `(960,600)`、宽度 `(400,300)`、离焦 `0`，术语表 T-72）并同步 5 个生产文件，**唯独没扫测试**；生产侧 `transfer_progress.py:82` 是事实源。教训：术语重命名必须连测试一起扫，但"断言页面文案"本身是合法的，不能为了绿而删断言。
@@ -4580,6 +4584,33 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 新报告 `report/shape_trials/physical_refine/forward_model_transfer_plan_20261104.md` 登记为 `HANDWRITTEN` + 离线环境，说明文字逐字取报告头，故 header 更新 0 处（不为凑登记而改写正文）。
 - `source_inventory.md` 的 3 个死链改为行内 code 并标注「被 `.gitignore` 匹配，不入库」：文档保留可读的路径说明，但不再是可点击的承诺。
 - 验收：`sync_report_provenance.py` 幂等（185 份登记、header 更新 0）、`--check` 干净；同批相关测试 745 passed / 1 skipped。
+
+**2026-11-05 · 62676d6b · 修掉合并造成的内联重复：validate.py 恢复三层委托，并把 3 处主线新特性折进 helper**
+- `d720981b` 合并把 `^2` 的 `_run_validate_shapes(...)` 调用换成 `^1` 的内联循环：`_run_validate_session` 涨到 **439 行 / 嵌套 9**（上限 230/5），而 `_run_validate_shapes` 与 `_run_validate_blocks` 从此**全是死代码**（只彼此调用，入口无人调用）。判据是两个父提交各自可解析、且 `^2` 里该函数只有 216/5 ⇒ 这是合并取侧错误，不是设计意图。
+- **不能直接恢复调用**：把内联块与 `_run_validate_blocks` 逐行比对（219 条非空行），只有 14 行在两个 helper 里都找不到，而这 14 行**全是主线新增特性**（`paired_decision` 的 `rel_tol`/`abs_tol`、顺序 CCD 的 `tolerance` 带、`direction_agreement` 的 `min_signal`）⇒ 先把这 3 处折进 helper，再恢复委托，否则"修重复"会变成"丢功能"。
+- 折完仍差一点（240/230 与 208/200），于是**再抽两个纯函数而不是抬上限**：嵌套的 `_predicted_frame` 提到模块级；顺序 CCD 判据抽成 `_sequential_ccd_decision`，并让它**连 `metric`/`av`/`bv` 一起返回**——后续 non-monotone policy 还要用这三个值，只返回 `decision` 就会逼调用方把取值的三行再抄一遍。
+- 终值：`run` 266/300、`_run_validate_session` 225/230、`_run_validate_shapes` 110/130、`_run_validate_blocks` 197/200；+65/−243 行。
+- 验收：形状门禁 71 passed；transfer 7 文件 178 passed / 1 skipped；ruff、术语门禁、模块规模门禁全绿。
+
+**2026-11-05 · be6a5332 · #205 第二十六批：`_run_square_search_stage` 的启发式分支独立成阶段（557→461），并闭环 `bcfec136` 的分片红**
+- `algorithm != "spgd"` 那一支自带收尾（把最优相位留在面板、关 display_stack、直接 return），与 epoch 循环**零共享状态** ⇒ 整支提为模块级 `_run_square_heuristic_stage`（168 行 / nest 3）。搬移可证明：原 `if` 体 7 条语句与新函数体第 4 条起 `ast.dump` 一一对应，调用点 30 个 kwargs 与形参集合逐字相等。
+- 唯一声明的改写：`best_cost`/`best_c`/`best_img` 改到新函数体内初始化——这三个名字由启发式支的 `_on_evaluate` 经 `nonlocal` 写入，而 SPGD 循环对它们**只写不读**；分支搬走后再无读者，故顺手删掉那 3 处死赋值（留着即 ruff 未用局部）。**"只写不读"要在搬移前核一遍**，否则删掉的可能是别的分支的隐式契约。
+- 分片红的闭环：`bcfec136` 的 `Pytest (containerised, sharded)` 最终 **failure**，根因正是上一笔留下的 `_run_validate_session` 439/9 越界；`62676d6b` 修好后**同一分片 success** ⇒ "本地单文件绿"不等于"分片绿"，分片才是这条门禁真正的执行处。
+- 与上游撞车但无害：本仓与上游各自登记了同一份 `forward_model_transfer_plan_20261104`，上游 `c2d45347` 已删重复条目；rebase 到 `7481cd7e` 后 `sync_report_provenance.py --check` 干净（188 份登记、header 更新 0），重复计数为 1。上游窗口 `9302ffb7`/`e0dd5d5f` 的门禁红已由其 `7481cd7e` 收口。
+- 棘轮：`_run_square_search_stage` 600→500（measured 461），新增 `_run_square_heuristic_stage` 210/3/168。
+
+**2026-11-05 · 10a0240e · #205 第二十七批：自适应权重调度与较优扰动选取提为纯函数（461→424），并把 +125 行样板债写在脸上**
+- 两段与设备无关的计算整块移出：`_square_stage_weights`（52 行 / nest 3，`if _adaptive_cfg is not None` 那一支：按 epoch 三分段调度权重 + best-CV 停滞时临时放大 `w_uniformity`）与 `_select_better_square_perturbation`（106 行 / nest 1，较优扰动选取 + `quality` + `J` + `_track_quality`）。`None` 情形原样返回四个名字，于是调用点无条件覆盖、外面不必再留一层 `if`。
+- `quality` 用**调度后**权重、`_track_quality` 用**冻结基**权重——这个不对称就是 adaptive 契约本身（日志随调度走，而 best-* 选择必须跨轮可比）。所以两个分数**故意留在同一函数里并列算**，拆成两个反而会让人只改一处。
+- 搬移可证明：语句序列 `ast.dump` 一一对应；每个 helper 的自由名集合 ⊆ 声明形参 ∪ 模块级名（脚本核验，不是目测）；调用点 kwargs 与形参集合逐字相等（8 / 27）。
+- **代价点名**：模块 2556→2681（+125），全部来自两个 helper 的签名与调用点样板，其中一个函数吃了 **27 个标量参数**。函数体只减不增，但"拆完模块反而更长"必须写进提交与台账；第二十八批就是为还这笔债而存在。拆分的成本不是免费的，隐藏它比承认它更贵。
+
+**2026-11-06 · d3b351da · #205 第二十八批：正负两次扰动测量收成一个记录（27 参数 → 13），并给整条 epoch 路径套上逐位表征网**
+- 上一批那 27 个标量参数的债在这批还掉：`±disturb_c` 两次测量除变量前缀与扰动符号外逐行相同（50 行），正是"改了一侧、忘了另一侧"的成因 ⇒ 抽成 `_square_perturbation_measurement`（52 行 / nest 0 / 11 参数），返回一条含 `c/img/cost/cv/mean/ee/ar/pbr/q` 的记录；`_select_better_square_perturbation` 参数 **27→13**，`_run_square_search_stage` 424→387，模块只 +3。
+- 这批**不是逐字搬移**（记录化动了数据流），所以等价性只能靠数值证明：新增 `tests/ao_shaping/optimizer/wfless/test_slm_square_epoch_characterization.py`。
+- 要害是**夹具必须随面板而变**：既有 sim 夹具下发的是固定高斯 blob ⇒ `pos["q"] == neg["q"]` 恒成立、SPGD 梯度恒为 0，把 pos/neg 写反它根本看不见。换成相位驱动帧（光斑偏移与各向异性取决于最近一次下发的相位）后梯度非零，best 追踪、能量护栏、`lr==0` 调度、Recorder 行才真的读到这一对。
+- 参考（真值） = (行数, 行摘要 sha1, SLM 下发序列 sha1, 下发次数) × 6 配置（quality / pearson+lr0 / adaptive 停滞放大 / 护栏收紧 / pbr+aspect 权重 / zernike 基）。**重构前源码跑同一组参考真值 7 passed** ⇒ 行为逐位不变；网的牙单独验过：把 `-disturb_c` 改成 `+disturb_c` ⇒ **6 failed**。另加 `test_the_camera_actually_depends_on_the_panel` 守住夹具前提本身——前提被改回去时测试立刻失效，而不是静默失去灵敏度。
+- **方法论教训**：表征测试"在旧代码上也通过"**不是没牙**，那恰恰是行为保持型重构的正确签名；要证明有牙必须做**故意变异**（改符号、换 pos/neg）看它是否失败。差点因为这个误判去"修"一张本来正确的网。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
