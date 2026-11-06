@@ -2092,6 +2092,168 @@ def _run_square_heuristic_stage(
     return True, _n_energy_gated, best_ar, best_cv, best_ee, best_quality, last_best_epoch
 
 
+def _square_stage_weights(
+    *,
+    _adaptive_boost_active: object,
+    _adaptive_cfg: object,
+    _cv_history: object,
+    epoch: int,
+    epochs: int,
+    w_aspect: object,
+    w_efficiency: object,
+    w_uniformity: object,
+) -> tuple:
+    """#205 batch-27: per-epoch adaptive weights for the square objective.
+
+    Verbatim move of the ``if _adaptive_cfg is not None`` block: schedule the
+    quality weights by epoch thirds, then temporarily boost ``w_uniformity``
+    while best-CV stagnates. Returns the four names the loop keeps, so the
+    None case (adaptive off) simply hands them back unchanged.
+    """
+    if _adaptive_cfg is None:
+        return w_uniformity, w_efficiency, w_aspect, _adaptive_boost_active
+    # Adaptive SPGD (only active when --adaptive is on): schedule the
+    # quality weights from stage_weights by epoch thirds, then detect
+    # best-CV stagnation over the last `stagnate_win` epochs and
+    # temporarily boost w_uniformity.
+    if _adaptive_cfg is not None:
+        w_uniformity, w_efficiency, w_aspect = get_stage_weights(
+            _adaptive_cfg, epoch, epochs
+        )
+        if (
+            _adaptive_cfg.enable_stagnate_boost
+            and _adaptive_cfg.stagnate_boost > 1.0
+            and should_boost_stagnation(
+                _cv_history,
+                win=_adaptive_cfg.stagnate_win,
+                min_improve_frac=_adaptive_cfg.min_improve_frac,
+            )
+        ):
+            if not _adaptive_boost_active:
+                logger.info(
+                    "Adaptive SPGD: best-CV stagnation over the last "
+                    "{} epochs (win={}, min_improve_frac={}); boosting "
+                    "w_uniformity x{} for this epoch",
+                    _adaptive_cfg.stagnate_win,
+                    _adaptive_cfg.stagnate_win,
+                    _adaptive_cfg.min_improve_frac,
+                    _adaptive_cfg.stagnate_boost,
+                )
+            _adaptive_boost_active = True
+            w_uniformity *= _adaptive_cfg.stagnate_boost
+        else:
+            _adaptive_boost_active = False
+    return w_uniformity, w_efficiency, w_aspect, _adaptive_boost_active
+
+
+def _select_better_square_perturbation(
+    *,
+    _adaptive_cfg: object,
+    _base_w_aspect: object,
+    _base_w_efficiency: object,
+    _base_w_uniformity: object,
+    _neg_c: object,
+    _pos_c: object,
+    center: object,
+    neg_ar: object,
+    neg_cost: object,
+    neg_cv: object,
+    neg_ee: object,
+    neg_img: object,
+    neg_pbr: object,
+    neg_q: object,
+    objective: object,
+    pos_ar: object,
+    pos_cost: object,
+    pos_cv: object,
+    pos_ee: object,
+    pos_img: object,
+    pos_pbr: object,
+    pos_q: object,
+    target_side: object,
+    w_aspect: object,
+    w_efficiency: object,
+    w_pbr: object,
+    w_uniformity: object,
+) -> tuple:
+    """#205 batch-27: pick the better perturbation and score it.
+
+    Verbatim move of the selection plus the two score computations. Pure: it
+    reads the paired measurements and returns what the loop records, tracks
+    and schedules from. ``quality`` uses the (possibly boosted) weights while
+    ``_track_quality`` uses the frozen base weights -- that asymmetry is the
+    adaptive contract, so the two stay computed side by side.
+    """
+    # Metrics for the better perturbation
+    if pos_q >= neg_q:
+        eval_img, eval_cv, eval_ee, eval_ar, eval_c, eval_pbr = (
+            pos_img,
+            pos_cv,
+            pos_ee,
+            pos_ar,
+            _pos_c.copy(),
+            pos_pbr,
+        )
+    else:
+        eval_img, eval_cv, eval_ee, eval_ar, eval_c, eval_pbr = (
+            neg_img,
+            neg_cv,
+            neg_ee,
+            neg_ar,
+            _neg_c.copy(),
+            neg_pbr,
+        )
+
+    quality = square_objective_score(
+        eval_img,
+        eval_cv,
+        eval_ee,
+        eval_ar,
+        center,
+        target_side,
+        objective,
+        w_uniformity,
+        w_efficiency,
+        w_aspect,
+        peak_to_background=eval_pbr,
+        w_pbr=w_pbr,
+    )
+    J = (pos_cost + neg_cost) / 2
+
+    # Best-tracking uses the FROZEN base weights (adaptive contract):
+    # the logged `quality` reflects the scheduled/boosted weights,
+    # while best-* selection must stay comparable across epochs.
+    _track_quality = (
+        square_objective_score(
+            eval_img,
+            eval_cv,
+            eval_ee,
+            eval_ar,
+            center,
+            target_side,
+            objective,
+            _base_w_uniformity,
+            _base_w_efficiency,
+            _base_w_aspect,
+            peak_to_background=eval_pbr,
+            w_pbr=w_pbr,
+        )
+        if _adaptive_cfg is not None
+        else quality
+    )
+    return (
+        eval_img,
+        eval_cv,
+        eval_ee,
+        eval_ar,
+        eval_c,
+        eval_pbr,
+        quality,
+        J,
+        _track_quality,
+    )
+
+
 def _run_square_search_stage(
     *,
     _adaptive_boost_active: object,
@@ -2221,37 +2383,18 @@ def _run_square_search_stage(
         total=epochs, desc=f"slm_square iter {epochs}", dynamic_ncols=True
     ) as bar:
         for epoch in range(1, epochs + 1):
-            # Adaptive SPGD (only active when --adaptive is on): schedule the
-            # quality weights from stage_weights by epoch thirds, then detect
-            # best-CV stagnation over the last `stagnate_win` epochs and
-            # temporarily boost w_uniformity.
-            if _adaptive_cfg is not None:
-                w_uniformity, w_efficiency, w_aspect = get_stage_weights(
-                    _adaptive_cfg, epoch, epochs
+            w_uniformity, w_efficiency, w_aspect, _adaptive_boost_active = (
+                _square_stage_weights(
+                    _adaptive_boost_active=_adaptive_boost_active,
+                    _adaptive_cfg=_adaptive_cfg,
+                    _cv_history=_cv_history,
+                    epoch=epoch,
+                    epochs=epochs,
+                    w_aspect=w_aspect,
+                    w_efficiency=w_efficiency,
+                    w_uniformity=w_uniformity,
                 )
-                if (
-                    _adaptive_cfg.enable_stagnate_boost
-                    and _adaptive_cfg.stagnate_boost > 1.0
-                    and should_boost_stagnation(
-                        _cv_history,
-                        win=_adaptive_cfg.stagnate_win,
-                        min_improve_frac=_adaptive_cfg.min_improve_frac,
-                    )
-                ):
-                    if not _adaptive_boost_active:
-                        logger.info(
-                            "Adaptive SPGD: best-CV stagnation over the last "
-                            "{} epochs (win={}, min_improve_frac={}); boosting "
-                            "w_uniformity x{} for this epoch",
-                            _adaptive_cfg.stagnate_win,
-                            _adaptive_cfg.stagnate_win,
-                            _adaptive_cfg.min_improve_frac,
-                            _adaptive_cfg.stagnate_boost,
-                        )
-                    _adaptive_boost_active = True
-                    w_uniformity *= _adaptive_cfg.stagnate_boost
-                else:
-                    _adaptive_boost_active = False
+            )
 
             # Generate random perturbation (±1 pattern), dim = _dim
             disturb_c = rng.binomial(1, 0.5, (_dim,)).astype(float) * 2.0 - 1.0
@@ -2397,62 +2540,44 @@ def _run_square_search_stage(
             update = optimizer.update(gradient)
             _params = _apply_update(_params, update)
 
-            # Metrics for the better perturbation
-            if pos_q >= neg_q:
-                eval_img, eval_cv, eval_ee, eval_ar, eval_c, eval_pbr = (
-                    pos_img,
-                    pos_cv,
-                    pos_ee,
-                    pos_ar,
-                    _pos_c.copy(),
-                    pos_pbr,
-                )
-            else:
-                eval_img, eval_cv, eval_ee, eval_ar, eval_c, eval_pbr = (
-                    neg_img,
-                    neg_cv,
-                    neg_ee,
-                    neg_ar,
-                    _neg_c.copy(),
-                    neg_pbr,
-                )
-
-            quality = square_objective_score(
+            (
                 eval_img,
                 eval_cv,
                 eval_ee,
                 eval_ar,
-                center,
-                target_side,
-                objective,
-                w_uniformity,
-                w_efficiency,
-                w_aspect,
-                peak_to_background=eval_pbr,
+                eval_c,
+                eval_pbr,
+                quality,
+                J,
+                _track_quality,
+            ) = _select_better_square_perturbation(
+                _adaptive_cfg=_adaptive_cfg,
+                _base_w_aspect=_base_w_aspect,
+                _base_w_efficiency=_base_w_efficiency,
+                _base_w_uniformity=_base_w_uniformity,
+                _neg_c=_neg_c,
+                _pos_c=_pos_c,
+                center=center,
+                neg_ar=neg_ar,
+                neg_cost=neg_cost,
+                neg_cv=neg_cv,
+                neg_ee=neg_ee,
+                neg_img=neg_img,
+                neg_pbr=neg_pbr,
+                neg_q=neg_q,
+                objective=objective,
+                pos_ar=pos_ar,
+                pos_cost=pos_cost,
+                pos_cv=pos_cv,
+                pos_ee=pos_ee,
+                pos_img=pos_img,
+                pos_pbr=pos_pbr,
+                pos_q=pos_q,
+                target_side=target_side,
+                w_aspect=w_aspect,
+                w_efficiency=w_efficiency,
                 w_pbr=w_pbr,
-            )
-            J = (pos_cost + neg_cost) / 2
-
-            # Best-tracking uses the FROZEN base weights (adaptive contract):
-            # the logged `quality` reflects the scheduled/boosted weights,
-            # while best-* selection must stay comparable across epochs.
-            _track_quality = (
-                square_objective_score(
-                    eval_img,
-                    eval_cv,
-                    eval_ee,
-                    eval_ar,
-                    center,
-                    target_side,
-                    objective,
-                    _base_w_uniformity,
-                    _base_w_efficiency,
-                    _base_w_aspect,
-                    peak_to_background=eval_pbr,
-                    w_pbr=w_pbr,
-                )
-                if _adaptive_cfg is not None
-                else quality
+                w_uniformity=w_uniformity,
             )
 
             # Track best

@@ -4592,6 +4592,13 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 终值：`run` 266/300、`_run_validate_session` 225/230、`_run_validate_shapes` 110/130、`_run_validate_blocks` 197/200；+65/−243 行。
 - 验收：形状门禁 71 passed；transfer 7 文件 178 passed / 1 skipped；ruff、术语门禁、模块规模门禁全绿。
 
+**2026-11-05 · be6a5332 · #205 第二十六批：`_run_square_search_stage` 的启发式分支独立成阶段（557→461），并闭环 `bcfec136` 的分片红**
+- `algorithm != "spgd"` 那一支自带收尾（把最优相位留在面板、关 display_stack、直接 return），与 epoch 循环**零共享状态** ⇒ 整支提为模块级 `_run_square_heuristic_stage`（168 行 / nest 3）。搬移可证明：原 `if` 体 7 条语句与新函数体第 4 条起 `ast.dump` 一一对应，调用点 30 个 kwargs 与形参集合逐字相等。
+- 唯一声明的改写：`best_cost`/`best_c`/`best_img` 改到新函数体内初始化——这三个名字由启发式支的 `_on_evaluate` 经 `nonlocal` 写入，而 SPGD 循环对它们**只写不读**；分支搬走后再无读者，故顺手删掉那 3 处死赋值（留着即 ruff 未用局部）。**"只写不读"要在搬移前核一遍**，否则删掉的可能是别的分支的隐式契约。
+- 分片红的闭环：`bcfec136` 的 `Pytest (containerised, sharded)` 最终 **failure**，根因正是上一笔留下的 `_run_validate_session` 439/9 越界；`62676d6b` 修好后**同一分片 success** ⇒ "本地单文件绿"不等于"分片绿"，分片才是这条门禁真正的执行处。
+- 与上游撞车但无害：本仓与上游各自登记了同一份 `forward_model_transfer_plan_20261104`，上游 `c2d45347` 已删重复条目；rebase 到 `7481cd7e` 后 `sync_report_provenance.py --check` 干净（188 份登记、header 更新 0），重复计数为 1。上游窗口 `9302ffb7`/`e0dd5d5f` 的门禁红已由其 `7481cd7e` 收口。
+- 棘轮：`_run_square_search_stage` 600→500（measured 461），新增 `_run_square_heuristic_stage` 210/3/168。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
