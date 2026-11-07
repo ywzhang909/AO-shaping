@@ -331,3 +331,58 @@ def test_capture_read_funnel_threads_the_displayed_phase_grid():
     # (3) 光路检查与每条探针在写 SLM 之后落值; 平场是第一份相位。
     assert "live_phase[0] = np.zeros" in source
     assert "live_phase[0] = grid" in source
+
+
+# ---------------------------------------------------------------------------
+# HDR 探测 (2026-11-07): payload 带 hdr 标志 + hdr_image, 前端色调映射
+# ---------------------------------------------------------------------------
+
+
+def test_frame_payload_hdr_keys_default_off():
+    from ao_shaping.tools.slm.transfer.live_frame import frame_payload
+
+    payload = frame_payload(frame=np.zeros((8, 8), np.uint8))
+    assert payload["hdr"] is False
+    assert payload["hdr_image"] is None
+
+
+def test_frame_payload_hdr_image_is_copied():
+    from ao_shaping.tools.slm.transfer.live_frame import frame_payload
+
+    hdr = np.linspace(0, 5000.0, 16).reshape(4, 4)
+    payload = frame_payload(
+        frame=np.zeros((8, 8), np.uint8), hdr=True, hdr_image=hdr
+    )
+    assert payload["hdr"] is True
+    assert payload["hdr_image"] is not None
+    assert payload["hdr_image"] is not hdr  # 拷贝, 不共享后端缓冲区
+    hdr[:] = 0
+    assert payload["hdr_image"].max() > 0
+
+
+def test_block_frame_payload_hdr_keys():
+    payload = validate.block_frame_payload(
+        frame=np.zeros((8, 8), np.uint8), shape="star", block=0,
+        block_index=1, blocks_total=1, iteration=1, iterations_total=1, remaining=0,
+        hdr=True, hdr_image=np.ones((4, 4)),
+    )
+    assert payload["hdr"] is True
+    assert payload["hdr_image"] is not None
+    assert payload["hdr_image"].shape == (4, 4)
+
+
+def test_validate_capture_loop_passes_hdr_when_enabled():
+    """采集循环里 HDR 开启时, 显示帧负载带 hdr=True 与 hdr_image。
+
+    源码级钉子 (不跑设备): capture 循环体内必须同时出现 ``hdr=True`` 与
+    ``hdr_image=hdr_image``, 且 HDR 判定用 ``getattr(args, "hdr", False)`` 容错
+    (旧调用方不传 hdr 字段也能跑)。
+    """
+    import inspect
+
+    source = inspect.getsource(validate._run_validate_session)
+    body = _loop_body(source, "for index in range(args.frames):")
+    text = "\n".join(body)
+    assert 'getattr(args, "hdr", False)' in text
+    assert "hdr_image=hdr_image" in text
+    assert "hdr=hdr_on" in text

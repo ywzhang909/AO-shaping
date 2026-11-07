@@ -29,9 +29,11 @@ from ao_shaping.gui.slm.transfer_desktop.live_view import (
     PREVIEW_STEP,
     LiveView,
     display_frame,
+    display_hdr_preview,
     display_phase,
     display_preview,
     preview_step,
+    tone_map_hdr,
 )
 
 
@@ -90,6 +92,88 @@ def test_display_frame_normalises_arbitrary_raw_frames():
     assert display_frame(rgb).ndim == 2
     nan_frame = np.array([[np.nan, np.inf], [-np.inf, 10.0]])
     assert display_frame(nan_frame).max() == 255
+
+
+def _hdr_image() -> np.ndarray:
+    """宽动态 HDR 图: 峰值 10000, 暗区 10, 中间调 100 / 1000。
+
+    线性峰值映射下 100 counts 只到 ~2.3 灰阶 (100/10000*255), Reinhard 应把
+    中间调抬到 ~4-5 —— 这正是「HDR 画面重新映射到正常展示」要保住的细节。
+    """
+    return np.array(
+        [
+            [10.0, 100.0, 1000.0, 10000.0],
+            [10.0, 100.0, 1000.0, 10000.0],
+        ]
+    )
+
+
+def test_tone_map_hdr_reinhard_lifts_dark_region():
+    mapped = tone_map_hdr(_hdr_image(), method="reinhard")
+    assert mapped.dtype == np.uint8
+    assert mapped.max() == 255  # 重新扩到满量程, 观感与 display_frame 一致
+    linear = np.clip(_hdr_image() / _hdr_image().max(), 0, 1) * 255
+    # 中间调 (100 counts) 必须比线性峰值映射亮得多
+    assert mapped[0, 1] > linear[0, 1]
+    assert mapped[0, 1] > 2
+
+
+def test_tone_map_hdr_gamma_lifts_dark_region():
+    mapped = tone_map_hdr(_hdr_image(), method="gamma")
+    assert mapped.dtype == np.uint8
+    assert mapped.max() == 255
+    linear = np.clip(_hdr_image() / _hdr_image().max(), 0, 1) * 255
+    assert mapped[0, 1] > linear[0, 1]
+
+
+def test_tone_map_hdr_rejects_unknown_method():
+    with pytest.raises(ValueError):
+        tone_map_hdr(_hdr_image(), method="log")
+
+
+def test_tone_map_hdr_empty_and_flat():
+    assert tone_map_hdr(np.zeros((0, 0))).shape == (1, 1)
+    assert tone_map_hdr(np.full((4, 4), 7.0)).max() == 0  # 无峰值 → 全黑
+
+
+def test_display_hdr_preview_downsamples_large_frames():
+    big = np.random.default_rng(0).random((1000, 900)) * 10000.0
+    shown, step = display_hdr_preview(big)
+    assert step == PREVIEW_STEP
+    assert shown.shape == (1000 // PREVIEW_STEP, 900 // PREVIEW_STEP)
+    assert shown.dtype == np.uint8
+    small, step = display_hdr_preview(np.random.default_rng(1).random((40, 48)))
+    assert step == 1
+
+
+def test_apply_payload_hdr_routes_to_tone_map(app: QApplication):
+    view = LiveView()
+    view.show()
+    app.processEvents()
+    hdr = _hdr_image()
+    view.apply_payload(_payload(frame=hdr, hdr=True, hdr_image=hdr))
+    app.processEvents()
+    # 上屏的数组必须来自色调映射路径: 中间调被抬升 (而非线性峰值映射)。
+    shown = view._video._array
+    assert shown is not None
+    linear = np.clip(hdr / hdr.max(), 0, 1) * 255
+    assert int(shown[0, 1]) > int(linear[0, 1])
+    view.close()
+
+
+def test_apply_payload_hdr_without_image_falls_back_to_linear(app: QApplication):
+    """hdr 标志开着但没给 hdr_image (旧 payload) 时, 必须回落线性路径。"""
+    view = LiveView()
+    view.show()
+    app.processEvents()
+    frame = np.zeros((40, 48))
+    frame[20, 24] = 2000.0  # 有峰值 → display_frame 归一化到 255
+    view.apply_payload(_payload(frame=frame, hdr=True, hdr_image=None))
+    app.processEvents()
+    shown = view._video._array
+    assert shown is not None
+    assert shown.max() == 255
+    view.close()
 
 
 def test_apply_payload_updates_frame_and_both_bars(app: QApplication):

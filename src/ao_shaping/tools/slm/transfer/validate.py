@@ -28,6 +28,10 @@ from ao_shaping.tools.slm.transfer.light_guard import LightGuard, OpticalPathInv
 from ao_shaping.tools.slm.transfer.hardware import DeviceOpenError
 # 实时帧的缓存/负载/emit 住在 .live_frame (Qt-free, 测量线程可调); 这里按旧名字
 # 全部再导出 —— 内部调用点、既有测试与 scripts/ 都用这一批名字。
+from ao_shaping.tools.slm.transfer.hdr_probe import (
+    DEFAULT_HDR_EXPOSURES_MS,
+    capture_hdr_display,
+)
 from ao_shaping.tools.slm.transfer.live_frame import (
     _CAPTURE_FRAMES,  # noqa: F401 - 测试夹具直接清空这个缓存
     _CAPTURE_FRAMES_MAX,  # noqa: F401 - 同上, 只作公开名字再导出
@@ -506,6 +510,12 @@ def main():
     parser.add_argument("--blocks", type=int, default=2)
     parser.add_argument("--updates", type=int, default=10)
     parser.add_argument("--frames", type=int, default=3)
+    parser.add_argument("--hdr", action="store_true",
+                        help="HDR 探测: 实时画面用多曝光融合的宽动态图, "
+                             "由前端色调映射回 0..255 展示")
+    parser.add_argument("--hdr-exposures-ms", type=float, nargs="+",
+                        default=list(DEFAULT_HDR_EXPOSURES_MS),
+                        help="HDR 曝光阶梯 (ms, 至少两档); 默认 1 4 16")
     parser.add_argument("--profile-timing", action="store_true",
                         help="Write a per-capture `timing` split (slm_write/settle/read/reduce/save, ms) "
                              "into every manifest row. Measurement only; no capture changes.")
@@ -633,13 +643,23 @@ def _run_validate_session(
                     stamps.append(dict(**stamp, end_monotonic_ns=time.monotonic_ns(), exposure_ms=float(get_camera_exposure_ms(cam))))
                     # 逐帧上屏: 每一次 CCD 读出都刷新一次, 不再是每块一张快照。
                     # 观察者是 best-effort 的, 抛异常只会记 warning (notify_frame)。
+                    # HDR 探测开关: 开启时显示帧用多曝光融合的宽动态图, 由
+                    # live_view 色调映射回 0..255; 采集记录 (frame) 仍走单帧。
+                    hdr_on = bool(getattr(args, "hdr", False))
+                    hdr_image = None
+                    if hdr_on:
+                        hdr_image = capture_hdr_display(
+                            cam,
+                            getattr(args, "hdr_exposures_ms", DEFAULT_HDR_EXPOSURES_MS),
+                        )
                     notify_frame(observer, frame_payload(
                         frame=frame, label=label, phase="validate",
                         xy=xy,
                         target=objective.target,
                         phase_grid=phase if phase is not None else None,
                         predicted=_predicted_frame(forward, phase) if phase is not None else None,
-                        frame_index=index + 1, frames_total=args.frames))
+                        frame_index=index + 1, frames_total=args.frames,
+                        hdr=hdr_on, hdr_image=hdr_image))
                 raw = np.stack(frames)
                 read_done = time.perf_counter()
                 image = raw.mean(0)
@@ -942,6 +962,12 @@ def main():
     parser.add_argument("--blocks", type=int, default=2)
     parser.add_argument("--updates", type=int, default=10)
     parser.add_argument("--frames", type=int, default=3)
+    parser.add_argument("--hdr", action="store_true",
+                        help="HDR 探测: 实时画面用多曝光融合的宽动态图, "
+                             "由前端色调映射回 0..255 展示")
+    parser.add_argument("--hdr-exposures-ms", type=float, nargs="+",
+                        default=list(DEFAULT_HDR_EXPOSURES_MS),
+                        help="HDR 曝光阶梯 (ms, 至少两档); 默认 1 4 16")
     parser.add_argument("--profile-timing", action="store_true",
                         help="Write a per-capture `timing` split (slm_write/settle/read/reduce/save, ms) "
                              "into every manifest row. Measurement only; no capture changes.")

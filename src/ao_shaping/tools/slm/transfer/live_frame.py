@@ -104,6 +104,8 @@ def frame_payload(
     phase_grid: Any = None,
     predicted: Any = None,
     target: Any = None,
+    hdr: bool = False,
+    hdr_image: Any = None,
 ) -> dict:
     """One live refresh: a single CCD read, plus whatever progress is known.
 
@@ -139,6 +141,8 @@ def frame_payload(
         phase_grid=None if phase_grid is None else np.array(phase_grid, copy=True),
         predicted=None if predicted is None else np.array(predicted, copy=True),
         target=None if target is None else np.array(target, copy=True),
+        hdr=bool(hdr),
+        hdr_image=None if hdr_image is None else np.array(hdr_image, copy=True),
     )
 
 
@@ -155,6 +159,8 @@ def block_frame_payload(
     xy=None,
     label: str = "",
     target: Any = None,
+    hdr: bool = False,
+    hdr_image: Any = None,
 ) -> dict:
     """Plain-data payload for one anchored block's last frame.
 
@@ -181,6 +187,8 @@ def block_frame_payload(
         phase_grid=None,
         predicted=None,
         target=None if target is None else np.array(target, copy=True),
+        hdr=bool(hdr),
+        hdr_image=None if hdr_image is None else np.array(hdr_image, copy=True),
     )
 
 

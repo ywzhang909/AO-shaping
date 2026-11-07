@@ -30,7 +30,15 @@ from PySide6.QtWidgets import (
 
 from ao_shaping.gui.ccd.beam_quality.video_widget import VideoWidget
 
-__all__ = ["LiveView", "display_frame", "display_phase", "display_preview"]
+__all__ = [
+    "LiveView",
+    "TONE_MAP_METHODS",
+    "display_frame",
+    "display_hdr_preview",
+    "display_phase",
+    "display_preview",
+    "tone_map_hdr",
+]
 
 #: 大靶面相机的显示降采样步长: 4 ⇒ 分析尺寸 1/16, 坐标用 ``rescaled(4)`` 还原。
 PREVIEW_STEP = 4
@@ -100,6 +108,67 @@ def display_preview(frame) -> tuple[np.ndarray, int]:
     if step > 1:
         arr = arr[::step, ::step]
     return display_frame(arr), step
+
+
+#: 色调映射方法名 → 可读标签 (HDR 探测开关下拉用)。
+TONE_MAP_METHODS = ("reinhard", "gamma")
+
+
+def tone_map_hdr(
+    hdr,
+    method: str = "reinhard",
+    background_percentile: float = 1.0,
+) -> np.ndarray:
+    """把宽动态 HDR float 图 (radiance / fused) 色调映射回 0..255 uint8 展示。
+
+    与 :func:`display_frame` 不同: HDR 融合图的动态范围远超单帧, 简单峰值归一
+    (``x * 255/peak``) 会把暗区细节压到不可见 —— 长曝光救回来的低强度区域在
+    线性映射下全落进最低几个灰阶。这里先扣背景 (``background_percentile`` 分位,
+    与 :func:`display_frame` 的 1% 一致), 再用 ``method`` 压缩:
+
+    * ``"reinhard"``: 全局 Reinhard ``L/(1+L)``, 压缩高光同时保留暗部 ——
+      HDR 展示的默认选择, 也是「重新映射到正常展示」的语义;
+    * ``"gamma"``: ``L ** (1/gamma)`` (gamma=2.2), 只提升暗部、不压高光。
+
+    两条曲线都在映射后重新把峰值拉到满量程, 因此观感与 :func:`display_frame`
+    一致 (背景扣除 + 满量程峰值), 只是量化曲线从线性换成压缩曲线。
+    """
+    if method not in TONE_MAP_METHODS:
+        raise ValueError(f"unknown tone-mapping method: {method!r}")
+    arr = np.asarray(hdr, dtype=np.float64)
+    if arr.ndim == 3:
+        arr = arr[..., 0]
+    arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+    if arr.size == 0:
+        return np.zeros((1, 1), dtype=np.uint8)
+    arr = np.clip(arr - float(np.percentile(arr, background_percentile)), 0.0, None)
+    peak = float(arr.max())
+    if peak <= 0:
+        return np.zeros(arr.shape, dtype=np.uint8)
+    norm = arr / peak  # [0, 1]
+    if method == "reinhard":
+        mapped = norm / (1.0 + norm)  # [0, 0.5]
+        top = float(mapped.max())
+        if top > 0:
+            mapped = mapped / top  # 重新扩到 [0, 1], 峰值满量程
+    else:  # gamma
+        mapped = np.power(norm, 1.0 / 2.2)
+    return (np.clip(mapped, 0.0, 1.0) * 255.0).astype(np.uint8)
+
+
+def display_hdr_preview(hdr, method: str = "reinhard") -> tuple[np.ndarray, int]:
+    """把 HDR 宽动态图压成 0..255 uint8, 大靶面先降采样。返回 ``(图像, 步长)``。
+
+    与 :func:`display_preview` 同构 (归一化在降采样之后做), 只是量化走
+    :func:`tone_map_hdr` 而非线性峰值归一。
+    """
+    arr = np.asarray(hdr)
+    if arr.ndim == 3:
+        arr = arr[..., 0]
+    step = preview_step(arr.shape)
+    if step > 1:
+        arr = arr[::step, ::step]
+    return tone_map_hdr(arr, method=method), step
 
 
 class _TitledPanel(QWidget):
@@ -214,7 +283,13 @@ class LiveView(QWidget):
         from ao_shaping.gui.ccd.beam_quality.analyzer import analyze_frame
 
         # 先降采样再归一化/分析 (2592x1944 → 648x486), 步长换回原始像素坐标。
-        shown, step = display_preview(frame)
+        # HDR 探测: payload 带 hdr 标志 + hdr_image (多曝光融合的宽动态 float 图)
+        # 时走色调映射路径, 否则走原有线性峰值归一。
+        hdr_image = payload.get("hdr_image")
+        if bool(payload.get("hdr")) and hdr_image is not None:
+            shown, step = display_hdr_preview(hdr_image)
+        else:
+            shown, step = display_preview(frame)
         metrics = analyze_frame(shown)
         if step != 1:
             metrics = metrics.rescaled(step)

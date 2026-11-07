@@ -167,6 +167,7 @@ _RESUME_KEY = "msc_resume"
 _RESUME_DIR_KEY = "msc_resume_dir"
 _OPTICAL_KEY = "msc_optical_path"
 _AUTO_REUSE_KEY = "msc_auto_reuse"
+_HDR_KEY = "msc_hdr"
 
 
 # --------------------------------------------------------------------------- #
@@ -568,6 +569,14 @@ def render_model_choice(models: list[Path], campaigns: list[Path]) -> Path | Non
              "扫描历史检查点，若兼容性 >= 0.80 则自动复用，跳过约 20 min 采集与拟合。"
              "关闭后严格从零重训。")
     st.session_state[_AUTO_REUSE_KEY] = bool(auto_reuse)
+    hdr = st.toggle(
+        "HDR 探测画面（多曝光融合 → 色调映射展示）",
+        value=st.session_state.get(_HDR_KEY, False),
+        key="msc_hdr_toggle",
+        help="开启后实时画面（⑥）用多曝光融合的宽动态图，前端 Reinhard 色调映射"
+             "回 0..255 正常展示（保住单帧线性峰值归一压掉的暗区细节）；"
+             "关闭走单帧线性峰值归一。默认关闭。")
+    st.session_state[_HDR_KEY] = bool(hdr)
     if choice == options[0]:
         st.session_state[_MODEL_KEY] = None
         st.caption("不指定模型：若自动复用开启则先探测光路，找到兼容检查点则跳过采集；否则从零采集 → 几何设计初值起手 → 拟合 → 几何重导出，多约 20 min 设备时间。")
@@ -624,7 +633,8 @@ def render_checks(*, settings, out_dir: Path, model_dir: Path | None,
 # ⑥ 运行 / 逐块进度
 # --------------------------------------------------------------------------- #
 def _runner_kwargs(*, settings, slm_number: int, model_dir: Path | None,
-                   resume: bool, auto_reuse: bool = True) -> dict[str, Any]:
+                   resume: bool, auto_reuse: bool = True,
+                   hdr: bool = False) -> dict[str, Any]:
     """页面 → ``execute_campaign`` 的关键字快照（点「开始」时在主线程算好）。
 
     ``CampaignSettings.kwargs()`` **只**含派生表里那些字段（``campaign.RUNNER_CLI_DEFAULTS``
@@ -642,12 +652,13 @@ def _runner_kwargs(*, settings, slm_number: int, model_dir: Path | None,
     kwargs["model_dir"] = None if model_dir is None else Path(model_dir)
     kwargs["resume"] = bool(resume)
     kwargs["auto_reuse"] = bool(auto_reuse)
+    kwargs["hdr"] = bool(hdr)
     return kwargs
 
 
 def _start_run(*, out_dir: Path, settings, slm_number: int,
                model_dir: Path | None, resume: bool,
-               auto_reuse: bool = True) -> None:
+               auto_reuse: bool = True, hdr: bool = False) -> None:
     """主线程：进入设备交接 → 起线程 → 记下运行体。
 
     这里**没有** ``try/except``：``with_slm_ownership`` 把 ``bench_busy`` 置真之后
@@ -661,7 +672,7 @@ def _start_run(*, out_dir: Path, settings, slm_number: int,
     ownership.__enter__()
     kwargs = _runner_kwargs(settings=settings, slm_number=slm_number,
                             model_dir=model_dir, resume=resume,
-                            auto_reuse=auto_reuse)
+                            auto_reuse=auto_reuse, hdr=hdr)
     stop_event = threading.Event()
     out_q: queue.Queue = queue.Queue()
     thread = threading.Thread(
@@ -833,7 +844,8 @@ def render_run(*, settings, out_dir: Path, model_dir: Path | None, card,
         on_click=_start_run, kwargs={"out_dir": out_dir, "settings": settings,
                                     "slm_number": _active_slm_number(),
                                     "model_dir": model_dir, "resume": resume,
-                                    "auto_reuse": bool(st.session_state.get(_AUTO_REUSE_KEY, True))},
+                                    "auto_reuse": bool(st.session_state.get(_AUTO_REUSE_KEY, True)),
+                                    "hdr": bool(st.session_state.get(_HDR_KEY, False))},
     )
     if blocked_reasons:
         st.caption("开始按钮不可用的原因：" + "；".join(blocked_reasons))

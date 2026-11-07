@@ -42,6 +42,7 @@ from loguru import logger
 from ao_shaping.tools.slm.transfer import capture as capture_stage
 from ao_shaping.tools.slm.transfer import fit as fit_stage
 from ao_shaping.tools.slm.transfer import recording, replay_phases, validate as validate_stage
+from ao_shaping.tools.slm.transfer.hdr_probe import DEFAULT_HDR_EXPOSURES_MS
 from ao_shaping.tools.slm.transfer.light_guard import OpticalPathInvalid
 from ao_shaping.tools.slm.transfer.hardware import DeviceOpenError
 from ao_shaping.tools.slm.transfer.protocol import derive_replay_exposures
@@ -104,7 +105,9 @@ def _validate_args(*, checkpoint: Path, out: Path, zero_xy, shapes, recipe: Stag
                    accept_rel_tol: float = 0.0, accept_abs_tol: float = 0.0,
                    spectral_weight: float = 0.0, spectral_cutoff: float | None = None,
                    objective: str = "cv", weight_schedule: str = "constant",
-                    tilt: bool = False, aspect_ratio: float = 2.0) -> SimpleNamespace:
+                    tilt: bool = False, aspect_ratio: float = 2.0,
+                    hdr: bool = False,
+                    hdr_exposures_ms: tuple[float, ...] | None = None) -> SimpleNamespace:
     """Build the argument namespace ``validate.run`` expects."""
     if weight_schedule not in ("constant", "staged"):
         raise ValueError(f"unknown weight schedule {weight_schedule!r}")
@@ -136,6 +139,9 @@ def _validate_args(*, checkpoint: Path, out: Path, zero_xy, shapes, recipe: Stag
         spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
         weight_schedule=weight_schedule,
         tilt=tilt, aspect_ratio=aspect_ratio,
+        hdr=bool(hdr),
+        hdr_exposures_ms=tuple(hdr_exposures_ms) if hdr_exposures_ms is not None
+        else DEFAULT_HDR_EXPOSURES_MS,
     )
 
 
@@ -444,7 +450,9 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
                     cam_id=cam_id, slm_number=slm_number, frames=frames, side=side,
                     period=period, window_span=window_span, zero_radius=zero_radius,
                     window_step=window_step, blocks=0, updates=0, adaptive_exposure=False,
-                    tilt=tilt, aspect_ratio=aspect_ratio)
+                    tilt=tilt, aspect_ratio=aspect_ratio,
+                    hdr=values.get("hdr", False),
+                    hdr_exposures_ms=values.get("hdr_exposures_ms", DEFAULT_HDR_EXPOSURES_MS))
                 validate_stage.run(args)
                 if not manifest_path.is_file():
                     raise RuntimeError(
@@ -484,6 +492,8 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
         spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
         objective=objective, weight_schedule=weight_schedule,
         tilt=tilt, aspect_ratio=aspect_ratio,
+        hdr=values.get("hdr", False),
+        hdr_exposures_ms=values.get("hdr_exposures_ms", DEFAULT_HDR_EXPOSURES_MS),
         should_stop=should_stop)
 
     # -------------------------------------------------------------- replay
@@ -620,7 +630,9 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
                spectral_cutoff: float | None = None,
                objective: str = "cv", weight_schedule: str = "constant",
                tilt: bool = False, aspect_ratio: float = 2.0,
-               should_stop: Callable[[], bool] | None = None) -> bool:
+               should_stop: Callable[[], bool] | None = None,
+               hdr: bool = False,
+               hdr_exposures_ms: tuple[float, ...] = DEFAULT_HDR_EXPOSURES_MS) -> bool:
     """Run every ``(shape, stage)`` in ``order``, reusing finished stages on ``--resume``.
 
     Split out of :func:`run` so the ordering and the reuse rule are testable
@@ -687,7 +699,8 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
             accept_rel_tol=accept_rel_tol, accept_abs_tol=accept_abs_tol,
             spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
             objective=objective, weight_schedule=weight_schedule,
-            tilt=tilt, aspect_ratio=aspect_ratio)
+            tilt=tilt, aspect_ratio=aspect_ratio,
+            hdr=hdr, hdr_exposures_ms=hdr_exposures_ms)
         # validate.run only reads this optional flag; absent it keeps the
         # historical "new directory or fail" contract.
         args.resume = resume
@@ -775,6 +788,14 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
               help="当 --model-dir 未指定时, 开一次相机读几帧探测当前光路, "
                    "扫描历史检查点, 若兼容性 >= 0.80 则自动复用, 跳过采集与拟合。"
                    "--no-auto-reuse 强制从头采集。")
+@click.option("--hdr/--no-hdr", "hdr", default=False, show_default=True,
+              help="HDR 探测: 实时画面 (⑥) 用多曝光融合的宽动态图, "
+                   "前端色调映射 (Reinhard) 回 0..255 正常展示。"
+                   "--no-hdr 走单帧线性峰值归一。")
+@click.option("--hdr-exposures-ms", type=float, multiple=True,
+              default=DEFAULT_HDR_EXPOSURES_MS, show_default=True,
+              help="HDR 曝光阶梯 (ms, 至少两档); 默认 1 4 16。"
+                   "可重复传入: --hdr-exposures-ms 1 --hdr-exposures-ms 4 --hdr-exposures-ms 16")
 @click.option("--records-only", is_flag=True,
               help="只从已有的分段目录重建 Recorder 记录 (离线, 不打开设备)")
 @click.option("--resume", is_flag=True,
@@ -837,7 +858,9 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         accept_rel_tol: float, accept_abs_tol: float, spectral_weight: float,
         spectral_cutoff: float | None, objective: str,
         weight_schedule: str, auto_reuse: bool = True,
-         tilt: bool = False, aspect_ratio: float = 2.0) -> None:
+         tilt: bool = False, aspect_ratio: float = 2.0,
+         hdr: bool = False,
+         hdr_exposures_ms: tuple[float, ...] | None = None) -> None:
     """物理预测模型闭环整形：从零训练模型 + 目标整形，逐形状执行。
 
     典型用法::
@@ -874,7 +897,10 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         accept_rel_tol=accept_rel_tol, accept_abs_tol=accept_abs_tol,
         spectral_weight=spectral_weight,
         spectral_cutoff=spectral_cutoff, objective=objective,
-        weight_schedule=weight_schedule, tilt=tilt, aspect_ratio=aspect_ratio)
+        weight_schedule=weight_schedule, tilt=tilt, aspect_ratio=aspect_ratio,
+        hdr=hdr,
+        hdr_exposures_ms=hdr_exposures_ms if hdr_exposures_ms is not None
+        else DEFAULT_HDR_EXPOSURES_MS)
     plan = _plan_dict(out=out, execute=execute, **params)
     click.echo(json.dumps(plan, indent=2, ensure_ascii=False))
     if not tilt:
