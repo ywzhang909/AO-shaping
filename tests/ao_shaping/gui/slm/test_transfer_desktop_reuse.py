@@ -154,6 +154,29 @@ def test_reuse_verdict_line_skips_when_not_run(tmp_path) -> None:
     assert page_mod.reuse_latest_verdict_line(session_dir) == ""
 
 
+def test_reuse_verdict_line_shows_skipped_reason(tmp_path) -> None:
+    """复用被跳过 (未开启/探针失败/无 latest) → 说明「为什么没走复用」。"""
+    session_dir = tmp_path / "s"
+    session_dir.mkdir()
+    (session_dir / "optical_probe.json").write_text(
+        json.dumps({"skipped": True, "reason": "光路复用未开启"}),
+        encoding="utf-8",
+    )
+    line = page_mod.reuse_latest_verdict_line(session_dir)
+    assert line == "光路复用：跳过（光路复用未开启） → 走正常全流程"
+
+
+def test_reuse_verdict_line_shows_skipped_without_reason(tmp_path) -> None:
+    """复用被跳过但缺 reason → 无原因的兜底文案, 绝不抛。"""
+    session_dir = tmp_path / "s"
+    session_dir.mkdir()
+    (session_dir / "optical_probe.json").write_text(
+        json.dumps({"skipped": True}), encoding="utf-8",
+    )
+    line = page_mod.reuse_latest_verdict_line(session_dir)
+    assert line == "光路复用：跳过 → 走正常全流程"
+
+
 def test_reuse_verdict_line_shows_same_when_reused(tmp_path) -> None:
     session_dir = _write_reused_session(tmp_path, same_path=True)
     line = page_mod.reuse_latest_verdict_line(session_dir)
@@ -273,6 +296,29 @@ def test_model_weight_line_prefers_reused_latest(tmp_path) -> None:
     assert "sn-1/latest/frozen_parameters.json" in line
     stamp = datetime.fromtimestamp(1_700_010_000).strftime("%Y-%m-%d")
     assert stamp in line
+
+
+def test_model_weight_line_hits_deep_subdirectory(tmp_path) -> None:
+    """产物在更深的子目录 (如 ``model*/run/``) 也能命中, 不再空串。"""
+    session_dir = tmp_path / "s"
+    _write_weight(
+        session_dir / "model" / "run1" / "frozen_parameters.json", 1_700_000_000
+    )
+    line = page_mod.model_weight_saved_line(session_dir)
+    assert "model/run1/frozen_parameters.json" in line
+    assert "保存于" in line
+
+
+def test_model_weight_line_reports_corrupt_weight(tmp_path) -> None:
+    """权重文件在但不可解析 → 一行「模型加载失败: …损坏或不可解析」。"""
+    session_dir = tmp_path / "s"
+    weight = session_dir / "model" / "frozen_parameters.json"
+    weight.parent.mkdir(parents=True, exist_ok=True)
+    weight.write_text("{not json", encoding="utf-8")
+    line = page_mod.model_weight_saved_line(session_dir)
+    assert line.startswith("模型加载失败：")
+    assert "损坏或不可解析" in line
+    assert "model/frozen_parameters.json" in line
 
 
 def test_on_finished_appends_weight_saved_date(page, tmp_path) -> None:

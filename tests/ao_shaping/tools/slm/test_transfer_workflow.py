@@ -1189,3 +1189,143 @@ def test_async_capture_write_stores_the_same_measurement(tmp_path, monkeypatch):
         assert sorted(left.files) == sorted(right.files)
         for key in left.files:
             assert np.array_equal(left[key], right[key])
+
+# ---------------------------------------------------------------------------
+# 光路复用跳过记录: 复用被跳过也要落一份可读说明, 供「运行处」显示原因。
+# ---------------------------------------------------------------------------
+
+
+def _probe(serial="SLM-A", zero=(10.0, 20.0), exposure=(0.02, 25.0),
+           camera_format="MONO8", bit_depth=8):
+    """一份可比的合成探针 (序列号默认有, 传 None 模拟读不到)。"""
+    from ao_shaping.tools.slm.transfer.optical_probe import OpticalProbe
+    return OpticalProbe(
+        zero_xy=zero,
+        exposure_range_ms=exposure,
+        camera_format=camera_format,
+        bit_depth=bit_depth,
+        slm_serial=serial,
+    )
+
+
+def _skip_record(out):
+    data = json.loads((out / "optical_probe.json").read_text(encoding="utf-8"))
+    assert data.get("skipped") is True
+    return data
+
+
+def test_optical_reuse_probe_failure_writes_skip(tmp_path, monkeypatch):
+    """探针失败 → 返回 None 且写一份「跳过: 探针失败」记录 (不带异常上抛)。"""
+    from ao_shaping.tools.slm.transfer import optical_probe as probe_mod
+    from ao_shaping.tools.slm.transfer import workflow as workflow_mod
+
+    config = TransferSession(tmp_path / "run", reuse_latest=True)
+
+    def boom(**kwargs):
+        raise RuntimeError("camera open failed")
+    monkeypatch.setattr(probe_mod, "measure_probe", boom)
+
+    assert workflow_mod._attempt_optical_reuse(config, config.out) is None
+    data = _skip_record(config.out)
+    assert "探针失败" in data["reason"]
+    assert "RuntimeError" in data["reason"]
+    assert "camera open failed" in data["reason"]
+
+
+def test_optical_reuse_no_serial_writes_skip(tmp_path, monkeypatch):
+    """读不到 SLM 序列号 → 跳过记录, 并记下探针本身 (便于人工排查)。"""
+    from ao_shaping.tools.slm.transfer import optical_probe as probe_mod
+    from ao_shaping.tools.slm.transfer import workflow as workflow_mod
+
+    config = TransferSession(tmp_path / "run", reuse_latest=True)
+    monkeypatch.setattr(probe_mod, "measure_probe", lambda **kwargs: _probe(serial=None))
+
+    assert workflow_mod._attempt_optical_reuse(config, config.out) is None
+    data = _skip_record(config.out)
+    assert data["reason"] == "读不到 SLM 序列号"
+    assert data["current"]["slm_serial"] is None
+
+
+def test_optical_reuse_no_latest_writes_skip(tmp_path, monkeypatch):
+    """该序列号没有 latest 模型 → 跳过记录, 并记下序列号。"""
+    from ao_shaping.tools.slm.transfer import optical_probe as probe_mod
+    from ao_shaping.tools.slm.transfer import workflow as workflow_mod
+
+    monkeypatch.setenv("SLM_MODELS_DIR", str(tmp_path / "models"))
+    config = TransferSession(tmp_path / "run", reuse_latest=True)
+    monkeypatch.setattr(probe_mod, "measure_probe", lambda **kwargs: _probe(serial="SLM-A"))
+
+    assert workflow_mod._attempt_optical_reuse(config, config.out) is None
+    data = _skip_record(config.out)
+    assert data["reason"] == "该 SLM 没有 latest 模型"
+    assert data["serial"] == "SLM-A"
+
+
+def test_optical_reuse_same_path_returns_plan(tmp_path, monkeypatch):
+    """光路一致 → 照旧返回复用计划, 判定写 same_path=True (回归保护)。"""
+    from ao_shaping.tools.slm.transfer import optical_probe as probe_mod
+    from ao_shaping.tools.slm.transfer import workflow as workflow_mod
+
+    monkeypatch.setenv("SLM_MODELS_DIR", str(tmp_path / "models"))
+    latest = tmp_path / "models" / "SLM-A" / "latest"
+    latest.mkdir(parents=True)
+    (latest / "frozen_parameters.json").write_text(
+        json.dumps({"origin": [10.0, 20.0]}), encoding="utf-8"
+    )
+    (latest / probe_mod.FLAT_FROZEN_SIDECAR).write_text(
+        json.dumps({
+            "exposure_range_ms": [0.02, 25.0],
+            "camera_format": "MONO8",
+            "bit_depth": 8,
+            "slm_serial": "SLM-A",
+        }),
+        encoding="utf-8",
+    )
+    config = TransferSession(tmp_path / "run", reuse_latest=True)
+    config.out.mkdir(parents=True, exist_ok=True)  # run_session 里 out 已建好
+    monkeypatch.setattr(probe_mod, "measure_probe", lambda **kwargs: _probe(serial="SLM-A"))
+
+    plan = workflow_mod._attempt_optical_reuse(config, config.out)
+    assert plan is not None
+    data = json.loads((config.out / "optical_probe.json").read_text(encoding="utf-8"))
+    assert data["same_path"] is True
+
+
+def test_run_session_writes_reuse_skip_when_disabled(tmp_path, monkeypatch):
+    """开关未开 → 正常全流程照旧, 但落一份「光路复用未开启」说明。"""
+    from ao_shaping.tools.slm.transfer import fit
+
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+    (dataset / "manifest.json").write_text("[]")
+    checkpoint = tmp_path / "checkpoint.json"
+    checkpoint.write_text("{}")
+    config = TransferSession(tmp_path / "run", dataset=dataset, checkpoint=checkpoint)
+
+    def fail(_):
+        raise ValueError("boom")
+    monkeypatch.setattr(fit, "fit", fail)
+    with pytest.raises(ValueError):
+        run_session(config, offline=True)
+    assert _skip_record(config.out)["reason"] == "光路复用未开启"
+
+
+def test_run_session_writes_reuse_skip_when_dataset_session(tmp_path, monkeypatch):
+    """数据集会话 + 开关开 → 仍走全流程, 但落「数据集会话不参与」说明。"""
+    from ao_shaping.tools.slm.transfer import fit
+
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+    (dataset / "manifest.json").write_text("[]")
+    checkpoint = tmp_path / "checkpoint.json"
+    checkpoint.write_text("{}")
+    config = TransferSession(
+        tmp_path / "run", dataset=dataset, checkpoint=checkpoint, reuse_latest=True
+    )
+
+    def fail(_):
+        raise ValueError("boom")
+    monkeypatch.setattr(fit, "fit", fail)
+    with pytest.raises(ValueError):
+        run_session(config, offline=True)
+    assert _skip_record(config.out)["reason"] == "数据集会话不参与光路复用"

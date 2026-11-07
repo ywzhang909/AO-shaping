@@ -348,6 +348,28 @@ def format_probe_verdict(
     )
 
 
+#: 光路复用被跳过 (而非「未通过」) 的原因。写进 ``optical_probe.json`` 的
+#: ``reason`` 键, 人类可读; ``REUSE_SKIP_PROBE_FAILED`` 一条由调用方拼上具体
+#: 异常类型与消息, 不在此列。这些原因供「运行处」说明「为什么没走复用」。
+REUSE_SKIP_DISABLED = "光路复用未开启"
+REUSE_SKIP_DATASET = "数据集会话不参与光路复用"
+REUSE_SKIP_OFFLINE = "离线模式不参与光路复用"
+REUSE_SKIP_NO_SERIAL = "读不到 SLM 序列号"
+REUSE_SKIP_NO_LATEST = "该 SLM 没有 latest 模型"
+REUSE_SKIP_PROBE_FAILED = "光路探针失败"
+
+
+def format_probe_skip_line(reason: str) -> str:
+    """光路复用被跳过 → 一行「光路复用：跳过（原因） → 走正常全流程」。
+
+    纯函数, 不读文件。``reason`` 为空/空白时退到无原因的兜底文案, 绝不抛。
+    """
+    reason = (reason or "").strip()
+    if not reason:
+        return "光路复用：跳过 → 走正常全流程"
+    return f"光路复用：跳过（{reason}） → 走正常全流程"
+
+
 __all__ = [
     "DEFAULT_TOL_ZERO_PX",
     "DEFAULT_TOL_EXPOSURE_FACTOR",
@@ -360,4 +382,11 @@ __all__ = [
     "probe_from_latest",
     "same_path",
     "format_probe_verdict",
+    "format_probe_skip_line",
+    "REUSE_SKIP_DISABLED",
+    "REUSE_SKIP_DATASET",
+    "REUSE_SKIP_OFFLINE",
+    "REUSE_SKIP_NO_SERIAL",
+    "REUSE_SKIP_NO_LATEST",
+    "REUSE_SKIP_PROBE_FAILED",
 ]

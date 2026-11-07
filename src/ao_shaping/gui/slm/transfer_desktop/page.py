@@ -316,6 +316,12 @@ def reuse_latest_verdict_line(session_dir: Path) -> str:
         logger.warning("读取光路复用结论失败: {}", session_dir)
         return ""
     same = bool(data.get("same_path"))
+    if data.get("skipped"):
+        # 光路复用被跳过 (未开启 / 探针失败 / 无序列号 / 无 latest): 说明原因。
+        from ao_shaping.tools.slm.transfer.optical_probe import format_probe_skip_line
+
+        reason = data.get("reason")
+        return format_probe_skip_line(reason if isinstance(reason, str) else "")
     if same:
         return "光路复用：一致 → 已复用最近一次模型；差异已并入本场"
     # 未采用: 列出每一条不通过的原因 (尽量详细)。
@@ -449,10 +455,11 @@ def model_weight_saved_line(session_dir: Path) -> str:
             if weight is not None:
                 break
     if weight is None:
-        return ""
-    try:
-        mtime = weight.stat().st_mtime
-    except OSError:
+        # 兜底: 更深一层子目录 (如 ``model*/run/`` 之类) 里的冻结参数。
+        weight = _newest_file(
+            p for p in root.glob("**/frozen_parameters.json") if p.is_file()
+        )
+    if weight is None:
         return ""
     try:
         shown = weight.relative_to(root).as_posix()
@@ -460,6 +467,14 @@ def model_weight_saved_line(session_dir: Path) -> str:
         # 复用来的 latest 在 models_root 下, 不在本场目录: 用末三级定位。
         parts = list(weight.parts)
         shown = "/".join(parts[-3:]) if len(parts) >= 3 else str(weight)
+    # 权重文件在但读不出/不可解析 → 明确的「模型加载失败」而不是空行。
+    try:
+        mtime = weight.stat().st_mtime
+        json.loads(weight.read_text(encoding="utf-8"))
+    except OSError:
+        return f"模型加载失败：{shown} 读取失败"
+    except ValueError:  # JSONDecodeError / UnicodeDecodeError 都是 ValueError
+        return f"模型加载失败：{shown} 损坏或不可解析"
     saved = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
     return f"模型权重：{shown} · 保存于 {saved}"
 

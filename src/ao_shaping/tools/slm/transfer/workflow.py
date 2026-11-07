@@ -443,6 +443,38 @@ class _ReusePlan:
     verdict: str
 
 
+def _write_optical_probe_skip(
+    out: Path,
+    reason: str,
+    *,
+    current=None,
+    serial=None,
+    latest=None,
+) -> None:
+    """光路复用**被跳过**时写一份可读说明 ``<out>/optical_probe.json``。
+
+    只写文件、不打开任何设备。复用是可选的加速, 写这份说明失败绝不能影响
+    会话 → 全包 ``try/except``, 静默降级为一条警告日志 (绝不抛)。产物带
+    ``skipped: True`` + ``reason`` (人类可读), 供「运行处」显示跳过原因;
+    有可用的探针/序列号/latest 时一并记下, 便于人工排查。
+    """
+    try:
+        payload = {"skipped": True, "reason": reason}
+        if serial is not None:
+            payload["serial"] = str(serial)
+        if latest is not None:
+            payload["latest"] = str(latest)
+        if current is not None:
+            payload["current"] = current.to_dict()
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "optical_probe.json").write_text(
+            json.dumps(payload, ensure_ascii=False, default=str, indent=2),
+            encoding="utf-8",
+        )
+    except Exception as exc:  # 记录写失败不影响会话
+        logger.warning("光路复用: 写跳过说明失败: {!r}", exc)
+
+
 def _attempt_optical_reuse(config: TransferSession, out: Path, *, device=None, on_stage=None):
     """试一次光路复用: 开设备 → 读序列号 → 找 latest → 量探针 → 比对。
 
@@ -473,16 +505,30 @@ def _attempt_optical_reuse(config: TransferSession, out: Path, *, device=None, o
         )
     except Exception as exc:  # 探针失败不是会话失败
         logger.warning("光路复用: 探针失败, 走正常全流程: {!r}", exc)
+        _write_optical_probe_skip(
+            out,
+            f"{optical_probe.REUSE_SKIP_PROBE_FAILED}："
+            f"{type(exc).__name__}：{str(exc)[:120]}",
+        )
         _notify(on_stage, "optical_probe", "failed")
         return None
     serial = current.slm_serial
     if not serial:
         logger.info("光路复用: 读不到 SLM 序列号, 走正常全流程")
+        _write_optical_probe_skip(
+            out, optical_probe.REUSE_SKIP_NO_SERIAL, current=current
+        )
         _notify(on_stage, "optical_probe", "complete")
         return None
     latest = models_root() / str(serial) / "latest"
     if not (latest / "frozen_parameters.json").is_file():
         logger.info("光路复用: {} 没有 latest 模型, 走正常全流程", latest)
+        _write_optical_probe_skip(
+            out,
+            optical_probe.REUSE_SKIP_NO_LATEST,
+            current=current,
+            serial=serial,
+        )
         _notify(on_stage, "optical_probe", "complete")
         return None
     reference = optical_probe.probe_from_latest(latest)
@@ -973,7 +1019,7 @@ def run_session(
         _notify(on_stage, name, "complete")
         return result
 
-    from . import bootstrap, direction, fit, summary, validate
+    from . import bootstrap, direction, fit, optical_probe, summary, validate
 
     # --- Optical-path reuse fast path (opt-in via ``reuse_latest``) ----------
     # Off (the default) the code below is byte-for-byte the historical one.
@@ -996,6 +1042,15 @@ def run_session(
                 summary=summary,
                 direction=direction,
             )
+    else:
+        # 光路复用没走 (开关未开 / 数据集会话 / 离线): 写一行跳过说明,
+        # 供「运行处」说明「为什么没走复用」。写记录失败不影响会话。
+        if not config.reuse_latest:
+            _write_optical_probe_skip(out, optical_probe.REUSE_SKIP_DISABLED)
+        elif config.dataset is not None:
+            _write_optical_probe_skip(out, optical_probe.REUSE_SKIP_DATASET)
+        else:
+            _write_optical_probe_skip(out, optical_probe.REUSE_SKIP_OFFLINE)
 
     dataset, samples = _acquire_session_dataset(
         config, out=out, device=device, stage=stage, on_frame=on_frame, offline=offline

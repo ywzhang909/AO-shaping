@@ -249,6 +249,19 @@ def test_format_probe_verdict_changed_path_mentions_zero_and_exposure():
     assert len(out) < 120
 
 
+def test_format_probe_skip_line_wraps_reason():
+    """跳过原因 → 「光路复用：跳过（原因） → 走正常全流程」。"""
+    out = probe.format_probe_skip_line(probe.REUSE_SKIP_DISABLED)
+    assert out == "光路复用：跳过（光路复用未开启） → 走正常全流程"
+
+
+def test_format_probe_skip_line_empty_reason_falls_back():
+    """空/空白原因 → 无原因的兜底文案, 绝不抛。"""
+    assert probe.format_probe_skip_line("") == "光路复用：跳过 → 走正常全流程"
+    assert probe.format_probe_skip_line("   ") == "光路复用：跳过 → 走正常全流程"
+    assert probe.format_probe_skip_line(None) == "光路复用：跳过 → 走正常全流程"
+
+
 # ---------------------------------------------------------------------------
 # workflow: reuse_latest 计划开关
 # ---------------------------------------------------------------------------
