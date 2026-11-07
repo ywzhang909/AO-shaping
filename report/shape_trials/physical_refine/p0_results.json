@@ -1,0 +1,59 @@
+{
+  "seed": 2291104,
+  "elapsed_s": 8.3,
+  "injected": {
+    "5": 0.12,
+    "6": -0.08,
+    "7": 0.15,
+    "8": 0.02,
+    "9": -0.1,
+    "10": 0.07,
+    "11": -0.05
+  },
+  "n_probes": 42,
+  "frames": 84,
+  "condition_number": {
+    "structured": 1.0,
+    "random": 4.052105465029448
+  },
+  "per_mode_peak_leakage": {
+    "5": 0.7375004291534424,
+    "6": 0.6869985461235046,
+    "7": 0.7022079825401306,
+    "8": 0.8052947521209717,
+    "9": 0.7759171724319458,
+    "10": 0.7410954833030701,
+    "11": 0.8780028820037842
+  },
+  "identifiability_rate": {
+    "structured": 0.0,
+    "random_floor": "cond 4.1"
+  },
+  "gate": {
+    "selected": [
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11
+    ],
+    "rejected": {},
+    "matrix_ok": false,
+    "diag_off_ratio": 0.4504683924097867,
+    "condition_number": 17425.229240444824
+  },
+  "cross_response_condition_number": 17425.229240444824,
+  "block_cap": 0.5,
+  "figures": [
+    "fig1_cross_response.png",
+    "fig2_identifiability_rate.png",
+    "fig3_fit_tiers.png",
+    "fig4_probe_patterns.png",
+    "fig5_mode_response.png",
+    "fig6_refeed_gate.png"
+  ],
+  "device_free": true,
+  "note": "FrozenDefocusForward twin, injected residual; device-free. Value of structured probes = per-mode identifiability (design conditioning), consistent with #229 null result on raw NRMSE. Hardware paired-CCD comparison is the separate plan."
+}

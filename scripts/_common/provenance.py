@@ -91,6 +91,18 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线规划文档；其 P1 已于 2026-11-05 实验执行（probe_optical_path_validity）",
         note="物理预测模型迁移实验计划（P0–P6 阶段、探针族、zernike_block 档与在线回灌门）；人工撰写。",
     ),
+    "report/shape_trials/physical_refine/forward_model_transfer_20261107.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线 CPU（FrozenDefocusForward 2f 数字孪生，注入 7 模 Zernike 残差）；未占用 SLM/CCD/激光硬件",
+        note=(
+            "issue #229 步骤 3/4/5 工程实施（worktree feat/zernike-block-transfer，主分支代码未动）：结构化单模 "
+            "±Zernike 探针 + zernike_block 第三档（梯度掩码+0.5 rad 块 L2）+ 块间在线回灌（ModelSwitchGate）；"
+            "20 条新测试 + 328 回归全过、ruff 全净；P0 离线孪生实验：结构化设计 Gram 条件数 1.0 vs 随机 4.05，"
+            "远场基逐模 peak/leakage 0.69~0.88 低于 2.0 地板、交叉响应矩阵条件数 17425（与 #229 硬件空结果同因："
+            "探针设计不改变光学可辨识性上限，价值在逐模可归因测量）；物理设备实验方案见 §6。人工撰写。"
+        ),
+        extra_scripts=(),
+    ),
     "report/shape_trials/hw_depth_matched/hw_depth_matched_20261105.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件：1064 nm Santec SLM #1 + Daheng CCD（run02 采集 2026-11-05 09:33–09:49）；分析离线 CPU",
