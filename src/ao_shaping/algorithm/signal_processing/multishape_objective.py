@@ -251,6 +251,44 @@ def anchored_intensity(measured, prediction, baseline_prediction):
 
 
 
+def assert_target_within_fft_window(forward, centre, side, shape,
+                                    aspect_ratio: float = 2.0) -> None:
+    """Raise ``ValueError`` if the target extent exceeds the model's FFT window.
+
+    The model propagates to a centred spectrum window covering frequencies
+    ``[-fmax, fmax]`` per axis, where ``fmax = 1 / (2 * pitch)`` and
+    ``pitch = PANEL_PITCH_PX / grid_size``. That physical extent depends on the
+    control-grid size but **not** on ``fft_size`` — the FFT size only changes
+    the spectral sampling density, never the covered span. A target whose
+    bounding box maps outside this window is clipped by :func:`target_at` into a
+    full-window mask (all-ones when it fully contains the grid), so any seed
+    built from it chases a shape the forward model cannot produce. Fail fast.
+
+    The check is deliberately conservative: it tests the enclosing square of the
+    shape raster (``centre ± extent/2`` per axis, ``extent = side * aspect_ratio``
+    for a ``"rectangle"`` else ``side``), so it never wrongly accepts a target
+    that overflows the window; for a triangle the true bounding box is smaller.
+    """
+    p = forward.params
+    fmax = 0.5 / float(forward.pitch)
+    half = side * (aspect_ratio if shape == "rectangle" else 1.0) / 2.0
+    inv_ramp = np.linalg.inv(np.asarray(p.ramp_matrix, dtype=float))
+    corner = np.asarray(centre, dtype=float)
+    origin = np.asarray(p.origin_xy, dtype=float)
+    worst = 0.0
+    for sx in (-1.0, 1.0):
+        for sy in (-1.0, 1.0):
+            freq = (corner + np.array([sx * half, sy * half]) - origin) @ inv_ramp
+            worst = max(worst, float(np.abs(freq).max()))
+    if worst > fmax:
+        raise ValueError(
+            f"target side {side:g} px for shape {shape!r} exceeds the forward "
+            f"model's FFT-grid reachable window: the grid covers frequencies up "
+            f"to ±{fmax:.4f} but the target corner reaches ±{worst:.4f}. Reduce "
+            f"the target size or use a finer control grid."
+        )
+
+
 def fft_grid_target(forward, centre, side, shape):
     """Sample the shape target on the forward model's own FFT grid (CCD pixels).
 
@@ -261,6 +299,7 @@ def fft_grid_target(forward, centre, side, shape):
     same grid, so this is the single place the mapping from spectrum index to
     CCD pixel is written down.
     """
+    assert_target_within_fft_window(forward, centre, side, shape)
     p = forward.params
     n = p.fft_size
     yy, xx = np.mgrid[:n, :n]

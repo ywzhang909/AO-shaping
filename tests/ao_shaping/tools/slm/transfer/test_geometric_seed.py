@@ -103,6 +103,42 @@ def test_fft_grid_target_matches_the_old_inline_construction(tmp_path):
     assert np.array_equal(old, new)
 
 
+def test_fft_grid_target_rejects_target_beyond_model_fft_window(tmp_path):
+    """A target whose extent exceeds the forward model's FFT-grid reach must be
+    rejected, not silently clipped into an all-ones full-window mask.
+
+    The FFT window's physical span is set by the control-grid pitch
+    (``grid_size``), independent of ``fft_size``: at grid=128 the reach is only
+    ~510 px, so side=1200 (radius 600) maps far outside and previously produced
+    a full-window mask that made the GS / back-projection seeds chase a square
+    instead of the requested shape (the triangle-to-square defect).
+    """
+    forward, centre = _forward(tmp_path, grid=128, fft=1024)
+    with pytest.raises(ValueError, match="FFT-grid reachable window"):
+        mo.fft_grid_target(forward, centre, SIDE, "triangle")
+
+
+def test_fft_grid_target_accepts_target_within_model_fft_window(tmp_path):
+    """A target that fits inside the FFT window is sampled as its true shape,
+    never clipped into a saturated full-window mask."""
+    forward, centre = _forward(tmp_path)  # grid=640: reach ~2550 px > SIDE=1200
+    target = mo.fft_grid_target(forward, centre, SIDE, "triangle")
+    assert target.shape == (forward.params.fft_size, forward.params.fft_size)
+    assert 0.0 <= float(target.min()) <= float(target.max()) <= 1.0
+    # A triangle raster has both lit and dark pixels; an all-ones mask would
+    # saturate the whole grid (the defect this guard prevents).
+    assert float(target.sum()) < target.size
+    assert not np.allclose(target, 1.0)
+
+
+def test_gs_seed_rejects_target_beyond_model_fft_window(tmp_path):
+    """The GS seed goes through ``fft_grid_target``, so the reach guard protects
+    it too: an oversized target fails before any GS iteration runs."""
+    forward, centre = _forward(tmp_path, grid=128, fft=1024)
+    with pytest.raises(ValueError, match="FFT-grid reachable window"):
+        mo.gs_seed(forward, centre, SIDE, "triangle")
+
+
 def test_export_raises_the_control_resolution_without_touching_the_optics(tmp_path):
     path = _checkpoint(tmp_path, grid=640, fft=2048)
     out = export_frozen_parameters(path, tmp_path / "model", grid=640, fft=2048)

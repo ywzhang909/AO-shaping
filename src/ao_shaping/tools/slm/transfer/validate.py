@@ -47,7 +47,8 @@ from ao_shaping.tools.slm.transfer.radiometry import count_rate
 
 
 from ao_shaping.algorithm.signal_processing.multishape_objective import (
-    ShapeObjective, anchored_intensity, gs_seed, image_metrics, target_at,
+    ShapeObjective, anchored_intensity, assert_target_within_fft_window, gs_seed,
+    image_metrics, target_at,
 )
 from ao_shaping.algorithm.signal_processing.spectral_regulariser import (
     control_grid_cutoff, mtf_matched_mask,
@@ -290,6 +291,7 @@ def run(args, *, on_frame=None):
         return
     prepared, seed_provenance = [], {}
     for shape in args.shapes:
+        assert_target_within_fft_window(forward, centre, args.side, shape, aspect_ratio)
         objective = ShapeObjective(target_at(xy, shape, centre, args.side,
                                              aspect_ratio=aspect_ratio),
                                    cv_only=getattr(args, "objective", "shape") == "cv",
