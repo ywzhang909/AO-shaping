@@ -64,6 +64,7 @@ _FILE = "src/ao_shaping/optimizer/wfless/model_in_loop_shaping.py"
 _PIB = "src/ao_shaping/optimizer/wfless/pib.py"
 _COMB = "src/ao_shaping/optimizer/combined_optimizer.py"
 _VAL = "src/ao_shaping/tools/slm/transfer/validate.py"
+_SIM2F = "src/ml/sim2f/loop.py"
 _WF = "src/ao_shaping/tools/slm/transfer/workflow.py"
 _LUT = "src/ao_shaping/tools/slm/calibration/lut_runner.py"
 _IO = "src/ao_shaping/utils/io/file.py"
@@ -122,6 +123,12 @@ TARGETS = [
     (_VAL, "_observe_jacobian_guard", 45, 1, 31),
     (_VAL, "_dump_shape_history_and_timing", 60, 4, 47),
     (_VAL, "_hold_best_phase_or_flatten", 35, 2, 21),
+    (_SIM2F, "run_loop", 241, 2, 193),
+    (_SIM2F, "_run_probe_stage", 91, 1, 66),
+    (_SIM2F, "_run_closed_loop", 108, 2, 83),
+    (_SIM2F, "_append_sample_csv_rows", 62, 2, 37),
+    (_SIM2F, "_append_sample_record", 85, 0, 60),
+    (_SIM2F, "_build_loop_payload", 111, 0, 86),
     (_WF, "run_session", 430, 4, 378),
     (_WF, "_acquire_session_dataset", 95, 4, 78),
     (_WF, "_round_geometry_preflight", 60, 1, 42),

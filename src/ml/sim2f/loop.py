@@ -392,6 +392,348 @@ def _finite(value: Any) -> Any:
 # ----------------------------------------------------------------------
 # The loop
 # ----------------------------------------------------------------------
+def _run_probe_stage(
+    *,
+    bench: Any,
+    cfg: Any,
+    fit_cfg: Any,
+    index: Any,
+    readers: Any,
+    refit_rows: Any,
+    states: Any,
+    truth: Any,
+    zeros: Any,
+) -> tuple[Any, dict[str, Any], FitResult]:
+    """Measure the probe stage and report it, moved verbatim out of run_loop.
+
+        The ablation path (``probe_fit=False``) returns a failed ``FitResult`` rather than
+        skipping, so ``net_probe`` still gets a zero correction and its difference from
+        ``net_open`` stays exactly the probe stage's contribution.
+        """
+
+    # -- probe stage ----------------------------------------------------
+    if cfg.probe_fit:
+        probe_result = probe(
+            bench, states, measure=readers["probe"], phase=zeros, fit_cfg=fit_cfg
+        )
+    else:
+        # The "no probe" ablation: nothing is measured, so the vector is zero
+        # and `net_probe` collapses onto `net_open` by construction -- the
+        # stage's contribution is exactly what those two rows differ by.
+        probe_result = FitResult(
+            ok=False,
+            reason="probe stage disabled (LoopConfig.probe_fit=False)",
+            coeffs=np.zeros(int(states.n_modes), dtype=np.float64),
+            free_noll=(),
+            residual=float("nan"),
+            residual_start=float("nan"),
+            iterations=0,
+            history=(),
+        )
+    c_probe = probe_result.coeffs if probe_result.ok else np.zeros(int(states.n_modes))
+    probe_info = {
+        "ok": bool(probe_result.ok),
+        "reason": probe_result.reason,
+        "rank": int(probe_result.rank),
+        "condition": float(probe_result.condition),
+        "residual_start": float(probe_result.residual_start),
+        "residual": float(probe_result.residual),
+        "iterations": int(probe_result.iterations),
+        "linear_residual": None
+        if probe_result.linear_residual is None
+        else float(probe_result.linear_residual),
+        "linear_coeff_rmse": float(
+            np.sqrt(np.mean((probe_result.linear - truth) ** 2))
+        )
+        if probe_result.linear is not None
+        else None,
+        # Bounded, so it stays readable when the one-step inverse is huge:
+        # the linear solve is reported as evidence about the bank, not as an
+        # estimate (see fit.probe).
+        "linear_cos": _cosine(probe_result.linear, truth, refit_rows)
+        if probe_result.linear is not None
+        else None,
+        **_coefficient_error(c_probe, truth, refit_rows),
+    }
+    if not probe_result.ok:
+        logger.warning("sample {}: probe stage failed ({})", index, probe_result.reason)
+    return c_probe, probe_info, probe_result
+
+
+def _run_closed_loop(
+    *,
+    arm_rows: Any,
+    bench: Any,
+    c_probe: Any,
+    command: Any,
+    fit_cfg: Any,
+    index: Any,
+    probe_frame: Any,
+    readers: Any,
+    refit_rows: Any,
+    states: Any,
+    support: Any,
+    target: Any,
+    teacher: Any,
+    truth: Any,
+    cfg: Any,
+) -> tuple[Any, list[dict[str, Any]], list[float]]:
+    """Refit rounds on the closed loop, moved verbatim out of run_loop.
+
+        A rejected refit appends a round that repeats the previous objective and breaks --
+        the rejection has to stay visible in ``rounds``, otherwise a stalled sample looks
+        like a converged one.  ``arm_rows`` is filled in place for ``net_closed``.
+        """
+
+    # -- net_closed -----------------------------------------------------
+    closed_reader = readers["net_closed"]
+    current = c_probe.copy()
+    current_phase = command(current)
+    current_frame = probe_frame
+    rounds: list[dict[str, Any]] = [
+        {
+            "round": 0,
+            "objective": arm_rows["net_probe"]["objective"],
+            "l1": arm_rows["net_probe"]["l1"],
+            "residual": None,
+            "ok": True,
+            "reason": None,
+            **_coefficient_error(current, truth, refit_rows),
+        }
+    ]
+    for index_round in range(int(cfg.rounds) if cfg.refit else 0):
+        result = refine(
+            bench, current_phase, current_frame, current, cfg=states, fit_cfg=fit_cfg
+        )
+        if not result.ok:
+            rounds.append(
+                {
+                    "round": index_round + 1,
+                    "objective": rounds[-1]["objective"],
+                    "l1": rounds[-1]["l1"],
+                    "residual": float(result.residual),
+                    "ok": False,
+                    "reason": result.reason,
+                    **_coefficient_error(current, truth, refit_rows),
+                }
+            )
+            logger.info(
+                "sample {} round {}: refit rejected ({})",
+                index, index_round + 1, result.reason,
+            )
+            break
+        current = result.coeffs
+        current_phase = command(current)
+        current_frame = closed_reader(current_phase)
+        row = _score(current_frame, target, support, teacher=teacher)
+        rounds.append(
+            {
+                "round": index_round + 1,
+                "objective": row["objective"],
+                "l1": row["l1"],
+                "residual": float(result.residual),
+                "ok": True,
+                "reason": None,
+                **_coefficient_error(current, truth, refit_rows),
+            }
+        )
+    arm_rows["net_closed"] = _score(current_frame, target, support, teacher=teacher)
+    improvements = [
+        float(rounds[step + 1]["objective"]) <= float(rounds[step]["objective"])
+        for step in range(len(rounds) - 1)
+    ]
+    return current, rounds, improvements
+
+
+def _append_sample_csv_rows(
+    *,
+    arm_rows: Any,
+    csv_rows: Any,
+    index: Any,
+    kind: Any,
+    rounds: Any,
+) -> None:
+    """Emit this sample's long-form CSV rows, moved verbatim out of run_loop.
+
+        Every arm at round 0 plus the closed loop's per-round objectives: the round rows
+        carry only ``objective`` because the other columns are undefined mid-loop.
+        """
+
+    for arm in ARMS:
+        for column in METRIC_COLUMNS:
+            csv_rows.append(
+                {
+                    "sample": int(index),
+                    "kind": kind,
+                    "arm": arm,
+                    "round": 0,
+                    "metric": column,
+                    "value": float(arm_rows[arm][column]),
+                }
+            )
+    for entry in rounds:
+        csv_rows.append(
+            {
+                "sample": int(index),
+                "kind": kind,
+                "arm": "net_closed",
+                "round": int(entry["round"]),
+                "metric": "objective",
+                "value": float(entry["objective"]),
+            }
+        )
+
+
+def _append_sample_record(
+    *,
+    arm_rows: Any,
+    current: Any,
+    improvements: Any,
+    index: Any,
+    kind: Any,
+    per_sample: Any,
+    probe_info: Any,
+    probe_result: Any,
+    refit_rows: Any,
+    rounds: Any,
+    state: Any,
+    truth: Any,
+) -> None:
+    """Build and append this sample's report record, moved verbatim out of run_loop.
+
+        The trailing log line reads back ``per_sample[-1]`` on purpose, so the record has
+        to be appended before it is formatted -- one source of truth per number.
+        """
+
+    per_sample.append(
+        {
+            "index": int(index),
+            "kind": kind,
+            "truth": {
+                "coeffs": truth.tolist(),
+                "tilt_px": state.tilt_px.tolist(),
+                "high_order_rms_rad": float(np.sqrt(np.mean(truth[2:] ** 2)))
+                if truth.size > 2
+                else 0.0,
+                "illum_center_px": list(state.illum_center_px),
+                "illum_width_scale": float(state.illum_width_scale),
+            },
+            "probe": probe_info,
+            "closed": {
+                "coeffs": current.tolist(),
+                "rounds": rounds,
+                "monotone": bool(all(improvements)),
+                "improved_rounds": int(sum(improvements)),
+                "round_count": int(len(rounds) - 1),
+                **_coefficient_error(current, truth, refit_rows),
+            },
+            "arms": arm_rows,
+        }
+    )
+    logger.info(
+        "sample {} kind={} high_rms={:.3f} | flat={:.4f} open={:.4f} probe={:.4f} "
+        "closed={:.4f} oracle={:.4f} | probe_ok={} closed_coeff_rmse={:.3f}",
+        index,
+        kind,
+        per_sample[-1]["truth"]["high_order_rms_rad"],
+        arm_rows["flat"]["objective"],
+        arm_rows["net_open"]["objective"],
+        arm_rows["net_probe"]["objective"],
+        arm_rows["net_closed"]["objective"],
+        arm_rows["oracle"]["objective"],
+        probe_result.ok,
+        per_sample[-1]["closed"]["coeff_rmse"],
+    )
+
+
+def _build_loop_payload(
+    *,
+    aggregate: Any,
+    bench_config: Any,
+    by_kind: Any,
+    cache_dir: Any,
+    cfg: Any,
+    checkpoint: Any,
+    ladder: Any,
+    per_sample: Any,
+    round_improved: Any,
+    round_total: Any,
+    states: Any,
+    teacher: Any,
+) -> dict[str, Any]:
+    """Assemble the report payload, moved verbatim out of run_loop.
+
+        Per-kind rows are the claim and the cross-kind mean is not, which is why both are
+        written out rather than one of them.
+        """
+
+    payload = {
+        "cache": str(Path(cache_dir)),
+        "checkpoint": str(Path(checkpoint)),
+        "loop": cfg.to_dict(),
+        "bench": bench_config.to_dict(),
+        "aberration": states.to_dict(),
+        "teacher": teacher.to_dict(),
+        "n_samples": len(per_sample),
+        "arms": list(ARMS),
+        "columns": list(METRIC_COLUMNS),
+        "aggregate": aggregate,
+        "per_kind": by_kind,
+        "rounds": {
+            "rounds_per_sample": int(cfg.rounds) if cfg.refit else 0,
+            "improved": int(round_improved),
+            "total": int(round_total),
+            "improved_fraction": float(round_improved / round_total) if round_total else None,
+            "monotone_samples": int(sum(1 for sample in per_sample if sample["closed"]["monotone"])),
+            "samples": len(per_sample),
+        },
+        "probe": {
+            "ok": int(sum(1 for sample in per_sample if sample["probe"]["ok"])),
+            "samples": len(per_sample),
+            "coeff_rmse": float(
+                sum(sample["probe"]["coeff_rmse"] for sample in per_sample) / len(per_sample)
+            ),
+            "linear_coeff_rmse": float(
+                sum(
+                    sample["probe"]["linear_coeff_rmse"]
+                    for sample in per_sample
+                    if sample["probe"]["linear_coeff_rmse"] is not None
+                )
+                / max(
+                    1,
+                    sum(
+                        1
+                        for sample in per_sample
+                        if sample["probe"]["linear_coeff_rmse"] is not None
+                    ),
+                )
+            ),
+            "linear_cos": float(
+                sum(
+                    sample["probe"]["linear_cos"]
+                    for sample in per_sample
+                    if sample["probe"]["linear_cos"] is not None
+                )
+                / max(
+                    1,
+                    sum(1 for sample in per_sample if sample["probe"]["linear_cos"] is not None),
+                )
+            ),
+        },
+        "noise_ladder": ladder,
+        "per_sample": per_sample,
+        "notes": (
+            "Five arms on one bench state each, scored with the teacher's own "
+            "objective on prepared frames. Matched forward model: this is an "
+            "amortisation + closed-loop-estimation result, not sim-to-real. "
+            "`oracle` uses the true coefficients and is the ceiling of this bench, "
+            "not an ideal bench. Per-kind rows are the claim; the cross-kind mean "
+            "is not. `net_closed` round 0 is the net_probe frame."
+        ),
+    }
+    return payload
+
+
 def run_loop(
     cfg: LoopConfig,
     *,
@@ -513,182 +855,25 @@ def run_loop(
         open_frame = readers["net_open"](net_phase)
         arm_rows["net_open"] = _score(open_frame, target, support, teacher=teacher)
 
-        # -- probe stage ----------------------------------------------------
-        if cfg.probe_fit:
-            probe_result = probe(
-                bench, states, measure=readers["probe"], phase=zeros, fit_cfg=fit_cfg
-            )
-        else:
-            # The "no probe" ablation: nothing is measured, so the vector is zero
-            # and `net_probe` collapses onto `net_open` by construction -- the
-            # stage's contribution is exactly what those two rows differ by.
-            probe_result = FitResult(
-                ok=False,
-                reason="probe stage disabled (LoopConfig.probe_fit=False)",
-                coeffs=np.zeros(int(states.n_modes), dtype=np.float64),
-                free_noll=(),
-                residual=float("nan"),
-                residual_start=float("nan"),
-                iterations=0,
-                history=(),
-            )
-        c_probe = probe_result.coeffs if probe_result.ok else np.zeros(int(states.n_modes))
-        probe_info = {
-            "ok": bool(probe_result.ok),
-            "reason": probe_result.reason,
-            "rank": int(probe_result.rank),
-            "condition": float(probe_result.condition),
-            "residual_start": float(probe_result.residual_start),
-            "residual": float(probe_result.residual),
-            "iterations": int(probe_result.iterations),
-            "linear_residual": None
-            if probe_result.linear_residual is None
-            else float(probe_result.linear_residual),
-            "linear_coeff_rmse": float(
-                np.sqrt(np.mean((probe_result.linear - truth) ** 2))
-            )
-            if probe_result.linear is not None
-            else None,
-            # Bounded, so it stays readable when the one-step inverse is huge:
-            # the linear solve is reported as evidence about the bank, not as an
-            # estimate (see fit.probe).
-            "linear_cos": _cosine(probe_result.linear, truth, refit_rows)
-            if probe_result.linear is not None
-            else None,
-            **_coefficient_error(c_probe, truth, refit_rows),
-        }
-        if not probe_result.ok:
-            logger.warning("sample {}: probe stage failed ({})", index, probe_result.reason)
+        c_probe, probe_info, probe_result = _run_probe_stage(
+            bench=bench, cfg=cfg, fit_cfg=fit_cfg, index=index, readers=readers, refit_rows=refit_rows, states=states, truth=truth, zeros=zeros)
 
         # -- net_probe ------------------------------------------------------
         probe_frame = readers["net_probe"](command(c_probe))
         arm_rows["net_probe"] = _score(probe_frame, target, support, teacher=teacher)
 
-        # -- net_closed -----------------------------------------------------
-        closed_reader = readers["net_closed"]
-        current = c_probe.copy()
-        current_phase = command(current)
-        current_frame = probe_frame
-        rounds: list[dict[str, Any]] = [
-            {
-                "round": 0,
-                "objective": arm_rows["net_probe"]["objective"],
-                "l1": arm_rows["net_probe"]["l1"],
-                "residual": None,
-                "ok": True,
-                "reason": None,
-                **_coefficient_error(current, truth, refit_rows),
-            }
-        ]
-        for index_round in range(int(cfg.rounds) if cfg.refit else 0):
-            result = refine(
-                bench, current_phase, current_frame, current, cfg=states, fit_cfg=fit_cfg
-            )
-            if not result.ok:
-                rounds.append(
-                    {
-                        "round": index_round + 1,
-                        "objective": rounds[-1]["objective"],
-                        "l1": rounds[-1]["l1"],
-                        "residual": float(result.residual),
-                        "ok": False,
-                        "reason": result.reason,
-                        **_coefficient_error(current, truth, refit_rows),
-                    }
-                )
-                logger.info(
-                    "sample {} round {}: refit rejected ({})",
-                    index, index_round + 1, result.reason,
-                )
-                break
-            current = result.coeffs
-            current_phase = command(current)
-            current_frame = closed_reader(current_phase)
-            row = _score(current_frame, target, support, teacher=teacher)
-            rounds.append(
-                {
-                    "round": index_round + 1,
-                    "objective": row["objective"],
-                    "l1": row["l1"],
-                    "residual": float(result.residual),
-                    "ok": True,
-                    "reason": None,
-                    **_coefficient_error(current, truth, refit_rows),
-                }
-            )
-        arm_rows["net_closed"] = _score(current_frame, target, support, teacher=teacher)
-        improvements = [
-            float(rounds[step + 1]["objective"]) <= float(rounds[step]["objective"])
-            for step in range(len(rounds) - 1)
-        ]
+        current, rounds, improvements = _run_closed_loop(
+            arm_rows=arm_rows, bench=bench, c_probe=c_probe, command=command, fit_cfg=fit_cfg, index=index, probe_frame=probe_frame, readers=readers, refit_rows=refit_rows, states=states, support=support, target=target, teacher=teacher, truth=truth, cfg=cfg)
 
         # -- oracle ---------------------------------------------------------
         oracle_frame = readers["oracle"](command(truth))
         arm_rows["oracle"] = _score(oracle_frame, target, support, teacher=teacher)
 
-        for arm in ARMS:
-            for column in METRIC_COLUMNS:
-                csv_rows.append(
-                    {
-                        "sample": int(index),
-                        "kind": kind,
-                        "arm": arm,
-                        "round": 0,
-                        "metric": column,
-                        "value": float(arm_rows[arm][column]),
-                    }
-                )
-        for entry in rounds:
-            csv_rows.append(
-                {
-                    "sample": int(index),
-                    "kind": kind,
-                    "arm": "net_closed",
-                    "round": int(entry["round"]),
-                    "metric": "objective",
-                    "value": float(entry["objective"]),
-                }
-            )
+        _append_sample_csv_rows(
+            arm_rows=arm_rows, csv_rows=csv_rows, index=index, kind=kind, rounds=rounds)
 
-        per_sample.append(
-            {
-                "index": int(index),
-                "kind": kind,
-                "truth": {
-                    "coeffs": truth.tolist(),
-                    "tilt_px": state.tilt_px.tolist(),
-                    "high_order_rms_rad": float(np.sqrt(np.mean(truth[2:] ** 2)))
-                    if truth.size > 2
-                    else 0.0,
-                    "illum_center_px": list(state.illum_center_px),
-                    "illum_width_scale": float(state.illum_width_scale),
-                },
-                "probe": probe_info,
-                "closed": {
-                    "coeffs": current.tolist(),
-                    "rounds": rounds,
-                    "monotone": bool(all(improvements)),
-                    "improved_rounds": int(sum(improvements)),
-                    "round_count": int(len(rounds) - 1),
-                    **_coefficient_error(current, truth, refit_rows),
-                },
-                "arms": arm_rows,
-            }
-        )
-        logger.info(
-            "sample {} kind={} high_rms={:.3f} | flat={:.4f} open={:.4f} probe={:.4f} "
-            "closed={:.4f} oracle={:.4f} | probe_ok={} closed_coeff_rmse={:.3f}",
-            index,
-            kind,
-            per_sample[-1]["truth"]["high_order_rms_rad"],
-            arm_rows["flat"]["objective"],
-            arm_rows["net_open"]["objective"],
-            arm_rows["net_probe"]["objective"],
-            arm_rows["net_closed"]["objective"],
-            arm_rows["oracle"]["objective"],
-            probe_result.ok,
-            per_sample[-1]["closed"]["coeff_rmse"],
-        )
+        _append_sample_record(
+            arm_rows=arm_rows, current=current, improvements=improvements, index=index, kind=kind, per_sample=per_sample, probe_info=probe_info, probe_result=probe_result, refit_rows=refit_rows, rounds=rounds, state=state, truth=truth)
 
     aggregate = {
         arm: _mean_rows([sample["arms"][arm] for sample in per_sample]) for arm in ARMS
@@ -717,70 +902,8 @@ def run_loop(
             fit_cfg=fit_cfg,
         )
 
-    payload = {
-        "cache": str(Path(cache_dir)),
-        "checkpoint": str(Path(checkpoint)),
-        "loop": cfg.to_dict(),
-        "bench": bench_config.to_dict(),
-        "aberration": states.to_dict(),
-        "teacher": teacher.to_dict(),
-        "n_samples": len(per_sample),
-        "arms": list(ARMS),
-        "columns": list(METRIC_COLUMNS),
-        "aggregate": aggregate,
-        "per_kind": by_kind,
-        "rounds": {
-            "rounds_per_sample": int(cfg.rounds) if cfg.refit else 0,
-            "improved": int(round_improved),
-            "total": int(round_total),
-            "improved_fraction": float(round_improved / round_total) if round_total else None,
-            "monotone_samples": int(sum(1 for sample in per_sample if sample["closed"]["monotone"])),
-            "samples": len(per_sample),
-        },
-        "probe": {
-            "ok": int(sum(1 for sample in per_sample if sample["probe"]["ok"])),
-            "samples": len(per_sample),
-            "coeff_rmse": float(
-                sum(sample["probe"]["coeff_rmse"] for sample in per_sample) / len(per_sample)
-            ),
-            "linear_coeff_rmse": float(
-                sum(
-                    sample["probe"]["linear_coeff_rmse"]
-                    for sample in per_sample
-                    if sample["probe"]["linear_coeff_rmse"] is not None
-                )
-                / max(
-                    1,
-                    sum(
-                        1
-                        for sample in per_sample
-                        if sample["probe"]["linear_coeff_rmse"] is not None
-                    ),
-                )
-            ),
-            "linear_cos": float(
-                sum(
-                    sample["probe"]["linear_cos"]
-                    for sample in per_sample
-                    if sample["probe"]["linear_cos"] is not None
-                )
-                / max(
-                    1,
-                    sum(1 for sample in per_sample if sample["probe"]["linear_cos"] is not None),
-                )
-            ),
-        },
-        "noise_ladder": ladder,
-        "per_sample": per_sample,
-        "notes": (
-            "Five arms on one bench state each, scored with the teacher's own "
-            "objective on prepared frames. Matched forward model: this is an "
-            "amortisation + closed-loop-estimation result, not sim-to-real. "
-            "`oracle` uses the true coefficients and is the ceiling of this bench, "
-            "not an ideal bench. Per-kind rows are the claim; the cross-kind mean "
-            "is not. `net_closed` round 0 is the net_probe frame."
-        ),
-    }
+    payload = _build_loop_payload(
+        aggregate=aggregate, bench_config=bench_config, by_kind=by_kind, cache_dir=cache_dir, cfg=cfg, checkpoint=checkpoint, ladder=ladder, per_sample=per_sample, round_improved=round_improved, round_total=round_total, states=states, teacher=teacher)
     payload = _finite(payload)
 
     out_dir = Path(cfg.out_dir if out is None else out)
