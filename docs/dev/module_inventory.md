@@ -358,6 +358,9 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 | `slm/transfer/` | `cost_table.py` | 逐段实测成本: `cost.json` 落在段目录, `read_campaign_costs` 反向归并; 估算只用**每块秒**外推 (段长秒数不可比), 无历史时返回全 0 并留空基准, 让页面能说「首次运行, 无历史成本」 |
 | `slm/transfer/` | `optical_session.py` | 光路指纹与兼容评分: 指纹 (窗口/零级/曝光/相机格式/控制网格) + 五维加权打分 + 两档阈值 (`COMPAT_THRESHOLD` 0.60 / `AUTO_APPLY_THRESHOLD` 0.80) 与唯一判定 `compatibility_verdict` |
 | `slm/transfer/` | `session_record.py` | 会话收尾与段级记账 (指纹落盘 + 检查点登记 + 段成本 + 段间暂停), 免设备免 click, 只读会话目录已有产物 (由 `transfer_shapes_runner.py` 拆出过模块规模门禁) |
+| `slm/transfer/` | `structured_probes.py` | 结构化单模态 ±Zernike 主动探针 (issue #229 步骤 3, 免设备): 单模 `c_j=±A` 幅度阶梯 {0.02, 0.05, 0.10} rad × 符号 × 重复的探针计划 (`structured_probe_plan`, 第 3 档幅度整档验证集 + Noll 9 整模态留出)、`structured_phase` 规范相位生成 (唯一 wrap 点仍为 `Santec.create_phase_from_array`)、`frame_budget` (512 帧 / R=1 压缩 176 帧) 与 `random_probe_budget_match` (帧预算匹配的随机对照组, 每模态 1 个随机组合 × 同总帧数) 与 `cross_response_matrix` (M×M 交叉响应矩阵) |
+| `slm/transfer/` | `zernike_block.py` | 低维 Zernike 模态块微调档 (issue #229 步骤 4, 免设备): `configure_zernike_block` 只放开可辨识性门筛出的残差模态子集 + 照明/几何, 梯度掩码 (`residual_grad_mask`/`mask_residual_gradient`) 保证未选模态零更新, `clamp_residual_block` 施加 0.5 rad 块级 L2 信任域 (仅本档, `alignment`/`full` 行为逐位不变), `identifiability_gate` 实现主响应门槛 (方向 \|相关\| ≥ 0.5) + 交叉响应矩阵对角/非对角比 ≥ 3 与条件数 ≤ 50 |
+| `slm/transfer/` | `online_augment.py` | 可微迭代块间在线训练集扩展 (issue #229 步骤 5, 免设备): `SessionDataset` 累积块间回灌帧 (ABBA 四帧 `split="augment"`, 被拒相位同样回灌作负样本, 永不进入验证集与当前块判决), `should_refit` 每 K=3 块触发块间热启动重拟合, `ModelSwitchGate` 模型切换门 (独立验证集 NRMSE 劣化 ≤ 10% 且方向守卫不下降才切换, 连续 2 次失败触发基线重建) |
 | `wfs/` | `wfs_probe.py` | SLM+WFS 光强与瞳面探针 — 标定前硬件状态检查 (光强是否足够且不饱和) |
 | `wfs/` | `wfs_reference.py` | SLM+WFS 参考波前标定与倾斜线性度 (三步流程) |
 | `wfs/` | `zernike_correction.py` | SLM Zernike 模式法波前矫正三阶段流程 (2026-09-15, 按实测调优) |

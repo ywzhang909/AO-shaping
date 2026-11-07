@@ -169,17 +169,25 @@ class FitComponents:
     measured_origin: np.ndarray
     kernel: "Any"
     exposure_values: np.ndarray
+    block_mask: "Any" = None
+    residual_block_cap: float | None = None
 
 
 def build_fit_model(dataset, checkpoint, *, span, device=None, adaptation="full",
                    amplitude_center_lr=None, radiometry="exposure", samples=None,
-                   train_all=False):
+                   train_all=False, selected_modes=None, residual_block_cap=None):
     """Assemble a physical-forward fit model from a recorded dataset.
 
     Shared by :func:`fit` (offline) and the headless parallel worker. The model is
     warm-started from ``checkpoint`` and built fresh each call, so a monitoring
     worker can rebuild it per poll without touching this code. The caller owns
     the iteration loop.
+
+    ``selected_modes`` (Noll indices) and ``residual_block_cap`` activate the
+    ``zernike_block`` tier: only the selected residual modes receive gradient
+    (via the mask of :mod:`.zernike_block`), under a block-level L2 trust
+    region. Both are ignored unless ``adaptation == "zernike_block"``; the
+    historical ``alignment``/``full`` paths are bit-for-bit unchanged.
 
     ``samples`` is the capture stage's in-memory ``{manifest "file": payload}``
     mapping (see :func:`load_dataset`). It must be threaded through here, not
@@ -223,7 +231,13 @@ def build_fit_model(dataset, checkpoint, *, span, device=None, adaptation="full"
         model.origin.copy_(torch.tensor(measured_origin))
         model.log_width.copy_(torch.tensor(old.amplitude_width_xy).log())
         model.residual.copy_(torch.tensor([old.residual_noll_radians.get(j, 0) for j in model.residual_modes]))
-    configure_adaptation(model, adaptation)
+    if adaptation == "zernike_block":
+        from .zernike_block import configure_zernike_block, residual_grad_mask
+        configure_zernike_block(model, selected_modes or model.residual_modes)
+        block_mask = residual_grad_mask(model, selected_modes or model.residual_modes)
+    else:
+        configure_adaptation(model, adaptation)
+        block_mask = None
     if amplitude_center_lr is not None:
         if not np.isfinite(amplitude_center_lr) or amplitude_center_lr <= 0:
             raise ValueError("amplitude_center_lr must be finite and positive")
@@ -237,7 +251,10 @@ def build_fit_model(dataset, checkpoint, *, span, device=None, adaptation="full"
     return FitComponents(model=model, rows=rows, phases=phases, images=images, xy=xy,
                         matrix=matrix, ramp_samples=ramp_samples, train=train, frozen=frozen,
                         old=old, measured_origin=measured_origin, kernel=frozen._blaze_kernel,
-                        exposure_values=np.asarray([row["exposure_ms"] for row in rows]))
+                        exposure_values=np.asarray([row["exposure_ms"] for row in rows]),
+                        block_mask=block_mask,
+                        residual_block_cap=(residual_block_cap if adaptation == "zernike_block"
+                                            else None))
 
 
 def fit_loss(model, comps, radiometry_mode="exposure", iteration=0):
@@ -290,15 +307,21 @@ def fit(args):
     adaptation = getattr(args, "adaptation", "full")
     if adaptation == "auto":
         return fit_adaptive(args)
-    if adaptation not in {"full", "alignment"}:
+    if adaptation not in {"full", "alignment", "zernike_block"}:
         raise ValueError("unknown adaptation mode")
+    if adaptation == "zernike_block":
+        modes = getattr(args, "selected_modes", None)
+        if not modes:
+            raise ValueError("zernike_block requires --selected-modes (identifiability gate output)")
     comps = build_fit_model(args.dataset, args.checkpoint, span=args.span,
                             device=getattr(args, "device", None),
                             adaptation=adaptation,
                             amplitude_center_lr=getattr(args, "amplitude_center_lr", None),
                             radiometry=getattr(args, "radiometry", "exposure"),
                             samples=getattr(args, "samples", None),
-                            train_all=bool(getattr(args, "train_all", False)))
+                            train_all=bool(getattr(args, "train_all", False)),
+                            selected_modes=getattr(args, "selected_modes", None),
+                            residual_block_cap=getattr(args, "residual_block_cap", None))
     import torch
     args.out.mkdir(parents=True, exist_ok=False)
     provenance = dict(dataset=str(args.dataset.resolve()), checkpoint=str(args.checkpoint.resolve()),
@@ -309,6 +332,8 @@ def fit(args):
                       iterations=args.iterations, ramp_matrix=comps.matrix.tolist(), ramp_samples=comps.ramp_samples,
                       record_responses=bool(getattr(args, "record_responses", False)),
                       adaptation=adaptation,
+                      selected_modes=getattr(args, "selected_modes", None),
+                      residual_block_cap=comps.residual_block_cap,
                       amplitude_center_lr=getattr(args, "amplitude_center_lr", None),
                       radiometry=getattr(args, "radiometry", "exposure"),
                       exposure_assumption="counts/exposure_ms; linearity and illuminated offset not independently calibrated",
@@ -364,11 +389,19 @@ def fit(args):
             print(f"{iteration}: train loss={entry['loss']:.5f}", flush=True)
         if iteration < args.iterations:
             loss.backward()
+            # zernike_block tier only: zero the unselected modes' gradient and
+            # L2-project the block before the step. alignment/full skip both.
+            if comps.block_mask is not None:
+                from .zernike_block import mask_residual_gradient
+                mask_residual_gradient(comps.model, comps.block_mask)
             comps.model.optimizer.step()
             with torch.no_grad():
                 comps.model.d.clamp_(-2, 2)
                 comps.model.center.clamp_(0, 1920)
                 comps.model.log_width.clamp_(float(np.log(80)), float(np.log(800)))
+            if comps.residual_block_cap is not None:
+                from .zernike_block import clamp_residual_block
+                clamp_residual_block(comps.model, comps.residual_block_cap)
     best = json.loads((args.out / "result.json").read_text())
     provenance["early_stopped"] = stopped_at is not None
     provenance["stopped_iteration"] = stopped_at
@@ -415,7 +448,17 @@ def fit_adaptive(args):
     selected = run_candidate("alignment", args.checkpoint)
     escalated = needs_full_adaptation(selected["quality"])
     if escalated:
-        selected = run_candidate("full", args.checkpoint)
+        block_modes = getattr(args, "selected_modes", None)
+        if block_modes:
+            # New middle tier (plan §3.2): only the identifiability-gated
+            # modes plus illumination, under the 0.5 rad block trust region.
+            block = run_candidate("zernike_block", args.checkpoint)
+            if not needs_full_adaptation(block["quality"]):
+                selected = block
+            else:
+                selected = run_candidate("full", args.checkpoint)
+        else:
+            selected = run_candidate("full", args.checkpoint)
     root = Path(selected["directory"])
     provenance = json.loads((root / "provenance.json").read_text(encoding="utf-8"))
     checkpoint = json.loads((root / "frozen_parameters.json").read_text(encoding="utf-8"))
@@ -451,7 +494,11 @@ def main():
         help="Minimum loss improvement (absolute) that resets the early-stop patience",
     )
     parser.add_argument("--span", type=int, default=160)
-    parser.add_argument("--adaptation", choices=("auto", "alignment", "full"), default="auto")
+    parser.add_argument("--adaptation", choices=("auto", "alignment", "full", "zernike_block"), default="auto")
+    parser.add_argument("--selected-modes", type=int, nargs="+",
+                        help="Noll indices released by the zernike_block tier (identifiability gate output)")
+    parser.add_argument("--residual-block-cap", type=float, default=0.5,
+                        help="Block-level L2 trust region in rad for the zernike_block tier")
     parser.add_argument("--amplitude-center-lr", type=float, help="Override illumination position learning rate (panel px/update)")
     parser.add_argument("--radiometry", choices=("shared", "exposure"), default="exposure")
     parser.add_argument("--record-responses", action="store_true",
