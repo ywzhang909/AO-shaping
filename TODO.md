@@ -4687,6 +4687,12 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - mutex 等待条件加 `holder.pid > 0`（真持有者 pid 恒 >= 1，占位中间态不再被放行）；test_fit l1 顺序 canary 的两次 probe 移入 `torch.set_num_threads(1)` + finally 还原——l1 极限环终值是噪声级样本，多线程 float32 reduction 顺序可翻转 0.0075/0.0063，单线程确定序才让"变了就响"重新成立
 - 载体：两测试文件连跑 3 次 65 passed；同树 CI attempt#1 在 90 分钟上限被截记为 cancelled（该形态已定性为 runner 拥挤），原样重跑 attempt#2 四条 workflow 全绿
 
+**2026-11-08 · b3291e99 · #205 第三十七批：`train_amp.train` 356→205（第二个真拆，复用批 35 生成器）**
+- `ml/zernike/train_amp.py::train(cfg)` 逐字拆出 5 个 helper（参数名 = 调用点局部变量名，helper 体即原语句序列）：`_prepare_environment` 25（环境/种子/设备）、`_build_corpus` 39（索引/物化/数据集）、`_build_model_setup` 32（模型/AMP 门/优化器）、`_build_loss_mask` 25（loss/mask）、`_finalize` 50（收尾）——第三十五批 `train_coeff.train` 第一个真拆之后的**第二个真拆**，复用批 35 的生成器流程。
+- 等价证明（AST 语句多重集）：原 47 条顶层语句 = train 保留 8 + helper 39，diff 0（上游自报）；**172 行 epoch For 循环留在 `train`**（其内部再拆属另一批，需先给循环体找独立行为载体）；ml/zernike 全域 24 文件 per-file 全绿零红（上游自报）。自由名审计在实施前定案 3 处修正（`_build_model_setup` +`amp_enabled`/−`val_t`、`_build_loss_mask` +`device`、`_finalize` 删 4 个没用参数）——先审计后生成，不再靠 ruff 事后抓。
+- 棘轮表（本树 2026-11-08 AST 复测）：`train` 行 396/356 → **240/205**（396 是登记时的临时宽容，随拆分收紧至 240；240 = 实测 205 + 35），新增 5 个 helper 行（40/1/25、60/1/39、50/1/32、40/1/25、70/1/50），`len(TARGETS)` **145→150**；模块规模基线 1715→1750（上游随本批同步，本树实测 1750 一致）。
+- 验收（本树 2026-11-08 复测）：形状门禁 **151 passed**（150 行 + 深度测试）；`train` 函数体实测 205 行 / nest 4，5 个 helper 实测 25/39/32/25/50 行 / nest 各 1，epoch For 循环实测 172 行（1227–1398）——与钉值逐一一致。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
