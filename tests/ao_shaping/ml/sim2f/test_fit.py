@@ -26,6 +26,7 @@ import dataclasses
 
 import numpy as np
 import pytest
+import torch
 
 torch = pytest.importorskip("torch", reason="torch lives in the optional ml group")
 
@@ -280,11 +281,20 @@ class TestProbeAlgebra:
         bench = LinearSensorBench()
         measure = _measure(bench, _TRUTH)
 
-        calibrated = probe(bench, _cfg(), measure=measure)
-        assert calibrated.ok, calibrated.reason
-        assert calibrated.rank == 4
-        low_lr = probe(bench, _cfg(fit_lr=0.02), measure=measure)
-        assert low_lr.ok, low_lr.reason
+        # l1 终值是极限环上的采样, 差值 ~1e-3 时可被 float32 多线程
+        # reduction 顺序翻转 (CI 实测: 同树 attempt#1 0.0075>0.0063 红,
+        # attempt#2 反序绿)。单线程 = 同机确定序, 顺序 canary 才恢复
+        # "变了就响"的资格。
+        prev_threads = torch.get_num_threads()
+        torch.set_num_threads(1)
+        try:
+            calibrated = probe(bench, _cfg(), measure=measure)
+            assert calibrated.ok, calibrated.reason
+            assert calibrated.rank == 4
+            low_lr = probe(bench, _cfg(fit_lr=0.02), measure=measure)
+            assert low_lr.ok, low_lr.reason
+        finally:
+            torch.set_num_threads(prev_threads)
 
         residual = calibrated.residual
         maxerr = float(np.abs(calibrated.coeffs - _TRUTH).max())

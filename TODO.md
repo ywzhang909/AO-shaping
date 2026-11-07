@@ -4680,6 +4680,11 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 验收（本树 2026-11-08 复测）：形状门禁 **146 passed**（145 行 + 深度测试）；`train` 函数体实测 213 行，与钉值一致。
 
 
+**2026-11-08 · 8468f4a5 · #205 第三十五批 train_coeff.train 367→213；并登记第二条 CI flake（device mutex 占位竞态）**
+- `train(cfg)` 逐字拆出 `_seed_environment` 25 / `_build_datasets` 71 / `_build_geometric_ops` 37 / `_write_summary` 37；AST 语句多重集等价证明 diff 0（56 = 20 + 36），ml/zernike 全域 24 文件 per-file 全绿；棘轮表 train 行 407/367 收紧为 240/213 + 4 个 helper 行，模块 1342→1370（基线同步）
+- 自由名审计连抓 3 个参数表漏写依赖（`coeff_mean/coeff_std`、`final_metrics`、`import numpy as np` 的 asname 注册 bug）——补参而非放宽审计
+- 同树 attempt#1 另红一条**新 flake**：`tools/kernels/test_device_mutex.py::test_the_wait_reports_the_holder_and_times_out`，`assert 82 == 0`。根因是 `_spawn_holder` 的等待条件 `holder.pid != os.getpid()` 会把子进程"先写 pid=0 占位、后补真 pid"的中间态当成已持锁返回；attempt#2 绿。本批随 §8.9 加固：等待条件改 `pid > 0`，且 test_fit l1 顺序 canary 以 `set_num_threads(1)` 确定化（两条 flake 均本地 3/3 绿）
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
