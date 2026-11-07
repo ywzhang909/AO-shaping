@@ -251,18 +251,24 @@ def main() -> None:
 
     bg_meas = float(meas_win[:20, :20].mean())
     bg_pred = float(pred_win[:20, :20].mean())
+    # 下列比值一律由实算量导出，正文与 JSON 只引用它们，避免硬编码数值与计算值脱节
+    bg_ratio = bg_pred / max(bg_meas, 1e-9)
+    contrast_meas = float((meas_win.max() - bg_meas) / bg_meas)
+    contrast_model = float((pred_win.max() - bg_pred) / max(bg_pred, 1e-9))
+    contrast_ratio = contrast_meas / max(contrast_model, 1e-9)
     forensics = {
         "units": "counts/ms (count_rate = raw/exposure_ms; model = g*optical+b+bias/t)",
         "exposure_ms": 0.5,
         "measured_window": stats(meas_win, core_win),
         "model_window": stats(pred_win, core_win),
         "background_counts_per_ms": {"measured": bg_meas, "model": bg_pred,
-                                     "ratio_model_over_measured": bg_pred / max(bg_meas, 1e-9)},
+                                     "ratio_model_over_measured": bg_ratio},
         "peak_contrast_over_bg": {
-            "measured": float((meas_win.max() - bg_meas) / bg_meas),
-            "model": float((pred_win.max() - bg_pred) / max(bg_pred, 1e-9)),
+            "measured": contrast_meas,
+            "model": contrast_model,
         },
-        "note": "模型背景 6.2x 实测、光斑对比度仅实测 1/17：模型'低 CV'由暗底+弱光斑伪影稀释所致",
+        "note": (f"模型背景 {bg_ratio:.1f}x 实测、光斑对比度仅实测 1/{contrast_ratio:.0f}："
+                 "模型'低 CV'由暗底+弱光斑伪影稀释所致"),
     }
     (ART_DIR / "mismatch_forensics_20261107.json").write_text(
         json.dumps(forensics, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -351,11 +357,11 @@ def main() -> None:
 
 | 量 | 实测 | 模型 | 比值 |
 |---|---|---|---|
-| 背景常数 (counts/ms) | {bg_meas:.3f} | {bg_pred:.3f} | {bg_pred / max(bg_meas, 1e-9):.1f}× |
-| 光斑峰值对比度 (peak/bg) | {forensics['peak_contrast_over_bg']['measured']:.1f} | {forensics['peak_contrast_over_bg']['model']:.2f} | 1/{forensics['peak_contrast_over_bg']['measured'] / max(forensics['peak_contrast_over_bg']['model'], 1e-9):.0f} |
+| 背景常数 (counts/ms) | {bg_meas:.3f} | {bg_pred:.3f} | {bg_ratio:.1f}× |
+| 光斑峰值对比度 (peak/bg) | {contrast_meas:.1f} | {contrast_model:.2f} | 1/{contrast_ratio:.0f} |
 | 核心 CV（窗） | {forensics['measured_window']['cv']:.3f} | {forensics['model_window']['cv']:.3f} | — |
 
-模型背景 6.2× 实测、PSF 对比度仅实测 1/17：模型的"低 CV"是暗底+弱光斑稀释出来的伪影。散粒噪声地板 = 1/√N ≈ {shot_noise_floor:.4f} → **CV≤0.10 物理可达**，瓶颈是模型不是噪声。
+模型背景 {bg_ratio:.1f}× 实测、PSF 对比度仅实测 1/{contrast_ratio:.0f}：模型的"低 CV"是暗底+弱光斑稀释出来的伪影。散粒噪声地板 = 1/√N ≈ {shot_noise_floor:.4f} → **CV≤0.10 物理可达**，瓶颈是模型不是噪声。
 
 ## 3. 收敛曲线
 
@@ -402,7 +408,7 @@ def main() -> None:
 
 **原因**：`update()` 的 measured 分支把 `measured + prediction − baseline` 当损失输入，梯度只经
 `prediction − baseline`（模型雅可比）流过。模型雅可比在**残差频段不可信**（失配取证：模型背景
-6.2× 实测、光斑对比度仅 1/17、PSF FWHM 竖向 9 vs 实测 9 但横向 21 vs 14），
+{bg_ratio:.1f}× 实测、光斑对比度仅 1/{contrast_ratio:.0f}、PSF FWHM 竖向 9 vs 实测 9 但横向 21 vs 14），
 于是每块优化都在往一个"模型认为更好、实测更差"的方向走 —— 锚定只抵消了**静态偏置**，
 抵消不了**雅可比方向的错误**。model-only 基线之所以能到 0.529，是因为它的每步下降方向
 恰好部分落在实测可接受的方向上；一旦把实测锚点塞进损失，错误雅可比被放大成主导项。
