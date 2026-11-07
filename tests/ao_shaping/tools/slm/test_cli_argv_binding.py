@@ -1192,12 +1192,15 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
     # touch the measurement loop. 36 -> 37 (Santec) and 36 -> 37 (camera) on
     # 2026-11-05 when transfer/optical_probe.py landed (1 Santec + 1 camera — the
     # light-path reuse probe that verifies the measured and reused paths agree);
+    # 37 -> 38 (camera) on 2026-11-07 when transfer/auto_reuse.py landed
+    # (0 Santec + 1 camera — the auto-reuse fingerprint probe that opens a camera
+    # before deciding whether to reuse a historical checkpoint; camera only);
     # a genuine new probe, re-baselined here deliberately. This guard pins the
     # census so a *refactor* cannot quietly consolidate device sessions; adding a
     # genuinely new probe is a legitimate change and must be re-baselined here
     # deliberately.
     assert sum(santec.values()) == 36, f"Santec( construction sites changed: {santec}"
-    assert sum(camera.values()) == 37, f"camera-open call sites changed: {camera}"
+    assert sum(camera.values()) == 38, f"camera-open call sites changed: {camera}"
 
     assert santec == {
         "slm/calibration/calibration.py": 2,
@@ -1254,6 +1257,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/panel/phase_response.py": 1,
         "slm/panel/tilt_probe.py": 1,
         "slm/replay_disturbance.py": 1,
+        "slm/transfer/auto_reuse.py": 1,
         "slm/transfer/camera_probe.py": 1,
         "slm/transfer/capture.py": 2,
         "slm/transfer/capture_response.py": 1,
