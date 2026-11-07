@@ -4,7 +4,7 @@
 ------------
 2026-10-26 实测报错 ``empty target core``（``multishape_objective.ShapeObjective``
 构造时抛出）看起来像几何问题，实际是**参数问题**：载波周期 ``period`` 被填成
-4 panel px，而斜坡标定只在 64 / 128 panel px 上测过。载波位移 ∝ 1/period，
+4 panel px，而倾斜相位标定只在 64 / 128 panel px 上测过。载波位移 ∝ 1/period，
 于是位移被放大 16 倍（实测斜率约 7496 px/周期 → 1874 px），目标方斑整体飞出
 采样窗（半跨 220 px），窗内只剩背景，``binary_erosion`` 之后核心为空。
 报错发生在**第一个 CCD 分块**，而采集与拟合已经跑了几分钟。
@@ -15,11 +15,11 @@
    CLI 的 plan）。没有实测几何时也能抓出明显不合理的值：周期低于 SLM 可表示
    下限、探针数不是 6 的倍数、目标边长超出采样窗的绝对上限。
 2. :func:`check_geometry` —— 采集与拟合之后、CCD 分块之前，用**实测**零点与
-   拟合出的斜坡矩阵复算目标几何（与 :mod:`ao_shaping.tools.slm.transfer.validate`
+   拟合出的倾斜相位矩阵复算目标几何（与 :mod:`ao_shaping.tools.slm.transfer.validate`
    同一阈值），空核心这类错误在这里被拦下。
 
 两级都要有：只有第一级时，``period`` 与 ``side`` 的**组合**是否放得下要等到
-实测斜坡才知道；只有第二级时，操作员已经等了几分钟才知道参数填错。
+实测倾斜相位才知道；只有第二级时，操作员已经等了几分钟才知道参数填错。
 
 第三级（只在有实测零点时可用）：:func:`check_zero_overlap` —— 零级剔除圆盘与
 目标框的重叠面积。它是**读数阈值**检查，不是"能不能跑"：200 px 档实测重叠
@@ -74,7 +74,7 @@ MIN_SIDE_PX: float = 8.0
 #: 阶梯（Nyquist）。低于此值载波本身就不该下发。
 MIN_PERIOD_PX: float = 16.0
 
-#: 斜坡标定实际测过的载波周期（panel px）。不在此集合里的周期，位移是按
+#: 倾斜相位标定实际测过的载波周期（panel px）。不在此集合里的周期，位移是按
 #: 「位移 ∝ 1/period」外推出来的，只能算警告。
 CALIBRATED_PERIODS_PX: tuple[float, ...] = (64.0, 128.0)
 
@@ -140,7 +140,7 @@ def check_parameters(
         frames: 每点帧数。
         shapes: 目标形状名。
         offset_px: 已知的载波位移（px）。给了才检查「位移 + 目标边长是否放得下」；
-            没有实测斜坡时传 ``None``（例如首次运行）。
+            没有实测倾斜相位时传 ``None``（例如首次运行）。
         half_span_px: 采样窗单边跨度（px）。
 
     Returns:
@@ -270,14 +270,14 @@ def check_geometry(
     step_px: float = STEP_PX,
     tilt: bool = True,
 ) -> list[Problem]:
-    """用**实测**零点与拟合斜坡复算目标几何（采集/拟合之后、CCD 分块之前）。
+    """用**实测**零点与拟合倾斜相位复算目标几何（采集/拟合之后、CCD 分块之前）。
 
     阈值与 :mod:`ao_shaping.tools.slm.transfer.validate` 完全一致：采样窗用
     ``recentre_window``，目标用 ``target_at``，核心用 ``binary_erosion``。
 
     Args:
         zero_xy: 本次实测零点 ``(x, y)``（相机像元）。
-        ramp_matrix: 拟合出的斜坡矩阵（2×2，第一列是 x 轴斜坡的位移向量）。
+        ramp_matrix: 拟合出的倾斜相位矩阵（2×2，第一列是 x 轴倾斜相位的位移向量）。
         side: 目标方斑边长（px）。
         period: 倾斜相位周期（panel px）。
         shapes: 目标形状名。
@@ -304,8 +304,8 @@ def check_geometry(
         return [
             Problem(
                 "ramp_matrix_invalid",
-                f"斜坡矩阵形状 {matrix.shape} 不合法（应为 2×N：第一列是 x 轴斜坡的位移向量）。",
-                "重新拟合（fit 阶段）或换一个有实测斜坡的检查点。",
+                f"倾斜相位矩阵形状 {matrix.shape} 不合法（应为 2×N：第一列是 x 轴倾斜相位的位移向量）。",
+                "重新拟合（fit 阶段）或换一个有实测倾斜相位的检查点。",
             )
         ]
 
@@ -385,7 +385,7 @@ def _period_hint(offset_vec: np.ndarray, side: float, half_span_px: float) -> st
     return (
         f"载波周期需 ≥ {period_min:.0f} panel px，而标定档只有 "
         f"{'/'.join(f'{p:g}' for p in CALIBRATED_PERIODS_PX)} panel px —— "
-        "两者都放不下时，得重新标定斜坡或把目标边长降到 "
+        "两者都放不下时，得重新标定倾斜相位或把目标边长降到 "
         f"≤ {_max_side_px(offset, half_span_px):.0f} px。"
     )
 

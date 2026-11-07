@@ -58,8 +58,8 @@ __all__ = [
 #: 物理 lane（``validate.run`` / ``transfer_shapes_runner``）消费倾斜相位开关时要
 #: 找的会话字段名。``TransferSession`` 当前没有这个字段（workflow.py 不在本模块的
 #: 写域），:func:`build_session` 会把它以运行时属性挂到返回值上，契约字段名就是这串
-#: 常量。物理 lane 读 ``session.tilt``（等价 ``args.tilt``）决定要不要把目标用斜坡推离
-#: 零级；关闭（默认）时目标留在零级、倾斜相位周期不适用。
+#: 常量。物理 lane 读 ``session.tilt``（等价 ``args.tilt``）决定要不要把目标用倾斜相位
+#: 推离零级；关闭（默认）时目标留在零级、倾斜相位周期不适用。
 TILT_SESSION_FIELD = "tilt"
 
 #: 物理 lane 消费矩形「长/短比」要找的会话字段名。语义：``side`` 是矩形的**短边**，
@@ -68,7 +68,7 @@ TILT_SESSION_FIELD = "tilt"
 ASPECT_RATIO_SESSION_FIELD = "aspect_ratio"
 
 #: 未启用倾斜相位（tilt=False）时倾斜相位周期 / 位移不适用，需要屏蔽掉的 preflight 结论码。
-#: 没有斜坡把目标推出零级，这些判据（周期可表示性、位移是否溢出采样窗）就无从谈起。
+#: 没有倾斜相位把目标推出零级，这些判据（周期可表示性、位移是否溢出采样窗）就无从谈起。
 _TILT_DEPENDENT_CHECK_CODES: frozenset[str] = frozenset(
     {
         "period_invalid",
@@ -159,7 +159,7 @@ class TransferFormValues:
         shapes: 目标形状（``SHAPE_CHOICES`` 的子集）。
         side: 目标尺寸 (CCD px)。矩形时为**短边**（长边 = 短边 × ``aspect_ratio``）。
         tilt: 是否添加倾斜相位。``False``（默认）时目标留在零级 (0 级)，
-            倾斜相位周期 / 位移不适用；``True`` 时用斜坡把目标推离零级。
+            倾斜相位周期 / 位移不适用；``True`` 时用倾斜相位把目标推离零级。
         aspect_ratio: 矩形**长/短比**（仅 ``shapes`` 含 ``rectangle`` 时有意义，
             见 :data:`_RECT_ASPECT_MAX`）；非矩形形状固定 ``1.0``。
         period: 倾斜相位周期 (panel px)。

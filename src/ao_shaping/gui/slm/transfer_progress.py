@@ -481,7 +481,7 @@ def _nominal_metrics(out: Path) -> tuple[list[dict[str, Any]], list[str]]:
     metrics = [
         _int("grid", "网格", params.get("grid_size")),
         _num("defocus", "离焦", params.get("defocus_diopter"), digits=2, suffix=" D"),
-        _int("ramp_axes", "斜坡", axes, suffix=" 轴"),
+        _int("ramp_axes", "倾斜相位", axes, suffix=" 轴"),
     ]
     return metrics, []
 

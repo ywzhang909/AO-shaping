@@ -806,7 +806,7 @@ class TransferPage(QWidget):
         # 于是周期框随之禁用并置灰。
         self._tilt = self._check("添加倾斜相位", _DEFAULTS.tilt)
         self._tilt.setToolTip(
-            "开 = 用斜坡把目标推离 0 级, 需给出倾斜相位周期; "
+            "开 = 加倾斜相位把目标推离 0 级, 需给出其周期; "
             "关（默认）= 目标留在 0 级, 倾斜相位周期无意义"
         )
         self._tilt.toggled.connect(self._sync_tilt)
@@ -1038,7 +1038,12 @@ class TransferPage(QWidget):
             header.resizeSection(column, width)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         header.resizeSection(1, 220)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        # 说明列: 内容决定列宽, 超过视口时靠表格自身的横向滚动条滑动查看 ——
+        # 用户要求长说明文字支持横向滑动, 而不是被 Stretch 一裁到底。
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setMinimumSectionSize(60)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
         self._table = table
         return table

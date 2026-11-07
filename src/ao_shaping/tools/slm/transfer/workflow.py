@@ -663,8 +663,8 @@ def _acquire_session_dataset(config, *, out, device, stage, on_frame, offline):
         )
         # 采集刚结束 (不是复用已录数据集): 用这一批 manifest 行提前判「倾斜 + 目标
         # 边长」是否越界, 不等整轮拟合跑完再暴露 (2026-10-26 "empty target core"
-        # 的教训)。与拟合后判同一把尺子 (同 batch 行现拟合斜坡矩阵), 是提前量而
-        # 非另一套近似; 条件不足 (无有效斜坡/零点) 时不阻断。
+        # 的教训)。与拟合后判同一把尺子 (同 batch 行现拟合倾斜相位矩阵), 是提前量而
+        # 非另一套近似; 条件不足 (无有效倾斜相位/零点) 时不阻断。
         if config.dataset is None:
             from .early_geometry import check_early_geometry, format_early_geometry
 

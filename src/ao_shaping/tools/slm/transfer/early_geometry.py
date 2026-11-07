@@ -3,13 +3,13 @@
 为什么提前
 ----------
 几何守卫 :func:`~ao_shaping.tools.slm.transfer.preflight.check_geometry` 需要两样
-东西: **实测零点** 与 **拟合斜坡矩阵**。两者其实都在采集阶段就有了 ——
-零点来自 ``reference_start`` 帧, 斜坡来自 ``ramp_{axis}_{period}_{sign}`` 探针对
+东西: **实测零点** 与 **拟合倾斜相位矩阵**。两者其实都在采集阶段就有了 ——
+零点来自 ``reference_start`` 帧, 倾斜相位来自 ``ramp_{axis}_{period}_{sign}`` 探针对
 —— 但守卫原本挂在 ``fit`` 之后 (``workflow.py``), 于是「倾斜周期选得太小 /
 目标边长太大」要等**整轮采集 + 整轮拟合**跑完才暴露 (2026-10-26 的
 "empty target core" 就是这么浪费了一整轮采集)。
 
-本模块把同一套判据前移到采集阶段: 用**同一批** manifest 行算出斜坡矩阵
+本模块把同一套判据前移到采集阶段: 用**同一批** manifest 行算出倾斜相位矩阵
 (:func:`~ao_shaping.tools.slm.transfer.fit.geometry` 的同一实现), 再调**同一个**
 :func:`~ao_shaping.tools.slm.transfer.preflight.check_geometry`。所以提前判与
 拟合后判**结论一致** —— 提前判不是「另一套近似」, 是同一把尺子提前量。
@@ -22,8 +22,8 @@
 
 真实限制: 倾斜周期不是标定档
 ----------------------------
-斜坡探针只采 ``ramp_periods`` (默认 64 / 128), 而用户的 ``period`` 是自由参数。
-斜坡矩阵给出的是**每周期**的位移 (``(spot(+)-spot(-)) * period / 2``), 因此
+倾斜相位探针只采 ``ramp_periods`` (默认 64 / 128), 而用户的 ``period`` 是自由参数。
+倾斜相位矩阵给出的是**每周期**的位移 (``(spot(+)-spot(-)) * period / 2``), 因此
 ``ramp_matrix[:, 0] / period`` 是按**比例外推**到用户周期的位移: 周期越小位移
 越大 (周期 4 px 时位移可达 1865 px)。这与拟合后判用的是同一个外推, 所以两者
 依然一致 —— 但结论本身依赖「周期越小位移越大」这个线性假设, 它在远离标定档时
@@ -64,9 +64,9 @@ class EarlyGeometryResult:
 
     Attributes:
         problems: 检查结论列表 (空 = 通过)。error 级阻断, warning 级只提示。
-        ramp_matrix: 由采集阶段 ramp 行拟合出的斜坡矩阵 (2×N); 拟合不出来时为
+        ramp_matrix: 由采集阶段 ramp 行拟合出的倾斜相位矩阵 (2×N); 拟合不出来时为
             ``None``。
-        displacement_px: 用户周期下的载波位移模长 (px); 无斜坡时为 ``None``。
+        displacement_px: 用户周期下的载波位移模长 (px); 无倾斜相位时为 ``None``。
         zero_xy: 实测零点 (相机 px); 没有有效 ``reference_start`` 时为 ``None``。
         checked: 是否真的做了检查 (``False`` = 条件不足, 未判)。
     """
@@ -91,7 +91,7 @@ class EarlyGeometryResult:
 def _usable_rows(rows: Sequence[dict]) -> list[dict]:
     """过滤出可用的行 —— 与 :func:`fit.load_dataset` 用的是同一个 ``valid``。
 
-    ``fit.valid`` 判的是「这一帧曝光稳、峰值没打满」; 斜坡拟合与零点定位都必须
+    ``fit.valid`` 判的是「这一帧曝光稳、峰值没打满」; 倾斜相位拟合与零点定位都必须
     只看这样的行, 否则提前判会与拟合后判用不同的行集, 结论就对不上了。
     """
     from . import fit
@@ -124,8 +124,8 @@ def check_early_geometry(
     """用采集阶段的行提前判「倾斜 + 边长」是否越界。
 
     这是 :func:`~ao_shaping.tools.slm.transfer.preflight.check_geometry` 的
-    **提前版**: 同一把尺子, 只是尺子的数据来源从「拟合写出的斜坡矩阵」换成
-    「同一批采集行现拟合的斜坡矩阵」。
+    **提前版**: 同一把尺子, 只是尺子的数据来源从「拟合写出的倾斜相位矩阵」换成
+    「同一批采集行现拟合的倾斜相位矩阵」。
 
     Args:
         rows: 采集阶段的 manifest 行 (``capture`` 写出的那种 dict)。
@@ -135,11 +135,11 @@ def check_early_geometry(
         half_span_px: 采样窗半跨 (px)。
         step_px: 采样窗步长 (px)。
         tilt: 是否启用倾斜相位。关闭时没有载波位移, 越界判据失去对象, 直接通过。
-        ramp_periods: 采集时实际采过的斜坡周期。用于判断用户周期离标定档有多远
+        ramp_periods: 采集时实际采过的倾斜相位周期。用于判断用户周期离标定档有多远
             —— 离得远时结论是**外推**来的, 额外给一条 warning。
 
     Returns:
-        :class:`EarlyGeometryResult`。条件不足 (没有有效斜坡行 / 没有有效零点)
+        :class:`EarlyGeometryResult`。条件不足 (没有有效倾斜相位行 / 没有有效零点)
         时 ``checked=False`` 且无 error —— 「没条件判」不等于「判为不合格」。
     """
     from .preflight import Problem, check_geometry
@@ -184,7 +184,7 @@ def check_early_geometry(
         )
     )
 
-    # 标定档外推提醒: 斜坡只采了 ramp_periods, 用户周期不在其中时结论来自线性
+    # 标定档外推提醒: 倾斜相位只采了 ramp_periods, 用户周期不在其中时结论来自线性
     # 外推, 离得越远越不可靠。这只是提醒, 不阻断 (与拟合后判同一把尺子)。
     known = [float(p) for p in ramp_periods]
     if known and not any(abs(float(period) - p) < 1e-9 for p in known):
