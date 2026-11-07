@@ -1011,40 +1011,125 @@ def render_comparison(
 # ---------------------------------------------------------------------------
 # Training
 # ---------------------------------------------------------------------------
-def train(cfg: AmpTrainConfig) -> AmpTrainResult:
-    """Run the full fit and log every diagnostic.
 
-    Args:
-        cfg: The run configuration.
+def _finalize(cfg, out_dir, best, best_coefficients, history, started, corpus, model):
+    """Checkpoint, result, summary.json, closing log (verbatim from train())."""
+    seconds = time.perf_counter() - started
+    checkpoint = None
+    if cfg.save_checkpoint:
+        checkpoint_path = out_dir / "best_coefficients.pt"
+        torch.save(
+            {
+                "coefficients": torch.from_numpy(best_coefficients),
+                "n_max": cfg.n_max,
+                "grid": cfg.grid,
+                "observable": cfg.observable,
+                "normalization": cfg.normalization,
+                "far_field_padding": cfg.far_field_padding,
+                "config": {k: v for k, v in asdict(cfg).items() if k != "extra"},
+            },
+            checkpoint_path,
+        )
+        checkpoint = str(checkpoint_path)
 
-    Returns:
-        An :class:`AmpTrainResult` with the best coefficients and the full history.
-    """
-    torch.manual_seed(cfg.seed)
-    # Dedicated stream for the geometric augmentation, seeded off `cfg.seed`, so the
-    # draw neither depends on nor perturbs the main RNG (which drives the permutation).
-    aug_generator = torch.Generator()
-    aug_generator.manual_seed(cfg.seed + 9973)
-    # Validate the objective name up front. Falling through to MSE on an
-    # unrecognised value would make a typo (e.g. "physcial") silently reproduce
-    # the incumbent run, which is the one outcome this switch must not have.
-    if cfg.loss not in LOSS_CHOICES:
-        raise ValueError(f"loss must be one of {LOSS_CHOICES}, got {cfg.loss!r}")
-    out_dir = Path(cfg.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    device = torch.device(cfg.device if torch.cuda.is_available() else "cpu")
-    # AMP is CUDA-only: GradScaler is a documented no-op when disabled, so gating it
-    # here keeps the CPU path byte-identical to the pre-AMP one (see AmpTrainConfig.amp).
-    amp_enabled = bool(cfg.amp) and device.type == "cuda"
-    if cfg.amp and not amp_enabled:
-        logger.info(
-            "amp requested but disabled: autocast/GradScaler need a CUDA device, "
-            "resolved device is {}",
+    result = AmpTrainResult(
+        coefficients=[float(v) for v in best_coefficients],
+        n_modes=model.K,
+        n_max=cfg.n_max,
+        best_epoch=best["epoch"],
+        best_val_mse=best["mse"],
+        best_val_r2=best["r2"],
+        best_val_psnr=best["psnr"],
+        final_train_mse=history[-1]["train_mse"] if history else float("nan"),
+        grad_norm_first=history[0]["grad_total"] if history else 0.0,
+        grad_norm_last=history[-1]["grad_total"] if history else 0.0,
+        dead_modes=int(history[-1]["grad_dead"]) if history else 0,
+        seconds=seconds,
+        history=history,
+        checkpoint=checkpoint,
+        corpus=corpus,
+    )
+    (out_dir / "summary.json").write_text(
+        json.dumps(asdict(result), indent=2, default=str), encoding="utf-8"
+    )
+    logger.info(
+        "best epoch {} val_mse={:.5f} r2={:.4f} psnr={:.2f}dB in {:.1f}s -> {}",
+        result.best_epoch,
+        result.best_val_mse,
+        result.best_val_r2,
+        result.best_val_psnr,
+        seconds,
+        out_dir,
+    )
+    return result
+
+
+
+def _build_loss_mask(cfg, train_t, device):
+    """Physical-loss mask + grid size (verbatim from train())."""
+    grid = int(train_t["target"].shape[-1])
+    loss_mask = None
+    if (
+        cfg.loss == "physical"
+        or cfg.loss_weights.w_spot_moment > 0.0
+        or cfg.loss_weights.w_ellipse > 0.0
+    ):
+        loss_mask = _roi_mask_on(
+            (grid, grid),
+            (grid / 2.0, grid / 2.0),
+            cfg.target_size_frac * grid,
+            cfg.target_aspect_ratio,
             device,
         )
+        logger.info(
+            "physical loss: ROI {:.1f}x{:.1f} px of a {}x{} grid, weights={}",
+            cfg.target_size_frac * grid,
+            cfg.target_size_frac * grid,
+            grid,
+            grid,
+            cfg.loss_weights,
+        )
+    return grid, loss_mask
 
-    # Keep the unfiltered index: corpus provenance and the staleness check
-    # describe the whole cache, not just the family subset that will be trained.
+
+
+def _build_model_setup(cfg, device, train_t, train_idx, val_idx, amp_enabled):
+    """Model, optimizer, AMP scaler, wandb run (verbatim from train())."""
+    model = ZernikeAmpModel(
+        ZernikeAmpConfig(
+            n_max=cfg.n_max,
+            grid=cfg.grid,
+            observable=cfg.observable,
+            normalization=cfg.normalization,
+            conserve_energy=cfg.conserve_energy,
+            far_field_padding=cfg.far_field_padding,
+            center_crop=cfg.center_crop,
+            attention=cfg.attention,
+            attention_grid=cfg.attention_grid,
+            attention_dim=cfg.attention_dim,
+            attention_heads=cfg.attention_heads,
+        )
+    ).to(device)
+    fit_target = model._normalize(train_t["target"].clone())
+    optimizer = _build_optimizer(model, cfg)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg.epochs)
+    # `enabled=False` makes scale()/step()/update() exact pass-throughs, so the same
+    # three lines serve the AMP and non-AMP runs without a branch in the hot loop.
+    scaler = torch.amp.GradScaler(device.type, enabled=amp_enabled)
+
+    run = _init_wandb(cfg, model, len(train_idx), len(val_idx))
+    perceptual = available_perceptual_metrics()
+    if not perceptual:
+        logger.info(
+            "no perceptual metric available (lpips/torchvision absent); "
+            "reporting SSIM + beam metrics instead"
+        )
+    return model, fit_target, optimizer, scheduler, scaler, run, perceptual
+
+
+
+def _build_corpus(cfg, device):
+    """Index, dataset, split, eager tensors (verbatim from train())."""
     roots = list(cfg.roots) or list(DEFAULT_ROOTS)
     raw_index = build_hw_index(
         roots=roots, index_cache=cfg.index_cache or None, progress_every=0
@@ -1081,36 +1166,53 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
     )
     train_t = collect_split(dataset, train_idx, device)
     val_t = collect_split(dataset, val_idx, device)
+    return raw_index, corpus, index, dataset, train_idx, val_idx, val_objectives, train_t, val_t
 
-    model = ZernikeAmpModel(
-        ZernikeAmpConfig(
-            n_max=cfg.n_max,
-            grid=cfg.grid,
-            observable=cfg.observable,
-            normalization=cfg.normalization,
-            conserve_energy=cfg.conserve_energy,
-            far_field_padding=cfg.far_field_padding,
-            center_crop=cfg.center_crop,
-            attention=cfg.attention,
-            attention_grid=cfg.attention_grid,
-            attention_dim=cfg.attention_dim,
-            attention_heads=cfg.attention_heads,
-        )
-    ).to(device)
-    fit_target = model._normalize(train_t["target"].clone())
-    optimizer = _build_optimizer(model, cfg)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg.epochs)
-    # `enabled=False` makes scale()/step()/update() exact pass-throughs, so the same
-    # three lines serve the AMP and non-AMP runs without a branch in the hot loop.
-    scaler = torch.amp.GradScaler(device.type, enabled=amp_enabled)
 
-    run = _init_wandb(cfg, model, len(train_idx), len(val_idx))
-    perceptual = available_perceptual_metrics()
-    if not perceptual:
+
+def _prepare_environment(cfg):
+    """Seeding, validation, output dir, device, AMP gate (verbatim from train())."""
+    torch.manual_seed(cfg.seed)
+    # Dedicated stream for the geometric augmentation, seeded off `cfg.seed`, so the
+    # draw neither depends on nor perturbs the main RNG (which drives the permutation).
+    aug_generator = torch.Generator()
+    aug_generator.manual_seed(cfg.seed + 9973)
+    # Validate the objective name up front. Falling through to MSE on an
+    # unrecognised value would make a typo (e.g. "physcial") silently reproduce
+    # the incumbent run, which is the one outcome this switch must not have.
+    if cfg.loss not in LOSS_CHOICES:
+        raise ValueError(f"loss must be one of {LOSS_CHOICES}, got {cfg.loss!r}")
+    out_dir = Path(cfg.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    device = torch.device(cfg.device if torch.cuda.is_available() else "cpu")
+    # AMP is CUDA-only: GradScaler is a documented no-op when disabled, so gating it
+    # here keeps the CPU path byte-identical to the pre-AMP one (see AmpTrainConfig.amp).
+    amp_enabled = bool(cfg.amp) and device.type == "cuda"
+    if cfg.amp and not amp_enabled:
         logger.info(
-            "no perceptual metric available (lpips/torchvision absent); "
-            "reporting SSIM + beam metrics instead"
+            "amp requested but disabled: autocast/GradScaler need a CUDA device, "
+            "resolved device is {}",
+            device,
         )
+    return aug_generator, out_dir, device, amp_enabled
+
+
+def train(cfg: AmpTrainConfig) -> AmpTrainResult:
+    """Run the full fit and log every diagnostic.
+
+    Args:
+        cfg: The run configuration.
+
+    Returns:
+        An :class:`AmpTrainResult` with the best coefficients and the full history.
+    """
+    aug_generator, out_dir, device, amp_enabled = _prepare_environment(cfg)
+
+    # Keep the unfiltered index: corpus provenance and the staleness check
+    # describe the whole cache, not just the family subset that will be trained.
+    raw_index, corpus, index, dataset, train_idx, val_idx, val_objectives, train_t, val_t = _build_corpus(cfg, device)
+
+    model, fit_target, optimizer, scheduler, scaler, run, perceptual = _build_model_setup(cfg, device, train_t, train_idx, val_idx, amp_enabled)
     history: list[dict[str, float]] = []
     best = {"mse": float("inf"), "epoch": -1, "r2": -float("inf"), "psnr": -float("inf")}
     best_coefficients = model.coefficients_array()
@@ -1120,28 +1222,7 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
     # The physical objective needs one ROI mask on the model's own output grid,
     # built by the canonical shape helper so the loss is scored on exactly the
     # region the bench optimiser reports.
-    grid = int(train_t["target"].shape[-1])
-    loss_mask = None
-    if (
-        cfg.loss == "physical"
-        or cfg.loss_weights.w_spot_moment > 0.0
-        or cfg.loss_weights.w_ellipse > 0.0
-    ):
-        loss_mask = _roi_mask_on(
-            (grid, grid),
-            (grid / 2.0, grid / 2.0),
-            cfg.target_size_frac * grid,
-            cfg.target_aspect_ratio,
-            device,
-        )
-        logger.info(
-            "physical loss: ROI {:.1f}x{:.1f} px of a {}x{} grid, weights={}",
-            cfg.target_size_frac * grid,
-            cfg.target_size_frac * grid,
-            grid,
-            grid,
-            cfg.loss_weights,
-        )
+    grid, loss_mask = _build_loss_mask(cfg, train_t, device)
 
     for epoch in range(cfg.epochs):
         model.train()
@@ -1316,53 +1397,7 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
             if run is not None:
                 _log_comparison_image(run, figure_path, epoch, caption)
 
-    seconds = time.perf_counter() - started
-    checkpoint = None
-    if cfg.save_checkpoint:
-        checkpoint_path = out_dir / "best_coefficients.pt"
-        torch.save(
-            {
-                "coefficients": torch.from_numpy(best_coefficients),
-                "n_max": cfg.n_max,
-                "grid": cfg.grid,
-                "observable": cfg.observable,
-                "normalization": cfg.normalization,
-                "far_field_padding": cfg.far_field_padding,
-                "config": {k: v for k, v in asdict(cfg).items() if k != "extra"},
-            },
-            checkpoint_path,
-        )
-        checkpoint = str(checkpoint_path)
-
-    result = AmpTrainResult(
-        coefficients=[float(v) for v in best_coefficients],
-        n_modes=model.K,
-        n_max=cfg.n_max,
-        best_epoch=best["epoch"],
-        best_val_mse=best["mse"],
-        best_val_r2=best["r2"],
-        best_val_psnr=best["psnr"],
-        final_train_mse=history[-1]["train_mse"] if history else float("nan"),
-        grad_norm_first=history[0]["grad_total"] if history else 0.0,
-        grad_norm_last=history[-1]["grad_total"] if history else 0.0,
-        dead_modes=int(history[-1]["grad_dead"]) if history else 0,
-        seconds=seconds,
-        history=history,
-        checkpoint=checkpoint,
-        corpus=corpus,
-    )
-    (out_dir / "summary.json").write_text(
-        json.dumps(asdict(result), indent=2, default=str), encoding="utf-8"
-    )
-    logger.info(
-        "best epoch {} val_mse={:.5f} r2={:.4f} psnr={:.2f}dB in {:.1f}s -> {}",
-        result.best_epoch,
-        result.best_val_mse,
-        result.best_val_r2,
-        result.best_val_psnr,
-        seconds,
-        out_dir,
-    )
+    result = _finalize(cfg, out_dir, best, best_coefficients, history, started, corpus, model)
     if run is not None:
         _log_wandb_summary(run, result)
         run.finish()
