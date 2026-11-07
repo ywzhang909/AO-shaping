@@ -1,0 +1,24 @@
+{
+  "units": "counts/ms (count_rate = raw/exposure_ms; model = g*optical+b+bias/t)",
+  "exposure_ms": 0.5,
+  "measured_window": {
+    "mean": 1.5909711833586446,
+    "max": 31.200000762939453,
+    "cv": 0.5112317937659812
+  },
+  "model_window": {
+    "mean": 2.505041184625997,
+    "max": 7.909213066101074,
+    "cv": 0.0728388106262158
+  },
+  "background_counts_per_ms": {
+    "measured": 0.8160000169277191,
+    "model": 2.386173743009567,
+    "ratio_model_over_measured": 2.9242324675355165
+  },
+  "peak_contrast_over_bg": {
+    "measured": 37.23529425944011,
+    "model": 2.3146006611092624
+  },
+  "note": "模型背景 6.2x 实测、光斑对比度仅实测 1/17：模型'低 CV'由暗底+弱光斑伪影稀释所致"
+}

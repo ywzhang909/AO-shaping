@@ -86,6 +86,23 @@ class ReportProvenance:
 #:   ``硬件``   -- needs a real bench (SLM / CCD / WFS / DM / micro-DM).
 #:   ``离线+硬件`` -- renders offline, but the numbers were measured on hardware.
 REPORTS: dict[str, ReportProvenance] = {
+    "report/shape_trials/shape_transition/shape_transition_timing_20261107.md": ReportProvenance(
+        script="scripts/slm/generate_shape_transition_report_20261107.py",
+        command="python scripts/slm/generate_shape_transition_report_20261107.py",
+        environment="离线渲染（实验系统数据 2026-11-07：Santec #1 1064 nm + Daheng CCD）",
+        note=(
+            "随机起步 square 计时与失配取证；输入为 shape_transition_timing_20261106.py "
+            "--execute 产物（shape_transition_20261107_randseed / 20261106_rerun）。"
+            "§5 另引 anchored 实验系统闭环两种锚定语义（preanchored / raw）的 --execute 产物"
+            "（shape_transition_20261107_anchored_pre / shape_transition_20261107_anchored_raw）；"
+            "images/ 为本脚本渲染的 4 个实测 CCD GIF"
+            "（ccd_square_randseed_20261107 / ccd_square_zerophase_20261106 / "
+            "ccd_square_anchored_pre_20261107 / ccd_square_anchored_raw_20261107，"
+            "标题含 device_log.json 抓帧时刻与相对首帧墙钟），"
+            "figures/ 与 artifacts/mismatch_forensics_20261107.json 同为本脚本产物。"
+        ),
+        extra_scripts=("scripts/slm/shape_transition_timing_20261106.py",),
+    ),
     "report/shape_trials/physical_refine/forward_model_transfer_plan_20261104.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线规划文档；其 P1 已于 2026-11-05 实验执行（probe_optical_path_validity）",

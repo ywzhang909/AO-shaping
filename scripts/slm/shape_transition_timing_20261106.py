@@ -49,6 +49,7 @@ from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity im
 )
 from ao_shaping.algorithm.signal_processing.multishape_objective import (
     ShapeObjective,
+    anchored_intensity,
     target_at,
 )
 from ao_shaping.utils.image.target.patterns import create_target_shape
@@ -106,6 +107,8 @@ def build_plan(args: argparse.Namespace) -> dict:
         updates_per_block=int(args.updates_per_block),
         lr=float(args.lr),
         phase_rms_cap=float(args.phase_rms_cap),
+        mode=str(args.mode),
+        anchor_semantics=str(args.anchor_semantics),
         carrier_period_px=float(args.carrier_period_px),
         carrier_axis=str(args.carrier_axis),
         window_half_span_px=float(args.window_half_span_px),
@@ -162,6 +165,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--frames", type=int, default=5, help="每次抓取平均的帧数")
     parser.add_argument("--exposure-ms", type=float, default=0.5)
     parser.add_argument("--settle-s", type=float, default=0.4)
+    parser.add_argument("--mode", choices=("model", "anchored"), default="model",
+                        help="model=纯模型损失；anchored=每块实测锚定闭环"
+                             "（CCD 帧经 count_rate 采样喂回 update，需 --execute）")
+    parser.add_argument("--anchor-semantics", choices=("raw", "preanchored"),
+                        default="preanchored",
+                        help="anchored 模式下喂给 update() 的锚定强度语义。"
+                             "raw=传原始 anchor（update() 内部自做 anchoring，符合 docstring 契约 "
+                             "I(phi)=I_anchor+F(seed+δ)−F(seed)）；"
+                             "preanchored=传 anchored_intensity(anchor, cur, base)（复刻 validate.py 的 "
+                             "anchor+2ΔF 双重 anchoring）。默认 preanchored 与生产参考一致。")
     parser.add_argument("--warm-start", action="store_true", default=True,
                         help="后续形状从上一形状已接收相位热启动（默认开）；首形状恒从零")
     parser.add_argument("--execute", action="store_true", help="打开硬件执行")
@@ -294,14 +307,18 @@ def monitor_cv(frame: np.ndarray, core: np.ndarray) -> float:
     return float(np.sqrt((((values / mean) - 1) ** 2).mean()))
 
 
-def model_cv(forward, grid: np.ndarray, core: np.ndarray) -> float:
-    """模型侧核心 CV（只读校验/进度，不参与接收判据）。"""
+def model_cv(forward, grid: np.ndarray, core: np.ndarray, exposure_ms: float | None = None) -> float:
+    """模型侧核心 CV（只读校验/进度，不参与接收判据）。
+
+    ``exposure_ms`` 必须与 CCD 实际曝光一致：模型输出为 ``g·optical + b + bias/t``，
+    曝光只经 ``bias/t`` 这一加性项参与，曝光错配会平移背景从而改变 CV。
+    """
     import torch
 
     with torch.no_grad():
         image = forward.predict(
             torch.tensor(grid[None], dtype=torch.float32, device=forward._device),
-            exposure_ms=1.0,
+            exposure_ms=exposure_ms,
         )[0]
         image = image.detach().cpu().numpy().astype(np.float64)
     return monitor_cv(np.maximum(image, 0.0), np.asarray(core, dtype=bool))
@@ -441,21 +458,73 @@ def run_shape(
     anchor_cv = float("inf")   # 当前停滞窗口起点的 best_cv
     window_blocks = 0          # 窗口内自锚点起未达改善阈值的连续块数
     stop_reason = "max_blocks"
+    # 跨块累加的逐步优化指标（anchored 模式每块重建 optimizer，故不能只取
+    # optimizer.loss_history，否则历史被截断到最后一块）。
+    all_steps: list[dict] = []
     for _block in range(1, max_blocks + 1):
         if total_updates >= int(args.max_iterations):
             stop_reason = "max_iterations"
             break
         block_start = time.monotonic()
+        # ---- anchored 模式：每块以当前 best 重建 optimizer（_accepted 归零，
+        # baseline=F(seed)），并采集锚点帧（count_rate 同口径 counts/ms）。
+        # 协议照搬 validate.py L1064-1086：块内 anchor/baseline 固定，梯度只经
+        # 模型增量 prediction-baseline；块末接受即 best 推进，下块自动换锚。
+        anchor: np.ndarray | None = None
+        anchor_prediction = None
+        if args.mode == "anchored" and args.execute:
+            display_phase(slm, best_grid, device_log=device_log)
+            time.sleep(float(args.settle_s))
+            device_log.append(dict(action="capture", tag="anchor", exposure_ms=exposure_ms, **clock()))
+            anchor_frame = grab_average(cam, int(args.frames), height=base_frame.shape[0])
+            anchor = (sample_ccd_to_window(anchor_frame, camera_xy)
+                      / float(exposure_ms)).astype(np.float32)
+            np.save(phase_out / f"anchor_{order_index}_{shape}_block{_block}.npy",
+                    anchor_frame.astype(np.float32))
+            import torch as _torch
+
+            with _torch.no_grad():
+                anchor_prediction = forward.predict(
+                    _torch.tensor(best_grid[None], dtype=_torch.float32,
+                                  device=forward._device),
+                    exposure_ms=float(exposure_ms))[0].numpy()
+            optimizer = DifferentiableUniformityOptimizer(
+                forward, objective, best_grid,
+                lr=float(args.lr), step_rms_cap=float(args.phase_rms_cap), device="cpu",
+            )
+            seed_grid = np.array(best_grid, dtype=np.float32)
         # ---- block of updates，keep lowest-loss 候选相位（经 update 中间态）----
         lowest_loss = float("inf")
         best_delta: np.ndarray | None = None
         for _ in range(updates_per_block):
-            optimizer.update()
+            if args.mode == "anchored" and anchor is not None:
+                import torch as _torch
+
+                with _torch.no_grad():
+                    current_prediction = forward.predict(
+                        _torch.tensor(optimizer.current_phase[None], dtype=_torch.float32,
+                                      device=forward._device),
+                        exposure_ms=float(exposure_ms))[0].numpy()
+                if args.anchor_semantics == "raw":
+                    # 设计契约：update() 的 measured 分支内部自做 anchoring
+                    # （anchor + prediction − baseline），传原始 anchor 即得 I_anchor+ΔF。
+                    optimizer.update(anchor)
+                else:
+                    # 复刻 validate.py：预-anchored 强度 → update() 内再加一次
+                    # anchoring，得 anchor+2ΔF（梯度幅值 2×，但与 raw 同方向）。
+                    optimizer.update(anchored_intensity(
+                        anchor, current_prediction.astype(np.float32), anchor_prediction))
+            else:
+                optimizer.update()
             total_updates += 1
             loss = optimizer.last_loss
             if loss is not None and loss < lowest_loss:
                 lowest_loss = float(loss)
                 best_delta = np.array(optimizer.delta_phase, dtype=np.float32)
+            # 逐步指标跨块累加（见 all_steps 注释）
+            if optimizer.loss_history:
+                all_steps.append(dict(optimizer.loss_history[-1], block=_block,
+                                      global_step=total_updates))
         if best_delta is None:
             best_delta = np.array(optimizer.delta_phase, dtype=np.float32)
         candidate_grid = (best_delta + seed_grid).astype(np.float32)
@@ -475,7 +544,8 @@ def run_shape(
             #（对应 square_grow 的 sample_ccd_to_window + 模型掩膜路径）。
             windowed = sample_ccd_to_window(frame, camera_xy)
             measured_cv_window = monitor_cv(windowed, objective.core)
-            model_cv_val = model_cv(forward, candidate_grid, objective.core)
+            model_cv_val = model_cv(forward, candidate_grid, objective.core,
+                                    exposure_ms=float(exposure_ms))
             np.save(phase_out / f"measured_{order_index}_{shape}_block{_block}.npy",
                     frame.astype(np.float32))
 
@@ -493,6 +563,8 @@ def run_shape(
         if measured_cv is not None and np.isfinite(measured_cv) and measured_cv < best_cv:
             best_grid = np.array(candidate_grid, dtype=np.float32)
             best_cv = float(measured_cv)
+            if args.mode == "anchored":
+                optimizer.accept()
 
         # ---- 接收判定：实测核心 CV <= 阈值（用户明确选择）----
         if parsed := (measured_cv is not None and np.isfinite(measured_cv)
@@ -547,6 +619,7 @@ def run_shape(
         min_cv=(None if best_cv == float("inf") else round(best_cv, 6)),
         accepted_bool=bool(accepted_bool),
         seed_source=seed_source,
+        anchor_semantics=(str(args.anchor_semantics) if args.mode == "anchored" else None),
         stop_reason=stop_reason,
     )
     (out / "phase").mkdir(parents=True, exist_ok=True)
@@ -557,9 +630,10 @@ def run_shape(
     # ---- 终盘：逐步梯度变化 + 优化指标全量落盘（评估模型可表征性）----
     # optimizer.loss_history 每步含 gradient_norm / increment_rms / phase_rms /
     # raw_to_final_step_cosine / candidate_model_loss_change 等（update() 内记录）。
+    # anchored 模式每块重建 optimizer，故历史须跨块累加，否则只剩最后一块。
     history_out = out / "history"
     history_out.mkdir(parents=True, exist_ok=True)
-    steps = optimizer.loss_history
+    steps = all_steps
     with (history_out / f"{order_index}_{shape}.jsonl").open(
         "w", encoding="utf-8"
     ) as fh:
