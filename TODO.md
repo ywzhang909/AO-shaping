@@ -4670,6 +4670,9 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 40 枚新钉（天花板 = 实测 + 30，嵌套上限 = 实测值；33 个新增模块常量，模块常量按 basename 命名、与既有常量冲突时自动加父目录前缀），数值 2026-11-07 本树复测：`len(TARGETS)` **101→141**，棘轮表 141 行。跨度 203–327 行、嵌套 2–8，覆盖 workflow/main、`differentiable_beam.optimize_beam_shaping` 296、`ga_zernike.optimizer_ga` 252、`slm_zernike_pib._prepare_geometry` 220 等 40 个函数（全表见守卫文件）。
 - 枚举脚本两条防护：同名函数在同模块出现两次则跳过（守卫的 "exactly one `<name>` in `<module>`" 无法唯一定位，本批实测 0 个跳过）；常量正则必须用 `_[A-Z0-9_]+`（含下划线），否则 `_TRAIN_COEFF`/`_PANEL_LOCATE` 这类名字被漏认、谎报"还剩 N 个未登记"——上批教训固化。
 - 验收：形状门禁 **142 passed**（141 行 + 深度测试，2026-11-07 本树实测）；conventions+167 守卫 77 passed；ruff / 术语（0 个文件）/ 模块规模门禁全绿；src 零改动，模块规模基线无需再动。
+**2026-11-07 · 318c7314 · #205 登记新 flake：test_fit l1 顺序断言临界翻转**
+- `ml/sim2f/test_fit.py::TestProbeAlgebra::test_the_l1_default_stalls_at_a_measured_floor`（test_fit.py:304）断言"小 lr 残差严格小于校准 lr"，而 l1 极限环终值是噪声级样本（0.0075 vs 0.0063 翻转即红）；同树 attempt#1 红、本地 CI 包络 3/3 绿、重跑 attempt#2 全绿。与 :293 注释自述的 reduction-order 抖动同源。加固（带边界的顺序断言）另批处理；在此之前该测试单独红先按"重跑定性"处置（与 TODO:3757 同法）
+
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

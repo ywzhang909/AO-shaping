@@ -813,39 +813,89 @@ def _n_input_terms(dataset: "ZernikeCoeffDataset", cfg: CoeffTrainConfig) -> int
     return requested
 
 
-def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
-    """Train one fold and return its result.
 
-    Args:
-        cfg: The run's configuration.
+def _write_summary(cfg, history, best_r2, best_epoch, checkpoint_path, out_dir, started, dataset, fold, model, n_input, train_positions, val_positions, coeff_mean, coeff_std):
+    """summary.json + closing log line (verbatim from train())."""
+    summary_path = out_dir / "summary.json"
+    final_metrics = history[-1] if history else {}
+    summary_path.write_text(
+        json.dumps(
+            {
+                "config": {
+                    k: (list(v) if isinstance(v, tuple) else v)
+                    for k, v in asdict(cfg).items()
+                },
+                "held_out": str(fold.held_out),
+                "fold_index": fold.index,
+                "n_train": len(train_positions),
+                "n_val": len(val_positions),
+                "n_terms": dataset.n_terms,
+                "parameters": count_parameters(model),
+                "input_terms": n_input,
+                "best_val_r2": best_r2,
+                "best_epoch": best_epoch,
+                "checkpoint": str(checkpoint_path) if checkpoint_path else None,
+                "history": history,
+                "wall_seconds": time.perf_counter() - started,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    logger.info(
+        "Done: best val R^2 {:+.4f} at epoch {} | checkpoint {} | summary {} | {:.1f}s",
+        best_r2,
+        best_epoch,
+        checkpoint_path,
+        summary_path,
+        time.perf_counter() - started,
+    )
+    return summary_path, final_metrics
 
-    Returns:
-        A :class:`CoeffTrainResult` whose ``checkpoint`` / ``summary`` are set
-        when ``cfg.save_checkpoint`` is on.
-    """
-    started = time.perf_counter()
-    random.seed(cfg.seed)
-    np.random.seed(cfg.seed)
-    torch.manual_seed(cfg.seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(cfg.seed)
-    # Dedicated stream for geometric augmentation, so the draw neither depends on
-    # nor perturbs the main RNG (which drives shuffling / init).
-    geom_generator = torch.Generator()
-    geom_generator.manual_seed(cfg.seed + 9973)
-    device = torch.device(cfg.device if torch.cuda.is_available() else "cpu")
-    if cfg.image_mode == "sum":
-        # Not a style preference: "sum" is the measured trap (R^2 worse than a
-        # constant predictor while PSNR/SSIM look perfect).
-        raise ValueError(
-            "image_mode='sum' is not permitted: total-energy normalisation makes "
-            "PSNR and SSIM degenerate while degrading R^2. Use 'peak' or "
-            "'robust'."
-        )
 
-    out_dir = Path(cfg.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
 
+def _build_geometric_ops(cfg, dataset, n_input, geom_generator, device):
+    """Geometric augmentation operator bank (verbatim from train())."""
+    # Geometric augmentation is only meaningful when the coefficient vector spans
+    # the whole Zernike basis: `D` is a square operator, so a trimmed
+    # `--input-terms` input cannot be transformed consistently. Skip it loudly
+    # rather than silently applying half the transform.
+    geom_ops: dict[str, torch.Tensor] = {}
+    if cfg.geometric_augment > 0.0:
+        if n_input != calc_n_zernike_terms(cfg.n_max):
+            logger.warning(
+                "geometric_augment ignored: n_input={} != full basis {} "
+                "(do not combine with --input-terms)",
+                n_input,
+                calc_n_zernike_terms(cfg.n_max),
+            )
+        else:
+            basis = ZernikeBasis(cfg.grid, cfg.n_max).as_tensor()
+            geom_ops = {}
+            for transform in GEOMETRIC_TRANSFORMS:
+                operator = basis_transform(basis, transform).to(device)
+                # HARD guard: the dataset's vector is Noll-ordered INCLUDING
+                # piston (`calc_n_zernike_terms`), while `ZernikeBasis` EXCLUDES
+                # it -- so the operator can be one column short (measured:
+                # n_max=3 -> vector 10, basis K=9). Applying a mismatched D would
+                # silently corrupt the coefficients, so refuse instead.
+                if operator.shape[0] != n_input:
+                    logger.warning(
+                        "geometric_augment ignored: basis operator is {}x{} but the "
+                        "coefficient vector is {} (piston convention mismatch)",
+                        operator.shape[0],
+                        operator.shape[1],
+                        n_input,
+                    )
+                    geom_ops = {}
+                    break
+                geom_ops[transform[0]] = operator
+    return geom_ops
+
+
+
+def _build_datasets(cfg, device):
+    """Index, folds, dataset, loaders, input terms (verbatim from train())."""
     # Filter ONCE, then use the same index everywhere. ZernikeCoeffDataset also
     # filters internally, but fit_coeff_stats and file_folds address
     # `index.records` by position -- so an unfiltered index here would silently
@@ -914,40 +964,51 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
     )
 
     n_input = _n_input_terms(dataset, cfg)
-    # Geometric augmentation is only meaningful when the coefficient vector spans
-    # the whole Zernike basis: `D` is a square operator, so a trimmed
-    # `--input-terms` input cannot be transformed consistently. Skip it loudly
-    # rather than silently applying half the transform.
-    geom_ops: dict[str, torch.Tensor] = {}
-    if cfg.geometric_augment > 0.0:
-        if n_input != calc_n_zernike_terms(cfg.n_max):
-            logger.warning(
-                "geometric_augment ignored: n_input={} != full basis {} "
-                "(do not combine with --input-terms)",
-                n_input,
-                calc_n_zernike_terms(cfg.n_max),
-            )
-        else:
-            basis = ZernikeBasis(cfg.grid, cfg.n_max).as_tensor()
-            geom_ops = {}
-            for transform in GEOMETRIC_TRANSFORMS:
-                operator = basis_transform(basis, transform).to(device)
-                # HARD guard: the dataset's vector is Noll-ordered INCLUDING
-                # piston (`calc_n_zernike_terms`), while `ZernikeBasis` EXCLUDES
-                # it -- so the operator can be one column short (measured:
-                # n_max=3 -> vector 10, basis K=9). Applying a mismatched D would
-                # silently corrupt the coefficients, so refuse instead.
-                if operator.shape[0] != n_input:
-                    logger.warning(
-                        "geometric_augment ignored: basis operator is {}x{} but the "
-                        "coefficient vector is {} (piston convention mismatch)",
-                        operator.shape[0],
-                        operator.shape[1],
-                        n_input,
-                    )
-                    geom_ops = {}
-                    break
-                geom_ops[transform[0]] = operator
+    return dataset, fold, train_positions, val_positions, train_loader, val_loader, n_input, coeff_mean, coeff_std
+
+
+
+def _seed_environment(cfg):
+    """Seeding, device selection, output dir (verbatim from train())."""
+    started = time.perf_counter()
+    random.seed(cfg.seed)
+    np.random.seed(cfg.seed)
+    torch.manual_seed(cfg.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(cfg.seed)
+    # Dedicated stream for geometric augmentation, so the draw neither depends on
+    # nor perturbs the main RNG (which drives shuffling / init).
+    geom_generator = torch.Generator()
+    geom_generator.manual_seed(cfg.seed + 9973)
+    device = torch.device(cfg.device if torch.cuda.is_available() else "cpu")
+    if cfg.image_mode == "sum":
+        # Not a style preference: "sum" is the measured trap (R^2 worse than a
+        # constant predictor while PSNR/SSIM look perfect).
+        raise ValueError(
+            "image_mode='sum' is not permitted: total-energy normalisation makes "
+            "PSNR and SSIM degenerate while degrading R^2. Use 'peak' or "
+            "'robust'."
+        )
+
+    out_dir = Path(cfg.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return started, geom_generator, device, out_dir
+
+
+def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
+    """Train one fold and return its result.
+
+    Args:
+        cfg: The run's configuration.
+
+    Returns:
+        A :class:`CoeffTrainResult` whose ``checkpoint`` / ``summary`` are set
+        when ``cfg.save_checkpoint`` is on.
+    """
+    started, geom_generator, device, out_dir = _seed_environment(cfg)
+
+    dataset, fold, train_positions, val_positions, train_loader, val_loader, n_input, coeff_mean, coeff_std = _build_datasets(cfg, device)
+    geom_ops = _build_geometric_ops(cfg, dataset, n_input, geom_generator, device)
     model_config = ZernikeCoeffConfig(
         n_coeffs=n_input,
         grid=cfg.grid,
@@ -1132,40 +1193,7 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
             ) or epoch == cfg.epochs - 1:
                 _log_comparison_image(run, figure_path, epoch, caption)
 
-    summary_path = out_dir / "summary.json"
-    final_metrics = history[-1] if history else {}
-    summary_path.write_text(
-        json.dumps(
-            {
-                "config": {
-                    k: (list(v) if isinstance(v, tuple) else v)
-                    for k, v in asdict(cfg).items()
-                },
-                "held_out": str(fold.held_out),
-                "fold_index": fold.index,
-                "n_train": len(train_positions),
-                "n_val": len(val_positions),
-                "n_terms": dataset.n_terms,
-                "parameters": count_parameters(model),
-                "input_terms": n_input,
-                "best_val_r2": best_r2,
-                "best_epoch": best_epoch,
-                "checkpoint": str(checkpoint_path) if checkpoint_path else None,
-                "history": history,
-                "wall_seconds": time.perf_counter() - started,
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-    logger.info(
-        "Done: best val R^2 {:+.4f} at epoch {} | checkpoint {} | summary {} | {:.1f}s",
-        best_r2,
-        best_epoch,
-        checkpoint_path,
-        summary_path,
-        time.perf_counter() - started,
-    )
+    summary_path, final_metrics = _write_summary(cfg, history, best_r2, best_epoch, checkpoint_path, out_dir, started, dataset, fold, model, n_input, train_positions, val_positions, coeff_mean, coeff_std)
     result = CoeffTrainResult(
         best_val_r2=best_r2,
         best_epoch=best_epoch,
