@@ -4658,6 +4658,13 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 门禁与基线：`_SIM2F` 分组 6 枚钉入表（`run_loop` 241/2/193、`_run_probe_stage` 91/1/66、`_run_closed_loop` 108/2/83、`_append_sample_csv_rows` 62/2/37、`_append_sample_record` 85/0/60、`_build_loop_payload` 111/0/86），棘轮表 85→91 行（2026-11-07 复测）；模块 965→1088 已在基线点名（签名 5 份 + docstring 是主要增量，函数体净减 219 行）。
 - 验收（上游自报）：ml/sim2f 整域 **401 passed / 11 skipped / 0 failed**（per-file，CI 同包络 `AO_CPUS=4` / `AO_MEMORY=6g`），其中 `test_loop.py` 13 passed 是真执行 `run_loop` 端到端；conventions + 形状门禁 164 passed；ruff、术语（0 个文件）、模块规模门禁全绿。
 
+**2026-11-07 · 85409ce2 · #205 第三十三批：给 10 个 ≥310 行且完全无登记的函数先上形状钉（登记先于拆分）**
+- 打法是第 29 批对 `run_session` 的复用——**登记先于拆分**：没有钉，最长的函数可以无声地继续长；第 31 批那两处越界正是「上游加代码时无人拦截」的直接后果。本批**不改任何 `src`**，只增 CI 强制力。选钉而非继续拆，是因为上游核过 `transfer/capture.py::capture` 的真实形状是 `capture → with cam → with slm → try(247 行)`，已有 5 层嵌套——在这种深度做逐字搬移，helper 会继承同样深度，收益低于风险；先钉住，等一个有预算的批次再按段界细拆。
+- 10 枚新钉（跨度 = 实测 + 40 余量，嵌套上限 = 实测值，与本表既有惯例一致），数值 2026-11-07 本树复测与表内逐枚一致：`train_coeff.train` 367/n4、`train_amp.train` 356/n4、`_thorlab_wfs.load_dll` 351/n0、`zernike_debug_viewer._render_main` 349/n7、`transfer/capture.capture` 346/n6、`panel/panel_locate.scan_panel` 342/n4、`transfer_shapes_runner.execute_campaign` 331/n4、`zernike_matrix_runner.run` 329/n4、`sim2f/bench.run_session` 324/n4、`dm_response_matrix.calibrate_dm_response_matrix` 312/n4。
+- 上游记录的一次**自我纠错（守卫陷阱）**：最初用**模块路径前 6 字符**生成模块常量名，`transfer/capture.py` 与 `panel/panel_locate.py` 一起塌成同一个 `TOOLS_`，于是 `scan_panel` 被挂到了 `capture.py`；守卫直接失败并报「`expected exactly one scan_panel in .../capture.py, found 0` — the guard would silently measure the wrong one」，**拒绝静默测错对象**。回滚重做为按模块名唯一命名（`_CAPTURE` / `_PANEL_LOCATE` / …）并加 `assert cname not in used`。
+- 门禁：10 枚钉入表，棘轮表 **91→101 行**（2026-11-07 本树复测 `len(TARGETS)` = 101）。本批不动 `src`，故模块规模基线无需再动。
+- 验收（上游自报）：形状门禁 **102 passed**（原 92 + 10）；ruff、术语（0 个文件）、模块规模门禁全绿。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
