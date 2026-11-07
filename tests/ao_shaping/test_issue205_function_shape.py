@@ -65,6 +65,16 @@ _PIB = "src/ao_shaping/optimizer/wfless/pib.py"
 _COMB = "src/ao_shaping/optimizer/combined_optimizer.py"
 _VAL = "src/ao_shaping/tools/slm/transfer/validate.py"
 _SIM2F = "src/ml/sim2f/loop.py"
+_DM_RESPONSE_MATRIX = "src/ao_shaping/optimizer/wf/dm_response_matrix.py"
+_BENCH = "src/ml/sim2f/bench.py"
+_ZERNIKE_MATRIX_RUNNER = "src/ao_shaping/runners/slm/zernike_matrix_runner.py"
+_TRANSFER_SHAPES_RUNNER = "src/ao_shaping/runners/slm/transfer_shapes_runner.py"
+_PANEL_LOCATE = "src/ao_shaping/tools/slm/panel/panel_locate.py"
+_CAPTURE = "src/ao_shaping/tools/slm/transfer/capture.py"
+_ZERNIKE_DEBUG_VIEWER = "src/ao_shaping/gui/zernike/zernike_debug_viewer.py"
+_THORLAB_WFS = "src/ao_shaping/drivers/wfs/_thorlab_wfs.py"
+_TRAIN_AMP = "src/ml/zernike/train_amp.py"
+_TRAIN_COEFF = "src/ml/zernike/train_coeff.py"
 _WF = "src/ao_shaping/tools/slm/transfer/workflow.py"
 _LUT = "src/ao_shaping/tools/slm/calibration/lut_runner.py"
 _IO = "src/ao_shaping/utils/io/file.py"
@@ -129,6 +139,16 @@ TARGETS = [
     (_SIM2F, "_append_sample_csv_rows", 62, 2, 37),
     (_SIM2F, "_append_sample_record", 85, 0, 60),
     (_SIM2F, "_build_loop_payload", 111, 0, 86),
+    (_TRAIN_COEFF, "train", 407, 4, 367),
+    (_TRAIN_AMP, "train", 396, 4, 356),
+    (_THORLAB_WFS, "load_dll", 391, 0, 351),
+    (_ZERNIKE_DEBUG_VIEWER, "_render_main", 389, 7, 349),
+    (_CAPTURE, "capture", 386, 6, 346),
+    (_PANEL_LOCATE, "scan_panel", 382, 4, 342),
+    (_TRANSFER_SHAPES_RUNNER, "execute_campaign", 371, 4, 331),
+    (_ZERNIKE_MATRIX_RUNNER, "run", 369, 4, 329),
+    (_BENCH, "run_session", 364, 4, 324),
+    (_DM_RESPONSE_MATRIX, "calibrate_dm_response_matrix", 352, 4, 312),
     (_WF, "run_session", 430, 4, 378),
     (_WF, "_acquire_session_dataset", 95, 4, 78),
     (_WF, "_round_geometry_preflight", 60, 1, 42),
