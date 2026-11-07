@@ -166,6 +166,7 @@ def _plan_dict(*, out: Path, execute: bool, **params: Any) -> dict[str, Any]:
                 spectral_cutoff=params["spectral_cutoff"],
                 objective=params["objective"], weight_schedule=params["weight_schedule"],
                 tilt=params.get("tilt", False), aspect_ratio=params.get("aspect_ratio", 2.0),
+                auto_reuse=params.get("auto_reuse", True),
                 stages=[dict(name=recipe.name, blocks=recipe.blocks, updates=recipe.updates,
                              bit_depth=recipe.bit_depth, ccd_check=recipe.ccd_check,
                              window_step=recipe.window_step) for recipe in STAGE_RECIPES])
@@ -279,6 +280,8 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
     weight_schedule = values["weight_schedule"]
     tilt = bool(values["tilt"])
     aspect_ratio = float(values["aspect_ratio"])
+    auto_reuse = bool(values.get("auto_reuse", True))
+    records_only = bool(values.get("records_only", False))
 
     totals = matrix_totals(campaign_matrix(shapes))
     summary = {"out": str(out), "stages": totals["segments"], "blocks": totals["blocks"],
@@ -296,6 +299,36 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
 
     from ao_shaping.tools.slm.transfer import bootstrap as bootstrap_stage
     from ao_shaping.tools.slm.transfer import geometric_seed
+
+    # ---------------------------------------------------------------- auto-reuse
+    # 当用户没有显式指定 --model-dir 时，先用少数几帧探测当前光路，
+    # 扫描历史检查点，若兼容性 >= AUTO_APPLY_THRESHOLD 就自动复用，
+    # 跳过约 20 min 的采集与拟合。任何一步失败都只记日志，继续走从头采集。
+    if auto_reuse and model_dir is None and not records_only:
+        try:
+            from ao_shaping.tools.slm.transfer.auto_reuse import (
+                auto_select_checkpoint, probe_for_fingerprint,
+            )
+            probe = probe_for_fingerprint(
+                camera=camera, cam_id=cam_id,
+                label="auto-reuse probe",
+            )
+            fingerprint = {**probe,
+                           "window_span": window_span,
+                           "window_step": window_step,
+                           "zero_radius": zero_radius,
+                           "period": period,
+                           "control_grid": control_grid,
+                           "fft_size": fft_size}
+            best = auto_select_checkpoint(fingerprint)
+            if best is not None:
+                model_dir = Path(best["path"])
+                journal.record("model", "auto-reused",
+                               source=best["path"],
+                               score=best["score"],
+                               verdict=best["verdict"])
+        except Exception as exc:
+            logger.warning(f"auto-reuse: 探测/选择失败 (继续从头采集): {exc!r}")
 
     # ---------------------------------------------------------------- model
     if model_dir is not None:
@@ -737,6 +770,11 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
               help="拟合时记录逐批物理响应统计 (fit --record-responses), 写入 fit/")
 @click.option("--model-dir", type=click.Path(path_type=Path), default=None,
               help="复用已有会话目录 (含 capture/ 与 fit/), 跳过模型采集与拟合")
+@click.option("--auto-reuse/--no-auto-reuse", "auto_reuse", default=True,
+              show_default=True,
+              help="当 --model-dir 未指定时, 开一次相机读几帧探测当前光路, "
+                   "扫描历史检查点, 若兼容性 >= 0.80 则自动复用, 跳过采集与拟合。"
+                   "--no-auto-reuse 强制从头采集。")
 @click.option("--records-only", is_flag=True,
               help="只从已有的分段目录重建 Recorder 记录 (离线, 不打开设备)")
 @click.option("--resume", is_flag=True,
@@ -798,7 +836,8 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         jacobian_floor: float, jacobian_min_signal: float,
         accept_rel_tol: float, accept_abs_tol: float, spectral_weight: float,
         spectral_cutoff: float | None, objective: str,
-        weight_schedule: str, tilt: bool = False, aspect_ratio: float = 2.0) -> None:
+        weight_schedule: str, auto_reuse: bool = True,
+         tilt: bool = False, aspect_ratio: float = 2.0) -> None:
     """物理预测模型闭环整形：从零训练模型 + 目标整形，逐形状执行。
 
     典型用法::
@@ -829,6 +868,7 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         replay_exposures_auto=replay_exposures_auto, record_responses=record_responses,
         model_dir=model_dir, resume=resume, order=order, profile_timing=profile_timing,
         async_capture_write=async_capture_write, jacobian_guard=jacobian_guard,
+        auto_reuse=auto_reuse,
         jacobian_low=jacobian_low, jacobian_high=jacobian_high,
         jacobian_floor=jacobian_floor, jacobian_min_signal=jacobian_min_signal,
         accept_rel_tol=accept_rel_tol, accept_abs_tol=accept_abs_tol,
