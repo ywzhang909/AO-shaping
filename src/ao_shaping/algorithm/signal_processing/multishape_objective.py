@@ -268,13 +268,24 @@ def assert_target_within_fft_window(forward, centre, side, shape,
     shape raster (``centre ± extent/2`` per axis, ``extent = side * aspect_ratio``
     for a ``"rectangle"`` else ``side``), so it never wrongly accepts a target
     that overflows the window; for a triangle the true bounding box is smaller.
+
+    A model that exposes no reach geometry (``pitch`` / ``ramp_matrix`` /
+    ``origin_xy``) cannot be checked, so the guard is a no-op there — every real
+    :class:`FrozenDefocusForward` carries all three.
     """
-    p = forward.params
-    fmax = 0.5 / float(forward.pitch)
+    pitch = getattr(forward, "pitch", None)
+    params = getattr(forward, "params", None)
+    if pitch is None or params is None:
+        return
+    ramp = getattr(params, "ramp_matrix", None)
+    origin_xy = getattr(params, "origin_xy", None)
+    if ramp is None or origin_xy is None:
+        return
+    fmax = 0.5 / float(pitch)
     half = side * (aspect_ratio if shape == "rectangle" else 1.0) / 2.0
-    inv_ramp = np.linalg.inv(np.asarray(p.ramp_matrix, dtype=float))
+    inv_ramp = np.linalg.inv(np.asarray(ramp, dtype=float))
     corner = np.asarray(centre, dtype=float)
-    origin = np.asarray(p.origin_xy, dtype=float)
+    origin = np.asarray(origin_xy, dtype=float)
     worst = 0.0
     for sx in (-1.0, 1.0):
         for sy in (-1.0, 1.0):
