@@ -153,6 +153,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="逐块进度 logger 的节流步长（每 N 块打一次，0 关闭逐块日志）")
     parser.add_argument("--lr", type=float, default=0.01)
     parser.add_argument("--phase-rms-cap", type=float, default=0.06)
+    # 形状 0（零相位起步）改为随机相位起步（RMS rad，0 表示仍用零相位）。
+    # 离线决定性实验：随机相位 RMS~1.5 起步 500 步 model_cv 0.083（达标），
+    # 而零相位被焦斑盆地困住（2000 步仅 3.55）。cap 不是根因，初始化才是。
+    parser.add_argument("--random-seed-rms", type=float, default=0.0)
     parser.add_argument("--carrier-period-px", type=float, default=32.0)
     parser.add_argument("--carrier-axis", choices=("x", "y"), default="x")
     parser.add_argument("--frames", type=int, default=5, help="每次抓取平均的帧数")
@@ -373,8 +377,14 @@ def run_shape(
             f"warm-start seed shape {warm_seed.shape} != model grid {(grid, grid)}"
         )
     if warm_seed is None:
-        seed_grid = np.zeros((grid, grid), dtype=np.float32)
-        seed_source = "zero"
+        if args.random_seed_rms and args.random_seed_rms > 0:
+            rng = np.random.default_rng(int(round(args.random_seed_rms * 1000)))
+            seed_grid = rng.normal(0.0, float(args.random_seed_rms),
+                                   (grid, grid)).astype(np.float32)
+            seed_source = f"random_rms_{args.random_seed_rms:g}"
+        else:
+            seed_grid = np.zeros((grid, grid), dtype=np.float32)
+            seed_source = "zero"
     else:
         seed_grid = np.array(warm_seed, dtype=np.float32)
         seed_source = "warm_start_prev"
@@ -626,7 +636,13 @@ def main(argv: list[str] | None = None) -> int:
         warm_seed: np.ndarray | None = None
         for i, shape in enumerate(split_shapes(args.shapes)):
             seed_for_this = None if (i == 0 or not args.warm_start) else warm_seed
-            logger.info(f"[shape {i}] {shape} seed={'zero' if seed_for_this is None else 'warm_start_prev'}")
+            if seed_for_this is not None:
+                seed_label = "warm_start_prev"
+            elif args.random_seed_rms and args.random_seed_rms > 0:
+                seed_label = f"random_rms_{args.random_seed_rms:g}"
+            else:
+                seed_label = "zero"
+            logger.info(f"[shape {i}] {shape} seed={seed_label}")
             row, _src, carried = run_shape(
                 order_index=i, shape=shape, args=args, forward=forward,
                 camera_xy=camera_xy,

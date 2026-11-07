@@ -680,8 +680,11 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
         grad_norm = float(self._delta.grad.norm()) if self._delta.grad is not None else 0.0
         raw_step = -self._lr * self._delta.grad.detach().clone()
         self._opt.step()
-        rms_before = self._project_increment()
+        # 先对所有增量去 piston/倾斜（对准方向），再投影（只等比缩放幅度到 cap）。
+        # 顺序不能反：先投影再对准会在最后的去活塞/倾斜中二次削减增量能量，
+        # 破坏已对准的增量方向（有效整形分量只剩 ~0.857×cap 且被钉死）。
         self._remove_piston_and_tilt()
+        rms_before = self._project_increment()
         with torch.no_grad():
             anchor_prediction = self.forward.predict(
                 self._seed + self._accepted, focus_phase=self._focus, carrier_phase=self._carrier)
