@@ -4651,6 +4651,13 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 顺带更正两条我先前写错的事实：`gh` 令牌经代理**能**发 POST（重跑就是它做的），先前"令牌失效"只适用于我试过的那几条 GET；`tests/ao_shaping/ml/**` 并非无 CI 覆盖——`pytest.yml:131` 显式点名 `tests/ao_shaping/ml/sim2f` 且 `blocking=1`，`--ignore` 只作用于 discovery，显式路径照跑。这条直接改变了第 32 批的选靶。
 - 验收：conventions + 形状门禁 + 探针常量参考真值 **285 passed**（含台账格式守卫）；transfer 定向 478 passed；tools 分片整片 **1518 passed / 6 skipped**；ruff、术语（0 个文件）、模块规模门禁全绿。`tests/ao_shaping/gui` 在本容器有 11 个 `PySide6` 收集期错误，已 stash 验证在干净 HEAD 上同样存在——本地镜像缺可选依赖，与本批无关。
 
+**2026-11-07 · 92bda70c · #205 第三十二批：`run_loop` 412→193（全树最长且无门禁的函数补上第一枚钉，ml 域第一枚钉）**
+- 选靶是**取证而非尺寸**：`src/ml/sim2f/loop.py::run_loop` 412 行 / nest 2，是全 `src` 最长且完全未在棘轮登记的函数（本批复测：拆前模块 965 行、函数 412 行，表内无 `_SIM2F` 钉）。先前"ml 域没有 CI 覆盖"的担忧被 `pytest.yml:131` 推翻——`run_shard "ml" 1 1 ... tests/ao_shaping/ml/sim2f` 显式点名该路径且 blocking=1（`--ignore` 只作用于 discovery，显式路径照跑），本批即 ml 域首钉。
+- 五段逐字搬移到模块级：`_run_probe_stage`（66 行 / nest 1，探针阶段含 `probe_fit=False` 消融路径）、`_run_closed_loop`（83 行 / nest 2，refit 轮次 + 拒绝轮必须留痕）、`_append_sample_csv_rows`（37 行）、`_append_sample_record`（60 行）、`_build_loop_payload`（86 行，报告载荷）；拆完 `run_loop` 193 行 / nest 2（2026-11-07 对钉复测）。
+- 形参名与调用点局部量**完全同名**，等价证明因此不需要改名映射，退化为叶语句全表扫描：拆分前那棵树 216 条叶语句逐字仍在（**0 改动、0 丢失**）；17 个既有符号的装饰器列表逐条不变；5 个 helper 各只有 1 个调用点且逐关键字按名绑定（不许传字面量/表达式）；自由名 ⊆ 形参 ∪ 模块级名。两个**真**漏参由 ruff 抓到（`_run_probe_stage` 用了调用方的 `zeros`、`_append_sample_record` 用了 `refit_rows`）：F821 正是自由名证明要拦的那一类，补齐参数而非放宽证明。
+- 门禁与基线：`_SIM2F` 分组 6 枚钉入表（`run_loop` 241/2/193、`_run_probe_stage` 91/1/66、`_run_closed_loop` 108/2/83、`_append_sample_csv_rows` 62/2/37、`_append_sample_record` 85/0/60、`_build_loop_payload` 111/0/86），棘轮表 85→91 行（2026-11-07 复测）；模块 965→1088 已在基线点名（签名 5 份 + docstring 是主要增量，函数体净减 219 行）。
+- 验收（上游自报）：ml/sim2f 整域 **401 passed / 11 skipped / 0 failed**（per-file，CI 同包络 `AO_CPUS=4` / `AO_MEMORY=6g`），其中 `test_loop.py` 13 passed 是真执行 `run_loop` 端到端；conventions + 形状门禁 164 passed；ruff、术语（0 个文件）、模块规模门禁全绿。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
