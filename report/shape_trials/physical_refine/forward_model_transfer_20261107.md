@@ -1,11 +1,9 @@
-# 正向模型迁移实施报告：三档 zernike_block 微调、结构化探针与在线回灌（2026-11-07）
+# 物理预测模型迁移实施报告：三档 zernike_block 微调、结构化探针与在线回灌（2026-11-07）
 
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
-> **数据/关联脚本**: worktree 分支 `feat/zernike-block-transfer` 的 `scripts/slm/issue229_structured_probes_p0.py`（P0 离线实验）
-> **数据/关联脚本**: worktree 分支 `feat/zernike-block-transfer` 的 `src/ao_shaping/tools/slm/transfer/structured_probes.py`、`src/ao_shaping/tools/slm/transfer/zernike_block.py`、`src/ao_shaping/tools/slm/transfer/online_augment.py`、`src/ao_shaping/tools/slm/transfer/fit.py`（`zernike_block` 档接入）
 > **运行环境**: 离线 CPU（FrozenDefocusForward 2f 数字孪生，注入 7 模 Zernike 残差）；未占用 SLM/CCD/激光硬件
-> **说明**: issue #229 步骤 3/4/5 的工程实施（worktree 隔离，主分支代码未动）+ 20 条新测试 + P0 离线孪生实验（结构化 vs 随机探针辨识率）+ 物理设备实验方案。全部结论均标注来源：测试为可复现代码运行结果；P0 为离线仿真；物理方案为待执行计划。
+> **说明**: issue #229 步骤 3/4/5 工程实施（worktree feat/zernike-block-transfer，主分支代码未动）：结构化单模 ±Zernike 探针 + zernike_block 第三档（梯度掩码+0.5 rad 块 L2）+ 块间在线回灌（ModelSwitchGate）；20 条新测试 + 328 回归全过、ruff 全净；P0 离线孪生实验：结构化设计 Gram 条件数 1.0 vs 随机 4.05，远场基逐模 peak/leakage 0.69~0.88 低于 2.0 地板、交叉响应矩阵条件数 17425（与 #229 硬件空结果同因：探针设计不改变光学可辨识性上限，价值在逐模可归因测量）；物理设备实验方案见 §6。人工撰写。
 <!-- provenance:end -->
 
 本文是 issue #229 方案（`forward_model_transfer_plan_20261104.md`）步骤 3、4、5 的工程实施报告，不是实验过程记录：三处代码改动全部落在独立 git worktree（分支 `feat/zernike-block-transfer`，基线 master@1655ac3c），主分支现有代码零改动；20 条新测试与 328 条回归为可复现代码运行结果（§3）；P0 离线孪生实验为 `FrozenDefocusForward` 数字孪生上的数值结果（§4）；§6 的物理设备实验方案为待执行计划。全文结论先行：结构化单模态 ±Zernike 探针把 7 个模态设计成对角（设计 Gram 条件数 1.0，随机对照 4.05），但远场 2f 光路本身把 7 个模的焦面响应交叉耦合（逐模 peak/leakage 0.69 至 0.88，低于 2.0 辨识地板；交叉响应矩阵条件数 17425）——这与 issue #229 的硬件空结果同因：探针设计不改变光学可辨识性上限，其真实价值在逐模可归因的 Jacobian 测量（辨识门输入）与低维 `zernike_block` 档的筛选依据。
@@ -50,7 +48,7 @@
 | `random_probe_budget_match(n_modes, n_frames, size, seed)` | 帧预算匹配的随机对照（每模 1 个随机组合乘同总帧数） |
 | `cross_response_matrix(base, modal, amplitude_scale)` | M×M 交叉响应矩阵（逐模 +A 差分的余弦相似度） |
 
-设计要点分四条。其一，单模隔离：每探针只激励一个模，`I(+A) − I(0)` 即该模的有限差分 Jacobian 行，M×M 矩阵即可辨识性判定的输入。其二，符号配对：每个（模、幅度、重复）都有 `+A` 与 `−A` 各一，`I(+A) − I(−A)` 对一阶漂移与背景鲁棒。其三，幅度阶梯：0.02 rad 供高灵敏区线性标定，0.10 rad 供低灵敏高阶模提供信噪；最大档整档作验证集（非散点）。其四，留出：Noll 9 整模作 holdout（从不进训练），保证外推评估。
+设计要点分四条。其一，单模隔离：每探针只激励一个模，`I(+A) − I(0)` 即该模的有限差分 Jacobian 行，M×M 矩阵即可辨识性判定的输入。其二，符号配对：每个（模、幅度、重复）都有 `+A` 与 `−A` 各一，`I(+A) − I(−A)` 对一阶漂移与背景鲁棒。其三，幅度阶梯：0.02 rad 供高灵敏区线性标定，0.10 rad 供低灵敏高阶模提供信噪；最大档整档作验证集（非散点）。其四，验证集：Noll 9 整模作 holdout（从不进训练），保证外推评估。
 
 ### 2.3 新增模块二加 fit 接入：`zernike_block` 第三档（步骤 4）
 
@@ -77,7 +75,7 @@
 | `should_refit(block, every=3)` | 块间重拟合触发：每 K=3 块 |
 | `ModelSwitchGate.check(refit_validation_nrmse, next_guard_correlation)` | 模型切换门：验证集 NRMSE 劣化不大于 10% 且方向守卫不下降才切换；连续 2 次失败置 `rebuild_required`（基线重建） |
 
-隔离不变量有三条，与方案 §5.2 一致：回灌只在块间（块内模型冻结，由调用方保证）；被回灌帧不进当前块判决；被回灌帧永不进验证集（验证集由结构化探针的留出档管理，`SessionDataset.frames()` 在 API 层面即排除 holdout）。
+隔离不变量有三条，与方案 §5.2 一致：回灌只在块间（块内模型冻结，由调用方保证）；被回灌帧不进当前块判决；被回灌帧永不进验证集（验证集由结构化探针的验证集档管理，`SessionDataset.frames()` 在 API 层面即排除 holdout）。
 
 ### 2.5 文档登记
 
@@ -151,7 +149,7 @@ ruff check（3 新模块 + fit.py + 新测试 + P0 脚本）  →  All checks pa
 
 ### 4.3 解读
 
-解读分四点。其一，设计层面：结构化探针把 7 模设计成对角（条件数 1.0），随机混模是 4.05，结构化在可归因性上严格更优。其二，光学层面：即便探针设计完美对角，远场 2f 光路本身把 7 个 Zernike 模的焦面响应交叉耦合（peak/leakage 小于 1，交叉矩阵条件数 10⁴ 量级），这是光学的固有限制，不是探针设计的缺陷。其三，与 #229 一致：因为光学基交叉耦合，探针设计（结构化 vs 随机）不改变可辨识模态的上限，故原始 NRMSE 无差异，与 #229 硬件空结果同因；结构化探针的真实收益是逐模可归因的 Jacobian 测量（辨识门输入）与低维 `zernike_block` 档的筛选依据，而非原始恢复精度。其四，含义：`zernike_block` 档在远场 2f 本台架的逐模可辨识性受限，其收益主要体现在物理台架（光学结构、CCD 噪声、非线性与孪生不同）上，需 §6 的物理实验判定。
+解读分四点。其一，设计层面：结构化探针把 7 模设计成对角（条件数 1.0），随机混模是 4.05，结构化在可归因性上严格更优。其二，光学层面：即便探针设计完美对角，远场 2f 光路本身把 7 个 Zernike 模的焦面响应交叉耦合（peak/leakage 小于 1，交叉矩阵条件数 10⁴ 量级），这是光学的固有限制，不是探针设计的缺陷。其三，与 #229 一致：因为光学基交叉耦合，探针设计（结构化 vs 随机）不改变可辨识模态的上限，故原始 NRMSE 无差异，与 #229 硬件空结果同因；结构化探针的真实收益是逐模可归因的 Jacobian 测量（辨识门输入）与低维 `zernike_block` 档的筛选依据，而非原始恢复精度。其四，含义：`zernike_block` 档在远场 2f 本实验系统的逐模可辨识性受限，其收益主要体现在物理实验系统（光学结构、CCD 噪声、非线性与孪生不同）上，需 §6 的物理实验判定。
 
 ### 4.4 效果图片
 
@@ -197,15 +195,15 @@ ruff check（3 新模块 + fit.py + 新测试 + P0 脚本）  →  All checks pa
 
 ## 6. 物理设备实验方案
 
-> 硬件：SLM #1（Santec，1064 nm）加台架 CCD（Daheng 或 miicam 2.9 µm）加激光，驱动参数物理相同。本节为待执行计划，P0 离线先行（§4 已完成），未占用设备。所有数值判据继承 #229 的 harness 口径（`PhysicalForwardFit` 加 exposure radiometry 加固定 holdout）。
+> 硬件：SLM #1（Santec，1064 nm）加实验系统 CCD（Daheng 或 miicam 2.9 µm）加激光，驱动参数物理相同。本节为待执行计划，P0 离线先行（§4 已完成），未占用设备。所有数值判据继承 #229 的 harness 口径（`PhysicalForwardFit` 加 exposure radiometry 加固定 holdout）。
 
 ### 6.1 实验 A：结构化探针辨识门（需一次采集，离线分析）
 
-实验 A 的步骤分四步。其一，采集：按 `structured_probe_plan` 的 R=1 压缩档 176 帧执行单模 ±Zernike 探针（Z5 至 Z11，幅度 0.02、0.05、0.10，Noll 9 整模 holdout），外加 8 帧 ABBA 平场；曝光沿用 #229 run02 的深度匹配值，几何固定（相机窗口、矩阵、质心沿用 pass1）。其二，对照：同帧预算随机对照（`random_probe_budget_match`，每模 1 个随机组合乘同总帧数）。其三，离线分析：对两臂分别复算 §4 的设计条件数、逐模 peak/leakage、交叉响应矩阵与 `identifiability_gate`。其四，判据：结构化臂的过门模态数是否显著大于随机臂；若结构化在物理台架获得至少 1 个过门模（而 P0 为 0），说明远场孪生的交叉耦合估计偏保守、`zernike_block` 档在本台架可启用。
+实验 A 的步骤分四步。其一，采集：按 `structured_probe_plan` 的 R=1 压缩档 176 帧执行单模 ±Zernike 探针（Z5 至 Z11，幅度 0.02、0.05、0.10，Noll 9 整模 holdout），外加 8 帧 ABBA 平场；曝光沿用 #229 run02 的深度匹配值，几何固定（相机窗口、矩阵、质心沿用 pass1）。其二，对照：同帧预算随机对照（`random_probe_budget_match`，每模 1 个随机组合乘同总帧数）。其三，离线分析：对两个变体分别复算 §4 的设计条件数、逐模 peak/leakage、交叉响应矩阵与 `identifiability_gate`。其四，判据：结构化变体的过门模态数是否显著大于随机变体；若结构化在物理实验系统获得至少 1 个过门模（而 P0 为 0），说明远场孪生的交叉耦合估计偏保守、`zernike_block` 档在本实验系统可启用。
 
 ### 6.2 实验 B：`zernike_block` 档对 `full` 档（复用 A 数据，离线）
 
-实验 B 的步骤分三步。其一，用实验 A 辨识门放行的模态子集 `S`，跑 `fit --adaptation zernike_block --selected-modes S --residual-block-cap 0.5`。其二，对照 `fit --adaptation full`（同 checkpoint、同 holdout）。其三，判据：验证集 NRMSE 上 `zernike_block` 不大于 `full` 加 1%（不更差），且块 L2 实际不大于 0.5 rad，且过门模态的逐模恢复符号正确；若满足，`zernike_block` 档在物理台架为可推荐的中间档。
+实验 B 的步骤分三步。其一，用实验 A 辨识门放行的模态子集 `S`，跑 `fit --adaptation zernike_block --selected-modes S --residual-block-cap 0.5`。其二，对照 `fit --adaptation full`（同 checkpoint、同 holdout）。其三，判据：验证集 NRMSE 上 `zernike_block` 不大于 `full` 加 1%（不更差），且块 L2 实际不大于 0.5 rad，且过门模态的逐模恢复符号正确；若满足，`zernike_block` 档在物理实验系统为可推荐的中间档。
 
 ### 6.3 实验 C：块间在线回灌（衔接 issue #230）
 
@@ -219,7 +217,7 @@ ruff check（3 新模块 + fit.py + 新测试 + P0 脚本）  →  All checks pa
 
 ## 7. 结论
 
-结论分五点。其一，在 worktree 分支上完成了 issue #229 步骤 3、4、5 的工程实现：结构化单模探针、`zernike_block` 第三档、块间在线回灌，全部免设备可测。其二，20 条新测试加 328 条回归全过，ruff 全净；`alignment` 与 `full` 两档行为逐位保留，无回归。其三，P0 离线孪生实验（注入 7 模）证实：结构化探针在设计层面条件数 1.0（优于随机 4.05），但远场 2f 光路本身交叉耦合 7 模（peak/leakage 0.69 至 0.88、交叉矩阵条件数 17425），与 #229 硬件空结果同因——探针设计不改变光学可辨识性上限，其价值在逐模可归因测量（辨识门输入）。其四，`zernike_block` 档在远场孪生的逐模可辨识性受限，其物理台架收益待 §6 实验 A、B 判定；在线回灌判据继承 #230。其五，代码在 `feat/zernike-block-transfer` 分支，主分支未动；本报告与 6 张效果图片、`p0_results.json` 已落主分支 `report/shape_trials/physical_refine/`。
+结论分五点。其一，在 worktree 分支上完成了 issue #229 步骤 3、4、5 的工程实现：结构化单模探针、`zernike_block` 第三档、块间在线回灌，全部免设备可测。其二，20 条新测试加 328 条回归全过，ruff 全净；`alignment` 与 `full` 两档行为逐位保留，无回归。其三，P0 离线孪生实验（注入 7 模）证实：结构化探针在设计层面条件数 1.0（优于随机 4.05），但远场 2f 光路本身交叉耦合 7 模（peak/leakage 0.69 至 0.88、交叉矩阵条件数 17425），与 #229 硬件空结果同因——探针设计不改变光学可辨识性上限，其价值在逐模可归因测量（辨识门输入）。其四，`zernike_block` 档在远场孪生的逐模可辨识性受限，其物理实验系统收益待 §6 实验 A、B 判定；在线回灌判据继承 #230。其五，代码在 `feat/zernike-block-transfer` 分支，主分支未动；本报告与 6 张效果图片、`p0_results.json` 已落主分支 `report/shape_trials/physical_refine/`。
 
 ---
 
