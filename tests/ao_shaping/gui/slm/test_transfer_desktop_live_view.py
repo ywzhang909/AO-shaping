@@ -264,6 +264,50 @@ def test_apply_payload_renders_phase_and_predicted_panels(app: QApplication):
     view.close()
 
 
+def test_apply_payload_overlays_target_contour_on_both_panels(app: QApplication):
+    """target (相机网格掩膜) + xy 映射 → 实时 CCD 与预测远场都叠上线框。
+
+    预测面板直接转置 (col,row) → (x,y); CCD 面板经 xy 映射到 CCD 像素再除以
+    降采样步长。target/xy 缺失时两个面板的线框清空 (探针/平场段)。
+    """
+    view = LiveView()
+    view.show()
+    app.processEvents()
+
+    # 相机网格 10x10, xy 把它映射到 CCD 像素 (2*col, 2*row), 落在 40x48 帧内。
+    h = w = 10
+    yy, xx = np.mgrid[0:h, 0:w]
+    xy = np.stack([2.0 * xx, 2.0 * yy], axis=-1).astype(np.float64)
+    target = np.zeros((h, w), np.float32)
+    target[2:8, 4:6] = 1.0  # 竖直条
+
+    view.apply_payload(_payload(target=target, xy=xy))
+    app.processEvents()
+
+    # 预测面板: (x, y) = (col, row)。
+    predicted_contours = view._predicted.image._target_contours
+    assert predicted_contours is not None and len(predicted_contours) == 1
+    c0 = predicted_contours[0]
+    # 所有点都在竖直条内: col∈[4,6), row∈[2,8) → x∈[3,7), y∈[1,9)。
+    assert c0[:, 0].min() >= 3.0 and c0[:, 0].max() <= 7.0
+    assert c0[:, 1].min() >= 1.0 and c0[:, 1].max() <= 9.0
+
+    # CCD 面板: 经 xy 映射 (step=1 小帧不降采样)。
+    ccd_contours = view._video._target_contours
+    assert ccd_contours is not None and len(ccd_contours) == 1
+    assert ccd_contours[0].shape == c0.shape
+    # x_ccd = 2*col ≈ 2*x_pred ; y_ccd = 2*row ≈ 2*y_pred
+    np.testing.assert_allclose(ccd_contours[0][:, 0], 2.0 * c0[:, 0], atol=1.0)
+    np.testing.assert_allclose(ccd_contours[0][:, 1], 2.0 * c0[:, 1], atol=1.0)
+
+    # target/xy 缺失 → 两个面板线框清空。
+    view.apply_payload(_payload())
+    app.processEvents()
+    assert view._video._target_contours is None
+    assert view._predicted.image._target_contours is None
+    view.close()
+
+
 def test_phase_or_predicted_absent_or_none_clears_but_does_not_crash(
     app: QApplication,
 ):

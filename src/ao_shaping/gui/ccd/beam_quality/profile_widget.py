@@ -105,7 +105,8 @@ class _ProfilePanel(QWidget):
         y_max = float(np.max(values))
         y_min = float(np.min(values))
         pad = max((y_max - y_min) * 0.08, 1.0)
-        self._axis_y.setRange(y_min - pad, y_max + pad)
+        # 灰度非负: 下界钳到 0, 避免背景扣到 0 的剖面把坐标轴拖进负值区
+        self._axis_y.setRange(max(y_min - pad, 0.0), y_max + pad)
 
         if fit is not None and fit.sigma > 0.0:
             grid = np.linspace(x_min, x_max, FIT_SAMPLES)

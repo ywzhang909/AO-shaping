@@ -136,6 +136,8 @@ def _session(
     capture: list[dict[str, Any]] | None = None,
     fit: tuple[dict[str, Any], dict[str, Any]] | None = None,
     anchored: list[dict[str, Any]] | None = None,
+    fit_round: int | None = None,
+    anchored_round: int | None = None,
 ) -> Path:
     out = tmp_path / "session"
     out.mkdir(parents=True, exist_ok=True)
@@ -145,10 +147,14 @@ def _session(
     if capture is not None:
         _write(out / "capture" / "manifest.json", capture)
     if fit is not None:
-        _write(out / "fit" / "result.json", fit[0])
-        _write(out / "fit" / "provenance.json", fit[1])
+        fit_dir = out / ("fit" if fit_round is None else f"fit.round{fit_round}")
+        _write(fit_dir / "result.json", fit[0])
+        _write(fit_dir / "provenance.json", fit[1])
     if anchored is not None:
-        _write(out / "anchored" / "summary.json", anchored)
+        anchored_dir = out / (
+            "anchored" if anchored_round is None else f"anchored.round{anchored_round}"
+        )
+        _write(anchored_dir / "summary.json", anchored)
     return out
 
 
@@ -979,3 +985,59 @@ class TestRenderTraces:
         tp.render_traces(tp.collect_traces(out))
 
         assert len(plot_stub.figures) == 1
+
+
+class TestRetrainRoundMetrics:
+    """验收轮 ``acceptance_round_N_<stage>`` 读自己那轮的产物目录, 而非只剩耗时。"""
+
+    def test_round_fit_reads_its_own_round_dir(self, tmp_path):
+        out = _session(
+            tmp_path,
+            stages=["capture", "fit", "acceptance_round_1_fit"],
+            journal=[_entry("acceptance_round_1_fit", "complete", seconds=30.0)],
+            fit=(FIT_RESULT, FIT_PROVENANCE),
+            fit_round=1,
+        )
+
+        stage = _stage(tp.collect_progress(out), "acceptance_round_1_fit")
+
+        # 说明列展示模型训练信息 (迭代/损失/相关系数/CV/相对L2), 耗时只是附带
+        assert _metric(stage, "iteration")["text"] == "12"
+        assert _metric(stage, "loss")["text"] == "0.0412"
+        assert _metric(stage, "correlation")["label"] == "相关系数（验证）"
+        assert _metric(stage, "correlation")["value"] == pytest.approx(0.95)
+        assert _metric(stage, "relative_l2")["text"] == "0.110"
+        assert _metric(stage, "duration")["text"].endswith(" s")
+
+    def test_round_anchored_blocks_read_round_dir(self, tmp_path):
+        out = _session(
+            tmp_path,
+            stages=["capture", "acceptance_round_1_CCD_anchored_blocks"],
+            journal=[
+                _entry("acceptance_round_1_CCD_anchored_blocks", "complete", seconds=9.0)
+            ],
+            anchored=ANCHORED,
+            anchored_round=1,
+        )
+
+        stage = _stage(
+            tp.collect_progress(out), "acceptance_round_1_CCD_anchored_blocks"
+        )
+
+        assert _metric(stage, "accepted")["text"] == "1/2 块"
+        assert _metric(stage, "baseline_candidate")["text"] == "基线 0.0850 → 候选 0.0800"
+        assert _metric(stage, "drift")["text"] == "0.0040"
+
+    def test_round_zero_has_no_prefix_and_reads_plain_fit(self, tmp_path):
+        """第一轮 (round 0) 阶段名不带前缀, 仍读 ``fit``, 行为不变。"""
+        out = _session(
+            tmp_path,
+            stages=["capture", "fit"],
+            journal=[_entry("fit", "complete", seconds=30.0)],
+            fit=(FIT_RESULT, FIT_PROVENANCE),
+        )
+
+        stage = _stage(tp.collect_progress(out), "fit")
+
+        assert _metric(stage, "iteration")["text"] == "12"
+        assert _metric(stage, "correlation")["label"] == "相关系数（验证）"

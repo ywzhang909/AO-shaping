@@ -43,6 +43,7 @@ import csv
 import json
 import math
 import pickle
+import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -318,14 +319,35 @@ def _stage_view(
     }
 
 
+_ROUND_RE = re.compile(r"^acceptance_round_(\d+)_(.+)$")
+# 这几种阶段在验收循环里按轮次把产物写到 ``fit.roundN`` / ``model.roundN`` /
+# ``anchored.roundN``, 读取器要接收 ``round_index``; 其余阶段只在 ``<stage>/`` 下
+# 写一次, 保持原签名。
+_ROUND_AWARE_READERS = frozenset({"fit", "CCD_model_blocks", "CCD_anchored_blocks"})
+
+
 def _stage_metrics(
     out: Path | None, name: str
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """``(metrics, details)`` for one stage; any failure means "nothing yet"."""
-    reader = _READERS.get(name)
+    """``(metrics, details)`` for one stage; any failure means "nothing yet".
+
+    ``acceptance_round_N_<stage>`` 先剥离轮次前缀, 再把 ``round_index=N`` 传给
+    按轮写入产物的读取器 (见 :data:`_ROUND_AWARE_READERS`), 让「第 N 轮拟合 /
+    建模 / 锚定」也能读到自己那轮的 ``fit.roundN`` 等指标, 而不是只剩一条耗时。
+    """
+    match = _ROUND_RE.match(name)
+    if match:
+        round_index = int(match.group(1))
+        base = match.group(2)
+    else:
+        round_index = None
+        base = name
+    reader = _READERS.get(base)
     if reader is None or out is None:
         return [], []
     try:
+        if round_index is not None and base in _ROUND_AWARE_READERS:
+            return reader(out, round_index=round_index)
         return reader(out)
     # policy: the metrics reader is per-format and a partly written artifact must show as "no metrics" rather than blank the whole panel
     except Exception:  # 产物缺失 / 只写了一半 / 字段改名：一律当作「未产出」
@@ -486,9 +508,15 @@ def _nominal_metrics(out: Path) -> tuple[list[dict[str, Any]], list[str]]:
     return metrics, []
 
 
-def _fit_metrics(out: Path) -> tuple[list[dict[str, Any]], list[str]]:
-    """``fit/result.json``（选中的那次迭代）+ ``fit/adaptation.json``（自动适配）。"""
-    root = out / "fit"
+def _fit_metrics(
+    out: Path, *, round_index: int | None = None
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """``fit/result.json``（选中的那次迭代）+ ``fit/adaptation.json``（自动适配）。
+
+    ``round_index`` 非空 (``acceptance_round_N_fit``) 时读 ``fit.roundN`` 那轮的
+    拟合产物, 否则读单轮的 ``fit``。
+    """
+    root = out / ("fit" if round_index is None else f"fit.round{round_index}")
     result = _read_json(root / "result.json")
     if not isinstance(result, Mapping):
         return [], []
@@ -576,13 +604,19 @@ def _block_metrics(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
     return metrics, details
 
 
-def _model_block_metrics(out: Path) -> tuple[list[dict[str, Any]], list[str]]:
+def _model_block_metrics(
+    out: Path, *, round_index: int | None = None
+) -> tuple[list[dict[str, Any]], list[str]]:
     """``CCD_model_blocks`` 的配对块写在 ``model/`` 下（锚定块写在 ``anchored/``）。"""
-    return _block_metrics(out / "model")
+    root = out / ("model" if round_index is None else f"model.round{round_index}")
+    return _block_metrics(root)
 
 
-def _anchored_block_metrics(out: Path) -> tuple[list[dict[str, Any]], list[str]]:
-    return _block_metrics(out / "anchored")
+def _anchored_block_metrics(
+    out: Path, *, round_index: int | None = None
+) -> tuple[list[dict[str, Any]], list[str]]:
+    root = out / ("anchored" if round_index is None else f"anchored.round{round_index}")
+    return _block_metrics(root)
 
 
 def _transition(paired: Sequence[Mapping[str, Any]]) -> str | None:

@@ -103,6 +103,7 @@ def frame_payload(
     xy=None,
     phase_grid: Any = None,
     predicted: Any = None,
+    target: Any = None,
 ) -> dict:
     """One live refresh: a single CCD read, plus whatever progress is known.
 
@@ -137,6 +138,7 @@ def frame_payload(
         remaining=int(remaining),
         phase_grid=None if phase_grid is None else np.array(phase_grid, copy=True),
         predicted=None if predicted is None else np.array(predicted, copy=True),
+        target=None if target is None else np.array(target, copy=True),
     )
 
 
@@ -152,6 +154,7 @@ def block_frame_payload(
     remaining: int,
     xy=None,
     label: str = "",
+    target: Any = None,
 ) -> dict:
     """Plain-data payload for one anchored block's last frame.
 
@@ -177,6 +180,7 @@ def block_frame_payload(
         phase="validate",
         phase_grid=None,
         predicted=None,
+        target=None if target is None else np.array(target, copy=True),
     )
 
 
@@ -194,6 +198,22 @@ def notify_frame(on_frame, payload: dict) -> None:
         logger.warning("transfer live frame hook failed: {}", exc)
 
 
+def _capture_target(directory: Path, file_name: str):
+    """Target mask from a capture npz (``target`` field), or None if absent.
+
+    The live block payload wants the same target the block was optimised
+    against; the npz stores it next to the frames so a resumed run can still
+    show the contour. A missing field is tolerated (older captures).
+    """
+    try:
+        with np.load(Path(directory) / file_name) as payload:
+            if "target" not in payload:
+                return None
+            return np.array(payload["target"], copy=True)
+    except Exception:
+        return None
+
+
 def emit_block_frame(
     on_frame,
     *,
@@ -207,18 +227,22 @@ def emit_block_frame(
     iterations_total: int,
     remaining: int,
     xy=None,
+    target=None,
 ) -> None:
     """Build and deliver one block's last-frame payload. Never raises.
 
     Runs once per block, after the block's acceptance / anchor capture, and only
     when an observer was supplied. The per-frame reads inside the block were
     already delivered by :func:`frame_payload`; this one adds the block's
-    optimizer progress to the same measurement.
+    optimizer progress to the same measurement. ``target`` is the target mask;
+    when omitted it is loaded from the capture npz.
     """
     if on_frame is None or capture_row is None:
         return
     try:
         raw = capture_frames(directory, capture_row["file"])
+        if target is None:
+            target = _capture_target(directory, capture_row["file"])
         payload = block_frame_payload(
             frame=raw[-1],
             xy=xy,
@@ -230,6 +254,7 @@ def emit_block_frame(
             iterations_total=iterations_total,
             remaining=remaining,
             label=str(capture_row.get("label", "")),
+            target=target,
         )
     except Exception as exc:
         # policy: 块级画面只是观察者; 读不到帧 (缓存被逐出 / npz 缺失) 就跳过这一条

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from ao_shaping.gui.ccd.beam_quality.analyzer import FrameMetrics
@@ -21,6 +21,7 @@ from ao_shaping.gui.ccd.beam_quality.analyzer import FrameMetrics
 # 叠加层配色 (深色画面上足够醒目)
 _CROSS_COLOR = QColor(80, 255, 140)
 _ELLIPSE_COLOR = QColor(80, 200, 255)
+_TARGET_COLOR = QColor(255, 190, 60)
 _INFO_BG = QColor(0, 0, 0, 150)
 _INFO_FG = QColor(225, 225, 235)
 
@@ -51,6 +52,7 @@ class VideoWidget(QWidget):
         self._array: np.ndarray | None = None
         self._metrics: FrameMetrics | None = None
         self._fps: float = 0.0
+        self._target_contours: list[np.ndarray] | None = None
 
     # ------------------------------------------------------------------ 接口
     def set_frame(
@@ -65,10 +67,26 @@ class VideoWidget(QWidget):
         self._fps = float(fps)
         self._render()
 
+    def set_target_contours(self, contours: list[np.ndarray] | None) -> None:
+        """叠加目标形状线框: 一组多段折线, 坐标与 ``set_frame`` 的数组同空间。
+
+        每个轮廓是 ``(N, 2)`` 的 ``(x, y)`` 点集 (显示数组像素坐标), 按序连成
+        闭合折线。``None`` 或空列表清除线框。坐标按当前缩放比换算, 与质心/椭圆
+        叠加层一致; 调用方负责把目标掩膜轮廓映射到本面板的图像坐标。
+        """
+        if contours:
+            self._target_contours = [
+                np.asarray(c, dtype=np.float64).reshape(-1, 2) for c in contours
+            ]
+        else:
+            self._target_contours = None
+        self._render()
+
     def clear(self) -> None:
         """清空画面。"""
         self._array = None
         self._metrics = None
+        self._target_contours = None
         self._label.clear()
         self._label.setText("无画面")
 
@@ -135,6 +153,16 @@ class VideoWidget(QWidget):
             )
         else:
             info = f"fps {self._fps:5.1f}"
+
+        if self._target_contours:
+            painter.setPen(QPen(_TARGET_COLOR, 1.8))
+            for contour in self._target_contours:
+                if contour.shape[0] < 2:
+                    continue
+                points = QPolygonF(
+                    [QPointF(float(x) * scale, float(y) * scale) for x, y in contour]
+                )
+                painter.drawPolyline(points)
 
         font = QFont()
         font.setPointSize(9)

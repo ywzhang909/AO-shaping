@@ -107,6 +107,7 @@ class FrameMetrics:
 
     def as_scalars(self) -> dict[str, float]:
         """趋势缓冲需要的标量字段。"""
+        ellipse = self.ellipse
         return {
             "max": float(self.max_value),
             "mean": float(self.mean_value),
@@ -114,6 +115,13 @@ class FrameMetrics:
             "cx": float(self.cx),
             "cy": float(self.cy),
             "sat_ratio": float(self.sat_ratio),
+            # 无椭圆 (全黑/纯背景) 时半轴缺失, 用 NaN 让趋势图跳过该点
+            "semi_major": (
+                float(ellipse.semi_major) if ellipse is not None else float("nan")
+            ),
+            "semi_minor": (
+                float(ellipse.semi_minor) if ellipse is not None else float("nan")
+            ),
         }
 
     def rescaled(self, scale: float) -> FrameMetrics:

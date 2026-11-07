@@ -164,6 +164,83 @@ def test_frame_payload_is_a_copied_plain_dict_without_profiles():
         frame_payload(frame=np.zeros((2, 3, 4, 5), np.uint8))
 
 
+# ---------------------------------------------------------------------------
+# 目标形状线框 (2026-11-07): 实时/预测面板叠加 target 轮廓
+# ---------------------------------------------------------------------------
+
+
+def _star_mask() -> np.ndarray:
+    """一块 40x40 目标掩膜: 中央竖直条, 方便断言轮廓映射。"""
+    mask = np.zeros((40, 40), np.float32)
+    mask[10:30, 18:22] = 1.0
+    return mask
+
+
+def test_frame_payload_carries_a_copied_target_mask():
+    from ao_shaping.tools.slm.transfer.live_frame import frame_payload
+
+    target = _star_mask()
+    payload = frame_payload(frame=np.zeros((8, 8), np.uint8), label="x", target=target)
+    assert payload["target"] is not None
+    assert payload["target"].shape == target.shape
+    assert payload["target"] is not target  # 拷贝, 不共享后端缓冲区
+    target[:] = 0
+    assert payload["target"].any()
+    # 不传 target 时键为 None (旧调用不变)。
+    assert frame_payload(frame=np.zeros((8, 8), np.uint8))["target"] is None
+
+
+def test_block_frame_payload_carries_a_copied_target_mask():
+    target = _star_mask()
+    payload = validate.block_frame_payload(
+        frame=np.zeros((8, 8), np.uint8), shape="star", block=0,
+        block_index=1, blocks_total=1, iteration=1, iterations_total=1, remaining=0,
+        target=target,
+    )
+    assert payload["target"] is not None
+    assert payload["target"].shape == target.shape
+    assert payload["target"] is not target
+    assert payload["phase"] == "validate"
+    # 省略 target 时保持 None (无轮廓)。
+    plain = validate.block_frame_payload(
+        frame=np.zeros((8, 8), np.uint8), shape="star", block=0,
+        block_index=1, blocks_total=1, iteration=1, iterations_total=1, remaining=0,
+    )
+    assert plain["target"] is None
+
+
+def test_emit_block_frame_loads_target_from_npz_when_omitted(capture):
+    """块级负载的 target 缺省从采集 npz 的 ``target`` 字段加载。"""
+    directory, name, _ = capture
+    target = _star_mask()
+    np.savez_compressed(directory / name, raw_frames=np.stack(
+        [np.full((8, 10), 5, np.uint16)]), target=target)
+    validate._CAPTURE_FRAMES.pop(name, None)
+
+    seen: list[dict] = []
+    _emit(seen.append, (directory, name, None))
+    assert len(seen) == 1
+    assert seen[0]["target"] is not None
+    np.testing.assert_array_equal(seen[0]["target"], target)
+
+    # 显式传入的 target 优先, 不开文件。
+    explicit = _star_mask() * 0.5
+    seen2: list[dict] = []
+    _emit(seen2.append, (directory, name, None), target=explicit)
+    assert seen2[0]["target"] is not None
+    np.testing.assert_array_equal(seen2[0]["target"], explicit)
+
+
+def test_emit_block_frame_tolerates_missing_target_field(capture):
+    directory, name, _ = capture
+    # 老采集 npz 无 ``target`` 字段: 负载 target 为 None, 不报错。
+    validate._CAPTURE_FRAMES.pop(name, None)
+    seen: list[dict] = []
+    _emit(seen.append, (directory, name, None))
+    assert len(seen) == 1
+    assert seen[0]["target"] is None
+
+
 def _loop_body(source: str, header: str) -> list[str]:
     """``source`` 里以 ``header`` 开头那个块的循环体 (按缩进判断块边界)。"""
     start = source.index(header)

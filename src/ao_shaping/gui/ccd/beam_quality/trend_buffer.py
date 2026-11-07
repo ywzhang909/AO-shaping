@@ -16,7 +16,16 @@ from typing import Any, Iterable
 from loguru import logger
 
 # 与 analyzer.FrameMetrics.as_scalars() 的键一致
-SCALAR_KEYS: tuple[str, ...] = ("max", "mean", "std", "cx", "cy", "sat_ratio")
+SCALAR_KEYS: tuple[str, ...] = (
+    "max",
+    "mean",
+    "std",
+    "cx",
+    "cy",
+    "sat_ratio",
+    "semi_major",
+    "semi_minor",
+)
 
 CSV_HEADER: tuple[str, ...] = ("t_iso", "t_rel_s", *SCALAR_KEYS)
 
@@ -32,6 +41,8 @@ class TrendSample:
     cx: float
     cy: float
     sat_ratio: float
+    semi_major: float
+    semi_minor: float
 
     def as_dict(self) -> dict[str, float]:
         return {key: float(getattr(self, key)) for key in SCALAR_KEYS}
@@ -99,8 +110,8 @@ class TrendBuffer:
     def append(self, timestamp: float, values: Any) -> TrendSample | None:
         """追加一条采样; 暂停时返回 ``None`` 且不记录。
 
-        ``values`` 可以是 ``FrameMetrics`` 或含 ``max/mean/std/cx/cy/sat_ratio``
-        的映射。
+        ``values`` 可以是 ``FrameMetrics`` 或含 :data:`SCALAR_KEYS` 全部键的映射
+        (椭圆半轴缺失时传 ``float("nan")``)。
         """
         if self._paused:
             return None

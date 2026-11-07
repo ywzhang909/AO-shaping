@@ -147,6 +147,32 @@ def test_analyze_frame_scalars_and_rescale() -> None:
     )
 
 
+def test_analyze_frame_scalars_include_ellipse() -> None:
+    """as_scalars 含椭圆半轴; 无椭圆 (全黑) 时为 NaN。"""
+    img = _gaussian_frame()
+    scalars = analyze_frame(img).as_scalars()
+    assert scalars["semi_major"] > 0.0
+    assert scalars["semi_minor"] > 0.0
+
+    blank_scalars = analyze_frame(np.zeros((40, 50), dtype=np.uint8)).as_scalars()
+    assert np.isnan(blank_scalars["semi_major"])
+    assert np.isnan(blank_scalars["semi_minor"])
+
+
+def test_trend_buffer_ellipse_nan_and_values() -> None:
+    """椭圆半轴经趋势缓冲 round-trip; 无椭圆 (NaN) 原样存入。"""
+    buffer = TrendBuffer()
+    sample = buffer.append(1.0, _fake_scalars(5.0, semi_major=12.0, semi_minor=8.0))
+    assert sample is not None
+    assert sample.semi_major == pytest.approx(12.0)
+    assert sample.semi_minor == pytest.approx(8.0)
+
+    sample_nan = buffer.append(2.0, _fake_scalars(6.0))
+    assert sample_nan is not None
+    assert np.isnan(sample_nan.semi_major)
+    assert np.isnan(sample_nan.semi_minor)
+
+
 def test_analyze_frame_center_methods() -> None:
     """中心口径可选: 质心 (默认) / 椭圆拟合中心 / 峰值, 未知键报错。"""
     cx, cy = 120.4, 150.7
@@ -191,7 +217,9 @@ def test_analyze_frame_center_ellipse_falls_back_when_blank() -> None:
 
 
 # ------------------------------------------------------------------ 趋势缓冲
-def _fake_scalars(value: float) -> dict[str, float]:
+def _fake_scalars(
+    value: float, *, semi_major: float | None = None, semi_minor: float | None = None
+) -> dict[str, float]:
     return {
         "max": value,
         "mean": value / 10.0,
@@ -199,6 +227,9 @@ def _fake_scalars(value: float) -> dict[str, float]:
         "cx": 100.0,
         "cy": 200.0,
         "sat_ratio": 0.0,
+        # None 表示"无椭圆"→ NaN, 趋势图跳过该点
+        "semi_major": float("nan") if semi_major is None else semi_major,
+        "semi_minor": float("nan") if semi_minor is None else semi_minor,
     }
 
 

@@ -225,6 +225,11 @@ class LiveView(QWidget):
         self._render_phase(phase_grid)
         self._render_predicted(payload.get("predicted"), phase_grid)
 
+        # —— 目标形状线框: 实时 CCD 面板与预测远场面板都叠 target 轮廓 ——
+        # 必须在 _render_predicted 之后: 后者对预测面板调用 clear() 会清掉
+        # 上一帧的线框, 所以轮廓要在最后设置, 避免被覆盖。
+        self._render_target_overlay(payload.get("target"), payload.get("xy"), step)
+
         blocks_total = int(payload.get("blocks_total", 0) or 0)
         block_index = int(payload.get("block_index", 0) or 0)
         iterations_total = int(payload.get("iterations_total", 0) or 0)
@@ -301,6 +306,71 @@ class LiveView(QWidget):
             return
         self._predicted.clear_state()
         self._predicted.image.set_frame(display_frame(predicted))
+
+    @staticmethod
+    def _target_rowcol(target) -> list[np.ndarray] | None:
+        """目标掩膜 (相机网格) → ``find_contours`` 的 ``(row, col)`` 轮廓列表。
+
+        ``target`` 为 None / 非二维 / 全零 / 提取失败时返回 ``None`` (无轮廓)。
+        轮廓以子像素 ``(row, col)`` 给出, 由调用方映射到各面板的图像坐标。
+        """
+        if target is None:
+            return None
+        arr = np.asarray(target, dtype=np.float64)
+        if arr.ndim != 2 or not arr.any():
+            return None
+        try:
+            from skimage.measure import find_contours
+
+            contours = find_contours(arr, 0.5)
+        except Exception:
+            return None
+        if not contours:
+            return None
+        return [np.asarray(c, dtype=np.float64) for c in contours]
+
+    @staticmethod
+    def _predicted_contours(rowcol) -> list[np.ndarray] | None:
+        """``(row, col)`` 轮廓 → 预测面板图像坐标 ``(x, y) = (col, row)``。
+
+        预测远场与 target 在同一个相机网格上, 直接转置即可, 无需 xy 映射。
+        """
+        if not rowcol:
+            return None
+        return [np.stack([c[:, 1], c[:, 0]], axis=1) for c in rowcol]
+
+    @staticmethod
+    def _ccd_contours(rowcol, xy, step) -> list[np.ndarray] | None:
+        """``(row, col)`` 轮廓 → CCD 面板图像坐标。
+
+        先经 ``xy`` 把相机网格点映射到 CCD 原始像素坐标, 再除以降采样步长
+        ``step`` (``display_preview`` 的返回值) 得到显示数组坐标。
+        """
+        if not rowcol or xy is None:
+            return None
+        xy = np.asarray(xy, dtype=np.float64)
+        if xy.ndim != 3 or xy.shape[2] != 2:
+            return None
+        h, w = xy.shape[:2]
+        step = float(step) if step else 1.0
+        out = []
+        for c in rowcol:
+            ri = np.clip(np.round(c[:, 0]).astype(int), 0, h - 1)
+            ci = np.clip(np.round(c[:, 1]).astype(int), 0, w - 1)
+            px = xy[ri, ci, 0] / step
+            py = xy[ri, ci, 1] / step
+            out.append(np.stack([px, py], axis=1))
+        return out
+
+    def _render_target_overlay(self, target, xy, step) -> None:
+        """把目标形状线框同时叠加到实时 CCD 与预测远场面板。
+
+        ``target`` (相机网格掩膜) 与 ``xy`` (相机网格 → CCD 像素映射) 取自
+        payload; 任一为 None (探针/平场/曝光标定段) 则清空两个面板的线框。
+        """
+        rowcol = self._target_rowcol(target)
+        self._video.set_target_contours(self._ccd_contours(rowcol, xy, step))
+        self._predicted.image.set_target_contours(self._predicted_contours(rowcol))
 
     def clear(self) -> None:
         """会话开始前/结束后回到空态 (不改动 ⑤ 进度表)。"""

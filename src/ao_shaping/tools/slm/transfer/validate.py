@@ -635,6 +635,8 @@ def _run_validate_session(
                     # 观察者是 best-effort 的, 抛异常只会记 warning (notify_frame)。
                     notify_frame(observer, frame_payload(
                         frame=frame, label=label, phase="validate",
+                        xy=xy,
+                        target=objective.target,
                         phase_grid=phase if phase is not None else None,
                         predicted=_predicted_frame(forward, phase) if phase is not None else None,
                         frame_index=index + 1, frames_total=args.frames))
