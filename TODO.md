@@ -4673,6 +4673,12 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 **2026-11-07 · 318c7314 · #205 登记新 flake：test_fit l1 顺序断言临界翻转**
 - `ml/sim2f/test_fit.py::TestProbeAlgebra::test_the_l1_default_stalls_at_a_measured_floor`（test_fit.py:304）断言"小 lr 残差严格小于校准 lr"，而 l1 极限环终值是噪声级样本（0.0075 vs 0.0063 翻转即红）；同树 attempt#1 红、本地 CI 包络 3/3 绿、重跑 attempt#2 全绿。与 :293 注释自述的 reduction-order 抖动同源。加固（带边界的顺序断言）另批处理；在此之前该测试单独红先按"重跑定性"处置（与 TODO:3757 同法）
 
+**2026-11-08 · 8468f4a5 · #205 第三十五批：`train_coeff.train` 367→213（已钉最长函数第一个真拆）**
+- `ml/zernike/train_coeff.py::train(cfg)` 拆 4 个逐字 helper（参数名与调用点局部变量同名，helper 体即原语句序列）：`_seed_environment` 25（种子/设备/输出目录）、`_build_datasets` 71（index/fold/dataset/loader，连带返回 `coeff_mean/coeff_std`）、`_build_geometric_ops` 37（增广算子银行）、`_write_summary` 37（summary.json + 收尾日志，连带返回 `final_metrics`）——第三十三批"登记先于拆分"之后，棘轮表上最长函数的**第一个真拆**。
+- 等价证明（AST 语句多重集）：原 56 条顶层语句 = train 保留 20 + helper 36，diff 0；行为载体 `test_train_coeff.py` + `test_train_cli_runnable.py` 39 passed（上游自报），ml/zernike 全域 24 文件 per-file 全绿零红。自由名审计连抓 3 个参数表漏写的真依赖（`coeff_mean/coeff_std`、`final_metrics`、`np` 的 asname 注册 bug）——按审计补参，不是放宽审计。
+- 棘轮表（本树 2026-11-08 AST 复测）：`train` 行 407/367 → **240/213**（天花板 407 是登记时的临时宽容，随拆分收紧至 240；240 = 实测 213 + 27），新增 4 个 helper 行（40/1/25、90/1/71、50/4/37、50/0/37），`len(TARGETS)` **141→145**；模块规模基线 1342→1370（上游随本批同步，本树实测 1370 一致）。
+- 验收（本树 2026-11-08 复测）：形状门禁 **146 passed**（145 行 + 深度测试）；`train` 函数体实测 213 行，与钉值一致。
+
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
