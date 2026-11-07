@@ -106,6 +106,9 @@ def frame_payload(
     target: Any = None,
     hdr: bool = False,
     hdr_image: Any = None,
+    selfcheck: Any = None,
+    zero_order: Any = None,
+    ccd_profile: Any = None,
 ) -> dict:
     """One live refresh: a single CCD read, plus whatever progress is known.
 
@@ -143,6 +146,9 @@ def frame_payload(
         target=None if target is None else np.array(target, copy=True),
         hdr=bool(hdr),
         hdr_image=None if hdr_image is None else np.array(hdr_image, copy=True),
+        selfcheck=None if selfcheck is None else dict(selfcheck),
+        zero_order=None if zero_order is None else dict(zero_order),
+        ccd_profile=None if ccd_profile is None else dict(ccd_profile),
     )
 
 
@@ -161,6 +167,9 @@ def block_frame_payload(
     target: Any = None,
     hdr: bool = False,
     hdr_image: Any = None,
+    selfcheck: Any = None,
+    zero_order: Any = None,
+    ccd_profile: Any = None,
 ) -> dict:
     """Plain-data payload for one anchored block's last frame.
 
@@ -189,6 +198,9 @@ def block_frame_payload(
         target=None if target is None else np.array(target, copy=True),
         hdr=bool(hdr),
         hdr_image=None if hdr_image is None else np.array(hdr_image, copy=True),
+        selfcheck=None if selfcheck is None else dict(selfcheck),
+        zero_order=None if zero_order is None else dict(zero_order),
+        ccd_profile=None if ccd_profile is None else dict(ccd_profile),
     )
 
 

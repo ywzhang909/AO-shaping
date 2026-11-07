@@ -348,7 +348,19 @@ class LiveView(QWidget):
             else f"第 {max(frame_index, 1)} 帧"
         )
         label = payload.get("label", "") or "实时帧"
-        self._info.setText(f"实时画面：{label} · " + " · ".join(detail))
+        # 设备自检 / 0级探测 / CCD 类型 通过 payload 展示 (best-effort, 缺省不显示)。
+        probe_bits: list[str] = []
+        ccd = payload.get("ccd_profile")
+        if isinstance(ccd, dict) and ccd.get("profile"):
+            probe_bits.append(f"CCD {ccd['profile']}")
+        sc = payload.get("selfcheck")
+        if isinstance(sc, dict):
+            probe_bits.append("自检 " + ("ok" if sc.get("ok") else "fail"))
+        zo = payload.get("zero_order")
+        if isinstance(zo, dict) and zo.get("ok"):
+            probe_bits.append(f"零级 peak {float(zo.get('peak', 0)):.0f}")
+        suffix = (" · " + " · ".join(probe_bits)) if probe_bits else ""
+        self._info.setText(f"实时画面：{label} · " + " · ".join(detail) + suffix)
         self._last_payload = payload
 
     # ------------------------------------------------------------------ 新面板

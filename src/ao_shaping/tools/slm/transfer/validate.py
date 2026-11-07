@@ -627,6 +627,19 @@ def _run_validate_session(
                 ceiling = min(ceiling, configured)
             exposure = max(floor, .02)
 
+            # 设备自检 + 0级探测 + 自动 CCD 类型选择: 加载 torch 环境/打开设备后
+            # 自动执行, 结果通过 payload 展示 (best-effort, 失败不拖垮采集)。
+            _probe_results = {
+                "selfcheck": None, "zero_order": None, "ccd_profile": None,
+            }
+            try:
+                from ao_shaping.tools.slm.transfer.device_probe import probe_environment
+                _probe_results = probe_environment(
+                    cam, slm, cam_id=args.cam_id, cam_type=args.camera,
+                )
+            except Exception as exc:
+                logger.warning("device probe failed: {}", exc)
+
             def capture(label, phase, objective):
                 start = time.perf_counter()
                 panel = to_panel(phase)
@@ -659,7 +672,10 @@ def _run_validate_session(
                         phase_grid=phase if phase is not None else None,
                         predicted=_predicted_frame(forward, phase) if phase is not None else None,
                         frame_index=index + 1, frames_total=args.frames,
-                        hdr=hdr_on, hdr_image=hdr_image))
+                        hdr=hdr_on, hdr_image=hdr_image,
+                        selfcheck=_probe_results.get("selfcheck"),
+                        zero_order=_probe_results.get("zero_order"),
+                        ccd_profile=_probe_results.get("ccd_profile")))
                 raw = np.stack(frames)
                 read_done = time.perf_counter()
                 image = raw.mean(0)
