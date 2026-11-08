@@ -108,10 +108,10 @@ REPORTS: dict[str, ReportProvenance] = {
         command="python scripts/slm/generate_forward_model_polarity_report_20261107.py",
         environment="离线渲染（实验系统数据 2026-11-07：Santec #1 1064 nm + Daheng CCD）",
         note=(
-            "正向模型极性核查与单模屏方向门禁：输入为 20261107_focus_scan/focus.json、"
+            "物理预测模型极性核查与单模屏方向门禁：输入为 20261107_focus_scan/focus.json、"
             "defocus_forward_20261107_focus_r2(_fit)、issue234_*_screen_20261107 三组 ladder、"
             "issue235_parity_20261107/parity_registration_scan.json、"
-            "loss_compare_20261107_phase_sign_m1/（#236 主臂 −1）与 gated_recurrent_20261107/（#239）"
+            "loss_compare_20261107_phase_sign_m1/（#236 主变体 −1）与 gated_recurrent_20261107/（#239）"
             "的存档产物；figures/ 五张 PNG 为本脚本产物。报告本体不占用设备。"
         ),
     ),
@@ -120,7 +120,7 @@ REPORTS: dict[str, ReportProvenance] = {
         command="python scripts/slm/generate_loss_compare_report_20261107.py",
         environment="离线渲染（实验数据 2026-11-07：Santec #1 1064 nm + Daheng CCD 成对 U/C 存档）",
         note=(
-            "#236 拟合损失比较（phase_sign=−1 主臂 + +1 历史对照；基线复现 FAILED，结论未定）："
+            "#236 拟合损失比较（phase_sign=−1 主变体 + +1 历史对照；基线复现 FAILED，结论未定）："
             "输入为 data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1/results.json 存档产物，"
             "表格数字全部渲染时读取、零硬编码。报告本体不占用设备。"
         ),
@@ -130,7 +130,7 @@ REPORTS: dict[str, ReportProvenance] = {
         command="python scripts/slm/generate_gated_recurrent_report_20261107.py",
         environment="离线渲染（实验数据 2026-11-07：单模屏 ladder pass1/pass2 与 r2 存档，phase_sign=−1）",
         note=(
-            "#239 门控循环残差头 bake-off（verdict inconclusive；4 臂×3 种子）："
+            "#239 门控循环残差头 对比择优（verdict inconclusive；4 变体×3 种子）："
             "输入为 data/debug/slm_transfer/gated_recurrent_20261107/results.json 存档产物，"
             "表格数字全部渲染时读取、零硬编码。报告本体不占用设备。"
         ),
@@ -139,9 +139,9 @@ REPORTS: dict[str, ReportProvenance] = {
         script=HANDWRITTEN,
         environment="离线回放存档数据（2026-11-07；未占用 SLM/相机/激光，未 import ao_shaping.drivers）",
         note=(
-            "#235 phase_sign 作用域实验：四臂（command/aberration/aberration_focus/aberration_carrier）"
+            "#235 phase_sign 作用域实验：四变体（command/aberration/aberration_focus/aberration_carrier）"
             "离线拟合与单模屏方向对照；command 精确复现存档 −1（Pearson 路径 Δd 4.7e-10）；"
-            "屏方向四臂等价、无法区分作用域；aberration_focus 不稳定需复现；carrier 不可分离。"
+            "屏方向四变体等价、无法区分作用域；aberration_focus 不稳定需复现；carrier 不可分离。"
             "输入为 data/debug/slm_transfer/phase_scope_20261107/ 存档产物。人工撰写。"
         ),
     ),

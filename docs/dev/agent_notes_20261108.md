@@ -1,11 +1,11 @@
 # Agent 注意事项（2026-11-08 当日修改）
 
 > 按日追加；过期条目迁入 `docs/dev/` 对应专题。
-> 当日无新 commit（工作区未提交改动，文件写入 00:00–06:00），聚焦 **defocus 前向模型的
+> 当日无新 commit（工作区未提交改动，文件写入 00:00–06:00），聚焦 **defocus 物理预测模型的
 > 注册 / 极性作用域 / 方向门禁**（issue #234/#235/#237）+ `data_debug_cleanup.py` 入库 +
 > `report/data_reference_inventory.md` 重写 + `provenance.py` 报告注册。
 
-## 前向模型全局注册（issue #237）：全局亚像素 2D 平移
+## 物理预测模型全局注册（issue #237）：全局亚像素 2D 平移
 
 - `PhysicalForwardFit(..., registration_shift_ccd_px=None, learn_registration=False)`：
   新增可选全局注册 `(dy, dx)`，单位 **CCD px**。`None`=关闭；给定 `(dy, dx)` 且
@@ -72,7 +72,7 @@
 
 - `multishape_objective.py` 新增 `fft_max_side_px` / `min_calibrated_grid_px` /
   `carrier_offset_px` / `capture_grid_ladder` / `target_extent_px` / `required_capture_grid`：
-  **大目标受 `capture_grid` 限制，非 `fft_size`**——目标超过前向模型 FFT 网格可达窗口须拒绝
+  **大目标受 `capture_grid` 限制，非 `fft_size`**——目标超过物理预测模型 FFT 网格可达窗口须拒绝
   （transfer 侧已加 `--reach` 守卫；本批新增离线纯函数计算）。
 - `full_frame.py`（sim2f）新增 `box_centroid` / `_half_max_box`。
 

@@ -1,4 +1,4 @@
-"""离线三轴基准：冻结式离焦正向模型（2026-11-07，issue #239 后续）。
+"""离线三轴基准：冻结式离焦物理预测模型（2026-11-07，issue #239 后续）。
 
 全程离线：不 import ``ao_shaping.drivers``，不打开 SLM / 相机 / 激光。
 数据与拟合全部来自磁盘存档（``data/debug/slm_transfer/`` 下的 npz 帧与
@@ -789,7 +789,7 @@ def write_report(results: dict[str, Any], path: Path) -> None:
     grid = tuple(cfg["axis_b"]["curve_grid"])
     data = results["data"]
     lines = [
-        "# 冻结式离焦正向模型 · 离线三轴基准（2026-11-07）",
+        "# 冻结式离焦物理预测模型 · 离线三轴基准（2026-11-07）",
         "",
         f"生成：{results['generated_utc']}　模式：{results['mode']}　"
         "上游：issue #239（``gated_recurrent_transfer_20261107``）的冻结模型与数据划分。",
@@ -813,7 +813,7 @@ def write_report(results: dict[str, Any], path: Path) -> None:
         "- core 掩膜口径：A 轴每行 0.1·max（该行均值图）；B 轴评估沿用 #239 的 0.5·max"
         "（仅影响 core 参考列，B 的曲线与达标全部用 full pearson）。",
         "",
-        "## A 轴：冻结基础模型准确率（−1 主臂，+1 仅作参考行）",
+        "## A 轴：冻结基础模型准确率（−1 主变体，+1 仅作参考行）",
         "",
         *_axis_a_lines(results),
         "",

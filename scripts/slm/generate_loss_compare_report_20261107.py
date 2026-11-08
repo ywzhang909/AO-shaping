@@ -126,12 +126,12 @@ def render_report(data: dict[str, Any]) -> str:
         f"- `composite` 为预登记权重组合（{weights_text}）；初始 d={plain(float(config['initial_defocus']), 4)}、"
         f"origin=({plain(float(config['initial_origin'][0]), 2)}, {plain(float(config['initial_origin'][1]), 2)})、"
         "log_gain=0。",
-        f"- **首轮作废**：首轮曾以 `+1` 极性为主臂、据下表历史对照推荐 `masked_mse`"
+        f"- **首轮作废**：首轮曾以 `+1` 极性为主变体、据下表历史对照推荐 `masked_mse`"
         f"（方向中位 {signed(float(legacy_rows[0]['direction_median']))}）。"
         f"[#235]({ISSUE_235_URL}) 的单模屏配对证据（42/42 对在 `phase_sign=-1` 下方向相关全部翻正）"
-        "推翻 `+1` 极性，首轮推荐随之作废；本报告为 `−1` 主臂重跑结果。",
+        "推翻 `+1` 极性，首轮推荐随之作废；本报告为 `−1` 主变体重跑结果。",
         "",
-        "## 2. −1 主臂排序（sign_mode=negated）",
+        "## 2. −1 主变体排序（sign_mode=negated）",
         "",
         "口径（存档 JSON `ranking`，预登记排序：方向中位 ↓、核心61 ↑、FWHM 误差 ↑；仅 full_batch 变体，"
         "多 seed 平均）：",
@@ -160,11 +160,11 @@ def render_report(data: dict[str, Any]) -> str:
         "",
         "判据：以存档参考拟合"
         f"[`forward_fit.json`]({REL_REFERENCE_FIT})"
-        " 为基线，同数据同口径重拟合（−1 臂），|Δd| ≤ "
+        " 为基线，同数据同口径重拟合（−1 变体），|Δd| ≤ "
         f"{plain(float(validation['tolerance']['defocus_abs']), 3)} 且 origin 偏移 ≤ "
         f"{plain(float(validation['tolerance']['origin_px']), 0)} px。",
         "",
-        "| 量 | 存档基线 | −1 臂重拟合 |",
+        "| 量 | 存档基线 | −1 变体重拟合 |",
         "|---|---|---|",
         f"| defocus d（D） | {signed(float(stored['defocus_diopter']), 4)} "
         f"| {signed(float(reproduced['defocus_diopter']), 4)} |",
@@ -183,7 +183,7 @@ def render_report(data: dict[str, Any]) -> str:
         "",
         "## 5. 结论：未定",
         "",
-        f"- 7 种损失无区分度（−1 主臂方向中位 {direction_range}，held-out 仅 {n_pairs} 对）"
+        f"- 7 种损失无区分度（−1 主变体方向中位 {direction_range}，held-out 仅 {n_pairs} 对）"
         "＋基线复现失败 → **无法据此选定损失函数**；",
         f"- [{ISSUE_236}]({ISSUE_236_URL}) 的消融实现应等条件具备后重跑，重做条件：",
         f"  1. `phase_sign` 语义修复并通过单模屏方向门禁（单对 ≥ 0.50，[#235]({ISSUE_235_URL}) 门禁口径）；",

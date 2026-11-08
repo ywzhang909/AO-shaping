@@ -11,7 +11,7 @@ CCD 实测远场到底是五角星、方块还是弥散圆斑 —— 之前实�
 star 块的 CCD 实测远场是**弥散圆斑（零级主导）**，既非五角星也非方块：
 
 * 半高（50%）阈值掩膜只抠到 ~27×10 px 的亮核；
-* 降到 10% 阈值才露出 ~350×375 px 的弥散光斑 —— 星形臂太弱，被零级淹没；
+* 降到 10% 阈值才露出 ~350×375 px 的弥散光斑 —— 星形变体太弱，被零级淹没；
 * 角向谐波 FFT（h2–h8）幅度噪声主导，跨帧主导谐波漂移（h7→h4→h3→h5），
   无一致 5 重 / 4 重对称 —— 属低对比散斑的几何噪声，非星形也非方形。
 
@@ -65,7 +65,7 @@ from ao_shaping.utils.image.target.patterns import create_target_shape
 DEFAULT_SESSION = "20261107_135252"
 DEFAULT_OUT = ROOT / "report/shape_trials/star_farfield/figures"
 
-#: 分析阈值相对亮度的比例（10% 比半高更能暴露低对比的星形臂）。
+#: 分析阈值相对亮度的比例（10% 比半高更能暴露低对比的星形变体）。
 THRESH_FRAC = 0.10
 #: 角向谐波分析范围（2..8 重）。
 HARMONIC_RANGE = range(2, 9)
@@ -109,7 +109,7 @@ def _angular_harmonics(
 
 
 def _log_stretch(raw: np.ndarray) -> np.ndarray:
-    """对数拉伸到 0..1（看清暗弱臂）。"""
+    """对数拉伸到 0..1（看清暗弱变体）。"""
     vmax = float(np.percentile(raw, 99.9))
     return np.clip(np.log1p(np.clip(raw, 0, None)) / np.log1p(vmax), 0, 1)
 

@@ -4,7 +4,7 @@
 > **生成脚本**: [`scripts/slm/generate_loss_compare_report_20261107.py`](../../../scripts/slm/generate_loss_compare_report_20261107.py)
 > **复现命令**: `python scripts/slm/generate_loss_compare_report_20261107.py`
 > **运行环境**: 离线渲染（实验数据 2026-11-07：Santec #1 1064 nm + Daheng CCD 成对 U/C 存档）
-> **说明**: #236 拟合损失比较（phase_sign=−1 主臂 + +1 历史对照；基线复现 FAILED，结论未定）：输入为 data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1/results.json 存档产物，表格数字全部渲染时读取、零硬编码。报告本体不占用设备。
+> **说明**: #236 拟合损失比较（phase_sign=−1 主变体 + +1 历史对照；基线复现 FAILED，结论未定）：输入为 data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1/results.json 存档产物，表格数字全部渲染时读取、零硬编码。报告本体不占用设备。
 <!-- provenance:end -->
 
 **日期** 2026-11-07 · **脚本** [`scripts/slm/generate_loss_compare_report_20261107.py`](../../../scripts/slm/generate_loss_compare_report_20261107.py)（离线渲染，未占用设备）
@@ -12,11 +12,11 @@
 
 ## 1. 背景与首轮作废
 
-- [issue #236](https://github.com/ywzhang909/AO-shaping/issues/236) 为 `fit_loss` 重构做候选损失 bake-off：7 种损失（pearson / mse / log_mse / rel_l2 / masked_mse / ee_uniformity / composite）在冻结前向、只优化 (d, origin, log_gain) 三参数（Adam(d lr=0.01, origin lr=1.0, log_gain lr=0.05 when scale-sensitive)，300 步）下，于同一 U/C 回放数据上离线比较（[`loss_compare_20261107.py`](../../../scripts/slm/loss_compare_20261107.py)）。
+- [issue #236](https://github.com/ywzhang909/AO-shaping/issues/236) 为 `fit_loss` 重构做候选损失 对比择优：7 种损失（pearson / mse / log_mse / rel_l2 / masked_mse / ee_uniformity / composite）在冻结前向、只优化 (d, origin, log_gain) 三参数（Adam(d lr=0.01, origin lr=1.0, log_gain lr=0.05 when scale-sensitive)，300 步）下，于同一 U/C 回放数据上离线比较（[`loss_compare_20261107.py`](../../../scripts/slm/loss_compare_20261107.py)）。
 - `composite` 为预登记权重组合（masked_mse 0.4 / pearson 0.4 / ee_uniformity 0.2）；初始 d=0.0802、origin=(1300.60, 943.22)、log_gain=0。
-- **首轮作废**：首轮曾以 `+1` 极性为主臂、据下表历史对照推荐 `masked_mse`（方向中位 +0.483）。[#235](https://github.com/ywzhang909/AO-shaping/issues/235) 的单模屏配对证据（42/42 对在 `phase_sign=-1` 下方向相关全部翻正）推翻 `+1` 极性，首轮推荐随之作废；本报告为 `−1` 主臂重跑结果。
+- **首轮作废**：首轮曾以 `+1` 极性为主变体、据下表历史对照推荐 `masked_mse`（方向中位 +0.483）。[#235](https://github.com/ywzhang909/AO-shaping/issues/235) 的单模屏配对证据（42/42 对在 `phase_sign=-1` 下方向相关全部翻正）推翻 `+1` 极性，首轮推荐随之作废；本报告为 `−1` 主变体重跑结果。
 
-## 2. −1 主臂排序（sign_mode=negated）
+## 2. −1 主变体排序（sign_mode=negated）
 
 口径（存档 JSON `ranking`，预登记排序：方向中位 ↓、核心61 ↑、FWHM 误差 ↑；仅 full_batch 变体，多 seed 平均）：
 
@@ -52,9 +52,9 @@
 
 ## 4. 基线复现 FAILED
 
-判据：以存档参考拟合[`forward_fit.json`](../../../data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit/forward_fit.json) 为基线，同数据同口径重拟合（−1 臂），|Δd| ≤ 0.005 且 origin 偏移 ≤ 1 px。
+判据：以存档参考拟合[`forward_fit.json`](../../../data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit/forward_fit.json) 为基线，同数据同口径重拟合（−1 变体），|Δd| ≤ 0.005 且 origin 偏移 ≤ 1 px。
 
-| 量 | 存档基线 | −1 臂重拟合 |
+| 量 | 存档基线 | −1 变体重拟合 |
 |---|---|---|
 | defocus d（D） | +0.1139 | -0.0021 |
 | origin（px） | (1320.67, 945.61) | (1304.76, 944.45) |
@@ -65,7 +65,7 @@
 
 ## 5. 结论：未定
 
-- 7 种损失无区分度（−1 主臂方向中位 -0.043…+0.070，held-out 仅 9 对）＋基线复现失败 → **无法据此选定损失函数**；
+- 7 种损失无区分度（−1 主变体方向中位 -0.043…+0.070，held-out 仅 9 对）＋基线复现失败 → **无法据此选定损失函数**；
 - [issue #236](https://github.com/ywzhang909/AO-shaping/issues/236) 的消融实现应等条件具备后重跑，重做条件：
   1. `phase_sign` 语义修复并通过单模屏方向门禁（单对 ≥ 0.50，[#235](https://github.com/ywzhang909/AO-shaping/issues/235) 门禁口径）；
   2. 在方向门禁通过后的数据上，以单模屏 / 闭环指标为主口径重做本比较（U/C 回放 9 个 held-out 对不足以支撑 7 路比较）。

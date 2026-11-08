@@ -1118,7 +1118,7 @@ def render_report(
 
     add("# Measured-forward hardware probe — issue #237 (`20261107`)")
     add("")
-    add(f"- 模式：**{'--execute 上机采集' if measured else 'device-free dry-run（仅计划 + 离线自检）'}**")
+    add(f"- 模式：**{'--execute 实验采集' if measured else 'device-free dry-run（仅计划 + 离线自检）'}**")
     add(f"- 生成时间：{results['generated_utc']}")
     add(f"- 输出目录：`{settings.out}`")
     add("")
@@ -1153,7 +1153,7 @@ def render_report(
     lines.extend(_md_table(
         ["用途", "路径", "指纹 / 值"],
         [
-            ["上机数据集 manifest", f"`{R2_DIR.relative_to(ROOT)}/{MANIFEST_NAME}`",
+            ["实验数据集 manifest", f"`{R2_DIR.relative_to(ROOT)}/{MANIFEST_NAME}`",
              f"{results['sources']['r2_rows']} 行"],
             ["冻结 forward 拟合", f"`{FIT_PATH.relative_to(ROOT)}`",
              f"phase_sign={PHASE_SIGN}，crop `{results['sources']['crop_shape']}`，"
@@ -1225,7 +1225,7 @@ def render_report(
         ],
     ))
     if not measured:
-        add("dry-run 下斜率为 `—`：帧尚未采集，表中的曝光值是请求值；上机后同一表格由"
+        add("dry-run 下斜率为 `—`：帧尚未采集，表中的曝光值是请求值；实验后同一表格由"
             "回读曝光与实测均值填充。")
         add("")
 
@@ -1251,7 +1251,7 @@ def render_report(
     add(f"- 打分图像：{plan['registration']['scoring_image']}")
     add(f"- 注意：{plan['registration']['note']}")
     add("")
-    add("**离线自检**（用与上机完全相同的估计器跑归档帧）：")
+    add("**离线自检**（用与实验完全相同的估计器跑归档帧）：")
     add("")
     selftest = results["registration"]["selftest"]
     if selftest.get("status") != "ok":
@@ -1269,11 +1269,11 @@ def render_report(
              for name, c in selftest["comparison_rows"].items()],
         ))
     add("")
-    add("**上机实测**：")
+    add("**实验实测**：")
     add("")
     live = results["registration"]["live"]
     if not live:
-        add("- 本次未采集（dry-run）。上机时每个 branch 的 reference 相位各采 1 帧，"
+        add("- 本次未采集（dry-run）。实验时每个 branch 的 reference 相位各采 1 帧，"
             "按同一口径给出 integer / subpixel 与相对归档值的偏差。")
     else:
         lines.extend(_md_table(
@@ -1299,7 +1299,7 @@ def render_report(
         add(f"- `{item}`")
     add("")
 
-    add("## 8. 上机执行清单（`--execute`）")
+    add("## 8. 实验执行清单（`--execute`）")
     add("")
     add("```")
     add(f"python {Path(__file__).relative_to(ROOT)} --execute \\")
@@ -1346,7 +1346,7 @@ def render_report(
     add(f"- 本脚本只写 `{settings.out}` 下的文件。")
     if not measured:
         add("- 本次运行**未占用任何设备**，因此暗场/杂散光/LUT/配准的实测数字仍是计划值；"
-            "真正上机时按 §8 执行并在回复中报告占用与释放。")
+            "真正实验时按 §8 执行并在回复中报告占用与释放。")
     add("")
     return "\n".join(lines)
 
@@ -1501,7 +1501,7 @@ def run_dry(settings: Settings, log: RunLog) -> int:
     if settings.skip_selftest:
         warnings.append("离线自检被 --skip-selftest 跳过：配准估计器未在本机验证过。")
     if selftest.get("status") == "failed":
-        warnings.append("离线自检失败，计划仍然有效，但上机前必须先修复自检。")
+        warnings.append("离线自检失败，计划仍然有效，但实验前必须先修复自检。")
 
     sources = source_block(refs)
     results = assemble_results(

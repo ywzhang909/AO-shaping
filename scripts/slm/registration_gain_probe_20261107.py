@@ -864,7 +864,7 @@ def _build_report(results: dict[str, Any], baseline: dict[str, Any]) -> str:
         f"重复离焦值 {results['lut']['details']['focus_scan_repeated_diopters']} 个。",
         f"- 训练集内跨 run 同相位组数：{len(results['lut']['details']['cross_run_training_groups'])}；"
         "其曝光跨度很小，不能辨识低曝光曲率。",
-        "- 因此本次**没有**拟合 LUT，也没有把 LUT 数字混入准确率表；需要上机在单一会话内对同一指令"
+        "- 因此本次**没有**拟合 LUT，也没有把 LUT 数字混入准确率表；需要实验在单一会话内对同一指令"
         "采集至少 4 档曝光（覆盖低曝光到接近饱和），再谈 `MonotonicResponse` 的 n_bins/v_max/h 联合辨识。",
         "",
         "## 7. verdict",

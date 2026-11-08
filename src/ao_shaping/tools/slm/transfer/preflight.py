@@ -242,7 +242,7 @@ def check_parameters(
                 )
             )
 
-    # FFT 网格可达窗：与采样窗是两件事。采样窗够大不代表前向模型够得着目标；
+    # FFT 网格可达窗：与采样窗是两件事。采样窗够大不代表物理预测模型够得着目标；
     # 这里只做**提醒级**预告（桌面会自动升档，CLI 由操作员自己决定网格）。
     if grid_size is not None:
         from ao_shaping.algorithm.signal_processing.multishape_objective import (

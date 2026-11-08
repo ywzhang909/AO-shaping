@@ -30,7 +30,7 @@ NARROW_MODEL = ROOT / "data/debug/slm_transfer/20261107_174854/fit"
 SIDE = 1800.0
 PERIOD = 120.0
 
-# 真实 640/2048 前向模型的构造与反投影约需二三十秒：不进默认 fast 路径。
+# 真实 640/2048 物理预测模型的构造与反投影约需二三十秒：不进默认 fast 路径。
 pytestmark = pytest.mark.slow
 
 

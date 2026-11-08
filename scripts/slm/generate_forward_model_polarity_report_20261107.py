@@ -179,7 +179,7 @@ def figure_fit_quality(fit: dict) -> Path:
     axes[1].set_title("M1：实测 vs 预测核心 CV")
     axes[1].legend()
     axes[1].grid(alpha=0.25)
-    fig.suptitle("正向模型拟合质量（defocus_forward_20261107_focus_r2）", fontsize=10)
+    fig.suptitle("物理预测模型拟合质量（defocus_forward_20261107_focus_r2）", fontsize=10)
     fig.tight_layout()
     path = FIG_DIR / "uc_fit_quality_20261107.png"
     fig.savefig(path)
@@ -254,7 +254,7 @@ def figure_loss(loss: dict) -> Path:
     width = 0.38
     fig, ax = plt.subplots(figsize=(8.4, 3.6))
     for offset, source, color, label in (
-        (-width / 2, primary, "#2f6fb0", "phase_sign=−1（硬件实测，主臂）"),
+        (-width / 2, primary, "#2f6fb0", "phase_sign=−1（硬件实测，主变体）"),
         (width / 2, legacy, "#b0413e", "phase_sign=+1（历史约定，作废）"),
     ):
         values = [source.get(name, {}).get("direction_median", np.nan) for name in losses]
@@ -264,7 +264,7 @@ def figure_loss(loss: dict) -> Path:
     ax.set_ylabel("held-out U/C 方向中位数")
     ax.grid(axis="y", alpha=0.25)
     ax.legend()
-    ax.set_title("离线损失函数比较：−1 主臂 vs +1 历史臂", fontsize=10)
+    ax.set_title("离线损失函数比较：−1 主变体 vs +1 历史变体", fontsize=10)
     fig.tight_layout()
     path = FIG_DIR / "loss_compare_phase_sign_m1_20261107.png"
     fig.savefig(path)
@@ -381,7 +381,7 @@ def build() -> Path:
         for name, (mean_, std_) in gated_arm_stats.items()
     ]
 
-    body = f"""# 正向模型极性核查与单模屏方向门禁（20261107）
+    body = f"""# 物理预测模型极性核查与单模屏方向门禁（20261107）
 
 <!-- provenance:start -->
 <!-- provenance:end -->
@@ -398,7 +398,7 @@ def build() -> Path:
 | 单对 ≥ 0.50 | 0/{n_pairs} | {minus_at_gate}/{n_pairs} | ≥ {GATE:.2f} | **未通过** |
 | 全局平移最优（dx=−2） | {scan['pol+1']['best_global_shift']['median']:+.3f} | {scan['pol-1']['best_global_shift']['median']:+.3f} | ≥ {GATE:.2f} | **未通过** |
 | U/C 拟合全帧相关（M1） | {phase_arm['M1_defocus']['legacy_vs_measured_pearson']:.3f} | {phase_arm['M1_defocus']['exported_vs_measured_pearson']:.3f} | 参考 | 取反后反而变差（见 §4.4） |
-| 实机 anchored 闭环 | 未运行 | 未运行 | 门禁 + 实测 CV | 门禁未过，不上机 |
+| 实验 anchored 闭环 | 未运行 | 未运行 | 门禁 + 实测 CV | 门禁未过，不实验 |
 
 - 极性缺陷确实存在：`+1` 下 {plus_positive}/{n_pairs} 对为负，`−1` 下 {minus_positive}/{n_pairs} 对为正，且 |相关| 逐对完全不变——这是模型唯一非对称项（指令相位）被翻转的精确特征。
 - 但翻正符号**不足以**通过门禁：中位只有 {minus_median:+.3f}，单对最高也只到 0.50 附近；全局平移最多把它抬到 {scan['pol-1']['best_global_shift']['median']:+.3f}。
@@ -462,23 +462,23 @@ def build() -> Path:
 
 ## 6. 离线损失函数比较（#236）
 
-同一数据划分、同一初始化、300 次 full-batch Adam，比较 7 种损失；`phase_sign=−1` 为主臂（`scripts/slm/loss_compare_20261107.py`，产物 `data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1/`），`+1` 臂仅作历史对照。首轮以 `+1` 为主臂的推荐（masked_mse，方向中位 +0.483）**作废**：其符号约定已被 §3 的硬件证据推翻。
+同一数据划分、同一初始化、300 次 full-batch Adam，比较 7 种损失；`phase_sign=−1` 为主变体（`scripts/slm/loss_compare_20261107.py`，产物 `data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1/`），`+1` 变体仅作历史对照。首轮以 `+1` 为主变体的推荐（masked_mse，方向中位 +0.483）**作废**：其符号约定已被 §3 的硬件证据推翻。
 
 {_table(["损失", "−1 方向中位", "−1 核心 Pearson", "+1 方向中位（作废）", "+1 核心 Pearson"], loss_md)}
 
-- `−1` 主臂最优为 **{best['loss']}**（方向中位 {best['direction_median']:+.3f}），但 7 种损失全部落在 {loss_range[0]:+.3f} … {loss_range[1]:+.3f}，方向分辨率仅 ±0.05，held-out 又只有 9 个 U/C 对——**无法据此选损失**。
-- 基线复现**失败**：`−1` 臂重新拟合的离焦 d = {val['reproduced']['defocus_diopter']:+.4f} m⁻¹，与存档 M1_defocus 的 {val['stored']['defocus_diopter']:+.4f} 相差 {val['defocus_abs_delta']:.3f}（容差 {val['tolerance']['defocus_abs']}）；原点偏移 {val['origin_max_abs_delta_px']:.1f} px（容差 {val['tolerance']['origin_px']:.0f}）。与 §4.4 的作用域矛盾一致：把含载波/倾斜的整条指令取反，连 U/C 基线都保不住。
+- `−1` 主变体最优为 **{best['loss']}**（方向中位 {best['direction_median']:+.3f}），但 7 种损失全部落在 {loss_range[0]:+.3f} … {loss_range[1]:+.3f}，方向分辨率仅 ±0.05，held-out 又只有 9 个 U/C 对——**无法据此选损失**。
+- 基线复现**失败**：`−1` 变体重新拟合的离焦 d = {val['reproduced']['defocus_diopter']:+.4f} m⁻¹，与存档 M1_defocus 的 {val['stored']['defocus_diopter']:+.4f} 相差 {val['defocus_abs_delta']:.3f}（容差 {val['tolerance']['defocus_abs']}）；原点偏移 {val['origin_max_abs_delta_px']:.1f} px（容差 {val['tolerance']['origin_px']:.0f}）。与 §4.4 的作用域矛盾一致：把含载波/倾斜的整条指令取反，连 U/C 基线都保不住。
 - U/C 数据以径向对称的离焦为主，对极性不敏感；它既不能验证极性，也不能替代单模屏 ladder。
 - 因此 #236 的结论记为**未定**：损失选择必须等方向门禁通过后，在单模屏或闭环指标上重做。
 
 ## 7. 门控循环原型（#239）
 
-四臂对比（memoryless / concat / gated / attention，各 3 个种子），共享优化器、预算与数据；门控臂额外输入上一帧 CCD、相位与残差。基础模型按 `phase_sign=−1` 运行（`scripts/slm/gated_recurrent_transfer_20261107.py`，产物 `data/debug/slm_transfer/gated_recurrent_20261107/`）。
+四变体对比（memoryless / concat / gated / attention，各 3 个种子），共享优化器、预算与数据；门控变体额外输入上一帧 CCD、相位与残差。基础模型按 `phase_sign=−1` 运行（`scripts/slm/gated_recurrent_transfer_20261107.py`，产物 `data/debug/slm_transfer/gated_recurrent_20261107/`）。
 
-{_table(["臂", "方向均值", "标准差", "对数"], gated_rows_md)}
+{_table(["变体", "方向均值", "标准差", "对数"], gated_rows_md)}
 
-- 判定为 `inconclusive`：门控臂与 memoryless 在全部收敛阈值上的迭代数差异都在 10 次评估粒度内（r2 域门控约快 3 次，ladder 域持平或更慢），没有观察到迭代数压缩。
-- 值得注意的是 memoryless 残差头把方向均值从 {gated_base['mean']:+.3f} 抬到 {gated_arm_mean.get('memoryless', float('nan')):+.3f}；这说明方向指标可以通过学习残差头改善，而不必先解决物理模型。但这只是代理指标，不等于闭环收敛。
+- 判定为 `inconclusive`：门控变体与 memoryless 在全部收敛阈值上的迭代数差异都在 10 次评估粒度内（r2 域门控约快 3 次，ladder 域持平或更慢），没有观察到迭代数压缩。
+- 值得注意的是 memoryless 残差头把方向均值从 {gated_base['mean']:+.3f} 抬到 {gated_arm_mean.get('memoryless', float('nan')):+.3f}；这说明方向指标可以通过学习残差头改善，而不必先解决物理预测模型。但这只是代理指标，不等于闭环收敛。
 - 样本量很小（r2 可用 36 帧；ladder pass1/pass2 各 42 帧，且 pass2 重复 pass1 的同一批 ±指令——held-out 测的是复现性而非对新相位的泛化），结论不能外推。
 
 ## 8. 设备占用与释放记录
@@ -496,9 +496,9 @@ def build() -> Path:
 
 1. **极性作用域**：验证"只翻转像差指令、保留载波/倾斜"是否同时满足单模屏符号与 U/C 拟合质量；§6 的基线复现失败（整条指令取反连 U/C 基线都保不住）进一步支持该假设。这是当前最高优先级，且可离线用已有数据先做筛选。
 2. **门禁**：在作用域修正后重跑三组 ladder，目标 ≥0.50；若仍不足，需要 oracle 评审残差结构（候选：SLM 相位非线性、亚像素原点约定、相机响应）。
-3. **#236**：`−1` 臂上 7 种损失方向中位全部落在 ±0.07 内，无区分度，结论记"未定"。
+3. **#236**：`−1` 变体上 7 种损失方向中位全部落在 ±0.07 内，无区分度，结论记"未定"。
 4. **#237/#238**：2D 配准、实测 PSF、增益场、CCD 响应 LUT、1×1/3×3 LUT 与串扰核，均未开始。
-5. 门禁通过后才安排实机 anchored 闭环，判据仍是实测核心 CV ≤ 0.10。
+5. 门禁通过后才安排实验 anchored 闭环，判据仍是实测核心 CV ≤ 0.10。
 """
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
