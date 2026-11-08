@@ -90,6 +90,9 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -105,6 +108,7 @@ from ao_shaping.gui.slm.transfer_progress import (
     STATUS_LABELS,
     collect_progress,
 )
+from ao_shaping.tools.slm.transfer import campaign_progress
 from ao_shaping.utils.io.file import ROOT_DIR
 
 __all__ = ["TransferPage"]
@@ -147,6 +151,59 @@ _COST_ROW_HEIGHT = 22
 #: ⑦ 偏差列的首字 → 状态色: 快 = 省时间 (绿), 慢 = 要复核 (黄)。「≈计划」的首字不在
 #: 表里, 于是保持默认字色 —— 正好踩在计划上不该染成告警色。
 _DELTA_COLORS: dict[str, str] = {"快": "ok", "慢": "warn"}
+
+#: ⑥ campaign 逐块页: journal 段状态 → 中文。未知状态原样显示, 绝不抛。
+_CAMPAIGN_STATUS_LABELS: dict[str, str] = {
+    "complete": "完成",
+    "reused": "复用",
+    "running": "运行中",
+    "stopped": "已停",
+}
+
+#: 一棵树两级行: 段行 (缩进 0) 与块行 (缩进的子行) 列义不同, 表头就分两行写:
+#: 上一行是段义, 下一行是块义。只写段义会让块行的「验收 / 说明」落在没有表头的列里,
+#: 只写块义则「形状 / 阶段」被读成「块号」。曝光 ms 与后两列只属于一级, 单行居中。
+_CAMPAIGN_HEADERS = (
+    "形状 / 阶段\n块号",
+    "状态\nCV",
+    "seed CV → final CV\n饱和像素",
+    "段内峰值\n核心峰值",
+    "曝光 ms",
+    "验收",
+    "说明",
+)
+
+#: 段行 / 块行各列的口径, 挂在表头上 (表头比单元格更有地方说清楚)。
+_CAMPAIGN_HEADER_TIPS = (
+    "段行: 形状 / 阶段名；块行: 块号（缩进的子行）",
+    "段行: journal 状态；块行: 该块 CV",
+    "段行: 段首 CV → 段末 CV；块行: 饱和像素数（只印数, 不设阈值）",
+    "段行: 核心 · 全幅峰值；块行: 该块核心峰值",
+    "该段 / 该块的曝光时间",
+    "块行: 数据层的验收判定（✓ 通过 / ✗ 未通过 / — 未写）",
+    "块行: summary.json 里的说明；没有就印「—」",
+)
+
+_CAMPAIGN_HINT_UNSET = "在 ⑦ 填 campaign 目录后显示逐块读数"
+
+
+def _fmt_num(value: object, spec: str) -> str:
+    """数值 → 文字; 非数 / 布尔 / 格式不过的一律「—」, 绝不是 0。"""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return MISSING
+    try:
+        return spec.format(value)
+    except (TypeError, ValueError):
+        return MISSING
+
+
+def _accept_mark(accepted: object) -> tuple[str, str]:
+    """数据层的验收判定 → (符号, 配色键)。只照搬判定, 不另立阈值。"""
+    if accepted is True:
+        return "✓", "ok"
+    if accepted is False:
+        return "✗", "error"
+    return MISSING, "muted"
 
 #: 「目标边长」的保守上限 (px)。没有量过 0 级位置时只能给这个值 —— 采样窗默认
 #: 半跨 220 px 扣掉两侧留白后正好 424 px, 400 是留了余量的保守档。
@@ -720,6 +777,10 @@ class TransferPage(QWidget):
         self._cost_rows: Sequence[campaign_plan.CostRow] = ()
         self._cost_caption_text = ""
         self._cost_note_text = ""
+        # ⑥ campaign 逐块页: 与 ⑦ 共用 ``self._cost_dir`` 同一个目录, 不另开输入框。
+        self._campaign_progress: campaign_progress.CampaignProgress | None = None
+        self._campaign_status_text = ""
+        self._campaign_header_text = ""
 
         self._poll = QTimer(self)
         self._poll.setInterval(_POLL_MS)
@@ -767,14 +828,206 @@ class TransferPage(QWidget):
         layout.setSpacing(12)
 
         box, live_layout = _section("⑥ 实时画面（每帧刷新）")
+        # 两页: 单会话实时画面 (默认, 不自动切换) / campaign 逐块 (只读 ⑦ 的目录)。
+        self._live_tabs = QTabWidget()
         self._live_view = LiveView()
-        live_layout.addWidget(self._live_view)
+        self._live_tabs.addTab(self._live_view, "单会话")
+        self._live_tabs.addTab(self._build_campaign_page(), "campaign 逐块")
+        live_layout.addWidget(self._live_tabs)
         layout.addWidget(box, 1)
         layout.addWidget(self._build_progress(), 1)
         # ⑦ 只占自然高度 (不抢 ⑥ / ⑤ 的伸缩份额): 它是「开跑前看一眼」的静态预览,
         # 跑起来之后视线在 ⑥ / ⑤。序号追加在 ⑥ 之后, 不打乱印在界面上的 ①–⑥。
         layout.addWidget(self._build_plan_preview(), 0)
         return host
+
+    def _build_campaign_page(self) -> QWidget:
+        """⑥ 第二页「campaign 逐块」: 页头一行 + 段 / 块两级树。
+
+        只读 ⑦ 的目录 (``self._cost_dir``); 本页自己不开目录框, 也不下任何阈值判断。
+        """
+        host = QWidget()
+        layout = QVBoxLayout(host)
+        layout.setContentsMargins(0, 4, 0, 0)
+        layout.setSpacing(6)
+
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
+        head.setSpacing(8)
+        self._campaign_header = QLabel("")
+        self._campaign_header.setWordWrap(True)
+        head.addWidget(self._campaign_header, 1)
+        self._campaign_refresh = QPushButton("刷新")
+        self._campaign_refresh.setToolTip("重读 ⑦ 填的 campaign 目录（不开设备）")
+        self._campaign_refresh.clicked.connect(self.reload_campaign_progress)
+        head.addWidget(self._campaign_refresh, 0)
+        layout.addLayout(head)
+
+        # 降级文案 (无目录 / 不存在 / 空 …) 单独一行, 树为空时才显示。
+        self._campaign_status = QLabel()
+        self._campaign_status.setWordWrap(True)
+        layout.addWidget(self._campaign_status)
+
+        self._campaign_tree = QTreeWidget()
+        self._campaign_tree.setColumnCount(len(_CAMPAIGN_HEADERS))
+        self._campaign_tree.setHeaderLabels(list(_CAMPAIGN_HEADERS))
+        header = self._campaign_tree.header()
+        for column, tip in enumerate(_CAMPAIGN_HEADER_TIPS):
+            self._campaign_tree.headerItem().setToolTip(column, tip)
+        # 首列 (段名 / 块号) 在铺完行后按内容定宽 (见 _paint_campaign_progress 收尾);
+        # 说明列吃掉余宽 (挤窄了由 tooltip 兜全文), 其余列按内容。
+        for column, mode in (
+            (0, QHeaderView.ResizeMode.Interactive),
+            (6, QHeaderView.ResizeMode.Stretch),
+        ):
+            header.setSectionResizeMode(column, mode)
+        for column in range(1, 6):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+        self._campaign_tree.setRootIsDecorated(True)
+        self._campaign_tree.setAlternatingRowColors(True)
+        self._campaign_tree.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self._campaign_tree.setUniformRowHeights(True)
+        self._campaign_tree.setMinimumHeight(120)
+        layout.addWidget(self._campaign_tree, 1)
+        self._campaign_ready = True
+        self._set_campaign_status(_CAMPAIGN_HINT_UNSET)
+        return host
+
+    def _set_campaign_status(self, text: str) -> None:
+        """降级一行: 文字 + 次级色; 空串表示树里有内容, 行隐藏。"""
+        self._campaign_status_text = text
+        self._campaign_status.setText(text)
+        self._campaign_status.setStyleSheet(f"color: {self._muted()};")
+        self._campaign_status.setVisible(bool(text))
+
+    def reload_campaign_progress(self) -> None:
+        """重读 ⑦ 目录里的 campaign 逐块进度 (只读文件, 不开设备、不弹错误框)。
+
+        只在点「刷新」「读取实测」或程序方式 ``set_campaign_dir`` 时发生 —— 与 ⑦ 同一条
+        「不按键读盘」规则。任何读盘失败都退成一行说明, 树清空。
+        """
+        if not getattr(self, "_campaign_ready", False):
+            return
+        raw = self._cost_dir.text().strip()
+        path: Path | None = Path(raw).expanduser() if raw else None
+        if path is None:
+            self._show_campaign_message(_CAMPAIGN_HINT_UNSET)
+            return
+        try:
+            if not path.exists():
+                self._show_campaign_message(f"目录不存在：{raw}")
+                return
+            if not path.is_dir():
+                self._show_campaign_message(f"不是目录：{raw}")
+                return
+            progress = campaign_progress.collect_campaign_progress(path)
+        except (OSError, TypeError, ValueError, AttributeError):  # 数据层承诺不抛; 显示层兜底
+            self._show_campaign_message("读取失败：无法读取该目录的逐块进度")
+            return
+        if not progress.stages:
+            self._show_campaign_message(f"目录里还没有段级产物：{path.name}")
+            return
+        self._campaign_progress = progress
+        self._paint_campaign_progress()
+
+    def _show_campaign_message(self, text: str) -> None:
+        """清空树并给一行降级说明 (不动 ⑦ 的状态)。"""
+        self._campaign_progress = None
+        self._campaign_tree.clear()
+        self._campaign_header_text = ""
+        self._campaign_header.setText("")
+        self._set_campaign_status(text)
+
+    def _paint_campaign_progress(self) -> None:
+        """把缓存的快照铺进树: 段一行, 块作为子行。缺值一律印「—」。
+
+        不做任何判断 (不分好坏、不上色告警): 饱和 / CV 的阈值属于 G3, 这里只印数。
+        """
+        progress = self._campaign_progress
+        tree = self._campaign_tree
+        tree.clear()
+        if progress is None:
+            self._campaign_header_text = ""
+            self._campaign_header.setText("")
+            self._set_campaign_status(_CAMPAIGN_HINT_UNSET)
+            return
+        totals = progress.totals
+        name = progress.out.name or str(progress.out)
+        header = (
+            f"{totals['segments_total']} 段 · 已完成 {totals['segments_done']} 段；"
+            f"{totals['blocks_total']} 块 · 已到 {totals['blocks_done']} 块"
+            f"　（{name}）"
+        )
+        self._campaign_header_text = header
+        self._campaign_header.setText(header)
+        self._set_campaign_status("")
+
+        for stage in progress.stages:
+            shape_name = params.SHAPE_LABELS.get(stage.shape, stage.shape)
+            stage_name = campaign_plan.CAMPAIGN_STAGE_LABELS.get(stage.stage, stage.stage)
+            status = _CAMPAIGN_STATUS_LABELS.get(stage.status, stage.status)
+            # 全幅峰值缺 (旧 manifest 没有 peak 列) → 「—」, 不是 0。
+            peak_full = _fmt_num(stage.peak_full, "{:.0f}")
+            cells = (
+                f"{shape_name} / {stage_name}",
+                status,
+                f"{_fmt_num(stage.seed_cv, '{:.4f}')} → {_fmt_num(stage.final_cv, '{:.4f}')}",
+                f"{_fmt_num(stage.peak_inside, '{:.0f}')} · {peak_full}",
+                _fmt_num(stage.exposure_ms, "{:.1f}"),
+            )
+            top = QTreeWidgetItem(tree, list(cells))
+            # 段行是「一组块」的抬头: 加粗把两级行分开, 否则缩进很浅时容易读串行。
+            stage_font = QFont(top.font(0))
+            stage_font.setBold(True)
+            for column in range(len(cells)):
+                top.setTextAlignment(column, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                top.setFont(column, stage_font)
+            top.setTextAlignment(4, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            for block in stage.blocks:
+                note = block.note if isinstance(block.note, str) and block.note else MISSING
+                child = QTreeWidgetItem(top, [
+                    str(block.index),
+                    _fmt_num(block.cv, "{:.4f}"),
+                    _fmt_num(block.saturated_px, "{:.0f}"),
+                    _fmt_num(block.core_peak, "{:.0f}"),
+                    _fmt_num(block.exposure_ms, "{:.1f}"),
+                    "",
+                    note,
+                ])
+                # 说明列最容易被挤窄: 单元格省略号外的全文挂 tooltip, 不丢信息。
+                child.setToolTip(6, note)
+                for column in (1, 2, 3, 4):
+                    child.setTextAlignment(column, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                child.setTextAlignment(5, Qt.AlignmentFlag.AlignCenter)
+                mark, kind = _accept_mark(block.accepted)
+                child.setText(5, mark)
+                # 未知判定 (—) 用次级色; 配色键只认 ok / error, 不查 ``self._colors`` 里没有的键。
+                color = self._colors[kind] if kind in self._colors else self._muted()
+                child.setForeground(5, QColor(color))
+        tree.expandToDepth(0)
+        # 首列是 Interactive: 铺完后按内容定宽, 再留一口气 —— 加粗的长段名紧贴
+        # 「状态」列会被读成一行 (ResizeToContents 正好算到像素, 没有呼吸空间)。
+        tree.setColumnWidth(0, tree.sizeHintForColumn(0) + 8)
+
+    def _paint_campaign_theme(self) -> None:
+        """换主题: 只重上色, 不重读目录。"""
+        if not getattr(self, "_campaign_ready", False):
+            return
+        self._campaign_status.setStyleSheet(f"color: {self._muted()};")
+        if self._campaign_progress is not None:
+            self._paint_campaign_progress()
+
+    def campaign_tree(self) -> QTreeWidget:
+        """⑥ 逐块树 (自动化验证直接读行 / 单元格)。"""
+        return self._campaign_tree
+
+    def campaign_header_text(self) -> str:
+        """逐块页页头原文 (合计 + 目录名); 没有快照时为 ``""``。"""
+        return self._campaign_header_text
+
+    def campaign_status_text(self) -> str:
+        """逐块页降级说明; 树已经填上内容时为 ``""``。"""
+        return self._campaign_status_text
 
     def _build_header(self) -> QWidget:
         """标题与一句话说明。"""
@@ -2445,6 +2698,8 @@ class TransferPage(QWidget):
         self._cost_note_text = note
         self._paint_plan_costs()
         self._paint_cost_caption()
+        # 同一个目录、同一次点击: ⑥ 逐块页跟着读 (不另开输入框)。
+        self.reload_campaign_progress()
 
     def _paint_plan_costs(self) -> None:
         """把缓存的段成本行铺进表格 (没实测的格子写「—」, 绝不是 0)。"""
@@ -2527,6 +2782,8 @@ class TransferPage(QWidget):
             self._paint_plan_summary()
             self._paint_plan_costs()
             self._paint_cost_caption()
+        # ⑥ 逐块页: 只重上色, 不重读目录。
+        self._paint_campaign_theme()
 
     def changeEvent(self, event: QEvent) -> None:
         """系统主题切换 → 重算状态色 (Qt 覆写点, 驼峰命名由 Qt 决定)。"""
