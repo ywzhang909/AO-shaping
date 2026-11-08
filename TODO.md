@@ -4699,6 +4699,13 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 处置：10 处逐点写 `# policy:` 判据（未判据棘轮仍为 0，未放宽），总棘轮 409→424 只登记本次并入的既有差异，不预留给后续新增。
 - 复测：`tests/ao_shaping/test_conventions.py` 73 passed（本树 2026-11-08）。
 
+**2026-11-08 · 78171ec2 · master 存量红定位与本批清红（第 38+39 批随批处置）**
+- `78171ec2` 上 CI workflow 已红（先于本批两笔上游 docs 提交），根因两条：(a) 上游合并 `3d592f7b` 把特征行送回了第 31 批拆过的 `_run_validate_session`（226→254，越过棘轮 230；`f19edfc5` 已证清白，其在该函数只动 import 与一行调用）；(b) 合并窗口同时把 5 个模块撑过规模基线（`transfer_desktop/page` 1827→1965、`transfer/workflow` 1604→1756、`validate` 1352→1389、`transfer_progress` 1333→1367、`transfer_shapes_runner` 869→935），另有 `signal_processing/differentiable_defocus_uniformity.py` 813 行新越线（无基线键）
+- 处置：函数形状**再拆不抬天花板**——把 `_run_validate_session` 里 88 行的嵌套闭包 `capture` 升为模块级 `_session_capture`（17 个闭包变量由 `functools.partial` 在原点冻结，254→170）；偏安全前提全部机器校验：闭包名在 def 之后零重绑、`capture` 对内不重绑任何外层名（共享单元集合为空）、无 `nonlocal`。模块规模按登记惯例补/升 6 个基线键（先例见第 31 批）
+- 结构钉子随归属者迁移：`test_validate_live_frame.py` 两颗源码钉（取图循环发帧、HDR 透传）从 `_run_validate_session` 改钉 `_session_capture`，并新增委派链钉 `run → _run_validate_session → functools.partial(_session_capture)`——与第 26 批挪钉同一手法
+- 同批推送第 38 批：`differentiable_beam.optimize_beam_shaping` 296→153（`_run_simulation_phase` 68 / `_run_hardware_phase` 88；sim 路径以 `return recorder` 终止的控制流陷阱已核实——`if` 与 `return` 留在原函数，helper 仅被 `return <helper>` 调用），叶语句全树扫描仅差本批新增，载体 52 passed 含 mock 硬件路径；算法域 per-file 无新增红（`test_registration_direction_gate` 3 failed 为上游预存，干净树上复现同红）
+- 算法/transfer 域与形状门禁（154 passed）、ruff、术语（0 个文件）、模块规模门禁全绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

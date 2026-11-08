@@ -45,9 +45,16 @@ report/<topic>/<系列名>/
 | `transfer_square1200/` | `scripts/slm/generate_transfer_square1200_report.py` | `transfer_square1200_20261027.md` |
 | `gs_refine/` | 手工撰写（GS 系列） | `gs_issue_live_20261015.md` 等 9 份 |
 | `model_in_loop/` | 手工撰写（MIL 系列） | `model_in_loop_live_20261013.md` 等 9 份 |
-| `physical_refine/` | 手工撰写（`sim2f_fov_hw_session.py` / `sim2f_fov_hw_refine.py`） | `physical_refine_plan_20261102.md`、`physical_refine_results_20261102.md`、`physical_refine_results_20261103.md`、`forward_model_transfer_plan_20261104.md` |
+| `physical_refine/` | 手工撰写（`sim2f_fov_hw_session.py` / `sim2f_fov_hw_refine.py`） | `physical_refine_plan_20261102.md`、`physical_refine_results_20261102.md`、`physical_refine_results_20261103.md`、`forward_model_transfer_plan_20261104.md`、`forward_model_transfer_20261107.md` |
 | `mask_closed_loop/` | `scripts/ml/sim2f_shape_trials.py` | `mask_closed_loop_20261031.md` |
 | `fov_generalization/` | `scripts/ml/sim2f_fov_extrapolation.py` | `fov_generalization_20261101.md` |
+| `measured_forward_refine_20261107/` | 手工撰写（`scripts/slm/measured_forward_hw_probe_20261107.py` / `scripts/slm/measured_psf_probe_20261107.py` / `scripts/slm/registration_gain_probe_20261107.py` 等探针产物） | `measured_forward_refine_20261107.md` |
+| `phase_scope_20261107/` | 手工撰写（`scripts/slm/phase_scope_direction_20261107.py` 离线回放） | `phase_scope_20261107.md` |
+| `loss_compare_20261107/` | `scripts/slm/generate_loss_compare_report_20261107.py` | `loss_compare_20261107.md` |
+| `gated_recurrent_20261107/` | `scripts/slm/generate_gated_recurrent_report_20261107.py` | `gated_recurrent_20261107.md` |
+| `forward_model_polarity/` | `scripts/slm/generate_forward_model_polarity_report_20261107.py` | `forward_model_polarity_20261107.md` |
+| `shared_lut_crosstalk_20261107/` | 手工撰写（issue #238 规划，实现未开始） | `shared_lut_crosstalk_20261107.md` |
+| `star_farfield/` | `scripts/slm/star_farfield_analysis_20261107.py`（人工撰写正文） | `star_farfield_20261107.md` |
 
 同一系列在**同一天**追加轮次时，文件名保留日期并加 `_rN` 轮次后缀（如 `hw_defocus_zernike_20261022_r2.md` 表示 10-22 当天的第二轮）；跨天追加则直接换日期（`hw_defocus_zernike_20261020.md` → `..._20261021.md` → `..._20261022.md`）。生成脚本从系列前缀之后的**整段后缀**推导图名戳（`_20261022`、`_20261022_r2`），所以同系列的多份报告不会互相覆盖图。
 

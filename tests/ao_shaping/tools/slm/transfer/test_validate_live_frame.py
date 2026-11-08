@@ -282,17 +282,24 @@ def test_validate_emits_a_frame_inside_the_per_frame_read_loop():
     合并把早先的拆分压回了 ``run``), 取图循环随之搬进该函数的嵌套 ``capture``。
     钉子因此改钉新的归属者, 并额外钉住 ``run`` 仍然委派给它 —— 否则归属者再被
     搬走时, 这个测试会静默地钉在一条 ``run`` 根本不再经过的路径上。
+
+    第三十九批把嵌套闭包 ``capture`` 升为模块级 ``_session_capture``
+    (``functools.partial`` 在原处绑定), 归属者链变成
+    ``run → _run_validate_session → _session_capture``: 先钉住这条链,
+    循环体结构性质再钉在最终归属者上, 曝光阶梯钉子仍属于会话段。
     """
     import inspect
 
-    source = inspect.getsource(validate._run_validate_session)
     assert "_run_validate_session(" in inspect.getsource(validate.run)
+    session = inspect.getsource(validate._run_validate_session)
+    assert "functools.partial(" in session and "_session_capture" in session
+    source = inspect.getsource(validate._session_capture)
     body = _loop_body(source, "for index in range(args.frames):")
     assert _emits_payload(body), body
     assert any('phase="validate"' in line for line in body)
 
     # 曝光阶梯的每一档也是一次读出, 同样逐帧上屏。
-    assert 'phase="exposure"' in source
+    assert 'phase="exposure"' in session
 
 
 def test_capture_emits_a_frame_from_its_single_read_funnel():
@@ -374,13 +381,15 @@ def test_block_frame_payload_hdr_keys():
 def test_validate_capture_loop_passes_hdr_when_enabled():
     """采集循环里 HDR 开启时, 显示帧负载带 hdr=True 与 hdr_image。
 
-    源码级钉子 (不跑设备): capture 循环体内必须同时出现 ``hdr=True`` 与
+    源码级钉子 (不跑设备): 取图循环体内必须同时出现 ``hdr=True`` 判定与
     ``hdr_image=hdr_image``, 且 HDR 判定用 ``getattr(args, "hdr", False)`` 容错
-    (旧调用方不传 hdr 字段也能跑)。
+    (旧调用方不传 hdr 字段也能跑)。#205 第三十九批起循环体归属
+    ``_session_capture`` (由 ``_run_validate_session`` 经 ``functools.partial``
+    绑定), 钉子随归属者迁移。
     """
     import inspect
 
-    source = inspect.getsource(validate._run_validate_session)
+    source = inspect.getsource(validate._session_capture)
     body = _loop_body(source, "for index in range(args.frames):")
     text = "\n".join(body)
     assert 'getattr(args, "hdr", False)' in text
