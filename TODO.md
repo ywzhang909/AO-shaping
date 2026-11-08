@@ -4724,6 +4724,12 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 后者归因（只记不修）：上游新增"目标超出物理预测模型 FFT 可达窗"前置校验后，该测试的 20 px mock 目标先于原断言被拦——报错是新校验而非期望的"stale 目录"错误。修法需语义判断（缩目标还是换细网格），属上游作者车道，盲改会替别人决定测试意图
 - 验收（41-A，本仓库环境）：该测试文件 **1 passed, 3 skipped**；ruff 全树干净；术语门禁 0 个文件
 
+**2026-11-08 · 0834ad3e · 分片闭环 + 最后一条红归因修复（41-B）：master 存量红 10→0**
+- `0834ad3e` 分片日志逐条核对（1.87 MB 完整载荷）：失败集恰为 1 条 `test_transfer_shapes_runner::test_without_resume_a_populated_stage_directory_still_fails`；registration 三条在 CI 确认已转 skip（41-A 生效），`_fmt` 与 `test_transfer_workflow` 均 0 红。上一条目里"只记不修"的处置**由本条取代**：并行窗口数个提交后仍未接手，且现场可判读，遂满预算归因
+- 归因：不是生产排序 bug，也不改断言。fixture 的 stub `frozen_parameters.json` 给了 `ramp_matrix=[[1,0],[0,1]]`——等于宣称 1 个 CCD 像素 = 1 个频率单位；校验按 `fmax = 0.5·grid_size/1920 ≈ 0.0021`（与报错文案逐字吻合）计算，20 px 目标在任何尺寸下都必然被拒。校验行为正确，**stub 物理自相矛盾**，且它先于测试要钉的历史契约（无 resume 的 stale 目录必须 `FileExistsError`）触发
+- 修法：只把 stub 的 ramp 改到物理自洽量级（对角 4e4 → 最坏频点 5e-4，对窗沿 4 倍余量），让执行流按作者原意抵达 stale 目录守卫；断言、依赖、其余 29 条测试零改动
+- 验收：该文件 **30 passed**（此前 1 failed, 29 passed）；ruff 全树干净；模块规模门禁 0。待本轮分片复核：预期 FAILED=0，master 自上游合并窗口以来首次全绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
