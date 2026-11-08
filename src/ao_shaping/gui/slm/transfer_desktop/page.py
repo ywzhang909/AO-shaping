@@ -803,8 +803,9 @@ class TransferPage(QWidget):
         if auto_detect_ccd:
             self._start_ccd_detection()
         else:
-            # 关掉探测时提示行留白 —— 与「探测不可用」是同一套降级, 不影响后面流程。
+            # 关掉探测时提示行留白并收起 —— 与「探测不可用」是同一套降级, 不影响后面流程。
             self._probe_label.setText("")
+            self._probe_label.setVisible(False)
 
     # ------------------------------------------------------------------ 布局
     def _build(self) -> None:
@@ -1069,6 +1070,21 @@ class TransferPage(QWidget):
         scroll.setFixedWidth(_FORM_WIDTH)
         return scroll
 
+    def _advanced_fold(self, tooltip: str) -> tuple[QCheckBox, QWidget]:
+        """「高级参数」折叠行: 一个勾选框 + 一个可藏容器, 默认收起。
+
+        折叠**纯属展示**: 控件照常构建、照常进 ``form_values()``、照常参与校验
+        与 ``_set_form_enabled``, 收起不改变任何行为。**不做「里面有非默认值就
+        自动展开」** —— ③ 校验把每个问题都印成文字, 折起来的控件出问题也看得见;
+        自动展开反而会把操作者正在看的表单顶走。
+        """
+        toggle = QCheckBox("高级参数")
+        toggle.setToolTip(tooltip)
+        container = QWidget()
+        toggle.toggled.connect(container.setVisible)
+        container.setVisible(False)
+        return toggle, container
+
     def _build_device(self) -> QGroupBox:
         """① 设备: 往哪台硬件下发。"""
         box, layout = _section("① 设备")
@@ -1080,13 +1096,25 @@ class TransferPage(QWidget):
         self._cam_id = self._spin(_DEFAULTS.cam_id, 0, 15)
         self._slm_number = self._spin(_DEFAULTS.slm_number, 1, 4)
 
-        form = QFormLayout()
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setSpacing(8)
-        form.addRow("相机类型", self._camera)
-        form.addRow("CCD cam_id", self._cam_id)
-        form.addRow("SLM 编号", self._slm_number)
-        layout.addLayout(form)
+        # 换相机 / 换 SLM 是装机时一次性的设置, 不是每次运行的旋钮 → 折进「高级
+        # 参数」。折叠只藏控件不改行为: form_values() 照读、校验照跑、自检与探测
+        # 照常写结论。留在主路径的探测结论行负责回答「这次用哪台相机」。
+        self._device_advanced_toggle, self._device_advanced_container = (
+            self._advanced_fold(
+                "收起不改变任何行为：相机 / SLM 编号照常参与校验与运行；"
+                "装机或换机台时才需要展开"
+            )
+        )
+        device_advanced = QFormLayout()
+        device_advanced.setContentsMargins(0, 0, 0, 0)
+        device_advanced.setSpacing(8)
+        device_advanced.addRow("相机类型", self._camera)
+        device_advanced.addRow("CCD cam_id", self._cam_id)
+        device_advanced.addRow("SLM 编号", self._slm_number)
+        self._device_advanced_container.setLayout(device_advanced)
+
+        layout.addWidget(self._device_advanced_toggle)
+        layout.addWidget(self._device_advanced_container)
 
         # 加载时自动探测的结论: 中性提示 (普通文本色, 不是告警), 只说明「这次
         # 用哪台相机」。探测失败也写在这里, 不染色、不阻断。
@@ -1253,16 +1281,32 @@ class TransferPage(QWidget):
         form.addRow("倾斜相位周期（面板 px）", self._period)
         form.addRow(self._tilt)
         form.addRow("配对验收", self._abba)
+        layout.addLayout(form)
+
+        # 验收阈值循环 + 光路复用折进「高级参数」: 都是「转手动」的口径 —— 默认
+        # 单轮 / 全流程已经是对的, 需要它们的是调阈值、复跑同一光路这类少数场合。
+        # 周期与倾斜开关留在主路径: 那是每次运行都可能动的旋钮。折叠只藏控件
+        # 不改行为, ③ 校验照常把这些控件的问题印成文字 (所以不自动展开)。
+        self._advanced_toggle, self._advanced_container = self._advanced_fold(
+            "收起不改变任何行为：验收阈值循环与光路复用照常参与校验与运行；"
+            "③ 校验会把这里的问题照常列出来"
+        )
         accept_row = QHBoxLayout()
         accept_row.setContentsMargins(0, 0, 0, 0)
         accept_row.setSpacing(8)
         accept_row.addWidget(self._accept)
         accept_row.addWidget(self._accept_lower)
         accept_row.addWidget(self._accept_upper)
-        form.addRow(accept_row)
-        form.addRow(self._accept_hint)
-        form.addRow(self._reuse_latest)
-        layout.addLayout(form)
+        advanced_form = QFormLayout()
+        advanced_form.setContentsMargins(0, 0, 0, 0)
+        advanced_form.setSpacing(8)
+        advanced_form.addRow(accept_row)
+        advanced_form.addRow(self._accept_hint)
+        advanced_form.addRow(self._reuse_latest)
+        self._advanced_container.setLayout(advanced_form)
+
+        layout.addWidget(self._advanced_toggle)
+        layout.addWidget(self._advanced_container)
 
         # 常驻说明: 上限从哪来、现在是多少 —— 读不到时也要把「仍是保守值」讲清楚。
         self._zero_view = QLabel()
@@ -1813,6 +1857,22 @@ class TransferPage(QWidget):
         """加载时相机自动探测的结论 (关闭探测时为空串; 供自动化断言, 永不为 None)。"""
         return self._probe_text
 
+    def advanced_toggle(self) -> QCheckBox:
+        """② 的「高级参数」勾选行 (自动化: 折 / 展就翻它)。"""
+        return self._advanced_toggle
+
+    def advanced_container(self) -> QWidget:
+        """② 折叠容器: 收起时 ``isVisible()`` 为 False, 里面的控件照常在。"""
+        return self._advanced_container
+
+    def device_advanced_toggle(self) -> QCheckBox:
+        """① 的「高级参数」勾选行 (相机 / cam_id / SLM 编号)。"""
+        return self._device_advanced_toggle
+
+    def device_advanced_container(self) -> QWidget:
+        """① 折叠容器: 同 ②, 收起只藏控件。"""
+        return self._device_advanced_container
+
     def set_camera(self, kind: str) -> None:
         """程序方式选相机后端, 联动与手工点选相同 (未知后端直接报错)。"""
         index = self._camera.findData(str(kind))
@@ -2055,6 +2115,8 @@ class TransferPage(QWidget):
         """提示行与只读摘要同源更新 (``ccd_probe_summary`` 因此永不为 None)。"""
         self._probe_text = str(text)
         self._probe_label.setText(self._probe_text)
+        # 空文案不占行: 探测关掉 (或降级为空) 时 ① 里不留一条空白。
+        self._probe_label.setVisible(bool(self._probe_text))
 
     def _apply_ccd_choice(self, kind: str, cam_id: int) -> None:
         """把探测结果写进控件: 关掉信号再写, 最后只重新校验一次。"""
