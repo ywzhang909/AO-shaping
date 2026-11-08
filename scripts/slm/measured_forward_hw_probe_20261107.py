@@ -79,6 +79,12 @@ ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from functools import partial
+from scripts._common import fmt_fixed_or_text
+
 
 # --------------------------------------------------------------------------- #
 # archived inputs (read-only; this script never writes outside ``--out``)
@@ -1091,14 +1097,7 @@ def _md_table(headers: list[str], rows: list[list[Any]]) -> list[str]:
     return out
 
 
-def _fmt(value: Any, digits: int = 4) -> str:
-    if value is None:
-        return "—"
-    if isinstance(value, (float, np.floating)):
-        if not np.isfinite(value):
-            return "—"
-        return f"{value:.{digits}f}"
-    return str(value)
+_fmt = partial(fmt_fixed_or_text, include_np_float=True, nonfinite_text="—")
 
 
 def _short(digest: Any) -> str:

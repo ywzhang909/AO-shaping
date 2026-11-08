@@ -6,7 +6,7 @@
 > **说明**: #235 phase_sign 作用域实验：四变体（command/aberration/aberration_focus/aberration_carrier）离线拟合与单模屏方向对照；command 精确复现存档 −1（Pearson 路径 Δd 4.7e-10）；屏方向四变体等价、无法区分作用域；aberration_focus 不稳定需复现；carrier 不可分离。输入为 data/debug/slm_transfer/phase_scope_20261107/ 存档产物。人工撰写。
 <!-- provenance:end -->
 
-> **数据** [`results.json`](../../../data/debug/slm_transfer/phase_scope_20261107/results.json) · 详细过程 [`REPORT.md`](../../../data/debug/slm_transfer/phase_scope_20261107/REPORT.md) · 运行日志 [`run.log`](../../../data/debug/slm_transfer/phase_scope_20261107/run.log)
+> **数据** `data/debug/slm_transfer/phase_scope_20261107/results.json` · 详细过程 `data/debug/slm_transfer/phase_scope_20261107/REPORT.md` · 运行日志 `data/debug/slm_transfer/phase_scope_20261107/run.log`
 
 ## 结论摘要
 

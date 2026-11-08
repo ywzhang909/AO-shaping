@@ -39,6 +39,12 @@ from scipy.ndimage import map_coordinates
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from functools import partial
+from scripts._common import fmt_fixed_or_text
+
 
 from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
     FrozenDefocusForward,
@@ -552,12 +558,7 @@ def direction_metric(
 # --------------------------------------------------------------------------- #
 # reporting
 # --------------------------------------------------------------------------- #
-def _fmt(value, digits: int = 4) -> str:
-    if value is None:
-        return "not reached"
-    if isinstance(value, float):
-        return f"{value:.{digits}f}"
-    return str(value)
+_fmt = partial(fmt_fixed_or_text, none_text="not reached")
 
 
 def _mean_std(values: list[float | None]) -> dict:

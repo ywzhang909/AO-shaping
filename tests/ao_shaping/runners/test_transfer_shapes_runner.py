@@ -140,7 +140,7 @@ def test_without_resume_a_populated_stage_directory_still_fails(tmp_path):
     (model / "frozen_parameters.json").write_text(json.dumps(dict(
         residual_noll_radians={}, defocus_diopter=0., origin=[0., 0.],
         amplitude_center=[0., 0.], amplitude_width=[1., 1.], gain=1., background=0.,
-        sigma_ccd_px=1., ramp_matrix=[[1., 0.], [0., 1.]],
+        sigma_ccd_px=1., ramp_matrix=[[4e4, 0.], [0., 4e4]],
         grid_size=8, fft_size=16, pixel_samples=3)))
     frozen = _fake_stage(tmp_path, "square", STAGE_RECIPES[0].name)
     args = _stage_args(tmp_path, stage_resume=False, shapes=("square",))

@@ -326,6 +326,7 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 | `slm/transfer/` | `direction.py` | 已存相位上的全局模型 vs 实测锚点方向性目标比较 |
 | `slm/transfer/` | `paired.py` | 定曝光配对判定 (带显式实测验收指标) |
 | `slm/transfer/` | `probes.py` | 确定性相位族 + canonical Zernike 求值 |
+| `slm/transfer/` | `auto_reuse.py` | 自动重用历史模型 (2026-11-08 新增, 跟进 `57a00289`): 从零采集前先用少数几帧探测当前光路, 扫描带光路指纹的历史检查点, 兼容性达标即自动复用、跳过采集与拟合 |
 | `slm/transfer/` | `uncertainty.py` | 离线预测诊断与实验性委员会排序: 均值归一化分歧、wrapped 去重选样、配对形状误差与冻结预测复用 (零设备 import, 非生产验收门) |
 | `slm/transfer/` | `response.py` | 固定 CCD 网格上的照明曝光响应拟合与独立校验 |
 | `slm/transfer/` | `simulation.py` | 生成已知真值的线性相机探针, 供免设备迁移测试 |
@@ -333,10 +334,12 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 | `slm/transfer/` | `axial.py` | 已记录相位/CCD 对上的条件 ABCD 输入面扫描 (免设备; 拟合距离是相对冻结标称标定的有效修正, 非 SLM-透镜绝对距离) |
 | `slm/transfer/` | `camera_probe.py` | 不开 SLM 记录相机实际格式与原始精度 |
 | `slm/transfer/` | `device.py` | Which compute device the torch stages use (fit, synthesis, validation) |
+| `slm/transfer/` | `device_probe.py` | 设备自检 / 0级探测 / 自动 CCD 类型选择 (2026-11-08 新增, 跟进 `6b2bd260`): 探测层, 给定已打开的相机 (与可选 SLM) 做三件事, 全部 best-effort (`detect_ccd_type` 等) |
 | `slm/transfer/` | `early_geometry.py` | 采集阶段的几何预检 (免设备, 纯函数): 用新鲜采集的实测零位 + `fit.geometry(rows)` 现拟合的 ramp_matrix, 提前判目标在采样窗内的落点是否越界, 早于跑完采集+拟合把越界组合拦下来 (`EarlyGeometryResult`/`check_early_geometry`/`format_early_geometry`, `tilt=False` 直接通过); 接入点在 `workflow.py` 采集 stage 之后 |
 | `slm/transfer/` | `cold_start.py` | 无训练整形种子 (无相位恢复、无历史检查点) |
 | `slm/transfer/` | `exploration.py` | 已记录的非单调 CCD 探索 (champion 单独保留) |
 | `slm/transfer/` | `geometric_seed.py` | 可分离辐照传输 + 拟合光学给出的非 GS 方形种子 |
+| `slm/transfer/` | `hdr_probe.py` | HDR 探测显示 (2026-11-08 新增, 跟进 `384c7cc9`): 多曝光融合图的采集侧薄包装, 给定已打开的相机调 `capture_hdr` 拿宽动态 `fused` (float32 线性 radiance), 供 `live_view.tone_map_hdr` 色调映射回 0..255 展示 |
 | `slm/transfer/` | `local_response.py` | 由已记录 signed CCD 相位探针标定局部 Jacobian 增益/模糊 |
 | `slm/transfer/` | `jacobian_guard.py` | 逐块 Jacobian 方向校验与它驱动的信任域收缩 (免设备): 用每个 CCD 校验块本来就采的 `A1`/`B` 两端差分, 拿模型预测差与实测差的**相关性**判方向是否可信, 不可信就收缩信任域 |
 | `slm/transfer/` | `light_guard.py` | 光路无光的早判与专用退出码: `OpticalPathInvalid` (`exit_code = 3`) + 曝光阶梯内的 `on_step` 守卫 (`LightGuard`, 峰值停在噪声底即中止) + 启动前 `verify_light`; 判据是「峰值 vs 该帧自己的噪声底」, 与探针的 `weak_path` 分工 (后者管「能测出来但已衰减」) |

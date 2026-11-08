@@ -4713,6 +4713,23 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 父提交归属矩阵（干净 worktree `de66d4f1`、per-file、CI 包络）——以下红在**我父亲提交上已存在**，与第 38/39 批无关：`registration_direction_gate` 3 failed（第 4 条 `test_wrapper_does_not_import_drivers` 父提交单跑为过，CI 序下红，另行观察）、`widget_value_contract` 1、`cli_contract_freeze` 1、`cli_help_golden[main:slm-transfer-shapes]` 1、`transfer_shapes_runner` 1、`test_common_helpers_not_reintroduced[_fmt]` 1、`report_provenance` 2（shape_trials 相对链接）、`tools_doc_coverage` 1。属我的仅 `test_transfer_workflow`，本批修复
 - 本批上一条目（78171ec2 条目）中"算法域无新增红"与"transfer 域 per-file 全绿"两句**部分作废**：前者仍成立（registration gate 确属上游预存），后者口径错了（只覆盖 `transfer/` 子目录）。master 在本批之后仍非全绿——剩余清单是上游合并窗口债，待与并行窗口协调处置，避免我的 sha 继续替别人背红
 
+**2026-11-08 · f594e59f · 第 39 批修复验证闭环；上游存量红仍无人修，本窗口第 40 批逐条开清**
+- CI 侧：快门禁（Ruff/Pylint/CI 三 job）全绿，确认第 39 批登记的规模/术语红已清；Pytest 分片仍红，但失败集与父提交归属矩阵一致——我的 16 条 `test_transfer_workflow` 不再出现。上游头 `af03b26f`（已含该修复）分片同样 failure，证实上游 ~10 条存量红至今无人接手
+- 第 40 批-A（重复实现收口，守卫车道）：`scripts/slm` 三个 2026-11-07 报告脚本各带一份本地 `def _fmt`，三处语义互有差异（None 占位 `-`/`—`/`not reached`、非有限值渲染、`np.floating` 口径），`fmt_general` 的旗标组合无法逐字表达 measured 变体——按本模块"行为不同则分立保留"的既有惯例新增参数化规范 formatter `fmt_fixed_or_text`，三个脚本先做**新旧函数 66 输入电池逐字节比对**（None/bool/int/float/nan/±inf/np.float32/np.float64/np.int64/str/list × digits 4/2/6）全等后才删本地 def、原位绑定 partial 别名，call-site 零改动
+- 验收：`_fmt` 守卫红清，该守卫文件 **74 passed**（此前 73 passed 1 failed）；守卫文案 FIVE→SIX 同步；ruff 干净。三个脚本是一次性报告生成器（无独立单测、需数据/设备才能端到端跑），行为等价性由电池比对承担
+
+**2026-11-08 · 2fc2294f · 第 40 批-A 的 CI 闭环；master 存量红收敛到 4 条并完成归因（41-A 随批处置其一）**
+- 分片日志逐条核对（job 日志完整下载，1.88 MB，非 404 载荷）：失败集 = 父提交归属矩阵 − `_fmt`（40-A 已清，CI 确认）− 5 条已被并行窗口修掉（widget 契约、CLI 金钉两条、provenance 两条、doc coverage）− 我的 16 条 `test_transfer_workflow`（第 39 批修复确认）。master 现存红恰为 4 条：`test_registration_direction_gate` 3 + `test_transfer_shapes_runner::test_without_resume_a_populated_stage_directory_still_fails` 1
+- 前者归因：三条测试的模块级语料路径（`RUN`/`FIT`/`CHECKPOINT`）指向 gitignore 的 `data/debug` 硬件窗口产物，本仓库与 CI 均无——同文件对 SCRIPT 缺失会 skip，对语料缺失却不 skip，违反仓库 hardware-skip 惯例。第四十一批-A 补 `_require_corpus()`（缺则 skip 并列出缺项），三条转 skip、第四条无依赖测试保持 passed；语料窗口内测试仍真实执行，不掩回归
+- 后者归因（只记不修）：上游新增"目标超出物理预测模型 FFT 可达窗"前置校验后，该测试的 20 px mock 目标先于原断言被拦——报错是新校验而非期望的"stale 目录"错误。修法需语义判断（缩目标还是换细网格），属上游作者车道，盲改会替别人决定测试意图
+- 验收（41-A，本仓库环境）：该测试文件 **1 passed, 3 skipped**；ruff 全树干净；术语门禁 0 个文件
+
+**2026-11-08 · 0834ad3e · 分片闭环 + 最后一条红归因修复（41-B）：master 存量红 10→0**
+- `0834ad3e` 分片日志逐条核对（1.87 MB 完整载荷）：失败集恰为 1 条 `test_transfer_shapes_runner::test_without_resume_a_populated_stage_directory_still_fails`；registration 三条在 CI 确认已转 skip（41-A 生效），`_fmt` 与 `test_transfer_workflow` 均 0 红。上一条目里"只记不修"的处置**由本条取代**：并行窗口数个提交后仍未接手，且现场可判读，遂满预算归因
+- 归因：不是生产排序 bug，也不改断言。fixture 的 stub `frozen_parameters.json` 给了 `ramp_matrix=[[1,0],[0,1]]`——等于宣称 1 个 CCD 像素 = 1 个频率单位；校验按 `fmax = 0.5·grid_size/1920 ≈ 0.0021`（与报错文案逐字吻合）计算，20 px 目标在任何尺寸下都必然被拒。校验行为正确，**stub 物理自相矛盾**，且它先于测试要钉的历史契约（无 resume 的 stale 目录必须 `FileExistsError`）触发
+- 修法：只把 stub 的 ramp 改到物理自洽量级（对角 4e4 → 最坏频点 5e-4，对窗沿 4 倍余量），让执行流按作者原意抵达 stale 目录守卫；断言、依赖、其余 29 条测试零改动
+- 验收：该文件 **30 passed**（此前 1 failed, 29 passed）；ruff 全树干净；模块规模门禁 0。待本轮分片复核：预期 FAILED=0，master 自上游合并窗口以来首次全绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
