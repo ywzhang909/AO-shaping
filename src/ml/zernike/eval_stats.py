@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable, Mapping, Sequence
+from pathlib import PurePath
 
 import numpy as np
 
@@ -131,6 +132,22 @@ def spearman(x, y) -> float:
     return pearson(_average_rank(xa), _average_rank(ya))
 
 
+def _group_key(path: object) -> str:
+    """Canonical group key for a record path, spelled the same on every platform.
+
+    :func:`folds_of` promises that a ``str`` path and the ``Path`` of the same
+    file land in one group.  ``str(Path("d/a.pkl"))`` breaks that promise on
+    Windows -- it is ``"d\\\\a.pkl"`` -- so the two spellings of one file became
+    two groups and the same file was held out twice.  POSIX spelling is the
+    canonical form: ``PurePath(...).as_posix()`` maps both spellings to
+    ``"d/a.pkl"`` on Windows and leaves POSIX paths untouched.
+    """
+    text = str(path)
+    if not text:
+        return text
+    return PurePath(text).as_posix()
+
+
 def folds_of(records):
     """Leave-one-group-out folds over records keyed by ``str(record.path)``.
 
@@ -144,10 +161,14 @@ def folds_of(records):
     order, and ``train + val`` is a permutation of ``range(len(records))``.
     Scripts whose loops consume a projection of this tuple (e.g. dropping ``key``)
     adapt at the call site; the canonical always carries both index and key.
+
+    The key itself goes through :func:`_group_key`, so a ``Path`` and its string
+    form group together on Windows too, where ``str(Path(...))`` would otherwise
+    spell the same file two ways.
     """
     groups: dict[str, list[int]] = {}
     for position, record in enumerate(records):
-        groups.setdefault(str(record.path), []).append(position)
+        groups.setdefault(_group_key(record.path), []).append(position)
     keys = sorted(groups)
     return [(i, k, [p for kk, ps in groups.items() if kk != k for p in ps], groups[k])
             for i, k in enumerate(keys)]

@@ -123,8 +123,26 @@ def test_checkpoint_physics_actually_drives_predictions(tmp_path: Path) -> None:
 
 
 def test_wrapper_does_not_import_drivers() -> None:
-    _load_gate()
-    assert not any(
-        name == "ao_shaping.drivers" or name.startswith("ao_shaping.drivers.")
-        for name in sys.modules
+    """The wrapper must not pull in ``ao_shaping.drivers``.
+
+    The probe runs in a fresh interpreter on purpose: ``sys.modules`` is
+    process-global, so an in-process assertion reports whichever driver module
+    another test in the same session happened to import first.  That failure
+    would belong to the other test, not to this wrapper -- and it would make
+    this guard depend on the order pytest collects the suite.
+    """
+    if not SCRIPT.is_file():
+        pytest.skip(f"wrapper under review is not present: {SCRIPT}")
+    probe = (
+        "import importlib.util, sys\n"
+        f"spec = importlib.util.spec_from_file_location('gate_probe', {str(SCRIPT)!r})\n"
+        "module = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(module)\n"
+        "leaked = [name for name in sys.modules\n"
+        "          if name == 'ao_shaping.drivers' or name.startswith('ao_shaping.drivers.')]\n"
+        "assert not leaked, leaked\n"
     )
+    result = subprocess.run(
+        [sys.executable, "-c", probe], cwd=ROOT, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
