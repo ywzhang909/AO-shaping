@@ -49,7 +49,7 @@
 ## 1. 方法、环境与复现
 
 - **探针**：`scripts/slm/diffopt_efficiency_probe_20261108.py`（本报告唯一数字来源）。
-- **模型**：`FrozenDefocusForward`（`fft_size=1024`，`grid_size=128`，冻结 checkpoint），
+- **模型**：`FrozenDefocusForward`（`fft_size=512`，`grid_size=128`，冻结 checkpoint），
   目标 = `UniformityObjective` 的掩膜内 CV²（可微口径，与 `offline_benchmark_20261107.py`
   的 C 轴同一 `FrozenDefocusForward` 与同一 mode basis）。
 - **参数化**：`C_MODES = Noll 5–15`（11 模，去 piston/整体倾斜），`C_RANDOM_RAD=0.05`。
@@ -70,7 +70,7 @@
 
 | 项 | 中位 | 说明 |
 |----|------|------|
-| 前向 `F(φ)` | 6.0 ms | FFT 1024 冻结模型合成 + 传播 |
+| 前向 `F(φ)` | 6.0 ms | FFT 512 冻结模型合成 + 传播 |
 | 反向（梯度） | 5.7 ms | autograd 反传 |
 | step（优化器） | 0.5 ms | Adam/SGD 参数更新 |
 | **合计** | **12.2 ms/步** | 5 次极差 12.2–12.4（spread 1.015） |
@@ -82,7 +82,7 @@
 >6 线程收益递减（12→6 仅 −3%），6 是性价比拐点，也是逐位复现的必需值。
 
 **FFT 尺寸**：`fft256` → 9.25 ms/步（−24%），但图像相对 L2 = 0.0180、核心掩膜 IoU = 0.9612
-（对 `fft1024` 基准）；`zero` 起点 CV 0.658（基准 0.648）。→ **只适合作粗网格阶段**
+（对 `fft512` 基准）；`zero` 起点 CV 0.658（基准 0.648）。→ **只适合作粗网格阶段**
 （见 §6 调度），不适合作最终精修。
 
 **批量起点**：8 个随机起点一次 batch 合成 → 61.6 ms/step，**每起点 7.7 ms**（比串行 12.2 ms
