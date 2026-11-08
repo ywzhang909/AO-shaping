@@ -1748,6 +1748,18 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/model_in_loop_hw_ab.py",
         ),
     ),
+    "report/shape_trials/defocus_differentiable/diffopt_efficiency_20261108.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线（纯 CPU；读磁盘冻结 checkpoint，未占用 SLM/CCD/激光）",
+        note=(
+            "可微优化效率拆解探针: 每步成本(前向/反向/step, fft_size, 线程, 批量起点)、"
+            "收敛所需步数(Adam/SGD 学习率扫描, LBFGS)、参数化地板(模式集 Noll 5-15/5-25/5-35)、"
+            "部署路径 step_rms_cap 绑定(cumulative vs per_step accept); "
+            "结论按「部署路径 cap 欠预算 > 裸 Adam 学习率伪影 > 参数化地板 > 每步毫秒」排序, "
+            "并与 multishape_capability 的硬件块边际增益塌陷对齐"
+        ),
+        extra_scripts=("scripts/slm/diffopt_efficiency_probe_20261108.py",),
+    ),
     "report/shape_trials/experiment_summary_20261108.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件",
