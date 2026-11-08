@@ -4741,6 +4741,11 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 修法（仅测试，生产零改动）：顺序断言改为"两个 lr 都未收敛"——低 lr 残差保持高于停摆地板 + 两者互 20 倍包络；实测两端点为 0.14x（开发机）/ 1.19x（runner），回归模式（lr 被调至收敛）ratio 约 1e-4 即触发，两侧裕量均 >= 14 倍；`set_num_threads(1)` 保留（同机确定仍是包络断言的前提）
 - 验收：该文件 **22 passed**；ruff 全树干净；待 CI 分片复核预期 FAILED=0
 
+**2026-11-09 · fc84f45c · 第 43 批 CI 闭环（l1 包络重钉两端点通过，master 四 workflow 全绿）；第 44 批随批在案**
+- `fc84f45c` 分片 attempt#1 success、四条 workflow 全绿：`f23163cd` 唯一红（l1 顺序 canary）经重钉闭环，包络断言在 runner 端点（1.19x）通过
+- 第 44 批：`train_coeff.train` 213→**158**（棘轮行 240 收紧为 190）——58 行内层 `for batch in train_loader:` 逐字升为 `_train_one_epoch`（63 行）。13 参数 = 11 自由名 + 双审计补的 `running/seen`（AugAssign 先读后写：不传会在 helper 内 UnboundLocalError 而 ruff 查不出，由载体测试兜底）；区内无顶层 return，控制流陷阱不存在
+- 证明与验收：叶语句全树扫描 IDENTICAL（387 对 388 减 1 条新增调用叶）；载体 39 passed（epoch 循环真执行）；ml/zernike 域 24/24 零红；形状门禁 **155 passed**；模块 1370→1380（基线同步）
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

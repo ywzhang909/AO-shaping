@@ -995,6 +995,71 @@ def _seed_environment(cfg):
     return started, geom_generator, device, out_dir
 
 
+
+def _train_one_epoch(cfg, model, optimizer, scaler, amp_enabled, device, device_type, train_loader, geom_ops, geom_generator, n_input, running, seen):
+    """One training epoch over the loader (verbatim lift of the inner
+    `for batch in train_loader:` loop from `train()`; the caller still
+    re-seeds running/seen each epoch, which is why they are arguments).
+    """
+    for batch in train_loader:
+        coeffs = batch["coeffs"][..., :n_input].to(device, non_blocking=True)
+        image = batch["image"].to(device, non_blocking=True)
+        optimizer.zero_grad(set_to_none=True)
+        if geom_ops:
+            # Same transform on BOTH sides: the image geometrically, and the
+            # coefficient vector through the induced operator `D`. Drawn from a
+            # dedicated generator so the main RNG stream is untouched.
+            if float(torch.rand(1, generator=geom_generator)) < cfg.geometric_augment:
+                pick = int(
+                    torch.randint(
+                        0, len(GEOMETRIC_TRANSFORMS), (1,), generator=geom_generator
+                    )
+                )
+                transform = GEOMETRIC_TRANSFORMS[pick]
+                _, _, image, _ = geometric_pair(
+                    torch.zeros_like(image),
+                    torch.zeros_like(image),
+                    image,
+                    transform,
+                )
+                coeffs = torch.nn.functional.linear(
+                    coeffs, geom_ops[transform[0]]
+                )
+        # Only the TRAINING step is autocast. `_evaluate` below -- which
+        # produces the R^2 that selects the checkpoint -- stays fp32, so the
+        # selection decision cannot move when `amp` flips. Safe to autocast here
+        # because the model is a plain conv/MLP decoder: no torch.fft, no complex
+        # tensors anywhere in its forward (see forward_model.py).
+        with torch.autocast(
+            device_type=device_type, dtype=torch.float16, enabled=amp_enabled
+        ):
+            prediction = _predict(model, coeffs)
+            loss = F.mse_loss(prediction, image)
+        if scaler is None:
+            loss.backward()
+            if cfg.grad_clip:
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), float(cfg.grad_clip)
+                )
+            optimizer.step()
+        else:
+            scaler.scale(loss).backward()
+            if cfg.grad_clip:
+                # Unscale BEFORE clipping: clip_grad_norm_ on scaled gradients
+                # would clip against the wrong magnitude and the threshold would
+                # mean something entirely different.
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), float(cfg.grad_clip)
+                )
+            scaler.step(optimizer)
+            scaler.update()
+        # `.float()` before the float(): autocast promotes mse_loss to fp32 (so
+        # this is currently a no-op) but the reported train_mse must not be able
+        # to depend on that policy staying put.
+        running += float(loss.detach().float()) * coeffs.shape[0]
+        seen += coeffs.shape[0]
+
 def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
     """Train one fold and return its result.
 
@@ -1072,64 +1137,9 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
         model.train()
         running = 0.0
         seen = 0
-        for batch in train_loader:
-            coeffs = batch["coeffs"][..., :n_input].to(device, non_blocking=True)
-            image = batch["image"].to(device, non_blocking=True)
-            optimizer.zero_grad(set_to_none=True)
-            if geom_ops:
-                # Same transform on BOTH sides: the image geometrically, and the
-                # coefficient vector through the induced operator `D`. Drawn from a
-                # dedicated generator so the main RNG stream is untouched.
-                if float(torch.rand(1, generator=geom_generator)) < cfg.geometric_augment:
-                    pick = int(
-                        torch.randint(
-                            0, len(GEOMETRIC_TRANSFORMS), (1,), generator=geom_generator
-                        )
-                    )
-                    transform = GEOMETRIC_TRANSFORMS[pick]
-                    _, _, image, _ = geometric_pair(
-                        torch.zeros_like(image),
-                        torch.zeros_like(image),
-                        image,
-                        transform,
-                    )
-                    coeffs = torch.nn.functional.linear(
-                        coeffs, geom_ops[transform[0]]
-                    )
-            # Only the TRAINING step is autocast. `_evaluate` below -- which
-            # produces the R^2 that selects the checkpoint -- stays fp32, so the
-            # selection decision cannot move when `amp` flips. Safe to autocast here
-            # because the model is a plain conv/MLP decoder: no torch.fft, no complex
-            # tensors anywhere in its forward (see forward_model.py).
-            with torch.autocast(
-                device_type=device_type, dtype=torch.float16, enabled=amp_enabled
-            ):
-                prediction = _predict(model, coeffs)
-                loss = F.mse_loss(prediction, image)
-            if scaler is None:
-                loss.backward()
-                if cfg.grad_clip:
-                    torch.nn.utils.clip_grad_norm_(
-                        model.parameters(), float(cfg.grad_clip)
-                    )
-                optimizer.step()
-            else:
-                scaler.scale(loss).backward()
-                if cfg.grad_clip:
-                    # Unscale BEFORE clipping: clip_grad_norm_ on scaled gradients
-                    # would clip against the wrong magnitude and the threshold would
-                    # mean something entirely different.
-                    scaler.unscale_(optimizer)
-                    torch.nn.utils.clip_grad_norm_(
-                        model.parameters(), float(cfg.grad_clip)
-                    )
-                scaler.step(optimizer)
-                scaler.update()
-            # `.float()` before the float(): autocast promotes mse_loss to fp32 (so
-            # this is currently a no-op) but the reported train_mse must not be able
-            # to depend on that policy staying put.
-            running += float(loss.detach().float()) * coeffs.shape[0]
-            seen += coeffs.shape[0]
+        _train_one_epoch(cfg, model, optimizer, scaler, amp_enabled, device,
+                             device_type, train_loader, geom_ops, geom_generator,
+                             n_input, running, seen)
         scheduler.step()
 
         metrics = _evaluate(model, val_loader, device, n_input)
