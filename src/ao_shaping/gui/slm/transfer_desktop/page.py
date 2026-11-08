@@ -121,6 +121,10 @@ _FORM_WIDTH = 560
 #: 关窗时等在飞会话落地的上限 (s)。会话没有取消接口, 无限等会把宿主窗口冻住。
 _CLOSE_GRACE_S = 5.0
 
+#: G1 黄色提醒的勾选项最多显示多少字 (含「已确认 ·」前缀)。超出截断并补「…」,
+#: 全文留在 tooltip 里; 34 字在 560 px 表单列里不会把一列撑宽。
+_ACK_LABEL_MAX = 34
+
 #: ⑦ 计划预览正文的最大高度 (px)。矩阵 + 合计 + 目录 + 16 行成本表自然高约 700 px,
 #: 全摊开会把 ⑥ 实时画面挤到最小尺寸 —— 所以正文自己滚动, 只让出这一段高度。
 _PLAN_BODY_MAX_HEIGHT = 430
@@ -700,6 +704,9 @@ class TransferPage(QWidget):
         # 第三通道：中性说明（例如采集网格自动升档到多少）。既不是阻塞也不是需要
         # 确认的提醒，所以单独一条颜色，不混进黄字里稀释真提醒的分量。
         self._last_notes: list[str] = []
+        # G1: 黄色提醒的逐条「已确认」勾选。控件在 ``_build_checks`` 里才建好,
+        # 先给空表 —— 公开取值器可能早于建控件被调用。
+        self._ack_checks: list[QCheckBox] = []
         self._status_kind = "pending"
         self._status_message = "尚未运行。参数自检通过后即可启动。"
         self._colors: dict[str, str] = _palette_colors(self.palette())
@@ -1030,6 +1037,19 @@ class TransferPage(QWidget):
         )
         self._checks.setMinimumHeight(96)
         layout.addWidget(self._checks)
+
+        # G1: 黄字不再只是上色 —— 每条提醒都要逐条勾「已确认」, 否则 ④ 的启动键
+        # 一直禁用。红字存在时整块隐藏 (红字本来就拦着, 再确认黄字是多余的)。
+        self._ack_box = QWidget()
+        ack_layout = QVBoxLayout(self._ack_box)
+        ack_layout.setContentsMargins(0, 0, 0, 0)
+        ack_layout.setSpacing(2)
+        self._ack_hint = QLabel("改任何参数都会作废这些确认，需重新勾选")
+        self._ack_hint.setWordWrap(True)
+        ack_layout.addWidget(self._ack_hint)
+        self._ack_layout = ack_layout
+        self._ack_box.setVisible(False)
+        layout.addWidget(self._ack_box)
         return box
 
     def _build_run(self) -> QGroupBox:
@@ -1444,9 +1464,32 @@ class TransferPage(QWidget):
         """最近一次校验的**中性说明** (副本)：不算阻塞也不算提醒。"""
         return list(self._last_notes)
 
+    def pending_acks(self) -> list[str]:
+        """黄色提醒里还没勾「已确认」的条目 (副本, 顺序同 ③ 的黄字)。"""
+        pending: list[str] = []
+        for index, warning in enumerate(self._last_warnings):
+            box = self._ack_checks[index] if index < len(self._ack_checks) else None
+            if box is None or not box.isChecked():
+                pending.append(warning)
+        return pending
+
+    def set_all_acks(self, checked: bool = True) -> None:
+        """程序方式勾 / 取消全部「已确认」(等价于逐个点一下)。"""
+        for check in self._ack_checks:
+            check.setChecked(bool(checked))
+        self._sync_run_button()
+
     def run_button(self) -> QPushButton:
         """「开始运行」按钮 (自动化验证按它判断可启动性)。"""
         return self._run_btn
+
+    def is_running(self) -> bool:
+        """是否有一场会话在跑 (自动化验证用)。"""
+        return bool(self._running)
+
+    def session_dir(self) -> Path | None:
+        """本次 / 上一次会话目录; 还没开跑过时为 ``None``。"""
+        return self._session_dir
 
     def check_button(self) -> QPushButton:
         """「设备自检」按钮 (自动化验证按它判断自检是否可触发 / 已结束)。"""
@@ -1594,7 +1637,7 @@ class TransferPage(QWidget):
 
     # ------------------------------------------------------------------ 校验
     def _revalidate(self) -> None:
-        """改动即校验: 有阻塞就禁用启动, 提醒只上色不拦。
+        """改动即校验: 红字阻断, 黄字要逐条勾「已确认」才放行。
 
         只做参数判断 —— 硬件自检是「设备自检」按钮的事, 不在这里触发 (否则每敲
         一个数字都枚举一次设备)。这里顺带重画自检区, 只是把旧结论标成过期。
@@ -1607,24 +1650,65 @@ class TransferPage(QWidget):
         note = params.capture_grid_note(self.form_values())
         self._last_notes = [note] if note else []
         self._render_checks()
-        self._run_btn.setEnabled(
-            not errors
-            and not self._running
-            and not self._checking
-            and not self._zero_reading
-        )
-        if errors:
-            reason = errors[0]
-        elif self._running:
-            reason = "会话运行中"
-        elif self._checking:
-            reason = "正在自检设备，稍候"
-        elif self._zero_reading:
-            reason = "正在读取 0 级，稍候"
-        else:
-            reason = "启动整场迁移学习会话"
-        self._run_btn.setToolTip(reason)
+        # 参数一变 → 重建黄字确认行: 旧勾选就此作废 (这就是 G1 的「重新确认」机制)。
+        self._render_ack_list()
+        self._sync_run_button()
         self._render_check()
+
+    def _sync_run_button(self) -> None:
+        """④ 启动键的唯一裁决点: 阻塞 > 设备占用 > 未确认提醒 > 可启动。"""
+        if not getattr(self, "_run_btn", None):
+            return
+        pending = self.pending_acks()
+        if self._last_errors:
+            enabled, reason = False, self._last_errors[0]
+        elif self._running:
+            enabled, reason = False, "会话运行中"
+        elif self._checking:
+            enabled, reason = False, "正在自检设备，稍候"
+        elif self._zero_reading:
+            enabled, reason = False, "正在读取 0 级，稍候"
+        elif pending:
+            enabled, reason = False, f"还有 {len(pending)} 项提醒未勾选「已确认」"
+        else:
+            enabled, reason = True, "启动整场迁移学习会话"
+        self._run_btn.setEnabled(enabled)
+        self._run_btn.setToolTip(reason)
+
+    def _style_ack_hint(self) -> None:
+        """确认区的提示行只换颜色: 它是次级说明, 不该跟黄字抢注意力。"""
+        self._ack_hint.setStyleSheet(f"color: {self._muted()};")
+
+    def _render_ack_list(self) -> None:
+        """黄字逐条「已确认」: 每次重建行, 参数一变旧勾选就作废。
+
+        红字存在时整块隐藏 —— 启动键已被红字拦住, 再要人确认黄字只是噪音。
+        刻意不保存勾选状态: 「改参数 = 重新确认」靠重建这一条机制实现, 不另存副本。
+        """
+        if not getattr(self, "_form_ready", False):
+            return
+        if not getattr(self, "_ack_box", None):
+            return
+        for check in self._ack_checks:
+            self._ack_layout.removeWidget(check)
+            check.deleteLater()
+        self._ack_checks.clear()
+        self._style_ack_hint()
+
+        show = bool(self._last_warnings) and not self._last_errors
+        self._ack_box.setVisible(show)
+        if not show:
+            return
+        for warning in self._last_warnings:
+            first = warning.split("\n", 1)[0].strip()
+            text = f"已确认 · {first}"
+            if len(text) > _ACK_LABEL_MAX:
+                text = text[: _ACK_LABEL_MAX - 1] + "…"
+            check = QCheckBox(text)
+            check.setToolTip(warning)
+            check.toggled.connect(self._sync_run_button)
+            self._ack_layout.addWidget(check)
+            self._ack_checks.append(check)
 
     def _render_checks(self) -> None:
         """把最近一次校验结论画成红 / 黄 / 中性三段 (无红无黄 = 绿字通过)。
@@ -1643,9 +1727,16 @@ class TransferPage(QWidget):
                 f'<p style="margin:4px 0 0 0;color:{self._muted()}">'
                 "倾斜相位与目标尺寸放得进采样窗，探针数是 6 的倍数。</p>"
             )
+        # 黄字段的尾句跟着「此刻有没有勾选框」走: 有红字时确认区整块隐藏, 再说
+        # 「逐条勾选后才能启动」就是指着不存在的东西说话。
+        warn_tail = (
+            "项提醒 · 先修阻塞项，之后逐条勾选「已确认」"
+            if self._last_errors
+            else "项提醒 · 逐条勾选「已确认」后才能启动"
+        )
         for texts, kind, tail, mark in (
             (self._last_errors, "error", "项阻塞 · 修好才能启动", "■"),
-            (self._last_warnings, "warn", "项提醒 · 可运行，但请确认", "!"),
+            (self._last_warnings, "warn", warn_tail, "!"),
         ):
             if texts:
                 parts.append(
@@ -1681,6 +1772,8 @@ class TransferPage(QWidget):
             self._accept,
             self._reuse_latest,
             *self._shapes.values(),
+            # G1 的确认行: 会话跑起来后一起置灰 (本次会话的参数快照已定)。
+            self._ack_box,
         ):
             widget.setEnabled(enabled)
         # 倾斜相位周期只在开启时才能点; 运行中一律锁。
@@ -1966,14 +2059,19 @@ class TransferPage(QWidget):
             # (按钮已禁用, 这是第二道闸)。
             return
         values = self.form_values()
-        errors, _ = params.validate_form(values)
+        errors, warnings = params.validate_form(values)
         note = params.capture_grid_note(values)
         self._last_notes = [note] if note else []
-        if errors:
-            # 按钮已禁用, 这里是第二道闸 (程序方式触发 clicked 时也拦住)。
-            self._last_errors = errors
+        # 与 ③ 的最近一版对比: 提醒变了而没走 _revalidate 时, 旧勾选不能算数。
+        warnings_changed = warnings != self._last_warnings
+        self._last_errors = errors
+        self._last_warnings = warnings
+        if errors or (warnings and (warnings_changed or self.pending_acks())):
+            # 按钮已禁用, 这里是第二道闸 (程序方式触发 clicked 时也拦住):
+            # 有阻塞, 或黄字还没逐条勾「已确认」, 都不建目录、不进运行态。
             self._render_checks()
-            self._run_btn.setToolTip(errors[0])
+            self._render_ack_list()
+            self._sync_run_button()
             return
 
         out = params.plan_session_dir()
@@ -1997,8 +2095,7 @@ class TransferPage(QWidget):
 
         self._running = True
         self._set_form_enabled(False)
-        self._run_btn.setEnabled(False)
-        self._run_btn.setToolTip("会话运行中")
+        self._sync_run_button()
         self._stop_btn.setEnabled(stop_enabled)
         self._stop_btn.setToolTip(
             "点击后当前这一轮跑完、下一轮开始前停下（保留已得的最好结果）"
@@ -2420,6 +2517,10 @@ class TransferPage(QWidget):
         self._render_check()
         self._render_zero()
         self._set_run_state(self._status_kind, self._status_message)
+        # G1 的提示行用次级色: 换主题只重上色, **不重建**勾选行 —— 系统明暗切换
+        # (或日落自动切换) 不是「改了参数」, 顺手作废一遍确认只会让人白勾一次。
+        if getattr(self, "_ack_hint", None):
+            self._style_ack_hint()
         # ⑦ 的底色 / 次级色都取自调色板: 换主题时一并重上色 (不重读目录)。
         if getattr(self, "_plan_ready", False):
             self._render_plan_matrix()
