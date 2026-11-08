@@ -146,6 +146,168 @@ def _auto_create_ccd(cam_id: int, exposure_time_ms: float | None) -> Any:
     return ccd
 
 
+
+def _run_simulation_phase(optimizer, recorder, epochs, lr, early_stop_patience, early_stop_delta, log_every, progress, best_loss, best_phase, steps_without_improvement, converged):
+    """Simulation loop incl. its terminating 'return recorder' (verbatim from the original 'if not hardware_mode:' body; caller re-raises the return)."""
+    with tqdm.tqdm(
+        total=epochs,
+        desc=f"iter {epochs}",
+        dynamic_ncols=True,
+        disable=not progress,
+    ) as bar:
+        for step in range(epochs):
+            optimizer.update()
+
+            loss_val = optimizer.loss_history[-1]
+
+            # Track the best loss/phase (delta-threshold improvement).
+            if loss_val < best_loss - early_stop_delta:
+                best_loss = loss_val
+                best_phase = optimizer.current_phase
+                steps_without_improvement = 0
+            else:
+                steps_without_improvement += 1
+
+            # Early stopping based on improvement.
+            if (
+                early_stop_patience > 0
+                and steps_without_improvement >= early_stop_patience
+            ):
+                converged = True
+
+            recorder.append(
+                {
+                    "loss": loss_val,
+                    "lr": lr,
+                    RECORD_EPOCH: step,
+                    "best_loss": best_loss,
+                    "best_phase": (
+                        best_phase.copy() if best_phase is not None else None
+                    ),
+                    "converged": converged,
+                    "device": optimizer.device,
+                }
+            )
+
+            if log_every and (step == 0 or (step + 1) % log_every == 0):
+                logger.debug("Step {}/{} loss={:.6f}", step + 1, epochs, loss_val)
+
+            bar.set_postfix({"loss": loss_val, "lr": lr, "best": best_loss})
+            bar.update(1)
+
+            if converged:
+                logger.info(
+                    "Early stopping at step {} (no improvement for {} steps)",
+                    step + 1,
+                    early_stop_patience,
+                )
+                break
+
+    final_loss = recorder.last["loss"] if recorder.history else float("nan")
+
+    logger.info(
+        "Differentiable beam optimization finished: steps={}, final_loss={:.6f}, "
+        "best_loss={}, converged={}",
+        len(recorder.history),
+        final_loss,
+        f"{best_loss:.6f}" if recorder.history else "n/a",
+        converged,
+    )
+
+    return recorder
+
+
+
+def _run_hardware_phase(optimizer, recorder, epochs, lr, early_stop_patience, early_stop_delta, log_every, progress, slm, ccd, cam_id, exposure_time_ms, wait_time_s, discard_count, best_loss, best_phase, steps_without_improvement, converged):
+    """Hardware display/measure/apply loop with device ownership + try/finally (verbatim; only best_loss/converged are read afterwards)."""
+    owns_slm = slm is None
+    owns_ccd = ccd is None
+    slm_dev = slm if slm is not None else _auto_create_slm()
+    ccd_dev = ccd if ccd is not None else _auto_create_ccd(cam_id, exposure_time_ms)
+
+    target_h = int(optimizer.phase_tensor.shape[0])
+    target_w = int(optimizer.phase_tensor.shape[1])
+
+    try:
+        # Apply the optimizer's initial phase once so the SLM state matches
+        # the optimizer state before the first capture (this also covers
+        # "apply init_phase once if provided").
+        applied_phase = optimizer.current_phase
+        _display_phase(slm_dev, applied_phase, wait_time_s)
+
+        with tqdm.tqdm(
+            total=epochs,
+            desc=f"iter {epochs}",
+            dynamic_ncols=True,
+            disable=not progress,
+        ) as bar:
+            for step in range(epochs):
+                # 1. Capture the CCD image of the CURRENT applied phase.
+                frame = _capture_frame(ccd_dev, discard_count)
+                measured = crop_resize_to_grid(frame, grid_h=target_h, grid_w=target_w)
+
+                # 2. One measurement-anchored backprop step. The recorded
+                #    loss is the MEASURED loss (evaluated at the CCD image).
+                optimizer.update(measured_intensity=measured)
+                loss_val = optimizer.loss_history[-1]
+
+                # 3. Track the best loss/phase on the APPLIED phase — the one
+                #    that was on the SLM during the capture that produced the
+                #    measured loss (not the post-update phase).
+                if loss_val < best_loss - early_stop_delta:
+                    best_loss = loss_val
+                    best_phase = applied_phase.copy()
+                    steps_without_improvement = 0
+                else:
+                    steps_without_improvement += 1
+
+                # Early stopping based on improvement.
+                if (
+                    early_stop_patience > 0
+                    and steps_without_improvement >= early_stop_patience
+                ):
+                    converged = True
+
+                recorder.append(
+                    {
+                        "loss": loss_val,
+                        "lr": lr,
+                        RECORD_EPOCH: step,
+                        "best_loss": best_loss,
+                        "best_phase": (
+                            best_phase.copy() if best_phase is not None else None
+                        ),
+                        "converged": converged,
+                        "device": optimizer.device,
+                        "measured_image": measured.copy(),
+                    }
+                )
+
+                if log_every and (step == 0 or (step + 1) % log_every == 0):
+                    logger.debug("Step {}/{} loss={:.6f}", step + 1, epochs, loss_val)
+
+                bar.set_postfix({"loss": loss_val, "lr": lr, "best": best_loss})
+                bar.update(1)
+
+                if converged:
+                    logger.info(
+                        "Early stopping at step {} (no improvement for {} steps)",
+                        step + 1,
+                        early_stop_patience,
+                    )
+                    break
+
+                # 4. Apply the new phase for the next iteration.
+                applied_phase = optimizer.current_phase
+                _display_phase(slm_dev, applied_phase, wait_time_s)
+    finally:
+        if owns_slm:
+            slm_dev.close()
+        if owns_ccd:
+            ccd_dev.close()
+    return best_loss, converged
+
+
 def optimize_beam_shaping(
     target_intensity: np.ndarray,
     source_amplitude: np.ndarray | None = None,
@@ -276,159 +438,16 @@ def optimize_beam_shaping(
 
     if not hardware_mode:
         # --- Simulation mode: the model's own far field is the forward pass.
-        with tqdm.tqdm(
-            total=epochs,
-            desc=f"iter {epochs}",
-            dynamic_ncols=True,
-            disable=not progress,
-        ) as bar:
-            for step in range(epochs):
-                optimizer.update()
-
-                loss_val = optimizer.loss_history[-1]
-
-                # Track the best loss/phase (delta-threshold improvement).
-                if loss_val < best_loss - early_stop_delta:
-                    best_loss = loss_val
-                    best_phase = optimizer.current_phase
-                    steps_without_improvement = 0
-                else:
-                    steps_without_improvement += 1
-
-                # Early stopping based on improvement.
-                if (
-                    early_stop_patience > 0
-                    and steps_without_improvement >= early_stop_patience
-                ):
-                    converged = True
-
-                recorder.append(
-                    {
-                        "loss": loss_val,
-                        "lr": lr,
-                        RECORD_EPOCH: step,
-                        "best_loss": best_loss,
-                        "best_phase": (
-                            best_phase.copy() if best_phase is not None else None
-                        ),
-                        "converged": converged,
-                        "device": optimizer.device,
-                    }
-                )
-
-                if log_every and (step == 0 or (step + 1) % log_every == 0):
-                    logger.debug("Step {}/{} loss={:.6f}", step + 1, epochs, loss_val)
-
-                bar.set_postfix({"loss": loss_val, "lr": lr, "best": best_loss})
-                bar.update(1)
-
-                if converged:
-                    logger.info(
-                        "Early stopping at step {} (no improvement for {} steps)",
-                        step + 1,
-                        early_stop_patience,
-                    )
-                    break
-
-        final_loss = recorder.last["loss"] if recorder.history else float("nan")
-
-        logger.info(
-            "Differentiable beam optimization finished: steps={}, final_loss={:.6f}, "
-            "best_loss={}, converged={}",
-            len(recorder.history),
-            final_loss,
-            f"{best_loss:.6f}" if recorder.history else "n/a",
-            converged,
-        )
-
-        return recorder
+        return _run_simulation_phase(optimizer, recorder, epochs, lr,
+                                     early_stop_patience, early_stop_delta,
+                                     log_every, progress, best_loss, best_phase,
+                                     steps_without_improvement, converged)
 
     # --- Hardware-closed-loop mode.
-    owns_slm = slm is None
-    owns_ccd = ccd is None
-    slm_dev = slm if slm is not None else _auto_create_slm()
-    ccd_dev = ccd if ccd is not None else _auto_create_ccd(cam_id, exposure_time_ms)
-
-    target_h = int(optimizer.phase_tensor.shape[0])
-    target_w = int(optimizer.phase_tensor.shape[1])
-
-    try:
-        # Apply the optimizer's initial phase once so the SLM state matches
-        # the optimizer state before the first capture (this also covers
-        # "apply init_phase once if provided").
-        applied_phase = optimizer.current_phase
-        _display_phase(slm_dev, applied_phase, wait_time_s)
-
-        with tqdm.tqdm(
-            total=epochs,
-            desc=f"iter {epochs}",
-            dynamic_ncols=True,
-            disable=not progress,
-        ) as bar:
-            for step in range(epochs):
-                # 1. Capture the CCD image of the CURRENT applied phase.
-                frame = _capture_frame(ccd_dev, discard_count)
-                measured = crop_resize_to_grid(frame, grid_h=target_h, grid_w=target_w)
-
-                # 2. One measurement-anchored backprop step. The recorded
-                #    loss is the MEASURED loss (evaluated at the CCD image).
-                optimizer.update(measured_intensity=measured)
-                loss_val = optimizer.loss_history[-1]
-
-                # 3. Track the best loss/phase on the APPLIED phase — the one
-                #    that was on the SLM during the capture that produced the
-                #    measured loss (not the post-update phase).
-                if loss_val < best_loss - early_stop_delta:
-                    best_loss = loss_val
-                    best_phase = applied_phase.copy()
-                    steps_without_improvement = 0
-                else:
-                    steps_without_improvement += 1
-
-                # Early stopping based on improvement.
-                if (
-                    early_stop_patience > 0
-                    and steps_without_improvement >= early_stop_patience
-                ):
-                    converged = True
-
-                recorder.append(
-                    {
-                        "loss": loss_val,
-                        "lr": lr,
-                        RECORD_EPOCH: step,
-                        "best_loss": best_loss,
-                        "best_phase": (
-                            best_phase.copy() if best_phase is not None else None
-                        ),
-                        "converged": converged,
-                        "device": optimizer.device,
-                        "measured_image": measured.copy(),
-                    }
-                )
-
-                if log_every and (step == 0 or (step + 1) % log_every == 0):
-                    logger.debug("Step {}/{} loss={:.6f}", step + 1, epochs, loss_val)
-
-                bar.set_postfix({"loss": loss_val, "lr": lr, "best": best_loss})
-                bar.update(1)
-
-                if converged:
-                    logger.info(
-                        "Early stopping at step {} (no improvement for {} steps)",
-                        step + 1,
-                        early_stop_patience,
-                    )
-                    break
-
-                # 4. Apply the new phase for the next iteration.
-                applied_phase = optimizer.current_phase
-                _display_phase(slm_dev, applied_phase, wait_time_s)
-    finally:
-        if owns_slm:
-            slm_dev.close()
-        if owns_ccd:
-            ccd_dev.close()
+    best_loss, converged = _run_hardware_phase(
+        optimizer, recorder, epochs, lr, early_stop_patience, early_stop_delta,
+        log_every, progress, slm, ccd, cam_id, exposure_time_ms, wait_time_s,
+        discard_count, best_loss, best_phase, steps_without_improvement, converged)
 
     final_loss = recorder.last["loss"] if recorder.history else float("nan")
 
