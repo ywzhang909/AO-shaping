@@ -52,6 +52,11 @@ from loguru import logger
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts._common import fmt_fixed_or_text
+
 
 from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
     FrozenDefocusForward,
@@ -574,12 +579,7 @@ def run_axis_c(
 # --------------------------------------------------------------------------- #
 # 报告
 # --------------------------------------------------------------------------- #
-def _fmt(value: Any, digits: int = 4) -> str:
-    if value is None:
-        return "—"
-    if isinstance(value, float):
-        return f"{value:.{digits}f}"
-    return str(value)
+_fmt = fmt_fixed_or_text
 
 
 def _fmt_iter(seconds: float | int | None, digits: int = 1) -> str:

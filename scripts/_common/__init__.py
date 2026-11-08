@@ -392,3 +392,31 @@ def refuse_empty_overwrite(out_path, results) -> bool:
     except OSError:
         return False
     return True
+
+
+def fmt_fixed_or_text(
+    v: Any,
+    digits: int = 4,
+    *,
+    none_text: str = "—",
+    include_np_float: bool = False,
+    nonfinite_text: str | None = None,
+) -> str:
+    """Fixed-point for floats, ``str(v)`` pass-through for everything else.
+
+    Unifies the three local formatters retired from the 2026-11-07 ``scripts/slm``
+    report generators, which differ only in three details captured by flags: the
+    ``None`` sentinel (``gated_recurrent_transfer`` spells it ``"not reached"``,
+    the others an em dash), whether ``np.floating`` counts as a float (only
+    ``measured_forward_hw_probe``), and whether non-finite floats render as the
+    sentinel or raw ``"nan"``/``"inf"``. Parameterised rather than folded into
+    :func:`fmt_metric` so the extraction stays byte-identical -- see the module
+    docstring.
+    """
+    if v is None:
+        return none_text
+    if isinstance(v, float) or (include_np_float and isinstance(v, np.floating)):
+        if nonfinite_text is not None and not np.isfinite(v):
+            return nonfinite_text
+        return f"{v:.{digits}f}"
+    return str(v)

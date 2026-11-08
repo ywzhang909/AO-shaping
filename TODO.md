@@ -4713,6 +4713,11 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 父提交归属矩阵（干净 worktree `de66d4f1`、per-file、CI 包络）——以下红在**我父亲提交上已存在**，与第 38/39 批无关：`registration_direction_gate` 3 failed（第 4 条 `test_wrapper_does_not_import_drivers` 父提交单跑为过，CI 序下红，另行观察）、`widget_value_contract` 1、`cli_contract_freeze` 1、`cli_help_golden[main:slm-transfer-shapes]` 1、`transfer_shapes_runner` 1、`test_common_helpers_not_reintroduced[_fmt]` 1、`report_provenance` 2（shape_trials 相对链接）、`tools_doc_coverage` 1。属我的仅 `test_transfer_workflow`，本批修复
 - 本批上一条目（78171ec2 条目）中"算法域无新增红"与"transfer 域 per-file 全绿"两句**部分作废**：前者仍成立（registration gate 确属上游预存），后者口径错了（只覆盖 `transfer/` 子目录）。master 在本批之后仍非全绿——剩余清单是上游合并窗口债，待与并行窗口协调处置，避免我的 sha 继续替别人背红
 
+**2026-11-08 · f594e59f · 第 39 批修复验证闭环；上游存量红仍无人修，本窗口第 40 批逐条开清**
+- CI 侧：快门禁（Ruff/Pylint/CI 三 job）全绿，确认第 39 批登记的规模/术语红已清；Pytest 分片仍红，但失败集与父提交归属矩阵一致——我的 16 条 `test_transfer_workflow` 不再出现。上游头 `af03b26f`（已含该修复）分片同样 failure，证实上游 ~10 条存量红至今无人接手
+- 第 40 批-A（重复实现收口，守卫车道）：`scripts/slm` 三个 2026-11-07 报告脚本各带一份本地 `def _fmt`，三处语义互有差异（None 占位 `-`/`—`/`not reached`、非有限值渲染、`np.floating` 口径），`fmt_general` 的旗标组合无法逐字表达 measured 变体——按本模块"行为不同则分立保留"的既有惯例新增参数化规范 formatter `fmt_fixed_or_text`，三个脚本先做**新旧函数 66 输入电池逐字节比对**（None/bool/int/float/nan/±inf/np.float32/np.float64/np.int64/str/list × digits 4/2/6）全等后才删本地 def、原位绑定 partial 别名，call-site 零改动
+- 验收：`_fmt` 守卫红清，该守卫文件 **74 passed**（此前 73 passed 1 failed）；守卫文案 FIVE→SIX 同步；ruff 干净。三个脚本是一次性报告生成器（无独立单测、需数据/设备才能端到端跑），行为等价性由电池比对承担
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

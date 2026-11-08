@@ -24,7 +24,7 @@ _SCRIPTS = _ROOT / "scripts"
 #: Definitions that were extracted. Keyed by the old local name; the value is
 #: the canonical home (the assert message interpolates it verbatim).
 EXTRACTED = {
-    "_fmt": "scripts/_common: fmt_metric / fmt_ratio / fmt_general / fmt_fixed / fmt_signed (FIVE distinct formatters)",
+    "_fmt": "scripts/_common: fmt_metric / fmt_ratio / fmt_general / fmt_fixed / fmt_signed / fmt_fixed_or_text (SIX distinct formatters)",
     "_markdown_table": "scripts/_common: markdown_table",
     "_savefig": "scripts/_common: savefig",
     "iters_to_threshold": "scripts/_common: iters_to_threshold",
