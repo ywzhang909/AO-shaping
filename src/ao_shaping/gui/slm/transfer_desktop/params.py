@@ -482,7 +482,9 @@ def describe_capture_grid(
             f"采集网格自动升档：{default_capture_grid()} → {needed}"
             f"（目标 {extent:g} px 需可达半径 ≥{extent / 2:.0f} px，升档后 ±{reach:.0f} px）"
         ), None
-    except Exception:  # 显示路径兜底：校验页绝不因为提示计算而崩
+    except ImportError:  # 可选依赖拿不到（罕见，纯本地模块）→ 提示直接静默
+        return None, None
+    except (TypeError, ValueError):  # 输入怪（NaN / 非数值）：提示静默，别连累校验
         return None, None
 
 
@@ -505,7 +507,7 @@ def capture_grid_note(values: TransferFormValues) -> str | None:
             tilt=bool(values.tilt),
             period=float(values.period),
         )
-    except Exception:  # 显示路径兜底
+    except (TypeError, ValueError, AttributeError):  # 表单字段类型不对时只退化成不说话
         return None
     return info
 
