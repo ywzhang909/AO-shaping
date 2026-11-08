@@ -4718,6 +4718,12 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 第 40 批-A（重复实现收口，守卫车道）：`scripts/slm` 三个 2026-11-07 报告脚本各带一份本地 `def _fmt`，三处语义互有差异（None 占位 `-`/`—`/`not reached`、非有限值渲染、`np.floating` 口径），`fmt_general` 的旗标组合无法逐字表达 measured 变体——按本模块"行为不同则分立保留"的既有惯例新增参数化规范 formatter `fmt_fixed_or_text`，三个脚本先做**新旧函数 66 输入电池逐字节比对**（None/bool/int/float/nan/±inf/np.float32/np.float64/np.int64/str/list × digits 4/2/6）全等后才删本地 def、原位绑定 partial 别名，call-site 零改动
 - 验收：`_fmt` 守卫红清，该守卫文件 **74 passed**（此前 73 passed 1 failed）；守卫文案 FIVE→SIX 同步；ruff 干净。三个脚本是一次性报告生成器（无独立单测、需数据/设备才能端到端跑），行为等价性由电池比对承担
 
+**2026-11-08 · 2fc2294f · 第 40 批-A 的 CI 闭环；master 存量红收敛到 4 条并完成归因（41-A 随批处置其一）**
+- 分片日志逐条核对（job 日志完整下载，1.88 MB，非 404 载荷）：失败集 = 父提交归属矩阵 − `_fmt`（40-A 已清，CI 确认）− 5 条已被并行窗口修掉（widget 契约、CLI 金钉两条、provenance 两条、doc coverage）− 我的 16 条 `test_transfer_workflow`（第 39 批修复确认）。master 现存红恰为 4 条：`test_registration_direction_gate` 3 + `test_transfer_shapes_runner::test_without_resume_a_populated_stage_directory_still_fails` 1
+- 前者归因：三条测试的模块级语料路径（`RUN`/`FIT`/`CHECKPOINT`）指向 gitignore 的 `data/debug` 硬件窗口产物，本仓库与 CI 均无——同文件对 SCRIPT 缺失会 skip，对语料缺失却不 skip，违反仓库 hardware-skip 惯例。第四十一批-A 补 `_require_corpus()`（缺则 skip 并列出缺项），三条转 skip、第四条无依赖测试保持 passed；语料窗口内测试仍真实执行，不掩回归
+- 后者归因（只记不修）：上游新增"目标超出正向模型 FFT 可达窗"前置校验后，该测试的 20 px mock 目标先于原断言被拦——报错是新校验而非期望的"stale 目录"错误。修法需语义判断（缩目标还是换细网格），属上游作者车道，盲改会替别人决定测试意图
+- 验收（41-A，本仓库环境）：该测试文件 **1 passed, 3 skipped**；ruff 全树干净；术语门禁 0 个文件
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

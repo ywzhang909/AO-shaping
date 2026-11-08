@@ -24,6 +24,14 @@ FIT = ROOT / "data" / "debug" / "slm_transfer" / "defocus_forward_20261107_focus
 CHECKPOINT = ROOT / "data" / "debug" / "slm_transfer" / "phase_scope_20261107" / "checkpoint_command" / "frozen_parameters.json"
 
 
+
+def _require_corpus() -> None:
+    """Skip when the 2026-11-07 hardware-window corpus is absent (same
+    convention as the SCRIPT guard in :func:`_load_gate`)."""
+    missing = [str(x.relative_to(ROOT)) for x in (RUN, FIT, CHECKPOINT) if not x.exists()]
+    if missing:
+        pytest.skip(f"reproduction corpus absent (hardware window only): {missing}")
+
 def _load_gate() -> ModuleType:
     if not SCRIPT.is_file():
         pytest.skip(f"wrapper under review is not present: {SCRIPT}")
@@ -49,6 +57,7 @@ def _summary_from_stats(payload: dict, *, registration: tuple[float, float] | No
 
 
 def test_fit_mode_reuses_old_phase_scope_statistics_exactly(tmp_path: Path) -> None:
+    _require_corpus()
     old_out = tmp_path / "old.json"
     gate_out = tmp_path / "gate.json"
     subprocess.run(
@@ -73,6 +82,7 @@ def test_fit_mode_reuses_old_phase_scope_statistics_exactly(tmp_path: Path) -> N
 
 
 def test_checkpoint_registration_is_reported_and_cli_override_wins(tmp_path: Path) -> None:
+    _require_corpus()
     gate = _load_gate()
     checkpoint = json.loads(CHECKPOINT.read_text(encoding="utf-8"))
     checkpoint["registration_shift_ccd_px"] = [1.5, 2.5]
@@ -95,6 +105,7 @@ def test_checkpoint_registration_is_reported_and_cli_override_wins(tmp_path: Pat
 
 
 def test_checkpoint_physics_actually_drives_predictions(tmp_path: Path) -> None:
+    _require_corpus()
     """checkpoint 的物理参数（defocus/origin 等）必须真的进入前向。
 
     若 ``replace`` 丢了 defocus/gain 等字段，checkpoint 模式会退化成 fit 模式，
