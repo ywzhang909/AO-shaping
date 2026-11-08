@@ -8,7 +8,7 @@
 <!-- provenance:end -->
 
 **日期** 2026-11-07 · **脚本** [`scripts/slm/generate_loss_compare_report_20261107.py`](../../../scripts/slm/generate_loss_compare_report_20261107.py)（离线渲染，未占用设备）
-**数据** [`results.json`](../../../data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1/results.json)（2026-11-07T12:11:32+00:00 生成，`device_occupied=false`）· 数据集 `defocus_forward_20261107_focus_r2`：52 行清单 / 43 样本（25 训练 / 18 测试）/ 9 个 held-out U/C 对 / 121x121 裁剪 / 曝光归一
+**数据** `data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1/results.json`（2026-11-07T12:11:32+00:00 生成，`device_occupied=false`）· 数据集 `defocus_forward_20261107_focus_r2`：52 行清单 / 43 样本（25 训练 / 18 测试）/ 9 个 held-out U/C 对 / 121x121 裁剪 / 曝光归一
 
 ## 1. 背景与首轮作废
 
@@ -52,7 +52,7 @@
 
 ## 4. 基线复现 FAILED
 
-判据：以存档参考拟合[`forward_fit.json`](../../../data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit/forward_fit.json) 为基线，同数据同口径重拟合（−1 变体），|Δd| ≤ 0.005 且 origin 偏移 ≤ 1 px。
+判据：以存档参考拟合 `data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit/forward_fit.json` 为基线，同数据同口径重拟合（−1 变体），|Δd| ≤ 0.005 且 origin 偏移 ≤ 1 px。
 
 | 量 | 存档基线 | −1 变体重拟合 |
 |---|---|---|
@@ -81,5 +81,5 @@
   ```
   python scripts/slm/generate_loss_compare_report_20261107.py
   ```
-- 产物：[`results.json`](../../../data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1/results.json)（存档于 `data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1/`）、本报告、数据集目录 `data/debug/slm_transfer/defocus_forward_20261107_focus_r2`、参考拟合 [`forward_fit.json`](../../../data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit/forward_fit.json)。
+- 产物：`data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1/results.json`（存档于 `data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1/`）、本报告、数据集目录 `data/debug/slm_transfer/defocus_forward_20261107_focus_r2`、参考拟合 `data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit/forward_fit.json`。
 - 全程离线（`device_occupied=false`），未占用 SLM / 相机 / 激光。

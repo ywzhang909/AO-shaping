@@ -563,7 +563,7 @@ def render_model_choice(models: list[Path], campaigns: list[Path]) -> Path | Non
                           help="只列出含 fit/result.json 的目录（其余目录不是可用模型）")
     auto_reuse = st.toggle(
         "自动复用历史模型（未指定模型时探测光路并复用兼容检查点）",
-        value=st.session_state.get(_AUTO_REUSE_KEY, True),
+        value=bench_settings.widget_default("msc_auto_reuse_toggle", True),
         key="msc_auto_reuse_toggle",
         help="开启后，选「从零重训」时系统会开一次相机读几帧探测当前光路，"
              "扫描历史检查点，若兼容性 >= 0.80 则自动复用，跳过约 20 min 采集与拟合。"
@@ -571,7 +571,7 @@ def render_model_choice(models: list[Path], campaigns: list[Path]) -> Path | Non
     st.session_state[_AUTO_REUSE_KEY] = bool(auto_reuse)
     hdr = st.toggle(
         "HDR 探测画面（多曝光融合 → 色调映射展示）",
-        value=st.session_state.get(_HDR_KEY, False),
+        value=bench_settings.widget_default("msc_hdr_toggle", False),
         key="msc_hdr_toggle",
         help="开启后实时画面（⑥）用多曝光融合的宽动态图，前端 Reinhard 色调映射"
              "回 0..255 正常展示（保住单帧线性峰值归一压掉的暗区细节）；"
