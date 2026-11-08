@@ -110,7 +110,9 @@ def _spawn_holder(lock_path: Path, seconds: float = 60.0):
     deadline = time.monotonic() + 60.0
     while time.monotonic() < deadline:
         holder = probe_lock.holder()
-        if holder is not None and holder.pid != os.getpid():
+        # pid=0 是子进程"先占位、后补真 pid"的中间态 (CI 实测过 82==0 红:
+        # 占位被当成已持锁返回, 断言右值停在 0)。真持有者的 pid 恒 >= 1。
+        if holder is not None and holder.pid > 0 and holder.pid != os.getpid():
             return proc, holder
         if proc.poll() is not None:
             stderr = proc.stderr.read() if proc.stderr else ""

@@ -3,11 +3,14 @@
 Only --execute opens devices. Each run uses a new directory. This script reads
 the self-contained physical checkpoint from fit_transfer_multishape.py.
 
-The A–B–B–A acceptance is optional (``abba``): with it off the candidate is
-accepted on the optimizer's own loss history and every summary entry carries
-``acceptance="model_only"``, so no artefact can imply a CCD verdict that was
-never measured. An explicit ``ccd_check`` instead measures sequential A/B
-captures; optional nonmonotone exploration retains a separate best phase.
+The A–B–B–A acceptance is optional (``abba``): with it off but a CCD anchor
+present (anchored mode), the candidate is accepted by one sequential CCD
+measurement (B vs anchor A), ``acceptance="sequential_ccd"`` — the optimizer's
+own loss history is still recorded as ``model_loss_*`` reference; without an
+anchor (model mode) it stays ``acceptance="model_only"``, so no artefact can
+imply a CCD verdict that was never measured. An explicit ``ccd_check`` instead
+measures sequential A/B captures; optional nonmonotone exploration retains a
+separate best phase.
 """
 from __future__ import annotations
 
@@ -575,6 +578,29 @@ if __name__ == "__main__":
     main()
 
 
+def _hold_best_phase_or_flatten(*, slm: object, last_best: object) -> None:
+    """#205 batch-31: the teardown panel state, moved verbatim.
+
+    Leaving the shaped optimum on the panel is intentional, not a missed reset;
+    only a session that produced no best at all (every shape skipped, or an
+    exception mid-run) falls back to a flat panel. A display failure is
+    best-effort and must never break teardown.
+    """
+    # 闭环结束后 SLM 保持在最优整形相位上 (用户要求: 不要还原成平相位);
+    # 只有没跑出任何 best (全跳过 / 异常) 才退回平相位。
+    if last_best is not None:
+        try:
+            panel = to_panel(last_best)
+            slm.display_data(slm.create_phase_from_array(panel))
+        except Exception as exc:  # best-effort, 不让显示失败打崩 teardown
+            logger.warning("SLM 保持最优相位失败 ({}): {}", type(exc).__name__, exc)
+            slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
+    else:
+        print("SLM: 无最优整形相位 (全跳过 / 异常), 退回平相位", flush=True)
+        logger.warning("SLM 无最优整形相位 (全跳过 / 异常), 退回平相位")
+        slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
+
+
 def _run_validate_session(
     *,
     DifferentiableUniformityOptimizer: object,
@@ -827,19 +853,7 @@ def _run_validate_session(
                     xy=xy,
                 )
             finally:
-                # 闭环结束后 SLM 保持在最优整形相位上 (用户要求: 不要还原成平相位);
-                # 只有没跑出任何 best (全跳过 / 异常) 才退回平相位。
-                if last_best is not None:
-                    try:
-                        panel = to_panel(last_best)
-                        slm.display_data(slm.create_phase_from_array(panel))
-                    except Exception as exc:  # best-effort, 不让显示失败打崩 teardown
-                        logger.warning("SLM 保持最优相位失败 ({}): {}", type(exc).__name__, exc)
-                        slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
-                else:
-                    print("SLM: 无最优整形相位 (全跳过 / 异常), 退回平相位", flush=True)
-                    logger.warning("SLM 无最优整形相位 (全跳过 / 异常), 退回平相位")
-                    slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
+                _hold_best_phase_or_flatten(slm=slm, last_best=last_best)
                 time.sleep(.3)
 
 
@@ -1047,6 +1061,137 @@ def main():
         logger.error(str(exc))
         raise SystemExit(exc.exit_code) from None
 
+def _probe_direction_asymmetry(
+    *,
+    args: object,
+    best: object,
+    b1: object,
+    b2: object,
+    candidate: object,
+    capture: object,
+    forward: object,
+    objective: object,
+    shape: object,
+    torch: object,
+    xy: object,
+) -> None:
+    """#205 batch-31: the block-0 sign-symmetry probe, moved verbatim.
+
+    Every value it computes is evidence for the Jacobian audit rather than an
+    input to the block loop, so it returns nothing and writes its two
+    artifacts directly. ``observed`` travels with it because it closes over the
+    same session ``xy`` grid and capture reader as the loop itself.
+    """
+    # Probe the same actual phase increment with both signs.
+    # This separates a model Jacobian error from autograd errors.
+    # It needs B1/B2, so it belongs to the paired apparatus.
+    minus_phase = 2*best-candidate
+    minus = capture(f"{shape}_direction_minus", minus_phase, objective)
+    capture(f"{shape}_direction_reference", best, objective)
+    with torch.no_grad():
+        pplus = forward.predict(candidate)[0].detach().cpu().numpy()
+        pminus = forward.predict(minus_phase)[0].detach().cpu().numpy()
+        lplus, _ = objective.evaluate(torch.tensor(pplus), torch.zeros_like(torch.tensor(best)))
+        lminus, _ = objective.evaluate(torch.tensor(pminus), torch.zeros_like(torch.tensor(best)))
+
+    def observed(row):
+        mean = capture_frames(args.out, row["file"]).mean(0)
+        return count_rate(mean[xy[..., 1].astype(int), xy[..., 0].astype(int)], row)
+
+    measured_difference = .5*(observed(b1)+observed(b2))-observed(minus)
+    predicted_difference = pplus-pminus
+    direction = dict(shape=shape, model_loss_plus=float(lplus), model_loss_minus=float(lminus),
+                     ccd_loss_plus=.5*(b1["loss"]+b2["loss"]), ccd_loss_minus=minus["loss"],
+                     difference_correlation=float(np.corrcoef(predicted_difference.ravel(), measured_difference.ravel())[0, 1]),
+                     difference_relative_l2=float(np.linalg.norm(predicted_difference-measured_difference)
+                                                  /max(np.linalg.norm(measured_difference), 1e-9)), **clock())
+    np.savez_compressed(args.out/f"{shape}_direction_difference.npz",
+                        predicted=predicted_difference, measured=measured_difference)
+    (args.out/f"{shape}_direction.json").write_text(json.dumps(direction, indent=2), encoding="utf-8")
+
+
+def _observe_jacobian_guard(
+    *,
+    args: object,
+    anchor: object,
+    anchor_prediction: object,
+    b1: object,
+    candidate: object,
+    forward: object,
+    guard: object,
+    torch: object,
+    xy: object,
+) -> dict:
+    """#205 batch-31: measure candidate-vs-anchor agreement and feed the step guard.
+
+    Moved verbatim except for its last line: the caller used to assign the
+    ``decision["jacobian"]`` entry here, and now receives the same dict as the
+    return value. ``guard.observe`` still happens inside, before that dict is
+    built, so ``cap_next`` keeps reporting the cap produced by this observation.
+    """
+    with torch.no_grad():
+        candidate_prediction = forward.predict(candidate)[0].detach().cpu().numpy()
+    measured_candidate = count_rate(
+        capture_frames(args.out, b1["file"]).mean(0)
+        [xy[..., 1].astype(int), xy[..., 0].astype(int)], b1)
+    agreement = direction_agreement(
+        anchor_prediction, candidate_prediction,
+        anchor, measured_candidate,
+        low=guard.low, high=guard.high,
+        min_signal=float(getattr(args, "jacobian_min_signal", 2e-3)))
+    guard.observe(agreement)
+    return dict(**agreement.as_dict(), cap_next=float(guard.cap))
+
+
+def _dump_shape_history_and_timing(
+    *,
+    args: object,
+    best: object,
+    forward: object,
+    iterations: object,
+    objective: object,
+    shape: object,
+    shape_start: object,
+    torch: object,
+) -> None:
+    """#205 batch-31: the per-shape history/timing dump, moved verbatim.
+
+    Two independent flags gate two independent artifacts: ``history/<shape>.jsonl``
+    is truncated per shape while ``timing.jsonl`` is appended, so a multi-shape run
+    leaves one history file per shape and a single timing table.
+    """
+    # ---- 可选：每形状逐步梯度历史 + 墙钟计时（--dump-history / --timing-out，
+    #      默认关、老行为逐位不变）。逐步记录复用共享 iterations（每步含
+    #      terms=optimizer.loss_history[-1]，即 gradient_norm / increment_rms /
+    #      phase_rms / raw_to_final_step_cosine / candidate_model_loss_change）。
+    #      model_cv 在形状末用最终 best 相位过前向算核心 CV。----
+    if getattr(args, "dump_history", False) or getattr(args, "timing_out", False):
+        shape_iters = [it for it in iterations if it.get("shape") == shape]
+        model_cv_val = None
+        if shape_iters:
+            with torch.no_grad():
+                pred = forward.predict(best)[0].detach().cpu().numpy()
+            model_cv_val = image_metrics(pred, objective)["cv"]
+        if getattr(args, "dump_history", False):
+            hist_dir = args.out / "history"
+            hist_dir.mkdir(parents=True, exist_ok=True)
+            with (hist_dir / f"{shape}.jsonl").open("w", encoding="utf-8") as fh:
+                for step, it in enumerate(shape_iters, start=1):
+                    terms = dict(it.get("terms") or {})
+                    terms = {k: (float(v) if isinstance(v, (int, float, np.floating)) else v)
+                             for k, v in terms.items()}
+                    fh.write(json.dumps({"step": step, **terms}) + "\n")
+        if getattr(args, "timing_out", False):
+            timing_row = dict(
+                shape=shape,
+                iterations=len(shape_iters),
+                seconds=round(time.monotonic() - shape_start, 4),
+                model_cv=(None if model_cv_val is None else round(model_cv_val, 6)),
+            )
+            with (args.out / "timing.jsonl").open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(timing_row) + "\n")
+
+
 def _run_validate_blocks(
     *,
     DifferentiableUniformityOptimizer: object,
@@ -1137,32 +1282,9 @@ def _run_validate_blocks(
             b2 = capture(f"{shape}_{block}_B2", candidate, objective)
             a2 = capture(f"{shape}_{block}_A2", best, objective)
             if block == 0:
-                # Probe the same actual phase increment with both signs.
-                # This separates a model Jacobian error from autograd errors.
-                # It needs B1/B2, so it belongs to the paired apparatus.
-                minus_phase = 2*best-candidate
-                minus = capture(f"{shape}_direction_minus", minus_phase, objective)
-                capture(f"{shape}_direction_reference", best, objective)
-                with torch.no_grad():
-                    pplus = forward.predict(candidate)[0].detach().cpu().numpy()
-                    pminus = forward.predict(minus_phase)[0].detach().cpu().numpy()
-                    lplus, _ = objective.evaluate(torch.tensor(pplus), torch.zeros_like(torch.tensor(best)))
-                    lminus, _ = objective.evaluate(torch.tensor(pminus), torch.zeros_like(torch.tensor(best)))
-
-                def observed(row):
-                    mean = capture_frames(args.out, row["file"]).mean(0)
-                    return count_rate(mean[xy[..., 1].astype(int), xy[..., 0].astype(int)], row)
-
-                measured_difference = .5*(observed(b1)+observed(b2))-observed(minus)
-                predicted_difference = pplus-pminus
-                direction = dict(shape=shape, model_loss_plus=float(lplus), model_loss_minus=float(lminus),
-                                 ccd_loss_plus=.5*(b1["loss"]+b2["loss"]), ccd_loss_minus=minus["loss"],
-                                 difference_correlation=float(np.corrcoef(predicted_difference.ravel(), measured_difference.ravel())[0, 1]),
-                                 difference_relative_l2=float(np.linalg.norm(predicted_difference-measured_difference)
-                                                              /max(np.linalg.norm(measured_difference), 1e-9)), **clock())
-                np.savez_compressed(args.out/f"{shape}_direction_difference.npz",
-                                    predicted=predicted_difference, measured=measured_difference)
-                (args.out/f"{shape}_direction.json").write_text(json.dumps(direction, indent=2), encoding="utf-8")
+                _probe_direction_asymmetry(args=args, shape=shape, best=best, candidate=candidate,
+                                           objective=objective, capture=capture, forward=forward,
+                                           torch=torch, xy=xy, b1=b1, b2=b2)
             from .paired import paired_decision
             decision = paired_decision(anchor_row, b1, b2, a2,
                                        metric=getattr(args, "accept_metric", "loss"),
@@ -1176,19 +1298,9 @@ def _run_validate_blocks(
             live_row = b1
             metric, av, bv, decision = _sequential_ccd_decision(args, anchor_row, b1)
             if guard is not None:
-                with torch.no_grad():
-                    candidate_prediction = forward.predict(candidate)[0].detach().cpu().numpy()
-                measured_candidate = count_rate(
-                    capture_frames(args.out, b1["file"]).mean(0)
-                    [xy[..., 1].astype(int), xy[..., 0].astype(int)], b1)
-                agreement = direction_agreement(
-                    anchor_prediction, candidate_prediction,
-                    anchor, measured_candidate,
-                    low=guard.low, high=guard.high,
-                    min_signal=float(getattr(args, "jacobian_min_signal", 2e-3)))
-                guard.observe(agreement)
-                decision["jacobian"] = dict(**agreement.as_dict(),
-                                            cap_next=float(guard.cap))
+                decision["jacobian"] = _observe_jacobian_guard(
+                    args=args, anchor=anchor, anchor_prediction=anchor_prediction, b1=b1,
+                    candidate=candidate, forward=forward, guard=guard, torch=torch, xy=xy)
             if policy is not None:
                 if metric != "cv":
                     raise ValueError("exploration currently requires core CV acceptance")
@@ -1256,36 +1368,9 @@ def _run_validate_blocks(
             with (args.out/"iterations.pkl").open("wb") as stream:
                 pickle.dump(iterations, stream, protocol=5)
 
-    # ---- 可选：每形状逐步梯度历史 + 墙钟计时（--dump-history / --timing-out，
-    #      默认关、老行为逐位不变）。逐步记录复用共享 iterations（每步含
-    #      terms=optimizer.loss_history[-1]，即 gradient_norm / increment_rms /
-    #      phase_rms / raw_to_final_step_cosine / candidate_model_loss_change）。
-    #      model_cv 在形状末用最终 best 相位过前向算核心 CV。----
-    if getattr(args, "dump_history", False) or getattr(args, "timing_out", False):
-        shape_iters = [it for it in iterations if it.get("shape") == shape]
-        model_cv_val = None
-        if shape_iters:
-            with torch.no_grad():
-                pred = forward.predict(best)[0].detach().cpu().numpy()
-            model_cv_val = image_metrics(pred, objective)["cv"]
-        if getattr(args, "dump_history", False):
-            hist_dir = args.out / "history"
-            hist_dir.mkdir(parents=True, exist_ok=True)
-            with (hist_dir / f"{shape}.jsonl").open("w", encoding="utf-8") as fh:
-                for step, it in enumerate(shape_iters, start=1):
-                    terms = dict(it.get("terms") or {})
-                    terms = {k: (float(v) if isinstance(v, (int, float, np.floating)) else v)
-                             for k, v in terms.items()}
-                    fh.write(json.dumps({"step": step, **terms}) + "\n")
-        if getattr(args, "timing_out", False):
-            timing_row = dict(
-                shape=shape,
-                iterations=len(shape_iters),
-                seconds=round(time.monotonic() - shape_start, 4),
-                model_cv=(None if model_cv_val is None else round(model_cv_val, 6)),
-            )
-            with (args.out / "timing.jsonl").open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps(timing_row) + "\n")
+    _dump_shape_history_and_timing(args=args, shape=shape, iterations=iterations, best=best,
+                                   forward=forward, torch=torch, objective=objective,
+                                   shape_start=shape_start)
 
     return best, champion, exposure
 

@@ -890,11 +890,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 14. ✅ **`except BaseException` 全量复核收口：实测 5 处，逐处判定正当，并把「线程边界不得收窄」钉成守卫**（2026-10-25）：
 slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `:1718` 上移 2 行；同日复核 `ff288621` #44 持有者权威刀入口净 −5 行后再上移 5 行至 `:1711`；同日复核 `ca0c7ea6` #44 值通道收口刀再上移 2 行至 `:1709`；2026-10-31 复核 #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在上方）下移 3 行至 `:1712`；2026-11-01 复核 `2a446813` #205 第十一批（324 行 With 会话提为 `_run_pib_session`，入口体下移）整体下移 120 行至 `:1832`）
-      `tools/slm/transfer/workflow.py:963`（旧行号 78 因上游 `5341b36b` 合并等后续提交在其上方插入阶段编排代码而下移，2026-10-29 复核重钉为 226；其后 transfer 桌面/离线诊断等批次使其漂至 677（未及重钉）；2026-11-06 复核 `bfbfdf5e` 第二十九批把 `run_session` 拆出 4 个模块级 helper，使该块再由 677 下移 286 行至 963，重钉）、`utils/image/hardware_utils.py:666`、
+      `tools/slm/transfer/workflow.py:964`（旧行号 78 因上游 `5341b36b` 合并等后续提交在其上方插入阶段编排代码而下移，2026-10-29 复核重钉为 226；其后 transfer 桌面/离线诊断等批次使其漂至 677（未及重钉）；2026-11-06 复核 `bfbfdf5e` 第二十九批把 `run_session` 拆出 4 个模块级 helper，使该块再由 677 下移 286 行至 963；2026-11-06 复核 `a80a2f8c` 合入上游 transfer 桌面的 `acceptance_enabled` 接线（约 :580，在此块上方 +1 行），该块再下移 1 行至 964，重钉）、`utils/image/hardware_utils.py:666`、
       `scripts/slm/diff_beam_capture_flat.py:79`（旧行号 68 因上游 `a8673631`/`fe1cc504` 漂移，2026-10-29 复核）、`scripts/slm/hw_gs_defocus_probe.py:1071`
       ⇒ §8.4 的「真风险只有 2 处」与 R-64 行的「禁改 2 处」均为当时口径，已就地重钉。
     - **逐处判定：没有一处需要改**（本项初始假设「能在硬件运动中途静默吞掉中断」被实测推翻）：
-      `workflow.py:963` 记录状态后 `raise`（本就重抛）；`hardware_utils.py:666`、
+      `workflow.py:964` 记录状态后 `raise`（本就重抛）；`hardware_utils.py:666`、
       `diff_beam_capture_flat.py:79`（旧行号 68 因上游 `a8673631`/`fe1cc504` 漂移，2026-10-29 复核）、`hw_gs_defocus_probe.py:1071` 是三处**同构的线程边界捕获**，
       调用方确定重抛（实测 `:77 raise error[0]`、`:1082 raise box["error"]`）——
       它们正是把「原生 SDK 调用无限挂起」变成**有界且可归因**的机制
@@ -4610,7 +4610,88 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 这批**不是逐字搬移**（记录化动了数据流），所以等价性只能靠数值证明：新增 `tests/ao_shaping/optimizer/wfless/test_slm_square_epoch_characterization.py`。
 - 要害是**夹具必须随面板而变**：既有 sim 夹具下发的是固定高斯 blob ⇒ `pos["q"] == neg["q"]` 恒成立、SPGD 梯度恒为 0，把 pos/neg 写反它根本看不见。换成相位驱动帧（光斑偏移与各向异性取决于最近一次下发的相位）后梯度非零，best 追踪、能量护栏、`lr==0` 调度、Recorder 行才真的读到这一对。
 - 参考（真值） = (行数, 行摘要 sha1, SLM 下发序列 sha1, 下发次数) × 6 配置（quality / pearson+lr0 / adaptive 停滞放大 / 护栏收紧 / pbr+aspect 权重 / zernike 基）。**重构前源码跑同一组参考真值 7 passed** ⇒ 行为逐位不变；网的牙单独验过：把 `-disturb_c` 改成 `+disturb_c` ⇒ **6 failed**。另加 `test_the_camera_actually_depends_on_the_panel` 守住夹具前提本身——前提被改回去时测试立刻失效，而不是静默失去灵敏度。
-- **方法论教训**：表征测试"在旧代码上也通过"**不是没牙**，那恰恰是行为保持型重构的正确签名；要证明有牙必须做**故意变异**（改符号、换 pos/neg）看它是否失败。差点因为这个误判去"修"一张本来正确的网。
+- 教训：表征测试"在旧代码上也通过"**不是没牙**，那恰恰是行为保持型重构的正确签名；要证明有牙必须做**故意变异**（改符号、换 pos/neg）看它是否失败。差点因为这个误判去"修"一张本来正确的网。
+
+**2026-11-06 · bfbfdf5e · #205 第二十九批：`run_session` 583→378，并给全 src 最长的"无门禁"函数补上第一枚钉**
+- `tools/slm/transfer/workflow.py::run_session` 是当时全 src 最长**且完全没有形状登记**的函数（583 行 / nest 5）。四段逐字搬移到模块级：`_acquire_session_dataset`（63）、`_round_geometry_preflight`（28）、`_offline_synthesize`（98，原 `if offline:` 里的嵌套 `synthesize` 闭包）、`_round_calibration_stages`（39）；拆完 378 行 / nest 5→4。
+- 证明照旧：每段语句序列 `ast.dump` 与原块逐条相等（3 / 7 / 1 / 11 条）；每个 helper 的自由名 ⊆ 声明形参 ∪ 模块级名。`validate` / `fit` / `capture` 在本文件里是 `run_session` 内的**延迟导入**（顶层导入会成环），所以 helper 各自补 `from . import …`，与该文件既有风格一致；顺带把 `run_session` 那行延迟导入里已无引用的 `capture` 摘掉（留着就是 F401）。
+- 5 枚钉进 `test_issue205_function_shape.py`（新增 `_WF` 分组），棘轮表 75→80 行。**拆完不上钉等于没拆**——没有钉，下一次改动可以把它悄悄长回去。
+- 代价点名：模块 1521→1602（+81，基线已点名），约一半是 4 个签名与调用点样板，另一半是 4 段说明"这块为什么在这儿"的 docstring；函数体净减 205 行。
+- 验收：transfer 全套 16 组 247 passed、**tools 分片整片 1517 passed / 6 skipped**（CI 包络 AO_CPUS=4 / AO_MEMORY=6g）、optimizer 分片整片 1345 passed、形状门禁 80、conventions 757。
+
+**2026-11-06 · a1b405fe · 表征网逐位哈希 → 量化哈希：根因是测试镜像依赖无上界（本仓库第一个受害者）**
+- 现象：`10a0240e` 绿，其后的纯文档提交 `176bf838` 红、`d3b351da` 红、`bfbfdf5e` 红；而本地**整片** optimizer 1345 passed 全绿，怎么都复现不出来。
+- **取证方法（记死，别再靠肉眼翻日志）**：`GET /repos/{o}/{r}/commits/{sha}/check-runs` 取 `check_run_id` → `GET /repos/{o}/{r}/check-runs/{id}/annotations`。工作流里 `::error::$name failed (blocking)` 会原样落在注解里，本次直接给出 **`optimizer failed (blocking)`**，其余 11 个分片逐条 PASS。对照：`actions/runs/{id}/logs` 与 `/summary` 需要鉴权（本机 `gh` 令牌已失效，经 gh-proxy 分别返回 http 000 / 404）。§8.9 那条"tools 分片 1 failed / 1107 passed，当时只 grep 汇总行、丢掉失败用例名"的悬案，用这条路可以复活。
+- 根因链：第二十八批的表征参考真值哈希的是**全精度浮点字节**（数组 raw bytes、浮点 `.12g`）；而 `docker/Dockerfile.test.cpu:67` 以 `"numpy>=2.2.6" "pandas>=2.3.2" …` 安装依赖——**无上界、无 lock**，CI 每次 `docker build` 都可能装到更新的 numpy（本地镜像实测 numpy 2.5.4 / CPython 3.13）。于是"本地绿、CI 红、且只红装有该测试的那一片"完全成立：**参考真值不是被代码改动打败，是被依赖版本漂移打败**。
+- 处置：量化到 4 位小数 / 5 位有效数字，`_quant` 显式转 `<f8`（按本机字节序哈希等于把参考真值绑死在机器类别上）。牙未钝——`-disturb_c`→`+disturb_c` 仍 **6 failed**；`176bf838` 的重构前源码跑同一参考真值仍 **7 passed**。失败消息改为**自带前两行逐列数值**（本次变异当场暴露 `_diff` 由 `0` 变 `"0"`、`_grad` 哈希改变，即 pos/neg 写死后梯度归零的签名），红一次就能定案；另加 `AO_SQUARE_CHAR_UPDATE=<path>` opt-in 重定基线（沿用仓库既有 `AO_PROBE_HELP_UPDATE=1` 惯例，不设变量时行为逐字不变）。
+- **仍未结的基础设施债**：测试镜像依赖无上界 ⇒ 任何逐位/数值参考真值都会腐烂，CI 不可复现。两条候选处置：`Dockerfile.test.cpu` 改 lock 安装（`uv sync --frozen` 或 pip constraints），或约定数值参考真值一律容差比较而非哈希。**暂不动 Dockerfile**：它会触发全镜像重建，先观察 `a1b405fe` 的分片结果再决定。
+
+**2026-11-07 · 62fa558d · #205 第三十批：`calibration/lut_runner.run` 389→329（灰阶扫描循环收进 `_run_gray_scan`）**
+- 目标同前几批的"最长且无门禁"：`run` 389 行 / nest 3 从未登记进棘轮。71 行灰阶扫描循环提为模块级 `_run_gray_scan`（91 行 / nest 2）；9 个只读量收进 frozen `_GrayScan` 快照，helper 仅 6 参（否则 15 个）。
+- 等价证明：把 14 处 `X -> scan.X` 改名**施加到原循环 AST** 上再逐语句 `ast.dump` 比对，完全相等；`_GrayScan` 9 字段全部由同名局部量绑定（唯一两处例外是漂移中心快照 `ref_calib_center=ref_center` / `test_calib_center=test_center`，即原语义）；helper 自由名 ⊆ 形参 ∪ 模块级名。
+- 扫描中途会变的 `ref_center` / `test_center` 不进快照（下游 artifacts 要写最终位置）；曝光恒定不变量原样保留在函数体内。
+- **教训一（差点静默上线）**：新代码插在 `def run(` 之前，而 `run` 上挂着 `@click.command()` + `@with_params(...)` —— 插入等于把这两个装饰器**改挂到 `_GrayScan`**，`run` 退化为裸函数。import 不报错、ruff 干净、AST 等价证明全过、1515 个测试绿；抓住它的是 `test_cli_argv_binding`（"run is not a Command"）与 `test_every_click_command_has_a_guard_case` 两条守卫。现插入点按装饰器行号计算，证明脚本加"全部既有符号的装饰器列表逐条不变"一条。
+- **教训二**：`test_probe_flags` 锁探针每个函数体内**全部字符串常量**（docstring 也算），新函数加 docstring 会让 `slm_lut_runner` 参考真值 114→115。改用注释表达同一批不变量，参考真值零漂移——不重定基线，也不用重定基线掩盖真实 diff。
+- 顺带纠正误判：`test_every_click_command_has_a_guard_case` 不是间歇 flake，只在装饰器被劫持的那两次整片运行里红，修好即绿——是教训一的连带症状。TODO:3757 那条历史悬案**仍未结**，不能借这次冒充破案。
+- 门禁与基线：新增 `_LUT` 两枚钉（`run` 380/3/329、`_run_gray_scan` 115/2/91），棘轮表 79→81 行（2026-11-07 AST 实测复核）；模块 877→929 已在基线点名。
+- 文档同步：`call_graph_wiki/commands/slm-lut.md` 两处 `lut_runner.py:473` 重锚至 `:585`（`test_wiki_source_citations_land_on_definitions` 要求引用落在定义行）；raw 图资产仍是旧行号，等下次整条 call-graph 流水线重跑统一刷新。
+- 验收：tools 分片整片 **1517 passed / 6 skipped / 0 failed**；root-guards 组（形状门禁 + conventions + import purity）164 passed；LUT 与探针定向 246 passed；ruff、术语门禁全绿。
+- **两处门禁红（2026-11-07 文档审核发现，非本批引入）**：① 形状门禁 `validate.py` 两枚钉被上游 `7f7bd578` 越界——`_run_validate_session` 238>230、`_run_validate_blocks` 241>200（嵌套 7/6 > 5；`7f7bd578` 给 validate 加时序/转储 CLI +76 行时未同步重钉/拆段，`62676d6b` 时代的 225/197 基线已被其打穿）；② 模块规模门禁在本提交即红（CI `Module size gate` failure，`62fa558d` 干净 worktree 本地复现一致）：`page.py` 1586→1827（+241）、`archive_replay.py` 1728→1799（+71）、`workflow.py` 1602→1604（+2）、`transfer_progress.py` 1328→1333（+5），均为上游 transfer 桌面批次（`7f7bd578` / `75f7f846`）涨行未同步基线。注意 `62fa558d` 提交信息里"模块规模门禁全绿"一句与 CI 事实不符。两处均属上游特性债：按 `62676d6b` 先例应继续拆段（而非抬上限）/ 基线按脚本口径 `--update-baseline` 结算，留给下一批处理。
+
+**2026-11-07 · 7f7bd578 · blind-except 总数棘轮 406→409：桌面合并窗口净增 3 个宽泛捕获，两处补上判据**
+- **先归属，再处置**：把工作树 stash 掉、在已推送的 `62fa558d` 上整跑 `test_conventions.py`，两条棘轮同样红 ⇒ 红灯来自合并窗口，不是同批的 #205 拆分。计数不靠 grep 猜，直接复用守卫自己的探测器 `_blind_except_handlers_in_src()` 在两个版本上各跑一遍按文件求差：`transfer_desktop/page.py` 5→7、`tools/slm/transfer/validate.py` 2→3，总数 406→409。
+- 未记判据的两处都在 `page.py`，且都是"读不到就隐藏该行、绝不打断面板"的降级：一个从盘上取验收阈值实时读数（产物可能正在写），一个是可选探针默认容差导入。按守卫指定的出路补 `# policy:` 判据行，**不收窄**——界面读路径上的窄化不是清理（见 issues #145 与 #45）。`validate.py` 那一个是收尾时把最优相位留在面板上的显示写入，本来就带理由注释，只进总数。
+- 上一条 `62fa558d` 条目末尾点名的两处门禁红（形状钉越界、模块规模基线未同步）已由第 31 批处理：两处函数拆回天花板内、基线逐条点名，与本节同一提交进仓。总数棘轮按该常量上方的既有格式记来源，本节即守卫要求的那条 reason。
+
+**2026-11-07 · 41d70003 · #205 第三十一批：`validate` 两处函数拆回自己的天花板，并把 master 从合并窗口的五条红里拉回来**
+- 上游 `7f7bd578` 给两个**已登记**的函数加代码，把它们顶出自己的天花板：`_run_validate_blocks` 169→241（天花板 200）、`_run_validate_session` 200→238（天花板 230）。守卫的原话是"再拆一次，不要抬上限"，所以两处都拆回线内（181 / 226），**天花板一个数字都没动**。
+- 拆法沿用第 30 批定型的做法：形参名与调用点局部量**完全同名**，于是等价证明不需要改名映射，退化成语句级 `ast.dump` 逐条相等（10 / 1 / 1 条逐字相等，另 1 处**记录在案**的变形：`decision["jacobian"] = <expr>` → `return <expr>`，右值逐字节相同）。另三条硬检查：调用点必须逐关键字按名绑定活局部量（不许传字面量或表达式）；全部 20 个既有符号的装饰器列表逐条不变；**叶语句全表扫描**——拆分前那棵树 488 条叶语句逐字仍在，容器语句不参与比较（子树必然随子块搬移而变，比它没有信息量）。
+- 证明脚本自己错了三次、被自己的断言挡下三次（D 段比对口径应是整条 `If` 而非其体内、`ast.unparse` 把 `decision["jacobian"]` 渲染成单引号、`.3` 规范化成 `0.3`）。**这类证明的价值恰恰在于它会误报**：每次误报都必须在证明侧解释清楚，而不是放宽断言把它按下去。
+- **`cancelled` 不是 `failed`，也不等于绿**：`41d70003` 的 Pytest 分片结论是 `cancelled`，而 `pytest.yml:34` 是 `timeout-minutes: 90`，本次跑满 90 分 19 秒 ⇒ 这是**作业超时**（GitHub 对超时的记录形态就是 `cancelled`），不是有人取消、更不是测试失败。该分片是**单作业内部循环 12 片**，`jobs` API 只有一个条目，**没有任何分片级裁决可读**。原样重跑 attempt #2 在约 60 分钟 **success** ⇒ 第一次撞上限是 **runner 拥挤**，不是"全绿真需要 >90 分钟"——我当时那个推断是错的，已作废。**无需改 CI 上限**。
+- 顺带更正两条我先前写错的事实：`gh` 令牌经代理**能**发 POST（重跑就是它做的），先前"令牌失效"只适用于我试过的那几条 GET；`tests/ao_shaping/ml/**` 并非无 CI 覆盖——`pytest.yml:131` 显式点名 `tests/ao_shaping/ml/sim2f` 且 `blocking=1`，`--ignore` 只作用于 discovery，显式路径照跑。这条直接改变了第 32 批的选靶。
+- 验收：conventions + 形状门禁 + 探针常量参考真值 **285 passed**（含台账格式守卫）；transfer 定向 478 passed；tools 分片整片 **1518 passed / 6 skipped**；ruff、术语（0 个文件）、模块规模门禁全绿。`tests/ao_shaping/gui` 在本容器有 11 个 `PySide6` 收集期错误，已 stash 验证在干净 HEAD 上同样存在——本地镜像缺可选依赖，与本批无关。
+
+**2026-11-07 · 92bda70c · #205 第三十二批：`run_loop` 412→193（全树最长且无门禁的函数补上第一枚钉，ml 域第一枚钉）**
+- 选靶是**取证而非尺寸**：`src/ml/sim2f/loop.py::run_loop` 412 行 / nest 2，是全 `src` 最长且完全未在棘轮登记的函数（本批复测：拆前模块 965 行、函数 412 行，表内无 `_SIM2F` 钉）。先前"ml 域没有 CI 覆盖"的担忧被 `pytest.yml:131` 推翻——`run_shard "ml" 1 1 ... tests/ao_shaping/ml/sim2f` 显式点名该路径且 blocking=1（`--ignore` 只作用于 discovery，显式路径照跑），本批即 ml 域首钉。
+- 五段逐字搬移到模块级：`_run_probe_stage`（66 行 / nest 1，探针阶段含 `probe_fit=False` 消融路径）、`_run_closed_loop`（83 行 / nest 2，refit 轮次 + 拒绝轮必须留痕）、`_append_sample_csv_rows`（37 行）、`_append_sample_record`（60 行）、`_build_loop_payload`（86 行，报告载荷）；拆完 `run_loop` 193 行 / nest 2（2026-11-07 对钉复测）。
+- 形参名与调用点局部量**完全同名**，等价证明因此不需要改名映射，退化为叶语句全表扫描：拆分前那棵树 216 条叶语句逐字仍在（**0 改动、0 丢失**）；17 个既有符号的装饰器列表逐条不变；5 个 helper 各只有 1 个调用点且逐关键字按名绑定（不许传字面量/表达式）；自由名 ⊆ 形参 ∪ 模块级名。两个**真**漏参由 ruff 抓到（`_run_probe_stage` 用了调用方的 `zeros`、`_append_sample_record` 用了 `refit_rows`）：F821 正是自由名证明要拦的那一类，补齐参数而非放宽证明。
+- 门禁与基线：`_SIM2F` 分组 6 枚钉入表（`run_loop` 241/2/193、`_run_probe_stage` 91/1/66、`_run_closed_loop` 108/2/83、`_append_sample_csv_rows` 62/2/37、`_append_sample_record` 85/0/60、`_build_loop_payload` 111/0/86），棘轮表 85→91 行（2026-11-07 复测）；模块 965→1088 已在基线点名（签名 5 份 + docstring 是主要增量，函数体净减 219 行）。
+- 验收（上游自报）：ml/sim2f 整域 **401 passed / 11 skipped / 0 failed**（per-file，CI 同包络 `AO_CPUS=4` / `AO_MEMORY=6g`），其中 `test_loop.py` 13 passed 是真执行 `run_loop` 端到端；conventions + 形状门禁 164 passed；ruff、术语（0 个文件）、模块规模门禁全绿。
+
+**2026-11-07 · 85409ce2 · #205 第三十三批：给 10 个 ≥310 行且完全无登记的函数先上形状钉（登记先于拆分）**
+- 打法是第 29 批对 `run_session` 的复用——**登记先于拆分**：没有钉，最长的函数可以无声地继续长；第 31 批那两处越界正是「上游加代码时无人拦截」的直接后果。本批**不改任何 `src`**，只增 CI 强制力。选钉而非继续拆，是因为上游核过 `transfer/capture.py::capture` 的真实形状是 `capture → with cam → with slm → try(247 行)`，已有 5 层嵌套——在这种深度做逐字搬移，helper 会继承同样深度，收益低于风险；先钉住，等一个有预算的批次再按段界细拆。
+- 10 枚新钉（跨度 = 实测 + 40 余量，嵌套上限 = 实测值，与本表既有惯例一致），数值 2026-11-07 本树复测与表内逐枚一致：`train_coeff.train` 367/n4、`train_amp.train` 356/n4、`_thorlab_wfs.load_dll` 351/n0、`zernike_debug_viewer._render_main` 349/n7、`transfer/capture.capture` 346/n6、`panel/panel_locate.scan_panel` 342/n4、`transfer_shapes_runner.execute_campaign` 331/n4、`zernike_matrix_runner.run` 329/n4、`sim2f/bench.run_session` 324/n4、`dm_response_matrix.calibrate_dm_response_matrix` 312/n4。
+- 上游记录的一次**自我纠错（守卫陷阱）**：最初用**模块路径前 6 字符**生成模块常量名，`transfer/capture.py` 与 `panel/panel_locate.py` 一起塌成同一个 `TOOLS_`，于是 `scan_panel` 被挂到了 `capture.py`；守卫直接失败并报「`expected exactly one scan_panel in .../capture.py, found 0` — the guard would silently measure the wrong one」，**拒绝静默测错对象**。回滚重做为按模块名唯一命名（`_CAPTURE` / `_PANEL_LOCATE` / …）并加 `assert cname not in used`。
+- 门禁：10 枚钉入表，棘轮表 **91→101 行**（2026-11-07 本树复测 `len(TARGETS)` = 101）。本批不动 `src`，故模块规模基线无需再动。
+- 验收（上游自报）：形状门禁 **102 passed**（原 92 + 10）；ruff、术语（0 个文件）、模块规模门禁全绿。
+
+**2026-11-07 · 318c7314 · #205 第三十四批：200–309 行段 40 个无登记函数全部钉住（债务登记收口）**
+- 上批钉住 ≥310 的 10 个之后，本批把剩下的 200–309 行人口**一次清零**：全树模块级 ≥200 行函数从此**全部**在棘轮表内。本批**不改任何 `src`**，只增 CI 强制力；登记不等于重构，它买的是"再长就 CI 红"。
+- 40 枚新钉（天花板 = 实测 + 30，嵌套上限 = 实测值；33 个新增模块常量，模块常量按 basename 命名、与既有常量冲突时自动加父目录前缀），数值 2026-11-07 本树复测：`len(TARGETS)` **101→141**，棘轮表 141 行。跨度 203–327 行、嵌套 2–8，覆盖 workflow/main、`differentiable_beam.optimize_beam_shaping` 296、`ga_zernike.optimizer_ga` 252、`slm_zernike_pib._prepare_geometry` 220 等 40 个函数（全表见守卫文件）。
+- 枚举脚本两条防护：同名函数在同模块出现两次则跳过（守卫的 "exactly one `<name>` in `<module>`" 无法唯一定位，本批实测 0 个跳过）；常量正则必须用 `_[A-Z0-9_]+`（含下划线），否则 `_TRAIN_COEFF`/`_PANEL_LOCATE` 这类名字被漏认、谎报"还剩 N 个未登记"——上批教训固化。
+- 验收：形状门禁 **142 passed**（141 行 + 深度测试，2026-11-07 本树实测）；conventions+167 守卫 77 passed；ruff / 术语（0 个文件）/ 模块规模门禁全绿；src 零改动，模块规模基线无需再动。
+**2026-11-07 · 318c7314 · #205 登记新 flake：test_fit l1 顺序断言临界翻转**
+- `ml/sim2f/test_fit.py::TestProbeAlgebra::test_the_l1_default_stalls_at_a_measured_floor`（test_fit.py:314，2026-11-08 复核重钉：`cc358430` 在测试体内插入 `set_num_threads(1)` 块致整体 +10 漂移，原 :304）断言"小 lr 残差严格小于校准 lr"，而 l1 极限环终值是噪声级样本（0.0075 vs 0.0063 翻转即红）；同树 attempt#1 红、本地 CI 包络 3/3 绿、重跑 attempt#2 全绿。与 :303 注释自述的 reduction-order 抖动同源（原 :293，同批 +10 漂移）。加固（带边界的顺序断言）另批处理——**2026-11-08 已落地**（`cc358430`：测试体内 `set_num_threads(1)` + `finally` 还原，顺序 canary 恢复确定语义，两条 flake 均本地 3/3 绿）；在此之前"该测试单独红先按重跑定性处置"（与 TODO:3757 同法）的过渡办法已被上述加固取代
+
+**2026-11-08 · 8468f4a5 · #205 第三十五批：`train_coeff.train` 367→213（已钉最长函数第一个真拆）**
+- `ml/zernike/train_coeff.py::train(cfg)` 拆 4 个逐字 helper（参数名与调用点局部变量同名，helper 体即原语句序列）：`_seed_environment` 25（种子/设备/输出目录）、`_build_datasets` 71（index/fold/dataset/loader，连带返回 `coeff_mean/coeff_std`）、`_build_geometric_ops` 37（增广算子银行）、`_write_summary` 37（summary.json + 收尾日志，连带返回 `final_metrics`）——第三十三批"登记先于拆分"之后，棘轮表上最长函数的**第一个真拆**。
+- 等价证明（AST 语句多重集）：原 56 条顶层语句 = train 保留 20 + helper 36，diff 0；行为载体 `test_train_coeff.py` + `test_train_cli_runnable.py` 39 passed（上游自报），ml/zernike 全域 24 文件 per-file 全绿零红。自由名审计连抓 3 个参数表漏写的真依赖（`coeff_mean/coeff_std`、`final_metrics`、`np` 的 asname 注册 bug）——按审计补参，不是放宽审计。
+- 棘轮表（本树 2026-11-08 AST 复测）：`train` 行 407/367 → **240/213**（天花板 407 是登记时的临时宽容，随拆分收紧至 240；240 = 实测 213 + 27），新增 4 个 helper 行（40/1/25、90/1/71、50/4/37、50/0/37），`len(TARGETS)` **141→145**；模块规模基线 1342→1370（上游随本批同步，本树实测 1370 一致）。
+- 验收（本树 2026-11-08 复测）：形状门禁 **146 passed**（145 行 + 深度测试）；`train` 函数体实测 213 行，与钉值一致。
+
+
+**2026-11-08 · 8468f4a5 · #205 登记第二条 CI flake（device mutex 占位竞态；拆分细节见上一条同 SHA 条目）**
+- 同树 attempt#1 红于 `tools/kernels/test_device_mutex.py::test_the_wait_reports_the_holder_and_times_out`，`assert 82 == 0`。根因：`_spawn_holder` 的等待条件 `holder.pid != os.getpid()` 会把子进程"先写 pid=0 占位、后补真 pid"的中间态当成已持锁返回，断言右值停在占位 0；attempt#2 绿，定性 flake（与上游拆分无关，本批未触 tools）
+
+**2026-11-08 · cc358430 · #205 附带：两条已登记 flake 的根因修复（不再只靠重跑定性）**
+- mutex 等待条件加 `holder.pid > 0`（真持有者 pid 恒 >= 1，占位中间态不再被放行）；test_fit l1 顺序 canary 的两次 probe 移入 `torch.set_num_threads(1)` + finally 还原——l1 极限环终值是噪声级样本，多线程 float32 reduction 顺序可翻转 0.0075/0.0063，单线程确定序才让"变了就响"重新成立
+- 载体：两测试文件连跑 3 次 65 passed；同树 CI attempt#1 在 90 分钟上限被截记为 cancelled（该形态已定性为 runner 拥挤），原样重跑 attempt#2 四条 workflow 全绿
+
+**2026-11-08 · b3291e99 · #205 第三十七批：`train_amp.train` 356→205（第二个真拆，复用批 35 生成器）**
+- `ml/zernike/train_amp.py::train(cfg)` 逐字拆出 5 个 helper（参数名 = 调用点局部变量名，helper 体即原语句序列）：`_prepare_environment` 25（环境/种子/设备）、`_build_corpus` 39（索引/物化/数据集）、`_build_model_setup` 32（模型/AMP 门/优化器）、`_build_loss_mask` 25（loss/mask）、`_finalize` 50（收尾）——第三十五批 `train_coeff.train` 第一个真拆之后的**第二个真拆**，复用批 35 的生成器流程。
+- 等价证明（AST 语句多重集）：原 47 条顶层语句 = train 保留 8 + helper 39，diff 0（上游自报）；**172 行 epoch For 循环留在 `train`**（其内部再拆属另一批，需先给循环体找独立行为载体）；ml/zernike 全域 24 文件 per-file 全绿零红（上游自报）。自由名审计在实施前定案 3 处修正（`_build_model_setup` +`amp_enabled`/−`val_t`、`_build_loss_mask` +`device`、`_finalize` 删 4 个没用参数）——先审计后生成，不再靠 ruff 事后抓。
+- 棘轮表（本树 2026-11-08 AST 复测）：`train` 行 396/356 → **240/205**（396 是登记时的临时宽容，随拆分收紧至 240；240 = 实测 205 + 35），新增 5 个 helper 行（40/1/25、60/1/39、50/1/32、40/1/25、70/1/50），`len(TARGETS)` **145→150**；模块规模基线 1715→1750（上游随本批同步，本树实测 1750 一致）。
+- 验收（本树 2026-11-08 复测）：形状门禁 **151 passed**（150 行 + 深度测试）；`train` 函数体实测 205 行 / nest 4，5 个 helper 实测 25/39/32/25/50 行 / nest 各 1，epoch For 循环实测 172 行（1227–1398）——与钉值逐一一致。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

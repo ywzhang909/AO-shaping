@@ -64,7 +64,19 @@ _FILE = "src/ao_shaping/optimizer/wfless/model_in_loop_shaping.py"
 _PIB = "src/ao_shaping/optimizer/wfless/pib.py"
 _COMB = "src/ao_shaping/optimizer/combined_optimizer.py"
 _VAL = "src/ao_shaping/tools/slm/transfer/validate.py"
+_SIM2F = "src/ml/sim2f/loop.py"
+_DM_RESPONSE_MATRIX = "src/ao_shaping/optimizer/wf/dm_response_matrix.py"
+_BENCH = "src/ml/sim2f/bench.py"
+_ZERNIKE_MATRIX_RUNNER = "src/ao_shaping/runners/slm/zernike_matrix_runner.py"
+_TRANSFER_SHAPES_RUNNER = "src/ao_shaping/runners/slm/transfer_shapes_runner.py"
+_PANEL_LOCATE = "src/ao_shaping/tools/slm/panel/panel_locate.py"
+_CAPTURE = "src/ao_shaping/tools/slm/transfer/capture.py"
+_ZERNIKE_DEBUG_VIEWER = "src/ao_shaping/gui/zernike/zernike_debug_viewer.py"
+_THORLAB_WFS = "src/ao_shaping/drivers/wfs/_thorlab_wfs.py"
+_TRAIN_AMP = "src/ml/zernike/train_amp.py"
+_TRAIN_COEFF = "src/ml/zernike/train_coeff.py"
 _WF = "src/ao_shaping/tools/slm/transfer/workflow.py"
+_LUT = "src/ao_shaping/tools/slm/calibration/lut_runner.py"
 _IO = "src/ao_shaping/utils/io/file.py"
 _DM = "src/ao_shaping/tools/kernels/device_mutex.py"
 _PAT = "src/ao_shaping/utils/image/target/patterns.py"
@@ -75,6 +87,39 @@ _MIL = "src/ao_shaping/optimizer/wfless/slm_model_in_loop.py"
 _SQ = "src/ao_shaping/optimizer/wfless/slm_square_shaping.py"
 _SCRIPT = "scripts/slm/generate_diffraction_efficiency_sim_report.py"
 _SECTIONS = "scripts/slm/_hw_gs_square_scans_sections.py"
+_WORKFLOW = "src/ao_shaping/tools/slm/transfer/workflow.py"
+_DIFFERENTIABLE_BEAM = "src/ao_shaping/optimizer/wfless/differentiable_beam.py"
+_ZERNIKE_RESPONSE_MATRIX_UI = "src/ao_shaping/gui/zernike/zernike_response_matrix_ui.py"
+_PHASE_CAPTURE = "src/ao_shaping/tools/slm/calibration/phase_capture.py"
+_MICRO_DM_UI = "src/ao_shaping/gui/dm/micro_dm_ui.py"
+_CALIBRATE = "src/ml/sim2f/calibrate.py"
+_TRAIN_DATA_COLLECT = "src/ao_shaping/tools/slm/calibration/train_data_collect.py"
+_CCD_ANALYZER = "src/ao_shaping/gui/ccd/ccd_analyzer.py"
+_PROBE_ACTIVE = "src/ml/sim2f/probe_active.py"
+_SIM_SPGD = "src/ao_shaping/optimizer/wfless/sim_spgd.py"
+_CERAMIC_VIEWER = "src/ao_shaping/gui/dm/ceramic_viewer.py"
+_BENCH_TWIN_CALIBRATE = "src/ao_shaping/tools/slm/bench_twin_calibrate.py"
+_GA_ZERNIKE = "src/ao_shaping/optimizer/wf/ga_zernike.py"
+_R50_CERAMIC_VIEWER = "src/ao_shaping/gui/r50/ceramic_viewer.py"
+_FOCUS_PROBE = "src/ao_shaping/tools/slm/panel/focus_probe.py"
+_TRAIN = "src/ml/sim2f/train.py"
+_VOLTAGE_RUNNER = "src/ao_shaping/runners/micro_drive/voltage_runner.py"
+_MODEL_IN_LOOP_SHAPING = "src/ao_shaping/optimizer/wfless/model_in_loop_shaping.py"
+_SHAPING_TRAIN = "src/ml/shaping/train.py"
+_ZERNIKE_RESPONSE = "src/ao_shaping/tools/wfs/zernike_response.py"
+_ZERNIKE_RESPONSE_MATRIX = "src/ao_shaping/optimizer/wf/zernike_response_matrix.py"
+_ML_TRAIN = "src/ml/train.py"
+_MICRO_DM_IMAGE_COLLECT = "src/ao_shaping/tools/micro_dm/micro_dm_image_collect.py"
+_SLM_CALIBRATION_UI = "src/ao_shaping/gui/slm/slm_calibration_ui.py"
+_MODEL_IN_LOOP_RUNNER = "src/ao_shaping/runners/slm/model_in_loop_runner.py"
+_EXPOSURE_CONTROL = "src/ao_shaping/utils/image/exposure_control.py"
+_SLM_ZERNIKE_PIB = "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py"
+_ADAM = "src/ao_shaping/algorithm/gradient/adam.py"
+_RECORDING = "src/ao_shaping/tools/slm/transfer/recording.py"
+_RUNNER_COMMON = "src/ao_shaping/runners/runner_common.py"
+_CALIBRATION = "src/ao_shaping/tools/slm/calibration/calibration.py"
+_DATASET = "src/ml/hwdataset/dataset.py"
+_AXIS_BEAM_RUNNER = "src/ao_shaping/runners/nlight_dm/axis_beam_runner.py"
 
 #: (relative path under src, function name, span ceiling, nesting ceiling,
 #:  the span measured when the guard was written)
@@ -114,14 +159,45 @@ TARGETS = [
     (_COMB, "_run_combined_epochs", 80, 1, 54),
     (_COMB, "_run_combined_session", 290, 6, 255),
     (_VAL, "run", 300, 5, 246),
-    (_VAL, "_run_validate_session", 230, 5, 200),
+    (_VAL, "_run_validate_session", 230, 5, 226),
     (_VAL, "_run_validate_shapes", 130, 3, 105),
-    (_VAL, "_run_validate_blocks", 200, 5, 169),
+    (_VAL, "_run_validate_blocks", 200, 5, 181),
+    (_VAL, "_probe_direction_asymmetry", 60, 1, 47),
+    (_VAL, "_observe_jacobian_guard", 45, 1, 31),
+    (_VAL, "_dump_shape_history_and_timing", 60, 4, 47),
+    (_VAL, "_hold_best_phase_or_flatten", 35, 2, 21),
+    (_SIM2F, "run_loop", 241, 2, 193),
+    (_SIM2F, "_run_probe_stage", 91, 1, 66),
+    (_SIM2F, "_run_closed_loop", 108, 2, 83),
+    (_SIM2F, "_append_sample_csv_rows", 62, 2, 37),
+    (_SIM2F, "_append_sample_record", 85, 0, 60),
+    (_SIM2F, "_build_loop_payload", 111, 0, 86),
+        (_TRAIN_COEFF, "train", 240, 4, 213),
+    (_TRAIN_COEFF, "_seed_environment", 40, 1, 25),
+    (_TRAIN_COEFF, "_build_datasets", 90, 1, 71),
+    (_TRAIN_COEFF, "_build_geometric_ops", 50, 4, 37),
+    (_TRAIN_COEFF, "_write_summary", 50, 0, 37),
+        (_TRAIN_AMP, "train", 240, 4, 205),
+    (_TRAIN_AMP, "_prepare_environment", 40, 1, 25),
+    (_TRAIN_AMP, "_build_corpus", 60, 1, 39),
+    (_TRAIN_AMP, "_build_model_setup", 50, 1, 32),
+    (_TRAIN_AMP, "_build_loss_mask", 40, 1, 25),
+    (_TRAIN_AMP, "_finalize", 70, 1, 50),
+    (_THORLAB_WFS, "load_dll", 391, 0, 351),
+    (_ZERNIKE_DEBUG_VIEWER, "_render_main", 389, 7, 349),
+    (_CAPTURE, "capture", 386, 6, 346),
+    (_PANEL_LOCATE, "scan_panel", 382, 4, 342),
+    (_TRANSFER_SHAPES_RUNNER, "execute_campaign", 371, 4, 331),
+    (_ZERNIKE_MATRIX_RUNNER, "run", 369, 4, 329),
+    (_BENCH, "run_session", 364, 4, 324),
+    (_DM_RESPONSE_MATRIX, "calibrate_dm_response_matrix", 352, 4, 312),
     (_WF, "run_session", 430, 4, 378),
     (_WF, "_acquire_session_dataset", 95, 4, 78),
     (_WF, "_round_geometry_preflight", 60, 1, 42),
     (_WF, "_offline_synthesize", 130, 3, 108),
     (_WF, "_round_calibration_stages", 70, 1, 52),
+    (_LUT, "run", 380, 3, 329),
+    (_LUT, "_run_gray_scan", 115, 2, 91),
     (_IO, "render_recorder_gif", 160, 4, 113),
     (_IO, "_gif_frames", 200, 5, 149),
     (_IO, "_render_gif_top_panels", 100, 6, 72),
@@ -158,6 +234,46 @@ TARGETS = [
     (_MIL, "optimize_slm_model_in_loop", 130, 1, 84),
     (_MIL, "_run_model_in_loop_session", 450, 4, 404),
     (_MIL, "_run_model_in_loop_rounds", 660, 4, 624),
+    (_WORKFLOW, "main", 327, 4, 297),
+    (_DIFFERENTIABLE_BEAM, "optimize_beam_shaping", 326, 4, 296),
+    (_ZERNIKE_RESPONSE_MATRIX_UI, "render_sidebar", 319, 4, 289),
+    (_PHASE_CAPTURE, "run", 316, 3, 286),
+    (_MICRO_DM_UI, "_tab2_fragment", 309, 7, 279),
+    (_CALIBRATE, "calibrate_bench", 307, 4, 277),
+    (_TRAIN_DATA_COLLECT, "main", 307, 4, 277),
+    (_CCD_ANALYZER, "main", 295, 4, 265),
+    (_PROBE_ACTIVE, "probe_active", 291, 3, 261),
+    (_SIM_SPGD, "optimize_spgd", 288, 5, 258),
+    (_CERAMIC_VIEWER, "render_tab_grid", 287, 5, 257),
+    (_BENCH, "gate0", 286, 3, 256),
+    (_ZERNIKE_MATRIX_RUNNER, "closed_loop_run", 285, 5, 255),
+    (_SIM_SPGD, "optimize_spgd_zernike", 285, 5, 255),
+    (_BENCH_TWIN_CALIBRATE, "fit_twin", 282, 3, 252),
+    (_GA_ZERNIKE, "optimizer_ga", 282, 5, 252),
+    (_R50_CERAMIC_VIEWER, "render_tab_grid", 280, 6, 250),
+    (_FOCUS_PROBE, "sweep_focus", 278, 4, 248),
+    (_ZERNIKE_DEBUG_VIEWER, "_compute_response_matrix_from_debug", 276, 8, 246),
+    (_TRAIN, "train", 274, 3, 244),
+    (_VOLTAGE_RUNNER, "run", 271, 6, 241),
+    (_MODEL_IN_LOOP_SHAPING, "calibrate_shared_aberration", 271, 2, 241),
+    (_SHAPING_TRAIN, "train", 266, 2, 236),
+    (_ZERNIKE_RESPONSE, "main", 264, 5, 234),
+    (_ZERNIKE_RESPONSE_MATRIX, "calibrate_zernike_response_matrix", 264, 3, 234),
+    (_ML_TRAIN, "train_model", 262, 5, 232),
+    (_MICRO_DM_IMAGE_COLLECT, "run", 260, 5, 230),
+    (_MODEL_IN_LOOP_SHAPING, "calibrate_bench_geometry", 260, 4, 230),
+    (_SLM_CALIBRATION_UI, "render_sidebar", 254, 4, 224),
+    (_MODEL_IN_LOOP_RUNNER, "run", 252, 2, 222),
+    (_EXPOSURE_CONTROL, "estimate_exposure_ceiling_ms", 251, 4, 221),
+    (_SLM_ZERNIKE_PIB, "_prepare_geometry", 250, 2, 220),
+    (_MICRO_DM_UI, "_tab1_fragment", 250, 7, 220),
+    (_ADAM, "search_optimal_delta", 245, 3, 215),
+    (_RECORDING, "render_process_gif", 243, 4, 213),
+    (_RUNNER_COMMON, "save_model_in_loop_results", 242, 2, 212),
+    (_CALIBRATION, "main_shift_calib", 238, 4, 208),
+    (_DATASET, "create_hw_dataloaders", 236, 2, 206),
+    (_AXIS_BEAM_RUNNER, "run", 233, 2, 203),
+    (_MODEL_IN_LOOP_SHAPING, "shape_phase_with_frozen_aberration", 233, 3, 203),
 ]
 
 NESTING_NODES = (ast.If, ast.For, ast.While, ast.Try, ast.With, ast.AsyncFor, ast.AsyncWith)
