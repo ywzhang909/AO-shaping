@@ -609,94 +609,93 @@ def _session_capture(_probe_results, args, bit_depth, cam, counts_scale, forward
     nested closure from `_run_validate_session`; the 17 leading arguments are
     the closure variables, frozen by `functools.partial` at the original site).
     """
-    def capture(label, phase, objective):
-        start = time.perf_counter()
-        panel = to_panel(phase)
-        gray = slm.create_phase_from_array(panel)
-        slm.display_data(gray)
-        written = time.perf_counter()
-        time.sleep(.6)
-        settled = time.perf_counter()
-        frames, stamps = [], []
-        for index in range(args.frames):
-            stamp = clock()
-            frame = np.asarray(cam.get_numpy_image(n_sample=1, skip_first=False))
-            frames.append(frame.copy())
-            stamps.append(dict(**stamp, end_monotonic_ns=time.monotonic_ns(), exposure_ms=float(get_camera_exposure_ms(cam))))
-            # 逐帧上屏: 每一次 CCD 读出都刷新一次, 不再是每块一张快照。
-            # 观察者是 best-effort 的, 抛异常只会记 warning (notify_frame)。
-            # HDR 探测开关: 开启时显示帧用多曝光融合的宽动态图, 由
-            # live_view 色调映射回 0..255; 采集记录 (frame) 仍走单帧。
-            hdr_on = bool(getattr(args, "hdr", False))
-            hdr_image = None
-            if hdr_on:
-                hdr_image = capture_hdr_display(
-                    cam,
-                    getattr(args, "hdr_exposures_ms", DEFAULT_HDR_EXPOSURES_MS),
-                )
-            notify_frame(observer, frame_payload(
-                frame=frame, label=label, phase="validate",
-                xy=xy,
-                target=objective.target,
-                phase_grid=phase if phase is not None else None,
-                predicted=_predicted_frame(forward, phase) if phase is not None else None,
-                frame_index=index + 1, frames_total=args.frames,
-                hdr=hdr_on, hdr_image=hdr_image,
-                selfcheck=_probe_results.get("selfcheck"),
-                zero_order=_probe_results.get("zero_order"),
-                ccd_profile=_probe_results.get("ccd_profile")))
-        raw = np.stack(frames)
-        read_done = time.perf_counter()
-        image = raw.mean(0)
-        if xy[..., 0].min() < 0 or xy[..., 1].min() < 0 or xy[..., 0].max() >= image.shape[1] or xy[..., 1].max() >= image.shape[0]:
-            raise ValueError("camera window extends beyond sensor")
-        sampled = image[xy[..., 1].astype(int), xy[..., 0].astype(int)]
-        per_frame = [image_metrics(frame[xy[..., 1].astype(int), xy[..., 0].astype(int)], objective) for frame in raw]
-        row = dict(label=label, file=f"capture_{len(records):04d}.npz", frames=stamps,
-                   metrics=image_metrics(sampled, objective), per_frame=per_frame,
-                   peak=float(raw.max()), core_peak=float(sampled[objective.core].max()),
-                   saturation_pixels=int((raw >= full_scale*250/255).sum()),
-                   bit_depth=bit_depth, counts_scale=counts_scale, full_scale=full_scale,
-                   exposure_ms=float(get_camera_exposure_ms(cam)), **clock())
-        with torch.no_grad():
-            loss, _ = objective.evaluate(torch.tensor(count_rate(sampled, row), dtype=torch.float32), torch.zeros_like(torch.tensor(phase)))
-        row["loss"] = float(loss)
-        reduced = time.perf_counter()
-        remember_capture(row["file"], raw)
-        payload = dict(raw_frames=raw, panel_gray=gray,
-                       model_phase=phase, panel_phase=panel, camera_xy=xy,
-                       target=objective.target, core=objective.core)
-        if writer is None:
-            np.savez_compressed(args.out/row["file"], **payload)
-        else:
-            writer.submit(args.out/row["file"], payload)
-        if getattr(args, "profile_timing", False):
-            # Splits the ~5.1 s between two captures into the parts a
-            # caller can act on. ``save`` is what the background writer
-            # takes off the critical path when it is enabled.
-            row["timing"] = _milliseconds(
-                slm_write=written - start, settle=settled - written,
-                read=read_done - settled, reduce=reduced - read_done,
-                save=time.perf_counter() - reduced)
-        records.append(row)
-        with (args.out/"capture_records.pkl").open("wb") as stream:
-            pickle.dump(records, stream, protocol=5)
-        # Resume extends the manifest instead of overwriting it: the
-        # captures before the interruption are still evidence. A capture
-        # index is never reused, so two runs cannot share a file name.
-        seen_files = {(args.out/known["file"]).resolve() for known in records[:-1]}
-        if (args.out/row["file"]).resolve() in seen_files:
-            raise ValueError(f"capture file {row['file']} already archived")
-        (args.out/"manifest.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
-        shape_name = label.split("_")[0]
-        previous = last_phase.get(shape_name)
-        recorder.append(recording.capture_record(
-            row, image=image, camera_xy=xy, target=objective.target, phase=phase,
-            previous_phase=previous, stage=args.mode))
-        last_phase[shape_name] = np.asarray(phase, dtype=np.float32)
-        if (sampled[objective.core].max() if getattr(args, "meter_target", False) else raw.max()) >= full_scale*250/255:
-            raise RuntimeError("saturated capture retained; stop paired comparison")
-        return row
+    start = time.perf_counter()
+    panel = to_panel(phase)
+    gray = slm.create_phase_from_array(panel)
+    slm.display_data(gray)
+    written = time.perf_counter()
+    time.sleep(.6)
+    settled = time.perf_counter()
+    frames, stamps = [], []
+    for index in range(args.frames):
+        stamp = clock()
+        frame = np.asarray(cam.get_numpy_image(n_sample=1, skip_first=False))
+        frames.append(frame.copy())
+        stamps.append(dict(**stamp, end_monotonic_ns=time.monotonic_ns(), exposure_ms=float(get_camera_exposure_ms(cam))))
+        # 逐帧上屏: 每一次 CCD 读出都刷新一次, 不再是每块一张快照。
+        # 观察者是 best-effort 的, 抛异常只会记 warning (notify_frame)。
+        # HDR 探测开关: 开启时显示帧用多曝光融合的宽动态图, 由
+        # live_view 色调映射回 0..255; 采集记录 (frame) 仍走单帧。
+        hdr_on = bool(getattr(args, "hdr", False))
+        hdr_image = None
+        if hdr_on:
+            hdr_image = capture_hdr_display(
+                cam,
+                getattr(args, "hdr_exposures_ms", DEFAULT_HDR_EXPOSURES_MS),
+            )
+        notify_frame(observer, frame_payload(
+            frame=frame, label=label, phase="validate",
+            xy=xy,
+            target=objective.target,
+            phase_grid=phase if phase is not None else None,
+            predicted=_predicted_frame(forward, phase) if phase is not None else None,
+            frame_index=index + 1, frames_total=args.frames,
+            hdr=hdr_on, hdr_image=hdr_image,
+            selfcheck=_probe_results.get("selfcheck"),
+            zero_order=_probe_results.get("zero_order"),
+            ccd_profile=_probe_results.get("ccd_profile")))
+    raw = np.stack(frames)
+    read_done = time.perf_counter()
+    image = raw.mean(0)
+    if xy[..., 0].min() < 0 or xy[..., 1].min() < 0 or xy[..., 0].max() >= image.shape[1] or xy[..., 1].max() >= image.shape[0]:
+        raise ValueError("camera window extends beyond sensor")
+    sampled = image[xy[..., 1].astype(int), xy[..., 0].astype(int)]
+    per_frame = [image_metrics(frame[xy[..., 1].astype(int), xy[..., 0].astype(int)], objective) for frame in raw]
+    row = dict(label=label, file=f"capture_{len(records):04d}.npz", frames=stamps,
+               metrics=image_metrics(sampled, objective), per_frame=per_frame,
+               peak=float(raw.max()), core_peak=float(sampled[objective.core].max()),
+               saturation_pixels=int((raw >= full_scale*250/255).sum()),
+               bit_depth=bit_depth, counts_scale=counts_scale, full_scale=full_scale,
+               exposure_ms=float(get_camera_exposure_ms(cam)), **clock())
+    with torch.no_grad():
+        loss, _ = objective.evaluate(torch.tensor(count_rate(sampled, row), dtype=torch.float32), torch.zeros_like(torch.tensor(phase)))
+    row["loss"] = float(loss)
+    reduced = time.perf_counter()
+    remember_capture(row["file"], raw)
+    payload = dict(raw_frames=raw, panel_gray=gray,
+                   model_phase=phase, panel_phase=panel, camera_xy=xy,
+                   target=objective.target, core=objective.core)
+    if writer is None:
+        np.savez_compressed(args.out/row["file"], **payload)
+    else:
+        writer.submit(args.out/row["file"], payload)
+    if getattr(args, "profile_timing", False):
+        # Splits the ~5.1 s between two captures into the parts a
+        # caller can act on. ``save`` is what the background writer
+        # takes off the critical path when it is enabled.
+        row["timing"] = _milliseconds(
+            slm_write=written - start, settle=settled - written,
+            read=read_done - settled, reduce=reduced - read_done,
+            save=time.perf_counter() - reduced)
+    records.append(row)
+    with (args.out/"capture_records.pkl").open("wb") as stream:
+        pickle.dump(records, stream, protocol=5)
+    # Resume extends the manifest instead of overwriting it: the
+    # captures before the interruption are still evidence. A capture
+    # index is never reused, so two runs cannot share a file name.
+    seen_files = {(args.out/known["file"]).resolve() for known in records[:-1]}
+    if (args.out/row["file"]).resolve() in seen_files:
+        raise ValueError(f"capture file {row['file']} already archived")
+    (args.out/"manifest.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
+    shape_name = label.split("_")[0]
+    previous = last_phase.get(shape_name)
+    recorder.append(recording.capture_record(
+        row, image=image, camera_xy=xy, target=objective.target, phase=phase,
+        previous_phase=previous, stage=args.mode))
+    last_phase[shape_name] = np.asarray(phase, dtype=np.float32)
+    if (sampled[objective.core].max() if getattr(args, "meter_target", False) else raw.max()) >= full_scale*250/255:
+        raise RuntimeError("saturated capture retained; stop paired comparison")
+    return row
 
 def _run_validate_session(
     *,

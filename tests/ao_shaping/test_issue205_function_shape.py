@@ -160,7 +160,7 @@ TARGETS = [
     (_COMB, "_run_combined_session", 290, 6, 255),
     (_VAL, "run", 300, 5, 246),
     (_VAL, "_run_validate_session", 230, 5, 170),
-    (_VAL, "_session_capture", 110, 2, 93),
+    (_VAL, "_session_capture", 110, 2, 92),
     (_VAL, "_run_validate_shapes", 130, 3, 105),
     (_VAL, "_run_validate_blocks", 200, 5, 181),
     (_VAL, "_probe_direction_asymmetry", 60, 1, 47),

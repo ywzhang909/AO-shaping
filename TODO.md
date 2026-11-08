@@ -4706,6 +4706,13 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 同批推送第 38 批：`differentiable_beam.optimize_beam_shaping` 296→153（`_run_simulation_phase` 68 / `_run_hardware_phase` 88；sim 路径以 `return recorder` 终止的控制流陷阱已核实——`if` 与 `return` 留在原函数，helper 仅被 `return <helper>` 调用），叶语句全树扫描仅差本批新增，载体 52 passed 含 mock 硬件路径；算法域 per-file 无新增红（`test_registration_direction_gate` 3 failed 为上游预存，干净树上复现同红）
 - 算法/transfer 域与形状门禁（154 passed）、ruff、术语（0 个文件）、模块规模门禁全绿
 
+**2026-11-08 · 0b4505c5 · 第 39 批 partial 提升把 def 行一并搬走，helper 恒返 None（16 红属我）；附父提交归属矩阵**
+- 根因：切片 `lines[670:758]` 把嵌套 `def capture` 的 **def 行本身**也搬进 helper，生成的 `_session_capture` 只剩 docstring + 一个从未被调用的内层 def，恒返回 None；`functools.partial` 把 None 原样转发，`test_transfer_workflow` 16 条在 `seed_record['metrics']` 类下标处炸
+- 证明体系的结构性盲区：def 是容器语句、叶扫描按定义排除，且内层 `return row` 叶子仍在文件里——**"多搬 def 行"这类错误对语句多重集/叶扫描不可见，只有跑返回值的载体测试拦得住**。我此前只跑了 `transfer/` 子目录，漏了上层 `tools/slm/test_transfer_workflow.py`，而那恰是消费返回值的测试。教训固化：闭包提升类拆分的载体集必须包含直接消费返回值的测试，且要跑全目录而非子目录
+- 修复：body 切片从 def 行的下一行起（16 空格基准 → strip12），`_session_capture` 92 行 / session 170 行，叶扫描复跑 IDENTICAL（494 vs 496 − 2 条本批新增叶），`test_transfer_workflow` 51 + `live_frame` 19 = **70 passed**
+- 父提交归属矩阵（干净 worktree `de66d4f1`、per-file、CI 包络）——以下红在**我父亲提交上已存在**，与第 38/39 批无关：`registration_direction_gate` 3 failed（第 4 条 `test_wrapper_does_not_import_drivers` 父提交单跑为过，CI 序下红，另行观察）、`widget_value_contract` 1、`cli_contract_freeze` 1、`cli_help_golden[main:slm-transfer-shapes]` 1、`transfer_shapes_runner` 1、`test_common_helpers_not_reintroduced[_fmt]` 1、`report_provenance` 2（shape_trials 相对链接）、`tools_doc_coverage` 1。属我的仅 `test_transfer_workflow`，本批修复
+- 本批上一条目（78171ec2 条目）中"算法域无新增红"与"transfer 域 per-file 全绿"两句**部分作废**：前者仍成立（registration gate 确属上游预存），后者口径错了（只覆盖 `transfer/` 子目录）。master 在本批之后仍非全绿——剩余清单是上游合并窗口债，待与并行窗口协调处置，避免我的 sha 继续替别人背红
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
