@@ -274,9 +274,13 @@ class TestProbeAlgebra:
         instead of converging.  Measured here at 120 steps (TODO.md 8.9 item 102):
         residual 0.0236, max |c - truth| 0.0228 on tip, and 4000 steps still leave
         0.0127 -- the floor is a property of the objective, not of the budget.  A
-        smaller lr does better (0.02 gives 0.0033 / 0.0028), which is the other half
-        of the same signature and is asserted below so the relationship cannot drift
-        unnoticed.
+        smaller lr does better (0.02 gives 0.0033 / 0.0028), but that *ordering*
+        is machine-dependent and cannot be pinned: a GitHub runner deterministically
+        gives low 0.0075 vs calibrated 0.0063 (byte-identical at 1 and 4 torch
+        threads -- stable per machine, flipped across machines, the same float32
+        effect the worst-two block documents).  What transfers across machines is
+        that neither lr converges: asserted below as a 20x stall envelope around
+        the two residuals.
         """
         bench = LinearSensorBench()
         measure = _measure(bench, _TRUTH)
@@ -311,11 +315,13 @@ class TestProbeAlgebra:
             f"if another mode enters the top two ({sorted(worst_two)}), the "
             "oscillation changed shape"
         )
-        assert low_lr.residual < residual and (
-            float(np.abs(low_lr.coeffs - _TRUTH).max()) < maxerr
-        ), (
-            "a smaller lr used to beat the calibrated 0.05 under l1; if that "
-            "reversed, either the metric or the lr was retuned -- re-measure both"
+        low_residual = low_lr.residual
+        assert low_residual > _L1_RESIDUAL_BAND[0], low_residual
+        assert low_residual < residual * 20.0 and residual < low_residual * 20.0, (
+            f"low-lr residual {low_residual} vs calibrated {residual}: measured "
+            "endpoints are 0.14x (dev box) and 1.19x (GitHub runner, byte-identical "
+            "at 1 and 4 threads); a separation beyond 20x either way means the "
+            "metric or the lr was retuned -- re-measure both"
         )
 
     def test_rank_deficient_bank_is_a_documented_failure(self):
