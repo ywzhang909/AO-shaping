@@ -9,6 +9,8 @@ import numpy as np
 
 from ao_shaping.algorithm.signal_processing.defocus_forward_core import (
     PANEL_PITCH_PX,
+    PHASE_SIGN_SCOPES,
+    scoped_command_phase,
     PANEL_W,
     camera_sample_grids,
     defocus_phase,
@@ -16,6 +18,7 @@ from ao_shaping.algorithm.signal_processing.defocus_forward_core import (
     gaussian_amplitude,
     irradiance_scale,
     panel_grid,
+    registration_sample_grid,
     sample_intensity,
     subpixel_offsets,
 )
@@ -36,7 +39,9 @@ class PhysicalForwardFit:
                  learn_residual=False, fft_size=None, pixel_samples=1,
                  basis_arrays=None, batch_size=None, device=None, diagnostic_callback=None,
                  slm_phase_a=0., slm_phase_b=0., amplitude_residual_coeffs=(),
-                 monotonic_ccd_h=(), monotonic_ccd_v_max=255.):
+                 monotonic_ccd_h=(), monotonic_ccd_v_max=255., phase_sign=1.,
+                 phase_sign_scope="command", focus_phase=None, carrier_phase=None,
+                 registration_shift_ccd_px=None, learn_registration=False):
         import torch
         from ao_shaping.utils.wavefront.fraunhofer import focal_intensity
         from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
@@ -56,6 +61,20 @@ class PhysicalForwardFit:
         if self.fft_size < size or self.fft_size % 2 or pixel_samples < 1:
             raise ValueError("require even fft_size >= phase grid, pixel_samples >= 1")
         self.pixel_samples = pixel_samples
+        # Must match ``FrozenDefocusForward``: the fit has to optimise under the
+        # same propagation convention it will be exported with (issue #235).
+        self.phase_sign = float(phase_sign)
+        if self.phase_sign not in (1., -1.):
+            raise ValueError(f"phase_sign must be +1 or -1, got {phase_sign!r}")
+        self.phase_sign_scope = str(phase_sign_scope)
+        if self.phase_sign_scope not in PHASE_SIGN_SCOPES:
+            raise ValueError(f"phase_sign_scope invalid: {phase_sign_scope!r}")
+        # Named components (per row, optional). ``focus_phase`` is contained in ``phases``
+        # for the paired dataset; it is used only by the ``aberration_focus`` scope.
+        self.focus_phase = None if focus_phase is None else torch.as_tensor(
+            np.asarray(focus_phase), dtype=torch.float32, device=self._device)
+        self.carrier_phase = None if carrier_phase is None else torch.as_tensor(
+            np.asarray(carrier_phase), dtype=torch.float32, device=self._device)
         self.batch_size = batch_size or len(phases)
         self.diagnostic_callback = diagnostic_callback
         self.images = torch.tensor(images, dtype=torch.float32, device=self._device)
@@ -90,6 +109,24 @@ class PhysicalForwardFit:
         ]), dtype=torch.float32, device=self._device) if self.residual_modes else None
         if learn_residual:
             params += [{"params": [self.residual], "lr": .03}]
+        # Optional global 2D registration (issue #237).  One global (dy, dx) in
+        # CCD pixels; it moves the camera sampling correspondence only, never
+        # the panel grid.  ``None`` disables it and leaves the historical
+        # sampling grid untouched, so the baseline stays bit-for-bit identical.
+        if registration_shift_ccd_px is None:
+            if learn_registration:
+                raise ValueError("learn_registration needs registration_shift_ccd_px "
+                                 "to start from; a shift of its own to refine")
+            self.registration_shift = None
+        else:
+            dy, dx = (float(v) for v in registration_shift_ccd_px)
+            if not np.isfinite([dy, dx]).all():
+                raise ValueError("registration_shift_ccd_px must be finite")
+            self.registration_shift = torch.nn.Parameter(
+                torch.tensor([dy, dx], dtype=torch.float32, device=self._device),
+                requires_grad=bool(learn_registration))
+            if learn_registration:
+                params += [{"params": [self.registration_shift], "lr": .05}]
         self.optimizer = torch.optim.Adam(params)
         self.history = []
         self.iteration_records = []
@@ -120,6 +157,22 @@ class PhysicalForwardFit:
             cfg = MonotonicResponseConfig(n_bins=len(monotonic_ccd_h), v_max=float(monotonic_ccd_v_max))
             self._monotonic_ccd = MonotonicResponse(cfg, np.asarray(monotonic_ccd_h, dtype=np.float64))
 
+    @property
+    def registration_value(self) -> "tuple[float, float] | None":
+        """Fitted/current global registration ``(dy, dx)`` in CCD px, or None when disabled.
+
+        Serialisation-friendly read of :attr:`registration_shift`, which is a plain
+        tuple when registration is off in the fit and a (possibly trainable) tensor
+        when it is on; checkpoint writers use this so a fitted shift survives a
+        ``frozen_parameters.json`` round-trip (issue #237).
+        """
+        value = getattr(self, "registration_shift", None)
+        if value is None:
+            return None
+        if self.torch.is_tensor(value):
+            value = [float(v) for v in value.detach().cpu().reshape(-1).tolist()]
+        return (float(value[0]), float(value[1]))
+
     def prediction(self):
         torch = self.torch
         width = self.log_width.exp()
@@ -130,15 +183,27 @@ class PhysicalForwardFit:
             amplitude = amplitude * torch.exp(self._amp_residual)
         if self.diagnostic_callback is not None:
             self.diagnostic_callback("input_amplitude", amplitude, None)
+        # Optional global 2D registration (issue #237): the camera sampling
+        # points move, the panel grid does not.  Disabled (the default) leaves
+        # the grid untouched, so the baseline stays bit-for-bit identical.
+        xy = registration_sample_grid(torch, self.xy, self.registration_shift)
         grids = camera_sample_grids(
-            torch, self.xy, self.origin, self.inverse,
+            torch, xy, self.origin, self.inverse,
             subpixel_offsets(torch, self.pixel_samples, device=self.xy.device),
             fft_size=self.fft_size, pitch=self.pitch)
         predictions = []
         for start in range(0, len(self.phases), self.batch_size):
             command = self.phases[start:start+self.batch_size]
             # The SLM response acts on commands, not static optical aberrations.
-            # Keep this order identical to FrozenDefocusForward.predict.
+            # Keep this order identical to FrozenDefocusForward.predict: command
+            # polarity, then the SLM nonlinearity, then the fitted defocus.
+            if self.phase_sign < 0:
+                sl = slice(start, start + self.batch_size)
+                focus = None if self.focus_phase is None else self.focus_phase[sl]
+                carrier = None if self.carrier_phase is None else self.carrier_phase[sl]
+                command = scoped_command_phase(
+                    command, self.panel_x, self.panel_y, phase_sign=self.phase_sign,
+                    scope=self.phase_sign_scope, focus_component=focus, carrier_component=carrier)
             if getattr(self, "_slm_phase", None) is not None:
                 command = self._slm_phase(command)
             phase = defocus_phase(torch, command, self.d,

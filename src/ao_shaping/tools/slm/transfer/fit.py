@@ -215,10 +215,13 @@ def build_fit_model(dataset, checkpoint, *, span, device=None, adaptation="full"
     frozen = FrozenDefocusForward(initial, xy, device=device)
     basis = {4: frozen.z4.detach().cpu().numpy()}
     basis.update({j: b.detach().cpu().numpy() for j, b in zip(frozen.residual_modes, frozen.residual_basis)})
+    # Global registration (issue #237) is carried in from the checkpoint and is not
+    # fitted here, so the refit sees the same camera correspondence the frozen model did.
     model = PhysicalForwardFit(phases, images, xy, matrix, 0., train, old.amplitude_center_xy,
                               learn_amplitude=True, initial_defocus=old.defocus_diopter,
                               learn_residual=True, fft_size=old.fft_size, pixel_samples=old.pixel_samples,
-                              basis_arrays=basis, batch_size=4, device=device)
+                              basis_arrays=basis, batch_size=4, device=device,
+                              registration_shift_ccd_px=old.registration_shift_ccd_px)
     with torch.no_grad():
         model.origin.copy_(torch.tensor(measured_origin))
         model.log_width.copy_(torch.tensor(old.amplitude_width_xy).log())
@@ -376,9 +379,12 @@ def fit(args):
         json.dumps(provenance, indent=2), encoding="utf-8"
     )
     # Self-contained checkpoint, with explicit geometry rather than a stale upstream chain.
+    # The fitted global registration goes out with it so a reloaded checkpoint keeps the
+    # camera correspondence it was fitted with (issue #237).
     (args.out / "frozen_parameters.json").write_text(json.dumps(dict(
         **best["parameters"], ramp_matrix=comps.matrix.tolist(), grid_size=comps.old.grid_size,
-        fft_size=comps.old.fft_size, pixel_samples=comps.old.pixel_samples), indent=2), encoding="utf-8")
+        fft_size=comps.old.fft_size, pixel_samples=comps.old.pixel_samples,
+        registration_shift_ccd_px=comps.model.registration_value), indent=2), encoding="utf-8")
     print(f"selected iteration={best['iteration']} using training loss only", flush=True)
 
 

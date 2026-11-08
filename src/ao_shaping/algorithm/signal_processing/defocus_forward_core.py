@@ -44,6 +44,58 @@ from ao_shaping.utils.slm.bench_constants import (
     SLM_PITCH_M,
 )
 
+
+PHASE_SIGN_SCOPES = ("command", "aberration", "aberration_focus", "aberration_carrier")
+
+
+def tilt_plane_split(z: Any, panel_x: Any, panel_y: Any) -> tuple[Any, Any]:
+    """Least-squares affine plane ``a*x + b*y + c`` of ``z`` over the full panel grid.
+
+    Returns ``(plane, residual)`` with ``residual = z - plane``. Coordinates are
+    centred so the 2x2 normal equations stay well scaled; leading batch dims are
+    preserved and the operation is differentiable.
+    """
+    dims = (-2, -1)
+    x = panel_x - panel_x.mean()
+    y = panel_y - panel_y.mean()
+    xx, xy, yy = (x * x).sum(), (x * y).sum(), (y * y).sum()
+    tx = (z * x).sum(dim=dims, keepdim=True)
+    ty = (z * y).sum(dim=dims, keepdim=True)
+    determinant = xx * yy - xy * xy
+    a = (tx * yy - ty * xy) / determinant
+    b = (ty * xx - tx * xy) / determinant
+    plane = a * x + b * y + z.mean(dim=dims, keepdim=True)
+    return plane, z - plane
+
+
+def scoped_command_phase(total: Any, panel_x: Any, panel_y: Any, *, phase_sign: float,
+                         scope: str, focus_component: Any = None,
+                         carrier_component: Any = None) -> Any:
+    """Apply command polarity under a scope, using a tilt-plane split of the command.
+
+    ``total`` is the commanded panel phase. ``focus_component`` / ``carrier_component``
+    are named components that are **already included in ``total``** (never added here).
+    The split always uses the complete total, never a component-subtracted total.
+    The named scopes then subtract twice their named component, as specified by
+    the offline scope experiment. ``command`` returns exactly ``-total``.
+    """
+    if scope not in PHASE_SIGN_SCOPES:
+        raise ValueError(f"phase_sign_scope must be one of {PHASE_SIGN_SCOPES}, got {scope!r}")
+    if phase_sign >= 0:
+        return total
+    if scope == "command":
+        return -total
+    focus = 0. if focus_component is None else focus_component
+    carrier = 0. if carrier_component is None else carrier_component
+    plane, residual = tilt_plane_split(total, panel_x, panel_y)
+    result = plane - residual
+    if scope == "aberration_focus":
+        result = result - 2 * focus
+    if scope == "aberration_carrier":
+        result = result - 2 * carrier
+    return result
+
+
 #: SLM panel geometry (height, width) in pixels. Delegated to
 #: :mod:`ao_shaping.utils.slm.bench_constants` (R-47 single source) -- these
 #: aliases keep the names both forward classes already import.
@@ -206,6 +258,53 @@ def subpixel_offsets(torch: Any, pixel_samples: int, *, device: Any = None):
         for iy in range(pixel_samples)
         for ix in range(pixel_samples)
     ]
+
+
+def registration_shift_vector(torch: Any, shift: Any, *, dtype: Any = None,
+                              device: Any = None) -> Any:
+    """Normalise a registration shift to a ``(2,)`` tensor ordered ``(dy, dx)``.
+
+    Accepts a ``(dy, dx)`` pair of floats or a tensor of shape ``(2,)``; a
+    tensor keeps its autograd connection, so a fitted shift stays
+    differentiable through the sampling step.  ``None`` means *disabled* and is
+    rejected here -- callers check for it before asking for a vector.
+    """
+    if shift is None:
+        raise ValueError("registration shift is disabled (None); check before requesting it")
+    if torch.is_tensor(shift):
+        value = shift.to(dtype=dtype, device=device)
+        if value.ndim != 1 or value.shape[0] != 2:
+            raise ValueError(f"registration shift must have shape (2,), got {tuple(value.shape)}")
+    else:
+        dy, dx = (float(v) for v in shift)
+        value = torch.tensor([dy, dx], dtype=dtype, device=device)
+    if not bool(torch.isfinite(value).all()):
+        raise ValueError("registration shift must be finite")
+    return value
+
+
+def registration_sample_grid(torch: Any, xy: Any, shift: Any) -> Any:
+    """Camera sampling grid displaced by one global registration shift.
+
+    ``xy`` is the ``(H, W, 2)`` camera grid in CCD pixels; ``shift`` is
+    ``(dy, dx)`` in **CCD pixels**: the displacement of the predicted image
+    *content* on the detector (down for ``dy``, right for ``dx``) -- the same
+    convention ``scipy.ndimage.shift`` has on the sampled grid.
+
+    The content moves when the *sampling points* move the other way, so the
+    returned grid is ``xy - (dx, dy)``.  Only the correspondence between the
+    camera grid and the model changes: the panel grid, its resolution and the
+    camera grid shape are untouched.
+
+    ``shift`` may be a float pair or a differentiable tensor; the returned
+    grid keeps the autograd connection to it.  ``None`` returns ``xy``
+    unchanged, which is the default-off path.
+    """
+    if shift is None:
+        return xy
+    value = registration_shift_vector(torch, shift, dtype=xy.dtype, device=xy.device)
+    dy, dx = value[0], value[1]
+    return xy - torch.stack((dx, dy))
 
 
 def camera_sample_grids(

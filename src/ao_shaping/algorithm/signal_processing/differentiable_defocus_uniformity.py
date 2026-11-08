@@ -21,6 +21,8 @@ import numpy.typing as npt
 
 from ao_shaping.algorithm.signal_processing.defocus_forward_core import (
     PANEL_PITCH_PX,
+    PHASE_SIGN_SCOPES,
+    scoped_command_phase,
     axial_plane_correction,
     camera_sample_grids,
     defocus_phase,
@@ -28,6 +30,7 @@ from ao_shaping.algorithm.signal_processing.defocus_forward_core import (
     gaussian_amplitude,
     irradiance_scale,
     panel_grid,
+    registration_sample_grid,
     sample_intensity,
     subpixel_offsets,
 )
@@ -39,6 +42,9 @@ from ao_shaping.utils.image.ranks import NDIM_SINGLE_CHANNEL
 #: matrix arity -- deliberately not the array-rank constant, which counts axes of an image
 #: plane and says nothing about a 2x2 table.
 _RAMP_MATRIX_SIDE = 2
+
+#: Legal values for ``FrozenDefocusParameters.phase_sign_scope``.
+_VALID_PHASE_SIGN_SCOPES = PHASE_SIGN_SCOPES
 
 
 def _torch():
@@ -79,9 +85,52 @@ class FrozenDefocusParameters:
     # bit-for-bit; the next hardware round fits these coefficients.
     slm_phase_a: float = 0.          # φ_eff = φ + a·sin φ + b·sin 2φ (SLM nonlinearity)
     slm_phase_b: float = 0.
+    #: Sign of the **commanded panel phase** (``phase`` + focus + carrier) as it
+    #: enters the propagation, ``exp(1j*sign*φ)``.  The fitted ``defocus`` and
+    #: residual aberration are the model's own terms and keep their sign -- this
+    #: is a polarity of the SLM command, not a global conjugation.
+    #: ``+1`` is the historical frozen model (bit-for-bit preserved).  ``-1`` is
+    #: the polarity measured on hardware: with ``+1`` every single-mode Zernike
+    #: screen (Z5-Z11, amplitudes 0.10/0.05/0.02 rad) gives a *negative* signed
+    #: direction agreement (42/42, median -0.47), and negating the input phase
+    #: flips all 42 positive.  The display chain is exonerated: the reverse-solved
+    #: ``panel_gray`` matches ``+panel_phase`` to 0.0035 rad RMS versus 0.179 rad
+    #: for the negated hypothesis, so the defect is this propagation convention,
+    #: not the driver/LUT.  Set from checkpoint key ``phase_sign`` (issue #235).
+    phase_sign: float = 1.
+    #: Scope of ``phase_sign``: which components of the commanded phase are
+    #: negated when ``phase_sign == -1``.  ``command`` negates the whole
+    #: ``phase + focus_phase + carrier_phase`` (historical behaviour).  The other
+    #: values negate only the named subset; components not in the scope keep
+    #: their original sign.  The model's own fitted defocus and residual terms
+    #: are never negated.  (issue #235 follow-up)
+    phase_sign_scope: str = "command"
     amplitude_residual_coeffs: tuple[float, ...] = ()  # flat Fourier coeffs (low-freq)
     monotonic_ccd_h: tuple[float, ...] = ()            # LUT log-derivative on [0, v_max]
     monotonic_ccd_v_max: float = 255.                  # response table upper bound
+    #: Global 2D registration shift of the predicted image **content** on the
+    #: detector, in **CCD pixels**, ordered ``(dy, dx)`` (down, right).  It
+    #: moves the camera sampling correspondence only: the panel grid, its
+    #: resolution and the camera grid shape are untouched, and the shift is
+    #: applied through the differentiable sampling step.
+    #: ``None`` disables registration entirely -- the default, which keeps the
+    #: historical baseline bit-for-bit.  (issue #237)
+    registration_shift_ccd_px: tuple[float, float] | None = None
+
+    def __post_init__(self) -> None:
+        if self.phase_sign_scope not in _VALID_PHASE_SIGN_SCOPES:
+            raise ValueError(
+                f"phase_sign_scope must be one of {_VALID_PHASE_SIGN_SCOPES}, "
+                f"got {self.phase_sign_scope!r}"
+            )
+        if self.registration_shift_ccd_px is not None:
+            value = tuple(float(v) for v in self.registration_shift_ccd_px)
+            if len(value) != 2 or not np.isfinite(value).all():
+                raise ValueError(
+                    "registration_shift_ccd_px must be two finite values (dy, dx), "
+                    f"got {self.registration_shift_ccd_px!r}"
+                )
+            object.__setattr__(self, "registration_shift_ccd_px", value)
 
     @classmethod
     def from_dicts(cls, parameters: Mapping[str, Any], ramp_matrix: Sequence[Sequence[float]], *,
@@ -107,9 +156,14 @@ class FrozenDefocusParameters:
                 if parameters.get("axial_reference_curvature_diopter") is not None else None),
             slm_phase_a=float(parameters.get("slm_phase_a", 0.)),
             slm_phase_b=float(parameters.get("slm_phase_b", 0.)),
+            phase_sign=float(parameters.get("phase_sign", 1.)),
+            phase_sign_scope=str(parameters.get("phase_sign_scope", "command")),
             amplitude_residual_coeffs=tuple(float(c) for c in parameters.get("amplitude_residual_coeffs", ())),
             monotonic_ccd_h=tuple(float(h) for h in parameters.get("monotonic_ccd_h", ())),
             monotonic_ccd_v_max=float(parameters.get("monotonic_ccd_v_max", 255.)),
+            registration_shift_ccd_px=(
+                tuple(float(v) for v in parameters["registration_shift_ccd_px"])
+                if parameters.get("registration_shift_ccd_px") is not None else None),
         )
 
     @property
@@ -130,7 +184,11 @@ class FrozenDefocusParameters:
                      slm_phase_a=self.slm_phase_a, slm_phase_b=self.slm_phase_b,
                      amplitude_residual_coeffs=tuple(self.amplitude_residual_coeffs),
                      monotonic_ccd_h=tuple(self.monotonic_ccd_h),
-                     monotonic_ccd_v_max=self.monotonic_ccd_v_max)
+                     monotonic_ccd_v_max=self.monotonic_ccd_v_max,
+                     phase_sign=self.phase_sign,
+                     phase_sign_scope=self.phase_sign_scope,
+                     registration_shift_ccd_px=(None if self.registration_shift_ccd_px is None
+                                                else tuple(self.registration_shift_ccd_px)))
 
     def effective_parameters(self):
         """Absorb input-plane offset into the identifiable intensity parameters.
@@ -205,6 +263,13 @@ class FrozenDefocusForward:
         self.amplitude = gaussian_amplitude(torch, self.panel_x, self.panel_y, center, width,
                                             self.panel_mask)
         self.z4 = self._mode_basis(4)
+        self.phase_sign = float(params.phase_sign)
+        if self.phase_sign not in (1., -1.):
+            raise ValueError(f"phase_sign must be +1 or -1, got {params.phase_sign!r}")
+        self.phase_sign_scope = str(params.phase_sign_scope)
+        if self.phase_sign_scope not in _VALID_PHASE_SIGN_SCOPES:
+            raise ValueError(f"phase_sign_scope must be one of {_VALID_PHASE_SIGN_SCOPES}, "
+                             f"got {params.phase_sign_scope!r}")
         self.residual_modes = sorted(int(k) for k in params.residual_noll_radians)
         self.residual_basis = (torch.stack([self._mode_basis(j) for j in self.residual_modes])
                                if self.residual_modes else None)
@@ -215,6 +280,10 @@ class FrozenDefocusForward:
         inverse = np.linalg.inv(np.asarray(params.ramp_matrix, dtype=np.float64))
         self.inverse = torch.tensor(inverse, dtype=torch.float32, device=self._device)
         self._xy_t = torch.tensor(xy, dtype=torch.float32, device=self._device)
+        # Optional global 2D registration (issue #237), in CCD pixels (dy, dx).
+        # ``None`` keeps the historical sampling grid exactly as it was.
+        self.registration_shift = (None if params.registration_shift_ccd_px is None
+                                   else tuple(float(v) for v in params.registration_shift_ccd_px))
         self._grid_offsets = subpixel_offsets(torch, params.pixel_samples, device=self._device)
         self._blaze_kernel = self._build_blaze_kernel(params.sigma_ccd_px)
         # --- optional, default-off physical-model extensions (report 20261027 §4) ---
@@ -301,14 +370,32 @@ class FrozenDefocusForward:
                 total = total + coerced
         return total
 
+    def _coerce_component(self, value: Any):
+        """Tensor-coerce an optional named phase component onto this model's device."""
+        if value is None:
+            return None
+        torch = _torch()
+        return value.to(self._device) if torch.is_tensor(value) else torch.as_tensor(
+            value, dtype=torch.float32, device=self._device)
+
     def predict(self, phase: Any, *, focus_phase: Any = None, carrier_phase: Any = None, exposure_ms: Any = None):
         """返回相机采样网格上的强度（对 ``phase`` 可微）。"""
         torch = _torch()
         from ao_shaping.utils.wavefront.fraunhofer import focal_intensity
 
+        # Panel command polarity (issue #235 + scope follow-up).  ``focus_phase`` and
+        # ``carrier_phase`` are EXTERNAL additive terms here (not contained in ``phase``).
+        # The command total is formed first; polarity is then applied by
+        # ``scoped_command_phase`` (tilt-plane split for the aberration scopes).
         total = self.total_phase_grid(phase, focus_phase=focus_phase, carrier_phase=carrier_phase)
         if total.ndim == NDIM_SINGLE_CHANNEL:
             total = total[None]
+        if self.phase_sign < 0:
+            total = scoped_command_phase(
+                total, self.panel_x, self.panel_y, phase_sign=self.phase_sign,
+                scope=self.phase_sign_scope,
+                focus_component=self._coerce_component(focus_phase),
+                carrier_component=self._coerce_component(carrier_phase))
         p = self.params
         # Optional SLM command -> effective phase nonlinearity (report 20261027 §4 item 2).
         if self._slm_phase is not None:
@@ -320,10 +407,15 @@ class FrozenDefocusForward:
         amplitude = self.amplitude[None]
         if self._amp_residual is not None:
             amplitude = amplitude * torch.exp(self._amp_residual[None])
-        field = amplitude * torch.exp(1j * phase_all)
+        phase_for_field = phase_all
+        field = amplitude * torch.exp(1j * phase_for_field)
         intensity = focal_intensity(field, p.fft_size)
         intensity = intensity * irradiance_scale(self.pitch, p.fft_size) / self.axial_scale**2
-        grids = camera_sample_grids(torch, self._xy_t, self.origin, self.inverse / self.axial_scale,
+        # Optional global 2D registration (issue #237): the camera sampling
+        # points move, the panel grid does not.  Disabled (the default) leaves
+        # the grid untouched, so the baseline stays bit-for-bit identical.
+        xy = registration_sample_grid(torch, self._xy_t, self.registration_shift)
+        grids = camera_sample_grids(torch, xy, self.origin, self.inverse / self.axial_scale,
                                     self._grid_offsets, fft_size=p.fft_size, pitch=self.pitch)
         sampled = sample_intensity(torch, intensity, grids)
         if self._blaze_kernel is not None:

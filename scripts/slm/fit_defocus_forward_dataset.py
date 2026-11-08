@@ -61,6 +61,41 @@ def load_observations(directory, camera_center=None, *, grid_size=128):
     return selected, np.stack(phases), np.stack(images), camera_xy, references
 
 
+#: Rows of the recorded panel phase that hold the 1200-px-tall active panel area.
+PANEL_ROWS_FOCUS = 1200
+
+
+def load_focus_components(directory, selected, references, *, grid_size=128, focus_path=None):
+    """Sample ``focus_phase.npy`` onto the control grid; a per-row focus component or None.
+
+    The focus is CONTAINED in the recorded C-branch ``panel_phase`` (max |C - U - focus|
+    ~7e-7 across all 22 C rows; U rows have ``panel_phase`` near zero focus), so it is
+    returned only for C rows, and only for the ``aberration_focus`` scope to re-sign.
+    It is never added to the total. Returns ``(focus_or_None, status_dict)``.
+    """
+    path = Path(focus_path) if focus_path else directory / "focus_phase.npy"
+    status = {"path": str(path), "focus_contained_in_panel_phase": True,
+              "focus_component_rows": "C only", "focus_overlay_max_abs_diff": None,
+              "carrier_available": False}
+    if not path.exists():
+        status["status"] = "missing; focus component None"
+        return None, status
+    full = np.load(path)
+    status["shape"] = list(full.shape)
+    if full.shape != (PANEL_ROWS_FOCUS, 1920):
+        status["status"] = "shape mismatch; focus component None"
+        return None, status
+    padded = np.zeros((1920, 1920), dtype=np.float32)
+    padded[:PANEL_ROWS_FOCUS] = full
+    py, px = np.mgrid[:grid_size, :grid_size] * (1920. / grid_size)
+    sampled = map_coordinates(padded, [py, px], order=1)
+    with np.load(directory / references["C"]["file"]) as data:
+        status["focus_overlay_max_abs_diff"] = float(np.max(np.abs(data["panel_phase"] - full)))
+    focus = np.stack([sampled if r["branch"] == "C" else np.zeros_like(sampled) for r in selected])
+    status["status"] = "loaded; contained component (C rows), never added to total"
+    return focus, status
+
+
 def main():
     import torch
     from loguru import logger
@@ -71,7 +106,35 @@ def main():
     parser.add_argument("--residual-from", type=Path,
                         help="Fit seven residual modes starting from M3 in this JSON")
     parser.add_argument("--output", type=Path, help="New fit directory, keeping the source fit intact")
+    parser.add_argument(
+        "--phase-sign", type=float, default=-1.0, choices=(-1.0, 1.0),
+        help="Sign with which the commanded panel phase enters the propagation. "
+             "The default -1 is the polarity measured on hardware (issue #235): with "
+             "+1 every single-mode Zernike screen Z5-Z11 gives a negative signed "
+             "direction agreement (42/42), and -1 flips all 42 positive. The value is "
+             "written into the fit so the exported checkpoint propagates it.")
+    parser.add_argument(
+        "--phase-sign-scope", type=str, default="command",
+        choices=("command", "aberration", "aberration_focus", "aberration_carrier"),
+        help="Which components of the commanded phase are negated by --phase-sign "
+             "(default command = whole command). Written into the fit.")
+    parser.add_argument("--focus-phase-npy", type=Path,
+                        help="Contained C-only focus component; default directory/focus_phase.npy")
+    parser.add_argument(
+        "--registration-shift", type=float, nargs=2, metavar=("DY", "DX"), default=None,
+        help="Global subpixel 2D registration of the camera sampling correspondence, "
+             "in CCD pixels, ordered (dy, dx) down/right (issue #237). Default off: "
+             "with no value the sampling grid is untouched and the fit reproduces the "
+             "historical model bit-for-bit. The value is written into every arm so the "
+             "exported checkpoint round-trips it through load_frozen_parameters. "
+             "Archive reference from the 2026-11-07 probe: 0.527 1.762.")
+    parser.add_argument(
+        "--learn-registration", action="store_true",
+        help="Make --registration-shift trainable (needs a value to start from); "
+             "without it the shift is fixed. Default off.")
     args = parser.parse_args()
+    if args.learn_registration and args.registration_shift is None:
+        parser.error("--learn-registration needs --registration-shift DY DX to start from")
     logger.remove()
     torch.set_num_threads(4)
     out = args.directory
@@ -94,9 +157,14 @@ def main():
     amplitude_center = np.array([settings["center_x"], settings["center_y"]]) + gradient / q
     center = np.array([references["U"]["spot"][f"centroid_{k}"] for k in ("x", "y")])
     selected, phases, images, camera_xy, references = load_observations(out, center)
+    focus_component, focus_status = load_focus_components(
+        out, selected, references, focus_path=args.focus_phase_npy)
+    focus_status["phase_sign_scope"] = args.phase_sign_scope
     train = np.array([r["split"] != "test" for r in selected])
     results = {"ramp_matrix": matrix.tolist(), "illumination_center_estimate": amplitude_center.tolist(),
-               "camera_crop_center": center.tolist(), "sample_count": len(selected), "models": {}}
+               "camera_crop_center": center.tolist(), "sample_count": len(selected),
+               "phase_sign": args.phase_sign, "phase_sign_scope": args.phase_sign_scope,
+               "focus_component": focus_status, "models": {}}
     arms = (("M0", False, 0., 0),
                                          ("M1_defocus", False, None, args.iterations),
                                          ("M3_illumination", True, None, args.iterations))
@@ -107,7 +175,12 @@ def main():
     for name, learn, initial, budget in arms:
         model = PhysicalForwardFit(phases, images, camera_xy, matrix, config["best_diopter_m1"],
                                    train, amplitude_center, learn_amplitude=learn, initial_defocus=initial,
-                                   learn_residual=bool(args.residual_from))
+                                   learn_residual=bool(args.residual_from),
+                                   registration_shift_ccd_px=args.registration_shift,
+                                   learn_registration=args.learn_registration,
+                                   phase_sign=args.phase_sign,
+                                   phase_sign_scope=args.phase_sign_scope,
+                                   focus_phase=focus_component)
         with torch.no_grad():
             model.origin.copy_(torch.tensor(center, dtype=torch.float32))
             if args.residual_from:
@@ -136,7 +209,10 @@ def main():
                             "nrmse": float(np.sqrt(np.mean((images[i]-prediction[i])**2)) / max(images[i].max(), 1e-8))})
         result = {"defocus_diopter": model.d.item(), "origin": model.origin.detach().tolist(),
                   "amplitude_center": model.center.detach().tolist(), "amplitude_width": model.log_width.exp().detach().tolist(),
-                  "gain": float(gain), "background": float(background), "history": model.history, "rows": metrics}
+                  "gain": float(gain), "background": float(background), "history": model.history, "rows": metrics,
+                  "phase_sign": args.phase_sign,
+                  # None when registration is off; the fitted value when --learn-registration ran.
+                  "registration_shift_ccd_px": model.registration_value}
         result["residual_noll_radians"] = dict(zip(model.residual_modes, model.residual.detach().tolist()))
         with (destination / f"fit_iterations_{name}.pkl").open("wb") as stream:
             pickle.dump(model.iteration_records, stream, protocol=5)
