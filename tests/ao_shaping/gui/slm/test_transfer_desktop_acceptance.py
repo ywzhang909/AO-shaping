@@ -66,7 +66,7 @@ def page(app: QApplication, monkeypatch: pytest.MonkeyPatch, tmp_path):
     monkeypatch.setattr(page_mod.params, "validate_form", lambda values: ([], []))
     monkeypatch.setattr(page_mod.params, "plan_session_dir", lambda: tmp_path / "s")
     monkeypatch.setattr(page_mod, "_SessionTask", _StubTask)
-    widget = page_mod.TransferPage()
+    widget = page_mod.TransferPage(auto_detect_ccd=False)
     app.processEvents()
     yield widget
     widget.close()

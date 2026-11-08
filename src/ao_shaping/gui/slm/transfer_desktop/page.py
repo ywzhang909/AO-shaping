@@ -30,6 +30,12 @@ error 就禁用「开始运行」并把第一条写进 tooltip, warning 只提�
 硬件枚举既慢又会让「通过」变成噪音; 反过来, 设备参数改过之后旧结论只会标成「已过期」,
 不会自动重跑。自检本身走 :class:`HardwareCheckTask` (后台线程), 与运行中的会话互斥。
 
+自动探测: 页面**加载时**在后台跑一次 :class:`CcdDetectTask` —— 只枚举 Daheng /
+MiiCam 两台相机 (不开相机、不探针 SLM), 把 ① 的相机类型与 cam_id 摆到真正在线的
+那台上, 结论写进一条中性提示行。操作员已经改过设备字段就不覆盖; 探测失败 / 0 台
+只写一行「保留默认」, 绝不阻断后面的完整流程 (``auto_detect_ccd=False`` 可整段关闭,
+离屏测试走这条)。
+
 读取零级: 「读取零级」按钮同样只在点击时发生, 走 :class:`_ZeroOrderTask` (后台线程,
 相机 SDK 不在 UI 线程里调), 同样与自检 / 运行互斥。「目标边长」的控件上限因此不再
 写死 400 px, 而是由实测 0 级到最近帧边的距离决定 (:mod:`~ao_shaping.gui.slm.transfer_desktop.zero_order`);
@@ -86,7 +92,10 @@ from PySide6.QtWidgets import (
 )
 
 from ao_shaping.gui.slm.transfer_desktop import params
-from ao_shaping.gui.slm.transfer_desktop.check_task import HardwareCheckTask
+from ao_shaping.gui.slm.transfer_desktop.check_task import (
+    CcdDetectTask,
+    HardwareCheckTask,
+)
 from ao_shaping.gui.slm.transfer_desktop.live_view import LiveView
 from ao_shaping.gui.slm.transfer_progress import (
     MISSING,
@@ -601,6 +610,16 @@ class _ZeroOrderTask(QRunnable):
 _LIVE_TASKS: set[_SessionTask] = set()
 
 
+def _brief_exception(exc: BaseException, *, limit: int = 160) -> str:
+    """一行异常摘要 (类型 + 消息), 压掉换行并限长 —— 只给提示行用。
+
+    放在本模块而不是复用 ``hardware_check._exc_summary``: 那个模块顶层会拉起相机
+    SDK, 页面级 import 必须保持惰性, 而这里只需要四行字符串处理。
+    """
+    text = " ".join(f"{type(exc).__name__}: {exc}".split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
 # ---------------------------------------------------------------------------
 # 页面
 # ---------------------------------------------------------------------------
@@ -609,7 +628,9 @@ _LIVE_TASKS: set[_SessionTask] = set()
 class TransferPage(QWidget):
     """迁移学习闭环整形的桌面页 (设备 → 目标 → 校验 → 运行 → 进度)。"""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, parent: QWidget | None = None, *, auto_detect_ccd: bool = True
+    ) -> None:
         super().__init__(parent)
         _icon = ROOT_DIR / "camera_rotate.ico"
         if _icon.exists():
@@ -633,6 +654,14 @@ class TransferPage(QWidget):
         self._check_reused = False
         self._check_heading: tuple[str, str] | None = None
         self._check_rows: list[tuple[str, str, str]] = []
+        # 加载时的相机自动探测: ``_ccd_task`` 是强引用 (掉引用会让在飞任务被回收);
+        # ``_ccd_preferred`` / ``_ccd_cam_id`` 记下任务启动时控件里的值, 回来时据此
+        # 判断操作员有没有自己改过 —— 改过就不覆盖。``_probe_text`` 与提示行同源,
+        # 保证 ``ccd_probe_summary()`` 永远返回一个字符串。
+        self._ccd_task: CcdDetectTask | None = None
+        self._ccd_preferred: str = str(_DEFAULTS.camera)
+        self._ccd_cam_id: int = int(_DEFAULTS.cam_id)
+        self._probe_text: str = ""
         # 「读取零级」同理只在点按钮时发生; ``_zero_task`` 是强引用, 掉引用会让
         # 在飞任务被回收 (信号永远送不到)。``_zero_reading`` 同时是互斥标志。
         self._zero_reading = False
@@ -663,6 +692,12 @@ class TransferPage(QWidget):
         # 首次校验会 import torch (数秒), 但按钮状态必须一开始就是真的:
         # 同步校验, 免得「能点」被读成「参数没问题」。
         self._revalidate()
+        # 自动探测放在最后: 线程池与控件都已就绪, 结论回来时页面已是可用状态。
+        if auto_detect_ccd:
+            self._start_ccd_detection()
+        else:
+            # 关掉探测时提示行留白 —— 与「探测不可用」是同一套降级, 不影响后面流程。
+            self._probe_label.setText("")
 
     # ------------------------------------------------------------------ 布局
     def _build(self) -> None:
@@ -750,6 +785,13 @@ class TransferPage(QWidget):
         form.addRow("CCD cam_id", self._cam_id)
         form.addRow("SLM 编号", self._slm_number)
         layout.addLayout(form)
+
+        # 加载时自动探测的结论: 中性提示 (普通文本色, 不是告警), 只说明「这次
+        # 用哪台相机」。探测失败也写在这里, 不染色、不阻断。
+        self._probe_label = QLabel("正在探测在线相机…")
+        self._probe_label.setWordWrap(True)
+        self._probe_label.setTextFormat(Qt.TextFormat.PlainText)
+        layout.addWidget(self._probe_label)
 
         # 自检按钮: 只有点它才会碰硬件 (枚举相机 + 探针 SLM)。默认可用 —— 参数
         # 校验没过时, 恰恰更需要知道硬件是不是好的。
@@ -1190,6 +1232,10 @@ class TransferPage(QWidget):
             lines.append("复用上次自检（同设备、未过期）")
         return "\n".join(lines)
 
+    def ccd_probe_summary(self) -> str:
+        """加载时相机自动探测的结论 (关闭探测时为空串; 供自动化断言, 永不为 None)。"""
+        return self._probe_text
+
     def set_camera(self, kind: str) -> None:
         """程序方式选相机后端, 联动与手工点选相同 (未知后端直接报错)。"""
         index = self._camera.findData(str(kind))
@@ -1348,6 +1394,78 @@ class TransferPage(QWidget):
         self._zero_btn.setEnabled(
             enabled and not self._checking and not self._zero_reading
         )
+
+    # ---------------------------------------------------------------- 自动探测
+    def _start_ccd_detection(self) -> None:
+        """页面加载时跑一次的只读相机枚举 (后台线程; 不打开相机、不探针 SLM)。"""
+        task = CcdDetectTask(self._ccd_preferred, self._ccd_cam_id)
+        # 与自检 / 会话同理: 信号送达前被 Qt 回收就丢掉结论。
+        task.setAutoDelete(False)
+        self._ccd_task = task
+        task.signals.done.connect(self._on_ccd_detected)
+        self._pool.start(task)
+
+    def _set_probe_text(self, text: str) -> None:
+        """提示行与只读摘要同源更新 (``ccd_probe_summary`` 因此永不为 None)。"""
+        self._probe_text = str(text)
+        self._probe_label.setText(self._probe_text)
+
+    def _apply_ccd_choice(self, kind: str, cam_id: int) -> None:
+        """把探测结果写进控件: 关掉信号再写, 最后只重新校验一次。"""
+        changed = False
+        index = self._camera.findData(str(kind))
+        if index >= 0 and index != self._camera.currentIndex():
+            self._camera.blockSignals(True)
+            try:
+                self._camera.setCurrentIndex(index)
+            finally:
+                self._camera.blockSignals(False)
+            changed = True
+        if cam_id != self._cam_id.value():
+            self._cam_id.blockSignals(True)
+            try:
+                self._cam_id.setValue(int(cam_id))
+            finally:
+                self._cam_id.blockSignals(False)
+            changed = True
+        if changed:
+            self._revalidate()
+
+    def _on_ccd_detected(self, result: object) -> None:
+        """加载时探测回到 UI 线程: 只写一行提示, 控件仅在没被改过时才动; 永不抛。
+
+        探测只是提示, 所以这里不 import hardware_check (它顶层拉 SDK), 结论按
+        duck typing 读 —— 读不出来就按失败写一行, 后面的完整流程照旧。
+        """
+        self._ccd_task = None
+        if isinstance(result, BaseException):
+            self._set_probe_text(
+                f"自动探测失败：{_brief_exception(result)}"
+                f"（保留 {self._ccd_preferred} cam_id={self._ccd_cam_id}）"
+            )
+            return
+
+        detail = getattr(result, "detail", "")
+        detail_text = detail if isinstance(detail, str) else str(detail)
+        kind_raw = getattr(result, "kind", self._ccd_preferred)
+        kind = kind_raw if isinstance(kind_raw, str) else str(kind_raw)
+        cam_raw = getattr(result, "cam_id", self._ccd_cam_id)
+        cam_id = (
+            cam_raw
+            if isinstance(cam_raw, int) and not isinstance(cam_raw, bool)
+            else self._ccd_cam_id
+        )
+
+        # 操作员已经自己改过设备字段 (或会话已经跑起来) 就不覆盖: 探测是提示,
+        # 不是命令。
+        untouched = (
+            not self._running
+            and self._camera.currentData() == self._ccd_preferred
+            and self._cam_id.value() == self._ccd_cam_id
+        )
+        if untouched:
+            self._apply_ccd_choice(kind, cam_id)
+        self._set_probe_text(detail_text or f"自动探测：已选 {kind} cam_id={cam_id}")
 
     # ------------------------------------------------------------------ 自检
     def _device_key(self) -> tuple[str, int, int]:

@@ -47,7 +47,7 @@ def app() -> QApplication:
 def page(app: QApplication, monkeypatch: pytest.MonkeyPatch):
     """离屏页面; 校验换成常量, 免得每次实例化都 import torch 跑一遍 preflight。"""
     monkeypatch.setattr(page_mod.params, "validate_form", lambda values: ([], []))
-    widget = page_mod.TransferPage()
+    widget = page_mod.TransferPage(auto_detect_ccd=False)
     widget.show()
     app.processEvents()
     yield widget

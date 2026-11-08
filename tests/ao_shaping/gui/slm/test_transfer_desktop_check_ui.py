@@ -4,6 +4,9 @@
 一遍 SDK, 既会把窗口卡在硬件调用上, 也会让「通过」变成噪音。这里钉住:
 
 * 只改表单 (含相机 / cam_id / SLM 编号) 不产生任何自检调用;
+* 相机枚举改为页面加载时自动跑一次 (``CcdDetectTask``, 只枚举不开相机), 所以离屏
+  测试一律 ``TransferPage(auto_detect_ccd=False)`` 显式关掉 —— 本文件钉住的仍只是
+  「自检不跟表单走」这一条;
 * 点按钮 → 后台跑完 → 结论逐项上屏、按钮复位;
 * 结论失败时结论行写明未通过;
 * 设备参数改过 → 旧结论只标「请重新自检」, 不自动重跑;
@@ -48,7 +51,7 @@ def app() -> QApplication:
 def page(app: QApplication, monkeypatch: pytest.MonkeyPatch):
     """离屏页面; 校验换成常量, 免得每次实例化都 import torch 跑一遍 preflight。"""
     monkeypatch.setattr(page_mod.params, "validate_form", lambda values: ([], []))
-    widget = page_mod.TransferPage()
+    widget = page_mod.TransferPage(auto_detect_ccd=False)
     widget.show()
     app.processEvents()
     yield widget

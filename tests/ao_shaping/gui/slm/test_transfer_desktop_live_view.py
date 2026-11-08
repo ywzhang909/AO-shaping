@@ -48,7 +48,7 @@ def app() -> QApplication:
 @pytest.fixture()
 def page(app: QApplication, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(page_mod.params, "validate_form", lambda values: ([], []))
-    widget = page_mod.TransferPage()
+    widget = page_mod.TransferPage(auto_detect_ccd=False)
     widget.show()
     app.processEvents()
     yield widget

@@ -2,10 +2,14 @@
 
 不 import Qt / Streamlit，只依赖标准库、相机驱动、``probe_slm`` 与
 ``configured_daheng_exposure_limit``，供 Qt 页在后台线程调用。
+
+两种用途，都只读：:func:`check_hardware` 是显式自检 (枚举相机 + 探针 SLM)；
+:func:`select_ccd` 是页面加载时的相机自动探测 —— **只枚举、不开相机、不碰 SLM**。
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -13,7 +17,17 @@ from ao_shaping.drivers.ccd import DahengCamera, MIICamera
 from ao_shaping.drivers.slm.santec.probe import probe_slm
 from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
 
-__all__ = ["CheckItem", "HardwareReport", "check_hardware"]
+__all__ = [
+    "CcdChoice",
+    "CheckItem",
+    "HardwareReport",
+    "check_hardware",
+    "select_ccd",
+]
+
+#: 自动探测只认这两个硬件后端 (``sim`` 等仿真后端没有「在线设备」可言)。
+_CCD_BACKENDS: tuple[str, ...] = ("daheng", "miicam")
+_CCD_LABELS: dict[str, str] = {"daheng": "Daheng", "miicam": "MiiCam"}
 
 
 @dataclass(frozen=True)
@@ -45,27 +59,36 @@ class HardwareReport:
         return f"硬件自检未通过（{len(failed)} 项必需项失败）"
 
 
-def _selected_cam_present(cam_list: object, cam_id: int) -> bool:
-    """判断所选 cam_id 是否在枚举列表中。"""
+def _materialised_cam_list(cam_list: object) -> list[object]:
+    """把枚举结果落成列表; 不可迭代一律当作 0 台。"""
     if cam_list is None:
-        return False
+        return []
     try:
-        materialised = list(cam_list)
-    except TypeError:  # policy: a non-iterable enumeration result is treated as "not present", not as a crash
-        return False
-    if not materialised:
-        return False
+        return list(cam_list)
+    except TypeError:  # policy: a non-iterable enumeration result is treated as "no cameras"
+        return []
 
-    reported_indices: list[object] = []
-    for item in materialised:
-        idx = None
+
+def _reported_cam_indices(items: Sequence[object]) -> list[object]:
+    """枚举项自己声明的 ``index`` (dict 与属性两条路; 都没有就留空)。"""
+    reported: list[object] = []
+    for item in items:
         if isinstance(item, dict):
             idx = item.get("index")
         else:
             idx = getattr(item, "index", None)
         if idx is not None:
-            reported_indices.append(idx)
+            reported.append(idx)
+    return reported
 
+
+def _selected_cam_present(cam_list: object, cam_id: int) -> bool:
+    """判断所选 cam_id 是否在枚举列表中。"""
+    materialised = _materialised_cam_list(cam_list)
+    if not materialised:
+        return False
+
+    reported_indices = _reported_cam_indices(materialised)
     if reported_indices:
         if cam_id in reported_indices:
             return True
@@ -77,6 +100,124 @@ def _selected_cam_present(cam_list: object, cam_id: int) -> bool:
         return 0 <= cam_id < len(materialised)
     except Exception:  # policy: defensive; membership must never raise
         return False
+
+
+def _cam_id_for_list(items: Sequence[object], cam_id: int) -> int:
+    """在一份枚举列表里把 cam_id 落成一台真实存在的机器。
+
+    所选 id 还在列表里就保留 (操作员另有安排时不自作主张); 否则取第一台的
+    ``index``; 连 index 都读不到 (老驱动只回裸列表) 就退回 0 —— 与
+    :func:`_selected_cam_present` 的容错口径保持一致。
+    """
+    if not items:
+        return int(cam_id)
+    if _selected_cam_present(items, cam_id):
+        return int(cam_id)
+    for idx in _reported_cam_indices(items[:1]):
+        try:
+            return int(idx)  # type: ignore[arg-type]
+        except (TypeError, ValueError):  # policy: 非数字 index 不可用, 退回列表首项
+            break
+    return 0
+
+
+def _exc_summary(exc: BaseException, *, limit: int = 160) -> str:
+    """一行异常摘要 (类型 + 消息): 压掉换行并限长, 只给界面上一行结论用。"""
+    text = f"{type(exc).__name__}: {exc}".replace("\n", " ").replace("\r", " ")
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _counts_text(counts: dict[str, int]) -> str:
+    """``Daheng 1 台 / MiiCam 0 台`` (顺序固定, 不随所选后端变)。"""
+    return " / ".join(f"{_CCD_LABELS[kind]} {counts[kind]} 台" for kind in _CCD_BACKENDS)
+
+
+def _enumerate_cam_list(cam_cls: object) -> tuple[list[object], str | None]:
+    """枚举一个后端并落成列表, 返回 ``(相机列表, 失败摘要)``。
+
+    失败 (驱动未加载 / SDK 初始化异常 / 枚举抛错) 一律只算该后端 0 台, 摘要
+    交给调用方写进界面; 绝不向上抛 —— 两个调用点 (自检与加载时探测) 都靠它。
+    """
+    try:
+        if cam_cls is None:
+            raise RuntimeError("驱动未加载（SDK 不可用）")
+        return _materialised_cam_list(cam_cls.get_cam_list()), None  # type: ignore[attr-defined]
+    except Exception as exc:  # policy: one backend failing must not abort the other checks
+        return [], _exc_summary(exc)
+
+
+@dataclass(frozen=True)
+class CcdChoice:
+    """加载时自动探测得出的相机选型 (纯数据, 界面直接显示 ``detail``)。"""
+
+    kind: str
+    cam_id: int
+    source: Literal["preferred", "switched", "unavailable"]
+    daheng_count: int
+    miicam_count: int
+    detail: str
+
+
+def select_ccd(preferred: str = "daheng", cam_id: int = 0) -> CcdChoice:
+    """只读枚举两个相机后端, 挑出这次该用哪一个 (绝不抛, 也不打开相机)。
+
+    规则: 优先后端有机器 → 保留 (``preferred``); 优先后端 0 台而另一个后端有机器
+    → 改用那一台 (``switched``); 两边都 0 台 (或枚举就失败) → 原样保留
+    (``unavailable``)。任何一次枚举异常都只算该后端 0 台, 摘要写进 ``detail``:
+    加载时探测只是提示, 绝不能因此挡住后面的完整流程。
+    """
+    preferred = str(preferred)
+    try:
+        wanted = int(cam_id)
+    except (TypeError, ValueError):  # policy: 坏 cam_id 退回 0, 结论不因一个数字失败
+        wanted = 0
+
+    lists: dict[str, list[object]] = {kind: [] for kind in _CCD_BACKENDS}
+    counts: dict[str, int] = {kind: 0 for kind in _CCD_BACKENDS}
+    failures: dict[str, str] = {}
+    for kind in _CCD_BACKENDS:
+        cam_cls = DahengCamera if kind == "daheng" else MIICamera
+        lists[kind], failure = _enumerate_cam_list(cam_cls)
+        if failure is not None:
+            failures[kind] = failure
+        counts[kind] = len(lists[kind])
+
+    if preferred not in counts:
+        # ``sim`` 等后端没有「在线设备」可言: 不猜, 原样保留。
+        chosen_kind, chosen_id, source = preferred, wanted, "unavailable"
+        detail = f"自动探测：{preferred} 无在线设备概念，保留 {preferred} cam_id={chosen_id}"
+    elif counts[preferred]:
+        chosen_kind = preferred
+        chosen_id = _cam_id_for_list(lists[preferred], wanted)
+        source = "preferred"
+        detail = (
+            f"自动探测：{_CCD_LABELS[preferred]} {counts[preferred]} 台，"
+            f"已选 {preferred} cam_id={chosen_id}"
+        )
+    elif any(counts[kind] for kind in _CCD_BACKENDS if kind != preferred):
+        chosen_kind = next(
+            kind for kind in _CCD_BACKENDS if kind != preferred and counts[kind]
+        )
+        chosen_id = _cam_id_for_list(lists[chosen_kind], wanted)
+        source = "switched"
+        detail = f"自动探测：{_counts_text(counts)}，已改用 {chosen_kind} cam_id={chosen_id}"
+    else:
+        chosen_kind, chosen_id, source = preferred, wanted, "unavailable"
+        detail = f"自动探测：未发现在线相机（{_counts_text(counts)}），保留 {preferred} cam_id={chosen_id}"
+
+    for kind in _CCD_BACKENDS:
+        if kind in failures:
+            detail += f"（{_CCD_LABELS[kind]} 枚举失败：{failures[kind]}）"
+
+    return CcdChoice(
+        kind=chosen_kind,
+        cam_id=chosen_id,
+        source=source,  # type: ignore[arg-type]
+        daheng_count=counts["daheng"],
+        miicam_count=counts["miicam"],
+        detail=detail,
+    )
 
 
 def check_hardware(camera: str, cam_id: int, slm_number: int) -> HardwareReport:
@@ -91,9 +232,8 @@ def check_hardware(camera: str, cam_id: int, slm_number: int) -> HardwareReport:
         ("miicam", MIICamera, "MiiCam 枚举"),
     ):
         required = backend == str(camera)
-        try:
-            cam_list = cam_cls.get_cam_list()
-            cam_items = [] if cam_list is None else list(cam_list)
+        cam_items, failure = _enumerate_cam_list(cam_cls)
+        if failure is None:
             count = len(cam_items)
             present = _selected_cam_present(cam_items, cam_id)
             if present:
@@ -120,13 +260,13 @@ def check_hardware(camera: str, cam_id: int, slm_number: int) -> HardwareReport:
                         required=required,
                     )
                 )
-        except Exception as exc:  # policy: one backend failing must not abort the other checks
+        else:
             items.append(
                 CheckItem(
                     label=label,
                     level="fail" if required else "warn",
                     detail=(
-                        f"{backend} 枚举失败：{type(exc).__name__}: {exc}"
+                        f"{backend} 枚举失败：{failure}"
                         + ("" if required else "（仅自检；当前所选相机非此后端）")
                     ),
                     required=required,
