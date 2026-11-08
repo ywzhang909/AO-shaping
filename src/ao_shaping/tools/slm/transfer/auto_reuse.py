@@ -79,7 +79,7 @@ def probe_for_fingerprint(
     ) as cam:
         try:
             cam.set_exposure_ms(exposure_ms)
-        except Exception as exc:
+        except Exception as exc:  # policy: 相机不支持 set_exposure_ms 属常规机型差异，沿用默认曝光继续探测
             logger.debug(f"auto-reuse probe: set_exposure_ms 失败 (继续用默认): {exc!r}")
 
         reads: list[np.ndarray] = []

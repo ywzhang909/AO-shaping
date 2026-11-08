@@ -1,4 +1,4 @@
-﻿"""Render the 2026-11-07 offline loss-compare report (issue #236).
+"""Render the 2026-11-07 offline loss-compare report (issue #236).
 
 Offline renderer: reads the archived ``results.json`` produced by
 ``scripts/slm/loss_compare_20261107.py`` under

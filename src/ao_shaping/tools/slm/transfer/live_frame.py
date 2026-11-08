@@ -230,7 +230,7 @@ def _capture_target(directory: Path, file_name: str):
             if "target" not in payload:
                 return None
             return np.array(payload["target"], copy=True)
-    except Exception:
+    except Exception:  # policy: 存档 npz 可能缺失或损坏，返回 None 让 UI 显示「无目标」
         return None
 
 

@@ -1,10 +1,9 @@
 # star 块 CCD 实测远场对照：弥散圆斑（非星非方）（2026-11-07）
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/slm/star_farfield_analysis_20261107.py`](../../../scripts/slm/star_farfield_analysis_20261107.py)
-> **复现命令**: `python scripts/slm/star_farfield_analysis_20261107.py`
+> **生成脚本**: 人工撰写，无生成脚本
 > **运行环境**: 离线渲染（实验系统数据 2026-11-07：SLM #1 + Daheng CCD；shapes=['star']、4 块、acceptance 启用、3 轮）
-> **说明**: 确认 star 块 CCD 实测远场为弥散圆斑（零级主导），非五角星非方块；figures/ 三张 PNG 为脚本产物，输入为 data/debug/slm_transfer/20261107_135252 存档。报告本体不占用设备。
+> **说明**: 确认 star 块 CCD 实测远场为弥散圆斑（零级主导），非五角星非方块。报告正文为人工撰写（分析结论与判定方法），figures/ 三张 PNG 由 scripts/slm/star_farfield_analysis_20261107.py 渲染（输入 data/debug/slm_transfer/20261107_135252 存档）。报告本体不占用设备。
 <!-- provenance:end -->
 
 **日期** 2026-11-07 · **脚本** `scripts/slm/star_farfield_analysis_20261107.py` · **会话** `data/debug/slm_transfer/20261107_135252`（`shapes=['star']`、4 块、acceptance 启用、3 轮：`anchored` / `anchored.round1` / `anchored.round2`）
@@ -67,8 +66,3 @@
 - 分析：10% 阈值掩膜（比半高更能暴露低对比结构）+ log 拉伸（`_log_stretch`）+ 角向谐波 FFT（`_angular_harmonics`）。
 - 渲染：理想目标用 `create_target_shape('star'/'square', 360, side=300)`，与实测 seed/A1 × 3 轮并排；另出 model 阶段 + 线性/对数拉伸对照图。
 - 全部由生成脚本 `star_farfield_analysis_20261107.py` 一键复现（离线，不占用设备）。
-
-## 4. 溯源登记说明
-
-- 本报告与 `figures/` 均由 `scripts/slm/star_farfield_analysis_20261107.py` 生成，满足「一份报告 = 一个子目录、可追溯」。
-- `scripts/_common/provenance.py::REPORTS` 登记（及 `report/README.md` / `docs/dev/report_subdir_index.md` 同步）**待 WIP 所有者同步后补录** —— 本报告未触碰上述在途 WIP 文件。

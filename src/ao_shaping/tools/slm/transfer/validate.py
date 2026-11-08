@@ -665,7 +665,7 @@ def _run_validate_session(
                 _probe_results = probe_environment(
                     cam, slm, cam_id=args.cam_id, cam_type=args.camera,
                 )
-            except Exception as exc:
+            except Exception as exc:  # policy: 设备探测失败不阻断验证主流程，记 warning 后继续
                 logger.warning("device probe failed: {}", exc)
 
             def capture(label, phase, objective):

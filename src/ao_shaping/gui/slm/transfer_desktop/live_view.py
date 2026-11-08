@@ -410,7 +410,7 @@ class LiveView(QWidget):
             from skimage.measure import find_contours
 
             contours = find_contours(arr, 0.5)
-        except Exception:
+        except Exception:  # policy: skimage 缺失或轮廓提取失败 → 不画叠加层，绝不拖垮画面刷新
             return None
         if not contours:
             return None

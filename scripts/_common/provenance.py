@@ -163,16 +163,16 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
     ),
     "report/shape_trials/star_farfield/star_farfield_20261107.md": ReportProvenance(
-        script="scripts/slm/star_farfield_analysis_20261107.py",
-        command="python scripts/slm/star_farfield_analysis_20261107.py",
+        script=HANDWRITTEN,
         environment=(
             "离线渲染（实验系统数据 2026-11-07：SLM #1 + Daheng CCD；"
             "shapes=['star']、4 块、acceptance 启用、3 轮）"
         ),
         note=(
-            "确认 star 块 CCD 实测远场为弥散圆斑（零级主导），非五角星非方块；"
-            "figures/ 三张 PNG 为脚本产物，输入为 data/debug/slm_transfer/20261107_135252 存档。"
-            "报告本体不占用设备。"
+            "确认 star 块 CCD 实测远场为弥散圆斑（零级主导），非五角星非方块。"
+            "报告正文为人工撰写（分析结论与判定方法），"
+            "figures/ 三张 PNG 由 scripts/slm/star_farfield_analysis_20261107.py "
+            "渲染（输入 data/debug/slm_transfer/20261107_135252 存档）。报告本体不占用设备。"
         ),
     ),
     "report/shape_trials/physical_refine/forward_model_transfer_plan_20261104.md": ReportProvenance(

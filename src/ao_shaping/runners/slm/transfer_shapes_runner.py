@@ -333,7 +333,7 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
                                source=best["path"],
                                score=best["score"],
                                verdict=best["verdict"])
-        except Exception as exc:
+        except Exception as exc:  # policy: 自动复用只是可选加速，探测/选择失败即回落到从头采集
             logger.warning(f"auto-reuse: 探测/选择失败 (继续从头采集): {exc!r}")
 
     # ---------------------------------------------------------------- model

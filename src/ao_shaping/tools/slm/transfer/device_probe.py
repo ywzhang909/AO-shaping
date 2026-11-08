@@ -42,7 +42,7 @@ def _safe(call, default=None):
     """容错调用: 任何异常都吞掉, 返回 default。"""
     try:
         return call()
-    except Exception as exc:
+    except Exception as exc:  # policy: _safe 的契约就是吞掉单步失败并返回 default，探测绝不冒泡
         logger.warning("device probe step failed: {}", exc)
         return default
 
@@ -151,7 +151,7 @@ def device_selfcheck(cam, *, n_frame: int = 3) -> dict[str, Any]:
             result["centroid"] = (int(idx[1]), int(idx[0]))  # (x, y)
             result["focus_ok"] = True
         result["ok"] = bool(result["sensor_ok"] and result["light_ok"] and result["focus_ok"])
-    except Exception as exc:
+    except Exception as exc:  # policy: 自检聚合出口，SDK 失败写入 result["error"] 而非抛出
         logger.warning("device selfcheck failed: {}", exc)
         result["error"] = str(exc)
     return result
@@ -183,7 +183,7 @@ def zero_order_probe(
         if slm is not None:
             try:
                 slm.set_phase_overlay(None)
-            except Exception as exc:
+            except Exception as exc:  # policy: set_phase_overlay 是可选能力，缺失时按「无叠加」继续
                 logger.warning("zero_order_probe: set_phase_overlay failed: {}", exc)
             time.sleep(float(settle_s))
 
@@ -207,12 +207,12 @@ def zero_order_probe(
         # counts_per_ms: 用峰值 / 曝光 (ms), 曝光读不到则 None
         try:
             exp_ms = float(cam.get_exposure_time_ms() if hasattr(cam, "get_exposure_time_ms") else 0.0)
-        except Exception:
+        except Exception:  # policy: get_exposure_time_ms 可选，读不到则 counts_per_ms 记 None
             exp_ms = 0.0
         if exp_ms and exp_ms > 0:
             result["counts_per_ms"] = peak / exp_ms
         result["ok"] = bool(last.size > 0 and np.isfinite(peak))
-    except Exception as exc:
+    except Exception as exc:  # policy: 零级探针出口，任何失败写入 result 并保持返回结构
         logger.warning("zero order probe failed: {}", exc)
         result["error"] = str(exc)
     return result

@@ -20,7 +20,7 @@ AO-Shaping：自适应光学（AO）系统，RL 波前校正与光束整形；�
 - 脚本 / CLI / SLM 诊断：[docs/dev/scripts_conventions.md](docs/dev/scripts_conventions.md) · [docs/user/cli-reference.md](docs/user/cli-reference.md) / [docs/dev/entry_points.md](docs/dev/entry_points.md) · `tools/slm/panel/diagnose.py` (slm-diagnose)
 - Zernike：[docs/dev/zernike_usage.md](docs/dev/zernike_usage.md)（模块目录树见 [docs/dev/module_inventory.md](docs/dev/module_inventory.md) §Project Structure Tree）
 - 环境 / pytest：[docs/environment.md](docs/environment.md) / [docs/dev/ci_testing.md](docs/dev/ci_testing.md)；集中配置 `src/ao_shaping/config.py`；**CUDA 原生库入口**：[docs/dev/cuda_native_libs.md](docs/dev/cuda_native_libs.md)（`import cupy`/OOPAO 前先 `pin_cublas()`；数据见 environment.md §cuBLAS DLL 与 PATH）。
-- **门禁（ruff / 模块登记）**：[docs/dev/ci_testing.md](docs/dev/ci_testing.md) §Linting / 模块登记门禁（各测试名与 `>=` 禁令在此，不在本文件重复）。
+- **门禁（ruff / 模块登记）**：`tests/ao_shaping/test_conventions.py::test_all_ruff_pins_agree_and_are_exact`、`tests/ao_shaping/ml/test_train_cli_runnable.py::test_ruff_excludes_nothing_under_src`、`tests/ao_shaping/test_tools_doc_coverage.py::test_every_tools_module_is_documented`、`tests/ao_shaping/test_runners_doc_paths.py::test_every_runner_module_is_documented`、`tests/ao_shaping/test_optimizer_doc_coverage.py::test_every_optimizer_module_is_documented`（详见 [docs/dev/ci_testing.md](docs/dev/ci_testing.md) §Linting / 模块登记门禁）。
 - 报告规范：[report/AGENTS.md](report/AGENTS.md)
 - Agent 注意事项（当天）：[docs/dev/agent_notes_20261108.md](docs/dev/agent_notes_20261108.md)；历史按日见 `docs/dev/agent_notes_*.md`
 - CodeGraph：仓库已索引；探索用 `codegraph_explore` / `codegraph explore`；无 `.codegraph/` 时跳过。
