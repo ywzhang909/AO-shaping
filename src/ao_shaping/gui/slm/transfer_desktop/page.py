@@ -75,15 +75,18 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QProgressBar,
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -91,7 +94,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ao_shaping.gui.slm.transfer_desktop import params
+from ao_shaping.gui.slm.transfer_desktop import campaign_plan, params
 from ao_shaping.gui.slm.transfer_desktop.check_task import (
     CcdDetectTask,
     HardwareCheckTask,
@@ -117,6 +120,29 @@ _FORM_WIDTH = 560
 
 #: 关窗时等在飞会话落地的上限 (s)。会话没有取消接口, 无限等会把宿主窗口冻住。
 _CLOSE_GRACE_S = 5.0
+
+#: ⑦ 计划预览正文的最大高度 (px)。矩阵 + 合计 + 目录 + 16 行成本表自然高约 700 px,
+#: 全摊开会把 ⑥ 实时画面挤到最小尺寸 —— 所以正文自己滚动, 只让出这一段高度。
+_PLAN_BODY_MAX_HEIGHT = 430
+
+#: ⑦ 成本表的列与列宽 (阶段列由内容定宽, 超宽时靠表格自身横向滚动)。
+_COST_COLUMNS: tuple[str, ...] = (
+    "形状",
+    "阶段",
+    "计划块数",
+    "计划秒",
+    "实测秒",
+    "实测块数",
+    "偏差",
+)
+_COST_WIDTHS: tuple[int, ...] = (68, 0, 74, 70, 74, 80, 62)
+
+#: ⑦ 成本表的行高 (px)。16 行是「一览」, 比 ⑤ 的 26 px 更矮一档。
+_COST_ROW_HEIGHT = 22
+
+#: ⑦ 偏差列的首字 → 状态色: 快 = 省时间 (绿), 慢 = 要复核 (黄)。「≈计划」的首字不在
+#: 表里, 于是保持默认字色 —— 正好踩在计划上不该染成告警色。
+_DELTA_COLORS: dict[str, str] = {"快": "ok", "慢": "warn"}
 
 #: 「目标边长」的保守上限 (px)。没有量过 0 级位置时只能给这个值 —— 采样窗默认
 #: 半跨 220 px 扣掉两侧留白后正好 424 px, 400 是留了余量的保守档。
@@ -678,6 +704,16 @@ class TransferPage(QWidget):
         self._status_message = "尚未运行。参数自检通过后即可启动。"
         self._colors: dict[str, str] = _palette_colors(self.palette())
 
+        # ⑦ 计划预览的状态: 控件在 ``_build`` 里才建好, 所以先摆一份「还没建」的默认值
+        # —— 公开取值器与主题重刷都可能早于建控件被调用, 不能靠属性是否存在来兜。
+        self._plan_ready = False
+        self._plan_matrix_text = ""
+        self._plan_summary_text = ""
+        self._cost_path: Path | None = None
+        self._cost_rows: Sequence[campaign_plan.CostRow] = ()
+        self._cost_caption_text = ""
+        self._cost_note_text = ""
+
         self._poll = QTimer(self)
         self._poll.setInterval(_POLL_MS)
         self._poll.timeout.connect(self._refresh_progress)
@@ -717,7 +753,7 @@ class TransferPage(QWidget):
         root.addLayout(body, 1)
 
     def _build_right(self) -> QWidget:
-        """右栏: ⑥ 实时画面 (CCD / 剖面 / 块进度) + ⑤ 阶段进度表。"""
+        """右栏: ⑥ 实时画面 (CCD / 剖面 / 块进度) + ⑤ 阶段进度表 + ⑦ 计划预览。"""
         host = QWidget()
         layout = QVBoxLayout(host)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -728,6 +764,9 @@ class TransferPage(QWidget):
         live_layout.addWidget(self._live_view)
         layout.addWidget(box, 1)
         layout.addWidget(self._build_progress(), 1)
+        # ⑦ 只占自然高度 (不抢 ⑥ / ⑤ 的伸缩份额): 它是「开跑前看一眼」的静态预览,
+        # 跑起来之后视线在 ⑥ / ⑤。序号追加在 ⑥ 之后, 不打乱印在界面上的 ①–⑥。
+        layout.addWidget(self._build_plan_preview(), 0)
         return host
 
     def _build_header(self) -> QWidget:
@@ -1108,6 +1147,215 @@ class TransferPage(QWidget):
         self._table = table
         return table
 
+    def _build_plan_preview(self) -> QGroupBox:
+        """⑦ 计划预览: campaign 4×4 矩阵 + 段级成本表 (只读, 不碰设备)。
+
+        为什么放在右栏最下面: 它是「开跑前看一眼规模 / 拿历史实测对一下计划」的静态
+        东西; 跑起来之后视线回到 ⑤ ⑥, 所以它只占自然高度、不抢伸缩份额。
+        """
+        box, layout = _section("⑦ 计划预览（campaign 矩阵 / 段级成本）")
+
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
+        head.setSpacing(8)
+        self._plan_caption = QLabel(
+            "只读：一场 campaign 的规模先摆出来，再按历史目录对一下实测偏差"
+        )
+        self._plan_caption.setWordWrap(True)
+        head.addWidget(self._plan_caption, 1)
+        self._plan_toggle = QCheckBox("展开")
+        self._plan_toggle.setChecked(True)
+        self._plan_toggle.setToolTip("收起后右栏只留 ⑥ 实时画面与 ⑤ 阶段进度")
+        self._plan_toggle.toggled.connect(self._toggle_plan_body)
+        head.addWidget(self._plan_toggle, 0, Qt.AlignmentFlag.AlignRight)
+        layout.addLayout(head)
+
+        # 正文放进 QScrollArea: 矩阵 + 合计 + 目录 + 16 行表自然高约 700 px, 直接摊开
+        # 会把 ⑥ 实时画面挤到最小尺寸。滚动条只在本区出现, 不牵动左栏表单。
+        self._plan_body = QWidget()
+        body = QVBoxLayout(self._plan_body)
+        body.setContentsMargins(0, 0, 2, 0)
+        body.setSpacing(8)
+
+        self._plan_matrix = self._build_plan_matrix()
+        body.addWidget(self._plan_matrix)
+
+        # 数据层读不出来时网格还是上一帧: 用一行次级色说明「读取失败」, 不把旧数字
+        # 当新数字继续看。平时隐藏, 成功渲染时再藏回去。
+        self._plan_matrix_error = QLabel("读取失败")
+        self._plan_matrix_error.setWordWrap(True)
+        self._plan_matrix_error.setVisible(False)
+        body.addWidget(self._plan_matrix_error)
+
+        self._plan_summary = QLabel()
+        self._plan_summary.setWordWrap(True)
+        self._plan_summary.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        body.addWidget(self._plan_summary)
+
+        dir_row = QHBoxLayout()
+        dir_row.setContentsMargins(0, 0, 0, 0)
+        dir_row.setSpacing(8)
+        self._cost_dir = QLineEdit()
+        self._cost_dir.setPlaceholderText("campaign 目录（留空 = 只按计划）")
+        self._cost_dir.setClearButtonEnabled(True)
+        self._cost_dir.setToolTip(
+            "读该目录下各段 cost.json 的实测秒数；空 / 不存在都只显示计划列"
+        )
+        # 回车与按钮等价; 绝不在每次按键时读盘 (目录一大, 每个字符都扫一遍没有意义)。
+        self._cost_dir.returnPressed.connect(self._reload_plan_costs)
+        self._cost_btn = QPushButton("读取实测")
+        self._cost_btn.setToolTip("只读该目录的 cost.json；不打开相机 / SLM")
+        self._cost_btn.clicked.connect(self._reload_plan_costs)
+        dir_row.addWidget(self._cost_dir, 1)
+        dir_row.addWidget(self._cost_btn, 0)
+        body.addLayout(dir_row)
+
+        self._cost_table = self._build_cost_table()
+        body.addWidget(self._cost_table)
+
+        # 口径行: 平时只有一句口径; 目录写错时把它那行说明挂在前面, 不弹错误框。
+        self._cost_caption = QLabel()
+        self._cost_caption.setWordWrap(True)
+        body.addWidget(self._cost_caption)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(self._plan_body)
+        # 上限定在 430 px: 矩阵 + 合计 + 目录 + 16 行表全摊开要约 700 px, 会让 ⑥ 实时
+        # 画面掉到最小尺寸。下限留 0 而不是钉死一个高度: 窗口矮的时候让这一段先缩、
+        # 由它自己的滚动条兜住, 不能把整页的最小高度顶上去 (笔记本上会放不下)。
+        scroll.setMinimumHeight(0)
+        scroll.setMaximumHeight(_PLAN_BODY_MAX_HEIGHT)
+        layout.addWidget(scroll)
+
+        # 控件都齐了才允许重画 (``_sync_shape_widgets`` / 换主题都会回到这几个渲染器)。
+        self._plan_ready = True
+        self._render_plan_matrix()
+        self._paint_plan_summary()
+        self._reload_plan_costs()
+        self._plan_box = box
+        return box
+
+    def _toggle_plan_body(self, shown: bool) -> None:
+        """收起 / 展开 ⑦ 的正文 (只藏正文, 标题与折叠框留在原处)。"""
+        self._plan_body.setVisible(bool(shown))
+
+    def _build_plan_matrix(self) -> QWidget:
+        """4 形状 × 4 阶段的矩阵 (行 = 形状, 列 = 阶段)。
+
+        为什么用网格而不是 16 行清单: 1560 宽的宿主窗口里右栏约 900 px, 减去行标题后
+        每个阶段列约 170 px; 格内「4 块 · 8-bit · 15 迭代」约 130 px, 最长的阶段表头
+        「12-bit 密集（宽脊模型）」折两行也放得下。每个 QLabel 都开 wordWrap —— 窗口
+        再窄只会多折一行, 不会把字裁掉, 也不会把整格挤到框外, 所以不会出现「被切一半
+        的格子」。真缩到四列都撑不住时仍然是折行 (行变高), 而不是横向滚动或裁切;
+        这也是不退回 16 行清单的理由: 清单丢掉「形状 × 阶段」的二维读法, 却省不下高度。
+        """
+        host = QWidget()
+        grid = QGridLayout(host)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(2)
+
+        # 形状 / 阶段的顺序一律取数据层的顺序 (campaign 矩阵的行优先展开), 页面不另排。
+        # 数据层承诺不抛; 建页这一下再兜一层, 免得一行数据坏了就整页起不来。
+        try:
+            cells = campaign_plan.matrix_cells()
+        except (TypeError, ValueError, AttributeError):
+            cells = ()
+        stage_order: list[tuple[str, str]] = []
+        shape_order: list[tuple[str, str]] = []
+        for cell in cells:
+            if all(cell.stage != stage for stage, _ in stage_order):
+                stage_order.append((cell.stage, cell.stage_label))
+            if all(cell.shape != shape for shape, _ in shape_order):
+                shape_order.append((cell.shape, cell.shape_label))
+
+        corner = QLabel("形状")
+        corner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        corner.setContentsMargins(2, 0, 6, 0)
+        grid.addWidget(corner, 0, 0)
+        self._plan_corner = corner
+
+        self._plan_stage_headers: list[QLabel] = []
+        self._plan_stage_labels: list[str] = []
+        self._plan_stage_order: list[str] = []
+        for column, (stage, stage_label) in enumerate(stage_order, start=1):
+            header = QLabel(stage_label)
+            header.setWordWrap(True)
+            header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            header.setContentsMargins(4, 0, 4, 0)
+            grid.addWidget(header, 0, column)
+            self._plan_stage_headers.append(header)
+            self._plan_stage_labels.append(stage_label)
+            self._plan_stage_order.append(stage)
+
+        self._plan_row_labels: dict[str, QLabel] = {}
+        self._plan_shape_labels: dict[str, str] = {}
+        self._plan_cells: dict[tuple[str, str], QLabel] = {}
+        for row, (shape, shape_label) in enumerate(shape_order, start=1):
+            row_label = QLabel(shape_label)
+            row_label.setWordWrap(True)
+            row_label.setContentsMargins(2, 2, 6, 2)
+            grid.addWidget(row_label, row, 0)
+            self._plan_row_labels[shape] = row_label
+            self._plan_shape_labels[shape] = shape_label
+            for column, (stage, _) in enumerate(stage_order, start=1):
+                cell = next(
+                    item
+                    for item in cells
+                    if (item.shape, item.stage) == (shape, stage)
+                )
+                widget = QLabel(self._plan_cell_text(cell))
+                widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                widget.setWordWrap(True)
+                widget.setContentsMargins(4, 2, 4, 2)
+                grid.addWidget(widget, row, column)
+                self._plan_cells[(shape, stage)] = widget
+
+        for column in range(1, len(stage_order) + 1):
+            grid.setColumnStretch(column, 1)
+        grid.setColumnStretch(0, 0)
+        host.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        return host
+
+    @staticmethod
+    def _plan_cell_text(cell: campaign_plan.MatrixCell) -> str:
+        """一格一行的紧凑写法: 块数 · 位深 · 每块迭代数。"""
+        return f"{cell.blocks} 块 · {cell.bit_depth}-bit · {cell.updates} 迭代"
+
+    def _build_cost_table(self) -> QTableWidget:
+        """段级成本表: 形状 / 阶段 / 计划块数 / 计划秒 / 实测秒 / 实测块数 / 偏差。
+
+        外观沿用 ⑤ 阶段表那套 (不显示行号、无网格线、隔行底色), 只把行高压矮一档:
+        16 行是「一览」, 不该占掉半个右栏。
+        """
+        table = QTableWidget(0, len(_COST_COLUMNS))
+        table.setHorizontalHeaderLabels(list(_COST_COLUMNS))
+        table.verticalHeader().setVisible(False)
+        table.verticalHeader().setDefaultSectionSize(_COST_ROW_HEIGHT)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        table.setAlternatingRowColors(True)
+        table.setWordWrap(False)
+        table.setShowGrid(False)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+
+        header = table.horizontalHeader()
+        for column, width in enumerate(_COST_WIDTHS):
+            if column == 1:
+                # 阶段列由内容定宽: 「12-bit 密集（宽脊模型）」不被截断, 超宽时横向滚动。
+                header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+                continue
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Fixed)
+            header.resizeSection(column, width)
+        header.setMinimumSectionSize(56)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        return table
+
     # -------------------------------------------------------------- 控件工厂
     # 每个工厂顺手把「改了 → 重算校验」接上: 新加控件时不可能忘记接线。
     def _spin(self, value: int, low: int, high: int, *, step: int = 1) -> QSpinBox:
@@ -1216,6 +1464,32 @@ class TransferPage(QWidget):
         """验收停止 flag 是否已置位 (自动化验证用; 启动后自动复位)。"""
         return self._acceptance_stop.is_set()
 
+    # ------------------------------------------------------------ 计划预览接口
+    def cost_table(self) -> QTableWidget:
+        """⑦ 段级成本表 (自动化验证直接读单元格, 不穿多层布局去猜下标)。"""
+        return self._cost_table
+
+    def campaign_matrix_text(self) -> str:
+        """⑦ 矩阵的纯文本快照: 与屏上同一份字, ``▸`` 标出 ② 选中的形状。"""
+        return self._plan_matrix_text
+
+    def plan_summary_text(self) -> str:
+        """⑦ 合计行原文 (未上色的纯文本)。"""
+        return self._plan_summary_text
+
+    def cost_caption_text(self) -> str:
+        """⑦ 成本表脚下那行口径原文 (不含「目录不可读」那句说明)。"""
+        return self._cost_caption_text
+
+    def campaign_dir(self) -> Path | None:
+        """⑦ 成本表正在读的目录; 空 / 不可读时为 ``None`` (只按计划)。"""
+        return self._cost_path
+
+    def set_campaign_dir(self, directory: str | Path | None) -> None:
+        """程序方式填 campaign 目录并重读 (等价于手填 + 点「读取实测」)。"""
+        self._cost_dir.setText("" if directory is None else str(directory))
+        self._reload_plan_costs()
+
     def _request_acceptance_stop(self) -> None:
         """「停止」按钮: 只是置位 flag, 让 run_session 在两轮之间优雅收尾。
 
@@ -1286,6 +1560,8 @@ class TransferPage(QWidget):
             self._side.setToolTip("矩形短边（CCD px）")
         else:
             self._side.setToolTip("目标边长（CCD px）")
+        # ⑦ 矩阵里「当前形状」那一行跟着 ② 的单选走 (换形状只是重上色)。
+        self._render_plan_matrix()
 
     def _sync_tilt(self) -> None:
         """倾斜相位关（默认）时目标留在 0 级, 周期框禁用置灰; 开时恢复。"""
@@ -1710,6 +1986,9 @@ class TransferPage(QWidget):
         self._counts.setText("")
         self._session_label.setText(f"会话目录: {out}")
         self._live_view.clear()
+        # 开跑后视线在 ⑥ / ⑤: 收起 ⑦ 的正文, 把高度让给实时画面与阶段表 (随时可再展开,
+        # 它不是「一次性的」, 只是不该和正在刷新的两块抢地方)。
+        self._plan_toggle.setChecked(False)
 
         # 新一轮: 复位验收停止 flag, 并按本次快照决定「停止」按钮可不可用
         # (只有开着验收阈值循环的会话在两轮之间才有得可停)。
@@ -1952,6 +2231,176 @@ class TransferPage(QWidget):
                     )
                 table.setItem(row, column, item)
 
+    # -------------------------------------------------------------- 计划预览
+    def _current_shape_key(self) -> str | None:
+        """② 目标里当前勾选的那个形状 (互斥单选; 一个没选就是 ``None``)。"""
+        shapes = getattr(self, "_shapes", None) or {}
+        for name in campaign_plan.PLAN_SHAPES:
+            radio = shapes.get(name)
+            if radio is not None and radio.isChecked():
+                return name
+        return None
+
+    def _highlight_tint(self) -> str:
+        """当前形状那一行的底色: 调色板选中色 + 透明度, 跟着主题走。"""
+        highlight = self.palette().color(QPalette.ColorRole.Highlight)
+        return (
+            f"rgba({highlight.red()}, {highlight.green()}, {highlight.blue()}, 48)"
+        )
+
+    def _render_plan_matrix(self) -> None:
+        """按 ② 的当前形状给矩阵那一行上底色 (只重上色, 不重建控件)。
+
+        ``▸`` 只是给色觉差异留的第二条线索: 底色很淡, 单独靠它不够显眼。
+        """
+        if not getattr(self, "_plan_ready", False):
+            return
+        muted = self._muted()
+        try:
+            cells = campaign_plan.matrix_cells(self._current_shape_key())
+        except (TypeError, ValueError, AttributeError):  # 数据层承诺不抛; 显示路径再兜一层, 绝不连累整页
+            cells = ()
+        if not cells or not self._plan_cells:
+            self._plan_matrix_text = "读取失败"
+            self._plan_matrix_error.setStyleSheet(f"color: {muted};")
+            self._plan_matrix_error.setVisible(True)
+            return
+        self._plan_matrix_error.setVisible(False)
+
+        tint = f"background-color: {self._highlight_tint()}; border-radius: 4px;"
+        for cell in cells:
+            widget = self._plan_cells.get((cell.shape, cell.stage))
+            if widget is not None:
+                widget.setStyleSheet(tint if cell.highlight else "")
+
+        for header in self._plan_stage_headers:
+            header.setStyleSheet(f"color: {muted};")
+        self._plan_corner.setStyleSheet(f"color: {muted};")
+
+        highlight = {cell.shape for cell in cells if cell.highlight}
+        for shape, row_label in self._plan_row_labels.items():
+            on = shape in highlight
+            row_label.setText(
+                ("▸ " if on else "　 ") + self._plan_shape_labels[shape]
+            )
+            font = row_label.font()
+            font.setWeight(
+                QFont.Weight.DemiBold if on else QFont.Weight.Normal
+            )
+            row_label.setFont(font)
+            row_label.setStyleSheet(
+                f"color: {muted};" if not on else ""
+            )
+
+        # 与屏上同一份文字 (行标题 + 每格), 供 ``campaign_matrix_text()`` 取用。
+        lines = [" | ".join(["形状", *self._plan_stage_labels])]
+        for shape in self._plan_row_labels:
+            row = [self._plan_row_labels[shape].text()]
+            row.extend(
+                self._plan_cells[(shape, stage)].text()
+                for stage in self._plan_stage_order
+            )
+            lines.append(" | ".join(row))
+        self._plan_matrix_text = "\n".join(lines)
+
+    def _paint_plan_summary(self) -> None:
+        """合计行: 段数 / 块数 / 墙钟 / 落盘 + 口径 (长就折行, 次级色)。"""
+        if not getattr(self, "_plan_ready", False):
+            return
+        try:
+            text = campaign_plan.campaign_summary().text
+        except (TypeError, ValueError, AttributeError):  # 同上: 显示路径只降级, 不抛
+            text = "读取失败：无法计算 campaign 合计"
+        self._plan_summary_text = text
+        self._plan_summary.setText(text)
+        self._plan_summary.setStyleSheet(f"color: {self._muted()};")
+
+    def _reload_plan_costs(self) -> None:
+        """按输入框的目录重读段成本 (只读 cost.json, 不开设备, 不弹错误框)。
+
+        空 / 不存在 / 不是目录 → 数据层本来就把实测列留空、口径给「首次运行」; 这里
+        只补一句说明, 让「没历史」与「路径写错」在界面上分得开。
+        只在点按钮 / 回车时发生 —— 每个按键都扫一遍目录没有意义。
+        """
+        if not getattr(self, "_plan_ready", False):
+            return
+        raw = self._cost_dir.text().strip()
+        path: Path | None = Path(raw).expanduser() if raw else None
+        note = ""
+        try:
+            if path is not None and not path.is_dir():
+                note = f"目录不可读：{raw}（只显示计划列）"
+                path = None
+            rows = campaign_plan.cost_rows(path)
+            caption = campaign_plan.cost_caption(path)
+        except (OSError, TypeError, ValueError):  # 数据层承诺不抛; 读盘兜底, 失败只退成计划列
+            note = "读取失败：只显示计划列"
+            caption = ""
+            path = None
+            # 连计划列也读不出来才是空表; 正常失败仍留 16 行计划值, 表格不整块消失。
+            try:
+                rows = campaign_plan.cost_rows(None)
+            except (TypeError, ValueError, AttributeError):
+                rows = ()
+        self._cost_path = path
+        self._cost_rows = rows
+        self._cost_caption_text = caption
+        self._cost_note_text = note
+        self._paint_plan_costs()
+        self._paint_cost_caption()
+
+    def _paint_plan_costs(self) -> None:
+        """把缓存的段成本行铺进表格 (没实测的格子写「—」, 绝不是 0)。"""
+        table = self._cost_table
+        rows = self._cost_rows
+        table.setRowCount(len(rows))
+        for row, cost in enumerate(rows):
+            cells = (
+                cost.shape_label,
+                cost.stage_label,
+                str(cost.planned_blocks),
+                f"{cost.expected_seconds:.0f} s",
+                MISSING
+                if cost.measured_seconds is None
+                else f"{cost.measured_seconds:.1f} s",
+                MISSING
+                if cost.measured_blocks is None
+                else str(cost.measured_blocks),
+                cost.delta_text or MISSING,
+            )
+            for column, text in enumerate(cells):
+                item = QTableWidgetItem(text)
+                if column != 1:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if column == 6 and text != MISSING:
+                    # 快 = 省时间 (绿), 慢 = 要复核 (黄); 「≈计划」不表态, 保持默认字色。
+                    kind = _DELTA_COLORS.get(text[:1])
+                    if kind is not None:
+                        item.setForeground(QColor(self._colors[kind]))
+                table.setItem(row, column, item)
+        # 行数固定 (16) → 高度按内容钉死, 竖向滚动交给外面的正文滚动区: 同一块里套
+        # 两层竖向滚动条, 滚轮落在哪层全看指针位置, 操作上很难受。
+        header_h = table.horizontalHeader().sizeHint().height()
+        table.setFixedHeight(header_h + len(rows) * _COST_ROW_HEIGHT + 8)
+
+    def _paint_cost_caption(self) -> None:
+        """口径行: (目录不可读时的说明) + 数据层给的那句成本口径。"""
+        if not getattr(self, "_plan_ready", False):
+            return
+        muted = self._muted()
+        parts: list[str] = []
+        if self._cost_note_text:
+            parts.append(
+                f'<span style="color:{self._colors["warn"]}">'
+                f"{escape(self._cost_note_text)}</span>"
+            )
+        if self._cost_caption_text:
+            parts.append(
+                f'<span style="color:{muted}">'
+                f"{escape(self._cost_caption_text)}</span>"
+            )
+        self._cost_caption.setText("<br>".join(parts))
+
     # ------------------------------------------------------------------ 外观
     def _muted(self) -> str:
         """次级文字色 (跟随调色板的占位文字色, 不写死灰值)。"""
@@ -1971,6 +2420,12 @@ class TransferPage(QWidget):
         self._render_check()
         self._render_zero()
         self._set_run_state(self._status_kind, self._status_message)
+        # ⑦ 的底色 / 次级色都取自调色板: 换主题时一并重上色 (不重读目录)。
+        if getattr(self, "_plan_ready", False):
+            self._render_plan_matrix()
+            self._paint_plan_summary()
+            self._paint_plan_costs()
+            self._paint_cost_caption()
 
     def changeEvent(self, event: QEvent) -> None:
         """系统主题切换 → 重算状态色 (Qt 覆写点, 驼峰命名由 Qt 决定)。"""
