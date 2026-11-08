@@ -193,6 +193,148 @@ def _plan_dict(*, out: Path, execute: bool, **params: Any) -> dict[str, Any]:
     return plan
 
 
+
+def _campaign_auto_reuse(model_dir, auto_reuse, records_only, camera, cam_id, window_span, window_step, zero_radius, period, control_grid, fft_size, journal):
+    """Auto-reuse checkpoint probe (verbatim `if auto_reuse ...` from execute_campaign)."""
+    if auto_reuse and model_dir is None and not records_only:
+        try:
+            from ao_shaping.tools.slm.transfer.auto_reuse import (
+                auto_select_checkpoint, probe_for_fingerprint,
+            )
+            probe = probe_for_fingerprint(
+                camera=camera, cam_id=cam_id,
+                label="auto-reuse probe",
+            )
+            fingerprint = {**probe,
+                           "window_span": window_span,
+                           "window_step": window_step,
+                           "zero_radius": zero_radius,
+                           "period": period,
+                           "control_grid": control_grid,
+                           "fft_size": fft_size}
+            best = auto_select_checkpoint(fingerprint)
+            if best is not None:
+                model_dir = Path(best["path"])
+                journal.record("model", "auto-reused",
+                               source=best["path"],
+                               score=best["score"],
+                               verdict=best["verdict"])
+        except Exception as exc:  # policy: 自动复用只是可选加速，探测/选择失败即回落到从头采集
+            logger.warning(f"auto-reuse: 探测/选择失败 (继续从头采集): {exc!r}")
+    return model_dir
+
+
+
+def _campaign_model_dirs(model_dir, out, camera, cam_id, slm_number, capture_grid, capture_count, frames, seed, resume, journal, bootstrap_stage, device, fit_iterations, fit_span, amplitude_center_lr, record_responses):
+    """Capture/fit/model-dir resolution for both reuse and fresh paths (verbatim)."""
+    if model_dir is not None:
+        root = model_dir.resolve()
+        capture_dir = root / "capture"
+        fit_dir = root / "fit"
+        model_640 = root / "model640"
+        wide_dir = root / "model_wide640"
+        journal.record("model", "reused", source=str(root))
+        # 复用模型时整段采集被跳过, 于是**没有人在模型加载前看过一眼光路**。
+        # 那份模型是在原来那束光上拟合的: 光路失效后继续用, 第一个变暗的读数要
+        # 等到整形段第一块才出现 (2026-10-28 那次是 48 s 的曝光阶梯空转), 而模型
+        # 加载/目标/种子准备都已经跑完。少数几帧先问一句「有没有光」, 没有就抛
+        # ``OpticalPathInvalid`` (CLI 由 :func:`run` 映射成退出码 3, GUI 由调用方
+        # 直接渲染 ``report()``)。
+        capture_stage.precheck_light(camera=camera, cam_id=cam_id,
+                                     label=f"model reuse {root.name}")
+    else:
+        root = out
+        capture_dir = root / "capture"
+        if resume and (capture_dir / "manifest.json").is_file():
+            journal.record("capture", "reused", out=str(capture_dir))
+        else:
+            journal.record("capture", "running")
+            capture_stage.capture(SimpleNamespace(
+                out=capture_dir, camera=camera, cam_id=cam_id, slm_number=slm_number,
+                grid=capture_grid, count=capture_count, frames=frames, seed=seed,
+                execute=True, exposure_max_steps=12, save_dataset=True))
+            journal.record("capture", "complete", out=str(capture_dir))
+
+        # The nominal checkpoint comes from this capture alone: the model is
+        # trained from zero, not warm-started from a historical one.
+        nominal = root / "initial"
+        if not (resume and (nominal / "frozen_parameters.json").is_file()):
+            nominal.mkdir(parents=True, exist_ok=True)
+            frozen, provenance = bootstrap_stage.bootstrap(capture_dir)
+            (nominal / "frozen_parameters.json").write_text(
+                json.dumps(frozen, indent=2), encoding="utf-8")
+            (nominal / "provenance.json").write_text(
+                json.dumps(provenance, indent=2), encoding="utf-8")
+
+        fit_dir = root / "fit"
+        model_640 = fit_dir / "model640"
+        wide_dir = fit_dir / "model_wide640"
+        if resume and (fit_dir / "frozen_parameters.json").is_file():
+            journal.record("fit", "reused", out=str(fit_dir))
+        else:
+            journal.record("fit", "running")
+            fit_stage.fit(SimpleNamespace(
+                dataset=capture_dir, checkpoint=nominal / "frozen_parameters.json",
+                out=fit_dir, iterations=fit_iterations, span=fit_span, device=device,
+                adaptation="full", amplitude_center_lr=amplitude_center_lr, radiometry="exposure",
+                record_responses=record_responses))
+            journal.record("fit", "complete", out=str(fit_dir))
+
+        model_640 = root / "model640"
+        wide_dir = root / "model_wide640"
+    return root, capture_dir, fit_dir, model_640, wide_dir
+
+
+
+def _campaign_seed_choice(seed_bakeoff, values, shapes, out, journal, model_640, zero_xy, device, camera, cam_id, slm_number, frames, side, period, window_span, window_step, zero_radius, resume, tilt, aspect_ratio, gs_seed, initial_phase, chosen):
+    """Seed kind choice: measured bake-off or declared kinds (verbatim)."""
+    if seed_bakeoff:
+        for shape in shapes:
+            candidates = ["transport", "backprojection", "gs"] if shape == "square" \
+                else ["backprojection", "gs"]
+            if not gs_seed:
+                candidates = [kind for kind in candidates if kind != "gs"]
+            if len(candidates) == 1:
+                # 单一候选无需实测比较, 直接采用 (仍写入 journal 以便溯源)。
+                chosen[shape] = candidates[0]
+                journal.record("seed_bakeoff", "skipped", shape=shape, candidates=candidates,
+                               chosen=candidates[0], reason="single candidate")
+                logger.info("seed bake-off {}: single candidate -> {}", shape, candidates[0])
+                continue
+            scores: dict[str, float] = {}
+            for kind in candidates:
+                base_dir = out / "seed_bakeoff" / f"{shape}_{kind}"
+                bake_dir = _bakeoff_attempt_dir(base_dir, resume=resume)
+                manifest_path = bake_dir / "manifest.json"
+                if manifest_path.is_file():
+                    scores[kind] = float(_json(manifest_path)[0]["metrics"]["cv"])
+                    continue
+                args = _validate_args(
+                    checkpoint=model_640 / "frozen_parameters.json", out=bake_dir,
+                    zero_xy=zero_xy, shapes=[shape], recipe=STAGE_RECIPES[0],
+                    initial_phase=kind, seed_run=None, device=device, camera=camera,
+                    cam_id=cam_id, slm_number=slm_number, frames=frames, side=side,
+                    period=period, window_span=window_span, zero_radius=zero_radius,
+                    window_step=window_step, blocks=0, updates=0, adaptive_exposure=False,
+                    tilt=tilt, aspect_ratio=aspect_ratio,
+                    hdr=values.get("hdr", False),
+                    hdr_exposures_ms=values.get("hdr_exposures_ms", DEFAULT_HDR_EXPOSURES_MS))
+                validate_stage.run(args)
+                if not manifest_path.is_file():
+                    raise RuntimeError(
+                        f"seed bake-off {shape}/{kind} finished without writing "
+                        f"{manifest_path}; a seed-only pass (blocks=0) must still "
+                        f"measure its seed row")
+                scores[kind] = float(_json(manifest_path)[0]["metrics"]["cv"])
+            best = min(scores, key=lambda k: scores[k])
+            chosen[shape] = best
+            journal.record("seed_bakeoff", "complete", shape=shape, scores=scores, chosen=best)
+            logger.info("seed bake-off {}: {} -> {}", shape, scores, best)
+    else:
+        chosen = {shape: _seed_kind(shape, initial_phase) for shape in shapes}
+    return chosen
+
+
 def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None,
                      **kwargs: Any) -> dict[str, Any]:
     """Run the *executing* half of :func:`run` — this one opens the device.
@@ -310,88 +452,17 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
     # 当用户没有显式指定 --model-dir 时，先用少数几帧探测当前光路，
     # 扫描历史检查点，若兼容性 >= AUTO_APPLY_THRESHOLD 就自动复用，
     # 跳过约 20 min 的采集与拟合。任何一步失败都只记日志，继续走从头采集。
-    if auto_reuse and model_dir is None and not records_only:
-        try:
-            from ao_shaping.tools.slm.transfer.auto_reuse import (
-                auto_select_checkpoint, probe_for_fingerprint,
-            )
-            probe = probe_for_fingerprint(
-                camera=camera, cam_id=cam_id,
-                label="auto-reuse probe",
-            )
-            fingerprint = {**probe,
-                           "window_span": window_span,
-                           "window_step": window_step,
-                           "zero_radius": zero_radius,
-                           "period": period,
-                           "control_grid": control_grid,
-                           "fft_size": fft_size}
-            best = auto_select_checkpoint(fingerprint)
-            if best is not None:
-                model_dir = Path(best["path"])
-                journal.record("model", "auto-reused",
-                               source=best["path"],
-                               score=best["score"],
-                               verdict=best["verdict"])
-        except Exception as exc:  # policy: 自动复用只是可选加速，探测/选择失败即回落到从头采集
-            logger.warning(f"auto-reuse: 探测/选择失败 (继续从头采集): {exc!r}")
+    model_dir = _campaign_auto_reuse(model_dir, auto_reuse, records_only,
+                                    camera, cam_id, window_span, window_step,
+                                    zero_radius, period, control_grid,
+                                    fft_size, journal)
 
     # ---------------------------------------------------------------- model
-    if model_dir is not None:
-        root = model_dir.resolve()
-        capture_dir = root / "capture"
-        fit_dir = root / "fit"
-        model_640 = root / "model640"
-        wide_dir = root / "model_wide640"
-        journal.record("model", "reused", source=str(root))
-        # 复用模型时整段采集被跳过, 于是**没有人在模型加载前看过一眼光路**。
-        # 那份模型是在原来那束光上拟合的: 光路失效后继续用, 第一个变暗的读数要
-        # 等到整形段第一块才出现 (2026-10-28 那次是 48 s 的曝光阶梯空转), 而模型
-        # 加载/目标/种子准备都已经跑完。少数几帧先问一句「有没有光」, 没有就抛
-        # ``OpticalPathInvalid`` (CLI 由 :func:`run` 映射成退出码 3, GUI 由调用方
-        # 直接渲染 ``report()``)。
-        capture_stage.precheck_light(camera=camera, cam_id=cam_id,
-                                     label=f"model reuse {root.name}")
-    else:
-        root = out
-        capture_dir = root / "capture"
-        if resume and (capture_dir / "manifest.json").is_file():
-            journal.record("capture", "reused", out=str(capture_dir))
-        else:
-            journal.record("capture", "running")
-            capture_stage.capture(SimpleNamespace(
-                out=capture_dir, camera=camera, cam_id=cam_id, slm_number=slm_number,
-                grid=capture_grid, count=capture_count, frames=frames, seed=seed,
-                execute=True, exposure_max_steps=12, save_dataset=True))
-            journal.record("capture", "complete", out=str(capture_dir))
-
-        # The nominal checkpoint comes from this capture alone: the model is
-        # trained from zero, not warm-started from a historical one.
-        nominal = root / "initial"
-        if not (resume and (nominal / "frozen_parameters.json").is_file()):
-            nominal.mkdir(parents=True, exist_ok=True)
-            frozen, provenance = bootstrap_stage.bootstrap(capture_dir)
-            (nominal / "frozen_parameters.json").write_text(
-                json.dumps(frozen, indent=2), encoding="utf-8")
-            (nominal / "provenance.json").write_text(
-                json.dumps(provenance, indent=2), encoding="utf-8")
-
-        fit_dir = root / "fit"
-        model_640 = fit_dir / "model640"
-        wide_dir = fit_dir / "model_wide640"
-        if resume and (fit_dir / "frozen_parameters.json").is_file():
-            journal.record("fit", "reused", out=str(fit_dir))
-        else:
-            journal.record("fit", "running")
-            fit_stage.fit(SimpleNamespace(
-                dataset=capture_dir, checkpoint=nominal / "frozen_parameters.json",
-                out=fit_dir, iterations=fit_iterations, span=fit_span, device=device,
-                adaptation="full", amplitude_center_lr=amplitude_center_lr, radiometry="exposure",
-                record_responses=record_responses))
-            journal.record("fit", "complete", out=str(fit_dir))
-
-        model_640 = root / "model640"
-        wide_dir = root / "model_wide640"
+    root, capture_dir, fit_dir, model_640, wide_dir = _campaign_model_dirs(
+        model_dir, out, camera, cam_id, slm_number, capture_grid,
+        capture_count, frames, seed, resume, journal, bootstrap_stage,
+        device, fit_iterations, fit_span, amplitude_center_lr,
+        record_responses)
 
     # The zero order is measured on this path, never assumed.
     rows = _json(capture_dir / "manifest.json")
@@ -422,50 +493,12 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
 
     # ------------------------------------------------------- seed bake-off
     chosen: dict[str, str] = {}
-    if seed_bakeoff:
-        for shape in shapes:
-            candidates = ["transport", "backprojection", "gs"] if shape == "square" \
-                else ["backprojection", "gs"]
-            if not gs_seed:
-                candidates = [kind for kind in candidates if kind != "gs"]
-            if len(candidates) == 1:
-                # 单一候选无需实测比较, 直接采用 (仍写入 journal 以便溯源)。
-                chosen[shape] = candidates[0]
-                journal.record("seed_bakeoff", "skipped", shape=shape, candidates=candidates,
-                               chosen=candidates[0], reason="single candidate")
-                logger.info("seed bake-off {}: single candidate -> {}", shape, candidates[0])
-                continue
-            scores: dict[str, float] = {}
-            for kind in candidates:
-                base_dir = out / "seed_bakeoff" / f"{shape}_{kind}"
-                bake_dir = _bakeoff_attempt_dir(base_dir, resume=resume)
-                manifest_path = bake_dir / "manifest.json"
-                if manifest_path.is_file():
-                    scores[kind] = float(_json(manifest_path)[0]["metrics"]["cv"])
-                    continue
-                args = _validate_args(
-                    checkpoint=model_640 / "frozen_parameters.json", out=bake_dir,
-                    zero_xy=zero_xy, shapes=[shape], recipe=STAGE_RECIPES[0],
-                    initial_phase=kind, seed_run=None, device=device, camera=camera,
-                    cam_id=cam_id, slm_number=slm_number, frames=frames, side=side,
-                    period=period, window_span=window_span, zero_radius=zero_radius,
-                    window_step=window_step, blocks=0, updates=0, adaptive_exposure=False,
-                    tilt=tilt, aspect_ratio=aspect_ratio,
-                    hdr=values.get("hdr", False),
-                    hdr_exposures_ms=values.get("hdr_exposures_ms", DEFAULT_HDR_EXPOSURES_MS))
-                validate_stage.run(args)
-                if not manifest_path.is_file():
-                    raise RuntimeError(
-                        f"seed bake-off {shape}/{kind} finished without writing "
-                        f"{manifest_path}; a seed-only pass (blocks=0) must still "
-                        f"measure its seed row")
-                scores[kind] = float(_json(manifest_path)[0]["metrics"]["cv"])
-            best = min(scores, key=lambda k: scores[k])
-            chosen[shape] = best
-            journal.record("seed_bakeoff", "complete", shape=shape, scores=scores, chosen=best)
-            logger.info("seed bake-off {}: {} -> {}", shape, scores, best)
-    else:
-        chosen = {shape: _seed_kind(shape, initial_phase) for shape in shapes}
+    chosen = _campaign_seed_choice(seed_bakeoff, values, shapes, out,
+                                 journal, model_640, zero_xy, device,
+                                 camera, cam_id, slm_number, frames, side,
+                                 period, window_span, window_step,
+                                 zero_radius, resume, tilt, aspect_ratio,
+                                 gs_seed, initial_phase, chosen)
 
     # ------------------------------------------------------------- shaping
     recorder = None

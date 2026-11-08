@@ -1,10 +1,10 @@
 ---
 title: slm-transfer-shapes（多形状物理预测模型闭环整形（从零训练 → 逐形状整形 → 共同重放 → 记录））
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-11-09
 type: command
 tags: [command]
-source: src/ao_shaping/runners/slm/transfer_shapes_runner.py:723
+source: src/ao_shaping/runners/slm/transfer_shapes_runner.py:879
 ---
 
 ## 一句话
@@ -13,7 +13,7 @@ source: src/ao_shaping/runners/slm/transfer_shapes_runner.py:723
 
 ## 入口函数
 
-`runners.slm.transfer_shapes_runner.run`（`src/ao_shaping/runners/slm/transfer_shapes_runner.py:723`）
+`runners.slm.transfer_shapes_runner.run`（`src/ao_shaping/runners/slm/transfer_shapes_runner.py:879`）
 
 ```python
 run(out_dir, shapes, side, period, window_span, window_step, zero_radius, capture_grid, capture_count, fit_iterations, fit_span, amplitude_center_lr, … (+29 个))

@@ -4746,6 +4746,11 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 第 44 批：`train_coeff.train` 213→**158**（棘轮行 240 收紧为 190）——58 行内层 `for batch in train_loader:` 逐字升为 `_train_one_epoch`（63 行）。13 参数 = 11 自由名 + 双审计补的 `running/seen`（AugAssign 先读后写：不传会在 helper 内 UnboundLocalError 而 ruff 查不出，由载体测试兜底）；区内无顶层 return，控制流陷阱不存在
 - 证明与验收：叶语句全树扫描 IDENTICAL（387 对 388 减 1 条新增调用叶）；载体 39 passed（epoch 循环真执行）；ml/zernike 域 24/24 零红；形状门禁 **155 passed**；模块 1370→1380（基线同步）
 
+**2026-11-09 · a36f24d7 · 第 44 批 CI 闭环（分片 attempt#1 撞 90 分钟上限、attempt#2 success，签名复核）；第 45 批随批在案**
+- `a36f24d7` 分片 attempt#1 在 90 分钟处 `cancelled`（§8.9 已定性签名 = runner 拥挤，作业被 GitHub 记为 cancelled 而非 failed），原样重跑 attempt#2 **success**、四条 workflow 全绿——该重跑协议第三次实证有效
+- 第 45 批：`execute_campaign` 331→**258**（棘轮行 371/4/331 收紧为 290/3/258）——三段逐字升出：`_campaign_auto_reuse` 28（auto-reuse 探测，只回传 `model_dir`）、`_campaign_model_dirs` 58（采集/拟合目录解析，if/else 两分支全量绑定并回传 5 个目录名）、`_campaign_seed_choice` 47（种子择优，回传 `chosen`）。审计两处精修：区内先写后读的名字不算泄漏（`best` 在 L463 先于 L464 普通赋值绑定），`except` 子句自带重绑的不算外读（L472/L478 的 `exc`）；先读后写与 AugAssign 仍强制入参（第 44 批 `running/seen` 规则保留）
+- 证明与验收：叶语句全树扫描 IDENTICAL（255 对 261 减 6 条新增=3 调用+3 返回）；载体 `test_transfer_shapes_resume` + `test_transfer_shapes_runner` **31 passed**（resume 用例真执行全链路，journal 断言落在 `_campaign_model_dirs` 的 else 分支）；形状门禁 **158 passed**；模块 935→968（基线同步）
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
