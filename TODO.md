@@ -4721,7 +4721,7 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 **2026-11-08 · 2fc2294f · 第 40 批-A 的 CI 闭环；master 存量红收敛到 4 条并完成归因（41-A 随批处置其一）**
 - 分片日志逐条核对（job 日志完整下载，1.88 MB，非 404 载荷）：失败集 = 父提交归属矩阵 − `_fmt`（40-A 已清，CI 确认）− 5 条已被并行窗口修掉（widget 契约、CLI 金钉两条、provenance 两条、doc coverage）− 我的 16 条 `test_transfer_workflow`（第 39 批修复确认）。master 现存红恰为 4 条：`test_registration_direction_gate` 3 + `test_transfer_shapes_runner::test_without_resume_a_populated_stage_directory_still_fails` 1
 - 前者归因：三条测试的模块级语料路径（`RUN`/`FIT`/`CHECKPOINT`）指向 gitignore 的 `data/debug` 硬件窗口产物，本仓库与 CI 均无——同文件对 SCRIPT 缺失会 skip，对语料缺失却不 skip，违反仓库 hardware-skip 惯例。第四十一批-A 补 `_require_corpus()`（缺则 skip 并列出缺项），三条转 skip、第四条无依赖测试保持 passed；语料窗口内测试仍真实执行，不掩回归
-- 后者归因（只记不修）：上游新增"目标超出正向模型 FFT 可达窗"前置校验后，该测试的 20 px mock 目标先于原断言被拦——报错是新校验而非期望的"stale 目录"错误。修法需语义判断（缩目标还是换细网格），属上游作者车道，盲改会替别人决定测试意图
+- 后者归因（只记不修）：上游新增"目标超出物理预测模型 FFT 可达窗"前置校验后，该测试的 20 px mock 目标先于原断言被拦——报错是新校验而非期望的"stale 目录"错误。修法需语义判断（缩目标还是换细网格），属上游作者车道，盲改会替别人决定测试意图
 - 验收（41-A，本仓库环境）：该测试文件 **1 passed, 3 skipped**；ruff 全树干净；术语门禁 0 个文件
 
 ### 8.10 `assert` → 驱动层：三条护栏
