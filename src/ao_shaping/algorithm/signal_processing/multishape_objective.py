@@ -1,13 +1,23 @@
 """Fixed-camera multishape objectives, GS initialization and measured anchors.
 
-Pure numerical helpers; no device or tools imports.
+Pure numerical helpers; no device or tools imports. The one import here,
+``PANEL_PITCH_PX``, comes from :mod:`...defocus_forward_core`, which is itself
+constants-only (it re-exports the ``bench_constants`` leaf), so this module stays
+importable without torch, a device SDK or ``tools/``.
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
+import math
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 from scipy.ndimage import binary_erosion, map_coordinates
+
+from ao_shaping.algorithm.signal_processing.defocus_forward_core import (
+    PANEL_PITCH_PX,
+    SLM_PANEL_H,
+    SLM_PANEL_W,
+)
 
 #: Loss weights per objective mode (issue #213 item 4c). These are the values
 #: that were hard-coded inline before 2026-10-29; making them a named dict is
@@ -251,6 +261,125 @@ def anchored_intensity(measured, prediction, baseline_prediction):
 
 
 
+#: 可达性判据里给目标留的边界余量（px）。与 :func:`target_at` 加在光栅上的
+#: ``extent + 8`` 是同一段余量，:mod:`...transfer.preflight` 的采样窗留白同值。
+FFT_WINDOW_MARGIN_PX: float = 8.0
+
+#: 采集网格下限（与 ``TransferSession.validate`` 的 ``capture_grid < 16`` 同义）。
+CAPTURE_GRID_MIN: int = 16
+
+
+def _fft_reach_px(grid_size: float, slope_px: float) -> float:
+    """载波能把目标推到离零级多远（px）—— 可达公式的唯一一份实现。
+
+    模型传播到以零级为中心的频谱窗 ``[-fmax, fmax]``，其中 ``fmax = 0.5 / pitch``、
+    ``pitch = PANEL_PITCH_PX / grid_size``；载波斜率 ``slope_px``（每单位归一化频率
+    的位移像素，实测即 ``TILT_SHIFT_SCALE``）在 ``fmax`` 处给出的位移就是可达半径。
+    ``fft_size`` 不进来：它只改频谱采样密度，不改覆盖范围（这正是
+    :func:`assert_target_within_fft_window` 忽略它的原因）。
+
+    输入不合法（非有限、≤0）时返回 ``0.0``（= 什么都够不着），因为这条公式也用于
+    操作员可见的提示文案，显示路径不许抛。
+    """
+    grid, slope = float(grid_size), abs(float(slope_px))
+    if not (math.isfinite(grid) and math.isfinite(slope)) or grid <= 0 or slope <= 0:
+        return 0.0
+    return slope * (0.5 / (PANEL_PITCH_PX / grid))
+
+
+def fft_max_side_px(grid_size: float, slope_px: float, *,
+                    margin_px: float = FFT_WINDOW_MARGIN_PX,
+                    offset_px: float = 0.0) -> float:
+    """网格 ``grid_size`` 下仍放得进 FFT 可达窗的最大目标**边长**（px）。
+
+    ``offset_px`` 是目标中心离零级的载波位移（见 :func:`carrier_offset_px`）：位移
+    吃掉一段可达半径，剩下的才是目标能占的半跨。形状按包围盒算，矩形另乘长/短比
+    （:func:`required_capture_grid` 负责这件事）。
+    """
+    room = _fft_reach_px(grid_size, slope_px) - float(margin_px) - float(offset_px)
+    return max(0.0, 2.0 * room)
+
+
+def min_calibrated_grid_px(half_extent_px: float, slope_px: float, *,
+                           margin_px: float = FFT_WINDOW_MARGIN_PX,
+                           offset_px: float = 0.0) -> float:
+    """:func:`_fft_reach_px` 的反向：要够到 ``half_extent_px``，网格至少要多大（连续值）。
+
+    返回值没有取到合法档（见 :func:`capture_grid_ladder`），只用于「至少 N」这类文案；
+    真正要下发给采集的网格请用 :func:`required_capture_grid`。够不着（斜率非正）时
+    返回 ``inf``。
+    """
+    reach = float(half_extent_px) + float(margin_px) + float(offset_px)
+    slope = abs(float(slope_px))
+    if not math.isfinite(reach) or reach <= 0 or slope <= 0:
+        return 0.0
+    return 2.0 * PANEL_PITCH_PX * reach / slope
+
+
+def carrier_offset_px(period: float, slope_px: float) -> float:
+    """载波周期 ``period``（panel px）给出的位移（px），即 ``slope / period``。
+
+    与 ``bench_constants`` 的定义一致：2π 斜坡周期 P ⇒ 光斑移动
+    ``TILT_SHIFT_SCALE / P`` 像素。周期非法时返回 ``0.0``（= 目标留在零级）。
+    """
+    p, slope = float(period), abs(float(slope_px))
+    if not (math.isfinite(p) and math.isfinite(slope)) or p <= 0 or slope <= 0:
+        return 0.0
+    return slope / p
+
+
+def capture_grid_ladder(panel_px: int = SLM_PANEL_W, rows_px: int = SLM_PANEL_H,
+                        min_grid: int = CAPTURE_GRID_MIN) -> tuple[int, ...]:
+    """能整铺面板的合法采集网格（升序）。
+
+    规则与 ``TransferSession.validate`` 同源：``panel_px % grid == 0`` 且
+    ``rows_px % (panel_px // grid) == 0``（单元格必须是整数像素且行向也铺得尽）。
+    测试 ``test_transfer_reach.py`` 把它和 ``workflow`` 的检查逐档钉住。
+    """
+    return tuple(grid for grid in range(max(1, int(min_grid)), int(panel_px) + 1)
+                 if panel_px % grid == 0 and rows_px % (panel_px // grid) == 0)
+
+
+def target_extent_px(side: float, *, shapes: Sequence[str] = ("square",),
+                     aspect_ratio: float = 2.0) -> float:
+    """目标的包围盒边长（px）—— 可达判据用的**保守**边长，全工程只这一份规则。
+
+    选了矩形时取长边 ``side * aspect_ratio``（与 :func:`assert_target_within_fft_window`
+    同口径），否则取 ``side``。非法输入返回 ``0.0``（显示路径不许抛）。
+    """
+    side = float(side)
+    if not math.isfinite(side) or side <= 0:
+        return 0.0
+    extent = side * (float(aspect_ratio) if "rectangle" in set(shapes) else 1.0)
+    return extent if math.isfinite(extent) else 0.0
+
+
+def required_capture_grid(side: float, slope_px: float, *,
+                          shapes: Sequence[str] = ("square",),
+                          aspect_ratio: float = 2.0,
+                          period: float | None = None,
+                          offset_px: float | None = None,
+                          margin_px: float = FFT_WINDOW_MARGIN_PX,
+                          grids: Sequence[int] | None = None) -> int | None:
+    """本次目标够得着的最小**合法**采集网格；任何合法网格都够不着时返回 ``None``。
+
+    取最挑剔的形状（:func:`target_extent_px`），位移取 ``offset_px``（实测位移），没给
+    则按 ``period`` 外推，都没有则按目标留在零级算。判据就是 :func:`fft_max_side_px`，
+    与硬保护 :func:`assert_target_within_fft_window` 用的是同一条公式。
+    """
+    extent = target_extent_px(side, shapes=shapes, aspect_ratio=aspect_ratio)
+    if extent <= 0:
+        return None
+    if offset_px is None:
+        offset_px = carrier_offset_px(period or 0.0, slope_px)
+    ladder = tuple(grids) if grids is not None else capture_grid_ladder()
+    for grid in ladder:
+        if extent <= fft_max_side_px(grid, slope_px, margin_px=margin_px,
+                                     offset_px=float(offset_px)) + 1e-9:
+            return int(grid)
+    return None
+
+
 def assert_target_within_fft_window(forward, centre, side, shape,
                                     aspect_ratio: float = 2.0) -> None:
     """Raise ``ValueError`` if the target extent exceeds the model's FFT window.
@@ -292,12 +421,45 @@ def assert_target_within_fft_window(forward, centre, side, shape,
             freq = (corner + np.array([sx * half, sy * half]) - origin) @ inv_ramp
             worst = max(worst, float(np.abs(freq).max()))
     if worst > fmax:
-        raise ValueError(
-            f"target side {side:g} px for shape {shape!r} exceeds the forward "
-            f"model's FFT-grid reachable window: the grid covers frequencies up "
-            f"to ±{fmax:.4f} but the target corner reaches ±{worst:.4f}. Reduce "
-            f"the target size or use a finer control grid."
-        )
+        raise ValueError(_fft_window_error(pitch, ramp, centre, origin, side, shape,
+                                           aspect_ratio, fmax, worst))
+
+
+def _fft_window_error(pitch, ramp, centre, origin, side, shape, aspect_ratio,
+                      fmax, worst) -> str:
+    """硬保护的报错文案：判据之外再给出「这个网格最多放得下多大」和「要多宽的网格」。
+
+    数字来自 :func:`_fft_reach_px` 那一份公式（这里用**实测**斜坡与**实测**零点偏移），
+    所以操作员在读到报错的同一行就能改参数，不用再自己反推。任何一步算不出数都退回
+    不带数字的原句 —— 报错路径本身绝不能再抛。
+    """
+    head = (
+        f"target side {side:g} px for shape {shape!r} exceeds the forward "
+        f"model's FFT-grid reachable window: the grid covers frequencies up "
+        f"to ±{fmax:.4f} but the target corner reaches ±{worst:.4f}. "
+    )
+    fallback = "Reduce the target size or use a finer control grid."
+    try:
+        slope = float(np.max(np.linalg.norm(np.asarray(ramp, dtype=float), axis=1)))
+        offset = float(np.max(np.abs(np.asarray(centre, dtype=float)
+                                     - np.asarray(origin, dtype=float))))
+        grid = PANEL_PITCH_PX / float(pitch)
+        reach = _fft_reach_px(grid, slope)
+        limit = fft_max_side_px(grid, slope, offset_px=offset)
+        needed = required_capture_grid(side, slope, shapes=(shape,),
+                                       aspect_ratio=aspect_ratio, offset_px=offset)
+    except Exception:  # 显示路径兜底，绝不掩盖原始判据
+        return head + fallback
+    numbers = (f"The carrier reaches ±{reach:.0f} px around the zero order at this "
+               f"grid, so a target centred here can be at most {limit:.0f} px on a "
+               f"side. ")
+    if needed is None:
+        widest = capture_grid_ladder()[-1]
+        numbers += (f"No capture grid up to {widest} reaches {side:g} px; keep the "
+                    f"target below {fft_max_side_px(widest, slope, offset_px=offset):.0f} px.")
+    else:
+        numbers += f"Use a capture grid of at least {needed}."
+    return head + numbers + fallback
 
 
 def fft_grid_target(forward, centre, side, shape):

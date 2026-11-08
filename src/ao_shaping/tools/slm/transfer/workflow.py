@@ -5,13 +5,14 @@ from loguru import logger
 
 import argparse
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields, replace
 from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 
 from ao_shaping.utils.image.target.metrics import POLYGON_SHAPE_CHOICES
+from ao_shaping.utils.slm.bench_constants import TILT_SHIFT_SCALE
 
 from .capture import clock
 from .device import DEVICE_CHOICES, resolve_device
@@ -102,6 +103,10 @@ class TransferSession:
     core_margin: float | None = None
     #: Control grid of the probe capture; must tile the panel exactly.
     capture_grid: int = 128
+    #: Opt-in (default off, behaviour unchanged): before a capture, raise
+    #: ``capture_grid`` to the smallest valid grid whose FFT reach covers the
+    #: requested target (:func:`decide_capture_grid`). Never lowers a grid.
+    auto_capture_grid: bool = False
     #: ADC bit depth of the CCD blocks (8 or 12).
     bit_depth: int = 8
     #: Control resolution used for the shaping stages. ``0`` keeps the fit's own
@@ -280,6 +285,64 @@ class TransferSession:
             ),
             note=note,
         )
+
+
+@dataclass(frozen=True)
+class CaptureGridDecision:
+    """采集网格自动升档的结论（纯数据，写进 ``session.json`` 供回看）。"""
+
+    #: 会话原本的网格 (``TransferSession.capture_grid``)。
+    requested: int
+    #: 决定采用的网格（``raised`` 为 False 时等于 ``requested``）。
+    chosen: int
+    #: 目标够得着的最小合法网格；``None`` = 任何合法网格都够不着。
+    needed: int | None
+    #: 是否真的升了档。
+    raised: bool
+    #: 目标包围盒边长（px）与位移（px），仅用于文案。
+    extent_px: float
+    offset_px: float
+    #: 采用网格的可达半径（px）。
+    reach_px: float
+
+
+def decide_capture_grid(config, *, slope_px: float = TILT_SHIFT_SCALE) -> CaptureGridDecision:
+    """按目标自动定采集网格（纯函数，不开设备、不抛）。
+
+    关闭开关、已有数据集、或当前网格已够得着时，``chosen`` 等于 ``requested``
+    （绝不降档）。升档时取 :func:`required_capture_grid` 的结果。位移优先用载波周期
+    外推（``carrier_offset_px``），没有倾斜相位时目标留在零级，位移为 0。
+    """
+    from ao_shaping.algorithm.signal_processing.multishape_objective import (
+        _fft_reach_px,
+        carrier_offset_px,
+        fft_max_side_px,
+        required_capture_grid,
+        target_extent_px,
+    )
+
+    requested = int(config.capture_grid)
+    shapes = tuple(getattr(config, "shapes", ()) or ("square",))
+    aspect = float(getattr(config, "aspect_ratio", 2.0))
+    tilt = bool(getattr(config, "tilt", False))
+    period = float(getattr(config, "period", 0.0) or 0.0)
+    offset = carrier_offset_px(period, slope_px) if tilt else 0.0
+    extent = target_extent_px(float(config.side), shapes=shapes, aspect_ratio=aspect)
+    needed = required_capture_grid(
+        float(config.side), slope_px, shapes=shapes, aspect_ratio=aspect,
+        offset_px=offset,
+    )
+    enabled = bool(getattr(config, "auto_capture_grid", False))
+    fits_now = extent <= fft_max_side_px(requested, slope_px, offset_px=offset) + 1e-9
+    if not enabled or fits_now or needed is None or needed <= requested:
+        chosen = requested
+    else:
+        chosen = needed
+    return CaptureGridDecision(
+        requested=requested, chosen=chosen, needed=needed,
+        raised=chosen != requested, extent_px=extent, offset_px=offset,
+        reach_px=_fft_reach_px(chosen, slope_px),
+    )
 
 
 def _notify(on_stage, name, status):
@@ -564,6 +627,20 @@ def _attempt_optical_reuse(config: TransferSession, out: Path, *, device=None, o
         zero_xy = [float(origin[0]), float(origin[1])]
     except (OSError, ValueError, KeyError, IndexError, TypeError) as exc:
         logger.warning("光路复用: latest 模型零点读不出, 走正常全流程: {!r}", exc)
+        return None
+    # 网格充分性: 光路相同但 latest 网格更窄时, 复用会把够不着的目标原样交回。
+    # 需要的网格取自本次会话 (同一份 decide_capture_grid 规则); 任何异常都只跳过复用。
+    try:
+        needed = decide_capture_grid(config).needed
+        have = int(frozen.get("grid_size", 0))
+        if needed is not None and have > 0 and have < needed:
+            logger.info("光路复用: latest 网格 {} < 本次目标需要的 {}, 走正常全流程", have, needed)
+            _write_optical_probe_skip(
+                out, optical_probe.REUSE_SKIP_GRID, current=current, serial=serial, latest=latest
+            )
+            return None
+    except Exception as exc:  # 复用是可选加速, 判定失败不影响会话
+        logger.warning("光路复用: 网格充分性判定失败, 走正常全流程: {!r}", exc)
         return None
     return _ReusePlan(
         checkpoint=latest / "frozen_parameters.json",
@@ -984,13 +1061,33 @@ def run_session(
     config.validate()
     if offline and config.dataset is None:
         raise ValueError("--offline requires a recorded --dataset")
+    # 自动升档只对会采集的会话生效：录制数据集的网格由 manifest 决定，改了就与拟合对不上。
+    grid_decision = None
+    if config.dataset is None and getattr(config, "auto_capture_grid", False):
+        grid_decision = decide_capture_grid(config)
+        if grid_decision.raised:
+            # dataclasses.replace 只搬字段：桌面用 object.__setattr__ 挂的 tilt /
+            # aspect_ratio 运行时属性会丢，必须原样带回（下游用 getattr 读它们）。
+            field_names = {f.name for f in fields(config)}
+            extras = {k: v for k, v in vars(config).items() if k not in field_names}
+            config = replace(config, capture_grid=grid_decision.chosen)
+            for key, value in extras.items():
+                object.__setattr__(config, key, value)
+            logger.info(
+                "采集网格自动升档: {} → {} (目标 {:g} px, 可达 ±{:.0f} px)",
+                grid_decision.requested, grid_decision.chosen,
+                grid_decision.extent_px, grid_decision.reach_px,
+            )
     out = config.out.resolve()
     out.mkdir(parents=True, exist_ok=False)
     # Resolve the compute device once, here, so ``session.json`` records the one
     # the stages will actually use (``config.device`` is the *request*: "auto").
     device = resolve_device(config.device)
+    # 在升档之后才生成 plan, 使 session.json 的 settings 记录的是实际采用的网格。
     plan = config.plan(offline)
     plan["resolved"]["device"] = device
+    if grid_decision is not None:
+        plan["resolved"]["capture_grid_decision"] = asdict(grid_decision)
     (out / "session.json").write_text(
         json.dumps(dict(**plan, **clock()), default=str, indent=2), encoding="utf-8"
     )

@@ -103,6 +103,78 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         extra_scripts=("scripts/slm/shape_transition_timing_20261106.py",),
     ),
+    "report/shape_trials/forward_model_polarity/forward_model_polarity_20261107.md": ReportProvenance(
+        script="scripts/slm/generate_forward_model_polarity_report_20261107.py",
+        command="python scripts/slm/generate_forward_model_polarity_report_20261107.py",
+        environment="离线渲染（实验系统数据 2026-11-07：Santec #1 1064 nm + Daheng CCD）",
+        note=(
+            "正向模型极性核查与单模屏方向门禁：输入为 20261107_focus_scan/focus.json、"
+            "defocus_forward_20261107_focus_r2(_fit)、issue234_*_screen_20261107 三组 ladder、"
+            "issue235_parity_20261107/parity_registration_scan.json、"
+            "loss_compare_20261107_phase_sign_m1/（#236 主臂 −1）与 gated_recurrent_20261107/（#239）"
+            "的存档产物；figures/ 五张 PNG 为本脚本产物。报告本体不占用设备。"
+        ),
+    ),
+    "report/shape_trials/loss_compare_20261107/loss_compare_20261107.md": ReportProvenance(
+        script="scripts/slm/generate_loss_compare_report_20261107.py",
+        command="python scripts/slm/generate_loss_compare_report_20261107.py",
+        environment="离线渲染（实验数据 2026-11-07：Santec #1 1064 nm + Daheng CCD 成对 U/C 存档）",
+        note=(
+            "#236 拟合损失比较（phase_sign=−1 主臂 + +1 历史对照；基线复现 FAILED，结论未定）："
+            "输入为 data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1/results.json 存档产物，"
+            "表格数字全部渲染时读取、零硬编码。报告本体不占用设备。"
+        ),
+    ),
+    "report/shape_trials/gated_recurrent_20261107/gated_recurrent_20261107.md": ReportProvenance(
+        script="scripts/slm/generate_gated_recurrent_report_20261107.py",
+        command="python scripts/slm/generate_gated_recurrent_report_20261107.py",
+        environment="离线渲染（实验数据 2026-11-07：单模屏 ladder pass1/pass2 与 r2 存档，phase_sign=−1）",
+        note=(
+            "#239 门控循环残差头 bake-off（verdict inconclusive；4 臂×3 种子）："
+            "输入为 data/debug/slm_transfer/gated_recurrent_20261107/results.json 存档产物，"
+            "表格数字全部渲染时读取、零硬编码。报告本体不占用设备。"
+        ),
+    ),
+    "report/shape_trials/phase_scope_20261107/phase_scope_20261107.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线回放存档数据（2026-11-07；未占用 SLM/相机/激光，未 import ao_shaping.drivers）",
+        note=(
+            "#235 phase_sign 作用域实验：四臂（command/aberration/aberration_focus/aberration_carrier）"
+            "离线拟合与单模屏方向对照；command 精确复现存档 −1（Pearson 路径 Δd 4.7e-10）；"
+            "屏方向四臂等价、无法区分作用域；aberration_focus 不稳定需复现；carrier 不可分离。"
+            "输入为 data/debug/slm_transfer/phase_scope_20261107/ 存档产物。人工撰写。"
+        ),
+    ),
+    "report/shape_trials/measured_forward_refine_20261107/measured_forward_refine_20261107.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线规划文档与离线探针结果（issue #237；未占用设备）",
+        note=(
+            "实测正向精化规划 + 离线探针：2D 配准精化、实测 PSF 标定、增益场、CCD 响应 LUT、"
+            "杂散光与复振幅；含数据清单、逐项探针计划与验收口径（引 issue 原文）及 §7 离线结果"
+            "（配准支持、PSF 不稳健、增益场不支持但退化、LUT 数据不足）。人工撰写。"
+        ),
+    ),
+    "report/shape_trials/shared_lut_crosstalk_20261107/shared_lut_crosstalk_20261107.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线规划文档（issue #238，全部子项未开始实现）",
+        note=(
+            "SLM 1×1 共享响应 LUT 与面板相位串扰核规划。代码现状：已有可选 CCD 单调响应 LUT"
+            "（MonotonicResponse），SLM 侧 LUT 与串扰核未开始实现；含 CCD/SLM LUT 归因歧义风险。人工撰写。"
+        ),
+    ),
+    "report/shape_trials/star_farfield/star_farfield_20261107.md": ReportProvenance(
+        script="scripts/slm/star_farfield_analysis_20261107.py",
+        command="python scripts/slm/star_farfield_analysis_20261107.py",
+        environment=(
+            "离线渲染（实验系统数据 2026-11-07：SLM #1 + Daheng CCD；"
+            "shapes=['star']、4 块、acceptance 启用、3 轮）"
+        ),
+        note=(
+            "确认 star 块 CCD 实测远场为弥散圆斑（零级主导），非五角星非方块；"
+            "figures/ 三张 PNG 为脚本产物，输入为 data/debug/slm_transfer/20261107_135252 存档。"
+            "报告本体不占用设备。"
+        ),
+    ),
     "report/shape_trials/physical_refine/forward_model_transfer_plan_20261104.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线规划文档；其 P1 已于 2026-11-05 实验执行（probe_optical_path_validity）",

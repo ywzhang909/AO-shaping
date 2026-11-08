@@ -7,13 +7,13 @@
 > **说明**: 静态扫描 report/**/*.{md,json} 对 data/ 的引用并判定本机存在性；只代表报告引用维度，不代表运行时依赖
 <!-- provenance:end -->
 
-> 生成日期: 2026-11-01；工具: `scripts/_common/data_reference_inventory.py`。
+> 生成日期: 2026-11-08；工具: `scripts/_common/data_reference_inventory.py`。
 > 仅静态扫描 `report/**/*.{md,json}` 中的 `data/...` 字符串，存在性按本机文件系统判定；
 > 不代表运行时依赖（configs/标定文件等仍可能被主程序读取）。
 
 ## 汇总
 
-- 含 `data/` 引用的报告文件: 214 / 扫描总数见上次运行；唯一被引路径 968 条，本机不存在 305 条。
+- 含 `data/` 引用的报告文件: 247 / 扫描总数见上次运行；唯一被引路径 1046 条，本机不存在 865 条。
 
 ## 逐报告引用明细
 
@@ -29,42 +29,44 @@
 - ✅ 存在 `data/checkpoint`
 - ✅ 存在 `data/debug`
 - ❌ 缺失 `data/debug/<脚本名`
-- ✅ 存在 `data/debug/_quarantine_20261022_mixed`
-- ✅ 存在 `data/debug/_quarantine_20261022_mixed/hw_zernike_sweep_20261022/zernike_order_nmax3/summary.json`
+- ❌ 缺失 `data/debug/_quarantine_20261022_mixed`
+- ❌ 缺失 `data/debug/_quarantine_20261022_mixed/hw_zernike_sweep_20261022/zernike_order_nmax3/summary.json`
 - ❌ 缺失 `data/debug/alignment_probe/20261019_focus_coma`
 - ❌ 缺失 `data/debug/alignment_probe/20261019_focus_coma_verify`
 - ❌ 缺失 `data/debug/alignment_probe/20261019_realign`
-- ✅ 存在 `data/debug/analyze_transfer_direction/anchored_20261023_2002`
-- ✅ 存在 `data/debug/analyze_transfer_response/ladder_20261023_1952`
+- ❌ 缺失 `data/debug/analyze_transfer_direction/anchored_20261023_2002`
+- ❌ 缺失 `data/debug/analyze_transfer_response/ladder_20261023_1952`
 - ❌ 缺失 `data/debug/beam_extent`
-- ✅ 存在 `data/debug/bench_settings`
+- ❌ 缺失 `data/debug/bench_settings`
 - ❌ 缺失 `data/debug/bench_settings/20261017_ladder_diag.log`
-- ✅ 存在 `data/debug/bench_settings/exposure_probe/20261024_110551.json`
+- ❌ 缺失 `data/debug/bench_settings/exposure_probe/20261024_110551.json`
 - ❌ 缺失 `data/debug/bench_settings/focus_probe`
 - ❌ 缺失 `data/debug/bench_settings/focus_probe/slm1_20261020_093932.json`
 - ❌ 缺失 `data/debug/bench_stability`
 - ❌ 缺失 `data/debug/bench_stability_20261001_164458/bench_stability_`
-- ✅ 存在 `data/debug/calibrate_transfer_blur/shapes_20261023_1956`
-- ✅ 存在 `data/debug/calibrate_transfer_blur/shapes_20261023_1956/frozen_parameters.json`
-- ✅ 存在 `data/debug/capture_transfer_response/ladder_20261023_1952`
-- ✅ 存在 `data/debug/defocus_differentiable/20261023_101822`
-- ✅ 存在 `data/debug/defocus_differentiable/20261023_101822/manifest_checksums.json`
+- ❌ 缺失 `data/debug/calibrate_transfer_blur/shapes_20261023_1956`
+- ❌ 缺失 `data/debug/calibrate_transfer_blur/shapes_20261023_1956/frozen_parameters.json`
+- ❌ 缺失 `data/debug/capture_transfer_response/ladder_20261023_1952`
+- ✅ 存在 `data/debug/continuous_cone055_20261103.npy`
+- ✅ 存在 `data/debug/continuous_cone_scan_20261103/scan.json`
+- ❌ 缺失 `data/debug/defocus_differentiable/20261023_101822`
+- ❌ 缺失 `data/debug/defocus_differentiable/20261023_101822/manifest_checksums.json`
 - ❌ 缺失 `data/debug/defocus_differentiable/<本地时间戳`
-- ✅ 存在 `data/debug/differentiable_opt`
-- ✅ 存在 `data/debug/differentiable_opt/20261022_213000`
-- ✅ 存在 `data/debug/differentiable_opt/20261022_213000/animation`
-- ✅ 存在 `data/debug/differentiable_opt/20261022_213000/animation/frames.csv`
-- ✅ 存在 `data/debug/differentiable_opt/gs_20261023_092501`
+- ❌ 缺失 `data/debug/differentiable_opt`
+- ❌ 缺失 `data/debug/differentiable_opt/20261022_213000`
+- ❌ 缺失 `data/debug/differentiable_opt/20261022_213000/animation`
+- ❌ 缺失 `data/debug/differentiable_opt/20261022_213000/animation/frames.csv`
+- ❌ 缺失 `data/debug/differentiable_opt/gs_20261023_092501`
 - ❌ 缺失 `data/debug/differentiable_opt/rep_0_20261023_095038`
 - ❌ 缺失 `data/debug/differentiable_opt/rep_1_20261023_095038`
 - ❌ 缺失 `data/debug/differentiable_opt/rep_2_20261023_095038`
-- ✅ 存在 `data/debug/fit_transfer_multishape/current_20261023_1933`
-- ✅ 存在 `data/debug/fit_transfer_multishape/current_20261023_1933/frozen_parameters.json`
-- ✅ 存在 `data/debug/fit_transfer_multishape/exact_grid_20261023_1935`
-- ✅ 存在 `data/debug/fit_transfer_multishape/exact_grid_20261023_1935/iterations.pkl`
-- ✅ 存在 `data/debug/fit_transfer_multishape/exact_grid_20261023_1935/result.json`
-- ✅ 存在 `data/debug/fit_transfer_multishape/history_20261023_1925`
-- ✅ 存在 `data/debug/fit_transfer_multishape/history_20261023_1935_r2`
+- ❌ 缺失 `data/debug/fit_transfer_multishape/current_20261023_1933`
+- ❌ 缺失 `data/debug/fit_transfer_multishape/current_20261023_1933/frozen_parameters.json`
+- ❌ 缺失 `data/debug/fit_transfer_multishape/exact_grid_20261023_1935`
+- ❌ 缺失 `data/debug/fit_transfer_multishape/exact_grid_20261023_1935/iterations.pkl`
+- ❌ 缺失 `data/debug/fit_transfer_multishape/exact_grid_20261023_1935/result.json`
+- ❌ 缺失 `data/debug/fit_transfer_multishape/history_20261023_1925`
+- ❌ 缺失 `data/debug/fit_transfer_multishape/history_20261023_1935_r2`
 - ❌ 缺失 `data/debug/focus_gate_check/<UTC戳`
 - ❌ 缺失 `data/debug/gs_phase_uniformity/20261015_gradient_probe_1`
 - ❌ 缺失 `data/debug/gsnet_hybrid/20261013_092934`
@@ -76,21 +78,21 @@
 - ❌ 缺失 `data/debug/gsnet_hybrid_infer/20261013_094228_032239`
 - ❌ 缺失 `data/debug/gsnet_hybrid_infer/20261013_094258_729530`
 - ❌ 缺失 `data/debug/gsnet_hybrid_infer/20261013_100454_477105`
-- ✅ 存在 `data/debug/hw_groups_20261020`
+- ❌ 缺失 `data/debug/hw_groups_20261020`
 - ❌ 缺失 `data/debug/hw_groups_20261020/dz_noise_hw_gs`
-- ✅ 存在 `data/debug/hw_groups_20261020/dz_scan_hw_gs`
-- ✅ 存在 `data/debug/hw_groups_20261020/dz_scan_model_gs`
-- ✅ 存在 `data/debug/hw_groups_20261020/groups_manifest.json`
+- ❌ 缺失 `data/debug/hw_groups_20261020/dz_scan_hw_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261020/dz_scan_model_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261020/groups_manifest.json`
 - ❌ 缺失 `data/debug/hw_groups_20261020/n`
-- ✅ 存在 `data/debug/hw_groups_20261020/plan_all.json`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax11.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax15.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax20.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax25.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax3.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax6.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/plan_all.json`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax8.npy`
 - ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield_nmax11`
 - ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield_nmax11/n变量组`
 - ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield_nmax15`
@@ -105,23 +107,23 @@
 - ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield_nmax6/n变量组`
 - ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield_nmax8`
 - ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield_nmax8/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261021`
+- ❌ 缺失 `data/debug/hw_groups_20261021`
 - ❌ 缺失 `data/debug/hw_groups_20261021/dz_noise_hw_gs`
 - ❌ 缺失 `data/debug/hw_groups_20261021/dz_noise_hw_gs/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261021/dz_noise_hw_gs/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261021/dz_scan_hw_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261021/dz_scan_hw_gs`
 - ❌ 缺失 `data/debug/hw_groups_20261021/dz_scan_hw_gs/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261021/dz_scan_hw_gs/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261021/dz_scan_model_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261021/dz_scan_model_gs`
 - ❌ 缺失 `data/debug/hw_groups_20261021/dz_scan_model_gs/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261021/dz_scan_model_gs/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261021/focus_calibration`
-- ✅ 存在 `data/debug/hw_groups_20261021/focus_calibration/slm1_20261021_154749.json`
-- ✅ 存在 `data/debug/hw_groups_20261021/groups_manifest.json`
+- ❌ 缺失 `data/debug/hw_groups_20261021/focus_calibration`
+- ❌ 缺失 `data/debug/hw_groups_20261021/focus_calibration/slm1_20261021_154749.json`
+- ❌ 缺失 `data/debug/hw_groups_20261021/groups_manifest.json`
 - ❌ 缺失 `data/debug/hw_groups_20261021/manifest.json/n`
 - ❌ 缺失 `data/debug/hw_groups_20261021/n`
 - ❌ 缺失 `data/debug/hw_groups_20261021/n曝光`
-- ✅ 存在 `data/debug/hw_groups_20261021/plan.json`
+- ❌ 缺失 `data/debug/hw_groups_20261021/plan.json`
 - ❌ 缺失 `data/debug/hw_groups_20261021/zernike_farfield/phases/phase_nmax11.npy`
 - ❌ 缺失 `data/debug/hw_groups_20261021/zernike_farfield/phases/phase_nmax15.npy`
 - ❌ 缺失 `data/debug/hw_groups_20261021/zernike_farfield/phases/phase_nmax20.npy`
@@ -154,480 +156,487 @@
 - ❌ 缺失 `data/debug/hw_groups_20261021/zernike_farfield_nmax8`
 - ❌ 缺失 `data/debug/hw_groups_20261021/zernike_farfield_nmax8/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261021/zernike_farfield_nmax8/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261022`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_002.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_003.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_004.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_005.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_006.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_007.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_008.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_009.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_002.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_003.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_004.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_005.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_006.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_007.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_008.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_009.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/measurements.json`
 - ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/n分组清单`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/run_config.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_002.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_003.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_004.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_005.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_006.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_007.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_008.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_009.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_010.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_011.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_012.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_013.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_014.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_015.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_016.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_017.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_018.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_019.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_020.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_021.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_022.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_023.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/run_config.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_002.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_003.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_004.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_005.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_006.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_007.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_008.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_009.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_010.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_011.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_012.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_013.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_014.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_015.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_016.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_017.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_018.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_019.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_020.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_021.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_022.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_023.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/measurements.json`
 - ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/n分组清单`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/run_config.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_002.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_003.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_004.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_005.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_006.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_007.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_008.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_009.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_010.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_011.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_012.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_013.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_014.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_015.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_016.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_017.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_018.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_019.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_020.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_021.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_022.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_023.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_024.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_025.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_026.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_027.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_028.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_029.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/run_config.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_002.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_003.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_004.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_005.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_006.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_007.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_008.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_009.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_010.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_011.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_012.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_013.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_014.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_015.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_016.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_017.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_018.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_019.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_020.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_021.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_022.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_023.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_024.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_025.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_026.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_027.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_028.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_029.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/measurements.json`
 - ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/n分组清单`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/run_config.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/focus_calibration`
-- ✅ 存在 `data/debug/hw_groups_20261022/focus_calibration/slm1_20261022_105213.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/focus_calibration/slm1_20261022_115811.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/focus_calibration/slm1_20261022_142207.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/groups_manifest.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/manifest.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/run_config.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/focus_calibration`
+- ❌ 缺失 `data/debug/hw_groups_20261022/focus_calibration/slm1_20261022_105213.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/focus_calibration/slm1_20261022_115811.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/focus_calibration/slm1_20261022_142207.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/groups_manifest.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/manifest.json`
 - ❌ 缺失 `data/debug/hw_groups_20261022/manifest.json/n`
 - ❌ 缺失 `data/debug/hw_groups_20261022/n曝光`
-- ✅ 存在 `data/debug/hw_groups_20261022/plan.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax11`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/plan.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax11`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/measurements.json`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/run_config.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax15`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/run_config.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax15`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/measurements.json`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/run_config.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax20`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/run_config.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax20`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/measurements.json`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/run_config.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax25`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/run_config.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax25`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/measurements.json`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/run_config.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax3`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/run_config.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax3`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/measurements.json`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/run_config.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax4`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/run_config.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax4`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/measurements.json`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/run_config.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax6`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/run_config.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax6`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/measurements.json`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/run_config.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax8`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/run_config.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax8`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/measurements.json`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/run_config.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_128/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_128/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_16/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_16/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_24/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_32/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_32/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_40/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_48/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_64/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_64/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_96/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/measurements.csv`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/measurements.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/run_config.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/manifest.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/measurements.csv`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/measurements.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/run_config.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/selected.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_100/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1000/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1000/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1100/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1200/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1200/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1200/pupil_phase.npy`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1300/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1400/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1500/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1500/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1600/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1700/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1700/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_200/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_200/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_300/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_400/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_500/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_600/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_600/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_700/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_800/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_900/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/measurements.csv`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/measurements.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_10/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_11/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_12/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_12/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_13/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_14/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_15/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_16/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_17/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_18/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_19/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_19/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_20/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_21/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_22/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_23/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_24/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_25/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_26/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_27/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_28/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_29/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_30/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_30/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_7/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_7/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_8/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_9/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/run_config.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_002.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_005.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_007.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/measurements.csv`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/measurements.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/run_config.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/manifest.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_001.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_005.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_008.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_009.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_011.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_014.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_017.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/measurements.csv`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/measurements.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/run_config.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_011.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_018.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_023.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/measurements.csv`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/measurements.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/run_config.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/blaze_32/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/blaze_40/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/blaze_48/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/measurements.csv`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/measurements.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/run_config.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/manifest.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/measurements.csv`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/measurements.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/nmax_17/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/nmax_18/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/nmax_19/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/run_config.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/blaze_32/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/blaze_40/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/blaze_48/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/measurements.csv`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/measurements.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/manifest.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/measurements.csv`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/measurements.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/nmax_17/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/nmax_18/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/nmax_19/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261030_gs1000`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/run_config.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_128/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_128/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_16/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_16/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_24/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_32/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_32/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_40/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_48/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_64/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_64/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_96/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/measurements.csv`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/measurements.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/run_config.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/manifest.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/measurements.csv`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/measurements.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/run_config.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/selected.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_100/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1000/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1000/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1100/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1200/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1200/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1200/pupil_phase.npy`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1300/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1400/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1500/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1500/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1600/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1700/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1700/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_200/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_200/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_300/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_400/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_500/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_600/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_600/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_700/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_800/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_900/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/measurements.csv`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/measurements.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_10/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_11/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_12/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_12/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_13/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_14/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_15/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_16/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_17/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_18/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_19/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_19/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_20/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_21/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_22/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_23/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_24/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_25/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_26/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_27/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_28/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_29/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_30/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_30/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_7/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_7/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_8/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_9/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/run_config.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_002.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_005.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_007.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/measurements.csv`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/measurements.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/run_config.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/manifest.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_005.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_008.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_009.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_011.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_014.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_017.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/measurements.csv`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/measurements.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/run_config.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_011.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_018.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_023.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/measurements.csv`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/measurements.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/run_config.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/blaze_32/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/blaze_40/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/blaze_48/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/measurements.csv`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/measurements.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/run_config.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/manifest.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/measurements.csv`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/measurements.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/nmax_17/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/nmax_18/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/nmax_19/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/run_config.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/blaze_32/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/blaze_40/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/blaze_48/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/measurements.csv`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/measurements.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/manifest.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/measurements.csv`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/measurements.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/nmax_17/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/nmax_18/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/nmax_19/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261030_gs1000`
 - ❌ 缺失 `data/debug/hw_gs_square_scans/20261030_gs1000/blaze/metrics_00X.json`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261020b`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261020b/best_phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/best_phase_nmax4.npy`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order/best_phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax11`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax11/phase_nmax11.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax15`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax15/phase_nmax15.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax20`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax20/phase_nmax20.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax25`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax25/phase_nmax25.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax3`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax3/phase_nmax3.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/best_phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax6`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax6/phase_nmax6.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax8`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax8/phase_nmax8.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax11`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax11/phase_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax15`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax15/phase_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax20`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax20/phase_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax25`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax25/phase_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax3`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax3/phase_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/best_phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax6`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax6/phase_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax8`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax8/phase_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1/stage_a.json/n[done`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_2`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_2`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_2/stage_a.npz`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_2/stage_a.npz/n`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_3`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_3`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_3/stage_a.npz`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_3/stage_a.npz/n`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_4`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_4`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_4/stage_a.npz`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_4/stage_a.npz/n`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_5`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_5`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_5/stage_a.npz`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_5/stage_a.npz/n`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_6`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_6`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_6/stage_a.npz`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_6/stage_a.npz/n`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/manifest.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/after_nmax11.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/baseline_flat.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/baseline_gs_freeform.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/before_nmax11.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/best_phase_nmax11.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/fit_coefficients_nmax11.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/phase_nmax11.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/spgd_nmax11.csv`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/after_nmax15.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/baseline_flat.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/baseline_gs_freeform.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/before_nmax15.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/best_phase_nmax15.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/fit_coefficients_nmax15.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/phase_nmax15.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/spgd_nmax15.csv`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/manifest.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/after_nmax11.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/baseline_flat.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/baseline_gs_freeform.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/before_nmax11.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/best_phase_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/fit_coefficients_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/phase_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/spgd_nmax11.csv`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/after_nmax15.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/baseline_flat.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/baseline_gs_freeform.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/before_nmax15.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/best_phase_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/fit_coefficients_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/phase_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/spgd_nmax15.csv`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/summary.json`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/summary.json/n`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/after_nmax20.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/baseline_flat.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/baseline_gs_freeform.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/before_nmax20.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/best_phase_nmax20.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/fit_coefficients_nmax20.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/phase_nmax20.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/spgd_nmax20.csv`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/after_nmax20.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/baseline_flat.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/baseline_gs_freeform.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/before_nmax20.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/best_phase_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/fit_coefficients_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/phase_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/spgd_nmax20.csv`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/summary.json`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/summary.json/n`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/after_nmax25.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/baseline_flat.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/baseline_gs_freeform.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/before_nmax25.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/best_phase_nmax25.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/fit_coefficients_nmax25.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/phase_nmax25.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/spgd_nmax25.csv`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/after_nmax25.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/baseline_flat.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/baseline_gs_freeform.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/before_nmax25.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/best_phase_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/fit_coefficients_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/phase_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/spgd_nmax25.csv`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/summary.json`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/summary.json/n`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/after_nmax3.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/baseline_flat.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/baseline_gs_freeform.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/before_nmax3.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/best_phase_nmax3.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/fit_coefficients_nmax3.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/phase_nmax3.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/spgd_nmax3.csv`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/after_nmax4.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/baseline_flat.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/baseline_gs_freeform.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/before_nmax4.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/fit_coefficients_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/spgd_nmax4.csv`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/after_nmax6.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/baseline_flat.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/baseline_gs_freeform.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/before_nmax6.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/best_phase_nmax6.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/fit_coefficients_nmax6.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/phase_nmax6.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/spgd_nmax6.csv`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/after_nmax8.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/baseline_flat.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/baseline_gs_freeform.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/before_nmax8.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/best_phase_nmax8.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/fit_coefficients_nmax8.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/phase_nmax8.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/spgd_nmax8.csv`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/summary.json`
-- ✅ 存在 `data/debug/light_level_probe`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/after_nmax3.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/baseline_flat.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/baseline_gs_freeform.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/before_nmax3.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/best_phase_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/fit_coefficients_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/phase_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/spgd_nmax3.csv`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/after_nmax4.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/baseline_flat.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/baseline_gs_freeform.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/before_nmax4.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/fit_coefficients_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/spgd_nmax4.csv`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/after_nmax6.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/baseline_flat.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/baseline_gs_freeform.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/before_nmax6.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/best_phase_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/fit_coefficients_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/phase_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/spgd_nmax6.csv`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/after_nmax8.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/baseline_flat.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/baseline_gs_freeform.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/before_nmax8.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/best_phase_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/fit_coefficients_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/phase_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/spgd_nmax8.csv`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/summary.json`
+- ✅ 存在 `data/debug/issue230_refeed/analysis/_refeed_models.py`
+- ❌ 缺失 `data/debug/issue230_refeed/run01`
+- ❌ 缺失 `data/debug/light_level_probe`
+- ✅ 存在 `data/debug/local_forward_cone_20261103_2242b`
+- ❌ 缺失 `data/debug/local_forward_cone_NEW`
+- ✅ 存在 `data/debug/local_forward_cone_full_hw_20261104_1130`
+- ✅ 存在 `data/debug/local_forward_cone_hw_20261104_1115`
+- ✅ 存在 `data/debug/local_forward_ring_20261103_2230`
 - ❌ 缺失 `data/debug/model_in_loop_auto/20261019_camera_reposition`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_164549/baseline_a/stage.log`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_164549/manifest.json`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_170435/baseline_a/stage.log`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_170646/baseline_a/slm_model_in_loop/20261021_170726/panel_scan/summary.json`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_170646/baseline_a/stage.log`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_170646/manifest.json`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/bench_geometry.json`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/best_phase.npy`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_164549/baseline_a/stage.log`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_164549/manifest.json`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_170435/baseline_a/stage.log`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_170646/baseline_a/slm_model_in_loop/20261021_170726/panel_scan/summary.json`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_170646/baseline_a/stage.log`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_170646/manifest.json`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/bench_geometry.json`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/best_phase.npy`
 - ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/failure.json`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/fitted_coefficients.npy`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/handoff_summary.json`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/fitted_coefficients.npy`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/handoff_summary.json`
 - ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/model_error_terms.json`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/preflight/flat.npz`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/probes/manifest.json`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/run_config.json`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/source_amplitude.npy`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/large_1000/stage.log`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/manifest.json`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261022_133250`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261022_164859/baseline_a/stage.log`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/preflight/flat.npz`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/probes/manifest.json`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/run_config.json`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/source_amplitude.npy`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/large_1000/stage.log`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/manifest.json`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261022_133250`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261022_164859/baseline_a/stage.log`
 - ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261022_{133250`
 - ❌ 缺失 `data/debug/model_in_loop_hw_ab/<会话`
 - ✅ 存在 `data/debug/model_in_loop_hw_collect`
@@ -689,13 +698,13 @@
 - ❌ 缺失 `data/debug/model_in_loop_hw_runbook/20261019_corrected_geometry`
 - ✅ 存在 `data/debug/model_in_loop_hw_sweep/20261019_105952`
 - ❌ 缺失 `data/debug/model_in_loop_hw_sweep_20260930_171003/20260930_171003/model_in_loop_hw_sweep_20260930_171003_20260930_171003.json`
-- ✅ 存在 `data/debug/multishape_forward`
+- ❌ 缺失 `data/debug/multishape_forward`
 - ❌ 缺失 `data/debug/multishape_forward/<会话时间戳`
-- ✅ 存在 `data/debug/multishape_forward/rectangle08_20261023_191444`
-- ✅ 存在 `data/debug/multishape_forward/square_20261023_181846`
-- ✅ 存在 `data/debug/multishape_forward/square_20261023_182153`
-- ✅ 存在 `data/debug/multishape_forward/star08_20261023_191213`
-- ✅ 存在 `data/debug/multishape_forward/triangle08_20261023_191105`
+- ❌ 缺失 `data/debug/multishape_forward/rectangle08_20261023_191444`
+- ❌ 缺失 `data/debug/multishape_forward/square_20261023_181846`
+- ❌ 缺失 `data/debug/multishape_forward/square_20261023_182153`
+- ❌ 缺失 `data/debug/multishape_forward/star08_20261023_191213`
+- ❌ 缺失 `data/debug/multishape_forward/triangle08_20261023_191105`
 - ✅ 存在 `data/debug/optical_path_probe`
 - ✅ 存在 `data/debug/optical_path_probe/20261022_084725Z`
 - ✅ 存在 `data/debug/optical_path_probe/20261022_084725Z/optical_path_probe.json`
@@ -703,14 +712,38 @@
 - ✅ 存在 `data/debug/optical_path_probe/gs_control_1000px/20261030_031154Z`
 - ✅ 存在 `data/debug/optical_path_probe/gs_control_1000px/20261030_031154Z/optical_path_probe.json`
 - ✅ 存在 `data/debug/optical_path_probe/retry_20261029/20261029_013227Z/optical_path_probe.json`
-- ✅ 存在 `data/debug/physical_forward_defocus`
+- ❌ 缺失 `data/debug/physical_forward_defocus`
 - ❌ 缺失 `data/debug/physical_forward_defocus/<YYYYMMDD_HHMMSS`
-- ✅ 存在 `data/debug/physical_forward_defocus/alignment_20261022_1812/focus.json`
-- ✅ 存在 `data/debug/physical_forward_defocus/capture_after_focus_20261023_145446/seed_probe000.npy`
-- ✅ 存在 `data/debug/physical_forward_defocus/sampling_followup_evidence_20261022.json`
+- ❌ 缺失 `data/debug/physical_forward_defocus/alignment_20261022_1812/focus.json`
+- ❌ 缺失 `data/debug/physical_forward_defocus/capture_after_focus_20261023_145446/seed_probe000.npy`
+- ❌ 缺失 `data/debug/physical_forward_defocus/sampling_followup_evidence_20261022.json`
+- ✅ 存在 `data/debug/sim2f_fov`
+- ✅ 存在 `data/debug/sim2f_fov/analysis`
+- ✅ 存在 `data/debug/sim2f_fov/plan.json`
+- ✅ 存在 `data/debug/sim2f_fov_calib`
+- ✅ 存在 `data/debug/sim2f_fov_calib/calibration`
+- ❌ 缺失 `data/debug/sim2f_fov_calib/calibration_transfer`
+- ✅ 存在 `data/debug/sim2f_fov_calib_seq_20261102`
+- ✅ 存在 `data/debug/sim2f_fov_calib_seq_20261102/calibration.json`
+- ✅ 存在 `data/debug/sim2f_fov_calib_seq_20261102/calibration.npz`
+- ✅ 存在 `data/debug/sim2f_fov_dryrun_aligned_20261102`
+- ✅ 存在 `data/debug/sim2f_fov_hw_20261102`
+- ✅ 存在 `data/debug/sim2f_fov_hw_20261103`
+- ✅ 存在 `data/debug/sim2f_fov_hw_20261103_210641`
+- ✅ 存在 `data/debug/sim2f_fov_hw_refine_ring_20261103_091657`
+- ❌ 缺失 `data/debug/sim2f_fov_refine_<target`
+- ❌ 缺失 `data/debug/sim2f_fov_refine_ring_$(Get-Date`
+- ✅ 存在 `data/debug/sim2f_fov_refine_ring_eff_1103_210858`
+- ✅ 存在 `data/debug/sim2f_fov_refine_ring_effalign_1103_211304`
+- ✅ 存在 `data/debug/sim2f_fov_refine_ring_gsringcentre_1103`
+- ✅ 存在 `data/debug/sim2f_fov_refine_ring_raw16_1103_211433`
+- ❌ 缺失 `data/debug/sim2f_fov_refine_ring_{raw16`
+- ✅ 存在 `data/debug/sim2f_physical_residual/calib_20261102`
+- ✅ 存在 `data/debug/sim2f_shape_trials_production_20261102_supported`
+- ✅ 存在 `data/debug/sim2f_zero_order_diag_20261103_215142`
 - ❌ 缺失 `data/debug/sim_calib_abba_20261001_163743/sim_calib_abba_`
-- ✅ 存在 `data/debug/sim_vs_hw_20261022`
-- ✅ 存在 `data/debug/sim_vs_hw_20261023_v2`
+- ❌ 缺失 `data/debug/sim_vs_hw_20261022`
+- ❌ 缺失 `data/debug/sim_vs_hw_20261023_v2`
 - ✅ 存在 `data/debug/slm_bench_calibration/20261026_091101/panel_scan`
 - ❌ 缺失 `data/debug/slm_disturbance_compare/20261013_165039`
 - ❌ 缺失 `data/debug/slm_disturbance_compare/20261013_165039/disturbance.json`
@@ -720,7 +753,7 @@
 - ❌ 缺失 `data/debug/slm_exposure_analysis/20261013_1935/analysis_with_repeat.json`
 - ❌ 缺失 `data/debug/slm_flat_stability/20261015_152929`
 - ❌ 缺失 `data/debug/slm_flat_stability/20261016_model_in_loop_preflight`
-- ✅ 存在 `data/debug/slm_gs_refine`
+- ❌ 缺失 `data/debug/slm_gs_refine`
 - ❌ 缺失 `data/debug/slm_gs_refine/20261012_173710`
 - ❌ 缺失 `data/debug/slm_gs_refine/20261012_174456`
 - ❌ 缺失 `data/debug/slm_gs_refine/20261012_174627`
@@ -729,26 +762,26 @@
 - ❌ 缺失 `data/debug/slm_gs_refine/20261012_175929`
 - ❌ 缺失 `data/debug/slm_gs_refine/20261012_180222`
 - ❌ 缺失 `data/debug/slm_gs_refine/20261012_180222/forward_diagnostic.json`
-- ✅ 存在 `data/debug/slm_gs_refine/20261014_100441/replay/00_flat.npy`
-- ✅ 存在 `data/debug/slm_gs_refine/20261014_100441/replay/02_best.npy`
-- ✅ 存在 `data/debug/slm_gs_refine/20261014_143035/replay/00_flat.npy`
-- ✅ 存在 `data/debug/slm_gs_refine/20261014_143035/replay/02_best.npy`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261014_100441/replay/00_flat.npy`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261014_100441/replay/02_best.npy`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261014_143035/replay/00_flat.npy`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261014_143035/replay/02_best.npy`
 - ❌ 缺失 `data/debug/slm_gs_refine/20261014_{100441`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_205654/best_far_field.png`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_205654/slm_gs_refine_20261015_205654.pkl`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_205848/best_far_field.png`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_205848/slm_gs_refine_20261015_205848.pkl`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_210048/best_far_field.png`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_210048/slm_gs_refine_20261015_210048.pkl`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_210155/best_far_field.png`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_210155/slm_gs_refine_20261015_210155.pkl`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_211345/best_far_field.png`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_211345/best_phase.npy`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_211345/slm_gs_refine_20261015_211345.pkl`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_213818`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_213818/replay_uniformity`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_issue_comparison`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_issue_comparison/summary.json`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_205654/best_far_field.png`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_205654/slm_gs_refine_20261015_205654.pkl`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_205848/best_far_field.png`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_205848/slm_gs_refine_20261015_205848.pkl`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_210048/best_far_field.png`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_210048/slm_gs_refine_20261015_210048.pkl`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_210155/best_far_field.png`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_210155/slm_gs_refine_20261015_210155.pkl`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_211345/best_far_field.png`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_211345/best_phase.npy`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_211345/slm_gs_refine_20261015_211345.pkl`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_213818`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_213818/replay_uniformity`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_issue_comparison`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_issue_comparison/summary.json`
 - ❌ 缺失 `data/debug/slm_gs_refine/<ts`
 - ❌ 缺失 `data/debug/slm_gs_refine/<时间戳`
 - ❌ 缺失 `data/debug/slm_gs_refine/<运行时间`
@@ -759,7 +792,7 @@
 - ❌ 缺失 `data/debug/slm_model_compare/20261013_phase_bandwidth_trial/paired_holdouts.csv`
 - ❌ 缺失 `data/debug/slm_model_compare/20261013_psf_trial/paired_observable_holdouts.csv`
 - ❌ 缺失 `data/debug/slm_model_compare/20261014_5shape_seed_20261013_verified`
-- ✅ 存在 `data/debug/slm_model_in_loop`
+- ❌ 缺失 `data/debug/slm_model_in_loop`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261013_105911/bench_geometry.json`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261013_110921`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261013_111258`
@@ -804,28 +837,28 @@
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261014_refit_analysis/paired_holdouts.json`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261016_173002`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261016_174330`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_094121`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_094121/panel_scan`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_100334`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_100334/preflight/flat.npz`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_103208`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_103208/preflight/flat.npz`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_103259/preflight/flat.npz`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_103347/preflight/flat.npz`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_110323`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_110323/preflight/flat.npz`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_111359/preflight/flat.npz`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_111941`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_111941/preflight/flat.npz`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_094121`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_094121/panel_scan`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_100334`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_100334/preflight/flat.npz`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_103208`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_103208/preflight/flat.npz`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_103259/preflight/flat.npz`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_103347/preflight/flat.npz`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_110323`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_110323/preflight/flat.npz`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_111359/preflight/flat.npz`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_111941`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_111941/preflight/flat.npz`
 - ❌ 缺失 `data/debug/slm_model_in_loop/<ts`
 - ❌ 缺失 `data/debug/slm_model_in_loop/<时间戳`
-- ✅ 存在 `data/debug/slm_model_in_loop/exposure_drift_20261013_1547`
-- ✅ 存在 `data/debug/slm_model_in_loop/exposure_flat_20261013_191614`
-- ✅ 存在 `data/debug/slm_model_in_loop/panel_scan_20261013_2003`
-- ✅ 存在 `data/debug/slm_model_in_loop/panel_scan_fine_20261013_2005`
-- ✅ 存在 `data/debug/slm_model_in_loop/panel_scan_vertical_20261013_2007`
-- ✅ 存在 `data/debug/slm_model_in_loop/short_exposure_20261013_1553`
-- ✅ 存在 `data/debug/slm_model_in_loop/short_exposure_shaped_20261013_1558`
+- ❌ 缺失 `data/debug/slm_model_in_loop/exposure_drift_20261013_1547`
+- ❌ 缺失 `data/debug/slm_model_in_loop/exposure_flat_20261013_191614`
+- ❌ 缺失 `data/debug/slm_model_in_loop/panel_scan_20261013_2003`
+- ❌ 缺失 `data/debug/slm_model_in_loop/panel_scan_fine_20261013_2005`
+- ❌ 缺失 `data/debug/slm_model_in_loop/panel_scan_vertical_20261013_2007`
+- ❌ 缺失 `data/debug/slm_model_in_loop/short_exposure_20261013_1553`
+- ❌ 缺失 `data/debug/slm_model_in_loop/short_exposure_shaped_20261013_1558`
 - ❌ 缺失 `data/debug/slm_model_in_loop_replay`
 - ❌ 缺失 `data/debug/slm_model_in_loop_replay/20261013_154143`
 - ❌ 缺失 `data/debug/slm_model_in_loop_replay/20261013_160630_fixed040`
@@ -858,20 +891,38 @@
 - ❌ 缺失 `data/debug/slm_pib_online/<ts`
 - ❌ 缺失 `data/debug/slm_pib_pearson`
 - ❌ 缺失 `data/debug/slm_pib_shape_20260926_175334`
+- ✅ 存在 `data/debug/slm_transfer`
 - ❌ 缺失 `data/debug/slm_transfer/$(Get-Date`
 - ✅ 存在 `data/debug/slm_transfer/20261026_094555`
+- ✅ 存在 `data/debug/slm_transfer/20261104_192122/fit/frozen_parameters.json`
+- ✅ 存在 `data/debug/slm_transfer/20261107_135252`
+- ✅ 存在 `data/debug/slm_transfer/20261107_focus_scan/focus.json`
+- ❌ 缺失 `data/debug/slm_transfer/<dir`
 - ✅ 存在 `data/debug/slm_transfer/axial_plane_20261026/capture`
 - ❌ 缺失 `data/debug/slm_transfer/axial_plane_20261026/new_scan`
 - ✅ 存在 `data/debug/slm_transfer/carrier_probe_20261028/carrier_probe.json`
 - ✅ 存在 `data/debug/slm_transfer/cold_start_20261026_1004`
 - ✅ 存在 `data/debug/slm_transfer/cold_start_20261026_1004/random_no_abba/square_best.npy`
 - ✅ 存在 `data/debug/slm_transfer/cold_start_20261026_1004/selected_final/frozen_parameters.json`
+- ✅ 存在 `data/debug/slm_transfer/defocus_forward_20261107_focus_r2`
+- ✅ 存在 `data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit`
+- ✅ 存在 `data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit/forward_fit.json`
+- ✅ 存在 `data/debug/slm_transfer/gated_recurrent_20261107`
+- ✅ 存在 `data/debug/slm_transfer/gated_recurrent_20261107/REPORT.md`
+- ✅ 存在 `data/debug/slm_transfer/gated_recurrent_20261107/results.json`
+- ✅ 存在 `data/debug/slm_transfer/gated_recurrent_20261107/weights.pt`
+- ✅ 存在 `data/debug/slm_transfer/issue234_amp02_screen_20261107`
+- ✅ 存在 `data/debug/slm_transfer/issue234_amp05_screen_20261107`
+- ✅ 存在 `data/debug/slm_transfer/issue234_single_mode_screen_20261107`
+- ✅ 存在 `data/debug/slm_transfer/issue235_parity_20261107/parity_registration_scan.json`
 - ✅ 存在 `data/debug/slm_transfer/live_no_gs_20261024_0926`
 - ✅ 存在 `data/debug/slm_transfer/live_no_gs_20261024_0926/anchored`
 - ✅ 存在 `data/debug/slm_transfer/live_no_gs_20261024_0926/fit/frozen_parameters.json`
 - ✅ 存在 `data/debug/slm_transfer/live_no_gs_cv_20261024`
 - ✅ 存在 `data/debug/slm_transfer/live_no_gs_cv_anchored_20261024`
 - ✅ 存在 `data/debug/slm_transfer/live_no_gs_cv_anchored_20261024_analysis`
+- ✅ 存在 `data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1`
+- ✅ 存在 `data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1/results.json`
 - ✅ 存在 `data/debug/slm_transfer/multishape_nogs_20261029`
 - ✅ 存在 `data/debug/slm_transfer/multishape_nogs_20261029/lanes`
 - ✅ 存在 `data/debug/slm_transfer/multishape_nogs_20261029/p20261029`
@@ -914,24 +965,33 @@
 - ❌ 缺失 `data/debug/slm_zernike_shaping_rms_pib_20260926_162917/20260926_162917`
 - ❌ 缺失 `data/debug/slm_zernike_shaping_rmse_out_20260926_163121/20260926_163121`
 - ❌ 缺失 `data/debug/three_shape_reproduction/$tag`
-- ✅ 存在 `data/debug/three_shape_reproduction/offline_bootstrap_20261023`
-- ✅ 存在 `data/debug/transfer_integration/live_20261023`
-- ✅ 存在 `data/debug/transfer_integration/replay_20261023`
+- ❌ 缺失 `data/debug/three_shape_reproduction/offline_bootstrap_20261023`
+- ❌ 缺失 `data/debug/transfer_integration/live_20261023`
+- ❌ 缺失 `data/debug/transfer_integration/replay_20261023`
 - ❌ 缺失 `data/debug/transfer_multishape_experiment/capture_20261023_1905`
-- ✅ 存在 `data/debug/transfer_multishape_experiment/capture_20261023_1938`
-- ✅ 存在 `data/debug/transfer_repro_no_gs/block0`
-- ✅ 存在 `data/debug/transfer_repro_no_gs/block1`
+- ❌ 缺失 `data/debug/transfer_multishape_experiment/capture_20261023_1938`
+- ❌ 缺失 `data/debug/transfer_repro_no_gs/block0`
+- ❌ 缺失 `data/debug/transfer_repro_no_gs/block1`
 - ❌ 缺失 `data/debug/transfer_repro_no_gs/block{0`
+- ✅ 存在 `data/debug/transfer_uncertainty_20261104`
+- ✅ 存在 `data/debug/transfer_uncertainty_20261104/active/fit/frozen_parameters.json`
+- ✅ 存在 `data/debug/transfer_uncertainty_20261104/baseline/fit/frozen_parameters.json`
+- ✅ 存在 `data/debug/transfer_uncertainty_20261104/historical/frozen_parameters.json`
+- ✅ 存在 `data/debug/transfer_uncertainty_20261104/ideal/frozen_parameters.json`
+- ✅ 存在 `data/debug/transfer_uncertainty_20261104/ideal_fit/fit/frozen_parameters.json`
+- ✅ 存在 `data/debug/transfer_uncertainty_20261104/random/fit/frozen_parameters.json`
 - ❌ 缺失 `data/debug/uncertainty_probes_hw`
 - ❌ 缺失 `data/debug/uncertainty_probes_sim`
 - ❌ 缺失 `data/debug/uncertainty_selector_sweep`
-- ✅ 存在 `data/debug/validate_transfer_shapes/anchored_20261023_2002`
-- ✅ 存在 `data/debug/validate_transfer_shapes/anchored_20261023_2002/artifact_audit.json`
-- ✅ 存在 `data/debug/validate_transfer_shapes/anchored_20261023_2002/manifest.json`
-- ✅ 存在 `data/debug/validate_transfer_shapes/anchored_20261023_2002/summary.json`
-- ✅ 存在 `data/debug/validate_transfer_shapes/paired_20261023_1942`
-- ✅ 存在 `data/debug/validate_transfer_shapes/paired_20261023_1942/manifest.json`
+- ❌ 缺失 `data/debug/validate_transfer_shapes/anchored_20261023_2002`
+- ❌ 缺失 `data/debug/validate_transfer_shapes/anchored_20261023_2002/artifact_audit.json`
+- ❌ 缺失 `data/debug/validate_transfer_shapes/anchored_20261023_2002/manifest.json`
+- ❌ 缺失 `data/debug/validate_transfer_shapes/anchored_20261023_2002/summary.json`
+- ❌ 缺失 `data/debug/validate_transfer_shapes/paired_20261023_1942`
+- ❌ 缺失 `data/debug/validate_transfer_shapes/paired_20261023_1942/manifest.json`
 - ❌ 缺失 `data/debug/worktrees/model-in-loop-20261014`
+- ✅ 存在 `data/debug/zernike_probe_hardware/issue229/analysis/_harness_task2_run02.py`
+- ✅ 存在 `data/debug/zernike_probe_hardware/issue229/analysis/twin_gap`
 - ❌ 缺失 `data/debug_dedup_quarantine`
 - ❌ 缺失 `data/diff_beam/backprop_square_20260910_212934`
 - ❌ 缺失 `data/diff_beam/flat_tiff_20260911/flat_1200us.tiff/.npy`
@@ -956,7 +1016,7 @@
 - ❌ 缺失 `data/gsnet_train/run-20260929_225847/train_history.png`
 - ✅ 存在 `data/hw_index_cache.json`
 - ❌ 缺失 `data/hw_index_snapshot.json`
-- ✅ 存在 `data/md_test.zip`
+- ❌ 缺失 `data/md_test.zip`
 - ❌ 缺失 `data/md_test/md_img-100v/192.168.0.114/192.168.0.114-000.png`
 - ❌ 缺失 `data/md_test/md_img-100v/192.168.0.114/192.168.0.114-001.png`
 - ❌ 缺失 `data/md_test/md_img-100v/192.168.0.114/192.168.0.114-002.png`
@@ -1052,10 +1112,13 @@
 ### report/README.md
 
 - ✅ 存在 `data/debug`
-- ✅ 存在 `data/debug/slm_gs_refine`
+- ❌ 缺失 `data/debug/slm_gs_refine`
 - ❌ 缺失 `data/debug/slm_gs_refine/20261014_{100441`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_issue_comparison`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_issue_comparison`
 - ❌ 缺失 `data/debug/slm_pib_online`
+- ✅ 存在 `data/debug/slm_transfer/gated_recurrent_20261107/results.json`
+- ✅ 存在 `data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1/results.json`
+- ✅ 存在 `data/debug/slm_transfer/phase_scope_20261107`
 - ❌ 缺失 `data/gsnet_train/run-`
 - ❌ 缺失 `data/shape_trials/blackbox_path_`
 - ❌ 缺失 `data/zernike_correction/raw_scan_`
@@ -1097,12 +1160,12 @@
 
 ### report/shape_trials/defocus_differentiable/defocus_differentiable_20261023.md
 
-- ✅ 存在 `data/debug/defocus_differentiable/20261023_101822`
-- ✅ 存在 `data/debug/defocus_differentiable/20261023_101822/manifest_checksums.json`
+- ❌ 缺失 `data/debug/defocus_differentiable/20261023_101822`
+- ❌ 缺失 `data/debug/defocus_differentiable/20261023_101822/manifest_checksums.json`
 
 ### report/shape_trials/defocus_differentiable/defocus_differentiable_20261023_r2.md
 
-- ✅ 存在 `data/debug/physical_forward_defocus/alignment_20261022_1812/focus.json`
+- ❌ 缺失 `data/debug/physical_forward_defocus/alignment_20261022_1812/focus.json`
 
 ### report/shape_trials/defocus_differentiable/multishape_forward_plan_20261023.md
 
@@ -1110,8 +1173,93 @@
 
 ### report/shape_trials/defocus_differentiable_test_plan_20261023.md
 
-- ✅ 存在 `data/debug/defocus_differentiable/20261023_101822`
+- ❌ 缺失 `data/debug/defocus_differentiable/20261023_101822`
 - ❌ 缺失 `data/debug/defocus_differentiable/<本地时间戳`
+
+### report/shape_trials/experience_review/artifacts/source_inventory.json
+
+- ✅ 存在 `data/debug`
+- ❌ 缺失 `data/debug/<脚本名`
+- ❌ 缺失 `data/debug/analyze_transfer_response/ladder_20261023_1952`
+- ❌ 缺失 `data/debug/calibrate_transfer_blur/shapes_20261023_1956`
+- ❌ 缺失 `data/debug/calibrate_transfer_blur/shapes_20261023_1956/frozen_parameters.json`
+- ✅ 存在 `data/debug/continuous_cone_scan_20261103/scan.json`
+- ❌ 缺失 `data/debug/fit_transfer_multishape/current_20261023_1933`
+- ❌ 缺失 `data/debug/gsnet_hybrid/20261013_092934`
+- ❌ 缺失 `data/debug/gsnet_hybrid/20261013_093042`
+- ❌ 缺失 `data/debug/gsnet_hybrid/20261013_100342`
+- ❌ 缺失 `data/debug/gsnet_hybrid_infer/20261013_100454_477105`
+- ❌ 缺失 `data/debug/light_level_probe`
+- ✅ 存在 `data/debug/local_forward_cone_20261103_2242b`
+- ✅ 存在 `data/debug/local_forward_ring_20261103_2230`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_164549/baseline_a/stage.log`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_170646/baseline_a/slm_model_in_loop/20261021_170726/panel_scan/summary.json`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_170646/baseline_a/stage.log`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/failure.json`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/handoff_summary.json`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/large_1000/stage.log`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261022_133250`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261022_{133250`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/<会话`
+- ✅ 存在 `data/debug/model_in_loop_hw_collect`
+- ✅ 存在 `data/debug/optical_path_probe`
+- ✅ 存在 `data/debug/optical_path_probe/20261022_084725Z/optical_path_probe.json`
+- ✅ 存在 `data/debug/optical_path_probe/20261028_083057Z`
+- ❌ 缺失 `data/debug/physical_forward_defocus/sampling_followup_evidence_20261022.json`
+- ✅ 存在 `data/debug/sim2f_fov`
+- ✅ 存在 `data/debug/sim2f_fov_calib`
+- ✅ 存在 `data/debug/sim2f_fov_hw_20261102`
+- ✅ 存在 `data/debug/sim2f_shape_trials_production_20261102_supported`
+- ❌ 缺失 `data/debug/slm_flat_stability/20261015_152929`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261012_174456`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261012_174627`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261012_180222`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_issue_comparison`
+- ❌ 缺失 `data/debug/slm_model_compare/20261013_1943_seed_20261013`
+- ❌ 缺失 `data/debug/slm_model_compare/20261014_5shape_seed_20261013_verified`
+- ❌ 缺失 `data/debug/slm_model_in_loop`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261014_refit_analysis/paired_holdouts.json`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_103208`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_110323`
+- ❌ 缺失 `data/debug/slm_pib_online/<ts`
+- ✅ 存在 `data/debug/slm_transfer/live_no_gs_cv_20261024`
+- ✅ 存在 `data/debug/slm_transfer/live_no_gs_cv_anchored_20261024`
+- ✅ 存在 `data/debug/slm_transfer/live_no_gs_cv_anchored_20261024_analysis`
+- ❌ 缺失 `data/debug/slm_zernike_`
+- ❌ 缺失 `data/debug/three_shape_reproduction/offline_bootstrap_20261023`
+- ❌ 缺失 `data/debug/validate_transfer_shapes/anchored_20261023_2002/artifact_audit.json`
+- ❌ 缺失 `data/debug_dedup_quarantine`
+- ❌ 缺失 `data/diff_beam/backprop_square_20260910_212934`
+- ❌ 缺失 `data/gs_refine_live_20261012/panel_locate_23020027_005ms`
+- ❌ 缺失 `data/gs_refine_live_20261012/replay_23020027_005ms`
+- ❌ 缺失 `data/gs_refine_live_20261012/weighted_gs_005ms`
+- ✅ 存在 `data/shape_trials/blackbox_replay_20261029_212302`
+- ❌ 缺失 `data/sim_calib/freeform_transfer_hw.npz`
+- ❌ 缺失 `report/data/debug/slm_disturbance_compare/20261013_165039`
+- ❌ 缺失 `report/data/debug/slm_exposure_analysis/20261013_1935/analysis_pixelwise.json`
+- ❌ 缺失 `report/data/debug/slm_model_compare/20261013_psf_trial/paired_observable_holdouts.csv`
+- ❌ 缺失 `report/data/debug/slm_model_in_loop/20261013_114650`
+- ❌ 缺失 `report/data/debug/slm_model_in_loop/20261013_152341/panel_scan`
+- ❌ 缺失 `report/data/debug/slm_model_in_loop/20261013_210403/preflight`
+- ❌ 缺失 `report/data/debug/slm_model_in_loop/exposure_drift_20261013_1547`
+- ❌ 缺失 `report/data/debug/slm_model_in_loop/panel_scan_20261013_2003`
+- ❌ 缺失 `report/data/debug/slm_model_in_loop/panel_scan_fine_20261013_2005`
+- ❌ 缺失 `report/data/debug/slm_model_in_loop/panel_scan_vertical_20261013_2007`
+- ❌ 缺失 `report/data/debug/slm_model_in_loop_replay/20261013_154143`
+- ❌ 缺失 `report/data/debug/slm_model_in_loop_replay/20261013_1733_four_vs_two`
+- ❌ 缺失 `report/data/debug/slm_model_in_loop_replay/20261013_1748_disturbed_four_vs_two`
+- ❌ 缺失 `report/data/debug/slm_model_in_loop_replay/20261013_2013_warm_vs_cold`
+
+### report/shape_trials/experience_review/artifacts/source_inventory.md
+
+- ✅ 存在 `data/debug`
+
+### report/shape_trials/experience_review/shaping_experience_20261103.md
+
+- ✅ 存在 `data/debug/local_forward_cone_20261103_2242b`
+- ✅ 存在 `data/debug/local_forward_cone_full_hw_20261104_1130`
+- ✅ 存在 `data/debug/local_forward_cone_hw_20261104_1115`
+- ✅ 存在 `data/debug/local_forward_ring_20261103_2230`
 
 ### report/shape_trials/experiment_summary_20261016.md
 
@@ -1126,20 +1274,41 @@
 
 ### report/shape_trials/experiment_summary_20261022.md
 
-- ✅ 存在 `data/debug/light_level_probe`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261022_133250`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261022_164859/baseline_a/stage.log`
+- ❌ 缺失 `data/debug/light_level_probe`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261022_133250`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261022_164859/baseline_a/stage.log`
 - ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261022_{133250`
 - ❌ 缺失 `data/debug/model_in_loop_hw_ab/<会话`
 - ✅ 存在 `data/debug/optical_path_probe`
 - ✅ 存在 `data/debug/optical_path_probe/20261022_084725Z`
 - ✅ 存在 `data/debug/optical_path_probe/20261022_084725Z/optical_path_probe.json`
 
+### report/shape_trials/forward_model_polarity/forward_model_polarity_20261107.md
+
+- ✅ 存在 `data/debug/slm_transfer`
+- ✅ 存在 `data/debug/slm_transfer/20261107_focus_scan/focus.json`
+- ✅ 存在 `data/debug/slm_transfer/gated_recurrent_20261107`
+- ✅ 存在 `data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1`
+
+### report/shape_trials/fov_generalization/fov_generalization_20261101.md
+
+- ✅ 存在 `data/debug`
+- ✅ 存在 `data/debug/sim2f_fov`
+- ✅ 存在 `data/debug/sim2f_fov/analysis`
+- ✅ 存在 `data/debug/sim2f_fov_calib`
+- ✅ 存在 `data/debug/sim2f_fov_calib/calibration`
+
+### report/shape_trials/gated_recurrent_20261107/gated_recurrent_20261107.md
+
+- ✅ 存在 `data/debug/slm_transfer/gated_recurrent_20261107/REPORT.md`
+- ✅ 存在 `data/debug/slm_transfer/gated_recurrent_20261107/results.json`
+- ✅ 存在 `data/debug/slm_transfer/gated_recurrent_20261107/weights.pt`
+
 ### report/shape_trials/gs_refine/gs_issue_live_20261015.md
 
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_issue_comparison`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_issue_comparison/summary.json`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_issue_comparison`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_issue_comparison/summary.json`
 
 ### report/shape_trials/gs_refine/gs_refine_live_20261012.md
 
@@ -1166,9 +1335,9 @@
 ### report/shape_trials/gs_refine/gs_uniformity_live_20261015.md
 
 - ❌ 缺失 `data/debug/gs_phase_uniformity/20261015_gradient_probe_1`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_211345/best_phase.npy`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_213818`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_213818/replay_uniformity`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_211345/best_phase.npy`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_213818`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_213818/replay_uniformity`
 
 ### report/shape_trials/gs_refine/gsnet_hybrid_offline_20261013.md
 
@@ -1188,7 +1357,7 @@
 
 ### report/shape_trials/gs_refine_fwdmodel/gs_refine_fwdmodel_calibration.md
 
-- ✅ 存在 `data/debug/slm_gs_refine`
+- ❌ 缺失 `data/debug/slm_gs_refine`
 
 ### report/shape_trials/gs_refine_zernike/gs_refine_zernike_uniformity.md
 
@@ -1196,28 +1365,28 @@
 
 ### report/shape_trials/gui_closed_loop_shaping/gui_closed_loop_shaping_20261014.md
 
-- ✅ 存在 `data/debug/slm_gs_refine/20261014_100441/replay/00_flat.npy`
-- ✅ 存在 `data/debug/slm_gs_refine/20261014_100441/replay/02_best.npy`
-- ✅ 存在 `data/debug/slm_gs_refine/20261014_143035/replay/00_flat.npy`
-- ✅ 存在 `data/debug/slm_gs_refine/20261014_143035/replay/02_best.npy`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261014_100441/replay/00_flat.npy`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261014_100441/replay/02_best.npy`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261014_143035/replay/00_flat.npy`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261014_143035/replay/02_best.npy`
 - ❌ 缺失 `data/debug/slm_gs_refine/20261014_{100441`
 - ❌ 缺失 `data/debug/slm_gs_refine/<时间戳`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/plan_20261021.json
 
-- ✅ 存在 `data/debug/hw_groups_20261021`
-- ✅ 存在 `data/debug/hw_groups_20261021/focus_calibration`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax11/phase_nmax11.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax15/phase_nmax15.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax20/phase_nmax20.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax25/phase_nmax25.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax3/phase_nmax3.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/best_phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax6/phase_nmax6.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax8/phase_nmax8.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261021`
+- ❌ 缺失 `data/debug/hw_groups_20261021/focus_calibration`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax11/phase_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax15/phase_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax20/phase_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax25/phase_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax3/phase_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/best_phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax6/phase_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax8/phase_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1/stage_a.npz`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_2/stage_a.npz`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_3/stage_a.npz`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_4/stage_a.npz`
@@ -1226,61 +1395,61 @@
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/plan_20261022.json
 
-- ✅ 存在 `data/debug/hw_groups_20261022`
-- ✅ 存在 `data/debug/hw_groups_20261022/focus_calibration`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/phase_nmax11.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/phase_nmax15.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/phase_nmax20.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/phase_nmax25.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/phase_nmax3.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/phase_nmax6.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/phase_nmax8.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022`
+- ❌ 缺失 `data/debug/hw_groups_20261022/focus_calibration`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/phase_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/phase_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/phase_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/phase_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/phase_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/phase_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/phase_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/README.md
 
 - ✅ 存在 `data/debug`
-- ✅ 存在 `data/debug/_quarantine_20261022_mixed`
-- ✅ 存在 `data/debug/hw_groups_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/_quarantine_20261022_mixed`
+- ❌ 缺失 `data/debug/hw_groups_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round1_20261020/hw_groups_20261020/dz_noise_hw_gs/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261020`
+- ❌ 缺失 `data/debug/hw_groups_20261020`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261020b/best_phase_nmax4.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round1_20261020/hw_groups_20261020/dz_scan_hw_gs/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261020`
+- ❌ 缺失 `data/debug/hw_groups_20261020`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261020b/best_phase_nmax4.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round1_20261020/hw_groups_20261020/dz_scan_model_gs/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261020`
+- ❌ 缺失 `data/debug/hw_groups_20261020`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round1_20261020/hw_groups_20261020/groups_manifest.json
 
-- ✅ 存在 `data/debug/hw_groups_20261020`
+- ❌ 缺失 `data/debug/hw_groups_20261020`
 - ❌ 缺失 `data/debug/hw_groups_20261020/dz_noise_hw_gs`
-- ✅ 存在 `data/debug/hw_groups_20261020/dz_scan_hw_gs`
-- ✅ 存在 `data/debug/hw_groups_20261020/dz_scan_model_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261020/dz_scan_hw_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261020/dz_scan_model_gs`
 - ❌ 缺失 `data/debug/hw_groups_20261020/n`
-- ✅ 存在 `data/debug/hw_groups_20261020/plan_all.json`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax11.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax15.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax20.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax25.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax6.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/plan_all.json`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax8.npy`
 - ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield_nmax11`
 - ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield_nmax11/n变量组`
 - ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield_nmax15`
@@ -1300,44 +1469,44 @@
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round1_20261020/hw_groups_20261020/plan.json
 
-- ✅ 存在 `data/debug/hw_groups_20261020`
+- ❌ 缺失 `data/debug/hw_groups_20261020`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261020b/best_phase_nmax4.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round1_20261020/hw_groups_20261020/plan_all.json
 
-- ✅ 存在 `data/debug/hw_groups_20261020`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax11.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax15.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax20.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax25.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax3.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax6.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax8.npy`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261020b`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261020b/best_phase_nmax4.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round1_20261020/hw_groups_20261020/plan_zernike_farfield.json
 
-- ✅ 存在 `data/debug/hw_groups_20261020`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax11.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax15.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax20.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax25.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax3.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax6.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax8.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round1_20261020/hw_groups_20261020/zernike_farfield_nmax3/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261020`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax3.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round1_20261020/hw_groups_20261020/zernike_farfield_nmax4/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261020`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax4.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round1_20261020/hw_zernike_sweep_20261020b/summary.json
 
@@ -1345,31 +1514,31 @@
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_groups_20261021/dz_noise_hw_gs/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/best_phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/best_phase_nmax4.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_groups_20261021/dz_scan_hw_gs/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/best_phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/best_phase_nmax4.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_groups_20261021/dz_scan_model_gs/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261021`
+- ❌ 缺失 `data/debug/hw_groups_20261021`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_groups_20261021/groups_manifest.json
 
-- ✅ 存在 `data/debug/hw_groups_20261021`
+- ❌ 缺失 `data/debug/hw_groups_20261021`
 - ❌ 缺失 `data/debug/hw_groups_20261021/dz_noise_hw_gs`
 - ❌ 缺失 `data/debug/hw_groups_20261021/dz_noise_hw_gs/n分组清单`
-- ✅ 存在 `data/debug/hw_groups_20261021/dz_scan_hw_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261021/dz_scan_hw_gs`
 - ❌ 缺失 `data/debug/hw_groups_20261021/dz_scan_hw_gs/n分组清单`
-- ✅ 存在 `data/debug/hw_groups_20261021/dz_scan_model_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261021/dz_scan_model_gs`
 - ❌ 缺失 `data/debug/hw_groups_20261021/dz_scan_model_gs/n分组清单`
-- ✅ 存在 `data/debug/hw_groups_20261021/focus_calibration`
+- ❌ 缺失 `data/debug/hw_groups_20261021/focus_calibration`
 - ❌ 缺失 `data/debug/hw_groups_20261021/manifest.json/n`
 - ❌ 缺失 `data/debug/hw_groups_20261021/n曝光`
-- ✅ 存在 `data/debug/hw_groups_20261021/plan.json`
+- ❌ 缺失 `data/debug/hw_groups_20261021/plan.json`
 - ❌ 缺失 `data/debug/hw_groups_20261021/zernike_farfield_nmax11`
 - ❌ 缺失 `data/debug/hw_groups_20261021/zernike_farfield_nmax11/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261021/zernike_farfield_nmax11/n变量组`
@@ -1394,55 +1563,55 @@
 - ❌ 缺失 `data/debug/hw_groups_20261021/zernike_farfield_nmax8`
 - ❌ 缺失 `data/debug/hw_groups_20261021/zernike_farfield_nmax8/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261021/zernike_farfield_nmax8/n变量组`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax11`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax11/phase_nmax11.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax15`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax15/phase_nmax15.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax20`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax20/phase_nmax20.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax25`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax25/phase_nmax25.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax3`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax3/phase_nmax3.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/best_phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax6`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax6/phase_nmax6.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax8`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax8/phase_nmax8.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax11`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax11/phase_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax15`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax15/phase_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax20`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax20/phase_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax25`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax25/phase_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax3`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax3/phase_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/best_phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax6`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax6/phase_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax8`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax8/phase_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1/stage_a.json/n[done`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_2`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_2`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_2/stage_a.npz`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_2/stage_a.npz/n`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_3`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_3`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_3/stage_a.npz`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_3/stage_a.npz/n`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_4`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_4`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_4/stage_a.npz`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_4/stage_a.npz/n`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_5`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_5`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_5/stage_a.npz`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_5/stage_a.npz/n`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_6`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_6`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_6/stage_a.npz`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_6/stage_a.npz/n`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_groups_20261021/groups_manifest_failed_round.json
 
-- ✅ 存在 `data/debug/hw_groups_20261021`
+- ❌ 缺失 `data/debug/hw_groups_20261021`
 - ❌ 缺失 `data/debug/hw_groups_20261021/dz_noise_hw_gs`
 - ❌ 缺失 `data/debug/hw_groups_20261021/dz_noise_hw_gs/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261021/dz_scan_hw_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261021/dz_scan_hw_gs`
 - ❌ 缺失 `data/debug/hw_groups_20261021/dz_scan_hw_gs/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261021/dz_scan_model_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261021/dz_scan_model_gs`
 - ❌ 缺失 `data/debug/hw_groups_20261021/dz_scan_model_gs/n变量组`
 - ❌ 缺失 `data/debug/hw_groups_20261021/n`
-- ✅ 存在 `data/debug/hw_groups_20261021/plan.json`
+- ❌ 缺失 `data/debug/hw_groups_20261021/plan.json`
 - ❌ 缺失 `data/debug/hw_groups_20261021/zernike_farfield/phases/phase_nmax11.npy`
 - ❌ 缺失 `data/debug/hw_groups_20261021/zernike_farfield/phases/phase_nmax15.npy`
 - ❌ 缺失 `data/debug/hw_groups_20261021/zernike_farfield/phases/phase_nmax20.npy`
@@ -1467,30 +1636,30 @@
 - ❌ 缺失 `data/debug/hw_groups_20261021/zernike_farfield_nmax6/n变量组`
 - ❌ 缺失 `data/debug/hw_groups_20261021/zernike_farfield_nmax8`
 - ❌ 缺失 `data/debug/hw_groups_20261021/zernike_farfield_nmax8/n变量组`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/best_phase_nmax4.npy`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order/best_phase_nmax4.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_groups_20261021/manifest.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/best_phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/best_phase_nmax4.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_groups_20261021/plan.json
 
-- ✅ 存在 `data/debug/hw_groups_20261021`
-- ✅ 存在 `data/debug/hw_groups_20261021/focus_calibration`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax11/phase_nmax11.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax15/phase_nmax15.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax20/phase_nmax20.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax25/phase_nmax25.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax3/phase_nmax3.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/best_phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax6/phase_nmax6.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax8/phase_nmax8.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261021`
+- ❌ 缺失 `data/debug/hw_groups_20261021/focus_calibration`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax11/phase_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax15/phase_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax20/phase_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax25/phase_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax3/phase_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/best_phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax6/phase_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax8/phase_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1/stage_a.npz`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_2/stage_a.npz`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_3/stage_a.npz`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_4/stage_a.npz`
@@ -1499,629 +1668,629 @@
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_groups_20261021/zernike_farfield_nmax11/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax11/phase_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax11/phase_nmax11.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_groups_20261021/zernike_farfield_nmax15/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax15/phase_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax15/phase_nmax15.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_groups_20261021/zernike_farfield_nmax20/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax20/phase_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax20/phase_nmax20.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_groups_20261021/zernike_farfield_nmax25/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax25/phase_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax25/phase_nmax25.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_groups_20261021/zernike_farfield_nmax3/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax3/phase_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax3/phase_nmax3.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_groups_20261021/zernike_farfield_nmax4/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/phase_nmax4.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_groups_20261021/zernike_farfield_nmax6/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax6/phase_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax6/phase_nmax6.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_groups_20261021/zernike_farfield_nmax8/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax8/phase_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax8/phase_nmax8.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_zernike_sweep_20261021/zernike_order_nmax11/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_zernike_sweep_20261021/zernike_order_nmax15/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_zernike_sweep_20261021/zernike_order_nmax20/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_zernike_sweep_20261021/zernike_order_nmax25/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_zernike_sweep_20261021/zernike_order_nmax3/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_zernike_sweep_20261021/zernike_order_nmax4/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_zernike_sweep_20261021/zernike_order_nmax6/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_zernike_sweep_20261021/zernike_order_nmax8/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_zernike_sweep_20261021/zernike_stage_a/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_zernike_sweep_20261021/zernike_stage_a_1/stage_a.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round2_20261021/hw_zernike_sweep_20261021/zernike_stage_a_1/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/archive_manifest.json
 
-- ✅ 存在 `data/debug/hw_groups_20261022`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_002.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_003.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_004.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_005.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_006.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_007.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_008.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_009.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/measurements.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs/run_config.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_002.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_003.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_004.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_005.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_006.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_007.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_008.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_009.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_010.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_011.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_012.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_013.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_014.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_015.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_016.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_017.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_018.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_019.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_020.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_021.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_022.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_023.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/measurements.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs/run_config.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_002.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_003.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_004.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_005.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_006.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_007.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_008.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_009.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_010.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_011.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_012.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_013.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_014.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_015.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_016.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_017.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_018.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_019.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_020.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_021.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_022.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_023.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_024.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_025.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_026.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_027.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_028.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_029.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/measurements.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs/run_config.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/focus_calibration`
-- ✅ 存在 `data/debug/hw_groups_20261022/focus_calibration/slm1_20261022_105213.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/focus_calibration/slm1_20261022_115811.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/focus_calibration/slm1_20261022_142207.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/groups_manifest.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/manifest.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/plan.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/measurements.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/run_config.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/measurements.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/run_config.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/measurements.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/run_config.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/measurements.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/run_config.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/measurements.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/run_config.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/measurements.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/run_config.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/measurements.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/run_config.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/frame_000.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/frame_001.npz`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/hw_summary.png`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/measurements.csv`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/measurements.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/run_config.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/manifest.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/after_nmax11.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/baseline_flat.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/baseline_gs_freeform.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/before_nmax11.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/best_phase_nmax11.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/fit_coefficients_nmax11.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/phase_nmax11.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/spgd_nmax11.csv`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/after_nmax15.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/baseline_flat.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/baseline_gs_freeform.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/before_nmax15.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/best_phase_nmax15.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/fit_coefficients_nmax15.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/phase_nmax15.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/spgd_nmax15.csv`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/after_nmax20.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/baseline_flat.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/baseline_gs_freeform.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/before_nmax20.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/best_phase_nmax20.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/fit_coefficients_nmax20.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/phase_nmax20.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/spgd_nmax20.csv`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/after_nmax25.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/baseline_flat.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/baseline_gs_freeform.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/before_nmax25.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/best_phase_nmax25.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/fit_coefficients_nmax25.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/phase_nmax25.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/spgd_nmax25.csv`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/after_nmax3.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/baseline_flat.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/baseline_gs_freeform.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/before_nmax3.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/best_phase_nmax3.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/fit_coefficients_nmax3.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/phase_nmax3.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/spgd_nmax3.csv`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/after_nmax4.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/baseline_flat.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/baseline_gs_freeform.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/before_nmax4.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/fit_coefficients_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/spgd_nmax4.csv`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/after_nmax6.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/baseline_flat.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/baseline_gs_freeform.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/before_nmax6.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/best_phase_nmax6.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/fit_coefficients_nmax6.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/phase_nmax6.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/spgd_nmax6.csv`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/after_nmax8.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/baseline_flat.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/baseline_gs_freeform.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/before_nmax8.png`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/best_phase_nmax8.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/fit_coefficients_nmax8.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/phase_nmax8.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/spgd_nmax8.csv`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/summary.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/summary.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_002.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_003.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_004.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_005.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_006.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_007.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_008.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_009.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/run_config.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_002.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_003.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_004.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_005.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_006.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_007.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_008.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_009.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_010.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_011.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_012.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_013.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_014.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_015.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_016.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_017.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_018.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_019.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_020.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_021.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_022.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_023.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/run_config.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_002.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_003.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_004.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_005.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_006.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_007.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_008.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_009.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_010.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_011.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_012.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_013.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_014.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_015.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_016.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_017.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_018.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_019.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_020.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_021.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_022.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_023.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_024.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_025.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_026.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_027.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_028.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/frame_029.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/run_config.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/focus_calibration`
+- ❌ 缺失 `data/debug/hw_groups_20261022/focus_calibration/slm1_20261022_105213.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/focus_calibration/slm1_20261022_115811.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/focus_calibration/slm1_20261022_142207.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/groups_manifest.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/manifest.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/plan.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/run_config.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/run_config.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/run_config.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/run_config.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/run_config.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/run_config.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/run_config.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/hw_summary.png`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/measurements.csv`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/measurements.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/run_config.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/manifest.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/after_nmax11.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/baseline_flat.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/baseline_gs_freeform.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/before_nmax11.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/best_phase_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/fit_coefficients_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/phase_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/spgd_nmax11.csv`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/after_nmax15.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/baseline_flat.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/baseline_gs_freeform.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/before_nmax15.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/best_phase_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/fit_coefficients_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/phase_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/spgd_nmax15.csv`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/after_nmax20.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/baseline_flat.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/baseline_gs_freeform.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/before_nmax20.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/best_phase_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/fit_coefficients_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/phase_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/spgd_nmax20.csv`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/after_nmax25.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/baseline_flat.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/baseline_gs_freeform.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/before_nmax25.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/best_phase_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/fit_coefficients_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/phase_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/spgd_nmax25.csv`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/after_nmax3.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/baseline_flat.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/baseline_gs_freeform.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/before_nmax3.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/best_phase_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/fit_coefficients_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/phase_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/spgd_nmax3.csv`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/after_nmax4.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/baseline_flat.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/baseline_gs_freeform.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/before_nmax4.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/fit_coefficients_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/spgd_nmax4.csv`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/after_nmax6.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/baseline_flat.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/baseline_gs_freeform.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/before_nmax6.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/best_phase_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/fit_coefficients_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/phase_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/spgd_nmax6.csv`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/after_nmax8.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/baseline_flat.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/baseline_gs_freeform.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/before_nmax8.png`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/best_phase_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/fit_coefficients_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/phase_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/spgd_nmax8.csv`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/summary.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/summary.json`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/dz_noise_hw_gs/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/dz_scan_hw_gs/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/dz_scan_model_gs/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261022`
+- ❌ 缺失 `data/debug/hw_groups_20261022`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/groups_manifest.json
 
-- ✅ 存在 `data/debug/hw_groups_20261022`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_noise_hw_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261022`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs`
 - ❌ 缺失 `data/debug/hw_groups_20261022/dz_noise_hw_gs/n分组清单`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs`
 - ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs/n分组清单`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs`
 - ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs/n分组清单`
-- ✅ 存在 `data/debug/hw_groups_20261022/focus_calibration`
+- ❌ 缺失 `data/debug/hw_groups_20261022/focus_calibration`
 - ❌ 缺失 `data/debug/hw_groups_20261022/manifest.json/n`
 - ❌ 缺失 `data/debug/hw_groups_20261022/n曝光`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax11`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax11`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax11/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax15`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax15`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax15/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax20`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax20`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax20/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax25`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax25`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax25/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax3`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax3`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax3/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax4`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax4`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax4/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax6`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax6`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax6/n变量组`
-- ✅ 存在 `data/debug/hw_groups_20261022/zernike_farfield_nmax8`
+- ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax8`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/n分组清单`
 - ❌ 缺失 `data/debug/hw_groups_20261022/zernike_farfield_nmax8/n变量组`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/phase_nmax11.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/phase_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/phase_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/phase_nmax15.npy`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/summary.json/n`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/phase_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/phase_nmax20.npy`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/summary.json/n`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/phase_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/phase_nmax25.npy`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/summary.json/n`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/phase_nmax3.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/phase_nmax6.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/phase_nmax8.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/phase_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/phase_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/phase_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/manifest.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/plan.json
 
-- ✅ 存在 `data/debug/hw_groups_20261022`
-- ✅ 存在 `data/debug/hw_groups_20261022/focus_calibration`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/phase_nmax11.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/phase_nmax15.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/phase_nmax20.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/phase_nmax25.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/phase_nmax3.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/phase_nmax6.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/phase_nmax8.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261022`
+- ❌ 缺失 `data/debug/hw_groups_20261022/focus_calibration`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/phase_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/phase_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/phase_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/phase_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/phase_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/phase_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/phase_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax11/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/phase_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/phase_nmax11.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax15/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/phase_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/phase_nmax15.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax20/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/phase_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/phase_nmax20.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax25/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/phase_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/phase_nmax25.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax3/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/phase_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/phase_nmax3.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax4/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/phase_nmax4.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax6/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/phase_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/phase_nmax6.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax8/run_config.json
 
-- ✅ 存在 `data/debug/hw_groups_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/phase_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/phase_nmax8.npy`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax11/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax15/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax20/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax25/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax3/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax4/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax6/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax8/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_1/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_2/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_3/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_4/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_5/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_6/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_7/summary.json
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.npz`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
 
 ### report/shape_trials/hw_defocus_zernike/hw_defocus_zernike_20261020.md
 
 - ❌ 缺失 `data/debug/bench_settings/focus_probe/slm1_20261020_093932.json`
-- ✅ 存在 `data/debug/hw_groups_20261020`
-- ✅ 存在 `data/debug/hw_groups_20261020/dz_scan_hw_gs`
-- ✅ 存在 `data/debug/hw_groups_20261020/dz_scan_model_gs`
-- ✅ 存在 `data/debug/hw_groups_20261020/groups_manifest.json`
-- ✅ 存在 `data/debug/hw_groups_20261020/plan_all.json`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax11.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax15.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax20.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax25.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax6.npy`
-- ✅ 存在 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020`
+- ❌ 缺失 `data/debug/hw_groups_20261020/dz_scan_hw_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261020/dz_scan_model_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261020/groups_manifest.json`
+- ❌ 缺失 `data/debug/hw_groups_20261020/plan_all.json`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax8.npy`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261020b`
 
 ### report/shape_trials/hw_defocus_zernike/hw_defocus_zernike_20261021.md
 
-- ✅ 存在 `data/debug/hw_groups_20261021`
-- ✅ 存在 `data/debug/hw_groups_20261021/dz_scan_hw_gs`
-- ✅ 存在 `data/debug/hw_groups_20261021/dz_scan_model_gs`
-- ✅ 存在 `data/debug/hw_groups_20261021/focus_calibration`
-- ✅ 存在 `data/debug/hw_groups_20261021/focus_calibration/slm1_20261021_154749.json`
-- ✅ 存在 `data/debug/hw_groups_20261021/groups_manifest.json`
-- ✅ 存在 `data/debug/hw_groups_20261021/plan.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax11/phase_nmax11.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax15/phase_nmax15.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax20/phase_nmax20.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax25/phase_nmax25.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax3/phase_nmax3.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/best_phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax6/phase_nmax6.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax8/phase_nmax8.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1/stage_a.npz`
+- ❌ 缺失 `data/debug/hw_groups_20261021`
+- ❌ 缺失 `data/debug/hw_groups_20261021/dz_scan_hw_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261021/dz_scan_model_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261021/focus_calibration`
+- ❌ 缺失 `data/debug/hw_groups_20261021/focus_calibration/slm1_20261021_154749.json`
+- ❌ 缺失 `data/debug/hw_groups_20261021/groups_manifest.json`
+- ❌ 缺失 `data/debug/hw_groups_20261021/plan.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax11/phase_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax15/phase_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax20/phase_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax25/phase_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax3/phase_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/best_phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax6/phase_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_order_nmax8/phase_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_1/stage_a.npz`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_2/stage_a.npz`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_3/stage_a.npz`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261021/zernike_stage_a_4/stage_a.npz`
@@ -2130,218 +2299,258 @@
 
 ### report/shape_trials/hw_defocus_zernike/hw_defocus_zernike_20261022.md
 
-- ✅ 存在 `data/debug/_quarantine_20261022_mixed/hw_zernike_sweep_20261022/zernike_order_nmax3/summary.json`
-- ✅ 存在 `data/debug/hw_groups_20261022`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_hw_gs`
-- ✅ 存在 `data/debug/hw_groups_20261022/dz_scan_model_gs`
-- ✅ 存在 `data/debug/hw_groups_20261022/focus_calibration`
-- ✅ 存在 `data/debug/hw_groups_20261022/focus_calibration/slm1_20261022_142207.json`
-- ✅ 存在 `data/debug/hw_groups_20261022/groups_manifest.json`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/phase_nmax11.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/phase_nmax15.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/phase_nmax20.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/phase_nmax25.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/phase_nmax3.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/phase_nmax4.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/phase_nmax6.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/phase_nmax8.npy`
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
+- ❌ 缺失 `data/debug/_quarantine_20261022_mixed/hw_zernike_sweep_20261022/zernike_order_nmax3/summary.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_hw_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261022/dz_scan_model_gs`
+- ❌ 缺失 `data/debug/hw_groups_20261022/focus_calibration`
+- ❌ 缺失 `data/debug/hw_groups_20261022/focus_calibration/slm1_20261022_142207.json`
+- ❌ 缺失 `data/debug/hw_groups_20261022/groups_manifest.json`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/phase_nmax11.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/phase_nmax15.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/phase_nmax20.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/phase_nmax25.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/phase_nmax3.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/phase_nmax4.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/phase_nmax6.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/phase_nmax8.npy`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
+
+### report/shape_trials/hw_depth_matched/hw_depth_matched_20261105.md
+
+- ✅ 存在 `data/debug/zernike_probe_hardware/issue229/analysis/twin_gap`
 
 ### report/shape_trials/hw_gs_square_scans/artifacts/20261023_atomic_full/frames_selection.json
 
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_128/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_16/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_32/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_64/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1000/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1200/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1500/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1700/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_200/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_600/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_12/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_19/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_30/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_7/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_128/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_16/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_32/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_64/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1000/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1200/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1500/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1700/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_200/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_600/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_12/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_19/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_30/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_7/frame_000.npz`
 
 ### report/shape_trials/hw_gs_square_scans/artifacts/20261023_atomic_full/PROVENANCE.json
 
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_128/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_16/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_24/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_32/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_40/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_48/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_64/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_96/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/measurements.csv`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/measurements.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/run_config.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/manifest.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/measurements.csv`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/measurements.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/run_config.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/selected.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_100/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1000/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1100/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1200/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1300/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1400/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1500/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1600/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1700/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_200/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_300/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_400/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_500/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_600/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_700/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_800/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_900/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/measurements.csv`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/measurements.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_10/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_11/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_12/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_13/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_14/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_15/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_16/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_17/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_18/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_19/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_20/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_21/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_22/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_23/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_24/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_25/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_26/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_27/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_28/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_29/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_30/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_7/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_8/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_9/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/run_config.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_128/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_16/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_24/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_32/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_40/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_48/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_64/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_96/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/measurements.csv`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/measurements.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/run_config.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/manifest.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/measurements.csv`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/measurements.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/run_config.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/selected.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_100/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1000/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1100/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1200/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1300/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1400/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1500/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1600/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1700/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_200/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_300/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_400/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_500/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_600/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_700/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_800/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_900/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/measurements.csv`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/measurements.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_10/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_11/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_12/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_13/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_14/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_15/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_16/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_17/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_18/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_19/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_20/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_21/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_22/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_23/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_24/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_25/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_26/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_27/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_28/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_29/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_30/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_7/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_8/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_9/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/run_config.json`
 
 ### report/shape_trials/hw_gs_square_scans/artifacts/20261023_gs_square/blaze/run_config.json
 
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square`
 
 ### report/shape_trials/hw_gs_square_scans/artifacts/20261023_gs_square/frames_selection.json
 
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_002.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_005.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_007.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_001.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_005.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_008.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_009.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_011.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_014.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_017.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_011.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_018.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_023.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_002.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_005.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_007.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_005.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_008.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_009.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_011.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_014.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_017.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_011.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_018.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_023.npz`
 
 ### report/shape_trials/hw_gs_square_scans/artifacts/20261023_gs_square/PROVENANCE.json
 
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/measurements.csv`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/measurements.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/run_config.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/manifest.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/measurements.csv`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/measurements.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/run_config.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/measurements.csv`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/measurements.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/run_config.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/measurements.csv`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/measurements.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/run_config.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/manifest.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/measurements.csv`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/measurements.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/run_config.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/measurements.csv`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/measurements.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/run_config.json`
 
 ### report/shape_trials/hw_gs_square_scans/artifacts/20261023_gs_square/sides/run_config.json
 
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square`
 
 ### report/shape_trials/hw_gs_square_scans/artifacts/20261023_gs_square/zernike/run_config.json
 
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square`
 
 ### report/shape_trials/hw_gs_square_scans/artifacts/20261023_retest_frozen/PROVENANCE.json
 
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/blaze_32/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/blaze_40/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/blaze_48/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/measurements.csv`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/measurements.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/run_config.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/manifest.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/measurements.csv`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/measurements.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/nmax_17/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/nmax_18/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/nmax_19/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/run_config.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/blaze_32/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/blaze_40/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/blaze_48/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/measurements.csv`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/measurements.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/blaze/run_config.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/manifest.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/measurements.csv`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/measurements.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/nmax_17/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/nmax_18/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/nmax_19/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen/zernike/run_config.json`
 
 ### report/shape_trials/hw_gs_square_scans/artifacts/20261023_retest_power_changed/PROVENANCE.json
 
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/blaze_32/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/blaze_40/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/blaze_48/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/measurements.csv`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/measurements.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/manifest.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/measurements.csv`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/measurements.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/nmax_17/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/nmax_18/metrics.json`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/nmax_19/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/blaze_32/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/blaze_40/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/blaze_48/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/measurements.csv`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/measurements.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/manifest.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/measurements.csv`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/measurements.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/nmax_17/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/nmax_18/metrics.json`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/nmax_19/metrics.json`
 
 ### report/shape_trials/hw_gs_square_scans/hw_gs_square_scans_20261023.md
 
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1200/pupil_phase.npy`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_002.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_005.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_007.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_001.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_005.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_008.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_009.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_011.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_014.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_017.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_000.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_011.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_018.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_023.npz`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_frozen`
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261023_retest_power_changed`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1200/pupil_phase.npy`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_002.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_005.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_007.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_001.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_005.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_008.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_009.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_011.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_014.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_017.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_000.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_011.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_018.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_023.npz`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_frozen`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261023_retest_power_changed`
+
+### report/shape_trials/issue230_refeed/issue230_refeed_20261105.md
+
+- ✅ 存在 `data/debug/issue230_refeed/analysis/_refeed_models.py`
+- ❌ 缺失 `data/debug/issue230_refeed/run01`
+- ✅ 存在 `data/debug/zernike_probe_hardware/issue229/analysis/_harness_task2_run02.py`
+
+### report/shape_trials/local_forward/artifacts/results.json
+
+- ✅ 存在 `data/debug/local_forward_cone_20261103_2242b`
+
+### report/shape_trials/local_forward/local_forward_20261103.md
+
+- ✅ 存在 `data/debug`
+- ✅ 存在 `data/debug/continuous_cone055_20261103.npy`
+- ✅ 存在 `data/debug/continuous_cone_scan_20261103/scan.json`
+- ✅ 存在 `data/debug/local_forward_cone_20261103_2242b`
+- ❌ 缺失 `data/debug/local_forward_cone_NEW`
+- ✅ 存在 `data/debug/local_forward_ring_20261103_2230`
+
+### report/shape_trials/loss_compare_20261107/loss_compare_20261107.md
+
+- ✅ 存在 `data/debug/slm_transfer/defocus_forward_20261107_focus_r2`
+- ✅ 存在 `data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit/forward_fit.json`
+- ✅ 存在 `data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1`
+- ✅ 存在 `data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1/results.json`
+
+### report/shape_trials/measured_forward_refine_20261107/measured_forward_refine_20261107.md
+
+- ✅ 存在 `data/debug/slm_transfer`
+- ✅ 存在 `data/debug/slm_transfer/20261107_focus_scan/focus.json`
+- ✅ 存在 `data/debug/slm_transfer/defocus_forward_20261107_focus_r2`
+- ✅ 存在 `data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit`
+- ✅ 存在 `data/debug/slm_transfer/issue234_single_mode_screen_20261107`
+- ✅ 存在 `data/debug/slm_transfer/issue235_parity_20261107/parity_registration_scan.json`
+- ✅ 存在 `data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1/results.json`
 
 ### report/shape_trials/model_in_loop/model_in_loop_hw_ab_20261021.md
 
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_164549/baseline_a/stage.log`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_164549/manifest.json`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_170435/baseline_a/stage.log`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_170646/baseline_a/slm_model_in_loop/20261021_170726/panel_scan/summary.json`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_170646/baseline_a/stage.log`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_170646/manifest.json`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/large_1000/stage.log`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/manifest.json`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_164549/baseline_a/stage.log`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_164549/manifest.json`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_170435/baseline_a/stage.log`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_170646/baseline_a/slm_model_in_loop/20261021_170726/panel_scan/summary.json`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_170646/baseline_a/stage.log`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_170646/manifest.json`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/large_1000/stage.log`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/manifest.json`
 
 ### report/shape_trials/model_in_loop/model_in_loop_live_20261013.md
 
@@ -2355,7 +2564,7 @@
 - ❌ 缺失 `data/debug/slm_model_compare/20261013_2015_new_session/psf_paired.csv`
 - ❌ 缺失 `data/debug/slm_model_compare/20261013_phase_bandwidth_trial/paired_holdouts.csv`
 - ❌ 缺失 `data/debug/slm_model_compare/20261013_psf_trial/paired_observable_holdouts.csv`
-- ✅ 存在 `data/debug/slm_model_in_loop`
+- ❌ 缺失 `data/debug/slm_model_in_loop`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261013_105911/bench_geometry.json`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261013_110921`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261013_111258`
@@ -2380,13 +2589,13 @@
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261013_204410`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261013_210403/preflight`
 - ❌ 缺失 `data/debug/slm_model_in_loop/<时间戳`
-- ✅ 存在 `data/debug/slm_model_in_loop/exposure_drift_20261013_1547`
-- ✅ 存在 `data/debug/slm_model_in_loop/exposure_flat_20261013_191614`
-- ✅ 存在 `data/debug/slm_model_in_loop/panel_scan_20261013_2003`
-- ✅ 存在 `data/debug/slm_model_in_loop/panel_scan_fine_20261013_2005`
-- ✅ 存在 `data/debug/slm_model_in_loop/panel_scan_vertical_20261013_2007`
-- ✅ 存在 `data/debug/slm_model_in_loop/short_exposure_20261013_1553`
-- ✅ 存在 `data/debug/slm_model_in_loop/short_exposure_shaped_20261013_1558`
+- ❌ 缺失 `data/debug/slm_model_in_loop/exposure_drift_20261013_1547`
+- ❌ 缺失 `data/debug/slm_model_in_loop/exposure_flat_20261013_191614`
+- ❌ 缺失 `data/debug/slm_model_in_loop/panel_scan_20261013_2003`
+- ❌ 缺失 `data/debug/slm_model_in_loop/panel_scan_fine_20261013_2005`
+- ❌ 缺失 `data/debug/slm_model_in_loop/panel_scan_vertical_20261013_2007`
+- ❌ 缺失 `data/debug/slm_model_in_loop/short_exposure_20261013_1553`
+- ❌ 缺失 `data/debug/slm_model_in_loop/short_exposure_shaped_20261013_1558`
 - ❌ 缺失 `data/debug/slm_model_in_loop_replay/20261013_154143`
 - ❌ 缺失 `data/debug/slm_model_in_loop_replay/20261013_160630_fixed040`
 - ❌ 缺失 `data/debug/slm_model_in_loop_replay/20261013_1733_four_vs_two`
@@ -2398,7 +2607,7 @@
 - ✅ 存在 `data/debug`
 - ❌ 缺失 `data/debug/slm_disturbance_compare/20261013_165039/disturbance_panel_rad.npy`
 - ❌ 缺失 `data/debug/slm_model_compare/20261014_5shape_seed_20261013_verified`
-- ✅ 存在 `data/debug/slm_model_in_loop`
+- ❌ 缺失 `data/debug/slm_model_in_loop`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261014_refit_analysis/paired_holdouts.json`
 - ❌ 缺失 `data/debug/slm_model_in_loop_replay/20261014_1115_zero_vs_refit`
 - ❌ 缺失 `data/debug/worktrees/model-in-loop-20261014`
@@ -2412,7 +2621,7 @@
 ### report/shape_trials/model_in_loop/model_in_loop_live_20261016.md
 
 - ❌ 缺失 `data/debug/slm_flat_stability/20261016_model_in_loop_preflight`
-- ✅ 存在 `data/debug/slm_model_in_loop`
+- ❌ 缺失 `data/debug/slm_model_in_loop`
 
 ### report/shape_trials/model_in_loop/model_in_loop_live_20261019.md
 
@@ -2422,13 +2631,13 @@
 - ❌ 缺失 `data/debug/model_in_loop_auto/20261019_camera_reposition`
 - ❌ 缺失 `data/debug/model_in_loop_hw_runbook/20261019_corrected_geometry`
 - ✅ 存在 `data/debug/model_in_loop_hw_sweep/20261019_105952`
-- ✅ 存在 `data/debug/slm_model_in_loop`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_094121`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_094121/panel_scan`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_100334`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_103208`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_110323`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_111941`
+- ❌ 缺失 `data/debug/slm_model_in_loop`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_094121`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_094121/panel_scan`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_100334`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_103208`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_110323`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_111941`
 
 ### report/shape_trials/model_in_loop/model_in_loop_next_steps_20261013.md
 
@@ -2443,26 +2652,26 @@
 
 ### report/shape_trials/model_in_loop/model_in_loop_record_20261021_172309.md
 
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/bench_geometry.json`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/best_phase.npy`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/bench_geometry.json`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/best_phase.npy`
 - ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/failure.json`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/fitted_coefficients.npy`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/handoff_summary.json`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/fitted_coefficients.npy`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/handoff_summary.json`
 - ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/model_error_terms.json`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/preflight/flat.npz`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/probes/manifest.json`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/run_config.json`
-- ✅ 存在 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/source_amplitude.npy`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/preflight/flat.npz`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/probes/manifest.json`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/run_config.json`
+- ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/source_amplitude.npy`
 
 ### report/shape_trials/model_in_loop/model_in_loop_uniformity_live_20261016.md
 
 - ❌ 缺失 `data/debug/beam_extent`
-- ✅ 存在 `data/debug/bench_settings`
+- ❌ 缺失 `data/debug/bench_settings`
 - ❌ 缺失 `data/debug/bench_settings/20261017_ladder_diag.log`
-- ✅ 存在 `data/debug/bench_settings/exposure_probe/20261024_110551.json`
+- ❌ 缺失 `data/debug/bench_settings/exposure_probe/20261024_110551.json`
 - ✅ 存在 `data/debug/slm_bench_calibration/20261026_091101/panel_scan`
-- ✅ 存在 `data/debug/slm_model_in_loop`
+- ❌ 缺失 `data/debug/slm_model_in_loop`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261016_173002`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261016_174330`
 - ❌ 缺失 `data/debug/slm_model_in_loop_replay`
@@ -2470,12 +2679,12 @@
 
 ### report/shape_trials/model_in_loop/physical_forward_defocus_live_20261022.md
 
-- ✅ 存在 `data/debug/physical_forward_defocus`
+- ❌ 缺失 `data/debug/physical_forward_defocus`
 
 ### report/shape_trials/model_in_loop/physical_forward_sampling_20261022_r2.md
 
-- ✅ 存在 `data/debug/physical_forward_defocus`
-- ✅ 存在 `data/debug/physical_forward_defocus/sampling_followup_evidence_20261022.json`
+- ❌ 缺失 `data/debug/physical_forward_defocus`
+- ❌ 缺失 `data/debug/physical_forward_defocus/sampling_followup_evidence_20261022.json`
 
 ### report/shape_trials/model_in_loop/uncertainty_probe_hw_20261016.md
 
@@ -2503,55 +2712,55 @@
 
 ### report/shape_trials/multishape_capability/artifacts/reproduction_20261023/figure_data.json
 
-- ✅ 存在 `data/debug/calibrate_transfer_blur/shapes_20261023_1956/frozen_parameters.json`
-- ✅ 存在 `data/debug/fit_transfer_multishape/exact_grid_20261023_1935/iterations.pkl`
-- ✅ 存在 `data/debug/fit_transfer_multishape/exact_grid_20261023_1935/result.json`
-- ✅ 存在 `data/debug/validate_transfer_shapes/anchored_20261023_2002/manifest.json`
-- ✅ 存在 `data/debug/validate_transfer_shapes/anchored_20261023_2002/summary.json`
+- ❌ 缺失 `data/debug/calibrate_transfer_blur/shapes_20261023_1956/frozen_parameters.json`
+- ❌ 缺失 `data/debug/fit_transfer_multishape/exact_grid_20261023_1935/iterations.pkl`
+- ❌ 缺失 `data/debug/fit_transfer_multishape/exact_grid_20261023_1935/result.json`
+- ❌ 缺失 `data/debug/validate_transfer_shapes/anchored_20261023_2002/manifest.json`
+- ❌ 缺失 `data/debug/validate_transfer_shapes/anchored_20261023_2002/summary.json`
 
 ### report/shape_trials/multishape_capability/capability_rectangle_20261023_191444.md
 
-- ✅ 存在 `data/debug/multishape_forward/rectangle08_20261023_191444`
+- ❌ 缺失 `data/debug/multishape_forward/rectangle08_20261023_191444`
 
 ### report/shape_trials/multishape_capability/capability_square_20261023_182153.md
 
-- ✅ 存在 `data/debug/multishape_forward/square_20261023_182153`
+- ❌ 缺失 `data/debug/multishape_forward/square_20261023_182153`
 
 ### report/shape_trials/multishape_capability/capability_star_20261023_191213.md
 
-- ✅ 存在 `data/debug/multishape_forward/star08_20261023_191213`
+- ❌ 缺失 `data/debug/multishape_forward/star08_20261023_191213`
 
 ### report/shape_trials/multishape_capability/capability_triangle_20261023_191105.md
 
-- ✅ 存在 `data/debug/multishape_forward/triangle08_20261023_191105`
+- ❌ 缺失 `data/debug/multishape_forward/triangle08_20261023_191105`
 
 ### report/shape_trials/multishape_capability/diagnosis_and_transfer_20261023.md
 
-- ✅ 存在 `data/debug/analyze_transfer_direction/anchored_20261023_2002`
-- ✅ 存在 `data/debug/analyze_transfer_response/ladder_20261023_1952`
-- ✅ 存在 `data/debug/calibrate_transfer_blur/shapes_20261023_1956`
-- ✅ 存在 `data/debug/capture_transfer_response/ladder_20261023_1952`
-- ✅ 存在 `data/debug/fit_transfer_multishape/current_20261023_1933`
-- ✅ 存在 `data/debug/fit_transfer_multishape/exact_grid_20261023_1935`
-- ✅ 存在 `data/debug/fit_transfer_multishape/history_20261023_1925`
-- ✅ 存在 `data/debug/fit_transfer_multishape/history_20261023_1935_r2`
-- ✅ 存在 `data/debug/multishape_forward/square_20261023_181846`
+- ❌ 缺失 `data/debug/analyze_transfer_direction/anchored_20261023_2002`
+- ❌ 缺失 `data/debug/analyze_transfer_response/ladder_20261023_1952`
+- ❌ 缺失 `data/debug/calibrate_transfer_blur/shapes_20261023_1956`
+- ❌ 缺失 `data/debug/capture_transfer_response/ladder_20261023_1952`
+- ❌ 缺失 `data/debug/fit_transfer_multishape/current_20261023_1933`
+- ❌ 缺失 `data/debug/fit_transfer_multishape/exact_grid_20261023_1935`
+- ❌ 缺失 `data/debug/fit_transfer_multishape/history_20261023_1925`
+- ❌ 缺失 `data/debug/fit_transfer_multishape/history_20261023_1935_r2`
+- ❌ 缺失 `data/debug/multishape_forward/square_20261023_181846`
 - ❌ 缺失 `data/debug/transfer_multishape_experiment/capture_20261023_1905`
-- ✅ 存在 `data/debug/transfer_multishape_experiment/capture_20261023_1938`
-- ✅ 存在 `data/debug/validate_transfer_shapes/anchored_20261023_2002`
-- ✅ 存在 `data/debug/validate_transfer_shapes/anchored_20261023_2002/artifact_audit.json`
-- ✅ 存在 `data/debug/validate_transfer_shapes/paired_20261023_1942`
+- ❌ 缺失 `data/debug/transfer_multishape_experiment/capture_20261023_1938`
+- ❌ 缺失 `data/debug/validate_transfer_shapes/anchored_20261023_2002`
+- ❌ 缺失 `data/debug/validate_transfer_shapes/anchored_20261023_2002/artifact_audit.json`
+- ❌ 缺失 `data/debug/validate_transfer_shapes/paired_20261023_1942`
 
 ### report/shape_trials/multishape_capability/physical_multishape_reproduction_20261023.md
 
 - ✅ 存在 `data/debug`
-- ✅ 存在 `data/debug/analyze_transfer_direction/anchored_20261023_2002`
-- ✅ 存在 `data/debug/analyze_transfer_response/ladder_20261023_1952`
-- ✅ 存在 `data/debug/calibrate_transfer_blur/shapes_20261023_1956`
-- ✅ 存在 `data/debug/calibrate_transfer_blur/shapes_20261023_1956/frozen_parameters.json`
-- ✅ 存在 `data/debug/capture_transfer_response/ladder_20261023_1952`
-- ✅ 存在 `data/debug/fit_transfer_multishape/current_20261023_1933/frozen_parameters.json`
-- ✅ 存在 `data/debug/fit_transfer_multishape/exact_grid_20261023_1935`
+- ❌ 缺失 `data/debug/analyze_transfer_direction/anchored_20261023_2002`
+- ❌ 缺失 `data/debug/analyze_transfer_response/ladder_20261023_1952`
+- ❌ 缺失 `data/debug/calibrate_transfer_blur/shapes_20261023_1956`
+- ❌ 缺失 `data/debug/calibrate_transfer_blur/shapes_20261023_1956/frozen_parameters.json`
+- ❌ 缺失 `data/debug/capture_transfer_response/ladder_20261023_1952`
+- ❌ 缺失 `data/debug/fit_transfer_multishape/current_20261023_1933/frozen_parameters.json`
+- ❌ 缺失 `data/debug/fit_transfer_multishape/exact_grid_20261023_1935`
 - ❌ 缺失 `data/debug/slm_transfer/$(Get-Date`
 - ✅ 存在 `data/debug/slm_transfer/20261026_094555`
 - ✅ 存在 `data/debug/slm_transfer/live_no_gs_20261024_0926`
@@ -2564,21 +2773,21 @@
 - ✅ 存在 `data/debug/slm_transfer/synthetic_20261024_shapes`
 - ✅ 存在 `data/debug/slm_transfer/synthetic_20261024_shift`
 - ❌ 缺失 `data/debug/three_shape_reproduction/$tag`
-- ✅ 存在 `data/debug/three_shape_reproduction/offline_bootstrap_20261023`
-- ✅ 存在 `data/debug/transfer_integration/live_20261023`
-- ✅ 存在 `data/debug/transfer_integration/replay_20261023`
-- ✅ 存在 `data/debug/transfer_multishape_experiment/capture_20261023_1938`
-- ✅ 存在 `data/debug/validate_transfer_shapes/anchored_20261023_2002`
-- ✅ 存在 `data/debug/validate_transfer_shapes/paired_20261023_1942`
+- ❌ 缺失 `data/debug/three_shape_reproduction/offline_bootstrap_20261023`
+- ❌ 缺失 `data/debug/transfer_integration/live_20261023`
+- ❌ 缺失 `data/debug/transfer_integration/replay_20261023`
+- ❌ 缺失 `data/debug/transfer_multishape_experiment/capture_20261023_1938`
+- ❌ 缺失 `data/debug/validate_transfer_shapes/anchored_20261023_2002`
+- ❌ 缺失 `data/debug/validate_transfer_shapes/paired_20261023_1942`
 
 ### report/shape_trials/multishape_capability/shape_comparison_20261023.md
 
-- ✅ 存在 `data/debug/multishape_forward`
-- ✅ 存在 `data/debug/multishape_forward/rectangle08_20261023_191444`
-- ✅ 存在 `data/debug/multishape_forward/square_20261023_182153`
-- ✅ 存在 `data/debug/multishape_forward/star08_20261023_191213`
-- ✅ 存在 `data/debug/multishape_forward/triangle08_20261023_191105`
-- ✅ 存在 `data/debug/physical_forward_defocus/capture_after_focus_20261023_145446/seed_probe000.npy`
+- ❌ 缺失 `data/debug/multishape_forward`
+- ❌ 缺失 `data/debug/multishape_forward/rectangle08_20261023_191444`
+- ❌ 缺失 `data/debug/multishape_forward/square_20261023_182153`
+- ❌ 缺失 `data/debug/multishape_forward/star08_20261023_191213`
+- ❌ 缺失 `data/debug/multishape_forward/triangle08_20261023_191105`
+- ❌ 缺失 `data/debug/physical_forward_defocus/capture_after_focus_20261023_145446/seed_probe000.npy`
 
 ### report/shape_trials/multishape_scale/artifacts/plan_20261028.json
 
@@ -2646,6 +2855,13 @@
 
 - ✅ 存在 `data/debug/slm_transfer/no_gs_ccd_moved_20261027_2106`
 
+### report/shape_trials/phase_scope_20261107/phase_scope_20261107.md
+
+- ✅ 存在 `data/debug/slm_transfer/phase_scope_20261107`
+- ✅ 存在 `data/debug/slm_transfer/phase_scope_20261107/REPORT.md`
+- ✅ 存在 `data/debug/slm_transfer/phase_scope_20261107/results.json`
+- ✅ 存在 `data/debug/slm_transfer/phase_scope_20261107/run.log`
+
 ### report/shape_trials/physical_forward_defocus_plan_20261022.md
 
 - ❌ 缺失 `data/debug/physical_forward_defocus/<YYYYMMDD_HHMMSS`
@@ -2654,15 +2870,106 @@
 
 - ❌ 缺失 `data/debug/slm_transfer/no_gs_next`
 
+### report/shape_trials/physical_refine/artifacts/calibrate_sequential_summary.json
+
+- ✅ 存在 `data/debug/sim2f_fov_calib_seq_20261102/calibration.json`
+- ✅ 存在 `data/debug/sim2f_fov_calib_seq_20261102/calibration.npz`
+
+### report/shape_trials/physical_refine/artifacts/next_hardware_preflight.json
+
+- ✅ 存在 `data/debug/sim2f_fov/plan.json`
+- ✅ 存在 `data/debug/sim2f_fov_calib_seq_20261102`
+
+### report/shape_trials/physical_refine/artifacts/offline_diagnostics_20261103.json
+
+- ✅ 存在 `data/debug/sim2f_fov_hw_20261103`
+- ✅ 存在 `data/debug/sim2f_fov_hw_refine_ring_20261103_091657`
+
+### report/shape_trials/physical_refine/artifacts/physical_residual_calib_20261102.json
+
+- ✅ 存在 `data/debug/sim2f_fov_calib`
+- ✅ 存在 `data/debug/sim2f_fov_calib_seq_20261102`
+- ✅ 存在 `data/debug/sim2f_physical_residual/calib_20261102`
+
+### report/shape_trials/physical_refine/artifacts/production_analysis_aligned3_summary.json
+
+- ✅ 存在 `data/debug/sim2f_fov_calib_seq_20261102`
+
+### report/shape_trials/physical_refine/artifacts/production_analysis_old_summary.json
+
+- ✅ 存在 `data/debug/sim2f_fov_calib/calibration`
+
+### report/shape_trials/physical_refine/artifacts/production_analysis_seq_summary.json
+
+- ✅ 存在 `data/debug/sim2f_fov_calib_seq_20261102`
+
+### report/shape_trials/physical_refine/artifacts/refine_gains_20261103.json
+
+- ✅ 存在 `data/debug/sim2f_fov_refine_ring_eff_1103_210858`
+- ✅ 存在 `data/debug/sim2f_fov_refine_ring_effalign_1103_211304`
+- ✅ 存在 `data/debug/sim2f_fov_refine_ring_gsringcentre_1103`
+- ✅ 存在 `data/debug/sim2f_fov_refine_ring_raw16_1103_211433`
+
+### report/shape_trials/physical_refine/artifacts/zero_order_diagnosis_20261103.json
+
+- ✅ 存在 `data/debug/sim2f_fov_hw_20261103_210641`
+- ✅ 存在 `data/debug/sim2f_fov_refine_ring_raw16_1103_211433`
+- ✅ 存在 `data/debug/sim2f_zero_order_diag_20261103_215142`
+
+### report/shape_trials/physical_refine/physical_refine_plan_20261102.md
+
+- ✅ 存在 `data/debug/sim2f_fov`
+- ✅ 存在 `data/debug/sim2f_fov_calib`
+- ❌ 缺失 `data/debug/sim2f_fov_calib/calibration_transfer`
+- ❌ 缺失 `data/debug/sim2f_fov_refine_<target`
+
+### report/shape_trials/physical_refine/physical_refine_results_20261102.md
+
+- ✅ 存在 `data/debug`
+- ✅ 存在 `data/debug/sim2f_fov`
+- ✅ 存在 `data/debug/sim2f_fov_calib`
+- ✅ 存在 `data/debug/sim2f_fov_calib_seq_20261102`
+- ✅ 存在 `data/debug/sim2f_fov_dryrun_aligned_20261102`
+- ✅ 存在 `data/debug/sim2f_fov_hw_20261102`
+- ❌ 缺失 `data/debug/sim2f_fov_refine_ring_$(Get-Date`
+- ✅ 存在 `data/debug/sim2f_shape_trials_production_20261102_supported`
+
+### report/shape_trials/physical_refine/physical_refine_results_20261103.md
+
+- ✅ 存在 `data/debug/sim2f_fov_hw_20261103`
+- ✅ 存在 `data/debug/sim2f_fov_hw_20261103_210641`
+- ✅ 存在 `data/debug/sim2f_fov_hw_refine_ring_20261103_091657`
+- ✅ 存在 `data/debug/sim2f_fov_refine_ring_gsringcentre_1103`
+- ❌ 缺失 `data/debug/sim2f_fov_refine_ring_{raw16`
+- ✅ 存在 `data/debug/sim2f_zero_order_diag_20261103_215142`
+
+### report/shape_trials/shape_transition/shape_transition_timing_20261107.md
+
+- ❌ 缺失 `data/debug/slm_transfer/<dir`
+
+### report/shape_trials/shaping_issues_review/shaping_issues_review_20261103.md
+
+- ❌ 缺失 `data/debug/slm_zernike_`
+- ❌ 缺失 `data/fouriergsnet_sim/native_w4b`
+
+### report/shape_trials/shared_lut_crosstalk_20261107/shared_lut_crosstalk_20261107.md
+
+- ✅ 存在 `data/debug/slm_transfer/20261107_focus_scan/focus.json`
+- ✅ 存在 `data/debug/slm_transfer/defocus_forward_20261107_focus_r2`
+- ✅ 存在 `data/debug/slm_transfer/issue234_amp02_screen_20261107`
+- ✅ 存在 `data/debug/slm_transfer/issue234_amp05_screen_20261107`
+- ✅ 存在 `data/debug/slm_transfer/issue234_single_mode_screen_20261107`
+- ✅ 存在 `data/debug/slm_transfer/issue235_parity_20261107/parity_registration_scan.json`
+
 ### report/shape_trials/sim_pretrain_transfer/sim_pretrain_transfer_20261024.md
 
-- ✅ 存在 `data/debug/calibrate_transfer_blur/shapes_20261023_1956/frozen_parameters.json`
+- ❌ 缺失 `data/debug/calibrate_transfer_blur/shapes_20261023_1956/frozen_parameters.json`
 - ❌ 缺失 `data/debug/slm_transfer/pretrain`
-- ✅ 存在 `data/debug/transfer_repro_no_gs/block0`
-- ✅ 存在 `data/debug/transfer_repro_no_gs/block1`
+- ❌ 缺失 `data/debug/transfer_repro_no_gs/block0`
+- ❌ 缺失 `data/debug/transfer_repro_no_gs/block1`
 - ❌ 缺失 `data/debug/transfer_repro_no_gs/block{0`
-- ✅ 存在 `data/debug/validate_transfer_shapes/anchored_20261023_2002`
-- ✅ 存在 `data/debug/validate_transfer_shapes/paired_20261023_1942/manifest.json`
+- ❌ 缺失 `data/debug/validate_transfer_shapes/anchored_20261023_2002`
+- ❌ 缺失 `data/debug/validate_transfer_shapes/paired_20261023_1942/manifest.json`
 
 ### report/shape_trials/sim_vs_hw/artifacts/run_config_20261023_015046.json
 
@@ -2681,29 +2988,29 @@
 
 ### report/shape_trials/sim_vs_hw/artifacts/sim_vs_hw_20261022.md
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
-- ✅ 存在 `data/debug/sim_vs_hw_20261022`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
+- ❌ 缺失 `data/debug/sim_vs_hw_20261022`
 
 ### report/shape_trials/sim_vs_hw/artifacts/sim_vs_hw_20261023.md
 
-- ✅ 存在 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
-- ✅ 存在 `data/debug/sim_vs_hw_20261023_v2`
+- ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy`
+- ❌ 缺失 `data/debug/sim_vs_hw_20261023_v2`
 
 ### report/shape_trials/sim_vs_hw/compare_v1_v2_20261023.md
 
-- ✅ 存在 `data/debug/sim_vs_hw_20261023_v2`
+- ❌ 缺失 `data/debug/sim_vs_hw_20261023_v2`
 
 ### report/shape_trials/sim_vs_hw/sim_vs_hw_20261022.md
 
-- ✅ 存在 `data/debug/sim_vs_hw_20261022`
+- ❌ 缺失 `data/debug/sim_vs_hw_20261022`
 
 ### report/shape_trials/sim_vs_hw/sim_vs_hw_20261023.md
 
-- ✅ 存在 `data/debug/sim_vs_hw_20261023_v2`
+- ❌ 缺失 `data/debug/sim_vs_hw_20261023_v2`
 
 ### report/shape_trials/slides_ppt_20261023.json
 
-- ✅ 存在 `data/debug/differentiable_opt`
+- ❌ 缺失 `data/debug/differentiable_opt`
 
 ### report/shape_trials/square1200/artifacts/20261026/results.json
 
@@ -2723,9 +3030,37 @@
 
 - ✅ 存在 `data/debug/slm_transfer/square1200_explore_20261026_1435`
 
+### report/shape_trials/star_farfield/star_farfield_20261107.md
+
+- ✅ 存在 `data/debug/slm_transfer/20261107_135252`
+
 ### report/shape_trials/transfer_square1200/transfer_square1200_20261027.md
 
 - ✅ 存在 `data/debug/slm_transfer/transfer_square1200_20261027_r2`
+
+### report/shape_trials/transfer_uncertainty/artifacts/analysis_execution_20261104.json
+
+- ✅ 存在 `data/debug/slm_transfer/20261104_192122/fit/frozen_parameters.json`
+- ✅ 存在 `data/debug/transfer_uncertainty_20261104`
+
+### report/shape_trials/transfer_uncertainty/artifacts/experiment_20261104.json
+
+- ✅ 存在 `data/debug/slm_transfer/20261104_192122/fit/frozen_parameters.json`
+- ✅ 存在 `data/debug/transfer_uncertainty_20261104`
+
+### report/shape_trials/transfer_uncertainty/artifacts/summary_20261104.json
+
+- ✅ 存在 `data/debug/transfer_uncertainty_20261104/active/fit/frozen_parameters.json`
+- ✅ 存在 `data/debug/transfer_uncertainty_20261104/baseline/fit/frozen_parameters.json`
+- ✅ 存在 `data/debug/transfer_uncertainty_20261104/historical/frozen_parameters.json`
+- ✅ 存在 `data/debug/transfer_uncertainty_20261104/ideal/frozen_parameters.json`
+- ✅ 存在 `data/debug/transfer_uncertainty_20261104/ideal_fit/fit/frozen_parameters.json`
+- ✅ 存在 `data/debug/transfer_uncertainty_20261104/random/fit/frozen_parameters.json`
+
+### report/shape_trials/transfer_uncertainty/transfer_uncertainty_20261104.md
+
+- ✅ 存在 `data/debug/slm_transfer/20261104_192122/fit/frozen_parameters.json`
+- ✅ 存在 `data/debug/transfer_uncertainty_20261104`
 
 ### report/shape_trials/tri_plane_20261027/tri_plane_20261027.md
 
@@ -2734,20 +3069,20 @@
 
 ### report/shape_trials/xy_profile_manifest.json
 
-- ✅ 存在 `data/debug/slm_gs_refine/20261014_100441/replay/00_flat.npy`
-- ✅ 存在 `data/debug/slm_gs_refine/20261014_100441/replay/02_best.npy`
-- ✅ 存在 `data/debug/slm_gs_refine/20261014_143035/replay/00_flat.npy`
-- ✅ 存在 `data/debug/slm_gs_refine/20261014_143035/replay/02_best.npy`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_205654/best_far_field.png`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_205654/slm_gs_refine_20261015_205654.pkl`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_205848/best_far_field.png`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_205848/slm_gs_refine_20261015_205848.pkl`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_210048/best_far_field.png`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_210048/slm_gs_refine_20261015_210048.pkl`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_210155/best_far_field.png`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_210155/slm_gs_refine_20261015_210155.pkl`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_211345/best_far_field.png`
-- ✅ 存在 `data/debug/slm_gs_refine/20261015_211345/slm_gs_refine_20261015_211345.pkl`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261014_100441/replay/00_flat.npy`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261014_100441/replay/02_best.npy`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261014_143035/replay/00_flat.npy`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261014_143035/replay/02_best.npy`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_205654/best_far_field.png`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_205654/slm_gs_refine_20261015_205654.pkl`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_205848/best_far_field.png`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_205848/slm_gs_refine_20261015_205848.pkl`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_210048/best_far_field.png`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_210048/slm_gs_refine_20261015_210048.pkl`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_210155/best_far_field.png`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_210155/slm_gs_refine_20261015_210155.pkl`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_211345/best_far_field.png`
+- ❌ 缺失 `data/debug/slm_gs_refine/20261015_211345/slm_gs_refine_20261015_211345.pkl`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261013_114650/best_far_field.png`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261013_114650/probes/round_01_shaped_00.npz`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261013_145819/best_far_field.png`
@@ -2766,13 +3101,13 @@
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261014_171219/probes/round_01_shaped_00.npz`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261014_171301/probes/round_01_shaped_00.npz`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261014_171340/probes/round_01_shaped_00.npz`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_100334/preflight/flat.npz`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_103208/preflight/flat.npz`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_103259/preflight/flat.npz`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_103347/preflight/flat.npz`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_110323/preflight/flat.npz`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_111359/preflight/flat.npz`
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_111941/preflight/flat.npz`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_100334/preflight/flat.npz`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_103208/preflight/flat.npz`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_103259/preflight/flat.npz`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_103347/preflight/flat.npz`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_110323/preflight/flat.npz`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_111359/preflight/flat.npz`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_111941/preflight/flat.npz`
 - ❌ 缺失 `data/debug/slm_model_in_loop_replay/20261014_1115_zero_vs_refit/01_A.npy`
 - ❌ 缺失 `data/debug/slm_model_in_loop_replay/20261014_1115_zero_vs_refit/02_B.npy`
 - ❌ 缺失 `data/debug/slm_model_in_loop_replay/20261014_1115_zero_vs_refit/04_B.npy`
@@ -2873,7 +3208,7 @@
 
 ### report/simulation/bench_twin/bench_twin_fidelity_20261021.md
 
-- ✅ 存在 `data/debug/slm_model_in_loop/20261019_103208`
+- ❌ 缺失 `data/debug/slm_model_in_loop/20261019_103208`
 
 ### report/simulation/sim_credibility/artifacts/direction_corpus_20261030.json
 
@@ -2928,22 +3263,22 @@
 ### report/slm/differentiable_opt/artifacts/20261022_132915/run_config.json
 
 - ❌ 缺失 `data/calib.npz`
-- ✅ 存在 `data/debug/differentiable_opt/20261022_213000`
+- ❌ 缺失 `data/debug/differentiable_opt/20261022_213000`
 
 ### report/slm/differentiable_opt/artifacts/20261023_012505/run_config.json
 
 - ❌ 缺失 `data/calib.npz`
-- ✅ 存在 `data/debug/differentiable_opt/gs_20261023_092501`
+- ❌ 缺失 `data/debug/differentiable_opt/gs_20261023_092501`
 
 ### report/slm/differentiable_opt/differentiable_opt_animation_20261022.md
 
-- ✅ 存在 `data/debug/differentiable_opt/20261022_213000`
-- ✅ 存在 `data/debug/differentiable_opt/20261022_213000/animation`
-- ✅ 存在 `data/debug/differentiable_opt/20261022_213000/animation/frames.csv`
+- ❌ 缺失 `data/debug/differentiable_opt/20261022_213000`
+- ❌ 缺失 `data/debug/differentiable_opt/20261022_213000/animation`
+- ❌ 缺失 `data/debug/differentiable_opt/20261022_213000/animation/frames.csv`
 
 ### report/slm/differentiable_opt/differentiable_opt_report.md
 
-- ✅ 存在 `data/debug/differentiable_opt/gs_20261023_092501`
+- ❌ 缺失 `data/debug/differentiable_opt/gs_20261023_092501`
 
 ### report/slm/differentiable_opt/focus_gate_verification_20261022.md
 
@@ -2964,7 +3299,7 @@
 
 ### report/slm/gs_control_1000px/report.md
 
-- ✅ 存在 `data/debug/hw_gs_square_scans/20261030_gs1000`
+- ❌ 缺失 `data/debug/hw_gs_square_scans/20261030_gs1000`
 - ❌ 缺失 `data/debug/hw_gs_square_scans/20261030_gs1000/blaze/metrics_00X.json`
 - ✅ 存在 `data/debug/optical_path_probe/gs_control_1000px/20261030_031154Z`
 - ✅ 存在 `data/debug/optical_path_probe/gs_control_1000px/20261030_031154Z/optical_path_probe.json`
@@ -3036,8 +3371,13 @@
 - `ccd_configs`
 - `dm_adj.txt`
 - `dm_configs`
+- `dm_unit_adj_m.txt`
+- `flatten_zernike`
 - `layouts`
+- `link_to_adj.py`
 - `micro_dm_configs`
 - `slm_geometry_calib.npz`
+- `slm_models`
+- `zernike_calibration`
 
 > 仅“报告引用”维度；清理/移动前需 grep `src/`、`scripts/` 确认运行时依赖。

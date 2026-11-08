@@ -390,6 +390,17 @@ def validate_form(values: TransferFormValues) -> tuple[list[str], list[str]]:
             errors.append(text)
         else:
             warnings.append(text)
+    # 采集网格自动升档：升档时给一条中性说明；目标在任何合法网格下都够不着时直接阻塞
+    # （空跑一遍采集只会浪费设备时间）。升档成功时吊销原先「目标超出可达窗」的提示，避免
+    # 同一目标出现互相矛盾的红黄两条。
+    grid_info, grid_error = describe_capture_grid(
+        side=side, shapes=shapes, aspect_ratio=aspect_ratio, tilt=tilt, period=period,
+    )
+    if grid_error:
+        errors.append(grid_error)
+    if grid_info:
+        # 中性说明（不是警告）：自动升档是预期行为，只告诉操作员网格会变成多少。
+        warnings.append(grid_info)
     # 验收阈值循环的边界（只在校验开启时把关, 关闭 = 当前单轮行为, 不拦不提示）。
     # 阈值是算法建议的浮动下/上界: 给越界一个提醒, 不阻塞——操作员可以按自己的
     # 判定放宽, 但提醒能防住把 correlation 拖到 0 以下这类明显笔误。
@@ -407,6 +418,73 @@ def validate_form(values: TransferFormValues) -> tuple[list[str], list[str]]:
                 "\n    → 验收循环会拿它对比模型预测的相对 L2 误差，请填大于 0 的值。"
             )
     return errors, warnings
+
+
+def default_capture_grid() -> int:
+    """``TransferSession.capture_grid`` 的默认值——桌面没有网格控件，基准就是它。"""
+    from dataclasses import fields
+
+    from ao_shaping.tools.slm.transfer.workflow import TransferSession
+
+    return int(next(f.default for f in fields(TransferSession) if f.name == "capture_grid"))
+
+
+def describe_capture_grid(
+    *, side: float, shapes, aspect_ratio: float, tilt: bool, period: float,
+) -> tuple[str | None, str | None]:
+    """目标在采集网格自动升档下的结论：``(说明文案, 阻塞文案)``，各至多一条。
+
+    判据与会话里 :func:`decide_capture_grid` 完全同源（同一份 ``required_capture_grid``），
+    所以表单与真正运行看到的网格永远一致。位移只在倾斜相位开启时计入（与 ``tilt``
+    关闭时目标留在零级一致）。纯函数、不抛：任何异常都退回「不说话」。
+
+    - 目标在某个合法网格下够得着 → 说明文案，写出升到哪一档、可达半径；
+    - 任何合法网格都够不着 → 阻塞文案，写出最大可容纳边长；
+    - 目标本来就放得下 → ``(None, None)``，不打扰。
+    """
+    try:
+        from ao_shaping.algorithm.signal_processing.multishape_objective import (
+            _fft_reach_px,
+            capture_grid_ladder,
+            carrier_offset_px,
+            fft_max_side_px,
+            required_capture_grid,
+            target_extent_px,
+        )
+        from ao_shaping.utils.slm.bench_constants import TILT_SHIFT_SCALE
+
+        shape_tuple = tuple(shapes or ("square",))
+        from ao_shaping.tools.slm.transfer.preflight import MIN_PERIOD_PX
+
+        if tilt and (not math.isfinite(float(period)) or float(period) < MIN_PERIOD_PX):
+            # 周期本身已是阻塞错误：此时外推的位移没有物理意义，不再补一条升档说明。
+            return None, None
+        offset = carrier_offset_px(float(period), TILT_SHIFT_SCALE) if tilt else 0.0
+        extent = target_extent_px(float(side), shapes=shape_tuple, aspect_ratio=float(aspect_ratio))
+        if extent <= 0:
+            return None, None
+        ladder = capture_grid_ladder()
+        widest = ladder[-1]
+        needed = required_capture_grid(
+            float(side), TILT_SHIFT_SCALE, shapes=shape_tuple,
+            aspect_ratio=float(aspect_ratio), offset_px=offset,
+        )
+        if needed is None:
+            limit = fft_max_side_px(widest, TILT_SHIFT_SCALE, offset_px=offset)
+            return None, (
+                f"目标 {extent:g} px 超出任何合法采集网格的可达窗（最宽 {widest} 也只到 "
+                f"{limit:.0f} px）。\n    → 把目标边长降到 ≤ {limit:.0f} px"
+                "（或长/短比），否则采集跑完也无法整形。"
+            )
+        if needed <= default_capture_grid():
+            return None, None  # 默认网格已够得着：不升档，就不打扰
+        reach = _fft_reach_px(needed, TILT_SHIFT_SCALE)
+        return (
+            f"采集网格自动升档：{default_capture_grid()} → {needed}"
+            f"（目标 {extent:g} px 需可达半径 ≥{extent / 2:.0f} px，升档后 ±{reach:.0f} px）"
+        ), None
+    except Exception:  # 显示路径兜底：校验页绝不因为提示计算而崩
+        return None, None
 
 
 def _torch_missing() -> str | None:
@@ -503,6 +581,8 @@ def build_session(
         acceptance_upper=float(values.acceptance_upper),
         acceptance_max_rounds=int(values.acceptance_max_rounds),
         reuse_latest=bool(values.reuse_latest),
+        # 桌面不暴露网格控件：采集网格由目标尺寸自动定（只升不降，见 decide_capture_grid）。
+        auto_capture_grid=True,
     )
     # ``TransferSession`` 没有 tilt / aspect_ratio 字段（workflow.py 不在写域），
     # 物理 lane（``validate.run``）按 :data:`TILT_SESSION_FIELD` /

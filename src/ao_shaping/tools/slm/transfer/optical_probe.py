@@ -357,6 +357,8 @@ REUSE_SKIP_OFFLINE = "离线模式不参与光路复用"
 REUSE_SKIP_NO_SERIAL = "读不到 SLM 序列号"
 REUSE_SKIP_NO_LATEST = "该 SLM 没有 latest 模型"
 REUSE_SKIP_PROBE_FAILED = "光路探针失败"
+#: latest 模型的采集网格小于本次目标需要的网格（复用会把够不着的目标交回来）。
+REUSE_SKIP_GRID = "latest 模型网格不足以覆盖本次目标"
 
 
 def format_probe_skip_line(reason: str) -> str:
@@ -388,5 +390,6 @@ __all__ = [
     "REUSE_SKIP_OFFLINE",
     "REUSE_SKIP_NO_SERIAL",
     "REUSE_SKIP_NO_LATEST",
+    "REUSE_SKIP_GRID",
     "REUSE_SKIP_PROBE_FAILED",
 ]

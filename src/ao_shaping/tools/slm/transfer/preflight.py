@@ -127,6 +127,7 @@ def check_parameters(
     shapes: Sequence[str],
     offset_px: float | None = None,
     half_span_px: float = HALF_SPAN_PX,
+    grid_size: int | None = None,
 ) -> list[Problem]:
     """启动前的**纯参数**检查（不需要实测几何）。
 
@@ -142,6 +143,9 @@ def check_parameters(
         offset_px: 已知的载波位移（px）。给了才检查「位移 + 目标边长是否放得下」；
             没有实测倾斜相位时传 ``None``（例如首次运行）。
         half_span_px: 采样窗单边跨度（px）。
+        grid_size: 采集网格（panel px 分块）。给了才检查「目标是否超出该网格 FFT 前向
+            模型的可达窗」；``None`` = 跳过（不知道网格时不猜）。公式与硬保护
+            :func:`multishape_objective.assert_target_within_fft_window` 同一份。
 
     Returns:
         检查结论列表（空列表 = 通过）。
@@ -235,6 +239,43 @@ def check_parameters(
                     f"超出采样窗半跨 {half_span_px:g} px。",
                     f"目标边长降到 {limit:.0f} px 以内，或把载波周期调大"
                     "（位移 ∝ 1/周期）。",
+                )
+            )
+
+    # FFT 网格可达窗：与采样窗是两件事。采样窗够大不代表前向模型够得着目标；
+    # 这里只做**提醒级**预告（桌面会自动升档，CLI 由操作员自己决定网格）。
+    if grid_size is not None:
+        from ao_shaping.algorithm.signal_processing.multishape_objective import (
+            carrier_offset_px,
+            fft_max_side_px,
+            required_capture_grid,
+            target_extent_px,
+        )
+        from ao_shaping.utils.slm.bench_constants import TILT_SHIFT_SCALE
+
+        extent = target_extent_px(side, shapes=shapes)
+        reach_offset = (
+            float(offset_px)
+            if offset_px is not None and math.isfinite(offset_px)
+            else carrier_offset_px(period, TILT_SHIFT_SCALE)
+        )
+        limit = fft_max_side_px(grid_size, TILT_SHIFT_SCALE, offset_px=reach_offset)
+        if extent > limit:
+            needed = required_capture_grid(
+                side, TILT_SHIFT_SCALE, shapes=shapes, offset_px=reach_offset
+            )
+            hint = (
+                f"把采集网格升到 {needed}（或更大）。"
+                if needed is not None
+                else "缩小目标边长：任何合法采集网格都够不着它。"
+            )
+            problems.append(
+                Problem(
+                    "side_exceeds_fft_reach",
+                    f"目标包围盒 {extent:g} px 超出采集网格 {grid_size} 的 FFT 可达窗"
+                    f"（最大边长约 {limit:.0f} px）。",
+                    hint,
+                    severity="warning",
                 )
             )
 
