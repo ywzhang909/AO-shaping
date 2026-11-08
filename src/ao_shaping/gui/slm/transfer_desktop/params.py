@@ -50,6 +50,7 @@ __all__ = [
     "TILT_SESSION_FIELD",
     "TransferFormValues",
     "build_session",
+    "capture_grid_note",
     "effective_window_span",
     "plan_session_dir",
     "validate_form",
@@ -390,17 +391,15 @@ def validate_form(values: TransferFormValues) -> tuple[list[str], list[str]]:
             errors.append(text)
         else:
             warnings.append(text)
-    # 采集网格自动升档：升档时给一条中性说明；目标在任何合法网格下都够不着时直接阻塞
-    # （空跑一遍采集只会浪费设备时间）。升档成功时吊销原先「目标超出可达窗」的提示，避免
-    # 同一目标出现互相矛盾的红黄两条。
-    grid_info, grid_error = describe_capture_grid(
+    # 采集网格自动升档：目标在任何合法网格下都够不着时直接阻塞（空跑一遍采集只会
+    # 浪费设备时间）。**升档说明不在这里**：升档是预期行为，用黄字「提醒 · 请确认」
+    # 讲它会把「参数需要人看一眼」和「参数变了」混成一条 —— 说明走
+    # :func:`capture_grid_note` 的第三通道（中性色），校验本身仍只是红/黄两档。
+    _grid_info, grid_error = describe_capture_grid(
         side=side, shapes=shapes, aspect_ratio=aspect_ratio, tilt=tilt, period=period,
     )
     if grid_error:
         errors.append(grid_error)
-    if grid_info:
-        # 中性说明（不是警告）：自动升档是预期行为，只告诉操作员网格会变成多少。
-        warnings.append(grid_info)
     # 验收阈值循环的边界（只在校验开启时把关, 关闭 = 当前单轮行为, 不拦不提示）。
     # 阈值是算法建议的浮动下/上界: 给越界一个提醒, 不阻塞——操作员可以按自己的
     # 判定放宽, 但提醒能防住把 correlation 拖到 0 以下这类明显笔误。
@@ -485,6 +484,30 @@ def describe_capture_grid(
         ), None
     except Exception:  # 显示路径兜底：校验页绝不因为提示计算而崩
         return None, None
+
+
+def capture_grid_note(values: TransferFormValues) -> str | None:
+    """自动升档的**中性说明**（校验页的第三通道），没有升档时为 ``None``。
+
+    为什么单独成一个函数而不是塞进 ``warnings``：``warnings`` 的语义是「能跑，但
+    请人工确认」，页面把它画成黄字；而「采集网格 480 → 640」是本页自己算出来、
+    会自动执行的派生值，没有任何需要人确认的地方。混进黄字会让操作员学会忽略黄字
+    —— 真正需要确认的提醒（周期未标定等）就失去了分量。
+
+    判据与 :func:`describe_capture_grid` / 会话里的 ``decide_capture_grid`` 同源，
+    所以这句话说的网格就是实际会用的网格。纯函数、不抛（读不到就退回不说话）。
+    """
+    try:
+        info, _error = describe_capture_grid(
+            side=float(values.side),
+            shapes=tuple(values.shapes or ()),
+            aspect_ratio=float(values.aspect_ratio),
+            tilt=bool(values.tilt),
+            period=float(values.period),
+        )
+    except Exception:  # 显示路径兜底
+        return None
+    return info
 
 
 def _torch_missing() -> str | None:

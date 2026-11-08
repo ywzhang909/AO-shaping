@@ -671,6 +671,9 @@ class TransferPage(QWidget):
         self._zero_state: tuple[str, str] | None = None
         self._last_errors: list[str] = []
         self._last_warnings: list[str] = []
+        # 第三通道：中性说明（例如采集网格自动升档到多少）。既不是阻塞也不是需要
+        # 确认的提醒，所以单独一条颜色，不混进黄字里稀释真提醒的分量。
+        self._last_notes: list[str] = []
         self._status_kind = "pending"
         self._status_message = "尚未运行。参数自检通过后即可启动。"
         self._colors: dict[str, str] = _palette_colors(self.palette())
@@ -1189,6 +1192,10 @@ class TransferPage(QWidget):
         """最近一次校验的 ``(errors, warnings)`` (副本, 调用方随便改)。"""
         return list(self._last_errors), list(self._last_warnings)
 
+    def current_notes(self) -> list[str]:
+        """最近一次校验的**中性说明** (副本)：不算阻塞也不算提醒。"""
+        return list(self._last_notes)
+
     def run_button(self) -> QPushButton:
         """「开始运行」按钮 (自动化验证按它判断可启动性)。"""
         return self._run_btn
@@ -1321,6 +1328,8 @@ class TransferPage(QWidget):
         errors, warnings = params.validate_form(self.form_values())
         self._last_errors = errors
         self._last_warnings = warnings
+        note = params.capture_grid_note(self.form_values())
+        self._last_notes = [note] if note else []
         self._render_checks()
         self._run_btn.setEnabled(
             not errors
@@ -1342,9 +1351,22 @@ class TransferPage(QWidget):
         self._render_check()
 
     def _render_checks(self) -> None:
-        """把最近一次校验结论画成红 / 黄两段 (无结论 = 绿字通过)。"""
+        """把最近一次校验结论画成红 / 黄 / 中性三段 (无红无黄 = 绿字通过)。
+
+        中性段只放**本页自己算出来的派生值**（自动升档后的采集网格），不用黄字：
+        黄字代表「需要人确认」，说多了就没人看了。红黄都没有时先给一行绿色
+        「参数自检通过」，中性段跟在后面 —— 通过本身就是结论，不该被说明挤掉。
+        """
         colors = self._colors
         parts: list[str] = []
+        if not self._last_errors and not self._last_warnings:
+            parts.append(
+                f'<p style="margin:0;color:{colors["ok"]}"><b>参数自检通过</b></p>'
+            )
+            parts.append(
+                f'<p style="margin:4px 0 0 0;color:{self._muted()}">'
+                "倾斜相位与目标尺寸放得进采样窗，探针数是 6 的倍数。</p>"
+            )
         for texts, kind, tail, mark in (
             (self._last_errors, "error", "项阻塞 · 修好才能启动", "■"),
             (self._last_warnings, "warn", "项提醒 · 可运行，但请确认", "!"),
@@ -1359,13 +1381,15 @@ class TransferPage(QWidget):
                     f"{mark} {_rich(text)}</p>"
                     for text in texts
                 )
-        if not parts:
+        if self._last_notes:
+            muted = self._muted()
             parts.append(
-                f'<p style="margin:0;color:{colors["ok"]}"><b>参数自检通过</b></p>'
+                f'<p style="margin:0 0 4px 0;color:{muted}">'
+                f"<b>{len(self._last_notes)} 项说明 · 页面按这些值执行</b></p>"
             )
-            parts.append(
-                f'<p style="margin:4px 0 0 0;color:{self._muted()}">'
-                "倾斜相位与目标尺寸放得进采样窗，探针数是 6 的倍数。</p>"
+            parts.extend(
+                f'<p style="margin:0 0 6px 0;color:{muted}">· {_rich(text)}</p>'
+                for text in self._last_notes
             )
         self._checks.setText("".join(parts))
 
@@ -1667,6 +1691,8 @@ class TransferPage(QWidget):
             return
         values = self.form_values()
         errors, _ = params.validate_form(values)
+        note = params.capture_grid_note(values)
+        self._last_notes = [note] if note else []
         if errors:
             # 按钮已禁用, 这里是第二道闸 (程序方式触发 clicked 时也拦住)。
             self._last_errors = errors

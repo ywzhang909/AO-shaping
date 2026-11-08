@@ -23,6 +23,7 @@ from ao_shaping.gui.slm.transfer_desktop.params import (
     STAGE_LABELS,
     TransferFormValues,
     build_session,
+    capture_grid_note,
     plan_session_dir,
     validate_form,
 )
@@ -36,7 +37,7 @@ def _values(**overrides: object) -> TransferFormValues:
 # --- 常量与默认值 -----------------------------------------------------------
 
 
-def test_the_public_contract_is_the_documented_eleven_names() -> None:
+def test_the_public_contract_is_the_documented_twelve_names() -> None:
     assert set(params.__all__) == {
         "ACCEPTANCE_LOWER_DEFAULT",
         "ACCEPTANCE_UPPER_DEFAULT",
@@ -48,6 +49,7 @@ def test_the_public_contract_is_the_documented_eleven_names() -> None:
         "TILT_SESSION_FIELD",
         "TransferFormValues",
         "build_session",
+        "capture_grid_note",
         "effective_window_span",
         "plan_session_dir",
         "validate_form",
@@ -215,6 +217,35 @@ def test_an_uncalibrated_period_is_a_warning_not_an_error() -> None:
     assert len(warnings) == 1
     assert "100" in warnings[0]
     assert "→" in warnings[0]
+
+
+def test_an_automatic_grid_raise_is_a_note_not_a_warning() -> None:
+    """升档是页面自己算出来的派生值：走中性通道，不占「请人工确认」的黄字。
+
+    1800 px 三角形 + 120 px 周期需要把采集网格从 128 升到 640（可达窗判据见
+    ``test_capture_grid_auto``）；这条说明既不阻塞，也没有任何需要人确认的东西。
+    """
+    pytest.importorskip("torch")
+
+    values = _values(side=1800.0, shapes=("triangle",), tilt=True, period=120.0)
+    errors, warnings = validate_form(values)
+
+    assert errors == []
+    assert all("升档" not in text for text in warnings)
+    note = capture_grid_note(values)
+    assert note is not None
+    assert "升档" in note and "640" in note
+
+
+def test_the_grid_note_is_silent_when_the_default_grid_already_reaches() -> None:
+    pytest.importorskip("torch")
+
+    assert capture_grid_note(TransferFormValues()) is None
+
+
+def test_the_grid_note_never_raises_on_bad_input() -> None:
+    """显示路径不许抛：非法输入只换回「不说话」。"""
+    assert capture_grid_note(_values(side=float("nan"), period=0.0)) is None
 
 
 def test_a_probe_count_that_is_not_a_multiple_of_six_is_rejected() -> None:
