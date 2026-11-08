@@ -1748,6 +1748,15 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/model_in_loop_hw_ab.py",
         ),
     ),
+    "report/shape_trials/experiment_summary_20261108.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件",
+        note=(
+            "2026-11-02 ~ 2026-11-08 形状整形全部报告的汇总: 重点转向动态整形; "
+            "不含任何新测量, 全部数字来自已有报告与保存的实验产物离线复算; "
+            "含当前现状与最优路线、逐报告指标与任务项, 供脱离硬件复现"
+        ),
+    ),
     "report/shape_trials/gs_refine_fwdmodel/gs_refine_fwdmodel_calibration.md": ReportProvenance(
         script="scripts/slm/generate_gs_refine_fwdmodel_report.py",
         command="python scripts/slm/generate_gs_refine_fwdmodel_report.py",
