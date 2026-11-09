@@ -167,7 +167,9 @@ def _patch_capture(monkeypatch):
         "ao_shaping.drivers.slm.santec",
         SimpleNamespace(Santec=lambda **kwargs: _Slm()),
     )
-    monkeypatch.setattr(capture_module, "locate", lambda frame: (23.0, 31.0))
+    monkeypatch.setattr(
+        capture_module, "locate", lambda frame, **_kwargs: (23.0, 31.0)
+    )
 
     def adapt(setter, read, **kwargs):
         setter(0.123)

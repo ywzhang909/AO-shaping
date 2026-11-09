@@ -51,6 +51,11 @@ from .live_frame import _resolve_observer, frame_payload, notify_frame
 EXPOSURE_MAX_STEPS = 2
 EXPOSURE_RATIO_BOUNDS = (0.1, 50.0)
 
+#: locate() 屏蔽零级邻域的磁盘半径 (px)。2026-11-09 光路零级未压制 (E0/E1~1.2),
+#: argmax 锁零级 -> ramp_matrix 全废; 60 px 覆盖零级 FWHM (~80 px) 的大部又不吃掉
+#: period>=48 的一级 (~113 px 外)。
+ZERO_ORDER_EXCLUDE_RADIUS = 60.0
+
 #: 一次走不到接受带就接着走: ``EXPOSURE_RETRIES`` 次, 每次给 ``EXPOSURE_RETRY_STEPS``
 #: 档预算。2 档的阶梯只够「一次乘法修正 + 一次复核」, 那一步一旦跨过头就**没有档位
 #: 往下走**了 —— 2026-11-03 17:40 的会话正是这样死在 probe_012_zernike 上: 它从上一个
@@ -98,10 +103,27 @@ def to_panel(grid: np.ndarray) -> np.ndarray:
     return np.repeat(np.repeat(grid, pitch, axis=0), pitch, axis=1)[:1200]
 
 
-def locate(frame: np.ndarray) -> tuple[float, float]:
-    """Locate the dominant component using a smoothed peak and local moments."""
+def locate(
+    frame: np.ndarray,
+    *,
+    exclude_xy: tuple[float, float] | None = None,
+    exclude_radius: float = ZERO_ORDER_EXCLUDE_RADIUS,
+) -> tuple[float, float]:
+    """Locate the dominant component using a smoothed peak and local moments.
+
+    ``exclude_xy`` masks a disk around that point (the session zero order) so
+    the argmax can fall through to the first diffraction order. Without it a
+    beam whose zero order is not suppressed locks every ramp spot onto the
+    zero order and ``fit.geometry()`` extracts a degenerate ramp matrix.
+    """
     smooth = gaussian_filter(np.asarray(frame, dtype=float), 3)
-    row, col = np.unravel_index(smooth.argmax(), smooth.shape)
+    if exclude_xy is not None:
+        yy, xx = np.mgrid[: smooth.shape[0], : smooth.shape[1]]
+        keep = (xx - exclude_xy[0]) ** 2 + (yy - exclude_xy[1]) ** 2 > exclude_radius**2
+        masked = np.where(keep, smooth, -np.inf)
+        row, col = np.unravel_index(masked.argmax(), masked.shape)
+    else:
+        row, col = np.unravel_index(smooth.argmax(), smooth.shape)
     y0, y1 = max(0, row - 30), min(frame.shape[0], row + 31)
     x0, x1 = max(0, col - 30), min(frame.shape[1], col + 31)
     weights = np.maximum(frame[y0:y1, x0:x1] - np.median(frame), 0)
@@ -413,6 +435,8 @@ def capture(args, *, on_frame=None):
                     encoding="utf-8",
                 )
 
+                # reference_start 是本会话零级；之后 ramp 帧用它屏蔽零级邻域再定位。
+                session_zero: tuple[float, float] | None = None
                 for label, split, grid in probes(
                     args.grid,
                     args.count,
@@ -518,7 +542,14 @@ def capture(args, *, on_frame=None):
                     samples[path] = dict(
                         model_phase=grid.astype(np.float32), raw_frames=raw
                     )
-                    x, y = locate(frame)
+                    if label == "reference_start":
+                        x, y = locate(frame)
+                        session_zero = (x, y)
+                    elif label.startswith("ramp_") and session_zero is not None:
+                        # 零级未被压制时 argmax 会锁零级 -> 屏蔽零级邻域后找一级。
+                        x, y = locate(frame, exclude_xy=session_zero)
+                    else:
+                        x, y = locate(frame)
                     row = dict(
                         file=path,
                         label=label,
