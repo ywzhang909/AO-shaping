@@ -61,7 +61,7 @@ def test_measured_anchor_preserves_reference_and_model_increment():
     np.testing.assert_allclose(module.anchored_intensity(measured, prediction, prediction), measured)
     step = np.array([[.1, -.2], [.3, -.4]], dtype=np.float32)
     np.testing.assert_allclose(module.anchored_intensity(measured, prediction+step, prediction), measured+step)
-    with pytest.raises(ValueError, match="identical camera grid"):
+    with pytest.raises(ValueError, match="同一相机网格"):
         module.anchored_intensity(measured, prediction[:1], prediction)
 
 

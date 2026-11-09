@@ -32,7 +32,7 @@ def square_transport_phase(forward, centre, side):
     Raw radians are returned, never wrapped or min-max normalized.
     """
     if not np.isfinite(side) or side <= 0:
-        raise ValueError("side must be finite and positive")
+        raise ValueError("边长必须是有限正数")
     p = forward.params
     amplitude = forward.amplitude.detach().cpu().numpy()
     matrix = np.asarray(p.ramp_matrix)
@@ -44,7 +44,7 @@ def square_transport_phase(forward, centre, side):
         cdf = (np.cumsum(marginal) - .5 * marginal) / marginal.sum()
         frequency = side / np.linalg.norm(matrix[:, axis]) * (cdf - .5) + qcentre[axis]
         if np.max(np.abs(frequency)) >= nyquist:
-            raise ValueError("target exceeds phase control Nyquist bandwidth; increase grid_size")
+            raise ValueError("目标超过相位控制奈奎斯特带宽；请增大 grid_size")
         profile = 2 * np.pi * cumulative_trapezoid(frequency, dx=forward.pitch, initial=0)
         phase += profile[None, :] if axis == 0 else profile[:, None]
     phase -= p.defocus_diopter * p.diopter_scale * forward.z4.detach().cpu().numpy()
@@ -111,7 +111,7 @@ def export_frozen_parameters(checkpoint, out, *, grid=640, fft=2048, geometry_da
     checkpoint = Path(checkpoint)
     out = Path(out)
     if grid <= 0 or 1920 % grid or 1200 % (1920 // grid) or fft < grid:
-        raise ValueError("grid must tile panel exactly, FFT must cover grid")
+        raise ValueError("网格必须整除面板，FFT 必须覆盖网格")
     original = load_frozen_parameters(checkpoint).effective_parameters()
     params = replace(original, grid_size=grid, fft_size=fft)
     if geometry_dataset is not None:

@@ -85,7 +85,7 @@ def test_staged_weights_can_build_on_an_explicit_base():
 
 def test_set_weights_rejects_unknown_keys():
     objective = ShapeObjective(_target())
-    with pytest.raises(ValueError, match="unknown weight"):
+    with pytest.raises(ValueError, match="未知权重"):
         objective.set_weights({"cv2 ": 1.0})
 
 

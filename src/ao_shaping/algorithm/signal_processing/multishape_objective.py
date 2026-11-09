@@ -47,7 +47,7 @@ def target_at(xy, shape, centre, side, aspect_ratio: float = 2.0):
     from ao_shaping.utils.image.target.patterns import create_target_shape
 
     if not np.isfinite(side) or side <= 0:
-        raise ValueError("target side must be finite and positive")
+        raise ValueError("目标边长必须是有限正数")
     extent = side * (aspect_ratio if shape == "rectangle" else 1)
     size = max(512, 2 * int(np.ceil((extent + 8) / 2)))
     middle = size / 2
@@ -75,7 +75,7 @@ class ShapeObjective:
         self.cv_only = bool(cv_only)
         self.formation = bool(formation)
         if self.cv_only and self.formation:
-            raise ValueError("CV-only and formation objectives are mutually exclusive")
+            raise ValueError("仅 CV 目标与形成目标互斥")
         #: Which weight set ``set_weights`` validates against.
         self.mode = "cv" if self.cv_only else ("formation" if self.formation else "shape")
         #: Active loss weights; ``constant`` unless a schedule overrides them.
@@ -84,7 +84,7 @@ class ShapeObjective:
         self.box = self.target > .5
         self.core = binary_erosion(self.box, iterations=2)
         if not self.core.any():
-            raise ValueError("empty target core")
+            raise ValueError("目标核心为空")
         self.n_partitions = int(n_partitions)
         self.peripheral_px = int(peripheral_px)
         self.signal_floor = float(signal_floor)
@@ -140,8 +140,8 @@ class ShapeObjective:
         """
         unknown = sorted(set(weights) - set(DEFAULT_WEIGHTS[self.mode]))
         if unknown:
-            raise ValueError(f"unknown weight(s) for mode {self.mode!r}: {unknown}; "
-                             f"allowed: {sorted(DEFAULT_WEIGHTS[self.mode])}")
+            raise ValueError(f"模式 {self.mode!r} 的未知权重：{unknown}；"
+                             f"允许：{sorted(DEFAULT_WEIGHTS[self.mode])}")
         merged = dict(DEFAULT_WEIGHTS[self.mode])
         merged.update({key: float(value) for key, value in weights.items()})
         self.weights = merged
@@ -245,7 +245,7 @@ def target_pearson(image, target):
     frame = np.asarray(image, dtype=np.float64)
     ref = np.asarray(target, dtype=np.float64)
     if frame.shape != ref.shape:
-        raise ValueError("image and target must share the camera-window grid")
+        raise ValueError("图像与目标必须共用同一相机窗网格")
     if frame.size < 2 or frame.std() == 0 or ref.std() == 0:
         return None
     return float(np.corrcoef(frame.ravel(), ref.ravel())[0, 1])
@@ -256,7 +256,7 @@ def anchored_intensity(measured, prediction, baseline_prediction):
     measured, prediction, baseline_prediction = (np.asarray(x, dtype=np.float32) for x in
                                                 (measured, prediction, baseline_prediction))
     if measured.shape != prediction.shape or measured.shape != baseline_prediction.shape:
-        raise ValueError("anchor and predictions must use the identical camera grid")
+        raise ValueError("锚点与预测必须使用同一相机网格")
     return np.maximum(measured + prediction - baseline_prediction, 1e-8)
 
 
@@ -434,11 +434,10 @@ def _fft_window_error(pitch, ramp, centre, origin, side, shape, aspect_ratio,
     不带数字的原句 —— 报错路径本身绝不能再抛。
     """
     head = (
-        f"target side {side:g} px for shape {shape!r} exceeds the forward "
-        f"model's FFT-grid reachable window: the grid covers frequencies up "
-        f"to ±{fmax:.4f} but the target corner reaches ±{worst:.4f}. "
+        f"目标边长 {side:g} px（形状 {shape!r}）超过前向模型的 FFT 网格可达窗口："
+        f"该网格的频率覆盖只到 ±{fmax:.4f}，但目标角点已达 ±{worst:.4f}。"
     )
-    fallback = "Reduce the target size or use a finer control grid."
+    fallback = "请减小目标边长，或改用更细的控制网格。"
     try:
         slope = float(np.max(np.linalg.norm(np.asarray(ramp, dtype=float), axis=1)))
         offset = float(np.max(np.abs(np.asarray(centre, dtype=float)
@@ -450,15 +449,15 @@ def _fft_window_error(pitch, ramp, centre, origin, side, shape, aspect_ratio,
                                        aspect_ratio=aspect_ratio, offset_px=offset)
     except Exception:  # 显示路径兜底，绝不掩盖原始判据
         return head + fallback
-    numbers = (f"The carrier reaches ±{reach:.0f} px around the zero order at this "
-               f"grid, so a target centred here can be at most {limit:.0f} px on a "
-               f"side. ")
+    numbers = (f"该网格下目标围绕零级的载频偏移达 ±{reach:.0f} px，"
+               f"故居中目标边长至多 {limit:.0f} px。")
     if needed is None:
         widest = capture_grid_ladder()[-1]
-        numbers += (f"No capture grid up to {widest} reaches {side:g} px; keep the "
-                    f"target below {fft_max_side_px(widest, slope, offset_px=offset):.0f} px.")
+        numbers += (f"最大 {widest} 的采集网格也达不到 {side:g} px；"
+                    f"请把目标边长保持在 "
+                     f"{fft_max_side_px(widest, slope, offset_px=offset):.0f} px 以下。")
     else:
-        numbers += f"Use a capture grid of at least {needed}."
+        numbers += f"请使用至少 {needed} 的采集网格。"
     return head + numbers + fallback
 
 

@@ -67,5 +67,5 @@ def test_wide_recorded_model_shapes_triangle_1800():
 def test_narrow_recorded_model_rejects_triangle_1800():
     forward = _forward(NARROW_MODEL)
     assert forward.params.grid_size == 128
-    with pytest.raises(ValueError, match="FFT-grid reachable window"):
+    with pytest.raises(ValueError, match="FFT 网格可达窗口"):
         assert_target_within_fft_window(forward, _target_centre(forward), SIDE, "triangle")

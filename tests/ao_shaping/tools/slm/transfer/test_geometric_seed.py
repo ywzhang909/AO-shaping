@@ -114,7 +114,7 @@ def test_fft_grid_target_rejects_target_beyond_model_fft_window(tmp_path):
     instead of the requested shape (the triangle-to-square defect).
     """
     forward, centre = _forward(tmp_path, grid=128, fft=1024)
-    with pytest.raises(ValueError, match="FFT-grid reachable window"):
+    with pytest.raises(ValueError, match="FFT 网格可达窗口"):
         mo.fft_grid_target(forward, centre, SIDE, "triangle")
 
 
@@ -135,7 +135,7 @@ def test_gs_seed_rejects_target_beyond_model_fft_window(tmp_path):
     """The GS seed goes through ``fft_grid_target``, so the reach guard protects
     it too: an oversized target fails before any GS iteration runs."""
     forward, centre = _forward(tmp_path, grid=128, fft=1024)
-    with pytest.raises(ValueError, match="FFT-grid reachable window"):
+    with pytest.raises(ValueError, match="FFT 网格可达窗口"):
         mo.gs_seed(forward, centre, SIDE, "triangle")
 
 
