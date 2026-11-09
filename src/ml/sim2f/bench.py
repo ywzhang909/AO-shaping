@@ -1805,6 +1805,79 @@ def select_indices(
     return order
 
 
+
+def _run_session_samples(bench, context, corpus, frames, instruments, kinds, model, name, order, record, resolved, rows, seed, session_instrument, states, targets, teacher, twin_frames, recorder, describe_instrument):
+    """Per-sample loop with instrument/recorder lifecycle (verbatim lift
+    of the session-body Try from `run_session`; describe_instrument and
+    recorder are passed in and returned so an early exit keeps the
+    pre-loop values exactly as before).
+    """
+    try:
+        for index in order:
+            target = corpus.target[index : index + 1].to(
+                device=resolved, dtype=torch.float32
+            )
+            support = corpus.support[index : index + 1].to(
+                device=resolved, dtype=torch.float32
+            )
+            with torch.no_grad():
+                net_phase = from_phasor(model(network_input(target, context)))
+
+            instrument: Instrument
+            if name == "sim":
+                rng = np.random.default_rng([int(seed), int(index)])
+                state = draw_aberration(bench, states, rng)
+                aberration, illumination = write_aberration(bench, state)
+                instrument = SimInstrument(
+                    bench=bench,
+                    aberration=aberration,
+                    illumination=illumination,
+                    detector=False,
+                    seed=int(seed),
+                )
+                instruments.append(instrument)
+                describe_instrument = instrument
+            else:
+                if session_instrument is None:
+                    raise BenchmarkError("hardware backend opened no instrument")
+                instrument = session_instrument
+
+            row = measure_sample(
+                instrument,
+                net_phase=net_phase,
+                target=target,
+                support=support,
+                teacher=teacher,
+                index=index,
+                kind=kinds[index],
+            )
+            rows.append(row)
+            frames[int(index)] = row["frames"]
+            targets[int(index)] = target[0, 0].detach().cpu().numpy()
+            twin_frames[int(index)] = instrument.twin(net_phase)
+            if record:
+                if recorder is None:
+                    recorder = BenchRecorder()
+                _record_row(recorder, instrument, row, net_phase=net_phase)
+            logger.info(
+                "sample {} kind={} ncc flat={:.4f} net={:.4f} drift={:.4f} "
+                "objective flat={:.4f} net={:.4f}{}",
+                index,
+                kinds[index],
+                row["ncc_flat"],
+                row["ncc_net"],
+                row["ncc_a_drift"],
+                row["objective_flat"],
+                row["objective_net"],
+                " [indistinguishable]" if row["indistinguishable"] else "",
+            )
+    finally:
+        for instrument in instruments:
+            instrument.close()
+    return describe_instrument, recorder
+
+
+
 def run_session(
     *,
     checkpoint: str | Path,
@@ -1937,68 +2010,10 @@ def run_session(
     if session_instrument is not None:
         instruments.append(session_instrument)
 
-    try:
-        for index in order:
-            target = corpus.target[index : index + 1].to(
-                device=resolved, dtype=torch.float32
-            )
-            support = corpus.support[index : index + 1].to(
-                device=resolved, dtype=torch.float32
-            )
-            with torch.no_grad():
-                net_phase = from_phasor(model(network_input(target, context)))
-
-            instrument: Instrument
-            if name == "sim":
-                rng = np.random.default_rng([int(seed), int(index)])
-                state = draw_aberration(bench, states, rng)
-                aberration, illumination = write_aberration(bench, state)
-                instrument = SimInstrument(
-                    bench=bench,
-                    aberration=aberration,
-                    illumination=illumination,
-                    detector=False,
-                    seed=int(seed),
-                )
-                instruments.append(instrument)
-                describe_instrument = instrument
-            else:
-                if session_instrument is None:
-                    raise BenchmarkError("hardware backend opened no instrument")
-                instrument = session_instrument
-
-            row = measure_sample(
-                instrument,
-                net_phase=net_phase,
-                target=target,
-                support=support,
-                teacher=teacher,
-                index=index,
-                kind=kinds[index],
-            )
-            rows.append(row)
-            frames[int(index)] = row["frames"]
-            targets[int(index)] = target[0, 0].detach().cpu().numpy()
-            twin_frames[int(index)] = instrument.twin(net_phase)
-            if record:
-                if recorder is None:
-                    recorder = BenchRecorder()
-                _record_row(recorder, instrument, row, net_phase=net_phase)
-            logger.info(
-                "sample {} kind={} ncc flat={:.4f} net={:.4f} drift={:.4f} "
-                "objective flat={:.4f} net={:.4f}{}",
-                index,
-                kinds[index],
-                row["ncc_flat"],
-                row["ncc_net"],
-                row["ncc_a_drift"],
-                row["objective_flat"],
-                row["objective_net"],
-                " [indistinguishable]" if row["indistinguishable"] else "",
-            )
-    finally:
-        for instrument in instruments:
-            instrument.close()
+    describe_instrument, recorder = _run_session_samples(
+        bench, context, corpus, frames, instruments, kinds, model, name,
+        order, record, resolved, rows, seed, session_instrument, states,
+        targets, teacher, twin_frames, recorder, describe_instrument)
 
     describe: dict[str, Any] = (
         describe_instrument.describe()

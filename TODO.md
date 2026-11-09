@@ -4751,6 +4751,11 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 第 45 批：`execute_campaign` 331→**258**（棘轮行 371/4/331 收紧为 290/3/258）——三段逐字升出：`_campaign_auto_reuse` 28（auto-reuse 探测，只回传 `model_dir`）、`_campaign_model_dirs` 58（采集/拟合目录解析，if/else 两分支全量绑定并回传 5 个目录名）、`_campaign_seed_choice` 47（种子择优，回传 `chosen`）。审计两处精修：区内先写后读的名字不算泄漏（`best` 在 L463 先于 L464 普通赋值绑定），`except` 子句自带重绑的不算外读（L472/L478 的 `exc`）；先读后写与 AugAssign 仍强制入参（第 44 批 `running/seen` 规则保留）
 - 证明与验收：叶语句全树扫描 IDENTICAL（255 对 261 减 6 条新增=3 调用+3 返回）；载体 `test_transfer_shapes_resume` + `test_transfer_shapes_runner` **31 passed**（resume 用例真执行全链路，journal 断言落在 `_campaign_model_dirs` 的 else 分支）；形状门禁 **158 passed**；模块 935→968（基线同步）
 
+**2026-11-09 · d628cb6b · 第 45 批 CI 闭环（分片 a=1 撞 90 分钟上限、a=2 success，重跑协议第四次实证）；第 46 批在案**
+- `d628cb6b` 分片 attempt#1 在 90 分钟处 `cancelled`（已定性签名 = runner 拥挤，GitHub 记 cancelled 而非 failed），原样重跑 attempt#2 **success**、四条 workflow 全绿
+- 第 46 批：`run_session` 324→**266**（嵌套 4→1）——62 行采样循环 `try` 逐字升出 `_run_session_samples`（69 行）。`describe_instrument/recorder` 入参且回传（区外初值 L1936/L1935 在异常路径不被区内重绑触及时原样流回，与原文逐路径一致）；`index/key/value/row` 四处"区后读"逐行精算均为同句推导式自绑定（推导式变量不外泄），非泄漏，生成器断言按精算结果豁免该组名
+- 证明与验收：叶语句全树扫描 IDENTICAL（474 对 476 减 2 条新增=调用+返回）；载体 `test_bench.py` **65 passed, 11 skipped**（sim 路径真执行 `run_session`，`record=` 回调与 instrument 生命周期都在行为网内）；ml/sim2f 域 26 文件 per-file 零红（exit=0）；形状门禁 **159 passed**；棘轮行 364/4/324 收紧为 300/1/266 + helper 行 90/4/69；模块 2439→2454（基线由 2468 余量收紧为实测 2454）
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

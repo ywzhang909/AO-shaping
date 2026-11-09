@@ -71,7 +71,7 @@
   "src/ml/hwdataset/records.py": 1104,
   "src/ml/hwdataset/zernike_dataset.py": 1218,
   "src/ml/shaping/train.py": 848,
-  "src/ml/sim2f/bench.py": 2468,
+  "src/ml/sim2f/bench.py": 2454,
   "src/ml/sim2f/calibrate.py": 1097,
   "src/ml/sim2f/config.py": 1467,
   "src/ml/sim2f/fit.py": 1184,
