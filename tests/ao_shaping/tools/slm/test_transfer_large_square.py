@@ -28,7 +28,7 @@ def test_geometric_seed_respects_bandwidth_and_returns_raw_radians():
     assert phase.shape == (64, 64) and np.isfinite(phase).all()
     assert np.ptp(phase) > 2*np.pi
     forward.pitch = 15.
-    with pytest.raises(ValueError, match="Nyquist"):
+    with pytest.raises(ValueError, match="奈奎斯特"):
         square_transport_phase(forward, (0., 0.), 1200)
 
 

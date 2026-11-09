@@ -90,11 +90,12 @@ def test_dialog_shows_the_commit_id(dialog, app) -> None:
 def test_help_button_opens_the_doc_url(dialog, app, monkeypatch) -> None:
     """点「帮助文档」会用系统浏览器打开 GitHub 链接。"""
     opened: list[str] = []
-    monkeypatch.setattr(
-        QDesktopServices,
-        "openUrl",
-        staticmethod(lambda url: opened.append(url.toString()) or True),
-    )
+
+    def _open(url) -> bool:
+        opened.append(url.toString())
+        return True
+
+    monkeypatch.setattr(QDesktopServices, "openUrl", staticmethod(_open))
 
     dialog._help_button.click()
     app.processEvents()

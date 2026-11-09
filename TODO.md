@@ -4768,6 +4768,10 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 另发现参数遮蔽模块名盲区：`full_scale` 既是 gate0 kwonly 参数又有模块级同名赋值，`ld − mod` 先减掉了它 → free/blind 双漏报，ruff F821 兜底捕获；审计的 mod 集合改为先 `− params0`
 - 证明与验收：叶语句全树扫描 IDENTICAL（476 对 480 减 4 条新增=两调用+两返回）；载体 `test_bench.py` **65 passed, 11 skipped**（gate0 在 sim 会话路径内真执行）；形状门禁 **162 passed**；棘轮行 286/3/256 收紧为 220/2/177 + 两 helper 行 90/1/58、70/3/38；模块 2454→2477（基线随实测上调）
 
+**2026-11-09 · c935c85f · 第 48 批 CI 闭环（含两枚上游回归复位）**
+- 本批 head 链三段红三段复位：attempt#1 CI 红 = 并行窗口 `c709ca69` 带入 1 行禁用术语 (应作"物理预测模型")（术语门禁抓到，`--apply` 独立复位 `7a40a9db`）；attempt#2 CI 红 = 同窗口 `page.py` 2866→2890 超基线（按 b31/b39/b42 先例登记 `d92e8bcd`）；attempt#3 CI/Ruff/Pylint 全绿、Pytest 分片红 2 条——**均为并行窗口回归而非本批拆分之伤**：① `4c8c7470` 把奈奎斯特报错文案中文化，`test_transfer_large_square` 仍 `match="Nyquist"` → 跟进真实消息改 `match="奈奎斯特"`（本地 3 passed）；② `test_about.py` 桩里 `opened.append(...) or True` 触发布尔自吞守卫 → 等价重构成具名函数返 True（行为逐位不变，守卫本地 passed；PySide6 沙箱不可收集，由 CI 复核）
+- 教训入规：**本地门禁跑在 rebase 之前 = 有盲区**。并行窗口提交先于 rebase 进入链条，其术语/基线违例只有对新 head 的门禁才算数——凡 rebase 引入了他人提交，提交前门禁需对新树重跑一遍（本批之后固定 rebase→复检→push）
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
