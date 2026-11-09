@@ -348,7 +348,7 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 | `slm/transfer/` | `live_frame.py` | 逐帧实时画面的后端一半 (Qt-free, 可被测量线程调用): 每次 `get_numpy_image` 都构造一条 `frame_payload` (拷贝帧 + 纯 int 进度, **不算剖面** —— 整幅两个 mean 是 8.7 ms 而 GUI 从图像自己重算), `notify_frame` 是 best-effort 发送 (观察者抛异常只记 warning), 另含块级 `block_frame_payload`/`emit_block_frame` 与 `_CAPTURE_FRAMES` 内存缓存; 由 `validate.py` 拆分过模块规模门禁并按旧路径重导入 |
 | `slm/transfer/` | `parallel_fit.py` | 拟合并行监视进程 (不碰设备): capture 独占 SLM, 本进程流式写 `loss_trace.jsonl` / `parallel_fit_provenance.json`, 损失够好或停止下降时落 `stop_acquisition.request` 让 capture 提前收工 |
 | `slm/transfer/` | `protocol.py` | 孔径固定的指标口径与重复统计原语 (CV 单独用无法区分「均匀」与「空」, 故每条结论都配一个相对的桶内能量数) |
-| `slm/transfer/` | `preflight.py` | 迁移学习闭环整形的启动前参数检查 (2026-10-26 实测: `empty target core` 报错实为载波周期参数问题而非几何问题) |
+| `slm/transfer/` | `preflight.py` | 迁移学习闭环整形的启动前参数检查 (2026-10-26 实测: `empty target core` 报错实为载波周期参数问题而非几何问题；该报错文案自 2026-11-09 `4c8c7470` 起已中文化为 `目标核心为空`) |
 | `slm/transfer/` | `progress.py` | 由增量实验记录离线出指标轨迹 (免设备) |
 | `slm/transfer/` | `radiometry.py` | 共享光学增益、辐照背景与曝光无关计数 |
 | `slm/transfer/` | `replay_phases.py` | 在共同原生位深与曝光下重放精确归档相位 |
