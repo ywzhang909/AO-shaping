@@ -1454,6 +1454,108 @@ def _ncc(left: np.ndarray, right: np.ndarray) -> float:
     return float((a * b).sum() / denominator)
 
 
+
+def _gate0_select_exposure(frames, indices, full_scale, exposure_ladder, exposure_band, saturation_fraction):
+    """Exposure selection block (verbatim lift of the gate0 If):
+    ladder search or band fallback. Writes `exposure` on both
+    branches (body and else) and returns it.
+    """
+    if full_scale is None:
+        exposure = {
+            "pass": True,
+            "applicable": False,
+            "detail": "digital frame (no detector): the exposure band is not measurable",
+            "peak_fraction": None,
+            "saturated_fraction": None,
+            "full_scale": None,
+            "exposure_ladder": exposure_ladder,
+        }
+    else:
+        scale = float(full_scale)
+        flats = [
+            np.asarray(frames[index][name], dtype=np.float64)
+            for index in indices
+            for name in ("a1", "a2")
+        ]
+        peaks = [float(frame.max()) / scale for frame in flats]
+        # A saturated pixel is within 0.3% of the ceiling even after the 3-frame
+        # average the camera returns (see N_SAMPLE).
+        saturated = [float((frame >= 0.997 * scale).mean()) for frame in flats]
+        low, high = exposure_band
+        peak_min = min(peaks) if peaks else float("nan")
+        peak_max = max(peaks) if peaks else float("nan")
+        sat_max = max(saturated) if saturated else float("nan")
+        ok = bool(
+            peaks
+            and low <= peak_min
+            and peak_max <= high
+            and sat_max < saturation_fraction
+        )
+        exposure = {
+            "pass": ok,
+            "applicable": True,
+            "detail": (
+                f"flat peak {peak_min:.3f}-{peak_max:.3f} of full scale "
+                f"(band {low}-{high}), saturated {sat_max:.3%}"
+                + (
+                    ""
+                    if exposure_ladder is None
+                    else f"; exposure {exposure_ladder.get('chosen_ms')} ms via "
+                    f"{exposure_ladder.get('source')}"
+                )
+            ),
+            "peak_fraction": peak_max,
+            "peak_fraction_min": peak_min,
+            "saturated_fraction": sat_max,
+            "full_scale": scale,
+            # The whole decision rides along, pass or fail: an out-of-band best
+            # needs the trace to be diagnosable ("which steps did it try?").
+            "exposure_ladder": exposure_ladder,
+        }
+    return exposure
+
+
+def _gate0_check_geometry(frames, indices, twin_frames, geometry_ncc):
+    """Geometry cross-check block (verbatim lift of the gate0 If):
+    compares twin vs live far-fields for the sampled indices. Reads
+    the leaked loop tail `value` from the caller as an input; writes
+    `geometry` on both branches (body and else) and returns it.
+    """
+    if twin_frames is None:
+        geometry = {
+            "pass": False,
+            "detail": "no twin prediction supplied, so G0-4 cannot be evaluated",
+            "min_ncc": None,
+            "ncc": {},
+        }
+    else:
+        values: dict[int, float] = {}
+        for index in indices:
+            block = frames[index]
+            measured = 0.5 * (
+                np.asarray(block["b1"], dtype=np.float64)
+                + np.asarray(block["b2"], dtype=np.float64)
+            )
+            prediction = twin_frames.get(index)
+            if prediction is None:
+                values[int(index)] = float("-inf")
+                continue
+            values[int(index)] = _ncc(measured, prediction)
+        worst_ncc = min(values.values()) if values else float("-inf")
+        geometry = {
+            "pass": bool(values and worst_ncc >= geometry_ncc),
+            "detail": (
+                f"min ncc(measured net, twin net) = {worst_ncc:.3f} "
+                f"(floor {geometry_ncc:g})"
+            ),
+            "min_ncc": worst_ncc,
+            "floor": float(geometry_ncc),
+            "ncc": {int(index): float(value) for index, value in values.items()},
+        }
+    return geometry
+
+
+
 def gate0(
     rows: list[dict[str, Any]],
     frames: dict[int, dict[str, np.ndarray]],
@@ -1515,58 +1617,8 @@ def gate0(
     indices = [int(row["index"]) for row in rows if int(row["index"]) in frames]
 
     # -- G0-1 exposure ---------------------------------------------------
-    if full_scale is None:
-        exposure = {
-            "pass": True,
-            "applicable": False,
-            "detail": "digital frame (no detector): the exposure band is not measurable",
-            "peak_fraction": None,
-            "saturated_fraction": None,
-            "full_scale": None,
-            "exposure_ladder": exposure_ladder,
-        }
-    else:
-        scale = float(full_scale)
-        flats = [
-            np.asarray(frames[index][name], dtype=np.float64)
-            for index in indices
-            for name in ("a1", "a2")
-        ]
-        peaks = [float(frame.max()) / scale for frame in flats]
-        # A saturated pixel is within 0.3% of the ceiling even after the 3-frame
-        # average the camera returns (see N_SAMPLE).
-        saturated = [float((frame >= 0.997 * scale).mean()) for frame in flats]
-        low, high = exposure_band
-        peak_min = min(peaks) if peaks else float("nan")
-        peak_max = max(peaks) if peaks else float("nan")
-        sat_max = max(saturated) if saturated else float("nan")
-        ok = bool(
-            peaks
-            and low <= peak_min
-            and peak_max <= high
-            and sat_max < saturation_fraction
-        )
-        exposure = {
-            "pass": ok,
-            "applicable": True,
-            "detail": (
-                f"flat peak {peak_min:.3f}-{peak_max:.3f} of full scale "
-                f"(band {low}-{high}), saturated {sat_max:.3%}"
-                + (
-                    ""
-                    if exposure_ladder is None
-                    else f"; exposure {exposure_ladder.get('chosen_ms')} ms via "
-                    f"{exposure_ladder.get('source')}"
-                )
-            ),
-            "peak_fraction": peak_max,
-            "peak_fraction_min": peak_min,
-            "saturated_fraction": sat_max,
-            "full_scale": scale,
-            # The whole decision rides along, pass or fail: an out-of-band best
-            # needs the trace to be diagnosable ("which steps did it try?").
-            "exposure_ladder": exposure_ladder,
-        }
+    exposure = _gate0_select_exposure(
+        frames, indices, full_scale, exposure_ladder, exposure_band, saturation_fraction)
 
     # -- G0-2 zero-order stability ---------------------------------------
     # Measured **within a sample**: A1 and A2 are the same condition measured
@@ -1666,37 +1718,8 @@ def gate0(
     }
 
     # -- G0-4 geometry identifiable --------------------------------------
-    if twin_frames is None:
-        geometry = {
-            "pass": False,
-            "detail": "no twin prediction supplied, so G0-4 cannot be evaluated",
-            "min_ncc": None,
-            "ncc": {},
-        }
-    else:
-        values: dict[int, float] = {}
-        for index in indices:
-            block = frames[index]
-            measured = 0.5 * (
-                np.asarray(block["b1"], dtype=np.float64)
-                + np.asarray(block["b2"], dtype=np.float64)
-            )
-            prediction = twin_frames.get(index)
-            if prediction is None:
-                values[int(index)] = float("-inf")
-                continue
-            values[int(index)] = _ncc(measured, prediction)
-        worst_ncc = min(values.values()) if values else float("-inf")
-        geometry = {
-            "pass": bool(values and worst_ncc >= geometry_ncc),
-            "detail": (
-                f"min ncc(measured net, twin net) = {worst_ncc:.3f} "
-                f"(floor {geometry_ncc:g})"
-            ),
-            "min_ncc": worst_ncc,
-            "floor": float(geometry_ncc),
-            "ncc": {int(index): float(value) for index, value in values.items()},
-        }
+    geometry = _gate0_check_geometry(
+        frames, indices, twin_frames, geometry_ncc)
 
     return {
         "g0_1_exposure": exposure,
