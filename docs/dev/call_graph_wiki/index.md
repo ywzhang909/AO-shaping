@@ -80,8 +80,8 @@
 ### 标定内核 (calibration)
 | 页面 | 签名 | 位置 |
 |---|---|---|
-| [[functions/calibrate-dm-matrix]] | `calibrate_dm_response_matrix(dm, wfs, disturb_voltage, …)` | `optimizer/wf/dm_response_matrix.py:500` |
-| [[functions/save-dm-matrix]] | `save_dm_response_matrix(…)` | `optimizer/wf/dm_response_matrix.py:814` |
+| [[functions/calibrate-dm-matrix]] | `calibrate_dm_response_matrix(dm, wfs, disturb_voltage, …)` | `optimizer/wf/dm_response_matrix.py:634` |
+| [[functions/save-dm-matrix]] | `save_dm_response_matrix(…)` | `optimizer/wf/dm_response_matrix.py:832` |
 | [[functions/save-zernike-matrix]] | `save_zernike_response_matrix(…)` | `optimizer/wf/zernike_response_matrix.py:627` |
 
 ### 驱动 / 注册表 (drivers/)
