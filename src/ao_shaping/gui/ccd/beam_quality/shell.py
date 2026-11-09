@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenuBar,
     QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
@@ -52,6 +53,7 @@ from PySide6.QtWidgets import (
 )
 
 from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp
+from ao_shaping.gui.utils.about import AboutDialog
 from ao_shaping.utils.io.file import ROOT_DIR
 
 __all__ = ["DesktopShellApp", "main"]
@@ -326,6 +328,29 @@ class DesktopShellApp(QMainWindow):
         self.setCentralWidget(central)
 
         self._rail.set_current(0)
+
+        self._build_menu_bar()
+
+    # ------------------------------------------------------------------ 菜单
+    def _build_menu_bar(self) -> None:
+        """菜单栏: 只有「帮助」一组, 内含「关于」。
+
+        外壳刻意不设自己的状态栏（页 0 的光束质量窗口自带状态栏, 叠两条状态栏很难看）,
+        但「关于」需要一个入口 —— 否则操作员无从知道当前跑的是哪一版代码。菜单栏
+        放在窗口最上方, 是桌面软件的惯例位置, 也不占导航栏那 120 px 的窄列。
+        """
+        menu_bar = QMenuBar(self)
+        menu_bar.setObjectName("shellMenuBar")
+        help_menu = menu_bar.addMenu("帮助")
+        about_action = help_menu.addAction("关于")
+        about_action.setObjectName("shellAboutAction")
+        about_action.triggered.connect(self.show_about)
+        self.setMenuBar(menu_bar)
+
+    def show_about(self) -> None:
+        """弹出「关于」对话框（模态）。"""
+        dialog = AboutDialog(self)
+        dialog.exec()
 
     # ------------------------------------------------------------------ 页面
     def _transfer(self) -> QWidget:
