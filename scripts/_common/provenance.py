@@ -1760,6 +1760,31 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         extra_scripts=("scripts/slm/diffopt_efficiency_probe_20261108.py",),
     ),
+    "report/shape_trials/optical_path_status_20261109.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件",
+        note=(
+            "实验室两套光路(按 SLM 序列号区分)的设备清单与截至 2026-11-09 的已知状态: "
+            "光路A(1064nm 2f-Fourier)零级未压制但几何未变, 已落 locate() 零级掩膜对策; "
+            "光路B(532nm 中继+WFS)停留在 2026-09/10 标定; "
+            "光路A的 11-09 光阑关闭后整形复现与重放见 aperture_closed_20261109/aperture_closed_shaping_20261109.md"
+        ),
+    ),
+    "report/shape_trials/aperture_closed_20261109/aperture_closed_shaping_20261109.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="实验+离线",
+        extra_scripts=(
+            "scripts/slm/diffopt_efficiency_probe_20261108.py",
+            "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
+            "src/ao_shaping/tools/slm/transfer/replay_phases.py",
+            "src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py",
+        ),
+        note=(
+            "光阑关闭后光路(零级未压制 E0/E1≈1.2, 曝光窗 0.05-0.2ms, 几何未变)重做 "
+            "side=1200 square/triangle/star 整形: 全新标定 campaign 复现 + 共同重放成功(0.05/0.2ms) "
+            "+ 可微优化 GPU/学习率效率拆解; 含与 10-28 基线同口径对比(跨曝光不作直接对等)"
+        ),
+    ),
     "report/shape_trials/experiment_summary_20261108.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件",

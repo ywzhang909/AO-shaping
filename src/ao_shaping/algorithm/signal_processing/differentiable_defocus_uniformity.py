@@ -738,6 +738,7 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
                                           carrier_phase=self._carrier)
         if prediction.ndim == 3:
             prediction = prediction[0]
+        anchor_cache = None
         if measured_intensity is None:
             loss, terms = self.objective.evaluate(prediction, self._delta)
             if penalty is not None:
@@ -760,6 +761,9 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
                     carrier_phase=self._carrier)
                 if baseline_prediction.ndim == 3:
                     baseline_prediction = baseline_prediction[0]
+                # Same input as the post-step anchor below (``_accepted`` does not
+                # change inside one update): reuse it instead of a 4th forward pass.
+                anchor_cache = baseline_prediction
             measured = measured.detach()
             anchored = (measured + prediction - baseline_prediction).clamp_min(1e-8)
             loss, terms = self.objective.evaluate(anchored, self._delta)
@@ -778,12 +782,14 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
         self._remove_piston_and_tilt()
         rms_before = self._project_increment()
         with torch.no_grad():
-            anchor_prediction = self.forward.predict(
+            anchor_prediction = anchor_cache if anchor_cache is not None else self.forward.predict(
                 self._seed + self._accepted, focus_phase=self._focus, carrier_phase=self._carrier)
             candidate_prediction = self.forward.predict(self._seed + self._delta,
                                                         focus_phase=self._focus, carrier_phase=self._carrier)
             if anchor_prediction.ndim == 3:
-                anchor_prediction, candidate_prediction = anchor_prediction[0], candidate_prediction[0]
+                anchor_prediction = anchor_prediction[0]
+            if candidate_prediction.ndim == 3:
+                candidate_prediction = candidate_prediction[0]
             anchor_loss, _ = self.objective.evaluate(anchor_prediction, self._accepted)
             candidate_loss, _ = self.objective.evaluate(candidate_prediction, self._delta)
             if penalty is not None:
