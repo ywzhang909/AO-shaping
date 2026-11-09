@@ -113,7 +113,7 @@ def test_no_dir_shows_the_hint_and_an_empty_tree(make_page) -> None:
     page = make_page()
 
     assert page.campaign_tree().topLevelItemCount() == 0
-    assert page.campaign_status_text() == "在 ⑦ 填 campaign 目录后显示逐块读数"
+    assert page.campaign_status_text() == "在 ⑦ 填整轮目录后显示逐块读数"
     assert page.campaign_header_text() == ""
 
 

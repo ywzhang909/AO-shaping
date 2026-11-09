@@ -184,7 +184,7 @@ _CAMPAIGN_HEADER_TIPS = (
     "块行: summary.json 里的说明；没有就印「—」",
 )
 
-_CAMPAIGN_HINT_UNSET = "在 ⑦ 填 campaign 目录后显示逐块读数"
+_CAMPAIGN_HINT_UNSET = "在 ⑦ 填整轮目录后显示逐块读数"
 
 
 def _fmt_num(value: object, spec: str) -> str:
@@ -833,7 +833,7 @@ class TransferPage(QWidget):
         self._live_tabs = QTabWidget()
         self._live_view = LiveView()
         self._live_tabs.addTab(self._live_view, "单会话")
-        self._live_tabs.addTab(self._build_campaign_page(), "campaign 逐块")
+        self._live_tabs.addTab(self._build_campaign_page(), "整轮逐块")
         live_layout.addWidget(self._live_tabs)
         layout.addWidget(box, 1)
         layout.addWidget(self._build_progress(), 1)
@@ -859,7 +859,7 @@ class TransferPage(QWidget):
         self._campaign_header.setWordWrap(True)
         head.addWidget(self._campaign_header, 1)
         self._campaign_refresh = QPushButton("刷新")
-        self._campaign_refresh.setToolTip("重读 ⑦ 填的 campaign 目录（不开设备）")
+        self._campaign_refresh.setToolTip("重读 ⑦ 填的整轮目录（不开设备）")
         self._campaign_refresh.clicked.connect(self.reload_campaign_progress)
         head.addWidget(self._campaign_refresh, 0)
         layout.addLayout(head)
@@ -1470,13 +1470,13 @@ class TransferPage(QWidget):
         为什么放在右栏最下面: 它是「开跑前看一眼规模 / 拿历史实测对一下计划」的静态
         东西; 跑起来之后视线回到 ⑤ ⑥, 所以它只占自然高度、不抢伸缩份额。
         """
-        box, layout = _section("⑦ 计划预览（campaign 矩阵 / 段级成本）")
+        box, layout = _section("⑦ 计划预览（整轮矩阵 / 段级成本）")
 
         head = QHBoxLayout()
         head.setContentsMargins(0, 0, 0, 0)
         head.setSpacing(8)
         self._plan_caption = QLabel(
-            "只读：一场 campaign 的规模先摆出来，再按历史目录对一下实测偏差"
+            "只读：一整轮的规模先摆出来，再按历史目录对一下实测偏差"
         )
         self._plan_caption.setWordWrap(True)
         head.addWidget(self._plan_caption, 1)
@@ -1515,7 +1515,7 @@ class TransferPage(QWidget):
         dir_row.setContentsMargins(0, 0, 0, 0)
         dir_row.setSpacing(8)
         self._cost_dir = QLineEdit()
-        self._cost_dir.setPlaceholderText("campaign 目录（留空 = 只按计划）")
+        self._cost_dir.setPlaceholderText("整轮目录（留空 = 只按计划）")
         self._cost_dir.setClearButtonEnabled(True)
         self._cost_dir.setToolTip(
             "读该目录下各段 cost.json 的实测秒数；空 / 不存在都只显示计划列"
@@ -2722,7 +2722,7 @@ class TransferPage(QWidget):
         try:
             text = campaign_plan.campaign_summary().text
         except (TypeError, ValueError, AttributeError):  # 同上: 显示路径只降级, 不抛
-            text = "读取失败：无法计算 campaign 合计"
+            text = "读取失败：无法计算整轮合计"
         self._plan_summary_text = text
         self._plan_summary.setText(text)
         self._plan_summary.setStyleSheet(f"color: {self._muted()};")
