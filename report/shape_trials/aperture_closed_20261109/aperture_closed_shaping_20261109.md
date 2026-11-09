@@ -38,7 +38,7 @@
 | gain | 4169.8 | 69.2 | ~60×（强度更高） |
 | background (counts) | 45.28 | 0.639 | — |
 
-**注意**：本轮 `record_responses=false`，`result.json` 无 `responses` 数组（10-28 有）；correlation 仅存于 `metrics[i].correlation`，无顶层 `corr`。拟合本身健康（相关 0.57–0.97），但**拟合的是含零级污染的前向模型**，未对零级做物理扣除。
+**注意**：本轮 `record_responses=false`，`result.json` 无 `responses` 数组（10-28 有）；correlation 仅存于 `metrics[i].correlation`，无顶层 `corr`。拟合本身健康（相关 0.57–0.97），但**拟合的是含零级污染的物理预测模型**，未对零级做物理扣除。
 
 ## 3. 整形阶段（12 个形状阶段，实测闭环）
 
