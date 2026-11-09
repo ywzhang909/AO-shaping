@@ -202,6 +202,8 @@ def test_a_corrupt_matrix_degrades_to_a_visible_failure_line(page, monkeypatch) 
     page.set_shapes(("star",))
 
     assert page.campaign_matrix_text() == "读取失败"
+    # 计划预览在「计划预览」页签里; 切过去才可见。
+    page._right_tabs.setCurrentIndex(1)
     assert page._plan_matrix_error.isVisible()
 
 
@@ -210,6 +212,7 @@ def test_a_corrupt_matrix_degrades_to_a_visible_failure_line(page, monkeypatch) 
 
 def test_the_body_collapses_and_expands_without_losing_content(page) -> None:
     before = page.campaign_matrix_text()
+    page._right_tabs.setCurrentIndex(1)
 
     page._plan_toggle.setChecked(False)
     assert not page._plan_body.isVisible()

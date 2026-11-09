@@ -826,7 +826,14 @@ class TransferPage(QWidget):
         host = QWidget()
         layout = QVBoxLayout(host)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        layout.setSpacing(0)
+
+        # 两个页签: 「运行」放 ⑥ 实时画面 + ⑤ 阶段进度 (跑起来看这里, 不被计划预览挤压);
+        # 「计划预览」放 ⑦ (开跑前看规模 / 对历史实测, 独立占满整栏)。
+        run_host = QWidget()
+        run_layout = QVBoxLayout(run_host)
+        run_layout.setContentsMargins(0, 8, 0, 0)
+        run_layout.setSpacing(12)
 
         box, live_layout = _section("⑥ 实时画面（每帧刷新）")
         # 两页: 单会话实时画面 (默认, 不自动切换) / campaign 逐块 (只读 ⑦ 的目录)。
@@ -835,11 +842,13 @@ class TransferPage(QWidget):
         self._live_tabs.addTab(self._live_view, "单会话")
         self._live_tabs.addTab(self._build_campaign_page(), "整轮逐块")
         live_layout.addWidget(self._live_tabs)
-        layout.addWidget(box, 1)
-        layout.addWidget(self._build_progress(), 1)
-        # ⑦ 只占自然高度 (不抢 ⑥ / ⑤ 的伸缩份额): 它是「开跑前看一眼」的静态预览,
-        # 跑起来之后视线在 ⑥ / ⑤。序号追加在 ⑥ 之后, 不打乱印在界面上的 ①–⑥。
-        layout.addWidget(self._build_plan_preview(), 0)
+        run_layout.addWidget(box, 1)
+        run_layout.addWidget(self._build_progress(), 1)
+
+        self._right_tabs = QTabWidget()
+        self._right_tabs.addTab(run_host, "运行")
+        self._right_tabs.addTab(self._build_plan_preview(), "计划预览")
+        layout.addWidget(self._right_tabs, 1)
         return host
 
     def _build_campaign_page(self) -> QWidget:
