@@ -29,7 +29,7 @@
   "src/ao_shaping/gui/zernike/zernike_debug_viewer.py": 867,
   "src/ao_shaping/gui/zernike/zernike_response_matrix_ui.py": 1603,
   "src/ao_shaping/optimizer/rl/envs.py": 925,
-  "src/ao_shaping/optimizer/wf/dm_response_matrix.py": 987,
+  "src/ao_shaping/optimizer/wf/dm_response_matrix.py": 1005,
   "src/ao_shaping/optimizer/wf/rms_by_zernike.py": 992,
   "src/ao_shaping/optimizer/wf/zernike_response_matrix.py": 849,
   "src/ao_shaping/optimizer/wfless/model_in_loop_shaping.py": 3297,

@@ -4756,6 +4756,12 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 第 46 批：`run_session` 324→**266**（嵌套 4→1）——62 行采样循环 `try` 逐字升出 `_run_session_samples`（69 行）。`describe_instrument/recorder` 入参且回传（区外初值 L1936/L1935 在异常路径不被区内重绑触及时原样流回，与原文逐路径一致）；`index/key/value/row` 四处"区后读"逐行精算均为同句推导式自绑定（推导式变量不外泄），非泄漏，生成器断言按精算结果豁免该组名
 - 证明与验收：叶语句全树扫描 IDENTICAL（474 对 476 减 2 条新增=调用+返回）；载体 `test_bench.py` **65 passed, 11 skipped**（sim 路径真执行 `run_session`，`record=` 回调与 instrument 生命周期都在行为网内）；ml/sim2f 域 26 文件 per-file 零红（exit=0）；形状门禁 **159 passed**；棘轮行 364/4/324 收紧为 300/1/266 + helper 行 90/4/69；模块 2439→2454（基线由 2468 余量收紧为实测 2454）
 
+**2026-11-09 · 20962cc2 · 第 46 批 CI 闭环（四条 workflow 全绿）；第 47 批在案**
+- `20962cc2` 分片 attempt#1 直接 **success**（未触发 90 分钟拥挤截断），CI/Ruff 同绿
+- 第 47 批：`calibrate_dm_response_matrix` 312→**196**（嵌套 4→3）——123 行 mode 分支（hadamard 全局反演 / 逐动器循环）逐字升出 `_run_calibration_sweep`（130 行）。`response_matrix/variance_matrix/result_hadamard_order` **入参且回传**：区外 L634-635 已分配、分支内或原地填充或整体重绑，传入原值 + 无条件回传覆盖全部路径（同 b45 `chosen`、b46 `describe_instrument` 先例）；`_ / actuator_idx` 循环泄漏名经精算区后无读，不回传
+- 侦察修正：粗审计曾把四处"区后读"标为泄漏，逐行精算证明均为**同句推导式自绑定**（推导式变量不外泄）——生成器 leak 断言按精算结果豁免，未豁免者照旧 sys.exit
+- 证明与验收：叶语句全树扫描 IDENTICAL（284 对 286 减 2 条新增=调用+返回）；载体 `test_dm_response_matrix.py` **48 passed**（mock dm/wfs 全分支）；wf 域 26 文件 per-file 零红（exit=0）；形状门禁 **160 passed**；棘轮行 352/4/312 收紧为 240/3/196 + helper 行 170/4/130；模块 987→1005（基线键已有，随实测上调）
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

@@ -1,10 +1,10 @@
 ---
 title: save_dm_response_matrix（DM 矩阵落盘）
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-11-09
 type: function
 tags: [calibration,io]
-source: src/ao_shaping/optimizer/wf/dm_response_matrix.py:814
+source: src/ao_shaping/optimizer/wf/dm_response_matrix.py:832
 ---
 
 ## 签名
