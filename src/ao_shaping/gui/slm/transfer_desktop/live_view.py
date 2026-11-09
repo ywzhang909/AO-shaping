@@ -217,17 +217,18 @@ class LiveView(QWidget):
 
         # —— CCD 栏: 实测画面 ——
         self._video = VideoWidget()
-        self._video._label.setMinimumSize(QSize(320, 200))
-        self._video.setMinimumSize(QSize(320, 200))
+        # 最小尺寸压小: 三块画面的硬下限之和会把右栏撑出重叠, 宁可缩小画面。
+        self._video._label.setMinimumSize(QSize(200, 130))
+        self._video.setMinimumSize(QSize(200, 130))
 
         # —— 新面板: SLM 当前相位 / 预测远场 (只读灰度图) ——
         phase_image = VideoWidget()
-        phase_image._label.setMinimumSize(QSize(200, 200))
-        phase_image.setMinimumSize(QSize(200, 200))
+        phase_image._label.setMinimumSize(QSize(120, 90))
+        phase_image.setMinimumSize(QSize(120, 90))
         self._phase = _TitledPanel("SLM 相位", phase_image)
         predicted_image = VideoWidget()
-        predicted_image._label.setMinimumSize(QSize(200, 200))
-        predicted_image.setMinimumSize(QSize(200, 200))
+        predicted_image._label.setMinimumSize(QSize(120, 90))
+        predicted_image.setMinimumSize(QSize(120, 90))
         self._predicted = _TitledPanel("预测远场", predicted_image)
 
         self._info = QLabel("等待第一块采集完成…")

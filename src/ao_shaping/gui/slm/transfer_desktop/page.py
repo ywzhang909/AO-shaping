@@ -88,6 +88,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpinBox,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -817,8 +818,16 @@ class TransferPage(QWidget):
 
         body = QHBoxLayout()
         body.setSpacing(16)
-        body.addWidget(self._build_form(), 0)
-        body.addWidget(self._build_right(), 1)
+        # 左表单 / 右实时 两栏用分隔条: 表单列原来写死 560 px, 窗口一窄就把
+        # 整个右栏 (⑥ 画面 + 两根进度条) 挤出屏幕外 —— 分隔条让两栏共享宽度。
+        self._body_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._body_splitter.setChildrenCollapsible(False)
+        self._body_splitter.addWidget(self._build_form())
+        self._body_splitter.addWidget(self._build_right())
+        self._body_splitter.setStretchFactor(0, 0)
+        self._body_splitter.setStretchFactor(1, 1)
+        self._body_splitter.setSizes([_FORM_WIDTH, 900])
+        body.addWidget(self._body_splitter, 1)
         root.addLayout(body, 1)
 
     def _build_right(self) -> QWidget:
@@ -834,6 +843,10 @@ class TransferPage(QWidget):
         run_layout = QVBoxLayout(run_host)
         run_layout.setContentsMargins(0, 8, 0, 0)
         run_layout.setSpacing(12)
+        run_scroll = QScrollArea()
+        run_scroll.setWidgetResizable(True)
+        run_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        run_scroll.setWidget(run_host)
 
         box, live_layout = _section("⑥ 实时画面（每帧刷新）")
         # 两页: 单会话实时画面 (默认, 不自动切换) / campaign 逐块 (只读 ⑦ 的目录)。
@@ -846,7 +859,7 @@ class TransferPage(QWidget):
         run_layout.addWidget(self._build_progress(), 1)
 
         self._right_tabs = QTabWidget()
-        self._right_tabs.addTab(run_host, "运行")
+        self._right_tabs.addTab(run_scroll, "运行")
         self._right_tabs.addTab(self._build_plan_preview(), "计划预览")
         layout.addWidget(self._right_tabs, 1)
         return host
@@ -1076,7 +1089,9 @@ class TransferPage(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setWidget(host)
-        scroll.setFixedWidth(_FORM_WIDTH)
+        # 宽度可压缩 (分隔条负责分空间), 但不塌到读不了: 320 px 仍放得下标签+控件。
+        scroll.setMinimumWidth(320)
+        scroll.setMaximumWidth(_FORM_WIDTH)
         return scroll
 
     def _advanced_fold(self, tooltip: str) -> tuple[QCheckBox, QWidget]:
