@@ -434,7 +434,7 @@ def _fft_window_error(pitch, ramp, centre, origin, side, shape, aspect_ratio,
     不带数字的原句 —— 报错路径本身绝不能再抛。
     """
     head = (
-        f"目标边长 {side:g} px（形状 {shape!r}）超过前向模型的 FFT 网格可达窗口："
+        f"目标边长 {side:g} px（形状 {shape!r}）超过物理预测模型的 FFT 网格可达窗口："
         f"该网格的频率覆盖只到 ±{fmax:.4f}，但目标角点已达 ±{worst:.4f}。"
     )
     fallback = "请减小目标边长，或改用更细的控制网格。"
