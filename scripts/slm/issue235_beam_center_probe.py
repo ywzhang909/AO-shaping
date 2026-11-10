@@ -1,4 +1,4 @@
-﻿"""Issue #235 hardware step: measure the SLM beam centre on the panel.
+"""Issue #235 hardware step: measure the SLM beam centre on the panel.
 
 Calls ``SLMCCDCalibrator.find_beam_on_slm`` (the only supported path to the
 knife-edge measurement) and, in parallel, records the evidence needed to
@@ -226,7 +226,9 @@ def main() -> int:
                 Image.fromarray((norm * 255).astype(np.uint8)).resize(
                     (1296, 972), Image.BILINEAR
                 ).save(args.out / "flat.png")
-            except Exception as exc:  # noqa: BLE001
+            # The PNG render is a convenience artifact; a failure here must not
+            # abort the capture that already succeeded.
+            except Exception as exc:
                 summary["png_error"] = str(exc)
         (args.out / "beam_center.json").write_text(
             json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -236,15 +238,17 @@ def main() -> int:
         if cam is not None:
             try:
                 cam.close()
-            except Exception as exc:  # noqa: BLE001 - device API is polymorphic
+            except Exception as exc:
+                # The device API is polymorphic; a close failure must not mask
+                # the capture result that was already written to disk.
                 print(f"camera close warning: {exc}")
         try:
             slm.set_grayscale(0)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"slm flat-set warning: {exc}")
         try:
             slm.close()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"slm close warning: {exc}")
         print("released: SLM #%d closed, camera closed" % args.slm_number)
     return 0

@@ -1,4 +1,4 @@
-﻿"""Issue #230 online-refeed dataset ingest: versioned entries + append-only store.
+"""Issue #230 online-refeed dataset ingest: versioned entries + append-only store.
 
 This is a **standalone adapter** for the mechanism described in issue #230
 ("在线训练集扩展工程化：版本化条目模式 + 追加式存储 + 块状态机 + 版本化门 +
