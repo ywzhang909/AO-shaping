@@ -11,19 +11,18 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import tempfile
 from pathlib import Path
 
 from loguru import logger
 
-from ao_shaping.utils.io.file import ROOT_DIR as _PROJECT_ROOT
+from ao_shaping.utils.io.paths import weights_dir
 
 
 def models_root() -> Path:
-    """``SLM_MODELS_DIR`` 或 ``<项目根>/data/slm_models``。"""
-    return Path(os.environ.get("SLM_MODELS_DIR", _PROJECT_ROOT / "data" / "slm_models"))
+    """权重目录: 环境变量 → 配置文件 → ``<数据目录>/slm_models`` (见 ``utils.io.paths``)。"""
+    return weights_dir()
 
 
 def serial_from_capture(session_dir: Path) -> str | None:

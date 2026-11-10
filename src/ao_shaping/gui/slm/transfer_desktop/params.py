@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ao_shaping.utils.image.target.metrics import POLYGON_SHAPE_CHOICES
+from ao_shaping.utils.io.paths import data_dir
 from ao_shaping.utils.io.timestamp import format_ts
 from ao_shaping.tools.slm.transfer.preflight import (
     MIN_SIDE_PX as _MIN_SIDE_PX,
@@ -521,7 +522,7 @@ def _torch_missing() -> str | None:
     return None
 
 
-def plan_session_dir(root_dir: Path = Path("data")) -> Path:
+def plan_session_dir(root_dir: Path | None = None) -> Path:
     """规划（**不创建**）``<root>/debug/slm_transfer/<timestamp>`` 会话目录。
 
     ``run_session`` 用 ``exist_ok=False`` 创建会话目录（拒绝把两次运行的证据合
@@ -529,11 +530,13 @@ def plan_session_dir(root_dir: Path = Path("data")) -> Path:
     次时加 ``-2`` / ``-3`` 后缀，避免两次运行抢同一个目录。
 
     Args:
-        root_dir: 数据根目录；默认 ``data``（相对当前工作目录）。
+        root_dir: 数据根目录；``None`` 时取数据目录（环境变量 / 配置文件 / 默认 ``data``）。
 
     Returns:
         计划使用的会话目录（其父目录也可能尚未创建）。
     """
+    if root_dir is None:
+        root_dir = data_dir()
     base = Path(root_dir) / "debug" / "slm_transfer"
     stamp = format_ts()
     candidate = base / stamp
