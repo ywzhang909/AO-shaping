@@ -12,6 +12,7 @@ import uuid
 from pathlib import Path
 from glob import glob
 
+from ao_shaping.utils.io import paths
 from ao_shaping.utils.io.recorder_keys import (
     RECORD_COEFFS,
     RECORD_EPOCH,
@@ -248,9 +249,9 @@ def build_debug_save_paths(
 # 在当天data下的flatten_voltages文件夹找出rms最小的文件，读取电压值，如果没有则返回全0
 def get_init_V_by_rms(date: str = ""):
     data_path = (
-        f"data/flatten_voltages/{date}"
+        paths.data_dir() / "flatten_voltages" / date
         if date
-        else f"data/flatten_voltages/{format_ts(fmt=DATE_FMT)}"
+        else paths.data_dir() / "flatten_voltages" / format_ts(fmt=DATE_FMT)
     )
 
     def get_rms(file_name):
@@ -275,9 +276,9 @@ def get_init_V_by_rms(date: str = ""):
 
 def get_init_V_by_energy(date: str = ""):
     data_path = (
-        f"data/flatten_voltages/{date}"
+        paths.data_dir() / "flatten_voltages" / date
         if date
-        else f"data/flatten_voltages/{format_ts(fmt=DATE_FMT)}"
+        else paths.data_dir() / "flatten_voltages" / format_ts(fmt=DATE_FMT)
     )
 
     def get_energy(file_name):
