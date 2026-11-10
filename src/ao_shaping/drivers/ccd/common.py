@@ -19,8 +19,8 @@ from typing import Any, Protocol
 import numpy as np
 from loguru import logger
 
-from ao_shaping.config import PATHS
 from ao_shaping.drivers.ccd.base import BaseCamera
+from ao_shaping.utils.io import paths
 
 
 @dataclass
@@ -325,7 +325,7 @@ def select_exposure_from_flats(
     root = (
         Path(config_root)
         if config_root is not None
-        else Path(PATHS.root_dir) / "ccd_configs" / "ccd"
+        else paths.device_config_dir("ccd") / "ccd"
     )
     base = root / serial if serial else None
     candidates = [base] if base is not None and base.is_dir() else []
