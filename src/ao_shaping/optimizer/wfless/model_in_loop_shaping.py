@@ -70,6 +70,7 @@ from ao_shaping.utils.image.frame_analysis import spot_fwhm
 from ao_shaping.utils.math.fitting import fit_linear_slope as _linear_slope
 from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M, SLM_PITCH_M
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
+from ao_shaping.utils.io import paths
 from ao_shaping.utils.io.recorder_keys import (
     RECORD_COEFFS,
     RECORD_IMAGE,
@@ -134,7 +135,8 @@ def _has_both_signs(values: np.ndarray) -> bool:
 
 
 #: Directory searched by :func:`calibrate_shared_aberration` when no explicit
-#: records and no ``search_root`` are given.
+#: records and no ``search_root`` are given. 源码检出下的字面量约定; 实际取值在调用点
+#: 经 :func:`ao_shaping.utils.io.paths.data_subdir` 求值 (打包成 exe 后落在 exe 旁)。
 DEFAULT_SEARCH_ROOT = Path("data") / "debug"
 
 
@@ -3169,7 +3171,7 @@ def calibrate_shared_aberration(
     n_coeffs = calc_n_zernike_terms(n_orders)
 
     if records is None:
-        root = Path(search_root) if search_root is not None else DEFAULT_SEARCH_ROOT
+        root = Path(search_root) if search_root is not None else paths.data_subdir("debug")
         found, source = _discover_dataset(root, int(region), n_coeffs)
         if not found:
             logger.warning(

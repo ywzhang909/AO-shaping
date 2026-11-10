@@ -108,6 +108,7 @@ from ao_shaping.tools.slm.transfer.light_guard import (
     EXIT_OPTICAL_PATH_INVALID,
     OpticalPathInvalid,
 )
+from ao_shaping.utils.io import paths
 
 __all__ = ["PAGE_TITLE", "main", "HISTORY_PREFIX", "campaign_fingerprint",
            "has_fingerprint_readings", "render_reuse_panel"]
@@ -174,8 +175,13 @@ _HDR_KEY = "msc_hdr"
 # 目录助手（全部只读本地文件，不碰设备）
 # --------------------------------------------------------------------------- #
 def campaign_root() -> Path:
-    """campaign 的输出根目录：``data/debug/slm_transfer``（与 runner 的默认 --out 同级）。"""
-    return Path("data") / "debug" / "slm_transfer"
+    """campaign 的输出根目录：``<数据目录>/debug/slm_transfer``（与 runner 的默认 --out 同级）。
+
+    此处**调用时**经数据目录解析器求值：源码检出下等于字面量
+    ``Path("data") / "debug" / "slm_transfer"``（逐位相同），打包成 exe 后落到
+    exe 旁的 ``data/``，而不是双击时的 CWD。
+    """
+    return paths.data_subdir("debug", "slm_transfer")
 
 
 def _journal_mtime(directory: Path) -> float:

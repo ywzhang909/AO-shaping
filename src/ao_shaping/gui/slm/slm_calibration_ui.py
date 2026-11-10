@@ -24,7 +24,7 @@ import streamlit as st
 from loguru import logger
 
 from ao_shaping.gui.slm.bench_settings import widget_default
-from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.io import paths
 
 # Mock miicam module before importing ccd package
 import types
@@ -95,7 +95,7 @@ def _initialize_state() -> None:
 
     if "slm_cal_storage_dir" not in st.session_state:
         st.session_state.slm_cal_storage_dir = str(
-            PROJECT_ROOT / "data" / "slm_calibration"
+            paths.data_subdir("slm_calibration")
         )
 
     # Calibration state

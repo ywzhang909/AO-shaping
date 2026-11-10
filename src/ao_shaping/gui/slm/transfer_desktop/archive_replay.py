@@ -81,6 +81,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ao_shaping.utils.io import paths
+
 __all__ = [
     "ARCHIVE_COLUMNS",
     "DEBUG_ROOT",
@@ -94,6 +96,7 @@ __all__ = [
     "ArchiveReplayDialog",
     "CaptureData",
     "archive_to_dump",
+    "debug_root",
     "discover_archives",
     "discover_captures",
     "dump_root_for",
@@ -107,8 +110,22 @@ __all__ = [
 ]
 
 #: 归档回放扫描根目录 (与 ``history_browser.DEFAULT_ROOT`` / ``params.plan_session_dir``
-#: 同一约定: 相对当前工作目录)。所有历史会话都在这个根下面, 递归找 ``*.pkl``。
+#: 同一约定: 源码检出下相对当前工作目录)。所有历史会话都在这个根下面, 递归找 ``*.pkl``。
+#: 这是字面量约定; 实际取值走 :func:`debug_root`（打包成 exe 后落到 exe 旁的 ``data/``）。
 DEBUG_ROOT = Path("data") / "debug" / "slm_transfer"
+#: 未被打补丁时 :data:`DEBUG_ROOT` 的原始值（身份哨兵）。
+_DEFAULT_DEBUG_ROOT = DEBUG_ROOT
+
+
+def debug_root() -> Path:
+    """归档回放扫描根目录（**调用时**求值）。
+
+    顺序: 被覆盖的模块常量（测试 / 调用方 monkeypatch）→ 数据目录解析器。源码检出下
+    两者逐位相同; 冻结成 exe 后真正的约定是 ``<exe 目录>/data/debug/slm_transfer``。
+    """
+    if DEBUG_ROOT != _DEFAULT_DEBUG_ROOT:
+        return DEBUG_ROOT
+    return paths.data_subdir("debug", "slm_transfer")
 
 #: 归档 capture 的文件名通配符 (只认 ``anchored/`` 下这一种; ``discover_captures`` 用)。
 CAPTURE_GLOB = "capture_*.npz"
@@ -1781,12 +1798,12 @@ def open_archive_replay(
 ) -> ArchiveReplayDialog:
     """打开 (或复用) 归档回放弹窗, 返回它。
 
-    ``root`` 默认 :data:`DEBUG_ROOT` (整个 debug 根, 递归扫所有历史 pkl)。
+    ``root`` 默认 :func:`debug_root` (整个 debug 根, 递归扫所有历史 pkl)。
     ``preselect`` 传某个会话目录时, 会优先选中该会话下的 ``capture_records.pkl``。
     弹窗挂在 ``parent`` 上并记在 ``parent._archive_replay_dialog``, 页面不必自己
     持有引用; 再次调用会先关掉旧窗, 避免叠出多个。
     """
-    base = Path(root) if root is not None else DEBUG_ROOT
+    base = Path(root) if root is not None else debug_root()
     existing = getattr(parent, "_archive_replay_dialog", None)
     if isinstance(existing, ArchiveReplayDialog):
         existing.close()

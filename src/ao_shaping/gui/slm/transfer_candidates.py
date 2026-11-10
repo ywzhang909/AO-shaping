@@ -74,10 +74,10 @@ def _candidate_root(root: str | Path | None) -> Path | None:
     if root is not None:
         return Path(root)
     try:
-        from ao_shaping.gui.slm.history_browser import DEFAULT_ROOT, FALLBACK_ROOT
+        from ao_shaping.gui.slm.history_browser import resolve_default_root
     except ImportError:
         return None
-    return DEFAULT_ROOT if DEFAULT_ROOT.is_dir() else FALLBACK_ROOT
+    return resolve_default_root()
 
 
 def _short_time(value: Any) -> str:

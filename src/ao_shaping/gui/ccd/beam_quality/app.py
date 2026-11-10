@@ -81,6 +81,7 @@ from ao_shaping.gui.ccd.beam_quality.profile_widget import ProfileWidget
 from ao_shaping.gui.ccd.beam_quality.trend_buffer import TrendBuffer
 from ao_shaping.gui.ccd.beam_quality.trend_widget import TrendWidget
 from ao_shaping.gui.ccd.beam_quality.video_widget import VideoWidget, to_uint8
+from ao_shaping.utils.io import paths
 from ao_shaping.utils.io.file import ROOT_DIR
 
 # 源类型: (显示名, 内部键)
@@ -600,7 +601,7 @@ class BeamQualityApp(QMainWindow):
         if frame is None:
             self.statusBar().showMessage("还没有画面可保存", 4000)
             return
-        default_dir = Path("data") / "snapshots"
+        default_dir = paths.data_subdir("snapshots")
         default = default_dir / f"beam_{datetime.now():%Y%m%d_%H%M%S}.png"
         path, _ = QFileDialog.getSaveFileName(
             self, "保存快照", str(default), "PNG 图像 (*.png)"

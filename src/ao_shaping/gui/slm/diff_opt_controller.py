@@ -80,6 +80,7 @@ from ao_shaping.gui.slmshape.layout import (
     layout as _layout_factory,
     render_layout_selector as _render_layout_selector,
 )
+from ao_shaping.utils.io import paths
 
 #: 页面标题 / 侧栏品牌名。
 PAGE_TITLE = "可微优化模型控制器"
@@ -156,8 +157,11 @@ _PROBE_SCRIPT = (
 )
 
 #: 证据根目录。与脚本 ``--out-root`` 默认值一致，这里**显式**传下去，
-#: 免得两边的默认值各走各的。
-_PROBE_OUT_ROOT = Path(__file__).resolve().parents[4] / "data" / "debug" / "optical_path_probe"
+#: 免得两边的默认值各走各的。路径在调用时经数据目录解析器求值（源码检出下等于
+#: ``<仓库根>/data/debug/optical_path_probe``，冻结成 exe 后落到 exe 旁）。
+def _probe_out_root() -> Path:
+    """光路探测证据根目录（**调用时**求值，见 :func:`ao_shaping.utils.io.paths.data_subdir`）。"""
+    return paths.data_subdir("debug", "optical_path_probe")
 
 #: 证据 JSON 的 schema（脚本写、本页读；不认识就不猜字段）。
 _PROBE_SCHEMA = "optical_path_probe/1"
@@ -202,11 +206,11 @@ class ProbeUnavailable(RuntimeError):
     """
 
 
-def _probe_evidence_files() -> set[Path]:
+def _probe_evidence_files(out_root: Path) -> set[Path]:
     """证据目录下已有的全部 ``optical_path_probe.json``。"""
-    if not _PROBE_OUT_ROOT.exists():
+    if not out_root.exists():
         return set()
-    return set(_PROBE_OUT_ROOT.rglob("optical_path_probe.json"))
+    return set(out_root.rglob("optical_path_probe.json"))
 
 
 def _load_probe_json(path: Path) -> Any:
@@ -261,6 +265,7 @@ def _run_probe_cli(slm_num: int) -> tuple[dict[str, Any], Path]:
         raise ProbeUnavailable(f"找不到光路探测脚本 {_PROBE_SCRIPT}")
     cam_type, cam_id = bench_settings.bench_camera()
     session = bench_settings.bench_session_id(f"slm{slm_num}")
+    out_root = _probe_out_root()
     command = [
         sys.executable,
         str(_PROBE_SCRIPT),
@@ -271,12 +276,12 @@ def _run_probe_cli(slm_num: int) -> tuple[dict[str, Any], Path]:
         "--cam-id",
         str(int(cam_id)),
         "--out-root",
-        str(_PROBE_OUT_ROOT),
+        str(out_root),
     ]
     if session:
         command += ["--session", session]
 
-    before = _probe_evidence_files()
+    before = _probe_evidence_files(out_root)
     with st.spinner("正在实测光路：曝光阶梯 → 离焦响应（约 1-2 分钟，请勿触碰设备）…"):
         with with_slm_ownership(int(slm_num)):
             completed = subprocess.run(
@@ -296,11 +301,11 @@ def _run_probe_cli(slm_num: int) -> tuple[dict[str, Any], Path]:
             f"探测脚本退出码 {completed.returncode}（设备/光路没准备好）:\n{tail}"
         )
 
-    produced = _probe_evidence_files() - before
-    candidates = produced or _probe_evidence_files()
+    produced = _probe_evidence_files(out_root) - before
+    candidates = produced or _probe_evidence_files(out_root)
     if not candidates:
         raise ProbeUnavailable(
-            f"探测跑完但没找到 optical_path_probe.json（看 {_PROBE_OUT_ROOT}）"
+            f"探测跑完但没找到 optical_path_probe.json（看 {out_root}）"
         )
     path = max(candidates, key=lambda item: item.stat().st_mtime)
     return _check_probe_payload(_load_probe_json(path), str(path)), path

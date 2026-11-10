@@ -40,6 +40,7 @@ from ao_shaping.optimizer.wf.zernike_response_matrix import (
     save_zernike_response_matrix,
     slm_mode_slot,
 )
+from ao_shaping.utils.io import paths
 from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 
@@ -98,7 +99,7 @@ def _initialize_state() -> None:
         st.session_state.zrm_verbose = True
 
     if "zrm_storage_dir" not in st.session_state:
-        st.session_state.zrm_storage_dir = str(PROJECT_ROOT / "data" / "zernike_calibration")
+        st.session_state.zrm_storage_dir = str(paths.data_subdir("zernike_calibration"))
 
     if "zrm_slm_wavelength" not in st.session_state:
         st.session_state.zrm_slm_wavelength = 1064
@@ -178,7 +179,7 @@ def _initialize_state() -> None:
     # Progress tracking
     if "zrm_progress_file" not in st.session_state:
         # Create a unique progress file path in the storage directory
-        progress_dir = Path(st.session_state.get("zrm_storage_dir", str(PROJECT_ROOT / "data" / "zernike_calibration")))
+        progress_dir = Path(st.session_state.get("zrm_storage_dir", str(paths.data_subdir("zernike_calibration"))))
         progress_dir.mkdir(parents=True, exist_ok=True)
         st.session_state.zrm_progress_file = str(progress_dir / f"progress_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
 

@@ -31,6 +31,7 @@ from ao_shaping.tools.slm.transfer.optical_session import (
     recommend_load,
 )
 from ao_shaping.utils.image.target.shapes import TARGET_SHAPE_LABELS
+from ao_shaping.utils.io import paths
 
 __all__ = [
     "COMPAT_THRESHOLD",
@@ -42,14 +43,30 @@ __all__ = [
     "render_fingerprint_card",
     "render_history_browser",
     "render_load_panel",
+    "resolve_default_root",
 ]
 
 #: 「没测到」的唯一写法（与 ``transfer_progress.MISSING`` 同款，全页只此一个占位符）。
 MISSING = "—"
 #: campaign 输出根目录（与 ``multishape_campaign_ui.campaign_root()`` 同一约定）。
+#: 这是**源码检出**下的字面量约定（也是页面文案里引用的那份），实际取值走
+#: :func:`resolve_default_root`：打包成 exe 后 CWD 未必是 exe 目录，需要按数据目录
+#: 解析器在调用时求值（import 期不许碰盘）。
 DEFAULT_ROOT = Path("data") / "debug" / "slm_transfer"
 #: 旧记录根目录：:data:`DEFAULT_ROOT` 尚未创建时回落到它。
 FALLBACK_ROOT = Path("data") / "shape_trials"
+
+
+def resolve_default_root() -> Path:
+    """缺省根目录（**调用时**求值）：新布局优先，未创建时回落到旧记录目录。
+
+    与 :data:`DEFAULT_ROOT` / :data:`FALLBACK_ROOT` 的关系: 源码检出下两个常量与
+    解析器结果逐位相同; 冻结成 exe 后 ``<exe 目录>/data/...`` 才是真正的约定,
+    而字面量会跟着双击时的 CWD 走。所以判定必须在这里做, 常量只作文档与回落基准。
+    """
+    preferred = paths.data_subdir("debug", "slm_transfer")
+    fallback = paths.data_subdir("shape_trials")
+    return preferred if preferred.is_dir() else fallback
 #: 兼容分三档 → 推荐行末尾那句结论。三档本身由
 #: :func:`ao_shaping.tools.slm.transfer.optical_session.compatibility_verdict` 切
 #: （阈值只在那里一份），本表只把 verdict 词翻成人话；键既不在别的分支里再判一次分，
@@ -291,7 +308,7 @@ def _resolve_root(root: str | Path | None) -> Path:
     """缺省根目录：新布局优先，未创建时回落到旧记录目录。"""
     if root is not None:
         return Path(root)
-    return DEFAULT_ROOT if DEFAULT_ROOT.is_dir() else FALLBACK_ROOT
+    return resolve_default_root()
 
 
 def _scan(root: Path) -> list[dict[str, Any]] | None:

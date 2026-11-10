@@ -26,13 +26,21 @@ import streamlit as st
 from loguru import logger
 from PIL import Image
 
+from ao_shaping.utils.io import paths
 from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 
 # =============================================================================
 # Constants
 # =============================================================================
 
-DATA_ROOT = PROJECT_ROOT / "data" / "md_test"
+
+def md_test_root() -> Path:
+    """MD 图像数据集根目录 (``<数据目录>/md_test``)。
+
+    **调用时**求值: 源码检出下等于 ``<仓库根>/data/md_test``（CWD 为仓库根时逐位相同），
+    打包成 exe 后落到 exe 旁的 ``data/md_test``。import 期不许碰盘，所以不能再写成模块常量。
+    """
+    return paths.data_subdir("md_test")
 
 # 流水线默认参数 (与 scripts/dm/md_img_pipeline.py 保持一致)
 DEFAULT_THRESHOLD = 15.0
@@ -124,22 +132,23 @@ def show_and_clear_feedback() -> None:
 # =============================================================================
 
 def _list_datasets() -> list[str]:
-    """扫描 data/md_test/ 下的数据集目录 (md_img-*)。
+    """扫描数据目录下 ``md_test/`` 里的数据集目录 (md_img-*)。
 
     排除 *_processed / *_gif 输出目录, 避免把处理结果当作输入数据集。
     """
-    if not DATA_ROOT.is_dir():
+    root = md_test_root()
+    if not root.is_dir():
         return []
     names = [
         p.name
-        for p in DATA_ROOT.iterdir()
+        for p in root.iterdir()
         if p.is_dir()
         and p.name.startswith("md_img-")
         and not p.name.endswith("_processed")
         and not p.name.endswith("_gif")
     ]
     # 最新修改的排在最前
-    names.sort(key=lambda n: (DATA_ROOT / n).stat().st_mtime, reverse=True)
+    names.sort(key=lambda n: (root / n).stat().st_mtime, reverse=True)
     return names
 
 
@@ -152,7 +161,7 @@ def _resolve_input_dir() -> Path | None:
     ds = st.session_state.mdimg_dataset
     if not ds:
         return None
-    p = DATA_ROOT / ds
+    p = md_test_root() / ds
     return p if p.is_dir() else None
 
 

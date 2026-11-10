@@ -76,9 +76,24 @@ from ao_shaping.utils.image.frame_analysis import (
     SpotUsability,
     assess_spot,
 )
+from ao_shaping.utils.io import paths
 
-#: Probe evidence, next to the exposure and radius probes.
+#: Probe evidence, next to the exposure and radius probes. 源码检出下的字面量约定
+#: (GUI 侧栏文案直接引用它); 实际落盘走 :func:`focus_probe_debug_dir`, 调用时经数据目录
+#: 解析器求值 —— 打包成 exe 后 ``data/`` 在 exe 旁边, 不是双击时的 CWD。
 FOCUS_PROBE_DEBUG_DIR = Path("data") / "debug" / "bench_settings" / "focus_probe"
+#: 未被打补丁时 :data:`FOCUS_PROBE_DEBUG_DIR` 的原始值 (身份哨兵)。
+_DEFAULT_FOCUS_PROBE_DEBUG_DIR = FOCUS_PROBE_DEBUG_DIR
+
+
+def focus_probe_debug_dir() -> Path:
+    """焦面探测证据目录 (调用时求值)。
+
+    顺序: 被覆盖的模块常量 (测试 / 调用方 monkeypatch) → 数据目录解析器。
+    """
+    if FOCUS_PROBE_DEBUG_DIR != _DEFAULT_FOCUS_PROBE_DEBUG_DIR:
+        return FOCUS_PROBE_DEBUG_DIR
+    return paths.data_subdir("debug", "bench_settings", "focus_probe")
 
 #: Daheng clamps below this; asking for less silently returns ~0.02 ms anyway.
 FLOOR_MS = 0.02
@@ -806,7 +821,7 @@ def probe_session_focus(
         out["notes"] = [*out.get("notes", []), SIM_RESULT_NOTE]
     out["radius_px"] = radius
     out["centre_panel_px"] = [float(centre[0]), float(centre[1])]
-    target = Path(debug_dir) if debug_dir is not None else FOCUS_PROBE_DEBUG_DIR
+    target = Path(debug_dir) if debug_dir is not None else focus_probe_debug_dir()
     try:
         target.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")

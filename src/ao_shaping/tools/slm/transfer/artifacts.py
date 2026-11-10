@@ -9,10 +9,18 @@ import numpy as np
 
 from .capture import to_panel
 from ao_shaping.algorithm.signal_processing.multishape_objective import ShapeObjective, image_metrics
+from ao_shaping.utils.io import paths
 
 
 def resolve_recorded_path(value, *, relative_to=None):
-    """Resolve a relocated repository artifact without assuming the old drive."""
+    """Resolve a relocated repository artifact without assuming the old drive.
+
+    The recorded path is looked up in three places: as written (same machine), under
+    ``relative_to`` and its ancestors, and finally under the configured data directory
+    (``data/`` in the record maps onto :func:`ao_shaping.utils.io.paths.data_dir`, so a
+    run moved to another drive - or an exe whose ``data/`` sits next to it - still finds
+    its artifacts).
+    """
     path = Path(value)
     if path.exists():
         return path.resolve()
@@ -20,8 +28,10 @@ def resolve_recorded_path(value, *, relative_to=None):
     roots += [Path.cwd(), *Path.cwd().parents]
     normalized = str(value).replace("\\", "/")
     suffix = normalized[normalized.index("data/"):] if "data/" in normalized else normalized
-    for root in roots:
-        candidate = root / suffix
+    candidates = [root / suffix for root in roots]
+    if "data/" in normalized:
+        candidates.append(paths.data_dir() / normalized[normalized.index("data/") + len("data/"):])
+    for candidate in candidates:
         if candidate.exists():
             return candidate.resolve()
     raise FileNotFoundError(f"Recorded artifact unavailable: {value}; restore its data directory")

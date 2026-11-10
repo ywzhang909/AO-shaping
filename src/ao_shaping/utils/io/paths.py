@@ -215,6 +215,24 @@ def resolved_device_config_dirs() -> dict[str, Path]:
     return {kind: device_config_dir(kind) for kind in DEVICE_CONFIG_KINDS}
 
 
+def data_subdir(*parts: str) -> Path:
+    """数据目录下的某个子路径 (运行输出: 会话目录、快照、调试产物)。
+
+    与 :func:`data_dir` 的关系: 数据目录的**约定**是 CWD 相对 (源码检出) 或 exe 同目录
+    (冻结), 所以运行时产物都在它下面。历史代码把这条约定写成了字面量
+    ``Path("data") / "debug" / ...`` —— 打包成 exe 后 CWD 未必是 exe 目录, 于是产物
+    落到意料之外的地方。这个函数把同一份约定收敛到一处: 源码检出下返回值与旧的
+    字面量逐位相同 (``Path("data") / "debug" / ...``), 冻结下落在 exe 旁的 ``data/``。
+
+    Args:
+        parts: 相对数据目录的路径片段, 如 ``("debug", "slm_transfer")``。
+
+    Returns:
+        ``<数据目录>/<parts...>``; 片段为空时返回数据目录本身。
+    """
+    return data_dir().joinpath(*parts)
+
+
 #: 供 :class:`~ao_shaping.utils.io.file.DeviceConfigManager` 使用的惰性目录工厂。
 def device_config_dir_factory(kind: str) -> Callable[[], Path]:
     """返回 ``device_config_dir(kind)`` 的惰性工厂。

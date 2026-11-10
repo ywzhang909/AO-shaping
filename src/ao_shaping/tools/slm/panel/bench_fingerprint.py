@@ -66,9 +66,20 @@ from ao_shaping.tools.slm.panel.focus_probe import (
 )
 from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.utils.image.frame_analysis import estimate_shift, measure_spot
+from ao_shaping.utils.io import paths
 
-#: Fingerprint evidence, beside the other per-bench probes.
+#: Fingerprint evidence, beside the other per-bench probes. 源码检出下的字面量约定;
+#: 实际落盘 / 读取走 :func:`fingerprint_debug_dir` (调用时求值, 打包后落在 exe 旁)。
 FINGERPRINT_DEBUG_DIR = Path("data") / "debug" / "bench_settings" / "fingerprint"
+#: 未被打补丁时 :data:`FINGERPRINT_DEBUG_DIR` 的原始值 (身份哨兵)。
+_DEFAULT_FINGERPRINT_DEBUG_DIR = FINGERPRINT_DEBUG_DIR
+
+
+def fingerprint_debug_dir() -> Path:
+    """指纹证据目录 (调用时求值): 被覆盖的模块常量 → 数据目录解析器。"""
+    if FINGERPRINT_DEBUG_DIR != _DEFAULT_FINGERPRINT_DEBUG_DIR:
+        return FINGERPRINT_DEBUG_DIR
+    return paths.data_subdir("debug", "bench_settings", "fingerprint")
 
 #: Tilt amplitude (radians of unit-RMS Zernike (1,1)) used for the shift probe.
 #: ~5 camera px per radian on this bench, so this lands around 20 px -- well
@@ -378,7 +389,7 @@ def compare_fingerprints(
 
 
 def _save(payload: dict[str, Any], stem: str, debug_dir: Path | None) -> Path | None:
-    target = Path(debug_dir) if debug_dir is not None else FINGERPRINT_DEBUG_DIR
+    target = Path(debug_dir) if debug_dir is not None else fingerprint_debug_dir()
     try:
         target.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -532,7 +543,7 @@ class FingerprintParams:
 
 
 def _latest_reference(debug_dir: Path | None) -> dict[str, Any] | None:
-    target = Path(debug_dir) if debug_dir is not None else FINGERPRINT_DEBUG_DIR
+    target = Path(debug_dir) if debug_dir is not None else fingerprint_debug_dir()
     files = sorted(target.glob("fingerprint_*.json"))
     if not files:
         return None

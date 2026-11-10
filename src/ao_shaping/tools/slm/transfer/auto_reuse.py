@@ -29,6 +29,7 @@ from ao_shaping.tools.slm.transfer.optical_session import (
     compatibility_score,
     compatibility_verdict,
 )
+from ao_shaping.utils.io import paths
 
 __all__ = [
     "auto_select_checkpoint",
@@ -154,7 +155,11 @@ def auto_select_checkpoint(
         compute_optical_fingerprint,
     )
 
-    base = Path(root) if root is not None else Path("data") / "debug" / "slm_transfer"
+    base = (
+        Path(root)
+        if root is not None
+        else paths.data_subdir("debug", "slm_transfer")
+    )
     if not base.is_dir():
         logger.info("auto-reuse: 扫描根目录不存在，跳过")
         return None

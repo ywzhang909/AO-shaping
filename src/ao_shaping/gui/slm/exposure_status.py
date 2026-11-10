@@ -36,6 +36,7 @@ from ao_shaping.utils.image.exposure_control import (
     configured_daheng_exposure_limit,
     working_exposure_ms,
 )
+from ao_shaping.utils.io import paths
 
 __all__ = [
     "EXPOSURE_PROBE_DEBUG_DIR",
@@ -44,6 +45,7 @@ __all__ = [
     "bench_session_id",
     "current_exposure_ms",
     "exposure_state",
+    "probe_debug_dir",
     "probe_session_exposure_ms",
     "record_exposure_probe",
 ]
@@ -53,7 +55,24 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 #: 探测证据落在 ``data/debug/<脚本名>/`` 下，与本模块的其它探测分开。
+#: 这是**源码检出**下的字面量约定；实际落盘见 :func:`probe_debug_dir`（调用时经数据
+#: 目录解析器求值，打包成 exe 后落到 exe 旁的 ``data/``）。保留字面量是因为
+#: :mod:`ao_shaping.gui.slm.bench_settings` 在文案里直接引用它，且 import 期不许碰盘。
 EXPOSURE_PROBE_DEBUG_DIR = Path("data") / "debug" / "bench_settings" / "exposure_probe"
+#: 未被打补丁时 :data:`EXPOSURE_PROBE_DEBUG_DIR` 的原始值（身份哨兵）。
+_DEFAULT_EXPOSURE_PROBE_DEBUG_DIR = EXPOSURE_PROBE_DEBUG_DIR
+
+
+def probe_debug_dir() -> Path:
+    """探测证据目录（**调用时**求值）。
+
+    顺序: 被覆盖的模块常量（测试 / 调用方 monkeypatch）→ 数据目录解析器。字面量
+    :data:`EXPOSURE_PROBE_DEBUG_DIR` 只在源码检出下与解析器结果相同; 打包成 exe 后
+    真正的约定是 ``<exe 目录>/data/...``, 所以默认值必须现算, 不能沿用字面量。
+    """
+    if EXPOSURE_PROBE_DEBUG_DIR != _DEFAULT_EXPOSURE_PROBE_DEBUG_DIR:
+        return EXPOSURE_PROBE_DEBUG_DIR
+    return paths.data_subdir("debug", "bench_settings", "exposure_probe")
 
 #: 确认帧的合格区间。返回的曝光必须让实测峰值落在这里，否则就是截断值。
 _CONFIRM_SATURATION = 0.9
@@ -353,7 +372,7 @@ def probe_session_exposure_ms(
         # ``bound_ms`` 与它相等；env 路径没有 ``estimate``，这个键是唯一的记录。
         "camera_max_ms": camera_max_ms,
     }
-    target = Path(debug_dir) if debug_dir is not None else EXPOSURE_PROBE_DEBUG_DIR
+    target = Path(debug_dir) if debug_dir is not None else probe_debug_dir()
     try:
         target.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")

@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from ao_shaping.gui.ccd.beam_quality.trend_buffer import TrendBuffer, TrendSample
+from ao_shaping.utils.io import paths
 
 # (标签, 时间窗秒数); None = 全部
 WINDOWS: tuple[tuple[str, float | None], ...] = (
@@ -242,10 +243,8 @@ class TrendWidget(QWidget):
         """导出 CSV; 未给路径时弹文件对话框。返回实际写入路径 (取消时 None)。"""
         target = path
         if target is None:
-            default = (
-                Path("data")
-                / "beam_quality"
-                / (f"beam_trend_{datetime.now():%Y%m%d_%H%M%S}.csv")
+            default = paths.data_subdir("beam_quality") / (
+                f"beam_trend_{datetime.now():%Y%m%d_%H%M%S}.csv"
             )
             chosen, _ = QFileDialog.getSaveFileName(
                 self, "导出趋势 CSV", str(default), "CSV 文件 (*.csv)"

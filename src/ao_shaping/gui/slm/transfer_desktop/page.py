@@ -2604,11 +2604,11 @@ class TransferPage(QWidget):
     def _open_replay(self) -> None:
         """打开归档回放弹窗: 扫描整个 debug 根下所有历史 pkl (只读, 无硬件)。"""
         from ao_shaping.gui.slm.transfer_desktop.archive_replay import (
-            DEBUG_ROOT,
             open_archive_replay,
         )
 
-        open_archive_replay(self, DEBUG_ROOT, preselect=self._session_dir)
+        # 不传 root: 让弹窗自己按数据目录解析器求值 (打包成 exe 后是 exe 旁的 data/)。
+        open_archive_replay(self, preselect=self._session_dir)
 
     def _refresh_progress(self) -> None:
         """读会话目录, 刷新阶段表 / 进度条 / 当前阶段 / 汇总。"""
