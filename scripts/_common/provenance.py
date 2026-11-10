@@ -86,6 +86,20 @@ class ReportProvenance:
 #:   ``硬件``   -- needs a real bench (SLM / CCD / WFS / DM / micro-DM).
 #:   ``离线+硬件`` -- renders offline, but the numbers were measured on hardware.
 REPORTS: dict[str, ReportProvenance] = {
+    "report/shape_trials/multishape1200/wall_clock_budget_20261111.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线",
+        note=(
+            "#213 墙钟成本分解：repro1200_20261109 会话（2808.2 s、594 帧）；瓶颈为 "
+            "LCOS settle 等待（帧间 gap 1212 s，AB 双峰 5-12 s/次）与模型/seed 构建 "
+            "（transport_cv 首帧前约 130 s/shape）；优化器 71 次迭代仅占 0.02-0.03%，"
+            "GPU 提速 12.58->7.88 ms/iter 全会话省 0.33 s。输入为磁盘存档，未占用设备。"
+        ),
+        extra_scripts=(
+            "scripts/slm/analyze_session_time_budget.py",
+            "src/ao_shaping/tools/kernels/bench_kernels.py",
+        ),
+    ),
     "report/shape_trials/optical_path_status_20261110.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件",
