@@ -88,7 +88,7 @@ def _checks(**overrides: Any) -> dict[str, Any]:
         },
         "cleanup_s": 0.8,
         "energy_loss_violations_present": True,
-        "row0": {"pib": 0.159, "max_brt": 24.0},
+        "row0": {"pib": 0.03, "m_brt": 170.0},
     }
     kwargs.update(overrides)
     return hw._checks(**kwargs)
@@ -263,9 +263,12 @@ def test_cleanup_over_five_seconds_fails_the_gate() -> None:
 
 
 def test_epoch0_gate_uses_the_measured_metric_levels() -> None:
-    assert _checks(row0={"pib": 0.159, "max_brt": 24.0})["epoch0_is_sane"] is True
-    assert _checks(row0={"pib": 0.01, "max_brt": 24.0})["epoch0_is_sane"] is False
-    assert _checks(row0={"pib": 0.159, "max_brt": 3.0})["epoch0_is_sane"] is False
+    # Real epoch0 rows carry ``m_brt`` (no scalar ``max_brt``) and pib 0.026-0.041.
+    assert _checks(row0={"pib": 0.0256, "m_brt": 166.0})["epoch0_is_sane"] is True
+    assert _checks(row0={"pib": 0.0409, "m_brt": 183.0})["epoch0_is_sane"] is True
+    assert _checks(row0={"pib": 0.01, "m_brt": 170.0})["epoch0_is_sane"] is False
+    assert _checks(row0={"pib": 0.03, "m_brt": 3.0})["epoch0_is_sane"] is False
+    assert _checks(row0={"pib": 0.03})["epoch0_is_sane"] is False
     assert "epoch0_is_sane" not in _checks(row0=None)
 
 

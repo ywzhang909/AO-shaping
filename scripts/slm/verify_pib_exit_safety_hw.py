@@ -709,18 +709,21 @@ def _checks(
     checks["energy_loss_violations_recorded"] = bool(energy_loss_violations_present)
 
     if row0 is not None:
+        # epoch0 rows come from ``metric_panel`` (``m_brt`` = frame max); the
+        # scalar ``max_brt`` only exists on later epochs, so it is never set here.
         pib0 = row0.get("pib")
-        peak0 = row0.get("max_brt")
+        peak0 = row0.get("m_brt")
         checks["epoch0_pib"] = pib0
         checks["epoch0_max_brightness"] = peak0
         # The failure mode the issue names is a target box that is not on the
-        # beam: the metric collapses (mean_b ~ 0.01) rather than merely being
-        # low. This bench's flat far field is speckled, so pib ~ 0.16 is its
-        # normal level -- the floor below is deliberately far under it.
+        # beam: the metric collapses (pib ~ 0.01) rather than merely being low.
+        # Measured epoch0 pib on the real panel (run_20261110_213859, all five
+        # scenarios) is 0.026-0.041, so the floor sits below that band and far
+        # above the collapsed ~0.01 state.
         checks["epoch0_is_sane"] = bool(
             pib0 is not None
             and np.isfinite(pib0)
-            and pib0 > 0.05
+            and pib0 > 0.015
             and peak0 is not None
             and peak0 > 20.0
         )
@@ -781,7 +784,7 @@ def run_scenario(
     row0_summary = None
     if isinstance(row0, dict):
         row0_summary = {}
-        for key in ("J", "pib", "rms_out", "_max_r", "max_brt", "r", "_epoch"):
+        for key in ("J", "pib", "rms_out", "_max_r", "max_brt", "m_brt", "r", "_epoch"):
             value = row0.get(key)
             row0_summary[key] = (
                 float(value) if isinstance(value, (int, float, np.floating)) else None
@@ -1077,8 +1080,7 @@ def main(argv: list[str] | None = None) -> int:
     summary["finished_iso"] = _utc_now()
     _write_summary(outdir, summary)
 
-    logger.info()
-    logger.info(f"artifacts: {outdir}")
+    logger.info("artifacts: {}", outdir)
     logger.info(f"{'':2} {'scenario':<30} {'verdict':<6} {'exit branch':<14} "
           f"{'slot':>5} {'gray':>5} {'corr flat':>9} {'corr exit':>9}  failed")
     for rec in summary["scenarios"]:
