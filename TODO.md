@@ -4772,6 +4772,12 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 本批 head 链三段红三段复位：attempt#1 CI 红 = 并行窗口 `c709ca69` 带入 1 行禁用术语 (应作"物理预测模型")（术语门禁抓到，`--apply` 独立复位 `7a40a9db`）；attempt#2 CI 红 = 同窗口 `page.py` 2866→2890 超基线（按 b31/b39/b42 先例登记 `d92e8bcd`）；attempt#3 CI/Ruff/Pylint 全绿、Pytest 分片红 2 条——**均为并行窗口回归而非本批拆分之伤**：① `4c8c7470` 把奈奎斯特报错文案中文化，`test_transfer_large_square` 仍 `match="Nyquist"` → 跟进真实消息改 `match="奈奎斯特"`（本地 3 passed）；② `test_about.py` 桩里 `opened.append(...) or True` 触发布尔自吞守卫 → 等价重构成具名函数返 True（行为逐位不变，守卫本地 passed；PySide6 沙箱不可收集，由 CI 复核）
 - 教训入规：**本地门禁跑在 rebase 之前 = 有盲区**。并行窗口提交先于 rebase 进入链条，其术语/基线违例只有对新 head 的门禁才算数——凡 rebase 引入了他人提交，提交前门禁需对新树重跑一遍（本批之后固定 rebase→复检→push）
 
+**2026-11-10 · 4bfa769b/095d46cd 链 · 第 48 批后上游跟进（并行窗口 15 提交 rebase）；第 49 批在案**
+- 第 49 批：`scan_panel` 342→**206**（嵌套 4→2）——142 行设备会话 `with`（开 SLM+相机、弥散补丁扫描循环、闭设备）逐字升出 `_scan_panel_session`（150 行，探针模块规约: helper 用 `#` 注释非 docstring）。`measurements/results` 区内新建、区尾报告读 → 纯回传；`exposure_ms` 区内**首触是读**（blind 抓到，侦察时的"首触 Store"是未验证的猜测）→ 入参不回传
+- 生成器纪律再立一功×2：盲点断言拦截了参数漏传；**叶扫描记账断言**拦下"补丁脚本 `str.replace` 对 CALL 串静默失效"（def 22 参 vs call 21 参, 载体 7 红实锤后修复; 教训: 给生成器打补丁后必须验证补丁真的命中, 或直接把 CALL 与 PARAMS 同源生成）
+- 上游跟进（rebase 15 提交引入, 非本批拆分之伤, 按先例复位）：8 个模块规模基线上调（model_in_loop_shaping 3299 / santec driver 2629 / thorlab_wfs 2000 / utils.io.file 1966 / archive_replay 1816 / zernike UI 1604 / focus_probe 959 / micro driver 927）；`probe_help_golden.json` 两枚探针的 body_literals 计数+摘要经**测试模块自身测量函数**重算复位（`bench_fingerprint` 120→124, `focus_probe` 134→138——上游"探测证据目录改走数据目录解析器"新增字符串字面量; 其余四字段本绿, help 子进程重写路径在沙箱里环境透传不可用, 9 分钟采集不划算, 数据面修复等价）
+- 证明与验收：叶语句全树扫描 IDENTICAL（151 对 153 减 2=调用+返回）；载体 `test_panel_locate_restore.py` **12 passed**（8 测试真执行 `scan_panel` 全路径, mock 设备）；probe_flags 127 passed；形状门禁 163 passed；棘轮行 382/4/342 收紧 250/2/206 + helper 行 190/4/150
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

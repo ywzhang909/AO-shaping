@@ -274,8 +274,8 @@
     ]
   },
   "slm_bench_fingerprint": {
-    "body_literals": 120,
-    "body_literals_sha256": "8e862b7ea2c8717d",
+    "body_literals": 124,
+    "body_literals_sha256": "d8919b4cffe090f7",
     "declared": [
       "--cam-id",
       "--cam-type",
@@ -444,8 +444,8 @@
     ]
   },
   "slm_focus_probe": {
-    "body_literals": 134,
-    "body_literals_sha256": "feef7a618662ec44",
+    "body_literals": 138,
+    "body_literals_sha256": "ad41ff313ea49e81",
     "declared": [
       "--cam-id",
       "--cam-type",

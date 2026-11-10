@@ -207,65 +207,14 @@ def _centroid(flat: Any) -> tuple[float, float]:
     return (float(flat.centroid_x), float(flat.centroid_y))
 
 
-def scan_panel(
-    params: PanelLocateParams, *, strict: bool = False,
-    max_session_drift: float = 0.05,
-    max_session_shift_px: float | None = None,
-    max_session_shift_fwhm: float = 0.5,
-) -> PanelLocateResult:
-    """Scan candidate panel positions and verify paired and session flat stability."""
-    from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_ms
-    from ao_shaping.drivers.slm.santec import Santec
-    from ao_shaping.utils.image.exposure_control import (
-        DAHENG_EXPOSURE_LIMIT_ENV,
-        configured_daheng_exposure_limit,
-        probe_exposure_ceiling_ms,
-        resolve_daheng_exposure_limit,
-        working_exposure_ms,
-    )
 
-    # Local aliases keep the measurement body below verbatim.
-    slm_number = params.slm_number
-    slm_wavelength = params.slm_wavelength
-    cam_type = params.cam_type
-    cam_id = params.cam_id
-    # The ONE explicit/implicit translation point for this probe. `auto` is the
-    # legacy `0`: probe the ceiling and work under it. `default` is new and is
-    # the only call site in the repo that can honour it -- touch nothing, reset
-    # nothing, clamp nothing. Everything below `exposure_ms == 0` is
-    # pre-existing behaviour, unchanged.
-    resolved_exposure = resolve_exposure(params.exposure_ms, param_hint="--exposure-ms")
-    keep_device_exposure = resolved_exposure is DEFAULT_EXPOSURE
-    exposure_ms = exposure_ms_legacy(resolved_exposure)
-    patch_radius = params.patch_radius
-    grid_xs = params.grid_xs
-    grid_ys = params.grid_ys
-    frames = params.frames
-    # Fixed budget: energy-ratio frames do not need a *stable* frame, and the
-    # settle criterion cannot converge for them (see the module docstring).
-    policy = probe_policy(frames)
-    seed = params.seed
-    max_flat_drift = params.max_flat_drift
-    debug_dir = Path(params.debug_dir) if params.debug_dir else None
-
-    if cam_type.lower() == "daheng":
-        env_ceiling = configured_daheng_exposure_limit()
-        if env_ceiling > 0 and exposure_ms > env_ceiling:
-            raise click.BadParameter(
-                f"Daheng exposure must be in (0, {env_ceiling}] ms "
-                f"({DAHENG_EXPOSURE_LIMIT_ENV})",
-                param_hint="--exposure-ms",
-            )
-    if not 0 <= max_flat_drift < 1:
-        raise click.BadParameter("must be in [0, 1)", param_hint="--max-flat-drift")
-    if not 0 <= max_session_drift < 1:
-        raise ValueError("max_session_drift must be in [0, 1)")
-
-    xs = [int(float(v)) for v in str(grid_xs).split(",") if v.strip()]
-    ys = [int(float(v)) for v in str(grid_ys).split(",") if v.strip()]
-    panel = (SLM_PANEL_H, SLM_PANEL_W)
-    rng = np.random.default_rng(int(seed))
-
+def _scan_panel_session(Santec, cam_id, cam_type, create_camera, debug_dir, exposure_ms, frames, get_camera_exposure_ms, keep_device_exposure, max_flat_drift, panel, patch_radius, policy, probe_exposure_ceiling_ms, resolve_daheng_exposure_limit, rng, seed, slm_number, slm_wavelength, working_exposure_ms, xs, ys):
+# Lifted verbatim from scan_panel: open SLM + camera, run the patch
+# scan loop inside the device context, close and hand back the two
+# result containers the report tail reads. measurements/results are
+# created inside (no caller pre-value). exposure_ms enters as input
+# (first in-region touch is a read); its later rebinding is
+# helper-local because nothing reads it after the With.
     with Santec(
         slm_number=slm_number, wavelength=slm_wavelength, video_mode=0
     ) as slm, create_camera(cam_type, cam_id, exposure_time_ms=0.02) as cam, _restore_slm_display(slm):
@@ -408,6 +357,76 @@ def scan_panel(
                     json.dumps(measurements, indent=2),
                     encoding="utf-8",
                 )
+    return measurements, results
+
+
+
+def scan_panel(
+    params: PanelLocateParams, *, strict: bool = False,
+    max_session_drift: float = 0.05,
+    max_session_shift_px: float | None = None,
+    max_session_shift_fwhm: float = 0.5,
+) -> PanelLocateResult:
+    """Scan candidate panel positions and verify paired and session flat stability."""
+    from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_ms
+    from ao_shaping.drivers.slm.santec import Santec
+    from ao_shaping.utils.image.exposure_control import (
+        DAHENG_EXPOSURE_LIMIT_ENV,
+        configured_daheng_exposure_limit,
+        probe_exposure_ceiling_ms,
+        resolve_daheng_exposure_limit,
+        working_exposure_ms,
+    )
+
+    # Local aliases keep the measurement body below verbatim.
+    slm_number = params.slm_number
+    slm_wavelength = params.slm_wavelength
+    cam_type = params.cam_type
+    cam_id = params.cam_id
+    # The ONE explicit/implicit translation point for this probe. `auto` is the
+    # legacy `0`: probe the ceiling and work under it. `default` is new and is
+    # the only call site in the repo that can honour it -- touch nothing, reset
+    # nothing, clamp nothing. Everything below `exposure_ms == 0` is
+    # pre-existing behaviour, unchanged.
+    resolved_exposure = resolve_exposure(params.exposure_ms, param_hint="--exposure-ms")
+    keep_device_exposure = resolved_exposure is DEFAULT_EXPOSURE
+    exposure_ms = exposure_ms_legacy(resolved_exposure)
+    patch_radius = params.patch_radius
+    grid_xs = params.grid_xs
+    grid_ys = params.grid_ys
+    frames = params.frames
+    # Fixed budget: energy-ratio frames do not need a *stable* frame, and the
+    # settle criterion cannot converge for them (see the module docstring).
+    policy = probe_policy(frames)
+    seed = params.seed
+    max_flat_drift = params.max_flat_drift
+    debug_dir = Path(params.debug_dir) if params.debug_dir else None
+
+    if cam_type.lower() == "daheng":
+        env_ceiling = configured_daheng_exposure_limit()
+        if env_ceiling > 0 and exposure_ms > env_ceiling:
+            raise click.BadParameter(
+                f"Daheng exposure must be in (0, {env_ceiling}] ms "
+                f"({DAHENG_EXPOSURE_LIMIT_ENV})",
+                param_hint="--exposure-ms",
+            )
+    if not 0 <= max_flat_drift < 1:
+        raise click.BadParameter("must be in [0, 1)", param_hint="--max-flat-drift")
+    if not 0 <= max_session_drift < 1:
+        raise ValueError("max_session_drift must be in [0, 1)")
+
+    xs = [int(float(v)) for v in str(grid_xs).split(",") if v.strip()]
+    ys = [int(float(v)) for v in str(grid_ys).split(",") if v.strip()]
+    panel = (SLM_PANEL_H, SLM_PANEL_W)
+    rng = np.random.default_rng(int(seed))
+
+    measurements, results = _scan_panel_session(
+        Santec, cam_id, cam_type, create_camera, debug_dir,
+        exposure_ms, frames,
+        get_camera_exposure_ms, keep_device_exposure, max_flat_drift,
+        panel, patch_radius, policy, probe_exposure_ceiling_ms,
+        resolve_daheng_exposure_limit, rng, seed, slm_number,
+        slm_wavelength, working_exposure_ms, xs, ys)
 
     if not measurements:
         raise ValueError("panel scan has no candidates")
