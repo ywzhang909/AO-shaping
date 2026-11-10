@@ -4778,6 +4778,11 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 上游跟进（rebase 15 提交引入, 非本批拆分之伤, 按先例复位）：8 个模块规模基线上调（model_in_loop_shaping 3299 / santec driver 2629 / thorlab_wfs 2000 / utils.io.file 1966 / archive_replay 1816 / zernike UI 1604 / focus_probe 959 / micro driver 927）；`probe_help_golden.json` 两枚探针的 body_literals 计数+摘要经**测试模块自身测量函数**重算复位（`bench_fingerprint` 120→124, `focus_probe` 134→138——上游"探测证据目录改走数据目录解析器"新增字符串字面量; 其余四字段本绿, help 子进程重写路径在沙箱里环境透传不可用, 9 分钟采集不划算, 数据面修复等价）
 - 证明与验收：叶语句全树扫描 IDENTICAL（151 对 153 减 2=调用+返回）；载体 `test_panel_locate_restore.py` **12 passed**（8 测试真执行 `scan_panel` 全路径, mock 设备）；probe_flags 127 passed；形状门禁 163 passed；棘轮行 382/4/342 收紧 250/2/206 + helper 行 190/4/150
 
+**2026-11-10 · 46e6d1ae · 第 49 批 CI 闭环（四条 workflow 全绿, 分片 attempt#1 直接 success）；第 50 批在案**
+- 第 50 批：`sim_spgd.optimize_spgd` 258→**171** 与 `optimize_spgd_zernike` 255→**171**（孪生同构一次双拆）——尾部"设备/图会话 `with` + 函数唯一顶层 `return recorder`"整体升出 `_spgd_run_loop`(93)/`_spgd_zernike_run_loop`(90)，调用点 `return _helper(...)`。区内早退天然映射为 helper 返回值，逐路径与原文一致（b38 教条的正向用法: return 随区走时**不需要**拆 if+return）
+- 生成器三个新缺陷（全部被门禁链拦下后修复, 无一漏网）：① 区域是 **With+Return 两条顶层语句**而非单条，锚定断言按 2 语句形校验；② 尾区拆分**漏了 blind 检查**——`flag/_init_v/m_momentum` 等"区前已绑、区内循环先读后写"的名字被 `ld−st_all` 自由集排除，25 条 F821 兜底；参数式修正为 `ld − mod − {区内新建(未预绑)}`，即**一切区前绑定名无论区内是否重绑都入参**；③ `mod` 用 `ast.walk(tree)` 把**嵌套 def**（L475 闭包 `_apply_zernike_phase`）误当模块全局 → helper 内 F821×3；mod 改为仅收集 `tree.body` 顶层 def/class，闭包函数对象按参数直传（cell 指向不变, 无 nonlocal, 母帧存活）——b39 partial 形态的更简替代
+- 证明与验收：叶扫描 IDENTICAL（335 对 337 减 2=两条新 return）；载体 `test_sim_spgd.py` **27 passed**（纯仿真双函数端到端, seed 固定）；形状门禁 **165 passed**；棘轮行 288/5/258、285/5/255 收紧为 215/2/171、215/1/171 + helper 行 120/5/93、120/5/90；模块 1019→1037 基线随实测
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

@@ -116,6 +116,195 @@ def _calc_ideal_bucket_radius(
         ao_sys.set_dm_voltages(restore_v)
 
 
+
+def _spgd_run_loop(J, PX, PY, R0, _fix_bucket, _init_r, _init_v, adaptive_optimizer, ao_sys, beta1, current_delta, current_gamma, diff, disturb_v, epochs, flag, gamma, gradient, ideal_bucket_radius, ideal_r, learning_schedule, m_momentum, neg_pib, pos_img, pos_pib, power_ratio_threshold, r_bucket, recorder, total_actuators, update_iter, use_fixed_gain, use_momentum):
+    # Tail of optimize_spgd: device/graph session With block plus
+    # its final `return recorder`, lifted verbatim. Early returns
+    # inside the With terminate this helper exactly as they did the
+    # outer function; the caller ends in `return helper(...)`.
+    with tqdm.tqdm(
+        total=epochs, desc=f"sim_spgd iter {epochs}", dynamic_ncols=True
+    ) as bar:
+        for epoch in range(1, epochs + 1):
+            if flag == 0:
+                disturb_v = (
+                    np.random.binomial(1, 0.5, (total_actuators,)).astype(float) * 2.0
+                    - 1.0
+                )
+                disturb_v = disturb_v * current_delta
+                _init_v = _init_v + disturb_v / 2
+                flag = 1
+
+            if flag == 1:
+                ao_sys.set_dm_voltages(_init_v)
+                pos_img = ao_sys.get_image()
+                pos_pib, pos_ratio = _pib_ratio(pos_img, PX, PY, (R0, R0), r_bucket)
+                _init_v = _init_v - disturb_v
+                flag = -1
+            elif flag == -1:
+                ao_sys.set_dm_voltages(_init_v)
+                neg_img = ao_sys.get_image()
+                neg_pib, neg_ratio = _pib_ratio(neg_img, PX, PY, (R0, R0), r_bucket)
+                J = (pos_pib + neg_pib) / 2
+                diff = pos_pib - neg_pib
+                gradient = diff * disturb_v
+
+                if use_momentum and m_momentum is not None:
+                    m_momentum = beta1 * m_momentum + (1 - beta1) * gradient
+                    gradient = m_momentum
+
+                if use_fixed_gain:
+                    update = current_gamma * gradient
+                else:
+                    update = adaptive_optimizer.update(gradient)
+
+                _init_v = np.clip(_init_v + update + disturb_v / 2, -1.0, 1.0)
+                ao_sys.set_dm_voltages(_init_v)
+                pos_img = ao_sys.get_image()
+                flag = 0
+            else:
+                pos_img = ao_sys.get_image()
+
+            pib, pib_ratio = _pib_ratio(pos_img, PX, PY, (R0, R0), r_bucket)
+
+            strehl = _current_strehl(ao_sys)
+
+            if epoch % update_iter == update_iter - 1 and not _fix_bucket:
+                _init_r = max(_init_r * 0.9, ideal_r)
+
+            if (
+                (
+                    epoch % update_iter == update_iter - 1
+                    or epoch % max(update_iter // 2, 1) == max(update_iter // 2, 1) - 1
+                    or pib_ratio >= power_ratio_threshold
+                )
+                and not _fix_bucket
+                and pib > 0
+            ):
+                power_r = radius(pos_img, center=(R0, R0), energy=0.8)
+                _pr = power_r * 0.9
+                _r = max(r_bucket * 0.9 + 1, ideal_r, r_bucket)
+                r_bucket = min(_r, _pr, _init_r)
+                if learning_schedule:
+                    current_gamma = gamma
+
+            log = {
+                "sim_spgd": epoch,
+                "J": J,
+                RECORD_ROI_ENERGY: pib_ratio,
+                "_max_r": _init_r,
+                "pib": pib,
+                RECORD_DIFF: diff,
+                "gamma": current_gamma,
+                "r": r_bucket,
+                "delta": current_delta,
+                "ideal_r": ideal_bucket_radius,
+                RECORD_EPOCH: epoch,
+                RECORD_VOLTAGES: _init_v.copy(),
+                RECORD_IMAGE: pos_img,
+                "strehl": strehl,
+                RECORD_GRAD: gradient,
+            }
+            recorder.append(log)
+            bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
+            bar.update(1)
+
+    return recorder
+
+
+def _spgd_zernike_run_loop(J, PX, PY, R0, _apply_zernike_phase, _fix_bucket, _init_r, adaptive_optimizer, ao_sys, beta1, c, current_delta, current_gamma, diff, disturb_c, epochs, flag, gamma, gradient, ideal_bucket_radius, ideal_r, learning_schedule, m_momentum, neg_pib, nk, phase, pos_img, pos_pib, power_ratio_threshold, r_bucket, recorder, update_iter, use_fixed_gain, use_momentum):
+    # Tail of optimize_spgd_zernike: device/graph session With block plus
+    # its final `return recorder`, lifted verbatim. Early returns
+    # inside the With terminate this helper exactly as they did the
+    # outer function; the caller ends in `return helper(...)`.
+    with tqdm.tqdm(
+        total=epochs, desc=f"sim_spgd_zernike iter {epochs}", dynamic_ncols=True
+    ) as bar:
+        for epoch in range(1, epochs + 1):
+            if flag == 0:
+                disturb_c = np.random.binomial(1, 0.5, nk)
+                disturb_c[disturb_c == 0] = -1
+                disturb_c = current_delta * disturb_c
+                c = c + disturb_c / 2
+                phase = _apply_zernike_phase(c)
+                flag = 1
+
+            if flag == 1:
+                pos_img = ao_sys.get_image()
+                pos_pib, pos_ratio = _pib_ratio(pos_img, PX, PY, (R0, R0), r_bucket)
+                c = c - disturb_c
+                phase = _apply_zernike_phase(c)
+                flag = -1
+            elif flag == -1:
+                neg_img = ao_sys.get_image()
+                neg_pib, neg_ratio = _pib_ratio(neg_img, PX, PY, (R0, R0), r_bucket)
+                J = (pos_pib + neg_pib) / 2
+                diff = pos_pib - neg_pib
+                gradient = diff * disturb_c
+
+                if use_momentum and m_momentum is not None:
+                    m_momentum = beta1 * m_momentum + (1 - beta1) * gradient
+                    gradient = m_momentum
+
+                if use_fixed_gain:
+                    update = current_gamma * gradient
+                else:
+                    update = adaptive_optimizer.update(gradient)
+                c = np.clip(c + update + disturb_c / 2, -5.0, 5.0)
+                phase = _apply_zernike_phase(c)
+                pos_img = ao_sys.get_image()
+                flag = 0
+            else:
+                pos_img = ao_sys.get_image()
+
+            pib, pib_ratio = _pib_ratio(pos_img, PX, PY, (R0, R0), r_bucket)
+            strehl = _current_strehl(ao_sys)
+
+            if epoch % update_iter == update_iter - 1 and not _fix_bucket:
+                _init_r = max(_init_r * 0.9, ideal_r)
+
+            if (
+                (
+                    epoch % update_iter == update_iter - 1
+                    or epoch % max(update_iter // 2, 1) == max(update_iter // 2, 1) - 1
+                    or pib_ratio >= power_ratio_threshold
+                )
+                and not _fix_bucket
+                and pib > 0
+            ):
+                power_r = radius(pos_img, center=(R0, R0), energy=0.8)
+                _pr = power_r * 0.9
+                _r = max(r_bucket * 0.9 + 1, ideal_r, r_bucket)
+                r_bucket = min(_r, _pr, _init_r)
+                if learning_schedule:
+                    current_gamma = gamma
+
+            log = {
+                "sim_spgd_zernike": epoch,
+                "J": J,
+                RECORD_ROI_ENERGY: pib_ratio,
+                "_max_r": _init_r,
+                "pib": pib,
+                RECORD_DIFF: diff,
+                "gamma": current_gamma,
+                "r": r_bucket,
+                "delta": current_delta,
+                "ideal_r": ideal_bucket_radius,
+                RECORD_EPOCH: epoch,
+                RECORD_COEFFS: c.copy(),
+                RECORD_PHASE: phase.copy(),
+                RECORD_IMAGE: pos_img,
+                "strehl": strehl,
+                RECORD_GRAD: gradient,
+            }
+            recorder.append(log)
+            bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
+            bar.update(1)
+
+    return recorder
+
+
+
 def optimize_spgd(
     epochs: int,
     r_bucket: float = 0,
@@ -286,94 +475,7 @@ def optimize_spgd(
             **kwargs,
         )
 
-    with tqdm.tqdm(
-        total=epochs, desc=f"sim_spgd iter {epochs}", dynamic_ncols=True
-    ) as bar:
-        for epoch in range(1, epochs + 1):
-            if flag == 0:
-                disturb_v = (
-                    np.random.binomial(1, 0.5, (total_actuators,)).astype(float) * 2.0
-                    - 1.0
-                )
-                disturb_v = disturb_v * current_delta
-                _init_v = _init_v + disturb_v / 2
-                flag = 1
-
-            if flag == 1:
-                ao_sys.set_dm_voltages(_init_v)
-                pos_img = ao_sys.get_image()
-                pos_pib, pos_ratio = _pib_ratio(pos_img, PX, PY, (R0, R0), r_bucket)
-                _init_v = _init_v - disturb_v
-                flag = -1
-            elif flag == -1:
-                ao_sys.set_dm_voltages(_init_v)
-                neg_img = ao_sys.get_image()
-                neg_pib, neg_ratio = _pib_ratio(neg_img, PX, PY, (R0, R0), r_bucket)
-                J = (pos_pib + neg_pib) / 2
-                diff = pos_pib - neg_pib
-                gradient = diff * disturb_v
-
-                if use_momentum and m_momentum is not None:
-                    m_momentum = beta1 * m_momentum + (1 - beta1) * gradient
-                    gradient = m_momentum
-
-                if use_fixed_gain:
-                    update = current_gamma * gradient
-                else:
-                    update = adaptive_optimizer.update(gradient)
-
-                _init_v = np.clip(_init_v + update + disturb_v / 2, -1.0, 1.0)
-                ao_sys.set_dm_voltages(_init_v)
-                pos_img = ao_sys.get_image()
-                flag = 0
-            else:
-                pos_img = ao_sys.get_image()
-
-            pib, pib_ratio = _pib_ratio(pos_img, PX, PY, (R0, R0), r_bucket)
-
-            strehl = _current_strehl(ao_sys)
-
-            if epoch % update_iter == update_iter - 1 and not _fix_bucket:
-                _init_r = max(_init_r * 0.9, ideal_r)
-
-            if (
-                (
-                    epoch % update_iter == update_iter - 1
-                    or epoch % max(update_iter // 2, 1) == max(update_iter // 2, 1) - 1
-                    or pib_ratio >= power_ratio_threshold
-                )
-                and not _fix_bucket
-                and pib > 0
-            ):
-                power_r = radius(pos_img, center=(R0, R0), energy=0.8)
-                _pr = power_r * 0.9
-                _r = max(r_bucket * 0.9 + 1, ideal_r, r_bucket)
-                r_bucket = min(_r, _pr, _init_r)
-                if learning_schedule:
-                    current_gamma = gamma
-
-            log = {
-                "sim_spgd": epoch,
-                "J": J,
-                RECORD_ROI_ENERGY: pib_ratio,
-                "_max_r": _init_r,
-                "pib": pib,
-                RECORD_DIFF: diff,
-                "gamma": current_gamma,
-                "r": r_bucket,
-                "delta": current_delta,
-                "ideal_r": ideal_bucket_radius,
-                RECORD_EPOCH: epoch,
-                RECORD_VOLTAGES: _init_v.copy(),
-                RECORD_IMAGE: pos_img,
-                "strehl": strehl,
-                RECORD_GRAD: gradient,
-            }
-            recorder.append(log)
-            bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
-            bar.update(1)
-
-    return recorder
+    return _spgd_run_loop(J, PX, PY, R0, _fix_bucket, _init_r, _init_v, adaptive_optimizer, ao_sys, beta1, current_delta, current_gamma, diff, disturb_v, epochs, flag, gamma, gradient, ideal_bucket_radius, ideal_r, learning_schedule, m_momentum, neg_pib, pos_img, pos_pib, power_ratio_threshold, r_bucket, recorder, total_actuators, update_iter, use_fixed_gain, use_momentum)
 
 
 def optimize_spgd_zernike(
@@ -546,91 +648,7 @@ def optimize_spgd_zernike(
             **kwargs,
         )
 
-    with tqdm.tqdm(
-        total=epochs, desc=f"sim_spgd_zernike iter {epochs}", dynamic_ncols=True
-    ) as bar:
-        for epoch in range(1, epochs + 1):
-            if flag == 0:
-                disturb_c = np.random.binomial(1, 0.5, nk)
-                disturb_c[disturb_c == 0] = -1
-                disturb_c = current_delta * disturb_c
-                c = c + disturb_c / 2
-                phase = _apply_zernike_phase(c)
-                flag = 1
-
-            if flag == 1:
-                pos_img = ao_sys.get_image()
-                pos_pib, pos_ratio = _pib_ratio(pos_img, PX, PY, (R0, R0), r_bucket)
-                c = c - disturb_c
-                phase = _apply_zernike_phase(c)
-                flag = -1
-            elif flag == -1:
-                neg_img = ao_sys.get_image()
-                neg_pib, neg_ratio = _pib_ratio(neg_img, PX, PY, (R0, R0), r_bucket)
-                J = (pos_pib + neg_pib) / 2
-                diff = pos_pib - neg_pib
-                gradient = diff * disturb_c
-
-                if use_momentum and m_momentum is not None:
-                    m_momentum = beta1 * m_momentum + (1 - beta1) * gradient
-                    gradient = m_momentum
-
-                if use_fixed_gain:
-                    update = current_gamma * gradient
-                else:
-                    update = adaptive_optimizer.update(gradient)
-                c = np.clip(c + update + disturb_c / 2, -5.0, 5.0)
-                phase = _apply_zernike_phase(c)
-                pos_img = ao_sys.get_image()
-                flag = 0
-            else:
-                pos_img = ao_sys.get_image()
-
-            pib, pib_ratio = _pib_ratio(pos_img, PX, PY, (R0, R0), r_bucket)
-            strehl = _current_strehl(ao_sys)
-
-            if epoch % update_iter == update_iter - 1 and not _fix_bucket:
-                _init_r = max(_init_r * 0.9, ideal_r)
-
-            if (
-                (
-                    epoch % update_iter == update_iter - 1
-                    or epoch % max(update_iter // 2, 1) == max(update_iter // 2, 1) - 1
-                    or pib_ratio >= power_ratio_threshold
-                )
-                and not _fix_bucket
-                and pib > 0
-            ):
-                power_r = radius(pos_img, center=(R0, R0), energy=0.8)
-                _pr = power_r * 0.9
-                _r = max(r_bucket * 0.9 + 1, ideal_r, r_bucket)
-                r_bucket = min(_r, _pr, _init_r)
-                if learning_schedule:
-                    current_gamma = gamma
-
-            log = {
-                "sim_spgd_zernike": epoch,
-                "J": J,
-                RECORD_ROI_ENERGY: pib_ratio,
-                "_max_r": _init_r,
-                "pib": pib,
-                RECORD_DIFF: diff,
-                "gamma": current_gamma,
-                "r": r_bucket,
-                "delta": current_delta,
-                "ideal_r": ideal_bucket_radius,
-                RECORD_EPOCH: epoch,
-                RECORD_COEFFS: c.copy(),
-                RECORD_PHASE: phase.copy(),
-                RECORD_IMAGE: pos_img,
-                "strehl": strehl,
-                RECORD_GRAD: gradient,
-            }
-            recorder.append(log)
-            bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
-            bar.update(1)
-
-    return recorder
+    return _spgd_zernike_run_loop(J, PX, PY, R0, _apply_zernike_phase, _fix_bucket, _init_r, adaptive_optimizer, ao_sys, beta1, c, current_delta, current_gamma, diff, disturb_c, epochs, flag, gamma, gradient, ideal_bucket_radius, ideal_r, learning_schedule, m_momentum, neg_pib, nk, phase, pos_img, pos_pib, power_ratio_threshold, r_bucket, recorder, update_iter, use_fixed_gain, use_momentum)
 
 
 def optimize_pso(
