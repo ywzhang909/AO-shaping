@@ -104,13 +104,14 @@ class ConfigHandler(Generic[T]):
 
     def __init__(
         self,
-        config_dir: str | Path,
+        config_dir: str | Path | Callable[[], Path],
         device_type: str,
         param_cls: type[T],
     ):
         """
         Args:
-            config_dir: 配置文件根目录。
+            config_dir: 配置文件根目录；也可传返回路径的无参可调用对象（惰性求值，
+                目录不在 import 期冻结）。
             device_type: 设备类型标识（如 ``"slm"``、``"wfs"``）。
             param_cls: 设备参数 dataclass 类型。
         """

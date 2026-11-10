@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 import os
 import re
 import json
@@ -1654,23 +1654,45 @@ class DeviceConfigManager:
     支持默认启动参数，可在配置目录下放置 defaults.json 作为全局默认配置。
     """
 
-    def __init__(self, config_dir: str | Path, device_type: str = ""):
+    def __init__(
+        self,
+        config_dir: str | Path | Callable[[], Path],
+        device_type: str = "",
+    ):
         """初始化配置管理器
 
         Args:
-            config_dir: 配置文件根目录路径
+            config_dir: 配置文件根目录路径；也可传一个**返回路径的无参可调用对象**，
+                此时每次用到目录都重新求值 —— 目录因此不 import 期冻结 (改配置不必
+                重启进程), 也不会在 import 期读盘。
             device_type: 设备类型标识（如 'slm', 'dm', 'ccd' 等）
         """
-        self.config_dir = Path(config_dir)
+        self._config_dir_factory: Callable[[], Path] | None = None
+        if callable(config_dir):
+            self._config_dir_factory = config_dir
+            self._config_dir_cache: Path | None = None
+        else:
+            self._config_dir_cache = Path(config_dir)
         self.device_type = device_type
-        self.device_config_dir = (
-            self.config_dir / device_type if device_type else self.config_dir
-        )
         # 构造期不碰磁盘: 本类被五个模块级单例 (WFS_CONFIG / SLM_CONFIG / CCD_CONFIG /
         # NLIGHT_CONFIG / MICRO_DM_CONFIG) 在 import 时实例化, 这里的 mkdir 或读文件会
         # 破掉 "import 子包不得做磁盘 I/O" 契约 (只读挂载下直接 OSError 30)。
         # 目录只在写盘前建, 默认配置延迟到首次读。
         self._default_config: dict | None = None
+
+    @property
+    def config_dir(self) -> Path:
+        """配置文件根目录 (惰性目录工厂每次重新求值)。"""
+        if self._config_dir_factory is not None:
+            return self._config_dir_factory()
+        assert self._config_dir_cache is not None
+        return self._config_dir_cache
+
+    @property
+    def device_config_dir(self) -> Path:
+        """该设备类型的配置目录 (``<config_dir>/<device_type>``)。"""
+        base = self.config_dir
+        return base / self.device_type if self.device_type else base
 
     def _ensure_config_dir(self, path: Path) -> None:
         """写盘前创建目录; 这是全类唯一的 mkdir 点。"""

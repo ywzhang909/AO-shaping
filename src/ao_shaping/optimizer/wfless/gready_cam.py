@@ -41,12 +41,29 @@ IMG_SIZE = (200, 200)
 V_MAX = 499
 V_MIN = -300
 UPDATE_MAX = 20
-DM_Adj = np.loadtxt(r'data\dm_adj.txt')
 Tolerance = 300
-logger.info(f"相邻单元矩阵加载完成:{DM_Adj.shape},最大压差:{Tolerance}")
 
-def check_dm_unit_grad_safe(vs, adj_mat=DM_Adj, tolerance=Tolerance):
-    assert len(vs) == DM_Adj.shape[0] == DM_Adj.shape[1]
+
+def _dm_adjacency() -> np.ndarray:
+    """相邻单元矩阵 (惰性加载)。
+
+    原先在模块级 ``np.loadtxt(r'data\\dm_adj.txt')`` —— 那是 import 期磁盘 I/O,
+    工作目录不对时 ``import ao_shaping.optimizer.wfless.gready_cam`` 直接以
+    ``FileNotFoundError`` 失败, 打包 exe 里更没有 ``data/`` 可读。矩阵本身是
+    **仓库输入资产**, 走 :func:`ao_shaping.drivers.dm._adjacency.load_adjacency`
+    (包内锚定路径 + 合成网格兜底), 与其它驱动共用同一份。
+    """
+    from ao_shaping.drivers.dm._adjacency import load_adjacency
+
+    matrix = load_adjacency()
+    logger.info(f"相邻单元矩阵加载完成:{matrix.shape},最大压差:{Tolerance}")
+    return matrix
+
+
+def check_dm_unit_grad_safe(vs, adj_mat=None, tolerance=Tolerance):
+    if adj_mat is None:
+        adj_mat = _dm_adjacency()
+    assert len(vs) == adj_mat.shape[0] == adj_mat.shape[1]
     diff_mat = (vs[:,None] - vs[None,:]) * adj_mat
     return not np.any(diff_mat[diff_mat > tolerance])
 
@@ -252,11 +269,13 @@ def run():
     last_V = res_df.iloc[max_j_id][RECORD_VOLTAGES]
     logger.info(f"{max_j_id} -> {res_df.iloc[max_j_id]['J']}")
 
+    dm_adj = _dm_adjacency()
+
     def get_nerbors(unit_id):
-        return (a for a in np.where(DM_Adj[unit_id, :] == 1)[0])
+        return (a for a in np.where(dm_adj[unit_id, :] == 1)[0])
 
     base_unit_id = np.argmin(np.abs(last_V[1:]))+1
-    checked_mask = np.zeros_like(DM_Adj, dtype=bool)
+    checked_mask = np.zeros_like(dm_adj, dtype=bool)
     def reset_nerbors(unit_id, v):
         min, max = v[unit_id]-Tolerance, v[unit_id]+Tolerance
         for nerbor in get_nerbors(unit_id):
