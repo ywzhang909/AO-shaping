@@ -8,14 +8,15 @@ background. This script re-measures the center on the *same* knife-edge
 measurement (``SLMCCDCalibrator.find_beam_on_slm`` style: one side cleared to
 0 phase, the other a 0/pi checkerboard that scatters out of the 0-order) but:
 
-* subtracts the per-frame background (frame - median) before any power sum,
+* subtracts a real dark frame (``--dark-frame``) when given; otherwise falls
+  back to the per-frame median, which is recorded as an explicit gap,
 * records the 0-order window power at 1/2/3/6/12 x FWHM for every frame, so the
   offline analysis can see how much the answer depends on the window,
 * records a CCD-side 0-order box centroid as *reference evidence only* (it is
   the camera-side spot, NOT the SLM-panel center),
 * emits ``reliable: true/false`` together with per-item criteria; when false it
   does NOT emit a usable center (``beam_center_cy_cx`` is null) and prints a
-  loud warning, but still exits 0 so the raw evidence is preserved.
+  loud warning and exits 1; raw evidence is preserved.
 
 The panel geometric center is reported alongside (cy, cx) = (600, 960), which
 matches ``ao_shaping.utils.slm.bench_constants.BEAM_CENTER_PANEL``.
@@ -233,6 +234,8 @@ def _plan(args: argparse.Namespace) -> dict:
     n_knife = 2 * args.n_scan
     return {
         "plan_only": True,
+        "background": _background_info(args.dark_frame),
+        "dark_frame": str(args.dark_frame) if args.dark_frame else None,
         "script": "scripts/slm/measure_slm_beam_center.py",
         "issue": 235,
         "devices": {
@@ -276,7 +279,28 @@ def _plan(args: argparse.Namespace) -> dict:
     }
 
 
-def _capture_flat(slm, cam) -> tuple[dict, np.ndarray]:
+def _background_info(path: Path | None) -> dict:
+    return {
+        "method": "dark_frame" if path is not None else "frame_median",
+        "dark_frame": str(path.resolve()) if path is not None else None,
+        "gaps": [] if path is not None else [
+            "背景为每帧全图 median，非真实暗场，固定热点未剥离"
+        ],
+    }
+
+
+def _subtract_background(raw: np.ndarray, dark: np.ndarray | None) -> tuple[np.ndarray, np.ndarray]:
+    if dark is not None and dark.shape != raw.shape:
+        raise ValueError(f"Dark frame shape {dark.shape} != CCD frame shape {raw.shape}")
+    background = dark if dark is not None else np.full(raw.shape, np.median(raw))
+    return np.maximum(raw - background, 0.0), background
+
+
+def _exit_code(reliable: bool) -> int:
+    return 0 if reliable else 1
+
+
+def _capture_flat(slm, cam, dark: np.ndarray | None) -> tuple[dict, np.ndarray]:
     """Flat-field (all-zero) frame and CCD 0-order box-centroid reference evidence.
 
     Returns ``(record, raw_float64_frame)`` so the caller can save the raw frame.
@@ -287,12 +311,12 @@ def _capture_flat(slm, cam) -> tuple[dict, np.ndarray]:
     h, w = slm.Panel_Res[1], slm.Panel_Res[0]
     slm.display_data(np.zeros((h, w), dtype=np.uint16))
     raw = np.asarray(cam.get_numpy_image(1, True), dtype=np.float64)
-    med = float(np.median(raw))
+    med = float(np.median(dark)) if dark is not None else float(np.median(raw))
     peak = float(raw.max())
     saturated = bool(is_saturated(raw))
 
-    cy, cx = int(np.argmax(raw) // w), int(np.argmax(raw) % w)
-    bs = np.maximum(raw - med, 0.0)
+    bs, background = _subtract_background(raw, dark)
+    cy, cx = map(int, np.unravel_index(np.argmax(bs), bs.shape))
     cy_c, cx_c = _box_centroid(bs, cy, cx, CCD_BOX_SIDE)
     fwhm_row = _fwhm1d(bs[cy, :])
     fwhm_col = _fwhm1d(bs[:, cx])
@@ -301,7 +325,7 @@ def _capture_flat(slm, cam) -> tuple[dict, np.ndarray]:
     for f in WINDOW_FACTORS:
         side = int(round(f * max((fwhm_row + fwhm_col) / 2.0, 5.0)))
         p, bounds = _window_power(raw, cy, cx, side)
-        bg_frac = med * (bounds[1] - bounds[0]) * (bounds[3] - bounds[2]) / (p + 1e-12)
+        bg_frac = _window_power(background, cy, cx, side)[0] / (p + 1e-12)
         windows[str(int(f * 100) / 100)] = {
             "side": side,
             "bounds": list(bounds),
@@ -316,7 +340,9 @@ def _capture_flat(slm, cam) -> tuple[dict, np.ndarray]:
         "frame_shape": list(raw.shape),
         "frame_dtype": str(raw.dtype),
         "background_median": med,
+        "background_source": "dark_frame" if dark is not None else "frame_median",
         "peak": peak,
+        "peak_background_subtracted": float(bs.max()),
         "saturated": saturated,
         "argmax_cy_cx": [float(cy), float(cx)],
         "ccd_box_centroid_cy_cx": [cy_c, cx_c],
@@ -398,6 +424,7 @@ def _run(args: argparse.Namespace) -> int:
         )
         return 2
 
+    dark = args.dark
     out = args.out
     out.mkdir(parents=True, exist_ok=False)
     failures: list[dict] = []
@@ -425,7 +452,7 @@ def _run(args: argparse.Namespace) -> int:
 
         # ---- flat field + CCD 0-order box centroid (reference evidence) ------
         print("capturing flat field ...")
-        flat_rec, raw_flat = _capture_flat(slm, cam)
+        flat_rec, raw_flat = _capture_flat(slm, cam, dark)
         np.save(out / "flat_full.npy", raw_flat)
         frames.append(flat_rec)
 
@@ -448,7 +475,8 @@ def _run(args: argparse.Namespace) -> int:
             ss = np.linspace(0, extent, args.n_scan)
             axis_curves: dict[str, list] = {str(f): [] for f in WINDOW_FACTORS}
             for idx, s in enumerate(ss):
-                phase = scan_pattern(int(round(s)), axis)
+                s = int(round(s))
+                phase = scan_pattern(s, axis)
                 try:
                     slm.display_phase(phase)
                 except Exception as exc:
@@ -456,8 +484,8 @@ def _run(args: argparse.Namespace) -> int:
                     print("FAILED knife %s s=%.0f: %s" % (axis, s, exc), file=sys.stderr)
                     continue
                 raw = np.asarray(cam.get_numpy_image(1, True), dtype=np.float64)
-                med = float(np.median(raw))
-                bs = np.maximum(raw - med, 0.0)
+                med = float(np.median(dark)) if dark is not None else float(np.median(raw))
+                bs, _ = _subtract_background(raw, dark)
                 prov = _displayed_provenance(slm)
                 rec = {
                     "kind": "knife",
@@ -468,6 +496,7 @@ def _run(args: argparse.Namespace) -> int:
                     "frame_shape": list(raw.shape),
                     "frame_dtype": str(raw.dtype),
                     "background_median": med,
+                    "background_source": "dark_frame" if dark is not None else "frame_median",
                     "frame_max": float(raw.max()),
                     "saturated": bool(is_saturated(raw)),
                     "window_powers": {},
@@ -523,7 +552,7 @@ def _run(args: argparse.Namespace) -> int:
                 reasons.append("%s: %s" % (name, detail))
 
         med_bg = flat_rec["background_median"]
-        peak_sig = flat_rec["peak"] - med_bg
+        peak_sig = flat_rec["peak_background_subtracted"]
         add_criterion(
             "flat_signal_above_background",
             peak_sig >= MIN_FLAT_PEAK_SIGNAL_COUNTS,
@@ -531,6 +560,11 @@ def _run(args: argparse.Namespace) -> int:
             % (flat_rec["peak"], med_bg, peak_sig, MIN_FLAT_PEAK_SIGNAL_COUNTS),
         )
         add_criterion("flat_not_saturated", not flat_rec["saturated"], "flat frame saturated=%s" % flat_rec["saturated"])
+        add_criterion(
+            "no_acquisition_failures",
+            not failures,
+            "%d acquisition failure(s) recorded" % len(failures),
+        )
         add_criterion(
             "background_fraction",
             flat_rec["windows"][str(REFERENCE_WINDOW_FACTOR)]["background_fraction"] <= MAX_BACKGROUND_FRACTION,
@@ -581,6 +615,8 @@ def _run(args: argparse.Namespace) -> int:
             )
 
         reliable = all(c["passed"] for c in criteria)
+        background_info = _background_info(args.dark_frame)
+        gaps = background_info["gaps"]
         if reliable:
             center = [
                 curves["y"][str(REFERENCE_WINDOW_FACTOR)]["fit"]["c50"],
@@ -626,6 +662,7 @@ def _run(args: argparse.Namespace) -> int:
                 ),
             },
             "background": {
+                **background_info,
                 "flat_median": med_bg,
                 "flat_peak_minus_median": peak_sig,
                 "background_fraction_ref_window": flat_rec["windows"][str(REFERENCE_WINDOW_FACTOR)]["background_fraction"],
@@ -635,9 +672,21 @@ def _run(args: argparse.Namespace) -> int:
             "criteria": criteria,
             "reliable": reliable,
             "reasons": reasons,
+            "gaps": gaps,
             "beam_center_cy_cx": center,
             "beam_sigma": sigma,
-            "beam_center_units": "panel px (cy, cx)",
+            "beam_center_units": (
+                "panel px (cy, cx). The apodization patterns are defined on the panel "
+                "grid (clear = xx < s / yy < s) and the 50% crossing is the panel "
+                "coordinate s at which half the far-field power is cleared; the CCD-side "
+                "1-D scale factor cancels in the cumulative power fraction, so no "
+                "CCD->panel mapping is needed. The CCD centroid is an independent "
+                "reference only, NOT the panel center."
+            ),
+            "beam_center_null_note": (
+                "When reliable=false, beam_center_cy_cx is None and MUST NOT be "
+                "used downstream as a calibration value."
+            ),
             "frames": _jsonable(frames),
             "failures": failures,
         }
@@ -661,7 +710,7 @@ def _run(args: argparse.Namespace) -> int:
             print("!" * 78)
         else:
             print("beam_center_cy_cx = %s, beam_sigma = %s" % (center, sigma))
-        return 0
+        return _exit_code(reliable)
     finally:
         # --- guaranteed release: SLM to uniform gray 0, then close; camera close.
         if slm is not None:
@@ -704,9 +753,24 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--cam-id", type=int, default=0)
     ap.add_argument("--exposure-ms", type=float, default=0.05)
     ap.add_argument("--n-scan", type=int, default=25)
+    ap.add_argument("--dark-frame", type=Path, help="real dark frame .npy from capture_dark_flat_baselines.py; missing => median gap recorded")
     ap.add_argument("--execute", action="store_true")
     args = ap.parse_args(argv)
 
+    dark = None
+    if args.dark_frame is not None:
+        if not args.dark_frame.is_file():
+            print(f"ERROR: dark frame not found: {args.dark_frame}", file=sys.stderr)
+            return 1
+        try:
+            dark = np.asarray(np.load(args.dark_frame, allow_pickle=False), dtype=np.float64)
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: invalid dark frame: {exc}", file=sys.stderr)
+            return 1
+        if dark.ndim != 2 or not np.isfinite(dark).all():
+            print("ERROR: dark frame must be a 2-D array", file=sys.stderr)
+            return 1
+    args.dark = dark
     plan = _plan(args)
     if not args.execute:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
