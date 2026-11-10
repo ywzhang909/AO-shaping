@@ -91,7 +91,8 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线+硬件",
         note=(
             "11-10 光路 A 下线前诊断状态日志：非饱和曝光阶梯、中心/焦点拟合冲突、"
-            "证据保真限制与各 issue 预编写边界；未发布新标定，未据此完成真机验收。"
+            "证据保真限制与各 issue 预编写边界；含曝光单位更正补记（30 ms 改为 "
+            "30 us，原不一致结论据阶梯数据撤销）；未发布新标定，未据此完成真机验收。"
         ),
     ),
     "report/shape_trials/shape_transition/shape_transition_timing_20261107.md": ReportProvenance(
