@@ -78,8 +78,8 @@ CARRIER_PERIODS = (8, 16, 32, 64)
 CARRIER_GRAY_AMPS = (256, 512, 768)
 #: Spatial square side (panel px).
 SQUARE_SIDE = 200
-#: Square centers (cx, cy) in panel px: center + four corners, each fitting on panel.
-SQUARE_LOCATIONS_CX_CY = ((960, 600), (100, 100), (1820, 100), (100, 1100), (1820, 1100))
+#: Offsets from a measured PANEL beam center, never from the CCD zero order.
+SQUARE_OFFSETS_CX_CY = ((0, 0), (-200, -200), (200, -200), (-200, 200), (200, 200))
 #: Square gray levels (10-bit).
 SQUARE_GRAYS = (256, 512, 768, 1023)
 #: 0-order window side for the E0 of the zero_order_suppressed estimate (px).
@@ -96,6 +96,86 @@ ZERO_ORDER_SUPPRESSED_MAX_RATIO = 0.5
 CROP_SIDE = 1100
 #: Side-order peak must exceed this multiple of the scan-line median to be a real bump.
 PEAK_VS_MEDIAN = 1.5
+#: Panel->CCD geometry calibration (rotation_deg / mirror / center), produced by
+#: scripts/slm/calib_geometry_from_orders.py. If this file is missing the script
+#: refuses to run rather than silently assuming an identity panel->CCD mapping.
+DEFAULT_GEOMETRY_CALIB = Path(__file__).resolve().parents[2] / "data/slm_geometry_calib.npz"
+#: Max fraction of blaze probes allowed to end up with status "unknown" (side
+#: order not resolved) before the whole run is judged unreliable. Rationale: the
+#: E0/E1 suppression estimate is the primary LUT-identifiability evidence; if
+#: more than half of the probes cannot resolve a side order, the dataset cannot
+#: answer issue #238's core question and downstream conclusions must not be drawn.
+MAX_UNRESOLVED_SIDE_ORDER_FRACTION = 0.5
+
+
+def _panel_direction_to_ccd(direction_deg: float, rotation_deg: float, mirror: bool) -> tuple[float, float]:
+    """Return CCD (row, col) unit vector; mirror reflects panel x BEFORE rotation.
+
+    atan2(d_row, d_col) = panel angle + rotation (orders calibration lines 203-206).
+    Mirror is x reflection, consistent with calibration.py's x-mirror declaration.
+    """
+    th = np.deg2rad(direction_deg)
+    x, y = float(np.cos(th)), float(np.sin(th))
+    if mirror:
+        x = -x
+    rot = np.deg2rad(rotation_deg)
+    return float(x * np.sin(rot) + y * np.cos(rot)), float(x * np.cos(rot) - y * np.sin(rot))
+
+
+def _load_geometry(path: Path) -> dict:
+    path = path.resolve(strict=True)
+    with np.load(path, allow_pickle=False) as data:
+        rotation = float(data["rotation_deg"])
+        mirror = bool(data["mirror"])
+        center = np.asarray(data["center"], dtype=float)
+        if center.shape != (2,) or not np.isfinite(center).all() or not np.isfinite(rotation):
+            raise ValueError("geometry rotation/center must be finite, center must be CCD (row,col)")
+        provenance = json.loads(str(data["provenance"])) if "provenance" in data else {}
+    return {
+        "path": str(path), "mtime_ns": path.stat().st_mtime_ns,
+        "mtime_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(path.stat().st_mtime)),
+        "rotation_deg": rotation, "mirror": mirror, "center_ccd_cy_cx": center.tolist(),
+        "calibration_date": provenance.get("measured_at", "unknown"),
+        "status": "historical calibration; 需要上机复核; not verified after 2026-11-10 adjustment",
+        "mapping": "reflect panel x if mirror, then rotate by rotation_deg; CCD=(row,col)",
+        "directions": [{"panel_direction_deg": d, "ccd_unit_dcy_dcx": list(_panel_direction_to_ccd(d, rotation, mirror))} for d in CARRIER_DIRECTIONS],
+    }
+
+
+def _square_layout(path: Path | None, panel_w: int, panel_h: int) -> tuple[list, list[str]]:
+    # A far-field zero-order CCD position does NOT identify the panel illumination
+    # center: translation of a pupil leaves Fourier intensity unchanged. A separate
+    # panel-grid knife-edge measurement is required; never reuse CCD pixels here.
+    if path is None:
+        return [], ["Panel beam center unknown: flat/gray CCD zero order cannot locate illumination on the panel; square coverage unverified, squares skipped. Supply a reliable #235 summary via --beam-center-summary."]
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if data.get("reliable") is not True or data.get("beam_center_cy_cx") is None:
+        return [], ["Beam-center summary is unreliable/null; squares skipped (coverage gap)."]
+    cy, cx = map(float, data["beam_center_cy_cx"])
+    if not np.isfinite([cy, cx]).all():
+        return [], ["Nonfinite panel beam center; squares skipped."]
+    locations = [(int(round(cx + dx)), int(round(cy + dy))) for dx, dy in SQUARE_OFFSETS_CX_CY]
+    valid = [(x, y) for x, y in locations if SQUARE_SIDE // 2 <= x <= panel_w - SQUARE_SIDE // 2 and SQUARE_SIDE // 2 <= y <= panel_h - SQUARE_SIDE // 2]
+    gaps = [] if len(valid) == len(locations) else ["Some beam-relative square positions do not fit on the panel and were skipped."]
+    return valid, gaps
+
+
+def _assess_reliability(failures: list, gray_records: list, estimates: dict, gaps: list[str]) -> tuple[bool, list[str]]:
+    reasons = list(gaps)
+    if failures:
+        reasons.append("One or more acquisition/probe failures occurred.")
+    if any(r.get("gray_readback_matches_commanded") is False for r in gray_records):
+        reasons.append("Gray readback does not match commanded gray.")
+    if any(not r.get("gray_readback_verified", False) for r in gray_records):
+        reasons.append("Gray readback unavailable/unverified.")
+    fraction = sum(v["status"] != "ok" for v in estimates.values()) / len(estimates) if estimates else 1.0
+    if fraction > MAX_UNRESOLVED_SIDE_ORDER_FRACTION:
+        reasons.append(f"Unresolved side-order fraction {fraction:.3f} exceeds {MAX_UNRESOLVED_SIDE_ORDER_FRACTION:.3f}.")
+    return not reasons, reasons
+
+
+def _exit_code(reliable: bool) -> int:
+    return 0 if reliable else 1
 
 
 def _window_slices(cy: int, cx: int, side: int, h: int, w: int):
@@ -190,20 +270,41 @@ def _displayed_provenance(slm) -> dict:
 
 
 def _gray_sweep_provenance(slm, commanded_gray: int) -> dict:
-    """Gray-sweep provenance: true device readback via get_current_grayscale()."""
+    """Gray-sweep provenance: true device readback via get_current_grayscale().
+
+    The readback is compared against the commanded gray: a mismatch means the
+    panel is not showing what was commanded and ``actual_gray_available`` must
+    NOT be treated as trustworthy (``gray_readback_matches_commanded=false``).
+    """
     try:
         readback = slm.get_current_grayscale()
-        actual = True
+        actual = readback is not None
         note = "device readback via get_current_grayscale()"
     except Exception as exc:
         readback = None
         actual = False
         note = f"get_current_grayscale() failed: {exc}"
+    delta = None
+    matches = False
+    if readback is not None:
+        delta = int(readback) - int(commanded_gray)
+        matches = bool(delta == 0)
+        if not matches:
+            note += (
+                "; MISMATCH: readback %d != commanded %d (|delta|=%d) -- "
+                "actual_gray_available is reported but the commanded value was "
+                "NOT confirmed on the panel"
+                % (int(readback), int(commanded_gray), abs(delta))
+            )
     prov = _displayed_provenance(slm)
     return {
         "actual_gray_available": actual,
         "commanded_gray": int(commanded_gray),
         "gray_readback": readback,
+        "gray_readback_matches_commanded": matches,
+        "gray_readback_delta": delta,
+        "gray_readback_abs_delta": abs(delta) if delta is not None else None,
+        "gray_readback_verified": bool(matches),
         "displayed_phase_sha256": prov["displayed_phase_sha256"],
         "displayed_gray_source": prov["displayed_gray_source"],
         "gray_readback_note": note,
@@ -295,7 +396,7 @@ def _estimate_zero_order_suppressed(bs, cy, cx, dcy, dcx, e0_window, side_window
 
 def _plan(args: argparse.Namespace) -> dict:
     n_carrier = len(CARRIER_DIRECTIONS) * len(CARRIER_PERIODS) * len(CARRIER_GRAY_AMPS)
-    n_square = len(SQUARE_LOCATIONS_CX_CY) * len(SQUARE_GRAYS)
+    n_square = len(SQUARE_OFFSETS_CX_CY) * len(SQUARE_GRAYS)
     return {
         "plan_only": True,
         "script": "scripts/slm/capture_slm_lut_probes.py",
@@ -318,7 +419,10 @@ def _plan(args: argparse.Namespace) -> dict:
         "carrier_periods": list(CARRIER_PERIODS),
         "carrier_gray_amps": list(CARRIER_GRAY_AMPS),
         "square_side_px": SQUARE_SIDE,
-        "square_locations_cx_cy": [list(loc) for loc in SQUARE_LOCATIONS_CX_CY],
+        "square_offsets_cx_cy": [list(loc) for loc in SQUARE_OFFSETS_CX_CY],
+        "square_anchor": "reliable measured panel beam center; otherwise skip with gap (CCD zero order is NOT panel center)",
+        "beam_center_summary": str(args.beam_center_summary) if args.beam_center_summary else None,
+        "geometry_calibration": _load_geometry(args.geometry_calib),
         "square_grays": list(SQUARE_GRAYS),
         "blaze_zero_order_window_px": BLAZE_ZERO_ORDER_WINDOW,
         "side_order_window_px": SIDE_ORDER_WINDOW,
@@ -328,6 +432,7 @@ def _plan(args: argparse.Namespace) -> dict:
             "side_order_min_fraction": SIDE_ORDER_MIN_FRACTION,
             "zero_order_suppressed_max_ratio": ZERO_ORDER_SUPPRESSED_MAX_RATIO,
             "peak_vs_median": PEAK_VS_MEDIAN,
+            "max_unresolved_side_order_fraction": MAX_UNRESOLVED_SIDE_ORDER_FRACTION,
         },
         "writes": [
             "summary.json",
@@ -411,8 +516,7 @@ def _run(args: argparse.Namespace) -> int:
         # ---- flat reference: uniform gray 0 -> 0-order position + FWHM ---------
         slm.set_grayscale(0)
         flat_rec, raw_flat, bs_flat = _capture_frame(cam, 0, 0)
-        cy = int(np.argmax(bs_flat) // panel_w)
-        cx = int(np.argmax(bs_flat) % panel_w)
+        cy, cx = map(int, np.unravel_index(np.argmax(bs_flat), bs_flat.shape))
         fwhm_row = _fwhm1d(bs_flat[cy, :])
         fwhm_col = _fwhm1d(bs_flat[:, cx])
         fwhm = 0.5 * (fwhm_row + fwhm_col)
@@ -438,6 +542,7 @@ def _run(args: argparse.Namespace) -> int:
             "actual_gray_available": prov["actual_gray_available"],
             "commanded_gray": 0,
             "gray_readback": prov["gray_readback"],
+            **{k: v for k, v in prov.items() if k.startswith("gray_readback_")},
             "displayed_phase_sha256": prov["displayed_phase_sha256"],
             "displayed_gray_source": prov["displayed_gray_source"],
         }
@@ -469,6 +574,7 @@ def _run(args: argparse.Namespace) -> int:
                     "actual_gray_available": prov["actual_gray_available"],
                     "commanded_gray": g,
                     "gray_readback": prov["gray_readback"],
+            **{k: v for k, v in prov.items() if k.startswith("gray_readback_")},
                     "displayed_phase_sha256": prov["displayed_phase_sha256"],
                     "displayed_gray_source": prov["displayed_gray_source"],
                     "gray_readback_note": prov["gray_readback_note"],
@@ -481,8 +587,8 @@ def _run(args: argparse.Namespace) -> int:
         carriers: list[dict] = []
         suppressed_summary: dict = {}
         for direction in CARRIER_DIRECTIONS:
-            th = np.deg2rad(direction)
-            dcy, dcx = float(np.sin(th)), float(np.cos(th))  # CCD (row, col) direction
+            geometry = args.geometry
+            dcy, dcx = _panel_direction_to_ccd(direction, geometry["rotation_deg"], geometry["mirror"])
             for period in CARRIER_PERIODS:
                 for gray_amp in CARRIER_GRAY_AMPS:
                     rec_name = "frames/carrier_%d_%d_%d.npy" % (direction, period, gray_amp)
@@ -503,6 +609,7 @@ def _run(args: argparse.Namespace) -> int:
                         carriers.append({
                             "kind": "carrier",
                             "direction_deg": direction,
+                            "ccd_unit_dcy_dcx": [dcy, dcx],
                             "period_px": period,
                             "gray_amp": gray_amp,
                             "frame_file": rec_name,
@@ -522,6 +629,7 @@ def _run(args: argparse.Namespace) -> int:
                         })
                         suppressed_summary[key] = {
                             "direction_deg": direction,
+                            "ccd_unit_dcy_dcx": [dcy, dcx],
                             "period_px": period,
                             "gray_amp": gray_amp,
                             "status": est["status"],
@@ -536,7 +644,8 @@ def _run(args: argparse.Namespace) -> int:
         print("carrier probes done (%d)" % len(carriers))
 
         squares: list[dict] = []
-        for cx_sq, cy_sq in SQUARE_LOCATIONS_CX_CY:
+        square_locations, gaps = _square_layout(args.beam_center_summary, panel_w, panel_h)
+        for cx_sq, cy_sq in square_locations:
             for gray in SQUARE_GRAYS:
                 rec_name = "frames/square_%d_%d_%d.npy" % (cx_sq, cy_sq, gray)
                 try:
@@ -579,7 +688,11 @@ def _run(args: argparse.Namespace) -> int:
         n_unknown = sum(1 for v in suppressed_summary.values() if v["status"] == "unknown")
         n_suppressed = sum(1 for v in suppressed_summary.values() if v.get("suppressed") is True)
 
+        reliable, reasons = _assess_reliability(failures, [flat_info, *gray_sweep], suppressed_summary, gaps)
         summary = {
+            "reliable": reliable, "reasons": reasons, "gaps": gaps,
+            "geometry_calibration": args.geometry,
+            "square_anchor_summary": str(args.beam_center_summary) if args.beam_center_summary else None,
             "script": "scripts/slm/capture_slm_lut_probes.py",
             "issue": 238,
             "created_utc": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
@@ -627,7 +740,7 @@ def _run(args: argparse.Namespace) -> int:
         )
         if n_unknown:
             print("  %d probe(s) could not resolve a side order -> status unknown" % n_unknown)
-        return 0
+        return _exit_code(reliable)
     finally:
         # --- guaranteed release: SLM to uniform gray 0, then close; camera close.
         if slm is not None:
@@ -669,10 +782,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--slm-number", type=int, default=1)
     ap.add_argument("--cam-id", type=int, default=0)
     ap.add_argument("--exposure-ms", type=float, default=0.05)
+    ap.add_argument("--geometry-calib", type=Path, default=DEFAULT_GEOMETRY_CALIB)
+    ap.add_argument("--beam-center-summary", type=Path, help="reliable #235 panel-grid measurement; otherwise squares skipped")
     ap.add_argument("--execute", action="store_true")
     args = ap.parse_args(argv)
 
-    plan = _plan(args)
+    try:
+        args.geometry = _load_geometry(args.geometry_calib)
+        if args.beam_center_summary is not None and not args.beam_center_summary.is_file():
+            raise FileNotFoundError(args.beam_center_summary)
+        plan = _plan(args)
+    except (OSError, ValueError, KeyError) as exc:
+        print(f"ERROR: invalid/missing calibration input: {exc}", file=sys.stderr)
+        return 1
     if not args.execute:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
         return 0
