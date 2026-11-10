@@ -27,7 +27,6 @@ def _configure_runtime(root: Path) -> None:
     slm_dll_dir = root / "libs" / "santec_slm"
     daheng_dll_dir = root / "libs" / "daheng"
     miicam_sdk_dir = root / "ao_shaping" / "drivers" / "ccd" / "_miicam_sdk"
-    data_dir = root / "data"
 
     # Native DLL search locations (Windows does not search these by default).
     # ``WinDLL(..., winmode=0)`` (Daheng wrappers) uses the legacy search order,
@@ -40,10 +39,19 @@ def _configure_runtime(root: Path) -> None:
     os.environ.setdefault("AO_SHAPING_SLM_DLL_DIR", str(slm_dll_dir))
     os.environ.setdefault("AO_SHAPING_SDK_PATH", str(root / "libs"))
     os.environ.setdefault("MIICAM_SDK_PATH", str(miicam_sdk_dir))
-    os.environ.setdefault("CCD_CONFIG_DIR", str(data_dir / "ccd_configs"))
-    os.environ.setdefault("SLM_CONFIG_DIR", str(data_dir / "slm_configs"))
-    os.environ.setdefault("DM_CONFIG_DIR", str(data_dir / "dm_configs"))
-    os.environ.setdefault("MICRO_DM_CONFIG_DIR", str(data_dir / "micro_dm_configs"))
+
+    # 数据目录 / 权重目录 / 设备配置目录**不在这里钉死**: 解析器
+    # (``ao_shaping.utils.io.paths``) 的优先级是 环境变量 → 配置文件 → 默认值,
+    # 而配置文件 (exe 同目录的 ``ao_shaping.toml``) 正是给用户改这些路径用的。
+    # 曾经在这里 ``setdefault`` 各 ``*_CONFIG_DIR``: 那会把环境变量优先级抬到
+    # 配置文件之上, 用户在 ``ao_shaping.toml`` 里写 ``ccd_config_dir`` 会被静默忽略。
+    # 现在不设: 未配置时解析器自己落到 ``<exe 目录>/data/<kind>_configs``,
+    # 与这里曾经钉的值一致, 行为不变但配置终于生效。
+    #
+    # 若要改路径, 三选一 (优先级高→低):
+    #   1. 环境变量  AO_SHAPING_DATA_DIR / SLM_MODELS_DIR / CCD_CONFIG_DIR / ...
+    #   2. 配置文件  exe 同目录的 ao_shaping.toml (示例见 ao_shaping.toml.example)
+    #   3. 默认值    <exe 目录>/data/...
 
 
 def _fix_root_dir(root: Path) -> None:

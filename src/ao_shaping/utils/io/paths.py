@@ -149,10 +149,17 @@ def explicit_data_dir() -> Path | None:
 
 
 def data_dir() -> Path:
-    """数据目录 (运行输出、会话目录、快照等)。"""
+    """数据目录 (运行输出、会话目录、快照等)。
+
+    源码检出下默认是 CWD 相对的 ``data`` —— 仓库约定 ``PATHS.root_dir`` 存的是运行
+    *输出*, CWD 相对是对的 (换机器不用改代码)。打包 exe 下默认落在 exe 旁的
+    ``data/``: 双击 exe 时 CWD 未必可写, 落在安装目录旁更可预期。
+    """
     explicit = explicit_data_dir()
     if explicit is not None:
         return explicit
+    if _is_frozen():
+        return anchor_dir() / _DEFAULT_DATA_SUBDIR
     return _DEFAULT_DATA_DIR
 
 

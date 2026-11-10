@@ -1,11 +1,35 @@
 # AO-Shaping 路径配置示例。复制为 ao_shaping.toml 后按需修改。
 #
+# 位置: 源码检出为仓库根; 打包 exe 为 exe 同目录。也可用 AO_SHAPING_CONFIG 指定别的路径。
 # 解析优先级: 环境变量 → 本文件 → 默认值。
-#   数据目录: AO_SHAPING_DATA_DIR        (默认 data)
-#   权重目录: SLM_MODELS_DIR / AO_SHAPING_WEIGHTS_DIR  (默认 <数据目录>/slm_models)
-# 本文件位置: 源码检出为仓库根; 打包 exe 为 exe 同目录; 或用 AO_SHAPING_CONFIG 指定。
-# 相对路径相对于本文件所在目录解析。
+# 相对路径相对于**本文件所在目录**解析 (不是 CWD)。
+#
+# 环境变量:
+#   AO_SHAPING_DATA_DIR    数据目录 (运行输出: 会话目录/快照/调试产物)
+#   SLM_MODELS_DIR         权重目录 (旧变量, 仍优先于 AO_SHAPING_WEIGHTS_DIR)
+#   AO_SHAPING_WEIGHTS_DIR 权重目录
+#   CCD_CONFIG_DIR / SLM_CONFIG_DIR / DM_CONFIG_DIR /
+#   MICRO_DM_CONFIG_DIR / WFS_CONFIG_DIR   设备配置目录
+#
+# 未配置时的默认值:
+#   数据目录        源码检出: data (CWD 相对); exe: <exe 目录>/data
+#   权重目录        <锚定目录>/data/slm_models
+#   设备配置目录    <锚定目录>/data/<kind>_configs
+#
+# 注意: 显式配置了 data_dir 时, 设备配置目录与权重目录默认跟着它走;
+# 想让它们分开, 就把对应的键也显式写出来。
 
 [paths]
+# --- 数据目录 (运行输出) ---
 # data_dir = "data"
+# data_dir = "D:/ao_shaping_data"
+
+# --- 权重目录 (按 SLM 序列号保存的拟合模型 <serial>/latest) ---
 # weights_dir = "D:/ao_shaping_weights"
+
+# --- 设备配置目录 ---
+# ccd_config_dir = "D:/ao_shaping_configs/ccd_configs"
+# slm_config_dir = "D:/ao_shaping_configs/slm_configs"
+# dm_config_dir = "D:/ao_shaping_configs/dm_configs"
+# micro_dm_config_dir = "D:/ao_shaping_configs/micro_dm_configs"
+# wfs_config_dir = "D:/ao_shaping_configs/wfs_configs"
