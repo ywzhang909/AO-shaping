@@ -3,7 +3,7 @@
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
 > **运行环境**: 离线+硬件
-> **说明**: 实验室两套光路(按 SLM 序列号区分)的设备清单与截至 2026-11-09 的已知状态: 光路A(1064nm 2f-Fourier)零级未压制但几何未变, 已落 locate() 零级掩膜对策; 光路B(532nm 中继+WFS)停留在 2026-09/10 标定; 光路A的 11-09 光阑关闭后整形复现与重放见 aperture_closed_20261109/aperture_closed_shaping_20261109.md
+> **说明**: 实验室两套光路(按 SLM 序列号区分)的设备清单与截至 2026-11-09 的已知状态: 两台 Santec SLM-200 —— 光路A(SLM#1 序列号 22030108, 1064nm 2f-Fourier + Daheng MER2 相机)为本项目主用台, 11-09 零级未压制(E0/E1≈1.2)但几何映射未变, 已落 locate() 零级掩膜对策; 光路B(SLM#2 序列号 23020026, 532nm 中继 + Thorlabs MLA150M-5C WFS)停留在 2026-09/10 标定; 光路A的 11-09 光阑关闭后整形复现与重放见 aperture_closed_20261109/aperture_closed_shaping_20261109.md
 <!-- provenance:end -->
 
 ---
