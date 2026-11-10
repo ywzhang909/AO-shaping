@@ -1668,11 +1668,14 @@ class DeviceConfigManager:
             device_type: 设备类型标识（如 'slm', 'dm', 'ccd' 等）
         """
         self._config_dir_factory: Callable[[], Path] | None = None
+        self._config_dir_cache: Path | None = None
         if callable(config_dir):
             self._config_dir_factory = config_dir
-            self._config_dir_cache: Path | None = None
         else:
             self._config_dir_cache = Path(config_dir)
+        #: 测试隔离用的显式覆盖 (None = 走解析器/缓存)。见两个 property 的 setter。
+        self._config_dir_override: Path | None = None
+        self._device_config_dir_override: Path | None = None
         self.device_type = device_type
         # 构造期不碰磁盘: 本类被五个模块级单例 (WFS_CONFIG / SLM_CONFIG / CCD_CONFIG /
         # NLIGHT_CONFIG / MICRO_DM_CONFIG) 在 import 时实例化, 这里的 mkdir 或读文件会
@@ -1682,7 +1685,24 @@ class DeviceConfigManager:
 
     @property
     def config_dir(self) -> Path:
-        """配置文件根目录 (惰性目录工厂每次重新求值)。"""
+        """配置文件根目录 (惰性目录工厂每次重新求值)。
+
+        可写: 测试用 ``manager.config_dir = tmp_path`` 隔离配置目录。写入即视为
+        **显式覆盖**, 优先于惰性工厂与缓存; 写回当前自然值则**撤销覆盖**
+        (``monkeypatch`` 撤销时正是这么干的, 否则覆盖会粘在模块级单例上)。
+        """
+        if self._config_dir_override is not None:
+            return self._config_dir_override
+        return self._natural_config_dir()
+
+    @config_dir.setter
+    def config_dir(self, value: str | Path) -> None:
+        new = Path(value)
+        natural = self._natural_config_dir()
+        self._config_dir_override = None if new == natural else new
+
+    def _natural_config_dir(self) -> Path:
+        """不覆盖时的配置根目录 (惰性工厂优先, 否则用构造时给的缓存)。"""
         if self._config_dir_factory is not None:
             return self._config_dir_factory()
         assert self._config_dir_cache is not None
@@ -1690,7 +1710,23 @@ class DeviceConfigManager:
 
     @property
     def device_config_dir(self) -> Path:
-        """该设备类型的配置目录 (``<config_dir>/<device_type>``)。"""
+        """该设备类型的配置目录 (``<config_dir>/<device_type>``)。
+
+        可写: 测试用 ``manager.device_config_dir = tmp_path`` 直接隔离到某一类
+        设备的目录 (改造前这是普通属性, 保持可写以免破坏既有测试的隔离写法)。
+        """
+        if self._device_config_dir_override is not None:
+            return self._device_config_dir_override
+        return self._natural_device_config_dir()
+
+    @device_config_dir.setter
+    def device_config_dir(self, value: str | Path) -> None:
+        new = Path(value)
+        natural = self._natural_device_config_dir()
+        self._device_config_dir_override = None if new == natural else new
+
+    def _natural_device_config_dir(self) -> Path:
+        """不覆盖时的设备配置目录 (``<config_dir>/<device_type>``)。"""
         base = self.config_dir
         return base / self.device_type if self.device_type else base
 

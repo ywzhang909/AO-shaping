@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from ao_shaping.utils.io import paths
+from ao_shaping.utils.io.file import DeviceConfigManager
 
 ENV_NAMES = (
     paths.ENV_DATA_DIR,
@@ -174,3 +175,48 @@ def test_config_file_is_re_read_when_it_changes(
     os.utime(cfg, (stat.st_atime, stat.st_mtime + 2))
 
     assert paths.data_dir() == (cfg.parent / "second").resolve()
+
+
+class TestConfigManagerDirSetters:
+    """``DeviceConfigManager`` 的目录属性必须仍可写 (改造前是普通属性)。
+
+    改造把 ``config_dir``/``device_config_dir`` 改成了只读 property, 打破了既有
+    测试的隔离写法 (``manager.device_config_dir = tmp_path``)。这里钉住可写性,
+    以及"写回自然值即撤销覆盖"—— 否则 monkeypatch 撤销时覆盖会粘在模块级
+    单例上, 后续测试读到别的测试留下的目录。
+    """
+
+    def test_device_config_dir_is_writable(self, tmp_path: Path) -> None:
+        manager = DeviceConfigManager(tmp_path, "slm")
+        target = tmp_path / "isolated"
+        manager.device_config_dir = target
+        assert manager.device_config_dir == target
+
+    def test_config_dir_is_writable(self, tmp_path: Path) -> None:
+        manager = DeviceConfigManager(tmp_path, "slm")
+        target = tmp_path / "root"
+        manager.config_dir = target
+        assert manager.config_dir == target
+        assert manager.device_config_dir == target / "slm"
+
+    def test_writing_the_natural_value_clears_the_override(self, tmp_path: Path) -> None:
+        """monkeypatch 撤销时写回原值 ⇒ 覆盖必须被撤销, 不能粘住。"""
+        manager = DeviceConfigManager(tmp_path, "slm")
+        natural = manager.device_config_dir
+        manager.device_config_dir = tmp_path / "other"
+        assert manager.device_config_dir == tmp_path / "other"
+        manager.device_config_dir = natural
+        assert manager.device_config_dir == natural
+
+    def test_factory_backed_manager_still_resolves_lazily(self, tmp_path: Path) -> None:
+        """惰性工厂仍在每次访问时求值 (目录不 import 期冻结)。"""
+        calls: list[Path] = []
+
+        def factory() -> Path:
+            calls.append(tmp_path)
+            return tmp_path / "lazy"
+
+        manager = DeviceConfigManager(factory, "slm")
+        assert manager.config_dir == tmp_path / "lazy"
+        assert manager.device_config_dir == tmp_path / "lazy" / "slm"
+        assert len(calls) == 2
