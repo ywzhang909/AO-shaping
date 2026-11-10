@@ -146,6 +146,7 @@
 | [`shape_trials/no_gs_ccd_moved/live_20261027.md`](shape_trials/no_gs_ccd_moved/live_20261027.md) | `人工撰写 (+capture.py, fit.py, alignment_probe.py, validate.py, analyze_no_gs_session.py)` | 实验（Santec #1 / Daheng；CCD 移动后的无 GS 探针与可微优化） | 本轮原始数据、曝光读回、几何、物理预测与同曝光验收的实验中记录。 |
 | [`shape_trials/online_recal_efficiency/online_recal_efficiency.md`](shape_trials/online_recal_efficiency/online_recal_efficiency.md) | `scripts/slm/generate_online_recal_efficiency_report.py` | 离线 | 光路变化后在线重标定的效率分析。成本模型与常量全部由源码现场推导(dataclasses/inspect 读默认值 + 扫描源码树统计重复字面量 + 调用 default_sweep_points() 枚举点数), 故不随代码漂移; §6 文献数字为人工核实; §7 为提案, 本报告不含任何新测量 |
 | [`shape_trials/optical_path_status_20261109.md`](shape_trials/optical_path_status_20261109.md) | `人工撰写` | 离线+硬件 | 实验室两套光路(按 SLM 序列号区分)的设备清单与截至 2026-11-09 的已知状态: 两台 Santec SLM-200 —— 光路A(SLM#1 序列号 22030108, 1064nm 2f-Fourier + Daheng MER2 相机)为本项目主用台, 11-09 零级未压制(E0/E1≈1.2)但几何映射未变, 已落 locate() 零级掩膜对策; 光路B(SLM#2 序列号 23020026, 532nm 中继 + Thorlabs MLA150M-5C WFS)停留在 2026-09/10 标定; 光路A的 11-09 光阑关闭后整形复现与重放见 aperture_closed_20261109/aperture_closed_shaping_20261109.md |
+| [`shape_trials/optical_path_status_20261110.md`](shape_trials/optical_path_status_20261110.md) | `人工撰写` | 离线+硬件 | 11-10 光路 A 下线前诊断状态日志：非饱和曝光阶梯、中心/焦点拟合冲突、证据保真限制与各 issue 预编写边界；未发布新标定，未据此完成真机验收。 |
 | [`shape_trials/phase_scope_20261107/phase_scope_20261107.md`](shape_trials/phase_scope_20261107/phase_scope_20261107.md) | `人工撰写` | 离线回放存档数据（2026-11-07；未占用 SLM/相机/激光，未 import ao_shaping.drivers） | #235 phase_sign 作用域实验：四变体（command/aberration/aberration_focus/aberration_carrier）离线拟合与单模屏方向对照；command 精确复现存档 −1（Pearson 路径 Δd 4.7e-10）；屏方向四变体等价、无法区分作用域；aberration_focus 不稳定需复现；carrier 不可分离。输入为 data/debug/slm_transfer/phase_scope_20261107/ 存档产物。人工撰写。 |
 | [`shape_trials/physical_forward_defocus_plan_20261022.md`](shape_trials/physical_forward_defocus_plan_20261022.md) | `人工撰写 (+hw_gs_defocus_probe.py, model_in_loop_hw_runbook.py, model_in_loop_hw_ab.py)` | 离线 | 基于现有离焦、Zernike 与 model-in-loop 报告及工作区代码拟定实验方案；没有新增设备测量。 |
 | [`shape_trials/physical_forward_no_gs_plan_20261027.md`](shape_trials/physical_forward_no_gs_plan_20261027.md) | `人工撰写 (+physical_model_metrics.py, fit.py, validate.py)` | 离线（历史报告分析与下一轮实验规划；未连接设备） | 无 GS 相位起点：分层指标、物理参数与局部响应校正、CCD 验收及缓漂实验设计；不新增实验测量结论。 |
@@ -192,6 +193,7 @@
 | [`slm/focus_plane_report/focus_plane_20261019.md`](slm/focus_plane_report/focus_plane_20261019.md) | `scripts/slm/generate_focus_plane_report.py (+focus_probe.py, verify_focus_plane_hw.py)` | 离线 | 相机离开 2f 焦面后的菲涅尔补偿实测 (1/f≈+0.70 m⁻¹, f≈+1420 mm): 逐点自适应曝光的必要性 (曝光跨度达 96×)、峰值与整帧能量两项交叉验证、4 趟重复性与跨趟光强 7.3× 变化 |
 | [`slm/gs_control_1000px/report.md`](slm/gs_control_1000px/report.md) | `scripts/slm/generate_gs_control_report.py (+hw_gs_square_scans.py, probe_optical_path_validity.py)` | 离线渲染 (读硬件采集的帧与相位; 数字为 2f 实验系统实测) | 纯 GS 方斑控制组 (1000 px 目标): 平相位 / 直接 GS / GS+闪耀 P=10,12 三组实测, 外加同相位物理预测模型的同口径对比; 0 级用横向闪耀移出方框后 pib/cv 才可用; C 变体 (先矫正光路像差再发 GS) 因设备下线未采集, 图上留灰色占位; 8 bit 量程把方斑平台压到 11-15 counts, 框外那层底的来源未定论 |
 | [`slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md`](slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md) | `scripts/slm/model_in_loop_hw_runbook.py` | 硬件 | 物理预测模型实验系统几何标定；runbook 采集 + 本文档结论 |
+| [`slm/pib_exit_safety/pib_exit_safety_20261025.md`](slm/pib_exit_safety/pib_exit_safety_20261025.md) | `scripts/slm/generate_pib_exit_safety_report.py (+verify_pib_exit_safety_hw.py, test_verify_pib_exit_safety_hw.py)` | 离线 (读硬件采集的 summary.json 与远场裁切) | issue #145 (H-28) 的硬件验收: 搜索主体被 KeyboardInterrupt / 相机掉线打断后, 面板实际停在哪个状态 —— 固件回读 (内存槽号 / 直接灰度) 与光学比对两条独立证据, 外加退出写入是否绕开了「写到当前显示槽是空操作」的固件陷阱 |
 | [`slm/report2.md`](slm/report2.md) | `人工撰写` | 硬件 | SLM 相位生成链路审计 + 矫正效果根因分析；数据由 zernike-matrix 闭环产生 |
 | [`slm/slm_rms_spgd/0516.md`](slm/slm_rms_spgd/0516.md) | `人工撰写` | 硬件 | 厂配矫正 + SPGD 实验记录 |
 | [`slm/slm_shaping_diff/readme.md`](slm/slm_shaping_diff/readme.md) | `人工撰写` | 硬件 | diff-shaping 直连硬件使用指南与故障排查记录 |
@@ -227,5 +229,3 @@
 ## 尚未生成产物的报告
 
 下列报告已在 `REPORTS` 登记但产物尚未提交（需要硬件，或尚未跑过），因此没有可点击的文件；生成脚本与复现命令见上表同条目：
-
-- `slm/pib_exit_safety/pib_exit_safety_20261025.md` ← `scripts/slm/generate_pib_exit_safety_report.py` (离线 (读硬件采集的 summary.json 与远场裁切))

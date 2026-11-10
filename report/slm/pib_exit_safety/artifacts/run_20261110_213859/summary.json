@@ -1,0 +1,973 @@
+{
+  "issue": 145,
+  "title": "H-28 R-8 try/finally hardware safety exit",
+  "started_iso": "2026-11-10T13:38:59.303+00:00",
+  "host": "win32",
+  "scenarios": [
+    {
+      "key": "A",
+      "name": "A_ctrl_c_spgd",
+      "description": "async KeyboardInterrupt mid-SPGD",
+      "config": {
+        "algorithm": "spgd",
+        "epochs": 200,
+        "pop_size": null,
+        "target_size": 64.0,
+        "center": "shape",
+        "n_max": 7,
+        "exposure_ms": 0.034,
+        "fold_ratio": 0.0,
+        "noise_gate_k": -1.0
+      },
+      "injected": {
+        "kind": "KeyboardInterrupt",
+        "detail": "_thread.interrupt_main from a timer at memory write #30",
+        "t_iso": "2026-11-10T13:39:31.270+00:00",
+        "fired": true
+      },
+      "outcome": {
+        "result": "raised",
+        "exception_type": "KeyboardInterrupt",
+        "exception_message": "",
+        "wall_s": 26.82033930000034,
+        "cleanup_s": 1.7957910999975866
+      },
+      "writes": {
+        "n_total": 33,
+        "n_before_inject": 30,
+        "n_after_inject": 3,
+        "before": [
+          {
+            "i": 24,
+            "kind": "memory",
+            "slot": 26,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 25,
+            "kind": "memory",
+            "slot": 27,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 26,
+            "kind": "memory",
+            "slot": 28,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 27,
+            "kind": "memory",
+            "slot": 29,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 28,
+            "kind": "memory",
+            "slot": 30,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 29,
+            "kind": "memory",
+            "slot": 31,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          }
+        ],
+        "after": [
+          {
+            "i": 30,
+            "kind": "memory",
+            "slot": 32,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 31,
+            "kind": "memory",
+            "slot": 33,
+            "min": 0,
+            "max": 0,
+            "gray_value": null
+          },
+          {
+            "i": 32,
+            "kind": "memory",
+            "slot": 34,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          }
+        ]
+      },
+      "exit_branch": "best_phase",
+      "panel": {
+        "exposure_ms": 0.034,
+        "crop_origin_yx": [
+          817,
+          695
+        ],
+        "crop_side": 700,
+        "firmware": {
+          "displayed_slot": 34,
+          "displayed_slot_error": null,
+          "current_grayscale": 0,
+          "current_grayscale_error": null
+        },
+        "exit_slot_written_by_harness": 2,
+        "corr": {
+          "live_vs_flat": 0.9287310425658893,
+          "flat_repeat": 0.9980930802154174,
+          "live_vs_exit": 0.9974673701208439,
+          "live_vs_last_iterate": 0.7284098916327473
+        },
+        "peaks": {
+          "live": 222.6666717529297,
+          "flat": 173.0,
+          "flat_repeat": 176.0,
+          "exit": 216.6666717529297,
+          "last_iterate": 255.0
+        },
+        "frame_files": [
+          "A_ctrl_c_spgd_exit.npz",
+          "A_ctrl_c_spgd_flat.npz",
+          "A_ctrl_c_spgd_flat_repeat.npz",
+          "A_ctrl_c_spgd_last_iterate.npz",
+          "A_ctrl_c_spgd_live.npz"
+        ]
+      },
+      "recorder": {
+        "rows": 15,
+        "energy_loss_violations": 0,
+        "epoch0": {
+          "J": 562570.0,
+          "pib": 0.02564636245031398,
+          "rms_out": null,
+          "_max_r": 108.9,
+          "max_brt": null,
+          "r": 108.9,
+          "_epoch": 0.0
+        }
+      },
+      "checks": {
+        "failure_reached_caller": true,
+        "original_exception_survived_cleanup": true,
+        "exception_message": "",
+        "firmware_mode": "memory",
+        "expected_slot": 34,
+        "firmware_is_named_state": true,
+        "exit_previous_slot": 33,
+        "exit_used_a_fresh_slot": true,
+        "optical_class": "exit",
+        "optical_corrs": {
+          "flat": 0.9287310425658893,
+          "exit": 0.9974673701208439,
+          "last_iterate": 0.7284098916327473
+        },
+        "optical_noise_floor": 0.9980930802154174,
+        "optical_is_defined_state": true,
+        "optical_prefers_exit": true,
+        "cleanup_under_5s": true,
+        "cleanup_s": 1.7957910999975866,
+        "energy_loss_violations_recorded": true,
+        "epoch0_pib": 0.02564636245031398,
+        "epoch0_max_brightness": null,
+        "epoch0_is_sane": false
+      },
+      "verdict_keys": [
+        "failure_reached_caller",
+        "original_exception_survived_cleanup",
+        "firmware_is_named_state",
+        "exit_used_a_fresh_slot",
+        "optical_is_defined_state",
+        "cleanup_under_5s",
+        "energy_loss_violations_recorded",
+        "epoch0_is_sane"
+      ],
+      "failed_keys": [
+        "epoch0_is_sane"
+      ],
+      "verdict": "fail"
+    },
+    {
+      "key": "B",
+      "name": "B_camera_dropout_spgd",
+      "description": "camera get_numpy_image raises CameraError mid-SPGD",
+      "config": {
+        "algorithm": "spgd",
+        "epochs": 200,
+        "pop_size": null,
+        "target_size": 64.0,
+        "center": "shape",
+        "n_max": 7,
+        "exposure_ms": 0.034,
+        "fold_ratio": 0.0,
+        "noise_gate_k": -1.0
+      },
+      "injected": {
+        "kind": "CameraError",
+        "detail": "CameraError from get_numpy_image at capture #60",
+        "t_iso": "2026-11-10T13:40:11.557+00:00",
+        "fired": true
+      },
+      "outcome": {
+        "result": "raised",
+        "exception_type": "CameraError",
+        "exception_message": "injected camera dropout at capture #60",
+        "wall_s": 34.838993299999856,
+        "cleanup_s": 0.8894313000055263
+      },
+      "writes": {
+        "n_total": 60,
+        "n_before_inject": 58,
+        "n_after_inject": 2,
+        "before": [
+          {
+            "i": 52,
+            "kind": "memory",
+            "slot": 87,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 53,
+            "kind": "memory",
+            "slot": 88,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 54,
+            "kind": "memory",
+            "slot": 89,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 55,
+            "kind": "memory",
+            "slot": 90,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 56,
+            "kind": "memory",
+            "slot": 91,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 57,
+            "kind": "memory",
+            "slot": 92,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          }
+        ],
+        "after": [
+          {
+            "i": 58,
+            "kind": "memory",
+            "slot": 93,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 59,
+            "kind": "grayscale",
+            "slot": null,
+            "min": null,
+            "max": null,
+            "gray_value": 0
+          }
+        ]
+      },
+      "exit_branch": "flat_fallback",
+      "panel": {
+        "exposure_ms": 0.034,
+        "crop_origin_yx": [
+          817,
+          695
+        ],
+        "crop_side": 700,
+        "firmware": {
+          "displayed_slot": null,
+          "displayed_slot_error": "SantecError: 读取当前显示内存失败 (错误码: 1, 操作失败)",
+          "current_grayscale": 0,
+          "current_grayscale_error": null
+        },
+        "exit_slot_written_by_harness": null,
+        "corr": {
+          "live_vs_flat": 0.9992718602155174,
+          "flat_repeat": 0.9993595206503983,
+          "live_vs_last_iterate": 0.9235645234678885
+        },
+        "peaks": {
+          "live": 185.3333282470703,
+          "flat": 183.0,
+          "flat_repeat": 185.3333282470703,
+          "last_iterate": 106.33333587646484
+        },
+        "frame_files": [
+          "B_camera_dropout_spgd_flat.npz",
+          "B_camera_dropout_spgd_flat_repeat.npz",
+          "B_camera_dropout_spgd_last_iterate.npz",
+          "B_camera_dropout_spgd_live.npz"
+        ]
+      },
+      "recorder": {
+        "rows": 29,
+        "energy_loss_violations": 0,
+        "epoch0": {
+          "J": 576759.0,
+          "pib": 0.027734006717269877,
+          "rms_out": null,
+          "_max_r": 109.8,
+          "max_brt": null,
+          "r": 109.8,
+          "_epoch": 0.0
+        }
+      },
+      "checks": {
+        "failure_reached_caller": true,
+        "original_exception_survived_cleanup": true,
+        "exception_message": "injected camera dropout at capture #60",
+        "firmware_mode": "grayscale",
+        "expected_grayscale": 0,
+        "firmware_is_named_state": true,
+        "firmware_left_memory_mode": true,
+        "optical_class": "flat",
+        "optical_corrs": {
+          "flat": 0.9992718602155174,
+          "last_iterate": 0.9235645234678885
+        },
+        "optical_noise_floor": 0.9993595206503983,
+        "optical_is_defined_state": true,
+        "optical_prefers_exit": false,
+        "cleanup_under_5s": true,
+        "cleanup_s": 0.8894313000055263,
+        "energy_loss_violations_recorded": true,
+        "epoch0_pib": 0.027734006717269877,
+        "epoch0_max_brightness": null,
+        "epoch0_is_sane": false
+      },
+      "verdict_keys": [
+        "failure_reached_caller",
+        "original_exception_survived_cleanup",
+        "firmware_is_named_state",
+        "optical_is_defined_state",
+        "cleanup_under_5s",
+        "energy_loss_violations_recorded",
+        "epoch0_is_sane"
+      ],
+      "failed_keys": [
+        "epoch0_is_sane"
+      ],
+      "verdict": "fail"
+    },
+    {
+      "key": "C",
+      "name": "C_rerun_after_crash",
+      "description": "normal short run right after B",
+      "config": {
+        "algorithm": "spgd",
+        "epochs": 10,
+        "pop_size": null,
+        "target_size": 64.0,
+        "center": "shape",
+        "n_max": 7,
+        "exposure_ms": 0.034,
+        "fold_ratio": 0.0,
+        "noise_gate_k": -1.0
+      },
+      "injected": {
+        "kind": null,
+        "detail": "",
+        "t_iso": null,
+        "fired": false
+      },
+      "outcome": {
+        "result": "returned",
+        "exception_type": null,
+        "exception_message": null,
+        "wall_s": 14.925424600005499,
+        "cleanup_s": null
+      },
+      "writes": {
+        "n_total": 24,
+        "n_before_inject": 24,
+        "n_after_inject": 0,
+        "before": [
+          {
+            "i": 18,
+            "kind": "memory",
+            "slot": 112,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 19,
+            "kind": "memory",
+            "slot": 113,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 20,
+            "kind": "memory",
+            "slot": 114,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 21,
+            "kind": "memory",
+            "slot": 115,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 22,
+            "kind": "memory",
+            "slot": 116,
+            "min": 0,
+            "max": 0,
+            "gray_value": null
+          },
+          {
+            "i": 23,
+            "kind": "memory",
+            "slot": 117,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          }
+        ],
+        "after": []
+      },
+      "exit_branch": "best_phase",
+      "panel": {
+        "exposure_ms": 0.034,
+        "crop_origin_yx": [
+          815,
+          695
+        ],
+        "crop_side": 700,
+        "firmware": {
+          "displayed_slot": 117,
+          "displayed_slot_error": null,
+          "current_grayscale": 0,
+          "current_grayscale_error": null
+        },
+        "exit_slot_written_by_harness": 2,
+        "corr": {
+          "live_vs_flat": 0.8670188067879854,
+          "flat_repeat": 0.9994246213668534,
+          "live_vs_exit": 0.9905007644442172,
+          "live_vs_last_iterate": 0.9884172625513217
+        },
+        "peaks": {
+          "live": 255.0,
+          "flat": 174.0,
+          "flat_repeat": 171.0,
+          "exit": 255.0,
+          "last_iterate": 255.0
+        },
+        "frame_files": [
+          "C_rerun_after_crash_exit.npz",
+          "C_rerun_after_crash_flat.npz",
+          "C_rerun_after_crash_flat_repeat.npz",
+          "C_rerun_after_crash_last_iterate.npz",
+          "C_rerun_after_crash_live.npz"
+        ]
+      },
+      "recorder": {
+        "rows": 11,
+        "energy_loss_violations": 0,
+        "epoch0": {
+          "J": 570421.0,
+          "pib": 0.027949001809419012,
+          "rms_out": null,
+          "_max_r": 108.9,
+          "max_brt": null,
+          "r": 108.9,
+          "_epoch": 0.0
+        }
+      },
+      "checks": {
+        "run_completed": true,
+        "firmware_mode": "memory",
+        "expected_slot": 117,
+        "firmware_is_named_state": true,
+        "exit_previous_slot": 116,
+        "exit_used_a_fresh_slot": true,
+        "optical_class": "exit",
+        "optical_corrs": {
+          "flat": 0.8670188067879854,
+          "exit": 0.9905007644442172,
+          "last_iterate": 0.9884172625513217
+        },
+        "optical_noise_floor": 0.9994246213668534,
+        "optical_is_defined_state": true,
+        "optical_prefers_exit": true,
+        "cleanup_under_5s": null,
+        "cleanup_s": null,
+        "energy_loss_violations_recorded": true,
+        "epoch0_pib": 0.027949001809419012,
+        "epoch0_max_brightness": null,
+        "epoch0_is_sane": false
+      },
+      "verdict_keys": [
+        "run_completed",
+        "firmware_is_named_state",
+        "exit_used_a_fresh_slot",
+        "optical_is_defined_state",
+        "energy_loss_violations_recorded",
+        "epoch0_is_sane"
+      ],
+      "failed_keys": [
+        "epoch0_is_sane"
+      ],
+      "verdict": "fail"
+    },
+    {
+      "key": "D",
+      "name": "D_ctrl_c_heuristic_ga",
+      "description": "async KeyboardInterrupt mid-GA (heuristic branch)",
+      "config": {
+        "algorithm": "ga",
+        "epochs": 200,
+        "pop_size": 6,
+        "target_size": 64.0,
+        "center": "shape",
+        "n_max": 7,
+        "exposure_ms": 0.034,
+        "fold_ratio": 0.0,
+        "noise_gate_k": -1.0
+      },
+      "injected": {
+        "kind": "KeyboardInterrupt",
+        "detail": "_thread.interrupt_main from a timer at memory write #50",
+        "t_iso": "2026-11-10T13:41:05.536+00:00",
+        "fired": true
+      },
+      "outcome": {
+        "result": "raised",
+        "exception_type": "KeyboardInterrupt",
+        "exception_message": "",
+        "wall_s": 32.09478379999928,
+        "cleanup_s": 1.749586999998428
+      },
+      "writes": {
+        "n_total": 53,
+        "n_before_inject": 50,
+        "n_after_inject": 3,
+        "before": [
+          {
+            "i": 44,
+            "kind": "memory",
+            "slot": 38,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 45,
+            "kind": "memory",
+            "slot": 39,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 46,
+            "kind": "memory",
+            "slot": 40,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 47,
+            "kind": "memory",
+            "slot": 41,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 48,
+            "kind": "memory",
+            "slot": 42,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 49,
+            "kind": "memory",
+            "slot": 43,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          }
+        ],
+        "after": [
+          {
+            "i": 50,
+            "kind": "memory",
+            "slot": 44,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 51,
+            "kind": "memory",
+            "slot": 45,
+            "min": 0,
+            "max": 0,
+            "gray_value": null
+          },
+          {
+            "i": 52,
+            "kind": "memory",
+            "slot": 46,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          }
+        ]
+      },
+      "exit_branch": "best_phase",
+      "panel": {
+        "exposure_ms": 0.034,
+        "crop_origin_yx": [
+          819,
+          696
+        ],
+        "crop_side": 700,
+        "firmware": {
+          "displayed_slot": 46,
+          "displayed_slot_error": null,
+          "current_grayscale": 0,
+          "current_grayscale_error": null
+        },
+        "exit_slot_written_by_harness": 2,
+        "corr": {
+          "live_vs_flat": 0.9295295255897811,
+          "flat_repeat": 0.9983714128734179,
+          "live_vs_exit": 0.9988068784315837,
+          "live_vs_last_iterate": 0.9989605499745993
+        },
+        "peaks": {
+          "live": 255.0,
+          "flat": 182.0,
+          "flat_repeat": 163.3333282470703,
+          "exit": 255.0,
+          "last_iterate": 255.0
+        },
+        "frame_files": [
+          "D_ctrl_c_heuristic_ga_exit.npz",
+          "D_ctrl_c_heuristic_ga_flat.npz",
+          "D_ctrl_c_heuristic_ga_flat_repeat.npz",
+          "D_ctrl_c_heuristic_ga_last_iterate.npz",
+          "D_ctrl_c_heuristic_ga_live.npz"
+        ]
+      },
+      "recorder": {
+        "rows": 50,
+        "energy_loss_violations": 0,
+        "epoch0": {
+          "J": 565034.0,
+          "pib": 0.02655770850884583,
+          "rms_out": null,
+          "_max_r": 107.10000000000001,
+          "max_brt": null,
+          "r": 107.10000000000001,
+          "_epoch": 0.0
+        }
+      },
+      "checks": {
+        "failure_reached_caller": true,
+        "original_exception_survived_cleanup": true,
+        "exception_message": "",
+        "firmware_mode": "memory",
+        "expected_slot": 46,
+        "firmware_is_named_state": true,
+        "exit_previous_slot": 45,
+        "exit_used_a_fresh_slot": true,
+        "optical_class": "last_iterate",
+        "optical_corrs": {
+          "flat": 0.9295295255897811,
+          "exit": 0.9988068784315837,
+          "last_iterate": 0.9989605499745993
+        },
+        "optical_noise_floor": 0.9983714128734179,
+        "optical_is_defined_state": true,
+        "optical_prefers_exit": false,
+        "cleanup_under_5s": true,
+        "cleanup_s": 1.749586999998428,
+        "energy_loss_violations_recorded": true,
+        "epoch0_pib": 0.02655770850884583,
+        "epoch0_max_brightness": null,
+        "epoch0_is_sane": false
+      },
+      "verdict_keys": [
+        "failure_reached_caller",
+        "original_exception_survived_cleanup",
+        "firmware_is_named_state",
+        "exit_used_a_fresh_slot",
+        "optical_is_defined_state",
+        "cleanup_under_5s",
+        "energy_loss_violations_recorded",
+        "epoch0_is_sane"
+      ],
+      "failed_keys": [
+        "epoch0_is_sane"
+      ],
+      "verdict": "fail"
+    },
+    {
+      "key": "E",
+      "name": "E_ctrl_c_spgd_demanding",
+      "description": "async KeyboardInterrupt mid-SPGD on a 16 px box (forces best != flat)",
+      "config": {
+        "algorithm": "spgd",
+        "epochs": 200,
+        "pop_size": null,
+        "target_size": 16.0,
+        "center": "shape",
+        "n_max": 7,
+        "exposure_ms": 0.034,
+        "fold_ratio": 0.0,
+        "noise_gate_k": -1.0
+      },
+      "injected": {
+        "kind": "KeyboardInterrupt",
+        "detail": "_thread.interrupt_main from a timer at memory write #40",
+        "t_iso": "2026-11-10T13:41:36.858+00:00",
+        "fired": true
+      },
+      "outcome": {
+        "result": "raised",
+        "exception_type": "KeyboardInterrupt",
+        "exception_message": "",
+        "wall_s": 26.908377899992047,
+        "cleanup_s": 1.8505312999914167
+      },
+      "writes": {
+        "n_total": 43,
+        "n_before_inject": 40,
+        "n_after_inject": 3,
+        "before": [
+          {
+            "i": 34,
+            "kind": "memory",
+            "slot": 81,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 35,
+            "kind": "memory",
+            "slot": 82,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 36,
+            "kind": "memory",
+            "slot": 83,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 37,
+            "kind": "memory",
+            "slot": 84,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 38,
+            "kind": "memory",
+            "slot": 85,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 39,
+            "kind": "memory",
+            "slot": 86,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          }
+        ],
+        "after": [
+          {
+            "i": 40,
+            "kind": "memory",
+            "slot": 87,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          },
+          {
+            "i": 41,
+            "kind": "memory",
+            "slot": 88,
+            "min": 0,
+            "max": 0,
+            "gray_value": null
+          },
+          {
+            "i": 42,
+            "kind": "memory",
+            "slot": 89,
+            "min": 0,
+            "max": 1022,
+            "gray_value": null
+          }
+        ]
+      },
+      "exit_branch": "best_phase",
+      "panel": {
+        "exposure_ms": 0.034,
+        "crop_origin_yx": [
+          816,
+          695
+        ],
+        "crop_side": 700,
+        "firmware": {
+          "displayed_slot": 89,
+          "displayed_slot_error": null,
+          "current_grayscale": 0,
+          "current_grayscale_error": null
+        },
+        "exit_slot_written_by_harness": 2,
+        "corr": {
+          "live_vs_flat": 0.9011755456302204,
+          "flat_repeat": 0.9994675383555477,
+          "live_vs_exit": 0.9992067768373734,
+          "live_vs_last_iterate": 0.8426721545972199
+        },
+        "peaks": {
+          "live": 255.0,
+          "flat": 166.3333282470703,
+          "flat_repeat": 176.0,
+          "exit": 255.0,
+          "last_iterate": 255.0
+        },
+        "frame_files": [
+          "E_ctrl_c_spgd_demanding_exit.npz",
+          "E_ctrl_c_spgd_demanding_flat.npz",
+          "E_ctrl_c_spgd_demanding_flat_repeat.npz",
+          "E_ctrl_c_spgd_demanding_last_iterate.npz",
+          "E_ctrl_c_spgd_demanding_live.npz"
+        ]
+      },
+      "recorder": {
+        "rows": 20,
+        "energy_loss_violations": 0,
+        "epoch0": {
+          "J": 584391.0,
+          "pib": 0.02813461664375041,
+          "rms_out": null,
+          "_max_r": 109.8,
+          "max_brt": null,
+          "r": 109.8,
+          "_epoch": 0.0
+        }
+      },
+      "checks": {
+        "failure_reached_caller": true,
+        "original_exception_survived_cleanup": true,
+        "exception_message": "",
+        "firmware_mode": "memory",
+        "expected_slot": 89,
+        "firmware_is_named_state": true,
+        "exit_previous_slot": 88,
+        "exit_used_a_fresh_slot": true,
+        "optical_class": "exit",
+        "optical_corrs": {
+          "flat": 0.9011755456302204,
+          "exit": 0.9992067768373734,
+          "last_iterate": 0.8426721545972199
+        },
+        "optical_noise_floor": 0.9994675383555477,
+        "optical_is_defined_state": true,
+        "optical_prefers_exit": true,
+        "cleanup_under_5s": true,
+        "cleanup_s": 1.8505312999914167,
+        "energy_loss_violations_recorded": true,
+        "epoch0_pib": 0.02813461664375041,
+        "epoch0_max_brightness": null,
+        "epoch0_is_sane": false
+      },
+      "verdict_keys": [
+        "failure_reached_caller",
+        "original_exception_survived_cleanup",
+        "firmware_is_named_state",
+        "exit_used_a_fresh_slot",
+        "optical_is_defined_state",
+        "cleanup_under_5s",
+        "energy_loss_violations_recorded",
+        "epoch0_is_sane"
+      ],
+      "failed_keys": [
+        "epoch0_is_sane"
+      ],
+      "verdict": "fail"
+    }
+  ],
+  "slm": {
+    "slm_number": 1,
+    "video_mode": 0,
+    "wavelength_nm": 1064,
+    "max_gray_for_2pi": 993
+  },
+  "baseline_slot": null,
+  "baseline_slot_error": "SantecError: 读取当前显示内存失败 (错误码: 1, 操作失败)",
+  "camera": {
+    "type": "daheng",
+    "cam_id": 0,
+    "frame_shape": [
+      1944,
+      2592
+    ],
+    "verification_exposure_ms": 0.034
+  },
+  "finished_iso": "2026-11-10T13:41:43.472+00:00"
+}

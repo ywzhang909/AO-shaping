@@ -86,6 +86,14 @@ class ReportProvenance:
 #:   ``硬件``   -- needs a real bench (SLM / CCD / WFS / DM / micro-DM).
 #:   ``离线+硬件`` -- renders offline, but the numbers were measured on hardware.
 REPORTS: dict[str, ReportProvenance] = {
+    "report/shape_trials/optical_path_status_20261110.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件",
+        note=(
+            "11-10 光路 A 下线前诊断状态日志：非饱和曝光阶梯、中心/焦点拟合冲突、"
+            "证据保真限制与各 issue 预编写边界；未发布新标定，未据此完成真机验收。"
+        ),
+    ),
     "report/shape_trials/shape_transition/shape_transition_timing_20261107.md": ReportProvenance(
         script="scripts/slm/generate_shape_transition_report_20261107.py",
         command="python scripts/slm/generate_shape_transition_report_20261107.py",
