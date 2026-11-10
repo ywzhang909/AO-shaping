@@ -56,7 +56,7 @@
   "src/ao_shaping/tools/slm/panel/focus_probe.py": 959,
   "src/ao_shaping/tools/slm/panel/session_profile.py": 1075,
   "src/ao_shaping/tools/slm/panel/target_size.py": 851,
-  "src/ao_shaping/tools/slm/transfer/validate.py": 1389,
+  "src/ao_shaping/tools/slm/transfer/validate.py": 1406,
   "src/ao_shaping/tools/slm/transfer/workflow.py": 1756,
   "src/ao_shaping/utils/image/beam_metrics.py": 1221,
   "src/ao_shaping/utils/image/target/metrics.py": 867,

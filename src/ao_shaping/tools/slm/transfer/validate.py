@@ -227,6 +227,79 @@ def flat_phase_light_precheck(
             time.sleep(.6)
 
 
+
+def _validate_prepare_shapes(args, aspect_ratio, centre, forward, prepared, seed_provenance, tilt, xy):
+    """Shape-seed loop lifted verbatim from run(). prepared and
+    seed_provenance are pre-bound containers mutated in place; the
+    loop-leaked last-iteration `objective`/`phase` return so the
+    immediate `_run_validate_session(... objective=objective,
+    phase=phase ...)` call sees exactly the original values. An
+    empty `args.shapes` left those names unbound pre-lift and the
+    call would NameError immediately (nargs="+" makes empty
+    unreachable); the helper return raises the same error type a
+    few lines earlier -- reachable crash set unchanged.
+    """
+    for shape in args.shapes:
+        assert_target_within_fft_window(forward, centre, args.side, shape, aspect_ratio)
+        objective = ShapeObjective(target_at(xy, shape, centre, args.side,
+                                             aspect_ratio=aspect_ratio),
+                                   cv_only=getattr(args, "objective", "shape") == "cv",
+                                   formation=getattr(args, "objective", "shape") == "formation")
+        if getattr(args, "core_margin", None) is not None:
+            from scipy.ndimage import binary_erosion
+            cells = max(1, int(np.ceil(args.core_margin/getattr(args, "window_step", 2.))))
+            objective.core = binary_erosion(objective.box, iterations=cells)
+        if getattr(args, "zero_radius", 0.) > 0:
+            radius = np.linalg.norm(xy - np.asarray(args.zero_xy), axis=-1)
+            objective.core &= radius > args.zero_radius
+            if not objective.core.any():
+                raise ValueError("zero-order exclusion removes the complete target core")
+        box = objective.box
+        # A tilted carrier pushes the target off the zero order, so its box can
+        # run into the camera window and the boundary check is meaningful. With tilt
+        # off the target sits on zero order (centre == zero_xy), can never approach the
+        # edge on its own, and a `shift`-derived displacement no longer exists -- so the
+        # check is skipped unless an explicit target_xy pinned the centre.
+        if (tilt or getattr(args, "target_xy", None) is not None) and (
+                box[0].any() or box[-1].any() or box[:, 0].any() or box[:, -1].any()):
+            raise ValueError("target intersects camera window boundary; adjust period/side")
+        if args.seed_run:
+            from .seeding import accepted_seed
+            source = json.loads((args.seed_run / "config.json").read_text(encoding="utf-8"))
+            if float(source["side"]) != float(args.side):
+                raise ValueError("accepted seed target size differs from requested target")
+            phase, seed_provenance[shape] = accepted_seed(args.seed_run, shape, forward, xy,
+                objective.target, policy=getattr(args, "seed_policy", "strict"), centre=centre)
+        elif getattr(args, "initial_phase", "gs") == "transport":
+            if shape != "square":
+                raise ValueError("transport initialization currently supports square only")
+            from .geometric_seed import square_transport_phase
+            phase = square_transport_phase(forward, centre, args.side)
+            seed_provenance[shape] = dict(kind="transport", gs_calls=0, historical_phase=False,
+                                          static_correction=True, side_ccd_px=args.side)
+        elif getattr(args, "initial_phase", "gs") == "backprojection":
+            # Shape-general non-GS seed: one analytic back-projection of the
+            # target through the fitted optics. A separable transport phase
+            # cannot produce a non-separable far field, so this is the
+            # non-GS construction available for triangle / star / circle.
+            from .geometric_seed import target_backprojection_phase
+            phase, diagnostics = target_backprojection_phase(forward, centre, args.side, shape)
+            seed_provenance[shape] = dict(kind="backprojection", gs_calls=0, historical_phase=False,
+                                          static_correction=True, side_ccd_px=args.side,
+                                          **diagnostics)
+        elif getattr(args, "initial_phase", "gs") != "gs":
+            from .cold_start import cold_phase
+            phase, seed_provenance[shape] = cold_phase(forward, centre,
+                kind=args.initial_phase, seed=getattr(args, "random_seed", 102626))
+        else:
+            phase = gs_seed(forward, centre, args.side, shape)
+        if not np.isfinite(phase).all():
+            raise ValueError("nonfinite seed phase")
+        prepared.append((shape, objective, phase))
+    return objective, phase
+
+
+
 def run(args, *, on_frame=None):
     """Run the CCD blocks.
 
@@ -295,63 +368,8 @@ def run(args, *, on_frame=None):
         logger.info(json.dumps(dict(zero_xy=args.zero_xy, target_xy=centre.tolist(), shapes=args.shapes), indent=2))
         return
     prepared, seed_provenance = [], {}
-    for shape in args.shapes:
-        assert_target_within_fft_window(forward, centre, args.side, shape, aspect_ratio)
-        objective = ShapeObjective(target_at(xy, shape, centre, args.side,
-                                             aspect_ratio=aspect_ratio),
-                                   cv_only=getattr(args, "objective", "shape") == "cv",
-                                   formation=getattr(args, "objective", "shape") == "formation")
-        if getattr(args, "core_margin", None) is not None:
-            from scipy.ndimage import binary_erosion
-            cells = max(1, int(np.ceil(args.core_margin/getattr(args, "window_step", 2.))))
-            objective.core = binary_erosion(objective.box, iterations=cells)
-        if getattr(args, "zero_radius", 0.) > 0:
-            radius = np.linalg.norm(xy - np.asarray(args.zero_xy), axis=-1)
-            objective.core &= radius > args.zero_radius
-            if not objective.core.any():
-                raise ValueError("zero-order exclusion removes the complete target core")
-        box = objective.box
-        # A tilted carrier pushes the target off the zero order, so its box can
-        # run into the camera window and the boundary check is meaningful. With tilt
-        # off the target sits on zero order (centre == zero_xy), can never approach the
-        # edge on its own, and a `shift`-derived displacement no longer exists -- so the
-        # check is skipped unless an explicit target_xy pinned the centre.
-        if (tilt or getattr(args, "target_xy", None) is not None) and (
-                box[0].any() or box[-1].any() or box[:, 0].any() or box[:, -1].any()):
-            raise ValueError("target intersects camera window boundary; adjust period/side")
-        if args.seed_run:
-            from .seeding import accepted_seed
-            source = json.loads((args.seed_run / "config.json").read_text(encoding="utf-8"))
-            if float(source["side"]) != float(args.side):
-                raise ValueError("accepted seed target size differs from requested target")
-            phase, seed_provenance[shape] = accepted_seed(args.seed_run, shape, forward, xy,
-                objective.target, policy=getattr(args, "seed_policy", "strict"), centre=centre)
-        elif getattr(args, "initial_phase", "gs") == "transport":
-            if shape != "square":
-                raise ValueError("transport initialization currently supports square only")
-            from .geometric_seed import square_transport_phase
-            phase = square_transport_phase(forward, centre, args.side)
-            seed_provenance[shape] = dict(kind="transport", gs_calls=0, historical_phase=False,
-                                          static_correction=True, side_ccd_px=args.side)
-        elif getattr(args, "initial_phase", "gs") == "backprojection":
-            # Shape-general non-GS seed: one analytic back-projection of the
-            # target through the fitted optics. A separable transport phase
-            # cannot produce a non-separable far field, so this is the
-            # non-GS construction available for triangle / star / circle.
-            from .geometric_seed import target_backprojection_phase
-            phase, diagnostics = target_backprojection_phase(forward, centre, args.side, shape)
-            seed_provenance[shape] = dict(kind="backprojection", gs_calls=0, historical_phase=False,
-                                          static_correction=True, side_ccd_px=args.side,
-                                          **diagnostics)
-        elif getattr(args, "initial_phase", "gs") != "gs":
-            from .cold_start import cold_phase
-            phase, seed_provenance[shape] = cold_phase(forward, centre,
-                kind=args.initial_phase, seed=getattr(args, "random_seed", 102626))
-        else:
-            phase = gs_seed(forward, centre, args.side, shape)
-        if not np.isfinite(phase).all():
-            raise ValueError("nonfinite seed phase")
-        prepared.append((shape, objective, phase))
+    objective, phase = _validate_prepare_shapes(
+        args, aspect_ratio, centre, forward, prepared, seed_provenance, tilt, xy)
     # Resume: slice this stage's block range to the groups it has not measured
     # yet; a fully measured stage measures nothing and only refreshes its record.
     blocks_for: dict[str, list[int]] = {}

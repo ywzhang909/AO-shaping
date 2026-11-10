@@ -4783,6 +4783,11 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 生成器三个新缺陷（全部被门禁链拦下后修复, 无一漏网）：① 区域是 **With+Return 两条顶层语句**而非单条，锚定断言按 2 语句形校验；② 尾区拆分**漏了 blind 检查**——`flag/_init_v/m_momentum` 等"区前已绑、区内循环先读后写"的名字被 `ld−st_all` 自由集排除，25 条 F821 兜底；参数式修正为 `ld − mod − {区内新建(未预绑)}`，即**一切区前绑定名无论区内是否重绑都入参**；③ `mod` 用 `ast.walk(tree)` 把**嵌套 def**（L475 闭包 `_apply_zernike_phase`）误当模块全局 → helper 内 F821×3；mod 改为仅收集 `tree.body` 顶层 def/class，闭包函数对象按参数直传（cell 指向不变, 无 nonlocal, 母帧存活）——b39 partial 形态的更简替代
 - 证明与验收：叶扫描 IDENTICAL（335 对 337 减 2=两条新 return）；载体 `test_sim_spgd.py` **27 passed**（纯仿真双函数端到端, seed 固定）；形状门禁 **165 passed**；棘轮行 288/5/258、285/5/255 收紧为 215/2/171、215/1/171 + helper 行 120/5/93、120/5/90；模块 1019→1037 基线随实测
 
+**2026-11-10 · 503b3594 · 第 50 批 CI 闭环（分片 attempt#1 cancelled@90min → POST rerun attempt#2 success，重跑协议第五次实证）；第 51 批在案**
+- 第 51 批：`validate.run` 267→**212**（嵌套 5→2）——57 行形状种子循环 `for shape in args.shapes` 逐字升出 `_validate_prepare_shapes`（69 行，8 参）。`prepared/seed_provenance` 为区前已绑容器、区内只做下标写与方法调用（`Name` 无 Store → 不入泄漏集、共享对象原地可见）；循环泄漏名 `objective/phase` 区后唯一读点是 L447 对 `_run_validate_session` 的**立即调用实参** → 入回传；空 shapes 路径原文本就在该调用处即时 NameError（且 CLI `nargs="+"` 使空不可达），helper 的 return 只是同型错误位置前移，可达崩溃集不变（helper docstring 内论证在案）
+- 生成器第二次"跨批继承"教训：split50 的"区后无代码"断言是从尾区拆分继承的，中区拆分必须移除（泄漏审计本就覆盖区后读）；补丁脚本全部带 `assert old in s` 命中验证（b49 静默失效教训固化）
+- 证明与验收：叶语句全树扫描 IDENTICAL（496 对 498 减 2=调用+返回, 记账断言用 AST 现场提取的真实新串）；载体 `test_transfer_workflow.py` **51 passed**（fakes 端到端真执行 `validate.run`，b39"必跑顶层文件"教训兑现）；tools/slm 全域 per-file 零红 exit=0；形状门禁 **166 passed**；棘轮行 300/5/246 收紧 250/2/212 + helper 行 110/5/69；模块 1389→1406 基线随实测；wiki 无 validate.py 行号引用（免重锚）
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
