@@ -86,20 +86,24 @@ IDEAL_SPOT_RADIUS=7
 
 ### 不在 `.env` 里的旋钮 (设备路径与诊断开关)
 
-下列名字由生产代码直接读取, 不在 `.env` 中; 每个都在**模块作用域**求值, 所以必须在启动
-Python 之前设好, import 之后再 `os.environ[...]` 赋值不会生效。`test_env_names_read_by_code_are_documented`
-把这张表与代码里实际读取的名字对齐。
+下列名字由生产代码直接读取, 不在 `.env` 中。多数设备 / 诊断开关在模块作用域求值, 必须在启动
+Python 之前设好；路径解析器变量与 `SLM_MODELS_DIR` 则在调用时读取。`test_env_names_read_by_code_are_documented`
+把这张表与代码里实际读取的名字对齐。配置目录解析规则见表后说明。
 
 | 名称 | 读取位置 | 未设置时的默认 | 作用 |
 |---|---|---|---|
+| `AO_SHAPING_CONFIG` | `src/ao_shaping/utils/io/paths.py` | 源码模式 `<repo>/ao_shaping.toml`；冻结模式 `<exe dir>/ao_shaping.toml` | 指定 TOML 配置文件位置；相对路径按该文件所在目录解析 |
+| `AO_SHAPING_DATA_DIR` | `src/ao_shaping/utils/io/paths.py` | 源码模式 `data`；冻结模式 `<exe dir>/data` | 数据根目录；可由配置文件中的 `data_dir` 补充配置 |
+| `AO_SHAPING_WEIGHTS_DIR` | `src/ao_shaping/utils/io/paths.py` | `<锚定目录>/data/slm_models` (显式配置数据目录时为 `<数据目录>/slm_models`) | 权重根目录; 兼容旧变量 `SLM_MODELS_DIR`，后者优先级更高 |
 | `SLM_CONFIG_DIR` | `src/ao_shaping/drivers/slm/santec/driver.py` | `<repo>/data/slm_configs` | SLM 相位表 / LUT 配置目录 |
 | `DM_CONFIG_DIR` | `src/ao_shaping/drivers/dm/nlight/driver.py` | `<repo>/data/dm_configs` | NLight 变形镜配置目录 |
 | `MICRO_DM_CONFIG_DIR` | `src/ao_shaping/drivers/dm/micro/driver.py` | `<repo>/data/micro_dm_configs` | 微变形镜 (R50Power) 配置目录 |
 | `CCD_CONFIG_DIR` | `src/ao_shaping/drivers/ccd/daheng/driver.py` | `<repo>/data/ccd_configs` | Daheng 相机配置目录 |
+| `WFS_CONFIG_DIR` | `src/ao_shaping/drivers/wfs/thorlab_wfs.py` | `<repo>/data/wfs_configs` | Thorlabs WFS 配置目录 |
 | `AO_SHAPING_SLM_DLL_DIR` | `src/ao_shaping/drivers/slm/santec/_slm_win.py` | 无 (按候选目录搜索) | `SLMFunc.dll` 的第一候选目录; 未设则再找 `docs/SLM_DLL_ver.2.51`, 仍找不到就 `OSError` |
 | `MIICAM_SDK_PATH` | `src/ao_shaping/drivers/ccd/miicam/_sdk_setup.py` | 无 (回落链) | MiiCam SDK 目录, 优先级最高; 否则依次用随仓的 `src/ao_shaping/drivers/ccd/_miicam_sdk` 与 `libs/miicamsdk.20240728/python` |
 | `AO_SHAPING_SDK_PATH` | `src/ao_shaping/tools/slm/transfer/hardware.py` | `<repo>/libs` | 存放 `gxipy` 厂商绑定的父目录 |
-| `SLM_MODELS_DIR` | `src/ao_shaping/tools/slm/transfer/latest_model.py` (`models_root()`, 每次调用时读取) | `<repo>/data/slm_models` | 按 SLM 序列号保存最新迁移学习的根目录 (`<root>/<serial>/latest/`, 含 `frozen_parameters.json`); 每次调用求值, 不受上表「import 前设好」时序约束 |
+| `SLM_MODELS_DIR` | `src/ao_shaping/tools/slm/transfer/latest_model.py` (`models_root()`, 每次调用时读取) | `<锚定目录>/data/slm_models` | 按 SLM 序列号保存最新迁移学习的根目录 (`<root>/<serial>/latest/`, 含 `frozen_parameters.json`); 每次调用求值, 不受上表「import 前设好」时序约束; 设有它时优先于 `AO_SHAPING_WEIGHTS_DIR` |
 | `AO_OOPAO_SOURCE_DIR` | `src/ao_shaping/drivers/sim/_oopao_compat.py` | 未设 (通常不需要) | 追加到 OOPAO 影子包 `__path__` 的额外搜索路径; 核心 18 个模块不靠它也能加载 |
 | `WFS_DEBUG` | `src/ao_shaping/drivers/wfs/thorlab_wfs.py` | `0` | 置 `1` 时在 Thorlabs WFS 读取路径上记录每帧波前的方差 / 标准差 |
 | `RMS_ZERNIKE_DEBUG` | `src/ao_shaping/optimizer/wf/rms_by_zernike.py` | `0` | 置 `1` 时打开 SLM Zernike RMS 优化器的逐轮调试输出 |
@@ -110,6 +114,28 @@ Python 之前设好, import 之后再 `os.environ[...]` 赋值不会生效。`te
 
 平台自带变量 (`COMPUTERNAME`, `USERPROFILE`, `XDG_DATA_HOME`) 也被驱动用来定位配置落盘位置,
 但它们由操作系统提供而非本仓定义, 因此不列入上表, 并在该守卫里被显式豁免。
+
+### 路径解析顺序 (数据目录 / 权重目录 / 设备配置目录)
+
+三类路径都由 `src/ao_shaping/utils/io/paths.py` 解析, 顺序固定为**环境变量 → 配置文件 → 默认值**:
+
+1. 环境变量: `AO_SHAPING_DATA_DIR`、`AO_SHAPING_WEIGHTS_DIR` (或旧名 `SLM_MODELS_DIR`)、
+   上表四个 `*_CONFIG_DIR` 加 `WFS_CONFIG_DIR`。
+2. 配置文件 `ao_shaping.toml`: 源码模式读 `<repo>/ao_shaping.toml`, 冻结 (exe) 模式读
+   `<exe 目录>/ao_shaping.toml`; 也可用 `AO_SHAPING_CONFIG` 指向别处。文件内的相对路径
+   **按该配置文件所在目录**解析。模板见仓库根 `ao_shaping.toml.example`。
+3. 默认值: **锚定目录** (anchor) 源码模式为仓库根, 冻结模式为 exe 目录。
+   - 数据目录: 源码模式相对 CWD 的 `data`, 冻结模式 `<exe 目录>/data`;
+   - 权重目录: `<锚定目录>/data/slm_models` (源码检出下即 `data/slm_models`);
+   - 设备配置目录: `<锚定目录>/data/<kind>_configs` —— 与改造前的
+     `PROJECT_ROOT / "data" / "*_configs"` 完全一致。
+
+显式配置了数据目录时, 权重目录与设备配置目录**默认跟随**它 (`<数据目录>/slm_models`、
+`<数据目录>/<kind>_configs`); 想让它们分开, 就把对应的 `weights_dir` /
+`*_config_dir` 也显式写出来。
+
+解析在**调用时**发生 (懒读 + mtime 缓存), 因此 import 之后改环境变量或改 TOML 仍然生效。
+`data/slm_models` (~204 MB) 不进 exe, 部署时随数据目录外置。
 
 ### cuBLAS DLL 与 PATH
 
