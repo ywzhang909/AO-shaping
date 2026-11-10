@@ -42,6 +42,7 @@ NuitkaGUI.exe
 DM_combined.*
 DM_cam.*
 DM_combined.dist*
+dist/
 
 logs*
 .history*
