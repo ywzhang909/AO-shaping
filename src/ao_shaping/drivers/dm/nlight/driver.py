@@ -14,7 +14,6 @@ NLight 通过 UDP datagram 批量下发 64 通道电压 (见
 
 from __future__ import annotations
 
-import os
 import socket
 import time
 from dataclasses import dataclass
@@ -43,14 +42,25 @@ from ao_shaping.drivers.dm.nlight.nlight_constants import (
 )
 from ao_shaping.drivers.dm.nlight.sdk import DMSdk
 from ao_shaping.drivers.dm.nlight.udp import DMUdp
+from ao_shaping.utils.io import paths
 from ao_shaping.utils.io.device_config import ConfigHandler, DeviceParam, param
 from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 
 # ── NLight 配置参数 ──────────────────────────────────────
 
-_DM_CONFIG_DIR = Path(
-    os.environ.get("DM_CONFIG_DIR", PROJECT_ROOT / "data" / "dm_configs")
-)
+_DM_CONFIG_DIR = PROJECT_ROOT / "data" / "dm_configs"
+_DEFAULT_DM_CONFIG_DIR = _DM_CONFIG_DIR
+
+
+def _config_dir() -> Path:
+    """DM 配置目录: 模块常量 (测试可覆盖) 优先, 否则走统一解析器。
+
+    解析器优先级: 环境变量 ``DM_CONFIG_DIR`` → 配置文件 ``[paths] dm_config_dir``
+    → 默认 ``<锚定目录>/data/dm_configs``。import 期不读盘, 调用时才解析。
+    """
+    if _DM_CONFIG_DIR is not _DEFAULT_DM_CONFIG_DIR:
+        return _DM_CONFIG_DIR
+    return paths.device_config_dir("dm")
 
 
 @dataclass
@@ -73,7 +83,7 @@ class NLightParams(DeviceParam):
 
 
 # 模块级单例，所有 NLight 实例共用
-NLIGHT_CONFIG = ConfigHandler(_DM_CONFIG_DIR, "nlight", NLightParams)
+NLIGHT_CONFIG = ConfigHandler(_config_dir, "nlight", NLightParams)
 
 #: ``__init__`` 参数的硬上限 (超出即物理损坏风险)。
 MAX_ITER_DIFF_LIMIT = 200

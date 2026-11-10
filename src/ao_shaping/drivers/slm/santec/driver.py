@@ -28,7 +28,6 @@ from __future__ import annotations
 import contextlib
 import ctypes
 import io
-import os
 import random
 import time
 from dataclasses import dataclass
@@ -66,6 +65,7 @@ from ao_shaping.drivers.slm.santec.slm200_constants import (
     get_max_grayscale,
 )
 from ao_shaping.drivers.slm.santec.wavefront_correction import WavefrontCorrection
+from ao_shaping.utils.io import paths
 from ao_shaping.utils.io.device_config import ConfigHandler, DeviceParam, param
 from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 
@@ -242,10 +242,21 @@ class SlotRotator:
         return slot
 
 
-# 配置目录: <project_root>/data/slm_configs/ 或取自 SLM_CONFIG_DIR 环境变量
-_SLM_CONFIG_DIR = Path(
-    os.environ.get("SLM_CONFIG_DIR", PROJECT_ROOT / "data" / "slm_configs")
-)
+# 配置目录: 默认走统一解析器 (<锚定目录>/data/slm_configs 或 SLM_CONFIG_DIR 环境
+# 变量或 [paths] slm_config_dir); 测试可 monkeypatch 模块常量覆盖为临时目录。
+_SLM_CONFIG_DIR = PROJECT_ROOT / "data" / "slm_configs"
+_DEFAULT_SLM_CONFIG_DIR = _SLM_CONFIG_DIR
+
+
+def _config_dir() -> Path:
+    """SLM 配置目录: 模块常量 (测试可覆盖) 优先, 否则走统一解析器。
+
+    解析器优先级: 环境变量 ``SLM_CONFIG_DIR`` → 配置文件 ``[paths] slm_config_dir``
+    → 默认 ``<锚定目录>/data/slm_configs``。import 期不读盘, 调用时才解析。
+    """
+    if _SLM_CONFIG_DIR is not _DEFAULT_SLM_CONFIG_DIR:
+        return _SLM_CONFIG_DIR
+    return paths.device_config_dir("slm")
 
 
 # ── SLM 配置参数 dataclass ──────────────────────────────
@@ -278,7 +289,7 @@ class SLMParams(DeviceParam):
 
 
 # 模块级单例，所有 Santec 实例共用
-SLM_CONFIG = ConfigHandler(_SLM_CONFIG_DIR, "slm", SLMParams)
+SLM_CONFIG = ConfigHandler(_config_dir, "slm", SLMParams)
 
 
 class SantecError(Exception):

@@ -39,7 +39,7 @@ from typing import Any, Callable
 from loguru import logger
 
 from ao_shaping.drivers.ccd.base import CameraError
-from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.io import paths
 
 __all__ = [
     "KNOWN_MODEL_PIXEL_SIZE_UM",
@@ -63,8 +63,12 @@ _CONFIG_KEY = "pixel_size_um"
 
 
 def _config_dir() -> Path:
-    """相机配置根目录 (与 ``DahengCamera`` 的 ``CCD_CONFIG_DIR`` 同一口径)。"""
-    return Path(os.environ.get("CCD_CONFIG_DIR", PROJECT_ROOT / "data" / "ccd_configs"))
+    """相机配置根目录 (与 ``DahengCamera`` 的 ``CCD_CONFIG_DIR`` 同一口径)。
+
+    经统一解析器: 环境变量 ``CCD_CONFIG_DIR`` → 配置文件 ``[paths] ccd_config_dir``
+    → 默认 ``<锚定目录>/data/ccd_configs``。import 期不读盘, 调用时才解析。
+    """
+    return paths.device_config_dir("ccd")
 
 
 def model_pixel_size_config_path() -> Path:
