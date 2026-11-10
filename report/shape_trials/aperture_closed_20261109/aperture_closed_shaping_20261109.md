@@ -3,6 +3,7 @@
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
 > **数据/关联脚本**: [`scripts/slm/diffopt_efficiency_probe_20261108.py`](../../../scripts/slm/diffopt_efficiency_probe_20261108.py)
+> **数据/关联脚本**: [`scripts/slm/diffopt_dispatch_probe_20261110.py`](../../../scripts/slm/diffopt_dispatch_probe_20261110.py)
 > **数据/关联脚本**: [`src/ao_shaping/runners/slm/transfer_shapes_runner.py`](../../../src/ao_shaping/runners/slm/transfer_shapes_runner.py)
 > **数据/关联脚本**: [`src/ao_shaping/tools/slm/transfer/replay_phases.py`](../../../src/ao_shaping/tools/slm/transfer/replay_phases.py)
 > **数据/关联脚本**: [`src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py`](../../../src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py)
@@ -10,7 +11,7 @@
 > **说明**: 光阑关闭后光路(零级未压制 E0/E1≈1.2, 曝光窗 0.05-0.2ms, 几何未变)重做 side=1200 square/triangle/star 整形: 全新标定 campaign 复现 + 共同重放成功(0.05/0.2ms) + 可微优化 GPU/学习率效率拆解; 含与 10-28 基线同口径对比(跨曝光不作直接对等)
 <!-- provenance:end -->
 
-> **一句话**：光阑关闭态下 side=1200 整形**未复现** 10-28 收敛——mono12 各块 Jacobian 全部 `contradict`（在线方向不可信），末帧 CV 无实质改善（1.07–1.17），共同重放在唯一可信曝光（0.2 ms，core_peak 364–420）下 CV 0.54–0.69、target_pearson ≤0.22，**无成形结构**。主导假设是**未压制零级（E0/E1≈1.2）污染目标域**；`locate()` 零级掩膜只修探测不修物理零级。效率侧：GPU 全链路 47–90 ms/步 vs CPU 630 ms/步（~7–13×），但 torch.profiler 显示 GPU 计算仅 ~4.6 ms/迭代、**~19 ms 为 Python 逐算子调度**（~400 算子/迭代，`aten::roll` 24×/迭代），省时瓶颈在调度而非 GPU 吞吐；lr 0.01 已近收敛地板（离线 loss 9.33e-6，0.05 仅 9.05e-6）。
+> **一句话**：光阑关闭态下 side=1200 整形**未复现** 10-28 收敛——mono12 各块 Jacobian 全部 `contradict`（在线方向不可信），末帧 CV 无实质改善（1.07–1.17），共同重放在唯一可信曝光（0.2 ms，core_peak 364–420）下 CV 0.54–0.69、target_pearson ≤0.22，**无成形结构**。主导假设是**未压制零级（E0/E1≈1.2）污染目标域**；`locate()` 零级掩膜只修探测不修物理零级。效率侧：GPU 全链路 47–90 ms/步 vs CPU 630 ms/步（~7–13×），但 torch.profiler 显示 GPU 计算仅 ~4.6 ms/迭代、**~19 ms 为 Python 逐算子调度**（~400 算子/迭代，`aten::roll` 24×/迭代），省时瓶颈在调度而非 GPU 吞吐；lr 0.01 已近收敛地板（离线 loss 9.33e-6，0.05 仅 9.05e-6）。**2026-11-10 调度减负落地**：热机 GPU 每步 12.58→**7.88 ms**（−37%）、CPU 44.49→**26.46 ms**（−40%），同步 60→13 次/迭代、`aten::nonzero` 8→0，**逐位行为中性**；原「合并 roll+FFT / `fft256`」方向**已证伪**（FFT+roll 仅 ~0.1 ms/迭代）。
 
 ---
 
@@ -128,9 +129,31 @@
 | Python 逐算子调度 | **~19 ms/迭代** | ~400 个 torch 算子/迭代；`aten::roll` 24 次/迭代，占 self CUDA 8.7% |
 | 同步开销 | ~0.08 ms | 可忽略 |
 
-→ **省时瓶颈在算子调度，不在 GPU 吞吐**（定性；调度 ≈ 数倍 GPU 计算）。⚠️ torch.profiler 逐算子插桩会**抬高绝对耗时**（本剖析 ~24 ms/迭代 vs §5.1 热机稳态 12–21 ms 墙钟），故 §5.1 墙钟为准、本节的**相对拆解**（调度主导）为结论。下一步方向：批量化 / 合并 roll+FFT，或粗网格阶段用 `fft256`（见 [diffopt_efficiency_20261108.md](../defocus_differentiable/diffopt_efficiency_20261108.md) §6 调度）。
+→ **省时瓶颈在算子调度，不在 GPU 吞吐**（定性；调度 ≈ 数倍 GPU 计算）。⚠️ torch.profiler 逐算子插桩会**抬高绝对耗时**（本剖析 ~24 ms/迭代 vs §5.1 热机稳态 12–21 ms 墙钟），故 §5.1 墙钟为准、本节的**相对拆解**（调度主导）为结论。
 
-### 5.3 本轮代码优化落地（未提交）
+⚠️ **本节原先给出的下一步方向「合并 roll+FFT / 粗网格 `fft256`」已被 2026-11-10 的复测证伪**（见 §5.2.1）：一次 `update()` 里 FFT 与 `aten::roll` 的 self CUDA 合计只有 **~0.1 ms/迭代**，省时点在**每次迭代的主机同步次数与算子发射次数**，不在 FFT 吞吐。正确方向是消除同步与重复建张量，不是压 FFT。
+
+### 5.2.1 2026-11-10 复测与 A/B：调度瓶颈的定位与处置
+
+**定位**：逐算子拆解（`scripts/slm/diffopt_dispatch_probe_20261110.py`，冻结 checkpoint、离线、无设备占用）显示 FFT 与 `aten::roll` 合计仅 **~0.1 ms/迭代** → 「合并 roll+FFT」最多省 0.1 ms，**方向无效**。真正的成本是每次迭代的**主机同步**（`cudaStreamSynchronize` **60 次/迭代**）与**算子发射**（`cudaLaunchKernel` **731 次/迭代**）：其中 8 次 `aten::nonzero`（布尔掩膜索引内部的主机同步）与 7 次逐个 `float()`（诊断标量回读）都来自 `ShapeObjective.evaluate`。
+
+**A/B（同一脚本、同一 checkpoint、同一 GPU；改前 = `git archive HEAD src` 取出的源码树，改后 = 本轮工作树）**：
+
+| 指标 | 改前 | 改后 | 变化 |
+|------|------|------|------|
+| 每步墙钟中位（GPU，热机） | 12.58 ms | **7.88 ms** | **−37%** |
+| 每步墙钟中位（CPU） | 44.49 ms | **26.46 ms** | **−40%** |
+| `cudaLaunchKernel` | 731/迭代 | 499/迭代 | −232 |
+| `cudaStreamSynchronize` | 60/迭代 | **13/迭代** | −47 |
+| `cudaMemcpyAsync` | 76/迭代 | 29/迭代 | −47 |
+| `aten::nonzero` | 8/迭代 | **0** | −8（该主机同步源全部消除） |
+| 算子总数 | 4445/迭代 | 3044/迭代 | −1401 |
+
+产物：`data/debug/slm_transfer/diffopt_dispatch_20261110/results_{head,worktree}.json`。复现：`git archive --format=tar --output=head.tar HEAD src && tar -xf head.tar -C <dir>`，再 `python scripts/slm/diffopt_dispatch_probe_20261110.py --src <dir>/src --label head`（改后不传 `--src`）。
+
+**处置**：① `evaluate` 的掩膜索引改扁平索引（免 `nonzero` 主机同步）；② 7 个诊断标量合并成一次 `torch.stack([...]).tolist()`（7 次同步 → 1 次）；③ 前向的相机采样网格在 `__init__` 预计算一次（`predict()` 不再每次重算）。代码与逐位证据见 §5.4。
+
+### 5.3 2026-11-09 代码优化落地（已提交 `d92faac2`）
 
 - **anchored 前向复用**（`differentiable_defocus_uniformity.py::update()`）：`_accepted` 在单次 `update()` 内不变，复用 `seed + accepted` 前向结果（`anchor_cache`）替代第 4 次前向——**每步 4→3 次前向**。顺带修复 squeeze 形状回归（两个预测各自独立 `squeeze`，原先合并处理使 candidate 保持 `(1,8,8)` 触发 mask 索引错误）。`test_measured_phase_regularization.py` 2 通过、ruff 通过；`bench_optim.py` 复跑 loss **逐位一致**（9.326e-6 / 9.237e-6 / 9.046e-6，与改动前完全相同）→ **改动是行为中性**。
 - **复跑耗时（优化后，热机）**：GPU 20 迭代 21.2 ms/步、150 迭代 11.6–12.7 ms/步；CPU 20 迭代 49.2 ms/步。**但**与首次冷跑（47–90 / 630 ms）的差值**不能归因于 4→3 前向**——loss 逐位一致证明行为未变，差值是 GPU 时钟/预热状态主导（冷跑 GPU 未升频）。**结论：本改动只减少每步前向次数（≤前向成本的 25%），不构成可测的稳定加速；热机稳态 GPU ~12–21 ms/步 才是可信基准。**
@@ -138,12 +161,26 @@
 - **GPU 路径**：campaign 已用 GPU（`auto`→cuda，provenance `device=cuda`），无额外代码改动；效率收益已由 §5.1 量化。
 - `multishape_objective.py`：仅报错文案措辞修正（FFT 网格可达窗口消息），无语义变更。
 
+### 5.4 2026-11-10 调度减负（行为中性，CI 门禁钉住）
+
+代码改动两文件三处：
+
+- **掩膜索引缓存**（`multishape_objective.py`）：`image[bool_mask]`（内部 `nonzero` → 主机同步）换成 `image.reshape(-1)[idx]`；`idx` 由 `np.flatnonzero` 在 **CPU 侧**算好，按**内容**缓存（`np.array_equal` 比对）——外部原地改 `core`/`box` 会自动失效，**不会返回过期掩膜**。每个 gather 各自 `reshape`（单消费者节点）：若共用一个视图，两个 gather 的梯度会先在视图里合并再回流，累加顺序一变，总梯度末位就变。
+- **诊断标量批量回读**：7 次 `float()` → 1 次 `torch.stack([...]).tolist()`。
+- **前向采样网格预计算**（`differentiable_defocus_uniformity.py`）：相机采样网格只依赖构造期定型的常量（相机坐标 / 配准平移 / 原点 / 逆 ramp / 子像素偏移 / pitch），与相位无关，故在 `__init__` 建一次，`predict()` 直接复用。
+
+**行为中性（逐位）**：GPU 路径本身非确定（atomic 归约 + `grid_sampler` 并行求和，同代码两次运行校验和不同），故逐位对照一律走 **CPU** 路径（`torch.set_num_threads(6)`，两次运行逐位一致）：把改前源码树与工作树各跑一遍 model / anchored 各 12 步，**losses、最终 delta 校验和、末步诊断记录全部逐位相等**；`ShapeObjective.evaluate` 的三种模式（cv / shape / formation）在 **loss、7 个诊断标量、图像梯度** 上也全部逐位相等。
+
+**CI 门禁**：`tests/ao_shaping/algorithm/test_multishape_objective_bit_exact.py` 把改前的布尔掩膜实现逐字复制为参考，钉住「逐位相等 + 原地改掩膜后仍逐位相等」。变异测试确认该门禁**能变红**：把共享 `flat` 视图这个已修的 bug 重新注入，`shape`/`formation` 两档立刻红（文件按 sha 复原）。
+
+**代价**：两个文件行数未增（`differentiable_defocus_uniformity.py` 818 ≤ 基线 819），模块规模门禁**无需抬高基线**。
+
 ## 6. 结论与未解决
 
 1. **光阑关闭态 side=1200 整形未复现**：72 个 mono12 块（每形状 24：cv 8 + continue 12 + dense 4）Jacobian 全部 `contradict`，末帧 CV 1.07–1.19 无收敛；重放 @0.2 ms CV 0.54–0.69、target_pearson ≤0.22，**无成形结构**。
 2. **主导假设**：未压制零级（E0/E1≈1.2，`zero_radius=60` 只排除评价不物理消除）污染目标域；`locate()` 零级掩膜只修探测不修物理零级。
 3. **曝光口径**：0.05 ms 近噪声下限（core_peak 127–150，伪影）；0.2 ms 可信（core_peak 364–420）但 CV 高。与 10-28 跨曝光/跨强度**不可直接对等**。
-4. **效率**：GPU 快于 CPU（热机 2.3×，冷跑至 13×，时钟/预热主导）；瓶颈在 Python 算子调度（非 GPU 吞吐）；lr 0.01 已近离线收敛地板；anchored 前向复用为行为中性（loss 逐位一致），不构成稳定加速。
+4. **效率**：GPU 快于 CPU（热机 2.3×，冷跑至 13×，时钟/预热主导）；瓶颈在 Python 算子调度（非 GPU 吞吐）；lr 0.01 已近离线收敛地板；anchored 前向复用为行为中性（loss 逐位一致），不构成稳定加速。**调度减负已落地（2026-11-10，§5.2.1/§5.4）：每步墙钟 GPU 12.58→7.88 ms（−37%）、CPU 44.49→26.46 ms（−40%），`cudaStreamSynchronize` 60→13 次/迭代、`aten::nonzero` 8→0，逐位行为中性**；原先「合并 roll+FFT / 粗网格 `fft256`」的方向**已证伪并撤回**（FFT+roll 仅 ~0.1 ms/迭代）。
 5. **未解决项**：① 零级物理压制手段；② 模型↔硬件传递缺口（[diffopt_efficiency_20261108.md](../defocus_differentiable/diffopt_efficiency_20261108.md) 主约束——模型侧到 CV 0.012–0.043、硬件侧首块后无增益，方向/幅度不可迁移）；③ Jacobian `contradict` 根因（方向不可信，闭环无法改善）。
 
 ## 7. 下一步物理光路实验计划（结合 11-08 仿真结论）
@@ -158,7 +195,7 @@
 
 1. **压制零级（前提，最高优先）**：光阑关闭态 E0/E1≈1.2 是当前主导退化。先物理恢复零级压制（重新对光阑 / 加 DC block，目标 E0/E1<0.35），再重做 side=1200 复现；若无法恢复，验证零级抑制算法（预测域扣除零级盘）能否让 CV 随零级扣除改善。**这是验证"未复现"是否由零级污染导致的关键一测。**
 2. **提高 `step_rms_cap` + 调 lr**（结合 11-08）：cap 0.1 → 0.3（或逐周期增量上限），配 lr=0.1（11-08 结论）或 0.02（11-09 离线地板）。**前提是 Jacobian 方向可信**（当前全 `contradict`）——否则 cap/lr 调优无效，须先解决方向门禁。
-3. **调度减负（anchored 前向复用已落地，行为中性）**：复用已把每步 4→3 次前向；实测热机 GPU 12–21 ms/步（冷跑 47–90 ms 为时钟/预热伪差，非代码收益）。**真正剩余瓶颈在算子调度**（~400 算子/迭代、`aten::roll` 24×/迭代）→ 批量化 / 合并 roll+FFT / 粗网格 `fft256`（下一轮）。
+3. **调度减负（两轮已落地，均行为中性）**：① anchored 前向复用把每步 4→3 次前向（§5.3）；② 2026-11-10 调度减负（§5.2.1/§5.4）：掩膜扁平索引 + 诊断标量批量回读 + 前向采样网格预计算 → GPU 每步 12.58→**7.88 ms**（−37%）、CPU 44.49→**26.46 ms**（−40%），`cudaStreamSynchronize` 60→13 次/迭代、`aten::nonzero` 8→0，**逐位行为中性**（CI 门禁 `test_multishape_objective_bit_exact.py`）。**原方向「合并 roll+FFT / 粗网格 `fft256`」已证伪并撤回**（FFT+roll 仅 ~0.1 ms/迭代）。剩余可查方向：元素级算子融合（改后仍 `aten::mul` 94 / `add` 70 / `div` 44 / `sum` 36 次/迭代）与采样点批量化（`cudnn_grid_sampler` 27 次/迭代）。
 4. **曝光窗纪律**：replay 最终帧用 **0.2 ms**（core_peak 364–420，可信），不用 0.05 ms（近噪声下限伪影）；各形状最终帧指标以 0.2 ms 行为准。
 5. **模型侧吞吐**（与物理光路解耦，可离线）：批量起点合成（8 起点 → 61.6 ms/步，每起点 7.7 ms，1.6×）+ 粗网格 `fft256`（−24%，仅粗阶段）+ 模式集 Noll 5–25（地板 0.009）。
 

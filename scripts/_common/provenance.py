@@ -1775,6 +1775,7 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="实验+离线",
         extra_scripts=(
             "scripts/slm/diffopt_efficiency_probe_20261108.py",
+            "scripts/slm/diffopt_dispatch_probe_20261110.py",
             "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
             "src/ao_shaping/tools/slm/transfer/replay_phases.py",
             "src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py",

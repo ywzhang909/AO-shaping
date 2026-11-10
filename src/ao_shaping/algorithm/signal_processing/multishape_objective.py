@@ -146,46 +146,80 @@ class ShapeObjective:
         merged.update({key: float(value) for key, value in weights.items()})
         self.weights = merged
 
+    def _flat_index(self, name: str, mask, device):
+        """Flat row-major index of ``mask``'s True cells on ``device``, cached.
+
+        ``image.flatten()[idx]`` gathers the same cells in the same row-major
+        order as the boolean-mask indexing it replaces, so every sum/mean is
+        bit-identical; but it avoids the ``nonzero`` host sync per call. The
+        cache is keyed by content, so an external in-place edit of ``self.core``
+        / ``self.box`` (done by callers) is picked up, never served stale.
+        """
+        import torch
+        arr = np.asarray(mask, dtype=bool)
+        cache = self.__dict__.setdefault("_index_cache", {})
+        hit = cache.get(name)
+        if hit is None or hit[0].shape != arr.shape or not np.array_equal(hit[0], arr) or hit[1] != str(device):
+            flat = torch.as_tensor(np.flatnonzero(arr), dtype=torch.long, device=device)
+            hit = (arr.copy(), str(device), flat)
+            cache[name] = hit
+        return hit[2]
+
+    def _target_tensor(self, device):
+        import torch
+        cache = self.__dict__.setdefault("_target_cache", {})
+        hit = cache.get(str(device))
+        if hit is None or not np.array_equal(hit[0], self.target):
+            hit = (self.target.copy(), torch.as_tensor(self.target, device=device))
+            cache[str(device)] = hit
+        return hit[1]
+
     def evaluate(self, image, delta_phase):
         import torch
-        target = torch.as_tensor(self.target, device=image.device)
-        core = image[torch.as_tensor(self.core, device=image.device)]
+        dev = image.device
+        target = self._target_tensor(dev)
+        # Each gather takes its OWN ``reshape(-1)`` view: the view node has a
+        # single consumer, so its backward contributes to ``image.grad``
+        # separately -- the same one-edge-per-gather structure the boolean-mask
+        # indexing it replaces had.  A shared flat view would merge the
+        # gradients of two gathers before they reach ``image`` and change the
+        # accumulation order, i.e. the last bits of the total gradient.
+        core = image.reshape(-1)[self._flat_index("core", self.core, dev)]
         # CV^2 == masked_cv(image, self.core)**2 (R3 两层结构); clamp_min 让
         # 均值趋零时损失有限、梯度不炸 (与 numpy 原语的 0.0 退化策略有意不同)。
         cv2 = ((core/core.mean().clamp_min(1e-9)-1)**2).mean()
         total = image.sum().clamp_min(1e-9)
-        energy = image[torch.as_tensor(self.box, device=image.device)].sum()/total
+        box_idx = self._flat_index("box", self.box, dev)
+        energy = image.reshape(-1)[box_idx].sum()/total
         shape_loss = ((image/total-target/target.sum())**2).sum()*target.sum()
         smooth = .5*((1-torch.cos(delta_phase[1:]-delta_phase[:-1])).mean()
                     +(1-torch.cos(delta_phase[:, 1:]-delta_phase[:, :-1])).mean())
         # Formation-specific terms (report 20261027 §3: avoid only suppressing hot spots).
-        l_partition = torch.tensor(0.0, device=image.device)
-        l_peripheral = torch.tensor(0.0, device=image.device)
-        l_floor = torch.tensor(0.0, device=image.device)
-        l_boundary = torch.tensor(0.0, device=image.device)
+        zero = torch.zeros((), device=dev)
+        l_partition = zero
+        l_peripheral = zero
+        l_floor = zero
+        l_boundary = zero
         if self.formation:
             # Partition coverage: penalize imbalance across sub-regions.
             if self._partition_masks:
                 partition_energies = []
-                for pm in self._partition_masks:
-                    pm_t = torch.as_tensor(pm, device=image.device)
-                    pe = image[pm_t].sum() / total.clamp_min(1e-9)
+                for i, pm in enumerate(self._partition_masks):
+                    pe = image.reshape(-1)[self._flat_index(f"partition{i}", pm, dev)].sum() / total.clamp_min(1e-9)
                     partition_energies.append(pe)
                 if partition_energies:
                     pe_tensor = torch.stack(partition_energies)
-                    l_partition = pe_tensor.std() if pe_tensor.numel() > 1 else torch.tensor(0.0, device=image.device)
+                    l_partition = pe_tensor.std() if pe_tensor.numel() > 1 else zero
             # Peripheral band energy: ensure target edges are filled.
             if self._peripheral_mask.any():
-                pm_t = torch.as_tensor(self._peripheral_mask, device=image.device)
-                peripheral_e = image[pm_t].sum() / total.clamp_min(1e-9)
+                peripheral_e = image.reshape(-1)[self._flat_index("peripheral", self._peripheral_mask, dev)].sum() / total.clamp_min(1e-9)
                 l_peripheral = torch.relu(0.1 - peripheral_e)
             # Net signal floor: ensure minimum signal level in target.
-            box_mean = image[torch.as_tensor(self.box, device=image.device)].mean()
+            box_mean = image.reshape(-1)[box_idx].mean()
             l_floor = torch.relu(self.signal_floor - box_mean)
             # Boundary error: penalize intensity variation at target boundary.
             if self._boundary_mask.any():
-                bm_t = torch.as_tensor(self._boundary_mask, device=image.device)
-                boundary_vals = image[bm_t]
+                boundary_vals = image.reshape(-1)[self._flat_index("boundary", self._boundary_mask, dev)]
                 if boundary_vals.numel() > 0:
                     l_boundary = boundary_vals.std() / boundary_vals.mean().clamp_min(1e-9)
         w = self.weights
@@ -200,12 +234,13 @@ class ShapeObjective:
                 + w.get("peripheral", 0.0)*l_peripheral
                 + w.get("floor", 0.0)*l_floor
                 + w.get("boundary", 0.0)*l_boundary)
-        return loss, dict(l_cv=float(cv2.detach()), ee_roi=float(energy.detach()),
-                          shape_loss=float(shape_loss.detach()),
-                          l_partition=float(l_partition.detach()) if hasattr(l_partition, "detach") else float(l_partition),
-                          l_peripheral=float(l_peripheral.detach()) if hasattr(l_peripheral, "detach") else float(l_peripheral),
-                          l_floor=float(l_floor.detach()) if hasattr(l_floor, "detach") else float(l_floor),
-                          l_boundary=float(l_boundary.detach()) if hasattr(l_boundary, "detach") else float(l_boundary))
+        # One host transfer for all diagnostics (was 7 separate syncs).
+        scalars = torch.stack([cv2.detach(), energy.detach(), shape_loss.detach(),
+                               l_partition.detach(), l_peripheral.detach(),
+                               l_floor.detach(), l_boundary.detach()]).tolist()
+        return loss, dict(l_cv=scalars[0], ee_roi=scalars[1], shape_loss=scalars[2],
+                          l_partition=scalars[3], l_peripheral=scalars[4],
+                          l_floor=scalars[5], l_boundary=scalars[6])
 
 
 def image_metrics(image, objective):

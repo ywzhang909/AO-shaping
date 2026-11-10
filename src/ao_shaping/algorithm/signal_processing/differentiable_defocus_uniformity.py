@@ -285,6 +285,10 @@ class FrozenDefocusForward:
         self.registration_shift = (None if params.registration_shift_ccd_px is None
                                    else tuple(float(v) for v in params.registration_shift_ccd_px))
         self._grid_offsets = subpixel_offsets(torch, params.pixel_samples, device=self._device)
+        # Sampling grids depend only on constants (never on the phase), so they are built once here.
+        xy_reg = registration_sample_grid(torch, self._xy_t, self.registration_shift)
+        self._sample_grids = camera_sample_grids(torch, xy_reg, self.origin, self.inverse / self.axial_scale,
+                                                 self._grid_offsets, fft_size=params.fft_size, pitch=self.pitch)
         self._blaze_kernel = self._build_blaze_kernel(params.sigma_ccd_px)
         # --- optional, default-off physical-model extensions (report 20261027 §4) ---
         # Built only when the checkpoint actually carries non-identity coefficients,
@@ -411,13 +415,8 @@ class FrozenDefocusForward:
         field = amplitude * torch.exp(1j * phase_for_field)
         intensity = focal_intensity(field, p.fft_size)
         intensity = intensity * irradiance_scale(self.pitch, p.fft_size) / self.axial_scale**2
-        # Optional global 2D registration (issue #237): the camera sampling
-        # points move, the panel grid does not.  Disabled (the default) leaves
-        # the grid untouched, so the baseline stays bit-for-bit identical.
-        xy = registration_sample_grid(torch, self._xy_t, self.registration_shift)
-        grids = camera_sample_grids(torch, xy, self.origin, self.inverse / self.axial_scale,
-                                    self._grid_offsets, fft_size=p.fft_size, pitch=self.pitch)
-        sampled = sample_intensity(torch, intensity, grids)
+        # Camera sampling grid was built once in __init__ (registration included).
+        sampled = sample_intensity(torch, intensity, self._sample_grids)
         if self._blaze_kernel is not None:
             sampled = torch.nn.functional.conv2d(sampled[:, None], self._blaze_kernel, padding=12)[:, 0]
         result = sampled * float(p.gain) + float(p.background)
