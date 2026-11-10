@@ -65,7 +65,7 @@
 ## 3. 光路 B 已知状态（截至 2026-09/10，较旧）
 
 - **最近一次系统标定为 2026-09 实测**：SLM-WFS 对位 shift=(106,40)（附加倾斜 0.854λ→0.0245λ，降低 97.1%；`src/ao_shaping/drivers/slm/AGENTS.md`）；Zernike 矩阵 cond≈5.12。
-- `data/calibration/wfs_light_pupil_probe.json`（2026-09-30 前后）：729/729 spot 全亮，max 1480 / mean 520 counts @≈4 ms，pupil（瞳孔） 优化 (-0.04, -0.17, 3.69, 3.82)。注意该文件 `slm.serial` 仍记历史序列号 `22030102`（见 §1.3）。
+- `data/calibration/wfs_light_pupil_probe.json`（2026-09-30 前后）：729/729 spot 全亮，max 1480 / mean 520 counts @≈4 ms，pupil（瞳面） 优化 (-0.04, -0.17, 3.69, 3.82)。注意该文件 `slm.serial` 仍记历史序列号 `22030102`（见 §1.3）。
 - **轴映射警告**（本机中继光路实测）：SLM-x 平移驱动 WFS Noll3（y-tilt）、SLM-y 驱动 Noll2（x-tip），标定/对位**不要假设 SLM 轴与 WFS 轴对应**。
 - **2026-11 无光路 B 新实测**；本轮全部实验（含 2026-11 的 `zernike_calibration` 进度文件与 issue229 探针，`slm_number=1`）均在光路 A。复用任何 532 nm 台结论前须重新标定。
 
@@ -74,4 +74,4 @@
 1. **区分光路先看 SLM 序列号**，不要靠 "SLM#1/#2" 或旧数据里的历史序列号。
 2. 光路 A 复用旧模型/标定前，先跑 `scripts/slm/probe_optical_path_validity.py`（退出码非 0 即中止）；当前状态下曝光窗与 10-28 不同（0.05–0.2 vs 1–10 ms），模型迁移性须重新验证。
 3. 0 级定位永远 `argmax`；当前零点贴近传感器底边 (1062,1168)，采集窗口参数（如 `window_span`）须按此核查。
-4. 光路 B 上机前须重新确认 shift/标定状态，2026-09 的 shift=(106,40) 不应假设仍有效。
+4. 光路 B 实验前须重新确认 shift/标定状态，2026-09 的 shift=(106,40) 不应假设仍有效。

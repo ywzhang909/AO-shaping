@@ -1,7 +1,7 @@
 {
   "src/ao_shaping/algorithm/gradient/adam.py": 831,
   "src/ao_shaping/algorithm/signal_processing/angular_spectrum.py": 928,
-  "src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py": 813,
+  "src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py": 819,
   "src/ao_shaping/algorithm/signal_processing/square_shaping.py": 1386,
   "src/ao_shaping/algorithm/signal_processing/zernike_coefficient_optimizer.py": 1609,
   "src/ao_shaping/drivers/ccd/daheng/driver.py": 947,
