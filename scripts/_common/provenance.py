@@ -168,6 +168,21 @@ REPORTS: dict[str, ReportProvenance] = {
             "输入为 data/debug/slm_transfer/phase_scope_20261107/ 存档产物。人工撰写。"
         ),
     ),
+    "report/shape_trials/direction_diagnosis_20261112/direction_diagnosis_20261112.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线回放存档数据（2026-11-12；未占用 SLM/相机/激光，未 import ao_shaping.drivers）",
+        note=(
+            "可微整形前向模型 Jacobian 方向诊断合并报告：6 变体×3 幅值方向矩阵 + 7 臂归因"
+            "（隔离照明包络/origin/defocus 贡献）。M3（离焦+照明包络）0.616/0.696/0.657 通过 ≥0.50 门禁；"
+            "M0/M1 未过；背景/增益对方向度量精确不变；M3 通过是 origin+defocus+包络+gain 的联合自洽属性。"
+            "输入为 defocus_forward_20261107_focus_r2_fit/forward_fit.json 与 issue234_*_screen_20261107 存档产物，"
+            "产物 data/debug/slm_transfer/direction_variants_20261112/{results,attribution}.json。人工撰写。"
+        ),
+        extra_scripts=(
+            "scripts/slm/direction_model_variants_20261112.py",
+            "scripts/slm/direction_attribution_20261112.py",
+        ),
+    ),
     "report/shape_trials/measured_forward_refine_20261107/measured_forward_refine_20261107.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线规划文档与离线探针结果（issue #237；未占用设备）",
