@@ -4795,6 +4795,12 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 形状门禁 **168 passed**；棘轮行 330/2/245 收紧 150/0/113 + helper 行 120/0/80、100/0/64；scripts/ 模块规模仅报告不参与门禁（无基线键）；报告脚本无 wiki 引用
 - 叶扫描 IDENTICAL（496 对 500 减 4 = 两调用 + 两返回, 记账串 AST 现场提取）
 
+**2026-11-10 · 84f1ff57 · 第 52 批 CI 闭环（四条 workflow 全绿）；第 53 批在案**
+- 第 53 批：`workflow.run_session` 408→**178**（嵌套 4→3, 破 200）——232 行逐轮收敛循环整升 `_run_session_rounds`(241 行, 17 参)。区内无归属外层的 return（含嵌套帧排除后精扫）；`audit` def 定义与唯一调用均在区内随区走；5 枚 lambda 均为阶段/帧回调**同步调用**, 自由名与区后重绑集交空 → cell 晚绑定不变性成立；累加泄漏 `accepted/last_round/stopped_by_user` 回传
+- **嵌套作用域审计三连缺陷（本批核心教训, 全部生成器期抓中, ruff 兜底 0 漏网）**：⑤ except-as 名在 handler 退出时删除 → 只许入 st_all（区内自由度）, 禁入 st_fs（泄漏记账）且 `covered` 须按 handler 局部处理；⑥ 嵌套 def 体内的 Name-Store 属**该 def 的帧**, 计入外层 pre/st 会把外层未绑名误当已绑参数（audit 体内 `result` 案, 调用点 F821 实锤）；⑦ 类方法是属性不是全局, mod 集合不得收 class body 里的方法名（`TransferSession.validate` 遮蔽 `from . import validate` 案）。`covered` 终版 = 静态作用域规则：嵌套帧仅当 nm 为帧名/形参/体内静态局部时覆盖, 否则是**闭包自由变量归外层**（blanket-True 会把 lambda 里的 `fit` 判丢, flaw 8）
+- 沙箱容器中途崩溃一次（`oxpy` 与 `run_pytest_ci.sh` 双通道 docker 报错; 处置 = `docker compose up -d` + `docker rm -f ao-pytest-ci` 清名字残留, 崩溃窗口内的载体结果不作数全部重跑）
+- 证明与验收：叶扫描 IDENTICAL（508 对 510 减 2=调用+返回, 记账 AST 现场提取）；载体 `test_transfer_workflow.py` 崩溃后重跑 **51 passed**；形状门禁 **169 passed**；棘轮行 `(_WF,"run_session")` 430/4/378 收紧 220/3/178 + helper 行 280/4/241；模块 1756→1771 基线随实测；wiki 无 workflow.py 行号引用
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

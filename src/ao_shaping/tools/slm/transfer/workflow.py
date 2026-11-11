@@ -1032,159 +1032,15 @@ def _round_calibration_stages(config, *, out, suffix, prefix, model_out, checkpo
         )
         options["checkpoint"] = blur_out / "frozen_parameters.json"
 
-def run_session(
-    config: TransferSession, *, offline=False, on_stage=None, on_frame=None,
-    should_stop=None,
-):
-    """No subprocess chains; each completed/failed stage is journaled immediately.
 
-    ``on_stage(name, status)`` is an optional observer called whenever a stage
-    starts / completes / fails -- the same moment the journal line is written.
-    It exists so the GUI can show progress through *this* entry point instead of
-    re-implementing the stage sequence (a second orchestrator would drift).
-    A raising observer must not wreck the session, so its errors are swallowed
-    with a warning; the journal and the run itself stay authoritative.
-
-    ``on_frame(payload)`` is the live CCD observer, forwarded unchanged to every
-    stage that opens the camera: the capture stage, the standalone light check,
-    the model and anchored blocks, and the exposure-response capture. Each of
-    those fires it **on every CCD read** (see
-    :func:`~ao_shaping.tools.slm.transfer.live_frame.frame_payload`), and every
-    call site wraps it in the same best-effort guard. ``None`` (the CLI /
-    offline default) leaves the measured path byte-for-byte unchanged.
-
-    ``should_stop`` is an optional no-arg callback consulted between acceptance
-    retrain rounds. When it returns True (the GUI's Stop button), the loop halts
-    gracefully, keeps the best result so far, and does not error. Ignored unless
-    ``config.acceptance_enabled``.
+def _run_session_rounds(accepted, checkpoint, config, dataset, device, fit, max_rounds, offline, on_frame, out, rounds, samples, should_stop, stage, stopped_by_user, validate, warm_start):
+    """Per-round loop lifted verbatim from run_session. The inner
+    `audit` def and the stage/frame lambdas live entirely inside
+    this region and never outlive an iteration, and no name they
+    capture is rebound after the loop -> cell late-binding is
+    invariant under the lift. Loop accumulator leaks
+    (accepted/last_round/stopped_by_user) return unchanged.
     """
-    config.validate()
-    if offline and config.dataset is None:
-        raise ValueError("--offline requires a recorded --dataset")
-    # 自动升档只对会采集的会话生效：录制数据集的网格由 manifest 决定，改了就与拟合对不上。
-    grid_decision = None
-    if config.dataset is None and getattr(config, "auto_capture_grid", False):
-        grid_decision = decide_capture_grid(config)
-        if grid_decision.raised:
-            # dataclasses.replace 只搬字段：桌面用 object.__setattr__ 挂的 tilt /
-            # aspect_ratio 运行时属性会丢，必须原样带回（下游用 getattr 读它们）。
-            field_names = {f.name for f in fields(config)}
-            extras = {k: v for k, v in vars(config).items() if k not in field_names}
-            config = replace(config, capture_grid=grid_decision.chosen)
-            for key, value in extras.items():
-                object.__setattr__(config, key, value)
-            logger.info(
-                "采集网格自动升档: {} → {} (目标 {:g} px, 可达 ±{:.0f} px)",
-                grid_decision.requested, grid_decision.chosen,
-                grid_decision.extent_px, grid_decision.reach_px,
-            )
-    out = config.out.resolve()
-    out.mkdir(parents=True, exist_ok=False)
-    # Resolve the compute device once, here, so ``session.json`` records the one
-    # the stages will actually use (``config.device`` is the *request*: "auto").
-    device = resolve_device(config.device)
-    # 在升档之后才生成 plan, 使 session.json 的 settings 记录的是实际采用的网格。
-    plan = config.plan(offline)
-    plan["resolved"]["device"] = device
-    if grid_decision is not None:
-        plan["resolved"]["capture_grid_decision"] = asdict(grid_decision)
-    (out / "session.json").write_text(
-        json.dumps(dict(**plan, **clock()), default=str, indent=2), encoding="utf-8"
-    )
-    journal = []
-
-    def stage(name, operation):
-        entry = dict(stage=name, status="running", **clock())
-        journal.append(entry)
-        write = lambda: (out / "journal.json").write_text(
-            json.dumps(journal, default=str, indent=2), encoding="utf-8"
-        )
-        write()
-        print(f"[{name}] started", flush=True)
-        _notify(on_stage, name, "running")
-        try:
-            result = operation()
-        except BaseException as exc:
-            entry.update(
-                status="failed", error=f"{type(exc).__name__}: {exc}", end=clock()
-            )
-            write()
-            _notify(on_stage, name, "failed")
-            raise
-        entry.update(status="complete", end=clock())
-        write()
-        _notify(on_stage, name, "complete")
-        return result
-
-    from . import bootstrap, direction, fit, optical_probe, summary, validate
-
-    # --- Optical-path reuse fast path (opt-in via ``reuse_latest``) ----------
-    # Off (the default) the code below is byte-for-byte the historical one.
-    # On, and only on, we first spend one cheap probe (camera + SLM open, one
-    # frame) to compare the *current* optical path against the saved latest
-    # model. Unchanged -> the capture and the fit are skipped and the session
-    # jumps straight to the CCD-anchored blocks with the reused checkpoint.
-    if config.reuse_latest and config.dataset is None and not offline:
-        reuse = _attempt_optical_reuse(config, out, device=device, on_stage=on_stage)
-        if reuse is not None:
-            return _run_reused_session(
-                config,
-                out,
-                reuse,
-                device=device,
-                on_stage=on_stage,
-                on_frame=on_frame,
-                stage=stage,
-                validate=validate,
-                summary=summary,
-                direction=direction,
-            )
-    else:
-        # 光路复用没走 (开关未开 / 数据集会话 / 离线): 写一行跳过说明,
-        # 供「运行处」说明「为什么没走复用」。写记录失败不影响会话。
-        if not config.reuse_latest:
-            _write_optical_probe_skip(out, optical_probe.REUSE_SKIP_DISABLED)
-        elif config.dataset is not None:
-            _write_optical_probe_skip(out, optical_probe.REUSE_SKIP_DATASET)
-        else:
-            _write_optical_probe_skip(out, optical_probe.REUSE_SKIP_OFFLINE)
-
-    dataset, samples = _acquire_session_dataset(
-        config, out=out, device=device, stage=stage, on_frame=on_frame, offline=offline
-    )
-    checkpoint = (
-        config.checkpoint.resolve()
-        if config.checkpoint
-        else out / "initial/frozen_parameters.json"
-    )
-    if config.checkpoint is None:
-
-        def initialize():
-            params, provenance = bootstrap.bootstrap(dataset)
-            checkpoint.parent.mkdir()
-            checkpoint.write_text(json.dumps(params, indent=2), encoding="utf-8")
-            (checkpoint.parent / "provenance.json").write_text(
-                json.dumps(provenance, indent=2), encoding="utf-8"
-            )
-
-        stage("nominal_initialization", initialize)
-    # The capture stage's in-memory payloads go straight into the fit; only a
-    # reused (recorded) dataset is read back from disk.
-    # The fit and the CCD validation stages form one *round*: the acceptance
-    # loop below repeats them. Round 0 keeps the historical names and paths
-    # byte-for-byte; re-rounds get their own directories (``fit.round1`` ...)
-    # because every one of these stages refuses to write into an existing
-    # directory.
-    max_rounds = config.acceptance_max_rounds if config.acceptance_enabled else 1
-    rounds: list[dict] = []
-    accepted = not config.acceptance_enabled
-    stopped_by_user = False
-    last_round = 0
-    # The warm start stays the *initial* checkpoint for every round: each round
-    # refits from the same nominal model with a different training fold, so the
-    # rounds stay comparable (a warm start from the previous round would
-    # confound "more data" with "better initial guess").
-    warm_start = checkpoint
     for round_index in range(max_rounds):
         if round_index > 0:
             # The user may have pressed Stop while the previous round ran.
@@ -1417,6 +1273,165 @@ def run_session(
             # The offline path has no CCD round to loop over; it stays a
             # single pass.
             break
+    return accepted, last_round, stopped_by_user
+
+
+
+def run_session(
+    config: TransferSession, *, offline=False, on_stage=None, on_frame=None,
+    should_stop=None,
+):
+    """No subprocess chains; each completed/failed stage is journaled immediately.
+
+    ``on_stage(name, status)`` is an optional observer called whenever a stage
+    starts / completes / fails -- the same moment the journal line is written.
+    It exists so the GUI can show progress through *this* entry point instead of
+    re-implementing the stage sequence (a second orchestrator would drift).
+    A raising observer must not wreck the session, so its errors are swallowed
+    with a warning; the journal and the run itself stay authoritative.
+
+    ``on_frame(payload)`` is the live CCD observer, forwarded unchanged to every
+    stage that opens the camera: the capture stage, the standalone light check,
+    the model and anchored blocks, and the exposure-response capture. Each of
+    those fires it **on every CCD read** (see
+    :func:`~ao_shaping.tools.slm.transfer.live_frame.frame_payload`), and every
+    call site wraps it in the same best-effort guard. ``None`` (the CLI /
+    offline default) leaves the measured path byte-for-byte unchanged.
+
+    ``should_stop`` is an optional no-arg callback consulted between acceptance
+    retrain rounds. When it returns True (the GUI's Stop button), the loop halts
+    gracefully, keeps the best result so far, and does not error. Ignored unless
+    ``config.acceptance_enabled``.
+    """
+    config.validate()
+    if offline and config.dataset is None:
+        raise ValueError("--offline requires a recorded --dataset")
+    # 自动升档只对会采集的会话生效：录制数据集的网格由 manifest 决定，改了就与拟合对不上。
+    grid_decision = None
+    if config.dataset is None and getattr(config, "auto_capture_grid", False):
+        grid_decision = decide_capture_grid(config)
+        if grid_decision.raised:
+            # dataclasses.replace 只搬字段：桌面用 object.__setattr__ 挂的 tilt /
+            # aspect_ratio 运行时属性会丢，必须原样带回（下游用 getattr 读它们）。
+            field_names = {f.name for f in fields(config)}
+            extras = {k: v for k, v in vars(config).items() if k not in field_names}
+            config = replace(config, capture_grid=grid_decision.chosen)
+            for key, value in extras.items():
+                object.__setattr__(config, key, value)
+            logger.info(
+                "采集网格自动升档: {} → {} (目标 {:g} px, 可达 ±{:.0f} px)",
+                grid_decision.requested, grid_decision.chosen,
+                grid_decision.extent_px, grid_decision.reach_px,
+            )
+    out = config.out.resolve()
+    out.mkdir(parents=True, exist_ok=False)
+    # Resolve the compute device once, here, so ``session.json`` records the one
+    # the stages will actually use (``config.device`` is the *request*: "auto").
+    device = resolve_device(config.device)
+    # 在升档之后才生成 plan, 使 session.json 的 settings 记录的是实际采用的网格。
+    plan = config.plan(offline)
+    plan["resolved"]["device"] = device
+    if grid_decision is not None:
+        plan["resolved"]["capture_grid_decision"] = asdict(grid_decision)
+    (out / "session.json").write_text(
+        json.dumps(dict(**plan, **clock()), default=str, indent=2), encoding="utf-8"
+    )
+    journal = []
+
+    def stage(name, operation):
+        entry = dict(stage=name, status="running", **clock())
+        journal.append(entry)
+        write = lambda: (out / "journal.json").write_text(
+            json.dumps(journal, default=str, indent=2), encoding="utf-8"
+        )
+        write()
+        print(f"[{name}] started", flush=True)
+        _notify(on_stage, name, "running")
+        try:
+            result = operation()
+        except BaseException as exc:
+            entry.update(
+                status="failed", error=f"{type(exc).__name__}: {exc}", end=clock()
+            )
+            write()
+            _notify(on_stage, name, "failed")
+            raise
+        entry.update(status="complete", end=clock())
+        write()
+        _notify(on_stage, name, "complete")
+        return result
+
+    from . import bootstrap, direction, fit, optical_probe, summary, validate
+
+    # --- Optical-path reuse fast path (opt-in via ``reuse_latest``) ----------
+    # Off (the default) the code below is byte-for-byte the historical one.
+    # On, and only on, we first spend one cheap probe (camera + SLM open, one
+    # frame) to compare the *current* optical path against the saved latest
+    # model. Unchanged -> the capture and the fit are skipped and the session
+    # jumps straight to the CCD-anchored blocks with the reused checkpoint.
+    if config.reuse_latest and config.dataset is None and not offline:
+        reuse = _attempt_optical_reuse(config, out, device=device, on_stage=on_stage)
+        if reuse is not None:
+            return _run_reused_session(
+                config,
+                out,
+                reuse,
+                device=device,
+                on_stage=on_stage,
+                on_frame=on_frame,
+                stage=stage,
+                validate=validate,
+                summary=summary,
+                direction=direction,
+            )
+    else:
+        # 光路复用没走 (开关未开 / 数据集会话 / 离线): 写一行跳过说明,
+        # 供「运行处」说明「为什么没走复用」。写记录失败不影响会话。
+        if not config.reuse_latest:
+            _write_optical_probe_skip(out, optical_probe.REUSE_SKIP_DISABLED)
+        elif config.dataset is not None:
+            _write_optical_probe_skip(out, optical_probe.REUSE_SKIP_DATASET)
+        else:
+            _write_optical_probe_skip(out, optical_probe.REUSE_SKIP_OFFLINE)
+
+    dataset, samples = _acquire_session_dataset(
+        config, out=out, device=device, stage=stage, on_frame=on_frame, offline=offline
+    )
+    checkpoint = (
+        config.checkpoint.resolve()
+        if config.checkpoint
+        else out / "initial/frozen_parameters.json"
+    )
+    if config.checkpoint is None:
+
+        def initialize():
+            params, provenance = bootstrap.bootstrap(dataset)
+            checkpoint.parent.mkdir()
+            checkpoint.write_text(json.dumps(params, indent=2), encoding="utf-8")
+            (checkpoint.parent / "provenance.json").write_text(
+                json.dumps(provenance, indent=2), encoding="utf-8"
+            )
+
+        stage("nominal_initialization", initialize)
+    # The capture stage's in-memory payloads go straight into the fit; only a
+    # reused (recorded) dataset is read back from disk.
+    # The fit and the CCD validation stages form one *round*: the acceptance
+    # loop below repeats them. Round 0 keeps the historical names and paths
+    # byte-for-byte; re-rounds get their own directories (``fit.round1`` ...)
+    # because every one of these stages refuses to write into an existing
+    # directory.
+    max_rounds = config.acceptance_max_rounds if config.acceptance_enabled else 1
+    rounds: list[dict] = []
+    accepted = not config.acceptance_enabled
+    stopped_by_user = False
+    last_round = 0
+    # The warm start stays the *initial* checkpoint for every round: each round
+    # refits from the same nominal model with a different training fold, so the
+    # rounds stay comparable (a warm start from the previous round would
+    # confound "more data" with "better initial guess").
+    warm_start = checkpoint
+    accepted, last_round, stopped_by_user = _run_session_rounds(
+        accepted, checkpoint, config, dataset, device, fit, max_rounds, offline, on_frame, out, rounds, samples, should_stop, stage, stopped_by_user, validate, warm_start)
 
     # The summary and the direction check read the *last* round's anchored
     # blocks, so they run once, after the loop converges or stops. The offline
