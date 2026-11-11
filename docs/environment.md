@@ -95,11 +95,11 @@ Python 之前设好；路径解析器变量与 `SLM_MODELS_DIR` 则在调用时�
 | `AO_SHAPING_CONFIG` | `src/ao_shaping/utils/io/paths.py` | 源码模式 `<repo>/ao_shaping.toml`；冻结模式 `<exe dir>/ao_shaping.toml` | 指定 TOML 配置文件位置；相对路径按该文件所在目录解析 |
 | `AO_SHAPING_DATA_DIR` | `src/ao_shaping/utils/io/paths.py` | 源码模式 `data`；冻结模式 `<exe dir>/data` | 数据根目录；可由配置文件中的 `data_dir` 补充配置 |
 | `AO_SHAPING_WEIGHTS_DIR` | `src/ao_shaping/utils/io/paths.py` | `<锚定目录>/data/slm_models` (显式配置数据目录时为 `<数据目录>/slm_models`) | 权重根目录; 兼容旧变量 `SLM_MODELS_DIR`，后者优先级更高 |
-| `SLM_CONFIG_DIR` | `src/ao_shaping/drivers/slm/santec/driver.py` | `<repo>/data/slm_configs` | SLM 相位表 / LUT 配置目录 |
-| `DM_CONFIG_DIR` | `src/ao_shaping/drivers/dm/nlight/driver.py` | `<repo>/data/dm_configs` | NLight 变形镜配置目录 |
-| `MICRO_DM_CONFIG_DIR` | `src/ao_shaping/drivers/dm/micro/driver.py` | `<repo>/data/micro_dm_configs` | 微变形镜 (R50Power) 配置目录 |
-| `CCD_CONFIG_DIR` | `src/ao_shaping/drivers/ccd/daheng/driver.py` | `<repo>/data/ccd_configs` | Daheng 相机配置目录 |
-| `WFS_CONFIG_DIR` | `src/ao_shaping/drivers/wfs/thorlab_wfs.py` | `<repo>/data/wfs_configs` | Thorlabs WFS 配置目录 |
+| `SLM_CONFIG_DIR` | `src/ao_shaping/utils/io/paths.py` (`device_config_dir("slm")`, 调用时读取; `drivers/slm/santec/driver.py` 等仅为消费方) | `<锚定目录>/data/slm_configs` (源码检出即 `<repo>/data/slm_configs`) | SLM 相位表 / LUT 配置目录 |
+| `DM_CONFIG_DIR` | `src/ao_shaping/utils/io/paths.py` (`device_config_dir("dm")`, 调用时读取) | `<锚定目录>/data/dm_configs` | NLight 变形镜配置目录 |
+| `MICRO_DM_CONFIG_DIR` | `src/ao_shaping/utils/io/paths.py` (`device_config_dir("micro_dm")`, 调用时读取) | `<锚定目录>/data/micro_dm_configs` | 微变形镜 (R50Power) 配置目录 |
+| `CCD_CONFIG_DIR` | `src/ao_shaping/utils/io/paths.py` (`device_config_dir("ccd")`, 调用时读取) | `<锚定目录>/data/ccd_configs` | Daheng 相机配置目录 |
+| `WFS_CONFIG_DIR` | `src/ao_shaping/utils/io/paths.py` (`device_config_dir("wfs")`, 调用时读取) | `<锚定目录>/data/wfs_configs` | Thorlabs WFS 配置目录 |
 | `AO_SHAPING_SLM_DLL_DIR` | `src/ao_shaping/drivers/slm/santec/_slm_win.py` | 无 (按候选目录搜索) | `SLMFunc.dll` 的第一候选目录; 未设则再找 `docs/SLM_DLL_ver.2.51`, 仍找不到就 `OSError` |
 | `MIICAM_SDK_PATH` | `src/ao_shaping/drivers/ccd/miicam/_sdk_setup.py` | 无 (回落链) | MiiCam SDK 目录, 优先级最高; 否则依次用随仓的 `src/ao_shaping/drivers/ccd/_miicam_sdk` 与 `libs/miicamsdk.20240728/python` |
 | `AO_SHAPING_SDK_PATH` | `src/ao_shaping/tools/slm/transfer/hardware.py` | `<repo>/libs` | 存放 `gxipy` 厂商绑定的父目录 |
