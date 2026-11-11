@@ -4788,6 +4788,13 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 生成器第二次"跨批继承"教训：split50 的"区后无代码"断言是从尾区拆分继承的，中区拆分必须移除（泄漏审计本就覆盖区后读）；补丁脚本全部带 `assert old in s` 命中验证（b49 静默失效教训固化）
 - 证明与验收：叶语句全树扫描 IDENTICAL（496 对 498 减 2=调用+返回, 记账断言用 AST 现场提取的真实新串）；载体 `test_transfer_workflow.py` **51 passed**（fakes 端到端真执行 `validate.run`，b39"必跑顶层文件"教训兑现）；tools/slm 全域 per-file 零红 exit=0；形状门禁 **166 passed**；棘轮行 300/5/246 收紧 250/2/212 + helper 行 110/5/69；模块 1389→1406 基线随实测；wiki 无 validate.py 行号引用（免重锚）
 
+**2026-11-10 · 416b8204 · 第 51 批 CI 闭环（四条 workflow 全绿, 分片 attempt#1 直接 success）；第 52 批在案**
+- 第 52 批：`_md_sections_tail` 245→**113**（衍射效率报告脚本, 纯离线字符串构造器）——75 行 `conclusions` 与 59 行 `falsified` 两个 f-string 大赋值逐字升出 `_md_conclusions`(80)/`_md_falsified`(64), 母函数嵌套 2→0
+- **纯字符串拆分的证明强度论证（新形态）**：此类函数唯一可观测行为 = 返回串, 叶扫描按**完整 ast.dump 相等**记账, JoinedStr 的字符串常量/内嵌表达式/格式符全部含于大赋值叶内 → IDENTICAL + def/call 参数同源 + ruff F821 干净即构成行为等价全证, 无需合成输入端到端（沙箱 importlib 对旧新两文件**同型报错** pathlib IndexError:2, 对照实验证明与拆分无关, 冒烟不可用不当作证据也不当作障碍）
+- 生成器审计第 4 盲区（侦察期抓中, 未漏网）：模块级常量是 **AnnAssign**（`PERIOD_PX: int = 32`）时 mod 集合漏收 → helper 区把模块名误判为未预绑参数; mod 收集补 `ast.AnnAssign` 目标
+- 形状门禁 **168 passed**；棘轮行 330/2/245 收紧 150/0/113 + helper 行 120/0/80、100/0/64；scripts/ 模块规模仅报告不参与门禁（无基线键）；报告脚本无 wiki 引用
+- 叶扫描 IDENTICAL（496 对 500 减 4 = 两调用 + 两返回, 记账串 AST 现场提取）
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

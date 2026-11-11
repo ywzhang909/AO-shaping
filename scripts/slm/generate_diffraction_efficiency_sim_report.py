@@ -1390,19 +1390,11 @@ def _md_sections_studies(v: SimpleNamespace, results: list[CaseResult]) -> Simpl
     return SimpleNamespace(study_a=study_a, study_b=study_b, study_c=study_c, study_d=study_d, detect=detect)
 
 
-def _md_sections_tail(v: SimpleNamespace, results: list[CaseResult]) -> SimpleNamespace:
-    """#205 batch-2: tail block of the former 596-line build_markdown; body moved line-exact, free names re-bound from v."""
-    bias_pct = v.bias_pct
-    d3 = v.d3
-    d6 = v.d6
-    d_rows = v.d_rows
-    ff08 = v.ff08
-    ff08bg = v.ff08bg
-    g14 = v.g14
-    max_resid_normal = v.max_resid_normal
-    ref = v.ref
-    scurve = v.scurve
-    wrong = v.wrong
+
+def _md_conclusions(bias_pct, d3, d_rows, ff08, ff08bg, g14, max_resid_normal, ref, results, scurve, wrong):
+    """Markdown section builder lifted verbatim from
+    `_md_sections_tail` (f-string content byte-identical).
+    """
     conclusions = f"""## 结论与对实验系统操作的影响
 
 1. **工具能可靠给出的**: 一级衍射效率的**峰值** (±1 级相对能量的最大值) 与它出现的
@@ -1478,7 +1470,13 @@ def _md_sections_tail(v: SimpleNamespace, results: list[CaseResult]) -> SimpleNa
    ④ 不要相信"过调制"结论, 除非绝对门禁通过 (违例 0) 且峰值 η±1 明显低于 1−ℓ 时才另行判断;
    ⑤ 若怀疑器件不是幂律 (真实器件常常是), 直接上厂商的相位查找表做线性化, 不要用
    本工具拟合出的 γ 去构建 remap 表 (它只是等效参数)。"""
+    return conclusions
 
+
+def _md_falsified(bias_pct, d3, d_rows, ff08, ref, scurve):
+    """Markdown section builder lifted verbatim from
+    `_md_sections_tail` (f-string content byte-identical).
+    """
     falsified = f"""## 被推翻 / 待确认
 
 **被本轮数据推翻的说法**:
@@ -1538,6 +1536,26 @@ def _md_sections_tail(v: SimpleNamespace, results: list[CaseResult]) -> SimpleNa
 6. **一级衍射在 u ≲ 0.25 不可探测** (检出下限, 见 §检出下限)。真实器件的零级旁瓣
    结构、相机噪声、离焦杂散光都会移动这个下限, 本轮的 {DETECT_U_MIN:.2f} 阈值
    只对数字孪生成立。"""
+    return falsified
+
+
+
+def _md_sections_tail(v: SimpleNamespace, results: list[CaseResult]) -> SimpleNamespace:
+    """#205 batch-2: tail block of the former 596-line build_markdown; body moved line-exact, free names re-bound from v."""
+    bias_pct = v.bias_pct
+    d3 = v.d3
+    d6 = v.d6
+    d_rows = v.d_rows
+    ff08 = v.ff08
+    ff08bg = v.ff08bg
+    g14 = v.g14
+    max_resid_normal = v.max_resid_normal
+    ref = v.ref
+    scurve = v.scurve
+    wrong = v.wrong
+    conclusions = _md_conclusions(bias_pct, d3, d_rows, ff08, ff08bg, g14, max_resid_normal, ref, results, scurve, wrong)
+
+    falsified = _md_falsified(bias_pct, d3, d_rows, ff08, ref, scurve)
 
     repro = f"""## 复现
 
