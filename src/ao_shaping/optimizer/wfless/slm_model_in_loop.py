@@ -3426,6 +3426,193 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
     )
 
 
+
+def _model_in_loop_round_row(applied_l2, clamp_applied, clamped, index, loss_after, loss_before, probe_count, rejection_streak, score_after, score_before, shaped_metrics, shaping_loss, step_a_iters, step_a_lr, step_l2, verdict):
+# One round's log row (dict literal lifted verbatim). `row` is read
+# by the caller after the lift; `index` is the enclosing loop var.
+    row = {
+        "stage": "round",
+        "round": index + 1,
+        # See the calibration record above: required by the shared pkl writer.
+        RECORD_EPOCH: index + 1,
+        "accepted": bool(verdict.accepted),
+        "reason": verdict.reason,
+        "loss_before": loss_before,
+        "loss_after": loss_after,
+        "step_a_iterations": int(step_a_iters),
+        "step_b_iterations": len(shaping_loss),
+        "coeff_step_l2": float(step_l2),
+        "coeff_step_applied": applied_l2,
+        "clamp_applied": bool(clamp_applied),
+        "coeff_norm": float(np.linalg.norm(clamped)),
+        "score_before": (
+            float(score_before) if score_before is not None else float("nan")
+        ),
+        "score_after": float(score_after),
+        "cv_after": float(shaped_metrics.get("uniformity_cv", float("nan"))),
+        "ee_after": float(shaped_metrics.get("encircled_energy", float("nan"))),
+        "shape_iou_after": float(shaped_metrics["shape_iou"]),
+        "uniformity_cv": float(
+            shaped_metrics.get("uniformity_cv", float("nan"))
+        ),
+        "probe_count": int(probe_count),
+        "step_a_lr": float(step_a_lr),
+        "rejection_streak": int(rejection_streak),
+        "shape_loss_initial": float(shaping_loss[0])
+        if shaping_loss
+        else float("nan"),
+        "shape_loss_final": float(shaping_loss[-1])
+        if shaping_loss
+        else float("nan"),
+    }
+    return row
+
+
+
+
+def _model_in_loop_round_holdout(bench, camera_rotation_quarters, cell_scale, clamped, config, flat_grid, geometry, holdout_correlation, holdout_seeds, index, leakage, model_gain, optimizer, probe_records, roi_center, source_amplitude):
+# Body of the holdout gate If lifted verbatim; the `if` line stays at
+# the caller so `holdout_correlations` (bound only when the gate is
+# taken) is never returned unbound -- the conditional-binding edge
+# the whole-statement lift hit on the sim path (b54 lesson).
+    holdout_correlations: list[float] = []
+    for holdout_index, holdout_seed in enumerate(holdout_seeds):
+        holdout_phase, holdout_family = _holdout_phase(
+            config.region,
+            config.probe_spread,
+            holdout_seed,
+            holdout_index,
+            int(config.holdout_probe_count),
+        )
+        bench.display(holdout_phase)
+        holdout_frame = prepare_frame(bench.measure())
+        holdout_grid = _to_model_grid(
+            holdout_frame,
+            roi_center,
+            int(geometry.far_field_size),
+            cell_scale,
+            camera_rotation_quarters,
+        )
+        prediction = optimizer.forward_intensity(
+            clamped, holdout_phase, source_amplitude
+        )
+        if flat_grid is not None:
+            prediction = model_gain * prediction + leakage * flat_grid
+        holdout_correlations.append(
+            _prediction_correlation(prediction, holdout_grid)
+        )
+        probe_records.append(
+            {
+                "round": index + 1,
+                "split": "holdout",
+                "index": holdout_index,
+                "family": holdout_family,
+                "phase": holdout_phase.copy(),
+                "raw_frame": getattr(bench, "last_raw_frame", None),
+                "frame": holdout_frame.copy(),
+                "model_grid": holdout_grid.copy(),
+                "prediction": np.asarray(prediction).copy(),
+                "correlation": holdout_correlations[-1],
+                "exposure_ms": getattr(bench, "last_exposure_ms", None),
+                "timestamp_utc": getattr(bench, "last_capture_utc", None),
+            }
+        )
+    holdout_correlation = float(np.mean(holdout_correlations))
+    logger.info(
+        "round {} independent phase correlation: {:.4f} (each {})",
+        index + 1,
+        holdout_correlation,
+        holdout_correlations,
+    )
+    return holdout_correlation, holdout_correlations
+
+
+
+
+def _model_in_loop_round_probes(bench, camera_rotation_quarters, cell_scale, coefficients, config, frames, geometry, index, live_display, optimizer, probe_count, probe_records, roi_center, source_amplitude, target_camera, train_seeds, uncertainty_probes):
+# Step-A probe batch loop lifted verbatim. `probe` (last iteration
+# value of the inner loop) returned: the holdout section reads it.
+# Every iteration binds probe on both if-branches, so a non-empty
+# train_seeds always returns it; empty seeds read nothing (all
+# later `probe` occurrences are comprehension-local) -> returning
+# an unbound name cannot fire on the same paths.
+    for probe_index, probe_seed in enumerate(train_seeds):
+        if uncertainty_probes is not None:
+            probe = uncertainty_probes[probe_index]
+        else:
+            probe = _probe_phase(
+                config.region,
+                config.probe_spread,
+                probe_seed,
+                smooth=config.cam_type != "sim",
+            )
+        bench.display(probe)
+        raw_probe = bench.measure()
+        measured = prepare_frame(raw_probe)
+        if config.step_sink is not None:
+            config.step_sink(
+                "stepA-probe",
+                _step_payload(
+                    phase_rad=probe,
+                    frame=measured,
+                    raw_scalars=_raw_frame_scalars(raw_probe),
+                    round_index=index + 1,
+                    probe_index=probe_index,
+                    probe_count=probe_count,
+                ),
+            )
+        if config.cam_type != "sim":
+            probe_records.append(
+                {
+                    "round": index + 1,
+                    "split": "train",
+                    "index": probe_index,
+                    "phase": probe.copy(),
+                    "raw_frame": getattr(bench, "last_raw_frame", None),
+                    "frame": measured.copy(),
+                    "exposure_ms": getattr(bench, "last_exposure_ms", None),
+                    "timestamp_utc": getattr(bench, "last_capture_utc", None),
+                }
+            )
+        if live_display is not None and not live_display.closed:
+            # The most informative frame of the whole loop: the
+            # prediction here uses the coefficients as they stand
+            # *before* this probe is folded in, so watching the
+            # prediction panel track the measurement panel is watching
+            # Step A's fit improve. ``value`` is left at its default so
+            # the intra-round probes redraw the curve without adding
+            # points -- the curve is per *round*, not per probe.
+            live_display.update(
+                measured=measured,
+                phase=probe,
+                predicted=_predicted_far_field(
+                    optimizer, coefficients, probe, source_amplitude
+                ),
+                center=roi_center,
+                r=target_camera / 2.0,
+                info=(
+                    f"round {index + 1}/{config.n_rounds} "
+                    f"step A probe {probe_index + 1}/{probe_count}"
+                ),
+                target_size=target_camera,
+            )
+        # Step A's loss needs the measurement on the model's own grid.
+        frames.append(
+            (
+                _to_model_grid(
+                    measured,
+                    roi_center,
+                    int(geometry.far_field_size),
+                    cell_scale,
+                    camera_rotation_quarters,
+                ),
+                probe,
+            )
+        )
+    return probe
+
+
+
 def _run_model_in_loop_rounds(
     *,
     _fit_aberration_at_probes: object,
@@ -3504,79 +3691,7 @@ def _run_model_in_loop_rounds(
             else None
         )
         frames: list[tuple[np.ndarray, np.ndarray]] = []
-        for probe_index, probe_seed in enumerate(train_seeds):
-            if uncertainty_probes is not None:
-                probe = uncertainty_probes[probe_index]
-            else:
-                probe = _probe_phase(
-                    config.region,
-                    config.probe_spread,
-                    probe_seed,
-                    smooth=config.cam_type != "sim",
-                )
-            bench.display(probe)
-            raw_probe = bench.measure()
-            measured = prepare_frame(raw_probe)
-            if config.step_sink is not None:
-                config.step_sink(
-                    "stepA-probe",
-                    _step_payload(
-                        phase_rad=probe,
-                        frame=measured,
-                        raw_scalars=_raw_frame_scalars(raw_probe),
-                        round_index=index + 1,
-                        probe_index=probe_index,
-                        probe_count=probe_count,
-                    ),
-                )
-            if config.cam_type != "sim":
-                probe_records.append(
-                    {
-                        "round": index + 1,
-                        "split": "train",
-                        "index": probe_index,
-                        "phase": probe.copy(),
-                        "raw_frame": getattr(bench, "last_raw_frame", None),
-                        "frame": measured.copy(),
-                        "exposure_ms": getattr(bench, "last_exposure_ms", None),
-                        "timestamp_utc": getattr(bench, "last_capture_utc", None),
-                    }
-                )
-            if live_display is not None and not live_display.closed:
-                # The most informative frame of the whole loop: the
-                # prediction here uses the coefficients as they stand
-                # *before* this probe is folded in, so watching the
-                # prediction panel track the measurement panel is watching
-                # Step A's fit improve. ``value`` is left at its default so
-                # the intra-round probes redraw the curve without adding
-                # points -- the curve is per *round*, not per probe.
-                live_display.update(
-                    measured=measured,
-                    phase=probe,
-                    predicted=_predicted_far_field(
-                        optimizer, coefficients, probe, source_amplitude
-                    ),
-                    center=roi_center,
-                    r=target_camera / 2.0,
-                    info=(
-                        f"round {index + 1}/{config.n_rounds} "
-                        f"step A probe {probe_index + 1}/{probe_count}"
-                    ),
-                    target_size=target_camera,
-                )
-            # Step A's loss needs the measurement on the model's own grid.
-            frames.append(
-                (
-                    _to_model_grid(
-                        measured,
-                        roi_center,
-                        int(geometry.far_field_size),
-                        cell_scale,
-                        camera_rotation_quarters,
-                    ),
-                    probe,
-                )
-            )
+        probe = _model_in_loop_round_probes(bench, camera_rotation_quarters, cell_scale, coefficients, config, frames, geometry, index, live_display, optimizer, probe_count, probe_records, roi_center, source_amplitude, target_camera, train_seeds, uncertainty_probes)
         logger.info(
             "round {}/{}: fitting the forward model on {} probes",
             index + 1,
@@ -3678,55 +3793,7 @@ def _run_model_in_loop_rounds(
 
         holdout_correlation = float("nan")
         if config.cam_type != "sim" or config.holdout_on_sim:
-            holdout_correlations: list[float] = []
-            for holdout_index, holdout_seed in enumerate(holdout_seeds):
-                holdout_phase, holdout_family = _holdout_phase(
-                    config.region,
-                    config.probe_spread,
-                    holdout_seed,
-                    holdout_index,
-                    int(config.holdout_probe_count),
-                )
-                bench.display(holdout_phase)
-                holdout_frame = prepare_frame(bench.measure())
-                holdout_grid = _to_model_grid(
-                    holdout_frame,
-                    roi_center,
-                    int(geometry.far_field_size),
-                    cell_scale,
-                    camera_rotation_quarters,
-                )
-                prediction = optimizer.forward_intensity(
-                    clamped, holdout_phase, source_amplitude
-                )
-                if flat_grid is not None:
-                    prediction = model_gain * prediction + leakage * flat_grid
-                holdout_correlations.append(
-                    _prediction_correlation(prediction, holdout_grid)
-                )
-                probe_records.append(
-                    {
-                        "round": index + 1,
-                        "split": "holdout",
-                        "index": holdout_index,
-                        "family": holdout_family,
-                        "phase": holdout_phase.copy(),
-                        "raw_frame": getattr(bench, "last_raw_frame", None),
-                        "frame": holdout_frame.copy(),
-                        "model_grid": holdout_grid.copy(),
-                        "prediction": np.asarray(prediction).copy(),
-                        "correlation": holdout_correlations[-1],
-                        "exposure_ms": getattr(bench, "last_exposure_ms", None),
-                        "timestamp_utc": getattr(bench, "last_capture_utc", None),
-                    }
-                )
-            holdout_correlation = float(np.mean(holdout_correlations))
-            logger.info(
-                "round {} independent phase correlation: {:.4f} (each {})",
-                index + 1,
-                holdout_correlation,
-                holdout_correlations,
-            )
+            holdout_correlation, holdout_correlations = _model_in_loop_round_holdout(bench, camera_rotation_quarters, cell_scale, clamped, config, flat_grid, geometry, holdout_correlation, holdout_seeds, index, leakage, model_gain, optimizer, probe_records, roi_center, source_amplitude)
         if config.cam_type != "sim" and (
             not np.isfinite(holdout_correlation)
             or not all(
@@ -3871,41 +3938,7 @@ def _run_model_in_loop_rounds(
             row_trust_state["trust_region_next_c_l2"] = float(trust_region.radius)
         else:
             row_trust_state = {}
-        row = {
-            "stage": "round",
-            "round": index + 1,
-            # See the calibration record above: required by the shared pkl writer.
-            RECORD_EPOCH: index + 1,
-            "accepted": bool(verdict.accepted),
-            "reason": verdict.reason,
-            "loss_before": loss_before,
-            "loss_after": loss_after,
-            "step_a_iterations": int(step_a_iters),
-            "step_b_iterations": len(shaping_loss),
-            "coeff_step_l2": float(step_l2),
-            "coeff_step_applied": applied_l2,
-            "clamp_applied": bool(clamp_applied),
-            "coeff_norm": float(np.linalg.norm(clamped)),
-            "score_before": (
-                float(score_before) if score_before is not None else float("nan")
-            ),
-            "score_after": float(score_after),
-            "cv_after": float(shaped_metrics.get("uniformity_cv", float("nan"))),
-            "ee_after": float(shaped_metrics.get("encircled_energy", float("nan"))),
-            "shape_iou_after": float(shaped_metrics["shape_iou"]),
-            "uniformity_cv": float(
-                shaped_metrics.get("uniformity_cv", float("nan"))
-            ),
-            "probe_count": int(probe_count),
-            "step_a_lr": float(step_a_lr),
-            "rejection_streak": int(rejection_streak),
-            "shape_loss_initial": float(shaping_loss[0])
-            if shaping_loss
-            else float("nan"),
-            "shape_loss_final": float(shaping_loss[-1])
-            if shaping_loss
-            else float("nan"),
-        }
+        row = _model_in_loop_round_row(applied_l2, clamp_applied, clamped, index, loss_after, loss_before, probe_count, rejection_streak, score_after, score_before, shaped_metrics, shaping_loss, step_a_iters, step_a_lr, step_l2, verdict)
         if config.cam_type != "sim" or config.holdout_on_sim:
             # Recorded whenever the held-out probes were actually measured,
             # which on sim is only under the explicit opt-in. The remaining
