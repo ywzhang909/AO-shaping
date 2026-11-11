@@ -68,6 +68,7 @@ from ao_shaping.drivers.slm.santec.wavefront_correction import WavefrontCorrecti
 from ao_shaping.utils.io import paths
 from ao_shaping.utils.io.device_config import ConfigHandler, DeviceParam, param
 from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.slm.slm_lut import require_validated_lut
 
 # ── 两个"灰度"的区别 (2026-11-04 定案, 别再混) ─────────────────────────────
 #
@@ -2129,12 +2130,28 @@ class Santec:
     def load_lut(self, lut_dir: str | Path | None) -> None:
         """从 LUT 目录加载相位→灰度补偿表。
 
-        该目录必须包含 ``lut.npz`` (首选) 或 ``lut_inverse.csv``, 即
-        ``ao_shaping.utils.slm.slm_lut.save_lut()`` 的产物。
+        该目录必须同时包含:
+
+        1. ``lut.npz`` (首选) 或 ``lut_inverse.csv``, 即
+           ``ao_shaping.utils.slm.slm_lut.save_lut()`` 的产物;
+        2. ``meta.json`` 元数据, 且 ``status == "validated"`` —— 由
+           ``ao_shaping.utils.slm.slm_lut.save_serial_lut()`` 按 SLM 序列号
+           归档 (``data/calib/lut/<slm_serial>/``)。
+
+        **信任闸门**: 缺 ``meta.json`` 或 status 为 ``provisional`` (测得但未验证)
+        的 LUT 一律拒绝, 并抛出
+        :class:`ao_shaping.utils.slm.slm_lut.LutTrustError` —— 未经验证的相位反演绝不
+        能以"日志里一条 warning"的形式混进生产显示路径, 那正是本次棋盘格标定
+        (0 级谷底 ~0.47 不响应) 要求收口的东西。目录不存在仍按原约定: 记 warning
+        并保持当前状态。
 
         Args:
             lut_dir: LUT 目录路径。``None`` 表示清除已加载的 LUT。
                 目录缺失或格式错误时记录一条告警, 并保持原状态不变。
+
+        Raises:
+            ao_shaping.utils.slm.slm_lut.LutTrustError: 目录存在但不可信 (缺元数据 /
+                status 不是 ``validated`` / 序列号与目录不匹配)。
         """
         if lut_dir is None:
             self._lut = None
@@ -2149,6 +2166,14 @@ class Santec:
                 f"SLM #{self.slm_number} LUT 目录不存在: {lut_path}，保持当前状态"
             )
             return
+
+        # 先过信任闸门, 再读任何表数据: 表本身格式对不对与它可不可信是两件事。
+        meta = require_validated_lut(lut_path)
+        logger.info(
+            f"SLM #{self.slm_number} LUT 信任闸门通过: {lut_path} "
+            f"(serial={meta['serial']}, status={meta['status']}, "
+            f"created_utc={meta['created_utc']}, source={meta['source']})"
+        )
 
         # 优先尝试 npz
         npz_file = lut_path / "lut.npz"

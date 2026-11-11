@@ -22,6 +22,42 @@ from ao_shaping.drivers.slm.santec import (
     Santec,
     apply_lut_remap,
 )
+from ao_shaping.utils.slm.slm_lut import (
+    LUT_STATUS_VALIDATED,
+    LutTrustError,
+    build_lut_meta,
+    write_lut_meta,
+)
+
+#: 两台真实设备的序列号。归档契约 (``utils.slm.slm_lut.require_validated_lut``)
+#: 要求 LUT 目录按面板序列号命名并带 ``validated`` 的 ``meta.json``，否则
+#: ``Santec.load_lut`` 直接拒绝 —— 下面这些用例测的是**解析格式**，
+#: 所以必须先提供一个可信容器，才能走到它们真正要测的代码。
+SLM1_SERIAL = "22030108"
+SLM2_SERIAL = "23020026"
+
+
+def _trust(lut_dir: Path, *, inverse_gray: np.ndarray | None = None) -> Path:
+    """Attach a ``validated`` ``meta.json`` to a hand-written LUT directory."""
+    table = np.arange(1024, dtype=np.uint16) if inverse_gray is None else inverse_gray
+    g_values = np.linspace(0.0, 1023.0, 65)
+    phi = np.linspace(0.0, 2.0 * np.pi, 65)
+    write_lut_meta(
+        lut_dir,
+        build_lut_meta(
+            serial=lut_dir.name,
+            status=LUT_STATUS_VALIDATED,
+            source="tests/ao_shaping/drivers/slm/test_slm_lut_hook.py",
+            g_values=g_values,
+            phi=phi,
+            inverse_gray=table,
+            valley=0.01,
+            wavelength_nm=1064.0,
+            gray_for_2pi=993,
+            notes="测试夹具：只提供可信容器，表内容由各用例自己写",
+        ),
+    )
+    return lut_dir
 
 
 # Ensure mock stays in place for every test in this module
@@ -51,6 +87,7 @@ def _write_identity_lut(directory: Path) -> None:
         phi=np.linspace(0, 2 * np.pi, 1024, dtype=np.float64),
         meta="identity",
     )
+    _trust(directory, inverse_gray=inverse_gray)
 
 
 def _write_offset_lut(directory: Path, offset: int = 100) -> None:
@@ -66,6 +103,7 @@ def _write_offset_lut(directory: Path, offset: int = 100) -> None:
         phi=np.linspace(0, 2 * np.pi, 1024, dtype=np.float64),
         meta=f"offset_{offset}",
     )
+    _trust(directory, inverse_gray=inverse_gray)
 
 
 def _write_csv_lut(directory: Path, offset: int = 0) -> None:
@@ -76,6 +114,12 @@ def _write_csv_lut(directory: Path, offset: int = 0) -> None:
         gray_val = min(i + offset, 1023)
         lines.append(f"{i * 2 * np.pi / 1024:.6f},{gray_val}")
     (directory / "lut_inverse.csv").write_text("\n".join(lines))
+    _trust(
+        directory,
+        inverse_gray=np.clip(np.arange(1024, dtype=np.int64) + offset, 0, 1023).astype(
+            np.uint16
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +211,7 @@ class TestLoadLUT:
 
     def test_load_identity_lut(self, tmp_path: Path) -> None:
         """Loading identity LUT should not change create_phase_from_array output."""
-        lut_dir = tmp_path / "lut_identity"
+        lut_dir = tmp_path / SLM1_SERIAL
         _write_identity_lut(lut_dir)
 
         slm = Santec(slm_number=1, shift_x=0, shift_y=0)
@@ -184,7 +228,7 @@ class TestLoadLUT:
 
     def test_load_offset_lut_changes_output(self, tmp_path: Path) -> None:
         """Non-identity LUT should change gray values in the altered region."""
-        lut_dir = tmp_path / "lut_offset"
+        lut_dir = tmp_path / SLM1_SERIAL
         _write_offset_lut(lut_dir, offset=100)
 
         slm = Santec(slm_number=1, shift_x=0, shift_y=0)
@@ -211,17 +255,22 @@ class TestLoadLUT:
         assert slm.lut_dir is None
 
     def test_load_empty_directory(self, tmp_path: Path) -> None:
-        """Loading from a directory without npz/csv should warn and keep lut=None."""
-        empty_dir = tmp_path / "empty_lut"
+        """一个只有空目录、没有 meta.json 的路径属于**不可信**，必须报错而不是静默忽略。
+
+        归档契约把"缺元数据"等同于"未标定"，所以这里期望 ``LutTrustError``
+        （旧行为是 warn + 保持 ``lut=None``，会让一份来历不明的表悄悄留在盘上）。
+        """
+        empty_dir = tmp_path / SLM2_SERIAL
         empty_dir.mkdir()
         slm = Santec(slm_number=1)
 
-        slm.load_lut(empty_dir)
+        with pytest.raises(LutTrustError):
+            slm.load_lut(empty_dir)
         assert slm.lut is None
 
     def test_load_none_clears_lut(self, tmp_path: Path) -> None:
         """load_lut(None) should clear a previously loaded LUT."""
-        lut_dir = tmp_path / "lut_to_clear"
+        lut_dir = tmp_path / SLM1_SERIAL
         _write_identity_lut(lut_dir)
 
         slm = Santec(slm_number=1)
@@ -234,7 +283,7 @@ class TestLoadLUT:
 
     def test_load_csv_fallback(self, tmp_path: Path) -> None:
         """Loading from a directory with only lut_inverse.csv should work."""
-        lut_dir = tmp_path / "lut_csv"
+        lut_dir = tmp_path / SLM1_SERIAL
         _write_csv_lut(lut_dir, offset=0)
 
         slm = Santec(slm_number=1, shift_x=0, shift_y=0)
@@ -249,13 +298,14 @@ class TestLoadLUT:
 
     def test_load_corrupted_npz_keeps_previous(self, tmp_path: Path) -> None:
         """A corrupted npz file should log a warning and keep the previous LUT."""
-        lut_dir_good = tmp_path / "lut_good"
+        lut_dir_good = tmp_path / SLM1_SERIAL
         _write_identity_lut(lut_dir_good)
-        lut_dir_bad = tmp_path / "lut_bad"
+        lut_dir_bad = tmp_path / SLM2_SERIAL
         lut_dir_bad.mkdir()
         # Write a valid-looking but corrupted npz
         bad_npz = lut_dir_bad / "lut.npz"
         bad_npz.write_bytes(b"not a real npz file")
+        _trust(lut_dir_bad)
 
         slm = Santec(slm_number=1)
         slm.load_lut(lut_dir_good)
@@ -268,14 +318,15 @@ class TestLoadLUT:
 
     def test_load_npz_missing_key_keeps_previous(self, tmp_path: Path) -> None:
         """npz without 'inverse_gray' key should warn and keep previous."""
-        lut_dir_good = tmp_path / "lut_good"
+        lut_dir_good = tmp_path / SLM1_SERIAL
         _write_identity_lut(lut_dir_good)
-        lut_dir_bad = tmp_path / "lut_bad"
+        lut_dir_bad = tmp_path / SLM2_SERIAL
         lut_dir_bad.mkdir()
         np.savez_compressed(
             str(lut_dir_bad / "lut.npz"),
             wrong_key=np.arange(1024, dtype=np.uint16),
         )
+        _trust(lut_dir_bad)
 
         slm = Santec(slm_number=1)
         slm.load_lut(lut_dir_good)
@@ -287,14 +338,15 @@ class TestLoadLUT:
 
     def test_load_npz_wrong_shape_keeps_previous(self, tmp_path: Path) -> None:
         """npz with wrong inverse_gray shape should warn and keep previous."""
-        lut_dir_good = tmp_path / "lut_good"
+        lut_dir_good = tmp_path / SLM1_SERIAL
         _write_identity_lut(lut_dir_good)
-        lut_dir_bad = tmp_path / "lut_bad"
+        lut_dir_bad = tmp_path / SLM2_SERIAL
         lut_dir_bad.mkdir()
         np.savez_compressed(
             str(lut_dir_bad / "lut.npz"),
             inverse_gray=np.zeros((10, 10), dtype=np.uint16),
         )
+        _trust(lut_dir_bad)
 
         slm = Santec(slm_number=1)
         slm.load_lut(lut_dir_good)
@@ -319,7 +371,7 @@ class TestLUTInCreatePhaseFromArray:
 
     def test_identity_lut_matches_no_lut(self, tmp_path: Path) -> None:
         """Identity LUT must produce identical output to no LUT at all."""
-        lut_dir = tmp_path / "lut_identity"
+        lut_dir = tmp_path / SLM1_SERIAL
         _write_identity_lut(lut_dir)
 
         slm_no_lut = Santec(slm_number=1, shift_x=0, shift_y=0)
@@ -334,7 +386,7 @@ class TestLUTInCreatePhaseFromArray:
 
     def test_offset_lut_modifies_correct_region(self, tmp_path: Path) -> None:
         """Pixels mapping into the offset region should be shifted by the LUT."""
-        lut_dir = tmp_path / "lut_offset"
+        lut_dir = tmp_path / SLM1_SERIAL
         _write_offset_lut(lut_dir, offset=100)
 
         slm = Santec(slm_number=1, shift_x=0, shift_y=0)
@@ -351,7 +403,7 @@ class TestLUTInCreatePhaseFromArray:
 
     def test_lut_applies_before_shift(self, tmp_path: Path) -> None:
         """LUT remap should be applied before shift (LUT operates on the full array)."""
-        lut_dir = tmp_path / "lut_shift"
+        lut_dir = tmp_path / SLM1_SERIAL
         _write_offset_lut(lut_dir, offset=50)
 
         slm = Santec(slm_number=1, shift_x=3, shift_y=2)
@@ -368,7 +420,7 @@ class TestLUTInCreatePhaseFromArray:
 
     def test_output_in_valid_range(self, tmp_path: Path) -> None:
         """Output follows linear mapping; SLM handles mod 2π wrapping."""
-        lut_dir = tmp_path / "lut_extreme"
+        lut_dir = tmp_path / SLM1_SERIAL
         _write_offset_lut(lut_dir, offset=200)
 
         slm = Santec(slm_number=1, shift_x=0, shift_y=0)

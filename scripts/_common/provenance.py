@@ -830,6 +830,27 @@ REPORTS: dict[str, ReportProvenance] = {
             "“调灰度把 0 级彻底搬空”在这台器件上不可达; 同时给出离焦把深度抬高到 2.2π 的实测对比"
         ),
     ),
+    "report/slm/lut_checker_20261111/report.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线 (读已落盘的 CCD 帧与重建结果)",
+        note=(
+            "棋盘格 (二维 0/Δ 二元相位) FFT 面双通道强度反演得到的等效相位台阶 Δ_eff(g) "
+            "在名义 π 灰度 g≈496 达峰 ~90° 后回落。已排除: 棋盘格几何尺寸 (cells 8–32 谷值 "
+            "0.468–0.488)、随灰度的散射/损耗 (全图功率 0.997–1.018)。"
+            "首要嫌疑 (优先于电学串扰): 约一半光是不随灰度变化的未调制静态分量 (偏振未匹配等) —— "
+            "调制功率占比 q 时标量反演的天花板是 2·arcsin√q, q≈0.5 恰为 90°, "
+            "因此“Δ_eff 不到 π”不能断言 LC 真实相位未到 π。"
+            "现有 invert_checkerboard_scan 的 LUT 产物不可信, 不应作为已校正 LUT 加载。"
+            "正文人工撰写; 配图与 GIF 由 scripts/slm/generate_lut_checker_report.py 离线生成 "
+            "(只读已落盘帧, 只写 figures/, 不改写正文)。"
+        ),
+        extra_scripts=(
+            "scripts/slm/generate_lut_checker_report.py",
+            "scripts/slm/calib_slm_lut_checkerboard.py",
+            "scripts/slm/diag_checker_cells_sweep.py",
+            "src/ao_shaping/utils/slm/slm_lut.py",
+        ),
+    ),
     "report/slm/diffraction_efficiency/sim_nonideality_20261022.md": ReportProvenance(
         script="scripts/slm/generate_diffraction_efficiency_sim_report.py",
         command="python scripts/slm/generate_diffraction_efficiency_sim_report.py",
