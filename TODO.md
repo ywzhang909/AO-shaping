@@ -4918,6 +4918,15 @@ slm_zernike_pib.py:1872`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: `tests/ao_shaping/tools/slm` 逐文件 **84 段 exit=0**
 - 模块 1793→1801 (baseline 抬高); 无行锚漂移
 
+**2026-11-13 · 0f1a2b0e 之后 · 第 69 批: `_run_combined_session` 255→188 + 三缝 (`optimizer/combined_optimizer.py`)**
+- 提取: `_comb_setup_masks` 43 / `_comb_record_init_row` 21 / `_comb_render_factory` 15 (render 闭包工厂)
+- **回退第四缝**: `_saturate_epoch` 的工厂化把 `nonlocal pib_scaler` 改绑到工厂本地 (auto-exposure 跨 epoch 状态丢失), 编译期 SyntaxError 在收集阶段暴露 (生成器只解析不断链) —— 含 nonlocal 回写的闭包**不可工厂化**, 留在母函数
+- 生成器另修: 纯 def 区域的 returns 需扣除 def 自身形参 (`pos_img` 遮蔽误判)
+- 叶差分: 5 个 helper 逐字节同; 仅母函数变; 新增 3; 消失 0; 形参回写审计 0 处
+- 载体: combined 2 测试 + spgd **17 passed**
+- 模块 488→512 (baseline 抬高); 无行锚漂移
+- 教训 ㉘: **nonlocal 是闭包上提的硬边界**——被 `nonlocal` 声明的名字其绑定必须留在原帧; 工厂化只能搬运纯读取闭包
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
