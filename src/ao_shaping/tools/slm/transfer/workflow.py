@@ -5,6 +5,7 @@ from loguru import logger
 
 import argparse
 import json
+import shutil
 from dataclasses import asdict, dataclass, fields, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -455,7 +456,9 @@ def _write_reference_probe(fit_out: Path, dataset: Path, checkpoint: Path) -> No
     """把本次会话的光路条件写成参照侧车, 随模型存进 ``latest``。
 
     零点来自本次拟合的 ``frozen_parameters.json`` (``origin``), 曝光区间与取图
-    格式来自采集段写下的 ``_optical_probe.json``。缺哪一项就少写哪一项 ——
+    格式来自采集段写下的 ``_optical_probe.json``; 采集段落盘过平场参照帧时
+    (``FLAT_FRAME_FILE``) 一并复制进 ``fit_out`` 并登记 ``flat_frame`` 键。
+    缺哪一项就少写哪一项 ——
     下次复用判比时缺项视作「不可比」, 于是走正常全流程。
 
     Args:
@@ -463,7 +466,10 @@ def _write_reference_probe(fit_out: Path, dataset: Path, checkpoint: Path) -> No
         dataset: 采集目录 (读采集写下的侧车)。
         checkpoint: 冻结参数文件 (读零点)。
     """
-    from ao_shaping.tools.slm.transfer.optical_probe import FLAT_FROZEN_SIDECAR
+    from ao_shaping.tools.slm.transfer.optical_probe import (
+        FLAT_FRAME_FILE,
+        FLAT_FROZEN_SIDECAR,
+    )
 
     record: dict = {}
     try:
@@ -482,6 +488,17 @@ def _write_reference_probe(fit_out: Path, dataset: Path, checkpoint: Path) -> No
         for key in ("exposure_range_ms", "camera_format", "bit_depth", "slm_serial"):
             if captured.get(key) is not None:
                 record[key] = captured[key]
+    # 平场参照帧随侧车一起复制进 fit_out (``save_latest_model`` 会把 fit_out 的
+    # 文件一并带进 latest): 下次复用的形状判比要用它。采集没落盘 / 复制失败时
+    # 不写 ``flat_frame`` 键 —— 判比自动退回零点判比 (既有语义)。
+    flat_source = Path(dataset) / FLAT_FRAME_FILE
+    if flat_source.is_file():
+        try:
+            shutil.copy2(flat_source, Path(fit_out) / FLAT_FRAME_FILE)
+        except OSError as exc:  # 少一帧形状证据不阻断会话
+            logger.warning("光路复用平场参照帧复制失败: {!r}", exc)
+        else:
+            record["flat_frame"] = FLAT_FRAME_FILE
     try:
         (Path(fit_out) / FLAT_FROZEN_SIDECAR).write_text(
             json.dumps(record, indent=2), encoding="utf-8"
@@ -496,7 +513,7 @@ class _ReusePlan:
 
     #: 复用的冻结参数文件 (``latest/frozen_parameters.json``)。
     checkpoint: Path
-    #: 复用的零点 (相机像元), 取自 latest 模型的 ``origin``。
+    #: 复用的零点 (相机像元), 取自**本次实测**探针 (``current.zero_xy``)。
     zero_xy: list[float]
     #: 本次实测探针。
     current: object
@@ -618,15 +635,17 @@ def _attempt_optical_reuse(config: TransferSession, out: Path, *, device=None, o
     _notify(on_stage, "optical_probe", "complete")
     if not same:
         return None
-    # 复用: 零点取自 latest 模型自身的 ``origin`` (拟合时写入的实测零点)。
+    # 复用: 零点取**本次实测** (current.zero_xy), 不再用 latest 里的旧 origin ——
+    # 旧零点与本场可差到 DEFAULT_MAX_ZERO_DRIFT_PX (40 px, same_path 的最大不一致
+    # 容忍), 而下游裁剪/定位窗口都按零点锚定, 用旧值会把窗口带偏。旧 frozen
+    # 参数仍要读: checkpoint 本身照旧复用, grid_size 用于下面的网格充分性判定。
+    zero_xy = [float(current.zero_xy[0]), float(current.zero_xy[1])]
     try:
         frozen = json.loads(
             (latest / "frozen_parameters.json").read_text(encoding="utf-8")
         )
-        origin = frozen["origin"]
-        zero_xy = [float(origin[0]), float(origin[1])]
-    except (OSError, ValueError, KeyError, IndexError, TypeError) as exc:
-        logger.warning("光路复用: latest 模型零点读不出, 走正常全流程: {!r}", exc)
+    except (OSError, ValueError) as exc:
+        logger.warning("光路复用: latest 模型冻结参数读不出, 走正常全流程: {!r}", exc)
         return None
     # 网格充分性: 光路相同但 latest 网格更窄时, 复用会把够不着的目标原样交回。
     # 需要的网格取自本次会话 (同一份 decide_capture_grid 规则); 任何异常都只跳过复用。

@@ -686,7 +686,9 @@ def train_beam_shaping(
         target: ``(H, W)`` 目标强度掩码 (numpy 或 torch)。
         grid_size: ``(H, W)`` 网格尺寸。
         source_amplitude: 照明振幅。为 *None* 时取均匀值。
-        initial_phase: 起始相位 (弧度)。为 *None* 时取全零。
+        initial_phase: 起始相位 (弧度)。为 *None* 时取 ``0.1 * randn``(标准差 0.1 的
+        高斯噪声), **不是**全零 —— 零相位是 ASM 逃不出的临界点, 见
+        :func:`_shaping_tensors` 里的初始化注释。
         propagation: ``"fft"`` (夫琅禾费) 或 ``"asm"`` (角谱)。
         optimizer: ``"adam"`` 或 ``"lbfgs"``。
         iterations: 优化步数。
