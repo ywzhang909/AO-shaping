@@ -436,6 +436,184 @@ def _zernike_indices_from_n(n_zernike: int) -> list[tuple[int, int]]:
     return _zernike_indices(n_max)[:n_zernike]
 
 
+
+def _rms_heuristic_stage(_init_c, algorithm, calc_j, epochs, n_zernike, pop_size, recorder, slm, slm_wait_time, statics):
+# Black-box heuristic branch over Zernike coefficients lifted verbatim. Keeps the enclosing early-return in the parent
+    last_measure: dict = {}
+
+    def _evaluate_heuristic(c: np.ndarray) -> float:
+        phase_h = slm.send_zernike(c, slm_wait_time)
+        wf_h, statics_h, extra_h = calc_j()
+        last_measure.update(
+            {
+                "wf": wf_h,
+                "statics": statics_h,
+                "phase": phase_h,
+                "extra": extra_h,
+            }
+        )
+        return float(statics_h.get("rms", np.inf))
+
+    with tqdm.tqdm(
+        total=None,
+        desc=f"RMS-{algorithm} {statics['rms']:.3f}",
+        dynamic_ncols=True,
+    ) as hbar:
+
+        def _on_evaluate(c: np.ndarray, value: float, index: int) -> None:
+            row = {
+                "rms": value,
+                RECORD_COEFFS: c,
+                RECORD_DIFF: 0.0,
+                "_gamma": 0.0,
+                "delta": 0.0,
+                RECORD_EPOCH: index,
+                "_wavefront": last_measure["wf"][np.newaxis, ...],
+                RECORD_PHASE: np.asarray(last_measure["phase"])[np.newaxis, ...],
+                "_statics": last_measure["statics"],
+            }
+            if DEBUG_MODE:
+                row.update(last_measure.get("extra", {}))
+            recorder.append(row)
+            hbar.set_postfix(recorder.last_info_dict)
+            hbar.update(1)
+
+        result = run_heuristic_search(
+            algorithm,
+            _evaluate_heuristic,
+            dim=n_zernike,
+            iterations=epochs,
+            bounds=(ZERNIKE_MIN, ZERNIKE_MAX),
+            x0=_init_c,
+            maximize=False,
+            pop_size=pop_size,
+            on_evaluate=_on_evaluate,
+        )
+
+    slm.send_zernike(result.best_x)
+    logger.info(
+        "{} search finished: best RMS={:.4f} over {} evaluations; "
+        "restored best coefficients",
+        algorithm,
+        result.best_value,
+        result.evaluations,
+    )
+    return 
+
+
+
+
+def _rms_initial_state(_init_c, beta1, delta, lr, n_frames, n_zernike, optimizer_type, recorder, remove_tilt, slm, weight_decay, wfs):
+# Initial phase send + calc_j closure + first RMS + optimizer build + history baselines + init record lifted verbatim
+    init_phase = slm.send_zernike(_init_c, 1.0)
+
+    def calc_j():
+        wfs.take_image(n_frames)
+        wf, statics = wfs.get_wavefront(cancel_tile=remove_tilt)
+        extra = {}
+        if DEBUG_MODE:
+            spots_intensities, (cx, cy) = wfs.get_spots_statics()
+            dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=remove_tilt)
+            extra = {
+                "_intensity": spots_intensities,
+                "_dev_x": dev_x,
+                "_dev_y": dev_y,
+            }
+        return wf, statics, extra
+
+    wf, statics, init_extra = calc_j()
+    rms = statics.get("rms", np.inf)
+
+    if optimizer_type == "adamw":
+        optimizer = AdamW(
+            dim=n_zernike, lr=lr, beta1=beta1, beta2=0.99, weight_decay=weight_decay
+        )
+    else:
+        optimizer = AdaMOD(dim=n_zernike, lr=lr, beta1=beta1, beta3=0.9995)
+
+    best_c = _init_c.copy()
+    best_rms = rms
+    stagnation_counter = 0
+    rms_history = [rms]
+    freeze_mask = np.zeros(n_zernike, dtype=bool)
+
+    logger.info(f"Initial RMS: {statics['rms']:.4f}, weight_rms: {rms:.4f}")
+
+    init_record = {
+        "rms": statics["rms"],
+        RECORD_COEFFS: _init_c,
+        RECORD_DIFF: 0,
+        "_gamma": lr,
+        "delta": delta,
+        RECORD_EPOCH: 0,
+        "_wavefront": wf[np.newaxis, ...],
+        RECORD_PHASE: init_phase[np.newaxis, ...],
+        "_statics": statics,
+    }
+    if DEBUG_MODE:
+        init_record.update(init_extra)
+    recorder.append(init_record)
+    return best_rms, calc_j, freeze_mask, optimizer, rms_history, stagnation_counter, statics
+
+
+
+
+def _rms_init_coefficients(init_range, init_z, n_init_positions, n_zernike, remove_tilt, slm, wfs, zernike_modes):
+# Initial Zernike coefficients from the init_z forms + multi-start position scan lifted verbatim. Returns the starting coefficient vector
+    if init_z is None or (
+        isinstance(init_z, (list, tuple, np.ndarray)) and len(init_z) == 0
+    ):
+        _init_c = np.zeros(n_zernike, dtype=np.float64)
+    elif isinstance(init_z, dict):
+        _init_c = np.zeros(n_zernike, dtype=np.float64)
+        for (n, m), amp in init_z.items():
+            # Find index in modes list
+            if (n, m) in zernike_modes:
+                idx = zernike_modes.index((n, m))
+                _init_c[idx] = amp
+    else:
+        _init_c = np.array(init_z, dtype=np.float64)
+        if len(_init_c) < n_zernike:
+            padded = np.zeros(n_zernike, dtype=np.float64)
+            padded[: len(_init_c)] = _init_c
+            _init_c = padded
+        elif len(_init_c) > n_zernike:
+            _init_c = _init_c[:n_zernike]
+
+    # Multi-start optimization: try multiple random positions
+    if n_init_positions > 0:
+        logger.info(f"Multi-start: testing {n_init_positions} random positions...")
+        best_init_c = _init_c.copy()
+        slm.send_zernike(_init_c)
+        wfs.take_image(3)
+        wf, statics = wfs.get_wavefront(cancel_tile=remove_tilt)
+        best_rms = statics.get("rms", np.inf)
+
+        for i in range(n_init_positions):
+            test_c = np.random.uniform(-init_range, init_range, size=n_zernike)
+            test_c[0] = 0
+            test_c = np.clip(test_c, ZERNIKE_MIN, ZERNIKE_MAX)
+
+            slm.send_zernike(test_c)
+            wfs.take_image(3)
+            wf, statics = wfs.get_wavefront(cancel_tile=remove_tilt)
+            test_rms = statics.get("rms", np.inf)
+
+            logger.debug(
+                f"  Position {i + 1}/{n_init_positions}: RMS={test_rms:.4f}"
+            )
+
+            if test_rms < best_rms:
+                best_rms = test_rms
+                best_init_c = test_c.copy()
+
+        _init_c = best_init_c
+        logger.info(f"Multi-start: best position RMS={best_rms}")
+        slm.send_zernike(_init_c)
+    return _init_c
+
+
+
 def _run_rms_session(
     *,
     algorithm: object,
@@ -499,169 +677,15 @@ def _run_rms_session(
         ) as wfs,
     ):
         # Initialize Zernike coefficients
-        if init_z is None or (
-            isinstance(init_z, (list, tuple, np.ndarray)) and len(init_z) == 0
-        ):
-            _init_c = np.zeros(n_zernike, dtype=np.float64)
-        elif isinstance(init_z, dict):
-            _init_c = np.zeros(n_zernike, dtype=np.float64)
-            for (n, m), amp in init_z.items():
-                # Find index in modes list
-                if (n, m) in zernike_modes:
-                    idx = zernike_modes.index((n, m))
-                    _init_c[idx] = amp
-        else:
-            _init_c = np.array(init_z, dtype=np.float64)
-            if len(_init_c) < n_zernike:
-                padded = np.zeros(n_zernike, dtype=np.float64)
-                padded[: len(_init_c)] = _init_c
-                _init_c = padded
-            elif len(_init_c) > n_zernike:
-                _init_c = _init_c[:n_zernike]
-
-        # Multi-start optimization: try multiple random positions
-        if n_init_positions > 0:
-            logger.info(f"Multi-start: testing {n_init_positions} random positions...")
-            best_init_c = _init_c.copy()
-            slm.send_zernike(_init_c)
-            wfs.take_image(3)
-            wf, statics = wfs.get_wavefront(cancel_tile=remove_tilt)
-            best_rms = statics.get("rms", np.inf)
-
-            for i in range(n_init_positions):
-                test_c = np.random.uniform(-init_range, init_range, size=n_zernike)
-                test_c[0] = 0
-                test_c = np.clip(test_c, ZERNIKE_MIN, ZERNIKE_MAX)
-
-                slm.send_zernike(test_c)
-                wfs.take_image(3)
-                wf, statics = wfs.get_wavefront(cancel_tile=remove_tilt)
-                test_rms = statics.get("rms", np.inf)
-
-                logger.debug(
-                    f"  Position {i + 1}/{n_init_positions}: RMS={test_rms:.4f}"
-                )
-
-                if test_rms < best_rms:
-                    best_rms = test_rms
-                    best_init_c = test_c.copy()
-
-            _init_c = best_init_c
-            logger.info(f"Multi-start: best position RMS={best_rms}")
-            slm.send_zernike(_init_c)
+        _init_c = _rms_init_coefficients(init_range, init_z, n_init_positions, n_zernike, remove_tilt, slm, wfs, zernike_modes)
 
         # Initialize SLM with initial coefficients
-        init_phase = slm.send_zernike(_init_c, 1.0)
-
-        def calc_j():
-            wfs.take_image(n_frames)
-            wf, statics = wfs.get_wavefront(cancel_tile=remove_tilt)
-            extra = {}
-            if DEBUG_MODE:
-                spots_intensities, (cx, cy) = wfs.get_spots_statics()
-                dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=remove_tilt)
-                extra = {
-                    "_intensity": spots_intensities,
-                    "_dev_x": dev_x,
-                    "_dev_y": dev_y,
-                }
-            return wf, statics, extra
-
-        wf, statics, init_extra = calc_j()
-        rms = statics.get("rms", np.inf)
-
-        if optimizer_type == "adamw":
-            optimizer = AdamW(
-                dim=n_zernike, lr=lr, beta1=beta1, beta2=0.99, weight_decay=weight_decay
-            )
-        else:
-            optimizer = AdaMOD(dim=n_zernike, lr=lr, beta1=beta1, beta3=0.9995)
-
-        best_c = _init_c.copy()
-        best_rms = rms
-        stagnation_counter = 0
-        rms_history = [rms]
-        freeze_mask = np.zeros(n_zernike, dtype=bool)
-
-        logger.info(f"Initial RMS: {statics['rms']:.4f}, weight_rms: {rms:.4f}")
-
-        init_record = {
-            "rms": statics["rms"],
-            RECORD_COEFFS: _init_c,
-            RECORD_DIFF: 0,
-            "_gamma": lr,
-            "delta": delta,
-            RECORD_EPOCH: 0,
-            "_wavefront": wf[np.newaxis, ...],
-            RECORD_PHASE: init_phase[np.newaxis, ...],
-            "_statics": statics,
-        }
-        if DEBUG_MODE:
-            init_record.update(init_extra)
-        recorder.append(init_record)
+        best_rms, calc_j, freeze_mask, optimizer, rms_history, stagnation_counter, statics = _rms_initial_state(_init_c, beta1, delta, lr, n_frames, n_zernike, optimizer_type, recorder, remove_tilt, slm, weight_decay, wfs)
 
         if algorithm != "spgd":
             # Black-box heuristic search over Zernike coefficients: each evaluation
             # displays a phase and reads the WFS RMS (minimised).
-            last_measure: dict = {}
-
-            def _evaluate_heuristic(c: np.ndarray) -> float:
-                phase_h = slm.send_zernike(c, slm_wait_time)
-                wf_h, statics_h, extra_h = calc_j()
-                last_measure.update(
-                    {
-                        "wf": wf_h,
-                        "statics": statics_h,
-                        "phase": phase_h,
-                        "extra": extra_h,
-                    }
-                )
-                return float(statics_h.get("rms", np.inf))
-
-            with tqdm.tqdm(
-                total=None,
-                desc=f"RMS-{algorithm} {statics['rms']:.3f}",
-                dynamic_ncols=True,
-            ) as hbar:
-
-                def _on_evaluate(c: np.ndarray, value: float, index: int) -> None:
-                    row = {
-                        "rms": value,
-                        RECORD_COEFFS: c,
-                        RECORD_DIFF: 0.0,
-                        "_gamma": 0.0,
-                        "delta": 0.0,
-                        RECORD_EPOCH: index,
-                        "_wavefront": last_measure["wf"][np.newaxis, ...],
-                        RECORD_PHASE: np.asarray(last_measure["phase"])[np.newaxis, ...],
-                        "_statics": last_measure["statics"],
-                    }
-                    if DEBUG_MODE:
-                        row.update(last_measure.get("extra", {}))
-                    recorder.append(row)
-                    hbar.set_postfix(recorder.last_info_dict)
-                    hbar.update(1)
-
-                result = run_heuristic_search(
-                    algorithm,
-                    _evaluate_heuristic,
-                    dim=n_zernike,
-                    iterations=epochs,
-                    bounds=(ZERNIKE_MIN, ZERNIKE_MAX),
-                    x0=_init_c,
-                    maximize=False,
-                    pop_size=pop_size,
-                    on_evaluate=_on_evaluate,
-                )
-
-            slm.send_zernike(result.best_x)
-            logger.info(
-                "{} search finished: best RMS={:.4f} over {} evaluations; "
-                "restored best coefficients",
-                algorithm,
-                result.best_value,
-                result.evaluations,
-            )
+            _rms_heuristic_stage(_init_c, algorithm, calc_j, epochs, n_zernike, pop_size, recorder, slm, slm_wait_time, statics)
             return recorder
 
         perturb_weights = _get_perturb_weights(n_zernike)

@@ -4826,6 +4826,12 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - **本批两条新教训（都被生成器断言在写盘前拦下, 零条流入载体）**：⑫ 区内含 `break`/`continue` 的语句不可升出——循环跳转属宿主 `for`, 首跑 `_milr_accept_apply` 三处、`_milr_step_b_measure` 一处全部拒绝; 处置是只升跳转块的**前后直段**, 把 holdout 早退块与验收/拒绝分支整体留在母函数（region C 起点从 3824 收到 3852, 起点前的 holdout 块保留）; ⑬ 区后 `del name` 会被误判为"区后已重绑"从而把该名从回传里剔除（`frames` 案, ruff F821 实锤）——`del` 是解绑不是绑定, `a_st` 池必须跳过 `ast.Delete`; 与 b56 的"同一语句多目标赋值消费"互补, 再次证明 **F821 是回传缺口唯一兜底闸**
 - 证明与验收：叶差分 49 个函数逐字 AST 相同、仅 `_run_model_in_loop_rounds` 变化、5 个新 helper、零消失；载体九文件 **285 passed**；wfless 域 per-file **1105 passed, exit=0**；形状门禁+conventions **255 passed, 1 skipped**；棘轮行 510/3/470 收紧 236/3/205 + 五 helper 行 111/2/96、73/1/63、67/1/58、49/0/42、30/1/26；模块 4116→4156 基线随实测；wiki 无 `slm_model_in_loop.py` 行号引用（9a5695cf 刚重钉的四处在 `docs/slm/` 不在 wiki）
 
+**2026-11-12 · a93a399b · 第 57 批 CI 进行中（CI/Ruff/Pylint 绿，Pytest 未完）；第 58 批在案**
+- 第 58 批：`_run_rms_session` 397→**243**（单 `with` 体三缝, 自底向上）——`_rms_init_coefficients`(53, `init_z` 三种形态解析+多起点位置扫描, 回传 `_init_c`)、`_rms_initial_state`(51, 初始相位下发+`calc_j` 闭包+首测 RMS+优化器构建+历史基线+初始记录, 回传 7 名含闭包)、`_rms_heuristic_stage`(62, 黑盒启发式分支本体, 早退 `return recorder` 留在母函数 `if` 体末尾)
+- **本批四条新教训（全部在生成器期拦下, 零条流入载体）**：⑭ 区内含 `return` 的**整语句**不可升出（b38 老规则的新实例）：`if algorithm != "spgd":` 体 606-664 可升, 但 665 `return recorder` 必须留在母函数 `if` 体, 区界只能取到 return 之前; ⑮ `pre` 池必须只收**保证绑定**——原先 `IO(stmts[:idx])` 把多起点扫描里的条件预绑（`wf, statics = wfs.get_wavefront(...)`）算作已绑, 该名于是被剔出 helper 局部、反成 helper 形参, 逼上游区回传条件绑定名（`_rms_init_coefficients: conditional-only return wf`）; 改 `_gb_seq(stmts[:idx])` 后自洽; ⑯ **`if/else` 与 `if/elif/else` 是保证绑定**——`cond_stores` 只看"存是否在 If 内"会把两支都记成条件存, 造成假风险（`_init_c` s=6 c=6、`optimizer` s=2 c=2）; 新增 `_gb_stores`/`_gb_seq` 路径保证判定（If 两支都绑才算, Try 的 body 或全部 handler 绑才算）; ⑰ 生成器缩进必须按区首语句**实测**（`base` 与 `base−4`）, 原先硬编码 8/4 只适用 With/For 体, If 体（indent 12）会写错
+- `optimize_slm_square` 460 判定 **pin-only**：配置搬运（约 40 条单行 `x = config.x` + 单个 40 关键字调用）, 升出必然产生 40 参数 helper, 收益为负
+- 证明与验收：叶差分 14 个函数逐字 AST 相同、仅 `_run_rms_session` 变化、3 个新 helper、零消失；载体三文件 **28 passed**；wf 域 per-file **174 passed, exit=0**；形状门禁+conventions **258 passed, 1 skipped**；棘轮行 430/5/397 收紧 280/5/243 + 三 helper 行 72/3/62、59/2/51、61/4/53；模块 992→1016 基线；wiki 两处 `optimizer_rms_slm` 锚 838→862
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
