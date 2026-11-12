@@ -4898,6 +4898,13 @@ slm_zernike_pib.py:1872`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: `tests/ao_shaping/ml/sim2f` 逐文件 **26 段 exit=0** (显式路径覆盖 addopts 的 ml 排除); 扩展守卫集 **1121 passed 1 skipped**
 - 模块 2477→2501 (baseline 抬高); 无行锚漂移
 
+**2026-11-12 · 3ee96e4c 之后 · 第 66 批: `calibrate_bench` 277→142 + 五缝 (`src/ml/sim2f/calibrate.py`)**
+- 提取: `_calib_param_vector` 52 / `_calib_result_blocks` 46 / `_calib_start_scores` 22 / `_calib_verdict` 17 / `_calib_bounds_stages` 18
+- 关键复核: verdict 缝初版 779:791 把 `if ok/else` 从中间截断 (pristine 断言拒收), 扩到 779:792 全语句后 `params` 成为**无条件绑定**并自动进 returns——if/else 双臂绑定是 guaranteed-store (教训 ⑯ 的现场应用), 半语句区域则直接报 pristine 失败
+- 叶差分: 26 个 helper 逐字节同; 仅母函数变; 新增 5; 消失 0; 形参回写审计 0 处
+- 载体: sim2f 逐文件域 + 2 个 sim2f scripts 测试 **28 段 exit=0**; 扩展守卫集待跑
+- 模块 1094→1134 (baseline 抬高); 无行锚漂移
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

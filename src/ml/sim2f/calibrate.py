@@ -576,6 +576,181 @@ def _init_camera(
         raw[_SHIFT_Y] = shift_y.clamp(-_MAX_SHIFT_PX, _MAX_SHIFT_PX)
 
 
+
+def _calib_result_blocks(cfg, device, dtype, grid, measure_start, n_coeffs, n_eta, n_measure, nominal_eta, ok, params, sim, zero_start):
+# Beam camera transfer zero-order result blocks lifted verbatim
+    illumination_np = (
+        _beam_amplitude(sim, params[0], params[1], params[2], params[3], params[4])
+        .detach()[0, 0]
+        .to("cpu")
+        .numpy()
+        .astype(np.float32)
+    )
+    aberration_np = (
+        (
+            sim.aberration(  # type: ignore[attr-defined]
+                params[_COEFF_START : _COEFF_START + n_coeffs].view(1, n_coeffs)
+            )[0]
+            if n_coeffs > 0
+            else torch.zeros((grid, grid), dtype=dtype, device=device)
+        )
+        .detach()
+        .to("cpu")
+        .numpy()
+        .astype(np.float32)
+    )
+
+    nominal_w0 = float(sim.cfg.beam_w0_model_px)  # type: ignore[attr-defined]
+    beam = {
+        "width_scale_x": float(torch.exp(params[0])),
+        "width_scale_y": float(torch.exp(params[1])),
+        "w0_x_model_px": nominal_w0 * float(torch.exp(params[0])),
+        "w0_y_model_px": nominal_w0 * float(torch.exp(params[1])),
+        "angle_rad": float(params[2]),
+        "center_x_px": float(params[3]),
+        "center_y_px": float(params[4]),
+    }
+    camera = {
+        "zoom": float(torch.exp(params[_LOG_ZOOM])),
+        "shift_x_px": float(params[_SHIFT_X]),
+        "shift_y_px": float(params[_SHIFT_Y]),
+    }
+    transfer = measurement.MeasurementTransfer(
+        psf_sigma_px=float(params[measure_start]) if n_measure else 0.0,
+        background_fraction=float(params[measure_start + 1]) if n_measure > 1 else 0.0,
+    )
+    zero_order = {"eta": nominal_eta} if cfg.fit_zero_order else {}
+    if ok and n_eta:
+        zero_order["eta"] = float(_eta_from_raw(params[zero_start]))
+    return aberration_np, beam, camera, illumination_np, transfer, zero_order
+
+
+
+
+def _calib_verdict(n_holdout, raw, score, score_start):
+# Holdout regression verdict and detach lifted verbatim
+    ok = True
+    reason: str | None = None
+    if n_holdout > 0 and score["holdout"].l1 > score_start["holdout"].l1:
+        ok = False
+        reason = (
+            f"holdout l1 {score['holdout'].l1:.4f} worse than nominal "
+            f"{score_start['holdout'].l1:.4f}: the fit did not generalise"
+        )
+        logger.warning("calibrate rejected: %s", reason)
+
+    if ok:
+        params = raw.detach()
+    else:
+        params = torch.zeros_like(raw.detach())
+    return ok, params, reason
+
+
+
+
+def _calib_bounds_stages(device, dtype, n_coeffs, n_eta, n_measure):
+# Parameter bounds and stage list lifted verbatim
+    lower = torch.tensor(
+        [-_MAX_LOG_WIDTH, -_MAX_LOG_WIDTH, -_MAX_ANGLE_RAD, -_MAX_SHIFT_PX,
+         -_MAX_SHIFT_PX, -_MAX_LOG_ZOOM, -_MAX_SHIFT_PX, -_MAX_SHIFT_PX]
+        + [-_MAX_COEFF_RAD] * n_coeffs + [0.0] * n_measure + [-_ETA_LOGIT_MAX] * n_eta,
+        dtype=dtype, device=device,
+    )
+    upper = torch.tensor(
+        [_MAX_LOG_WIDTH, _MAX_LOG_WIDTH, _MAX_ANGLE_RAD, _MAX_SHIFT_PX,
+         _MAX_SHIFT_PX, _MAX_LOG_ZOOM, _MAX_SHIFT_PX, _MAX_SHIFT_PX]
+        + [_MAX_COEFF_RAD] * n_coeffs
+        + [measurement.MAX_PSF_SIGMA_PX, measurement.MAX_BACKGROUND_FRACTION][:n_measure]
+        + [_ETA_LOGIT_MAX] * n_eta,
+        dtype=dtype, device=device,
+    )
+    stages = [0] + ([1] if n_measure else []) + ([2] if n_eta else [])
+    return lower, stages, upper
+
+
+
+
+def _calib_start_scores(_split_scores, count, free_names, holdout, n_coeffs, n_eta, n_measure, phases, raw, sim, train, zero_start):
+# Start prediction and initial score logging lifted verbatim
+    with torch.no_grad():
+        eta = _eta_from_raw(raw[zero_start]) if n_eta else None
+        start_prediction = _predict(sim, phases, raw, n_coeffs, n_measure, eta=eta)
+    score_start = _split_scores(start_prediction)
+    history: list[float] = []
+    logger.info(
+        "calibrate: %d samples (%d train / %d holdout), free %s",
+        count,
+        int(train.size),
+        int(holdout.size),
+        ", ".join(free_names) or "(none)",
+    )
+    logger.info(
+        "calibrate: nominal train l1 %.4f ncc %.4f | holdout l1 %.4f ncc %.4f",
+        score_start["train"].l1,
+        score_start["train"].ncc,
+        score_start["holdout"].l1,
+        score_start["holdout"].ncc,
+    )
+    return eta, history, score_start
+
+
+
+
+def _calib_param_vector(cfg, device, dtype, measured, phases, sim):
+# Free-parameter vector names and camera init lifted verbatim
+    n_coeffs = int(cfg.zernike_n_max) - 1 if cfg.fit_zernike else 0  # Noll 2..n_max
+    measure_start = _COEFF_START + n_coeffs
+    n_measure = 0
+    if cfg.fit_measurement:
+        n_measure = 2 if cfg.fit_measurement_background else 1
+    zero_start = measure_start + n_measure
+    n_eta = 1 if cfg.fit_zero_order else 0
+    raw = torch.zeros(
+        zero_start + n_eta, dtype=dtype, device=device, requires_grad=True
+    )
+    free = torch.zeros_like(raw, dtype=torch.bool)
+    names: list[str] = [
+        "log_width_x",
+        "log_width_y",
+        "beam_angle_rad",
+        "beam_center_x_px",
+        "beam_center_y_px",
+        "log_zoom",
+        "camera_shift_x_px",
+        "camera_shift_y_px",
+    ]
+    if cfg.fit_beam:
+        free[0] = free[1] = free[2] = True
+    if cfg.fit_center:
+        free[3] = free[4] = True
+    if cfg.fit_scale:
+        free[_LOG_ZOOM] = True
+        free[_SHIFT_X] = free[_SHIFT_Y] = True
+    # Tip/tilt (Noll 2,3) stay frozen: they are the far-field shift, and the
+    # shift is already a free camera parameter.
+    if n_coeffs > 2:
+        free[_COEFF_START + 2 : _COEFF_START + n_coeffs] = True
+        names.extend(f"noll_{noll}" for noll in range(4, int(cfg.zernike_n_max) + 1))
+    if n_measure:
+        names.append("psf_sigma_px")
+        if n_measure > 1:
+            names.append("background_fraction")
+    if n_eta:
+        names.append("zero_order_eta")
+    free_names = tuple(
+        name for index, name in enumerate(names) if free[index] or index >= measure_start
+    )
+
+    nominal_eta = float(sim.cfg.errors.zero_order_eta)  # type: ignore[attr-defined]
+    if n_eta:
+        with torch.no_grad():
+            raw[zero_start] = _eta_raw(nominal_eta or 0.05)
+
+    _init_camera(sim, phases, measured, raw, n_coeffs)
+    return free, free_names, measure_start, n_coeffs, n_eta, n_measure, nominal_eta, raw, zero_start
+
+
+
 def calibrate_bench(
     sim: object,
     session: BenchSession,
@@ -634,55 +809,7 @@ def calibrate_bench(
         raise ValueError(f"session has {count} samples; nothing left to fit on")
 
     # -- vector: [beam(5), zoom, shift(2), coeffs..., measure(0|1|2), eta(0|1)] --
-    n_coeffs = int(cfg.zernike_n_max) - 1 if cfg.fit_zernike else 0  # Noll 2..n_max
-    measure_start = _COEFF_START + n_coeffs
-    n_measure = 0
-    if cfg.fit_measurement:
-        n_measure = 2 if cfg.fit_measurement_background else 1
-    zero_start = measure_start + n_measure
-    n_eta = 1 if cfg.fit_zero_order else 0
-    raw = torch.zeros(
-        zero_start + n_eta, dtype=dtype, device=device, requires_grad=True
-    )
-    free = torch.zeros_like(raw, dtype=torch.bool)
-    names: list[str] = [
-        "log_width_x",
-        "log_width_y",
-        "beam_angle_rad",
-        "beam_center_x_px",
-        "beam_center_y_px",
-        "log_zoom",
-        "camera_shift_x_px",
-        "camera_shift_y_px",
-    ]
-    if cfg.fit_beam:
-        free[0] = free[1] = free[2] = True
-    if cfg.fit_center:
-        free[3] = free[4] = True
-    if cfg.fit_scale:
-        free[_LOG_ZOOM] = True
-        free[_SHIFT_X] = free[_SHIFT_Y] = True
-    # Tip/tilt (Noll 2,3) stay frozen: they are the far-field shift, and the
-    # shift is already a free camera parameter.
-    if n_coeffs > 2:
-        free[_COEFF_START + 2 : _COEFF_START + n_coeffs] = True
-        names.extend(f"noll_{noll}" for noll in range(4, int(cfg.zernike_n_max) + 1))
-    if n_measure:
-        names.append("psf_sigma_px")
-        if n_measure > 1:
-            names.append("background_fraction")
-    if n_eta:
-        names.append("zero_order_eta")
-    free_names = tuple(
-        name for index, name in enumerate(names) if free[index] or index >= measure_start
-    )
-
-    nominal_eta = float(sim.cfg.errors.zero_order_eta)  # type: ignore[attr-defined]
-    if n_eta:
-        with torch.no_grad():
-            raw[zero_start] = _eta_raw(nominal_eta or 0.05)
-
-    _init_camera(sim, phases, measured, raw, n_coeffs)
+    free, free_names, measure_start, n_coeffs, n_eta, n_measure, nominal_eta, raw, zero_start = _calib_param_vector(cfg, device, dtype, measured, phases, sim)
 
     holdout_t = torch.as_tensor(holdout, dtype=torch.long, device=device)
     train_t = torch.as_tensor(train, dtype=torch.long, device=device)
@@ -706,42 +833,10 @@ def calibrate_bench(
             ).mean()
         return loss
 
-    with torch.no_grad():
-        eta = _eta_from_raw(raw[zero_start]) if n_eta else None
-        start_prediction = _predict(sim, phases, raw, n_coeffs, n_measure, eta=eta)
-    score_start = _split_scores(start_prediction)
-    history: list[float] = []
-    logger.info(
-        "calibrate: %d samples (%d train / %d holdout), free %s",
-        count,
-        int(train.size),
-        int(holdout.size),
-        ", ".join(free_names) or "(none)",
-    )
-    logger.info(
-        "calibrate: nominal train l1 %.4f ncc %.4f | holdout l1 %.4f ncc %.4f",
-        score_start["train"].l1,
-        score_start["train"].ncc,
-        score_start["holdout"].l1,
-        score_start["holdout"].ncc,
-    )
+    eta, history, score_start = _calib_start_scores(_split_scores, count, free_names, holdout, n_coeffs, n_eta, n_measure, phases, raw, sim, train, zero_start)
 
     steps = int(cfg.iters)
-    lower = torch.tensor(
-        [-_MAX_LOG_WIDTH, -_MAX_LOG_WIDTH, -_MAX_ANGLE_RAD, -_MAX_SHIFT_PX,
-         -_MAX_SHIFT_PX, -_MAX_LOG_ZOOM, -_MAX_SHIFT_PX, -_MAX_SHIFT_PX]
-        + [-_MAX_COEFF_RAD] * n_coeffs + [0.0] * n_measure + [-_ETA_LOGIT_MAX] * n_eta,
-        dtype=dtype, device=device,
-    )
-    upper = torch.tensor(
-        [_MAX_LOG_WIDTH, _MAX_LOG_WIDTH, _MAX_ANGLE_RAD, _MAX_SHIFT_PX,
-         _MAX_SHIFT_PX, _MAX_LOG_ZOOM, _MAX_SHIFT_PX, _MAX_SHIFT_PX]
-        + [_MAX_COEFF_RAD] * n_coeffs
-        + [measurement.MAX_PSF_SIGMA_PX, measurement.MAX_BACKGROUND_FRACTION][:n_measure]
-        + [_ETA_LOGIT_MAX] * n_eta,
-        dtype=dtype, device=device,
-    )
-    stages = [0] + ([1] if n_measure else []) + ([2] if n_eta else [])
+    lower, stages, upper = _calib_bounds_stages(device, dtype, n_coeffs, n_eta, n_measure)
     # Geometry, then detector MTF, then eta: sigma, beam width and camera zoom all
     # change the measured spot size, and eta trades against the fitted aberration.
     for stage in stages:
@@ -776,64 +871,9 @@ def calibrate_bench(
     score = _split_scores(final_prediction)
 
     # -- the generalisation gate ---------------------------------------------
-    ok = True
-    reason: str | None = None
-    if n_holdout > 0 and score["holdout"].l1 > score_start["holdout"].l1:
-        ok = False
-        reason = (
-            f"holdout l1 {score['holdout'].l1:.4f} worse than nominal "
-            f"{score_start['holdout'].l1:.4f}: the fit did not generalise"
-        )
-        logger.warning("calibrate rejected: %s", reason)
+    ok, params, reason = _calib_verdict(n_holdout, raw, score, score_start)
 
-    if ok:
-        params = raw.detach()
-    else:
-        params = torch.zeros_like(raw.detach())
-
-    illumination_np = (
-        _beam_amplitude(sim, params[0], params[1], params[2], params[3], params[4])
-        .detach()[0, 0]
-        .to("cpu")
-        .numpy()
-        .astype(np.float32)
-    )
-    aberration_np = (
-        (
-            sim.aberration(  # type: ignore[attr-defined]
-                params[_COEFF_START : _COEFF_START + n_coeffs].view(1, n_coeffs)
-            )[0]
-            if n_coeffs > 0
-            else torch.zeros((grid, grid), dtype=dtype, device=device)
-        )
-        .detach()
-        .to("cpu")
-        .numpy()
-        .astype(np.float32)
-    )
-
-    nominal_w0 = float(sim.cfg.beam_w0_model_px)  # type: ignore[attr-defined]
-    beam = {
-        "width_scale_x": float(torch.exp(params[0])),
-        "width_scale_y": float(torch.exp(params[1])),
-        "w0_x_model_px": nominal_w0 * float(torch.exp(params[0])),
-        "w0_y_model_px": nominal_w0 * float(torch.exp(params[1])),
-        "angle_rad": float(params[2]),
-        "center_x_px": float(params[3]),
-        "center_y_px": float(params[4]),
-    }
-    camera = {
-        "zoom": float(torch.exp(params[_LOG_ZOOM])),
-        "shift_x_px": float(params[_SHIFT_X]),
-        "shift_y_px": float(params[_SHIFT_Y]),
-    }
-    transfer = measurement.MeasurementTransfer(
-        psf_sigma_px=float(params[measure_start]) if n_measure else 0.0,
-        background_fraction=float(params[measure_start + 1]) if n_measure > 1 else 0.0,
-    )
-    zero_order = {"eta": nominal_eta} if cfg.fit_zero_order else {}
-    if ok and n_eta:
-        zero_order["eta"] = float(_eta_from_raw(params[zero_start]))
+    aberration_np, beam, camera, illumination_np, transfer, zero_order = _calib_result_blocks(cfg, device, dtype, grid, measure_start, n_coeffs, n_eta, n_measure, nominal_eta, ok, params, sim, zero_start)
     return CalibrationResult(
         ok=ok,
         reason=reason,
