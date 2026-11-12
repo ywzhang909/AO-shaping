@@ -4927,6 +4927,15 @@ slm_zernike_pib.py:1872`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 488→512 (baseline 抬高); 无行锚漂移
 - 教训 ㉘: **nonlocal 是闭包上提的硬边界**——被 `nonlocal` 声明的名字其绑定必须留在原帧; 工厂化只能搬运纯读取闭包
 
+**2026-11-13 · 795bf96c 之后 · 第 70 批: `ZernikeCoefficientOptimizer.__init__` 265→147 + 三缝 + 补钉第 69 批 wiki**
+- 提取 (方法体提为**模块级函数显式传 self**, 生成器 ANCHOR 改为类头): `_zco_init_validate` 69 (校验链, Raise 直传) / `_zco_init_coeffs` 34 / `_zco_init_affine_travel` 27
+- 补钉: 第 69 批把 `optimize_pib` 397→421 挪位但漏重钉 wiki (`optimize-pib-combined.md` 与 `index.md` 两处), 当场被 `test_wiki_source_citations_land_on_definitions` 抓住并修复; 第 69 批 CI 预期在此项红, HEAD 转绿
+- 叶差分: 52 个方法/函数逐字节同; 仅 `__init__` 变; 新增 3; 消失 0; 形参回写审计 0 处
+- 载体: `tests/ao_shaping/algorithm` 全目录 + 6 个 model_in_loop 载体 **54 段 exit=0**; 守卫集 **308 passed 1 skipped**
+- 模块 1609→1633 (baseline 抬高); 守卫表新增 `_ZCO` 常量与 4 行
+- 全树扫描: src 内 >249 行且未入守卫表的函数**清零**
+- 教训 ㉙: **helper 插到类前也是挪位源**——凡母函数所在文件其后还有其它定义, 每批都要重跑 wiki 钉测试, 不能只查 TODO/docs 锚
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

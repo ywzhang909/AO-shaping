@@ -380,6 +380,148 @@ class ZernikeCoefficientResult:
     converged: bool = False
 
 
+
+def _zco_init_affine_travel(dtype, self, torch):
+# Affine and travel seed tensors lifted verbatim
+    self._affine: Any = None
+    if self._affine_seed is not None:
+        self._affine = torch.tensor(
+            self._affine_seed.to_vector(),
+            dtype=self._basis_t.dtype,
+            device=self._dev,
+            requires_grad=True,
+        )
+    self._travel_gammas: Any = None
+    self._projector_t: Any = None
+    self._basis_flat_t: Any = None
+    if self._travel_seed is not None:
+        self._travel_gammas = torch.tensor(
+            self._travel_seed.to_vector(),
+            dtype=self._basis_t.dtype,
+            device=self._dev,
+            requires_grad=True,
+        )
+        self._basis_flat_t = _to_tensor(
+            self._basis_np.reshape(self._n_coeffs, -1), self._dev, dtype
+        )
+        self._projector_t = _to_tensor(
+            _projector_for_basis(self._basis_np), self._dev, dtype
+        )
+    return 
+
+
+
+
+def _zco_init_coeffs(frozen_modes, initial_coefficients, n_orders, seed, self):
+# Frozen mask and initial coefficient resolution lifted verbatim
+    mask = np.ones(calc_n_zernike_terms(n_orders), dtype=np.float64)
+    for noll in frozen_modes:
+        index = int(noll)
+        if not 1 <= index <= mask.size:
+            raise ValueError(
+                f"frozen_modes entries must be Noll indices in 1..{mask.size}, "
+                f"got {noll!r}"
+            )
+        mask[index - 1] = 0.0
+    # 保持为 numpy, 首次使用时才转成张量: 在 __init__ 的这个位置
+    # 设备还没解析出来。
+    self._frozen_mask: npt.NDArray[np.float64] | None = None if mask.all() else mask
+    self._mode_mask: Any = None
+
+    n_coeffs = calc_n_zernike_terms(n_orders)
+    if initial_coefficients is None:
+        if seed is None:
+            initial = np.zeros(n_coeffs, dtype=np.float64)
+        else:
+            rng = np.random.default_rng(seed)
+            initial = rng.normal(0.0, 0.1, n_coeffs)
+    else:
+        initial = np.asarray(initial_coefficients, dtype=np.float64)
+        if initial.ndim != 1 or initial.shape[0] != n_coeffs:
+            raise ValueError(
+                f"initial_coefficients must have shape ({n_coeffs},) for "
+                f"n_orders={n_orders}, got {initial.shape}"
+            )
+        if not np.all(np.isfinite(initial)):
+            raise ValueError("initial_coefficients must be finite")
+    self._initial_coefficients = initial.copy()
+    return n_coeffs
+
+
+
+
+def _zco_init_validate(affine_lr, dtype, error_terms, far_field_size, fourier_weight, loss_kind, lr, n_orders, pupil_oversampling, radius, region, seed, self, travel_lr):
+# Init argument validation chain lifted verbatim
+    if not isinstance(n_orders, int) or isinstance(n_orders, bool) or n_orders < 1:
+        raise ValueError(f"n_orders must be an integer >= 1, got {n_orders!r}")
+    if not isinstance(region, int) or isinstance(region, bool):
+        raise ValueError(f"region must be an integer, got {region!r}")
+    if region < 16 or region % 2 != 0:
+        raise ValueError(f"region must be >= 16 and even, got {region!r}")
+    if radius is None:
+        radius = region // 2
+    elif not isinstance(radius, int) or isinstance(radius, bool) or radius < 1:
+        raise ValueError(f"radius must be None or an integer >= 1, got {radius!r}")
+    if not np.isfinite(lr) or lr <= 0:
+        raise ValueError(f"lr must be a positive finite float, got {lr!r}")
+    if seed is not None and (not isinstance(seed, int) or isinstance(seed, bool)):
+        raise ValueError(f"seed must be None or an integer, got {seed!r}")
+    if dtype not in ("float32", "float64"):
+        raise ValueError(f"dtype must be 'float32' or 'float64', got {dtype!r}")
+    if far_field_size is None:
+        far_field_size = int(region)
+    elif (
+        not isinstance(far_field_size, int)
+        or isinstance(far_field_size, bool)
+        or far_field_size < region
+    ):
+        raise ValueError(
+            f"far_field_size must be None or an integer >= region "
+            f"({region}), got {far_field_size!r}"
+        )
+    self._far_field_size = int(far_field_size)
+    if (
+        not isinstance(pupil_oversampling, int)
+        or isinstance(pupil_oversampling, bool)
+        or pupil_oversampling < 1
+    ):
+        raise ValueError("pupil_oversampling must be a positive integer")
+    self._pupil_oversampling = pupil_oversampling
+    self._error_terms = (
+        error_terms if error_terms is not None else ModelErrorTerms()
+    )
+    if self._error_terms.needs_focal_geometry:
+        # Fail at construction: a defocus or a tilt that cannot be
+        # evaluated would otherwise surface as a NaN far field deep inside
+        # the fit, long after the hardware minutes were spent.
+        self._error_terms.validate_focal_geometry()
+
+    if not np.isfinite(fourier_weight) or fourier_weight < 0.0:
+        raise ValueError(
+            f"fourier_weight must be finite and >= 0, got {fourier_weight!r}"
+        )
+    self._fourier_weight = float(fourier_weight)
+    if loss_kind not in LOSS_KINDS:
+        raise ValueError(
+            f"loss_kind must be one of {LOSS_KINDS}, got {loss_kind!r}"
+        )
+    self._loss_kind = str(loss_kind)
+    if not np.isfinite(affine_lr) or affine_lr <= 0:
+        raise ValueError(
+            f"affine_lr must be a positive finite float, got {affine_lr!r}"
+        )
+    self._affine_lr = float(affine_lr)
+    self._travel_lr = (
+        self._affine_lr if travel_lr is None else float(travel_lr)
+    )
+    if not np.isfinite(self._travel_lr) or self._travel_lr <= 0:
+        raise ValueError(
+            f"travel_lr must be a positive finite float, got {travel_lr!r}"
+        )
+    return radius
+
+
+
 class ZernikeCoefficientOptimizer(IterativeOptimizer):
     """把 Zernike 像差系数拟合到实测远场上。
 
@@ -511,72 +653,7 @@ FAMILY_NAMES`)。``None`` (默认) = 关闭, 此时物理预测模型的输出�
         torch = _torch()
         super().__init__(max_iterations=max_iterations)
 
-        if not isinstance(n_orders, int) or isinstance(n_orders, bool) or n_orders < 1:
-            raise ValueError(f"n_orders must be an integer >= 1, got {n_orders!r}")
-        if not isinstance(region, int) or isinstance(region, bool):
-            raise ValueError(f"region must be an integer, got {region!r}")
-        if region < 16 or region % 2 != 0:
-            raise ValueError(f"region must be >= 16 and even, got {region!r}")
-        if radius is None:
-            radius = region // 2
-        elif not isinstance(radius, int) or isinstance(radius, bool) or radius < 1:
-            raise ValueError(f"radius must be None or an integer >= 1, got {radius!r}")
-        if not np.isfinite(lr) or lr <= 0:
-            raise ValueError(f"lr must be a positive finite float, got {lr!r}")
-        if seed is not None and (not isinstance(seed, int) or isinstance(seed, bool)):
-            raise ValueError(f"seed must be None or an integer, got {seed!r}")
-        if dtype not in ("float32", "float64"):
-            raise ValueError(f"dtype must be 'float32' or 'float64', got {dtype!r}")
-        if far_field_size is None:
-            far_field_size = int(region)
-        elif (
-            not isinstance(far_field_size, int)
-            or isinstance(far_field_size, bool)
-            or far_field_size < region
-        ):
-            raise ValueError(
-                f"far_field_size must be None or an integer >= region "
-                f"({region}), got {far_field_size!r}"
-            )
-        self._far_field_size = int(far_field_size)
-        if (
-            not isinstance(pupil_oversampling, int)
-            or isinstance(pupil_oversampling, bool)
-            or pupil_oversampling < 1
-        ):
-            raise ValueError("pupil_oversampling must be a positive integer")
-        self._pupil_oversampling = pupil_oversampling
-        self._error_terms = (
-            error_terms if error_terms is not None else ModelErrorTerms()
-        )
-        if self._error_terms.needs_focal_geometry:
-            # Fail at construction: a defocus or a tilt that cannot be
-            # evaluated would otherwise surface as a NaN far field deep inside
-            # the fit, long after the hardware minutes were spent.
-            self._error_terms.validate_focal_geometry()
-
-        if not np.isfinite(fourier_weight) or fourier_weight < 0.0:
-            raise ValueError(
-                f"fourier_weight must be finite and >= 0, got {fourier_weight!r}"
-            )
-        self._fourier_weight = float(fourier_weight)
-        if loss_kind not in LOSS_KINDS:
-            raise ValueError(
-                f"loss_kind must be one of {LOSS_KINDS}, got {loss_kind!r}"
-            )
-        self._loss_kind = str(loss_kind)
-        if not np.isfinite(affine_lr) or affine_lr <= 0:
-            raise ValueError(
-                f"affine_lr must be a positive finite float, got {affine_lr!r}"
-            )
-        self._affine_lr = float(affine_lr)
-        self._travel_lr = (
-            self._affine_lr if travel_lr is None else float(travel_lr)
-        )
-        if not np.isfinite(self._travel_lr) or self._travel_lr <= 0:
-            raise ValueError(
-                f"travel_lr must be a positive finite float, got {travel_lr!r}"
-            )
+        radius = _zco_init_validate(affine_lr, dtype, error_terms, far_field_size, fourier_weight, loss_kind, lr, n_orders, pupil_oversampling, radius, region, seed, self, travel_lr)
         # 自标定参数是**优化器状态**, 不是构造参数: 它们的初值由
         # ``affine_params`` / ``travel_gammas`` 给出, 之后由拟合自己推动。
         self._affine_seed: PupilAffine | None = (
@@ -586,37 +663,7 @@ FAMILY_NAMES`)。``None`` (默认) = 关闭, 此时物理预测模型的输出�
             None if travel_gammas is None else TravelScale(travel_gammas).clamped()
         )
 
-        mask = np.ones(calc_n_zernike_terms(n_orders), dtype=np.float64)
-        for noll in frozen_modes:
-            index = int(noll)
-            if not 1 <= index <= mask.size:
-                raise ValueError(
-                    f"frozen_modes entries must be Noll indices in 1..{mask.size}, "
-                    f"got {noll!r}"
-                )
-            mask[index - 1] = 0.0
-        # 保持为 numpy, 首次使用时才转成张量: 在 __init__ 的这个位置
-        # 设备还没解析出来。
-        self._frozen_mask: npt.NDArray[np.float64] | None = None if mask.all() else mask
-        self._mode_mask: Any = None
-
-        n_coeffs = calc_n_zernike_terms(n_orders)
-        if initial_coefficients is None:
-            if seed is None:
-                initial = np.zeros(n_coeffs, dtype=np.float64)
-            else:
-                rng = np.random.default_rng(seed)
-                initial = rng.normal(0.0, 0.1, n_coeffs)
-        else:
-            initial = np.asarray(initial_coefficients, dtype=np.float64)
-            if initial.ndim != 1 or initial.shape[0] != n_coeffs:
-                raise ValueError(
-                    f"initial_coefficients must have shape ({n_coeffs},) for "
-                    f"n_orders={n_orders}, got {initial.shape}"
-                )
-            if not np.all(np.isfinite(initial)):
-                raise ValueError("initial_coefficients must be finite")
-        self._initial_coefficients = initial.copy()
+        n_coeffs = _zco_init_coeffs(frozen_modes, initial_coefficients, n_orders, seed, self)
 
         self._n_orders = n_orders
         self._region = region
@@ -653,30 +700,7 @@ FAMILY_NAMES`)。``None`` (默认) = 关闭, 此时物理预测模型的输出�
         # 两者都是**优化器状态**: 它们跨轮次保留 (每轮重建优化器时由
         # ``set_calibration`` 把上一轮的取值带过来), 因为它们描述的是实验
         # 系统而不是某一次拟合。
-        self._affine: Any = None
-        if self._affine_seed is not None:
-            self._affine = torch.tensor(
-                self._affine_seed.to_vector(),
-                dtype=self._basis_t.dtype,
-                device=self._dev,
-                requires_grad=True,
-            )
-        self._travel_gammas: Any = None
-        self._projector_t: Any = None
-        self._basis_flat_t: Any = None
-        if self._travel_seed is not None:
-            self._travel_gammas = torch.tensor(
-                self._travel_seed.to_vector(),
-                dtype=self._basis_t.dtype,
-                device=self._dev,
-                requires_grad=True,
-            )
-            self._basis_flat_t = _to_tensor(
-                self._basis_np.reshape(self._n_coeffs, -1), self._dev, dtype
-            )
-            self._projector_t = _to_tensor(
-                _projector_for_basis(self._basis_np), self._dev, dtype
-            )
+        _zco_init_affine_travel(dtype, self, torch)
 
         self._restart(restore_initial=True)
 

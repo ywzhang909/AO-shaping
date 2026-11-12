@@ -105,6 +105,7 @@ _FOCUS_PROBE = "src/ao_shaping/tools/slm/panel/focus_probe.py"
 _TRAIN = "src/ml/sim2f/train.py"
 _VOLTAGE_RUNNER = "src/ao_shaping/runners/micro_drive/voltage_runner.py"
 _MODEL_IN_LOOP_SHAPING = "src/ao_shaping/optimizer/wfless/model_in_loop_shaping.py"
+_ZCO = "src/ao_shaping/algorithm/signal_processing/zernike_coefficient_optimizer.py"
 _SHAPING_TRAIN = "src/ml/shaping/train.py"
 _ZERNIKE_RESPONSE = "src/ao_shaping/tools/wfs/zernike_response.py"
 _ZERNIKE_RESPONSE_MATRIX = "src/ao_shaping/optimizer/wf/zernike_response_matrix.py"
@@ -238,6 +239,10 @@ TARGETS = [
     (_PAT, "_pat_disk", 60, 0, 23),
     (_PAT, "_pat_square", 60, 0, 26),
     (_PAT, "_pat_annular", 60, 0, 27),
+    (_ZCO, "__init__", 169, 2, 147),
+    (_ZCO, "_zco_init_validate", 80, 4, 69),
+    (_ZCO, "_zco_init_coeffs", 40, 4, 34),
+    (_ZCO, "_zco_init_affine_travel", 32, 3, 27),
     (_PAT, "_pat_grid", 60, 1, 32),
     (_PAT, "_pat_cross", 60, 0, 24),
     (_PAT, "_pat_rectangle", 60, 0, 28),
