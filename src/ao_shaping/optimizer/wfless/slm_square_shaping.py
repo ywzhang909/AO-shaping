@@ -1204,7 +1204,7 @@ def _session_init_iteration(_active_modes, _fix_target, _has_rotation, _param_cl
         peak_to_background=pbr,
         w_pbr=w_pbr,
     )
-    return _apply_update, _params_to_gray, ar, cost, cv, ee, init_img, mean_int, pbr, quality
+    return _apply_update, _params_to_gray, ar, cost, cv, ee, init_img, mean_int, pbr, quality, center, target_side
 
 
 
@@ -1253,7 +1253,7 @@ def _session_arm_exposure(blaze_direction, blaze_period_px, cam, cam_size, cam_t
         )
         center = blaze_choice.signal_xy
         logger.info("measured blaze: {}", blaze_choice)
-    return blaze_choice
+    return blaze_choice, exposure_time_ms
 
 
 
@@ -1331,7 +1331,7 @@ def _run_square_session(
     ):
         # 采集入口守卫 (#186): 驱动板不应答在第一帧前失败; 仿真面板 no-op。
         require_drive_board_entry(slm)
-        blaze_choice = _session_arm_exposure(blaze_direction, blaze_period_px, cam, cam_size, cam_type, exposure_time_ms, slm, target_side)
+        blaze_choice, exposure_time_ms = _session_arm_exposure(blaze_direction, blaze_period_px, cam, cam_size, cam_type, exposure_time_ms, slm, target_side)
         recorder.blaze_choice = blaze_choice
         # Initialize parameter vector (zernike: mapped onto the active modes)
         if basis == "zernike":
@@ -1373,7 +1373,7 @@ def _run_square_session(
             else None
         )
 
-        _apply_update, _params_to_gray, ar, cost, cv, ee, init_img, mean_int, pbr, quality = _session_init_iteration(_active_modes, _fix_target, _has_rotation, _param_clip, _params, _pattern_helper, _rot_clip, basis, blaze_choice, cam, cam_size, center, exposure_time_ms, n_max, objective, phase_grid, side_factor, slm, target_max_brightness, target_mean_brightness, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity, zernike_radius)
+        _apply_update, _params_to_gray, ar, cost, cv, ee, init_img, mean_int, pbr, quality, center, target_side = _session_init_iteration(_active_modes, _fix_target, _has_rotation, _param_clip, _params, _pattern_helper, _rot_clip, basis, blaze_choice, cam, cam_size, center, exposure_time_ms, n_max, objective, phase_grid, side_factor, slm, target_max_brightness, target_mean_brightness, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity, zernike_radius)
 
         best_quality = quality
         best_cost = cost

@@ -3007,7 +3007,7 @@ def _session_round_state_init(StepBConfig, _fit_aberration_at_probes, _probe_set
         target_camera=target_camera,
         trust_region=trust_region,
     )
-    return best_frame, best_phase, best_score, status
+    return best_frame, best_phase, best_score, status, coefficients
 
 
 
@@ -3135,7 +3135,7 @@ def _session_measure_flat(calib_records, camera_rotation_quarters, cell_scale, c
             total_epochs=int(config.n_rounds),
             target_size=target_camera,
         )
-    return calibration_affine, calibration_travel, flat_grid, flat_score, source_amplitude
+    return calibration_affine, calibration_travel, flat_grid, flat_score, source_amplitude, live_display
 
 
 
@@ -3316,10 +3316,10 @@ def _run_model_in_loop_session(
 
         # Illumination on the model grid, from the CALIBRATED waist. Omitting it
         # would make Step B optimise for a beam that is not the real one.
-        calibration_affine, calibration_travel, flat_grid, flat_score, source_amplitude = _session_measure_flat(calib_records, camera_rotation_quarters, cell_scale, coefficients, config, flat_capture_utc, flat_frame, flat_phase, geometry, live_display, recorder, roi_center, target_camera)
+        calibration_affine, calibration_travel, flat_grid, flat_score, source_amplitude, live_display = _session_measure_flat(calib_records, camera_rotation_quarters, cell_scale, coefficients, config, flat_capture_utc, flat_frame, flat_phase, geometry, live_display, recorder, roi_center, target_camera)
 
         # ---------------- Stage 2: the alternating loop --------------------
-        best_frame, best_phase, best_score, status = _session_round_state_init(StepBConfig, _fit_aberration_at_probes, _probe_set_loss, bench, calibration_affine, calibration_travel, camera_rotation_quarters, cell_scale, coefficients, config, flat_frame, flat_grid, flat_phase, flat_score, geometry, live_display, probe_records, recorder, roi_center, shape_phase_with_frozen_aberration, source_amplitude, target, target_camera, target_side_model)
+        best_frame, best_phase, best_score, status, coefficients = _session_round_state_init(StepBConfig, _fit_aberration_at_probes, _probe_set_loss, bench, calibration_affine, calibration_travel, camera_rotation_quarters, cell_scale, coefficients, config, flat_frame, flat_grid, flat_phase, flat_score, geometry, live_display, probe_records, recorder, roi_center, shape_phase_with_frozen_aberration, source_amplitude, target, target_camera, target_side_model)
 
         # ---------------- Stage 3: final bake-off against flat --------------
         if best_score <= flat_score:
@@ -3944,7 +3944,7 @@ def _milr_step_a_setup(_probe_set_loss, bench, calibration_affine, calibration_t
     )
     loss_before = _probe_set_loss(optimizer, coefficients, frames)
     step_a_trace: list[dict[str, Any]] = []
-    return frames, holdout_seeds, loss_before, optimizer, probe, step_a_trace
+    return frames, holdout_seeds, loss_before, optimizer, probe, step_a_trace, step_a_lr
 
 
 
@@ -3996,7 +3996,7 @@ def _run_model_in_loop_rounds(
     """
     for index in range(int(config.n_rounds)):
         # --- Step A: probe the bench, refit one shared aberration -------
-        frames, holdout_seeds, loss_before, optimizer, probe, step_a_trace = _milr_step_a_setup(_probe_set_loss, bench, calibration_affine, calibration_travel, camera_rotation_quarters, cell_scale, coefficients, config, geometry, index, live_display, prev_uncertainty_probes, probe_count, probe_records, rejection_streak, roi_center, source_amplitude, step_a_lr, target_camera)
+        frames, holdout_seeds, loss_before, optimizer, probe, step_a_trace, step_a_lr = _milr_step_a_setup(_probe_set_loss, bench, calibration_affine, calibration_travel, camera_rotation_quarters, cell_scale, coefficients, config, geometry, index, live_display, prev_uncertainty_probes, probe_count, probe_records, rejection_streak, roi_center, source_amplitude, step_a_lr, target_camera)
         if config.step_a_iterations:
             fitted, _, step_a_iters, optimizer = _fit_aberration_at_probes(
                 optimizer,

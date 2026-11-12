@@ -4838,6 +4838,14 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 证明与验收：叶差分 23 个函数逐字 AST 相同、仅 `_run_spgd_session` 变化、4 个新 helper、零消失；载体 8 文件 **106 passed, 1 skipped**, 重排后 `test_slm_zernike_pib_production_sim.py` **31 passed**；wfless 域 per-file **1105 passed, exit=0**；形状门禁+conventions **262 passed, 1 skipped**（含行锚测试）；棘轮行 420/5/390 收紧 268/5/233 + 四 helper 行 61/3/53、42/1/36、53/2/46、44/1/38；模块 2527→2555 基线
 - 第 56 批（`a926dd0d`）CI 的 Pytest 判 **failure**；本地复跑候选（`test_slm_square_pbr_objective_sim` 24、`test_convergence_diagnostics` 25、`test_slm_square_epoch_characterization`、`test_spgd_convention`、`test_optimizer_constants_single_home`）全绿, 未发现源码钉；最可能是并行 `docs(slm)` 重钉后行锚短暂陈旧, 在 b59 树上该门禁已绿
 
+**2026-11-12 · 36d3095a 之后 · 修复 helper 形参回写泄漏（系统性缺陷, 五个批次共用同一生成器）**
+- 现象：CI Pytest 自第 56 批起连续三批失败于 `tests/ao_shaping/runners/test_slm_shaping_runner_sim_backend.py::TestOfflineRunsReachTheTwin::test_spgd_square_runs_offline`：`ValueError: too many values to unpack (expected 2)`，落点 `square_uniformity_cost` 的 `cx, cy = center`
+- 根因：生成器 `returns` 用 `(st_fs - mod - params0)`，把「既是形参、又在区内被重新赋值、调用之后仍被读」的名字排除 → helper 内的重新赋值不再回传。第 56 批的 `_session_init_iteration` 因此没回传 `center`/`target_side`，母函数把配置里的 `center`（字符串 `auto`）原样传给搜索阶段，解包 4 个字符即报错
+- 全树复核（只算调用语句结束之后的读取）：同类另 4 处 —— `_session_arm_exposure`(`exposure_time_ms`)、`_session_measure_flat`(`live_display`)、`_session_round_state_init`(`coefficients`)、`_milr_step_a_setup`(`step_a_lr`)
+- 修法：helper 末返回追加该名、调用点左值同步追加（行数不变, 行锚与棘轮无需重钉）；生成器 `returns` 改为 `(st_fs - mod) ∩ (a_ld - a_st)`
+- 验证：`test_slm_shaping_runner_sim_backend.py` **8 passed**；square+model_in_loop+runners 载体 **310 passed**；形状门禁+conventions **262 passed, 1 skipped**
+- 教训 ⑳：**载体必须包含端到端 runner 测试** —— 第 56 批只跑 `optimizer/wfless` 载体, `tests/ao_shaping/runners/` 没跑, CI 才第一次抓到；同时 `returns` 必须显式覆盖「形参回写」
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
