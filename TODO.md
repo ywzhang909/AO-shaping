@@ -4892,6 +4892,12 @@ slm_zernike_pib.py:1872`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 3299→3339 (baseline 抬高); 无行锚漂移 (该文件无活钉)
 - 教训 ㉖: **账内禁写转义反引号**——守卫会判 "escape residue written literally before a code span"; 引原文一律用中文描述或去掉反引号
 
+**2026-11-12 · 0c906e9d 之后 · 第 65 批: `run_session` 266→143 + 三缝 (`src/ml/sim2f/bench.py`)**
+- 提取: `_session_metrics_gate` 48 (describe/曝光轨迹/门槛/判定) / `_session_payload` 60 (有限值载荷组装) / `_session_write_artifacts` 27 (README §7 落盘块)
+- 叶差分逐字节同 (仅母函数变); 新增 3; 消失 0; 形参回写审计 0 处
+- 载体: `tests/ao_shaping/ml/sim2f` 逐文件 **26 段 exit=0** (显式路径覆盖 addopts 的 ml 排除); 扩展守卫集 **1121 passed 1 skipped**
+- 模块 2477→2501 (baseline 抬高); 无行锚漂移
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

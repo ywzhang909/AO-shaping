@@ -1901,6 +1901,153 @@ def _run_session_samples(bench, context, corpus, frames, instruments, kinds, mod
 
 
 
+
+def _session_write_artifacts(frames, out_dir, payload, recorder, rows, save_frames, targets):
+# Session artefact writers lifted verbatim
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / SESSION_NAME).write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    _write_rows(out / ROWS_NAME, rows)
+    if save_frames:
+        _write_frames(out / FRAMES_NAME, frames, targets)
+    recorder_paths: dict[str, str] = {}
+    if recorder is not None:
+        recorder_paths = recorder.save(out / RECORD_SUBDIR)
+    _render_fetch(out / FETCH_NAME, rows, targets)
+    _write_verdict(out / VERDICT_NAME, payload)
+    logger.info(
+        "session artefacts -> {} ({}, {}, {}, {}, {})",
+        out,
+        SESSION_NAME,
+        ROWS_NAME,
+        FRAMES_NAME if save_frames else "(frames skipped)",
+        FETCH_NAME,
+        VERDICT_NAME,
+    )
+    if recorder_paths:
+        logger.info("process data (Recorder columns) -> {}", recorder_paths)
+    return 
+
+
+
+
+def _session_payload(aggregate, bench_cfg, cache, ccd_px, checkpoint, conclusion, criterion, describe, exposure_ms, exposure_trace, gate, name, order, panel_shape, pupil_center_xy, record, resolved, rows, samples, seed, session_instrument, settle_s, teacher):
+# Finite session payload assembly lifted verbatim
+    payload = _finite(
+        {
+            "schema": 1,
+            "protocol": "runs/sim2f_bench/README.md",
+            "checkpoint": str(Path(checkpoint)),
+            "cache": str(Path(cache)),
+            "backend": name,
+            "samples": str(samples),
+            "indices": [int(index) for index in order],
+            "seed": int(seed),
+            "exposure_ms": (
+                session_instrument.exposure_ms
+                if session_instrument is not None
+                else (None if exposure_ms is None else float(exposure_ms))
+            ),
+            "exposure_ladder": exposure_trace,
+            "settle_s": float(settle_s),
+            "ccd_px": int(ccd_px),
+            "panel_shape": None if panel_shape is None else [int(v) for v in panel_shape],
+            "pupil_radius_px": PUPIL_RADIUS_PX,
+            "pupil_side_px": int(round(2.0 * PUPIL_RADIUS_PX)),
+            "device": str(resolved),
+            "record_process_data": bool(record),
+            "pupil_placement": _pupil_placement(
+                name, describe, panel_shape, pupil_center_xy
+            ),
+            "n_sample": N_SAMPLE,
+            "bench": bench_cfg.to_dict(),
+            "teacher": teacher.to_dict(),
+            "constants": {
+                "noise_factor": float(NOISE_FACTOR),
+                "min_wins": int(MIN_WINS),
+                "min_delta": float(MIN_DELTA),
+                "conditions": list(CONDITIONS),
+                "loop_seed": int(LOOP_SEED),
+                "loop_population": int(LOOP_POPULATION),
+                "loop_count": int(LOOP_COUNT),
+            },
+            "devices": describe,
+            "gate0": gate,
+            "criterion": criterion,
+            "aggregate": aggregate,
+            "verdict": conclusion,
+            "rows": [
+                {key: value for key, value in row.items() if key != "frames"}
+                for row in rows
+            ],
+            "notes": (
+                "A1(flat) -> B1(net) -> B2(net) -> A2(flat), fixed order, one bench "
+                "state per sample. ncc_flat / ncc_net are the means of the two A / two "
+                "B readings; ncc_a_drift is |ncc_A1 - ncc_A2|, this sample's noise "
+                "floor. Scored with ml.sim2f.loop._score on prepared frames (the "
+                "published report's own metric code). Gate 0 must pass before the "
+                "criterion is reported; a failed gate writes no verdict string."
+            ),
+        }
+    )
+    return payload
+
+
+
+
+def _session_metrics_gate(bench_cfg, describe_instrument, frames, rows, session_instrument, twin_frames):
+# Describe aggregate exposure gate and verdict lifted verbatim
+    describe: dict[str, Any] = (
+        describe_instrument.describe()
+        if describe_instrument is not None
+        else {
+            "backend": "sim",
+            "bench": bench_cfg.describe(),
+            "phase_input": (
+                "(grid, grid) pupil radians -> Sim2f.forward; the twin's grid IS "
+                "the 900 px pupil region, so no panel embedding on this path"
+            ),
+            "note": (
+                "G0-1 is not applicable to digital frames (see gate0), so a sim "
+                "session can only fail G0-2/G0-3/G0-4"
+            ),
+        }
+    )
+    full_scale = (
+        getattr(session_instrument, "full_scale", None)
+        if session_instrument is not None
+        else None
+    )
+    exposure_trace: dict[str, Any] = (
+        session_instrument.exposure_trace
+        if session_instrument is not None
+        else {
+            "source": "not applicable (sim backend: no camera, no detector)",
+            "chosen_ms": None,
+        }
+    )
+    gate = gate0(
+        rows,
+        frames,
+        full_scale=full_scale,
+        twin_frames=twin_frames,
+        exposure_ladder=exposure_trace,
+    )
+    conclusion = verdict(rows) if gate["pass"] else None
+    criterion = _criterion(rows)
+
+    aggregate = {
+        "n": len(rows),
+        "flat": _aggregate(rows, "flat"),
+        "net": _aggregate(rows, "net"),
+        **{key: value for key, value in criterion.items() if key != "rows"},
+    }
+    return aggregate, conclusion, criterion, describe, exposure_trace, gate
+
+
+
 def run_session(
     *,
     checkpoint: str | Path,
@@ -2038,134 +2185,11 @@ def run_session(
         order, record, resolved, rows, seed, session_instrument, states,
         targets, teacher, twin_frames, recorder, describe_instrument)
 
-    describe: dict[str, Any] = (
-        describe_instrument.describe()
-        if describe_instrument is not None
-        else {
-            "backend": "sim",
-            "bench": bench_cfg.describe(),
-            "phase_input": (
-                "(grid, grid) pupil radians -> Sim2f.forward; the twin's grid IS "
-                "the 900 px pupil region, so no panel embedding on this path"
-            ),
-            "note": (
-                "G0-1 is not applicable to digital frames (see gate0), so a sim "
-                "session can only fail G0-2/G0-3/G0-4"
-            ),
-        }
-    )
-    full_scale = (
-        getattr(session_instrument, "full_scale", None)
-        if session_instrument is not None
-        else None
-    )
-    exposure_trace: dict[str, Any] = (
-        session_instrument.exposure_trace
-        if session_instrument is not None
-        else {
-            "source": "not applicable (sim backend: no camera, no detector)",
-            "chosen_ms": None,
-        }
-    )
-    gate = gate0(
-        rows,
-        frames,
-        full_scale=full_scale,
-        twin_frames=twin_frames,
-        exposure_ladder=exposure_trace,
-    )
-    conclusion = verdict(rows) if gate["pass"] else None
-    criterion = _criterion(rows)
+    aggregate, conclusion, criterion, describe, exposure_trace, gate = _session_metrics_gate(bench_cfg, describe_instrument, frames, rows, session_instrument, twin_frames)
 
-    aggregate = {
-        "n": len(rows),
-        "flat": _aggregate(rows, "flat"),
-        "net": _aggregate(rows, "net"),
-        **{key: value for key, value in criterion.items() if key != "rows"},
-    }
+    payload = _session_payload(aggregate, bench_cfg, cache, ccd_px, checkpoint, conclusion, criterion, describe, exposure_ms, exposure_trace, gate, name, order, panel_shape, pupil_center_xy, record, resolved, rows, samples, seed, session_instrument, settle_s, teacher)
 
-    payload = _finite(
-        {
-            "schema": 1,
-            "protocol": "runs/sim2f_bench/README.md",
-            "checkpoint": str(Path(checkpoint)),
-            "cache": str(Path(cache)),
-            "backend": name,
-            "samples": str(samples),
-            "indices": [int(index) for index in order],
-            "seed": int(seed),
-            "exposure_ms": (
-                session_instrument.exposure_ms
-                if session_instrument is not None
-                else (None if exposure_ms is None else float(exposure_ms))
-            ),
-            "exposure_ladder": exposure_trace,
-            "settle_s": float(settle_s),
-            "ccd_px": int(ccd_px),
-            "panel_shape": None if panel_shape is None else [int(v) for v in panel_shape],
-            "pupil_radius_px": PUPIL_RADIUS_PX,
-            "pupil_side_px": int(round(2.0 * PUPIL_RADIUS_PX)),
-            "device": str(resolved),
-            "record_process_data": bool(record),
-            "pupil_placement": _pupil_placement(
-                name, describe, panel_shape, pupil_center_xy
-            ),
-            "n_sample": N_SAMPLE,
-            "bench": bench_cfg.to_dict(),
-            "teacher": teacher.to_dict(),
-            "constants": {
-                "noise_factor": float(NOISE_FACTOR),
-                "min_wins": int(MIN_WINS),
-                "min_delta": float(MIN_DELTA),
-                "conditions": list(CONDITIONS),
-                "loop_seed": int(LOOP_SEED),
-                "loop_population": int(LOOP_POPULATION),
-                "loop_count": int(LOOP_COUNT),
-            },
-            "devices": describe,
-            "gate0": gate,
-            "criterion": criterion,
-            "aggregate": aggregate,
-            "verdict": conclusion,
-            "rows": [
-                {key: value for key, value in row.items() if key != "frames"}
-                for row in rows
-            ],
-            "notes": (
-                "A1(flat) -> B1(net) -> B2(net) -> A2(flat), fixed order, one bench "
-                "state per sample. ncc_flat / ncc_net are the means of the two A / two "
-                "B readings; ncc_a_drift is |ncc_A1 - ncc_A2|, this sample's noise "
-                "floor. Scored with ml.sim2f.loop._score on prepared frames (the "
-                "published report's own metric code). Gate 0 must pass before the "
-                "criterion is reported; a failed gate writes no verdict string."
-            ),
-        }
-    )
-
-    out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
-    (out / SESSION_NAME).write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
-    _write_rows(out / ROWS_NAME, rows)
-    if save_frames:
-        _write_frames(out / FRAMES_NAME, frames, targets)
-    recorder_paths: dict[str, str] = {}
-    if recorder is not None:
-        recorder_paths = recorder.save(out / RECORD_SUBDIR)
-    _render_fetch(out / FETCH_NAME, rows, targets)
-    _write_verdict(out / VERDICT_NAME, payload)
-    logger.info(
-        "session artefacts -> {} ({}, {}, {}, {}, {})",
-        out,
-        SESSION_NAME,
-        ROWS_NAME,
-        FRAMES_NAME if save_frames else "(frames skipped)",
-        FETCH_NAME,
-        VERDICT_NAME,
-    )
-    if recorder_paths:
-        logger.info("process data (Recorder columns) -> {}", recorder_paths)
+    _session_write_artifacts(frames, out_dir, payload, recorder, rows, save_frames, targets)
     return payload
 
 
