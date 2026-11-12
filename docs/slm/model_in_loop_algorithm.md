@@ -737,7 +737,7 @@ payload 的键:
 
 > 🔴 **不要为了让运行"过"而调低 `--min-geometry-correlation`。** 那个守卫存在的理由就是
 > 阻止运行提交一个**比平场更差**的相位 —— 几何不对时整形只会把光斑做坏
-> (`slm_model_in_loop.py:3011-3021` 的异常文案说的就是这件事，2026-11-01 复核)。调低它会把一次干净的拒绝换成
+> (`slm_model_in_loop.py:3203-3213` 的异常文案说的就是这件事，2026-11-01 复核)。调低它会把一次干净的拒绝换成
 > 一次看起来成功、实际更差的运行。
 
 **dump 恰好就是这一情况的诊断工具**: 中止的运行照样把盘写出来, 于是
@@ -745,9 +745,9 @@ payload 的键:
 
 | 终止状态 | 触发点 | dump 里的 stage 组成 |
 |---|---|---|
-| `aborted_unidentifiable` | 几何 对比择优 相关度不达标(`slm_model_in_loop.py:3011-3021` 抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:187-203`) | **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |
-| `aborted_unidentifiable` | **验证集**相关性不达标(`slm_model_in_loop.py:3797-3819`，2026-11-02 第二十四批整轮循环迁入 `_run_model_in_loop_rounds`、2026-11-11 第五十四批 `_run_model_in_loop_rounds` 一轮三缝后重钉，原 `:3730-3752`) | `stepA-probe` 在, `stepB-shaped` **不在** |
-| `aborted_rejection_streak` | 连续 reject 达 `--max-rejection-streak` (`slm_model_in_loop.py:4045-4053`，2026-11-02 第二十四批迁入 `_run_model_in_loop_rounds`、2026-11-11 第五十四批一轮三缝后重钉，原 `:4012-4020` → `model_in_loop_runner.py:269-275` 退出 `2`) | `stepA-probe` / `stepB-shaped` **都在**, 一直到最后被 reject 的那一轮 |
+| `aborted_unidentifiable` | 几何 对比择优 相关度不达标(`slm_model_in_loop.py:3203-3213` 抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:187-203`) | **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |
+| `aborted_unidentifiable` | **验证集**相关性不达标(`slm_model_in_loop.py:3827-3849`，2026-11-02 第二十四批整轮循环迁入 `_run_model_in_loop_rounds`、2026-11-11 第五十四批 `_run_model_in_loop_rounds` 一轮三缝后重钉、2026-11-12 第五十五批整 Try 体三缝后重钉，原 `:3797-3819`) | `stepA-probe` 在, `stepB-shaped` **不在** |
+| `aborted_rejection_streak` | 连续 reject 达 `--max-rejection-streak` (`slm_model_in_loop.py:4075-4083`，2026-11-02 第二十四批迁入 `_run_model_in_loop_rounds`、2026-11-11 第五十四批一轮三缝后重钉、2026-11-12 第五十五批整 Try 体三缝后重钉，原 `:4045-4053` → `model_in_loop_runner.py:269-275` 退出 `2`) | `stepA-probe` / `stepB-shaped` **都在**, 一直到最后被 reject 的那一轮 |
 
 **先看 stage 列表, 再看数字** —— 几何失败、验证集失败和持续 reject 要走的路完全不同。
 

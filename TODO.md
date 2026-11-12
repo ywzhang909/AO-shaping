@@ -4279,7 +4279,7 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 **2026-10-30 · 30f2d617 · MIL 点击入口采纳 `0c07aa54` 的像元间距契约：params 默认 2.2 → 0（向相机型号配置解析）**
 - 根因：`SlmModelInLoopConfig.camera_pixel_um` 早已由 `0c07aa54` 改成 0（0 = 向相机型号配置解析，正数 = 显式覆盖，出处记 `camera_pixel_um_source`），六个 scripts 都接了；但点击入口 `SlmModelInLoopParams` 仍写死 `_DEFAULT_CAMERA_PIXEL_UM`(2.2) 并逐字转发给 config——正是该契约刻意删掉的「消费者各写一份 2.2」第二事实源，click 路径漏网。上游自己的接线守卫实测抓到两条：split 断言缺 `camera_pixel_um_source`、默认对齐断言报 `(2.2, 0.0)`。
 - 处置：params 默认 0.0 + help 成文「0 = resolve from the camera model config, positive overrides」；守卫 `LIBRARY_ONLY[MIL]` 补 `camera_pixel_um_source`（库内派生出处，无 CLI 入口）。措辞变化点亮两条 CLI help golden 守卫——golden 用与 CI 同一 `ao-shaping-test:cpu` 镜像、读写挂载 + `AO_UPDATE_HELP_GOLDEN=1` 再生（harness 把仓库只读挂载，无法就地再生），`git diff` 实测仅 MIL 的 `--camera-pixel-um` 一处措辞，无 GS 扰动、无默认值渲染 churn。
-- 边界：GS 家族默认不动（GS config 仍是 2.2，其守卫本就绿）；会话打开处 `require_camera_pixel_um`（`slm_model_in_loop.py:3408`，2026-11-02 随 #205 第二十四批重钉，原 `:3950`）实测存在，bare daheng 的 0 当场 `CameraError` 而非静默传播。
+- 边界：GS 家族默认不动（GS config 仍是 2.2，其守卫本就绿）；会话打开处 `require_camera_pixel_um`（`slm_model_in_loop.py:3438`，2026-11-02 随 #205 第二十四批重钉，2026-11-12 随 #205 第五十五批整 Try 体三缝后重钉，原 `:3408`）实测存在，bare daheng 的 0 当场 `CameraError` 而非静默传播。
 - 验收：守卫 + MIL 依赖面 251 passed；三 CLI 守卫 134 passed；`runners-gui-misc` 分片 4 failed → 2 failed / 1555 passed（余 2 = 上游 #214/#215 在途 GUI 用例）；root-guards 136 passed / 1 skipped；门禁全绿。
 
 **2026-10-31 · 5c5ddd5e · ml 格网缩放守卫的 approx 边界换算改为先落显式 float 再断言，失配输出由不可读三元组变成可读数值差**
