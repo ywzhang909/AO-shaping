@@ -1073,6 +1073,198 @@ def _debug_report(
         },
     )
 
+
+def _pib_open_session(_init_c, _init_r, best_c, best_objective, blaze_choice, cam, config, delta, exposure_time_ms, last_best_epoch, n_max, pattern_helper, r_bucket, reference_center, shaping, slm, target_max_brightness, to_gray, zernike_radius):
+# BenchSession + _RunState construction lifted verbatim
+    session = BenchSession(
+        slm=slm,
+        cam=cam,
+        to_gray=to_gray,
+        shaping=shaping,
+        n_max=n_max,
+        pattern_helper=pattern_helper,
+        zernike_radius=zernike_radius,
+        exposure_time_ms=exposure_time_ms,
+        target_max_brightness=target_max_brightness,
+        n_eval_frames=config.n_eval_frames,
+        reference_center=reference_center,
+        blaze_choice=blaze_choice,
+    )
+
+    # ------------------------------------------------------------------
+
+
+    # Constructed before the try (plain dataclass: cannot raise) so the
+    # finally-cleanup reads state.* unconditionally -- and on a branch
+    # exception now restores the branch's incremental best, not stale locals.
+    state = _RunState(
+        best_c=best_c,
+        best_objective=best_objective,
+        last_best_epoch=last_best_epoch,
+        delta=delta,
+        r_bucket=r_bucket,
+        _init_c=_init_c,
+        _init_r=_init_r,
+    )
+    return session, state
+
+
+
+
+def _pib_record_row0(_img, _init_c, _init_r, best_objective, cam, delta, init_img, initial_phase, j, objective, optimizer, optimizer_type, pib_ratio, r_bucket, record_phase, recorder, shaping):
+# Row-0 recorder payload (metrics + optional phase) lifted verbatim
+    _row0 = {
+        "J": j,
+        objective: best_objective,
+        RECORD_ROI_ENERGY: pib_ratio,
+        "_max_r": _init_r,
+        RECORD_COEFFS: _init_c,
+        RECORD_IMAGE: init_img,
+        RECORD_DIFF: 0,
+        "lr": optimizer.lr,
+        "r": r_bucket,
+        "delta": delta,
+        RECORD_EPOCH: 0,
+        "exp_t": get_camera_exposure_ms(cam),
+        "max_brt": np.max(init_img),
+        RECORD_GRAD: np.zeros_like(_init_c),
+        "optimizer": optimizer_type,
+        f"best_{objective}": best_objective,
+    }
+    if objective == "rms_pib":
+        _w_pib, _w_rms, _w_ee = shaping.weights
+        _row0["w_pib"] = float(_w_pib)
+        _row0["w_rms"] = float(_w_rms)
+        _row0["w_ee"] = float(_w_ee)
+        _terms = shaping.terms
+        _row0["pib_term"] = float(_terms[1])
+        _row0["rms_term"] = float(_terms[2])
+        _row0["ee_term"] = float(_terms[3])
+    _row0.update(shaping.metric_panel(init_img))
+    if record_phase:
+        _row0[RECORD_PHASE] = initial_phase
+        _row0["_full_frame_img"] = _img
+    recorder.append(_row0)
+    return 
+
+
+
+
+def _pib_build_shaping(init_img, log_uniformity, max_roi_energy_loss, objective, objective_mode, r_bucket, reference_center, shape_for_metric, shape_schedule, target_aspect_ratio, target_size, w_coverage, w_displacement, w_ee_init, w_ema_decay, w_floor, w_loggrad, w_outside, w_peak, w_pearson, w_pib_init, w_rms_init, w_temperature, w_uniformity):
+# ShapingObjective construction from init image and weight config lifted verbatim
+    target_func = ImageTargetFunc.build_from_init_image(init_img)
+
+    # --- Objective ----------------------------------------------------------
+    # The seven objective families, the adaptive ``rms_pib`` term weighting,
+    # the in-ROI energy-loss safety guard and the cross-objective ``m_*``
+    # metric panel all live in ``ShapingObjective``
+    # (utils/image/targets.py). It owns the objective selection, the FIXED
+    # target ROI, the ``rms_pib``/panel energy baselines and the live bucket
+    # radius (kept in sync through ``set_bucket`` below), so the search loops
+    # only hand it frames and read ``ObjectiveResult.j`` / ``.ratio``.
+    shaping = ShapingObjective(
+        ShapingObjectiveParams(
+            objective=objective,
+            mode=objective_mode,
+            shape=shape_for_metric,
+            size=target_size,
+            aspect_ratio=target_aspect_ratio,
+            reference_center=reference_center,
+            shape_schedule=shape_schedule,
+            scoring=ShapeScoringParams(
+                w_uniformity=w_uniformity,
+                w_peak=w_peak,
+                w_pearson=w_pearson,
+                w_coverage=w_coverage,
+                w_displacement=w_displacement,
+                log_uniformity=log_uniformity,
+            ),
+            max_roi_energy_loss=max_roi_energy_loss,
+            ideal_spot_radius=IDEAL_SPOT_RADIUS,
+            r_bucket=r_bucket,
+            w_outside=w_outside,
+            w_ema_decay=w_ema_decay,
+            w_floor=w_floor,
+            w_temperature=w_temperature,
+            w_pib_init=w_pib_init,
+            w_rms_init=w_rms_init,
+            w_ee_init=w_ee_init,
+            w_loggrad=w_loggrad,
+        ),
+        target_func,
+        init_img,
+    )
+    return shaping
+
+
+
+
+def _pib_geometry(_init_c, blaze_choice, cam, cam_size, center, config, epochs, exposure_time_ms, n_max, pattern_helper, r_bucket, shape_for_metric, shrink_ratio, slm, target_aspect_ratio, target_center_smooth, target_max_brightness, target_size, to_gray, zernike_radius):
+# Camera geometry prep: _prepare_geometry call + field unpacking lifted verbatim
+    _geo = _prepare_geometry(_PibGeometryInputs(
+        _init_c=_init_c,
+        blaze_choice=blaze_choice,
+        cam=cam,
+        cam_size=cam_size,
+        center=center,
+        config=config,
+        epochs=epochs,
+        exposure_time_ms=exposure_time_ms,
+        n_max=n_max,
+        pattern_helper=pattern_helper,
+        r_bucket=r_bucket,
+        shape_for_metric=shape_for_metric,
+        shrink_ratio=shrink_ratio,
+        slm=slm,
+        target_aspect_ratio=target_aspect_ratio,
+        target_center_smooth=target_center_smooth,
+        target_max_brightness=target_max_brightness,
+        target_size=target_size,
+        to_gray=to_gray,
+        zernike_radius=zernike_radius,
+    ))
+    initial_phase = _geo.initial_phase
+    _img = _geo.full_frame_img
+    center_full = _geo.center_full
+    full_frame_shape = _geo.full_frame_shape
+    init_img = _geo.init_img
+    reference_center = _geo.reference_center
+    _fix_bucket = _geo.fix_bucket
+    center = _geo.center
+    target_size = _geo.target_size
+    target_center_smooth = _geo.target_center_smooth
+    r_bucket = _geo.r_bucket
+    update_iter = _geo.update_iter
+    _init_r = _geo.init_r
+    return _fix_bucket, _img, _init_r, center, center_full, full_frame_shape, init_img, initial_phase, r_bucket, reference_center, target_size, update_iter
+
+
+
+
+def _pib_arm_blaze(blaze_direction, blaze_period_px, cam, cam_size, camera_config, exposure_time_ms, slm, target_aspect_ratio, target_size):
+# Blaze calibration arm: fixed-exposure probe + select_blaze + measured center override lifted verbatim
+    require_drive_board_entry(slm)
+    blaze_choice = None
+    if blaze_period_px >= 0:
+        from ao_shaping.optimizer.wfless._blaze_calibration import select_blaze
+
+        actual_exposure = float(cam.reset_exposure_time(exposure_time_ms))
+        if abs(actual_exposure - exposure_time_ms) > 0.001:
+            raise RuntimeError("CCD did not accept the fixed blaze probe exposure")
+
+        blaze_choice = select_blaze(
+            partial(_capture_blaze, cam, slm, camera_config),
+            (SLM_RESOLUTION[1], SLM_RESOLUTION[0]),
+            target_side=int(np.ceil(float(target_size) * max(1.0, target_aspect_ratio))),
+            window_size=cam_size, period_px=blaze_period_px,
+            direction=blaze_direction,
+        )
+        center = blaze_choice.signal_xy
+        logger.info("measured blaze: {}", blaze_choice)
+    return blaze_choice
+
+
+
 def _run_pib_session(
     *,
     _gradient_history: object,
@@ -1135,24 +1327,7 @@ def _run_pib_session(
     """#205 batch-11: former 324-line With session of optimize_slm_zernike_pib."""
     with cam_ctx as cam, slm_ctx as slm, display_ctx as live_display:
         # 采集入口守卫 (#186): 驱动板不应答在第一帧前失败; 仿真面板 no-op。
-        require_drive_board_entry(slm)
-        blaze_choice = None
-        if blaze_period_px >= 0:
-            from ao_shaping.optimizer.wfless._blaze_calibration import select_blaze
-
-            actual_exposure = float(cam.reset_exposure_time(exposure_time_ms))
-            if abs(actual_exposure - exposure_time_ms) > 0.001:
-                raise RuntimeError("CCD did not accept the fixed blaze probe exposure")
-
-            blaze_choice = select_blaze(
-                partial(_capture_blaze, cam, slm, camera_config),
-                (SLM_RESOLUTION[1], SLM_RESOLUTION[0]),
-                target_side=int(np.ceil(float(target_size) * max(1.0, target_aspect_ratio))),
-                window_size=cam_size, period_px=blaze_period_px,
-                direction=blaze_direction,
-            )
-            center = blaze_choice.signal_xy
-            logger.info("measured blaze: {}", blaze_choice)
+        blaze_choice = _pib_arm_blaze(blaze_direction, blaze_period_px, cam, cam_size, camera_config, exposure_time_ms, slm, target_aspect_ratio, target_size)
         recorder.blaze_choice = blaze_choice
 
         to_gray = partial(_phase_to_gray, slm, blaze_choice=blaze_choice)
@@ -1170,85 +1345,10 @@ def _run_pib_session(
 
         # Reset SLM to flat phase
 
-        _geo = _prepare_geometry(_PibGeometryInputs(
-            _init_c=_init_c,
-            blaze_choice=blaze_choice,
-            cam=cam,
-            cam_size=cam_size,
-            center=center,
-            config=config,
-            epochs=epochs,
-            exposure_time_ms=exposure_time_ms,
-            n_max=n_max,
-            pattern_helper=pattern_helper,
-            r_bucket=r_bucket,
-            shape_for_metric=shape_for_metric,
-            shrink_ratio=shrink_ratio,
-            slm=slm,
-            target_aspect_ratio=target_aspect_ratio,
-            target_center_smooth=target_center_smooth,
-            target_max_brightness=target_max_brightness,
-            target_size=target_size,
-            to_gray=to_gray,
-            zernike_radius=zernike_radius,
-        ))
-        initial_phase = _geo.initial_phase
-        _img = _geo.full_frame_img
-        center_full = _geo.center_full
-        full_frame_shape = _geo.full_frame_shape
-        init_img = _geo.init_img
-        reference_center = _geo.reference_center
-        _fix_bucket = _geo.fix_bucket
-        center = _geo.center
-        target_size = _geo.target_size
-        target_center_smooth = _geo.target_center_smooth
-        r_bucket = _geo.r_bucket
-        update_iter = _geo.update_iter
-        _init_r = _geo.init_r
+        _fix_bucket, _img, _init_r, center, center_full, full_frame_shape, init_img, initial_phase, r_bucket, reference_center, target_size, update_iter = _pib_geometry(_init_c, blaze_choice, cam, cam_size, center, config, epochs, exposure_time_ms, n_max, pattern_helper, r_bucket, shape_for_metric, shrink_ratio, slm, target_aspect_ratio, target_center_smooth, target_max_brightness, target_size, to_gray, zernike_radius)
 
 
-        target_func = ImageTargetFunc.build_from_init_image(init_img)
-
-        # --- Objective ----------------------------------------------------------
-        # The seven objective families, the adaptive ``rms_pib`` term weighting,
-        # the in-ROI energy-loss safety guard and the cross-objective ``m_*``
-        # metric panel all live in ``ShapingObjective``
-        # (utils/image/targets.py). It owns the objective selection, the FIXED
-        # target ROI, the ``rms_pib``/panel energy baselines and the live bucket
-        # radius (kept in sync through ``set_bucket`` below), so the search loops
-        # only hand it frames and read ``ObjectiveResult.j`` / ``.ratio``.
-        shaping = ShapingObjective(
-            ShapingObjectiveParams(
-                objective=objective,
-                mode=objective_mode,
-                shape=shape_for_metric,
-                size=target_size,
-                aspect_ratio=target_aspect_ratio,
-                reference_center=reference_center,
-                shape_schedule=shape_schedule,
-                scoring=ShapeScoringParams(
-                    w_uniformity=w_uniformity,
-                    w_peak=w_peak,
-                    w_pearson=w_pearson,
-                    w_coverage=w_coverage,
-                    w_displacement=w_displacement,
-                    log_uniformity=log_uniformity,
-                ),
-                max_roi_energy_loss=max_roi_energy_loss,
-                ideal_spot_radius=IDEAL_SPOT_RADIUS,
-                r_bucket=r_bucket,
-                w_outside=w_outside,
-                w_ema_decay=w_ema_decay,
-                w_floor=w_floor,
-                w_temperature=w_temperature,
-                w_pib_init=w_pib_init,
-                w_rms_init=w_rms_init,
-                w_ee_init=w_ee_init,
-                w_loggrad=w_loggrad,
-            ),
-            target_func,
-            init_img,
-        )
+        shaping = _pib_build_shaping(init_img, log_uniformity, max_roi_energy_loss, objective, objective_mode, r_bucket, reference_center, shape_for_metric, shape_schedule, target_aspect_ratio, target_size, w_coverage, w_displacement, w_ee_init, w_ema_decay, w_floor, w_loggrad, w_outside, w_peak, w_pearson, w_pib_init, w_rms_init, w_temperature, w_uniformity)
         _init_res = shaping(init_img)
         j, pib_ratio = _init_res.j, _init_res.ratio
 
@@ -1288,72 +1388,12 @@ def _run_pib_session(
         best_c = _init_c.copy()
         last_best_epoch = 0
 
-        _row0 = {
-            "J": j,
-            objective: best_objective,
-            RECORD_ROI_ENERGY: pib_ratio,
-            "_max_r": _init_r,
-            RECORD_COEFFS: _init_c,
-            RECORD_IMAGE: init_img,
-            RECORD_DIFF: 0,
-            "lr": optimizer.lr,
-            "r": r_bucket,
-            "delta": delta,
-            RECORD_EPOCH: 0,
-            "exp_t": get_camera_exposure_ms(cam),
-            "max_brt": np.max(init_img),
-            RECORD_GRAD: np.zeros_like(_init_c),
-            "optimizer": optimizer_type,
-            f"best_{objective}": best_objective,
-        }
-        if objective == "rms_pib":
-            _w_pib, _w_rms, _w_ee = shaping.weights
-            _row0["w_pib"] = float(_w_pib)
-            _row0["w_rms"] = float(_w_rms)
-            _row0["w_ee"] = float(_w_ee)
-            _terms = shaping.terms
-            _row0["pib_term"] = float(_terms[1])
-            _row0["rms_term"] = float(_terms[2])
-            _row0["ee_term"] = float(_terms[3])
-        _row0.update(shaping.metric_panel(init_img))
-        if record_phase:
-            _row0[RECORD_PHASE] = initial_phase
-            _row0["_full_frame_img"] = _img
-        recorder.append(_row0)
+        _pib_record_row0(_img, _init_c, _init_r, best_objective, cam, delta, init_img, initial_phase, j, objective, optimizer, optimizer_type, pib_ratio, r_bucket, record_phase, recorder, shaping)
 
 
 
 
-        session = BenchSession(
-            slm=slm,
-            cam=cam,
-            to_gray=to_gray,
-            shaping=shaping,
-            n_max=n_max,
-            pattern_helper=pattern_helper,
-            zernike_radius=zernike_radius,
-            exposure_time_ms=exposure_time_ms,
-            target_max_brightness=target_max_brightness,
-            n_eval_frames=config.n_eval_frames,
-            reference_center=reference_center,
-            blaze_choice=blaze_choice,
-        )
-
-        # ------------------------------------------------------------------
-
-
-        # Constructed before the try (plain dataclass: cannot raise) so the
-        # finally-cleanup reads state.* unconditionally -- and on a branch
-        # exception now restores the branch's incremental best, not stale locals.
-        state = _RunState(
-            best_c=best_c,
-            best_objective=best_objective,
-            last_best_epoch=last_best_epoch,
-            delta=delta,
-            r_bucket=r_bucket,
-            _init_c=_init_c,
-            _init_r=_init_r,
-        )
+        session, state = _pib_open_session(_init_c, _init_r, best_c, best_objective, blaze_choice, cam, config, delta, exposure_time_ms, last_best_epoch, n_max, pattern_helper, r_bucket, reference_center, shaping, slm, target_max_brightness, to_gray, zernike_radius)
         try:
             if algorithm != "spgd":
                 _rec = _run_heuristic(
