@@ -274,14 +274,14 @@ final CV 与墙钟，不引用 schedule 的 reach。
 抗负载交错 A/B（同进程、同 seed、同 forward、`torch.set_num_threads(6)`、预热 1 轮 + 7 轮测量，
 真冻结 checkpoint；`anchor_cache_regression.py`，仅 temp）：
 
-| 臂 | accept 率 | predict 总数 HEAD → 缓存 | 配对中位比值（HEAD/缓存）[IQR] |
+| 变体 | accept 率 | predict 总数 HEAD → 缓存 | 配对中位比值（HEAD/缓存）[IQR] |
 |----|----------|--------------------------|--------------------------------|
 | `cumulative`（从不 accept） | 0% | 180 → **121**（锚点 60 → 1） | **1.176 [1.150, 1.231]**（缓存更快） |
 | `gated_oracle`（仅 cand<anchor 才 accept） | 100%（60/60） | 180 → 180 | 1.038 [0.932, 1.076] |
 | `gated_deployed`（部署门槛） | 98.3%（59/60） | 180 → 179 | 1.022 [0.968, 1.085] |
 | `per_step` | 100% | 180 → 180 | 1.041 [0.939, 1.233] |
 
-- 四臂**逐位一致**（60 步 × 13 标量键 + delta/accepted 网格，`max_abs_diff = 0.0`，
+- 四变体**逐位一致**（60 步 × 13 标量键 + delta/accepted 网格，`max_abs_diff = 0.0`，
   `bitwise_identical = true`），无任何需要停下的不一致。
 - 只有**工作量计数**（180 → 121）与逐位一致是确定的：同一进程内单侧墙钟仍摆动 ~2.4–2.7×
   （`cumulative` 每轮 HEAD 9.0–24.1 ms/step），`per_step` 工作量完全相同却给出 0.73–1.73 的
@@ -358,7 +358,7 @@ final CV 与墙钟，不引用 schedule 的 reach。
   每块重跑完全相同的 10 步**——零推进。这不是 lr 的问题而是判据的问题：`lr=0.01` 之所以
   能 accept 6/6，只是因为块内从未饱和。改成**块末 vs 块首**（`loss[-1] < loss[0]`，即
   网格 `gated_oracle` 的块级形式「这一块有没有打赢它出发时的相位」）后同样条件下
-  6/6 accept、CV 0.648 → 0.089。A/B 里 `gated_deployed` 臂测得 98.3% accept，是因为它
+  6/6 accept、CV 0.648 → 0.089。A/B 里 `gated_deployed` 变体测得 98.3% accept，是因为它
   用的是 lr 0.02 / cap 0.05 的**逐步**口径（`rev` 那套未饱和情形），不代表块级粒度。
 
 ### 10.5 处置（部署路径参数与确认门）

@@ -136,7 +136,7 @@ def _load_geometry(path: Path) -> dict:
         "mtime_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(path.stat().st_mtime)),
         "rotation_deg": rotation, "mirror": mirror, "center_ccd_cy_cx": center.tolist(),
         "calibration_date": provenance.get("measured_at", "unknown"),
-        "status": "historical calibration; 需要上机复核; not verified after 2026-11-10 adjustment",
+        "status": "historical calibration; 需要实验复核; not verified after 2026-11-10 adjustment",
         "mapping": "reflect panel x if mirror, then rotate by rotation_deg; CCD=(row,col)",
         "directions": [{"panel_direction_deg": d, "ccd_unit_dcy_dcx": list(_panel_direction_to_ccd(d, rotation, mirror))} for d in CARRIER_DIRECTIONS],
     }

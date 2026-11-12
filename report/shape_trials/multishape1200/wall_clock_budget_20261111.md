@@ -123,7 +123,7 @@ shape 阶段 `stage_other` 合计约 **677.0 s**（shape 阶段 1933.4 s 的 35.
 
 manifest 帧行仅有 4 个键（`timestamp_utc`/`monotonic_ns`/`end_monotonic_ns`/`exposure_ms`），**无** `slm_write`/`settle`/`read`/`reduce`/`save` 分段计时。因此：
 
-- 帧间 gap 内部（SLM 写入 vs 液晶稳定 vs 落盘 vs 优化器）只能按差额归因，不能精确拆分。需下次上机以 `--profile-timing` 重跑（runner 已有该 flag，会在 manifest 每行记录分段 ms）。
+- 帧间 gap 内部（SLM 写入 vs 液晶稳定 vs 落盘 vs 优化器）只能按差额归因，不能精确拆分。需下次实验以 `--profile-timing` 重跑（runner 已有该 flag，会在 manifest 每行记录分段 ms）。
 - 落盘代价（464 个 npz ≈ 3.6 GB）含在 gap/other 内；按 14.2 MB/帧、SSD 写入 <0.1 s/帧估计，对 5 s 级 gap 影响 <2%，但不是实测。
 - `seed_bakeoff` 窗口（526.5 s）与 `capture`/`capture_geometry` 的内部分解不可离线完成。
 
