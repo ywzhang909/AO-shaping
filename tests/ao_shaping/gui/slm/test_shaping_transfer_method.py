@@ -108,7 +108,7 @@ class TestParamMapping:
         assert session.patience == 8
         assert session.min_delta == 1e-4
         assert session.blocks == 4
-        assert session.updates == 10
+        assert session.updates == 5
         assert session.frames == 3
         assert session.side == pytest.approx(80.0)
         assert session.period == pytest.approx(64.0)

@@ -616,6 +616,13 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
 
     一步顺序（方案 §5）：合成总相位 → 前向 → 损失（模型或实测锚定）→ 反传 → Adam →
     把增量投影到照明加权 RMS ≤ cap → 去 piston → 去整体倾斜 → 记录。
+
+    锚点前向缓存 :attr:`_anchor_pred` **只**由 :meth:`accept` 失效，其前提是 ``forward``
+    自身没有变过：调用方若原地改动 ``forward`` 的参数（``exposure_ms`` / ``amplitude`` /
+    ``residual_values``，见 ``tools/slm/transfer/optical_probe.py``、
+    ``tools/slm/transfer/validate.py``），必须重新构造本优化器，否则缓存里的锚点仍对应
+    改动前的参数。当前部署路径（``validate.py`` / ``workflow.py``）都是在构造优化器
+    **之前**设定 exposure，所以这个前提今天成立。
     """
 
     def __init__(self, forward: FrozenDefocusForward, objective: UniformityObjective,
@@ -638,6 +645,14 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
         self._seed = torch.tensor(seed, dtype=torch.float32, device=self._device)
         self._delta = torch.zeros_like(self._seed, requires_grad=True)
         self._accepted = torch.zeros_like(self._seed)
+        #: 锚点前向 ``predict(seed + accepted)`` 的缓存（no_grad、已 detach）。
+        #: ``_accepted`` 只由 :meth:`accept` 写入，前向又是确定性纯函数，所以没有
+        #: accept 的步骤重算会得到逐位相同的结果；:meth:`accept` 把它置回 ``None``。
+        self._anchor_pred: Any = None
+        #: 最近一次 :meth:`update` 步末 ``predict(seed + delta)`` 的模型强度
+        #: （no_grad、CPU float32），给锚定闭环的调用方复用——下一步要算的正是
+        #: 同一相位的同一前向。``update()`` 开头置回 ``None``，收敛提前返回时保持。
+        self._candidate_pred: npt.NDArray[np.float32] | None = None
         self._focus = None if phi_focus is None else torch.as_tensor(phi_focus, dtype=torch.float32, device=self._device)
         self._carrier = None if phi_carrier is None else torch.as_tensor(phi_carrier, dtype=torch.float32, device=self._device)
         self._opt = torch.optim.Adam([self._delta], lr=lr)
@@ -722,11 +737,42 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
                          / (w_axis * centred ** 2).sum().clamp_min(1e-12))
                 self._delta.sub_(slope * centred[:, None] if axis == 0 else slope * centred[None, :])
 
+    def _anchor_prediction(self) -> Any:
+        """锚点前向 ``predict(seed + accepted)``（no_grad、detach），跨步缓存。
+
+        失效条件见 :attr:`_anchor_pred`：只有 :meth:`accept` 会改 ``_accepted``，
+        因此没有 accept 的步里锚点输入与上一步完全相同，重算只是多一次全量前向。
+        """
+        torch = _torch()
+        if self._anchor_pred is None:
+            with torch.no_grad():
+                anchor = self.forward.predict(self._seed + self._accepted,
+                                              focus_phase=self._focus,
+                                              carrier_phase=self._carrier)
+                if anchor.ndim == 3:
+                    anchor = anchor[0]
+            self._anchor_pred = anchor.detach()
+        return self._anchor_pred
+
+    @property
+    def last_candidate_prediction(self) -> npt.NDArray[np.float32] | None:
+        """最近一次 :meth:`update` 步末 ``predict(seed + delta)`` 的模型强度（CPU float32）。
+
+        锚定闭环的调用方（``tools/slm/transfer/validate.py``）下一步要传给
+        ``anchored_intensity`` 的正是同一相位的同一前向，复用它可以省掉一次全量前向；
+        ``None`` 表示没有可复用的值（尚未 update，或上一次 update 收敛提前返回），
+        调用方应自行 ``predict`` 回退。与 :attr:`_anchor_pred` 不同，它**不**随
+        :meth:`accept` 失效——它描述的是当前 ``delta``（而非已接受相位）的模型强度。
+        """
+        return self._candidate_pred
+
     def update(self, measured_intensity: npt.NDArray[np.floating] | None = None) -> npt.NDArray[np.floating]:
         """一步：合成 → 前向 → 损失 → 反传 → Adam → 投影 → 去 piston/倾斜 → 记录。"""
         torch = _torch()
         if self._converged:
             return self.current_phase
+        # 收敛时提前返回，缓存保留上一步的候选前向——此时 current_phase 没变，复用仍成立。
+        self._candidate_pred = None
         self._opt.zero_grad(set_to_none=True)
         penalty = None
         if self._spectral_weight > 0:
@@ -737,7 +783,6 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
                                           carrier_phase=self._carrier)
         if prediction.ndim == 3:
             prediction = prediction[0]
-        anchor_cache = None
         if measured_intensity is None:
             loss, terms = self.objective.evaluate(prediction, self._delta)
             if penalty is not None:
@@ -754,15 +799,7 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
             # evaluated on the anchored irradiance, which carries the measured shape.
             # This cancels the model's systematic offset at the anchor, unlike a raw
             # VJP on the measured image, which leaves F(phi_seed) in the loss.
-            with torch.no_grad():
-                baseline_prediction = self.forward.predict(
-                    self._seed + self._accepted, focus_phase=self._focus,
-                    carrier_phase=self._carrier)
-                if baseline_prediction.ndim == 3:
-                    baseline_prediction = baseline_prediction[0]
-                # Same input as the post-step anchor below (``_accepted`` does not
-                # change inside one update): reuse it instead of a 4th forward pass.
-                anchor_cache = baseline_prediction
+            baseline_prediction = self._anchor_prediction()
             measured = measured.detach()
             anchored = (measured + prediction - baseline_prediction).clamp_min(1e-8)
             loss, terms = self.objective.evaluate(anchored, self._delta)
@@ -781,12 +818,10 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
         self._remove_piston_and_tilt()
         rms_before = self._project_increment()
         with torch.no_grad():
-            anchor_prediction = anchor_cache if anchor_cache is not None else self.forward.predict(
-                self._seed + self._accepted, focus_phase=self._focus, carrier_phase=self._carrier)
+            anchor_prediction = self._anchor_prediction()
             candidate_prediction = self.forward.predict(self._seed + self._delta,
-                                                        focus_phase=self._focus, carrier_phase=self._carrier)
-            if anchor_prediction.ndim == 3:
-                anchor_prediction = anchor_prediction[0]
+                                                        focus_phase=self._focus,
+                                                        carrier_phase=self._carrier)
             if candidate_prediction.ndim == 3:
                 candidate_prediction = candidate_prediction[0]
             anchor_loss, _ = self.objective.evaluate(anchor_prediction, self._accepted)
@@ -800,6 +835,12 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
                                 candidate_model_loss=float(candidate_loss),
                                 candidate_model_loss_change=float(candidate_loss-anchor_loss),
                                 raw_to_final_step_cosine=step_cosine)
+            # 步末的候选前向（当前已接受相位的模型强度）供锚定闭环下一步复用；
+            # 下一步要算的正是同一相位的同一前向，见 :attr:`last_candidate_prediction`。
+            # ``current_phase`` 已经把 focus/carrier 叠进网格，调用方再 ``predict`` 时
+            # 不会再传它们，所以只有两者都为空时这份缓存才与调用方的输入等价。
+            if self._focus is None and self._carrier is None:
+                self._candidate_pred = candidate_prediction.detach().cpu().numpy()
         self._step += 1
         record = dict(step=self._step, mode=mode, loss=float(loss.detach()), gradient_norm=grad_norm,
                       increment_rms_before_projection=rms_before,
@@ -815,4 +856,5 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
         torch = _torch()
         with torch.no_grad():
             self._accepted.copy_(self._delta)
+        self._anchor_pred = None  # 锚点输入变了，缓存的前向作废
         return self.accepted_phase

@@ -32,7 +32,10 @@ class TransferSession:
     patience: int = 8
     min_delta: float = 1e-4
     blocks: int = 4
-    updates: int = 10
+    # 5, not 10: the per-block step_rms_cap saturates after 2-3 updates at the
+    # default phase_lr 0.30, so extra updates cost time without extra travel
+    # (report/shape_trials/defocus_differentiable/diffopt_efficiency_20261108.md §10.4).
+    updates: int = 5
     frames: int = 3
     side: float = 80.0
     period: float = 64.0
@@ -88,7 +91,7 @@ class TransferSession:
     device: str = "auto"
     initial_phase: str = "gs"
     exposure_max_steps: int = 2
-    phase_lr: float = 0.01
+    phase_lr: float = 0.30
     phase_rms_cap: float = 0.2
     adaptive_step: bool = False
     adaptive_exposure: bool = False
@@ -1509,7 +1512,7 @@ def main():
             "--initial-phase", choices=("gs", "plane", "random"), default="gs"
         )
         p.add_argument("--exposure-max-steps", type=int, default=2)
-        p.add_argument("--phase-lr", type=float, default=0.01)
+        p.add_argument("--phase-lr", type=float, default=0.30)
         p.add_argument("--phase-rms-cap", type=float, default=0.2)
         p.add_argument("--adaptive-step", action="store_true")
         p.add_argument("--adaptive-exposure", action="store_true")
@@ -1520,7 +1523,7 @@ def main():
             ("count", 24),
             ("iterations", 60),
             ("blocks", 4),
-            ("updates", 10),
+            ("updates", 5),
             ("frames", 3),
             ("seed", 102319),
             ("cam-id", 0),
