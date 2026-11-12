@@ -738,7 +738,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    ⚠️ **顺带实测到热自旋**：失败路径立即返回，20 ms 窗口内**空转 40,800 次**（≈2M 次/秒），
    一边猛敲已失效的 DAQ、一边和电压更新循环抢 CPU ⇒ 加 `_ADC_READ_RETRY_S = 0.005` 的**仅错误路径**退避
    （成功路径的节拍由 DAQ 采样窗自身决定，**不动**）。
-   ② `optimizer/combined_optimizer.py:381`（2026-10-25 重钉：该行在 `9bfc7f18` 时代即 `:352`，原误记 `:353`；2026-11-01 复核 `05401de9` #205 第五批把 epoch 块提为 `_run_combined_epochs` 后重钉至 `:326`；2026-11-01 复核 #205 第二十批（225 行 bench With 提为 `_run_combined_session`）该行随块迁入 helper，重钉至 `:381`）吞掉 `dm.send_voltages(zeros)` —— 这是 `finally` 里的**安全复位**。
+   ② `optimizer/combined_optimizer.py:405`（2026-10-25 重钉：该行在 `9bfc7f18` 时代即 `:352`，原误记 `:353`；2026-11-01 复核 `05401de9` #205 第五批把 epoch 块提为 `_run_combined_epochs` 后重钉至 `:326`；2026-11-01 复核 #205 第二十批（225 行 bench With 提为 `_run_combined_session`）该行随块迁入 helper，重钉至 `:381`；2026-11-13 复核 `795bf96c` #205 第 69 批把 `_comb_setup_masks`/`_comb_record_init_row`/`_comb_render_factory` 三 helper 提到模块级后下移 24 行，重钉至 `:405`）吞掉 `dm.send_voltages(zeros)` —— 这是 `finally` 里的**安全复位**。
    这里**不能抛**（会掩盖结束本轮的那个异常），但**静默更糟**：变形镜物理上停在最后一组（可能很大的）电压，
    下一个人站在实验系统前**无从得知**。改成 `logger.error`。
    证据分层（按可验证性选，不是一律写测试）：① 有离线行为测试 —— `adc` 是注入参数且模块离线可导入
@@ -1833,7 +1833,7 @@ slm_zernike_pib.py:1872`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
       之类变异，也没有重绑定），且所有静态可见调用点都**显式传参**。另有两处经 `**kwargs` 转发，静态无法证明，
       因此我按「无法证明」记录，而不是宣称「从未被使用」。
     - **改法用的是仓库既有约定，不是我发明的风格**：`optimizer_rms_dm` 与 `optimize_pib` 的 `init_v` 改为
-      `... | None = None`，依据是 `optimizer/combined_optimizer.py:409` 早已写成（2026-11-01 复核 `05401de9` #205 第五批后由 `:95` 重钉至 `:354`；2026-11-01 复核 #205 第二十批（helper 插在其上方）下移 55 行至 `:409`）
+      `... | None = None`，依据是 `optimizer/combined_optimizer.py:433` 早已写成（2026-11-01 复核 `05401de9` #205 第五批后由 `:95` 重钉至 `:354`；2026-11-01 复核 #205 第二十批（helper 插在其上方）下移 55 行至 `:409`；2026-11-13 复核 `795bf96c` #205 第 69 批三 `_comb_*` helper 插在其上方再下移 24 行至 `:433`）
       `init_v: list[float] | None = None`，且下游 `optimizer/spid_pib_loop.py:224` 本来就写
       `if init_v is None or len(init_v) == 0:` —— 在该路径上 `None` 与空**同义**；`rms.py` 侧的判据是
       `if not init_v:`，`None` 与 `[]` 同假。`grid_search_lr_delta` 的两个扫描列表改**元组**（体内只用
