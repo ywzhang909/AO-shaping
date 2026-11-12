@@ -2934,6 +2934,366 @@ def _seed_coefficients_from_run(config: SlmModelInLoopConfig) -> np.ndarray | No
 # ---------------------------------------------------------------------------
 
 
+
+def _session_round_state_init(StepBConfig, _fit_aberration_at_probes, _probe_set_loss, bench, calibration_affine, calibration_travel, camera_rotation_quarters, cell_scale, coefficients, config, flat_frame, flat_grid, flat_phase, flat_score, geometry, live_display, probe_records, recorder, roi_center, shape_phase_with_frozen_aberration, source_amplitude, target, target_camera, target_side_model):
+# Warm-up state for the first round lifted verbatim: step_a_lr
+# probe bookkeeping/phase/score baselines/step_b_cfg. Read by the
+# round loop below.
+    step_a_lr = float(config.step_a_lr)
+    probe_count = int(config.probe_count)
+    rejection_streak = 0
+    prev_uncertainty_probes: list[np.ndarray] | None = None
+    phase = np.zeros((config.region, config.region), dtype=np.float64)
+    # None until the first shaped round is accepted: the flat baseline is not
+    # a fair reference for the acceptance test (see acceptance_verdict).
+    score_before: float | None = None
+    best_accepted_cv: float | None = None
+    best_score, best_phase, best_frame = flat_score, flat_phase.copy(), flat_frame
+    status = ModelInLoopStatus.COMPLETED
+    step_b_cfg = StepBConfig(
+        iterations=int(config.step_b_iterations),
+        lr=float(config.step_b_lr),
+        target_shape=config.target_shape,
+        target_side=int(target_side_model),
+        w_uniformity=float(config.w_uniformity),
+        w_efficiency=float(config.w_efficiency),
+    )
+
+    # Built before any device work so an unusable schedule fails at config
+    # time. ``None`` keeps the fixed-radius default path untouched.
+    trust_region: AdaptiveTrustRegion | None = None
+    if config.adaptive_trust_region:
+        base_radius = float(config.trust_region_c_l2)
+        trust_region = AdaptiveTrustRegion(
+            AdaptiveTrustRegionConfig(
+                initial_c_l2=max(base_radius, 1e-6),
+                min_c_l2=max(base_radius, 1e-6) * 0.25,
+                max_c_l2=max(base_radius, 1e-6) * 4.0,
+            )
+        )
+
+    best_frame, best_phase, best_score, coefficients, status = _run_model_in_loop_rounds(
+        _fit_aberration_at_probes=_fit_aberration_at_probes,
+        _probe_set_loss=_probe_set_loss,
+        bench=bench,
+        best_accepted_cv=best_accepted_cv,
+        best_frame=best_frame,
+        best_phase=best_phase,
+        best_score=best_score,
+        calibration_affine=calibration_affine,
+        calibration_travel=calibration_travel,
+        camera_rotation_quarters=camera_rotation_quarters,
+        cell_scale=cell_scale,
+        coefficients=coefficients,
+        config=config,
+        flat_grid=flat_grid,
+        flat_phase=flat_phase,
+        geometry=geometry,
+        live_display=live_display,
+        phase=phase,
+        prev_uncertainty_probes=prev_uncertainty_probes,
+        probe_count=probe_count,
+        probe_records=probe_records,
+        recorder=recorder,
+        rejection_streak=rejection_streak,
+        roi_center=roi_center,
+        score_before=score_before,
+        shape_phase_with_frozen_aberration=shape_phase_with_frozen_aberration,
+        source_amplitude=source_amplitude,
+        status=status,
+        step_a_lr=step_a_lr,
+        step_b_cfg=step_b_cfg,
+        target=target,
+        target_camera=target_camera,
+        trust_region=trust_region,
+    )
+    return best_frame, best_phase, best_score, status
+
+
+
+
+def _session_measure_flat(calib_records, camera_rotation_quarters, cell_scale, coefficients, config, flat_capture_utc, flat_frame, flat_phase, geometry, live_display, recorder, roi_center, target_camera):
+# Model-space amplitude + self-calibration state + flat calibration
+# and its logging lifted verbatim. Returns the flat/source names the
+# round loop reads.
+    waist_model = max(
+        1.0,
+        float(geometry.beam_waist_panel_px)
+        * float(config.region)
+        / float(config.panel_span_px),
+    )
+    source_amplitude = gaussian_grid(int(config.region), waist_model)
+    # --- self-calibration state ----------------------------------------
+    # The affine τ_θ and the travel scale γ describe the **bench**, so they
+    # are initialised once (at identity / zero) and carried across rounds.
+    # ``None`` means the corresponding self-calibration is off.
+    calibration_affine: PupilAffine | None = (
+        PupilAffine() if config.selfcal_affine else None
+    )
+    calibration_travel: TravelScale | None = (
+        TravelScale() if config.selfcal_travel else None
+    )
+    flat_grid: np.ndarray | None = None
+    if config.cam_type != "sim":
+        flat_grid = _to_model_grid(
+            flat_frame,
+            roi_center,
+            int(geometry.far_field_size),
+            cell_scale,
+            camera_rotation_quarters,
+        )
+        reference_model = _make_optimizer(
+            config,
+            coefficients,
+            source_amplitude,
+            affine=calibration_affine,
+            travel=calibration_travel,
+        ).forward_intensity(coefficients, flat_phase, source_amplitude)
+        measured_peak = float(np.max(flat_grid))
+        model_peak = float(np.max(reference_model))
+        if measured_peak <= 0 or model_peak <= 0:
+            raise RuntimeError(
+                "cannot calibrate model intensity from the flat frame"
+            )
+        source_amplitude *= np.sqrt(measured_peak / model_peak)
+        logger.info(
+            "flat-frame intensity anchor: CCD {:.4g}, model {:.4g}, "
+            "amplitude scale {:.4g}",
+            measured_peak,
+            model_peak,
+            np.sqrt(measured_peak / model_peak),
+        )
+
+    flat_metrics = _metrics_at(
+        flat_frame,
+        target_camera,
+        roi_center,
+        target_shape=config.target_shape,
+        camera_rotation_quarters=camera_rotation_quarters,
+    )
+    flat_score = _quality(flat_metrics, config.w_efficiency, config.w_uniformity)
+    recorder.history.append(
+        {
+            "stage": "calibration",
+            "round": 0,
+            # `_epoch` is the Recorder's required index key: the shared writer
+            # `utils.io.file.save_recorder_debug_artifacts` does
+            # `data[int(rec["_epoch"])] = item`, so a record without it raises
+            # KeyError from inside the pkl path. Every other shaping optimizer
+            # stamps it (see `slm_zernike_pib.py`); this one did not, which is why
+            # its `--debug` artefacts could never be written.
+            RECORD_EPOCH: 0,
+            "accepted": True,
+            "reason": "baseline",
+            "score_before": float(flat_score),
+            "score_after": float(flat_score),
+            "cv_after": float(flat_metrics.get("uniformity_cv", float("nan"))),
+            "ee_after": float(flat_metrics.get("encircled_energy", float("nan"))),
+            "uniformity_cv": float(flat_metrics.get("uniformity_cv", float("nan"))),
+            "coeff_norm": 0.0,
+            "coeff_step_l2": 0.0,
+            "clamp_applied": False,
+            "probe_count": 0,
+            "step_a_lr": float(config.step_a_lr),
+            "rejection_streak": 0,
+            "geometry_correlation": float(geometry.correlation),
+            "n_calibration_probes": len(calib_records),
+        }
+    )
+    if config.cam_type != "sim":
+        recorder.history[-1]["timestamp_utc"] = flat_capture_utc
+    logger.info(
+        "flat baseline: score={:.4f} CV={:.4f} EE={:.4f}",
+        flat_score,
+        flat_metrics.get("uniformity_cv", float("nan")),
+        flat_metrics.get("encircled_energy", float("nan")),
+    )
+
+    # ---------------- Optional live view ---------------------------------
+    # Opened here rather than at the top because the CCD overlay needs the
+    # solved ``target_camera``. The flat baseline is rendered from the frames
+    # already measured above, so opening later costs no extra acquisition.
+    if config.show:
+        from ao_shaping.display import SlmModelInLoopDisplay
+
+        live_display = SlmModelInLoopDisplay(
+            curve_title="score curve",
+            target_shape=config.target_shape,
+        )
+        live_display.init_window()
+        live_display.update(
+            measured=flat_frame,
+            phase=flat_phase,
+            # No prediction yet: the model has no fitted aberration at this
+            # point, so the panel stays blank rather than implying a fit.
+            predicted=None,
+            center=roi_center,
+            r=target_camera / 2.0,
+            info=f"flat baseline | score {flat_score:.4f}",
+            value=float(flat_score),
+            epoch=0,
+            total_epochs=int(config.n_rounds),
+            target_size=target_camera,
+        )
+    return calibration_affine, calibration_travel, flat_grid, flat_score, source_amplitude
+
+
+
+
+def _session_open_bench(bench, config, create_target_mask, probe_records, zero_order_center):
+# Stage 0 (flat baseline + frozen ROI) and Stage 1 (geometry
+# bake-off + model-space target) lifted verbatim. Returns the bench
+# geometry/target names the rest of the session reads.
+    flat_phase = np.zeros((config.region, config.region), dtype=np.float64)
+    bench.display(flat_phase)
+    raw_flat = bench.measure()
+    flat_frame = prepare_frame(raw_flat)
+    if config.step_sink is not None:
+        config.step_sink(
+            "flat",
+            _step_payload(
+                phase_rad=flat_phase,
+                frame=flat_frame,
+                raw_scalars=_raw_frame_scalars(raw_flat),
+                round_index=0,
+                probe_index=None,
+                probe_count=None,
+            ),
+        )
+    _save_preflight_capture(config, "flat", flat_phase, flat_frame, bench)
+    flat_capture_utc = getattr(bench, "last_capture_utc", None)
+    if config.cam_type != "sim":
+        probe_records.append(
+            {
+                "round": 0,
+                "split": "flat",
+                "index": 0,
+                "phase": flat_phase.copy(),
+                "raw_frame": getattr(bench, "last_raw_frame", None),
+                "frame": flat_frame.copy(),
+                "exposure_ms": getattr(bench, "last_exposure_ms", None),
+                "timestamp_utc": getattr(bench, "last_capture_utc", None),
+            }
+        )
+    if not np.any(flat_frame > 0):
+        raise RuntimeError(
+            "the flat-phase frame is empty after background subtraction; "
+            "check the exposure and that the SLM is actually retracting "
+            "light onto the camera"
+        )
+    # Locate the optical axis ONCE. The 0-order is the frame's global
+    # maximum, never the geometric centre -- on this bench it sits far
+    # off-centre -- and it is frozen for the whole run from here on.
+    roi_center = getattr(bench, "signal_center_local", None) or zero_order_center(
+        flat_frame, refine=False
+    )
+    logger.info("frozen ROI centre (x, y) = {}", roi_center)
+
+    # ---------------- Stage 1: geometry, then the bake-off -------------
+    geometry, calib_records = _calibrate_geometry(config, bench)
+    logger.info(
+        "geometry [{}]: disc={} waist={:.1f}px far_field={} cam/model={:.4f} corr={:.4f}",
+        geometry.method,
+        geometry.panel_disc_radius,
+        geometry.beam_waist_panel_px,
+        geometry.far_field_size,
+        geometry.camera_px_per_model_px,
+        geometry.correlation,
+    )
+    if geometry.correlation < float(config.min_geometry_correlation):
+        raise RuntimeError(
+            f"bench geometry bake-off failed: speckle correlation "
+            f"{geometry.correlation:.4f} < required "
+            f"{config.min_geometry_correlation:.4f}. The forward model does "
+            f"not describe this bench, so shaping would produce a WORSE spot "
+            f"than flat. Check panel_span_px against the panel box the "
+            f"probes covered, that the pupil phase actually varied across "
+            f"the illuminated area, and for pupil-registration / panel-tilt "
+            f"error. Fall back to slm-gs-refine."
+        )
+
+    # The correlation floor cannot see a defocus mismatch -- on this bench a
+    # geometry fitted on an uncorrected pupil scored 0.831 and passed it, while
+    # a usable one scored 0.848. So the geometry also has to vouch for itself.
+    #
+    # Hardware only: the simulated bench synthesises its geometry and never
+    # measures a flat spot, so its ``spot_fwhm_camera_px`` is NaN by
+    # construction and there is nothing to check. A non-finite width on real
+    # hardware stays a failure, because there the quantity is measured.
+    if config.cam_type == "sim":
+        logger.debug("skipping geometry self-check on the simulated bench")
+    else:
+        cam_size_check = int(getattr(config, "cam_size", 0) or 0)
+        if cam_size_check <= 0:
+            cam_size_check = int(getattr(config, "target_side", 0) or 0)
+            if cam_size_check <= 0 and "flat_frame" in locals():
+                cam_size_check = int(min(flat_frame.shape[0], flat_frame.shape[1]))
+            if cam_size_check <= 0:
+                cam_size_check = 300
+            logger.warning(
+                "cam_size missing/invalid in config ({}); falling back to {} for geometry self-check",
+                getattr(config, "cam_size", None),
+                cam_size_check,
+            )
+        self_check = geometry.self_check_failures(cam_size_check)
+        if self_check:
+            raise RuntimeError(
+                "bench geometry failed its self-check: "
+                + "; ".join(self_check)
+                + f". The correlation floor ({geometry.correlation:.4f}) does not "
+                "detect this, so it is reported separately. A calibration run that "
+                "cannot carry the session's phase correction measures an uncorrected "
+                "pupil and produces a focal scale that is wrong by a large factor. "
+                "Re-run the focus/coma probe and pass the correction into every stage."
+            )
+
+    # Model-space target: the forward model never sees camera pixels.
+    scale = float(geometry.camera_px_per_model_px)
+    # The forward model emits its far-field grid, which is the pupil grid
+    # resampled by the zero-padding factor: padding refines the far-field
+    # SAMPLING without changing its angular extent, so one far-field cell is
+    # (region / far_field_size) model pixels. Step A therefore needs the
+    # measurement on THAT grid, which is a different span from the target.
+    # Hardware calibration measures camera pixels per padded FFT cell.
+    # The simulated bench reports camera pixels per unpadded model cell.
+    cell_scale = (
+        scale * float(config.region) / float(geometry.far_field_size)
+        if config.cam_type == "sim"
+        else scale
+    )
+    camera_rotation_quarters = 0 if config.cam_type == "sim" else 1
+    logger.info(
+        "grid mapping: {:.4f} cam px per model px -> {:.4f} cam px per far-field "
+        "cell (far_field_size={})",
+        scale,
+        cell_scale,
+        geometry.far_field_size,
+    )
+    camera_px_per_target_cell = (
+        cell_scale * float(geometry.far_field_size) / float(config.region)
+    )
+    target_side_model = max(
+        3, int(round(config.target_side / camera_px_per_target_cell))
+    )
+    target_side_model = min(target_side_model, int(config.region) - 2)
+    target_camera = max(
+        3, int(round(target_side_model * camera_px_per_target_cell))
+    )
+    logger.info(
+        "target side: {} camera px -> {} model px (scale {:.4f} cam/model px)",
+        config.target_side,
+        target_side_model,
+        camera_px_per_target_cell,
+    )
+    target = create_target_mask(
+        config.target_shape,
+        (int(config.region), int(config.region)),
+        target_side_model,
+    )
+    return calib_records, camera_rotation_quarters, cell_scale, flat_capture_utc, flat_frame, flat_phase, geometry, roi_center, target, target_camera, target_side_model
+
+
+
 def _run_model_in_loop_session(
     *,
     StepBConfig: object,
@@ -2952,344 +3312,14 @@ def _run_model_in_loop_session(
     """#205 batch-13: former 930-line Try session of optimize_slm_model_in_loop."""
     try:
         # ---------------- Stage 0: flat baseline, frozen ROI ---------------
-        flat_phase = np.zeros((config.region, config.region), dtype=np.float64)
-        bench.display(flat_phase)
-        raw_flat = bench.measure()
-        flat_frame = prepare_frame(raw_flat)
-        if config.step_sink is not None:
-            config.step_sink(
-                "flat",
-                _step_payload(
-                    phase_rad=flat_phase,
-                    frame=flat_frame,
-                    raw_scalars=_raw_frame_scalars(raw_flat),
-                    round_index=0,
-                    probe_index=None,
-                    probe_count=None,
-                ),
-            )
-        _save_preflight_capture(config, "flat", flat_phase, flat_frame, bench)
-        flat_capture_utc = getattr(bench, "last_capture_utc", None)
-        if config.cam_type != "sim":
-            probe_records.append(
-                {
-                    "round": 0,
-                    "split": "flat",
-                    "index": 0,
-                    "phase": flat_phase.copy(),
-                    "raw_frame": getattr(bench, "last_raw_frame", None),
-                    "frame": flat_frame.copy(),
-                    "exposure_ms": getattr(bench, "last_exposure_ms", None),
-                    "timestamp_utc": getattr(bench, "last_capture_utc", None),
-                }
-            )
-        if not np.any(flat_frame > 0):
-            raise RuntimeError(
-                "the flat-phase frame is empty after background subtraction; "
-                "check the exposure and that the SLM is actually retracting "
-                "light onto the camera"
-            )
-        # Locate the optical axis ONCE. The 0-order is the frame's global
-        # maximum, never the geometric centre -- on this bench it sits far
-        # off-centre -- and it is frozen for the whole run from here on.
-        roi_center = getattr(bench, "signal_center_local", None) or zero_order_center(
-            flat_frame, refine=False
-        )
-        logger.info("frozen ROI centre (x, y) = {}", roi_center)
-
-        # ---------------- Stage 1: geometry, then the bake-off -------------
-        geometry, calib_records = _calibrate_geometry(config, bench)
-        logger.info(
-            "geometry [{}]: disc={} waist={:.1f}px far_field={} cam/model={:.4f} corr={:.4f}",
-            geometry.method,
-            geometry.panel_disc_radius,
-            geometry.beam_waist_panel_px,
-            geometry.far_field_size,
-            geometry.camera_px_per_model_px,
-            geometry.correlation,
-        )
-        if geometry.correlation < float(config.min_geometry_correlation):
-            raise RuntimeError(
-                f"bench geometry bake-off failed: speckle correlation "
-                f"{geometry.correlation:.4f} < required "
-                f"{config.min_geometry_correlation:.4f}. The forward model does "
-                f"not describe this bench, so shaping would produce a WORSE spot "
-                f"than flat. Check panel_span_px against the panel box the "
-                f"probes covered, that the pupil phase actually varied across "
-                f"the illuminated area, and for pupil-registration / panel-tilt "
-                f"error. Fall back to slm-gs-refine."
-            )
-
-        # The correlation floor cannot see a defocus mismatch -- on this bench a
-        # geometry fitted on an uncorrected pupil scored 0.831 and passed it, while
-        # a usable one scored 0.848. So the geometry also has to vouch for itself.
-        #
-        # Hardware only: the simulated bench synthesises its geometry and never
-        # measures a flat spot, so its ``spot_fwhm_camera_px`` is NaN by
-        # construction and there is nothing to check. A non-finite width on real
-        # hardware stays a failure, because there the quantity is measured.
-        if config.cam_type == "sim":
-            logger.debug("skipping geometry self-check on the simulated bench")
-        else:
-            cam_size_check = int(getattr(config, "cam_size", 0) or 0)
-            if cam_size_check <= 0:
-                cam_size_check = int(getattr(config, "target_side", 0) or 0)
-                if cam_size_check <= 0 and "flat_frame" in locals():
-                    cam_size_check = int(min(flat_frame.shape[0], flat_frame.shape[1]))
-                if cam_size_check <= 0:
-                    cam_size_check = 300
-                logger.warning(
-                    "cam_size missing/invalid in config ({}); falling back to {} for geometry self-check",
-                    getattr(config, "cam_size", None),
-                    cam_size_check,
-                )
-            self_check = geometry.self_check_failures(cam_size_check)
-            if self_check:
-                raise RuntimeError(
-                    "bench geometry failed its self-check: "
-                    + "; ".join(self_check)
-                    + f". The correlation floor ({geometry.correlation:.4f}) does not "
-                    "detect this, so it is reported separately. A calibration run that "
-                    "cannot carry the session's phase correction measures an uncorrected "
-                    "pupil and produces a focal scale that is wrong by a large factor. "
-                    "Re-run the focus/coma probe and pass the correction into every stage."
-                )
-
-        # Model-space target: the forward model never sees camera pixels.
-        scale = float(geometry.camera_px_per_model_px)
-        # The forward model emits its far-field grid, which is the pupil grid
-        # resampled by the zero-padding factor: padding refines the far-field
-        # SAMPLING without changing its angular extent, so one far-field cell is
-        # (region / far_field_size) model pixels. Step A therefore needs the
-        # measurement on THAT grid, which is a different span from the target.
-        # Hardware calibration measures camera pixels per padded FFT cell.
-        # The simulated bench reports camera pixels per unpadded model cell.
-        cell_scale = (
-            scale * float(config.region) / float(geometry.far_field_size)
-            if config.cam_type == "sim"
-            else scale
-        )
-        camera_rotation_quarters = 0 if config.cam_type == "sim" else 1
-        logger.info(
-            "grid mapping: {:.4f} cam px per model px -> {:.4f} cam px per far-field "
-            "cell (far_field_size={})",
-            scale,
-            cell_scale,
-            geometry.far_field_size,
-        )
-        camera_px_per_target_cell = (
-            cell_scale * float(geometry.far_field_size) / float(config.region)
-        )
-        target_side_model = max(
-            3, int(round(config.target_side / camera_px_per_target_cell))
-        )
-        target_side_model = min(target_side_model, int(config.region) - 2)
-        target_camera = max(
-            3, int(round(target_side_model * camera_px_per_target_cell))
-        )
-        logger.info(
-            "target side: {} camera px -> {} model px (scale {:.4f} cam/model px)",
-            config.target_side,
-            target_side_model,
-            camera_px_per_target_cell,
-        )
-        target = create_target_mask(
-            config.target_shape,
-            (int(config.region), int(config.region)),
-            target_side_model,
-        )
+        calib_records, camera_rotation_quarters, cell_scale, flat_capture_utc, flat_frame, flat_phase, geometry, roi_center, target, target_camera, target_side_model = _session_open_bench(bench, config, create_target_mask, probe_records, zero_order_center)
 
         # Illumination on the model grid, from the CALIBRATED waist. Omitting it
         # would make Step B optimise for a beam that is not the real one.
-        waist_model = max(
-            1.0,
-            float(geometry.beam_waist_panel_px)
-            * float(config.region)
-            / float(config.panel_span_px),
-        )
-        source_amplitude = gaussian_grid(int(config.region), waist_model)
-        # --- self-calibration state ----------------------------------------
-        # The affine τ_θ and the travel scale γ describe the **bench**, so they
-        # are initialised once (at identity / zero) and carried across rounds.
-        # ``None`` means the corresponding self-calibration is off.
-        calibration_affine: PupilAffine | None = (
-            PupilAffine() if config.selfcal_affine else None
-        )
-        calibration_travel: TravelScale | None = (
-            TravelScale() if config.selfcal_travel else None
-        )
-        flat_grid: np.ndarray | None = None
-        if config.cam_type != "sim":
-            flat_grid = _to_model_grid(
-                flat_frame,
-                roi_center,
-                int(geometry.far_field_size),
-                cell_scale,
-                camera_rotation_quarters,
-            )
-            reference_model = _make_optimizer(
-                config,
-                coefficients,
-                source_amplitude,
-                affine=calibration_affine,
-                travel=calibration_travel,
-            ).forward_intensity(coefficients, flat_phase, source_amplitude)
-            measured_peak = float(np.max(flat_grid))
-            model_peak = float(np.max(reference_model))
-            if measured_peak <= 0 or model_peak <= 0:
-                raise RuntimeError(
-                    "cannot calibrate model intensity from the flat frame"
-                )
-            source_amplitude *= np.sqrt(measured_peak / model_peak)
-            logger.info(
-                "flat-frame intensity anchor: CCD {:.4g}, model {:.4g}, "
-                "amplitude scale {:.4g}",
-                measured_peak,
-                model_peak,
-                np.sqrt(measured_peak / model_peak),
-            )
-
-        flat_metrics = _metrics_at(
-            flat_frame,
-            target_camera,
-            roi_center,
-            target_shape=config.target_shape,
-            camera_rotation_quarters=camera_rotation_quarters,
-        )
-        flat_score = _quality(flat_metrics, config.w_efficiency, config.w_uniformity)
-        recorder.history.append(
-            {
-                "stage": "calibration",
-                "round": 0,
-                # `_epoch` is the Recorder's required index key: the shared writer
-                # `utils.io.file.save_recorder_debug_artifacts` does
-                # `data[int(rec["_epoch"])] = item`, so a record without it raises
-                # KeyError from inside the pkl path. Every other shaping optimizer
-                # stamps it (see `slm_zernike_pib.py`); this one did not, which is why
-                # its `--debug` artefacts could never be written.
-                RECORD_EPOCH: 0,
-                "accepted": True,
-                "reason": "baseline",
-                "score_before": float(flat_score),
-                "score_after": float(flat_score),
-                "cv_after": float(flat_metrics.get("uniformity_cv", float("nan"))),
-                "ee_after": float(flat_metrics.get("encircled_energy", float("nan"))),
-                "uniformity_cv": float(flat_metrics.get("uniformity_cv", float("nan"))),
-                "coeff_norm": 0.0,
-                "coeff_step_l2": 0.0,
-                "clamp_applied": False,
-                "probe_count": 0,
-                "step_a_lr": float(config.step_a_lr),
-                "rejection_streak": 0,
-                "geometry_correlation": float(geometry.correlation),
-                "n_calibration_probes": len(calib_records),
-            }
-        )
-        if config.cam_type != "sim":
-            recorder.history[-1]["timestamp_utc"] = flat_capture_utc
-        logger.info(
-            "flat baseline: score={:.4f} CV={:.4f} EE={:.4f}",
-            flat_score,
-            flat_metrics.get("uniformity_cv", float("nan")),
-            flat_metrics.get("encircled_energy", float("nan")),
-        )
-
-        # ---------------- Optional live view ---------------------------------
-        # Opened here rather than at the top because the CCD overlay needs the
-        # solved ``target_camera``. The flat baseline is rendered from the frames
-        # already measured above, so opening later costs no extra acquisition.
-        if config.show:
-            from ao_shaping.display import SlmModelInLoopDisplay
-
-            live_display = SlmModelInLoopDisplay(
-                curve_title="score curve",
-                target_shape=config.target_shape,
-            )
-            live_display.init_window()
-            live_display.update(
-                measured=flat_frame,
-                phase=flat_phase,
-                # No prediction yet: the model has no fitted aberration at this
-                # point, so the panel stays blank rather than implying a fit.
-                predicted=None,
-                center=roi_center,
-                r=target_camera / 2.0,
-                info=f"flat baseline | score {flat_score:.4f}",
-                value=float(flat_score),
-                epoch=0,
-                total_epochs=int(config.n_rounds),
-                target_size=target_camera,
-            )
+        calibration_affine, calibration_travel, flat_grid, flat_score, source_amplitude = _session_measure_flat(calib_records, camera_rotation_quarters, cell_scale, coefficients, config, flat_capture_utc, flat_frame, flat_phase, geometry, live_display, recorder, roi_center, target_camera)
 
         # ---------------- Stage 2: the alternating loop --------------------
-        step_a_lr = float(config.step_a_lr)
-        probe_count = int(config.probe_count)
-        rejection_streak = 0
-        prev_uncertainty_probes: list[np.ndarray] | None = None
-        phase = np.zeros((config.region, config.region), dtype=np.float64)
-        # None until the first shaped round is accepted: the flat baseline is not
-        # a fair reference for the acceptance test (see acceptance_verdict).
-        score_before: float | None = None
-        best_accepted_cv: float | None = None
-        best_score, best_phase, best_frame = flat_score, flat_phase.copy(), flat_frame
-        status = ModelInLoopStatus.COMPLETED
-        step_b_cfg = StepBConfig(
-            iterations=int(config.step_b_iterations),
-            lr=float(config.step_b_lr),
-            target_shape=config.target_shape,
-            target_side=int(target_side_model),
-            w_uniformity=float(config.w_uniformity),
-            w_efficiency=float(config.w_efficiency),
-        )
-
-        # Built before any device work so an unusable schedule fails at config
-        # time. ``None`` keeps the fixed-radius default path untouched.
-        trust_region: AdaptiveTrustRegion | None = None
-        if config.adaptive_trust_region:
-            base_radius = float(config.trust_region_c_l2)
-            trust_region = AdaptiveTrustRegion(
-                AdaptiveTrustRegionConfig(
-                    initial_c_l2=max(base_radius, 1e-6),
-                    min_c_l2=max(base_radius, 1e-6) * 0.25,
-                    max_c_l2=max(base_radius, 1e-6) * 4.0,
-                )
-            )
-
-        best_frame, best_phase, best_score, coefficients, status = _run_model_in_loop_rounds(
-            _fit_aberration_at_probes=_fit_aberration_at_probes,
-            _probe_set_loss=_probe_set_loss,
-            bench=bench,
-            best_accepted_cv=best_accepted_cv,
-            best_frame=best_frame,
-            best_phase=best_phase,
-            best_score=best_score,
-            calibration_affine=calibration_affine,
-            calibration_travel=calibration_travel,
-            camera_rotation_quarters=camera_rotation_quarters,
-            cell_scale=cell_scale,
-            coefficients=coefficients,
-            config=config,
-            flat_grid=flat_grid,
-            flat_phase=flat_phase,
-            geometry=geometry,
-            live_display=live_display,
-            phase=phase,
-            prev_uncertainty_probes=prev_uncertainty_probes,
-            probe_count=probe_count,
-            probe_records=probe_records,
-            recorder=recorder,
-            rejection_streak=rejection_streak,
-            roi_center=roi_center,
-            score_before=score_before,
-            shape_phase_with_frozen_aberration=shape_phase_with_frozen_aberration,
-            source_amplitude=source_amplitude,
-            status=status,
-            step_a_lr=step_a_lr,
-            step_b_cfg=step_b_cfg,
-            target=target,
-            target_camera=target_camera,
-            trust_region=trust_region,
-        )
+        best_frame, best_phase, best_score, status = _session_round_state_init(StepBConfig, _fit_aberration_at_probes, _probe_set_loss, bench, calibration_affine, calibration_travel, camera_rotation_quarters, cell_scale, coefficients, config, flat_frame, flat_grid, flat_phase, flat_score, geometry, live_display, probe_records, recorder, roi_center, shape_phase_with_frozen_aberration, source_amplitude, target, target_camera, target_side_model)
 
         # ---------------- Stage 3: final bake-off against flat --------------
         if best_score <= flat_score:
