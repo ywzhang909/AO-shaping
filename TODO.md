@@ -4846,13 +4846,20 @@ slm_zernike_pib.py:1872`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 验证：`test_slm_shaping_runner_sim_backend.py` **8 passed**；square+model_in_loop+runners 载体 **310 passed**；形状门禁+conventions **262 passed, 1 skipped**
 - 教训 ⑳：**载体必须包含端到端 runner 测试** —— 第 56 批只跑 `optimizer/wfless` 载体, `tests/ao_shaping/runners/` 没跑, CI 才第一次抓到；同时 `returns` 必须显式覆盖「形参回写」
 
-**2026-11-12 · a7305c5d · 第 60 批: `_run_pib_session` 384→232 + 五缝 (`slm_zernike_pib.py`)**
+**2026-11-12 · 5245998e · 第 60 批: `_run_pib_session` 384→232 + 五缝 (`slm_zernike_pib.py`)**
 - 提取: `_pib_open_session` 30 / `_pib_record_row0` 32 / `_pib_build_shaping` 42 / `_pib_geometry` 35 / `_pib_arm_blaze` 18
 - 叶差分: 27 个 helper 逐字节同; 仅母函数变; 新增 5; 消失 0
 - 载体: 13 个 pib 测试 + `runners/test_slm_pib_runner_debug.py` + `runners/test_slm_shaping_runner_sim_backend.py` **144 passed 1 skipped**
 - 门禁: 形状门禁 267/5/232 + 5 helper 行; conventions **72 passed 1 skipped**（ABBA 探针 2085→2125、`--max_peak` 2309-2319→2349-2359、`BaseException` 1832→1872 三处）
 - 模块 2555→2595（baseline 重写, 含 master 侧若干收紧）
 - 教训 ㉑: `_pib_geometry` 单缝需回传 12 个名字（含 `center`/`target_size`/`r_bucket` 三个形参回写）; 生成器修好的 `returns` 规则一次到位, 未再出现回写泄漏
+
+**2026-11-12 · 5245998e 之后 · 第 61 批: `_run_measurement_session` 379→248 + 五缝 (`tools/slm/calibration/diffraction_efficiency/measure.py`)**
+- 提取: `_measure_focus_gate` 88 (If 体内提, `--focus-only` 早退 return 留在母函数) / `_measure_scan_bounds` 23 / `_measure_saturation_warn` 13 / `_measure_drift_warn` 12 / `_measure_defocus_phase` 15
+- 叶差分: 15 个 helper 逐字节同; 仅母函数变; 新增 5; 消失 0; 形参回写泄漏审计 0 处
+- 载体: `tests/ao_shaping/tools/slm/test_slm_diffraction_efficiency.py` **61 passed**; 形状门禁+conventions **272 passed 1 skipped** (measure.py 无 wiki 钉, 行锚零漂移)
+- 模块 924→964 (baseline 抬高)
+- 教训 ㉒: **缝边界必须落在语句边界**——`prs[-1].end_lineno == B` 断言拒收区间尾空白行 (619/617 各失败一次, 真尾是 618); If 语句整体含 `return` 时可改提 **If 体** (A 指体首), 条件头与早退块留在母函数
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
