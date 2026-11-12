@@ -4880,9 +4880,17 @@ slm_zernike_pib.py:1872`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 
 **2026-11-12 · 242cd35a 之后 · 修 master 既有红: `module_inventory.md` 幽灵条目 `gray_scale`**
 - `test_wavefront_inventory_doc.py::test_inventory_rows_match_directories` 自 `137ed6cd` 起红: 该提交在 `utils/slm/` 行登记了 `gray_scale` (2π 编码标度入口), 但**从未提交该模块文件** (git 全历史无此路径, `resolve_max_grayscale` 全树无定义) ⇒ names 单元与磁盘目录双向比对必失败; b61 CI 因此 Pytest 失败
-- 修法: 从 names 单元删 `gray_scale`, 并删 notes 单元以 `；\`gray_scale\` (2026-11-12 新增)` 起尾的整段描述 (模块不存在, 描述即幽灵); 其余 (pattern_helper 勘误说明) 保留
+- 修法: 从 names 单元删 `gray_scale`, 并删 notes 单元以全角分号加 gray_scale 2026-11-12 新增 起尾的整段描述 (模块不存在, 描述即幽灵); 其余 (pattern_helper 勘误说明) 保留
 - 验证: `test_wavefront_inventory_doc.py` **2 passed**; ruff/term 绿
 - 教训 ㉕: **本地守卫集必须含 `test_wavefront_inventory_doc.py`**——b61 只跑 test_conventions + 形状门禁, 没跑这个独立守卫文件, 让它带着 master 既有红推上去了 (b62 CI 同样会中招, HEAD 修复后自然转绿)
+
+**2026-11-12 · 3428be97 之后 · 第 64 批: `calibrate_bench_geometry_from_sweep` 283→186 + 五缝 (`optimizer/wfless/model_in_loop_shaping.py`)**
+- 提取: `_milsg_validate_sweeps` 26 (模式分桶+倾斜斜率校验, Raise 直传语义不变) / `_milsg_focal_crosschecks` 27 / `_milsg_fit_waist` 26 (区间从 25 收到 23: For 尾行会让循环变量 `mode` 被误判为需回传, 空 mode_offsets 时 NameError) / `_milsg_build_notes` 22 / `_milsg_log_modes` 16
+- 叶差分: 64 个 helper 逐字节同; 仅母函数变; 新增 5; 消失 0; 形参回写审计 0 处
+- 载体: wfless 逐文件域 exit=0 (56 段 0 失败, 含全部 model_in_loop/geometry 测试); 扩展守卫集 (形状+conventions+inventory+provenance) **1117 passed 1 skipped**
+- 顺手修: 上一条账 8.9 叙述里写入了字面反斜杠转义反引号, 被 `test_date_anchored_ledger_entries_stay_parseable_and_balanced` 判逃逸残留, 已改写为人话
+- 模块 3299→3339 (baseline 抬高); 无行锚漂移 (该文件无活钉)
+- 教训 ㉖: **账内禁写转义反引号**——守卫会判 "escape residue written literally before a code span"; 引原文一律用中文描述或去掉反引号
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

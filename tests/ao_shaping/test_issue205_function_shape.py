@@ -124,7 +124,12 @@ _AXIS_BEAM_RUNNER = "src/ao_shaping/runners/nlight_dm/axis_beam_runner.py"
 #: (relative path under src, function name, span ceiling, nesting ceiling,
 #:  the span measured when the guard was written)
 TARGETS = [
-    (_FILE, "calibrate_bench_geometry_from_sweep", 360, 3, 283),
+    (_FILE, "calibrate_bench_geometry_from_sweep", 214, 3, 186),
+    (_FILE, "_milsg_validate_sweeps", 30, 3, 26),
+    (_FILE, "_milsg_focal_crosschecks", 32, 3, 27),
+    (_FILE, "_milsg_fit_waist", 30, 3, 26),
+    (_FILE, "_milsg_build_notes", 26, 3, 22),
+    (_FILE, "_milsg_log_modes", 19, 3, 16),
     (_FILE, "_tilt_axis_slopes", 70, 3, 44),
     (_FILE, "_ramp_focal_scale", 70, 3, 39),
     (_FILE, "_fov_ratio_cross_check", 80, 3, 46),

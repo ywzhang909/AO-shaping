@@ -2388,6 +2388,143 @@ def _sweep_calibration_notes(*, k_tilt: float, slopes: dict[str, float], sources
         )
     return notes
 
+
+def _milsg_log_modes(curvature_report, groups, offsets):
+# Per-mode calibration logger loop lifted verbatim
+    for mode in sorted(offsets):
+        # ``offsets`` only ever holds modes that survived, but the lookup is
+        # defensive on purpose: this loop must not be the place where a dropped
+        # mode turns into a KeyError.
+        points = groups.get(mode)
+        n_points = int(points[0].size) if points is not None else 0
+        logger.info(
+            "  bench {}: offset {:+.3f} rad, width^2 curvature {:.1f}, {} points",
+            mode,
+            offsets[mode],
+            curvature_report[mode],
+            n_points,
+        )
+    return 
+
+
+
+
+def _milsg_build_notes(a, asymmetry, camera_px_per_model_px, curvature_report, dropped, dropped_modes, far_field_size, fit_rms, flats, focal_source, fov_ratio, groups, k_tilt, offsets, opt, region, slopes, sources, tilt_ratio, w_d, waist_determined, waist_model, zeros):
+# Flat-field metrics and calibration notes lifted verbatim
+    flat_fwhm = float(np.median([r.fwhm_px for r in flats])) if flats else float("nan")
+    if not np.isfinite(flat_fwhm):
+        flat_fwhm = float(np.min(w_d))
+    amp = _pupil_amplitude(region, waist_model, a)
+    flat_model = opt.forward_intensity(zeros, np.zeros((region, region)), amp)
+    flat_model_fwhm = float(_spot_fwhm(flat_model))
+
+    modes_used = "+".join(sorted(groups))
+    notes = _sweep_calibration_notes(k_tilt=k_tilt, slopes=slopes, sources=sources,
+                                    a=a, far_field_size=far_field_size,
+                                    tilt_ratio=tilt_ratio, focal_source=focal_source,
+                                    camera_px_per_model_px=camera_px_per_model_px,
+                                    fov_ratio=fov_ratio, modes_used=modes_used,
+                                    fit_rms=fit_rms, offsets=offsets,
+                                    curvature_report=curvature_report,
+                                    asymmetry=asymmetry,
+                                    waist_determined=waist_determined,
+                                    dropped_modes=dropped_modes)
+    _publish_dropped(dropped, dropped_modes)
+    return flat_fwhm, flat_model_fwhm, modes_used, notes
+
+
+
+
+def _milsg_fit_waist(a, camera_px_per_model_px, dropped_modes, far_field_size, groups, region, waist_candidates):
+# Joint waist fit lifted verbatim
+    c_d, w_d = groups["defocus"]
+    asymmetry = _defocus_asymmetry(c_d, w_d)
+
+    if waist_candidates is None:
+        waist_candidates = [region / float(2**k) for k in range(0, 8)]
+    opt = ZernikeCoefficientOptimizer(
+        n_orders=1,
+        region=region,
+        dtype="float64",
+        device="cpu",
+        far_field_size=far_field_size,
+    )
+    zeros = np.zeros(opt.n_coefficients)
+    span = max(float(np.max(np.abs(c))) for c, _ in groups.values()) + 1.0
+    resp_grid = np.linspace(-span, span, _SWEEP_RESPONSE_POINTS)
+
+    best = _fit_joint_waist(groups, dropped_modes, opt=opt, zeros=zeros,
+                         resp_grid=resp_grid, region=region, a=a,
+                         camera_px_per_model_px=camera_px_per_model_px,
+                         waist_candidates=waist_candidates)
+    if best is None:
+        raise ValueError("no waist candidate produced a finite width response")
+    fit_rms, waist_fit, mode_offsets = best
+    return asymmetry, fit_rms, mode_offsets, opt, w_d, waist_fit, zeros
+
+
+
+
+def _milsg_focal_crosschecks(a, aperture_m, camera_pixel_m, far_field_size, focal_length_m, k_tilt, model_to_panel, ramp_axis, ramp_scale, sources, wavelength_m):
+# Ramp focal scale and physical cross-checks lifted verbatim
+    if np.isfinite(ramp_scale) and ramp_scale != 0.0:
+        camera_px_per_model_px = abs(ramp_scale) / (
+            model_to_panel * float(far_field_size)
+        )
+        focal_source = f"ramp sweep (S={abs(ramp_scale):.0f} cam px per 1/period, axis {ramp_axis})"
+    else:
+        camera_px_per_model_px = k_tilt * np.pi * a / float(far_field_size)
+        focal_source = f"Zernike tilt slope {k_tilt:.2f} cam px/rad via {sorted(set(sources.values()))}"
+        logger.warning(
+            "no usable ramp sweep, so the focal scale comes from the Zernike tilt "
+            "slope -- which has measured 3x too small on this bench when the spot "
+            "deforms. Run --stage sweep with a ramp sweep included, or calibrate "
+            "with `python -m ao_shaping.tools.slm.panel.tilt_probe`."
+        )
+
+    fov_ratio = _fov_ratio_cross_check(camera_px_per_model_px, focal_source,
+                         a=a, far_field_size=far_field_size, aperture_m=aperture_m,
+                         camera_pixel_m=camera_pixel_m, focal_length_m=focal_length_m,
+                         wavelength_m=wavelength_m)
+
+    tilt_ratio, implied_aperture_mm = _tilt_physical_cross_check(
+        k_tilt, camera_px_per_model_px, aperture_m=aperture_m,
+        camera_pixel_m=camera_pixel_m, focal_length_m=focal_length_m,
+        wavelength_m=wavelength_m)
+    return camera_px_per_model_px, focal_source, fov_ratio, tilt_ratio
+
+
+
+
+def _milsg_validate_sweeps(dropped, records, region, semi_axis_model_px):
+# Mode bucketing + tilt slope validation lifted verbatim
+    tilts = [r for r in records if r.mode == "tilt"]
+    ramps = [r for r in records if r.mode == "ramp"]
+    defocuses = [r for r in records if r.mode == "defocus"]
+    flats = [r for r in records if r.mode == "flat"]
+    # Start from a clean out-parameter, so a record left over from an earlier
+    # call can never be mistaken for this call's evidence.
+    if dropped is not None:
+        dropped.clear()
+    if len(tilts) < _MIN_SWEEP_POINTS:
+        raise ValueError(f"need >= 2 tilt points, got {len(tilts)}")
+    if len(defocuses) < _MIN_SWEEP_POINTS:
+        raise ValueError(f"need >= 2 defocus points, got {len(defocuses)}")
+
+    a = int(min(semi_axis_model_px or (region // 2), region // 2))
+    if a < _MIN_PUPIL_SEMI_AXIS_PX:
+        raise ValueError(f"semi_axis_model_px must be >= 8, got {a}")
+
+    slopes, intercepts, sources = _tilt_axis_slopes(tilts)
+    if not slopes:
+        raise ValueError("no tilt axis had two usable points")
+    k_tilt = float(np.mean([abs(v) for v in slopes.values()]))
+    if not np.isfinite(k_tilt) or k_tilt <= 0.0:
+        raise ValueError(f"tilt slope is not usable: {slopes}")
+    return a, flats, k_tilt, ramps, slopes, sources
+
+
+
 def calibrate_bench_geometry_from_sweep(
     records: Sequence[SweepRecord],
     *,
@@ -2468,55 +2605,10 @@ def calibrate_bench_geometry_from_sweep(
             reasons, the raw width series and the two concrete next steps
             (raise the SNR, or switch to a second-moment width estimate).
     """
-    tilts = [r for r in records if r.mode == "tilt"]
-    ramps = [r for r in records if r.mode == "ramp"]
-    defocuses = [r for r in records if r.mode == "defocus"]
-    flats = [r for r in records if r.mode == "flat"]
-    # Start from a clean out-parameter, so a record left over from an earlier
-    # call can never be mistaken for this call's evidence.
-    if dropped is not None:
-        dropped.clear()
-    if len(tilts) < _MIN_SWEEP_POINTS:
-        raise ValueError(f"need >= 2 tilt points, got {len(tilts)}")
-    if len(defocuses) < _MIN_SWEEP_POINTS:
-        raise ValueError(f"need >= 2 defocus points, got {len(defocuses)}")
-
-    a = int(min(semi_axis_model_px or (region // 2), region // 2))
-    if a < _MIN_PUPIL_SEMI_AXIS_PX:
-        raise ValueError(f"semi_axis_model_px must be >= 8, got {a}")
-
-    slopes, intercepts, sources = _tilt_axis_slopes(tilts)
-    if not slopes:
-        raise ValueError("no tilt axis had two usable points")
-    k_tilt = float(np.mean([abs(v) for v in slopes.values()]))
-    if not np.isfinite(k_tilt) or k_tilt <= 0.0:
-        raise ValueError(f"tilt slope is not usable: {slopes}")
+    a, flats, k_tilt, ramps, slopes, sources = _milsg_validate_sweeps(dropped, records, region, semi_axis_model_px)
 
     ramp_scale, ramp_axis = _ramp_focal_scale(ramps)
-    if np.isfinite(ramp_scale) and ramp_scale != 0.0:
-        camera_px_per_model_px = abs(ramp_scale) / (
-            model_to_panel * float(far_field_size)
-        )
-        focal_source = f"ramp sweep (S={abs(ramp_scale):.0f} cam px per 1/period, axis {ramp_axis})"
-    else:
-        camera_px_per_model_px = k_tilt * np.pi * a / float(far_field_size)
-        focal_source = f"Zernike tilt slope {k_tilt:.2f} cam px/rad via {sorted(set(sources.values()))}"
-        logger.warning(
-            "no usable ramp sweep, so the focal scale comes from the Zernike tilt "
-            "slope -- which has measured 3x too small on this bench when the spot "
-            "deforms. Run --stage sweep with a ramp sweep included, or calibrate "
-            "with `python -m ao_shaping.tools.slm.panel.tilt_probe`."
-        )
-
-    fov_ratio = _fov_ratio_cross_check(camera_px_per_model_px, focal_source,
-                         a=a, far_field_size=far_field_size, aperture_m=aperture_m,
-                         camera_pixel_m=camera_pixel_m, focal_length_m=focal_length_m,
-                         wavelength_m=wavelength_m)
-
-    tilt_ratio, implied_aperture_mm = _tilt_physical_cross_check(
-        k_tilt, camera_px_per_model_px, aperture_m=aperture_m,
-        camera_pixel_m=camera_pixel_m, focal_length_m=focal_length_m,
-        wavelength_m=wavelength_m)
+    camera_px_per_model_px, focal_source, fov_ratio, tilt_ratio = _milsg_focal_crosschecks(a, aperture_m, camera_pixel_m, far_field_size, focal_length_m, k_tilt, model_to_panel, ramp_axis, ramp_scale, sources, wavelength_m)
 
     groups, dropped_modes, raw_widths = _sweep_width_groups(records)
 
@@ -2558,29 +2650,7 @@ def calibrate_bench_geometry_from_sweep(
 
     # Width asymmetry of the defocus response at matched |c| is a direct read of
     # residual non-defocus aberration.
-    c_d, w_d = groups["defocus"]
-    asymmetry = _defocus_asymmetry(c_d, w_d)
-
-    if waist_candidates is None:
-        waist_candidates = [region / float(2**k) for k in range(0, 8)]
-    opt = ZernikeCoefficientOptimizer(
-        n_orders=1,
-        region=region,
-        dtype="float64",
-        device="cpu",
-        far_field_size=far_field_size,
-    )
-    zeros = np.zeros(opt.n_coefficients)
-    span = max(float(np.max(np.abs(c))) for c, _ in groups.values()) + 1.0
-    resp_grid = np.linspace(-span, span, _SWEEP_RESPONSE_POINTS)
-
-    best = _fit_joint_waist(groups, dropped_modes, opt=opt, zeros=zeros,
-                         resp_grid=resp_grid, region=region, a=a,
-                         camera_px_per_model_px=camera_px_per_model_px,
-                         waist_candidates=waist_candidates)
-    if best is None:
-        raise ValueError("no waist candidate produced a finite width response")
-    fit_rms, waist_fit, mode_offsets = best
+    asymmetry, fit_rms, mode_offsets, opt, w_d, waist_fit, zeros = _milsg_fit_waist(a, camera_px_per_model_px, dropped_modes, far_field_size, groups, region, waist_candidates)
     for mode, off in mode_offsets.items():
         offsets[mode] = off
 
@@ -2609,25 +2679,7 @@ def calibrate_bench_geometry_from_sweep(
         )
 
     # --- reported spot widths ------------------------------------------------
-    flat_fwhm = float(np.median([r.fwhm_px for r in flats])) if flats else float("nan")
-    if not np.isfinite(flat_fwhm):
-        flat_fwhm = float(np.min(w_d))
-    amp = _pupil_amplitude(region, waist_model, a)
-    flat_model = opt.forward_intensity(zeros, np.zeros((region, region)), amp)
-    flat_model_fwhm = float(_spot_fwhm(flat_model))
-
-    modes_used = "+".join(sorted(groups))
-    notes = _sweep_calibration_notes(k_tilt=k_tilt, slopes=slopes, sources=sources,
-                                    a=a, far_field_size=far_field_size,
-                                    tilt_ratio=tilt_ratio, focal_source=focal_source,
-                                    camera_px_per_model_px=camera_px_per_model_px,
-                                    fov_ratio=fov_ratio, modes_used=modes_used,
-                                    fit_rms=fit_rms, offsets=offsets,
-                                    curvature_report=curvature_report,
-                                    asymmetry=asymmetry,
-                                    waist_determined=waist_determined,
-                                    dropped_modes=dropped_modes)
-    _publish_dropped(dropped, dropped_modes)
+    flat_fwhm, flat_model_fwhm, modes_used, notes = _milsg_build_notes(a, asymmetry, camera_px_per_model_px, curvature_report, dropped, dropped_modes, far_field_size, fit_rms, flats, focal_source, fov_ratio, groups, k_tilt, offsets, opt, region, slopes, sources, tilt_ratio, w_d, waist_determined, waist_model, zeros)
     logger.info(
         "bench geometry from sweep: aperture={} panel px, w0={:.1f} panel px, "
         "{:.4f} cam px per model px, flat FWHM {:.1f} cam px, joint fit {:.1%} "
@@ -2646,19 +2698,7 @@ def calibrate_bench_geometry_from_sweep(
             else ""
         ),
     )
-    for mode in sorted(offsets):
-        # ``offsets`` only ever holds modes that survived, but the lookup is
-        # defensive on purpose: this loop must not be the place where a dropped
-        # mode turns into a KeyError.
-        points = groups.get(mode)
-        n_points = int(points[0].size) if points is not None else 0
-        logger.info(
-            "  bench {}: offset {:+.3f} rad, width^2 curvature {:.1f}, {} points",
-            mode,
-            offsets[mode],
-            curvature_report[mode],
-            n_points,
-        )
+    _milsg_log_modes(curvature_report, groups, offsets)
     return BenchGeometry(
         panel_disc_radius=int(round(a * model_to_panel)),
         region=region,

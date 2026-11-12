@@ -32,7 +32,7 @@
   "src/ao_shaping/optimizer/wf/dm_response_matrix.py": 1005,
   "src/ao_shaping/optimizer/wf/rms_by_zernike.py": 1016,
   "src/ao_shaping/optimizer/wf/zernike_response_matrix.py": 849,
-  "src/ao_shaping/optimizer/wfless/model_in_loop_shaping.py": 3299,
+  "src/ao_shaping/optimizer/wfless/model_in_loop_shaping.py": 3339,
   "src/ao_shaping/optimizer/wfless/pib.py": 1061,
   "src/ao_shaping/optimizer/wfless/sim_spgd.py": 1037,
   "src/ao_shaping/optimizer/wfless/slm_gs_refine.py": 2437,
