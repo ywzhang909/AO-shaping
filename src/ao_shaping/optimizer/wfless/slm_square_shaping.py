@@ -937,6 +937,326 @@ class SlmSquareConfig:
             )
 
 
+
+def _session_wire_energy_guard(_guard_enabled, _guard_ref_ee, _params, _record_vec, _score_column, ar, best_quality, cam, cost, cv, delta, ee, init_img, lr, max_roi_energy_loss, mean_int, optimizer_type, pbr, quality, recorder, show, target_mean_brightness, target_side):
+# Energy-guard wiring and optional display context lifted verbatim. Returns guard refs and display handles
+    if _guard_enabled:
+        if not 0.0 <= float(max_roi_energy_loss) <= 1.0:
+            raise ValueError(
+                "max_roi_energy_loss must be within 0..1 "
+                f"(0 disables the guard), got {max_roi_energy_loss!r}"
+            )
+        _guard_ref_ee = float(ee) if np.isfinite(ee) and ee > 0.0 else None
+        if _guard_ref_ee is None:
+            _guard_enabled = False
+            logger.warning(
+                "ROI energy guard disabled: initial encircled energy is not "
+                "positive (ee={})",
+                ee,
+            )
+        else:
+            logger.info(
+                "ROI energy guard armed: reference ee={:.4f}, max loss {:.1%}",
+                _guard_ref_ee,
+                float(max_roi_energy_loss),
+            )
+    _n_energy_gated = 0
+
+    # Record initial state
+    recorder.append(
+        {
+            "J": cost,
+            _score_column: quality,
+            "cv": cv,
+            "ee": ee,
+            "ar": ar,
+            "pbr": pbr,
+            "side": target_side,
+            RECORD_COEFFS: _record_vec(_params),
+            RECORD_IMAGE: init_img,
+            RECORD_DIFF: 0,
+            "lr": lr,
+            "delta": delta,
+            RECORD_EPOCH: 0,
+            "exp_t": get_camera_exposure_ms(cam),
+            "max_brt": np.max(init_img),
+            "mean_b": mean_int,
+            "target_mean_b": target_mean_brightness,
+            RECORD_GRAD: _record_vec(np.zeros_like(_params)),
+            "optimizer": optimizer_type,
+            f"best_{_score_column}": best_quality,
+        }
+    )
+
+    # pygame 实时显示 (2×2 面板), 初始化失败则禁用显示但不中断优化
+    display_stack = contextlib.ExitStack()
+    display_ctx: SlmSquareDisplay | None = None
+    if show:
+        try:
+            display_ctx = SlmSquareDisplay()
+            display_stack.enter_context(display_ctx)
+        # policy: the pygame display is optional; if it cannot start, the run proceeds without it instead of failing at the window
+        except Exception as _e:
+            logger.warning("pygame显示初始化失败, 本次运行禁用显示: {}", _e)
+            display_ctx = None
+            display_stack.close()
+    return _guard_enabled, _guard_ref_ee, display_ctx, display_stack, _n_energy_gated
+
+
+
+
+def _session_init_iteration(_active_modes, _fix_target, _has_rotation, _param_clip, _params, _pattern_helper, _rot_clip, basis, blaze_choice, cam, cam_size, center, exposure_time_ms, n_max, objective, phase_grid, side_factor, slm, target_max_brightness, target_mean_brightness, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity, zernike_radius):
+# Parameter vector plus per-iteration closures lifted verbatim. Closures are rebuilt here and returned as objects
+    def _rotate_pattern(arr: np.ndarray, angle_deg: float) -> np.ndarray:
+        """Rotate a phase map by angle_deg degrees around its center.
+
+        傅里叶变换保旋转: SLM 近场相位旋转 θ → 相机远场同向旋转 θ,
+        用于补偿 SLM↔相机 的相对装配旋转 (metrics 保持相机轴对齐不变)。
+        """
+        from scipy.ndimage import rotate
+
+        if angle_deg == 0.0:
+            return arr
+        return rotate(
+            arr,
+            angle_deg,
+            reshape=False,
+            order=1,
+            mode="constant",
+            cval=0.0,
+        )
+
+    def _params_to_gray(p: np.ndarray) -> np.ndarray:
+        """Parameter vector -> uint16 grayscale phase map on the SLM panel.
+
+        zernike: ``PatternHelper.generate_zernike_polynomial`` (radians,
+        identical to the GUI Zernike branch) then the SLM driver
+        ``slm.create_phase_from_array()``; freeform: raw radians
+        converted by the SLM driver. If rotation search is enabled the LAST
+        element of ``p`` is the rotation angle (degrees); the base pattern
+        is generated from the remaining elements and then rotated.
+        """
+        if _has_rotation:
+            _rot = float(p[-1])
+            _head = p[:-1]
+        else:
+            _rot = 0.0
+            _head = p
+        if basis == "zernike":
+            assert _pattern_helper is not None
+            assert zernike_radius is not None  # set in the basis block above
+            coeffs_dict = {
+                m: float(_head[i])
+                for i, m in enumerate(_active_modes)
+                if i < len(_head)
+            }
+            _rad = _pattern_helper.generate_zernike_polynomial(
+                coefficients=coeffs_dict,
+                radius=float(zernike_radius),
+                n_max=n_max,
+            )
+            if _has_rotation:
+                _rad = _rotate_pattern(_rad, _rot)
+            if blaze_choice is not None:
+                from ao_shaping.utils.wavefront.zero_order_overlay import (
+                    apply_zero_order_overlay,
+                )
+
+                _rad = apply_zero_order_overlay(_rad, blaze_choice.params)
+            return slm.create_phase_from_array(_rad)
+        _rad = _freeform_phase_radians(_head, SLM_RESOLUTION, int(phase_grid))
+        if _has_rotation:
+            _rad = _rotate_pattern(_rad, _rot)
+        if blaze_choice is not None:
+            from ao_shaping.utils.wavefront.zero_order_overlay import (
+                apply_zero_order_overlay,
+            )
+
+            _rad = apply_zero_order_overlay(_rad, blaze_choice.params)
+        return slm.create_phase_from_array(_rad)
+
+    def _apply_update(p: np.ndarray, upd: np.ndarray) -> np.ndarray:
+        """Apply an optimizer update, respecting the basis bounds.
+
+        With rotation search active, the last element (rotation angle) is
+        clipped to `_rot_clip`; the head (Zernike/freeform part) follows the
+        basis bounds.
+        """
+        p = p + upd
+        if _has_rotation:
+            assert _rot_clip is not None  # set when rotation search is enabled
+            _head = p[:-1]
+            _rot = float(np.clip(p[-1], *_rot_clip))
+            if _param_clip is not None:
+                _head = np.clip(_head, *_param_clip)
+            else:
+                _head = np.mod(_head + np.pi, 2.0 * np.pi) - np.pi
+            return np.concatenate([_head, np.array([_rot], dtype=p.dtype)])
+        if _param_clip is not None:
+            return np.clip(p, *_param_clip)
+        return np.mod(p + np.pi, 2.0 * np.pi) - np.pi
+
+    # Display initial phase (uint16 grayscale, direct write — no radian wrap)
+    slm.display_data(_params_to_gray(_params))
+    time.sleep(SLM_RESPONSE_TIME_S)
+
+    # Auto-exposure for initial image
+    _img = capture_with_exposure(
+        cam,
+        exposure_time_ms if blaze_choice is not None else 0.0,
+        TEST_EXPOSURE_TIME_BRIGHTNESS,
+        auto_n_sample=20,
+    )
+
+    # Track the user-chosen mode for post-exposure re-detection:
+    #   None/"shape"  : smart_zero_order_center (argmax + flat-core centroid)
+    #   "centroid_thresh" : threshold centroid (threshold=0.1×max)
+    #   "max"         : global argmax
+    #   "mass"        : full-image centroid
+    #   (x, y) tuple  : explicit — fixed, not re-detected
+    _center_mode: str | None = None
+    if center is None:
+        _center_mode = "shape"
+        center = _locate_square_center(_img, _center_mode)
+    elif isinstance(center, str):
+        _center_mode = center
+        _img = cam.get_numpy_image(10)
+        center = _locate_square_center(_img, _center_mode)
+    else:
+        _center_mode = "fixed"
+
+    log_center_brightness(_img, center, get_camera_exposure_ms(cam))
+
+    # NOTE: this runner does NOT resize the CCD window (user choice) —
+    # full-frame capture is kept; cam_size only bounds the target side.
+
+    # Set exposure
+    init_img = capture_with_exposure(
+        cam,
+        exposure_time_ms,
+        target_max_brightness or ADVISE_EXPOSURE_TIME_BRIGHTNESS,
+        auto_n_sample=20,
+    )
+    logger.debug(
+        f"Initial Image Max brightness: {np.max(init_img)} "
+        f"@ {get_camera_exposure_ms(cam)}ms"
+    )
+
+    # Re-detect the spot centre on the (full-frame) image so the target box
+    # is guaranteed to sit on the beam (AGENTS.md: 0-order located by argmax,
+    # never by geometry — it can sit off the frame centre).
+    # Post-exposure re-detection by the selected mode; explicit (x, y) tuples
+    # are fixed and not re-detected. When fix_target=True (default), the
+    # initial center is kept and NOT re-detected after exposure adjustment.
+    if _center_mode != "fixed" and not _fix_target:
+        center = _locate_square_center(init_img, _center_mode)
+    logger.info(f"target box center @ {center} (fix_target={_fix_target})")
+
+    # Compute target square side length
+    if target_mean_brightness > 0:
+        # 平均亮度模式: 能量守恒推导边长 side = sqrt(total_brightness / target_mean_brightness)
+        _w, _h = init_img.shape[1], init_img.shape[0]
+        total_brt = float(np.sum(init_img))
+        if total_brt <= 0:
+            raise ValueError(
+                "target_mean_brightness 模式需要初始图像总亮度 > 0 "
+                f"(当前 total={total_brt:.1f})"
+            )
+        target_side = int(round(np.sqrt(total_brt / target_mean_brightness)))
+        target_side = max(target_side, 20)  # minimum 20px
+        target_side = min(target_side, min(cam_size, _w, _h) - 4)
+        logger.info(
+            f"target_mean_brightness={target_mean_brightness:.2f} → "
+            f"auto target_side={target_side} (total_brt={total_brt:.1f})"
+        )
+    elif target_side <= 0:
+        # Auto-compute from spot size (90% encircled energy diameter)
+        _w, _h = init_img.shape[1], init_img.shape[0]
+        from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
+
+        _target_func = ImageTargetFunc(_w, _h, center)
+        spot_radius = _target_func.radius(init_img, energy=0.90)
+        target_side = int(spot_radius * 2 * side_factor)
+        target_side = max(target_side, 20)  # minimum 20px
+        target_side = min(target_side, min(cam_size, _w, _h) - 4)
+        logger.info(
+            f"Auto target_side={target_side} (spot_r={spot_radius:.1f}, factor={side_factor})"
+        )
+    else:
+        logger.info(f"User target_side={target_side}")
+
+    # Compute initial metrics
+    cost, cv, mean_int = square_uniformity_cost(init_img, center, target_side)
+    ee = square_encircled_energy(init_img, center, target_side)
+    ar = square_aspect_ratio(init_img, center, target_side)
+    pbr = square_peak_to_background_ratio(init_img, center, target_side)
+    quality = square_objective_score(
+        init_img,
+        cv,
+        ee,
+        ar,
+        center,
+        target_side,
+        objective,
+        w_uniformity,
+        w_efficiency,
+        w_aspect,
+        peak_to_background=pbr,
+        w_pbr=w_pbr,
+    )
+    return _apply_update, _params_to_gray, ar, cost, cv, ee, init_img, mean_int, pbr, quality
+
+
+
+
+def _session_arm_exposure(blaze_direction, blaze_period_px, cam, cam_size, cam_type, exposure_time_ms, slm, target_side):
+# Capture entry guard plus exposure resolution and re-arm lifted verbatim. Returns the resolved blaze choice
+    if cam_type == "daheng":
+        # The exposure ceiling is set by the optical path, not the sensor,
+        # so resolve it per session before any measurement can fire an
+        # over-limit exposure: explicit config, env, else probe the image.
+        ceiling = resolve_daheng_exposure_limit(camera=cam)
+        if exposure_time_ms > ceiling + 1e-9:
+            logger.warning(
+                "Daheng exposure_time_ms {} ms exceeds resolved ceiling {} ms; "
+                "clamping to ceiling",
+                exposure_time_ms,
+                ceiling,
+            )
+            exposure_time_ms = ceiling
+        # The probe left the camera at the last ladder step; re-arm the
+        # working exposure before the first measurement.
+        cam.reset_exposure_time(exposure_time_ms)
+    blaze_choice = None
+    if blaze_period_px >= 0:
+        from ao_shaping.optimizer.wfless._blaze_calibration import select_blaze
+
+        actual_exposure = float(cam.reset_exposure_time(exposure_time_ms))
+        if abs(actual_exposure - exposure_time_ms) > 0.001:
+            raise RuntimeError("CCD did not accept the fixed blaze probe exposure")
+
+        def capture_blaze(phase: np.ndarray) -> np.ndarray:
+            slm.display_data(slm.create_phase_from_array(phase))
+            time.sleep(SLM_RESPONSE_TIME_S)
+            frame = np.asarray(cam.get_numpy_image(1), dtype=np.float64)
+            if cam_type == "daheng" and float(frame.max()) >= 250:
+                raise RuntimeError("blaze CCD probe saturated; reduce exposure")
+            return frame
+
+        blaze_choice = select_blaze(
+            capture_blaze,
+            (SLM_HEIGHT, SLM_WIDTH),
+            target_side=target_side,
+            window_size=cam_size,
+            period_px=blaze_period_px,
+            direction=blaze_direction,
+        )
+        center = blaze_choice.signal_xy
+        logger.info("measured blaze: {}", blaze_choice)
+    return blaze_choice
+
+
+
 def _run_square_session(
     *,
     _active_modes: object,
@@ -1011,48 +1331,7 @@ def _run_square_session(
     ):
         # 采集入口守卫 (#186): 驱动板不应答在第一帧前失败; 仿真面板 no-op。
         require_drive_board_entry(slm)
-        if cam_type == "daheng":
-            # The exposure ceiling is set by the optical path, not the sensor,
-            # so resolve it per session before any measurement can fire an
-            # over-limit exposure: explicit config, env, else probe the image.
-            ceiling = resolve_daheng_exposure_limit(camera=cam)
-            if exposure_time_ms > ceiling + 1e-9:
-                logger.warning(
-                    "Daheng exposure_time_ms {} ms exceeds resolved ceiling {} ms; "
-                    "clamping to ceiling",
-                    exposure_time_ms,
-                    ceiling,
-                )
-                exposure_time_ms = ceiling
-            # The probe left the camera at the last ladder step; re-arm the
-            # working exposure before the first measurement.
-            cam.reset_exposure_time(exposure_time_ms)
-        blaze_choice = None
-        if blaze_period_px >= 0:
-            from ao_shaping.optimizer.wfless._blaze_calibration import select_blaze
-
-            actual_exposure = float(cam.reset_exposure_time(exposure_time_ms))
-            if abs(actual_exposure - exposure_time_ms) > 0.001:
-                raise RuntimeError("CCD did not accept the fixed blaze probe exposure")
-
-            def capture_blaze(phase: np.ndarray) -> np.ndarray:
-                slm.display_data(slm.create_phase_from_array(phase))
-                time.sleep(SLM_RESPONSE_TIME_S)
-                frame = np.asarray(cam.get_numpy_image(1), dtype=np.float64)
-                if cam_type == "daheng" and float(frame.max()) >= 250:
-                    raise RuntimeError("blaze CCD probe saturated; reduce exposure")
-                return frame
-
-            blaze_choice = select_blaze(
-                capture_blaze,
-                (SLM_HEIGHT, SLM_WIDTH),
-                target_side=target_side,
-                window_size=cam_size,
-                period_px=blaze_period_px,
-                direction=blaze_direction,
-            )
-            center = blaze_choice.signal_xy
-            logger.info("measured blaze: {}", blaze_choice)
+        blaze_choice = _session_arm_exposure(blaze_direction, blaze_period_px, cam, cam_size, cam_type, exposure_time_ms, slm, target_side)
         recorder.blaze_choice = blaze_choice
         # Initialize parameter vector (zernike: mapped onto the active modes)
         if basis == "zernike":
@@ -1094,203 +1373,7 @@ def _run_square_session(
             else None
         )
 
-        def _rotate_pattern(arr: np.ndarray, angle_deg: float) -> np.ndarray:
-            """Rotate a phase map by angle_deg degrees around its center.
-
-            傅里叶变换保旋转: SLM 近场相位旋转 θ → 相机远场同向旋转 θ,
-            用于补偿 SLM↔相机 的相对装配旋转 (metrics 保持相机轴对齐不变)。
-            """
-            from scipy.ndimage import rotate
-
-            if angle_deg == 0.0:
-                return arr
-            return rotate(
-                arr,
-                angle_deg,
-                reshape=False,
-                order=1,
-                mode="constant",
-                cval=0.0,
-            )
-
-        def _params_to_gray(p: np.ndarray) -> np.ndarray:
-            """Parameter vector -> uint16 grayscale phase map on the SLM panel.
-
-            zernike: ``PatternHelper.generate_zernike_polynomial`` (radians,
-            identical to the GUI Zernike branch) then the SLM driver
-            ``slm.create_phase_from_array()``; freeform: raw radians
-            converted by the SLM driver. If rotation search is enabled the LAST
-            element of ``p`` is the rotation angle (degrees); the base pattern
-            is generated from the remaining elements and then rotated.
-            """
-            if _has_rotation:
-                _rot = float(p[-1])
-                _head = p[:-1]
-            else:
-                _rot = 0.0
-                _head = p
-            if basis == "zernike":
-                assert _pattern_helper is not None
-                assert zernike_radius is not None  # set in the basis block above
-                coeffs_dict = {
-                    m: float(_head[i])
-                    for i, m in enumerate(_active_modes)
-                    if i < len(_head)
-                }
-                _rad = _pattern_helper.generate_zernike_polynomial(
-                    coefficients=coeffs_dict,
-                    radius=float(zernike_radius),
-                    n_max=n_max,
-                )
-                if _has_rotation:
-                    _rad = _rotate_pattern(_rad, _rot)
-                if blaze_choice is not None:
-                    from ao_shaping.utils.wavefront.zero_order_overlay import (
-                        apply_zero_order_overlay,
-                    )
-
-                    _rad = apply_zero_order_overlay(_rad, blaze_choice.params)
-                return slm.create_phase_from_array(_rad)
-            _rad = _freeform_phase_radians(_head, SLM_RESOLUTION, int(phase_grid))
-            if _has_rotation:
-                _rad = _rotate_pattern(_rad, _rot)
-            if blaze_choice is not None:
-                from ao_shaping.utils.wavefront.zero_order_overlay import (
-                    apply_zero_order_overlay,
-                )
-
-                _rad = apply_zero_order_overlay(_rad, blaze_choice.params)
-            return slm.create_phase_from_array(_rad)
-
-        def _apply_update(p: np.ndarray, upd: np.ndarray) -> np.ndarray:
-            """Apply an optimizer update, respecting the basis bounds.
-
-            With rotation search active, the last element (rotation angle) is
-            clipped to `_rot_clip`; the head (Zernike/freeform part) follows the
-            basis bounds.
-            """
-            p = p + upd
-            if _has_rotation:
-                assert _rot_clip is not None  # set when rotation search is enabled
-                _head = p[:-1]
-                _rot = float(np.clip(p[-1], *_rot_clip))
-                if _param_clip is not None:
-                    _head = np.clip(_head, *_param_clip)
-                else:
-                    _head = np.mod(_head + np.pi, 2.0 * np.pi) - np.pi
-                return np.concatenate([_head, np.array([_rot], dtype=p.dtype)])
-            if _param_clip is not None:
-                return np.clip(p, *_param_clip)
-            return np.mod(p + np.pi, 2.0 * np.pi) - np.pi
-
-        # Display initial phase (uint16 grayscale, direct write — no radian wrap)
-        slm.display_data(_params_to_gray(_params))
-        time.sleep(SLM_RESPONSE_TIME_S)
-
-        # Auto-exposure for initial image
-        _img = capture_with_exposure(
-            cam,
-            exposure_time_ms if blaze_choice is not None else 0.0,
-            TEST_EXPOSURE_TIME_BRIGHTNESS,
-            auto_n_sample=20,
-        )
-
-        # Track the user-chosen mode for post-exposure re-detection:
-        #   None/"shape"  : smart_zero_order_center (argmax + flat-core centroid)
-        #   "centroid_thresh" : threshold centroid (threshold=0.1×max)
-        #   "max"         : global argmax
-        #   "mass"        : full-image centroid
-        #   (x, y) tuple  : explicit — fixed, not re-detected
-        _center_mode: str | None = None
-        if center is None:
-            _center_mode = "shape"
-            center = _locate_square_center(_img, _center_mode)
-        elif isinstance(center, str):
-            _center_mode = center
-            _img = cam.get_numpy_image(10)
-            center = _locate_square_center(_img, _center_mode)
-        else:
-            _center_mode = "fixed"
-
-        log_center_brightness(_img, center, get_camera_exposure_ms(cam))
-
-        # NOTE: this runner does NOT resize the CCD window (user choice) —
-        # full-frame capture is kept; cam_size only bounds the target side.
-
-        # Set exposure
-        init_img = capture_with_exposure(
-            cam,
-            exposure_time_ms,
-            target_max_brightness or ADVISE_EXPOSURE_TIME_BRIGHTNESS,
-            auto_n_sample=20,
-        )
-        logger.debug(
-            f"Initial Image Max brightness: {np.max(init_img)} "
-            f"@ {get_camera_exposure_ms(cam)}ms"
-        )
-
-        # Re-detect the spot centre on the (full-frame) image so the target box
-        # is guaranteed to sit on the beam (AGENTS.md: 0-order located by argmax,
-        # never by geometry — it can sit off the frame centre).
-        # Post-exposure re-detection by the selected mode; explicit (x, y) tuples
-        # are fixed and not re-detected. When fix_target=True (default), the
-        # initial center is kept and NOT re-detected after exposure adjustment.
-        if _center_mode != "fixed" and not _fix_target:
-            center = _locate_square_center(init_img, _center_mode)
-        logger.info(f"target box center @ {center} (fix_target={_fix_target})")
-
-        # Compute target square side length
-        if target_mean_brightness > 0:
-            # 平均亮度模式: 能量守恒推导边长 side = sqrt(total_brightness / target_mean_brightness)
-            _w, _h = init_img.shape[1], init_img.shape[0]
-            total_brt = float(np.sum(init_img))
-            if total_brt <= 0:
-                raise ValueError(
-                    "target_mean_brightness 模式需要初始图像总亮度 > 0 "
-                    f"(当前 total={total_brt:.1f})"
-                )
-            target_side = int(round(np.sqrt(total_brt / target_mean_brightness)))
-            target_side = max(target_side, 20)  # minimum 20px
-            target_side = min(target_side, min(cam_size, _w, _h) - 4)
-            logger.info(
-                f"target_mean_brightness={target_mean_brightness:.2f} → "
-                f"auto target_side={target_side} (total_brt={total_brt:.1f})"
-            )
-        elif target_side <= 0:
-            # Auto-compute from spot size (90% encircled energy diameter)
-            _w, _h = init_img.shape[1], init_img.shape[0]
-            from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
-
-            _target_func = ImageTargetFunc(_w, _h, center)
-            spot_radius = _target_func.radius(init_img, energy=0.90)
-            target_side = int(spot_radius * 2 * side_factor)
-            target_side = max(target_side, 20)  # minimum 20px
-            target_side = min(target_side, min(cam_size, _w, _h) - 4)
-            logger.info(
-                f"Auto target_side={target_side} (spot_r={spot_radius:.1f}, factor={side_factor})"
-            )
-        else:
-            logger.info(f"User target_side={target_side}")
-
-        # Compute initial metrics
-        cost, cv, mean_int = square_uniformity_cost(init_img, center, target_side)
-        ee = square_encircled_energy(init_img, center, target_side)
-        ar = square_aspect_ratio(init_img, center, target_side)
-        pbr = square_peak_to_background_ratio(init_img, center, target_side)
-        quality = square_objective_score(
-            init_img,
-            cv,
-            ee,
-            ar,
-            center,
-            target_side,
-            objective,
-            w_uniformity,
-            w_efficiency,
-            w_aspect,
-            peak_to_background=pbr,
-            w_pbr=w_pbr,
-        )
+        _apply_update, _params_to_gray, ar, cost, cv, ee, init_img, mean_int, pbr, quality = _session_init_iteration(_active_modes, _fix_target, _has_rotation, _param_clip, _params, _pattern_helper, _rot_clip, basis, blaze_choice, cam, cam_size, center, exposure_time_ms, n_max, objective, phase_grid, side_factor, slm, target_max_brightness, target_mean_brightness, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity, zernike_radius)
 
         best_quality = quality
         best_cost = cost
@@ -1318,66 +1401,7 @@ def _run_square_session(
         # ------------------------------------------------------------------
         _guard_enabled = float(max_roi_energy_loss) > 0.0
         _guard_ref_ee: float | None = None
-        if _guard_enabled:
-            if not 0.0 <= float(max_roi_energy_loss) <= 1.0:
-                raise ValueError(
-                    "max_roi_energy_loss must be within 0..1 "
-                    f"(0 disables the guard), got {max_roi_energy_loss!r}"
-                )
-            _guard_ref_ee = float(ee) if np.isfinite(ee) and ee > 0.0 else None
-            if _guard_ref_ee is None:
-                _guard_enabled = False
-                logger.warning(
-                    "ROI energy guard disabled: initial encircled energy is not "
-                    "positive (ee={})",
-                    ee,
-                )
-            else:
-                logger.info(
-                    "ROI energy guard armed: reference ee={:.4f}, max loss {:.1%}",
-                    _guard_ref_ee,
-                    float(max_roi_energy_loss),
-                )
-        _n_energy_gated = 0
-
-        # Record initial state
-        recorder.append(
-            {
-                "J": cost,
-                _score_column: quality,
-                "cv": cv,
-                "ee": ee,
-                "ar": ar,
-                "pbr": pbr,
-                "side": target_side,
-                RECORD_COEFFS: _record_vec(_params),
-                RECORD_IMAGE: init_img,
-                RECORD_DIFF: 0,
-                "lr": lr,
-                "delta": delta,
-                RECORD_EPOCH: 0,
-                "exp_t": get_camera_exposure_ms(cam),
-                "max_brt": np.max(init_img),
-                "mean_b": mean_int,
-                "target_mean_b": target_mean_brightness,
-                RECORD_GRAD: _record_vec(np.zeros_like(_params)),
-                "optimizer": optimizer_type,
-                f"best_{_score_column}": best_quality,
-            }
-        )
-
-        # pygame 实时显示 (2×2 面板), 初始化失败则禁用显示但不中断优化
-        display_stack = contextlib.ExitStack()
-        display_ctx: SlmSquareDisplay | None = None
-        if show:
-            try:
-                display_ctx = SlmSquareDisplay()
-                display_stack.enter_context(display_ctx)
-            # policy: the pygame display is optional; if it cannot start, the run proceeds without it instead of failing at the window
-            except Exception as _e:
-                logger.warning("pygame显示初始化失败, 本次运行禁用显示: {}", _e)
-                display_ctx = None
-                display_stack.close()
+        _guard_enabled, _guard_ref_ee, display_ctx, display_stack, _n_energy_gated = _session_wire_energy_guard(_guard_enabled, _guard_ref_ee, _params, _record_vec, _score_column, ar, best_quality, cam, cost, cv, delta, ee, init_img, lr, max_roi_energy_loss, mean_int, optimizer_type, pbr, quality, recorder, show, target_mean_brightness, target_side)
 
         # ── Black-box heuristic search branch (shared driver) ──────────────
         _stage_early, _n_energy_gated, best_ar, best_cv, best_ee, best_quality, last_best_epoch = _run_square_search_stage(

@@ -4816,6 +4816,11 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 证明与验收：叶扫描 IDENTICAL（832 对 838 减 6 = 3 调用 + 3 返回；首跑误把文件内既有 tuple 返回当新叶子, 按元组元素名精确匹配后归零——**新叶子识别必须按本批签名白名单, 不能按语法形状**, 否则把存量叶子剔出计数器产生假差异）；载体五文件 215 passed；wfless 域 per-file 零红 exit=0；形状门禁 175 passed；棘轮行 450/4/404 收紧 85/3/74 + 三 helper 行 172/3/151、142/2/124、84/1/73；模块 4086→4116 基线；wiki 无引用
 - 沙箱：域测与守卫串行化（同名容器互斥）, 等域毕再跑守卫
 
+**2026-11-12 · 0c306cda · 第 55 批 CI 闭环（四条 workflow 全绿）；第 56 批在案**
+- 第 56 批：`_run_square_session` 521→**225**（单 `with` 体三缝, 自底向上）——`_session_wire_energy_guard`(63, ROI 能量护栏接线+日志+可选显示上下文, 回传 5 名含 `_n_energy_gated`)、`_session_init_iteration`(200, 参数向量+逐轮闭包 `_params_to_gray`/`_apply_update`+初始显示/自动曝光/模式跟踪, 回传 10 名)、`_session_arm_exposure`(45, 采集入口守卫+曝光上限裁决与重挂, 回传 `blaze_choice`)
+- **生成器四处缺陷（本批全部由断言/ruff 拦下, 无一条流到载体）**：⑧ `audit()` 二次 `setup(src)` 重新解析, `reg` 节点来自另一棵树 → `path_of` 身份比对必失败（`AssertionError: path`）; 单棵树必须穿线到 `analyse()`, 同一缺陷在 run 分支也有一份（`analyse(src, reg)` 未传 tri）; ⑨ 多语句区的 `after` 池必须从**区末**语句之后切（`stmts[last_idx+1:]`）, 只跳过区首会把区内其余语句当"区后" → 垃圾回传（`capture_blaze`/`select_blaze`/`actual_exposure` 被误判）; ⑩ 回传风险判定漏了**区前已绑豁免**：形参传入的名字在条件存被跳过时仍持旧值, 返安全; 只有"全部存皆条件 **且** 非区前已绑"才拒绝（`_guard_enabled`/`_guard_ref_ee` 案）; ⑪ ruff F821 补出最后一条规则盲区——区内初始化、区后被**同一语句**多目标赋值消费（`a, x, ... = f(..., x=x)`）: 平铺存账把该名从回传里剔掉, 而读发生在绑定之前 ⇒ 「读先于首个顶层存（或同语句）」仍须回传。**F821 与叶扫描是互补闸, 缺一不可**
+- 证明与验收：叶差分 27 个函数逐字 AST 相同, 仅 `_run_square_session` 变化, 新增 3 helper, 零消失；载体六文件 **76 passed**（能量护栏/回合表征/目标搜索/PBR 目标/Zernike 基/GUI 对拍）；wfless 域 per-file **56 文件 1105 passed, exit=0**；形状门禁+conventions **250 passed, 1 skipped**；棘轮行 560/4/521 收紧 259/3/225 + 三 helper 行 230/3/200、73/2/63、52/3/45；模块 2684→2708 基线随实测；wiki 锚 `optimize_slm_square` 1463→1487（唯一行号引用）
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

@@ -74,7 +74,7 @@
 | [[functions/optimizer-rms-slm]] | `optimizer_rms_slm(epochs, init_z, lr, …)` (38 参) | `optimizer/wf/rms_by_zernike.py:838` |
 | [[functions/optimizer-ga]] | `optimizer_ga(n_generations, population_size, …)` | `optimizer/wf/ga_zernike.py:138` |
 | [[functions/optimizer-greedy]] | `optimizer_greedy(epochs, n_init, n_directions, …)` | `optimizer/wf/greedy_zernike.py:355` |
-| [[functions/optimize-slm-square]] | `optimize_slm_square(center, epochs, …)` (40 参) | `optimizer/wfless/slm_square_shaping.py:1463` |
+| [[functions/optimize-slm-square]] | `optimize_slm_square(center, epochs, …)` (40 参) | `optimizer/wfless/slm_square_shaping.py:1487` |
 | [[functions/spgd-gradient]] | `spgd_gradient(pos_obj, neg_obj, disturb, *, maximize)` | `optimizer/spgd.py:40` |
 
 ### 标定内核 (calibration)
