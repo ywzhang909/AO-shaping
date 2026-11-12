@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: function
 tags: [slm,lut,utils]
-source: src/ao_shaping/utils/slm/slm_lut.py:248
+source: src/ao_shaping/utils/slm/slm_lut.py:359
 ---
 
 ## 签名

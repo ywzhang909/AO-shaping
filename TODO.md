@@ -4861,6 +4861,15 @@ slm_zernike_pib.py:1872`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 924→964 (baseline 抬高)
 - 教训 ㉒: **缝边界必须落在语句边界**——`prs[-1].end_lineno == B` 断言拒收区间尾空白行 (619/617 各失败一次, 真尾是 618); If 语句整体含 `return` 时可改提 **If 体** (A 指体首), 条件头与早退块留在母函数
 
+**2026-11-12 · cfdbcff7 之后 · 第 62 批: `_run_square_search_stage` 387→249 + 七缝 (`slm_square_shaping.py`)**
+- 提取: `_sq_measure_pair` 29 / `_sq_adapt_lr` 36 / `_sq_record_epoch` 25 / `_sq_adaptive_weights` 15 / `_sq_display_epoch` 17 / `_sq_epoch_metrics` 28 / `_sq_saturation_resample` 16
+- 未提: 优化器创建+lr 初始化缝 (19 行)——`delta` 在区内只有 Store 无 Load (AugAssign 不产生 Load 节点), 不在 params, 条件-only 回传会被 `lr != 0` 路径 NameError, 生成器正确拒绝
+- 叶差分: 30 个 helper 逐字节同; 仅母函数变; 新增 7; 消失 0; 形参回写审计仅 1 处假阳性 (`return _run_square_heuristic_stage(...)` 直返)
+- 载体: 全部 square 测试 + 3 个 runners 测试 **102 passed**; wfless 逐文件域 exit=0 (56 段 0 失败); 形状门禁+conventions **279 passed 1 skipped**
+- 顺手修: `docs/dev/call_graph_wiki/functions/slm-lut.md` 的 `slm_lut.py:248` 钉被并行窗口 `137ed6cd`/`e9fd9cd1` 挪离定义头 (master 既有红), 重钉 `:359` (`build_inverse_lut`)
+- 模块 2708→2764 (baseline 抬高); 行锚全在 2321 之下, 零漂移
+- 教训 ㉓: **AugAssign 只产生 Store ctx**——母函数形参若在区内仅被 `+=`/`*=` 读改写, 生成器会把它判成 helper-local 不回传不回喂, 需人工确认或用显式 `x = x * s` 形式才会入 params; 生成器对"条件-only 回传"的拒绝在此场景是**正确**的
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
