@@ -4878,6 +4878,12 @@ slm_zernike_pib.py:1872`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 1029→1061 (baseline 抬高)
 - 教训 ㉔: **纯 FunctionDef 区域可含 break/continue**——循环不跨 def 边界, 生成器对整段 def 的 break 拒绝过严, 已在 split63 加 `_all_defs` 豁免
 
+**2026-11-12 · 242cd35a 之后 · 修 master 既有红: `module_inventory.md` 幽灵条目 `gray_scale`**
+- `test_wavefront_inventory_doc.py::test_inventory_rows_match_directories` 自 `137ed6cd` 起红: 该提交在 `utils/slm/` 行登记了 `gray_scale` (2π 编码标度入口), 但**从未提交该模块文件** (git 全历史无此路径, `resolve_max_grayscale` 全树无定义) ⇒ names 单元与磁盘目录双向比对必失败; b61 CI 因此 Pytest 失败
+- 修法: 从 names 单元删 `gray_scale`, 并删 notes 单元以 `；\`gray_scale\` (2026-11-12 新增)` 起尾的整段描述 (模块不存在, 描述即幽灵); 其余 (pattern_helper 勘误说明) 保留
+- 验证: `test_wavefront_inventory_doc.py` **2 passed**; ruff/term 绿
+- 教训 ㉕: **本地守卫集必须含 `test_wavefront_inventory_doc.py`**——b61 只跑 test_conventions + 形状门禁, 没跑这个独立守卫文件, 让它带着 master 既有红推上去了 (b62 CI 同样会中招, HEAD 修复后自然转绿)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
