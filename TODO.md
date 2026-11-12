@@ -4912,6 +4912,12 @@ slm_zernike_pib.py:1872`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 1162→1178 (baseline 抬高); 无行锚漂移
 - 术语返工: 上一条目误用了一个已被术语对照表占用的口语比喻 (自动统一脚本会把引号里的它也改掉), 已改写为 两分支共同绑定 并单独提交修复; **教训 ㉗: 账内新比喻先过术语表, `term_unify_20261016.py --check` 必须在 commit 前跑** (第 66 批忘跑, CI 术语门禁当场失败)
 
+**2026-11-12 · 39613ef6 之后 · 第 68 批: transfer workflow `main` 297→165 + 单缝 (`tools/slm/transfer/workflow.py`)**
+- 提取: `_add_session_commands` 136——plan/run 两个子命令的 argparse 定义整段 For 上提 (parser 原地变更, 零回传)
+- 叶差分: 21 个 helper 逐字节同; 仅母函数变; 新增 1; 消失 0
+- 载体: `tests/ao_shaping/tools/slm` 逐文件 **84 段 exit=0**
+- 模块 1793→1801 (baseline 抬高); 无行锚漂移
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

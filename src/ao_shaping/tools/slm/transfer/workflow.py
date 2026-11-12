@@ -1494,9 +1494,9 @@ def _log_to_stdout():
     logger.add(sys.stdout, level="INFO", colorize=False)
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    commands = parser.add_subparsers(dest="command", required=True)
+
+def _add_session_commands(commands):
+# Plan and run subparser definitions lifted verbatim
     for name in ("plan", "run"):
         p = commands.add_parser(name)
         p.add_argument("--out", type=Path, required=True)
@@ -1630,6 +1630,14 @@ def main():
         mode = p.add_mutually_exclusive_group()
         mode.add_argument("--offline", action="store_true")
         mode.add_argument("--execute", action="store_true")
+    return 
+
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    _add_session_commands(commands)
     replay = commands.add_parser(
         "replay", help="Audit and recompute saved measurements, without devices"
     )
