@@ -4936,6 +4936,14 @@ slm_zernike_pib.py:1872`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 全树扫描: src 内 >249 行且未入守卫表的函数**清零**
 - 教训 ㉙: **helper 插到类前也是挪位源**——凡母函数所在文件其后还有其它定义, 每批都要重跑 wiki 钉测试, 不能只查 TODO/docs 锚
 
+**2026-11-13 · 8d97eec7 之后 · 第 71 批: `execute_campaign` 258→177 + 四缝 (`runners/slm/transfer_shapes_runner.py`)**
+- 提取: `_ts_geometry_models` 48 (bootstrap 导入与几何/冻结模型两段**必须并进同区**: 单独 448:476 时 `geometric_seed` 在区后仍有读取, 模块导入不算 Name-Store, 工厂会把它判丢) / `_ts_replay_stage` 21 (if/else 整体) / `_ts_records_stage` 17 (if/elif 链整体) / `_ts_make_recorder` 11
+- 未提: kwargs 校验 7 行 (audit 当场异常, 收益太小), `run_stages` 调用 18 行 (38 参 1 回传, 与本仓库拒绝 40 参装配的既定口径一致, 提了是噪声), 含 `return summary` 的中止块 (教训 ⑭)
+- 叶差分: 15 个函数逐字节同; 仅母函数变; 新增 4; 消失 0; 形参回写审计 0 处
+- 载体: transfer_shapes 2 测试 **31 passed**; `tests/ao_shaping/runners` 逐文件 **37 段 exit=0**; 守卫集 **312 passed 1 skipped**
+- 重钉 wiki: `commands/slm-transfer-shapes.md` 的 `runner.py:879` 两处 (def run 879→911)
+- 模块 968→1000 (baseline 抬高)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
