@@ -293,7 +293,8 @@ def test_capture_writes_no_sample_npz_by_default(tmp_path, monkeypatch):
     samples = capture.capture(_capture_args(tmp_path))
 
     out = tmp_path / "capture"
-    assert list(out.glob("*.npz")) == []
+    # 样本 npz 默认不落盘; 光路复用的平场参照帧 (_optical_probe_flat.npz) 例外。
+    assert list(out.glob("sample_*.npz")) == []
     assert (out / "manifest.json").is_file()
     assert (out / "config.json").is_file()
     row = json.loads((out / "manifest.json").read_text())[0]

@@ -383,3 +383,45 @@ def test_prediction_failure_degrades_without_aborting_capture(tmp_path, monkeypa
     assert len(failures) == 1  # 首次失败后停用，不在后续每帧重复失败。
     assert all(frame["predicted"] is None for frame in frames)
     assert any("forward failed" in message for message in warnings)
+
+
+def test_reference_start_persists_flat_frame_probe_sidecar(tmp_path, monkeypatch):
+    """reference_start 落盘平场参照帧, 探针侧车登记 ``flat_frame`` 键。
+
+    这一帧是下次光路复用做形状判比的参照证据; 侧车没登记这个键, 复用就退回
+    零点判比 (既有语义)。
+    """
+    from ao_shaping.tools.slm.transfer.optical_probe import (
+        FLAT_FRAME_FILE,
+        FLAT_FROZEN_SIDECAR,
+        load_flat_frame,
+    )
+
+    _patch_capture(monkeypatch)
+    capture_module.capture(_capture_args(tmp_path))
+
+    out = tmp_path / "capture"
+    assert (out / FLAT_FRAME_FILE).is_file()
+    sidecar = json.loads((out / FLAT_FROZEN_SIDECAR).read_text(encoding="utf-8"))
+    assert sidecar["flat_frame"] == FLAT_FRAME_FILE
+    frame = load_flat_frame(out, sidecar["flat_frame"])
+    assert frame is not None and frame.shape == (50, 60)
+    # 既有键一个都不能少 (加法改动)。
+    expected_keys = {"exposure_range_ms", "camera_format", "bit_depth", "slm_serial"}
+    assert expected_keys <= set(sidecar)
+
+
+def test_probe_sidecar_omits_flat_frame_when_not_saved(tmp_path, monkeypatch):
+    """平场帧没落盘 (save_flat_frame → None): 侧车不写 ``flat_frame`` 键, 采集照常。"""
+    from ao_shaping.tools.slm.transfer import optical_probe as probe_mod
+
+    _patch_capture(monkeypatch)
+    monkeypatch.setattr(probe_mod, "save_flat_frame", lambda *args, **kwargs: None)
+    capture_module.capture(_capture_args(tmp_path))
+
+    out = tmp_path / "capture"
+    assert not (out / probe_mod.FLAT_FRAME_FILE).exists()
+    sidecar = json.loads(
+        (out / probe_mod.FLAT_FROZEN_SIDECAR).read_text(encoding="utf-8")
+    )
+    assert "flat_frame" not in sidecar

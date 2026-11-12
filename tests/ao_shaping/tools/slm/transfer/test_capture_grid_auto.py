@@ -209,5 +209,47 @@ def test_reuse_still_applies_when_latest_grid_reaches(tmp_path, monkeypatch):
     assert workflow_mod._attempt_optical_reuse(config, config.out) is not None
 
 
+def test_reuse_plan_zero_is_current_measured_not_frozen_origin(tmp_path, monkeypatch):
+    """复用计划的零点取**本次实测**, 不用 latest 里的旧 origin。
+
+    旧 origin 与本场零点可差到 DEFAULT_MAX_ZERO_DRIFT_PX (40 px) 仍判同一条光路,
+    而下游裁剪/定位窗口都按零点锚定 —— 用旧值会把窗口带偏。这里让两者差 2 px
+    (在 same_path 的零点容忍 5 px 之内), 计划必须带本次实测值。
+    """
+    import json
+
+    from ao_shaping.tools.slm.transfer import optical_probe as probe_mod
+    from ao_shaping.tools.slm.transfer import workflow as workflow_mod
+
+    monkeypatch.setenv("SLM_MODELS_DIR", str(tmp_path / "models"))
+    latest = tmp_path / "models" / "SLM-A" / "latest"
+    latest.mkdir(parents=True)
+    # 冻结参数里的旧零点 (12, 18) 与本次实测 (10, 20) 差 2 px。
+    (latest / "frozen_parameters.json").write_text(
+        json.dumps({"origin": [12.0, 18.0], "grid_size": 640}), encoding="utf-8"
+    )
+    (latest / probe_mod.FLAT_FROZEN_SIDECAR).write_text(
+        json.dumps({
+            "exposure_range_ms": [0.02, 25.0], "camera_format": "MONO8",
+            "bit_depth": 8, "slm_serial": "SLM-A",
+        }),
+        encoding="utf-8",
+    )
+    config = TransferSession(
+        tmp_path / "run", reuse_latest=True, side=1800.0, shapes=("triangle",),
+    )
+    config.out.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(
+        probe_mod, "measure_probe",
+        lambda **kwargs: probe_mod.OpticalProbe(
+            zero_xy=(10.0, 20.0), exposure_range_ms=(0.02, 25.0),
+            camera_format="MONO8", bit_depth=8, slm_serial="SLM-A",
+        ),
+    )
+    plan = workflow_mod._attempt_optical_reuse(config, config.out)
+    assert plan is not None
+    assert plan.zero_xy == [10.0, 20.0]  # 本次实测, 不是旧 origin [12.0, 18.0]
+
+
 if __name__ == "__main__":  # pragma: no cover
     pytest.main([__file__, "-q"])

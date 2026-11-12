@@ -322,6 +322,7 @@ def capture(args, *, on_frame=None):
     manifest, samples = [], {}
     early_stopped = False
     slm_serial: list[str | None] = [None]
+    flat_frame_name: str | None = None
     with opened_device(
         create_camera(args.camera, args.cam_id, exposure_time_ms=0.02)
     ) as cam:
@@ -545,6 +546,26 @@ def capture(args, *, on_frame=None):
                     if label == "reference_start":
                         x, y = locate(frame)
                         session_zero = (x, y)
+                        # 平场参照帧 (平面相位下的 0 级斑) 落盘: 下次光路复用拿它
+                        # 做形状判比。少一帧形状证据不该让一次几十分钟的采集失败
+                        # (复用自动退回零点判比), 所以这里兜住能真实抛出的类型:
+                        # 惰性导入的 ImportError, 以及帧/曝光量纲不合的 TypeError
+                        # / ValueError。磁盘类错误由 save_flat_frame 自己吞掉并
+                        # 返回 None —— 不用宽 except, 见 test_conventions 的棘轮。
+                        try:
+                            from ao_shaping.tools.slm.transfer.optical_probe import (
+                                save_flat_frame,
+                            )
+
+                            flat_frame_name = save_flat_frame(
+                                args.out,
+                                frame,
+                                spot_xy=(x, y),
+                                exposure_ms=exposure,
+                                slm_serial=slm_serial[0],
+                            )
+                        except (ImportError, OSError, TypeError, ValueError) as exc:
+                            logger.warning(f"平场参照帧保存失败: {exc!r}")
                     elif label.startswith("ramp_") and session_zero is not None:
                         # 零级未被压制时 argmax 会锁零级 -> 屏蔽零级邻域后找一级。
                         x, y = locate(frame, exclude_xy=session_zero)
@@ -600,16 +621,17 @@ def capture(args, *, on_frame=None):
             read_camera_format as _camera_format,
         )
 
+        probe_record: dict = dict(
+            exposure_range_ms=[float(floor), float(ceiling)],
+            camera_format=_camera_format(cam),
+            bit_depth=_camera_bit_depth(cam),
+            slm_serial=slm_serial[0],
+        )
+        if flat_frame_name is not None:
+            # 平场帧真的落盘了才登记文件名 (形状判比按这个键找帧)。
+            probe_record["flat_frame"] = flat_frame_name
         (args.out / "_optical_probe.json").write_text(
-            json.dumps(
-                dict(
-                    exposure_range_ms=[float(floor), float(ceiling)],
-                    camera_format=_camera_format(cam),
-                    bit_depth=_camera_bit_depth(cam),
-                    slm_serial=slm_serial[0],
-                ),
-                indent=2,
-            ),
+            json.dumps(probe_record, indent=2),
             encoding="utf-8",
         )
     (args.out / ".capture_done").write_text(

@@ -435,8 +435,8 @@ def reuse_latest_verdict_line(session_dir: Path) -> str:
 def _reuse_latest_failure_reason(data: dict) -> str:
     """从 ``optical_probe.json`` 的 current/reference 探针里推断不通过的**具体原因**。
 
-    每条 reason 对应 ``same_path`` 的一个判据 (零点 / 曝光 / 格式 / 位深 /
-    序列号), 任一项不满足就 listed。绝不抛异常; 读不到字段时给「不可比」。
+    每条 reason 对应 ``same_path`` 的一个判据 (光斑形状 / 零点 / 曝光 / 格式 /
+    位深 / 序列号), 任一项不满足就 listed。绝不抛异常; 读不到字段时给「不可比」。
     """
     try:
         from ao_shaping.tools.slm.transfer.optical_probe import (
@@ -453,6 +453,16 @@ def _reuse_latest_failure_reason(data: dict) -> str:
             return f"无 latest 参照模型 (SLM 序列号 {serial or '—'} 下没有已保存的 latest，或探针失败)"
         return "当前 / 参照探针数据不完整，无法比对"
     reasons: list[str] = []
+    # 光斑形状 (主判据): 产物里带 ``criteria`` 且形状这条真的**未过**时才追加一行。
+    # 「无平场帧, 形状判据不可用」是退路文案 (不是未过), 不追加 —— 没有形状信息
+    # 时输出与既往一字不差。
+    criteria = data.get("criteria")
+    if isinstance(criteria, dict):
+        shape = criteria.get("shape")
+        if isinstance(shape, str) and (
+            shape.startswith("形状判据未过") or shape.startswith("平场帧不可比")
+        ):
+            reasons.append(f"光斑形状已变 ({shape})")
     # SLM 序列号
     cur_serial = cur.get("slm_serial")
     if cur_serial is not None and serial is not None and str(cur_serial) != str(serial):
@@ -497,6 +507,37 @@ def _reuse_latest_failure_reason(data: dict) -> str:
     if not reasons:
         reasons.append("探针参数不可比")
     return "；".join(reasons)
+
+
+def _reuse_failure_note(session_dir: Path) -> str:
+    """光路复用**不通过**时的原因行, 供阶段表「说明」列追加。
+
+    只认真实判为「不通过」的会话 (``same_path`` 为假且未跳过): 复用 ``
+    _reuse_latest_failure_reason`` 的逐条原因, 拼成一行。通过 / 被跳过 / 产物
+    缺失或损坏时返回空串 (调用方不追加)。绝不抛。
+
+    Args:
+        session_dir: 会话目录 (读 ``optical_probe.json``)。
+    """
+    if not session_dir or not Path(session_dir).is_dir():
+        return ""
+    probe = Path(session_dir).joinpath("optical_probe.json")
+    if not probe.is_file():
+        return ""
+    try:
+        data = json.loads(probe.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError) as exc:
+        logger.warning("读取光路复用结论失败: {}: {}", session_dir, exc)
+        return ""
+    if data.get("skipped") or bool(data.get("same_path")):
+        return ""
+    reason = _reuse_latest_failure_reason(data)
+    if reason:
+        return f"光路复用未通过：{reason}"
+    verdict = data.get("verdict")
+    if isinstance(verdict, str) and verdict.strip():
+        return f"光路复用未通过：{verdict.strip()}"
+    return "光路复用未通过：光路已变化"
 
 
 #: 本场会话里模型权重 (冻结参数) 的候选位置, 按优先级排列 (相对会话目录)。
@@ -2614,7 +2655,7 @@ class TransferPage(QWidget):
         """读会话目录, 刷新阶段表 / 进度条 / 当前阶段 / 汇总。"""
         view = collect_progress(self._session_dir)
         stages = view["stages"]
-        self._sync_table(stages)
+        self._sync_table(stages, _reuse_failure_note(self._session_dir))
 
         counts = view["counts"]
         total = max(int(counts.get("total", 0)), 1)
@@ -2643,19 +2684,29 @@ class TransferPage(QWidget):
             )
         )
 
-    def _sync_table(self, stages: Sequence[Mapping[str, Any]]) -> None:
-        """按计划顺序重画阶段表 (十几个阶段, 重建比就地更新简单且无歧义)。"""
+    def _sync_table(
+        self, stages: Sequence[Mapping[str, Any]], reuse_note: str = ""
+    ) -> None:
+        """按计划顺序重画阶段表 (十几个阶段, 重建比就地更新简单且无歧义)。
+
+        ``reuse_note``: 光路复用「不通过」的原因行 (见 :func:`_reuse_failure_note`);
+        非空时追加到 ``optical_probe`` 阶段的「说明」列, 便于操作员在表格里直接看到
+        是哪一项光路变了, 而不必只依赖状态行。
+        """
         table = self._table
         table.setRowCount(len(stages))
         for row, stage in enumerate(stages):
             name = str(stage["name"])
             status = str(stage["status"])
+            summary = _stage_summary(stage)
+            if name == "optical_probe" and reuse_note:
+                summary = f"{summary} · {reuse_note}" if summary else reuse_note
             cells = (
                 str(stage["index"]),
                 params.stage_label(name, str(stage["label"])),
                 STATUS_LABELS.get(status, status),
                 _duration_text(stage["duration_s"]),
-                _stage_summary(stage),
+                summary,
             )
             for column, text in enumerate(cells):
                 item = QTableWidgetItem(text)

@@ -226,6 +226,70 @@ def test_reuse_verdict_line_lists_detailed_reasons(tmp_path) -> None:
     assert "位深" in line
 
 
+def _write_probe(session_dir, payload) -> None:
+    session_dir.mkdir(exist_ok=True)
+    (session_dir / "optical_probe.json").write_text(
+        json.dumps(payload), encoding="utf-8"
+    )
+
+
+def _matched_probes() -> dict:
+    """零点/曝光/格式/位深全都一致的 current/reference (只差形状判据)。"""
+    probe = {
+        "zero_xy": [100.0, 200.0],
+        "exposure_range_ms": [0.02, 8.0],
+        "camera_format": "MONO8",
+        "bit_depth": 8,
+        "slm_serial": "sn-1",
+    }
+    return {
+        "serial": "sn-1", "latest": "x", "same_path": False,
+        "current": dict(probe), "reference": dict(probe), "verdict": "shape",
+    }
+
+
+def test_reuse_verdict_line_mentions_shape_gate_failure(tmp_path) -> None:
+    """产物带 criteria 且形状判据**未过** → 单独列出形状这条原因。"""
+    session_dir = tmp_path / "s"
+    payload = _matched_probes()
+    payload["criteria"] = {"shape": "形状判据未过: 尺寸比 1.80 > 1.60"}
+    _write_probe(session_dir, payload)
+    line = page_mod.reuse_latest_verdict_line(session_dir)
+    assert "未采用" in line
+    assert "光斑形状已变" in line
+    assert "尺寸比 1.80" in line
+    assert "探针参数不可比" not in line
+
+
+def test_reuse_verdict_line_mentions_uncomparable_flat_frames(tmp_path) -> None:
+    """平场帧不可比 (形状度量算不出) 也算形状这条未过 → 列出原因。"""
+    session_dir = tmp_path / "s"
+    payload = _matched_probes()
+    payload["criteria"] = {"shape": "平场帧不可比, 无形状度量"}
+    _write_probe(session_dir, payload)
+    line = page_mod.reuse_latest_verdict_line(session_dir)
+    assert "光斑形状已变" in line
+    assert "平场帧不可比" in line
+
+
+def test_reuse_verdict_line_unchanged_without_shape_evidence(tmp_path) -> None:
+    """没有形状信息 (无 criteria / 退路文案 / 形状通过) → 输出一字不变。"""
+    session_dir = tmp_path / "s"
+    base = _matched_probes()
+    base["current"]["exposure_range_ms"] = [0.02, 99.0]  # 造一条真实的未过原因
+    _write_probe(session_dir, base)
+    without = page_mod.reuse_latest_verdict_line(session_dir)
+    assert "曝光上界" in without
+
+    for shape in (
+        "无平场帧, 形状判据不可用 (退到零点判比)",  # 退路文案, 不是未过
+        "尺寸比 1.01 / 椭圆度失配 0.02 / 主轴夹角 0.5° (通过)",  # 形状通过
+    ):
+        base["criteria"] = {"shape": shape}
+        _write_probe(session_dir, base)
+        assert page_mod.reuse_latest_verdict_line(session_dir) == without
+
+
 def test_reuse_verdict_line_never_raises_on_partial_artifacts(tmp_path) -> None:
     session_dir = tmp_path / "s"
     session_dir.mkdir()
@@ -246,6 +310,93 @@ def test_on_finished_appends_reuse_verdict(page, tmp_path, monkeypatch) -> None:
     page._on_finished(str(session_dir))
     assert "光路复用" in page._status.text()
     page._on_failed("cleanup")
+
+
+def test_reuse_failure_note_only_for_not_accepted(tmp_path) -> None:
+    """``_reuse_failure_note``: 只有真实「不通过」才给原因行, 通过/跳过/缺失给空串。"""
+    session_dir = tmp_path / "s"
+    session_dir.mkdir()
+    # 未走复用 (无产物) → 空。
+    assert page_mod._reuse_failure_note(session_dir) == ""
+    # 通过 → 空。
+    (session_dir / "optical_probe.json").write_text(
+        json.dumps({"serial": "sn-1", "latest": "x", "same_path": True}),
+        encoding="utf-8",
+    )
+    assert page_mod._reuse_failure_note(session_dir) == ""
+    # 被跳过 → 空。
+    (session_dir / "optical_probe.json").write_text(
+        json.dumps(
+            {"serial": "sn-1", "latest": "x", "same_path": False, "skipped": True}
+        ),
+        encoding="utf-8",
+    )
+    assert page_mod._reuse_failure_note(session_dir) == ""
+    # 不通过 (0 级零点漂移 30 px > 容差) → 给原因行。
+    (session_dir / "optical_probe.json").write_text(
+        json.dumps(
+            {
+                "serial": "sn-1",
+                "latest": "x",
+                "same_path": False,
+                "current": {"zero_xy": [40.0, 40.0], "slm_serial": "sn-1"},
+                "reference": {"zero_xy": [10.0, 40.0], "slm_serial": "sn-1"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    note = page_mod._reuse_failure_note(session_dir)
+    assert note.startswith("光路复用未通过：")
+    assert "零点" in note
+
+
+def test_sync_table_appends_reuse_failure_to_probe_note(page, tmp_path) -> None:
+    """光路复用不通过时, ``optical_probe`` 阶段的说明列追加原因行, 其余行不受影响。"""
+    session_dir = tmp_path / "s"
+    session_dir.mkdir()
+    (session_dir / "optical_probe.json").write_text(
+        json.dumps(
+            {
+                "serial": "sn-1",
+                "latest": "x",
+                "same_path": False,
+                "current": {"zero_xy": [40.0, 40.0], "slm_serial": "sn-1"},
+                "reference": {"zero_xy": [10.0, 40.0], "slm_serial": "sn-1"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    note = page_mod._reuse_failure_note(session_dir)
+    assert note
+    stages = [
+        {
+            "index": 1,
+            "name": "optical_probe",
+            "label": "",
+            "status": "complete",
+            "duration_s": 0.1,
+            "metrics": [{"label": "零点", "text": "(40, 40)"}],
+            "error": None,
+        },
+        {
+            "index": 2,
+            "name": "capture",
+            "label": "",
+            "status": "complete",
+            "duration_s": 0.1,
+            "metrics": [],
+            "error": None,
+        },
+    ]
+    page._sync_table(stages, note)
+    probe_note = page._table.item(0, 4).text()
+    assert "光路复用未通过" in probe_note
+    assert "零点" in probe_note
+    # 非 optical_probe 行的说明列不带复用结论。
+    assert "光路复用" not in page._table.item(1, 4).text()
+    # 不传 note (向后兼容): 说明列就是阶段摘要, 不追加。
+    page._sync_table(stages)
+    assert "光路复用" not in page._table.item(0, 4).text()
 
 
 # --- 所用模型权重的保存日期 -----------------------------------------------
