@@ -110,6 +110,27 @@ def offset_pattern(
     return np.tile(shifted, (height, 1)).astype(np.uint16)
 
 
+def random_phase_pattern(seed: int, panel_shape: tuple[int, int]) -> np.ndarray:
+    """Uniform random phase screen on ``[0, 2*pi)``, tiled over the panel.
+
+    Unlike the checkerboard and blaze patterns, the zero order of a random phase
+    screen is ``|mean(exp(i*phi))|``, so it is insensitive to the *gain* of the
+    gray-to-phase response: even when the SLM saturates below the designed depth
+    (measured gain ~0.5-0.8, 2026-11-11), a screen covering a large enough arc of
+    the unit circle still empties the zero order. That is what makes it the
+    reference blocker for knife-edge probes.
+
+    Args:
+        seed: Seed for ``numpy.random.default_rng`` (byte-identical repeats).
+        panel_shape: ``(height, width)`` panel resolution.
+
+    Returns:
+        float32 array of shape ``panel_shape``, units radians.
+    """
+    rng = np.random.default_rng(seed)
+    return (rng.random(panel_shape) * 2.0 * np.pi).astype(np.float32)
+
+
 def stack_halves(ref: np.ndarray, test: np.ndarray, axis: int = 0) -> np.ndarray:
     """Vertical stack (axis=0, ref on top, test below).
 

@@ -24,13 +24,23 @@ Guard: the ``M1_fit`` amp 0.05 arm must reproduce the archived
 exactly (bit-for-bit), proving the measurement口径 is unchanged.
 
 Outputs ``results.json`` under ``data/debug/slm_transfer/direction_variants_20261112/``
-and prints a per-variant summary table.
+and prints a per-variant summary table.  With ``--figures-only`` (or after a full
+run) also renders the report figures into
+``report/shape_trials/direction_diagnosis_20261112/figures/`` from the JSON
+artifacts (offline, no recompute).
 """
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 import torch
+
+#: repo-root bootstrap so ``scripts._common`` and ``ao_shaping`` resolve when
+#: this file is run as ``python scripts/slm/direction_model_variants_20261112.py``
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
     FrozenDefocusForward, FrozenDefocusParameters,
@@ -39,6 +49,8 @@ from ao_shaping.tools.slm.transfer.jacobian_guard import direction_agreement
 
 FIT = Path("data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit/forward_fit.json")
 OUT_DIR = Path("data/debug/slm_transfer/direction_variants_20261112/")
+#: report-side figure output (tracked in git; see report/AGENTS.md asset rules)
+FIG_DIR = Path("report/shape_trials/direction_diagnosis_20261112/figures")
 CROP = 128
 MODES = list(range(5, 12))
 AMPS = [0.02, 0.05, 0.10]
@@ -137,6 +149,152 @@ def stats(results):
     }
 
 
+def _variant_short(name: str) -> str:
+    """Figure-friendly variant label (drops the trailing ``_fit``/``_bg0`` suffix noise)."""
+    return {
+        "M0_fit": "M0 (analytic)",
+        "M1_fit": "M1 (defocus)",
+        "M3_fit": "M3 (defocus+env)",
+        "M1_bg0": "M1 bg=0",
+        "M1_bg10": "M1 bg=10",
+        "M3_bg0": "M3 bg=0",
+    }.get(name, name)
+
+
+def write_figures(
+    out_dir: Path = OUT_DIR,
+    fig_dir: Path = FIG_DIR,
+) -> list[Path]:
+    """Render the direction-diagnosis figures from the JSON artifacts.
+
+    Offline, reads only ``results.json`` / ``attribution.json``.  Produces:
+    fig1 per-amp heatmap (variant x mode), fig2 median-vs-amp grouped bars,
+    fig3 attribution-arm bars.  All use the repo CJK font helper.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import TwoSlopeNorm
+    from scripts._common.plot_style import setup_cjk_font
+
+    setup_cjk_font()
+    fig_dir.mkdir(parents=True, exist_ok=True)
+    results = json.loads((out_dir / "results.json").read_text())
+    attribution = json.loads((out_dir / "attribution.json").read_text())
+    gate = 0.50
+    paths: list[Path] = []
+    variants = list(results["variants"])
+    amps = list(results["amp"]) if isinstance(results["amp"], list) else [results["amp"]]
+
+    def _per_mode(v: dict) -> dict[int, float]:
+        return {int(k): float(x) for k, x in v.get("per_mode_median", {}).items()}
+
+    def _pass_count(v: dict) -> tuple[int, int]:
+        finite = [r["corr"] for r in v["results"] if np.isfinite(r["corr"])]
+        return int(sum(c >= gate for c in finite)), int(len(finite))
+
+    # ---- fig1: heatmap per amp ----------------------------------------------
+    fig, axes = plt.subplots(1, len(amps), figsize=(6.2 * len(amps), 4.6),
+                             constrained_layout=True)
+    axes = np.atleast_1d(axes)
+    for ax, amp in zip(axes, amps):
+        entries = [e for e in results["variants"]
+                   if abs(float(e["amp"]) - float(amp)) < 1e-9]
+        # align rows to VARIANTS declaration order
+        entries.sort(key=lambda e: [n for n, *_ in VARIANTS].index(e["variant"]))
+        mat = np.full((len(entries), len(MODES)), np.nan)
+        for i, entry in enumerate(entries):
+            for j, m in enumerate(MODES):
+                mat[i, j] = _per_mode(entry).get(m, np.nan)
+        norm = TwoSlopeNorm(vmin=-0.3, vcenter=0.0, vmax=1.0)
+        im = ax.imshow(mat, cmap="RdYlGn", norm=norm, aspect="auto")
+        ax.set_xticks(range(len(MODES)))
+        ax.set_xticklabels([f"Z{m}" for m in MODES])
+        ax.set_yticks(range(len(entries)))
+        ax.set_yticklabels([_variant_short(e["variant"]) for e in entries])
+        ax.set_title(f"amp {float(amp):.2f} rad  (median 方向相关)")
+        for i in range(len(entries)):
+            for j in range(len(MODES)):
+                val = mat[i, j]
+                if np.isfinite(val):
+                    ax.text(j, i, f"{val:.2f}", ha="center", va="center",
+                            fontsize=8, fontweight="bold" if val >= gate else "normal",
+                            color="black" if val >= gate else "0.25")
+        fig.colorbar(im, ax=ax, shrink=0.8, label="direction Pearson")
+    fig.suptitle("可微物理预测模型 Jacobian 方向矩阵（行=变体，列=Zernike 模式）", y=1.02)
+    p = fig_dir / "fig1_variant_mode_heatmap_20261112.png"
+    fig.savefig(p, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    paths.append(p)
+
+    # ---- fig2: median vs amp (M0/M1/M3) -------------------------------------
+    fig, ax = plt.subplots(figsize=(6.8, 4.6))
+    core = ["M0_fit", "M1_fit", "M3_fit"]
+    colors = ["#7f8c8d", "#3498db", "#27ae60"]
+    width = 0.26
+    for k, name in enumerate(core):
+        meds, passf = [], []
+        for amp in amps:
+            entry = next((v for v in results["variants"] if v["variant"] == name
+                          and abs(float(v["amp"]) - float(amp)) < 1e-9), None)
+            meds.append(float(entry["stats"]["median"]) if entry else np.nan)
+            passf.append(_pass_count(entry) if entry else (0, 0))
+        xs = np.arange(len(amps)) + (k - 1) * width
+        bars = ax.bar(xs, meds, width, label=_variant_short(name), color=colors[k])
+        for x, (m, (npass, ntot)) in zip(xs, zip(meds, passf)):
+            if np.isfinite(m):
+                ax.text(x, m + 0.03, f"{m:.2f}\n{npass}/{ntot}", ha="center",
+                        va="bottom", fontsize=7)
+    ax.axhline(gate, color="crimson", ls="--", lw=1.4)
+    ax.text(len(amps) - 0.5, gate + 0.02, "方向门禁 0.50", color="crimson",
+            fontsize=8, ha="right")
+    ax.set_xticks(range(len(amps)))
+    ax.set_xticklabels([f"{float(a):.2f} rad" for a in amps])
+    ax.set_ylabel("median 方向相关")
+    ax.set_ylim(-0.1, 1.0)
+    ax.set_title("median 方向相关 vs 幅值（每个变体标注 ≥0.50 单对占比）")
+    ax.legend(loc="lower left", fontsize=8)
+    fig.tight_layout()
+    p = fig_dir / "fig2_median_vs_amp_20261112.png"
+    fig.savefig(p, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    paths.append(p)
+
+    # ---- fig3: attribution arms ---------------------------------------------
+    arms = attribution.get("arms", {})
+    order = ["M3_baseline", "M1_baseline", "M3_env_on_M1", "M1_env_on_M3",
+             "M3_origin_on_M1", "M1_origin_on_M3", "M3_defocus_on_M1"]
+    labels, meds, passes = [], [], []
+    for name in order:
+        a = arms.get(name)
+        if not a:
+            continue
+        labels.append(name)
+        meds.append(float(a["median"]))
+        finite = [x for x in a["per_mode"].values() if np.isfinite(x)]
+        passes.append(f"{int(sum(x >= gate for x in finite))}/{len(finite)}")
+    fig, ax = plt.subplots(figsize=(7.2, 4.4))
+    ypos = np.arange(len(labels))[::-1]
+    colors2 = ["#27ae60" if "M3" in n else "#95a5a6" for n in labels]
+    ax.barh(ypos, meds, color=colors2, height=0.62)
+    for y, (m, ps) in zip(ypos, zip(meds, passes)):
+        ax.text(m + 0.02, y, f"{m:.2f} ({ps})", va="center", fontsize=8)
+    ax.axvline(gate, color="crimson", ls="--", lw=1.4)
+    ax.text(gate + 0.02, len(labels) - 0.4, "门禁 0.50", color="crimson", fontsize=8)
+    ax.set_yticks(ypos)
+    ax.set_yticklabels(labels, fontsize=8)
+    ax.set_xlim(-0.2, 1.0)
+    ax.set_xlabel("median 方向相关（amp 0.05，标注 ≥0.50 单对占比）")
+    ax.set_title("M3 方向通过归因：替换单个变体无法复现基线通过")
+    fig.tight_layout()
+    p = fig_dir / "fig3_attribution_arms_20261112.png"
+    fig.savefig(p, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    paths.append(p)
+    print(f"figures written: {', '.join(str(x) for x in paths)}")
+    return paths
+
+
 def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     fit = json.loads(FIT.read_text())
@@ -184,4 +342,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if "--figures-only" in sys.argv[1:]:
+        write_figures()
+    else:
+        main()

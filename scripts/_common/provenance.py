@@ -106,7 +106,7 @@ REPORTS: dict[str, ReportProvenance] = {
         note=(
             "11-10 光路 A 下线前诊断状态日志：非饱和曝光阶梯、中心/焦点拟合冲突、"
             "证据保真限制与各 issue 预编写边界；含曝光单位更正补记（30 ms 改为 "
-            "30 us，原不一致结论据阶梯数据撤销）；未发布新标定，未据此完成真机验收。"
+            "30 us，原不一致结论据阶梯数据撤销）；未发布新标定，未据此完成实验系统验收。"
         ),
     ),
     "report/shape_trials/shape_transition/shape_transition_timing_20261107.md": ReportProvenance(
@@ -172,7 +172,7 @@ REPORTS: dict[str, ReportProvenance] = {
         script=HANDWRITTEN,
         environment="离线回放存档数据（2026-11-12；未占用 SLM/相机/激光，未 import ao_shaping.drivers）",
         note=(
-            "可微整形前向模型 Jacobian 方向诊断合并报告：6 变体×3 幅值方向矩阵 + 7 臂归因"
+            "可微整形物理预测模型 Jacobian 方向诊断合并报告：6 变体×3 幅值方向矩阵 + 7 变体归因"
             "（隔离照明包络/origin/defocus 贡献）。M3（离焦+照明包络）0.616/0.696/0.657 通过 ≥0.50 门禁；"
             "M0/M1 未过；背景/增益对方向度量精确不变；M3 通过是 origin+defocus+包络+gain 的联合自洽属性。"
             "输入为 defocus_forward_20261107_focus_r2_fit/forward_fit.json 与 issue234_*_screen_20261107 存档产物，"

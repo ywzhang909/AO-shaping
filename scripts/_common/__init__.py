@@ -38,9 +38,12 @@ __all__ = [
     "format_iters",
     "iters_to_threshold",
     "markdown_table",
+    "pad",
+    "parse_int_list",
     "plot_summary_bars",
     "refuse_empty_overwrite",
     "savefig",
+    "wlen",
 ]
 
 
@@ -420,3 +423,29 @@ def fmt_fixed_or_text(
             return nonfinite_text
         return f"{v:.{digits}f}"
     return str(v)
+
+
+# ---------------------------------------------------------------------------
+# CLI list parsing and fixed-width console tables
+# ---------------------------------------------------------------------------
+
+
+def parse_int_list(text: str) -> list[int]:
+    """空格 / 逗号分隔的整数列表 (``"8 12,16"`` -> ``[8, 12, 16]``)。
+
+    Three byte-identical copies (``calib_slm_lut_checkerboard`` /
+    ``diag_checker_cells_sweep`` / ``probe_knife_block_depth``) folded into one.
+    ``build_hw_sweep_plan.parse_int_list`` returns a **tuple** instead, so it is
+    deliberately left as its own function.
+    """
+    return [int(part) for part in text.replace(",", " ").split()]
+
+
+def wlen(text: str) -> int:
+    """显示宽度 (CJK 计 2)，让摘要表在等宽终端里对齐。"""
+    return sum(2 if ord(c) > 0x2E7F else 1 for c in text)
+
+
+def pad(text: str, width: int) -> str:
+    """右补空格到显示宽度 ``width`` (按 :func:`wlen` 计, 不是 ``len``)。"""
+    return text + " " * max(0, width - wlen(text))
