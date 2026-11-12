@@ -12,12 +12,14 @@ torch 在函数内延迟导入；``algorithm`` 层不 import 驱动/tools。
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import numpy as np
 import numpy.typing as npt
+from loguru import logger
 
 from ao_shaping.algorithm.signal_processing.defocus_forward_core import (
     PANEL_PITCH_PX,
@@ -858,3 +860,295 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
             self._accepted.copy_(self._delta)
         self._anchor_pred = None  # 锚点输入变了，缓存的前向作废
         return self.accepted_phase
+
+
+# --------------------------------------------------------------------------- #
+# 部署侧 accept 策略：三种变体的逐步记账 + 投影契约核对
+# --------------------------------------------------------------------------- #
+
+#: 合法的 accept 策略名。三者共用同一条 :meth:`DifferentiableUniformityOptimizer.update`
+#: 路径，只在"要不要把本步候选记成新锚点"上不同，因此彼此可比。
+ACCEPT_POLICIES: tuple[str, ...] = ("cumulative", "per_step", "gated_oracle")
+
+#: 判两个浮点记账是否相等用的相对容差（float32 累加下同一量走两条路径可能差末位）。
+_POLICY_RTOL = 1e-5
+
+
+def policy_cv(record: Mapping[str, Any]) -> float:
+    """从 :meth:`DifferentiableUniformityOptimizer.update` 的记录里取 CV。
+
+    ``l_cv``（没有则退回 ``loss``）是 CV²，开方成 CV —— 与网格探针一直的取法一致。
+    """
+    return float(np.sqrt(max(float(record.get("l_cv", record["loss"])), 0.0)))
+
+
+@dataclass(frozen=True)
+class AcceptPolicyTrace:
+    """一次 accept 策略运行的逐步轨迹（下标 ``i`` = 第 ``i + 1`` 步）。
+
+    所有指标都取自 ``update()`` 已经写进 ``loss_history`` 的记录，本结构不额外做
+    任何前向，因此 ``per_step_ms`` 量的就是原生部署路径本身。
+
+    Attributes:
+        arm: 策略名（:data:`ACCEPT_POLICIES` 之一）。
+        cap: 每步增量加权 RMS 上限。
+        lr: Adam 学习率。
+        iters: 跑过的步数。
+        cv_after: ``cv_after[k]`` = 走完 k 步之后的 CV（长度 ``iters + 1``）。
+        accepts_after: ``accepts_after[k]`` = 走完 k 步之后的 accept 次数。
+        anchor_series: 每步记录里的锚点 CV²。
+        cand_series: 每步记录里的候选 CV²。
+        accepted_flags: 每步是否 accept。
+        rms_before: 每步投影前的增量加权 RMS。
+        rms_after: 每步投影后的增量加权 RMS。
+        unlocked_rms: 收尾时 ``delta - accepted`` 的加权 RMS。
+        total_rms: 收尾时 ``delta`` 距起点的加权 RMS。
+        per_step_ms: 每步墙上时间（毫秒）。
+    """
+
+    arm: str
+    cap: float
+    lr: float
+    iters: int
+    cv_after: list[float]
+    accepts_after: list[int]
+    anchor_series: list[float]
+    cand_series: list[float]
+    accepted_flags: list[bool]
+    rms_before: list[float]
+    rms_after: list[float]
+    unlocked_rms: float
+    total_rms: float
+    per_step_ms: list[float]
+
+    @property
+    def accepts(self) -> int:
+        """总 accept 次数（= ``accepts_after[-1]``）。"""
+        return int(self.accepts_after[-1])
+
+    def reach(self, targets: Sequence[float]) -> tuple[dict[str, int | None], dict[str, int | None]]:
+        """各目标 CV 的「达标步数」与「达标时的 accept 次数」。
+
+        Args:
+            targets: 目标 CV 列表；键用 ``f"{target:g}"``，与探针落盘口径一致。
+
+        Returns:
+            ``(reach_steps, reach_accepts)``；``None`` 表示 ``iters`` 步内未达。
+        """
+        steps: dict[str, int | None] = {}
+        accepts: dict[str, int | None] = {}
+        for target in targets:
+            hit = next((k for k, value in enumerate(self.cv_after) if value <= target), None)
+            steps[f"{target:g}"] = hit
+            accepts[f"{target:g}"] = None if hit is None else self.accepts_after[hit]
+        return steps, accepts
+
+
+def run_accept_policy(
+    forward: FrozenDefocusForward,
+    objective: UniformityObjective,
+    seed: npt.NDArray[np.floating],
+    *,
+    cap: float,
+    lr: float,
+    arm: str,
+    iters: int,
+    device: str = "cpu",
+) -> AcceptPolicyTrace:
+    """按某种 accept 策略跑 ``iters`` 步，返回逐步轨迹。
+
+    每步只调一次 :meth:`DifferentiableUniformityOptimizer.update`（该策略需要时再
+    :meth:`~DifferentiableUniformityOptimizer.accept`）：
+
+    * ``cumulative`` —— 从不 accept，锚点恒为起点，投影把总增量钉在 ``cap`` 内；
+    * ``per_step`` —— 每步都 accept，锚点逐步接续上一步候选；
+    * ``gated_oracle`` —— 仅当本步 ``candidate_model_loss < anchor_model_loss``
+      （冻结模型上的理想判据，实测不可得，作为上界参照）才 accept。
+
+    Args:
+        forward: 冻结物理预测模型。
+        objective: 固定掩膜均匀度目标。
+        seed: 起点相位（raw 弧度网格）。
+        cap: 每步增量加权 RMS 上限。
+        lr: Adam 学习率。
+        arm: 策略名，:data:`ACCEPT_POLICIES` 之一。
+        iters: 步数。
+        device: 优化器设备（默认 ``"cpu"``）。
+
+    Returns:
+        :class:`AcceptPolicyTrace`。
+
+    Raises:
+        ValueError: ``arm`` 不是合法策略名。
+    """
+    if arm not in ACCEPT_POLICIES:
+        raise ValueError(f"unknown arm {arm!r}, expected one of {ACCEPT_POLICIES}")
+    opt = DifferentiableUniformityOptimizer(
+        forward, objective, seed, lr=lr, step_rms_cap=cap, device=device
+    )
+    cv_after: list[float] = []  # cv_after[k] = 走完 k 步之后的 CV
+    accepts_after: list[int] = [0]  # accepts_after[k] = 走完 k 步之后的 accept 次数
+    anchor_series: list[float] = []
+    cand_series: list[float] = []
+    accepted_flags: list[bool] = []
+    rms_before: list[float] = []
+    rms_after: list[float] = []
+    per_step_ms: list[float] = []
+    accepts = 0
+
+    for _ in range(iters):
+        t0 = time.perf_counter()
+        opt.update()
+        rec = opt.loss_history[-1]
+        # 记录里的 l_cv 在本步 Adam 移动之前的 delta 上评估 => 它是「走完上一步
+        # 之后」的 CV，所以 append 出来的下标就是「已走步数」。
+        cv_after.append(policy_cv(rec))
+        anchor_loss = float(rec["anchor_model_loss"])
+        cand_loss = float(rec["candidate_model_loss"])
+        take = arm == "per_step" or (arm == "gated_oracle" and cand_loss < anchor_loss)
+        if take:
+            opt.accept()
+            accepts += 1
+        per_step_ms.append((time.perf_counter() - t0) * 1e3)
+        accepts_after.append(accepts)
+        accepted_flags.append(bool(take))
+        rms_before.append(float(rec["increment_rms_before_projection"]))
+        rms_after.append(float(rec["increment_rms"]))
+        anchor_series.append(anchor_loss)
+        cand_series.append(cand_loss)
+
+    # 走完最后一步之后的 CV：update() 记录里的 candidate_model_loss 正是投影后的
+    # delta 上的 CV²（同一 objective、同一掩膜，模型模式下与是否 accept 无关），
+    # 补进序列末尾，别让「全部步数之后的 CV」在步数结论里缺席。
+    cv_after.append(float(np.sqrt(max(cand_series[-1], 0.0))))
+
+    return AcceptPolicyTrace(
+        arm=arm,
+        cap=float(cap),
+        lr=float(lr),
+        iters=int(iters),
+        cv_after=cv_after,
+        accepts_after=accepts_after,
+        anchor_series=anchor_series,
+        cand_series=cand_series,
+        accepted_flags=accepted_flags,
+        rms_before=rms_before,
+        rms_after=rms_after,
+        unlocked_rms=float(opt.weighted_rms(opt.delta_phase - opt.accepted_phase)),
+        total_rms=float(opt.weighted_rms(opt.delta_phase)),
+        per_step_ms=per_step_ms,
+    )
+
+
+def audit_cap_policy(
+    trace: AcceptPolicyTrace,
+    *,
+    label: str,
+    targets: Sequence[float],
+    rms_tol: float = 1e-6,
+) -> list[str]:
+    """核对 accept 策略运行的记账口径，返回不符合项（空列表 = 契约成立）。
+
+    依据三条结构性事实：
+
+    1. ``anchor_model_loss`` = 当前锚点（最后一次 accept 的那个 delta）上的 CV²，
+       所以它只能在 accept 的那一步换值，换的值 = 该步的 ``candidate_model_loss``；
+       ``cumulative`` 策略恒为起点 CV²，``per_step`` 策略逐步接续上一步候选。
+    2. 投影参照锚点 => 未锁定偏移 ``weighted_rms(delta - accepted) <= cap`` 恒成立；
+       于是距起点的总偏移 <= ``cap × (accepts + 1)``（每段行程各 <= cap）。
+    3. 绑定 = 投影前 RMS > cap，此时投影**等比**缩到恰好 cap；未绑定时不动。
+
+    Args:
+        trace: :func:`run_accept_policy` 的轨迹。
+        label: 写进告警文本的运行标签（一般是起点名）。
+        targets: 达标判据用的目标 CV 列表；``reach`` 两套记账都按它重算一遍。
+        rms_tol: 硬界核对容差（float32 累加下的绝对余量）。
+
+    Returns:
+        不符合项文本；同时逐条打 WARNING。
+    """
+    bad: list[str] = []
+    arm = trace.arm
+    cap = trace.cap
+    iters = trace.iters
+    cv_after = trace.cv_after
+    accepts_after = trace.accepts_after
+    anchor_series = trace.anchor_series
+    cand_series = trace.cand_series
+    accepted_flags = trace.accepted_flags
+    rms_before = trace.rms_before
+    rms_after = trace.rms_after
+    unlocked = trace.unlocked_rms
+    total_rms = trace.total_rms
+    accepts = trace.accepts
+    reach_steps, reach_accepts = trace.reach(targets)
+
+    def fail(text: str) -> None:
+        bad.append(text)
+        logger.warning(f"契约不符 {label}：{text}")
+
+    def close(a: float, b: float) -> bool:
+        return abs(a - b) <= _POLICY_RTOL * max(1.0, abs(a), abs(b))
+
+    if accepts_after != sorted(accepts_after) or accepts > iters:
+        fail(f"accept 前缀和非法：{accepts}/{iters}")
+    if arm == "cumulative" and accepts != 0:
+        fail(f"cumulative 变体 accept 应为 0，实为 {accepts}")
+    if arm == "per_step" and accepts != iters:
+        fail(f"per_step 变体 accept 应为 {iters}，实为 {accepts}")
+    if arm == "gated_oracle":
+        expect = sum(
+            1 for i in range(len(anchor_series)) if cand_series[i] < anchor_series[i]
+        )
+        if accepts != expect:
+            fail(f"gated_oracle 变体 accept 应为 {expect}（候选<锚点），实为 {accepts}")
+
+    for i in range(1, len(anchor_series)):
+        if arm == "cumulative":
+            if not close(anchor_series[i], anchor_series[0]):
+                fail(f"cumulative 变体锚点在第 {i + 1} 步漂移："
+                     f"{anchor_series[0]:.6g}→{anchor_series[i]:.6g}")
+                break
+        else:
+            want = cand_series[i - 1] if accepted_flags[i - 1] else anchor_series[i - 1]
+            if not close(anchor_series[i], want):
+                fail(f"第 {i + 1} 步锚点应接续上一步候选 {want:.6g}，"
+                     f"实为 {anchor_series[i]:.6g}（锚点/候选记账错位）")
+                break
+
+    if unlocked > cap + rms_tol:
+        fail(f"未锁定相位 RMS {unlocked:.6g} 越过 cap={cap:g}（投影没钉住球面）")
+    if total_rms > cap * (accepts + 1) + rms_tol:
+        fail(f"距起点 RMS {total_rms:.6g} 越过 cap×(accepts+1)="
+             f"{cap * (accepts + 1):.6g}")
+
+    for i, (rb, ra) in enumerate(zip(rms_before, rms_after, strict=True)):
+        if rb > cap:
+            if not close(ra, cap):
+                fail(f"第 {i + 1} 步绑定（投影前 {rb:.6g}>cap）但投影后不是 cap："
+                     f"{ra:.6g}")
+                break
+        elif not close(ra, rb):
+            fail(f"第 {i + 1} 步未绑定（投影前 {rb:.6g}≤cap）却被改动：→{ra:.6g}")
+            break
+
+    if len(cv_after) != iters + 1 or len(accepts_after) != iters + 1:
+        fail(f"序列长度非法：cv {len(cv_after)} / accepts {len(accepts_after)}，应为 {iters + 1}")
+    for target in targets:
+        key = f"{target:g}"
+        stored = reach_steps[key]
+        # 就地重算一遍达标步数（两套记账必须一致）
+        recomputed = next((k for k, v in enumerate(cv_after) if v <= target), None)
+        if stored != recomputed:
+            fail(f"达标步数 {key} 记为 {stored}，重算为 {recomputed}")
+            continue
+        if recomputed is None:
+            if min(cv_after) <= target:
+                fail(f"CV 已到 {target:g} 却记为未达")
+            continue
+        if not cv_after[recomputed] <= target:
+            fail(f"达标步数 {recomputed} 处 CV={cv_after[recomputed]:.4g} 未达 {target:g}")
+        if reach_accepts[key] != accepts_after[recomputed]:
+            fail(f"达标确认数 {reach_accepts[key]} 与 accept 前缀和 "
+                 f"{accepts_after[recomputed]} 不一致（步数 {recomputed}）")
+    return bad
