@@ -4870,6 +4870,14 @@ slm_zernike_pib.py:1872`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 2708→2764 (baseline 抬高); 行锚全在 2321 之下, 零漂移
 - 教训 ㉓: **AugAssign 只产生 Store ctx**——母函数形参若在区内仅被 `+=`/`*=` 读改写, 生成器会把它判成 helper-local 不回传不回喂, 需人工确认或用显式 `x = x * s` 形式才会入 params; 生成器对"条件-only 回传"的拒绝在此场景是**正确**的
 
+**2026-11-12 · 1ed708f4 之后 · 第 63 批: `_run_pib_bench_session` 366→233 + 四缝 (`optimizer/wfless/pib.py`)**
+- 提取: `_pib_make_search_fn` 80 (嵌套闭包 `run_adaptive_search` 整体提为**模块级工厂** 返回闭包, break/continue 在 def 边界内安全) / `_pib_record_init_row` 25 / `_pib_init_tabu_state` 27 / `_pib_update_iter_setup` 17
+- 未提: `calc_objective` if/elif 缝 (14 行)——分支条件定义同名函数, 回传在未知 objective 路径 NameError, 语义漂移风险, 留在母函数
+- 叶差分: 16 个 helper 逐字节同; 仅母函数变; 新增 4; 消失 0; 形参回写审计 0 处
+- 载体: pib 5 测试 + combined/spgd/sensorless 5 测试 **70 passed**; wfless 逐文件域 exit=0 (56 段 0 失败); 形状门禁+conventions **283 passed 1 skipped** (pib.py 无活钉)
+- 模块 1029→1061 (baseline 抬高)
+- 教训 ㉔: **纯 FunctionDef 区域可含 break/continue**——循环不跨 def 边界, 生成器对整段 def 的 break 拒绝过严, 已在 split63 加 `_all_defs` 豁免
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
