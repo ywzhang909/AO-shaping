@@ -1319,8 +1319,8 @@
    "qualname": "optimizer_rms_slm",
    "module": "ao_shaping.optimizer.wf.rms_by_zernike",
    "file": "src/ao_shaping/optimizer/wf/rms_by_zernike.py",
-   "lineno": 838,
-   "end": 992,
+   "lineno": 862,
+   "end": 1016,
    "args": [
     "epochs",
     "init_z",
