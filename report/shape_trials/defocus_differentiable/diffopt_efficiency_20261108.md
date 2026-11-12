@@ -235,3 +235,154 @@ final CV 与墙钟，不引用 schedule 的 reach。
 **复现**：`python scripts/slm/diffopt_efficiency_probe_20261108.py --threads 6`
 （`results.json`，306.0 s；全部 §2–§7 数字）。**无设备占用**：探针只读冻结 checkpoint，
 未开 SLM/CCD/激光。
+
+---
+
+## 10. 2026-11-11 增补：每步前向削减与 `cap × lr` 网格
+
+> 本增补回答两件事：① 部署路径上还有**两次**每步重复全量前向，已落地缓存/复用，
+> 每步前向 3 → 2（锚点步 3）；② 补上 #236 缺的「`cap × lr` → 到 CV 0.20/0.15/0.10 的
+> 步数与 `accept()` 确认次数」表，并据此给部署路径的 `cap`/`lr`/确认门取值。
+> 全程离线（CPU、只读冻结 checkpoint、固定种子），未开 SLM/CCD/激光。
+
+### 10.1 每步前向次数的两处削减（`differentiable_defocus_uniformity.py` + `validate.py`）
+
+锚定闭环（`validate.py:1296-1310`）原每一步都 `forward.predict(optimizer.current_phase)`，
+但该相位就是**上一步 `update()` 步末已经算过**的那个前向：
+
+| 位置 | 改动 | 每步全量前向 |
+|------|------|--------------|
+| `_anchor_pred` 缓存 | `predict(seed + accepted)` 只由 `accept()` 失效；无 accept 的步复用 | model 模式 3 → 2（锚点步 3） |
+| `last_candidate_prediction` | `update()` 步末存 `predict(seed + delta)`（CPU float32）；`validate.py` 锚定循环接力复用 | 锚定部署闭环 3 → 2（iteration 0 复用 `anchor_prediction`） |
+
+- 有效性前提（均写进 docstring / 属性注释）：前向是**确定性纯函数**；`_accepted` 只由
+  `accept()` 写入；`focus_phase`/`carrier_phase` 为 `None`（部署路径如此）——否则
+  `current_phase` 已把两者叠进网格，调用方再 `predict` 会把它们**重复叠加**，故此时
+  `last_candidate_prediction` 返回 `None`（回退原前向，行为不变）。
+- 收敛提前返回时 `update()` 不改 `_delta`，上一步的候选前向仍等于当前 `current_phase`
+  的前向，复用继续成立；`accept()` 只失效 `_anchor_pred`，候选前向描述的是当前相位，不失效。
+- **不变性（真 checkpoint 逐位）**：缓存落地后整支效率探针 2302 个非时间叶子**逐位相同**，
+  唯一差异 `timing_stability.spread_ratio`（本身是时间统计量），`keys only in old/new = 0`。
+- 门禁：`tests/ao_shaping/algorithm/signal_processing/test_differentiable_anchor_forward_cache.py`
+  （合成前向，真跑 8 项）钉住「复用值 == 重算值（`tobytes` 逐字节）」「锚定循环复用前后
+  相位网格与历史**逐位相同**、前向 3→2」「`accept()` 不失效候选前向」「focus/carrier 置位时
+  访问器为 `None`」；`test_measured_phase_regularization.py` 的
+  `candidate_model_loss_change` 恒等式与 `calls==3` 原门禁仍通过。
+
+### 10.2 计时（只作**比值**旁证，不作绝对值）
+
+抗负载交错 A/B（同进程、同 seed、同 forward、`torch.set_num_threads(6)`、预热 1 轮 + 7 轮测量，
+真冻结 checkpoint；`anchor_cache_regression.py`，仅 temp）：
+
+| 臂 | accept 率 | predict 总数 HEAD → 缓存 | 配对中位比值（HEAD/缓存）[IQR] |
+|----|----------|--------------------------|--------------------------------|
+| `cumulative`（从不 accept） | 0% | 180 → **121**（锚点 60 → 1） | **1.176 [1.150, 1.231]**（缓存更快） |
+| `gated_oracle`（仅 cand<anchor 才 accept） | 100%（60/60） | 180 → 180 | 1.038 [0.932, 1.076] |
+| `gated_deployed`（部署门槛） | 98.3%（59/60） | 180 → 179 | 1.022 [0.968, 1.085] |
+| `per_step` | 100% | 180 → 180 | 1.041 [0.939, 1.233] |
+
+- 四臂**逐位一致**（60 步 × 13 标量键 + delta/accepted 网格，`max_abs_diff = 0.0`，
+  `bitwise_identical = true`），无任何需要停下的不一致。
+- 只有**工作量计数**（180 → 121）与逐位一致是确定的：同一进程内单侧墙钟仍摆动 ~2.4–2.7×
+  （`cumulative` 每轮 HEAD 9.0–24.1 ms/step），`per_step` 工作量完全相同却给出 0.73–1.73 的
+  单轮比值。故只引用「每步前向次数」与「配对比值 ~1.18（缓存省 1/3 前向）」，ms/step 跨
+  运行不可比（记忆：本机今日整体比 11-08 快约 2×）。
+
+### 10.3 `cap × lr` 网格：到 CV 目标的步数与 `accept()` 确认次数（#236）
+
+`scripts/slm/diffopt_cap_lr_grid_probe_20261111.py`：真 checkpoint，grid 128² / fft 512，
+起点 zero/random，iters 300，`cap {0.05,0.10,0.20,0.40} × lr {0.01,0.03,0.10,0.30} ×
+{cumulative, per_step, gated_oracle}` = **96 格**（217.9 s，契约自检 0 不合格）。数字只依赖
+步数与 accept 次数，不依赖墙钟。`gated_oracle`（`candidate_model_loss < anchor_model_loss`
+才 accept，即**每次 accept 都是一次实测确认的变好**）：
+
+| cap | lr | 起点 | CV₀→CV_end(最好) | ≤0.20 | ≤0.15 | ≤0.10 | accept 数 | binding |
+|-----|----|------|-----------------|-------|-------|-------|-----------|---------|
+| 0.05 | 0.01 | zero | 0.648→0.093 | 174/174 | 203/203 | 262/262 | 300 | 0% |
+| 0.05 | 0.03 | zero | 0.648→0.036 | 64/64 | 74/74 | 89/89 | 300 | 0% |
+| 0.05 | 0.10 | zero | 0.648→0.013 | 27/25 | 32/30 | 38/36 | 294 | 5% |
+| 0.05 | 0.30 | zero | 0.648→0.007 | 21/20 | 27/26 | 32/31 | 271 | 14% |
+| 0.10 | 0.01–0.03 | both | 与 cap 0.05 **逐格相同**（binding 0%） | — | — | — | 300 | 0% |
+| 0.10 | 0.10 | zero | 0.648→0.013 | 23/23 | 26/26 | 29/29 | 290+ | 0% |
+| 0.10 | 0.30 | zero | 0.648→0.0065 | 13/11 | 19/17 | 21/19 | 201 | 5% |
+| 0.20 | 0.30 | zero | 0.648→0.0059 | **9/8** | 15/14 | 16/15 | 181 | 1% |
+| 0.20 | 0.30 | random | 0.631→0.0064 | **9/8** | 14/10 | 16/12 | 179 | 3% |
+| 0.40 | 0.30 | zero | 0.648→0.0060 | 10/8 | 15/13 | 16/14 | 180 | 0% |
+| 0.40 | 0.30 | random | 0.631→0.0062 | **8/6** ← 最省 | 14/8 | 15/9 | 173 | 0% |
+
+**结论（按对系统的约束强度）：**
+
+1. **`lr` 是主成本，`cap` 在不 binding 时是纯 no-op。** lr ≤ 0.03 时四档 cap 的 binding 全 0%，
+   (步/确认) 逐格相同：lr 0.01 → 174/203/262，lr 0.03 → 64/74/89（zero 起点）。cap 从 0.05 放到
+   0.40（8×）一步都省不下来。
+2. **`cap` 只在 `lr=0.30` 一列还买得到东西**（binding 12–14% → 5–6% → 1–3% → 0%）：
+   ≤0.20 步数 21 → 13 → 9 → 10（zero 起点）。**cap ≈ 0.2 是拐点，再放到 0.4 无增益**
+   （9/8 vs 10/8，random 8/6 vs 9/8，噪声级）。
+3. **真正的门槛是 `accept()`，不是 cap。** `cumulative`（从不 accept）在**任何** cap×lr 下
+   300 步内一个目标都达不到（终态 CV 0.598–0.615 → 0.32–0.35，32 行 accepts=0、
+   binding 96–100%、末态相位 RMS ≡ cap）。修正量算出来了但从未落地——**部署成本应以
+   「实测确认次数」计价，cap 只改变每次确认的份量**。
+4. **确认成本 ≈ 步成本**（只要 oracle 门通过）：gated_oracle accept 率 90–100%，确认数只比
+   步数少 0–20。`per_step`（无条件每步 accept）在 lr 0.3 / cap 0.1 **后期过冲**：
+   CV_end 0.0506 vs 最好 0.0064（zero），0.0374 vs 0.0068（random），而同格 `gated_oracle`
+   终态即最优（0.0065）→ 无条件逐步 accept 必须自带停机判据，**oracle 门是自终止的**。
+5. **全网格最省格**：cap 0.4 / lr 0.3 / random / gated_oracle → **8 步 / 6 次确认**到 CV ≤0.20，
+   **15 步 / 9 次确认**到 ≤0.10；cap 0.2 / lr 0.3 给出 9/8（zero 起点也稳定），且 cap 0.2 在
+   lr 0.3 的 binding 仅 1–3%（0.4 为 0%），相位行程与 cap 0.4 几乎相同但更保守。
+
+### 10.4 部署粒度：`accept()` 是**每块一次**，所以块内 `cap` 才是行程上限
+
+§10.3 的「步 / 确认」是**逐步 accept** 的口径，而部署闭环（`validate.py`）的真实粒度是
+**每块 `updates` 步只 accept 一次**，块内 `_project_increment` 把 `delta - accepted` 的
+照明加权 RMS 钳在 `cap`。两者不是同一个成本模型，于是在真 checkpoint 上把粒度按部署
+语义重跑（`cap=0.2`、zero 起点、accept 后 `best` 推进一步并重建优化器、共 6 块）：
+
+| lr | updates/块 | 到 CV ≤0.20 | 到 ≤0.10 | 6 块后 CV | accept |
+|----|-----------|-------------|----------|-----------|--------|
+| 0.30 | 5 | **18 步 / 3 次** | 28 步 / 5 次 | **0.089** | 6/6 |
+| 0.30 | 10 | 32 步 / 3 次 | 51 步 / 4 次 | 0.0945 | 5/6 |
+| 0.01 | 10 | **未达** | 未达 | 0.383 | 6/6 |
+
+- **`lr` 的真实作用不是「到 CV 要多少步」，而是「每块能走多少行程」**：块内行程
+  `min(updates·lr, cap)`。lr 0.01 / updates 10 实测每块只走 **0.1017** rad RMS（正好
+  10×0.01，未饱和），lr 0.30 走满 cap（0.276 未加权 RMS）。所以默认 lr 0.01 的部署路径
+  把 **cap 的一半预算**浪费掉，块数约 2–3×：6 块（60 步）才到 CV 0.383，而同 6 块在
+  lr 0.30 已到 0.089。
+- **块内 `updates` 是纯浪费**：cap 在 lr 0.30 下约 2–3 步就饱和，其后 loss 平坦
+  （无 accept 的 60 步轨迹：0.648 → 0.506 @step1，之后 0.5066 一直不动）。所以
+  `updates=5` 与 `updates=10` 的每块行程相同（0.2766 vs 0.2758），但步数减半 →
+  u5 比 u10 更省（18 步 vs 32 步到 0.20）。
+- ⚠️ **现行 `model_only_decision`（`session_plan.py:164`，`history[-1] < history[-2]`）在
+  cap 饱和时必然 reject**：lr 0.30 / updates 10 时块末两步 loss 为 0.256636 vs 0.256611
+  （相对差 2.5e-5 的抖动，方向是「变差」），于是**6 块全部 reject、CV 冻结在 0.5066、
+  每块重跑完全相同的 10 步**——零推进。这不是 lr 的问题而是判据的问题：`lr=0.01` 之所以
+  能 accept 6/6，只是因为块内从未饱和。改成**块末 vs 块首**（`loss[-1] < loss[0]`，即
+  网格 `gated_oracle` 的块级形式「这一块有没有打赢它出发时的相位」）后同样条件下
+  6/6 accept、CV 0.648 → 0.089。A/B 里 `gated_deployed` 臂测得 98.3% accept，是因为它
+  用的是 lr 0.02 / cap 0.05 的**逐步**口径（`rev` 那套未饱和情形），不代表块级粒度。
+
+### 10.5 处置（部署路径参数与确认门）
+
+结合 §5（cap=0.1 欠预算 ~10×）、本网格与 §10.4 的块级实测，推荐部署配置：
+
+- **`step_rms_cap` 默认 0.2**（`workflow.py` / `validate.py`）**维持不变**：0.2 正是网格拐点，cap 0.4 不再省步，0.2 是安全侧的最优点。
+- **`phase_lr` 默认 0.01 → 0.30**（本增补同版落地：`workflow.py` dataclass 与 CLI、`validate.py` 两处 CLI）。
+  作用不是「到 CV 要多少步」，而是「每块能走多少行程」`min(updates·lr, cap)`：lr 0.01 每块只走
+  0.1017（cap 的一半被浪费），lr 0.30 走满（未加权 RMS 0.276）。`adaptive_step` 只在
+  `args.phase_lr` 内增长，旧默认 0.01 时 lr 永远到不了 0.3。显式 `stages.py` 配方与配置文件仍覆盖默认。
+- **块内 `updates` 默认 10 → 5**（本增补同版落地：`workflow.py` dataclass 与 CLI、`validate.py`
+  两处 CLI、GUI `TRANSFER_RECIPE` / desktop `params.py`）：cap 在 lr 0.30 下约 2–3 步就饱和，
+  其后是纯浪费（loss 平坦）。u5 与 u10 每块行程相同（0.2766 vs 0.2758），但到 CV ≤0.20 是
+  **18 步 / 3 次确认** vs 32 步——u5 更省步、确认数相同。
+- **确认门改「块末 vs 块首」**（`model_only_decision`，本增补同版落地）：现行
+  `history[-1] < history[-2]` 在 cap 饱和时必然 reject——lr 0.30 / u10 块末两步 loss
+  0.256636 vs 0.256611（2.5e-5 抖动，方向「变差」），6 块全部 reject、CV 冻结 0.5066、
+  每块重跑完全相同的 10 步（零推进）。改成 `loss[-1] < loss[0]`（块级「这一块有没有打赢
+  它出发时的相位」= 网格 `gated_oracle` 的块级形式）后 lr 0.30 / u5 六块 6/6 accept、
+  CV 0.648 → 0.089。**CCD 实测闭环（`abba=True`）不读这条判据**，不受影响。
+- **「9 步/8 次确认」是逐步 accept 的上界，不是部署成本**：部署路径每块只 accept 一次。
+  §10.3 网格 `gated_oracle` 的「到 CV ≤0.20 = 8 步/6 确认」也是逐步口径；块级 lr 0.30 / u5
+  实测为 18 步 / 3 次确认。
+- **每步成本**：锚定闭环每步前向 3 → 2（§10.1），模型模式每步 3 → 2（锚点缓存），另加第 4 次
+  前向消除（`last_candidate_prediction` 接力）。这三项**只改 ms/step，不改步数与确认数**——
+  与 §8 对齐：系统主瓶颈仍是模型↔硬件传递缺口，不在本报告。

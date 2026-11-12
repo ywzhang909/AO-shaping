@@ -413,7 +413,7 @@ def run(args, *, on_frame=None):
                                                        accept_metric=getattr(args, "accept_metric", "loss"),
                                                        objective=getattr(args, "objective", "shape"),
                                                        seed_provenance=seed_provenance,
-                                                       phase_lr=getattr(args, "phase_lr", .01),
+                                                       phase_lr=getattr(args, "phase_lr", .30),
                                                        phase_rms_cap=getattr(args, "phase_rms_cap", .2),
                                                        adaptive_step=getattr(args, "adaptive_step", False),
                                                        exposure_policy="per_block" if getattr(args, "adaptive_exposure", False) else "per_shape",
@@ -515,7 +515,12 @@ def main():
     parser.add_argument("--meter-target", action="store_true", help="Meter target core; permit saturation outside the core and retain full raw frames")
     parser.add_argument("--shapes", nargs="+", choices=TRANSFER_SHAPE_CHOICES, default=list(TRANSFER_SHAPE_CHOICES))
     parser.add_argument("--blocks", type=int, default=2)
-    parser.add_argument("--updates", type=int, default=10)
+    # 5, not 10: at the default phase-lr 0.30 the step_rms_cap binds after 2-3
+    # updates, so the remaining ones re-solve the same saturated phase. Measured
+    # on the frozen checkpoint (report/shape_trials/defocus_differentiable/
+    # diffopt_efficiency_20261108.md §10.4): u5 reaches CV<=0.20 in 18 steps /
+    # 3 accepts, u10 needs 32 steps for the same block travel.
+    parser.add_argument("--updates", type=int, default=5)
     parser.add_argument("--frames", type=int, default=3)
     parser.add_argument("--hdr", action="store_true",
                         help="HDR 探测: 实时画面用多曝光融合的宽动态图, "
@@ -535,7 +540,7 @@ def main():
     parser.add_argument("--seed-policy", choices=("strict", "transfer"), default="strict")
     parser.add_argument("--initial-phase", choices=("gs", "plane", "random", "transport", "backprojection"), default="gs")
     parser.add_argument("--random-seed", type=int, default=102626)
-    parser.add_argument("--phase-lr", type=float, default=.01)
+    parser.add_argument("--phase-lr", type=float, default=.30)
     parser.add_argument("--phase-rms-cap", type=float, default=.2)
     parser.add_argument("--adaptive-step", action="store_true", help="Shrink learning rate after CCD rejection")
     parser.add_argument("--adaptive-exposure", action="store_true", help="Re-meter between optimization blocks; each A/B block stays at one exposure")
@@ -918,7 +923,7 @@ def _run_validate_shapes(
             from .exploration import NonmonotoneAcceptance
             policy = NonmonotoneAcceptance(seed_record["metrics"]["cv"], temperature=explore_temperature,
                 relative_budget=getattr(args, "exploration_budget", .25), seed=getattr(args, "random_seed", 102626))
-        phase_lr = getattr(args, "phase_lr", .01)
+        phase_lr = getattr(args, "phase_lr", .30)
         # Per-block Jacobian direction check (issue #213 item 3a).
         # It reuses the A1/B frames the block captures anyway, so it
         # costs one extra forward pass and no device time. It never
@@ -1004,7 +1009,12 @@ def main():
     parser.add_argument("--meter-target", action="store_true", help="Meter target core; permit saturation outside the core and retain full raw frames")
     parser.add_argument("--shapes", nargs="+", choices=TRANSFER_SHAPE_CHOICES, default=list(TRANSFER_SHAPE_CHOICES))
     parser.add_argument("--blocks", type=int, default=2)
-    parser.add_argument("--updates", type=int, default=10)
+    # 5, not 10: at the default phase-lr 0.30 the step_rms_cap binds after 2-3
+    # updates, so the remaining ones re-solve the same saturated phase. Measured
+    # on the frozen checkpoint (report/shape_trials/defocus_differentiable/
+    # diffopt_efficiency_20261108.md §10.4): u5 reaches CV<=0.20 in 18 steps /
+    # 3 accepts, u10 needs 32 steps for the same block travel.
+    parser.add_argument("--updates", type=int, default=5)
     parser.add_argument("--frames", type=int, default=3)
     parser.add_argument("--hdr", action="store_true",
                         help="HDR 探测: 实时画面用多曝光融合的宽动态图, "
@@ -1024,7 +1034,7 @@ def main():
     parser.add_argument("--seed-policy", choices=("strict", "transfer"), default="strict")
     parser.add_argument("--initial-phase", choices=("gs", "plane", "random", "transport", "backprojection"), default="gs")
     parser.add_argument("--random-seed", type=int, default=102626)
-    parser.add_argument("--phase-lr", type=float, default=.01)
+    parser.add_argument("--phase-lr", type=float, default=.30)
     parser.add_argument("--phase-rms-cap", type=float, default=.2)
     parser.add_argument("--adaptive-step", action="store_true", help="Shrink learning rate after CCD rejection")
     parser.add_argument("--adaptive-exposure", action="store_true", help="Re-meter between optimization blocks; each A/B block stays at one exposure")
@@ -1275,12 +1285,19 @@ def _run_validate_blocks(
             spectral_mask=spectral_mask, spectral_weight=spectral_weight,
             device=device)
         iterations_before = len(iterations)
+        # 锚定闭环每步都要 ``predict(current_phase)``：iteration 0 的相位就是 seed，
+        # 与上面 ``anchor_prediction`` 的输入逐位相同；其后每步的相位是上一步
+        # ``update()`` 步末已经算过的那个前向。复用它们，每步少一次全量前向；
+        # ``last_candidate_prediction`` 为 ``None`` 时回退到重算（行为不变）。
+        reuse_prediction = anchor_prediction if args.mode == "anchored" else None
         for iteration in range(args.updates):
             start = clock()
             if args.mode == "anchored":
-                with torch.no_grad():
-                    current_prediction = forward.predict(optimizer.current_phase)[0].detach().cpu().numpy()
-                optimizer.update(anchored_intensity(anchor, current_prediction, anchor_prediction))
+                if reuse_prediction is None:
+                    with torch.no_grad():
+                        reuse_prediction = forward.predict(optimizer.current_phase)[0].detach().cpu().numpy()
+                optimizer.update(anchored_intensity(anchor, reuse_prediction, anchor_prediction))
+                reuse_prediction = getattr(optimizer, "last_candidate_prediction", None)
             else:
                 optimizer.update()
             iterations.append(dict(shape=shape, block=block, iteration=iteration,
@@ -1345,7 +1362,7 @@ def _run_validate_blocks(
         # replayed, and "why did block 7 go that way" is unanswerable.
         entry["weights"] = dict(objective.weights)
         if getattr(args, "adaptive_step", False):
-            phase_lr = min(getattr(args, "phase_lr", .01), phase_lr*1.1) if accepted else max(.001, phase_lr*.5)
+            phase_lr = min(getattr(args, "phase_lr", .30), phase_lr*1.1) if accepted else max(.001, phase_lr*.5)
         entry["next_phase_lr"] = phase_lr
         if accepted:
             best = candidate.copy()

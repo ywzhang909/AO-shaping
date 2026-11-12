@@ -214,7 +214,9 @@ class TransferFormValues:
     patience: int = 8
     min_delta: float = 1e-4
     blocks: int = 4
-    updates: int = 10
+    # 5: the step_rms_cap saturates after 2-3 updates at phase_lr 0.30 (see
+    # tools/slm/transfer/workflow.py:TransferConfig.updates).
+    updates: int = 5
     frames: int = 3
     seed: int = 102319
     camera: str = "daheng"

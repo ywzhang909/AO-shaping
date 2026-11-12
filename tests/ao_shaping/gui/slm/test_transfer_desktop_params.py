@@ -111,7 +111,7 @@ def test_form_defaults_mirror_the_streamlit_recipe() -> None:
     assert values.patience == 8
     assert values.min_delta == 1e-4
     assert values.blocks == 4
-    assert values.updates == 10
+    assert values.updates == 5
     assert values.frames == 3
     assert values.seed == 102319
     assert values.camera == "daheng"
@@ -450,7 +450,7 @@ def test_build_session_keeps_the_pipeline_defaults_for_unshown_fields(
     assert session.initial_phase == "gs"
     assert session.window_span == 220.0
     assert session.window_step == 2.0
-    assert session.phase_lr == 0.01
+    assert session.phase_lr == 0.30
     assert session.bit_depth == 8
     assert session.capture_grid == 128
 

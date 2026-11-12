@@ -2009,7 +2009,11 @@ class ModelInLoopMethod(ShapingMethod):
 
 #: The recipe the reproduction report ran (report/shape_trials/multishape_capability/
 #: physical_multishape_reproduction_20261023.md); the GUI defaults to it so the
-#: operator reproduces measured behaviour rather than a guessed budget.
+#: operator reproduces measured behaviour rather than a guessed budget. One
+#: deliberate deviation: ``updates`` 5 instead of the report's 10, because at the
+#: default phase_lr 0.30 the step_rms_cap binds after 2-3 updates and the rest
+#: only re-solve the same saturated phase (report/shape_trials/defocus_differentiable/
+#: diffopt_efficiency_20261108.md §10.4: 18 steps / 3 accepts vs 32 for the same travel).
 TRANSFER_RECIPE: dict[str, Any] = {
     "shapes": ["square"],
     "count": 24,
@@ -2017,7 +2021,7 @@ TRANSFER_RECIPE: dict[str, Any] = {
     "patience": 8,
     "min_delta": 1e-4,
     "blocks": 4,
-    "updates": 10,
+    "updates": 5,
     "frames": 3,
     "side": 80.0,
     "period": 64.0,
@@ -2668,7 +2672,7 @@ class TransferMethod(ShapingMethod):
             count=int(values.get("count", 24)),
             iterations=int(values.get("iterations", 200)),
             blocks=int(values.get("blocks", 4)),
-            updates=int(values.get("updates", 10)),
+            updates=int(values.get("updates", 5)),
             frames=int(values.get("frames", 3)),
             shapes=tuple(values.get("shapes", ())),
         )

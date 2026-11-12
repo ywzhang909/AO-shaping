@@ -162,20 +162,36 @@ def session_plan(args) -> dict:
 
 
 def model_only_decision(history) -> dict:
-    """Accept a candidate on the model's own loss, with no CCD verdict measured.
+    """Accept a block on the model's own loss, with no CCD verdict measured.
 
     The A–B–B–A blocks exist to let the *measurement* decide. When they are
     switched off (``abba=False``) the only evidence left is the optimizer's loss
-    history, so the rule is deliberately weak and explicit: accept when the last
-    update improved on the previous one. With a single update there is no
-    previous value, hence no evidence, hence no acceptance.
+    history, so the rule is deliberately weak and explicit: accept when the
+    block's last update beat the block's **first** one — i.e. "did this block
+    improve on the phase it started from".
+
+    Why not the last two updates (the previous rule): ``history`` is one block's
+    trace, the step cap is applied to the increment, so once ``lr`` is large
+    enough to saturate ``step_rms_cap`` (deployed default: ``lr=0.30``) every
+    update after the first 2–3 lands on the same phase and the loss just dithers
+    on the last digit. Comparing the final two entries then reports a coin flip:
+    measured on the frozen checkpoint, ``lr=0.30``/``updates=10`` rejected all six
+    blocks (0.256636 vs 0.256611, a 2.5e-5 uptick) and the loop re-ran the
+    identical block forever, CV frozen at 0.5066. Block-end vs block-start is the
+    block-level form of the grid probe's ``gated_oracle`` arm and accepts 6/6 on
+    the same data (CV 0.648 → 0.089).
+
+    With a single update there is no first value to compare, hence no evidence,
+    hence no acceptance. Keys keep their historical names (``previous``/``last``)
+    because the GUI and the recordings read them; ``previous`` is now the block's
+    first loss, not the second-to-last.
 
     The returned dict carries ``acceptance="model_only"`` so a summary entry can
     never be mistaken for a paired CCD acceptance, and the two loss values so an
     audit can recompute ``accepted`` without a device.
     """
     losses = [float(entry["loss"]) for entry in history]
-    previous = losses[-2] if len(losses) >= 2 else None
+    previous = losses[0] if len(losses) >= 2 else None
     last = losses[-1] if losses else None
     accepted = previous is not None and last is not None and last < previous
     return dict(acceptance="model_only", accept_metric="model", accepted=bool(accepted),

@@ -573,7 +573,13 @@ def test_fit_forwards_the_in_memory_samples_to_build_fit_model(tmp_path, monkeyp
 # ---------------------------------------------------------------------------
 
 
-def test_model_only_decision_needs_a_previous_loss_and_an_improvement():
+def test_model_only_decision_compares_block_end_with_block_start():
+    """块级判据：末步 vs 本块首步。
+
+    旧实现比末**两**步；``lr`` 提到 0.30 后块内 2–3 步就撞 ``step_rms_cap``，
+    其后 loss 只在末位抖动，末两步比较等于抛硬币（真 checkpoint 实测
+    ``lr=0.30``/``updates=10`` 六块全 reject、CV 冻结 0.5066）。
+    """
     from ao_shaping.tools.slm.transfer.validate import model_only_decision
 
     assert model_only_decision([])["accepted"] is False
@@ -586,6 +592,15 @@ def test_model_only_decision_needs_a_previous_loss_and_an_improvement():
     assert (improved["model_loss_previous"], improved["model_loss_last"]) == (1., .5)
     assert model_only_decision([dict(loss=.5), dict(loss=.5)])["accepted"] is False
     assert model_only_decision([dict(loss=.5), dict(loss=.9)])["accepted"] is False
+
+    # 两条只在长度 >= 3 时分叉的用例：这才是本次改动的承重点。
+    # 1) 末步比前一步**差**，但比本块首步**好** → 整块仍是推进，接受。
+    dither_up = model_only_decision([dict(loss=.50), dict(loss=.40), dict(loss=.45)])
+    assert dither_up["accepted"] is True
+    assert dither_up["model_loss_previous"] == pytest.approx(.50)
+    # 2) 末步比前一步**好**，但比本块首步**差** → 整块没打赢出发相位，拒绝。
+    recover_short = model_only_decision([dict(loss=.50), dict(loss=.60), dict(loss=.52)])
+    assert recover_short["accepted"] is False
 
 
 class _PhaseCamera:
@@ -708,8 +723,13 @@ def _run_validate(tmp_path, monkeypatch, *, abba, mode="model", updates=2, devic
         def __init__(self, forward, objective, seed, *, lr, step_rms_cap, device, **kwargs):
             seen.setdefault("optimizer_kwargs", []).append(sorted(kwargs))
             seen["optimizer"].append(device)
+            self._forward = forward
             self._phase = np.asarray(seed, np.float32).copy()
             self.loss_history = []
+            #: The anchored loop reuses the step-end forward instead of
+            #: recomputing it (``validate.py``), so the fake publishes it the way
+            #: the real optimizer does; ``None`` before the first update.
+            self.last_candidate_prediction = None
             self.accepted = 0
 
         @property
@@ -720,6 +740,8 @@ def _run_validate(tmp_path, monkeypatch, *, abba, mode="model", updates=2, devic
             self.loss_history.append(dict(step=len(self.loss_history)+1,
                                           loss=1.0/(1+len(self.loss_history))))
             self._phase = self._phase + np.float32(.05)
+            self.last_candidate_prediction = (
+                self._forward.predict(self._phase)[0].detach().cpu().numpy())
             return self._phase
 
         def accept(self):
