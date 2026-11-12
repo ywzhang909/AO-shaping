@@ -760,6 +760,73 @@ def _stacked_system(
     return np.concatenate(designs, axis=0), np.concatenate(residuals, axis=0)
 
 
+
+def _probe_init_state(base_amplitude, bench, command, difference_rad, fit_cfg, fixed, n_modes, nominal, pool, prior):
+# Probe phase estimate covariance and history init lifted verbatim
+    phase = _as_phase(bench, command)
+    estimate = np.zeros(n_modes, dtype=np.float64)
+    prior_cov = np.eye(n_modes, dtype=np.float64) * prior**2
+    # Strength of a *fresh* probe of each candidate.  The posterior gram only
+    # knows the columns of blocks already taken, which is zero for a mode whose
+    # response is quadratic at the current operating point (defocus, spherical).
+    response_norm = (
+        _response_norms(
+            nominal,
+            fit_cfg,
+            pool,
+            base_amplitude,
+            difference_rad=difference_rad,
+        )
+        if fixed is None
+        else None
+    )
+    observations: list[_Observation] = []
+    posterior: PosteriorEstimate | None = None
+    selected: list[int] = []
+    amplitudes: list[float] = []
+    estimates: list[PosteriorEstimate] = []
+    history: list[dict] = []
+    return amplitudes, estimate, estimates, history, observations, phase, posterior, prior_cov, response_norm, selected
+
+
+
+
+def _probe_validate_inputs(amplitude_rad, bench, budget, candidates, cfg, difference_rad, fit_cfg, model, prior_rad):
+# Probe input validation and candidate pool lifted verbatim
+    fit_cfg = fit_cfg or (
+        cfg if isinstance(cfg, FitConfig) else FitConfig.from_aberration(cfg)
+    )
+    n_modes = int(fit_cfg.n_modes)
+    nominal = bench if model is None else model
+
+    budget = int(budget)
+    if budget < 1:
+        raise ValueError(f"budget must be at least 1, got {budget}")
+    base_amplitude = float(
+        fit_cfg.probe_amplitude_rad if amplitude_rad is None else amplitude_rad
+    )
+    if not np.isfinite(base_amplitude) or base_amplitude <= 0.0:
+        raise ValueError(
+            f"amplitude_rad must be positive and finite, got {base_amplitude!r}"
+        )
+    prior = float(fit_cfg.trust_rad if prior_rad is None else prior_rad)
+    if not np.isfinite(prior) or prior <= 0.0:
+        raise ValueError(f"prior_rad must be positive and finite, got {prior!r}")
+    if not np.isfinite(difference_rad) or difference_rad <= 0.0:
+        raise ValueError(
+            f"difference_rad must be positive and finite, got {difference_rad!r}"
+        )
+
+    pool = tuple(
+        int(mode)
+        for mode in (fit_cfg.coefficient_noll() if candidates is None else candidates)
+    )
+    if len(set(pool)) != len(pool):
+        raise ValueError("candidates contains a duplicate Noll index")
+    return base_amplitude, budget, fit_cfg, n_modes, nominal, pool, prior
+
+
+
 def probe_active(
     bench: object,
     cfg: AberrationConfig | FitConfig,
@@ -829,36 +896,7 @@ def probe_active(
             candidate, or an order that is too short or names a mode outside
             ``candidates``.
     """
-    fit_cfg = fit_cfg or (
-        cfg if isinstance(cfg, FitConfig) else FitConfig.from_aberration(cfg)
-    )
-    n_modes = int(fit_cfg.n_modes)
-    nominal = bench if model is None else model
-
-    budget = int(budget)
-    if budget < 1:
-        raise ValueError(f"budget must be at least 1, got {budget}")
-    base_amplitude = float(
-        fit_cfg.probe_amplitude_rad if amplitude_rad is None else amplitude_rad
-    )
-    if not np.isfinite(base_amplitude) or base_amplitude <= 0.0:
-        raise ValueError(
-            f"amplitude_rad must be positive and finite, got {base_amplitude!r}"
-        )
-    prior = float(fit_cfg.trust_rad if prior_rad is None else prior_rad)
-    if not np.isfinite(prior) or prior <= 0.0:
-        raise ValueError(f"prior_rad must be positive and finite, got {prior!r}")
-    if not np.isfinite(difference_rad) or difference_rad <= 0.0:
-        raise ValueError(
-            f"difference_rad must be positive and finite, got {difference_rad!r}"
-        )
-
-    pool = tuple(
-        int(mode)
-        for mode in (fit_cfg.coefficient_noll() if candidates is None else candidates)
-    )
-    if len(set(pool)) != len(pool):
-        raise ValueError("candidates contains a duplicate Noll index")
+    base_amplitude, budget, fit_cfg, n_modes, nominal, pool, prior = _probe_validate_inputs(amplitude_rad, bench, budget, candidates, cfg, difference_rad, fit_cfg, model, prior_rad)
     for mode in pool:
         if not 2 <= mode <= n_modes + 1:
             raise ValueError(
@@ -874,29 +912,7 @@ def probe_active(
         if outside:
             raise ValueError(f"order names modes outside candidates: {outside}")
 
-    phase = _as_phase(bench, command)
-    estimate = np.zeros(n_modes, dtype=np.float64)
-    prior_cov = np.eye(n_modes, dtype=np.float64) * prior**2
-    # Strength of a *fresh* probe of each candidate.  The posterior gram only
-    # knows the columns of blocks already taken, which is zero for a mode whose
-    # response is quadratic at the current operating point (defocus, spherical).
-    response_norm = (
-        _response_norms(
-            nominal,
-            fit_cfg,
-            pool,
-            base_amplitude,
-            difference_rad=difference_rad,
-        )
-        if fixed is None
-        else None
-    )
-    observations: list[_Observation] = []
-    posterior: PosteriorEstimate | None = None
-    selected: list[int] = []
-    amplitudes: list[float] = []
-    estimates: list[PosteriorEstimate] = []
-    history: list[dict] = []
+    amplitudes, estimate, estimates, history, observations, phase, posterior, prior_cov, response_norm, selected = _probe_init_state(base_amplitude, bench, command, difference_rad, fit_cfg, fixed, n_modes, nominal, pool, prior)
 
     for step in range(budget):
         if fixed is not None:

@@ -79,7 +79,7 @@
   "src/ml/sim2f/fit.py": 1184,
   "src/ml/sim2f/loop.py": 1088,
   "src/ml/sim2f/optics.py": 1473,
-  "src/ml/sim2f/probe_active.py": 1162,
+  "src/ml/sim2f/probe_active.py": 1178,
   "src/ml/sim2f/train.py": 1123,
   "src/ml/train.py": 1050,
   "src/ml/zernike/models.py": 1195,

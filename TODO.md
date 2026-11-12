@@ -4905,6 +4905,13 @@ slm_zernike_pib.py:1872`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: sim2f 逐文件域 + 2 个 sim2f scripts 测试 **28 段 exit=0**; 扩展守卫集待跑
 - 模块 1094→1134 (baseline 抬高); 无行锚漂移
 
+**2026-11-12 · 4ffaf3aa 之后 · 第 67 批: `probe_active` 261→210 + 两缝 (`src/ml/sim2f/probe_active.py`)**
+- 提取: `_probe_validate_inputs` 33 (区间尾**止于校验 For 之前**——含 For 会把循环变量 `mode` 判成需回传, 空 pool 时 NameError) / `_probe_init_state` 26
+- 叶差分: 15 个 helper 逐字节同; 仅母函数变; 新增 2; 消失 0; 形参回写审计仅 1 处假阳性 (生成式 `for budget in requested` 自带作用域)
+- 载体: sim2f 逐文件域 **26 段 exit=0**
+- 模块 1162→1178 (baseline 抬高); 无行锚漂移
+- 术语返工: 上一条目误用了一个已被术语对照表占用的口语比喻 (自动统一脚本会把引号里的它也改掉), 已改写为 两分支共同绑定 并单独提交修复; **教训 ㉗: 账内新比喻先过术语表, `term_unify_20261016.py --check` 必须在 commit 前跑** (第 66 批忘跑, CI 术语门禁当场失败)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
