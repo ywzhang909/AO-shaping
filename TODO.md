@@ -4821,6 +4821,11 @@ slm_zernike_pib.py:1832`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - **生成器四处缺陷（本批全部由断言/ruff 拦下, 无一条流到载体）**：⑧ `audit()` 二次 `setup(src)` 重新解析, `reg` 节点来自另一棵树 → `path_of` 身份比对必失败（`AssertionError: path`）; 单棵树必须穿线到 `analyse()`, 同一缺陷在 run 分支也有一份（`analyse(src, reg)` 未传 tri）; ⑨ 多语句区的 `after` 池必须从**区末**语句之后切（`stmts[last_idx+1:]`）, 只跳过区首会把区内其余语句当"区后" → 垃圾回传（`capture_blaze`/`select_blaze`/`actual_exposure` 被误判）; ⑩ 回传风险判定漏了**区前已绑豁免**：形参传入的名字在条件存被跳过时仍持旧值, 返安全; 只有"全部存皆条件 **且** 非区前已绑"才拒绝（`_guard_enabled`/`_guard_ref_ee` 案）; ⑪ ruff F821 补出最后一条规则盲区——区内初始化、区后被**同一语句**多目标赋值消费（`a, x, ... = f(..., x=x)`）: 平铺存账把该名从回传里剔掉, 而读发生在绑定之前 ⇒ 「读先于首个顶层存（或同语句）」仍须回传。**F821 与叶扫描是互补闸, 缺一不可**
 - 证明与验收：叶差分 27 个函数逐字 AST 相同, 仅 `_run_square_session` 变化, 新增 3 helper, 零消失；载体六文件 **76 passed**（能量护栏/回合表征/目标搜索/PBR 目标/Zernike 基/GUI 对拍）；wfless 域 per-file **56 文件 1105 passed, exit=0**；形状门禁+conventions **250 passed, 1 skipped**；棘轮行 560/4/521 收紧 259/3/225 + 三 helper 行 230/3/200、73/2/63、52/3/45；模块 2684→2708 基线随实测；wiki 锚 `optimize_slm_square` 1463→1487（唯一行号引用）
 
+**2026-11-12 · a926dd0d · 第 56 批 CI 进行中（CI/Ruff/Pylint 绿，Pytest 未完）；第 57 批在案**
+- 第 57 批：`_run_model_in_loop_rounds` 470→**205**（单 `for` 体五缝, 自底向上）——`_milr_step_b_measure`(96, 冻结像差合成方斑+sim/硬件测量分支+前向相关+形状指标与得分)、`_milr_step_a_clamp`(63, 标定越界判定+trust region 夹取+模型增益/泄漏+平场诊断)、`_milr_accept_verdict`(58, 轮验收+步长范数+日志行组装+recorder 落账, 回传 `verdict`/`row`)、`_milr_step_a_setup`(42, 优化器构建+探针种子裁决+不确定度探针配置+探针批+基线损失, 回传 `frames`)、`_milr_round_display`(26, 轮末实时显示刷新)
+- **本批两条新教训（都被生成器断言在写盘前拦下, 零条流入载体）**：⑫ 区内含 `break`/`continue` 的语句不可升出——循环跳转属宿主 `for`, 首跑 `_milr_accept_apply` 三处、`_milr_step_b_measure` 一处全部拒绝; 处置是只升跳转块的**前后直段**, 把 holdout 早退块与验收/拒绝分支整体留在母函数（region C 起点从 3824 收到 3852, 起点前的 holdout 块保留）; ⑬ 区后 `del name` 会被误判为"区后已重绑"从而把该名从回传里剔除（`frames` 案, ruff F821 实锤）——`del` 是解绑不是绑定, `a_st` 池必须跳过 `ast.Delete`; 与 b56 的"同一语句多目标赋值消费"互补, 再次证明 **F821 是回传缺口唯一兜底闸**
+- 证明与验收：叶差分 49 个函数逐字 AST 相同、仅 `_run_model_in_loop_rounds` 变化、5 个新 helper、零消失；载体九文件 **285 passed**；wfless 域 per-file **1105 passed, exit=0**；形状门禁+conventions **255 passed, 1 skipped**；棘轮行 510/3/470 收紧 236/3/205 + 五 helper 行 111/2/96、73/1/63、67/1/58、49/0/42、30/1/26；模块 4116→4156 基线随实测；wiki 无 `slm_model_in_loop.py` 行号引用（9a5695cf 刚重钉的四处在 `docs/slm/` 不在 wiki）
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
