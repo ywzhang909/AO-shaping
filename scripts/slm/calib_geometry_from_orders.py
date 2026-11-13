@@ -31,6 +31,8 @@ import argparse
 import json
 import math
 import sys
+from contextlib import ExitStack
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -60,9 +62,106 @@ def _parse_tuple(text: str) -> tuple[float, float]:
     return float(a), float(b)
 
 
+def _reset_panel_to_flat(slm) -> None:
+    """退出时把面板恢复到平坦灰度 0, 不让采集图案留在屏上。
+
+    LCOS 会保持最后写入的图案直到被改写; 采集失败或提前 ``return`` 时尤其需要。
+    复位失败只告警 —— 不能因为清理动作掩盖原始退出原因。
+    """
+    try:
+        slm.set_grayscale(0)
+        logger.info("面板已复位为平坦灰度 0")
+    except Exception as exc:  # 清理失败不应改变退出码
+        logger.warning("面板复位失败 (设备可能已断开): {}", exc)
+
+
+#: 调试帧元数据文件名 (与 .npy 帧同目录)。
+DEBUG_META_NAME = "meta.json"
+
+
+def _reserve_debug_run_dir(root: Path) -> Path:
+    """在 ``root`` 下新建一个空 run 子目录并返回; 绝不复用已有目录。
+
+    目录名取本地时间戳 (``20261111_153012``); 同一秒内重复调用追加 ``_001`` /
+    ``_002`` ……, 因此两次标定的帧不会互相覆盖。
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    for index in range(1000):
+        run_dir = root / (stamp if index == 0 else f"{stamp}_{index:03d}")
+        try:
+            run_dir.mkdir()  # exist_ok=False: 已存在就换下一个后缀
+        except FileExistsError:
+            continue
+        return run_dir
+    raise RuntimeError(f"{root} 下同秒 run 目录已用尽 (>=1000), 拒绝覆盖已有数据")
+
+
+class _DebugFrameSink:
+    """把 ``capture()`` 的原始帧立即落盘, 并同步刷新 JSON 元数据。
+
+    每帧都在 ``measure_orders`` 之前写; 元数据在构造时 (``frames=[]``) 与每帧之后
+    各写一次, 因此后续测量失败或标定提前 ``return`` 都不会丢已经采到的帧。
+    """
+
+    def __init__(self, run_dir: Path, params: dict[str, float | int]) -> None:
+        self.run_dir = run_dir
+        self._params = dict(params)
+        self._frames: list[dict[str, object]] = []
+        self._write_meta()
+
+    def save(self, axis: str, frame: np.ndarray) -> Path:
+        payload = np.asarray(frame)
+        path = self.run_dir / f"{axis}.npy"
+        if path.exists():
+            raise FileExistsError(f"调试帧已存在, 拒绝覆盖: {path}")
+        np.save(path, payload, allow_pickle=False)
+        self._frames.append(
+            {
+                "axis": axis,
+                "file": path.name,
+                "shape": list(payload.shape),
+                "dtype": str(payload.dtype),
+            }
+        )
+        self._write_meta()
+        return path
+
+    def _write_meta(self) -> None:
+        meta = {**self._params, "frames": list(self._frames)}
+        tmp = self.run_dir / f".{DEBUG_META_NAME}.tmp"
+        tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(self.run_dir / DEBUG_META_NAME)
+
+
+def _open_debug_sink(
+    debug_dir: str | Path,
+    *,
+    period_px: int,
+    predicted_k: float,
+    exposure_ms: float,
+) -> _DebugFrameSink:
+    """为一次标定新建独立 run 子目录, 返回负责帧与元数据落盘的 sink。"""
+    run_dir = _reserve_debug_run_dir(Path(debug_dir))
+    return _DebugFrameSink(
+        run_dir,
+        {
+            "period_px": int(period_px),
+            "predicted_k": float(predicted_k),
+            "predicted_sep": float(predicted_k) / float(period_px),
+            "exposure_ms": float(exposure_ms),
+        },
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", default="data/slm_geometry_calib.npz")
+    parser.add_argument(
+        "--debug-dir",
+        default=None,
+        help="可选: 把 flat/x/y 三张原始 capture 帧与 meta.json 写进该目录下的时间戳子目录",
+    )
     parser.add_argument("--period-px", type=int, default=32)
     parser.add_argument("--exposure-ms", type=float, default=0.4)
     parser.add_argument("--defocus-focal-mm", type=float, default=1500.0)
@@ -84,18 +183,38 @@ def main() -> int:
 
     pupil_center = tuple(int(v) for v in _parse_tuple(args.pupil_center))
     pupil_radius = int(args.pupil_radius)
+    predicted_sep = float(args.predicted_k) / float(args.period_px)
+
+    debug: _DebugFrameSink | None = None
+    if args.debug_dir:
+        debug = _open_debug_sink(
+            args.debug_dir,
+            period_px=int(args.period_px),
+            predicted_k=float(args.predicted_k),
+            exposure_ms=float(args.exposure_ms),
+        )
+        logger.info("调试帧目录: {}", debug.run_dir)
 
     from ao_shaping.drivers.ccd.common import create_camera, full_scale
     from ao_shaping.drivers.slm.santec import Santec, SlotRotator
 
-    with (
-        Santec(
-            slm_number=int(args.slm_number),
-            video_mode=0,
-            wavelength=int(args.slm_wavelength),
-        ) as slm,
-        create_camera("daheng", int(args.cam_id), exposure_time_ms=float(args.exposure_ms)) as cam,
-    ):
+    # ExitStack 而不是并列 with: 需要在关闭 SLM **之前**把面板复位成平坦灰度。
+    # LCOS 会一直保持最后写入的图案, 采集失败/提前 return 时若不复位, 面板上就留着
+    # 一张闪耀光栅 (2026-11-11 实测: 上次失败的采集把 y 轴光栅留在槽 112,
+    # 之后 `get_displayed_memory_number()` 读出 112)。
+    with ExitStack() as stack:
+        slm = stack.enter_context(
+            Santec(
+                slm_number=int(args.slm_number),
+                video_mode=0,
+                wavelength=int(args.slm_wavelength),
+            )
+        )
+        cam = stack.enter_context(
+            create_camera("daheng", int(args.cam_id), exposure_time_ms=float(args.exposure_ms))
+        )
+        stack.callback(_reset_panel_to_flat, slm)
+
         max_gray = int(getattr(slm, "_max_gray", None) or slm.MAX_GRAYSCALE_VALUE)
         panel_shape = (int(slm.Panel_Res[1]), int(slm.Panel_Res[0]))
         rotator = SlotRotator(slm)
@@ -141,6 +260,8 @@ def main() -> int:
         # --- 0 级 (平场) -------------------------------------------------
         show(None)
         flat = capture()
+        if debug is not None:
+            debug.save("flat", flat)
         scale = float(full_scale(flat))
         spot = measure_spot(flat)
         if spot.peak <= 0:
@@ -164,7 +285,6 @@ def main() -> int:
         )
 
         # --- 两轴光栅 ----------------------------------------------------
-        predicted_sep = float(args.predicted_k) / float(args.period_px)
         measured: dict[str, dict[str, float]] = {}
         for axis in ("x", "y"):
             spec = BlazeSpec(
@@ -175,7 +295,10 @@ def main() -> int:
                 pupil_radius=pupil_radius,
             )
             show(blaze_phase(spec, panel_shape))
-            frame = prepare_frame(capture())
+            raw = capture()
+            if debug is not None:
+                debug.save(axis, raw)
+            frame = prepare_frame(raw)
             result = measure_orders(
                 frame,
                 expected_center=center,

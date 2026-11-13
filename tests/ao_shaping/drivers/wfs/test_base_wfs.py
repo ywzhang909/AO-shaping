@@ -2,9 +2,9 @@
 
 Motivation (2026-10-01): the WFS family had **no** shared base class —
 ``ThorlabWFS`` extended ``Device`` directly — while the camera family has
-``BaseCamera`` and the DM family has ``DM``, and the corresponding *simulated*
-devices conform to those bases (``SimPibCCD(BaseCamera)``, ``SimulateDM(DM)``,
-``SimMicroDM(DM)``). That missing shared contract is precisely why no simulated
+``BaseCamera`` and the DM family has ``BaseDM``, and the corresponding *simulated*
+devices conform to those bases (``SimPibCCD(BaseCamera)``, ``SimulateDM(BaseDM)``,
+``SimMicroDM(BaseDM)``). That missing shared contract is precisely why no simulated
 WFS could be written against the real driver's surface.
 
 These tests pin the new contract so a simulated WFS can be a genuine drop-in:

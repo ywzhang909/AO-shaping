@@ -26,7 +26,7 @@ from loguru import logger
 
 from ao_shaping.drivers.dm._adjacency import lazy_adjacency, load_adjacency
 from ao_shaping.drivers.dm._registry import register_dm
-from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm.base import BaseDM
 from ao_shaping.drivers.dm.nlight.constants import (
     HV_SETTLE_TIME_S,
     MIN_TIME_DELAY,
@@ -42,6 +42,7 @@ from ao_shaping.drivers.dm.nlight.nlight_constants import (
 )
 from ao_shaping.drivers.dm.nlight.sdk import DMSdk
 from ao_shaping.drivers.dm.nlight.udp import DMUdp
+from ao_shaping.model.quantities import DmCommands
 from ao_shaping.utils.io import paths
 from ao_shaping.utils.io.device_config import ConfigHandler, DeviceParam, param
 from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
@@ -90,12 +91,13 @@ MAX_ITER_DIFF_LIMIT = 200
 MAX_NEIBOR_DIFF_LIMIT = 300.0
 
 
-def _load_adj_txt() -> npt.NDArray[np.floating]:
+def _load_adj_txt() -> npt.NDArray[np.number]:
+    """加载邻接矩阵 (与 :func:`load_adjacency` 的返回类型一致)。"""
     return load_adjacency()
 
 
 @register_dm("nlight")
-class NLight(DM):
+class NLight(BaseDM):
     """NLight 64 通道变形镜驱动.
 
     UDP 通道负责批量电压下发, C SDK 负责高压开关与读回。``keep_when_exit``
@@ -191,7 +193,7 @@ class NLight(DM):
         mask[0] = False
         return mask
 
-    def load_config(self) -> dict:
+    def load_config(self) -> dict[str, Any]:
         """加载当前设备的配置文件。
 
         NLight 无硬件序列号，使用固定标识 ``"default"`` 作为配置 key。
@@ -217,15 +219,14 @@ class NLight(DM):
             logger.info("DM Turn off high voltages.")
         self.udp_driver.sock.close()
 
-    def transform(self, cmd: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-        """把命令转换为 DM 致动器取值"""
-        return self.transform_voltage(cmd)
+    # transform 用 BaseDM 的默认实现 (委托 transform_voltage: [-1, 1] →
+    # [V_Min, V_Max]), 不再在本类转发一遍。
 
-    def get_actuator_positions(self) -> npt.NDArray[np.floating]:
-        """获取 DM 致动器的位置"""
-        return self._last_voltages.copy()
+    def get_actuator_positions(self) -> DmCommands:
+        """获取 DM 致动器的位置 (驱动侧软件回显)。"""
+        return DmCommands(self._last_voltages.copy(), self.V_Min, self.V_Max, self.DM_NUM)
 
-    def get_hardware_info(self) -> dict:
+    def get_hardware_info(self) -> dict[str, Any]:
         return {
             "type": "NLight",
             "DM_NUM": self.DM_NUM,

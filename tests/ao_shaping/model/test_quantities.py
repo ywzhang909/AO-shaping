@@ -1,5 +1,9 @@
 """Physical units and centred-grid conversion tests."""
 
+import copy
+import pickle
+from datetime import datetime, timezone
+
 import numpy as np
 import pytest
 
@@ -99,8 +103,10 @@ def test_sim_micro_dm_accepts_typed_and_raw_commands():
     result = dm.send_voltages(typed)
     assert isinstance(result, DmCommands)
     np.testing.assert_allclose(result.voltages, dm.V_Max)
+    # 统一返回: 裸数组输入也返回 DmCommands (软件回显)。
     raw_result = dm.send_voltages(np.zeros(dm.DM_Num))
-    assert isinstance(raw_result, np.ndarray)
+    assert isinstance(raw_result, DmCommands)
+    np.testing.assert_allclose(raw_result.voltages, 0.0)
     with pytest.raises(ValueError):
         dm.send_voltages(DmCommands(np.zeros(dm.DM_Num), dm.V_Min - 1, dm.V_Max, dm.DM_Num))
 
@@ -113,4 +119,54 @@ def test_generic_sim_dm_accepts_typed_and_raw_commands():
     result = dm.send_voltages(typed)
     assert isinstance(result, DmCommands)
     np.testing.assert_allclose(result.voltages, dm.v_max)
-    assert isinstance(dm.send_voltages(np.zeros(dm.channel)), np.ndarray)
+    raw_result = dm.send_voltages(np.zeros(dm.channel))
+    assert isinstance(raw_result, DmCommands)
+    np.testing.assert_allclose(raw_result.voltages, 0.0)
+
+
+def test_dm_commands_pickle_and_deepcopy_preserve_metadata():
+    timestamp = datetime(2026, 11, 11, 12, 30, tzinfo=timezone.utc)
+    cmd = DmCommands(np.array([1.0, -2.5, 3.0]), -5.0, 10.0, 3, timestamp)
+
+    for restored in (pickle.loads(pickle.dumps(cmd)), copy.deepcopy(cmd)):
+        assert type(restored) is DmCommands
+        np.testing.assert_array_equal(restored.voltages, cmd.voltages)
+        assert restored.n_actuators == 3
+        assert restored.range_min == -5.0
+        assert restored.range_max == 10.0
+        assert restored.timestamp == timestamp
+        assert isinstance(restored * 2, DmCommands)
+        assert isinstance(np.clip(restored, -1.0, 1.0), DmCommands)
+        assert isinstance(restored[1:], DmCommands)
+
+
+def test_dm_commands_to_dict_and_metadata():
+    """DmCommands 是 np.ndarray 子类, 且 to_dict() 提供 JSON 友好的回显。"""
+    cmd = DmCommands(np.array([1.0, -2.5, 3.0]), -5.0, 10.0, 3)
+    assert isinstance(cmd, np.ndarray)
+    np.testing.assert_array_equal(np.asarray(cmd), [1.0, -2.5, 3.0])
+    # 属性
+    assert cmd.range_min == -5.0
+    assert cmd.range_max == 10.0
+    assert cmd.n_actuators == 3
+    assert cmd.timestamp is None
+    # voltages 是同一块内存的普通 ndarray 视图
+    assert type(cmd.voltages) is np.ndarray
+    assert np.shares_memory(cmd, cmd.voltages)
+    # ufunc/视图仍保持子类
+    assert isinstance(cmd * 2, DmCommands)
+    assert isinstance(np.clip(cmd, -1, 1), DmCommands)
+    # to_dict
+    payload = cmd.to_dict()
+    assert payload["voltages"] == [1.0, -2.5, 3.0]
+    assert payload["range_min"] == -5.0
+    assert payload["range_max"] == 10.0
+    assert payload["n_actuators"] == 3
+    assert payload["timestamp"] is None
+    # 无效构造
+    with pytest.raises(ValueError):
+        DmCommands(np.zeros(3), -5.0, 10.0, 4)
+    with pytest.raises(ValueError):
+        DmCommands(np.zeros(3), 10.0, -5.0, 3)
+    with pytest.raises(ValueError):
+        DmCommands(np.zeros(3), float("nan"), 10.0, 3)

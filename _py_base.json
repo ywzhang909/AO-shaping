@@ -1,0 +1,3774 @@
+﻿{
+    "version": "1.1.414",
+    "time": "1794401503041",
+    "generalDiagnostics": [
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "Method \"open\" overrides class \"BaseCamera\" in an incompatible manner\n  Return type mismatch: base method returns type \"None\", override returns type \"DahengCamera\"\n    \"DahengCamera\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 123,
+                    "character": 8
+                },
+                "end": {
+                    "line": 123,
+                    "character": 12
+                }
+            },
+            "rule": "reportIncompatibleMethodOverride"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"pixel_size_um\" overrides symbol of same name in class \"BaseCamera\"\n  \"property\" is not assignable to \"float\"",
+            "range": {
+                "start": {
+                    "line": 148,
+                    "character": 8
+                },
+                "end": {
+                    "line": 148,
+                    "character": 21
+                }
+            },
+            "rule": "reportIncompatibleVariableOverride"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"DeviceManager\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 281,
+                    "character": 41
+                },
+                "end": {
+                    "line": 281,
+                    "character": 54
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"GxPixelFormatEntry\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 329,
+                    "character": 44
+                },
+                "end": {
+                    "line": 329,
+                    "character": 62
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"ExposureTime\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 394,
+                    "character": 17
+                },
+                "end": {
+                    "line": 394,
+                    "character": 29
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"stream_off\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 456,
+                    "character": 17
+                },
+                "end": {
+                    "line": 456,
+                    "character": 27
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"WidthMax\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 459,
+                    "character": 38
+                },
+                "end": {
+                    "line": 459,
+                    "character": 46
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"HeightMax\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 459,
+                    "character": 63
+                },
+                "end": {
+                    "line": 459,
+                    "character": 72
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"OffsetX\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 470,
+                    "character": 21
+                },
+                "end": {
+                    "line": 470,
+                    "character": 28
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"OffsetY\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 471,
+                    "character": 21
+                },
+                "end": {
+                    "line": 471,
+                    "character": 28
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"Width\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 472,
+                    "character": 40
+                },
+                "end": {
+                    "line": 472,
+                    "character": 45
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"Height\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 472,
+                    "character": 68
+                },
+                "end": {
+                    "line": 472,
+                    "character": 74
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"Width\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 496,
+                    "character": 21
+                },
+                "end": {
+                    "line": 496,
+                    "character": 26
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"Height\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 497,
+                    "character": 21
+                },
+                "end": {
+                    "line": 497,
+                    "character": 27
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"OffsetX\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 500,
+                    "character": 51
+                },
+                "end": {
+                    "line": 500,
+                    "character": 58
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"OffsetY\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 503,
+                    "character": 52
+                },
+                "end": {
+                    "line": 503,
+                    "character": 59
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"OffsetX\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 520,
+                    "character": 17
+                },
+                "end": {
+                    "line": 520,
+                    "character": 24
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"OffsetY\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 521,
+                    "character": 17
+                },
+                "end": {
+                    "line": 521,
+                    "character": 24
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"stream_on\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 524,
+                    "character": 17
+                },
+                "end": {
+                    "line": 524,
+                    "character": 26
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"OffsetX\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 538,
+                    "character": 29
+                },
+                "end": {
+                    "line": 538,
+                    "character": 36
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"OffsetY\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 539,
+                    "character": 29
+                },
+                "end": {
+                    "line": 539,
+                    "character": 36
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"data_stream\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 561,
+                    "character": 33
+                },
+                "end": {
+                    "line": 561,
+                    "character": 44
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"GxFrameStatusList\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 562,
+                    "character": 58
+                },
+                "end": {
+                    "line": 562,
+                    "character": 75
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"ExposureAuto\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 630,
+                    "character": 25
+                },
+                "end": {
+                    "line": 630,
+                    "character": 37
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"ExpectedGrayValue\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 631,
+                    "character": 25
+                },
+                "end": {
+                    "line": 631,
+                    "character": 42
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"ExposureAuto\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 646,
+                    "character": 25
+                },
+                "end": {
+                    "line": 646,
+                    "character": 37
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "Type \"NDArray[uint16] | NDArray[uint8] | NDArray[float32]\" is not assignable to return type \"NDArray[uint8]\"\n  Type \"NDArray[uint16] | NDArray[uint8] | NDArray[float32]\" is not assignable to type \"NDArray[uint8]\"\n    \"ndarray[_AnyShape, dtype[float32]]\" is not assignable to \"ndarray[_AnyShape, dtype[uint8]]\"\n      Type parameter \"_DTypeT_co@ndarray\" is covariant, but \"dtype[float32]\" is not a subtype of \"dtype[uint8]\"\n        \"dtype[float32]\" is not assignable to \"dtype[uint8]\"\n          Type parameter \"_ScalarT_co@dtype\" is covariant, but \"float32\" is not a subtype of \"uint8\"",
+            "range": {
+                "start": {
+                    "line": 677,
+                    "character": 27
+                },
+                "end": {
+                    "line": 677,
+                    "character": 30
+                }
+            },
+            "rule": "reportReturnType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "Type \"NDArray[uint16] | NDArray[uint8] | NDArray[float32]\" is not assignable to return type \"NDArray[uint8]\"\n  Type \"NDArray[uint16] | NDArray[uint8] | NDArray[float32]\" is not assignable to type \"NDArray[uint8]\"\n    \"ndarray[_AnyShape, dtype[float32]]\" is not assignable to \"ndarray[_AnyShape, dtype[uint8]]\"\n      Type parameter \"_DTypeT_co@ndarray\" is covariant, but \"dtype[float32]\" is not a subtype of \"dtype[uint8]\"\n        \"dtype[float32]\" is not assignable to \"dtype[uint8]\"\n          Type parameter \"_ScalarT_co@dtype\" is covariant, but \"float32\" is not a subtype of \"uint8\"",
+            "range": {
+                "start": {
+                    "line": 713,
+                    "character": 15
+                },
+                "end": {
+                    "line": 713,
+                    "character": 18
+                }
+            },
+            "rule": "reportReturnType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"Width\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 717,
+                    "character": 29
+                },
+                "end": {
+                    "line": 717,
+                    "character": 34
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"Height\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 718,
+                    "character": 30
+                },
+                "end": {
+                    "line": 718,
+                    "character": 36
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"ExposureTime\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 732,
+                    "character": 29
+                },
+                "end": {
+                    "line": 732,
+                    "character": 41
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "Method \"get_cam_list\" overrides class \"BaseCamera\" in an incompatible manner\n  Return type mismatch: base method returns type \"None\", override returns type \"Unknown | list[Unknown]\"\n    Type \"Unknown | list[Unknown]\" is not assignable to type \"None\"\n      \"list[Unknown]\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 748,
+                    "character": 8
+                },
+                "end": {
+                    "line": 748,
+                    "character": 20
+                }
+            },
+            "rule": "reportIncompatibleMethodOverride"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"DeviceManager\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 750,
+                    "character": 28
+                },
+                "end": {
+                    "line": 750,
+                    "character": 41
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"ExposureAuto\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 789,
+                    "character": 25
+                },
+                "end": {
+                    "line": 789,
+                    "character": 37
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"ExposureAuto\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 792,
+                    "character": 25
+                },
+                "end": {
+                    "line": 792,
+                    "character": 37
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"ExpectedGrayValue\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 814,
+                    "character": 21
+                },
+                "end": {
+                    "line": 814,
+                    "character": 38
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"ExposureAuto\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 835,
+                    "character": 38
+                },
+                "end": {
+                    "line": 835,
+                    "character": 50
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"ExpectedGrayValue\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 839,
+                    "character": 43
+                },
+                "end": {
+                    "line": 839,
+                    "character": 60
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"AutoExposureTimeMin\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 869,
+                    "character": 21
+                },
+                "end": {
+                    "line": 869,
+                    "character": 40
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"AutoExposureTimeMax\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 870,
+                    "character": 21
+                },
+                "end": {
+                    "line": 870,
+                    "character": 40
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"AutoGainMin\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 871,
+                    "character": 21
+                },
+                "end": {
+                    "line": 871,
+                    "character": 32
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\daheng\\driver.py",
+            "severity": "error",
+            "message": "\"AutoGainMax\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 872,
+                    "character": 21
+                },
+                "end": {
+                    "line": 872,
+                    "character": 32
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\ffmpeg\\driver.py",
+            "severity": "error",
+            "message": "Argument of type \"int | str\" cannot be assigned to parameter \"cam_id\" of type \"int\" in function \"__init__\"\n  Type \"int | str\" is not assignable to type \"int\"\n    \"str\" is not assignable to \"int\"",
+            "range": {
+                "start": {
+                    "line": 76,
+                    "character": 25
+                },
+                "end": {
+                    "line": 76,
+                    "character": 31
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\ffmpeg\\driver.py",
+            "severity": "error",
+            "message": "\"read\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 255,
+                    "character": 35
+                },
+                "end": {
+                    "line": 255,
+                    "character": 39
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\ffmpeg\\driver.py",
+            "severity": "error",
+            "message": "\"read\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 263,
+                    "character": 35
+                },
+                "end": {
+                    "line": 263,
+                    "character": 39
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\ffmpeg\\driver.py",
+            "severity": "error",
+            "message": "\"set\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 267,
+                    "character": 30
+                },
+                "end": {
+                    "line": 267,
+                    "character": 33
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\ffmpeg\\driver.py",
+            "severity": "error",
+            "message": "\"read\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 269,
+                    "character": 43
+                },
+                "end": {
+                    "line": 269,
+                    "character": 47
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\ffmpeg\\driver.py",
+            "severity": "error",
+            "message": "\"get\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 298,
+                    "character": 39
+                },
+                "end": {
+                    "line": 298,
+                    "character": 42
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\ffmpeg\\driver.py",
+            "severity": "error",
+            "message": "\"set\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 300,
+                    "character": 26
+                },
+                "end": {
+                    "line": 300,
+                    "character": 29
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\ffmpeg\\driver.py",
+            "severity": "error",
+            "message": "Method \"get_cam_list\" overrides class \"BaseCamera\" in an incompatible manner\n  Return type mismatch: base method returns type \"None\", override returns type \"list[Unknown]\"\n    \"list[Unknown]\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 367,
+                    "character": 8
+                },
+                "end": {
+                    "line": 367,
+                    "character": 20
+                }
+            },
+            "rule": "reportIncompatibleMethodOverride"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\ffmpeg\\driver.py",
+            "severity": "error",
+            "message": "Argument of type \"str\" cannot be assigned to parameter \"cam_id\" of type \"int\" in function \"__init__\"\n  \"str\" is not assignable to \"int\"",
+            "range": {
+                "start": {
+                    "line": 452,
+                    "character": 25
+                },
+                "end": {
+                    "line": 452,
+                    "character": 31
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\ffmpeg\\driver.py",
+            "severity": "error",
+            "message": "Argument of type \"int\" cannot be assigned to parameter \"args\" of type \"StrPath\" in function \"__new__\"\n  Type \"int\" is not assignable to type \"StrPath\"\n    \"int\" is not assignable to \"str\"\n    \"int\" is incompatible with protocol \"PathLike[str]\"\n      \"__fspath__\" is not present",
+            "range": {
+                "start": {
+                    "line": 485,
+                    "character": 33
+                },
+                "end": {
+                    "line": 485,
+                    "character": 44
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\ffmpeg\\driver.py",
+            "severity": "error",
+            "message": "Argument of type \"int\" cannot be assigned to parameter \"args\" of type \"StrPath\" in function \"__init__\"\n  Type \"int\" is not assignable to type \"StrPath\"\n    \"int\" is not assignable to \"str\"\n    \"int\" is incompatible with protocol \"PathLike[str]\"\n      \"__fspath__\" is not present",
+            "range": {
+                "start": {
+                    "line": 485,
+                    "character": 33
+                },
+                "end": {
+                    "line": 485,
+                    "character": 44
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\ffmpeg\\driver.py",
+            "severity": "error",
+            "message": "Argument of type \"list[Path]\" cannot be assigned to parameter \"files\" of type \"list[str | Path]\" in function \"sort_files\"\n  \"list[Path]\" is not assignable to \"list[str | Path]\"\n    Type parameter \"_T@list\" is invariant, but \"Path\" is not the same as \"str | Path\"\n    Consider switching from \"list\" to \"Sequence\" which is covariant",
+            "range": {
+                "start": {
+                    "line": 507,
+                    "character": 57
+                },
+                "end": {
+                    "line": 507,
+                    "character": 74
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\ffmpeg\\driver.py",
+            "severity": "error",
+            "message": "Method \"get_cam_list\" overrides class \"BaseCamera\" in an incompatible manner\n  Return type mismatch: base method returns type \"None\", override returns type \"list[Unknown]\"\n    \"list[Unknown]\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 752,
+                    "character": 8
+                },
+                "end": {
+                    "line": 752,
+                    "character": 20
+                }
+            },
+            "rule": "reportIncompatibleMethodOverride"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Import \"miicam\" could not be resolved",
+            "range": {
+                "start": {
+                    "line": 17,
+                    "character": 11
+                },
+                "end": {
+                    "line": 17,
+                    "character": 17
+                }
+            },
+            "rule": "reportMissingImports"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Cannot assign to attribute \"_callback_user\" for class \"MIICamera\"\n  Attribute \"_callback_user\" is unknown",
+            "range": {
+                "start": {
+                    "line": 47,
+                    "character": 24
+                },
+                "end": {
+                    "line": 47,
+                    "character": 38
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Cannot assign to attribute \"_callback_buffer_lock\" for class \"MIICamera\"\n  Attribute \"_callback_buffer_lock\" is unknown",
+            "range": {
+                "start": {
+                    "line": 48,
+                    "character": 24
+                },
+                "end": {
+                    "line": 48,
+                    "character": 45
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Cannot assign to attribute \"_callback_buffer\" for class \"MIICamera\"\n  Expression of type \"None\" cannot be assigned to attribute \"_callback_buffer\" of class \"MIICamera\"\n    \"None\" is not assignable to \"ndarray[_AnyShape, dtype[Any]]\"",
+            "range": {
+                "start": {
+                    "line": 49,
+                    "character": 24
+                },
+                "end": {
+                    "line": 49,
+                    "character": 40
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Cannot assign to attribute \"_callback_new_frame\" for class \"MIICamera\"\n  Attribute \"_callback_new_frame\" is unknown",
+            "range": {
+                "start": {
+                    "line": 51,
+                    "character": 24
+                },
+                "end": {
+                    "line": 51,
+                    "character": 43
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"StartPullModeWithCallback\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 53,
+                    "character": 28
+                },
+                "end": {
+                    "line": 53,
+                    "character": 53
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"StartPullModeWithCallback\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 63,
+                    "character": 28
+                },
+                "end": {
+                    "line": 63,
+                    "character": 53
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Cannot assign to attribute \"_callback_user\" for class \"MIICamera\"\n  Attribute \"_callback_user\" is unknown",
+            "range": {
+                "start": {
+                    "line": 65,
+                    "character": 20
+                },
+                "end": {
+                    "line": 65,
+                    "character": 34
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"MiicamFrameInfoV3\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 84,
+                    "character": 28
+                },
+                "end": {
+                    "line": 84,
+                    "character": 45
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"WaitImageV3\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 89,
+                    "character": 32
+                },
+                "end": {
+                    "line": 89,
+                    "character": 43
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"HRESULTException\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 91,
+                    "character": 26
+                },
+                "end": {
+                    "line": 91,
+                    "character": 42
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"PullImageV4\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 132,
+                    "character": 28
+                },
+                "end": {
+                    "line": 132,
+                    "character": 39
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"MiicamFrameInfoV4\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 134,
+                    "character": 25
+                },
+                "end": {
+                    "line": 134,
+                    "character": 42
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"PullImageV4\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 135,
+                    "character": 24
+                },
+                "end": {
+                    "line": 135,
+                    "character": 35
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"PullStillImageV2\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 141,
+                    "character": 24
+                },
+                "end": {
+                    "line": 141,
+                    "character": 40
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Method \"open\" overrides class \"BaseCamera\" in an incompatible manner\n  Return type mismatch: base method returns type \"None\", override returns type \"MIICamera\"\n    \"MIICamera\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 243,
+                    "character": 8
+                },
+                "end": {
+                    "line": 243,
+                    "character": 12
+                }
+            },
+            "rule": "reportIncompatibleMethodOverride"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"HRESULTException\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 256,
+                    "character": 30
+                },
+                "end": {
+                    "line": 256,
+                    "character": 46
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"MIICAM_OPTION_FLUSH\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 263,
+                    "character": 43
+                },
+                "end": {
+                    "line": 263,
+                    "character": 62
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"Miicam\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 304,
+                    "character": 30
+                },
+                "end": {
+                    "line": 304,
+                    "character": 36
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"Miicam\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 306,
+                    "character": 34
+                },
+                "end": {
+                    "line": 306,
+                    "character": 40
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"MIICAM_OPTION_FLUSH\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 313,
+                    "character": 51
+                },
+                "end": {
+                    "line": 313,
+                    "character": 70
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"Miicam\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 326,
+                    "character": 26
+                },
+                "end": {
+                    "line": 326,
+                    "character": 32
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"Miicam\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 335,
+                    "character": 26
+                },
+                "end": {
+                    "line": 335,
+                    "character": 32
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"put_AutoExpoEnable\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 360,
+                    "character": 21
+                },
+                "end": {
+                    "line": 360,
+                    "character": 39
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"HRESULTException\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 361,
+                    "character": 22
+                },
+                "end": {
+                    "line": 361,
+                    "character": 38
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"put_ExpoTime\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 365,
+                    "character": 21
+                },
+                "end": {
+                    "line": 365,
+                    "character": 33
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"HRESULTException\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 366,
+                    "character": 22
+                },
+                "end": {
+                    "line": 366,
+                    "character": 38
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"put_ExpoAGain\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 370,
+                    "character": 21
+                },
+                "end": {
+                    "line": 370,
+                    "character": 34
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"HRESULTException\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 371,
+                    "character": 22
+                },
+                "end": {
+                    "line": 371,
+                    "character": 38
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"MaxBitDepth\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 376,
+                    "character": 39
+                },
+                "end": {
+                    "line": 376,
+                    "character": 50
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"put_Option\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 391,
+                    "character": 21
+                },
+                "end": {
+                    "line": 391,
+                    "character": 31
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"MIICAM_OPTION_BITDEPTH\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 391,
+                    "character": 39
+                },
+                "end": {
+                    "line": 391,
+                    "character": 61
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"HRESULTException\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 392,
+                    "character": 22
+                },
+                "end": {
+                    "line": 392,
+                    "character": 38
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"MIICAM_OPTION_RAW\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 404,
+                    "character": 43
+                },
+                "end": {
+                    "line": 404,
+                    "character": 60
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"MIICAM_OPTION_RGB\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 405,
+                    "character": 47
+                },
+                "end": {
+                    "line": 405,
+                    "character": 64
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"MIICAM_OPTION_RGB\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 416,
+                    "character": 36
+                },
+                "end": {
+                    "line": 416,
+                    "character": 53
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"MIICAM_OPTION_RAW\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 417,
+                    "character": 36
+                },
+                "end": {
+                    "line": 417,
+                    "character": 53
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"put_Option\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 422,
+                    "character": 21
+                },
+                "end": {
+                    "line": 422,
+                    "character": 31
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"HRESULTException\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 424,
+                    "character": 22
+                },
+                "end": {
+                    "line": 424,
+                    "character": 38
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"MIICAM_OPTION_BINNING\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 431,
+                    "character": 43
+                },
+                "end": {
+                    "line": 431,
+                    "character": 64
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"get_Resolution\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 438,
+                    "character": 41
+                },
+                "end": {
+                    "line": 438,
+                    "character": 55
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"put_Size\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 439,
+                    "character": 17
+                },
+                "end": {
+                    "line": 439,
+                    "character": 25
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"get_Size\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 440,
+                    "character": 51
+                },
+                "end": {
+                    "line": 440,
+                    "character": 59
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"get_RawFormat\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 444,
+                    "character": 30
+                },
+                "end": {
+                    "line": 444,
+                    "character": 43
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"SerialNumber\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 470,
+                    "character": 32
+                },
+                "end": {
+                    "line": 470,
+                    "character": 44
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"Stop\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 479,
+                    "character": 21
+                },
+                "end": {
+                    "line": 479,
+                    "character": 25
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"StartPullModeWithCallback\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 488,
+                    "character": 25
+                },
+                "end": {
+                    "line": 488,
+                    "character": 50
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"HRESULTException\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 490,
+                    "character": 26
+                },
+                "end": {
+                    "line": 490,
+                    "character": 42
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"Stop\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 493,
+                    "character": 33
+                },
+                "end": {
+                    "line": 493,
+                    "character": 37
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"Stop\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 546,
+                    "character": 21
+                },
+                "end": {
+                    "line": 546,
+                    "character": 25
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"put_ExpoTime\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 552,
+                    "character": 17
+                },
+                "end": {
+                    "line": 552,
+                    "character": 29
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"put_AutoExpoEnable\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 556,
+                    "character": 21
+                },
+                "end": {
+                    "line": 556,
+                    "character": 39
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"HRESULTException\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 557,
+                    "character": 22
+                },
+                "end": {
+                    "line": 557,
+                    "character": 38
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"StartPullModeWithCallback\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 563,
+                    "character": 25
+                },
+                "end": {
+                    "line": 563,
+                    "character": 50
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"HRESULTException\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 565,
+                    "character": 26
+                },
+                "end": {
+                    "line": 565,
+                    "character": 42
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"Stop\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 568,
+                    "character": 33
+                },
+                "end": {
+                    "line": 568,
+                    "character": 37
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"Stop\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 604,
+                    "character": 21
+                },
+                "end": {
+                    "line": 604,
+                    "character": 25
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"put_ExpoTime\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 610,
+                    "character": 17
+                },
+                "end": {
+                    "line": 610,
+                    "character": 29
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"put_AutoExpoEnable\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 614,
+                    "character": 21
+                },
+                "end": {
+                    "line": 614,
+                    "character": 39
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"HRESULTException\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 615,
+                    "character": 22
+                },
+                "end": {
+                    "line": 615,
+                    "character": 38
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"StartPullModeWithCallback\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 621,
+                    "character": 25
+                },
+                "end": {
+                    "line": 621,
+                    "character": 50
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"HRESULTException\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 623,
+                    "character": 26
+                },
+                "end": {
+                    "line": 623,
+                    "character": 42
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"Stop\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 626,
+                    "character": 33
+                },
+                "end": {
+                    "line": 626,
+                    "character": 37
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"put_AutoExpoEnable\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 765,
+                    "character": 17
+                },
+                "end": {
+                    "line": 765,
+                    "character": 35
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"put_AutoExpoTarget\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 780,
+                    "character": 21
+                },
+                "end": {
+                    "line": 780,
+                    "character": 39
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"HRESULTException\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 781,
+                    "character": 22
+                },
+                "end": {
+                    "line": 781,
+                    "character": 38
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"get_AutoExpoEnable\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 794,
+                    "character": 37
+                },
+                "end": {
+                    "line": 794,
+                    "character": 55
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"get_AutoExpoTarget\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 796,
+                    "character": 39
+                },
+                "end": {
+                    "line": 796,
+                    "character": 57
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"HRESULTException\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 797,
+                    "character": 22
+                },
+                "end": {
+                    "line": 797,
+                    "character": 38
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"put_AutoExpoRange\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 821,
+                    "character": 21
+                },
+                "end": {
+                    "line": 821,
+                    "character": 38
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"HRESULTException\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 827,
+                    "character": 22
+                },
+                "end": {
+                    "line": 827,
+                    "character": 38
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Type \"tuple[int, ...]\" is not assignable to declared type \"tuple[int, int] | tuple[intp, ...]\"\n  Type \"tuple[int, ...]\" is not assignable to type \"tuple[int, int] | tuple[intp, ...]\"\n    \"tuple[int, ...]\" is not assignable to \"tuple[int, int]\"\n      Tuple size mismatch; expected 2 but received indeterminate\n    \"tuple[int, ...]\" is not assignable to \"tuple[intp, ...]\"\n      Tuple entry 1 is incorrect type\n        \"int\" is not assignable to \"signedinteger[_NBitIntP]\"",
+            "range": {
+                "start": {
+                    "line": 851,
+                    "character": 17
+                },
+                "end": {
+                    "line": 851,
+                    "character": 46
+                }
+            },
+            "rule": "reportAssignmentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"Stop\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 854,
+                    "character": 21
+                },
+                "end": {
+                    "line": 854,
+                    "character": 25
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"get_Resolution\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 860,
+                    "character": 37
+                },
+                "end": {
+                    "line": 860,
+                    "character": 51
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"put_Size\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 874,
+                    "character": 21
+                },
+                "end": {
+                    "line": 874,
+                    "character": 29
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"HRESULTException\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 875,
+                    "character": 22
+                },
+                "end": {
+                    "line": 875,
+                    "character": 38
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"get_Resolution\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 876,
+                    "character": 37
+                },
+                "end": {
+                    "line": 876,
+                    "character": 51
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"put_Size\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 877,
+                    "character": 21
+                },
+                "end": {
+                    "line": 877,
+                    "character": 29
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"StartPullModeWithCallback\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 880,
+                    "character": 17
+                },
+                "end": {
+                    "line": 880,
+                    "character": 42
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"wait_image\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 895,
+                    "character": 34
+                },
+                "end": {
+                    "line": 895,
+                    "character": 44
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Object of type \"None\" cannot be used with \"with\"",
+            "range": {
+                "start": {
+                    "line": 899,
+                    "character": 13
+                },
+                "end": {
+                    "line": 899,
+                    "character": 35
+                }
+            },
+            "rule": "reportOptionalContextManager"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Object of type \"_CallbackSession\" cannot be used with \"with\" because it does not correctly implement __enter__\n  Attribute \"__enter__\" is unknown",
+            "range": {
+                "start": {
+                    "line": 899,
+                    "character": 13
+                },
+                "end": {
+                    "line": 899,
+                    "character": 35
+                }
+            },
+            "rule": "reportGeneralTypeIssues"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Object of type \"_CallbackSession\" cannot be used with \"with\" because it does not correctly implement __exit__\n  Attribute \"__exit__\" is unknown",
+            "range": {
+                "start": {
+                    "line": 899,
+                    "character": 13
+                },
+                "end": {
+                    "line": 899,
+                    "character": 35
+                }
+            },
+            "rule": "reportGeneralTypeIssues"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"Trigger\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 900,
+                    "character": 21
+                },
+                "end": {
+                    "line": 900,
+                    "character": 28
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"start\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 977,
+                    "character": 31
+                },
+                "end": {
+                    "line": 977,
+                    "character": 36
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"stop\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 982,
+                    "character": 31
+                },
+                "end": {
+                    "line": 982,
+                    "character": 35
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Variable not allowed in type expression",
+            "range": {
+                "start": {
+                    "line": 1011,
+                    "character": 45
+                },
+                "end": {
+                    "line": 1011,
+                    "character": 51
+                }
+            },
+            "rule": "reportInvalidTypeForm"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"MIICAM_EVENT_IMAGE\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1015,
+                    "character": 28
+                },
+                "end": {
+                    "line": 1015,
+                    "character": 46
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"MiicamFrameInfoV3\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1019,
+                    "character": 36
+                },
+                "end": {
+                    "line": 1019,
+                    "character": 53
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"pull_image_v4\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1020,
+                    "character": 35
+                },
+                "end": {
+                    "line": 1020,
+                    "character": 48
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_callback_buffer_lock\" for class \"MIICamera*\"\n  Attribute \"_callback_buffer_lock\" is unknown",
+            "range": {
+                "start": {
+                    "line": 1033,
+                    "character": 30
+                },
+                "end": {
+                    "line": 1033,
+                    "character": 51
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_callback_new_frame\" for class \"MIICamera*\"\n  Attribute \"_callback_new_frame\" is unknown",
+            "range": {
+                "start": {
+                    "line": 1036,
+                    "character": 29
+                },
+                "end": {
+                    "line": 1036,
+                    "character": 48
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"MIICAM_EVENT_STILLIMAGE\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1040,
+                    "character": 30
+                },
+                "end": {
+                    "line": 1040,
+                    "character": 53
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"MiicamFrameInfoV3\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1044,
+                    "character": 36
+                },
+                "end": {
+                    "line": 1044,
+                    "character": 53
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"pull_still_image\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1045,
+                    "character": 35
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 51
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_callback_buffer_lock\" for class \"MIICamera*\"\n  Attribute \"_callback_buffer_lock\" is unknown",
+            "range": {
+                "start": {
+                    "line": 1058,
+                    "character": 30
+                },
+                "end": {
+                    "line": 1058,
+                    "character": 51
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_callback_new_frame\" for class \"MIICamera*\"\n  Attribute \"_callback_new_frame\" is unknown",
+            "range": {
+                "start": {
+                    "line": 1061,
+                    "character": 29
+                },
+                "end": {
+                    "line": 1061,
+                    "character": 48
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Variable not allowed in type expression",
+            "range": {
+                "start": {
+                    "line": 1068,
+                    "character": 27
+                },
+                "end": {
+                    "line": 1068,
+                    "character": 33
+                }
+            },
+            "rule": "reportInvalidTypeForm"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_callback_new_frame\" for class \"MIICamera*\"\n  Attribute \"_callback_new_frame\" is unknown",
+            "range": {
+                "start": {
+                    "line": 1077,
+                    "character": 16
+                },
+                "end": {
+                    "line": 1077,
+                    "character": 35
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_callback_buffer_lock\" for class \"MIICamera*\"\n  Attribute \"_callback_buffer_lock\" is unknown",
+            "range": {
+                "start": {
+                    "line": 1078,
+                    "character": 22
+                },
+                "end": {
+                    "line": 1078,
+                    "character": 43
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_callback_new_frame\" for class \"MIICamera*\"\n  Attribute \"_callback_new_frame\" is unknown",
+            "range": {
+                "start": {
+                    "line": 1079,
+                    "character": 21
+                },
+                "end": {
+                    "line": 1079,
+                    "character": 40
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"put_Option\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1098,
+                    "character": 17
+                },
+                "end": {
+                    "line": 1098,
+                    "character": 27
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"MIICAM_OPTION_TRIGGER\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1098,
+                    "character": 35
+                },
+                "end": {
+                    "line": 1098,
+                    "character": 56
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"get_Option\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1108,
+                    "character": 24
+                },
+                "end": {
+                    "line": 1108,
+                    "character": 34
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"MIICAM_OPTION_TRIGGER\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1108,
+                    "character": 42
+                },
+                "end": {
+                    "line": 1108,
+                    "character": 63
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"Trigger\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1121,
+                    "character": 17
+                },
+                "end": {
+                    "line": 1121,
+                    "character": 24
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"Trigger\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1141,
+                    "character": 17
+                },
+                "end": {
+                    "line": 1141,
+                    "character": 24
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"MiicamFrameInfoV3\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1148,
+                    "character": 28
+                },
+                "end": {
+                    "line": 1148,
+                    "character": 45
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"WaitImageV3\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1153,
+                    "character": 25
+                },
+                "end": {
+                    "line": 1153,
+                    "character": 36
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"HRESULTException\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1155,
+                    "character": 26
+                },
+                "end": {
+                    "line": 1155,
+                    "character": 42
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"Snap\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1181,
+                    "character": 17
+                },
+                "end": {
+                    "line": 1181,
+                    "character": 21
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "Variable not allowed in type expression",
+            "range": {
+                "start": {
+                    "line": 1183,
+                    "character": 52
+                },
+                "end": {
+                    "line": 1183,
+                    "character": 58
+                }
+            },
+            "rule": "reportInvalidTypeForm"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"MiicamFrameInfoV3\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1193,
+                    "character": 28
+                },
+                "end": {
+                    "line": 1193,
+                    "character": 45
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"pull_still_image\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1195,
+                    "character": 27
+                },
+                "end": {
+                    "line": 1195,
+                    "character": 43
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"StillResolutionNumber\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1204,
+                    "character": 24
+                },
+                "end": {
+                    "line": 1204,
+                    "character": 45
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"get_StillResolution\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1209,
+                    "character": 24
+                },
+                "end": {
+                    "line": 1209,
+                    "character": 43
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"Pause\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1218,
+                    "character": 17
+                },
+                "end": {
+                    "line": 1218,
+                    "character": 22
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"get_Size\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1253,
+                    "character": 51
+                },
+                "end": {
+                    "line": 1253,
+                    "character": 59
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\ccd\\miicam\\driver.py",
+            "severity": "error",
+            "message": "\"Miicam\" is not a known attribute of \"None\"",
+            "range": {
+                "start": {
+                    "line": 1269,
+                    "character": 22
+                },
+                "end": {
+                    "line": 1269,
+                    "character": 28
+                }
+            },
+            "rule": "reportOptionalMemberAccess"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\ccd\\simulated_ccd.py",
+            "severity": "error",
+            "message": "Argument of type \"Literal[DeviceState.READY]\" cannot be assigned to parameter \"state\" of type \"str\" in function \"_set_state\"\n  \"Literal[DeviceState.READY]\" is not assignable to \"str\"",
+            "range": {
+                "start": {
+                    "line": 83,
+                    "character": 24
+                },
+                "end": {
+                    "line": 83,
+                    "character": 41
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\ccd\\simulated_ccd.py",
+            "severity": "error",
+            "message": "Argument of type \"Literal[DeviceState.DISCONNECTED]\" cannot be assigned to parameter \"state\" of type \"str\" in function \"_set_state\"\n  \"Literal[DeviceState.DISCONNECTED]\" is not assignable to \"str\"",
+            "range": {
+                "start": {
+                    "line": 93,
+                    "character": 24
+                },
+                "end": {
+                    "line": 93,
+                    "character": 48
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\ccd\\simulated_ccd.py",
+            "severity": "error",
+            "message": "Method \"reset_window\" overrides class \"BaseCamera\" in an incompatible manner\n  Parameter 2 type mismatch: base parameter is type \"tuple[int, int] | tuple[intp, ...]\", override parameter is type \"tuple[int, int]\"\n    Type \"tuple[int, int] | tuple[intp, ...]\" is not assignable to type \"tuple[int, int]\"\n      \"tuple[intp, ...]\" is not assignable to \"tuple[int, int]\"\n        Tuple size mismatch; expected 2 but received indeterminate",
+            "range": {
+                "start": {
+                    "line": 109,
+                    "character": 8
+                },
+                "end": {
+                    "line": 109,
+                    "character": 20
+                }
+            },
+            "rule": "reportIncompatibleMethodOverride"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\ccd\\simulated_ccd.py",
+            "severity": "error",
+            "message": "Argument of type \"Literal[DeviceState.BUSY]\" cannot be assigned to parameter \"state\" of type \"str\" in function \"_set_state\"\n  \"Literal[DeviceState.BUSY]\" is not assignable to \"str\"",
+            "range": {
+                "start": {
+                    "line": 146,
+                    "character": 24
+                },
+                "end": {
+                    "line": 146,
+                    "character": 40
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\ccd\\simulated_ccd.py",
+            "severity": "error",
+            "message": "Argument of type \"Literal[DeviceState.READY]\" cannot be assigned to parameter \"state\" of type \"str\" in function \"_set_state\"\n  \"Literal[DeviceState.READY]\" is not assignable to \"str\"",
+            "range": {
+                "start": {
+                    "line": 161,
+                    "character": 24
+                },
+                "end": {
+                    "line": 161,
+                    "character": 41
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\ccd\\simulated_ccd.py",
+            "severity": "error",
+            "message": "Method \"get_cam_list\" overrides class \"BaseCamera\" in an incompatible manner\n  Return type mismatch: base method returns type \"None\", override returns type \"list[Unknown]\"\n    \"list[Unknown]\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 275,
+                    "character": 8
+                },
+                "end": {
+                    "line": 275,
+                    "character": 20
+                }
+            },
+            "rule": "reportIncompatibleMethodOverride"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Type \"tuple[Dispatchable]\" is not assignable to return type \"ndarray[_AnyShape, dtype[Any]]\"\n  \"tuple[Dispatchable]\" is not assignable to \"ndarray[_AnyShape, dtype[Any]]\"",
+            "range": {
+                "start": {
+                    "line": 193,
+                    "character": 15
+                },
+                "end": {
+                    "line": 193,
+                    "character": 49
+                }
+            },
+            "rule": "reportReturnType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Type \"ndarray[_AnyShape, dtype[Any]] | None\" is not assignable to return type \"ndarray[_AnyShape, dtype[Any]]\"\n  Type \"ndarray[_AnyShape, dtype[Any]] | None\" is not assignable to type \"ndarray[_AnyShape, dtype[Any]]\"\n    \"None\" is not assignable to \"ndarray[_AnyShape, dtype[Any]]\"",
+            "range": {
+                "start": {
+                    "line": 721,
+                    "character": 15
+                },
+                "end": {
+                    "line": 721,
+                    "character": 30
+                }
+            },
+            "rule": "reportReturnType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"dict[int, float]\" cannot be assigned to parameter \"coefficients\" of type \"dict[str | int | tuple[int, int], float | int] | list[float] | ndarray[_AnyShape, dtype[Any]] | None\" in function \"generate_zernike_phase\"\n  Type \"dict[int, float]\" is not assignable to type \"dict[str | int | tuple[int, int], float | int] | list[float] | ndarray[_AnyShape, dtype[Any]] | None\"\n    \"dict[int, float]\" is not assignable to \"dict[str | int | tuple[int, int], float | int]\"\n      Type parameter \"_KT@dict\" is invariant, but \"int\" is not the same as \"str | int | tuple[int, int]\"\n    \"dict[int, float]\" is not assignable to \"list[float]\"\n    \"dict[int, float]\" is not assignable to \"ndarray[_AnyShape, dtype[Any]]\"\n    \"dict[int, float]\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 746,
+                    "character": 16
+                },
+                "end": {
+                    "line": 746,
+                    "character": 22
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"slm_shape\" of type \"tuple[int, int]\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"tuple[int, int]\"\n    \"CameraNonIdealModel\" is not assignable to \"tuple[int, int]\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"ccd_res\" of type \"tuple[int, int]\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"tuple[int, int]\"\n    \"CameraNonIdealModel\" is not assignable to \"tuple[int, int]\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"beam_w0\" of type \"float\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"float\"\n    \"CameraNonIdealModel\" is not assignable to \"float\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"noise_adu\" of type \"float\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"float\"\n    \"CameraNonIdealModel\" is not assignable to \"float\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"far_field_padding\" of type \"int\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"int\"\n    \"CameraNonIdealModel\" is not assignable to \"int\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"far_field_window\" of type \"int\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"int\"\n    \"CameraNonIdealModel\" is not assignable to \"int\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"slm_pixel_um\" of type \"float\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"float\"\n    \"CameraNonIdealModel\" is not assignable to \"float\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"wavelength_nm\" of type \"float\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"float\"\n    \"CameraNonIdealModel\" is not assignable to \"float\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"ccd_pixel_um\" of type \"float\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"float\"\n    \"CameraNonIdealModel\" is not assignable to \"float\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"focal_length_m\" of type \"float\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"float\"\n    \"CameraNonIdealModel\" is not assignable to \"float\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"two_pi_gray\" of type \"int\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"int\"\n    \"CameraNonIdealModel\" is not assignable to \"int\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"cam_window_px\" of type \"int\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"int\"\n    \"CameraNonIdealModel\" is not assignable to \"int\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"peak_counts_per_ms\" of type \"float | None\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"float | None\"\n    Type \"CameraNonIdealModel\" is not assignable to type \"float | None\"\n      \"CameraNonIdealModel\" is not assignable to \"float\"\n      \"CameraNonIdealModel\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"noise_spec\" of type \"SimNoiseSpec | None\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"SimNoiseSpec | None\"\n    Type \"CameraNonIdealModel\" is not assignable to type \"SimNoiseSpec | None\"\n      \"CameraNonIdealModel\" is not assignable to \"SimNoiseSpec\"\n      \"CameraNonIdealModel\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"panel_aberration\" of type \"SimPanelAberration | None\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"SimPanelAberration | None\"\n    Type \"CameraNonIdealModel\" is not assignable to type \"SimPanelAberration | None\"\n      \"CameraNonIdealModel\" is not assignable to \"SimPanelAberration\"\n      \"CameraNonIdealModel\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"camera_defocus_m\" of type \"float\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"float\"\n    \"CameraNonIdealModel\" is not assignable to \"float\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"counts_reference\" of type \"str\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"str\"\n    \"CameraNonIdealModel\" is not assignable to \"str\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"illumination_radius_px\" of type \"float | None\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"float | None\"\n    Type \"CameraNonIdealModel\" is not assignable to type \"float | None\"\n      \"CameraNonIdealModel\" is not assignable to \"float\"\n      \"CameraNonIdealModel\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"zero_order_eta\" of type \"float\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"float\"\n    \"CameraNonIdealModel\" is not assignable to \"float\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"slm_lut\" of type \"SlmLutModel | None\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"SlmLutModel | None\"\n    Type \"CameraNonIdealModel\" is not assignable to type \"SlmLutModel | None\"\n      \"CameraNonIdealModel\" is not assignable to \"SlmLutModel\"\n      \"CameraNonIdealModel\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"nonideal_camera\" of type \"CameraNonIdealModel | None\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"CameraNonIdealModel | None\"\n    Type \"SimNoiseSpec\" is not assignable to type \"CameraNonIdealModel | None\"\n      \"SimNoiseSpec\" is not assignable to \"CameraNonIdealModel\"\n      \"SimNoiseSpec\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 963,
+                    "character": 14
+                },
+                "end": {
+                    "line": 986,
+                    "character": 13
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"slm_shape\" of type \"tuple[int, int]\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"tuple[int, int]\"\n    \"CameraNonIdealModel\" is not assignable to \"tuple[int, int]\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"ccd_res\" of type \"tuple[int, int]\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"tuple[int, int]\"\n    \"CameraNonIdealModel\" is not assignable to \"tuple[int, int]\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"beam_w0\" of type \"float\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"float\"\n    \"CameraNonIdealModel\" is not assignable to \"float\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"noise_adu\" of type \"float\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"float\"\n    \"CameraNonIdealModel\" is not assignable to \"float\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"far_field_padding\" of type \"int\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"int\"\n    \"CameraNonIdealModel\" is not assignable to \"int\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"far_field_window\" of type \"int\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"int\"\n    \"CameraNonIdealModel\" is not assignable to \"int\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"slm_pixel_um\" of type \"float\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"float\"\n    \"CameraNonIdealModel\" is not assignable to \"float\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"wavelength_nm\" of type \"float\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"float\"\n    \"CameraNonIdealModel\" is not assignable to \"float\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"ccd_pixel_um\" of type \"float\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"float\"\n    \"CameraNonIdealModel\" is not assignable to \"float\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"focal_length_m\" of type \"float\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"float\"\n    \"CameraNonIdealModel\" is not assignable to \"float\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"two_pi_gray\" of type \"int\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"int\"\n    \"CameraNonIdealModel\" is not assignable to \"int\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"cam_window_px\" of type \"int\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"int\"\n    \"CameraNonIdealModel\" is not assignable to \"int\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"peak_counts_per_ms\" of type \"float | None\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"float | None\"\n    Type \"CameraNonIdealModel\" is not assignable to type \"float | None\"\n      \"CameraNonIdealModel\" is not assignable to \"float\"\n      \"CameraNonIdealModel\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"noise_spec\" of type \"SimNoiseSpec | None\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"SimNoiseSpec | None\"\n    Type \"CameraNonIdealModel\" is not assignable to type \"SimNoiseSpec | None\"\n      \"CameraNonIdealModel\" is not assignable to \"SimNoiseSpec\"\n      \"CameraNonIdealModel\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"panel_aberration\" of type \"SimPanelAberration | None\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"SimPanelAberration | None\"\n    Type \"CameraNonIdealModel\" is not assignable to type \"SimPanelAberration | None\"\n      \"CameraNonIdealModel\" is not assignable to \"SimPanelAberration\"\n      \"CameraNonIdealModel\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"camera_defocus_m\" of type \"float\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"float\"\n    \"CameraNonIdealModel\" is not assignable to \"float\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"counts_reference\" of type \"str\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"str\"\n    \"CameraNonIdealModel\" is not assignable to \"str\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"illumination_radius_px\" of type \"float | None\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"float | None\"\n    Type \"CameraNonIdealModel\" is not assignable to type \"float | None\"\n      \"CameraNonIdealModel\" is not assignable to \"float\"\n      \"CameraNonIdealModel\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"zero_order_eta\" of type \"float\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"float\"\n    \"CameraNonIdealModel\" is not assignable to \"float\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"slm_lut\" of type \"SlmLutModel | None\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"SlmLutModel | None\"\n    Type \"CameraNonIdealModel\" is not assignable to type \"SlmLutModel | None\"\n      \"CameraNonIdealModel\" is not assignable to \"SlmLutModel\"\n      \"CameraNonIdealModel\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" cannot be assigned to parameter \"nonideal_camera\" of type \"CameraNonIdealModel | None\" in function \"__init__\"\n  Type \"int | float | SimNoiseSpec | SimPanelAberration | str | SlmLutModel | CameraNonIdealModel\" is not assignable to type \"CameraNonIdealModel | None\"\n    Type \"SimNoiseSpec\" is not assignable to type \"CameraNonIdealModel | None\"\n      \"SimNoiseSpec\" is not assignable to \"CameraNonIdealModel\"\n      \"SimNoiseSpec\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 1022,
+                    "character": 10
+                },
+                "end": {
+                    "line": 1045,
+                    "character": 9
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Argument of type \"Unknown | float\" cannot be assigned to parameter \"memory_number\" of type \"int | None\" in function \"display_data\"\n  Type \"Unknown | float\" is not assignable to type \"int | None\"\n    Type \"float\" is not assignable to type \"int | None\"\n      \"float\" is not assignable to \"int\"\n      \"float\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 1311,
+                    "character": 49
+                },
+                "end": {
+                    "line": 1311,
+                    "character": 96
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\slm_pib_sim.py",
+            "severity": "error",
+            "message": "Method \"get_cam_list\" overrides class \"BaseCamera\" in an incompatible manner\n  Return type mismatch: base method returns type \"None\", override returns type \"list[Unknown]\"\n    \"list[Unknown]\" is not assignable to \"None\"",
+            "range": {
+                "start": {
+                    "line": 1449,
+                    "character": 8
+                },
+                "end": {
+                    "line": 1449,
+                    "character": 20
+                }
+            },
+            "rule": "reportIncompatibleMethodOverride"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\wfs\\simulated_wfs.py",
+            "severity": "error",
+            "message": "Method \"build_subaperture_mask\" overrides class \"BaseWFS\" in an incompatible manner\n  Return type mismatch: base method returns type \"ndarray[_AnyShape, dtype[Any]]\", override returns type \"tuple[ndarray[_AnyShape, dtype[Any]], ndarray[_AnyShape, dtype[Any]]]\"\n    \"tuple[ndarray[_AnyShape, dtype[Any]], ndarray[_AnyShape, dtype[Any]]]\" is not assignable to \"ndarray[_AnyShape, dtype[Any]]\"",
+            "range": {
+                "start": {
+                    "line": 327,
+                    "character": 8
+                },
+                "end": {
+                    "line": 327,
+                    "character": 30
+                }
+            },
+            "rule": "reportIncompatibleMethodOverride"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\sim\\wfs\\simulated_wfs.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"remove_tilt\" for class \"SimulatedWFS*\"\n  Attribute \"remove_tilt\" is unknown",
+            "range": {
+                "start": {
+                    "line": 361,
+                    "character": 32
+                },
+                "end": {
+                    "line": 361,
+                    "character": 43
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\wfs\\base.py",
+            "severity": "error",
+            "message": "Instance variable \"device_type\" overrides class variable of same name in class \"Device\"",
+            "range": {
+                "start": {
+                    "line": 42,
+                    "character": 4
+                },
+                "end": {
+                    "line": 42,
+                    "character": 15
+                }
+            },
+            "rule": "reportIncompatibleVariableOverride"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\wfs\\base.py",
+            "severity": "error",
+            "message": "Instance variable \"manufacturer\" overrides class variable of same name in class \"Device\"",
+            "range": {
+                "start": {
+                    "line": 45,
+                    "character": 4
+                },
+                "end": {
+                    "line": 45,
+                    "character": 16
+                }
+            },
+            "rule": "reportIncompatibleVariableOverride"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\wfs\\base.py",
+            "severity": "error",
+            "message": "Instance variable \"model\" overrides class variable of same name in class \"Device\"",
+            "range": {
+                "start": {
+                    "line": 46,
+                    "character": 4
+                },
+                "end": {
+                    "line": 46,
+                    "character": 9
+                }
+            },
+            "rule": "reportIncompatibleVariableOverride"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\wfs\\thorlab_wfs.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_image_captured\" for class \"BaseWFS\"\n  Attribute \"_image_captured\" is unknown",
+            "range": {
+                "start": {
+                    "line": 69,
+                    "character": 20
+                },
+                "end": {
+                    "line": 69,
+                    "character": 35
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\wfs\\thorlab_wfs.py",
+            "severity": "error",
+            "message": "Cannot assign to attribute \"_image_captured\" for class \"BaseWFS\"\n  Attribute \"_image_captured\" is unknown",
+            "range": {
+                "start": {
+                    "line": 75,
+                    "character": 17
+                },
+                "end": {
+                    "line": 75,
+                    "character": 32
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "d:\\Projects\\TIFO\\AO-shaping\\src\\ao_shaping\\drivers\\wfs\\thorlab_wfs.py",
+            "severity": "error",
+            "message": "Method \"build_subaperture_mask\" overrides class \"BaseWFS\" in an incompatible manner\n  Return type mismatch: base method returns type \"ndarray[_AnyShape, dtype[Any]]\", override returns type \"tuple[ndarray[_AnyShape, dtype[Any]], ndarray[_AnyShape, dtype[Any]]]\"\n    \"tuple[ndarray[_AnyShape, dtype[Any]], ndarray[_AnyShape, dtype[Any]]]\" is not assignable to \"ndarray[_AnyShape, dtype[Any]]\"",
+            "range": {
+                "start": {
+                    "line": 1267,
+                    "character": 8
+                },
+                "end": {
+                    "line": 1267,
+                    "character": 30
+                }
+            },
+            "rule": "reportIncompatibleMethodOverride"
+        }
+    ],
+    "summary": {
+        "filesAnalyzed": 9,
+        "errorCount": 235,
+        "warningCount": 0,
+        "informationCount": 0,
+        "timeInSec": 2.707
+    }
+}
+

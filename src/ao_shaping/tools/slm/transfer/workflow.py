@@ -17,6 +17,12 @@ from ao_shaping.utils.slm.bench_constants import TILT_SHIFT_SCALE
 
 from .capture import clock
 from .device import DEVICE_CHOICES, resolve_device
+from .exposure_policy import (
+    argparse_exposure_type,
+    resolve_cli_exposure,
+    resolve_seed_exposure,
+)
+from .geometric_seed import AUTO_SEED_RULE, SEED_KINDS, resolve_seed_kind
 from .light_guard import OpticalPathInvalid
 from .preflight import check_geometry, check_parameters
 
@@ -42,6 +48,11 @@ class TransferSession:
     seed: int = 102319
     camera: str = "daheng"
     cam_id: int = 0
+    #: 采集阶梯的**开场曝光种子** (未解析的原始值, 三态: ``auto`` / ``default`` /
+    #: 正数毫秒; ``None`` 等同 ``auto``)。语义见
+    #: :mod:`ao_shaping.tools.slm.transfer.exposure_policy` —— 它只是阶梯的起点,
+    #: 不是本次会话的固定曝光。
+    exposure_ms: str | None = None
     slm_number: int = 1
     calibration: bool | None = None
     adaptation: str = "auto"
@@ -89,7 +100,14 @@ class TransferSession:
     #: reproduces the historical numbers, ``"cuda"`` fails loudly if unavailable.
     #: The *resolved* value is what ``session.json`` and the stage configs record.
     device: str = "auto"
-    initial_phase: str = "gs"
+    #: Initial-phase construction. ``"auto"`` resolves per shape by the measured
+    #: rule (2026-11-11 a1500 square A–B–B–A: transport CV 3.743 beat GS 3.945,
+    #: drift 0.068, accepted=True; backprojection lost to both):
+    #: :data:`~ao_shaping.tools.slm.transfer.geometric_seed.AUTO_SEED_RULE` ——
+    #: square ⇒ ``transport``, every other shape ⇒ ``backprojection``. Both use the
+    #: fitted checkpoint (no GS, no in-session model calibration blocks). Pass
+    #: ``"gs"`` explicitly to reproduce the historical behaviour byte-for-byte.
+    initial_phase: str = "auto"
     exposure_max_steps: int = 2
     phase_lr: float = 0.30
     phase_rms_cap: float = 0.2
@@ -139,9 +157,19 @@ class TransferSession:
             )
         if self.exposure_max_steps < 2 or self.phase_lr <= 0 or self.phase_rms_cap <= 0:
             raise ValueError("invalid exposure search or phase step budget")
-        if self.initial_phase not in {"gs", "plane", "random"}:
-            raise ValueError("unknown initial phase")
-        if self.seed_run and self.initial_phase != "gs":
+        # 开场曝光种子的词汇在这里就校验掉: 非法值必须死在打开相机之前 (一次报废
+        # 的会话比一次多余的往返贵得多)。三态语义见 exposure_policy。
+        resolve_cli_exposure(self.exposure_ms)
+        if self.initial_phase not in SEED_KINDS:
+            raise ValueError(
+                f"unknown initial phase {self.initial_phase!r}; expected one of {list(SEED_KINDS)}"
+            )
+        # 显式的冷/解析种子（plane / random / transport / backprojection）与"重放历史
+        # 接受相位"互斥，这条判据不变。但 auto 是**默认值**而不是用户的选择：带 seed_run
+        # 时会话的起点由接受相位本身决定（validate.run 的 seed_run 分支优先于 auto 的
+        # 逐形状解析），若继续按 != "gs" 拒绝，桌面端选了 seed run 就再也起不来。
+        # 独立 validate CLI 的同名判据仍保持 != "gs"（那里 --seed-run 是显式请求）。
+        if self.seed_run and self.initial_phase not in {"gs", "auto"}:
             raise ValueError("cold initial phase cannot use a historical seed run")
         if self.objective not in {"shape", "cv", "formation"}:
             raise ValueError("unknown objective")
@@ -253,6 +281,11 @@ class TransferSession:
                 # resolved device before writing session.json.
                 device=self.device,
             ),
+            # 会话级判据只看请求值是不是 "gs"：auto 永远解析成 transport /
+            # backprojection（两者都用拟合好的 checkpoint、都不跑 GS），所以这里
+            # 不需要按形状展开——多形状会话里 "auto" 对每个形状的答案都属于非 gs，
+            # 混合解析值不会改变结论。transport / backprojection 因此跳过
+            # CCD_model_blocks（不再在环内标定模型），与 plane / random 同一分支。
             stages=([] if not self.reuse_latest else ["optical_probe"])
             + (["reuse_capture"] if self.dataset else ["capture"])
             + ([] if self.checkpoint else ["nominal_initialization"])
@@ -585,6 +618,10 @@ def _attempt_optical_reuse(config: TransferSession, out: Path, *, device=None, o
             camera=config.camera,
             cam_id=config.cam_id,
             slm_number=config.slm_number,
+            # 探针只要一个**已解析的种子**毫秒数 (None = 别碰相机), 与采集段同策略。
+            exposure_ms=resolve_seed_exposure(
+                config.exposure_ms, camera=config.camera, cam_id=config.cam_id
+            ),
         )
     except Exception as exc:  # 探针失败不是会话失败
         logger.warning("光路复用: 探针失败, 走正常全流程: {!r}", exc)
@@ -731,6 +768,7 @@ def _run_reused_session(
         slm_number=config.slm_number,
         tilt=getattr(config, "tilt", False),
         aspect_ratio=getattr(config, "aspect_ratio", 2.0),
+        exposure_ms=config.exposure_ms,
     )
     # 复用路径没有 ``model`` 目录可播种, 因此 ``seed_run=None``: 锚定块走
     # GS 种子 (validate.run 的 gs_seed 分支), 用复用的冻结模型做前向。
@@ -799,6 +837,7 @@ def _acquire_session_dataset(config, *, out, device, stage, on_frame, offline):
                     seed=config.seed,
                     execute=True,
                     exposure_max_steps=config.exposure_max_steps,
+                    exposure_ms=config.exposure_ms,
                     save_dataset=config.save_dataset,
                     checkpoint=config.checkpoint,
                     device=device,
@@ -841,6 +880,7 @@ def _acquire_session_dataset(config, *, out, device, stage, on_frame, offline):
             lambda: capture.precheck_light(
                 camera=config.camera,
                 cam_id=config.cam_id,
+                exposure_ms=config.exposure_ms,
                 label=f"session {config.out.name}",
                 on_frame=on_frame,
             ),
@@ -892,13 +932,62 @@ def _round_geometry_preflight(config, *, dataset, checkpoint):
     return zero, reference
 
 
+def _offline_seed_phase(shape: str, config, *, forward, xy, center, target):
+    """One shape's starting phase, from the **resolved** seed kind.
+
+    Mirrors the per-shape dispatch of :func:`validate.run` so an ``auto`` session
+    starts offline exactly where it would start on the bench: transport for the
+    square, back-projection for every other shape, GS only when ``gs`` was asked
+    for explicitly. Returns ``(phase, kind)``; ``kind`` is what ``synthesis.json``
+    records, because ``config.initial_phase`` itself may still say ``"auto"``.
+
+    A helper instead of inline branches: ``_offline_synthesize`` already sits at
+    its nesting ceiling, and an ``elif`` chain costs one level per hop.
+    """
+    from . import validate
+
+    kind = resolve_seed_kind(shape, config.initial_phase)
+    if config.seed_run:
+        from .seeding import accepted_seed
+
+        phase, _ = accepted_seed(
+            config.seed_run,
+            shape,
+            forward,
+            xy,
+            target,
+            policy=config.seed_policy,
+            centre=center,
+        )
+        return phase, kind
+    if kind == "transport":
+        from .geometric_seed import square_transport_phase
+
+        if shape != "square":
+            raise ValueError("transport initialization currently supports square only")
+        return square_transport_phase(forward, center, config.side), kind
+    if kind == "backprojection":
+        from .geometric_seed import target_backprojection_phase
+
+        phase, _ = target_backprojection_phase(forward, center, config.side, shape)
+        return phase, kind
+    if kind != "gs":
+        from .cold_start import cold_phase
+
+        phase, _ = cold_phase(forward, center, kind=kind, seed=config.seed)
+        return phase, kind
+    return validate.gs_seed(forward, center, config.side, shape), kind
+
+
 def _offline_synthesize(config, *, checkpoint, zero, reference, out, device):
     """Synthesize shaping phases from the frozen model, without any device.
 
     Verbatim from the nested ``synthesize`` closure of ``run_session``'s offline
-    branch.  The seed comes from ``--seed-run``, a cold start, or GS depending on
-    ``config.initial_phase``; every shape writes its own npz plus the loss trace,
-    and the run is stamped with the device that actually produced it.
+    branch.  The seed comes from ``--seed-run``, a cold start, a geometric
+    (transport / back-projection) seed or GS, by the kind
+    :func:`_offline_seed_phase` resolves per shape; every shape writes its own npz
+    plus the loss trace, and the run is stamped with the device that actually
+    produced it.
     """
     from . import validate
 
@@ -924,30 +1013,15 @@ def _offline_synthesize(config, *, checkpoint, zero, reference, out, device):
     )
     center = np.asarray(zero) + shift
     aspect = float(getattr(config, "aspect_ratio", 2.0))
+    #: 每个形状解析后的具体初相位构造（auto 在这里落地，见 _offline_seed_phase）。
+    seed_kinds: dict[str, str] = {}
     for shape in config.shapes:
         target = validate.target_at(
             xy, shape, center, config.side, aspect_ratio=aspect
         )
-        if config.seed_run:
-            from .seeding import accepted_seed
-
-            phase, _ = accepted_seed(
-                config.seed_run,
-                shape,
-                forward,
-                xy,
-                target,
-                policy=config.seed_policy,
-                centre=center,
-            )
-        elif config.initial_phase != "gs":
-            from .cold_start import cold_phase
-
-            phase, _ = cold_phase(
-                forward, center, kind=config.initial_phase, seed=config.seed
-            )
-        else:
-            phase = validate.gs_seed(forward, center, config.side, shape)
+        phase, seed_kinds[shape] = _offline_seed_phase(
+            shape, config, forward=forward, xy=xy, center=center, target=target
+        )
         objective = validate.ShapeObjective(
             target,
             cv_only=config.objective == "cv",
@@ -993,6 +1067,10 @@ def _offline_synthesize(config, *, checkpoint, zero, reference, out, device):
                 device_requested=config.device,
                 shapes=list(config.shapes),
                 initial_phase=config.initial_phase,
+                # auto 请求值本身之外，再记下每个形状解析出的具体构造。离线阶段名
+                # 仍沿用 *_differentiable_synthesis（GUI 只认这几个名字），所以这里是
+                # transport / backprojection 与严格冷启动唯一的区分凭据。
+                seed_kinds=seed_kinds,
                 updates=config.updates,
                 **clock(),
             ),
@@ -1161,6 +1239,7 @@ def _run_session_rounds(accepted, checkpoint, config, dataset, device, fit, max_
             slm_number=config.slm_number,
             tilt=getattr(config, "tilt", False),
             aspect_ratio=getattr(config, "aspect_ratio", 2.0),
+            exposure_ms=config.exposure_ms,
         )
         if offline:
 
@@ -1183,6 +1262,11 @@ def _run_session_rounds(accepted, checkpoint, config, dataset, device, fit, max_
         else:
             from .artifacts import audit_run
 
+            # 会话级 in-session 模型标定只在 gs 种子（或标定开启）时跑：auto 只会
+            # 解析成 transport / backprojection，两者都直接用拟合好的 checkpoint，
+            # 因此按 != gs 跳过这些 block 正是想要的语义；多形状会话里每个形状的解析
+            # 结果都属于"非 gs"，这里无法也不必按形状分别取道（validate.run 内部
+            # 逐形状解析种子本身）。
             if (
                 not config.seed_run and config.initial_phase == "gs"
             ) or config.calibration_enabled:
@@ -1218,6 +1302,9 @@ def _run_session_rounds(accepted, checkpoint, config, dataset, device, fit, max_
                     SimpleNamespace(
                         **options,
                         out=anchored_out,
+                        # auto 解析出的 transport / backprojection 与 plane / random
+                        # 同属"当场构造种子"：起点是解析出的相位，不是 model_out 的
+                        # 历史接受相位（gs 路线才用 model_out 续接）。
                         seed_run=config.seed_run
                         if not config.calibration_enabled
                         and (config.seed_run or config.initial_phase != "gs")
@@ -1509,9 +1596,24 @@ def main():
             "--seed-policy", choices=("strict", "transfer"), default="strict"
         )
         p.add_argument(
-            "--initial-phase", choices=("gs", "plane", "random"), default="gs"
+            "--initial-phase",
+            choices=SEED_KINDS,
+            default="auto",
+            help=f"Initial phase construction; default auto = {AUTO_SEED_RULE} "
+            "(per shape, geometric_seed.resolve_seed_kind). gs now has to be "
+            "requested explicitly and is kept for historical comparison.",
         )
         p.add_argument("--exposure-max-steps", type=int, default=2)
+        p.add_argument(
+            "--exposure-ms",
+            type=argparse_exposure_type("--exposure-ms"),
+            default=None,
+            help="Seed exposure for the capture ladder (ms), not a fixed value: "
+            "'auto' (default) reuses the last effective exposure recorded for this "
+            "camera backend/id, falling back to 0.02; 'default' leaves the camera's "
+            "own configured exposure untouched; a positive number seeds the ladder "
+            "at that many milliseconds.",
+        )
         p.add_argument("--phase-lr", type=float, default=0.30)
         p.add_argument("--phase-rms-cap", type=float, default=0.2)
         p.add_argument("--adaptive-step", action="store_true")

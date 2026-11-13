@@ -20,8 +20,24 @@ def test_cli_continuation_defaults_to_ccd_anchored_mode(tmp_path, monkeypatch):
     from ao_shaping.tools.slm.transfer import validate
     seen = []
     monkeypatch.setattr(validate, "run", lambda args: seen.append(args))
-    monkeypatch.setattr(sys, "argv", ["validate", "--checkpoint", str(tmp_path / "model.json"),
-        "--out", str(tmp_path / "out"), "--zero-xy", "1", "2", "--seed-run", str(tmp_path / "source")])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "validate",
+            "--checkpoint",
+            str(tmp_path / "model.json"),
+            "--out",
+            str(tmp_path / "out"),
+            "--zero-xy",
+            "1",
+            "2",
+            "--seed-run",
+            str(tmp_path / "source"),
+            "--initial-phase",
+            "gs",
+        ],
+    )
     validate.main()
     assert seen[0].mode == "anchored"
 

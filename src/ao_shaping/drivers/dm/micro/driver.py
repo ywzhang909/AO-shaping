@@ -30,6 +30,7 @@ Channel Lookup:
 from __future__ import annotations
 
 import socket
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
@@ -41,7 +42,7 @@ from loguru import logger
 
 from ao_shaping.drivers.device_base import Device, DeviceState, DeviceType
 from ao_shaping.drivers.dm._registry import register_dm
-from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm.base import BaseDM
 from ao_shaping.drivers.dm.micro.constants import (
     CMD_RELAY_OFF,
     CMD_RELAY_ON,
@@ -68,6 +69,7 @@ from ao_shaping.drivers.dm.micro.micro_constants import (
     VOLTAGE_MIN,
 )
 from ao_shaping.drivers.dm.micro.wiring_map import ChannelInfo, WiringMap
+from ao_shaping.model.quantities import DmCommands
 from ao_shaping.utils.io import paths
 from ao_shaping.utils.io.device_config import ConfigHandler, DeviceParam, param
 from ao_shaping.utils.io.file import ROOT_DIR
@@ -190,20 +192,29 @@ class RelayState(IntEnum):
 # =============================================================================
 
 
-class R50Controller:
+class R50Controller(BaseDM):
     """单台 R50Power 控制器 (50 通道) 的同步 TCP 客户端。
 
-    MicroDM 内部使用的底层辅助类。每个实例管理到一台物理电源单元的
-    持久 TCP 连接。
+    MicroDM 内部使用的底层控制器对象, 每个实例管理到一台物理电源单元的
+    持久 TCP 连接。它继承 :class:`BaseDM`, 因此天然具备 DM 的通道模型
+    (``DM_NUM == 50``)、电压变换与 ``send_voltages`` 路径; 原始帧仍走
+    ``send(bytes) -> bool``。
 
-    在适用处实现与 :class:`DM` 相同的方法名
-    (``open``/``close``/``is_connected``), 以便与 DM 接口自然组合。
+    ⚠️ R50Power 协议**没有**读回/查询命令。``get_actuator_positions()`` 与
+    ``readback()`` 只是**软件回显**: 返回最后一次成功下发的电压, 不代表从
+    硬件读到的实际输出电压。
 
     Attributes:
         controller_id: 从 1 开始的控制器标识。
         ip: IP 地址字符串。
         port: TCP 端口号。
     """
+
+    #: 单台控制器固定 50 个致动器/通道。
+    DM_NUM: int = MAX_CHANNELS
+    V_Min: float = VOLTAGE_MIN
+    V_Max: float = VOLTAGE_MAX
+    max_neibor_diff: float = float("inf")  # 无邻居约束
 
     def __init__(
         self,
@@ -212,6 +223,8 @@ class R50Controller:
         port: int,
         timeout: float = DEFAULT_TIMEOUT,
     ):
+        # 控制器级安全斜坡无意义: 每帧都是完整 50 通道数组, 且无邻居约束。
+        BaseDM.__init__(self, safety_mode=False)
         self.controller_id = controller_id
         self.ip = ip
         self.port = port
@@ -221,9 +234,8 @@ class R50Controller:
 
     # ---- 属性 ------------------------------------------------------------
 
-    @property
     def is_connected(self) -> bool:
-        """检查 TCP 连接是否已建立。"""
+        """检查 TCP 连接是否已建立 (方法形式, 与 :class:`BaseDM` 一致)。"""
         return self._socket is not None
 
     # ---- 上下文管理器 -----------------------------------------------------
@@ -245,11 +257,14 @@ class R50Controller:
 
     # ---- 连接管理 --------------------------------------------------------
 
-    def open(self) -> bool:
+    def open(self) -> None:
         """打开到控制器的 TCP 连接。
 
-        Returns:
-            成功返回 True, 失败返回 False。
+        失败时抛出 :class:`MicroDMConnectionError` 并携带控制器标识、
+        地址与底层错误, 不返回 ``False``。
+
+        Raises:
+            MicroDMConnectionError: 连接失败时。
         """
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -261,11 +276,12 @@ class R50Controller:
             logger.debug(
                 f"R50Controller[{self.controller_id}] connected to {self.ip}:{self.port}"
             )
-            return True
         except (socket.timeout, OSError, ConnectionError) as exc:
-            logger.warning(f"R50Controller[{self.controller_id}] connect failed: {exc}")
             self._socket = None
-            return False
+            raise MicroDMConnectionError(
+                f"R50Controller[{self.controller_id}] failed to connect to "
+                f"{self.ip}:{self.port}: {exc}"
+            ) from exc
 
     def close(self) -> None:
         """关闭 TCP 连接。"""
@@ -279,15 +295,23 @@ class R50Controller:
 
     # ---- 命令发送 --------------------------------------------------------
 
-    def send(self, data: bytes) -> bool:
-        """向控制器发送原始命令字节。
+    def send_frame(self, frame: bytes | bytearray | memoryview) -> bool:
+        """原样发送一个完整命令包 (帧头 + 载荷 + 帧尾)。
+
+        控制器级字节原语: 所有内部命令 (单通道 / 全通道 / 继电器 / 数组帧)
+        都经此发送。成功返回 ``True``, 失败返回 ``False``。它不属于
+        :meth:`BaseDM.send` 契约 —— 电压数组语义走 :meth:`send_voltages`
+        (``BaseDM.send`` 的默认实现同样委托给它)。
 
         Args:
-            data: 完整的命令包 (帧头 + 载荷 + 帧尾)。
+            frame: 完整命令字节。
 
         Returns:
-            成功返回 True。失败时会把该控制器标记为已断开。
+            成功返回 True, 未连接或发送失败返回 False。
         """
+        if not isinstance(frame, (bytes, bytearray, memoryview)):
+            raise ValueError(f"Unsupported command type: {type(frame)}")
+        data = bytes(frame)
         if self._socket is None:
             return False
         try:
@@ -301,6 +325,10 @@ class R50Controller:
     def set_all_channel_voltage(self, voltage: float) -> bool:
         """把所有 50 个通道设为同一电压 (命令 0x08)。
 
+        成功后把软件回显 (:meth:`readback`/:meth:`get_actuator_positions`)
+        更新为这组命令电压; 发送失败则保留上一次成功的回显。回显不是硬件
+        读数 —— R50Power 协议没有读回命令。
+
         Args:
             voltage: 电压, 单位伏特 (钳位到 [-20, 120])。
 
@@ -310,10 +338,23 @@ class R50Controller:
         payload = voltages_to_payload(voltage)
         hv, lv = payload[0], payload[1]
         cmd = HEADER + bytes([CMD_SET_ALL_CHANNEL_VOLTAGE, hv, lv]) + FOOTER
-        return self.send(cmd)
+        ok = self.send_frame(cmd)
+        if ok:
+            # 软件回显: 只记录实际下发到线路的命令电压, 不是硬件读数。
+            self._last_voltages = np.full(
+                self.DM_NUM,
+                float(np.clip(voltage, self.V_Min, self.V_Max)),
+            )
+        return ok
 
     def set_channel_voltage(self, channel: int, voltage: float) -> bool:
         """设置单个通道的电压 (命令 0x04)。
+
+        本方法是 :meth:`BaseDM.set_channel_voltage` 的控制器级实现:
+        返回基类 ``bool`` 契约的成功标志, 而不是像完整 DM 驱动那样失败时抛异常。
+
+        成功后只更新该通道的软件回显 (:meth:`readback`); 发送失败保留旧值。
+        其余通道的回显不受影响。回显不是硬件读数。
 
         Args:
             channel: 通道索引 (0-49)。
@@ -330,13 +371,44 @@ class R50Controller:
         payload = voltages_to_payload(voltage)
         hv, lv = payload[0], payload[1]
         cmd = HEADER + bytes([CMD_SET_CHANNEL_VOLTAGE, channel, hv, lv]) + FOOTER
-        return self.send(cmd)
+        ok = self.send_frame(cmd)
+        if ok:
+            self._last_voltages[channel] = float(
+                np.clip(voltage, self.V_Min, self.V_Max)
+            )
+        return ok
 
-    def set_all_voltage_array(self, voltages: list[float]) -> bool:
+    @staticmethod
+    def _build_array_frame(
+        voltages: list[float] | npt.NDArray[np.floating],
+    ) -> bytes:
+        """构造 0x09 数组帧 (本模块唯一的 50 通道数组帧构造点)。
+
+        供 :meth:`set_all_voltage_array` 使用; MicroDM 对只暴露字节发送原语
+        (替身的 ``send_frame``, 更老的替身只有 ``send``) 的轻量控制器也复用它,
+        从而保证线路上的字节只有一处定义。
+        """
+        return (
+            HEADER
+            + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR])
+            + voltages_to_payload(voltages)
+            + FOOTER
+        )
+
+    def set_all_voltage_array(
+        self, voltages: list[float] | npt.NDArray[np.floating]
+    ) -> bool:
         """按数组设置全部 50 个通道 (命令 0x09, 最快的方式)。
 
+        这是单台控制器 0x09 数组帧的**唯一**构造点: MicroDM 的并发下发与
+        继承自 :class:`BaseDM` 的 ``_apply_voltages`` 都调用本方法, 不再
+        各自拼接字节, 从而保证线路上的帧完全一致。
+
+        成功时同步更新 :meth:`readback` 的软件回显; 失败则保留上一次
+        成功下发的回显。
+
         Args:
-            voltages: 恰好 50 个电压值构成的列表。
+            voltages: 恰好 50 个电压值 (list 或 ndarray)。
 
         Returns:
             成功返回 True, 数组长度不是 50 返回 False。
@@ -348,13 +420,60 @@ class R50Controller:
             )
             return False
 
-        cmd = (
-            HEADER
-            + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR])
-            + voltages_to_payload(voltages)
-            + FOOTER
+        ok = self.send_frame(self._build_array_frame(voltages))
+        if ok:
+            # 软件回显: 只记录驱动实际交给线路的命令电压, 不是硬件读数。
+            self._last_voltages = np.clip(
+                np.asarray(voltages, dtype=np.float64), self.V_Min, self.V_Max
+            )
+        return ok
+
+    # ---- DM 接口 (BaseDM) ------------------------------------------------
+    # transform 直接用 BaseDM 的默认实现 (委托 transform_voltage: [-1, 1] →
+    # [V_Min, V_Max]), 不再在本类转发一遍。
+
+    def get_actuator_positions(self) -> DmCommands:
+        """返回最后一次成功下发的 50 通道电压 (软件回显)。
+
+        R50Power 协议没有读回/查询命令, 因此这里**不是**硬件实测值;
+        它只是驱动侧记录的命令电压副本。从未成功发送过时为全零。
+        """
+        return DmCommands(
+            self._last_voltages.copy(), self.V_Min, self.V_Max, self.DM_NUM
         )
-        return self.send(cmd)
+
+    def readback(self) -> DmCommands:
+        """返回最后一次成功下发的电压数组 (软件回显, 非硬件读回)。
+
+        R50Power 不支持查询实际输出电压, 本方法仅回显驱动最后成功
+        交给 :meth:`set_all_voltage_array` 的 50 个电压值, 便于上层做
+        "已下发" 记录与仿真对照, 不能用于校验硬件状态。
+        """
+        return DmCommands(
+            self._last_voltages.copy(), self.V_Min, self.V_Max, self.DM_NUM
+        )
+
+    def _apply_voltages(
+        self, vs: npt.NDArray[np.floating]
+    ) -> npt.NDArray[np.floating]:
+        """向本控制器的 50 个通道施加一整帧电压 (命令 0x09)。
+
+        帧构造集中在 :meth:`set_all_voltage_array`; 本方法只负责校验
+        形状、钳位, 并在成功后更新软件回显。
+        """
+        arr = np.asarray(vs, dtype=np.float64)
+        if arr.shape != (self.DM_NUM,):
+            raise MicroDMVoltageError(
+                f"R50Controller[{self.controller_id}] expected "
+                f"{self.DM_NUM} voltages, got {arr.shape}"
+            )
+        arr = np.clip(arr, self.V_Min, self.V_Max)
+        if self.set_all_voltage_array(arr) is not True:
+            raise MicroDMConnectionError(
+                f"电压下发失败 (控制器未响应): {self.ip}"
+            )
+        self._last_voltages = arr.copy()
+        return self._last_voltages
 
     def set_relay(self, state: bool) -> bool:
         """打开 (True) 或关闭 (False) 继电器。
@@ -362,7 +481,7 @@ class R50Controller:
         命令 0x06 = 打开, 0x07 = 关闭。
         """
         cmd = HEADER + bytes([CMD_RELAY_ON if state else CMD_RELAY_OFF]) + FOOTER
-        return self.send(cmd)
+        return self.send_frame(cmd)
 
     def power_off_and_close(self, home_voltage: float = 0.0) -> bool:
         """安全关机: 先把所有通道归零, 继电器断开, 再关闭连接。
@@ -385,7 +504,7 @@ class R50Controller:
 
 
 @register_dm("micro")
-class MicroDM(DM, Device):
+class MicroDM(BaseDM, Device):
     """Micro DM (R50Power) 变形镜驱动。
 
     通过同步 TCP 控制一台或多台 R50Power 控制器。默认使用单台 50 通道
@@ -397,8 +516,8 @@ class MicroDM(DM, Device):
         controller 1  →  channels  50-99
         ...
 
-    与所有控制器的全部 TCP 通信均为同步进行,
-    不使用异步事件循环。
+    调用仍是同步/阻塞的, 不使用 asyncio 事件循环; 每次数组下发把各控制器
+    的帧并发提交到线程池 (worker 数 = 有数据的控制器数), 再统一等待结果。
 
     Attributes:
         DM_Num: 逻辑通道总数 (每台控制器 50 个)。
@@ -480,7 +599,7 @@ class MicroDM(DM, Device):
         # 使用 defaults + __init__ 参数解析可持久化的标量参数
         params = MICRO_DM_CONFIG.resolve_from_config({}, init_values=self._init_values)
 
-        DM.__init__(self, safety_mode=params.safety_mode)
+        BaseDM.__init__(self, safety_mode=params.safety_mode)
         Device.__init__(self, device_id)
 
         # 启用则加载接线表
@@ -662,13 +781,14 @@ class MicroDM(DM, Device):
 
         connected, failed = 0, []
         for ctrl in self._controllers:
-            if ctrl.open():
+            try:
+                ctrl.open()
                 connected += 1
-            else:
-                failed.append((ctrl.controller_id, ctrl.ip))
+            except MicroDMConnectionError as exc:
+                failed.append((ctrl.controller_id, ctrl.ip, str(exc)))
 
-        for ctrl_id, ip in failed:
-            logger.warning(f"Controller[{ctrl_id}] {ip} connection failed")
+        for ctrl_id, ip, msg in failed:
+            logger.warning(f"Controller[{ctrl_id}] {ip} connection failed: {msg}")
 
         if connected == 0:
             self._set_state(DeviceState.ERROR, "No controllers connected")
@@ -699,7 +819,7 @@ class MicroDM(DM, Device):
             至少一台控制器有活动 TCP 连接时返回 True。
         """
         return self._state == DeviceState.READY and any(
-            ctrl.is_connected for ctrl in self._controllers
+            ctrl.is_connected() for ctrl in self._controllers
         )
 
     def get_hardware_info(self) -> dict[str, Any]:
@@ -708,7 +828,7 @@ class MicroDM(DM, Device):
         Returns:
             含设备信息、连接状态与取值范围的字典。
         """
-        connected_count = sum(1 for c in self._controllers if c.is_connected)
+        connected_count = sum(1 for c in self._controllers if c.is_connected())
         return {
             "manufacturer": self.manufacturer,
             "model": self.model,
@@ -722,58 +842,81 @@ class MicroDM(DM, Device):
             "controller_ports": [ctrl.port for ctrl in self._controllers],
         }
 
-    def get_actuator_positions(self) -> npt.NDArray[np.floating]:
+    def get_actuator_positions(self) -> DmCommands:
         """获取当前的致动器电压。
 
         Returns:
-            当前电压数组的副本 (DM_Num 个元素)。
+            当前电压命令 (DM_Num 个元素)。这是驱动侧软件回显, 不是硬件读数。
         """
-        return self._last_voltages.copy()
+        return DmCommands(self._last_voltages.copy(), self.V_Min, self.V_Max, self.DM_Num)
 
     # ---- DM 接口 ---------------------------------------------------------
+    # transform 直接用 BaseDM 的默认实现 (委托 transform_voltage: [-1, 1] →
+    # [V_Min, V_Max]), 不再在本类转发一遍。
 
-    def transform(self, cmd: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-        """把归一化命令 ``[-1, 1]`` 转换为设备电压范围。
-
-        将 [-1, 1] 线性映射到 [V_Min, V_Max]。
-
-        Args:
-            cmd: 归一化命令数组。
-
-        Returns:
-            设备范围内的电压数组。
-        """
-        return self.transform_voltage(cmd)
-
-    def send(self, cmd: npt.NDArray[np.floating] | float) -> npt.NDArray[np.floating]:
+    def send(self, cmd: npt.ArrayLike | float) -> DmCommands:
         """向所有通道发送电压命令。
 
         Args:
             cmd: 电压数组 (DM_Num 个元素), 或一个作用于所有通道的标量 float。
 
         Returns:
-            施加后的电压数组。
+            本次下发的电压命令 (:class:`DmCommands`, 软件回显)。
 
         Raises:
             MicroDMVoltageError: 命令类型不受支持时。
         """
-        if isinstance(cmd, np.ndarray):
+        if isinstance(cmd, DmCommands):
+            return self.send_voltages(cmd)
+        if isinstance(cmd, (np.ndarray, list, tuple)):
             return self.send_voltages(cmd)
         if isinstance(cmd, (int, float)):
             return self.set_all_channel_voltage(float(cmd))
         raise MicroDMVoltageError(f"Unsupported command type: {type(cmd)}")
 
+    @staticmethod
+    def _send_chunk(ctrl: Any, chunk: npt.NDArray[np.floating]) -> bool:
+        """把一帧电压交给单台控制器 (供线程池并发调用)。
+
+        真实 :class:`R50Controller` 走集中构造帧的
+        :meth:`R50Controller.set_all_voltage_array`; 仅当控制器替身/旧实现
+        只暴露字节发送原语时, 才回退到共享的
+        :meth:`R50Controller._build_array_frame`, 帧字节仍只有一处定义。
+        字节原语优先用 :meth:`R50Controller.send_frame` (返回 ``bool``),
+        只有仍暴露旧 ``send`` 的替身才退回 ``send``。
+        """
+        setter = getattr(ctrl, "set_all_voltage_array", None)
+        if callable(setter):
+            return setter(chunk) is True
+        frame = R50Controller._build_array_frame(chunk)
+        # 两级 getattr 都必须自带默认值: R50Controller 已不再有 send 属性,
+        # 写成 getattr(ctrl, "send_frame", ctrl.send) 会在**求默认值**时就
+        # AttributeError。两者都缺 → 返回 False, 由 _apply_voltages 报连接失败。
+        sender = getattr(ctrl, "send_frame", None)
+        if sender is None:
+            sender = getattr(ctrl, "send", None)
+        if sender is None:
+            return False
+        return sender(frame) is True
+
     def _apply_voltages(self, vs: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-        """经同步 TCP 向所有控制器施加电压的底层实现。
+        """经同步 TCP 向所有控制器并发施加一整帧电压。
 
         通道按顺序轮转分配到各控制器:
 
             controller 0  →  vs[0:50]
             controller 1  →  vs[50:100]
             ...
+
+        0x09 数组帧统一由 :meth:`R50Controller.set_all_voltage_array` 构造。
+        所有控制器发送先一次性提交到线程池 (worker 数 = 实际有数据要发的
+        控制器数), 再逐个等待 Future; 即使某个 Future 抛异常, 其余 Future
+        仍会被等待。全部收妥后若有失败, 抛**一次**
+        :class:`MicroDMConnectionError`, 列出每个失败的控制器 IP。
         """
         vs = np.clip(vs, self.V_Min, self.V_Max)
-        failed: list[str] = []
+
+        jobs: list[tuple[R50Controller, str, npt.NDArray[np.floating]]] = []
         for ctrl_idx, ctrl in enumerate(self._controllers):
             start = ctrl_idx * MAX_CHANNELS
             end = start + MAX_CHANNELS
@@ -784,16 +927,31 @@ class MicroDM(DM, Device):
                 chunk = np.pad(
                     chunk, (0, MAX_CHANNELS - len(chunk)), constant_values=0.0
                 )
+            jobs.append((ctrl, ctrl.ip, chunk))
 
-            cmd = (
-                HEADER
-                + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR])
-                + voltages_to_payload(chunk)
-                + FOOTER
-            )
-            ok = ctrl.send(cmd)
-            if not ok:
-                failed.append(ctrl.ip)
+        failed: list[str] = []
+        if jobs:
+            with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+                # 先全部提交: 每台控制器的发送在各自的 worker 上并发启动。
+                submitted = [
+                    (ip, pool.submit(self._send_chunk, ctrl, chunk))
+                    for ctrl, ip, chunk in jobs
+                ]
+                # 再统一等待: 失败/异常都只记录, 不影响其余 Future 收妥。
+                for ip, future in submitted:
+                    try:
+                        ok = future.result()
+                    except Exception as exc:
+                        # 控制器可能是任意实现, 其 send 的异常类型不可枚举;
+                        # 单个 Future 失败不得中断对其余 Future 的等待。
+                        logger.warning(
+                            f"Controller {ip} voltage send raised: {exc}"
+                        )
+                        failed.append(ip)
+                        continue
+                    # 只有显式 True 才算成功; False/None/Mock 均视为失败。
+                    if ok is not True:
+                        failed.append(ip)
 
         if failed:
             raise MicroDMConnectionError(
@@ -804,8 +962,8 @@ class MicroDM(DM, Device):
         return self._last_voltages
 
     def send_voltages(
-        self, vs: npt.NDArray[np.floating], wait_time_s: float = 0.001
-    ) -> npt.NDArray[np.floating]:
+        self, vs: DmCommands | npt.ArrayLike, wait_time_s: float = 0.001
+    ) -> DmCommands:
         """用同步并行 TCP 把电压数组发送到所有通道。
 
         电压会自动分配到各台 R50Power 控制器。
@@ -817,26 +975,25 @@ class MicroDM(DM, Device):
             wait_time_s: 发送后休眠时间 (硬件稳定时间)。
 
         Returns:
-            施加后的电压数组。
+            本次下发的电压命令 (:class:`DmCommands`, 软件回显)。
 
         Raises:
             MicroDMVoltageError: 数组长度与 DM_Num 不符时。
         """
-        vs = np.asarray(vs, dtype=np.float64)
-        if vs.shape != (self.DM_Num,):
+        values = (
+            vs.voltages if isinstance(vs, DmCommands) else np.asarray(vs, dtype=np.float64)
+        )
+        if values.shape != (self.DM_Num,):
             raise MicroDMVoltageError(
-                f"Expected {self.DM_Num} voltages, got {vs.shape}"
+                f"Expected {self.DM_Num} voltages, got {values.shape}"
             )
-        result = super().send_voltages(vs, wait_time_s=wait_time_s)
-        # 基类会回显其输入类型, 但上面的 ``vs`` 已被强制转为
-        # 普通 ndarray (``DmCommands`` 没有数组协议, 因此本来就会
-        # 被前面的形状检查拦下)。
-        assert isinstance(result, np.ndarray)
-        return result
+        # 转发原始 vs (而非解包后的 values), 让 BaseDM 对 DmCommands 输入
+        # 做致动器数量与电压范围校验 —— 与 SimMicroDM 行为一致。
+        return super().send_voltages(vs, wait_time_s=wait_time_s)
 
     # ---- 协议命令 --------------------------------------------------------
 
-    def set_channel_voltage(self, channel: int, voltage: float) -> None:
+    def set_channel_voltage(self, channel: int, voltage: float) -> bool:
         """设置单个逻辑通道的电压。
 
         自动路由到正确的物理控制器。
@@ -847,6 +1004,9 @@ class MicroDM(DM, Device):
 
         Raises:
             MicroDMVoltageError: 通道越界时。
+
+        Returns:
+            控制器确认下发成功返回 True, 否则返回 False (失败时保留旧回显)。
         """
         if not 0 <= channel < self.DM_Num:
             raise MicroDMVoltageError(
@@ -856,13 +1016,17 @@ class MicroDM(DM, Device):
         ctrl_idx = channel // MAX_CHANNELS
         ch_idx = channel % MAX_CHANNELS
 
-        if ctrl_idx < len(self._controllers):
-            ctrl = self._controllers[ctrl_idx]
-            voltage_clipped = max(self.V_Min, min(self.V_Max, float(voltage)))
-            ctrl.set_channel_voltage(ch_idx, voltage_clipped)
+        if ctrl_idx >= len(self._controllers):
+            return False
+        ctrl = self._controllers[ctrl_idx]
+        voltage_clipped = max(self.V_Min, min(self.V_Max, float(voltage)))
+        # 只有控制器确认成功时才更新驱动侧回显; 失败保留旧值。
+        if ctrl.set_channel_voltage(ch_idx, voltage_clipped):
             self._last_voltages[channel] = voltage_clipped
+            return True
+        return False
 
-    def set_all_channel_voltage(self, voltage: float) -> npt.NDArray[np.floating]:
+    def set_all_channel_voltage(self, voltage: float) -> DmCommands:
         """把所有逻辑通道设为同一电压。
 
         发送到所有控制器。
@@ -871,13 +1035,13 @@ class MicroDM(DM, Device):
             voltage: 所有通道的电压, 单位伏特。
 
         Returns:
-            施加后的电压数组。
+            本次下发的电压命令 (:class:`DmCommands`, 软件回显)。
         """
         voltage = max(self.V_Min, min(self.V_Max, float(voltage)))
         vs = np.full(self.DM_Num, voltage)
-        self.send_voltages(vs)
+        result = self.send_voltages(vs)
         logger.debug(f"Set all channels to {voltage} V")
-        return self._last_voltages.copy()
+        return result
 
     def set_relay_state(self, state: bool) -> None:
         """设置所有已连接控制器上的继电器状态。
@@ -887,8 +1051,8 @@ class MicroDM(DM, Device):
         """
         cmd = HEADER + bytes([CMD_RELAY_ON if state else CMD_RELAY_OFF]) + FOOTER
         for ctrl in self._controllers:
-            if ctrl.is_connected:
-                ctrl.send(cmd)
+            if ctrl.is_connected():
+                ctrl.send_frame(cmd)
         self._relay_state = RelayState.ON if state else RelayState.OFF
         logger.info(f"Relay {'opened' if state else 'closed'} on all controllers")
 
@@ -899,7 +1063,7 @@ class MicroDM(DM, Device):
         logger.info("MicroDM reset to 0 V")
 
     def __repr__(self) -> str:
-        connected = sum(1 for c in self._controllers if c.is_connected)
+        connected = sum(1 for c in self._controllers if c.is_connected())
         return (
             f"MicroDM("
             f"controllers={len(self._controllers)}, "

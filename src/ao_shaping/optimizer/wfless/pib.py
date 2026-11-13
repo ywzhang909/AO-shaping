@@ -7,7 +7,7 @@ from ao_shaping.drivers.ccd.common import (
     get_camera_exposure_ms,
     resample_on_saturation,
 )
-from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm.base import BaseDM
 from ao_shaping.drivers.dm._registry import get_dm_registry
 from ao_shaping.algorithm.gradient.adam import Base
 from ao_shaping.utils import ImageVoltagesDisplay, logger, Recorder
@@ -525,7 +525,7 @@ def optimize_pib(
     dm_neibor_diff=200,
     dm_max_voltage=None,
     dm_min_voltage=None,
-    dm: DM | None = None,
+    dm: BaseDM | None = None,
     optimizer_type: str = "adamod",
     enable_adaptive_search: bool = False,
     search_interval: int = 120,
@@ -565,7 +565,7 @@ def optimize_pib(
         dm_neibor_diff (float): DM邻居电压差。
         dm_max_voltage (float): DM最大电压。
         dm_min_voltage (float): DM最小电压。
-        dm (DM | None): DM实例。若为None则创建NlightDM（向后兼容）。
+        dm (BaseDM | None): DM实例。若为None则创建NlightDM（向后兼容）。
         optimizer_type (str): 梯度阶段使用的优化器类型，支持 Adam/AdaMOD/SGD/Muno 系列。
         enable_adaptive_search (bool): 是否启用局部最优后的自适应邻域搜索。
         search_interval (int): 邻域搜索触发间隔。

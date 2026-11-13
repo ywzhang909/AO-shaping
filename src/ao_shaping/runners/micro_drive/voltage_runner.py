@@ -62,6 +62,7 @@ from ao_shaping.drivers.dm.micro import (
     VOLTAGE_MAX,
     VOLTAGE_MIN,
     AsyncMicroDM,
+    MicroDMConnectionError,
     R50Controller,
 )
 from ao_shaping.runners.runner_common import (
@@ -262,8 +263,11 @@ def run(ctx: click.Context, params: AltVoltageRunnerParams) -> None:
     # Connect
     click.echo(f"🔌 连接 {params.ip}:{port}... ", nl=False)
     ctrl = R50Controller(controller_id=1, ip=params.ip, port=port)
-    if not ctrl.open():
-        click.echo("❌ 连接失败")
+    try:
+        ctrl.open()
+    # An unopenable controller cannot run the sweep: report the reason and exit(1).
+    except MicroDMConnectionError as e:
+        click.echo(f"❌ 连接失败: {e}")
         sys.exit(1)
     click.echo("✅ 已连接")
 

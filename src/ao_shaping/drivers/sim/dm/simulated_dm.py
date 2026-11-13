@@ -13,11 +13,12 @@ from __future__ import annotations
 import sys
 
 import numpy as np
+import numpy.typing as npt
 from loguru import logger
 
 from ao_shaping.drivers.dm._adjacency import load_adjacency
 from ao_shaping.drivers.dm._registry import register_dm
-from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm.base import BaseDM
 from ao_shaping.model.quantities import DmCommands
 
 #: 活动模拟波前传感器所在模块的绝对名。见 ``SimulateDM._publish_to_wfs``: 用它做
@@ -26,7 +27,7 @@ _SIM_WFS_MODULE = "ao_shaping.drivers.sim.wfs.simulated_wfs"
 
 
 @register_dm("sim")
-class SimulateDM(DM):
+class SimulateDM(BaseDM):
     """通用模拟变形镜。
 
     模拟一台致动器数量、电压上下限、噪声与变形建模均可配置的变形镜。便于在没有
@@ -54,9 +55,9 @@ class SimulateDM(DM):
 
     @property
     def DM_NUM(self) -> int:
-        """致动器数, 拼写与 ``DM`` 基类一致。
+        """致动器数, 拼写与 ``BaseDM`` 基类一致。
 
-        ``DM.DM_Num`` 会转发到 ``self.DM_NUM``; 缺了这个, 该类在每次访问 ``DM_Num``
+        ``BaseDM.DM_Num`` 会转发到 ``self.DM_NUM``; 缺了这个, 该类在每次访问 ``DM_Num``
         时都抛 ``AttributeError``。此前一直没被发现, 是因为那时该类型尚未注册 ——
         ``@register_dm("sim")`` 才让这个缺口变得可达。
         """
@@ -108,14 +109,18 @@ class SimulateDM(DM):
         cmd = np.clip(cmd, -1, 1)
         return (cmd + 1) * (self.v_max - self.v_min) / 2 + self.v_min
 
-    def send(self, cmd: np.ndarray) -> np.ndarray:
+    def send(self, cmd: npt.ArrayLike) -> DmCommands:
         """向模拟 DM 发送指令。"""
-        if isinstance(cmd, np.ndarray):
+        if isinstance(cmd, (np.ndarray, list, tuple)):
             return self.send_voltages(cmd)
         raise ValueError("Unsupported command type. Expected numpy array of voltages.")
 
     def get_actuator_positions(self) -> np.ndarray:
-        """以网格布局返回模拟致动器位置。"""
+        """以网格布局返回模拟致动器位置。
+
+        Returns:
+            ``N x 2`` 位置数组 (物理布局坐标), 不是电压回显。
+        """
         x = np.linspace(0, 10, int(np.sqrt(self.channel)))
         y = np.linspace(0, 10, int(np.sqrt(self.channel)))
         xx, yy = np.meshgrid(x, y)
@@ -132,7 +137,7 @@ class SimulateDM(DM):
         self.__last_v = np.zeros_like(self.__last_v)
         return 0
 
-    def send_voltages(self, vs: DmCommands | np.ndarray, wait_time_s: float = 0.001) -> DmCommands | np.ndarray:
+    def send_voltages(self, vs: DmCommands | npt.ArrayLike, wait_time_s: float = 0.001) -> DmCommands:
         """向模拟 DM 发送电压, 含噪声与速率限制。
 
         Args:
@@ -140,7 +145,7 @@ class SimulateDM(DM):
             wait_time_s: 每个电压步长的等待时间。
 
         Returns:
-            仿真后的当前电压数组。
+            本次下发的电压命令 (:class:`DmCommands`, 软件回显)。
         """
         typed = isinstance(vs, DmCommands)
         if typed:
@@ -172,9 +177,7 @@ class SimulateDM(DM):
         deformation = self._voltage_to_deformation(self.__last_v)
         self.deformation_history.append(deformation)
         self._publish_to_optics(self.__last_v)
-        if typed:
-            return DmCommands(self.__last_v, self.v_min, self.v_max, self.channel)
-        return self.__last_v
+        return DmCommands(self.__last_v, self.v_min, self.v_max, self.channel)
 
     def _publish_to_optics(self, voltages: np.ndarray) -> None:
         """把实际达到的电压推给共享光学模型的 DM 相位。

@@ -1447,7 +1447,7 @@ class SimPibCCD(BaseCamera):
         return True
 
     @staticmethod
-    def get_cam_list() -> list:
+    def get_cam_list() -> list[Any]:
         return ["sim"]
 
     # --- 曝光兼容辅助 ---------------------------------------------
@@ -1462,12 +1462,17 @@ class SimPibCCD(BaseCamera):
 
     def auto_exposure(
         self,
-        target_max: float = 40.0,
-        tolerance: float = 5.0,
-        max_iterations: int = 20,
-        n_sample: int = 1,
+        target_max: float = BaseCamera.AUTO_EXPOSURE_TARGET_MAX,
+        tolerance: float = BaseCamera.AUTO_EXPOSURE_TOLERANCE,
+        twice_valid: bool = True,
+        max_iterations: int = BaseCamera.AUTO_EXPOSURE_MAX_ITERATIONS,
+        n_sample: int = BaseCamera.AUTO_EXPOSURE_N_SAMPLE,
     ) -> np.ndarray:
-        """返回缩放后峰值 ~= target_max 的远场 (0-255 量纲)。"""
+        """把远场缩放到峰值 ~= ``target_max`` (0-255 量纲)。
+
+        仿真相机没有可改的传感器曝光闭环, 因此直接对帧做增益缩放;
+        ``twice_valid`` 只为对齐 :class:`BaseCamera` 契约 (收敛判据在此无意义)。
+        """
         img = self.get_numpy_image(n_sample=n_sample)
         peak = float(img.max())
         if peak > 0 and target_max > 0:

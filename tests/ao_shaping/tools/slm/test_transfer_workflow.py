@@ -678,6 +678,12 @@ def _run_validate(tmp_path, monkeypatch, *, abba, mode="model", updates=2, devic
     ``target_at_impl`` overrides the ``validate.target_at`` stub (same signature),
     so a test can return a box that would touch the window edge and pin the
     ``tilt`` boundary-skip behaviour.
+
+    The harness pins ``initial_phase="gs"``: every fake here is built for the GS
+    cold-synthesis path (``validate.gs_seed`` is stubbed, ``_Forward`` carries no
+    ``params``), and these tests assert capture sequencing, not the seed. The CLI
+    and the ``getattr`` fallback default to ``auto``, so a caller that omits the
+    attribute no longer lands on GS -- the fixture has to say which seed it drives.
     """
     from types import SimpleNamespace
     import torch
@@ -782,6 +788,7 @@ def _run_validate(tmp_path, monkeypatch, *, abba, mode="model", updates=2, devic
     args = SimpleNamespace(checkpoint=checkpoint, out=tmp_path/"run", zero_xy=[10., 10.],
                            period=64., side=20., shapes=["square"], blocks=blocks, updates=updates,
                            frames=2, mode=mode, seed_run=None, seed_policy="strict",
+                           initial_phase="gs",
                            accept_metric="loss", objective="shape", camera="custom",
                            cam_id=7, slm_number=2, execute=True, abba=abba, device=device,
                            adaptive_exposure=adaptive_exposure, **extra)
@@ -989,8 +996,10 @@ def test_run_session_hands_capture_samples_to_the_fit(tmp_path, monkeypatch):
     monkeypatch.setattr(direction, "analyze", lambda run, out: seen.setdefault("direction", []).append(run))
 
     def session(name, **over):
+        # The GS seed keeps both CCD stages (model blocks + anchored blocks), which is what
+        # these forwarding checks count; `auto` would resolve to transport and skip one.
         return TransferSession(tmp_path/name, shapes=("square",), count=6, frames=3,
-                               iterations=1, blocks=1, updates=1, **over)
+                               iterations=1, blocks=1, updates=1, initial_phase="gs", **over)
 
     workflow.run_session(session("with-abba", abba=True))
     assert seen["capture"].save_dataset is False
@@ -1088,7 +1097,10 @@ def test_the_session_records_the_resolved_device(tmp_path, monkeypatch):
     monkeypatch.setattr(direction, "analyze", lambda run, out: None)
 
     config = TransferSession(tmp_path/"session", shapes=("square",), count=6, frames=3,
-                             iterations=1, blocks=1, updates=1, device="auto")
+                             iterations=1, blocks=1, updates=1, device="auto",
+                             # the GS seed opens both CCD stages, so both must show the
+                             # resolved device rather than the requested "auto"
+                             initial_phase="gs")
     workflow.run_session(config)
 
     session = json.loads((config.out/"session.json").read_text())

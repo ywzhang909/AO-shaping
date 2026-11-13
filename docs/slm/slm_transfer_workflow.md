@@ -270,7 +270,7 @@ $out = "data/debug/slm_transfer/$(Get-Date -Format 'yyyyMMdd_HHmmss')"
   --run "$out/anchored" --out "$out/metrics_trace.json"
 ```
 
-`--save-dataset` 保留全部探针原始帧与相位；整形阶段独立保存原始帧、相位、每帧曝光和主机时间戳。曝光搜索预算通过 `--exposure-max-steps` 配置，曝光上限仍由设备范围与当前环境变量决定。已有默认 GS 路径保持兼容，冷启动时必须显式指定 `--initial-phase`。
+`--save-dataset` 保留全部探针原始帧与相位；整形阶段独立保存原始帧、相位、每帧曝光和主机时间戳。曝光搜索预算通过 `--exposure-max-steps` 配置，曝光上限仍由设备范围与当前环境变量决定。初值规则按入口区分：会话/`campaign`（`TransferConfig.initial_phase`）默认 `auto` = 正方形用非 GS 传输、其余用非 GS 反投影（`plane` 为零相位、`random` 为随机相位、无历史权重与 GS，即严格冷启动）；独立 CLI（`transfer run`/`validate`）未显式指定 `--initial-phase` 时仍默认 `gs`，以保持历史数值口径可比。
 
 若综合目标出现 CV 降低但 EE 和目标区域平均信号同步下降，可使用 `--objective formation`，其图像目标为 `0.05*CV² + 8*(1−EE_ROI) + shape_loss`。这是一项显式策略选项，不能替代图像检查，也不保证冷启动成功。每段实验均保持固定曝光；跨段自动曝光可能不同，因此应分别比较各段前后指标，不能把跨曝光的原始 EE 变化全部归因于相位。
 

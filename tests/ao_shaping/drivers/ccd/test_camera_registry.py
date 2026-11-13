@@ -9,6 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from ao_shaping.drivers.ccd.base import CameraError
 from ao_shaping.drivers.ccd.common import (
     CAMERA_TYPES,
     auto_exposure,
@@ -191,7 +192,7 @@ def test_get_exposure_raises_when_unsupported():
     class _NoExposureCamera:
         pass
 
-    with pytest.raises(AttributeError):
+    with pytest.raises(CameraError):
         get_camera_exposure_ms(_NoExposureCamera())
 
 

@@ -65,7 +65,7 @@ from ao_shaping.drivers.ccd.common import (
     capture_with_exposure,
     get_camera_exposure_ms,
 )
-from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm.base import BaseDM
 from ao_shaping.optimizer._camera_inject import _camera_cls
 from ao_shaping.optimizer.constants import (
     CAM_SAMPLE_ITER,
@@ -108,7 +108,7 @@ class PibBench:
     """
 
     cam: Any
-    dm: DM
+    dm: BaseDM
     owns_dm: bool
     init_v: np.ndarray
     unit_mask: np.ndarray
@@ -163,8 +163,8 @@ def open_pib_bench(
     cam_size: int,
     target_max_brightness: float,
     center: Any,
-    dm: DM | None,
-    create_dm: Callable[[], DM],
+    dm: BaseDM | None,
+    create_dm: Callable[[], BaseDM],
     init_v: Sequence[float] | np.ndarray | None,
     dm_unit_mask: Sequence[bool] | np.ndarray | None,
     init_fallback_target_max: int,
@@ -282,7 +282,7 @@ def open_pib_bench(
 
 def spid_pib_epoch(
     *,
-    dm: DM,
+    dm: BaseDM,
     cam: Any,
     init_v: np.ndarray,
     delta: float,

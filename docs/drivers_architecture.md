@@ -46,7 +46,7 @@
 │  │                            ║      │  └────────────────────────────────────────────────────────│ │
 │  │  dm/                       ║      │  sim/optics/                                              │ │
 │  │  ├── base.py               ║      │  │                                                       │ │
-│  │  │   DM (ABC)              ║←兼容→ │  │  SimulatedSLM                                         │ │
+│  │  │   BaseDM (ABC)          ║←────→ │  │  SimulatedSLM                                         │ │
 │  │  ├── NLight.py              ║      │  │  ├── 继承 WavefrontProcessor                          │ │
 │  │  │   NLightDM (UDP)        ║      │  │  ├── 物理: 相位调制 + 波前传播                         │ │
 │  │  └── simulateDM.py          ║      │  │  └── 仿真: Gamma 校正 + 光学元件                        │ │
@@ -321,17 +321,92 @@ def get_cam_list() -> list: ...
 
 ### 5.2 变形镜 (DM)
 
-**基类**: `BaseDM`
+**基类**: `BaseDM` (`ao_shaping.drivers.dm.base.BaseDM`)
+
+`BaseDM` 是 DM 驱动的**唯一基类**, 承载全部通用实现; 旧的 `DM` 向后兼容子类已
+移除。所有驱动直接继承 `BaseDM` (`isinstance(dev, BaseDM)` 即完整判据)。
 
 ```python
 # 核心方法
-def send_voltages(self, voltages: np.ndarray, voltage_scale: float = 1.0) -> None: ...
-def get_voltages(self) -> np.ndarray: ...
-def set_actuator_voltage(self, index: int, voltage: float) -> None: ...
+def send_voltages(self, voltages: DmCommands | npt.ArrayLike, wait_time_s: float = 0.001) -> DmCommands: ...
+def send(self, cmd) -> DmCommands: ...          # 电压语义; 数组分支委托 send_voltages
+def transform(self, cmd) -> npt.NDArray[np.floating]: ...  # 默认即 transform_voltage
+def open(self) -> None: ...                    # 失败抛异常并携带具体信息
+def set_channel_voltage(self, channel: int, voltage: float) -> bool: ...
+def is_connected(self) -> bool: ...          # 方法风格, 非 property
+def get_actuator_positions(self) -> np.ndarray: ...
 ```
 
+> **`transform` 是具体默认实现, 不是抽象方法**: `BaseDM.transform(cmd)` 直接
+> 委托 `transform_voltage` (`[-1, 1]` → `[V_Min, V_Max]`)。电压型子类
+> (`MicroDM` / `R50Controller` / `AsyncMicroDM` / `NLight`) **不再各自转发一遍**
+> —— 只覆写 `transform_voltage` 就能改映射。相位型/位置型子类 (`HadamardDM`、
+> `ZernikeDM`、仿真 DM) 必须覆写 `transform` 为自己的图案生成逻辑。
+>
+> **`send` 只有电压语义**: 它是 `send_voltages` 的入口别名, 额外接受"作用于全通道
+> 的标量" (`MicroDM.send` / `SimMicroDM.send` 覆写成 `ArrayLike | float` 分派)。
+> 相位型 DM **不**覆写 `send` 拿相位图 —— 取灰度相位一律走 `transform` /
+> `generate_phase_2pi`。对相位型 DM 误调 `send` 会一路走到 `_apply_voltages`
+> 并抛 `NotImplementedError` (刻意响亮失败)。
+>
+> **统一返回 `DmCommands`**: 电压回显型 DM (`NLight`、`MicroDM`、`SimMicroDM`)
+> 的 `send` / `send_voltages` / `set_all_voltage_by_arr` /
+> `get_actuator_positions` 一律返回 `DmCommands` —— 一个 **`np.ndarray` 子类**,
+> 携带 `range_min` / `range_max` / `n_actuators` / `timestamp` 元数据与
+> `to_dict()` (JSON 友好回显)。裸数组输入也返回 `DmCommands`; 任何数组消费者
+> (切片、ufunc、`np.clip`、UDP 载荷编码、绘图) 无需改动。
+>
+> **例外 (`set_all_channel_voltage` 的两种返回)**: 完整 DM 驱动
+> (`MicroDM` / `SimMicroDM`) 返回 `DmCommands` 回显; 控制器级
+> `R50Controller.set_all_channel_voltage()` 返回 `bool` (成功/失败), 与它的
+> `set_channel_voltage()` 同一族布尔原语。
+>
+> **例外 (位置型子类)**: `BaseDM.get_actuator_positions` 的基类契约是
+> `np.ndarray`; `SimulateDM` 返回 **N×2 物理网格** (致动器位置布局), 不是
+> 电压回显, 因此**不**返回 `DmCommands`。电压回显型子类协变收窄到
+> `DmCommands`。
+>
+> **`open()` / `set_channel_voltage()` 统一返回 `bool`**: 成功返回 `True`。
+> 完整 DM 驱动 (`MicroDM`、`NLight`、仿真与相位型 DM) 打开失败时抛异常;
+> 控制器级实现 `R50Controller.open()` 失败时返回 `False` (不抛异常)。单通道
+> 设置同理: `R50Controller.set_channel_voltage()` 通道越界或发送失败返回
+> `False`, `MicroDM.set_channel_voltage()` 把控制器结果透传为布尔状态, 通道
+> 越界则抛 `MicroDMVoltageError`。调用方只需按 `bool` 判断成功, 异常路径不变。
+>
+> **`R50Controller` 没有 `send`**: 它曾只是 `send_voltages` 的薄包装 (同签名、
+> 同返回), 2026-11-11 已删除 —— 电压数组一律用 `send_voltages` (或继承来的
+> `BaseDM.send`, 语义相同)。原始协议帧走 `send_frame(frame) -> bool`:
+> 控制器内部的单通道、全通道、数组帧与继电器命令都经 `send_frame` 下发,
+> 帧字节仍只在 `_build_array_frame` 一处定义。
+> ⚠️ `MicroDM._send_chunk(ctrl, chunk)` 因此**不能**再 eager 引用 `ctrl.send`
+> 作为 getattr 默认值 (`R50Controller` 已无此属性, 求默认值时即
+> `AttributeError`); 它先找 `set_all_voltage_array`, 再两级
+> `getattr(..., None)` 依次回退 `send_frame` → 替身遗留的 `send`, 全缺则返回
+> `False` 由 `_apply_voltages` 报连接失败。
+> ⚠️ 别和 `AsyncMicroDM.send_frame(voltages)` 混为一谈: 后者是异步 DM 层
+> 的公开 API, 入参是**电压数组**且返回 `list[SendResult]`, 与这里的字节原语
+> 同名不同类、不同语义。
+
 **实现子类**：
-- `NLightDM` (UDP 通信)
+- `NLight` (`dm/nlight/driver.py`, UDP / SDK)
+- `MicroDM` (`dm/micro/driver.py`, 多台 R50Power 控制器, TCP)
+- `HadamardDM` / `ZernikeDM` (相位型 DM)
+- `SimMicroDM` / `SimulateDM` (仿真, 见 §6)
+
+#### Micro-DM (R50Power)
+
+- `R50Controller` 继承 `BaseDM`, 但**不是** `DM`, 也不注册为 DM 类型: 它是
+  单台控制器的内部构件 (50 通道, `DM_NUM == 50`, -20..120 V), 只有 `MicroDM`
+  是 CLI / runner 可选的 DM 类型。
+- `R50Controller.is_connected()` 是**方法**: 真实控制器与仿真孪生
+  (`SimulatedR50Controller`) 同一签名, 消费者不要按属性读取。
+- `MicroDM._apply_voltages(vs)` 并发向所有控制器下发电压: 先**启动全部**
+  `send`, 再等待**全部**完成 (单台慢控制器不阻塞其余控制器的启动); 返回
+  `False` 或抛异常的控制器 IP 会汇总进同一个 `MicroDMConnectionError`。
+- ⚠️ R50Power 协议**没有读回/查询命令**。`R50Controller.readback()` 与
+  `get_actuator_positions()` 只是**软件回显** —— 返回最后一次成功下发的电压
+  `DmCommands`, 不代表从硬件读到的实际输出电压, 不能用于校验硬件状态。
+  发送失败时保留上一次成功的回显 (成功下发才更新)。
 
 ### 5.3 SLM (Spatial Light Modulator)
 
@@ -466,7 +541,7 @@ with cam:
 ├────────────────────────────────────────────────────────────────┤
 │                                                                │
 │  ┌─────────────────────┐                                       │
-│  │     DM (ABC)        │  ← 统一抽象基类                        │
+│  │     BaseDM (ABC)    │  ← 统一抽象基类                        │
 │  └──────────┬──────────┘                                       │
 │             │                                                   │
 │    ┌────────┴────────┐                                          │

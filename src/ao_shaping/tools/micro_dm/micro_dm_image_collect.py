@@ -591,7 +591,7 @@ def run(params: MicroDMImageCollectParams) -> None:
             ) as ctrl:
                 # 连接控制器
                 click.echo(f"🔌 连接 {ip_addr}:{resolved_port}... ", nl=False)
-                if not ctrl.is_connected:
+                if not ctrl.is_connected():
                     click.echo("❌ 连接失败, 跳过该控制器")
                     logger.warning(
                         "控制器 {}:{} 连接失败, 跳过", ip_addr, resolved_port
@@ -668,7 +668,7 @@ def run(params: MicroDMImageCollectParams) -> None:
                     )
                     ok_ips.append(ip_addr)
                 finally:
-                    if ctrl.is_connected:
+                    if ctrl.is_connected():
                         _safe_shutdown(ctrl, params.home_voltage)
     finally:
         # 关闭相机 (保证任何错误路径下相机都会被关闭)

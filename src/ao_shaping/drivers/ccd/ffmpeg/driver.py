@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -365,7 +366,7 @@ class FFmpegCamera(BaseCamera):
         return False
 
     @staticmethod
-    def get_cam_list() -> list:
+    def get_cam_list() -> list[Any]:
         """获取可用视频采集设备列表。
 
         注意: 这是尽力而为的列表。在 Windows 上, 它可能只能探测到 DirectShow
@@ -750,7 +751,7 @@ class ImageFolderCamera(BaseCamera):
         return False
 
     @staticmethod
-    def get_cam_list() -> list:
+    def get_cam_list() -> list[Any]:
         """获取可用图像目录列表 (不适用)。
 
         返回:

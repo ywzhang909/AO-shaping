@@ -15,6 +15,10 @@ from __future__ import annotations
 from ao_shaping.drivers._lazy import install_lazy_attrs
 from ao_shaping.drivers.dm._registry import register_dm_lazy
 
+# 基类以模块全局暴露 (eager): ``base`` 只依赖 numpy, 且 ``drivers.dm``
+# 父包在任何子包 import 前已加载它, 因此不增加 SDK 加载面。
+from ao_shaping.drivers.dm.base import BaseDM
+
 # 在模块作用域注册类型名, 不触发任何驱动模块的 import。
 # 这使得 ``list_dm_types()`` 在零驱动加载的情况下就能返回完整列表。
 register_dm_lazy("micro", "ao_shaping.drivers.dm.micro.driver", "MicroDM")
@@ -136,6 +140,7 @@ __all__ = [
     "ARRAY_SIDE",
     "AsyncMicroDM",
     "AsyncR50Controller",
+    "BaseDM",
     "CHANNELS_PER_CONTROLLER",
     "CMD_RELAY_OFF",
     "CMD_RELAY_ON",

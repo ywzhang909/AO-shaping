@@ -1258,7 +1258,6 @@ def test_cartographer_never_asserts_on_device_state() -> None:
 #: one cannot hide behind a shifted line.
 _DRIVERS_ASSERT_ALLOWLIST = frozenset({
     "ccd/daheng/driver.py: width_val is not None and height_val is not None",
-    "dm/micro/driver.py: isinstance(result, np.ndarray)",
     "dm/micro/driver.py: entry.physical_position is not None",
     "sim/wfs/simulated_wfs.py: self._raw is not None and self._flux is not None",
     "slm/santec/driver.py: max_grayscale is not None",

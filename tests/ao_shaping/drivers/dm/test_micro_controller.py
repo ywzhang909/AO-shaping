@@ -9,8 +9,10 @@ import socket as socket_module
 import time
 from unittest.mock import Mock, patch
 
+import numpy as np
 import pytest
 
+from ao_shaping.drivers.dm import BaseDM
 from ao_shaping.drivers.dm.micro import (
     CMD_RELAY_OFF,
     CMD_RELAY_ON,
@@ -20,6 +22,7 @@ from ao_shaping.drivers.dm.micro import (
     FOOTER,
     HEADER,
     MAX_CHANNELS,
+    MicroDMConnectionError,
     R50Controller,
     voltages_to_payload,
 )
@@ -48,7 +51,7 @@ class TestR50Controller:
             mock_sock_instance = Mock()
             mock_socket_cls.return_value = mock_sock_instance
 
-            assert controller.open()
+            controller.open()
             assert controller.set_relay(True)
             assert controller.set_all_channel_voltage(10)
 
@@ -70,7 +73,7 @@ class TestR50Controller:
             mock_sock_instance = Mock()
             mock_socket_cls.return_value = mock_sock_instance
 
-            assert controller.open()
+            controller.open()
             assert controller.set_all_voltage_array([10.0] * 50)
 
             expected = (
@@ -89,15 +92,15 @@ class TestR50Controller:
         assert controller._timeout == 10.0  # DEFAULT_TIMEOUT
         assert controller._socket is None
 
-    def test_is_connected_property(self, controller):
-        """Test the is_connected property."""
-        assert controller.is_connected is False
-        
+    def test_is_connected_method(self, controller):
+        """``is_connected`` is a method now (it used to be a property)."""
+        assert controller.is_connected() is False
+
         controller._socket = Mock()
-        assert controller.is_connected is True
-        
+        assert controller.is_connected() is True
+
         controller._socket = None
-        assert controller.is_connected is False
+        assert controller.is_connected() is False
 
     def test_open_success(self, controller):
         """Test successful connection."""
@@ -105,9 +108,8 @@ class TestR50Controller:
             mock_sock_instance = Mock()
             mock_socket_cls.return_value = mock_sock_instance
             
-            result = controller.open()
-            
-            assert result is True
+            controller.open()
+
             assert controller._socket == mock_sock_instance
             mock_socket_cls.assert_called_once_with(
                 socket_module.AF_INET, socket_module.SOCK_STREAM
@@ -123,10 +125,10 @@ class TestR50Controller:
             mock_sock_instance = Mock()
             mock_sock_instance.connect.side_effect = socket_module.timeout("timed out")
             mock_socket_cls.return_value = mock_sock_instance
-            
-            result = controller.open()
-            
-            assert result is False
+
+            with pytest.raises(MicroDMConnectionError, match="R50Controller"):
+                controller.open()
+
             assert controller._socket is None
 
     def test_open_os_error(self, controller):
@@ -135,10 +137,10 @@ class TestR50Controller:
             mock_sock_instance = Mock()
             mock_sock_instance.connect.side_effect = OSError("Network error")
             mock_socket_cls.return_value = mock_sock_instance
-            
-            result = controller.open()
-            
-            assert result is False
+
+            with pytest.raises(MicroDMConnectionError, match="R50Controller"):
+                controller.open()
+
             assert controller._socket is None
 
     def test_close(self, controller):
@@ -167,14 +169,14 @@ class TestR50Controller:
         controller._socket = mock_sock
         
         test_data = b'\xAA\xBB\x04\x00\x00\x11\xCC\xDD'
-        result = controller.send(test_data)
+        result = controller.send_frame(test_data)
         
         assert result is True
         mock_sock.sendall.assert_called_once_with(test_data)
 
     def test_send_command_not_connected(self, controller):
         """Test command sending when not connected."""
-        result = controller.send(b'test')
+        result = controller.send_frame(b'test')
         
         assert result is False
 
@@ -184,7 +186,7 @@ class TestR50Controller:
         mock_sock.sendall.side_effect = OSError("Send failed")
         controller._socket = mock_sock
         
-        result = controller.send(b'test')
+        result = controller.send_frame(b'test')
         
         assert result is False
         assert controller._socket is None  # Should be marked as disconnected
@@ -215,7 +217,7 @@ class TestR50Controller:
 
 
 class TestR50ControllerSendCommand:
-    """Tests for the send method on R50Controller."""
+    """Tests for the send_frame byte primitive on R50Controller."""
 
     @pytest.fixture
     def controller(self):
@@ -228,14 +230,14 @@ class TestR50ControllerSendCommand:
         controller._socket = mock_sock
 
         test_data = b'\xAA\xBB\x04\x00\x00\x11\xCC\xDD'
-        result = controller.send(test_data)
+        result = controller.send_frame(test_data)
 
         assert result is True
         mock_sock.sendall.assert_called_once_with(test_data)
 
     def test_send_command_not_connected(self, controller):
         """Test command sending when not connected."""
-        result = controller.send(b'test')
+        result = controller.send_frame(b'test')
 
         assert result is False
 
@@ -245,7 +247,7 @@ class TestR50ControllerSendCommand:
         mock_sock.sendall.side_effect = OSError("Send failed")
         controller._socket = mock_sock
 
-        result = controller.send(b'test')
+        result = controller.send_frame(b'test')
 
         assert result is False
         assert controller._socket is None  # Should be marked as disconnected
@@ -271,8 +273,7 @@ class TestR50ControllerProtocol:
         )
         
         # Connect the controller (sync call)
-        connected = controller.open()
-        assert connected, "Failed to connect to port listener"
+        controller.open()
 
         return controller
 
@@ -432,9 +433,9 @@ class TestR50ControllerProtocol:
                 payload = voltages_to_payload(0.0)
                 cmd = HEADER + bytes([CMD_SET_ALL_CHANNEL_VOLTAGE, payload[0], payload[1]]) + FOOTER
 
-                # Send via the sync method
-                result = controller.send(cmd)
-                assert result is True, "Failed to send command via send"
+                # Send via the controller-level byte primitive
+                result = controller.send_frame(cmd)
+                assert result is True, "Failed to send command via send_frame"
 
                 # Give it a moment to transmit
                 time.sleep(0.1)

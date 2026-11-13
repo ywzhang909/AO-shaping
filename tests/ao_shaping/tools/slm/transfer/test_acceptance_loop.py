@@ -342,7 +342,9 @@ def test_run_session_without_the_gate_keeps_the_historical_stage_names(tmp_path,
     _patch_session(monkeypatch, seen)
     names: list[str] = []
     run_session(
-        _session(tmp_path, "single"),
+        # 本例冻结的是**历史 GS 路线**的阶段名序列；TransferSession 的 initial_phase
+        # 默认值现在是 "auto"（方形 → transport），所以这里显式写 gs，而不是改断言。
+        _session(tmp_path, "single", initial_phase="gs"),
         on_stage=lambda name, status: names.append(name) if status == "running" else None,
     )
     journal = json.loads((tmp_path / "single" / "journal.json").read_text(encoding="utf-8"))
