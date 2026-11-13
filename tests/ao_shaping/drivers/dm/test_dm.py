@@ -1,5 +1,4 @@
 from ao_shaping.drivers import NlightDM
-from ao_shaping.drivers.dm.base import DM
 from ao_shaping.utils.io.file import get_init_V_by_energy
 
 import numpy as np

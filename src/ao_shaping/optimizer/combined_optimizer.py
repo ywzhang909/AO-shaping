@@ -20,7 +20,7 @@ import tqdm
 
 from ao_shaping.algorithm.gradient.adam import AdaMOD
 from ao_shaping.drivers.dm._registry import get_dm_registry
-from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm.base import BaseDM
 from ao_shaping.drivers.ccd.common import (
     get_camera_exposure_ms,
     resample_on_saturation,
@@ -413,7 +413,7 @@ def optimize_pib(
     dm_neibor_diff: float = 200.0,
     dm_max_voltage: float | None = None,
     dm_min_voltage: float | None = None,
-    dm: DM | None = None,
+    dm: BaseDM | None = None,
     **kwargs: Any,
 ) -> Recorder:
     """Optimize PIB (Power in Bucket) with AdaMOD and adaptive bucket radius.

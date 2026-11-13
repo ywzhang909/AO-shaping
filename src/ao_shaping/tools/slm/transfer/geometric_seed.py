@@ -17,11 +17,41 @@ Two constructions live here, both of which avoid Gerchberg-Saxton:
     than the transport seed's, so it is compared against the GS seed before use.
 
 Both return **raw radians**, never wrapped or min-max normalized.
+
+``resolve_seed_kind`` is the single place that turns ``"auto"`` into one of
+these two names, so the campaign runner, ``validate.run`` and the interactive
+session all apply the same measured rule.
 """
 from __future__ import annotations
 
 import numpy as np
 from scipy.integrate import cumulative_trapezoid
+
+#: ``--initial-phase`` / ``TransferSession.initial_phase`` 的全部取值：``auto``
+#: 按形状解析成下面两者之一，``plane`` / ``random`` 是严格冷启动（见
+#: ``cold_start.cold_phase``），``gs`` 保留为对比变体。
+SEED_KINDS: tuple[str, ...] = ("auto", "gs", "plane", "random", "transport", "backprojection")
+
+#: auto 规则的一句话说明，供 ``--help`` 与字段文档复用（勿在多处重写）。
+AUTO_SEED_RULE = "正方形用 transport（能量双射传输相位），其余形状用 backprojection（目标反投影）"
+
+
+def resolve_seed_kind(shape: str, requested: str) -> str:
+    """把按形状择优的 ``"auto"`` 解析成具体的初相位构造名；其余取值原样返回。
+
+    规则来自 2026-11-11 的 a1500 方目标 A–B–B–A 实验实测（side 1500 px、grid 480、
+    冻结曝光、三种子×四采集，``data/debug/slm_transfer/square1500_seed_abba_20261111/``）：
+    transport 种子 CV 3.743 优于 GS 3.945（漂移 0.068，accepted=True），
+    backprojection 输给两者。方形用 transport（可分离，对正方形精确），
+    其余形状用 backprojection（可分离相位无法产生不可分离的远场，形状通用）。
+
+    与 ``runners/slm/transfer_shapes_runner._seed_kind``（campaign 路径）同一条
+    规则；session / validate 路径用它做唯一 chokepoint，调用方在解析之后只看到
+    具体取值，因此 ``gs`` / 非 ``gs`` 的下游分支不需要为 ``auto`` 再加三元式。
+    """
+    if requested != "auto":
+        return requested
+    return "transport" if shape == "square" else "backprojection"
 
 
 def square_transport_phase(forward, centre, side):

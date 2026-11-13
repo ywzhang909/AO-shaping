@@ -18,7 +18,7 @@ from ao_shaping.utils.io.recorder_keys import (
 )
 
 if TYPE_CHECKING:
-    from ao_shaping.drivers.dm.base import DM
+    from ao_shaping.drivers.dm.base import BaseDM
 
 
 def schedule_lr_delta(rms):
@@ -54,7 +54,7 @@ def optimizer_rms_dm(
     pupil_center: tuple[float, float] = (0, 0),
     pupil_diameter: float = 2.24,
     early_stop_threshold: float = 0.12,
-    dm: DM | None = None,
+    dm: BaseDM | None = None,
     wfs_type: str = "thorlab",
     disturbance_cn2: float = 0.0,
     lr: float | None = None,

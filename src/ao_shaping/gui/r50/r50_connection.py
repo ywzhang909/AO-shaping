@@ -13,7 +13,11 @@ import numpy as np
 
 from loguru import logger
 
-from ao_shaping.drivers.dm.micro import DEFAULT_TIMEOUT, R50Controller
+from ao_shaping.drivers.dm.micro import (
+    DEFAULT_TIMEOUT,
+    MicroDMConnectionError,
+    R50Controller,
+)
 from ao_shaping.gui.r50.r50_channel_select import CFG, SINGLE_CHANNELS
 from ao_shaping.utils.io.network import (  # noqa: F401 -- re-exported to the r50_* tabs and tests
     ping_reachable,
@@ -160,8 +164,10 @@ def create_controller(
         ctrl.open()
         return ctrl
     ctrl = R50Controller(controller_id, ip, port, timeout=timeout)
-    if not ctrl.open():
-        raise ConnectionError(f"无法连接 R50 控制器 {ip}:{port}")
+    try:
+        ctrl.open()
+    except MicroDMConnectionError as e:
+        raise ConnectionError(f"无法连接 R50 控制器 {ip}:{port}: {e}") from e
     return ctrl
 
 

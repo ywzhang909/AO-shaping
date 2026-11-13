@@ -10,7 +10,7 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.dm._registry import register_dm
-from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm.base import BaseDM
 from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator
 from ao_shaping.utils.wavefront.zernike_utils import parse_zernike_coefficients
 
@@ -21,7 +21,7 @@ from ao_shaping.utils.wavefront.zernike_utils import parse_zernike_coefficients
 
 
 @register_dm("zernike")
-class ZernikeDM(DM):
+class ZernikeDM(BaseDM):
     """Zernike系数驱动的变形镜接口
 
     接受Zernike系数作为输入，将其转换为Zernike拟合相位面型。
@@ -165,16 +165,6 @@ class ZernikeDM(DM):
         if isinstance(cmd, dict):
             return self.generate_phase_2pi(cmd)
         raise ValueError(f"Unsupported command type: {type(cmd)}")
-
-    def send(self, cmd) -> np.ndarray:
-        return self.transform(cmd)
-
-    def send_zernike(
-        self,
-        coefficients: dict[tuple[int, int], float] | np.ndarray,
-    ) -> np.ndarray:
-        """发送Zernike系数并返回相位图（快捷方法）"""
-        return self.generate_phase_2pi(coefficients)
 
     def open(self) -> None:
         self.is_open = True

@@ -139,8 +139,15 @@ def test_plane_start_skips_the_model_stage(tmp_path):
     stages = config.plan()["stages"]
     assert "CCD_model_blocks" not in stages
     assert "CCD_anchored_blocks" in stages
-    assert TransferSession(tmp_path, shapes=("square",)).plan()["stages"][2:4] == [
+    # An explicit GS seed is still the only start that verifies on the bench first.
+    assert TransferSession(tmp_path, shapes=("square",), initial_phase="gs").plan()["stages"][2:4] == [
         "fit", "CCD_model_blocks"]
+    # `auto` is the default and resolves per shape, so a square starts from the transport
+    # seed and a triangle from the backprojection seed; neither is GS, so both skip it.
+    assert TransferSession(tmp_path, shapes=("square",)).plan()["stages"][2:4] == [
+        "fit", "CCD_anchored_blocks"]
+    assert TransferSession(tmp_path, shapes=("triangle",)).plan()["stages"][2:4] == [
+        "fit", "CCD_anchored_blocks"]
 
 
 def test_cold_plane_start_is_carrier_only():

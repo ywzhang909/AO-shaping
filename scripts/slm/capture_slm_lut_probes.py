@@ -553,6 +553,7 @@ def _run(args: argparse.Namespace) -> int:
             rec_name = "frames/gray_%d.npy" % g
             try:
                 slm.set_grayscale(g)
+                time.sleep(0.3)  # LCOS pixel flip (MAX_PIXEL_FLIP_TIME_MS=200) — matches optical_path gray sweep
                 rec, raw, bs = _capture_frame(cam, cy, cx)
                 p24, _ = _window_power(bs, cy, cx, BLAZE_ZERO_ORDER_WINDOW)
                 pw, _ = _window_power(bs, cy, cx, ref_window)

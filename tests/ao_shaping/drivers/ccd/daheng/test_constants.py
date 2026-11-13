@@ -134,6 +134,12 @@ class TestAutoExposureUsesConstants:
             constants.GxDSStreamBufferHandlingModeEntry.NEWEST_ONLY.value,
             "NewestOnly",
         )
+        # 位深以 PixelFormat 回读为准 (见 ../../test_camera_bit_depth.py)，
+        # 所以假设备也得回一个可解析的 (代码, 名称)，不能留裸 MagicMock。
+        mock_cam.PixelFormat.get.return_value = (
+            constants.GxPixelFormatEntry.MONO8.value,
+            "Mono8",
+        )
         mock_raw = MagicMock()
         mock_raw.get_status.return_value = 0
         mock_raw.get_numpy_array.return_value = MagicMock()

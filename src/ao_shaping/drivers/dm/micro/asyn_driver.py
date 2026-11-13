@@ -27,7 +27,7 @@ import numpy.typing as npt
 from loguru import logger
 
 from ao_shaping.drivers.dm._registry import register_dm
-from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm.base import BaseDM
 from ao_shaping.drivers.dm.micro.constants import (
     CMD_RELAY_OFF,
     CMD_RELAY_ON,
@@ -37,6 +37,7 @@ from ao_shaping.drivers.dm.micro.constants import (
     PAYLOAD_OFFSET,
     PAYLOAD_SCALE,
 )
+from ao_shaping.model.quantities import DmCommands
 from ao_shaping.drivers.dm.micro.micro_constants import (
     CHANNELS_PER_CONTROLLER,
     DEFAULT_TIMEOUT,
@@ -336,11 +337,11 @@ class AsyncR50Controller:
 
 
 @register_dm("asyn_micro")
-class AsyncMicroDM(DM):
+class AsyncMicroDM(BaseDM):
     """异步的多控制器 R50Power 变形镜驱动。
 
     包装多个 :class:`AsyncR50Controller` 实例, 并对外呈现标准的
-    :class:`DM` 接口。同步方法 ``open()`` / ``close()``
+    :class:`BaseDM` 接口。同步方法 ``open()`` / ``close()``
     通过 ``_run_async`` 桥接到异步内部实现。
 
     Attributes:
@@ -419,7 +420,11 @@ class AsyncMicroDM(DM):
         return np.ones(self.DM_NUM, dtype=bool)
 
     def open(self) -> None:
-        """连接到所有控制器 (同步桥接)。"""
+        """连接到所有控制器 (同步桥接)。
+
+        Raises:
+            ConnectionError: 没有任何控制器连上时 (经 ``_async_open``)。
+        """
         self._run_async(self._async_open())
 
     async def _async_open(self) -> None:
@@ -446,12 +451,14 @@ class AsyncMicroDM(DM):
     def is_connected(self) -> bool:
         return self._open and any(c.is_connected for c in self._controllers)
 
-    def get_actuator_positions(self) -> npt.NDArray[np.floating]:
-        return self._last_voltages.copy()
+    def get_actuator_positions(self) -> DmCommands:
+        """返回最后一次成功下发的电压 (软件回显, 非硬件读数)。"""
+        return DmCommands(
+            self._last_voltages.copy(), self.V_Min, self.V_Max, self.DM_Num
+        )
 
-    def transform(self, cmd: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-        """把 [-1, 1] 映射到 [V_Min, V_Max]。"""
-        return self.transform_voltage(cmd)
+    # transform 用 BaseDM 的默认实现 (委托 transform_voltage: [-1, 1] →
+    # [V_Min, V_Max]), 不再在本类转发一遍。
 
     def _apply_voltages(self, vs: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
         """钳位并保存电压。实际 TCP 发送在 ``send_frame`` 中进行。"""

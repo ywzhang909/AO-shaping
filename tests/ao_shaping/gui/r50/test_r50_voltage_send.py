@@ -90,7 +90,7 @@ class CountingCtrl(SimulatedR50Controller):
 
 
 class FlakyCtrl:
-    """Models the real bug: socket dies mid-send (is_connected -> False),
+    """Models the real bug: socket dies mid-send (is_connected() -> False),
     open() reconnects."""
 
     def __init__(self):
@@ -98,7 +98,6 @@ class FlakyCtrl:
         self.open_calls = 0
         self._connected = True
 
-    @property
     def is_connected(self) -> bool:
         return self._connected
 

@@ -4,7 +4,7 @@ from typing import Any, Callable, Type
 
 from loguru import logger
 
-from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm.base import BaseDM
 
 # 按类型过滤 kwargs 的映射: 注册名 → 接受的 kwargs 集合
 _KWARG_FILTERS: dict[str, set[str]] = {
@@ -83,13 +83,13 @@ class DMRegistry:
     """支持基于装饰器注册 + 惰性加载的 DM 实现注册表。"""
 
     def __init__(self) -> None:
-        self._registry: dict[str, Type[DM]] = {}
+        self._registry: dict[str, Type[BaseDM]] = {}
         self._lazy_registry: dict[str, tuple[str, str]] = {}
 
-    def register(self, name: str) -> Callable[[Type[DM]], Type[DM]]:
-        def decorator(cls: Type[DM]) -> Type[DM]:
-            if not issubclass(cls, DM):
-                raise TypeError(f"{cls.__name__} must be a subclass of DM")
+    def register(self, name: str) -> Callable[[Type[BaseDM]], Type[BaseDM]]:
+        def decorator(cls: Type[BaseDM]) -> Type[BaseDM]:
+            if not issubclass(cls, BaseDM):
+                raise TypeError(f"{cls.__name__} must be a subclass of BaseDM")
             self._registry[name.lower()] = cls
             # 如果之前有惰性注册条目, 现在被真实类替换掉 → 删掉惰性条目
             self._lazy_registry.pop(name.lower(), None)
@@ -119,11 +119,11 @@ class DMRegistry:
 
         module = importlib.import_module(module_path)
         cls = getattr(module, class_name)
-        if not issubclass(cls, DM):
-            raise TypeError(f"{class_name} in {module_path} must be a subclass of DM")
+        if not issubclass(cls, BaseDM):
+            raise TypeError(f"{class_name} in {module_path} must be a subclass of BaseDM")
         self._registry[key] = cls
 
-    def create(self, name: str, **kwargs: Any) -> DM:
+    def create(self, name: str, **kwargs: Any) -> BaseDM:
         _ensure_sim_dms_bound()
         self._resolve_lazy(name)
         cls = self._registry.get(name.lower())
@@ -133,7 +133,7 @@ class DMRegistry:
             )
         return cls(**kwargs)
 
-    def create_dm(self, name: str, **kwargs: Any) -> DM:
+    def create_dm(self, name: str, **kwargs: Any) -> BaseDM:
         """创建 DM 实例, 按类型专属的接受参数过滤 kwargs。
 
         这是给那些不清楚每种 DM 类型确切构造函数签名的调用方用的主工厂方法。
@@ -180,7 +180,7 @@ class DMRegistry:
             name for name, cls in self._registry.items() if cls.is_reachable()
         )
 
-    def get_class(self, name: str) -> Type[DM]:
+    def get_class(self, name: str) -> Type[BaseDM]:
         _ensure_sim_dms_bound()
         self._resolve_lazy(name.lower())
         cls = self._registry.get(name.lower())
@@ -198,7 +198,7 @@ def get_dm_registry() -> DMRegistry:
     return _global_registry
 
 
-def register_dm(name: str) -> Callable[[Type[DM]], Type[DM]]:
+def register_dm(name: str) -> Callable[[Type[BaseDM]], Type[BaseDM]]:
     return _global_registry.register(name)
 
 
@@ -212,7 +212,7 @@ def register_dm_lazy(name: str, module_path: str, class_name: str) -> None:
     _global_registry.register_lazy(name, module_path, class_name)
 
 
-def create_dm(name: str, **kwargs: Any) -> DM:
+def create_dm(name: str, **kwargs: Any) -> BaseDM:
     """便捷函数: 经全局注册表创建 DM 实例, 并做 kwarg 过滤。"""
     return _global_registry.create_dm(name, **kwargs)
 
@@ -227,7 +227,7 @@ def list_reachable_dm_types() -> list[str]:
     return _global_registry.list_reachable_types()
 
 
-def resolve_dm(dm_type: str | None = None, **kwargs) -> DM:
+def resolve_dm(dm_type: str | None = None, **kwargs) -> BaseDM:
     """解析 DM 类型并创建 DM 实例。
 
     对应 ``wf`` / ``pipeline`` / ``pib`` / ``combined`` / ``dm-matrix``

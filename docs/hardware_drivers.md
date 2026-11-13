@@ -21,7 +21,7 @@
 
 ## 变形镜
 
-- **统一 DM 接口**: 所有变形镜继承自 `ao_shaping.drivers.dm.base.DM`，提供 `transform`/`send`/`open`/`close`/`is_connected`/`get_actuator_positions` 等标准方法
+- **统一 DM 接口**: 所有变形镜继承自 `ao_shaping.drivers.dm.base.BaseDM`，提供 `transform`/`send`/`open`/`close`/`is_connected`/`get_actuator_positions` 等标准方法
 - **NLight系列**: 支持电压控制和电压差安全检查
 - **R50Power MicroDM (同步)**: 通过 TCP 控制多路 R50Power 控制器（每路 50 通道，-20V~120V）
   - 自动从 `libs/micro_drive1300/wiring_map.json` 加载控制器 IP 和通道映射
@@ -105,7 +105,7 @@
 
 - **ZernikeDM**: Zernike 系数驱动的 DM/SLM 接口，支持 Zernike 多项式相位生成
 - **HadamardDM**: Hadamard 系数驱动的 DM/SLM 接口，支持 Walsh-Hadamard 模式相位生成
-- **PIB 优化器多 DM 支持**: `optimize_pib` 现接受任意 `DM` 子类实例，命令行支持 `--dm-type` 参数
+- **PIB 优化器多 DM 支持**: `optimize_pib` 现接受任意 `BaseDM` 子类实例，命令行支持 `--dm-type` 参数
   - 支持类型: `nlight`, `micro`, `asyn_micro`, `zernike`, `hadamard`
   - 自动检测: 未指定 `--dm-type` 时自动探测在线 DM，仅一个时自动选取，多个时报错提示
 

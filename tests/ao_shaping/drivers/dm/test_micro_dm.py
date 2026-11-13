@@ -4,7 +4,7 @@ Tests exception classes, voltage conversion, SimMicroDM interface,
 and package imports. The real MicroDM requires async TCP and hardware,
 so it is tested via the simulation class SimMicroDM.
 
-SimMicroDM inherits from DM (pure ABC), so Device methods are NOT available
+SimMicroDM inherits from BaseDM (pure ABC), so Device methods are NOT available
 on SimMicroDM unless explicitly added.
 """
 
@@ -28,7 +28,7 @@ from ao_shaping.drivers.dm.micro import (
     WiringMap,
     voltages_to_payload,
 )
-from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm.base import BaseDM
 from ao_shaping.drivers.sim.dm import SimMicroDM
 
 # =============================================================================
@@ -356,7 +356,7 @@ class TestMicroDMIntegration:
 # =============================================================================
 
 
-class _TrackableDM(DM):
+class _TrackableDM(BaseDM):
     """Minimal DM subclass that records every _apply_voltages call."""
 
     DM_NUM: int = 50
@@ -425,7 +425,7 @@ class TestRampVoltages:
         dm = MicroDM(ips=["192.168.0.101"], use_wiring_map=False, safety_mode=False)
         ctrl = MagicMock(spec=R50Controller)
         ctrl.ip = "192.168.0.101"
-        ctrl.send.return_value = False
+        ctrl.set_all_voltage_array.return_value = False
         dm._controllers = [ctrl]
         with pytest.raises(MicroDMConnectionError, match="192.168.0.101"):
             dm._apply_voltages(np.full(dm.DM_Num, 10.0))

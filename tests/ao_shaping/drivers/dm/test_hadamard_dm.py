@@ -93,19 +93,20 @@ class TestHadamardDM:
         with pytest.raises(ValueError):
             hdm.transform([1, 2, 3])  # List should fail
 
-    def test_send(self):
-        """Test send method."""
-        hdm = HadamardDM(resolution=(100, 100))
-        coeffs = np.random.randn(64) * 0.1
-        result = hdm.send(coeffs)
-        assert result.shape == (100, 100)
+    def test_phase_shortcuts_removed(self):
+        """HadamardDM 不再自带 send / send_hadamard 薄包装。
 
-    def test_send_hadamard(self):
-        """Test send_hadamard shortcut method."""
+        这两个方法过去只是 ``transform`` / ``generate_phase_2pi`` 的转发,
+        而继承来的 :meth:`BaseDM.send` 是**电压**语义 —— 同名不同义。
+        取相位图一律走 ``transform`` / ``generate_phase_2pi``。
+        """
+        assert "send" not in vars(HadamardDM)
+        assert "send_hadamard" not in vars(HadamardDM)
         hdm = HadamardDM(resolution=(100, 100))
         coeffs = np.random.randn(64) * 0.1
-        result = hdm.send_hadamard(coeffs)
-        assert result.shape == (100, 100)
+        np.testing.assert_array_equal(
+            hdm.transform(coeffs), hdm.generate_phase_2pi(coeffs)
+        )
 
     def test_open_close(self):
         """Test open and close methods."""
@@ -128,11 +129,11 @@ class TestHadamardDM:
         positions = hdm.get_actuator_positions()
         assert len(positions) == 0
 
-    def test_get_actuator_positions_after_send(self):
-        """Test get_actuator_positions after send."""
+    def test_get_actuator_positions_after_transform(self):
+        """Test get_actuator_positions after transform."""
         hdm = HadamardDM(resolution=(100, 100))
         coeffs = np.random.randn(64) * 0.1
-        hdm.send(coeffs)
+        hdm.transform(coeffs)
         positions = hdm.get_actuator_positions()
         np.testing.assert_array_almost_equal(positions, coeffs)
 
@@ -141,11 +142,11 @@ class TestHadamardDM:
         hdm = HadamardDM()
         assert hdm.get_phase() is None
 
-    def test_get_phase_after_send(self):
-        """Test get_phase after send."""
+    def test_get_phase_after_transform(self):
+        """Test get_phase after transform."""
         hdm = HadamardDM(resolution=(100, 100))
         coeffs = np.random.randn(64) * 0.1
-        hdm.send(coeffs)
+        hdm.transform(coeffs)
         phase = hdm.get_phase()
         assert phase is not None
         assert phase.shape == (100, 100)

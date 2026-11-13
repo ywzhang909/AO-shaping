@@ -1,0 +1,59 @@
+﻿summary: {'filesAnalyzed': 9, 'errorCount': 235, 'warningCount': 0, 'informationCount': 0, 'timeInSec': 2.707}
+=== OVERRIDE FAMILY ===
+drivers/ccd/daheng/driver.py:124 [reportIncompatibleMethodOverride] Method "open" overrides class "BaseCamera" in an incompatible manner   Return type mismatch: base method returns type "None", override returns type "DahengCamera"     "DahengCamera" is not assignable to "None"
+drivers/ccd/daheng/driver.py:149 [reportIncompatibleVariableOverride] "pixel_size_um" overrides symbol of same name in class "BaseCamera"   "property" is not assignable to "float"
+drivers/ccd/daheng/driver.py:749 [reportIncompatibleMethodOverride] Method "get_cam_list" overrides class "BaseCamera" in an incompatible manner   Return type mismatch: base method returns type "None", override returns type "Unknown | list[Unknown]"     Type "Unknown | list[Unknown]" is not assignable to type "None"       "list[Unknown]" is not assignable to "None"
+drivers/ccd/ffmpeg/driver.py:368 [reportIncompatibleMethodOverride] Method "get_cam_list" overrides class "BaseCamera" in an incompatible manner   Return type mismatch: base method returns type "None", override returns type "list[Unknown]"     "list[Unknown]" is not assignable to "None"
+drivers/ccd/ffmpeg/driver.py:753 [reportIncompatibleMethodOverride] Method "get_cam_list" overrides class "BaseCamera" in an incompatible manner   Return type mismatch: base method returns type "None", override returns type "list[Unknown]"     "list[Unknown]" is not assignable to "None"
+drivers/ccd/miicam/driver.py:244 [reportIncompatibleMethodOverride] Method "open" overrides class "BaseCamera" in an incompatible manner   Return type mismatch: base method returns type "None", override returns type "MIICamera"     "MIICamera" is not assignable to "None"
+drivers/sim/ccd/simulated_ccd.py:110 [reportIncompatibleMethodOverride] Method "reset_window" overrides class "BaseCamera" in an incompatible manner   Parameter 2 type mismatch: base parameter is type "tuple[int, int] | tuple[intp, ...]", override parameter is type "tuple[int, int]"     Type "tuple[int, int] | tuple[intp, ...]" is not assignable to type "tuple[int, int]
+drivers/sim/ccd/simulated_ccd.py:276 [reportIncompatibleMethodOverride] Method "get_cam_list" overrides class "BaseCamera" in an incompatible manner   Return type mismatch: base method returns type "None", override returns type "list[Unknown]"     "list[Unknown]" is not assignable to "None"
+drivers/sim/slm_pib_sim.py:1450 [reportIncompatibleMethodOverride] Method "get_cam_list" overrides class "BaseCamera" in an incompatible manner   Return type mismatch: base method returns type "None", override returns type "list[Unknown]"     "list[Unknown]" is not assignable to "None"
+drivers/sim/wfs/simulated_wfs.py:328 [reportIncompatibleMethodOverride] Method "build_subaperture_mask" overrides class "BaseWFS" in an incompatible manner   Return type mismatch: base method returns type "ndarray[_AnyShape, dtype[Any]]", override returns type "tuple[ndarray[_AnyShape, dtype[Any]], ndarray[_AnyShape, dtype[Any]]]"     "tuple[ndarray[_AnyShape, dtype[Any
+drivers/wfs/base.py:43 [reportIncompatibleVariableOverride] Instance variable "device_type" overrides class variable of same name in class "Device"
+drivers/wfs/base.py:46 [reportIncompatibleVariableOverride] Instance variable "manufacturer" overrides class variable of same name in class "Device"
+drivers/wfs/base.py:47 [reportIncompatibleVariableOverride] Instance variable "model" overrides class variable of same name in class "Device"
+drivers/wfs/thorlab_wfs.py:1268 [reportIncompatibleMethodOverride] Method "build_subaperture_mask" overrides class "BaseWFS" in an incompatible manner   Return type mismatch: base method returns type "ndarray[_AnyShape, dtype[Any]]", override returns type "tuple[ndarray[_AnyShape, dtype[Any]], ndarray[_AnyShape, dtype[Any]]]"     "tuple[ndarray[_AnyShape, dtype[Any
+=== NON-OVERRIDE (file, rule -> count) ===
+('drivers/ccd/daheng/driver.py', 'reportOptionalMemberAccess') 37
+('drivers/ccd/daheng/driver.py', 'reportReturnType') 2
+('drivers/ccd/ffmpeg/driver.py', 'reportArgumentType') 5
+('drivers/ccd/ffmpeg/driver.py', 'reportOptionalMemberAccess') 6
+('drivers/ccd/miicam/driver.py', 'reportAssignmentType') 1
+('drivers/ccd/miicam/driver.py', 'reportAttributeAccessIssue') 12
+('drivers/ccd/miicam/driver.py', 'reportGeneralTypeIssues') 2
+('drivers/ccd/miicam/driver.py', 'reportInvalidTypeForm') 3
+('drivers/ccd/miicam/driver.py', 'reportMissingImports') 1
+('drivers/ccd/miicam/driver.py', 'reportOptionalContextManager') 1
+('drivers/ccd/miicam/driver.py', 'reportOptionalMemberAccess') 98
+('drivers/sim/ccd/simulated_ccd.py', 'reportArgumentType') 4
+('drivers/sim/slm_pib_sim.py', 'reportArgumentType') 44
+('drivers/sim/slm_pib_sim.py', 'reportReturnType') 2
+('drivers/sim/wfs/simulated_wfs.py', 'reportAttributeAccessIssue') 1
+('drivers/wfs/thorlab_wfs.py', 'reportAttributeAccessIssue') 2
+summary: {'filesAnalyzed': 9, 'errorCount': 235, 'warningCount': 0, 'informationCount': 0, 'timeInSec': 2.707}
+('drivers/ccd/daheng/driver.py', 'reportIncompatibleMethodOverride') 2
+('drivers/ccd/daheng/driver.py', 'reportIncompatibleVariableOverride') 1
+('drivers/ccd/daheng/driver.py', 'reportOptionalMemberAccess') 37
+('drivers/ccd/daheng/driver.py', 'reportReturnType') 2
+('drivers/ccd/ffmpeg/driver.py', 'reportArgumentType') 5
+('drivers/ccd/ffmpeg/driver.py', 'reportIncompatibleMethodOverride') 2
+('drivers/ccd/ffmpeg/driver.py', 'reportOptionalMemberAccess') 6
+('drivers/ccd/miicam/driver.py', 'reportAssignmentType') 1
+('drivers/ccd/miicam/driver.py', 'reportAttributeAccessIssue') 12
+('drivers/ccd/miicam/driver.py', 'reportGeneralTypeIssues') 2
+('drivers/ccd/miicam/driver.py', 'reportIncompatibleMethodOverride') 1
+('drivers/ccd/miicam/driver.py', 'reportInvalidTypeForm') 3
+('drivers/ccd/miicam/driver.py', 'reportMissingImports') 1
+('drivers/ccd/miicam/driver.py', 'reportOptionalContextManager') 1
+('drivers/ccd/miicam/driver.py', 'reportOptionalMemberAccess') 98
+('drivers/sim/ccd/simulated_ccd.py', 'reportArgumentType') 4
+('drivers/sim/ccd/simulated_ccd.py', 'reportIncompatibleMethodOverride') 2
+('drivers/sim/slm_pib_sim.py', 'reportArgumentType') 44
+('drivers/sim/slm_pib_sim.py', 'reportIncompatibleMethodOverride') 1
+('drivers/sim/slm_pib_sim.py', 'reportReturnType') 2
+('drivers/sim/wfs/simulated_wfs.py', 'reportAttributeAccessIssue') 1
+('drivers/sim/wfs/simulated_wfs.py', 'reportIncompatibleMethodOverride') 1
+('drivers/wfs/base.py', 'reportIncompatibleVariableOverride') 3
+('drivers/wfs/thorlab_wfs.py', 'reportAttributeAccessIssue') 2
+('drivers/wfs/thorlab_wfs.py', 'reportIncompatibleMethodOverride') 1

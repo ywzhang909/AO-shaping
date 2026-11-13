@@ -25,7 +25,12 @@ import numpy as np
 import streamlit as st
 from loguru import logger
 
-from ao_shaping.drivers.dm.micro import R50Controller, VOLTAGE_MAX, VOLTAGE_MIN
+from ao_shaping.drivers.dm.micro import (
+    MicroDMConnectionError,
+    R50Controller,
+    VOLTAGE_MAX,
+    VOLTAGE_MIN,
+)
 from ao_shaping.utils.io.network import ping_reachable, tcp_reachable
 # =============================================================================
 # Constants
@@ -300,8 +305,10 @@ def connect_single() -> None:
         ip = st.session_state.mdm_single_ip.strip()
         port = int(st.session_state.mdm_single_port)
         ctrl = R50Controller(controller_id=1, ip=ip, port=port)
-        if not ctrl.open():
-            raise ConnectionError(f"无法建立 TCP 连接到 {ip}:{port}")
+        try:
+            ctrl.open()
+        except MicroDMConnectionError as e:
+            raise ConnectionError(f"无法建立 TCP 连接到 {ip}:{port}: {e}") from e
         st.session_state.mdm_single_controller = ctrl
         st.session_state.mdm_single_connected = True
         st.session_state.mdm_single_connection_error = ""

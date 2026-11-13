@@ -31,9 +31,10 @@ class GSResult:
     Attributes:
         phase: 为 SLM 算出的相位图形 (弧度, 0-2π)
         amplitude: 目标面上的最终振幅
-        error_history: 每次迭代对应的误差值列表
+        error_history: 每次迭代对应的误差值列表 (仅含实际执行的迭代)
         iterations: 实际执行的迭代次数
-        converged: 算法是否收敛
+        converged: 算法是否收敛, 即是否达到 ``error_threshold``;
+            因 patience 触发的平台早停不算收敛
     """
 
     phase: npt.NDArray[np.floating]
@@ -105,6 +106,17 @@ def angular_spectrum_propagate(
     return ifft2(F_propagated)
 
 
+def _iteration_mse(
+    amplitude: npt.NDArray[np.floating],
+    target_amplitude: npt.NDArray[np.floating],
+) -> float:
+    """GS 单次迭代的目标面振幅均方误差 (MSE)。
+
+    抽成独立函数: 收敛判定与平台早停共用同一度量, 也便于测试注入误差序列。
+    """
+    return float(np.mean((amplitude - target_amplitude) ** 2))
+
+
 def gerchberg_saxton(
     source_amplitude: npt.NDArray[np.floating],
     target_amplitude: npt.NDArray[np.floating],
@@ -116,6 +128,8 @@ def gerchberg_saxton(
     progress_callback: Callable[[int, float], None] | None = None,
     phase_callback: Callable[[int, npt.NDArray[np.floating]], None] | None = None,
     propagation: str = "asm",
+    early_stop_patience: int = 0,
+    early_stop_min_delta: float = 0.0,
 ) -> GSResult:
     """用于相位恢复的 Gerchberg-Saxton 算法。
 
@@ -147,6 +161,16 @@ def gerchberg_saxton(
             (单次 FFT 的夫琅禾费平面 —— 焦平面被视作源平面的傅里叶变换)。
             ``"fft"`` 完全省掉每次迭代构建传播子的开销, 速度与单对 FFT/IFFT
             的远场 GS 相当。
+        early_stop_patience: 提前停止 (patience) 的容忍迭代数 (默认: 0 = 关闭)。
+            连续该数次迭代没有出现 "有意义的改善" 即停止; 0 表示不做平台检测,
+            循环行为与旧版本完全一致。判定规则: 某次迭代的 MSE 若比历史最优
+            再低至少 ``early_stop_min_delta``, 记为改善 (最优值与计数器复位),
+            否则计入平台 (计数器 +1)。历史最优以 ``+inf`` 初始化, 因此第一次
+            测量必然算作新最优。达到 ``error_threshold`` 的 break 优先于平台
+            停止, 且 ``converged`` 仍只表示 "达到阈值", 不表示平台早停。
+        early_stop_min_delta: 判定改善所需的最小 MSE 下降量 (默认: 0.0, 即任何
+            严格下降都算改善; 传相对量级如 1e-4 可忽略数值抖动)。仅在
+            ``early_stop_patience > 0`` 时生效。
 
     Returns:
         含相位、振幅、误差历史与收敛信息的 GSResult
@@ -191,6 +215,21 @@ def gerchberg_saxton(
     if cell_spacing <= 0 or distance <= 0 or wavelength <= 0:
         raise ValueError("Physical parameters must be positive")
 
+    if (
+        isinstance(early_stop_patience, bool)
+        or not isinstance(early_stop_patience, int)
+        or early_stop_patience < 0
+    ):
+        raise ValueError(
+            f"Early stop patience must be a non-negative integer, "
+            f"got {early_stop_patience!r}"
+        )
+    if not np.isfinite(early_stop_min_delta) or early_stop_min_delta < 0:
+        raise ValueError(
+            f"Early stop min delta must be >= 0 and finite, "
+            f"got {early_stop_min_delta}"
+        )
+
     if propagation not in ("asm", "fft"):
         raise ValueError(f"propagation must be 'asm' or 'fft', got {propagation!r}")
 
@@ -218,6 +257,9 @@ def gerchberg_saxton(
         A = ifft2(ifftshift(target_amplitude.astype(np.complex128)))
 
     error_history = []
+    # 平台早停状态: best_mse 以 +inf 初始化, 因此第一次测量的 MSE 必然算作新最优
+    best_mse = float("inf")
+    stagnant_iterations = 0
 
     # GS 主迭代循环
     for i in range(iterations):
@@ -247,7 +289,7 @@ def gerchberg_saxton(
 
         # 计算误差 (|C| 与目标之间的均方误差)
         amplitude_C = np.abs(C)
-        mse = np.mean((amplitude_C - target_amplitude) ** 2)
+        mse = _iteration_mse(amplitude_C, target_amplitude)
         error_history.append(float(mse))
 
         # 进度回调
@@ -266,6 +308,23 @@ def gerchberg_saxton(
         if error_threshold is not None and mse < error_threshold:
             logger.info(f"Converged at iteration {i + 1} with MSE={mse:.6f}")
             break
+
+        # 检查平台早停: 只有比历史最优再低 early_stop_min_delta 才算有意义的改善;
+        # 阈值收敛的 break 优先于此, converged 仍只表示达到 error_threshold
+        if early_stop_patience > 0:
+            if mse < best_mse - early_stop_min_delta:
+                best_mse = mse
+                stagnant_iterations = 0
+            else:
+                stagnant_iterations += 1
+                if stagnant_iterations >= early_stop_patience:
+                    logger.info(
+                        f"Early stop at iteration {i + 1}/{iterations}: "
+                        f"连续 {stagnant_iterations} 次迭代无改善 "
+                        f"(MSE={mse:.6f}, best={best_mse:.6f}, "
+                        f"min_delta={early_stop_min_delta:.3g})"
+                    )
+                    break
 
     # 提取最终结果
     final_phase = np.angle(A)

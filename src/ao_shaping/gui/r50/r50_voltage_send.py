@@ -70,18 +70,21 @@ def build_bulk_array(
 
 
 def _controller_connected(ctrl: Any) -> bool:
-    """Check connectivity. Real R50Controller exposes `is_connected` as a
-    property; sim controllers expose it as a method. Handles both."""
+    """Check connectivity via the method-style ``is_connected()`` surface.
+
+    The whole R50 family exposes it as a method: the real ``R50Controller``
+    (a ``BaseDM``) and ``SimulatedR50Controller`` both do, and ``MicroDM``
+    itself has always used a method. Controllers with no connectivity surface
+    are treated as connected so recovery is a no-op.
+    """
     attr = getattr(ctrl, "is_connected", None)
     if attr is None:
         return True  # no connectivity surface: nothing to recover
-    if callable(attr):
-        try:
-            return bool(attr())
-        # policy: a vendor connectivity predicate can itself fail; unknown state is read as disconnected so the caller gets a chance to reopen
-        except Exception:
-            return False
-    return bool(attr)
+    try:
+        return bool(attr())
+    # policy: a vendor connectivity predicate can itself fail; unknown state is read as disconnected so the caller gets a chance to reopen
+    except Exception:
+        return False
 
 
 def _recover_controller(ctrl: Any) -> bool:

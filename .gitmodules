@@ -1,3 +1,6 @@
 [submodule "libs/OOPAO"]
 	path = libs/OOPAO
 	url = https://gh-proxy.org/https://github.com/cheritier/OOPAO.git
+[submodule "libs/pinn-shapre"]
+	path = libs/pinn-shapre
+	url = https://github.com/ywzhang909/pinn-shaper.git

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import time
+from typing import Any
 
 import numpy as np
 from loguru import logger
@@ -109,7 +110,7 @@ class SimulatedCCD(BaseCamera):
 
     def reset_window(
         self,
-        center: tuple[int, int],
+        center: tuple[int, int] | tuple[np.intp, ...],
         size: tuple[int, int],
     ) -> tuple[tuple[int, int], tuple[int, int]]:
         """设置 ROI 窗口。
@@ -121,6 +122,9 @@ class SimulatedCCD(BaseCamera):
         Returns:
             (实际尺寸, 实际中心) 二元组。
         """
+        # 与 BaseCamera 契约一致: 中心坐标按 int 归一 (np.intp 输入安全转换),
+        # 与 Daheng/MiiCam 后端的做法相同, 保证返回类型恒为 tuple[int, int]。
+        center = int(center[0]), int(center[1])
         if size == (0, 0):
             return self._resolution, center
 
@@ -230,15 +234,18 @@ class SimulatedCCD(BaseCamera):
         return True
 
     def set_auto_exposure_target(self, target: int) -> int:
-        """设置自动曝光目标值。
+        """设置自动曝光目标亮度 (0-255 灰度)。
+
+        仿真侧没有 SDK 特征可写, 因此直接走基类的驱动侧记录
+        (:attr:`BaseCamera._auto_exposure_target`), 语义与硬件后端一致。
 
         Args:
-            target: 目标亮度值。
+            target: 目标亮度值 (0-255 灰度), 越界会被钳制。
 
         Returns:
-            设置的目标值。
+            实际生效的目标值 (钳制后)。
         """
-        return target
+        return super().set_auto_exposure_target(target)
 
     def get_auto_exposure_state(self) -> dict:
         """获取自动曝光状态。
@@ -273,7 +280,7 @@ class SimulatedCCD(BaseCamera):
         return True
 
     @staticmethod
-    def get_cam_list() -> list:
+    def get_cam_list() -> list[Any]:
         """获取可用相机列表。
 
         Returns:

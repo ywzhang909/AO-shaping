@@ -300,6 +300,20 @@ def _exit_code(reliable: bool) -> int:
     return 0 if reliable else 1
 
 
+def _prepare_out_dir(out: Path) -> Path:
+    """Create the fresh run directory and its ``frames/`` subdirectory.
+
+    ``np.save(out / "frames/x_00.npy", ...)`` does not create parents, so the
+    subdirectory must exist before the first pattern is captured — otherwise the
+    whole scan dies after the payload is already acquired (2026-11-11 run).
+    Refuses to reuse an existing run directory: raw frames must never be
+    silently overwritten.
+    """
+    out.mkdir(parents=True, exist_ok=False)
+    (out / "frames").mkdir()
+    return out
+
+
 def _capture_flat(slm, cam, dark: np.ndarray | None) -> tuple[dict, np.ndarray]:
     """Flat-field (all-zero) frame and CCD 0-order box-centroid reference evidence.
 
@@ -425,8 +439,7 @@ def _run(args: argparse.Namespace) -> int:
         return 2
 
     dark = args.dark
-    out = args.out
-    out.mkdir(parents=True, exist_ok=False)
+    out = _prepare_out_dir(args.out)
     failures: list[dict] = []
     frames: list[dict] = []
     release: dict = {"slm_flat_gray0": "not-attempted", "slm_closed": "not-attempted", "cam_closed": "not-attempted"}

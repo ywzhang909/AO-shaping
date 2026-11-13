@@ -18,7 +18,10 @@ from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity im
 )
 from ao_shaping.algorithm.signal_processing import multishape_objective as mo
 from ao_shaping.tools.slm.transfer.geometric_seed import (
+    AUTO_SEED_RULE,
+    SEED_KINDS,
     export_frozen_parameters,
+    resolve_seed_kind,
     square_transport_phase,
     target_backprojection_phase,
 )
@@ -153,3 +156,56 @@ def test_export_rejects_a_grid_that_does_not_tile_the_panel(tmp_path):
     path = _checkpoint(tmp_path)
     with pytest.raises(ValueError):
         export_frozen_parameters(path, tmp_path / "bad", grid=100, fft=128)
+
+
+# ---------------------------------------------------------------------------
+# the `auto` rule: a square starts from transport, everything else from the
+# back-projection; measured 2026-11-11 (a1500 A-B-B-A: transport CV 3.743 vs the
+# GS baseline 3.945, drift 0.068, accepted).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(("shape", "expected"), [
+    ("square", "transport"),
+    ("triangle", "backprojection"),
+    ("circle", "backprojection"),
+    ("hexagon", "backprojection"),
+    ("方框", "backprojection"),
+])
+def test_auto_resolves_by_the_measured_shape_rule(shape, expected):
+    assert resolve_seed_kind(shape, "auto") == expected
+
+
+@pytest.mark.parametrize("kind", [item for item in SEED_KINDS if item != "auto"])
+def test_an_explicit_request_is_never_rewritten_by_the_resolver(kind):
+    """Only ``auto`` may change a request; every concrete value passes through as asked."""
+    assert resolve_seed_kind("square", kind) == kind
+    assert resolve_seed_kind("triangle", kind) == kind
+
+
+def test_the_rule_text_names_both_branches_the_resolver_takes():
+    """The one-line rule feeds ``--help`` and the field docs, so it must name the two
+    constructions the resolver can pick; the texts stay Chinese like the field docs."""
+    assert "正方形" in AUTO_SEED_RULE and "其余形状" in AUTO_SEED_RULE
+    for kind in (resolve_seed_kind("square", "auto"), resolve_seed_kind("triangle", "auto")):
+        assert kind in AUTO_SEED_RULE
+
+
+def test_the_offline_seed_matches_what_auto_picks_on_the_bench(tmp_path):
+    """An ``auto`` session has to start offline from the same construction the bench
+    would use; the geometric seeds are what made ``auto`` worth having."""
+    from types import SimpleNamespace
+
+    from ao_shaping.tools.slm.transfer import validate, workflow
+
+    forward, centre = _forward(tmp_path)
+    config = SimpleNamespace(initial_phase="auto", seed_run=None, seed_policy="strict",
+                             seed=0, side=SIDE)
+    for shape, expected in (("square", "transport"), ("triangle", "backprojection")):
+        target = validate.target_at(forward.camera_xy, shape, centre, SIDE, aspect_ratio=2.0)
+        phase, kind = workflow._offline_seed_phase(
+            shape, config, forward=forward, xy=forward.camera_xy, center=centre, target=target)
+        assert kind == expected
+        assert phase.shape == (forward.params.grid_size, forward.params.grid_size)
+        assert np.isfinite(phase).all()
+

@@ -11,15 +11,16 @@ an import cycle with the backend modules that import ``ExposureTime`` from here.
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 import numpy as np
 from loguru import logger
 
-from ao_shaping.drivers.ccd.base import BaseCamera
+from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
 from ao_shaping.utils.io import paths
 
 
@@ -454,20 +455,24 @@ def get_camera_exposure_ms(cam: BaseCamera) -> float:
     drifted from what the sensor actually used (issue #32, ``回读恒为 3.0``).
 
     Raises:
-        AttributeError: The camera exposes none of ``get_exposure_time_ms``,
-            ``exposure_time_ms`` or ``exposure_time``.
+        CameraError: The camera exposes none of ``get_exposure_time_ms``,
+            ``exposure_time_ms`` or ``exposure_time`` (and the live readback,
+            when present, raised ``CameraError`` / ``AttributeError``).
     """
     live = getattr(cam, "get_exposure_time_ms", None)
     if callable(live):
-        value = live()
-        if isinstance(value, (int, float)):
+        try:
+            value = live()
+        except (AttributeError, CameraError):
+            value = None
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
             return float(value)
     for attr in ("exposure_time_ms", "exposure_time"):
         value = getattr(cam, attr, None)
-        if isinstance(value, (int, float)):
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
             return float(value)
-    raise AttributeError(
-        f"{type(cam).__name__} exposes no exposure time attribute "
+    raise CameraError(
+        f"{type(cam).__name__} exposes no readable exposure time "
         "(tried 'get_exposure_time_ms', 'exposure_time_ms', 'exposure_time')"
     )
 
@@ -504,12 +509,19 @@ def set_camera_exposure_ms(cam: Any, time_ms: float) -> float:
     writes the ``exposure_time_ms`` / ``exposure_time`` attribute directly.
 
     Returns:
-        The exposure time that was requested, in ms.
+        The exposure the backend **actually applied**, in ms — not the request.
+        Backends clamp to the device range and quantise to integer microseconds
+        (and Daheng/MiiCam may reject a value the SDK won't take), so the
+        requested number is not a valid basis for normalising a frame by
+        exposure (issue #32). If the backend's setter returns nothing usable,
+        the value is read back through :func:`get_camera_exposure_ms`.
     """
     reset = getattr(cam, "reset_exposure_time", None)
     if callable(reset):
-        reset(float(time_ms))
-        return float(time_ms)
+        applied = reset(float(time_ms))
+        if isinstance(applied, (int, float)) and not isinstance(applied, bool):
+            return float(applied)
+        return get_camera_exposure_ms(cam)
     if hasattr(cam, "exposure_time_ms"):
         cam.exposure_time_ms = float(time_ms)
         return float(time_ms)
@@ -522,55 +534,149 @@ def set_camera_exposure_ms(cam: Any, time_ms: float) -> float:
     )
 
 
+# ---------------------------------------------------------------------------
+# Exposure contract dispatch (see drivers/ccd/AGENTS.md §曝光兼容助手)
+# ---------------------------------------------------------------------------
+
+
+def _call_native_auto_exposure(
+    native: Callable[..., Any], /, **contract: Any
+) -> Any:
+    """Call a backend's ``auto_exposure`` with as much of the contract as it takes.
+
+    The unified contract (``target_max`` / ``tolerance`` / ``twice_valid`` /
+    ``max_iterations`` / ``n_sample``) is a ``BaseCamera`` guarantee; third-party
+    and legacy shims may accept a subset of it. Dropping the arguments a backend
+    doesn't declare keeps the helper callable on those objects instead of
+    raising ``TypeError`` mid-measurement.
+    """
+    try:
+        params = inspect.signature(native).parameters
+    # policy: builtins / C extensions may not expose a signature; pass the contract through
+    except (TypeError, ValueError):
+        return native(**contract)
+    if any(p.kind is p.VAR_KEYWORD for p in params.values()):
+        return native(**contract)
+    accepted = {k: v for k, v in contract.items() if k in params}
+    return native(**accepted)
+
+
 def auto_exposure(
     cam: Any,
     target_max: float,
-    tolerance: float = 5.0,
-    max_iterations: int = 20,
-    n_sample: int = 1,
+    tolerance: float = BaseCamera.AUTO_EXPOSURE_TOLERANCE,
+    max_iterations: int = BaseCamera.AUTO_EXPOSURE_MAX_ITERATIONS,
+    n_sample: int = BaseCamera.AUTO_EXPOSURE_N_SAMPLE,
+    twice_valid: bool = True,
 ) -> np.ndarray:
     """Auto-adjust exposure to reach ``target_max`` peak brightness and return the frame.
 
-    ``target_max`` / ``tolerance`` are on the **0-255 grayscale** scale, the
-    unified contract implemented by both hardware backends
-    (:meth:`DahengCamera.auto_exposure` and :meth:`MIICamera.auto_exposure`).
-    When the backend provides a native ``auto_exposure`` it is delegated to;
-    otherwise (ffmpeg / image-folder backends) a generic proportional loop is used.
+    ``target_max`` / ``tolerance`` are on the **0-255 grayscale** scale — the
+    unified contract of :meth:`BaseCamera.auto_exposure`, implemented natively by
+    every camera driver. This helper therefore **delegates** to the backend and
+    only keeps a proportional loop of its own for duck-typed camera objects that
+    are not ``BaseCamera`` subclasses (legacy test doubles, third-party shims).
 
     Args:
         cam: An opened camera driver.
         target_max: Target peak pixel value (0-255).
         tolerance: Absolute peak tolerance in grayscale counts (default 5).
-        max_iterations: Maximum proportional adjustments for the generic loop.
+        max_iterations: Maximum proportional adjustments.
         n_sample: Frames averaged per measurement.
+        twice_valid: Require two consecutive in-band measurements to converge.
+            Only passed to backends whose ``auto_exposure`` accepts it.
 
     Returns:
         The captured image after the adjustment (or the best-effort last frame).
     """
+    # Delegation is safe in both directions: a backend that implements the
+    # contract runs its own loop, and ``BaseCamera.auto_exposure`` (inherited by
+    # every driver without one) runs the generic loop — never this function.
     native = getattr(cam, "auto_exposure", None)
     if callable(native):
-        return np.asarray(native(target_max=target_max, n_sample=n_sample))
+        return np.asarray(
+            _call_native_auto_exposure(
+                native,
+                target_max=target_max,
+                tolerance=tolerance,
+                max_iterations=max_iterations,
+                n_sample=n_sample,
+                twice_valid=twice_valid,
+            )
+        )
 
+    # Duck-typed camera: same proportional loop as BaseCamera.auto_exposure,
+    # reached through the helpers above. Kept in sync deliberately — the
+    # convergence band, the 3x per-step cap and the boundary exits must not
+    # differ per camera kind, or "the same target converged to a different
+    # exposure" becomes unexplainable. See drivers/ccd/AGENTS.md §自动曝光.
     target = float(target_max)
+    low = max(target - float(tolerance), 10.0)
+    high = min(target + float(tolerance), 254.0)
     lo, hi = get_camera_exposure_range(cam)
+    logger.info(
+        "Auto exposure start: target={:.0f}±{:.0f} (range=[{}, {}]ms, max_iter={})",
+        target,
+        tolerance,
+        lo,
+        hi,
+        max_iterations,
+    )
     img = cam.get_numpy_image(n_sample)
+    twice_ok = False
 
-    for _ in range(max(1, int(max_iterations))):
-        peak = float(np.max(img))
-        if peak <= 0.0 or target <= 0.0:
-            break
-        if abs(peak - target) <= tolerance:
-            break
-        current = get_camera_exposure_ms(cam)
-        if current <= 0.0:
-            break
-        new_exp = float(np.clip(current * (target / peak), lo, hi))
-        if abs(new_exp - current) < 1e-9:
-            break
-        set_camera_exposure_ms(cam, new_exp)
+    for i in range(max(1, int(max_iterations))):
+        peak = normalize_peak_to_gray(img)
+
+        if low <= peak <= high:
+            if twice_ok or not twice_valid:
+                logger.info(
+                    "Auto exposure converged at iter {}: exp={:.3f}ms, max={:.1f}",
+                    i + 1,
+                    get_camera_exposure_ms(cam),
+                    peak,
+                )
+                return np.asarray(img)
+            twice_ok = True
+        else:
+            twice_ok = False
+            if peak <= 0.0 or target <= 0.0:
+                break
+            current = get_camera_exposure_ms(cam)
+            if current <= 0.0:
+                break
+            ratio = min(target / max(peak, 1.0), BaseCamera.AUTO_EXPOSURE_MAX_RATIO)
+            requested = float(np.clip(current * ratio, lo, hi))
+            if abs(requested - current) < 1e-9:
+                break
+            # Boundary exits must compare the *applied* exposure: a backend
+            # clamps the request to the device range, so comparing the request
+            # would keep the loop spinning until max_iterations.
+            applied = set_camera_exposure_ms(cam, requested)
+            if applied <= lo and peak > high:
+                logger.warning(
+                    "target brightness {:.0f} unreachable (peak {:.1f}); "
+                    "exposure forced to min",
+                    target,
+                    peak,
+                )
+                break
+            if applied >= hi and peak < low:
+                logger.warning(
+                    "target brightness {:.0f} unreachable (peak {:.1f}); "
+                    "exposure forced to max",
+                    target,
+                    peak,
+                )
+                break
         img = cam.get_numpy_image(n_sample)
 
-    return img
+    logger.info(
+        "Auto exposure finished: exp={:.3f}ms, max={:.1f}",
+        get_camera_exposure_ms(cam),
+        normalize_peak_to_gray(img),
+    )
+    return np.asarray(img)
 
 
 # ---------------------------------------------------------------------------
@@ -665,6 +771,31 @@ def full_scale(img: np.ndarray) -> float:
     if np.issubdtype(img.dtype, np.integer):
         return float(np.iinfo(img.dtype).max)
     return DETECTOR_FULL_SCALE
+
+
+def normalize_peak_to_gray(img: np.ndarray) -> float:
+    """Peak of ``img`` expressed on the **0-255 grayscale** scale.
+
+    The auto-exposure contract (``target_max`` / ``tolerance``) is defined in
+    grayscale counts, but a frame's raw peak depends on the sensor's bit depth:
+    8/12/16-bit frames cap at 255/4095/65535, and multi-frame averages come back
+    as ``float32`` whose ceiling must be read off :class:`AveragedFrame`'s
+    ``full_scale`` (never off ``img.dtype``). Without that rescaling a 16-bit
+    frame always reads "peak >> target", so the proportional loop would drive the
+    exposure straight to its lower bound.
+
+    ``full_scale`` is 255 for 8-bit and for float frames already in gray units,
+    so those are returned untouched — only wider integer formats are rescaled.
+
+    Args:
+        img: A camera frame.
+
+    Returns:
+        The frame maximum on the 0-255 scale.
+    """
+    peak = float(np.max(img))
+    scale = float(full_scale(img))
+    return peak * 255.0 / scale if scale > 255.0 else peak
 
 
 def is_saturated(img: np.ndarray) -> bool:

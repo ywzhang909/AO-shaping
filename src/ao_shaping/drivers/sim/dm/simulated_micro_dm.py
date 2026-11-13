@@ -4,11 +4,12 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from loguru import logger
 
 from ao_shaping.drivers.device_base import DeviceState, DeviceType
-from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm.base import BaseDM
 from ao_shaping.drivers.dm._registry import register_dm
 from ao_shaping.model.quantities import DmCommands
 from ao_shaping.drivers.dm.micro import (
@@ -20,7 +21,7 @@ from ao_shaping.drivers.dm.micro import (
 
 
 @register_dm("sim_micro")
-class SimMicroDM(DM):
+class SimMicroDM(BaseDM):
     """无硬件情况下 MicroDM 的仿真模式。
 
     本类用于在没有硬件时做测试与开发。它镜像真实 MicroDM 的接口, 但完全在
@@ -89,9 +90,11 @@ class SimMicroDM(DM):
             "simulation": True,
         }
 
-    def get_actuator_positions(self) -> np.ndarray:
-        """获取模拟致动器位置。"""
-        return self._last_voltages.copy()
+    def get_actuator_positions(self) -> DmCommands:
+        """获取模拟致动器位置 (驱动侧软件回显)。"""
+        return DmCommands(
+            self._last_voltages.copy(), self.V_Min, self.V_Max, self.DM_Num
+        )
 
     def transform(self, cmd: np.ndarray) -> np.ndarray:
         """把归一化指令变换到电压量程。
@@ -101,9 +104,9 @@ class SimMicroDM(DM):
         cmd = np.clip(cmd, -1.0, 1.0)
         return (cmd + 1.0) * (self.V_Max - self.V_Min) / 2.0 + self.V_Min
 
-    def send(self, cmd: np.ndarray | float) -> np.ndarray:
+    def send(self, cmd: npt.ArrayLike | float) -> DmCommands:
         """向模拟 DM 发送指令。"""
-        if isinstance(cmd, np.ndarray):
+        if isinstance(cmd, (np.ndarray, list, tuple)):
             return self.send_voltages(cmd)
         if isinstance(cmd, (int, float)):
             return self.set_all_channel_voltage(float(cmd))
@@ -115,7 +118,7 @@ class SimMicroDM(DM):
         self._last_voltages = vs.copy()
         return self._last_voltages
 
-    def send_voltages(self, vs: DmCommands | np.ndarray, wait_time_s: float = 0.0) -> DmCommands | np.ndarray:
+    def send_voltages(self, vs: DmCommands | npt.ArrayLike, wait_time_s: float = 0.0) -> DmCommands:
         """发送模拟电压数组, 可选安全斜坡。"""
         values = vs.voltages if isinstance(vs, DmCommands) else np.asarray(vs, dtype=np.float64)
         if values.shape != (self.DM_Num,):
@@ -124,7 +127,7 @@ class SimMicroDM(DM):
             )
         return super().send_voltages(vs, wait_time_s=wait_time_s)
 
-    def set_channel_voltage(self, channel: int, voltage: float) -> None:
+    def set_channel_voltage(self, channel: int, voltage: float) -> bool:
         """设置模拟单通道电压。"""
         if not 0 <= channel < self.DM_Num:
             raise MicroDMVoltageError(
@@ -132,22 +135,32 @@ class SimMicroDM(DM):
             )
         voltage = float(np.clip(voltage, self.V_Min, self.V_Max))
         self._last_voltages[channel] = voltage
+        return True
 
-    def set_all_voltage_by_arr(self, voltages: np.ndarray) -> None:
-        """以数组形式设置所有模拟通道。"""
+    def set_all_voltage_by_arr(self, voltages: npt.ArrayLike) -> DmCommands:
+        """以数组形式设置所有模拟通道。
+
+        Returns:
+            本次下发的电压命令 (:class:`DmCommands`, 软件回显)。
+        """
         voltages = np.asarray(voltages, dtype=np.float64)
         voltages = np.clip(voltages, self.V_Min, self.V_Max)
         self._last_voltages = voltages.copy()
+        return DmCommands(
+            self._last_voltages, self.V_Min, self.V_Max, self.DM_Num
+        )
 
-    def set_all_channel_voltage(self, voltage: float) -> np.ndarray:
+    def set_all_channel_voltage(self, voltage: float) -> DmCommands:
         """把所有模拟通道设为同一电压。
 
         Returns:
-            实际施加的电压数组。
+            本次下发的电压命令 (:class:`DmCommands`, 软件回显)。
         """
         voltage = float(np.clip(voltage, self.V_Min, self.V_Max))
         self._last_voltages = np.full(self.DM_Num, voltage)
-        return self._last_voltages.copy()
+        return DmCommands(
+            self._last_voltages, self.V_Min, self.V_Max, self.DM_Num
+        )
 
     def set_relay_state(self, state: bool) -> None:
         """设置模拟继电器状态。"""

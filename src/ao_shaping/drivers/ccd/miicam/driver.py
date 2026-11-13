@@ -163,10 +163,13 @@ class MIICamera(BaseCamera):
     #: MiiCam 由 SDK 在内部线程推帧, 不走基类的轮询取流线程。
     supports_callback_stream: bool = True
 
-    @staticmethod
-    def get_exposure_range() -> tuple[float, float]:
-        """获取相机支持的曝光时间范围 (ms), 返回 (min, max)。"""
-        return MIICamera.MIN_EXPOSURE_MS, MIICamera.MAX_EXPOSURE_MS
+    def get_exposure_range(self) -> tuple[float, float]:
+        """获取相机支持的曝光时间范围 (ms), 返回 (min, max)。
+
+        实例方法覆写: 与 :meth:`BaseCamera.get_exposure_range` 的契约一致,
+        调用方统一写 ``cam.get_exposure_range()``, 不按后端分支。
+        """
+        return self.MIN_EXPOSURE_MS, self.MAX_EXPOSURE_MS
 
     @classmethod
     def from_params(cls, params: Any, **overrides: Any) -> Self:
@@ -236,15 +239,20 @@ class MIICamera(BaseCamera):
     # =========================================================================
 
     def __enter__(self):
-        return self.open()
+        self.open()
+        return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
-    def open(self) -> "MIICamera":
-        """打开相机设备 (initialize 的别名)。"""
+    def open(self) -> None:
+        """打开相机设备 (initialize 的别名)。
+
+        契约 (与 :class:`~ao_shaping.drivers.ccd.base.BaseCamera` 一致):
+        成功返回 ``None``; 失败抛异常并携带具体信息
+        (``ConnectionAbortedError`` 未找到设备 / ``MIICAMError`` 初始化失败)。
+        """
         self.initialize()
-        return self
 
     def close(self) -> None:
         """关闭相机设备并释放资源。"""
@@ -356,16 +364,21 @@ class MIICamera(BaseCamera):
         self._init_serial_number()
 
     def _init_exposure(self) -> None:
-        """关闭自动曝光并设置曝光时间与增益。"""
+        """关闭自动曝光并设置曝光时间与增益。
+
+        初始化路径同样先钳制 + 量化到整数微秒, 再下发 SDK: 缓存必须是设备
+        真正在用的那一个, 否则「打开相机后读到的曝光」从第一眼就是虚的。
+        """
         try:
             self.cam.put_AutoExpoEnable(0)
         except miicam.HRESULTException:
             logger.warning("Could not disable auto exposure during init")
 
+        applied = self._clamp_exposure_ms(self.exposure_time_ms)
         try:
-            self.cam.put_ExpoTime(int(self.exposure_time_ms * 1000))
+            self.cam.put_ExpoTime(self._quantize_exposure_us(applied))
         except miicam.HRESULTException:
-            logger.warning(f"Could not set exposure time to {self.exposure_time_ms}ms")
+            logger.warning(f"Could not set exposure time to {applied}ms")
 
         try:
             self.cam.put_ExpoAGain(100)
@@ -503,25 +516,44 @@ class MIICamera(BaseCamera):
     # 曝光控制
     # =========================================================================
 
+    @classmethod
+    def _quantize_exposure_us(cls, time_ms: float) -> int:
+        """请求曝光 (ms) -> 设备真正使用的**整数微秒**。
+
+        SDK 只接受整数 µs (``put_ExpoTime(int)``), 而帧信息里**不回读**曝光
+        (``MiicamFrameInfoV3.expotime`` 恒 0, flag 无 ``EXPOTIME`` 位), 所以这个整数
+        就是设备侧的真值 —— 缓存必须与它一致。留下未量化的原始请求就是虚报一个
+        设备并未使用的曝光 (issue #32: 请求 0.0117ms、设备用 11µs, 偏差 ~6%)。
+
+        用 ``round`` 而非 ``int`` 截断: 截断对「已量化值」不闭合
+        (``int(1.001 * 1000) == 1000``), 会让回读值每读一次再掉 1µs。
+        """
+        lo = int(round(MIICamera.MIN_EXPOSURE_MS * 1000))
+        hi = int(round(MIICamera.MAX_EXPOSURE_MS * 1000))
+        return max(lo, min(hi, int(round(float(time_ms) * 1000))))
+
     def _clamp_exposure_ms(self, time_ms: float) -> float:
-        """钳制曝光到 [MIN, MAX], 写入 ``exposure_time_ms`` 并返回生效值。"""
+        """钳制 + 量化曝光, 写入 ``exposure_time_ms`` 并返回生效值 (ms)。
+
+        写入缓存的是**量化到整数微秒后**的值 (``µs / 1000``), 即
+        :meth:`_quantize_exposure_us` 下发给 SDK 的那一个; 对已量化的值重复调用
+        是恒等的 (幂等), 所以 ``get_exposure_time_ms()`` 不会逐次漂移。
+        """
+        applied = self._quantize_exposure_us(time_ms) / 1000.0
         if time_ms < MIICamera.MIN_EXPOSURE_MS:
-            self.exposure_time_ms = MIICamera.MIN_EXPOSURE_MS
             logger.warning(
                 "exposure time must >= {:.4f}ms. clamped to {:.4f}ms.",
                 MIICamera.MIN_EXPOSURE_MS,
-                MIICamera.MIN_EXPOSURE_MS,
+                applied,
             )
         elif time_ms > MIICamera.MAX_EXPOSURE_MS:
-            self.exposure_time_ms = MIICamera.MAX_EXPOSURE_MS
             logger.warning(
                 "exposure time must <= {:.1f}ms. clamped to {:.1f}ms.",
                 MIICamera.MAX_EXPOSURE_MS,
-                MIICamera.MAX_EXPOSURE_MS,
+                applied,
             )
-        else:
-            self.exposure_time_ms = time_ms
-        return self.exposure_time_ms
+        self.exposure_time_ms = applied
+        return applied
 
     def set_exposure_ms(self, time_ms: float) -> float:
         """回调流存续期间改曝光的快速通道 (单次 Stop → put_ExpoTime → Start)。
@@ -550,7 +582,7 @@ class MIICamera(BaseCamera):
             pass
         time.sleep(0.1)
 
-        self.cam.put_ExpoTime(int(applied * 1000))
+        self.cam.put_ExpoTime(self._quantize_exposure_us(applied))
 
         # 保持自动曝光关闭 (防止 AGC 覆盖手动曝光)
         try:
@@ -608,7 +640,7 @@ class MIICamera(BaseCamera):
             pass
         time.sleep(0.1)
 
-        self.cam.put_ExpoTime(int(self.exposure_time_ms * 1000))
+        self.cam.put_ExpoTime(self._quantize_exposure_us(self.exposure_time_ms))
 
         # 保持自动曝光关闭 (防止 AGC 覆盖手动曝光)
         try:
@@ -637,11 +669,11 @@ class MIICamera(BaseCamera):
 
     def auto_exposure(
         self,
-        target_max: float = 40.0,
-        tolerance: float = 5.0,
+        target_max: float = BaseCamera.AUTO_EXPOSURE_TARGET_MAX,
+        tolerance: float = BaseCamera.AUTO_EXPOSURE_TOLERANCE,
         twice_valid: bool = True,
-        max_iterations: int = 20,
-        n_sample: int = 1,
+        max_iterations: int = BaseCamera.AUTO_EXPOSURE_MAX_ITERATIONS,
+        n_sample: int = BaseCamera.AUTO_EXPOSURE_N_SAMPLE,
     ) -> np.ndarray:
         """自动曝光调整 (比例迭代)。
 
@@ -673,8 +705,7 @@ class MIICamera(BaseCamera):
         target_val = float(target_max)
         low = int(max(target_val - tolerance, 10))
         high = int(min(target_val + tolerance, 254))
-        min_exp = float(self.min_exposure_ms)
-        max_exp = float(self.max_exposure_ms)
+        min_exp, max_exp = self.get_exposure_range()
 
         logger.info(
             "Auto exposure start: target={:.0f}±{:.0f} (range=[{}, {}]ms, max_iter={})",
@@ -689,29 +720,32 @@ class MIICamera(BaseCamera):
         img = self.get_numpy_image(n_sample, skip_first=True)
 
         for i in range(max(1, int(max_iterations))):
-            peak = float(np.max(img))
+            # 0-255 灰度量纲 (与基类同一入口): 16-bit 帧满量程不是 255
+            peak = self._auto_exposure_peak(img)
 
             if low <= peak <= high:
                 if twice_ok or not twice_valid:
                     logger.info(
                         "Auto exposure converged at iter {}: exp={:.4f}ms, max={:.1f}",
                         i + 1,
-                        self.exposure_time_ms,
+                        self.get_exposure_time_ms(),
                         peak,
                     )
                     return img
                 twice_ok = True
             else:
                 twice_ok = False
-                current = float(self.exposure_time_ms)
+                current = self.get_exposure_time_ms()
                 if current <= 0:
                     break
-                ratio = min(target_val / max(peak, 1.0), 3.0)
+                ratio = min(target_val / max(peak, 1.0), self.AUTO_EXPOSURE_MAX_RATIO)
                 new_exp = float(np.clip(current * ratio, min_exp, max_exp))
                 if abs(new_exp - current) < 1e-9:
                     break
-                self.reset_exposure_time(new_exp)
-                if new_exp <= min_exp and peak > high:
+                # reset_exposure_time 返回**已钳制 + 量化**的生效值; 边界判断必须用
+                # 它, 用请求值会在「设备把请求钳到量程内」时永不退出。
+                applied = float(self.reset_exposure_time(new_exp))
+                if applied <= min_exp and peak > high:
                     logger.warning(
                         "target brightness {:.0f} unreachable (peak {:.1f}); "
                         "exposure forced to min",
@@ -719,7 +753,7 @@ class MIICamera(BaseCamera):
                         peak,
                     )
                     break
-                if new_exp >= max_exp and peak < low:
+                if applied >= max_exp and peak < low:
                     logger.warning(
                         "target brightness {:.0f} unreachable (peak {:.1f}); "
                         "exposure forced to max",
@@ -732,8 +766,10 @@ class MIICamera(BaseCamera):
 
         logger.info(
             "Auto exposure finished: exp={:.4f}ms, max={:.1f}",
-            self.exposure_time_ms,
-            float(np.max(img)),
+            self.get_exposure_time_ms(),
+            # 与循环内判据同量纲 (0-255 灰度): 直接打印原始满量程峰值会让
+            # 16-bit / AveragedFrame 后端的日志比 target_max 大一个量级, 无法核对收敛。
+            self._auto_exposure_peak(img),
         )
         return img
 

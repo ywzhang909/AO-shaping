@@ -60,6 +60,15 @@ EXTRACTED = {
     # existed; all now import the canonical ("再迁复用" batch 3). `ridge` is
     # deliberately NOT registered: legitimate different-purpose ridge copies remain.
     "folds_of": "src/ml/zernike/eval_stats.py: folds_of",
+    # Console-table helpers: the two diffopt probes each carried their own
+    # ``_wlen``/``_pad`` (display width vs code points -- a drifted copy misaligns
+    # every CJK table) and three scripts parsed ``--lrs``/``--caps`` with a local
+    # ``_parse_int_list``. ``parse_int_list`` is registered under its old private
+    # name only: ``scripts/slm/build_hw_sweep_plan.py`` still defines a *public*
+    # ``parse_int_list`` returning a tuple, which is a different contract.
+    "_parse_int_list": "scripts/_common: parse_int_list",
+    "_wlen": "scripts/_common: wlen",
+    "_pad": "scripts/_common: pad",
 }
 
 #: Generators migrated onto ``scripts._common``.

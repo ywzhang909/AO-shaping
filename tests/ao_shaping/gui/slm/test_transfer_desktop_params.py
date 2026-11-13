@@ -447,7 +447,7 @@ def test_build_session_keeps_the_pipeline_defaults_for_unshown_fields(
     session = build_session(TransferFormValues(), out=tmp_path / "session")
 
     assert session.dataset is None
-    assert session.initial_phase == "gs"
+    assert session.initial_phase == "auto"
     assert session.window_span == 220.0
     assert session.window_step == 2.0
     assert session.phase_lr == 0.30

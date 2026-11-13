@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from loguru import logger
 
-from ao_shaping.drivers.dm.base import DM
+from ao_shaping.drivers.dm.base import BaseDM
 from ao_shaping.drivers.dm._registry import register_dm
 from ao_shaping.utils.wavefront.hadamard_calc import HadamardGenerator
 
@@ -14,7 +14,7 @@ from ao_shaping.utils.wavefront.hadamard_calc import HadamardGenerator
 
 
 @register_dm("hadamard")
-class HadamardDM(DM):
+class HadamardDM(BaseDM):
     """Hadamard系数驱动的变形镜/SLM接口.
 
     接受Hadamard系数向量作为输入，将其转换为Walsh-Hadamard拟合相位面型。
@@ -149,28 +149,6 @@ class HadamardDM(DM):
         raise ValueError(
             f"Unsupported command type: {type(cmd)}. Expected numpy array."
         )
-
-    def send(self, cmd) -> np.ndarray:
-        """向 DM 发送命令并返回相位图案。
-
-        Args:
-            cmd: 待发送的命令 (系数的一维 numpy 数组)。
-
-        Returns:
-            灰度标度的二维相位数组 (uint16)。
-        """
-        return self.transform(cmd)
-
-    def send_hadamard(self, coefficients: np.ndarray) -> np.ndarray:
-        """发送Hadamard系数并返回相位图（快捷方法）
-
-        Args:
-            coefficients: Hadamard 模式系数的一维数组。
-
-        Returns:
-            灰度相位图 (uint16)
-        """
-        return self.generate_phase_2pi(coefficients)
 
     def open(self) -> None:
         """打开 Hadamard DM 连接。"""

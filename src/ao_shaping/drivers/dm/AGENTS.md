@@ -6,7 +6,7 @@
 
 ```
 dm/
-├── base.py              # DM 抽象基类 (DM/ABC)
+├── base.py              # DM 抽象基类 (BaseDM/ABC)
 ├── hadamard_dm.py       # Hadamard DM
 ├── zernike_dm.py        # Zernike DM
 ├── MicroDM.py           # re-export shim → micro/
@@ -51,7 +51,7 @@ dm/
 
 | 类 | 文件 | 说明 |
 |----|------|------|
-| `DM` | `base.py` | DM 抽象基类 |
+| `BaseDM` | `base.py` | DM 抽象基类 |
 | `NLight` | `nlight/driver.py` | NLight 变形镜 (主用) |
 | `DMUdp` / `DMSdk` | `nlight/udp.py` / `nlight/sdk.py` | NLight 两条传输通道 |
 | `MicroDM` | `micro/driver.py` | Micro-DM |
@@ -62,14 +62,14 @@ dm/
 
 ## DM 接口
 
-`DM` 抽象基类定义 (`dm/base.py`):
+`BaseDM` 抽象基类定义 (`dm/base.py`):
 
 | 方法 | 说明 |
 |------|------|
-| `transform(cmd)` | 将命令转换为 DM 值 |
-| `send(cmd)` | 发送命令到 DM (委托给 send_voltages) |
+| `transform(cmd)` | 将命令转换为 DM 值; **具体默认实现** = 委托 `transform_voltage`, 电压型子类不再转发, 相位型子类覆写为图案生成 |
+| `send(cmd)` | **仅电压语义** (委托给 send_voltages); 相位图一律走 `transform` / `generate_phase_2pi`, 不覆写 `send` |
 | `send_voltages(vs, wait_time_s)` | 发送电压数组 (含安全斜坡) |
-| `open()` | 打开 DM 连接 |
+| `open()` | 打开 DM 连接; 返回 ``None``, 失败抛异常并携带具体信息 (设备标识/地址/底层错误) |
 | `close()` | 关闭 DM 连接 |
 | `is_connected()` | 检查连接状态 |
 | `get_hardware_info()` | 获取硬件信息 |
@@ -82,4 +82,4 @@ dm/
 
 ### NLight DM
 
-`NLight` (`dm/nlight/driver.py`) 是主要的 NLight 变形镜驱动, 继承 `DM`, 需实现 `_apply_voltages` 等抽象方法。两条互补通道: `udp.py::DMUdp` 走 UDP datagram 批量下发 64 通道电压, `sdk.py::DMSdk` 走 `Drv_UDPST/` 下的 C SDK 做高压开关与读回。
+`NLight` (`dm/nlight/driver.py`) 是主要的 NLight 变形镜驱动, 继承 `BaseDM`, 需实现 `_apply_voltages` 等抽象方法。两条互补通道: `udp.py::DMUdp` 走 UDP datagram 批量下发 64 通道电压, `sdk.py::DMSdk` 走 `Drv_UDPST/` 下的 C SDK 做高压开关与读回。

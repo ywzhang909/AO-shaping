@@ -3,7 +3,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 import threading
-from typing import Callable, Sequence
+from typing import Any, Callable, ClassVar, Sequence
 
 import numpy as np
 from loguru import logger
@@ -41,6 +41,13 @@ class BaseCamera(ABC):
       部分 SDK (大恒 gxipy、MIICAM) 内部用**微秒 (µs)**;
       各实现必须在 SDK 边界换算 (写入时 `ms * 1000 -> µs`,
       读取时 `µs / 1000 -> ms`)。
+    * 曝光契约 (基类提供默认实现, 后端按需覆写):
+      :meth:`get_exposure_time_ms` 读**生效**曝光 (有设备回读的后端必须覆写,
+      否则静默退回缓存 = issue #32); :meth:`get_exposure_range` 给量程
+      ``(min_ms, max_ms)``; :meth:`set_auto_exposure_target` 设 SDK 目标亮度;
+      :meth:`auto_exposure` 是统一的自动曝光入口, ``target_max`` / ``tolerance``
+      一律 **0-255 灰度**。调用方一律走这四个入口, 不要再读
+      ``exposure_time_ms`` 缓存、也不要按后端分支。
     * 亮度: 原始像素值; dtype 取决于位深
       (通常是 ``uint8`` 或 ``uint16``)。
     * ROI 窗口: ``(width, height)`` 与 ``(center_x, center_y)``, 单位像素。
@@ -63,6 +70,20 @@ class BaseCamera(ABC):
     #: 轮询取流两次抓帧之间的额外间隔 (秒); 0 表示由 ``get_numpy_image`` 自身的
     #: 阻塞/曝光时间限速。后端若一次性返回缓存帧, 可调大以避免空转。
     stream_poll_interval_s: float = 0.0
+
+    #: 后端可选的位深集合 (bit); 空元组 = 该后端**不提供**位深选择。
+    #:
+    #: 位深决定帧的 dtype 与满量程 (12 bit 是 ``uint16`` 只填低 12 位), 所以它是
+    #: **采集契约的一部分** 而不是驱动内部细节: 饱和判据、线性度、峰值统计都按
+    #: 满量程折算, 拿到错位深就等于拿错量纲。实现方在这里登记设备真能切出的档位。
+    supported_bit_depths: ClassVar[tuple[int, ...]] = ()
+
+    #: 当前**生效**位深 (bit); ``None`` = 后端不提供位深选择, 或设备尚未打开。
+    #:
+    #: 类级默认 ``None``, 实例由后端在 ``open()`` / :meth:`set_bit_depth` 里写入
+    #: **设备回读真值** (不是请求值 —— SDK 对 ``PixelFormat`` 的写入可能被静默保留
+    #: 旧值, 同 ``IntFeature.set`` 的坑)。调用方一律读本属性, 不要读驱动私有缓存。
+    bit_depth: int | None = None
 
     # 取流线程状态 (惰性初始化; 未覆写 __init__ 的后端也能直接用 start_stream)
     _stream_thread: threading.Thread | None = None
@@ -186,6 +207,236 @@ class BaseCamera(ABC):
         """
         return self.reset_exposure_time(time_ms)
 
+    # ------------------------------------------------------------ 曝光契约
+    #: 跨后端通用的曝光量程回落 (后端既不暴露 SDK 量程, 也没有 min/max 属性时)。
+    DEFAULT_EXPOSURE_RANGE_MS: ClassVar[tuple[float, float]] = (0.011, 10_000.0)
+
+    #: 自动曝光统一契约的默认档位 (0-255 灰度), 见 :meth:`auto_exposure`。
+    AUTO_EXPOSURE_TARGET_MAX: ClassVar[float] = 40.0
+    AUTO_EXPOSURE_TOLERANCE: ClassVar[float] = 5.0
+    AUTO_EXPOSURE_MAX_ITERATIONS: ClassVar[int] = 20
+    AUTO_EXPOSURE_N_SAMPLE: ClassVar[int] = 1
+
+    #: 比例环单步放大上限 —— 三个实现 (基类 / 大恒 / MiiCam) 必须一致, 否则
+    #: 「同一个 target 在不同后端上收敛到不同曝光」无法解释。
+    AUTO_EXPOSURE_MAX_RATIO: ClassVar[float] = 3.0
+
+    #: SDK 自动曝光目标亮度的记录值 (0-255 灰度)。**类属性**: 没调用过
+    #: ``super().__init__`` 的后端 (大恒) 也能安全读写。
+    _auto_exposure_target: int = 0
+
+    def get_exposure_time_ms(self) -> float:
+        """当前**生效**的曝光时间 (ms) —— 曝光契约的唯一读取入口。
+
+        🔴 返回值必须是**设备真正在用**的曝光, 不是原始请求。两个硬件后端都
+        把请求钳制并量化到整数微秒后才下发 SDK (大恒 ``ExposureTime.set(int(ms*1000))``、
+        MiiCam ``put_ExpoTime(int(ms*1000))``), 拿未经量化的缓存当回读, 就是在虚报
+        一个设备并未使用的曝光 (issue #32)。
+
+        基类只能读驱动侧缓存 —— **有设备回读能力的后端必须覆写本方法**:
+
+        * ``DahengCamera``: 读 GenICam ``ExposureTime`` 特征 (设备真值);
+        * ``MIICamera``: SDK 无可靠 getter, 返回**已钳制 + 量化**的缓存。
+
+        没实现本方法的后端会静默退回缓存, 那正是 issue #32 的缺陷形态。
+
+        返回:
+            float: 生效曝光, 单位毫秒。
+
+        异常:
+            CameraError: 后端连 ``exposure_time_ms`` / ``exposure_time`` 缓存都没有。
+        """
+        for attr in ("exposure_time_ms", "exposure_time"):
+            value = getattr(self, attr, None)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return float(value)
+        raise CameraError(
+            f"{type(self).__name__} 没有可读的曝光时间: 既未实现 "
+            "get_exposure_time_ms(), 也没有 exposure_time_ms / exposure_time 缓存。"
+        )
+
+    def get_exposure_range(self) -> tuple[float, float]:
+        """设备支持的曝光范围 ``(min_ms, max_ms)``。
+
+        基类读后端的 ``min_exposure_ms`` / ``max_exposure_ms`` (MiiCam / SimPibCCD
+        提供), 都没有时回落到 :attr:`DEFAULT_EXPOSURE_RANGE_MS`。
+        有 SDK 量程特征的后端 (大恒) 覆写本方法返回**设备真值**。
+        """
+        lo = getattr(self, "min_exposure_ms", None)
+        hi = getattr(self, "max_exposure_ms", None)
+        if (
+            isinstance(lo, (int, float))
+            and isinstance(hi, (int, float))
+            and not isinstance(lo, bool)
+            and not isinstance(hi, bool)
+            and float(hi) > float(lo) > 0.0
+        ):
+            return float(lo), float(hi)
+        return self.DEFAULT_EXPOSURE_RANGE_MS
+
+    def set_auto_exposure_target(self, target: int) -> int:
+        """设置 SDK 自动曝光的目标亮度 (0-255 灰度), 返回**生效**值。
+
+        基类没有可写的 SDK 特征, 只做驱动侧记录 (``get_auto_exposure_state`` 会
+        把它报出去)。后端有对应特征时必须覆写: 大恒写 ``ExpectedGrayValue``,
+        MiiCam 写 ``put_AutoExpoTarget`` 并钳到该 SDK 的 16-220。
+        不支持自动曝光的回放型后端 (ffmpeg / image_folder) 覆写为抛
+        :class:`NotImplementedError` —— 那是能力缺失, 不是「设了没生效」。
+
+        参数:
+            target: 目标亮度 (0-255 灰度), 越界会被钳制。
+
+        返回:
+            int: 实际生效的目标值。
+        """
+        value = int(round(float(target)))
+        clamped = int(max(0, min(255, value)))
+        if clamped != value:
+            logger.warning(
+                "auto exposure target {} 越界, 钳制到 {}", value, clamped
+            )
+        self._auto_exposure_target = clamped
+        return clamped
+
+    def _auto_exposure_peak(self, img: np.ndarray) -> float:
+        """把一帧的峰值折算到 **0-255 灰度** —— 自动曝光契约的量纲。
+
+        ``target_max`` / ``tolerance`` 按定义是 0-255 灰度, 但 8/12/16-bit 后端的
+        原始帧峰值分别封顶在 255/4095/65535, 直接拿来和目标比会让高位深后端
+        「peak 恒大于 high」而把曝光一路压到下限。满量程从
+        :class:`AveragedFrame` 的 ``full_scale`` (或多帧均值推断) 取得 ——
+        绝不用 ``img.dtype``, 因为多帧平均后 dtype 恒为 ``float32``。
+
+        三个自动曝光实现 (基类通用环 / 大恒 / MiiCam) 必须走同一个折算入口,
+        否则「同一个 target 在不同后端上收敛到不同曝光」无法解释。
+
+        参数:
+            img: 采集到的帧 (uint8 / uint16 / 多帧均值 ``AveragedFrame`` 皆可)。
+
+        返回:
+            float: 折算到 0-255 灰度的峰值。
+        """
+        from ao_shaping.drivers.ccd.common import normalize_peak_to_gray
+
+        return normalize_peak_to_gray(img)
+
+    def auto_exposure(
+        self,
+        target_max: float = AUTO_EXPOSURE_TARGET_MAX,
+        tolerance: float = AUTO_EXPOSURE_TOLERANCE,
+        twice_valid: bool = True,
+        max_iterations: int = AUTO_EXPOSURE_MAX_ITERATIONS,
+        n_sample: int = AUTO_EXPOSURE_N_SAMPLE,
+    ) -> np.ndarray:
+        """统一自动曝光契约的**通用**实现 (比例迭代)。
+
+        两个硬件后端 (:meth:`DahengCamera.auto_exposure` /
+        :meth:`MIICamera.auto_exposure`) 覆写本方法以加入各自 SDK 的行为
+        (大恒的 ``ExposureAuto="Once"`` 快路径、MiiCam 的 Stop→set→Start 节奏),
+        但**参数与语义完全一致**, 调用方不需要按后端分支:
+
+        * ``target_max`` / ``tolerance`` 一律是 **0-255 灰度** (与 SDK
+          ``ExpectedGrayValue`` 及历史 ``autoset_exposure_time_ms`` 一致, **不是 0-1**);
+          16-bit 帧按其满量程折算到同一量纲, 因此 ``target_max=40`` 在 uint8 与
+          uint16 后端上代表同一个亮度;
+        * ``twice_valid=True`` 需要**连续两次**落入 ``target±tolerance`` 才收敛;
+        * 返回**调整后采集到的那一帧** (不重拍)。
+
+        单步调整 ``new = exp * target / peak``, 放大上限
+        :attr:`AUTO_EXPOSURE_MAX_RATIO`; 到量程边界仍不达标时记 warning 并以边界
+        曝光退出 (不空转到 ``max_iterations``)。
+
+        本方法**绝不调用** ``common.auto_exposure`` —— 那个 helper 的职责是「有原生
+        实现就委托给后端」, 反向调用会构成无限递归。
+
+        参数:
+            target_max: 目标峰值亮度 (0-255 灰度)。
+            tolerance: 峰值容差 (0-255, 绝对值), 必须 > 0。
+            twice_valid: 是否要求连续两次命中才收敛。
+            max_iterations: 最大迭代次数 (至少 1 次测量)。
+            n_sample: 每次估计峰值的采样帧数。
+
+        返回:
+            np.ndarray: 收敛 (或退出) 时采集到的图像。
+
+        异常:
+            ValueError: ``tolerance <= 0``。
+            CameraError: 相机未初始化。
+        """
+        self._ensure_open()
+        if tolerance <= 0:
+            raise ValueError("tolerance must be > 0")
+
+        target_val = float(target_max)
+        low = int(max(target_val - tolerance, 10))
+        high = int(min(target_val + tolerance, 254))
+        min_exp, max_exp = self.get_exposure_range()
+        min_exp, max_exp = float(min_exp), float(max_exp)
+
+        logger.info(
+            "Auto exposure start: target={:.0f}±{:.0f} (range=[{}, {}]ms, max_iter={})",
+            target_val,
+            tolerance,
+            min_exp,
+            max_exp,
+            max_iterations,
+        )
+
+        img = self.get_numpy_image(n_sample, skip_first=True)
+        twice_ok = False
+        for i in range(max(1, int(max_iterations))):
+            peak = self._auto_exposure_peak(img)
+
+            if low <= peak <= high:
+                if twice_ok or not twice_valid:
+                    logger.info(
+                        "Auto exposure converged at iter {}: exp={:.4f}ms, max={:.1f}",
+                        i + 1,
+                        self.get_exposure_time_ms(),
+                        peak,
+                    )
+                    return img
+                twice_ok = True
+            else:
+                twice_ok = False
+                current = self.get_exposure_time_ms()
+                if current <= 0:
+                    break
+                ratio = min(target_val / max(peak, 1.0), self.AUTO_EXPOSURE_MAX_RATIO)
+                requested = float(np.clip(current * ratio, min_exp, max_exp))
+                if abs(requested - current) < 1e-9:
+                    break
+                # 用**生效值**判边界: 后端会把请求钳到设备量程, 拿请求值比较会
+                # 在「请求 = min 但设备钳到 > min」时永不退出。
+                applied = float(self.set_exposure_ms(requested))
+                if applied <= min_exp and peak > high:
+                    logger.warning(
+                        "target brightness {:.0f} unreachable (peak {:.1f}); "
+                        "exposure forced to min",
+                        target_val,
+                        peak,
+                    )
+                    break
+                if applied >= max_exp and peak < low:
+                    logger.warning(
+                        "target brightness {:.0f} unreachable (peak {:.1f}); "
+                        "exposure forced to max",
+                        target_val,
+                        peak,
+                    )
+                    break
+
+            img = self.get_numpy_image(n_sample, skip_first=True)
+
+        logger.info(
+            "Auto exposure finished: exp={:.3f}ms, max={:.1f}",
+            self.get_exposure_time_ms(),
+            # 与循环内判据同量纲 (0-255 灰度): 直接打印原始峰值会让 uint16 /
+            # AveragedFrame 后端的日志比 target_max 大约 257 倍, 无法核对收敛。
+            self._auto_exposure_peak(img),
+        )
+        return img
+
     def require_pixel_size_um(self) -> float:
         """返回像元边长 (µm); 未提供时抛 :class:`CameraError`。
 
@@ -202,6 +453,36 @@ class BaseCamera(ABC):
                 "其它后端请显式设置 pixel_size_um。"
             )
         return value
+
+    def set_bit_depth(self, bits: int) -> int:
+        """切换输出位深 (bit), 返回**设备生效**的位深。
+
+        基类默认**不提供**该能力: 没有登记 :attr:`supported_bit_depths` 的后端
+        (ffmpeg / image_folder / 通用仿真) 在这里抛 :class:`CameraError`, 而不是把
+        请求值当成生效值静默返回 —— 位深错了, 满量程与饱和判据就全错了。
+
+        覆写方的契约 (与曝光契约同源: 请求值不等于生效值):
+
+        1. 只接受 :attr:`supported_bit_depths` 里的档位, 其余**报错**而不是回落;
+        2. 写入设备后必须**回读真值** (SDK 可能静默保留旧 ``PixelFormat``, 同
+           ``IntFeature.set`` 的坑);
+        3. 把回读到的真值写进 :attr:`bit_depth` 并返回;
+        4. 档位真的变了之后消费掉流水线里残留的旧格式帧 (同改曝光的
+           ``EXPOSURE_CHANGE_DISCARD_FRAMES`` 纪律), 使「换位深后的第一帧就是新格式」。
+
+        参数:
+            bits: 请求位深 (bit)。
+
+        返回:
+            int: 设备实际生效的位深。
+
+        抛出:
+            CameraError: 该后端不支持位深选择。
+        """
+        raise CameraError(
+            f"{type(self).__name__} does not support bit depth selection "
+            f"(supported_bit_depths={tuple(self.supported_bit_depths)})"
+        )
 
     @abstractmethod
     def __exit__(self, exc_type, exc_value, traceback):
@@ -233,6 +514,9 @@ class BaseCamera(ABC):
         """打开相机设备 (initialize 的别名)。
 
         这是给不使用上下文管理器的调用方准备的显式方法。
+
+        契约: 成功返回 ``None``; 失败抛异常并携带具体信息
+        (``ConnectionAbortedError`` 未找到设备 / ``CameraError`` 初始化失败)。
         """
         pass
 
@@ -357,11 +641,12 @@ class BaseCamera(ABC):
 
     @staticmethod
     @abstractmethod
-    def get_cam_list():
+    def get_cam_list() -> list[Any]:
         """获取可用相机设备列表。
 
         返回:
-            可用相机设备列表 (格式各实现自定义)。
+            可用相机设备列表 (格式各实现自定义: SDK 设备信息对象、设备索引、
+            目录名或型号名)。
         """
         pass
 
@@ -409,7 +694,7 @@ class BaseCamera(ABC):
         original: float | None = None
         try:
             original = common.get_camera_exposure_ms(self)
-        except AttributeError:
+        except (AttributeError, CameraError):
             logger.warning(
                 "{} exposes no readable exposure time; leaving the camera at the "
                 "last ladder exposure {:.4f} ms", type(self).__name__, float(exposures[-1]))

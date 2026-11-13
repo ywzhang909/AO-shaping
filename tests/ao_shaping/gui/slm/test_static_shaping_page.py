@@ -89,50 +89,95 @@ def test_make_preview_pixmap_yields_pixmap() -> None:
     assert max(pix.width(), pix.height()) <= _PREVIEW_MAX_SIDE
 
 
-def test_send_task_invokes_driver_with_expected_args(monkeypatch, page) -> None:
-    """下发任务带正确参数调用驱动（mock 掉 Santec，不真发设备）。
+class _FakeHandle:
+    """最小 SLM 句柄：记录下发链路、返回可预期的读回灰度（不碰真设备）。"""
 
-    断言 open 后的链路：``create_phase_from_array(弧度)`` → ``display_data(灰度)``，
-    且不下发时不会多调一次 shift —— 平移只在 create_phase_from_array 里发生一次。
+    def __init__(
+        self,
+        *,
+        readback_gray: np.ndarray | None = None,
+        readback_source: str = "缓存槽",
+        readback_fail: bool = False,
+    ) -> None:
+        self.slm_number = 1
+        self.calls: list[tuple[str, np.ndarray]] = []
+        self._readback_gray = readback_gray
+        self._readback_source = readback_source
+        self._readback_fail = readback_fail
+
+    def create_phase_from_array(self, phase: np.ndarray) -> np.ndarray:
+        self.calls.append(("create_phase_from_array", np.array(phase, copy=True)))
+        return np.full(phase.shape, 511, dtype=np.uint16)
+
+    def display_data(self, gray: np.ndarray) -> None:
+        self.calls.append(("display_data", np.array(gray, copy=True)))
+
+    def get_displayed_phase(self) -> tuple[np.ndarray, str]:
+        if self._readback_fail:
+            raise RuntimeError("读回失败")
+        gray = (
+            self._readback_gray
+            if self._readback_gray is not None
+            else np.full((2, 2), 7, dtype=np.uint16)
+        )
+        return gray, self._readback_source
+
+    def close(self) -> None:
+        self.calls.append(("close", np.zeros(1, dtype=np.uint8)))
+
+
+def test_send_phase_wires_driver_without_double_shift() -> None:
+    """下发走 ``create_phase_from_array(弧度)`` → ``display_data(灰度)``，不二次平移。
+
+    传入的相位应以**同样的值**进入 ``create_phase_from_array``；若页面在下发前
+    又 shift 一次，这里抓到的就不是原数组。
     """
-    from ao_shaping.drivers.slm import santec as santec_mod
+    from ao_shaping.gui.slm.static_shaping_page import _send_phase
 
-    calls: list[str] = []
+    helper = PatternHelper((240, 160), bits=10)
+    handle = _FakeHandle()
+    phase = np.linspace(0.0, 2 * np.pi, 12 * 16, dtype=np.float64).reshape(12, 16)
 
-    class FakeSantec:
-        def __init__(self, slm_number=1, wavelength=None, video_mode=0):
-            self.slm_number = slm_number
+    out = _send_phase(handle, phase, "checkerboard", {}, helper)
 
-        def __enter__(self):
-            return self
+    assert [c[0] for c in handle.calls] == ["create_phase_from_array", "display_data"]
+    assert np.array_equal(handle.calls[0][1], phase)  # 未二次平移
+    assert handle.calls[1][1].dtype == np.uint16  # 下发的是灰度
+    assert out["source"] == "缓存槽"
+    assert isinstance(out["gray"], np.ndarray)
+    assert isinstance(out["phase"], np.ndarray)
+    assert np.array_equal(out["phase"], phase)
 
-        def __exit__(self, *a):
-            return False
 
-        def set_phase_overlay(self, value):
-            calls.append(f"set_phase_overlay({value})")
+def test_send_phase_generates_first_when_no_phase() -> None:
+    """没有现成相位（没点过「生成预览」）时，下发任务自己先生成再发。"""
+    from ao_shaping.gui.slm.static_shaping_page import _send_phase
 
-        def create_phase_from_array(self, phase):
-            calls.append(f"create_phase_from_array(shape={phase.shape})")
-            return np.full(phase.shape, 511, dtype=np.uint16)
+    helper = PatternHelper((240, 160), bits=10)
+    handle = _FakeHandle()
 
-        def display_data(self, gray):
-            calls.append(f"display_data(shape={gray.shape})")
+    out = _send_phase(handle, None, "checkerboard", {"period": 40}, helper)
 
-    monkeypatch.setattr(santec_mod, "Santec", FakeSantec)
+    assert [c[0] for c in handle.calls] == ["create_phase_from_array", "display_data"]
+    # 缺省面板 (240,160) → 相位 shape (高 160, 宽 240)。
+    assert handle.calls[0][1].shape == (160, 240)
+    assert out["phase"].shape == (160, 240)
 
-    from ao_shaping.gui.slm.static_shaping_page import _SendTask
 
-    phase = np.zeros((120, 192), dtype=np.float64)
-    task = _SendTask(slm_number=2, phase_radians=phase, wavelength=1064)
-    # 直接跑 run()（不走线程池），断言参数接线正确。
-    task.run()
+def test_send_phase_falls_back_when_readback_fails() -> None:
+    """读回失败：用刚写入的灰度顶上，并在来源里注明（best-effort）。"""
+    from ao_shaping.gui.slm.static_shaping_page import _send_phase
 
-    assert calls == [
-        "set_phase_overlay(None)",
-        "create_phase_from_array(shape=(120, 192))",
-        "display_data(shape=(120, 192))",
-    ]
+    helper = PatternHelper((240, 160), bits=10)
+    handle = _FakeHandle(readback_fail=True)
+    phase = np.zeros((5, 7), dtype=np.float64)
+
+    out = _send_phase(handle, phase, "checkerboard", {}, helper)
+
+    # 读回失败 → 显示的是 create_phase_from_array 刚返回的 511 灰度。
+    assert out["gray"].shape == (5, 7)
+    assert int(out["gray"].max()) == 511
+    assert "读回失败" in out["source"]
 
 
 def test_generate_preview_sends_phase_and_gray_through_signals(app, page) -> None:
@@ -235,3 +280,226 @@ def test_regeneration_clears_old_preview_for_status(app, page, monkeypatch) -> N
     assert page._preview.text() == "正在生成预览……"
     assert not page._preview_btn.isEnabled()
     assert len(started) == 1
+
+
+# ---------------------------------------------------------------------------
+# 设备生命周期（全部用假的驱动 / 句柄，绝不碰真设备）
+# ---------------------------------------------------------------------------
+
+
+def test_probe_devices_collects_only_available(monkeypatch) -> None:
+    """枚举：只收有返回的编号，``None``（无设备）被跳过。"""
+    from ao_shaping.drivers.slm.santec import probe as probe_mod
+    from ao_shaping.gui.slm.static_shaping_page import _probe_devices
+
+    def fake_probe(number: int):
+        return {"slm_number": number, "serial": f"SN{number}"} if number == 2 else None
+
+    monkeypatch.setattr(probe_mod, "probe_slm", fake_probe)
+    out = _probe_devices((1, 2, 3))
+    assert out["devices"] == [{"slm_number": 2, "serial": "SN2"}]
+
+
+def test_connect_device_closes_old_handle_first(monkeypatch) -> None:
+    """重连前先放掉旧句柄，再把新句柄交回（USB 句柄独占）。"""
+    from ao_shaping.drivers.slm import santec as santec_mod
+    from ao_shaping.gui.slm.static_shaping_page import _connect_device
+
+    events: list[str] = []
+
+    class FakeSantec:
+        def __init__(self, slm_number: int = 1, video_mode: int = 0):
+            self.slm_number = slm_number
+            self.Panel_Res = (1920, 1080)
+            self.wavelength = 1064
+            self.serial_number = "SN1"
+
+        def open(self) -> None:
+            events.append("open")
+
+        def close(self) -> None:
+            events.append("new-close")
+
+    class OldHandle:
+        def close(self) -> None:
+            events.append("old-close")
+
+    monkeypatch.setattr(santec_mod, "Santec", FakeSantec)
+    out = _connect_device(1, OldHandle(), 1064)
+
+    assert events == ["old-close", "open"]  # 旧句柄先关，再开新句柄
+    assert out["handle"].slm_number == 1
+    assert out["wavelength"] == 1064
+    assert "SN1" in out["message"]
+
+
+def test_connect_failure_wrapped_as_operator_error(monkeypatch) -> None:
+    """连接失败 → 面向操作员的中文结论（``_OpError``），不是裸驱动异常。"""
+    from ao_shaping.drivers.slm import santec as santec_mod
+    from ao_shaping.gui.slm.static_shaping_page import _OpError, _connect_device
+
+    class BoomSantec:
+        def __init__(self, *a, **k):
+            pass
+
+        def open(self) -> None:
+            raise RuntimeError("no device")
+
+    monkeypatch.setattr(santec_mod, "Santec", BoomSantec)
+    with pytest.raises(_OpError, match="连接 SLM 3 失败"):
+        _connect_device(3, None, 1064)
+
+
+def test_disconnect_closes_once_and_swallows_failure() -> None:
+    """断开只 ``close()`` 一次；close 抛错也只记日志，绝不把页面拖崩。"""
+    from ao_shaping.gui.slm.static_shaping_page import _disconnect_device
+
+    class Handle:
+        def __init__(self, fail: bool = False) -> None:
+            self.calls = 0
+            self._fail = fail
+
+        def close(self) -> None:
+            self.calls += 1
+            if self._fail:
+                raise RuntimeError("close boom")
+
+    ok = Handle()
+    msg = _disconnect_device(ok, 1)["message"]
+    assert ok.calls == 1
+    assert "已断开" in msg
+
+    bad = Handle(fail=True)
+    msg2 = _disconnect_device(bad, 1)["message"]  # 不抛
+    assert bad.calls == 1
+    assert "未完全成功" in msg2
+
+
+def test_apply_wavelength_sets_and_wraps_errors() -> None:
+    """设波长：成功写入；驱动抛错时包成 ``_OpError``。"""
+    from ao_shaping.gui.slm.static_shaping_page import _OpError, _apply_wavelength
+
+    class Handle:
+        value = None
+
+        def set_wavelength(self, nm: int) -> None:
+            self.value = nm
+
+    good = Handle()
+    _apply_wavelength(good, 1, 1064)
+    assert good.value == 1064
+
+    class Bad:
+        def set_wavelength(self, nm: int) -> None:
+            raise ValueError("out of range")
+
+    with pytest.raises(_OpError, match="设置波长失败"):
+        _apply_wavelength(Bad(), 1, 2000)
+
+
+def test_selfcheck_reports_readback_source() -> None:
+    """相位自检：读当前灰度 + 读回显示相位，来源写进状态文案。"""
+    from ao_shaping.gui.slm.static_shaping_page import _selfcheck_phase
+
+    class Handle:
+        def get_current_grayscale(self) -> int:
+            return 42
+
+        def get_displayed_phase(self) -> tuple[np.ndarray, str]:
+            return np.zeros((2, 2), dtype=np.uint16), "缓存槽 #3"
+
+    out = _selfcheck_phase(Handle(), 1)
+    assert "42" in out["message"]
+    assert "缓存槽 #3" in out["message"]
+
+
+# ---------------------------------------------------------------------------
+# 页面状态（自建未 show 的页面 —— 避免 showEvent 触发后台探测的时序干扰）
+# ---------------------------------------------------------------------------
+
+
+def test_constructor_does_not_touch_device(monkeypatch) -> None:
+    """构造页面绝不探测 / 打开设备（无 SDK 的 CI 也能建页）。"""
+    import ao_shaping.gui.slm.static_shaping_page as page_mod
+
+    calls: list[tuple[int, ...]] = []
+    monkeypatch.setattr(
+        page_mod, "_probe_devices", lambda nums: calls.append(nums) or {"devices": []}
+    )
+
+    page = page_mod.StaticShapingPage()
+    try:
+        assert calls == []  # 构造期间未探测
+        assert page._slm is None
+        assert page._probed_once is False
+    finally:
+        page.close()
+
+
+def test_show_probes_only_once(app, monkeypatch) -> None:
+    """首次 show 自动枚举一次；再次 show 不再探（避免反复打扰设备）。"""
+    import ao_shaping.gui.slm.static_shaping_page as page_mod
+
+    calls: list[tuple[int, ...]] = []
+    monkeypatch.setattr(
+        page_mod, "_probe_devices", lambda nums: calls.append(nums) or {"devices": []}
+    )
+
+    page = page_mod.StaticShapingPage()
+    # 同步执行池任务：结果在本线程直接回主线程，免去线程时序。
+    monkeypatch.setattr(page._pool, "start", lambda task: task.run())
+    try:
+        page.show()
+        app.processEvents()
+        assert len(calls) == 1
+        page.hide()
+        page.show()
+        app.processEvents()
+        assert len(calls) == 1  # 第二次 show 不重复探测
+    finally:
+        page.close()
+
+
+def test_send_button_state_follows_connection(app) -> None:
+    """下发按钮：未连接禁用，已连接且空闲可用，有操作在飞再禁用。"""
+    page = StaticShapingPage()
+    try:
+        page._slm = None
+        page._slm_number = None
+        page._device_op = None
+        page._sync_device_buttons()
+        assert not page._send_btn.isEnabled()
+
+        page._slm = _FakeHandle()
+        page._slm_number = 1
+        page._sync_device_buttons()
+        assert page._send_btn.isEnabled()
+
+        page._device_op = "send"
+        page._sync_device_buttons()
+        assert not page._send_btn.isEnabled()
+
+        page._slm = None  # 别让 closeEvent 去关 fake 句柄
+    finally:
+        page.close()
+
+
+def test_apply_sent_shows_readback_gray(app) -> None:
+    """下发完成：预览区显示**读回**的灰度，并缓存相位。"""
+    page = StaticShapingPage()
+    try:
+        gray = np.full((4, 6), 300, dtype=np.uint16)
+        phase = np.full((4, 6), 1.0)
+        page._slm = _FakeHandle()
+        page._slm_number = 1
+        page._apply_sent({"gray": gray, "source": "缓存槽", "phase": phase})
+
+        assert page._preview_gray is not None
+        assert np.array_equal(page._preview_gray, gray)
+        assert not page._preview.pixmap().isNull()
+        assert "缓存槽" in page._device_status.text()
+        assert page._last_phase is not None
+        assert np.array_equal(page._last_phase, phase)
+        page._slm = None
+    finally:
+        page.close()

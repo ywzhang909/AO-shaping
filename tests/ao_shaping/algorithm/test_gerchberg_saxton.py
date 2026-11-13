@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal, assert_array_almost_equal
 
+import ao_shaping.algorithm.signal_processing.gerchberg_saxton as gs_module
 from ao_shaping.algorithm.signal_processing.gerchberg_saxton import (
     gerchberg_saxton,
     angular_spectrum_propagate,
@@ -571,6 +572,219 @@ class TestPresetShapesIntegration:
         assert metrics["correlation"] > 0.5, (
             f"{shape_name}: Correlation too low: {metrics['correlation']:.3f}"
         )
+
+
+class TestGerchbergSaxtonEarlyStopping:
+    """Test the opt-in patience-based early stopping of the GS loop.
+
+    The rule under test: an iteration counts as a *meaningful improvement* only
+    if its MSE is at least ``early_stop_min_delta`` below the best MSE seen so
+    far (best starts at ``+inf``, so the first measurement is always a best).
+    ``early_stop_patience`` consecutive non-improving iterations stop the loop;
+    ``early_stop_patience=0`` (the default) disables the check entirely.
+
+    Reaching ``error_threshold`` still wins, and ``converged`` keeps its old
+    meaning ("threshold reached") -- a plateau stop is not convergence.
+    """
+
+    # Small grid: these tests exercise the stopping rule, not propagation quality.
+    SCRIPT_SIZE = (64, 64)
+
+    @staticmethod
+    def _install_mse_script(monkeypatch, values):
+        """Feed the GS loop a fixed MSE sequence instead of the real one.
+
+        Deterministic and hardware-free. Returns the list of values the loop
+        actually consumed, so tests can assert the exact iteration count.
+        """
+        consumed: list[float] = []
+
+        def _scripted_mse(amplitude, target_amplitude):
+            idx = len(consumed)
+            consumed.append(float(values[idx] if idx < len(values) else values[-1]))
+            return consumed[-1]
+
+        monkeypatch.setattr(gs_module, "_iteration_mse", _scripted_mse)
+        return consumed
+
+    def _run(self, monkeypatch, values, **kwargs):
+        """Run GS on a tiny grid with ``values`` as the scripted MSE history."""
+        consumed = self._install_mse_script(monkeypatch, values)
+        kwargs.setdefault("iterations", 50)
+        result = gerchberg_saxton(
+            source_amplitude=np.ones(self.SCRIPT_SIZE),
+            target_amplitude=np.zeros(self.SCRIPT_SIZE),
+            propagation="fft",
+            **kwargs,
+        )
+        return result, consumed
+
+    def test_plateau_stops_after_patience(self, monkeypatch):
+        """Two consecutive non-improving iterations stop the loop at patience=2."""
+        values = [0.50, 0.40, 0.30, 0.30, 0.30, 0.30, 0.30]
+        reported: list[int] = []
+
+        result, consumed = self._run(
+            monkeypatch,
+            values,
+            early_stop_patience=2,
+            early_stop_min_delta=0.01,
+            progress_callback=lambda i, err: reported.append(i),
+        )
+
+        # iters 1-3 improve (0.5 -> 0.4 -> 0.3); iters 4-5 plateau -> stop
+        assert result.iterations == 5
+        assert result.error_history == values[:5]
+        assert consumed == values[:5]
+        assert len(reported) == 5, "callbacks must fire for run iterations only"
+        # A plateau stop is not convergence
+        assert result.converged is False
+
+    def test_first_measurement_counts_as_best(self, monkeypatch):
+        """With best MSE initialized to +inf, iteration 1 is always an improvement."""
+        result, _ = self._run(
+            monkeypatch, [0.4] * 10, early_stop_patience=1
+        )
+
+        # iteration 1 = new best, iteration 2 = first stagnation -> stop
+        assert result.iterations == 2
+        assert result.error_history == [0.4, 0.4]
+
+    def test_disabled_by_default_runs_every_iteration(self, monkeypatch):
+        """Default (and explicit) patience 0 keeps the old loop behaviour."""
+        plateau = [0.3] * 8
+
+        default_result, default_consumed = self._run(monkeypatch, plateau, iterations=8)
+        assert default_result.iterations == 8
+        assert default_result.error_history == plateau
+        assert len(default_consumed) == 8
+
+        explicit_result, _ = self._run(
+            monkeypatch, plateau, iterations=8, early_stop_patience=0
+        )
+        assert explicit_result.iterations == 8
+        assert explicit_result.error_history == default_result.error_history
+
+    def test_min_delta_gates_what_counts_as_improvement(self, monkeypatch):
+        """Improvements smaller than the delta count as stagnation."""
+        # Strictly decreasing, but only by 1e-3 per step
+        creeping = [0.30 - 1e-3 * k for k in range(10)]
+
+        loose_result, _ = self._run(
+            monkeypatch, creeping, iterations=10, early_stop_patience=3
+        )
+        # min_delta=0.0 (default): every step is a real improvement -> no stop
+        assert loose_result.iterations == 10
+
+        tight_result, _ = self._run(
+            monkeypatch,
+            creeping,
+            iterations=10,
+            early_stop_patience=3,
+            early_stop_min_delta=0.01,
+        )
+        # steps of 1e-3 < 0.01 -> first 3 iterations stagnate -> stop on the 4th
+        assert tight_result.iterations == 4
+        assert tight_result.converged is False
+
+    def test_threshold_stop_takes_precedence(self, monkeypatch):
+        """error_threshold breaks before the patience check on the same iteration."""
+        decreasing = [0.5, 0.4, 0.3, 0.2, 0.1]
+
+        result, _ = self._run(
+            monkeypatch,
+            decreasing,
+            error_threshold=0.25,
+            early_stop_patience=10,
+        )
+        assert result.iterations == 4
+        assert result.error_history[-1] == 0.2
+        assert result.converged is True
+
+        # Even with patience=1 the threshold wins on iteration 1
+        immediate, _ = self._run(
+            monkeypatch, [0.3] * 5, error_threshold=0.35, early_stop_patience=1
+        )
+        assert immediate.iterations == 1
+        assert immediate.converged is True
+
+    def test_real_plateau_stops_without_monkeypatch(self):
+        """A dark target gives a bitwise-identical MSE, so the loop plateaus for real."""
+        source = np.ones(self.SCRIPT_SIZE)
+        target = np.zeros(self.SCRIPT_SIZE)
+
+        result = gerchberg_saxton(
+            source_amplitude=source,
+            target_amplitude=target,
+            iterations=20,
+            propagation="fft",
+            early_stop_patience=2,
+        )
+        assert result.iterations == 3
+        assert len(result.error_history) == 3
+        assert result.error_history[1] == result.error_history[2]
+        assert result.converged is False
+
+        # Same run without patience keeps all 20 iterations (no regression)
+        full = gerchberg_saxton(
+            source_amplitude=source,
+            target_amplitude=target,
+            iterations=20,
+            propagation="fft",
+        )
+        assert full.iterations == 20
+        assert len(full.error_history) == 20
+
+    def test_threshold_behaviour_unchanged_on_real_run(self):
+        """Untouched inputs still converge exactly as before the change."""
+        size = 64
+        y, x = np.ogrid[-1 : 1 : size * 1j, -1 : 1 : size * 1j]
+        r = np.sqrt(x**2 + y**2)
+        source = np.ones((size, size))
+        target = (r < 0.5).astype(float)
+
+        plain = gerchberg_saxton(
+            source_amplitude=source,
+            target_amplitude=target,
+            iterations=12,
+            **PHYSICAL_PARAMS,
+        )
+        assert plain.iterations == 12
+        assert len(plain.error_history) == 12
+        assert plain.converged is False
+
+        converged = gerchberg_saxton(
+            source_amplitude=source,
+            target_amplitude=target,
+            iterations=12,
+            error_threshold=float("inf"),
+            **PHYSICAL_PARAMS,
+        )
+        assert converged.iterations == 1
+        assert converged.converged is True
+
+    def test_invalid_patience_and_delta_raise(self):
+        """Negative patience / delta are rejected like the other parameters."""
+        source = np.ones(self.SCRIPT_SIZE)
+        target = np.zeros(self.SCRIPT_SIZE)
+
+        with pytest.raises(
+            ValueError, match="Early stop patience must be a non-negative integer"
+        ):
+            gerchberg_saxton(
+                source_amplitude=source,
+                target_amplitude=target,
+                iterations=2,
+                early_stop_patience=-1,
+            )
+
+        with pytest.raises(ValueError, match="Early stop min delta must be >= 0"):
+            gerchberg_saxton(
+                source_amplitude=source,
+                target_amplitude=target,
+                iterations=2,
+                early_stop_min_delta=-1e-6,
+            )
 
 
 if __name__ == "__main__":

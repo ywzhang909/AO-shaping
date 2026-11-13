@@ -48,7 +48,7 @@ from ao_shaping.utils.wavefront.wfs_utils import (
 )
 
 if TYPE_CHECKING:
-    from ao_shaping.drivers.dm.base import DM
+    from ao_shaping.drivers.dm.base import BaseDM
     from ao_shaping.drivers.wfs import ThorlabWFS
 
 
@@ -263,7 +263,7 @@ def _measure_averaged_slopes(
 
 
 def measure_actuator_response(
-    dm: "DM",
+    dm: "BaseDM",
     wfs: ThorlabWFS,
     actuator_idx: int,
     disturb_voltage: float,
@@ -381,7 +381,7 @@ def measure_actuator_response(
 
 
 def _optimize_perturbation_voltage(
-    dm: "DM",
+    dm: "BaseDM",
     wfs: ThorlabWFS,
     actuator_idx: int,
     test_voltages: np.ndarray,
@@ -453,7 +453,7 @@ def _optimize_perturbation_voltage(
 
 
 def _build_device_config(
-    dm: "DM",
+    dm: "BaseDM",
     wfs: ThorlabWFS,
 ) -> dict:
     """Capture hardware configuration snapshot for metadata."""
@@ -632,7 +632,7 @@ def _run_calibration_sweep(cancel_tile, debug_data_callback, disturb_voltage, dm
 
 
 def calibrate_dm_response_matrix(
-    dm: "DM",
+    dm: "BaseDM",
     wfs: ThorlabWFS,
     disturb_voltage: float | None = DEFAULT_DISTURB_VOLTAGE,
     n_cycles: int = DEFAULT_N_CYCLES,

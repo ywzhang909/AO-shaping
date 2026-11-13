@@ -29,6 +29,11 @@ from loguru import logger
 
 from ao_shaping.tools.slm.transfer.capture import clock, exposure_setter, to_panel
 from ao_shaping.tools.slm.transfer.device import DEVICE_CHOICES, resolve_device
+from ao_shaping.tools.slm.transfer.exposure_policy import (
+    AUTO_TOKEN,
+    argparse_exposure_type,
+    resolve_seed_exposure,
+)
 from ao_shaping.tools.slm.transfer.light_guard import LightGuard, OpticalPathInvalid, verify_light
 from ao_shaping.tools.slm.transfer.hardware import DeviceOpenError, opened_device
 # 实时帧的缓存/负载/emit 住在 .live_frame (Qt-free, 测量线程可调); 这里按旧名字
@@ -49,6 +54,9 @@ from ao_shaping.tools.slm.transfer.live_frame import (
     remember_capture,
 )
 from ao_shaping.tools.slm.transfer.radiometry import count_rate
+from ao_shaping.tools.slm.transfer.geometric_seed import (
+    AUTO_SEED_RULE, SEED_KINDS, resolve_seed_kind,
+)
 
 
 from ao_shaping.algorithm.signal_processing.multishape_objective import (
@@ -263,6 +271,10 @@ def _validate_prepare_shapes(args, aspect_ratio, centre, forward, prepared, seed
         if (tilt or getattr(args, "target_xy", None) is not None) and (
                 box[0].any() or box[-1].any() or box[:, 0].any() or box[:, -1].any()):
             raise ValueError("target intersects camera window boundary; adjust period/side")
+        # 唯一的 auto chokepoint：把 "auto" 按形状解析成具体构造（方形 transport，
+        # 其余 backprojection），于是下面所有分支与 mode / gs_iterations / --seed-run
+        # 的 gs 判据都只看具体取值，不需要再为 auto 加分支。
+        kind = resolve_seed_kind(shape, getattr(args, "initial_phase", "auto"))
         if args.seed_run:
             from .seeding import accepted_seed
             source = json.loads((args.seed_run / "config.json").read_text(encoding="utf-8"))
@@ -270,14 +282,14 @@ def _validate_prepare_shapes(args, aspect_ratio, centre, forward, prepared, seed
                 raise ValueError("accepted seed target size differs from requested target")
             phase, seed_provenance[shape] = accepted_seed(args.seed_run, shape, forward, xy,
                 objective.target, policy=getattr(args, "seed_policy", "strict"), centre=centre)
-        elif getattr(args, "initial_phase", "gs") == "transport":
+        elif kind == "transport":
             if shape != "square":
                 raise ValueError("transport initialization currently supports square only")
             from .geometric_seed import square_transport_phase
             phase = square_transport_phase(forward, centre, args.side)
             seed_provenance[shape] = dict(kind="transport", gs_calls=0, historical_phase=False,
                                           static_correction=True, side_ccd_px=args.side)
-        elif getattr(args, "initial_phase", "gs") == "backprojection":
+        elif kind == "backprojection":
             # Shape-general non-GS seed: one analytic back-projection of the
             # target through the fitted optics. A separable transport phase
             # cannot produce a non-separable far field, so this is the
@@ -287,10 +299,10 @@ def _validate_prepare_shapes(args, aspect_ratio, centre, forward, prepared, seed
             seed_provenance[shape] = dict(kind="backprojection", gs_calls=0, historical_phase=False,
                                           static_correction=True, side_ccd_px=args.side,
                                           **diagnostics)
-        elif getattr(args, "initial_phase", "gs") != "gs":
+        elif kind != "gs":
             from .cold_start import cold_phase
             phase, seed_provenance[shape] = cold_phase(forward, centre,
-                kind=args.initial_phase, seed=getattr(args, "random_seed", 102626))
+                kind=kind, seed=getattr(args, "random_seed", 102626))
         else:
             phase = gs_seed(forward, centre, args.side, shape)
         if not np.isfinite(phase).all():
@@ -404,6 +416,9 @@ def run(args, *, on_frame=None):
     def save_summary() -> None:
         (args.out/"summary.json").write_text(json.dumps(summary_entries), encoding="utf-8")
 
+    # config.json 里 initial_phase 记的是**请求值**（可能是 "auto"）；每个形状实际
+    # 解析出的构造记在下面的 seed_provenance[shape]["kind"]，gs_iterations 同样只区分
+    # gs / 非 gs（auto 解析出的两者都非 gs）。
     (args.out/"config.json").write_text(json.dumps(dict(checkpoint=str(args.checkpoint.resolve()), zero_xy=args.zero_xy,
                                                        target_xy=centre.tolist(), shapes=args.shapes,
                                                        period=args.period, side=args.side,
@@ -416,8 +431,8 @@ def run(args, *, on_frame=None):
                                                        core_margin=getattr(args, "core_margin", None),
                                                        checkpoint_sha256=hashlib.sha256(args.checkpoint.read_bytes()).hexdigest(),
                                                        script_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-                                                       gs_iterations=0 if args.seed_run or getattr(args, "initial_phase", "gs") != "gs" else 80,
-                                                       initial_phase=getattr(args, "initial_phase", "gs"),
+                                                       gs_iterations=0 if args.seed_run or getattr(args, "initial_phase", "auto") != "gs" else 80,
+                                                       initial_phase=getattr(args, "initial_phase", "auto"),
                                                        abba=abba,
                                                        acceptance="nonmonotone_ccd" if explore_temperature > 0 else ("paired_abba" if abba else ("sequential_ccd" if getattr(args, "ccd_check", False) else "model_only")),
                                                        ccd_check=getattr(args, "ccd_check", False),
@@ -519,6 +534,16 @@ def main():
     parser.add_argument("--checkpoint", type=Path, required=True, help="frozen_parameters.json")
     parser.add_argument("--camera", default="daheng")
     parser.add_argument("--cam-id", type=int, default=0)
+    parser.add_argument(
+        "--exposure-ms",
+        type=argparse_exposure_type("--exposure-ms"),
+        default=AUTO_TOKEN,
+        help="Opening seed exposure for this session (ms), not a fixed value: "
+        "'auto' (default) reuses the last effective exposure recorded for this "
+        "camera backend/id, falling back to 0.02; 'default' leaves the camera's "
+        "own configured exposure untouched (the session then starts from the "
+        "read-back value); a positive number starts there.",
+    )
     parser.add_argument("--bit-depth", type=int, choices=(8, 12), default=8)
     parser.add_argument("--slm-number", type=int, default=1)
     parser.add_argument("--out", type=Path, required=True)
@@ -556,7 +581,16 @@ def main():
                         help="Accepted-phase continuation defaults to anchored; cold synthesis defaults to model")
     parser.add_argument("--seed-run", type=Path, help="Replay accepted phases; exact grid/target match required")
     parser.add_argument("--seed-policy", choices=("strict", "transfer"), default="strict")
-    parser.add_argument("--initial-phase", choices=("gs", "plane", "random", "transport", "backprojection"), default="gs")
+    parser.add_argument(
+        "--initial-phase",
+        choices=SEED_KINDS,
+        default="auto",
+        help=(
+            f"初相位构造；默认 auto = {AUTO_SEED_RULE}（2026-11-11 a1500 方目标 A–B–B–A 实测：transport 3.743 "
+            "优于 GS 3.945，backprojection 输给两者）；按形状逐个解析，见 geometric_seed.resolve_seed_kind。"
+            "gs 需显式指定，保留作历史对照"
+        ),
+    )
     parser.add_argument("--random-seed", type=int, default=102626)
     parser.add_argument("--phase-lr", type=float, default=.30)
     parser.add_argument("--phase-rms-cap", type=float, default=.2)
@@ -586,6 +620,8 @@ def main():
     parser.add_argument("--timing-out", action="store_true",
                         help="Write per-shape wall-clock timing + iteration count + model_cv to timing.jsonl")
     args = parser.parse_args()
+    # auto 只会解析成 transport / backprojection（两者都非 gs），所以下面两条按
+    # != "gs" 的判据（anchored 默认、--seed-run 互斥）与逐形状解析后的具体取值一致。
     args.mode = args.mode or ("anchored" if args.seed_run or args.initial_phase != "gs" else "model")
     if args.seed_run and args.initial_phase != "gs":
         parser.error("--seed-run cannot be combined with a cold --initial-phase")
@@ -765,14 +801,27 @@ def _run_validate_session(
     save_summary stays behind in run() and is passed in.
     Moved verbatim.
     """
-    with opened_device(create_camera(args.camera, args.cam_id, exposure_time_ms=.02, **camera_options)) as cam:
+    # 开场曝光不再写死 0.02: 三态种子策略见 exposure_policy (auto / default / 数字)。
+    # None = 「别碰相机」, 于是 create_camera 连 exposure_time_ms 关键字都不收到。
+    seed_exposure = resolve_seed_exposure(
+        getattr(args, "exposure_ms", None), camera=args.camera, cam_id=args.cam_id
+    )
+    exposure_kwargs: dict = (
+        {} if seed_exposure is None else {"exposure_time_ms": seed_exposure}
+    )
+    with opened_device(create_camera(args.camera, args.cam_id, **exposure_kwargs, **camera_options)) as cam:
         with opened_device(Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0)) as slm:
             slm.set_phase_overlay(None)
             floor, ceiling = get_camera_exposure_range(cam)
             configured = configured_daheng_exposure_limit() if args.camera == "daheng" else 0.
             if configured > 0:
                 ceiling = min(ceiling, configured)
-            exposure = max(floor, .02)
+            # `default` (种子 None) 从相机回读值起步, 不回落 0.02。
+            exposure = (
+                max(floor, seed_exposure)
+                if seed_exposure is not None
+                else max(floor, float(get_camera_exposure_ms(cam)))
+            )
 
             # 设备自检 + 0级探测 + 自动 CCD 类型选择: 加载 torch 环境/打开设备后
             # 自动执行, 结果通过 payload 展示 (best-effort, 失败不拖垮采集)。
@@ -1013,6 +1062,16 @@ def main():
     parser.add_argument("--checkpoint", type=Path, required=True, help="frozen_parameters.json")
     parser.add_argument("--camera", default="daheng")
     parser.add_argument("--cam-id", type=int, default=0)
+    parser.add_argument(
+        "--exposure-ms",
+        type=argparse_exposure_type("--exposure-ms"),
+        default=AUTO_TOKEN,
+        help="Opening seed exposure for this session (ms), not a fixed value: "
+        "'auto' (default) reuses the last effective exposure recorded for this "
+        "camera backend/id, falling back to 0.02; 'default' leaves the camera's "
+        "own configured exposure untouched (the session then starts from the "
+        "read-back value); a positive number starts there.",
+    )
     parser.add_argument("--bit-depth", type=int, choices=(8, 12), default=8)
     parser.add_argument("--slm-number", type=int, default=1)
     parser.add_argument("--out", type=Path, required=True)
@@ -1050,7 +1109,16 @@ def main():
                         help="Accepted-phase continuation defaults to anchored; cold synthesis defaults to model")
     parser.add_argument("--seed-run", type=Path, help="Replay accepted phases; exact grid/target match required")
     parser.add_argument("--seed-policy", choices=("strict", "transfer"), default="strict")
-    parser.add_argument("--initial-phase", choices=("gs", "plane", "random", "transport", "backprojection"), default="gs")
+    parser.add_argument(
+        "--initial-phase",
+        choices=SEED_KINDS,
+        default="auto",
+        help=(
+            f"初相位构造；默认 auto = {AUTO_SEED_RULE}（2026-11-11 a1500 方目标 A–B–B–A 实测：transport 3.743 "
+            "优于 GS 3.945，backprojection 输给两者）；按形状逐个解析，见 geometric_seed.resolve_seed_kind。"
+            "gs 需显式指定，保留作历史对照"
+        ),
+    )
     parser.add_argument("--random-seed", type=int, default=102626)
     parser.add_argument("--phase-lr", type=float, default=.30)
     parser.add_argument("--phase-rms-cap", type=float, default=.2)
@@ -1086,6 +1154,8 @@ def main():
     parser.add_argument("--timing-out", action="store_true",
                         help="Write per-shape wall-clock timing + iteration count + model_cv to timing.jsonl")
     args = parser.parse_args()
+    # auto 只会解析成 transport / backprojection（两者都非 gs），所以下面两条按
+    # != "gs" 的判据（anchored 默认、--seed-run 互斥）与逐形状解析后的具体取值一致。
     args.mode = args.mode or ("anchored" if args.seed_run or args.initial_phase != "gs" else "model")
     if args.seed_run and args.initial_phase != "gs":
         parser.error("--seed-run cannot be combined with a cold --initial-phase")

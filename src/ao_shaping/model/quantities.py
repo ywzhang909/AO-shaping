@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 import numpy as np
+import numpy.typing as npt
 
 from ao_shaping.model.field import AmplitudeMap, PhaseMap, _validate_2d_array
 from ao_shaping.model.metadata import FieldMetadata
@@ -112,26 +113,117 @@ class WfsSlopes:
         return cls(data[:count], data[count:], n_subaperture, **kwargs)
 
 
-@dataclass
-class DmCommands:
-    """Voltage commands with the target DM's actuator count and limits."""
+class DmCommands(np.ndarray):
+    """Voltage commands that *are* a 1-D float64 ndarray, plus the DM's limits.
 
-    voltages: np.ndarray
+    Subclassing ``np.ndarray`` keeps every array consumer working unchanged
+    (clipping, arithmetic, UDP payload encoding, plotting), while the command
+    still records the actuator count and voltage range it was validated
+    against. ``.voltages`` returns the plain ndarray view of the same data.
+
+    Notes:
+        Numpy propagates the subclass through ufuncs and views, so
+        ``cmd * 2`` or ``np.clip(cmd, lo, hi)`` stay ``DmCommands``.
+        Metadata follows the parent; if the shape changes (slicing), the
+        actuator count follows the new size.
+    """
+
     range_min: float
     range_max: float
     n_actuators: int
-    timestamp: datetime | None = None
+    timestamp: datetime | None
 
-    def __post_init__(self) -> None:
-        self.voltages = _vector(self.voltages, "voltages")
-        if self.n_actuators <= 0 or self.voltages.size != self.n_actuators:
+    def __new__(
+        cls,
+        voltages: npt.ArrayLike,
+        range_min: float,
+        range_max: float,
+        n_actuators: int,
+        timestamp: datetime | None = None,
+    ) -> DmCommands:
+        values = _vector(np.asarray(voltages, dtype=np.float64), "voltages")
+        if n_actuators <= 0 or values.size != n_actuators:
             raise ValueError("voltages must match n_actuators")
-        if np.isnan(self.range_min) or np.isnan(self.range_max) or self.range_min >= self.range_max:
+        if (
+            np.isnan(range_min)
+            or np.isnan(range_max)
+            or range_min >= range_max
+        ):
             raise ValueError("range_min must be less than range_max")
+        commands = values.view(cls)
+        commands.range_min = float(range_min)
+        commands.range_max = float(range_max)
+        commands.n_actuators = int(n_actuators)
+        commands.timestamp = timestamp
+        return commands
+
+    def __array_finalize__(self, obj: np.ndarray | None) -> None:
+        if obj is None:
+            return
+        self.range_min = getattr(obj, "range_min", float("-inf"))
+        self.range_max = getattr(obj, "range_max", float("inf"))
+        parent_n = getattr(obj, "n_actuators", None)
+        if parent_n is not None and obj.shape == self.shape:
+            self.n_actuators = int(parent_n)
+        else:
+            self.n_actuators = int(self.size)
+        self.timestamp = getattr(obj, "timestamp", None)
+
+    @property
+    def voltages(self) -> np.ndarray:
+        """The command voltages as a plain ndarray view (same memory)."""
+        return self.view(np.ndarray)
 
     def clipped(self) -> DmCommands:
         """Return a new command with voltages limited to the declared range."""
-        return DmCommands(np.clip(self.voltages, self.range_min, self.range_max), self.range_min, self.range_max, self.n_actuators, self.timestamp)
+        return DmCommands(
+            np.clip(self.voltages, self.range_min, self.range_max),
+            self.range_min,
+            self.range_max,
+            self.n_actuators,
+            self.timestamp,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """JSON-friendly view of the command (voltages as a list of floats)."""
+        return {
+            "voltages": [float(value) for value in self.voltages],
+            "range_min": self.range_min,
+            "range_max": self.range_max,
+            "n_actuators": self.n_actuators,
+            "timestamp": None if self.timestamp is None else self.timestamp.isoformat(),
+        }
+
+    def __reduce__(self):
+        """Pickle the array *and* its metadata.
+
+        numpy's default ``__reduce__`` rebuilds the subclass through
+        ``ndarray.__new__`` and only restores the buffer, never the instance
+        attributes set in :meth:`__new__` — so the default round-trip loses
+        ``range_min`` / ``range_max`` / ``n_actuators`` / ``timestamp``. Route
+        through a module-level factory that re-runs :meth:`__new__`.
+        """
+        return (
+            _reconstruct_dm_commands,
+            (
+                self.view(np.ndarray),
+                self.range_min,
+                self.range_max,
+                self.n_actuators,
+                self.timestamp,
+            ),
+        )
+
+
+def _reconstruct_dm_commands(
+    values: np.ndarray,
+    range_min: float,
+    range_max: float,
+    n_actuators: int,
+    timestamp: datetime | None,
+) -> DmCommands:
+    """Unpickle factory for :class:`DmCommands` (must be module-level)."""
+    return DmCommands(values, range_min, range_max, n_actuators, timestamp)
 
 
 @dataclass

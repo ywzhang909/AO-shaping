@@ -8,11 +8,16 @@ from ao_shaping.utils.slm.gs_debug_optics import grayscale_to_radians, idealized
 
 
 def test_grayscale_conversion_validates_integer_lut_range() -> None:
-    np.testing.assert_allclose(grayscale_to_radians(np.array([[0, 1023]], dtype=np.uint16)), [[0, 2 * np.pi]])
+    # Explicit scale: this test pins the *validation* contract, so it must not
+    # depend on the machine's ``[slm] two_pi_grayscale``.
+    np.testing.assert_allclose(
+        grayscale_to_radians(np.array([[0, 1023]], dtype=np.uint16), 1023),
+        [[0, 2 * np.pi]],
+    )
     with pytest.raises(ValueError, match="integer"):
         grayscale_to_radians(np.zeros((2, 2), dtype=float))
     with pytest.raises(ValueError, match="outside"):
-        grayscale_to_radians(np.array([[1024]], dtype=np.int32))
+        grayscale_to_radians(np.array([[1024]], dtype=np.int32), 1023)
 
 
 def test_far_field_uses_off_center_pupil() -> None:
