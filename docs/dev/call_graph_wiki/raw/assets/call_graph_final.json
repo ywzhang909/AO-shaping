@@ -2894,8 +2894,8 @@
    "qualname": "_json",
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 56,
-   "end": 57,
+   "lineno": 57,
+   "end": 58,
    "args": [
     "path"
    ],
@@ -2907,8 +2907,8 @@
    "qualname": "run_stages",
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 684,
-   "end": 784,
+   "lineno": 685,
+   "end": 787,
    "args": [
     "out",
     "shapes",
@@ -2950,8 +2950,8 @@
    "qualname": "_rebuild_records",
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 630,
-   "end": 650,
+   "lineno": 631,
+   "end": 651,
    "args": [
     "out",
     "shapes"
@@ -2964,8 +2964,8 @@
    "qualname": "_seed_kind",
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 60,
-   "end": 76,
+   "lineno": 61,
+   "end": 77,
    "args": [
     "shape",
     "requested"
@@ -3005,8 +3005,8 @@
    "qualname": "_validate_args",
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 96,
-   "end": 145,
+   "lineno": 97,
+   "end": 146,
    "args": [
     "checkpoint",
     "out",
