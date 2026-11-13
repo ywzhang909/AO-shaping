@@ -1,8 +1,9 @@
 # `tools/slm/` — SLM 实验系统工具与探针
 
 SLM(Santec SLM-200)+ 远场相机(Daheng / MiiCam)2f-Fourier 实验系统的**独立工具**。
-这些模块**不注册**为 `main.py` 的 Click 命令, 一律用
-`python -m ao_shaping.tools.slm.<名字>` 直接运行。
+多数模块**不注册**为 `main.py` 的 Click 命令, 用
+`python -m ao_shaping.tools.slm.<名字>` 直接运行; 例外 (`slm-lut` / `slm-diagnose`
+已在 `main.py` 注册) 见下文各节标注。
 
 > **启动任何优化 runner 之前**, 先跑
 > [`docs/slm/pre_run_characterization.md`](../../../../docs/slm/pre_run_characterization.md)
