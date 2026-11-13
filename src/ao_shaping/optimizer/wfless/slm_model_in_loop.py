@@ -3948,6 +3948,46 @@ def _milr_step_a_setup(_probe_set_loss, bench, calibration_affine, calibration_t
 
 
 
+
+def _milr_round_probe_setup(_fit_aberration_at_probes, _probe_set_loss, bench, calibration_affine, calibration_travel, camera_rotation_quarters, cell_scale, coefficients, config, geometry, index, live_display, prev_uncertainty_probes, probe_count, probe_records, rejection_streak, roi_center, source_amplitude, step_a_lr, target_camera):
+# Per-round probe/optimizer setup lifted verbatim
+    frames, holdout_seeds, loss_before, optimizer, probe, step_a_trace, step_a_lr = _milr_step_a_setup(_probe_set_loss, bench, calibration_affine, calibration_travel, camera_rotation_quarters, cell_scale, coefficients, config, geometry, index, live_display, prev_uncertainty_probes, probe_count, probe_records, rejection_streak, roi_center, source_amplitude, step_a_lr, target_camera)
+    if config.step_a_iterations:
+        fitted, _, step_a_iters, optimizer = _fit_aberration_at_probes(
+            optimizer,
+            frames,
+            int(config.step_a_iterations),
+            on_iteration=lambda iteration,
+            loss,
+            _trace=step_a_trace: _trace.append(
+                {
+                    "iteration": iteration,
+                    "loss": loss,
+                    "timestamp_utc": datetime.now(timezone.utc).isoformat(
+                        timespec="microseconds"
+                    ),
+                }
+            ),
+        )
+    else:
+        fitted, step_a_iters = coefficients.copy(), 0
+    return fitted, frames, holdout_seeds, loss_before, optimizer, probe, step_a_iters, step_a_lr, step_a_trace
+
+
+
+
+def _milr_round_score_after(affine_after, bench, best_accepted_cv, calibration_violated, camera_rotation_quarters, cell_scale, clamp_applied, clamped, coefficients, config, flat_grid, flat_phase, gamma_step, geometry, holdout_correlation, index, leakage, live_display, loss_after, loss_before, model_gain, optimizer, phase, probe_count, probe_records, radius_now, recorder, rejection_streak, roi_center, score_before, shape_phase_with_frozen_aberration, source_amplitude, step_a_iters, step_a_lr, step_b_cfg, step_l2, target, target_camera, theta_step, travel_after, trust_region):
+# Step-B scoring and acceptance verdict lifted verbatim
+    score_after, shaped_frame, shaped_metrics, shaped_phase, shaped_prediction_correlation, shaping_loss = _milr_step_b_measure(bench, camera_rotation_quarters, cell_scale, clamped, config, flat_grid, flat_phase, geometry, index, leakage, model_gain, optimizer, phase, probe_records, recorder, roi_center, shape_phase_with_frozen_aberration, source_amplitude, step_b_cfg, target, target_camera)
+
+    # --- Guard 2: accept or roll the round back ----------------------
+    row, verdict = _milr_accept_verdict(affine_after, bench, best_accepted_cv, calibration_violated, clamp_applied, clamped, coefficients, config, gamma_step, holdout_correlation, index, leakage, loss_after, loss_before, model_gain, probe_count, radius_now, recorder, rejection_streak, score_after, score_before, shaped_metrics, shaped_prediction_correlation, shaping_loss, step_a_iters, step_a_lr, step_l2, theta_step, travel_after, trust_region)
+
+    _milr_round_display(clamped, config, index, live_display, loss_after, loss_before, optimizer, roi_center, score_after, shaped_frame, shaped_phase, source_amplitude, target_camera, verdict)
+    return row, score_after, shaped_frame, shaped_metrics, shaped_phase, verdict
+
+
+
 def _run_model_in_loop_rounds(
     *,
     _fit_aberration_at_probes: object,
@@ -3996,26 +4036,7 @@ def _run_model_in_loop_rounds(
     """
     for index in range(int(config.n_rounds)):
         # --- Step A: probe the bench, refit one shared aberration -------
-        frames, holdout_seeds, loss_before, optimizer, probe, step_a_trace, step_a_lr = _milr_step_a_setup(_probe_set_loss, bench, calibration_affine, calibration_travel, camera_rotation_quarters, cell_scale, coefficients, config, geometry, index, live_display, prev_uncertainty_probes, probe_count, probe_records, rejection_streak, roi_center, source_amplitude, step_a_lr, target_camera)
-        if config.step_a_iterations:
-            fitted, _, step_a_iters, optimizer = _fit_aberration_at_probes(
-                optimizer,
-                frames,
-                int(config.step_a_iterations),
-                on_iteration=lambda iteration,
-                loss,
-                _trace=step_a_trace: _trace.append(
-                    {
-                        "iteration": iteration,
-                        "loss": loss,
-                        "timestamp_utc": datetime.now(timezone.utc).isoformat(
-                            timespec="microseconds"
-                        ),
-                    }
-                ),
-            )
-        else:
-            fitted, step_a_iters = coefficients.copy(), 0
+        fitted, frames, holdout_seeds, loss_before, optimizer, probe, step_a_iters, step_a_lr, step_a_trace = _milr_round_probe_setup(_fit_aberration_at_probes, _probe_set_loss, bench, calibration_affine, calibration_travel, camera_rotation_quarters, cell_scale, coefficients, config, geometry, index, live_display, prev_uncertainty_probes, probe_count, probe_records, rejection_streak, roi_center, source_amplitude, step_a_lr, target_camera)
         # --- Guard 0: trust region on the self-calibration --------------
         # The paper has NO trust region on its self-calibration quantities,
         # which is exactly the failure mode this repository refuses: a
@@ -4057,12 +4078,7 @@ def _run_model_in_loop_rounds(
             break
 
         # --- Step B: synthesise the square with that aberration frozen --
-        score_after, shaped_frame, shaped_metrics, shaped_phase, shaped_prediction_correlation, shaping_loss = _milr_step_b_measure(bench, camera_rotation_quarters, cell_scale, clamped, config, flat_grid, flat_phase, geometry, index, leakage, model_gain, optimizer, phase, probe_records, recorder, roi_center, shape_phase_with_frozen_aberration, source_amplitude, step_b_cfg, target, target_camera)
-
-        # --- Guard 2: accept or roll the round back ----------------------
-        row, verdict = _milr_accept_verdict(affine_after, bench, best_accepted_cv, calibration_violated, clamp_applied, clamped, coefficients, config, gamma_step, holdout_correlation, index, leakage, loss_after, loss_before, model_gain, probe_count, radius_now, recorder, rejection_streak, score_after, score_before, shaped_metrics, shaped_prediction_correlation, shaping_loss, step_a_iters, step_a_lr, step_l2, theta_step, travel_after, trust_region)
-
-        _milr_round_display(clamped, config, index, live_display, loss_after, loss_before, optimizer, roi_center, score_after, shaped_frame, shaped_phase, source_amplitude, target_camera, verdict)
+        row, score_after, shaped_frame, shaped_metrics, shaped_phase, verdict = _milr_round_score_after(affine_after, bench, best_accepted_cv, calibration_violated, camera_rotation_quarters, cell_scale, clamp_applied, clamped, coefficients, config, flat_grid, flat_phase, gamma_step, geometry, holdout_correlation, index, leakage, live_display, loss_after, loss_before, model_gain, optimizer, phase, probe_count, probe_records, radius_now, recorder, rejection_streak, roi_center, score_before, shape_phase_with_frozen_aberration, source_amplitude, step_a_iters, step_a_lr, step_b_cfg, step_l2, target, target_camera, theta_step, travel_after, trust_region)
 
         if verdict.accepted:
             coefficients = clamped

@@ -5037,6 +5037,13 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: `tests/ao_shaping/algorithm` 全域 + guard + conventions **1245 passed 25 skipped**
 - 门禁: 棘轮 154/4/128 + 4 helper 行; 模块 baseline 抬高 +32 (4 个 helper 定义与调用开销)
 
+**2026-11-13 · c7364311 之后 · 第 83 批: `_run_model_in_loop_rounds` 205→181 行 + 两缝 (`optimizer/wfless/slm_model_in_loop.py`)**
+- 提取: `_milr_round_probe_setup` 23 (逐轮探针/优化器准备, 9 回传) / `_milr_round_score_after` 9 (Step-B 打分 + 验收判定, 6 回传)
+- for 体内 4 段含 `break` 的 If (4057 标定违约 / 4123 拒绝 / 4142 连拒 / 4152 显示关闭) 与 4027-4034 段 (`holdout_correlations` 条件绑定) 全部保留母函数
+- 叶差分: 54 同 / 消失 0 / 新增 2; ⑳ 审计 0 命中; 锚点 (1129/1679/2021-2056/2137/3112-3122) 均在插入点之上, 无漂移
+- 载体: model_in_loop 两套测试 (含 loop invariants) + guard + conventions **518 passed 1 skipped**
+- 门禁: 棘轮 208/4/181 + 2 helper 行; 模块 baseline 抬高 +17
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
