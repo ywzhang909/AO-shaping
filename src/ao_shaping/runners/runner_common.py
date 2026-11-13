@@ -3977,28 +3977,9 @@ def _model_in_loop_json_payload(result: ModelInLoopResult) -> dict[str, Any]:
     return payload
 
 
-def save_model_in_loop_results(
-    result: ModelInLoopResult,
-    params: SlmModelInLoopParams,
-    *,
-    root_dir: Path,
-    debug: bool,
-    save_dir: Path | None = None,
-) -> ModelInLoopSaveResult:
-    """Persist a model-in-loop run's recorder and debug artefacts.
 
-    Extracted verbatim from ``runners/slm/model_in_loop_runner.py`` so the GUI
-    adapter reuses the same disk layout without duplicating the CLI runner.
-    """
-    import json
-
-    from ao_shaping.display.frames import save_best_image
-    from ao_shaping.utils.io.file import (
-        debug_run_dir,
-        gen_date_str,
-        save_recorder_debug_artifacts,
-    )
-
+def _smil_prepare_outputs(debug_run_dir, gen_date_str, result, root_dir, save_dir):
+# Save dir + csv + config persistence lifted verbatim
     save_dir = (
         save_dir
         if save_dir is not None
@@ -4009,16 +3990,13 @@ def save_model_in_loop_results(
     result.recorder.save_dataframe(csv_file)
 
     save_model_in_loop_config(result.config, save_dir)
+    return csv_file, save_dir
 
-    if result.fitted_coefficients is not None:
-        np.save(save_dir / "fitted_coefficients.npy", result.fitted_coefficients)
-    if result.source_amplitude is not None:
-        np.save(save_dir / "source_amplitude.npy", result.source_amplitude)
 
-    # The error terms the run actually used, so the next run can reuse them
-    # (``--error-params <this file>``). Written even when they are the ideal
-    # system's zeros, because "the model was ideal" is itself a fact worth
-    # having on disk next to the run it belongs to.
+
+
+def _smil_save_error_terms(debug, json, result, save_dir):
+# Error-term and probe-debug persistence lifted verbatim
     error_terms = getattr(result.config, "error_terms", None)
     if error_terms is not None:
         from ao_shaping.utils.wavefront.model_error_terms import save_error_terms
@@ -4057,6 +4035,82 @@ def save_model_in_loop_results(
         (probes_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2), encoding="utf-8"
         )
+    return 
+
+
+
+
+def _smil_save_artifacts(json, params, result, save_best_image, save_dir):
+# Geometry image and recorder debug artifacts lifted verbatim
+    geometry_file = None
+    if result.geometry is not None:
+        geometry_file = save_dir / "bench_geometry.json"
+        geometry_file.write_text(
+            json.dumps(
+                {
+                    "panel_disc_radius": result.geometry.panel_disc_radius,
+                    "region": result.geometry.region,
+                    "beam_waist_panel_px": result.geometry.beam_waist_panel_px,
+                    "far_field_size": result.geometry.far_field_size,
+                    "camera_px_per_model_px": result.geometry.camera_px_per_model_px,
+                    "spot_fwhm_camera_px": result.geometry.spot_fwhm_camera_px,
+                    "spot_fwhm_model_px": result.geometry.spot_fwhm_model_px,
+                    "correlation": result.geometry.correlation,
+                    "method": result.geometry.method,
+                    "calibration_notes": result.geometry.calibration_notes,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+    image_file = None
+    if params.save_best_image and result.best_frame is not None:
+        image_file = save_dir / "best_far_field.png"
+        save_best_image(
+            result.best_frame,
+            image_file,
+            title=f"slm-model-in-loop best: score={result.best_score:.4f} (flat {result.flat_score:.4f})",
+            hide_axes=True,
+        )
+    return geometry_file, image_file
+
+
+
+def save_model_in_loop_results(
+    result: ModelInLoopResult,
+    params: SlmModelInLoopParams,
+    *,
+    root_dir: Path,
+    debug: bool,
+    save_dir: Path | None = None,
+) -> ModelInLoopSaveResult:
+    """Persist a model-in-loop run's recorder and debug artefacts.
+
+    Extracted verbatim from ``runners/slm/model_in_loop_runner.py`` so the GUI
+    adapter reuses the same disk layout without duplicating the CLI runner.
+    """
+    import json
+
+    from ao_shaping.display.frames import save_best_image
+    from ao_shaping.utils.io.file import (
+        debug_run_dir,
+        gen_date_str,
+        save_recorder_debug_artifacts,
+    )
+
+    csv_file, save_dir = _smil_prepare_outputs(debug_run_dir, gen_date_str, result, root_dir, save_dir)
+
+    if result.fitted_coefficients is not None:
+        np.save(save_dir / "fitted_coefficients.npy", result.fitted_coefficients)
+    if result.source_amplitude is not None:
+        np.save(save_dir / "source_amplitude.npy", result.source_amplitude)
+
+    # The error terms the run actually used, so the next run can reuse them
+    # (``--error-params <this file>``). Written even when they are the ideal
+    # system's zeros, because "the model was ideal" is itself a fact worth
+    # having on disk next to the run it belongs to.
+    _smil_save_error_terms(debug, json, result, save_dir)
 
     phase_file = None
     best_phase = result.best_phase
@@ -4104,37 +4158,7 @@ def save_model_in_loop_results(
             ), encoding="utf-8",
         )
 
-    geometry_file = None
-    if result.geometry is not None:
-        geometry_file = save_dir / "bench_geometry.json"
-        geometry_file.write_text(
-            json.dumps(
-                {
-                    "panel_disc_radius": result.geometry.panel_disc_radius,
-                    "region": result.geometry.region,
-                    "beam_waist_panel_px": result.geometry.beam_waist_panel_px,
-                    "far_field_size": result.geometry.far_field_size,
-                    "camera_px_per_model_px": result.geometry.camera_px_per_model_px,
-                    "spot_fwhm_camera_px": result.geometry.spot_fwhm_camera_px,
-                    "spot_fwhm_model_px": result.geometry.spot_fwhm_model_px,
-                    "correlation": result.geometry.correlation,
-                    "method": result.geometry.method,
-                    "calibration_notes": result.geometry.calibration_notes,
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-
-    image_file = None
-    if params.save_best_image and result.best_frame is not None:
-        image_file = save_dir / "best_far_field.png"
-        save_best_image(
-            result.best_frame,
-            image_file,
-            title=f"slm-model-in-loop best: score={result.best_score:.4f} (flat {result.flat_score:.4f})",
-            hide_axes=True,
-        )
+    geometry_file, image_file = _smil_save_artifacts(json, params, result, save_best_image, save_dir)
 
     recorder_png = save_recorder_debug_artifacts(
         result.recorder,

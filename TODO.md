@@ -5068,6 +5068,14 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: model_in_loop_shaping + loop_invariants + guard + conventions **445 passed 1 skipped**
 - 门禁: 棘轮 190/5/173 + 3 helper 行; 模块 baseline 抬高 (+28)
 
+**2026-11-13 · 92994189 之后 · 第 87 批: `save_model_in_loop_results` 212→136 行 + 三缝 (`runners/runner_common.py`)**
+- 提取: `_smil_save_error_terms` 41 (误差项 + 探针调试持久化) / `_smil_save_artifacts` 34 (几何图 + recorder 调试图) / `_smil_prepare_outputs` 13 (保存目录 + csv + config)
+- 函数体内三处局部 import (`json` / `save_best_image` / `debug_run_dir,gen_date_str`) 经 trust 通道放行 (均在调用点之前绑定)
+- 推导式循环变量 `record` 加入 skipret (教训 ㉕), 否则被当作 store 误报条件返回
+- 叶差分: 30 同 / 消失 0 / 新增 3; ⑳ 审计 0 命中; 无 3900 之后的锚点 → 不需重钉
+- 载体: test_runner_common + guard + conventions **381 passed 1 skipped**
+- 门禁: 棘轮 152/3/136 + 3 helper 行; 模块 baseline 抬高 (+52)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
