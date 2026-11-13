@@ -48,7 +48,8 @@ from ao_shaping.tools.slm.transfer.hardware import DeviceOpenError
 from ao_shaping.tools.slm.transfer.protocol import derive_replay_exposures
 from ao_shaping.tools.slm.transfer.session_plan import stage_complete
 from ao_shaping.tools.slm.transfer.session_record import (
-    finish_segment, measured_peak_rates, optical_session_field, record_optical_session)
+    confirm_at_boundary, finish_segment, measured_peak_rates, optical_session_field,
+    record_optical_session)
 from ao_shaping.tools.slm.transfer.stages import STAGE_RECIPES, StageRecipe
 from ao_shaping.utils.image.target import TRANSFER_SHAPE_CHOICES
 
@@ -335,6 +336,119 @@ def _campaign_seed_choice(seed_bakeoff, values, shapes, out, journal, model_640,
     return chosen
 
 
+
+def _ts_records_stage(journal, out, recorder, records_marker, resume):
+# Records export branch lifted verbatim
+    if resume and records_marker.is_file():
+        journal.record("record", "reused", out=str(records_marker.parent))
+    elif recorder is None or not recorder.history:
+        # ``--resume`` on an otherwise finished lane re-enters no stage, so there
+        # is no capture to export. ``save_records`` raises "history is empty",
+        # which would fail a session whose only remaining work was the replay.
+        # ``--records-only`` rebuilds the table from the stage manifests.
+        journal.record("record", "skipped", reason="no captures this run; use --records-only")
+    elif recorder is not None:
+        saved = recording.save_records(recorder, out / "records", mark="process",
+                                       gif_name="process.gif", fps=2.0,
+                                       title="多形状物理预测模型闭环整形 (逐 CCD 块)")
+        journal.record("record", "complete", **saved)
+        click.echo(json.dumps(saved, indent=2, ensure_ascii=False))
+    return 
+
+
+
+
+def _ts_replay_stage(cam_id, camera, frames, journal, out, replay_dir, replay_exposures, replay_exposures_auto, resume, runs, shapes, slm_number):
+# Replay resume and ladder derive branch lifted verbatim
+    if resume and (replay_dir / "released.json").is_file():
+        # Same contract as a reused stage: the directory says it already ran.
+        journal.record("replay", "reused", out=str(replay_dir))
+    else:
+        journal.record("replay", "running")
+        exposures = list(replay_exposures)
+        if replay_exposures_auto:
+            observations = measured_peak_rates(runs)
+            exposures = derive_replay_exposures(observations)
+            journal.record("replay", "ladder_derived", exposures=exposures,
+                           n_blocks=len(observations))
+            logger.info("replay ladder derived from {} measured blocks: {} ms",
+                        len(observations), exposures)
+        replay_phases.replay(SimpleNamespace(
+            initial_run=out / "shape" / shapes[0] / STAGE_RECIPES[0].name, runs=runs,
+            out=replay_dir, exposures=exposures, frames=frames,
+            camera=camera, cam_id=cam_id, slm_number=slm_number, include_best=False))
+        journal.record("replay", "complete", out=str(replay_dir), exposures=exposures)
+    return 
+
+
+
+
+def _ts_make_recorder():
+# Recorder construction with optional-import fallback lifted verbatim
+    recorder = None
+    try:
+        from ao_shaping.utils.io.file import Recorder
+
+        recorder = Recorder(mark="cv_candidate", mode="min")
+    # policy: Recorder is optional telemetry for this stage loop
+    except Exception as exc:  # pragma: no cover - Recorder is part of the repo
+        logger.warning("Recorder unavailable: {}", exc)
+    return recorder
+
+
+
+
+def _ts_geometry_models(amplitude_center_lr, auto_reuse, cam_id, camera, capture_count, capture_grid, control_grid, device, fft_size, fit_iterations, fit_span, frames, journal, model_dir, out, period, record_responses, records_only, resume, seed, slm_number, window_span, window_step, zero_radius):
+# Bootstrap geometry and model freeze stages lifted verbatim
+    from ao_shaping.tools.slm.transfer import bootstrap as bootstrap_stage
+    from ao_shaping.tools.slm.transfer import geometric_seed
+
+    # ---------------------------------------------------------------- auto-reuse
+    # 当用户没有显式指定 --model-dir 时，先用少数几帧探测当前光路，
+    # 扫描历史检查点，若兼容性 >= AUTO_APPLY_THRESHOLD 就自动复用，
+    # 跳过约 20 min 的采集与拟合。任何一步失败都只记日志，继续走从头采集。
+    model_dir = _campaign_auto_reuse(model_dir, auto_reuse, records_only,
+                                    camera, cam_id, window_span, window_step,
+                                    zero_radius, period, control_grid,
+                                    fft_size, journal)
+
+    # ---------------------------------------------------------------- model
+    root, capture_dir, fit_dir, model_640, wide_dir = _campaign_model_dirs(
+        model_dir, out, camera, cam_id, slm_number, capture_grid,
+        capture_count, frames, seed, resume, journal, bootstrap_stage,
+        device, fit_iterations, fit_span, amplitude_center_lr,
+        record_responses)
+
+    # The zero order is measured on this path, never assumed.
+    rows = _json(capture_dir / "manifest.json")
+    reference = next(row for row in rows if row["label"] == "reference_start")
+    zero_xy = [float(v) for v in np.round(fit_stage.spot(reference))]
+    journal.record("geometry", "complete", zero_xy=zero_xy)
+
+    if not (model_640 / "frozen_parameters.json").is_file():
+        geometric_seed.export_frozen_parameters(fit_dir / "frozen_parameters.json", model_640,
+                                                grid=control_grid, fft=fft_size)
+        journal.record("model", "complete", model640=str(model_640))
+
+    # The wide-ramp variant needs a fresh signed-ramp measurement at the
+    # control resolution actually used for shaping.
+    if not (wide_dir / "frozen_parameters.json").is_file():
+        geometry_dir = root / "geometry_wide"
+        journal.record("capture_geometry", "running")
+        capture_stage.capture(SimpleNamespace(
+            out=geometry_dir, camera=camera, cam_id=cam_id, slm_number=slm_number,
+            grid=control_grid, count=6, frames=frames, seed=seed + 1,
+            execute=True, exposure_max_steps=12, save_dataset=True,
+            ramp_periods=[16, 32]))
+        journal.record("capture_geometry", "complete", out=str(geometry_dir))
+        geometric_seed.export_frozen_parameters(model_640 / "frozen_parameters.json",
+                                                wide_dir, grid=control_grid, fft=fft_size,
+                                                geometry_dataset=geometry_dir)
+        journal.record("wide_model", "complete", out=str(wide_dir))
+    return model_640, wide_dir, zero_xy
+
+
+
 def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None,
                      **kwargs: Any) -> dict[str, Any]:
     """Run the *executing* half of :func:`run` — this one opens the device.
@@ -445,51 +559,7 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
     journal.record("plan", "complete",
                    plan=_plan_dict(out=out, execute=True, **values))
 
-    from ao_shaping.tools.slm.transfer import bootstrap as bootstrap_stage
-    from ao_shaping.tools.slm.transfer import geometric_seed
-
-    # ---------------------------------------------------------------- auto-reuse
-    # 当用户没有显式指定 --model-dir 时，先用少数几帧探测当前光路，
-    # 扫描历史检查点，若兼容性 >= AUTO_APPLY_THRESHOLD 就自动复用，
-    # 跳过约 20 min 的采集与拟合。任何一步失败都只记日志，继续走从头采集。
-    model_dir = _campaign_auto_reuse(model_dir, auto_reuse, records_only,
-                                    camera, cam_id, window_span, window_step,
-                                    zero_radius, period, control_grid,
-                                    fft_size, journal)
-
-    # ---------------------------------------------------------------- model
-    root, capture_dir, fit_dir, model_640, wide_dir = _campaign_model_dirs(
-        model_dir, out, camera, cam_id, slm_number, capture_grid,
-        capture_count, frames, seed, resume, journal, bootstrap_stage,
-        device, fit_iterations, fit_span, amplitude_center_lr,
-        record_responses)
-
-    # The zero order is measured on this path, never assumed.
-    rows = _json(capture_dir / "manifest.json")
-    reference = next(row for row in rows if row["label"] == "reference_start")
-    zero_xy = [float(v) for v in np.round(fit_stage.spot(reference))]
-    journal.record("geometry", "complete", zero_xy=zero_xy)
-
-    if not (model_640 / "frozen_parameters.json").is_file():
-        geometric_seed.export_frozen_parameters(fit_dir / "frozen_parameters.json", model_640,
-                                                grid=control_grid, fft=fft_size)
-        journal.record("model", "complete", model640=str(model_640))
-
-    # The wide-ramp variant needs a fresh signed-ramp measurement at the
-    # control resolution actually used for shaping.
-    if not (wide_dir / "frozen_parameters.json").is_file():
-        geometry_dir = root / "geometry_wide"
-        journal.record("capture_geometry", "running")
-        capture_stage.capture(SimpleNamespace(
-            out=geometry_dir, camera=camera, cam_id=cam_id, slm_number=slm_number,
-            grid=control_grid, count=6, frames=frames, seed=seed + 1,
-            execute=True, exposure_max_steps=12, save_dataset=True,
-            ramp_periods=[16, 32]))
-        journal.record("capture_geometry", "complete", out=str(geometry_dir))
-        geometric_seed.export_frozen_parameters(model_640 / "frozen_parameters.json",
-                                                wide_dir, grid=control_grid, fft=fft_size,
-                                                geometry_dataset=geometry_dir)
-        journal.record("wide_model", "complete", out=str(wide_dir))
+    model_640, wide_dir, zero_xy = _ts_geometry_models(amplitude_center_lr, auto_reuse, cam_id, camera, capture_count, capture_grid, control_grid, device, fft_size, fit_iterations, fit_span, frames, journal, model_dir, out, period, record_responses, records_only, resume, seed, slm_number, window_span, window_step, zero_radius)
 
     # ------------------------------------------------------- seed bake-off
     chosen: dict[str, str] = {}
@@ -501,14 +571,7 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
                                  gs_seed, initial_phase, chosen)
 
     # ------------------------------------------------------------- shaping
-    recorder = None
-    try:
-        from ao_shaping.utils.io.file import Recorder
-
-        recorder = Recorder(mark="cv_candidate", mode="min")
-    # policy: Recorder is optional telemetry for this stage loop
-    except Exception as exc:  # pragma: no cover - Recorder is part of the repo
-        logger.warning("Recorder unavailable: {}", exc)
+    recorder = _ts_make_recorder()
 
     stopped = run_stages(
         out=out, shapes=shapes, order=order, resume=resume, journal=journal,
@@ -545,24 +608,7 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
     # not: it is written before the first block, so a replay that aborted on a
     # saturated core (2026-10-29, lane 01) would be skipped as "reused" and the
     # lane would silently report a session with no usable replay.
-    if resume and (replay_dir / "released.json").is_file():
-        # Same contract as a reused stage: the directory says it already ran.
-        journal.record("replay", "reused", out=str(replay_dir))
-    else:
-        journal.record("replay", "running")
-        exposures = list(replay_exposures)
-        if replay_exposures_auto:
-            observations = measured_peak_rates(runs)
-            exposures = derive_replay_exposures(observations)
-            journal.record("replay", "ladder_derived", exposures=exposures,
-                           n_blocks=len(observations))
-            logger.info("replay ladder derived from {} measured blocks: {} ms",
-                        len(observations), exposures)
-        replay_phases.replay(SimpleNamespace(
-            initial_run=out / "shape" / shapes[0] / STAGE_RECIPES[0].name, runs=runs,
-            out=replay_dir, exposures=exposures, frames=frames,
-            camera=camera, cam_id=cam_id, slm_number=slm_number, include_best=False))
-        journal.record("replay", "complete", out=str(replay_dir), exposures=exposures)
+    _ts_replay_stage(cam_id, camera, frames, journal, out, replay_dir, replay_exposures, replay_exposures_auto, resume, runs, shapes, slm_number)
 
     # -------------------------------------------------------------- record
     if stop_requested():
@@ -574,20 +620,7 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
         click.echo(f"Session stopped before records: {out}")
         return summary
     records_marker = out / "records" / "process.csv"
-    if resume and records_marker.is_file():
-        journal.record("record", "reused", out=str(records_marker.parent))
-    elif recorder is None or not recorder.history:
-        # ``--resume`` on an otherwise finished lane re-enters no stage, so there
-        # is no capture to export. ``save_records`` raises "history is empty",
-        # which would fail a session whose only remaining work was the replay.
-        # ``--records-only`` rebuilds the table from the stage manifests.
-        journal.record("record", "skipped", reason="no captures this run; use --records-only")
-    elif recorder is not None:
-        saved = recording.save_records(recorder, out / "records", mark="process",
-                                       gif_name="process.gif", fps=2.0,
-                                       title="多形状物理预测模型闭环整形 (逐 CCD 块)")
-        journal.record("record", "complete", **saved)
-        click.echo(json.dumps(saved, indent=2, ensure_ascii=False))
+    _ts_records_stage(journal, out, recorder, records_marker, resume)
     record_optical_session(out)
     journal.record("session", "complete", out=str(out), **optical_session_field(out))
     summary.update(optical_session_field(out))
@@ -748,6 +781,8 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
         # cost.json，供成本面板外推；段边界的协作式暂停也在这一步判定。
         if finish_segment(journal, key, stage_dir, stage=recipe.name, shape=shape,
                           fallback_blocks=recipe.blocks, out=out):
+            return True
+        if confirm_at_boundary(journal, key, out):
             return True
     return False
 

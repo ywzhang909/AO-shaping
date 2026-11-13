@@ -661,6 +661,171 @@ def optimize_pib(
     )
 
 
+
+def _pib_record_init_row(_init_r, _init_v, adaptive_search_state, best_objective, cam, delta, init_img, j, objective, optimizer, optimizer_type, pib_ratio, r_bucket, recorder, tabu_memory, test_pib):
+# Init-row recorder append lifted verbatim
+    recorder.append(
+        {
+            "J": j,
+            objective: test_pib(init_img),
+            RECORD_ROI_ENERGY: pib_ratio,
+            "_max_r": _init_r,
+            RECORD_VOLTAGES: _init_v,
+            RECORD_IMAGE: init_img,
+            RECORD_DIFF: 0,
+            "lr": optimizer.lr,
+            "r": r_bucket,
+            "delta": delta,
+            RECORD_EPOCH: 0,
+            "exp_t": get_camera_exposure_ms(cam),
+            "max_brt": np.max(init_img),
+            RECORD_GRAD: np.zeros_like(_init_v),
+            "optimizer": optimizer_type,
+            f"best_{objective}": best_objective,
+            "search_radius": adaptive_search_state.radius,
+            "tabu_size": len(tabu_memory._queue),
+        }
+    )
+    return 
+
+
+
+
+def _pib_make_search_fn(adaptive_search_state, best_objective, best_v, dm, dm_unit_mask, evaluate_candidate, objective, rng, search_anchor, search_samples, tabu_memory):
+# Adaptive search closure factory lifted verbatim
+    def run_adaptive_search(
+        epoch: int, current_v: np.ndarray, current_objective: float
+    ) -> dict | None:
+        logger.info(f"tabu search start @ {epoch}")
+        anchor_v = (
+            best_v.copy() if search_anchor == "best" else current_v.copy()
+        )
+        anchor_objective = (
+            best_objective
+            if search_anchor == "best"
+            else float(current_objective)
+        )
+        candidates = _generate_search_candidates(
+            anchor_v=anchor_v,
+            radius_scale=adaptive_search_state.radius,
+            n_samples=search_samples,
+            dm_unit_mask=np.asarray(dm_unit_mask),
+            rng=rng,
+        )
+
+        best_candidate: dict | None = None
+        tabu_hits = 0
+        safe_rejects = 0
+        evaluated = 0
+
+        for candidate in candidates:
+            candidate = np.clip(candidate, dm.V_Min, dm.V_Max)
+            if tabu_memory.contains(candidate):
+                tabu_hits += 1
+                continue
+            if not dm.check_dm_unit_grad_safe(candidate):
+                safe_rejects += 1
+                tabu_memory.add(candidate)
+                continue
+
+            candidate_eval = evaluate_candidate(candidate)
+            evaluated += 1
+            improved = (
+                candidate_eval[objective]
+                > anchor_objective + adaptive_search_state.improvement_tol
+            )
+            if improved and (
+                best_candidate is None
+                or candidate_eval[objective] > best_candidate[objective]
+            ):
+                best_candidate = {
+                    "voltages": candidate.copy(),
+                    **candidate_eval,
+                }
+            else:
+                tabu_memory.add(candidate)
+
+        if best_candidate is None:
+            adaptive_search_state.update_radius(improved=False)
+            return {
+                "accepted": False,
+                "tabu_hits": tabu_hits,
+                "safe_rejects": safe_rejects,
+                "evaluated": evaluated,
+                "radius": adaptive_search_state.radius,
+                "anchor": search_anchor,
+            }
+
+        tabu_memory.add(anchor_v)
+        adaptive_search_state.update_radius(improved=True)
+        best_candidate.update(
+            {
+                "accepted": True,
+                "tabu_hits": tabu_hits,
+                "safe_rejects": safe_rejects,
+                "evaluated": evaluated,
+                "radius": adaptive_search_state.radius,
+                "anchor": search_anchor,
+                RECORD_EPOCH: epoch,
+            }
+        )
+        return best_candidate
+    return run_adaptive_search
+
+
+
+
+def _pib_init_tabu_state(delta, search_expand_ratio, search_improvement_tol, search_max_radius, search_min_radius, search_radius, search_shrink_ratio, tabu_memory_size, tabu_quantization):
+# AdaptiveSearchState + TabuMemory construction lifted verbatim
+    adaptive_search_state = AdaptiveSearchState(
+        radius=float(
+            search_radius
+            if search_radius is not None
+            else max(delta * 2.0, 1.0)
+        ),
+        min_radius=float(
+            search_min_radius
+            if search_min_radius is not None
+            else max(delta * 0.5, 0.5)
+        ),
+        max_radius=float(
+            search_max_radius
+            if search_max_radius is not None
+            else max(delta * 6.0, 12.0)
+        ),
+        expand_ratio=float(search_expand_ratio),
+        shrink_ratio=float(search_shrink_ratio),
+        improvement_tol=float(search_improvement_tol),
+    )
+    tabu_memory = TabuMemory(
+        capacity=int(tabu_memory_size),
+        quantization=float(tabu_quantization),
+    )
+    return adaptive_search_state, tabu_memory
+
+
+
+
+def _pib_update_iter_setup(epochs, r_bucket, shrink_ratio):
+# r_bucket shrink schedule lifted verbatim
+    if (
+        shrink_ratio <= 0
+        or np.isclose(shrink_ratio, 1.0)
+        or r_bucket <= IDEAL_SPOT_RADIUS
+    ):
+        update_iter = max(1, epochs)
+    else:
+        shrink_span = np.log(IDEAL_SPOT_RADIUS / r_bucket) / np.log(
+            shrink_ratio
+        )
+        if np.isfinite(shrink_span) and shrink_span > 0:
+            update_iter = max(1, int(epochs * 0.8 // shrink_span))
+        else:
+            update_iter = max(1, epochs)
+    return update_iter
+
+
+
 def _run_pib_bench_session(
     *,
     _gradient_history: object,
@@ -740,20 +905,7 @@ def _run_pib_bench_session(
             else:
                 _fix_bucket = True
 
-            if (
-                shrink_ratio <= 0
-                or np.isclose(shrink_ratio, 1.0)
-                or r_bucket <= IDEAL_SPOT_RADIUS
-            ):
-                update_iter = max(1, epochs)
-            else:
-                shrink_span = np.log(IDEAL_SPOT_RADIUS / r_bucket) / np.log(
-                    shrink_ratio
-                )
-                if np.isfinite(shrink_span) and shrink_span > 0:
-                    update_iter = max(1, int(epochs * 0.8 // shrink_span))
-                else:
-                    update_iter = max(1, epochs)
+            update_iter = _pib_update_iter_setup(epochs, r_bucket, shrink_ratio)
             _init_r = r_bucket
 
             if show:
@@ -801,30 +953,7 @@ def _run_pib_bench_session(
                     epoch=0,
                 )
 
-            adaptive_search_state = AdaptiveSearchState(
-                radius=float(
-                    search_radius
-                    if search_radius is not None
-                    else max(delta * 2.0, 1.0)
-                ),
-                min_radius=float(
-                    search_min_radius
-                    if search_min_radius is not None
-                    else max(delta * 0.5, 0.5)
-                ),
-                max_radius=float(
-                    search_max_radius
-                    if search_max_radius is not None
-                    else max(delta * 6.0, 12.0)
-                ),
-                expand_ratio=float(search_expand_ratio),
-                shrink_ratio=float(search_shrink_ratio),
-                improvement_tol=float(search_improvement_tol),
-            )
-            tabu_memory = TabuMemory(
-                capacity=int(tabu_memory_size),
-                quantization=float(tabu_quantization),
-            )
+            adaptive_search_state, tabu_memory = _pib_init_tabu_state(delta, search_expand_ratio, search_improvement_tol, search_max_radius, search_min_radius, search_radius, search_shrink_ratio, tabu_memory_size, tabu_quantization)
 
             best_objective = float(test_pib(init_img))
             float(j)
@@ -847,106 +976,9 @@ def _run_pib_bench_session(
                     "max_brt": float(np.max(candidate_img)),
                 }
 
-            def run_adaptive_search(
-                epoch: int, current_v: np.ndarray, current_objective: float
-            ) -> dict | None:
-                logger.info(f"tabu search start @ {epoch}")
-                anchor_v = (
-                    best_v.copy() if search_anchor == "best" else current_v.copy()
-                )
-                anchor_objective = (
-                    best_objective
-                    if search_anchor == "best"
-                    else float(current_objective)
-                )
-                candidates = _generate_search_candidates(
-                    anchor_v=anchor_v,
-                    radius_scale=adaptive_search_state.radius,
-                    n_samples=search_samples,
-                    dm_unit_mask=np.asarray(dm_unit_mask),
-                    rng=rng,
-                )
+            run_adaptive_search = _pib_make_search_fn(adaptive_search_state, best_objective, best_v, dm, dm_unit_mask, evaluate_candidate, objective, rng, search_anchor, search_samples, tabu_memory)
 
-                best_candidate: dict | None = None
-                tabu_hits = 0
-                safe_rejects = 0
-                evaluated = 0
-
-                for candidate in candidates:
-                    candidate = np.clip(candidate, dm.V_Min, dm.V_Max)
-                    if tabu_memory.contains(candidate):
-                        tabu_hits += 1
-                        continue
-                    if not dm.check_dm_unit_grad_safe(candidate):
-                        safe_rejects += 1
-                        tabu_memory.add(candidate)
-                        continue
-
-                    candidate_eval = evaluate_candidate(candidate)
-                    evaluated += 1
-                    improved = (
-                        candidate_eval[objective]
-                        > anchor_objective + adaptive_search_state.improvement_tol
-                    )
-                    if improved and (
-                        best_candidate is None
-                        or candidate_eval[objective] > best_candidate[objective]
-                    ):
-                        best_candidate = {
-                            "voltages": candidate.copy(),
-                            **candidate_eval,
-                        }
-                    else:
-                        tabu_memory.add(candidate)
-
-                if best_candidate is None:
-                    adaptive_search_state.update_radius(improved=False)
-                    return {
-                        "accepted": False,
-                        "tabu_hits": tabu_hits,
-                        "safe_rejects": safe_rejects,
-                        "evaluated": evaluated,
-                        "radius": adaptive_search_state.radius,
-                        "anchor": search_anchor,
-                    }
-
-                tabu_memory.add(anchor_v)
-                adaptive_search_state.update_radius(improved=True)
-                best_candidate.update(
-                    {
-                        "accepted": True,
-                        "tabu_hits": tabu_hits,
-                        "safe_rejects": safe_rejects,
-                        "evaluated": evaluated,
-                        "radius": adaptive_search_state.radius,
-                        "anchor": search_anchor,
-                        RECORD_EPOCH: epoch,
-                    }
-                )
-                return best_candidate
-
-            recorder.append(
-                {
-                    "J": j,
-                    objective: test_pib(init_img),
-                    RECORD_ROI_ENERGY: pib_ratio,
-                    "_max_r": _init_r,
-                    RECORD_VOLTAGES: _init_v,
-                    RECORD_IMAGE: init_img,
-                    RECORD_DIFF: 0,
-                    "lr": optimizer.lr,
-                    "r": r_bucket,
-                    "delta": delta,
-                    RECORD_EPOCH: 0,
-                    "exp_t": get_camera_exposure_ms(cam),
-                    "max_brt": np.max(init_img),
-                    RECORD_GRAD: np.zeros_like(_init_v),
-                    "optimizer": optimizer_type,
-                    f"best_{objective}": best_objective,
-                    "search_radius": adaptive_search_state.radius,
-                    "tabu_size": len(tabu_memory._queue),
-                }
-            )
+            _pib_record_init_row(_init_r, _init_v, adaptive_search_state, best_objective, cam, delta, init_img, j, objective, optimizer, optimizer_type, pib_ratio, r_bucket, recorder, tabu_memory, test_pib)
             def _render_epoch_frame(pos_img, voltages, epoch_number):
                 if not show:
                     return True

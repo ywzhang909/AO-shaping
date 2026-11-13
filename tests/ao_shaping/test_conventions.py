@@ -2202,7 +2202,14 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
 #: of a partial on-disk artifact must degrade to "no row", the third is a best-effort display
 #: write during teardown -- see issues #145 and #45. The unmarked-count ratchet below is back
 #: to zero. Reason in TODO.md 8.9.
-_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 424
+#:
+#: 2026-11-13: `ab5ae52e` (transfer capture 开场曝光三态 + `capture()` 拆分) added a net 1
+#: handler -- the live-prediction init fallback in `transfer/capture.py`, a best-effort catch
+#: whose guarded model build may raise any SDK/library error and must degrade to a warning so
+#: capture continues (the exposure read-back fallback in the same commit already carries a
+#: `# policy:` judgement). Not narrowed for the same reason as above. 424 -> 425. Reason in
+#: TODO.md 8.9.
+_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 425
 
 #: Second ratchet over the same population: a broad catch that has actually been *judged*
 #: carries a ``# policy:`` marker naming what the layer is protecting -- within two lines

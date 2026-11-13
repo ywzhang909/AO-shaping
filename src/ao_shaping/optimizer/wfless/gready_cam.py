@@ -15,8 +15,6 @@ from ao_shaping.utils.io.recorder_keys import (
     RECORD_VOLTAGES,
 )
 
-ROOT_DIR = r"D:\ao-project\data"
-
 # display settings
 VOLT_HEIGHT = 200
 LOG_J_HEIGHT = 200

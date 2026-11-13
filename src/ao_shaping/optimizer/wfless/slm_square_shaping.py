@@ -2318,6 +2318,200 @@ def _select_better_square_perturbation(
     )
 
 
+
+def _sq_display_epoch(_params_to_gray, display_ctx, epoch, epochs, eval_c, eval_cv, eval_ee, eval_img, quality):
+# Epoch display block lifted verbatim
+    if display_ctx is not None:
+        try:
+            display_ctx.update(
+                img=eval_img,
+                phase=_params_to_gray(eval_c),
+                quality=quality,
+                cv=eval_cv,
+                ee=eval_ee,
+                epoch=epoch,
+                total_epochs=epochs,
+            )
+        # policy: a display refresh inside the optimisation loop must not abort the run -- the recorded metrics, not the window, decide the outcome
+        except Exception:
+            pass
+    return 
+
+
+
+
+def _sq_record_epoch(J, _record_vec, _score_column, cam, delta, diff, epoch, eval_ar, eval_c, eval_cv, eval_ee, eval_img, eval_pbr, gradient, max_brightness, neg, optimizer, pos, quality, recorder, target_mean_brightness, target_side):
+# Epoch log dict + recorder append lifted verbatim
+    log = {
+        "J": J,
+        "gate": "applied",
+        _score_column: quality,
+        "cv": eval_cv,
+        "ee": eval_ee,
+        "ar": eval_ar,
+        "pbr": eval_pbr,
+        "side": target_side,
+        RECORD_DIFF: diff,
+        "lr": optimizer.lr,
+        "delta": delta,
+        RECORD_EPOCH: epoch,
+        RECORD_COEFFS: _record_vec(eval_c),
+        RECORD_IMAGE: eval_img,
+        "exp_t": get_camera_exposure_ms(cam),
+        "max_brt": max_brightness,
+        "mean_b": (pos["mean"] + neg["mean"]) / 2,
+        "target_mean_b": target_mean_brightness,
+        RECORD_GRAD: _record_vec(gradient),
+    }
+    recorder.append(log)
+    return log
+
+
+
+
+def _sq_adapt_lr(_adaptive_cfg, _cv_history, _delta_pinned, _gradient_history, _max_history_len, _param_scale, delta, epoch, eval_cv, eval_ee, gradient, lr, optimizer):
+# Adaptive lr schedule block lifted verbatim
+    if lr == 0:
+        _grad_mag = float(np.linalg.norm(gradient))
+        _gradient_history.append(_grad_mag)
+        _cv_history.append(eval_cv)
+        if len(_gradient_history) > _max_history_len:
+            _gradient_history.pop(0)
+            _cv_history.pop(0)
+        optimizer.lr, _auto_delta = learning_schedule(
+            cv=eval_cv,
+            encircled_energy=eval_ee,
+            gradient_history=_gradient_history,
+            cv_history=_cv_history,
+            epoch=epoch,
+        )
+        optimizer.lr *= _param_scale
+        if not _delta_pinned:
+            delta = _auto_delta * _param_scale
+        elif epoch == 1:
+            logger.info(
+                "delta pinned at {:.4g} rad by the caller; the adaptive "
+                "schedule will not override it",
+                delta,
+            )
+        delta *= _param_scale
+
+    # Adaptive-only: the CV history is normally collected only for
+    # the `lr == 0` schedule, but stagnation detection needs it for
+    # ANY lr once --adaptive is on.
+    elif _adaptive_cfg is not None:
+        _cv_history.append(eval_cv)
+        _max_history_len = max(_max_history_len, len(_cv_history))
+        if len(_cv_history) > _max_history_len:
+            _cv_history.pop(0)
+    return delta
+
+
+
+
+def _sq_epoch_metrics(_adaptive_cfg, _base_w_aspect, _base_w_efficiency, _base_w_uniformity, center, neg, objective, pos, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity):
+# Epoch eval metrics tuple unpack lifted verbatim
+    (
+        eval_img,
+        eval_cv,
+        eval_ee,
+        eval_ar,
+        eval_c,
+        eval_pbr,
+        quality,
+        J,
+        _track_quality,
+    ) = _select_better_square_perturbation(
+        _adaptive_cfg=_adaptive_cfg,
+        _base_w_aspect=_base_w_aspect,
+        _base_w_efficiency=_base_w_efficiency,
+        _base_w_uniformity=_base_w_uniformity,
+        center=center,
+        neg=neg,
+        objective=objective,
+        pos=pos,
+        target_side=target_side,
+        w_aspect=w_aspect,
+        w_efficiency=w_efficiency,
+        w_pbr=w_pbr,
+        w_uniformity=w_uniformity,
+    )
+    return J, _track_quality, eval_ar, eval_c, eval_cv, eval_ee, eval_img, eval_pbr, quality
+
+
+
+
+def _sq_saturation_resample(cam, exposure_time_ms, neg, optimizer, pos, target_max_brightness):
+# Saturation resample block lifted verbatim
+    max_brightness = max(np.max(pos["img"]), np.max(neg["img"]))
+    if max_brightness == 255 and exposure_time_ms == 0:
+        _resample_img = resample_on_saturation(
+            pos["img"],
+            cam,
+            exposure_time_ms,
+            target_max_brightness,
+            auto_exposure_fn=lambda c, t, n_sample=1: c.auto_exposure(
+                target_max=t, twice_valid=False, n_sample=max(n_sample, 20)
+            ),
+            saturation_threshold=float(max_brightness),
+        )
+        optimizer.scale_momentum(np.sum(_resample_img) / np.sum(pos["img"]))
+    return max_brightness
+
+
+
+
+def _sq_measure_pair(_apply_update, _params, _params_to_gray, cam, center, disturb_c, objective, slm, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity):
+# Positive and negative perturbation measurements lifted verbatim
+    pos = _square_perturbation_measurement(
+        _params_to_gray=_params_to_gray,
+        c=_apply_update(_params, disturb_c),
+        cam=cam,
+        center=center,
+        objective=objective,
+        slm=slm,
+        target_side=target_side,
+        w_aspect=w_aspect,
+        w_efficiency=w_efficiency,
+        w_pbr=w_pbr,
+        w_uniformity=w_uniformity,
+    )
+    neg = _square_perturbation_measurement(
+        _params_to_gray=_params_to_gray,
+        c=_apply_update(_params, -disturb_c),
+        cam=cam,
+        center=center,
+        objective=objective,
+        slm=slm,
+        target_side=target_side,
+        w_aspect=w_aspect,
+        w_efficiency=w_efficiency,
+        w_pbr=w_pbr,
+        w_uniformity=w_uniformity,
+    )
+    return neg, pos
+
+
+
+
+def _sq_adaptive_weights(_adaptive_boost_active, _adaptive_cfg, _cv_history, epoch, epochs, w_aspect, w_efficiency, w_uniformity):
+# Adaptive weight boost block lifted verbatim
+    w_uniformity, w_efficiency, w_aspect, _adaptive_boost_active = (
+        _square_stage_weights(
+            _adaptive_boost_active=_adaptive_boost_active,
+            _adaptive_cfg=_adaptive_cfg,
+            _cv_history=_cv_history,
+            epoch=epoch,
+            epochs=epochs,
+            w_aspect=w_aspect,
+            w_efficiency=w_efficiency,
+            w_uniformity=w_uniformity,
+        )
+    )
+    return w_aspect, w_efficiency, w_uniformity
+
+
+
 def _run_square_search_stage(
     *,
     _adaptive_boost_active: object,
@@ -2447,18 +2641,7 @@ def _run_square_search_stage(
         total=epochs, desc=f"slm_square iter {epochs}", dynamic_ncols=True
     ) as bar:
         for epoch in range(1, epochs + 1):
-            w_uniformity, w_efficiency, w_aspect, _adaptive_boost_active = (
-                _square_stage_weights(
-                    _adaptive_boost_active=_adaptive_boost_active,
-                    _adaptive_cfg=_adaptive_cfg,
-                    _cv_history=_cv_history,
-                    epoch=epoch,
-                    epochs=epochs,
-                    w_aspect=w_aspect,
-                    w_efficiency=w_efficiency,
-                    w_uniformity=w_uniformity,
-                )
-            )
+            w_aspect, w_efficiency, w_uniformity = _sq_adaptive_weights(_adaptive_boost_active, _adaptive_cfg, _cv_history, epoch, epochs, w_aspect, w_efficiency, w_uniformity)
 
             # Generate random perturbation (±1 pattern), dim = _dim
             disturb_c = rng.binomial(1, 0.5, (_dim,)).astype(float) * 2.0 - 1.0
@@ -2472,47 +2655,10 @@ def _run_square_search_stage(
 
             # Positive / negative perturbation. The two measurements are the
             # same procedure on +/- disturb_c, so they share one record.
-            pos = _square_perturbation_measurement(
-                _params_to_gray=_params_to_gray,
-                c=_apply_update(_params, disturb_c),
-                cam=cam,
-                center=center,
-                objective=objective,
-                slm=slm,
-                target_side=target_side,
-                w_aspect=w_aspect,
-                w_efficiency=w_efficiency,
-                w_pbr=w_pbr,
-                w_uniformity=w_uniformity,
-            )
-            neg = _square_perturbation_measurement(
-                _params_to_gray=_params_to_gray,
-                c=_apply_update(_params, -disturb_c),
-                cam=cam,
-                center=center,
-                objective=objective,
-                slm=slm,
-                target_side=target_side,
-                w_aspect=w_aspect,
-                w_efficiency=w_efficiency,
-                w_pbr=w_pbr,
-                w_uniformity=w_uniformity,
-            )
+            neg, pos = _sq_measure_pair(_apply_update, _params, _params_to_gray, cam, center, disturb_c, objective, slm, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity)
 
             # Auto-exposure adjustment if saturated
-            max_brightness = max(np.max(pos["img"]), np.max(neg["img"]))
-            if max_brightness == 255 and exposure_time_ms == 0:
-                _resample_img = resample_on_saturation(
-                    pos["img"],
-                    cam,
-                    exposure_time_ms,
-                    target_max_brightness,
-                    auto_exposure_fn=lambda c, t, n_sample=1: c.auto_exposure(
-                        target_max=t, twice_valid=False, n_sample=max(n_sample, 20)
-                    ),
-                    saturation_threshold=float(max_brightness),
-                )
-                optimizer.scale_momentum(np.sum(_resample_img) / np.sum(pos["img"]))
+            max_brightness = _sq_saturation_resample(cam, exposure_time_ms, neg, optimizer, pos, target_max_brightness)
 
             # In-ROI energy guard: abandon the whole epoch if either
             # perturbation has driven the in-box energy fraction below
@@ -2581,31 +2727,7 @@ def _run_square_search_stage(
             update = optimizer.update(gradient)
             _params = _apply_update(_params, update)
 
-            (
-                eval_img,
-                eval_cv,
-                eval_ee,
-                eval_ar,
-                eval_c,
-                eval_pbr,
-                quality,
-                J,
-                _track_quality,
-            ) = _select_better_square_perturbation(
-                _adaptive_cfg=_adaptive_cfg,
-                _base_w_aspect=_base_w_aspect,
-                _base_w_efficiency=_base_w_efficiency,
-                _base_w_uniformity=_base_w_uniformity,
-                center=center,
-                neg=neg,
-                objective=objective,
-                pos=pos,
-                target_side=target_side,
-                w_aspect=w_aspect,
-                w_efficiency=w_efficiency,
-                w_pbr=w_pbr,
-                w_uniformity=w_uniformity,
-            )
+            J, _track_quality, eval_ar, eval_c, eval_cv, eval_ee, eval_img, eval_pbr, quality = _sq_epoch_metrics(_adaptive_cfg, _base_w_aspect, _base_w_efficiency, _base_w_uniformity, center, neg, objective, pos, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity)
 
             # Track best
             if _track_quality > best_quality + 1e-6:
@@ -2620,77 +2742,11 @@ def _run_square_search_stage(
             # overwritten here whenever `lr` was left at 0 (its default),
             # which made the flag a no-op unless you also passed an explicit
             # `--lr`. `--delta` pinned is now reported, not discarded.
-            if lr == 0:
-                _grad_mag = float(np.linalg.norm(gradient))
-                _gradient_history.append(_grad_mag)
-                _cv_history.append(eval_cv)
-                if len(_gradient_history) > _max_history_len:
-                    _gradient_history.pop(0)
-                    _cv_history.pop(0)
-                optimizer.lr, _auto_delta = learning_schedule(
-                    cv=eval_cv,
-                    encircled_energy=eval_ee,
-                    gradient_history=_gradient_history,
-                    cv_history=_cv_history,
-                    epoch=epoch,
-                )
-                optimizer.lr *= _param_scale
-                if not _delta_pinned:
-                    delta = _auto_delta * _param_scale
-                elif epoch == 1:
-                    logger.info(
-                        "delta pinned at {:.4g} rad by the caller; the adaptive "
-                        "schedule will not override it",
-                        delta,
-                    )
-                delta *= _param_scale
+            delta = _sq_adapt_lr(_adaptive_cfg, _cv_history, _delta_pinned, _gradient_history, _max_history_len, _param_scale, delta, epoch, eval_cv, eval_ee, gradient, lr, optimizer)
 
-            # Adaptive-only: the CV history is normally collected only for
-            # the `lr == 0` schedule, but stagnation detection needs it for
-            # ANY lr once --adaptive is on.
-            elif _adaptive_cfg is not None:
-                _cv_history.append(eval_cv)
-                _max_history_len = max(_max_history_len, len(_cv_history))
-                if len(_cv_history) > _max_history_len:
-                    _cv_history.pop(0)
+            log = _sq_record_epoch(J, _record_vec, _score_column, cam, delta, diff, epoch, eval_ar, eval_c, eval_cv, eval_ee, eval_img, eval_pbr, gradient, max_brightness, neg, optimizer, pos, quality, recorder, target_mean_brightness, target_side)
 
-            log = {
-                "J": J,
-                "gate": "applied",
-                _score_column: quality,
-                "cv": eval_cv,
-                "ee": eval_ee,
-                "ar": eval_ar,
-                "pbr": eval_pbr,
-                "side": target_side,
-                RECORD_DIFF: diff,
-                "lr": optimizer.lr,
-                "delta": delta,
-                RECORD_EPOCH: epoch,
-                RECORD_COEFFS: _record_vec(eval_c),
-                RECORD_IMAGE: eval_img,
-                "exp_t": get_camera_exposure_ms(cam),
-                "max_brt": max_brightness,
-                "mean_b": (pos["mean"] + neg["mean"]) / 2,
-                "target_mean_b": target_mean_brightness,
-                RECORD_GRAD: _record_vec(gradient),
-            }
-            recorder.append(log)
-
-            if display_ctx is not None:
-                try:
-                    display_ctx.update(
-                        img=eval_img,
-                        phase=_params_to_gray(eval_c),
-                        quality=quality,
-                        cv=eval_cv,
-                        ee=eval_ee,
-                        epoch=epoch,
-                        total_epochs=epochs,
-                    )
-                # policy: a display refresh inside the optimisation loop must not abort the run -- the recorded metrics, not the window, decide the outcome
-                except Exception:
-                    pass
+            _sq_display_epoch(_params_to_gray, display_ctx, epoch, epochs, eval_c, eval_cv, eval_ee, eval_img, quality)
 
             bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
             bar.update(1)

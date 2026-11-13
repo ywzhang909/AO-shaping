@@ -368,6 +368,177 @@ def calibration_is_required(config: MeasurementConfig) -> bool:
     return True
 
 
+
+def _measure_scan_bounds(config, max_gray, mode, slm):
+# Command range clamp + sweep command ladder lifted verbatim
+    scan_lo = int(config.command_min_gray or 0)
+    scan_hi = int(config.command_max_gray or max_gray)
+    if scan_hi > int(slm.MAX_GRAYSCALE_VALUE):
+        raise RuntimeError(
+            f"command_max_gray={scan_hi} 超过硬件满量程 "
+            f"{int(slm.MAX_GRAYSCALE_VALUE)}"
+        )
+    if mode == "gray":
+        logger.info(
+            "灰度扫描区间: {} ~ {} (标称 2π 灰度 {}, 硬件满量程 {})",
+            scan_lo,
+            scan_hi,
+            max_gray,
+            int(slm.MAX_GRAYSCALE_VALUE),
+        )
+    commands = (
+        np.linspace(float(scan_lo), float(scan_hi), int(config.n_steps))
+        if mode == "gray"
+        else np.linspace(0.0, 2.0 * math.pi, int(config.n_steps))
+    )
+    return commands, scan_hi, scan_lo
+
+
+
+
+def _measure_saturation_warn(detector_full_scale, peak_adu):
+# Detector saturation warning block lifted verbatim
+    if detector_full_scale > 0.0:
+        saturation = peak_adu / detector_full_scale
+        if saturation > SATURATION_WARN_FRACTION:
+            logger.warning(
+                "零级峰值 {:.0f} ADU 达满量程的 {:.0f}% (> {:.0f}%): "
+                "过曝会让衍射效率严重低估, 请降低曝光",
+                peak_adu,
+                saturation * 100.0,
+                SATURATION_WARN_FRACTION * 100.0,
+            )
+    return 
+
+
+
+
+def _measure_drift_warn(config, drift_px):
+# Geometry drift warning block lifted verbatim
+    if drift_px > GEOMETRY_DRIFT_TOL_PX:
+        message = (
+            f"零级中心与光路标定偏离 {drift_px:.1f}px "
+            f"(>{GEOMETRY_DRIFT_TOL_PX:.0f}px): 光路标定已过期 (光路动过), "
+            "请重新运行 `python -m ao_shaping.tools.slm.calibration`"
+        )
+        if config.strict_geometry:
+            raise RuntimeError(message)
+        logger.warning("{} (strict_geometry=False, 继续)", message)
+    return 
+
+
+
+
+def _measure_defocus_phase(config, defocus_focal_mm, panel_shape, pupil_center, pupil_radius):
+# Defocus compensation phase construction lifted verbatim
+    use_defocus = math.isfinite(defocus_focal_mm)
+    defocus_phase = (
+        fresnel_panel(
+            defocus_focal_mm,
+            radius=pupil_radius,
+            pupil_center=pupil_center,
+            panel_shape=panel_shape,
+            wavelength_nm=float(config.slm_wavelength),
+        )
+        if use_defocus
+        else np.zeros(panel_shape, dtype=np.float64)
+    )
+    return defocus_phase, use_defocus
+
+
+
+
+def _measure_focus_gate(camera, config, defocus_focal_mm, display_phase, focus_info, out_dir, panel_shape, pupil_center, pupil_radius):
+# Focus sweep gate sweep_focus verdict adopt lifted verbatim; early focus_only return kept at caller
+    from ao_shaping.tools.slm.calibration.diffraction_efficiency.artifacts import (
+        plot_focus_sweep,
+        write_focus_sweep_csv,
+    )
+
+    fwhm_max = float(focus_info["fwhm_max_px"])
+    logger.info(
+        "[焦面判定] 扫描 1/f (粗扫 {} 点, 半宽 {} m⁻¹), 在焦门限 FWHM ≤ {} px",
+        config.focus_points,
+        config.focus_diopter_range,
+        fwhm_max,
+    )
+    focus_result: FocusProbeResult = sweep_focus(
+        apply_phase=display_phase,
+        read_frame=lambda: np.asarray(
+            camera.get_numpy_image(n_sample=1, skip_first=False),
+            dtype=np.float64,
+        ),
+        set_exposure_ms=lambda ms: float(
+            camera.reset_exposure_time(float(ms)) or ms
+        ),
+        panel_shape=panel_shape,
+        radius_px=float(pupil_radius),
+        centre_px=(float(pupil_center[0]), float(pupil_center[1])),
+        coarse_points=int(config.focus_points),
+        diopter_range=float(config.focus_diopter_range),
+        refine_points=int(config.focus_refine),
+        start_exposure_ms=float(config.exposure_ms),
+        frames=int(config.focus_frames),
+        discard=int(config.focus_discard),
+        wavelength_nm=float(config.slm_wavelength),
+    )
+    write_focus_sweep_csv(out_dir / "focus_sweep.csv", focus_result.points)
+    plot_focus_sweep(
+        out_dir / "focus_sweep.png",
+        focus_result.points,
+        fwhm_max_px=fwhm_max,
+        best_diopter_m1=focus_result.best_diopter_m1,
+    )
+    verdict: FocusVerdict = judge_focus(focus_result, fwhm_max_px=fwhm_max)
+    logger.info("[焦面判定] {}", verdict.verdict)
+
+    focus_info.update(
+        {
+            "kind": verdict.kind,
+            "verdict": verdict.verdict,
+            "reason": verdict.reason,
+            "best_fwhm_px": verdict.best_fwhm_px,
+            "best_focal_mm": verdict.best_focal_mm,
+            "best_diopter_m1": verdict.best_diopter_m1,
+            "points": len(focus_result.points),
+            "auto_defocus": bool(config.focus_auto_defocus),
+            "configured_defocus_focal_mm": (
+                None if math.isinf(defocus_focal_mm) else defocus_focal_mm
+            ),
+        }
+    )
+
+    if not verdict.ok:
+        raise FocusRefusedError(
+            f"焦面判定未通过: {verdict.verdict} ({verdict.reason}). "
+            f"未写出任何测量数据, 只留下 {out_dir / 'focus_sweep.csv'} / "
+            f"{out_dir / 'focus_sweep.png'} 两份诊断产物。"
+            "请检查: 光路是否在遮挡/失准; --focus-diopter-range 是否覆盖"
+            "真实焦距; --focus-fwhm-max-px 是否定得过严。"
+        )
+
+    if (
+        config.focus_auto_defocus
+        and math.isinf(defocus_focal_mm)
+        and verdict.best_focal_mm is not None
+        and math.isfinite(float(verdict.best_focal_mm))
+    ):
+        defocus_focal_mm = float(verdict.best_focal_mm)
+        logger.info(
+            "[焦面判定] 采用最佳焦距 {} mm (1/f={:.4f} m⁻¹) 作离焦补偿",
+            defocus_focal_mm,
+            (1e3 / defocus_focal_mm if defocus_focal_mm else 0.0),
+        )
+
+    # 焦面扫描会改曝光; 正式扫描必须回到配置值, 否则各点亮度不可比。
+    camera.reset_exposure_time(float(config.exposure_ms))
+    focus_info["adopted_defocus_focal_mm"] = (
+        None if math.isinf(defocus_focal_mm) else defocus_focal_mm
+    )
+    return defocus_focal_mm
+
+
+
 def _run_measurement_session(
     *,
     axis: object,
@@ -452,91 +623,7 @@ def _run_measurement_session(
             ),
         }
         if config.focus_gate:
-            from ao_shaping.tools.slm.calibration.diffraction_efficiency.artifacts import (
-                plot_focus_sweep,
-                write_focus_sweep_csv,
-            )
-
-            fwhm_max = float(focus_info["fwhm_max_px"])
-            logger.info(
-                "[焦面判定] 扫描 1/f (粗扫 {} 点, 半宽 {} m⁻¹), 在焦门限 FWHM ≤ {} px",
-                config.focus_points,
-                config.focus_diopter_range,
-                fwhm_max,
-            )
-            focus_result: FocusProbeResult = sweep_focus(
-                apply_phase=display_phase,
-                read_frame=lambda: np.asarray(
-                    camera.get_numpy_image(n_sample=1, skip_first=False),
-                    dtype=np.float64,
-                ),
-                set_exposure_ms=lambda ms: float(
-                    camera.reset_exposure_time(float(ms)) or ms
-                ),
-                panel_shape=panel_shape,
-                radius_px=float(pupil_radius),
-                centre_px=(float(pupil_center[0]), float(pupil_center[1])),
-                coarse_points=int(config.focus_points),
-                diopter_range=float(config.focus_diopter_range),
-                refine_points=int(config.focus_refine),
-                start_exposure_ms=float(config.exposure_ms),
-                frames=int(config.focus_frames),
-                discard=int(config.focus_discard),
-                wavelength_nm=float(config.slm_wavelength),
-            )
-            write_focus_sweep_csv(out_dir / "focus_sweep.csv", focus_result.points)
-            plot_focus_sweep(
-                out_dir / "focus_sweep.png",
-                focus_result.points,
-                fwhm_max_px=fwhm_max,
-                best_diopter_m1=focus_result.best_diopter_m1,
-            )
-            verdict: FocusVerdict = judge_focus(focus_result, fwhm_max_px=fwhm_max)
-            logger.info("[焦面判定] {}", verdict.verdict)
-
-            focus_info.update(
-                {
-                    "kind": verdict.kind,
-                    "verdict": verdict.verdict,
-                    "reason": verdict.reason,
-                    "best_fwhm_px": verdict.best_fwhm_px,
-                    "best_focal_mm": verdict.best_focal_mm,
-                    "best_diopter_m1": verdict.best_diopter_m1,
-                    "points": len(focus_result.points),
-                    "auto_defocus": bool(config.focus_auto_defocus),
-                    "configured_defocus_focal_mm": (
-                        None if math.isinf(defocus_focal_mm) else defocus_focal_mm
-                    ),
-                }
-            )
-
-            if not verdict.ok:
-                raise FocusRefusedError(
-                    f"焦面判定未通过: {verdict.verdict} ({verdict.reason}). "
-                    f"未写出任何测量数据, 只留下 {out_dir / 'focus_sweep.csv'} / "
-                    f"{out_dir / 'focus_sweep.png'} 两份诊断产物。"
-                    "请检查: 光路是否在遮挡/失准; --focus-diopter-range 是否覆盖"
-                    "真实焦距; --focus-fwhm-max-px 是否定得过严。"
-                )
-
-            if (
-                config.focus_auto_defocus
-                and math.isinf(defocus_focal_mm)
-                and verdict.best_focal_mm is not None
-                and math.isfinite(float(verdict.best_focal_mm))
-            ):
-                defocus_focal_mm = float(verdict.best_focal_mm)
-                logger.info(
-                    "[焦面判定] 采用最佳焦距 {} mm (1/f={:.4f} m⁻¹) 作离焦补偿",
-                    defocus_focal_mm,
-                    (1e3 / defocus_focal_mm if defocus_focal_mm else 0.0),
-                )
-
-            # 焦面扫描会改曝光; 正式扫描必须回到配置值, 否则各点亮度不可比。
-            camera.reset_exposure_time(float(config.exposure_ms))
-            focus_info["adopted_defocus_focal_mm"] = (
-                None if math.isinf(defocus_focal_mm) else defocus_focal_mm
-            )
+            defocus_focal_mm = _measure_focus_gate(camera, config, defocus_focal_mm, display_phase, focus_info, out_dir, panel_shape, pupil_center, pupil_radius)
 
             if config.focus_only:
                 logger.info("[焦面判定] --focus-only: 到此为止, 不测效率")
@@ -550,18 +637,7 @@ def _run_measurement_session(
         # 离焦补偿在两种模式下都生效: phase 模式叠在弧度上走驱动管线;
         # gray 模式由 :func:`core.blaze_gray` 的 ``extra_phase_rad`` 叠在斜坡上,
         # 再经 :func:`core.phase_to_gray` 按 2π = max_gray 包裹成灰度。
-        use_defocus = math.isfinite(defocus_focal_mm)
-        defocus_phase = (
-            fresnel_panel(
-                defocus_focal_mm,
-                radius=pupil_radius,
-                pupil_center=pupil_center,
-                panel_shape=panel_shape,
-                wavelength_nm=float(config.slm_wavelength),
-            )
-            if use_defocus
-            else np.zeros(panel_shape, dtype=np.float64)
-        )
+        defocus_phase, use_defocus = _measure_defocus_phase(config, defocus_focal_mm, panel_shape, pupil_center, pupil_radius)
 
         def pattern_for(command: float) -> np.ndarray:
             """命令值 → 灰度图 (uint16)。
@@ -653,50 +729,14 @@ def _run_measurement_session(
             peak_adu,
             detector_full_scale,
         )
-        if drift_px > GEOMETRY_DRIFT_TOL_PX:
-            message = (
-                f"零级中心与光路标定偏离 {drift_px:.1f}px "
-                f"(>{GEOMETRY_DRIFT_TOL_PX:.0f}px): 光路标定已过期 (光路动过), "
-                "请重新运行 `python -m ao_shaping.tools.slm.calibration`"
-            )
-            if config.strict_geometry:
-                raise RuntimeError(message)
-            logger.warning("{} (strict_geometry=False, 继续)", message)
-        if detector_full_scale > 0.0:
-            saturation = peak_adu / detector_full_scale
-            if saturation > SATURATION_WARN_FRACTION:
-                logger.warning(
-                    "零级峰值 {:.0f} ADU 达满量程的 {:.0f}% (> {:.0f}%): "
-                    "过曝会让衍射效率严重低估, 请降低曝光",
-                    peak_adu,
-                    saturation * 100.0,
-                    SATURATION_WARN_FRACTION * 100.0,
-                )
+        _measure_drift_warn(config, drift_px)
+        _measure_saturation_warn(detector_full_scale, peak_adu)
 
         # --- 扫描 ---------------------------------------------------------
         # 扫描区间的上界默认取设备读到的 2π 灰度, 但**可以也鼓励**推到硬件满量程:
         # 真实 2π 灰度不等于标称值, 停在标称值会切掉最优点 (2026-10-23 实测:
         # 到 993 时 η₊₁ 仍单调上升)。
-        scan_lo = int(config.command_min_gray or 0)
-        scan_hi = int(config.command_max_gray or max_gray)
-        if scan_hi > int(slm.MAX_GRAYSCALE_VALUE):
-            raise RuntimeError(
-                f"command_max_gray={scan_hi} 超过硬件满量程 "
-                f"{int(slm.MAX_GRAYSCALE_VALUE)}"
-            )
-        if mode == "gray":
-            logger.info(
-                "灰度扫描区间: {} ~ {} (标称 2π 灰度 {}, 硬件满量程 {})",
-                scan_lo,
-                scan_hi,
-                max_gray,
-                int(slm.MAX_GRAYSCALE_VALUE),
-            )
-        commands = (
-            np.linspace(float(scan_lo), float(scan_hi), int(config.n_steps))
-            if mode == "gray"
-            else np.linspace(0.0, 2.0 * math.pi, int(config.n_steps))
-        )
+        commands, scan_hi, scan_lo = _measure_scan_bounds(config, max_gray, mode, slm)
 
         def on_point(index: int, total: int, point: SweepPoint) -> None:
             logger.info(

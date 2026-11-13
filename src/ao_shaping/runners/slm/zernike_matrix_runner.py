@@ -1053,6 +1053,206 @@ class ZernikeMatrixParams:
     excluded_piston: bool = True
 
 
+def _zmr_finalize_calibration(device_info, last_cal, mode_ids, norm, params, ph, slm, wfs):
+# Final-calibration save-and-report branch lifted verbatim
+    if last_cal is not None:
+        try:
+            last_mag_rad, last_matrix, last_matrix_path = last_cal
+            offline_summary = offline_correction_test(
+                slm,
+                wfs,
+                ph,
+                last_matrix,
+                mode_ids,
+                n_max=norm["n_max"],
+                zernike_radius=float(params.zernike_radius),
+                n_avg=norm["n_averages"],
+                settle=norm["wait_time"],
+                device_info=device_info,
+                matrix_path=last_matrix_path,
+                correction_csv_path=params.correction_csv_path,
+                amplitude_rad=last_mag_rad,
+            )
+            if offline_summary.get("export"):
+                click.echo(
+                    f"离线矫正: RMS {offline_summary['before_rms']:.4f}λ → "
+                    f"{offline_summary['after_rms']:.4f}λ "
+                    f"({offline_summary['improvement_pct']:.1f}%)"
+                )
+        # policy: the offline correction check is a self-test appended to a finished calibration
+        except Exception as e:  # 矫正测试失败不使标定整体失败
+            logger.error("离线矫正测试失败: {}", e)
+            click.echo(f"[WARN] 离线矫正测试失败: {type(e).__name__}: {e}")
+    return 
+
+
+
+
+def _zmr_calibration_sweep(_display_cb, debug_cb, device_info, last_cal, magnitudes, mode_ids, norm, params, ph, results, slm, slm_params, wfs, wfs_driver):
+# Per-magnitude response-matrix calibration loop lifted verbatim
+    for mag in magnitudes:
+        mag_rad = float(mag if mag is not None else DEFAULT_MAGNITUDE_RAD)
+        mag_suffix = f"_mag{mag}" if mag is not None else "_auto"
+        mag_output_path = f"{params.output_path}{mag_suffix}"
+        click.echo(
+            f"\n=== Calibration run: magnitude={mag_rad} rad "
+            f"({mag_rad / (2 * np.pi):.3f}λ) ==="
+        )
+
+        matrix, variance, dev_mat, mask, wf_records = (
+            calibrate_response_matrix_pushpull(
+                slm,
+                wfs,
+                ph,
+                n_max=norm["n_max"],
+                magnitude_rad=mag_rad,
+                zernike_radius=float(params.zernike_radius),
+                n_averages=norm["n_averages"],
+                n_cycles=norm["n_cycles"],
+                settle=norm["wait_time"],
+                cancel_tile=norm["cancel_tile"],
+                excluded_piston=params.excluded_piston,
+                excluded_tip_tilt=params.excluded_tip_tilt,
+                debug_cb=debug_cb,
+                progress_cb=_display_cb,
+            )
+        )
+
+        result = ZernikeResponseMatrixResult(
+            matrix=matrix,
+            variance_matrix=variance,
+            deviation_response_matrix=dev_mat,
+            subaperture_mask=mask,
+            n_max=norm["n_max"],
+            # 单位: **λ** (waves) —— 与已验证脚本 slm_zernike_response.py 一致;
+            # verify_response_matrix / GUI 均按 "λ" 显示。曾误存弧度 (差 2π)。
+            magnitude=mag_rad / (2.0 * np.pi),
+            wavelength_nm=int(slm_params.wavelength),
+            n_averages=norm["n_averages"],
+            n_cycles=norm["n_cycles"],
+            timestamp=get_timestamp_str(),
+            excluded_piston=params.excluded_piston,
+            excluded_tip_tilt=params.excluded_tip_tilt,
+        )
+        if params.compute_inverses:
+            try:
+                result.pinv_matrix = safe_pinv(matrix)
+                result.lstsq_matrix = result.pinv_matrix
+            except np.linalg.LinAlgError as e:
+                logger.warning(f"逆矩阵计算失败: {e}")
+
+        # 附加硬件配置快照 (含完整 SLM/WFS 设备参数)
+        result.device_config = {
+            "device": device_info,
+            "slm_number": slm_params.slm_number,
+            "wavelength_nm": int(slm_params.wavelength),
+            "shift_x": int(slm.shift_x),
+            "shift_y": int(slm.shift_y),
+            "pupil": list(wfs.pupil),
+            "mla_index": str(norm["mla_index_enum"]),
+            "exposure_ms": norm["effective_exp_time"],
+            "high_speed": bool(wfs_driver.high_speed),
+            "use_custom_ref": bool(wfs_driver.use_custom_ref),
+            "correction_csv_path": params.correction_csv_path,
+            "zernike_radius_px": float(params.zernike_radius),
+            "magnitude_rad": mag_rad,
+            "amplitude_waves": mag_rad / (2.0 * np.pi),
+            "slm_mode_ids_dll": mode_ids,
+            "zernike_ordering": (
+                "DLL 顺序 m 枚举 (m=-n..+n), 非标准 Noll 1976: "
+                "[5](2,0)defocus [9](3,1)coma [13](4,0)spherical"
+            ),
+            "matrix_layout": (
+                "matrix[wfs_coeff_index, slm_mode_index]; 行 0..65 ↔ DLL [1..66]"
+            ),
+            "units": "λ/λ (WFS 系数 µm 经 um_to_waves 换算; 与矫正 w 同单位)",
+            "method": (
+                "push-pull ±A (Santec + PatternHelper, 与 "
+                "tools/slm/slm_zernike_response.py 同链路)"
+            ),
+            "condition_number_effective": effective_cond(matrix),
+        }
+
+        save_zernike_response_matrix(
+            result, mag_output_path, include_inverses=params.compute_inverses
+        )
+        click.echo(
+            f"Saved: {mag_output_path}.h5  (cond_eff={effective_cond(matrix):.2f})"
+        )
+        _save_wavefront_log_hdf5(wf_records, mag_output_path)
+        results.append((mag, result))
+        last_cal = (mag_rad, matrix, f"{mag_output_path}.h5")
+    return last_cal
+
+
+
+
+def _zmr_prepare_dither_reference(norm, params, slm, wfs, wfs_driver):
+# Dither amplitude and custom-reference setup lifted verbatim
+    if params.dither_amp > 0:
+        click.echo(
+            "[WARN] --dither-amp 原依赖 ZernikeSLM 链路; 重写后的 Santec 直控"
+            "链路暂不支持该功能, 已跳过 (推拉标定本身已含参考设置)"
+        )
+
+    # === 5. 初始化状态捕获 + 参考设置 ===
+    if not wfs_driver.use_custom_ref:
+        init_state = _capture_init_state(
+            slm,
+            wfs,
+            cancel_tile=norm["cancel_tile"],
+            zernike_order=norm["n_max"],
+            wait_time=norm["wait_time"],
+        )
+        _save_init_state_hdf5(init_state, params.output_path)
+    return 
+
+
+
+
+def _zmr_echo_device_info(slm, slm_params, wfs):
+# Device info collection and banner lifted verbatim
+    device_info = collect_device_info(slm, wfs, slm_params.slm_number)
+    _ds = device_info.get("slm") or {}
+    _dw = device_info.get("wfs") or {}
+    click.echo(
+        f"[INFO] 设备: SLM 温度={_ds.get('temperature_c')}°C "
+        f"版本={_ds.get('version')} 矫正={_ds.get('correction_enabled')} | "
+        f"WFS 曝光={_dw.get('exposure_time_ms')}ms MLA={_dw.get('mla_name')} "
+        f"{_dw.get('num_spots_x')}x{_dw.get('num_spots_y')}"
+    )
+    return device_info
+
+
+
+
+def _zmr_pupil_guidance(wfs, wfs_params):
+# Default pupil diameter guidance lifted verbatim
+    pupil_is_default = float(wfs_params.pupil_diameter) == 2.7 and tuple(
+        wfs_params.pupil_center
+    ) == (
+        0,
+        0,
+    )
+    if pupil_is_default:
+        wfs.take_image(n_sample=1, dynamicNoiseCut=True)
+        cx, cy, dx, dy = wfs.pupil = wfs.optimize_pupil()
+        click.echo(
+            f"[OK] pupil auto (optimize_pupil): "
+            f"center=({cx:.3f},{cy:.3f})mm d=({dx:.3f},{dy:.3f})mm"
+        )
+    else:
+        wfs.pupil = (
+            float(wfs_params.pupil_center[0]),
+            float(wfs_params.pupil_center[1]),
+            float(wfs_params.pupil_diameter),
+            float(wfs_params.pupil_diameter),
+        )
+        click.echo(f"[OK] pupil (CLI): {wfs.pupil}")
+    return 
+
+
+
 @click.command("zernike-matrix")
 @click.pass_context
 @with_params(ZernikeMatrixParams, kw_name="params")
@@ -1167,56 +1367,13 @@ def run(
         # pupil: 未显式指定 (默认 2.0mm / (0,0)) 时用 optimize_pupil 自动获取并**写回**。
         # ⚠️ 2026-09 教训: 硬编码 pupil 会污染 WFS_ZernikeLsf 拟合 (假 tip/tilt 达 4.6~12.8λ);
         #    且 ThorlabWFS.__init__ 传入的 pupil **会覆盖配置文件中的实测值** (L440-453)。
-        pupil_is_default = float(wfs_params.pupil_diameter) == 2.7 and tuple(
-            wfs_params.pupil_center
-        ) == (
-            0,
-            0,
-        )
-        if pupil_is_default:
-            wfs.take_image(n_sample=1, dynamicNoiseCut=True)
-            cx, cy, dx, dy = wfs.pupil = wfs.optimize_pupil()
-            click.echo(
-                f"[OK] pupil auto (optimize_pupil): "
-                f"center=({cx:.3f},{cy:.3f})mm d=({dx:.3f},{dy:.3f})mm"
-            )
-        else:
-            wfs.pupil = (
-                float(wfs_params.pupil_center[0]),
-                float(wfs_params.pupil_center[1]),
-                float(wfs_params.pupil_diameter),
-                float(wfs_params.pupil_diameter),
-            )
-            click.echo(f"[OK] pupil (CLI): {wfs.pupil}")
+        _zmr_pupil_guidance(wfs, wfs_params)
 
         # 完整设备参数 (随 h5 的 device_config 落盘, 供复现与审计)
-        device_info = collect_device_info(slm, wfs, slm_params.slm_number)
-        _ds = device_info.get("slm") or {}
-        _dw = device_info.get("wfs") or {}
-        click.echo(
-            f"[INFO] 设备: SLM 温度={_ds.get('temperature_c')}°C "
-            f"版本={_ds.get('version')} 矫正={_ds.get('correction_enabled')} | "
-            f"WFS 曝光={_dw.get('exposure_time_ms')}ms MLA={_dw.get('mla_name')} "
-            f"{_dw.get('num_spots_x')}x{_dw.get('num_spots_y')}"
-        )
+        device_info = _zmr_echo_device_info(slm, slm_params, wfs)
 
         # === 4. 抖动参考 (可选) ===
-        if params.dither_amp > 0:
-            click.echo(
-                "[WARN] --dither-amp 原依赖 ZernikeSLM 链路; 重写后的 Santec 直控"
-                "链路暂不支持该功能, 已跳过 (推拉标定本身已含参考设置)"
-            )
-
-        # === 5. 初始化状态捕获 + 参考设置 ===
-        if not wfs_driver.use_custom_ref:
-            init_state = _capture_init_state(
-                slm,
-                wfs,
-                cancel_tile=norm["cancel_tile"],
-                zernike_order=norm["n_max"],
-                wait_time=norm["wait_time"],
-            )
-            _save_init_state_hdf5(init_state, params.output_path)
+        _zmr_prepare_dither_reference(norm, params, slm, wfs, wfs_driver)
 
         # === 6. 计算标定幅度列表 (单位: **弧度**) ===
         magnitudes = _compute_calibration_magnitudes(
@@ -1250,132 +1407,14 @@ def run(
             except Exception as e:
                 logger.debug("ui_display.update 失败: {}", e)
 
-        for mag in magnitudes:
-            mag_rad = float(mag if mag is not None else DEFAULT_MAGNITUDE_RAD)
-            mag_suffix = f"_mag{mag}" if mag is not None else "_auto"
-            mag_output_path = f"{params.output_path}{mag_suffix}"
-            click.echo(
-                f"\n=== Calibration run: magnitude={mag_rad} rad "
-                f"({mag_rad / (2 * np.pi):.3f}λ) ==="
-            )
-
-            matrix, variance, dev_mat, mask, wf_records = (
-                calibrate_response_matrix_pushpull(
-                    slm,
-                    wfs,
-                    ph,
-                    n_max=norm["n_max"],
-                    magnitude_rad=mag_rad,
-                    zernike_radius=float(params.zernike_radius),
-                    n_averages=norm["n_averages"],
-                    n_cycles=norm["n_cycles"],
-                    settle=norm["wait_time"],
-                    cancel_tile=norm["cancel_tile"],
-                    excluded_piston=params.excluded_piston,
-                    excluded_tip_tilt=params.excluded_tip_tilt,
-                    debug_cb=debug_cb,
-                    progress_cb=_display_cb,
-                )
-            )
-
-            result = ZernikeResponseMatrixResult(
-                matrix=matrix,
-                variance_matrix=variance,
-                deviation_response_matrix=dev_mat,
-                subaperture_mask=mask,
-                n_max=norm["n_max"],
-                # 单位: **λ** (waves) —— 与已验证脚本 slm_zernike_response.py 一致;
-                # verify_response_matrix / GUI 均按 "λ" 显示。曾误存弧度 (差 2π)。
-                magnitude=mag_rad / (2.0 * np.pi),
-                wavelength_nm=int(slm_params.wavelength),
-                n_averages=norm["n_averages"],
-                n_cycles=norm["n_cycles"],
-                timestamp=get_timestamp_str(),
-                excluded_piston=params.excluded_piston,
-                excluded_tip_tilt=params.excluded_tip_tilt,
-            )
-            if params.compute_inverses:
-                try:
-                    result.pinv_matrix = safe_pinv(matrix)
-                    result.lstsq_matrix = result.pinv_matrix
-                except np.linalg.LinAlgError as e:
-                    logger.warning(f"逆矩阵计算失败: {e}")
-
-            # 附加硬件配置快照 (含完整 SLM/WFS 设备参数)
-            result.device_config = {
-                "device": device_info,
-                "slm_number": slm_params.slm_number,
-                "wavelength_nm": int(slm_params.wavelength),
-                "shift_x": int(slm.shift_x),
-                "shift_y": int(slm.shift_y),
-                "pupil": list(wfs.pupil),
-                "mla_index": str(norm["mla_index_enum"]),
-                "exposure_ms": norm["effective_exp_time"],
-                "high_speed": bool(wfs_driver.high_speed),
-                "use_custom_ref": bool(wfs_driver.use_custom_ref),
-                "correction_csv_path": params.correction_csv_path,
-                "zernike_radius_px": float(params.zernike_radius),
-                "magnitude_rad": mag_rad,
-                "amplitude_waves": mag_rad / (2.0 * np.pi),
-                "slm_mode_ids_dll": mode_ids,
-                "zernike_ordering": (
-                    "DLL 顺序 m 枚举 (m=-n..+n), 非标准 Noll 1976: "
-                    "[5](2,0)defocus [9](3,1)coma [13](4,0)spherical"
-                ),
-                "matrix_layout": (
-                    "matrix[wfs_coeff_index, slm_mode_index]; 行 0..65 ↔ DLL [1..66]"
-                ),
-                "units": "λ/λ (WFS 系数 µm 经 um_to_waves 换算; 与矫正 w 同单位)",
-                "method": (
-                    "push-pull ±A (Santec + PatternHelper, 与 "
-                    "tools/slm/slm_zernike_response.py 同链路)"
-                ),
-                "condition_number_effective": effective_cond(matrix),
-            }
-
-            save_zernike_response_matrix(
-                result, mag_output_path, include_inverses=params.compute_inverses
-            )
-            click.echo(
-                f"Saved: {mag_output_path}.h5  (cond_eff={effective_cond(matrix):.2f})"
-            )
-            _save_wavefront_log_hdf5(wf_records, mag_output_path)
-            results.append((mag, result))
-            last_cal = (mag_rad, matrix, f"{mag_output_path}.h5")
+        last_cal = _zmr_calibration_sweep(_display_cb, debug_cb, device_info, last_cal, magnitudes, mode_ids, norm, params, ph, results, slm, slm_params, wfs, wfs_driver)
 
         # === 8. 离线矫正测试 (测完响应矩阵后自动执行) ===
         #     恢复内部参考 → 平场基线 → pinv 反解当前像差 → ×2π 弧度加载
         #     → 复测残差 + 模型自检 → export_correction_csv 保存施加的矫正相位。
         #     ⚠️ 需要实验验证: 基线 RMS→残差 RMS 应有明显改善且模型自检比 ∈ 0.7~1.4;
         #     失败多半是单位 (λ/rad) 或 zernike_radius 与标定不一致。
-        if last_cal is not None:
-            try:
-                last_mag_rad, last_matrix, last_matrix_path = last_cal
-                offline_summary = offline_correction_test(
-                    slm,
-                    wfs,
-                    ph,
-                    last_matrix,
-                    mode_ids,
-                    n_max=norm["n_max"],
-                    zernike_radius=float(params.zernike_radius),
-                    n_avg=norm["n_averages"],
-                    settle=norm["wait_time"],
-                    device_info=device_info,
-                    matrix_path=last_matrix_path,
-                    correction_csv_path=params.correction_csv_path,
-                    amplitude_rad=last_mag_rad,
-                )
-                if offline_summary.get("export"):
-                    click.echo(
-                        f"离线矫正: RMS {offline_summary['before_rms']:.4f}λ → "
-                        f"{offline_summary['after_rms']:.4f}λ "
-                        f"({offline_summary['improvement_pct']:.1f}%)"
-                    )
-            # policy: the offline correction check is a self-test appended to a finished calibration
-            except Exception as e:  # 矫正测试失败不使标定整体失败
-                logger.error("离线矫正测试失败: {}", e)
-                click.echo(f"[WARN] 离线矫正测试失败: {type(e).__name__}: {e}")
+        _zmr_finalize_calibration(device_info, last_cal, mode_ids, norm, params, ph, slm, wfs)
 
         # === 9. 打印结果摘要 ===
         _print_calibration_summary(results, params.output_path, debug_dir)
@@ -1576,6 +1615,139 @@ class ClosedLoopParams:
     ] = False
 
 
+
+
+def _clr_plot_convergence(loop_result, output_dir, params, plt):
+# Convergence figure rendering and save lifted verbatim
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+    iterations = np.arange(len(loop_result["rms_history"]))
+    axes[0].plot(iterations, loop_result["rms_history"], "b-")
+    axes[0].axhline(
+        y=params.rms_target,
+        color="r",
+        linestyle="--",
+        alpha=0.5,
+        label=f"target={params.rms_target}λ",
+    )
+    axes[0].set_xlabel("Iteration")
+    axes[0].set_ylabel("RMS [λ]")
+    axes[0].set_title(f"Convergence ({params.control_law})")
+    axes[0].grid(True, alpha=0.3)
+    axes[0].legend()
+
+    if len(loop_result["a_history"]) > 0:
+        coeffs = np.array(loop_result["a_history"])
+        for i in range(min(5, coeffs.shape[1])):
+            axes[1].plot(iterations, coeffs[:, i], label=f"Z{i + 2}")
+        axes[1].set_xlabel("Iteration")
+        axes[1].set_ylabel("Coefficient [λ]")
+        axes[1].set_title("First 5 Zernike Modes")
+        axes[1].grid(True, alpha=0.3)
+        axes[1].legend()
+
+    fig.tight_layout()
+    fig.savefig(output_dir / "convergence.png", dpi=150)
+    plt.close(fig)
+    return 
+
+
+
+
+def _clr_save_results(datetime, device_cfg, json, loop_cfg, loop_result, n_modes, output_path, params):
+# Loop-result npz/csv/meta persistence lifted verbatim
+    output_dir = Path(output_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 保存系数和RMS历史
+    np.savez(
+        output_dir / "history.npz",
+        a_history=loop_result["a_history"],
+        rms_history=loop_result["rms_history"],
+        s_history=loop_result["s_history"],
+        u_history=loop_result["u_history"],
+        final_coefficients=loop_result["final_coefficients"],
+    )
+
+    # 保存最终系数 (文本格式, 便于加载到其他工具)
+    np.savetxt(
+        output_dir / "final_coefficients.txt",
+        loop_result["final_coefficients"],
+        fmt="%.8f",
+        header=f"Closed-loop final Zernike coefficients (noll order, n_modes={n_modes})",
+    )
+
+    # 保存结果元数据
+    meta = {
+        "load_file": params.load_file,
+        "control_law": params.control_law,
+        "n_iter": loop_result["n_iter"],
+        "rms_initial": float(loop_result["rms_initial"]),
+        "rms_final": float(loop_result["rms_final"]),
+        "improvement_db": float(loop_result["improvement_db"]),
+        "converged": bool(loop_result["converged"]),
+        "diverged": bool(loop_result["diverged"]),
+        "timestamp": datetime.now().isoformat(),
+        "device_config": device_cfg.to_dict(),
+        "loop_config": {
+            "n_modes": n_modes,
+            "dt": params.dt,
+            "Kp": loop_cfg.Kp,
+            "Ki": loop_cfg.Ki,
+            "Kd": loop_cfg.Kd,
+            "leak": loop_cfg.leak,
+            "rms_target": params.rms_target,
+            "max_iter": params.max_iter,
+            "delay_steps": params.delay_steps,
+            "cancel_tile": params.cancel_tile,
+        },
+    }
+    with open(output_dir / "meta.json", "w") as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
+    return output_dir
+
+
+
+
+def _clr_set_initial_reference(wfs, zslm):
+# Initial flat-field reference capture lifted verbatim
+    click.echo("\n设置初始参考 (SLM平场)...")
+    zslm.set_flat()
+    sleep(0.5)
+    wfs.save_user_ref()
+    wfs.load_user_ref()
+    return 
+
+
+
+
+def _clr_build_controller(loop_cfg, params, result, wfs, zslm):
+# Closed-loop controller plus measure/apply callables lifted verbatim
+    click.echo("构建闭环控制器...")
+    loop = from_response_matrix(
+        result=result,
+        config=loop_cfg,
+    )
+
+    # 创建测量和执行回调 (捕获硬件实例)
+    measure_func = lambda: _measure_wfs_step(
+        wfs=wfs,
+        mask_indices=loop.mask_indices,
+        s_ref=loop.s_ref,
+        D_pinv=loop.D_pinv,
+        cancel_tile=params.cancel_tile,
+    )
+
+    def _apply(u: np.ndarray) -> None:
+        u_full = _expand_to_noll(
+            u=u,
+            n_max=result.n_max,
+            excluded_piston=result.excluded_piston,
+            excluded_tip_tilt=result.excluded_tip_tilt,
+        )
+        zslm.send_zernike(u_full)
+    return _apply, loop, measure_func
+
+
 @click.command("closed-loop")
 @click.pass_context
 @with_params(ClosedLoopParams, kw_name="params")
@@ -1702,36 +1874,10 @@ def closed_loop_run(ctx: click.Context, params: ClosedLoopParams) -> None:
                 )
 
                 # 设置SLM为平面, 更新WFS参考
-                click.echo("\n设置初始参考 (SLM平场)...")
-                zslm.set_flat()
-                sleep(0.5)
-                wfs.save_user_ref()
-                wfs.load_user_ref()
+                _clr_set_initial_reference(wfs, zslm)
 
                 # 构造纯控制器 (不含硬件依赖)
-                click.echo("构建闭环控制器...")
-                loop = from_response_matrix(
-                    result=result,
-                    config=loop_cfg,
-                )
-
-                # 创建测量和执行回调 (捕获硬件实例)
-                measure_func = lambda: _measure_wfs_step(
-                    wfs=wfs,
-                    mask_indices=loop.mask_indices,
-                    s_ref=loop.s_ref,
-                    D_pinv=loop.D_pinv,
-                    cancel_tile=params.cancel_tile,
-                )
-
-                def _apply(u: np.ndarray) -> None:
-                    u_full = _expand_to_noll(
-                        u=u,
-                        n_max=result.n_max,
-                        excluded_piston=result.excluded_piston,
-                        excluded_tip_tilt=result.excluded_tip_tilt,
-                    )
-                    zslm.send_zernike(u_full)
+                _apply, loop, measure_func = _clr_build_controller(loop_cfg, params, result, wfs, zslm)
 
                 # 运行闭环
                 click.echo(f"\n启动闭环优化 ({params.control_law})...")
@@ -1742,85 +1888,10 @@ def closed_loop_run(ctx: click.Context, params: ClosedLoopParams) -> None:
                 )
 
                 # 保存结果
-                output_dir = Path(output_path)
-                output_dir.mkdir(parents=True, exist_ok=True)
-
-                # 保存系数和RMS历史
-                np.savez(
-                    output_dir / "history.npz",
-                    a_history=loop_result["a_history"],
-                    rms_history=loop_result["rms_history"],
-                    s_history=loop_result["s_history"],
-                    u_history=loop_result["u_history"],
-                    final_coefficients=loop_result["final_coefficients"],
-                )
-
-                # 保存最终系数 (文本格式, 便于加载到其他工具)
-                np.savetxt(
-                    output_dir / "final_coefficients.txt",
-                    loop_result["final_coefficients"],
-                    fmt="%.8f",
-                    header=f"Closed-loop final Zernike coefficients (noll order, n_modes={n_modes})",
-                )
-
-                # 保存结果元数据
-                meta = {
-                    "load_file": params.load_file,
-                    "control_law": params.control_law,
-                    "n_iter": loop_result["n_iter"],
-                    "rms_initial": float(loop_result["rms_initial"]),
-                    "rms_final": float(loop_result["rms_final"]),
-                    "improvement_db": float(loop_result["improvement_db"]),
-                    "converged": bool(loop_result["converged"]),
-                    "diverged": bool(loop_result["diverged"]),
-                    "timestamp": datetime.now().isoformat(),
-                    "device_config": device_cfg.to_dict(),
-                    "loop_config": {
-                        "n_modes": n_modes,
-                        "dt": params.dt,
-                        "Kp": loop_cfg.Kp,
-                        "Ki": loop_cfg.Ki,
-                        "Kd": loop_cfg.Kd,
-                        "leak": loop_cfg.leak,
-                        "rms_target": params.rms_target,
-                        "max_iter": params.max_iter,
-                        "delay_steps": params.delay_steps,
-                        "cancel_tile": params.cancel_tile,
-                    },
-                }
-                with open(output_dir / "meta.json", "w") as f:
-                    json.dump(meta, f, indent=2, ensure_ascii=False)
+                output_dir = _clr_save_results(datetime, device_cfg, json, loop_cfg, loop_result, n_modes, output_path, params)
 
                 # 生成收敛曲线
-                fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-                iterations = np.arange(len(loop_result["rms_history"]))
-                axes[0].plot(iterations, loop_result["rms_history"], "b-")
-                axes[0].axhline(
-                    y=params.rms_target,
-                    color="r",
-                    linestyle="--",
-                    alpha=0.5,
-                    label=f"target={params.rms_target}λ",
-                )
-                axes[0].set_xlabel("Iteration")
-                axes[0].set_ylabel("RMS [λ]")
-                axes[0].set_title(f"Convergence ({params.control_law})")
-                axes[0].grid(True, alpha=0.3)
-                axes[0].legend()
-
-                if len(loop_result["a_history"]) > 0:
-                    coeffs = np.array(loop_result["a_history"])
-                    for i in range(min(5, coeffs.shape[1])):
-                        axes[1].plot(iterations, coeffs[:, i], label=f"Z{i + 2}")
-                    axes[1].set_xlabel("Iteration")
-                    axes[1].set_ylabel("Coefficient [λ]")
-                    axes[1].set_title("First 5 Zernike Modes")
-                    axes[1].grid(True, alpha=0.3)
-                    axes[1].legend()
-
-                fig.tight_layout()
-                fig.savefig(output_dir / "convergence.png", dpi=150)
-                plt.close(fig)
+                _clr_plot_convergence(loop_result, output_dir, params, plt)
 
                 click.echo(f"\n结果已保存到: {output_dir}")
                 click.echo(

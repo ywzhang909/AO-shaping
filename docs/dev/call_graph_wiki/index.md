@@ -70,7 +70,7 @@
 |---|---|---|
 | [[functions/optimizer-rms-dm]] | `optimizer_rms_dm(epochs, wfs_res, …, dm, wfs_type, …)` | `optimizer/wf/rms.py:50` |
 | [[functions/optimize-pib-wfless]] | `optimize_pib(center, epochs, r_bucket, …, dm, optimizer_type, …)` | `optimizer/wfless/pib.py:509` |
-| [[functions/optimize-pib-combined]] | `optimize_pib(center, epochs, r_bucket, …)` (AdaMOD) | `optimizer/combined_optimizer.py:397` |
+| [[functions/optimize-pib-combined]] | `optimize_pib(center, epochs, r_bucket, …)` (AdaMOD) | `optimizer/combined_optimizer.py:421` |
 | [[functions/optimizer-rms-slm]] | `optimizer_rms_slm(epochs, init_z, lr, …)` (38 参) | `optimizer/wf/rms_by_zernike.py:862` |
 | [[functions/optimizer-ga]] | `optimizer_ga(n_generations, population_size, …)` | `optimizer/wf/ga_zernike.py:138` |
 | [[functions/optimizer-greedy]] | `optimizer_greedy(epochs, n_init, n_directions, …)` | `optimizer/wf/greedy_zernike.py:355` |
@@ -107,7 +107,7 @@
 | [[functions/zernike-calc]] | `zernike_modes(n)` / `calc_n_zernike_terms(n)` | `utils/wavefront/zernike_calc.py:90` |
 | [[functions/spots]] | `centroid()` / `radius()` / `pib_ratio_mask()` | `utils/image/spots_calc.py:228` |
 | [[functions/matrix-utils]] | `compute_pinv()` / `compute_lstsq()` / `safe_pinv()` / `effective_cond()` | `utils/wavefront/matrix_utils.py:16` |
-| [[functions/slm-lut]] | `build_inverse_lut()` / `invert_depth_scan()` / `depth_pattern()` | `utils/slm/slm_lut.py:248` |
+| [[functions/slm-lut]] | `build_inverse_lut()` / `invert_depth_scan()` / `depth_pattern()` | `utils/slm/slm_lut.py:359` |
 | [[functions/runner-common]] | `runner_common` 共享工具（center 解析 / 配置构建 / 结果保存） | `runners/runner_common.py` |
 
 ## 关系层 (relations) — 相似函数

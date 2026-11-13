@@ -391,6 +391,133 @@ def _parabolic_vertex(
     return float(xs[1] + offset * step)
 
 
+
+def _fp_blocked_verdict(measured, notes):
+# Blocked-path verdict block lifted verbatim
+    blocked_reason = ""
+    path_blocked = False
+    if measured:
+        verdicts = [p.spot.blocked for p in measured.values() if p.spot is not None]
+        if verdicts and all(verdicts):
+            path_blocked = True
+            blocked_reason = BLOCKED_PATH_REASON
+            notes.append(
+                f"光路受阻: {len(measured)} 个测点全部没有局域光斑, "
+                "画面停在读出噪声本底上"
+            )
+    return blocked_reason, path_blocked
+
+
+
+
+def _fp_flat_gain(best, measured):
+# Flat-reference peak-per-ms gain lifted verbatim
+    flat = measured.get(0.0)
+    gain: float | None = None
+    if best is not None and flat is not None and flat.peak_per_ms > 0:
+        gain = best.peak_per_ms / flat.peak_per_ms
+    return gain
+
+
+
+
+def _fp_exposure_alt(apply_phase, best, ceiling_ms, centre_px, discard, floor_ms, frames, notes, panel_shape, pixel_um, radius_px, read_frame, set_exposure_ms, wavelength_nm):
+# Alternate-exposure linearity probe lifted verbatim
+    linearity: float | None = None
+    factor: float | None = None
+    if best is not None:
+        if best.exposure_ms * 0.5 >= floor_ms:
+            factor = 0.5
+        elif best.exposure_ms * 2.0 <= ceiling_ms:
+            factor = 2.0
+    if best is not None and factor is not None:
+        try:
+            apply_phase(
+                fresnel_panel(
+                    best.focal_mm,
+                    radius=int(round(radius_px)),
+                    pupil_center=(
+                        int(round(centre_px[0])),
+                        int(round(centre_px[1])),
+                    ),
+                    panel_shape=panel_shape,
+                    wavelength_nm=wavelength_nm,
+                    pixel_um=pixel_um,
+                )
+            )
+            alt_ms = best.exposure_ms * factor
+            set_exposure_ms(alt_ms)
+            for _ in range(int(discard)):
+                read_frame()
+            alt_frame = _measure_frame(read_frame, frames)
+            alt_peak = robust_peak(alt_frame)
+            if alt_peak > 0:
+                linearity = (alt_peak / alt_ms) / best.peak_per_ms
+                if not (0.8 <= linearity <= 1.25):
+                    notes.append(
+                        f"曝光线性度 {linearity:.2f} 偏离 1（0.8–1.25；"
+                        f"在 ×{factor:g} 曝光下复核）；"
+                        "peak/ms 排序可能被相机增益破坏，结论需人工复核"
+                    )
+        except (RuntimeError, ValueError) as exc:  # pragma: no cover - device
+            notes.append(f"线性度复核失败：{exc}")
+    return linearity
+
+
+
+
+def _fp_pick_best(coarse_points, diopter_range, diopters, measure, measured, notes, refine_points, usable):
+# Best-diopter selection + parabolic refine lifted verbatim
+    best: FocusPoint | None = None
+    best_diopter: float | None = None
+    if usable:
+        grid_sorted = sorted(usable, key=lambda p: p.diopter_m1)
+        grid_best = max(grid_sorted, key=lambda p: p.peak_per_ms)
+        best = grid_best
+        best_diopter = grid_best.diopter_m1
+
+        # Refine: a parabola through the winner and its neighbours gives a
+        # sub-step estimate; it is only kept if a measurement there confirms it.
+        idx = grid_sorted.index(grid_best)
+        if 0 < idx < len(grid_sorted) - 1:
+            trio = grid_sorted[idx - 1 : idx + 2]
+            vertex = _parabolic_vertex(
+                [p.diopter_m1 for p in trio], [p.peak_per_ms for p in trio]
+            )
+            if vertex is not None:
+                refined = measure(vertex)
+                if refined.status == "ok" and refined.peak_per_ms > best.peak_per_ms:
+                    best, best_diopter = refined, refined.diopter_m1
+                notes.append(
+                    f"抛物线顶点 {vertex:+.3f} m⁻¹，四点复测后取 "
+                    f"{best_diopter:+.3f} m⁻¹"
+                )
+
+        # A fine sweep around the winner, so "the best of 7 refined points" is
+        # really the best and not just the middle of a coarse bracket.
+        if int(refine_points) > 2 and best_diopter is not None:
+            coarse_step = float(diopter_range) / max(int(coarse_points) // 2, 1)
+            span = (
+                float(diopter_range) / 10.0
+                if diopters is not None
+                else abs(coarse_step)
+            )
+            fine = np.linspace(
+                best_diopter - span, best_diopter + span, int(refine_points)
+            )
+            for d in fine:
+                key = round(float(d), 9)
+                if key not in measured:
+                    measure(float(d))
+            fine_usable = [p for p in measured.values() if p.status == "ok"]
+            if fine_usable:
+                fine_best = max(fine_usable, key=lambda p: p.peak_per_ms)
+                if fine_best.peak_per_ms > best.peak_per_ms:
+                    best, best_diopter = fine_best, fine_best.diopter_m1
+    return best, best_diopter
+
+
+
 def sweep_focus(
     *,
     apply_phase: Callable[[np.ndarray], None],
@@ -508,118 +635,23 @@ def sweep_focus(
             f"dim {sum(p.status == 'dim' for p in skipped)}），未参与排序"
         )
 
-    best: FocusPoint | None = None
-    best_diopter: float | None = None
-    if usable:
-        grid_sorted = sorted(usable, key=lambda p: p.diopter_m1)
-        grid_best = max(grid_sorted, key=lambda p: p.peak_per_ms)
-        best = grid_best
-        best_diopter = grid_best.diopter_m1
-
-        # Refine: a parabola through the winner and its neighbours gives a
-        # sub-step estimate; it is only kept if a measurement there confirms it.
-        idx = grid_sorted.index(grid_best)
-        if 0 < idx < len(grid_sorted) - 1:
-            trio = grid_sorted[idx - 1 : idx + 2]
-            vertex = _parabolic_vertex(
-                [p.diopter_m1 for p in trio], [p.peak_per_ms for p in trio]
-            )
-            if vertex is not None:
-                refined = measure(vertex)
-                if refined.status == "ok" and refined.peak_per_ms > best.peak_per_ms:
-                    best, best_diopter = refined, refined.diopter_m1
-                notes.append(
-                    f"抛物线顶点 {vertex:+.3f} m⁻¹，四点复测后取 "
-                    f"{best_diopter:+.3f} m⁻¹"
-                )
-
-        # A fine sweep around the winner, so "the best of 7 refined points" is
-        # really the best and not just the middle of a coarse bracket.
-        if int(refine_points) > 2 and best_diopter is not None:
-            coarse_step = float(diopter_range) / max(int(coarse_points) // 2, 1)
-            span = (
-                float(diopter_range) / 10.0
-                if diopters is not None
-                else abs(coarse_step)
-            )
-            fine = np.linspace(
-                best_diopter - span, best_diopter + span, int(refine_points)
-            )
-            for d in fine:
-                key = round(float(d), 9)
-                if key not in measured:
-                    measure(float(d))
-            fine_usable = [p for p in measured.values() if p.status == "ok"]
-            if fine_usable:
-                fine_best = max(fine_usable, key=lambda p: p.peak_per_ms)
-                if fine_best.peak_per_ms > best.peak_per_ms:
-                    best, best_diopter = fine_best, fine_best.diopter_m1
+    best, best_diopter = _fp_pick_best(coarse_points, diopter_range, diopters, measure, measured, notes, refine_points, usable)
 
     # Linearity check at the winner. The whole ranking is peak-per-ms, which is
     # only valid if the sensor is linear in exposure. One extra reading at a
     # different exposure either confirms it or tells the operator to distrust the
     # pick. Halving is preferred; when the winner already sits near the floor
     # (bright bench) there is no room below, so it doubles instead.
-    linearity: float | None = None
-    factor: float | None = None
-    if best is not None:
-        if best.exposure_ms * 0.5 >= floor_ms:
-            factor = 0.5
-        elif best.exposure_ms * 2.0 <= ceiling_ms:
-            factor = 2.0
-    if best is not None and factor is not None:
-        try:
-            apply_phase(
-                fresnel_panel(
-                    best.focal_mm,
-                    radius=int(round(radius_px)),
-                    pupil_center=(
-                        int(round(centre_px[0])),
-                        int(round(centre_px[1])),
-                    ),
-                    panel_shape=panel_shape,
-                    wavelength_nm=wavelength_nm,
-                    pixel_um=pixel_um,
-                )
-            )
-            alt_ms = best.exposure_ms * factor
-            set_exposure_ms(alt_ms)
-            for _ in range(int(discard)):
-                read_frame()
-            alt_frame = _measure_frame(read_frame, frames)
-            alt_peak = robust_peak(alt_frame)
-            if alt_peak > 0:
-                linearity = (alt_peak / alt_ms) / best.peak_per_ms
-                if not (0.8 <= linearity <= 1.25):
-                    notes.append(
-                        f"曝光线性度 {linearity:.2f} 偏离 1（0.8–1.25；"
-                        f"在 ×{factor:g} 曝光下复核）；"
-                        "peak/ms 排序可能被相机增益破坏，结论需人工复核"
-                    )
-        except (RuntimeError, ValueError) as exc:  # pragma: no cover - device
-            notes.append(f"线性度复核失败：{exc}")
+    linearity = _fp_exposure_alt(apply_phase, best, ceiling_ms, centre_px, discard, floor_ms, frames, notes, panel_shape, pixel_um, radius_px, read_frame, set_exposure_ms, wavelength_nm)
 
-    flat = measured.get(0.0)
-    gain: float | None = None
-    if best is not None and flat is not None and flat.peak_per_ms > 0:
-        gain = best.peak_per_ms / flat.peak_per_ms
+    gain = _fp_flat_gain(best, measured)
 
     # 光路受阻的判定: **每个**测点都是一张没有局域结构的画面。
     #
     # 为什么要求「每个点」而不是「最亮的那一个」: 只有当整条扫描线上都找不到光时
     # 才能说「光没到相机」。有一个点还能看到光斑, 就说明光路是通的, 只是焦面不在
     # 扫到的范围里 —— 那是另一件事 (退出码 2), 处置完全不同。
-    blocked_reason = ""
-    path_blocked = False
-    if measured:
-        verdicts = [p.spot.blocked for p in measured.values() if p.spot is not None]
-        if verdicts and all(verdicts):
-            path_blocked = True
-            blocked_reason = BLOCKED_PATH_REASON
-            notes.append(
-                f"光路受阻: {len(measured)} 个测点全部没有局域光斑, "
-                "画面停在读出噪声本底上"
-            )
+    blocked_reason, path_blocked = _fp_blocked_verdict(measured, notes)
 
     return FocusProbeResult(
         points=tuple(sorted(measured.values(), key=lambda p: p.diopter_m1)),

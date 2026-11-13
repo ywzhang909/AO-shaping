@@ -137,6 +137,97 @@ def _run_combined_epochs(
     return SimpleNamespace(center=center, delta=delta, dm=dm, dm_unit_mask=dm_unit_mask, r_bucket=r_bucket)
 
 
+
+def _comb_render_factory(center, dm, r_bucket, show, window):
+# Epoch frame render closure factory lifted verbatim
+    def _render_epoch_frame(pos_img, voltages, epoch_number):
+        if not show or window is None:
+            return True
+        return window.render(
+            pos_img,
+            voltages,
+            dm.V_Min,
+            dm.V_Max,
+            center,
+            int(r_bucket),
+            str(epoch_number),
+        )
+    return _render_epoch_frame
+
+
+
+
+def _comb_record_init_row(_init_v, cam, delta, init_img, init_r, j, optimizer, pib_mask, pib_scaler, r_bucket, recorder):
+# Init-row recorder append lifted verbatim
+    recorder.append(
+        {
+            "J": j,
+            "pib": pib_ratio_mask(init_img, pib_mask, pib_scaler),
+            "_raw_pib": pib_ratio_mask(init_img, pib_mask),
+            RECORD_ROI_ENERGY: 0.0,
+            "_max_r": init_r,
+            RECORD_VOLTAGES: _init_v.copy(),
+            RECORD_IMAGE: init_img,
+            RECORD_DIFF: 0,
+            "lr": optimizer.lr,
+            "r": r_bucket,
+            "delta": delta,
+            RECORD_EPOCH: 0,
+            "exp_t": get_camera_exposure_ms(cam),
+            "max_brt": float(np.max(init_img)),
+        }
+    )
+    return 
+
+
+
+
+def _comb_setup_masks(center, dm, epochs, img_size, init_img, kwargs, lr, r_bucket, show, shrink_ratio):
+# Masks window scaler and optimizer setup lifted verbatim
+    xv, yv = np.ogrid[
+        -img_size[0] // 2 : img_size[0] // 2,
+        -img_size[1] // 2 : img_size[1] // 2,
+    ]
+
+    if r_bucket <= 0:
+        r_bucket = radius(init_img, center=center, energy=0.6) * shrink_ratio
+        _fix_bucket = False
+    else:
+        _fix_bucket = True
+
+    init_r = r_bucket
+    update_iter = max(
+        1,
+        int(
+            epochs
+            * 0.8
+            // max(
+                np.log(IDEAL_SPOT_RADIUS / max(r_bucket, 1e-6))
+                / np.log(shrink_ratio),
+                1,
+            )
+        ),
+    )
+
+    imgmesh_dist = (xv**2 + yv**2).transpose()
+    dist = np.sqrt(imgmesh_dist)
+    bucket_mask = dist <= r_bucket
+    pib_mask = dist <= IDEAL_SPOT_RADIUS
+
+    window: ImageVoltagesDisplay | None = None
+    if show:
+        window = ImageVoltagesDisplay(img_size)
+        window.init_window()
+
+    j, _ = power_in_bucket_mask(init_img, bucket_mask)
+    pib_scaler = 1.0
+    optimizer = AdaMOD(
+        dm.DM_Num, lr=lr, beta1=BETA1, beta2=BETA2, beta3=BETA3, **kwargs
+    )  # type: ignore[union-attr]
+    return _fix_bucket, bucket_mask, dist, init_r, j, optimizer, pib_mask, pib_scaler, r_bucket, update_iter, window
+
+
+
 def _run_combined_session(
     *,
     cam_id: object,
@@ -194,82 +285,15 @@ def _run_combined_session(
         img_size = bench.img_size
         auto_exposure = exposure_time_ms == 0
         try:
-            xv, yv = np.ogrid[
-                -img_size[0] // 2 : img_size[0] // 2,
-                -img_size[1] // 2 : img_size[1] // 2,
-            ]
-
-            if r_bucket <= 0:
-                r_bucket = radius(init_img, center=center, energy=0.6) * shrink_ratio
-                _fix_bucket = False
-            else:
-                _fix_bucket = True
-
-            init_r = r_bucket
-            update_iter = max(
-                1,
-                int(
-                    epochs
-                    * 0.8
-                    // max(
-                        np.log(IDEAL_SPOT_RADIUS / max(r_bucket, 1e-6))
-                        / np.log(shrink_ratio),
-                        1,
-                    )
-                ),
-            )
-
-            imgmesh_dist = (xv**2 + yv**2).transpose()
-            dist = np.sqrt(imgmesh_dist)
-            bucket_mask = dist <= r_bucket
-            pib_mask = dist <= IDEAL_SPOT_RADIUS
-
-            window: ImageVoltagesDisplay | None = None
-            if show:
-                window = ImageVoltagesDisplay(img_size)
-                window.init_window()
-
-            j, _ = power_in_bucket_mask(init_img, bucket_mask)
-            pib_scaler = 1.0
-            optimizer = AdaMOD(
-                dm.DM_Num, lr=lr, beta1=BETA1, beta2=BETA2, beta3=BETA3, **kwargs
-            )  # type: ignore[union-attr]
+            _fix_bucket, bucket_mask, dist, init_r, j, optimizer, pib_mask, pib_scaler, r_bucket, update_iter, window = _comb_setup_masks(center, dm, epochs, img_size, init_img, kwargs, lr, r_bucket, show, shrink_ratio)
             if lr == 0:
                 optimizer.lr, delta = learning_schedule(
                     radius(init_img, center=center, energy=0.8)
                 )
 
-            recorder.append(
-                {
-                    "J": j,
-                    "pib": pib_ratio_mask(init_img, pib_mask, pib_scaler),
-                    "_raw_pib": pib_ratio_mask(init_img, pib_mask),
-                    RECORD_ROI_ENERGY: 0.0,
-                    "_max_r": init_r,
-                    RECORD_VOLTAGES: _init_v.copy(),
-                    RECORD_IMAGE: init_img,
-                    RECORD_DIFF: 0,
-                    "lr": optimizer.lr,
-                    "r": r_bucket,
-                    "delta": delta,
-                    RECORD_EPOCH: 0,
-                    "exp_t": get_camera_exposure_ms(cam),
-                    "max_brt": float(np.max(init_img)),
-                }
-            )
+            _comb_record_init_row(_init_v, cam, delta, init_img, init_r, j, optimizer, pib_mask, pib_scaler, r_bucket, recorder)
 
-            def _render_epoch_frame(pos_img, voltages, epoch_number):
-                if not show or window is None:
-                    return True
-                return window.render(
-                    pos_img,
-                    voltages,
-                    dm.V_Min,
-                    dm.V_Max,
-                    center,
-                    int(r_bucket),
-                    str(epoch_number),
-                )
+            _render_epoch_frame = _comb_render_factory(center, dm, r_bucket, show, window)
 
             def _saturate_epoch(pos_frame, neg_frame):
                 nonlocal pib_scaler

@@ -626,102 +626,9 @@ def estimate_flux_scale(
 # ---------------------------------------------------------------------------
 
 
-def fit_twin(
-    samples: Sequence[TwinSample],
-    config: BenchTwinConfig,
-    *,
-    bounds: Mapping[str, Any] | None = None,
-    stage1: bool = True,
-    stage2: bool = True,
-    maxiter: int = 12,
-    popsize: int = 8,
-    maxiter_fine: int = 60,
-    seed: int = 0,
-    verbose: bool = False,
-    peak_adu: float | None = None,
-) -> TwinFitResult:
-    """两阶段反演: 粗调全局量 + 精调空间量。
 
-    Args:
-        samples: (命令相位, 实测画面) 配对序列。
-        config: 初始配置 (其几何参数被当作**已知量**; 误差参数是待反演量)。
-            误差字典里已经写好的 Zernike 模式集合即「要反演的模式集合」。
-        bounds: 边界覆盖, 形状见 :func:`_resolve_bounds` 的说明。
-        stage1: 是否跑 Stage 1 (``differential_evolution`` 粗调)。
-        stage2: 是否跑 Stage 2 (``L-BFGS-B`` 精调)。
-        maxiter: Stage 1 的迭代上限 (默认 12, 配合 ``popsize`` 控制总时长)。
-        popsize: Stage 1 的种群规模乘数 (默认 8)。
-        maxiter_fine: Stage 2 的迭代上限 (默认 60)。
-        seed: 随机种子 (DE 的种群初始化); 同 seed ⇒ 逐位可复现。
-        verbose: 是否打印每阶段的损失下降。
-        peak_adu: 覆盖拟合时孪生的 ``peak_adu`` (相机的 ADU 标度)。默认取
-            **实测峰值的中位数**, 使仿真与实测同标度 (能量项才有意义)。
-
-    Returns:
-        :class:`TwinFitResult`。拟合过程**确定性** (噪声被关掉), ``loss``
-        是各样本单项损失的均值。
-
-    Raises:
-        ValueError: 样本为空, 或样本的相位/画面形状不一致。
-    """
-    items = list(samples)
-    if not items:
-        raise ValueError("fit_twin needs at least one sample")
-
-    base = _clone_config(config)
-    # 反演必须确定性: 关掉噪声, 前向只走 far_field (无噪)。
-    base.noise_adu = 0.0
-    if peak_adu is None:
-        peaks = [float(np.max(s.image)) for s in items]
-        peaks = [p for p in peaks if p > 0.0]
-        base.peak_adu = float(np.median(peaks)) if peaks else float(base.peak_adu)
-    else:
-        base.peak_adu = float(peak_adu)
-
-    region = int(base.region)
-    for index, sample in enumerate(items):
-        if np.asarray(sample.phase_rad).shape != (region, region):
-            raise ValueError(
-                f"sample #{index} phase shape "
-                f"{np.asarray(sample.phase_rad).shape} != ({region}, {region})"
-            )
-
-    counter = {"n": 0}
-
-    def evaluate(candidate: BenchTwinConfig) -> tuple[float, list[dict]]:
-        twin = BenchTwin(candidate)
-        loss, details = twin_loss(twin, items)
-        counter["n"] += 1
-        return loss, details
-
-    coarse_layout = _layout(base, "coarse")
-    fine_layout = _layout(base, "fine")
-    coarse_bounds = _resolve_bounds(base, "coarse", bounds)
-    fine_bounds = _resolve_bounds(base, "fine", bounds)
-    joint_layout = coarse_layout + fine_layout
-    joint_bounds = coarse_bounds + fine_bounds
-
-    # 起始点必须落在边界内 (调用方可能给出越界的初值) —— 否则拟合结果可能
-    # 停在越界的初值上, 违反「反演结果始终落在 bounds 内」。
-    base = _clip_layout(base, "coarse", coarse_bounds)
-    base = _clip_layout(base, "fine", fine_bounds)
-
-    def scales_for(layout: Sequence[tuple[str, Any]]) -> np.ndarray:
-        return np.array(
-            [_PARAM_SCALES[_BOUND_KEY[kind]] for kind, _ in layout], dtype=np.float64
-        )
-
-    def to_scaled(values: Sequence[float], layout: Sequence[tuple[str, Any]]):
-        return np.asarray(values, dtype=np.float64) / scales_for(layout)
-
-    def to_physical(y: np.ndarray, layout: Sequence[tuple[str, Any]]):
-        return np.asarray(y, dtype=np.float64) * scales_for(layout)
-
-    def objective(y: np.ndarray, layout: Sequence[tuple[str, Any]]) -> float:
-        candidate = _apply_layout(base, to_physical(y, layout), layout)
-        return evaluate(candidate)[0]
-
-    stages: dict[str, float] = {}
+def _fit_stage_runs(base, coarse_bounds, coarse_layout, counter, evaluate, fine_layout, joint_bounds, joint_layout, maxiter, maxiter_fine, objective, popsize, scales_for, seed, stage1, stage2, stages, to_physical, to_scaled, verbose):
+# Two-stage DE + joint L-BFGS runs lifted verbatim
     best_config = base
     best_loss, best_details = evaluate(base)
     stages["initial_loss"] = float(best_loss)
@@ -866,6 +773,107 @@ def fit_twin(
                 f"({stages['n_evaluations_stage2']:.0f} evaluations, "
                 f"{len(starts)} restarts)"
             )
+    return best_config, best_details, best_loss
+
+
+
+def fit_twin(
+    samples: Sequence[TwinSample],
+    config: BenchTwinConfig,
+    *,
+    bounds: Mapping[str, Any] | None = None,
+    stage1: bool = True,
+    stage2: bool = True,
+    maxiter: int = 12,
+    popsize: int = 8,
+    maxiter_fine: int = 60,
+    seed: int = 0,
+    verbose: bool = False,
+    peak_adu: float | None = None,
+) -> TwinFitResult:
+    """两阶段反演: 粗调全局量 + 精调空间量。
+
+    Args:
+        samples: (命令相位, 实测画面) 配对序列。
+        config: 初始配置 (其几何参数被当作**已知量**; 误差参数是待反演量)。
+            误差字典里已经写好的 Zernike 模式集合即「要反演的模式集合」。
+        bounds: 边界覆盖, 形状见 :func:`_resolve_bounds` 的说明。
+        stage1: 是否跑 Stage 1 (``differential_evolution`` 粗调)。
+        stage2: 是否跑 Stage 2 (``L-BFGS-B`` 精调)。
+        maxiter: Stage 1 的迭代上限 (默认 12, 配合 ``popsize`` 控制总时长)。
+        popsize: Stage 1 的种群规模乘数 (默认 8)。
+        maxiter_fine: Stage 2 的迭代上限 (默认 60)。
+        seed: 随机种子 (DE 的种群初始化); 同 seed ⇒ 逐位可复现。
+        verbose: 是否打印每阶段的损失下降。
+        peak_adu: 覆盖拟合时孪生的 ``peak_adu`` (相机的 ADU 标度)。默认取
+            **实测峰值的中位数**, 使仿真与实测同标度 (能量项才有意义)。
+
+    Returns:
+        :class:`TwinFitResult`。拟合过程**确定性** (噪声被关掉), ``loss``
+        是各样本单项损失的均值。
+
+    Raises:
+        ValueError: 样本为空, 或样本的相位/画面形状不一致。
+    """
+    items = list(samples)
+    if not items:
+        raise ValueError("fit_twin needs at least one sample")
+
+    base = _clone_config(config)
+    # 反演必须确定性: 关掉噪声, 前向只走 far_field (无噪)。
+    base.noise_adu = 0.0
+    if peak_adu is None:
+        peaks = [float(np.max(s.image)) for s in items]
+        peaks = [p for p in peaks if p > 0.0]
+        base.peak_adu = float(np.median(peaks)) if peaks else float(base.peak_adu)
+    else:
+        base.peak_adu = float(peak_adu)
+
+    region = int(base.region)
+    for index, sample in enumerate(items):
+        if np.asarray(sample.phase_rad).shape != (region, region):
+            raise ValueError(
+                f"sample #{index} phase shape "
+                f"{np.asarray(sample.phase_rad).shape} != ({region}, {region})"
+            )
+
+    counter = {"n": 0}
+
+    def evaluate(candidate: BenchTwinConfig) -> tuple[float, list[dict]]:
+        twin = BenchTwin(candidate)
+        loss, details = twin_loss(twin, items)
+        counter["n"] += 1
+        return loss, details
+
+    coarse_layout = _layout(base, "coarse")
+    fine_layout = _layout(base, "fine")
+    coarse_bounds = _resolve_bounds(base, "coarse", bounds)
+    fine_bounds = _resolve_bounds(base, "fine", bounds)
+    joint_layout = coarse_layout + fine_layout
+    joint_bounds = coarse_bounds + fine_bounds
+
+    # 起始点必须落在边界内 (调用方可能给出越界的初值) —— 否则拟合结果可能
+    # 停在越界的初值上, 违反「反演结果始终落在 bounds 内」。
+    base = _clip_layout(base, "coarse", coarse_bounds)
+    base = _clip_layout(base, "fine", fine_bounds)
+
+    def scales_for(layout: Sequence[tuple[str, Any]]) -> np.ndarray:
+        return np.array(
+            [_PARAM_SCALES[_BOUND_KEY[kind]] for kind, _ in layout], dtype=np.float64
+        )
+
+    def to_scaled(values: Sequence[float], layout: Sequence[tuple[str, Any]]):
+        return np.asarray(values, dtype=np.float64) / scales_for(layout)
+
+    def to_physical(y: np.ndarray, layout: Sequence[tuple[str, Any]]):
+        return np.asarray(y, dtype=np.float64) * scales_for(layout)
+
+    def objective(y: np.ndarray, layout: Sequence[tuple[str, Any]]) -> float:
+        candidate = _apply_layout(base, to_physical(y, layout), layout)
+        return evaluate(candidate)[0]
+
+    stages: dict[str, float] = {}
+    best_config, best_details, best_loss = _fit_stage_runs(base, coarse_bounds, coarse_layout, counter, evaluate, fine_layout, joint_bounds, joint_layout, maxiter, maxiter_fine, objective, popsize, scales_for, seed, stage1, stage2, stages, to_physical, to_scaled, verbose)
 
     stages["final_loss"] = float(best_loss)
     stages["peak_adu"] = float(best_config.peak_adu)

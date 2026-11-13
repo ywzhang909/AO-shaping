@@ -8,7 +8,12 @@ from types import SimpleNamespace
 import pytest
 import numpy as np
 
-from ao_shaping.tools.slm.transfer.replay_phases import _selections
+from ao_shaping.tools.slm.transfer.replay_phases import (
+    _selections,
+    core_saturated,
+    replay_saturation_verdict,
+    saturation_pixels,
+)
 
 
 def _run(tmp_path: Path, name: str, labels: list[str]) -> Path:
@@ -110,3 +115,29 @@ def test_stages_at_different_sampling_steps_still_group_their_own_grids(tmp_path
         with np.load(directory / json.loads((directory / "manifest.json").read_text())[0]["file"]) as saved:
             shapes.setdefault(saved["camera_xy"].shape, []).append(label)
     assert len(shapes) == 2
+
+
+def test_saturation_pixels_counts_at_validate_scale_threshold():
+    frame = np.array([[4014, 4015, 4095, 0]], dtype=np.uint16)
+    assert saturation_pixels(frame, 4095.0) == 2  # 阈值 4095*250/255 = 4014.71
+
+
+def test_core_saturated_uses_the_original_4014_comparator():
+    assert core_saturated(4014) and not core_saturated(4013.9)
+
+
+def test_replay_verdict_marks_core_blocks_and_warns_on_frame_saturation():
+    records = [
+        dict(label="square_final", core_peak=4020.0, saturation_pixels=7),
+        dict(label="triangle_seed", core_peak=3900.0, saturation_pixels=3),
+        dict(label="square_seed", core_peak=3900.0, saturation_pixels=0),
+    ]
+    verdict = replay_saturation_verdict(records)
+    assert verdict.stopped_blocks == ("square_final",)
+    assert verdict.warning_blocks == ("triangle_seed",)
+    assert verdict.any_saturated
+
+
+def test_replay_verdict_clean_run_is_not_yellow():
+    verdict = replay_saturation_verdict([dict(label="a", core_peak=100.0, saturation_pixels=0)])
+    assert not verdict.any_saturated

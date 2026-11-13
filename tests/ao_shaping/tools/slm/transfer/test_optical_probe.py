@@ -638,3 +638,31 @@ def test_write_reference_probe_omits_flat_frame_when_missing(tmp_path):
         (fit_out / probe.FLAT_FROZEN_SIDECAR).read_text(encoding="utf-8")
     )
     assert "flat_frame" not in record
+
+
+# ---------------------------------------------------------------------------
+# zero_drift_verdict (#243 前置二): 5 < 20 黄警 < 40 硬上限 三档
+# ---------------------------------------------------------------------------
+
+
+def test_zero_drift_verdict_three_levels():
+    assert probe.zero_drift_verdict((10.0, 10.0), (10.0, 10.0))[0] == "ok"
+    assert probe.zero_drift_verdict((35.0, 10.0), (10.0, 10.0))[0] == "warn"
+    assert probe.zero_drift_verdict((60.0, 10.0), (10.0, 10.0))[0] == "hard"
+
+
+def test_zero_drift_verdict_uses_axis_max_like_assess_reuse():
+    level, _ = probe.zero_drift_verdict((10.0, 35.0), (10.0, 10.0))
+    assert level == "warn"
+    level, _ = probe.zero_drift_verdict((10.0, 55.0), (10.0, 10.0))
+    assert level == "hard"
+
+
+def test_zero_drift_verdict_boundaries_are_exclusive():
+    assert probe.zero_drift_verdict((30.0, 10.0), (10.0, 10.0))[0] == "ok"
+    assert probe.zero_drift_verdict((50.0, 10.0), (10.0, 10.0))[0] == "warn"
+
+
+def test_zero_drift_verdict_without_reference_never_alarms():
+    assert probe.zero_drift_verdict((500.0, 500.0), None)[0] == "ok"
+    assert probe.zero_drift_verdict((500.0, 500.0), "not-a-pair")[0] == "ok"

@@ -486,3 +486,39 @@ def test_the_plan_reports_the_acceptance_mode(tmp_path):
 
 def test_workflow_module_exposes_the_verdict_helper():
     assert workflow_module.acceptance_verdict is acceptance_verdict
+
+
+# ---------------------------------------------------------------------------
+# 2b. correlation_red_stop (#243 前置一): 只看相关性的红停, 复用 acceptance_lower
+# ---------------------------------------------------------------------------
+
+
+def test_red_stop_fires_when_correlation_is_below_the_reused_bound(tmp_path):
+    _write_session(tmp_path)
+    _write_fit(tmp_path, correlation=0.40, relative_l2=0.60)
+    assert acceptance_verdict(tmp_path)["correlation_red_stop"] is True
+
+
+def test_red_stop_is_silent_above_the_bound(tmp_path):
+    _write_session(tmp_path)
+    _write_fit(tmp_path, correlation=0.93, relative_l2=0.12)
+    assert acceptance_verdict(tmp_path)["correlation_red_stop"] is False
+
+
+def test_red_stop_stays_apart_from_the_relative_l2_rejection(tmp_path):
+    _write_session(tmp_path)
+    _write_fit(tmp_path, correlation=0.90, relative_l2=0.60)
+    verdict = acceptance_verdict(tmp_path)
+    assert verdict["accepted"] is False
+    assert verdict["correlation_red_stop"] is False
+
+
+def test_red_stop_follows_a_configured_lower(tmp_path):
+    _write_session(tmp_path, lower=0.60)
+    _write_fit(tmp_path, correlation=0.70, relative_l2=0.10)
+    assert acceptance_verdict(tmp_path)["correlation_red_stop"] is False
+
+
+def test_missing_artifacts_red_stop_instead_of_silence(tmp_path):
+    _write_session(tmp_path)
+    assert acceptance_verdict(tmp_path)["correlation_red_stop"] is True

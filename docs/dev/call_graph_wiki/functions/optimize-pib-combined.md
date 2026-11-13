@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: function
 tags: [optimizer,pib,adapmod]
-source: src/ao_shaping/optimizer/combined_optimizer.py:397
+source: src/ao_shaping/optimizer/combined_optimizer.py:421
 ---
 
 ## 签名

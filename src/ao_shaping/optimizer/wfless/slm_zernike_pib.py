@@ -731,6 +731,101 @@ class _PibGeometryInputs:
     r_bucket: Any
 
 
+
+def _pibg_bucket_init(cam_size, epochs, img_size, init_img, r_bucket, reference_center, shrink_ratio):
+# R-bucket radius initialization and adaptive iteration count lifted verbatim
+    if r_bucket <= 0:
+        _w, _h = img_size
+        # ``reference_center`` is the window-local spot position (see
+        # above); ``center`` here holds the FULL-FRAME window centre
+        # returned by ``reset_window`` and would be out of bounds for the
+        # windowed ``init_img`` - the 99%-entcircled radius must be
+        # anchored on the re-located spot.
+        r_bucket = ImageTargetFunc(_w, _h, reference_center).radius(
+            init_img, energy=0.99
+        )
+        r_bucket = min(r_bucket, cam_size // 2) * shrink_ratio
+        _fix_bucket = False
+        logger.info("Use dynamic radiu @ {}", r_bucket)
+    else:
+        _fix_bucket = True
+
+    if (
+        shrink_ratio <= 0
+        or np.isclose(shrink_ratio, 1.0)
+        or r_bucket <= IDEAL_SPOT_RADIUS
+    ):
+        update_iter = max(1, epochs)
+    else:
+        shrink_span = np.log(IDEAL_SPOT_RADIUS / r_bucket) / np.log(shrink_ratio)
+        if np.isfinite(shrink_span) and shrink_span > 0:
+            update_iter = max(1, int(epochs * 0.8 // shrink_span))
+        else:
+            update_iter = max(1, epochs)
+    _init_r = r_bucket
+    return _fix_bucket, _init_r, r_bucket, update_iter
+
+
+
+
+def _pibg_window_estimate(blaze_choice, cam, center, center_full, config, full_frame_shape, img_size, init_img, shape_for_metric, target_aspect_ratio, target_size):
+# Camera window extent estimate and reference center lifted verbatim
+    _est_extent = (
+        float(target_size)
+        if target_size is not None
+        else min(
+            max(
+                TARGET_BOX_WAIST_FACTOR * float(spot_waist_sigma(init_img, center)),
+                4.0,
+            ),
+            float(min(img_size)),
+        )
+    )
+    _long_side = _est_extent * (
+        float(target_aspect_ratio) if shape_for_metric == "rectangle" else 1.0
+    )
+    _required = int(np.ceil(CAM_WINDOW_TARGET_MARGIN * _long_side))
+    if _required > int(img_size[0]):
+        logger.warning(
+            "camera window {}x{} is smaller than {:.1f}x the target long side "
+            "({:.0f}px) - enlarging to {}x{}",
+            img_size[0],
+            img_size[1],
+            CAM_WINDOW_TARGET_MARGIN,
+            _long_side,
+            _required,
+            _required,
+        )
+        _req_center = clamp_center_to_frame(
+            center_full, full_frame_shape, _required
+        )
+        img_size, center = cam.reset_window(_req_center, (_required, _required))
+        center_full = (float(_req_center[0]), float(_req_center[1]))
+        init_img = cam.get_numpy_image(config.n_eval_frames)
+        img_size = init_img.shape[::-1]
+        logger.info("camera window enlarged to {}x{}", img_size[0], img_size[1])
+
+    # ``reset_window`` returns the window centre in FULL-FRAME sensor
+    # coordinates, but every downstream metric (``rms_pib_terms``, waist,
+    # radius) operates on the re-windowed ``init_img``. The 0-order spot is
+    # therefore re-located inside the window here - this also absorbs the
+    # runner's auto exposure/centre probe, which likewise returns a
+    # full-frame centre (un-windowed probe camera). Operator-supplied
+    # full-frame centres fix the window position, and the freshly positioned
+    # window then has the spot at its argmax, so re-locating stays correct
+    # for them too.
+    _spot = (
+        (
+            int(blaze_choice.signal_xy[0] - center[0] + img_size[0] // 2),
+            int(blaze_choice.signal_xy[1] - center[1] + img_size[1] // 2),
+        )
+        if blaze_choice is not None else zero_order_center(init_img)
+    )
+    reference_center: tuple[float, float] = (float(_spot[0]), float(_spot[1]))
+    return center, center_full, img_size, init_img, reference_center
+
+
+
 def _prepare_geometry(inp: _PibGeometryInputs) -> _PibGeometry:
     """Locate the 0-order, size/re-window the camera, and derive the
     target box + bucket radius from the flat-field frame.
@@ -818,58 +913,7 @@ def _prepare_geometry(inp: _PibGeometryInputs) -> _PibGeometry:
     # metric's energy denominator is the window total, so the out-of-box
     # energy must stay visible. Enlarge (and re-capture) when cam_size is
     # smaller than that, whatever value the caller asked for.
-    _est_extent = (
-        float(target_size)
-        if target_size is not None
-        else min(
-            max(
-                TARGET_BOX_WAIST_FACTOR * float(spot_waist_sigma(init_img, center)),
-                4.0,
-            ),
-            float(min(img_size)),
-        )
-    )
-    _long_side = _est_extent * (
-        float(target_aspect_ratio) if shape_for_metric == "rectangle" else 1.0
-    )
-    _required = int(np.ceil(CAM_WINDOW_TARGET_MARGIN * _long_side))
-    if _required > int(img_size[0]):
-        logger.warning(
-            "camera window {}x{} is smaller than {:.1f}x the target long side "
-            "({:.0f}px) - enlarging to {}x{}",
-            img_size[0],
-            img_size[1],
-            CAM_WINDOW_TARGET_MARGIN,
-            _long_side,
-            _required,
-            _required,
-        )
-        _req_center = clamp_center_to_frame(
-            center_full, full_frame_shape, _required
-        )
-        img_size, center = cam.reset_window(_req_center, (_required, _required))
-        center_full = (float(_req_center[0]), float(_req_center[1]))
-        init_img = cam.get_numpy_image(config.n_eval_frames)
-        img_size = init_img.shape[::-1]
-        logger.info("camera window enlarged to {}x{}", img_size[0], img_size[1])
-
-    # ``reset_window`` returns the window centre in FULL-FRAME sensor
-    # coordinates, but every downstream metric (``rms_pib_terms``, waist,
-    # radius) operates on the re-windowed ``init_img``. The 0-order spot is
-    # therefore re-located inside the window here - this also absorbs the
-    # runner's auto exposure/centre probe, which likewise returns a
-    # full-frame centre (un-windowed probe camera). Operator-supplied
-    # full-frame centres fix the window position, and the freshly positioned
-    # window then has the spot at its argmax, so re-locating stays correct
-    # for them too.
-    _spot = (
-        (
-            int(blaze_choice.signal_xy[0] - center[0] + img_size[0] // 2),
-            int(blaze_choice.signal_xy[1] - center[1] + img_size[1] // 2),
-        )
-        if blaze_choice is not None else zero_order_center(init_img)
-    )
-    reference_center: tuple[float, float] = (float(_spot[0]), float(_spot[1]))
+    center, center_full, img_size, init_img, reference_center = _pibg_window_estimate(blaze_choice, cam, center, center_full, config, full_frame_shape, img_size, init_img, shape_for_metric, target_aspect_ratio, target_size)
     if target_size is None:
         _w, _h = img_size
         # Box = TARGET_BOX_WAIST_FACTOR x the flat-field spot WAIST (not the
@@ -907,35 +951,7 @@ def _prepare_geometry(inp: _PibGeometryInputs) -> _PibGeometry:
     for _ in range(target_center_smooth):
         target_center_history.append(reference_center)
 
-    if r_bucket <= 0:
-        _w, _h = img_size
-        # ``reference_center`` is the window-local spot position (see
-        # above); ``center`` here holds the FULL-FRAME window centre
-        # returned by ``reset_window`` and would be out of bounds for the
-        # windowed ``init_img`` - the 99%-entcircled radius must be
-        # anchored on the re-located spot.
-        r_bucket = ImageTargetFunc(_w, _h, reference_center).radius(
-            init_img, energy=0.99
-        )
-        r_bucket = min(r_bucket, cam_size // 2) * shrink_ratio
-        _fix_bucket = False
-        logger.info("Use dynamic radiu @ {}", r_bucket)
-    else:
-        _fix_bucket = True
-
-    if (
-        shrink_ratio <= 0
-        or np.isclose(shrink_ratio, 1.0)
-        or r_bucket <= IDEAL_SPOT_RADIUS
-    ):
-        update_iter = max(1, epochs)
-    else:
-        shrink_span = np.log(IDEAL_SPOT_RADIUS / r_bucket) / np.log(shrink_ratio)
-        if np.isfinite(shrink_span) and shrink_span > 0:
-            update_iter = max(1, int(epochs * 0.8 // shrink_span))
-        else:
-            update_iter = max(1, epochs)
-    _init_r = r_bucket
+    _fix_bucket, _init_r, r_bucket, update_iter = _pibg_bucket_init(cam_size, epochs, img_size, init_img, r_bucket, reference_center, shrink_ratio)
     return _PibGeometry(
         initial_phase=initial_phase,
         full_frame_img=_img,

@@ -296,14 +296,170 @@ def _resolve_capture_exposure(args) -> tuple[int, str, float | None, dict]:
     return exposure_steps, exposure_source, seed_exposure, camera_kwargs
 
 
-def _init_live_prediction(args, observer, live_prediction: list) -> None:
-    """就地初始化实时预测单元：模型不可用时只警告、不中断采集。
+def _cap_sample_row(attempt, clocks, exposure, exposure_clocks, flat_frame_name, label, live_prediction, path, raw, setting, split, x, y):
+# Manifest row build plus live-prediction annotation lifted verbatim
+    row = dict(
+        file=path,
+        label=label,
+        split=split,
+        exposure_ms=exposure,
+        frames=clocks,
+        exposure_probe_clocks=exposure_clocks,
+        exposure_setting=asdict(setting),
+        peak=float(raw.max()),
+        saturation_pixels=int((raw >= 255).sum()),
+        exposure_attempts=attempt,
+        spot_xy=[x, y],
+        **clock(),
+    )
+    if label == "reference_start" and live_prediction[0] is not None:
+        try:
+            # 第一张平场读完后才有一次会话的零点；下一张曝光/
+            # 探针帧开始即可预测，参考帧自身不伪造 predicted。
+            live_prediction[0].attach_reference(row)
+        except Exception as exc:  # policy: 物理预测模型构建失败 → 禁用 live 预测并继续采集
+            logger.warning(
+                f"Live capture prediction disabled while building the forward model: {exc!r}"
+            )
+            live_prediction[0] = None
+    return row
 
-    ``live_prediction`` 单元列表必须留在 ``capture()`` 作用域 —— ``read()`` 闭包与
-    探针循环都按下标读写同一个列表对象；本函数只对下标 0 做一次性原地赋值，
-    不改变闭包的捕获关系。
-    """
-    checkpoint_value = getattr(args, "checkpoint", None)
+
+
+
+def _cap_spot_xy(args, exposure, flat_frame_name, frame, label, session_zero, slm_serial):
+# Probe spot location plus flat-frame sidecar lifted verbatim
+    if label == "reference_start":
+        x, y = locate(frame)
+        session_zero = (x, y)
+        # 平场参照帧 (平面相位下的 0 级斑) 落盘: 下次光路复用拿它
+        # 做形状判比。少一帧形状证据不该让一次几十分钟的采集失败
+        # (复用自动退回零点判比), 所以这里兜住能真实抛出的类型:
+        # 惰性导入的 ImportError, 以及帧/曝光量纲不合的 TypeError
+        # / ValueError。磁盘类错误由 save_flat_frame 自己吞掉并
+        # 返回 None —— 不用宽 except, 见 test_conventions 的棘轮。
+        try:
+            from ao_shaping.tools.slm.transfer.optical_probe import (
+                save_flat_frame,
+            )
+
+            flat_frame_name = save_flat_frame(
+                args.out,
+                frame,
+                spot_xy=(x, y),
+                exposure_ms=exposure,
+                slm_serial=slm_serial[0],
+            )
+        except (ImportError, OSError, TypeError, ValueError) as exc:
+            logger.warning(f"平场参照帧保存失败: {exc!r}")
+    elif label.startswith("ramp_") and session_zero is not None:
+        # 零级未被压制时 argmax 会锁零级 -> 屏蔽零级邻域后找一级。
+        x, y = locate(frame, exclude_xy=session_zero)
+    else:
+        x, y = locate(frame)
+    return flat_frame_name, session_zero, x, y
+
+
+
+
+def _cap_record_dataset(args, exposure_frames, frame, gray, grid, panel, path, raw, samples, save_dataset):
+# Save-dataset branch lifted verbatim
+    if save_dataset:
+        np.savez_compressed(
+            args.out / path,
+            raw_frames=raw,
+            frame=frame,
+            model_phase=grid.astype(np.float32),
+            panel_phase=panel.astype(np.float32),
+            panel_gray=gray,
+            exposure_probe_frames=np.stack(exposure_frames),
+        )
+    samples[path] = dict(
+        model_phase=grid.astype(np.float32), raw_frames=raw
+    )
+    return 
+
+
+
+
+def _cap_reuse_guard(label, live_prediction, manifest):
+# Checkpoint reuse guard branch lifted verbatim
+    if (
+        live_prediction[0] is not None
+        and manifest
+        and manifest[-1]["label"].startswith("ramp_")
+        and not label.startswith("ramp_")
+    ):
+        try:
+            # 最后一个 ramp 行已写入 manifest；在首个非 ramp 帧
+            # 读图前建好理想模型，让该帧就能携带 predicted。
+            live_prediction[0].attach_geometry(manifest)
+        except Exception as exc:  # policy: 理想模型构建失败 → 禁用 live 预测并继续采集
+            logger.warning(
+                f"Live capture prediction disabled while building the ideal model: {exc!r}"
+            )
+            live_prediction[0] = None
+    return 
+
+
+
+
+def _cap_verify_light(args, cam, ceiling, floor, read):
+# Optical-path light verification plus sidecar lifted verbatim
+    light = verify_light(
+        read,
+        exposure_setter(cam),
+        floor_ms=floor,
+        ceiling_ms=ceiling,
+        label=f"capture {args.out.name}",
+    )
+    (args.out / "light_check.json").write_text(
+        json.dumps({**light, **clock()}, default=str, indent=2),
+        encoding="utf-8",
+    )
+    return 
+
+
+
+
+def _cap_live_reader(cam, live_label, live_phase, live_prediction, live_seen, observer):
+# Live frame reader closure factory lifted verbatim
+    def read():
+        raw = np.asarray(cam.get_numpy_image(n_sample=1, skip_first=False))
+        if raw.ndim != 2:
+            raise ValueError(
+                f"Expected a monochrome 2D camera frame, got {raw.shape}"
+            )
+        live_seen[0] += 1
+        predicted = None
+        if live_prediction[0] is not None:
+            try:
+                predicted = live_prediction[0].predict(live_phase[0])
+            except Exception as exc:
+                # 第一次失败即停用，避免每帧重复报错；原始测量不受影响。
+                logger.warning(
+                    f"Live capture prediction disabled after a frame failed: {exc!r}"
+                )
+                live_prediction[0] = None
+        notify_frame(
+            observer,
+            frame_payload(
+                frame=raw,
+                label=live_label[0],
+                phase="capture",
+                phase_grid=live_phase[0],
+                predicted=predicted,
+                frame_index=live_seen[0],
+            ),
+        )
+        return raw
+    return read
+
+
+
+
+def _cap_load_checkpoint(args, checkpoint_value, live_prediction, observer):
+# Observer checkpoint loading lifted verbatim
     if observer is not None:
         checkpoint = Path(checkpoint_value) if checkpoint_value else None
         try:
@@ -324,53 +480,8 @@ def _init_live_prediction(args, observer, live_prediction: list) -> None:
             logger.warning(
                 f"Live capture prediction disabled during initialization: {exc!r}"
             )
+    return 
 
-
-def _write_optical_probe_record(
-    *, out: Path, cam, floor: float, ceiling: float,
-    slm_serial: str | None, flat_frame_name: str | None,
-) -> None:
-    """光路复用探针的**参照条件**: 本次采集用的相机曝光区间与取图格式。
-
-    与实测零点 (拟合后写进 frozen_parameters.json 的 origin) 一起构成
-    「这条光路的条件」, 供下次会话的光路复用判比用。
-    """
-    from ao_shaping.tools.slm.transfer.optical_probe import (
-        read_bit_depth as _camera_bit_depth,
-        read_camera_format as _camera_format,
-    )
-
-    probe_record: dict = dict(
-        exposure_range_ms=[float(floor), float(ceiling)],
-        camera_format=_camera_format(cam),
-        bit_depth=_camera_bit_depth(cam),
-        slm_serial=slm_serial,
-    )
-    if flat_frame_name is not None:
-        # 平场帧真的落盘了才登记文件名 (形状判比按这个键找帧)。
-        probe_record["flat_frame"] = flat_frame_name
-    (out / "_optical_probe.json").write_text(
-        json.dumps(probe_record, indent=2),
-        encoding="utf-8",
-    )
-
-
-def _write_capture_done(
-    out: Path, *, early_stopped: bool, probes_done: int, slm_serial: str | None
-) -> None:
-    """写 ``.capture_done`` 收尾标记：早停标志、探针数、SLM 序列号与收尾时钟。"""
-    (out / ".capture_done").write_text(
-        json.dumps(
-            dict(
-                early_stopped=early_stopped,
-                probes=probes_done,
-                slm_serial=slm_serial,
-                **clock(),
-            ),
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
 
 
 def capture(args, *, on_frame=None):
@@ -468,37 +579,10 @@ def capture(args, *, on_frame=None):
                 # None —— 绝不伪造一个相位; 但它不是坏状态, 只是还没轮到驱动 SLM。
                 live_phase = [None]
                 live_prediction = [None]
-                _init_live_prediction(args, observer, live_prediction)
+                checkpoint_value = getattr(args, "checkpoint", None)
+                _cap_load_checkpoint(args, checkpoint_value, live_prediction, observer)
 
-                def read():
-                    raw = np.asarray(cam.get_numpy_image(n_sample=1, skip_first=False))
-                    if raw.ndim != 2:
-                        raise ValueError(
-                            f"Expected a monochrome 2D camera frame, got {raw.shape}"
-                        )
-                    live_seen[0] += 1
-                    predicted = None
-                    if live_prediction[0] is not None:
-                        try:
-                            predicted = live_prediction[0].predict(live_phase[0])
-                        except Exception as exc:
-                            # 第一次失败即停用，避免每帧重复报错；原始测量不受影响。
-                            logger.warning(
-                                f"Live capture prediction disabled after a frame failed: {exc!r}"
-                            )
-                            live_prediction[0] = None
-                    notify_frame(
-                        observer,
-                        frame_payload(
-                            frame=raw,
-                            label=live_label[0],
-                            phase="capture",
-                            phase_grid=live_phase[0],
-                            predicted=predicted,
-                            frame_index=live_seen[0],
-                        ),
-                    )
-                    return raw
+                read = _cap_live_reader(cam, live_label, live_phase, live_prediction, live_seen, observer)
 
                 # 便宜的光路检查, 在探针族之前: 2026-10-28 光路失效那次, 单条探针
                 # 先烧掉整个阶梯 (每档 0.6 s settle + 落盘) 才报「曝光不收敛」,
@@ -513,17 +597,7 @@ def capture(args, *, on_frame=None):
                 )
                 live_phase[0] = np.zeros((args.grid, args.grid), np.float32)
                 time.sleep(0.6)
-                light = verify_light(
-                    read,
-                    exposure_setter(cam),
-                    floor_ms=floor,
-                    ceiling_ms=ceiling,
-                    label=f"capture {args.out.name}",
-                )
-                (args.out / "light_check.json").write_text(
-                    json.dumps({**light, **clock()}, default=str, indent=2),
-                    encoding="utf-8",
-                )
+                _cap_verify_light(args, cam, ceiling, floor, read)
 
                 # reference_start 是本会话零级；之后 ramp 帧用它屏蔽零级邻域再定位。
                 session_zero: tuple[float, float] | None = None
@@ -539,21 +613,7 @@ def capture(args, *, on_frame=None):
                     if (args.out / "stop_acquisition.request").is_file():
                         early_stopped = True
                         break
-                    if (
-                        live_prediction[0] is not None
-                        and manifest
-                        and manifest[-1]["label"].startswith("ramp_")
-                        and not label.startswith("ramp_")
-                    ):
-                        try:
-                            # 最后一个 ramp 行已写入 manifest；在首个非 ramp 帧
-                            # 读图前建好理想模型，让该帧就能携带 predicted。
-                            live_prediction[0].attach_geometry(manifest)
-                        except Exception as exc:  # policy: 理想模型构建失败 → 禁用 live 预测并继续采集
-                            logger.warning(
-                                f"Live capture prediction disabled while building the ideal model: {exc!r}"
-                            )
-                            live_prediction[0] = None
+                    _cap_reuse_guard(label, live_prediction, manifest)
                     panel = to_panel(grid)
                     gray = slm.create_phase_from_array(panel)
                     slm.display_data(gray)
@@ -619,71 +679,9 @@ def capture(args, *, on_frame=None):
                             )
                             exposure = float(setting.exposure_ms)
                     path = f"sample_{len(manifest):04d}.npz"
-                    if save_dataset:
-                        np.savez_compressed(
-                            args.out / path,
-                            raw_frames=raw,
-                            frame=frame,
-                            model_phase=grid.astype(np.float32),
-                            panel_phase=panel.astype(np.float32),
-                            panel_gray=gray,
-                            exposure_probe_frames=np.stack(exposure_frames),
-                        )
-                    samples[path] = dict(
-                        model_phase=grid.astype(np.float32), raw_frames=raw
-                    )
-                    if label == "reference_start":
-                        x, y = locate(frame)
-                        session_zero = (x, y)
-                        # 平场参照帧 (平面相位下的 0 级斑) 落盘: 下次光路复用拿它
-                        # 做形状判比。少一帧形状证据不该让一次几十分钟的采集失败
-                        # (复用自动退回零点判比), 所以这里兜住能真实抛出的类型:
-                        # 惰性导入的 ImportError, 以及帧/曝光量纲不合的 TypeError
-                        # / ValueError。磁盘类错误由 save_flat_frame 自己吞掉并
-                        # 返回 None —— 不用宽 except, 见 test_conventions 的棘轮。
-                        try:
-                            from ao_shaping.tools.slm.transfer.optical_probe import (
-                                save_flat_frame,
-                            )
-
-                            flat_frame_name = save_flat_frame(
-                                args.out,
-                                frame,
-                                spot_xy=(x, y),
-                                exposure_ms=exposure,
-                                slm_serial=slm_serial[0],
-                            )
-                        except (ImportError, OSError, TypeError, ValueError) as exc:
-                            logger.warning(f"平场参照帧保存失败: {exc!r}")
-                    elif label.startswith("ramp_") and session_zero is not None:
-                        # 零级未被压制时 argmax 会锁零级 -> 屏蔽零级邻域后找一级。
-                        x, y = locate(frame, exclude_xy=session_zero)
-                    else:
-                        x, y = locate(frame)
-                    row = dict(
-                        file=path,
-                        label=label,
-                        split=split,
-                        exposure_ms=exposure,
-                        frames=clocks,
-                        exposure_probe_clocks=exposure_clocks,
-                        exposure_setting=asdict(setting),
-                        peak=float(raw.max()),
-                        saturation_pixels=int((raw >= 255).sum()),
-                        exposure_attempts=attempt,
-                        spot_xy=[x, y],
-                        **clock(),
-                    )
-                    if label == "reference_start" and live_prediction[0] is not None:
-                        try:
-                            # 第一张平场读完后才有一次会话的零点；下一张曝光/
-                            # 探针帧开始即可预测，参考帧自身不伪造 predicted。
-                            live_prediction[0].attach_reference(row)
-                        except Exception as exc:  # policy: 物理预测模型构建失败 → 禁用 live 预测并继续采集
-                            logger.warning(
-                                f"Live capture prediction disabled while building the forward model: {exc!r}"
-                            )
-                            live_prediction[0] = None
+                    _cap_record_dataset(args, exposure_frames, frame, gray, grid, panel, path, raw, samples, save_dataset)
+                    flat_frame_name, session_zero, x, y = _cap_spot_xy(args, exposure, flat_frame_name, frame, label, session_zero, slm_serial)
+                    row = _cap_sample_row(attempt, clocks, exposure, exposure_clocks, flat_frame_name, label, live_prediction, path, raw, setting, split, x, y)
                     manifest.append(row)
                     (args.out / "manifest.json").write_text(
                         json.dumps(manifest, indent=2), encoding="utf-8"
@@ -702,6 +700,27 @@ def capture(args, *, on_frame=None):
             finally:
                 slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
                 time.sleep(0.3)
+        # 光路复用探针的**参照条件**: 本次采集用的相机曝光区间与取图格式。
+        # 与实测零点 (拟合后写进 frozen_parameters.json 的 origin) 一起构成
+        # 「这条光路的条件」, 供下次会话的光路复用判比用。
+        from ao_shaping.tools.slm.transfer.optical_probe import (
+            read_bit_depth as _camera_bit_depth,
+            read_camera_format as _camera_format,
+        )
+
+        probe_record: dict = dict(
+            exposure_range_ms=[float(floor), float(ceiling)],
+            camera_format=_camera_format(cam),
+            bit_depth=_camera_bit_depth(cam),
+            slm_serial=slm_serial[0],
+        )
+        if flat_frame_name is not None:
+            # 平场帧真的落盘了才登记文件名 (形状判比按这个键找帧)。
+            probe_record["flat_frame"] = flat_frame_name
+        (args.out / "_optical_probe.json").write_text(
+            json.dumps(probe_record, indent=2),
+            encoding="utf-8",
+        )
         # 曝光阶梯落定 (相机还开着): 回读**生效**曝光并记住它 —— 这正是下一次同一条
         # 光路 `auto` 种子的来源。只在采集真的走完时记录: 阶梯没收住就没有可用曝光,
         # 记下来只会污染种子。记录本身best-effort, 绝不打断采集。
@@ -724,13 +743,17 @@ def capture(args, *, on_frame=None):
         (args.out / "config.json").write_text(
             json.dumps(config, default=str, indent=2), encoding="utf-8"
         )
-        _write_optical_probe_record(
-            out=args.out, cam=cam, floor=floor, ceiling=ceiling,
-            slm_serial=slm_serial[0], flat_frame_name=flat_frame_name,
-        )
-    _write_capture_done(
-        args.out, early_stopped=early_stopped,
-        probes_done=len(manifest), slm_serial=slm_serial[0],
+    (args.out / ".capture_done").write_text(
+        json.dumps(
+            dict(
+                early_stopped=early_stopped,
+                probes=len(manifest),
+                slm_serial=slm_serial[0],
+                **clock(),
+            ),
+            indent=2,
+        ),
+        encoding="utf-8",
     )
     return samples
 
