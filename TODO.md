@@ -5021,6 +5021,14 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: test_rms_by_zernike + spgd_convention + guard + conventions **368 passed 1 skipped**
 - 门禁: 棘轮 158/6/138 + 4 helper 行; 模块 baseline 抬高 +32 (4 个 helper 定义与调用开销, 非功能增长)
 
+**2026-11-13 · f5d819eb 之后 · 第 81 批: `estimate_exposure_ceiling_ms` 221→176 行 + 四缝 (`utils/image/exposure_control.py`)**
+- 提取: `_ecc_collect_pairs` 19 (梯度过滤 + 参数校验, 原地 append 到调用方 list) / `_ecc_final_bound` 19 (上限解析) / `_ecc_init_accumulators` 12 / `_ecc_reset_fit_triplet` 11
+- 两段条件绑定段 (430-456 的 `fit_full_scale`/`last_safe`、468-487 的 `fit_ms`/三件套) **不提取**: 变量既在区域内被条件赋值又在区域后被读, 提走会丢更新
+- 推导式变量 `image`/`ms` 经 skip-returns 通道排除, 否则 helper 生成 `return image, ms` 触发 F821
+- 叶差分: 8 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中; 母函数无装饰器
+- 载体: test_exposure_control + guard + conventions **375 passed 1 skipped**; 模块 722 行 (未触 800 阈)
+- 门禁: 棘轮 197/5/176 + 4 helper 行
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
