@@ -403,8 +403,12 @@ def acceptance_verdict(session_dir):
     (threshold config) and either the per-round ``rounds.json`` record written by
     :func:`run_session` or, failing that, the round-0 fit artifacts. Returns a
     dict with keys ``{metric, lower, upper, measured_correlation,
-    measured_relative_l2, accepted, rounds}``. Bulletproof: any missing artifact
-    yields a safe ``accepted=False`` verdict rather than raising.
+    measured_relative_l2, accepted, correlation_red_stop, rounds}``.
+    ``correlation_red_stop`` (#243 前置一) marks the fit's validation-set
+    correlation as below ``acceptance_lower`` (or missing) -- the campaign
+    red-stop signal; it is deliberately stricter on correlation alone than
+    ``accepted``, which also folds in ``relative_l2``. Bulletproof: any missing
+    artifact yields a safe ``accepted=False`` verdict rather than raising.
     """
     session_dir = Path(session_dir)
     lower = 0.85
@@ -451,6 +455,9 @@ def acceptance_verdict(session_dir):
         measured_correlation=measured_correlation,
         measured_relative_l2=measured_relative_l2,
         accepted=accepted,
+        correlation_red_stop=(
+            measured_correlation is None or measured_correlation < lower
+        ),
         rounds=len(rounds),
     )
 
