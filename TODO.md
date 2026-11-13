@@ -4944,6 +4944,13 @@ slm_zernike_pib.py:1872`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 重钉 wiki: `commands/slm-transfer-shapes.md` 的 `runner.py:879` 两处 (def run 879→911)
 - 模块 968→1000 (baseline 抬高)
 
+**2026-11-13 · 2d806545 之后 · 第 72 批: `fit_twin` 252→109 行 + 一缝 (`tools/slm/bench_twin_calibrate.py`)**
+- 提取: `_fit_stage_runs` 147 行 (两阶段 DE 粗调 + 联合 L-BFGS 精调 + 重启搜索整段提为模块级 helper, 20 参 3 回传 `best_config`/`best_details`/`best_loss`)
+- 叶差分: 32 个函数逐字节同; 仅母函数变; 新增 1; 消失 0
+- 载体: `test_bench_twin_calibrate.py` + 形状门禁 **259 passed**; tools/slm 逐文件域 **84 段 exit=0**
+- 门禁: 棘轮 126/3/109 + 170/4/147; conventions 72 passed 1 skipped (bench_twin_calibrate 无活钉); 模块 958→966 (baseline 抬高 +8)
+- 生成器修复: `build_mod` 本已把模块顶层绑定当全局集, measure.py 当年报 `SlotRotator` 是因该导入在函数体内 (b61 实际以区域选择绕开); 未再引入错误的全局排除补丁
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
