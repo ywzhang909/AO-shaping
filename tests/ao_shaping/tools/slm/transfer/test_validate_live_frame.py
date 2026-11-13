@@ -303,16 +303,23 @@ def test_validate_emits_a_frame_inside_the_per_frame_read_loop():
 
 
 def test_capture_emits_a_frame_from_its_single_read_funnel():
-    """``capture.read()`` 是采集段唯一的取图漏斗: 光路检查/阶梯/探针都走它。"""
+    """``capture`` 唯一的取图漏斗: 光路检查/阶梯/探针都走同一个 ``read()``。
+
+    #205 第 74 批把 ``read()`` 闭包提为模块级工厂 ``_cap_live_reader``,
+    归属者链变成 ``capture → _cap_live_reader``: 先钉委派边, 漏斗结构
+    性质再钉在工厂上。
+    """
     import inspect
 
     from ao_shaping.tools.slm.transfer import capture as capture_mod
 
     source = inspect.getsource(capture_mod.capture)
-    body = _loop_body(source, "def read():")
+    assert "read = _cap_live_reader(" in source
+    factory = inspect.getsource(capture_mod._cap_live_reader)
+    body = _loop_body(factory, "def read():")
     assert _emits_payload(body), body
     # 标签必须在光路检查之前就位, 否则那些帧会带着上一段的标签上屏。
-    assert source.index("live_label") < source.index("verify_light(")
+    assert source.index("live_label") < source.index("_cap_verify_light(")
 
 
 def test_capture_read_funnel_threads_the_displayed_phase_grid():
@@ -328,13 +335,17 @@ def test_capture_read_funnel_threads_the_displayed_phase_grid():
 
     from ao_shaping.tools.slm.transfer import capture as capture_mod
 
+    # #205 第 74 批: read 闭包搬进 _cap_live_reader 工厂, 细胞改为形参传入。
     source = inspect.getsource(capture_mod.capture)
+    assert "read = _cap_live_reader(" in source
+    factory = inspect.getsource(capture_mod._cap_live_reader)
     # (1) read() 闭包把相位细胞带进负载 (多行调用, 逐行搜)。
-    read_body = _loop_body(source, "def read():")
+    read_body = _loop_body(factory, "def read():")
     read_text = "\n".join(read_body)
     assert "phase_grid=live_phase[0]" in read_text
-    # (2) 细胞在 read 定义之前就位 (同作用域, 不含 probe_read 那种子闭包)。
-    assert source.index("live_phase = [None]") < source.index("def read():")
+    # (2) 细胞在交给漏斗之前先在母函数就位, 并以形参进工厂作用域。
+    assert source.index("live_phase = [None]") < source.index("read = _cap_live_reader(")
+    assert "live_phase" in inspect.signature(capture_mod._cap_live_reader).parameters
     # (3) 光路检查与每条探针在写 SLM 之后落值; 平场是第一份相位。
     assert "live_phase[0] = np.zeros" in source
     assert "live_phase[0] = grid" in source

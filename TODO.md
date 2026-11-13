@@ -4959,6 +4959,14 @@ slm_zernike_pib.py:1872`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 门禁: 棘轮 176/5/153 + 四 helper 行; conventions 72 passed 1 skipped; 模块 959→991 (baseline 抬高 +32)
 - 教训 ㉒: 多区单次调用的 `pristine` 断言要求 B 恰为语句 end_lineno (空行/尾注释不在区间内), 提交前先用 AST dump 校准每条缝的右界
 
+**2026-11-13 · 3ac5c577 之后 · 第 74 批: `capture` 377→244 行 + 七缝 (`tools/slm/transfer/capture.py`)**
+- 提取: `_cap_live_reader` 32 (read 闭包工厂) / `_cap_load_checkpoint` 23 / `_cap_spot_xy` 31 / `_cap_sample_row` 27 / `_cap_record_dataset` 16 / `_cap_reuse_guard` 18 / `_cap_verify_light` 14
+- 生成器新通道: `/tmp/split_params.txt` (人工审计后的强制形参, 用于跨迭代保留语义的 `flat_frame_name`) 与 `/tmp/split_returns.txt` (强制回传 `session_zero`, 防教训 ⑳ 类泄漏); `break` 只在 452/519 两处, 均避开在区域外
+- 叶差分: 15 同 / 消失 0 / 新增 7; 母函数与 `read` 逐字节同 (差分假象源于文件内两处同名嵌套 `read`, 按 lineno 对齐后相等)
+- 源钉迁移: `test_validate_live_frame.py` 两条 read 漏斗钉按归属者链重钉 `capture → _cap_live_reader` (第 39 批同惯例), 结构性质原样保留并加钉形参传递
+- 载体: e2e mock `test_capture_live_prediction` 等 91 passed; 漏斗重钉后 19 passed; tools/slm 逐文件域 exit=0
+- 门禁: 棘轮 281/7/244 + 7 helper 行 (250 passed); 模块 baseline 抬高
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
