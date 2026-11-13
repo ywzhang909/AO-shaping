@@ -1615,6 +1615,139 @@ class ClosedLoopParams:
     ] = False
 
 
+
+
+def _clr_plot_convergence(loop_result, output_dir, params, plt):
+# Convergence figure rendering and save lifted verbatim
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+    iterations = np.arange(len(loop_result["rms_history"]))
+    axes[0].plot(iterations, loop_result["rms_history"], "b-")
+    axes[0].axhline(
+        y=params.rms_target,
+        color="r",
+        linestyle="--",
+        alpha=0.5,
+        label=f"target={params.rms_target}λ",
+    )
+    axes[0].set_xlabel("Iteration")
+    axes[0].set_ylabel("RMS [λ]")
+    axes[0].set_title(f"Convergence ({params.control_law})")
+    axes[0].grid(True, alpha=0.3)
+    axes[0].legend()
+
+    if len(loop_result["a_history"]) > 0:
+        coeffs = np.array(loop_result["a_history"])
+        for i in range(min(5, coeffs.shape[1])):
+            axes[1].plot(iterations, coeffs[:, i], label=f"Z{i + 2}")
+        axes[1].set_xlabel("Iteration")
+        axes[1].set_ylabel("Coefficient [λ]")
+        axes[1].set_title("First 5 Zernike Modes")
+        axes[1].grid(True, alpha=0.3)
+        axes[1].legend()
+
+    fig.tight_layout()
+    fig.savefig(output_dir / "convergence.png", dpi=150)
+    plt.close(fig)
+    return 
+
+
+
+
+def _clr_save_results(datetime, device_cfg, json, loop_cfg, loop_result, n_modes, output_path, params):
+# Loop-result npz/csv/meta persistence lifted verbatim
+    output_dir = Path(output_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 保存系数和RMS历史
+    np.savez(
+        output_dir / "history.npz",
+        a_history=loop_result["a_history"],
+        rms_history=loop_result["rms_history"],
+        s_history=loop_result["s_history"],
+        u_history=loop_result["u_history"],
+        final_coefficients=loop_result["final_coefficients"],
+    )
+
+    # 保存最终系数 (文本格式, 便于加载到其他工具)
+    np.savetxt(
+        output_dir / "final_coefficients.txt",
+        loop_result["final_coefficients"],
+        fmt="%.8f",
+        header=f"Closed-loop final Zernike coefficients (noll order, n_modes={n_modes})",
+    )
+
+    # 保存结果元数据
+    meta = {
+        "load_file": params.load_file,
+        "control_law": params.control_law,
+        "n_iter": loop_result["n_iter"],
+        "rms_initial": float(loop_result["rms_initial"]),
+        "rms_final": float(loop_result["rms_final"]),
+        "improvement_db": float(loop_result["improvement_db"]),
+        "converged": bool(loop_result["converged"]),
+        "diverged": bool(loop_result["diverged"]),
+        "timestamp": datetime.now().isoformat(),
+        "device_config": device_cfg.to_dict(),
+        "loop_config": {
+            "n_modes": n_modes,
+            "dt": params.dt,
+            "Kp": loop_cfg.Kp,
+            "Ki": loop_cfg.Ki,
+            "Kd": loop_cfg.Kd,
+            "leak": loop_cfg.leak,
+            "rms_target": params.rms_target,
+            "max_iter": params.max_iter,
+            "delay_steps": params.delay_steps,
+            "cancel_tile": params.cancel_tile,
+        },
+    }
+    with open(output_dir / "meta.json", "w") as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
+    return output_dir
+
+
+
+
+def _clr_set_initial_reference(wfs, zslm):
+# Initial flat-field reference capture lifted verbatim
+    click.echo("\n设置初始参考 (SLM平场)...")
+    zslm.set_flat()
+    sleep(0.5)
+    wfs.save_user_ref()
+    wfs.load_user_ref()
+    return 
+
+
+
+
+def _clr_build_controller(loop_cfg, params, result, wfs, zslm):
+# Closed-loop controller plus measure/apply callables lifted verbatim
+    click.echo("构建闭环控制器...")
+    loop = from_response_matrix(
+        result=result,
+        config=loop_cfg,
+    )
+
+    # 创建测量和执行回调 (捕获硬件实例)
+    measure_func = lambda: _measure_wfs_step(
+        wfs=wfs,
+        mask_indices=loop.mask_indices,
+        s_ref=loop.s_ref,
+        D_pinv=loop.D_pinv,
+        cancel_tile=params.cancel_tile,
+    )
+
+    def _apply(u: np.ndarray) -> None:
+        u_full = _expand_to_noll(
+            u=u,
+            n_max=result.n_max,
+            excluded_piston=result.excluded_piston,
+            excluded_tip_tilt=result.excluded_tip_tilt,
+        )
+        zslm.send_zernike(u_full)
+    return _apply, loop, measure_func
+
+
 @click.command("closed-loop")
 @click.pass_context
 @with_params(ClosedLoopParams, kw_name="params")
@@ -1741,36 +1874,10 @@ def closed_loop_run(ctx: click.Context, params: ClosedLoopParams) -> None:
                 )
 
                 # 设置SLM为平面, 更新WFS参考
-                click.echo("\n设置初始参考 (SLM平场)...")
-                zslm.set_flat()
-                sleep(0.5)
-                wfs.save_user_ref()
-                wfs.load_user_ref()
+                _clr_set_initial_reference(wfs, zslm)
 
                 # 构造纯控制器 (不含硬件依赖)
-                click.echo("构建闭环控制器...")
-                loop = from_response_matrix(
-                    result=result,
-                    config=loop_cfg,
-                )
-
-                # 创建测量和执行回调 (捕获硬件实例)
-                measure_func = lambda: _measure_wfs_step(
-                    wfs=wfs,
-                    mask_indices=loop.mask_indices,
-                    s_ref=loop.s_ref,
-                    D_pinv=loop.D_pinv,
-                    cancel_tile=params.cancel_tile,
-                )
-
-                def _apply(u: np.ndarray) -> None:
-                    u_full = _expand_to_noll(
-                        u=u,
-                        n_max=result.n_max,
-                        excluded_piston=result.excluded_piston,
-                        excluded_tip_tilt=result.excluded_tip_tilt,
-                    )
-                    zslm.send_zernike(u_full)
+                _apply, loop, measure_func = _clr_build_controller(loop_cfg, params, result, wfs, zslm)
 
                 # 运行闭环
                 click.echo(f"\n启动闭环优化 ({params.control_law})...")
@@ -1781,85 +1888,10 @@ def closed_loop_run(ctx: click.Context, params: ClosedLoopParams) -> None:
                 )
 
                 # 保存结果
-                output_dir = Path(output_path)
-                output_dir.mkdir(parents=True, exist_ok=True)
-
-                # 保存系数和RMS历史
-                np.savez(
-                    output_dir / "history.npz",
-                    a_history=loop_result["a_history"],
-                    rms_history=loop_result["rms_history"],
-                    s_history=loop_result["s_history"],
-                    u_history=loop_result["u_history"],
-                    final_coefficients=loop_result["final_coefficients"],
-                )
-
-                # 保存最终系数 (文本格式, 便于加载到其他工具)
-                np.savetxt(
-                    output_dir / "final_coefficients.txt",
-                    loop_result["final_coefficients"],
-                    fmt="%.8f",
-                    header=f"Closed-loop final Zernike coefficients (noll order, n_modes={n_modes})",
-                )
-
-                # 保存结果元数据
-                meta = {
-                    "load_file": params.load_file,
-                    "control_law": params.control_law,
-                    "n_iter": loop_result["n_iter"],
-                    "rms_initial": float(loop_result["rms_initial"]),
-                    "rms_final": float(loop_result["rms_final"]),
-                    "improvement_db": float(loop_result["improvement_db"]),
-                    "converged": bool(loop_result["converged"]),
-                    "diverged": bool(loop_result["diverged"]),
-                    "timestamp": datetime.now().isoformat(),
-                    "device_config": device_cfg.to_dict(),
-                    "loop_config": {
-                        "n_modes": n_modes,
-                        "dt": params.dt,
-                        "Kp": loop_cfg.Kp,
-                        "Ki": loop_cfg.Ki,
-                        "Kd": loop_cfg.Kd,
-                        "leak": loop_cfg.leak,
-                        "rms_target": params.rms_target,
-                        "max_iter": params.max_iter,
-                        "delay_steps": params.delay_steps,
-                        "cancel_tile": params.cancel_tile,
-                    },
-                }
-                with open(output_dir / "meta.json", "w") as f:
-                    json.dump(meta, f, indent=2, ensure_ascii=False)
+                output_dir = _clr_save_results(datetime, device_cfg, json, loop_cfg, loop_result, n_modes, output_path, params)
 
                 # 生成收敛曲线
-                fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-                iterations = np.arange(len(loop_result["rms_history"]))
-                axes[0].plot(iterations, loop_result["rms_history"], "b-")
-                axes[0].axhline(
-                    y=params.rms_target,
-                    color="r",
-                    linestyle="--",
-                    alpha=0.5,
-                    label=f"target={params.rms_target}λ",
-                )
-                axes[0].set_xlabel("Iteration")
-                axes[0].set_ylabel("RMS [λ]")
-                axes[0].set_title(f"Convergence ({params.control_law})")
-                axes[0].grid(True, alpha=0.3)
-                axes[0].legend()
-
-                if len(loop_result["a_history"]) > 0:
-                    coeffs = np.array(loop_result["a_history"])
-                    for i in range(min(5, coeffs.shape[1])):
-                        axes[1].plot(iterations, coeffs[:, i], label=f"Z{i + 2}")
-                    axes[1].set_xlabel("Iteration")
-                    axes[1].set_ylabel("Coefficient [λ]")
-                    axes[1].set_title("First 5 Zernike Modes")
-                    axes[1].grid(True, alpha=0.3)
-                    axes[1].legend()
-
-                fig.tight_layout()
-                fig.savefig(output_dir / "convergence.png", dpi=150)
-                plt.close(fig)
+                _clr_plot_convergence(loop_result, output_dir, params, plt)
 
                 click.echo(f"\n结果已保存到: {output_dir}")
                 click.echo(

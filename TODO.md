@@ -4975,6 +4975,15 @@ slm_zernike_pib.py:1872`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: `test_zernike_matrix_runner` + cli-help 快照 + conventions + 形状门禁 **330 passed 1 skipped**; runners 逐文件域 **exit=0**
 - 门禁: 棘轮 194/4/168 + 5 helper 行; 模块 1841→1880 baseline 抬高 +39
 
+**2026-11-13 · 26b6d48f 之后 · 第 76 批: `closed_loop_run` 255→154 行 + 四缝 (同文件)**
+- 提取: `_clr_save_results` 51 (npz/csv/meta 落盘) / `_clr_plot_convergence` 32 (matplotlib 图) / `_clr_build_controller` 26 (`_apply`/`loop`/`measure_func` 回传) / `_clr_set_initial_reference` 8
+- 教训 ㉔: 生成器 trust 通道的 `pre |= A if cond else B` 优先级缺陷 —— trust 文件缺失时 `set(params0)` 整个被 else 吞掉, 形参 `params` 报 not-in-pre; 已加括号并回改 split74/75/76
+- 函数体内 import 的名字 (json/datetime/plt) 不在 ctx 的 pre (只扫同 host body), 用 trust 文件人工放行 (imports 在区域前无条件执行, 审计后成立)
+- 装饰器完整性自查通过 (run 6 / closed_loop_run 3), 教训 ㉓ 的插入口补丁在本批生效
+- 叶差分: 26 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中
+- wiki: closed_loop_run 锚 1621→1754 (md 2 + JSON 2); 棘轮 178/4/154 + 4 helper 行
+- 载体: 336 passed 1 skipped (runner 测试 + guard + conventions); runners 逐文件域 exit=0; 模块 1912 baseline 抬高 +32
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

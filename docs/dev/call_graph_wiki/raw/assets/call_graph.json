@@ -1228,8 +1228,8 @@
    "qualname": "closed_loop_run",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1621,
-   "end": 1874,
+   "lineno": 1754,
+   "end": 1906,
    "args": [
     "ctx",
     "params"
