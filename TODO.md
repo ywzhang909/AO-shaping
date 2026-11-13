@@ -5005,6 +5005,14 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: `test_recording.py` + guard + conventions **346 passed 1 skipped**; transfer 域逐文件 exit=0
 - 门禁: 棘轮 146/5/121 + 5 helper 行; 模块 549 行 (未触 800 阈, baseline 无变化)
 
+**2026-11-13 · 7ccef79b 之后 · 第 79 批: `optimizer_ga` 252→188 行 + 两缝 (`optimizer/wf/ga_zernike.py`)**
+- 提取: `_ga_init_population` 54 (初始系数解析 + 首代并行打分 + 两个嵌套 def) / `_ga_record_initial_state` 18 (generation-0 落盘)
+- 生成器新增 **skip-returns 通道** (`/tmp/split_skipret.txt`): `idx` 是 `init_z.items()` 分支内的条件绑定, 若随区域返回会在该分支未走时 `UnboundLocalError`; 通道可按名剔除
+- 叶差分: 5 同 / 消失 0 / 新增 2; ⑳ 审计 0 命中; 母函数无装饰器
+- wiki: `functions/optimizer-ga.md` source 与 `index.md` 表格 138→218
+- 载体: test_ga_zernike + guard + conventions **357 passed 1 skipped**; 模块 405 行 (未触 800 阈)
+- 门禁: 棘轮 206/6/188 + 2 helper 行
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

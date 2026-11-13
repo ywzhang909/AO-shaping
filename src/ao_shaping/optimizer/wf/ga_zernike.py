@@ -135,6 +135,86 @@ def _gaussian_mutation(
     return np.clip(mutated, bounds[0], bounds[1])
 
 
+
+def _ga_init_population(init_z, n_generations, n_zernike, population_size, remove_tilt, slm, wfs, zernike_modes):
+# Initial coefficient resolution and first population scoring lifted verbatim
+    if init_z is None or (
+        isinstance(init_z, (list, tuple, np.ndarray)) and len(init_z) == 0
+    ):
+        _init_c = np.zeros(n_zernike, dtype=np.float64)
+    elif isinstance(init_z, dict):
+        _init_c = np.zeros(n_zernike, dtype=np.float64)
+        for (n, m), amp in init_z.items():
+            if (n, m) in zernike_modes:
+                idx = zernike_modes.index((n, m))
+                _init_c[idx] = amp
+    else:
+        _init_c = np.array(init_z, dtype=np.float64)
+        if len(_init_c) < n_zernike:
+            padded = np.zeros(n_zernike, dtype=np.float64)
+            padded[: len(_init_c)] = _init_c
+            _init_c = padded
+        elif len(_init_c) > n_zernike:
+            _init_c = _init_c[:n_zernike]
+
+    # Initialize SLM with initial coefficients
+    slm.send_zernike(_init_c)
+
+    def calc_wavefront():
+        wfs.take_image(5)
+        wf, statics = wfs.get_wavefront(cancel_tile=remove_tilt)
+        return wf, statics
+
+    # Evaluate initial state
+    wf, statics = calc_wavefront()
+    initial_rms = statics.get('rms', np.inf)
+
+    logger.info(
+        f"Initial RMS: {initial_rms:.4f}, starting GA with "
+        f"population_size={population_size}, n_generations={n_generations}"
+    )
+
+    # Initialize population around the initial coefficients
+    population = np.random.uniform(
+        ZERNIKE_MIN, ZERNIKE_MAX, (population_size, n_zernike)
+    )
+    # Set first population member to initial coefficients
+    population[0] = _init_c.copy()
+
+    # Evaluate initial population fitness
+    fitness = np.full(population_size, np.inf)
+
+    def evaluate_individual(individual: np.ndarray) -> float:
+        """Evaluate an individual's fitness (RMS - lower is better)."""
+        slm.send_zernike(individual)
+        _, statics = calc_wavefront()
+        return float(statics.get('rms', np.inf))
+    return calc_wavefront, evaluate_individual, fitness, population, statics, wf
+
+
+
+
+def _ga_record_initial_state(fitness, population, recorder, statics, wf):
+# Generation-0 recorder append lifted verbatim
+    best_idx = np.argmin(fitness)
+    best_rms = fitness[best_idx]
+    best_c = population[best_idx].copy()
+
+    recorder.append(
+        {
+            "rms": best_rms,
+            RECORD_COEFFS: best_c.copy(),
+            "_generation": 0,
+            "_population": population.copy(),
+            "_fitness": fitness.copy(),
+            "_wavefront": wf[np.newaxis, ...],
+            "_statics": statics,
+        }
+    )
+    return best_idx, best_rms
+
+
+
 def optimizer_ga(
     n_generations: int,
     population_size: int = 50,
@@ -216,78 +296,14 @@ def optimizer_ga(
         ) as wfs,
     ):
         # Initialize Zernike coefficients
-        if init_z is None or (
-            isinstance(init_z, (list, tuple, np.ndarray)) and len(init_z) == 0
-        ):
-            _init_c = np.zeros(n_zernike, dtype=np.float64)
-        elif isinstance(init_z, dict):
-            _init_c = np.zeros(n_zernike, dtype=np.float64)
-            for (n, m), amp in init_z.items():
-                if (n, m) in zernike_modes:
-                    idx = zernike_modes.index((n, m))
-                    _init_c[idx] = amp
-        else:
-            _init_c = np.array(init_z, dtype=np.float64)
-            if len(_init_c) < n_zernike:
-                padded = np.zeros(n_zernike, dtype=np.float64)
-                padded[: len(_init_c)] = _init_c
-                _init_c = padded
-            elif len(_init_c) > n_zernike:
-                _init_c = _init_c[:n_zernike]
-
-        # Initialize SLM with initial coefficients
-        slm.send_zernike(_init_c)
-
-        def calc_wavefront():
-            wfs.take_image(5)
-            wf, statics = wfs.get_wavefront(cancel_tile=remove_tilt)
-            return wf, statics
-
-        # Evaluate initial state
-        wf, statics = calc_wavefront()
-        initial_rms = statics.get('rms', np.inf)
-
-        logger.info(
-            f"Initial RMS: {initial_rms:.4f}, starting GA with "
-            f"population_size={population_size}, n_generations={n_generations}"
-        )
-
-        # Initialize population around the initial coefficients
-        population = np.random.uniform(
-            ZERNIKE_MIN, ZERNIKE_MAX, (population_size, n_zernike)
-        )
-        # Set first population member to initial coefficients
-        population[0] = _init_c.copy()
-
-        # Evaluate initial population fitness
-        fitness = np.full(population_size, np.inf)
-
-        def evaluate_individual(individual: np.ndarray) -> float:
-            """Evaluate an individual's fitness (RMS - lower is better)."""
-            slm.send_zernike(individual)
-            _, statics = calc_wavefront()
-            return float(statics.get('rms', np.inf))
+        calc_wavefront, evaluate_individual, fitness, population, statics, wf = _ga_init_population(init_z, n_generations, n_zernike, population_size, remove_tilt, slm, wfs, zernike_modes)
 
         # Evaluate entire initial population
         for i in range(population_size):
             fitness[i] = evaluate_individual(population[i])
 
         # Record initial state
-        best_idx = np.argmin(fitness)
-        best_rms = fitness[best_idx]
-        best_c = population[best_idx].copy()
-
-        recorder.append(
-            {
-                "rms": best_rms,
-                RECORD_COEFFS: best_c.copy(),
-                "_generation": 0,
-                "_population": population.copy(),
-                "_fitness": fitness.copy(),
-                "_wavefront": wf[np.newaxis, ...],
-                "_statics": statics,
-            }
-        )
+        best_idx, best_rms = _ga_record_initial_state(fitness, population, recorder, statics, wf)
 
         with tqdm.tqdm(
             total=n_generations,
