@@ -388,6 +388,110 @@ def measure_zernike_mode_response(
 
     return mean_response, variance_response, mean_deviation, variance_deviation
 
+
+def _zrm_auto_amplitude(amplitude_optimization, auto_optimize_amplitude, cancel_tile, magnitude, n_max, n_slm_terms, optimize_n_avg, wfs, zslm):
+# Amplitude auto-optimisation lifted verbatim
+    if magnitude is None or magnitude == 0:
+        if auto_optimize_amplitude:
+            logger.info("Auto-optimizing perturbation amplitude...")
+            test_amps = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
+            amplitude_optimization = {}
+            for mode_idx in range(n_slm_terms):
+                opt_amp, diagnostics = _optimize_perturbation_amplitude(
+                    zslm, wfs, mode_idx, test_amps, n_avg=optimize_n_avg, zernike_order=n_max,
+                    cancel_tile=cancel_tile,
+                    # 已知未决 (见 drivers/wfs/AGENTS.md): 这里沿用「两者都排除」, **没有**
+                    # 转发本次标定的 excluded_* 选择。转发会同时改变寻幅探针的模式与比对的
+                    # 行集合, 是只有实验系统能重定的数值 ⇒ 显式写出而非隐式继承。
+                    excluded_piston=True,
+                    excluded_tip_tilt=True,
+                )
+                amplitude_optimization[mode_idx] = diagnostics
+            magnitude = float(np.mean([v["optimal_amplitude"] for v in amplitude_optimization.values()]))
+            logger.info(f"Using average optimal amplitude: {magnitude:.3%}λ")
+        else:
+            magnitude = DEFAULT_MAGNITUDE
+    return amplitude_optimization, magnitude
+
+
+
+
+def _zrm_buffers(magnitude, mask_edge_clip, mask_n_avg, mask_threshold_ratio, n_averages, n_cycles, n_max, n_slm_terms, n_wfs_terms, subaperture_mask, wfs):
+# Subaperture mask derivation and matrix buffers lifted verbatim
+    if subaperture_mask is None:
+        logger.info("Building subaperture mask automatically...")
+        subaperture_mask, _ = wfs.build_subaperture_mask(
+            n_avg=mask_n_avg,
+            threshold_ratio=mask_threshold_ratio,
+            edge_clip=mask_edge_clip,
+        )
+
+    valid_count = np.sum(subaperture_mask)
+    total_count = subaperture_mask.size
+    logger.info(
+        f"Starting Zernike response matrix calibration: n_max={n_max}, "
+        f"SLM terms={n_slm_terms}, WFS terms={n_wfs_terms}, "
+        f"valid subapertures={valid_count}/{total_count} ({valid_count/total_count*100:.1f}%), "
+        f"magnitude={magnitude}λ, cycles={n_cycles}, averages={n_averages}"
+    )
+
+    response_matrix = np.zeros((n_wfs_terms, n_slm_terms), dtype=np.float64)
+    variance_matrix = np.zeros((n_wfs_terms, n_slm_terms), dtype=np.float64)
+    deviation_response_matrix = np.zeros((2 * wfs.num_spots_x * wfs.num_spots_y, n_slm_terms), dtype=np.float64)
+    return deviation_response_matrix, response_matrix, subaperture_mask, variance_matrix
+
+
+
+
+def _zrm_initial_spots(wait_time, wfs, zslm):
+# Flat send and initial spot baseline lifted verbatim
+    set_slm_flat(zslm._slm)
+    time.sleep(wait_time)
+
+    # Capture initial intensity baseline at flat state
+    wfs.take_image(5)
+    initial_intensity, _ = wfs.get_spots_statics()
+    initial_valid_mask = ~np.isnan(initial_intensity)
+    np.argwhere(initial_valid_mask)
+    logger.info(
+        f"Initial intensity baseline captured: "
+        f"{np.sum(initial_valid_mask)}/{initial_valid_mask.size} valid spots"
+    )
+    return initial_valid_mask
+
+
+
+
+def _zrm_build_result(amplitude_optimization, deviation_response_matrix, excluded_piston, excluded_tip_tilt, lstsq_matrix, magnitude, n_averages, n_cycles, n_max, pinv_matrix, response_matrix, subaperture_mask, variance_matrix, zslm):
+# Result dataclass assembly and summary logging lifted verbatim
+    result = ZernikeResponseMatrixResult(
+        matrix=response_matrix,
+        variance_matrix=variance_matrix,
+        deviation_response_matrix=deviation_response_matrix,
+        subaperture_mask=subaperture_mask,
+        n_max=n_max,
+        magnitude=magnitude,
+        wavelength_nm=zslm.wavelength,
+        n_averages=n_averages,
+        n_cycles=n_cycles,
+        timestamp=datetime.now().isoformat(),
+        excluded_piston=excluded_piston,
+        excluded_tip_tilt=excluded_tip_tilt,
+        pinv_matrix=pinv_matrix,
+        lstsq_matrix=lstsq_matrix,
+        amplitude_optimization=amplitude_optimization,
+    )
+
+    logger.info(
+        f"Calibration complete: matrix shape={result.matrix.shape}, "
+        f"valid_subapertures={np.sum(subaperture_mask)}/{subaperture_mask.size}, "
+        f"mean_variance={result.mean_variance:.6f}, "
+        f"timestamp={result.timestamp}"
+    )
+    return result
+
+
+
 def calibrate_zernike_response_matrix(
     zslm: ZernikeSLM,
     wfs: WFSManager,
@@ -444,60 +548,11 @@ def calibrate_zernike_response_matrix(
     n_wfs_terms = wfs.calc_n_zernike_terms(DEFAULT_N_MAX) - n_remove
 
     amplitude_optimization = None
-    if magnitude is None or magnitude == 0:
-        if auto_optimize_amplitude:
-            logger.info("Auto-optimizing perturbation amplitude...")
-            test_amps = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
-            amplitude_optimization = {}
-            for mode_idx in range(n_slm_terms):
-                opt_amp, diagnostics = _optimize_perturbation_amplitude(
-                    zslm, wfs, mode_idx, test_amps, n_avg=optimize_n_avg, zernike_order=n_max,
-                    cancel_tile=cancel_tile,
-                    # 已知未决 (见 drivers/wfs/AGENTS.md): 这里沿用「两者都排除」, **没有**
-                    # 转发本次标定的 excluded_* 选择。转发会同时改变寻幅探针的模式与比对的
-                    # 行集合, 是只有实验系统能重定的数值 ⇒ 显式写出而非隐式继承。
-                    excluded_piston=True,
-                    excluded_tip_tilt=True,
-                )
-                amplitude_optimization[mode_idx] = diagnostics
-            magnitude = float(np.mean([v["optimal_amplitude"] for v in amplitude_optimization.values()]))
-            logger.info(f"Using average optimal amplitude: {magnitude:.3%}λ")
-        else:
-            magnitude = DEFAULT_MAGNITUDE
+    amplitude_optimization, magnitude = _zrm_auto_amplitude(amplitude_optimization, auto_optimize_amplitude, cancel_tile, magnitude, n_max, n_slm_terms, optimize_n_avg, wfs, zslm)
 
-    if subaperture_mask is None:
-        logger.info("Building subaperture mask automatically...")
-        subaperture_mask, _ = wfs.build_subaperture_mask(
-            n_avg=mask_n_avg,
-            threshold_ratio=mask_threshold_ratio,
-            edge_clip=mask_edge_clip,
-        )
+    deviation_response_matrix, response_matrix, subaperture_mask, variance_matrix = _zrm_buffers(magnitude, mask_edge_clip, mask_n_avg, mask_threshold_ratio, n_averages, n_cycles, n_max, n_slm_terms, n_wfs_terms, subaperture_mask, wfs)
 
-    valid_count = np.sum(subaperture_mask)
-    total_count = subaperture_mask.size
-    logger.info(
-        f"Starting Zernike response matrix calibration: n_max={n_max}, "
-        f"SLM terms={n_slm_terms}, WFS terms={n_wfs_terms}, "
-        f"valid subapertures={valid_count}/{total_count} ({valid_count/total_count*100:.1f}%), "
-        f"magnitude={magnitude}λ, cycles={n_cycles}, averages={n_averages}"
-    )
-
-    response_matrix = np.zeros((n_wfs_terms, n_slm_terms), dtype=np.float64)
-    variance_matrix = np.zeros((n_wfs_terms, n_slm_terms), dtype=np.float64)
-    deviation_response_matrix = np.zeros((2 * wfs.num_spots_x * wfs.num_spots_y, n_slm_terms), dtype=np.float64)
-
-    set_slm_flat(zslm._slm)
-    time.sleep(wait_time)
-
-    # Capture initial intensity baseline at flat state
-    wfs.take_image(5)
-    initial_intensity, _ = wfs.get_spots_statics()
-    initial_valid_mask = ~np.isnan(initial_intensity)
-    np.argwhere(initial_valid_mask)
-    logger.info(
-        f"Initial intensity baseline captured: "
-        f"{np.sum(initial_valid_mask)}/{initial_valid_mask.size} valid spots"
-    )
+    initial_valid_mask = _zrm_initial_spots(wait_time, wfs, zslm)
 
     # Initialize display window if provided
     if display is not None:
@@ -592,30 +647,7 @@ def calibrate_zernike_response_matrix(
         logger.info("计算最小二乘逆矩阵...")
         lstsq_matrix = compute_lstsq(response_matrix)
 
-    result = ZernikeResponseMatrixResult(
-        matrix=response_matrix,
-        variance_matrix=variance_matrix,
-        deviation_response_matrix=deviation_response_matrix,
-        subaperture_mask=subaperture_mask,
-        n_max=n_max,
-        magnitude=magnitude,
-        wavelength_nm=zslm.wavelength,
-        n_averages=n_averages,
-        n_cycles=n_cycles,
-        timestamp=datetime.now().isoformat(),
-        excluded_piston=excluded_piston,
-        excluded_tip_tilt=excluded_tip_tilt,
-        pinv_matrix=pinv_matrix,
-        lstsq_matrix=lstsq_matrix,
-        amplitude_optimization=amplitude_optimization,
-    )
-
-    logger.info(
-        f"Calibration complete: matrix shape={result.matrix.shape}, "
-        f"valid_subapertures={np.sum(subaperture_mask)}/{subaperture_mask.size}, "
-        f"mean_variance={result.mean_variance:.6f}, "
-        f"timestamp={result.timestamp}"
-    )
+    result = _zrm_build_result(amplitude_optimization, deviation_response_matrix, excluded_piston, excluded_tip_tilt, lstsq_matrix, magnitude, n_averages, n_cycles, n_max, pinv_matrix, response_matrix, subaperture_mask, variance_matrix, zslm)
 
     # Close display window if provided
     if display is not None:

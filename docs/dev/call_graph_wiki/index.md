@@ -71,8 +71,8 @@
 | [[functions/optimizer-rms-dm]] | `optimizer_rms_dm(epochs, wfs_res, …, dm, wfs_type, …)` | `optimizer/wf/rms.py:50` |
 | [[functions/optimize-pib-wfless]] | `optimize_pib(center, epochs, r_bucket, …, dm, optimizer_type, …)` | `optimizer/wfless/pib.py:509` |
 | [[functions/optimize-pib-combined]] | `optimize_pib(center, epochs, r_bucket, …)` (AdaMOD) | `optimizer/combined_optimizer.py:421` |
-| [[functions/optimizer-rms-slm]] | `optimizer_rms_slm(epochs, init_z, lr, …)` (38 参) | `optimizer/wf/rms_by_zernike.py:862` |
-| [[functions/optimizer-ga]] | `optimizer_ga(n_generations, population_size, …)` | `optimizer/wf/ga_zernike.py:138` |
+| [[functions/optimizer-rms-slm]] | `optimizer_rms_slm(epochs, init_z, lr, …)` (38 参) | `optimizer/wf/rms_by_zernike.py:894` |
+| [[functions/optimizer-ga]] | `optimizer_ga(n_generations, population_size, …)` | `optimizer/wf/ga_zernike.py:218` |
 | [[functions/optimizer-greedy]] | `optimizer_greedy(epochs, n_init, n_directions, …)` | `optimizer/wf/greedy_zernike.py:355` |
 | [[functions/optimize-slm-square]] | `optimize_slm_square(center, epochs, …)` (40 参) | `optimizer/wfless/slm_square_shaping.py:1487` |
 | [[functions/spgd-gradient]] | `spgd_gradient(pos_obj, neg_obj, disturb, *, maximize)` | `optimizer/spgd.py:40` |
@@ -82,7 +82,7 @@
 |---|---|---|
 | [[functions/calibrate-dm-matrix]] | `calibrate_dm_response_matrix(dm, wfs, disturb_voltage, …)` | `optimizer/wf/dm_response_matrix.py:634` |
 | [[functions/save-dm-matrix]] | `save_dm_response_matrix(…)` | `optimizer/wf/dm_response_matrix.py:832` |
-| [[functions/save-zernike-matrix]] | `save_zernike_response_matrix(…)` | `optimizer/wf/zernike_response_matrix.py:627` |
+| [[functions/save-zernike-matrix]] | `save_zernike_response_matrix(…)` | `optimizer/wf/zernike_response_matrix.py:659` |
 
 ### 驱动 / 注册表 (drivers/)
 | 页面 | 签名 | 位置 |

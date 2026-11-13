@@ -295,6 +295,83 @@ def _carries_signal(image: np.ndarray, peak: float, full_scale: float) -> bool:
     return peak > floor.threshold_counts
 
 
+
+def _ecc_collect_pairs(headroom, ladder, pairs, saturation_fraction):
+# Ladder filtering and validation lifted verbatim
+    for exposure, frame in ladder:
+        ms = float(exposure)
+        if not math.isfinite(ms) or ms <= 0:
+            raise ValueError(f"ladder exposure must be positive, got {exposure!r}")
+        image = np.asarray(frame)
+        if image.ndim != 2 or not np.issubdtype(image.dtype, np.integer):
+            raise ValueError("ladder frames must be raw integer CCD frames")
+        pairs.append((ms, image))
+    if not pairs:
+        raise ValueError("ladder needs at least one (exposure, frame) pair")
+    if not 0 < saturation_fraction < 1:
+        raise ValueError(
+            f"saturation_fraction must lie in (0, 1), got {saturation_fraction}"
+        )
+    if not 0 < headroom <= 1:
+        raise ValueError(f"headroom must lie in (0, 1], got {headroom}")
+    return 
+
+
+
+
+def _ecc_init_accumulators(pairs):
+# Sorted pairs and accumulator initialisation lifted verbatim
+    pairs.sort(key=lambda pair: pair[0])
+    fractions: list[float] = []
+    estimates: list[float] = []
+    estimate_exposures: list[float] = []
+    fit_ms_values: list[float] = []
+    fit_peaks: list[float] = []
+    fit_full_scale = 0.0
+    last_safe = 0.0
+    first_saturated: float | None = None
+    return estimate_exposures, estimates, first_saturated, fit_full_scale, fit_ms_values, fit_peaks, fractions, last_safe
+
+
+
+
+def _ecc_reset_fit_triplet(estimates, last_safe):
+# Fit triplet reset after empty estimates lifted verbatim
+    if not estimates:
+        raise ValueError("no ladder frame carries signal; cannot estimate a ceiling")
+    if last_safe <= 0:
+        raise ValueError("CCD is saturated at the minimum probe exposure")
+
+    fit_ms: float | None = None
+    fit_slope: float | None = None
+    fit_intercept: float | None = None
+    return fit_intercept, fit_ms, fit_slope
+
+
+
+
+def _ecc_final_bound(estimates, first_clipped, first_saturated, fit_ms, headroom, saturation_fraction):
+# Exposure ceiling bound resolution lifted verbatim
+    bound_ms: float | None = None
+    if fit_ms is None:
+        # No usable fit (too dim, pedestal-dominated, or too flat): the
+        # per-rung minimum is all this ladder can support, and it is the safe
+        # direction.
+        ceiling_ms = min(estimates) * headroom
+    else:
+        # The first saturated step bounds the ceiling, and the first *clipped*
+        # step bounds it again: clipping means the true peak there is at least
+        # full scale, so the saturation level was already reached at
+        # ``ms * saturation_fraction``.
+        bound = math.inf if first_saturated is None else first_saturated
+        if first_clipped is not None:
+            bound = min(bound, first_clipped * saturation_fraction)
+        bound_ms = bound if math.isfinite(bound) else None
+        ceiling_ms = min(fit_ms, bound) * headroom
+    return bound_ms, ceiling_ms
+
+
+
 def estimate_exposure_ceiling_ms(
     ladder: Sequence[tuple[float, np.ndarray]],
     *,
@@ -400,32 +477,9 @@ def estimate_exposure_ceiling_ms(
     actionable error as before.
     """
     pairs: list[tuple[float, np.ndarray]] = []
-    for exposure, frame in ladder:
-        ms = float(exposure)
-        if not math.isfinite(ms) or ms <= 0:
-            raise ValueError(f"ladder exposure must be positive, got {exposure!r}")
-        image = np.asarray(frame)
-        if image.ndim != 2 or not np.issubdtype(image.dtype, np.integer):
-            raise ValueError("ladder frames must be raw integer CCD frames")
-        pairs.append((ms, image))
-    if not pairs:
-        raise ValueError("ladder needs at least one (exposure, frame) pair")
-    if not 0 < saturation_fraction < 1:
-        raise ValueError(
-            f"saturation_fraction must lie in (0, 1), got {saturation_fraction}"
-        )
-    if not 0 < headroom <= 1:
-        raise ValueError(f"headroom must lie in (0, 1], got {headroom}")
+    _ecc_collect_pairs(headroom, ladder, pairs, saturation_fraction)
 
-    pairs.sort(key=lambda pair: pair[0])
-    fractions: list[float] = []
-    estimates: list[float] = []
-    estimate_exposures: list[float] = []
-    fit_ms_values: list[float] = []
-    fit_peaks: list[float] = []
-    fit_full_scale = 0.0
-    last_safe = 0.0
-    first_saturated: float | None = None
+    estimate_exposures, estimates, first_saturated, fit_full_scale, fit_ms_values, fit_peaks, fractions, last_safe = _ecc_init_accumulators(pairs)
     first_clipped: float | None = None
     for ms, image in pairs:
         full_scale = float(np.iinfo(image.dtype).max)
@@ -454,14 +508,7 @@ def estimate_exposure_ceiling_ms(
                 fit_full_scale = full_scale
             fit_ms_values.append(ms)
             fit_peaks.append(peak)
-    if not estimates:
-        raise ValueError("no ladder frame carries signal; cannot estimate a ceiling")
-    if last_safe <= 0:
-        raise ValueError("CCD is saturated at the minimum probe exposure")
-
-    fit_ms: float | None = None
-    fit_slope: float | None = None
-    fit_intercept: float | None = None
+    fit_intercept, fit_ms, fit_slope = _ecc_reset_fit_triplet(estimates, last_safe)
     # Both guards are required: a two-point line has no residual to reject it,
     # and a ladder whose brightest rung is still dim fits its own pedestal
     # rather than the light (see _FIT_MIN_TOP_PEAK_FRACTION).
@@ -486,22 +533,7 @@ def estimate_exposure_ceiling_ms(
                     fit_slope = slope
                     fit_intercept = intercept
 
-    bound_ms: float | None = None
-    if fit_ms is None:
-        # No usable fit (too dim, pedestal-dominated, or too flat): the
-        # per-rung minimum is all this ladder can support, and it is the safe
-        # direction.
-        ceiling_ms = min(estimates) * headroom
-    else:
-        # The first saturated step bounds the ceiling, and the first *clipped*
-        # step bounds it again: clipping means the true peak there is at least
-        # full scale, so the saturation level was already reached at
-        # ``ms * saturation_fraction``.
-        bound = math.inf if first_saturated is None else first_saturated
-        if first_clipped is not None:
-            bound = min(bound, first_clipped * saturation_fraction)
-        bound_ms = bound if math.isfinite(bound) else None
-        ceiling_ms = min(fit_ms, bound) * headroom
+    bound_ms, ceiling_ms = _ecc_final_bound(estimates, first_clipped, first_saturated, fit_ms, headroom, saturation_fraction)
     return ExposureCeilingEstimate(
         ceiling_ms=ceiling_ms,
         last_safe_ms=last_safe,

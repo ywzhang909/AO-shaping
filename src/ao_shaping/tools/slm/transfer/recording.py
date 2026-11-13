@@ -276,38 +276,9 @@ def _detrend(phase: np.ndarray) -> np.ndarray:
     return (phase - (design @ solution).reshape(h, w))
 
 
-def render_process_gif(records: list[dict], path: str | Path, *, fps: float = 2.0,
-                       title: str | None = None) -> Path:
-    """Render the CCD-block records as a readable process animation.
 
-    Six panels per frame: the detrended pupil phase, the measured far field
-    (cropped to the target), the phase change inside the block, the block's
-    numbers, the measured core-CV trajectory and the model-loss trajectory.
-    The generic ``Recorder.render_gif`` is not used here: it classifies the
-    columns by type, which puts a phase map and a measured frame on the same
-    footing and cannot remove the carrier.
-    """
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.font_manager as fm
-    import matplotlib.pyplot as plt
-    from matplotlib.animation import PillowWriter
-
-    # The panel labels are Chinese; DejaVu Sans has no CJK glyphs, so the
-    # default font would render them as empty boxes.
-    font_path = "C:/Windows/Fonts/msyh.ttc"
-    if Path(font_path).exists():
-        fm.fontManager.addfont(font_path)
-        family = fm.FontProperties(fname=font_path).get_name()
-        plt.rcParams["font.family"] = family
-        plt.rcParams["font.sans-serif"] = [family, "SimHei", "SimSun"]
-    else:
-        plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "SimSun"]
-    plt.rcParams["axes.unicode_minus"] = False
-
-    if not records:
-        raise ValueError("no records to render")
+def _rpg_prepare_frames(path, records):
+# Mono8 counts/ms normalization and image vmax lifted verbatim
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -341,9 +312,13 @@ def render_process_gif(records: list[dict], path: str | Path, *, fps: float = 2.
     peaks = [float(np.percentile(image, 95)) for image in normalized if image is not None]
     image_vmax = max(peaks) if peaks else 1.0
     image_vmax = image_vmax if image_vmax > 0 else 1.0
-    # The in-block change is drawn to the same colour scale as the phase itself:
-    # it is a difference of two phases, so the range that fits them fits it, and
-    # a second scale would only cost the reader the comparison.
+    return image_vmax, normalized, path
+
+
+
+
+def _rpg_prepare_series(records):
+# Phase detrending and trajectory series lifted verbatim
     phases = [record.get(RECORD_PHASE) for record in records]
     detrended = [_detrend(phase) for phase in phases if phase is not None]
     # One colour scale for the whole animation has to hold every frame, so two
@@ -372,6 +347,104 @@ def render_process_gif(records: list[dict], path: str | Path, *, fps: float = 2.
     series = {key: [record.get(key) for record in records] for key in trajectory_keys}
     losses = [record.get("model_loss") for record in records]
     trajectory_labels = {"cv": "实测核心 CV", "cv_anchor": "锚点 A1", "cv_candidate": "候选 B"}
+    return losses, phase_limits, series, trajectory_keys, trajectory_labels
+
+
+
+
+def _rpg_draw_readout(axes, record):
+# Per-block readout text panel lifted verbatim
+    axes[1][0].axis("off")
+    text_keys = ("shape", "stage", "block", "label", "exposure_ms", "bit_depth",
+                 "cv", "cv_anchor", "cv_candidate", "cv_improvement",
+                 "core_peak", "saturation_pixels", "accepted", "acceptance",
+                 "model_loss")
+    lines = [f"{key}: {record.get(key)}" for key in text_keys
+             if record.get(key) is not None]
+    axes[1][0].text(0.02, 0.98, "\n".join(lines), transform=axes[1][0].transAxes,
+                    fontsize=9, va="top", family="sans-serif")
+    axes[1][0].set_title("本块读数", fontsize=10)
+    return 
+
+
+
+
+def _rpg_draw_trajectories(axes, index, losses, series, trajectory_keys, trajectory_labels):
+# Trajectory and loss subplots drawn in helper
+    xs = list(range(index + 1))
+    for key in trajectory_keys:
+        axes[1][1].plot(xs, [value if value is not None else np.nan
+                             for value in series[key][: index + 1]],
+                        marker="o", markersize=3,
+                        label=trajectory_labels.get(key, key))
+    axes[1][1].set_title("实测核心 CV", fontsize=10)
+    axes[1][1].set_xlabel("采集")
+    axes[1][1].legend(fontsize=7)
+    axes[1][1].grid(alpha=.3)
+
+    axes[1][2].plot(xs, [value if value is not None else np.nan
+                         for value in losses[: index + 1]],
+                    marker="o", markersize=3, color="#4C72B0")
+    axes[1][2].set_title("模型损失", fontsize=10)
+    axes[1][2].set_xlabel("采集")
+    axes[1][2].grid(alpha=.3)
+    return 
+
+
+
+
+def _rpg_draw_heading(axes, index, record, records, title):
+# Suptitle heading lifted verbatim
+    heading = title or "逐 CCD 块"
+    # The A–B–B–A block also captures a deliberate opposite-sign phase
+    # to separate a model-Jacobian error from an autograd error. Its CV
+    # is bad *by construction*, so the frame says so instead of looking
+    # like a failed block.
+    label = str(record.get("label") or "")
+    if "direction" in label:
+        heading = f"{heading} · 诊断探针 (反号, 非候选)"
+    axes[0][1].figure.suptitle(f"{heading} — 块 {index + 1}/{len(records)}", fontsize=12)
+    return 
+
+
+
+def render_process_gif(records: list[dict], path: str | Path, *, fps: float = 2.0,
+                       title: str | None = None) -> Path:
+    """Render the CCD-block records as a readable process animation.
+
+    Six panels per frame: the detrended pupil phase, the measured far field
+    (cropped to the target), the phase change inside the block, the block's
+    numbers, the measured core-CV trajectory and the model-loss trajectory.
+    The generic ``Recorder.render_gif`` is not used here: it classifies the
+    columns by type, which puts a phase map and a measured frame on the same
+    footing and cannot remove the carrier.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.font_manager as fm
+    import matplotlib.pyplot as plt
+    from matplotlib.animation import PillowWriter
+
+    # The panel labels are Chinese; DejaVu Sans has no CJK glyphs, so the
+    # default font would render them as empty boxes.
+    font_path = "C:/Windows/Fonts/msyh.ttc"
+    if Path(font_path).exists():
+        fm.fontManager.addfont(font_path)
+        family = fm.FontProperties(fname=font_path).get_name()
+        plt.rcParams["font.family"] = family
+        plt.rcParams["font.sans-serif"] = [family, "SimHei", "SimSun"]
+    else:
+        plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "SimSun"]
+    plt.rcParams["axes.unicode_minus"] = False
+
+    if not records:
+        raise ValueError("no records to render")
+    image_vmax, normalized, path = _rpg_prepare_frames(path, records)
+    # The in-block change is drawn to the same colour scale as the phase itself:
+    # it is a difference of two phases, so the range that fits them fits it, and
+    # a second scale would only cost the reader the comparison.
+    losses, phase_limits, series, trajectory_keys, trajectory_labels = _rpg_prepare_series(records)
 
     fig, axes = plt.subplots(2, 3, figsize=(13.5, 8.0))
     writer = PillowWriter(fps=int(fps))
@@ -425,44 +498,11 @@ def render_process_gif(records: list[dict], path: str | Path, *, fps: float = 2.
             axes[0][2].set_title("块内相位变化 (与左图同色标)", fontsize=10)
             axes[0][2].axis("off")
 
-            axes[1][0].axis("off")
-            text_keys = ("shape", "stage", "block", "label", "exposure_ms", "bit_depth",
-                         "cv", "cv_anchor", "cv_candidate", "cv_improvement",
-                         "core_peak", "saturation_pixels", "accepted", "acceptance",
-                         "model_loss")
-            lines = [f"{key}: {record.get(key)}" for key in text_keys
-                     if record.get(key) is not None]
-            axes[1][0].text(0.02, 0.98, "\n".join(lines), transform=axes[1][0].transAxes,
-                            fontsize=9, va="top", family="sans-serif")
-            axes[1][0].set_title("本块读数", fontsize=10)
+            _rpg_draw_readout(axes, record)
 
-            xs = list(range(index + 1))
-            for key in trajectory_keys:
-                axes[1][1].plot(xs, [value if value is not None else np.nan
-                                     for value in series[key][: index + 1]],
-                                marker="o", markersize=3,
-                                label=trajectory_labels.get(key, key))
-            axes[1][1].set_title("实测核心 CV", fontsize=10)
-            axes[1][1].set_xlabel("采集")
-            axes[1][1].legend(fontsize=7)
-            axes[1][1].grid(alpha=.3)
+            _rpg_draw_trajectories(axes, index, losses, series, trajectory_keys, trajectory_labels)
 
-            axes[1][2].plot(xs, [value if value is not None else np.nan
-                                 for value in losses[: index + 1]],
-                            marker="o", markersize=3, color="#4C72B0")
-            axes[1][2].set_title("模型损失", fontsize=10)
-            axes[1][2].set_xlabel("采集")
-            axes[1][2].grid(alpha=.3)
-
-            heading = title or "逐 CCD 块"
-            # The A–B–B–A block also captures a deliberate opposite-sign phase
-            # to separate a model-Jacobian error from an autograd error. Its CV
-            # is bad *by construction*, so the frame says so instead of looking
-            # like a failed block.
-            label = str(record.get("label") or "")
-            if "direction" in label:
-                heading = f"{heading} · 诊断探针 (反号, 非候选)"
-            axes[0][1].figure.suptitle(f"{heading} — 块 {index + 1}/{len(records)}", fontsize=12)
+            _rpg_draw_heading(axes, index, record, records, title)
             writer.grab_frame()
             rendered += 1
     except BaseException:

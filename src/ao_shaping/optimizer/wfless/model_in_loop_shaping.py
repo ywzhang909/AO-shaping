@@ -1515,6 +1515,87 @@ def load_bench_geometry(path: str | Path) -> BenchGeometry:
     return BenchGeometry.from_json_text(Path(path).read_text(encoding="utf-8"))
 
 
+
+def _cbg_measure_references(camera_pixel, far_field_size, focal_length, panel_span_px, records, region, slm_pitch, wavelength):
+# Reference frame + spot width + optical scale derivation lifted verbatim
+    measured = [np.asarray(r.image, dtype=np.float64) for r in records]
+    widths = [_spot_fwhm(img) for img in measured]
+    finite = [w for w in widths if np.isfinite(w) and w > 0]
+    if not finite:
+        raise ValueError("no record has a measurable spot (all zero or degenerate)")
+    fwhm_meas = float(np.median(finite))
+    reference_index = int(np.nanargmax(widths))
+    reference = measured[reference_index]
+    reference_phase = np.asarray(records[reference_index].phase, dtype=np.float64)
+
+    # The model grid spans `panel_span_px` panel pixels, so its physical pitch is
+    # that span times the SLM pitch divided by the number of samples. Using
+    # `slm_pitch` here (as this did originally) assumes one model pixel per SLM
+    # pixel, which is only true when region == panel_span_px.
+    if panel_span_px is not None and float(panel_span_px) > 0:
+        model_pitch = float(panel_span_px) * slm_pitch / float(region)
+    else:
+        model_pitch = slm_pitch
+    p_fft = wavelength * focal_length / (far_field_size * model_pitch)
+    # How many camera pixels one model pixel spans (1.85 at far_field_size=4096
+    # for a 2.2 um camera and 8 um SLM pitch).
+    camera_px_per_model_px = p_fft / camera_pixel
+    # Model pixels -> panel pixels, for reporting sizes on the panel.
+    model_to_panel = (float(panel_span_px) / float(region)) if panel_span_px else 1.0
+    return camera_px_per_model_px, fwhm_meas, model_to_panel, reference, reference_phase
+
+
+
+
+def _cbg_scan_seeds(region):
+# Initial best sentinel + candidate lists lifted verbatim
+    best: tuple[float, BenchGeometry] | None = None
+    # (disc, waist) are searched jointly against the correlation. Matching a
+    # spot *size* first was tried and abandoned: the FWHM of a speckle cut
+    # through the global max is a noisy, non-monotonic function of the beam
+    # waist, so a bisection on it converged to ~60% error, whereas the speckle
+    # correlation peaks exactly when the pupil mapping is right.
+    waist_grid_candidates = [
+        region / float(2**k) for k in range(1, 7)
+    ]  # region/2 .. region/64
+    return best, waist_grid_candidates
+
+
+
+
+def _cbg_finalize(best, model_to_panel, region):
+# Saturation guard + geometry report lifted verbatim
+    waist_grid_candidates_all = [region / float(2**k) for k in range(1, 7)]
+    saturated = (
+        best[1].beam_waist_panel_px
+        >= waist_grid_candidates_all[0] * model_to_panel - 1e-9
+    )
+    if best[1].correlation < _MIN_CORRELATION or saturated:
+        logger.warning(
+            "bench geometry is NOT trustworthy: correlation {:.4f}, aperture {} px, "
+            "w0 {:.1f} panel px. The pupil phase must vary across the illuminated "
+            "area for this to work; Zernike runs built over a large radius leave "
+            "the beam nearly flat and cannot pin the geometry. Also check that "
+            "panel_span_px matches the panel box the probes were displayed on, and "
+            "that the displayed phase actually covered the beam (the runbook "
+            "writes one phase/CCD image per probe for exactly this).",
+            best[1].correlation,
+            best[1].panel_disc_radius,
+            best[1].beam_waist_panel_px,
+        )
+    logger.info(
+        "bench geometry: aperture={} px, w0={:.1f} panel px, {:.3f} cam px per "
+        "model px, sigma {:.2f} cam px, correlation {:.4f}",
+        best[1].panel_disc_radius,
+        best[1].beam_waist_panel_px,
+        best[1].camera_px_per_model_px,
+        best[1].spot_fwhm_camera_px,
+        best[1].correlation,
+    )
+    return 
+
+
+
 def calibrate_bench_geometry(
     records: Sequence[CalibrationRecord],
     *,
@@ -1581,30 +1662,7 @@ def calibrate_bench_geometry(
         raise ValueError("calibrate_bench_geometry needs at least one record")
 
     # Camera-side reference: sigma of the brightest real capture.
-    measured = [np.asarray(r.image, dtype=np.float64) for r in records]
-    widths = [_spot_fwhm(img) for img in measured]
-    finite = [w for w in widths if np.isfinite(w) and w > 0]
-    if not finite:
-        raise ValueError("no record has a measurable spot (all zero or degenerate)")
-    fwhm_meas = float(np.median(finite))
-    reference_index = int(np.nanargmax(widths))
-    reference = measured[reference_index]
-    reference_phase = np.asarray(records[reference_index].phase, dtype=np.float64)
-
-    # The model grid spans `panel_span_px` panel pixels, so its physical pitch is
-    # that span times the SLM pitch divided by the number of samples. Using
-    # `slm_pitch` here (as this did originally) assumes one model pixel per SLM
-    # pixel, which is only true when region == panel_span_px.
-    if panel_span_px is not None and float(panel_span_px) > 0:
-        model_pitch = float(panel_span_px) * slm_pitch / float(region)
-    else:
-        model_pitch = slm_pitch
-    p_fft = wavelength * focal_length / (far_field_size * model_pitch)
-    # How many camera pixels one model pixel spans (1.85 at far_field_size=4096
-    # for a 2.2 um camera and 8 um SLM pitch).
-    camera_px_per_model_px = p_fft / camera_pixel
-    # Model pixels -> panel pixels, for reporting sizes on the panel.
-    model_to_panel = (float(panel_span_px) / float(region)) if panel_span_px else 1.0
+    camera_px_per_model_px, fwhm_meas, model_to_panel, reference, reference_phase = _cbg_measure_references(camera_pixel, far_field_size, focal_length, panel_span_px, records, region, slm_pitch, wavelength)
 
     def pupil(semi_axis_model_px: int) -> np.ndarray | None:
         """The pupil phase over the aperture, mapped onto the model grid.
@@ -1646,15 +1704,7 @@ def calibrate_bench_geometry(
             )
         return None
 
-    best: tuple[float, BenchGeometry] | None = None
-    # (disc, waist) are searched jointly against the correlation. Matching a
-    # spot *size* first was tried and abandoned: the FWHM of a speckle cut
-    # through the global max is a noisy, non-monotonic function of the beam
-    # waist, so a bisection on it converged to ~60% error, whereas the speckle
-    # correlation peaks exactly when the pupil mapping is right.
-    waist_grid_candidates = [
-        region / float(2**k) for k in range(1, 7)
-    ]  # region/2 .. region/64
+    best, waist_grid_candidates = _cbg_scan_seeds(region)
     for semi_axis in disc_candidates:
         semi_axis = int(min(int(semi_axis), region // 2))
         grid = pupil(semi_axis)
@@ -1717,33 +1767,7 @@ def calibrate_bench_geometry(
     # means the data cannot discriminate the geometry -- not that the geometry
     # was found. Returning the argmax silently would dress that up as a
     # calibration, so say it plainly.
-    waist_grid_candidates_all = [region / float(2**k) for k in range(1, 7)]
-    saturated = (
-        best[1].beam_waist_panel_px
-        >= waist_grid_candidates_all[0] * model_to_panel - 1e-9
-    )
-    if best[1].correlation < _MIN_CORRELATION or saturated:
-        logger.warning(
-            "bench geometry is NOT trustworthy: correlation {:.4f}, aperture {} px, "
-            "w0 {:.1f} panel px. The pupil phase must vary across the illuminated "
-            "area for this to work; Zernike runs built over a large radius leave "
-            "the beam nearly flat and cannot pin the geometry. Also check that "
-            "panel_span_px matches the panel box the probes were displayed on, and "
-            "that the displayed phase actually covered the beam (the runbook "
-            "writes one phase/CCD image per probe for exactly this).",
-            best[1].correlation,
-            best[1].panel_disc_radius,
-            best[1].beam_waist_panel_px,
-        )
-    logger.info(
-        "bench geometry: aperture={} px, w0={:.1f} panel px, {:.3f} cam px per "
-        "model px, sigma {:.2f} cam px, correlation {:.4f}",
-        best[1].panel_disc_radius,
-        best[1].beam_waist_panel_px,
-        best[1].camera_px_per_model_px,
-        best[1].spot_fwhm_camera_px,
-        best[1].correlation,
-    )
+    _cbg_finalize(best, model_to_panel, region)
     return best[1]
 
 

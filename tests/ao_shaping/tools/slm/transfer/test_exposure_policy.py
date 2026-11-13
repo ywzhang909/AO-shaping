@@ -211,6 +211,14 @@ def test_unwritable_data_root_degrades_instead_of_breaking_the_session(
     """数据目录只读: 记不下只是少一条种子, 采集照跑。"""
 
     class _ReadOnly:
+        # 真实 Path 必有 name；remember_exposure 在 mkdir 之前用它拼临时文件名，
+        # 桩缺这个名字会在进入 try 之前抛 AttributeError，测的就不再是"只读目录"。
+        name = "slm_transfer_exposure.json"
+
+        @property
+        def parent(self):
+            return self
+
         def mkdir(self, *args, **kwargs):
             raise PermissionError("read-only data dir")
 

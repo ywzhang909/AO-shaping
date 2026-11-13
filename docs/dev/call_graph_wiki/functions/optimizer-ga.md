@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: function
 tags: [optimizer,zernike,ga]
-source: src/ao_shaping/optimizer/wf/ga_zernike.py:138
+source: src/ao_shaping/optimizer/wf/ga_zernike.py:218
 ---
 
 ## 签名

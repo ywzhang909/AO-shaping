@@ -826,6 +826,88 @@ def _pib_update_iter_setup(epochs, r_bucket, shrink_ratio):
 
 
 
+
+def _pib_bench_epochs(_fix_bucket, _gradient_history, _init_r, _init_v, _max_history_len, _pib_history, _render_epoch_frame, _saturate_epoch, adaptive_search_state, best_objective, calc_objective, cam, center, delta, dm, dm_unit_mask, enable_adaptive_search, epochs, last_best_epoch, lr, objective, optimizer, optimizer_type, r_bucket, recorder, rng, run_adaptive_search, search_interval, search_patience, search_warmup, shrink_iter, shrink_ratio, tabu_memory, test_pib, to_min, update_iter):
+# SPGD epoch run and state unwrap lifted verbatim
+    _epoch_state = _run_spgd_epochs(
+        _fix_bucket=_fix_bucket,
+        _gradient_history=_gradient_history,
+        _max_history_len=_max_history_len,
+        _pib_history=_pib_history,
+        _render_epoch_frame=_render_epoch_frame,
+        _saturate_epoch=_saturate_epoch,
+        adaptive_search_state=adaptive_search_state,
+        calc_objective=calc_objective,
+        cam=cam,
+        center=center,
+        dm=dm,
+        dm_unit_mask=dm_unit_mask,
+        enable_adaptive_search=enable_adaptive_search,
+        epochs=epochs,
+        lr=lr,
+        objective=objective,
+        optimizer=optimizer,
+        optimizer_type=optimizer_type,
+        recorder=recorder,
+        rng=rng,
+        run_adaptive_search=run_adaptive_search,
+        search_interval=search_interval,
+        search_patience=search_patience,
+        search_warmup=search_warmup,
+        shrink_iter=shrink_iter,
+        shrink_ratio=shrink_ratio,
+        tabu_memory=tabu_memory,
+        test_pib=test_pib,
+        to_min=to_min,
+        update_iter=update_iter,
+        _init_r=_init_r,
+        _init_v=_init_v,
+        best_objective=best_objective,
+        delta=delta,
+        last_best_epoch=last_best_epoch,
+        r_bucket=r_bucket,
+    )
+    _init_r = _epoch_state._init_r
+    _init_v = _epoch_state._init_v
+    best_objective = _epoch_state.best_objective
+    delta = _epoch_state.delta
+    last_best_epoch = _epoch_state.last_best_epoch
+    r_bucket = _epoch_state.r_bucket
+    return 
+
+
+
+
+def _pib_bench_optimizer(dm, kwargs, lr, optimizer_type):
+# Optimizer construction lifted verbatim
+    optimizer = create_optimizer(
+        optimizer_type=optimizer_type,
+        dim=dm.DM_Num,
+        lr=lr,
+        beta1=beta1,
+        beta2=beta2,
+        beta3=beta3,
+        **kwargs,
+    )
+    return optimizer
+
+
+
+
+def _pib_bench_best_seed(_init_v, delta, init_img, j, pib_ratio, search_expand_ratio, search_improvement_tol, search_max_radius, search_min_radius, search_radius, search_shrink_ratio, tabu_memory_size, tabu_quantization, test_pib):
+# Initial best objective and voltage seed lifted verbatim
+    adaptive_search_state, tabu_memory = _pib_init_tabu_state(delta, search_expand_ratio, search_improvement_tol, search_max_radius, search_min_radius, search_radius, search_shrink_ratio, tabu_memory_size, tabu_quantization)
+
+    best_objective = float(test_pib(init_img))
+    float(j)
+    float(pib_ratio)
+    best_v = _init_v.copy()
+    init_img.copy()
+    last_best_epoch = 0
+    return adaptive_search_state, best_objective, best_v, last_best_epoch, tabu_memory
+
+
+
 def _run_pib_bench_session(
     *,
     _gradient_history: object,
@@ -936,15 +1018,7 @@ def _run_pib_bench_session(
 
             j, pib_ratio = calc_objective(init_img)
 
-            optimizer = create_optimizer(
-                optimizer_type=optimizer_type,
-                dim=dm.DM_Num,
-                lr=lr,
-                beta1=beta1,
-                beta2=beta2,
-                beta3=beta3,
-                **kwargs,
-            )
+            optimizer = _pib_bench_optimizer(dm, kwargs, lr, optimizer_type)
             if lr == 0:
                 optimizer.lr, delta = learning_schedule(
                     radius(init_img, center=center, energy=0.8),
@@ -953,14 +1027,7 @@ def _run_pib_bench_session(
                     epoch=0,
                 )
 
-            adaptive_search_state, tabu_memory = _pib_init_tabu_state(delta, search_expand_ratio, search_improvement_tol, search_max_radius, search_min_radius, search_radius, search_shrink_ratio, tabu_memory_size, tabu_quantization)
-
-            best_objective = float(test_pib(init_img))
-            float(j)
-            float(pib_ratio)
-            best_v = _init_v.copy()
-            init_img.copy()
-            last_best_epoch = 0
+            adaptive_search_state, best_objective, best_v, last_best_epoch, tabu_memory = _pib_bench_best_seed(_init_v, delta, init_img, j, pib_ratio, search_expand_ratio, search_improvement_tol, search_max_radius, search_min_radius, search_radius, search_shrink_ratio, tabu_memory_size, tabu_quantization, test_pib)
 
             def evaluate_candidate(
                 voltages: np.ndarray,
@@ -1009,50 +1076,7 @@ def _run_pib_bench_session(
                     optimizer.scale_momentum(np.sum(resampled) / np.sum(pos_frame))
                 return peak
 
-            _epoch_state = _run_spgd_epochs(
-                _fix_bucket=_fix_bucket,
-                _gradient_history=_gradient_history,
-                _max_history_len=_max_history_len,
-                _pib_history=_pib_history,
-                _render_epoch_frame=_render_epoch_frame,
-                _saturate_epoch=_saturate_epoch,
-                adaptive_search_state=adaptive_search_state,
-                calc_objective=calc_objective,
-                cam=cam,
-                center=center,
-                dm=dm,
-                dm_unit_mask=dm_unit_mask,
-                enable_adaptive_search=enable_adaptive_search,
-                epochs=epochs,
-                lr=lr,
-                objective=objective,
-                optimizer=optimizer,
-                optimizer_type=optimizer_type,
-                recorder=recorder,
-                rng=rng,
-                run_adaptive_search=run_adaptive_search,
-                search_interval=search_interval,
-                search_patience=search_patience,
-                search_warmup=search_warmup,
-                shrink_iter=shrink_iter,
-                shrink_ratio=shrink_ratio,
-                tabu_memory=tabu_memory,
-                test_pib=test_pib,
-                to_min=to_min,
-                update_iter=update_iter,
-                _init_r=_init_r,
-                _init_v=_init_v,
-                best_objective=best_objective,
-                delta=delta,
-                last_best_epoch=last_best_epoch,
-                r_bucket=r_bucket,
-            )
-            _init_r = _epoch_state._init_r
-            _init_v = _epoch_state._init_v
-            best_objective = _epoch_state.best_objective
-            delta = _epoch_state.delta
-            last_best_epoch = _epoch_state.last_best_epoch
-            r_bucket = _epoch_state.r_bucket
+            _pib_bench_epochs(_fix_bucket, _gradient_history, _init_r, _init_v, _max_history_len, _pib_history, _render_epoch_frame, _saturate_epoch, adaptive_search_state, best_objective, calc_objective, cam, center, delta, dm, dm_unit_mask, enable_adaptive_search, epochs, last_best_epoch, lr, objective, optimizer, optimizer_type, r_bucket, recorder, rng, run_adaptive_search, search_interval, search_patience, search_warmup, shrink_iter, shrink_ratio, tabu_memory, test_pib, to_min, update_iter)
             if show:
                 window.close()
         finally:

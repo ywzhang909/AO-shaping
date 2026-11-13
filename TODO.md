@@ -890,11 +890,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 14. ✅ **`except BaseException` 全量复核收口：实测 5 处，逐处判定正当，并把「线程边界不得收窄」钉成守卫**（2026-10-25）：
 slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `:1718` 上移 2 行；同日复核 `ff288621` #44 持有者权威刀入口净 −5 行后再上移 5 行至 `:1711`；同日复核 `ca0c7ea6` #44 值通道收口刀再上移 2 行至 `:1709`；2026-10-31 复核 #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在上方）下移 3 行至 `:1712`；2026-11-01 复核 `2a446813` #205 第十一批（324 行 With 会话提为 `_run_pib_session`，入口体下移）整体下移 120 行至 `:1832`）
-      `tools/slm/transfer/workflow.py:1374`（旧行号 78 因上游 `5341b36b` 合并等后续提交在其上方插入阶段编排代码而下移，2026-10-29 复核重钉为 226；其后 transfer 桌面/离线诊断等批次使其漂至 677（未及重钉）；2026-11-06 复核 `bfbfdf5e` 第二十九批把 `run_session` 拆出 4 个模块级 helper，使该块再由 677 下移 286 行至 963；2026-11-06 复核 `a80a2f8c` 合入上游 transfer 桌面的 `acceptance_enabled` 接线（约 :580，在此块上方 +1 行），该块再下移 1 行至 964；2026-11-13 复核 `b7aa4746` #205 第五十三批（232 行逐轮收敛循环整升，该块 964→1352，未及重钉）与 `26ee0d4a`/`2e78781d`（光路复用形状比对 + 效率线默认值，该块 1352→1374）重钉至 1374）、`utils/image/hardware_utils.py:666`、
+      `tools/slm/transfer/workflow.py:1381`（旧行号 78 因上游 `5341b36b` 合并等后续提交在其上方插入阶段编排代码而下移，2026-10-29 复核重钉为 226；其后 transfer 桌面/离线诊断等批次使其漂至 677（未及重钉）；2026-11-06 复核 `bfbfdf5e` 第二十九批把 `run_session` 拆出 4 个模块级 helper，使该块再由 677 下移 286 行至 963；2026-11-06 复核 `a80a2f8c` 合入上游 transfer 桌面的 `acceptance_enabled` 接线（约 :580，在此块上方 +1 行），该块再下移 1 行至 964；2026-11-13 复核 `b7aa4746` #205 第五十三批（232 行逐轮收敛循环整升，该块 964→1352，未及重钉）与 `26ee0d4a`/`2e78781d`（光路复用形状比对 + 效率线默认值，该块 1352→1374）重钉至 1374；2026-11-13 复核 `8d5a742d` #243 前置一（`acceptance_verdict` 新增 `correlation_red_stop`，在 :403/:455 两插入点净 +7 行，均在锚点上方，该块 1374→1381）重钉至 1381）、`utils/image/hardware_utils.py:666`、
       `scripts/slm/diff_beam_capture_flat.py:79`（旧行号 68 因上游 `a8673631`/`fe1cc504` 漂移，2026-10-29 复核）、`scripts/slm/hw_gs_defocus_probe.py:1071`
       ⇒ §8.4 的「真风险只有 2 处」与 R-64 行的「禁改 2 处」均为当时口径，已就地重钉。
     - **逐处判定：没有一处需要改**（本项初始假设「能在硬件运动中途静默吞掉中断」被实测推翻）：
-      `workflow.py:1374` 记录状态后 `raise`（本就重抛）；`hardware_utils.py:666`、
+      `workflow.py:1381` 记录状态后 `raise`（本就重抛）；`hardware_utils.py:666`、
       `diff_beam_capture_flat.py:79`（旧行号 68 因上游 `a8673631`/`fe1cc504` 漂移，2026-10-29 复核）、`hw_gs_defocus_probe.py:1071` 是三处**同构的线程边界捕获**，
       调用方确定重抛（实测 `:77 raise error[0]`、`:1082 raise box["error"]`）——
       它们正是把「原生 SDK 调用无限挂起」变成**有界且可归因**的机制
@@ -4997,6 +4997,76 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 锚点 +16: ABBA 探针 2125→2141、`--max_peak` 2349-2359→2365-2375、`BaseException` 1872→1888 (三处)
 - 载体: conventions + 形状门禁 + 13 个 pib 测试文件 **445 passed 2 skipped**
 - 门禁: 棘轮 163/3/141 + 2 helper 行; 模块 baseline 抬高 +16
+
+**2026-11-13 · 54d09909 之后 · 第 78 批: `render_process_gif` 213→121 行 + 五缝 (`transfer/recording.py`)**
+- 提取: `_rpg_prepare_frames` 36 (counts/ms 归一 + 95 分位 vmax) / `_rpg_prepare_series` 31 (去倾斜 + 色标 + 轨迹序列) / `_rpg_draw_readout` 13 / `_rpg_draw_trajectories` 20 / `_rpg_draw_heading` 12
+- 教训 ㉕: 生成器把**推导式变量**（`for record in records` 的 `record`/`image`）当成普通存储, 于是把它们写进 return → helper 内 `F821 undefined name`。修法: 从 helper return 与调用点 unpack 中删去这两个名字 (推导式作用域本就独立, 母函数在区域后必重新绑定)
+- 叶差分: 11 同 / 消失 0 / 新增 5; ⑳ 审计 0 命中; 该文件无文档锚点, 无装饰器
+- 载体: `test_recording.py` + guard + conventions **346 passed 1 skipped**; transfer 域逐文件 exit=0
+- 门禁: 棘轮 146/5/121 + 5 helper 行; 模块 549 行 (未触 800 阈, baseline 无变化)
+
+**2026-11-13 · 7ccef79b 之后 · 第 79 批: `optimizer_ga` 252→188 行 + 两缝 (`optimizer/wf/ga_zernike.py`)**
+- 提取: `_ga_init_population` 54 (初始系数解析 + 首代并行打分 + 两个嵌套 def) / `_ga_record_initial_state` 18 (generation-0 落盘)
+- 生成器新增 **skip-returns 通道** (`/tmp/split_skipret.txt`): `idx` 是 `init_z.items()` 分支内的条件绑定, 若随区域返回会在该分支未走时 `UnboundLocalError`; 通道可按名剔除
+- 叶差分: 5 同 / 消失 0 / 新增 2; ⑳ 审计 0 命中; 母函数无装饰器
+- wiki: `functions/optimizer-ga.md` source 与 `index.md` 表格 138→218
+- 载体: test_ga_zernike + guard + conventions **357 passed 1 skipped**; 模块 405 行 (未触 800 阈)
+- 门禁: 棘轮 206/6/188 + 2 helper 行
+
+**2026-11-13 · c6b34c37 之后 · 第 80 批: `_run_rms_session` 243→138 行 + 四缝 (`optimizer/wf/rms_by_zernike.py`)**
+- 提取: `_rmsr_minibatch_gradient` 57 (mini_batch>1 的正负探针对 + 梯度装配, 14 回传) / `_rmsr_epoch_log` 29 (逐 epoch 记录载荷 + postfix) / `_rmsr_stagnation_boost` 21 (迟滞 delta 提升) / `_rmsr_schedules` 14 (lr/delta 调度 + 有效权重)
+- 3 处含 `break` 的段 (815 早停判定 / 847 阈值退出 / 689 spgd 分支 return) 原样留在母函数体, 未跨函数搬 break
+- 叶差分: 17 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中; 母函数无装饰器
+- wiki: `functions/optimizer-rms-slm.md` source 与 `index.md` 862→894
+- 载体: test_rms_by_zernike + spgd_convention + guard + conventions **368 passed 1 skipped**
+- 门禁: 棘轮 158/6/138 + 4 helper 行; 模块 baseline 抬高 +32 (4 个 helper 定义与调用开销, 非功能增长)
+
+**2026-11-13 · f5d819eb 之后 · 第 81 批: `estimate_exposure_ceiling_ms` 221→176 行 + 四缝 (`utils/image/exposure_control.py`)**
+- 提取: `_ecc_collect_pairs` 19 (梯度过滤 + 参数校验, 原地 append 到调用方 list) / `_ecc_final_bound` 19 (上限解析) / `_ecc_init_accumulators` 12 / `_ecc_reset_fit_triplet` 11
+- 两段条件绑定段 (430-456 的 `fit_full_scale`/`last_safe`、468-487 的 `fit_ms`/三件套) **不提取**: 变量既在区域内被条件赋值又在区域后被读, 提走会丢更新
+- 推导式变量 `image`/`ms` 经 skip-returns 通道排除, 否则 helper 生成 `return image, ms` 触发 F821
+- 叶差分: 8 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中; 母函数无装饰器
+- 载体: test_exposure_control + guard + conventions **375 passed 1 skipped**; 模块 722 行 (未触 800 阈)
+- 门禁: 棘轮 197/5/176 + 4 helper 行
+
+**2026-11-13 · 505ce7ed 之后 · 第 82 批: `search_optimal_delta` 215→128 行 + 四缝 (`algorithm/gradient/adam.py`)**
+- 提取: `_sod_fine_sweep` 56 (细扫循环, 原地 append) / `_sod_fine_bounds` 21 (最优量级选取 + 细扫上下界) / `_sod_init_scan` 15 (基线探针 + 量级网格) / `_sod_best_fine` 11 (最优有效结果)
+- 含 `break` 的粗扫循环 (674-733) 与末尾 Return 段保留母函数
+- `best_magnitude`/`best_mag_result` 经 grep 确认只在 735-752 内使用, 故不随缝外传
+- 叶差分: 14 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中; 母函数无装饰器
+- 载体: `tests/ao_shaping/algorithm` 全域 + guard + conventions **1245 passed 25 skipped**
+- 门禁: 棘轮 154/4/128 + 4 helper 行; 模块 baseline 抬高 +32 (4 个 helper 定义与调用开销)
+
+**2026-11-13 · c7364311 之后 · 第 83 批: `_run_model_in_loop_rounds` 205→181 行 + 两缝 (`optimizer/wfless/slm_model_in_loop.py`)**
+- 提取: `_milr_round_probe_setup` 23 (逐轮探针/优化器准备, 9 回传) / `_milr_round_score_after` 9 (Step-B 打分 + 验收判定, 6 回传)
+- for 体内 4 段含 `break` 的 If (4057 标定违约 / 4123 拒绝 / 4142 连拒 / 4152 显示关闭) 与 4027-4034 段 (`holdout_correlations` 条件绑定) 全部保留母函数
+- 叶差分: 54 同 / 消失 0 / 新增 2; ⑳ 审计 0 命中; 锚点 (1129/1679/2021-2056/2137/3112-3122) 均在插入点之上, 无漂移
+- 载体: model_in_loop 两套测试 (含 loop invariants) + guard + conventions **518 passed 1 skipped**
+- 门禁: 棘轮 208/4/181 + 2 helper 行; 模块 baseline 抬高 +17
+
+**2026-11-13 · 45c4823f 之后 · 第 84 批: `calibrate_zernike_response_matrix` 234→162 行 + 四缝 (`optimizer/wf/zernike_response_matrix.py`)**
+- 提取: `_zrm_build_result` 27 (结果 dataclass 组装 + 摘要日志) / `_zrm_auto_amplitude` 23 (幅值自动寻优) / `_zrm_buffers` 23 (子孔径掩模 + 三个零矩阵) / `_zrm_initial_spots` 15 (平场 + 初始光斑基线)
+- 含 `break` 的 70 行标定主循环 (513-582) 与末尾 Return 段保留母函数
+- 叶差分: 16 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中; wiki `save-zernike-matrix` source/index 627→659 (其余 7 处锚点均在插入点之上)
+- 载体: test_zernike_response_matrix + guard + conventions **387 passed 1 skipped**
+- 门禁: 棘轮 178/4/162 + 4 helper 行; 模块 baseline 抬高 (+20)
+
+**2026-11-13 · 4a8062a3 之后 · 第 85 批: `_run_pib_bench_session` 233→175 行 + 三缝 (`optimizer/wfless/pib.py`)**
+- 提取: `_pib_bench_epochs` 47 (`_run_spgd_epochs` 调用 + 状态解包) / `_pib_bench_optimizer` 12 (优化器构造) / `_pib_bench_best_seed` 11 (初始最优目标 + 电压种子)
+- `939:954` 整段不可提: `if lr == 0:` 分支内改 `delta` → 条件返回; 收窄到 939:947 的构造语句
+- `calc_objective` 经 trust 通道放行 (937 行无条件调用已证明其在 1012 前必然绑定)
+- 8 处 return 全在内层 def 或 objective 分支, 均在母函数保留
+- 叶差分: 20 同 / 消失 0 / 新增 3; ⑳ 审计 0 命中; 锚点 95/509 均在插入点之上
+- 载体: 4 个 pib 测试文件 + guard + conventions **387 passed 1 skipped**
+- 门禁: 棘轮 192/6/175 + 3 helper 行; 模块 baseline 抬高 (+37)
+
+**2026-11-13 · f7538ba0 之后 · 第 86 批: `calibrate_bench_geometry` 230→173 行 + 三缝 (`optimizer/wfless/model_in_loop_shaping.py`)**
+- 提取: `_cbg_finalize` 30 (饱和护栏 + 几何报告日志) / `_cbg_measure_references` 27 (参考帧 + 光斑宽度 + 光学尺度推导) / `_cbg_scan_seeds` 12 (best 哨兵 + 候选列表)
+- `1711:1715` 的 `if best is None: best = ...` 留在母函数 (条件赋值被 1747 读取, 提走即泄漏) → 收窄到 1720 起
+- 含 3 个 break 的 52 行搜扫循环 (1658-1709) 与含 6 个 return 的嵌套 `pupil()` 保留母函数
+- 叶差分: 69 同 / 消失 0 / 新增 3; ⑳ 审计 0 命中; 锚点 772 在插入点之上
+- 载体: model_in_loop_shaping + loop_invariants + guard + conventions **445 passed 1 skipped**
+- 门禁: 棘轮 190/5/173 + 3 helper 行; 模块 baseline 抬高 (+28)
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
