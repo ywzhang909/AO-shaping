@@ -1195,12 +1195,15 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
     # 37 -> 38 (camera) on 2026-11-07 when transfer/auto_reuse.py landed
     # (0 Santec + 1 camera — the auto-reuse fingerprint probe that opens a camera
     # before deciding whether to reuse a historical checkpoint; camera only);
-    # a genuine new probe, re-baselined here deliberately. This guard pins the
+    # 38 -> 39 (camera) on 2026-11-13 when transfer/exposure_policy.py landed
+    # (0 Santec + 1 camera — no device open in code; the single count is the
+    # module docstring quoting the create_camera(exposure_time_ms=...) seed
+    # contract); a genuine new module, re-baselined here deliberately. This guard pins the
     # census so a *refactor* cannot quietly consolidate device sessions; adding a
     # genuinely new probe is a legitimate change and must be re-baselined here
     # deliberately.
     assert sum(santec.values()) == 36, f"Santec( construction sites changed: {santec}"
-    assert sum(camera.values()) == 38, f"camera-open call sites changed: {camera}"
+    assert sum(camera.values()) == 39, f"camera-open call sites changed: {camera}"
 
     assert santec == {
         "slm/calibration/calibration.py": 2,
@@ -1261,6 +1264,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/transfer/camera_probe.py": 1,
         "slm/transfer/capture.py": 2,
         "slm/transfer/capture_response.py": 1,
+        "slm/transfer/exposure_policy.py": 1,
         "slm/transfer/optical_probe.py": 1,
         "slm/transfer/replay_phases.py": 1,
         "slm/transfer/validate.py": 1,
