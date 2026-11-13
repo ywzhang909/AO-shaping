@@ -42,6 +42,13 @@ from scipy.ndimage import gaussian_filter
 
 from .light_guard import LightGuard, OpticalPathInvalid, verify_light
 from .hardware import DeviceOpenError
+from .exposure_policy import (
+    AUTO_TOKEN,
+    argparse_exposure_type,
+    policy_source,
+    record_effective_exposure,
+    resolve_seed_exposure,
+)
 from .live_frame import _resolve_observer, frame_payload, notify_frame
 
 #: Exposure search for one probe: one exact correction + one verification read.
@@ -270,6 +277,102 @@ def probes(size: int, count: int, seed: int, periods=(64, 128)):
     yield "reference_end", "calibration", zero
 
 
+def _resolve_capture_exposure(args) -> tuple[int, str, float | None, dict]:
+    """开场曝光三态种子解析: 返回 (步数上限, token 来源, 种子毫秒, 相机 kwargs)。"""
+    exposure_steps = int(getattr(args, "exposure_max_steps", EXPOSURE_MAX_STEPS))
+    if exposure_steps < 2:
+        raise ValueError("exposure_max_steps must be >= 2")
+    # 开场曝光不再写死 0.02: 三态种子策略见 exposure_policy (auto / default / 数字)。
+    # None = 「别碰相机」, 于是 create_camera 连 exposure_time_ms 关键字都不收到。
+    exposure_source = policy_source(getattr(args, "exposure_ms", None))
+    seed_exposure = resolve_seed_exposure(
+        getattr(args, "exposure_ms", None),
+        camera=args.camera,
+        cam_id=args.cam_id,
+    )
+    camera_kwargs: dict = (
+        {} if seed_exposure is None else {"exposure_time_ms": seed_exposure}
+    )
+    return exposure_steps, exposure_source, seed_exposure, camera_kwargs
+
+
+def _init_live_prediction(args, observer, live_prediction: list) -> None:
+    """就地初始化实时预测单元：模型不可用时只警告、不中断采集。
+
+    ``live_prediction`` 单元列表必须留在 ``capture()`` 作用域 —— ``read()`` 闭包与
+    探针循环都按下标读写同一个列表对象；本函数只对下标 0 做一次性原地赋值，
+    不改变闭包的捕获关系。
+    """
+    checkpoint_value = getattr(args, "checkpoint", None)
+    if observer is not None:
+        checkpoint = Path(checkpoint_value) if checkpoint_value else None
+        try:
+            if checkpoint is None or checkpoint.exists():
+                # 无 checkpoint 也创建预测器：平场定位后、本次 signed-ramp
+                # 几何到齐时直接构造零校正理想模型，而非等离线 bootstrap。
+                live_prediction[0] = _LivePrediction(
+                    checkpoint,
+                    capture_grid=args.grid,
+                    device=getattr(args, "device", None),
+                )
+            else:
+                logger.warning(
+                    f"Live capture prediction checkpoint does not exist: {checkpoint}"
+                )
+        except Exception as exc:
+            # 实时预测只是辅助画面；模型不可用时采集仍须继续。
+            logger.warning(
+                f"Live capture prediction disabled during initialization: {exc!r}"
+            )
+
+
+def _write_optical_probe_record(
+    *, out: Path, cam, floor: float, ceiling: float,
+    slm_serial: str | None, flat_frame_name: str | None,
+) -> None:
+    """光路复用探针的**参照条件**: 本次采集用的相机曝光区间与取图格式。
+
+    与实测零点 (拟合后写进 frozen_parameters.json 的 origin) 一起构成
+    「这条光路的条件」, 供下次会话的光路复用判比用。
+    """
+    from ao_shaping.tools.slm.transfer.optical_probe import (
+        read_bit_depth as _camera_bit_depth,
+        read_camera_format as _camera_format,
+    )
+
+    probe_record: dict = dict(
+        exposure_range_ms=[float(floor), float(ceiling)],
+        camera_format=_camera_format(cam),
+        bit_depth=_camera_bit_depth(cam),
+        slm_serial=slm_serial,
+    )
+    if flat_frame_name is not None:
+        # 平场帧真的落盘了才登记文件名 (形状判比按这个键找帧)。
+        probe_record["flat_frame"] = flat_frame_name
+    (out / "_optical_probe.json").write_text(
+        json.dumps(probe_record, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _write_capture_done(
+    out: Path, *, early_stopped: bool, probes_done: int, slm_serial: str | None
+) -> None:
+    """写 ``.capture_done`` 收尾标记：早停标志、探针数、SLM 序列号与收尾时钟。"""
+    (out / ".capture_done").write_text(
+        json.dumps(
+            dict(
+                early_stopped=early_stopped,
+                probes=probes_done,
+                slm_serial=slm_serial,
+                **clock(),
+            ),
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
 def capture(args, *, on_frame=None):
     """Measure the probe plan; return ``{manifest file name: fit payload}``.
 
@@ -303,9 +406,9 @@ def capture(args, *, on_frame=None):
 
     save_dataset = bool(getattr(args, "save_dataset", False))
     observer = _resolve_observer(args, on_frame)
-    exposure_steps = int(getattr(args, "exposure_max_steps", EXPOSURE_MAX_STEPS))
-    if exposure_steps < 2:
-        raise ValueError("exposure_max_steps must be >= 2")
+    exposure_steps, exposure_source, seed_exposure, camera_kwargs = (
+        _resolve_capture_exposure(args)
+    )
     args.out.mkdir(parents=True, exist_ok=False)
     config = {
         **vars(args),
@@ -324,7 +427,7 @@ def capture(args, *, on_frame=None):
     slm_serial: list[str | None] = [None]
     flat_frame_name: str | None = None
     with opened_device(
-        create_camera(args.camera, args.cam_id, exposure_time_ms=0.02)
+        create_camera(args.camera, args.cam_id, **camera_kwargs)
     ) as cam:
         with opened_device(
             Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0)
@@ -344,7 +447,13 @@ def capture(args, *, on_frame=None):
                 )
                 if limit > 0:
                     ceiling = min(ceiling, limit)
-                exposure = max(floor, 0.02)
+                # 阶梯起点: 有种子就 max(floor, seed) (与改动前的 max(floor, 0.02) 同式),
+                # 没有种子 (``default``) 就从相机自己回读的生效曝光起步。
+                exposure = (
+                    max(floor, seed_exposure)
+                    if seed_exposure is not None
+                    else float(get_camera_exposure_ms(cam))
+                )
 
                 # 实时画面: read() 是这一段的唯一取图漏斗 —— 光路检查、曝光阶梯
                 # (probe_read) 与探针取帧都从它取图, 所以一处挂钩覆盖三处。
@@ -359,27 +468,7 @@ def capture(args, *, on_frame=None):
                 # None —— 绝不伪造一个相位; 但它不是坏状态, 只是还没轮到驱动 SLM。
                 live_phase = [None]
                 live_prediction = [None]
-                checkpoint_value = getattr(args, "checkpoint", None)
-                if observer is not None:
-                    checkpoint = Path(checkpoint_value) if checkpoint_value else None
-                    try:
-                        if checkpoint is None or checkpoint.exists():
-                            # 无 checkpoint 也创建预测器：平场定位后、本次 signed-ramp
-                            # 几何到齐时直接构造零校正理想模型，而非等离线 bootstrap。
-                            live_prediction[0] = _LivePrediction(
-                                checkpoint,
-                                capture_grid=args.grid,
-                                device=getattr(args, "device", None),
-                            )
-                        else:
-                            logger.warning(
-                                f"Live capture prediction checkpoint does not exist: {checkpoint}"
-                            )
-                    except Exception as exc:
-                        # 实时预测只是辅助画面；模型不可用时采集仍须继续。
-                        logger.warning(
-                            f"Live capture prediction disabled during initialization: {exc!r}"
-                        )
+                _init_live_prediction(args, observer, live_prediction)
 
                 def read():
                     raw = np.asarray(cam.get_numpy_image(n_sample=1, skip_first=False))
@@ -613,44 +702,46 @@ def capture(args, *, on_frame=None):
             finally:
                 slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
                 time.sleep(0.3)
-        # 光路复用探针的**参照条件**: 本次采集用的相机曝光区间与取图格式。
-        # 与实测零点 (拟合后写进 frozen_parameters.json 的 origin) 一起构成
-        # 「这条光路的条件」, 供下次会话的光路复用判比用。
-        from ao_shaping.tools.slm.transfer.optical_probe import (
-            read_bit_depth as _camera_bit_depth,
-            read_camera_format as _camera_format,
+        # 曝光阶梯落定 (相机还开着): 回读**生效**曝光并记住它 —— 这正是下一次同一条
+        # 光路 `auto` 种子的来源。只在采集真的走完时记录: 阶梯没收住就没有可用曝光,
+        # 记下来只会污染种子。记录本身best-effort, 绝不打断采集。
+        effective_exposure = record_effective_exposure(
+            cam,
+            args.cam_id,
+            exposure,
+            source=exposure_source,
+            backend=args.camera,
         )
-
-        probe_record: dict = dict(
-            exposure_range_ms=[float(floor), float(ceiling)],
-            camera_format=_camera_format(cam),
-            bit_depth=_camera_bit_depth(cam),
-            slm_serial=slm_serial[0],
+        # 键名不能叫 `exposure_policy`: 那是 per_block / per_shape 的**配对曝光**策略
+        # 字符串 (artifacts.py 与 validate.py 都按字符串读它)。这里记的是开场种子。
+        config["exposure_seed_policy"] = {
+            "source": exposure_source,
+            "requested": getattr(args, "exposure_ms", None),
+            "seed_ms": seed_exposure,
+            "effective_ms": effective_exposure,
+            "floor_ms": float(floor),
+        }
+        (args.out / "config.json").write_text(
+            json.dumps(config, default=str, indent=2), encoding="utf-8"
         )
-        if flat_frame_name is not None:
-            # 平场帧真的落盘了才登记文件名 (形状判比按这个键找帧)。
-            probe_record["flat_frame"] = flat_frame_name
-        (args.out / "_optical_probe.json").write_text(
-            json.dumps(probe_record, indent=2),
-            encoding="utf-8",
+        _write_optical_probe_record(
+            out=args.out, cam=cam, floor=floor, ceiling=ceiling,
+            slm_serial=slm_serial[0], flat_frame_name=flat_frame_name,
         )
-    (args.out / ".capture_done").write_text(
-        json.dumps(
-            dict(
-                early_stopped=early_stopped,
-                probes=len(manifest),
-                slm_serial=slm_serial[0],
-                **clock(),
-            ),
-            indent=2,
-        ),
-        encoding="utf-8",
+    _write_capture_done(
+        args.out, early_stopped=early_stopped,
+        probes_done=len(manifest), slm_serial=slm_serial[0],
     )
     return samples
 
 
 def precheck_light(
-    *, camera: str, cam_id: int, label: str = "启动前光路检查", on_frame=None
+    *,
+    camera: str,
+    cam_id: int,
+    exposure_ms: str | float | None = None,
+    label: str = "启动前光路检查",
+    on_frame=None,
 ) -> dict:
     """开一次相机, 读少数几帧, 回答「这一路现在有没有光」。
 
@@ -669,6 +760,8 @@ def precheck_light(
     Args:
         camera: ``daheng`` / ``sim`` 等相机类型。
         cam_id: 相机下标。
+        exposure_ms: 开场曝光策略原值 (``auto`` / ``default`` / 正数毫秒, None=auto),
+            与采集段同一个口径 —— 光检用的曝光档位不该和正式采集不一样。
         label: 写进异常的对象名。
 
     Returns:
@@ -683,7 +776,14 @@ def precheck_light(
     from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_range
     from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
 
-    with opened_device(create_camera(camera, cam_id, exposure_time_ms=0.02)) as cam:
+    seed_exposure = resolve_seed_exposure(exposure_ms, camera=camera, cam_id=cam_id)
+    with opened_device(
+        create_camera(
+            camera,
+            cam_id,
+            **({} if seed_exposure is None else {"exposure_time_ms": seed_exposure}),
+        )
+    ) as cam:
         floor, ceiling = get_camera_exposure_range(cam)
         limit = configured_daheng_exposure_limit() if camera == "daheng" else 0
         if limit > 0:
@@ -714,6 +814,16 @@ def main():
     parser.add_argument("--frames", type=int, default=3)
     parser.add_argument("--seed", type=int, default=102319)
     parser.add_argument("--exposure-max-steps", type=int, default=EXPOSURE_MAX_STEPS)
+    parser.add_argument(
+        "--exposure-ms",
+        type=argparse_exposure_type("--exposure-ms"),
+        default=AUTO_TOKEN,
+        help="Seed exposure for the capture ladder (ms), not a fixed value: "
+        "'auto' (default) reuses the last effective exposure recorded for this "
+        "camera backend/id, falling back to 0.02; 'default' leaves the camera's "
+        "own configured exposure untouched (the ladder starts from the read-back "
+        "value); a positive number seeds the ladder at that many milliseconds.",
+    )
     parser.add_argument(
         "--save-dataset",
         dest="save_dataset",

@@ -12,6 +12,11 @@ import numpy as np
 
 from ao_shaping.algorithm.signal_processing.multishape_objective import ShapeObjective, image_metrics
 from .capture import clock, to_panel
+from .exposure_policy import (
+    AUTO_TOKEN,
+    argparse_exposure_type,
+    resolve_seed_exposure,
+)
 
 
 def _selections(args) -> list[tuple[Path, str]]:
@@ -101,8 +106,20 @@ def replay(args):
                for key, members in groups.items()}, **clock()), default=str, indent=2),
         encoding="utf-8")
     records = []
+    # 开场曝光与采集段同一策略 (auto / default / 数字): None = 连 exposure_time_ms
+    # 关键字都不给, 让相机 SDK 的现有配置起手。真正逐个曝光重放在下面的
+    # args.exposures 循环里, 与此无关。
+    seed_exposure = resolve_seed_exposure(
+        getattr(args, "exposure_ms", None),
+        camera=getattr(args, "camera", "daheng"),
+        cam_id=int(getattr(args, "cam_id", 0)),
+    )
+    camera_kwargs: dict = {
+        **({} if seed_exposure is None else {"exposure_time_ms": seed_exposure}),
+        "bit_depth": 12,
+    }
     with opened_device(create_camera(getattr(args, "camera", "daheng"), int(getattr(args, "cam_id", 0)),
-                       exposure_time_ms=.02, bit_depth=12)) as camera:
+                       **camera_kwargs)) as camera:
         floor, ceiling = get_camera_exposure_range(camera)
         limit = configured_daheng_exposure_limit()
         if min(args.exposures) < floor or max(args.exposures) > min(ceiling, limit if limit > 0 else ceiling):
@@ -161,6 +178,16 @@ if __name__ == "__main__":
     parser.add_argument("--frames", type=int, default=3)
     parser.add_argument("--camera", default="daheng")
     parser.add_argument("--cam-id", type=int, default=0)
+    parser.add_argument(
+        "--exposure-ms",
+        type=argparse_exposure_type("--exposure-ms"),
+        default=AUTO_TOKEN,
+        help="Opening seed exposure when the camera is created (ms), not a fixed "
+        "value: 'auto' (default) reuses the last effective exposure recorded for "
+        "this camera backend/id, falling back to 0.02; 'default' leaves the "
+        "camera's own configured exposure untouched; a positive number seeds at "
+        "that many milliseconds. The replay sweep itself is --exposures.",
+    )
     parser.add_argument("--slm-number", type=int, default=1)
     parser.add_argument("--include-best", action="store_true", help="Also replay the lowest measured accepted sequential candidate from each run")
     replay(parser.parse_args())

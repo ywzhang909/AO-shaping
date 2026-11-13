@@ -17,6 +17,11 @@ from pathlib import Path
 import numpy as np
 
 from ao_shaping.tools.slm.transfer.capture import clock, to_panel
+from ao_shaping.tools.slm.transfer.exposure_policy import (
+    AUTO_TOKEN,
+    argparse_exposure_type,
+    resolve_seed_exposure,
+)
 from ao_shaping.tools.slm.transfer.live_frame import (
     _resolve_observer, frame_payload, notify_frame,
 )
@@ -35,6 +40,16 @@ def capture(args, *, on_frame=None):
 
     observer = _resolve_observer(args, on_frame)
 
+    # 开场曝光种子与采集段同一策略 (auto / default / 数字); None = 不碰相机曝光。
+    seed_exposure = resolve_seed_exposure(
+        getattr(args, "exposure_ms", None),
+        camera=args.camera,
+        cam_id=args.cam_id,
+    )
+    camera_kwargs: dict = (
+        {} if seed_exposure is None else {"exposure_time_ms": seed_exposure}
+    )
+
     manifest = json.loads((args.source / "manifest.json").read_text())
     record = next(r for r in manifest if r["label"] == f"{args.shape}_final")
     with np.load(args.source / record["file"]) as saved:
@@ -49,6 +64,7 @@ def capture(args, *, on_frame=None):
         shape=args.shape,
         fractions=FRACTIONS,
         frames=args.frames,
+        exposure_policy_seed_ms=seed_exposure,
         script_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         source_manifest_sha256=hashlib.sha256(
             (args.source / "manifest.json").read_bytes()
@@ -57,7 +73,7 @@ def capture(args, *, on_frame=None):
     )
     (args.out / "config.json").write_text(json.dumps(cfg, indent=2))
     rows = []
-    with opened_device(create_camera(args.camera, args.cam_id, exposure_time_ms=0.02)) as cam:
+    with opened_device(create_camera(args.camera, args.cam_id, **camera_kwargs)) as cam:
         with opened_device(Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0)) as slm:
             slm.set_phase_overlay(None)
             try:
@@ -188,6 +204,16 @@ def main():
     parser.add_argument("--frames", type=int, default=3)
     parser.add_argument("--camera", default="daheng")
     parser.add_argument("--cam-id", type=int, default=0)
+    parser.add_argument(
+        "--exposure-ms",
+        type=argparse_exposure_type("--exposure-ms"),
+        default=AUTO_TOKEN,
+        help="Opening seed exposure for the calibration ladder (ms), not a fixed "
+        "value: 'auto' (default) reuses the last effective exposure recorded for "
+        "this camera backend/id, falling back to 0.02; 'default' leaves the "
+        "camera's own configured exposure untouched; a positive number seeds the "
+        "ladder there. The ladder itself still sweeps the full exposure list.",
+    )
     parser.add_argument("--slm-number", type=int, default=1)
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args()
