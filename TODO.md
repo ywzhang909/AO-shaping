@@ -5051,6 +5051,15 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: test_zernike_response_matrix + guard + conventions **387 passed 1 skipped**
 - 门禁: 棘轮 178/4/162 + 4 helper 行; 模块 baseline 抬高 (+20)
 
+**2026-11-13 · 4a8062a3 之后 · 第 85 批: `_run_pib_bench_session` 233→175 行 + 三缝 (`optimizer/wfless/pib.py`)**
+- 提取: `_pib_bench_epochs` 47 (`_run_spgd_epochs` 调用 + 状态解包) / `_pib_bench_optimizer` 12 (优化器构造) / `_pib_bench_best_seed` 11 (初始最优目标 + 电压种子)
+- `939:954` 整段不可提: `if lr == 0:` 分支内改 `delta` → 条件返回; 收窄到 939:947 的构造语句
+- `calc_objective` 经 trust 通道放行 (937 行无条件调用已证明其在 1012 前必然绑定)
+- 8 处 return 全在内层 def 或 objective 分支, 均在母函数保留
+- 叶差分: 20 同 / 消失 0 / 新增 3; ⑳ 审计 0 命中; 锚点 95/509 均在插入点之上
+- 载体: 4 个 pib 测试文件 + guard + conventions **387 passed 1 skipped**
+- 门禁: 棘轮 192/6/175 + 3 helper 行; 模块 baseline 抬高 (+37)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
