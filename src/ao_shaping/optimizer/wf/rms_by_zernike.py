@@ -614,6 +614,143 @@ def _rms_init_coefficients(init_range, init_z, n_init_positions, n_zernike, remo
 
 
 
+
+def _rmsr_schedules(delta, delta_min, delta_schedule, epoch, epochs, freeze_mask, lr, lr_min, lr_schedule, optimizer, perturb_weights):
+# LR and delta schedules plus effective weights lifted verbatim
+    current_epoch = epoch - 1
+
+    current_lr = get_lr_schedule(
+        lr_schedule, current_epoch, epochs, lr, lr_min
+    )
+    current_delta = get_delta_schedule(
+        delta_schedule, current_epoch, epochs, delta, delta_min
+    )
+    optimizer.lr = current_lr
+
+    effective_weights = perturb_weights * (~freeze_mask).astype(float)
+    return current_delta, effective_weights
+
+
+
+
+def _rmsr_minibatch_gradient(_init_c, calc_j, current_delta, effective_weights, mini_batch, n_zernike, remove_tilt, slm, slm_wait_time, wfs):
+# Mini-batch probe pair and gradient assembly lifted verbatim
+    if mini_batch > 1:
+        gradient, mb_info = compute_mini_batch_gradient(
+            _init_c,
+            slm,
+            wfs,
+            current_delta,
+            effective_weights,
+            n_zernike,
+            mini_batch,
+            slm_wait_time,
+            remove_tilt,
+            ZERNIKE_MIN,
+            ZERNIKE_MAX,
+        )
+        pos_j = mb_info["avg_pos_rms"]
+        neg_j = mb_info["avg_neg_rms"]
+        _pos_c = _init_c
+        _neg_c = _init_c
+        pos_wf = np.zeros((64, 64))
+        neg_wf = np.zeros((64, 64))
+        pos_phase = np.zeros((512, 512))
+        neg_phase = np.zeros((512, 512))
+        diff = pos_j - neg_j
+        pos_statics = {"rms": pos_j}
+        neg_statics = {"rms": neg_j}
+        pos_extra = {}
+        neg_extra = {}
+    else:
+        disturb_c = (
+            np.random.binomial(1, 0.5, (n_zernike,)).astype(float) * 2.0
+            - 1.0
+        )
+        disturb_c = disturb_c * current_delta * effective_weights
+        if len(disturb_c) > 0:
+            disturb_c[0] = 0
+
+        _pos_c = np.clip(_init_c + disturb_c, ZERNIKE_MIN, ZERNIKE_MAX)
+        pos_phase = slm.send_zernike(_pos_c, slm_wait_time)
+        pos_wf, pos_statics, pos_extra = calc_j()
+        pos_j = pos_statics["rms"]
+
+        _neg_c = np.clip(_init_c - disturb_c, ZERNIKE_MIN, ZERNIKE_MAX)
+        neg_phase = slm.send_zernike(_neg_c, slm_wait_time)
+        neg_wf, neg_statics, neg_extra = calc_j()
+        neg_j = neg_statics["rms"]
+
+        diff = pos_statics["rms"] - neg_statics["rms"]
+        # SPGD sign from the shared helper (optimizer/spgd.py).
+        gradient = spgd_gradient(
+            pos_statics["rms"],
+            neg_statics["rms"],
+            disturb_c,
+            maximize=False,
+        )
+    return _neg_c, _pos_c, diff, gradient, neg_extra, neg_j, neg_phase, neg_statics, neg_wf, pos_extra, pos_j, pos_phase, pos_statics, pos_wf
+
+
+
+
+def _rmsr_stagnation_boost(best_rms, current_delta, epoch, freeze_high_order_threshold, freeze_mask, stagnation_counter, stagnation_delta_boost, stagnation_patience):
+# Stagnation delta boost branch lifted verbatim
+    if (
+        stagnation_counter >= stagnation_patience
+        and stagnation_patience > 0
+    ):
+        logger.info(
+            f"Stagnation detected at epoch {epoch}, boosting delta by {stagnation_delta_boost}x"
+        )
+        current_delta = current_delta * stagnation_delta_boost
+        stagnation_counter = 0
+        if (
+            freeze_high_order_threshold is not None
+            and best_rms > freeze_high_order_threshold
+        ):
+            high_order_start = calc_n_zernike_terms(2)
+            freeze_mask[high_order_start:] = True
+            logger.info(
+                f"Freezing high-order Zernike modes (indices >= {high_order_start})"
+            )
+    return current_delta
+
+
+
+
+def _rmsr_epoch_log(_init_c, _neg_c, _pos_c, avg_j, bar, current_delta, diff, epoch, neg_extra, neg_phase, neg_statics, neg_wf, optimizer, pos_extra, pos_phase, pos_statics, pos_wf, recorder):
+# Per-epoch recorder payload and postfix lifted verbatim
+    log = {
+        "rms": avg_j,
+        RECORD_DIFF: diff,
+        "_gamma": optimizer.lr,
+        "delta": current_delta,
+        RECORD_EPOCH: epoch,
+        RECORD_COEFFS: _init_c,
+        "_pos_c": _pos_c,
+        "_neg_c": _neg_c,
+        "_wavefront": np.stack([pos_wf, neg_wf]),
+        RECORD_PHASE: np.stack([pos_phase, neg_phase]),
+        "_statics": {"pos": pos_statics, "neg": neg_statics},
+    }
+    if DEBUG_MODE:
+        log.update(
+            {
+                "_pos_intensity": pos_extra.get("_intensity"),
+                "_neg_intensity": neg_extra.get("_intensity"),
+                "_pos_dev_x": pos_extra.get("_dev_x"),
+                "_neg_dev_x": neg_extra.get("_dev_x"),
+                "_pos_dev_y": pos_extra.get("_dev_y"),
+                "_neg_dev_y": neg_extra.get("_dev_y"),
+            }
+        )
+    recorder.append(log)
+    bar.set_postfix(recorder.last_info_dict)
+    return 
+
+
+
 def _run_rms_session(
     *,
     algorithm: object,
@@ -698,72 +835,9 @@ def _run_rms_session(
             dynamic_ncols=True,
         ) as bar:
             for epoch in range(1, epochs + 1):
-                current_epoch = epoch - 1
+                current_delta, effective_weights = _rmsr_schedules(delta, delta_min, delta_schedule, epoch, epochs, freeze_mask, lr, lr_min, lr_schedule, optimizer, perturb_weights)
 
-                current_lr = get_lr_schedule(
-                    lr_schedule, current_epoch, epochs, lr, lr_min
-                )
-                current_delta = get_delta_schedule(
-                    delta_schedule, current_epoch, epochs, delta, delta_min
-                )
-                optimizer.lr = current_lr
-
-                effective_weights = perturb_weights * (~freeze_mask).astype(float)
-
-                if mini_batch > 1:
-                    gradient, mb_info = compute_mini_batch_gradient(
-                        _init_c,
-                        slm,
-                        wfs,
-                        current_delta,
-                        effective_weights,
-                        n_zernike,
-                        mini_batch,
-                        slm_wait_time,
-                        remove_tilt,
-                        ZERNIKE_MIN,
-                        ZERNIKE_MAX,
-                    )
-                    pos_j = mb_info["avg_pos_rms"]
-                    neg_j = mb_info["avg_neg_rms"]
-                    _pos_c = _init_c
-                    _neg_c = _init_c
-                    pos_wf = np.zeros((64, 64))
-                    neg_wf = np.zeros((64, 64))
-                    pos_phase = np.zeros((512, 512))
-                    neg_phase = np.zeros((512, 512))
-                    diff = pos_j - neg_j
-                    pos_statics = {"rms": pos_j}
-                    neg_statics = {"rms": neg_j}
-                    pos_extra = {}
-                    neg_extra = {}
-                else:
-                    disturb_c = (
-                        np.random.binomial(1, 0.5, (n_zernike,)).astype(float) * 2.0
-                        - 1.0
-                    )
-                    disturb_c = disturb_c * current_delta * effective_weights
-                    if len(disturb_c) > 0:
-                        disturb_c[0] = 0
-
-                    _pos_c = np.clip(_init_c + disturb_c, ZERNIKE_MIN, ZERNIKE_MAX)
-                    pos_phase = slm.send_zernike(_pos_c, slm_wait_time)
-                    pos_wf, pos_statics, pos_extra = calc_j()
-                    pos_j = pos_statics["rms"]
-
-                    _neg_c = np.clip(_init_c - disturb_c, ZERNIKE_MIN, ZERNIKE_MAX)
-                    neg_phase = slm.send_zernike(_neg_c, slm_wait_time)
-                    neg_wf, neg_statics, neg_extra = calc_j()
-                    neg_j = neg_statics["rms"]
-
-                    diff = pos_statics["rms"] - neg_statics["rms"]
-                    # SPGD sign from the shared helper (optimizer/spgd.py).
-                    gradient = spgd_gradient(
-                        pos_statics["rms"],
-                        neg_statics["rms"],
-                        disturb_c,
-                        maximize=False,
-                    )
+                _neg_c, _pos_c, diff, gradient, neg_extra, neg_j, neg_phase, neg_statics, neg_wf, pos_extra, pos_j, pos_phase, pos_statics, pos_wf = _rmsr_minibatch_gradient(_init_c, calc_j, current_delta, effective_weights, mini_batch, n_zernike, remove_tilt, slm, slm_wait_time, wfs)
 
                 if gradient_clip > 0:
                     gradient = np.clip(gradient, -gradient_clip, gradient_clip)
@@ -780,24 +854,7 @@ def _run_rms_session(
                 else:
                     stagnation_counter += 1
 
-                if (
-                    stagnation_counter >= stagnation_patience
-                    and stagnation_patience > 0
-                ):
-                    logger.info(
-                        f"Stagnation detected at epoch {epoch}, boosting delta by {stagnation_delta_boost}x"
-                    )
-                    current_delta = current_delta * stagnation_delta_boost
-                    stagnation_counter = 0
-                    if (
-                        freeze_high_order_threshold is not None
-                        and best_rms > freeze_high_order_threshold
-                    ):
-                        high_order_start = calc_n_zernike_terms(2)
-                        freeze_mask[high_order_start:] = True
-                        logger.info(
-                            f"Freezing high-order Zernike modes (indices >= {high_order_start})"
-                        )
+                current_delta = _rmsr_stagnation_boost(best_rms, current_delta, epoch, freeze_high_order_threshold, freeze_mask, stagnation_counter, stagnation_delta_boost, stagnation_patience)
 
                 rms_history.append(avg_j)
                 if early_stop_patience > 0 and early_stop_window > 0:
@@ -814,32 +871,7 @@ def _run_rms_session(
                         _init_c = best_c
                         break
 
-                log = {
-                    "rms": avg_j,
-                    RECORD_DIFF: diff,
-                    "_gamma": optimizer.lr,
-                    "delta": current_delta,
-                    RECORD_EPOCH: epoch,
-                    RECORD_COEFFS: _init_c,
-                    "_pos_c": _pos_c,
-                    "_neg_c": _neg_c,
-                    "_wavefront": np.stack([pos_wf, neg_wf]),
-                    RECORD_PHASE: np.stack([pos_phase, neg_phase]),
-                    "_statics": {"pos": pos_statics, "neg": neg_statics},
-                }
-                if DEBUG_MODE:
-                    log.update(
-                        {
-                            "_pos_intensity": pos_extra.get("_intensity"),
-                            "_neg_intensity": neg_extra.get("_intensity"),
-                            "_pos_dev_x": pos_extra.get("_dev_x"),
-                            "_neg_dev_x": neg_extra.get("_dev_x"),
-                            "_pos_dev_y": pos_extra.get("_dev_y"),
-                            "_neg_dev_y": neg_extra.get("_dev_y"),
-                        }
-                    )
-                recorder.append(log)
-                bar.set_postfix(recorder.last_info_dict)
+                _rmsr_epoch_log(_init_c, _neg_c, _pos_c, avg_j, bar, current_delta, diff, epoch, neg_extra, neg_phase, neg_statics, neg_wf, optimizer, pos_extra, pos_phase, pos_statics, pos_wf, recorder)
 
                 if avg_j < early_stop_threshold:
                     logger.info(f"Early stop at epoch {epoch} with rms={avg_j:.4f}")

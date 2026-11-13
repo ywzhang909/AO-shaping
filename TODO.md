@@ -5013,6 +5013,14 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: test_ga_zernike + guard + conventions **357 passed 1 skipped**; 模块 405 行 (未触 800 阈)
 - 门禁: 棘轮 206/6/188 + 2 helper 行
 
+**2026-11-13 · c6b34c37 之后 · 第 80 批: `_run_rms_session` 243→138 行 + 四缝 (`optimizer/wf/rms_by_zernike.py`)**
+- 提取: `_rmsr_minibatch_gradient` 57 (mini_batch>1 的正负探针对 + 梯度装配, 14 回传) / `_rmsr_epoch_log` 29 (逐 epoch 记录载荷 + postfix) / `_rmsr_stagnation_boost` 21 (迟滞 delta 提升) / `_rmsr_schedules` 14 (lr/delta 调度 + 有效权重)
+- 3 处含 `break` 的段 (815 早停判定 / 847 阈值退出 / 689 spgd 分支 return) 原样留在母函数体, 未跨函数搬 break
+- 叶差分: 17 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中; 母函数无装饰器
+- wiki: `functions/optimizer-rms-slm.md` source 与 `index.md` 862→894
+- 载体: test_rms_by_zernike + spgd_convention + guard + conventions **368 passed 1 skipped**
+- 门禁: 棘轮 158/6/138 + 4 helper 行; 模块 baseline 抬高 +32 (4 个 helper 定义与调用开销, 非功能增长)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
