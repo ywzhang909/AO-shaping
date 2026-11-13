@@ -5044,6 +5044,13 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: model_in_loop 两套测试 (含 loop invariants) + guard + conventions **518 passed 1 skipped**
 - 门禁: 棘轮 208/4/181 + 2 helper 行; 模块 baseline 抬高 +17
 
+**2026-11-13 · 45c4823f 之后 · 第 84 批: `calibrate_zernike_response_matrix` 234→162 行 + 四缝 (`optimizer/wf/zernike_response_matrix.py`)**
+- 提取: `_zrm_build_result` 27 (结果 dataclass 组装 + 摘要日志) / `_zrm_auto_amplitude` 23 (幅值自动寻优) / `_zrm_buffers` 23 (子孔径掩模 + 三个零矩阵) / `_zrm_initial_spots` 15 (平场 + 初始光斑基线)
+- 含 `break` 的 70 行标定主循环 (513-582) 与末尾 Return 段保留母函数
+- 叶差分: 16 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中; wiki `save-zernike-matrix` source/index 627→659 (其余 7 处锚点均在插入点之上)
+- 载体: test_zernike_response_matrix + guard + conventions **387 passed 1 skipped**
+- 门禁: 棘轮 178/4/162 + 4 helper 行; 模块 baseline 抬高 (+20)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
