@@ -54,6 +54,12 @@ DEFAULT_MIN_FLAT_SIMILARITY = 0.90
 #: 平移超过这个量级就不再是「同一条光路」的复用, 宁可重采。40 px 约当平场斑
 #: 第一圈衍射环直径的 2 倍, 也是光照包络宽度 (约 600 px) 的 7%。
 DEFAULT_MAX_ZERO_DRIFT_PX = 40.0
+#: 零点漂移**黄警**阈值 (px)，#243 前置二。派生自硬上限之半：40 px ≈ 平场斑
+#: 第一圈衍射环直径的 2 倍（见 :data:`DEFAULT_MAX_ZERO_DRIFT_PX` 注释），
+#: 20 px 即一个环径 —— 斑整体挪动一个环径时复用仍成立（不否决），但 #242 的
+#: G2b 门应显黄提示「光轴在走」。三档关系：``5 px``（无平场帧退路容忍，
+#: :data:`DEFAULT_TOL_ZERO_PX`）< ``20 px``（黄警）< ``40 px``（硬上限否决）。
+DEFAULT_WARN_ZERO_DRIFT_PX = DEFAULT_MAX_ZERO_DRIFT_PX / 2.0
 #: 求亚像素零点时峰值窗口的半宽 (px), 与采集段 ``locate`` 的局部矩窗口同量级。
 DEFAULT_CENTRE_HALF_WINDOW = 60
 
@@ -1044,6 +1050,35 @@ def same_path(
     ).same
 
 
+def zero_drift_verdict(
+    current_zero_xy: tuple[float, float],
+    reference_zero_xy: tuple[float, float] | None,
+    *,
+    warn_px: float = DEFAULT_WARN_ZERO_DRIFT_PX,
+    hard_px: float = DEFAULT_MAX_ZERO_DRIFT_PX,
+) -> tuple[str, str]:
+    """零级漂移三档结论 (``"ok"`` / ``"warn"`` / ``"hard"``)，#243 前置二。
+
+    逐轴绝对差取较大者，与 :func:`assess_reuse` 的 ``drift`` 同一算法。
+    ``reference_zero_xy`` 为 None 或坐标不可比时返回 ``("ok", 说明)`` ——
+    没有参照就没有漂移证据，判定端不得凭空报警（与 ``assess_reuse``
+    的 fail-open on missing reference 一致）。
+    """
+    if reference_zero_xy is None:
+        return "ok", "没有参照零点, 漂移判据不参与"
+    try:
+        dx = abs(float(current_zero_xy[0]) - float(reference_zero_xy[0]))
+        dy = abs(float(current_zero_xy[1]) - float(reference_zero_xy[1]))
+    except (TypeError, ValueError, IndexError):
+        return "ok", "零点不可比, 漂移判据不参与"
+    drift = max(dx, dy)
+    if drift > hard_px:
+        return "hard", f"零级漂移 {dx:.1f}/{dy:.1f} px 超硬上限 {hard_px:.0f} px"
+    if drift > warn_px:
+        return "warn", f"零级漂移 {dx:.1f}/{dy:.1f} px 超黄警 {warn_px:.0f} px (硬上限 {hard_px:.0f} px 内, 复用仍成立)"
+    return "ok", f"零级漂移 {dx:.1f}/{dy:.1f} px (黄警 {warn_px:.0f} px)"
+
+
 def format_probe_verdict(
     verdict: bool,
     *,
@@ -1120,6 +1155,7 @@ def format_probe_skip_line(reason: str) -> str:
 
 __all__ = [
     "DEFAULT_TOL_ZERO_PX",
+    "DEFAULT_WARN_ZERO_DRIFT_PX",
     "DEFAULT_TOL_EXPOSURE_FACTOR",
     "FLAT_FROZEN_SIDECAR",
     "OpticalProbe",
@@ -1129,6 +1165,7 @@ __all__ = [
     "read_bit_depth",
     "probe_from_latest",
     "same_path",
+    "zero_drift_verdict",
     "format_probe_verdict",
     "format_probe_skip_line",
     "REUSE_SKIP_DISABLED",
