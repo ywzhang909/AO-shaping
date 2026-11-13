@@ -4967,6 +4967,14 @@ slm_zernike_pib.py:1872`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: e2e mock `test_capture_live_prediction` 等 91 passed; 漏斗重钉后 19 passed; tools/slm 逐文件域 exit=0
 - 门禁: 棘轮 281/7/244 + 7 helper 行 (250 passed); 模块 baseline 抬高
 
+**2026-11-13 · bf1e178f 之后 · 第 75 批: `zernike_matrix_runner.run` 329→168 行 + 五缝**
+- 提取: `_zmr_calibration_sweep` 95 (`last_cal` 走形参通道回传) / `_zmr_finalize_calibration` 31 / `_zmr_pupil_guidance` 24 / `_zmr_prepare_dither_reference` 19 / `_zmr_echo_device_info` 12
+- 教训 ㉓ (**差点溜过**): 生成器把首条 helper 插在 `\ndef run(` 处, 而 `run` 头顶有 6 行 click/with_params 装饰器 ⇒ 装饰器被 `_zmr_finalize_calibration` 抢走, `run` 退化为裸函数; ruff/叶差分/形状门禁全绿也发现不了, 是 `test_cli_invocations_in_live_text` 的 `'function' object has no attribute 'params'` 抓住。修: 装饰器整块搬回 `def run` 上方; 生成器插入口改为**向上越过连续 `@` 行**再插
+- wiki 双 JSON + 两页 md 锚点: run `:1062→:1262`, closed_loop_run `:1580→:1621` (后者仅随母函数上方插入而下移)
+- 叶差分: 21 同 / 消失 0 / 新增 5; ⑳ 类回写审计 0 命中
+- 载体: `test_zernike_matrix_runner` + cli-help 快照 + conventions + 形状门禁 **330 passed 1 skipped**; runners 逐文件域 **exit=0**
+- 门禁: 棘轮 194/4/168 + 5 helper 行; 模块 1841→1880 baseline 抬高 +39
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

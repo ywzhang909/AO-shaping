@@ -1053,6 +1053,206 @@ class ZernikeMatrixParams:
     excluded_piston: bool = True
 
 
+def _zmr_finalize_calibration(device_info, last_cal, mode_ids, norm, params, ph, slm, wfs):
+# Final-calibration save-and-report branch lifted verbatim
+    if last_cal is not None:
+        try:
+            last_mag_rad, last_matrix, last_matrix_path = last_cal
+            offline_summary = offline_correction_test(
+                slm,
+                wfs,
+                ph,
+                last_matrix,
+                mode_ids,
+                n_max=norm["n_max"],
+                zernike_radius=float(params.zernike_radius),
+                n_avg=norm["n_averages"],
+                settle=norm["wait_time"],
+                device_info=device_info,
+                matrix_path=last_matrix_path,
+                correction_csv_path=params.correction_csv_path,
+                amplitude_rad=last_mag_rad,
+            )
+            if offline_summary.get("export"):
+                click.echo(
+                    f"离线矫正: RMS {offline_summary['before_rms']:.4f}λ → "
+                    f"{offline_summary['after_rms']:.4f}λ "
+                    f"({offline_summary['improvement_pct']:.1f}%)"
+                )
+        # policy: the offline correction check is a self-test appended to a finished calibration
+        except Exception as e:  # 矫正测试失败不使标定整体失败
+            logger.error("离线矫正测试失败: {}", e)
+            click.echo(f"[WARN] 离线矫正测试失败: {type(e).__name__}: {e}")
+    return 
+
+
+
+
+def _zmr_calibration_sweep(_display_cb, debug_cb, device_info, last_cal, magnitudes, mode_ids, norm, params, ph, results, slm, slm_params, wfs, wfs_driver):
+# Per-magnitude response-matrix calibration loop lifted verbatim
+    for mag in magnitudes:
+        mag_rad = float(mag if mag is not None else DEFAULT_MAGNITUDE_RAD)
+        mag_suffix = f"_mag{mag}" if mag is not None else "_auto"
+        mag_output_path = f"{params.output_path}{mag_suffix}"
+        click.echo(
+            f"\n=== Calibration run: magnitude={mag_rad} rad "
+            f"({mag_rad / (2 * np.pi):.3f}λ) ==="
+        )
+
+        matrix, variance, dev_mat, mask, wf_records = (
+            calibrate_response_matrix_pushpull(
+                slm,
+                wfs,
+                ph,
+                n_max=norm["n_max"],
+                magnitude_rad=mag_rad,
+                zernike_radius=float(params.zernike_radius),
+                n_averages=norm["n_averages"],
+                n_cycles=norm["n_cycles"],
+                settle=norm["wait_time"],
+                cancel_tile=norm["cancel_tile"],
+                excluded_piston=params.excluded_piston,
+                excluded_tip_tilt=params.excluded_tip_tilt,
+                debug_cb=debug_cb,
+                progress_cb=_display_cb,
+            )
+        )
+
+        result = ZernikeResponseMatrixResult(
+            matrix=matrix,
+            variance_matrix=variance,
+            deviation_response_matrix=dev_mat,
+            subaperture_mask=mask,
+            n_max=norm["n_max"],
+            # 单位: **λ** (waves) —— 与已验证脚本 slm_zernike_response.py 一致;
+            # verify_response_matrix / GUI 均按 "λ" 显示。曾误存弧度 (差 2π)。
+            magnitude=mag_rad / (2.0 * np.pi),
+            wavelength_nm=int(slm_params.wavelength),
+            n_averages=norm["n_averages"],
+            n_cycles=norm["n_cycles"],
+            timestamp=get_timestamp_str(),
+            excluded_piston=params.excluded_piston,
+            excluded_tip_tilt=params.excluded_tip_tilt,
+        )
+        if params.compute_inverses:
+            try:
+                result.pinv_matrix = safe_pinv(matrix)
+                result.lstsq_matrix = result.pinv_matrix
+            except np.linalg.LinAlgError as e:
+                logger.warning(f"逆矩阵计算失败: {e}")
+
+        # 附加硬件配置快照 (含完整 SLM/WFS 设备参数)
+        result.device_config = {
+            "device": device_info,
+            "slm_number": slm_params.slm_number,
+            "wavelength_nm": int(slm_params.wavelength),
+            "shift_x": int(slm.shift_x),
+            "shift_y": int(slm.shift_y),
+            "pupil": list(wfs.pupil),
+            "mla_index": str(norm["mla_index_enum"]),
+            "exposure_ms": norm["effective_exp_time"],
+            "high_speed": bool(wfs_driver.high_speed),
+            "use_custom_ref": bool(wfs_driver.use_custom_ref),
+            "correction_csv_path": params.correction_csv_path,
+            "zernike_radius_px": float(params.zernike_radius),
+            "magnitude_rad": mag_rad,
+            "amplitude_waves": mag_rad / (2.0 * np.pi),
+            "slm_mode_ids_dll": mode_ids,
+            "zernike_ordering": (
+                "DLL 顺序 m 枚举 (m=-n..+n), 非标准 Noll 1976: "
+                "[5](2,0)defocus [9](3,1)coma [13](4,0)spherical"
+            ),
+            "matrix_layout": (
+                "matrix[wfs_coeff_index, slm_mode_index]; 行 0..65 ↔ DLL [1..66]"
+            ),
+            "units": "λ/λ (WFS 系数 µm 经 um_to_waves 换算; 与矫正 w 同单位)",
+            "method": (
+                "push-pull ±A (Santec + PatternHelper, 与 "
+                "tools/slm/slm_zernike_response.py 同链路)"
+            ),
+            "condition_number_effective": effective_cond(matrix),
+        }
+
+        save_zernike_response_matrix(
+            result, mag_output_path, include_inverses=params.compute_inverses
+        )
+        click.echo(
+            f"Saved: {mag_output_path}.h5  (cond_eff={effective_cond(matrix):.2f})"
+        )
+        _save_wavefront_log_hdf5(wf_records, mag_output_path)
+        results.append((mag, result))
+        last_cal = (mag_rad, matrix, f"{mag_output_path}.h5")
+    return last_cal
+
+
+
+
+def _zmr_prepare_dither_reference(norm, params, slm, wfs, wfs_driver):
+# Dither amplitude and custom-reference setup lifted verbatim
+    if params.dither_amp > 0:
+        click.echo(
+            "[WARN] --dither-amp 原依赖 ZernikeSLM 链路; 重写后的 Santec 直控"
+            "链路暂不支持该功能, 已跳过 (推拉标定本身已含参考设置)"
+        )
+
+    # === 5. 初始化状态捕获 + 参考设置 ===
+    if not wfs_driver.use_custom_ref:
+        init_state = _capture_init_state(
+            slm,
+            wfs,
+            cancel_tile=norm["cancel_tile"],
+            zernike_order=norm["n_max"],
+            wait_time=norm["wait_time"],
+        )
+        _save_init_state_hdf5(init_state, params.output_path)
+    return 
+
+
+
+
+def _zmr_echo_device_info(slm, slm_params, wfs):
+# Device info collection and banner lifted verbatim
+    device_info = collect_device_info(slm, wfs, slm_params.slm_number)
+    _ds = device_info.get("slm") or {}
+    _dw = device_info.get("wfs") or {}
+    click.echo(
+        f"[INFO] 设备: SLM 温度={_ds.get('temperature_c')}°C "
+        f"版本={_ds.get('version')} 矫正={_ds.get('correction_enabled')} | "
+        f"WFS 曝光={_dw.get('exposure_time_ms')}ms MLA={_dw.get('mla_name')} "
+        f"{_dw.get('num_spots_x')}x{_dw.get('num_spots_y')}"
+    )
+    return device_info
+
+
+
+
+def _zmr_pupil_guidance(wfs, wfs_params):
+# Default pupil diameter guidance lifted verbatim
+    pupil_is_default = float(wfs_params.pupil_diameter) == 2.7 and tuple(
+        wfs_params.pupil_center
+    ) == (
+        0,
+        0,
+    )
+    if pupil_is_default:
+        wfs.take_image(n_sample=1, dynamicNoiseCut=True)
+        cx, cy, dx, dy = wfs.pupil = wfs.optimize_pupil()
+        click.echo(
+            f"[OK] pupil auto (optimize_pupil): "
+            f"center=({cx:.3f},{cy:.3f})mm d=({dx:.3f},{dy:.3f})mm"
+        )
+    else:
+        wfs.pupil = (
+            float(wfs_params.pupil_center[0]),
+            float(wfs_params.pupil_center[1]),
+            float(wfs_params.pupil_diameter),
+            float(wfs_params.pupil_diameter),
+        )
+        click.echo(f"[OK] pupil (CLI): {wfs.pupil}")
+    return 
+
+
+
 @click.command("zernike-matrix")
 @click.pass_context
 @with_params(ZernikeMatrixParams, kw_name="params")
@@ -1167,56 +1367,13 @@ def run(
         # pupil: 未显式指定 (默认 2.0mm / (0,0)) 时用 optimize_pupil 自动获取并**写回**。
         # ⚠️ 2026-09 教训: 硬编码 pupil 会污染 WFS_ZernikeLsf 拟合 (假 tip/tilt 达 4.6~12.8λ);
         #    且 ThorlabWFS.__init__ 传入的 pupil **会覆盖配置文件中的实测值** (L440-453)。
-        pupil_is_default = float(wfs_params.pupil_diameter) == 2.7 and tuple(
-            wfs_params.pupil_center
-        ) == (
-            0,
-            0,
-        )
-        if pupil_is_default:
-            wfs.take_image(n_sample=1, dynamicNoiseCut=True)
-            cx, cy, dx, dy = wfs.pupil = wfs.optimize_pupil()
-            click.echo(
-                f"[OK] pupil auto (optimize_pupil): "
-                f"center=({cx:.3f},{cy:.3f})mm d=({dx:.3f},{dy:.3f})mm"
-            )
-        else:
-            wfs.pupil = (
-                float(wfs_params.pupil_center[0]),
-                float(wfs_params.pupil_center[1]),
-                float(wfs_params.pupil_diameter),
-                float(wfs_params.pupil_diameter),
-            )
-            click.echo(f"[OK] pupil (CLI): {wfs.pupil}")
+        _zmr_pupil_guidance(wfs, wfs_params)
 
         # 完整设备参数 (随 h5 的 device_config 落盘, 供复现与审计)
-        device_info = collect_device_info(slm, wfs, slm_params.slm_number)
-        _ds = device_info.get("slm") or {}
-        _dw = device_info.get("wfs") or {}
-        click.echo(
-            f"[INFO] 设备: SLM 温度={_ds.get('temperature_c')}°C "
-            f"版本={_ds.get('version')} 矫正={_ds.get('correction_enabled')} | "
-            f"WFS 曝光={_dw.get('exposure_time_ms')}ms MLA={_dw.get('mla_name')} "
-            f"{_dw.get('num_spots_x')}x{_dw.get('num_spots_y')}"
-        )
+        device_info = _zmr_echo_device_info(slm, slm_params, wfs)
 
         # === 4. 抖动参考 (可选) ===
-        if params.dither_amp > 0:
-            click.echo(
-                "[WARN] --dither-amp 原依赖 ZernikeSLM 链路; 重写后的 Santec 直控"
-                "链路暂不支持该功能, 已跳过 (推拉标定本身已含参考设置)"
-            )
-
-        # === 5. 初始化状态捕获 + 参考设置 ===
-        if not wfs_driver.use_custom_ref:
-            init_state = _capture_init_state(
-                slm,
-                wfs,
-                cancel_tile=norm["cancel_tile"],
-                zernike_order=norm["n_max"],
-                wait_time=norm["wait_time"],
-            )
-            _save_init_state_hdf5(init_state, params.output_path)
+        _zmr_prepare_dither_reference(norm, params, slm, wfs, wfs_driver)
 
         # === 6. 计算标定幅度列表 (单位: **弧度**) ===
         magnitudes = _compute_calibration_magnitudes(
@@ -1250,132 +1407,14 @@ def run(
             except Exception as e:
                 logger.debug("ui_display.update 失败: {}", e)
 
-        for mag in magnitudes:
-            mag_rad = float(mag if mag is not None else DEFAULT_MAGNITUDE_RAD)
-            mag_suffix = f"_mag{mag}" if mag is not None else "_auto"
-            mag_output_path = f"{params.output_path}{mag_suffix}"
-            click.echo(
-                f"\n=== Calibration run: magnitude={mag_rad} rad "
-                f"({mag_rad / (2 * np.pi):.3f}λ) ==="
-            )
-
-            matrix, variance, dev_mat, mask, wf_records = (
-                calibrate_response_matrix_pushpull(
-                    slm,
-                    wfs,
-                    ph,
-                    n_max=norm["n_max"],
-                    magnitude_rad=mag_rad,
-                    zernike_radius=float(params.zernike_radius),
-                    n_averages=norm["n_averages"],
-                    n_cycles=norm["n_cycles"],
-                    settle=norm["wait_time"],
-                    cancel_tile=norm["cancel_tile"],
-                    excluded_piston=params.excluded_piston,
-                    excluded_tip_tilt=params.excluded_tip_tilt,
-                    debug_cb=debug_cb,
-                    progress_cb=_display_cb,
-                )
-            )
-
-            result = ZernikeResponseMatrixResult(
-                matrix=matrix,
-                variance_matrix=variance,
-                deviation_response_matrix=dev_mat,
-                subaperture_mask=mask,
-                n_max=norm["n_max"],
-                # 单位: **λ** (waves) —— 与已验证脚本 slm_zernike_response.py 一致;
-                # verify_response_matrix / GUI 均按 "λ" 显示。曾误存弧度 (差 2π)。
-                magnitude=mag_rad / (2.0 * np.pi),
-                wavelength_nm=int(slm_params.wavelength),
-                n_averages=norm["n_averages"],
-                n_cycles=norm["n_cycles"],
-                timestamp=get_timestamp_str(),
-                excluded_piston=params.excluded_piston,
-                excluded_tip_tilt=params.excluded_tip_tilt,
-            )
-            if params.compute_inverses:
-                try:
-                    result.pinv_matrix = safe_pinv(matrix)
-                    result.lstsq_matrix = result.pinv_matrix
-                except np.linalg.LinAlgError as e:
-                    logger.warning(f"逆矩阵计算失败: {e}")
-
-            # 附加硬件配置快照 (含完整 SLM/WFS 设备参数)
-            result.device_config = {
-                "device": device_info,
-                "slm_number": slm_params.slm_number,
-                "wavelength_nm": int(slm_params.wavelength),
-                "shift_x": int(slm.shift_x),
-                "shift_y": int(slm.shift_y),
-                "pupil": list(wfs.pupil),
-                "mla_index": str(norm["mla_index_enum"]),
-                "exposure_ms": norm["effective_exp_time"],
-                "high_speed": bool(wfs_driver.high_speed),
-                "use_custom_ref": bool(wfs_driver.use_custom_ref),
-                "correction_csv_path": params.correction_csv_path,
-                "zernike_radius_px": float(params.zernike_radius),
-                "magnitude_rad": mag_rad,
-                "amplitude_waves": mag_rad / (2.0 * np.pi),
-                "slm_mode_ids_dll": mode_ids,
-                "zernike_ordering": (
-                    "DLL 顺序 m 枚举 (m=-n..+n), 非标准 Noll 1976: "
-                    "[5](2,0)defocus [9](3,1)coma [13](4,0)spherical"
-                ),
-                "matrix_layout": (
-                    "matrix[wfs_coeff_index, slm_mode_index]; 行 0..65 ↔ DLL [1..66]"
-                ),
-                "units": "λ/λ (WFS 系数 µm 经 um_to_waves 换算; 与矫正 w 同单位)",
-                "method": (
-                    "push-pull ±A (Santec + PatternHelper, 与 "
-                    "tools/slm/slm_zernike_response.py 同链路)"
-                ),
-                "condition_number_effective": effective_cond(matrix),
-            }
-
-            save_zernike_response_matrix(
-                result, mag_output_path, include_inverses=params.compute_inverses
-            )
-            click.echo(
-                f"Saved: {mag_output_path}.h5  (cond_eff={effective_cond(matrix):.2f})"
-            )
-            _save_wavefront_log_hdf5(wf_records, mag_output_path)
-            results.append((mag, result))
-            last_cal = (mag_rad, matrix, f"{mag_output_path}.h5")
+        last_cal = _zmr_calibration_sweep(_display_cb, debug_cb, device_info, last_cal, magnitudes, mode_ids, norm, params, ph, results, slm, slm_params, wfs, wfs_driver)
 
         # === 8. 离线矫正测试 (测完响应矩阵后自动执行) ===
         #     恢复内部参考 → 平场基线 → pinv 反解当前像差 → ×2π 弧度加载
         #     → 复测残差 + 模型自检 → export_correction_csv 保存施加的矫正相位。
         #     ⚠️ 需要实验验证: 基线 RMS→残差 RMS 应有明显改善且模型自检比 ∈ 0.7~1.4;
         #     失败多半是单位 (λ/rad) 或 zernike_radius 与标定不一致。
-        if last_cal is not None:
-            try:
-                last_mag_rad, last_matrix, last_matrix_path = last_cal
-                offline_summary = offline_correction_test(
-                    slm,
-                    wfs,
-                    ph,
-                    last_matrix,
-                    mode_ids,
-                    n_max=norm["n_max"],
-                    zernike_radius=float(params.zernike_radius),
-                    n_avg=norm["n_averages"],
-                    settle=norm["wait_time"],
-                    device_info=device_info,
-                    matrix_path=last_matrix_path,
-                    correction_csv_path=params.correction_csv_path,
-                    amplitude_rad=last_mag_rad,
-                )
-                if offline_summary.get("export"):
-                    click.echo(
-                        f"离线矫正: RMS {offline_summary['before_rms']:.4f}λ → "
-                        f"{offline_summary['after_rms']:.4f}λ "
-                        f"({offline_summary['improvement_pct']:.1f}%)"
-                    )
-            # policy: the offline correction check is a self-test appended to a finished calibration
-            except Exception as e:  # 矫正测试失败不使标定整体失败
-                logger.error("离线矫正测试失败: {}", e)
-                click.echo(f"[WARN] 离线矫正测试失败: {type(e).__name__}: {e}")
+        _zmr_finalize_calibration(device_info, last_cal, mode_ids, norm, params, ph, slm, wfs)
 
         # === 9. 打印结果摘要 ===
         _print_calibration_summary(results, params.output_path, debug_dir)
