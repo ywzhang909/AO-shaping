@@ -746,8 +746,8 @@ payload 的键:
 | 终止状态 | 触发点 | dump 里的 stage 组成 |
 |---|---|---|
 | `aborted_unidentifiable` | 几何 对比择优 相关度不达标(`slm_model_in_loop.py:3203-3213` 抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:187-203`) | **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |
-| `aborted_unidentifiable` | **验证集**相关性不达标(`slm_model_in_loop.py:4035-4057`，2026-11-02 第二十四批整轮循环迁入 `_run_model_in_loop_rounds`、2026-11-11 第五十四批 `_run_model_in_loop_rounds` 一轮三缝后重钉、2026-11-12 第五十五批整 Try 体三缝后重钉、2026-11-12 第五十七批单 For 体五缝后重钉，原 `:3827-3849`) | `stepA-probe` 在, `stepB-shaped` **不在** |
-| `aborted_rejection_streak` | 连续 reject 达 `--max-rejection-streak` (`slm_model_in_loop.py:4115-4123`，2026-11-02 第二十四批迁入 `_run_model_in_loop_rounds`、2026-11-11 第五十四批一轮三缝后重钉、2026-11-12 第五十五批整 Try 体三缝后重钉、2026-11-12 第五十七批单 For 体五缝后重钉，原 `:4075-4083` → `model_in_loop_runner.py:269-275` 退出 `2`) | `stepA-probe` / `stepB-shaped` **都在**, 一直到最后被 reject 的那一轮 |
+| `aborted_unidentifiable` | **验证集**相关性不达标(`slm_model_in_loop.py:4056-4078`，2026-11-02 第二十四批整轮循环迁入 `_run_model_in_loop_rounds`、2026-11-11 第五十四批 `_run_model_in_loop_rounds` 一轮三缝后重钉、2026-11-12 第五十五批整 Try 体三缝后重钉、2026-11-12 第五十七批单 For 体五缝后重钉、2026-11-13 第八十三批两缝（`_milr_round_probe_setup`/`_milr_round_score_after` 提至函数上方，该块 4035-4057→4056-4078）后重钉，原 `:3827-3849`) | `stepA-probe` 在, `stepB-shaped` **不在** |
+| `aborted_rejection_streak` | 连续 reject 达 `--max-rejection-streak` (`slm_model_in_loop.py:4131-4139`，2026-11-02 第二十四批迁入 `_run_model_in_loop_rounds`、2026-11-11 第五十四批一轮三缝后重钉、2026-11-12 第五十五批整 Try 体三缝后重钉、2026-11-12 第五十七批单 For 体五缝后重钉、2026-11-13 第八十三批两缝（同上，该块 4115-4123→4131-4139）后重钉，原 `:4075-4083` → `model_in_loop_runner.py:269-275` 退出 `2`) | `stepA-probe` / `stepB-shaped` **都在**, 一直到最后被 reject 的那一轮 |
 
 **先看 stage 列表, 再看数字** —— 几何失败、验证集失败和持续 reject 要走的路完全不同。
 
