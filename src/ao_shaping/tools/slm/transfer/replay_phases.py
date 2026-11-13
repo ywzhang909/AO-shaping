@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from loguru import logger
 import json
 import pickle
@@ -12,6 +13,53 @@ import numpy as np
 
 from ao_shaping.algorithm.signal_processing.multishape_objective import ShapeObjective, image_metrics
 from .capture import clock, to_panel
+
+#: 满阱判据系数：``frame >= full_scale * SATURATION_FRACTION`` 即计为饱和像素。
+#: 与 validate 记录的 ``saturation_pixels``（validate.py）同一口径，#243 前置三。
+SATURATION_FRACTION = 250 / 255
+
+#: 核心饱和计数阈值（原整场硬抛使用的 ``core_peak >= 4014``，4095 制下
+#: ``full_scale * 250/255 ≈ 4014.7`` 的既有取整）。#243 前置三后逐块标记，
+#: 不再中断整场重放。
+CORE_SATURATION_COUNTS = 4014.0
+
+
+def saturation_pixels(frame: np.ndarray, full_scale: float = 4095.0) -> int:
+    """``frame`` 中达到满阱判据的像素数（与 validate 记录同口径）。"""
+    return int((np.asarray(frame) >= full_scale * SATURATION_FRACTION).sum())
+
+
+def core_saturated(core_peak: float, threshold: float = CORE_SATURATION_COUNTS) -> bool:
+    """核心峰值是否越限（沿用原硬抛的 ``>= 4014`` 比较，不另立口径）。"""
+    return bool(float(core_peak) >= threshold)
+
+
+@dataclass(frozen=True)
+class ReplaySaturationVerdict:
+    """一场重放的饱和结论（#243 前置三，供 #242 逐块视图直接消费）。
+
+    - ``stopped_blocks``: 核心越限的块 —— 原语义是整场中断，现在只作废该块判定；
+    - ``warning_blocks``: 全幅存在饱和像素但核心未越限的块（黄警）。
+    """
+
+    stopped_blocks: tuple[str, ...]
+    warning_blocks: tuple[str, ...]
+
+    @property
+    def any_saturated(self) -> bool:
+        return bool(self.stopped_blocks or self.warning_blocks)
+
+
+def replay_saturation_verdict(records) -> ReplaySaturationVerdict:
+    """按记录顺序聚合逐块饱和结论；输入是 ``replay()`` 写出的记录列表。"""
+    stopped: list[str] = []
+    warning: list[str] = []
+    for row in records:
+        if core_saturated(row.get("core_peak", 0.0)):
+            stopped.append(str(row.get("label", "")))
+        elif int(row.get("saturation_pixels") or 0) > 0:
+            warning.append(str(row.get("label", "")))
+    return ReplaySaturationVerdict(stopped_blocks=tuple(stopped), warning_blocks=tuple(warning))
 
 
 def _selections(args) -> list[tuple[Path, str]]:
@@ -126,7 +174,8 @@ def replay(args):
                             frames.append(frame)
                             stamps.append(dict(**stamp, end_monotonic_ns=time.monotonic_ns(), exposure_ms=float(get_camera_exposure_ms(camera))))
                         raw = np.stack(frames)
-                        sample = raw.mean(0)[grid[..., 1].astype(int), grid[..., 0].astype(int)]
+                        mean_frame = raw.mean(0)
+                        sample = mean_frame[grid[..., 1].astype(int), grid[..., 0].astype(int)]
                         filename = f"replay_{len(records):04d}.npz"
                         np.savez_compressed(args.out / filename, raw_frames=raw, model_phase=phase,
                             panel_gray=gray, camera_xy=grid, target=target, core=core)
@@ -134,17 +183,20 @@ def replay(args):
                         # are evaluated against the shape that was replayed.
                         shape_objective = ShapeObjective(target, cv_only=True)
                         shape_objective.core = core
+                        core_peak = float(sample[core].max())
                         record = dict(label=name, file=filename, exposure_ms=float(get_camera_exposure_ms(camera)),
                             full_scale=4095, bit_depth=12, counts_scale=16., frames=stamps,
                             camera_grid=list(grid.shape),
-                            metrics=image_metrics(sample, shape_objective), core_peak=float(sample[core].max()), **clock())
+                            metrics=image_metrics(sample, shape_objective), core_peak=core_peak,
+                            saturation_pixels=saturation_pixels(mean_frame, 4095.0),
+                            core_saturated=core_saturated(core_peak), **clock())
                         records.append(record)
                         (args.out / "manifest.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
                         with (args.out / "capture_records.pkl").open("wb") as stream:
                             pickle.dump(records, stream, protocol=5)
                         logger.info(json.dumps(record | dict(frames=len(stamps))))
-                        if record["core_peak"] >= 4014:
-                            raise RuntimeError("core saturated; raw replay retained")
+                        if record["core_saturated"]:
+                            logger.warning("core saturated at {}; block verdict void, raw replay retained, continuing", name)
             finally:
                 slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
                 time.sleep(.3)
