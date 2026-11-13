@@ -8,9 +8,21 @@ from __future__ import annotations
 
 import numpy as np
 
+from ao_shaping.utils.slm.gray_scale import resolve_max_grayscale
 
-def grayscale_to_radians(gray: np.ndarray, max_gray: int = 1023) -> np.ndarray:
-    """Map recorded panel gray to an ideal linear 0..2pi phase LUT."""
+
+def grayscale_to_radians(gray: np.ndarray, max_gray: int | None = None) -> np.ndarray:
+    """Map recorded panel gray to an ideal linear 0..2pi phase LUT.
+
+    ``max_gray`` is the 2π **encoding** scale the gray was produced with — by
+    default the configured ``[slm] two_pi_grayscale`` (``1023``), i.e. the same
+    :func:`ao_shaping.utils.slm.gray_scale.resolve_max_grayscale` entry point the
+    forward 弧度 → 灰度 conversion uses, so a recorded frame round-trips. Pass a
+    number only to reproduce frames written under a different scale (e.g. a
+    historical run at 993).
+    """
+    if max_gray is None:
+        max_gray = resolve_max_grayscale()
     if max_gray <= 0:
         raise ValueError("max_gray must be positive")
     array = np.asarray(gray)

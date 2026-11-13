@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from ao_shaping.utils.slm.gray_scale import resolve_max_grayscale
 from ao_shaping.utils.wavefront.phase_unwrap import (
     PhaseUnwrapper,
     UnwrapStrategy,
@@ -211,11 +212,34 @@ class PatternHelper:
         - vortex: 涡旋相位
     """
 
-    def __init__(self, resolution: tuple[int, int], bits: int = 10) -> None:
+    def __init__(
+        self,
+        resolution: tuple[int, int],
+        bits: int = 10,
+        max_grayscale: int | None = None,
+    ) -> None:
+        """构造 PatternHelper。
+
+        Args:
+            resolution: ``(width, height)``。
+            bits: 输出位深, 仅在既没有显式 ``max_grayscale`` 也没有配置
+                ``[slm] two_pi_grayscale`` 时决定编码标度 ``2**bits-1``
+                (默认 10 ⇒ 1023)。位深 10 是标准 SLM 口径, 走配置。
+            max_grayscale: 显式 2π 编码标度; 高于配置与 ``bits`` 的优先级
+                (诊断 / 复现历史数据用)。
+        """
         self.resolution = resolution
         self.bits = bits
         height, width = resolution[1], resolution[0]
-        self._max_val = 2**bits - 1
+        # 2π 编码标度 (弧度→灰度): 显式 > 配置 ([slm] two_pi_grayscale) >
+        # ``2**bits-1``。10 bit (默认) 一律走配置 (缺省 1023), 保证与
+        # 驱动 ``create_phase_from_array`` 的默认值一致。
+        if max_grayscale is not None:
+            self._max_val = resolve_max_grayscale(max_grayscale)
+        elif bits == 10:
+            self._max_val = resolve_max_grayscale()
+        else:
+            self._max_val = 2**bits - 1
         self._height = height
         self._width = width
 

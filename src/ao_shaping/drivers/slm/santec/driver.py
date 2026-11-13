@@ -68,14 +68,18 @@ from ao_shaping.drivers.slm.santec.wavefront_correction import WavefrontCorrecti
 from ao_shaping.utils.io import paths
 from ao_shaping.utils.io.device_config import ConfigHandler, DeviceParam, param
 from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
+from ao_shaping.utils.slm.gray_scale import resolve_max_grayscale
 from ao_shaping.utils.slm.slm_lut import require_validated_lut
 
-# ── 两个"灰度"的区别 (2026-11-04 定案, 别再混) ─────────────────────────────
+# ── 两个"灰度"的区别 (2026-11-04 定案, 2026-11-12 更新) ────────────────────
 #
-# 1. ``MAX_GRAYSCALE_VALUE`` = 1023 —— 面板**灰度满量程** (10 bit), 也是本仓库
-#    **唯一的"2π 对应灰度"编码口径**: 弧度 → 灰度一律
-#    ``gray = phase / 2π * 1023`` (:meth:`Santec.create_phase_from_array`、
-#    ``phase_to_slm_grayscale``、GUI 预览/保存、波前矫正与 CSV 导入导出)。
+# 1. ``MAX_GRAYSCALE_VALUE`` = 1023 —— 面板**灰度满量程** (10 bit), 也是**硬件
+#    常量**: 用于灰阶钳制、CSV 导入导出契约与设备诊断换算。它不是编码标度。
+#    **2π 编码标度** (弧度 → 灰度 ``gray = phase / 2π * scale``) 现在**用户可配**:
+#    配置文件 ``[slm] two_pi_grayscale`` (缺省 1023), 唯一解析入口是
+#    :func:`ao_shaping.utils.slm.gray_scale.resolve_max_grayscale` ——
+#    :meth:`Santec.create_phase_from_array`、:meth:`Santec.encoding_max_grayscale`、
+#    ``phase_to_slm_grayscale``、GUI 预览/保存、波前矫正与 CSV 导入导出一律走它。
 #    发送路径不按波长改写这个标度。
 #
 # 2. ``self._max_gray`` —— 设备相位表回报的**物理 2π 灰度**, 只作诊断:
@@ -96,6 +100,9 @@ from ao_shaping.utils.slm.slm_lut import require_validated_lut
 #     避免导入导出与预览出现 1023/993 ≈ 1.03× 的往返缩放差;
 #   * ``SLM_Ctrl_WriteGS`` **不是**灰阶上限/增益 —— gs 900…1023 全段效率平坦
 #     (它只是"全屏均匀相位", 手册 §3.2.7; 下发内存图案即覆盖)。
+#   * 若用户把 ``two_pi_grayscale`` 配成 993 (与物理 2π 对齐), 上述过调制消失,
+#     但导出 CSV / 矫正偏移的 1023 口径会引入 ≈1.03× 缩放差 —— 所以**默认 1023**,
+#     改小属高级调优, 需自行权衡 (见 :mod:`ao_shaping.utils.slm.gray_scale`)。
 #
 # 复核脚本 (都在 ``scripts/slm/``):
 #   * ``probe_wl_phase_vs_efficiency.py`` —— 扫 ``WriteWL`` 的 phase (= 2π 灰度旋钮),
@@ -416,6 +423,21 @@ class Santec:
     Response_time_ms = RESPONSE_TIME_MS
     Gray_Scale_bits = GRAY_SCALE_BITS
     MAX_GRAYSCALE_VALUE = get_max_grayscale()
+
+    @classmethod
+    def encoding_max_grayscale(cls) -> int:
+        """2π 对应**编码**灰度 (弧度 → 灰度 ``gray = phase/2π × scale``)。
+
+        该标度**用户可配**: 配置文件 ``[slm] two_pi_grayscale`` (缺省 1023),
+        经 :func:`ao_shaping.utils.slm.gray_scale.resolve_max_grayscale` 解析。
+        与 :attr:`MAX_GRAYSCALE_VALUE` (硬件满量程常量) 不同 —— 后者只作灰阶
+        钳制 / CSV 契约 / 诊断, 不是编码标度。
+
+        Returns:
+            实际用于编码的灰度标度 (``1..65535``)。
+        """
+        return resolve_max_grayscale()
+
     # 厂商随仓库分发的出厂矫正 CSV —— 属于**另一块面板** (序列号 240236000006)
     # 在 **520nm** 下测得，与本机面板 (22030108 @1064nm) 不匹配。套用会把一片
     # 无关波前叠加到面板上（零级从 ~14px 弥散成 ~68px 弥散晕），因此**不再自动
@@ -1242,7 +1264,8 @@ class Santec:
         Returns:
             (wavelength_nm, max_grayscale_for_2pi) 元组。第二项是**设备物理**
             2π 灰度（诊断/上报用，如 993 @1064 nm）；弧度→灰度编码一律用
-            :attr:`MAX_GRAYSCALE_VALUE` (1023)，不要拿它当编码标度。
+            :func:`Santec.encoding_max_grayscale` (配置 ``[slm] two_pi_grayscale``,
+            缺省 1023)，不要拿它当编码标度。
 
         Raises:
             SantecError: 读取失败
@@ -1824,7 +1847,8 @@ class Santec:
 
         在 :meth:`create_phase_from_array` 中、矫正/LUT 之后、最终 ``mod`` 之前
         以灰度叠加。``None`` 表示清除。``phase_gray`` 来自 :meth:`get_displayed_phase`
-        （uint16 灰度，2π 满量程对应 ``MAX_GRAYSCALE_VALUE`` = 1023）。
+        （uint16 灰度，2π 满量程对应 ``encoding_max_grayscale()``，
+        即配置 ``[slm] two_pi_grayscale``，缺省 1023）。
         """
         if phase_gray is None:
             self._base_phase = None
@@ -1847,16 +1871,18 @@ class Santec:
 
         Args:
             phase_rad: 弧度制相位数组 (0-2π), shape (height, width)。
-            max_grayscale: 2π 弧度对应的灰度值。``None`` (默认) 取面板满量程
-                ``MAX_GRAYSCALE_VALUE`` (= 1023) —— 与矫正 CSV / 官方软件的
-                1023 满量程约定一致。设备相位表回报的物理 2π 灰度
+            max_grayscale: 2π 弧度对应的灰度值。``None`` (默认) 按用户配置
+                ``[slm] two_pi_grayscale`` (缺省 1023, 见
+                :func:`Santec.encoding_max_grayscale` /
+                :mod:`ao_shaping.utils.slm.gray_scale`); 传数字则强制用该标度
+                (诊断 / 复现历史数据时用)。设备相位表回报的物理 2π 灰度
                 ``_max_gray`` (993 @1064 nm) 只作诊断, **不参与**编码。
 
         Returns:
             灰度相位数组, dtype=uint16。
         """
         if max_grayscale is None:
-            max_grayscale = self.MAX_GRAYSCALE_VALUE
+            max_grayscale = self.encoding_max_grayscale()
 
         # 调整矩阵shape为SLM面板分辨率 (height, width)
         # 裁切/补零逻辑唯一实现在 _resize_to_panel → WavefrontCorrection.resize_to_panel

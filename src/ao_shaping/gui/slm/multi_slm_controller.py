@@ -313,7 +313,7 @@ def render_phase_preview(slm_num: int) -> None:
 
     slm = st.session_state.get(f"slm{slm_num}")
     if slm is not None:
-        max_gray = Santec.MAX_GRAYSCALE_VALUE
+        max_gray = Santec.encoding_max_grayscale()
         device_2pi = int(getattr(slm, "_max_gray", None) or max_gray)
         st.caption(
             f"编码 2π 灰度: {max_gray}（设备物理 2π={device_2pi}） | {colormap}"
@@ -393,9 +393,9 @@ def _build_control(pattern_type: str, slm_num: int) -> PatternControl:
             helper=_get_slm_helper(slm_num, width, height, bits),
         )
         # ``max_gray`` 编码标度不取设备的 ``_max_gray`` (物理 2π, 实测 993):
-        # 发送/预览/保存一律按面板满量程 1023，避免与官方软件 CSV 口径分叉。
+        # 发送/预览/保存一律按配置 ``[slm] two_pi_grayscale`` (缺省 1023),
         # 与驱动 ``create_phase_from_array`` 的默认值保持一致。
-        kwargs["max_gray"] = Santec.MAX_GRAYSCALE_VALUE
+        kwargs["max_gray"] = Santec.encoding_max_grayscale()
     else:
         width = int(st.session_state.get(f"{prefix}_width", 1920))
         height = int(st.session_state.get(f"{prefix}_height", 1200))
@@ -1193,7 +1193,7 @@ def _save_slm_phase_csv(slm_num: int) -> None:
             st.warning("无法获取当前显示的相位数据")
             return
         save_path = Path.home() / ".config" / "ao_shaping" / f"slm{slm_num}_phase.csv"
-        max_gray = Santec.MAX_GRAYSCALE_VALUE
+        max_gray = Santec.encoding_max_grayscale()
         phase_rad = phase.astype(np.float64) / float(max_gray) * 2 * np.pi
         Santec.save_phase_to_csv(phase_rad, save_path)
         st.success(f"SLM {slm_num} 相位已保存到 {save_path}")

@@ -25,6 +25,10 @@ CWD 相对 —— 仓库里 ``PATHS.root_dir`` 的约定就是这样, 换机器�
 用 ``AO_SHAPING_CONFIG`` 可指定其它路径。配置文件里的相对路径相对于**配置文件所在
 目录**解析, 不是 CWD。示例见仓库根 ``ao_shaping.toml.example``。
 
+除 ``[paths]`` 外, 文件里还可以有别的段 (如 ``[slm] two_pi_grayscale``)。本模块不解释
+它们的语义, 只提供 :func:`read_config_section` 原样取出整段, 由各模块自己校验类型
+并给缺省值 —— 这样新增一个配置项不需要再改这里。
+
 本模块在 import 时不做任何磁盘 I/O: 配置文件在每次调用时惰性读取 (文件很小),
 按 (路径, mtime) 缓存, 改完配置立即生效。
 """
@@ -61,8 +65,11 @@ _DEFAULT_DATA_DIR = Path("data")
 _DEFAULT_WEIGHTS_SUBDIR = "slm_models"
 _DEFAULT_DATA_SUBDIR = "data"
 
-#: ``(配置文件路径, mtime) → [paths] 段``。mtime 变了就重读, 改配置立即生效。
-_SECTION_CACHE: tuple[str, float, dict[str, str]] | None = None
+#: ``(配置文件路径, mtime) → 整份配置``。mtime 变了就重读, 改配置立即生效。
+#:
+#: 缓存的是**整份文档**而不是单个段: 除 ``[paths]`` 之外还有 ``[slm]`` 等段
+#: (见 :func:`read_config_section`), 按段各存一份会让同一份文件被解析多遍。
+_CONFIG_CACHE: tuple[str, float, dict[str, object]] | None = None
 
 
 def anchor_dir() -> Path:
@@ -86,21 +93,21 @@ def config_file_path() -> Path:
     return anchor_dir() / CONFIG_FILE_NAME
 
 
-def _read_paths_section() -> dict[str, str]:
-    """读取配置文件 ``[paths]`` 段; 文件缺失或格式错误时返回空 dict 并记日志。"""
-    global _SECTION_CACHE
+def _load_config_document() -> dict[str, object]:
+    """读取并缓存整份配置文件; 文件缺失或格式错误时返回空 dict 并记日志。"""
+    global _CONFIG_CACHE
 
     path = config_file_path()
     try:
         mtime = path.stat().st_mtime
     except OSError:
-        _SECTION_CACHE = None
+        _CONFIG_CACHE = None
         return {}
 
-    if _SECTION_CACHE is not None:
-        cached_path, cached_mtime, cached_section = _SECTION_CACHE
+    if _CONFIG_CACHE is not None:
+        cached_path, cached_mtime, cached_doc = _CONFIG_CACHE
         if cached_path == str(path) and cached_mtime == mtime:
-            return cached_section
+            return cached_doc
 
     try:
         with path.open("rb") as fh:
@@ -109,14 +116,40 @@ def _read_paths_section() -> dict[str, str]:
         logger.warning("配置文件读取失败, 忽略: {} ({})", path, exc)
         return {}
 
-    section = data.get("paths", {})
-    if not isinstance(section, dict):
-        logger.warning("配置文件 [paths] 段不是表, 忽略: {}", path)
-        return {}
+    _CONFIG_CACHE = (str(path), mtime, data)
+    return data
 
-    parsed = {str(k): str(v) for k, v in section.items() if isinstance(v, str)}
-    _SECTION_CACHE = (str(path), mtime, parsed)
-    return parsed
+
+def read_config_section(section: str) -> dict[str, object]:
+    """读取配置文件里任意 ``[section]`` 段的**原始值**; 段缺失时返回空 dict。
+
+    与 :func:`_read_paths_section` 的区别: 后者只服务路径解析, 于是把值强转成
+    ``str`` 并丢掉非字符串; 这里的调用方要的是**带类型的数值/布尔** (如
+    ``[slm] two_pi_grayscale = 1023``), 所以原样返回, 由调用方自己校验类型。
+
+    文件不存在、无法解析、或该段不是表时都返回空 dict 并记一条日志 —— 调用方
+    据此走各自缺省值, 而不是分支判"配置有没有"。
+
+    Args:
+        section: 段名 (TOML 顶层键), 如 ``"slm"``。
+
+    Returns:
+        该段的键 → 原始值 (``bool`` / ``int`` / ``float`` / ``str`` / 嵌套表)。
+    """
+    data = _load_config_document()
+    value = data.get(section, {})
+    if not isinstance(value, dict):
+        logger.warning(
+            "配置文件 [{}] 段不是表, 忽略: {}", section, config_file_path()
+        )
+        return {}
+    return dict(value)
+
+
+def _read_paths_section() -> dict[str, str]:
+    """读取配置文件 ``[paths]`` 段 (只取字符串值); 文件缺失或格式错误时返回空 dict。"""
+    section = read_config_section("paths")
+    return {str(k): str(v) for k, v in section.items() if isinstance(v, str)}
 
 
 def _resolve_config_path(raw: str) -> Path:

@@ -33,3 +33,11 @@
 # dm_config_dir = "D:/ao_shaping_configs/dm_configs"
 # micro_dm_config_dir = "D:/ao_shaping_configs/micro_dm_configs"
 # wfs_config_dir = "D:/ao_shaping_configs/wfs_configs"
+
+# ── SLM 相位编码 ──────────────────────────────────────────────────────────────
+[slm]
+# 2π 相位对应的**编码**灰度 (弧度 → 灰度: gray = phase / 2π × 本值)。
+# 缺省 1023 = 10 bit 面板满量程, 与官方软件 / 矫正 CSV 的满量程约定一致。
+# 设备相位表回报的"物理 2π 灰度" (SLM#1 @1064nm 实测 993) 只作诊断, 不参与编码。
+# 改成 993 可消除约 3% 过调制, 但导出的 CSV / 矫正偏移会出现 1023/993 ≈ 1.03× 缩放差。
+# two_pi_grayscale = 1023

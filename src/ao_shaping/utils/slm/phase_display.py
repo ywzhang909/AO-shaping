@@ -27,6 +27,10 @@ import numpy as np
 from loguru import logger
 from ao_shaping.model.field import PhaseMap
 from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M, SLM_PITCH_M
+from ao_shaping.utils.slm.gray_scale import (
+    DEFAULT_MAX_GRAYSCALE,
+    resolve_max_grayscale,
+)
 
 __all__ = [
     "DEFAULT_WAVELENGTH",
@@ -42,7 +46,9 @@ __all__ = [
 DEFAULT_WAVELENGTH: float = LASER_WAVELENGTH_M  # 1064 nm YAG laser (meters)
 DEFAULT_SLM_PIXEL_SIZE: float = SLM_PITCH_M  # SLM pixel pitch (meters)
 DEFAULT_DISTANCE: float = 0.1  # default propagation distance (meters)
-DEFAULT_MAX_GRAYSCALE: int = 1023  # grayscale value corresponding to 2*pi
+# ``DEFAULT_MAX_GRAYSCALE`` (2π 对应灰度, 缺省 1023) 的唯一真源是
+# ``utils/slm/gray_scale``: 它带配置读取 (``[slm] two_pi_grayscale``)。
+# 这里 re-export 保持既有导入路径不变。
 
 
 def phase_to_slm_grayscale(
@@ -53,17 +59,20 @@ def phase_to_slm_grayscale(
     """将相位图 (弧度) 转换为 SLM uint16 灰度图。
 
     优先走 SLM 驱动的统一实现 :meth:`create_phase_from_array` (弧度→灰度 +
-    波前矫正 + LUT + 平移 + mod 2π, 2π 编码灰度取面板满量程
-    ``Santec.MAX_GRAYSCALE_VALUE`` = 1023);
+    波前矫正 + LUT + 平移 + mod 2π, 2π 编码灰度按用户配置
+    ``[slm] two_pi_grayscale``, 缺省 1023, 见
+    :mod:`ao_shaping.utils.slm.gray_scale`);
     ``slm`` 为 ``None`` (纯模拟/离线保存/单元测试) 时回退到本函数内置的
     纯数学转换: 相位折叠到 ``[0, 2π)`` 后缩放到 ``[0, max_grayscale]``
-    并截断为 ``uint16``。
+    并截断为 ``uint16`` —— 与驱动路径用**同一个**标度解析入口, 因此离线
+    与实验得到的灰度逐位一致。
 
     Args:
         phase: 以弧度表示的二维相位数组。
-        max_grayscale: 对应 ``2*pi`` 的灰度值 (10 位 LCOS 设备默认 1023)。
-            传给驱动时为 ``None`` 则使用设备满量程 ``MAX_GRAYSCALE_VALUE``
-             (1023)，与矫正 CSV / 官方软件口径一致。
+        max_grayscale: 对应 ``2*pi`` 的灰度值。``None`` (默认) 表示"按用户配置":
+            配置文件 ``[slm] two_pi_grayscale`` (缺省 1023, 见
+            :mod:`ao_shaping.utils.slm.gray_scale`)。传数字则强制用该标度
+            (诊断 / 复现历史数据时用)。
         slm: 已打开的 SLM 设备 (鸭子类型, 暴露 ``create_phase_from_array``),
             可为 ``None`` 以使用纯数学转换。
 
@@ -75,7 +84,7 @@ def phase_to_slm_grayscale(
     if slm is not None:
         return slm.create_phase_from_array(phase, max_grayscale=max_grayscale)
     if max_grayscale is None:
-        max_grayscale = DEFAULT_MAX_GRAYSCALE
+        max_grayscale = resolve_max_grayscale()
     phase = np.asarray(phase, dtype=np.float32)
     phase = np.mod(phase, 2 * np.pi)
     gray = (phase / (2 * np.pi)) * max_grayscale

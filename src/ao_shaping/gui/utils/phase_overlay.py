@@ -243,7 +243,11 @@ class OverlaidSantec:
         """
         slm = self._slm
         if max_grayscale is None:
-            max_grayscale = int(getattr(slm, "MAX_GRAYSCALE_VALUE", 1023) or 1023)
+            # 统一走配置 (``[slm] two_pi_grayscale``, 缺省 1023): 不再回退到
+            # 驱动类的硬件满量程常量, 否则配置改了但 GUI 预览/发送仍用 1023。
+            from ao_shaping.utils.slm.gray_scale import resolve_max_grayscale
+
+            max_grayscale = resolve_max_grayscale()
         # 离焦（弧度）：相位空间，先于 弧度→灰度 转换。输入先对齐到面板尺寸。
         panel_phase = slm._resize_to_panel(phase_rad)
         if self._overlay.has_phase:

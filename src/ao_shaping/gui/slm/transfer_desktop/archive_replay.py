@@ -154,9 +154,16 @@ _COL_NAME, _COL_TIME, _COL_SIZE, _COL_ACTION = range(len(ARCHIVE_COLUMNS))
 _PLAY_LABEL = "▶ 自动播放"
 _STOP_LABEL = "■ 停止"
 
-#: SLM 面板的灰度满量程 (10 bit)。与 ``Santec.MAX_GRAYSCALE_VALUE`` 同值; 这里写字面
-#: 量, 免得为了一个常数 import 驱动。
-PREVIEW_MAX_GRAY = 1023
+def preview_max_gray() -> int:
+    """预览/回放用的 2π **编码**灰度 (走 ``[slm] two_pi_grayscale`` 配置口径)。
+
+    与 ``pattern_controls._phase_to_preview`` 的默认值同一个来源
+    (:func:`ao_shaping.utils.slm.gray_scale.resolve_max_grayscale`, 缺省 1023)。
+    这里不 import 驱动, 只 import 那个零硬件依赖的解析模块。
+    """
+    from ao_shaping.utils.slm.gray_scale import resolve_max_grayscale
+
+    return resolve_max_grayscale()
 
 #: 相位预览的两种色图, 文案与 ``pattern_controls.PREVIEW_COLORMAP_LABELS`` 一致。
 PREVIEW_COLORMAPS: tuple[str, ...] = ("相位色图 (twilight)", "灰度")
@@ -436,11 +443,14 @@ def phase_to_preview(
 ) -> np.ndarray:
     """原始 SLM 灰度 → RGB 预览图 (float32, 值域 0..1)。
 
-    与 ``pattern_controls._phase_to_preview`` 同阈值: 先除以面板满量程并钳到
-    ``0..1``, 再走 ``twilight`` (循环色图, 0 与 2π 同色) 或灰度; 不 import 驱动。
+    与 ``pattern_controls._phase_to_preview`` 同阈值: 先除以 2π 编码标度 (默认取
+    配置口径 :func:`preview_max_gray`) 并钳到 ``0..1``, 再走 ``twilight`` (循环色图,
+    0 与 2π 同色) 或灰度; 不 import 驱动。**不要**拿设备回报的物理 2π 灰度
+    (``slm._max_gray``, 本机 1064 nm 实测 993) 当 ``max_gray``: 那会把每帧整体缩放
+    一次, 掩盖真正下发的灰度码。
     """
     if max_gray is None:
-        max_gray = PREVIEW_MAX_GRAY
+        max_gray = preview_max_gray()
     max_gray = int(max(1, int(max_gray)))
 
     normalized = np.clip(
@@ -449,7 +459,7 @@ def phase_to_preview(
         1.0,
     )
     if colormap == "灰度":
-        gray = np.minimum(1.0, normalized * (1023 / max_gray))
+        gray = normalized
         return np.stack([gray, gray, gray], axis=-1)
 
     import matplotlib
@@ -466,7 +476,7 @@ def _phase_gray_from(data) -> np.ndarray | None:
     if "panel_phase" in data.files:
         phase = np.asarray(data["panel_phase"], dtype=np.float32)
         wrapped = np.mod(np.nan_to_num(phase), 2.0 * np.pi)
-        return wrapped / (2.0 * np.pi) * float(PREVIEW_MAX_GRAY)
+        return wrapped / (2.0 * np.pi) * float(preview_max_gray())
     return None
 
 
@@ -474,7 +484,7 @@ def _phase_array_to_gray(phase: np.ndarray) -> np.ndarray:
     """迭代 pkl 的 ``phase`` 是未包裹弧度 (可为负 / 可 >2π): 取模后映射到灰度。"""
     arr = np.nan_to_num(np.asarray(phase, dtype=np.float32))
     wrapped = np.mod(arr, 2.0 * np.pi)
-    return (wrapped / (2.0 * np.pi) * float(PREVIEW_MAX_GRAY)).astype(np.float32)
+    return (wrapped / (2.0 * np.pi) * float(preview_max_gray())).astype(np.float32)
 
 
 def load_capture(path: str | Path, index: int | None = None) -> CaptureData:
@@ -785,18 +795,25 @@ def _format_metrics(metrics: dict, keys: tuple[str, ...]) -> str:
 
 # ------------------------------------------------------------------- 弹窗
 # ---------------------------------------------------------------- 导出 (纯逻辑, 不碰硬件)
-_EXPORT_MAX_GRAY = 1023
 
 
-def phase_to_gray(phase):
+def phase_to_gray(phase, max_gray: int | None = None):
+    """弧度 → 灰度: 用 ``[slm] two_pi_grayscale`` 配置口径 (缺省 1023)。
+
+    导出的 CSV 要能被同一份配置读回, 所以这里的标度和真正下发用的标度必须
+    是同一个来源 (见 :mod:`ao_shaping.utils.slm.gray_scale`)。
+    """
+    scale = int(max_gray) if max_gray is not None else preview_max_gray()
     arr = np.asarray(phase, dtype=np.float64)
     wrapped = np.mod(np.nan_to_num(arr), 2.0 * np.pi)
-    return np.rint(wrapped / (2.0 * np.pi) * float(_EXPORT_MAX_GRAY)).astype(np.uint16)
+    return np.rint(wrapped / (2.0 * np.pi) * float(scale)).astype(np.uint16)
 
 
-def gray_to_phase(gray):
+def gray_to_phase(gray, max_gray: int | None = None):
+    """灰度 → 弧度: 与 :func:`phase_to_gray` 同一标度, 保证往返一致。"""
+    scale = int(max_gray) if max_gray is not None else preview_max_gray()
     arr = np.asarray(gray, dtype=np.float64)
-    return arr / float(_EXPORT_MAX_GRAY) * 2.0 * np.pi
+    return arr / float(scale) * 2.0 * np.pi
 
 
 def _rad_to_gray(phase):

@@ -74,10 +74,15 @@ class PatternControl(ABC):
         self.width = int(width)
         self.height = int(height)
         self.bits = int(bits)
-        #: 2π max-grayscale (encoding scale): the panel full scale
-        #: (1023 = MAX_GRAYSCALE_VALUE); device's physical 2π (slm._max_gray,
-        #: e.g. 993 @1064nm) stays diagnostic only and is never used here.
-        self.max_gray = int(max_gray) if max_gray is not None else (1 << self.bits) - 1
+        #: 2π **编码**标度 (配置口径 ``[slm] two_pi_grayscale``, 缺省 1023 = 面板满量程)。
+        #: 设备回报的物理 2π 灰度 (``slm._max_gray``, 本机 1064 nm 实测 993) 只作诊断,
+        #: 绝不参与这里的编码; 非 10 bit 的面板按位深算满量程。
+        if max_gray is not None:
+            self.max_gray = int(max_gray)
+        elif self.bits == 10:
+            self.max_gray = Santec.encoding_max_grayscale()
+        else:
+            self.max_gray = (1 << self.bits) - 1
         # Instance specs: render() pulls every widget's value/min/max from
         # these (never from st.session_state, never falling back to min_value).
         self.defaults = dict(self.DEFAULTS)
@@ -1201,14 +1206,14 @@ def _phase_to_preview(
     through the cyclic ``twilight`` colormap — smooth, hue-based rendering that
     keeps fine phase structure visible (0 ≈ 2π wrap at the same color).
     ``colormap="灰度"`` falls back to a plain grayscale normalization
-    replicated over RGB. ``max_gray`` is the 2π **encoding** scale — the panel
-    full scale (``Santec.MAX_GRAYSCALE_VALUE`` = 1023); when ``None`` it falls
-    back to that same constant. Never pass the device's physical 2π gray
+    replicated over RGB. ``max_gray`` is the 2π **encoding** scale — by default
+    the configured ``[slm] two_pi_grayscale`` (``Santec.encoding_max_grayscale()``,
+    default 1023). Never pass the device's physical 2π gray
     (``slm._max_gray``, e.g. 993 @1064 nm): previewing with it would rescale
     every frame by 1023/993 and hide the real gray codes being sent.
     """
     if max_gray is None:
-        max_gray = Santec.MAX_GRAYSCALE_VALUE
+        max_gray = Santec.encoding_max_grayscale()
     max_gray = int(max(1, int(max_gray)))
 
     normalized = np.clip(
@@ -1217,7 +1222,7 @@ def _phase_to_preview(
         1.0,
     )
     if colormap == "灰度":
-        gray = np.minimum(1.0, normalized * (1023 / max_gray))
+        gray = normalized
         return np.stack([gray, gray, gray], axis=-1)
 
     import matplotlib
@@ -1238,7 +1243,7 @@ def refresh_phase_preview(slm_num: int) -> None:
         return
 
     phase_gray, source = slm.get_displayed_phase()
-    max_gray = Santec.MAX_GRAYSCALE_VALUE
+    max_gray = Santec.encoding_max_grayscale()
     colormap = st.session_state.get(colormap_key, PREVIEW_COLORMAP_DEFAULT)
     st.session_state[phase_key] = (
         None
