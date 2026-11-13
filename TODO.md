@@ -4998,6 +4998,13 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: conventions + 形状门禁 + 13 个 pib 测试文件 **445 passed 2 skipped**
 - 门禁: 棘轮 163/3/141 + 2 helper 行; 模块 baseline 抬高 +16
 
+**2026-11-13 · 54d09909 之后 · 第 78 批: `render_process_gif` 213→121 行 + 五缝 (`transfer/recording.py`)**
+- 提取: `_rpg_prepare_frames` 36 (counts/ms 归一 + 95 分位 vmax) / `_rpg_prepare_series` 31 (去倾斜 + 色标 + 轨迹序列) / `_rpg_draw_readout` 13 / `_rpg_draw_trajectories` 20 / `_rpg_draw_heading` 12
+- 教训 ㉕: 生成器把**推导式变量**（`for record in records` 的 `record`/`image`）当成普通存储, 于是把它们写进 return → helper 内 `F821 undefined name`。修法: 从 helper return 与调用点 unpack 中删去这两个名字 (推导式作用域本就独立, 母函数在区域后必重新绑定)
+- 叶差分: 11 同 / 消失 0 / 新增 5; ⑳ 审计 0 命中; 该文件无文档锚点, 无装饰器
+- 载体: `test_recording.py` + guard + conventions **346 passed 1 skipped**; transfer 域逐文件 exit=0
+- 门禁: 棘轮 146/5/121 + 5 helper 行; 模块 549 行 (未触 800 阈, baseline 无变化)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
