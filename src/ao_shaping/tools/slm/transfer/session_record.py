@@ -172,6 +172,24 @@ def pause_requested(journal, key: str, out: Path) -> bool:
     return True
 
 
+def confirm_at_boundary(journal, key: str, out: Path, *,
+                        timeout_s: float | None = None) -> bool:
+    """段边界的「确认后继续」闸（#243 前置四，P4）。
+
+    没有挂起请求时零开销直通（返回 ``False`` = 继续）。挂起时轮询等外部确认：
+    确认 → 清标记继续下一段；否决或超时（fail-closed）→ 返回 ``True``，调用方
+    停在这一段之后，与协作式暂停同一个出口。结果写进 journal 供断点复盘。
+    """
+    if not campaign_control.stage_confirm_requested(out):
+        return False
+    kwargs = {} if timeout_s is None else {"timeout_s": timeout_s}
+    outcome = campaign_control.await_stage_confirmation(out, **kwargs)
+    journal.record(key, "confirm_" + outcome, reason="stage-boundary confirmation gate")
+    campaign_control.clear_stage_confirm(out)
+    logger.info("stage-boundary confirmation gate at {}: {}", key, outcome)
+    return outcome != "confirmed"
+
+
 def finish_segment(journal, key: str, stage_dir: Path, *, stage: str, shape: str,
                    fallback_blocks: int, out: Path) -> bool:
     """一段测完之后的全部记账：成本落盘 + 段边界暂停判定。

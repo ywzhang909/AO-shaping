@@ -48,7 +48,8 @@ from ao_shaping.tools.slm.transfer.hardware import DeviceOpenError
 from ao_shaping.tools.slm.transfer.protocol import derive_replay_exposures
 from ao_shaping.tools.slm.transfer.session_plan import stage_complete
 from ao_shaping.tools.slm.transfer.session_record import (
-    finish_segment, measured_peak_rates, optical_session_field, record_optical_session)
+    confirm_at_boundary, finish_segment, measured_peak_rates, optical_session_field,
+    record_optical_session)
 from ao_shaping.tools.slm.transfer.stages import STAGE_RECIPES, StageRecipe
 from ao_shaping.utils.image.target import TRANSFER_SHAPE_CHOICES
 
@@ -780,6 +781,8 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
         # cost.json，供成本面板外推；段边界的协作式暂停也在这一步判定。
         if finish_segment(journal, key, stage_dir, stage=recipe.name, shape=shape,
                           fallback_blocks=recipe.blocks, out=out):
+            return True
+        if confirm_at_boundary(journal, key, out):
             return True
     return False
 
