@@ -656,7 +656,7 @@ def run(params: LutRunnerParams) -> None:
         final_exposure_ms = params.exposure_ms
 
         # Estimate full-well based on bit depth (for saturation detection)
-        cam_bit_depth = getattr(camera, "_bit_depth", 8)
+        cam_bit_depth = getattr(camera, "bit_depth", None) or getattr(camera, "_bit_depth", 8)
         full_well = float((1 << cam_bit_depth) - 1)
         logger.info("Camera: {} bit, full_well={:.0f}", cam_bit_depth, full_well)
 

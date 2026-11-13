@@ -114,6 +114,9 @@ cam.auto_exposure(
 | `start_stream(on_frame)` | 启动后台取流 (GUI 用); 默认轮询线程调 `get_numpy_image(1, skip_first=False)`, MiiCam 覆写为 SDK 回调模式 |
 | `stop_stream()` | 停止取流 (幂等); 保证取流线程退出 |
 | `set_exposure_ms(ms)` | 运行中改曝光的安全入口, 返回生效值; 默认委托 `reset_exposure_time` (MiiCam 走快速通道) |
+| `bit_depth` | 实例属性: 当前**生效**位深 (bit), 默认 `None` = 未声明/未打开; 只放后端**回读到的真值**, 不是请求值 |
+| `supported_bit_depths` | 类属性: 该后端可切换的位深档位, 默认 `()` = 不支持 (ffmpeg/image_folder/sim 不登记) |
+| `set_bit_depth(bits)` | 切换输出位深, **返回设备回读的生效值**; 基类默认抛 `CameraError` (未登记档位); 档位不支持抛 `ValueError`, 不回落 |
 
 具体驱动 (MIICAM/FFmpeg/Daheng) 还提供 `set_auto_exposure_target(target)` 方法 (非抽象, 由各驱动自行实现)。
 
@@ -155,6 +158,47 @@ python -m ao_shaping.drivers.ccd.pixel_size --store MER2-507-23GM 2.2
 ```
 
 脚本侧对应 `cam.ensure_pixel_size_um(prompt=input)` (未登记则提问 + 写入配置 + 本实例生效)。
+
+### 位深 `bit_depth` / `supported_bit_depths` / `set_bit_depth` (2026-11-12)
+
+输出位深决定**满量程** (8 bit=255 / 12 bit=4095 / 16 bit=65535), 一切按满量程折算的判据
+(饱和保护、线性度、峰值统计) 都建立在它上面, 所以它与像元尺寸、曝光一样属于**驱动契约**,
+不是各脚本的 CLI 默认值。
+
+| 成员 | 位置 | 语义 |
+|------|------|------|
+| `supported_bit_depths` | 类属性 | 该后端能切的档位; 基类默认 `()` = **不支持**, `DahengCamera = (8, 12, 16)` |
+| `bit_depth` | 实例属性 | **生效**位深 (设备回读值), 基类默认 `None` (未知/未打开); 绝不留请求值 |
+| `set_bit_depth(bits)` | 方法 | 换位深, 返回生效值; 基类默认抛 `CameraError` |
+
+四条契约 (`BaseCamera.set_bit_depth` 的 docstring 是权威口径, 后端必须逐条落实):
+
+1. **不支持就报错, 不回落** —— 档位不在 `supported_bit_depths` ⇒ `ValueError`。12 bit 静默
+   退回 MONO8 会把满量程从 4095 变成 255。
+2. **写完必须回读** —— gxipy 的枚举特征 `set` 与 `IntFeature.set` 同款风险: 越界/不支持的值
+   **不抛异常**、只 print 噪声然后保留旧值。回读与请求不符 ⇒ `CameraError`, 但**先把设备真值
+   写进 `bit_depth`** 再抛, 调用方读缓存不会拿到虚报档位。
+3. **位深与 ROI / 传输块大小成对变化** —— 换位深等于换 `bytes_per_pixel`, 与 `reset_window`
+   的 SDK 路径、多帧平均的 `dtype` 互相牵制 (见 `tests/ao_shaping/drivers/ccd/test_frame_averaging.py`)。
+4. **换档后的旧格式帧不许流到调用方** —— 与「改曝光后 1~2 帧仍是旧曝光」同一根因 (帧已在流水线里),
+   所以位深真的变了**且 SDK 正在拉流**时消费掉 `EXPOSURE_CHANGE_DISCARD_FRAMES`(=3) 帧; 没变则不消费。
+   ⚠️ **未开流时绝不取帧**: `get_image` 在停流状态下永不返回 ⇒ 死等, 由 `DahengCamera._acquisition_on`
+   把关 (`initialize()` 末尾 `stream_on` 后置真, `close()` 置假)。因此 `initialize()` 应用配置位深时
+   只写格式、不消费帧 —— 这正是位深必须在开流前写好的原因。
+
+大恒的映射集中在**一处**类属性, `supported_bit_depths` 由它推导, 加一档不会漏改:
+
+```python
+_BIT_DEPTH_PIXEL_FORMATS = {8: "MONO8", 12: "MONO12", 16: "MONO16"}
+supported_bit_depths = tuple(_BIT_DEPTH_PIXEL_FORMATS)
+```
+
+回读形态用 `DahengCamera._bit_depth_of_format()` 归一化 (名称串 `"Mono12"` / PFNC 代码 /
+`(代码, 名称)` 元组 / 带 `.name` 的枚举成员都认), 认不出来返回 `None` —— 按契约第 2 条报错。
+生效值经 `CCD_CONFIG.collect` → `save_config()` 落盘 (`CCDParams.bit_depth`), 下次 `open()` 由
+`initialize()` 调 `set_bit_depth(self.bit_depth)` 重新下发并回读校验。
+
+离线锁定: `tests/ao_shaping/drivers/ccd/test_camera_bit_depth.py` (假 SDK, 不接相机)。
 
 **runner / 脚本的统一入口**是 `camera_pixel_size_um_for(cam_type, cam_id, *, camera=None, prompt=None)`:
 命令行把「未指定」写成 `0`, 由它按后端换成真实值 —— 已打开的 `camera` 实例优先

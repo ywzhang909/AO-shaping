@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, ClassVar, Self
 
 import numpy as np
 import numpy.typing as npt
@@ -62,6 +62,18 @@ CCD_CONFIG = ConfigHandler(_config_dir, "ccd", CCDParams)
 
 
 class DahengCamera(BaseCamera):
+    #: 位深 → GenICam ``PixelFormat`` 名。12 bit 必须落到 MONO12, **不允许静默回落**
+    #: 成 MONO8: 满量程从 4095 变成 255, 一切按满量程折算的判据 (饱和保护、线性度、
+    #: 峰值统计) 都会建立在错量纲上。
+    _BIT_DEPTH_PIXEL_FORMATS: ClassVar[dict[int, str]] = {
+        8: "MONO8",
+        12: "MONO12",
+        16: "MONO16",
+    }
+
+    #: 大恒可切换的档位 = 上面真的映射到 PixelFormat 的那些 (单一来源, 别再抄一遍)。
+    supported_bit_depths: ClassVar[tuple[int, ...]] = tuple(_BIT_DEPTH_PIXEL_FORMATS)
+
     @classmethod
     def from_params(cls, params: Any, **overrides: Any) -> Self:
         """由驱动参数对象构造一个大恒相机。"""
@@ -96,7 +108,9 @@ class DahengCamera(BaseCamera):
         self.cam_id = params.cam_id
         self.__exposure_time_ms = ExposureTime(params.exposure_time_ms)
         self.skip_sampling = params.skip_sampling
-        self._bit_depth = params.bit_depth
+        # 位深只有一处存储: 公开的 `bit_depth` (契约见 BaseCamera)。这里先记**请求值**,
+        # open() 经 set_bit_depth 用设备回读真值覆盖它 —— 不再另设私有缓存。
+        self.bit_depth = params.bit_depth
 
         self.cam = None
         self._sn: str | None = None
@@ -105,6 +119,11 @@ class DahengCamera(BaseCamera):
         self._model: str | None = None
         #: 像元尺寸显式覆盖 (µm); None = 按型号解析。
         self._pixel_size_um: float | None = None
+        #: SDK 取流是否在跑 (initialize 末尾 ``stream_on`` 后置真, close 置假)。
+        #: 换设置后「消费旧流水线帧」必须先开流 —— 未开流时 ``get_image`` 永不返回,
+        #: 会死等。reset_window 期间的短暂停流不改本标记: 那段时间没有位深切换入口,
+        #: 且停流后抛异常时保持为假 = 不取帧 (失败即安全)。
+        self._acquisition_on = False
 
     @property
     def device_manager(self):
@@ -131,6 +150,7 @@ class DahengCamera(BaseCamera):
         if self.cam:
             self.cam_width, self.cam_height = 0, 0
             self.cam.stream_off()
+            self._acquisition_on = False
             self.cam.close_device()
             self.cam = None
             self._sn = None
@@ -325,9 +345,11 @@ class DahengCamera(BaseCamera):
         # 设置相机的增益
         self.cam.Gain.set(0.0)
         # 请求的位深必须对应实际格式，不允许 12 bit 静默回落为 Mono8。
-        if self._bit_depth not in (8, 12, 16):
-            raise ValueError("Daheng bit_depth must be 8, 12 or 16")
-        self.cam.PixelFormat.set(getattr(gx.GxPixelFormatEntry, f"MONO{self._bit_depth}"))
+        # 走公共入口 set_bit_depth: 写 PixelFormat → 回读设备真值 → 不符即报错。
+        # 此刻取流还没开 (stream_on 在 initialize 末尾), set_bit_depth 内部因此
+        # **不消费帧** —— 未开流时取帧会死等, 且位深本来就得在开流之前写好。
+        if self.bit_depth is not None:
+            self.set_bit_depth(self.bit_depth)
         if self.skip_sampling:
             # 设置相机的合并因子为2
             self.cam.BinningHorizontal.set(2)
@@ -355,6 +377,7 @@ class DahengCamera(BaseCamera):
         if stream_mode.get()[0] != constants.GxDSStreamBufferHandlingModeEntry.NEWEST_ONLY.value:
             raise RuntimeError("Daheng stream buffer mode did not switch to NewestOnly")
         self.cam.stream_on()
+        self._acquisition_on = True
 
     #: 改曝光后必须消费掉的帧数 (2026-10-21 实测, 见 ``reset_exposure_time``)。
     EXPOSURE_CHANGE_DISCARD_FRAMES: int = 3
@@ -408,6 +431,86 @@ class DahengCamera(BaseCamera):
         for _ in range(self.EXPOSURE_CHANGE_DISCARD_FRAMES):
             self.__take_one_shot()
         return self.EXPOSURE_CHANGE_DISCARD_FRAMES
+
+    @classmethod
+    def _bit_depth_of_format(cls, value: Any) -> int | None:
+        """把设备回读的 ``PixelFormat`` 归一化成位深 (bit); 认不出来返回 ``None``。
+
+        gxipy 枚举特征的 ``get()`` 形态并不统一: 可能是名称串 (``"Mono12"``)、PFNC
+        代码 (``0x01100005``)、带 ``.name`` 的枚举成员, 也可能是 ``(代码, 名称)``
+        元组 (本文件 ``StreamBufferHandlingMode.get()[0]`` 就是这种)。位深**只能以
+        回读为准** —— SDK 写 ``PixelFormat`` 可能被静默保留旧值 (同 ``IntFeature.set``
+        的坑), 所以这里对四种形态都容错。
+        """
+        candidates = list(value) if isinstance(value, (tuple, list)) else [value]
+        for candidate in candidates:
+            member_name = getattr(candidate, "name", None)
+            if isinstance(member_name, str):  # Enum 成员 → 用它的名字
+                candidate = member_name
+            if isinstance(candidate, str):
+                text = candidate.strip().upper()
+                if text.startswith("MONO") and text[4:].isdigit():
+                    return int(text[4:])
+                continue
+            code = getattr(candidate, "value", candidate)
+            try:
+                code_int = int(code)
+            except (TypeError, ValueError):
+                continue
+            for bits, fmt_name in cls._BIT_DEPTH_PIXEL_FORMATS.items():
+                entry = getattr(constants.GxPixelFormatEntry, fmt_name, None)
+                if entry is not None and int(getattr(entry, "value", entry)) == code_int:
+                    return bits
+        return None
+
+    def set_bit_depth(self, bits: int) -> int:
+        """切换输出位深 (8 / 12 / 16 bit), 返回**设备回读**的生效位深。
+
+        落实 :meth:`BaseCamera.set_bit_depth` 的四条契约:
+
+        * 档位不在 :attr:`supported_bit_depths` 里 ⇒ :class:`ValueError`, **不回落**
+          (12 bit 静默退回 MONO8 会把满量程从 4095 变成 255, 饱和判据与线性度全错);
+        * 写完必须回读 ``PixelFormat``; 回读与请求不符 ⇒ :class:`CameraError`,
+          但 :attr:`bit_depth` 仍先记下**设备真值** —— 调用方读它不会拿到虚报档位;
+        * 位深真的变了、且 SDK 正在拉流 ⇒ 消费掉 ``EXPOSURE_CHANGE_DISCARD_FRAMES``
+          帧: 改格式之前就已进入流水线的帧仍是旧格式画面 (与「改曝光后 1~2 帧仍是
+          旧曝光」同一根因, 故共用同一帧数旋钮), 使「换位深后的第一帧就是新格式」;
+        * 未开流**绝不取帧** (`get_image` 在停流状态下永不返回 ⇒ 死等)。所以
+          ``initialize()`` 里应用配置位深时 (``stream_on`` 还没执行) 只写格式不消费帧,
+          由 ``_acquisition_on`` 把关。
+
+        参数:
+            bits: 请求位深 (bit)。
+
+        返回:
+            int: 设备实际生效的位深。
+
+        抛出:
+            ValueError: 请求档位不被支持。
+            CameraError: 设备未打开, 或回读位深与请求不符。
+        """
+        bits = int(bits)
+        if bits not in self._BIT_DEPTH_PIXEL_FORMATS:
+            raise ValueError("Daheng bit_depth must be 8, 12 or 16")
+        self._ensure_open("camera not open")
+
+        requested_format = self._BIT_DEPTH_PIXEL_FORMATS[bits]
+        previous = self.bit_depth
+        self.cam.PixelFormat.set(getattr(gx.GxPixelFormatEntry, requested_format))
+        raw = self.cam.PixelFormat.get()
+        effective = self._bit_depth_of_format(raw)
+        #: 设备真值优先: 即使下面判为不符要抛错, 缓存也不能留一个设备并未使用的档位
+        self.bit_depth = effective
+        if effective != bits:
+            raise CameraError(
+                f"Daheng PixelFormat readback mismatch: requested {bits}-bit "
+                f"({requested_format}), device reports {raw!r} "
+                f"(parsed bit_depth={effective})"
+            )
+        if previous != effective and self._acquisition_on:
+            for _ in range(self.EXPOSURE_CHANGE_DISCARD_FRAMES):
+                self.get_numpy_image(1, skip_first=False)
+        return effective
 
     @staticmethod
     def _clamp_int(value: int, int_range: dict | None) -> int:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 import threading
-from typing import Callable, Sequence
+from typing import Callable, ClassVar, Sequence
 
 import numpy as np
 from loguru import logger
@@ -63,6 +63,20 @@ class BaseCamera(ABC):
     #: 轮询取流两次抓帧之间的额外间隔 (秒); 0 表示由 ``get_numpy_image`` 自身的
     #: 阻塞/曝光时间限速。后端若一次性返回缓存帧, 可调大以避免空转。
     stream_poll_interval_s: float = 0.0
+
+    #: 后端可选的位深集合 (bit); 空元组 = 该后端**不提供**位深选择。
+    #:
+    #: 位深决定帧的 dtype 与满量程 (12 bit 是 ``uint16`` 只填低 12 位), 所以它是
+    #: **采集契约的一部分** 而不是驱动内部细节: 饱和判据、线性度、峰值统计都按
+    #: 满量程折算, 拿到错位深就等于拿错量纲。实现方在这里登记设备真能切出的档位。
+    supported_bit_depths: ClassVar[tuple[int, ...]] = ()
+
+    #: 当前**生效**位深 (bit); ``None`` = 后端不提供位深选择, 或设备尚未打开。
+    #:
+    #: 类级默认 ``None``, 实例由后端在 ``open()`` / :meth:`set_bit_depth` 里写入
+    #: **设备回读真值** (不是请求值 —— SDK 对 ``PixelFormat`` 的写入可能被静默保留
+    #: 旧值, 同 ``IntFeature.set`` 的坑)。调用方一律读本属性, 不要读驱动私有缓存。
+    bit_depth: int | None = None
 
     # 取流线程状态 (惰性初始化; 未覆写 __init__ 的后端也能直接用 start_stream)
     _stream_thread: threading.Thread | None = None
@@ -202,6 +216,36 @@ class BaseCamera(ABC):
                 "其它后端请显式设置 pixel_size_um。"
             )
         return value
+
+    def set_bit_depth(self, bits: int) -> int:
+        """切换输出位深 (bit), 返回**设备生效**的位深。
+
+        基类默认**不提供**该能力: 没有登记 :attr:`supported_bit_depths` 的后端
+        (ffmpeg / image_folder / 通用仿真) 在这里抛 :class:`CameraError`, 而不是把
+        请求值当成生效值静默返回 —— 位深错了, 满量程与饱和判据就全错了。
+
+        覆写方的契约 (与曝光契约同源: 请求值不等于生效值):
+
+        1. 只接受 :attr:`supported_bit_depths` 里的档位, 其余**报错**而不是回落;
+        2. 写入设备后必须**回读真值** (SDK 可能静默保留旧 ``PixelFormat``, 同
+           ``IntFeature.set`` 的坑);
+        3. 把回读到的真值写进 :attr:`bit_depth` 并返回;
+        4. 档位真的变了之后消费掉流水线里残留的旧格式帧 (同改曝光的
+           ``EXPOSURE_CHANGE_DISCARD_FRAMES`` 纪律), 使「换位深后的第一帧就是新格式」。
+
+        参数:
+            bits: 请求位深 (bit)。
+
+        返回:
+            int: 设备实际生效的位深。
+
+        抛出:
+            CameraError: 该后端不支持位深选择。
+        """
+        raise CameraError(
+            f"{type(self).__name__} does not support bit depth selection "
+            f"(supported_bit_depths={tuple(self.supported_bit_depths)})"
+        )
 
     @abstractmethod
     def __exit__(self, exc_type, exc_value, traceback):
