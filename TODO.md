@@ -5029,6 +5029,14 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: test_exposure_control + guard + conventions **375 passed 1 skipped**; 模块 722 行 (未触 800 阈)
 - 门禁: 棘轮 197/5/176 + 4 helper 行
 
+**2026-11-13 · 505ce7ed 之后 · 第 82 批: `search_optimal_delta` 215→128 行 + 四缝 (`algorithm/gradient/adam.py`)**
+- 提取: `_sod_fine_sweep` 56 (细扫循环, 原地 append) / `_sod_fine_bounds` 21 (最优量级选取 + 细扫上下界) / `_sod_init_scan` 15 (基线探针 + 量级网格) / `_sod_best_fine` 11 (最优有效结果)
+- 含 `break` 的粗扫循环 (674-733) 与末尾 Return 段保留母函数
+- `best_magnitude`/`best_mag_result` 经 grep 确认只在 735-752 内使用, 故不随缝外传
+- 叶差分: 14 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中; 母函数无装饰器
+- 载体: `tests/ao_shaping/algorithm` 全域 + guard + conventions **1245 passed 25 skipped**
+- 门禁: 棘轮 154/4/128 + 4 helper 行; 模块 baseline 抬高 +32 (4 个 helper 定义与调用开销)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

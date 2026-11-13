@@ -614,6 +614,125 @@ class AdamNS(Base):
         self.buf2 = np.zeros(self.dim, dtype=np.float32)
 
 
+
+def _sod_init_scan(apply_fn, n_magnitude_steps, objective_fn, param_dim, verbose):
+# Baseline probe and magnitude grid setup lifted verbatim
+    init_params = np.zeros(param_dim, dtype=np.float64)
+    apply_fn(init_params)
+
+    baseline_obj = objective_fn(init_params)
+    if verbose:
+        logger.debug(f"Baseline objective: {baseline_obj:.4f}")
+
+    magnitude_results = []
+    magnitude_values = np.linspace(-2, 2, n_magnitude_steps)
+
+    if verbose:
+        logger.debug("\n--- Phase 1: Magnitude Scan ---")
+    return baseline_obj, init_params, magnitude_results, magnitude_values
+
+
+
+
+def _sod_fine_bounds(magnitude_results, max_delta, min_delta, verbose):
+# Best magnitude selection and fine delta bounds lifted verbatim
+    best_mag_result = max(magnitude_results, key=lambda x: x["avg_improvement"])
+    best_magnitude = best_mag_result["magnitude"]
+
+    if verbose:
+        logger.debug(
+            f"\nBest magnitude: 10^{best_magnitude:.1f} (delta={best_mag_result['delta']:.4f})"
+        )
+        logger.debug("\n--- Phase 2: Fine Scan ---")
+
+    fine_delta_min = 10.0 ** (best_magnitude - 0.5)
+    fine_delta_max = 10.0 ** (best_magnitude + 0.5)
+    fine_delta_min = max(fine_delta_min, min_delta)
+    fine_delta_max = min(fine_delta_max, max_delta)
+
+    n_fine_steps = 10
+    fine_deltas = np.linspace(fine_delta_min, fine_delta_max, n_fine_steps)
+
+    fine_results = []
+    return fine_deltas, fine_results
+
+
+
+
+def _sod_fine_sweep(apply_fn, baseline_obj, clip_max, clip_min, fine_deltas, fine_results, init_params, n_samples_per_delta, objective_fn, param_dim, perturb_mask, verbose):
+# Fine delta sweep lifted verbatim
+    for delta in fine_deltas:
+        if verbose:
+            logger.debug(f"\nTesting delta = {delta:.4f}:")
+
+        pos_improvements = []
+        neg_improvements = []
+
+        for sample_idx in range(n_samples_per_delta):
+            apply_fn(init_params)
+
+            disturb = np.random.randn(param_dim).astype(np.float64)
+            disturb *= delta
+
+            if perturb_mask is not None:
+                disturb *= perturb_mask
+
+            pos_params = np.clip(init_params + disturb, clip_min, clip_max)
+            neg_params = np.clip(init_params - disturb, clip_min, clip_max)
+
+            apply_fn(pos_params)
+            pos_obj = objective_fn(pos_params)
+
+            apply_fn(neg_params)
+            neg_obj = objective_fn(neg_params)
+
+            pos_imp = baseline_obj - pos_obj
+            neg_imp = baseline_obj - neg_obj
+            pos_improvements.append(pos_imp)
+            neg_improvements.append(neg_imp)
+
+        avg_pos_imp = np.mean(pos_improvements)
+        avg_neg_imp = np.mean(neg_improvements)
+
+        both_positive = avg_pos_imp > 0 and avg_neg_imp > 0
+        avg_improvement = (avg_pos_imp + avg_neg_imp) / 2
+
+        fine_results.append(
+            {
+                "delta": delta,
+                "avg_pos_imp": avg_pos_imp,
+                "avg_neg_imp": avg_neg_imp,
+                "avg_improvement": avg_improvement,
+                "both_positive": both_positive,
+                "std_pos": np.std(pos_improvements),
+                "std_neg": np.std(neg_improvements),
+            }
+        )
+
+        status = "✓" if both_positive else "✗"
+        if verbose:
+            logger.debug(
+                f"  pos_imp={avg_pos_imp:.4f}±{np.std(pos_improvements):.4f}, neg_imp={avg_neg_imp:.4f}±{np.std(neg_improvements):.4f} {status}"
+            )
+    return 
+
+
+
+
+def _sod_best_fine(fine_results):
+# Best valid fine result selection lifted verbatim
+    valid_results = [r for r in fine_results if r["both_positive"]]
+
+    if valid_results:
+        best_result = max(valid_results, key=lambda x: x["avg_improvement"])
+        optimal_delta = best_result["delta"]
+    else:
+        best_result = max(fine_results, key=lambda x: x["avg_improvement"])
+        optimal_delta = best_result["delta"]
+    return best_result, optimal_delta
+
+
+
 def search_optimal_delta(
     param_dim: int,
     objective_fn: Callable[[npt.NDArray[np.floating]], float],
@@ -658,18 +777,7 @@ def search_optimal_delta(
         )
         logger.debug(f"Samples per delta: {n_samples_per_delta}")
 
-    init_params = np.zeros(param_dim, dtype=np.float64)
-    apply_fn(init_params)
-
-    baseline_obj = objective_fn(init_params)
-    if verbose:
-        logger.debug(f"Baseline objective: {baseline_obj:.4f}")
-
-    magnitude_results = []
-    magnitude_values = np.linspace(-2, 2, n_magnitude_steps)
-
-    if verbose:
-        logger.debug("\n--- Phase 1: Magnitude Scan ---")
+    baseline_obj, init_params, magnitude_results, magnitude_values = _sod_init_scan(apply_fn, n_magnitude_steps, objective_fn, param_dim, verbose)
 
     for mag in magnitude_values:
         test_delta = 10.0**mag
@@ -732,87 +840,11 @@ def search_optimal_delta(
                 f"  Summary: avg_pos={avg_pos_imp:.4f}, avg_neg={avg_neg_imp:.4f}, consistency={consistency:.2f}"
             )
 
-    best_mag_result = max(magnitude_results, key=lambda x: x["avg_improvement"])
-    best_magnitude = best_mag_result["magnitude"]
+    fine_deltas, fine_results = _sod_fine_bounds(magnitude_results, max_delta, min_delta, verbose)
 
-    if verbose:
-        logger.debug(
-            f"\nBest magnitude: 10^{best_magnitude:.1f} (delta={best_mag_result['delta']:.4f})"
-        )
-        logger.debug("\n--- Phase 2: Fine Scan ---")
+    _sod_fine_sweep(apply_fn, baseline_obj, clip_max, clip_min, fine_deltas, fine_results, init_params, n_samples_per_delta, objective_fn, param_dim, perturb_mask, verbose)
 
-    fine_delta_min = 10.0 ** (best_magnitude - 0.5)
-    fine_delta_max = 10.0 ** (best_magnitude + 0.5)
-    fine_delta_min = max(fine_delta_min, min_delta)
-    fine_delta_max = min(fine_delta_max, max_delta)
-
-    n_fine_steps = 10
-    fine_deltas = np.linspace(fine_delta_min, fine_delta_max, n_fine_steps)
-
-    fine_results = []
-
-    for delta in fine_deltas:
-        if verbose:
-            logger.debug(f"\nTesting delta = {delta:.4f}:")
-
-        pos_improvements = []
-        neg_improvements = []
-
-        for sample_idx in range(n_samples_per_delta):
-            apply_fn(init_params)
-
-            disturb = np.random.randn(param_dim).astype(np.float64)
-            disturb *= delta
-
-            if perturb_mask is not None:
-                disturb *= perturb_mask
-
-            pos_params = np.clip(init_params + disturb, clip_min, clip_max)
-            neg_params = np.clip(init_params - disturb, clip_min, clip_max)
-
-            apply_fn(pos_params)
-            pos_obj = objective_fn(pos_params)
-
-            apply_fn(neg_params)
-            neg_obj = objective_fn(neg_params)
-
-            pos_imp = baseline_obj - pos_obj
-            neg_imp = baseline_obj - neg_obj
-            pos_improvements.append(pos_imp)
-            neg_improvements.append(neg_imp)
-
-        avg_pos_imp = np.mean(pos_improvements)
-        avg_neg_imp = np.mean(neg_improvements)
-
-        both_positive = avg_pos_imp > 0 and avg_neg_imp > 0
-        avg_improvement = (avg_pos_imp + avg_neg_imp) / 2
-
-        fine_results.append(
-            {
-                "delta": delta,
-                "avg_pos_imp": avg_pos_imp,
-                "avg_neg_imp": avg_neg_imp,
-                "avg_improvement": avg_improvement,
-                "both_positive": both_positive,
-                "std_pos": np.std(pos_improvements),
-                "std_neg": np.std(neg_improvements),
-            }
-        )
-
-        status = "✓" if both_positive else "✗"
-        if verbose:
-            logger.debug(
-                f"  pos_imp={avg_pos_imp:.4f}±{np.std(pos_improvements):.4f}, neg_imp={avg_neg_imp:.4f}±{np.std(neg_improvements):.4f} {status}"
-            )
-
-    valid_results = [r for r in fine_results if r["both_positive"]]
-
-    if valid_results:
-        best_result = max(valid_results, key=lambda x: x["avg_improvement"])
-        optimal_delta = best_result["delta"]
-    else:
-        best_result = max(fine_results, key=lambda x: x["avg_improvement"])
-        optimal_delta = best_result["delta"]
+    best_result, optimal_delta = _sod_best_fine(fine_results)
 
     apply_fn(init_params)
 
