@@ -4951,6 +4951,14 @@ slm_zernike_pib.py:1872`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 门禁: 棘轮 126/3/109 + 170/4/147; conventions 72 passed 1 skipped (bench_twin_calibrate 无活钉); 模块 958→966 (baseline 抬高 +8)
 - 生成器修复: `build_mod` 本已把模块顶层绑定当全局集, measure.py 当年报 `SlotRotator` 是因该导入在函数体内 (b61 实际以区域选择绕开); 未再引入错误的全局排除补丁
 
+**2026-11-13 · c0943872 之后 · 第 73 批: `sweep_focus` 248→153 行 + 四缝 (`tools/slm/panel/focus_probe.py`)**
+- 提取: `_fp_pick_best` 49 (最优屈光度 + 抛物线细化) / `_fp_exposure_alt` 41 (交替曝光线性度) / `_fp_flat_gain` 7 / `_fp_blocked_verdict` 14
+- `465-500` 粗扫段含 `break` (提前停) 不可提 (教训 ⑧ 再验证)
+- 叶差分: 12 个函数逐字节同; 仅母函数变; 新增 4; 消失 0
+- 载体: 全部 focus 相关测试 + 形状门禁 **540 passed 22 skipped**; tools/slm 逐文件域 **84 段 exit=0**
+- 门禁: 棘轮 176/5/153 + 四 helper 行; conventions 72 passed 1 skipped; 模块 959→991 (baseline 抬高 +32)
+- 教训 ㉒: 多区单次调用的 `pristine` 断言要求 B 恰为语句 end_lineno (空行/尾注释不在区间内), 提交前先用 AST dump 校准每条缝的右界
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
