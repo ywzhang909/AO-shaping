@@ -5060,6 +5060,14 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: 4 个 pib 测试文件 + guard + conventions **387 passed 1 skipped**
 - 门禁: 棘轮 192/6/175 + 3 helper 行; 模块 baseline 抬高 (+37)
 
+**2026-11-13 · f7538ba0 之后 · 第 86 批: `calibrate_bench_geometry` 230→173 行 + 三缝 (`optimizer/wfless/model_in_loop_shaping.py`)**
+- 提取: `_cbg_finalize` 30 (饱和护栏 + 几何报告日志) / `_cbg_measure_references` 27 (参考帧 + 光斑宽度 + 光学尺度推导) / `_cbg_scan_seeds` 12 (best 哨兵 + 候选列表)
+- `1711:1715` 的 `if best is None: best = ...` 留在母函数 (条件赋值被 1747 读取, 提走即泄漏) → 收窄到 1720 起
+- 含 3 个 break 的 52 行搜扫循环 (1658-1709) 与含 6 个 return 的嵌套 `pupil()` 保留母函数
+- 叶差分: 69 同 / 消失 0 / 新增 3; ⑳ 审计 0 命中; 锚点 772 在插入点之上
+- 载体: model_in_loop_shaping + loop_invariants + guard + conventions **445 passed 1 skipped**
+- 门禁: 棘轮 190/5/173 + 3 helper 行; 模块 baseline 抬高 (+28)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
