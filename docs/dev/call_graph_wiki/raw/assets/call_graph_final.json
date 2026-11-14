@@ -2546,8 +2546,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.model_in_loop_runner",
    "file": "src/ao_shaping/runners/slm/model_in_loop_runner.py",
-   "lineno": 60,
-   "end": 276,
+   "lineno": 186,
+   "end": 293,
    "args": [
     "ctx",
     "params"

@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: command
 tags: [command]
-source: src/ao_shaping/runners/slm/model_in_loop_runner.py:60
+source: src/ao_shaping/runners/slm/model_in_loop_runner.py:186
 ---
 
 ## 一句话
@@ -13,7 +13,7 @@ source: src/ao_shaping/runners/slm/model_in_loop_runner.py:60
 
 ## 入口函数
 
-`runners.slm.model_in_loop_runner.run`（`src/ao_shaping/runners/slm/model_in_loop_runner.py:60`）
+`runners.slm.model_in_loop_runner.run`（`src/ao_shaping/runners/slm/model_in_loop_runner.py:186`）
 
 ```python
 run(ctx, params)

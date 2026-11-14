@@ -5100,6 +5100,15 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: panel_locate_restore 12 / panel 目录 10 / 形状 305 / conventions 72 (1 skip) —— 全绿
 - 模块 597 行 (< 800), 无 baseline 变化
 
+**2026-11-14 · 1d714b43 之后 · 第 82 批: `model_in_loop_runner.run` 222→108 行 + 两缝**
+- 提取: `_milr_echo_summary_and_save` 80 行 (nest 1, 5 参; 逐轮摘要表 + 状态/几何/分数行 + `save_model_in_loop_results` 各产物回显 + debug/abort 提示) / `_milr_echo_banner` 42 (nest 1, 2 参; 启动横幅与配置回显)
+- 边界: 两区都取连续 echo/If 段, 不含 return (函数尾 `click.echo("Done.")` 留在母函数); `205:281` 区尾即函数末语句
+- 叶差分: 0 同 / 消失 0 / 新增 2 / 改 1 (`run`) —— 拆分前模块只有 `run` 这一个函数
+- 棘轮: `run` 由 252/2/222 **收紧**到 125/2/108, 新增 2 helper 行 (92/1/80, 49/1/42)
+- 锚点: wiki `commands/slm-model-in-loop.md` `:60`→`:186` (2 处) + 双 JSON (`call_graph.json` / `call_graph_final.json`) `lineno 60`/`end 276` → `186`/`293` (缩进 JSON 无法整串替换, 按 key 定位后 16 行窗口内改写)
+- 载体: model_in_loop panel_scan 2 / session_preflight 23 / param wiring 18 / 形状 307 / cli_help_golden 77 / conventions 72 (1 skip) —— 全绿
+- 模块 301 行 (< 800), 无 baseline 变化
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

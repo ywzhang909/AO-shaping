@@ -54,154 +54,8 @@ from ao_shaping.utils.cli.params import with_params
 from ao_shaping.utils.io.cli_helpers import resolve_debug
 
 
-@click.command()
-@click.pass_context
-@with_params(SlmModelInLoopParams, kw_name="params")
-def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
-    """SLM model-in-the-loop shaping (SLM + CCD closed loop).
-
-    Every round: fit the forward model's aberration from measured probe frames,
-    then synthesise a target far-field spot with that aberration frozen. The
-    fitted phase is only adopted if it measurably beats what is already held, and
-    the final phase is kept only if it beats the flat baseline.
-
-    \b
-    Exit codes:
-      0  a shaped phase was adopted (or flat was correctly kept)
-      2  the geometry bake-off failed, or the bench stayed outside the model --
-         the run refused to commit a phase. Use slm-gs-refine for that bench.
-    """
-    debug = resolve_debug(ctx)
-    root_dir = (
-        Path(ctx.parent.obj.get("dir", "data"))
-        if ctx.parent is not None and ctx.parent.obj is not None
-        else Path("data")  # python -m standalone: no main group context
-    )
-
-    # Resolve the token here so the banner prints a number (or the driver's
-    # minimum) instead of the literal word "auto"; both tokens == 0.0 downstream.
-    exposure_time_ms = exposure_ms_legacy(
-        resolve_exposure(
-            params.exposure_time_ms, param_hint="--exposure-time-ms"
-        )
-    )
-
-    click.echo("=" * 68)
-    click.echo("SLM Model-in-the-Loop Shaping")
-    click.echo("=" * 68)
-    click.echo(
-        f"Camera: {params.cam_type} #{params.cam_id} size={params.cam_size} "
-        f"exposure={exposure_time_ms or 0.02}ms initial, "
-        f"max={params.max_exposure_ms}ms"
-    )
-    click.echo(f"SLM: #{params.slm_number} @ {params.slm_wavelength}nm")
-    click.echo(
-        f"Rounds: {params.n_rounds}  seed={params.seed}  "
-        f"warm_start={'on' if params.warm_start else 'off'}"
-    )
-    click.echo(
-        f"Step A: {params.probe_count} probes/round, spread={params.probe_spread} rad, "
-        f"{params.step_a_iterations} iters, lr={params.step_a_lr}, n_orders={params.n_orders}"
-    )
-    click.echo(
-        f"Step B: {params.step_b_iterations} iters, lr={params.step_b_lr}, "
-        f"target={params.target_shape} {params.target_side} cam px, "
-        f"w_ee={params.w_efficiency} w_cv={params.w_uniformity}"
-    )
-    click.echo(
-        f"Frozen modes: {params.frozen_modes or '(none)'} "
-        "(piston/tip/tilt are unidentifiable from far-field INTENSITY)"
-    )
-    if params.forward_checkpoint is not None:
-        click.echo(
-            f"Step-A seed: {params.forward_checkpoint} "
-            f"(assume_unverified_geometry={params.assume_unverified_geometry})"
-        )
-    click.echo(
-        f"Guards: trust region {params.trust_region_c_l2} rad, "
-        f"loss delta {params.acceptance_loss_delta}, score eps {params.acceptance_score_eps}, "
-        f"max CV rise {params.max_cv_regression}, "
-        f"abort after {params.max_rejection_streak} rejections"
-    )
-    click.echo(
-        f"Model grid: region={params.region} padding={params.far_field_padding} "
-        f"panel_span={params.panel_span_px}px  correlation floor="
-        f"{params.min_geometry_correlation}"
-    )
-
-    if params.cam_type != "sim":
-        click.echo("!" * 68)
-        click.echo("硬件模式: 相机会话曝光和入射位置将由画面探测。")
-        click.echo(f"初始面板坐标: {parse_point(params.pupil_center)}")
-        click.echo("每一轮都要重新采集探针帧, 耗时按 (probe_count+1) x 轮数 估计。")
-        click.echo("Ctrl+C 会在当前轮结束后释放设备。")
-        click.echo("!" * 68)
-    click.echo("=" * 68)
-
-    from ao_shaping.optimizer.wfless.slm_model_in_loop import optimize_slm_model_in_loop
-
-    config = build_model_in_loop_config(params, debug=debug)
-    save_dir = None
-    if debug and params.cam_type != "sim":
-        from ao_shaping.utils.io.file import debug_run_dir
-
-        save_dir = debug_run_dir(root_dir, "slm_model_in_loop")
-        config = replace(config, debug_dir=str(save_dir))
-        save_model_in_loop_config(config, save_dir)
-    auto_session = params.cam_type != "sim" and params.geometry_file is None
-    if auto_session:
-        click.echo("自动会话标定: 全板定位、曝光探测、sweep 几何、Step A 相差重拟合")
-    if params.panel_scan or auto_session:
-        from ao_shaping.utils.io.file import debug_run_dir
-
-        if save_dir is None:
-            save_dir = debug_run_dir(root_dir, "slm_model_in_loop")
-            save_model_in_loop_config(config, save_dir)
-        # Both steps share one call so the GUI can drive them the same way; the
-        # failure names the step that actually refused, and falls back to the
-        # session as a whole.
-        stage = STEP_SESSION_GEOMETRY if auto_session else STEP_PANEL_SCAN
-        try:
-            calibration = calibrate_session(
-                params, config, save_dir, locate=True, geometry=auto_session
-            )
-        except SessionPreflightParamError as exc:
-            raise click.BadParameter(str(exc), param_hint=exc.param_hint) from exc
-        except (OSError, subprocess.CalledProcessError, ValueError, RuntimeError) as exc:
-            step = getattr(exc, "preflight_step", stage)
-            raise click.ClickException(f"{step} rejected; evidence in {save_dir}: {exc}") from exc
-        params, config = apply_session_calibration(params, config, calibration)
-        if calibration.panel_scan_response is not None:
-            click.echo(
-                f"Panel scan: {calibration.pupil_center}, "
-                f"response={calibration.panel_scan_response:+.3f}, "
-                f"max paired drift={calibration.panel_scan_max_pair_drift:.2%}, "
-                f"session drift={calibration.panel_scan_session_drift:.2%}"
-            )
-
-    if save_dir is not None:
-        save_model_in_loop_config(config, save_dir)
-
-    try:
-        result = optimize_slm_model_in_loop(config)
-    except RuntimeError as exc:
-        if save_dir is not None:
-            save_dir.mkdir(parents=True, exist_ok=True)
-            (save_dir / "failure.json").write_text(json.dumps({
-                "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
-                "reason": str(exc),
-                "geometry_file": params.geometry_file,
-                "phase_disturbance_file": params.phase_disturbance_file,
-                "max_exposure_ms": params.max_exposure_ms,
-            }, indent=2, default=str), encoding="utf-8")
-            click.echo(f"Preflight evidence    : {save_dir}")
-        click.echo("")
-        click.echo("!" * 68)
-        click.echo(f"运行中止, 设备已释放: {exc}")
-        click.echo("该实验系统不在物理预测模型描述范围内; 改用 slm-gs-refine。")
-        click.echo("!" * 68)
-        raise SystemExit(2) from exc
-
+def _milr_echo_summary_and_save(debug, params, result, root_dir, save_dir):
+    """Per-round summary table, status lines and the saved-artifact echoes."""
     recorder = result.recorder
     rounds = [row for row in recorder.history if row.get("stage") == "round"]
     accepted = [row for row in rounds if row.get("accepted")]
@@ -279,6 +133,164 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
         click.echo("!" * 68)
         raise SystemExit(2)
     click.echo("Done.")
+    return 
+
+
+def _milr_echo_banner(exposure_time_ms, params):
+    """Banner echoes describing the config the run is about to use."""
+    click.echo(
+        f"Camera: {params.cam_type} #{params.cam_id} size={params.cam_size} "
+        f"exposure={exposure_time_ms or 0.02}ms initial, "
+        f"max={params.max_exposure_ms}ms"
+    )
+    click.echo(f"SLM: #{params.slm_number} @ {params.slm_wavelength}nm")
+    click.echo(
+        f"Rounds: {params.n_rounds}  seed={params.seed}  "
+        f"warm_start={'on' if params.warm_start else 'off'}"
+    )
+    click.echo(
+        f"Step A: {params.probe_count} probes/round, spread={params.probe_spread} rad, "
+        f"{params.step_a_iterations} iters, lr={params.step_a_lr}, n_orders={params.n_orders}"
+    )
+    click.echo(
+        f"Step B: {params.step_b_iterations} iters, lr={params.step_b_lr}, "
+        f"target={params.target_shape} {params.target_side} cam px, "
+        f"w_ee={params.w_efficiency} w_cv={params.w_uniformity}"
+    )
+    click.echo(
+        f"Frozen modes: {params.frozen_modes or '(none)'} "
+        "(piston/tip/tilt are unidentifiable from far-field INTENSITY)"
+    )
+    if params.forward_checkpoint is not None:
+        click.echo(
+            f"Step-A seed: {params.forward_checkpoint} "
+            f"(assume_unverified_geometry={params.assume_unverified_geometry})"
+        )
+    click.echo(
+        f"Guards: trust region {params.trust_region_c_l2} rad, "
+        f"loss delta {params.acceptance_loss_delta}, score eps {params.acceptance_score_eps}, "
+        f"max CV rise {params.max_cv_regression}, "
+        f"abort after {params.max_rejection_streak} rejections"
+    )
+    click.echo(
+        f"Model grid: region={params.region} padding={params.far_field_padding} "
+        f"panel_span={params.panel_span_px}px  correlation floor="
+        f"{params.min_geometry_correlation}"
+    )
+    return 
+
+
+@click.command()
+@click.pass_context
+@with_params(SlmModelInLoopParams, kw_name="params")
+def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
+    """SLM model-in-the-loop shaping (SLM + CCD closed loop).
+
+    Every round: fit the forward model's aberration from measured probe frames,
+    then synthesise a target far-field spot with that aberration frozen. The
+    fitted phase is only adopted if it measurably beats what is already held, and
+    the final phase is kept only if it beats the flat baseline.
+
+    \b
+    Exit codes:
+      0  a shaped phase was adopted (or flat was correctly kept)
+      2  the geometry bake-off failed, or the bench stayed outside the model --
+         the run refused to commit a phase. Use slm-gs-refine for that bench.
+    """
+    debug = resolve_debug(ctx)
+    root_dir = (
+        Path(ctx.parent.obj.get("dir", "data"))
+        if ctx.parent is not None and ctx.parent.obj is not None
+        else Path("data")  # python -m standalone: no main group context
+    )
+
+    # Resolve the token here so the banner prints a number (or the driver's
+    # minimum) instead of the literal word "auto"; both tokens == 0.0 downstream.
+    exposure_time_ms = exposure_ms_legacy(
+        resolve_exposure(
+            params.exposure_time_ms, param_hint="--exposure-time-ms"
+        )
+    )
+
+    click.echo("=" * 68)
+    click.echo("SLM Model-in-the-Loop Shaping")
+    click.echo("=" * 68)
+    _milr_echo_banner(exposure_time_ms, params)
+
+    if params.cam_type != "sim":
+        click.echo("!" * 68)
+        click.echo("硬件模式: 相机会话曝光和入射位置将由画面探测。")
+        click.echo(f"初始面板坐标: {parse_point(params.pupil_center)}")
+        click.echo("每一轮都要重新采集探针帧, 耗时按 (probe_count+1) x 轮数 估计。")
+        click.echo("Ctrl+C 会在当前轮结束后释放设备。")
+        click.echo("!" * 68)
+    click.echo("=" * 68)
+
+    from ao_shaping.optimizer.wfless.slm_model_in_loop import optimize_slm_model_in_loop
+
+    config = build_model_in_loop_config(params, debug=debug)
+    save_dir = None
+    if debug and params.cam_type != "sim":
+        from ao_shaping.utils.io.file import debug_run_dir
+
+        save_dir = debug_run_dir(root_dir, "slm_model_in_loop")
+        config = replace(config, debug_dir=str(save_dir))
+        save_model_in_loop_config(config, save_dir)
+    auto_session = params.cam_type != "sim" and params.geometry_file is None
+    if auto_session:
+        click.echo("自动会话标定: 全板定位、曝光探测、sweep 几何、Step A 相差重拟合")
+    if params.panel_scan or auto_session:
+        from ao_shaping.utils.io.file import debug_run_dir
+
+        if save_dir is None:
+            save_dir = debug_run_dir(root_dir, "slm_model_in_loop")
+            save_model_in_loop_config(config, save_dir)
+        # Both steps share one call so the GUI can drive them the same way; the
+        # failure names the step that actually refused, and falls back to the
+        # session as a whole.
+        stage = STEP_SESSION_GEOMETRY if auto_session else STEP_PANEL_SCAN
+        try:
+            calibration = calibrate_session(
+                params, config, save_dir, locate=True, geometry=auto_session
+            )
+        except SessionPreflightParamError as exc:
+            raise click.BadParameter(str(exc), param_hint=exc.param_hint) from exc
+        except (OSError, subprocess.CalledProcessError, ValueError, RuntimeError) as exc:
+            step = getattr(exc, "preflight_step", stage)
+            raise click.ClickException(f"{step} rejected; evidence in {save_dir}: {exc}") from exc
+        params, config = apply_session_calibration(params, config, calibration)
+        if calibration.panel_scan_response is not None:
+            click.echo(
+                f"Panel scan: {calibration.pupil_center}, "
+                f"response={calibration.panel_scan_response:+.3f}, "
+                f"max paired drift={calibration.panel_scan_max_pair_drift:.2%}, "
+                f"session drift={calibration.panel_scan_session_drift:.2%}"
+            )
+
+    if save_dir is not None:
+        save_model_in_loop_config(config, save_dir)
+
+    try:
+        result = optimize_slm_model_in_loop(config)
+    except RuntimeError as exc:
+        if save_dir is not None:
+            save_dir.mkdir(parents=True, exist_ok=True)
+            (save_dir / "failure.json").write_text(json.dumps({
+                "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+                "reason": str(exc),
+                "geometry_file": params.geometry_file,
+                "phase_disturbance_file": params.phase_disturbance_file,
+                "max_exposure_ms": params.max_exposure_ms,
+            }, indent=2, default=str), encoding="utf-8")
+            click.echo(f"Preflight evidence    : {save_dir}")
+        click.echo("")
+        click.echo("!" * 68)
+        click.echo(f"运行中止, 设备已释放: {exc}")
+        click.echo("该实验系统不在物理预测模型描述范围内; 改用 slm-gs-refine。")
+        click.echo("!" * 68)
+        raise SystemExit(2) from exc
+
+    _milr_echo_summary_and_save(debug, params, result, root_dir, save_dir)
 
 
 if __name__ == "__main__":
