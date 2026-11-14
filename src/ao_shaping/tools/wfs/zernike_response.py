@@ -398,21 +398,8 @@ class ZernikeResponseParams:
     ] = None
 
 
-@click.command()
-@with_params(ZernikeResponseParams, kw_name="params")
-def main(params: ZernikeResponseParams) -> int:
-    """SLM Zernike 模式 → WFS 读数 响应矩阵标定."""
-    # 这两个离线开关在测试里按 ast.Name 静态判定"开硬件前即短路", 故保留局部名
-    verify_path, export_h5 = params.verify_path, params.export_h5
-    if verify_path:
-        return verify_response_matrix(verify_path)
-    if export_h5:
-        if not params.w_file:
-            raise click.BadParameter("--export-correction 需要 --w-file (WFS 波前 JSON)")
-        return export_driver_correction(export_h5, params.w_file, params.export_out,
-                                        include_shift=params.export_shift,
-                                        shift_x=params.export_shift_x,
-                                        shift_y=params.export_shift_y)
+def _zr_prepare_session(params):
+    """Exposure/order guards, mode selection and the SLM+WFS+PatternHelper construction."""
     if params.wfs_exposure_ms > WFS_EXPOSURE_SAFETY_MAX_MS:
         raise click.BadParameter(
             f"WFS 曝光 {params.wfs_exposure_ms}ms > {WFS_EXPOSURE_SAFETY_MAX_MS}ms")
@@ -433,6 +420,103 @@ def main(params: ZernikeResponseParams) -> int:
                  video_mode=0)
     wfs = ThorlabWFS(exposure_time=params.wfs_exposure_ms, use_custom_ref=False)
     ph = PatternHelper(resolution=(PANEL_W, PANEL_H))
+    return mode_ids, ph, slm, wfs
+
+
+def _zr_build_result(amp_waves, cx, cy, dx, dy, exp, matrix, max_gray, mode_ids, n_wfs_terms, params, slm, sx, sy, variance, wfs):
+    """Device info, config dict, amplitude/variance fields and result assembly."""
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # 完整设备参数 (波长/2π灰度/工作温度/固件版本/矫正状态/LUT + WFS 曝光/pupil/MLA/子孔径)
+    device_info = collect_device_info(slm, wfs, params.slm_number)
+    _ds = device_info.get("slm") or {}
+    _dw = device_info.get("wfs") or {}
+    device_config = {
+        "device": device_info,
+        "slm_serial": _ds.get("serial_number"),
+        "wfs_serial": _dw.get("serial_number"),
+        "wavelength_nm": params.slm_wavelength,
+        "slm_2pi_gray": max_gray,
+        "wfs_exposure_ms": exp,
+        "shift_x": int(sx),
+        "shift_y": int(sy),
+        "pupil_center_mm": [cx, cy],
+        "pupil_diameter_mm": [dx, dy],
+        "zernike_radius_px": params.zernike_radius,
+        "amplitude_rad": params.amplitude_rad,
+        "amplitude_waves": amp_waves,
+        "wfs_zernike_order": params.wfs_order,
+        "slm_mode_ids_dll": mode_ids,
+        "slm_mode_nm": [list(DLL_ZERNIKE[i - 1]) for i in mode_ids],
+        "zernike_ordering": (
+            "DLL 顺序 m 枚举 (m=-n..+n), 非标准 Noll 1976: "
+            "[1](0,0) [2](1,-1) [3](1,1) [4](2,-2) [5](2,0)defocus [6](2,2) "
+            "[9](3,1)coma [13](4,0)spherical"
+        ),
+        "matrix_layout": (
+            f"matrix[wfs_coeff_index, slm_mode_index]; wfs_coeff_index 0..{n_wfs_terms - 1} "
+            "对应 DLL [1..N] (非 Noll)"
+        ),
+        "units": "λ/λ (WFS 系数 µm 经 um_to_waves 换算; 与矫正 w 同单位)",
+        "method": "push-pull ±A, PatternHelper + display_phase (GUI 同链路)",
+        "reference": "custom user ref @ flat phase (shift 已应用)",
+    }
+    result = ZernikeResponseMatrixResult(
+        matrix=matrix,
+        variance_matrix=variance,
+        deviation_response_matrix=None,
+        subaperture_mask=None,
+        n_max=params.n_max,
+        magnitude=amp_waves,
+        wavelength_nm=params.slm_wavelength,
+        n_averages=params.n_avg,
+        n_cycles=params.n_cycles,
+        timestamp=datetime.now().isoformat(),
+        excluded_piston=True,
+        excluded_tip_tilt=params.exclude_tip_tilt,
+        device_config=device_config,
+    )
+    return device_config, result, ts
+
+
+def _zr_persist_output(device_config, matrix, params, raw, result, slm, ts, variance, wfs):
+    """HDF5 + JSON sidecar persistence and the summary echoes."""
+    if params.output:
+        out = Path(params.output)
+    else:
+        out = Path("data/zernike_response_matrix") / (
+            f"zm_slm{slm._serial_number}_wfs{wfs.serial_num}_"
+            f"{params.slm_wavelength}nm_{ts}.h5"
+        )
+    save_zernike_response_matrix(result, out)
+    sidecar = out.with_suffix(".json")
+    sidecar.write_text(json.dumps({"device_config": device_config, "raw": raw,
+                                   "matrix": matrix.tolist(),
+                                   "variance_matrix": variance.tolist()},
+                                  indent=2, ensure_ascii=False), encoding="utf-8")
+    click.echo(f"\n[OK] 响应矩阵: {out}  shape={matrix.shape}")
+    click.echo(f"[OK] 原始数据: {sidecar}")
+    click.echo(f"[INFO] 条件数={np.linalg.cond(matrix):.2f}, "
+               f"平均方差={float(np.mean(variance)):.3e}")
+    click.echo("=" * 72)
+    return 
+
+
+@click.command()
+@with_params(ZernikeResponseParams, kw_name="params")
+def main(params: ZernikeResponseParams) -> int:
+    """SLM Zernike 模式 → WFS 读数 响应矩阵标定."""
+    # 这两个离线开关在测试里按 ast.Name 静态判定"开硬件前即短路", 故保留局部名
+    verify_path, export_h5 = params.verify_path, params.export_h5
+    if verify_path:
+        return verify_response_matrix(verify_path)
+    if export_h5:
+        if not params.w_file:
+            raise click.BadParameter("--export-correction 需要 --w-file (WFS 波前 JSON)")
+        return export_driver_correction(export_h5, params.w_file, params.export_out,
+                                        include_shift=params.export_shift,
+                                        shift_x=params.export_shift_x,
+                                        shift_y=params.export_shift_y)
+    mode_ids, ph, slm, wfs = _zr_prepare_session(params)
 
     # matrix/variance 在测到基线后按 get_zernike 实际返回长度分配 (67 长: index 0 未用)
     matrix: np.ndarray | None = None
@@ -554,56 +638,7 @@ def main(params: ZernikeResponseParams) -> int:
     if matrix is None or variance is None:
         click.echo("[FAIL] 未获得有效响应矩阵")
         return 1
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    # 完整设备参数 (波长/2π灰度/工作温度/固件版本/矫正状态/LUT + WFS 曝光/pupil/MLA/子孔径)
-    device_info = collect_device_info(slm, wfs, params.slm_number)
-    _ds = device_info.get("slm") or {}
-    _dw = device_info.get("wfs") or {}
-    device_config = {
-        "device": device_info,
-        "slm_serial": _ds.get("serial_number"),
-        "wfs_serial": _dw.get("serial_number"),
-        "wavelength_nm": params.slm_wavelength,
-        "slm_2pi_gray": max_gray,
-        "wfs_exposure_ms": exp,
-        "shift_x": int(sx),
-        "shift_y": int(sy),
-        "pupil_center_mm": [cx, cy],
-        "pupil_diameter_mm": [dx, dy],
-        "zernike_radius_px": params.zernike_radius,
-        "amplitude_rad": params.amplitude_rad,
-        "amplitude_waves": amp_waves,
-        "wfs_zernike_order": params.wfs_order,
-        "slm_mode_ids_dll": mode_ids,
-        "slm_mode_nm": [list(DLL_ZERNIKE[i - 1]) for i in mode_ids],
-        "zernike_ordering": (
-            "DLL 顺序 m 枚举 (m=-n..+n), 非标准 Noll 1976: "
-            "[1](0,0) [2](1,-1) [3](1,1) [4](2,-2) [5](2,0)defocus [6](2,2) "
-            "[9](3,1)coma [13](4,0)spherical"
-        ),
-        "matrix_layout": (
-            f"matrix[wfs_coeff_index, slm_mode_index]; wfs_coeff_index 0..{n_wfs_terms - 1} "
-            "对应 DLL [1..N] (非 Noll)"
-        ),
-        "units": "λ/λ (WFS 系数 µm 经 um_to_waves 换算; 与矫正 w 同单位)",
-        "method": "push-pull ±A, PatternHelper + display_phase (GUI 同链路)",
-        "reference": "custom user ref @ flat phase (shift 已应用)",
-    }
-    result = ZernikeResponseMatrixResult(
-        matrix=matrix,
-        variance_matrix=variance,
-        deviation_response_matrix=None,
-        subaperture_mask=None,
-        n_max=params.n_max,
-        magnitude=amp_waves,
-        wavelength_nm=params.slm_wavelength,
-        n_averages=params.n_avg,
-        n_cycles=params.n_cycles,
-        timestamp=datetime.now().isoformat(),
-        excluded_piston=True,
-        excluded_tip_tilt=params.exclude_tip_tilt,
-        device_config=device_config,
-    )
+    device_config, result, ts = _zr_build_result(amp_waves, cx, cy, dx, dy, exp, matrix, max_gray, mode_ids, n_wfs_terms, params, slm, sx, sy, variance, wfs)
     # 逆矩阵 (Zernike 模式法矫正控制律: c = pinv(M) @ w, c=(n_slm_modes,), w=(n_wfs_terms,))
     try:
         result.pinv_matrix = safe_pinv(matrix)
@@ -615,24 +650,7 @@ def main(params: ZernikeResponseParams) -> int:
     except np.linalg.LinAlgError as e:
         logger.warning("逆矩阵计算失败: {}", e)
 
-    if params.output:
-        out = Path(params.output)
-    else:
-        out = Path("data/zernike_response_matrix") / (
-            f"zm_slm{slm._serial_number}_wfs{wfs.serial_num}_"
-            f"{params.slm_wavelength}nm_{ts}.h5"
-        )
-    save_zernike_response_matrix(result, out)
-    sidecar = out.with_suffix(".json")
-    sidecar.write_text(json.dumps({"device_config": device_config, "raw": raw,
-                                   "matrix": matrix.tolist(),
-                                   "variance_matrix": variance.tolist()},
-                                  indent=2, ensure_ascii=False), encoding="utf-8")
-    click.echo(f"\n[OK] 响应矩阵: {out}  shape={matrix.shape}")
-    click.echo(f"[OK] 原始数据: {sidecar}")
-    click.echo(f"[INFO] 条件数={np.linalg.cond(matrix):.2f}, "
-               f"平均方差={float(np.mean(variance)):.3e}")
-    click.echo("=" * 72)
+    _zr_persist_output(device_config, matrix, params, raw, result, slm, ts, variance, wfs)
     return 0
 
 
