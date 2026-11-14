@@ -5176,6 +5176,14 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 301→313 (< 800), 无 baseline 变化
 - 载体: gs_refine_replay 3 / 形状 330 / conventions 72 (1 skip) / cli_help_golden 77 —— 全绿
 
+**2026-11-14 · 2b4c282b 之后 · 第 91 批: `sim_spgd.optimize_spgd_zernike` 171→124 行 + 三缝**
+- 提取: `_spgd_zernike_init_gains` 16 (nest 1, 8 参, 9 回传; R0/r_bucket 修正/gain/momentum 记账) / `_spgd_zernike_init_state` 15 (nest 0, 7 参, 11 回传; PIB 基线与系数初值) / `_spgd_zernike_prime_recorder` 28 (nest 0, 12 参, 回传 `(_init_r, phase)`; 初始相位下发 + recorder 预热)
+- 边界: `554:569` 区被断言拒绝 (`RZern` 未在区前定义) → 留在母函数; `637:649` 拒 (`kwargs`); `584:597` 首试被 pristine 拒 (尾部空行, 改 `584:596`)
+- 叶差分: 16 同 / 消失 0 / 新增 3 / 改 1 (`optimize_spgd_zernike`)
+- 棘轮: 收紧 215/1/171 → 143/1/124 + 三行 (19/1/16, 18/0/15, 33/0/28)
+- 模块 1037→1051 (+14, 三个 helper 的 def/docstring 开销), baseline 已抬平
+- 载体: sim_spgd 27 / 形状 333 / conventions 72 (1 skip) / cli_help_golden 77 —— 全绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

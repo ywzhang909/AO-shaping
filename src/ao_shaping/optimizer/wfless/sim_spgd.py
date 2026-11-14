@@ -29,8 +29,6 @@ def _current_strehl(ao_sys: TraditionalAOSystem) -> float:
     return float(ao_sys.observe()["strehl"])
 
 
-
-
 def _pib_ratio(
     img: np.ndarray,
     PX: np.ndarray,
@@ -114,7 +112,6 @@ def _calc_ideal_bucket_radius(
     finally:
         ao_sys._turbulence_phase = saved_turb
         ao_sys.set_dm_voltages(restore_v)
-
 
 
 def _spgd_run_loop(J, PX, PY, R0, _fix_bucket, _init_r, _init_v, adaptive_optimizer, ao_sys, beta1, current_delta, current_gamma, diff, disturb_v, epochs, flag, gamma, gradient, ideal_bucket_radius, ideal_r, learning_schedule, m_momentum, neg_pib, pos_img, pos_pib, power_ratio_threshold, r_bucket, recorder, total_actuators, update_iter, use_fixed_gain, use_momentum):
@@ -304,7 +301,6 @@ def _spgd_zernike_run_loop(J, PX, PY, R0, _apply_zernike_phase, _fix_bucket, _in
     return recorder
 
 
-
 def optimize_spgd(
     epochs: int,
     r_bucket: float = 0,
@@ -478,6 +474,71 @@ def optimize_spgd(
     return _spgd_run_loop(J, PX, PY, R0, _fix_bucket, _init_r, _init_v, adaptive_optimizer, ao_sys, beta1, current_delta, current_gamma, diff, disturb_v, epochs, flag, gamma, gradient, ideal_bucket_radius, ideal_r, learning_schedule, m_momentum, neg_pib, pos_img, pos_pib, power_ratio_threshold, r_bucket, recorder, total_actuators, update_iter, use_fixed_gain, use_momentum)
 
 
+def _spgd_zernike_init_gains(ao_sys, cart, delta, epochs, gamma, n_grid, r_bucket, use_momentum):
+    """Resolve bucket radius, gains and perturbation bookkeeping."""
+    ideal_bucket_radius = _calc_ideal_bucket_radius(ao_sys, ao_sys.dm_voltages, n_grid)
+    if r_bucket <= 0:
+        r_bucket = ideal_bucket_radius
+    _fix_bucket = True
+
+    ideal_r = max(ideal_bucket_radius, 1.0)
+    update_iter = epochs + 1
+    nk = cart.nk
+
+    current_gamma = gamma
+    current_delta = delta
+
+    m_momentum = np.zeros(nk) if use_momentum else None
+    return _fix_bucket, current_delta, current_gamma, ideal_bucket_radius, ideal_r, m_momentum, nk, r_bucket, update_iter
+
+
+def _spgd_zernike_init_state(PX, PY, R0, ao_sys, n_grid, nk, r_bucket):
+    """Initialise the metric and coefficient state from the flat frame."""
+    init_img = ao_sys.get_image()
+    init_pib, init_ratio = _pib_ratio(init_img, PX, PY, (R0, R0), r_bucket)
+
+    c = np.zeros(nk)
+    disturb_c = np.zeros(nk)
+    phase = np.zeros((n_grid, n_grid))
+    pos_pib, neg_pib = 0.0, 0.0
+    flag = 0
+    J = init_pib
+    diff = 0.0
+    gradient = np.zeros(nk)
+    pos_img = ao_sys.get_image()
+    return J, c, diff, disturb_c, flag, gradient, init_pib, init_ratio, neg_pib, pos_img, pos_pib
+
+
+def _spgd_zernike_prime_recorder(_apply_zernike_phase, ao_sys, c, current_delta, current_gamma, diff, ideal_bucket_radius, init_pib, init_ratio, nk, r_bucket, recorder):
+    """Apply the initial phase and prime the recorder."""
+    _init_r = r_bucket
+
+    phase = _apply_zernike_phase(c)
+    _strehl_init = _current_strehl(ao_sys)
+
+    recorder.append(
+        {
+            "sim_spgd_zernike": "init",
+            "J": init_pib,
+            "pib": init_pib,
+            RECORD_ROI_ENERGY: init_ratio,
+            "_max_r": _init_r,
+            RECORD_COEFFS: c.copy(),
+            RECORD_PHASE: phase.copy(),
+            RECORD_IMAGE: ao_sys.get_image(),
+            RECORD_DIFF: diff,
+            "gamma": current_gamma,
+            "r": r_bucket,
+            "delta": current_delta,
+            "ideal_r": ideal_bucket_radius,
+            RECORD_EPOCH: 0,
+            "strehl": _strehl_init,
+            RECORD_GRAD: np.zeros(nk),
+        }
+    )
+    return _init_r, phase
+
+
 def optimize_spgd_zernike(
     epochs: int,
     n_max: int = 6,
@@ -581,58 +642,11 @@ def optimize_spgd_zernike(
 
     R0 = n_grid / 2
 
-    ideal_bucket_radius = _calc_ideal_bucket_radius(ao_sys, ao_sys.dm_voltages, n_grid)
-    if r_bucket <= 0:
-        r_bucket = ideal_bucket_radius
-    _fix_bucket = True
+    _fix_bucket, current_delta, current_gamma, ideal_bucket_radius, ideal_r, m_momentum, nk, r_bucket, update_iter = _spgd_zernike_init_gains(ao_sys, cart, delta, epochs, gamma, n_grid, r_bucket, use_momentum)
 
-    ideal_r = max(ideal_bucket_radius, 1.0)
-    update_iter = epochs + 1
-    nk = cart.nk
+    J, c, diff, disturb_c, flag, gradient, init_pib, init_ratio, neg_pib, pos_img, pos_pib = _spgd_zernike_init_state(PX, PY, R0, ao_sys, n_grid, nk, r_bucket)
 
-    current_gamma = gamma
-    current_delta = delta
-
-    m_momentum = np.zeros(nk) if use_momentum else None
-
-    init_img = ao_sys.get_image()
-    init_pib, init_ratio = _pib_ratio(init_img, PX, PY, (R0, R0), r_bucket)
-
-    c = np.zeros(nk)
-    disturb_c = np.zeros(nk)
-    phase = np.zeros((n_grid, n_grid))
-    pos_pib, neg_pib = 0.0, 0.0
-    flag = 0
-    J = init_pib
-    diff = 0.0
-    gradient = np.zeros(nk)
-    pos_img = ao_sys.get_image()
-
-    _init_r = r_bucket
-
-    phase = _apply_zernike_phase(c)
-    _strehl_init = _current_strehl(ao_sys)
-
-    recorder.append(
-        {
-            "sim_spgd_zernike": "init",
-            "J": init_pib,
-            "pib": init_pib,
-            RECORD_ROI_ENERGY: init_ratio,
-            "_max_r": _init_r,
-            RECORD_COEFFS: c.copy(),
-            RECORD_PHASE: phase.copy(),
-            RECORD_IMAGE: ao_sys.get_image(),
-            RECORD_DIFF: diff,
-            "gamma": current_gamma,
-            "r": r_bucket,
-            "delta": current_delta,
-            "ideal_r": ideal_bucket_radius,
-            RECORD_EPOCH: 0,
-            "strehl": _strehl_init,
-            RECORD_GRAD: np.zeros(nk),
-        }
-    )
+    _init_r, phase = _spgd_zernike_prime_recorder(_apply_zernike_phase, ao_sys, c, current_delta, current_gamma, diff, ideal_bucket_radius, init_pib, init_ratio, nk, r_bucket, recorder)
 
     optimizer_key = optimizer_type.lower()
     use_fixed_gain = optimizer_key == "spgd"
