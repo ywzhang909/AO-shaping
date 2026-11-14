@@ -89,7 +89,7 @@
 |---|---|---|
 | [[functions/resolve-dm]] | `resolve_dm(dm_type, **kwargs)` | `drivers/dm/_registry.py:230` |
 | [[functions/resolve-wfs]] | `resolve_wfs(wfs_type, **kwargs)` | `drivers/wfs/_registry.py:147` |
-| [[functions/create-camera]] | `create_camera(camera_type, cam_id, exposure_time_ms, **kwargs)` | `drivers/ccd/common.py:221` |
+| [[functions/create-camera]] | `create_camera(camera_type, cam_id, exposure_time_ms, **kwargs)` | `drivers/ccd/common.py:222` |
 
 ### 算法 (algorithm/)
 | 页面 | 签名 | 位置 |

@@ -220,7 +220,7 @@ K = λ·f / (d_slm · p_cam)          K = utils/slm/bench_constants.TILT_SHIFT_S
 | 1 | `tools/slm/slm_zernike_sweep_probe.py:527` | `_root=`/`name=`/`extra_meta=` | **已修(`dc3d2e3`)**。此前: 扫描与 npz 都成功后仍 `TypeError`, 调试产物全丢 |
 | 2 | `drivers/slm/santec/driver.py:1258` | `target_slot` 未绑定 | **仅 DVI 模式**触发 `UnboundLocalError`。超出本次写入范围, **未修**; DVI 本就不该自动尝试(`open()` 已知会挂起) |
 | 3 | `optimizer/wfless/slm_zernike_pib.py:146` | `SLM_RESPONSE_TIME_S = 0.0` | **零稳定等待**, pib 现有 6 处 sleep 调用点。静默读到未稳定帧（2026-10-20 复核，原 `:137`；`1ce4717a` 常量收敛后整体 −1 至 `:134`；`slm_zernike_shaping.py` 早已并入 pib，其最后的再导出 shim 亦已整体删除（2026-10-20，#138 / `8792ced1`），故不再单列；2026-10-28 复核 `f67b8c89` #44 上提闭包后整体下移至 `:145`；2026-10-31 复核 #186 采集入口守卫接线（factory 导入 +1 行于其上）再下移至 `:146`）|
-| 4 | `drivers/ccd/daheng/driver.py:318-334` | 曝光越界被**钳到量程端点** | `0` 不是"保持设备设置", 而是被钳到**设备最小值 ~0.02 ms**(比可用区间暗 20–75 倍)。**这是 `0` 默认值的真实代价, 务必先 bracket** (2026-11-14 重钉 `47a8eb51`：原 `:205-218` 位深逻辑拆出 `_bit_depth.py` 后钳制块上移至 `:318-334`) |
+| 4 | `drivers/ccd/daheng/driver.py:322-338` | 曝光越界被**钳到量程端点** | `0` 不是"保持设备设置", 而是被钳到**设备最小值 ~0.02 ms**(比可用区间暗 20–75 倍)。**这是 `0` 默认值的真实代价, 务必先 bracket** (2026-11-14 重钉 `47a8eb51`：原 `:205-218` 位深逻辑拆出 `_bit_depth.py` 后钳制块上移至 `:318-334`；2026-11-14 跟进上游 `75858203`：`open()` docstring +4 行致钳制块再下移至 `:322-338`) |
 | 5 | `runners/runner_common.py` + `optimizer/wfless/slm_gs_refine.py` | `camera_pixel_um` | **已修(`015890f` + `d4a071b`)**。原硬编码 3.31 µm(推得焦点标度 5023, 比实测低 33%); 先改为由实测焦点标度反推, 最终改为**以像元间距为锚点**(2.2 µm 数据手册值)、**焦距改为派生**(见 §3) |
 | 6 | ~~`far_field_padding` 3 vs 8~~ | — | **不是冲突, 已撤回**。`far_field_size = n_grid × padding`, 仿真 `n_grid=512` 用 8、实验 `n_grid≈900` 用 3; 物理量 `λf/(aperture·padding)` 与 `n_grid` 无关, 代价才是平方级。**不要"统一"它** |
 | 7 | `optimizer/wfless/slm_gs_refine.py` | `focal_length_m` | **已修(`d4a071b`)**: 写死的 `0.125` 已改为 `0` = 由实测标度派生。GUI 侧仍不一致(`gui/slm/pattern_controls.py:1181` GS 用 `100.0` mm, `:453`/`:1381`/`:1663` 用 `300.0` mm), 换成透镜后请一并复核 |
@@ -236,7 +236,7 @@ K = λ·f / (d_slm · p_cam)          K = utils/slm/bench_constants.TILT_SHIFT_S
 ### 4.1 曝光默认值的语义(重要)
 
 曝光默认值已统一为 **`0` = 不固定**, 由
-`drivers/ccd/common.py:554` `resolve_initial_exposure` 分派:
+`drivers/ccd/common.py:691` `resolve_initial_exposure` 分派 (2026-11-14 重钉：`75858203` 上游曝光/位深契约扩展致 `common.py` 该函数自 `:585` 下移至 `:691`):
 
 | `exposure_time_ms` | `target_max_brightness` | 行为 |
 |---|---|---|
@@ -245,7 +245,7 @@ K = λ·f / (d_slm · p_cam)          K = utils/slm/bench_constants.TILT_SHIFT_S
 | `0` | `== 0` | `("keep", 0.0)` 交给驱动 |
 
 ⚠️ **`("keep", 0.0)` 在 Daheng 上不等于"保持"**: 驱动会把越界值**钳到量程端点**
-(`driver.py:318-334`, 注释说明这是为了避免 SDK 写失败), 于是 `0` → **设备最小值
+(`driver.py:322-338`, 注释说明这是为了避免 SDK 写失败), 于是 `0` → **设备最小值
 ~0.02 ms**, 比可用区间 0.4–1.5 ms 暗 20–75 倍。
 
 所以 `0` 的含义是"**不再内置某个实验系统的猜测**", 而**不是**"自动安全"。
