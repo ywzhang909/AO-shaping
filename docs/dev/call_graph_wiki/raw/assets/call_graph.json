@@ -670,8 +670,8 @@
    "qualname": "get_camera_exposure_ms",
    "module": "ao_shaping.drivers.ccd.common",
    "file": "src/ao_shaping/drivers/ccd/common.py",
-   "lineno": 441,
-   "end": 472,
+   "lineno": 442,
+   "end": 477,
    "args": [
     "cam"
    ],
@@ -683,8 +683,8 @@
    "qualname": "resample_on_saturation",
    "module": "ao_shaping.drivers.ccd.common",
    "file": "src/ao_shaping/drivers/ccd/common.py",
-   "lineno": 681,
-   "end": 725,
+   "lineno": 812,
+   "end": 856,
    "args": [
     "img",
     "cam",
@@ -796,8 +796,8 @@
    "qualname": "full_scale",
    "module": "ao_shaping.drivers.ccd.common",
    "file": "src/ao_shaping/drivers/ccd/common.py",
-   "lineno": 647,
-   "end": 667,
+   "lineno": 753,
+   "end": 773,
    "args": [
     "img"
    ],
@@ -822,8 +822,8 @@
    "qualname": "capture_with_exposure",
    "module": "ao_shaping.drivers.ccd.common",
    "file": "src/ao_shaping/drivers/ccd/common.py",
-   "lineno": 602,
-   "end": 639,
+   "lineno": 708,
+   "end": 745,
    "args": [
     "cam",
     "exposure_time_ms",
@@ -873,8 +873,8 @@
    "qualname": "resolve_initial_exposure",
    "module": "ao_shaping.drivers.ccd.common",
    "file": "src/ao_shaping/drivers/ccd/common.py",
-   "lineno": 585,
-   "end": 599,
+   "lineno": 691,
+   "end": 705,
    "args": [
     "exposure_time_ms",
     "target_max_brightness"
@@ -887,8 +887,8 @@
    "qualname": "set_camera_exposure_ms",
    "module": "ao_shaping.drivers.ccd.common",
    "file": "src/ao_shaping/drivers/ccd/common.py",
-   "lineno": 499,
-   "end": 522,
+   "lineno": 504,
+   "end": 534,
    "args": [
     "cam",
     "time_ms"
