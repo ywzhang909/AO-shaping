@@ -207,7 +207,6 @@ def _centroid(flat: Any) -> tuple[float, float]:
     return (float(flat.centroid_x), float(flat.centroid_y))
 
 
-
 def _scan_panel_session(Santec, cam_id, cam_type, create_camera, debug_dir, exposure_ms, frames, get_camera_exposure_ms, keep_device_exposure, max_flat_drift, panel, patch_radius, policy, probe_exposure_ceiling_ms, resolve_daheng_exposure_limit, rng, seed, slm_number, slm_wavelength, working_exposure_ms, xs, ys):
 # Lifted verbatim from scan_panel: open SLM + camera, run the patch
 # scan loop inside the device context, close and hand back the two
@@ -360,6 +359,102 @@ def _scan_panel_session(Santec, cam_id, cam_type, create_camera, debug_dir, expo
     return measurements, results
 
 
+def _pl_log_summary(max_pair_drift, response_sigma, results, session_drift, session_shift_px, top2_gap):
+    """Top-5 position echoes and the winner (bx, by) read-out."""
+    results.sort(reverse=True)
+    logger.info("")
+    logger.info("=== strongest patch positions (|0-order energy change|) ===")
+    for score, py, px, delta in results[:5]:
+        logger.info("  panel (x={:>4}, y={:>4})  dE/E={:+.4f}", px, py, delta)
+    _, by, bx, _ = results[0]
+    logger.info("")
+    logger.info(
+        "beam is near panel (x={}, y={}); panel centre is ({}, {})",
+        bx, by, SLM_PANEL_W // 2, SLM_PANEL_H // 2,
+    )
+    logger.info(
+        "offset from panel centre: dx={:+d}, dy={:+d} panel px -- pass this to the "
+        "runbook as --pupil-center, never a camera coordinate",
+        bx - SLM_PANEL_W // 2, by - SLM_PANEL_H // 2,
+    )
+    logger.info(
+        "flat drift: max paired {:.2%}, whole scan {:.2%} (intensity; "
+        "paired-normalised), beam shift {:.2f} cam px",
+        max_pair_drift, session_drift, session_shift_px,
+    )
+    logger.info(
+        "response uncertainty: winner sigma={} (per-frame scatter of its own "
+        "candidate frame), gap to runner-up={}",
+        "n/a" if response_sigma is None else f"{response_sigma:.4f}",
+        "n/a" if top2_gap is None else f"{top2_gap:.4f}",
+    )
+    return bx, by
+
+
+def _pl_rank_and_gate(debug_dir, flat_fwhm_px, max_flat_drift, max_pair_drift, max_session_drift, max_session_shift_fwhm, max_session_shift_px, measurements, rejected_count, results, session_drift, session_shift_px, shift_limit_px, strict):
+    """Candidate ranking, response uncertainty, debug dump and fail-closed gates."""
+    ranked = sorted(results, reverse=True)
+    response_sigma: float | None = None
+    top2_gap: float | None = None
+    if ranked:
+        if len(ranked) > 1:
+            top2_gap = ranked[0][0] - ranked[1][0]
+        _, wy, wx, wdelta = ranked[0]
+        winner_rel_sigma = next(
+            (
+                item.get("rel_sigma")
+                for item in measurements
+                if item["x"] == wx and item["y"] == wy
+            ),
+            None,
+        )
+        if winner_rel_sigma is not None:
+            # delta = (E_cand - E_ref) / E_ref, so a relative scatter ``s`` on the
+            # candidate frame propagates to delta as ``s * (E_cand / E_ref)`` =
+            # ``s * (1 + delta)``.
+            response_sigma = abs(1.0 + float(wdelta)) * float(winner_rel_sigma)
+    if debug_dir is not None:
+        (debug_dir / "summary.json").write_text(
+            json.dumps({"session_drift": session_drift, "max_pair_drift": max_pair_drift,
+                        "session_shift_px": session_shift_px,
+                        "session_shift_limit_px": shift_limit_px,
+                        "flat_fwhm_px": flat_fwhm_px,
+                        "rejected_count": rejected_count,
+                        "response": ranked[0][3] if ranked else None,
+                        "response_sigma": response_sigma,
+                        "top2_gap": top2_gap,
+                        "max_flat_drift": max_flat_drift,
+                        "max_session_drift": max_session_drift,
+                        "max_session_shift_px": max_session_shift_px,
+                        "max_session_shift_fwhm": max_session_shift_fwhm,
+                        "strict": strict,
+                        "best_center": [max(results)[2], max(results)[1]] if results else None}, indent=2),
+            encoding="utf-8",
+        )
+    if not results:
+        raise ValueError("all panel candidates rejected; check laser stability")
+    if strict and rejected_count:
+        raise ValueError(f"{rejected_count} panel candidates rejected by flat drift")
+
+    if shift_limit_px is not None and session_shift_px > shift_limit_px:
+        raise ValueError(
+            f"session beam shift {session_shift_px:.2f} cam px exceeds "
+            f"{shift_limit_px:.2f} px ({max_session_shift_fwhm:g} x FWHM "
+            f"{flat_fwhm_px:.1f} px, floor {max_session_shift_px} px) -- the beam "
+            "moved during the scan, so no single centre describes it; re-run or "
+            "stabilise the optical path"
+        )
+    if session_drift > max_session_drift:
+        logger.warning(
+            "session flat *intensity* drift {:.1%} exceeds {:.1%}, but every "
+            "grid point is normalised against its own paired flat, so this does "
+            "not bias the located centre (beam moved {:.2f} cam px, limit "
+            "{})",
+            session_drift, max_session_drift, session_shift_px,
+            "n/a" if max_session_shift_px is None else f"{max_session_shift_px:.2f} px",
+        )
+    return response_sigma, top2_gap
+
 
 def scan_panel(
     params: PanelLocateParams, *, strict: bool = False,
@@ -477,93 +572,8 @@ def scan_panel(
     # own noise, propagated from its candidate frame's per-frame scatter, and how
     # far it beat the runner-up. A gap inside ``response_sigma`` means the reported
     # centre is a coin flip between two patches.
-    ranked = sorted(results, reverse=True)
-    response_sigma: float | None = None
-    top2_gap: float | None = None
-    if ranked:
-        if len(ranked) > 1:
-            top2_gap = ranked[0][0] - ranked[1][0]
-        _, wy, wx, wdelta = ranked[0]
-        winner_rel_sigma = next(
-            (
-                item.get("rel_sigma")
-                for item in measurements
-                if item["x"] == wx and item["y"] == wy
-            ),
-            None,
-        )
-        if winner_rel_sigma is not None:
-            # delta = (E_cand - E_ref) / E_ref, so a relative scatter ``s`` on the
-            # candidate frame propagates to delta as ``s * (E_cand / E_ref)`` =
-            # ``s * (1 + delta)``.
-            response_sigma = abs(1.0 + float(wdelta)) * float(winner_rel_sigma)
-    if debug_dir is not None:
-        (debug_dir / "summary.json").write_text(
-            json.dumps({"session_drift": session_drift, "max_pair_drift": max_pair_drift,
-                        "session_shift_px": session_shift_px,
-                        "session_shift_limit_px": shift_limit_px,
-                        "flat_fwhm_px": flat_fwhm_px,
-                        "rejected_count": rejected_count,
-                        "response": ranked[0][3] if ranked else None,
-                        "response_sigma": response_sigma,
-                        "top2_gap": top2_gap,
-                        "max_flat_drift": max_flat_drift,
-                        "max_session_drift": max_session_drift,
-                        "max_session_shift_px": max_session_shift_px,
-                        "max_session_shift_fwhm": max_session_shift_fwhm,
-                        "strict": strict,
-                        "best_center": [max(results)[2], max(results)[1]] if results else None}, indent=2),
-            encoding="utf-8",
-        )
-    if not results:
-        raise ValueError("all panel candidates rejected; check laser stability")
-    if strict and rejected_count:
-        raise ValueError(f"{rejected_count} panel candidates rejected by flat drift")
-
-    if shift_limit_px is not None and session_shift_px > shift_limit_px:
-        raise ValueError(
-            f"session beam shift {session_shift_px:.2f} cam px exceeds "
-            f"{shift_limit_px:.2f} px ({max_session_shift_fwhm:g} x FWHM "
-            f"{flat_fwhm_px:.1f} px, floor {max_session_shift_px} px) -- the beam "
-            "moved during the scan, so no single centre describes it; re-run or "
-            "stabilise the optical path"
-        )
-    if session_drift > max_session_drift:
-        logger.warning(
-            "session flat *intensity* drift {:.1%} exceeds {:.1%}, but every "
-            "grid point is normalised against its own paired flat, so this does "
-            "not bias the located centre (beam moved {:.2f} cam px, limit "
-            "{})",
-            session_drift, max_session_drift, session_shift_px,
-            "n/a" if max_session_shift_px is None else f"{max_session_shift_px:.2f} px",
-        )
-    results.sort(reverse=True)
-    logger.info("")
-    logger.info("=== strongest patch positions (|0-order energy change|) ===")
-    for score, py, px, delta in results[:5]:
-        logger.info("  panel (x={:>4}, y={:>4})  dE/E={:+.4f}", px, py, delta)
-    _, by, bx, _ = results[0]
-    logger.info("")
-    logger.info(
-        "beam is near panel (x={}, y={}); panel centre is ({}, {})",
-        bx, by, SLM_PANEL_W // 2, SLM_PANEL_H // 2,
-    )
-    logger.info(
-        "offset from panel centre: dx={:+d}, dy={:+d} panel px -- pass this to the "
-        "runbook as --pupil-center, never a camera coordinate",
-        bx - SLM_PANEL_W // 2, by - SLM_PANEL_H // 2,
-    )
-    logger.info(
-        "flat drift: max paired {:.2%}, whole scan {:.2%} (intensity; "
-        "paired-normalised), beam shift {:.2f} cam px",
-        max_pair_drift, session_drift, session_shift_px,
-    )
-    logger.info(
-        "response uncertainty: winner sigma={} (per-frame scatter of its own "
-        "candidate frame), gap to runner-up={}",
-        "n/a" if response_sigma is None else f"{response_sigma:.4f}",
-        "n/a" if top2_gap is None else f"{top2_gap:.4f}",
-    )
+    response_sigma, top2_gap = _pl_rank_and_gate(debug_dir, flat_fwhm_px, max_flat_drift, max_pair_drift, max_session_drift, max_session_shift_fwhm, max_session_shift_px, measurements, rejected_count, results, session_drift, session_shift_px, shift_limit_px, strict)
+    bx, by = _pl_log_summary(max_pair_drift, response_sigma, results, session_drift, session_shift_px, top2_gap)
     return PanelLocateResult(
         (bx, by), results[0][3], max_pair_drift, session_drift, rejected_count,
         session_shift_px, response_sigma=response_sigma, top2_gap=top2_gap,

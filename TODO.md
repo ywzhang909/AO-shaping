@@ -5092,6 +5092,14 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: cartographer pure 10 / slot rotation 3 / 形状 303 / conventions 72 (1 skip) —— 全绿
 - 模块 438 行 (< 800), 无 baseline 变化
 
+**2026-11-14 · 6e5e22e5 之后 · 第 81 批: `panel_locate.scan_panel` 207→122 行 + 两缝**
+- 提取: `_pl_rank_and_gate` 63 (nest 2, 14 参; 候选排序 + 响应不确定度 + debug dump + 三条 fail-closed 门禁) / `_pl_log_summary` 30 (nest 1, 6 参; Top-5 回显 + winner `bx`/`by`)
+- 边界: 尾段必须先止于 566 —— `return PanelLocateResult(...)` 在 567, 含 return 的区域生成器会拒绝 (helper 不得含 return)
+- 叶差分: 5 同 / 消失 0 / 新增 2 / 改 1 (`scan_panel`)
+- 棘轮: `scan_panel` 由 250/2/206 **收紧**到 141/2/122, 新增 2 helper 行
+- 载体: panel_locate_restore 12 / panel 目录 10 / 形状 305 / conventions 72 (1 skip) —— 全绿
+- 模块 597 行 (< 800), 无 baseline 变化
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
