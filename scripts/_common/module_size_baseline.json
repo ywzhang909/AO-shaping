@@ -50,7 +50,7 @@
   "src/ao_shaping/tools/kernels/sweep_analysis.py": 931,
   "src/ao_shaping/tools/slm/bench_twin_calibrate.py": 966,
   "src/ao_shaping/tools/slm/calibration/calibration.py": 2887,
-  "src/ao_shaping/tools/slm/calibration/diffraction_efficiency/core.py": 1534,
+  "src/ao_shaping/tools/slm/calibration/diffraction_efficiency/core.py": 1546,
   "src/ao_shaping/tools/slm/calibration/diffraction_efficiency/measure.py": 964,
   "src/ao_shaping/tools/slm/calibration/lut_runner.py": 929,
   "src/ao_shaping/tools/slm/calibration/train_data_collect.py": 987,

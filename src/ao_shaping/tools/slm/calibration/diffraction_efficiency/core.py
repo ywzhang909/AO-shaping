@@ -401,6 +401,45 @@ def _integrate_spot(
     return total, my, mx, fwhm, ellipticity
 
 
+def _decore_pick_side_peaks(hi, lo, projections):
+    """Select the brightest peak on each side of the anchor."""
+    positive = max(
+        (item for item in projections if lo <= item[0] <= hi),
+        key=lambda item: item[1][2],
+        default=None,
+    )
+    negative = max(
+        (item for item in projections if -hi <= item[0] <= -lo),
+        key=lambda item: item[1][2],
+        default=None,
+    )
+    side_a = positive[1] if positive is not None else None
+    side_b = negative[1] if negative is not None else None
+    return side_a, side_b
+
+
+def _decore_note_single_sided(frame_peak, hi, lo, notes, predicted_separation_px, rest, side_a, side_b):
+    """Record a note when only one first order is visible."""
+    if side_a is None and side_b is None:
+        if predicted_separation_px:
+            strong_outside = [
+                p for p in rest if p[2] >= SIGNIFICANT_FRACTION * float(frame_peak)
+            ]
+            notes.append(
+                "几何预测窗口 ("
+                f"{lo:.0f}~{hi:.0f}px) 内没有一级衍射光斑, 本点一级效率记为 0"
+                + (
+                    " (窗口外却有强光斑: 几何标定可能已过期)"
+                    if strong_outside
+                    else ""
+                )
+            )
+        else:
+            side_a, side_b = (rest + [None, None])[:2]
+            notes.append("未找到与锚点共线的旁斑, 退回按能量取前两个光斑")
+    return side_a, side_b
+
+
 def _pick_orders(
     peaks: list[tuple[float, float, float]],
     frame_peak: float,
@@ -540,35 +579,8 @@ def _pick_orders(
     else:
         lo, hi = 0.0, math.inf
 
-    positive = max(
-        (item for item in projections if lo <= item[0] <= hi),
-        key=lambda item: item[1][2],
-        default=None,
-    )
-    negative = max(
-        (item for item in projections if -hi <= item[0] <= -lo),
-        key=lambda item: item[1][2],
-        default=None,
-    )
-    side_a = positive[1] if positive is not None else None
-    side_b = negative[1] if negative is not None else None
-    if side_a is None and side_b is None:
-        if predicted_separation_px:
-            strong_outside = [
-                p for p in rest if p[2] >= SIGNIFICANT_FRACTION * float(frame_peak)
-            ]
-            notes.append(
-                "几何预测窗口 ("
-                f"{lo:.0f}~{hi:.0f}px) 内没有一级衍射光斑, 本点一级效率记为 0"
-                + (
-                    " (窗口外却有强光斑: 几何标定可能已过期)"
-                    if strong_outside
-                    else ""
-                )
-            )
-        else:
-            side_a, side_b = (rest + [None, None])[:2]
-            notes.append("未找到与锚点共线的旁斑, 退回按能量取前两个光斑")
+    side_a, side_b = _decore_pick_side_peaks(hi, lo, projections)
+    side_a, side_b = _decore_note_single_sided(frame_peak, hi, lo, notes, predicted_separation_px, rest, side_a, side_b)
 
     if side_a is not None and side_b is not None:
         # 只有两侧都"显著"时才允许改写零级中心 —— 否则低相位端 (只有零级

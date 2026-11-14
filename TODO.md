@@ -5151,6 +5151,14 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 行锚: `functions/calibrate-dm-matrix.md` `:634`→`:702`, `functions/save-dm-matrix.md` `:832`→`:848`; 双 JSON `lineno/end` 634/829→702/845、832/900→848/916
 - 载体: dm_response_matrix 48 / 形状 321 / cli_help_golden 77 / conventions 72 (1 skip) —— 全绿
 
+**2026-11-14 · f9a7dd60 之后 · 第 88 批: `diffraction_efficiency/core._pick_orders` 186→159 行 + 两缝**
+- 提取: `_decore_pick_side_peaks` 15 (nest 0, 3 参, 回传 `(side_a, side_b)`; 两侧最亮一级的选择) / `_decore_note_single_sided` 20 (nest 2, 8 参, 回传 `(side_a, side_b)`; 单侧可见时的 note 记录)
+- 边界: `expected_center` 区 (454:503) 被 audit 判 `anchor/mid_x/mid_y` 三向泄漏、`505:526` 断言 `params - pre = ['anchor']` → 均留在母函数; `573:588` 判 `anchor(s=1,c=1)` 泄漏
+- 叶差分: 23 同 / 消失 0 / 新增 2 / 改 1 (`_pick_orders`)
+- 棘轮: 新增 `_DECORE_CORE` 常量 + 三行 (183/4/159, 18/0/15, 23/2/20)
+- 模块 1534→1546 (+12, 两个 helper 的 def/docstring 开销), baseline 已抬平
+- 载体: slm_diffraction_efficiency 61 / 形状 324 / conventions 72 (1 skip) / cli_help_golden 77 —— 全绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

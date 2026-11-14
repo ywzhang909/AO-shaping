@@ -81,6 +81,7 @@ _IO = "src/ao_shaping/utils/io/file.py"
 _DM = "src/ao_shaping/tools/kernels/device_mutex.py"
 _PAT = "src/ao_shaping/utils/image/target/patterns.py"
 _MEAS = "src/ao_shaping/tools/slm/calibration/diffraction_efficiency/measure.py"
+_DECORE_CORE = "src/ao_shaping/tools/slm/calibration/diffraction_efficiency/core.py"
 _SZP = "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py"
 _RMS = "src/ao_shaping/optimizer/wf/rms_by_zernike.py"
 _MIL = "src/ao_shaping/optimizer/wfless/slm_model_in_loop.py"
@@ -145,6 +146,9 @@ TARGETS = [
     (_FILE, "_fit_joint_waist", 110, 4, 65),
     (_FILE, "_sweep_calibration_notes", 80, 3, 35),
     (_SCRIPT, "build_markdown", 90, 2, 45),
+    (_DECORE_CORE, "_pick_orders", 183, 4, 159),
+    (_DECORE_CORE, "_decore_pick_side_peaks", 18, 0, 15),
+    (_DECORE_CORE, "_decore_note_single_sided", 23, 2, 20),
     (_SCRIPT, "_md_extend", 40, 2, 6),
     (_SCRIPT, "_md_metrics", 90, 2, 42),
     (_SCRIPT, "_md_sections_core", 230, 2, 160),
