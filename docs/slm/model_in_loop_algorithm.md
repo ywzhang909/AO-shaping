@@ -795,7 +795,7 @@ payload 的键:
 > **大恒驱动会把越界值钳到量程端点**(注释说明是为了避免 SDK 写失败), 于是这个 `0.0`
 > 实际变成**设备最小值 ~0.02 ms**, 比可用区间 0.4–1.5 ms **暗 20–75 倍**。
 > (`docs/slm/pre_run_characterization.md:220, 244-246`;
-> `src/ao_shaping/drivers/ccd/daheng/driver.py:221-235`;
+> `src/ao_shaping/drivers/ccd/daheng/driver.py:318-334`;
 > `src/ao_shaping/utils/cli/exposure.py`)
 
 ### 15.4 焦面标度 `K` 目前**三方不一致**

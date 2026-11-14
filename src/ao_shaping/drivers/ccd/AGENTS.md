@@ -11,6 +11,7 @@ ccd/
 ├── daheng/              # 大恒相机 (GigE)
 │   ├── driver.py
 │   ├── constants.py     # 大恒驱动常量
+│   ├── _bit_depth.py    # 位深 → PixelFormat 映射与回读归一化 (零导入叶子)
 │   └── __init__.py
 ├── ffmpeg/              # FFmpeg 相机
 │   ├── driver.py
