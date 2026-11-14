@@ -5142,6 +5142,15 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 641 行 (< 800), 无 baseline 变化
 - ⚠️ CI: b85 (`5463cfae`) 的 Pytest 红是 infra —— `libs/OOPAO` 子模块经 gh-proxy clone 返回 **HTTP 429** (checkout 阶段, 非测试失败); b80–b85 的 Pytest 仍 in_progress (排队/慢跑)
 
+**2026-11-14 · 7eb8c493 之后 · 第 87 批: `dm_response_matrix.calibrate_dm_response_matrix` 196→144 行 + 三缝**
+- 提取: `_drm_resolve_disturb_voltage` 26 (nest 3, 7 参, 回传 `(amplitude_optimization, disturb_voltage)`) / `_drm_resolve_subaperture_slopes` 30 (nest 1, 10 参, 回传四元组) / `_drm_zero_dm_baseline` 8 (nest 0, 4 参; DM 归零 + 重录 WFS 参考平场)
+- 边界: `compute_inverses` 区 (792:797) 被 audit 判 `lstsq_matrix/pinv_matrix` 双向泄漏 → 留在母函数
+- 叶差分: 18 同 / 消失 0 / 新增 3 / 改 1 (`calibrate_dm_response_matrix`)
+- 棘轮: 收紧 240/3/196 → 150/2/144 + 三行 (30/3/26, 35/1/30, 12/0/8)
+- 模块 1005→1021 (+16, 三个 helper 的 def/docstring/空行开销; 非功能性增长), baseline 已抬平
+- 行锚: `functions/calibrate-dm-matrix.md` `:634`→`:702`, `functions/save-dm-matrix.md` `:832`→`:848`; 双 JSON `lineno/end` 634/829→702/845、832/900→848/916
+- 载体: dm_response_matrix 48 / 形状 321 / cli_help_golden 77 / conventions 72 (1 skip) —— 全绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

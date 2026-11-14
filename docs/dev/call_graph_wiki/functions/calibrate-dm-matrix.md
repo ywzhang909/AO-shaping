@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-11-09
 type: function
 tags: [calibration,dm,matrix]
-source: src/ao_shaping/optimizer/wf/dm_response_matrix.py:634
+source: src/ao_shaping/optimizer/wf/dm_response_matrix.py:702
 ---
 
 ## 签名

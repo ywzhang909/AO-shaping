@@ -497,7 +497,6 @@ def _build_device_config(
     return config
 
 
-
 def _run_calibration_sweep(cancel_tile, debug_data_callback, disturb_voltage, dm, hadamard_order, mode, n_averages, n_cycles, n_total_slopes_unfiltered, n_valid, total_actuators, valid_indices, valid_rows, verbose, wait_time, wfs, response_matrix, variance_matrix, result_hadamard_order):
     """Run the mode-dependent response/variance sweep (verbatim lift of
     the calibration If from `calibrate_dm_response_matrix`). The two
@@ -630,6 +629,75 @@ def _run_calibration_sweep(cancel_tile, debug_data_callback, disturb_voltage, dm
     return response_matrix, variance_matrix, result_hadamard_order
 
 
+def _drm_resolve_disturb_voltage(auto_optimize_voltage, cancel_tile, disturb_voltage, dm, optimize_n_avg, valid_indices, wfs):
+    """Pick the default disturb voltage and optionally optimize it."""
+    amplitude_optimization: dict | None = None
+    if disturb_voltage is None or disturb_voltage == 0:
+        if auto_optimize_voltage:
+            logger.info("Auto-optimizing perturbation voltage for each actuator...")
+            test_voltages = np.array([10, 20, 30, 50, 80, 100, 150, 200], dtype=np.float64)
+            amplitude_optimization = {}
+            for actuator_idx in valid_indices:
+                opt_v, diagnostics = _optimize_perturbation_voltage(
+                    dm=dm,
+                    wfs=wfs,
+                    actuator_idx=actuator_idx,
+                    test_voltages=test_voltages,
+                    n_avg=optimize_n_avg,
+                    cancel_tile=cancel_tile,
+                )
+                amplitude_optimization[actuator_idx] = diagnostics
+            # Use mean optimal voltage across all actuators
+            disturb_voltage = float(np.mean(
+                [v["optimal_voltage"] for v in amplitude_optimization.values()]
+            ))
+            logger.info(f"Using average optimal voltage: {disturb_voltage:.1f} V")
+        else:
+            disturb_voltage = DEFAULT_DISTURB_VOLTAGE
+    return amplitude_optimization, disturb_voltage
+
+
+def _drm_resolve_subaperture_slopes(disturb_voltage, mask_edge_clip, mask_n_avg, mask_threshold_ratio, n_averages, n_cycles, n_valid, subaperture_mask, total_actuators, wfs):
+    """Derive the subaperture mask and the resulting slope row count."""
+    if subaperture_mask is None:
+        logger.info("Building subaperture mask automatically...")
+        subaperture_mask, _ = wfs.build_subaperture_mask(
+            n_avg=mask_n_avg,
+            threshold_ratio=mask_threshold_ratio,
+            edge_clip=mask_edge_clip,
+        )
+
+    # Determine slope count
+    nx = wfs.num_spots_x
+    ny = wfs.num_spots_y
+    n_total_slopes_unfiltered = 2 * nx * ny
+
+    if subaperture_mask is not None:
+        mask_flat = subaperture_mask.flatten()
+        valid_rows = np.concatenate([mask_flat, mask_flat])
+        n_slopes = int(np.sum(valid_rows))
+    else:
+        valid_rows = None
+        n_slopes = n_total_slopes_unfiltered
+
+    logger.info(
+        f"Starting DM response matrix calibration: "
+        f"total_actuators={total_actuators}, valid_actuators={n_valid}, "
+        f"total_slopes={n_total_slopes_unfiltered}, filtered_slopes={n_slopes}, "
+        f"voltage={disturb_voltage} V, cycles={n_cycles}, averages={n_averages}"
+    )
+    return n_slopes, n_total_slopes_unfiltered, subaperture_mask, valid_rows
+
+
+def _drm_zero_dm_baseline(dm, total_actuators, wait_time, wfs):
+    """Reset the DM to zero and re-record the WFS reference flat."""
+    logger.info("Initializing DM to zero and saving WFS reference...")
+    dm.send_voltages(np.zeros(total_actuators, dtype=np.float64), wait_time)
+    wfs.save_user_ref()
+    wfs.load_user_ref()
+    time.sleep(wait_time)
+    return 
+
 
 def calibrate_dm_response_matrix(
     dm: "DM",
@@ -711,69 +779,17 @@ def calibrate_dm_response_matrix(
     n_valid = len(valid_indices)
 
     # Auto-optimize voltage if needed
-    amplitude_optimization: dict | None = None
-    if disturb_voltage is None or disturb_voltage == 0:
-        if auto_optimize_voltage:
-            logger.info("Auto-optimizing perturbation voltage for each actuator...")
-            test_voltages = np.array([10, 20, 30, 50, 80, 100, 150, 200], dtype=np.float64)
-            amplitude_optimization = {}
-            for actuator_idx in valid_indices:
-                opt_v, diagnostics = _optimize_perturbation_voltage(
-                    dm=dm,
-                    wfs=wfs,
-                    actuator_idx=actuator_idx,
-                    test_voltages=test_voltages,
-                    n_avg=optimize_n_avg,
-                    cancel_tile=cancel_tile,
-                )
-                amplitude_optimization[actuator_idx] = diagnostics
-            # Use mean optimal voltage across all actuators
-            disturb_voltage = float(np.mean(
-                [v["optimal_voltage"] for v in amplitude_optimization.values()]
-            ))
-            logger.info(f"Using average optimal voltage: {disturb_voltage:.1f} V")
-        else:
-            disturb_voltage = DEFAULT_DISTURB_VOLTAGE
+    amplitude_optimization, disturb_voltage = _drm_resolve_disturb_voltage(auto_optimize_voltage, cancel_tile, disturb_voltage, dm, optimize_n_avg, valid_indices, wfs)
 
     # Build subaperture mask if not provided
-    if subaperture_mask is None:
-        logger.info("Building subaperture mask automatically...")
-        subaperture_mask, _ = wfs.build_subaperture_mask(
-            n_avg=mask_n_avg,
-            threshold_ratio=mask_threshold_ratio,
-            edge_clip=mask_edge_clip,
-        )
-
-    # Determine slope count
-    nx = wfs.num_spots_x
-    ny = wfs.num_spots_y
-    n_total_slopes_unfiltered = 2 * nx * ny
-
-    if subaperture_mask is not None:
-        mask_flat = subaperture_mask.flatten()
-        valid_rows = np.concatenate([mask_flat, mask_flat])
-        n_slopes = int(np.sum(valid_rows))
-    else:
-        valid_rows = None
-        n_slopes = n_total_slopes_unfiltered
-
-    logger.info(
-        f"Starting DM response matrix calibration: "
-        f"total_actuators={total_actuators}, valid_actuators={n_valid}, "
-        f"total_slopes={n_total_slopes_unfiltered}, filtered_slopes={n_slopes}, "
-        f"voltage={disturb_voltage} V, cycles={n_cycles}, averages={n_averages}"
-    )
+    n_slopes, n_total_slopes_unfiltered, subaperture_mask, valid_rows = _drm_resolve_subaperture_slopes(disturb_voltage, mask_edge_clip, mask_n_avg, mask_threshold_ratio, n_averages, n_cycles, n_valid, subaperture_mask, total_actuators, wfs)
 
     # Initialize response and variance matrices
     response_matrix = np.zeros((n_slopes, n_valid), dtype=np.float64)
     variance_matrix = np.zeros((n_slopes, n_valid), dtype=np.float64)
 
     # Initialize DM to zero and save WFS reference
-    logger.info("Initializing DM to zero and saving WFS reference...")
-    dm.send_voltages(np.zeros(total_actuators, dtype=np.float64), wait_time)
-    wfs.save_user_ref()
-    wfs.load_user_ref()
-    time.sleep(wait_time)
+    _drm_zero_dm_baseline(dm, total_actuators, wait_time, wfs)
 
     # Calibrate each valid actuator
     result_hadamard_order: int | None = None
