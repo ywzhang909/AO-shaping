@@ -980,6 +980,91 @@ def fit_lut_gamma(
     return float(best[0]), history
 
 
+def _mis_build_phase_objective_tensors(background_intensity, coefficients, dev, model_gain, optimizer, psf_sigma, region, source_amplitude, target, tdtype, torch):
+    """Build the torch-side objective tensors (aperture, amplitude, PSF, target)."""
+    aperture = torch.from_numpy(_aperture_from_basis(optimizer.generate_basis())).to(
+        device=dev, dtype=tdtype
+    )
+    amplitude_grid = (
+        ZernikeCoefficientOptimizer.native_amplitude(region)
+        if source_amplitude is None
+        else np.asarray(source_amplitude, dtype=np.float64)
+    )
+    if amplitude_grid.shape != (region, region):
+        raise ValueError(
+            f"source_amplitude must have shape {(region, region)}, "
+            f"got {amplitude_grid.shape}"
+        )
+    if not np.all(np.isfinite(amplitude_grid)):
+        raise ValueError("source_amplitude must be finite")
+    amplitude = torch.from_numpy(np.ascontiguousarray(amplitude_grid)).to(
+        device=dev, dtype=tdtype
+    )
+    background = None
+    if background_intensity is not None:
+        background_array = np.asarray(background_intensity, dtype=np.float64)
+        expected = int(getattr(optimizer, "far_field_size", region))
+        if background_array.shape != (expected, expected):
+            raise ValueError("background_intensity must match the far-field grid")
+        if not np.all(np.isfinite(background_array)) or np.any(background_array < 0):
+            raise ValueError("background_intensity must be finite and nonnegative")
+        background = torch.from_numpy(np.ascontiguousarray(background_array)).to(
+            device=dev, dtype=tdtype
+        )
+    if not np.isfinite(model_gain) or model_gain <= 0:
+        raise ValueError("model_gain must be finite and positive")
+    if not np.isfinite(psf_sigma) or psf_sigma < 0:
+        raise ValueError("psf_sigma must be finite and nonnegative")
+    gaussian_kernel = None
+    if psf_sigma > 0:
+        radius = int(4 * psf_sigma + 0.5)
+        coords = torch.arange(-radius, radius + 1, device=dev, dtype=tdtype)
+        weights = torch.exp(-0.5 * (coords / psf_sigma) ** 2)
+        weights /= weights.sum()
+        gaussian_kernel = torch.outer(weights, weights)[None, None]
+    coefficient_tensor = torch.from_numpy(
+        np.ascontiguousarray(coefficients, dtype=np.float64)
+    ).to(device=dev, dtype=tdtype)
+    target_t = torch.from_numpy(np.ascontiguousarray(target)).to(
+        device=dev, dtype=tdtype
+    )
+    return amplitude, aperture, background, coefficient_tensor, gaussian_kernel, target_t
+
+
+def _mis_run_phase_refinement(aperture, closure, config, dev, noise_rng, on_iteration, opt, phase, region, tdtype, torch):
+    """Drive the optimiser for ``config.iterations`` steps, recording each loss."""
+    history: list[float] = []
+    for index in range(config.iterations):
+        loss_value = float(closure().detach().cpu().item())
+        history.append(loss_value)
+        opt.step()
+        if (
+            config.noise_inject_every > 0
+            and config.noise_sigma_rad > 0
+            and (index + 1) % config.noise_inject_every == 0
+        ):
+            with torch.no_grad():
+                inject = torch.from_numpy(
+                    np.ascontiguousarray(
+                        noise_rng.normal(
+                            0.0,
+                            float(config.noise_sigma_rad),
+                            (region, region),
+                        ).astype(np.float64)
+                    )
+                ).to(device=dev, dtype=tdtype)
+                phase.data += inject * aperture
+        if on_iteration is not None:
+            on_iteration(index, loss_value)
+    logger.debug(
+        "Step B done: iterations={} loss {} -> {}",
+        len(history),
+        history[0],
+        history[-1],
+    )
+    return history
+
+
 def shape_phase_with_frozen_aberration(
     optimizer: ZernikeCoefficientOptimizer,
     coefficients: np.ndarray,
@@ -1048,52 +1133,7 @@ def shape_phase_with_frozen_aberration(
     # The aperture mask is still needed here: the relaxation noise is injected
     # inside the pupil only. The *forward* itself (the aberration, the error
     # terms) belongs to the optimizer, so Step A and Step B cannot drift.
-    aperture = torch.from_numpy(_aperture_from_basis(optimizer.generate_basis())).to(
-        device=dev, dtype=tdtype
-    )
-    amplitude_grid = (
-        ZernikeCoefficientOptimizer.native_amplitude(region)
-        if source_amplitude is None
-        else np.asarray(source_amplitude, dtype=np.float64)
-    )
-    if amplitude_grid.shape != (region, region):
-        raise ValueError(
-            f"source_amplitude must have shape {(region, region)}, "
-            f"got {amplitude_grid.shape}"
-        )
-    if not np.all(np.isfinite(amplitude_grid)):
-        raise ValueError("source_amplitude must be finite")
-    amplitude = torch.from_numpy(np.ascontiguousarray(amplitude_grid)).to(
-        device=dev, dtype=tdtype
-    )
-    background = None
-    if background_intensity is not None:
-        background_array = np.asarray(background_intensity, dtype=np.float64)
-        expected = int(getattr(optimizer, "far_field_size", region))
-        if background_array.shape != (expected, expected):
-            raise ValueError("background_intensity must match the far-field grid")
-        if not np.all(np.isfinite(background_array)) or np.any(background_array < 0):
-            raise ValueError("background_intensity must be finite and nonnegative")
-        background = torch.from_numpy(np.ascontiguousarray(background_array)).to(
-            device=dev, dtype=tdtype
-        )
-    if not np.isfinite(model_gain) or model_gain <= 0:
-        raise ValueError("model_gain must be finite and positive")
-    if not np.isfinite(psf_sigma) or psf_sigma < 0:
-        raise ValueError("psf_sigma must be finite and nonnegative")
-    gaussian_kernel = None
-    if psf_sigma > 0:
-        radius = int(4 * psf_sigma + 0.5)
-        coords = torch.arange(-radius, radius + 1, device=dev, dtype=tdtype)
-        weights = torch.exp(-0.5 * (coords / psf_sigma) ** 2)
-        weights /= weights.sum()
-        gaussian_kernel = torch.outer(weights, weights)[None, None]
-    coefficient_tensor = torch.from_numpy(
-        np.ascontiguousarray(coefficients, dtype=np.float64)
-    ).to(device=dev, dtype=tdtype)
-    target_t = torch.from_numpy(np.ascontiguousarray(target)).to(
-        device=dev, dtype=tdtype
-    )
+    amplitude, aperture, background, coefficient_tensor, gaussian_kernel, target_t = _mis_build_phase_objective_tensors(background_intensity, coefficients, dev, model_gain, optimizer, psf_sigma, region, source_amplitude, target, tdtype, torch)
     # The target is expressed on the *pupil* grid, but the model's far field is
     # far_field_size pixels wide. When those differ (any zero-padded run, e.g.
     # far_field_size=4096 on a 256 pupil) a target pixel is a different physical
@@ -1153,35 +1193,7 @@ def shape_phase_with_frozen_aberration(
         loss.backward()
         return loss
 
-    history: list[float] = []
-    for index in range(config.iterations):
-        loss_value = float(closure().detach().cpu().item())
-        history.append(loss_value)
-        opt.step()
-        if (
-            config.noise_inject_every > 0
-            and config.noise_sigma_rad > 0
-            and (index + 1) % config.noise_inject_every == 0
-        ):
-            with torch.no_grad():
-                inject = torch.from_numpy(
-                    np.ascontiguousarray(
-                        noise_rng.normal(
-                            0.0,
-                            float(config.noise_sigma_rad),
-                            (region, region),
-                        ).astype(np.float64)
-                    )
-                ).to(device=dev, dtype=tdtype)
-                phase.data += inject * aperture
-        if on_iteration is not None:
-            on_iteration(index, loss_value)
-    logger.debug(
-        "Step B done: iterations={} loss {} -> {}",
-        len(history),
-        history[0],
-        history[-1],
-    )
+    history = _mis_run_phase_refinement(aperture, closure, config, dev, noise_rng, on_iteration, opt, phase, region, tdtype, torch)
     return phase.detach().cpu().numpy().astype(np.float64), history
 
 
@@ -1515,7 +1527,6 @@ def load_bench_geometry(path: str | Path) -> BenchGeometry:
     return BenchGeometry.from_json_text(Path(path).read_text(encoding="utf-8"))
 
 
-
 def _cbg_measure_references(camera_pixel, far_field_size, focal_length, panel_span_px, records, region, slm_pitch, wavelength):
 # Reference frame + spot width + optical scale derivation lifted verbatim
     measured = [np.asarray(r.image, dtype=np.float64) for r in records]
@@ -1545,8 +1556,6 @@ def _cbg_measure_references(camera_pixel, far_field_size, focal_length, panel_sp
     return camera_px_per_model_px, fwhm_meas, model_to_panel, reference, reference_phase
 
 
-
-
 def _cbg_scan_seeds(region):
 # Initial best sentinel + candidate lists lifted verbatim
     best: tuple[float, BenchGeometry] | None = None
@@ -1559,8 +1568,6 @@ def _cbg_scan_seeds(region):
         region / float(2**k) for k in range(1, 7)
     ]  # region/2 .. region/64
     return best, waist_grid_candidates
-
-
 
 
 def _cbg_finalize(best, model_to_panel, region):
@@ -1593,7 +1600,6 @@ def _cbg_finalize(best, model_to_panel, region):
         best[1].correlation,
     )
     return 
-
 
 
 def calibrate_bench_geometry(
@@ -2431,8 +2437,6 @@ def _milsg_log_modes(curvature_report, groups, offsets):
     return 
 
 
-
-
 def _milsg_build_notes(a, asymmetry, camera_px_per_model_px, curvature_report, dropped, dropped_modes, far_field_size, fit_rms, flats, focal_source, fov_ratio, groups, k_tilt, offsets, opt, region, slopes, sources, tilt_ratio, w_d, waist_determined, waist_model, zeros):
 # Flat-field metrics and calibration notes lifted verbatim
     flat_fwhm = float(np.median([r.fwhm_px for r in flats])) if flats else float("nan")
@@ -2455,8 +2459,6 @@ def _milsg_build_notes(a, asymmetry, camera_px_per_model_px, curvature_report, d
                                     dropped_modes=dropped_modes)
     _publish_dropped(dropped, dropped_modes)
     return flat_fwhm, flat_model_fwhm, modes_used, notes
-
-
 
 
 def _milsg_fit_waist(a, camera_px_per_model_px, dropped_modes, far_field_size, groups, region, waist_candidates):
@@ -2485,8 +2487,6 @@ def _milsg_fit_waist(a, camera_px_per_model_px, dropped_modes, far_field_size, g
         raise ValueError("no waist candidate produced a finite width response")
     fit_rms, waist_fit, mode_offsets = best
     return asymmetry, fit_rms, mode_offsets, opt, w_d, waist_fit, zeros
-
-
 
 
 def _milsg_focal_crosschecks(a, aperture_m, camera_pixel_m, far_field_size, focal_length_m, k_tilt, model_to_panel, ramp_axis, ramp_scale, sources, wavelength_m):
@@ -2518,8 +2518,6 @@ def _milsg_focal_crosschecks(a, aperture_m, camera_pixel_m, far_field_size, foca
     return camera_px_per_model_px, focal_source, fov_ratio, tilt_ratio
 
 
-
-
 def _milsg_validate_sweeps(dropped, records, region, semi_axis_model_px):
 # Mode bucketing + tilt slope validation lifted verbatim
     tilts = [r for r in records if r.mode == "tilt"]
@@ -2546,7 +2544,6 @@ def _milsg_validate_sweeps(dropped, records, region, semi_axis_model_px):
     if not np.isfinite(k_tilt) or k_tilt <= 0.0:
         raise ValueError(f"tilt slope is not usable: {slopes}")
     return a, flats, k_tilt, ramps, slopes, sources
-
 
 
 def calibrate_bench_geometry_from_sweep(

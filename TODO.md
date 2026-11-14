@@ -5125,6 +5125,14 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: campaign_settings 23 / 形状 313 / cli_help_golden 77 / conventions 72 (1 skip) —— 全绿
 - 模块 614 行 (< 800), 无 baseline 变化
 
+**2026-11-14 · 9c92e9c7 之后 · 第 85 批: `shape_phase_with_frozen_aberration` 203→130 行 + 两缝**
+- 提取: `_mis_build_phase_objective_tensors` 49 (nest 2, 11 参, 6 回传; aperture/amplitude/background/PSF 核/系数与目标张量构建) / `_mis_run_phase_refinement` 32 (nest 3, 11 参; `config.iterations` 步优化循环 + 逐步 loss 记录 + debug 日志)
+- 边界: 首缝必须止于 1096 而非 1103 —— 1103 之后是空行与注释, `pristine` 断言要求 B 恰为语句 `end_lineno` (教训 ㉒ 再现, 首次 1051:1103 被拒)
+- 叶差分: 72 同 / 消失 0 / 新增 2 / 改 1 (`shape_phase_with_frozen_aberration`)
+- 棘轮: 该函数由 233/3/203 **收紧**到 150/1/130 (nest 3→1), 新增 2 helper 行 (57/2/49, 37/3/32)
+- 载体: model_in_loop_shaping 49 / 形状 315 / cli_help_golden 77 / conventions 72 (1 skip) —— 全绿
+- 模块 3360 行 (基线 3363, 未增长) ⇒ 无 baseline 变化; 另注: 本文件 1536/1567/1583/2433/2453/2479/2509/2540 处仍有早前批次遗留的 `# ... lifted verbatim` 注释, 不在本批范围
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
