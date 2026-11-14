@@ -83,6 +83,7 @@ _PAT = "src/ao_shaping/utils/image/target/patterns.py"
 _MEAS = "src/ao_shaping/tools/slm/calibration/diffraction_efficiency/measure.py"
 _DECORE_CORE = "src/ao_shaping/tools/slm/calibration/diffraction_efficiency/core.py"
 _SHAPING_ROUTER = "src/ao_shaping/tools/slm/shaping/router.py"
+_GS_REFINE_RUNNER = "src/ao_shaping/runners/slm/gs_refine_runner.py"
 _SZP = "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py"
 _RMS = "src/ao_shaping/optimizer/wf/rms_by_zernike.py"
 _MIL = "src/ao_shaping/optimizer/wfless/slm_model_in_loop.py"
@@ -153,6 +154,9 @@ TARGETS = [
     (_SHAPING_ROUTER, "choose_route", 153, 2, 133),
     (_SHAPING_ROUTER, "_router_collect_refocus_reasons", 28, 2, 23),
     (_SHAPING_ROUTER, "_router_collect_anchor_reasons", 17, 1, 13),
+    (_GS_REFINE_RUNNER, "run", 111, 2, 96),
+    (_GS_REFINE_RUNNER, "_gsrf_echo_setup_banner", 35, 1, 30),
+    (_GS_REFINE_RUNNER, "_gsrf_echo_history", 48, 2, 41),
     (_SCRIPT, "_md_extend", 40, 2, 6),
     (_SCRIPT, "_md_metrics", 90, 2, 42),
     (_SCRIPT, "_md_sections_core", 230, 2, 160),

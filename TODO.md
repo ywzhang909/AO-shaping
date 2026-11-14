@@ -5167,6 +5167,15 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 324→336 (< 800), 无 baseline 变化
 - 载体: router 26 / 形状 327 / conventions 72 (1 skip) / cli_help_golden 77 —— 全绿
 
+**2026-11-14 · 108b66ba 之后 · 第 90 批: `gs_refine_runner.run` 159→96 行 + 两缝**
+- 提取: `_gsrf_echo_setup_banner` 30 (nest 1, 3 参, 无回传; 相机/SLM/SPGD 横幅与 GS 方法分支) / `_gsrf_echo_history` 41 (nest 2, 2 参, 无回传; 逐阶段 best 摘要与阶段分)
+- 边界: `212:234` 区被断言拒绝 (`_TILT_SHIFT_SCALE_MEASURED_AT_NM` 未在区前定义) → 留在母函数
+- 叶差分: 1 同 / 消失 0 / 新增 2 / 改 1 (`run`)
+- 棘轮: 新增 `_GS_REFINE_RUNNER` 常量 + 三行 (111/2/96, 35/1/30, 48/2/41)
+- 行锚: `commands/slm-gs-refine.md` `:139`→`:214` ×2; 双 JSON `lineno/end` 115/264→214/309
+- 模块 301→313 (< 800), 无 baseline 变化
+- 载体: gs_refine_replay 3 / 形状 330 / conventions 72 (1 skip) / cli_help_golden 77 —— 全绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

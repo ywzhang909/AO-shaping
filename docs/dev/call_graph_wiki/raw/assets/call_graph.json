@@ -2440,8 +2440,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.gs_refine_runner",
    "file": "src/ao_shaping/runners/slm/gs_refine_runner.py",
-   "lineno": 115,
-   "end": 264,
+   "lineno": 214,
+   "end": 309,
    "args": [
     "ctx",
     "params"

@@ -133,6 +133,81 @@ def _shape_params_line(params: SlmGsRefineParams) -> str:
     )
 
 
+def _gsrf_echo_setup_banner(config, f_note, params):
+    """Echo the resolved camera SLM and SPGD banner."""
+    click.echo("=" * 64)
+    click.echo("SLM GS Warm Start + Freeform SPGD Refinement")
+    click.echo("=" * 64)
+    click.echo(f"Camera: {config.cam_type} #{config.cam_id} size={config.cam_size}")
+    click.echo(f"SLM: #{config.slm_number} @ {params.slm_wavelength}nm")
+    click.echo(
+        f"Epochs: {config.epochs} "
+        f"({'GS only, no camera' if config.epochs <= 0 else 'GS then SPGD refinement'})"
+        f"  grid: {config.phase_grid}x{config.phase_grid}"
+    )
+    click.echo(f"SPGD: delta={config.delta} lr={config.lr} opt={config.optimizer_type}")
+    click.echo(
+        f"GS warm start: {'on' if config.gs_warm_start else 'off'} "
+        f"(iters={config.gs_iters})"
+    )
+    if config.gs_method != "plain":
+        click.echo(
+            f"GS strategy: {config.gs_method}  gamma={config.gs_gamma} "
+            f"clip={config.gs_weight_clip} beta={config.gs_beta} "
+            f"hio_fraction={config.gs_hio_fraction}"
+        )
+    click.echo(
+        f"Bench model: beam_r={config.beam_radius_px}px "
+        f"panel={config.panel_pixel_um}um cam={config.camera_pixel_um}um "
+        f"f={config.focal_length_m:.5f}m ({f_note}) "
+        f"pad={config.far_field_padding}"
+    )
+    return 
+
+
+def _gsrf_echo_history(params, recorder):
+    """Echo the per-stage history summary."""
+    if recorder.history:
+        best_iter, (best_epoch, best_score) = recorder.get_best_iter()
+        stage_scores = {
+            row["stage"]: row["score"]
+            for row in recorder.history
+            if row["stage"] in ("flat", "gs")
+        }
+    else:
+        best_iter = None
+        best_epoch, best_score = None, float("nan")
+        stage_scores = {}
+
+    click.echo("\n" + "=" * 64)
+    click.echo("Optimization Complete")
+    click.echo("=" * 64)
+    click.echo(f"Evaluations: {len(recorder.history)}")
+    if recorder.history:
+        if "flat" in stage_scores:
+            click.echo(f"Flat baseline : {stage_scores['flat']:.4f}")
+        if "gs" in stage_scores:
+            verdict = (
+                "adopted"
+                if stage_scores["gs"] > stage_scores["flat"]
+                else "rejected (kept flat)"
+            )
+            click.echo(f"GS warm start : {stage_scores['gs']:.4f}  [{verdict}]")
+        click.echo(
+            f"Best score    : {best_score:.4f} (stage={best_iter['stage']}, epoch={best_epoch})"
+        )
+        click.echo(f"  PIB: {best_iter.get('pib', float('nan')):.4f}")
+        click.echo(f"  CV : {best_iter.get('cv', float('nan')):.4f}")
+        click.echo(
+            f"  target: {params.target_shape} "
+            f"(mask covers {best_iter.get('mask_area_frac', float('nan')) * 100:.2f}% "
+            "of the ROI frame)"
+        )
+    else:
+        click.echo("GS-only run: no camera was opened; phase written to SLM.")
+    return 
+
+
 @click.command()
 @click.pass_context
 @with_params(SlmGsRefineParams, kw_name="params")
@@ -176,33 +251,7 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
     config = build_gs_refine_config(params, debug=debug)
     f_note = "pinned" if params.focal_length_m > 0 else "derived"
 
-    click.echo("=" * 64)
-    click.echo("SLM GS Warm Start + Freeform SPGD Refinement")
-    click.echo("=" * 64)
-    click.echo(f"Camera: {config.cam_type} #{config.cam_id} size={config.cam_size}")
-    click.echo(f"SLM: #{config.slm_number} @ {params.slm_wavelength}nm")
-    click.echo(
-        f"Epochs: {config.epochs} "
-        f"({'GS only, no camera' if config.epochs <= 0 else 'GS then SPGD refinement'})"
-        f"  grid: {config.phase_grid}x{config.phase_grid}"
-    )
-    click.echo(f"SPGD: delta={config.delta} lr={config.lr} opt={config.optimizer_type}")
-    click.echo(
-        f"GS warm start: {'on' if config.gs_warm_start else 'off'} "
-        f"(iters={config.gs_iters})"
-    )
-    if config.gs_method != "plain":
-        click.echo(
-            f"GS strategy: {config.gs_method}  gamma={config.gs_gamma} "
-            f"clip={config.gs_weight_clip} beta={config.gs_beta} "
-            f"hio_fraction={config.gs_hio_fraction}"
-        )
-    click.echo(
-        f"Bench model: beam_r={config.beam_radius_px}px "
-        f"panel={config.panel_pixel_um}um cam={config.camera_pixel_um}um "
-        f"f={config.focal_length_m:.5f}m ({f_note}) "
-        f"pad={config.far_field_padding}"
-    )
+    _gsrf_echo_setup_banner(config, f_note, params)
     # The focal scale's own reference wavelength, shown only so the derived
     # ``f`` above can be traced back to the measurement it came from.
     from ao_shaping.optimizer.wfless.slm_gs_refine import (
@@ -243,44 +292,7 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
 
     recorder = optimize_slm_gs_refine(config)
 
-    if recorder.history:
-        best_iter, (best_epoch, best_score) = recorder.get_best_iter()
-        stage_scores = {
-            row["stage"]: row["score"]
-            for row in recorder.history
-            if row["stage"] in ("flat", "gs")
-        }
-    else:
-        best_iter = None
-        best_epoch, best_score = None, float("nan")
-        stage_scores = {}
-
-    click.echo("\n" + "=" * 64)
-    click.echo("Optimization Complete")
-    click.echo("=" * 64)
-    click.echo(f"Evaluations: {len(recorder.history)}")
-    if recorder.history:
-        if "flat" in stage_scores:
-            click.echo(f"Flat baseline : {stage_scores['flat']:.4f}")
-        if "gs" in stage_scores:
-            verdict = (
-                "adopted"
-                if stage_scores["gs"] > stage_scores["flat"]
-                else "rejected (kept flat)"
-            )
-            click.echo(f"GS warm start : {stage_scores['gs']:.4f}  [{verdict}]")
-        click.echo(
-            f"Best score    : {best_score:.4f} (stage={best_iter['stage']}, epoch={best_epoch})"
-        )
-        click.echo(f"  PIB: {best_iter.get('pib', float('nan')):.4f}")
-        click.echo(f"  CV : {best_iter.get('cv', float('nan')):.4f}")
-        click.echo(
-            f"  target: {params.target_shape} "
-            f"(mask covers {best_iter.get('mask_area_frac', float('nan')) * 100:.2f}% "
-            "of the ROI frame)"
-        )
-    else:
-        click.echo("GS-only run: no camera was opened; phase written to SLM.")
+    _gsrf_echo_history(params, recorder)
 
     save_result = save_gs_refine_results(
         recorder, params, root_dir=root_dir, debug=debug, config=config
