@@ -115,6 +115,71 @@ def _max_side_px(offset_px: float, half_span_px: float) -> float:
     return max(0.0, 2.0 * (half_span_px - WINDOW_MARGIN_PX - offset_px))
 
 
+def _pf_check_period(period, problems):
+    """Reject a non-finite or non-positive carrier period."""
+    if not math.isfinite(period) or period <= 0:
+        problems.append(
+            Problem(
+                "period_invalid",
+                f"载波周期 {period!r} 不是正数。",
+                "填标定过的 64 panel px（SLM 8 µm 像元）。",
+            )
+        )
+    elif period < MIN_PERIOD_PX:
+        problems.append(
+            Problem(
+                "period_below_nyquist",
+                f"载波周期 {period:g} panel px 低于可表示下限 {MIN_PERIOD_PX:g} panel px"
+                f"（8 µm 像元 ⇒ 每周期至少 2 个像元）。",
+                f"改成 {CALIBRATED_PERIODS_PX[0]:g} panel px（标定档），"
+                "并同步检查目标边长是否还放得进采样窗。",
+            )
+        )
+    elif period not in CALIBRATED_PERIODS_PX:
+        problems.append(
+            Problem(
+                "period_extrapolated",
+                f"载波周期 {period:g} panel px 不在标定过的 "
+                f"{'/'.join(f'{p:g}' for p in CALIBRATED_PERIODS_PX)} panel px 上，"
+                "载波位移是按「位移 ∝ 1/周期」外推的。",
+                "标定只在 64 / 128 panel px 上测过位移；用其它周期时请确认外推仍然成立。",
+                severity="warning",
+            )
+        )
+    return 
+
+
+def _pf_check_side(half_span_px, problems, side):
+    """Reject a non-finite side or one that cannot fit the probe window."""
+    if not math.isfinite(side) or side <= 0:
+        problems.append(
+            Problem(
+                "side_invalid",
+                f"目标边长 {side!r} 不是正数。",
+                f"填 {MIN_SIDE_PX:g}–{_max_side_px(0.0, half_span_px):g} px 之间的值。",
+            )
+        )
+    elif side < MIN_SIDE_PX:
+        problems.append(
+            Problem(
+                "side_too_small",
+                f"目标边长 {side:g} px 小于 {MIN_SIDE_PX:g} px。",
+                f"更小的方斑在 {STEP_PX:g} px 采样网格上取不到内部核心（空核心）。",
+            )
+        )
+    elif side > _max_side_px(0.0, half_span_px):
+        problems.append(
+            Problem(
+                "side_exceeds_window",
+                f"目标边长 {side:g} px 超出采样窗能容纳的 "
+                f"{_max_side_px(0.0, half_span_px):g} px"
+                f"（半跨 {half_span_px:g} px，两侧各留 {WINDOW_MARGIN_PX:g} px）。",
+                f"把目标边长降到 {_max_side_px(0.0, half_span_px):g} px 以内。",
+            )
+        )
+    return 
+
+
 def check_parameters(
     *,
     side: float,
@@ -152,35 +217,7 @@ def check_parameters(
     """
     problems: list[Problem] = []
 
-    if not math.isfinite(period) or period <= 0:
-        problems.append(
-            Problem(
-                "period_invalid",
-                f"载波周期 {period!r} 不是正数。",
-                "填标定过的 64 panel px（SLM 8 µm 像元）。",
-            )
-        )
-    elif period < MIN_PERIOD_PX:
-        problems.append(
-            Problem(
-                "period_below_nyquist",
-                f"载波周期 {period:g} panel px 低于可表示下限 {MIN_PERIOD_PX:g} panel px"
-                f"（8 µm 像元 ⇒ 每周期至少 2 个像元）。",
-                f"改成 {CALIBRATED_PERIODS_PX[0]:g} panel px（标定档），"
-                "并同步检查目标边长是否还放得进采样窗。",
-            )
-        )
-    elif period not in CALIBRATED_PERIODS_PX:
-        problems.append(
-            Problem(
-                "period_extrapolated",
-                f"载波周期 {period:g} panel px 不在标定过的 "
-                f"{'/'.join(f'{p:g}' for p in CALIBRATED_PERIODS_PX)} panel px 上，"
-                "载波位移是按「位移 ∝ 1/周期」外推的。",
-                "标定只在 64 / 128 panel px 上测过位移；用其它周期时请确认外推仍然成立。",
-                severity="warning",
-            )
-        )
+    _pf_check_period(period, problems)
 
     if count < PROBE_COUNT_MULTIPLE:
         problems.append(
@@ -202,32 +239,7 @@ def check_parameters(
             )
         )
 
-    if not math.isfinite(side) or side <= 0:
-        problems.append(
-            Problem(
-                "side_invalid",
-                f"目标边长 {side!r} 不是正数。",
-                f"填 {MIN_SIDE_PX:g}–{_max_side_px(0.0, half_span_px):g} px 之间的值。",
-            )
-        )
-    elif side < MIN_SIDE_PX:
-        problems.append(
-            Problem(
-                "side_too_small",
-                f"目标边长 {side:g} px 小于 {MIN_SIDE_PX:g} px。",
-                f"更小的方斑在 {STEP_PX:g} px 采样网格上取不到内部核心（空核心）。",
-            )
-        )
-    elif side > _max_side_px(0.0, half_span_px):
-        problems.append(
-            Problem(
-                "side_exceeds_window",
-                f"目标边长 {side:g} px 超出采样窗能容纳的 "
-                f"{_max_side_px(0.0, half_span_px):g} px"
-                f"（半跨 {half_span_px:g} px，两侧各留 {WINDOW_MARGIN_PX:g} px）。",
-                f"把目标边长降到 {_max_side_px(0.0, half_span_px):g} px 以内。",
-            )
-        )
+    _pf_check_side(half_span_px, problems, side)
 
     if offset_px is not None and math.isfinite(offset_px):
         limit = _max_side_px(float(offset_px), half_span_px)

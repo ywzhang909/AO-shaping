@@ -5133,6 +5133,15 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: model_in_loop_shaping 49 / 形状 315 / cli_help_golden 77 / conventions 72 (1 skip) —— 全绿
 - 模块 3360 行 (基线 3363, 未增长) ⇒ 无 baseline 变化; 另注: 本文件 1536/1567/1583/2433/2453/2479/2509/2540 处仍有早前批次遗留的 `# ... lifted verbatim` 注释, 不在本批范围
 
+**2026-11-14 · 5463cfae 之后 · 第 86 批: `preflight.check_parameters` 183→130 行 + 两缝**
+- 提取: `_pf_check_period` 32 (nest 3, 2 参; 周期有限性/正负/上界检查与 Problem 追加) / `_pf_check_side` 29 (nest 3, 3 参; 边长有限性 + 探针窗口容纳检查)
+- 边界: `offset_px` 区 (232:243) 被 audit 判 `limit(s=1,c=1)` 泄漏 → 留在母函数; 两缝均只 mutate 共享 `problems` 列表, 无 return
+- 叶差分: 12 同 / 消失 0 / 新增 2 / 改 1 (`check_parameters`)
+- 棘轮: 新增 `_TRANSFER_PREFLIGHT` 常量 + 3 行 (150/2/130, 37/3/32, 34/3/29)
+- 载体: transfer_preflight 18 / capture_grid_auto 19 / 形状 318 / cli_help_golden 77 / conventions 72 (1 skip) —— 全绿
+- 模块 641 行 (< 800), 无 baseline 变化
+- ⚠️ CI: b85 (`5463cfae`) 的 Pytest 红是 infra —— `libs/OOPAO` 子模块经 gh-proxy clone 返回 **HTTP 429** (checkout 阶段, 非测试失败); b80–b85 的 Pytest 仍 in_progress (排队/慢跑)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
