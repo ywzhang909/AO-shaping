@@ -5084,6 +5084,14 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: 7 个 gs_refine 测试文件逐文件 **218 passed 1 skipped** (整批 4 分片跑两次被 SIGKILL 137, 改为逐文件)
 - 门禁: conventions + 形状 372 passed; 模块 baseline 抬高 +16 (2437→2453)
 
+**2026-11-14 · 6b00435e 之后 · 第 80 批: `phase_grayscale_lut.calibrate` 222→102 行 + 两缝**
+- 提取: `_pgl_sweep_grayscale` 89 行 (nest 3, 11 参; 逐灰度 显示/采集 循环 + LUT 字典 + 三次拟合) / `_pgl_assemble_and_save` 39 (13 参; 峰值相位 + `LUTCalibrationResult` 组装 + 落盘 + 摘要日志); `self`→`cal` 纯改名
+- 区域边界: 单提 297:364 会被判 "conditional-only return `gs`" (`gs` 在 LUT 构建循环里重绑且被读), 扩到 297:382 把 LUT 构建+拟合并入后 `gs` 全程内部, 无幽灵回传
+- 叶差分: 7 同 / 消失 0 / 新增 2 / 改 1 (`calibrate`)
+- 棘轮: 新增 `_PHASE_GRAYSCALE_LUT` 常量 + 3 行 (118/0/102, 103/3/89, 45/0/39)
+- 载体: cartographer pure 10 / slot rotation 3 / 形状 303 / conventions 72 (1 skip) —— 全绿
+- 模块 438 行 (< 800), 无 baseline 变化
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

@@ -157,6 +157,138 @@ class LUTCalibrationResult:
         return int(np.clip(round(gs_float), gs_vals[0], gs_vals[-1]))
 
 
+def _pgl_assemble_and_save(all_measurements, cosine_pattern, fit_coeffs, gradient_pattern, grayscale_values, lut, measured_phases, measured_phases_2pi, nominal_phase, peak_x, peak_y, cal, total):
+    """Peak phase, `LUTCalibrationResult` assembly, save and summary log."""
+    peak_phase = (
+        float(nominal_phase[peak_y, peak_x])
+        if peak_y < nominal_phase.shape[0] and peak_x < nominal_phase.shape[1]
+        else 0.0
+    )
+    max_phase_2pi = (
+        float(np.max(measured_phases_2pi)) if measured_phases_2pi else 0.0
+    )
+
+    result = LUTCalibrationResult(
+        grayscale_values=grayscale_values,
+        measured_phases=measured_phases,
+        measured_phases_2pi=measured_phases_2pi,
+        lut=lut,
+        cosine_pattern=cosine_pattern,
+        gradient_pattern=gradient_pattern,
+        phase_at_peak=peak_phase,
+        max_phase_2pi=max_phase_2pi,
+        peak_grayscale=int(cosine_pattern[peak_y, peak_x]),
+        fit_coefficients=fit_coeffs,
+        wavelength_nm=cal.config.wavelength_nm,
+        timestamp=time.strftime("%Y-%m-%dT%H:%M:%S"),
+        config_snapshot=asdict(cal.config),
+        measurements=all_measurements,
+    )
+
+    # Save result
+    result.save(
+        cal._storage_dir
+        / f"lut_calibration_{cal.config.wavelength_nm}nm_{time.strftime('%Y%m%d_%H%M%S')}.json"
+    )
+
+    logger.info(
+        f"LUT calibration complete: {total} points, "
+        f"max_phase={max_phase_2pi:.3f}×2π"
+    )
+    return result
+
+
+def _pgl_sweep_grayscale(all_measurements, capture, cosine_pattern, grayscale_values, measured_phases, measured_phases_2pi, peak_x, peak_y, progress_callback, cal, total):
+    """Per-grayscale display/capture loop, LUT dict and cubic fit."""
+    for idx, gs in enumerate(grayscale_values):
+        if progress_callback:
+            progress_callback(idx, total, gs, f"Measuring grayscale {gs}")
+
+        # Display pattern modified by current grayscale offset
+        # For LUT: display cosine + uniform grayscale offset
+        display_pattern = np.clip(
+            cosine_pattern.astype(np.float64) + gs, 0, 1023
+        ).astype(np.uint16)
+
+        cal.slm.display_data(display_pattern, memory_number=1)
+        time.sleep(0.2)
+
+        try:
+            measurement = capture.capture_measurement(
+                label=f"lut_gs{gs}",
+                wavefront_device=cal.wfs,
+            )
+
+            if measurement.wavefront is not None:
+                # Extract phase at the peak location
+                wf = measurement.wavefront
+                py = int(np.clip(peak_y, 0, wf.shape[0] - 1))
+                px = int(np.clip(peak_x, 0, wf.shape[1] - 1))
+
+                phase_at_peak = float(wf[py, px])
+
+                # Also compute RMS over the valid pupil region
+                rms = float(np.nanstd(wf))
+
+                measured_phases.append(phase_at_peak)
+                measured_phases_2pi.append(phase_at_peak / (2.0 * np.pi))
+                all_measurements.append(
+                    {
+                        "grayscale": gs,
+                        "phase_at_peak_rad": phase_at_peak,
+                        "phase_at_peak_2pi": phase_at_peak / (2.0 * np.pi),
+                        "wavefront_rms": rms,
+                        "mean_displacement_dx": float(
+                            np.nanmean(measurement.displacements_x)
+                        ),
+                        "mean_displacement_dy": float(
+                            np.nanmean(measurement.displacements_y)
+                        ),
+                    }
+                )
+            else:
+                measured_phases.append(0.0)
+                measured_phases_2pi.append(0.0)
+                all_measurements.append(
+                    {
+                        "grayscale": gs,
+                        "phase_at_peak_rad": 0.0,
+                        "phase_at_peak_2pi": 0.0,
+                        "error": "Wavefront reconstruction failed",
+                    }
+                )
+
+        except Exception as e:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
+            logger.warning(f"Measurement failed at gs={gs}: {e}")
+            measured_phases.append(0.0)
+            measured_phases_2pi.append(0.0)
+            all_measurements.append(
+                {
+                    "grayscale": gs,
+                    "error": str(e),
+                }
+            )
+
+    # Build LUT dictionary
+    lut: dict[int, float] = {}
+    for gs, phase in zip(grayscale_values, measured_phases, strict=True):
+        lut[gs] = phase
+
+    # Fit polynomial: phase = f(grayscale)
+    fit_coeffs: list[float] = []
+    if len(measured_phases) > 3:
+        try:
+            coeffs = np.polyfit(grayscale_values, measured_phases, deg=3)
+            fit_coeffs = coeffs.tolist()
+            logger.info(
+                f"Polynomial fit: phase = {coeffs[0]:.2e}·g³ + "
+                f"{coeffs[1]:.2e}·g² + {coeffs[2]:.2e}·g + {coeffs[3]:.2e}"
+            )
+        except Exception as e:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
+            logger.warning(f"Polynomial fit failed: {e}")
+    return fit_coeffs, lut
+
+
 class PhaseGrayscaleLUT:
     """Phase-to-grayscale LUT calibration using Hartmann-Shack WFS.
 
@@ -294,129 +426,9 @@ class PhaseGrayscaleLUT:
 
         total = len(grayscale_values)
 
-        for idx, gs in enumerate(grayscale_values):
-            if progress_callback:
-                progress_callback(idx, total, gs, f"Measuring grayscale {gs}")
-
-            # Display pattern modified by current grayscale offset
-            # For LUT: display cosine + uniform grayscale offset
-            display_pattern = np.clip(
-                cosine_pattern.astype(np.float64) + gs, 0, 1023
-            ).astype(np.uint16)
-
-            self.slm.display_data(display_pattern, memory_number=1)
-            time.sleep(0.2)
-
-            try:
-                measurement = capture.capture_measurement(
-                    label=f"lut_gs{gs}",
-                    wavefront_device=self.wfs,
-                )
-
-                if measurement.wavefront is not None:
-                    # Extract phase at the peak location
-                    wf = measurement.wavefront
-                    py = int(np.clip(peak_y, 0, wf.shape[0] - 1))
-                    px = int(np.clip(peak_x, 0, wf.shape[1] - 1))
-
-                    phase_at_peak = float(wf[py, px])
-
-                    # Also compute RMS over the valid pupil region
-                    rms = float(np.nanstd(wf))
-
-                    measured_phases.append(phase_at_peak)
-                    measured_phases_2pi.append(phase_at_peak / (2.0 * np.pi))
-                    all_measurements.append(
-                        {
-                            "grayscale": gs,
-                            "phase_at_peak_rad": phase_at_peak,
-                            "phase_at_peak_2pi": phase_at_peak / (2.0 * np.pi),
-                            "wavefront_rms": rms,
-                            "mean_displacement_dx": float(
-                                np.nanmean(measurement.displacements_x)
-                            ),
-                            "mean_displacement_dy": float(
-                                np.nanmean(measurement.displacements_y)
-                            ),
-                        }
-                    )
-                else:
-                    measured_phases.append(0.0)
-                    measured_phases_2pi.append(0.0)
-                    all_measurements.append(
-                        {
-                            "grayscale": gs,
-                            "phase_at_peak_rad": 0.0,
-                            "phase_at_peak_2pi": 0.0,
-                            "error": "Wavefront reconstruction failed",
-                        }
-                    )
-
-            except Exception as e:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
-                logger.warning(f"Measurement failed at gs={gs}: {e}")
-                measured_phases.append(0.0)
-                measured_phases_2pi.append(0.0)
-                all_measurements.append(
-                    {
-                        "grayscale": gs,
-                        "error": str(e),
-                    }
-                )
-
-        # Build LUT dictionary
-        lut: dict[int, float] = {}
-        for gs, phase in zip(grayscale_values, measured_phases, strict=True):
-            lut[gs] = phase
-
-        # Fit polynomial: phase = f(grayscale)
-        fit_coeffs: list[float] = []
-        if len(measured_phases) > 3:
-            try:
-                coeffs = np.polyfit(grayscale_values, measured_phases, deg=3)
-                fit_coeffs = coeffs.tolist()
-                logger.info(
-                    f"Polynomial fit: phase = {coeffs[0]:.2e}·g³ + "
-                    f"{coeffs[1]:.2e}·g² + {coeffs[2]:.2e}·g + {coeffs[3]:.2e}"
-                )
-            except Exception as e:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
-                logger.warning(f"Polynomial fit failed: {e}")
+        fit_coeffs, lut = _pgl_sweep_grayscale(all_measurements, capture, cosine_pattern, grayscale_values, measured_phases, measured_phases_2pi, peak_x, peak_y, progress_callback, self, total)
 
         # Compute peak phase (from cosine pattern center)
-        peak_phase = (
-            float(nominal_phase[peak_y, peak_x])
-            if peak_y < nominal_phase.shape[0] and peak_x < nominal_phase.shape[1]
-            else 0.0
-        )
-        max_phase_2pi = (
-            float(np.max(measured_phases_2pi)) if measured_phases_2pi else 0.0
-        )
-
-        result = LUTCalibrationResult(
-            grayscale_values=grayscale_values,
-            measured_phases=measured_phases,
-            measured_phases_2pi=measured_phases_2pi,
-            lut=lut,
-            cosine_pattern=cosine_pattern,
-            gradient_pattern=gradient_pattern,
-            phase_at_peak=peak_phase,
-            max_phase_2pi=max_phase_2pi,
-            peak_grayscale=int(cosine_pattern[peak_y, peak_x]),
-            fit_coefficients=fit_coeffs,
-            wavelength_nm=self.config.wavelength_nm,
-            timestamp=time.strftime("%Y-%m-%dT%H:%M:%S"),
-            config_snapshot=asdict(self.config),
-            measurements=all_measurements,
-        )
-
-        # Save result
-        result.save(
-            self._storage_dir
-            / f"lut_calibration_{self.config.wavelength_nm}nm_{time.strftime('%Y%m%d_%H%M%S')}.json"
-        )
-
-        logger.info(
-            f"LUT calibration complete: {total} points, "
-            f"max_phase={max_phase_2pi:.3f}×2π"
-        )
+        result = _pgl_assemble_and_save(all_measurements, cosine_pattern, fit_coeffs, gradient_pattern, grayscale_values, lut, measured_phases, measured_phases_2pi, nominal_phase, peak_x, peak_y, self, total)
 
         return result

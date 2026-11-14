@@ -122,6 +122,7 @@ _CALIBRATION = "src/ao_shaping/tools/slm/calibration/calibration.py"
 _DATASET = "src/ml/hwdataset/dataset.py"
 _AXIS_BEAM_RUNNER = "src/ao_shaping/runners/nlight_dm/axis_beam_runner.py"
 _SLM_GS_REFINE = "src/ao_shaping/optimizer/wfless/slm_gs_refine.py"
+_PHASE_GRAYSCALE_LUT = "src/ao_shaping/tools/slm/cartographer/phase_grayscale_lut.py"
 
 #: (relative path under src, function name, span ceiling, nesting ceiling,
 #:  the span measured when the guard was written)
@@ -425,6 +426,9 @@ TARGETS = [
     (_MODEL_IN_LOOP_SHAPING, "shape_phase_with_frozen_aberration", 233, 3, 203),
     (_SLM_GS_REFINE, "_gsr_validate_target_limits", 100, 2, 87),
     (_SLM_GS_REFINE, "_gsr_validate_weights_and_settle", 67, 1, 58),
+    (_PHASE_GRAYSCALE_LUT, "calibrate", 118, 0, 102),
+    (_PHASE_GRAYSCALE_LUT, "_pgl_sweep_grayscale", 103, 3, 89),
+    (_PHASE_GRAYSCALE_LUT, "_pgl_assemble_and_save", 45, 0, 39),
 ]
 
 NESTING_NODES = (ast.If, ast.For, ast.While, ast.Try, ast.With, ast.AsyncFor, ast.AsyncWith)
