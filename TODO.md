@@ -123,7 +123,7 @@
 | R-8 P1 | 硬件安全 try/finally：任何异常（相机掉线、越界、`KeyboardInterrupt`）都让 SLM 停在随机相位 | [#45](https://github.com/ywzhang909/AO-shaping/issues/45) |
 | ~~R-13~~ | ✅ **收敛完成**（#46）：实测**不是 5 份相同副本，而是 4 种不同实现** —— 只有 `slm_square_shaping` 与 `pib` 逐字节相同（9 行）；`slm_zernike_pib` + `slm_zernike_shaping` **早已是「响亮失败」版**（检测 `accepts_var_keyword`、转发 `**kwargs`、并 warning 列出被丢参数），而 `pib` / `slm_square_shaping` / `sim_spgd` **仍静默吞参**（且永远不转发给声明 `**kwargs` 的 callee，即 `**config.kwargs` 逃生口失效）。canonical 落在 `optimizer/constants.py::create_optimizer`，紧邻它本就该集中管理的 `OPTIMIZER_MAP`。🎁 **额外发现**：3 个文件各自还定义了一份 `OPTIMIZER_MAP`，与 canonical **内容完全相同**（仅差类型标注）→ 一并改为导入。守卫 `test_optimizer_factory_single_home.py`（12 项）除结构检查外**锁定行为**：丢参必须被报告、声明 `**kwargs` 的 callee 必须收到传参 | ✅ |
 | R-14 P2 | `metric_panel` 每 epoch 全量指标 → 加 `panel_every_n`。⚠️ **前置是产品决策**（跳过轮次留空 vs 沿用上一轮） | [#47](https://github.com/ywzhang909/AO-shaping/issues/47) |
-| R-18 P3 | ⚠️ **2026-10-06 复核：原描述已过期，改为需设计决策**。①「删陈旧注释」**已完成** —— `slm_zernike_pib.py` 与死分叉里 `--init-gs` / `gs_warm` / `gerchberg` **零痕迹**。②「接入已有实现」**无物可接** —— `gs_warm_start` 只是 `runner_common.py:2442` 的**布尔 CLI flag**；GS 相位由 `_gs_pupil_phase`（`slm_gs_refine.py:573`，内调 `gs_shape` 于 `:626`）生成（2026-10-22 重钉，行号随代码漂移），但该函数签名绑死 `SlmGsRefineConfig` + `radius_px`/`target_side_cam`，slm-pib 用的是 `SlmZernikePibConfig`，**无法直接复用**。③ 真正的障碍：slm-pib 每轮由 `_c` 重建面板相位，注入全面板 GS 相位会破坏该不变式；改为拟合 Zernike 系数则对**方形**目标受 AGENTS.md「n≤4 无法合成方形远场」限制 | [#48](https://github.com/ywzhang909/AO-shaping/issues/48)（**仍开放**，待决策） |
+| R-18 P3 | ⚠️ **2026-10-06 复核：原描述已过期，改为需设计决策**。①「删陈旧注释」**已完成** —— `slm_zernike_pib.py` 与死分叉里 `--init-gs` / `gs_warm` / `gerchberg` **零痕迹**。②「接入已有实现」**无物可接** —— `gs_warm_start` 只是 `runner_common.py:2442` 的**布尔 CLI flag**；GS 相位由 `_gs_pupil_phase`（`slm_gs_refine.py:1198`，内调 `gs_shape` 于 `:1245`）生成（2026-10-22 重钉，行号随代码漂移；2026-11-14 跟进 148e7bff 第 78 批 `__post_init__` 拆两段校验 helper 后重钉 573/626→1198/1245），但该函数签名绑死 `SlmGsRefineConfig` + `radius_px`/`target_side_cam`，slm-pib 用的是 `SlmZernikePibConfig`，**无法直接复用**。③ 真正的障碍：slm-pib 每轮由 `_c` 重建面板相位，注入全面板 GS 相位会破坏该不变式；改为拟合 Zernike 系数则对**方形**目标受 AGENTS.md「n≤4 无法合成方形远场」限制 | [#48](https://github.com/ywzhang909/AO-shaping/issues/48)（**仍开放**，待决策） |
 | R-19 P3 | 🟡 注入机制已统一（archive §5.34），**`BenchSession` 本体未做** ⇒ R-5~R-8 仍待办。本条是那四项的跟踪父项 | [#49](https://github.com/ywzhang909/AO-shaping/issues/49) |
 
 ### 2.2 `utils/` + `scripts/` + `tools/` 架构重构
@@ -378,7 +378,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | **真缺陷** | 1 | `tools/slm/slm_zernike_sweep_probe.py:44` —— re-export 块里 `core_fraction` / `display_and_average` 确实未被使用 ⇒ **删这两个名字**。✅ 已删（commit `41cacbd2`，2026-10-23，R-63 step 1）：模块现位于 `tools/zernike/sweep_probe.py`，两个名字连同已失效的 `(capture_settled re-export)` noqa 一并移除，docstring 交叉引用改指 `bench_kernels` 规范路径 |
 | **noqa 已多余**（别名其实被用了） | 0 | 2026-10-21 复核：原 3 处（`utils/wavefront/matrix_utils.py:51`、`drivers/sim/beam_backend.py:209`、`optimizer/wfless/pib.py:95`）已由 `1faaabb5` 全部删除 ⇒ 本类已清空。⚠️ 勿误删 `pib.py` 现有 3 条 `# noqa: F401`（`:23`/`:24`/`:25`）：那是**必需**的再导出豁免（该文件无 `__all__`，去掉即报 F401），且 `pib._camera_cls` 被 `tests/ao_shaping/runners/test_sensorless_sim_params.py:132-133` 断言身份（行号 2026-10-23 重钉，跟进 `2ceb288f` 顶部 `_convergence_diagnostics` import 块下移 +4，原 `:19`/`:20`/`:21`）|
 | **应改为正式再导出** | 1 | `display/image_display.py:15` ⇒ 补 `__all__`，让 F401 不再是问题。⚠️ 不能改成 `import as` 冗余别名 —— `tests/ao_shaping/display/test_image_voltages_display.py` 有身份断言（`a is b`）。✅ 已补 `__all__`（commit `41cacbd2`，2026-10-23，R-63 step 1），re-export 由 blanket `# noqa: F401` 改为声明式公开面，身份断言测试 4 passed |
-| **合法副作用/能力探测，保留 noqa** | 8 | `drivers/dm/__init__.py:26,27`（驱动注册；`tests/ao_shaping/runners/test_cli_contract_freeze.py` 依赖）、`drivers/dm/_registry.py:77`（惰性 sim 导入以避环）、`optimizer/wfless/slm_gs_refine.py:757`（注册 sim 相机；`test_sim_camera_registration.py` 依赖）、`gui/slm/pyarrow_probe.py:39,60`（能力探测）、`tools/slm/slm_phase_response.py:47`（Agg 先于 pyplot） |
+| **合法副作用/能力探测，保留 noqa** | 8 | `drivers/dm/__init__.py:26,27`（驱动注册；`tests/ao_shaping/runners/test_cli_contract_freeze.py` 依赖）、`drivers/dm/_registry.py:77`（惰性 sim 导入以避环）、`optimizer/wfless/slm_gs_refine.py:1374`（注册 sim 相机；`test_sim_camera_registration.py` 依赖；2026-11-14 跟进 148e7bff 第 78 批 `__post_init__` 拆 helper 后重钉 757→1374）、`gui/slm/pyarrow_probe.py:39,60`（能力探测）、`tools/slm/slm_phase_response.py:47`（Agg 先于 pyplot） |
 | **全域 `E402` ignore 是错的工具** | — | ✅ **已完成（`84214f7f`，2026-10-23，R-63 step 2b）**。原估 **435 条** 偏低：按项目配置实测 **879 条**（`scripts/` 709 / `tests/` 128 / `src/` 42），且在两个被钉住的 ruff（ci.yml `0.11.10`、ruff.yml `>=0.15.12`）下逐字节相同 ⇒ 不是版本产物。已按 §8.6 第 1–2 步执行：step 2a（`8aa88fa2`）用**纯行位置移动**修掉 40 处普通错位（11 个文件的模块级语句多重集与 HEAD **AST 相同**，逐语句 `ast.dump` 比对，故代码内容/注释/相对 import 顺序均未变），step 2b 把余下 839 条按**成因**分组写进 `lint.per-file-ignores`（22 条具名豁免 + `scripts/*` + `__init__.py`），全局 `ignore` 里已无 `E402` ⇒ `src/`、`tests/` 从此真的被检查。 |
 | ↳ **E402 剩余豁免的可修性（2026-10-23 探测，两个 ruff 版本结论一致）** | — | ruff 的 E402 **豁免**：直接 `sys.path.insert(...)`、`os.environ[k] = ...`、`os.environ.setdefault(...)`、**带守卫的** `if k not in sys.modules: sys.modules[k] = ...`；**不豁免**：**无守卫的** `sys.modules[k] = MagicMock()`、`warnings.filterwarnings(...)`、以及**任何中间赋值**（`ROOT = Path(...)`、`torch = pytest.importorskip(...)`）。⇒ 现有豁免多数是被**赋值**触发，而非 bootstrap 本身。两条零风险收口路径已写进 `ruff.toml` 注释备查：① 去掉绑定形式（`pytest.importorskip("torch")` 单独一行 + `import torch`）可退掉 `tests/ao_shaping/ml/*` 48 条；② 把路径内联（不留 `ROOT =`）可退掉 bootstrap 类。**未在本刀做**：要改 ~40 文件且无正确性收益。**永不该动**：`tools/kernels`-类**导入普查测试**（`tests/ao_shaping/optimizer/wfless/test_slm_model_in_loop.py` 围绕自身 import 采样 `sys.modules`，移动 import 会改变被测对象）。 |
 | **matplotlib Agg 那批多半不需要** | ~18 | ruff 的 E402 **已豁免** `sys.path` / `os.environ` 修改与 `matplotlib.use()` 激活（`is_matplotlib_activation`，PR #9094 修 #9091）⇒ `src/ml/shaping/viz.py:50-55`、`src/ml/gsnet_debug/train.py:43-66` 的 noqa 即使开 E402 也很可能仍不需要，**先验证再删** |
@@ -399,11 +399,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | 处置 | 站点 | 收窄到 |
 |---|---|---|
 | **保持 `BaseException` + 补注释** | `utils/image/hardware_utils.py:666` | 不改，仅把线程边界语义写进注释；已机械钉住：`test_conventions.py::test_thread_boundary_exception_capture_keeps_base_exception` |
-| **最高价值：收窄** | `drivers/slm/santec/driver.py:1184` | `SantecError` —— 房内既有写法：`slm_gs_refine.py:780` `except SantecError as exc: if exc.code != 1: raise` |
+| **最高价值：收窄** | `drivers/slm/santec/driver.py:1184` | `SantecError` —— 房内既有写法：`slm_gs_refine.py:1396` `except SantecError as exc: if exc.code != 1: raise`（2026-11-14 跟进 148e7bff 第 78 批重钉 780→1396） |
 | **已收窄（执行）** | `gui/r50/r50_channel_select.py:365` | `(ValueError, KeyError, TypeError)`（pandas `int()` / 列访问） —— 2026-10-28 执行：该 handler 的守卫语句只有 `int(row[...])` 与列访问，缺列 = KeyError、坏值 = ValueError、空值 = TypeError，且**不碰硬件**（CI 可见全部失败面），故按本 issue 自己的口径收窄优先于登记；`tests/ao_shaping/gui/r50/test_r50_channel_select.py` 钉住两半契约（畸形行仍降级为空表 / 未列类型不再被吞）。该站已**退出盲捕总体**：382 → 381，已标注 188 → 187，未标注仍 194 |
 | 收窄 | `tools/slm/slm_zernike_common.py:114,129,155,162,166` | `(SantecError, WfsError, AttributeError)` |
 | 收窄 | `runners/slm/zernike_matrix_runner.py:652,759,765`（旧行号 733/774/840 已漂移，2026-10-24 复核） | `(WfsError, RuntimeError, ValueError)`。🔴 原建议含 `AssertionError`，现**禁止**：`92dbe716` 的守卫 `test_production_code_never_catches_assertion_error` 机器禁止 `src/`+`scripts/` 捕获 `AssertionError`（`python -O` 下 assert 消失 ⇒ 处理器变死代码；且 assert→raise 转换会让按 `AssertionError` 写的处理器静默失配）；该文件现 3 处均为裸 `except Exception`，未含 `AssertionError` ⇒ 收窄时不得引入 |
-| 收窄（teardown / close） | `runners/slm/zernike_matrix_runner.py:1376`、`slm_gs_refine.py:804`、`slm_model_in_loop.py:1679` | `(DeviceError, OSError, RuntimeError)` |
+| 收窄（teardown / close） | `runners/slm/zernike_matrix_runner.py:1376`、`slm_gs_refine.py:1424`、`slm_model_in_loop.py:1679` | `(DeviceError, OSError, RuntimeError)`（2026-11-14 跟进 148e7bff 第 78 批重钉 804→1424，teardown `slm.close()`） |
 | **必须保持宽** | 遥测 12 处，按**函数名**引用（不再钉行号）：`ml/zernike/train_coeff.py` 的 `_init_wandb`/`_log_wandb_row`/`_log_comparison_image`/`_log_wandb_summary`/`_finish_wandb`（5 处）、`ml/zernike/train_amp.py` 的 `_init_wandb`/`_log_comparison_image`（2 处）、`ml/shaping/train.py` 的 `train`/`_init_wandb`/`_log_comparison_image`（3 处）、`ml/gsnet_debug/train.py` 的 `run_offline_training`（2 处） | wandb 从网络/文件系统/序列化多路抛错，且 `except Exception` 不吞 Ctrl-C ⇒ 保留宽捕获，理由已就地写成 `# policy:` 注释；机器校验由 §8.9 的盲捕棘轮计数承担（`tests/ao_shaping/test_conventions.py` 的 `_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC`），不再依赖行号。2026-10-28 复核更正两点：**其一**，旧措辞「保留 noqa + 理由」不成立——这四个文件里 `noqa` 出现 **0** 次，实际形态一直是宽捕获加就地理由注释；**其二**，旧行号 12 个中有 **8 个在本批复核之前就已失真**（落在 `)`、`n_val: int,`、docstring 等无关语句上），一行内堆 12 个行号本就不可维护，故改按函数名。 |
 | **必须保持宽** | `zernike_matrix_runner.py:846` | 包住**调用方传入的任意回调**，无法枚举 |
 | 边缘（建议保留） | `zernike_matrix_runner.py:1448`（整条多设备流水线）、`:1323`（显示回调） | 收窄会变脆 |
@@ -639,7 +639,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 7. ✅ **BLE001 `tools` 片（15 处 silent）⇒ 14 处正确不动、1 处真缺陷；并挖出一个更严重的系统性缺陷：loguru 的 `%`-参数被静默丢弃**（2026-10-24）：
    14 处分五类且**全部不动**：`main()` 收尾的尽力 close（`panel/diagnose.py:403/408`、`panel/phase_response.py:585/590`、
-   `wfs/wfs_reference.py:309`、`wfs/zernike_correction.py:713`、`wfs/zernike_response.py:554`、
+   `wfs/wfs_reference.py:309`、`wfs/zernike_correction.py:713`、`wfs/zernike_response.py:633`（2026-11-14 跟进 73311b7f 第 79 批重钉，554→633）、
    `calibration/train_data_collect.py:970/975/980`（2026-10-25 二次重钉：`9bfc7f18` 在 `on_record` 处加计数块使整体下移 **+14** 行 ⇒ grep 实测 `:970/975/980`；上一次重钉按插入行数推成 `:971/976/981`，**差一** ⇒ 规则：`file:line` 一律 **grep 实测**，不得由插入行数推算））、重连前先关旧设备（`cartographer/slm_cartographer_ui.py:99/145`）、
    **可选依赖探测**（`train_data_collect.py:187`，下一行就是 `return _RECOGNISED_FAMILIES` 回落）、
    **有注释的基底外 Noll 索引跳过**（`panel/focus_preflight.py:553`；`gen.fit` 只返回自身基底的项 ⇒ 该跳过实际不可达）。
@@ -2072,10 +2072,10 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
       | 10 | 66 | 67 | 67 | 66 |
     - **「piston 说」站不住（三条仓库内独立证据）**：(1) canonical **自己的 docstring** 写着
       `Number of Zernike terms (including piston)`（`zernike_calc.py:85`）；(2) 消费者把同一公式
-      标为 `# 含 piston`（`tools/wfs/zernike_response.py:418`）；(3) 驱动多出的那一格被写明
+      标为 `# 含 piston`（`tools/wfs/zernike_response.py:413`；2026-11-14 跟进 73311b7f 第 79 批 `main` 拆 `_zr_*` 三 helper 后重钉，418→413）；(3) 驱动多出的那一格被写明
       **不使用** —— 「返回 67 长数组，DLL 填 `coeff[1..66]`（index 0 未用）」
       （`tools/wfs/zernike_response.py:15`、`tools/wfs/zernike_correction.py:25`、
-      `tools/zernike/common.py:8`），而 `zernike_response.py:219` 正是据此切 `w = w[1:]`。
+      `tools/zernike/common.py:8`），该切片现收敛在 `tools/zernike/common.py::wfs_channels_lambda` 的 `w = w[1:]`（`common.py:162`，2026-10-25 `ece69786` 起 WFS 波前统一入口；原 `zernike_response.py:219` 已随 `ece69786` 移入 common，现 219 为无关语句）。
       ⇒ `+1` 属于**数组长度**层面的 1 基填充空槽，不是第 67 个系数。
     - **危险的不是注释而是测试名字**：`test_base_wfs.py` 的 `test_canonical_excludes_piston` /
       `test_wfs_counts_include_piston` / `test_offset_is_exactly_piston` 断言的**数值关系全对**，
@@ -2173,7 +2173,7 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
       多数是**正确表述** —— `thorlab_wfs.py:1510`「标准 Noll 里 5 号是 (2,-2) 像散」、
       `simulated_wfs.py:400`「本仿真按 0 基 Noll 序」、`zernike_matrix_runner.py:533/630`
       「66 = Noll 总数」（讲的是**项数**，与枚举无关）、`common.py:20`（我新写的改正说明）；
-      另有 `zernike_response.py:590` 已经写了 `(非 Noll)`，是我的否定词表漏了拼写。
+      另有 `zernike_response.py:457` 已经写了 `(非 Noll)`（2026-11-14 跟进 73311b7f 第 79 批重钉，590→457），是我的否定词表漏了拼写。
       ⇒ 该谓词会把刚写正确的句子标成违规，属**假缺陷发生器**，不建。散文里的枚举约定**不可判定**。
     - **留给设备侧的两处，我没有动**：(1) 孪生 0 基 Noll 与驱动 1 基顺序 m 统一到哪一侧 —— 需要 DLL 契约与
       既有落盘语料的口径；(2) `drivers/slm/AGENTS.md:131` 的实测记录「SLM-x 平移驱动 WFS Noll3 (y-tilt)，
