@@ -526,8 +526,8 @@
     ]
   },
   "slm_panel_locate": {
-    "body_literals": 138,
-    "body_literals_sha256": "1309befde205220d",
+    "body_literals": 140,
+    "body_literals_sha256": "c46854ce41593c07",
     "declared": [
       "--cam-id",
       "--cam-type",
@@ -858,8 +858,8 @@
     ]
   },
   "slm_zernike_response": {
-    "body_literals": 282,
-    "body_literals_sha256": "6691b78060f60bc1",
+    "body_literals": 285,
+    "body_literals_sha256": "1d0827576485c4fc",
     "declared": [
       "--amplitude-rad",
       "--exclude-tip-tilt",
