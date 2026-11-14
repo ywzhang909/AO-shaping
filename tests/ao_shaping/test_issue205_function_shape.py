@@ -121,6 +121,7 @@ _RUNNER_COMMON = "src/ao_shaping/runners/runner_common.py"
 _CALIBRATION = "src/ao_shaping/tools/slm/calibration/calibration.py"
 _DATASET = "src/ml/hwdataset/dataset.py"
 _AXIS_BEAM_RUNNER = "src/ao_shaping/runners/nlight_dm/axis_beam_runner.py"
+_SLM_GS_REFINE = "src/ao_shaping/optimizer/wfless/slm_gs_refine.py"
 
 #: (relative path under src, function name, span ceiling, nesting ceiling,
 #:  the span measured when the guard was written)
@@ -377,7 +378,10 @@ TARGETS = [
     (_VOLTAGE_RUNNER, "run", 271, 6, 241),
     (_MODEL_IN_LOOP_SHAPING, "calibrate_shared_aberration", 271, 2, 241),
     (_SHAPING_TRAIN, "train", 266, 2, 236),
-    (_ZERNIKE_RESPONSE, "main", 264, 5, 234),
+    (_ZERNIKE_RESPONSE, "main", 164, 6, 149),
+    (_ZERNIKE_RESPONSE, "_zr_prepare_session", 26, 2, 23),
+    (_ZERNIKE_RESPONSE, "_zr_build_result", 58, 1, 53),
+    (_ZERNIKE_RESPONSE, "_zr_persist_output", 24, 2, 21),
     (_ZERNIKE_RESPONSE_MATRIX, "calibrate_zernike_response_matrix", 178, 4, 162),
     (_ZERNIKE_RESPONSE_MATRIX, "_zrm_auto_amplitude", 28, 4, 23),
     (_ZERNIKE_RESPONSE_MATRIX, "_zrm_buffers", 28, 2, 23),
@@ -419,6 +423,8 @@ TARGETS = [
     (_DATASET, "create_hw_dataloaders", 236, 2, 206),
     (_AXIS_BEAM_RUNNER, "run", 233, 2, 203),
     (_MODEL_IN_LOOP_SHAPING, "shape_phase_with_frozen_aberration", 233, 3, 203),
+    (_SLM_GS_REFINE, "_gsr_validate_target_limits", 100, 2, 87),
+    (_SLM_GS_REFINE, "_gsr_validate_weights_and_settle", 67, 1, 58),
 ]
 
 NESTING_NODES = (ast.If, ast.For, ast.While, ast.Try, ast.With, ast.AsyncFor, ast.AsyncWith)

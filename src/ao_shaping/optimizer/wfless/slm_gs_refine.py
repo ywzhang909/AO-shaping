@@ -235,6 +235,159 @@ VALIDATED_GS_REFINE_RECIPE: dict[str, object] = {
 # ---------------------------------------------------------------------------
 
 
+
+
+def _gsr_validate_target_limits(config):
+# Target and hardware limit validation lifted verbatim
+    if not (0.0 < config.target_inner_ratio < 1.0):
+        raise ValueError(
+            f"target_inner_ratio must be in (0, 1), got {config.target_inner_ratio}"
+        )
+    if not (np.isfinite(config.target_sigma_ratio) and config.target_sigma_ratio > 0):
+        raise ValueError(
+            f"target_sigma_ratio must be positive and finite, got "
+            f"{config.target_sigma_ratio}"
+        )
+    if not (np.isfinite(config.target_line_width) and config.target_line_width > 0):
+        raise ValueError(
+            f"target_line_width must be positive and finite, got "
+            f"{config.target_line_width}"
+        )
+    if not (np.isfinite(config.target_thickness) and config.target_thickness > 0):
+        raise ValueError(
+            f"target_thickness must be positive and finite, got "
+            f"{config.target_thickness}"
+        )
+    if config.target_grid_nx < 1:
+        raise ValueError(
+            f"target_grid_nx must be at least 1, got {config.target_grid_nx}"
+        )
+    if config.target_grid_ny < 1:
+        raise ValueError(
+            f"target_grid_ny must be at least 1, got {config.target_grid_ny}"
+        )
+    if config.panel_pixel_um <= 0:
+        raise ValueError(
+            f"panel_pixel_um must be positive, got {config.panel_pixel_um}"
+        )
+    if config.camera_pixel_um < 0:
+        raise ValueError(
+            f"camera_pixel_um must be non-negative (0 = read the camera "
+            f"model's pitch), got {config.camera_pixel_um}"
+        )
+    if config.beam_radius_px <= 0:
+        raise ValueError(
+            f"beam_radius_px must be positive, got {config.beam_radius_px}"
+        )
+    if config.far_field_padding < 1:
+        raise ValueError(
+            f"far_field_padding must be at least 1, got {config.far_field_padding}"
+        )
+    if config.cam_size < 0:
+        raise ValueError(f"cam_size must be non-negative, got {config.cam_size}")
+    if 0 < config.cam_size < MIN_CAM_SIZE_PX:
+        raise ValueError(
+            f"cam_size must be >={MIN_CAM_SIZE_PX} or 0 (full frame), "
+            f"got {config.cam_size}"
+        )
+    if config.slm_number < 1 or config.slm_number > MAX_SLM_NUMBER:
+        raise ValueError(
+            f"slm_number must be in 1..{MAX_SLM_NUMBER}, got {config.slm_number}"
+        )
+    if config.slm_wavelength < 0:
+        raise ValueError(
+            f"slm_wavelength must be non-negative, got {config.slm_wavelength}"
+        )
+    if config.exposure_time_ms < 0:
+        raise ValueError(
+            f"exposure_time_ms must be non-negative, got {config.exposure_time_ms}"
+        )
+    if config.cam_type == "daheng" and config.exposure_time_ms > 0:
+        ceiling = configured_daheng_exposure_limit()
+        if ceiling > 0 and config.exposure_time_ms > ceiling:
+            raise ValueError(
+                f"Daheng exposure_time_ms {config.exposure_time_ms} ms exceeds "
+                f"the {ceiling} ms ceiling ({DAHENG_EXPOSURE_LIMIT_ENV})"
+            )
+    if config.early_stop_score < 0:
+        raise ValueError(
+            f"early_stop_score must be non-negative, got {config.early_stop_score}"
+        )
+    if config.time_budget_s < 0:
+        raise ValueError(
+            f"time_budget_s must be non-negative, got {config.time_budget_s}"
+        )
+    if config.progress_every < 1:
+        raise ValueError(
+            f"progress_every must be at least 1, got {config.progress_every}"
+        )
+    if config.lr_min_ratio < 0 or config.lr_min_ratio > 1:
+        raise ValueError(f"lr_min_ratio must be in 0..1, got {config.lr_min_ratio}")
+    return 
+
+
+
+
+def _gsr_validate_weights_and_settle(config):
+# Objective weight and settle validation lifted verbatim
+    if config.w_pib < 0 or config.w_unif < 0:
+        raise ValueError(
+            f"w_pib and w_unif must be non-negative, got "
+            f"w_pib={config.w_pib}, w_unif={config.w_unif}"
+        )
+    if config.w_pib <= 0 and config.w_unif <= 0:
+        raise ValueError("at least one of w_pib / w_unif must be positive")
+    if config.settle_wait_s <= 0:
+        raise ValueError(
+            f"settle_wait_s must be positive, got {config.settle_wait_s}"
+        )
+    if config.settle_tol <= 0:
+        raise ValueError(f"settle_tol must be positive, got {config.settle_tol}")
+    if config.settle_max_wait_s <= 0:
+        raise ValueError(
+            f"settle_max_wait_s must be positive, got {config.settle_max_wait_s}"
+        )
+    if config.settle_max_discard < 1:
+        raise ValueError(
+            f"settle_max_discard must be at least 1, got {config.settle_max_discard}"
+        )
+    if config.side_factor <= 0:
+        raise ValueError(f"side_factor must be positive, got {config.side_factor}")
+    if config.target_side < 0:
+        raise ValueError(
+            f"target_side must be non-negative, got {config.target_side}"
+        )
+    if config.target_side_mm < 0:
+        raise ValueError(
+            f"target_side_mm must be non-negative, got {config.target_side_mm}"
+        )
+    if config.target_side_mm > 0 and config.target_side > 0:
+        raise ValueError(
+            "target_side_mm and target_side describe the same length in two "
+            f"units (got {config.target_side_mm} mm and {config.target_side} px); "
+            "set exactly one"
+        )
+    # A run with neither refinement nor GS has nothing to compute; refusing it
+    # here keeps the "epochs=0 means GS only" promise honest instead of
+    # producing an empty session that silently shapes nothing.
+    if not config.spgd_enabled and not (config.gs_warm_start and config.gs_iters > 0):
+        raise ValueError(
+            "epochs=0 leaves only the GS warm start, which is disabled too: "
+            "enable gs_warm_start (or raise epochs above 0)"
+        )
+    if config.target_shape not in TARGET_SHAPE_CHOICES:
+        raise ValueError(
+            f"target_shape must be one of {TARGET_SHAPE_CHOICES}, "
+            f"got {config.target_shape!r}"
+        )
+    if not (np.isfinite(config.target_aspect_ratio) and config.target_aspect_ratio >= 1):
+        raise ValueError(
+            f"target_aspect_ratio must be >= 1 and finite, got "
+            f"{config.target_aspect_ratio}"
+        )
+    return 
+
+
 @dataclass
 class SlmGsRefineConfig:
     """Single-parameter config for :func:`optimize_slm_gs_refine`.
@@ -536,145 +689,8 @@ class SlmGsRefineConfig:
             raise ValueError(
                 f"gs_hio_fraction must be in [0, 1], got {self.gs_hio_fraction}"
             )
-        if self.w_pib < 0 or self.w_unif < 0:
-            raise ValueError(
-                f"w_pib and w_unif must be non-negative, got "
-                f"w_pib={self.w_pib}, w_unif={self.w_unif}"
-            )
-        if self.w_pib <= 0 and self.w_unif <= 0:
-            raise ValueError("at least one of w_pib / w_unif must be positive")
-        if self.settle_wait_s <= 0:
-            raise ValueError(
-                f"settle_wait_s must be positive, got {self.settle_wait_s}"
-            )
-        if self.settle_tol <= 0:
-            raise ValueError(f"settle_tol must be positive, got {self.settle_tol}")
-        if self.settle_max_wait_s <= 0:
-            raise ValueError(
-                f"settle_max_wait_s must be positive, got {self.settle_max_wait_s}"
-            )
-        if self.settle_max_discard < 1:
-            raise ValueError(
-                f"settle_max_discard must be at least 1, got {self.settle_max_discard}"
-            )
-        if self.side_factor <= 0:
-            raise ValueError(f"side_factor must be positive, got {self.side_factor}")
-        if self.target_side < 0:
-            raise ValueError(
-                f"target_side must be non-negative, got {self.target_side}"
-            )
-        if self.target_side_mm < 0:
-            raise ValueError(
-                f"target_side_mm must be non-negative, got {self.target_side_mm}"
-            )
-        if self.target_side_mm > 0 and self.target_side > 0:
-            raise ValueError(
-                "target_side_mm and target_side describe the same length in two "
-                f"units (got {self.target_side_mm} mm and {self.target_side} px); "
-                "set exactly one"
-            )
-        # A run with neither refinement nor GS has nothing to compute; refusing it
-        # here keeps the "epochs=0 means GS only" promise honest instead of
-        # producing an empty session that silently shapes nothing.
-        if not self.spgd_enabled and not (self.gs_warm_start and self.gs_iters > 0):
-            raise ValueError(
-                "epochs=0 leaves only the GS warm start, which is disabled too: "
-                "enable gs_warm_start (or raise epochs above 0)"
-            )
-        if self.target_shape not in TARGET_SHAPE_CHOICES:
-            raise ValueError(
-                f"target_shape must be one of {TARGET_SHAPE_CHOICES}, "
-                f"got {self.target_shape!r}"
-            )
-        if not (np.isfinite(self.target_aspect_ratio) and self.target_aspect_ratio >= 1):
-            raise ValueError(
-                f"target_aspect_ratio must be >= 1 and finite, got "
-                f"{self.target_aspect_ratio}"
-            )
-        if not (0.0 < self.target_inner_ratio < 1.0):
-            raise ValueError(
-                f"target_inner_ratio must be in (0, 1), got {self.target_inner_ratio}"
-            )
-        if not (np.isfinite(self.target_sigma_ratio) and self.target_sigma_ratio > 0):
-            raise ValueError(
-                f"target_sigma_ratio must be positive and finite, got "
-                f"{self.target_sigma_ratio}"
-            )
-        if not (np.isfinite(self.target_line_width) and self.target_line_width > 0):
-            raise ValueError(
-                f"target_line_width must be positive and finite, got "
-                f"{self.target_line_width}"
-            )
-        if not (np.isfinite(self.target_thickness) and self.target_thickness > 0):
-            raise ValueError(
-                f"target_thickness must be positive and finite, got "
-                f"{self.target_thickness}"
-            )
-        if self.target_grid_nx < 1:
-            raise ValueError(
-                f"target_grid_nx must be at least 1, got {self.target_grid_nx}"
-            )
-        if self.target_grid_ny < 1:
-            raise ValueError(
-                f"target_grid_ny must be at least 1, got {self.target_grid_ny}"
-            )
-        if self.panel_pixel_um <= 0:
-            raise ValueError(
-                f"panel_pixel_um must be positive, got {self.panel_pixel_um}"
-            )
-        if self.camera_pixel_um < 0:
-            raise ValueError(
-                f"camera_pixel_um must be non-negative (0 = read the camera "
-                f"model's pitch), got {self.camera_pixel_um}"
-            )
-        if self.beam_radius_px <= 0:
-            raise ValueError(
-                f"beam_radius_px must be positive, got {self.beam_radius_px}"
-            )
-        if self.far_field_padding < 1:
-            raise ValueError(
-                f"far_field_padding must be at least 1, got {self.far_field_padding}"
-            )
-        if self.cam_size < 0:
-            raise ValueError(f"cam_size must be non-negative, got {self.cam_size}")
-        if 0 < self.cam_size < MIN_CAM_SIZE_PX:
-            raise ValueError(
-                f"cam_size must be >={MIN_CAM_SIZE_PX} or 0 (full frame), "
-                f"got {self.cam_size}"
-            )
-        if self.slm_number < 1 or self.slm_number > MAX_SLM_NUMBER:
-            raise ValueError(
-                f"slm_number must be in 1..{MAX_SLM_NUMBER}, got {self.slm_number}"
-            )
-        if self.slm_wavelength < 0:
-            raise ValueError(
-                f"slm_wavelength must be non-negative, got {self.slm_wavelength}"
-            )
-        if self.exposure_time_ms < 0:
-            raise ValueError(
-                f"exposure_time_ms must be non-negative, got {self.exposure_time_ms}"
-            )
-        if self.cam_type == "daheng" and self.exposure_time_ms > 0:
-            ceiling = configured_daheng_exposure_limit()
-            if ceiling > 0 and self.exposure_time_ms > ceiling:
-                raise ValueError(
-                    f"Daheng exposure_time_ms {self.exposure_time_ms} ms exceeds "
-                    f"the {ceiling} ms ceiling ({DAHENG_EXPOSURE_LIMIT_ENV})"
-                )
-        if self.early_stop_score < 0:
-            raise ValueError(
-                f"early_stop_score must be non-negative, got {self.early_stop_score}"
-            )
-        if self.time_budget_s < 0:
-            raise ValueError(
-                f"time_budget_s must be non-negative, got {self.time_budget_s}"
-            )
-        if self.progress_every < 1:
-            raise ValueError(
-                f"progress_every must be at least 1, got {self.progress_every}"
-            )
-        if self.lr_min_ratio < 0 or self.lr_min_ratio > 1:
-            raise ValueError(f"lr_min_ratio must be in 0..1, got {self.lr_min_ratio}")
+        _gsr_validate_weights_and_settle(self)
+        _gsr_validate_target_limits(self)
 
     @property
     def spgd_enabled(self) -> bool:

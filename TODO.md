@@ -2072,7 +2072,7 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
       | 10 | 66 | 67 | 67 | 66 |
     - **「piston 说」站不住（三条仓库内独立证据）**：(1) canonical **自己的 docstring** 写着
       `Number of Zernike terms (including piston)`（`zernike_calc.py:85`）；(2) 消费者把同一公式
-      标为 `# 含 piston`（`tools/wfs/zernike_response.py:430`）；(3) 驱动多出的那一格被写明
+      标为 `# 含 piston`（`tools/wfs/zernike_response.py:418`）；(3) 驱动多出的那一格被写明
       **不使用** —— 「返回 67 长数组，DLL 填 `coeff[1..66]`（index 0 未用）」
       （`tools/wfs/zernike_response.py:15`、`tools/wfs/zernike_correction.py:25`、
       `tools/zernike/common.py:8`），而 `zernike_response.py:219` 正是据此切 `w = w[1:]`。
@@ -5075,6 +5075,14 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 叶差分: 30 同 / 消失 0 / 新增 3; ⑳ 审计 0 命中; 无 3900 之后的锚点 → 不需重钉
 - 载体: test_runner_common + guard + conventions **381 passed 1 skipped**
 - 门禁: 棘轮 152/3/136 + 3 helper 行; 模块 baseline 抬高 (+52)
+
+**2026-11-13 · 54d09909 之后 · 第 78 批: `SlmGsRefineConfig.__post_init__` 212→75 行 (`slm_gs_refine.py`)**
+- 提取: `_gsr_validate_target_limits` 87 (nest 2) / `_gsr_validate_weights_and_settle` 58 (nest 1); 纯校验链, 无回传
+- helper 参数 `self`→`config` (模块级函数不接 self, 纯改名不变量: 叶差分 41 同 / 消失 0 / 新增 2 / 改 0)
+- 生成器补丁: 母函数是**类方法**时 `\ndef ` 匹配不到缩进 def → 改为在所属类定义前插入模块级 helper
+- 棘轮: 2 helper 行; **`__post_init__` 不可钉** —— 模块内有 2 个同名定义, 守卫按设计拒绝歧义测量
+- 载体: 7 个 gs_refine 测试文件逐文件 **218 passed 1 skipped** (整批 4 分片跑两次被 SIGKILL 137, 改为逐文件)
+- 门禁: conventions + 形状 372 passed; 模块 baseline 抬高 +16 (2437→2453)
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
