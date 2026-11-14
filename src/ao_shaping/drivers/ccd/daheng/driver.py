@@ -10,7 +10,7 @@ import numpy.typing as npt
 from ao_shaping.drivers.ccd import BaseCamera
 from ao_shaping.drivers.ccd.base import AveragedFrame, CameraError
 from ao_shaping.drivers.ccd.common import ExposureTime
-from ao_shaping.drivers.ccd.daheng import constants
+from ao_shaping.drivers.ccd.daheng import _bit_depth, constants
 from ao_shaping.drivers.ccd.pixel_size import (
     ensure_model_pixel_size_um,
     resolve_model_pixel_size_um,
@@ -62,14 +62,11 @@ CCD_CONFIG = ConfigHandler(_config_dir, "ccd", CCDParams)
 
 
 class DahengCamera(BaseCamera):
-    #: 位深 → GenICam ``PixelFormat`` 名。12 bit 必须落到 MONO12, **不允许静默回落**
-    #: 成 MONO8: 满量程从 4095 变成 255, 一切按满量程折算的判据 (饱和保护、线性度、
-    #: 峰值统计) 都会建立在错量纲上。
-    _BIT_DEPTH_PIXEL_FORMATS: ClassVar[dict[int, str]] = {
-        8: "MONO8",
-        12: "MONO12",
-        16: "MONO16",
-    }
+    #: 位深 → GenICam ``PixelFormat`` 名。单一来源在 ``_bit_depth`` 叶子 (见该文件
+    #: docstring: 12 bit 必须落到 MONO12, 不允许静默回落成 MONO8)。
+    _BIT_DEPTH_PIXEL_FORMATS: ClassVar[dict[int, str]] = (
+        _bit_depth._BIT_DEPTH_PIXEL_FORMATS
+    )
 
     #: 大恒可切换的档位 = 上面真的映射到 PixelFormat 的那些 (单一来源, 别再抄一遍)。
     supported_bit_depths: ClassVar[tuple[int, ...]] = tuple(_BIT_DEPTH_PIXEL_FORMATS)
@@ -256,11 +253,7 @@ class DahengCamera(BaseCamera):
         self.close()
 
     def _require_sdk(self) -> None:
-        """SDK 不可用时给出可行动的错误, 而不是 `NameError`。
-
-        模块顶层的 `import gxipy` 失败时 `gx` 被绑成 ``None``, 因此这里必须
-        **先**拦住: 否则后续对 ``gx.`` 的取值会炸成 ``AttributeError``/``NameError``。
-        """
+        """SDK 不可用 (``gx is None``) 时报可行动的错误, 而不是 ``NameError``。"""
         if gx is None:
             raise CameraError(
                 f"gxipy SDK 不可用 ({_SDK_IMPORT_ERROR or 'import failed'}); "
@@ -270,10 +263,10 @@ class DahengCamera(BaseCamera):
     def initialize(self):
         """初始化相机设备。
 
-        依次执行: 关闭旧设备 → 更新设备列表并检查数量 → 打开设备 (处理 REPEAT_OPENED)
-        → 读曝光范围 (µs→ms) 并把请求曝光钳到 [min,max] → 关 SDK 自动曝光 → 设增益/
-        位深/合并/偏移/宽高 → 记序列号与型号 → 按序列号加载并应用配置并重写曝光 →
-        更新属性 → 设流缓冲 NewestOnly → 开流。找不到设备记错误并抛 ConnectionAbortedError。
+        依次执行: 关闭旧设备 → 更新设备列表 → 打开设备 (处理 REPEAT_OPENED) →
+        读曝光范围并钳制请求曝光 → 关 SDK 自动曝光 → 设增益/位深/合并/偏移/宽高 →
+        记序列号与型号 → 加载并应用配置 → 更新属性 → 设流缓冲 NewestOnly → 开流。
+        找不到设备记错误并抛 ConnectionAbortedError。
         """
         self._require_sdk()
         # 关闭之前打开的相机设备（如果有）
@@ -344,10 +337,8 @@ class DahengCamera(BaseCamera):
 
         # 设置相机的增益
         self.cam.Gain.set(0.0)
-        # 请求的位深必须对应实际格式，不允许 12 bit 静默回落为 Mono8。
-        # 走公共入口 set_bit_depth: 写 PixelFormat → 回读设备真值 → 不符即报错。
-        # 此刻取流还没开 (stream_on 在 initialize 末尾), set_bit_depth 内部因此
-        # **不消费帧** —— 未开流时取帧会死等, 且位深本来就得在开流之前写好。
+        # 位深走公共入口 set_bit_depth (写 → 回读 → 不符即报错); 此刻 stream_on
+        # 未及, 故只写格式不消费帧 —— 未开流时取帧会死等。
         if self.bit_depth is not None:
             self.set_bit_depth(self.bit_depth)
         if self.skip_sampling:
@@ -388,11 +379,10 @@ class DahengCamera(BaseCamera):
         """重设曝光时间, 并让**改曝光后的第一帧就是新曝光**。
 
         大恒 SDK 在取流进行中直接写 ``ExposureTime``, 改动前已开积分的 1~2 帧仍留在
-        SDK 流水线, 仍是上一档曝光的画面 (2026-10-21 实测 FJB24112232: 2→20ms 第 3 帧
-        才出现新值)。``get_numpy_image`` 的 ``skip_first`` 只丢 1 帧**不够** —— 2026-10-20
-        的测光阶梯因此把 5ms 档峰值记成 2ms 档。故这里在曝光真的改变后主动消费
-        ``EXPOSURE_CHANGE_DISCARD_FRAMES`` 帧, 把「第一帧即新曝光」变成**驱动层不变量**
-        (代价 3 帧采集时间, 100ms 曝光约 300ms)。
+        SDK 流水线, 仍是上一档曝光的画面 (2026-10-21 实测 FJB24112232)。
+        ``get_numpy_image`` 的 ``skip_first`` 只丢 1 帧**不够**, 故这里在曝光真的
+        改变后主动消费 ``EXPOSURE_CHANGE_DISCARD_FRAMES`` 帧, 把「第一帧即新曝光」
+        变成**驱动层不变量** (代价 3 帧采集时间, 100ms 曝光约 300ms)。
 
         参数:
             time_ms: 新的曝光时间, 单位毫秒。
@@ -402,15 +392,15 @@ class DahengCamera(BaseCamera):
         """
         self._ensure_open()
         time_ms = float(time_ms)
-        if time_ms < self.__exposure_time_ms.min:
-            v = self.__exposure_time_ms.min
+        lo, hi = self.__exposure_time_ms.min, self.__exposure_time_ms.max
+        if not (lo <= time_ms <= hi):
+            v = float(np.clip(time_ms, lo, hi))
             logger.warning(
-                f"exposure time must >= {self.__exposure_time_ms.min}ms. set to {self.__exposure_time_ms.min}ms."
-            )
-        elif time_ms > self.__exposure_time_ms.max:
-            v = self.__exposure_time_ms.max
-            logger.warning(
-                f"exposure time must <= {self.__exposure_time_ms.max}ms. set to {self.__exposure_time_ms.max}ms."
+                "exposure time must be in [{}, {}]ms; request {}ms clamped to {}ms",
+                lo,
+                hi,
+                time_ms,
+                v,
             )
         else:
             v = time_ms
@@ -423,61 +413,29 @@ class DahengCamera(BaseCamera):
         return self.exposure_time
 
     def _consume_stale_exposure_frames(self) -> int:
-        """消费掉改曝光之前就在 SDK 流水线里的那些帧。
-
-        返回:
-            int: 实际消费的帧数。
-        """
+        """消费掉改曝光之前就在 SDK 流水线里的那些帧; 返回实际消费的帧数。"""
         for _ in range(self.EXPOSURE_CHANGE_DISCARD_FRAMES):
             self.__take_one_shot()
         return self.EXPOSURE_CHANGE_DISCARD_FRAMES
 
     @classmethod
     def _bit_depth_of_format(cls, value: Any) -> int | None:
-        """把设备回读的 ``PixelFormat`` 归一化成位深 (bit); 认不出来返回 ``None``。
+        """把设备回读的 ``PixelFormat`` 归一化成位深; 认不出来返回 ``None``。
 
-        gxipy 枚举特征的 ``get()`` 形态并不统一: 可能是名称串 (``"Mono12"``)、PFNC
-        代码 (``0x01100005``)、带 ``.name`` 的枚举成员, 也可能是 ``(代码, 名称)``
-        元组 (本文件 ``StreamBufferHandlingMode.get()[0]`` 就是这种)。位深**只能以
-        回读为准** —— SDK 写 ``PixelFormat`` 可能被静默保留旧值 (同 ``IntFeature.set``
-        的坑), 所以这里对四种形态都容错。
+        归一化逻辑 (串 / PFNC 代码 / 枚举成员 / (代码, 名称) 元组 四种形态容错)
+        在零导入叶子 ``_bit_depth`` 里, 离线可测。
         """
-        candidates = list(value) if isinstance(value, (tuple, list)) else [value]
-        for candidate in candidates:
-            member_name = getattr(candidate, "name", None)
-            if isinstance(member_name, str):  # Enum 成员 → 用它的名字
-                candidate = member_name
-            if isinstance(candidate, str):
-                text = candidate.strip().upper()
-                if text.startswith("MONO") and text[4:].isdigit():
-                    return int(text[4:])
-                continue
-            code = getattr(candidate, "value", candidate)
-            try:
-                code_int = int(code)
-            except (TypeError, ValueError):
-                continue
-            for bits, fmt_name in cls._BIT_DEPTH_PIXEL_FORMATS.items():
-                entry = getattr(constants.GxPixelFormatEntry, fmt_name, None)
-                if entry is not None and int(getattr(entry, "value", entry)) == code_int:
-                    return bits
-        return None
+        return _bit_depth.bit_depth_of_format(value)
 
     def set_bit_depth(self, bits: int) -> int:
         """切换输出位深 (8 / 12 / 16 bit), 返回**设备回读**的生效位深。
 
-        落实 :meth:`BaseCamera.set_bit_depth` 的四条契约:
-
-        * 档位不在 :attr:`supported_bit_depths` 里 ⇒ :class:`ValueError`, **不回落**
-          (12 bit 静默退回 MONO8 会把满量程从 4095 变成 255, 饱和判据与线性度全错);
-        * 写完必须回读 ``PixelFormat``; 回读与请求不符 ⇒ :class:`CameraError`,
-          但 :attr:`bit_depth` 仍先记下**设备真值** —— 调用方读它不会拿到虚报档位;
-        * 位深真的变了、且 SDK 正在拉流 ⇒ 消费掉 ``EXPOSURE_CHANGE_DISCARD_FRAMES``
-          帧: 改格式之前就已进入流水线的帧仍是旧格式画面 (与「改曝光后 1~2 帧仍是
-          旧曝光」同一根因, 故共用同一帧数旋钮), 使「换位深后的第一帧就是新格式」;
-        * 未开流**绝不取帧** (`get_image` 在停流状态下永不返回 ⇒ 死等)。所以
-          ``initialize()`` 里应用配置位深时 (``stream_on`` 还没执行) 只写格式不消费帧,
-          由 ``_acquisition_on`` 把关。
+        落实 :meth:`BaseCamera.set_bit_depth` 的四条契约 (权威口径见基类
+        docstring, 不在此重复): 不支持的档位抛 ``ValueError`` 不回落; 写完回读
+        ``PixelFormat``, 不符抛 ``CameraError`` 但 ``bit_depth`` 先记设备真值;
+        位深真的变了且 SDK 正在拉流则消费 ``EXPOSURE_CHANGE_DISCARD_FRAMES`` 帧;
+        未开流 (``_acquisition_on`` 为假) 绝不取帧 —— ``initialize()`` 在
+        ``stream_on`` 之前调用本方法, 因此那里只写格式不消费帧。
 
         参数:
             bits: 请求位深 (bit)。
@@ -551,8 +509,8 @@ class DahengCamera(BaseCamera):
 
         返回:
         ((实际生效宽高), (实际生效中心坐标))。请求值越出相机 GenICam [min,max,inc]
-        网格时会被钳制并记 warning (SDK 对越界 set 只 print 噪声并静默保留旧窗口,
-        绝不传非法值给 SDK); 返回 set 后 readback 校验的真实值。
+        网格时会被钳制并记 warning (SDK 对越界 set 只 print 噪声并静默保留旧窗口);
+        返回 set 后 readback 校验的真实值。
         """
         # 中心坐标大于0
         self._ensure_open()
@@ -566,34 +524,25 @@ class DahengCamera(BaseCamera):
             x_offset, y_offset = 0, 0
         else:
             width, height = int(size[0]), int(size[1])
-            # GenICam 的 Width.range 是**随当前 OffsetX 收缩**的 (max = WidthMax -
-            # OffsetX)，Height 同理。上一次的 ROI 若留下非零偏移，直接读范围会把
-            # "请求全幅" 误钳成小窗口 (实测残留 OffsetX=568 时 2592 被钳到 2024，
-            # 再叠 Height 约束后落到 1452×1122)，且 readback 看起来完全合法。
-            # 因此先把偏移归零，让 range 反映传感器全幅。
+            # GenICam 的 Width.range **随当前 OffsetX 收缩** (max = WidthMax - OffsetX,
+            # Height 同理)。上次 ROI 若留下非零偏移, 直接读范围会把 "请求全幅" 误钳成
+            # 小窗口 (实测残留 OffsetX=568 时 2592 被钳到 2024) 且 readback 看起来
+            # 完全合法, 故先把偏移归零, 让 range 反映传感器全幅。
             self.cam.OffsetX.set(0)
             self.cam.OffsetY.set(0)
             range_w, range_h = self.cam.Width.get_range(), self.cam.Height.get_range()
             if not (range_w and range_h):
                 raise ValueError("camera width and height range not found")
-            # gxipy IntFeature.set 对越界值不抛异常，而是 print 噪声 + 静默
-            # 保留旧窗口 —— 先钳制到相机 [min, max, inc] 网格，set 永不越界。
+            # gxipy IntFeature.set 对越界值不抛异常, 而是 print 噪声 + 静默
+            # 保留旧窗口 —— 先钳制到相机 [min, max, inc] 网格, set 永不越界。
             width = self._clamp_int(width, range_w)
             height = self._clamp_int(height, range_h)
             if (width, height) != (int(size[0]), int(size[1])):
                 logger.warning(
                     "Window size ({}, {}) out of camera grid, clamped to ({}, {}) "
                     "(Width.range=[{}, {}, {}], Height.range=[{}, {}, {}])",
-                    int(size[0]),
-                    int(size[1]),
-                    width,
-                    height,
-                    range_w["min"],
-                    range_w["max"],
-                    range_w["inc"],
-                    range_h["min"],
-                    range_h["max"],
-                    range_h["inc"],
+                    *size, width, height, *(range_w[k] for k in ("min", "max", "inc")),
+                    *(range_h[k] for k in ("min", "max", "inc")),
                 )
             # 先设置尺寸再算偏移 —— OffsetX/OffsetY 的有效范围依赖当前
             # 已设置的 Width/Height（例如 OffsetX.max = WidthMax - Width）。
@@ -606,20 +555,12 @@ class DahengCamera(BaseCamera):
             y_offset = self._clamp_int(
                 center[1] - (height // 2), self.cam.OffsetY.get_range()
             )
-            if (x_offset, y_offset) != (
-                center[0] - (width // 2),
-                center[1] - (height // 2),
-            ):
+            x_target, y_target = center[0] - (width // 2), center[1] - (height // 2)
+            if (x_offset, y_offset) != (x_target, y_target):
                 logger.warning(
-                    "Window offset ({}, {}) (center {}, size ({}, {})) out of "
-                    "camera range, clamped to ({}, {})",
-                    center[0] - (width // 2),
-                    center[1] - (height // 2),
-                    center,
-                    width,
-                    height,
-                    x_offset,
-                    y_offset,
+                    "Window offset ({}, {}) (center {}, size ({}, {})) out of camera "
+                    "range, clamped to ({}, {})",
+                    x_target, y_target, center, width, height, x_offset, y_offset,
                 )
         self.cam.OffsetX.set(x_offset)
         self.cam.OffsetY.set(y_offset)
@@ -704,18 +645,6 @@ class DahengCamera(BaseCamera):
         拍图取峰值, 落 ``target±tolerance`` (twice_valid 需连续两次) 即停; 否则
         ``new_exp = exp*target/peak`` (单步放大上限 3×) 裁剪到 [min,max], 处理已到
         边界仍不达标, 重复至收敛或 max_iterations。
-
-        Args:
-            target_max: 目标最大亮度 (0-255, 默认40)
-            tolerance: 峰值容差 (0-255, 默认5)
-            twice_valid: True 需连续两次落入容差才收敛 (默认True)
-            max_iterations: 第二阶段最大迭代次数 (默认20)
-            n_sample: 每次估计峰值的采样帧数 (默认1)
-            use_sdk_auto: 是否先用 SDK 原生自动曝光 (默认True)
-            sdk_settle_frames: SDK 收敛等待帧数 (默认3)
-
-        Returns:
-            np.ndarray: 调整后采集到的图像 (uint8)。
         """
         self._ensure_open()
         if tolerance <= 0:
@@ -856,61 +785,35 @@ class DahengCamera(BaseCamera):
         return dev_info_list if dev_info_list else list()
 
     def get_exposure_range(self) -> tuple[float, float]:
-        """获取相机支持的曝光时间范围。
-
-        返回:
-            (min_exposure_ms, max_exposure_ms)
-        """
+        """获取相机支持的曝光时间范围 (min_ms, max_ms)。"""
         self._ensure_open()
         return float(self.__exposure_time_ms.min), float(self.__exposure_time_ms.max)
 
     def get_exposure_time_ms(self) -> float:
-        """从设备**回读**当前生效的曝光时间 (ms)。
-
-        直接读 SDK 的 ``ExposureTime`` 特征 (设备实际在用的值), 而非本地
-        ``__exposure_time_ms`` 缓存 —— 后者在 ``reset_exposure_time`` 里经钳制
-        + 量化后下发, 与原始请求可能差 1 µs, 且缓存从不随设备回读更新
-        (issue #32)。
-        """
+        """从设备**回读**当前生效的曝光时间 (ms); 读 SDK ``ExposureTime`` 特征而非本地缓存。"""
         return float(self.exposure_time)
 
     def enable_auto_exposure(self, enable: bool = True, mode: int = 1) -> bool:
         """启用或关闭自动曝光 (大恒 SDK ``ExposureAuto`` "On"/"Off")。
 
-        启用时相机自动调整曝光与增益, 以达到 ``ExpectedGrayValue`` 设定的目标亮度。
-
-        参数:
-            enable: True 启用, False 关闭。
-            mode: 自动曝光模式 (0=禁用, 1=连续, 2=单次); 只在 enable=True 时有意义,
-                大恒 SDK 无单独模式枚举, 始终用连续模式。
-
-        返回:
-            bool: 成功 True, 不支持 False。
+        ``mode`` 仅 enable=True 时有意义 (大恒 SDK 无单独模式枚举, 始终用连续模式)。
+        返回: 成功 True, 不支持 False。
         """
         self._ensure_open()
         try:
-            if enable:
-                self.cam.ExposureAuto.set(constants.GxAutoEntry.CONTINUOUS.value)
-                logger.info("Auto exposure enabled (continuous)")
-            else:
-                self.cam.ExposureAuto.set(constants.GxAutoEntry.OFF.value)
-                logger.info("Auto exposure disabled")
+            entry = (
+                constants.GxAutoEntry.CONTINUOUS if enable else constants.GxAutoEntry.OFF
+            )
+            self.cam.ExposureAuto.set(entry.value)
             return True
         except Exception as e:  # 同上: gxipy Feature 访问, 不支持时抛出的类型不可枚举
             logger.warning(f"Auto exposure not supported on Daheng camera: {e}")
             return False
 
     def set_auto_exposure_target(self, target: int) -> int:
-        """设置自动曝光的目标亮度。
+        """设置自动曝光的目标亮度 (SDK ``ExpectedGrayValue``, 0-255), 返回实际设定值。
 
-        对应大恒 SDK ``ExpectedGrayValue`` (IntFeature, 0-255, 默认 120), 仅在自动
-        曝光启用时生效。
-
-        参数:
-            target: 目标亮度值, 0-255, 默认 120。
-
-        返回:
-            实际设定的目标值。
+        仅在自动曝光启用时生效。
         """
         self._ensure_open()
         target = max(0, min(255, target))
@@ -922,11 +825,9 @@ class DahengCamera(BaseCamera):
         return target
 
     def get_auto_exposure_state(self) -> dict:
-        """获取当前自动曝光状态 (从大恒 SDK 读 ``ExposureAuto`` 与 ``ExpectedGrayValue``)。
+        """获取当前自动曝光状态 (SDK ``ExposureAuto`` + ``ExpectedGrayValue``)。
 
-        返回:
-            字典: enabled (bool) / mode (int, 1=连续 0=禁用) / target (int) /
-            exposure_time_ms (float, ms)。
+        返回: enabled / mode (1=连续 0=禁用) / target / exposure_time_ms (ms) 字典。
         """
         self._ensure_open()
         state: dict = {
@@ -956,17 +857,10 @@ class DahengCamera(BaseCamera):
         max_gain: int = 300,
         min_gain: int = 100,
     ) -> bool:
-        """设置自动曝光的时间与增益范围。
+        """设置自动曝光的时间与增益范围, 返回成功 True / 不支持 False。
 
-        对应大恒 SDK ``AutoExposureTimeMin/Max`` (FloatFeature, µs) 与 ``AutoGainMin/Max``,
-        限定自动曝光/增益的搜索空间。
-
-        参数:
-            max_time_ms: 最大曝光时间 (ms); min_time_ms: 最小曝光时间 (ms);
-                max_gain: 最大增益; min_gain: 最小增益。
-
-        返回:
-            bool: 成功 True, 不支持 False。
+        对应大恒 SDK ``AutoExposureTimeMin/Max`` (FloatFeature, µs) 与
+        ``AutoGainMin/Max``, 限定自动曝光/增益的搜索空间。
         """
         self._ensure_open()
         try:
