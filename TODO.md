@@ -5109,6 +5109,14 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: model_in_loop panel_scan 2 / session_preflight 23 / param wiring 18 / 形状 307 / cli_help_golden 77 / conventions 72 (1 skip) —— 全绿
 - 模块 301 行 (< 800), 无 baseline 变化
 
+**2026-11-14 · 04ff4d2b 之后 · 第 83 批: `axis_beam_runner.run` 203→67 行 + 三缝**
+- 提取: `_abr_build_config` 30 (nest 0, 5 参; 生效配置字典 + `logger.info`) / `_abr_write_debug_artifacts` 105 (nest 2, 9 参; debug 产物 pkl/json/二次矩半径/焦点 PNG/电压 txt, 整段 `if debug:` 原样保留) / `_abr_echo_objective` 13 (nest 0, 3 参; 目标名映射 + 完成回显)
+- 叶差分: 1 同 / 消失 0 / 新增 3 / 改 1 (`run`)
+- 棘轮: `run` 由 233/2/203 **收紧**到 78/1/67, 新增 3 helper 行 (35/0/30, 121/2/105, 15/0/13)
+- 锚点: wiki `commands/pib.md` `:48`→`:202` (2 处) + 双 JSON `lineno 48`/`end 250` → `202`/`268`; 首次误钉 `:208` (那是 AST 前的旧行号) 被 conventions 的 definition-header 检查当场抓住
+- 载体: debug_option_wiring 11 / param wiring 18 / 形状 310 / cli_help_golden 77 / conventions 72 (1 skip) —— 全绿
+- 模块 279 行 (< 800), 无 baseline 变化
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

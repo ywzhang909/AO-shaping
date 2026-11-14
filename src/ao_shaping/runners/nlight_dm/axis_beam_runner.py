@@ -39,36 +39,8 @@ from ao_shaping.utils.io.recorder_keys import (
 )
 
 
-@click.command()
-@click.pass_context
-@with_params(DmDeviceParams, kw_name="device")
-@with_params(PibRunParams, kw_name="run")
-@with_params(PibOpticalParams, kw_name="optical")
-@with_params(PibAlgorithmParams, kw_name="algorithm")
-def run(
-    ctx: click.Context,
-    device: DmDeviceParams,
-    run: PibRunParams,
-    optical: PibOpticalParams,
-    algorithm: PibAlgorithmParams,
-) -> None:
-    """轴向光束优化器
-
-    调试模式: ``main.py --debug pib`` / 本命令 ``--debug`` / 环境变量 ``DEBUG=1``
-    任一开启即可输出 pkl/json 与汇总图片。
-    """
-    debug = resolve_debug(ctx, run.debug_flag)
-
-    if run.load_file.lower() == "rms":
-        init_v = get_init_V_by_rms()
-    else:
-        init_v = load_init_v(run.load_file)
-
-    # CLI token -> the legacy float the optimizer has always taken ('auto' == 0).
-    exposure_time_ms = exposure_ms_legacy(
-        resolve_exposure(optical.exposure_time_ms, param_hint="--exposure-time-ms")
-    )
-
+def _abr_build_config(algorithm, debug, exposure_time_ms, optical, run):
+    """The run's effective settings, echoed once before the DM is opened."""
     config = {
         "root_dir": run.root_dir,
         "load_file": run.load_file,
@@ -96,45 +68,11 @@ def run(
         "debug": debug,
         "show": run.show,
     }
-    logger.info(config)
+    return config
 
-    dm = resolve_dm(device.dm_type, dm_neibor_diff=300)
 
-    dm_unit_mask = np.ones(ao_config.DM_N_ACTUATORS, dtype=bool)
-    dm_unit_mask[0] = False
-    res_list = optimize_pib(
-        dm=dm,
-        center=optical.center,
-        r_bucket=optical.r_bucket,
-        epochs=run.epochs,
-        delta=algorithm.delta,
-        lr=algorithm.lr,
-        exposure_time_ms=exposure_time_ms,
-        cam_type=optical.cam_type,
-        shrink_iter=algorithm.shrink_iter,
-        shrink_ratio=algorithm.shrink_ratio,
-        cam_id=cast(int, optical.cam_id),
-        show=run.show,
-        init_v=init_v,
-        cam_size=optical.cam_size,
-        target_max_brightness=optical.target_max_brightness,
-        dm_unit_mask=dm_unit_mask,
-        dm_neibor_diff=300,
-        optimizer_type=algorithm.optimizer_type,
-        enable_adaptive_search=algorithm.enable_adaptive_search,
-        search_interval=algorithm.search_interval,
-        search_warmup=algorithm.search_warmup,
-        search_patience=algorithm.search_patience,
-        search_samples=algorithm.search_samples,
-        search_radius=algorithm.search_radius,
-        tabu_memory_size=algorithm.tabu_memory_size,
-        weight_decay=algorithm.weight_decay,
-        objective=algorithm.objective,
-    )
-    res_df = res_list.dataframe
-
-    save_best_voltages(res_list, run.root_dir)
-    best_iter, (max_j_id, max_j) = res_list.get_best_iter()
+def _abr_write_debug_artifacts(algorithm, best_iter, config, debug, max_j, max_j_id, res_df, res_list, run):
+    """Debug artefacts: pickled result list, config JSON and summary PNGs."""
     if debug:
         save_dir = gen_date_dir(f"{run.root_dir}/wf-less")
         saved_file_name = gen_file_path_uuid(save_dir, "pkl")
@@ -237,7 +175,11 @@ def run(
             )
             np.savetxt(best_focus_v_file, np.around(best_v).astype(int), fmt="%d")
             logger.info(f"Best focus voltages saved to {best_focus_v_file}")
+    return 
 
+
+def _abr_echo_objective(algorithm, max_j, max_j_id):
+    """One-line completion echo naming the objective and its best value."""
     objective_names = {
         "pib": "PIB",
         "radiu": "半径",
@@ -248,6 +190,82 @@ def run(
     click.echo(
         f"轴向光束优化完成，最优{objective_name}值: {max_j:.4f} @ epoch {max_j_id}"
     )
+    return 
+
+
+@click.command()
+@click.pass_context
+@with_params(DmDeviceParams, kw_name="device")
+@with_params(PibRunParams, kw_name="run")
+@with_params(PibOpticalParams, kw_name="optical")
+@with_params(PibAlgorithmParams, kw_name="algorithm")
+def run(
+    ctx: click.Context,
+    device: DmDeviceParams,
+    run: PibRunParams,
+    optical: PibOpticalParams,
+    algorithm: PibAlgorithmParams,
+) -> None:
+    """轴向光束优化器
+
+    调试模式: ``main.py --debug pib`` / 本命令 ``--debug`` / 环境变量 ``DEBUG=1``
+    任一开启即可输出 pkl/json 与汇总图片。
+    """
+    debug = resolve_debug(ctx, run.debug_flag)
+
+    if run.load_file.lower() == "rms":
+        init_v = get_init_V_by_rms()
+    else:
+        init_v = load_init_v(run.load_file)
+
+    # CLI token -> the legacy float the optimizer has always taken ('auto' == 0).
+    exposure_time_ms = exposure_ms_legacy(
+        resolve_exposure(optical.exposure_time_ms, param_hint="--exposure-time-ms")
+    )
+
+    config = _abr_build_config(algorithm, debug, exposure_time_ms, optical, run)
+    logger.info(config)
+
+    dm = resolve_dm(device.dm_type, dm_neibor_diff=300)
+
+    dm_unit_mask = np.ones(ao_config.DM_N_ACTUATORS, dtype=bool)
+    dm_unit_mask[0] = False
+    res_list = optimize_pib(
+        dm=dm,
+        center=optical.center,
+        r_bucket=optical.r_bucket,
+        epochs=run.epochs,
+        delta=algorithm.delta,
+        lr=algorithm.lr,
+        exposure_time_ms=exposure_time_ms,
+        cam_type=optical.cam_type,
+        shrink_iter=algorithm.shrink_iter,
+        shrink_ratio=algorithm.shrink_ratio,
+        cam_id=cast(int, optical.cam_id),
+        show=run.show,
+        init_v=init_v,
+        cam_size=optical.cam_size,
+        target_max_brightness=optical.target_max_brightness,
+        dm_unit_mask=dm_unit_mask,
+        dm_neibor_diff=300,
+        optimizer_type=algorithm.optimizer_type,
+        enable_adaptive_search=algorithm.enable_adaptive_search,
+        search_interval=algorithm.search_interval,
+        search_warmup=algorithm.search_warmup,
+        search_patience=algorithm.search_patience,
+        search_samples=algorithm.search_samples,
+        search_radius=algorithm.search_radius,
+        tabu_memory_size=algorithm.tabu_memory_size,
+        weight_decay=algorithm.weight_decay,
+        objective=algorithm.objective,
+    )
+    res_df = res_list.dataframe
+
+    save_best_voltages(res_list, run.root_dir)
+    best_iter, (max_j_id, max_j) = res_list.get_best_iter()
+    _abr_write_debug_artifacts(algorithm, best_iter, config, debug, max_j, max_j_id, res_df, res_list, run)
+
+    _abr_echo_objective(algorithm, max_j, max_j_id)
 
 
 if __name__ == "__main__":

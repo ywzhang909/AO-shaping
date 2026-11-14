@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: command
 tags: [command]
-source: src/ao_shaping/runners/nlight_dm/axis_beam_runner.py:48
+source: src/ao_shaping/runners/nlight_dm/axis_beam_runner.py:202
 ---
 
 ## 一句话
@@ -13,7 +13,7 @@ source: src/ao_shaping/runners/nlight_dm/axis_beam_runner.py:48
 
 ## 入口函数
 
-`runners.nlight_dm.axis_beam_runner.run`（`src/ao_shaping/runners/nlight_dm/axis_beam_runner.py:48`）
+`runners.nlight_dm.axis_beam_runner.run`（`src/ao_shaping/runners/nlight_dm/axis_beam_runner.py:202`）
 
 ```python
 run(ctx, device, run, optical, algorithm)

@@ -318,8 +318,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.nlight_dm.axis_beam_runner",
    "file": "src/ao_shaping/runners/nlight_dm/axis_beam_runner.py",
-   "lineno": 48,
-   "end": 250,
+   "lineno": 202,
+   "end": 268,
    "args": [
     "ctx",
     "device",
