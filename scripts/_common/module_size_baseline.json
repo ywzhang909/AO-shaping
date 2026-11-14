@@ -4,7 +4,7 @@
   "src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py": 1154,
   "src/ao_shaping/algorithm/signal_processing/square_shaping.py": 1386,
   "src/ao_shaping/algorithm/signal_processing/zernike_coefficient_optimizer.py": 1633,
-  "src/ao_shaping/drivers/ccd/daheng/driver.py": 989,
+  "src/ao_shaping/drivers/ccd/daheng/driver.py": 886,
   "src/ao_shaping/drivers/ccd/miicam/driver.py": 1270,
   "src/ao_shaping/drivers/dm/micro/driver.py": 927,
   "src/ao_shaping/drivers/mock_devices.py": 1736,

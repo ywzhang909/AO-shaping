@@ -733,7 +733,7 @@ payload 的键:
   强烈低通掉, 于是"随机瞳面相位 ⇒ 远场散斑"这个模型前提本身不成立, 实测帧是**一个紧致
   光斑 + 一圈暗晕**, 而模型预测的是**铺满画幅的散斑**。
   (`report/slm/model_in_loop_bench_calibration.md:49-55`)
-- 而 `--min-geometry-correlation` 默认 **0.5**(`runner_common.py:3058-3068`, 2026-10-27 复核)。
+- 而 `--min-geometry-correlation` 默认 **0.5**(`runner_common.py:3081-3091`, 2026-10-27 复核；2026-11-13 重钉至当前——配置类 `SlmModelInLoopParams` 自 2026-10-20 的 `3f8198d5` 复核后累计上移 ~89 行，3058-3068→3081-3091)。
 
 > 🔴 **不要为了让运行"过"而调低 `--min-geometry-correlation`。** 那个守卫存在的理由就是
 > 阻止运行提交一个**比平场更差**的相位 —— 几何不对时整形只会把光斑做坏
@@ -759,13 +759,13 @@ payload 的键:
 | SLM | Santec SLM-200 **#1**, sn `22030108`, 1920×1200, 10-bit, @1064 nm, **2π = 993 gray**, **只允许 memory mode** | `report/slm/model_in_loop_bench_calibration.md:293-294`; pitch 8 µm 见 `report/slm/bench_calibration_20261001.md:13` |
 | CCD | Daheng MER2-507-23GM NIR, sn `FJB24112232`, 2592×1944, **像元 2.2 µm** | `src/ao_shaping/drivers/AGENTS.md:159`; 像元是**型号级属性**: `--camera-pixel-um 0`(默认) 由 `drivers/ccd/pixel_size.py` 查型号配置 (`models.json`), 正数才是显式覆盖 |
 | 面板上的光斑 | 中心 **(960, 600)**, 半径 **450 面板 px**; 由半平面随机相位边界扫描实测 (0 阶浓度掉下去的那个拐点就是光斑边缘) | `src/ao_shaping/utils/slm/bench_constants.py:53-55`（R-47 下沉：`BEAM_CENTER_PANEL`/`BEAM_RADIUS_PANEL` 单一定义，`bench_kernels` 仅再导出）; 测量方式与数值 `report/slm/model_in_loop_bench_calibration.md:181-191` |
-| `--panel-span-px` | **900** = 2 × 450 | `runner_common.py:2907-2919`(文档就写在 option 的 help 里) |
+| `--panel-span-px` | **900** = 2 × 450 | `runner_common.py:2996-3008`(文档就写在 option 的 help 里；2026-11-13 重钉，配置类自 2026-10-20 复核后累计上移 ~89 行，2907-2919→2996-3008) |
 | 相机上的 0 阶 | ≈ **(674, 1028)** on 2592×1944, 距几何中心 (1296, 972) 偏 **622 px** | `report/slm/model_in_loop_bench_calibration.md:297-299` |
 
 > 🔴 **0 阶一律用 `argmax` 定位, 永远不要用几何中心**(`argmax` 的依据见上表最后一行的
 > 出处)。同一条规则还有更狠的版本: 面板坐标与相机坐标**不是同一套**, 两轴互换 90° 且尺度差
 > 10 倍以上, 所以 `--pupil-center` 只能在**面板上实测**, 不能从相机位置推
-> (`runner_common.py:2920-2933` 的 help 文本)。
+> (`runner_common.py:3009-3022` 的 help 文本；2026-11-13 重钉，2920-2933→3009-3022)。
 >
 > ⚠️ SLM 序列号在仓库里有**三路冲突**(`22030108` / `22030102` / `23020026`),
 > `src/ao_shaping/drivers/AGENTS.md:163-168` 与 `TODO.md` **F-11** 都还没收口。上表记的是
@@ -795,7 +795,7 @@ payload 的键:
 > **大恒驱动会把越界值钳到量程端点**(注释说明是为了避免 SDK 写失败), 于是这个 `0.0`
 > 实际变成**设备最小值 ~0.02 ms**, 比可用区间 0.4–1.5 ms **暗 20–75 倍**。
 > (`docs/slm/pre_run_characterization.md:220, 244-246`;
-> `src/ao_shaping/drivers/ccd/daheng/driver.py:221-235`;
+> `src/ao_shaping/drivers/ccd/daheng/driver.py:318-334`;
 > `src/ao_shaping/utils/cli/exposure.py`)
 
 ### 15.4 焦面标度 `K` 目前**三方不一致**
@@ -804,7 +804,7 @@ payload 的键:
 `10954`。以 2.2 µm 像元推算应得 **~7557**, 所以**三方无一是已验证的**。
 
 `--focal-length-m` 默认 `0` = 用实测焦点标度 + `--camera-pixel-um` **派生**焦距
-(`runner_common.py:2961-2971`)。派生值继承上面那个未定的标度; 想消掉这层不确定性, 就显式传
+(`runner_common.py:3050-3060`；2026-11-13 重钉，2961-2971→3050-3060)。派生值继承上面那个未定的标度; 想消掉这层不确定性, 就显式传
 `--focal-length-m 0.125` 把标称镜头**钉死**。`F-12` 未收口之前, 两者都不算已验证。
 
 ### 15.5 ⚠️ CLI 默认网格比唯一硬件验证过的几何粗约 16×

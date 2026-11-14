@@ -482,8 +482,8 @@
     ]
   },
   "slm_lut_runner": {
-    "body_literals": 114,
-    "body_literals_sha256": "6ce89cc76250fad0",
+    "body_literals": 115,
+    "body_literals_sha256": "f62832bd76a01919",
     "declared": [
       "--bright-floor",
       "--cam-id",
