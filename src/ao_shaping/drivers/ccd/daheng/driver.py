@@ -90,7 +90,7 @@ class DahengCamera(BaseCamera):
         self,
         cam_id: int = 0,
         exposure_time_ms: float = 0.0,
-        skip_sampling=False,
+        skip_sampling: bool = False,
         bit_depth: int = 8,
     ):
         self._init_values = {
@@ -140,10 +140,14 @@ class DahengCamera(BaseCamera):
     def cam_type(self) -> str:
         return "daheng"
 
-    def open(self) -> "DahengCamera":
-        """打开相机设备 (initialize 的别名)。"""
+    def open(self) -> None:
+        """打开相机设备 (initialize 的别名)。
+
+        契约 (与 :class:`~ao_shaping.drivers.ccd.base.BaseCamera` 一致):
+        成功返回 ``None``; 失败抛异常并携带具体信息
+        (``ConnectionAbortedError`` 未找到设备 / ``CameraError`` 初始化失败)。
+        """
         self.initialize()
-        return self
 
     def close(self) -> None:
         """关闭相机设备并释放资源。"""
@@ -667,7 +671,7 @@ class DahengCamera(BaseCamera):
                 return raw_image.get_numpy_array()
 
     def get_numpy_image(
-        self, n_sample=1, skip_first=True, denoise=False
+        self, n_sample: int = 1, skip_first: bool = True
     ) -> npt.NDArray[np.uint16] | npt.NDArray[np.uint8] | npt.NDArray[np.float32]:
         """获取相机图像数据并做平均处理 (n_sample 必须 > 0, 多帧平均为 float32)。"""
         if n_sample <= 0:
@@ -675,24 +679,21 @@ class DahengCamera(BaseCamera):
         if skip_first:
             self.__take_one_shot()
         first_img = self.__take_one_shot()
-        if n_sample == 1 and not denoise:
+        if n_sample == 1:
             return first_img
         total = np.asarray(first_img, dtype=np.float64).copy()
         for _ in range(n_sample - 1):
             total += self.__take_one_shot()
         avg_img = total / n_sample
-        if denoise:
-            avg_img = avg_img - np.median(avg_img)
-            avg_img = np.where(avg_img < 0, 0, avg_img)
         return AveragedFrame(avg_img, first_img.dtype)
 
     def auto_exposure(
         self,
-        target_max: float = 40.0,
-        tolerance: float = 5.0,
+        target_max: float = BaseCamera.AUTO_EXPOSURE_TARGET_MAX,
+        tolerance: float = BaseCamera.AUTO_EXPOSURE_TOLERANCE,
         twice_valid: bool = True,
-        max_iterations: int = 20,
-        n_sample: int = 1,
+        max_iterations: int = BaseCamera.AUTO_EXPOSURE_MAX_ITERATIONS,
+        n_sample: int = BaseCamera.AUTO_EXPOSURE_N_SAMPLE,
         use_sdk_auto: bool = True,
         sdk_settle_frames: int = 3,
     ) -> npt.NDArray[np.uint8]:
@@ -724,8 +725,7 @@ class DahengCamera(BaseCamera):
         target_val = float(target_max)
         low = int(max(target_val - tolerance, 10))
         high = int(min(target_val + tolerance, 254))
-        min_exp = float(self.__exposure_time_ms.min)
-        max_exp = float(self.__exposure_time_ms.max)
+        min_exp, max_exp = self.get_exposure_range()
 
         # ── 阶段 1: SDK 原生自动曝光 ──
         if use_sdk_auto:
@@ -744,7 +744,7 @@ class DahengCamera(BaseCamera):
                     self.__take_one_shot()
                 logger.info(
                     "[SDK auto-exposure] converged: exp={:.2f}ms",
-                    float(self.exposure_time),
+                    self.get_exposure_time_ms(),
                 )
                 # 切换到手动模式，后续用比例迭代修正
                 self.cam.ExposureAuto.set(constants.GxAutoEntry.OFF.value)
@@ -768,29 +768,32 @@ class DahengCamera(BaseCamera):
         img = self.get_numpy_image(n_sample, skip_first=True)
 
         for i in range(max(1, int(max_iterations))):
-            peak = float(np.max(img))
+            # 0-255 灰度量纲 (与基类同一入口): 12/16-bit 帧满量程不是 255
+            peak = self._auto_exposure_peak(img)
 
             if low <= peak <= high:
                 if twice_ok or not twice_valid:
                     logger.info(
                         "Auto exposure converged at iter {}: exp={:.3f}ms, max={:.1f}",
                         i + 1,
-                        float(self.exposure_time),
+                        self.get_exposure_time_ms(),
                         peak,
                     )
                     return img
                 twice_ok = True
             else:
                 twice_ok = False
-                current = float(self.exposure_time)
+                current = self.get_exposure_time_ms()
                 if current <= 0:
                     break
-                ratio = min(target_val / max(peak, 1.0), 3.0)
+                ratio = min(target_val / max(peak, 1.0), self.AUTO_EXPOSURE_MAX_RATIO)
                 new_exp = float(np.clip(current * ratio, min_exp, max_exp))
                 if abs(new_exp - current) < 1e-9:
                     break
-                self.reset_exposure_time(new_exp)
-                if new_exp <= min_exp and peak > high:
+                # 用**生效值**判边界: reset_exposure_time 会把请求钳到设备量程,
+                # 拿请求值比较会在「设备拒绝该值」时一直转到 max_iterations。
+                applied = float(self.reset_exposure_time(new_exp))
+                if applied <= min_exp and peak > high:
                     logger.warning(
                         "target brightness {:.0f} unreachable (peak {:.1f}); "
                         "exposure forced to min",
@@ -798,7 +801,7 @@ class DahengCamera(BaseCamera):
                         peak,
                     )
                     break
-                if new_exp >= max_exp and peak < low:
+                if applied >= max_exp and peak < low:
                     logger.warning(
                         "target brightness {:.0f} unreachable (peak {:.1f}); "
                         "exposure forced to max",
@@ -811,8 +814,8 @@ class DahengCamera(BaseCamera):
 
         logger.info(
             "Auto exposure finished: exp={:.3f}ms, max={:.1f}",
-            float(self.exposure_time),
-            float(np.max(img)),
+            self.get_exposure_time_ms(),
+            self._auto_exposure_peak(img),
         )
         return img
 
@@ -849,8 +852,8 @@ class DahengCamera(BaseCamera):
         return xv, yv
 
     @staticmethod
-    def get_cam_list():
-        """获取可用相机列表。"""
+    def get_cam_list() -> list[Any]:
+        """获取可用相机列表（大恒返回 SDK 的设备信息对象，非纯字符串）。"""
         device_manager = gx.DeviceManager()
         _, dev_info_list = device_manager.update_device_list()
         return dev_info_list if dev_info_list else list()

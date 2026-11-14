@@ -63,8 +63,14 @@ cam.auto_exposure(
 ```
 
 - `target_max` / `tolerance` 一律 **0-255 灰度** (与 SDK `ExpectedGrayValue` 及历史 `autoset_exposure_time_ms` 一致)。**不要再传 0-1**。
+  `BaseCamera.auto_exposure` 会把 16-bit 帧按 `common.full_scale(img)` 折算到同一量纲, 因此 `target_max=40` 在 uint8 与 uint16 后端上是同一个亮度。
+- **契约默认值的唯一来源是基类常量**: `BaseCamera.AUTO_EXPOSURE_TARGET_MAX` / `_TOLERANCE` /
+  `_MAX_ITERATIONS` / `_N_SAMPLE` / `_MAX_RATIO` (=3, 三个实现必须一致)。后端覆写本方法时**引用这些常量**作默认值, 不要再抄一遍字面量。
+- `BaseCamera.auto_exposure` 是**后端无关的通用比例环** (ffmpeg / image_folder / sim 直接继承), 收敛判据、边界退出、日志与两个硬件后端逐条对齐。
+  🔴 它**绝不**调用 `common.auto_exposure` —— 后者的职责是"有原生实现就委托给后端", 反向调用即无限递归。
 - `DahengCamera.auto_exposure` 额外有 `use_sdk_auto` / `sdk_settle_frames` (先走 SDK `ExposureAuto="Once"` 快路径, 再比例迭代)。
 - `MIICamera.auto_exposure` 无 SDK 快路径, 只做比例迭代 (单步放大上限 3×); 每次改曝光走 `reset_exposure_time` (Stop→put_ExpoTime→重启拉流), 较慢; 峰值可能锁在 ~85, 高目标 (如 220) 常不可达 → 以边界曝光退出。
+- **到边界必须"取到生效值"再比较** (`set_exposure_ms` 的返回值), 不能拿"请求值"比: 后端会把请求钳到设备量程, 用请求值判断会出现「请求=min 但设备停在 >min」的永不退出。
 - 历史函数 `autoset_exposure_time_ms` **已移除**, 所有调用点改用 `auto_exposure`。
 
 ### 曝光兼容助手 (common.py)
@@ -74,15 +80,17 @@ cam.auto_exposure(
 | 函数 | 说明 |
 |------|------|
 | `get_camera_exposure_ms(cam)` | 读取当前**生效**曝光 (ms), **优先设备实时回读** `cam.get_exposure_time_ms()`; 后端无回读 (ffmpeg/image_folder/sim) 才回落 `exposure_time_ms` / `exposure_time` 缓存 |
-| `set_camera_exposure_ms(cam, ms)` | 写曝光, 优先 `reset_exposure_time()` (MiiCam 必需) |
-| `get_camera_exposure_range(cam)` | `(min_ms, max_ms)`, 后端未暴露时回退 `0.011–10000` |
-| `auto_exposure(cam, target_max, tolerance=5.0, max_iterations=20, n_sample=1)` | 有原生 `auto_exposure` (Daheng/MiiCam) 则委托, 否则通用比例环 (ffmpeg) |
+| `set_camera_exposure_ms(cam, ms)` | 写曝光, 优先 `reset_exposure_time()` (MiiCam 必需), 无该入口才直接写 `exposure_time_ms` / `exposure_time` 属性; **返回后端报告的生效值** (setter 无返回值时回读一次 `get_camera_exposure_ms`) —— 请求值不是合法的量纲归一化基准 |
+| `get_camera_exposure_range(cam)` | `(min_ms, max_ms)`, 优先后端 `get_exposure_range()` (大恒 = 设备真值量程), 再回落属性 `min/max_exposure_ms`, 都没有时用 `BaseCamera.DEFAULT_EXPOSURE_RANGE_MS` (`0.011–10000`) |
+| `auto_exposure(cam, target_max, tolerance=5.0, twice_valid=True, max_iterations=20, n_sample=1)` | 后端有**自己的** `auto_exposure` (Daheng/MiiCam/SimPib/ffmpeg) 就按签名筛选后委托 (基类继承来的不算, 避免自递归), 否则在 helper 内跑同一份通用比例环 (鸭子类型的相机 shim) |
 
 > **曝光「回读」= 设备实际生效值, 不是你请求的值** (见下方已知坑第 2 条)。
 > 后端实现该契约的单一入口是 `get_exposure_time_ms()`:
 > `DahengCamera` 读 GenICam `ExposureTime` 特征 (设备真值);
-> `MIICamera` 返回驱动侧已钳制+量化的缓存 (SDK 无可靠 `ExpoTime` getter)。
-> 新增后端请实现它, 否则会静默退回缓存 —— 那正是 issue #32 的缺陷形态。
+> `MIICamera` 返回驱动侧**已钳制 + 已量化到整数微秒**的缓存 (SDK 无可靠 `ExpoTime` getter,
+> 帧信息里的 `expotime` 也不回读), 量化规则见 `MIICamera._quantize_exposure_us()`。
+> 基类 `BaseCamera.get_exposure_time_ms()` 只能读 `exposure_time_ms` / `exposure_time` 缓存 ——
+> **有设备回读能力的后端必须覆写它**, 否则会静默退回缓存, 那正是 issue #32 的缺陷形态。
 
 > **曝光「改完」也不等于「下一帧就是新曝光」** (见下方已知坑第 4 条)。
 > 大恒在取流进行中直接写 `ExposureTime`, 改动之前就开始积分的帧仍留在 SDK 流水线里;
@@ -98,14 +106,18 @@ cam.auto_exposure(
 | 方法 | 说明 |
 |------|------|
 | `initialize()` | 初始化相机 |
-| `open()` | 打开相机 |
+| `open()` | 打开相机 (initialize 的别名); 成功返回 `None`, 失败抛异常并携带具体信息 |
 | `close()` | 关闭相机 |
-| `reset_exposure_time(time_ms)` | 设置曝光时间 (MIICAM 须 Stop→设置→重启拉流) |
-| `reset_window(center, size)` | 设置 ROI 窗口 |
-| `get_numpy_image(n_sample, skip_first)` | 获取图像 |
+| `reset_exposure_time(time_ms)` | 设置曝光时间 (MIICAM 须 Stop→设置→重启拉流); **返回生效曝光 (ms)**, 不是请求值 |
+| `reset_window(center, size)` | 设置 ROI 窗口; 大恒返回 `((w, h), (cx, cy))` **回读后的生效窗口**, 其余后端返回 `None` |
+| `get_numpy_image(n_sample, skip_first)` | 获取图像 (无 `denoise` 参数 —— 降噪不属于采集契约) |
+| `get_exposure_time_ms()` | **生效**曝光 (ms) —— 曝光读取的唯一入口; 基类读缓存, 有设备回读的后端必须覆写 |
+| `get_exposure_range()` | `(min_ms, max_ms)`; 基类读后端 SDK 量程属性, 否则 `DEFAULT_EXPOSURE_RANGE_MS` |
+| `auto_exposure(target_max, tolerance, twice_valid, max_iterations, n_sample)` | 统一自动曝光入口 (0-255 灰度), 基类给通用比例环 |
 | `enable_auto_exposure(enable, mode)` | 启用/禁用自动曝光 |
 | `get_auto_exposure_state()` | 获取自动曝光状态 |
 | `set_auto_exposure_range(...)` | 设置自动曝光范围 |
+| `set_auto_exposure_target(target)` | 设 SDK 侧目标亮度 (0-255 灰度; 大恒/MiiCam 有原生实现, ffmpeg/image_folder 抛 `NotImplementedError`); 基类记录并**返回生效（钳制后）目标**, 不是请求值 |
 | `get_cam_list()` | 获取可用相机列表 (static) |
 | `pixel_size_um` | 传感器像元边长 (µm), **类属性**, 默认 `0` = 未知 |
 | `require_pixel_size_um()` | 取像元边长; 未知时抛 `CameraError` 并说明补救办法 |
@@ -213,7 +225,7 @@ supported_bit_depths = tuple(_BIT_DEPTH_PIXEL_FORMATS)
 
 - **Daheng gxipy `IntFeature.set` 越界会「静默保留旧窗口」** (SDK gxiapi.py `IntFeature.set`/`range_check`): 请求值不在特征 `[min, max, inc]` 网格 (如 `Height.range=[2, 1138, 2]`) 时, gxipy **不抛异常**, 只 `print()` 噪声 "IntFeature.set: int_value out of bounds, ..." 然后**保留上一次的窗口** — 调用方拿到的仍是旧窗口而无从知晓 (2026-09-23 实测: 开窗设置/关闭时缓冲报错, 窗口被钳到 930×632)。修复: `DahengCamera.reset_window` 在 set 前用 `_clamp_int(value, feature.get_range())` 把宽高/偏移钳到合法网格 (warning 记录钳制), 并 readback (`Width.get()`/`Height.get()`/`OffsetX.get()`) 校验 — 若 SDK 确保留旧值则 warning + 返回实际生效窗口 `((w,h), center)`。调用方必须用返回的生效尺寸/中心, 不要拿请求值当生效值。新代码一律经 `reset_window` 返回的 readback 值; 已在 `tests/ao_shaping/drivers/ccd/daheng/test_reset_window.py` 离线锁定 (钳制/读回/全帧分支)。
 - **MiiCam 曝光修改**: 须通过 `reset_exposure_time()` (Stop→put_ExpoTime→重启拉流); 曝光 <0.1ms 信号淹没在噪声 (max≤10), 建议 ≥0.2ms; 峰值可能锁在 ~85, 质量指标优先用 mean/亮区而非 max。
-- **MiiCam 响应呈台阶状, 比例迭代存在死区** (2026-10-22 实测, 探针 `scripts/ccd/miicam_auto_exposure_probe.py`, 产物 `data/debug/miicam_auto_exposure_2026102x_*`): 当前光照下峰值/均值随曝光不是线性而是阶梯 —— 档位 (设备曝光, 均值 counts): ≤17us≈31, 18-22us≈42, 25-30us≈51, 40us≈65, 50us≈71; 峰值对应 ≈185/220/242/255/255 (40us 起饱和)。台阶边界在 17→18us (+6% 曝光 → +35% 均值)、22→25us、~35→40us。因此 `auto_exposure` 的比例迭代: ① 目标带落在台阶之间时在两个相邻档位间振荡直至 `max_iterations` (有界不收敛, 每次约 17s/20 次修改); ② 目标低于最低档位时正确地在最小曝光边界退出 (1 次修改); ③ 目标带覆盖某档位时正常收敛 (0-4 次修改)。另外该场景 0.02ms 峰值实测 200-220 (2026-10-22 晚, 半小时内漂移 ±5%), 而非早前记录的 140; 曝光 ≤11us 亦有 ~180 counts (旧记录 "<0.1ms 淹没在噪声" 是当时光照条件下的结论, 已不适用)。**帧信息 `MiicamFrameInfoV3.expotime` 在本机不回读** (flag=0x3, 无 `MIICAM_FRAMEINFO_FLAG_EXPOTIME`=0x04, 字段恒 0) —— 设备侧曝光真值只能取驱动缓存 (钳制到 [0.011, 10000] ms 后 **未量化到整数微秒**, `put_ExpoTime` 内部截断; 如请求 0.0117ms 缓存记 0.0117 而设备用 11us, 偏差可达 ~6%)。脏数据排查结论: 帧序号逐帧 +1、时间戳恒 12572us 推进、相邻帧平均绝对差 ~2 counts 无重复帧、交叉切换测试 (16/17/18/19us 多轮交替) 亮度确定性地跟随请求且切换后无滞后 (lag 0-3%) —— **台阶是传感器/SDK 曝光映射的真实属性, 不是读到脏数据**。
+- **MiiCam 响应呈台阶状, 比例迭代存在死区** (2026-10-22 实测, 探针 `scripts/ccd/miicam_auto_exposure_probe.py`, 产物 `data/debug/miicam_auto_exposure_2026102x_*`): 当前光照下峰值/均值随曝光不是线性而是阶梯 —— 档位 (设备曝光, 均值 counts): ≤17us≈31, 18-22us≈42, 25-30us≈51, 40us≈65, 50us≈71; 峰值对应 ≈185/220/242/255/255 (40us 起饱和)。台阶边界在 17→18us (+6% 曝光 → +35% 均值)、22→25us、~35→40us。因此 `auto_exposure` 的比例迭代: ① 目标带落在台阶之间时在两个相邻档位间振荡直至 `max_iterations` (有界不收敛, 每次约 17s/20 次修改); ② 目标低于最低档位时正确地在最小曝光边界退出 (1 次修改); ③ 目标带覆盖某档位时正常收敛 (0-4 次修改)。另外该场景 0.02ms 峰值实测 200-220 (2026-10-22 晚, 半小时内漂移 ±5%), 而非早前记录的 140; 曝光 ≤11us 亦有 ~180 counts (旧记录 "<0.1ms 淹没在噪声" 是当时光照条件下的结论, 已不适用)。**帧信息 `MiicamFrameInfoV3.expotime` 在本机不回读** (flag=0x3, 无 `MIICAM_FRAMEINFO_FLAG_EXPOTIME`=0x04, 字段恒 0) —— 设备侧曝光真值只能取驱动缓存, 因此该缓存**必须是下发给 SDK 的那个整数微秒**: `MIICamera._quantize_exposure_us()` 先钳到 `[MIN, MAX_EXPOSURE_MS]` 再 `int(round(ms*1000))`, `_clamp_exposure_ms` 把量化结果 (`µs/1000`) 写回 `exposure_time_ms`, 每个 `put_ExpoTime` 调用点都走它 (请求 0.0117ms ⇒ 缓存与设备都是 12µs, 不再漂移)。用 `round` 而不是 `int` 截断: 截断对已量化值不闭合 (`int(1.001*1000) == 1000`), 回读会每读一次再掉 1µs。脏数据排查结论: 帧序号逐帧 +1、时间戳恒 12572us 推进、相邻帧平均绝对差 ~2 counts 无重复帧、交叉切换测试 (16/17/18/19us 多轮交替) 亮度确定性地跟随请求且切换后无滞后 (lag 0-3%) —— **台阶是传感器/SDK 曝光映射的真实属性, 不是读到脏数据**。
 - **曝光回读 ≠ 缓存值, 差一个微秒也会骗人** (issue #32, `get_camera_exposure_ms` 回读失真): 两个后端都会把曝光**钳制并量化到整数微秒**才下发给 SDK —— Daheng 是 `ExposureTime.set(int(ms*1000))`, MiiCam 是 `put_ExpoTime(int(ms*1000))` —— 但驱动侧的 `exposure_time_ms` 缓存保留的是**未经量化的原始请求**, 且从不随设备回读刷新。于是「日志里记的曝光」与「传感器实际用的曝光」长期漂移, 一切依赖曝光真值的判据 (饱和保护、δ 扫描、线性度) 都建立在错值上。**契约: 一律经 `get_exposure_time_ms()` 取值** —— Daheng 读 GenICam 特征拿设备真值; MiiCam 因 SDK 无可靠 getter, 以「已钳制+量化」的缓存为权威 (**不可**改回未量化的请求, 那会虚报一个设备并未使用的曝光)。`get_camera_exposure_ms()` 已按此优先级实现, 离线锁定于 `tests/ao_shaping/drivers/ccd/test_camera_registry.py`。
 - **MiiCam 位深**: 实测该硬件 `_detect_raw_format` 报 `MONO16` 而非 `MONO14` (test_ccd.py::test_cam_bit_depth_initialization 预期 MONO14 会失败 — 硬件现实, 非代码缺陷)。
 - **Daheng 改曝光后, 前 1~2 帧仍是上一档曝光的画面** (2026-10-21 实测, 相机 FJB24112232): 大恒 SDK 在**取流进行中**直接写 GenICam `ExposureTime`, **改动之前**就已经开始积分的帧仍留在 SDK 流水线里, 于是改完曝光后紧接着取到的帧还是旧曝光的画面。实测阶梯 (每次改动后连抓 4 个原始帧, mean/max): `2 -> 20 ms` 的前两帧是 0.343/5、0.320/5 (仍是 2 ms), 第三帧才出现 20 ms 的 0.559/42; `20 -> 2 ms` 的前两帧是 0.596/43、0.596/41 (仍是 20 ms); `1 -> 50`、`10 -> 100 ms` 滞后 1 帧; `100 -> 10 ms` 那次没滞后 ⇒ **间歇发生, 不能靠「发现不一致再补救」, 必须无条件消费**。

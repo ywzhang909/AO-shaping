@@ -671,15 +671,21 @@ def _run_validate(tmp_path, monkeypatch, *, abba, mode="model", updates=2, devic
                   adaptive_exposure=False, blocks=1, seed_value=0., target_at_impl=None, **extra):
     """Drive ``validate.run`` end to end with fakes: devices, forward and optimizer.
 
-    Everything above the device layer is the production code, so the set of
-    captures actually taken is what is asserted -- not a re-implementation of it.
+    Capture, recording export and GIF rendering all use production code, so the
+    set of captures actually taken is asserted -- not a re-implementation of it.
     ``seen`` (a dict) collects the ``device`` each stubbed stage construction
     received, which is how the resolver plumbing is asserted without a GPU.
     ``target_at_impl`` overrides the ``validate.target_at`` stub (same signature),
     so a test can return a box that would touch the window edge and pin the
     ``tilt`` boundary-skip behaviour.
+
+    The settle sleeps are patched through a proxy bound to ``validate.time``,
+    never through the global ``time`` module: patching the global module also
+    removes the session watcher's own sleep and makes it poll psutil continuously,
+    which starves the whole process under an otherwise normal full-file run.
     """
     from types import SimpleNamespace
+    import time
     import torch
     from ao_shaping.algorithm.signal_processing import differentiable_defocus_uniformity as ddu
     from ao_shaping.drivers.ccd import common
@@ -689,6 +695,20 @@ def _run_validate(tmp_path, monkeypatch, *, abba, mode="model", updates=2, devic
     seen = {} if seen is None else seen
     seen.setdefault("forward", [])
     seen.setdefault("optimizer", [])
+
+    class _NoSettleTime:
+        """``validate.time`` stand-in: no-op sleep, all other time APIs real."""
+
+        def __init__(self, real):
+            self._real = real
+
+        def sleep(self, _):
+            return None
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+    monkeypatch.setattr(validate, "time", _NoSettleTime(time))
 
     checkpoint = tmp_path / "checkpoint.json"
     checkpoint.write_text(json.dumps(dict(ramp_matrix=[[1., 0.], [0., 1.]], grid_size=8,
@@ -758,7 +778,6 @@ def _run_validate(tmp_path, monkeypatch, *, abba, mode="model", updates=2, devic
     monkeypatch.setattr(validate, "gs_seed",
                         lambda forward, centre, side, shape: np.full((8, 8), seed_value, np.float32))
     monkeypatch.setattr(hardware, "prepare_camera_sdk", lambda _: None)
-    monkeypatch.setattr(validate.time, "sleep", lambda _: None)
 
     closed = []
     camera = _PhaseCamera(closed)
@@ -1056,6 +1075,24 @@ def test_validate_stages_use_the_resolved_device(tmp_path, monkeypatch, availabl
     config = json.loads((args.out/"config.json").read_text())
     assert config["device"] == expected
     assert config["device_requested"] == requested
+
+
+def test_run_validate_does_not_patch_global_time_sleep(tmp_path, monkeypatch):
+    """The offline helper must not starve the session watcher by patching ``time``.
+
+    Patching the global ``time.sleep`` also removes the watcher's own sleep, so
+    it polls psutil in a tight loop and starves the whole process. The helper
+    must scope its no-settle behavior to ``validate.time`` instead.
+    """
+    import time
+    from ao_shaping.tools.slm.transfer import validate
+
+    real_sleep = time.sleep
+    _run_validate(tmp_path, monkeypatch, abba=False)
+
+    assert time.sleep is real_sleep
+    assert validate.time.sleep is not real_sleep
+    assert validate.time.perf_counter is time.perf_counter
 
 
 def test_the_session_records_the_resolved_device(tmp_path, monkeypatch):
