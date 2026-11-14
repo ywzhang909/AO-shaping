@@ -301,6 +301,87 @@ def window_for_side(side: float) -> tuple[float, str]:
     return span, note
 
 
+def _dc_put_bench_geometry(exposure_ms, period, put, side_value, warnings, window_span, zero_radius, zero_xy):
+    """Fill the zero-order and exposure settings from the bench defaults."""
+    if zero_xy is None:
+        warnings.append(
+            "零级位置未测：几何检查只能按标称位置，运行前请做光路探针"
+            "（scripts/slm/probe_optical_path_validity.py；零级与目标框的重叠面积是读数阈值的一部分）"
+        )
+    else:
+        x, y = (float(v) for v in zero_xy)
+        put("zero_xy", (x, y), FieldSource.MEASURED,
+            "实测零级位置（sensor px）：runner 在 fit 之后用 "
+            "fit_stage.spot(reference) 自己测；这里传入只为开跑前算零级剔除区与目标框的重叠"
+            "（preflight.check_zero_overlap），不是 runner 旗标")
+
+    if exposure_ms is None:
+        put("exposure_ms", "auto", FieldSource.DEFAULT,
+            "auto = 由实验系统曝光探针逐块定（--replay-exposures-auto 的自动 ladder "
+            "按本 lane 实测核心峰值率推导，见 transfer_shapes_runner 的同名旗标）；"
+            "本 runner 没有 --exposure-ms 旗标，所以它不进 kwargs()")
+    else:
+        put("exposure_ms", float(exposure_ms), FieldSource.MEASURED,
+            "实测固定曝光（ms）：写进每次采集的 manifest，使各块可直接比较；"
+            "固定曝光只在一个 lane 内成立（200 px 核在 125 ms 满量程、1200 px 在 225 ms 仍可用）")
+
+    # ---- 按尺寸派生 -----------------------------------------------------
+    span, span_note = window_for_side(side_value)
+    if window_span is not None:
+        put("window_span", float(window_span), FieldSource.MANUAL,
+            f"手工覆盖：派生值 {span:g} px 被替换（{span_note}）")
+    else:
+        put("window_span", span, FieldSource.DERIVED,
+            f"{span_note}；取代 CLI 默认 {RUNNER_CLI_DEFAULTS['window_span']:g} px"
+            "（--window-span 是采样窗半跨，validate.recentre_window(half_span_px=…)）")
+    if abs(side_value - min(SIZE_WINDOWS, key=lambda key: abs(key - side_value))) > 1e-9:
+        warnings.append(
+            f"尺寸 {side_value:g} px 不在窗口档位 200/600/1200 上，已就近取 {span:g} px 半跨："
+            "该尺寸没有实测的窗口/曝光组合，结果只能与同尺寸的 lane 配对比较"
+        )
+
+    if period is not None:
+        put("period", float(period), FieldSource.MANUAL,
+            f"手工覆盖：CLI 默认 {RUNNER_CLI_DEFAULTS['period']:g} 被替换（倾斜相位位移 ∝ 1/period）")
+    else:
+        put("period", RUNNER_CLI_DEFAULTS["period"], FieldSource.DEFAULT, _DEFAULT_NOTES["period"])
+
+    if zero_radius is not None:
+        put("zero_radius", float(zero_radius), FieldSource.MANUAL,
+            f"手工覆盖：CLI 默认 {RUNNER_CLI_DEFAULTS['zero_radius']:g} 被替换"
+            "（改半径就改了零级剔除面积，须与报告阈值一起读）")
+    else:
+        put("zero_radius", RUNNER_CLI_DEFAULTS["zero_radius"], FieldSource.DEFAULT,
+            _DEFAULT_NOTES["zero_radius"])
+    return 
+
+
+def _dc_put_phase_policy(initial_phase, put, shape_tuple, side_value):
+    """Resolve the ``auto`` initial-phase rule and fold the user override in."""
+    auto_rule = "正方形用传输相位（transport，二维可分离、对正方形精确），其余形状用反投影（backprojection，形状通用）"
+    if initial_phase == "auto":
+        put("initial_phase", "auto", FieldSource.DEFAULT,
+            f"CLI 默认（--initial-phase auto）：{auto_rule} —— runner._seed_kind 的规则。"
+            "严格冷启动（random / plane，不读目标也不用物理预测模型）与解析初始化"
+            "（transport / backprojection / gs，用了拟合模型）**不可并入同一张对比表**："
+            "后者赢了不能证明「闭环从零开始也能工作」（plan_multishape_campaign.py 开头）")
+    else:
+        put("initial_phase", initial_phase, FieldSource.MANUAL,
+            f"手工覆盖：CLI 默认 auto（{auto_rule}）被替换为 {initial_phase!r}")
+
+    # ---- campaign 协议派生 ----------------------------------------------
+    put("gs_seed", False, FieldSource.DERIVED,
+        "本次 campaign 是「无 GS」方案：--no-gs-seed 关掉对比择优里的 GS 候选"
+        "（--gs-seed 的 help 原文：「无 GS 冷启动方案须用 --no-gs-seed」；"
+        "live_20261028.md §5.2 的 lane 即带 --no-gs-seed）")
+
+    put("shapes", shape_tuple, FieldSource.MANUAL,
+        "输入：目标形状（GUI 的主输入之一）。顺序即跑批顺序，--order shape 时一形状跑完四段")
+    put("side", side_value, FieldSource.MANUAL,
+        "输入：目标边长（原生 CCD px）。它同时决定采样窗档位、目标框几何与零级重叠面积")
+    return 
+
+
 def derive_settings(
     shapes: Iterable[str],
     side: float,
@@ -362,56 +443,7 @@ def derive_settings(
         settings[name] = Setting(name=name, value=value, source=source, note=note)
 
     # ---- 实测输入 -------------------------------------------------------
-    if zero_xy is None:
-        warnings.append(
-            "零级位置未测：几何检查只能按标称位置，运行前请做光路探针"
-            "（scripts/slm/probe_optical_path_validity.py；零级与目标框的重叠面积是读数阈值的一部分）"
-        )
-    else:
-        x, y = (float(v) for v in zero_xy)
-        put("zero_xy", (x, y), FieldSource.MEASURED,
-            "实测零级位置（sensor px）：runner 在 fit 之后用 "
-            "fit_stage.spot(reference) 自己测；这里传入只为开跑前算零级剔除区与目标框的重叠"
-            "（preflight.check_zero_overlap），不是 runner 旗标")
-
-    if exposure_ms is None:
-        put("exposure_ms", "auto", FieldSource.DEFAULT,
-            "auto = 由实验系统曝光探针逐块定（--replay-exposures-auto 的自动 ladder "
-            "按本 lane 实测核心峰值率推导，见 transfer_shapes_runner 的同名旗标）；"
-            "本 runner 没有 --exposure-ms 旗标，所以它不进 kwargs()")
-    else:
-        put("exposure_ms", float(exposure_ms), FieldSource.MEASURED,
-            "实测固定曝光（ms）：写进每次采集的 manifest，使各块可直接比较；"
-            "固定曝光只在一个 lane 内成立（200 px 核在 125 ms 满量程、1200 px 在 225 ms 仍可用）")
-
-    # ---- 按尺寸派生 -----------------------------------------------------
-    span, span_note = window_for_side(side_value)
-    if window_span is not None:
-        put("window_span", float(window_span), FieldSource.MANUAL,
-            f"手工覆盖：派生值 {span:g} px 被替换（{span_note}）")
-    else:
-        put("window_span", span, FieldSource.DERIVED,
-            f"{span_note}；取代 CLI 默认 {RUNNER_CLI_DEFAULTS['window_span']:g} px"
-            "（--window-span 是采样窗半跨，validate.recentre_window(half_span_px=…)）")
-    if abs(side_value - min(SIZE_WINDOWS, key=lambda key: abs(key - side_value))) > 1e-9:
-        warnings.append(
-            f"尺寸 {side_value:g} px 不在窗口档位 200/600/1200 上，已就近取 {span:g} px 半跨："
-            "该尺寸没有实测的窗口/曝光组合，结果只能与同尺寸的 lane 配对比较"
-        )
-
-    if period is not None:
-        put("period", float(period), FieldSource.MANUAL,
-            f"手工覆盖：CLI 默认 {RUNNER_CLI_DEFAULTS['period']:g} 被替换（倾斜相位位移 ∝ 1/period）")
-    else:
-        put("period", RUNNER_CLI_DEFAULTS["period"], FieldSource.DEFAULT, _DEFAULT_NOTES["period"])
-
-    if zero_radius is not None:
-        put("zero_radius", float(zero_radius), FieldSource.MANUAL,
-            f"手工覆盖：CLI 默认 {RUNNER_CLI_DEFAULTS['zero_radius']:g} 被替换"
-            "（改半径就改了零级剔除面积，须与报告阈值一起读）")
-    else:
-        put("zero_radius", RUNNER_CLI_DEFAULTS["zero_radius"], FieldSource.DEFAULT,
-            _DEFAULT_NOTES["zero_radius"])
+    _dc_put_bench_geometry(exposure_ms, period, put, side_value, warnings, window_span, zero_radius, zero_xy)
 
     # ---- runner CLI 默认值 ----------------------------------------------
     explicit_defaults: dict[str, Any] = {
@@ -441,27 +473,7 @@ def derive_settings(
             f"手工覆盖：自动模式已关闭（CLI 默认 {RUNNER_CLI_DEFAULTS['replay_exposures_auto']!r}）")
 
     # ---- 初相位 ---------------------------------------------------------
-    auto_rule = "正方形用传输相位（transport，二维可分离、对正方形精确），其余形状用反投影（backprojection，形状通用）"
-    if initial_phase == "auto":
-        put("initial_phase", "auto", FieldSource.DEFAULT,
-            f"CLI 默认（--initial-phase auto）：{auto_rule} —— runner._seed_kind 的规则。"
-            "严格冷启动（random / plane，不读目标也不用物理预测模型）与解析初始化"
-            "（transport / backprojection / gs，用了拟合模型）**不可并入同一张对比表**："
-            "后者赢了不能证明「闭环从零开始也能工作」（plan_multishape_campaign.py 开头）")
-    else:
-        put("initial_phase", initial_phase, FieldSource.MANUAL,
-            f"手工覆盖：CLI 默认 auto（{auto_rule}）被替换为 {initial_phase!r}")
-
-    # ---- campaign 协议派生 ----------------------------------------------
-    put("gs_seed", False, FieldSource.DERIVED,
-        "本次 campaign 是「无 GS」方案：--no-gs-seed 关掉对比择优里的 GS 候选"
-        "（--gs-seed 的 help 原文：「无 GS 冷启动方案须用 --no-gs-seed」；"
-        "live_20261028.md §5.2 的 lane 即带 --no-gs-seed）")
-
-    put("shapes", shape_tuple, FieldSource.MANUAL,
-        "输入：目标形状（GUI 的主输入之一）。顺序即跑批顺序，--order shape 时一形状跑完四段")
-    put("side", side_value, FieldSource.MANUAL,
-        "输入：目标边长（原生 CCD px）。它同时决定采样窗档位、目标框几何与零级重叠面积")
+    _dc_put_phase_policy(initial_phase, put, shape_tuple, side_value)
 
     # ---- 人的覆盖最后生效 ------------------------------------------------
     for name, value in explicit.items():

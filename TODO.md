@@ -5117,6 +5117,14 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: debug_option_wiring 11 / param wiring 18 / 形状 310 / cli_help_golden 77 / conventions 72 (1 skip) —— 全绿
 - 模块 279 行 (< 800), 无 baseline 变化
 
+**2026-11-14 · 023babdf 之后 · 第 84 批: `campaign.derive_settings` 188→119 行 + 两缝**
+- 提取: `_dc_put_bench_geometry` 53 (nest 1, 8 参; 0 级/曝光/window 侧面/光栅周期/0 级半径的 `put` 填充与告警) / `_dc_put_phase_policy` 24 (nest 1, 4 参; `auto` 相位规则 + `initial_phase` 折叠)
+- 边界: 中间 `explicit_defaults` + `for name in (...)` (417:441) 保持原位 —— 该区把循环变量 `name` 泄漏给后续语句, audit 判 `name(s=1,c=1)`; 两缝都只含 `put(...)` 调用与 If 分支, 无 return
+- 叶差分: 11 同 / 消失 0 / 新增 2 / 改 1 (`derive_settings`)
+- 棘轮: 新增 `_TRANSFER_CAMPAIGN` 常量 + 3 行 (137/2/119, 61/1/53, 28/1/24)
+- 载体: campaign_settings 23 / 形状 313 / cli_help_golden 77 / conventions 72 (1 skip) —— 全绿
+- 模块 614 行 (< 800), 无 baseline 变化
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

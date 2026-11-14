@@ -123,6 +123,7 @@ _DATASET = "src/ml/hwdataset/dataset.py"
 _AXIS_BEAM_RUNNER = "src/ao_shaping/runners/nlight_dm/axis_beam_runner.py"
 _SLM_GS_REFINE = "src/ao_shaping/optimizer/wfless/slm_gs_refine.py"
 _PHASE_GRAYSCALE_LUT = "src/ao_shaping/tools/slm/cartographer/phase_grayscale_lut.py"
+_TRANSFER_CAMPAIGN = "src/ao_shaping/tools/slm/transfer/campaign.py"
 
 #: (relative path under src, function name, span ceiling, nesting ceiling,
 #:  the span measured when the guard was written)
@@ -227,6 +228,9 @@ TARGETS = [
     (_TRANSFER_SHAPES_RUNNER, "_ts_records_stage", 20, 5, 17),
     (_TRANSFER_SHAPES_RUNNER, "_campaign_auto_reuse", 50, 3, 28),
     (_TRANSFER_SHAPES_RUNNER, "_campaign_model_dirs", 80, 2, 58),
+    (_TRANSFER_CAMPAIGN, "derive_settings", 137, 2, 119),
+    (_TRANSFER_CAMPAIGN, "_dc_put_bench_geometry", 61, 1, 53),
+    (_TRANSFER_CAMPAIGN, "_dc_put_phase_policy", 28, 1, 24),
     (_TRANSFER_SHAPES_RUNNER, "_campaign_seed_choice", 70, 4, 47),
     (_ZERNIKE_MATRIX_RUNNER, "run", 194, 4, 168),
     (_ZERNIKE_MATRIX_RUNNER, "_zmr_calibration_sweep", 110, 4, 95),
