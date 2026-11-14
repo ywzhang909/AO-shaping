@@ -5159,6 +5159,14 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 1534→1546 (+12, 两个 helper 的 def/docstring 开销), baseline 已抬平
 - 载体: slm_diffraction_efficiency 61 / 形状 324 / conventions 72 (1 skip) / cli_help_golden 77 —— 全绿
 
+**2026-11-14 · 21fbb865 之后 · 第 89 批: `shaping/router.choose_route` 161→133 行 + 两缝**
+- 提取: `_router_collect_refocus_reasons` 23 (nest 2, 1 参, 回传 `refocus_reasons`) / `_router_collect_anchor_reasons` 13 (nest 1, 1 参, 回传 `(anchor_reasons, uniformity_intent)`)
+- 边界: `146:160` 区被生成器拒绝 (区内含 `return _route(...)`, helper 不得 return) → 留在母函数; `148:160` 同理
+- 叶差分: 3 同 / 消失 0 / 新增 2 / 改 1 (`choose_route`)
+- 棘轮: 新增 `_SHAPING_ROUTER` 常量 + 三行 (153/2/133, 28/2/23, 17/1/13)
+- 模块 324→336 (< 800), 无 baseline 变化
+- 载体: router 26 / 形状 327 / conventions 72 (1 skip) / cli_help_golden 77 —— 全绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

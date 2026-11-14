@@ -136,6 +136,46 @@ def _route(
     )
 
 
+def _router_collect_refocus_reasons(report):
+    """Collect the refocus reasons for one report."""
+    refocus_reasons: list[str] = []
+    if report.light_ok is False:
+        refocus_reasons.append("light_ok=False：光路未就绪")
+    if report.geometry_correlation is not None:
+        if report.geometry_correlation < GEOMETRY_CORRELATION_MIN:
+            refocus_reasons.append(
+                f"geometry_correlation={report.geometry_correlation:g}"
+                f" < {GEOMETRY_CORRELATION_MIN}：光路/几何失配")
+    if report.direction_agreement is not None and report.direction_agreement < 0:
+        refocus_reasons.append(
+            f"direction_agreement={report.direction_agreement:g} < 0：方向错")
+    if report.focus_changed is True:
+        refocus_reasons.append("focus_changed=True：焦面已变化")
+    if report.zero_shift_px is not None and abs(report.zero_shift_px) > ZERO_SHIFT_PX_MAX:
+        refocus_reasons.append(
+            f"zero_shift_px={report.zero_shift_px:g}，|shift|"
+            f" > {ZERO_SHIFT_PX_MAX}：零级漂移超限")
+    if report.geometry_problems:
+        refocus_reasons.append(
+            f"geometry_problems={list(report.geometry_problems)}")
+    return refocus_reasons
+
+
+def _router_collect_anchor_reasons(report):
+    """Collect the uniformity intent and anchor reasons."""
+    uniformity_intent = (
+        report.intent == "uniformity"
+        or (report.intent == "fixed_shape"
+            and report.shape in ("square", "rectangle"))
+    )
+    anchor_reasons: list[str] = []
+    if report.model_anchor_error is not None and report.model_anchor_error > MODEL_ANCHOR_ERROR_MAX:
+        anchor_reasons.append(
+            f"model_anchor_error={report.model_anchor_error:g}"
+            f" > {MODEL_ANCHOR_ERROR_MAX}：冻结模型锚点偏离")
+    return anchor_reasons, uniformity_intent
+
+
 def choose_route(report: ProbeReport) -> RoutePlan:
     """按固定优先级把探测报告映射为推荐路线。命中即定，不继续下探。"""
     reasons: list[str] = []
@@ -174,26 +214,7 @@ def choose_route(report: ProbeReport) -> RoutePlan:
         )
 
     # 3. refocus —— 光路/焦面刚变化。任一证据成立即命中。
-    refocus_reasons: list[str] = []
-    if report.light_ok is False:
-        refocus_reasons.append("light_ok=False：光路未就绪")
-    if report.geometry_correlation is not None:
-        if report.geometry_correlation < GEOMETRY_CORRELATION_MIN:
-            refocus_reasons.append(
-                f"geometry_correlation={report.geometry_correlation:g}"
-                f" < {GEOMETRY_CORRELATION_MIN}：光路/几何失配")
-    if report.direction_agreement is not None and report.direction_agreement < 0:
-        refocus_reasons.append(
-            f"direction_agreement={report.direction_agreement:g} < 0：方向错")
-    if report.focus_changed is True:
-        refocus_reasons.append("focus_changed=True：焦面已变化")
-    if report.zero_shift_px is not None and abs(report.zero_shift_px) > ZERO_SHIFT_PX_MAX:
-        refocus_reasons.append(
-            f"zero_shift_px={report.zero_shift_px:g}，|shift|"
-            f" > {ZERO_SHIFT_PX_MAX}：零级漂移超限")
-    if report.geometry_problems:
-        refocus_reasons.append(
-            f"geometry_problems={list(report.geometry_problems)}")
+    refocus_reasons = _router_collect_refocus_reasons(report)
     if refocus_reasons:
         return _route(
             "refocus",
@@ -250,16 +271,7 @@ def choose_route(report: ProbeReport) -> RoutePlan:
         )
 
     # 6. anchored_uniformity —— 匀化意图，或冻结模型锚点偏离严重。
-    uniformity_intent = (
-        report.intent == "uniformity"
-        or (report.intent == "fixed_shape"
-            and report.shape in ("square", "rectangle"))
-    )
-    anchor_reasons: list[str] = []
-    if report.model_anchor_error is not None and report.model_anchor_error > MODEL_ANCHOR_ERROR_MAX:
-        anchor_reasons.append(
-            f"model_anchor_error={report.model_anchor_error:g}"
-            f" > {MODEL_ANCHOR_ERROR_MAX}：冻结模型锚点偏离")
+    anchor_reasons, uniformity_intent = _router_collect_anchor_reasons(report)
     if uniformity_intent or (anchor_reasons and report.shape
                              in ("square", "rectangle")):
         all_reasons = list(anchor_reasons)
