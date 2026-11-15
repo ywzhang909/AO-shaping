@@ -312,6 +312,7 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 | `slm/panel/` | `alignment_probe.py` | 定位 CCD 光斑前先测焦距与两处彗差校正 (复用 canonical Fresnel 扫描) |
 | `slm/panel/` | `beam_extent.py` | 在面板上按边界扫描测光束中心与半径 |
 | `slm/panel/` | `bench_fingerprint.py` | 标定后光路是否变过——实测指纹比对而非假定 |
+| `slm/panel/` | `diagnose.py` | SLM 硬件自检 (slm-diagnose): 2f 光路下 Santec SLM-200 + MiiCam 逐级自检, 固化"面板不调制光"三步证据链 (patches 冻结 / 灰度调制 / 曝光-亮度线性) |
 | `slm/panel/` | `display_state.py` | 探针借用临时存储槽期间保全 SLM 显示状态 |
 | `slm/panel/` | `exposure_adapt.py` | 曝光阶梯单一来源 (2026-10-29 自 `focus_probe` 拆出): 选出让帧峰值落在满量程可接受带内的曝光并读出 `robust_peak`/`frame_full_scale`/`adapt_exposure`; 免设备 (`set_exposure_ms`/`read_frame` 注入), `focus_probe` 旧路径 re-export 同组名 |
 | `slm/panel/` | `focus_preflight.py` | 采集前置阶段: 焦面(离焦)补偿 + 去转向自标切 (2f 实验系统 CCD 常驻离焦) |
