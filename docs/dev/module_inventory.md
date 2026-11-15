@@ -160,7 +160,11 @@ New optimizers added to `src/ao_shaping/algorithm/` MUST follow the class-based 
 | `tabu/` | `tabu_search` | 禁忌搜索 |
 | `goal_functions/` | `target_func` | 目标函数与图像质量指标; 行内原列的 `image_metrics` 为幻影 token: 文件从未存在 (git `--follow` 零历史), 全仓 import 均走 `goal_functions.target_func` 的 `ImageTargetFunc` |
 
-> **注意**: 顶层 `algorithm/` 现仅存 `__init__` 与 `base` (基类 `RegisteredBase`); 分包拆分带来的顶层 re-export shims 已于 `bbb3820b` (2026-09-20) 删除
+> **注意**: 顶层 `algorithm/` 现存 `__init__`、`base` (基类 `RegisteredBase`) 与两个共享助手模块:
+> `_torch_support.py` (torch 惰性导入 `require_torch` + 峰值归一化强度损失 `peak_normalized_loss`,
+> 收敛 `signal_processing/` 各模块逐字重复的 torch 加载与损失实现) 与
+> `_array_support.py` (numpy 对称扰动裁剪 `symmetric_clip`, 供 `gradient/adam.py` 使用);
+> 分包拆分带来的顶层 re-export shims 已于 `bbb3820b` (2026-09-20) 删除
 
 ---
 

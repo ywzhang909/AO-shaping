@@ -38,7 +38,9 @@ class LoopConfig:
         Ki: Integral gain (PID).
         Kd: Derivative gain (PID).
         leak: Leaky integrator leak factor.
-        Q_diag: LQR state cost diagonal.
+        Q_diag: LQR state cost diagonal. 构造时可传 ``list`` 或 ``ndarray``;
+            :meth:`__post_init__` 会把 ``list`` 归一化为 ``float64`` ndarray,
+            因此方法内读取到的始终是 ``ndarray``。
         R_scalar: LQR control cost scalar.
         horizon: Predictive control horizon.
         delay_steps: System delay in sampling periods.

@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import numpy.typing as npt
 
+from ao_shaping.algorithm._torch_support import peak_normalized_loss, require_torch
 from ao_shaping.algorithm.signal_processing.iterative_base import IterativeOptimizer
 
 if TYPE_CHECKING:  # pragma: no cover – type-only imports
@@ -53,13 +54,9 @@ def _torch():
     Raises:
         ImportError: 若未安装 PyTorch。
     """
-    try:
-        import torch as _t
-    except ImportError:
-        raise ImportError(
-            "differentiable_beam requires PyTorch. Install with: uv sync --extra ml"
-        ) from None
-    return _t
+    return require_torch(
+        "differentiable_beam requires PyTorch. Install with: uv sync --extra ml"
+    )
 
 
 def _to_tensor(x: npt.NDArray[np.floating], device: torch.device) -> torch.Tensor:
@@ -280,9 +277,7 @@ class DifferentiableBeamOptimizer(IterativeOptimizer):
         Returns:
             标量 MSE 损失张量 (对 ``i_tensor`` 可微)。
         """
-        torch = _torch()
-        i_norm = i_tensor / (i_tensor.max() + 1e-8)
-        return torch.mean((i_norm - self._target_t) ** 2)
+        return peak_normalized_loss(i_tensor, self._target_t)
 
     def loss_value(self) -> torch.Tensor:
         """计算当前的 MSE 损失张量 (不做 backward)。

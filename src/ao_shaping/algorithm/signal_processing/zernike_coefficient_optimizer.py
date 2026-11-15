@@ -62,6 +62,7 @@ import numpy.typing as npt
 from loguru import logger
 from scipy import ndimage
 
+from ao_shaping.algorithm._torch_support import peak_normalized_loss, require_torch
 from ao_shaping.algorithm.signal_processing.iterative_base import IterativeOptimizer
 from ao_shaping.utils.wavefront.calibration_terms import (
     FAMILY_NAMES,
@@ -144,14 +145,10 @@ def _torch():
     Raises:
         ImportError: 若未安装 PyTorch。
     """
-    try:
-        import torch as _t
-    except ImportError:
-        raise ImportError(
-            "zernike_coefficient_optimizer requires PyTorch. "
-            "Install with: uv sync --group ml"
-        ) from None
-    return _t
+    return require_torch(
+        "zernike_coefficient_optimizer requires PyTorch. "
+        "Install with: uv sync --group ml"
+    )
 
 
 def _numpy_dtype(dtype_name: str) -> Any:
@@ -1425,7 +1422,7 @@ apply_pupil_affine` 里施加)。τ_θ 的边界是本仓库加的: 6 个分量�
     def _intensity_loss(
         self, intensity: torch.Tensor, target: torch.Tensor
     ) -> torch.Tensor:
-        """强度图与目标之间的峰值归一化 MSE。
+        """强度图与目标之间的峰值归一化损失 (``kind`` 决定 MSE 或 L1)。
 
         上游 :func:`focal_intensity` 用的是补零夫琅禾费 FFT, **刻意不换角谱
         (ASM) 传播** (``signal_processing/angular_spectrum.py`` 提供规范实现):
@@ -1444,13 +1441,11 @@ apply_pupil_affine` 里施加)。τ_θ 的边界是本仓库加的: 6 个分量�
             target: 二维峰值归一化的目标张量。
 
         Returns:
-            标量 MSE 损失张量, 对 ``intensity`` 可微。
+            标量损失张量, 对 ``intensity`` 可微。
         """
-        torch = _torch()
-        normalized = intensity / (intensity.max() + PEAK_EPS)
-        if self._loss_kind == "l1":
-            return torch.mean(torch.abs(normalized - target))
-        return torch.mean((normalized - target) ** 2)
+        return peak_normalized_loss(
+            intensity, target, kind=self._loss_kind, eps=PEAK_EPS
+        )
 
     def _anchored_intensity_loss(
         self,

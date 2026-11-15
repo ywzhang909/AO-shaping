@@ -46,6 +46,8 @@ import numpy.typing as npt
 from loguru import logger
 from scipy import ndimage
 
+from ao_shaping.algorithm._torch_support import require_torch
+
 if TYPE_CHECKING:  # pragma: no cover - type-only imports
     import torch
 
@@ -59,14 +61,10 @@ _MODES = ("maximize", "minimize")
 
 def _torch():
     """返回 ``torch`` 模块; 缺失时抛出 :class:`ImportError`。"""
-    try:
-        import torch as _t
-    except ImportError:
-        raise ImportError(
-            "uncertainty_probe_selector requires PyTorch. "
-            "Install with: uv sync --group ml"
-        ) from None
-    return _t
+    return require_torch(
+        "uncertainty_probe_selector requires PyTorch. "
+        "Install with: uv sync --group ml"
+    )
 
 
 class UncertaintyProbeSelector:

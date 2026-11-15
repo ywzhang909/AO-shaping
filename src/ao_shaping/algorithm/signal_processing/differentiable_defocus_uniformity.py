@@ -21,6 +21,7 @@ import numpy as np
 import numpy.typing as npt
 from loguru import logger
 
+from ao_shaping.algorithm._torch_support import require_torch
 from ao_shaping.algorithm.signal_processing.defocus_forward_core import (
     PANEL_PITCH_PX,
     PHASE_SIGN_SCOPES,
@@ -51,11 +52,9 @@ _VALID_PHASE_SIGN_SCOPES = PHASE_SIGN_SCOPES
 
 def _torch():
     """返回 ``torch``；缺失时给出安装提示。"""
-    try:
-        import torch as _t
-    except ImportError:  # pragma: no cover - 环境问题
-        raise ImportError("differentiable_defocus_uniformity 需要 PyTorch: uv sync --extra ml") from None
-    return _t
+    return require_torch(
+        "differentiable_defocus_uniformity 需要 PyTorch: uv sync --extra ml"
+    )
 
 
 @dataclass(frozen=True)

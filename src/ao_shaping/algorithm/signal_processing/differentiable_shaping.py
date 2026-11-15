@@ -31,6 +31,7 @@ import numpy as np
 import numpy.typing as npt
 from loguru import logger
 
+from ao_shaping.algorithm._torch_support import require_torch
 from ao_shaping.utils.image.ranks import NDIM_SINGLE_CHANNEL
 from ao_shaping.utils.image.target.metrics import DIFFERENTIABLE_SHAPE_CHOICES
 from ao_shaping.utils.image.target.patterns import TargetShape, create_target_shape
@@ -68,13 +69,9 @@ def _torch():
     Raises:
         ImportError: 若未安装 PyTorch。
     """
-    try:
-        import torch as _t
-    except ImportError:
-        raise ImportError(
-            "differentiable_shaping requires PyTorch. Install with: uv sync --extra ml"
-        ) from None
-    return _t
+    return require_torch(
+        "differentiable_shaping requires PyTorch. Install with: uv sync --extra ml"
+    )
 
 
 # ---------------------------------------------------------------------------

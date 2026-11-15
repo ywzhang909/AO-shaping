@@ -35,6 +35,7 @@ import numpy as np
 import numpy.typing as npt
 from loguru import logger
 
+from ao_shaping.algorithm._torch_support import require_torch
 from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator, zernike_modes
 
 __all__ = [
@@ -139,13 +140,12 @@ def _torch() -> Any:
     global _torch_module
     if _torch_module is None:
         try:
-            import torch as _t
-        except ImportError as exc:
-            raise RuntimeError(
+            _torch_module = require_torch(
                 "IterativeZernikeShapingOptimizer requires torch. "
                 "Install with: uv sync --group ml"
-            ) from exc
-        _torch_module = _t
+            )
+        except ImportError as exc:
+            raise RuntimeError(str(exc)) from exc
     return _torch_module
 
 

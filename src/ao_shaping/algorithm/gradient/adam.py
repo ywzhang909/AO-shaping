@@ -25,6 +25,7 @@ import numpy as np
 import numpy.typing as npt
 from loguru import logger
 
+from ao_shaping.algorithm._array_support import symmetric_clip
 from ao_shaping.algorithm.base import RegisteredBase
 
 
@@ -677,8 +678,7 @@ def _sod_fine_sweep(apply_fn, baseline_obj, clip_max, clip_min, fine_deltas, fin
             if perturb_mask is not None:
                 disturb *= perturb_mask
 
-            pos_params = np.clip(init_params + disturb, clip_min, clip_max)
-            neg_params = np.clip(init_params - disturb, clip_min, clip_max)
+            pos_params, neg_params = symmetric_clip(init_params, disturb, clip_min, clip_max)
 
             apply_fn(pos_params)
             pos_obj = objective_fn(pos_params)
@@ -799,8 +799,7 @@ def search_optimal_delta(
             if perturb_mask is not None:
                 disturb *= perturb_mask
 
-            pos_params = np.clip(init_params + disturb, clip_min, clip_max)
-            neg_params = np.clip(init_params - disturb, clip_min, clip_max)
+            pos_params, neg_params = symmetric_clip(init_params, disturb, clip_min, clip_max)
 
             apply_fn(pos_params)
             pos_obj = objective_fn(pos_params)
