@@ -1,19 +1,12 @@
 # report → data 引用对照清单
 
-<!-- provenance:start -->
-> **生成脚本**: [`scripts/_common/data_reference_inventory.py`](../scripts/_common/data_reference_inventory.py)
-> **复现命令**: `python scripts/_common/data_reference_inventory.py`
-> **运行环境**: 离线
-> **说明**: 静态扫描 report/**/*.{md,json} 对 data/ 的引用并判定本机存在性；只代表报告引用维度，不代表运行时依赖
-<!-- provenance:end -->
-
-> 生成日期: 2026-11-08；工具: `scripts/_common/data_reference_inventory.py`。
+> 生成日期: 2026-11-15；工具: `scripts/_common/data_reference_inventory.py`。
 > 仅静态扫描 `report/**/*.{md,json}` 中的 `data/...` 字符串，存在性按本机文件系统判定；
 > 不代表运行时依赖（configs/标定文件等仍可能被主程序读取）。
 
 ## 汇总
 
-- 含 `data/` 引用的报告文件: 247 / 扫描总数见上次运行；唯一被引路径 1046 条，本机不存在 865 条。
+- 含 `data/` 引用的报告文件: 256 / 扫描总数见上次运行；唯一被引路径 1079 条，本机不存在 892 条。
 
 ## 逐报告引用明细
 
@@ -21,11 +14,15 @@
 
 - ✅ 存在 `data`
 - ✅ 存在 `data/1300-5-enriched.csv`
+- ✅ 存在 `data/calib`
 - ❌ 缺失 `data/calib.npz`
+- ✅ 存在 `data/calib/lut/22030108`
+- ❌ 缺失 `data/calib/lut/<SLM`
 - ✅ 存在 `data/calibration`
 - ✅ 存在 `data/calibration/WFS_M01219666_MLA150M-5C_3_20260915_232849.ref`
 - ✅ 存在 `data/calibration/defocus_radius_diagnostic.json`
 - ✅ 存在 `data/calibration/defocus_shift_calib_v3.json`
+- ✅ 存在 `data/calibration/wfs_light_pupil_probe.json`
 - ✅ 存在 `data/checkpoint`
 - ✅ 存在 `data/debug`
 - ❌ 缺失 `data/debug/<脚本名`
@@ -606,14 +603,20 @@
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.json`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz`
 - ❌ 缺失 `data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/summary.json`
+- ❌ 缺失 `data/debug/issue229_structured_probes`
+- ❌ 缺失 `data/debug/issue229_structured_probes/p0_results.json`
 - ✅ 存在 `data/debug/issue230_refeed/analysis/_refeed_models.py`
 - ❌ 缺失 `data/debug/issue230_refeed/run01`
+- ✅ 存在 `data/debug/issue235_beam_center/run_20261110_223351`
 - ❌ 缺失 `data/debug/light_level_probe`
 - ✅ 存在 `data/debug/local_forward_cone_20261103_2242b`
 - ❌ 缺失 `data/debug/local_forward_cone_NEW`
 - ✅ 存在 `data/debug/local_forward_cone_full_hw_20261104_1130`
 - ✅ 存在 `data/debug/local_forward_cone_hw_20261104_1115`
 - ✅ 存在 `data/debug/local_forward_ring_20261103_2230`
+- ✅ 存在 `data/debug/lut_checker_20261111`
+- ✅ 存在 `data/debug/lut_checker_20261111/order_reconstruction_v4.json`
+- ✅ 存在 `data/debug/lut_checker_cells_20261111`
 - ❌ 缺失 `data/debug/model_in_loop_auto/20261019_camera_reposition`
 - ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_164549/baseline_a/stage.log`
 - ❌ 缺失 `data/debug/model_in_loop_hw_ab/20261021_164549/manifest.json`
@@ -705,42 +708,49 @@
 - ❌ 缺失 `data/debug/multishape_forward/square_20261023_182153`
 - ❌ 缺失 `data/debug/multishape_forward/star08_20261023_191213`
 - ❌ 缺失 `data/debug/multishape_forward/triangle08_20261023_191105`
+- ✅ 存在 `data/debug/opt_path_diag/focus_20261110_230338`
+- ✅ 存在 `data/debug/opt_path_diag/run2_20261110_231255`
+- ✅ 存在 `data/debug/opt_path_diag/run2_20261110_231255/summary.json`
+- ✅ 存在 `data/debug/opt_path_diag/run_20261110_230000`
 - ✅ 存在 `data/debug/optical_path_probe`
 - ✅ 存在 `data/debug/optical_path_probe/20261022_084725Z`
 - ✅ 存在 `data/debug/optical_path_probe/20261022_084725Z/optical_path_probe.json`
 - ✅ 存在 `data/debug/optical_path_probe/20261028_083057Z`
 - ✅ 存在 `data/debug/optical_path_probe/gs_control_1000px/20261030_031154Z`
 - ✅ 存在 `data/debug/optical_path_probe/gs_control_1000px/20261030_031154Z/optical_path_probe.json`
+- ✅ 存在 `data/debug/optical_path_probe/repro1200_precheck/20261109_071503Z/optical_path_probe.json`
 - ✅ 存在 `data/debug/optical_path_probe/retry_20261029/20261029_013227Z/optical_path_probe.json`
+- ✅ 存在 `data/debug/optical_path_validity/aperture_closed_retry_20261109_20261109_190027/20261109_110034Z/optical_path_probe.json`
 - ❌ 缺失 `data/debug/physical_forward_defocus`
 - ❌ 缺失 `data/debug/physical_forward_defocus/<YYYYMMDD_HHMMSS`
 - ❌ 缺失 `data/debug/physical_forward_defocus/alignment_20261022_1812/focus.json`
 - ❌ 缺失 `data/debug/physical_forward_defocus/capture_after_focus_20261023_145446/seed_probe000.npy`
 - ❌ 缺失 `data/debug/physical_forward_defocus/sampling_followup_evidence_20261022.json`
-- ✅ 存在 `data/debug/sim2f_fov`
-- ✅ 存在 `data/debug/sim2f_fov/analysis`
-- ✅ 存在 `data/debug/sim2f_fov/plan.json`
-- ✅ 存在 `data/debug/sim2f_fov_calib`
-- ✅ 存在 `data/debug/sim2f_fov_calib/calibration`
+- ✅ 存在 `data/debug/registration_replay_20261103/replay_2d_registration_1103.json`
+- ❌ 缺失 `data/debug/sim2f_fov`
+- ❌ 缺失 `data/debug/sim2f_fov/analysis`
+- ❌ 缺失 `data/debug/sim2f_fov/plan.json`
+- ❌ 缺失 `data/debug/sim2f_fov_calib`
+- ❌ 缺失 `data/debug/sim2f_fov_calib/calibration`
 - ❌ 缺失 `data/debug/sim2f_fov_calib/calibration_transfer`
-- ✅ 存在 `data/debug/sim2f_fov_calib_seq_20261102`
-- ✅ 存在 `data/debug/sim2f_fov_calib_seq_20261102/calibration.json`
-- ✅ 存在 `data/debug/sim2f_fov_calib_seq_20261102/calibration.npz`
-- ✅ 存在 `data/debug/sim2f_fov_dryrun_aligned_20261102`
-- ✅ 存在 `data/debug/sim2f_fov_hw_20261102`
-- ✅ 存在 `data/debug/sim2f_fov_hw_20261103`
-- ✅ 存在 `data/debug/sim2f_fov_hw_20261103_210641`
-- ✅ 存在 `data/debug/sim2f_fov_hw_refine_ring_20261103_091657`
+- ❌ 缺失 `data/debug/sim2f_fov_calib_seq_20261102`
+- ❌ 缺失 `data/debug/sim2f_fov_calib_seq_20261102/calibration.json`
+- ❌ 缺失 `data/debug/sim2f_fov_calib_seq_20261102/calibration.npz`
+- ❌ 缺失 `data/debug/sim2f_fov_dryrun_aligned_20261102`
+- ❌ 缺失 `data/debug/sim2f_fov_hw_20261102`
+- ❌ 缺失 `data/debug/sim2f_fov_hw_20261103`
+- ❌ 缺失 `data/debug/sim2f_fov_hw_20261103_210641`
+- ❌ 缺失 `data/debug/sim2f_fov_hw_refine_ring_20261103_091657`
 - ❌ 缺失 `data/debug/sim2f_fov_refine_<target`
 - ❌ 缺失 `data/debug/sim2f_fov_refine_ring_$(Get-Date`
-- ✅ 存在 `data/debug/sim2f_fov_refine_ring_eff_1103_210858`
-- ✅ 存在 `data/debug/sim2f_fov_refine_ring_effalign_1103_211304`
-- ✅ 存在 `data/debug/sim2f_fov_refine_ring_gsringcentre_1103`
-- ✅ 存在 `data/debug/sim2f_fov_refine_ring_raw16_1103_211433`
+- ❌ 缺失 `data/debug/sim2f_fov_refine_ring_eff_1103_210858`
+- ❌ 缺失 `data/debug/sim2f_fov_refine_ring_effalign_1103_211304`
+- ❌ 缺失 `data/debug/sim2f_fov_refine_ring_gsringcentre_1103`
+- ❌ 缺失 `data/debug/sim2f_fov_refine_ring_raw16_1103_211433`
 - ❌ 缺失 `data/debug/sim2f_fov_refine_ring_{raw16`
-- ✅ 存在 `data/debug/sim2f_physical_residual/calib_20261102`
-- ✅ 存在 `data/debug/sim2f_shape_trials_production_20261102_supported`
-- ✅ 存在 `data/debug/sim2f_zero_order_diag_20261103_215142`
+- ❌ 缺失 `data/debug/sim2f_physical_residual/calib_20261102`
+- ❌ 缺失 `data/debug/sim2f_shape_trials_production_20261102_supported`
+- ❌ 缺失 `data/debug/sim2f_zero_order_diag_20261103_215142`
 - ❌ 缺失 `data/debug/sim_calib_abba_20261001_163743/sim_calib_abba_`
 - ❌ 缺失 `data/debug/sim_vs_hw_20261022`
 - ❌ 缺失 `data/debug/sim_vs_hw_20261023_v2`
@@ -792,7 +802,7 @@
 - ❌ 缺失 `data/debug/slm_model_compare/20261013_phase_bandwidth_trial/paired_holdouts.csv`
 - ❌ 缺失 `data/debug/slm_model_compare/20261013_psf_trial/paired_observable_holdouts.csv`
 - ❌ 缺失 `data/debug/slm_model_compare/20261014_5shape_seed_20261013_verified`
-- ❌ 缺失 `data/debug/slm_model_in_loop`
+- ✅ 存在 `data/debug/slm_model_in_loop`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261013_105911/bench_geometry.json`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261013_110921`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261013_111258`
@@ -907,12 +917,18 @@
 - ✅ 存在 `data/debug/slm_transfer/defocus_forward_20261107_focus_r2`
 - ✅ 存在 `data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit`
 - ✅ 存在 `data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit/forward_fit.json`
+- ❌ 缺失 `data/debug/slm_transfer/diffopt_dispatch_20261110/results_{head`
+- ✅ 存在 `data/debug/slm_transfer/diffopt_efficiency_20261108/results.json`
+- ✅ 存在 `data/debug/slm_transfer/direction_variants_20261112/attribution.json`
+- ✅ 存在 `data/debug/slm_transfer/direction_variants_20261112/results.json`
+- ❌ 缺失 `data/debug/slm_transfer/direction_variants_20261112/{results`
 - ✅ 存在 `data/debug/slm_transfer/gated_recurrent_20261107`
 - ✅ 存在 `data/debug/slm_transfer/gated_recurrent_20261107/REPORT.md`
 - ✅ 存在 `data/debug/slm_transfer/gated_recurrent_20261107/results.json`
 - ✅ 存在 `data/debug/slm_transfer/gated_recurrent_20261107/weights.pt`
 - ✅ 存在 `data/debug/slm_transfer/issue234_amp02_screen_20261107`
 - ✅ 存在 `data/debug/slm_transfer/issue234_amp05_screen_20261107`
+- ❌ 缺失 `data/debug/slm_transfer/issue234_amp{02`
 - ✅ 存在 `data/debug/slm_transfer/issue234_single_mode_screen_20261107`
 - ✅ 存在 `data/debug/slm_transfer/issue235_parity_20261107/parity_registration_scan.json`
 - ✅ 存在 `data/debug/slm_transfer/live_no_gs_20261024_0926`
@@ -923,6 +939,8 @@
 - ✅ 存在 `data/debug/slm_transfer/live_no_gs_cv_anchored_20261024_analysis`
 - ✅ 存在 `data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1`
 - ✅ 存在 `data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1/results.json`
+- ✅ 存在 `data/debug/slm_transfer/measured_forward_hw_probe_20261107`
+- ✅ 存在 `data/debug/slm_transfer/multishape1200_20261027`
 - ✅ 存在 `data/debug/slm_transfer/multishape_nogs_20261029`
 - ✅ 存在 `data/debug/slm_transfer/multishape_nogs_20261029/lanes`
 - ✅ 存在 `data/debug/slm_transfer/multishape_nogs_20261029/p20261029`
@@ -948,7 +966,19 @@
 - ✅ 存在 `data/debug/slm_transfer/no_gs_ccd_moved_20261027_2106/local_shape1200`
 - ✅ 存在 `data/debug/slm_transfer/no_gs_ccd_moved_20261027_2106/model640/frozen_parameters.json`
 - ❌ 缺失 `data/debug/slm_transfer/no_gs_next`
+- ✅ 存在 `data/debug/slm_transfer/phase_scope_20261107`
+- ✅ 存在 `data/debug/slm_transfer/phase_scope_20261107/REPORT.md`
+- ✅ 存在 `data/debug/slm_transfer/phase_scope_20261107/checkpoint_command/frozen_parameters.json`
+- ✅ 存在 `data/debug/slm_transfer/phase_scope_20261107/results.json`
+- ✅ 存在 `data/debug/slm_transfer/phase_scope_20261107/run.log`
 - ❌ 缺失 `data/debug/slm_transfer/pretrain`
+- ✅ 存在 `data/debug/slm_transfer/registration_eval_20261108/checkpoint_registered/frozen_parameters.json`
+- ✅ 存在 `data/debug/slm_transfer/registration_eval_20261108/direction_gate.json`
+- ✅ 存在 `data/debug/slm_transfer/registration_eval_20261108/results.json`
+- ❌ 缺失 `data/debug/slm_transfer/registration_eval_20261108/{direction_gate.json`
+- ✅ 存在 `data/debug/slm_transfer/repro1200_20261109`
+- ✅ 存在 `data/debug/slm_transfer/repro1200_aperture_closed_20261109_1910`
+- ❌ 缺失 `data/debug/slm_transfer/shape_transition_20261108_anchored_reg`
 - ✅ 存在 `data/debug/slm_transfer/square1200_20261026_1350/model_wide640/frozen_parameters.json`
 - ✅ 存在 `data/debug/slm_transfer/square1200_20261026_1350/mono12_continue`
 - ✅ 存在 `data/debug/slm_transfer/square1200_20261026_1350/mono12_cv`
@@ -1116,12 +1146,21 @@
 - ❌ 缺失 `data/debug/slm_gs_refine/20261014_{100441`
 - ❌ 缺失 `data/debug/slm_gs_refine/20261015_issue_comparison`
 - ❌ 缺失 `data/debug/slm_pib_online`
+- ✅ 存在 `data/debug/slm_transfer/20261107_135252`
+- ❌ 缺失 `data/debug/slm_transfer/direction_variants_20261112/{results`
 - ✅ 存在 `data/debug/slm_transfer/gated_recurrent_20261107/results.json`
 - ✅ 存在 `data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1/results.json`
 - ✅ 存在 `data/debug/slm_transfer/phase_scope_20261107`
 - ❌ 缺失 `data/gsnet_train/run-`
 - ❌ 缺失 `data/shape_trials/blackbox_path_`
 - ❌ 缺失 `data/zernike_correction/raw_scan_`
+
+### report/shape_trials/aperture_closed_20261109/aperture_closed_shaping_20261109.md
+
+- ✅ 存在 `data/debug/optical_path_validity/aperture_closed_retry_20261109_20261109_190027/20261109_110034Z/optical_path_probe.json`
+- ❌ 缺失 `data/debug/slm_transfer/diffopt_dispatch_20261110/results_{head`
+- ✅ 存在 `data/debug/slm_transfer/multishape_scale_20261028/s1200`
+- ✅ 存在 `data/debug/slm_transfer/repro1200_aperture_closed_20261109_1910`
 
 ### report/shape_trials/axial_plane/axial_plane_20261026.md
 
@@ -1167,6 +1206,10 @@
 
 - ❌ 缺失 `data/debug/physical_forward_defocus/alignment_20261022_1812/focus.json`
 
+### report/shape_trials/defocus_differentiable/diffopt_efficiency_20261108.md
+
+- ✅ 存在 `data/debug/slm_transfer/diffopt_efficiency_20261108/results.json`
+
 ### report/shape_trials/defocus_differentiable/multishape_forward_plan_20261023.md
 
 - ❌ 缺失 `data/debug/multishape_forward/<会话时间戳`
@@ -1175,6 +1218,15 @@
 
 - ❌ 缺失 `data/debug/defocus_differentiable/20261023_101822`
 - ❌ 缺失 `data/debug/defocus_differentiable/<本地时间戳`
+
+### report/shape_trials/direction_diagnosis_20261112/direction_diagnosis_20261112.md
+
+- ✅ 存在 `data/debug/slm_transfer`
+- ✅ 存在 `data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit/forward_fit.json`
+- ✅ 存在 `data/debug/slm_transfer/direction_variants_20261112/attribution.json`
+- ✅ 存在 `data/debug/slm_transfer/direction_variants_20261112/results.json`
+- ❌ 缺失 `data/debug/slm_transfer/direction_variants_20261112/{results`
+- ❌ 缺失 `data/debug/slm_transfer/issue234_amp{02`
 
 ### report/shape_trials/experience_review/artifacts/source_inventory.json
 
@@ -1206,10 +1258,10 @@
 - ✅ 存在 `data/debug/optical_path_probe/20261022_084725Z/optical_path_probe.json`
 - ✅ 存在 `data/debug/optical_path_probe/20261028_083057Z`
 - ❌ 缺失 `data/debug/physical_forward_defocus/sampling_followup_evidence_20261022.json`
-- ✅ 存在 `data/debug/sim2f_fov`
-- ✅ 存在 `data/debug/sim2f_fov_calib`
-- ✅ 存在 `data/debug/sim2f_fov_hw_20261102`
-- ✅ 存在 `data/debug/sim2f_shape_trials_production_20261102_supported`
+- ❌ 缺失 `data/debug/sim2f_fov`
+- ❌ 缺失 `data/debug/sim2f_fov_calib`
+- ❌ 缺失 `data/debug/sim2f_fov_hw_20261102`
+- ❌ 缺失 `data/debug/sim2f_shape_trials_production_20261102_supported`
 - ❌ 缺失 `data/debug/slm_flat_stability/20261015_152929`
 - ❌ 缺失 `data/debug/slm_gs_refine/20261012_174456`
 - ❌ 缺失 `data/debug/slm_gs_refine/20261012_174627`
@@ -1217,7 +1269,7 @@
 - ❌ 缺失 `data/debug/slm_gs_refine/20261015_issue_comparison`
 - ❌ 缺失 `data/debug/slm_model_compare/20261013_1943_seed_20261013`
 - ❌ 缺失 `data/debug/slm_model_compare/20261014_5shape_seed_20261013_verified`
-- ❌ 缺失 `data/debug/slm_model_in_loop`
+- ✅ 存在 `data/debug/slm_model_in_loop`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261014_refit_analysis/paired_holdouts.json`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261019_103208`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261019_110323`
@@ -1284,6 +1336,10 @@
 - ✅ 存在 `data/debug/optical_path_probe/20261022_084725Z`
 - ✅ 存在 `data/debug/optical_path_probe/20261022_084725Z/optical_path_probe.json`
 
+### report/shape_trials/experiment_summary_20261108.md
+
+- ✅ 存在 `data/debug`
+
 ### report/shape_trials/forward_model_polarity/forward_model_polarity_20261107.md
 
 - ✅ 存在 `data/debug/slm_transfer`
@@ -1294,10 +1350,10 @@
 ### report/shape_trials/fov_generalization/fov_generalization_20261101.md
 
 - ✅ 存在 `data/debug`
-- ✅ 存在 `data/debug/sim2f_fov`
-- ✅ 存在 `data/debug/sim2f_fov/analysis`
-- ✅ 存在 `data/debug/sim2f_fov_calib`
-- ✅ 存在 `data/debug/sim2f_fov_calib/calibration`
+- ❌ 缺失 `data/debug/sim2f_fov`
+- ❌ 缺失 `data/debug/sim2f_fov/analysis`
+- ❌ 缺失 `data/debug/sim2f_fov_calib`
+- ❌ 缺失 `data/debug/sim2f_fov_calib/calibration`
 
 ### report/shape_trials/gated_recurrent_20261107/gated_recurrent_20261107.md
 
@@ -2536,9 +2592,17 @@
 - ✅ 存在 `data/debug/slm_transfer/20261107_focus_scan/focus.json`
 - ✅ 存在 `data/debug/slm_transfer/defocus_forward_20261107_focus_r2`
 - ✅ 存在 `data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit`
+- ✅ 存在 `data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit/forward_fit.json`
 - ✅ 存在 `data/debug/slm_transfer/issue234_single_mode_screen_20261107`
 - ✅ 存在 `data/debug/slm_transfer/issue235_parity_20261107/parity_registration_scan.json`
 - ✅ 存在 `data/debug/slm_transfer/loss_compare_20261107_phase_sign_m1/results.json`
+- ✅ 存在 `data/debug/slm_transfer/measured_forward_hw_probe_20261107`
+- ✅ 存在 `data/debug/slm_transfer/phase_scope_20261107/checkpoint_command/frozen_parameters.json`
+- ✅ 存在 `data/debug/slm_transfer/registration_eval_20261108/checkpoint_registered/frozen_parameters.json`
+- ✅ 存在 `data/debug/slm_transfer/registration_eval_20261108/direction_gate.json`
+- ✅ 存在 `data/debug/slm_transfer/registration_eval_20261108/results.json`
+- ❌ 缺失 `data/debug/slm_transfer/registration_eval_20261108/{direction_gate.json`
+- ❌ 缺失 `data/debug/slm_transfer/shape_transition_20261108_anchored_reg`
 
 ### report/shape_trials/model_in_loop/model_in_loop_hw_ab_20261021.md
 
@@ -2564,7 +2628,7 @@
 - ❌ 缺失 `data/debug/slm_model_compare/20261013_2015_new_session/psf_paired.csv`
 - ❌ 缺失 `data/debug/slm_model_compare/20261013_phase_bandwidth_trial/paired_holdouts.csv`
 - ❌ 缺失 `data/debug/slm_model_compare/20261013_psf_trial/paired_observable_holdouts.csv`
-- ❌ 缺失 `data/debug/slm_model_in_loop`
+- ✅ 存在 `data/debug/slm_model_in_loop`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261013_105911/bench_geometry.json`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261013_110921`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261013_111258`
@@ -2607,7 +2671,7 @@
 - ✅ 存在 `data/debug`
 - ❌ 缺失 `data/debug/slm_disturbance_compare/20261013_165039/disturbance_panel_rad.npy`
 - ❌ 缺失 `data/debug/slm_model_compare/20261014_5shape_seed_20261013_verified`
-- ❌ 缺失 `data/debug/slm_model_in_loop`
+- ✅ 存在 `data/debug/slm_model_in_loop`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261014_refit_analysis/paired_holdouts.json`
 - ❌ 缺失 `data/debug/slm_model_in_loop_replay/20261014_1115_zero_vs_refit`
 - ❌ 缺失 `data/debug/worktrees/model-in-loop-20261014`
@@ -2621,7 +2685,7 @@
 ### report/shape_trials/model_in_loop/model_in_loop_live_20261016.md
 
 - ❌ 缺失 `data/debug/slm_flat_stability/20261016_model_in_loop_preflight`
-- ❌ 缺失 `data/debug/slm_model_in_loop`
+- ✅ 存在 `data/debug/slm_model_in_loop`
 
 ### report/shape_trials/model_in_loop/model_in_loop_live_20261019.md
 
@@ -2631,7 +2695,7 @@
 - ❌ 缺失 `data/debug/model_in_loop_auto/20261019_camera_reposition`
 - ❌ 缺失 `data/debug/model_in_loop_hw_runbook/20261019_corrected_geometry`
 - ✅ 存在 `data/debug/model_in_loop_hw_sweep/20261019_105952`
-- ❌ 缺失 `data/debug/slm_model_in_loop`
+- ✅ 存在 `data/debug/slm_model_in_loop`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261019_094121`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261019_094121/panel_scan`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261019_100334`
@@ -2671,7 +2735,7 @@
 - ❌ 缺失 `data/debug/bench_settings/20261017_ladder_diag.log`
 - ❌ 缺失 `data/debug/bench_settings/exposure_probe/20261024_110551.json`
 - ✅ 存在 `data/debug/slm_bench_calibration/20261026_091101/panel_scan`
-- ❌ 缺失 `data/debug/slm_model_in_loop`
+- ✅ 存在 `data/debug/slm_model_in_loop`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261016_173002`
 - ❌ 缺失 `data/debug/slm_model_in_loop/20261016_174330`
 - ❌ 缺失 `data/debug/slm_model_in_loop_replay`
@@ -2691,6 +2755,12 @@
 - ❌ 缺失 `data/debug/uncertainty_probes_hw`
 - ❌ 缺失 `data/debug/uncertainty_probes_sim`
 - ❌ 缺失 `data/debug/uncertainty_selector_sweep`
+
+### report/shape_trials/multishape1200/wall_clock_budget_20261111.md
+
+- ❌ 缺失 `data/debug/slm_transfer/diffopt_dispatch_20261110/results_{head`
+- ✅ 存在 `data/debug/slm_transfer/multishape1200_20261027`
+- ✅ 存在 `data/debug/slm_transfer/repro1200_20261109`
 
 ### report/shape_trials/multishape_capability/artifacts/no_gs_20261024/anchored_cv_config.json
 
@@ -2855,6 +2925,24 @@
 
 - ✅ 存在 `data/debug/slm_transfer/no_gs_ccd_moved_20261027_2106`
 
+### report/shape_trials/optical_path_status_20261109.md
+
+- ✅ 存在 `data/calibration/wfs_light_pupil_probe.json`
+- ✅ 存在 `data/debug/optical_path_probe/repro1200_precheck/20261109_071503Z/optical_path_probe.json`
+- ✅ 存在 `data/debug/slm_transfer/multishape_scale_20261028`
+- ✅ 存在 `data/debug/slm_transfer/repro1200_aperture_closed_20261109_1910`
+
+### report/shape_trials/optical_path_status_20261110.md
+
+- ✅ 存在 `data/debug`
+- ✅ 存在 `data/debug/issue235_beam_center/run_20261110_223351`
+- ✅ 存在 `data/debug/opt_path_diag/focus_20261110_230338`
+- ✅ 存在 `data/debug/opt_path_diag/run2_20261110_231255`
+- ✅ 存在 `data/debug/opt_path_diag/run2_20261110_231255/summary.json`
+- ✅ 存在 `data/debug/opt_path_diag/run_20261110_230000`
+- ✅ 存在 `data/debug/registration_replay_20261103/replay_2d_registration_1103.json`
+- ✅ 存在 `data/debug/slm_transfer/20261107_focus_scan/focus.json`
+
 ### report/shape_trials/phase_scope_20261107/phase_scope_20261107.md
 
 - ✅ 存在 `data/debug/slm_transfer/phase_scope_20261107`
@@ -2872,76 +2960,81 @@
 
 ### report/shape_trials/physical_refine/artifacts/calibrate_sequential_summary.json
 
-- ✅ 存在 `data/debug/sim2f_fov_calib_seq_20261102/calibration.json`
-- ✅ 存在 `data/debug/sim2f_fov_calib_seq_20261102/calibration.npz`
+- ❌ 缺失 `data/debug/sim2f_fov_calib_seq_20261102/calibration.json`
+- ❌ 缺失 `data/debug/sim2f_fov_calib_seq_20261102/calibration.npz`
 
 ### report/shape_trials/physical_refine/artifacts/next_hardware_preflight.json
 
-- ✅ 存在 `data/debug/sim2f_fov/plan.json`
-- ✅ 存在 `data/debug/sim2f_fov_calib_seq_20261102`
+- ❌ 缺失 `data/debug/sim2f_fov/plan.json`
+- ❌ 缺失 `data/debug/sim2f_fov_calib_seq_20261102`
 
 ### report/shape_trials/physical_refine/artifacts/offline_diagnostics_20261103.json
 
-- ✅ 存在 `data/debug/sim2f_fov_hw_20261103`
-- ✅ 存在 `data/debug/sim2f_fov_hw_refine_ring_20261103_091657`
+- ❌ 缺失 `data/debug/sim2f_fov_hw_20261103`
+- ❌ 缺失 `data/debug/sim2f_fov_hw_refine_ring_20261103_091657`
 
 ### report/shape_trials/physical_refine/artifacts/physical_residual_calib_20261102.json
 
-- ✅ 存在 `data/debug/sim2f_fov_calib`
-- ✅ 存在 `data/debug/sim2f_fov_calib_seq_20261102`
-- ✅ 存在 `data/debug/sim2f_physical_residual/calib_20261102`
+- ❌ 缺失 `data/debug/sim2f_fov_calib`
+- ❌ 缺失 `data/debug/sim2f_fov_calib_seq_20261102`
+- ❌ 缺失 `data/debug/sim2f_physical_residual/calib_20261102`
 
 ### report/shape_trials/physical_refine/artifacts/production_analysis_aligned3_summary.json
 
-- ✅ 存在 `data/debug/sim2f_fov_calib_seq_20261102`
+- ❌ 缺失 `data/debug/sim2f_fov_calib_seq_20261102`
 
 ### report/shape_trials/physical_refine/artifacts/production_analysis_old_summary.json
 
-- ✅ 存在 `data/debug/sim2f_fov_calib/calibration`
+- ❌ 缺失 `data/debug/sim2f_fov_calib/calibration`
 
 ### report/shape_trials/physical_refine/artifacts/production_analysis_seq_summary.json
 
-- ✅ 存在 `data/debug/sim2f_fov_calib_seq_20261102`
+- ❌ 缺失 `data/debug/sim2f_fov_calib_seq_20261102`
 
 ### report/shape_trials/physical_refine/artifacts/refine_gains_20261103.json
 
-- ✅ 存在 `data/debug/sim2f_fov_refine_ring_eff_1103_210858`
-- ✅ 存在 `data/debug/sim2f_fov_refine_ring_effalign_1103_211304`
-- ✅ 存在 `data/debug/sim2f_fov_refine_ring_gsringcentre_1103`
-- ✅ 存在 `data/debug/sim2f_fov_refine_ring_raw16_1103_211433`
+- ❌ 缺失 `data/debug/sim2f_fov_refine_ring_eff_1103_210858`
+- ❌ 缺失 `data/debug/sim2f_fov_refine_ring_effalign_1103_211304`
+- ❌ 缺失 `data/debug/sim2f_fov_refine_ring_gsringcentre_1103`
+- ❌ 缺失 `data/debug/sim2f_fov_refine_ring_raw16_1103_211433`
 
 ### report/shape_trials/physical_refine/artifacts/zero_order_diagnosis_20261103.json
 
-- ✅ 存在 `data/debug/sim2f_fov_hw_20261103_210641`
-- ✅ 存在 `data/debug/sim2f_fov_refine_ring_raw16_1103_211433`
-- ✅ 存在 `data/debug/sim2f_zero_order_diag_20261103_215142`
+- ❌ 缺失 `data/debug/sim2f_fov_hw_20261103_210641`
+- ❌ 缺失 `data/debug/sim2f_fov_refine_ring_raw16_1103_211433`
+- ❌ 缺失 `data/debug/sim2f_zero_order_diag_20261103_215142`
+
+### report/shape_trials/physical_refine/forward_model_transfer_20261107.md
+
+- ❌ 缺失 `data/debug/issue229_structured_probes`
+- ❌ 缺失 `data/debug/issue229_structured_probes/p0_results.json`
 
 ### report/shape_trials/physical_refine/physical_refine_plan_20261102.md
 
-- ✅ 存在 `data/debug/sim2f_fov`
-- ✅ 存在 `data/debug/sim2f_fov_calib`
+- ❌ 缺失 `data/debug/sim2f_fov`
+- ❌ 缺失 `data/debug/sim2f_fov_calib`
 - ❌ 缺失 `data/debug/sim2f_fov_calib/calibration_transfer`
 - ❌ 缺失 `data/debug/sim2f_fov_refine_<target`
 
 ### report/shape_trials/physical_refine/physical_refine_results_20261102.md
 
 - ✅ 存在 `data/debug`
-- ✅ 存在 `data/debug/sim2f_fov`
-- ✅ 存在 `data/debug/sim2f_fov_calib`
-- ✅ 存在 `data/debug/sim2f_fov_calib_seq_20261102`
-- ✅ 存在 `data/debug/sim2f_fov_dryrun_aligned_20261102`
-- ✅ 存在 `data/debug/sim2f_fov_hw_20261102`
+- ❌ 缺失 `data/debug/sim2f_fov`
+- ❌ 缺失 `data/debug/sim2f_fov_calib`
+- ❌ 缺失 `data/debug/sim2f_fov_calib_seq_20261102`
+- ❌ 缺失 `data/debug/sim2f_fov_dryrun_aligned_20261102`
+- ❌ 缺失 `data/debug/sim2f_fov_hw_20261102`
 - ❌ 缺失 `data/debug/sim2f_fov_refine_ring_$(Get-Date`
-- ✅ 存在 `data/debug/sim2f_shape_trials_production_20261102_supported`
+- ❌ 缺失 `data/debug/sim2f_shape_trials_production_20261102_supported`
 
 ### report/shape_trials/physical_refine/physical_refine_results_20261103.md
 
-- ✅ 存在 `data/debug/sim2f_fov_hw_20261103`
-- ✅ 存在 `data/debug/sim2f_fov_hw_20261103_210641`
-- ✅ 存在 `data/debug/sim2f_fov_hw_refine_ring_20261103_091657`
-- ✅ 存在 `data/debug/sim2f_fov_refine_ring_gsringcentre_1103`
+- ❌ 缺失 `data/debug/sim2f_fov_hw_20261103`
+- ❌ 缺失 `data/debug/sim2f_fov_hw_20261103_210641`
+- ❌ 缺失 `data/debug/sim2f_fov_hw_refine_ring_20261103_091657`
+- ❌ 缺失 `data/debug/sim2f_fov_refine_ring_gsringcentre_1103`
 - ❌ 缺失 `data/debug/sim2f_fov_refine_ring_{raw16`
-- ✅ 存在 `data/debug/sim2f_zero_order_diag_20261103_215142`
+- ❌ 缺失 `data/debug/sim2f_zero_order_diag_20261103_215142`
 
 ### report/shape_trials/shape_transition/shape_transition_timing_20261107.md
 
@@ -3304,6 +3397,15 @@
 - ✅ 存在 `data/debug/optical_path_probe/gs_control_1000px/20261030_031154Z`
 - ✅ 存在 `data/debug/optical_path_probe/gs_control_1000px/20261030_031154Z/optical_path_probe.json`
 
+### report/slm/lut_checker_20261111/report.md
+
+- ✅ 存在 `data/calib`
+- ✅ 存在 `data/calib/lut/22030108`
+- ❌ 缺失 `data/calib/lut/<SLM`
+- ✅ 存在 `data/debug/lut_checker_20261111`
+- ✅ 存在 `data/debug/lut_checker_20261111/order_reconstruction_v4.json`
+- ✅ 存在 `data/debug/lut_checker_cells_20261111`
+
 ### report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md
 
 - ❌ 缺失 `data/debug/slm_pib_shape_20260926_175334`
@@ -3368,6 +3470,7 @@
 
 ## 零报告引用的 data 顶层条目（潜在可清理候选）
 
+- `.cache`
 - `ccd_configs`
 - `dm_adj.txt`
 - `dm_configs`
@@ -3377,6 +3480,7 @@
 - `link_to_adj.py`
 - `micro_dm_configs`
 - `slm_geometry_calib.npz`
+- `slm_geometry_calib_20261111.npz`
 - `slm_models`
 - `zernike_calibration`
 

@@ -48,6 +48,12 @@ PROTECTED_RUNS: dict[str, str] = {
         "report/shape_trials/transfer_uncertainty/transfer_uncertainty_20261104.md 声明整目录为数据根",
     "data/debug/transfer_uncertainty_20261104/committee_3":
         "report/shape_trials/transfer_uncertainty/transfer_uncertainty_20261104.md 声明整目录为数据根",
+    # 标定溯源豁免（2026-11-15 审计新增）：该 run 是 ``data/slm_geometry_calib_20261111.npz``
+    # 的唯一产出来源（run 戳 20261111_102317 与 npz mtime 10:23:24 吻合）。npz 属白名单
+    # ``slm_geometry_calib.npz`` / ``calibration`` 同类的标定产物、留在 data/；若把它的原始
+    # 采集 run 归档走，留下的 npz 就失去溯源。0.121 GB，代价可忽略。
+    "data/debug/geometry_calib_20261111/20261111_102317":
+        "data/slm_geometry_calib_20261111.npz 的产出 run（标定溯源，非报告引用）",
 }
 
 
