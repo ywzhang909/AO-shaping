@@ -1,5 +1,12 @@
 # report → data 引用对照清单
 
+<!-- provenance:start -->
+> **生成脚本**: [`scripts/_common/data_reference_inventory.py`](../scripts/_common/data_reference_inventory.py)
+> **复现命令**: `python scripts/_common/data_reference_inventory.py`
+> **运行环境**: 离线
+> **说明**: 静态扫描 report/**/*.{md,json} 对 data/ 的引用并判定本机存在性；只代表报告引用维度，不代表运行时依赖
+<!-- provenance:end -->
+
 > 生成日期: 2026-11-15；工具: `scripts/_common/data_reference_inventory.py`。
 > 仅静态扫描 `report/**/*.{md,json}` 中的 `data/...` 字符串，存在性按本机文件系统判定；
 > 不代表运行时依赖（configs/标定文件等仍可能被主程序读取）。
