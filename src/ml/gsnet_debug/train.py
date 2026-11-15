@@ -61,9 +61,9 @@ from ml.gsnet_debug.offline import (
 from ao_shaping.runners.runner_common import RunParams
 from ao_shaping.utils.cli.params import option
 from ao_shaping.utils.io.cli_helpers import setup_coredumpy
-from ml.gsnet.evaluate import evaluate_model
+from ml.gsnet.evaluate import EvalSummary, evaluate_model
 from ml.gsnet.model import FourierGSNet, count_parameters
-from ml.gsnet.train import train_gsnet
+from ml.gsnet.train import TrainResult, train_gsnet
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Sequence
@@ -664,6 +664,96 @@ def _ensure_lean_cache(index: RecordIndex) -> None:
     )
 
 
+def _ot_write_artifacts(
+    comparison_path: Path,
+    device: Any,
+    index: RecordIndex,
+    model: FourierGSNet,
+    out_dir: Path,
+    params: GsnetTrainParams,
+    seed: int,
+    summary: EvalSummary,
+    trained: TrainResult,
+    wandb_url: str | None,
+) -> dict[str, Path]:
+    """Write the artifact table, payload and summary JSON."""
+    artifacts: dict[str, Path] = {
+        "summary": out_dir / SUMMARY_NAME,
+        "comparison": comparison_path,
+        "history": out_dir / HISTORY_FIGURE_NAME,
+    }
+    if trained.checkpoint_path is not None:
+        artifacts["checkpoint"] = trained.checkpoint_path
+
+    payload = {
+        "config": asdict(params),
+        "resolved": {
+            "device": device,
+            "seed": seed,
+            "n_records": len(index.entries),
+            "roots": list(_resolve_roots(params.roots)),
+            "out_dir": str(out_dir),
+        },
+        "model": {
+            "num_layers": params.num_layers,
+            "base_channels": params.base_channels,
+            "shared_weights": params.shared_weights,
+            "n_parameters": count_parameters(model),
+        },
+        "training": {
+            "history": trained.history,
+            "best_epoch": trained.best_epoch,
+            "best_loss": trained.best_loss,
+            "seconds": trained.seconds,
+        },
+        "evaluation": {
+            "n_samples": summary.n_samples,
+            "means": summary.means,
+        },
+        "artifacts": {name: str(path) for name, path in artifacts.items()},
+        "wandb_url": wandb_url,
+    }
+    artifacts["summary"].write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+    for name, path in artifacts.items():
+        logger.info("wrote {} artifact: {}", name, path)
+    logger.info(
+        "FourierGSNet offline training done: best_epoch={} best_loss={:.6f} "
+        "far_correlation={:.4f} encircled_energy={:.4f} ({:.1f}s)",
+        trained.best_epoch,
+        trained.best_loss,
+        summary.means.get("far_correlation", float("nan")),
+        summary.means.get("encircled_energy", float("nan")),
+        trained.seconds,
+    )
+    return artifacts
+
+
+def _ot_prepare_run(
+    params: GsnetTrainParams,
+    run: RunParams,
+) -> tuple[Any, RecordIndex, Any, Path, int]:
+    """Resolve device, seed, output directory, record index and DataLoader."""
+    device = resolve_device(params.device)
+    seed = int(run.seed) if run.seed is not None else int(params.seed)
+    out_dir = _resolve_out_dir(run, params)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    index = build_record_index(roots=_resolve_roots(params.roots))
+    _ensure_lean_cache(index)
+    loader = build_gsnet_dataloader(
+        index,
+        grid=params.grid,
+        batch_size=params.batch_size,
+        num_workers=params.num_workers,
+        num_samples=params.max_samples or None,
+        seed=seed,
+    )
+    return device, index, loader, out_dir, seed
+
+
 def run_offline_training(run: RunParams, params: GsnetTrainParams) -> TrainResult:
     """Train FourierGSNet offline and write every artifact.
 
@@ -697,21 +787,7 @@ def run_offline_training(run: RunParams, params: GsnetTrainParams) -> TrainResul
     if params.n_compare < 0:
         raise ValueError(f"n_compare must be >= 0, got {params.n_compare}")
 
-    device = resolve_device(params.device)
-    seed = int(run.seed) if run.seed is not None else int(params.seed)
-    out_dir = _resolve_out_dir(run, params)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    index = build_record_index(roots=_resolve_roots(params.roots))
-    _ensure_lean_cache(index)
-    loader = build_gsnet_dataloader(
-        index,
-        grid=params.grid,
-        batch_size=params.batch_size,
-        num_workers=params.num_workers,
-        num_samples=params.max_samples or None,
-        seed=seed,
-    )
+    device, index, loader, out_dir, seed = _ot_prepare_run(params, run)
 
     _seed_everything(seed)
     model = FourierGSNet(
@@ -788,57 +864,7 @@ def run_offline_training(run: RunParams, params: GsnetTrainParams) -> TrainResul
                 }
             )
 
-        artifacts: dict[str, Path] = {
-            "summary": out_dir / SUMMARY_NAME,
-            "comparison": comparison_path,
-            "history": out_dir / HISTORY_FIGURE_NAME,
-        }
-        if trained.checkpoint_path is not None:
-            artifacts["checkpoint"] = trained.checkpoint_path
-
-        payload = {
-            "config": asdict(params),
-            "resolved": {
-                "device": device,
-                "seed": seed,
-                "n_records": len(index.entries),
-                "roots": list(_resolve_roots(params.roots)),
-                "out_dir": str(out_dir),
-            },
-            "model": {
-                "num_layers": params.num_layers,
-                "base_channels": params.base_channels,
-                "shared_weights": params.shared_weights,
-                "n_parameters": count_parameters(model),
-            },
-            "training": {
-                "history": trained.history,
-                "best_epoch": trained.best_epoch,
-                "best_loss": trained.best_loss,
-                "seconds": trained.seconds,
-            },
-            "evaluation": {
-                "n_samples": summary.n_samples,
-                "means": summary.means,
-            },
-            "artifacts": {name: str(path) for name, path in artifacts.items()},
-            "wandb_url": wandb_url,
-        }
-        artifacts["summary"].write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
-
-        for name, path in artifacts.items():
-            logger.info("wrote {} artifact: {}", name, path)
-        logger.info(
-            "FourierGSNet offline training done: best_epoch={} best_loss={:.6f} "
-            "far_correlation={:.4f} encircled_energy={:.4f} ({:.1f}s)",
-            trained.best_epoch,
-            trained.best_loss,
-            summary.means.get("far_correlation", float("nan")),
-            summary.means.get("encircled_energy", float("nan")),
-            trained.seconds,
-        )
+        artifacts = _ot_write_artifacts(comparison_path, device, index, model, out_dir, params, seed, summary, trained, wandb_url)
 
         return TrainResult(
             out_dir=out_dir,

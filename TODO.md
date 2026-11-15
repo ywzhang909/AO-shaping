@@ -5202,6 +5202,15 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 719→761 (< 800), 无 baseline 变化
 - 载体: 形状 340 / pib_sim_eval 4 / pib_objective_columns 1 / conventions 72 (1 skip) —— 全绿
 
+**2026-11-15 · 509a671a 之后 · 第 94 批: `gsnet_debug.train.run_offline_training` 198→134 行 + 两缝**
+- 提取: `_ot_write_artifacts` 65 (nest 1, 10 参, 1 回传; 产物表 + payload + summary.json) / `_ot_prepare_run` 21 (nest 0, 2 参, 5 回传; device/seed/out_dir/index/loader)
+- 边界: `791:841` 与 `700:714` 两区 audit `risk=0`
+- 叶差分: 16 同 / 消失 0 / 新增 2 / 改 1 (`run_offline_training`)
+- 等价性: 离线训练需 pickle 语料，以叶差分 + `test_gsnet_train.py` 83 项为准（非逐字节产物比对）
+- 棘轮: 新增 3 行 (155/3/134, 75/1/65, 25/0/21)
+- 模块 864→890 (>800), baseline 同 commit 抬高 864→890（`--update-baseline` 报方向：抬高 1）
+- 载体: 形状 343 / gsnet_debug.train 83 / conventions 72 (1 skip) —— 全绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
