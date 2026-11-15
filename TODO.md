@@ -5193,7 +5193,7 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 284→302 (< 800), 无 baseline 变化
 - 载体: 形状 337 / conventions 72 (1 skip) / cli_help_golden 77 —— 486 passed
 
-**2026-11-15 · ee6d7fa5 之后 · 第 93 批: `pib_sim_eval.save_report` 176→34 行 + 两缝**
+**2026-11-15 · 999553d9 之后 · 第 93 批: `pib_sim_eval.save_report` 176→34 行 + 两缝**
 - 提取: `_psr_render_markdown` 42 (nest 0, 6 参, 1 回传; Markdown 报告 f-string) / `_psr_render_html` 134 (nest 1, 5 参, 1 回传; 表格行拼接 + HTML f-string)
 - 边界: `543:574` 与 `578:702` 两区 audit `risk=0`（无 return/break/continue，无越界赋值）
 - 叶差分: 21 同 / 消失 0 / 新增 2 / 改 1 (`save_report`)
@@ -5202,7 +5202,7 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 719→761 (< 800), 无 baseline 变化
 - 载体: 形状 340 / pib_sim_eval 4 / pib_objective_columns 1 / conventions 72 (1 skip) —— 全绿
 
-**2026-11-15 · 509a671a 之后 · 第 94 批: `gsnet_debug.train.run_offline_training` 198→134 行 + 两缝**
+**2026-11-15 · 5ba48a8e 之后 · 第 94 批: `gsnet_debug.train.run_offline_training` 198→134 行 + 两缝**
 - 提取: `_ot_write_artifacts` 65 (nest 1, 10 参, 1 回传; 产物表 + payload + summary.json) / `_ot_prepare_run` 21 (nest 0, 2 参, 5 回传; device/seed/out_dir/index/loader)
 - 边界: `791:841` 与 `700:714` 两区 audit `risk=0`
 - 叶差分: 16 同 / 消失 0 / 新增 2 / 改 1 (`run_offline_training`)
@@ -5211,7 +5211,7 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 864→890 (>800), baseline 同 commit 抬高 864→890（`--update-baseline` 报方向：抬高 1）
 - 载体: 形状 343 / gsnet_debug.train 83 / conventions 72 (1 skip) —— 全绿
 
-**2026-11-15 · 15f86981 之后 · 第 95 批: `wavefront_correction._default_calc` 201→134 行 + 两缝**
+**2026-11-15 · 124fd9c1 之后 · 第 95 批: `wavefront_correction._default_calc` 201→134 行 + 两缝**
 - 提取: `_wc_fit_correction_map` 57 (nest 1, 5 参, 1 回传; 归一化 + 余弦象限反解 + 矫正图) / `_wc_detect_outliers` 50 (nest 1, 2 参, 9 回传; 邻居插值异常点检测与替换)
 - 边界: `738:785` 与 `662:701` 两区 audit `risk=0`；`data_range≈0` 的早期 `return np.zeros_like(data)` 留在母函数内未外提
 - 叶差分: 16 同 / 消失 0 / 新增 2 / 改 1 (`_default_calc`)
