@@ -19,6 +19,117 @@ from ao_shaping.drivers.slm.santec.slm200_constants import (
 )
 
 
+def _wc_fit_correction_map(
+    data: np.ndarray,
+    data_min: float,
+    data_range: float,
+    g_ref: float,
+    max_grayscale: int,
+) -> np.ndarray:
+    """Normalize the data, solve the cosine phase offset and build the map."""
+    cos_target = (data - data_min) / data_range
+    cos_target = np.clip(cos_target, 0.0, 1.0)
+
+    theta_ref = 2.0 * np.pi * g_ref / max_grayscale
+    cos_ref = np.cos(theta_ref)
+    sin_ref = np.sin(theta_ref)
+
+    if cos_ref >= 0:
+        # 余弦上半支: cos(θ) ∈ [0, 1]
+        cos_theta = cos_target
+    else:
+        # 余弦下半支: cos(θ) ∈ [-1, 0]
+        cos_theta = cos_target - 1.0
+
+    # θ_principal = arccos(cos(θ)) ∈ [0, π]
+    theta_principal = np.arccos(np.clip(cos_theta, -1.0, 1.0))
+
+    # ============================================================
+    # Step 2b: 象限确定 — 从主值恢复真值 θ
+    #
+    # cos(θ) = cos(θ_principal)，但真值 θ 可能在 [π, 2π]。
+    # 导数符号决定:
+    #   sin(θ_ref) ≥ 0 → cos递减 → θ = θ_principal + 2πk
+    #   sin(θ_ref) < 0 → cos递增 → θ = 2π - θ_principal + 2πk
+    #   sin=0 时根据 cos 符号判断极值类型:
+    #     cos_ref > 0 (cos极大值) → 递减分支
+    #     cos_ref < 0 (cos极小值) → 递增分支
+    # ============================================================
+    # sin(θ_ref) 在 θ_ref = kπ 处因浮点误差不为精确 0 (如 sin(2π) ≈ -2.4e-16),
+    # 用容差判断"极值点"分支, 否则 θ_ref = 2π 时会被误判为递增分支导致 φ 符号反转。
+    if sin_ref > 1e-12 or (abs(sin_ref) <= 1e-12 and cos_ref > 0):
+        theta_base = theta_principal  # θ ∈ [0, π]，cos递减
+    else:
+        theta_base = 2.0 * np.pi - theta_principal  # θ ∈ [π, 2π]，cos递增
+
+    # 周期对齐: 使 θ_true 接近 θ_ref
+    k_period = int(np.floor(theta_ref / (2.0 * np.pi)))
+    theta_true = theta_base + k_period * 2.0 * np.pi
+
+    # ============================================================
+    # Step 2c: 提取 φ 并计算矫正映射图
+    # ============================================================
+    phi = theta_true - theta_ref
+    # φ 归一化到 [-π, π)：矫正模 MAX 等效为 0
+    phi = (phi + np.pi) % (2.0 * np.pi) - np.pi
+
+    # 矫正: correction = -φ · MAX / (2π)
+    correction_map = -phi * max_grayscale / (2.0 * np.pi)
+    return correction_map
+
+
+def _wc_detect_outliers(
+    outlier_threshold: float,
+    raw_data: np.ndarray,
+) -> tuple[np.ndarray, int, int, float, float, float, float, np.ndarray, np.ndarray]:
+    """Detect outliers and replace them with neighbour interpolation.
+
+    Returns the cleaned data, outlier/total counts, the original statistics
+    (max, mean, min, std), the outlier mask and the residual map.
+    """
+    data = np.nan_to_num(raw_data).copy().astype(np.float64)
+    h, w = data.shape
+
+    # ============================================================
+    # Step 1: 基于前后数组的异常检测与剔除
+    #         对每个元素，比较其与左右邻居的线性插值
+    # ============================================================
+    orig_mean = float(np.mean(data))
+    orig_std = float(np.std(data))
+    orig_min = float(np.min(data))
+    orig_max = float(np.max(data))
+
+    # 构建左右邻居（首尾边界处复制自身）
+    left_neighbor = np.pad(data[:, :-1], ((0, 0), (1, 0)), mode="edge")
+    right_neighbor = np.pad(data[:, 1:], ((0, 0), (0, 1)), mode="edge")
+
+    # 线性插值参考 = (left + right) / 2
+    expected = (left_neighbor + right_neighbor) / 2.0
+
+    # 残差 = |实测值 - 插值|
+    residual = np.abs(data - expected)
+
+    # 行方向局部标准差
+    local_std = np.std(data, axis=1, keepdims=True) + 1e-10
+
+    # 异常点标记（排除首尾列）
+    outlier_mask = residual / local_std > outlier_threshold
+    outlier_mask[:, 0] = False
+    outlier_mask[:, -1] = False
+
+    n_outliers = int(np.sum(outlier_mask))
+    n_total = data.size
+
+    if n_outliers > 0:
+        data[outlier_mask] = expected[outlier_mask]
+        logger.debug(
+            f"矫正数据异常点（前后数组法）: {n_outliers}/{n_total} "
+            f"({100.0 * n_outliers / n_total:.2f}%) "
+            f"已替换为线性插值"
+        )
+    return data, n_outliers, n_total, orig_max, orig_mean, orig_min, orig_std, outlier_mask, residual
+
+
 class WavefrontCorrection:
     """波前误差矫正工具类
 
@@ -659,46 +770,20 @@ class WavefrontCorrection:
         Returns:
             矫正映射图 (float64)，形状与 raw_data 相同
         """
-        data = np.nan_to_num(raw_data).copy().astype(np.float64)
-        h, w = data.shape
-
-        # ============================================================
-        # Step 1: 基于前后数组的异常检测与剔除
-        #         对每个元素，比较其与左右邻居的线性插值
-        # ============================================================
-        orig_mean = float(np.mean(data))
-        orig_std = float(np.std(data))
-        orig_min = float(np.min(data))
-        orig_max = float(np.max(data))
-
-        # 构建左右邻居（首尾边界处复制自身）
-        left_neighbor = np.pad(data[:, :-1], ((0, 0), (1, 0)), mode="edge")
-        right_neighbor = np.pad(data[:, 1:], ((0, 0), (0, 1)), mode="edge")
-
-        # 线性插值参考 = (left + right) / 2
-        expected = (left_neighbor + right_neighbor) / 2.0
-
-        # 残差 = |实测值 - 插值|
-        residual = np.abs(data - expected)
-
-        # 行方向局部标准差
-        local_std = np.std(data, axis=1, keepdims=True) + 1e-10
-
-        # 异常点标记（排除首尾列）
-        outlier_mask = residual / local_std > outlier_threshold
-        outlier_mask[:, 0] = False
-        outlier_mask[:, -1] = False
-
-        n_outliers = int(np.sum(outlier_mask))
-        n_total = data.size
-
-        if n_outliers > 0:
-            data[outlier_mask] = expected[outlier_mask]
-            logger.debug(
-                f"矫正数据异常点（前后数组法）: {n_outliers}/{n_total} "
-                f"({100.0 * n_outliers / n_total:.2f}%) "
-                f"已替换为线性插值"
-            )
+        (
+            data,
+            n_outliers,
+            n_total,
+            orig_max,
+            orig_mean,
+            orig_min,
+            orig_std,
+            outlier_mask,
+            residual,
+        ) = _wc_detect_outliers(
+            outlier_threshold=outlier_threshold,
+            raw_data=raw_data,
+        )
 
         # ============================================================
         # Step 2: 余弦拟合 — 提取每像素相位偏移 φ
@@ -735,54 +820,13 @@ class WavefrontCorrection:
         # 本假设要求像素 φ 分布覆盖半支余弦（cos 从极值到过零点）。
         # 若 φ 范围不足，结果为单调近似（矫正图案空间分布正确，幅度近似）。
         # ============================================================
-        cos_target = (data - data_min) / data_range
-        cos_target = np.clip(cos_target, 0.0, 1.0)
-
-        theta_ref = 2.0 * np.pi * g_ref / max_grayscale
-        cos_ref = np.cos(theta_ref)
-        sin_ref = np.sin(theta_ref)
-
-        if cos_ref >= 0:
-            # 余弦上半支: cos(θ) ∈ [0, 1]
-            cos_theta = cos_target
-        else:
-            # 余弦下半支: cos(θ) ∈ [-1, 0]
-            cos_theta = cos_target - 1.0
-
-        # θ_principal = arccos(cos(θ)) ∈ [0, π]
-        theta_principal = np.arccos(np.clip(cos_theta, -1.0, 1.0))
-
-        # ============================================================
-        # Step 2b: 象限确定 — 从主值恢复真值 θ
-        #
-        # cos(θ) = cos(θ_principal)，但真值 θ 可能在 [π, 2π]。
-        # 导数符号决定:
-        #   sin(θ_ref) ≥ 0 → cos递减 → θ = θ_principal + 2πk
-        #   sin(θ_ref) < 0 → cos递增 → θ = 2π - θ_principal + 2πk
-        #   sin=0 时根据 cos 符号判断极值类型:
-        #     cos_ref > 0 (cos极大值) → 递减分支
-        #     cos_ref < 0 (cos极小值) → 递增分支
-        # ============================================================
-        # sin(θ_ref) 在 θ_ref = kπ 处因浮点误差不为精确 0 (如 sin(2π) ≈ -2.4e-16),
-        # 用容差判断"极值点"分支, 否则 θ_ref = 2π 时会被误判为递增分支导致 φ 符号反转。
-        if sin_ref > 1e-12 or (abs(sin_ref) <= 1e-12 and cos_ref > 0):
-            theta_base = theta_principal  # θ ∈ [0, π]，cos递减
-        else:
-            theta_base = 2.0 * np.pi - theta_principal  # θ ∈ [π, 2π]，cos递增
-
-        # 周期对齐: 使 θ_true 接近 θ_ref
-        k_period = int(np.floor(theta_ref / (2.0 * np.pi)))
-        theta_true = theta_base + k_period * 2.0 * np.pi
-
-        # ============================================================
-        # Step 2c: 提取 φ 并计算矫正映射图
-        # ============================================================
-        phi = theta_true - theta_ref
-        # φ 归一化到 [-π, π)：矫正模 MAX 等效为 0
-        phi = (phi + np.pi) % (2.0 * np.pi) - np.pi
-
-        # 矫正: correction = -φ · MAX / (2π)
-        correction_map = -phi * max_grayscale / (2.0 * np.pi)
+        correction_map = _wc_fit_correction_map(
+            data=data,
+            data_min=data_min,
+            data_range=data_range,
+            g_ref=g_ref,
+            max_grayscale=max_grayscale,
+        )
 
         # ============================================================
         # Step 4: 统计与日志

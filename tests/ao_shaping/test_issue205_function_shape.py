@@ -103,6 +103,7 @@ _SIM_SPGD = "src/ao_shaping/optimizer/wfless/sim_spgd.py"
 _SAC_TRAIN = "src/ao_shaping/optimizer/rl/sac_train.py"
 _PIB_SIM_EVAL = "src/ao_shaping/optimizer/wfless/pib_sim_eval.py"
 _GSNET_TRAIN = "src/ml/gsnet_debug/train.py"
+_WAVEFRONT_CORRECTION = "src/ao_shaping/drivers/slm/santec/wavefront_correction.py"
 _CERAMIC_VIEWER = "src/ao_shaping/gui/dm/ceramic_viewer.py"
 _BENCH_TWIN_CALIBRATE = "src/ao_shaping/tools/slm/bench_twin_calibrate.py"
 _GA_ZERNIKE = "src/ao_shaping/optimizer/wf/ga_zernike.py"
@@ -477,6 +478,9 @@ TARGETS = [
     (_GSNET_TRAIN, "run_offline_training", 155, 3, 134),
     (_GSNET_TRAIN, "_ot_write_artifacts", 75, 1, 65),
     (_GSNET_TRAIN, "_ot_prepare_run", 25, 0, 21),
+    (_WAVEFRONT_CORRECTION, "_default_calc", 155, 1, 134),
+    (_WAVEFRONT_CORRECTION, "_wc_fit_correction_map", 66, 1, 57),
+    (_WAVEFRONT_CORRECTION, "_wc_detect_outliers", 58, 1, 50),
 ]
 
 NESTING_NODES = (ast.If, ast.For, ast.While, ast.Try, ast.With, ast.AsyncFor, ast.AsyncWith)

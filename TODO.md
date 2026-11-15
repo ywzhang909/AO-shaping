@@ -5211,6 +5211,15 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 864→890 (>800), baseline 同 commit 抬高 864→890（`--update-baseline` 报方向：抬高 1）
 - 载体: 形状 343 / gsnet_debug.train 83 / conventions 72 (1 skip) —— 全绿
 
+**2026-11-15 · 15f86981 之后 · 第 95 批: `wavefront_correction._default_calc` 201→134 行 + 两缝**
+- 提取: `_wc_fit_correction_map` 57 (nest 1, 5 参, 1 回传; 归一化 + 余弦象限反解 + 矫正图) / `_wc_detect_outliers` 50 (nest 1, 2 参, 9 回传; 邻居插值异常点检测与替换)
+- 边界: `738:785` 与 `662:701` 两区 audit `risk=0`；`data_range≈0` 的早期 `return np.zeros_like(data)` 留在母函数内未外提
+- 叶差分: 16 同 / 消失 0 / 新增 2 / 改 1 (`_default_calc`)
+- 等价性: 纯 numpy — 3 组随机输入 + 注入尖峰用例，`_default_calc` 输出与拆分前**逐位一致**（`np.array_equal=True`）
+- 棘轮: 新增 3 行 (155/1/134, 66/1/57, 58/1/50)
+- 模块 830→874 (>800), baseline 同 commit 抬高 830→874（`--update-baseline` 报方向：抬高 1）
+- 载体: 形状 346 / correction_csv + default_fallback 39 / conventions 72 (1 skip) —— 全绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

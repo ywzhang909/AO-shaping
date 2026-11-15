@@ -13,7 +13,7 @@
   "src/ao_shaping/drivers/sim/bench_twin.py": 1026,
   "src/ao_shaping/drivers/sim/slm_pib_sim.py": 1501,
   "src/ao_shaping/drivers/slm/santec/driver.py": 2680,
-  "src/ao_shaping/drivers/slm/santec/wavefront_correction.py": 830,
+  "src/ao_shaping/drivers/slm/santec/wavefront_correction.py": 874,
   "src/ao_shaping/drivers/wfs/thorlab_wfs.py": 2000,
   "src/ao_shaping/gui/ccd/ccd_analyzer.py": 1079,
   "src/ao_shaping/gui/dm/micro_dm_ui.py": 1213,
