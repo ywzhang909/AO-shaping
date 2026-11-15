@@ -5184,6 +5184,15 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 1037→1051 (+14, 三个 helper 的 def/docstring 开销), baseline 已抬平
 - 载体: sim_spgd 27 / 形状 333 / conventions 72 (1 skip) / cli_help_golden 77 —— 全绿
 
+**2026-11-15 · de29e7ed 之后 · 第 92 批: `sac_train.main` 166→113 行 + 三缝**
+- 提取: `_sac_build_run_config` 31 (nest 0, 26 参, 1 回传; 26 个 CLI 参数 → 训练配置 dict) / `_sac_build_train_env` 19 (nest 0, 14 参, 1 回传; `build_env` + `wrap_monitor`) / `_sac_build_callbacks` 15 (nest 0, 5 参, 1 回传; `CallbackList` 组装)
+- 🔴 **本批踩坑（已修，后续批次必读）**: 首次插入时三个 helper 落在 `@click.option(...)` 装饰器列表与 `def main` **之间** ⇒ 32 个装饰器被重新绑定到 `_sac_build_run_config`，`main` 变成**无装饰器的普通函数**。叶差分（只比函数体）与 ruff 都**看不见**；是 AST 检查 `main decs=0` 暴露的。修法: helper 一律放在 `main` **之后**（或装饰器块之前），并断言 `isinstance(main, click.Command)`、参数数 31。
+- 边界: 26 个标量参数逐个透传（无 `kwargs` 泄漏），未做进一步合并
+- 叶差分: 1 同 (`build_env`) / 消失 0 / 新增 3 / 改 1 (`main`)
+- 棘轮: 新增 4 行 (130/1/113, 36/0/31, 22/0/19, 18/0/15)
+- 模块 284→302 (< 800), 无 baseline 变化
+- 载体: 形状 337 / conventions 72 (1 skip) / cli_help_golden 77 —— 486 passed
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

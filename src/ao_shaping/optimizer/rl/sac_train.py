@@ -154,53 +154,11 @@ def main(
     log_path.mkdir(parents=True, exist_ok=True)
     model_path.mkdir(parents=True, exist_ok=True)
 
-    config = {
-        "total_timesteps": total_timesteps,
-        "max_steps": max_steps,
-        "n_grid": n_grid,
-        "n_actuators": n_actuators,
-        "n_subapertures": n_subapertures,
-        "history_len": history_len,
-        "n_zernike_modes": n_zernike_modes,
-        "zernike_coeff_std": zernike_coeff_std,
-        "zernike_coeff_clip": zernike_coeff_clip,
-        "goal_gain": goal_gain,
-        "hold_target_steps": hold_target_steps,
-        "action_scale": action_scale,
-        "time_penalty": time_penalty,
-        "action_penalty": action_penalty,
-        "saturation_penalty": saturation_penalty,
-        "seed": seed,
-        "learning_rate": learning_rate,
-        "buffer_size": buffer_size,
-        "batch_size": batch_size,
-        "learning_starts": learning_starts,
-        "tau": tau,
-        "gamma": gamma,
-        "train_freq": train_freq,
-        "gradient_steps": gradient_steps,
-        "eval_freq": eval_freq,
-        "eval_episodes": eval_episodes,
-    }
+    config = _sac_build_run_config(action_penalty, action_scale, batch_size, buffer_size, eval_episodes, eval_freq, gamma, goal_gain, gradient_steps, history_len, hold_target_steps, learning_rate, learning_starts, max_steps, n_actuators, n_grid, n_subapertures, n_zernike_modes, saturation_penalty, seed, tau, time_penalty, total_timesteps, train_freq, zernike_coeff_clip, zernike_coeff_std)
     with (log_path / "config.json").open("w", encoding="utf-8") as fh:
         json.dump(config, fh, indent=2, ensure_ascii=False)
 
-    env = build_env(
-        max_steps=max_steps,
-        n_grid=n_grid,
-        n_actuators=n_actuators,
-        n_subapertures=n_subapertures,
-        history_len=history_len,
-        n_zernike_modes=n_zernike_modes,
-        zernike_coeff_std=zernike_coeff_std,
-        zernike_coeff_clip=zernike_coeff_clip,
-        goal_gain=goal_gain,
-        hold_target_steps=hold_target_steps,
-        action_scale=action_scale,
-        time_penalty=time_penalty,
-        action_penalty=action_penalty,
-        saturation_penalty=saturation_penalty,
-    )
+    env = _sac_build_train_env(action_penalty, action_scale, goal_gain, history_len, hold_target_steps, max_steps, n_actuators, n_grid, n_subapertures, n_zernike_modes, saturation_penalty, time_penalty, zernike_coeff_clip, zernike_coeff_std)
     validate_env(env.env, seed=seed)
     eval_env = build_env(
         max_steps=max_steps,
@@ -248,18 +206,7 @@ def main(
         },
     )
 
-    callbacks = CallbackList([
-        AOTrainingCallback(log_every=50, image_every=500),
-        EvalCallback(
-            eval_env,
-            best_model_save_path=str(model_path / "best"),
-            log_path=str(log_path / "eval"),
-            eval_freq=max(eval_freq, 1),
-            n_eval_episodes=eval_episodes,
-            deterministic=True,
-            render=False,
-        ),
-    ])
+    callbacks = _sac_build_callbacks(eval_env, eval_episodes, eval_freq, log_path, model_path)
 
     model.learn(total_timesteps=total_timesteps, callback=callbacks, tb_log_name="static_zernike")
     model.save(model_path / "sac_static_final")
@@ -278,6 +225,77 @@ def main(
 
     env.close()
     eval_env.close()
+
+
+def _sac_build_run_config(action_penalty, action_scale, batch_size, buffer_size, eval_episodes, eval_freq, gamma, goal_gain, gradient_steps, history_len, hold_target_steps, learning_rate, learning_starts, max_steps, n_actuators, n_grid, n_subapertures, n_zernike_modes, saturation_penalty, seed, tau, time_penalty, total_timesteps, train_freq, zernike_coeff_clip, zernike_coeff_std):
+    """Assemble the SAC run configuration dict."""
+    config = {
+        "total_timesteps": total_timesteps,
+        "max_steps": max_steps,
+        "n_grid": n_grid,
+        "n_actuators": n_actuators,
+        "n_subapertures": n_subapertures,
+        "history_len": history_len,
+        "n_zernike_modes": n_zernike_modes,
+        "zernike_coeff_std": zernike_coeff_std,
+        "zernike_coeff_clip": zernike_coeff_clip,
+        "goal_gain": goal_gain,
+        "hold_target_steps": hold_target_steps,
+        "action_scale": action_scale,
+        "time_penalty": time_penalty,
+        "action_penalty": action_penalty,
+        "saturation_penalty": saturation_penalty,
+        "seed": seed,
+        "learning_rate": learning_rate,
+        "buffer_size": buffer_size,
+        "batch_size": batch_size,
+        "learning_starts": learning_starts,
+        "tau": tau,
+        "gamma": gamma,
+        "train_freq": train_freq,
+        "gradient_steps": gradient_steps,
+        "eval_freq": eval_freq,
+        "eval_episodes": eval_episodes,
+    }
+    return config
+
+
+def _sac_build_train_env(action_penalty, action_scale, goal_gain, history_len, hold_target_steps, max_steps, n_actuators, n_grid, n_subapertures, n_zernike_modes, saturation_penalty, time_penalty, zernike_coeff_clip, zernike_coeff_std):
+    """Build the training environment."""
+    env = build_env(
+        max_steps=max_steps,
+        n_grid=n_grid,
+        n_actuators=n_actuators,
+        n_subapertures=n_subapertures,
+        history_len=history_len,
+        n_zernike_modes=n_zernike_modes,
+        zernike_coeff_std=zernike_coeff_std,
+        zernike_coeff_clip=zernike_coeff_clip,
+        goal_gain=goal_gain,
+        hold_target_steps=hold_target_steps,
+        action_scale=action_scale,
+        time_penalty=time_penalty,
+        action_penalty=action_penalty,
+        saturation_penalty=saturation_penalty,
+    )
+    return env
+
+
+def _sac_build_callbacks(eval_env, eval_episodes, eval_freq, log_path, model_path):
+    """Assemble the training callbacks."""
+    callbacks = CallbackList([
+        AOTrainingCallback(log_every=50, image_every=500),
+        EvalCallback(
+            eval_env,
+            best_model_save_path=str(model_path / "best"),
+            log_path=str(log_path / "eval"),
+            eval_freq=max(eval_freq, 1),
+            n_eval_episodes=eval_episodes,
+            deterministic=True,
+            render=False,
+        ),
+    ])
+    return callbacks
 
 
 if __name__ == "__main__":

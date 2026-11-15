@@ -100,6 +100,7 @@ _TRAIN_DATA_COLLECT = "src/ao_shaping/tools/slm/calibration/train_data_collect.p
 _CCD_ANALYZER = "src/ao_shaping/gui/ccd/ccd_analyzer.py"
 _PROBE_ACTIVE = "src/ml/sim2f/probe_active.py"
 _SIM_SPGD = "src/ao_shaping/optimizer/wfless/sim_spgd.py"
+_SAC_TRAIN = "src/ao_shaping/optimizer/rl/sac_train.py"
 _CERAMIC_VIEWER = "src/ao_shaping/gui/dm/ceramic_viewer.py"
 _BENCH_TWIN_CALIBRATE = "src/ao_shaping/tools/slm/bench_twin_calibrate.py"
 _GA_ZERNIKE = "src/ao_shaping/optimizer/wf/ga_zernike.py"
@@ -464,6 +465,10 @@ TARGETS = [
     (_PHASE_GRAYSCALE_LUT, "calibrate", 118, 0, 102),
     (_PHASE_GRAYSCALE_LUT, "_pgl_sweep_grayscale", 103, 3, 89),
     (_PHASE_GRAYSCALE_LUT, "_pgl_assemble_and_save", 45, 0, 39),
+    (_SAC_TRAIN, "main", 130, 1, 113),
+    (_SAC_TRAIN, "_sac_build_run_config", 36, 0, 31),
+    (_SAC_TRAIN, "_sac_build_train_env", 22, 0, 19),
+    (_SAC_TRAIN, "_sac_build_callbacks", 18, 0, 15),
 ]
 
 NESTING_NODES = (ast.If, ast.For, ast.While, ast.Try, ast.With, ast.AsyncFor, ast.AsyncWith)
