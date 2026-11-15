@@ -5220,6 +5220,15 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 830→874 (>800), baseline 同 commit 抬高 830→874（`--update-baseline` 报方向：抬高 1）
 - 载体: 形状 346 / correction_csv + default_fallback 39 / conventions 72 (1 skip) —— 全绿
 
+**2026-11-15 · 63bce08b 之后 · 第 96 批: `model_in_loop_shaping.calibrate_shared_aberration` 241→207 行 + 两缝**
+- 提取: `_csa_build_frames` 44 (nest 2, 4 参, 1 回传; 逐记录拉齐 far-field/pupil（瞳面） 网格并换算模型单位) / `_csa_cycle` 32 (nest 2, 4 参, 2 回传; 单优化器循环 `epochs×len(frames)` 步 + latch rearm)
+- 边界: 换帧循环 (3272:3294) 与步进循环 (3324:3335) 两整块；`rearm` 保持母函数局部闭包，按参数传入，未改签名
+- 叶差分: 68 同 / 消失 0 / 新增 2 / 改 1 (`calibrate_shared_aberration` −25/+2)
+- 等价性: 3 条合成记录 × (`epochs=3`, `epochs=60`)，`coefficients` 与 `loss_history` 与拆分前**逐位一致**
+- 棘轮: 母行 271/2/241 → 239/2/207，新增 2 行 (51/2/44, 37/2/32)
+- 模块 3360→3406 (>800), baseline 同 commit 抬高（`--update-baseline` 报：抬高 1）
+- 载体: 形状 + model_in_loop_shaping 397 passed
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
