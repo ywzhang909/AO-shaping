@@ -801,22 +801,57 @@ def _tested_names(test: ast.AST) -> set[str]:
     }
 
 
+def _device_opening_funcs(tree: ast.Module) -> set[str]:
+    """Module-level function names whose bodies (transitively) open a device.
+
+    A split entry function delegates the physical open to a helper
+    (``main`` → ``_zr_prepare_session``). The exemption honesty check must
+    follow those calls: otherwise a legitimate ``return`` branch that precedes
+    the open stops being recognised and a still-genuinely-exempt field gets
+    rejected. Transitive fixed-point, so helper→helper chains resolve too.
+    """
+    device_names = {n for _, n in _DEVICE_SOURCES} | _DEVICE_NAMES
+    funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    opening: set[str] = set()
+    changed = True
+    while changed:
+        changed = False
+        for name, fn in funcs.items():
+            if name in opening:
+                continue
+            for call in ast.walk(fn):
+                if not isinstance(call, ast.Call):
+                    continue
+                if not isinstance(call.func, ast.Name):
+                    continue
+                if call.func.id in device_names or call.func.id in opening:
+                    opening.add(name)
+                    changed = True
+                    break
+    return opening
+
+
 def _diverges_before_device_open(module_name: str, attr: str, field: str) -> bool:
     """True if ``attr`` returns/raises on ``field`` before its first device open."""
     source = _source_file(module_name)
     tree = ast.parse(source.read_text(encoding="utf-8-sig"))
     device_names = {n for _, n in _DEVICE_SOURCES} | _DEVICE_NAMES
+    opening = _device_opening_funcs(tree)
+
+    def opens_device(stmt: ast.AST) -> bool:
+        return any(
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Name)
+            and (call.func.id in device_names or call.func.id in opening)
+            for call in ast.walk(stmt)
+        )
+
     for node in tree.body:
         if not (isinstance(node, ast.FunctionDef) and node.name == attr):
             continue
         device_stmt: int | None = None
         for index, stmt in enumerate(node.body):
-            if any(
-                isinstance(call, ast.Call)
-                and isinstance(call.func, ast.Name)
-                and call.func.id in device_names
-                for call in ast.walk(stmt)
-            ):
+            if opens_device(stmt):
                 device_stmt = index
                 break
         for index, stmt in enumerate(node.body):
@@ -845,6 +880,16 @@ def _gates_device_open(module_name: str, attr: str, field: str) -> bool:
     source = _source_file(module_name)
     tree = ast.parse(source.read_text(encoding="utf-8-sig"))
     device_names = {n for _, n in _DEVICE_SOURCES} | _DEVICE_NAMES
+    opening = _device_opening_funcs(tree)
+
+    def opens_device(stmt: ast.AST) -> bool:
+        return any(
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Name)
+            and (call.func.id in device_names or call.func.id in opening)
+            for call in ast.walk(stmt)
+        )
+
     for node in tree.body:
         if not (isinstance(node, ast.FunctionDef) and node.name == attr):
             continue
@@ -854,14 +899,8 @@ def _gates_device_open(module_name: str, attr: str, field: str) -> bool:
             tested = _tested_names(stmt.test)
             if field not in tested:
                 continue
-            for inner in stmt.body:
-                if any(
-                    isinstance(call, ast.Call)
-                    and isinstance(call.func, ast.Name)
-                    and call.func.id in device_names
-                    for call in ast.walk(inner)
-                ):
-                    return True
+            if any(opens_device(inner) for inner in stmt.body):
+                return True
     return False
 
 
