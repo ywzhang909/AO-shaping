@@ -5193,6 +5193,15 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 284→302 (< 800), 无 baseline 变化
 - 载体: 形状 337 / conventions 72 (1 skip) / cli_help_golden 77 —— 486 passed
 
+**2026-11-15 · ee6d7fa5 之后 · 第 93 批: `pib_sim_eval.save_report` 176→34 行 + 两缝**
+- 提取: `_psr_render_markdown` 42 (nest 0, 6 参, 1 回传; Markdown 报告 f-string) / `_psr_render_html` 134 (nest 1, 5 参, 1 回传; 表格行拼接 + HTML f-string)
+- 边界: `543:574` 与 `578:702` 两区 audit `risk=0`（无 return/break/continue，无越界赋值）
+- 叶差分: 21 同 / 消失 0 / 新增 2 / 改 1 (`save_report`)
+- 等价性: 合成 summary_df 上 `report.md` (806 B) 与 `report.html` (3266 B) 与拆分前**逐字节一致**
+- 棘轮: 新增 3 行 (40/0/34, 49/0/42, 155/1/134)
+- 模块 719→761 (< 800), 无 baseline 变化
+- 载体: 形状 340 / pib_sim_eval 4 / pib_objective_columns 1 / conventions 72 (1 skip) —— 全绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

@@ -101,6 +101,7 @@ _CCD_ANALYZER = "src/ao_shaping/gui/ccd/ccd_analyzer.py"
 _PROBE_ACTIVE = "src/ml/sim2f/probe_active.py"
 _SIM_SPGD = "src/ao_shaping/optimizer/wfless/sim_spgd.py"
 _SAC_TRAIN = "src/ao_shaping/optimizer/rl/sac_train.py"
+_PIB_SIM_EVAL = "src/ao_shaping/optimizer/wfless/pib_sim_eval.py"
 _CERAMIC_VIEWER = "src/ao_shaping/gui/dm/ceramic_viewer.py"
 _BENCH_TWIN_CALIBRATE = "src/ao_shaping/tools/slm/bench_twin_calibrate.py"
 _GA_ZERNIKE = "src/ao_shaping/optimizer/wf/ga_zernike.py"
@@ -469,6 +470,9 @@ TARGETS = [
     (_SAC_TRAIN, "_sac_build_run_config", 36, 0, 31),
     (_SAC_TRAIN, "_sac_build_train_env", 22, 0, 19),
     (_SAC_TRAIN, "_sac_build_callbacks", 18, 0, 15),
+    (_PIB_SIM_EVAL, "save_report", 40, 0, 34),
+    (_PIB_SIM_EVAL, "_psr_render_markdown", 49, 0, 42),
+    (_PIB_SIM_EVAL, "_psr_render_html", 155, 1, 134),
 ]
 
 NESTING_NODES = (ast.If, ast.For, ast.While, ast.Try, ast.With, ast.AsyncFor, ast.AsyncWith)

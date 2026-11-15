@@ -527,19 +527,16 @@ def _format_metric_table(summary_df: pd.DataFrame) -> str:
     return "\n".join(rows)
 
 
-def save_report(
-    summary_df: pd.DataFrame,
-    output_dir: str | Path,
-    artifacts: dict[str, Path],
-) -> dict[str, Path]:
-    """Generate Markdown and HTML summary reports for the regression suite."""
-    output_path = Path(output_dir)
-    best_case = summary_df.sort_values("best_pib", ascending=False).iloc[0]
-    baseline = summary_df.loc[summary_df["case"] == "baseline_adamod"].iloc[0]
-    best_final_gain = float(best_case["final_pib"] - baseline["final_pib"])
-    best_best_gain = float(best_case["best_pib"] - baseline["best_pib"])
 
-    summary_table = _format_metric_table(summary_df)
+def _psr_render_markdown(
+    artifacts: dict[str, Path],
+    best_best_gain: float,
+    best_case: pd.Series,
+    best_final_gain: float,
+    summary_df: pd.DataFrame,
+    summary_table: str,
+) -> str:
+    """Render the Markdown regression report."""
     markdown = f"""# PIB Hybrid Search Regression Report
 
 ## Overview
@@ -572,9 +569,19 @@ def save_report(
 - Summary CSV: `{artifacts["summary_csv"].name}`
 - Summary report HTML: `report.html`
 """
-    markdown_path = output_path / "report.md"
-    markdown_path.write_text(markdown, encoding="utf-8")
+    return markdown
 
+
+
+
+def _psr_render_html(
+    artifacts: dict[str, Path],
+    best_best_gain: float,
+    best_case: pd.Series,
+    best_final_gain: float,
+    summary_df: pd.DataFrame,
+) -> str:
+    """Render the HTML regression report."""
     rows_html = []
     for _, row in summary_df.iterrows():
         rows_html.append(
@@ -700,6 +707,41 @@ def save_report(
 </body>
 </html>
 """
+    return html_report
+
+
+
+def save_report(
+    summary_df: pd.DataFrame,
+    output_dir: str | Path,
+    artifacts: dict[str, Path],
+) -> dict[str, Path]:
+    """Generate Markdown and HTML summary reports for the regression suite."""
+    output_path = Path(output_dir)
+    best_case = summary_df.sort_values("best_pib", ascending=False).iloc[0]
+    baseline = summary_df.loc[summary_df["case"] == "baseline_adamod"].iloc[0]
+    best_final_gain = float(best_case["final_pib"] - baseline["final_pib"])
+    best_best_gain = float(best_case["best_pib"] - baseline["best_pib"])
+
+    summary_table = _format_metric_table(summary_df)
+    markdown = _psr_render_markdown(
+        artifacts=artifacts,
+        best_best_gain=best_best_gain,
+        best_case=best_case,
+        best_final_gain=best_final_gain,
+        summary_df=summary_df,
+        summary_table=summary_table,
+    )
+    markdown_path = output_path / "report.md"
+    markdown_path.write_text(markdown, encoding="utf-8")
+
+    html_report = _psr_render_html(
+        artifacts=artifacts,
+        best_best_gain=best_best_gain,
+        best_case=best_case,
+        best_final_gain=best_final_gain,
+        summary_df=summary_df,
+    )
     html_path = output_path / "report.html"
     html_path.write_text(html_report, encoding="utf-8")
     return {"report_md": markdown_path, "report_html": html_path}
