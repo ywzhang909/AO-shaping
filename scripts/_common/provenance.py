@@ -209,7 +209,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "硬件侧实测核心 CV 停在 6.08/5.01 未达 ≤0.10，与 model_cv 的分叉约 7.5× **已判为采集伪影**（锚定轮 8-bit 量化地板 + 探针过曝 argmax 定心失效，§5.1），并非绝对强度表征误差；"
             "12-bit 重采 corr(model_cv_core, measured_cv_core_window)=0.95（§5.2），剩余差距为 checkpoint gain 量纲不可迁移（§5.3）。"
             "效率：M3 闭环 ~0.30 s/iter（settle+capture 0.18 / 计算 0.11），比 model640 ~0.92 s/iter 快约 3×；"
-            "历史预算证 LCOS settle 占会话 99%、优化器 <0.05%。绝对强度保真度已于 2026-11-16 实机补采"
+            "历史预算证 LCOS settle 占会话 99%、优化器 <0.05%。绝对强度保真度已于 2026-11-16 实验补采"
             "（探针 absolute_fidelity_probe_20261116.py，commit 807d456a；12-bit 满量程契约修复 96e285ee，§5）。"
             "输入为两次锚定运行 timing/device_log/iterations、"
             "direction_variants_20261112、wall_clock_budget_20261111、shape_transition_timing_20261107。人工撰写。"
