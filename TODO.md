@@ -5220,7 +5220,7 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 830→874 (>800), baseline 同 commit 抬高 830→874（`--update-baseline` 报方向：抬高 1）
 - 载体: 形状 346 / correction_csv + default_fallback 39 / conventions 72 (1 skip) —— 全绿
 
-**2026-11-15 · 63bce08b 之后 · 第 96 批: `model_in_loop_shaping.calibrate_shared_aberration` 241→207 行 + 两缝**
+**2026-11-15 · 54d8e6d1 之后 · 第 96 批: `model_in_loop_shaping.calibrate_shared_aberration` 241→207 行 + 两缝**
 - 提取: `_csa_build_frames` 44 (nest 2, 4 参, 1 回传; 逐记录拉齐 far-field/pupil（瞳面） 网格并换算模型单位) / `_csa_cycle` 32 (nest 2, 4 参, 2 回传; 单优化器循环 `epochs×len(frames)` 步 + latch rearm)
 - 边界: 换帧循环 (3272:3294) 与步进循环 (3324:3335) 两整块；`rearm` 保持母函数局部闭包，按参数传入，未改签名
 - 叶差分: 68 同 / 消失 0 / 新增 2 / 改 1 (`calibrate_shared_aberration` −25/+2)
@@ -5228,6 +5228,15 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 棘轮: 母行 271/2/241 → 239/2/207，新增 2 行 (51/2/44, 37/2/32)
 - 模块 3360→3406 (>800), baseline 同 commit 抬高（`--update-baseline` 报：抬高 1）
 - 载体: 形状 + model_in_loop_shaping 397 passed
+
+**2026-11-15 · 58dbe537 之后 · 第 97 批: `zernike_debug_viewer._compute_response_matrix_from_debug` 246→171 行 + 两缝**
+- 提取: `_zrmd_fill_matrices` 96 (nest 5, 8 参, 原地填充; 逐 SLM 模式聚合 plus/minus 样本 → 均值/方差列) / `_zrmd_count_plan` 22 (nest 3, 1 参, 2 回传; `n_averages`/`n_cycles` 估计)
+- 边界: `try` 体内 `307:380` 与 `394:405` 两整块；矩阵按列原地写入，故填充 helper 无回传
+- 叶差分: 8 同 / 消失 0 / 新增 2 / 改 1 (`_compute_response_matrix_from_debug` −45/+2)
+- 等价性: 合成 debug 目录 (4 模式 × 2 周期 × 2 符号 × 2 样本) 上 `matrix`/`variance_matrix`/`pinv_matrix`、`n_max`/`n_averages`/`n_cycles` 与两个排除开关，与拆分前**逐位一致**
+- 棘轮: 母行 276/8/246 → 197/8/171，新增 2 行 (111/5/96, 26/3/22)
+- 模块 867→914 (>800), baseline 同 commit 抬高（`--update-baseline` 报：抬高 1）
+- 载体: 形状 + gui/zernike 377 passed
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

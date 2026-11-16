@@ -28,7 +28,7 @@
   "src/ao_shaping/gui/slm/transfer_desktop/archive_replay.py": 1833,
   "src/ao_shaping/gui/slm/transfer_desktop/page.py": 2941,
   "src/ao_shaping/gui/slm/transfer_progress.py": 1367,
-  "src/ao_shaping/gui/zernike/zernike_debug_viewer.py": 867,
+  "src/ao_shaping/gui/zernike/zernike_debug_viewer.py": 914,
   "src/ao_shaping/gui/zernike/zernike_response_matrix_ui.py": 1604,
   "src/ao_shaping/optimizer/rl/envs.py": 925,
   "src/ao_shaping/optimizer/wf/dm_response_matrix.py": 1021,

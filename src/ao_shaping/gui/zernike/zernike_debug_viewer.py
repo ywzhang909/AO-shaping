@@ -304,80 +304,16 @@ def _compute_response_matrix_from_debug(debug_data: dict, magnitude: float):
         )
 
         # Process each SLM mode (column of response matrix)
-        for col_idx, slm_mode_idx in enumerate(mode_indices):
-            if col_idx >= n_slm_terms_for_matrix:
-                continue  # Skip if beyond expected terms
-
-            mode_data = modes[slm_mode_idx]
-
-            # Collect data from all cycles and samples for this SLM mode
-            mode_responses = []  # List of response vectors (each is WFS coefficients)
-
-            for cycle_idx, cycle_data in mode_data.get("cycles", {}).items():
-                for sign in ["plus", "minus"]:
-                    sign_data = cycle_data.get("signs", {}).get(sign)
-                    if not sign_data:
-                        continue
-
-                    samples = sign_data.get("samples", {})
-                    for sample_idx, sample_file in samples.items():
-                        # Load zernike coefficients for this sample (THIS IS THE MEASURED OUTPUT)
-                        zernike_file = (
-                            sign_data["path"]
-                            / f"sample_{sample_idx:03d}_zernike_coeffs.npy"
-                        )
-                        if zernike_file.exists():
-                            coeffs = np.load(zernike_file)
-                            mode_responses.append(coeffs)
-
-            if mode_responses:
-                # Convert to array and compute statistics
-                responses_array = np.array(
-                    mode_responses
-                )  # Shape: (n_measurements, n_coeffs)
-
-                # Compute mean and variance across measurements for each WFS coefficient
-                mean_response = np.mean(responses_array, axis=0)  # Shape: (n_coeffs,)
-                variance_response = np.var(
-                    responses_array, axis=0
-                )  # Shape: (n_coeffs,)
-
-                # Now we need to map this to our response matrix
-                # The response_matrix[row, col] = response of WFS mode 'row' when SLM mode 'col' is excited
-
-                # We need to exclude piston and tip/tilt from both rows and columns if they were excluded
-                row_start = 0
-                col_start = 0
-                if excluded_piston:
-                    row_start += 1
-                    col_start += 1
-                if excluded_tip_tilt:
-                    row_start += 2
-                    col_start += 2
-
-                # Copy the relevant portion of mean_response to the response matrix
-                # We take WFS coefficients [row_start:] and map to matrix rows [0:]
-                # We take SLM mode col_idx and map to matrix column [col_idx - col_start]
-                # But we need to be careful about bounds
-
-                wfs_start_idx = row_start
-                min(wfs_start_idx + n_wfs_terms_for_matrix, len(mean_response))
-                min(col_idx + 1, len(mode_indices))  # This is tricky
-
-                # Actually, let's think differently:
-                # For SLM mode index `slm_mode_idx`, we want to fill column `col_idx` in the matrix
-                # The values come from mean_response[wfs_start_idx:wfs_start_idx + n_wfs_terms_for_matrix]
-
-                n_to_copy = min(
-                    n_wfs_terms_for_matrix, len(mean_response) - wfs_start_idx
-                )
-                if n_to_copy > 0:
-                    response_matrix[0:n_to_copy, col_idx] = mean_response[
-                        wfs_start_idx : wfs_start_idx + n_to_copy
-                    ]
-                    variance_matrix[0:n_to_copy, col_idx] = variance_response[
-                        wfs_start_idx : wfs_start_idx + n_to_copy
-                    ]
+        _zrmd_fill_matrices(
+            response_matrix,
+            variance_matrix,
+            modes,
+            mode_indices,
+            excluded_piston,
+            excluded_tip_tilt,
+            n_wfs_terms_for_matrix,
+            n_slm_terms_for_matrix,
+        )
 
         # mean_variance/max_variance are derived on ZernikeResponseMatrixResult, not stored here
         # Try to compute pseudo-inverse if we have enough data
@@ -391,18 +327,7 @@ def _compute_response_matrix_from_debug(debug_data: dict, magnitude: float):
                 lstsq_matrix = None
 
         # Estimate n_averages and n_cycles from data
-        n_averages_est = 1
-        n_cycles_est = 1
-        for mode_idx, mode_data in modes.items():
-            cycle_count = len(mode_data.get("cycles", {}))
-            if cycle_count > n_cycles_est:
-                n_cycles_est = cycle_count
-            for cycle_idx, cycle_data in mode_data.get("cycles", {}).items():
-                sample_count = len(
-                    cycle_data.get("signs", {}).get("plus", {}).get("samples", {})
-                )
-                if sample_count > n_averages_est:
-                    n_averages_est = sample_count
+        n_averages_est, n_cycles_est = _zrmd_count_plan(modes)
 
         # Create result object
         result = ZernikeResponseMatrixResult(
@@ -865,3 +790,125 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def _zrmd_fill_matrices(
+    response_matrix: np.ndarray,
+    variance_matrix: np.ndarray,
+    modes: dict,
+    mode_indices: list,
+    excluded_piston: bool,
+    excluded_tip_tilt: bool,
+    n_wfs_terms_for_matrix: int,
+    n_slm_terms_for_matrix: int,
+) -> None:
+    """Fill both matrices column by column from the debug samples, in place.
+
+    Args:
+        response_matrix: Zeroed ``(WFS terms, SLM terms)`` matrix to fill.
+        variance_matrix: Zeroed matrix of the same shape receiving the variances.
+        modes: Debug ``modes`` mapping; each entry carries cycles/signs/samples.
+        mode_indices: Sorted SLM mode indices; one matrix column per entry.
+        excluded_piston: Whether piston was excluded, shifting the row/column origin.
+        excluded_tip_tilt: Whether tip/tilt were excluded, shifting two more.
+        n_wfs_terms_for_matrix: Matrix row count after exclusions.
+        n_slm_terms_for_matrix: Matrix column count after exclusions.
+    """
+    for col_idx, slm_mode_idx in enumerate(mode_indices):
+        if col_idx >= n_slm_terms_for_matrix:
+            continue  # Skip if beyond expected terms
+
+        mode_data = modes[slm_mode_idx]
+
+        # Collect data from all cycles and samples for this SLM mode
+        mode_responses = []  # List of response vectors (each is WFS coefficients)
+
+        for cycle_idx, cycle_data in mode_data.get("cycles", {}).items():
+            for sign in ["plus", "minus"]:
+                sign_data = cycle_data.get("signs", {}).get(sign)
+                if not sign_data:
+                    continue
+
+                samples = sign_data.get("samples", {})
+                for sample_idx, sample_file in samples.items():
+                    # Load zernike coefficients for this sample (THIS IS THE MEASURED OUTPUT)
+                    zernike_file = (
+                        sign_data["path"]
+                        / f"sample_{sample_idx:03d}_zernike_coeffs.npy"
+                    )
+                    if zernike_file.exists():
+                        coeffs = np.load(zernike_file)
+                        mode_responses.append(coeffs)
+
+        if mode_responses:
+            # Convert to array and compute statistics
+            responses_array = np.array(
+                mode_responses
+            )  # Shape: (n_measurements, n_coeffs)
+
+            # Compute mean and variance across measurements for each WFS coefficient
+            mean_response = np.mean(responses_array, axis=0)  # Shape: (n_coeffs,)
+            variance_response = np.var(
+                responses_array, axis=0
+            )  # Shape: (n_coeffs,)
+
+            # Now we need to map this to our response matrix
+            # The response_matrix[row, col] = response of WFS mode 'row' when SLM mode 'col' is excited
+
+            # We need to exclude piston and tip/tilt from both rows and columns if they were excluded
+            row_start = 0
+            col_start = 0
+            if excluded_piston:
+                row_start += 1
+                col_start += 1
+            if excluded_tip_tilt:
+                row_start += 2
+                col_start += 2
+
+            # Copy the relevant portion of mean_response to the response matrix
+            # We take WFS coefficients [row_start:] and map to matrix rows [0:]
+            # We take SLM mode col_idx and map to matrix column [col_idx - col_start]
+            # But we need to be careful about bounds
+
+            wfs_start_idx = row_start
+            min(wfs_start_idx + n_wfs_terms_for_matrix, len(mean_response))
+            min(col_idx + 1, len(mode_indices))  # This is tricky
+
+            # Actually, let's think differently:
+            # For SLM mode index `slm_mode_idx`, we want to fill column `col_idx` in the matrix
+            # The values come from mean_response[wfs_start_idx:wfs_start_idx + n_wfs_terms_for_matrix]
+
+            n_to_copy = min(
+                n_wfs_terms_for_matrix, len(mean_response) - wfs_start_idx
+            )
+            if n_to_copy > 0:
+                response_matrix[0:n_to_copy, col_idx] = mean_response[
+                    wfs_start_idx : wfs_start_idx + n_to_copy
+                ]
+                variance_matrix[0:n_to_copy, col_idx] = variance_response[
+                    wfs_start_idx : wfs_start_idx + n_to_copy
+                ]
+
+
+def _zrmd_count_plan(modes: dict) -> tuple[int, int]:
+    """Estimate the sample-average and cycle counts recorded in ``modes``.
+
+    Args:
+        modes: Debug ``modes`` mapping.
+
+    Returns:
+        ``(n_averages, n_cycles)`` derived from the deepest sample/cycle fan-out.
+    """
+    n_averages_est = 1
+    n_cycles_est = 1
+    for mode_idx, mode_data in modes.items():
+        cycle_count = len(mode_data.get("cycles", {}))
+        if cycle_count > n_cycles_est:
+            n_cycles_est = cycle_count
+        for cycle_idx, cycle_data in mode_data.get("cycles", {}).items():
+            sample_count = len(
+                cycle_data.get("signs", {}).get("plus", {}).get("samples", {})
+            )
+            if sample_count > n_averages_est:
+                n_averages_est = sample_count
+    return n_averages_est, n_cycles_est
