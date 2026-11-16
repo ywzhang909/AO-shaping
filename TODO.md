@@ -5238,6 +5238,15 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 867→914 (>800), baseline 同 commit 抬高（`--update-baseline` 报：抬高 1）
 - 载体: 形状 + gui/zernike 377 passed
 
+**2026-11-16 · 48e515df 之后 · 第 98 批: `slm_square_shaping.optimize_slm_square` 460→386 行 + 两缝**
+- 提取: `_sq_resolve_basis` 90 (nest 4, 5 参, 5 回传; zernike 活动模式/mask 选择 → freeform 逐像素映射, 含半径默认与学习率缩放) / `_sq_plan_rotation` 45 (nest 1, 4 参, 5 回传; 旋转自由度 + 启发式 bounds 校验)
+- 边界: `if basis == "zernike"`/`else` 整块 (1772:1837) 与旋转段 (1839:1868)；`_noll_modes`/`nk` 在记录分支按需重算，未跨函数共享
+- 叶差分: 30 同 / 消失 0 / 新增 2 / 改 1 (`optimize_slm_square` −38/+5)
+- 等价性: 以仿真相机/SLM 替身注入，11 个变体 (spgd quality/pearson、GA、zernike mask 有效/全零/过短、freeform、非法 basis、rotation、rotation+启发式) 的 Recorder history 与全部下发相位摘要**逐位一致**，4 条错误路径的异常类型与文案不变
+- 棘轮: 母行 500/4/460 → 444/1/386，新增 2 行 (104/4/90, 52/1/45)
+- 模块 2764→2828 (+64), baseline 同 commit 抬高 (两个 helper 的函数头与 docstring)，并顺带收紧 `zernike_coefficient_optimizer` 1633→1628
+- 载体: 形状 + 6 个方形整形仿真测试 428 passed
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

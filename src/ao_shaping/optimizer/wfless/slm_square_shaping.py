@@ -1769,102 +1769,26 @@ def optimize_slm_square(
     basis = str(basis).lower().strip()
     if basis not in ("zernike", "freeform"):
         raise ValueError(f"Unknown basis: {basis!r} (expected 'zernike' or 'freeform')")
-    if basis == "zernike":
-        # 与 GUI multi_slm_controller.py 一致: 默认孔径 = SLM 面板短边一半
-        if zernike_radius is None:
-            zernike_radius = min(SLM_HEIGHT, SLM_WIDTH) / 2.0
-        _noll_modes = _zernike_indices(n_max)
-        nk = len(_noll_modes)
-        if zernike_mask is not None:
-            # --- mask-based mode selection ---
-            _mask = np.asarray(zernike_mask, dtype=int).ravel()
-            if _mask.size < _ZERNIKE_MIN_MASK_LEN:
-                raise ValueError(
-                    f"zernike_mask 长度必须 >= {_ZERNIKE_MIN_MASK_LEN} "
-                    f"(piston+tip+tilt 强制为0), 实际 {_mask.size}"
-                )
-            # Pad to nk or truncate
-            if _mask.size < nk:
-                _mask = np.pad(_mask, (0, nk - _mask.size), constant_values=0)
-            elif _mask.size > nk:
-                logger.warning(
-                    "zernike_mask 长度 {} 超过 n_max={} 的 Noll 项数 {}, 截断",
-                    _mask.size,
-                    n_max,
-                    nk,
-                )
-                _mask = _mask[:nk]
-            # Noll 1,2,3 (piston, tip, tilt) 强制为 0
-            _mask[0] = _mask[1] = _mask[2] = 0
-            _active_modes: tuple[tuple[int, int], ...] = tuple(
-                _noll_modes[i] for i in range(nk) if _mask[i] == 1
-            )
-            if not _active_modes:
-                raise ValueError(
-                    "zernike_mask 全为 0 (强制屏蔽 piston/tip/tilt 后): "
-                    "至少需要一个活动模式"
-                )
-            logger.info(
-                "zernike_mask 活动模式: {} (Noll 索引 {})",
-                _active_modes,
-                [i for i in range(nk) if _mask[i] == 1],
-            )
-        else:
-            # --- default: hardcoded active modes (backward compatible) ---
-            _active_modes = tuple(
-                m for m in ZERNIKE_ACTIVE_MODES if m[0] <= n_max and abs(m[1]) <= n_max
-            )
-            if not _active_modes:
-                raise ValueError(
-                    f"n_max={n_max} 过小: Zernike 活动模式 {ZERNIKE_ACTIVE_MODES} "
-                    "超出最大径向阶数上限"
-                )
-        _dim = len(_active_modes)
-        logger.info(
-            "Zernike 基启用 {} 个活动模式 (dim={}): {}",
-            _dim,
-            _dim,
-            [(i + 1, m) for i, m in enumerate(_active_modes)],
-        )
-        _param_clip: tuple[float, float] | None = (-5.0, 5.0)
-        _param_scale = 1.0
-    else:
-        _active_modes = ()
-        _dim = int(phase_grid) * int(phase_grid)
-        _param_clip = None
-        # The auto learning schedule returns lr/delta ~1-3, tuned for Zernike
-        # amplitudes. Freeform parameters are radians, so scale down.
-        _param_scale = 0.1
-
-    # --- SLM↔camera relative rotation search (extra SPGD DOF) ---
-    _rotation_search_deg = float(rotation_search_deg)
-    _has_rotation = _rotation_search_deg > 0.0
-    _rot_clip: tuple[float, float] | None = (
-        (-_rotation_search_deg / 2.0, _rotation_search_deg / 2.0)
-        if _has_rotation
-        else None
+    # Phase parameterisation basis: "zernike" (active-mode coefficient vector)
+    # or "freeform" (flat per-pixel phase map). Resolution lives in
+    # `_sq_resolve_basis`; the subset matters because low-order Zernike modes
+    # are smooth and cannot synthesise a square far-field.
+    basis = str(basis).lower().strip()
+    if basis not in ("zernike", "freeform"):
+        raise ValueError(f"Unknown basis: {basis!r} (expected 'zernike' or 'freeform')")
+    _active_modes, _dim, _param_clip, _param_scale, zernike_radius = _sq_resolve_basis(
+        basis=basis,
+        n_max=n_max,
+        zernike_radius=zernike_radius,
+        zernike_mask=zernike_mask,
+        phase_grid=phase_grid,
     )
-    _rot_delta = 1.0  # fixed 1° perturbation step for the rotation DOF
-    if _has_rotation:
-        _dim += 1  # rotation angle is the last element of the parameter vector
-        logger.info(
-            "启用 SLM↔相机旋转校正: 搜索范围 ±{:.1f}°, 作为第 {} 维 SPGD 自由度 (初始 0°, 扰动 {:.1f}°)",
-            _rotation_search_deg / 2.0,
-            _dim,
-            _rot_delta,
-        )
 
-    # Heuristic-search bounds: zernike coefficients are clipped to ±5, freeform
-    # parameters are radians. Rotation is an extra DOF with its own bounds, which
-    # the shared driver's single (lo, hi) cannot express — reject that combination
-    # instead of searching with wrong bounds.
-    if algorithm != "spgd" and _has_rotation:
-        raise ValueError(
-            "启发式搜索暂不支持 rotation_search_deg > 0 "
-            "(旋转角是额外自由度, 与统一 bounds 不兼容); 请使用 --algorithm spgd"
-        )
-    _heuristic_bounds: tuple[float, float] = (
-        _param_clip if _param_clip is not None else (-np.pi, np.pi)
+    _dim, _has_rotation, _rot_clip, _rot_delta, _heuristic_bounds = _sq_plan_rotation(
+        rotation_search_deg=rotation_search_deg,
+        algorithm=algorithm,
+        clip=_param_clip,
+        dim=_dim,
     )
 
     # --- Debug-record representation -------------------------------------
@@ -1874,6 +1798,8 @@ def optimize_slm_square(
     # The optimiser's own work-vector stays active-mode; this only remaps what is
     # *recorded*. Freeform (`_c` = grid*grid radians) is passed through untouched.
     if basis == "zernike":
+        _noll_modes = _zernike_indices(n_max)
+        nk = len(_noll_modes)
         _noll_position = {mode: i for i, mode in enumerate(_noll_modes)}
         _active_pos = [_noll_position[m] for m in _active_modes]
 
@@ -2762,3 +2688,141 @@ def _run_square_search_stage(
             time.sleep(SLM_RESPONSE_TIME_S)
     return False, _n_energy_gated, best_ar, best_cv, best_ee, best_quality, last_best_epoch
 
+
+def _sq_resolve_basis(
+    *,
+    basis: str,
+    n_max: int,
+    zernike_radius: float | int | None,
+    zernike_mask: "np.ndarray | list[int] | None",
+    phase_grid: int,
+) -> tuple[
+    tuple[tuple[int, int], ...],
+    int,
+    tuple[float, float] | None,
+    float,
+    float | int | None,
+]:
+    """Resolve the phase basis into ``(active_modes, dim, clip, scale, radius)``.
+
+    ``zernike`` uses an active-mode coefficient vector (piston/tip/tilt masked),
+    ``freeform`` the SLM's native per-pixel phase in radians. Freeform scales
+    the auto learning schedule down by 10: the schedule returns lr/delta ~1-3
+    tuned for Zernike amplitudes, while freeform parameters are radians.
+    ``zernike_radius`` defaults to half the SLM panel's short edge, matching the
+    GUI multi-SLM controller.
+    """
+    if basis == "zernike":
+        # 与 GUI multi_slm_controller.py 一致: 默认孔径 = SLM 面板短边一半
+        if zernike_radius is None:
+            zernike_radius = min(SLM_HEIGHT, SLM_WIDTH) / 2.0
+        noll_modes = _zernike_indices(n_max)
+        nk = len(noll_modes)
+        if zernike_mask is not None:
+            # --- mask-based mode selection ---
+            _mask = np.asarray(zernike_mask, dtype=int).ravel()
+            if _mask.size < _ZERNIKE_MIN_MASK_LEN:
+                raise ValueError(
+                    f"zernike_mask 长度必须 >= {_ZERNIKE_MIN_MASK_LEN} "
+                    f"(piston+tip+tilt 强制为0), 实际 {_mask.size}"
+                )
+            # Pad to nk or truncate
+            if _mask.size < nk:
+                _mask = np.pad(_mask, (0, nk - _mask.size), constant_values=0)
+            elif _mask.size > nk:
+                logger.warning(
+                    "zernike_mask 长度 {} 超过 n_max={} 的 Noll 项数 {}, 截断",
+                    _mask.size,
+                    n_max,
+                    nk,
+                )
+                _mask = _mask[:nk]
+            # Noll 1,2,3 (piston, tip, tilt) 强制为 0
+            _mask[0] = _mask[1] = _mask[2] = 0
+            active_modes: tuple[tuple[int, int], ...] = tuple(
+                noll_modes[i] for i in range(nk) if _mask[i] == 1
+            )
+            if not active_modes:
+                raise ValueError(
+                    "zernike_mask 全为 0 (强制屏蔽 piston/tip/tilt 后): "
+                    "至少需要一个活动模式"
+                )
+            logger.info(
+                "zernike_mask 活动模式: {} (Noll 索引 {})",
+                active_modes,
+                [i for i in range(nk) if _mask[i] == 1],
+            )
+        else:
+            # --- default: hardcoded active modes (backward compatible) ---
+            active_modes = tuple(
+                m for m in ZERNIKE_ACTIVE_MODES if m[0] <= n_max and abs(m[1]) <= n_max
+            )
+            if not active_modes:
+                raise ValueError(
+                    f"n_max={n_max} 过小: Zernike 活动模式 {ZERNIKE_ACTIVE_MODES} "
+                    "超出最大径向阶数上限"
+                )
+        dim = len(active_modes)
+        logger.info(
+            "Zernike 基启用 {} 个活动模式 (dim={}): {}",
+            dim,
+            dim,
+            [(i + 1, m) for i, m in enumerate(active_modes)],
+        )
+        clip: tuple[float, float] | None = (-5.0, 5.0)
+        scale = 1.0
+    else:
+        active_modes = ()
+        dim = int(phase_grid) * int(phase_grid)
+        clip = None
+        # The auto learning schedule returns lr/delta ~1-3, tuned for Zernike
+        # amplitudes. Freeform parameters are radians, so scale down.
+        scale = 0.1
+    return active_modes, dim, clip, scale, zernike_radius
+
+
+def _sq_plan_rotation(
+    *,
+    rotation_search_deg: float,
+    algorithm: str,
+    clip: tuple[float, float] | None,
+    dim: int,
+) -> tuple[int, bool, tuple[float, float] | None, float, tuple[float, float]]:
+    """Resolve the SLM↔camera rotation DOF.
+
+    Returns ``(dim, has_rotation, rot_clip, rot_delta, heuristic_bounds)`` where
+    ``dim`` already includes the rotation angle as the last parameter-vector
+    element. Heuristic search rejects a positive range: its single shared
+    ``(lo, hi)`` bounds cannot express the extra DOF.
+    """
+    # --- SLM↔camera relative rotation search (extra SPGD DOF) ---
+    search_deg = float(rotation_search_deg)
+    has_rotation = search_deg > 0.0
+    rot_clip: tuple[float, float] | None = (
+        (-search_deg / 2.0, search_deg / 2.0)
+        if has_rotation
+        else None
+    )
+    rot_delta = 1.0  # fixed 1° perturbation step for the rotation DOF
+    if has_rotation:
+        dim += 1  # rotation angle is the last element of the parameter vector
+        logger.info(
+            "启用 SLM↔相机旋转校正: 搜索范围 ±{:.1f}°, 作为第 {} 维 SPGD 自由度 (初始 0°, 扰动 {:.1f}°)",
+            search_deg / 2.0,
+            dim,
+            rot_delta,
+        )
+
+    # Heuristic-search bounds: zernike coefficients are clipped to ±5, freeform
+    # parameters are radians. Rotation is an extra DOF with its own bounds, which
+    # the shared driver's single (lo, hi) cannot express — reject that combination
+    # instead of searching with wrong bounds.
+    if algorithm != "spgd" and has_rotation:
+        raise ValueError(
+            "启发式搜索暂不支持 rotation_search_deg > 0 "
+            "(旋转角是额外自由度, 与统一 bounds 不兼容); 请使用 --algorithm spgd"
+        )
+    bounds: tuple[float, float] = (
+        clip if clip is not None else (-np.pi, np.pi)
+    )
+    return dim, has_rotation, rot_clip, rot_delta, bounds
