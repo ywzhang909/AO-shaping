@@ -5381,6 +5381,13 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 门禁: 棘轮收紧 214/3/186→145/1/130 + 新增 4 helper 行 (均 guard `_measure` 实测); ruff/term 绿
 - 队列更新: 本模块同族 `calibrate_bench_geometry` 173 的缝含 break 环 (教训㉛ 同型), 剩余可提段 <30 行, 收益不足转 pin-only; `optimize_beam_shaping` 153 / `_run_spgd_epochs` 195 / `closed_loop_run` 154 (b76 后) 转入下批评估
 
+**2026-11-17 · 0acc8699 之后 · 第 117 批: `_run_spgd_epochs` 195→47 行 + 整环提取 (`wfless/pib.py`, 生成器 bound-break 豁免首战)**
+- 工具扩展 (㉛ 后续): 生成器加**绑定豁免** —— 区域内 break/continue 仅当**区域内没有包含它的完整 For/While** 才拒绝; 整环可整体提走 (break 随环走)。split117.py 起为新基线; 本批配套加**绑定后审** (helper 内每个 break/continue 必被 helper 内某 For/While 包含) 验证
+- 提取: `_spgd_epoch_loop` 152 (tqdm 逐轮环整体提走, 36 参数 6 回传 `_init_r/_init_v/best_objective/delta/last_best_epoch/r_bucket`, 其中 delta 为 ⑳ 型重绑参数)
+- wiki 重钉: `optimize_pib` 509→517/661→669 —— md 引文 + index.md + 双 JSON; JSON `"end": 661` 全库不唯一 ⇒ 以相邻 `"lineno": 509,\n   "end": 661` 对为锚替换
+- 载体: `test_pib_objective_columns` + `test_pib_objective_sign` + `test_spid_pib_path_characterization` + 形状门禁 **430 passed**; wfless 逐文件域 exit=0; `test_conventions` 72 passed
+- 门禁: 棘轮收紧 230/5/195→55/0/47 + 新增 `_spgd_epoch_loop` 170/5/152; 模块 1085→1093 baseline 抬高 +8; ruff/term 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
