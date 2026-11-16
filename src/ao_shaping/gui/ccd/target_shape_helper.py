@@ -18,6 +18,7 @@ Features:
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import numpy as np
 import plotly.graph_objects as go
@@ -57,11 +58,82 @@ def _init_session_state() -> None:
     st.session_state.setdefault("ts_frame", None)
     st.session_state.setdefault("ts_centers", {})
     st.session_state.setdefault("ts_target", None)
+    # Effective (read-back) ROI window ((w, h), (cx, cy)) actually applied by
+    # the camera, or None when no ROI has been applied / backend has no readback
+    st.session_state.setdefault("ts_roi_window", None)
     # Simulated-spot parameters (None → generate a fresh random spot)
     st.session_state.setdefault("ts_sim_params", None)
     # Center-method checkboxes (default: only centroid on)
     for key, _ in _CENTER_METHODS:
         st.session_state.setdefault(f"{_CM_KEY}{key}", key == "centroid")
+
+
+def _close_stale_camera(cam: Any, reason: str) -> None:
+    """Best-effort ``close()`` of a stale camera before its last reference is dropped.
+
+    Once ``ts_camera`` is cleared the GUI loses its only cleanup handle, so a
+    stale object that may still hold an SDK handle is closed here first —
+    otherwise the device can stay locked until process exit. A failing close
+    is logged but never masks *reason* (the original liveness failure that
+    triggered the discard).
+    """
+    close = getattr(cam, "close", None)
+    if not callable(close):
+        return
+    try:
+        close()
+    # policy: a stale camera that cannot be closed is still discarded -- the liveness verdict stands, and the close error is logged alongside the original reason instead of replacing it
+    except Exception as close_exc:
+        logger.warning(
+            "Closing stale camera failed (discarding anyway; original reason: {}): {}",
+            reason,
+            close_exc,
+        )
+
+
+def _effective_window(
+    requested_size: tuple[int, int],
+    requested_center: tuple[float, float],
+    applied: tuple[tuple[int, int], tuple[int, int]] | None,
+) -> tuple[tuple[int, int], tuple[float, float]]:
+    """Resolve which window geometry to trust after ``reset_window``.
+
+    ``DahengCamera.reset_window`` clamps the request onto the GenICam grid and
+    reads Width/Height/OffsetX/OffsetY back from the device, returning the
+    EFFECTIVE ``((w, h), (cx, cy))`` — requests outside the grid are silently
+    preserved by the SDK, so the request is not necessarily what got applied.
+    Backends without readback return ``None``; then the requested geometry is
+    kept (previous behavior).
+    """
+    if applied is None:
+        return (int(requested_size[0]), int(requested_size[1])), (
+            float(requested_center[0]),
+            float(requested_center[1]),
+        )
+    (w, h), (cx, cy) = applied
+    return (int(w), int(h)), (float(cx), float(cy))
+
+
+def _store_effective_window(
+    session_state: Any,
+    requested_size: int,
+    requested_center: tuple[float, float],
+    applied: tuple[tuple[int, int], tuple[int, int]] | None,
+) -> tuple[tuple[int, int], tuple[float, float]]:
+    """Persist the effective ROI window into the session geometry.
+
+    Writes ``ts_roi_window`` (effective ``((w, h), (cx, cy))``) and syncs the
+    square ``ts_window_size`` to the effective size so downstream crop/window
+    consumers use the geometry that actually describes the frames. Returns the
+    effective ``(size, center)`` for status text. ``applied is None`` (backend
+    without readback) stores the requested geometry unchanged.
+    """
+    (eff_w, eff_h), (eff_cx, eff_cy) = _effective_window(
+        (requested_size, requested_size), requested_center, applied
+    )
+    session_state["ts_window_size"] = min(eff_w, eff_h)
+    session_state["ts_roi_window"] = ((eff_w, eff_h), (eff_cx, eff_cy))
+    return (eff_w, eff_h), (eff_cx, eff_cy)
 
 
 def _generate_sim_frame() -> np.ndarray:
@@ -297,6 +369,9 @@ def _render_sidebar() -> None:
                 try:
                     if not cam.is_connected():
                         logger.warning("Camera connection lost, resetting state")
+                        # Close the stale object before dropping the GUI's only
+                        # cleanup reference (the SDK handle may still be allocated).
+                        _close_stale_camera(cam, "is_connected() returned False")
                         st.session_state.ts_camera = None
                         st.session_state.ts_camera_connected = False
                         st.session_state.ts_frame = None
@@ -305,6 +380,10 @@ def _render_sidebar() -> None:
                 # policy: a camera liveness probe that throws is treated as lost: state is reset to disconnected rather than leaving a stale handle the next tick would trust
                 except Exception as exc:
                     logger.warning("Camera state check failed: {}", exc)
+                    # Best-effort close first; a close failure must not mask the
+                    # original liveness error (already logged above, and passed
+                    # through as the reason).
+                    _close_stale_camera(cam, f"liveness probe raised: {exc}")
                     st.session_state.ts_camera = None
                     st.session_state.ts_camera_connected = False
 
@@ -386,23 +465,49 @@ def _render_sidebar() -> None:
             ):
                 if roi_center is None:
                     roi_center = (cam.cam_width / 2, cam.cam_height / 2)
+                applied_window = st.session_state.get("ts_roi_window")
+                if applied_window is not None:
+                    (rw, rh), (rcx, rcy) = applied_window
+                    st.caption(f"当前生效窗口: {rw}×{rh} @ ({rcx:.0f}, {rcy:.0f})")
                 if st.button("应用 ROI 窗口"):
                     try:
-                        cam.reset_window(
+                        requested_size = int(st.session_state.ts_window_size)
+                        applied = cam.reset_window(
                             center=(int(roi_center[0]), int(roi_center[1])),
-                            size=(
-                                st.session_state.ts_window_size,
-                                st.session_state.ts_window_size,
-                            ),
+                            size=(requested_size, requested_size),
+                        )
+                        # reset_window returns the read-back EFFECTIVE window:
+                        # the SDK silently clamps/preserves requests outside the
+                        # GenICam grid, so session geometry must follow the
+                        # readback, not the request. None (backend without
+                        # readback) keeps the requested geometry.
+                        (eff_w, eff_h), (eff_cx, eff_cy) = _store_effective_window(
+                            st.session_state,
+                            requested_size,
+                            (float(roi_center[0]), float(roi_center[1])),
+                            applied,
                         )
                         st.success(
-                            f"ROI 已应用: 中心 ({roi_center[0]:.0f}, {roi_center[1]:.0f}), "
-                            f"大小 {st.session_state.ts_window_size}"
+                            f"ROI 已应用: 中心 ({eff_cx:.0f}, {eff_cy:.0f}), "
+                            f"大小 {eff_w}×{eff_h}"
                         )
+                        if applied is not None and (
+                            (eff_w, eff_h) != (requested_size, requested_size)
+                            or (int(eff_cx), int(eff_cy))
+                            != (int(roi_center[0]), int(roi_center[1]))
+                        ):
+                            st.warning(
+                                f"设备生效窗口与请求不同 (请求: 中心 "
+                                f"({roi_center[0]:.0f}, {roi_center[1]:.0f}), "
+                                f"大小 {requested_size}) — 会话几何已按回读值更新"
+                            )
                         logger.info(
-                            "ROI window applied: center={}, size={}",
+                            "ROI window applied: effective center={}, size={} "
+                            "(requested center={}, size={})",
+                            (eff_cx, eff_cy),
+                            (eff_w, eff_h),
                             roi_center,
-                            st.session_state.ts_window_size,
+                            requested_size,
                         )
                     # policy: an ROI window that cannot be applied is a configuration error: report it and leave the previous window in effect
                     except Exception as exc:

@@ -314,6 +314,9 @@ def _run_capture_loop(
     try:
         while not stop_event.is_set():
             _camera_capture_tick(camera, raw_frame_queue, params)
+            # Single-shot mode (manual refresh): one tick, then the thread exits
+            if params.get("single_shot"):
+                break
             time.sleep(max(0.005, float(params.get("dt", _REFRESH_INTERVAL))))
     # policy: loop-level crash is reported through the queue and the finally clause still runs teardown; nothing may propagate out of a background thread
     except Exception as exc:
@@ -348,6 +351,7 @@ def _start_capture_loop(
     q: queue.Queue[Any] = queue.Queue(maxsize=3)
     st.session_state["ccd_loop_stop_event"] = ev
     st.session_state["ccd_raw_frame_queue"] = q
+    st.session_state["ccd_manual_capture_pending"] = False
 
     thread = threading.Thread(
         target=_run_capture_loop,
@@ -368,6 +372,65 @@ def _stop_capture_loop() -> None:
         st.session_state["ccd_loop_stop_event"] = None
     st.session_state["ccd_raw_frame_queue"] = None
     st.session_state["ccd_capture_loop_running"] = False
+
+
+def _start_single_capture(camera: Any) -> bool:
+    """Grab one frame on a background thread (manual refresh).
+
+    Returns False without starting anything if a single-shot capture is already
+    in flight.  Does not touch ``ccd_capture_loop_running``.  The previous
+    ``current_image`` stays on screen until the new frame is analysed.
+    """
+    worker = st.session_state.get("ccd_manual_capture_thread")
+    if worker is not None and worker.is_alive():
+        return False
+    q: queue.Queue[Any] = queue.Queue(maxsize=3)
+    stop_ev = threading.Event()
+    thread = threading.Thread(
+        target=_run_capture_loop,
+        args=(camera, q, {"n_sample": 1, "skip_first": False, "single_shot": True}, stop_ev),
+        daemon=True,
+        name="ccd-manual-capture",
+    )
+    st.session_state["ccd_manual_capture_thread"] = thread
+    st.session_state["ccd_manual_capture_queue"] = q
+    st.session_state["ccd_manual_capture_pending"] = True
+    thread.start()
+    return True
+
+
+@st.fragment(run_every=_REFRESH_INTERVAL)
+def _manual_capture_fragment() -> None:
+    """Poll the single-shot worker; analyse its frame on the main thread when done.
+
+    Mounted only while a manual capture is pending.  The fragment does not
+    touch the continuous loop's queue.
+    """
+    if not st.session_state.get("ccd_manual_capture_pending"):
+        return
+    q = st.session_state.get("ccd_manual_capture_queue")
+    thread = st.session_state.get("ccd_manual_capture_thread")
+    latest_frame: np.ndarray | None = None
+    error: str | None = None
+    while q is not None:
+        try:
+            item = q.get_nowait()
+        except queue.Empty:
+            break
+        if isinstance(item, tuple) and len(item) == 2 and item[0] == "error":
+            error = item[1]
+        elif isinstance(item, np.ndarray):
+            latest_frame = item
+    if latest_frame is not None:
+        st.session_state["current_image"] = _analyze_image(latest_frame)
+        st.session_state["last_update_time"] = time.time()
+    if error:
+        st.session_state["ccd_last_error"] = f"Failed to get image: {error}"
+    done = thread is None or not thread.is_alive()
+    if done and (q is None or q.empty()):
+        st.session_state["ccd_manual_capture_pending"] = False
+        _update_fps()
+        st.rerun()
 
 
 def _drain_capture_feedback() -> None:
@@ -430,6 +493,9 @@ def _initialize_camera_state() -> None:
     st.session_state.setdefault("ccd_capture_loop_running", False)
     st.session_state.setdefault("ccd_last_error", "")
     st.session_state.setdefault("ccd_frame_count", 0)
+    st.session_state.setdefault("ccd_manual_capture_pending", False)
+    st.session_state.setdefault("ccd_manual_capture_thread", None)
+    st.session_state.setdefault("ccd_manual_capture_queue", None)
     st.session_state.setdefault("ccd_fps", 0.0)
     st.session_state.setdefault("ccd_fps_last_time", time.time())
     st.session_state.setdefault("ccd_fps_last_count", 0)
@@ -648,6 +714,24 @@ def _safe_close_camera(camera: Any) -> None:
         elif hasattr(camera, "cam") and camera.cam is not None:  # type: ignore[union-attr]
             camera.cam.stream_off()  # type: ignore[union-attr]
             camera.cam.close_device()  # type: ignore[union-attr]
+
+
+def _camera_is_live(camera: Any) -> bool:
+    """Return True only if the camera answers a real liveness probe.
+
+    Backends exposing ``is_connected()`` (Daheng) are probed directly; a probe
+    that raises counts as not connected.  Backends without the method (MiiCam)
+    keep the historical check: a non-None ``cam`` attribute.
+    """
+    probe = getattr(camera, "is_connected", None)
+    if callable(probe):
+        try:
+            return bool(probe())
+        # policy: a probe that raises means the handle is unusable; report "not connected" so the operator can reconnect instead of the panel crashing
+        except Exception as exc:
+            logger.warning("Camera liveness probe failed: {}", exc)
+            return False
+    return getattr(camera, "cam", None) is not None
 
 
 def _get_camera_exposure_range(camera: Any) -> tuple[float, float]:
@@ -913,10 +997,7 @@ def main() -> None:
             and not st.session_state.camera_connected
         ):
             try:
-                if (
-                    hasattr(st.session_state.camera, "cam")
-                    and st.session_state.camera.cam is not None
-                ):
+                if _camera_is_live(st.session_state.camera):
                     st.session_state.camera_connected = True
                     logger.info("Recovered existing camera connection")
             # policy: a stale session_state handle degrades to "not connected" (assigned below) instead of breaking every later rerun
@@ -989,7 +1070,11 @@ def main() -> None:
             )
 
         with col_manual:
-            manual_refresh = st.button("🔄 Refresh Image", type="primary")
+            manual_refresh = st.button(
+                "🔄 Refresh Image",
+                type="primary",
+                disabled=bool(st.session_state.get("ccd_manual_capture_pending")),
+            )
 
         with col_status:
             ci = st.session_state.current_image
@@ -1016,16 +1101,12 @@ def main() -> None:
         loop_running = st.session_state.ccd_capture_loop_running
 
         if manual_refresh:
-            # Single-shot capture in the main thread
-            try:
-                img = st.session_state.camera.get_numpy_image(
-                    n_sample=1, skip_first=False
-                )
-                st.session_state.current_image = _analyze_image(img)
-                st.session_state.last_update_time = time.time()
-            # policy: one failed capture is surfaced to the operator and retried on the next rerun; it is not fatal to the analysis session
-            except Exception as exc:
-                st.error(f"Failed to get image: {exc}")
+            # Single-shot capture on a background thread; the fragment below
+            # collects the frame so a slow SDK call cannot freeze the UI
+            _start_single_capture(st.session_state.camera)
+
+        if st.session_state.get("ccd_manual_capture_pending"):
+            _manual_capture_fragment()
 
         elif st.session_state.auto_refresh and not loop_running:
             # Start the background capture loop (r50 pattern)
