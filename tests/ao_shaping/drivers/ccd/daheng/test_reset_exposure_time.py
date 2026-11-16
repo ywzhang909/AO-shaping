@@ -121,6 +121,9 @@ def _make_cam(monkeypatch, stale_frames: int = 2, exposure_ms: float = 20.0):
         exposure_ms=exposure_ms,
     )
     cam.cam = mock_cam
+    # 假相机 = 取流进行中: 「停流不许取帧」的把关 (__take_one_shot) 以
+    # _acquisition_on 为准, 直接装 cam 的测试须显式声明流已开。
+    cam._acquisition_on = True
     return cam, mock_cam
 
 

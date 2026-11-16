@@ -86,6 +86,9 @@ def _make_cam(monkeypatch, pixels: np.ndarray, bit_depth: int = 12):
     cam = daheng_driver.DahengCamera(cam_id=0, exposure_time_ms=20.0)
     mock_cam = _FakeCam(pixels, fake_gx.GxFrameStatusList.SUCCESS)
     cam.cam = mock_cam
+    # 假相机 = 已开流状态: __take_one_shot 的「停流不许取帧」把关以此标记为准
+    # (停流时 get_image 永不返回 = 死等), 直接装 cam 的测试须显式声明流已开。
+    cam._acquisition_on = True
     # 契约: bit_depth 只放设备回读真值; 这里直接模拟 open 后的生效位深。
     cam.bit_depth = bit_depth
     return cam, mock_cam
