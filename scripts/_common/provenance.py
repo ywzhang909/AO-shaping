@@ -2618,6 +2618,26 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         extra_scripts=("scripts/slm/_hw_fidelity_ladder_sections.py",),
     ),
+    "report/slm/differentiable_opt/artifacts/fwdmodel_fit_20261116/fwdmodel_fit.md": ReportProvenance(
+        script="scripts/slm/analyze_fwdmodel_fit.py",
+        command=(
+            "python scripts/slm/analyze_fwdmodel_fit.py "
+            "--out report/slm/differentiable_opt/artifacts/fwdmodel_fit_20261116"
+        ),
+        environment="离线",
+        note=(
+            "前向物理预测模型缺陷的离线拟合归因 (驱动无关, 只读已落盘的相位/实测/模型三联数据): "
+            "头号结论是冻结模型的光轴**陈旧 ~179 个 CCD 像素** (2026-11-07 M3 原点 1306,944 vs "
+            "2026-11-16 实测零级 1224,1105) —— 仅此一项把 Pearson 从 -0.003 拉到 0.95~0.98、"
+            "验证集形状残差降 65%, **离焦不可辨识** (目标敏感度 1e-4), 993/1023 灰度假设"
+            "**在方向上被证伪且量级上无关紧要** (3% 相位标度只动远场 NRMSE 0.012)。给出拟合的"
+            "横向尺度/中心/模糊等全局量、验证集前后对照、联合优化可辨识性判定与补数据清单"
+        ),
+        extra_scripts=(
+            "scripts/_common/differentiable_problem.py",
+            "src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py",
+        ),
+    ),
 }
 
 
