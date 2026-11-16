@@ -5266,6 +5266,13 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 2611→2657 (+46), baseline 同 commit 抬高 (两个 helper 的函数头与 docstring)
 - 载体: 形状 + 9 个 slm-zernike-pib 测试 469 passed, 1 skipped (hardware gate)
 
+**2026-11-16 · dd015241 · 第 102 批: `offline_correction_test` 197→110 行 + 三缝 (`runners/slm/zernike_matrix_runner.py`)**
+- 提取: `_oct_solve_correction` 26 (pinv 反解 + 初始 summary) / `_oct_model_selfcheck` 38 (模型自检比报告, `summary` 原位更新) / `_oct_build_meta` 35 (导出元数据 dict)
+- 设备调用 (display_data/sleep/measure) 全部留在母函数; 三缝均为纯数据段, risk 0, ⑳ 审计 0 命中
+- 叶差分: 30 同 / 消失 0 / 新增 3; 母函数无装饰器 (教训 ㉓ 不适用)
+- 锚点 +24: run 1262→1286 / closed_loop_run 1754→1778 (md 各 1 + 双 JSON lineno/end); 棘轮 127/2/110 + 3 helper 行
+- 载体: `test_zernike_matrix_runner` + 形状门禁 + conventions **436 passed 1 skipped**; 模块 1936 baseline 抬高 +24
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
