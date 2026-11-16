@@ -105,6 +105,102 @@ def angular_spectrum_propagate(
     return ifft2(F_propagated)
 
 
+
+def _gs_error_and_callbacks(C, error_history, i, iterations, phase_A, phase_callback, progress_callback, target_amplitude):
+# MSE record and progress/phase callbacks lifted verbatim
+    amplitude_C = np.abs(C)
+    mse = np.mean((amplitude_C - target_amplitude) ** 2)
+    error_history.append(float(mse))
+
+    # 进度回调
+    if progress_callback is not None:
+        progress_callback(i, float(mse))
+
+    # 实时相位回调 —— 把当前源面相位推送到硬件
+    if phase_callback is not None:
+        phase_callback(i, phase_A)
+
+    # 每 10 次迭代记录一次进度
+    if (i + 1) % 10 == 0 or i == 0:
+        logger.debug(f"Iteration {i + 1}/{iterations}, MSE={mse:.6f}")
+    return mse
+
+
+
+
+def _gs_backward_step(C, cell_spacing, distance, propagation, target_amplitude, wavelength):
+# Target amplitude constraint and back propagation lifted verbatim
+    phase_C = np.angle(C)
+    D = target_amplitude * np.exp(1j * phase_C)
+
+    if propagation == "asm":
+        # 步骤 4: 反向传播回源面
+        A = angular_spectrum_propagate(D, cell_spacing, -distance, wavelength)
+    else:
+        # 步骤 4: 反向传播回源面 —— 单次 IFFT
+        A = ifft2(ifftshift(D))
+    return A
+
+
+
+
+def _gs_forward_step(A, cell_spacing, distance, propagation, source_amplitude, wavelength):
+# Source amplitude constraint and forward propagation lifted verbatim
+    phase_A = np.angle(A)
+    B = source_amplitude * np.exp(1j * phase_A)
+
+    if propagation == "asm":
+        # 步骤 2: 正向传播到目标面
+        C = angular_spectrum_propagate(B, cell_spacing, distance, wavelength)
+    else:
+        # 步骤 2: 正向传播到夫琅禾费 (焦) 平面 —— 单次 FFT
+        C = fftshift(fft2(B))
+    return C, phase_A
+
+
+
+
+def _gs_initial_field(cell_spacing, distance, propagation, target_amplitude, wavelength):
+# Field A initialisation by back-propagated target lifted verbatim
+    logger.debug("Initializing field with back-propagated target")
+    if propagation == "asm":
+        A = angular_spectrum_propagate(
+            target_amplitude.astype(np.complex128),
+            cell_spacing,
+            -distance,  # 反向传播
+            wavelength,
+        )
+    else:
+        # 夫琅禾费反向传播: 目标平面的逆 FFT
+        A = ifft2(ifftshift(target_amplitude.astype(np.complex128)))
+    return A
+
+
+
+
+def _gs_validate_inputs(cell_spacing, distance, iterations, propagation, source_amplitude, target_amplitude, wavelength):
+# Input shape and parameter validation lifted verbatim
+    if source_amplitude.ndim != 2 or target_amplitude.ndim != 2:
+        raise ValueError("Input amplitudes must be 2D arrays")
+
+    if source_amplitude.shape != target_amplitude.shape:
+        raise ValueError(
+            f"Source and target shapes must match: "
+            f"{source_amplitude.shape} vs {target_amplitude.shape}"
+        )
+
+    if iterations < 1:
+        raise ValueError(f"Iterations must be >= 1, got {iterations}")
+
+    if cell_spacing <= 0 or distance <= 0 or wavelength <= 0:
+        raise ValueError("Physical parameters must be positive")
+
+    if propagation not in ("asm", "fft"):
+        raise ValueError(f"propagation must be 'asm' or 'fft', got {propagation!r}")
+    return 
+
+
+
 def gerchberg_saxton(
     source_amplitude: npt.NDArray[np.floating],
     target_amplitude: npt.NDArray[np.floating],
@@ -176,23 +272,7 @@ def gerchberg_saxton(
         >>> slm_phase = result.phase  # 弧度, 0-2π
     """
     # 校验输入
-    if source_amplitude.ndim != 2 or target_amplitude.ndim != 2:
-        raise ValueError("Input amplitudes must be 2D arrays")
-
-    if source_amplitude.shape != target_amplitude.shape:
-        raise ValueError(
-            f"Source and target shapes must match: "
-            f"{source_amplitude.shape} vs {target_amplitude.shape}"
-        )
-
-    if iterations < 1:
-        raise ValueError(f"Iterations must be >= 1, got {iterations}")
-
-    if cell_spacing <= 0 or distance <= 0 or wavelength <= 0:
-        raise ValueError("Physical parameters must be positive")
-
-    if propagation not in ("asm", "fft"):
-        raise ValueError(f"propagation must be 'asm' or 'fft', got {propagation!r}")
+    _gs_validate_inputs(cell_spacing, distance, iterations, propagation, source_amplitude, target_amplitude, wavelength)
 
     logger.info(
         f"Starting Gerchberg-Saxton algorithm: "
@@ -205,17 +285,7 @@ def gerchberg_saxton(
 
     # 用反向传播到源面的目标来初始化光场 A
     # 这比随机初始化给出更好的起点
-    logger.debug("Initializing field with back-propagated target")
-    if propagation == "asm":
-        A = angular_spectrum_propagate(
-            target_amplitude.astype(np.complex128),
-            cell_spacing,
-            -distance,  # 反向传播
-            wavelength,
-        )
-    else:
-        # 夫琅禾费反向传播: 目标平面的逆 FFT
-        A = ifft2(ifftshift(target_amplitude.astype(np.complex128)))
+    A = _gs_initial_field(cell_spacing, distance, propagation, target_amplitude, wavelength)
 
     error_history = []
 
@@ -223,44 +293,14 @@ def gerchberg_saxton(
     for i in range(iterations):
         # 步骤 1: 施加源面振幅约束
         # B = source_amplitude * exp(i * phase(A))
-        phase_A = np.angle(A)
-        B = source_amplitude * np.exp(1j * phase_A)
-
-        if propagation == "asm":
-            # 步骤 2: 正向传播到目标面
-            C = angular_spectrum_propagate(B, cell_spacing, distance, wavelength)
-        else:
-            # 步骤 2: 正向传播到夫琅禾费 (焦) 平面 —— 单次 FFT
-            C = fftshift(fft2(B))
+        C, phase_A = _gs_forward_step(A, cell_spacing, distance, propagation, source_amplitude, wavelength)
 
         # 步骤 3: 施加目标面振幅约束
         # D = target_amplitude * exp(i * phase(C))
-        phase_C = np.angle(C)
-        D = target_amplitude * np.exp(1j * phase_C)
-
-        if propagation == "asm":
-            # 步骤 4: 反向传播回源面
-            A = angular_spectrum_propagate(D, cell_spacing, -distance, wavelength)
-        else:
-            # 步骤 4: 反向传播回源面 —— 单次 IFFT
-            A = ifft2(ifftshift(D))
+        A = _gs_backward_step(C, cell_spacing, distance, propagation, target_amplitude, wavelength)
 
         # 计算误差 (|C| 与目标之间的均方误差)
-        amplitude_C = np.abs(C)
-        mse = np.mean((amplitude_C - target_amplitude) ** 2)
-        error_history.append(float(mse))
-
-        # 进度回调
-        if progress_callback is not None:
-            progress_callback(i, float(mse))
-
-        # 实时相位回调 —— 把当前源面相位推送到硬件
-        if phase_callback is not None:
-            phase_callback(i, phase_A)
-
-        # 每 10 次迭代记录一次进度
-        if (i + 1) % 10 == 0 or i == 0:
-            logger.debug(f"Iteration {i + 1}/{iterations}, MSE={mse:.6f}")
+        mse = _gs_error_and_callbacks(C, error_history, i, iterations, phase_A, phase_callback, progress_callback, target_amplitude)
 
         # 检查收敛
         if error_threshold is not None and mse < error_threshold:

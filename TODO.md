@@ -5297,6 +5297,13 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: `test_zernike_matrix_runner` + guard + 形状门禁 + conventions **451 passed 1 skipped**; runners 逐文件域 exit=0
 - 门禁: 模块 1936→1976 baseline 抬高 +40
 
+**2026-11-16 · 3edd0a06 · 第 107 批: `gerchberg_saxton` 190→134 行 + 五缝 (`algorithm/signal_processing/gerchberg_saxton.py`)**
+- 提取: `_gs_validate_inputs` 17 / `_gs_initial_field` 14 (回传 A) / `_gs_forward_step` 12 (回传 C, phase_A) / `_gs_backward_step` 12 (回传 A) / `_gs_error_and_callbacks` 15 (回传 mse); 收敛 `break` 留母循环
+- 纯数值路径, 传播 asm/fft 两分支逐字节搬移; `error_history` 子脚本变更走形参
+- 叶差分: 4 同 / 消失 0 / 新增 5; ⑳ 审计 0 命中
+- 教训㉗: 棘轮行的 measured 必须取守卫口径 (`ast 装饰器无关的 def..end`), 手写估计 3 行超限当场红; 提交前先跑一次形状门禁再写行
+- 载体: GS 三测试族 (square_shaping/gs_runner/cython parity skip) + 形状门禁 + conventions **449+380 全绿**; 模块 441→481 (<800 不受管)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
