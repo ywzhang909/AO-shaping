@@ -5374,6 +5374,13 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: `test_slm_diffraction_efficiency` + 形状门禁 **467 passed**; tools/slm 逐文件域 exit=0; `test_conventions` 72 passed
 - 门禁: 棘轮新增 3 行 (140/5/124 + 40/3/32 + 40/1/33); 模块 1546→1562 baseline 抬高 +16; ruff/term 绿
 
+**2026-11-17 · 7501371b 之后 · 第 116 批: `calibrate_bench_geometry_from_sweep` 186→130 行 + 四缝 (`wfless/model_in_loop_shaping.py`)**
+- 提取: `_milsg_require_groups` 20 (空 groups 的 SweepCalibrationError 抛出) / `_milsg_require_defocus` 10 (缺 defocus 抛出) / `_milsg_waist_verdict` 21 (waist 判定日志, 回传 `waist_model`) / `_milsg_log_geometry` 21 (标定汇总日志, 零回传); raise 块整体提走合法 (异常照常传播), 缝内全程无 break/continue
+- 叶差分: 78 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中; 模块 3422→3454 baseline 抬高 +32
+- 载体: `test_model_in_loop_shaping` + `test_model_in_loop_sweep_diagnostics` + `test_slm_model_in_loop_step_sink` + 形状门禁 **491 passed**; wfless 逐文件域 exit=0; `test_conventions` 72 passed (本批 lift 未移动任何被引用行)
+- 门禁: 棘轮收紧 214/3/186→145/1/130 + 新增 4 helper 行 (均 guard `_measure` 实测); ruff/term 绿
+- 队列更新: 本模块同族 `calibrate_bench_geometry` 173 的缝含 break 环 (教训㉛ 同型), 剩余可提段 <30 行, 收益不足转 pin-only; `optimize_beam_shaping` 153 / `_run_spgd_epochs` 195 / `closed_loop_run` 154 (b76 后) 转入下批评估
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

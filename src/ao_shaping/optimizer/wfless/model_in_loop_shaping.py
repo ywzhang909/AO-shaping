@@ -2562,6 +2562,94 @@ def _milsg_validate_sweeps(dropped, records, region, semi_axis_model_px):
     return a, flats, k_tilt, ramps, slopes, sources
 
 
+
+def _milsg_log_geometry(a, asymmetry, camera_px_per_model_px, fit_rms, flat_fwhm, model_to_panel, modes_used, tilt_ratio, waist_determined, waist_model):
+# Calibration summary log lifted verbatim
+    logger.info(
+        "bench geometry from sweep: aperture={} panel px, w0={:.1f} panel px, "
+        "{:.4f} cam px per model px, flat FWHM {:.1f} cam px, joint fit {:.1%} "
+        "over {}, asymmetry {:+.0%}, waist {}{}",
+        int(round(a * model_to_panel)),
+        waist_model * model_to_panel,
+        camera_px_per_model_px,
+        flat_fwhm,
+        fit_rms,
+        modes_used,
+        asymmetry,
+        "fitted" if waist_determined else "provisional",
+        (
+            f", tilt slope {tilt_ratio:.2f}x the physical prediction"
+            if np.isfinite(tilt_ratio)
+            else ""
+        ),
+    )
+    return 
+
+
+
+
+def _milsg_waist_verdict(a, asymmetry, camera_px_per_model_px, fit_rms, waist_determined, waist_fit):
+# Waist-determined logging and verdict lifted verbatim
+    if waist_determined:
+        waist_model = waist_fit
+    else:
+        waist_model = float(a)
+        logger.warning(
+            "width-response fit is poor (joint rel-RMS {:.1%}; defocus asymmetry "
+            "{:+.0%}), so the illumination profile is NOT identifiable: the bench "
+            "carries aberration the swept modes do not cover. Emitting the flat-top "
+            "default w0={:.0f} model px instead of the best fit {:.0f}. The "
+            "tilt-derived scale ({:.4f} cam px per model px) is unaffected -- it "
+            "comes from the centroid slope alone. Add coma/spherical sweeps to "
+            "identify the waist.",
+            fit_rms,
+            asymmetry,
+            waist_model,
+            waist_fit,
+            camera_px_per_model_px,
+        )
+    return waist_model
+
+
+
+
+def _milsg_require_defocus(dropped_modes, groups, raw_widths):
+# Missing-defocus raise lifted verbatim
+    if "defocus" not in groups:
+        raise SweepCalibrationError(
+            _defocus_degenerate_message(dropped_modes, sorted(groups), raw_widths),
+            dropped=dropped_modes,
+            usable_modes=tuple(sorted(groups)),
+            widths=raw_widths,
+        )
+    return 
+
+
+
+
+def _milsg_require_groups(dropped_modes, groups, raw_widths):
+# Empty-groups raise lifted verbatim
+    if not groups:
+        raise SweepCalibrationError(
+            "no swept mode produced a usable width response; the spot width does "
+            "not respond to any of them on this bench.\n"
+            f"{_sweep_dropped_report(dropped_modes, sorted(groups), raw_widths)}\n"
+            "下一步 (next steps):\n"
+            "  (1) 提高信噪比 (improve the SNR): 提高曝光 (exposure), 并对每一档"
+            "做多帧平均再取均值。判据: 宽度的相对分辨率要 ≲ 25%, 因为 w² 拟合会把"
+            "宽度的相对误差平方放大 (25% 的宽度分辨率 ⇒ w² 约 50% 的不确定度 ⇒ "
+            "曲率就拟不出来了)。\n"
+            "  (2) 换用更稳健的宽度估计 (robust width estimator): 用二阶矩半径 "
+            "(second-moment radius) 代替 FWHM —— FWHM 由半高位置决定, 低信噪比下"
+            "会被噪声主导; 二阶矩半径用整幅光强的二阶矩, 对噪声更稳。",
+            dropped=dropped_modes,
+            usable_modes=tuple(sorted(groups)),
+            widths=raw_widths,
+        )
+    return 
+
+
+
 def calibrate_bench_geometry_from_sweep(
     records: Sequence[SweepRecord],
     *,
@@ -2655,35 +2743,13 @@ def calibrate_bench_geometry_from_sweep(
     # the same evidence whether the calibration succeeded or not.
     _publish_dropped(dropped, dropped_modes)
 
-    if not groups:
-        raise SweepCalibrationError(
-            "no swept mode produced a usable width response; the spot width does "
-            "not respond to any of them on this bench.\n"
-            f"{_sweep_dropped_report(dropped_modes, sorted(groups), raw_widths)}\n"
-            "下一步 (next steps):\n"
-            "  (1) 提高信噪比 (improve the SNR): 提高曝光 (exposure), 并对每一档"
-            "做多帧平均再取均值。判据: 宽度的相对分辨率要 ≲ 25%, 因为 w² 拟合会把"
-            "宽度的相对误差平方放大 (25% 的宽度分辨率 ⇒ w² 约 50% 的不确定度 ⇒ "
-            "曲率就拟不出来了)。\n"
-            "  (2) 换用更稳健的宽度估计 (robust width estimator): 用二阶矩半径 "
-            "(second-moment radius) 代替 FWHM —— FWHM 由半高位置决定, 低信噪比下"
-            "会被噪声主导; 二阶矩半径用整幅光强的二阶矩, 对噪声更稳。",
-            dropped=dropped_modes,
-            usable_modes=tuple(sorted(groups)),
-            widths=raw_widths,
-        )
+    _milsg_require_groups(dropped_modes, groups, raw_widths)
 
     # Defocus is not optional: the waist and the focal scale both come from its
     # width response. When it is missing the run cannot continue -- but it must
     # not die with a bare KeyError, which reads like a crash instead of the
     # signal-to-noise verdict it actually is.
-    if "defocus" not in groups:
-        raise SweepCalibrationError(
-            _defocus_degenerate_message(dropped_modes, sorted(groups), raw_widths),
-            dropped=dropped_modes,
-            usable_modes=tuple(sorted(groups)),
-            widths=raw_widths,
-        )
+    _milsg_require_defocus(dropped_modes, groups, raw_widths)
 
     # Width asymmetry of the defocus response at matched |c| is a direct read of
     # residual non-defocus aberration.
@@ -2696,45 +2762,11 @@ def calibrate_bench_geometry_from_sweep(
     # emit the flat-top default and say so rather than a number that looks
     # calibrated.
     waist_determined = fit_rms <= _MAX_DEFOCUS_FIT_RMS
-    if waist_determined:
-        waist_model = waist_fit
-    else:
-        waist_model = float(a)
-        logger.warning(
-            "width-response fit is poor (joint rel-RMS {:.1%}; defocus asymmetry "
-            "{:+.0%}), so the illumination profile is NOT identifiable: the bench "
-            "carries aberration the swept modes do not cover. Emitting the flat-top "
-            "default w0={:.0f} model px instead of the best fit {:.0f}. The "
-            "tilt-derived scale ({:.4f} cam px per model px) is unaffected -- it "
-            "comes from the centroid slope alone. Add coma/spherical sweeps to "
-            "identify the waist.",
-            fit_rms,
-            asymmetry,
-            waist_model,
-            waist_fit,
-            camera_px_per_model_px,
-        )
+    waist_model = _milsg_waist_verdict(a, asymmetry, camera_px_per_model_px, fit_rms, waist_determined, waist_fit)
 
     # --- reported spot widths ------------------------------------------------
     flat_fwhm, flat_model_fwhm, modes_used, notes = _milsg_build_notes(a, asymmetry, camera_px_per_model_px, curvature_report, dropped, dropped_modes, far_field_size, fit_rms, flats, focal_source, fov_ratio, groups, k_tilt, offsets, opt, region, slopes, sources, tilt_ratio, w_d, waist_determined, waist_model, zeros)
-    logger.info(
-        "bench geometry from sweep: aperture={} panel px, w0={:.1f} panel px, "
-        "{:.4f} cam px per model px, flat FWHM {:.1f} cam px, joint fit {:.1%} "
-        "over {}, asymmetry {:+.0%}, waist {}{}",
-        int(round(a * model_to_panel)),
-        waist_model * model_to_panel,
-        camera_px_per_model_px,
-        flat_fwhm,
-        fit_rms,
-        modes_used,
-        asymmetry,
-        "fitted" if waist_determined else "provisional",
-        (
-            f", tilt slope {tilt_ratio:.2f}x the physical prediction"
-            if np.isfinite(tilt_ratio)
-            else ""
-        ),
-    )
+    _milsg_log_geometry(a, asymmetry, camera_px_per_model_px, fit_rms, flat_fwhm, model_to_panel, modes_used, tilt_ratio, waist_determined, waist_model)
     _milsg_log_modes(curvature_report, groups, offsets)
     return BenchGeometry(
         panel_disc_radius=int(round(a * model_to_panel)),

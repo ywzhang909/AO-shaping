@@ -137,7 +137,11 @@ _TRANSFER_PREFLIGHT = "src/ao_shaping/tools/slm/transfer/preflight.py"
 #: (relative path under src, function name, span ceiling, nesting ceiling,
 #:  the span measured when the guard was written)
 TARGETS = [
-    (_FILE, "calibrate_bench_geometry_from_sweep", 214, 3, 186),
+    (_FILE, "calibrate_bench_geometry_from_sweep", 145, 1, 130),
+    (_FILE, "_milsg_log_geometry", 25, 0, 21),
+    (_FILE, "_milsg_waist_verdict", 25, 1, 21),
+    (_FILE, "_milsg_require_defocus", 14, 1, 10),
+    (_FILE, "_milsg_require_groups", 24, 1, 20),
     (_FILE, "_milsg_validate_sweeps", 30, 3, 26),
     (_FILE, "_milsg_focal_crosschecks", 32, 3, 27),
     (_FILE, "_milsg_fit_waist", 30, 3, 26),
