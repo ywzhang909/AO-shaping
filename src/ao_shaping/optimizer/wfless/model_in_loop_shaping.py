@@ -1202,84 +1202,9 @@ def shape_phase_with_frozen_aberration(
 # ---------------------------------------------------------------------------
 
 
-def simulate_iterative_shaping(config: ModelInLoopConfig) -> ModelInLoopResult:
-    """Run the fit -> shape -> re-measure loop on the digital twin.
 
-    Each round measures the current phase through
-    :class:`~ao_shaping.drivers.sim.fouriergsnet_env.SimFourierGSNetEnv`, fits
-    the aberration with Step A, optimises a full-pixel phase with Step B under
-    that frozen aberration, re-measures, and records the square metrics.
-
-    Args:
-        config: Loop configuration, validated eagerly.
-
-    Returns:
-        A :class:`ModelInLoopResult`.
-
-    Raises:
-        ValueError: If ``config`` is inconsistent (see :func:`_validate_config`).
-        ImportError: If PyTorch is unavailable.
-    """
-    _validate_config(config)
-    region = config.model.region
-    n_coeffs = config.model.n_coefficients
-
-    env = make_native_env(config.env, config.aberrations)
-    true_c = coefficients_from_noll(n_coeffs, config.aberrations)
-
-    initial = config.step_a.initial_coefficients
-    initial_vector = (
-        np.zeros(n_coeffs, dtype=np.float64)
-        if initial is None
-        else np.asarray(initial, dtype=np.float64)
-    )
-
-    optimizer = ZernikeCoefficientOptimizer(
-        n_orders=config.model.n_orders,
-        region=region,
-        initial_coefficients=initial_vector,
-        lr=config.step_a.lr,
-        max_iterations=config.step_a.iterations,
-        device=config.model.device,
-        seed=config.model.seed,
-        dtype=config.model.dtype,
-        frozen_modes=config.step_a.frozen_modes,
-    )
-
-    def rearm(coefficients: np.ndarray) -> ZernikeCoefficientOptimizer:
-        """Rebuild the optimizer around ``coefficients`` to clear a tripped latch.
-
-        ``ZernikeCoefficientOptimizer.reset`` cannot do this: it restores the
-        coefficients handed to ``__init__`` rather than the current ones, so
-        re-arming with it would snap the fit back to the start guess roughly
-        every ``PLATEAU_PATIENCE`` steps. A fresh instance seeded with the live
-        coefficients keeps the progress while discarding the stale latch and the
-        Adam moments that stopped moving.
-        """
-        return ZernikeCoefficientOptimizer(
-            n_orders=config.model.n_orders,
-            region=region,
-            initial_coefficients=np.asarray(coefficients, dtype=np.float64),
-            lr=config.step_a.lr,
-            max_iterations=config.step_a.iterations,
-            device=config.model.device,
-            seed=config.model.seed,
-            dtype=config.model.dtype,
-            frozen_modes=config.step_a.frozen_modes,
-        )
-
-    target = create_target_mask(
-        config.step_b.target_shape, (region, region), config.step_b.target_side
-    )
-
-    def error(vector: np.ndarray) -> float:
-        return float(np.linalg.norm(np.asarray(vector) - true_c))
-
-    rounds: list[RoundMetrics] = []
-    initial_error = error(initial_vector)
-    phase = np.zeros((region, region), dtype=np.float64)
-    image = display_and_measure(env, phase, config.env.n_frames)
-
+def _mil_run_rounds(config, env, error, image, optimizer, phase, rearm, region, rounds, target):
+# Iterative shaping rounds loop lifted verbatim
     for index in range(config.n_rounds):
         metrics_before, center_before = square_metrics_at_zero_order(
             image, config.step_b.target_side
@@ -1352,6 +1277,97 @@ def simulate_iterative_shaping(config: ModelInLoopConfig) -> ModelInLoopResult:
             )
         )
         phase = shaped
+    return phase
+
+
+
+
+def _mil_make_rearm(config, region):
+# Optimizer re-arm closure lifted verbatim into factory
+    def rearm(coefficients: np.ndarray) -> ZernikeCoefficientOptimizer:
+        """Rebuild the optimizer around ``coefficients`` to clear a tripped latch.
+
+        ``ZernikeCoefficientOptimizer.reset`` cannot do this: it restores the
+        coefficients handed to ``__init__`` rather than the current ones, so
+        re-arming with it would snap the fit back to the start guess roughly
+        every ``PLATEAU_PATIENCE`` steps. A fresh instance seeded with the live
+        coefficients keeps the progress while discarding the stale latch and the
+        Adam moments that stopped moving.
+        """
+        return ZernikeCoefficientOptimizer(
+            n_orders=config.model.n_orders,
+            region=region,
+            initial_coefficients=np.asarray(coefficients, dtype=np.float64),
+            lr=config.step_a.lr,
+            max_iterations=config.step_a.iterations,
+            device=config.model.device,
+            seed=config.model.seed,
+            dtype=config.model.dtype,
+            frozen_modes=config.step_a.frozen_modes,
+        )
+    return rearm
+
+
+
+def simulate_iterative_shaping(config: ModelInLoopConfig) -> ModelInLoopResult:
+    """Run the fit -> shape -> re-measure loop on the digital twin.
+
+    Each round measures the current phase through
+    :class:`~ao_shaping.drivers.sim.fouriergsnet_env.SimFourierGSNetEnv`, fits
+    the aberration with Step A, optimises a full-pixel phase with Step B under
+    that frozen aberration, re-measures, and records the square metrics.
+
+    Args:
+        config: Loop configuration, validated eagerly.
+
+    Returns:
+        A :class:`ModelInLoopResult`.
+
+    Raises:
+        ValueError: If ``config`` is inconsistent (see :func:`_validate_config`).
+        ImportError: If PyTorch is unavailable.
+    """
+    _validate_config(config)
+    region = config.model.region
+    n_coeffs = config.model.n_coefficients
+
+    env = make_native_env(config.env, config.aberrations)
+    true_c = coefficients_from_noll(n_coeffs, config.aberrations)
+
+    initial = config.step_a.initial_coefficients
+    initial_vector = (
+        np.zeros(n_coeffs, dtype=np.float64)
+        if initial is None
+        else np.asarray(initial, dtype=np.float64)
+    )
+
+    optimizer = ZernikeCoefficientOptimizer(
+        n_orders=config.model.n_orders,
+        region=region,
+        initial_coefficients=initial_vector,
+        lr=config.step_a.lr,
+        max_iterations=config.step_a.iterations,
+        device=config.model.device,
+        seed=config.model.seed,
+        dtype=config.model.dtype,
+        frozen_modes=config.step_a.frozen_modes,
+    )
+
+    rearm = _mil_make_rearm(config, region)
+
+    target = create_target_mask(
+        config.step_b.target_shape, (region, region), config.step_b.target_side
+    )
+
+    def error(vector: np.ndarray) -> float:
+        return float(np.linalg.norm(np.asarray(vector) - true_c))
+
+    rounds: list[RoundMetrics] = []
+    initial_error = error(initial_vector)
+    phase = np.zeros((region, region), dtype=np.float64)
+    image = display_and_measure(env, phase, config.env.n_frames)
+
+    phase = _mil_run_rounds(config, env, error, image, optimizer, phase, rearm, region, rounds, target)
 
     return ModelInLoopResult(
         rounds=rounds,

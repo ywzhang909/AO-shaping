@@ -5354,6 +5354,13 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 门禁: 棘轮 5 行 (父收紧 200/1/173→90/1/74); 模块 964→996 baseline 抬高 +32; ruff/term 绿
 - 候选队列更新: `capture_response.capture` 162 **无行为载体** (tests 仅 CLI-argv 计数与 help 快照) → 按"硬件文件缺离线行为测试=只跟踪"约束移出本批评; `wfs_reference.main` 162 同型 (纯硬件 CLI) 亦移出
 
+**2026-11-17 · 5b9e384d 之后 · 第 113 批: `simulate_iterative_shaping` 160→69 行 + 两缝 (`wfless/model_in_loop_shaping.py`)**
+- 提取: `_mil_run_rounds` 75 行 (反复迭代整形主循环逐字提为模块级 helper, 回传 `phase`; 循环体全程无 break/continue/return, 单次底向上 lift) / `_mil_make_rearm` 24 行 (`rearm` 闭包提为工厂, 回传 `rearm`, 仅捕获 `config`/`region`)
+- **㉙ 口径复核**: 两缝的 `nret` 由 guard 实测 (`_measure`) 而非自算 —— 循环段仅 `phase` 在区域后被读 (1354 重绑 → return 处消费), `rounds` 全程就地 append 不重绑 ⇒ 不回传; 闭包段回传其自身名
+- 叶差分: 76 同 / 消失 0 / 新增 2; ⑳ 审计 0 命中; 模块 3406→3422 baseline 抬高 +16
+- 载体: `test_model_in_loop_shaping` + `test_model_in_loop_sweep_diagnostics` + `test_slm_model_in_loop_step_sink` + 形状门禁 **482 passed**; wfless 逐文件域 exit=0; `test_conventions` 72 passed
+- 门禁: 棘轮新增 3 行 (80/0/69 + 85/2/75 + 28/0/24); ruff/term 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
