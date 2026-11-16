@@ -216,23 +216,35 @@ class TestWidgetKeyContract:
         )
 
 
+class _Mono12Camera:
+    """MONO12 fake camera: 12-bit samples in a uint16 container (issue #246)."""
+
+    bit_depth = 12
+
+    def effective_full_scale(self, img: np.ndarray) -> float:
+        return 4095.0
+
+
 class TestConfirmWorkingExposure:
     """``_confirm_working_exposure`` decides whether an exposure is usable."""
 
     def test_accepts_a_frame_below_saturation(self) -> None:
         frame = np.full((4, 4), 100, dtype=np.uint8)
 
-        working, readback, peak, confirmations, dtype = es._confirm_working_exposure(
-            lambda: frame,
-            lambda ms: ms,
-            ceiling_ms=0.4,
-            work_fraction=0.5,
-            floor_ms=0.02,
+        working, readback, peak, confirmations, dtype, full_scale = (
+            es._confirm_working_exposure(
+                lambda: frame,
+                lambda ms: ms,
+                ceiling_ms=0.4,
+                work_fraction=0.5,
+                floor_ms=0.02,
+            )
         )
         assert working == pytest.approx(0.2)
         assert readback == pytest.approx(0.2)
         assert peak == 100.0
         assert dtype == np.dtype(np.uint8)
+        assert full_scale == 255.0
         assert len(confirmations) == 1
         assert confirmations[0]["peak_fraction"] == pytest.approx(100 / 255)
 
@@ -252,12 +264,14 @@ class TestConfirmWorkingExposure:
             reads.append(ms)
             return ms
 
-        working, _readback, peak, confirmations, _dtype = es._confirm_working_exposure(
-            read_frame,
-            reset,
-            ceiling_ms=0.4,
-            work_fraction=0.5,
-            floor_ms=0.02,
+        working, _readback, peak, confirmations, _dtype, _full = (
+            es._confirm_working_exposure(
+                read_frame,
+                reset,
+                ceiling_ms=0.4,
+                work_fraction=0.5,
+                floor_ms=0.02,
+            )
         )
         assert len(confirmations) == 2
         assert working < 0.2, "saturated frame must lower the working exposure"
@@ -272,6 +286,40 @@ class TestConfirmWorkingExposure:
                 ceiling_ms=0.4,
                 work_fraction=0.5,
                 floor_ms=0.02,
+            )
+
+    def test_mono12_full_scale_follows_the_camera_bit_depth(self) -> None:
+        """A MONO12 frame pegged at 4095 saturates only when the camera is known.
+
+        The uint16 container alone implies 65535 (issue #246): without the
+        camera the same pegged frame looks dim and is returned as usable.
+        """
+        frame = np.full((4, 4), 4095, dtype=np.uint16)
+
+        _working, _readback, peak, _confirmations, dtype, full_scale = (
+            es._confirm_working_exposure(
+                lambda: frame,
+                lambda ms: ms,
+                ceiling_ms=0.4,
+                work_fraction=0.5,
+                floor_ms=0.02,
+            )
+        )
+        assert peak == 4095.0
+        assert dtype == np.dtype(np.uint16)
+        assert full_scale == 65535.0
+
+        # With the camera, the effective bit depth says full scale is 4095: the
+        # frame is pegged, every attempt saturates, and the helper must raise
+        # instead of returning the clipped exposure as usable.
+        with pytest.raises(RuntimeError, match="仍然饱和"):
+            es._confirm_working_exposure(
+                lambda: frame,
+                lambda ms: ms,
+                ceiling_ms=0.4,
+                work_fraction=0.5,
+                floor_ms=0.02,
+                camera=_Mono12Camera(),
             )
 
     def test_floor_is_respected_when_backing_off(self) -> None:

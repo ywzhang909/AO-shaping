@@ -182,8 +182,9 @@ def _confirm_working_exposure(
     work_fraction: float,
     floor_ms: float,
     max_attempts: int = 3,
-) -> tuple[float, float, float, list[dict[str, float]], np.dtype]:
-    """回读验证工作曝光，返回 ``(工作曝光, 读回曝光, 峰值, 逐次回读记录, 帧 dtype)``。
+    camera: Any | None = None,
+) -> tuple[float, float, float, list[dict[str, float]], np.dtype, float]:
+    """回读验证工作曝光，返回 ``(工作曝光, 读回曝光, 峰值, 逐次回读记录, 帧 dtype, 满量程)``。
 
     阶梯给出的上限只是响应模型；必须用**那一档曝光**回读一帧再判定，否则会把
     截断的曝光当成可用的交出去（实测 2026-10-17：阶梯定上限 0.243 ms，取其一半
@@ -191,23 +192,28 @@ def _confirm_working_exposure(
 
     饱和时按比例回退再试；``max_attempts`` 次仍饱和则抛
     :class:`RuntimeError`。本函数不碰设备状态，只用注入的两个回调，因此可以
-    用合成帧直接做数值回归。最后一个返回值是回读帧的 dtype，调用方据此算满量程。
+    用合成帧直接做数值回归。
+
+    ``camera`` 是可选的鸭子类型相机（遵循 ``BaseCamera.effective_full_scale``
+    约定）；给定时饱和判据的满量程按传感器**生效位深**折算（#246）：MONO12
+    帧装在 uint16 容器里，按 dtype 取 ``np.iinfo(dtype).max`` 会把满量程误读成
+    65535 而非 4095，4095 的真实饱和帧永远过不了判据。最后两个返回值是
+    回读帧的 dtype 与满量程，调用方直接使用，不要再自行按 dtype 折算。
     """
+    from ao_shaping.drivers.ccd.common import full_scale as frame_full_scale
+
     working = working_exposure_ms(ceiling_ms, fraction=work_fraction, floor_ms=floor_ms)
     confirmations: list[dict[str, float]] = []
     readback = working
     peak = 0.0
     dtype: np.dtype = np.dtype(np.uint8)
+    full = 255.0
     for _ in range(max_attempts):
         readback = float(reset_exposure(working) or working)
         frame = np.asarray(read_frame())
         peak = float(np.max(frame)) if frame.size else 0.0
         dtype = frame.dtype
-        full = (
-            float(np.iinfo(frame.dtype).max)
-            if np.issubdtype(frame.dtype, np.integer)
-            else 255.0
-        )
+        full = frame_full_scale(frame, camera)
         frac = peak / full if full else 0.0
         confirmations.append({"ms": working, "peak": peak, "peak_fraction": frac})
         if frac >= _CONFIRM_SATURATION:
@@ -221,7 +227,7 @@ def _confirm_working_exposure(
             f"（最后一次 {confirmations[-1]['peak_fraction']:.0%}）；"
             "光路比阶梯看到的高出很多，请降低激光功率或加衰减后重测"
         )
-    return working, readback, peak, confirmations, dtype
+    return working, readback, peak, confirmations, dtype, full
 
 
 def probe_session_exposure_ms(
@@ -239,6 +245,10 @@ def probe_session_exposure_ms(
     ``work_fraction``×上限作为工作曝光。上限取「峰值将达满量程 90%」的那一档
     再乘 0.9 余量（≈81%），所以工作曝光下峰值约在 40%——既能拿到足够原始
     计数，又留有余量防截断。
+
+    满量程不按帧 dtype 而按相机**生效位深**折算（``common.full_scale``，#246）：
+    MONO12 帧装在 uint16 容器里，``np.iinfo(dtype).max`` 会把上限误读成 65535
+    而非 4095，真实饱和的帧就永远判不出来。
 
     失败时抛 :class:`ExposureProbeFailure`：曝光是**光路属性**，不随传感器变，
     所以宁可中止也不能给一个猜的值。若 ``AO_DAHENG_MAX_EXPOSURE_MS`` 有配置则
@@ -301,15 +311,20 @@ def probe_session_exposure_ms(
                     lambda: np.asarray(cam.get_numpy_image(n_sample=1)),
                     start_ms=floor_ms,
                     hard_max_ms=camera_max_ms,
+                    camera=cam,
                 )
                 ceiling = float(estimate.ceiling_ms)
 
-            working, readback, peak, confirmations, dtype = _confirm_working_exposure(
-                lambda: np.asarray(cam.get_numpy_image(n_sample=1)),
-                cam.reset_exposure_time,
-                ceiling,
-                work_fraction=work_fraction,
-                floor_ms=floor_ms,
+            # 满量程随回读确认一起返回（按相机生效位深折算，#246），不再按 dtype 二次折算。
+            working, readback, peak, confirmations, dtype, full_scale = (
+                _confirm_working_exposure(
+                    lambda: np.asarray(cam.get_numpy_image(n_sample=1)),
+                    cam.reset_exposure_time,
+                    ceiling,
+                    work_fraction=work_fraction,
+                    floor_ms=floor_ms,
+                    camera=cam,
+                )
             )
     except ExposureProbeFailure:
         raise
@@ -319,9 +334,6 @@ def probe_session_exposure_ms(
             "请确认激光已出光、光路未遮挡，并在「会话曝光」手动填入实测值。"
         ) from exc
 
-    full_scale = (
-        float(np.iinfo(dtype).max) if np.issubdtype(dtype, np.integer) else 255.0
-    )
     # 取样时刻取在这里（相机已关、测量已完），而不是函数入口：曝光探测本身要跑
     # 阶梯，入口时刻与「这个值对应哪一刻的光强」能差几十秒。
     probed_at = datetime.now().timestamp()

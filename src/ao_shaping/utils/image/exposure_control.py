@@ -6,7 +6,11 @@ sensor, so it must never be a package constant.  Every caller resolves it
 through the single entry point :func:`resolve_daheng_exposure_limit`, which
 prefers an explicit value, then the ``AO_DAHENG_MAX_EXPOSURE_MS`` environment
 variable, and otherwise probes the CCD image with a doubling exposure ladder
-(:func:`probe_exposure_ceiling_ms`).
+(:func:`probe_exposure_ceiling_ms`).  Every ladder fraction is peak / full
+scale, so the probe and the estimate accept an optional duck-typed ``camera``
+whose **effective bit depth** resolves the full scale (issue #246: MONO12
+frames ride in a ``uint16`` container and saturate at 4095, not 65535);
+without a camera the frame dtype stays the only hint.
 """
 
 from __future__ import annotations
@@ -21,8 +25,28 @@ import numpy as np
 
 from loguru import logger
 
-
 DAHENG_EXPOSURE_LIMIT_ENV = "AO_DAHENG_MAX_EXPOSURE_MS"
+
+
+def _frame_full_scale(image: np.ndarray, camera: Any | None) -> float:
+    """Full scale by the camera's EFFECTIVE bit depth, never by the frame dtype.
+
+    Issue #246: Daheng MONO12 frames ride in a ``uint16`` container, so
+    ``np.iinfo(uint16).max`` misreads the saturation ceiling as 65535 instead
+    of 4095.  ``common.full_scale(img, camera=None)`` is the authoritative
+    resolution order (frame annotation → camera bit depth → dtype max → 255)
+    and falls back to the dtype max when no camera is given, so the no-camera
+    behaviour is unchanged.
+
+    The import is deferred: ``drivers`` is a higher layer than ``utils``, and
+    R-32 (``test_conventions.py``) forbids module-scope imports of it here.
+    Cycle-safe regardless: ``drivers.ccd.common`` imports only
+    ``drivers.ccd.base`` and ``utils.io.paths`` at module scope (SDK backends
+    stay lazy).
+    """
+    from ao_shaping.drivers.ccd.common import full_scale
+
+    return full_scale(image, camera)
 
 
 def configured_daheng_exposure_limit() -> float:
@@ -67,9 +91,11 @@ def resolve_daheng_exposure_limit(
 
     A probe that lands below ``probe_start_ms`` means the optical path saturates
     even at the ladder floor — no exposure setting can fix that, so it raises an
-    actionable error instead of returning an unusable ceiling.  ``camera`` is
-    used only through ``reset_exposure_time`` and ``get_numpy_image``, so no
-    driver import is required here.
+    actionable error instead of returning an unusable ceiling.  ``camera``
+    drives the ladder through ``reset_exposure_time`` / ``get_numpy_image`` and
+    is also handed to the probe as the full-scale authority, so every rung is
+    measured against the camera's effective bit depth instead of the frame's
+    dtype container (issue #246).
 
     The ``shoot`` callback must NOT drop a frame of its own: the driver layer
     already consumes the stale frames when the exposure changes (the Daheng
@@ -93,6 +119,7 @@ def resolve_daheng_exposure_limit(
                 lambda: np.asarray(camera.get_numpy_image(n_sample=1)),
                 start_ms=probe_start_ms,
                 hard_max_ms=probe_hard_max_ms,
+                camera=camera,
             )
         except ValueError as exc:
             if "saturated at the minimum probe exposure" in str(exc):
@@ -377,6 +404,7 @@ def estimate_exposure_ceiling_ms(
     *,
     saturation_fraction: float = 0.9,
     headroom: float = 0.9,
+    camera: Any | None = None,
 ) -> ExposureCeilingEstimate:
     """Estimate a safe exposure ceiling from ``(exposure_ms, raw frame)`` pairs.
 
@@ -390,6 +418,11 @@ def estimate_exposure_ceiling_ms(
 
     The optical path sets where saturation falls, which is why this is
     estimated from the image instead of stored as a constant.
+
+    ``camera`` is an optional duck-typed camera exposing ``BaseCamera``'s
+    ``effective_full_scale(img)`` contract; it resolves every rung's full
+    scale by the sensor's effective bit depth.  Omitted, the frame dtype
+    stays the only hint (see "Full scale" below).
 
     Rung selection
     --------------
@@ -427,10 +460,17 @@ def estimate_exposure_ceiling_ms(
     counter-examples are documented on the constants.  Anything less keeps the
     old per-rung minimum, which is all such a ladder can support.
 
-    The gate is calibrated for 8-bit frames.  A uint16 frame from a <=10-bit
-    sensor never reaches 10 % of 65535 on any rung, so the fit never engages
-    and the conservative ``min`` path is used — intended safe behaviour, not a
-    defect to work around here.
+    Full scale
+    ----------
+    The gate is only as good as the full scale it divides by.  With
+    ``camera``, the full scale follows the camera's **effective bit depth**
+    (issue #246): a Daheng MONO12 frame rides in a ``uint16`` container, and
+    the dtype alone would read the ceiling as 65535 instead of 4095 — no rung
+    would ever reach ``saturation_fraction`` and the ladder could never
+    confirm saturation.  Without ``camera`` the dtype fallback keeps the old
+    caveat: a uint16 frame from a <=10-bit sensor never reaches 10 % of
+    65535, so the fit never engages and the conservative ``min`` path is
+    used — intended safe behaviour, not a defect to work around here.
 
     Clamping
     --------
@@ -482,7 +522,7 @@ def estimate_exposure_ceiling_ms(
     estimate_exposures, estimates, first_saturated, fit_full_scale, fit_ms_values, fit_peaks, fractions, last_safe = _ecc_init_accumulators(pairs)
     first_clipped: float | None = None
     for ms, image in pairs:
-        full_scale = float(np.iinfo(image.dtype).max)
+        full_scale = _frame_full_scale(image, camera)
         peak = float(np.max(image))
         peak_fraction = peak / full_scale
         fractions.append(peak_fraction)
@@ -560,6 +600,7 @@ def probe_exposure_ceiling_ms(
     hard_max_ms: float | None = None,
     saturation_fraction: float = 0.9,
     headroom: float = 0.9,
+    camera: Any | None = None,
 ) -> ExposureCeilingEstimate:
     """Shoot a doubling exposure ladder until the frame saturates.
 
@@ -570,6 +611,14 @@ def probe_exposure_ceiling_ms(
     first frame whose peak reaches ``saturation_fraction`` of full scale or at
     ``hard_max_ms`` (the camera's hardware maximum) — further steps would only
     waste light on a sensor that is already clipped.
+
+    ``camera`` is an optional duck-typed camera exposing ``BaseCamera``'s
+    ``effective_full_scale(img)`` contract; when given, every rung's full scale
+    is resolved by the sensor's effective bit depth instead of the frame dtype
+    (see :func:`estimate_exposure_ceiling_ms`, "Full scale").  A MONO12 sensor
+    stores 12-bit samples in uint16 containers, and the dtype alone would
+    misread its ceiling as 65535 instead of 4095 — the ladder would then never
+    register saturation and the probe would fail on a perfectly good bench.
 
     Stale frames
     ------------
@@ -627,12 +676,12 @@ def probe_exposure_ceiling_ms(
         if frame.ndim != 2 or not np.issubdtype(frame.dtype, np.integer):
             raise ValueError("probe needs raw integer CCD frames")
         ladder.append((actual_ms, frame))
-        full_scale = float(np.iinfo(frame.dtype).max)
+        full_scale = _frame_full_scale(frame, camera)
         if float(np.max(frame)) / full_scale >= saturation_fraction or actual_ms >= cap:
             break
         ms *= factor
     estimate = estimate_exposure_ceiling_ms(
-        ladder, saturation_fraction=saturation_fraction, headroom=headroom
+        ladder, saturation_fraction=saturation_fraction, headroom=headroom, camera=camera
     )
     if hard_max_ms is not None:
         # Nothing measured can say where a bench saturates beyond the camera
