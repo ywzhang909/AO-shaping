@@ -5340,6 +5340,13 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: 形状门禁 394 passed (行 `_run_validate_session` 收紧 230/5/170→110/4/101, 新增 `_make_tune_exposure` 80/2/73) + transfer 五文件 457→全过 + `test_conventions` 72 passed; tools/slm 逐文件域 exit=0
 - 门禁: 棘轮 80/2/73 + 110/4/101; 模块 1423→1431 baseline 抬高 +8; ruff/term 绿
 
+**2026-11-17 · eb2f152f 之后 · ci-fix: 上游合并遗留的 4 个 CI 红测试 (drivers×2 / inventory / scripts 守卫)**
+- `test_frame_averaging[uint16-65535-daheng]`: 上游 2026-11-16 把大恒位深改为**公开 `bit_depth` 单一存储** (私有缓存删除), 测试仍设 `_bit_depth` ⇒ `_full_scale()` 走默认 8 bit 得 255; 测试跟契约补设 `cam.bit_depth` (驱动行为不动)
+- `test_missing_env_falls_back_to_bundled_libs`: `libs/gxipy` 被 `.gitignore` `gxipy*` 排除, 全新 checkout 无此绑定, 断言"仓库确含"不成立 ⇒ 缺绑定时 `pytest.skip` (语料缺失先例同法, 开发机路径仍真断言)
+- `test_inventory_rows_match_directories`: b00addab 重建的 `shaping_lr_schedule` 未登记 `module_inventory.md` signal_processing 行 ⇒ 补登记 (含重建来源 a60a87ca 注记)
+- `test_no_script_hardcodes_a_machine_absolute_path`: 上游新脚本 `absolute_fidelity_probe_20261116.py` 硬编码 `D:\Projects\TIFO\...` 两处 ⇒ docstring 改仓库根占位说明, `pythonpath_note` 改 `ROOT / 'libs'` 运行时推导 (守卫正则所求)
+- 教训㉚: **域绿 ≠ 分片绿** —— b109-b111 连推三个 tip 期间我只复跑 wfless/tools/slm/guards 域, drivers/root-guards/scripts 三个 CI 分片的失败 (全是上游合并携带) 一路跟到 tip; 推前至少要碰一碰**改动文件所在域 + 文档/脚本守卫 + drivers** 这三块, 或干脆全量 `scripts/build/run_pytest_ci.sh` 不带路径
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
