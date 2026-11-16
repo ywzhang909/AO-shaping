@@ -2371,6 +2371,120 @@ def _sq_adaptive_weights(_adaptive_boost_active, _adaptive_cfg, _cv_history, epo
 
 
 
+
+def _sq_log_epoch(J, _params_to_gray, _record_vec, _score_column, bar, cam, delta, diff, display_ctx, epoch, epochs, eval_ar, eval_c, eval_cv, eval_ee, eval_img, eval_pbr, gradient, max_brightness, neg, optimizer, pos, quality, recorder, target_mean_brightness, target_side):
+# Per-epoch record display and progress bar lifted verbatim
+    log = _sq_record_epoch(J, _record_vec, _score_column, cam, delta, diff, epoch, eval_ar, eval_c, eval_cv, eval_ee, eval_img, eval_pbr, gradient, max_brightness, neg, optimizer, pos, quality, recorder, target_mean_brightness, target_side)
+
+    _sq_display_epoch(_params_to_gray, display_ctx, epoch, epochs, eval_c, eval_cv, eval_ee, eval_img, quality)
+
+    bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
+    bar.update(1)
+    return 
+
+
+
+
+def _sq_energy_gate(_guard_enabled, _guard_ref_ee, _n_energy_gated, delta, epoch, max_roi_energy_loss, neg, pos):
+# Energy-guard gating decision lifted verbatim
+    _gated = False
+    _gate = None
+    if _guard_enabled and _guard_ref_ee is not None:
+        _pos_loss = (_guard_ref_ee - pos["ee"]) / _guard_ref_ee
+        _neg_loss = (_guard_ref_ee - neg["ee"]) / _guard_ref_ee
+        if (
+            _pos_loss > max_roi_energy_loss
+            or _neg_loss > max_roi_energy_loss
+        ):
+            _gated = True
+            _n_energy_gated += 1
+            _gate = "energy"
+            if _n_energy_gated <= 5 or _n_energy_gated % 50 == 0:
+                logger.warning(
+                    "epoch {}: in-ROI energy loss {:.1%}/{:.1%} exceeds "
+                    "{:.1%} - epoch skipped (#{} gated)",
+                    epoch,
+                    _pos_loss,
+                    _neg_loss,
+                    float(max_roi_energy_loss),
+                    _n_energy_gated,
+                )
+    return _gate, _gated, _n_energy_gated
+
+
+
+
+def _sq_epoch_perturbation(_adaptive_boost_active, _adaptive_cfg, _cv_history, _dim, _has_rotation, _rot_delta, delta, epoch, epochs, rng, w_aspect, w_efficiency, w_uniformity):
+# Adaptive weights and SPGD perturbation lifted verbatim
+    w_aspect, w_efficiency, w_uniformity = _sq_adaptive_weights(_adaptive_boost_active, _adaptive_cfg, _cv_history, epoch, epochs, w_aspect, w_efficiency, w_uniformity)
+
+    # Generate random perturbation (±1 pattern), dim = _dim
+    disturb_c = rng.binomial(1, 0.5, (_dim,)).astype(float) * 2.0 - 1.0
+    disturb_c = disturb_c * delta
+
+    if _has_rotation:
+        # rotation DOF uses a fixed 1° step, not the amplitude delta
+        disturb_c[-1] = np.sign(disturb_c[-1]) * _rot_delta
+        if disturb_c[-1] == 0.0:
+            disturb_c[-1] = _rot_delta
+    return disturb_c, w_aspect, w_efficiency, w_uniformity
+
+
+
+
+def _sq_make_optimizer(_cv_history, _gradient_history, _opt_dim, _param_scale, cv, delta, ee, kwargs, lr, optimizer_type):
+# Optimizer construction and learning schedule lifted verbatim
+    optimizer = create_optimizer(
+        optimizer_type=optimizer_type,
+        dim=_opt_dim,
+        lr=lr,
+        beta1=beta1,
+        beta2=beta2,
+        beta3=beta3,
+        **kwargs,
+    )
+    if lr == 0:
+        optimizer.lr, delta = learning_schedule(
+            cv=cv,
+            encircled_energy=ee,
+            gradient_history=_gradient_history,
+            cv_history=_cv_history,
+            epoch=0,
+        )
+        optimizer.lr *= _param_scale
+        delta *= _param_scale
+    return delta, optimizer
+
+
+
+
+def _sq_gradient_step(_adaptive_cfg, _apply_update, _base_w_aspect, _base_w_efficiency, _base_w_uniformity, _cv_history, _delta_pinned, _gradient_history, _max_history_len, _param_scale, _params, best_ar, best_cv, best_ee, best_quality, center, delta, disturb_c, epoch, last_best_epoch, lr, neg, objective, optimizer, pos, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity):
+# SPGD gradient update plus evaluation and best-update lifted verbatim
+    diff = pos["q"] - neg["q"]
+    gradient = diff * disturb_c
+    update = optimizer.update(gradient)
+    _params = _apply_update(_params, update)
+
+    J, _track_quality, eval_ar, eval_c, eval_cv, eval_ee, eval_img, eval_pbr, quality = _sq_epoch_metrics(_adaptive_cfg, _base_w_aspect, _base_w_efficiency, _base_w_uniformity, center, neg, objective, pos, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity)
+
+    # Track best
+    if _track_quality > best_quality + 1e-6:
+        best_quality = _track_quality
+        best_cv = eval_cv
+        best_ee = eval_ee
+        best_ar = eval_ar
+        last_best_epoch = epoch
+
+    # Adaptive learning schedule. Only touches `delta` when the caller
+    # did NOT pin one: an explicit `--delta` used to be silently
+    # overwritten here whenever `lr` was left at 0 (its default),
+    # which made the flag a no-op unless you also passed an explicit
+    # `--lr`. `--delta` pinned is now reported, not discarded.
+    delta = _sq_adapt_lr(_adaptive_cfg, _cv_history, _delta_pinned, _gradient_history, _max_history_len, _param_scale, delta, epoch, eval_cv, eval_ee, gradient, lr, optimizer)
+    return J, _params, best_ar, best_cv, best_ee, best_quality, delta, diff, eval_ar, eval_c, eval_cv, eval_ee, eval_img, eval_pbr, gradient, last_best_epoch, quality
+
+
+
 def _run_square_search_stage(
     *,
     _adaptive_boost_active: object,
@@ -2475,42 +2589,14 @@ def _run_square_search_stage(
             w_uniformity=w_uniformity,
         )
     # Create optimizer
-    optimizer = create_optimizer(
-        optimizer_type=optimizer_type,
-        dim=_opt_dim,
-        lr=lr,
-        beta1=beta1,
-        beta2=beta2,
-        beta3=beta3,
-        **kwargs,
-    )
-    if lr == 0:
-        optimizer.lr, delta = learning_schedule(
-            cv=cv,
-            encircled_energy=ee,
-            gradient_history=_gradient_history,
-            cv_history=_cv_history,
-            epoch=0,
-        )
-        optimizer.lr *= _param_scale
-        delta *= _param_scale
+    delta, optimizer = _sq_make_optimizer(_cv_history, _gradient_history, _opt_dim, _param_scale, cv, delta, ee, kwargs, lr, optimizer_type)
 
     # Main optimization loop
     with tqdm.tqdm(
         total=epochs, desc=f"slm_square iter {epochs}", dynamic_ncols=True
     ) as bar:
         for epoch in range(1, epochs + 1):
-            w_aspect, w_efficiency, w_uniformity = _sq_adaptive_weights(_adaptive_boost_active, _adaptive_cfg, _cv_history, epoch, epochs, w_aspect, w_efficiency, w_uniformity)
-
-            # Generate random perturbation (±1 pattern), dim = _dim
-            disturb_c = rng.binomial(1, 0.5, (_dim,)).astype(float) * 2.0 - 1.0
-            disturb_c = disturb_c * delta
-
-            if _has_rotation:
-                # rotation DOF uses a fixed 1° step, not the amplitude delta
-                disturb_c[-1] = np.sign(disturb_c[-1]) * _rot_delta
-                if disturb_c[-1] == 0.0:
-                    disturb_c[-1] = _rot_delta
+            disturb_c, w_aspect, w_efficiency, w_uniformity = _sq_epoch_perturbation(_adaptive_boost_active, _adaptive_cfg, _cv_history, _dim, _has_rotation, _rot_delta, delta, epoch, epochs, rng, w_aspect, w_efficiency, w_uniformity)
 
             # Positive / negative perturbation. The two measurements are the
             # same procedure on +/- disturb_c, so they share one record.
@@ -2524,27 +2610,7 @@ def _run_square_search_stage(
             # (1 - max_roi_energy_loss) of the armed reference. Skipping
             # (rather than only penalising the score) is essential -- see the
             # arming comment above.
-            _gated = False
-            if _guard_enabled and _guard_ref_ee is not None:
-                _pos_loss = (_guard_ref_ee - pos["ee"]) / _guard_ref_ee
-                _neg_loss = (_guard_ref_ee - neg["ee"]) / _guard_ref_ee
-                if (
-                    _pos_loss > max_roi_energy_loss
-                    or _neg_loss > max_roi_energy_loss
-                ):
-                    _gated = True
-                    _n_energy_gated += 1
-                    _gate = "energy"
-                    if _n_energy_gated <= 5 or _n_energy_gated % 50 == 0:
-                        logger.warning(
-                            "epoch {}: in-ROI energy loss {:.1%}/{:.1%} exceeds "
-                            "{:.1%} - epoch skipped (#{} gated)",
-                            epoch,
-                            _pos_loss,
-                            _neg_loss,
-                            float(max_roi_energy_loss),
-                            _n_energy_gated,
-                        )
+            _gate, _gated, _n_energy_gated = _sq_energy_gate(_guard_enabled, _guard_ref_ee, _n_energy_gated, delta, epoch, max_roi_energy_loss, neg, pos)
             if _gated:
                 # Record honestly (unchanged coefficients, diff=0) and skip.
                 recorder.append(
@@ -2581,34 +2647,9 @@ def _run_square_search_stage(
             # score (uniformity + energy + aspect), NOT -CV alone: optimising
             # -CV alone lets the optimizer minimise CV by EMPTYING the target
             # box (observed on hardware: EE collapsed to ~0.002).
-            diff = pos["q"] - neg["q"]
-            gradient = diff * disturb_c
-            update = optimizer.update(gradient)
-            _params = _apply_update(_params, update)
+            J, _params, best_ar, best_cv, best_ee, best_quality, delta, diff, eval_ar, eval_c, eval_cv, eval_ee, eval_img, eval_pbr, gradient, last_best_epoch, quality = _sq_gradient_step(_adaptive_cfg, _apply_update, _base_w_aspect, _base_w_efficiency, _base_w_uniformity, _cv_history, _delta_pinned, _gradient_history, _max_history_len, _param_scale, _params, best_ar, best_cv, best_ee, best_quality, center, delta, disturb_c, epoch, last_best_epoch, lr, neg, objective, optimizer, pos, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity)
 
-            J, _track_quality, eval_ar, eval_c, eval_cv, eval_ee, eval_img, eval_pbr, quality = _sq_epoch_metrics(_adaptive_cfg, _base_w_aspect, _base_w_efficiency, _base_w_uniformity, center, neg, objective, pos, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity)
-
-            # Track best
-            if _track_quality > best_quality + 1e-6:
-                best_quality = _track_quality
-                best_cv = eval_cv
-                best_ee = eval_ee
-                best_ar = eval_ar
-                last_best_epoch = epoch
-
-            # Adaptive learning schedule. Only touches `delta` when the caller
-            # did NOT pin one: an explicit `--delta` used to be silently
-            # overwritten here whenever `lr` was left at 0 (its default),
-            # which made the flag a no-op unless you also passed an explicit
-            # `--lr`. `--delta` pinned is now reported, not discarded.
-            delta = _sq_adapt_lr(_adaptive_cfg, _cv_history, _delta_pinned, _gradient_history, _max_history_len, _param_scale, delta, epoch, eval_cv, eval_ee, gradient, lr, optimizer)
-
-            log = _sq_record_epoch(J, _record_vec, _score_column, cam, delta, diff, epoch, eval_ar, eval_c, eval_cv, eval_ee, eval_img, eval_pbr, gradient, max_brightness, neg, optimizer, pos, quality, recorder, target_mean_brightness, target_side)
-
-            _sq_display_epoch(_params_to_gray, display_ctx, epoch, epochs, eval_c, eval_cv, eval_ee, eval_img, quality)
-
-            bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
-            bar.update(1)
+            _sq_log_epoch(J, _params_to_gray, _record_vec, _score_column, bar, cam, delta, diff, display_ctx, epoch, epochs, eval_ar, eval_c, eval_cv, eval_ee, eval_img, eval_pbr, gradient, max_brightness, neg, optimizer, pos, quality, recorder, target_mean_brightness, target_side)
 
             # Re-display the ACCEPTED state. Without this the last write of
             # every epoch is `neg["c"]` (the rejected -delta perturbation), so

@@ -5273,6 +5273,13 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 锚点 +24: run 1262→1286 / closed_loop_run 1754→1778 (md 各 1 + 双 JSON lineno/end); 棘轮 127/2/110 + 3 helper 行
 - 载体: `test_zernike_matrix_runner` + 形状门禁 + conventions **436 passed 1 skipped**; 模块 1936 baseline 抬高 +24
 
+**2026-11-16 · eff0b354 · 第 103 批: `_run_square_search_stage` 249→176 行 + 五缝 (`slm_square_shaping.py`)**
+- 提取: `_sq_make_optimizer` 22 (delta 形参通道: `learning_schedule` 仅在 `lr==0` 分支写 delta, 显式形参+无条件回传保 pass-through 语义) / `_sq_epoch_perturbation` 14 / `_sq_energy_gate` 25 (母函数区域头补 `_gate = None` 显式初始化, gated 读侧不变) / `_sq_gradient_step` 24 (30 参 17 回传, best_* 五连走形参通道防 ⑳ 泄漏) / `_sq_log_epoch` 9
+- 叶差分: 39 同 / 消失 0 / 新增 5; ⑳ 审计 0 命中; 循环体 `break` (2578 旧号) 留在母函数
+- 教训㉕: 多区单调用中任一区审计失败 ⇒ 整次回滚零写入; 逐区审计通过后仍需带通道重跑, 且行号在手工插入后须重测
+- 载体: e2e sim 后端 + 能量门 + epoch 表征 + 形状门禁 **445 passed**; wfless 逐文件域 exit=0; conventions 72 passed
+- 门禁: 棘轮 203/6/176 + 5 helper 行; 模块 2891→2932 baseline 抬高 +41
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
