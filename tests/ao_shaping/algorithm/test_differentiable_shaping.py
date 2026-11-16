@@ -412,6 +412,118 @@ class TestDebugRecording:
         assert (tmp_path / JSONL_NAME.format(tag="step_b")).exists()
 
 
+# ============================ LR schedules ============================
+
+
+class TestLrSchedule:
+    """``train_beam_shaping(lr_schedule=...)``: 动态学习率调度。
+
+    ``None`` 必须与加调度之前的行为**逐位一致** (用改动前捕获的 loss 轨迹
+    回归); 三个调度各自把逐迭代学习率改成声明的形状; cosine 在小合成问题
+    上仍能降 loss。
+    """
+
+    GRID_S = (32, 32)
+    SIZE_S = 6
+    ITER_S = 20
+    LR_S = 0.05
+
+    # (a) 改动前 (pre-change) 用同一调用捕获的 loss 轨迹:
+    # region 32 / iters 20 / seed 0 / lr 0.05 / adam / fft。
+    # ``lr_schedule=None`` 必须逐位复现这条轨迹。
+    REF_LOSSES_NONE = [
+        2.805043, 2.797315, 2.784147, 2.763668, 2.735144, 2.698135,
+        2.65232, 2.597448, 2.533342, 2.459912, 2.377164, 2.285214,
+        2.184302, 2.074803, 1.957256, 1.832385, 1.701129, 1.564675,
+        1.424501, 1.282418,
+    ]
+
+    def _target(self):
+        return create_target_mask("square", self.GRID_S, self.SIZE_S)
+
+    def _run(self, **kw):
+        defaults = dict(
+            propagation="fft",
+            optimizer="adam",
+            iterations=self.ITER_S,
+            lr=self.LR_S,
+            w_uniformity=0.4,
+            w_efficiency=0.6,
+            seed=0,
+            device="cpu",
+        )
+        defaults.update(kw)
+        return train_beam_shaping(self._target(), self.GRID_S, **defaults)
+
+    def test_none_schedule_reproduces_pre_change_trajectory(self):
+        result = self._run(lr_schedule=None)
+        assert [round(float(x), 6) for x in result.loss_history] == (
+            self.REF_LOSSES_NONE
+        )
+
+    def _capture_lr(self, monkeypatch, schedule: str | None):
+        """给优化器参数组包一层记录字典, 捕获逐迭代写入的学习率。
+
+        返回 ``(构造时初始 lr, 循环内每次写入的 lr 序列)``。
+        """
+        import ao_shaping.algorithm.signal_processing.differentiable_shaping as ds
+
+        holder: dict[str, object] = {"initial_lr": None, "sets": []}
+        real_builder = ds._shaping_optimizer
+
+        def spy(torch, phase, optimizer, lr, lr_schedule=None):
+            opt = real_builder(torch, phase, optimizer, lr, lr_schedule)
+            group = opt.param_groups[0]
+            holder["initial_lr"] = float(group["lr"])
+            sets: list[float] = []
+
+            class _Recording(dict):
+                def __setitem__(self, key, value):
+                    super().__setitem__(key, value)
+                    if key == "lr":
+                        sets.append(float(value))
+
+            opt.param_groups[0] = _Recording(group)
+            holder["sets"] = sets
+            return opt
+
+        monkeypatch.setattr(ds, "_shaping_optimizer", spy)
+        self._run(lr_schedule=schedule)
+        return float(holder["initial_lr"]), list(holder["sets"])  # type: ignore[arg-type]
+
+    def test_none_schedule_never_rewrites_lr(self, monkeypatch):
+        initial_lr, sets = self._capture_lr(monkeypatch, None)
+        # 优化器以 base lr 构造, 循环从不改写 —— 恒定学习率。
+        assert initial_lr == pytest.approx(self.LR_S)
+        assert sets == []
+
+    def test_schedules_apply_expected_lr_shape(self, monkeypatch):
+        from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
+            _lr_schedule_factor,
+        )
+
+        for schedule in ("cosine", "step", "warmup-cosine"):
+            initial_lr, sets = self._capture_lr(monkeypatch, schedule)
+            assert initial_lr == pytest.approx(self.LR_S)
+            assert len(sets) == self.ITER_S
+            expected = [
+                self.LR_S * _lr_schedule_factor(schedule, i, self.ITER_S)
+                for i in range(self.ITER_S)
+            ]
+            assert sets == pytest.approx(expected, rel=1e-9)
+            # 确实与恒定学习率不同 (调度真的在起作用)。
+            assert sets != pytest.approx([self.LR_S] * self.ITER_S)
+
+    def test_cosine_schedule_decreases_loss(self):
+        result = self._run(lr_schedule="cosine")
+        assert len(result.loss_history) == self.ITER_S
+        assert result.loss_history[-1] < result.loss_history[0]
+
+    def test_unknown_schedule_raises(self):
+        with pytest.raises(ValueError):
+            self._run(lr_schedule="banana")
+
+
 # ============================ Torch optionality ============================
 
 

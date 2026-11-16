@@ -10,7 +10,9 @@ separate test file.
 
 from __future__ import annotations
 
+import csv
 import math
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -590,6 +592,158 @@ class TestHardwareClosedLoop:
         best1, _ = r1.get_best_iter()
         best2, _ = r2.get_best_iter()
         assert np.array_equal(best1["best_phase"], best2["best_phase"])
+
+
+class TestSetLr:
+    """``set_lr``: drives an external per-iteration LR schedule.
+
+    Used by ``scripts/slm/sweep_differentiable_lr.py`` (offline LR-schedule
+    study). The method must update every Adam param group, keep ``update()``
+    working afterwards, and reject non-positive / non-finite values.
+    """
+
+    def _make_opt(self, lr: float = 0.05) -> DifferentiableBeamOptimizer:
+        return DifferentiableBeamOptimizer(
+            _gaussian_target(16), lr=lr, device="cpu", seed=0
+        )
+
+    def test_set_lr_updates_all_param_groups(self):
+        opt = self._make_opt()
+        opt.set_lr(0.3)
+        assert opt._lr == pytest.approx(0.3)
+        groups = opt._opt.param_groups
+        assert len(groups) >= 1
+        for group in groups:
+            assert group["lr"] == pytest.approx(0.3)
+
+    @pytest.mark.parametrize("bad", [0.0, -0.1, float("nan"), float("inf")])
+    def test_set_lr_rejects_invalid(self, bad: float):
+        opt = self._make_opt()
+        with pytest.raises(ValueError):
+            opt.set_lr(bad)
+        # A rejected call must leave the optimizer untouched.
+        assert opt._lr == pytest.approx(0.05)
+        for group in opt._opt.param_groups:
+            assert group["lr"] == pytest.approx(0.05)
+
+    def test_update_after_set_lr_still_decreases_loss(self):
+        opt = self._make_opt(lr=0.05)
+        opt.update()
+        first = opt.last_loss
+        assert first is not None
+        opt.set_lr(0.02)
+        for _ in range(20):
+            opt.update()
+        assert opt.last_loss is not None
+        assert math.isfinite(opt.last_loss)
+        assert opt.last_loss < first
+
+    def test_decreasing_schedule_is_applied(self):
+        """A cosine decay fed through ``set_lr`` lands in the param groups."""
+        opt = self._make_opt(lr=0.1)
+        iters = 12
+        floor = 0.1
+        seen_lrs: list[float] = []
+        losses: list[float] = []
+        for i in range(iters):
+            lr_i = 0.1 * (floor + (1.0 - floor) * 0.5 * (1.0 + math.cos(math.pi * i / iters)))
+            opt.set_lr(lr_i)
+            seen_lrs.append(float(opt._opt.param_groups[0]["lr"]))
+            opt.update()
+            assert opt.last_loss is not None
+            losses.append(opt.last_loss)
+        # The schedule is strictly decreasing and actually applied per step.
+        assert all(b < a for a, b in zip(seen_lrs, seen_lrs[1:]))
+        assert seen_lrs[0] == pytest.approx(0.1, rel=1e-6)
+        assert all(math.isfinite(loss) for loss in losses)
+        assert losses[-1] < losses[0]
+
+
+class TestDifferentiableProblemRebuild:
+    """Smoke test for the shared rebuild helper (``scripts/_common``).
+
+    ``scripts/_common/differentiable_problem.py`` is the single bootstrap that
+    both the offline LR sweep and the hardware script's re-analysis consume.
+    The run directory is gitignored local data, so the test skips when absent.
+    """
+
+    def test_rebuild_and_first_loss_match_run_dir(self):
+        root = Path(__file__).resolve().parents[3]
+        run_dir = root / "data" / "debug" / "differentiable_opt" / "phys_20261116_01"
+        if not (run_dir / "run_config.json").is_file():
+            pytest.skip(f"gitignored run directory absent: {run_dir}")
+        history_path = run_dir / "history.csv"
+        if not history_path.is_file():
+            pytest.skip(f"history.csv absent: {history_path}")
+
+        from scripts._common.differentiable_problem import (
+            build_optimizer,
+            load_problem_from_run_dir,
+        )
+
+        problem = load_problem_from_run_dir(run_dir)
+        m = int(problem.spec.m_grid)
+        assert problem.amplitude.shape == (m, m)
+        assert problem.target.shape == (m, m)
+        assert problem.init_phase is not None
+        assert problem.k_mean > 0.0
+
+        with history_path.open(encoding="utf-8", newline="") as fh:
+            rows = list(csv.DictReader(fh))
+        assert rows, "empty history.csv"
+        first_loss_ref = float(rows[0]["loss"])
+
+        opt = build_optimizer(
+            problem,
+            lr=float(problem.params.get("lr", 0.05)),
+            device="cpu",
+            seed=int(problem.params.get("seed", 0)),
+        )
+        opt.update()
+        assert opt.last_loss is not None
+        # CPU FFT round-off vs the recorded CUDA run: a few percent is ample.
+        assert opt.last_loss == pytest.approx(first_loss_ref, rel=0.05)
+
+    def test_init_phase_not_shared_between_builds(self):
+        """Regression: rebuilding from one ``problem`` must not alias init_phase.
+
+        ``DifferentiableBeamOptimizer.__init__`` does
+        ``np.asarray(init_phase, dtype=np.float32)``; when the saved
+        ``phase_initial.npy`` is already float32 this does **not** copy, and on
+        CPU ``torch.from_numpy(...).to("cpu")`` shares that memory, so Adam's
+        in-place ``step()`` would corrupt ``problem.init_phase``. Without a copy
+        in ``build_optimizer``, every sweep arm after the first would start from
+        the previous arm's final phase. This asserts the helper hands each
+        optimizer a private array.
+        """
+        root = Path(__file__).resolve().parents[3]
+        run_dir = root / "data" / "debug" / "differentiable_opt" / "phys_20261116_01"
+        if not (run_dir / "run_config.json").is_file():
+            pytest.skip(f"gitignored run directory absent: {run_dir}")
+
+        from scripts._common.differentiable_problem import (
+            build_optimizer,
+            load_problem_from_run_dir,
+        )
+
+        problem = load_problem_from_run_dir(run_dir)
+        assert problem.init_phase is not None
+        init_before = problem.init_phase.copy()
+        lr = float(problem.params.get("lr", 0.05))
+        seed = int(problem.params.get("seed", 0))
+
+        opt_a = build_optimizer(problem, lr=lr, device="cpu", seed=seed)
+        opt_a.update()
+        first_a = opt_a.last_loss
+        assert first_a is not None
+        # The shared problem array must be untouched by an optimizer step.
+        assert np.array_equal(problem.init_phase, init_before)
+
+        # A second build from the same problem must reproduce the same first
+        # loss (it would be history iter2's loss if init_phase were aliased).
+        opt_b = build_optimizer(problem, lr=lr, device="cpu", seed=seed)
+        opt_b.update()
+        assert opt_b.last_loss == pytest.approx(first_a, rel=1e-9)
 
 
 if __name__ == "__main__":

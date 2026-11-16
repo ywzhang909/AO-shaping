@@ -42,6 +42,10 @@ from ao_shaping.algorithm.signal_processing.differentiable_objective import (
     uniformity_loss as uniformity_loss,
     zero_order_penalty as zero_order_penalty,
 )
+from ao_shaping.algorithm.signal_processing.shaping_lr_schedule import (
+    LR_SCHEDULES as LR_SCHEDULES,
+    _lr_schedule_factor as _lr_schedule_factor,
+)
 from ao_shaping.utils.image.ranks import NDIM_SINGLE_CHANNEL
 from ao_shaping.utils.image.target.metrics import DIFFERENTIABLE_SHAPE_CHOICES
 from ao_shaping.utils.image.target.patterns import TargetShape, create_target_shape
@@ -418,8 +422,16 @@ def _shaping_tensors(
     return t_tensor, amp, phase_init
 
 
-def _shaping_optimizer(torch: Any, phase: Any, optimizer: str, lr: float) -> Any:
-    """The Adam / L-BFGS optimizer over the phase parameter."""
+def _shaping_optimizer(
+    torch: Any, phase: Any, optimizer: str, lr: float, lr_schedule: str | None = None
+) -> Any:
+    """The Adam / L-BFGS optimizer over the phase parameter.
+
+    ``lr_schedule`` 只做**提前校验**; 调度倍率由 :func:`_run_shaping_loop`
+    逐迭代施加, L-BFGS 忽略 (循环里会记警告)。
+    """
+    if lr_schedule not in (None, *LR_SCHEDULES):
+        raise ValueError(f"未知学习率调度 {lr_schedule!r}; 可选: {LR_SCHEDULES} 或 None")
     if optimizer == "adam":
         # 用 `Any` 是因为 torch 是可选依赖 —— 具体的优化器类型只能
         # 在运行时由 `optimizer` 字符串确定。
@@ -476,8 +488,13 @@ def _run_shaping_loop(
     progress_callback: Callable[[int, float], None] | None,
     phase_callback: Callable[["Tensor"], None] | None,
     debug_recorder: Any = None,
+    base_lr: float = 0.0,
+    lr_schedule: str | None = None,
 ) -> tuple[list[float], bool]:
     """Run the optimization loop; return the loss history and the converged flag.
+
+    ``lr_schedule is not None`` 时, 每步按 :func:`_lr_schedule_factor` 把 Adam
+    ``param_groups`` 的学习率设为 ``base_lr · factor``; ``None`` 时不触碰参数组。
 
     ``debug_recorder`` (default ``None``) is a
     :class:`~ao_shaping.optimizer.wfless.step_b_debug.StepBDebugRecorder`; when
@@ -513,11 +530,18 @@ def _run_shaping_loop(
         optimizer,
         device,
     )
+    if lr_schedule is not None and optimizer != "adam":
+        logger.warning("lr_schedule={!r} 只对 Adam 生效, 优化器 {} 忽略该调度",
+                       lr_schedule, optimizer)
 
     for it in range(iterations):
         t0 = time.perf_counter()
         phase_before = phase.detach().clone() if debug_recorder is not None else None
         if optimizer == "adam":
+            if lr_schedule is not None:
+                factor = _lr_schedule_factor(lr_schedule, it, iterations)
+                for group in opt.param_groups:
+                    group["lr"] = base_lr * factor
             opt.zero_grad()
             loss = _closure()
             forward_s = time.perf_counter() - t0
@@ -639,6 +663,7 @@ def train_beam_shaping(
     optimizer: str = "adam",
     iterations: int = 300,
     lr: float = 3e-2,
+    lr_schedule: str | None = None,
     w_uniformity: float = 0.4,
     w_efficiency: float = 0.6,
     w_zero_order: float = 0.0,
@@ -665,6 +690,8 @@ def train_beam_shaping(
         optimizer: ``"adam"`` 或 ``"lbfgs"``。
         iterations: 优化步数。
         lr: 学习率。
+        lr_schedule: 动态学习率调度 (``None`` = 恒定, 与历史逐位一致):
+            ``"cosine"`` / ``"step"`` / ``"warmup-cosine"``, 仅对 Adam 生效。
         w_uniformity: 均匀度损失的权重。
         w_efficiency: 效率损失的权重。
         w_zero_order: 零级惩罚的权重。
@@ -734,7 +761,8 @@ def train_beam_shaping(
     forward = _build_forward(propagation, cell_spacing, distance, wavelength)
 
     # -- 优化器 ------------------------------------------------------
-    opt = _shaping_optimizer(torch, phase, optimizer, lr)
+    # 调度名的校验在 _shaping_optimizer 里做 (单点, 对任何优化器都生效)。
+    opt = _shaping_optimizer(torch, phase, optimizer, lr, lr_schedule)
 
     # -- 训练循环 ----------------------------------------------------
     recorder, owns_recorder = _resolve_debug_recorder(debug, iterations)
@@ -757,6 +785,8 @@ def train_beam_shaping(
             progress_callback=progress_callback,
             phase_callback=phase_callback,
             debug_recorder=recorder,
+            base_lr=lr,
+            lr_schedule=lr_schedule,
         )
     finally:
         # 自己建的记录器自己收尾 (写汇总 JSON); 调用方传进来的不动。

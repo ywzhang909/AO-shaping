@@ -33,6 +33,7 @@ Gerchberg-Saxton 循环, 而是把相位图形 ``φ`` 当作一个*可学习*张
 
 from __future__ import annotations
 
+import math
 import time
 from typing import TYPE_CHECKING
 
@@ -381,3 +382,28 @@ class DifferentiableBeamOptimizer(IterativeOptimizer):
         self._loss_history.append(float(loss_meas.detach().cpu()))
         self._record(float(loss_meas.detach().cpu()))
         return self.current_phase
+
+    def set_lr(self, lr: float) -> None:
+        """设置 Adam 学习率, 供外部学习率调度在每次 :meth:`update` 前调用。
+
+        同时更新 ``self._lr`` 与底层 ``torch.optim.Adam`` 每个
+        ``param_groups`` 条目里的 ``lr``, 因此下一次 :meth:`update` 立即
+        以新学习率执行。不调用本方法时行为与从前完全一致 (构造时的固定
+        学习率); 离线扫描 ``scripts/slm/sweep_differentiable_lr.py`` 用它
+        驱动余弦/阶梯/预热衰减等调度。
+
+        Args:
+            lr: 新的学习率, 必须为正的有限值。
+
+        Returns:
+            None。
+
+        Raises:
+            ValueError: 若 ``lr`` 非有限或 <= 0。
+        """
+        lr_f = float(lr)
+        if not math.isfinite(lr_f) or lr_f <= 0.0:
+            raise ValueError(f"lr must be finite and > 0, got {lr}")
+        self._lr = lr_f
+        for group in self._opt.param_groups:
+            group["lr"] = lr_f
