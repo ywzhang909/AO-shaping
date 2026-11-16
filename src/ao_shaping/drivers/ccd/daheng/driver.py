@@ -116,10 +116,12 @@ class DahengCamera(BaseCamera):
         self._model: str | None = None
         #: 像元尺寸显式覆盖 (µm); None = 按型号解析。
         self._pixel_size_um: float | None = None
-        #: SDK 取流是否在跑 (initialize 末尾 ``stream_on`` 后置真, close 置假)。
-        #: 换设置后「消费旧流水线帧」必须先开流 —— 未开流时 ``get_image`` 永不返回,
-        #: 会死等。reset_window 期间的短暂停流不改本标记: 那段时间没有位深切换入口,
-        #: 且停流后抛异常时保持为假 = 不取帧 (失败即安全)。
+        #: SDK 取流是否在跑。唯一置真点: ``stream_on()`` **成功返回之后**
+        #: (``initialize`` 末尾、``reset_window`` 的 finally 复流); 置假点: 任何
+        #: ``stream_off()`` 之后 (``close``、``reset_window`` 停流)。
+        #: 它是「未开流不许取帧」的唯一把关: 停流状态下 ``data_stream[0].get_image()``
+        #: **永不返回** (阻塞等一帧不会来的数据), 故 ``__take_one_shot`` 以本标记为准
+        #: 直接抛 ``CameraError``, 不裸等 SDK。失败路径保持为假 = 不取帧 (失败即安全)。
         self._acquisition_on = False
 
     @property
@@ -147,14 +149,43 @@ class DahengCamera(BaseCamera):
         self.initialize()
 
     def close(self) -> None:
-        """关闭相机设备并释放资源。"""
+        """关闭相机设备并释放资源 (分层兜底: 任一步失败都继续释放, 幂等)。
+
+        ``stream_off`` 抛错**不能**跳过 ``close_device`` —— 否则设备句柄泄漏, 下一次
+        ``open_device_by_sn`` 直接撞 ``REPEAT_OPENED``。无论成败都清空
+        ``cam`` / ``_sn`` / ``_acquisition_on``: 失败后若留下一个「看似已打开」的对象,
+        下一次取帧就会拿死句柄去调 SDK。先 ``stop_stream()`` 让后台取流线程退出,
+        再动设备。未打开时是 no-op。
+        """
         if self.cam:
             self.cam_width, self.cam_height = 0, 0
-            self.cam.stream_off()
+            self.stop_stream()
+            #: 先落标记再停流: 万一 stream_off 抛错, 也不会留下「标记说在取流、
+            #: 设备其实已停」的状态 —— 那正是 __take_one_shot 死等的入口。
             self._acquisition_on = False
-            self.cam.close_device()
-            self.cam = None
-            self._sn = None
+            try:
+                self.cam.stream_off()
+            except Exception as e:  # SDK 抛出的类型不可枚举 (gxiapi 无稳定基类)
+                logger.warning(f"close: stream_off 失败 ({type(e).__name__}: {e}), 仍继续释放设备")
+            self._release_device_quietly("close 失败")
+
+    def _release_device_quietly(self, context: str) -> None:
+        """还设备句柄并清空状态; 自身**绝不抛异常**。
+
+        释放路径上的二次异常会盖掉真正的原始错误 (``close()`` 的 ``stream_off`` 失败、
+        ``initialize()`` 的配置失败), 排查时就只剩一个看不懂的 SDK 报错。故这里一律
+        降级成 warning, 但 ``cam`` / ``_sn`` / ``_acquisition_on`` 必须清空 ——
+        留着一个死句柄比报不出二次异常危险得多。
+        """
+        cam, self.cam = self.cam, None
+        self._sn = None
+        self._acquisition_on = False
+        if cam is None:
+            return
+        try:
+            cam.close_device()
+        except Exception as e:  # 同上: SDK 抛出的类型不可枚举
+            logger.warning(f"{context}: close_device 也失败 ({type(e).__name__}: {e}); 句柄可能已泄漏")
 
     @property
     def sn(self) -> str | None:
@@ -301,6 +332,27 @@ class DahengCamera(BaseCamera):
             else:
                 raise
         self._ensure_open("camera not found")
+        #: 设备句柄已拿到 ⇒ 从这里到 ``stream_on`` 之间任何一步失败都必须**主动还句柄**。
+        #: 半开状态 (cam 非空、配置没做完) 是最坏的一种: ``_ensure_open`` 会放行,
+        #: 调用方拿着一个曝光/位深/窗口都没配好的设备继续跑, 且句柄泄漏到下次 open。
+        try:
+            self._configure_opened_device(sn, dev_info_list[self.cam_id])
+        except BaseException:
+            self._release_device_quietly(f"initialize 失败 (sn={sn})")
+            raise
+
+    def _configure_opened_device(self, sn: str, dev_info: dict) -> None:
+        """打开设备之后、``stream_on`` 之前的全部配置 (``initialize`` 的后半段)。
+
+        抽成方法只为让 :meth:`initialize` 能用 try/except 兜住「已打开但未配好」的
+        中间态: 失败路径统一走 :meth:`_release_device_quietly`, 不留半开设备。
+        配置顺序即 ``initialize`` docstring 里那条链, 不要在没看清依赖的情况下重排
+        (曝光范围 → 钳制请求曝光 → 关 SDK 自动曝光 → 增益/位深/合并/偏移/宽高)。
+
+        参数:
+            sn: 设备序列号 (``initialize`` 从 ``update_device_list`` 取到的那一个)。
+            dev_info: 同一台设备的 SDK 设备信息字典, 供 :meth:`_resolve_model` 解析型号。
+        """
         # 设置相机的曝光时间
         float_range = self.cam.ExposureTime.get_range()
         if float_range:
@@ -358,7 +410,7 @@ class DahengCamera(BaseCamera):
         self.cam.Height.set(self.cam.HeightMax.get())
 
         self._sn = sn
-        self._model = self._resolve_model(dev_info_list[self.cam_id])
+        self._model = self._resolve_model(dev_info)
 
         # 按序列号加载并应用配置文件（不覆盖 __init__ 显式参数）
         config = self.load_config()
@@ -408,13 +460,19 @@ class DahengCamera(BaseCamera):
             )
         else:
             v = time_ms
-        previous = float(self.__exposure_time_ms.current)
+        #: 排空判定必须用**设备回读的前后差**, 不能用本地缓存 ``__exposure_time_ms``:
+        #: SDK 原生自动曝光 (``auto_exposure`` 阶段 1 的 Once) 或上一次失败的写入都会
+        #: 让设备真值与缓存脱节, 此时「缓存看着没变」会跳过排空, 把上一档曝光的帧
+        #: 直接交给调用方 —— 正是本方法 docstring 里那个测光阶梯配错档位的事故。
+        #: 阈值 0.5 µs = 设备整数 µs 网格的一半, 即「回读值真的动过」。
+        device_previous = self.get_exposure_time_ms()
         self.cam.ExposureTime.set(int(v * 1000))
-        self.__exposure_time_ms.ms = self.exposure_time
-        if abs(float(v) - previous) > 1e-6:
+        effective = self.exposure_time
+        self.__exposure_time_ms.ms = effective
+        if abs(effective - device_previous) > 0.5e-3:
             self._consume_stale_exposure_frames()
 
-        return self.exposure_time
+        return effective
 
     def _consume_stale_exposure_frames(self) -> int:
         """消费掉改曝光之前就在 SDK 流水线里的那些帧; 返回实际消费的帧数。"""
@@ -531,11 +589,38 @@ class DahengCamera(BaseCamera):
         ((实际生效宽高), (实际生效中心坐标))。请求值越出相机 GenICam [min,max,inc]
         网格时会被钳制并记 warning (SDK 对越界 set 只 print 噪声并静默保留旧窗口);
         返回 set 后 readback 校验的真实值。
+        🔴 **整段窗口配置都在停流状态下进行** (GenICam 的 ``Width``/``Height``/
+        ``OffsetX``/``OffsetY`` 拉流中不可写, 与 :meth:`set_bit_depth` 的
+        ``PixelFormat`` 同源)。停流期间 ``data_stream[0].get_image()`` **永不返回**,
+        所以这里必须落 ``_acquisition_on = False`` 让 ``__take_one_shot`` 直接抛错,
+        并在 ``finally`` 里复流: 配置中途抛错也不许把相机留在停流状态 —— 留在停流
+        状态又标记为「在取流」就是无声死等。复流点是**唯一**的 (``_configure_window``
+        内部不再自己 ``stream_on``), 否则成功路径会对已开流的设备再发一次
+        ``ACQUISITION_START``, SDK 直接报错。
+
+        返回:
+        ((实际生效宽高), (实际生效中心坐标))。
         """
-        # 中心坐标大于0
         self._ensure_open()
+        # 中心坐标大于0
         center = int(center[0]), int(center[1])
         self.cam.stream_off()
+        self._acquisition_on = False
+        try:
+            return self._configure_window(center, size)
+        finally:
+            self.cam.stream_on()
+            self._acquisition_on = True
+
+    def _configure_window(
+        self, center: tuple[int, int], size: tuple[int, int]
+    ) -> tuple[tuple[int, int], tuple[int, int]]:
+        """在**停流状态**下写窗口几何并回读生效值 (``reset_window`` 的实现体)。
+
+        调用方 (:meth:`reset_window`) 负责 ``stream_off`` / ``stream_on`` 与
+        ``_acquisition_on`` 标记; 本方法只碰 GenICam 特征, 因此中途抛错也不会把相机
+        留在停流状态。返回 readback 校验过的真实生效值, 不返回请求值。
+        """
         # 如果未指定窗口大小，则使用相机的最大宽度和高度
         if size == (0, 0):
             width, height = (self.cam.WidthMax.get(), self.cam.HeightMax.get())
@@ -586,7 +671,8 @@ class DahengCamera(BaseCamera):
         self.cam.OffsetY.set(y_offset)
         logger.info("ROI Window offset: ({}, {})", x_offset, y_offset)
         self.__update_properties()
-        self.cam.stream_on()
+        # 不在这里 stream_on: 复流由 reset_window 的 finally 唯一负责 (抛错也复流)。
+        # 下面的 readback 只读 GenICam 特征 (Width/Height/OffsetX/OffsetY), 不需要取流。
 
         # 读回校验：SDK 可能静默保留旧窗口/旧偏移（越界 set 不报错），
         # 返回实际生效值并 warning，避免调用方把请求值当生效值使用。
@@ -618,10 +704,25 @@ class DahengCamera(BaseCamera):
     def __take_one_shot(self) -> npt.NDArray[np.uint8]:
         """拍摄一张相机图像 (uint8)。
 
+        🔴 **未开流绝不取帧**: ``data_stream[0].get_image()`` 在 ``stream_off`` 之后
+        **永不返回** (阻塞等一帧不会来的数据), 下面的 ``while True`` 会把它变成死循环
+        —— 采集线程无声挂死, 没有超时、没有日志、Ctrl-C 都未必能捞回来。故先查
+        ``_acquisition_on`` (唯一置真点是 ``stream_on()`` 成功返回之后), 未开流直接抛
+        :class:`CameraError`。``initialize`` 的 ``stream_on`` 之前、``reset_window`` 的
+        停流窗口期、``close`` 之后都落在这一类。
+
         返回:
             np.ndarray: 拍摄到的图像数据, 数据类型 uint8。
+
+        抛出:
+            CameraError: 设备未打开, 或 SDK 取流未开启。
         """
         self._ensure_open()
+        if not self._acquisition_on:
+            raise CameraError(
+                "Daheng 取流未开启 (_acquisition_on=False): get_image() 在停流状态下"
+                "永不返回, 拒绝取帧以免死等; 请先 initialize()/open()"
+            )
         while True:
             raw_image = self.cam.data_stream[0].get_image()
             if raw_image and raw_image.get_status() == gx.GxFrameStatusList.SUCCESS:
@@ -681,9 +782,11 @@ class DahengCamera(BaseCamera):
 
         # ── 阶段 1: SDK 原生自动曝光 ──
         if use_sdk_auto:
+            sdk_auto_enabled = False
             try:
                 sdk_target = int(max(0, min(255, target_val)))
                 self.cam.ExposureAuto.set(constants.GxAutoEntry.ONCE.value)
+                sdk_auto_enabled = True
                 self.cam.ExpectedGrayValue.set(sdk_target)
                 logger.info(
                     "[SDK auto-exposure] enabled, target={}, waiting {} frames "
@@ -698,13 +801,21 @@ class DahengCamera(BaseCamera):
                     "[SDK auto-exposure] converged: exp={:.2f}ms",
                     self.get_exposure_time_ms(),
                 )
-                # 切换到手动模式，后续用比例迭代修正
-                self.cam.ExposureAuto.set(constants.GxAutoEntry.OFF.value)
             except Exception as e:  # 保留宽泛捕获: gxipy 第三方 Feature 访问, 不支持时抛出的类型不可枚举 (UnexpectedError/FeatureTypeError/ParameterTypeError 各自独立继承 Exception, 无公共基类)
                 logger.warning(
                     "[SDK auto-exposure] not available, falling back to manual: {}",
                     e,
                 )
+            finally:
+                # SDK auto-exposure must never stay enabled when falling through to the
+                # manual proportional loop, including when settle raised mid-run.
+                if sdk_auto_enabled:
+                    try:
+                        self.cam.ExposureAuto.set(constants.GxAutoEntry.OFF.value)
+                    except Exception as disable_exc:
+                        logger.warning(
+                            "[SDK auto-exposure] disable failed: {}", disable_exc
+                        )
 
         logger.info(
             "Auto exposure start: target={:.0f}±{:.0f} (range=[{}, {}]ms, max_iter={})",
@@ -808,44 +919,145 @@ class DahengCamera(BaseCamera):
         """获取可用相机列表（大恒返回 SDK 的设备信息对象）；枚举统一走 discovery 漏斗, 不 ping 固定 IP。"""
         return discovery.enumerate_devices().devices
 
-    def get_exposure_range(self) -> tuple[float, float]:
-        """获取相机支持的曝光时间范围 (min_ms, max_ms)。"""
+    def _update_exposure_range(self) -> tuple[float, float]:
+        """从设备回读曝光范围, 刷新本地 min/max 缓存并返回 (min_ms, max_ms)。
+
+        范围原先只在 ``initialize()`` 里采一次; 但 ``ExposureTime.ms`` 的 setter 对
+        越界值**抛 ValueError**, 而 ``reset_exposure_time`` 又把**设备回读值**写回缓存,
+        ``auto_exposure`` 还拿这个范围当裁剪边界。缓存一旦与设备脱节 (initialize 时
+        ``get_range()`` 返回空而沿用了 dataclass 默认的 0~100000 ms、SDK 侧改过量程、
+        配置文件覆盖了曝光), 一次合法的改曝光就会在写缓存时炸掉, 或者把曝光裁到错误
+        边界。故凡把范围当真值用的入口都先回读。
+
+        读不到 (``get_range()`` 返回空 / 不是字典 / 缺键 / ``max <= min``) 时**沿用上次
+        缓存**并记 warning, 不抛错: ``get_exposure_range`` 是查询入口, ``auto_exposure``
+        每轮都调它, 一个读不出来的量程不该把整个自动曝光打死 —— 退回缓存的行为与
+        修复前一致, 而设备**答得上来**时缓存就再也不会陈旧。
+        """
         self._ensure_open()
-        return float(self.__exposure_time_ms.min), float(self.__exposure_time_ms.max)
+        cached = (
+            float(self.__exposure_time_ms.min),
+            float(self.__exposure_time_ms.max),
+        )
+        float_range = self.cam.ExposureTime.get_range()
+        parsed = self._parse_exposure_range(float_range)
+        if parsed is None:
+            logger.warning(
+                f"Daheng ExposureTime.get_range() 不可用 ({float_range!r}); "
+                f"沿用上次缓存的曝光范围 [{cached[0]}, {cached[1]}] ms"
+            )
+            return cached
+        lo, hi = parsed
+        self.__exposure_time_ms.min = lo
+        self.__exposure_time_ms.max = hi
+        return lo, hi
+
+    @staticmethod
+    def _parse_exposure_range(float_range: Any) -> tuple[float, float] | None:
+        """把 SDK 的 ``ExposureTime.get_range()`` (µs) 解析成 ``(min_ms, max_ms)``。
+
+        不可用 (空 / 不是字典 / 缺键 / 值不是数 / ``max <= min``) 一律返回 ``None``
+        = 「读不到」, 由调用方退回缓存。**这里不抛**: 量程读不到是降级而非致命错误。
+        ``isinstance(..., dict)`` 这道闸是必要的 —— 裸 ``MagicMock`` 的 ``float()``
+        会安静地给出 1.0, 让"读不到"伪装成"读到一个 1 µs 的荒谬量程"。
+        """
+        if not isinstance(float_range, dict):
+            return None
+        try:
+            lo = float(float_range["min"]) / 1000.0  # SDK 单位 µs → 全驱动统一 ms
+            hi = float(float_range["max"]) / 1000.0
+        except (KeyError, TypeError, ValueError):
+            return None
+        if not hi > lo >= 0:
+            return None
+        return lo, hi
+
+    def get_exposure_range(self) -> tuple[float, float]:
+        """获取相机支持的曝光时间范围 (min_ms, max_ms); 每次从设备回读, 不返回陈旧缓存。"""
+        return self._update_exposure_range()
 
     def get_exposure_time_ms(self) -> float:
         """从设备**回读**当前生效的曝光时间 (ms); 读 SDK ``ExposureTime`` 特征而非本地缓存。"""
         return float(self.exposure_time)
 
+    @staticmethod
+    def _int_from_readback(raw: Any) -> int | None:
+        """把 GenICam 特征回读值归一化成 int; 认不出来返回 ``None`` (= 校验失败)。
+
+        gxipy 的 ``get()`` 形态不唯一: 纯 int/float、``(value, name)`` 元组、枚举成员
+        都出现过 (``initialize`` 里 ``StreamBufferHandlingMode.get()[0]``、
+        ``_bit_depth.bit_depth_of_format`` 处理 ``PixelFormat`` 时同源)。
+        ``None`` 一律当**失败**而不是「跳过校验」: 一个认不出的回读值 (包括测试里的
+        裸 ``MagicMock``) 绝不能被当成「设备已确认」, 否则 M1 这道校验形同虚设。
+        """
+        if isinstance(raw, (bool, int, float)):
+            return int(raw)
+        if isinstance(raw, tuple) and raw:
+            return DahengCamera._int_from_readback(raw[0])
+        value = getattr(raw, "value", None)
+        if isinstance(value, (bool, int, float)):
+            return int(value)
+        return None
+
+    def _verify_int_feature(self, name: str, expected: int, raw: Any) -> None:
+        """校验一个整数特征的回读值; 不符 (含认不出) 抛 :class:`CameraError`。
+
+        与 :meth:`set_bit_depth` 的 ``PixelFormat`` 回读、:meth:`reset_window` 的窗口
+        回读同一口径: **设备真值优先**, 请求值不算数。
+        """
+        got = self._int_from_readback(raw)
+        if got != int(expected):
+            raise CameraError(
+                f"Daheng {name} readback mismatch: requested {int(expected)}, "
+                f"device reports {raw!r} (parsed={got})"
+            )
+
     def enable_auto_exposure(self, enable: bool = True, mode: int = 1) -> bool:
-        """启用或关闭自动曝光 (大恒 SDK ``ExposureAuto`` "On"/"Off")。
+        """启用或关闭自动曝光 (大恒 SDK ``ExposureAuto``), **写后回读校验**。
 
         ``mode`` 仅 enable=True 时有意义 (大恒 SDK 无单独模式枚举, 始终用连续模式)。
-        返回: 成功 True, 不支持 False。
+
+        返回:
+            bool: 成功 True; 设备根本没有该特征 (不支持) False。
+
+        抛出:
+            CameraError: 特征存在但写入未生效 (回读与请求不符)。「不支持」与「写了没生效」
+                必须分开: 前者调用方可以退回比例迭代, 后者必须让 ``auto_exposure`` 的
+                阶段 1 失败 —— 否则它会拿**手动曝光**的帧当「SDK 已收敛」的结果,
+                把曝光一路推到边界 (与 12-bit 满量程误判同型的静默错误)。
         """
         self._ensure_open()
+        entry = (
+            constants.GxAutoEntry.CONTINUOUS if enable else constants.GxAutoEntry.OFF
+        )
         try:
-            entry = (
-                constants.GxAutoEntry.CONTINUOUS if enable else constants.GxAutoEntry.OFF
-            )
             self.cam.ExposureAuto.set(entry.value)
-            return True
-        except Exception as e:  # 同上: gxipy Feature 访问, 不支持时抛出的类型不可枚举
+            raw = self.cam.ExposureAuto.get()
+        except Exception as e:  # gxipy Feature 访问, 不支持时抛出的类型不可枚举
             logger.warning(f"Auto exposure not supported on Daheng camera: {e}")
             return False
+        self._verify_int_feature("ExposureAuto", entry.value, raw)
+        return True
 
     def set_auto_exposure_target(self, target: int) -> int:
-        """设置自动曝光的目标亮度 (SDK ``ExpectedGrayValue``, 0-255), 返回实际设定值。
+        """设置自动曝光的目标亮度 (SDK ``ExpectedGrayValue``, 0-255), 返回**生效值**。
 
-        仅在自动曝光启用时生效。
+        越界请求先钳到 [0, 255] (契约见 :meth:`BaseCamera.set_auto_exposure_target`:
+        返回钳制后的生效值, 不返回请求值)。仅在自动曝光启用时生效。
+
+        抛出:
+            CameraError: 特征存在但写入未生效 (回读与请求不符)。
         """
         self._ensure_open()
-        target = max(0, min(255, target))
+        target = max(0, min(255, int(target)))
         try:
             self.cam.ExpectedGrayValue.set(target)
-            logger.info(f"Auto exposure target brightness set to {target}")
+            raw = self.cam.ExpectedGrayValue.get()
         except Exception as e:  # 同上: gxipy Feature 访问, 不支持时抛出的类型不可枚举
             logger.warning(f"Auto exposure target not supported: {e}")
+            return target
+        self._verify_int_feature("ExpectedGrayValue", target, raw)
+        logger.info(f"Auto exposure target brightness set to {target}")
         return target
 
     def get_auto_exposure_state(self) -> dict:

@@ -66,6 +66,12 @@ class TestEnableAutoExposureUsesConstants:
         from ao_shaping.drivers.ccd.daheng.driver import DahengCamera
 
         mock_cam = MagicMock()
+        # ExposureAuto 以回读为准 (驱动写完会校验), 所以假设备也得回一个可解析的
+        # (代码, 名称), 不能留裸 MagicMock —— 与 PixelFormat 同一口径。
+        mock_cam.ExposureAuto.get.return_value = (
+            constants.GxAutoEntry.CONTINUOUS.value,
+            "Continuous",
+        )
 
         cam = DahengCamera(cam_id=0, exposure_time_ms=10.0)
         cam.cam = mock_cam
@@ -82,6 +88,10 @@ class TestEnableAutoExposureUsesConstants:
         from ao_shaping.drivers.ccd.daheng.driver import DahengCamera
 
         mock_cam = MagicMock()
+        mock_cam.ExposureAuto.get.return_value = (
+            constants.GxAutoEntry.OFF.value,
+            "Off",
+        )
 
         cam = DahengCamera(cam_id=0, exposure_time_ms=10.0)
         cam.cam = mock_cam

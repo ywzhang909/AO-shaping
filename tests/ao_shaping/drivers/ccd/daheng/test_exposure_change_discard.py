@@ -81,6 +81,9 @@ def _make_camera(monkeypatch):
     stream.get_image.side_effect = lambda: _FakeFrame(pipeline.next_payload())
     mock_cam.data_stream = [stream]
     cam.cam = mock_cam
+    # 假相机 = 取流进行中: 「停流不许取帧」的把关 (__take_one_shot) 以
+    # _acquisition_on 为准, 直接装 cam 的测试须显式声明流已开。
+    cam._acquisition_on = True
     monkeypatch.setattr(daheng_driver, "gx", MagicMock(), raising=False)
     monkeypatch.setattr(
         daheng_driver.gx, "GxFrameStatusList", MagicMock(SUCCESS=SUCCESS), raising=False
