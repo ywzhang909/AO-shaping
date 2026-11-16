@@ -5361,6 +5361,13 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: `test_model_in_loop_shaping` + `test_model_in_loop_sweep_diagnostics` + `test_slm_model_in_loop_step_sink` + 形状门禁 **482 passed**; wfless 逐文件域 exit=0; `test_conventions` 72 passed
 - 门禁: 棘轮新增 3 行 (80/0/69 + 85/2/75 + 28/0/24); ruff/term 绿
 
+**2026-11-17 · 3ac9dc58 之后 · 第 114 批: `calibrate_zernike_response_matrix` 162→112 行 + 两缝 (`wf/zernike_response_matrix.py`)**
+- 提取: `_zrm_measure_mode` 46 (逐模式响应测量段, 循环内 574-616; **display 的 `if not continue_flag: break` 块留在循环内** —— 教训⑧, 缝边界切在 616) / `_zrm_inverses` 12 (pinv/lstsq 求逆段 640-648); 15 参数 3 回传 (`mean_resp`/`slot`/`var_resp` 均为区域后被读)
+- wiki 重钉: `save_zernike_response_matrix` 659→675 (lift +16 位移), md + 双 JSON 三处同步 (`test_wiki_source_citations_land_on_definitions` 一次红→重钉绿)
+- 附带修: `absolute_fidelity_probe_20261116.py:38` docstring 非 raw 内 `\l` SyntaxWarning ⇒ 反斜杠双写 (与 6bd66307 同文件的收尾打磨)
+- 载体: `test_zernike_response_matrix` + 形状门禁 **432 passed**; wf 逐文件域 exit=0; `test_conventions` 133 passed (含 diffraction 载体共跑)
+- 门禁: 棘轮收紧 178/4/162→125/3/112 + 新增 `_zrm_measure_mode` 52/1/46、`_zrm_inverses` 15/1/12; 模块 881→897 baseline 抬高 +16; ruff/term 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

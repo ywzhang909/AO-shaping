@@ -35,7 +35,7 @@ Zernike 图样用 :func:`generate_noll_polynomial` 生成，单位圆外置 0（
 
 硬件上的 PYTHONPATH（离线验证不需要）::
 
-    $env:PYTHONPATH = "<仓库根>\libs"      # 仓库根 = 本克隆根目录的绝对路径
+    $env:PYTHONPATH = "<仓库根>\\libs"      # 仓库根 = 本克隆根目录的绝对路径
 
 用法::
 
