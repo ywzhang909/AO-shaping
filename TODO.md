@@ -5325,6 +5325,14 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - `test_differentiable_shaping.py::test_none_schedule_reproduces_pre_change_trajectory` 用 1e-6 圆整逐位钉 ⇒ 跨 torch 构建 1 ULP 漂移 (实测 index 10 差 1e-6) 首跑即红; 按 #205 golden 容差惯例改 `pytest.approx(abs=5e-6)` (漂移 ×10)
 - 术语门禁: 上游新报告/脚本带入 4 文件 16 行口语词, `term_unify --apply` 归一, 复核 0/0
 
+**2026-11-16 · b00addab 之后 · 第 110 批: `optimize_spgd` 171→72 行 + 五缝 (`wfless/sim_spgd.py`)**
+- 提取: `_spgd_build_sim_system` 33 / `_spgd_turbulence_screen` 16 / `_spgd_bucket_and_state` 32 (22 回传, 全部为区域后实读) / `_spgd_record_baseline` 22 / `_spgd_pick_optimizer` 16; 主循环 `_spgd_run_loop` 本已是 helper
+- 生成器修复: `params0` 不含 `**kwargs` 捕获名 (fn.args.kwarg) ⇒ `kwargs` 报 not-in-pre; 三个 split 脚本已补 kwarg 并入
+- 叶差分: 19 同 / 消失 0 / 新增 5; ⑳ 审计 0 命中
+- 载体: `test_sim_spgd` + `test_spgd_convention` + 形状门禁 **430 passed**; wfless 逐文件域 exit=0
+- 教训㉘: `ruff check . > /dev/null && echo ruff_ok` 把失败静默吞掉 (b109 推后 Ruff 红一次, 上游产物 F401 未拦住); 门禁复验一律**不打到 /dev/null**, 以 `RUFF_GREEN` 打显为过闸凭据
+- 门禁: 棘轮 83/2/72 + 5 helper 行; 模块 1051→1091 baseline 抬高 +40
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

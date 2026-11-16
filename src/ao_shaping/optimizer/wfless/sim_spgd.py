@@ -301,6 +301,145 @@ def _spgd_zernike_run_loop(J, PX, PY, R0, _apply_zernike_phase, _fix_bucket, _in
     return recorder
 
 
+
+def _spgd_pick_optimizer(beta1, beta2, beta3, current_delta, current_gamma, kwargs, optimizer_type, total_actuators):
+# Adaptive optimizer selection lifted verbatim
+    optimizer_key = optimizer_type.lower()
+    use_fixed_gain = optimizer_key == "spgd"
+    adaptive_optimizer = None
+    if not use_fixed_gain:
+        adaptive_optimizer = create_optimizer(
+            optimizer_key,
+            total_actuators,
+            lr=max(current_gamma * current_delta, 1e-8),
+            beta1=beta1,
+            beta2=beta2,
+            beta3=beta3,
+            **kwargs,
+        )
+    return adaptive_optimizer, use_fixed_gain
+
+
+
+
+def _spgd_record_baseline(J0, _init_r, _init_v, _strehl_init, current_delta, current_gamma, ideal_bucket_radius, init_img, pib_ratio0, r_bucket, recorder):
+# Baseline recorder row lifted verbatim
+    recorder.append(
+        {
+            "sim_spgd": "init",
+            "J": J0,
+            "pib": J0,
+            RECORD_ROI_ENERGY: pib_ratio0,
+            "_max_r": _init_r,
+            RECORD_VOLTAGES: _init_v.copy(),
+            RECORD_IMAGE: init_img,
+            RECORD_DIFF: 0.0,
+            "gamma": current_gamma,
+            "r": r_bucket,
+            "delta": current_delta,
+            "ideal_r": ideal_bucket_radius,
+            RECORD_EPOCH: 0,
+            "strehl": _strehl_init,
+            RECORD_GRAD: np.zeros_like(_init_v),
+        }
+    )
+    return 
+
+
+
+
+def _spgd_bucket_and_state(PX, PY, _init_v, ao_sys, delta, epochs, gamma, n_grid, r_bucket, total_actuators, use_momentum):
+# Bucket radius defaults and SPGD state lifted verbatim
+    R0 = n_grid / 2
+
+    ideal_bucket_radius = _calc_ideal_bucket_radius(ao_sys, _init_v, n_grid)
+
+    if r_bucket <= 0:
+        r_bucket = ideal_bucket_radius
+    _fix_bucket = True
+
+    ideal_r = max(ideal_bucket_radius, 1.0)
+    current_gamma = gamma
+    current_delta = delta
+
+    m_momentum = np.zeros(total_actuators) if use_momentum else None
+
+    J0, pib_ratio0 = _pib_ratio(ao_sys.get_image(), PX, PY, (R0, R0), r_bucket)
+
+    disturb_v = np.zeros(total_actuators)
+    pos_pib, neg_pib = 0.0, 0.0
+    flag = 0
+    J = J0
+    diff = 0.0
+    gradient = np.zeros(total_actuators)
+    pos_img = ao_sys.get_image()
+
+    _init_r = r_bucket
+    update_iter = epochs + 1
+
+    init_img = ao_sys.get_image()
+    _strehl_init = _current_strehl(ao_sys)
+    return J, J0, R0, _fix_bucket, _init_r, _strehl_init, current_delta, current_gamma, diff, disturb_v, flag, gradient, ideal_bucket_radius, ideal_r, init_img, m_momentum, neg_pib, pib_ratio0, pos_img, pos_pib, r_bucket, update_iter
+
+
+
+
+def _spgd_turbulence_screen(Cn2, _init_v, aber_strength, ao_sys, n_grid):
+# Grid mesh and Cn2 turbulence phase screen lifted verbatim
+    px = np.arange(n_grid)
+    py = np.arange(n_grid)
+    PX, PY = np.meshgrid(px, py)
+
+    if Cn2 > 0:
+        turb = ao_sys.turbulence.get_phase_screen()
+        _aber_phase = turb * aber_strength if aber_strength != 1.0 else turb
+        ao_sys._turbulence_phase = _aber_phase
+        ao_sys.set_dm_voltages(_init_v)
+    else:
+        _aber_phase = np.zeros((n_grid, n_grid))
+        ao_sys._turbulence_phase = None
+        ao_sys.set_dm_voltages(_init_v)
+    return PX, PY
+
+
+
+
+def _spgd_build_sim_system(Cn2, aperture, delta, dm_actuators, dm_stroke, epochs, init_v, n_grid, propagation_distance, wavelength):
+# AO config simulation system and init voltages lifted verbatim
+    delta = abs(delta)
+    epochs = int(epochs)
+
+    recorder = Recorder(mark="sim_spgd", mode="max")
+
+    config = AOConfig(
+        N=n_grid,
+        L=aperture,
+        wavelength=wavelength,
+        Cn2=Cn2,
+        dm_actuators=dm_actuators,
+        dm_stroke=dm_stroke,
+        propagation_distance=propagation_distance,
+    )
+
+    ao_sys = TraditionalAOSystem(config=config)
+    total_actuators = ao_sys.dm.total_actuators
+
+    if init_v is None:
+        _init_v = np.zeros(total_actuators, dtype=np.float64)
+    else:
+        _init_v = np.array(init_v, dtype=np.float64)
+        if len(_init_v) != total_actuators:
+            logger.warning(
+                f"init_v length {len(_init_v)} != total_actuators {total_actuators}, "
+                "padding with zeros."
+            )
+            _new_v = np.zeros(total_actuators, dtype=np.float64)
+            _new_v[: len(_init_v)] = _init_v
+            _init_v = _new_v
+    return _init_v, ao_sys, delta, epochs, recorder, total_actuators
+
+
+
 def optimize_spgd(
     epochs: int,
     r_bucket: float = 0,
@@ -362,114 +501,15 @@ def optimize_spgd(
     if seed is not None:
         np.random.seed(seed)
 
-    delta = abs(delta)
-    epochs = int(epochs)
+    _init_v, ao_sys, delta, epochs, recorder, total_actuators = _spgd_build_sim_system(Cn2, aperture, delta, dm_actuators, dm_stroke, epochs, init_v, n_grid, propagation_distance, wavelength)
 
-    recorder = Recorder(mark="sim_spgd", mode="max")
+    PX, PY = _spgd_turbulence_screen(Cn2, _init_v, aber_strength, ao_sys, n_grid)
 
-    config = AOConfig(
-        N=n_grid,
-        L=aperture,
-        wavelength=wavelength,
-        Cn2=Cn2,
-        dm_actuators=dm_actuators,
-        dm_stroke=dm_stroke,
-        propagation_distance=propagation_distance,
-    )
+    J, J0, R0, _fix_bucket, _init_r, _strehl_init, current_delta, current_gamma, diff, disturb_v, flag, gradient, ideal_bucket_radius, ideal_r, init_img, m_momentum, neg_pib, pib_ratio0, pos_img, pos_pib, r_bucket, update_iter = _spgd_bucket_and_state(PX, PY, _init_v, ao_sys, delta, epochs, gamma, n_grid, r_bucket, total_actuators, use_momentum)
 
-    ao_sys = TraditionalAOSystem(config=config)
-    total_actuators = ao_sys.dm.total_actuators
+    _spgd_record_baseline(J0, _init_r, _init_v, _strehl_init, current_delta, current_gamma, ideal_bucket_radius, init_img, pib_ratio0, r_bucket, recorder)
 
-    if init_v is None:
-        _init_v = np.zeros(total_actuators, dtype=np.float64)
-    else:
-        _init_v = np.array(init_v, dtype=np.float64)
-        if len(_init_v) != total_actuators:
-            logger.warning(
-                f"init_v length {len(_init_v)} != total_actuators {total_actuators}, "
-                "padding with zeros."
-            )
-            _new_v = np.zeros(total_actuators, dtype=np.float64)
-            _new_v[: len(_init_v)] = _init_v
-            _init_v = _new_v
-
-    px = np.arange(n_grid)
-    py = np.arange(n_grid)
-    PX, PY = np.meshgrid(px, py)
-
-    if Cn2 > 0:
-        turb = ao_sys.turbulence.get_phase_screen()
-        _aber_phase = turb * aber_strength if aber_strength != 1.0 else turb
-        ao_sys._turbulence_phase = _aber_phase
-        ao_sys.set_dm_voltages(_init_v)
-    else:
-        _aber_phase = np.zeros((n_grid, n_grid))
-        ao_sys._turbulence_phase = None
-        ao_sys.set_dm_voltages(_init_v)
-
-    R0 = n_grid / 2
-
-    ideal_bucket_radius = _calc_ideal_bucket_radius(ao_sys, _init_v, n_grid)
-
-    if r_bucket <= 0:
-        r_bucket = ideal_bucket_radius
-    _fix_bucket = True
-
-    ideal_r = max(ideal_bucket_radius, 1.0)
-    current_gamma = gamma
-    current_delta = delta
-
-    m_momentum = np.zeros(total_actuators) if use_momentum else None
-
-    J0, pib_ratio0 = _pib_ratio(ao_sys.get_image(), PX, PY, (R0, R0), r_bucket)
-
-    disturb_v = np.zeros(total_actuators)
-    pos_pib, neg_pib = 0.0, 0.0
-    flag = 0
-    J = J0
-    diff = 0.0
-    gradient = np.zeros(total_actuators)
-    pos_img = ao_sys.get_image()
-
-    _init_r = r_bucket
-    update_iter = epochs + 1
-
-    init_img = ao_sys.get_image()
-    _strehl_init = _current_strehl(ao_sys)
-
-    recorder.append(
-        {
-            "sim_spgd": "init",
-            "J": J0,
-            "pib": J0,
-            RECORD_ROI_ENERGY: pib_ratio0,
-            "_max_r": _init_r,
-            RECORD_VOLTAGES: _init_v.copy(),
-            RECORD_IMAGE: init_img,
-            RECORD_DIFF: 0.0,
-            "gamma": current_gamma,
-            "r": r_bucket,
-            "delta": current_delta,
-            "ideal_r": ideal_bucket_radius,
-            RECORD_EPOCH: 0,
-            "strehl": _strehl_init,
-            RECORD_GRAD: np.zeros_like(_init_v),
-        }
-    )
-
-    optimizer_key = optimizer_type.lower()
-    use_fixed_gain = optimizer_key == "spgd"
-    adaptive_optimizer = None
-    if not use_fixed_gain:
-        adaptive_optimizer = create_optimizer(
-            optimizer_key,
-            total_actuators,
-            lr=max(current_gamma * current_delta, 1e-8),
-            beta1=beta1,
-            beta2=beta2,
-            beta3=beta3,
-            **kwargs,
-        )
+    adaptive_optimizer, use_fixed_gain = _spgd_pick_optimizer(beta1, beta2, beta3, current_delta, current_gamma, kwargs, optimizer_type, total_actuators)
 
     return _spgd_run_loop(J, PX, PY, R0, _fix_bucket, _init_r, _init_v, adaptive_optimizer, ao_sys, beta1, current_delta, current_gamma, diff, disturb_v, epochs, flag, gamma, gradient, ideal_bucket_radius, ideal_r, learning_schedule, m_momentum, neg_pib, pos_img, pos_pib, power_ratio_threshold, r_bucket, recorder, total_actuators, update_iter, use_fixed_gain, use_momentum)
 
