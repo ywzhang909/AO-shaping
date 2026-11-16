@@ -5289,6 +5289,14 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: pib 13 文件 + 形状门禁 **480 passed 1 skipped**; wfless 逐文件域 exit=0; conventions+门禁 440 passed
 - 门禁: 棘轮 226/6/196 + 2 helper 行; 模块 2657→2673 baseline 抬高 +16
 
+**2026-11-16 · f010012b · 第 106 批: `calibrate_response_matrix_pushpull` 190→137 行 + 五缝 (`runners/slm/zernike_matrix_runner.py`)**
+- 提取: `_prm_setup_state` 22 (矩阵/方差/记录分配) / `_prm_load_aperture_mask` 10 / `_prm_combine_pushpull` 11 / `_prm_filter_outliers` 16 (回传 `arr`) / `_prm_column_summary` 14 (子脚本变更走形参)
+- 循环 `break` (688/725/741 旧号) 全部留在母函数; `if arr.size == 0: break` 相邻段因此只提到 739 为止
+- 叶差分: 33 同 / 消失 0 / 新增 5; ⑳ 审计 0 命中; 母函数无装饰器
+- wiki 锚 +40: run 1326/1492、closed_loop_run 1818/1970 (md 各 1 + 双 JSON); 新增棘轮 158/5/137 + 5 helper 行
+- 载体: `test_zernike_matrix_runner` + guard + 形状门禁 + conventions **451 passed 1 skipped**; runners 逐文件域 exit=0
+- 门禁: 模块 1936→1976 baseline 抬高 +40
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
