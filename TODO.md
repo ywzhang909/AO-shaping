@@ -5347,6 +5347,13 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - `test_no_script_hardcodes_a_machine_absolute_path`: 上游新脚本 `absolute_fidelity_probe_20261116.py` 硬编码 `D:\Projects\TIFO\...` 两处 ⇒ docstring 改仓库根占位说明, `pythonpath_note` 改 `ROOT / 'libs'` 运行时推导 (守卫正则所求)
 - 教训㉚: **域绿 ≠ 分片绿** —— b109-b111 连推三个 tip 期间我只复跑 wfless/tools/slm/guards 域, drivers/root-guards/scripts 三个 CI 分片的失败 (全是上游合并携带) 一路跟到 tip; 推前至少要碰一碰**改动文件所在域 + 文档/脚本守卫 + drivers** 这三块, 或干脆全量 `scripts/build/run_pytest_ci.sh` 不带路径
 
+**2026-11-17 · 6bd66307 之后 · 第 112 批: `run_measurement` 173→74 行 + 四缝 (`calibration/diffraction_efficiency/measure.py`)**
+- 提取: `_measure_calibration_precondition` 26 (标定前置 if/else) / `_measure_gate_log` 16 (FWHM 门禁+日志) / `_measure_fit_diagnose` 17 (拟合+诊断) / `_measure_build_meta` 56 (meta 字典纯组装); 全程无 break/continue, 单调用底向上
+- **教训㉙更正**: 形状门禁的 nesting 口径是 **If/For/While/Try/With 控制流链** (`NESTING_NODES`, 定义见 guard 文件), **嵌套 def 不计** —— b111 的 `_make_tune_exposure` 报 2 实际是 `if fixed_exposure_ms` 内的 `for _ in range(3)` 构成 If→For 深度 2; 自算口径不要猜, 一律 `import` guard 模块调 `_measure(rel, name)` 取实测 (行 (90/1/74)+4 helper 均按此写, 一次过 459 passed)
+- 载体: `test_slm_diffraction_efficiency` + 形状门禁 459 passed; tools/slm 逐文件域 exit=0; `test_conventions` 72 passed
+- 门禁: 棘轮 5 行 (父收紧 200/1/173→90/1/74); 模块 964→996 baseline 抬高 +32; ruff/term 绿
+- 候选队列更新: `capture_response.capture` 162 **无行为载体** (tests 仅 CLI-argv 计数与 help 快照) → 按"硬件文件缺离线行为测试=只跟踪"约束移出本批评; `wfs_reference.main` 162 同型 (纯硬件 CLI) 亦移出
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
