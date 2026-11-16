@@ -27,10 +27,11 @@ import numpy as np
 import pytest
 
 import ao_shaping.tools.kernels.bench_kernels as bench_kernels
-from ao_shaping.utils.math import array_shape, fitting, stability
+from ao_shaping.utils.math import array_shape, convolution, fitting, stability
 
 _MODULES = [
     Path(array_shape.__file__).resolve(),
+    Path(convolution.__file__).resolve(),
     Path(fitting.__file__).resolve(),
     Path(stability.__file__).resolve(),
 ]

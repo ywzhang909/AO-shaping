@@ -39,6 +39,8 @@ import numpy as np
 
 from loguru import logger
 
+from ao_shaping.utils.math.convolution import gaussian_kernel_1d as _gaussian_kernel_1d
+
 __all__ = [
     "DETECTOR_FULL_SCALE",
     "compute_fusion_weights",
@@ -93,22 +95,6 @@ WEIGHT_BLUR_SIGMA_RATIO: float = 1.0 / 15.0
 # ---------------------------------------------------------------------------
 # Pure-NumPy convolution / resampling kernels
 # ---------------------------------------------------------------------------
-
-
-def _gaussian_kernel_1d(sigma: float) -> np.ndarray:
-    """Normalised 1D Gaussian kernel; ``sigma == 0`` is the identity kernel.
-
-    Mirrors :func:`ao_shaping.utils.image.target.metrics._loggrad_kernel` -- same
-    ``ceil(3 * sigma)`` support, same normalisation. Hand-rolled rather than
-    pulled from ``scipy.ndimage`` for the same reason that module documents:
-    ``utils/`` is a leaf and must not gain a ``scipy`` import to save a line.
-    """
-    if sigma == 0.0:
-        return np.ones(1, dtype=np.float64)
-    radius = int(np.ceil(3.0 * sigma))
-    offsets = np.arange(-radius, radius + 1, dtype=np.float64)
-    kernel = np.exp(-(offsets**2) / (2.0 * sigma * sigma))
-    return kernel / kernel.sum()
 
 
 def _fit_kernel(kernel: np.ndarray, height: int, width: int) -> np.ndarray:

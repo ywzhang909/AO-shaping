@@ -12,6 +12,9 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.utils.image.target.patterns import create_target_shape
+# One Gaussian kernel for the whole utils layer (R-65/#87): this module used to carry
+# its own copy to stay scipy-free, which the dependency-free leaf already guarantees.
+from ao_shaping.utils.math.convolution import gaussian_kernel_1d as _loggrad_kernel
 
 
 TARGET_SHAPE_CHOICES = (
@@ -589,16 +592,6 @@ LOGGRAD_EPS: float = 1e-8
 
 #: Blur width, in pixels, applied to both frames before the log transform.
 LOGGRAD_SIGMA: float = 1.0
-
-
-def _loggrad_kernel(sigma: float) -> np.ndarray:
-    """Normalised 1D Gaussian kernel; ``sigma == 0`` is the identity kernel."""
-    if sigma == 0.0:
-        return np.ones(1, dtype=np.float64)
-    radius = int(np.ceil(3.0 * sigma))
-    offsets = np.arange(-radius, radius + 1, dtype=np.float64)
-    kernel = np.exp(-(offsets**2) / (2.0 * sigma * sigma))
-    return kernel / kernel.sum()
 
 
 def _loggrad_blur(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
