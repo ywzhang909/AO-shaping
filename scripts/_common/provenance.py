@@ -201,13 +201,13 @@ REPORTS: dict[str, ReportProvenance] = {
     ),
     "report/shape_trials/model_optim_efficiency_20261116/model_optim_efficiency_20261116.md": ReportProvenance(
         script=HANDWRITTEN,
-        environment="离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-16 两次实机锚定闭环后离线汇总；报告本体不占用设备）",
+        environment="离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-16 两次实验锚定闭环后离线汇总；报告本体不占用设备）",
         note=(
-            "物理前向模型（FrozenDefocusForward / M3，grid 128 / FFT 512）驱动可微闭环的优化效果与效率汇总："
+            "物理预测模型（FrozenDefocusForward / M3，grid 128 / FFT 512）驱动可微闭环的优化效果与效率汇总："
             "模型侧 model_cv 3.89→0.66（随机起步规避焦斑盆地）、方向 cosine 0.696 过 ≥0.50 门禁；"
             "硬件侧实测核心 CV 停在 6.08/5.01 未达 ≤0.10，model_cv 与 measured_cv_window 同掩膜分叉约 7.5×（绝对强度表征误差）。"
             "效率：M3 闭环 ~0.30 s/iter（settle+capture 0.18 / 计算 0.11），比 model640 ~0.92 s/iter 快约 3×；"
-            "历史预算证 LCOS settle 占会话 99%、优化器 <0.05%。绝对强度保真度实机数据待 SLM #1 上线补采"
+            "历史预算证 LCOS settle 占会话 99%、优化器 <0.05%。绝对强度保真度实验数据待 SLM #1 上线补采"
             "（探针 absolute_fidelity_probe_20261116.py，commit 807d456a）。输入为两次锚定运行 timing/device_log/iterations、"
             "direction_variants_20261112、wall_clock_budget_20261111、shape_transition_timing_20261107。人工撰写。"
         ),

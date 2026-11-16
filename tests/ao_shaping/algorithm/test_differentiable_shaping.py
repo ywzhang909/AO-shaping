@@ -457,8 +457,10 @@ class TestLrSchedule:
 
     def test_none_schedule_reproduces_pre_change_trajectory(self):
         result = self._run(lr_schedule=None)
-        assert [round(float(x), 6) for x in result.loss_history] == (
-            self.REF_LOSSES_NONE
+        # 参考轨迹按 1e-6 圆整钉死, 跨 torch 构建存在 ~1 ULP (实测 4e-7 相对)
+        # 漂移 —— 用标定容差而非逐位相等 (#205 golden 容差惯例, abs 取漂移 ×10)。
+        assert [float(x) for x in result.loss_history] == pytest.approx(
+            self.REF_LOSSES_NONE, abs=5e-6
         )
 
     def _capture_lr(self, monkeypatch, schedule: str | None):
