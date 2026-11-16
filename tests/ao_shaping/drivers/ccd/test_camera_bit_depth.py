@@ -316,6 +316,31 @@ def test_daheng_does_not_discard_frames_when_bit_depth_unchanged(monkeypatch):
     assert fake.data_stream[0].grabs == 0
 
 
+def test_daheng_set_bit_depth_stops_stream_before_writing_pixel_format(monkeypatch):
+    """拉流中 ``PixelFormat`` 不可写 (2026-11-17 真机实测): 写格式前必须先
+    ``stream_off()``, 写完回读再 ``stream_on()``, 顺序固定 —— 拉流中直接写会被
+    SDK 静默拒绝 (只 print ``PixelFormat.set: is not writeable`` 并保留旧格式)。
+    """
+    fake = _FakeCam(pixel_format="MONO8")
+    cam = _make_camera(fake, monkeypatch)
+    cam.bit_depth = 8
+    cam._acquisition_on = True
+
+    calls: list[str] = []
+    real_set = fake.PixelFormat.set
+
+    def recording_set(value):
+        calls.append("PixelFormat.set")
+        return real_set(value)
+
+    fake.PixelFormat.set = recording_set
+    fake.stream_off = lambda: calls.append("stream_off")
+    fake.stream_on = lambda: calls.append("stream_on")
+
+    assert cam.set_bit_depth(12) == 12
+    assert calls == ["stream_off", "PixelFormat.set", "stream_on"]
+
+
 def test_daheng_never_fetches_frames_while_acquisition_off(monkeypatch):
     """停流时 ``get_image`` 永不返回 ⇒ 死等。开流前换位深只写格式, 不取帧。"""
     fake = _FakeCam(pixel_format="MONO8")

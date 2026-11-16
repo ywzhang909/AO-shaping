@@ -714,7 +714,9 @@ def _run_measurement_session(
         display(flat_pattern())
         flat_frame = capture()
         zero_cy, zero_cx, peak_adu = _locate_zero_order(flat_frame)
-        detector_full_scale = float(full_scale(flat_frame))
+        # 平场是 float64 多帧均值, 无帧标注; 必须把相机传进去, 否则位深只能
+        # 落到 255.0 兜底 —— 12-bit 相机下峰值 4095 会被误判成 16 倍过曝 (issue #246)。
+        detector_full_scale = float(full_scale(flat_frame, camera))
         drift_px = math.hypot(
             zero_cy - calib_center[0], zero_cx - calib_center[1]
         )

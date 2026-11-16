@@ -65,7 +65,7 @@ cam.auto_exposure(
 ```
 
 - `target_max` / `tolerance` 一律 **0-255 灰度** (与 SDK `ExpectedGrayValue` 及历史 `autoset_exposure_time_ms` 一致)。**不要再传 0-1**。
-  `BaseCamera.auto_exposure` 会把 16-bit 帧按 `common.full_scale(img)` 折算到同一量纲, 因此 `target_max=40` 在 uint8 与 uint16 后端上是同一个亮度。
+  `BaseCamera.auto_exposure` 会把高位深帧按 `cam.effective_full_scale(img)` (**生效位深**, 见下方满量程小节) 折算到同一量纲, 因此 `target_max=40` 在 8/12/16-bit 后端上是同一个亮度。
 - **契约默认值的唯一来源是基类常量**: `BaseCamera.AUTO_EXPOSURE_TARGET_MAX` / `_TOLERANCE` /
   `_MAX_ITERATIONS` / `_N_SAMPLE` / `_MAX_RATIO` (=3, 三个实现必须一致)。后端覆写本方法时**引用这些常量**作默认值, 不要再抄一遍字面量。
 - `BaseCamera.auto_exposure` 是**后端无关的通用比例环** (ffmpeg / image_folder / sim 直接继承), 收敛判据、边界退出、日志与两个硬件后端逐条对齐。
@@ -131,6 +131,8 @@ cam.auto_exposure(
 | `bit_depth` | 实例属性: 当前**生效**位深 (bit), 默认 `None` = 未声明/未打开; 只放后端**回读到的真值**, 不是请求值 |
 | `supported_bit_depths` | 类属性: 该后端可切换的位深档位, 默认 `()` = 不支持 (ffmpeg/image_folder/sim 不登记) |
 | `set_bit_depth(bits)` | 切换输出位深, **返回设备回读的生效值**; 基类默认抛 `CameraError` (未登记档位); 档位不支持抛 `ValueError`, 不回落 |
+| `_full_scale(source_dtype=None)` | 生效位深的满量程 (255/4095/65535); 位深未知才退回 `source_dtype` 整数上限, 再退回 255 —— **不按帧 dtype 猜位深** |
+| `effective_full_scale(img)` | 一帧的生效满量程: 帧上的显式标注 (`AveragedFrame.full_scale`) 优先, 否则按本相机生效位深解析 |
 
 具体驱动 (MIICAM/FFmpeg/Daheng) 还提供 `set_auto_exposure_target(target)` 方法 (非抽象, 由各驱动自行实现)。
 
@@ -200,6 +202,14 @@ python -m ao_shaping.drivers.ccd.pixel_size --store MER2-507-23GM 2.2
    把关 (`initialize()` 末尾 `stream_on` 后置真, `close()` 置假)。因此 `initialize()` 应用配置位深时
    只写格式、不消费帧 —— 这正是位深必须在开流前写好的原因。
 
+5. 🔴 **拉流中 `PixelFormat` 不可写** (2026-11-17 真机实测, 相机 FJB24112232): GenICam 的
+   `PixelFormat` 在取流进行时 `set` **不生效** —— SDK 只 print `PixelFormat.set: is not writeable` 并
+   **保留旧格式**, 回读仍是 `Mono8` (与第 2 条的「越界静默保留旧值」同源, 但这里是设备**不支持热切换**
+   而非请求值越界)。故 `set_bit_depth` 必须先 `stream_off()` → 写 `PixelFormat` → 回读校验 →
+   `stream_on()` 复流; `finally` 里复流, **抛错也不许把相机留在停流状态**。复流本身已把旧格式帧清出
+   流水线, 随后的丢弃帧是双保险。离线锁定:
+   `tests/ao_shaping/drivers/ccd/test_camera_bit_depth.py::test_daheng_set_bit_depth_stops_stream_before_writing_pixel_format`。
+
 大恒的映射集中在**一处**类属性, `supported_bit_depths` 由它推导, 加一档不会漏改:
 
 ```python
@@ -213,6 +223,49 @@ supported_bit_depths = tuple(_BIT_DEPTH_PIXEL_FORMATS)
 `initialize()` 调 `set_bit_depth(self.bit_depth)` 重新下发并回读校验。
 
 离线锁定: `tests/ao_shaping/drivers/ccd/test_camera_bit_depth.py` (假 SDK, 不接相机)。
+
+### 满量程 `full_scale` —— 绑**生效位深**, 不绑帧 dtype (2026-11-16, issue #246)
+
+🔴 **帧的 dtype 不是位深**。大恒 MONO12 帧的 `get_numpy_array()` 返回 `uint16`, MiiCam 高位深
+模式同样是「12/14 bit 装进 uint16 容器」, 于是按 `np.iinfo(dtype).max` 推导满量程会得到
+**65535 而不是 4095**。实测危害 (2026-11-16, 相机 FJB24112232): 饱和帧峰值 4095 被
+`normalize_peak_to_gray` 折成 `4095 × 255 / 65535 = 15.9` 灰度, 自动曝光把饱和帧误判成「过暗」,
+一路把曝光推到 1000 ms 上限 (日志 `target brightness 180 unreachable (peak 15.9)`)。
+同源的还有饱和保护 (`is_saturated`)、多帧融合的 `detector_full_scale`、HDR 阶梯。
+
+**取值优先级 (唯一口径, `BaseCamera._full_scale` / `effective_full_scale` 是权威实现)**:
+
+1. 帧上的**显式标注** `AveragedFrame.full_scale` —— 后端产帧时按生效位深写入, 显式标注胜过任何推断;
+2. 相机实例的**生效位深** `bit_depth` (设备回读真值) → `(1 << bits) - 1`;
+3. `source_dtype` 的整数上限 —— **仅**在位深未知时兜底 (ffmpeg / image_folder 这类没有位深真值的回放后端);
+4. `common.DETECTOR_FULL_SCALE` (255.0) —— 非整数帧且无相机信息时。
+
+| 入口 | 用法 |
+|------|------|
+| `cam._full_scale(source_dtype=None)` | 相机侧生效满量程; 后端产帧标注、峰值折算都走它 |
+| `cam.effective_full_scale(img)` | 一帧的生效满量程 (帧标注优先, 否则按相机位深); **饱和/融合判据一律用它** |
+| `common.full_scale(img, camera=None)` | 无相机上下文的数组工具入口; 手上有相机就**传进去**, 否则只能落到 dtype 兜底 |
+| `common.is_saturated(img, camera=None)` | 同上; `resample_on_saturation(img, cam, ...)` 已自带 `cam`, 内部按相机位深取阈值 |
+| `common.normalize_peak_to_gray(img, full_scale=None)` | 0-255 灰度折算; 后端**必须**显式传生效满量程 |
+
+后端职责 (谁产帧谁标注):
+
+| 后端 | `bit_depth` 来源 | 满量程标注 |
+|------|------------------|------------|
+| `DahengCamera` | `set_bit_depth` 回读 (`_bit_depth_of_format` 归一化) | `get_numpy_image` 的 `AveragedFrame(full_scale=self._full_scale(dtype))`; `_full_scale` / `_auto_exposure_peak` **已上移到基类**, 大恒只负责声明位深 |
+| `MIICamera` | `_init_bit_depth()` 按 `cam.MaxBitDepth()` **回读**写入契约属性 `bit_depth` (高位深模式 = 传感器真值, 8-bit 与所有回落分支 = 8) | 同上 |
+| `FFmpegCamera` | 恒 `None` (回放源无位深真值) | 多帧平均显式标注 `full_scale=self._full_scale(dtype)`, 值等于 dtype 兜底 —— 让「按 dtype」成为被声明的选择而非隐式默认 |
+| `ImageFolderCamera` | 恒 `None` | 多帧平均返回**裸 uint8 数组** (非 `AveragedFrame`), 无显式标注, 走 dtype 兜底 (uint8 → 255) |
+| `SimulatedCCD` / `SimPibCCD` | 不声明 → `None` | 走基类兜底 |
+
+⚠️ **单帧路径没有 `AveragedFrame` 标注** (`get_numpy_image(n_sample=1)` 直接返回后端的裸
+uint8/uint16 数组), 所以判据必须经**相机实例**取满量程, 不能只靠帧属性 —— 这正是
+`common.full_scale(img, camera)` / `is_saturated(img, camera)` 多一个可选相机参数的原因。
+
+离线锁定: `tests/ao_shaping/drivers/ccd/test_full_scale_contract.py` (全后端假 SDK 映射) 与
+`tests/ao_shaping/drivers/ccd/daheng/test_bit_depth_full_scale.py` (大恒 12-bit 回归);
+物理锁定: `tests/ao_shaping/drivers/ccd/test_full_scale_hardware.py` (`pytest.mark.hardware`,
+在线检查走 `daheng/discovery.py` 的 SDK 枚举, 不 ping 固定 IP)。
 
 **runner / 脚本的统一入口**是 `camera_pixel_size_um_for(cam_type, cam_id, *, camera=None, prompt=None)`:
 命令行把「未指定」写成 `0`, 由它按后端换成真实值 —— 已打开的 `camera` 实例优先

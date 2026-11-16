@@ -861,7 +861,7 @@ class HwInstrument(HwFullFrameMixin):
         frames, applied, original = BaseCamera._acquire_exposure_ladder(
             self._cam, tuple(self._exposure_ladder), 1, restore_exposure=True
         )
-        self._full_scale = float(common.full_scale(frames[0]))
+        self._full_scale = float(common.full_scale(frames[0], self._cam))
         peaks = [float(np.max(frame)) for frame in frames]
         fractions = [peak / self._full_scale for peak in peaks]
         target = EXPOSURE_TARGET_FRACTION

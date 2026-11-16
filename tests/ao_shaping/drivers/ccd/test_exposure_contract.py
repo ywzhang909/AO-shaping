@@ -92,7 +92,10 @@ class _ContractCamera(BaseCamera):
         self.exposure_time_ms = float(exposure_ms)
         self._gain = float(gain)
         self._dtype = dtype
-        self._full_scale = float(np.iinfo(dtype).max)
+        # ⚠️ 不能叫 `_full_scale`: 那是 BaseCamera 的**方法** (生效位深 → 满量程,
+        # issue #246), 同名数据属性会把它遮蔽成 float → 'float' object is not
+        # callable。这里只是合成帧的 dtype 上限。
+        self._frame_full_scale = float(np.iinfo(dtype).max)
         declared = tuple(declared_range or device_range or (0.011, 10_000.0))
         device = tuple(device_range or declared)
         # 通用 get_exposure_range() 直接读这两个属性
@@ -103,8 +106,8 @@ class _ContractCamera(BaseCamera):
 
     # ------------------------------------------------------------ 采集
     def get_numpy_image(self, n_sample=1, skip_first=True):
-        counts = round(self.exposure_time_ms * self._gain * self._full_scale / GRAY_FULL_SCALE)
-        return np.full((4, 4), int(min(counts, self._full_scale)), dtype=self._dtype)
+        counts = round(self.exposure_time_ms * self._gain * self._frame_full_scale / GRAY_FULL_SCALE)
+        return np.full((4, 4), int(min(counts, self._frame_full_scale)), dtype=self._dtype)
 
     # ------------------------------------------------------------ 曝光
     def reset_exposure_time(self, time_ms: float) -> float:

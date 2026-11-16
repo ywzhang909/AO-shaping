@@ -301,7 +301,7 @@ class FFmpegCamera(BaseCamera):
             if skip_count > 0:
                 self._cap.set(cv2.CAP_PROP_POS_FRAMES, skip_count)
 
-        return frames[0] if n_sample == 1 else AveragedFrame(avg_img, frames[0].dtype)
+        return frames[0] if n_sample == 1 else AveragedFrame(avg_img, frames[0].dtype, full_scale=self._full_scale(frames[0].dtype))
 
     def enable_auto_exposure(self, enable: bool = True, mode: int = 1) -> bool:
         """启用或关闭自动曝光。

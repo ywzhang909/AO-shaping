@@ -94,6 +94,8 @@ class BaseCamera(ABC):
     #: 类级默认 ``None``, 实例由后端在 ``open()`` / :meth:`set_bit_depth` 里写入
     #: **设备回读真值** (不是请求值 —— SDK 对 ``PixelFormat`` 的写入可能被静默保留
     #: 旧值, 同 ``IntFeature.set`` 的坑)。调用方一律读本属性, 不要读驱动私有缓存。
+    #: 位深是**满量程的唯一来源** (issue #246): 一切满量程折算取值经
+    #: :meth:`_full_scale` / :meth:`effective_full_scale`, 不按帧 dtype 推导。
     bit_depth: int | None = None
 
     # 取流线程状态 (惰性初始化; 未覆写 __init__ 的后端也能直接用 start_stream)
@@ -309,6 +311,41 @@ class BaseCamera(ABC):
         self._auto_exposure_target = clamped
         return clamped
 
+    def _full_scale(self, source_dtype: np.dtype | type | None = None) -> float:
+        """当前**生效位深**对应的满量程 (8/12/16 bit → 255/4095/65535)。
+
+        优先级: bit_depth (设备回读真值) > source_dtype 的整数上限 > 255.0。
+
+        位深是满量程的唯一来源 (issue #246): 部分后端的帧 dtype 与生效位深不符
+        (大恒 MONO12 帧 dtype 是 ``uint16``, 真实满量程 4095 而非 65535), 按
+        dtype 推导会得到错量纲, 因此设备回读的位深永远优先。
+        """
+        if self.bit_depth is not None:
+            return float((1 << int(self.bit_depth)) - 1)
+        if source_dtype is not None:
+            try:
+                # 非整数 dtype (float32 多帧均值等) 没有整数上限, 落入兜底。
+                return float(np.iinfo(source_dtype).max)
+            except ValueError:
+                pass
+        # ``DETECTOR_FULL_SCALE`` 在 common.py, 而 common 会 import base ——
+        # 只能函数体内局部 import, 与本文件其它局部 import 的风格一致。
+        from ao_shaping.drivers.ccd.common import DETECTOR_FULL_SCALE
+
+        return float(DETECTOR_FULL_SCALE)
+
+    def effective_full_scale(self, img: np.ndarray) -> float:
+        """一帧的生效满量程: 帧上的显式标注 (AveragedFrame.full_scale) 优先,
+        否则按本相机生效位深解析 (绝不按 img.dtype, 多帧均值恒为 float32)。
+
+        帧标注优先于位深是刻意的: 标注是采集时刻写下的**实测**饱和值 (融合图
+        在换位深/多档混合时无法用单一位深表达), 比位深推算更可信。
+        """
+        explicit = getattr(img, "full_scale", None)
+        if explicit is not None:
+            return float(explicit)
+        return self._full_scale(getattr(img, "dtype", None))
+
     def _auto_exposure_peak(self, img: np.ndarray) -> float:
         """把一帧的峰值折算到 **0-255 灰度** —— 自动曝光契约的量纲。
 
@@ -320,6 +357,7 @@ class BaseCamera(ABC):
 
         三个自动曝光实现 (基类通用环 / 大恒 / MiiCam) 必须走同一个折算入口,
         否则「同一个 target 在不同后端上收敛到不同曝光」无法解释。
+        位深未知的后端仍退回帧标注/dtype (见 :meth:`_full_scale`)。
 
         参数:
             img: 采集到的帧 (uint8 / uint16 / 多帧均值 ``AveragedFrame`` 皆可)。
@@ -329,7 +367,7 @@ class BaseCamera(ABC):
         """
         from ao_shaping.drivers.ccd.common import normalize_peak_to_gray
 
-        return normalize_peak_to_gray(img)
+        return normalize_peak_to_gray(img, full_scale=self.effective_full_scale(img))
 
     def auto_exposure(
         self,
@@ -471,6 +509,9 @@ class BaseCamera(ABC):
         基类默认**不提供**该能力: 没有登记 :attr:`supported_bit_depths` 的后端
         (ffmpeg / image_folder / 通用仿真) 在这里抛 :class:`CameraError`, 而不是把
         请求值当成生效值静默返回 —— 位深错了, 满量程与饱和判据就全错了。
+        位深是**满量程的唯一来源** (issue #246): 生效值写入 :attr:`bit_depth` 后,
+        一切满量程折算经 :meth:`_full_scale` / :meth:`effective_full_scale` 取值,
+        不按帧 dtype 推导 (高位置深帧常被塞进 ``uint16`` 容器, dtype 并不可信)。
 
         覆写方的契约 (与曝光契约同源: 请求值不等于生效值):
 
@@ -772,13 +813,12 @@ class BaseCamera(ABC):
         """
         from dataclasses import replace
 
-        from ao_shaping.drivers.ccd import common
         from ao_shaping.utils.image.hdr import hdr_fuse
 
         exposures, samples = self._validated_ladder(exposures_ms, n_sample)
         frames, applied, _ = self._acquire_exposure_ladder(exposures, samples,
                                                            restore_exposure=restore_exposure)
-        detector_full_scale = float(common.full_scale(frames[0]))
+        detector_full_scale = float(self.effective_full_scale(frames[0]))
         result = hdr_fuse(frames, applied, dark=dark, full_scale=detector_full_scale,
                           read_noise_counts=read_noise_counts, min_snr=min_snr,
                           reference_exposure_ms=reference_exposure_ms)
@@ -829,17 +869,12 @@ class BaseCamera(ABC):
         返回:
             AveragedFrame: 融合结果。``full_scale`` 是**实测**的探测器饱和值
             (uint8 后端 255, uint16 后端 65535), 取自采集到的第一帧, 与
-            ``common.full_scale`` 同源。
+            :meth:`effective_full_scale` 同源。
 
         异常:
             ValueError: ``exposures_ms`` 少于两档, 或含非有限 / 非正的曝光,
                 或 ``n_sample < 1``。
         """
-        # ``common`` 在 common.py 里 ``from ao_shaping.drivers.ccd.base import
-        # BaseCamera``, 所以模块作用域的 import 会构成循环依赖、直接炸掉
-        # ``import ao_shaping.drivers.ccd``。仅为此理由延后到函数体内。
-        from ao_shaping.drivers.ccd import common
-
         # ``utils/`` 从不 import ``drivers/``, 因此这里放模块作用域是合法的 ——
         # 但本模块刻意只 import abc / numpy / loguru, 保持导入面最小; 同理延后。
         from ao_shaping.utils.image.exposure_fusion import exposure_fusion
@@ -848,7 +883,9 @@ class BaseCamera(ABC):
         frames, applied, _ = self._acquire_exposure_ladder(exposures, samples,
                                                            restore_exposure=restore_exposure)
 
-        detector_full_scale = float(common.full_scale(frames[0]))
+        #: 同 capture_hdr_ladder: 12-bit 后端的原始单帧没有 AveragedFrame 标注,
+        #: 按 dtype (uint16) 会得到 65535, 满量程须按本相机**生效位深**解析 (issue #246)。
+        detector_full_scale = float(self.effective_full_scale(frames[0]))
         fused = exposure_fusion(
             frames,
             exposures_ms=applied,

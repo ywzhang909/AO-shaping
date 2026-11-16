@@ -477,8 +477,9 @@ class BenchSession:
        pre-refactor clip.
     2. ``resample_if_saturated`` - one saturation guard for both branches:
        fire only under auto-exposure (``exposure_time_ms == 0``) and only when
-       the peak reaches ``full_scale(img)`` - the ceiling comes from the frame
-       dtype (uint8 -> 255, uint16 -> 65535, float -> 255), never a literal.
+       the peak reaches ``full_scale(img, cam)`` - the ceiling comes from the
+       camera's effective bit depth (frame annotation / dtype as fallback,
+       uint8 -> 255, uint16 -> 65535, float -> 255), never a literal.
        ``trigger_peak`` lets SPGD gate on the max over *every* capture while
        the heuristic gates on the single frame it just grabbed. Returns
        ``(img, fired)``; the aftermath is deliberately branch-specific and
@@ -564,9 +565,9 @@ class BenchSession:
         if self._exposure_time_ms != 0:
             return img, False
         saturated = (
-            is_saturated(img)
+            is_saturated(img, self._cam)
             if trigger_peak is None
-            else float(trigger_peak) >= full_scale(img)
+            else float(trigger_peak) >= full_scale(img, self._cam)
         )
         if not saturated:
             return img, False

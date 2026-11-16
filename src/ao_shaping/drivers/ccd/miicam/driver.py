@@ -386,11 +386,18 @@ class MIICamera(BaseCamera):
             logger.warning("Could not set exposure gain")
 
     def _init_bit_depth(self) -> None:
-        """查询最大位深并配置输出位深。"""
+        """查询最大位深并配置输出位深。
+
+        契约属性 ``bit_depth`` 按**设备回读**写在这里: 位深是满量程的唯一来源
+        (issue #246), 调用方读 ``cam.bit_depth`` 定满量程; 不写契约属性的话,
+        满量程只能退回 dtype 兜底, 高位置深模式下 ``uint16`` 容器一律按
+        65535 折算, 与真实位深不符。
+        """
         self._max_bit_depth = self.cam.MaxBitDepth()
 
         if self._bit_depth == 8:
             output_bitdepth = 0
+            self.bit_depth = 8
         elif self._max_bit_depth > 8:
             output_bitdepth = 1
         else:
@@ -400,12 +407,22 @@ class MIICamera(BaseCamera):
                 f"requested {self._bit_depth}-bit. Falling back to 8-bit."
             )
             self._bit_depth = 8
+            self.bit_depth = 8
 
         try:
             self.cam.put_Option(miicam.MIICAM_OPTION_BITDEPTH, output_bitdepth)
         except miicam.HRESULTException:
             logger.warning(f"Could not set bit depth to {self._bit_depth}, using 8-bit")
             self._bit_depth = 8
+            self.bit_depth = 8
+        else:
+            if output_bitdepth == 1:
+                #: 高位深输出已启用: 生效位深取 ``MaxBitDepth()`` 的**回读真值**;
+                #: 回读值不在 9..16 则退回请求值, 不留虚报档位。
+                reported = int(self._max_bit_depth)
+                self.bit_depth = reported if 9 <= reported <= 16 else int(self._bit_depth)
+            else:
+                self.bit_depth = 8
 
     def _init_pixel_format(self) -> None:
         """按位深设置像素格式。"""
@@ -423,6 +440,8 @@ class MIICamera(BaseCamera):
                 )
                 self._pixel_format = "MONO8"
                 self._bit_depth = 8
+                # 契约属性同步回落到 8: 像素格式退回 8-bit, 满量程随之是 255。
+                self.bit_depth = 8
                 self._set_mono8_format()
 
     def _set_mono8_format(self) -> None:
@@ -966,7 +985,9 @@ class MIICamera(BaseCamera):
         total = np.zeros(first_img.shape, dtype=np.float64) if skip_first else first_img.astype(np.float64)
         for _ in range(n_sample if skip_first else n_sample - 1):
             total += self.__take_one_shot()
-        return AveragedFrame(total / n_sample, first_img.dtype)
+        #: 满量程按**生效位深**标注, 不按 dtype: MONO12/14 帧装进 uint16 容器时,
+        #: 按 dtype 会得到 65535, 而真实满量程是 4095/16383 (issue #246)。
+        return AveragedFrame(total / n_sample, first_img.dtype, full_scale=self._full_scale(first_img.dtype))
 
     # =========================================================================
     # 回调模式 (连续拉流)
