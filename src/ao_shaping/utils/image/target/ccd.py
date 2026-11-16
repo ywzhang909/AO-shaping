@@ -186,7 +186,8 @@ def square_target_from_measurement(
     cy, cx = np.unravel_index(np.argmax(signal), signal.shape)
     cy, cx = int(cy), int(cx)
 
-    # Fixed-side square in *camera* space, centered at the measured centroid.
+    # Fixed-side square in *camera* space, centered at the frame's global peak
+    # (the argmax above, not an intensity centroid — see the rationale above).
     # Value = 1 / n_pixels (actual filled pixel count): the square sums to
     # exactly 1 (normalized target) no matter how the sub-pixel centroid maps
     # onto the pixel grid. Exposure/brightness changes only scale the raw
