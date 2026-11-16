@@ -1281,6 +1281,66 @@ def _pib_arm_blaze(blaze_direction, blaze_period_px, cam, cam_size, camera_confi
 
 
 
+
+def _pib_seed_best_state(_init_c, _init_res, delta):
+# Best tracking state seed lifted verbatim
+    best_objective = _init_res.tracking
+    # Baseline objective of the initial phase (flat when ``init_c`` is
+    # empty). Used on exit to decide between the best phase and flat.
+    _initial_objective = best_objective
+    best_c = _init_c.copy()
+    last_best_epoch = 0
+    return _initial_objective, best_c, best_objective, last_best_epoch
+
+
+
+
+def _pib_make_optimizer(_gradient_history, _pib_history, config, delta, init_img, lr, nk, optimizer_type, reference_center):
+# Session optimizer creation and learning schedule lifted verbatim
+    optimizer = create_optimizer(
+        optimizer_type=optimizer_type,
+        dim=nk,
+        lr=lr,
+        beta1=beta1,
+        beta2=beta2,
+        beta3=beta3,
+        **config.kwargs,
+    )
+    if lr == 0:
+        # ``reference_center`` (window-local spot), NOT ``center``: the
+        # latter is the FULL-FRAME window centre ``reset_window`` returned,
+        # which is out of bounds for the windowed ``init_img`` and made the
+        # 80%-encircled radius meaningless. Same rule as the ``r_bucket``
+        # block above and the SPGD branch's ``pos_center``.
+        optimizer.lr, delta = learning_schedule(
+            radius(init_img, center=reference_center, energy=0.8),
+            gradient_history=_gradient_history,
+            pib_history=_pib_history,
+            ideal_r=IDEAL_SPOT_RADIUS,
+            max_lr=SCHEDULE_MAX_LR,
+            max_delta=SCHEDULE_MAX_DELTA,
+        )
+    return delta, optimizer
+
+
+
+
+def _pib_default_init_c(delta, init_c, nk):
+# Default zero init coefficients lifted verbatim
+    if init_c is None or len(init_c) == 0:
+        _init_c = np.zeros(nk, dtype=np.float64)
+    else:
+        _init_c = np.array(init_c, dtype=np.float64)
+        if len(_init_c) < nk:
+            padded = np.zeros(nk, dtype=np.float64)
+            padded[: len(_init_c)] = _init_c
+            _init_c = padded
+        elif len(_init_c) > nk:
+            _init_c = _init_c[:nk]
+    return _init_c
+
+
+
 def _run_pib_session(
     *,
     _gradient_history: object,
@@ -1348,16 +1408,7 @@ def _run_pib_session(
 
         to_gray = partial(_phase_to_gray, slm, blaze_choice=blaze_choice)
         # Initialize Zernike coefficients
-        if init_c is None or len(init_c) == 0:
-            _init_c = np.zeros(nk, dtype=np.float64)
-        else:
-            _init_c = np.array(init_c, dtype=np.float64)
-            if len(_init_c) < nk:
-                padded = np.zeros(nk, dtype=np.float64)
-                padded[: len(_init_c)] = _init_c
-                _init_c = padded
-            elif len(_init_c) > nk:
-                _init_c = _init_c[:nk]
+        _init_c = _pib_default_init_c(delta, init_c, nk)
 
         # Reset SLM to flat phase
 
@@ -1368,41 +1419,14 @@ def _run_pib_session(
         _init_res = shaping(init_img)
         j, pib_ratio = _init_res.j, _init_res.ratio
 
-        optimizer = create_optimizer(
-            optimizer_type=optimizer_type,
-            dim=nk,
-            lr=lr,
-            beta1=beta1,
-            beta2=beta2,
-            beta3=beta3,
-            **config.kwargs,
-        )
-        if lr == 0:
-            # ``reference_center`` (window-local spot), NOT ``center``: the
-            # latter is the FULL-FRAME window centre ``reset_window`` returned,
-            # which is out of bounds for the windowed ``init_img`` and made the
-            # 80%-encircled radius meaningless. Same rule as the ``r_bucket``
-            # block above and the SPGD branch's ``pos_center``.
-            optimizer.lr, delta = learning_schedule(
-                radius(init_img, center=reference_center, energy=0.8),
-                gradient_history=_gradient_history,
-                pib_history=_pib_history,
-                ideal_r=IDEAL_SPOT_RADIUS,
-                max_lr=SCHEDULE_MAX_LR,
-                max_delta=SCHEDULE_MAX_DELTA,
-            )
+        delta, optimizer = _pib_make_optimizer(_gradient_history, _pib_history, config, delta, init_img, lr, nk, optimizer_type, reference_center)
 
         # Track the objective's OWN value. For "pib" that is the exposure-
         # independent bucket ratio at the FIXED ideal radius (matches the logged
         # column); for the other objectives it is the value the gradient uses --
         # e.g. the encircle radius, which must be MINIMISED (a `>` comparison
         # would keep the worst).
-        best_objective = _init_res.tracking
-        # Baseline objective of the initial phase (flat when ``init_c`` is
-        # empty). Used on exit to decide between the best phase and flat.
-        _initial_objective = best_objective
-        best_c = _init_c.copy()
-        last_best_epoch = 0
+        _initial_objective, best_c, best_objective, last_best_epoch = _pib_seed_best_state(_init_c, _init_res, delta)
 
         _pib_record_row0(_img, _init_c, _init_r, best_objective, cam, delta, init_img, initial_phase, j, objective, optimizer, optimizer_type, pib_ratio, r_bucket, record_phase, recorder, shaping)
 
