@@ -185,9 +185,9 @@ REPORTS: dict[str, ReportProvenance] = {
     ),
     "report/shape_trials/anchored_m3_20261116/anchored_m3_20261116.md": ReportProvenance(
         script=HANDWRITTEN,
-        environment="离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-16 实机运行后离线整理；报告本体不占用设备）",
+        environment="离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-16 实验运行后离线整理；报告本体不占用设备）",
         note=(
-            "M3（离焦+照明包络，grid 128 / FFT 512 / phase_sign −1.0）锚定闭环两次实机验收："
+            "M3（离焦+照明包络，grid 128 / FFT 512 / phase_sign −1.0）锚定闭环两次实验验收："
             "零相位起步实测核心 CV 6.08、随机起步 RMS1.5 实测核心 CV 5.01，均未达 ≤0.10；"
             "model_cv 与 measured_cv_window 同掩膜同网格分叉 ~7.5×，排除掩膜坐标错配与起步盆地，"
             "指向 FrozenDefocusForward 绝对强度表征误差（方向 cosine ≥0.50 是必要条件非充分条件）。"
@@ -931,7 +931,9 @@ REPORTS: dict[str, ReportProvenance] = {
             "600 步比 100 步多花 39% 墙钟而 CV 不单调改善); Step B 150 步硬件标定 "
             "(CV 13.83→0.651、EE 1.0000, far_field_size=4096); 本轮 3 次物理实跑 "
             "(iters=120/20/120, hw_iters=3, 墙钟 60–68 s, 模型侧纯计算 <1 s、前向传播占 0.79–0.91, "
-            "实测损失/梯度范数单调下降); 跨轮模型-硬件一致性 0.089–0.810 历史对照与本轮 0.599–0.663。 "
+            "逐次实测曝光 0.08–0.18 ms、焦面扫描曝光 0.04–0.10 ms, 实测损失/梯度范数单调下降, "
+            "CCD 读回帧 FWHM 16.6–18.7 px、峰值 136–210、空心度 0.83–0.91); "
+            "跨轮模型-硬件一致性 0.089–0.810 历史对照与本轮 0.599–0.663。 "
             "负结果保留: 模型内 loss 下降≠光学改善、曝光对齐下原始峰值比无意义、`get_displayed_phase()` "
             "不可作证据"
         ),
