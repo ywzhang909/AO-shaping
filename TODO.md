@@ -2393,7 +2393,7 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
        基本正则里 `|` 不是析取，静默零命中（已第三次踩）。
      - **已知未收敛的重复**：同一套偏移算术手抄在 4 处（`zernike_response_matrix.py:196` 与 `:509-514`、
        `gui/zernike/zernike_response_matrix_ui.py:405-411` 自称 "same logic"、
-       `zernike_debug_viewer.py:363-379`），已记进 `drivers/wfs/AGENTS.md` 作为红线上的已知重复。（2026-11-16 复核 #205 第九十七批 `48e515df`：viewer 侧该偏移块（`row_start`/`col_start` 增量 + `wfs_start_idx` 拷贝段）随 `_zrmd_fill_matrices` 新 helper 外提，自 `_compute_response_matrix_from_debug` 迁至其 `859–890`（原 `363–379`），viewer 仍是 4 处中唯一未收敛到 `slm_mode_slot` 的手抄副本。）
+       `zernike_debug_viewer.py:363-379`），已记进 `drivers/wfs/AGENTS.md` 作为红线上的已知重复。（2026-11-16 复核 #205 第九十七批 `48e515df`：viewer 侧该偏移块（`row_start`/`col_start` 增量 + `wfs_start_idx` 拷贝段）随 `_zrmd_fill_matrices` 新 helper 外提，自 `_compute_response_matrix_from_debug` 迁至其 `801–890`（原 `363–379`；2026-11-16 复核 `_zrmd_fill_matrices` 实际定义于 `:801`，原钉 `859` 超前 58 行），viewer 仍是 4 处中唯一未收敛到 `slm_mode_slot` 的手抄副本。）
      - **验证**：`tools/slm` + `tools/wfs` + conventions **879 passed / 5 skipped / 2 failed**（仍是既有那对，
        字面量守卫无新增红）；CI 钉版 ruff **0.15.12** 全绿；术语门 **0 个文件**、双重夹注 2 行。
 
