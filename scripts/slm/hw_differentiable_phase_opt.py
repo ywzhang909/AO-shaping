@@ -116,6 +116,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import os
 import shutil
 import sys
@@ -254,6 +255,61 @@ DEFAULT_SETTLE_S = 0.5
 
 #: 默认输出根目录
 DEFAULT_OUT_ROOT = ROOT / "data" / "debug" / "differentiable_opt"
+
+
+def _apply_scheduled_lr(
+    opt: DifferentiableBeamOptimizer,
+    schedule: str,
+    peak: float | None,
+    i: int,
+    horizon: int,
+    tag: str,
+) -> float | None:
+    """在第 ``i`` 次 ``opt.update()`` **之前**施加调度学习率 (仅 cosine 时)。
+
+    公式与离线扫描先例逐字同型 (``scripts/slm/sweep_differentiable_lr.py`` 的
+    ``schedule_lr("cosine", ...)``; 扫描结论见
+    ``report/slm/differentiable_opt/artifacts/lr_sweep_20261116/lr_sweep.md``:
+    cosine@peak=0.1 覆盖完整 horizon 最优):
+
+    ``peak * 0.5 * (1 + cos(pi * i / max(horizon, 1)))``, 无 warmup、无下限,
+    第 0 步即 peak。
+
+    ``schedule != "cosine"`` 时**绝不触碰优化器** (直接返回 ``None``) ——
+    这是 flat 默认路径与历史行为逐位一致的硬保证 (不调用 ``set_lr``,
+    Adam 保持构造时的 ``--lr``)。
+
+    Args:
+        opt: 优化器实例 (模型侧循环与测量锚定闭环共用同一个 Adam)。
+        schedule: ``"flat"`` 或 ``"cosine"`` (来自 ``--lr-schedule``)。
+        peak: cosine 峰值学习率 (来自 ``--lr-peak``); cosine 时必须为正的有限值。
+        i: 当前迭代序号 (0 基)。
+        horizon: 本循环的总迭代数 (余弦周期覆盖整个 horizon)。
+        tag: 逐迭代 lr 日志的前缀 (如 ``"[P4]"``)。
+
+    Returns:
+        cosine 时返回本步已生效的学习率; flat 时返回 ``None``。
+
+    Raises:
+        ValueError: cosine 而 peak 缺失 / 非有限 / <= 0。
+    """
+    if schedule != "cosine":
+        return None
+    if peak is None or not math.isfinite(float(peak)) or float(peak) <= 0.0:
+        raise ValueError(
+            f"--lr-schedule cosine 需要正的有限 --lr-peak, 得到 {peak!r}"
+        )
+    lr_i = float(peak) * 0.5 * (1.0 + math.cos(math.pi * i / max(int(horizon), 1)))
+    opt.set_lr(lr_i)  # set_lr 自身再守一道: 非有限或 <= 0 ⇒ ValueError
+    logger.info(
+        "{} iter {:>3}/{} lr={:.6e} (cosine, peak={:g})",
+        tag,
+        i + 1,
+        max(int(horizon), 1),
+        lr_i,
+        float(peak),
+    )
+    return lr_i
 
 
 # ---------------------------------------------------------------------------
@@ -2191,8 +2247,16 @@ def run_analyze_only(args: argparse.Namespace) -> int:
             "iters": n_iters,
         },
     )
+    # lr 调度: run_config 里存了就用存的 (新一轮 --execute 会把 schedule/peak 写进
+    # params); 旧运行目录没有这两个键 ⇒ 回落到 CLI (默认 flat ⇒ 绝不触碰优化器,
+    # 重跑损失序列与历史逐位一致)。
+    lr_sched = str(params.get("lr_schedule", getattr(args, "lr_schedule", "flat")))
+    lr_peak_raw = params.get("lr_peak", getattr(args, "lr_peak", None))
+    lr_peak = None if lr_peak_raw is None else float(lr_peak_raw)
+    logger.info("[analyze-only] lr 调度: schedule={}, peak={}", lr_sched, lr_peak)
     for it in range(n_iters):
         phase_before = opt.current_phase.copy()
+        _apply_scheduled_lr(opt, lr_sched, lr_peak, it, n_iters, "[analyze-only]")
         opt.update()
         grad = opt.phase_tensor.grad
         gnorm = float(grad.norm()) if grad is not None else float("nan")
@@ -2757,6 +2821,17 @@ def _run_bench(
         seed=int(args.seed),
         init_phase=gs_phase,
     )
+    # lr 调度: flat (默认) ⇒ _apply_scheduled_lr 绝不触碰优化器, 行为与历史逐位
+    # 一致; cosine ⇒ 模型侧循环与下方测量锚定闭环在各自每次 update() 前按扫描
+    # 先例公式 set_lr (周期各自覆盖本循环的完整 horizon)。
+    lr_sched = str(getattr(args, "lr_schedule", "flat"))
+    lr_peak = getattr(args, "lr_peak", None)
+    logger.info(
+        "[P4] lr 调度: schedule={}, --lr={:g}, --lr-peak={}",
+        lr_sched,
+        float(args.lr),
+        lr_peak,
+    )
     phase_initial = opt.current_phase.copy()
     np.save(out_dir / "phase_initial.npy", phase_initial)
     plot_phase(
@@ -2789,6 +2864,7 @@ def _run_bench(
     )
     for it in range(n_iters):
         phase_before = opt.current_phase.copy()
+        _apply_scheduled_lr(opt, lr_sched, lr_peak, it, n_iters, "[P4]")
         opt.update()
         grad = opt.phase_tensor.grad
         gnorm = float(grad.norm()) if grad is not None else float("nan")
@@ -3075,6 +3151,9 @@ def _run_bench(
             k_mean,
             spec,
         )
+        # cosine: 锚定闭环按 hw_iters 重新起一个余弦周期 (从 peak 开始衰减)。
+        # 若不重设, 模型侧余弦已把 lr 衰到 ~0, 实测锚定步将推不动相位。
+        _apply_scheduled_lr(opt, lr_sched, lr_peak, i, int(args.hw_iters), "[P6]")
         opt.update(measured_intensity=measured)
         grad = opt.phase_tensor.grad
         gnorm = float(grad.norm()) if grad is not None else float("nan")
@@ -3154,6 +3233,8 @@ def _run_bench(
     model_info["hw_iters"] = int(args.hw_iters)
     model_info["device"] = device
     model_info["lr"] = float(args.lr)
+    model_info["lr_schedule"] = lr_sched
+    model_info["lr_peak"] = None if lr_peak is None else float(lr_peak)
     model_info["seed"] = int(args.seed)
     model_info["grad_every"] = grad_every
 
@@ -3540,6 +3621,24 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--lr", type=float, default=DEFAULT_LR, help="Adam 学习率 (默认 0.05)"
     )
+    p.add_argument(
+        "--lr-schedule",
+        choices=["flat", "cosine"],
+        default="flat",
+        help="Adam 学习率调度: flat (默认) = 恒定 --lr, 与历史行为逐位一致 "
+        "(绝不调用 set_lr); cosine = 每个优化循环内按离线扫描先例公式 "
+        "peak*0.5*(1+cos(pi*i/iters)) 衰减, 无 warmup 无下限 (扫描结论: "
+        "report/slm/differentiable_opt/artifacts/lr_sweep_20261116, "
+        "cosine@0.1 全 horizon 最优)。--analyze-only 优先用运行目录里保存的"
+        "调度, 旧目录没有该键时才用本 CLI 值",
+    )
+    p.add_argument(
+        "--lr-peak",
+        type=float,
+        default=None,
+        help="cosine 调度的峰值学习率 (例如 0.1); --lr-schedule cosine 时必填, "
+        "flat 时忽略 (恒用 --lr)",
+    )
     p.add_argument("--seed", type=int, default=DEFAULT_SEED, help="随机种子 (默认 0)")
     p.add_argument(
         "--grad-every",
@@ -3569,7 +3668,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    args = build_parser().parse_args()
+    parser = build_parser()
+    args = parser.parse_args()
+    if args.lr_schedule == "cosine" and args.lr_peak is None:
+        parser.error("--lr-schedule cosine 需要 --lr-peak (峰值学习率, 例如 0.1)")
     if args.render_only:
         code = render_only(Path(args.render_only))
         if code != EXIT_OK:
