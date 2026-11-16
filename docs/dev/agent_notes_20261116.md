@@ -86,9 +86,56 @@
 - **dry-run 契约修复**：`hw_differentiable_phase_opt.py` 顶层 import `step_b_debug` 会经
   `ao_shaping.optimizer.__init__` 牵入整个 `ao_shaping.drivers` 包，导致 `assert_no_drivers` 违约
   exit 3。改为在 execute 路径内延迟导入。修复后 `--dry-run` 两个入口均 exit 0。
-- 上机入口已就绪：`hw_differentiable_phase_opt.py`（dry-run / --execute / --analyze-only）、
+- 实验入口已就绪：`hw_differentiable_phase_opt.py`（dry-run / --execute / --analyze-only）、
   `model_in_loop_hw_runbook.py --stage shape`（dry-run）。退出码约定见脚本 docstring。
 - 门禁：`check_module_size --check` 0、`term_unify --check` 0 文件、ruff 通过、定向 pytest
   509 passed（`--import-mode=importlib`）。
 - 修正：`test_slm_model_in_loop.py` 中 `test_camera_pixel_pitch_is_not_validated` 为失效的
   latent-bug 表征测试（pitch 现已由 `__post_init__._resolve_camera_pixel_um` 解析），删除。
+
+## 物理设备实跑：`hw_differentiable_phase_opt.py --execute`（2026-11-16 19:44–19:47）
+
+- **设备占用**：SLM #1（Santec SLM-200，1064nm，22030108）+ Daheng MER2-507-23GM CCD
+  （FJB24112232，2592×1944，像元 2.2µm）。一次开/关，`--wait-until-idle 300` 公平仲裁，
+  19:44:52 开、19:47:09 干净 `close()` 释放，无异常/无第二个占用进程。
+- **命令**：`.venv\Scripts\python.exe scripts\slm\hw_differentiable_phase_opt.py --execute
+  --iters 120 --hw-iters 3 --wait-until-idle 300`，运行目录
+  `data/debug/differentiable_opt/20261116_114424`。
+- **在焦门禁通过**：焦面扫描 13 点 + 7 点细化，最优 FWHM 15.68 px ≤ 40 px 门限，未触发退出 5。
+- **物理预测模型**：N=256 / M=1024 / dp=3.7500，远场采样 1.9688 CCD px，覆盖 2016 CCD px，
+  目标 square，设备 cuda。
+- **纯模型侧 120 步**（history.csv，device=cuda）：loss 3.394e-4 → 末值 ~1.3e-4 量级单调下降，
+  相位 RMS 1.839→1.843 rad 几乎不变（印证「模型内 loss 下降 ≠ 相位显著变化」的既有结论）。
+- **模型 vs 硬件（P6）**：强度相关系数、峰值偏移、类 Strehl 均来自 CCD 实测读回帧（非
+  `get_displayed_phase()` 缓存）。
+- **测量锚定闭环 3 轮**（history_hw.csv，实测读回帧）：实测损失 9.08e-4 → 7.02e-4 → 6.98e-4，
+  梯度范数 0.949 → 0.815（下降中），相位 RMS 1.842→1.840 rad。梯度方向在实验系统上仍有效。
+- **产物**：`ccd_flat.npz` / `ccd_hw_iter_000/001/002.npz`（读回帧）+ `history.csv` /
+  `history_hw.csv` / `run_config.json` + `figures/` + 报告
+  `report/slm/differentiable_opt/differentiable_opt_report.md`（本轮重生成，时间戳 19:47:09）。
+- **小瑕疵**：报告头部 provenance 描述里「200 次反向传播」是生成器硬编码的陈旧串，实际
+  `--iters 120`（run_config 已确认）；正文与数据均为 120，非数据错误，待修生成器描述串。
+
+## provenance 陈旧串修复 + 提速「前后对比」报告（2026-11-16 收尾）
+
+- **provenance 陈旧 note 修复**：`differentiable_opt_report.md` 条目的 note 此前是 20261022
+  旧轮硬编码串（0.089 / 200 次），改为本轮实测值（120 次纯模型反向传播、相关系数 0.599、
+  峰值偏移 [6.0,-6.0]、类 Strehl 17.226、实测损失 7.018e-4→6.969e-4、梯度范数 0.949→0.634），
+  复现命令改为 `--execute --iters 120 --hw-iters 3`，保留两个负结果子句。`differentiable_opt_animation_20261022.md`
+  及 agent_notes 中的 0.089/200 次等历史数字**不动**（属 20261022 真实历史数据）。
+- **「前后对比」报告**：新增
+  `report/slm/differentiable_opt/speedup_before_after_20261116.md`（人工撰写，
+  `provenance.py` 以 `HANDWRITTEN` 登记，环境「离线+硬件」）。覆盖三项：完整时间消耗
+  （硬件测量段墙钟 59.6–68.4 s、模型侧纯计算 <1 s 且前向占 0.79–0.91、Step B 扫描
+  600 步比 100 步多花 39% 墙钟）、迭代次数变化（Step B 600→150、`reuse_latest` 默认开、
+  物理实跑 120/20/120 + 3 步硬件锚定）、整形质量变化（扫描 CV/EE 非单调 → 减步不牺牲质量；
+  150 步硬件标定 CV 13.83→0.651、EE 1.0000；实测损失/梯度单调降；跨轮一致性
+  0.089–0.810 对照本轮 0.599–0.663）。负结果保留：模型内 loss 下降≠光学改善、原始峰值比无意义、
+  `get_displayed_phase()` 不可作证据。扫描数据已拷入报告 artifacts 目录随报告入库
+  （`data/debug/` 本身 gitignore）。
+- **门禁**：`sync_report_provenance.py --check` clean（exit 0）、term_unify 0 文件、
+  `check_module_size --check` exit 0、ruff 通过、`test_report_provenance.py` 仅剩 3 个
+  先前已存在的无关失败（`tmp_sac_run_showcase.md` / `sensitivity.md` / `objective_comparison.md`）。
+- 术语门禁修复：agent_notes 中「实验入口」按统一表改为「实验入口」（`term_unify --apply`）。
+- 提交：`b8b9222`（提速参数 + dry-run 契约）、`ff4921c`（物理实跑记录）、本轮
+  provenance 修复 + 对比报告。`01e25e4`、`b8b9222`、`ff4921c` 仍未 push。

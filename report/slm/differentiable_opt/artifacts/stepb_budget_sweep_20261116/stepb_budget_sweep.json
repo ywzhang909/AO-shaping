@@ -1,0 +1,144 @@
+{
+  "n_rounds": 6,
+  "step_a_iterations": 500,
+  "aberrations": {
+    "4": 0.35,
+    "5": 0.3,
+    "8": 0.2
+  },
+  "seed": 0,
+  "budgets": [
+    100,
+    200,
+    300,
+    400,
+    600
+  ],
+  "rows": [
+    {
+      "step_b_budget": 100,
+      "wall_s": 20.678,
+      "step_b_loss_initial": 0.7813189056812229,
+      "step_b_loss_final": 0.07937362501800974,
+      "loss_ratio": 0.101589,
+      "metrics_after": {
+        "aspect_ratio": 1.5,
+        "squareness": 0.5,
+        "uniformity_cv": 1.0880057551778999,
+        "encircled_energy": 0.3043466638701943,
+        "flatness_factor": 0.20557222222222224,
+        "intensity_max": 60000.0,
+        "intensity_mean": 356.196533203125
+      },
+      "metrics_before": {
+        "aspect_ratio": 1.0,
+        "squareness": 0.0,
+        "uniformity_cv": 1.1734934075032382,
+        "encircled_energy": 0.26497827781346395,
+        "flatness_factor": 0.1968986111111111,
+        "intensity_max": 60000.0,
+        "intensity_mean": 391.855712890625
+      }
+    },
+    {
+      "step_b_budget": 200,
+      "wall_s": 19.363,
+      "step_b_loss_initial": 0.8030080574299947,
+      "step_b_loss_final": 0.0741976063998421,
+      "loss_ratio": 0.0924,
+      "metrics_after": {
+        "aspect_ratio": 2.0,
+        "squareness": 1.0,
+        "uniformity_cv": 1.0766312953300263,
+        "encircled_energy": 0.27169891222051595,
+        "flatness_factor": 0.1764375,
+        "intensity_max": 60000.0,
+        "intensity_mean": 342.44970703125
+      },
+      "metrics_before": {
+        "aspect_ratio": 1.0,
+        "squareness": 0.0,
+        "uniformity_cv": 1.1046051931632666,
+        "encircled_energy": 0.27758428955923675,
+        "flatness_factor": 0.23840416666666667,
+        "intensity_max": 60000.0,
+        "intensity_mean": 452.910888671875
+      }
+    },
+    {
+      "step_b_budget": 300,
+      "wall_s": 20.748,
+      "step_b_loss_initial": 0.728039397988691,
+      "step_b_loss_final": 0.07651753799072537,
+      "loss_ratio": 0.105101,
+      "metrics_after": {
+        "aspect_ratio": 1.0,
+        "squareness": 0.0,
+        "uniformity_cv": 1.266621074895077,
+        "encircled_energy": 0.39542320510571694,
+        "flatness_factor": 0.13567592592592592,
+        "intensity_max": 60000.0,
+        "intensity_mean": 180.93994140625
+      },
+      "metrics_before": {
+        "aspect_ratio": 1.0,
+        "squareness": 0.0,
+        "uniformity_cv": 0.9533215984115736,
+        "encircled_energy": 0.4924286341340438,
+        "flatness_factor": 0.1781476851851852,
+        "intensity_max": 60000.0,
+        "intensity_mean": 190.779052734375
+      }
+    },
+    {
+      "step_b_budget": 400,
+      "wall_s": 24.217,
+      "step_b_loss_initial": 0.7409956786528074,
+      "step_b_loss_final": 0.07495938957610308,
+      "loss_ratio": 0.10116,
+      "metrics_after": {
+        "aspect_ratio": 1.25,
+        "squareness": 0.25,
+        "uniformity_cv": 1.147493772500022,
+        "encircled_energy": 0.2676178683235867,
+        "flatness_factor": 0.17900277777777776,
+        "intensity_max": 60000.0,
+        "intensity_mean": 352.726806640625
+      },
+      "metrics_before": {
+        "aspect_ratio": 1.2,
+        "squareness": 0.19999999999999996,
+        "uniformity_cv": 1.035799214383236,
+        "encircled_energy": 0.2938499217720319,
+        "flatness_factor": 0.21407592592592592,
+        "intensity_max": 60000.0,
+        "intensity_mean": 384.18115234375
+      }
+    },
+    {
+      "step_b_budget": 600,
+      "wall_s": 28.743,
+      "step_b_loss_initial": 0.7390699073260403,
+      "step_b_loss_final": 0.06590053019344132,
+      "loss_ratio": 0.089167,
+      "metrics_after": {
+        "aspect_ratio": 1.0,
+        "squareness": 0.0,
+        "uniformity_cv": 1.0313395654751405,
+        "encircled_energy": 0.3889137275806923,
+        "flatness_factor": 0.18847083333333334,
+        "intensity_max": 60000.0,
+        "intensity_mean": 255.55517578125
+      },
+      "metrics_before": {
+        "aspect_ratio": 1.1666666666666667,
+        "squareness": 0.16666666666666674,
+        "uniformity_cv": 0.9434477153775896,
+        "encircled_energy": 0.3390077285222597,
+        "flatness_factor": 0.31486990740740745,
+        "intensity_max": 60000.0,
+        "intensity_mean": 489.796142578125
+      }
+    }
+  ]
+}

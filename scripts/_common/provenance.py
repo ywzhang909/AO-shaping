@@ -887,7 +887,7 @@ REPORTS: dict[str, ReportProvenance] = {
     # `scripts/slm/hw_differentiable_phase_opt.py`。
     "report/slm/differentiable_opt/differentiable_opt_report.md": ReportProvenance(
         script="scripts/slm/hw_differentiable_phase_opt.py",
-        command="python scripts/slm/hw_differentiable_phase_opt.py --execute",
+        command="python scripts/slm/hw_differentiable_phase_opt.py --execute --iters 120 --hw-iters 3",
         environment="硬件",
         extra_scripts=(
             "src/ao_shaping/algorithm/signal_processing/differentiable_beam.py",
@@ -895,11 +895,29 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         note=(
             "正向调优模型 + 反向可微优化 SLM 相位的硬件全流程记录: **开测前先脚本判在焦**"
-            "(不在焦即退出 5, 一帧不测), 现场几何标定, 200 次纯模型反向传播的相位/梯度/损失史, "
-            "上屏后的 CCD 远场, 模型与实测的对照 (强度相关系数 0.089、峰值偏移 [-6,-3] 远场采样、"
-            "类 Strehl 0.450), 测量锚定的硬件闭环迭代 (实测损失 9.08e-4 → 6.50e-4, 梯度范数 "
-            "0.12 → 0.79 仍在升), 以及**随机初值 + 强度 MSE 会掉进「把远场摊平」局部极小**"
+            "(不在焦即退出 5, 一帧不测), 现场几何标定, 120 次纯模型反向传播的相位/梯度/损失史, "
+            "上屏后的 CCD 远场, 模型与实测的对照 (强度相关系数 0.599、峰值偏移 [6.0,-6.0] 远场采样、"
+            "类 Strehl 17.226), 测量锚定的硬件闭环迭代 (实测损失 7.018e-4 → 6.969e-4, 梯度范数 "
+            "0.949 → 0.634 持续下降), 以及**随机初值 + 强度 MSE 会掉进「把远场摊平」局部极小**"
             "与**相位 RMS 几乎不变**这两个负结果"
+        ),
+    ),
+    "report/slm/differentiable_opt/speedup_before_after_20261116.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件",
+        extra_scripts=(
+            "scripts/slm/hw_differentiable_phase_opt.py",
+        ),
+        note=(
+            "整形提速「前后对比」报告: MIL Step B 迭代预算 600→150 与光路复用 `reuse_latest` "
+            "默认开启落地后, 对比**完整时间消耗 / 迭代次数 / 整形质量**。数据来源全部为实测落盘产物: "
+            "Step B 预算离线扫描 (artifacts/stepb_budget_sweep_20261116, 100–600 步的墙钟/CV/EE/FF, "
+            "600 步比 100 步多花 39% 墙钟而 CV 不单调改善); Step B 150 步硬件标定 "
+            "(CV 13.83→0.651、EE 1.0000, far_field_size=4096); 本轮 3 次物理实跑 "
+            "(iters=120/20/120, hw_iters=3, 墙钟 60–68 s, 模型侧纯计算 <1 s、前向传播占 0.79–0.91, "
+            "实测损失/梯度范数单调下降); 跨轮模型-硬件一致性 0.089–0.810 历史对照与本轮 0.599–0.663。 "
+            "负结果保留: 模型内 loss 下降≠光学改善、曝光对齐下原始峰值比无意义、`get_displayed_phase()` "
+            "不可作证据"
         ),
     ),
     "report/shape_trials/defocus_differentiable/defocus_differentiable_20261023.md": ReportProvenance(
