@@ -118,6 +118,7 @@ LIBRARY_ONLY: dict[str, set[str]] = {
         "lr_min_ratio",
         "phase_disturbance_file",
         "progress_every",
+        "send_overlay",
         "settle_max_discard",
     },
     MIL.label: {
@@ -128,6 +129,7 @@ LIBRARY_ONLY: dict[str, set[str]] = {
         "output_subdir",
         "probe_split_hook",
         "progress_every",
+        "send_overlay",
         "sim_aberration",
         "step_sink",
         "uncertainty_on_rejection",
