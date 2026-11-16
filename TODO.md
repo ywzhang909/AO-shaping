@@ -5368,6 +5368,12 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: `test_zernike_response_matrix` + 形状门禁 **432 passed**; wf 逐文件域 exit=0; `test_conventions` 133 passed (含 diffraction 载体共跑)
 - 门禁: 棘轮收紧 178/4/162→125/3/112 + 新增 `_zrm_measure_mode` 52/1/46、`_zrm_inverses` 15/1/12; 模块 881→897 baseline 抬高 +16; ruff/term 绿
 
+**2026-11-17 · 8f2487b6 之后 · 第 115 批: `fit_phase_response` 181→124 行 + 两缝 (`calibration/diffraction_efficiency/core.py`)**
+- 提取: `_fitpr_prepare_inputs` 32 (keep-mask/门禁剔除/命令归一, 5 参数回传 cmd/u/y/y0) / `_fitpr_residual_stats` 33 (模型重算+残差+stderr 自举, 9 参数回传 model_r1/outliers/rms/stderr)
+- **教训㉛**: 深度种子扫描整 For (1268-1306) 本可提 (`continue`@1304 在被提环内随之搬家, 语义合法), 但生成器对**任何含 break/continue 的区域**一律拒 (保守规则, 无法区分归属) ⇒ 放弃该缝, 父 124 行仍在 150 阈值下, 达标即止; 若要吃下这类缝须给生成器加"区域=整环"豁免, 属工具扩展不是本批范围
+- 载体: `test_slm_diffraction_efficiency` + 形状门禁 **467 passed**; tools/slm 逐文件域 exit=0; `test_conventions` 72 passed
+- 门禁: 棘轮新增 3 行 (140/5/124 + 40/3/32 + 40/1/33); 模块 1546→1562 baseline 抬高 +16; ruff/term 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
