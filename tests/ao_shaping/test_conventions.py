@@ -4709,6 +4709,11 @@ _QUOTED_PY_PATH_HISTORICAL: dict[tuple[str, str], str] = {
      "tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py"):
         "the note itself declares the generator never entered the index (全仓 git ls-files 无此 "
         "path), so the missing generator -- not this citation -- is what would need fixing",
+    (".opencode/skills/graphify/references/extraction-spec.md", "src/auth/session.py"):
+        "vendored graphify skill spec; a node-ID-format illustration (path -> "
+        "src_auth_session_validatetoken), not a file in this repo",
+    (".opencode/skills/graphify/references/extraction-spec.md", "tests/test_foo.py"):
+        "same vendored graphify spec; `_helper` node-ID example, not a repo file",
 }
 
 #: The census resolved 362 claims; a floor this far below catches an extractor that stopped

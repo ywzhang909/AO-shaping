@@ -497,7 +497,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 🔴 **同一坑的第二次，且这次是机器拦住的**：我在动手前用 `grep -rn 'except AssertionError' src/ scripts/` 得到 **0 命中**，据此以为没有窄处理器；AST 守卫一跑就报出 3 条元组写法。⇒ 判"不存在某类引用"**不得依赖单次 grep**：文本匹配看不见 `except (A, B)` 这种同一语义的不同写法。本会话已两次踩中（前一次是漏看 `test_frame_averaging.py:69` 的 `pytest.raises(AssertionError)`），区别是这次把规则写成了测试而非靠人复查。
 
-> 🔴 **`--max_peak` 不要动。** 它在 **optimizer**（`slm_zernike_pib.py:2290-2300`（行号 2026-10-28 复核；原 `:1585-1605`，#44 三步闭包上提与 `# policy:` 标记逐次下移；2026-10-30 复核 `6b52f34c` #44 删除重复 `_init_c`/`_init_r` kwargs（净 −4 行，本块在两删除点之下）后整体上移 4 行；同日复核 `ff288621` #44 持有者权威刀（入口净 −5 行，本块在其下）整体再上移 5 行；同日复核 `ca0c7ea6` #44 值通道收口刀（调用点 −2 行与签名 −2 行均在本块之上）整体再上移 4 行；区间右界取该告警调用的闭合行；2026-10-31 复核 #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在其上）整体下移至 `:2072-2082`，区间右界仍取告警调用闭合行；2026-11-01 复核 `2a446813` #205 第十一批（324 行 With 会话提为 `_run_pib_session`，入口体下移）整体下移 120 行至 `:2192-2202`，区间右界仍取告警调用闭合行；2026-11-01 复核 #205 第十四批（350 行 tqdm With 会话提为 `_run_spgd_session`，区域体上移）整体上移 34 行至 `:2158-2168`，区间右界仍取告警调用闭合行；2026-11-12 复核 #205 第五十九批（`_run_spgd_session` 四缝提取，告警块随母函数下移）整体下移 151 行至 `:2365-2375`，区间右界仍取告警调用闭合行；2026-11-16 复核 #205 第一百批 `e10e9d73`（`_szp_resolve_targets`/`_szp_display_ctx` 两 helper 外提至模块尾 2534–2654，提取区 1598–1698 收缩 93→18 行，本块在提取区之下整体上移 −75）至 `:2290-2300`，区间右界仍取告警调用闭合行）），不在驱动（行号 2026-10-20 复核，原 `:1456-1474`；`1ce4717a` 常量收敛后整体 −1）；
+> 🔴 **`--max_peak` 不要动。** 它在 **optimizer**（`slm_zernike_pib.py:2343-2353`（行号 2026-10-28 复核；原 `:1585-1605`，#44 三步闭包上提与 `# policy:` 标记逐次下移；2026-10-30 复核 `6b52f34c` #44 删除重复 `_init_c`/`_init_r` kwargs（净 −4 行，本块在两删除点之下）后整体上移 4 行；同日复核 `ff288621` #44 持有者权威刀（入口净 −5 行，本块在其下）整体再上移 5 行；同日复核 `ca0c7ea6` #44 值通道收口刀（调用点 −2 行与签名 −2 行均在本块之上）整体再上移 4 行；区间右界取该告警调用的闭合行；2026-10-31 复核 #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在其上）整体下移至 `:2072-2082`，区间右界仍取告警调用闭合行；2026-11-01 复核 `2a446813` #205 第十一批（324 行 With 会话提为 `_run_pib_session`，入口体下移）整体下移 120 行至 `:2192-2202`，区间右界仍取告警调用闭合行；2026-11-01 复核 #205 第十四批（350 行 tqdm With 会话提为 `_run_spgd_session`，区域体上移）整体上移 34 行至 `:2158-2168`，区间右界仍取告警调用闭合行；2026-11-12 复核 #205 第五十九批（`_run_spgd_session` 四缝提取，告警块随母函数下移）整体下移 151 行至 `:2365-2375`，区间右界仍取告警调用闭合行；2026-11-16 复核 #205 第一百批 `e10e9d73`（`_szp_resolve_targets`/`_szp_display_ctx` 两 helper 外提至模块尾 2534–2654，提取区 1598–1698 收缩 93→18 行，本块在提取区之下整体上移 −75）至 `:2290-2300`，区间右界仍取告警调用闭合行；2026-11-16 复核 #205 第一百零五批 `HEAD`（`_spgd_gradient_pipeline`/`_spgd_epoch_log_row` 两缝在提取区之内，本块之下无净移动、但两缝 helper 插于母函数之上使本块下移 53）至 `:2343-2353`，区间右界仍取告警调用闭合行）），不在驱动（行号 2026-10-20 复核，原 `:1456-1474`；`1ce4717a` 常量收敛后整体 −1）；
 > 且其 CLI 帮助与 archive R-57 **明文声明它不是安全联锁**（"NOT a safety interlock"，
 > 只拒绝提交下一轮更新，光已出）。把它搬进驱动等于把**策略**伪装成**机制** ——
 > 与 TODO 里 R-57 的结论直接冲突。
@@ -2393,7 +2393,7 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
        基本正则里 `|` 不是析取，静默零命中（已第三次踩）。
      - **已知未收敛的重复**：同一套偏移算术手抄在 4 处（`zernike_response_matrix.py:196` 与 `:509-514`、
        `gui/zernike/zernike_response_matrix_ui.py:405-411` 自称 "same logic"、
-       `zernike_debug_viewer.py:363-379`），已记进 `drivers/wfs/AGENTS.md` 作为红线上的已知重复。（2026-11-16 复核 #205 第九十七批 `48e515df`：viewer 侧该偏移块（`row_start`/`col_start` 增量 + `wfs_start_idx` 拷贝段）随 `_zrmd_fill_matrices` 新 helper 外提，自 `_compute_response_matrix_from_debug` 迁至其 `859–890`（原 `363–379`），viewer 仍是 4 处中唯一未收敛到 `slm_mode_slot` 的手抄副本。）
+       `zernike_debug_viewer.py:363-379`），已记进 `drivers/wfs/AGENTS.md` 作为红线上的已知重复。（2026-11-16 复核 #205 第九十七批 `48e515df`：viewer 侧该偏移块（`row_start`/`col_start` 增量 + `wfs_start_idx` 拷贝段）随 `_zrmd_fill_matrices` 新 helper 外提，自 `_compute_response_matrix_from_debug` 迁至其 `801–890`（原 `363–379`；2026-11-16 复核 `_zrmd_fill_matrices` 实际定义于 `:801`，原钉 `859` 超前 58 行），viewer 仍是 4 处中唯一未收敛到 `slm_mode_slot` 的手抄副本。）
      - **验证**：`tools/slm` + `tools/wfs` + conventions **879 passed / 5 skipped / 2 failed**（仍是既有那对，
        字面量守卫无新增红）；CI 钉版 ruff **0.15.12** 全绿；术语门 **0 个文件**、双重夹注 2 行。
 
@@ -5265,6 +5265,29 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 棘轮: 母行 280/2/250 → 202/1/175，新增 2 行 (109/2/94, 27/1/23)
 - 模块 2611→2657 (+46), baseline 同 commit 抬高 (两个 helper 的函数头与 docstring)
 - 载体: 形状 + 9 个 slm-zernike-pib 测试 469 passed, 1 skipped (hardware gate)
+
+**2026-11-16 · dd015241 · 第 102 批: `offline_correction_test` 197→110 行 + 三缝 (`runners/slm/zernike_matrix_runner.py`)**
+- 提取: `_oct_solve_correction` 26 (pinv 反解 + 初始 summary) / `_oct_model_selfcheck` 38 (模型自检比报告, `summary` 原位更新) / `_oct_build_meta` 35 (导出元数据 dict)
+- 设备调用 (display_data/sleep/measure) 全部留在母函数; 三缝均为纯数据段, risk 0, ⑳ 审计 0 命中
+- 叶差分: 30 同 / 消失 0 / 新增 3; 母函数无装饰器 (教训 ㉓ 不适用)
+- 锚点 +24: run 1262→1286 / closed_loop_run 1754→1778 (md 各 1 + 双 JSON lineno/end); 棘轮 127/2/110 + 3 helper 行
+- 载体: `test_zernike_matrix_runner` + 形状门禁 + conventions **436 passed 1 skipped**; 模块 1936 baseline 抬高 +24
+
+**2026-11-16 · eff0b354 · 第 103 批: `_run_square_search_stage` 249→176 行 + 五缝 (`slm_square_shaping.py`)**
+- 提取: `_sq_make_optimizer` 22 (delta 形参通道: `learning_schedule` 仅在 `lr==0` 分支写 delta, 显式形参+无条件回传保 pass-through 语义) / `_sq_epoch_perturbation` 14 / `_sq_energy_gate` 25 (母函数区域头补 `_gate = None` 显式初始化, gated 读侧不变) / `_sq_gradient_step` 24 (30 参 17 回传, best_* 五连走形参通道防 ⑳ 泄漏) / `_sq_log_epoch` 9
+- 叶差分: 39 同 / 消失 0 / 新增 5; ⑳ 审计 0 命中; 循环体 `break` (2578 旧号) 留在母函数
+- 教训㉕: 多区单调用中任一区审计失败 ⇒ 整次回滚零写入; 逐区审计通过后仍需带通道重跑, 且行号在手工插入后须重测
+- 载体: e2e sim 后端 + 能量门 + epoch 表征 + 形状门禁 **445 passed**; wfless 逐文件域 exit=0; conventions 72 passed
+- 门禁: 棘轮 203/6/176 + 5 helper 行; 模块 2891→2932 baseline 抬高 +41
+
+**2026-11-16 · e95b679b · 第 105 批: `_run_spgd_session` 233→196 行 + 两缝 (`slm_zernike_pib.py`)**
+- 提取: `_spgd_gradient_pipeline` 16 (fold 基线更新 + 符号结果播种 + `_spgd_apply_update`, 10 回传含形参回写 `_n_noise_gated` 走通道) / `_spgd_epoch_log_row` 29 (`_log_row` 构造)
+- 不可提段: fold 聚合区循环变量 `_img_c` 仅在条件分支重绑 (不可透传); 峰值闸门 If 的末语句是 `continue` (教训 ⑧), 二者留母函数
+- 教训㉖: `--audit` 不查 break/continue, apply 循环才 sys.exit ⇒ 审计通过的区仍可能整体回滚零写入; 先对区域跑一次 `ast.walk` 找 Break/Continue 再提交审计
+- 叶差分/⑳ 审计: 0 泄漏; 母函数无装饰器 (㉓ 不适用)
+- 锚点: TODO `--max_peak` 2290-2300→2343-2353 (+53, helper 插于其上)
+- 载体: pib 13 文件 + 形状门禁 **480 passed 1 skipped**; wfless 逐文件域 exit=0; conventions+门禁 440 passed
+- 门禁: 棘轮 226/6/196 + 2 helper 行; 模块 2657→2673 baseline 抬高 +16
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

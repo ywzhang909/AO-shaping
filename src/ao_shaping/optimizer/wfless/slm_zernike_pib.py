@@ -2180,6 +2180,59 @@ def _spgd_record_improved(J, _fix_bucket, _gradient_history, _max_history_len, _
 
 
 
+
+def _spgd_epoch_log_row(J, _grad_usable, _n_noise_gated, _sign_results, cam, diff, epoch, gradient, max_brightness, objective, objective_ratio, objective_val, optimizer, optimizer_type, pos_img, pos_phase, record_phase, recorder, shaping, state, w_loggrad):
+# Epoch log row construction lifted verbatim
+    log = _log_row(
+        epoch=epoch,
+        coeffs=state._init_c,
+        obj_val=objective_val,
+        obj_ratio=objective_ratio,
+        J=J,
+        diff=diff,
+        gate="applied" if _grad_usable else "noise",
+        grad=gradient,
+        img=pos_img,
+        phase=pos_phase,
+        lr_val=optimizer.lr,
+        delta_val=state.delta,
+        max_brt=float(max_brightness),
+        loggrad=float(_sign_results[1][0].loggrad),
+                            _init_r=state._init_r,
+        best_objective=state.best_objective,
+        cam=cam,
+        objective=objective,
+        optimizer_type=optimizer_type,
+        r_bucket=state.r_bucket,
+        record_phase=record_phase,
+        recorder=recorder,
+        shaping=shaping,
+        w_loggrad=w_loggrad,
+)
+    return log
+
+
+
+
+def _spgd_gradient_pipeline(_captures, _diff_history, _fold_baseline_peak, _fold_baseline_sum, _frame_stats, _n_noise_gated, config, disturb_c, epoch, objective, objective_mode, optimizer, pos_img, session, shaping, shrink_ratio, state, update_iter):
+# Fold baseline update sign-result seed and gradient update lifted verbatim
+    _fold_baseline_peak, _fold_baseline_sum = _update_fold_baseline(
+        _fold_baseline_peak,
+        _fold_baseline_sum,
+        float(np.mean([pk for _, _, pk, _ in _frame_stats])),
+        float(np.mean([sm for _, _, _, sm in _frame_stats])),
+    )
+    _sign_results: dict[int, list[ObjectiveResult]] = {1: [], -1: []}
+    _grad_usable, diff, max_brightness, neg_j, neg_obj, neg_obj_ratio, pos_center, pos_j, pos_obj, pos_obj_ratio, pos_res = _spgd_batch_objective(_captures, _diff_history, _sign_results, config, objective_mode, optimizer, pos_img, session, shaping)
+    _diff_history.append(diff)
+    if not _grad_usable:
+        _n_noise_gated += 1
+
+    J, gradient, objective_ratio, objective_val = _spgd_apply_update(_grad_usable, disturb_c, epoch, neg_j, neg_obj, neg_obj_ratio, objective, objective_mode, optimizer, pos_j, pos_obj, pos_obj_ratio, pos_res, shaping, shrink_ratio, state, update_iter)
+    return J, _grad_usable, _n_noise_gated, _sign_results, diff, gradient, max_brightness, objective_ratio, objective_val, pos_center
+
+
+
 def _run_spgd_session(
     *,
     _diff_history: object,
@@ -2342,48 +2395,11 @@ def _run_spgd_session(
                     # blind the gate) using the MEAN over every captured frame,
                     # which reduces to the previous 0.5*(pos+neg) for 2 frames, and
                     # score each frame around its OWN spot.
-                    _fold_baseline_peak, _fold_baseline_sum = _update_fold_baseline(
-                        _fold_baseline_peak,
-                        _fold_baseline_sum,
-                        float(np.mean([pk for _, _, pk, _ in _frame_stats])),
-                        float(np.mean([sm for _, _, _, sm in _frame_stats])),
-                    )
-                    _sign_results: dict[int, list[ObjectiveResult]] = {1: [], -1: []}
-                    _grad_usable, diff, max_brightness, neg_j, neg_obj, neg_obj_ratio, pos_center, pos_j, pos_obj, pos_obj_ratio, pos_res = _spgd_batch_objective(_captures, _diff_history, _sign_results, config, objective_mode, optimizer, pos_img, session, shaping)
-                    _diff_history.append(diff)
-                    if not _grad_usable:
-                        _n_noise_gated += 1
-
-                    J, gradient, objective_ratio, objective_val = _spgd_apply_update(_grad_usable, disturb_c, epoch, neg_j, neg_obj, neg_obj_ratio, objective, objective_mode, optimizer, pos_j, pos_obj, pos_obj_ratio, pos_res, shaping, shrink_ratio, state, update_iter)
+                    J, _grad_usable, _n_noise_gated, _sign_results, diff, gradient, max_brightness, objective_ratio, objective_val, pos_center = _spgd_gradient_pipeline(_captures, _diff_history, _fold_baseline_peak, _fold_baseline_sum, _frame_stats, _n_noise_gated, config, disturb_c, epoch, objective, objective_mode, optimizer, pos_img, session, shaping, shrink_ratio, state, update_iter)
 
                     _spgd_record_improved(J, _fix_bucket, _gradient_history, _max_history_len, _pib_history, _pos_c, epoch, gradient, lr, objective_mode, objective_ratio, objective_val, optimizer, pos_center, pos_img, shaping, shrink_iter, shrink_ratio, state, update_iter)
 
-                    log = _log_row(
-                        epoch=epoch,
-                        coeffs=state._init_c,
-                        obj_val=objective_val,
-                        obj_ratio=objective_ratio,
-                        J=J,
-                        diff=diff,
-                        gate="applied" if _grad_usable else "noise",
-                        grad=gradient,
-                        img=pos_img,
-                        phase=pos_phase,
-                        lr_val=optimizer.lr,
-                        delta_val=state.delta,
-                        max_brt=float(max_brightness),
-                        loggrad=float(_sign_results[1][0].loggrad),
-                                            _init_r=state._init_r,
-                        best_objective=state.best_objective,
-                        cam=cam,
-                        objective=objective,
-                        optimizer_type=optimizer_type,
-                        r_bucket=state.r_bucket,
-                        record_phase=record_phase,
-                        recorder=recorder,
-                        shaping=shaping,
-                        w_loggrad=w_loggrad,
-)
+                    log = _spgd_epoch_log_row(J, _grad_usable, _n_noise_gated, _sign_results, cam, diff, epoch, gradient, max_brightness, objective, objective_ratio, objective_val, optimizer, optimizer_type, pos_img, pos_phase, record_phase, recorder, shaping, state, w_loggrad)
                     if live_display is not None:
                         text = (
                             f"epoch {epoch} | {objective} {objective_val:.4f} "

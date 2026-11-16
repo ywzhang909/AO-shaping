@@ -342,7 +342,7 @@ def test_run_session_without_the_gate_keeps_the_historical_stage_names(tmp_path,
     _patch_session(monkeypatch, seen)
     names: list[str] = []
     run_session(
-        _session(tmp_path, "single"),
+        _session(tmp_path, "single", reuse_latest=False),
         on_stage=lambda name, status: names.append(name) if status == "running" else None,
     )
     journal = json.loads((tmp_path / "single" / "journal.json").read_text(encoding="utf-8"))

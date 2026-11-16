@@ -950,8 +950,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1262,
-   "end": 1428,
+   "lineno": 1286,
+   "end": 1452,
    "args": [
     "ctx",
     "params",
@@ -1228,8 +1228,8 @@
    "qualname": "closed_loop_run",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1754,
-   "end": 1906,
+   "lineno": 1778,
+   "end": 1930,
    "args": [
     "ctx",
     "params"

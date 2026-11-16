@@ -777,6 +777,117 @@ def calibrate_response_matrix_pushpull(
 # ==================== 离线矫正测试 ====================
 
 
+
+def _oct_build_meta(amplitude_rad, coeffs_lam, coeffs_rad, correction_csv_path, device_info, matrix_path, n_max, summary, zernike_radius):
+# Correction export metadata dict lifted verbatim
+    dev = device_info or {}
+    meta = {
+        "purpose": "Zernike 模式法波前矫正相位 (SLM) — zernike-matrix 离线矫正测试",
+        "device": dev,
+        "slm_serial": (dev.get("slm") or {}).get("serial_number"),
+        "wavelength_nm": (dev.get("slm") or {}).get("wavelength_nm"),
+        "shift_x": (dev.get("slm") or {}).get("shift_x"),
+        "shift_y": (dev.get("slm") or {}).get("shift_y"),
+        "zernike_radius_px": float(zernike_radius),
+        "n_max": int(n_max),
+        "magnitude_rad": amplitude_rad,
+        "matrix_h5": matrix_path,
+        "correction_csv_path": correction_csv_path or "",
+        "reference": "internal (restored after calibration)",
+        "coefficients_lam": {str(k): float(v) for k, v in coeffs_lam.items()},
+        "coefficients_rad": {str(k): float(v) for k, v in coeffs_rad.items()},
+        "zernike_ordering": (
+            "DLL 顺序 m 枚举 (m=-n..+n), 非标准 Noll 1976: "
+            "[5](2,0)defocus [9](3,1)coma [13](4,0)spherical"
+        ),
+        "units": (
+            "coefficients_lam 单位 λ (matrix λ/λ, w λ); coefficients_rad 单位 rad "
+            "(= lam × 2π, make_phase 输入)"
+        ),
+        "offline_test": {
+            k: v for k, v in summary.items() if k not in ("w_before", "w_after")
+        },
+        "reproduce": (
+            "读取本 CSV 数据区为**弧度** → create_phase_from_array(); "
+            "勿走 load_gray_from_csv/csv_to_phase (只接受灰度)"
+        ),
+    }
+    return meta
+
+
+
+
+def _oct_model_selfcheck(c_lam, matrix, rms0, rms1, summary, w0, w1, wf1):
+# Model self-check ratio report and summary update lifted verbatim
+    pred_norm = float(np.linalg.norm(w0 + matrix @ c_lam))
+    meas_norm = float(np.linalg.norm(w1))
+    ratio = pred_norm / meas_norm if meas_norm > 0 else float("nan")
+    flag = (
+        "  <== 模型/实测不符, 检查单位/符号/半径!" if not (0.7 <= ratio <= 1.4) else ""
+    )
+    click.echo(
+        f"  矫正后: RMS={rms1:.4f}λ, PV={wf1[1]['diff']:.4f}λ, "
+        f"|w|={meas_norm:.4f}λ  (改善 {100 * (1 - rms1 / rms0):.1f}%)"
+    )
+    click.echo(
+        f"  模型自检: 预测|w|={pred_norm:.4f}λ vs 实测 {meas_norm:.4f}λ "
+        f"(比 {ratio:.2f}){flag}"
+    )
+    if flag:
+        logger.warning(
+            "模型自检失败: 预测 |w|={:.4f} vs 实测 {:.4f} (比 {:.2f})",
+            pred_norm,
+            meas_norm,
+            ratio,
+        )
+
+    summary.update(
+        {
+            "after_rms": rms1,
+            "after_z_norm": float(np.linalg.norm(w1)),
+            "after_pv": float(wf1[1]["diff"]),
+            "improvement_pct": 100 * (1 - rms1 / rms0),
+            "model_ratio": ratio,
+            "pred_z_norm": pred_norm,
+            "n_modes_valid": int((np.abs(c_lam) > 1e-4).sum()),
+            "w_before": w0.tolist(),
+            "w_after": w1.tolist(),
+        }
+    )
+    return 
+
+
+
+
+def _oct_solve_correction(limit_amp, modes, pinv, rms0, w0):
+# Pseudo-inverse coefficient solve and initial summary lifted verbatim
+    c_lam = np.clip(pinv @ w0, -limit_amp, limit_amp)
+    coeffs_lam = {
+        nm: float(c_lam[i])
+        for i, nm in enumerate(map(nm_of, modes))
+        if abs(c_lam[i]) > 1e-4
+    }
+    n_pos = int((c_lam > 1e-4).sum())
+    n_neg = int((c_lam < -1e-4).sum())
+    click.echo(
+        f"  反解系数 (λ): 正 {n_pos} / 负 {n_neg} / 零 "
+        f"{len(modes) - n_pos - n_neg}  |  "
+        + ", ".join(
+            f"[{modes[i]}]{c_lam[i]:+.3f}"
+            for i in range(len(modes))
+            if abs(c_lam[i]) > 1e-3
+        )
+    )
+
+    summary: dict[str, Any] = {
+        "before_rms": rms0,
+        "before_z_norm": float(np.linalg.norm(w0)),
+        "coeffs_lam": coeffs_lam,
+    }
+    return c_lam, coeffs_lam, summary
+
+
+
 def offline_correction_test(
     slm: Santec,
     wfs: ThorlabWFS,
@@ -850,29 +961,7 @@ def offline_correction_test(
     )
 
     # --- 反解 (λ) → 截断 → ×2π 弧度 (make_phase 收弧度) ---
-    c_lam = np.clip(pinv @ w0, -limit_amp, limit_amp)
-    coeffs_lam = {
-        nm: float(c_lam[i])
-        for i, nm in enumerate(map(nm_of, modes))
-        if abs(c_lam[i]) > 1e-4
-    }
-    n_pos = int((c_lam > 1e-4).sum())
-    n_neg = int((c_lam < -1e-4).sum())
-    click.echo(
-        f"  反解系数 (λ): 正 {n_pos} / 负 {n_neg} / 零 "
-        f"{len(modes) - n_pos - n_neg}  |  "
-        + ", ".join(
-            f"[{modes[i]}]{c_lam[i]:+.3f}"
-            for i in range(len(modes))
-            if abs(c_lam[i]) > 1e-3
-        )
-    )
-
-    summary: dict[str, Any] = {
-        "before_rms": rms0,
-        "before_z_norm": float(np.linalg.norm(w0)),
-        "coeffs_lam": coeffs_lam,
-    }
+    c_lam, coeffs_lam, summary = _oct_solve_correction(limit_amp, modes, pinv, rms0, w0)
 
     if not coeffs_lam:
         click.echo("  [WARN] 反解系数全为 0 → 跳过加载与导出")
@@ -895,75 +984,10 @@ def offline_correction_test(
     rms1 = float(wf1[1]["rms"])
 
     # --- 模型自检: 预测 ||w0 + M·c|| 必须与实测 ||w1|| 一致 (偏离 → 单位/符号错误) ---
-    pred_norm = float(np.linalg.norm(w0 + matrix @ c_lam))
-    meas_norm = float(np.linalg.norm(w1))
-    ratio = pred_norm / meas_norm if meas_norm > 0 else float("nan")
-    flag = (
-        "  <== 模型/实测不符, 检查单位/符号/半径!" if not (0.7 <= ratio <= 1.4) else ""
-    )
-    click.echo(
-        f"  矫正后: RMS={rms1:.4f}λ, PV={wf1[1]['diff']:.4f}λ, "
-        f"|w|={meas_norm:.4f}λ  (改善 {100 * (1 - rms1 / rms0):.1f}%)"
-    )
-    click.echo(
-        f"  模型自检: 预测|w|={pred_norm:.4f}λ vs 实测 {meas_norm:.4f}λ "
-        f"(比 {ratio:.2f}){flag}"
-    )
-    if flag:
-        logger.warning(
-            "模型自检失败: 预测 |w|={:.4f} vs 实测 {:.4f} (比 {:.2f})",
-            pred_norm,
-            meas_norm,
-            ratio,
-        )
-
-    summary.update(
-        {
-            "after_rms": rms1,
-            "after_z_norm": float(np.linalg.norm(w1)),
-            "after_pv": float(wf1[1]["diff"]),
-            "improvement_pct": 100 * (1 - rms1 / rms0),
-            "model_ratio": ratio,
-            "pred_z_norm": pred_norm,
-            "n_modes_valid": int((np.abs(c_lam) > 1e-4).sum()),
-            "w_before": w0.tolist(),
-            "w_after": w1.tolist(),
-        }
-    )
+    _oct_model_selfcheck(c_lam, matrix, rms0, rms1, summary, w0, w1, wf1)
 
     # --- 导出施加的矫正相位 (驱动自带 Santec.save_phase_to_csv) ---
-    dev = device_info or {}
-    meta = {
-        "purpose": "Zernike 模式法波前矫正相位 (SLM) — zernike-matrix 离线矫正测试",
-        "device": dev,
-        "slm_serial": (dev.get("slm") or {}).get("serial_number"),
-        "wavelength_nm": (dev.get("slm") or {}).get("wavelength_nm"),
-        "shift_x": (dev.get("slm") or {}).get("shift_x"),
-        "shift_y": (dev.get("slm") or {}).get("shift_y"),
-        "zernike_radius_px": float(zernike_radius),
-        "n_max": int(n_max),
-        "magnitude_rad": amplitude_rad,
-        "matrix_h5": matrix_path,
-        "correction_csv_path": correction_csv_path or "",
-        "reference": "internal (restored after calibration)",
-        "coefficients_lam": {str(k): float(v) for k, v in coeffs_lam.items()},
-        "coefficients_rad": {str(k): float(v) for k, v in coeffs_rad.items()},
-        "zernike_ordering": (
-            "DLL 顺序 m 枚举 (m=-n..+n), 非标准 Noll 1976: "
-            "[5](2,0)defocus [9](3,1)coma [13](4,0)spherical"
-        ),
-        "units": (
-            "coefficients_lam 单位 λ (matrix λ/λ, w λ); coefficients_rad 单位 rad "
-            "(= lam × 2π, make_phase 输入)"
-        ),
-        "offline_test": {
-            k: v for k, v in summary.items() if k not in ("w_before", "w_after")
-        },
-        "reproduce": (
-            "读取本 CSV 数据区为**弧度** → create_phase_from_array(); "
-            "勿走 load_gray_from_csv/csv_to_phase (只接受灰度)"
-        ),
-    }
+    meta = _oct_build_meta(amplitude_rad, coeffs_lam, coeffs_rad, correction_csv_path, device_info, matrix_path, n_max, summary, zernike_radius)
     csv_p, json_p = export_correction_csv(
         slm, phase_corr, meta, out_dir=out_dir, prefix="slm_corr"
     )

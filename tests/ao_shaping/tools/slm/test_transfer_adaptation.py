@@ -135,12 +135,14 @@ def test_plane_start_skips_the_model_stage(tmp_path):
     """
     from ao_shaping.tools.slm.transfer.workflow import TransferSession
 
-    config = TransferSession(tmp_path, shapes=("square",), initial_phase="plane")
+    config = TransferSession(tmp_path, shapes=("square",), initial_phase="plane", reuse_latest=False)
     stages = config.plan()["stages"]
     assert "CCD_model_blocks" not in stages
     assert "CCD_anchored_blocks" in stages
-    assert TransferSession(tmp_path, shapes=("square",)).plan()["stages"][2:4] == [
-        "fit", "CCD_model_blocks"]
+    assert (
+        TransferSession(tmp_path, shapes=("square",), reuse_latest=False).plan()["stages"][2:4]
+        == ["fit", "CCD_model_blocks"]
+    )
 
 
 def test_cold_plane_start_is_carrier_only():

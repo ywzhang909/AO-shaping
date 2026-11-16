@@ -508,9 +508,9 @@ class TestRelaxedBounds:
         assert "掏空" in widgets["权重 w_eff"]["help"]
 
     def test_budget_preset_matches_the_doc_defaults(self) -> None:
-        assert sc.MIL_BUDGET_PRESETS["标准 6/80/600"] == (6, 80, 600)
-        assert sc.MIL_BUDGET_PRESETS["快速 2/40/300"] == (2, 40, 300)
-        assert sc.MIL_BUDGET_PRESETS["长跑 12/160/1200"] == (12, 160, 1200)
+        assert sc.MIL_BUDGET_PRESETS["标准 6/80/150"] == (6, 80, 150)
+        assert sc.MIL_BUDGET_PRESETS["快速 2/40/100"] == (2, 40, 100)
+        assert sc.MIL_BUDGET_PRESETS["长跑 12/160/300"] == (12, 160, 300)
         # GS is validated evidence, never a preset.
         assert sc.GS_VALIDATED_BUDGET == (12, 12)
 
