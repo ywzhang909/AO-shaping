@@ -82,7 +82,7 @@
 |---|---|---|
 | [[functions/calibrate-dm-matrix]] | `calibrate_dm_response_matrix(dm, wfs, disturb_voltage, …)` | `optimizer/wf/dm_response_matrix.py:702`（2026-11-15 跟进 f9a7dd60 第 87 批 `calibrate_dm_response_matrix` 三缝后重钉，634→702） |
 | [[functions/save-dm-matrix]] | `save_dm_response_matrix(…)` | `optimizer/wf/dm_response_matrix.py:848`（2026-11-15 跟进 f9a7dd60 第 87 批重钉，832→848） |
-| [[functions/save-zernike-matrix]] | `save_zernike_response_matrix(…)` | `optimizer/wf/zernike_response_matrix.py:659` |
+| [[functions/save-zernike-matrix]] | `save_zernike_response_matrix(…)` | `optimizer/wf/zernike_response_matrix.py:675`（2026-11-17 跟进 #205 第 114 批 `8f2487b6` lift 后重钉，659→675） |
 
 ### 驱动 / 注册表 (drivers/)
 | 页面 | 签名 | 位置 |
