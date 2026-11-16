@@ -68,6 +68,7 @@ _SIM2F = "src/ml/sim2f/loop.py"
 _DM_RESPONSE_MATRIX = "src/ao_shaping/optimizer/wf/dm_response_matrix.py"
 _BENCH = "src/ml/sim2f/bench.py"
 _ZERNIKE_MATRIX_RUNNER = "src/ao_shaping/runners/slm/zernike_matrix_runner.py"
+_GERCHBERG_GS = "src/ao_shaping/algorithm/signal_processing/gerchberg_saxton.py"
 _TRANSFER_SHAPES_RUNNER = "src/ao_shaping/runners/slm/transfer_shapes_runner.py"
 _PANEL_LOCATE = "src/ao_shaping/tools/slm/panel/panel_locate.py"
 _CAPTURE = "src/ao_shaping/tools/slm/transfer/capture.py"
@@ -408,6 +409,12 @@ TARGETS = [
     (_ZERNIKE_MATRIX_RUNNER, "_prm_filter_outliers", 19, 2, 16),
     (_ZERNIKE_MATRIX_RUNNER, "_prm_column_summary", 17, 2, 14),
     (_ZERNIKE_MATRIX_RUNNER, "offline_correction_test", 127, 2, 110),
+    (_GERCHBERG_GS, "gerchberg_saxton", 155, 3, 134),
+    (_GERCHBERG_GS, "_gs_validate_inputs", 20, 1, 17),
+    (_GERCHBERG_GS, "_gs_initial_field", 17, 2, 14),
+    (_GERCHBERG_GS, "_gs_forward_step", 14, 2, 12),
+    (_GERCHBERG_GS, "_gs_backward_step", 14, 2, 12),
+    (_GERCHBERG_GS, "_gs_error_and_callbacks", 18, 2, 15),
     (_ZERNIKE_MATRIX_RUNNER, "_oct_solve_correction", 30, 1, 26),
     (_ZERNIKE_MATRIX_RUNNER, "_oct_model_selfcheck", 44, 2, 38),
     (_ZERNIKE_MATRIX_RUNNER, "_oct_build_meta", 41, 1, 35),
