@@ -72,3 +72,23 @@
   与 Streamlit 同源。早前按错文件名寻找时误判为不存在。
 - 早前 SLM-only 验证（`get_displayed_phase()` max_abs_diff=0，source 为内存槽 47）已由上述
   SLM+CCD 闭环实测取代；驱动缓存槽读回**不是**光学改善证据。
+
+## 提速参数落地（本轮，commit b8b9222）
+
+- **光路复用默认开**：`workflow.TransferSession.reuse_latest` / `transfer_desktop.params` / GUI
+  控件默认 `True`。复用快路径在**任何**失败模式（设备打不开 / 无序列号 / 无 latest / 光路已变 /
+  网格不足）都回退全流程，默认开最坏只多一次廉价探针帧，安全。
+- **Step B 预算 600 -> 150**：`SlmModelInLoopConfig.step_b_iterations`、`StepBConfig.iterations`、
+  CLI `--step-b-iterations`、GUI `MIL_WIDGET_DEFAULTS`/预设、`model_in_loop_hw_runbook.py`
+  `--shape-iterations` 全部收口到 150。依据：硬件有效采样几何（`far_field_size=4096`）下 150 步
+  CV 13.83 -> 0.651、EE 1.0000 无损；文档记录 400 步比 80 步模型内 loss 更低但实测 CCD 更差
+  （过拟合），故更多步既不快也不好。
+- **dry-run 契约修复**：`hw_differentiable_phase_opt.py` 顶层 import `step_b_debug` 会经
+  `ao_shaping.optimizer.__init__` 牵入整个 `ao_shaping.drivers` 包，导致 `assert_no_drivers` 违约
+  exit 3。改为在 execute 路径内延迟导入。修复后 `--dry-run` 两个入口均 exit 0。
+- 上机入口已就绪：`hw_differentiable_phase_opt.py`（dry-run / --execute / --analyze-only）、
+  `model_in_loop_hw_runbook.py --stage shape`（dry-run）。退出码约定见脚本 docstring。
+- 门禁：`check_module_size --check` 0、`term_unify --check` 0 文件、ruff 通过、定向 pytest
+  509 passed（`--import-mode=importlib`）。
+- 修正：`test_slm_model_in_loop.py` 中 `test_camera_pixel_pitch_is_not_validated` 为失效的
+  latent-bug 表征测试（pitch 现已由 `__post_init__._resolve_camera_pixel_um` 解析），删除。
