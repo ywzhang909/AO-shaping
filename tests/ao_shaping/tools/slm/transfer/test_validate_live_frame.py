@@ -347,7 +347,9 @@ def test_capture_read_funnel_threads_the_displayed_phase_grid():
     assert source.index("live_phase = [None]") < source.index("read = _cap_live_reader(")
     assert "live_phase" in inspect.signature(capture_mod._cap_live_reader).parameters
     # (3) 光路检查与每条探针在写 SLM 之后落值; 平场是第一份相位。
-    assert "live_phase[0] = np.zeros" in source
+    # #205 第 108 批: 平场落值搬进 _cap_show_flat_phase, 钉归属者链 capture → helper。
+    assert "_cap_show_flat_phase(" in source
+    assert "live_phase[0] = np.zeros" in inspect.getsource(capture_mod._cap_show_flat_phase)
     assert "live_phase[0] = grid" in source
 
 

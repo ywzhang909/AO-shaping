@@ -484,6 +484,73 @@ def _cap_load_checkpoint(args, checkpoint_value, live_prediction, observer):
 
 
 
+
+def _cap_bad_status_note(attempt, exposure, label, raw, setting):
+# Bad-exposure status warning block lifted verbatim
+    if setting.status != "ok" or raw.max() >= 250:
+        raise RuntimeError(
+            f"Unusable exposure for {label} after {attempt} ladder "
+            f"attempt(s): exposure={exposure:.5f} ms peak={raw.max():.1f} "
+            f"status={setting.status}; data retained, releasing devices"
+        )
+    return 
+
+
+
+
+def _cap_commit_sample(args, attempt, clocks, exposure, exposure_clocks, exposure_frames, flat_frame_name, frame, gray, grid, label, live_prediction, manifest, panel, raw, samples, save_dataset, session_zero, setting, slm_serial, split):
+# Sample path plus manifest and pickle commit lifted verbatim
+    path = f"sample_{len(manifest):04d}.npz"
+    _cap_record_dataset(args, exposure_frames, frame, gray, grid, panel, path, raw, samples, save_dataset)
+    flat_frame_name, session_zero, x, y = _cap_spot_xy(args, exposure, flat_frame_name, frame, label, session_zero, slm_serial)
+    row = _cap_sample_row(attempt, clocks, exposure, exposure_clocks, flat_frame_name, label, live_prediction, path, raw, setting, split, x, y)
+    manifest.append(row)
+    (args.out / "manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
+    with (args.out / "capture_records.pkl").open("wb") as stream:
+        pickle.dump(manifest, stream, protocol=5)
+    logger.info(
+        f"{label}: exposure={exposure:.5f} peak={raw.max():.1f} spot=({x:.1f},{y:.1f}) {setting.status}"
+    )
+    return flat_frame_name
+
+
+
+
+def _cap_show_flat_phase(args, live_phase, slm):
+# Flat phase display and settle lifted verbatim
+    slm.display_data(
+        slm.create_phase_from_array(
+            to_panel(np.zeros((args.grid, args.grid), np.float32))
+        )
+    )
+    live_phase[0] = np.zeros((args.grid, args.grid), np.float32)
+    time.sleep(0.6)
+    return 
+
+
+
+
+def _cap_exposure_bounds(args, cam, configured_daheng_exposure_limit, get_camera_exposure_ms, get_camera_exposure_range, seed_exposure):
+# Camera exposure floor ceiling and protection cap lifted verbatim
+    floor, ceiling = get_camera_exposure_range(cam)
+    limit = (
+        configured_daheng_exposure_limit() if args.camera == "daheng" else 0
+    )
+    if limit > 0:
+        ceiling = min(ceiling, limit)
+    # 阶梯起点: 有种子就 max(floor, seed) (与改动前的 max(floor, 0.02) 同式),
+    # 没有种子 (``default``) 就从相机自己回读的生效曝光起步。
+    exposure = (
+        max(floor, seed_exposure)
+        if seed_exposure is not None
+        else float(get_camera_exposure_ms(cam))
+    )
+    return ceiling, exposure, floor
+
+
+
 def capture(args, *, on_frame=None):
     """Measure the probe plan; return ``{manifest file name: fit payload}``.
 
@@ -552,19 +619,7 @@ def capture(args, *, on_frame=None):
                 logger.warning(f"无法读取 SLM 序列号, 跳过最新模型按序列号保存: {exc!r}")
             slm.set_phase_overlay(None)
             try:
-                floor, ceiling = get_camera_exposure_range(cam)
-                limit = (
-                    configured_daheng_exposure_limit() if args.camera == "daheng" else 0
-                )
-                if limit > 0:
-                    ceiling = min(ceiling, limit)
-                # 阶梯起点: 有种子就 max(floor, seed) (与改动前的 max(floor, 0.02) 同式),
-                # 没有种子 (``default``) 就从相机自己回读的生效曝光起步。
-                exposure = (
-                    max(floor, seed_exposure)
-                    if seed_exposure is not None
-                    else float(get_camera_exposure_ms(cam))
-                )
+                ceiling, exposure, floor = _cap_exposure_bounds(args, cam, configured_daheng_exposure_limit, get_camera_exposure_ms, get_camera_exposure_range, seed_exposure)
 
                 # 实时画面: read() 是这一段的唯一取图漏斗 —— 光路检查、曝光阶梯
                 # (probe_read) 与探针取帧都从它取图, 所以一处挂钩覆盖三处。
@@ -590,13 +645,7 @@ def capture(args, *, on_frame=None):
                 # 探针 reference_start 本来就是它, 所以不多一次显示语义), 再用
                 # 0.05/0.4/3.2 ms 三档少数几帧回答「有没有光」; 没有光就直接抛
                 # OpticalPathInvalid (exit code 3), 不进探针族。
-                slm.display_data(
-                    slm.create_phase_from_array(
-                        to_panel(np.zeros((args.grid, args.grid), np.float32))
-                    )
-                )
-                live_phase[0] = np.zeros((args.grid, args.grid), np.float32)
-                time.sleep(0.6)
+                _cap_show_flat_phase(args, live_phase, slm)
                 _cap_verify_light(args, cam, ceiling, floor, read)
 
                 # reference_start 是本会话零级；之后 ramp 帧用它屏蔽零级邻域再定位。
@@ -678,25 +727,8 @@ def capture(args, *, on_frame=None):
                                 f"{budgets[attempt]} steps"
                             )
                             exposure = float(setting.exposure_ms)
-                    path = f"sample_{len(manifest):04d}.npz"
-                    _cap_record_dataset(args, exposure_frames, frame, gray, grid, panel, path, raw, samples, save_dataset)
-                    flat_frame_name, session_zero, x, y = _cap_spot_xy(args, exposure, flat_frame_name, frame, label, session_zero, slm_serial)
-                    row = _cap_sample_row(attempt, clocks, exposure, exposure_clocks, flat_frame_name, label, live_prediction, path, raw, setting, split, x, y)
-                    manifest.append(row)
-                    (args.out / "manifest.json").write_text(
-                        json.dumps(manifest, indent=2), encoding="utf-8"
-                    )
-                    with (args.out / "capture_records.pkl").open("wb") as stream:
-                        pickle.dump(manifest, stream, protocol=5)
-                    logger.info(
-                        f"{label}: exposure={exposure:.5f} peak={raw.max():.1f} spot=({x:.1f},{y:.1f}) {setting.status}"
-                    )
-                    if setting.status != "ok" or raw.max() >= 250:
-                        raise RuntimeError(
-                            f"Unusable exposure for {label} after {attempt} ladder "
-                            f"attempt(s): exposure={exposure:.5f} ms peak={raw.max():.1f} "
-                            f"status={setting.status}; data retained, releasing devices"
-                        )
+                    flat_frame_name = _cap_commit_sample(args, attempt, clocks, exposure, exposure_clocks, exposure_frames, flat_frame_name, frame, gray, grid, label, live_prediction, manifest, panel, raw, samples, save_dataset, session_zero, setting, slm_serial, split)
+                    _cap_bad_status_note(attempt, exposure, label, raw, setting)
             finally:
                 slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
                 time.sleep(0.3)

@@ -5304,6 +5304,15 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 教训㉗: 棘轮行的 measured 必须取守卫口径 (`ast 装饰器无关的 def..end`), 手写估计 3 行超限当场红; 提交前先跑一次形状门禁再写行
 - 载体: GS 三测试族 (square_shaping/gs_runner/cython parity skip) + 形状门禁 + conventions **449+380 全绿**; 模块 441→481 (<800 不受管)
 
+**2026-11-16 · 022984a4 · 第 108 批: `capture` 272→237 行 + 四缝 (`tools/slm/transfer/capture.py`)**
+- 提取: `_cap_exposure_bounds` 14 (floor/ceiling/保护上限三回传) / `_cap_show_flat_phase` 9 / `_cap_commit_sample` 23 (`flat_frame_name` 经 _cap_spot_xy 回写透传) / `_cap_bad_status_note` 8
+- trust 放行: 函数体内 import (get_camera_exposure_range 等 3) + 兄弟 For 保证绑定 (attempt/clocks/frame/raw/setting, break 在所有 store 之后)
+- 源钉迁移: `test_capture_read_funnel_threads_the_displayed_phase_grid` (3) 项按归属者链重钉 `capture → _cap_show_flat_phase` (第 39/74 批同惯例), 平场落值性质原样保留
+- 叶差分: 24 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中
+- 教训㉗复发即防线: 棘轮 measured 两次凭手写估计翻车 (b107/b108), 已固化为「先跑形状门禁再写行」
+- 载体: transfer 逐文件域 **461 passed 3 skipped** (含 capture e2e mock 与 read 漏斗钉); conventions 72 passed
+- 门禁: 棘轮 273/7/237 + 4 helper 行; 模块 888→920 baseline 抬高 +32 (第 74 批已越 800 受管线)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
