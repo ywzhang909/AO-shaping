@@ -582,6 +582,99 @@ def _apply_coeffs_rad(
     return phase
 
 
+
+def _prm_column_summary(arr, col, dev_cols, devs, matrix, midx, modes, nm, variance):
+# Per-column median summary echo lifted verbatim
+    matrix[:, col] = np.median(arr, axis=0)
+    variance[:, col] = np.var(arr, axis=0) if len(arr) > 1 else 0.0
+    if devs:
+        dev_cols.append(np.median(np.array(devs), axis=0))
+
+    top = np.argsort(np.abs(matrix[:, col]))[::-1][:3]
+    click.echo(
+        f"[{col + 1:2d}/{len(modes)}] [{midx:2d}] {str(nm):9s} "
+        f"|resp|={np.linalg.norm(matrix[:, col]):7.3f}  主导: "
+        + ", ".join(f"[{int(k) + 1}]{matrix[k, col]:+.3f}" for k in top)
+    )
+    return 
+
+
+
+
+def _prm_filter_outliers(midx, outlier_factor, vecs):
+# Column outlier filtering on vector norms lifted verbatim
+    arr = np.array(vecs)[:, 1:]  # 去 index 0 (piston 占位)
+    # 逐点幅度合理性剔除 (抓不到拟合崩溃时兜底)
+    norms = np.array([float(np.linalg.norm(v)) for v in arr])
+    keep = outlier_mask(norms, outlier_factor)
+    if not keep.all():
+        logger.warning(
+            "[{}] 逐点剔除 {}/{} (|resp|={})",
+            midx,
+            int((~keep).sum()),
+            len(norms),
+            np.round(norms, 3).tolist(),
+        )
+        arr = arr[keep]
+    return arr
+
+
+
+
+def _prm_combine_pushpull(amp_waves, devs, devs_sign, readings, vecs):
+# Push-pull difference vector synthesis lifted verbatim
+    zp, zn = readings.get(+1), readings.get(-1)
+    if zp is not None and zn is not None:
+        # µm → λ (um_to_waves), 再除以幅度(**λ** = rad/(2π)) → **λ/λ** 每单位响应。
+        # 与 slm_zernike_response.py 逐字一致; 曾除以 magnitude_rad (rad) → λ/rad。
+        vecs.append(um_to_waves((zp - zn) / 2.0) / amp_waves)
+        dp, dn = devs_sign.get(+1), devs_sign.get(-1)
+        if dp is not None and dn is not None:
+            devs.append((dp - dn) / 2.0 / amp_waves)
+    return 
+
+
+
+
+def _prm_load_aperture_mask(n_averages, wfs):
+# Aperture mask loading with fallback lifted verbatim
+    try:
+        mask, _ = wfs.build_subaperture_mask(
+            n_avg=min(n_averages, 5), threshold_ratio=0.3, edge_clip=1
+        )
+    # policy: sub-aperture mask is an optional extra column of the matrix; a driver that cannot build one must not void the response matrix
+    except Exception as e:
+        logger.warning(f"build_subaperture_mask 失败 (跳过斜率空间): {e}")
+    return mask
+
+
+
+
+def _prm_setup_state(excluded_piston, excluded_tip_tilt, magnitude_rad, n_max):
+# Push-pull calibration state allocation lifted verbatim
+    modes = _mode_ids(n_max, excluded_piston, excluded_tip_tilt)
+    # WFS 通道数 = Noll 总数 (66 @ order 10) — get_zernike 返回 67 长数组 (index-0
+    # 占位, DLL 填 coeff[1..66]), 取 [1:] 即 66 通道。matrix_utils 版不含占位,
+    # 直接用 (不再 -1; 曾误减 → 65 行 vs 66 通道广播失败 L728)。
+    n_wfs = calc_n_zernike_terms(WFS_ZERNIKE_ORDER)  # 66
+
+    # 推拉单位幅度 (**λ**): 矩阵列 = Δ(WFS λ) / Δ(SLM 幅度 λ) → **λ/λ**。
+    # ⚠️ 与已验证脚本 tools/slm/slm_zernike_response.py 完全一致:
+    #   amp_waves = magnitude_rad/(2π), 除的是 amp_waves 而非 magnitude_rad。
+    #   (曾误除 magnitude_rad → λ/rad, 差 2π 因子 → 反解系数被放大 6.28×)
+    amp_waves = magnitude_rad / (2.0 * np.pi)
+
+    matrix = np.zeros((n_wfs, len(modes)), dtype=np.float64)
+    variance = np.zeros_like(matrix)
+    dev_cols: list[np.ndarray] = []
+    wf_records: list[WfsStateSnapshot] = []
+
+    # 子孔径掩膜 (供斜率空间闭环; 失败不影响模态空间)
+    mask = None
+    return amp_waves, dev_cols, matrix, modes, variance, wf_records
+
+
+
 def calibrate_response_matrix_pushpull(
     slm: Santec,
     wfs: ThorlabWFS,
@@ -627,32 +720,8 @@ def calibrate_response_matrix_pushpull(
         其中 matrix 形状 (66, n_modes), 单位 λ/λ; deviation_matrix 为
         (2*n_spots, n_modes) 的展平 [dev_x; dev_y] 响应 (供斜率空间闭环)。
     """
-    modes = _mode_ids(n_max, excluded_piston, excluded_tip_tilt)
-    # WFS 通道数 = Noll 总数 (66 @ order 10) — get_zernike 返回 67 长数组 (index-0
-    # 占位, DLL 填 coeff[1..66]), 取 [1:] 即 66 通道。matrix_utils 版不含占位,
-    # 直接用 (不再 -1; 曾误减 → 65 行 vs 66 通道广播失败 L728)。
-    n_wfs = calc_n_zernike_terms(WFS_ZERNIKE_ORDER)  # 66
-
-    # 推拉单位幅度 (**λ**): 矩阵列 = Δ(WFS λ) / Δ(SLM 幅度 λ) → **λ/λ**。
-    # ⚠️ 与已验证脚本 tools/slm/slm_zernike_response.py 完全一致:
-    #   amp_waves = magnitude_rad/(2π), 除的是 amp_waves 而非 magnitude_rad。
-    #   (曾误除 magnitude_rad → λ/rad, 差 2π 因子 → 反解系数被放大 6.28×)
-    amp_waves = magnitude_rad / (2.0 * np.pi)
-
-    matrix = np.zeros((n_wfs, len(modes)), dtype=np.float64)
-    variance = np.zeros_like(matrix)
-    dev_cols: list[np.ndarray] = []
-    wf_records: list[WfsStateSnapshot] = []
-
-    # 子孔径掩膜 (供斜率空间闭环; 失败不影响模态空间)
-    mask = None
-    try:
-        mask, _ = wfs.build_subaperture_mask(
-            n_avg=min(n_averages, 5), threshold_ratio=0.3, edge_clip=1
-        )
-    # policy: sub-aperture mask is an optional extra column of the matrix; a driver that cannot build one must not void the response matrix
-    except Exception as e:
-        logger.warning(f"build_subaperture_mask 失败 (跳过斜率空间): {e}")
+    amp_waves, dev_cols, matrix, modes, variance, wf_records = _prm_setup_state(excluded_piston, excluded_tip_tilt, magnitude_rad, n_max)
+    mask = _prm_load_aperture_mask(n_averages, wfs)
 
     for col, midx in enumerate(modes):
         nm = nm_of(midx)
@@ -711,46 +780,17 @@ def calibrate_response_matrix_pushpull(
                         is_plus=(sign > 0),
                     )
 
-            zp, zn = readings.get(+1), readings.get(-1)
-            if zp is not None and zn is not None:
-                # µm → λ (um_to_waves), 再除以幅度(**λ** = rad/(2π)) → **λ/λ** 每单位响应。
-                # 与 slm_zernike_response.py 逐字一致; 曾除以 magnitude_rad (rad) → λ/rad。
-                vecs.append(um_to_waves((zp - zn) / 2.0) / amp_waves)
-                dp, dn = devs_sign.get(+1), devs_sign.get(-1)
-                if dp is not None and dn is not None:
-                    devs.append((dp - dn) / 2.0 / amp_waves)
+            _prm_combine_pushpull(amp_waves, devs, devs_sign, readings, vecs)
 
         if not vecs:
             click.echo(f"[WARN] 模式 [{midx}] {nm} 无有效响应, 该列置零")
             continue
 
-        arr = np.array(vecs)[:, 1:]  # 去 index 0 (piston 占位)
-        # 逐点幅度合理性剔除 (抓不到拟合崩溃时兜底)
-        norms = np.array([float(np.linalg.norm(v)) for v in arr])
-        keep = outlier_mask(norms, outlier_factor)
-        if not keep.all():
-            logger.warning(
-                "[{}] 逐点剔除 {}/{} (|resp|={})",
-                midx,
-                int((~keep).sum()),
-                len(norms),
-                np.round(norms, 3).tolist(),
-            )
-            arr = arr[keep]
+        arr = _prm_filter_outliers(midx, outlier_factor, vecs)
         if arr.size == 0:
             continue
 
-        matrix[:, col] = np.median(arr, axis=0)
-        variance[:, col] = np.var(arr, axis=0) if len(arr) > 1 else 0.0
-        if devs:
-            dev_cols.append(np.median(np.array(devs), axis=0))
-
-        top = np.argsort(np.abs(matrix[:, col]))[::-1][:3]
-        click.echo(
-            f"[{col + 1:2d}/{len(modes)}] [{midx:2d}] {str(nm):9s} "
-            f"|resp|={np.linalg.norm(matrix[:, col]):7.3f}  主导: "
-            + ", ".join(f"[{int(k) + 1}]{matrix[k, col]:+.3f}" for k in top)
-        )
+        _prm_column_summary(arr, col, dev_cols, devs, matrix, midx, modes, nm, variance)
 
         # 每模式后记录波前 (供 wf_log 产物)
         try:
