@@ -5247,6 +5247,16 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 2764→2828 (+64), baseline 同 commit 抬高 (两个 helper 的函数头与 docstring)，并顺带收紧 `zernike_coefficient_optimizer` 1633→1628
 - 载体: 形状 + 6 个方形整形仿真测试 428 passed
 
+**2026-11-16 · 67c174fa 之后 · 第 99 批: `slm_square_shaping._session_init_iteration` 200→132 行 + 三缝**
+- 提取: `_sq_rotate_pattern` 23 (nest 1; 相位图绕心旋转) / `_sq_params_to_gray` 69 (nest 2; 参数向量 → SLM 灰度, 含 zernike/freeform 与旋转分支) / `_sq_apply_update` 32 (nest 2; 优化器更新 + 基界裁剪/缠绕)
+- 边界: 三个嵌套闭包整体外提 (1010:1097)；母函数改用 `functools.partial` 绑定，返回的 `_params_to_gray`/`_apply_update` 签名与全部调用点不变
+- 叶差分: 32 同 / 消失 0 / 新增 3 / 改 1 (`_session_init_iteration` −42/+2)
+- 等价性: (a) 整机仿真 harness 11 变体摘要逐位一致; (b) 直接调用 `_session_init_iteration` 对比拆分前后返回的两个可调用对象, freeform+旋转 / freeform / zernike 三例的 `_apply_update`、`_params_to_gray` 与下发相位逐字节一致
+- 端到端 rotation 变体在拆分前后报同一 `ValueError` (既有缺陷, 未在本批处理; 该分支改由上面的直接对比覆盖)
+- 棘轮: 母行 230/3/200 → 152/2/132，新增 3 行 (27/1/23, 80/2/69, 37/2/32)
+- 模块 2828→2891 (+63), baseline 同 commit 抬高 (三个 helper 的函数头与 docstring)
+- 载体: 形状 + 6 个方形整形仿真测试 431 passed
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

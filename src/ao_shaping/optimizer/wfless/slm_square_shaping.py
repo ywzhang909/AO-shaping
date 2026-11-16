@@ -79,6 +79,7 @@ Example:
 from __future__ import annotations
 
 import contextlib
+from functools import partial
 import time
 from dataclasses import dataclass, field
 from typing import Any, Final
@@ -1006,95 +1007,27 @@ def _session_wire_energy_guard(_guard_enabled, _guard_ref_ee, _params, _record_v
 
 
 def _session_init_iteration(_active_modes, _fix_target, _has_rotation, _param_clip, _params, _pattern_helper, _rot_clip, basis, blaze_choice, cam, cam_size, center, exposure_time_ms, n_max, objective, phase_grid, side_factor, slm, target_max_brightness, target_mean_brightness, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity, zernike_radius):
-# Parameter vector plus per-iteration closures lifted verbatim. Closures are rebuilt here and returned as objects
-    def _rotate_pattern(arr: np.ndarray, angle_deg: float) -> np.ndarray:
-        """Rotate a phase map by angle_deg degrees around its center.
-
-        傅里叶变换保旋转: SLM 近场相位旋转 θ → 相机远场同向旋转 θ,
-        用于补偿 SLM↔相机 的相对装配旋转 (metrics 保持相机轴对齐不变)。
-        """
-        from scipy.ndimage import rotate
-
-        if angle_deg == 0.0:
-            return arr
-        return rotate(
-            arr,
-            angle_deg,
-            reshape=False,
-            order=1,
-            mode="constant",
-            cval=0.0,
-        )
-
-    def _params_to_gray(p: np.ndarray) -> np.ndarray:
-        """Parameter vector -> uint16 grayscale phase map on the SLM panel.
-
-        zernike: ``PatternHelper.generate_zernike_polynomial`` (radians,
-        identical to the GUI Zernike branch) then the SLM driver
-        ``slm.create_phase_from_array()``; freeform: raw radians
-        converted by the SLM driver. If rotation search is enabled the LAST
-        element of ``p`` is the rotation angle (degrees); the base pattern
-        is generated from the remaining elements and then rotated.
-        """
-        if _has_rotation:
-            _rot = float(p[-1])
-            _head = p[:-1]
-        else:
-            _rot = 0.0
-            _head = p
-        if basis == "zernike":
-            assert _pattern_helper is not None
-            assert zernike_radius is not None  # set in the basis block above
-            coeffs_dict = {
-                m: float(_head[i])
-                for i, m in enumerate(_active_modes)
-                if i < len(_head)
-            }
-            _rad = _pattern_helper.generate_zernike_polynomial(
-                coefficients=coeffs_dict,
-                radius=float(zernike_radius),
-                n_max=n_max,
-            )
-            if _has_rotation:
-                _rad = _rotate_pattern(_rad, _rot)
-            if blaze_choice is not None:
-                from ao_shaping.utils.wavefront.zero_order_overlay import (
-                    apply_zero_order_overlay,
-                )
-
-                _rad = apply_zero_order_overlay(_rad, blaze_choice.params)
-            return slm.create_phase_from_array(_rad)
-        _rad = _freeform_phase_radians(_head, SLM_RESOLUTION, int(phase_grid))
-        if _has_rotation:
-            _rad = _rotate_pattern(_rad, _rot)
-        if blaze_choice is not None:
-            from ao_shaping.utils.wavefront.zero_order_overlay import (
-                apply_zero_order_overlay,
-            )
-
-            _rad = apply_zero_order_overlay(_rad, blaze_choice.params)
-        return slm.create_phase_from_array(_rad)
-
-    def _apply_update(p: np.ndarray, upd: np.ndarray) -> np.ndarray:
-        """Apply an optimizer update, respecting the basis bounds.
-
-        With rotation search active, the last element (rotation angle) is
-        clipped to `_rot_clip`; the head (Zernike/freeform part) follows the
-        basis bounds.
-        """
-        p = p + upd
-        if _has_rotation:
-            assert _rot_clip is not None  # set when rotation search is enabled
-            _head = p[:-1]
-            _rot = float(np.clip(p[-1], *_rot_clip))
-            if _param_clip is not None:
-                _head = np.clip(_head, *_param_clip)
-            else:
-                _head = np.mod(_head + np.pi, 2.0 * np.pi) - np.pi
-            return np.concatenate([_head, np.array([_rot], dtype=p.dtype)])
-        if _param_clip is not None:
-            return np.clip(p, *_param_clip)
-        return np.mod(p + np.pi, 2.0 * np.pi) - np.pi
+    # Per-iteration callables are bound here; their bodies live at module scope
+    # (`_sq_params_to_gray` / `_sq_apply_update`) so both stay independently
+    # testable and the session body keeps only capture/metric wiring.
+    _params_to_gray = partial(
+        _sq_params_to_gray,
+        active_modes=_active_modes,
+        basis=basis,
+        blaze_choice=blaze_choice,
+        has_rotation=_has_rotation,
+        n_max=n_max,
+        pattern_helper=_pattern_helper,
+        phase_grid=phase_grid,
+        slm=slm,
+        zernike_radius=zernike_radius,
+    )
+    _apply_update = partial(
+        _sq_apply_update,
+        has_rotation=_has_rotation,
+        param_clip=_param_clip,
+        rot_clip=_rot_clip,
+    )
 
     # Display initial phase (uint16 grayscale, direct write — no radian wrap)
     slm.display_data(_params_to_gray(_params))
@@ -2826,3 +2759,133 @@ def _sq_plan_rotation(
         clip if clip is not None else (-np.pi, np.pi)
     )
     return dim, has_rotation, rot_clip, rot_delta, bounds
+
+
+def _sq_rotate_pattern(arr: np.ndarray, angle_deg: float) -> np.ndarray:
+    """Rotate a phase map by ``angle_deg`` degrees around its center.
+
+    傅里叶变换保旋转: SLM 近场相位旋转 θ → 相机远场同向旋转 θ,
+    用于补偿 SLM↔相机 的相对装配旋转 (metrics 保持相机轴对齐不变)。
+    """
+    """Rotate a phase map by angle_deg degrees around its center.
+
+    傅里叶变换保旋转: SLM 近场相位旋转 θ → 相机远场同向旋转 θ,
+    用于补偿 SLM↔相机 的相对装配旋转 (metrics 保持相机轴对齐不变)。
+    """
+    from scipy.ndimage import rotate
+
+    if angle_deg == 0.0:
+        return arr
+    return rotate(
+        arr,
+        angle_deg,
+        reshape=False,
+        order=1,
+        mode="constant",
+        cval=0.0,
+    )
+
+
+def _sq_params_to_gray(
+    p: np.ndarray,
+    *,
+    active_modes: "tuple[tuple[int, int], ...]",
+    basis: str,
+    blaze_choice: object,
+    has_rotation: bool,
+    n_max: int,
+    pattern_helper: object,
+    phase_grid: int,
+    slm: object,
+    zernike_radius: "float | int | None",
+) -> np.ndarray:
+    """Parameter vector -> uint16 grayscale phase map on the SLM panel.
+
+    zernike: ``PatternHelper.generate_zernike_polynomial`` (radians,
+    identical to the GUI Zernike branch) then the SLM driver
+    ``slm.create_phase_from_array()``; freeform: raw radians converted by the
+    SLM driver. If rotation search is enabled the LAST element of ``p`` is the
+    rotation angle (degrees); the base pattern is generated from the remaining
+    elements and then rotated.
+    """
+    """Parameter vector -> uint16 grayscale phase map on the SLM panel.
+
+    zernike: ``PatternHelper.generate_zernike_polynomial`` (radians,
+    identical to the GUI Zernike branch) then the SLM driver
+    ``slm.create_phase_from_array()``; freeform: raw radians
+    converted by the SLM driver. If rotation search is enabled the LAST
+    element of ``p`` is the rotation angle (degrees); the base pattern
+    is generated from the remaining elements and then rotated.
+    """
+    if has_rotation:
+        _rot = float(p[-1])
+        _head = p[:-1]
+    else:
+        _rot = 0.0
+        _head = p
+    if basis == "zernike":
+        assert pattern_helper is not None
+        assert zernike_radius is not None
+        coeffs_dict = {
+            m: float(_head[i])
+            for i, m in enumerate(active_modes)
+            if i < len(_head)
+        }
+        _rad = pattern_helper.generate_zernike_polynomial(
+            coefficients=coeffs_dict,
+            radius=float(zernike_radius),
+            n_max=n_max,
+        )
+        if has_rotation:
+            _rad = _sq_rotate_pattern(_rad, _rot)
+        if blaze_choice is not None:
+            from ao_shaping.utils.wavefront.zero_order_overlay import (
+                apply_zero_order_overlay,
+            )
+
+            _rad = apply_zero_order_overlay(_rad, blaze_choice.params)
+        return slm.create_phase_from_array(_rad)
+    _rad = _freeform_phase_radians(_head, SLM_RESOLUTION, int(phase_grid))
+    if has_rotation:
+        _rad = _sq_rotate_pattern(_rad, _rot)
+    if blaze_choice is not None:
+        from ao_shaping.utils.wavefront.zero_order_overlay import (
+            apply_zero_order_overlay,
+        )
+
+        _rad = apply_zero_order_overlay(_rad, blaze_choice.params)
+    return slm.create_phase_from_array(_rad)
+
+
+def _sq_apply_update(
+    p: np.ndarray,
+    upd: np.ndarray,
+    *,
+    has_rotation: bool,
+    param_clip: "tuple[float, float] | None",
+    rot_clip: "tuple[float, float] | None",
+) -> np.ndarray:
+    """Apply an optimizer update, respecting the basis bounds.
+
+    With rotation search active, the last element (rotation angle) is clipped
+    to ``rot_clip``; the head (Zernike/freeform part) follows the basis bounds.
+    """
+    """Apply an optimizer update, respecting the basis bounds.
+
+    With rotation search active, the last element (rotation angle) is
+    clipped to `rot_clip`; the head (Zernike/freeform part) follows the
+    basis bounds.
+    """
+    p = p + upd
+    if has_rotation:
+        assert rot_clip is not None  # set when rotation search is enabled
+        _head = p[:-1]
+        _rot = float(np.clip(p[-1], *rot_clip))
+        if param_clip is not None:
+            _head = np.clip(_head, *param_clip)
+        else:
+            _head = np.mod(_head + np.pi, 2.0 * np.pi) - np.pi
+        return np.concatenate([_head, np.array([_rot], dtype=p.dtype)])
+    if param_clip is not None:
+        return np.clip(p, *param_clip)
+    return np.mod(p + np.pi, 2.0 * np.pi) - np.pi
