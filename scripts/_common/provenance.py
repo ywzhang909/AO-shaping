@@ -2567,6 +2567,60 @@ REPORTS: dict[str, ReportProvenance] = {
         "未随仓库保留，因此其光斑图无法补出 X/Y 光强截面",
         extra_scripts=("scripts/slm/generate_shape_trial_profiles.py",),
     ),
+    "report/slm/differentiable_opt/artifacts/model_hw_fidelity_20261116/model_hw_fidelity.md": ReportProvenance(
+        script="scripts/slm/analyze_model_hw_fidelity.py",
+        command=(
+            "python scripts/slm/analyze_model_hw_fidelity.py "
+            "--out report/slm/differentiable_opt/artifacts/model_hw_fidelity_20261116"
+        ),
+        environment="离线",
+        note=(
+            "可微优化**模型预测 vs 上屏实测**的离线一致性核对: 只读已落盘的运行目录 "
+            "(model_farfield.npy + measured_model_grid.npy + run_config.json + history*.csv), "
+            "全程不占用 SLM / CCD / 激光。覆盖 10 次运行 (含 phys_20261116_01/02), 逐运行给出 "
+            "线性相关系数、归一化 RMS 误差、峰值偏移、FWHM 比与尺度扫描 s*; 用于判定"
+            "「可微优化预测远场与实测远场是否几乎一致」——当前结论为不一致, 主因是物理预测模型"
+            "缺传播/离焦项与 SLM 驱动链 (LUT/基底相位/面板映射), 实测零填充黑带来自 CCD "
+            "网格外区域, 与模型无关"
+        ),
+        extra_scripts=("scripts/_common/differentiable_problem.py",),
+    ),
+    "report/slm/differentiable_opt/artifacts/lr_sweep_20261116/lr_sweep.md": ReportProvenance(
+        script="scripts/slm/sweep_differentiable_lr.py",
+        command=(
+            "python scripts/slm/sweep_differentiable_lr.py "
+            "--out report/slm/differentiable_opt/artifacts/lr_sweep_20261116"
+        ),
+        environment="离线",
+        note=(
+            "可微整形优化器学习率扫描 (120 步, GPU/CUDA): flat lr 上调 (0.2 / 0.4) 终态损失比基线 "
+            "lr=0.05 高约 21%, CV 0.373 vs 0.292 —— 调大平 LR **不可行**; 余弦衰减 (峰值 lr=0.1, "
+            "无 warmup 无下限) 在第 90 步达到基线终态质量 99%, 终态损失 1.206e-4 vs 1.333e-4, "
+            "但压缩预算到 90 步只到 95%, 须保留完整 120 步周期。结论仅离线, 硬件未验证; "
+            "硬件验证脚本与命令见 lr_sweep.md 末节"
+        ),
+        extra_scripts=(
+            "scripts/_common/differentiable_problem.py",
+            "src/ao_shaping/algorithm/signal_processing/differentiable_beam.py",
+        ),
+    ),
+    "report/slm/differentiable_opt/artifacts/fidelity_ladder_20261116/README.md": ReportProvenance(
+        script="scripts/slm/hw_forward_model_fidelity_ladder.py",
+        command=(
+            "python scripts/slm/hw_forward_model_fidelity_ladder.py "
+            "--execute --out report/slm/differentiable_opt/artifacts/fidelity_ladder_20261116"
+        ),
+        environment="离线",
+        note=(
+            "物理预测模型保真度阶梯的产物目录 (占位): 脚本在 SLM #1 上依次上屏多个相位图案, "
+            "采集 CCD 远场, 逐图案对比模型预测与实测, 用于判定怀疑的缺失离焦项。整个阶梯只"
+            "开/关一次 SLM + 相机 (背靠背开关会触发驱动冻结), 设备占用记入 device_log.json。"
+            "目前仅以 --dry-run 离线演练过 (合成相位 + 占位帧), 尚未执行 --execute, 因此本目录"
+            "还没有硬件结果, 不伪造数字; 运行手册与判据优先级见正文。主判据为信号区秩相关 "
+            "spearman_signal, 不使用全域 spearman_coverage 下结论"
+        ),
+        extra_scripts=("scripts/slm/_hw_fidelity_ladder_sections.py",),
+    ),
 }
 
 
