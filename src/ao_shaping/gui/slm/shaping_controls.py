@@ -1732,9 +1732,9 @@ class ModelInLoopMethod(ShapingMethod):
         chosen = st.selectbox(
             "预设",
             options=labels,
-            index=labels.index("标准 6/80/600"),
+            index=labels.index("标准 6/80/150"),
             key=self.wkey("budget_preset"),
-            help="「标准」= docs/slm/slm_model_in_loop.md §5 默认值（6/80/600）；"
+            help="「标准」= docs/slm/slm_model_in_loop.md §5 默认值（6/80/150）；"
             "只在切换预设时覆写预算，手改的值不会被冲掉",
         )
         rounds, step_a, step_b = MIL_BUDGET_PRESETS[chosen]

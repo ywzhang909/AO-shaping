@@ -86,7 +86,7 @@
 - **dry-run 契约修复**：`hw_differentiable_phase_opt.py` 顶层 import `step_b_debug` 会经
   `ao_shaping.optimizer.__init__` 牵入整个 `ao_shaping.drivers` 包，导致 `assert_no_drivers` 违约
   exit 3。改为在 execute 路径内延迟导入。修复后 `--dry-run` 两个入口均 exit 0。
-- 上机入口已就绪：`hw_differentiable_phase_opt.py`（dry-run / --execute / --analyze-only）、
+- 实验入口已就绪：`hw_differentiable_phase_opt.py`（dry-run / --execute / --analyze-only）、
   `model_in_loop_hw_runbook.py --stage shape`（dry-run）。退出码约定见脚本 docstring。
 - 门禁：`check_module_size --check` 0、`term_unify --check` 0 文件、ruff 通过、定向 pytest
   509 passed（`--import-mode=importlib`）。
