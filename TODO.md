@@ -403,7 +403,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | **已收窄（执行）** | `gui/r50/r50_channel_select.py:365` | `(ValueError, KeyError, TypeError)`（pandas `int()` / 列访问） —— 2026-10-28 执行：该 handler 的守卫语句只有 `int(row[...])` 与列访问，缺列 = KeyError、坏值 = ValueError、空值 = TypeError，且**不碰硬件**（CI 可见全部失败面），故按本 issue 自己的口径收窄优先于登记；`tests/ao_shaping/gui/r50/test_r50_channel_select.py` 钉住两半契约（畸形行仍降级为空表 / 未列类型不再被吞）。该站已**退出盲捕总体**：382 → 381，已标注 188 → 187，未标注仍 194 |
 | 收窄 | `tools/slm/slm_zernike_common.py:114,129,155,162,166` | `(SantecError, WfsError, AttributeError)` |
 | 收窄 | `runners/slm/zernike_matrix_runner.py:652,759,765`（旧行号 733/774/840 已漂移，2026-10-24 复核） | `(WfsError, RuntimeError, ValueError)`。🔴 原建议含 `AssertionError`，现**禁止**：`92dbe716` 的守卫 `test_production_code_never_catches_assertion_error` 机器禁止 `src/`+`scripts/` 捕获 `AssertionError`（`python -O` 下 assert 消失 ⇒ 处理器变死代码；且 assert→raise 转换会让按 `AssertionError` 写的处理器静默失配）；该文件现 3 处均为裸 `except Exception`，未含 `AssertionError` ⇒ 收窄时不得引入 |
-| 收窄（teardown / close） | `runners/slm/zernike_matrix_runner.py:1376`、`slm_gs_refine.py:1424`、`slm_model_in_loop.py:1679` | `(DeviceError, OSError, RuntimeError)`（2026-11-14 跟进 148e7bff 第 78 批重钉 804→1424，teardown `slm.close()`） |
+| 收窄（teardown / close） | `runners/slm/zernike_matrix_runner.py:1488`、`slm_gs_refine.py:1424`、`slm_model_in_loop.py:1679` | `(DeviceError, OSError, RuntimeError)`（2026-11-14 跟进 148e7bff 第 78 批重钉 804→1424，teardown `slm.close()`；2026-11-16 复核 eff0b354 #205 第 102 批重钉 1376→1448 `dev.close()`；第 106 批 `3edd0a06` 再 +40 后 1448→1488） |
 | **必须保持宽** | 遥测 12 处，按**函数名**引用（不再钉行号）：`ml/zernike/train_coeff.py` 的 `_init_wandb`/`_log_wandb_row`/`_log_comparison_image`/`_log_wandb_summary`/`_finish_wandb`（5 处）、`ml/zernike/train_amp.py` 的 `_init_wandb`/`_log_comparison_image`（2 处）、`ml/shaping/train.py` 的 `train`/`_init_wandb`/`_log_comparison_image`（3 处）、`ml/gsnet_debug/train.py` 的 `run_offline_training`（2 处） | wandb 从网络/文件系统/序列化多路抛错，且 `except Exception` 不吞 Ctrl-C ⇒ 保留宽捕获，理由已就地写成 `# policy:` 注释；机器校验由 §8.9 的盲捕棘轮计数承担（`tests/ao_shaping/test_conventions.py` 的 `_MAX_UNMARKED_BLIND_EXCEPT_HANDLERS_IN_SRC`），不再依赖行号。2026-10-28 复核更正两点：**其一**，旧措辞「保留 noqa + 理由」不成立——这四个文件里 `noqa` 出现 **0** 次，实际形态一直是宽捕获加就地理由注释；**其二**，旧行号 12 个中有 **8 个在本批复核之前就已失真**（落在 `)`、`n_val: int,`、docstring 等无关语句上），一行内堆 12 个行号本就不可维护，故改按函数名。 |
 | **必须保持宽** | `zernike_matrix_runner.py:846` | 包住**调用方传入的任意回调**，无法枚举 |
 | 边缘（建议保留） | `zernike_matrix_runner.py:1448`（整条多设备流水线）、`:1323`（显示回调） | 收窄会变脆 |
@@ -728,7 +728,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     不能只断言返回值 —— 否则补丁失效会静默变成一次真硬件访问。
 
 9. ✅ **BLE001 `src/runners` + `src/optimizer` 片（5 处 silent）⇒ 2 处真缺陷；并修掉本账本自己守卫的「扫描盲区」（§8.10 第二次）**（2026-10-24）：
-   3 处不动：`runners/slm/zernike_matrix_runner.py:1377`（`finally` 里的尽力 `dev.close()`）、
+   3 处不动：`runners/slm/zernike_matrix_runner.py:1488`（`finally` 里的尽力 `dev.close()`，2026-11-16 复核 eff0b354 #205 第 102 批重钉 1377→1448；第 106 批 `3edd0a06` 再 +40 后 1448→1488）、
    `optimizer/wfless/slm_square_shaping.py:1934/2184`（两处 `try` 头，包住 `display_ctx.update(...)` —— 显示刷新失败**不该**中断优化闭环。2026-10-28 重钉：原 `:1807/2183` 钉的是调用内部的参数行，随本行实参列表增删就会漂；改钉 `try` 头并对齐语义。此前 `# policy:` 标记插入使两者各 +1/+2；2026-10-31 复核 `081f5dc7` #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在上方）再下移 3 行至 `:1806/2183`；2026-11-01 复核 #205 第十五批（886 行 With 会话提为 `_run_square_session`，区域整体平移 −340 行）两处 `try` 头重钉至 `:1466/1843`；2026-11-03 复核 #205 第二十五批（486 行"目标闭包 + 黑盒搜索 + epoch 循环"阶段提为模块级 `_run_square_search_stage`，两个 `try` 头随所属语句整体迁入该 helper，故不再与本文件主体行号同序）重钉至 `:2078/2455`；2026-11-06 复核 `be6a5332` #205 第二十六批（非 SPGD 启发式支 168 行提为模块级 `_run_square_heuristic_stage`，插在 1922–2097：第一处 `try` 头随所属语句整体迁入新函数 2078→2051，第二处被新增函数顶下 2455→2529）重钉至 `:2051/2529`；2026-11-06 复核 `10a0240e` #205 第二十七批（自适应权重调度/较优扰动选取提为 168 行纯函数，插于 2092：第一处 `try` 头不受影响仍在 2051，第二处再被顶下 2529→2654）重钉至 `:2051/2654`；2026-11-06 复核 #205 第二十八批（成对扰动测量收为 `_square_perturbation_measurement`，净 +3 行全部落在第一处 `try` 头之下，故第一处仍在 2051，第二处 2654→2657）重钉至 `:2051/2657`；2026-11-12 复核 #205 第五十六批 `a926dd0d`（单 `with` 体三缝，`_session_*` 三 helper 插入于 937–1259，两处 `try` 头均在插入点之下被等量顶下 +24）重钉至 `:2075/2681`；2026-11-13 复核 #205 第六十二批 `1ed708f4`（epoch 显示块 5 段随 `_sq_display_epoch` 新 helper 上提，第二处 `try` 头随语句整体迁入 2681→2325，第一处 `_on_evaluate` 内不受影响仍在 2075）重钉至 `:2075/2325`；2026-11-16 复核 #205 第九十八批 `3daf3610`（`_sq_resolve_basis`/`_sq_plan_rotation` 两 helper 插于 2692/2784，`optimize_slm_square` 入口体净 −74 行，两处 `try` 头均在插入点之上整体前移 74 行：第一处 `_on_evaluate` 内 2075→2001，第二处 `_sq_display_epoch` 内 2325→2251）重钉至 `:2001/2251`；2026-11-16 复核 #205 第九十九批 `109d5816`（`_session_init_iteration` 三闭包外提至模块尾 2764–2891，`partial` import +1 但提取区 1006–1100 收缩 95→27 行，两处 `try` 头均在提取点之下整体前移 −67：第一处 2001→1934，第二处 2251→2184）重钉至 `:1934/2184`）
    **真缺陷两处，都在闭环热路径上**：
    ① `runners/micro_drive/voltage_runner.py:_adc_worker` 用 `except Exception: pass` 吞掉 ADC 读取失败。
@@ -2139,7 +2139,7 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 49. ✅ **驱动的 Zernike 数组被标成「Noll 1976」，而手册与实测都说是顺序 m 枚举 —— 改 4 处标签、撤回我自己写错的一句、并否证一个按散文关键词建守卫的候选**（2026-10-25）：
     - **仓库对自己的硬件契约是分裂的**：工具与 runner 层六处写法正确（`tools/zernike/common.py:6`、
       `tools/wfs/zernike_response.py:13`、`tools/wfs/zernike_correction.py:291`、
-      `runners/slm/zernike_matrix_runner.py:34/947/1314` 均写「顺序 m 枚举，非标准 Noll 1976」），
+      `runners/slm/zernike_matrix_runner.py:34/840/1226` 均写「顺序 m 枚举，非标准 Noll 1976」；2026-11-16 复核 eff0b354 #205 第 102 批重钉 947→800（`_oct_build_meta` 外提）、1314→1186；第 106 批 `3edd0a06` 再 +40 后重钉 800→840、1186→1226），
       而驱动与设备文档写反（`thorlab_wfs.py:1507`「系数为 Noll 1976 约定」、
       `drivers/wfs/AGENTS.md:128`「Noll 1976 1-based 前 66 项」）。
     - **判据是双重确认的，不是我推的**（`common.py:6-19` 本就点名「驱动 docstring 不准确」）：
@@ -2325,7 +2325,7 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
      - **新守卫** `test_wfs_wavefront_unwrap_is_not_reimplemented`：定义处必须恰好一个且在
        `common.py`，含该链的文件必须就是定义处；扫描地板 600（实测 669）；**解析失败单列报错**，
        否则不可解析的文件会被误报成重复实现。差分：未跟踪探针重写该链 ⇒ 红并点名该文件；删除 ⇒ 绿。
-     - **有意不动的两处**：(1) **设备在线读数**路径（`zernike_matrix_runner.py:839/889` 与
+     - **有意不动的两处**：(1) **设备在线读数**路径（`zernike_matrix_runner.py:995/1023`（2026-11-16 复核 eff0b354 #205 第 102 批 839/889→955/983，第 106 批 `3edd0a06` 再 +40 后 955/983→995/1023）与
        `zernike_correction.py:356/407` 的 `um_to_waves(z[1:])`）不并入该入口 —— 它做的是 µm→λ 的
        设备读数，与「加载已存向量」是两件事，合并会改在线闭环语义；(2) 第 52 项保留的 `/0.532`
        字面量换算不动（bugfix 不顺带重构），已记为后续。
