@@ -248,6 +248,7 @@ def _scan_panel_session(Santec, cam_id, cam_type, create_camera, debug_dir, expo
                 estimate = probe_exposure_ceiling_ms(
                     cam.reset_exposure_time,
                     lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
+                    camera=cam,
                 )
                 exposure_ms = working_exposure_ms(estimate.ceiling_ms)
                 actual_ms = cam.reset_exposure_time(float(exposure_ms))

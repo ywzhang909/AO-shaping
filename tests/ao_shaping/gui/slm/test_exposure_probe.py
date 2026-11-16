@@ -271,6 +271,31 @@ class _UnboundedStubCamera(_StubCamera):
         return 0.02, 0.5
 
 
+class _Mono12StubCamera(_StubCamera):
+    """MONO12 bench: 12-bit samples carried in a uint16 container (issue #246).
+
+    Same linear response as the 8-bit stub, but the peak clips at 4095 and the
+    camera declares its effective bit depth.  The frame dtype is uint16, so a
+    probe that reads full scale from ``np.iinfo(dtype).max`` sees 65535: every
+    rung stays under 10 % of that, the fit never engages, and the extrapolation
+    silently invents a ceiling far above the bench's true saturation point.
+    """
+
+    MONO12_FULL_SCALE = 4095.0
+    bit_depth = 12
+
+    def effective_full_scale(self, img: np.ndarray) -> float:
+        return self.MONO12_FULL_SCALE
+
+    def get_numpy_image(self, n_sample: int = 1) -> np.ndarray:
+        peak = int(
+            round(self.MONO12_FULL_SCALE * min(1.0, self.current_ms / self.SATURATES_AT))
+        )
+        frame = np.zeros((8, 8), dtype=np.uint16)
+        frame[4, 4] = peak
+        return frame
+
+
 def _install_camera(monkeypatch, cam) -> None:
     """Route ``create_camera`` to ``cam`` and leave the env ceiling unset."""
     monkeypatch.delenv(ec.DAHENG_EXPOSURE_LIMIT_ENV, raising=False)
@@ -350,6 +375,54 @@ class TestCameraMaximumBoundsTheCeiling:
         # camera would have imposed had it reported a range.
         assert evidence["ceiling_ms"] > 0.5 * 0.9
 
+
+class TestMono12FullScale:
+    """The probe must resolve full scale through the camera, not the frame dtype.
+
+    MONO12 frames ride in uint16 containers, so ``np.iinfo(uint16).max`` reads
+    the saturation ceiling as 65535 instead of 4095 (issue #246).  Threading the
+    camera through the probe makes the effective bit depth authoritative: the
+    ladder registers saturation and the evidence records 4095.
+    """
+
+    def test_the_ladder_saturates_at_4095_not_65535(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        cam = _Mono12StubCamera()
+        _install_camera(monkeypatch, cam)
+        working, evidence = bs.probe_session_exposure_ms(debug_dir=tmp_path / "probe")
+
+        assert evidence["full_scale"] == 4095.0
+        assert evidence["saturated_ms"] == pytest.approx(0.32)
+        assert max(cam.applied) == pytest.approx(0.32)
+        # The confirm read-back is judged against the same 4095, and the
+        # working exposure it returns is not clipped.
+        assert evidence["peak_fraction"] == pytest.approx(evidence["peak"] / 4095.0)
+        assert evidence["peak_fraction"] < es._CONFIRM_SATURATION
+        assert working == pytest.approx(ec.working_exposure_ms(evidence["ceiling_ms"]))
+
+    def test_without_the_camera_the_same_bench_is_misread(self) -> None:
+        """Pin the #246 failure mode the camera threading fixes.
+
+        Reading full scale off the uint16 dtype gives 65535: no rung ever
+        reaches the 90 % stop, saturation is never measured, and the fit-free
+        extrapolation lands far above the ceiling the camera's bit depth gives.
+        """
+        cam = _Mono12StubCamera()
+
+        def shoot() -> np.ndarray:
+            return np.asarray(cam.get_numpy_image(n_sample=1))
+
+        by_dtype = ec.probe_exposure_ceiling_ms(cam.reset_exposure_time, shoot)
+        assert by_dtype.saturated_ms is None
+        assert max(by_dtype.peak_fractions) < 0.1  # 4095/65535 ≈ 6 %
+
+        cam.applied.clear()
+        with_camera = ec.probe_exposure_ceiling_ms(
+            cam.reset_exposure_time, shoot, camera=cam
+        )
+        assert with_camera.saturated_ms == pytest.approx(0.32)
+        assert with_camera.ceiling_ms < by_dtype.ceiling_ms / 4
 
 
 class TestSidebarButtonWiring:
