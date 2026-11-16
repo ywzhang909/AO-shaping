@@ -314,7 +314,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 | 项 | 为什么不是重复 |
 |---|---|
-| `far_field_intensity`：`algorithm/signal_processing/differentiable_beam.py:103`（2026-11-15 复核 `f4f5c014` 后由 `:98` 重钉）vs `scripts/.../generate_zernike_farfield_sim_report.py:62` | 一个 torch 可微、一个 numpy 2f-Fourier，**签名与语义都不同** ⇒ 纯命名撞车 |
+| `far_field_intensity`：`algorithm/signal_processing/differentiable_beam.py:105`（2026-11-15 复核 `f4f5c014` 后由 `:98` 重钉；2026-11-17 复核 `01e25e4c`/`a60a87ca` 在文件头各增 1 行 import 后由 `:103` 下移 2 行至 `:105`）vs `scripts/.../generate_zernike_farfield_sim_report.py:62` | 一个 torch 可微、一个 numpy 2f-Fourier，**签名与语义都不同** ⇒ 纯命名撞车 |
 | `apply_lens` / `propagate`：`drivers/sim/beam_backend.py:174,179` | 该处**委派**给 `beam_simulation.py:60` ⇒ adapter 模式，不是复制 |
 | `utils/wavefront/matrix_utils.py` 的 `calc_n_zernike_terms` | **有 docstring 声明的 re-export shim** ⇒ 保留 |
 | `prepare_roi_frame`：`tools/slm/slm_abba_probe.py:169` vs `slm_floor_probe.py:106` | **用户钦定的有意分歧**（`finite_clip` vs `finite_median_subtract`） |
