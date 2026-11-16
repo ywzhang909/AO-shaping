@@ -5,6 +5,7 @@ import numpy.typing as npt
 from scipy.optimize import curve_fit
 import warnings
 
+from ao_shaping.utils.image.beam_metrics import prepare_frame
 from ao_shaping.utils.image.spots_calc import (
     center_of_mass_numpy,
     center_of_brightness,
@@ -238,6 +239,16 @@ class ImageTargetFunc:
         r^2 = Σ(r^2 * I) / Σ(I)
         其中 r 是像素到中心的距离，I 是强度值。
 
+        该定义要求 I 非负，因此入参先经 :func:`prepare_frame`（先减中位本底、
+        再 clip 到 0）。原始 CCD 帧带对称读噪声，约一半像素为负，而负像素在帧
+        边缘被很大的 ``dist_sq`` 加权，会在 ``Σ(I) > 0`` 的同时把
+        ``Σ(r^2·I)`` 压成负数，使本函数返回 NaN（实测于 ``data/debug`` 录制帧，
+        见 ``report/slm_pib_bench/report.md`` §7）。
+
+        若减完本底整帧再无结构（均匀照明或无噪声合成帧——那里中位数**就是**
+        信号本身，与 :func:`prepare_frame` 自己记录的平台例外同一情形），则退回
+        按 0 裁剪，以免把信号整体削成 0。
+
         Args:
             img (np.ndarray[ndim=2, shape=(h,w)]): CCD图片
             center (tuple[float, float] | None): 光斑中心坐标，默认为self.center
@@ -254,10 +265,14 @@ class ImageTargetFunc:
         y_coords, x_coords = np.ogrid[:img.shape[0], :img.shape[1]]
         dist_sq = (x_coords - cx)**2 + (y_coords - cy)**2
 
-        # 计算二阶矩半径
-        total_intensity = np.sum(img)
+        # I 必须非负，否则 dist_sq 加权会把二阶矩压成负数 (理由见 docstring)。
+        frame = prepare_frame(img)
+        if np.sum(frame) <= 0:
+            frame = np.clip(np.where(np.isfinite(img), img, 0.0), 0.0, None)
+
+        total_intensity = np.sum(frame)
         if total_intensity <= 0:
             return 0.0
 
-        second_moment_sq = np.sum(dist_sq * img) / total_intensity
+        second_moment_sq = np.sum(dist_sq * frame) / total_intensity
         return float(np.sqrt(second_moment_sq))
