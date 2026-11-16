@@ -9,9 +9,10 @@ dtype 推导会得到 65535, ``normalize_peak_to_gray`` 把饱和帧峰值 4095 
 一路把曝光推到 1000 ms 上限, 实测日志 ``target brightness 180 unreachable
 (peak 15.9); exposure forced to max`` 与该折算完全吻合。
 
-修复: ``DahengCamera`` 覆写 ``_auto_exposure_peak``, 显式传**生效位深**的满量程
-(12 bit → 4095); ``get_numpy_image`` 给 ``AveragedFrame`` 标注同量满量程。
-本文件用假相机离线锁住这两条口径。
+修复: ``_full_scale`` / ``_auto_exposure_peak`` 已上移到 ``BaseCamera``, 大恒只负责
+声明**生效位深** (``bit_depth`` 契约属性); ``get_numpy_image`` 给 ``AveragedFrame``
+标注同量满量程。本文件用假相机离线锁住大恒侧这两条口径 (基类优先级与各后端映射的
+完整契约见 ``tests/ao_shaping/drivers/ccd/test_full_scale_contract.py``)。
 """
 
 import types

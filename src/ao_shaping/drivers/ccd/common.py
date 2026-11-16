@@ -750,24 +750,47 @@ def capture_with_exposure(
 DETECTOR_FULL_SCALE = 255.0
 
 
-def full_scale(img: np.ndarray) -> float:
+def full_scale(img: np.ndarray, camera: Any | None = None) -> float:
     """Full-scale (saturation) value of a camera frame, in 0-255 gray units.
 
-    Integer frames carry their own limit, so read it off the dtype (uint8 -> 255,
-    uint16 -> 65535). AveragedFrame retains that source limit. Other float
-    frames are read off the *same* detectors in the
-    *same* units: the debug corpus holds uint8 / float32 / float64 frames whose
-    per-frame maxima are all <= 255, so 255 - not 1.0 - is the ceiling. Treating
-    a float frame as already normalised would compress it by up to 255x.
+    Resolution order:
+
+    1. Explicit annotation on the frame (``AveragedFrame.full_scale``) — kept as
+       the top priority; an explicit annotation beats dtype (and beats the
+       camera), because it is the saturation value written down at capture
+       time.
+    2. ``camera`` is given **and** can resolve an effective bit depth —
+       ``camera.effective_full_scale(img)`` (duck-typed: camera shims without
+       that method are skipped).
+    3. Integer dtype's ``np.iinfo(...).max`` (uint8 -> 255, uint16 -> 65535).
+    4. :data:`DETECTOR_FULL_SCALE` (255.0) for non-integer frames. Other float
+       frames are read off the *same* detectors in the *same* units: the debug
+       corpus holds uint8 / float32 / float64 frames whose per-frame maxima are
+       all <= 255, so 255 - not 1.0 - is the ceiling. Treating a float frame as
+       already normalised would compress it by up to 255x.
+
+    Why dtype is only the *fallback* and never enough on its own: some backends'
+    frame dtype does not match the effective bit depth — Daheng MONO12 frames
+    are carried in a ``uint16`` container (true full scale 4095, not 65535),
+    so ``np.iinfo(uint16).max`` silently mis-scales every saturation guard.
+    dtype cannot distinguish "truly 16-bit" from "high bit depth packed into
+    a uint16 container"; a camera's read-back bit depth must get the chance
+    to speak (issue #246).
 
     Args:
         img: A camera frame.
+        camera: An opened camera driver (or any object exposing
+            ``effective_full_scale``); ``None`` keeps the dtype-based fallback.
 
     Returns:
         The value at or above which the frame counts as saturated.
     """
     if hasattr(img, "full_scale"):
         return float(img.full_scale)
+    if camera is not None:
+        resolve = getattr(camera, "effective_full_scale", None)
+        if callable(resolve):
+            return float(resolve(img))
     if np.issubdtype(img.dtype, np.integer):
         return float(np.iinfo(img.dtype).max)
     return DETECTOR_FULL_SCALE
@@ -808,15 +831,20 @@ def normalize_peak_to_gray(img: np.ndarray, full_scale: float | None = None) -> 
     return peak * 255.0 / scale if scale > 255.0 else peak
 
 
-def is_saturated(img: np.ndarray) -> bool:
+def is_saturated(img: np.ndarray, camera: Any | None = None) -> bool:
     """True when ``img``'s peak reaches full scale (see :func:`full_scale`).
 
     Single source of truth for the saturation guard. Call sites used to hardcode
     ``255`` - and did not even agree with each other: the heuristic branches
     tested ``>= 255`` while the SPGD branches tested ``== 255`` (so a frame at
     250 was "saturated" to one and not the other).
+
+    Pass ``camera`` when one is at hand: the effective bit depth (device
+    read-back) then decides the ceiling instead of the frame dtype, which is
+    wrong for backends that pack high bit depths into ``uint16`` containers
+    (issue #246).
     """
-    return float(np.max(img)) >= full_scale(img)
+    return float(np.max(img)) >= full_scale(img, camera)
 
 
 def resample_on_saturation(
@@ -842,7 +870,8 @@ def resample_on_saturation(
         target_max_brightness: Auto-exposure target peak (0-255; 0 = use 220).
         auto_exposure_fn: Override for the auto-exposure implementation.
         saturation_threshold: Peak value considered saturated. ``None`` (the
-            default) derives it from ``img``'s dtype via :func:`full_scale`,
+            default) derives it from the frame via :func:`full_scale` **with
+            ``cam``** (effective bit depth wins over dtype, per issue #246),
             which is correct for every bit depth; pass a number only to
             override (e.g. to trip early).
         n_sample: Frames averaged per re-capture.
@@ -853,7 +882,7 @@ def resample_on_saturation(
     if exposure_time_ms > 0:
         return img
     if saturation_threshold is None:
-        saturation_threshold = full_scale(img)
+        saturation_threshold = full_scale(img, cam)
     if float(np.max(img)) < saturation_threshold:
         return img
     target = target_max_brightness if target_max_brightness > 0 else 220.0

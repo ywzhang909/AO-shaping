@@ -197,6 +197,7 @@ class MyDriver(Device):
 | `get_displayed_memory_number` 报错码 1 正常 | slm | set_grayscale 模式无内存槽显示 |
 | 同内存槽连续 `display_memory` 是 no-op | slm | 固件不刷新正在显示的槽位 |
 | MiiCam 曝光修改 | ccd | 须 `reset_exposure_time()` (Stop→put_ExpoTime→重启拉流) |
+| 帧 dtype ≠ 生效位深 (issue #246) | ccd | MONO12 帧装进 uint16 容器, 按 `np.iinfo(dtype).max` 得 65535 而非 4095 → 饱和帧被自动曝光误判成「过暗」并把曝光推到上限; 满量程一律经 `cam.effective_full_scale(img)` / `common.full_scale(img, cam)` 取, 详见 [ccd/AGENTS.md](ccd/AGENTS.md) |
 | 类名 `NLight` 非 `NlightDM` | dm | `dm/nlight/driver.py` 中类名为 `NLight`, 非 `NlightDM` |
 
 ## Mock 设备

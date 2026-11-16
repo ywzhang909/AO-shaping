@@ -441,6 +441,13 @@ class DahengCamera(BaseCamera):
         未开流 (``_acquisition_on`` 为假) 绝不取帧 —— ``initialize()`` 在
         ``stream_on`` 之前调用本方法, 因此那里只写格式不消费帧。
 
+        🔴 **拉流中 ``PixelFormat`` 不可写** (2026-11-17 真机实测, 相机
+        FJB24112232): GenICam 的 ``PixelFormat`` 在取流进行时 ``set``
+        **不生效** —— SDK 只 print ``PixelFormat.set: is not writeable`` 并**保留
+        旧格式**, 回读仍是 ``Mono8`` (与 :attr:`reset_window` 的越界静默坑同源)。
+        因此写格式前必须先 ``stream_off()``, 写完回读校验、再 ``stream_on()``
+        复流; 复流本身已把旧格式帧清出流水线, 随后的丢弃帧是双保险。
+
         参数:
             bits: 请求位深 (bit)。
 
@@ -458,17 +465,26 @@ class DahengCamera(BaseCamera):
 
         requested_format = self._BIT_DEPTH_PIXEL_FORMATS[bits]
         previous = self.bit_depth
-        self.cam.PixelFormat.set(getattr(gx.GxPixelFormatEntry, requested_format))
-        raw = self.cam.PixelFormat.get()
-        effective = self._bit_depth_of_format(raw)
-        #: 设备真值优先: 即使下面判为不符要抛错, 缓存也不能留一个设备并未使用的档位
-        self.bit_depth = effective
-        if effective != bits:
-            raise CameraError(
-                f"Daheng PixelFormat readback mismatch: requested {bits}-bit "
-                f"({requested_format}), device reports {raw!r} "
-                f"(parsed bit_depth={effective})"
-            )
+        # 🔴 拉流中 PixelFormat 不可写 (2026-11-17 真机实测): SDK 只 print
+        # "PixelFormat.set: is not writeable" 并保留旧格式, 回读仍是 Mono8。先停流再写
+        # (与 reset_window 同口径); finally 里复流, 抛错也不许把相机留在停流状态。
+        if self._acquisition_on:
+            self.cam.stream_off()
+        try:
+            self.cam.PixelFormat.set(getattr(gx.GxPixelFormatEntry, requested_format))
+            raw = self.cam.PixelFormat.get()
+            effective = self._bit_depth_of_format(raw)
+            #: 设备真值优先: 即使下面判为不符要抛错, 缓存也不能留一个设备并未使用的档位
+            self.bit_depth = effective
+            if effective != bits:
+                raise CameraError(
+                    f"Daheng PixelFormat readback mismatch: requested {bits}-bit "
+                    f"({requested_format}), device reports {raw!r} "
+                    f"(parsed bit_depth={effective})"
+                )
+        finally:
+            if self._acquisition_on:
+                self.cam.stream_on()
         if previous != effective and self._acquisition_on:
             for _ in range(self.EXPOSURE_CHANGE_DISCARD_FRAMES):
                 self.get_numpy_image(1, skip_first=False)
@@ -629,30 +645,11 @@ class DahengCamera(BaseCamera):
         #: 满量程按**生效位深**标注, 不按 dtype: MONO12 帧的 dtype 是
         #: uint16, 若按 dtype 会得到 65535, 而真实满量程是 4095 ——
         #: 自动曝光峰值折算会把饱和帧误判成「过暗」, 把曝光一路推到上限。
-        return AveragedFrame(avg_img, first_img.dtype, full_scale=self._full_scale())
+        return AveragedFrame(avg_img, first_img.dtype, full_scale=self._full_scale(first_img.dtype))
 
-    def _full_scale(self) -> float:
-        """当前生效位深对应的满量程 (8/12/16 bit → 255/4095/65535)。
-
-        位深未知 (``bit_depth is None``) 时退回 dtype 推导, 与基类口径一致。
-        """
-        if self.bit_depth is not None:
-            return float((1 << int(self.bit_depth)) - 1)
-        return 255.0
-
-    def _auto_exposure_peak(self, img: np.ndarray) -> float:
-        """大恒峰值折算: 用**生效位深**的满量程, 而非 ``img.dtype``。
-
-        MONO12 帧的 dtype 是 ``uint16``, ``common.full_scale`` 按 dtype 会返回
-        65535, 而真实满量程是 4095 —— 饱和帧峰值 4095 会被折成 15.9 灰度,
-        自动曝光误判过暗把曝光推到 1000 ms 上限 (2026-11-16 实测)。
-        多帧平均帧的 ``full_scale`` 已在 :meth:`get_numpy_image` 里按位深标注,
-        这里对原始帧与平均帧统一显式传生效位深满量程, 仍走
-        ``normalize_peak_to_gray`` 单一折算入口。
-        """
-        from ao_shaping.drivers.ccd.common import normalize_peak_to_gray
-
-        return normalize_peak_to_gray(img, full_scale=self._full_scale())
+    # 满量程 / 峰值折算已上移到 BaseCamera (issue #246): 大恒只负责声明生效位深
+    # (``bit_depth`` 契约属性), 满量程一律经 ``_full_scale()`` /
+    # ``effective_full_scale()`` 取值, 不再重复实现折算。
 
     def auto_exposure(
         self,
