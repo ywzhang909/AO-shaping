@@ -1,0 +1,13 @@
+{
+  "name": "opencode-plugins",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@kilocode/plugin": "7.2.22",
+    "@opencode-ai/plugin": "1.4.3"
+  },
+  "devDependencies": {
+    "jsonc-parser": "3.3.1",
+    "zod": "4.3.5"
+  }
+}

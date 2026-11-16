@@ -74,7 +74,6 @@ docs/slm-200/*.csv
 # Simulation data
 data_adam/
 docs/WFS20_Manual*
-.opencode/
 .ocx/
 .sisyphus/
 .agents/
@@ -216,7 +215,6 @@ runs/*
 
 # Local editor/agent state
 node_modules/
-
 
 # openchamber
 .openchamber/*
