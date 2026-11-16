@@ -139,3 +139,22 @@
 - 术语门禁修复：agent_notes 中「实验入口」按统一表改为「实验入口」（`term_unify --apply`）。
 - 提交：`b8b9222`（提速参数 + dry-run 契约）、`ff4921c`（物理实跑记录）、本轮
   provenance 修复 + 对比报告。`01e25e4`、`b8b9222`、`ff4921c` 仍未 push。
+
+### 提速前后对比报告：补充真实物理读回数据（续）
+
+- **§2 时间补充**：新增 §2.4「设备往返时间分解」，全部取自实测落盘
+  （`history_hw.csv` / `focus_sweep.csv` / `run_config.json`）：逐次测量锚定迭代
+  实测曝光 0.08–0.18 ms、焦面扫描曝光 0.04–0.10 ms（18–20 点）、平场/优化帧
+  曝光 2–5×。结论：墙钟大头在设备往返，非曝光本身。
+- **§3 质量补充**：§3.3 表加实测峰值与曝光列（附相位 RMS 不变 → loss 下降
+  来自强度拟合精度的负结果解读）；新增 §3.5「CCD 读回帧物理指标表」，覆盖
+  本轮 3 次 + 上月 3 次共 6 轮的 CCD FWHM / 峰值 / 空心度 / 质心 / 硬件 Strehl。
+  本轮 CCD FWHM 16.6–18.7 px（门禁 ≤40 px 通过），空心度 0.83–0.91（高于上月，
+  属环形光斑特征）。§5 结论表新增 CCD 读回帧指标行。
+- **provenance**：`speedup_before_after_20261116.md` 报告头与
+  `provenance.py::REPORTS` note 同步补充曝光与 CCD 指标来源描述；
+  `sync_report_provenance.py --check` clean。
+- **term_unify**：`--apply` 统一术语（README、anchored_m3 报告、
+  provenance.py 中设备运行相关措辞统一为术语表规范词），`--check` 0 文件。
+- **提交**：`4530f574`（4 文件：报告正文 + provenance.py + README + anchored_m3）。
+  仍未 push。
