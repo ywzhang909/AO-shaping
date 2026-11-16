@@ -183,6 +183,22 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/direction_attribution_20261112.py",
         ),
     ),
+    "report/shape_trials/anchored_m3_20261116/anchored_m3_20261116.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-16 实机运行后离线整理；报告本体不占用设备）",
+        note=(
+            "M3（离焦+照明包络，grid 128 / FFT 512 / phase_sign −1.0）锚定闭环两次实机验收："
+            "零相位起步实测核心 CV 6.08、随机起步 RMS1.5 实测核心 CV 5.01，均未达 ≤0.10；"
+            "model_cv 与 measured_cv_window 同掩膜同网格分叉 ~7.5×，排除掩膜坐标错配与起步盆地，"
+            "指向 FrozenDefocusForward 绝对强度表征误差（方向 cosine ≥0.50 是必要条件非充分条件）。"
+            "输入为 shape_transition_timing_20261106.py --execute 产物"
+            "（data/debug/slm_transfer/anchored_m3_20261116 / anchored_m3_rs15_20261116）与"
+            " M3 frozen_parameters.json、20261112 方向诊断、20261107 锚定闭环报告。人工撰写。"
+        ),
+        extra_scripts=(
+            "scripts/slm/shape_transition_timing_20261106.py",
+        ),
+    ),
     "report/shape_trials/measured_forward_refine_20261107/measured_forward_refine_20261107.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线规划文档与离线探针结果（issue #237；未占用设备）",
