@@ -683,8 +683,8 @@
    "qualname": "resample_on_saturation",
    "module": "ao_shaping.drivers.ccd.common",
    "file": "src/ao_shaping/drivers/ccd/common.py",
-   "lineno": 812,
-   "end": 856,
+   "lineno": 822,
+   "end": 866,
    "args": [
     "img",
     "cam",
@@ -951,7 +951,7 @@
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
    "lineno": 1326,
-   "end": 1492,
+   "end": 1493,
    "args": [
     "ctx",
     "params",
@@ -1107,8 +1107,8 @@
    "qualname": "calibrate_response_matrix_pushpull",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 585,
-   "end": 774,
+   "lineno": 678,
+   "end": 814,
    "args": [
     "slm",
     "wfs",
@@ -1177,8 +1177,8 @@
    "qualname": "offline_correction_test",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 780,
-   "end": 976,
+   "lineno": 931,
+   "end": 1040,
    "args": [
     "slm",
     "wfs",
@@ -1229,7 +1229,7 @@
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
    "lineno": 1818,
-   "end": 1970,
+   "end": 1971,
    "args": [
     "ctx",
     "params"
