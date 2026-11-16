@@ -118,8 +118,8 @@ def read_zero_order(camera: str, cam_id: int) -> ZeroOrderReading:
     from ao_shaping.tools.slm.transfer.hardware import prepare_camera_sdk
 
     prepare_camera_sdk(camera)
-    # 打开/关闭相机与末帧抓取都是 SDK 调用: 大恒是 GigE (IP 192.168.0.11),
-    # 设备掉线时 open/读帧可无限挂起。find_exposure_ms / find_zero_order_center
+    # 打开/关闭相机与末帧抓取都是 SDK 调用: 大恒是 GigE (地址由官方 SDK 子网
+    # 枚举得到, 不依赖固定 IP、不 ping), 设备掉线时 open/读帧可无限挂起。find_exposure_ms / find_zero_order_center
     # 内部经 _grab_frame 已有 10 s/帧 保护, 这里补上仅剩的两处裸调用。
     # call_with_timeout 超时后抛 TimeoutError (子类 OSError→Exception),
     # 由 _ZeroOrderTask.run 的 except 捕获并送回 _on_zero_done 错误路径。

@@ -921,17 +921,17 @@ def probe_camera_window(cam_type: str = "daheng", cam_id: int = 0) -> WindowSize
     """
     if cam_type != "daheng":
         return None
-    try:
-        import gxipy as gx  # type: ignore[import-untyped]
-    except (ImportError, OSError):
-        return None
+    from ao_shaping.drivers.ccd.daheng import discovery
+
     cam: Any = None
     try:
-        manager = gx.DeviceManager()
-        _, infos = manager.update_device_list()
-        if not infos or len(infos) <= int(cam_id):
+        found = discovery.enumerate_devices()
+        if not found.online or len(found.devices) <= int(cam_id):
             return None
-        cam = manager.open_device_by_sn(infos[int(cam_id)].get("sn"))
+        manager = discovery.device_manager()
+        if manager is None:
+            return None
+        cam = manager.open_device_by_sn(found.devices[int(cam_id)].get("sn"))
         width_range = cam.Width.get_range()
         height_range = cam.Height.get_range()
         return WindowSize(

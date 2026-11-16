@@ -76,23 +76,23 @@ def _scan_camera_status() -> list[dict]:
     (another process already holds the handle); in that case a tip is shown
     to the user rather than offering a force-close button.
     """
-    try:
-        import gxipy as gx  # type: ignore[import-untyped]
-    except (ImportError, OSError) as e:
-        logger.debug(f"Daheng SDK 不可用: {e}")
-        st.warning("Daheng SDK 未安装，无法扫描相机状态")
-        return []
+    from ao_shaping.drivers.ccd.daheng import discovery
 
     result: list[dict] = []
-    try:
-        device_manager = gx.DeviceManager()
-        dev_count, dev_info_list = device_manager.update_device_list()
-    except Exception as e:  # policy: the vendor enumeration fails wholesale when the runtime is missing or no camera is attached; the scan keeps the statuses already collected instead of blanking the panel
-        logger.debug(f"Daheng 相机枚举失败: {e}")
+    # policy: 枚举统一走 discovery 漏斗 (官方 SDK update_device_list, 不 ping 固定 IP)。
+    found = discovery.enumerate_devices()
+    if not found.sdk_ready:
+        logger.debug(f"Daheng SDK 不可用: {found.error}")
+        st.warning("Daheng SDK 未安装，无法扫描相机状态")
         return result
-
-    if not dev_count or not dev_info_list:
+    if found.error:
+        logger.debug(f"Daheng 相机枚举失败: {found.error}")
+    if not found.online:
         return result
+    device_manager = discovery.device_manager()
+    if device_manager is None:
+        return result
+    dev_info_list = found.devices
 
     for idx, dev_info in enumerate(dev_info_list):
         sn = dev_info.get("sn")

@@ -235,23 +235,13 @@ def probe_daheng_models() -> list[str]:
     只枚举设备, **不打开**相机 —— 型号已经足够定位像元尺寸 (型号级配置),
     打开相机只为读一个静态属性既慢又会抢设备锁。
     """
-    try:
-        import gxipy as gx  # type: ignore[import-untyped]
-    except (ImportError, OSError):
-        return []
-    try:
-        _, dev_info_list = gx.DeviceManager().update_device_list()
-    # 枚举失败 (GigE 驱动/网卡异常、设备被别的进程独占) 与"没有相机"对调用方的
-    # 后果相同 —— 拿不到型号。gxipy 的异常类型只能在该 SDK 被导入后才知道 (本模块
-    # 是零导入叶子), 收窄成 OSError 会把可用回落变成崩溃。
-    # policy: 宽捕获归一成"探不到相机", 但必须留日志, 否则这句归一就是静默的。
-    except Exception as exc:
-        logger.warning(
-            f"大恒相机枚举失败 ({type(exc).__name__}: {exc}); 按没有可连接相机处理"
-        )
-        return []
+    from ao_shaping.drivers.ccd.daheng import discovery
+
+    # policy: 枚举统一走 discovery 漏斗 (SDK 引导 + 三态归一 + 失败留日志),
+    # 本函数只取设备列表; 不在这里重复 try/except, 否则 SDK 未装会被误判成相机离线。
+    devices = discovery.enumerate_devices()
     models: list[str] = []
-    for info in dev_info_list or []:
+    for info in devices.devices or []:
         raw = info.get("model_name", "") or ""
         if isinstance(raw, tuple):
             raw = raw[0] if raw else ""

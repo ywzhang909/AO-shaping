@@ -25,13 +25,26 @@ def prepare_camera_sdk(camera):
 
 
 def enumerate_camera():
-    """Read camera discovery without opening a stream or loading an SLM phase."""
+    """Read camera discovery without opening a stream or loading an SLM phase.
+
+    枚举统一走 :func:`discovery.enumerate_devices` (官方 SDK ``update_device_list``,
+    **不 ping 固定 IP**); SDK 路径注入仍由本模块的 :func:`prepare_camera_sdk`
+    负责 —— 它被大量测试 monkeypatch, 必须保留为可 patch 的模块级符号。
+    """
     from .capture import clock
 
     prepare_camera_sdk("daheng")
-    import gxipy as gx
-    count, devices = gx.DeviceManager().update_device_list()
-    return dict(camera="daheng", count=count, devices=devices, **clock())
+    from ao_shaping.drivers.ccd.daheng import discovery
+
+    found = discovery.enumerate_devices()
+    return dict(
+        camera="daheng",
+        count=found.count,
+        devices=found.devices,
+        sdk_ready=found.sdk_ready,
+        online=found.online,
+        **clock(),
+    )
 
 
 class DeviceOpenError(RuntimeError):

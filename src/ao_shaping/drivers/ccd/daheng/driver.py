@@ -10,7 +10,7 @@ import numpy.typing as npt
 from ao_shaping.drivers.ccd import BaseCamera
 from ao_shaping.drivers.ccd.base import AveragedFrame, CameraError
 from ao_shaping.drivers.ccd.common import ExposureTime
-from ao_shaping.drivers.ccd.daheng import _bit_depth, constants
+from ao_shaping.drivers.ccd.daheng import _bit_depth, constants, discovery
 from ao_shaping.drivers.ccd.pixel_size import (
     ensure_model_pixel_size_um,
     resolve_model_pixel_size_um,
@@ -782,10 +782,8 @@ class DahengCamera(BaseCamera):
 
     @staticmethod
     def get_cam_list() -> list[Any]:
-        """获取可用相机列表（大恒返回 SDK 的设备信息对象，非纯字符串）。"""
-        device_manager = gx.DeviceManager()
-        _, dev_info_list = device_manager.update_device_list()
-        return dev_info_list if dev_info_list else list()
+        """获取可用相机列表（大恒返回 SDK 的设备信息对象）；枚举统一走 discovery 漏斗, 不 ping 固定 IP。"""
+        return discovery.enumerate_devices().devices
 
     def get_exposure_range(self) -> tuple[float, float]:
         """获取相机支持的曝光时间范围 (min_ms, max_ms)。"""
