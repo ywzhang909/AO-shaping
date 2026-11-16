@@ -1598,65 +1598,9 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
     epochs = int(epochs)
     rng = np.random.default_rng(random_seed)
 
-    algorithm = str(algorithm).lower()
-    if algorithm not in ALGORITHM_CHOICES:
-        raise ValueError(
-            f"algorithm must be one of {ALGORITHM_CHOICES}, got {algorithm!r}"
-        )
-
-    # Single authority for the objective/target-shape pairing. The rules used to
-    # be re-implemented inline here, which had already drifted from
-    # ``objective.py``: it omitted ``rmse_out`` entirely and hard-coded its own
-    # (shorter) shape-aware list, so any newly registered objective raised
-    # ``ValueError`` here even though ``ObjectiveSpec.resolve`` accepted it.
-    spec = ObjectiveSpec.resolve(objective, target_shape)
-    objective, target_shape = spec.name, spec.shape
-    shape_for_metric = cast(TargetShape, target_shape or "rectangle")
-    if target_center_smooth < 1:
-        raise ValueError(
-            f"target_center_smooth must be at least 1, got {target_center_smooth}"
-        )
-    if target_size is not None and (not np.isfinite(target_size) or target_size <= 0):
-        raise ValueError(f"target_size must be positive, got {target_size!r}")
-    if not np.isfinite(target_aspect_ratio) or target_aspect_ratio <= 0:
-        raise ValueError(
-            f"target_aspect_ratio must be positive, got {target_aspect_ratio!r}"
-        )
-    if not 0.0 <= w_ema_decay <= 1.0:
-        raise ValueError(f"w_ema_decay must be within 0..1, got {w_ema_decay!r}")
-    if not 0.0 <= w_floor < 0.5:
-        raise ValueError(f"w_floor must be within 0..0.5 (exclusive), got {w_floor!r}")
-    if not np.isfinite(w_temperature) or w_temperature <= 0.0:
-        raise ValueError(f"w_temperature must be positive, got {w_temperature!r}")
-    for _name, _w in (
-        ("w_pib_init", w_pib_init),
-        ("w_rms_init", w_rms_init),
-        ("w_ee_init", w_ee_init),
-    ):
-        if _w is not None and (not np.isfinite(_w) or _w < 0.0):
-            raise ValueError(
-                f"{_name} must be a finite, non-negative weight, got {_w!r}"
-            )
-
-    # Optimization mode mapping: pib, avg_radiu, shape, roi_pib and rms_pib are
-    # maximized; radiu and rmse are minimized.
-    if not 0.0 <= max_roi_energy_loss <= 1.0:
-        raise ValueError(
-            f"max_roi_energy_loss must be within 0..1 (0 disables the guard), "
-            f"got {max_roi_energy_loss!r}"
-        )
-    for _name, _w in (
-        ("w_uniformity", w_uniformity),
-        ("w_peak", w_peak),
-        ("w_pearson", w_pearson),
-        ("w_coverage", w_coverage),
-        ("w_displacement", w_displacement),
-    ):
-        if not np.isfinite(_w) or _w < 0.0:
-            raise ValueError(
-                f"{_name} must be a finite, non-negative weight, got {_w!r}"
-            )
-    objective_mode = objective_direction(objective)
+    algorithm, objective, target_shape, shape_for_metric, objective_mode = (
+        _szp_resolve_targets(config)
+    )
     recorder = Recorder(mark=objective, mode=objective_mode)
 
     # History for convergence detection
@@ -1671,28 +1615,9 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
     # SLM pattern helper
     pattern_helper = PatternHelper(resolution=SLM_RESOLUTION, bits=10)
 
-    if show:
-        # PIB (bucket ratio) is bounded 0..1 -> fixed y-axis; other objectives auto-scale.
-        _curve_y_range = (
-            (0.0, 1.0) if objective in ("pib", "roi_pib", "rms_pib") else None
-        )
-        # Target shape is only meaningful for the objectives that score against a
-        # target ROI; for pib/radiu/avg_radiu the bucket circle is the correct
-        # overlay. Use the shared tuple: a hand-written copy here had already
-        # drifted from the leaf (it was missing ``rmse_out`` and ``pearson``), and
-        # the sibling module carried a third, different spelling of the same list.
-        _display_shape = (
-            shape_for_metric if objective in DEFAULT_SHAPE_OBJECTIVES else None
-        )
-        display_ctx = SlmZernikeDisplay(
-            zernike_clip=ZERNIKE_CLIP,
-            curve_title=f"{objective} curve",
-            curve_y_range=_curve_y_range,
-            target_shape=_display_shape,
-            target_aspect_ratio=target_aspect_ratio,
-        )
-    else:
-        display_ctx = nullcontext(None)
+    display_ctx = _szp_display_ctx(
+        show, objective, shape_for_metric, target_aspect_ratio
+    )
 
     # `create_camera(config.camera)` reads `exposure_time_ms` straight off the
     # object, and that field carries the CLI token -- hand it a copy that holds
@@ -2609,3 +2534,124 @@ def _run_spgd(
                 _n_peak_gated,
                 config.max_peak,
             )
+
+
+def _szp_resolve_targets(config):
+    """Normalise the algorithm token and resolve/validate the run targets.
+
+    Args:
+        config: The run configuration; ``config.camera`` carries the objective
+            name, target shape and every objective weight/schedule switch.
+
+    Returns:
+        ``(algorithm, objective, target_shape, shape_for_metric,
+        objective_mode)`` — the normalised search family, the resolved
+        objective/target-shape pairing, the shape used by the spot metrics, and
+        the optimisation direction derived from the objective.
+    """
+    camera_config = config.camera
+    target_center_smooth = camera_config.target_center_smooth
+    target_size = camera_config.target_size
+    target_aspect_ratio = camera_config.target_aspect_ratio
+    w_ema_decay = camera_config.w_ema_decay
+    w_floor = camera_config.w_floor
+    w_temperature = camera_config.w_temperature
+    w_pib_init = camera_config.w_pib_init
+    w_rms_init = camera_config.w_rms_init
+    w_ee_init = camera_config.w_ee_init
+    max_roi_energy_loss = camera_config.max_roi_energy_loss
+    w_uniformity = camera_config.w_uniformity
+    w_peak = camera_config.w_peak
+    w_pearson = camera_config.w_pearson
+    w_coverage = camera_config.w_coverage
+    w_displacement = camera_config.w_displacement
+    algorithm = str(config.algorithm).lower()
+    if algorithm not in ALGORITHM_CHOICES:
+        raise ValueError(
+            f"algorithm must be one of {ALGORITHM_CHOICES}, got {algorithm!r}"
+        )
+
+    # Single authority for the objective/target-shape pairing. The rules used to
+    # be re-implemented inline here, which had already drifted from
+    # ``objective.py``: it omitted ``rmse_out`` entirely and hard-coded its own
+    # (shorter) shape-aware list, so any newly registered objective raised
+    # ``ValueError`` here even though ``ObjectiveSpec.resolve`` accepted it.
+    spec = ObjectiveSpec.resolve(camera_config.name, camera_config.target_shape)
+    objective, target_shape = spec.name, spec.shape
+    shape_for_metric = cast(TargetShape, target_shape or "rectangle")
+    if target_center_smooth < 1:
+        raise ValueError(
+            f"target_center_smooth must be at least 1, got {target_center_smooth}"
+        )
+    if target_size is not None and (not np.isfinite(target_size) or target_size <= 0):
+        raise ValueError(f"target_size must be positive, got {target_size!r}")
+    if not np.isfinite(target_aspect_ratio) or target_aspect_ratio <= 0:
+        raise ValueError(
+            f"target_aspect_ratio must be positive, got {target_aspect_ratio!r}"
+        )
+    if not 0.0 <= w_ema_decay <= 1.0:
+        raise ValueError(f"w_ema_decay must be within 0..1, got {w_ema_decay!r}")
+    if not 0.0 <= w_floor < 0.5:
+        raise ValueError(f"w_floor must be within 0..0.5 (exclusive), got {w_floor!r}")
+    if not np.isfinite(w_temperature) or w_temperature <= 0.0:
+        raise ValueError(f"w_temperature must be positive, got {w_temperature!r}")
+    for _name, _w in (
+        ("w_pib_init", w_pib_init),
+        ("w_rms_init", w_rms_init),
+        ("w_ee_init", w_ee_init),
+    ):
+        if _w is not None and (not np.isfinite(_w) or _w < 0.0):
+            raise ValueError(
+                f"{_name} must be a finite, non-negative weight, got {_w!r}"
+            )
+
+    # Optimization mode mapping: pib, avg_radiu, shape, roi_pib and rms_pib are
+    # maximized; radiu and rmse are minimized.
+    if not 0.0 <= max_roi_energy_loss <= 1.0:
+        raise ValueError(
+            f"max_roi_energy_loss must be within 0..1 (0 disables the guard), "
+            f"got {max_roi_energy_loss!r}"
+        )
+    for _name, _w in (
+        ("w_uniformity", w_uniformity),
+        ("w_peak", w_peak),
+        ("w_pearson", w_pearson),
+        ("w_coverage", w_coverage),
+        ("w_displacement", w_displacement),
+    ):
+        if not np.isfinite(_w) or _w < 0.0:
+            raise ValueError(
+                f"{_name} must be a finite, non-negative weight, got {_w!r}"
+            )
+    return (
+        algorithm,
+        objective,
+        target_shape,
+        shape_for_metric,
+        objective_direction(objective),
+    )
+
+
+def _szp_display_ctx(show, objective, shape_for_metric, target_aspect_ratio):
+    """Display context for the run, or a no-op context when ``show`` is off."""
+    if not show:
+        return nullcontext(None)
+    # PIB (bucket ratio) is bounded 0..1 -> fixed y-axis; other objectives auto-scale.
+    _curve_y_range = (
+        (0.0, 1.0) if objective in ("pib", "roi_pib", "rms_pib") else None
+    )
+    # Target shape is only meaningful for the objectives that score against a
+    # target ROI; for pib/radiu/avg_radiu the bucket circle is the correct
+    # overlay. Use the shared tuple: a hand-written copy here had already
+    # drifted from the leaf (it was missing ``rmse_out`` and ``pearson``), and
+    # the sibling module carried a third, different spelling of the same list.
+    _display_shape = (
+        shape_for_metric if objective in DEFAULT_SHAPE_OBJECTIVES else None
+    )
+    return SlmZernikeDisplay(
+        zernike_clip=ZERNIKE_CLIP,
+        curve_title=f"{objective} curve",
+        curve_y_range=_curve_y_range,
+        target_shape=_display_shape,
+        target_aspect_ratio=target_aspect_ratio,
+    )

@@ -145,7 +145,7 @@ top 级零引用清单由 `scripts/_common/data_reference_inventory.py --tops` �
 | 零引用 top | 处置 | 理由 |
 |---|---|---|
 | `ccd_configs` / `dm_configs` / `micro_dm_configs` / `layouts` / `slm_geometry_calib.npz` / `dm_adj.txt` | 保留 | 白名单 |
-| `.cache` | 保留 | 运行时依赖：`src/ao_shaping/exposure_policy.py:259` `data_subdir(".cache", "slm_transfer_exposure")` |
+| `.cache` | 保留 | 运行时依赖：`src/ao_shaping/tools/slm/transfer/exposure_policy.py:259` `data_subdir(".cache", "slm_transfer_exposure")` |
 | `flatten_zernike` | 保留 | 运行时依赖：`src/ao_shaping/config.py:154` `zernike_dir` |
 | `slm_models` | 保留 | 运行时依赖：`SLM_MODELS_DIR` / `AO_SHAPING_WEIGHTS_DIR`，`latest_model.py models_root()` |
 | `zernike_calibration` | 保留 | 运行时依赖：`src/ao_shaping/gui/zernike/zernike_response_matrix_ui.py:102,182` |

@@ -3268,30 +3268,7 @@ def calibrate_shared_aberration(
         far_field_size=far_field_size,
         pupil_oversampling=pupil_oversampling,
     )
-    history: list[float] = []
-    frames: list[tuple[np.ndarray, np.ndarray]] = []
-    for record in records:
-        image = np.asarray(record.image, dtype=np.float64)
-        if image.size == 0:
-            raise ValueError(f"record {record.label!r} has an empty image")
-        # A real-bench record must land on the model's *far-field* grid: the
-        # forward model predicts ``far_field_size`` samples, so coercing the
-        # measurement to ``region`` would make ``update`` resample a
-        # ``region``-pixel CCD window up to ``far_field_size`` and fit a window
-        # that covers ~8x less sky than the model does.
-        meas_grid = int(far_field_size) if far_field_size else int(region)
-        if image.shape != (meas_grid, meas_grid):
-            image = _crop_to_grid(image, meas_grid)
-        phase = np.asarray(record.phase, dtype=np.float64)
-        if phase.size == 0:
-            raise ValueError(f"record {record.label!r} has an empty phase")
-        if phase.shape != (int(region), int(region)):
-            phase = _resize_grid(phase, int(region))
-        # Rescaled to model units: a CCD frame peaks at ``peak_photons`` counts
-        # while the model peaks in the thousands, and that mismatch would turn
-        # the fit into a brightness maximisation rather than a pattern match
-        # (see :func:`_to_model_units`).
-        frames.append((_to_model_units(optimizer, image, phase), phase))
+    frames = _csa_build_frames(records, optimizer, int(region), far_field_size)
 
     def rearm(coefficients: np.ndarray) -> ZernikeCoefficientOptimizer:
         """Rebuild the optimizer around ``coefficients`` to clear a tripped latch.
@@ -3321,18 +3298,7 @@ def calibrate_shared_aberration(
     # record to that record's own optimum and restarts Adam -- so the last record
     # wins and the shared vector ends up fitting none of them. ``epochs`` keeps
     # its per-record meaning: the loop runs ``epochs * len(records)`` steps.
-    total = max(1, int(epochs)) * len(frames)
-    count = len(frames)
-    for index in range(total):
-        image, phase = frames[index % count]
-        optimizer.update(image, phase)
-        if optimizer.converged:
-            optimizer = rearm(optimizer.coefficients)
-        # ``last_loss`` is populated by every ``update``; the ``None`` branch only
-        # exists on the type, since the attribute is Optional-typed.
-        loss = optimizer.last_loss
-        if loss is not None:
-            history.append(float(loss))
+    optimizer, history = _csa_cycle(optimizer, frames, epochs, rearm)
 
     coefficients = optimizer.coefficients
     errors = [
@@ -3358,3 +3324,83 @@ def calibrate_shared_aberration(
         iterations=len(history),
         record_errors=errors,
     )
+
+
+def _csa_build_frames(
+    records: Sequence[CalibrationRecord],
+    optimizer: ZernikeCoefficientOptimizer,
+    region: int,
+    far_field_size: int | None,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Coerce every record onto the model grids and into model units.
+
+    Args:
+        records: Records supplying the measured far fields and pupil phases.
+        optimizer: Optimizer owning the forward model the frames are scaled for.
+        region: Model grid side length for the pupil phase.
+        far_field_size: Zero-padded FFT side length, or ``None`` for the native grid.
+
+    Returns:
+        One ``(image, phase)`` pair per record, both on the model grids.
+
+    Raises:
+        ValueError: If a record carries an empty image or phase.
+    """
+    frames: list[tuple[np.ndarray, np.ndarray]] = []
+    for record in records:
+        image = np.asarray(record.image, dtype=np.float64)
+        if image.size == 0:
+            raise ValueError(f"record {record.label!r} has an empty image")
+        # A real-bench record must land on the model's *far-field* grid: the
+        # forward model predicts ``far_field_size`` samples, so coercing the
+        # measurement to ``region`` would make ``update`` resample a
+        # ``region``-pixel CCD window up to ``far_field_size`` and fit a window
+        # that covers ~8x less sky than the model does.
+        meas_grid = int(far_field_size) if far_field_size else int(region)
+        if image.shape != (meas_grid, meas_grid):
+            image = _crop_to_grid(image, meas_grid)
+        phase = np.asarray(record.phase, dtype=np.float64)
+        if phase.size == 0:
+            raise ValueError(f"record {record.label!r} has an empty phase")
+        if phase.shape != (region, region):
+            phase = _resize_grid(phase, region)
+        # Rescaled to model units: a CCD frame peaks at ``peak_photons`` counts
+        # while the model peaks in the thousands, and that mismatch would turn
+        # the fit into a brightness maximisation rather than a pattern match
+        # (see :func:`_to_model_units`).
+        frames.append((_to_model_units(optimizer, image, phase), phase))
+    return frames
+
+
+def _csa_cycle(
+    optimizer: ZernikeCoefficientOptimizer,
+    frames: Sequence[tuple[np.ndarray, np.ndarray]],
+    epochs: int,
+    rearm: Callable[[np.ndarray], ZernikeCoefficientOptimizer],
+) -> tuple[ZernikeCoefficientOptimizer, list[float]]:
+    """Cycle one optimizer over ``frames`` for ``epochs`` steps per frame.
+
+    Args:
+        optimizer: Optimizer carrying the coefficients being fitted.
+        frames: ``(image, phase)`` pairs produced by :func:`_csa_build_frames`.
+        epochs: Steps granted to each frame.
+        rearm: Rebuilds the optimizer around its current coefficients to clear a
+            tripped convergence latch.
+
+    Returns:
+        The optimizer after the final step and the per-step loss history.
+    """
+    history: list[float] = []
+    total = max(1, int(epochs)) * len(frames)
+    count = len(frames)
+    for index in range(total):
+        image, phase = frames[index % count]
+        optimizer.update(image, phase)
+        if optimizer.converged:
+            optimizer = rearm(optimizer.coefficients)
+        # ``last_loss`` is populated by every ``update``; the ``None`` branch only
+        # exists on the type, since the attribute is Optional-typed.
+        loss = optimizer.last_loss
+        if loss is not None:
+            history.append(float(loss))
+    return optimizer, history

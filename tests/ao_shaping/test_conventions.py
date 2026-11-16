@@ -5052,6 +5052,22 @@ def test_env_names_read_by_code_have_no_case_collisions() -> None:
 #: gate green.
 AGENTS_MD = REPO / "AGENTS.md"
 
+#: 2026-11-15 (window 12a926a8..2f71ff2e, re-pin): 根 AGENTS.md 的 ``## References``
+#: 在 ``e6d0a734`` 重组中迁出到 ``docs/dev/agent_reference_index.md``(5 条
+#: ``module.py::test_...`` 守卫指针随之迁走), 根文件现只剩一句指针。守卫扫描的
+#: "活文档" 面因此 = 根 AGENTS.md + 该参考索引; 只读根文件会让 is_not_vacuous
+#: 恒 0 而红。regex/断言/样本自检均不变, 仅读目标跟随指针的新宿主。
+AGENT_REF_INDEX = REPO / "docs" / "dev" / "agent_reference_index.md"
+
+
+def _live_agent_doc_text() -> str:
+    """根 AGENTS.md + 参考索引的合并文本(守卫指针迁移后的活文档面)。"""
+    parts = [AGENTS_MD.read_text(encoding="utf-8")]
+    if AGENT_REF_INDEX.is_file():
+        parts.append(AGENT_REF_INDEX.read_text(encoding="utf-8"))
+    return "\n".join(parts)
+
+
 #: The reference form is ``module.py::test_name``; both a bare module name and a
 #: repo-relative path appear in the document, and the parser accepts both.
 AGENT_REF_RE = re.compile(r"`(?P<module>[\w./-]+\.py)::(?P<name>test_\w+)`")
@@ -5076,7 +5092,7 @@ def _dangling_agent_refs(text: str) -> list[str]:
 
 
 def test_agents_md_guard_pointers_resolve() -> None:
-    dangling = _dangling_agent_refs(AGENTS_MD.read_text(encoding="utf-8"))
+    dangling = _dangling_agent_refs(_live_agent_doc_text())
     assert not dangling, (
         f"AGENTS.md cites guards that no longer exist: {dangling}. Point the sentence at "
         f"the guard that enforces the claim now, or drop the sentence.")
@@ -5102,7 +5118,7 @@ def test_agents_md_pointer_guard_is_not_vacuous() -> None:
         "tests/ao_shaping/no_such_module.py::test_anything (no such module)",
     ], _dangling_agent_refs(sample)
 
-    live = AGENTS_MD.read_text(encoding="utf-8")
+    live = _live_agent_doc_text()
     assert len(AGENT_REF_RE.findall(live)) >= 5, (
         f"only {len(AGENT_REF_RE.findall(live))} pointers parsed in AGENTS.md -- the "
         f"pattern stopped matching how the document spells its references")
