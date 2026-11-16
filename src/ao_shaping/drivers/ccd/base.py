@@ -14,9 +14,20 @@ class AveragedFrame(np.ndarray):
 
     full_scale: float
 
-    def __new__(cls, values: np.ndarray, source_dtype: np.dtype) -> "AveragedFrame":
+    def __new__(
+        cls,
+        values: np.ndarray,
+        source_dtype: np.dtype,
+        full_scale: float | None = None,
+    ) -> "AveragedFrame":
         frame = np.asarray(values, dtype=np.float32).view(cls)
-        frame.full_scale = float(np.iinfo(source_dtype).max)
+        #: 默认按源 dtype 推导满量程; 但**某些后端 dtype 与位深不符**
+        #: (大恒 MONO12 帧 dtype 是 uint16, 真实满量程 4095 而非 65535),
+        #: 此时必须由后端显式传入生效位深的满量程, 否则一切按满量程折算的
+        #: 判据 (自动曝光峰值、饱和保护) 都错量纲。
+        frame.full_scale = float(full_scale) if full_scale is not None else float(
+            np.iinfo(source_dtype).max
+        )
         return frame
 
     def __array_finalize__(self, obj: object) -> None:

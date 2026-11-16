@@ -773,7 +773,12 @@ def full_scale(img: np.ndarray) -> float:
     return DETECTOR_FULL_SCALE
 
 
-def normalize_peak_to_gray(img: np.ndarray) -> float:
+#: 模块级别名: ``normalize_peak_to_gray`` 的参数 ``full_scale`` 会遮蔽同名函数,
+#: 需要调用原函数时用这个别名。
+_full_scale_of = full_scale
+
+
+def normalize_peak_to_gray(img: np.ndarray, full_scale: float | None = None) -> float:
     """Peak of ``img`` expressed on the **0-255 grayscale** scale.
 
     The auto-exposure contract (``target_max`` / ``tolerance``) is defined in
@@ -789,12 +794,17 @@ def normalize_peak_to_gray(img: np.ndarray) -> float:
 
     Args:
         img: A camera frame.
+        full_scale: 显式指定满量程 (相机计数的饱和值)。默认按
+            :func:`full_scale` 推导; 当后端的帧 dtype 与生效位深不符时
+            (大恒 MONO12 帧 dtype 是 ``uint16``, 真实满量程 4095 而非
+            65535), 后端必须显式传入生效位深的满量程, 否则饱和帧会被
+            折算成「过暗」, 自动曝光把曝光推到上限。
 
     Returns:
         The frame maximum on the 0-255 scale.
     """
     peak = float(np.max(img))
-    scale = float(full_scale(img))
+    scale = float(full_scale) if full_scale is not None else float(_full_scale_of(img))
     return peak * 255.0 / scale if scale > 255.0 else peak
 
 

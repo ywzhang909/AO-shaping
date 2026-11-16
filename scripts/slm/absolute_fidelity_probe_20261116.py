@@ -113,6 +113,14 @@ DEFAULT_SETTLE_S = 0.4
 DEFAULT_SIDE = 400.0
 DEFAULT_WINDOW_HALF_SPAN_PX = 260.0
 
+#: 定心帧达到满量程这个比例即判为饱和。``np.argmax`` 返回**首个**最大值下标
+#: (行优先), 一帧里整片 4095 时它取到的是饱和块的**顶边**而不是光斑中心 ——
+#: 2026-11-16 实测: 12-bit 帧被 auto_exposure 推到 1000 ms 过曝后饱和, ``spot_xy``
+#: 由正确的 ``[1224, 1093]`` 静默漂到 ``[1220, 606]``, 核心掩膜落到暗区, 模型侧
+#: ``model_cv_core`` 塌缩到 0 (均值恰好等于 checkpoint 的 ``background``)。
+#: 定心帧一饱和, argmax 就不可信, 必须报错而不是静默给出错误窗心。
+CENTRING_SATURATION_FRAC = 0.98
+
 #: Noll 索引 → ``(n, m)``。
 NOLL_TILT_X = (1, 1)
 NOLL_TILT_Y = (1, -1)
@@ -316,6 +324,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=float,
         default=DEFAULT_EXPOSURE_MS,
         help="CCD 曝光（与两次锚定运行一致，默认 0.5）",
+    )
+    parser.add_argument(
+        "--bit-depth",
+        type=int,
+        default=12,
+        choices=(8, 12, 16),
+        help="CCD 输出位深（默认 12；8-bit 会饱和零级、截断整形光，见 8-bit 证据）",
+    )
+    parser.add_argument(
+        "--auto-exposure",
+        action="store_true",
+        help="打开设备后用 auto_exposure 把峰值压到目标灰度，避免零级饱和",
+    )
+    parser.add_argument(
+        "--auto-exposure-target",
+        type=float,
+        default=180.0,
+        help="auto_exposure 目标峰值（0-255 灰度，默认 180，约 12-bit 满量程七成）",
     )
     parser.add_argument(
         "--settle-s", type=float, default=DEFAULT_SETTLE_S, help="显示相位后的静置秒数"
@@ -647,6 +673,21 @@ def run_probe(
     return rows, context
 
 
+def _frame_full_scale(cam: Any, frame: np.ndarray) -> float:
+    """定心帧的满量程, 按**生效位深**而非 ``frame.dtype``。
+
+    12-bit 帧的 ``dtype`` 是 ``uint16``, 按 dtype 会得到 65535, 而真实满量程是
+    4095 —— 与 :class:`DahengCamera` 的 ``_full_scale`` 同口径。位深不可得时回落
+    ``common.full_scale`` (它认 ``AveragedFrame.full_scale`` 与整数 dtype)。
+    """
+    bits = getattr(cam, "bit_depth", None)
+    if bits:
+        return float((1 << int(bits)) - 1)
+    from ao_shaping.drivers.ccd.common import full_scale
+
+    return float(full_scale(frame))
+
+
 # --------------------------------------------------------------------------- #
 # main
 # --------------------------------------------------------------------------- #
@@ -654,6 +695,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    # ``frames/`` must exist before the execute path's same-frame centring save,
+    # which runs prior to ``run_probe`` (the function that otherwise creates it).
+    (out / "frames").mkdir(parents=True, exist_ok=True)
 
     params = load_frozen_parameters(args.checkpoint)
     grid = int(params.grid_size)
@@ -695,6 +739,20 @@ def main(argv: list[str] | None = None) -> int:
             plan["camera_sensor_live"] = [sensor_w, sensor_h]
             args.camera_width, args.camera_height = sensor_w, sensor_h
 
+        # ---- 自动曝光：把峰值压到目标灰度，避免零级饱和摧毁动态范围 ----
+        if args.auto_exposure:
+            from ao_shaping.drivers.ccd.common import get_camera_exposure_ms
+
+            note_ae = dict(action="auto_exposure", target_max=args.auto_exposure_target,
+                           **clock())
+            device_log.append(note_ae)
+            logger.info(f"[device] auto_exposure target_max={args.auto_exposure_target}")
+            cam.auto_exposure(target_max=float(args.auto_exposure_target))
+            exposure_ms = float(get_camera_exposure_ms(cam))
+            plan["exposure_ms"] = exposure_ms
+            plan["exposure_source"] = "auto_exposure"
+            logger.info(f"[device] auto_exposure 生效曝光 {exposure_ms:.4f} ms")
+
         # ---- 同帧定心：显示零相位 → 抓帧 → 用该帧 argmax 重建采样窗与掩膜 ----
         display_phase(slm, np.zeros((grid, grid), dtype=np.float32), device_log=device_log)
         time.sleep(max(0.0, float(args.settle_s)))
@@ -707,10 +765,20 @@ def main(argv: list[str] | None = None) -> int:
         spot_xy = (float(args.spot_x), float(args.spot_y))
         spot_source = "cli (same-frame centring below threshold)"
         peak = float(base_frame.max()) if base_frame.size else float("nan")
+        full = _frame_full_scale(cam, base_frame)
+        sat_frac = peak / full if full > 0 and np.isfinite(peak) else float("nan")
+        if np.isfinite(sat_frac) and sat_frac >= CENTRING_SATURATION_FRAC:
+            # 饱和帧上 argmax 取的是首个饱和像素 (顶边), 不是光斑中心 —— 静默
+            # 定心会给出错误窗心, 故这里直接报错 (设备由 finally 释放)。
+            raise RuntimeError(
+                f"[centring] 定心帧饱和 peak={peak:.0f}/{full:.0f}"
+                f" ({sat_frac:.1%}) —— argmax 会落到首个饱和像素而非光斑中心, "
+                f"定心不可靠。请降低曝光 (--auto-exposure 或更小 --exposure-ms) 后重跑。"
+            )
         if np.isfinite(base_frame).all() and peak > float(args.spot_threshold):
             row_index, col_index = np.unravel_index(int(np.argmax(base_frame)), base_frame.shape)
             spot_xy = (float(col_index), float(row_index))
-            spot_source = f"same-frame-centring (peak={peak:.1f})"
+            spot_source = f"same-frame-centring (peak={peak:.1f}/{full:.0f})"
         plan["spot_xy"] = [spot_xy[0], spot_xy[1]]
         plan["spot_xy_source"] = spot_source
         logger.info(f"[centring] spot_xy={spot_xy} 来源={spot_source}")

@@ -233,7 +233,15 @@ def open_devices(args: argparse.Namespace, centre_ij, device_log: list[dict]):
         logger.info(f"[device] {action} {fields}")
 
     note("open", device="camera:daheng", cam_id=args.cam_id)
-    cam = create_camera("daheng", args.cam_id, exposure_time_ms=0.05)
+    # 12-bit 默认：MER2-507-23GM 是 12-bit 相机，8-bit 会把零级饱和到 255、
+    # 整形光晕量化到 0，摧毁动态范围（实测 CV 地板恒在 ~5，见绝对强度保真度探针
+    # 8-bit 证据 summary_8bit_20261116.json）。调用方可经 ``args.bit_depth`` 覆盖。
+    cam = create_camera(
+        "daheng",
+        args.cam_id,
+        exposure_time_ms=0.05,
+        bit_depth=int(getattr(args, "bit_depth", 12)),
+    )
     cam.open()
     try:
         floor, ceiling = get_camera_exposure_range(cam)

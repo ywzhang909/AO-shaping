@@ -626,7 +626,33 @@ class DahengCamera(BaseCamera):
         for _ in range(n_sample - 1):
             total += self.__take_one_shot()
         avg_img = total / n_sample
-        return AveragedFrame(avg_img, first_img.dtype)
+        #: 满量程按**生效位深**标注, 不按 dtype: MONO12 帧的 dtype 是
+        #: uint16, 若按 dtype 会得到 65535, 而真实满量程是 4095 ——
+        #: 自动曝光峰值折算会把饱和帧误判成「过暗」, 把曝光一路推到上限。
+        return AveragedFrame(avg_img, first_img.dtype, full_scale=self._full_scale())
+
+    def _full_scale(self) -> float:
+        """当前生效位深对应的满量程 (8/12/16 bit → 255/4095/65535)。
+
+        位深未知 (``bit_depth is None``) 时退回 dtype 推导, 与基类口径一致。
+        """
+        if self.bit_depth is not None:
+            return float((1 << int(self.bit_depth)) - 1)
+        return 255.0
+
+    def _auto_exposure_peak(self, img: np.ndarray) -> float:
+        """大恒峰值折算: 用**生效位深**的满量程, 而非 ``img.dtype``。
+
+        MONO12 帧的 dtype 是 ``uint16``, ``common.full_scale`` 按 dtype 会返回
+        65535, 而真实满量程是 4095 —— 饱和帧峰值 4095 会被折成 15.9 灰度,
+        自动曝光误判过暗把曝光推到 1000 ms 上限 (2026-11-16 实测)。
+        多帧平均帧的 ``full_scale`` 已在 :meth:`get_numpy_image` 里按位深标注,
+        这里对原始帧与平均帧统一显式传生效位深满量程, 仍走
+        ``normalize_peak_to_gray`` 单一折算入口。
+        """
+        from ao_shaping.drivers.ccd.common import normalize_peak_to_gray
+
+        return normalize_peak_to_gray(img, full_scale=self._full_scale())
 
     def auto_exposure(
         self,
