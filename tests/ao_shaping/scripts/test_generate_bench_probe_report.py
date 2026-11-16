@@ -293,3 +293,10 @@ def _fake_sweep(periods: np.ndarray, displacement: np.ndarray) -> Any:
         shift_corr=np.full(n + 1, np.nan),
         scalars={"zernike_radius": 450, "collect_disc": 450},
     )
+
+
+def test_linear_slope_is_the_canonical_leaf_kernel(gen: Any) -> None:
+    """R-65/#87: the generator carried a verbatim copy of the leaf kernel."""
+    from ao_shaping.utils.math.fitting import fit_linear_slope
+
+    assert gen.linear_slope is fit_linear_slope

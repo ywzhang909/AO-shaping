@@ -79,6 +79,9 @@ DEFAULT_OUT = ROOT / "report" / "slm" / "bench_probe"
 from ao_shaping.utils.slm.bench_constants import (  # noqa: E402
     TILT_SHIFT_SCALE as FALLBACK_TILT_SHIFT_SCALE,
 )
+# R-65/#87: this module used to carry a verbatim copy of the leaf fitting kernel;
+# alias it so the report's slope fits share the single implementation.
+from ao_shaping.utils.math.fitting import fit_linear_slope as linear_slope  # noqa: E402
 #: Joint width-fit rel-RMS above which the illumination profile is *not*
 #: identifiable (mirrors ``model_in_loop_shaping._MAX_DEFOCUS_FIT_RMS``).
 FALLBACK_MAX_DEFOCUS_FIT_RMS = 0.10
@@ -490,27 +493,6 @@ def sidecar_mismatches(
 # ---------------------------------------------------------------------------
 # Small numeric helpers
 # ---------------------------------------------------------------------------
-
-
-def linear_slope(x: Iterable[float], y: Iterable[float]) -> tuple[float, float]:
-    """Least-squares ``(slope, intercept)`` of ``y`` on ``x``.
-
-    Args:
-        x: Independent values.
-        y: Dependent values.
-
-    Returns:
-        ``(slope, intercept)``, or ``(nan, nan)`` when under-determined.
-    """
-    xs = np.asarray(list(x), dtype=np.float64)
-    ys = np.asarray(list(y), dtype=np.float64)
-    if xs.size < 2 or xs.size != ys.size or not np.isfinite(ys).all():
-        return float("nan"), float("nan")
-    var = float(np.sum((xs - xs.mean()) ** 2))
-    if var <= 0.0:
-        return float("nan"), float("nan")
-    slope = float(np.sum((xs - xs.mean()) * (ys - ys.mean())) / var)
-    return slope, float(ys.mean() - slope * xs.mean())
 
 
 def through_origin_slope(x: Iterable[float], y: Iterable[float]) -> float:

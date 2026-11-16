@@ -125,6 +125,25 @@ def test_fit_linear_slope_recovers_line_and_flags_degenerate() -> None:
     assert math.isnan(nan_slope) and math.isnan(nan_intercept)
 
 
+def test_fit_linear_slope_consumes_generators() -> None:
+    """``np.asarray`` on a generator freezes it into a 0-d object array.
+
+    Without the ``list`` coercion that reads as a one-point sample and every
+    generator-fed caller silently gets ``(nan, nan)``.
+    """
+    xs = (float(v) for v in (0.0, 1.0, 2.0, 3.0))
+    ys = (2.0 * v + 1.0 for v in (0.0, 1.0, 2.0, 3.0))
+    slope, intercept = fitting.fit_linear_slope(xs, ys)
+    assert slope == pytest.approx(2.0)
+    assert intercept == pytest.approx(1.0)
+
+
+def test_fit_linear_slope_flags_length_mismatch_without_raising() -> None:
+    nan_slope, nan_intercept = fitting.fit_linear_slope(
+        np.array([0.0, 1.0]), np.array([0.0, 1.0, 2.0]))
+    assert math.isnan(nan_slope) and math.isnan(nan_intercept)
+
+
 def test_settle_time_s_and_length_guard() -> None:
     times = [0.0, 1.0, 2.0, 3.0, 4.0]
     deltas = [10.0, 5.0, 1.0, 1.05, 0.98]
