@@ -720,6 +720,83 @@ def _session_capture(_probe_results, args, bit_depth, cam, counts_scale, forward
         raise RuntimeError("saturated capture retained; stop paired comparison")
     return row
 
+
+def _make_tune_exposure(adapt_exposure, args, cam, ceiling, floor, forward, full_scale, get_camera_exposure_ms, observer, slm, xy):
+# Exposure ladder tuning closure factory lifted verbatim
+    def tune_exposure(label, phase, start_ms, objective):
+        # 先用平面相位证明光路有光; 真正无光在这里就失败, 不会把整形
+        # 掩模的低峰值误判成 blocked。原整形相位与曝光在 helper 的
+        # finally 中恢复, 随后才基于真实整形相位调曝光。
+        flat_light = flat_phase_light_precheck(
+            cam=cam, slm=slm, args=args, observer=observer,
+            label=label, phase=phase, floor_ms=floor, ceiling_ms=ceiling)
+        exposure_reads, exposure_stamps = [], []
+        np.save(args.out/f"{label}_exposure_phase.npy", phase)
+
+        def read_exposure(_frames=exposure_reads, _stamps=exposure_stamps):
+            exposure_ms = float(get_camera_exposure_ms(cam))
+            _stamps.append(dict(**clock(), exposure_ms=exposure_ms))
+            raw = np.asarray(cam.get_numpy_image(n_sample=1, skip_first=False)).copy()
+            _frames.append(raw)
+            # 曝光阶梯的每一档都是一次 CCD 读出, 所以也逐帧上屏: 一次
+            # 阶梯 12 档 ≈ 48 s, 以前这 48 s 在 ⑥ 里完全看不见。标签带
+            # 上曝光值, 否则逐帧归一化的亮度起伏会被读成波前在变。
+            notify_frame(observer, frame_payload(
+                frame=raw, label=f"{label} · 曝光 {exposure_ms:.3f} ms",
+                phase="exposure", frame_index=len(_frames)))
+            np.save(args.out/f"{label}_exposure_read_{len(_frames):03d}.npy", raw)
+            (args.out/f"{label}_exposure_reads.json").write_text(json.dumps(_stamps, indent=2), encoding="utf-8")
+            if getattr(args, "meter_target", False):
+                # Meter every physical pixel in the core, not just the
+                # sparse optimization grid; retain the unmasked frame.
+                from scipy.ndimage import map_coordinates
+                yy, xx = np.indices(raw.shape)
+                dx = xy[0, 1, 0] - xy[0, 0, 0]
+                dy = xy[1, 0, 1] - xy[0, 0, 1]
+                mask = map_coordinates(objective.core.astype(float),
+                    [(yy-xy[0, 0, 1])/dy, (xx-xy[0, 0, 0])/dx], order=0, mode="constant") > .5
+                return np.where(mask, raw, 0)
+            return raw
+
+        if getattr(args, "fixed_exposure_ms", None) is not None:
+            from types import SimpleNamespace
+            if not floor <= args.fixed_exposure_ms <= ceiling:
+                raise ValueError("fixed exposure outside current session bounds")
+            cam.reset_exposure_time(args.fixed_exposure_ms)
+            for _ in range(3):
+                read_exposure()
+            setting = SimpleNamespace(status="ok")
+        else:
+            # 12 档阶梯 (每档 0.6 s settle + 3 次读出 + npz 落盘):
+            # 光路失效时它会把 48 s 全花在等待上, 然后报一句「曝光
+            # 不收敛」—— 2026-10-28 的实测, 见
+            # report/shape_trials/multishape_scale/
+            # multishape_scale_wallclock_20261028.md §9。
+            # 挂上守卫后, 峰值停在噪声底的阶梯在第 2-3 档就抛
+            # OpticalPathInvalid (退出码 3); 有光的阶梯一行不改。
+            ladder_steps = 12
+            guard = LightGuard(label=f"{label}_exposure",
+                               max_steps=ladder_steps)
+            # Full-frame flat light is the optical-path verdict. A dark
+            # shaped target must not reclassify it as an early-flat fault.
+            guard.seen_light = bool(flat_light["ok"])
+            setting = adapt_exposure(cam.reset_exposure_time, read_exposure, start_ms=start_ms,
+                                     floor_ms=floor, ceiling_ms=ceiling, full_scale=full_scale,
+                                     max_steps=ladder_steps, on_step=guard.observe)
+        np.savez_compressed(args.out/f"{label}_exposure.npz", raw_frames=np.stack(exposure_reads), model_phase=phase)
+        (args.out/f"{label}_exposure.json").write_text(json.dumps(dict(frames=exposure_stamps, status=setting.status), indent=2), encoding="utf-8")
+        if setting.status != "ok":
+            # 走到这里说明**有光** (守卫见过高于噪声底的峰值), 只是
+            # 12 档之内没能把峰值落进 (0.25, 0.80) —— 也就是「曝光
+            # 参数/上限不对」这一类, 不是「光路无光」。两条路分开,
+            # 因为处置完全不同。
+            raise RuntimeError("exposure did not converge")
+        forward.exposure_ms = float(get_camera_exposure_ms(cam))
+        return float(get_camera_exposure_ms(cam))
+    return tune_exposure
+
+
+
 def _run_validate_session(
     *,
     DifferentiableUniformityOptimizer: object,
@@ -794,76 +871,7 @@ def _run_validate_session(
 
             last_best = None
             try:
-                def tune_exposure(label, phase, start_ms, objective):
-                    # 先用平面相位证明光路有光; 真正无光在这里就失败, 不会把整形
-                    # 掩模的低峰值误判成 blocked。原整形相位与曝光在 helper 的
-                    # finally 中恢复, 随后才基于真实整形相位调曝光。
-                    flat_light = flat_phase_light_precheck(
-                        cam=cam, slm=slm, args=args, observer=observer,
-                        label=label, phase=phase, floor_ms=floor, ceiling_ms=ceiling)
-                    exposure_reads, exposure_stamps = [], []
-                    np.save(args.out/f"{label}_exposure_phase.npy", phase)
-
-                    def read_exposure(_frames=exposure_reads, _stamps=exposure_stamps):
-                        exposure_ms = float(get_camera_exposure_ms(cam))
-                        _stamps.append(dict(**clock(), exposure_ms=exposure_ms))
-                        raw = np.asarray(cam.get_numpy_image(n_sample=1, skip_first=False)).copy()
-                        _frames.append(raw)
-                        # 曝光阶梯的每一档都是一次 CCD 读出, 所以也逐帧上屏: 一次
-                        # 阶梯 12 档 ≈ 48 s, 以前这 48 s 在 ⑥ 里完全看不见。标签带
-                        # 上曝光值, 否则逐帧归一化的亮度起伏会被读成波前在变。
-                        notify_frame(observer, frame_payload(
-                            frame=raw, label=f"{label} · 曝光 {exposure_ms:.3f} ms",
-                            phase="exposure", frame_index=len(_frames)))
-                        np.save(args.out/f"{label}_exposure_read_{len(_frames):03d}.npy", raw)
-                        (args.out/f"{label}_exposure_reads.json").write_text(json.dumps(_stamps, indent=2), encoding="utf-8")
-                        if getattr(args, "meter_target", False):
-                            # Meter every physical pixel in the core, not just the
-                            # sparse optimization grid; retain the unmasked frame.
-                            from scipy.ndimage import map_coordinates
-                            yy, xx = np.indices(raw.shape)
-                            dx = xy[0, 1, 0] - xy[0, 0, 0]
-                            dy = xy[1, 0, 1] - xy[0, 0, 1]
-                            mask = map_coordinates(objective.core.astype(float),
-                                [(yy-xy[0, 0, 1])/dy, (xx-xy[0, 0, 0])/dx], order=0, mode="constant") > .5
-                            return np.where(mask, raw, 0)
-                        return raw
-
-                    if getattr(args, "fixed_exposure_ms", None) is not None:
-                        from types import SimpleNamespace
-                        if not floor <= args.fixed_exposure_ms <= ceiling:
-                            raise ValueError("fixed exposure outside current session bounds")
-                        cam.reset_exposure_time(args.fixed_exposure_ms)
-                        for _ in range(3):
-                            read_exposure()
-                        setting = SimpleNamespace(status="ok")
-                    else:
-                        # 12 档阶梯 (每档 0.6 s settle + 3 次读出 + npz 落盘):
-                        # 光路失效时它会把 48 s 全花在等待上, 然后报一句「曝光
-                        # 不收敛」—— 2026-10-28 的实测, 见
-                        # report/shape_trials/multishape_scale/
-                        # multishape_scale_wallclock_20261028.md §9。
-                        # 挂上守卫后, 峰值停在噪声底的阶梯在第 2-3 档就抛
-                        # OpticalPathInvalid (退出码 3); 有光的阶梯一行不改。
-                        ladder_steps = 12
-                        guard = LightGuard(label=f"{label}_exposure",
-                                           max_steps=ladder_steps)
-                        # Full-frame flat light is the optical-path verdict. A dark
-                        # shaped target must not reclassify it as an early-flat fault.
-                        guard.seen_light = bool(flat_light["ok"])
-                        setting = adapt_exposure(cam.reset_exposure_time, read_exposure, start_ms=start_ms,
-                                                 floor_ms=floor, ceiling_ms=ceiling, full_scale=full_scale,
-                                                 max_steps=ladder_steps, on_step=guard.observe)
-                    np.savez_compressed(args.out/f"{label}_exposure.npz", raw_frames=np.stack(exposure_reads), model_phase=phase)
-                    (args.out/f"{label}_exposure.json").write_text(json.dumps(dict(frames=exposure_stamps, status=setting.status), indent=2), encoding="utf-8")
-                    if setting.status != "ok":
-                        # 走到这里说明**有光** (守卫见过高于噪声底的峰值), 只是
-                        # 12 档之内没能把峰值落进 (0.25, 0.80) —— 也就是「曝光
-                        # 参数/上限不对」这一类, 不是「光路无光」。两条路分开,
-                        # 因为处置完全不同。
-                        raise RuntimeError("exposure did not converge")
-                    forward.exposure_ms = float(get_camera_exposure_ms(cam))
-                    return float(get_camera_exposure_ms(cam))
+                tune_exposure = _make_tune_exposure(adapt_exposure, args, cam, ceiling, floor, forward, full_scale, get_camera_exposure_ms, observer, slm, xy)
 
                 last_best = _run_validate_shapes(
                     DifferentiableUniformityOptimizer=DifferentiableUniformityOptimizer,

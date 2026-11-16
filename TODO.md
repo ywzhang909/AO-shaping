@@ -5333,6 +5333,13 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 教训㉘: `ruff check . > /dev/null && echo ruff_ok` 把失败静默吞掉 (b109 推后 Ruff 红一次, 上游产物 F401 未拦住); 门禁复验一律**不打到 /dev/null**, 以 `RUFF_GREEN` 打显为过闸凭据
 - 门禁: 棘轮 83/2/72 + 5 helper 行; 模块 1051→1091 baseline 抬高 +40
 
+**2026-11-17 · 3926832d 之后 · 第 111 批: `_run_validate_session` 170→101 行 + `_make_tune_exposure` 工厂 (`transfer/validate.py`)**
+- 提取: 会话段内 `tune_exposure` 闭包 (797-866, 含内层 `read_exposure`) 逐字提为模块级工厂 `_make_tune_exposure` (11 参数 / 回传 `tune_exposure` 闭包本体), b74 `_cap_live_reader` 同法
+- 源钉重钉: `test_validate_live_frame.py` 曝光阶梯钉 `phase="exposure"` 原钉会话段, 闭包搬家后沿委托链改钉 `run → _run_validate_session → _make_tune_exposure` (先钉委派边 `_make_tune_exposure(` 存在, 再钉工厂体内发帧), 未弱化
+- 教训㉙: **形状门禁的 nesting 口径把嵌套 `def` 计入深度** (自算 maxnest 只数 If/For/While/With/Try 会低估); helper 行的 nest_max 一律以 guard 报错实测为准 (本批 `_make_tune_exposure` 1→2)
+- 载体: 形状门禁 394 passed (行 `_run_validate_session` 收紧 230/5/170→110/4/101, 新增 `_make_tune_exposure` 80/2/73) + transfer 五文件 457→全过 + `test_conventions` 72 passed; tools/slm 逐文件域 exit=0
+- 门禁: 棘轮 80/2/73 + 110/4/101; 模块 1423→1431 baseline 抬高 +8; ruff/term 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
