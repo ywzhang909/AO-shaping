@@ -923,6 +923,7 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线+硬件",
         extra_scripts=(
             "scripts/slm/hw_differentiable_phase_opt.py",
+            "scripts/slm/render_speedup_figures.py",
         ),
         note=(
             "整形提速「前后对比」报告: MIL Step B 迭代预算 600→150 与光路复用 `reuse_latest` "
@@ -934,6 +935,9 @@ REPORTS: dict[str, ReportProvenance] = {
             "逐次实测曝光 0.08–0.18 ms、焦面扫描曝光 0.04–0.10 ms, 实测损失/梯度范数单调下降, "
             "CCD 读回帧 FWHM 16.6–18.7 px、峰值 136–210、空心度 0.83–0.91); "
             "跨轮模型-硬件一致性 0.089–0.810 历史对照与本轮 0.599–0.663。 "
+            "物理对比图由 `scripts/slm/render_speedup_figures.py` 从 artifacts 落盘的 npz 读回帧 "
+            "(`ccd_flat`/`ccd_hw_iter_*`/`ccd_optimized`) 与 `history_hw.csv` 渲染, "
+            "图名统一 `speedup_` 前缀归属本报告。 "
             "负结果保留: 模型内 loss 下降≠光学改善、曝光对齐下原始峰值比无意义、`get_displayed_phase()` "
             "不可作证据"
         ),
