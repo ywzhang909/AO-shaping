@@ -147,10 +147,6 @@ from scipy.ndimage import map_coordinates
 from ao_shaping.algorithm.signal_processing.differentiable_beam import (
     DifferentiableBeamOptimizer,
 )
-from ao_shaping.optimizer.wfless.step_b_debug import (
-    StepBDebugRecorder,
-    StepBStepRecord,
-)
 from ao_shaping.tools.kernels.bench_kernels import (
     SLM_PANEL_H,
     SLM_PANEL_W,
@@ -2181,6 +2177,10 @@ def run_analyze_only(args: argparse.Namespace) -> int:
     grad_every = max(int(params.get("grad_every", 10)), 1)
     n_iters = int(params.get("iters", 0))
     phase_mid: np.ndarray | None = None
+    # 延迟导入: step_b_debug 在 ao_shaping.optimizer.wfless 包内, 顶层导入会
+    # 触发 optimizer/__init__ 牵入整个 drivers 包, 破坏 dry-run 契约。
+    from ao_shaping.optimizer.wfless.step_b_debug import StepBDebugRecorder, StepBStepRecord
+
     debug_recorder = StepBDebugRecorder(
         run_dir,
         tag="step_b_reanalysis",
@@ -2772,6 +2772,9 @@ def _run_bench(
     # 用来判断该提速物理预测模型还是优化器。模型侧 Adam 循环与测量锚定
     # 闭环共用一个记录器 —— 两者都走 DifferentiableBeamOptimizer.update(),
     # 硬件闭环那几次的 forward_s 就是物理路径上的真实传播耗时。
+    # 延迟导入: 同上, 保持 dry-run 顶层不牵入 drivers 包。
+    from ao_shaping.optimizer.wfless.step_b_debug import StepBDebugRecorder, StepBStepRecord
+
     debug_recorder = StepBDebugRecorder(
         out_dir,
         tag="step_b",

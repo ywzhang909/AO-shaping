@@ -3542,7 +3542,7 @@ solve) and is how the logic is verified while the bench is offline.
 | `--focus-tilt-map` | (empty) | JSON with the measured panel-ramp → camera-shift map (`axis_map` from `scripts/slm/hw_gs_defocus_probe.py`); enables the de-steer ramp, needs `--focus-tilt-shift` too |
 | `--focus-tilt-shift` | (empty) | camera-pixel shift the de-steer ramp must cancel, `dx,dy`; needs `--focus-tilt-map` |
 | `--target-cam-px` | `40` | target square side in camera pixels |
-| `--shape-iterations` | `600` | Step B budget |
+| `--shape-iterations` | `150` | Step B budget (hardware-validated; more steps overfit) |
 | `--exposure-ms` | `3.0` | camera exposure (ms) |
 | `--slm-number` / `--slm-wavelength` | `1` / `1064` | SLM device / wavelength |
 | `--cam-type` / `--cam-id` | `daheng` / `0` | camera backend / id |

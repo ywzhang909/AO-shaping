@@ -2966,7 +2966,7 @@ class SlmModelInLoopParams:
     # --- Step B: target synthesis with the aberration frozen ----------------
     step_b_iterations: Annotated[
         int, option("--step-b-iterations", help="Adam steps per round for Step B.")
-    ] = 600
+    ] = 150
     step_b_lr: Annotated[
         float, option("--step-b-lr", help="Adam lr on the full-pixel SLM phase.")
     ] = 0.05

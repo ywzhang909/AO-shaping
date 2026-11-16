@@ -74,7 +74,12 @@ graph TD
 
 ### Step B 只在最后测一次
 Step B 是纯计算 (可微物理预测模型过 FFT)，硬件上不可微的只有「真实测量」。
-实测只在末尾做一次，交给验收测试。因此 `step_b_iterations=600` 不产生 600 次设备往返。
+实测只在末尾做一次，交给验收测试。因此 `step_b_iterations=150` 不产生 150 次设备往返。
+
+> **150 步的依据**：在硬件有效采样（`far_field_size=4096`）下，150 步 Step B 把均匀度 CV
+> 从 13.83 压到 0.651（21×）且能量无损失（EE 保持 1.0000），见
+> `report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md`。步数再往上
+> （文档记录 400 步比 80 步模型内损失更低、实测 CCD 反而更差）是过拟合，不增步数。
 
 ### 冻结 Noll 1,2,3 (piston/tip/tilt)
 它们**无法从远场强度辨识**：piston 常数无贡献；tip/tilt 只是搬 0 阶位置。
@@ -92,7 +97,7 @@ Step B 是纯计算 (可微物理预测模型过 FFT)，硬件上不可微的只
 | `--probe-count` / `--probe-spread` | 每轮探针数 / 探针相位 std (rad) | 8 / 4.0 |
 | `--step-a-iterations` / `--step-a-lr` | Step A Adam 步数/学习率 | 80 / 0.05 |
 | `--n-orders` | 拟合 Zernike 阶数 | 10 |
-| `--step-b-iterations` / `--step-b-lr` | Step B Adam 步数/学习率 | 600 / 0.05 |
+| `--step-b-iterations` / `--step-b-lr` | Step B Adam 步数/学习率 | 150 / 0.05 |
 | `--frozen-modes` | 冻结的 1-based Noll 序号 | 1,2,3 |
 | `--region` / `--far-field-padding` | 物理预测模型瞳面网格 / 远场补零倍数 | 64 / 8 |
 | `--pupil-oversampling` | 瞳面双线性过采样 (Step A/B 子像素插值, 放大瞳面后按匹配远场采样再裁回 `--region`, 视场不变只提采样率) | 1 (可选 1/2/4) |

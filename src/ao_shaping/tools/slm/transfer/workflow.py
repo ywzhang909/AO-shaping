@@ -70,15 +70,15 @@ class TransferSession:
     acceptance_upper: float = 0.25
     #: Safety cap on retrain rounds; the loop stops gracefully when reached.
     acceptance_max_rounds: int = 8
-    #: Lightweight optical-path reuse (default off). Off keeps the historical
+    #: Lightweight optical-path reuse (default on). Off keeps the historical
     #: capture+fit+predict sequence byte-for-byte. On, ``run_session`` first runs
     #: a cheap :class:`~ao_shaping.tools.slm.transfer.optical_probe.OpticalProbe`
     #: comparing the current path (zero spot, exposure range, camera format) with
     #: the saved latest model's conditions; if unchanged it skips capture AND fit
     #: and jumps straight to the CCD-anchored blocks using the reused checkpoint.
     #: When reuse takes the fast path the acceptance loop is skipped entirely
-    #: (the reused result is recorded as accepted).
-    reuse_latest: bool = False
+    #: (the reused result is recorded as accepted).  Default on is safe: any failure falls back.
+    reuse_latest: bool = True
     #: Write one ``sample_*.npz`` per probe. Off (default) keeps the measurements
     #: in memory and hands them straight to the fit; on, the capture writes the
     #: same keys/content as before, for the offline ``--dataset`` path and the

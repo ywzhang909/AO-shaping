@@ -1377,7 +1377,10 @@ def main() -> int:
     ap.add_argument("--crop", type=int, default=512,
                     help="window size stored per capture, centred on the 0-order")
     ap.add_argument("--target-cam-px", type=float, default=40.0)
-    ap.add_argument("--shape-iterations", type=int, default=600)
+    ap.add_argument("--shape-iterations", type=int, default=150,
+                    help="Step B budget: 150 is the hardware-validated default "
+                         "(CV 13.83->0.651 at far_field_size=4096, no energy loss; "
+                         "more steps overfit the model-internal loss)")
     ap.add_argument("--slm-number", type=int, default=1)
     ap.add_argument("--slm-wavelength", type=int, default=1064)
     ap.add_argument("--cam-type", default="daheng")

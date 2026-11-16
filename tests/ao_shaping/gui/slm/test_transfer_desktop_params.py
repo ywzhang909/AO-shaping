@@ -665,8 +665,12 @@ def test_build_session_threads_reuse_latest_into_the_session(tmp_path) -> None:
     )
     assert on.reuse_latest is True
 
-    off = build_session(TransferFormValues(), out=tmp_path / "session")
+    off = build_session(TransferFormValues(reuse_latest=False), out=tmp_path / "session")
     assert off.reuse_latest is False
+
+    # 默认开: 未显式给值时透传默认 True。
+    default = build_session(TransferFormValues(), out=tmp_path / "session")
+    assert default.reuse_latest is True
 
 
 def test_accepted_value_defaults_thread_into_the_session(tmp_path) -> None:

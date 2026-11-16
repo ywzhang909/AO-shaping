@@ -1312,16 +1312,16 @@ class TransferPage(QWidget):
         self._accept.toggled.connect(self._sync_acceptance)
         self._sync_acceptance()
 
-        # 光路复用: 默认关 = 当前全流程。开 = 先用一次廉价探针量当前光路条件,
-        # 与最近一份 latest 模型比对; 一致 (序列号同、光路未变) 就跳过采集与拟合,
-        # 直接把那次 CCD 对照重做一遍。各阶段表会把这一步显示成「optical_probe」。
+        # 光路复用: 默认开 = 廉价探针比对 latest 模型, 一致则跳过采集/拟合;
+        # 任何失败自动回退全流程 (见 workflow._attempt_optical_reuse)。
         self._reuse_latest = self._check(
             "光路复用（光路未变则跳过采集/拟合，直接CCD对照）",
             _DEFAULTS.reuse_latest,
         )
         self._reuse_latest.setToolTip(
-            "开 = 开设备量一次当前光路探针, 与最近一份 latest 模型比对; 若光路未变就"
-            "跳过采集与拟合, 直接复用那份 CCD 对照重做; 关（默认）= 当前全流程重新采集。"
+            "开（默认）= 开设备量一次当前光路探针, 与最近一份 latest 模型比对; 若光路"
+            "未变就跳过采集与拟合, 直接复用那份 CCD 对照重做; 任何一步失败自动回退"
+            "全流程。关 = 强制每次重采集。"
         )
 
         # 「读取零级」: 让目标边长的上限来自实测光轴 (0 级到最近帧边的距离),

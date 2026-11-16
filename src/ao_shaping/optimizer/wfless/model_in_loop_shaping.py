@@ -346,7 +346,7 @@ class StepBConfig:
             ``noise_inject_every`` is set.
     """
 
-    iterations: int = 600
+    iterations: int = 150
     lr: float = 0.05
     target_shape: str = "square"
     target_side: int = 6

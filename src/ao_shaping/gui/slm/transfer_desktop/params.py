@@ -239,9 +239,11 @@ class TransferFormValues:
     acceptance_lower: float = 0.85
     acceptance_upper: float = 0.25
     acceptance_max_rounds: int = 8
-    #: 光路复用：True = 先探测光路是否与最近一份 latest 模型一致，一致则跳过
-    #: 采集 / 拟合，直接把那次 CCD 对照重做一遍；False = 当前全流程重采集。
-    reuse_latest: bool = False
+    #: 光路复用：True（默认）= 先探测光路是否与最近一份 latest 模型一致，一致则
+    #: 跳过采集 / 拟合，直接把那次 CCD 对照重做一遍；任何一步失败（设备打不开、
+    #: 无序列号、无 latest、光路已变、网格不足）都自动回退到全流程，所以默认开
+    #: 在最坏情况下只多花一次廉价探针帧。False = 强制每次重采集。
+    reuse_latest: bool = True
 
 
 def effective_window_span(

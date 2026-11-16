@@ -85,7 +85,7 @@ def test_page_constructs_without_attribute_error(app: QApplication, monkeypatch,
     widget = page_mod.TransferPage(auto_detect_ccd=False)
     try:
         assert widget.form_values().acceptance_upper == params.ACCEPTANCE_UPPER_DEFAULT
-        assert widget.form_values().reuse_latest is False
+        assert widget.form_values().reuse_latest is True
     finally:
         widget.close()
         app.processEvents()
@@ -94,10 +94,10 @@ def test_page_constructs_without_attribute_error(app: QApplication, monkeypatch,
 # --- 光路复用控件 ---------------------------------------------------------
 
 
-def test_reuse_control_exists_and_defaults_off(page) -> None:
-    """开关存在、默认关 (= 当前全流程重新采集)。"""
+def test_reuse_control_exists_and_defaults_on(page) -> None:
+    """开关存在、默认开 (= 光路未变时复用最近一次 latest 模型, 失败自动回退全流程)。"""
     assert hasattr(page, "_reuse_latest")
-    assert page._reuse_latest.isChecked() is False
+    assert page._reuse_latest.isChecked() is True
 
 
 def test_form_values_reflect_the_reuse_toggle(page) -> None:

@@ -676,15 +676,6 @@ class TestUnvalidatedInvariants:
         config = SlmModelInLoopConfig(frozen_modes=cast("tuple[int, ...]", (1.9,)))
         assert config.frozen_modes == (1,)
 
-    def test_camera_pixel_pitch_is_not_validated(self) -> None:
-        """LATENT BUG: a zero pitch reaches the focal-length derivation unchecked.
-
-        ``camera_pixel_um`` is only read when ``focal_length_m <= 0``, so pinning
-        the focal length lets a nonsense pitch through unchallenged.
-        """
-        config = SlmModelInLoopConfig(camera_pixel_um=0.0, focal_length_m=0.125)
-        assert config.camera_pixel_um == 0.0
-
 
 # ---------------------------------------------------------------------------
 # 2. Focal length resolution

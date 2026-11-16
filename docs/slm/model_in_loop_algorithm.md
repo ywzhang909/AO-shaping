@@ -244,7 +244,11 @@ re-arm 必须绕着**当前**系数重建优化器。
 
 **Step B 只在最后测一次, 不在每次迭代里测.** Step B 是纯计算 (可微物理预测模型过 FFT),
 硬件上不可微的只有「真实测量」本身, 所以梯度来自模型而不是测量; 实测只在末尾做一次,
-交给验收测试。因此 `step_b_iterations=600` 不产生 600 次设备往返。
+交给验收测试。因此 `step_b_iterations=150` 不产生 150 次设备往返。
+
+> **150 步的依据**：在硬件有效采样（`far_field_size=4096`）下，150 步 Step B 把均匀度 CV
+> 从 13.83 压到 0.651（21×）且能量无损失，见 `report/slm/model_in_loop_hw_runbook/`。
+> 步数再往上（400 步比 80 步模型内损失更低、实测 CCD 反而更差）是过拟合，不增步数。
 
 ![每轮操作预算](figures/model_in_loop_timeline.png)
 
@@ -290,7 +294,7 @@ re-arm 必须绕着**当前**系数重建优化器。
 
 `shape_phase_with_frozen_aberration(optimizer, clamped, target, warm_start, step_b_cfg)`:
 像差 `clamped` 作为**固定**的物理项进入物理预测模型, 自由变量是**整个 region×region 的相位网格**。
-梯度穿过相干传播 + FFT 解析求出 (torch autograd), 所以这 600 步是纯 GPU/CPU 计算。
+梯度穿过相干传播 + FFT 解析求出 (torch autograd), 所以这 150 步是纯 GPU/CPU 计算。
 
 **为什么必须是全像素而不是低阶 Zernike.** Zernike 是圆对称光滑基, 物理上无法合成方形远场
 (方形需要类 sinc 的近场结构 / 高空间频率)。这是 `slm-gs-refine` / `slm-gsnet` 同样遵守的约定。
@@ -334,7 +338,7 @@ stateDiagram-v2
 | `n_rounds` | `6` |
 | `probe_count / probe_spread` | `8 / 4.0 rad` |
 | `step_a_iterations / step_a_lr` | `80 / 0.05` |
-| `step_b_iterations / step_b_lr` | `600 / 0.05` |
+| `step_b_iterations / step_b_lr` | `150 / 0.05` |
 | `n_orders` | `10` |
 | `frozen_modes` | `(1, 2, 3)` |
 | `region / far_field_padding` | `64 / 8` |
@@ -818,9 +822,9 @@ CLI 默认 `--region 64` / `--far-field-padding 8` ⇒ 远场 `far_field_size = 
 一致到 4% —— 模型是对的, 只是欠采样)。补零是**纯采样**改动, 视场 `λf/d_slm` 不变。
 
 代价: **一次带 autograd 的 4096² 前向约 0.77 s**
-(`report/slm/model_in_loop_bench_calibration.md:422`), 150 次迭代的 Step B 约 2 min,
-600 次约 8 min。默认的 64/8 便宜得多, 但**这份文档从未把两者对过账** —— 不要以为默认值
-就是验证过的那个。
+(`report/slm/model_in_loop_bench_calibration.md:422`), 150 次迭代的 Step B 约 2 min
+(即当前默认值的量级), 旧默认 600 次约 8 min。默认的 64/8 便宜得多, 但**这份文档从未把两者对过账** ——
+不要以为默认值就是验证过的那个。
 
 ### 15.6 离线自检(不需要硬件)
 

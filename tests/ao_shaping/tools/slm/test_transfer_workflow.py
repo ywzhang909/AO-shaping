@@ -1360,7 +1360,9 @@ def test_run_session_writes_reuse_skip_when_disabled(tmp_path, monkeypatch):
     (dataset / "manifest.json").write_text("[]")
     checkpoint = tmp_path / "checkpoint.json"
     checkpoint.write_text("{}")
-    config = TransferSession(tmp_path / "run", dataset=dataset, checkpoint=checkpoint)
+    config = TransferSession(
+        tmp_path / "run", dataset=dataset, checkpoint=checkpoint, reuse_latest=False
+    )
 
     def fail(_):
         raise ValueError("boom")

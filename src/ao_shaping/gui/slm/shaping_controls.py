@@ -188,14 +188,13 @@ GS_REFINE_RECIPE: dict[str, Any] = dict(VALIDATED_GS_REFINE_RECIPE)
 
 #: Model-in-loop budget presets: ``(轮数, Step A 步数, Step B 步数)``.
 #: The "标准" row is verbatim the ``docs/slm/slm_model_in_loop.md`` §5 defaults
-#: (``n_rounds=6`` / ``step_a_iterations=80`` / ``step_b_iterations=600``); the
-#: other two are coarse/fine brackets around it for the operator, not new
-#: evidence.  Selecting a preset only overwrites the three budget fields when the
-#: selection **changed**, so hand-tuned values are never clobbered.
+#: (``n_rounds=6`` / ``step_a_iterations=80`` / ``step_b_iterations=150``); the
+#: other two are coarse/fine brackets.  Step B stays at the hardware-validated
+#: 150 (more steps overfit the CCD image).  A preset overwrites the budget fields
 MIL_BUDGET_PRESETS: dict[str, tuple[int, int, int]] = {
-    "快速 2/40/300": (2, 40, 300),
-    "标准 6/80/600": (6, 80, 600),
-    "长跑 12/160/1200": (12, 160, 1200),
+    "快速 2/40/100": (2, 40, 100),
+    "标准 6/80/150": (6, 80, 150),
+    "长跑 12/160/300": (12, 160, 300),
 }
 
 #: The GS+SPGD validation recipe budget (SPGD 轮数 / GS 迭代).  Shown read-only —
@@ -224,7 +223,7 @@ MIL_WIDGET_DEFAULTS: dict[str, Any] = {
     "probe_count": 8,
     "probe_spread": 4.0,
     "step_a_iterations": 80,
-    "step_b_iterations": 600,
+    "step_b_iterations": 150,
     "holdout_probe_count": 2,
     "freeform_holdout_count": 0,
     "panel_span_px": 900.0,

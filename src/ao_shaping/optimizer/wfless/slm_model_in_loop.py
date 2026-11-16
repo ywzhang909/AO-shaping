@@ -705,7 +705,7 @@ class SlmModelInLoopConfig:
     """
 
     # --- Step B: target synthesis with the aberration frozen ----------------
-    step_b_iterations: int = 600
+    step_b_iterations: int = 150
     step_b_lr: float = 0.05
 
     # --- bench model / calibration -----------------------------------------

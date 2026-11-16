@@ -567,14 +567,20 @@ def test_plan_includes_optical_probe_when_reuse_latest(tmp_path):
     assert config.plan()["stages"].index(OPTICAL_PROBE_STAGE) == 0
 
 
-def test_plan_omits_optical_probe_by_default(tmp_path):
+def test_plan_includes_optical_probe_by_default(tmp_path):
     config = TransferSession(tmp_path / "default")
+    assert OPTICAL_PROBE_STAGE in config.plan()["stages"]
+    assert config.plan()["stages"].index(OPTICAL_PROBE_STAGE) == 0
+
+
+def test_plan_omits_optical_probe_when_reuse_off(tmp_path):
+    config = TransferSession(tmp_path / "off", reuse_latest=False)
     assert OPTICAL_PROBE_STAGE not in config.plan()["stages"]
 
 
-def test_reuse_latest_defaults_off(tmp_path):
+def test_reuse_latest_defaults_on(tmp_path):
     config = TransferSession(tmp_path / "default")
-    assert config.reuse_latest is False
+    assert config.reuse_latest is True
 
 
 # ---------------------------------------------------------------------------
