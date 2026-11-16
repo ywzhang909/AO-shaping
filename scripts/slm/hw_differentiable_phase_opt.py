@@ -147,6 +147,10 @@ from scipy.ndimage import map_coordinates
 from ao_shaping.algorithm.signal_processing.differentiable_beam import (
     DifferentiableBeamOptimizer,
 )
+from ao_shaping.optimizer.wfless.step_b_debug import (
+    StepBDebugRecorder,
+    StepBStepRecord,
+)
 from ao_shaping.tools.kernels.bench_kernels import (
     SLM_PANEL_H,
     SLM_PANEL_W,
@@ -2177,11 +2181,41 @@ def run_analyze_only(args: argparse.Namespace) -> int:
     grad_every = max(int(params.get("grad_every", 10)), 1)
     n_iters = int(params.get("iters", 0))
     phase_mid: np.ndarray | None = None
+    debug_recorder = StepBDebugRecorder(
+        run_dir,
+        tag="step_b_reanalysis",
+        save_gradients=bool(getattr(args, "debug_gradients", False)),
+        context={
+            "phase": "offline_reanalysis",
+            "device": device,
+            "iters": n_iters,
+        },
+    )
     for it in range(n_iters):
+        phase_before = opt.current_phase.copy()
         opt.update()
         grad = opt.phase_tensor.grad
         gnorm = float(grad.norm()) if grad is not None else float("nan")
         phase_now = opt.current_phase
+        debug_recorder.record(
+            StepBStepRecord(
+                iteration=it,
+                loss=float(
+                    opt.last_loss if opt.last_loss is not None else float("nan")
+                ),
+                grad_norm=gnorm,
+                grad_max=float(grad.abs().max()) if grad is not None else 0.0,
+                grad_rms=float(grad.pow(2).mean().sqrt())
+                if grad is not None
+                else 0.0,
+                phase_delta_norm=float(np.linalg.norm(phase_now - phase_before)),
+                forward_s=float(opt.last_forward_s),
+                step_s=float(opt.last_step_s),
+            ),
+            grad=grad,
+            phase_before=phase_before,
+            phase_after=phase_now,
+        )
         history.append(
             {
                 "iteration": it + 1,
@@ -2201,6 +2235,7 @@ def run_analyze_only(args: argparse.Namespace) -> int:
             )
         if phase_mid is None and it == n_iters // 2:
             phase_mid = phase_now.copy()
+    debug_recorder.close()  # 写 step_b_reanalysis_debug.json + (可选) npz
     phase_final = opt.current_phase.copy()
     if phase_mid is None:
         phase_mid = phase_final.copy()
@@ -2733,12 +2768,46 @@ def _run_bench(
     phase_mid: np.ndarray | None = None
     grad_every = max(int(args.grad_every), 1)
     n_iters = int(args.iters)
+    # 逐迭代 debug 记录器: 拆出「前向+反向」与「优化器步」的耗时,
+    # 用来判断该提速物理预测模型还是优化器。模型侧 Adam 循环与测量锚定
+    # 闭环共用一个记录器 —— 两者都走 DifferentiableBeamOptimizer.update(),
+    # 硬件闭环那几次的 forward_s 就是物理路径上的真实传播耗时。
+    debug_recorder = StepBDebugRecorder(
+        out_dir,
+        tag="step_b",
+        save_gradients=bool(getattr(args, "debug_gradients", False)),
+        context={
+            "phase": "model_side+hw_anchored",
+            "device": device,
+            "iters": n_iters,
+            "hw_iters": int(args.hw_iters),
+            "target": str(getattr(args, "target", "square")),
+        },
+    )
     for it in range(n_iters):
+        phase_before = opt.current_phase.copy()
         opt.update()
         grad = opt.phase_tensor.grad
         gnorm = float(grad.norm()) if grad is not None else float("nan")
         phase_now = opt.current_phase
         rms = float(np.sqrt(np.mean(phase_now**2)))
+        debug_recorder.record(
+            StepBStepRecord(
+                iteration=it,
+                loss=float(opt.last_loss if opt.last_loss is not None else float("nan")),
+                grad_norm=gnorm,
+                grad_max=float(grad.abs().max()) if grad is not None else 0.0,
+                grad_rms=float(grad.pow(2).mean().sqrt())
+                if grad is not None
+                else 0.0,
+                phase_delta_norm=float(np.linalg.norm(phase_now - phase_before)),
+                forward_s=float(opt.last_forward_s),
+                step_s=float(opt.last_step_s),
+            ),
+            grad=grad,
+            phase_before=phase_before,
+            phase_after=phase_now,
+        )
         history.append(
             {
                 "iteration": it + 1,
@@ -2991,6 +3060,7 @@ def _run_bench(
     logger.info("[P6] 测量锚定闭环 ({} 次)", int(args.hw_iters))
     hw_history: list[dict[str, Any]] = []
     for i in range(int(args.hw_iters)):
+        phase_before = opt.current_phase.copy()
         current_phase = opt.current_phase.copy()
         display_model_phase(current_phase)
         frame, _raw, hw_exp = capture(f"hw_iter_{i}")
@@ -3005,7 +3075,29 @@ def _run_bench(
         opt.update(measured_intensity=measured)
         grad = opt.phase_tensor.grad
         gnorm = float(grad.norm()) if grad is not None else float("nan")
-        rms = float(np.sqrt(np.mean(opt.current_phase**2)))
+        phase_after = opt.current_phase
+        rms = float(np.sqrt(np.mean(phase_after**2)))
+        # 实测锚定步的逐迭代记录: 这条路径的 forward_s 就是物理路径上的
+        # 「模型前向 + 反向」耗时, 用来判断硬件闭环该提速物理预测模型还是优化器。
+        debug_recorder.record(
+            StepBStepRecord(
+                iteration=int(args.iters) + i,
+                loss=float(
+                    opt.last_loss if opt.last_loss is not None else float("nan")
+                ),
+                grad_norm=gnorm,
+                grad_max=float(grad.abs().max()) if grad is not None else 0.0,
+                grad_rms=float(grad.pow(2).mean().sqrt())
+                if grad is not None
+                else 0.0,
+                phase_delta_norm=float(np.linalg.norm(phase_after - phase_before)),
+                forward_s=float(opt.last_forward_s),
+                step_s=float(opt.last_step_s),
+            ),
+            grad=grad,
+            phase_before=phase_before,
+            phase_after=phase_after,
+        )
         hw_history.append(
             {
                 "iteration": i + 1,
@@ -3025,6 +3117,7 @@ def _run_bench(
             gnorm,
             rms,
         )
+    debug_recorder.close()  # 写 step_b_debug.json + (可选) step_b_gradients.npz
     write_csv(
         out_dir / "history_hw.csv",
         [
@@ -3450,6 +3543,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_GRAD_EVERY,
         help="每几次迭代存一张梯度场 (默认 10)",
+    )
+    p.add_argument(
+        "--debug-gradients",
+        action="store_true",
+        help="逐迭代 debug 记录器额外保存每步的梯度场与相位快照 (npz), "
+        "默认只记标量; 开启后可复盘梯度演化",
     )
     p.add_argument(
         "--quick",

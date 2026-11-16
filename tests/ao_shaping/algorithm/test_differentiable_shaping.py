@@ -341,6 +341,77 @@ class TestValidation:
             train_beam_shaping(target, (0, 0), iterations=5)
 
 
+# ============================ Step B debug recorder ============================
+
+
+class TestDebugRecording:
+    """``train_beam_shaping(debug=...)`` records diagnostics, never the solve.
+
+    The recorder is the counterpart of the hardware-side ``step_b_trace``: it
+    answers "should I speed up the forward model or the optimiser?" from measured
+    per-iteration numbers. Enabling it must not perturb the result, or the debug
+    run stops being evidence for the production run.
+    """
+
+    GRID_DEBUG = (32, 32)
+
+    def _run(self, debug):
+        target = create_target_mask("square", self.GRID_DEBUG, 8)
+        return train_beam_shaping(
+            target,
+            self.GRID_DEBUG,
+            iterations=8,
+            seed=7,
+            propagation="fft",
+            optimizer="adam",
+            debug=debug,
+        )
+
+    def test_debug_does_not_change_the_solve(self, tmp_path):
+        plain = self._run(None)
+        recorded = self._run(str(tmp_path / "dbg"))
+        assert plain.loss_history == recorded.loss_history
+        assert np.array_equal(np.asarray(plain.phase), np.asarray(recorded.phase))
+
+    def test_directory_argument_writes_one_row_per_iteration(self, tmp_path):
+        import json
+
+        from ao_shaping.optimizer.wfless.step_b_debug import SUMMARY_NAME
+
+        res = self._run(str(tmp_path))
+        assert len(res.loss_history) == 8
+        summary_path = tmp_path / SUMMARY_NAME.format(tag="step_b")
+        assert summary_path.exists()
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+        assert payload["speed"]["iterations"] == 8
+        assert payload["context"]["planned_iterations"] == 8
+        rows = payload["records"]
+        assert [r["iteration"] for r in rows] == list(range(8))
+        # The recorded loss is the forward-model loss of the same step.
+        assert [r["loss"] for r in rows] == pytest.approx(res.loss_history)
+        assert all(r["grad_norm"] > 0.0 for r in rows)
+        assert all(r["phase_delta_norm"] > 0.0 for r in rows)
+        assert all(r["forward_s"] > 0.0 for r in rows)
+        assert all(r["step_s"] >= 0.0 for r in rows)
+
+    def test_caller_supplied_recorder_is_left_open(self, tmp_path):
+        from ao_shaping.optimizer.wfless.step_b_debug import (
+            JSONL_NAME,
+            StepBDebugRecorder,
+        )
+
+        rec = StepBDebugRecorder(tmp_path)
+        try:
+            res = self._run(rec)
+            # Still open: the summary is the caller's to write.
+            assert not (tmp_path / "step_b_debug.json").exists()
+            assert rec.speed_summary()["iterations"] == len(res.loss_history)
+        finally:
+            summary = rec.close()
+        assert summary is not None and summary.exists()
+        assert (tmp_path / JSONL_NAME.format(tag="step_b")).exists()
+
+
 # ============================ Torch optionality ============================
 
 

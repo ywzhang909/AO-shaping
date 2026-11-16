@@ -90,6 +90,7 @@ AO-shaping/
 | `wfless/` | `pib_sim_eval.py` | PIB 仿真离线评估 (`eval_pib_hybrid_sim` / heuristic PIB 报告脚本消费) |
 | `wfless/` | `sim_spgd.py` | 基于 `ao_shaping.sim` 的 SPGD 仿真优化 |
 | `wfless/` | `slm_zernike_primitives.py` | SLM+Zernike 闭环共享原语 (`slm_zernike_pib` 与 `slm_zernike_shaping` 两目标族共用) |
+| `wfless/` | `step_b_debug.py` | 可微 Step B 求解的逐迭代调试记录器 (梯度范数/max/RMS、参数更新范数、正向 vs 优化器耗时拆分; 崩溃安全 JSONL + 汇总 JSON + 可选梯度快照 npz; 纯 numpy 叶子模块, 鸭子类型注入) |
 | `wfless/` | `strehl_sim_eval.py` | DM 电压 Strehl 景观离线基准评估 (封装离线物理仿真) |
 
 `lr.py` / `lr_wfs.py` / `rl_wfs.py` 三个训练竖切复写同款脚手架 (回调 / 编码器 / 组合提取器)，此处如实登记现状；脚手架去重与 `gready` 拼写属代码级变更，另行条目。
@@ -148,6 +149,7 @@ New optimizers added to `src/ao_shaping/algorithm/` MUST follow the class-based 
 | Tabu 搜索 | `TabuMemory`, `AdaptiveSearchState`, `TabuSearchRunner` | 禁忌搜索 |
 | 信号处理 | `PhaseWrapOptimizer`, `GerchbergSaxton`, `SLMPhaseController`, `ControlLaw` | 相位包裹/光强重建/控制律 |
 | 可微分 shaping | `DifferentiableBeamOptimizer`, `DifferentiableShapingResult` | PyTorch 可微分波前优化 (需 GPU) |
+| 可微分 shaping 目标函数 | `uniformity_loss`, `efficiency_loss`, `zero_order_penalty`, `smoothness_regularization`, `total_loss` | 可微整形的目标函数族 (`signal_processing/differentiable_objective.py`): 均匀度/效率/零级抑制/平滑度按权重合成 `total_loss`; 2026-11-16 为满足 800 行棘轮从 `differentiable_shaping.py` 逐字拆出, 老导入路径经显式 re-export 保持不变 |
 | 目标函数 | `ImageTargetFunc` | 图像质量指标 |
 
 #### 子包结构
@@ -156,7 +158,7 @@ New optimizers added to `src/ao_shaping/algorithm/` MUST follow the class-based 
 |------|------|------|
 | `gradient/` | `adam`, `acceleration` | 梯度优化器 |
 | `heuristic/` | `heuristic_base`, `search`, `gm`, `ga`, `pso`, `simulated_annealing`, `hill_climbing`, `random_search`, `cross_entropy`, `differential_evolution` | 无梯度启发式搜索; 注: 原行的 `sa`/`hc`/`rs`/`cem`/`de` 为别名口径, 盘上这些名字自有史以来从未作为文件存在——盘上与全仓 import 皆用全名模块;`heuristic_base` 基类 / `gm` 引导变异 / `search` 共享黑盒驱动 (`heuristic_algorithm_choices`, runner_common 与多个 optimizer 流消费) 同样漏登 |
-| `signal_processing/` | `gerchberg_saxton`, `phase_wrap`, `controller`, `iterative_base`, `differentiable_beam`, `differentiable_shaping`, `beam_shaping_utils`, `wavefront`, `beam_shaping_benchmark`, `sim`, `iterative_zernike_shaping`, `zernike_coefficient_optimizer`, `angular_spectrum`, `square_shaping`, `uncertainty_probe_selector`, `differentiable_defocus_uniformity`, `multishape_objective`, `physical_forward_fit`, `defocus_forward_core`, `amplitude_residual`, `full_chain_forward`, `monotonic_response`, `slm_phase_nonlinearity`, `spectral_regulariser`, `weight_schedule` | 相位恢复/控制律/可微分整形; 补齐的 10 个模块各认其引入提交: `sim` (`1663614e`, 2026-09-18, 向量光束演示; `__main__` 演示体已于 `14b1cda` 迁至 `scripts/signal_processing/demo_wavefront_sim.py` (+ `demo_wavefront_reconstruction.py`), 本体保留 import-only 库, 拆分即终态), `iterative_zernike_shaping` (`04e6fc78`, 2026-09-29), `zernike_coefficient_optimizer` (`a94cadbb`, 2026-09-29), `angular_spectrum` (`c75aa3da`, 2026-10-09), `square_shaping` (`4edc8b84`, 2026-10-11), `uncertainty_probe_selector` (`080e0ac9`, 2026-10-16), `differentiable_defocus_uniformity` (`fe0f98b2`, 2026-10-23), `multishape_objective` 与 `physical_forward_fit` (`6a5e1067`, 2026-10-23), `defocus_forward_core` (`edbad379`, 2026-10-25, issue #199 step 4) |
+| `signal_processing/` | `gerchberg_saxton`, `phase_wrap`, `controller`, `iterative_base`, `differentiable_beam`, `differentiable_shaping`, `differentiable_objective`, `beam_shaping_utils`, `wavefront`, `beam_shaping_benchmark`, `sim`, `iterative_zernike_shaping`, `zernike_coefficient_optimizer`, `angular_spectrum`, `square_shaping`, `uncertainty_probe_selector`, `differentiable_defocus_uniformity`, `multishape_objective`, `physical_forward_fit`, `defocus_forward_core`, `amplitude_residual`, `full_chain_forward`, `monotonic_response`, `slm_phase_nonlinearity`, `spectral_regulariser`, `weight_schedule` | 相位恢复/控制律/可微分整形; 补齐的 10 个模块各认其引入提交: `sim` (`1663614e`, 2026-09-18, 向量光束演示; `__main__` 演示体已于 `14b1cda` 迁至 `scripts/signal_processing/demo_wavefront_sim.py` (+ `demo_wavefront_reconstruction.py`), 本体保留 import-only 库, 拆分即终态), `iterative_zernike_shaping` (`04e6fc78`, 2026-09-29), `zernike_coefficient_optimizer` (`a94cadbb`, 2026-09-29), `angular_spectrum` (`c75aa3da`, 2026-10-09), `square_shaping` (`4edc8b84`, 2026-10-11), `uncertainty_probe_selector` (`080e0ac9`, 2026-10-16), `differentiable_defocus_uniformity` (`fe0f98b2`, 2026-10-23), `multishape_objective` 与 `physical_forward_fit` (`6a5e1067`, 2026-10-23), `defocus_forward_core` (`edbad379`, 2026-10-25, issue #199 step 4) |
 | `tabu/` | `tabu_search` | 禁忌搜索 |
 | `goal_functions/` | `target_func` | 目标函数与图像质量指标; 行内原列的 `image_metrics` 为幻影 token: 文件从未存在 (git `--follow` 零历史), 全仓 import 均走 `goal_functions.target_func` 的 `ImageTargetFunc` |
 

@@ -23,15 +23,25 @@ from __future__ import annotations
 
 import functools
 import math
+import os
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
 from loguru import logger
 
 from ao_shaping.algorithm._torch_support import require_torch
+from ao_shaping.algorithm.signal_processing.differentiable_objective import (
+    _ZERO_ENERGY_FLOOR as _ZERO_ENERGY_FLOOR,
+    efficiency_loss as efficiency_loss,
+    smoothness_regularization as smoothness_regularization,
+    total_loss as total_loss,
+    uniformity_loss as uniformity_loss,
+    zero_order_penalty as zero_order_penalty,
+)
 from ao_shaping.utils.image.ranks import NDIM_SINGLE_CHANNEL
 from ao_shaping.utils.image.target.metrics import DIFFERENTIABLE_SHAPE_CHOICES
 from ao_shaping.utils.image.target.patterns import TargetShape, create_target_shape
@@ -47,12 +57,6 @@ if TYPE_CHECKING:  # pragma: no cover – type-only imports
 #: rank -- the note in :mod:`ao_shaping.utils.image.ranks` spells out why the two questions
 #: must not share one constant.
 _GRID_SIZE_ARITY = 2
-
-#: Floor below which a summed intensity counts as no energy at all: the ratios in
-#: ``efficiency_loss`` and ``zero_order_penalty`` are undefined there rather than merely
-#: large, so they return their neutral value instead of dividing. Deliberately distinct from
-#: the ``1e-12`` in :func:`uniformity_loss`, which tests a *mean* for degeneracy.
-_ZERO_ENERGY_FLOOR = 1e-12
 
 
 # ---------------------------------------------------------------------------
@@ -161,99 +165,14 @@ def create_target_mask(
 
 
 # ---------------------------------------------------------------------------
-# 损失函数 (torch 张量进, 标量张量出)
+# 损失函数 (torch 张量进, 标量张量出) —— 2026-11-16 已拆至 differentiable_objective
 # ---------------------------------------------------------------------------
 
-
-def uniformity_loss(intensity: "Tensor", target: "Tensor") -> "Tensor":
-    """目标区域内强度的变异系数。
-
-    值越低表示照明越均匀。目标区域为空或只含零时返回零 (对 NaN 安全)。
-    """
-    torch = _torch()
-    # Resized target masks have a soft interpolation edge. Keep that edge in
-    # the energy term, but measure CV on the intended half-height support.
-    mask = target > 0.5
-    vals = intensity[mask]
-    if vals.numel() == 0:
-        return torch.tensor(0.0, device=intensity.device, dtype=intensity.dtype)
-    mu = vals.mean()
-    if mu.abs() < 1e-12:
-        return torch.tensor(0.0, device=intensity.device, dtype=intensity.dtype)
-    return vals.std() / (mu.abs() + 1e-12)
-
-
-def efficiency_loss(intensity: "Tensor", target: "Tensor") -> "Tensor":
-    """1 减去落在目标内的总能量占比。
-
-    值越低表示能量越集中在期望位置。
-    """
-    torch = _torch()
-    total = intensity.sum()
-    if total < _ZERO_ENERGY_FLOOR:
-        return torch.tensor(1.0, device=intensity.device, dtype=intensity.dtype)
-    target_energy = (intensity * target).sum()
-    encircled = target_energy / (total + _ZERO_ENERGY_FLOOR)
-    return 1.0 - encircled.clamp(0.0, 1.0)
-
-
-def zero_order_penalty(intensity: "Tensor") -> "Tensor":
-    """对场中心处强 DC / 零级尖峰的惩罚。
-
-    返回一个小中心窗口 (5×5 像素) 内的平均强度, 并用总强度归一化 ——
-    值越高表示零级抑制越差。
-    """
-    torch = _torch()
-    H, W = intensity.shape[-2:]
-    cy, cx = H // 2, W // 2
-    r = 2  # 半窗宽 → 5×5 区域
-    region = intensity[..., cy - r : cy + r + 1, cx - r : cx + r + 1]
-    total = intensity.sum()
-    if total < _ZERO_ENERGY_FLOOR:
-        return torch.tensor(0.0, device=intensity.device, dtype=intensity.dtype)
-    return region.mean() / (total / (H * W) + 1e-12)
-
-
-def smoothness_regularization(phase: "Tensor") -> "Tensor":
-    """对相位梯度施加的有限差分惩罚。
-
-    相位图恒定时返回零, 并随高频空间变化增大。
-    """
-    _torch()
-    dy = phase[:, 1:] - phase[:, :-1]
-    dx = phase[1:, :] - phase[:-1, :]
-    return (dy**2).mean() + (dx**2).mean()
-
-
-def total_loss(
-    intensity: "Tensor",
-    phase: "Tensor",
-    target: "Tensor",
-    *,
-    w_uniformity: float = 0.4,
-    w_efficiency: float = 0.6,
-    w_zero_order: float = 0.0,
-    w_smoothness: float = 0.0,
-) -> "Tensor":
-    """所有损失分量的加权和。
-
-    各个分量均非负, 量级也大致相当。
-
-    .. note::
-        经实测验证的权重 (report/slm_differential_shaping/): 对于以光束原点
-        为中心的目标, 零级惩罚必须为 0 —— 抑制 DC (中心) 会把能量从居中的
-        方斑 / 光斑里赶出去, 使围栏能量崩塌 (EE 0.84 -> 0.07, 当
-        ``w_zero_order=0.1``)。平滑度正则同样会与锐利方斑边缘所需的高频
-        相位成分对抗; 权重取 0 效果最好。``w_efficiency >= w_uniformity``
-        先把能量聚起来, 再由均匀度把它压平 (600+ 次迭代可达 CV<0.1;
-        学习曲线见报告)。
-    """
-    return (
-        w_uniformity * uniformity_loss(intensity, target)
-        + w_efficiency * efficiency_loss(intensity, target)
-        + w_zero_order * zero_order_penalty(intensity)
-        + w_smoothness * smoothness_regularization(phase)
-    )
+# 本节原有的 uniformity_loss / efficiency_loss / zero_order_penalty /
+# smoothness_regularization / total_loss 连同节标题逐字搬到同目录的
+# :mod:`ao_shaping.algorithm.signal_processing.differentiable_objective`
+# (800 行棘轮), 五个名字在文件顶部 import 块里显式 re-export, 因此
+# ``_run_shaping_loop`` 的闭包照旧裸调 ``total_loss``。
 
 
 # ---------------------------------------------------------------------------
@@ -516,6 +435,28 @@ def _shaping_optimizer(torch: Any, phase: Any, optimizer: str, lr: float) -> Any
     return opt
 
 
+def _resolve_debug_recorder(debug: Any, iterations: int) -> tuple[Any, bool]:
+    """把 ``debug`` 归一成 ``(记录器, 是否由本函数负责关闭)``。
+
+    ``debug`` 三种取值: *None* (关闭, 返回 ``None``); 一个输出目录 (str /
+    PathLike), 就地建一个记录器并交给本函数关闭; 或一个已有的记录器实例, 其
+    生命周期由调用方负责。记录器的导入是**函数内**的 —— ``optimizer.wfless``
+    包的 ``__init__`` 会 import 本模块, 模块级导入会成环。
+    """
+    if debug is None:
+        return None, False
+    if isinstance(debug, (str, os.PathLike)):
+        from ao_shaping.optimizer.wfless.step_b_debug import StepBDebugRecorder
+
+        return (
+            StepBDebugRecorder(
+                os.fspath(debug), context={"planned_iterations": int(iterations)}
+            ),
+            True,
+        )
+    return debug, False
+
+
 def _run_shaping_loop(
     torch: Any,
     phase: Any,
@@ -534,8 +475,17 @@ def _run_shaping_loop(
     w_smoothness: float,
     progress_callback: Callable[[int, float], None] | None,
     phase_callback: Callable[["Tensor"], None] | None,
+    debug_recorder: Any = None,
 ) -> tuple[list[float], bool]:
-    """Run the optimization loop; return the loss history and the converged flag."""
+    """Run the optimization loop; return the loss history and the converged flag.
+
+    ``debug_recorder`` (default ``None``) is a
+    :class:`~ao_shaping.optimizer.wfless.step_b_debug.StepBDebugRecorder`; when
+    given, every iteration also records the gradient statistics, the parameter
+    update norm and the forward/step timing split. It is duck-typed on purpose:
+    the recorder lives under ``optimizer.wfless``, which imports this module, so
+    naming the class here would cycle.
+    """
     loss_history: list[float] = []
 
     def _closure():
@@ -565,20 +515,45 @@ def _run_shaping_loop(
     )
 
     for it in range(iterations):
+        t0 = time.perf_counter()
+        phase_before = phase.detach().clone() if debug_recorder is not None else None
         if optimizer == "adam":
             opt.zero_grad()
             loss = _closure()
+            forward_s = time.perf_counter() - t0
             if torch.isnan(loss):
                 logger.warning("NaN loss at iteration {}; stopping early", it)
                 break
             opt.step()
         else:  # lbfgs —— 闭包由优化器内部调用
             loss = opt.step(_closure)
+            forward_s = time.perf_counter() - t0
             if loss is None or torch.isnan(loss):
                 logger.warning(
                     "L-BFGS returned NaN/None at iteration {}; stopping early", it
                 )
                 break
+        step_s = (time.perf_counter() - t0) - forward_s
+
+        loss_val = float(loss.item())
+        # 记录在相位包裹之前: 包裹会把 (2π) 跳变写进 ‖phase_after-phase_before‖,
+        # 让这一步的更新范数读起来像一次猛烈跳变, 而不是 Adam 的真实步长。
+        # 张量在这里就转成 numpy: 记录器是纯 numpy 叶子模块, 且 CUDA 张量不能直接
+        # 交给 np.asarray。
+        if debug_recorder is not None:
+            debug_recorder.record(
+                iteration=it,
+                loss=loss_val,
+                grad=(
+                    None
+                    if phase.grad is None
+                    else phase.grad.detach().float().cpu().numpy()
+                ),
+                phase_before=phase_before.detach().float().cpu().numpy(),
+                phase_after=phase.detach().float().cpu().numpy(),
+                forward_s=float(forward_s),
+                step_s=float(step_s),
+            )
 
         # 把相位包裹到 [0, 2π)。对 Adam 来说每步都做是安全的; 对
         # L-BFGS 来说, 运行中包裹会破坏它的梯度历史记账, 所以只在
@@ -587,7 +562,6 @@ def _run_shaping_loop(
             with torch.no_grad():
                 phase.data = phase.data % (2.0 * math.pi)
 
-        loss_val = float(loss.item())
         loss_history.append(loss_val)
 
         if progress_callback is not None:
@@ -676,6 +650,7 @@ def train_beam_shaping(
     seed: int | None = None,
     progress_callback: Callable[[int, float], None] | None = None,
     phase_callback: Callable[["Tensor"], None] | None = None,
+    debug: Any = None,
 ) -> DifferentiableShapingResult:
     """用梯度下降优化 SLM 相位图。
 
@@ -701,6 +676,13 @@ def train_beam_shaping(
         seed: 用于保证可复现的随机种子。
         progress_callback: 每步调用的 ``fn(iteration, loss)``。
         phase_callback: 每步调用的 ``fn(phase_tensor)``。
+        debug: 每步诊断记录, ``None`` 关闭 (默认)。传一个
+            :class:`~ao_shaping.optimizer.wfless.step_b_debug.StepBDebugRecorder`
+            实例时, 生命周期由调用方负责 (自己 ``close()``); 传目录路径时本函数
+            自建记录器, 跑完写好 ``*_debug.jsonl`` / ``*_debug.json`` 再关闭。
+            每次迭代记下正向传输的损失、相位梯度范数/最大值/RMS、参数更新范数,
+            以及 ``forward+backward`` 与优化器步各自的耗时 —— 用来判断该提速的是
+            物理预测模型还是优化器。
 
     Returns:
         字段全部填好的 :class:`DifferentiableShapingResult`。
@@ -755,24 +737,31 @@ def train_beam_shaping(
     opt = _shaping_optimizer(torch, phase, optimizer, lr)
 
     # -- 训练循环 ----------------------------------------------------
-    loss_history, converged = _run_shaping_loop(
-        torch,
-        phase,
-        opt,
-        forward,
-        amp,
-        t_tensor,
-        propagation=propagation,
-        optimizer=optimizer,
-        iterations=iterations,
-        device=device,
-        w_uniformity=w_uniformity,
-        w_efficiency=w_efficiency,
-        w_zero_order=w_zero_order,
-        w_smoothness=w_smoothness,
-        progress_callback=progress_callback,
-        phase_callback=phase_callback,
-    )
+    recorder, owns_recorder = _resolve_debug_recorder(debug, iterations)
+    try:
+        loss_history, converged = _run_shaping_loop(
+            torch,
+            phase,
+            opt,
+            forward,
+            amp,
+            t_tensor,
+            propagation=propagation,
+            optimizer=optimizer,
+            iterations=iterations,
+            device=device,
+            w_uniformity=w_uniformity,
+            w_efficiency=w_efficiency,
+            w_zero_order=w_zero_order,
+            w_smoothness=w_smoothness,
+            progress_callback=progress_callback,
+            phase_callback=phase_callback,
+            debug_recorder=recorder,
+        )
+    finally:
+        # 自己建的记录器自己收尾 (写汇总 JSON); 调用方传进来的不动。
+        if owns_recorder:
+            recorder.close()
 
     # -- 提取结果 ----------------------------------------------------
     return _extract_shaping_result(

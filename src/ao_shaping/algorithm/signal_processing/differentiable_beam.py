@@ -33,6 +33,7 @@ Gerchberg-Saxton 循环, 而是把相位图形 ``φ`` 当作一个*可学习*张
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -228,6 +229,9 @@ class DifferentiableBeamOptimizer(IterativeOptimizer):
         self._step = 0
         self._loss_history: list[float] = []
         self._converged = False
+        # 上一次 update() 的耗时拆分: 前向+反向 vs 优化器步。
+        self._last_forward_s = 0.0
+        self._last_step_s = 0.0
 
     @property
     def step(self) -> int:
@@ -263,6 +267,21 @@ class DifferentiableBeamOptimizer(IterativeOptimizer):
     def converged(self) -> bool:
         """是否满足提前停止条件。"""
         return self._converged
+
+    @property
+    def last_forward_s(self) -> float:
+        """上一次 :meth:`update` 里「前向 + 反向」的耗时 (秒)。
+
+        这是**物理传播 + CUDA kernel** 的代价, 与优化器步分开计时 ——
+        两者相加才是整步耗时, 所以「该提速物理预测模型还是优化器」这个问题
+        直接看 ``forward_s`` 与 ``step_s`` 的比例即可。
+        """
+        return self._last_forward_s
+
+    @property
+    def last_step_s(self) -> float:
+        """上一次 :meth:`update` 里优化器步 (Adam) 的耗时 (秒)。"""
+        return self._last_step_s
 
     def _intensity_loss(self, i_tensor: torch.Tensor) -> torch.Tensor:
         """峰值归一化强度图与目标之间的 MSE。
@@ -321,9 +340,14 @@ class DifferentiableBeamOptimizer(IterativeOptimizer):
         self._opt.zero_grad(set_to_none=True)
 
         if measured_intensity is None:
+            t_fwd = time.perf_counter()
             loss = self.loss_value()
             loss.backward()
+            t_step = time.perf_counter()
             self._opt.step()
+            t_end = time.perf_counter()
+            self._last_forward_s = t_step - t_fwd
+            self._last_step_s = t_end - t_step
             self._step += 1
             self._loss_history.append(float(loss.detach().cpu()))
             self._record(float(loss.detach().cpu()))
@@ -345,10 +369,14 @@ class DifferentiableBeamOptimizer(IterativeOptimizer):
 
         # 用实测图像处的损失梯度给模型 Jacobian ∂I_sim/∂φ 加权:
         # 相位梯度由此锚定在实验图像上。
+        t_fwd = time.perf_counter()
         i_sim = far_field_intensity(self._source_amplitude, self._phase)
         i_sim.backward(gradient=i_meas.grad)
-
+        t_step = time.perf_counter()
         self._opt.step()
+        t_end = time.perf_counter()
+        self._last_forward_s = t_step - t_fwd
+        self._last_step_s = t_end - t_step
         self._step += 1
         self._loss_history.append(float(loss_meas.detach().cpu()))
         self._record(float(loss_meas.detach().cpu()))
