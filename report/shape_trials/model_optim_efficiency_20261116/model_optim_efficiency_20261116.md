@@ -11,12 +11,12 @@
 **日期** 2026-11-16 · **脚本** `scripts/slm/shape_transition_timing_20261106.py`（实机闭环）+ 离线汇总 · **设备** Santec SLM-200 #1（1920×1200）+ Daheng MER2-507-23GM（2592×1944，0.5 ms，5 帧平均）
 **Checkpoint** `defocus_forward_20261107_focus_r2_fit/checkpoints/M3_illumination/frozen_parameters.json`（grid 128 / FFT 512 / phase_sign −1.0 / 离焦+照明包络）
 
-> 本报告聚焦**物理前向模型（FrozenDefocusForward / M3）驱动的可微闭环**在实验系统上的**优化效果**与**效率**两条主线，汇总 2026-11-16 两次实机锚定闭环、2026-11-12 离线方向诊断、以及 2026-11-07 / 2026-11-11 历史计时数据。绝对强度保真度的实机数据采集（探针 `scripts/slm/absolute_fidelity_probe_20261116.py`，commit `807d456a`）因 SLM #1 当前未连接而**待下次设备上线补采**，§5 预留其位置。
+> 本报告聚焦**物理前向模型（FrozenDefocusForward / M3）驱动的可微闭环**在实验系统上的**优化效果**与**效率**两条主线，汇总 2026-11-16 两次实机锚定闭环、2026-11-16 绝对强度保真度实机探针、2026-11-12 离线方向诊断、以及 2026-11-07 / 2026-11-11 历史计时数据。绝对强度保真度已实机补采（探针 `scripts/slm/absolute_fidelity_probe_20261116.py`，commit `807d456a`；满量程契约修复 commit `96e285ee`），见 §5。
 
 ## 1. 结论速览
 
 - **优化效果（模型侧）**：M3 在离线方向诊断中通过 cosine ≥0.50 门禁（0.696 中位，10/14 达标），是 6 个变体中唯一稳定通过者；随机起步下模型核心 CV 从 3.89（零相位）降到 0.66，证明**起步盆地已规避、模型侧优化方向有效**。
-- **优化效果（硬件侧）**：两次实机锚定闭环实测核心 CV 分别停在 6.08（零相位）/ 5.01（随机起步），均**未达 ≤0.10 验收**；`model_cv` 与 `measured_cv_window` 同掩膜同网格分叉约 **7.5×**——方向对齐是必要条件而非充分条件，瓶颈是 FrozenDefocusForward 的**绝对强度表征误差**（详见 `report/shape_trials/anchored_m3_20261116/anchored_m3_20261116.md`）。
+- **优化效果（硬件侧）**：两次实机锚定闭环实测核心 CV 分别停在 6.08（零相位）/ 5.01（随机起步），均**未达 ≤0.10 验收**；模型核心 CV 从 3.80 降到 0.66 而实测几乎不动，方向对齐是必要条件而非充分条件（详见 `report/shape_trials/anchored_m3_20261116/anchored_m3_20261116.md`）。**归因修正**：早前"绝对强度表征误差主导、模型 vs 实测 CV 分叉 7.5×"的判断**已作废**——该 7.5× 是采集伪影（锚定轮 8-bit 量化地板把实测 CV 压在 ~5，§5.1），并非模型表征缺陷；重采 12-bit 后 `corr(model_cv_core, measured_cv_core_window)=0.95`，真正的剩余差距是 checkpoint gain 的**量纲不可迁移**（§5.3）。
 - **效率**：M3（grid 128）闭环单步墙钟约 **0.30 s/iter**，其中硬件 settle+capture 约 0.18 s/iter、模型计算约 0.11 s/iter；相比 2026-11-07 的 model640（grid 640）锚定闭环 0.92 s/iter **快约 3×**，主要来自更小的控制网格与 FFT。两次运行均因停滞提前结束（60/120 步，max 300），故墙钟反映的是**未收敛早停**成本，非收敛成本。
 
 ## 2. 优化效果
@@ -29,7 +29,9 @@
 | B `anchored_m3_rs15_20261116` | 随机 RMS1.5 | 0.544 → 0.664（iter120） | 5.00–5.18（min 5.006） | ~0.13× | 否 |
 
 - 随机起步使 model_cv 从 3.89 降到 0.66（**模型认为接近均匀**），证实零相位焦斑盆地已被规避；但 measured_cv 仅从 6.08 降到 5.01（**硬件几乎无改善**）。
-- 两次均 `stop_reason=stall_5_blocks_no_0.005_improve`：模型侧与实测侧同时停滞，是表征误差主导（而非优化器/学习率）的特征签名。
+- 两次均 `stop_reason=stall_5_blocks_no_0.005_improve`：模型侧与实测侧同时停滞。**注意本表口径**：两次锚定均为 8-bit（实测 CV 地板 ~5，见 §5.1），`measured_cv` 已被量化地板截断，"硬件几乎无改善"是**采集伪影**而非硬件确无改善——真实改善被 8-bit 量化掩埋，须以 12-bit 重采（§5 探针）方可判读。
+
+> **本表 model/measured 比值（0.64× / 0.13×）及 §1 的 7.5× 分叉均为 8-bit 地板伪影，已按 §5.1 作废。** 模型侧收敛轨迹（3.89→0.66）本身成立。
 
 ### 2.2 方向保真度（离线诊断，2026-11-12）
 
@@ -94,16 +96,62 @@
 
 ## 4. 优化效果与效率的联合判读
 
-1. **效果瓶颈是表征误差，不是效率或算力**：模型侧 0.30 s/iter 已足够快，model_cv 也能降到 0.66；但实测 CV 停在 5.0，7.5× 差距来自 FrozenDefocusForward 绝对强度表征，而非迭代数/学习率/墙钟。
+1. **效果瓶颈是绝对强度口径，不是效率或算力**：模型侧 0.30 s/iter 已足够快，model_cv 也能降到 0.66；但实测 CV 停在 5.0。早前把这一差距归因于"FrozenDefocusForward 绝对强度表征误差、模型 vs 实测 CV 分叉 7.5×"**已作废**（§5.1：锚定轮 7.5× 是 8-bit 量化地板，另有探针过曝帧 argmax 定心失效的独立伪影）；重采后结构相关性达 0.95，剩余的是 checkpoint gain 的量纲不可迁移（§5.3），须在统一曝光/基座口径下重标定。
 2. **效率杠杆在 settle，不在 GPU**：历史预算证明 settle 占 99%、优化器占 <0.05%。M3 把 s/iter 从 0.92 降到 0.30（grid 640→128）是有效提速，但进一步提速须动 settle/采集结构（如减少 anchor 重采、合并 display-capture）。
 3. **早停使墙钟低估收敛成本**：两次均停滞早停，"秒/形状"反映非收敛态；要得到真实收敛效率，须先解决表征误差让闭环能收敛，再计时。
 
-## 5. 待补：绝对强度保真度实机数据（SLM #1 上线后）
+## 5. 绝对强度保真度实机数据（2026-11-16，SLM #1 + 大恒 CCD）
 
-探针 `scripts/slm/absolute_fidelity_probe_20261116.py`（commit `807d456a`，dry-run 验证 exit 0 / ruff 通过 / 未开设备）已就绪：固定 12 种相位（zero、随机 RMS0.5/1.5 各 2 seed、两次锚定 best grid、x/y tilt 1/3 rad、Noll-4 离焦 1 rad），逐模式记录 `model_cv_core`、`measured_cv_core_window`、`measured_cv_core_full`、`mean_intensity_ratio_core/window`，输出到 `data/debug/slm_transfer/absolute_fidelity_20261116/`。
+探针 `scripts/slm/absolute_fidelity_probe_20261116.py`（commit `807d456a`，满量程契约修复 commit `96e285ee`）。固定 12 种相位（zero、随机 RMS0.5/1.5 各 2 seed、两次锚定 best grid、x/y tilt 1/3 rad、Noll-4 离焦 1 rad），逐模式记录 `model_cv_core`、`measured_cv_core_window`、`measured_cv_core_full`、`mean_intensity_ratio_core`，输出到 `data/debug/slm_transfer/absolute_fidelity_12bit_fixed_20261116/`（summary.json / plan.json / device_log.json / frames/ / model/ / phase/）。
 
-- **当前阻塞**：2026-11-16 检查 SLM #1 `probe_slm(1)` 返回 `connected: false`（未连接），大恒 CCD 在线（SDK 枚举 1 台）。探针需 SLM+CCD 同时在线，故**待 SLM #1 下次上线补采**。
-- 补采后将在此节填入：模型 vs 实测强度相关系数/直方图、逐模式强度比，量化"方向对但幅度错"的绝对强度误差，并据此为 #234 提出**绝对强度门禁**（如模型 vs 实测强度相关系数 ≥0.8）作为方向 cosine 门禁的补充。
+**采集口径**：`--auto-exposure --bit-depth 12`，生效曝光 **0.034 ms**（auto-exposure 将峰值压到目标 180 灰，未触上限；对比旧 12-bit 运行的 1000 ms 上限过曝）。同帧定心 `spot_xy=[1224, 1105]`、定心帧峰值 2383/4095（58%，未饱和）。
+
+### 5.1 先修正上一节的 7.5×：它是采集伪影，不是表征误差
+
+§1/§2.1 的"模型 vs 实测 CV 分叉约 7.5×"来自两次**锚定闭环**的实测 CV 地板，不是 FrozenDefocusForward 的表征缺陷。需要区分两个独立的采集伪影：
+
+- **锚定轮（8-bit，固定 0.5 ms）——7.5× 的来源**：两次锚定运行 `exposure_ms=0.5`、位深为当时默认（8-bit），且定心正确（`spot_xy=[1224,1093]`，未触发 1000 ms 过曝 bug）。但 8-bit 下零级饱和、整形光被量化掩埋，**实测 CV 地板恒在 ~5**（6.077 / 5.006）；而模型侧 `model_cv` 是模型自身尺度上的真值（0.664）。5.006/0.664 ≈ **7.5×** 是"实测地板 / 模型真值"，不是模型错。
+- **探针旧 12-bit 轮（argmax 定心失效）——model_cv 塌缩的来源**：12-bit 下曝光被满量程 bug 推到 1000 ms，帧全帧饱和；`np.argmax` 返回**首个**饱和像素（饱和块顶边 `[1220, 606]`），而非光斑中心 `[1224, 1093]`，采样窗与核心掩膜落到暗区，模型核心均值恰好等于 checkpoint 的 `background=2.8847`、`model_cv_core` 塌缩到 ~0，`corr(model_cv, measured_cv)` 出现 −0.51 的**伪相关**。
+- 两者修复（`96e285ee`：12-bit 满量程契约 + 定心饱和守卫）后重采：`model_cv_core` 恢复为 0.40–4.17 的物理区间，`corr(model_cv_core, measured_cv_core_window)` 由 −0.51 转为 **+0.95**。故 §2.1 的 7.5× 分叉**作废**；`model_cv 3.89→0.66` 的优化有效性结论保留（模型侧收敛本身成立），但"瓶颈是绝对强度表征误差"的归因须按 5.3 重述。
+
+> 两伪影的共性：**都是采集环节的伪影**（位深/曝光），不是前向模型的表征缺陷。这也正是 §5.3 要把"绝对强度比"与"结构相关"分开判读的原因。
+
+### 5.2 逐模式指标（12-bit，0.034 ms）
+
+| pattern | model_mean_core | model_cv_core | measured_mean_core | measured_cv_core | ratio_core |
+|---|---|---|---|---|---|
+| zero | 3.571 | 3.698 | 20.186 | 3.185 | 5.653 |
+| rand_rms0p5_seed0 | 3.483 | 2.920 | 19.334 | 2.651 | 5.551 |
+| rand_rms0p5_seed1 | 3.483 | 2.964 | 19.253 | 2.562 | 5.527 |
+| rand_rms1p5_seed0 | 3.204 | 0.405 | 18.518 | 1.673 | 5.780 |
+| rand_rms1p5_seed1 | 3.213 | 0.496 | 18.590 | 1.674 | 5.786 |
+| anchored_m3_best | 3.571 | 3.801 | 19.858 | 2.956 | 5.561 |
+| anchored_m3_rs15_best | 3.325 | 0.648 | 18.532 | 1.662 | 5.573 |
+| tilt_x_1rad | 3.570 | 3.693 | 19.818 | 2.827 | 5.551 |
+| tilt_x_3rad | 3.568 | 3.688 | 19.550 | 2.560 | 5.479 |
+| tilt_y_1rad | 3.571 | 3.696 | 19.686 | 2.778 | 5.513 |
+| tilt_y_3rad | 3.570 | 3.693 | 19.661 | 2.663 | 5.507 |
+| defocus_z4_1rad | 3.572 | 4.167 | 19.719 | 2.762 | 5.521 |
+
+### 5.3 判读：方向保真、绝对幅度不保真（量纲不可迁移）
+
+**(a) 归一化结构（CV）高度相关，但由"两簇分离"主导，簇内排序弱。**
+`corr(model_cv_core, measured_cv_core_window)` = **0.9497**，与全帧口径 `measured_cv_core_full` 相关 0.9496（窗口 vs 全帧自身相关 1.00，无裁剪口径问题）。但这是**聚类分离**驱动的：模型把图案切成"均匀簇"（model_cv < 1）与"光斑簇"（≥1）两组，实测也恰好分成对应两组，跨簇相关很高；**簇内**排序显著弱化——
+
+- `spot-like` 簇（9 个，model_cv 2.9–4.2）：簇内相关 **0.41**；
+- `uniform` 簇（3 个：rand_rms1p5 两 seed + anchored_m3_rs15_best）：簇内相关 **−0.89**（n=3，模型侧 CV 差异本就小，排序不可依赖）。
+
+即：模型能区分"接近均匀"与"强光斑"两类，但**绝对均匀度数值错向且幅度不稳**：uniform 簇模型 CV 0.40–0.65，实测 1.66（模型高估均匀 ~3×）；spot-like 簇模型 CV ~3.7，实测 ~2.6–3.2（模型高估光斑弥散 ~1.2–1.4×）。方向 cosine 门禁（§2.2）通过不等于幅度对齐，这一结论在本批数据上成立。
+
+**(b) 绝对强度比 ~5.5，且主要由基座口径差主导。**
+`mean_intensity_ratio_core` 中位 **5.55**（区间 5.48–5.79，极窄 → 说明比值是系统性的乘性口径差，而非逐模式随机误差）。但拆开看：实测全帧基座（中位数）恒为 **15.0 counts**，而 checkpoint `background=2.8847`，基座比 15.0/2.88 = **5.2**，几乎解释掉整个 ratio_core。剥掉基座后，整形光信号比 `measured_sig/model_sig` = 6.6–11.0（中位 7.1），比值反而**变宽**——说明"整光信号"的增益口径差距真实存在且比基座差更显著。
+
+**(c) 根因是量纲不可迁移，不是模型错。**
+模型输出 `sampled·gain + background`（`gain=306.6547`，`background=2.8847`，`bias_counts=0`）。`sampled` 在窗内近似归一，模型核心均值仅 3.2–3.6 counts，而实测核心均值 ~18.5–20.2 counts。checkpoint 的 gain 是在**某一离线标定曝光/增益**下拟合的计数口径，`bias_counts=0` 使模型输出**与 CCD 曝光完全无关**——而实测强度随曝光线性缩放。因此"绝对强度比"**不是一个不变量**，其数值随采集曝光改变（0.034 ms 下为 ~5.5，旧 1000 ms 过曝下为 ~700–864）。把 gain 量纲当作可跨曝光迁移的绝对量，是 §2.1 "7.5× 表征误差"误判的直接来源。
+
+**(d) 对 #234 的门禁建议。** 绝对强度门禁**不能**直接比 raw 计数比，须先在**同一曝光与同一基座口径**下标定（或改用与曝光无关的口径：如归一化到光斑峰值/能量守恒）。可设的最小门禁为：**`corr(model_cv_core, measured_cv_core_window) ≥ 0.8**（本批 0.95 已过，作方向+幅度联合的必要条件），并附加**归一化幅度差**（如剥基座后逐模式信号比的中位偏离 ≤ 2×）作为充分性补强。raw `ratio_core ≈ 5.5` 只登记、不设门禁，因量纲不可迁移。
+
+**(e) 采集质量说明。** 0.034 ms 曝光下整形光已离开零级光斑的动态范围中心：零级斑心峰值 2265 counts、斑心 21×21 均值 1031，而 400×400 核心均值仅 20（核心区 ~95% 面积是 15 基座），整形光信号落在基座之上数 counts。若要更精确的绝对幅度标定，应把曝光压向零级不饱和同时整形光留出余量（当前 target_max=180 已偏保守，可试 target_max 60–120 观察信噪比），或改在零级外采样整形光区域。本批数据满足"方向/结构判读"用途，绝对幅度仅作量级登记。
 
 ## 6. 数据缺口（影响效率横比完整性）
 
@@ -121,5 +169,6 @@
 - 历史墙钟预算：`report/shape_trials/multishape1200/wall_clock_budget_20261111.md`
 - 历史锚定计时：`report/shape_trials/shape_transition/shape_transition_timing_20261107.md`
 - 验收失败报告：`report/shape_trials/anchored_m3_20261116/anchored_m3_20261116.md`（commit `8a276ce8`）
-- 绝对强度探针：`scripts/slm/absolute_fidelity_probe_20261116.py`（commit `807d456a`，待实机）
+- 绝对强度探针：`scripts/slm/absolute_fidelity_probe_20261116.py`（commit `807d456a`；满量程契约修复 commit `96e285ee`）
+- 绝对强度保真度实机数据：`data/debug/slm_transfer/absolute_fidelity_12bit_fixed_20261116/`（summary.json / plan.json / device_log.json / frames/ / model/ / phase/；2026-11-16，SLM #1 + 大恒 CCD，12-bit 0.034 ms，`spot_xy=[1224,1105]`）
 - M3 checkpoint：`data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit/checkpoints/M3_illumination/frozen_parameters.json`
