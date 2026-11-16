@@ -5257,6 +5257,15 @@ slm_zernike_pib.py:1888`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 模块 2828→2891 (+63), baseline 同 commit 抬高 (三个 helper 的函数头与 docstring)
 - 载体: 形状 + 6 个方形整形仿真测试 431 passed
 
+**2026-11-16 · 109d5816 之后 · 第 100 批: `slm_zernike_pib.optimize_slm_zernike_pib` 250→175 行 + 两缝**
+- 提取: `_szp_resolve_targets` 94 (nest 2; algorithm 规范化 + `ObjectiveSpec` 解析 + 全部目标权重/形状/调度校验) / `_szp_display_ctx` 23 (nest 1; `SlmZernikeDisplay` 或 `nullcontext(None)`)
+- 边界: 目标解析/校验段 (1601:1659) 与显示上下文段 (1674:1695) 整体外提；母函数保留 `algorithm` 原值解包，由 helper 返回规范化值与 `(objective, target_shape, shape_for_metric, objective_mode)`
+- 叶差分: 33 同 / 消失 0 / 新增 2 / 改 1 (`optimize_slm_zernike_pib` −32/+2)
+- 等价性: stub harness 记录 `_run_pib_session` 全部 kwargs + Recorder 状态 + 下发相位摘要，23 条正常配置 (9 目标 + 8 算法 + show/overlay/nmax/radius/delta/seed) 与 16 条非法配置的异常类型/文案摘要**逐行一致**；跨进程两次运行摘要稳定 (`random_seed` 显式固定, `nullcontext` 按 `enter_result` 归一)
+- 棘轮: 母行 280/2/250 → 202/1/175，新增 2 行 (109/2/94, 27/1/23)
+- 模块 2611→2657 (+46), baseline 同 commit 抬高 (两个 helper 的函数头与 docstring)
+- 载体: 形状 + 9 个 slm-zernike-pib 测试 469 passed, 1 skipped (hardware gate)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
