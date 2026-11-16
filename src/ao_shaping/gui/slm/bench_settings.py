@@ -948,8 +948,10 @@ def probe_camera_window(cam_type: str = "daheng", cam_id: int = 0) -> WindowSize
         if cam is not None:
             try:
                 cam.close_device()
-            except Exception:  # policy: 探测用的临时相机句柄：关闭失败无可补救，不得掩盖探测结果
-                pass
+            except Exception as close_exc:  # policy: 探测用的临时相机句柄：关闭失败无可补救，不得掩盖探测结果
+                logger.debug(
+                    "探测相机句柄关闭失败 ({}): {}", cam_type, close_exc
+                )
 
 
 def _fallback_bounds() -> WindowBounds:
