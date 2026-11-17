@@ -236,3 +236,4 @@
 ## 尚未生成产物的报告
 
 下列报告已在 `REPORTS` 登记但产物尚未提交（需要硬件，或尚未跑过），因此没有可点击的文件；生成脚本与复现命令见上表同条目：
+| [`shape_trials/ideal_path_static_test_20261117/README.md`](shape_trials/ideal_path_static_test_20261117/README.md) | `人工撰写 (+ideal_path_static_test_20261117.py, render_ideal_path_compare_20261117.py)` | 离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-17 实验采集；报告本体不占用设备） | 静态整形页同源 generate_phase_radians 模型前向生成相位，SLM 下发 + CCD 全幅采集 5 个图案（线性光栅 / 棋盘格 / 透镜聚焦 / 圆形光栅 / 达曼光栅），曝光 0.05 ms，观测来源 model_forward（observed=false）。结论：相位与下发链路正确，但实测远场全部塌缩为中心暗弱小斑，模型前向假设再次被证伪（透镜方形平顶 vs 实测点状聚焦的证伪结论成立）。人工撰写。 |
