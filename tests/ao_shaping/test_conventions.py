@@ -1725,7 +1725,18 @@ def test_the_loguru_guard_follows_the_logger_not_one_spelling_of_its_import() ->
 # becoming typed), and the src/ moves in 062a64e5..fae245db (transfer/validate.py split,
 # exposure_control.py, record_mode.py) retired two more silent sites. The number below is
 # taken from the guard's own walk, not recounted by hand.
-_BLIND_SILENT_BASELINE = 44
+# Lowered 44 -> 43 on 2026-11-17: this batch turned `bench_settings.py`'s temporary
+# camera-handle close from a silent `pass` into a logged
+# ``logger.warning("探测相机句柄关闭失败 ({}): {}")`` -- one unattributable swallow became
+# attributable, the direction this ratchet exists to enforce. Measured from the guard's own
+# walk (44 -> 43), not recounted by hand.
+# Lowered 43 -> 39 on 2026-11-17: four `except Exception: pass` handlers wrapping stdlib
+# calls only -- `gui/ccd/mjpeg_streamer.py` (frame-queue timeout, server teardown) and
+# `gui/ccd/ccd_analyzer.py` (non-blocking queue writes) -- were narrowed to the types those
+# calls actually raise (`queue.Empty`, `OSError`, `queue.Full`), so four unattributable
+# swallows became attributable. Tightened, not relaxed. Measured from the guard's own walk
+# (43 -> 39), not recounted by hand.
+_BLIND_SILENT_BASELINE = 39
 
 
 def _blind_silent_handlers(root: Path) -> list[str]:
@@ -3042,6 +3053,9 @@ _UNEMITTED_FINAL_SECTIONS: dict[str, str] = {
     'report/shape_trials/cold_start/cold_start_20261026.md': '## 数据、复现与设备释放',
     'report/simulation/sim_credibility/sim_credibility_20261030.md': '## 11. 坑',
     'report/slm/differentiable_opt/differentiable_opt_animation_20261022.md': '## 6. 落盘数据与复现',
+    'report/slm/differentiable_opt/artifacts/fidelity_ladder_20261116/README.md': (
+        '## `--execute` 跑完后本目录会出现'
+    ),
     'report/slm/diffraction_efficiency/hw_blaze_20261023/report.md': '## 衍射效率算法 (如何找出 0 级与 ±1 级)',
     'report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md': '## 与 slm-model-in-loop 的关系',
     'report/slm/zernike_wfs_report/report.md': '## 4. 结论与注意',

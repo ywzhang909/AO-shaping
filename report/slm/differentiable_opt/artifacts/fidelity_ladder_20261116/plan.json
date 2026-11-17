@@ -1,0 +1,179 @@
+{
+  "script": "D:\\Projects\\TIFO\\AO-shaping\\scripts\\slm\\hw_forward_model_fidelity_ladder.py",
+  "script_sha256": "26342cc3f12c061cdb27c957c5765d78361273e43f7bf5d5c2bfcc0bea87e4fe",
+  "purpose": "物理预测模型保真度阶梯: 预测 vs 实测一致性, 验证 suspected missing defocus term",
+  "timestamp_utc": "2026-11-17T02:26:47.446174+00:00",
+  "mode": "execute",
+  "predict_from": "model",
+  "signal_floor": 0.001,
+  "focus_compensate": false,
+  "centre_xy": [
+    1223.005998897602,
+    962.6314947220524
+  ],
+  "centre_source": "存档 D:\\Projects\\TIFO\\AO-shaping\\data\\slm_geometry_calib.npz",
+  "devices": {
+    "slm_number": 1,
+    "slm_wavelength_nm": 1064,
+    "cam_type": "daheng",
+    "cam_id": 0,
+    "slm_serial": "22030108",
+    "ccd_sn": "FJB24112232"
+  },
+  "acquisition": {
+    "exposure_ms": 2.0,
+    "exposure_ceiling_ms": 200.0,
+    "frames": 3,
+    "discard": 2,
+    "settle_s": 0.5
+  },
+  "geometry": {
+    "path": "D:\\Projects\\TIFO\\AO-shaping\\data\\slm_geometry_calib.npz",
+    "sha256": "25b51e3deef10df24b77e3f2e1cfa54d7c82b1aac98fe661bcdccc9d431dafaa",
+    "Kx": 7513.480416067798,
+    "Ky": 7507.735094498813,
+    "k_mean": 7510.607755283305,
+    "rotation_deg": -89.06119804421049,
+    "fwhm0_px": 12.189991491623289,
+    "mirror": false,
+    "crop_side": 0,
+    "centre_xy": [
+      1223.005998897602,
+      962.6314947220524
+    ],
+    "source": "存档 D:\\Projects\\TIFO\\AO-shaping\\data\\slm_geometry_calib.npz",
+    "measured_this_run": false,
+    "center": [
+      962.6314947220524,
+      1223.005998897602
+    ]
+  },
+  "model": {
+    "n_pupil": 256,
+    "m_grid": 1024,
+    "padding": 4,
+    "dp_panel_px": 3.75,
+    "span_panel_px": 960.0,
+    "pupil_radius": 480.0,
+    "pupil_center": [
+      960.0,
+      600.0
+    ],
+    "beam_w0_px": 260.0,
+    "panel_shape": [
+      1200,
+      1920
+    ],
+    "k_mean": 7510.607755283305,
+    "far_field_sample_ccd_px": 1.955887436271694,
+    "target": {
+      "kind": "square",
+      "grid": [
+        1024,
+        1024
+      ],
+      "side_ccd_px_requested": 60.0,
+      "side_samples": 31,
+      "side_ccd_px_effective": 60.632510524422514,
+      "far_field_sample_ccd_px": 1.955887436271694,
+      "peak_sample": [
+        512,
+        512
+      ],
+      "note": "以零级为中心的均匀方块, 边长按 CCD 像元给再换算成远场样本"
+    }
+  },
+  "frame_shape": [
+    1944,
+    2592
+  ],
+  "standin": null,
+  "focus": null,
+  "patterns": [
+    {
+      "pattern_id": "flat",
+      "source": "builtin:flat",
+      "note": "零相位基准 (硬件路径同一帧兼做定心)",
+      "standin_id": "zero",
+      "phase_shape": [
+        256,
+        256
+      ],
+      "phase_rms_rad": 0.0,
+      "phase_ptv_rad": 0.0
+    },
+    {
+      "pattern_id": "gs_init",
+      "source": "builtin:gs (iters=50, seed=0)",
+      "note": "GS 交替投影初值 (方块目标); converged=False",
+      "standin_id": null,
+      "phase_shape": [
+        256,
+        256
+      ],
+      "phase_rms_rad": 1.8142639406284242,
+      "phase_ptv_rad": 6.283112633024996
+    },
+    {
+      "pattern_id": "optimized_final",
+      "source": "builtin:optimized_final (latest:D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\differentiable_opt\\20261116_114424\\phase_model.npy)",
+      "note": "历史可微优化运行的最终相位",
+      "standin_id": null,
+      "phase_shape": [
+        256,
+        256
+      ],
+      "phase_rms_rad": 2.041749360047589,
+      "phase_ptv_rad": 7.403416395187378
+    },
+    {
+      "pattern_id": "defocus_z4_pos",
+      "source": "builtin:noll(2,0) amp=+1 rad",
+      "note": "单位圆外为 0 (generate_noll_polynomial 圆外 NaN → 0, SLM 圆外命令 0 相位); 圆内 RMS = |amp| (Noll 归一)",
+      "standin_id": "defocus_z4_1rad",
+      "phase_shape": [
+        256,
+        256
+      ],
+      "phase_rms_rad": 0.8819774158092893,
+      "phase_ptv_rad": 3.462343593556831
+    },
+    {
+      "pattern_id": "defocus_z4_neg",
+      "source": "builtin:noll(2,0) amp=-1 rad",
+      "note": "单位圆外为 0 (generate_noll_polynomial 圆外 NaN → 0, SLM 圆外命令 0 相位); 圆内 RMS = |amp| (Noll 归一)",
+      "standin_id": null,
+      "phase_shape": [
+        256,
+        256
+      ],
+      "phase_rms_rad": 0.8819774158092893,
+      "phase_ptv_rad": 3.462343593556831
+    },
+    {
+      "pattern_id": "tilt_x",
+      "source": "builtin:noll(1,1) amp=+1 rad",
+      "note": "单位圆外为 0 (generate_noll_polynomial 圆外 NaN → 0, SLM 圆外命令 0 相位); 圆内 RMS = |amp| (Noll 归一)",
+      "standin_id": "tilt_x_1rad",
+      "phase_shape": [
+        256,
+        256
+      ],
+      "phase_rms_rad": 0.8822381801731158,
+      "phase_ptv_rad": 3.9686274509803927
+    },
+    {
+      "pattern_id": "tilt_y",
+      "source": "builtin:noll(1,-1) amp=+1 rad",
+      "note": "单位圆外为 0 (generate_noll_polynomial 圆外 NaN → 0, SLM 圆外命令 0 相位); 圆内 RMS = |amp| (Noll 归一)",
+      "standin_id": "tilt_y_1rad",
+      "phase_shape": [
+        256,
+        256
+      ],
+      "phase_rms_rad": 0.8822381801731157,
+      "phase_ptv_rad": 3.9686274509803927
+    }
+  ],
+  "skipped": []
+}

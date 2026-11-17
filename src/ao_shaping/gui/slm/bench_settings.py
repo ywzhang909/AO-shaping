@@ -84,6 +84,7 @@ from ao_shaping.gui.slm.exposure_status import (
     record_exposure_probe,
 )
 from ao_shaping.tools.slm.panel.focus_probe import FOCUS_PROBE_DEBUG_DIR
+from ao_shaping.gui.slm.bench_point_parse import _coerce_point, _parse_point_text
 
 __all__ = [
     "BLAZE_DIRECTIONS",
@@ -495,30 +496,6 @@ def set_bench_busy(busy: bool) -> None:
 # ---------------------------------------------------------------------------
 # 三态判定
 # ---------------------------------------------------------------------------
-
-
-def _coerce_point(value: Any) -> tuple[float, float] | None:
-    """``"960,690"`` / ``(960, 690)`` / ``[960, 690]`` → ``(960.0, 690.0)``。"""
-    if value is None:
-        return None
-    if isinstance(value, str):
-        parts = [p for p in value.replace("，", ",").split(",") if p.strip() != ""]
-        if len(parts) != 2:
-            return None
-        try:
-            return float(parts[0]), float(parts[1])
-        except ValueError:
-            return None
-    try:
-        seq = list(value)
-    except TypeError:
-        return None
-    if len(seq) != 2:
-        return None
-    try:
-        return float(seq[0]), float(seq[1])
-    except (TypeError, ValueError):
-        return None
 
 
 def _field_tolerance(field: BenchField) -> float:
@@ -1112,17 +1089,6 @@ def _centre_from_values(state: Any, slm_num: int) -> tuple[float, float] | None:
     if point is None:
         return None
     return (float(point[0]), float(point[1]))
-
-
-def _parse_point_text(text: str) -> tuple[float, float] | None:
-    """``"960,690"`` → ``(960.0, 690.0)``；不合法返回 ``None``。"""
-    parts = [p for p in str(text).replace("，", ",").split(",") if p.strip()]
-    if len(parts) != 2:
-        return None
-    try:
-        return (float(parts[0]), float(parts[1]))
-    except ValueError:
-        return None
 
 
 def _radius_from_sweep(

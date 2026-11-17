@@ -1,0 +1,154 @@
+[
+  {
+    "action": "open",
+    "device": "slm#1",
+    "mode": "memory (video_mode=0)",
+    "serial": "22030108",
+    "timestamp_utc": "2026-11-17T02:24:43.977794+00:00",
+    "monotonic_ns": 522995160188500
+  },
+  {
+    "action": "open",
+    "device": "camera:daheng",
+    "cam_id": 0,
+    "sn": "FJB24112232",
+    "timestamp_utc": "2026-11-17T02:24:44.862921+00:00",
+    "monotonic_ns": 522996045338100
+  },
+  {
+    "action": "ready",
+    "exposure_ms": 2.0,
+    "timestamp_utc": "2026-11-17T02:24:44.917202+00:00",
+    "monotonic_ns": 522996099611700
+  },
+  {
+    "action": "geometry",
+    "source": "存档 D:\\Projects\\TIFO\\AO-shaping\\data\\slm_geometry_calib.npz",
+    "k_mean": 7510.607755283305,
+    "centre_xy": [
+      1223.005998897602,
+      962.6314947220524
+    ],
+    "timestamp_utc": "2026-11-17T02:24:44.921379+00:00",
+    "monotonic_ns": 522996103770100
+  },
+  {
+    "action": "display",
+    "pattern_id": "flat",
+    "index": 1,
+    "timestamp_utc": "2026-11-17T02:24:45.964424+00:00",
+    "monotonic_ns": 522997146801800
+  },
+  {
+    "action": "capture",
+    "pattern_id": "flat",
+    "index": 1,
+    "exposure_ms": 0.04356914062500001,
+    "frames": 3,
+    "peak": 149.0,
+    "timestamp_utc": "2026-11-17T02:24:53.328189+00:00",
+    "monotonic_ns": 523004510536700
+  },
+  {
+    "action": "display",
+    "pattern_id": "gs_init",
+    "index": 2,
+    "timestamp_utc": "2026-11-17T02:25:04.537402+00:00",
+    "monotonic_ns": 523015719702300
+  },
+  {
+    "action": "capture",
+    "pattern_id": "gs_init",
+    "index": 2,
+    "exposure_ms": 0.18225000000000002,
+    "frames": 3,
+    "peak": 200.33333333333334,
+    "timestamp_utc": "2026-11-17T02:25:09.845929+00:00",
+    "monotonic_ns": 523021028203900
+  },
+  {
+    "action": "display",
+    "pattern_id": "optimized_final",
+    "index": 3,
+    "timestamp_utc": "2026-11-17T02:25:21.759670+00:00",
+    "monotonic_ns": 523032941876800
+  },
+  {
+    "action": "capture",
+    "pattern_id": "optimized_final",
+    "index": 3,
+    "exposure_ms": 0.0968203125,
+    "frames": 3,
+    "peak": 126.66666666666667,
+    "timestamp_utc": "2026-11-17T02:25:27.637093+00:00",
+    "monotonic_ns": 523038819275700
+  },
+  {
+    "action": "display",
+    "pattern_id": "defocus_z4_pos",
+    "index": 4,
+    "timestamp_utc": "2026-11-17T02:25:37.759875+00:00",
+    "monotonic_ns": 523048942003000
+  },
+  {
+    "action": "capture",
+    "pattern_id": "defocus_z4_pos",
+    "index": 4,
+    "exposure_ms": 0.08201250000000002,
+    "frames": 3,
+    "peak": 181.0,
+    "timestamp_utc": "2026-11-17T02:25:43.727803+00:00",
+    "monotonic_ns": 523054909903500
+  },
+  {
+    "action": "display",
+    "pattern_id": "defocus_z4_neg",
+    "index": 5,
+    "timestamp_utc": "2026-11-17T02:25:54.715853+00:00",
+    "monotonic_ns": 523065897908000
+  },
+  {
+    "action": "capture",
+    "pattern_id": "defocus_z4_neg",
+    "index": 5,
+    "exposure_ms": 0.0439763288551402,
+    "frames": 3,
+    "peak": 135.0,
+    "timestamp_utc": "2026-11-17T02:26:01.873870+00:00",
+    "monotonic_ns": 523073055892400
+  },
+  {
+    "action": "display",
+    "pattern_id": "tilt_x",
+    "index": 6,
+    "timestamp_utc": "2026-11-17T02:26:14.776030+00:00",
+    "monotonic_ns": 523085957982800
+  },
+  {
+    "action": "capture",
+    "pattern_id": "tilt_x",
+    "index": 6,
+    "exposure_ms": 0.044601584715639825,
+    "frames": 3,
+    "peak": 135.33333333333334,
+    "timestamp_utc": "2026-11-17T02:26:21.713570+00:00",
+    "monotonic_ns": 523092895491900
+  },
+  {
+    "action": "display",
+    "pattern_id": "tilt_y",
+    "index": 7,
+    "timestamp_utc": "2026-11-17T02:26:32.834874+00:00",
+    "monotonic_ns": 523104016744300
+  },
+  {
+    "action": "capture",
+    "pattern_id": "tilt_y",
+    "index": 7,
+    "exposure_ms": 0.08201250000000002,
+    "frames": 3,
+    "peak": 197.0,
+    "timestamp_utc": "2026-11-17T02:26:38.697412+00:00",
+    "monotonic_ns": 523109879250700
+  }
+]
