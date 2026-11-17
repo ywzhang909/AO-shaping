@@ -5596,6 +5596,11 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 提取 `_mil_round_loop` 137 行 (33 参数 5 回传, 逐轮 refit/候选接受/停滞 break 整环; 环内 4 处 break 由环自身绑定; `best_frame/best_phase/status` 是母函数形参且环内条件重绑 → ⑳ 强制参数原样传入再回传, 与逐字一致)
 - 载体: `test_slm_model_in_loop` + `loop_invariants` + 形状; **wfless 域逐文件 55/55 全绿**; conventions 72; ruff 全仓绿; term 0; modsize 抬高后绿
 
+**2026-11-18 · 54e7b6e8 之后 · 第 149 批: `_run_square_search_stage` 176→109 行 (`slm_square_shaping.py`)**
+- 提取 `_square_search_with` 71 (47 参数 6 回传, 亮度搜索设备会话 With+For 整体; 环内 continue 自绑; 47 参数超 b135 的 57 参数先例范围, 语义逐字)
+- 候选改道记录: `_run_pib_session` 196 的剩余大块是 29+16 行 Expr (提取后仍 ~170 >150, 且同名 helper 与 `pib.py` 载体交叉), 收益不足转后
+- 载体: `test_slm_square_*` 四文件 + 形状 **532 passed**; ruff 全仓绿; term 0; modsize 绿; conventions 72 passed
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
