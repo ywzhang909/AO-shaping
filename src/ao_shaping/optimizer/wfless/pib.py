@@ -514,6 +514,41 @@ def _apply_adaptive_search_epoch(
     return _init_v, best_objective, last_best_epoch
 
 
+
+def _pib_prepare_run(delta, epochs, objective, random_seed, search_anchor, show):
+# Validation recorder and probe-callback setup lifted verbatim
+    delta = abs(delta)
+    epochs = int(epochs)
+    rng = np.random.default_rng(random_seed)
+    search_anchor = search_anchor.lower()
+    if search_anchor not in {"best", "current"}:
+        raise ValueError("search_anchor must be 'best' or 'current'")
+    if objective not in ("pib", "radiu", "avg_radiu"):
+        raise ValueError(
+            f"objective must be one of ('pib', 'radiu', 'avg_radiu'), got {objective}"
+        )
+
+    # 优化目标模式映射: pib和avg_radiu最大化, radiu最小化
+    objective_mode = objective_direction(objective)
+    recorder = Recorder(mark=objective, mode=objective_mode)
+
+    # 历史记录用于收敛状态检测
+    _gradient_history: list[float] = []
+    _pib_history: list[float] = []
+    _max_history_len = 50  # 保持最近50次记录
+
+    def _show_probe_frame(probe_img, detected_center):
+        if not show:
+            return
+        import matplotlib.pylab as plt
+
+        plt.imshow(probe_img, cmap="gray")
+        plt.scatter(x=detected_center[0], y=detected_center[1], c="red", s=5)
+        plt.show()
+    return _gradient_history, _max_history_len, _pib_history, _show_probe_frame, delta, epochs, recorder, rng, search_anchor
+
+
+
 def optimize_pib(
     center,
     epochs,
@@ -596,34 +631,7 @@ def optimize_pib(
     """
 
 
-    delta = abs(delta)
-    epochs = int(epochs)
-    rng = np.random.default_rng(random_seed)
-    search_anchor = search_anchor.lower()
-    if search_anchor not in {"best", "current"}:
-        raise ValueError("search_anchor must be 'best' or 'current'")
-    if objective not in ("pib", "radiu", "avg_radiu"):
-        raise ValueError(
-            f"objective must be one of ('pib', 'radiu', 'avg_radiu'), got {objective}"
-        )
-
-    # 优化目标模式映射: pib和avg_radiu最大化, radiu最小化
-    objective_mode = objective_direction(objective)
-    recorder = Recorder(mark=objective, mode=objective_mode)
-
-    # 历史记录用于收敛状态检测
-    _gradient_history: list[float] = []
-    _pib_history: list[float] = []
-    _max_history_len = 50  # 保持最近50次记录
-
-    def _show_probe_frame(probe_img, detected_center):
-        if not show:
-            return
-        import matplotlib.pylab as plt
-
-        plt.imshow(probe_img, cmap="gray")
-        plt.scatter(x=detected_center[0], y=detected_center[1], c="red", s=5)
-        plt.show()
+    _gradient_history, _max_history_len, _pib_history, _show_probe_frame, delta, epochs, recorder, rng, search_anchor = _pib_prepare_run(delta, epochs, objective, random_seed, search_anchor, show)
 
     return _run_pib_bench_session(
         _gradient_history=_gradient_history,

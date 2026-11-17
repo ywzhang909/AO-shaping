@@ -5651,6 +5651,13 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 新增 `_DIFF_BEAM` 常量 + 两行 (126/2/116、46/2/41)
 - 载体: **algorithm 全域 + 形状 + conventions 1497 passed / 27 skipped**; ruff 全仓绿
 
+**2026-11-18 · 9dcf123f 之后 · 第 159 批: `pib.optimize_pib` 153→126 行 (`optimizer/wfless/pib.py`)**
+- 提取 `_pib_prepare_run` 31 行 (6 参数 9 回传: 校验 + recorder/历史装配 + `_show_probe_frame` 嵌套回调随区外提; risk=0)
+- 棘轮: 过期行 `(_PIB, "optimize_pib", 200, 2, 153)` 删除, 新行 136/1/126 + 36/2/31 (`_PIB` 常量本已在位)
+- wiki 重钉: `optimize-pib-wfless.md` source 517→552 (def 位移, conventions 首跑抓到 1 failed → 重钉后 581 passed)
+- 载体: **wfless 全域须用 `AO_TEST_PER_FILE=1` 逐文件模式** (单进程跨文件累积在 6g/12g 均 SIGKILL 137, 运行器注释既有的设计) — 57 文件 rc=0; 形状+conventions 581 passed; ruff 全仓绿; modsize 基线 bump
+- **pin-only 候选登记**: `optimizer/rl/sac_turbulence_train.main` 189 全树零测试引用 (无载体, 不入批)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
