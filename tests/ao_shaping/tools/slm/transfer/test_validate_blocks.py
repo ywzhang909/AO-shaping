@@ -48,5 +48,8 @@ def test_run_uses_the_gate_and_not_a_bare_empty_check():
     assert "skips_shape(resume=resume, blocks=blocks)" in shapes_source
     # The resume offset must feed the gate from ``remaining_blocks`` -- the gate
     # is consulted on the *outstanding* block list, never the raw recipe range.
-    assert "remaining_blocks(" in run_source
+    # #205 第 133 批: 参数校验/resume 区提为 _validate_param_checks, 归属者链
+    # capture 同法: 先钉委派边, 性质再钉承接 helper。
+    assert "_validate_param_checks(" in run_source
+    assert "remaining_blocks(" in inspect.getsource(validate._validate_runtime_imports)
     assert "if not blocks" not in run_source

@@ -5533,6 +5533,12 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 叶差分: 两区 verbatim=True (53/27 行)
 - 载体: `test_transfer_shapes_runner` + `test_transfer_shapes_resume` + 形状门禁 **489 passed**; ruff 全仓绿; term 0; modsize baseline 抬高 (+18)
 
+**2026-11-17 · 33feb9b7 之后 · 第 138 批: `align` 220→137 行 + 三条源码文本守卫扩链 (`tools/slm/calibration/calibration.py`)**
+- 提取三区: `_align_candidate_setup` 18 (3 参数 3 回传, 候选周期 + `restore_full` 闭包工厂) / `_align_fov_probe` 57 (10 参数 3 回传, FOV 适配探针环整体, 环内 break 随环走; `period` 条件更新走 ⑳ 强制参数) / `_align_report_finalize` 19 (6 参数 0 回传, 成功报告装配; 0 回传裸 `return ` 尾行按 ast 剥离)
+- ⚠️ 教训 (新 ㊹): **b133 载体口径漏了 `tests/.../transfer/` 子包** —— 只跑了顶层 `test_transfer_*.py` (15 文件), 而 transfer/ 子目录还有 3 个**源码文本守卫** (归属者链钉子) 在 b131/b133 后失去目标 (批后 tools/slm 全域跑发现)。修法是 batch-74 既定"先钉委派边、性质移宿承接 helper": `capture → _cap_session_setup → _cap_live_reader` 链两测 + `run → _validate_runtime_imports` 的 `remaining_blocks` 门一处。规则更新: **lift 触及 capture/validate/run 这类被源码钉子引用的函数时, 域跑必须覆盖整个子包目录, 且改钉前先 ast 定位调用的新家** (b133 台账里"param_checks"实际是 runtime_imports, 凭记忆钉错一次)
+- 载体: `test_slm_calibration_pure/windowed/alignment_probe` + 形状门禁 **483 passed**; tools/slm 全域 **1478 passed / 7 skipped**; conventions 72 passed; ruff 全仓绿; term 0
+- 新增守卫条目: `_CALIBRATION` 表加 align + 三 helper 行
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

@@ -1817,6 +1817,112 @@ def _write_report(output: str, report: dict) -> None:
 # =====================================================================
 # 几何标定: 装配 -> 光束位置 -> K/旋转 -> 验证
 # =====================================================================
+
+
+def _align_report_finalize(last_center_full, period, report, self, window_center, window_size):
+# Alignment success report assembly lifted verbatim
+    report["ok"] = True
+    report["period"] = period
+    report["center_full"] = last_center_full
+    report["window_center"] = window_center
+    report["window_size"] = window_size
+    self._finalize_align(report, ok=True)
+    logger.info(
+        "align 完成: 周期={:.0f}px 0级全幅=({:.0f},{:.0f}) "
+        "窗口 中心=({:.0f},{:.0f}) 尺寸={:.0f}x{:.0f}px",
+        period,
+        last_center_full[0],
+        last_center_full[1],
+        window_center[0],
+        window_center[1],
+        window_size[0],
+        window_size[1],
+    )
+
+
+
+
+def _align_fov_probe(H, W, c0, cands, f0, margin, min_window_side, period, report, self):
+# FOV-fitting probe loop lifted verbatim
+    half_x = half_y = 0.0
+    for P in cands:
+        self._show(self._blaze(P, "x", self.panel_res))
+        s_x = self._moments(
+            np.asarray(self.ccd.get_numpy_image(CAMERA_SAMPLES), np.float64),
+            exclude=(c0, 3.0 * f0),
+        )
+        self._show(self._blaze(P, "y", self.panel_res))
+        s_y = self._moments(
+            np.asarray(self.ccd.get_numpy_image(CAMERA_SAMPLES), np.float64),
+            exclude=(c0, 3.0 * f0),
+        )
+        half_x = max(abs(s_x[1] - c0[1]), 0.0)
+        half_y = max(abs(s_y[0] - c0[0]), 0.0)
+        sx = max(2.0 * (half_x + margin), float(min_window_side))
+        sy = max(2.0 * (half_y + margin), float(min_window_side))
+        in_fov = {
+            "0级": (
+                margin <= c0[0] < H - margin and margin <= c0[1] < W - margin
+            ),
+            "+1级x": (
+                margin <= s_x[0] < H - margin
+                and margin <= s_x[1] < W - margin
+            ),
+            "+1级y": (
+                margin <= s_y[0] < H - margin
+                and margin <= s_y[1] < W - margin
+            ),
+        }
+        fits = sx <= W - 1 and sy <= H - 1
+        report["rounds"].append(
+            dict(
+                stage="B",
+                period=float(P),
+                spots={"0级": c0, "+1级x": s_x, "+1级y": s_y},
+                window_size=(sx, sy),
+                in_fov=in_fov,
+            )
+        )
+        logger.info(
+            "align 阶段B P={:2d}px: +1级x=({:.0f},{:.0f}) +1级y=({:.0f},{:.0f}) "
+            "窗口={:.0f}x{:.0f} {}",
+            P,
+            s_x[0],
+            s_x[1],
+            s_y[0],
+            s_y[1],
+            sx,
+            sy,
+            "采用" if (all(in_fov.values()) and fits) else "跳过",
+        )
+        if all(in_fov.values()) and fits:
+            period = float(P)
+            break
+    return half_x, half_y, period
+
+
+
+
+def _align_candidate_setup(blaze_period, period_candidates, self):
+# Candidate periods and restore closure lifted verbatim
+    default_cands: tuple[int, ...] = (16, 24, 32, 48, 64, 96)
+    if period_candidates is not None:
+        cands = tuple(int(p) for p in period_candidates)
+    elif int(round(blaze_period)) in default_cands:
+        cands = default_cands
+    else:
+        cands = (int(round(blaze_period)),) + default_cands
+
+    report: dict = {"rounds": [], "ok": False, "period": None, "reason": "unknown"}
+
+    def restore_full() -> None:
+        try:
+            self.ccd.reset_window((0, 0), (0, 0))
+        except Exception:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
+            logger.warning("恢复全幅窗口失败")
+    return cands, report, restore_full
+
+
 class SLMCCDCalibrator:
     """SLM+CCD 几何标定工具. 硬件无关: 传入 slm/ccd 与 acquire 回调.
 
@@ -1968,21 +2074,7 @@ class SLMCCDCalibrator:
          offset由 reset_window 从(center,size)确定性推导.)
         返回装配报告 dict(ok, reason, period, rounds, ...).
         """
-        default_cands: tuple[int, ...] = (16, 24, 32, 48, 64, 96)
-        if period_candidates is not None:
-            cands = tuple(int(p) for p in period_candidates)
-        elif int(round(blaze_period)) in default_cands:
-            cands = default_cands
-        else:
-            cands = (int(round(blaze_period)),) + default_cands
-
-        report: dict = {"rounds": [], "ok": False, "period": None, "reason": "unknown"}
-
-        def restore_full() -> None:
-            try:
-                self.ccd.reset_window((0, 0), (0, 0))
-            except Exception:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
-                logger.warning("恢复全幅窗口失败")
+        cands, report, restore_full = _align_candidate_setup(blaze_period, period_candidates, self)
 
         try:
             # ---------- 阶段A: 全幅检测 ----------
@@ -2003,60 +2095,7 @@ class SLMCCDCalibrator:
 
             # ---------- 阶段B: 周期选择 ----------
             period: float = 0.0
-            half_x = half_y = 0.0
-            for P in cands:
-                self._show(self._blaze(P, "x", self.panel_res))
-                s_x = self._moments(
-                    np.asarray(self.ccd.get_numpy_image(CAMERA_SAMPLES), np.float64),
-                    exclude=(c0, 3.0 * f0),
-                )
-                self._show(self._blaze(P, "y", self.panel_res))
-                s_y = self._moments(
-                    np.asarray(self.ccd.get_numpy_image(CAMERA_SAMPLES), np.float64),
-                    exclude=(c0, 3.0 * f0),
-                )
-                half_x = max(abs(s_x[1] - c0[1]), 0.0)
-                half_y = max(abs(s_y[0] - c0[0]), 0.0)
-                sx = max(2.0 * (half_x + margin), float(min_window_side))
-                sy = max(2.0 * (half_y + margin), float(min_window_side))
-                in_fov = {
-                    "0级": (
-                        margin <= c0[0] < H - margin and margin <= c0[1] < W - margin
-                    ),
-                    "+1级x": (
-                        margin <= s_x[0] < H - margin
-                        and margin <= s_x[1] < W - margin
-                    ),
-                    "+1级y": (
-                        margin <= s_y[0] < H - margin
-                        and margin <= s_y[1] < W - margin
-                    ),
-                }
-                fits = sx <= W - 1 and sy <= H - 1
-                report["rounds"].append(
-                    dict(
-                        stage="B",
-                        period=float(P),
-                        spots={"0级": c0, "+1级x": s_x, "+1级y": s_y},
-                        window_size=(sx, sy),
-                        in_fov=in_fov,
-                    )
-                )
-                logger.info(
-                    "align 阶段B P={:2d}px: +1级x=({:.0f},{:.0f}) +1级y=({:.0f},{:.0f}) "
-                    "窗口={:.0f}x{:.0f} {}",
-                    P,
-                    s_x[0],
-                    s_x[1],
-                    s_y[0],
-                    s_y[1],
-                    sx,
-                    sy,
-                    "采用" if (all(in_fov.values()) and fits) else "跳过",
-                )
-                if all(in_fov.values()) and fits:
-                    period = float(P)
-                    break
+            half_x, half_y, period = _align_fov_probe(H, W, c0, cands, f0, margin, min_window_side, period, report, self)
             if period == 0.0:
                 report["reason"] = "no_period"
                 logger.warning(
@@ -2132,23 +2171,7 @@ class SLMCCDCalibrator:
                 return report
 
             # ---------- 阶段D: 收尾 (成功, 保留窗口) ----------
-            report["ok"] = True
-            report["period"] = period
-            report["center_full"] = last_center_full
-            report["window_center"] = window_center
-            report["window_size"] = window_size
-            self._finalize_align(report, ok=True)
-            logger.info(
-                "align 完成: 周期={:.0f}px 0级全幅=({:.0f},{:.0f}) "
-                "窗口 中心=({:.0f},{:.0f}) 尺寸={:.0f}x{:.0f}px",
-                period,
-                last_center_full[0],
-                last_center_full[1],
-                window_center[0],
-                window_center[1],
-                window_size[0],
-                window_size[1],
-            )
+            _align_report_finalize(last_center_full, period, report, self, window_center, window_size)
             return report
         except RuntimeError as e:
             report["reason"] = "no_spot"
