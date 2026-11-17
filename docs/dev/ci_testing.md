@@ -91,7 +91,7 @@ CI 按 `.github/workflows/pytest.yml` 的 `run_shard` 目标**显式收集**这�
   `notebooks/**` 显式排除，守卫见
   `tests/ao_shaping/ml/test_train_cli_runnable.py::test_ruff_excludes_nothing_under_src`）；
   mypy / flake8 未配置。
-  🔴 **ruff 版本只有一把**：`ci.yml`、`ruff.yml` 与 `pyproject.toml` 的 dev 组下限必须
+  🔴 **ruff 版本只有一把**：`ci.yml` 与 `pyproject.toml` 的 dev 组下限必须
   同为一个**精确版**（现 `0.15.12`），由
   `tests/ao_shaping/test_conventions.py::test_all_ruff_pins_agree_and_are_exact` 钉住。
   此前两处不一致（`ci.yml==0.11.10` vs `ruff.yml>=0.15.12`）实测**不等价**：`PLC0415`

@@ -928,18 +928,21 @@ def test_the_ruf100_gate_is_measured_with_the_project_select_set() -> None:
 #: bump and gets copied back in later.
 _RUFF_PIN_SITES = (
     ".github/workflows/ci.yml",
-    ".github/workflows/ruff.yml",
     "pyproject.toml",
 )
-_RUFF_EXACT_PIN_SITES = (".github/workflows/ci.yml", ".github/workflows/ruff.yml")
+_RUFF_EXACT_PIN_SITES = (".github/workflows/ci.yml",)
 
 
 def test_all_ruff_pins_agree_and_are_exact() -> None:
     """Every ruff pin names one exact, identical version.
 
-    Two workflows both run ``ruff check .`` as a hard gate, and they used to
-    install *different* ruffs: ``ci.yml`` pinned ``==0.11.10`` while ``ruff.yml``
-    asked for ``>=0.15.12``. That is not one gate but two non-equivalent ones.
+    The single ruff hard gate lives in ``ci.yml`` (the duplicate ``ruff.yml``
+    workflow was retired 2026-11-18 -- it ran the same ``ruff check .`` as
+    ``ci.yml``, same exact version, same triggers, twice per push/PR).
+    Historically two workflows both ran ``ruff check .`` as a hard gate and
+    installed *different* ruffs: ``ci.yml`` pinned ``==0.11.10`` while the
+    now-removed ``ruff.yml`` asked for ``>=0.15.12``. That is not one gate but
+    two non-equivalent ones.
     Measured on the project config: ``PLC0415`` yielded **0** findings under
     0.11.10 (it is a preview rule there, and ruff itself prints "Selection
     `PLC0415` has no effect because preview is not enabled") against **1476** under
@@ -952,7 +955,7 @@ def test_all_ruff_pins_agree_and_are_exact() -> None:
     ``>=`` is rejected for the gate itself: a floating bound lets a new ruff
     release flip a hard gate red with no code change between two pushes, which is
     the non-reproducibility that made the discrepancy above expensive to diagnose.
-    Bumping ruff is therefore a single-number change across three files, and this
+    Bumping ruff is therefore a single-number change across these files, and this
     test fails if any of them falls out of step.
     """
     pin_re = re.compile(
