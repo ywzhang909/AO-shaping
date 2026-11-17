@@ -5658,6 +5658,13 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: **wfless 全域须用 `AO_TEST_PER_FILE=1` 逐文件模式** (单进程跨文件累积在 6g/12g 均 SIGKILL 137, 运行器注释既有的设计) — 57 文件 rc=0; 形状+conventions 581 passed; ruff 全仓绿; modsize 基线 bump
 - **pin-only 候选登记**: `optimizer/rl/sac_turbulence_train.main` 189 全树零测试引用 (无载体, 不入批)
 
+**2026-11-18 · 92c90d60 之后 · 第 160 批: 上游 doc-coverage 债修复 (无函数改动)**
+- CI 取证 (run 44163275845/44164417553, jobs 134322485869/134326540103, "Run shards" 步): `test_optimizer_doc_coverage` 报 `optimizer/wfless/slm_zernike_pib_gates.py` 零提及、`test_tools_doc_coverage` 报 `tools/slm/calibration/diffraction_efficiency/calibration_access.py` 零提及 —— 上游 `7f1a4b5b` (协作者拆分提交, 随 c678e660 系合并进树) 拆出两模块但未登记文档 (㊺ 又一同型)
+- 修复: module_inventory.md 两处登记 (wfless 表 `slm_zernike_pib_gates.py` 行 + 衍射效率子包行追加 `calibration_access.py`), 术语按模块自身 docstring (光路标定/实验系统)
+- 载体: 两守卫本地复跑 **2 passed** (CI 曾红这两个); term 0
+- 同 run 附带观察: ci156 还红过一次 `test_hw_forward_model_fidelity_ladder::test_signal_floor_spearman_…` (ci157 未复现) → 按 flake 观察, ci158/ci159 若再红再立案
+- 取证通道教训 (㊻): poll 日志 tsv 第一字段是 **run ID** 非 job ID; job logs/annotations 端点必须先用 `/actions/runs/{rid}/jobs` 换真 job ID (失败 step 名同在该响应, 可少一次往返)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
