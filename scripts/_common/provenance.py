@@ -200,6 +200,25 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/shape_transition_timing_20261106.py",
         ),
     ),
+    "report/shape_trials/model_direction_hw_20261117/model_direction_hw_20261117.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-17 上机采集；报告本体不占用设备）",
+        note=(
+            "冻结模型 14 帧方向诊断（data/debug/square1000_model_diag_20261117_140741）、"
+            "窗口对照（win0/win163）、M3 以实测峰为中心复核（m3_peak_centred_20261117.json）、"
+            "刀口基线拟合（issue235_knife_baseline_fit_20261117.json）、差分刀口（diff_20261117_170647_v2/summary.json）"
+            "与 panel_gray 反解前向一致性（issue235_panel_gray_inversion_20261117.json）。"
+            "人工撰写。"
+        ),
+        extra_scripts=(
+            "scripts/slm/square_1000_model_diagnostic_20261030.py",
+            "scripts/slm/analyze_square1000_model_diagnostic_20261030.py",
+            "scripts/slm/direction_peak_centred_20261117.py",
+            "scripts/slm/issue235_knife_baseline_fit_20261117.py",
+            "scripts/slm/issue235_beam_centre_differential_20261117.py",
+            "scripts/slm/issue235_panel_gray_inversion_20261117.py",
+        ),
+    ),
     "report/shape_trials/model_optim_efficiency_20261116/model_optim_efficiency_20261116.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-16 两次实验锚定闭环后离线汇总；报告本体不占用设备）",

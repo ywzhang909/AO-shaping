@@ -28,11 +28,74 @@ from pathlib import Path
 
 import numpy as np
 
-from ao_shaping.drivers.ccd.common import create_camera
+from ao_shaping.drivers.ccd.common import (
+    capture_with_exposure,
+    create_camera,
+    full_scale,
+    get_camera_exposure_ms,
+    set_camera_exposure_ms,
+)
 from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.tools.kernels import device_mutex
+from ao_shaping.tools.kernels.device_mutex import DeviceLock
 from ao_shaping.tools.slm.calibration.calibration import SLMCCDCalibrator
 
 CAMERA_SAMPLES = 10
+
+
+def _wait_for_devices(args) -> DeviceLock:
+    """Block until the bench is free, then hand back the held lock.
+
+    Raises:
+        SystemExit: the bench never freed up (another session, stale SDK
+            handle, or a probe that could not run). Never start a capture on a
+            lock we did not get.
+    """
+    verdict = device_mutex.wait_until_idle(
+        float(args.wait_until_idle),
+        slm_number=int(args.slm_number),
+        cam_id=int(args.cam_id),
+        cam_type="daheng",
+        exposure_ms=float(args.exposure_ms),
+        own_paths=[Path(__file__).resolve()],
+    )
+    if verdict.ok:
+        lock = verdict.lock if verdict.lock is not None else DeviceLock.default()
+        if not lock.is_locked():
+            lock.acquire(timeout=0.0)
+        return lock
+    raise SystemExit(f"devices never became idle: {verdict.reason if hasattr(verdict, 'reason') else verdict}")
+
+
+def _unsaturated_exposure(
+    cam, requested_ms: float, saturation: float, *, max_steps: int = 8
+) -> tuple[float, float]:
+    """Halve the exposure until the flat field stops clipping.
+
+    The flat field is the calibration reference: if it is clipped, the FWHM and
+    therefore the knife-edge window are wrong, and the returned centre is an
+    artefact (the 2026-11-10 30 ms runs saturated 4377 px at 255/255).
+
+    Only ever reduces — a dark frame is still usable, a clipped one is not.
+
+    Returns:
+        ``(exposure_ms, peak_counts)`` of the first unsaturated frame.
+    """
+    ms = float(requested_ms)
+    peak = 0.0
+    full = 0.0
+    for _ in range(max(1, max_steps)):
+        set_camera_exposure_ms(cam, ms)
+        frame = np.asarray(cam.get_numpy_image(5))
+        peak = float(np.max(frame))
+        full = float(full_scale(frame, cam))
+        if peak < saturation * full:
+            return ms, peak
+        ms /= 2.0
+    raise SystemExit(
+        f"flat field still saturated at {peak:.0f}/{full:.0f} counts after "
+        f"{max_steps} halvings down to {ms:.4f} ms; lower --exposure-ms"
+    )
 
 
 def _jsonable(v):
@@ -161,7 +224,16 @@ def main() -> int:
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--slm-number", type=int, default=1)
     ap.add_argument("--cam-id", type=int, default=0)
-    ap.add_argument("--exposure-ms", type=float, default=30.0)
+    ap.add_argument("--exposure-ms", type=float, default=0.1)
+    ap.add_argument(
+        "--target-max-brightness",
+        type=float,
+        default=3600.0,
+        help="bounded auto-exposure target in counts; 0 disables and uses --exposure-ms as-is",
+    )
+    ap.add_argument("--bit-depth", type=int, default=12, choices=(8, 12, 16))
+    ap.add_argument("--saturation-fraction", type=float, default=0.98)
+    ap.add_argument("--wait-until-idle", type=float, default=0.0)
     ap.add_argument("--n-scan", type=int, default=25)
     ap.add_argument("--execute", action="store_true")
     args = ap.parse_args()
@@ -177,12 +249,39 @@ def main() -> int:
         return 0
 
     args.out.mkdir(parents=True, exist_ok=False)
+    lock = _wait_for_devices(args)
     slm = Santec(slm_number=args.slm_number, video_mode=0)
-    slm.open()
     cam = None
     try:
-        cam = create_camera("daheng", args.cam_id, exposure_time_ms=args.exposure_ms)
+        slm.open()
+        # A silent fall back to the option board means the panel stops
+        # modulating while every frame still looks plausible (skill §1).
+        drive_board = slm.require_drive_board()
+        cam = create_camera(
+            "daheng", args.cam_id, exposure_time_ms=args.exposure_ms, bit_depth=args.bit_depth
+        )
         cam.open()
+        used_ms, peak = _unsaturated_exposure(
+            cam,
+            args.exposure_ms,
+            args.saturation_fraction,
+        )
+        (args.out / "device.json").write_text(
+            json.dumps(
+                {
+                    "drive_board_id": str(drive_board),
+                    "slm_number": args.slm_number,
+                    "wavelength_nm": 1064,
+                    "bit_depth": args.bit_depth,
+                    "requested_exposure_ms": args.exposure_ms,
+                    "used_exposure_ms": used_ms,
+                    "flat_peak_counts": peak,
+                    "opened_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
         cal = SLMCCDCalibrator(slm, cam)
         rec = RecordingCamera(cam, cal)
         cal.ccd = rec  # type: ignore[assignment]
@@ -201,7 +300,7 @@ def main() -> int:
             "elapsed_s": elapsed,
             "result": _jsonable(res),
             "panel_res": list(slm.Panel_Res),
-            "exposure_ms": args.exposure_ms,
+            "exposure_ms": used_ms,
             "window": rec.window,
             "curves": _curve_summary(rec.curves),
             "raw_curve": rec.curves,
@@ -235,9 +334,11 @@ def main() -> int:
         )
         print(json.dumps(summary, ensure_ascii=False, indent=2))
     finally:
+        slm_closed = camera_closed = False
         if cam is not None:
             try:
                 cam.close()
+                camera_closed = True
             except Exception as exc:
                 # The device API is polymorphic; a close failure must not mask
                 # the capture result that was already written to disk.
@@ -248,8 +349,22 @@ def main() -> int:
             print(f"slm flat-set warning: {exc}")
         try:
             slm.close()
+            slm_closed = True
         except Exception as exc:
             print(f"slm close warning: {exc}")
+        (args.out / "released.json").write_text(
+            json.dumps(
+                {
+                    "slm_closed": slm_closed,
+                    "camera_closed": camera_closed,
+                    "lock_released": True,
+                    "finished_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        lock.release()
         print("released: SLM #%d closed, camera closed" % args.slm_number)
     return 0
 
