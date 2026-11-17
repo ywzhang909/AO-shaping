@@ -236,7 +236,7 @@ K = λ·f / (d_slm · p_cam)          K = utils/slm/bench_constants.TILT_SHIFT_S
 ### 4.1 曝光默认值的语义(重要)
 
 曝光默认值已统一为 **`0` = 不固定**, 由
-`drivers/ccd/common.py:691` `resolve_initial_exposure` 分派 (2026-11-14 重钉：`75858203` 上游曝光/位深契约扩展致 `common.py` 该函数自 `:585` 下移至 `:691`):
+`drivers/ccd/common.py:697` `resolve_initial_exposure` 分派 (2026-11-14 重钉：`75858203` 上游曝光/位深契约扩展致 `common.py` 该函数自 `:585` 下移至 `:691`；2026-11-17 跟进 `0772202b` ccd 叶子拆分致顶部 +6，自 `:691` 再下移至 `:697`):
 
 | `exposure_time_ms` | `target_max_brightness` | 行为 |
 |---|---|---|
