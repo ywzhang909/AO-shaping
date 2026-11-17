@@ -157,6 +157,28 @@ def sha256_file(path: Path) -> str | None:
 # ---------------------------------------------------------------------------
 # 几何 / 模型网格
 # ---------------------------------------------------------------------------
+
+def synthetic_geometry(frame_shape: tuple[int, int]) -> dict[str, Any]:
+    """dry-run 合成几何: 单位远场标度 + 帧中心, 与 ``synthetic_ccd_frame`` 自洽。
+
+    CI 容器没有 ``data/`` (几何标定 npz 不入库), ``--dry-run`` 必须自包含
+    (issue #205 第 132 批修复): 合成帧本来就按 ``centre_xy``/``k_mean`` 摆放,
+    取 k_mean=1.0 (与 execute 路径的占位口径一致) 与帧中心即可闭环整条
+    metrics/figures 流水线。真实实验轮仍要求标定 npz (execute 路径不变)。
+    """
+    height, width = frame_shape
+    return {
+        "path": None,
+        "sha256": None,
+        "Kx": 1.0,
+        "Ky": 1.0,
+        "k_mean": 1.0,
+        "rotation_deg": 0.0,
+        "fwhm0_px": 4.0,
+        "mirror": False,
+        "crop_side": 0,
+        "centre_xy": (width / 2.0, height / 2.0),
+    }
 def load_geometry_npz(path: Path) -> dict[str, Any]:
     """读几何标定 npz, 给出各向同性远场标度 ``k_mean`` 与标定的相机中心。
 

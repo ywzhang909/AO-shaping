@@ -49,6 +49,7 @@
 from __future__ import annotations
 
 import argparse
+from functools import partial
 import json
 import os
 import sys
@@ -80,6 +81,8 @@ from _hw_fidelity_ladder_sections import (
     clock,
     sha256_file,
 )
+
+from scripts._common import fmt_general
 
 # ---------------------------------------------------------------------------
 # 退出码 (与 hw_differentiable_phase_opt.py L190-197 同口径)
@@ -126,17 +129,10 @@ REPORT_ARTIFACT_FILES = (
 )
 
 
-def _fmt(v: Any, spec: str = ".3f") -> str:
-    """日志用的小数格式化 (None / 非有限 → 占位)。"""
-    if v is None:
-        return "—"
-    try:
-        f = float(v)
-    except (TypeError, ValueError):
-        return str(v)
-    if not np.isfinite(f):
-        return "nan"
-    return format(f, spec)
+# R-25 反漂移 (issue #205 第 132 批): 本地 _fmt 收口进 scripts/_common 规范
+# formatter。逐字口径 = fmt_general(missing_none="—", missing_nonfinite="nan"):
+# None→"—", NaN/±inf→"nan", 非数值→str(v), 其余 format(f, spec)。
+_fmt = partial(fmt_general, spec=".3f", missing_none="—", missing_nonfinite="nan")
 
 
 # ---------------------------------------------------------------------------
@@ -704,7 +700,15 @@ def finalize_outputs(
 def run_dry_run(args: argparse.Namespace, opt: Any, ladder: Ladder, out_dir: Path) -> int:
     """离线演练: 合成相位 + 替身/合成实测帧 → 完整 metrics/figures 流水线。"""
     standin_dir = Path(args.standin_dir)
-    geometry = sec.load_geometry_npz(Path(args.geometry_npz))
+    geom_path = Path(args.geometry_npz)
+    if geom_path.is_file():
+        geometry = sec.load_geometry_npz(geom_path)
+        geometry_source = f"存档 {args.geometry_npz} (dry-run)"
+    else:
+        # 离线自包含: 无标定 npz 时用合成几何 (与合成帧同一摆放口径)。
+        geometry = sec.synthetic_geometry(SYNTH_FRAME_SHAPE)
+        geometry_source = "dry-run 合成几何 (标定 npz 缺失)"
+        logger.warning("dry-run: 几何标定 npz 不存在 ({}), 使用合成几何", geom_path)
     k_mean = float(geometry["k_mean"])
     rebuild_target(ladder, args, k_mean)
 
@@ -723,7 +727,7 @@ def run_dry_run(args: argparse.Namespace, opt: Any, ladder: Ladder, out_dir: Pat
         (out_dir / sub).mkdir(parents=True, exist_ok=True)
 
     geometry_payload = dict(geometry)
-    geometry_payload["source"] = f"存档 {args.geometry_npz} (dry-run)"
+    geometry_payload["source"] = geometry_source
     geometry_payload["measured_this_run"] = False
     plan = build_plan(
         args,

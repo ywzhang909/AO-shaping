@@ -50,6 +50,7 @@ import hashlib
 import importlib.util
 import json
 import math
+from functools import partial
 import sys
 import time
 from datetime import datetime, timezone
@@ -74,6 +75,7 @@ from scipy.ndimage import zoom as _ndi_zoom
 
 from ao_shaping.utils.image.frame_analysis import measure_spot
 from scripts._common.plot_style import setup_cjk_font
+from scripts._common import fmt_spec_or_text
 
 # ---------------------------------------------------------------------------
 # 常量
@@ -1589,14 +1591,9 @@ def json_safe(value: Any) -> Any:
     return value
 
 
-def _fmt(value: Any, spec: str = ".4g", missing: str = "n/a") -> str:
-    if value is None:
-        return missing
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        if not math.isfinite(float(value)):
-            return missing
-        return format(float(value), spec)
-    return str(value)
+# R-25 反漂移 (issue #205 第 132 批): 本地 _fmt 收口为规范 formatter 的直接别名
+# (66 输入电池逐字节全等; 守卫只查顶层 def, 别名不重复实现)。
+_fmt = fmt_spec_or_text
 
 
 def _table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:

@@ -237,6 +237,45 @@ def fmt_num_or_dash(v: Any, digits: int = 4, dash: str = "—") -> str:
         return dash
 
 
+def fmt_g_or_dash(v: Any, digits: int = 4, dash: str = "—") -> str:
+    """Significant-digit ``g`` formatting; ``dash`` for unparseable or non-finite.
+
+    The ``analyze_fwdmodel_fit_20261117.py`` formatter (R-25 lane, issue #205
+    batch 132). Distinct from :func:`fmt_sigfig` (which applies
+    ``math.isinf`` to the raw value and raises on non-numeric input) and from :func:`fmt_general` (whose
+    unparseable path returns ``str(v)``): this one float-coerces first and the
+    em dash doubles as the unparseable sentinel. Byte-for-byte port of the
+    retired local copy; 120-input battery proof in the batch-132 ledger entry.
+    """
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return dash
+    return f"{f:.{digits}g}" if np.isfinite(f) else dash
+
+
+def fmt_spec_or_text(v: Any, spec: str = ".4g", missing: str = "n/a") -> str:
+    """``format(float(v), spec)`` for plain int/float (bool excluded); ``str(v)`` else.
+
+    ``None`` and non-finite numbers render as ``missing``. The
+    ``analyze_model_hw_fidelity.py`` formatter (R-25 lane, issue #205 batch 132).
+    Kept separate from :func:`fmt_general` because its numeric gate is
+    ``isinstance(v, (int, float)) and not isinstance(v, bool)``: bool and
+    ``np.float32`` (not a ``float`` subclass) fall through to ``str(v)``, while a
+    plain ``int`` still goes through the spec -- :func:`fmt_general`'s flag
+    combinations reproduce none of that for every input in the probe battery
+    (float_only sends ints to ``str``, killing ``.4f`` cells; without it bools
+    print ``1``). 66-input battery proof in the batch-132 TODO.md ledger entry.
+    """
+    if v is None:
+        return missing
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        if not math.isfinite(float(v)):
+            return missing
+        return format(float(v), spec)
+    return str(v)
+
+
 # ---------------------------------------------------------------------------
 # Convergence-curve helpers
 # ---------------------------------------------------------------------------
