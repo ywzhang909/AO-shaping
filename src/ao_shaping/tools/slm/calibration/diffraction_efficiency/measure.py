@@ -62,6 +62,10 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.tools.kernels.bench_kernels import fresnel_panel, measure_spot
+from ao_shaping.tools.slm.calibration.diffraction_efficiency.calibration_access import (
+    _k_scale,
+    _load_calibration,
+)
 from ao_shaping.tools.slm.calibration.diffraction_efficiency.core import (
     BlazeSpec,
     PhaseResponseFit,
@@ -102,9 +106,6 @@ DEFAULT_FOCUS_FWHM_MAX_PX: float = 40.0
 
 #: 零级峰值占满量程的比例上限 (超过即过曝, 效率会被严重低估)。
 SATURATION_WARN_FRACTION: float = 0.8
-
-#: 光路标定里必须存在的键 (缺一即拒绝继续)。
-REQUIRED_CALIBRATION_KEYS: tuple[str, ...] = ("center", "Kx", "Ky")
 
 
 class FocusRefusedError(RuntimeError):
@@ -262,35 +263,6 @@ class MeasurementResult:
 # ---------------------------------------------------------------------------
 
 
-def _load_calibration(path: Path) -> dict[str, Any]:
-    """读取光路标定 ``.npz``, 校验必需键。
-
-    Args:
-        path: 标定文件路径。
-
-    Returns:
-        ``{键: 数组}``。
-
-    Raises:
-        RuntimeError: 文件不存在或缺少 ``center``/``Kx``/``Ky``。
-    """
-    path = Path(path)
-    if not path.is_file():
-        raise RuntimeError(
-            f"光路标定文件不存在: {path}。"
-            "请先运行 `python -m ao_shaping.tools.slm.calibration` 生成光路标定 (.npz)。"
-        )
-    with np.load(path, allow_pickle=True) as data:
-        calib: dict[str, Any] = {key: np.asarray(data[key]) for key in data.files}
-    missing = [key for key in REQUIRED_CALIBRATION_KEYS if key not in calib]
-    if missing:
-        raise RuntimeError(
-            f"光路标定 {path} 缺少必需键 {missing} (需要 center/Kx/Ky)。"
-            "请先运行 `python -m ao_shaping.tools.slm.calibration` 重新生成光路标定。"
-        )
-    return calib
-
-
 def _calib_center(calib: dict[str, Any]) -> tuple[float, float]:
     """从标定里取零级中心 ``(cy, cx)`` (CCD 像素)。
 
@@ -300,15 +272,6 @@ def _calib_center(calib: dict[str, Any]) -> tuple[float, float]:
     if center.size < 2:
         raise RuntimeError(f"光路标定的 center 形状异常: {calib['center']!r}")
     return float(center[0]), float(center[1])
-
-
-def _k_scale(calib: dict[str, Any], axis: str) -> float:
-    """取该光栅方向的放大系数 (CCD 像素 / 面板像元)。"""
-    key = "Ky" if str(axis).strip().lower() == "y" else "Kx"
-    value = float(np.asarray(calib[key], dtype=np.float64).ravel()[0])
-    if value <= 0.0:
-        raise RuntimeError(f"光路标定的 {key} 非正 ({value}), 几何标定无效")
-    return value
 
 
 # ---------------------------------------------------------------------------
