@@ -16,7 +16,6 @@ import sys
 import threading
 import time
 import types
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
 import numpy as np
@@ -46,6 +45,11 @@ from scipy.optimize import curve_fit
 
 from ao_shaping.drivers.ccd.daheng import DahengCamera
 from ao_shaping.utils.image.spots_calc import centroid
+from ao_shaping.gui.ccd.mjpeg_streamer import (
+    _MJPEGHandler as _MJPEGHandler,
+    _MJPEGStreamer,
+    _encode_jpeg as _encode_jpeg,
+)
 
 # ── Camera type import (optional) ────────────────────────────────────────────
 try:
@@ -58,7 +62,6 @@ except Exception:
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 _REFRESH_INTERVAL = 0.08  # seconds – UI rerun cadence while capture loop runs
-_MJPEG_PORT = 0  # 0 = auto-assign available port
 
 
 # =============================================================================
@@ -66,140 +69,8 @@ _MJPEG_PORT = 0  # 0 = auto-assign available port
 # =============================================================================
 
 
-class _MJPEGHandler(BaseHTTPRequestHandler):
-    """HTTP handler that serves MJPEG frames from a shared queue."""
-
-    streamer: "_MJPEGStreamer | None" = None
-
-    def do_GET(self) -> None:
-        if self.path != "/video_feed":
-            self.send_error(404)
-            return
-        if _MJPEGHandler.streamer is None:
-            self.send_error(503)
-            return
-
-        self.send_response(200)
-        self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
-        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
-        self.send_header("Pragma", "no-cache")
-        self.send_header("Expires", "0")
-        self.end_headers()
-
-        try:
-            while not _MJPEGHandler.streamer.stop_event.is_set():
-                frame = _MJPEGHandler.streamer.frame_queue.get(timeout=1.0)
-                if frame is None:
-                    continue
-                jpeg = _encode_jpeg(frame)
-                if jpeg is None:
-                    continue
-                self.wfile.write(b"--frame\r\n")
-                self.wfile.write("Content-Type: image/jpeg\r\n".encode())
-                self.wfile.write(f"Content-Length: {len(jpeg)}\r\n".encode())
-                self.wfile.write(b"\r\n")
-                self.wfile.write(jpeg)
-                self.wfile.write(b"\r\n")
-        except (BrokenPipeError, ConnectionResetError):
-            pass
-        # policy: an HTTP handler thread must not die over a vanished client or a partial write (the browser reconnects); broken pipe and reset are matched above, this covers the rest
-        except Exception:
-            pass
-
-    def log_message(self, format, *args):
-        pass  # suppress server logs
-
-
-class _MJPEGStreamer:
-    """Lightweight MJPEG streaming server for low-latency live preview."""
-
-    def __init__(self) -> None:
-        self.frame_queue: queue.Queue[Any] = queue.Queue(maxsize=2)
-        self.stop_event = threading.Event()
-        self._server: HTTPServer | None = None
-        self._thread: threading.Thread | None = None
-        self._port: int | None = None
-
-    def start(self) -> int:
-        """Start the MJPEG server. Returns the assigned port."""
-        _MJPEGHandler.streamer = self
-        self._server = HTTPServer(("127.0.0.1", _MJPEG_PORT), _MJPEGHandler)
-        self._port = self._server.server_address[1]
-        self._thread = threading.Thread(target=self._serve, daemon=True)
-        self._thread.start()
-        logger.info("MJPEG streamer started on port {}", self._port)
-        return self._port
-
-    def stop(self) -> None:
-        """Stop the MJPEG server."""
-        self.stop_event.set()
-        if self._server:
-            try:
-                self._server.shutdown()
-            # policy: teardown is best effort (the socket may already be closed); raising out of stop() would leave the streamer thread unreaped
-            except Exception:
-                pass
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=1.0)
-        _MJPEGHandler.streamer = None
-        logger.info("MJPEG streamer stopped")
-
-    def put_frame(self, frame: np.ndarray | None) -> None:
-        """Push a new frame to the stream (non-blocking, drops oldest)."""
-        if frame is None:
-            return
-        if self.frame_queue.full():
-            try:
-                self.frame_queue.get_nowait()
-            except queue.Empty:
-                pass
-        try:
-            self.frame_queue.put(frame, block=False)
-        except queue.Full:
-            pass
-
-    def _serve(self) -> None:
-        if self._server:
-            self._server.serve_forever(poll_interval=0.05)
-
-
 _mjpeg_streamer: _MJPEGStreamer | None = None
 _mjpeg_port: int | None = None
-
-
-def _encode_jpeg(img: np.ndarray) -> bytes | None:
-    """Encode a grayscale or RGB image to JPEG bytes."""
-    try:
-        import cv2  # type: ignore[import-untyped]
-
-        if img.ndim == 2:
-            success, encoded = cv2.imencode(
-                ".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 80]
-            )
-        else:
-            success, encoded = cv2.imencode(
-                ".jpg",
-                cv2.cvtColor(img, cv2.COLOR_RGB2BGR),
-                [int(cv2.IMWRITE_JPEG_QUALITY), 80],
-            )
-        if success:
-            return encoded.tobytes()
-    # policy: first of two encoders: on failure fall through to the Pillow path below instead of reporting an error
-    except Exception:
-        pass
-
-    # Fallback: use PIL
-    try:
-        if img.ndim == 2:
-            pil_img = Image.fromarray(img)
-        else:
-            pil_img = Image.fromarray(img)
-        buf = BytesIO()
-        pil_img.save(buf, format="JPEG", quality=80)
-        return buf.getvalue()
-    # policy: preview encoding is best effort -- the MJPEG handler skips the frame when this returns None
-    except Exception:
-        return None
 
 
 def _start_mjpeg_streamer() -> int:
@@ -295,8 +166,8 @@ def _camera_capture_tick(
     except Exception as exc:
         try:
             raw_frame_queue.put(("error", str(exc)), block=False)
-        # policy: the error report itself must never be what kills the capture thread -- a dropped write costs one message, not the loop
-        except Exception:
+        # policy: the error report itself must never be what kills the capture thread -- a dropped write costs one message, not the loop; with block=False, put() can only raise queue.Full
+        except queue.Full:
             pass
 
 
@@ -322,8 +193,8 @@ def _run_capture_loop(
     except Exception as exc:
         try:
             raw_frame_queue.put(("error", f"Capture loop crashed: {exc}"), block=False)
-        # policy: same as the per-tick report: reporting a crash may not raise
-        except Exception:
+        # policy: same as the per-tick report: reporting a crash may not raise (block=False, so put() can only raise queue.Full)
+        except queue.Full:
             pass
     finally:
         stop_event.set()
