@@ -284,6 +284,93 @@ def drift_floor_at_exposure(
     return flat_to_flat_floor(frames)
 
 
+
+def _dense_build_summary(delta_rad, exposure_ms, floor, grid, n_patterns, pairs, rows, seed, shape):
+# Sweep summary assembly lifted verbatim
+    snrs = [float(row["snr"]) for row in rows]
+    responses = [float(row["response"]) for row in rows]
+    median_snr = float(np.median(snrs))
+    snr_class = snr_verdict(median_snr)
+    n_exceeding = int(sum(1 for value in snrs if value >= SNR_USABLE))
+
+    summary: dict[str, Any] = {
+        "drift_floor": float(floor),
+        "median_response": float(np.median(responses)),
+        "min_response": float(np.min(responses)),
+        "median_snr": median_snr,
+        "min_snr": float(np.min(snrs)),
+        "n_patterns": int(n_patterns),
+        "pairs": int(pairs),
+        "n_exceeding": n_exceeding,
+        "exceeding_fraction": float(n_exceeding) / float(len(rows)),
+        "verdict": "usable" if snr_class in ("strong", "usable") else "unusable",
+        "snr_class": snr_class,
+        "snr_strong": float(SNR_STRONG),
+        "snr_usable": float(SNR_USABLE),
+        "delta_rad": float(delta_rad),
+        "grid": int(grid),
+        "n_dof": int(grid) * int(grid),
+        "panel_shape": np.asarray(shape, dtype=np.int64),
+        "exposure_ms": float(exposure_ms),
+        "seed": int(seed),
+    }
+    return summary
+
+
+
+
+def _dense_pattern_probe_loop(capture, delta_rad, denominator, display_pattern, exposure_ms, flat_phase, flat_ref, floor, grid, n_patterns, on_pattern, pairs, rng, rows, shape):
+# Per-pattern response probe loop lifted verbatim
+    for index in range(n_patterns):
+        coefficients = rng.uniform(-1.0, 1.0, size=int(grid) * int(grid))
+        base = build_block_pattern(coefficients, grid, shape)
+
+        # Last score call of a `+ - - +` palindrome is the trailing `+`, so this
+        # ends up holding a positively-perturbed frame -- deterministic, and the
+        # representative one for the pattern's statistics.
+        latest: dict[str, Any] = {"img": None, "peak": 0.0, "sum": 0.0, "norm": 0.0}
+
+        # `_latest` binds the per-iteration dict at definition time. `score` is
+        # only ever called synchronously inside `abba_signal`, so this is not a
+        # late-binding bug today -- but the closure outliving the loop body is
+        # exactly what B023 guards, and the default keeps that guard honest
+        # without changing which dict the mutations land in (same object).
+        def score(_latest: dict[str, Any] = latest) -> float:
+            frame = np.asarray(capture(), dtype=np.float64)
+            _latest["img"] = frame
+            _latest["peak"] = float(frame.max())
+            _latest["sum"] = float(frame.sum())
+            _latest["norm"] = roi_l2(frame, flat_ref)
+            return float(_latest["norm"])
+
+        response = abba_signal(
+            score,
+            lambda amplitude, _base=base: display_pattern(amplitude * _base),
+            lambda: display_pattern(flat_phase),
+            float(delta_rad),
+            pairs=int(pairs),
+        )
+
+        rows.append(
+            {
+                "peak": float(latest["peak"]),
+                "sum": float(latest["sum"]),
+                "norm": float(latest["norm"]),
+                "response": float(response),
+                "floor": float(floor),
+                "snr": float(response) / denominator,
+                "pattern": int(index),
+                "pair": int(pairs),
+                "exposure_ms": float(exposure_ms),
+                RECORD_IMAGE: latest["img"],
+                RECORD_EPOCH: int(index),
+            }
+        )
+        if on_pattern is not None:
+            on_pattern(rows[-1])
+
+
+
 def dense_abba_sweep(
     capture: Callable[[], np.ndarray],
     display_pattern: Callable[[np.ndarray], None],
@@ -360,83 +447,11 @@ def dense_abba_sweep(
     rng = np.random.default_rng(seed)
     rows: list[dict[str, Any]] = []
 
-    for index in range(n_patterns):
-        coefficients = rng.uniform(-1.0, 1.0, size=int(grid) * int(grid))
-        base = build_block_pattern(coefficients, grid, shape)
-
-        # Last score call of a `+ - - +` palindrome is the trailing `+`, so this
-        # ends up holding a positively-perturbed frame -- deterministic, and the
-        # representative one for the pattern's statistics.
-        latest: dict[str, Any] = {"img": None, "peak": 0.0, "sum": 0.0, "norm": 0.0}
-
-        # `_latest` binds the per-iteration dict at definition time. `score` is
-        # only ever called synchronously inside `abba_signal`, so this is not a
-        # late-binding bug today -- but the closure outliving the loop body is
-        # exactly what B023 guards, and the default keeps that guard honest
-        # without changing which dict the mutations land in (same object).
-        def score(_latest: dict[str, Any] = latest) -> float:
-            frame = np.asarray(capture(), dtype=np.float64)
-            _latest["img"] = frame
-            _latest["peak"] = float(frame.max())
-            _latest["sum"] = float(frame.sum())
-            _latest["norm"] = roi_l2(frame, flat_ref)
-            return float(_latest["norm"])
-
-        response = abba_signal(
-            score,
-            lambda amplitude, _base=base: display_pattern(amplitude * _base),
-            lambda: display_pattern(flat_phase),
-            float(delta_rad),
-            pairs=int(pairs),
-        )
-
-        rows.append(
-            {
-                "peak": float(latest["peak"]),
-                "sum": float(latest["sum"]),
-                "norm": float(latest["norm"]),
-                "response": float(response),
-                "floor": float(floor),
-                "snr": float(response) / denominator,
-                "pattern": int(index),
-                "pair": int(pairs),
-                "exposure_ms": float(exposure_ms),
-                RECORD_IMAGE: latest["img"],
-                RECORD_EPOCH: int(index),
-            }
-        )
-        if on_pattern is not None:
-            on_pattern(rows[-1])
+    _dense_pattern_probe_loop(capture, delta_rad, denominator, display_pattern, exposure_ms, flat_phase, flat_ref, floor, grid, n_patterns, on_pattern, pairs, rng, rows, shape)
 
     display_pattern(flat_phase)  # leave the bench flat, not on a perturbation
 
-    snrs = [float(row["snr"]) for row in rows]
-    responses = [float(row["response"]) for row in rows]
-    median_snr = float(np.median(snrs))
-    snr_class = snr_verdict(median_snr)
-    n_exceeding = int(sum(1 for value in snrs if value >= SNR_USABLE))
-
-    summary: dict[str, Any] = {
-        "drift_floor": float(floor),
-        "median_response": float(np.median(responses)),
-        "min_response": float(np.min(responses)),
-        "median_snr": median_snr,
-        "min_snr": float(np.min(snrs)),
-        "n_patterns": int(n_patterns),
-        "pairs": int(pairs),
-        "n_exceeding": n_exceeding,
-        "exceeding_fraction": float(n_exceeding) / float(len(rows)),
-        "verdict": "usable" if snr_class in ("strong", "usable") else "unusable",
-        "snr_class": snr_class,
-        "snr_strong": float(SNR_STRONG),
-        "snr_usable": float(SNR_USABLE),
-        "delta_rad": float(delta_rad),
-        "grid": int(grid),
-        "n_dof": int(grid) * int(grid),
-        "panel_shape": np.asarray(shape, dtype=np.int64),
-        "exposure_ms": float(exposure_ms),
-        "seed": int(seed),
-    }
+    summary = _dense_build_summary(delta_rad, exposure_ms, floor, grid, n_patterns, pairs, rows, seed, shape)
     return rows, summary
 
 

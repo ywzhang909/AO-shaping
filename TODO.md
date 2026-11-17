@@ -5640,6 +5640,11 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 新增 `_OBJ` 常量 + 三行; wiki 无该页引用 (conventions 绿)
 - 载体: algorithm target_func/gaussian_radius + utils loggrad/pearson/shaping_objective + wfless objectives_sim + 形状 + conventions 合计 **797 passed / 8 skipped**; ruff 全仓绿
 
+**2026-11-18 · aa3ad7b6 之后 · 第 157 批: `abba_probe.dense_abba_sweep` 154→82 行 (`tools/zernike/abba_probe.py`)**
+- 两区提取: `_dense_pattern_probe_loop` 49 (15 参数 0 回传, 逐 pattern 响应探针环; `capture_once` 闭包随环迁; 裸 return 剥离) + `_dense_build_summary` 30 (`summary` 单回传统计装配)
+- `_ABBA_PROBE` 追加三行 (90/2/82、55/3/49、34/1/30); wiki 无 dense 引用 (conventions 绿)
+- 载体: `test_slm_abba_probe` + 形状 + conventions **622 passed**; ruff/term/modsize 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
