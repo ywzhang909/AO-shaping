@@ -741,7 +741,7 @@ payload 的键:
 
 > 🔴 **不要为了让运行"过"而调低 `--min-geometry-correlation`。** 那个守卫存在的理由就是
 > 阻止运行提交一个**比平场更差**的相位 —— 几何不对时整形只会把光斑做坏
-> (`slm_model_in_loop.py:3203-3213` 的异常文案说的就是这件事，2026-11-01 复核)。调低它会把一次干净的拒绝换成
+> (`slm_model_in_loop.py:3211-3221` 的异常文案说的就是这件事，2026-11-01 复核；2026-11-17 跟进 da535a8c 第 119 批 `ModelInLoopConfig.__post_init__` lift 后 +8 重钉 3203-3213→3211-3221)。调低它会把一次干净的拒绝换成
 > 一次看起来成功、实际更差的运行。
 
 **dump 恰好就是这一情况的诊断工具**: 中止的运行照样把盘写出来, 于是
@@ -749,9 +749,9 @@ payload 的键:
 
 | 终止状态 | 触发点 | dump 里的 stage 组成 |
 |---|---|---|
-| `aborted_unidentifiable` | 几何 对比择优 相关度不达标(`slm_model_in_loop.py:3203-3213` 抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:275-291`（2026-11-14 跟进 04ff4d2b 第 82 批 `run` 拆 `_milr_echo_*` helper 后重钉，187-203→275-291）) | **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |
-| `aborted_unidentifiable` | **验证集**相关性不达标(`slm_model_in_loop.py:4056-4078`，2026-11-02 第二十四批整轮循环迁入 `_run_model_in_loop_rounds`、2026-11-11 第五十四批 `_run_model_in_loop_rounds` 一轮三缝后重钉、2026-11-12 第五十五批整 Try 体三缝后重钉、2026-11-12 第五十七批单 For 体五缝后重钉、2026-11-13 第八十三批两缝（`_milr_round_probe_setup`/`_milr_round_score_after` 提至函数上方，该块 4035-4057→4056-4078）后重钉，原 `:3827-3849`) | `stepA-probe` 在, `stepB-shaped` **不在** |
-| `aborted_rejection_streak` | 连续 reject 达 `--max-rejection-streak` (`slm_model_in_loop.py:4131-4139`，2026-11-02 第二十四批迁入 `_run_model_in_loop_rounds`、2026-11-11 第五十四批一轮三缝后重钉、2026-11-12 第五十五批整 Try 体三缝后重钉、2026-11-12 第五十七批单 For 体五缝后重钉、2026-11-13 第八十三批两缝（同上，该块 4115-4123→4131-4139）后重钉，原 `:4075-4083` → `model_in_loop_runner.py:128-134`（2026-11-14 跟进 04ff4d2b 第 82 批 `run` 拆 `_milr_echo_summary_and_save` helper 后重钉，原 269-275） 退出 `2`) | `stepA-probe` / `stepB-shaped` **都在**, 一直到最后被 reject 的那一轮 |
+| `aborted_unidentifiable` | 几何 对比择优 相关度不达标(`slm_model_in_loop.py:3211-3221` 抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:275-291`（2026-11-14 跟进 04ff4d2b 第 82 批 `run` 拆 `_milr_echo_*` helper 后重钉，187-203→275-291；2026-11-17 跟进 da535a8c 第 119 批 `__post_init__` lift 后 +8 重钉 3203-3213→3211-3221）) | **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |
+| `aborted_unidentifiable` | **验证集**相关性不达标(`slm_model_in_loop.py:4064-4086`，2026-11-02 第二十四批整轮循环迁入 `_run_model_in_loop_rounds`、2026-11-11 第五十四批 `_run_model_in_loop_rounds` 一轮三缝后重钉、2026-11-12 第五十五批整 Try 体三缝后重钉、2026-11-12 第五十七批单 For 体五缝后重钉、2026-11-13 第八十三批两缝（`_milr_round_probe_setup`/`_milr_round_score_after` 提至函数上方，该块 4035-4057→4056-4078）后重钉、2026-11-17 跟进 da535a8c 第 119 批 `__post_init__` lift 后 +8 重钉 4056-4078→4064-4086，原 `:3827-3849`) | `stepA-probe` 在, `stepB-shaped` **不在** |
+| `aborted_rejection_streak` | 连续 reject 达 `--max-rejection-streak` (`slm_model_in_loop.py:4139-4147`，2026-11-02 第二十四批迁入 `_run_model_in_loop_rounds`、2026-11-11 第五十四批一轮三缝后重钉、2026-11-12 第五十五批整 Try 体三缝后重钉、2026-11-12 第五十七批单 For 体五缝后重钉、2026-11-13 第八十三批两缝（同上，该块 4115-4123→4131-4139）后重钉、2026-11-17 跟进 da535a8c 第 119 批 `__post_init__` lift 后 +8 重钉 4131-4139→4139-4147，原 `:4075-4083` → `model_in_loop_runner.py:128-134`（2026-11-14 跟进 04ff4d2b 第 82 批 `run` 拆 `_milr_echo_summary_and_save` helper 后重钉，原 269-275） 退出 `2`) | `stepA-probe` / `stepB-shaped` **都在**, 一直到最后被 reject 的那一轮 |
 
 **先看 stage 列表, 再看数字** —— 几何失败、验证集失败和持续 reject 要走的路完全不同。
 
