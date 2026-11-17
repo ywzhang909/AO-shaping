@@ -485,6 +485,135 @@ def _plan_lines(params: AbbaProbeParams) -> list[str]:
     ]
 
 
+
+
+def _abba_write_summary(bracket_info, center, drift_series, half, out_dir, params, records_path, rows, summary):
+# Summary persistence lifted verbatim
+    summary["drift_series"] = np.asarray(drift_series, dtype=np.float64)
+    summary["bracket_peaks"] = np.asarray(
+        bracket_info.get("peaks", []), dtype=np.float64
+    )
+    summary["bracket_ladder"] = np.asarray(
+        bracket_info.get("ladder", []), dtype=np.float64
+    )
+    summary["all_saturated"] = bool(bracket_info.get("all_saturated", False))
+    summary["roi_center"] = np.asarray(center, dtype=np.int64)
+    summary["roi_half"] = int(half)
+    summary["saturation_level"] = float(params.saturation_level)
+    summary["saturation_max_peak"] = float(params.saturation_max_peak)
+
+    save_abba_records_pkl(records_path, rows)
+    summary_path = save_abba_summary_npz(out_dir / "abba_summary.npz", summary)
+
+    logger.info(
+        "判定 {} (median snr {:.3g}, 阈值 usable>={} strong>={}; "
+        "{}/{} 图案达标)",
+        summary["verdict"], summary["median_snr"], SNR_USABLE, SNR_STRONG,
+        summary["n_exceeding"], summary["n_patterns"],
+    )
+    return summary_path
+
+
+
+
+def _abba_build_rows(checkpoint, display_pattern, exposure_ms, floor, params, roi_capture, shape):
+# Probe row and summary assembly lifted verbatim
+    rows, summary = dense_abba_sweep(
+        roi_capture,
+        display_pattern,
+        n_patterns=params.n_patterns,
+        pairs=params.pairs,
+        delta_rad=params.delta_rad,
+        grid=params.grid,
+        panel_shape=shape,
+        floor=floor,
+        seed=params.seed,
+        exposure_ms=exposure_ms,
+        on_pattern=checkpoint,
+    )
+    return rows, summary
+
+
+
+
+def _abba_probe_wiring(cam, capture, display_pattern, flat_phase, out_dir, params):
+# Probe roi checkpoint wiring lifted verbatim
+    cam.reset_exposure_time(float(params.exposure_ms))
+    if params.rebracket_exposure:
+        exposure_ms, bracket_info = rebracket_exposure(
+            capture,
+            lambda ms: cam.reset_exposure_time(ms),
+            _parse_floats(params.exposure_ladder),
+            saturation_level=params.saturation_max_peak,
+        )
+    else:
+        exposure_ms, bracket_info = float(params.exposure_ms), {}
+    cam.reset_exposure_time(exposure_ms)
+    logger.info(
+        "曝光 {} ms (峰值 {})", exposure_ms,
+        bracket_info.get("chosen_peak", float("nan")),
+    )
+
+    # Anchor the ROI once on the flat state, then freeze it. Re-locating by
+    # argmax per iteration would roll the box between speckle grains under a
+    # ~1e-3 perturbation and make the objective discontinuous.
+    display_pattern(flat_phase)
+    probe = np.asarray(capture(), dtype=np.float64)
+    cx, cy = zero_order_center(probe)
+    center = (int(cx), int(cy))
+    half = int(params.roi) // 2
+    logger.info("ROI 中心 {} half={}", center, half)
+
+    def roi_capture() -> np.ndarray:
+        return prepare_roi_frame(capture(), center, half)
+
+    floor, drift_series = drift_floor_at_exposure(
+        roi_capture, params.drift_frames
+    )
+    logger.info(
+        "漂移地板 {:.4g} ({} 次连续差: [{}])",
+        floor, len(drift_series),
+        ", ".join(f"{v:.3g}" for v in drift_series),
+    )
+
+    records_path = out_dir / "abba_records.pkl"
+    rows: list[dict[str, Any]] = []
+
+    def checkpoint(row: dict[str, Any]) -> None:
+        rows.append(row)
+        save_abba_records_pkl(records_path, rows)
+        logger.info(
+            "  pattern {}/{}  response {:.4g}  snr {:.3g}  (已存 {})",
+            row["pattern"] + 1, params.n_patterns, row["response"], row["snr"],
+            records_path.name,
+        )
+    return bracket_info, center, checkpoint, drift_series, exposure_ms, floor, half, records_path, roi_capture
+
+
+
+
+def _abba_display_capture(cam, current, params, slm):
+# Pattern display and capture closures lifted verbatim
+    def display_pattern(phase: np.ndarray) -> None:
+        # No ``memory_number``: re-displaying the slot already on the panel
+        # is a firmware no-op and the LCOS never refreshes. ``display_data``
+        # rotates all 127 slots itself.
+        current["phase"] = np.asarray(phase, dtype=np.float64)
+        slm.display_data(phase_to_slm_grayscale(current["phase"], slm=slm))
+
+    def capture() -> np.ndarray:
+        # ``capture_settled`` re-shows the phase currently held by
+        # ``current`` and returns an averaged frame once two consecutive
+        # readings agree -- the discipline a single-shot read would skip.
+        return capture_settled(
+            cam, slm, current["phase"],
+            n_frames=params.frames, n_discard=params.discard,
+            wait_time_s=params.settle_s, stable_tol=params.stable_tol,
+            max_wait_s=params.max_wait_s,
+        )
+    return capture, display_pattern
+
+
 @click.command()
 @with_params(AbbaProbeParams, kw_name="params")
 def main(params: AbbaProbeParams) -> None:
@@ -540,110 +669,13 @@ def main(params: AbbaProbeParams) -> None:
         params.cam_type, params.cam_id, exposure_time_ms=params.exposure_ms
     ) as cam:
 
-        def display_pattern(phase: np.ndarray) -> None:
-            # No ``memory_number``: re-displaying the slot already on the panel
-            # is a firmware no-op and the LCOS never refreshes. ``display_data``
-            # rotates all 127 slots itself.
-            current["phase"] = np.asarray(phase, dtype=np.float64)
-            slm.display_data(phase_to_slm_grayscale(current["phase"], slm=slm))
+        capture, display_pattern = _abba_display_capture(cam, current, params, slm)
 
-        def capture() -> np.ndarray:
-            # ``capture_settled`` re-shows the phase currently held by
-            # ``current`` and returns an averaged frame once two consecutive
-            # readings agree -- the discipline a single-shot read would skip.
-            return capture_settled(
-                cam, slm, current["phase"],
-                n_frames=params.frames, n_discard=params.discard,
-                wait_time_s=params.settle_s, stable_tol=params.stable_tol,
-                max_wait_s=params.max_wait_s,
-            )
+        bracket_info, center, checkpoint, drift_series, exposure_ms, floor, half, records_path, roi_capture = _abba_probe_wiring(cam, capture, display_pattern, flat_phase, out_dir, params)
 
-        cam.reset_exposure_time(float(params.exposure_ms))
-        if params.rebracket_exposure:
-            exposure_ms, bracket_info = rebracket_exposure(
-                capture,
-                lambda ms: cam.reset_exposure_time(ms),
-                _parse_floats(params.exposure_ladder),
-                saturation_level=params.saturation_max_peak,
-            )
-        else:
-            exposure_ms, bracket_info = float(params.exposure_ms), {}
-        cam.reset_exposure_time(exposure_ms)
-        logger.info(
-            "曝光 {} ms (峰值 {})", exposure_ms,
-            bracket_info.get("chosen_peak", float("nan")),
-        )
+        rows, summary = _abba_build_rows(checkpoint, display_pattern, exposure_ms, floor, params, roi_capture, shape)
 
-        # Anchor the ROI once on the flat state, then freeze it. Re-locating by
-        # argmax per iteration would roll the box between speckle grains under a
-        # ~1e-3 perturbation and make the objective discontinuous.
-        display_pattern(flat_phase)
-        probe = np.asarray(capture(), dtype=np.float64)
-        cx, cy = zero_order_center(probe)
-        center = (int(cx), int(cy))
-        half = int(params.roi) // 2
-        logger.info("ROI 中心 {} half={}", center, half)
-
-        def roi_capture() -> np.ndarray:
-            return prepare_roi_frame(capture(), center, half)
-
-        floor, drift_series = drift_floor_at_exposure(
-            roi_capture, params.drift_frames
-        )
-        logger.info(
-            "漂移地板 {:.4g} ({} 次连续差: [{}])",
-            floor, len(drift_series),
-            ", ".join(f"{v:.3g}" for v in drift_series),
-        )
-
-        records_path = out_dir / "abba_records.pkl"
-        rows: list[dict[str, Any]] = []
-
-        def checkpoint(row: dict[str, Any]) -> None:
-            rows.append(row)
-            save_abba_records_pkl(records_path, rows)
-            logger.info(
-                "  pattern {}/{}  response {:.4g}  snr {:.3g}  (已存 {})",
-                row["pattern"] + 1, params.n_patterns, row["response"], row["snr"],
-                records_path.name,
-            )
-
-        rows, summary = dense_abba_sweep(
-            roi_capture,
-            display_pattern,
-            n_patterns=params.n_patterns,
-            pairs=params.pairs,
-            delta_rad=params.delta_rad,
-            grid=params.grid,
-            panel_shape=shape,
-            floor=floor,
-            seed=params.seed,
-            exposure_ms=exposure_ms,
-            on_pattern=checkpoint,
-        )
-
-    summary["drift_series"] = np.asarray(drift_series, dtype=np.float64)
-    summary["bracket_peaks"] = np.asarray(
-        bracket_info.get("peaks", []), dtype=np.float64
-    )
-    summary["bracket_ladder"] = np.asarray(
-        bracket_info.get("ladder", []), dtype=np.float64
-    )
-    summary["all_saturated"] = bool(bracket_info.get("all_saturated", False))
-    summary["roi_center"] = np.asarray(center, dtype=np.int64)
-    summary["roi_half"] = int(half)
-    summary["saturation_level"] = float(params.saturation_level)
-    summary["saturation_max_peak"] = float(params.saturation_max_peak)
-
-    save_abba_records_pkl(records_path, rows)
-    summary_path = save_abba_summary_npz(out_dir / "abba_summary.npz", summary)
-
-    logger.info(
-        "判定 {} (median snr {:.3g}, 阈值 usable>={} strong>={}; "
-        "{}/{} 图案达标)",
-        summary["verdict"], summary["median_snr"], SNR_USABLE, SNR_STRONG,
-        summary["n_exceeding"], summary["n_patterns"],
-    )
+    summary_path = _abba_write_summary(bracket_info, center, drift_series, half, out_dir, params, records_path, rows, summary)
     if summary["verdict"] == "unusable":
         logger.warning(
             "密集随机相位响应淹没在漂移里: 该实验系统当前 delta={} rad 不足以支撑"

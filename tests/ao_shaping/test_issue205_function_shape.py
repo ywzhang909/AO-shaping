@@ -107,6 +107,7 @@ _FLOOR_PROBE = "src/ao_shaping/tools/ccd/floor_probe.py"
 _GS_REFINE = "src/ao_shaping/optimizer/wfless/slm_gs_refine.py"
 _RMS_DM = "src/ao_shaping/optimizer/wf/rms.py"
 _CLOSED_LOOP = "src/ao_shaping/optimizer/wf/closed_loop.py"
+_ABBA_PROBE = "src/ao_shaping/tools/zernike/abba_probe.py"
 _PROBE_ACTIVE = "src/ml/sim2f/probe_active.py"
 _SIM_SPGD = "src/ao_shaping/optimizer/wfless/sim_spgd.py"
 _SAC_TRAIN = "src/ao_shaping/optimizer/rl/sac_train.py"
@@ -605,6 +606,11 @@ TARGETS = [
     (_RMS_DM, "_rms_dm_epoch_loop", 70, 3, 62),
     (_CLOSED_LOOP, "run", 92, 2, 83),
     (_CLOSED_LOOP, "_closed_loop_control_iter", 82, 4, 74),
+    (_ABBA_PROBE, "main", 78, 3, 67),
+    (_ABBA_PROBE, "_abba_display_capture", 24, 1, 20),
+    (_ABBA_PROBE, "_abba_probe_wiring", 58, 2, 52),
+    (_ABBA_PROBE, "_abba_build_rows", 20, 1, 16),
+    (_ABBA_PROBE, "_abba_write_summary", 29, 1, 25),
     (_CALIBRATION, "main_shift_calib", 118, 3, 105),
     (_CALIBRATION, "_shift_eval_closures", 40, 3, 36),
     (_CALIBRATION, "_shift_axis_refine", 39, 3, 35),

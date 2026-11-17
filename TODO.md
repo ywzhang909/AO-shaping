@@ -5618,6 +5618,11 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 新增 `_CLOSED_LOOP` 常量 + 两行 (92/2/83、82/4/74); run def 116→194, 无 wiki 引用该页, conventions 无漂移
 - 载体: **wf 域 + 形状 665 passed**; ruff 全仓绿; term 0; modsize 绿
 
+**2026-11-18 · 21fa1a75 之后 · 第 153 批: `abba_probe.main` 164→67 行 (`tools/zernike/abba_probe.py`)**
+- 提取四区 (全部闭包工厂形态回传, 0 risk): `_abba_display_capture` 20 (`capture`/`display_pattern` 两闭包) / `_abba_probe_wiring` 52 (9 回传, ROI 探针/检查点装配含 `roi_capture`/`checkpoint` 闭包) / `_abba_build_rows` 16 / `_abba_write_summary` 25
+- 新增 `_ABBA_PROBE` 常量 + 五行; conventions 72 passed (无 wiki 引用漂移)
+- 载体: `test_slm_abba_probe` + 形状 + conventions 合计 **612 passed**; ruff/term/modsize 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
