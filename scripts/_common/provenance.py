@@ -2585,6 +2585,24 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         extra_scripts=("scripts/_common/differentiable_problem.py",),
     ),
+    "report/slm/differentiable_opt/status_20261117.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件",
+        note=(
+            "跨系列现状总结 (Q1 模型-实测一致性 / Q2 学习率与调度 / 2π 相位标度 / "
+            "原点陈旧根因 / 拟合参数落地)。全部数字可追到 data/debug/differentiable_opt/ 与 "
+            "report/slm/differentiable_opt/artifacts/ 下的落盘产物; 核心新证据是阶梯"
+            "误用存档几何 (data/slm_geometry_calib.npz, center y=962.63) 与同一晚现场"
+            "标定 (y=1104.84) 的 142 px 对照, 只读 pred/frames 的离线原点搜索复核, 以及"
+            "把现场标定写回 npz 的快照动作 (旧值存为 slm_geometry_calib_20261023.npz)"
+        ),
+        extra_scripts=(
+            "scripts/slm/persist_live_geometry.py",
+            "scripts/slm/hw_forward_model_fidelity_ladder.py",
+            "scripts/slm/hw_differentiable_phase_opt.py",
+            "scripts/slm/analyze_fwdmodel_fit.py",
+        ),
+    ),
     "report/slm/differentiable_opt/artifacts/lr_sweep_20261116/lr_sweep.md": ReportProvenance(
         script="scripts/slm/sweep_differentiable_lr.py",
         command=(
@@ -2620,6 +2638,23 @@ REPORTS: dict[str, ReportProvenance] = {
             "spearman_signal, 不使用全域 spearman_coverage 下结论"
         ),
         extra_scripts=("scripts/slm/_hw_fidelity_ladder_sections.py",),
+    ),
+    "report/slm/differentiable_opt/artifacts/fwdmodel_fit_20261117/fwdmodel_fit_20261117.md": ReportProvenance(
+        script="scripts/slm/analyze_fwdmodel_fit_20261117.py",
+        command=(
+            "python scripts/slm/analyze_fwdmodel_fit_20261117.py "
+            "--out report/slm/differentiable_opt/artifacts/fwdmodel_fit_20261117/fwdmodel_fit_20261117.md"
+        ),
+        environment="离线 + CUDA GPU (RTX 5080 Laptop, torch 2.11.0+cu128); 不连接设备",
+        note=(
+            "物理预测模型参数拟合与可微共同优化的离线验证: 阶梯陈旧 y 原点 (存档 962.6 vs 现场 1104.8) 的四列对照, "
+            "gs_init 低相关归因 (GS 未收敛), 轴向口径择优与留一验证, 阶段 B 实测历史对照。"
+        ),
+        extra_scripts=(
+            "scripts/slm/analyze_fwdmodel_fit.py",
+            "scripts/slm/_hw_fidelity_ladder_sections.py",
+            "scripts/slm/hw_differentiable_phase_opt.py",
+        ),
     ),
     "report/slm/differentiable_opt/artifacts/fwdmodel_fit_20261116/fwdmodel_fit.md": ReportProvenance(
         script="scripts/slm/analyze_fwdmodel_fit.py",

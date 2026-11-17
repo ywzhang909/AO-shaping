@@ -1,0 +1,1037 @@
+{
+  "timestamp_utc": "2026-11-17T05:49:01.027659+00:00",
+  "gpu": {
+    "tag": "stage-a-fit",
+    "device_name": "NVIDIA GeForce RTX 5080 Laptop GPU",
+    "torch_version": "2.11.0+cu128",
+    "peak_alloc_mb": 283.696128,
+    "fits_cuda": true,
+    "parameter_tensor_is_cuda": true
+  },
+  "data": {
+    "ladder_dir": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\differentiable_opt\\fidelity_ladder_20261117_022400",
+    "run_dir": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\differentiable_opt\\20261117_022658",
+    "patterns": [
+      "flat",
+      "gs_init",
+      "optimized_final",
+      "defocus_z4_pos",
+      "defocus_z4_neg",
+      "tilt_x",
+      "tilt_y"
+    ],
+    "archive_geometry": {
+      "path": "D:\\Projects\\TIFO\\AO-shaping\\data\\slm_geometry_calib_20261023.npz",
+      "sha256": "25b51e3deef10df24b77e3f2e1cfa54d7c82b1aac98fe661bcdccc9d431dafaa",
+      "Kx": 7513.480416067798,
+      "Ky": 7507.735094498813,
+      "k_mean": 7510.607755283305,
+      "rotation_deg": -89.06119804421049,
+      "fwhm0_px": 12.189991491623289,
+      "mirror": false,
+      "crop_side": 0,
+      "centre_xy": [
+        1223.005998897602,
+        962.6314947220524
+      ]
+    },
+    "live_geometry": {
+      "centre_xy": [
+        1224.4160271278206,
+        1104.8427044240864
+      ],
+      "Kx": 7551.141568012036,
+      "Ky": 7576.669164768378,
+      "k_mean": 7563.905366390207,
+      "rotation_deg": 0.16752399978553,
+      "mirror": false,
+      "measured_this_run": true
+    },
+    "stale_y_delta_px": 142.211209702034
+  },
+  "prediction_replay_max_relative_error": 5.589209569850481e-08,
+  "orientation": {
+    "name": "transpose",
+    "transpose": true,
+    "flip_rows": false,
+    "flip_cols": false,
+    "median_pearson_signal": 0.7386997380012147
+  },
+  "orientation_candidates": [
+    {
+      "name": "identity",
+      "transpose": false,
+      "flip_rows": false,
+      "flip_cols": false,
+      "median_pearson_signal": 0.6261049799318514
+    },
+    {
+      "name": "transpose",
+      "transpose": true,
+      "flip_rows": false,
+      "flip_cols": false,
+      "median_pearson_signal": 0.7386997380012147
+    },
+    {
+      "name": "flip_rows",
+      "transpose": false,
+      "flip_rows": true,
+      "flip_cols": false,
+      "median_pearson_signal": 0.6231019933830384
+    },
+    {
+      "name": "flip_cols",
+      "transpose": false,
+      "flip_rows": false,
+      "flip_cols": true,
+      "median_pearson_signal": 0.6193730121976976
+    },
+    {
+      "name": "flip_both",
+      "transpose": false,
+      "flip_rows": true,
+      "flip_cols": true,
+      "median_pearson_signal": 0.6207893399543313
+    },
+    {
+      "name": "transpose_flip_rows",
+      "transpose": true,
+      "flip_rows": true,
+      "flip_cols": false,
+      "median_pearson_signal": 0.6194248850897952
+    },
+    {
+      "name": "transpose_flip_cols",
+      "transpose": true,
+      "flip_rows": false,
+      "flip_cols": true,
+      "median_pearson_signal": 0.7223537457153979
+    },
+    {
+      "name": "transpose_flip_both",
+      "transpose": true,
+      "flip_rows": true,
+      "flip_cols": true,
+      "median_pearson_signal": 0.6475488999517119
+    }
+  ],
+  "best_params": {
+    "centre_x": 1224.416015625,
+    "centre_y": 1104.843017578125,
+    "scale_px": 2.009162425994873,
+    "k_mean": 7715.1837158203125,
+    "rotation_deg": 0.0,
+    "blur_ccd_px": 2.1500027179718018,
+    "defocus_z4_rad": 0.017487144097685814,
+    "phase_scale": 0.999169647693634
+  },
+  "objective": {
+    "geometry_fit_surrogate": 0.25336405634880066,
+    "physical_fit_surrogate": 0.20772698521614075,
+    "geometry_loss_trace": [
+      0.304796040058136,
+      0.3043181002140045,
+      0.30383720993995667,
+      0.3033532202243805,
+      0.30286628007888794,
+      0.30237576365470886,
+      0.301883339881897,
+      0.3013885021209717,
+      0.3008912205696106,
+      0.30039215087890625,
+      0.2998913526535034,
+      0.29938942193984985,
+      0.2988860607147217,
+      0.2983816862106323,
+      0.2978774905204773,
+      0.297303169965744,
+      0.2967817783355713,
+      0.29625797271728516,
+      0.29573214054107666,
+      0.29520389437675476
+    ],
+    "physical_loss_trace": [
+      0.21707729995250702,
+      0.21411755681037903,
+      0.21186961233615875,
+      0.21014592051506042,
+      0.20880094170570374
+    ]
+  },
+  "per_pattern": [
+    {
+      "pattern_id": "flat",
+      "spearman_signal": 0.8734713839045035,
+      "pearson_signal": 0.918157843739547,
+      "pearson_coverage": 0.8668887921421872,
+      "radial_correlation": 0.9651144625120648,
+      "signal_pixels": 197,
+      "signal_frac": 0.00020686323924731182,
+      "pred_fwhm_px": 2.106322770710869,
+      "meas_fwhm_px": 3.094772063704002,
+      "peak_ratio": 3.0651790309034335e-07
+    },
+    {
+      "pattern_id": "gs_init",
+      "spearman_signal": -0.004216146306254656,
+      "pearson_signal": 0.01500801771331128,
+      "pearson_coverage": 0.01500801771331128,
+      "radial_correlation": 0.9140414331853681,
+      "signal_pixels": 952320,
+      "signal_frac": 1.0,
+      "pred_fwhm_px": 78.35733461380005,
+      "meas_fwhm_px": 2.9433002795161096,
+      "peak_ratio": 0.006586551498263645
+    },
+    {
+      "pattern_id": "optimized_final",
+      "spearman_signal": 0.7088804898160406,
+      "pearson_signal": 0.627281489200067,
+      "pearson_coverage": 0.646539901410338,
+      "radial_correlation": 0.646643079049848,
+      "signal_pixels": 13952,
+      "signal_frac": 0.014650537634408602,
+      "pred_fwhm_px": 16.774917718117944,
+      "meas_fwhm_px": 3.3535275952333072,
+      "peak_ratio": 7.587245736753416e-06
+    },
+    {
+      "pattern_id": "defocus_z4_pos",
+      "spearman_signal": 0.9138659454609415,
+      "pearson_signal": 0.9251811225752874,
+      "pearson_coverage": 0.9309629326248435,
+      "radial_correlation": 0.9931828346304149,
+      "signal_pixels": 845,
+      "signal_frac": 0.0008873067876344086,
+      "pred_fwhm_px": 3.2013354379719434,
+      "meas_fwhm_px": 3.722361509849797,
+      "peak_ratio": 8.872378149952785e-07
+    },
+    {
+      "pattern_id": "defocus_z4_neg",
+      "spearman_signal": 0.8787100510843043,
+      "pearson_signal": 0.965559297151772,
+      "pearson_coverage": 0.9564585669505202,
+      "radial_correlation": 0.9987999397488466,
+      "signal_pixels": 805,
+      "signal_frac": 0.0008453040994623656,
+      "pred_fwhm_px": 3.08713443850776,
+      "meas_fwhm_px": 3.123144930205215,
+      "peak_ratio": 6.168547587480924e-07
+    },
+    {
+      "pattern_id": "tilt_x",
+      "spearman_signal": 0.39459225273612386,
+      "pearson_signal": 0.2651544785535909,
+      "pearson_coverage": 0.5204927895399712,
+      "radial_correlation": 0.9882016189760264,
+      "signal_pixels": 204,
+      "signal_frac": 0.00021421370967741936,
+      "pred_fwhm_px": 3.091649665663844,
+      "meas_fwhm_px": 3.5436580819922834,
+      "peak_ratio": 2.839417666276346e-07
+    },
+    {
+      "pattern_id": "tilt_y",
+      "spearman_signal": 0.7660092064602784,
+      "pearson_signal": 0.7635373628464402,
+      "pearson_coverage": 0.7940715929578807,
+      "radial_correlation": 0.991543518383305,
+      "signal_pixels": 204,
+      "signal_frac": 0.00021421370967741936,
+      "pred_fwhm_px": 3.091649665663845,
+      "meas_fwhm_px": 3.3720066021012585,
+      "peak_ratio": 4.150110222914414e-07
+    }
+  ],
+  "summary": {
+    "median_pearson_signal": 0.7635373628464402,
+    "median_spearman_signal": 0.7660092064602784
+  },
+  "four_way": [
+    {
+      "variant": "阶梯原参数",
+      "pattern_id": "flat",
+      "spearman_signal": 0.052625993772472734,
+      "pearson_signal": 0.06543302059121543,
+      "pearson_coverage": 0.0018798706285601758,
+      "radial_correlation": -0.08815084434828625,
+      "signal_pixels": 137,
+      "signal_frac": 0.00013459664235412474,
+      "pred_fwhm_px": NaN,
+      "meas_fwhm_px": 7.35212555728699,
+      "peak_ratio": 1.0919997628983448e-09
+    },
+    {
+      "variant": "阶梯原参数",
+      "pattern_id": "gs_init",
+      "spearman_signal": -0.004695239854156243,
+      "pearson_signal": -0.0028833472542384836,
+      "pearson_coverage": -0.002886544929496802,
+      "radial_correlation": -0.1098188197662552,
+      "signal_pixels": 1017833,
+      "signal_frac": 0.9999774034834004,
+      "pred_fwhm_px": 76.27961001459607,
+      "meas_fwhm_px": 7.957882994114595,
+      "peak_ratio": 0.005216829409045755
+    },
+    {
+      "variant": "阶梯原参数",
+      "pattern_id": "optimized_final",
+      "spearman_signal": 0.012136446567920973,
+      "pearson_signal": -0.034963322734732016,
+      "pearson_coverage": 0.015158244302104879,
+      "radial_correlation": -0.3741436260935256,
+      "signal_pixels": 13091,
+      "signal_frac": 0.012861347774144868,
+      "pred_fwhm_px": 15.625529949559148,
+      "meas_fwhm_px": 16.133761668578874,
+      "peak_ratio": 7.022286994992992e-06
+    },
+    {
+      "variant": "阶梯原参数",
+      "pattern_id": "defocus_z4_pos",
+      "spearman_signal": 0.027818814086233986,
+      "pearson_signal": 0.0005676065540355722,
+      "pearson_coverage": 0.0009666593255138726,
+      "radial_correlation": -0.13796398702261628,
+      "signal_pixels": 797,
+      "signal_frac": 0.0007830184230382294,
+      "pred_fwhm_px": 2.6629895079106567,
+      "meas_fwhm_px": 7.820618656257886,
+      "peak_ratio": 2.714600509464473e-09
+    },
+    {
+      "variant": "阶梯原参数",
+      "pattern_id": "defocus_z4_neg",
+      "spearman_signal": 0.04061538486259203,
+      "pearson_signal": 0.05380773391067668,
+      "pearson_coverage": 0.0018307185060090771,
+      "radial_correlation": -0.13503885351229666,
+      "signal_pixels": 797,
+      "signal_frac": 0.0007830184230382294,
+      "pred_fwhm_px": 2.662989507910657,
+      "meas_fwhm_px": 10.81714648713484,
+      "peak_ratio": 2.6973388564911292e-09
+    },
+    {
+      "variant": "阶梯原参数",
+      "pattern_id": "tilt_x",
+      "spearman_signal": 0.08992405366842399,
+      "pearson_signal": 0.042894785097475886,
+      "pearson_coverage": 0.002018054482044393,
+      "radial_correlation": -0.12383696942378705,
+      "signal_pixels": 141,
+      "signal_frac": 0.00013852647132796782,
+      "pred_fwhm_px": 2.7948154888115133,
+      "meas_fwhm_px": 8.254184054821426,
+      "peak_ratio": 1.123122370824433e-09
+    },
+    {
+      "variant": "阶梯原参数",
+      "pattern_id": "tilt_y",
+      "spearman_signal": 0.033964626871241015,
+      "pearson_signal": 0.03321448820031296,
+      "pearson_coverage": 0.001040150999435251,
+      "radial_correlation": -0.11650515384035189,
+      "signal_pixels": 141,
+      "signal_frac": 0.00013852647132796782,
+      "pred_fwhm_px": 2.7948154888115138,
+      "meas_fwhm_px": 7.387187038584453,
+      "peak_ratio": 1.123122370824433e-09
+    },
+    {
+      "variant": "仅换中心",
+      "pattern_id": "flat",
+      "spearman_signal": 0.8995098278398341,
+      "pearson_signal": 0.8941294379304866,
+      "pearson_coverage": 0.8119128965180814,
+      "radial_correlation": 0.9395393326160797,
+      "signal_pixels": 137,
+      "signal_frac": 0.00014217753719447397,
+      "pred_fwhm_px": NaN,
+      "meas_fwhm_px": 3.0374589505018292,
+      "peak_ratio": 2.4248178774838363e-07
+    },
+    {
+      "variant": "仅换中心",
+      "pattern_id": "gs_init",
+      "spearman_signal": -0.0050881881195633406,
+      "pearson_signal": 0.005437557961276241,
+      "pearson_coverage": 0.00543821412692192,
+      "radial_correlation": 0.6934506152521513,
+      "signal_pixels": 963561,
+      "signal_frac": 0.9999761307784272,
+      "pred_fwhm_px": 76.27961001459607,
+      "meas_fwhm_px": 2.8973395664032284,
+      "peak_ratio": 0.005176692415313918
+    },
+    {
+      "variant": "仅换中心",
+      "pattern_id": "optimized_final",
+      "spearman_signal": 0.6920132246442834,
+      "pearson_signal": 0.6144635894226094,
+      "pearson_coverage": 0.6363649304116594,
+      "radial_correlation": 0.6580513564941208,
+      "signal_pixels": 13091,
+      "signal_frac": 0.01358573824388948,
+      "pred_fwhm_px": 15.625529949559148,
+      "meas_fwhm_px": 3.331019718547792,
+      "peak_ratio": 7.029659256216342e-06
+    },
+    {
+      "variant": "仅换中心",
+      "pattern_id": "defocus_z4_pos",
+      "spearman_signal": 0.9059807248650766,
+      "pearson_signal": 0.907356086727707,
+      "pearson_coverage": 0.911919204892375,
+      "radial_correlation": 0.982506361437282,
+      "signal_pixels": 797,
+      "signal_frac": 0.0008271204171094581,
+      "pred_fwhm_px": 2.6629895079106567,
+      "meas_fwhm_px": 3.68714938990409,
+      "peak_ratio": 7.32072452253044e-07
+    },
+    {
+      "variant": "仅换中心",
+      "pattern_id": "defocus_z4_neg",
+      "spearman_signal": 0.8707858518057449,
+      "pearson_signal": 0.9619579646604535,
+      "pearson_coverage": 0.9506170675043781,
+      "radial_correlation": 0.9959114183859425,
+      "signal_pixels": 797,
+      "signal_frac": 0.0008271204171094581,
+      "pred_fwhm_px": 2.662989507910657,
+      "meas_fwhm_px": 3.0672636372205524,
+      "peak_ratio": 5.410121792429228e-07
+    },
+    {
+      "variant": "仅换中心",
+      "pattern_id": "tilt_x",
+      "spearman_signal": 0.2941445925143047,
+      "pearson_signal": 0.1856259272648037,
+      "pearson_coverage": 0.46741898279563365,
+      "radial_correlation": 0.9788100241616461,
+      "signal_pixels": 141,
+      "signal_frac": 0.0001463287061636557,
+      "pred_fwhm_px": 2.7948154888115133,
+      "meas_fwhm_px": 3.4675027063185304,
+      "peak_ratio": 2.2618750057207353e-07
+    },
+    {
+      "variant": "仅换中心",
+      "pattern_id": "tilt_y",
+      "spearman_signal": 0.7775334004072557,
+      "pearson_signal": 0.7175280214961866,
+      "pearson_coverage": 0.7371220608174239,
+      "radial_correlation": 0.9837012179390492,
+      "signal_pixels": 141,
+      "signal_frac": 0.0001463287061636557,
+      "pred_fwhm_px": 2.7948154888115138,
+      "meas_fwhm_px": 3.300292614876621,
+      "peak_ratio": 3.29855518777612e-07
+    },
+    {
+      "variant": "换中心+scale",
+      "pattern_id": "flat",
+      "spearman_signal": 0.8995611901131849,
+      "pearson_signal": 0.8952259671820126,
+      "pearson_coverage": 0.8146086693492995,
+      "radial_correlation": 0.9408094063318831,
+      "signal_pixels": 137,
+      "signal_frac": 0.00014263226279317696,
+      "pred_fwhm_px": NaN,
+      "meas_fwhm_px": 3.037848477319822,
+      "peak_ratio": 2.4248178774838363e-07
+    },
+    {
+      "variant": "换中心+scale",
+      "pattern_id": "gs_init",
+      "spearman_signal": -0.002502562530361458,
+      "pearson_signal": 0.005771566381524174,
+      "pearson_coverage": 0.005774792596488607,
+      "radial_correlation": 0.6859278466291912,
+      "signal_pixels": 960489,
+      "signal_frac": 0.9999760544376333,
+      "pred_fwhm_px": 76.82091387740054,
+      "meas_fwhm_px": 2.8976218200661115,
+      "peak_ratio": 0.005177502060335509
+    },
+    {
+      "variant": "换中心+scale",
+      "pattern_id": "optimized_final",
+      "spearman_signal": 0.6898578650761239,
+      "pearson_signal": 0.6127811692967752,
+      "pearson_coverage": 0.6345905699724679,
+      "radial_correlation": 0.6565821814725195,
+      "signal_pixels": 13091,
+      "signal_frac": 0.013629189432302772,
+      "pred_fwhm_px": 15.9033054762911,
+      "meas_fwhm_px": 3.3333749431884687,
+      "peak_ratio": 7.029659256216342e-06
+    },
+    {
+      "variant": "换中心+scale",
+      "pattern_id": "defocus_z4_pos",
+      "spearman_signal": 0.9065560685444788,
+      "pearson_signal": 0.9088031497464145,
+      "pearson_coverage": 0.9133963283406185,
+      "radial_correlation": 0.9831953784832101,
+      "signal_pixels": 797,
+      "signal_frac": 0.0008297657915778252,
+      "pred_fwhm_px": 2.6818869105974823,
+      "meas_fwhm_px": 3.6892808506822465,
+      "peak_ratio": 7.321276142333099e-07
+    },
+    {
+      "variant": "换中心+scale",
+      "pattern_id": "defocus_z4_neg",
+      "spearman_signal": 0.8717326640679179,
+      "pearson_signal": 0.9625140693483533,
+      "pearson_coverage": 0.9513176856437326,
+      "radial_correlation": 0.9962192411025534,
+      "signal_pixels": 797,
+      "signal_frac": 0.0008297657915778252,
+      "pred_fwhm_px": 2.6818869105974827,
+      "meas_fwhm_px": 3.0676807131309216,
+      "peak_ratio": 5.408692128751138e-07
+    },
+    {
+      "variant": "换中心+scale",
+      "pattern_id": "tilt_x",
+      "spearman_signal": 0.29524696314635795,
+      "pearson_signal": 0.185924138201911,
+      "pearson_coverage": 0.4679690532445563,
+      "radial_correlation": 0.9795515331275312,
+      "signal_pixels": 141,
+      "signal_frac": 0.00014679670842217485,
+      "pred_fwhm_px": 2.8146483697036673,
+      "meas_fwhm_px": 3.467642547744592,
+      "peak_ratio": 2.2606279295318975e-07
+    },
+    {
+      "variant": "换中心+scale",
+      "pattern_id": "tilt_y",
+      "spearman_signal": 0.7774156711267949,
+      "pearson_signal": 0.7177052166599209,
+      "pearson_coverage": 0.7389713341019436,
+      "radial_correlation": 0.9843316315534273,
+      "signal_pixels": 141,
+      "signal_frac": 0.00014679670842217485,
+      "pred_fwhm_px": 2.8146483697036677,
+      "meas_fwhm_px": 3.2999292562616525,
+      "peak_ratio": 3.2986699089320235e-07
+    },
+    {
+      "variant": "拟合最优",
+      "pattern_id": "flat",
+      "spearman_signal": 0.8734713839045035,
+      "pearson_signal": 0.918157843739547,
+      "pearson_coverage": 0.8668887921421872,
+      "radial_correlation": 0.9651144625120648,
+      "signal_pixels": 197,
+      "signal_frac": 0.00020686323924731182,
+      "pred_fwhm_px": 2.106322770710869,
+      "meas_fwhm_px": 3.094772063704002,
+      "peak_ratio": 3.0651790309034335e-07
+    },
+    {
+      "variant": "拟合最优",
+      "pattern_id": "gs_init",
+      "spearman_signal": -0.004216146306254656,
+      "pearson_signal": 0.01500801771331128,
+      "pearson_coverage": 0.01500801771331128,
+      "radial_correlation": 0.9140414331853681,
+      "signal_pixels": 952320,
+      "signal_frac": 1.0,
+      "pred_fwhm_px": 78.35733461380005,
+      "meas_fwhm_px": 2.9433002795161096,
+      "peak_ratio": 0.006586551498263645
+    },
+    {
+      "variant": "拟合最优",
+      "pattern_id": "optimized_final",
+      "spearman_signal": 0.7088804898160406,
+      "pearson_signal": 0.627281489200067,
+      "pearson_coverage": 0.646539901410338,
+      "radial_correlation": 0.646643079049848,
+      "signal_pixels": 13952,
+      "signal_frac": 0.014650537634408602,
+      "pred_fwhm_px": 16.774917718117944,
+      "meas_fwhm_px": 3.3535275952333072,
+      "peak_ratio": 7.587245736753416e-06
+    },
+    {
+      "variant": "拟合最优",
+      "pattern_id": "defocus_z4_pos",
+      "spearman_signal": 0.9138659454609415,
+      "pearson_signal": 0.9251811225752874,
+      "pearson_coverage": 0.9309629326248435,
+      "radial_correlation": 0.9931828346304149,
+      "signal_pixels": 845,
+      "signal_frac": 0.0008873067876344086,
+      "pred_fwhm_px": 3.2013354379719434,
+      "meas_fwhm_px": 3.722361509849797,
+      "peak_ratio": 8.872378149952785e-07
+    },
+    {
+      "variant": "拟合最优",
+      "pattern_id": "defocus_z4_neg",
+      "spearman_signal": 0.8787100510843043,
+      "pearson_signal": 0.965559297151772,
+      "pearson_coverage": 0.9564585669505202,
+      "radial_correlation": 0.9987999397488466,
+      "signal_pixels": 805,
+      "signal_frac": 0.0008453040994623656,
+      "pred_fwhm_px": 3.08713443850776,
+      "meas_fwhm_px": 3.123144930205215,
+      "peak_ratio": 6.168547587480924e-07
+    },
+    {
+      "variant": "拟合最优",
+      "pattern_id": "tilt_x",
+      "spearman_signal": 0.39459225273612386,
+      "pearson_signal": 0.2651544785535909,
+      "pearson_coverage": 0.5204927895399712,
+      "radial_correlation": 0.9882016189760264,
+      "signal_pixels": 204,
+      "signal_frac": 0.00021421370967741936,
+      "pred_fwhm_px": 3.091649665663844,
+      "meas_fwhm_px": 3.5436580819922834,
+      "peak_ratio": 2.839417666276346e-07
+    },
+    {
+      "variant": "拟合最优",
+      "pattern_id": "tilt_y",
+      "spearman_signal": 0.7660092064602784,
+      "pearson_signal": 0.7635373628464402,
+      "pearson_coverage": 0.7940715929578807,
+      "radial_correlation": 0.991543518383305,
+      "signal_pixels": 204,
+      "signal_frac": 0.00021421370967741936,
+      "pred_fwhm_px": 3.091649665663845,
+      "meas_fwhm_px": 3.3720066021012585,
+      "peak_ratio": 4.150110222914414e-07
+    }
+  ],
+  "leave_one_out": [
+    {
+      "held_out": "flat",
+      "train_loss_surrogate": 0.2429770678281784,
+      "held_spearman_signal": 0.8723642060087367,
+      "held_pearson_signal": 0.9230197896915435,
+      "held_radial_correlation": 0.9698982406021978,
+      "fit_params": {
+        "centre_x": 1224.416015625,
+        "centre_y": 1104.843017578125,
+        "scale_px": 2.009162425994873,
+        "k_mean": 7715.1837158203125,
+        "rotation_deg": 0.0,
+        "blur_ccd_px": 2.484711170196533,
+        "defocus_z4_rad": 0.017487144097685814,
+        "phase_scale": 0.999169647693634
+      },
+      "loss_trace": [
+        0.2809118628501892,
+        0.280225932598114,
+        0.27953943610191345,
+        0.2788545489311218,
+        0.2781696319580078,
+        0.2774864137172699,
+        0.27680692076683044
+      ]
+    },
+    {
+      "held_out": "gs_init",
+      "train_loss_surrogate": 0.1640147864818573,
+      "held_spearman_signal": -0.004273575208248903,
+      "held_pearson_signal": 0.016538541880152018,
+      "held_radial_correlation": 0.9175543926646896,
+      "fit_params": {
+        "centre_x": 1224.416015625,
+        "centre_y": 1104.843017578125,
+        "scale_px": 2.009162425994873,
+        "k_mean": 7715.1837158203125,
+        "rotation_deg": 0.0,
+        "blur_ccd_px": 2.4854438304901123,
+        "defocus_z4_rad": 0.017487144097685814,
+        "phase_scale": 0.999169647693634
+      },
+      "loss_trace": [
+        0.21467652916908264,
+        0.2138652205467224,
+        0.21305029094219208,
+        0.2122335284948349,
+        0.21141445636749268,
+        0.2105938196182251,
+        0.20977461338043213
+      ]
+    },
+    {
+      "held_out": "optimized_final",
+      "train_loss_surrogate": 0.23345741629600525,
+      "held_spearman_signal": 0.7118932175611075,
+      "held_pearson_signal": 0.6315281081490111,
+      "held_radial_correlation": 0.6435996259959851,
+      "fit_params": {
+        "centre_x": 1224.416015625,
+        "centre_y": 1104.843017578125,
+        "scale_px": 2.009162425994873,
+        "k_mean": 7715.1837158203125,
+        "rotation_deg": 0.0,
+        "blur_ccd_px": 2.485079288482666,
+        "defocus_z4_rad": 0.017487144097685814,
+        "phase_scale": 0.999169647693634
+      },
+      "loss_trace": [
+        0.28292959928512573,
+        0.28199896216392517,
+        0.28106677532196045,
+        0.2801337242126465,
+        0.2792004644870758,
+        0.2782686948776245,
+        0.2773391604423523
+      ]
+    },
+    {
+      "held_out": "defocus_z4_pos",
+      "train_loss_surrogate": 0.2597612738609314,
+      "held_spearman_signal": 0.9150542618389416,
+      "held_pearson_signal": 0.9272674541917866,
+      "held_radial_correlation": 0.9945340514941384,
+      "fit_params": {
+        "centre_x": 1224.416015625,
+        "centre_y": 1104.843017578125,
+        "scale_px": 2.009162425994873,
+        "k_mean": 7715.1837158203125,
+        "rotation_deg": 0.0,
+        "blur_ccd_px": 2.4850881099700928,
+        "defocus_z4_rad": 0.017487144097685814,
+        "phase_scale": 0.999169647693634
+      },
+      "loss_trace": [
+        0.3015287518501282,
+        0.3006380796432495,
+        0.29974663257598877,
+        0.2988557517528534,
+        0.2979649007320404,
+        0.29707571864128113,
+        0.2961907982826233
+      ]
+    },
+    {
+      "held_out": "defocus_z4_neg",
+      "train_loss_surrogate": 0.2554236650466919,
+      "held_spearman_signal": 0.8785685083692054,
+      "held_pearson_signal": 0.9655412102737083,
+      "held_radial_correlation": 0.9989309046253378,
+      "fit_params": {
+        "centre_x": 1224.416015625,
+        "centre_y": 1104.843017578125,
+        "scale_px": 2.009162425994873,
+        "k_mean": 7715.1837158203125,
+        "rotation_deg": 0.0,
+        "blur_ccd_px": 2.485215663909912,
+        "defocus_z4_rad": 0.017487144097685814,
+        "phase_scale": 0.999169647693634
+      },
+      "loss_trace": [
+        0.29825034737586975,
+        0.2973497807979584,
+        0.2964479923248291,
+        0.29554682970046997,
+        0.29464542865753174,
+        0.2937454283237457,
+        0.29284951090812683
+      ]
+    },
+    {
+      "held_out": "tilt_x",
+      "train_loss_surrogate": 0.23384027183055878,
+      "held_spearman_signal": 0.4600087716446697,
+      "held_pearson_signal": 0.3030054287983439,
+      "held_radial_correlation": 0.9897250996734658,
+      "fit_params": {
+        "centre_x": 1224.416015625,
+        "centre_y": 1104.843017578125,
+        "scale_px": 2.009162425994873,
+        "k_mean": 7715.1837158203125,
+        "rotation_deg": 0.0,
+        "blur_ccd_px": 2.4839437007904053,
+        "defocus_z4_rad": 0.017487144097685814,
+        "phase_scale": 0.999169647693634
+      },
+      "loss_trace": [
+        0.28331029415130615,
+        0.28258180618286133,
+        0.2818528115749359,
+        0.2811250686645508,
+        0.2803972661495209,
+        0.27967143058776855,
+        0.27894943952560425
+      ]
+    },
+    {
+      "held_out": "tilt_y",
+      "train_loss_surrogate": 0.2488553524017334,
+      "held_spearman_signal": 0.8028094996020542,
+      "held_pearson_signal": 0.7800030675913092,
+      "held_radial_correlation": 0.9927436053457864,
+      "fit_params": {
+        "centre_x": 1224.416015625,
+        "centre_y": 1104.843017578125,
+        "scale_px": 2.009162425994873,
+        "k_mean": 7715.1837158203125,
+        "rotation_deg": 0.0,
+        "blur_ccd_px": 2.484236478805542,
+        "defocus_z4_rad": 0.017487144097685814,
+        "phase_scale": 0.999169647693634
+      },
+      "loss_trace": [
+        0.28617382049560547,
+        0.28545698523521423,
+        0.28473958373069763,
+        0.2840237617492676,
+        0.28330788016319275,
+        0.2825940251350403,
+        0.28188425302505493
+      ]
+    }
+  ],
+  "marginals": {
+    "centre_x": [
+      {
+        "value": 1194.416015625,
+        "median_pearson_signal": -0.1388479572046071
+      },
+      {
+        "value": 1209.416015625,
+        "median_pearson_signal": 0.16821632560828265
+      },
+      {
+        "value": 1224.416015625,
+        "median_pearson_signal": 0.7635373628464402
+      },
+      {
+        "value": 1239.416015625,
+        "median_pearson_signal": 0.004324615960027422
+      },
+      {
+        "value": 1254.416015625,
+        "median_pearson_signal": -0.13692333701792833
+      }
+    ],
+    "centre_y": [
+      {
+        "value": 1074.843017578125,
+        "median_pearson_signal": -0.04450964946332448
+      },
+      {
+        "value": 1089.843017578125,
+        "median_pearson_signal": 0.07365412213393022
+      },
+      {
+        "value": 1104.843017578125,
+        "median_pearson_signal": 0.7635373628464402
+      },
+      {
+        "value": 1119.843017578125,
+        "median_pearson_signal": 0.003911983702582467
+      },
+      {
+        "value": 1134.843017578125,
+        "median_pearson_signal": -0.030701286546590982
+      }
+    ],
+    "scale_px": [
+      {
+        "value": 1.979162425994873,
+        "median_pearson_signal": 0.764802796368093
+      },
+      {
+        "value": 1.994162425994873,
+        "median_pearson_signal": 0.7638798282854932
+      },
+      {
+        "value": 2.009162425994873,
+        "median_pearson_signal": 0.7635373628464402
+      },
+      {
+        "value": 2.0241624259948727,
+        "median_pearson_signal": 0.7631997243073712
+      },
+      {
+        "value": 2.039162425994873,
+        "median_pearson_signal": 0.7628668543834431
+      }
+    ],
+    "rotation_deg": [
+      {
+        "value": -0.6000000000000001,
+        "median_pearson_signal": 0.7644596729613989
+      },
+      {
+        "value": -0.30000000000000004,
+        "median_pearson_signal": 0.7640062039558675
+      },
+      {
+        "value": 0.0,
+        "median_pearson_signal": 0.7635373628464402
+      },
+      {
+        "value": 0.30000000000000004,
+        "median_pearson_signal": 0.763053114555487
+      },
+      {
+        "value": 0.6000000000000001,
+        "median_pearson_signal": 0.7625657369868649
+      }
+    ],
+    "blur_ccd_px": [
+      {
+        "value": 1.2500027179718018,
+        "median_pearson_signal": 0.7231258701583079
+      },
+      {
+        "value": 1.7000027179718018,
+        "median_pearson_signal": 0.7487476370097077
+      },
+      {
+        "value": 2.1500027179718018,
+        "median_pearson_signal": 0.7635373628464402
+      },
+      {
+        "value": 2.600002717971802,
+        "median_pearson_signal": 0.7836610903507515
+      },
+      {
+        "value": 3.0500027179718017,
+        "median_pearson_signal": 0.8032493196248075
+      }
+    ],
+    "defocus_z4_rad": [
+      {
+        "value": -0.28251285590231423,
+        "median_pearson_signal": 0.790401786985248
+      },
+      {
+        "value": -0.1325128559023142,
+        "median_pearson_signal": 0.7745383010206659
+      },
+      {
+        "value": 0.017487144097685814,
+        "median_pearson_signal": 0.7635373628464402
+      },
+      {
+        "value": 0.16748714409768584,
+        "median_pearson_signal": 0.7783733495200311
+      },
+      {
+        "value": 0.31748714409768586,
+        "median_pearson_signal": 0.7946555472327725
+      }
+    ],
+    "phase_scale": [
+      {
+        "value": 0.984169647693634,
+        "median_pearson_signal": 0.7689085518474732
+      },
+      {
+        "value": 0.991669647693634,
+        "median_pearson_signal": 0.7662338888797257
+      },
+      {
+        "value": 0.999169647693634,
+        "median_pearson_signal": 0.7635373628464402
+      },
+      {
+        "value": 1.0066696476936339,
+        "median_pearson_signal": 0.7608191187102515
+      },
+      {
+        "value": 1.014169647693634,
+        "median_pearson_signal": 0.7580793024538025
+      }
+    ]
+  },
+  "stage_b": {
+    "history": [
+      {
+        "step": 1,
+        "measured_loss": 0.0006885839393362403,
+        "model_target_loss": 0.00033291680372982574,
+        "phase_source": "phase_initial.npy",
+        "ccd_frame_saved": false
+      },
+      {
+        "step": 2,
+        "measured_loss": 0.0006835092790424824,
+        "model_target_loss": null,
+        "phase_source": null,
+        "ccd_frame_saved": true,
+        "note": "该步的相位/CCD 逐步配对未落盘，无法严格回放"
+      },
+      {
+        "step": 3,
+        "measured_loss": 0.0006774814683012664,
+        "model_target_loss": null,
+        "phase_source": null,
+        "ccd_frame_saved": true,
+        "note": "该步的相位/CCD 逐步配对未落盘，无法严格回放"
+      },
+      {
+        "step": 4,
+        "measured_loss": 0.0006791199557483196,
+        "model_target_loss": null,
+        "phase_source": null,
+        "ccd_frame_saved": true,
+        "note": "该步的相位/CCD 逐步配对未落盘，无法严格回放"
+      },
+      {
+        "step": 5,
+        "measured_loss": 0.0006881632143631577,
+        "model_target_loss": 0.00011419172942853068,
+        "phase_source": "phase_final.npy",
+        "ccd_frame_saved": false
+      }
+    ],
+    "measured_loss_start": 0.0006885839393362403,
+    "measured_loss_end": 0.0006881632143631577,
+    "measured_loss_min": 0.0006774814683012664,
+    "source_phase_saved_steps": [
+      1,
+      5
+    ],
+    "source_ccd_saved_steps": [
+      2,
+      3,
+      4
+    ],
+    "missing_intermediate_steps": [
+      2,
+      3
+    ],
+    "differentiable_optimizer": {
+      "steps": 12,
+      "step_seconds": [
+        0.016970800003036857,
+        0.013419699971564114,
+        0.013619499979540706,
+        0.013637600000947714,
+        0.012575499946251512,
+        0.013356300070881844,
+        0.013332000002264977,
+        0.013452499988488853,
+        0.013366999919526279,
+        0.013129600090906024,
+        0.013702200027182698,
+        0.013698499999009073
+      ],
+      "mean_step_seconds": 0.013688433333300054,
+      "peak_memory_mb": 283.696128,
+      "initial_model_loss": 0.0003393795855041703,
+      "final_model_loss": 0.00022844357244048815,
+      "device": "NVIDIA GeForce RTX 5080 Laptop GPU"
+    }
+  }
+}
