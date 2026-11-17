@@ -5528,6 +5528,11 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 叶差分: 两区 verbatim=True (91/66 行); 载体: `test_target_shape_helper_offline` + 形状门禁 **464 passed**; `test_conventions` 72 passed; ruff 全仓绿; term 0; modsize exit=0
 - 跳过记录 (硬件/收益不足): `_HardwareBench.__init__` 207 (构造函数直开 SLM/相机, 无离线载体); `calibrate_shared_aberration` 207 (93 行是 docstring, 提取后仍 >150); `voltage_runner.run`/`phase_capture.run`/`micro_dm_image_collect.run` 等硬件 runner 载体仅 CLI-golden/facade 级, verbatim 提走无行为载体兜底, 暂不动
 
+**2026-11-17 · 09511252 之后 · 第 137 批: `execute_campaign` 177→99 行 (`runners/slm/transfer_shapes_runner.py`)**
+- 提取两区: `_campaign_kwargs_unpack` 56 (1 参数 46 回传, 整段 `kwargs.pop` 解包) 与 `_campaign_journal_setup` 30 (34 参数 8 回传, journal/stop_requested 闭包装配 —— 闭包工厂沿 b118 形态回传)
+- 叶差分: 两区 verbatim=True (53/27 行)
+- 载体: `test_transfer_shapes_runner` + `test_transfer_shapes_resume` + 形状门禁 **489 passed**; ruff 全仓绿; term 0; modsize baseline 抬高 (+18)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
