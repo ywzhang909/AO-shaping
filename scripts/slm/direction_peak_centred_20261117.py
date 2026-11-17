@@ -4,7 +4,9 @@ Offline only: reads archived sessions; never touches SLM, camera, laser or Devic
 
 Difference from ``direction_attribution_20261112.py``: the crop and camera grid are centred on the
 measured peak (native row 1105, col 1224) for every model variant, instead of each model's fitted
-origin. Metric and convention are unchanged: ``jacobian_guard.direction_agreement`` with Pearson
+origin. ``--center-method`` replaces that fixed centre with a per-session one located from the
+session's mean frame (``zero_order_center_by_method``); unset keeps the fixed peak.
+Metric and convention are unchanged: ``jacobian_guard.direction_agreement`` with Pearson
 correlation on rate = raw_mean / exposure_ms, phase_sign=-1, phase_sign_scope="command".
 Each pair uses minus frame as the anchor and plus frame as the candidate, as the historical script.
 """
@@ -23,6 +25,10 @@ from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity im
     FrozenDefocusParameters,
 )
 from ao_shaping.tools.slm.transfer.jacobian_guard import direction_agreement
+from ao_shaping.utils.image.zero_order import (
+    ZERO_ORDER_METHODS,
+    zero_order_center_by_method,
+)
 
 FIT = Path("data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit/forward_fit.json")
 PEAK_ROW, PEAK_COL = 1105, 1224  # native CCD, measured peak
@@ -55,6 +61,17 @@ def crop(img: np.ndarray, centre_xy: tuple[float, float]) -> np.ndarray:
     x0 = int(round(centre_xy[0] - CROP / 2))
     y0 = int(round(centre_xy[1] - CROP / 2))
     return img[y0:y0 + CROP, x0:x0 + CROP]
+
+
+def session_crop_centre(session: Path, method: str) -> tuple[float, float]:
+    """用该 session 全部记录帧的均值帧, 按 ``method`` 定位裁剪中心 ``(x, y)``。"""
+    manifest = json.loads((session / "manifest.json").read_text())
+    means = [
+        np.load(session / row["file"])["raw_frames"].astype(np.float64).mean(axis=0)
+        for row in manifest
+    ]
+    cx, cy = zero_order_center_by_method(np.mean(means, axis=0), method=method)
+    return (float(cx), float(cy))
 
 
 def build_forward(model: dict, ramp, centre_xy: tuple[float, float]) -> FrozenDefocusForward:
@@ -118,6 +135,13 @@ def main() -> None:
         help="override the illumination-envelope centre (panel px) in every model variant; "
              "default keeps each model's own fitted amplitude_center",
     )
+    ap.add_argument(
+        "--center-method",
+        choices=[key for key, _ in ZERO_ORDER_METHODS],
+        default=None,
+        help="per session, locate the crop centre once from that session's mean frame with this "
+        f"algorithm; unset keeps the fixed measured peak (col {PEAK_COL}, row {PEAK_ROW})",
+    )
     args = ap.parse_args()
 
     fit = json.loads(FIT.read_text())
@@ -136,6 +160,7 @@ def main() -> None:
             list(args.amplitude_center_xy) if args.amplitude_center_xy is not None else None
         ),
         "amplitude_center_used_xy": {k: list(v["amplitude_center"]) for k, v in models.items()},
+        "center_method": args.center_method,
         "convention": {
             "metric": "jacobian_guard.direction_agreement Pearson",
             "rate": "raw_frames mean / exposure_ms",
@@ -145,10 +170,16 @@ def main() -> None:
         "sessions": {},
     }
     for s in args.sessions:
-        per_pair = run_session(s, models, ramp, centre_xy)
+        if args.center_method is None:
+            session_centre = centre_xy
+        else:
+            session_centre = session_crop_centre(s, args.center_method)
+        per_pair = run_session(s, models, ramp, session_centre)
         result["sessions"][s.name] = {
             "summary": {m: summarise(per_pair, m) for m in MODELS},
             "raw_per_pair": per_pair,
+            "center_method": args.center_method,
+            "session_crop_center_xy": list(session_centre),
         }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")

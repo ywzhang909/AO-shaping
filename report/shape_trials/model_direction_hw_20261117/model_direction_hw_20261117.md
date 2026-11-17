@@ -8,7 +8,7 @@
 > **数据/关联脚本**: [`scripts/slm/issue235_knife_baseline_fit_20261117.py`](../../../scripts/slm/issue235_knife_baseline_fit_20261117.py)
 > **数据/关联脚本**: [`scripts/slm/issue235_beam_centre_differential_20261117.py`](../../../scripts/slm/issue235_beam_centre_differential_20261117.py)
 > **数据/关联脚本**: [`scripts/slm/issue235_panel_gray_inversion_20261117.py`](../../../scripts/slm/issue235_panel_gray_inversion_20261117.py)
-> **运行环境**: 离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-17 上机采集；报告本体不占用设备）
+> **运行环境**: 离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-17 实验采集；报告本体不占用设备）
 > **说明**: 冻结模型 14 帧方向诊断（data/debug/square1000_model_diag_20261117_140741）、窗口对照（win0/win163）、M3 以实测峰为中心复核（m3_peak_centred_20261117.json）、刀口基线拟合（issue235_knife_baseline_fit_20261117.json）、差分刀口（diff_20261117_170647_v2/summary.json）与 panel_gray 反解前向一致性（issue235_panel_gray_inversion_20261117.json）、实测 panel 中心回灌的前向修正（m3_peak_centred_centerfix_20261117.json）。人工撰写。
 <!-- provenance:end -->
 
@@ -30,7 +30,7 @@
 
 1. 背景误差能否单独解释方向失败？不能。测量重复性极好，本底与均匀化项不足以把锚点相关从 +1 推到 −0.16。
 2. 非线性误差能否单独解释？不能。探针为 0.03 rad 小幅线性区，N4/RX/RY 的预测响应本身接近零（N4 预测 rms 4.4e-5），而实测有 3–4 counts。缺的是响应本身，不是非线性项。
-3. PSF/defocus/照明包络是否仍主导？在本窗口下是主导的：测量是衍射受限的单点聚焦，模型是方形平顶。离焦与照明包络的拟合无法把平顶变成点，问题更像是窗口/中心注册错误或前向模型的远场形态错误。
+3. PSF/defocus/照明包络是否仍主导？在本窗口下是主导的：测量是衍射受限的单点聚焦，模型是方形平顶。离焦与照明包络的拟合无法把平顶变成点，问题更像是窗口/中心注册错误或物理预测模型的远场形态错误。
 
 ## 注册前提（需先核实）
 
@@ -42,13 +42,13 @@
 
 - `report/shape_trials/direction_diagnosis_20261112/direction_diagnosis_20261112.md` 的 M3（离焦+照明包络 median 0.616/0.696/0.657 过 ≥0.50 门禁）与本次结论冲突。两者口径不同（归档帧与旧窗口 vs 新鲜硬件帧，探针幅度不同）。本报告不推翻历史，待对账。
 
-## 刀口基座根因与差分刀口（2026-11-17，上机）
+## 刀口基座根因与差分刀口（2026-11-17，实验）
 
 - **刀口法失效的根因**：`data/debug/knife_block_20261111*` 显示，遮挡图案在 0 级窗口内仍保留 0.41–0.43（checker 8–48 px）、0.59（blaze）、0.61–0.65（随机相位）。`find_beam_on_slm` 的刀口曲线因此必然带约 40–60% 基座，50% 交点不是光束中心。此前基于单刀口的测量与 `--pupil-center-xy` 结论均不可用。
 - **坐标系修正**：`data/slm_geometry_calib.npz` 的 `center`（1104.84, 1224.42）是 **CCD 坐标**（与 CCD 零级 argmax (1107, 1227) 一致，`beam_center` 字段为 [0,0] 从未写入）；刀口中心是 **panel 坐标**。二者不可直接比较，之前把它们当同一量对比是错误的。
 - **基线猜想撤回**：自由基线 erf 拟合与 CDF 分位一致，基线偏置不解释偏移。
 - **差分刀口方法**：`scripts/slm/issue235_beam_centre_differential_20261117.py`。每个分割位置 s 同时测"清左半边"(A) 与"清右半边"(B)，`D(s)=A−B` 抵消基座，`D(s)=amp·erf((s−c)/(√2σ))`。
-- **上机**：SLM #1（驱动板 `22030108`，`serial_source=driveboard`）+ Daheng CCD cam_id 0，0.05 ms，峰 187/255 未饱和。17:06:47–17:09:50 占用，`release.json` 三项 true，正常关闭。数据：`data/debug/issue235_beam_center/diff_20261117_170647_v2/summary.json`。
+- **实验**：SLM #1（驱动板 `22030108`，`serial_source=driveboard`）+ Daheng CCD cam_id 0，0.05 ms，峰 187/255 未饱和。17:06:47–17:09:50 占用，`release.json` 三项 true，正常关闭。数据：`data/debug/issue235_beam_center/diff_20261117_170647_v2/summary.json`。
 - **结果（panel 坐标，cy/cx 约定）**：
 
 | 轴 | 窗口 | 过零 | erf 拟合中心 | σ | 残差/幅度 | 自由基线中心 | 基座占比 |
@@ -74,7 +74,7 @@
 | 刀口单曲线可测光束中心 | 不成立 | checker 保留 0.41–0.65，需差分抵消 |
 | PSF/离焦/照明包络主导 | 本窗口成立（主因） | 测量为点状聚焦（±50 px 内 ~1% 功率），模型为 97% 填充方形平顶 |
 
-结论：方向失败主因指向前向模型远场形态（PSF/离焦/照明包络）与绝对强度表征，而非背景、非线性或中心窗口错位。M3 不能作为模型方向正确的证据。
+结论：方向失败主因指向物理预测模型远场形态（PSF/离焦/照明包络）与绝对强度表征，而非背景、非线性或中心窗口错位。M3 不能作为模型方向正确的证据。
 
 ## 状态
 
