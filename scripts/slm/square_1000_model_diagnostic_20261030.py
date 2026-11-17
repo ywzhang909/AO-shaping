@@ -14,6 +14,7 @@ Mono12 full scale stops the session; optimization is never attempted here.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import time
 from pathlib import Path
@@ -228,6 +229,10 @@ def main() -> None:
     parser.add_argument("--seed-key", default=SEED_KEY)
     parser.add_argument("--base-exposure-ms", type=float, default=BASE_EXPOSURE_MS)
     parser.add_argument("--probe-amplitude-rad", type=float, default=PROBE_AMPLITUDE_RAD)
+    parser.add_argument(
+        "--window-shift-yx", type=float, nargs=2, default=(0.0, 0.0), metavar=("DY", "DX"),
+        help="shift the analysis window (camera_xy) by (dy, dx) native px; phases unchanged",
+    )
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--wait-until-idle", type=float, default=0.0)
     args = parser.parse_args()
@@ -241,6 +246,12 @@ def main() -> None:
     archive = load_seed_contract(
         args.seed_run, args.checkpoint, seed_key=args.seed_key
     )
+    dy, dx = args.window_shift_yx
+    if dy or dx:
+        shifted = np.asarray(archive.camera_xy, dtype=np.float64).copy()
+        shifted[..., 0] += dx
+        shifted[..., 1] += dy
+        archive = dataclasses.replace(archive, camera_xy=shifted)
     forward = FrozenDefocusForward(archive.parameters, archive.camera_xy, device="cpu")
     phase = probe_phases(archive.seed, forward, args.probe_amplitude_rad)
     predicted = predictions(forward, phase, args.base_exposure_ms)

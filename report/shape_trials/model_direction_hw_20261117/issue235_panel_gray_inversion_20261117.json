@@ -1,0 +1,304 @@
+{
+  "session": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\square1000_model_diag_20261117_140741",
+  "device_free": true,
+  "scales": {
+    "encoding_2pi_gray": 1023,
+    "physical_2pi_gray": 993,
+    "encoding_scale_ratio": 0.9706744868035191
+  },
+  "config": {
+    "seed_run": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\multishape_nogs_20261030\\square1000_bandlimit_live_20261030_v2",
+    "seed_key": "F_blur4_full",
+    "checkpoint": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\multishape_nogs_20261030\\p20261030_s1000_square_plane_formation\\model640\\frozen_parameters.json",
+    "probe_amplitude_rad": 0.03,
+    "base_exposure_ms": 0.1
+  },
+  "encode_check": [
+    {
+      "index": 0,
+      "role": "A",
+      "shape_matches": true,
+      "max_abs_gray_error": 0,
+      "mismatch_fraction": 0.0,
+      "gray_max": 1022,
+      "gray_unique": 1023
+    },
+    {
+      "index": 1,
+      "role": "A",
+      "shape_matches": true,
+      "max_abs_gray_error": 0,
+      "mismatch_fraction": 0.0,
+      "gray_max": 1022,
+      "gray_unique": 1023
+    },
+    {
+      "index": 2,
+      "role": "N4+",
+      "shape_matches": true,
+      "max_abs_gray_error": 0,
+      "mismatch_fraction": 0.0,
+      "gray_max": 1022,
+      "gray_unique": 1023
+    },
+    {
+      "index": 3,
+      "role": "N4-",
+      "shape_matches": true,
+      "max_abs_gray_error": 0,
+      "mismatch_fraction": 0.0,
+      "gray_max": 1022,
+      "gray_unique": 1023
+    },
+    {
+      "index": 4,
+      "role": "A",
+      "shape_matches": true,
+      "max_abs_gray_error": 0,
+      "mismatch_fraction": 0.0,
+      "gray_max": 1022,
+      "gray_unique": 1023
+    },
+    {
+      "index": 5,
+      "role": "RX+",
+      "shape_matches": true,
+      "max_abs_gray_error": 0,
+      "mismatch_fraction": 0.0,
+      "gray_max": 1022,
+      "gray_unique": 1023
+    },
+    {
+      "index": 6,
+      "role": "RX-",
+      "shape_matches": true,
+      "max_abs_gray_error": 0,
+      "mismatch_fraction": 0.0,
+      "gray_max": 1022,
+      "gray_unique": 1023
+    },
+    {
+      "index": 7,
+      "role": "A",
+      "shape_matches": true,
+      "max_abs_gray_error": 0,
+      "mismatch_fraction": 0.0,
+      "gray_max": 1022,
+      "gray_unique": 1023
+    },
+    {
+      "index": 8,
+      "role": "RY+",
+      "shape_matches": true,
+      "max_abs_gray_error": 0,
+      "mismatch_fraction": 0.0,
+      "gray_max": 1022,
+      "gray_unique": 1023
+    },
+    {
+      "index": 9,
+      "role": "RY-",
+      "shape_matches": true,
+      "max_abs_gray_error": 0,
+      "mismatch_fraction": 0.0,
+      "gray_max": 1022,
+      "gray_unique": 1023
+    },
+    {
+      "index": 10,
+      "role": "A",
+      "shape_matches": true,
+      "max_abs_gray_error": 0,
+      "mismatch_fraction": 0.0,
+      "gray_max": 1022,
+      "gray_unique": 1023
+    },
+    {
+      "index": 11,
+      "role": "A",
+      "shape_matches": true,
+      "max_abs_gray_error": 0,
+      "mismatch_fraction": 0.0,
+      "gray_max": 1022,
+      "gray_unique": 1023
+    },
+    {
+      "index": 12,
+      "role": "A",
+      "shape_matches": true,
+      "max_abs_gray_error": 0,
+      "mismatch_fraction": 0.0,
+      "gray_max": 1022,
+      "gray_unique": 1023
+    },
+    {
+      "index": 13,
+      "role": "A",
+      "shape_matches": true,
+      "max_abs_gray_error": 0,
+      "mismatch_fraction": 0.0,
+      "gray_max": 1022,
+      "gray_unique": 1023
+    }
+  ],
+  "decode_residual": {
+    "encoding": {
+      "pixels": 256000,
+      "wrapped_rms_rad": 0.0035470066987526787,
+      "mean_rad": -0.003071803544205704,
+      "p95_abs_rad": 0.005834502399334696,
+      "max_abs_rad": 0.006141918148262704,
+      "fraction_abs_gt_0p1_rad": 0.0,
+      "fraction_abs_gt_half_pi": 0.0,
+      "lsb_rad": 0.00614192112138767,
+      "slope_decoded_over_requested": -0.49983583979433777
+    },
+    "physical": {
+      "pixels": 256000,
+      "wrapped_rms_rad": 0.1068622295309683,
+      "mean_rad": 0.09172573801979239,
+      "p95_abs_rad": 0.1771257284169767,
+      "max_abs_rad": 0.18962424062705097,
+      "fraction_abs_gt_0p1_rad": 0.45621484375,
+      "fraction_abs_gt_half_pi": 0.0,
+      "lsb_rad": 0.00614192112138767,
+      "slope_decoded_over_requested": -0.5149366204527767
+    }
+  },
+  "prediction_reproducibility_relative_rms": {
+    "A": 1.0290653662536897e-08,
+    "N4+": 1.034087748763568e-08,
+    "N4-": 1.0294010088784944e-08,
+    "RX+": 1.0209783241066361e-08,
+    "RX-": 1.0350892587496219e-08,
+    "RY+": 1.0223306645684715e-08,
+    "RY-": 1.0250298387859402e-08
+  },
+  "gains": {
+    "N4": {
+      "probe_amplitude_rad": 0.03,
+      "measured_rms": 3.680983476033476,
+      "drift_corrected_rms": 3.8903277687161855,
+      "predicted": {
+        "requested": {
+          "rms": 4.362536492408253e-05,
+          "cosine_panel": -0.007518022839342253,
+          "cosine_drift_corrected": -0.006704676249950781,
+          "odd_affine": {
+            "gain": -597.8956147423869,
+            "offset": -0.04692122037145521,
+            "relative_l2": 0.9999047855863097,
+            "correlation": -0.00670517081217616
+          }
+        },
+        "actual_1023": {
+          "rms": 5.125250027049333e-05,
+          "cosine_panel": -0.007032554727557084,
+          "cosine_drift_corrected": -0.0051593992954649115,
+          "odd_affine": {
+            "gain": -391.5983804761783,
+            "offset": -0.04692059529609874,
+            "relative_l2": 0.9999139549070997,
+            "correlation": -0.005159425186389359
+          }
+        },
+        "actual_993": {
+          "rms": 0.00025090426788665354,
+          "cosine_panel": -0.007282013842202539,
+          "cosine_drift_corrected": -0.006721238926919168,
+          "odd_affine": {
+            "gain": -104.22204677578495,
+            "offset": -0.04692219186603766,
+            "relative_l2": 0.999904671096328,
+            "correlation": -0.006722224860797605
+          }
+        }
+      }
+    },
+    "RX": {
+      "probe_amplitude_rad": 0.03,
+      "measured_rms": 3.584287210402086,
+      "drift_corrected_rms": 3.76959073805965,
+      "predicted": {
+        "requested": {
+          "rms": 0.0007977947243489325,
+          "cosine_panel": 0.0023539254012479023,
+          "cosine_drift_corrected": 0.00253026784143738,
+          "odd_affine": {
+            "gain": 11.95556900276119,
+            "offset": 0.01766847656598199,
+            "relative_l2": 0.9999858142818291,
+            "correlation": 0.0025302997294314447
+          }
+        },
+        "actual_1023": {
+          "rms": 0.0007986832642927766,
+          "cosine_panel": 0.002277727154648318,
+          "cosine_drift_corrected": 0.0025196258827560733,
+          "odd_affine": {
+            "gain": 11.89197984393626,
+            "offset": 0.017668451478427168,
+            "relative_l2": 0.9999858411851424,
+            "correlation": 0.002519644751571156
+          }
+        },
+        "actual_993": {
+          "rms": 0.0008119625272229314,
+          "cosine_panel": 0.003035768477433373,
+          "cosine_drift_corrected": 0.0030668327163978068,
+          "odd_affine": {
+            "gain": 14.23993100762647,
+            "offset": 0.017669511661841702,
+            "relative_l2": 0.9999843113754865,
+            "correlation": 0.0030672871632944788
+          }
+        }
+      }
+    },
+    "RY": {
+      "probe_amplitude_rad": 0.03,
+      "measured_rms": 3.3523811278862508,
+      "drift_corrected_rms": 3.5294816632528354,
+      "predicted": {
+        "requested": {
+          "rms": 0.001277365256100893,
+          "cosine_panel": 0.0010687095543017242,
+          "cosine_drift_corrected": 0.0013556264322120248,
+          "odd_affine": {
+            "gain": 3.7460281663700545,
+            "offset": -0.021552213038725496,
+            "relative_l2": 0.99998043725627,
+            "correlation": 0.0013557614986208094
+          }
+        },
+        "actual_1023": {
+          "rms": 0.0012770993635058403,
+          "cosine_panel": 0.0011707348646307328,
+          "cosine_drift_corrected": 0.0014431576070642821,
+          "odd_affine": {
+            "gain": 3.9887409500976525,
+            "offset": -0.0215522262435312,
+            "relative_l2": 0.9999803147405386,
+            "correlation": 0.0014433035133797941
+          }
+        },
+        "actual_993": {
+          "rms": 0.0012820337433367968,
+          "cosine_panel": 0.0015989381603666154,
+          "cosine_drift_corrected": 0.001954304853609761,
+          "odd_affine": {
+            "gain": 5.380546816051519,
+            "offset": -0.021552243287080164,
+            "relative_l2": 0.9999794463940703,
+            "correlation": 0.0019544430880914523
+          }
+        }
+      }
+    }
+  },
+  "notes": [
+    "decode_residual['encoding'] is pure quantization at 2*pi/1023 = 6.1 mrad per LSB.",
+    "decode_residual['physical'] adds the 993-vs-1023 phase-scale compression (panel phase = gray * 2*pi / 993).",
+    "odd_affine.gain is measured per predicted unit: 1.0 means the model's response amplitude already matches the measurement."
+  ]
+}

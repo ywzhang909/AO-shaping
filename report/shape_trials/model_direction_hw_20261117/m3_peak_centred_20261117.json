@@ -1,0 +1,175 @@
+{
+  "crop_centre_native_row_col": [
+    1105,
+    1224
+  ],
+  "crop_centre_xy": [
+    1224.0,
+    1105.0
+  ],
+  "crop": 128,
+  "convention": {
+    "metric": "jacobian_guard.direction_agreement Pearson",
+    "rate": "raw_frames mean / exposure_ms",
+    "phase_sign": -1.0,
+    "phase_sign_scope": "command"
+  },
+  "sessions": {
+    "square1000_model_diag_win0_20261117": {
+      "summary": {
+        "M0": {
+          "per_pair": {
+            "N4": 0.0022304620512492088,
+            "RX": 0.0012307577090886058,
+            "RY": -0.01115843631648847
+          },
+          "median": 0.0012307577090886058,
+          "count_ge_0_50": 0,
+          "n_pairs": 3
+        },
+        "M1_defocus": {
+          "per_pair": {
+            "N4": -0.0014044082845100754,
+            "RX": 0.00022375862926129821,
+            "RY": -0.0009289208630121059
+          },
+          "median": -0.0009289208630121059,
+          "count_ge_0_50": 0,
+          "n_pairs": 3
+        },
+        "M3_illumination": {
+          "per_pair": {
+            "N4": NaN,
+            "RX": NaN,
+            "RY": 0.026165577124579145
+          },
+          "median": 0.026165577124579145,
+          "count_ge_0_50": 0,
+          "n_pairs": 3
+        }
+      },
+      "raw_per_pair": {
+        "N4": {
+          "M0": {
+            "corr": 0.0022304620512492088,
+            "verdict": "contradict"
+          },
+          "M1_defocus": {
+            "corr": -0.0014044082845100754,
+            "verdict": "contradict"
+          },
+          "M3_illumination": {
+            "corr": NaN,
+            "verdict": "insufficient_signal"
+          }
+        },
+        "RX": {
+          "M0": {
+            "corr": 0.0012307577090886058,
+            "verdict": "contradict"
+          },
+          "M1_defocus": {
+            "corr": 0.00022375862926129821,
+            "verdict": "contradict"
+          },
+          "M3_illumination": {
+            "corr": NaN,
+            "verdict": "insufficient_signal"
+          }
+        },
+        "RY": {
+          "M0": {
+            "corr": -0.01115843631648847,
+            "verdict": "contradict"
+          },
+          "M1_defocus": {
+            "corr": -0.0009289208630121059,
+            "verdict": "contradict"
+          },
+          "M3_illumination": {
+            "corr": 0.026165577124579145,
+            "verdict": "contradict"
+          }
+        }
+      }
+    },
+    "square1000_model_diag_win163_20261117": {
+      "summary": {
+        "M0": {
+          "per_pair": {
+            "N4": -0.011457759908689162,
+            "RX": -0.0006791145490685462,
+            "RY": -0.009994147120707562
+          },
+          "median": -0.009994147120707562,
+          "count_ge_0_50": 0,
+          "n_pairs": 3
+        },
+        "M1_defocus": {
+          "per_pair": {
+            "N4": 0.0035654802053134912,
+            "RX": 0.0009749797929185566,
+            "RY": -0.00318725603127146
+          },
+          "median": 0.0009749797929185566,
+          "count_ge_0_50": 0,
+          "n_pairs": 3
+        },
+        "M3_illumination": {
+          "per_pair": {
+            "N4": NaN,
+            "RX": NaN,
+            "RY": 0.02474637691483306
+          },
+          "median": 0.02474637691483306,
+          "count_ge_0_50": 0,
+          "n_pairs": 3
+        }
+      },
+      "raw_per_pair": {
+        "N4": {
+          "M0": {
+            "corr": -0.011457759908689162,
+            "verdict": "contradict"
+          },
+          "M1_defocus": {
+            "corr": 0.0035654802053134912,
+            "verdict": "contradict"
+          },
+          "M3_illumination": {
+            "corr": NaN,
+            "verdict": "insufficient_signal"
+          }
+        },
+        "RX": {
+          "M0": {
+            "corr": -0.0006791145490685462,
+            "verdict": "contradict"
+          },
+          "M1_defocus": {
+            "corr": 0.0009749797929185566,
+            "verdict": "contradict"
+          },
+          "M3_illumination": {
+            "corr": NaN,
+            "verdict": "insufficient_signal"
+          }
+        },
+        "RY": {
+          "M0": {
+            "corr": -0.009994147120707562,
+            "verdict": "contradict"
+          },
+          "M1_defocus": {
+            "corr": -0.00318725603127146,
+            "verdict": "contradict"
+          },
+          "M3_illumination": {
+            "corr": 0.02474637691483306,
+            "verdict": "contradict"
+          }
+        }
+      }
+    }
+  }
+}
