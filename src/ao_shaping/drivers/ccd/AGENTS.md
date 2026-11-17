@@ -8,8 +8,11 @@
 ccd/
 ├── base.py              # BaseCamera 抽象基类
 ├── common.py            # 通用工具
+├── hdr_capture.py       # HDR 阶梯采集与融合
+├── saturation.py        # 满量程与饱和保护工具
 ├── daheng/              # 大恒相机 (GigE)
 │   ├── driver.py
+│   ├── auto_exposure.py  # 大恒自动曝光工具方法
 │   ├── constants.py     # 大恒驱动常量
 │   ├── _bit_depth.py    # 位深 → PixelFormat 映射与回读归一化 (零导入叶子)
 │   ├── discovery.py     # 大恒在线检查统一枚举漏斗 (SDK 引导 + 三态归一, 零导入叶子)
@@ -19,6 +22,7 @@ ccd/
 │   └── __init__.py
 ├── miicam/              # MiiCam SDK
 │   ├── driver.py
+│   ├── bit_depth.py      # 位深与像素格式初始化
 │   ├── _sdk_setup.py
 │   └── __init__.py
 ├── pixel_size.py        # 像元尺寸按型号解析 (零导入叶子, 型号配置 → 已知型号表 → 报错)
