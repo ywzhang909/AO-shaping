@@ -3996,52 +3996,9 @@ def _milr_round_score_after(affine_after, bench, best_accepted_cv, calibration_v
 
 
 
-def _run_model_in_loop_rounds(
-    *,
-    _fit_aberration_at_probes: object,
-    _probe_set_loss: object,
-    bench: object,
-    best_accepted_cv: object,
-    best_frame: object,
-    best_phase: object,
-    best_score: object,
-    calibration_affine: object,
-    calibration_travel: object,
-    camera_rotation_quarters: object,
-    cell_scale: object,
-    coefficients: object,
-    config: object,
-    flat_grid: object,
-    flat_phase: object,
-    geometry: object,
-    live_display: object,
-    phase: object,
-    prev_uncertainty_probes: object,
-    probe_count: object,
-    probe_records: object,
-    recorder: object,
-    rejection_streak: object,
-    roi_center: object,
-    score_before: object,
-    shape_phase_with_frozen_aberration: object,
-    source_amplitude: object,
-    status: object,
-    step_a_lr: object,
-    step_b_cfg: object,
-    target: object,
-    target_camera: object,
-    trust_region: object,
-) -> tuple:
-    """#205 batch-24: former round loop of _run_model_in_loop_session.
 
-    One Step A / Step B round per iteration: refit the forward model on a
-    fresh random probe, synthesise the target-spot phase under the current
-    trust radius, then accept or reject the candidate against the measured
-    baseline.  The five loop-carried names (best_frame, best_phase,
-    best_score, coefficients, status) enter with their initial values and
-    leave through the returned tuple; every other name is read-only here.
-    The loop's `break` stays inside, so the caller resumes right after it.
-    """
+def _mil_round_loop(_fit_aberration_at_probes, _probe_set_loss, bench, best_accepted_cv, best_frame, best_phase, best_score, calibration_affine, calibration_travel, camera_rotation_quarters, cell_scale, coefficients, config, flat_grid, flat_phase, geometry, live_display, phase, prev_uncertainty_probes, probe_count, probe_records, recorder, rejection_streak, roi_center, score_before, shape_phase_with_frozen_aberration, source_amplitude, status, step_a_lr, step_b_cfg, target, target_camera, trust_region):
+# Per-round calibration loop lifted verbatim
     for index in range(int(config.n_rounds)):
         # --- Step A: probe the bench, refit one shared aberration -------
         fitted, frames, holdout_seeds, loss_before, optimizer, probe, step_a_iters, step_a_lr, step_a_trace = _milr_round_probe_setup(_fit_aberration_at_probes, _probe_set_loss, bench, calibration_affine, calibration_travel, camera_rotation_quarters, cell_scale, coefficients, config, geometry, index, live_display, prev_uncertainty_probes, probe_count, probe_records, rejection_streak, roi_center, source_amplitude, step_a_lr, target_camera)
@@ -4176,5 +4133,56 @@ def _run_model_in_loop_rounds(
             break
         if config.callback is not None:
             config.callback(index, row)
+    return best_frame, best_phase, best_score, coefficients, status
+
+
+
+def _run_model_in_loop_rounds(
+    *,
+    _fit_aberration_at_probes: object,
+    _probe_set_loss: object,
+    bench: object,
+    best_accepted_cv: object,
+    best_frame: object,
+    best_phase: object,
+    best_score: object,
+    calibration_affine: object,
+    calibration_travel: object,
+    camera_rotation_quarters: object,
+    cell_scale: object,
+    coefficients: object,
+    config: object,
+    flat_grid: object,
+    flat_phase: object,
+    geometry: object,
+    live_display: object,
+    phase: object,
+    prev_uncertainty_probes: object,
+    probe_count: object,
+    probe_records: object,
+    recorder: object,
+    rejection_streak: object,
+    roi_center: object,
+    score_before: object,
+    shape_phase_with_frozen_aberration: object,
+    source_amplitude: object,
+    status: object,
+    step_a_lr: object,
+    step_b_cfg: object,
+    target: object,
+    target_camera: object,
+    trust_region: object,
+) -> tuple:
+    """#205 batch-24: former round loop of _run_model_in_loop_session.
+
+    One Step A / Step B round per iteration: refit the forward model on a
+    fresh random probe, synthesise the target-spot phase under the current
+    trust radius, then accept or reject the candidate against the measured
+    baseline.  The five loop-carried names (best_frame, best_phase,
+    best_score, coefficients, status) enter with their initial values and
+    leave through the returned tuple; every other name is read-only here.
+    The loop's `break` stays inside, so the caller resumes right after it.
+    """
+    best_frame, best_phase, best_score, coefficients, status = _mil_round_loop(_fit_aberration_at_probes, _probe_set_loss, bench, best_accepted_cv, best_frame, best_phase, best_score, calibration_affine, calibration_travel, camera_rotation_quarters, cell_scale, coefficients, config, flat_grid, flat_phase, geometry, live_display, phase, prev_uncertainty_probes, probe_count, probe_records, recorder, rejection_streak, roi_center, score_before, shape_phase_with_frozen_aberration, source_amplitude, status, step_a_lr, step_b_cfg, target, target_camera, trust_region)
     return best_frame, best_phase, best_score, coefficients, status
 

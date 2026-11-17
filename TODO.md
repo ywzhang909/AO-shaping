@@ -5592,6 +5592,10 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 提取 `_session_prepare_stage` 56 (3 参数 4 回传, 网格决策/config 覆写/journal + `stage` 闭包工厂整体) 与 `_session_write_summary` 20 (10 参数 0 回传, 摘要落盘; 裸 return 剥离)
 - 载体: transfer 顶层 15 文件 + transfer/ 子包 + 形状 **1075 passed / 3 skipped**; conventions 72 passed; ruff 全仓绿; term 0; modsize 抬高后绿
 
+**2026-11-18 · 11252a5b 之后 · 第 148 批: `_run_model_in_loop_rounds` 181→48 行 (`optimizer/wfless/slm_model_in_loop.py`)**
+- 提取 `_mil_round_loop` 137 行 (33 参数 5 回传, 逐轮 refit/候选接受/停滞 break 整环; 环内 4 处 break 由环自身绑定; `best_frame/best_phase/status` 是母函数形参且环内条件重绑 → ⑳ 强制参数原样传入再回传, 与逐字一致)
+- 载体: `test_slm_model_in_loop` + `loop_invariants` + 形状; **wfless 域逐文件 55/55 全绿**; conventions 72; ruff 全仓绿; term 0; modsize 抬高后绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
