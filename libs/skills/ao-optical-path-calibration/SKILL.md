@@ -20,6 +20,7 @@ description: "Optical-path probing and device calibration for AO-shaping hardwar
 - 设备被占用时，不要并行启动第二个占用同一设备的进程；带 `--wait-until-idle` 的脚本可以用。
 - **DVI 模式打开 SLM 会挂起**，挂起后内存模式打开也可能挂。恢复方式是**给 SLM 控制器断电重启**，软件无法恢复（`report/fouriergsnet_pipeline/TODO.md:35, :71, :142`）。
 - 背对背 open/close SLM 会触发驱动板假死（memory 中已记录），两次开关之间要间隔一个 settle 时长。
+- **CCD 不做物理开窗**：实验期间保持全幅采集，需要缩小分析范围时只在后处理做算法裁切。物理开窗一旦设错，原始数据就丢了全幅上下文，无法从记录里复盘当时到底裁掉了什么（memory 中已记录此类教训）。
 
 ---
 
@@ -197,6 +198,8 @@ description: "Optical-path probing and device calibration for AO-shaping hardwar
 - `devices.camera.averaging_frames` / `discard_frames_after_exposure_change` —— 探针用单帧。
 
 **饱和阈值的口径**：`saturation_threshold_counts` 由探针自己的 `SATURATION_FRACTION = 0.95` 乘 `full_scale` 得出（mono12 = 3890）。历史报告用的守卫是 250/255 × 4095 ≈ 4015，两者接近但不相等。比较历史与探针记录时以记录里的 `saturation_threshold_counts` 为准，不要套用 4015。
+
+**全幅采集与裁切**：采集期间不做物理开窗，相机以全幅读出，原始数据保持完整上下文。需要缩小分析范围时，只在后处理阶段做算法裁切，并把裁切后的 ROI 与坐标记入 `operator_note`（或单独的后处理记录）。这样原始数据始终可复盘——物理开窗一旦设错，全幅上下文就永久丢失，无法从记录还原当时裁掉了什么。
 
 **比较规则**：两次实验若 `optical_path.config_id`、`fresnel_compensation_m_inv`、`two_pi_grayscale`、`exposure_used_ms` 或 `geometry_calib_mtime` 不同，结论比较前先说明差异，不能直接把算法效果归因于算法本身。
 
