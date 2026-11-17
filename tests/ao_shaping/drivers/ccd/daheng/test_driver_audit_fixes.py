@@ -133,7 +133,7 @@ def _make_cam(fake: _FakeCam, *, exposure_ms: float = 20.0, streaming: bool = Tr
 
 
 def _window_mock() -> MagicMock:
-    """一个能跑通 reset_window 全幅路径的假设备。"""
+    """一个能在线实现 reset_window 全幅路径的假设备。"""
     mock_cam = MagicMock()
     mock_cam.WidthMax.get.return_value = 1680
     mock_cam.HeightMax.get.return_value = 1140

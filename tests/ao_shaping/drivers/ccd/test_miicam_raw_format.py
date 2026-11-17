@@ -2,7 +2,7 @@ r"""离线锁定 :meth:`MIICamera._detect_raw_format` 的 fourcc 解码。
 
 SDK ``get_RawFormat()`` 返回的 fourcc 是 32 位整数 (``MAKEFOURCC`` 小端拼装),
 驱动必须先把整数解成 4 个 ASCII 字符再与格式名比较。历史实现拿整数直接和
-字符串比较, 三个分支全部为死路, 真机上 Bayer 相机被静默落到兜底分支。
+字符串比较, 三个分支全部为死路, 实验系统上 Bayer 相机被静默落到兜底分支。
 
 假相机 + 假日志, 不接相机、不加载 SDK 设备。
 """
@@ -43,7 +43,7 @@ def miicam_driver():
 
 
 def test_bayer_rggb_int_decoded(miicam_driver, monkeypatch):
-    """真机读数 1111967570 = 0x42474752 = fourcc 'RGGB' (Bayer, 读为灰度)。"""
+    """实验系统读数 1111967570 = 0x42474752 = fourcc 'RGGB' (Bayer, 读为灰度)。"""
     cam, logs = _make_camera(miicam_driver, monkeypatch, 0x42474752)
     cam._detect_raw_format()
     assert cam._pixel_format == "MONO16"
