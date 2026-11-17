@@ -1832,6 +1832,85 @@ def optimize_slm_square(
     )
 
 
+
+def _sq_heuristic_session(_dim, _evaluate_quality, _heuristic_bounds, _params, _record_vec, _score_column, algorithm, best_ar, best_c, best_cost, best_cv, best_ee, best_img, best_quality, cam, delta, display_ctx, epochs, last_best_epoch, last_eval, pop_size, random_seed, recorder, target_mean_brightness, target_side):
+# Tqdm heuristic search session lifted verbatim
+    with tqdm.tqdm(
+        total=None, desc=f"slm_square {algorithm}", dynamic_ncols=True
+    ) as hbar:
+
+        def _on_evaluate(params: np.ndarray, value: float, index: int) -> None:
+            nonlocal best_quality, best_cost, best_cv, best_ee, best_ar
+            nonlocal best_c, best_img, last_best_epoch
+            if value > best_quality + 1e-6:
+                best_quality = float(value)
+                best_cost = last_eval["cost"]
+                best_cv = last_eval["cv"]
+                best_ee = last_eval["ee"]
+                best_ar = last_eval["ar"]
+                best_c = np.asarray(params, dtype=np.float64).copy()
+                best_img = last_eval["img"].copy()
+                last_best_epoch = index
+
+            row = {
+                "J": last_eval["cost"],
+                _score_column: float(value),
+                "cv": last_eval["cv"],
+                "ee": last_eval["ee"],
+                "ar": last_eval["ar"],
+                "pbr": last_eval["pbr"],
+                "side": target_side,
+                RECORD_COEFFS: _record_vec(
+                    np.asarray(params, dtype=np.float64)
+                ),
+                RECORD_IMAGE: last_eval["img"],
+                RECORD_DIFF: 0.0,
+                "lr": 0.0,
+                "delta": float(delta),
+                RECORD_EPOCH: index,
+                "exp_t": get_camera_exposure_ms(cam),
+                "max_brt": float(np.max(last_eval["img"])),
+                "mean_b": last_eval["mean"],
+                "target_mean_b": target_mean_brightness,
+                RECORD_GRAD: _record_vec(np.zeros_like(params)),
+                "optimizer": algorithm,
+            }
+            recorder.append(row)
+
+            if display_ctx is not None:
+                try:
+                    display_ctx.update(
+                        img=last_eval["img"],
+                        phase=last_eval["gray"],
+                        quality=float(value),
+                        cv=last_eval["cv"],
+                        ee=last_eval["ee"],
+                        epoch=index,
+                        total_epochs=epochs,
+                    )
+                # policy: a display refresh inside the heuristic callback must not abort a search that is already driving the SLM
+                except Exception:
+                    pass
+
+            hbar.set_postfix({k: v for k, v in row.items() if k[0] != "_"})
+            hbar.update(1)
+
+        result = run_heuristic_search(
+            algorithm,
+            _evaluate_quality,
+            dim=_dim,
+            iterations=epochs,
+            bounds=_heuristic_bounds,
+            x0=_params,
+            maximize=True,
+            seed=random_seed,
+            pop_size=pop_size,
+            on_evaluate=_on_evaluate,
+        )
+    return best_ar, best_c, best_cost, best_cv, best_ee, best_img, best_quality, last_best_epoch, result
+
+
+
 def _run_square_heuristic_stage(
     *,
     algorithm: object,
@@ -1915,78 +1994,7 @@ def _run_square_heuristic_stage(
         )
         return float(_q)
 
-    with tqdm.tqdm(
-        total=None, desc=f"slm_square {algorithm}", dynamic_ncols=True
-    ) as hbar:
-
-        def _on_evaluate(params: np.ndarray, value: float, index: int) -> None:
-            nonlocal best_quality, best_cost, best_cv, best_ee, best_ar
-            nonlocal best_c, best_img, last_best_epoch
-            if value > best_quality + 1e-6:
-                best_quality = float(value)
-                best_cost = last_eval["cost"]
-                best_cv = last_eval["cv"]
-                best_ee = last_eval["ee"]
-                best_ar = last_eval["ar"]
-                best_c = np.asarray(params, dtype=np.float64).copy()
-                best_img = last_eval["img"].copy()
-                last_best_epoch = index
-
-            row = {
-                "J": last_eval["cost"],
-                _score_column: float(value),
-                "cv": last_eval["cv"],
-                "ee": last_eval["ee"],
-                "ar": last_eval["ar"],
-                "pbr": last_eval["pbr"],
-                "side": target_side,
-                RECORD_COEFFS: _record_vec(
-                    np.asarray(params, dtype=np.float64)
-                ),
-                RECORD_IMAGE: last_eval["img"],
-                RECORD_DIFF: 0.0,
-                "lr": 0.0,
-                "delta": float(delta),
-                RECORD_EPOCH: index,
-                "exp_t": get_camera_exposure_ms(cam),
-                "max_brt": float(np.max(last_eval["img"])),
-                "mean_b": last_eval["mean"],
-                "target_mean_b": target_mean_brightness,
-                RECORD_GRAD: _record_vec(np.zeros_like(params)),
-                "optimizer": algorithm,
-            }
-            recorder.append(row)
-
-            if display_ctx is not None:
-                try:
-                    display_ctx.update(
-                        img=last_eval["img"],
-                        phase=last_eval["gray"],
-                        quality=float(value),
-                        cv=last_eval["cv"],
-                        ee=last_eval["ee"],
-                        epoch=index,
-                        total_epochs=epochs,
-                    )
-                # policy: a display refresh inside the heuristic callback must not abort a search that is already driving the SLM
-                except Exception:
-                    pass
-
-            hbar.set_postfix({k: v for k, v in row.items() if k[0] != "_"})
-            hbar.update(1)
-
-        result = run_heuristic_search(
-            algorithm,
-            _evaluate_quality,
-            dim=_dim,
-            iterations=epochs,
-            bounds=_heuristic_bounds,
-            x0=_params,
-            maximize=True,
-            seed=random_seed,
-            pop_size=pop_size,
-            on_evaluate=_on_evaluate,
-        )
+    best_ar, best_c, best_cost, best_cv, best_ee, best_img, best_quality, last_best_epoch, result = _sq_heuristic_session(_dim, _evaluate_quality, _heuristic_bounds, _params, _record_vec, _score_column, algorithm, best_ar, best_c, best_cost, best_cv, best_ee, best_img, best_quality, cam, delta, display_ctx, epochs, last_best_epoch, last_eval, pop_size, random_seed, recorder, target_mean_brightness, target_side)
 
     # Leave the best phase found on the SLM.
     slm.display_data(_params_to_gray(result.best_x))

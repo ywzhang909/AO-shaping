@@ -5681,6 +5681,12 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - ㊾ 小坑: live-doc 锚串里括号为全角 `（`, 补丁脚本 assert 计数 0 才暴露; 文档重钉一律先 count 再 replace
 - 载体: model_in_loop 三测试 + 形状 + conventions **665 passed / 1 skipped**; ruff 全仓绿; term 0
 
+**2026-11-18 · 71b465cd 之后 · 第 163 批: `_run_square_heuristic_stage` 168→97 行 (`optimizer/wfless/slm_square_shaping.py`)**
+- 提取 `_sq_heuristic_session` 75 行 (tqdm 黑盒搜索会话整体; 25 参数 9 回传: `_on_evaluate` 闭包内 8 个 `nonlocal` 名 `best_ar/best_cv/best_ee/best_quality/last_best_epoch/best_cost/best_c/best_img` 是母函数形参/局部, **lift 后 nonlocal 会绑到 helper 自身作用域 ⇒ 语义从"改母函数"变"改 helper"** —— 修法: `_fp`+`_fr` 双表强制这 8 名入参并回传 (b153 `_show_probe_frame` 强制参数先例的 nonlocal 变体), 母函数调用点接收回传后语义逐位还原)
+- 棘轮: 210/3/168 → 108/2/97 + helper 84/4/75
+- 载体: square 域 4 测试 (objective_search_sim / zernike_basis / gui_vs_slm_square / convergence_diagnostics) + 形状 + conventions **627 passed**; ruff/term 绿; modsize bump
+- 同批取证: CI run 44178791169 (ci159, b158+b159 head) 第三红 = `scripts/test_hw_forward_model_fidelity_ladder.py::test_signal_floor_spearman_…` (ci156 同款、ci157/ci158 未复现、本地单测×2 + 整文件×1 全绿) → 立案为 shard 状态污染型 flake, 观察 ci160/161/163 是否再现
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
