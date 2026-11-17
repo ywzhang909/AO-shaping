@@ -5443,6 +5443,13 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: `test_slm_calibration_thread_boundary` + 形状门禁 **439 passed**; `test_conventions` 72 passed
 - 门禁: `render_sidebar` 收紧 254/4/224→90/2/78 + 新增四条 helper 行; ruff/term 绿
 
+**2026-11-17 · 4eb87127 之后 · 第 126 批: `optimizer_ga` 188→93 行 (`optimizer/wf/ga_zernike.py`)**
+- 提取 `_ga_run_evolution` 99 行 (14 参数 0 回传, 覆盖种群初始化 + 初评 + tqdm 进化环)
+- ⚠️ 教训 (新 ㉞): **lift 改变 def 行号 → 生成型 wiki 的 `source:` 引用会失效**, `test_conventions::test_wiki_source_citations_land_on_definitions` 会红。修法是补全生成管线 `build_call_graph.py → finalize_graph.py → gen_wiki_pages.py` (缺 `finalize_graph` 时 `gen_wiki_pages` 仍读旧 `call_graph_final.json`, 白忙一轮), 之后**只保留该页 diff、回滚其余页的时间戳漂移** (`gen_wiki_pages.py` 的 `DATE` 常量会把 `updated:` 打回 2026-10-13)
+- 叶差分: 7 同 / 消失 0 / 新增 1; ⑳ 审计 0 命中
+- 载体: `test_ga_zernike` + 形状门禁 **451 passed**; wf 域 174 passed / 1 skipped (需 mock 设备); `test_conventions` 全绿
+- 门禁: `optimizer_ga` 收紧 206/6/188→104/2/93 + 新增 `_ga_run_evolution` 110/4/99; ruff/term 绿; 模块未入 modsize 基线 (413 行低于阈值)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
