@@ -5628,6 +5628,13 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 新增 `_CAPRESP` 常量 + 两行 (70/5/59、117/4/106)
 - 载体: `test_transfer_workflow` + transfer/ 子包 + 形状 **1011 passed / 3 skipped**; conventions 72; ruff/term/modsize 绿
 
+**2026-11-18 · 1438a707 之后 · 第 155 批: `zernike_matrix_runner.closed_loop_run` 154→31 行 (`runners/slm/`)**
+- 两区提取: `_cl_build_configuration` 60 (`device_cfg/law/loop_cfg/n_modes/output_path/ui_display` 6 回传装配) + `_cl_execute_session` 66 (12 参数含函数级导入 `ZernikeSLM/datetime/json/plt` 随参流动, 裸 return 剥离)
+- lift 后父体暴露 5 个函数级死导入 (`Path/np/MlaRes/ThorlabWFS/get_timestamp_str`, 模块级同名导入仍在) → `ruff --fix` 清理, 逐字性不受影响
+- wiki 重钉: `closed-loop.md` source 1833→1967; 棘轮行 178/4/154 → 38/2/31 + helper 两行
+- 载体: **runners 全域 + 形状 + conventions 1215 passed / 26 skipped**; ruff/term/modsize 绿
+- 上游 `97b37eee` 协作者重钉了第 144/147 批 5 处文档行号 (rebase 带入, 无冲突)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

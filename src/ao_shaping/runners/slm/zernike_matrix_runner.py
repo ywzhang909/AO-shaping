@@ -1827,99 +1827,10 @@ def _clr_build_controller(loop_cfg, params, result, wfs, zslm):
     return _apply, loop, measure_func
 
 
-@click.command("closed-loop")
-@click.pass_context
-@with_params(ClosedLoopParams, kw_name="params")
-def closed_loop_run(ctx: click.Context, params: ClosedLoopParams) -> None:
-    """基于响应矩阵的闭环波前优化
 
-    载入已保存的Zernike响应矩阵 (.h5), 恢复硬件参数,
-    使用指定控制律进行闭环优化, 保存优化结果。
-    """
-    import json
-    from pathlib import Path
 
-    import matplotlib
-    import numpy as np
-
-    matplotlib.use("Agg")
-    from datetime import datetime
-
-    import matplotlib.pyplot as plt
-
-    from ao_shaping.drivers.slm import ZernikeSLM
-    from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
-    from ao_shaping.optimizer.wf.zernike_response_matrix import (
-        load_zernike_response_matrix,
-    )
-    from ao_shaping.utils.io.cli_helpers import get_timestamp_str
-
-    # 加载响应矩阵
-    click.echo(f"加载响应矩阵: {params.load_file}")
-    result = load_zernike_response_matrix(params.load_file)
-    click.echo(f"  矩阵形状: {result.matrix.shape}")
-    click.echo(
-        f"  n_max={result.n_max}, excluded_piston={result.excluded_piston}, excluded_tip_tilt={result.excluded_tip_tilt}"
-    )
-
-    # 提取硬件配置
-    device_cfg = HardwareConfig()
-    if result.device_config is not None:
-        device_cfg = HardwareConfig.from_dict(result.device_config)
-        click.echo(
-            f"已恢复硬件配置: SLM#{device_cfg.slm_number}, WL={device_cfg.wavelength}nm, "
-            f"shift=({device_cfg.shift_x},{device_cfg.shift_y}), "
-            f"MLA={device_cfg.mla_index}, exp={device_cfg.exposure_time}ms"
-        )
-    else:
-        click.echo("警告: 响应矩阵中未找到硬件配置, 将使用默认参数")
-        click.echo("建议重新标定以保存完整硬件参数, 或手动指定设备参数")
-
-    # 构建控制配置
-    n_modes = result.n_slm_terms
-    Q_diag = np.ones(n_modes)
-    loop_cfg = LoopConfig(
-        n_modes=n_modes,
-        dt=params.dt,
-        Kp=params.kp if params.kp is not None else 0.5,
-        Ki=params.ki if params.ki is not None else 0.3,
-        Kd=params.kd if params.kd is not None else 0.05,
-        leak=params.leak if params.leak is not None else 0.97,
-        Q_diag=Q_diag,
-        R_scalar=0.1,
-        delay_steps=params.delay_steps,
-        rms_target=params.rms_target,
-        max_iter=params.max_iter,
-        cancel_tile=params.cancel_tile,
-    )
-    if params.gain is not None:
-        loop_cfg.gain_schedule = [(0, params.max_iter, params.gain, loop_cfg.leak)]
-
-    click.echo("\n闭环配置:")
-    click.echo(f"  控制律: {params.control_law}, DT={params.dt}s")
-    click.echo(f"  目标RMS: {params.rms_target}λ, 最大迭代: {params.max_iter}")
-
-    # 解析控制律枚举
-    law_map = {
-        "pid": ControlLaw.PID,
-        "leaky": ControlLaw.LEAKY_INTEGRATOR,
-        "qg": ControlLaw.QUADRATIC_GAUSSIAN,
-        "lqg": ControlLaw.LQG,
-        "mpc": ControlLaw.PREDICTIVE,
-        "adaptive": ControlLaw.ADAPTIVE_GAIN,
-    }
-    law = law_map[params.control_law]
-
-    # 设置输出路径
-    load_path = Path(params.load_file)
-    output_path = params.output_path
-    if output_path is None:
-        output_path = str(
-            load_path.parent / f"closed_loop_{load_path.stem}_{get_timestamp_str()}"
-        )
-
-    # 初始化硬件
-    ui_display = None
+def _cl_execute_session(ZernikeSLM, datetime, device_cfg, json, law, loop_cfg, n_modes, output_path, params, plt, result, ui_display):
+# Device session orchestration lifted verbatim
     try:
         click.echo("\n初始化SLM...")
         with ZernikeSLM(
@@ -1984,6 +1895,106 @@ def closed_loop_run(ctx: click.Context, params: ClosedLoopParams) -> None:
     finally:
         if ui_display is not None:
             ui_display.close()
+
+
+
+
+def _cl_build_configuration(params, result):
+# Loop configuration assembly lifted verbatim
+    device_cfg = HardwareConfig()
+    if result.device_config is not None:
+        device_cfg = HardwareConfig.from_dict(result.device_config)
+        click.echo(
+            f"已恢复硬件配置: SLM#{device_cfg.slm_number}, WL={device_cfg.wavelength}nm, "
+            f"shift=({device_cfg.shift_x},{device_cfg.shift_y}), "
+            f"MLA={device_cfg.mla_index}, exp={device_cfg.exposure_time}ms"
+        )
+    else:
+        click.echo("警告: 响应矩阵中未找到硬件配置, 将使用默认参数")
+        click.echo("建议重新标定以保存完整硬件参数, 或手动指定设备参数")
+
+    # 构建控制配置
+    n_modes = result.n_slm_terms
+    Q_diag = np.ones(n_modes)
+    loop_cfg = LoopConfig(
+        n_modes=n_modes,
+        dt=params.dt,
+        Kp=params.kp if params.kp is not None else 0.5,
+        Ki=params.ki if params.ki is not None else 0.3,
+        Kd=params.kd if params.kd is not None else 0.05,
+        leak=params.leak if params.leak is not None else 0.97,
+        Q_diag=Q_diag,
+        R_scalar=0.1,
+        delay_steps=params.delay_steps,
+        rms_target=params.rms_target,
+        max_iter=params.max_iter,
+        cancel_tile=params.cancel_tile,
+    )
+    if params.gain is not None:
+        loop_cfg.gain_schedule = [(0, params.max_iter, params.gain, loop_cfg.leak)]
+
+    click.echo("\n闭环配置:")
+    click.echo(f"  控制律: {params.control_law}, DT={params.dt}s")
+    click.echo(f"  目标RMS: {params.rms_target}λ, 最大迭代: {params.max_iter}")
+
+    # 解析控制律枚举
+    law_map = {
+        "pid": ControlLaw.PID,
+        "leaky": ControlLaw.LEAKY_INTEGRATOR,
+        "qg": ControlLaw.QUADRATIC_GAUSSIAN,
+        "lqg": ControlLaw.LQG,
+        "mpc": ControlLaw.PREDICTIVE,
+        "adaptive": ControlLaw.ADAPTIVE_GAIN,
+    }
+    law = law_map[params.control_law]
+
+    # 设置输出路径
+    load_path = Path(params.load_file)
+    output_path = params.output_path
+    if output_path is None:
+        output_path = str(
+            load_path.parent / f"closed_loop_{load_path.stem}_{get_timestamp_str()}"
+        )
+
+    # 初始化硬件
+    ui_display = None
+    return device_cfg, law, loop_cfg, n_modes, output_path, ui_display
+
+
+@click.command("closed-loop")
+@click.pass_context
+@with_params(ClosedLoopParams, kw_name="params")
+def closed_loop_run(ctx: click.Context, params: ClosedLoopParams) -> None:
+    """基于响应矩阵的闭环波前优化
+
+    载入已保存的Zernike响应矩阵 (.h5), 恢复硬件参数,
+    使用指定控制律进行闭环优化, 保存优化结果。
+    """
+    import json
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    from datetime import datetime
+
+    import matplotlib.pyplot as plt
+
+    from ao_shaping.drivers.slm import ZernikeSLM
+    from ao_shaping.optimizer.wf.zernike_response_matrix import (
+        load_zernike_response_matrix,
+    )
+
+    # 加载响应矩阵
+    click.echo(f"加载响应矩阵: {params.load_file}")
+    result = load_zernike_response_matrix(params.load_file)
+    click.echo(f"  矩阵形状: {result.matrix.shape}")
+    click.echo(
+        f"  n_max={result.n_max}, excluded_piston={result.excluded_piston}, excluded_tip_tilt={result.excluded_tip_tilt}"
+    )
+
+    # 提取硬件配置
+    device_cfg, law, loop_cfg, n_modes, output_path, ui_display = _cl_build_configuration(params, result)
+    _cl_execute_session(ZernikeSLM, datetime, device_cfg, json, law, loop_cfg, n_modes, output_path, params, plt, result, ui_display)
 
 
 if __name__ == "__main__":
