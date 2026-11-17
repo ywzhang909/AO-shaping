@@ -206,7 +206,8 @@ REPORTS: dict[str, ReportProvenance] = {
             "冻结模型 14 帧方向诊断（data/debug/square1000_model_diag_20261117_140741）、"
             "窗口对照（win0/win163）、M3 以实测峰为中心复核（m3_peak_centred_20261117.json）、"
             "刀口基线拟合（issue235_knife_baseline_fit_20261117.json）、差分刀口（diff_20261117_170647_v2/summary.json）"
-            "与 panel_gray 反解前向一致性（issue235_panel_gray_inversion_20261117.json）。"
+            "与 panel_gray 反解前向一致性（issue235_panel_gray_inversion_20261117.json）、"
+            "实测 panel 中心回灌的前向修正（m3_peak_centred_centerfix_20261117.json）。"
             "人工撰写。"
         ),
         extra_scripts=(

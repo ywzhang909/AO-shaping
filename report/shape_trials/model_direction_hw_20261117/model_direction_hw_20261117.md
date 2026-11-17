@@ -9,7 +9,7 @@
 > **数据/关联脚本**: [`scripts/slm/issue235_beam_centre_differential_20261117.py`](../../../scripts/slm/issue235_beam_centre_differential_20261117.py)
 > **数据/关联脚本**: [`scripts/slm/issue235_panel_gray_inversion_20261117.py`](../../../scripts/slm/issue235_panel_gray_inversion_20261117.py)
 > **运行环境**: 离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-17 上机采集；报告本体不占用设备）
-> **说明**: 冻结模型 14 帧方向诊断（data/debug/square1000_model_diag_20261117_140741）、窗口对照（win0/win163）、M3 以实测峰为中心复核（m3_peak_centred_20261117.json）、刀口基线拟合（issue235_knife_baseline_fit_20261117.json）、差分刀口（diff_20261117_170647_v2/summary.json）与 panel_gray 反解前向一致性（issue235_panel_gray_inversion_20261117.json）。人工撰写。
+> **说明**: 冻结模型 14 帧方向诊断（data/debug/square1000_model_diag_20261117_140741）、窗口对照（win0/win163）、M3 以实测峰为中心复核（m3_peak_centred_20261117.json）、刀口基线拟合（issue235_knife_baseline_fit_20261117.json）、差分刀口（diff_20261117_170647_v2/summary.json）与 panel_gray 反解前向一致性（issue235_panel_gray_inversion_20261117.json）、实测 panel 中心回灌的前向修正（m3_peak_centred_centerfix_20261117.json）。人工撰写。
 <!-- provenance:end -->
 
 数据：`data/debug/square1000_model_diag_20261117_140741`（SLM #1 + Daheng CCD，base 曝光 0.1 ms，探针幅度 0.03 rad，tilt 周期 64 panel px）。
@@ -121,3 +121,19 @@
 - 方向响应（drift-corrected cosine）：win0 为 N4 −0.0018 / RX 0.0018 / RY −0.0003；win163 为 N4 0.0009 / RX 约 0.000 / RY 约 0.000。旁路最优变换（transpose / flip / 180°）与最优平移（−20…+12 px）都无法把 cosine 提到 0.02 以上。
 - 偶响应主导：实测 even/odd rms 比 1.28–1.35，模型同量比仅 0.011–0.016。探针的奇响应被约 40 倍强的偶分量淹没，这是"模型方向对了也测不出来"的直接量化。
 - 结论：方向失败不是窗口选择造成的；即使允许任意坐标变换与平移对齐，模型仍与实测无关。
+
+## 前向修正：用实测 panel 中心替换照明包络中心（离线）
+
+差分刀口给出 panel 光束中心 (x 889, y 590)、sigma 138–162 px。把它写进前向的照明包络中心重跑 M3 门禁（脚本 direction_peak_centred_20261117.py 新增 `--amplitude-center-xy`，结果 `m3_peak_centred_centerfix_20261117.json`）：
+
+| 会话 | 模型 | 原 median | 换中心后 median | 单对 ≥0.50 |
+|---|---|---|---|---|
+| win0 | M0 | 0.001 | 0.003 | 0/3 |
+| win0 | M1_defocus | −0.001 | 0.001 | 0/3 |
+| win0 | M3_illumination | 0.026 | 0.035 | 0/3 |
+| win163 | M0 | −0.010 | −0.011 | 0/3 |
+| win163 | M1_defocus | 0.001 | −0.002 | 0/3 |
+| win163 | M3_illumination | 0.025 | 0.042 | 0/3 |
+
+- 照明中心偏移只能把 M3 的 median 从 0.025–0.026 抬到 0.035–0.042，离 0.50 差一个数量级；照明包络位置不是方向失败的主因。
+- 顺带发现一处模型内部不一致（未修）：冻结检查点 `model640/frozen_parameters.json` 的 amplitude_center 为 (x 965.0, y 909.9)，同一模型的 fit JSON 为 (x 1018.3, y 581.0)，实测为 (x 889, y 590)。检查点那一路的 y 比另外两者高约 320–330 px，建议后续按轴序/来源核对；本次只验证换中心不改变方向结论，未据此改检查点。

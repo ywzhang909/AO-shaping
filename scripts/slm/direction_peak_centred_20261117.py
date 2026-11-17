@@ -113,17 +113,29 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--sessions", nargs="+", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
+    ap.add_argument(
+        "--amplitude-center-xy", type=float, nargs=2, default=None, metavar=("X", "Y"),
+        help="override the illumination-envelope centre (panel px) in every model variant; "
+             "default keeps each model's own fitted amplitude_center",
+    )
     args = ap.parse_args()
 
     fit = json.loads(FIT.read_text())
     ramp = fit["ramp_matrix"]
     models = {k: dict(fit["models"][k]) for k in MODELS}
+    if args.amplitude_center_xy is not None:
+        for m in models.values():
+            m["amplitude_center"] = [float(args.amplitude_center_xy[0]), float(args.amplitude_center_xy[1])]
     centre_xy = (float(PEAK_COL), float(PEAK_ROW))
 
     result: dict = {
         "crop_centre_native_row_col": [PEAK_ROW, PEAK_COL],
         "crop_centre_xy": list(centre_xy),
         "crop": CROP,
+        "amplitude_center_override_xy": (
+            list(args.amplitude_center_xy) if args.amplitude_center_xy is not None else None
+        ),
+        "amplitude_center_used_xy": {k: list(v["amplitude_center"]) for k, v in models.items()},
         "convention": {
             "metric": "jacobian_guard.direction_agreement Pearson",
             "rate": "raw_frames mean / exposure_ms",
