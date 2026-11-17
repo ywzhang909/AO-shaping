@@ -233,7 +233,6 @@ def _spgd_epoch_loop(_fix_bucket, _gradient_history, _init_r, _init_v, _max_hist
                 break
             disturb_v = _epoch.disturb_v
             pos_img = _epoch.pos_img
-            neg_img = _epoch.neg_img
             pos_obj, pos_obj_ratio = _epoch.pos_value, _epoch.pos_ratio
             neg_obj, neg_obj_ratio = _epoch.neg_value, _epoch.neg_ratio
             pos_j, neg_j = pos_obj, neg_obj
@@ -300,8 +299,6 @@ def _spgd_epoch_loop(_fix_bucket, _gradient_history, _init_r, _init_v, _max_hist
                 # voltages (`_init_v + disturb_v`); saving the clean
                 # `_init_v` wrote a configuration that was never measured,
                 # so re-applying it did not reproduce the reported value.
-                best_v = (_init_v + disturb_v).copy()
-                pos_img.copy()
                 last_best_epoch = epoch
 
             log = {
@@ -471,7 +468,6 @@ def _apply_adaptive_search_epoch(
                     > best_objective
                     + adaptive_search_state.improvement_tol
                 ):
-                    best_v = _init_v.copy()
                     best_objective = float(search_result[objective])
                     float(search_result["J"])
                     float(search_result["ratio"])

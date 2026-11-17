@@ -1184,7 +1184,6 @@ def _session_arm_exposure(blaze_direction, blaze_period_px, cam, cam_size, cam_t
             period_px=blaze_period_px,
             direction=blaze_direction,
         )
-        center = blaze_choice.signal_xy
         logger.info("measured blaze: {}", blaze_choice)
     return blaze_choice, exposure_time_ms
 
@@ -1292,12 +1291,9 @@ def _square_init_metrics(_active_modes, _fix_target, _has_rotation, _param_clip,
     _apply_update, _params_to_gray, ar, cost, cv, ee, init_img, mean_int, pbr, quality, center, target_side = _session_init_iteration(_active_modes, _fix_target, _has_rotation, _param_clip, _params, _pattern_helper, _rot_clip, basis, blaze_choice, cam, cam_size, center, exposure_time_ms, n_max, objective, phase_grid, side_factor, slm, target_max_brightness, target_mean_brightness, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity, zernike_radius)
 
     best_quality = quality
-    best_cost = cost
     best_cv = cv
     best_ee = ee
     best_ar = ar
-    best_c = _params.copy()
-    best_img = init_img.copy()
     last_best_epoch = 0
     return _apply_update, _params_to_gray, ar, best_ar, best_cv, best_ee, best_quality, center, cost, cv, ee, init_img, last_best_epoch, mean_int, pbr, quality, target_side
 

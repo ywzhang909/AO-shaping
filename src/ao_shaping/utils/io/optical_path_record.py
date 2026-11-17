@@ -245,7 +245,6 @@ def build_optical_path_record(
         ),
     }
     for key in ("wfs", "dm"):
-        path = f"devices.{key}"
         value = devices_source.get(key) if devices_source is not None else None
         if value is None:
             value = _SECTION_DEFAULTS["devices"][key]

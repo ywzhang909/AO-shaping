@@ -470,7 +470,6 @@ def fit_residual(
     Raises:
         ValueError: If ``window`` does not fit the camera, or ``phases`` is empty.
     """
-    grid = int(model_sim.grid)
     ccd = int(model_sim.ccd_px)
     if int(window.width) > ccd or int(window.height) > ccd:
         raise ValueError(f"window {tuple(window.size)} does not fit the {ccd}px camera")

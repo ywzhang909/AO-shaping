@@ -282,10 +282,8 @@ def _comb_run_epochs(_init_v, auto_exposure, cam, center, delta, dm, dm_unit_mas
             if _epoch.aborted:
                 break
             pos_img = _epoch.pos_img
-            neg_img = _epoch.neg_img
             pos_j, neg_j = _epoch.pos_value, _epoch.neg_value
             diff = _epoch.diff
-            gradient = _epoch.gradient
             _init_v = _epoch.init_v
             avg_brightness = _epoch.brightness
             if not _epoch.applied:

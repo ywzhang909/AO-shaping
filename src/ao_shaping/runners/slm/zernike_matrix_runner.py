@@ -669,8 +669,6 @@ def _prm_setup_state(excluded_piston, excluded_tip_tilt, magnitude_rad, n_max):
     dev_cols: list[np.ndarray] = []
     wf_records: list[WfsStateSnapshot] = []
 
-    # 子孔径掩膜 (供斜率空间闭环; 失败不影响模态空间)
-    mask = None
     return amp_waves, dev_cols, matrix, modes, variance, wf_records
 
 

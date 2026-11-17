@@ -280,7 +280,6 @@ def _ga_run_evolution(crossover_prob, early_stop_threshold, elite_count, init_z,
             # Update global best
             if current_best_rms < best_rms:
                 best_rms = current_best_rms
-                best_c = current_best_c.copy()
 
             # Record this generation - evaluate best individual for recording
             slm.send_zernike(current_best_c)

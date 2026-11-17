@@ -37,7 +37,6 @@ if "miicam" not in sys.modules:
 
 from io import BytesIO
 
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 from loguru import logger
 from PIL import Image
@@ -575,43 +574,6 @@ def calculate_enclosing_ellipse(
     b = 2 * np.sqrt(min(eigenvalues))
     angle = 0.5 * np.arctan2(2 * m11, m20 - m02) if (m11 != 0 or m20 != m02) else 0.0
     return ((cx, cy), (a, b), float(np.degrees(angle)))
-
-
-def draw_ellipse_on_image(
-    img: np.ndarray,
-    ellipse_params: tuple[tuple[float, float], tuple[float, float], float],
-) -> np.ndarray:
-    """Draw the enclosing ellipse on *img* and return the annotated RGB image."""
-    img_normalized = ((img - img.min()) / (img.max() - img.min() + 1e-8) * 255).astype(
-        np.uint8
-    )
-    h, w = img_normalized.shape
-    fig, ax = plt.subplots(1, 1, figsize=(w / 100, h / 100), dpi=100)
-    ax.imshow(img_normalized, cmap="gray")
-    center, axes, angle = ellipse_params
-    ellipse = mpatches.Ellipse(
-        center,
-        axes[0] * 2,
-        axes[1] * 2,
-        angle=angle,
-        fill=False,
-        edgecolor="red",
-        linewidth=2,
-    )
-    ax.add_patch(ellipse)
-    ax.plot(center[0], center[1], "r+", markersize=10, markeredgewidth=2)
-    ax.set_xlim(0, w)
-    ax.set_ylim(h, 0)
-    ax.axis("off")
-    plt.tight_layout(pad=0)
-    buf = BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
-    buf.seek(0)
-    result = plt.imread(buf)
-    plt.close(fig)
-    if result.ndim == 2:
-        result = np.stack([result] * 3, axis=-1)
-    return (result * 255).astype(np.uint8)
 
 
 def get_cross_sections(

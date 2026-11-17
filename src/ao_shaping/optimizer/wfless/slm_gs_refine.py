@@ -2146,7 +2146,6 @@ def _stage_gs_warm_start(
     function of the bench model, so recomputing it would only risk the displayed
     pattern and the scored pattern drifting apart.
     """
-    config = ctx.config
     if gs_panel is None:
         gs_panel = _gs_refine_panel(ctx)
     if gs_panel is None:

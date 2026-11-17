@@ -1260,7 +1260,6 @@ def _pib_arm_blaze(blaze_direction, blaze_period_px, cam, cam_size, camera_confi
             window_size=cam_size, period_px=blaze_period_px,
             direction=blaze_direction,
         )
-        center = blaze_choice.signal_xy
         logger.info("measured blaze: {}", blaze_choice)
     return blaze_choice
 

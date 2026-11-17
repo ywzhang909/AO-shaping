@@ -42,13 +42,6 @@ def create_gaussian_field(w0):
     """创建高斯光束 (X偏振)"""
     return np.exp(-(R**2) / (w0**2))
 
-def create_target_radial_field(w0):
-    """创建目标径向偏振光场"""
-    amplitude = np.exp(-(R**2) / (w0**2))
-    Ex = amplitude * np.cos(THETA)
-    Ey = amplitude * np.sin(THETA)
-    return Ex, Ey
-
 def calculate_stokes_rgb(Ex, Ey):
     """计算斯托克斯参数并转换为RGB图像用于可视化"""
     S0 = np.abs(Ex)**2 + np.abs(Ey)**2

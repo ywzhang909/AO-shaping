@@ -64,13 +64,6 @@ def VI_NULL():
     return c_ulong()
 
 
-def to_int(hexvar):
-    """
-    本函数把 b"0x00000400" 这类十六进制字面量转成整数
-    """
-    return int(hexvar, 0)
-
-
 class WfsError(Exception):
     pass
 

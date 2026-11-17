@@ -3872,8 +3872,6 @@ def _milr_step_a_clamp(_probe_set_loss, affine_after, calibration_affine, calibr
         )
         affine_after = optimizer.affine
         travel_after = optimizer.travel
-    if config.uncertainty_probes or config.uncertainty_on_rejection:
-        prev_uncertainty_probes = [probe for _, probe in frames]
     if config.cam_type != "sim":
         recorder.iteration_traces[index + 1] = {"step_a_trace": step_a_trace}
     # --- Guard 1: trust region on the coefficient change -----------
