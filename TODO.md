@@ -5579,6 +5579,11 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - wiki 重钉 (㉞ 同型, 两页三处): `zernike-matrix.md` source 与正文内联 1326→1408, `closed-loop.md` 1818→**1833** (该 def 只被 setup 区抬升 15 行 —— 位移按 def 实况逐页核, 不能按"净增总行数"统一平移)
 - 载体: `test_zernike_matrix_runner` + `from_response_matrix_guard` + 形状 **479 passed**; conventions 72 passed; ruff 全仓绿; term 0; modsize 抬高后绿
 
+**2026-11-18 · c6dcb573 之后 · 第 145 批: `estimate_exposure_ceiling_ms` 189→147 行 (`utils/image/exposure_control.py`)**
+- 该函数 110 行是 docstring; 提取 `_exposure_doubling_ladder` 30 (12 参数 4 回传, 倍增阶梯扫描) 与 `_exposure_logfit` 20 (8 参数 3 回传, 双点对数拟合), 条件存储名 (`fit_full_scale/last_safe/fit_ms/fit_slope/fit_intercept`) 全部预绑于区前, 走 ⑳ 强制参数重绑, 语义与逐字一致
+- 棘轮行改钉 197/5/176→160/1/147 (旧行是早期部分提取时代钉值) + 两 helper 行
+- 载体: `test_exposure_control` + `_bit_depth` + 形状 **509 passed**; conventions 72 passed; ruff 全仓绿; term 0; modsize 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
