@@ -5588,6 +5588,10 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 提取 `_floor_setup` 13 (2 参数 7 回传) 与 `_floor_build_summary` 30 (8 参数 1 回传); 首轮把嵌套 `def checkpoint(row)` 一并圈入时生成器把 **def 形参 `row` 误判为自由加载** 列入回传 (调用点会 UnboundLocalError) —— 审计 RISK `row(s=0,c=0)` 正是该误判信号, 缩小区域至 def 之前解决 (教训: **区域含嵌套 def 且 RISK 出现 s=0,c=0 名 = 形参误判, 收缩边界**)
 - 新增守卫常量 `_FLOOR_PROBE` + 三行; 载体 `test_slm_floor_probe` + 形状 **505 passed**; conventions 72; ruff/term/modsize 绿
 
+**2026-11-18 · a7068f82 之后 · 第 147 批: `run_session` 178→109 行 (`transfer/workflow.py`)**
+- 提取 `_session_prepare_stage` 56 (3 参数 4 回传, 网格决策/config 覆写/journal + `stage` 闭包工厂整体) 与 `_session_write_summary` 20 (10 参数 0 回传, 摘要落盘; 裸 return 剥离)
+- 载体: transfer 顶层 15 文件 + transfer/ 子包 + 形状 **1075 passed / 3 skipped**; conventions 72 passed; ruff 全仓绿; term 0; modsize 抬高后绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
