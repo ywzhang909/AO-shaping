@@ -30,6 +30,116 @@ from ao_shaping.utils.image.target import POLYGON_SHAPE_CHOICES
 FRACTIONS = (1.0, 0.25, 1.0, 0.5, 1.0, 0.125, 1.0, 0.5, 0.25, 0.125, 1.0)
 
 
+
+def _capresp_pattern_loop(adapt_exposure, args, cam, ceiling, floor, get_camera_exposure_ms, observer, rows, shape_phase, slm, target, xy):
+# Per-pattern exposure capture loop lifted verbatim
+    for phase_name, phase in (
+        ("flat", np.zeros_like(shape_phase)),
+        (args.shape, shape_phase),
+    ):
+        panel = to_panel(phase)
+        gray = slm.create_phase_from_array(panel)
+        slm.display_data(gray)
+        time.sleep(0.6)
+        reads, stamps = [], []
+
+        def read_probe(_reads=reads, _stamps=stamps, _phase=phase_name):
+            start = clock()
+            frame = np.asarray(
+                cam.get_numpy_image(n_sample=1, skip_first=False)
+            ).copy()
+            _reads.append(frame)
+            # 标定采集同样逐帧上屏; 这里是 adapt_exposure 的取图漏斗,
+            # 一次 12 档阶梯就是 12 次读出。
+            notify_frame(observer, frame_payload(
+                frame=frame, label=f"{_phase} · 曝光标定",
+                phase="exposure", frame_index=len(_reads)))
+            _stamps.append(
+                dict(
+                    **start,
+                    end_monotonic_ns=time.monotonic_ns(),
+                    exposure_ms=float(get_camera_exposure_ms(cam)),
+                )
+            )
+            return frame
+
+        setting = adapt_exposure(
+            cam.reset_exposure_time,
+            read_probe,
+            start_ms=floor,
+            floor_ms=floor,
+            ceiling_ms=ceiling,
+            full_scale=255,
+            max_steps=12,
+        )
+        np.savez_compressed(
+            args.out / f"{phase_name}_probe.npz",
+            raw_frames=np.stack(reads),
+            panel_gray=gray,
+            panel_phase=panel,
+            model_phase=phase,
+            camera_xy=xy,
+            target=target,
+        )
+        (args.out / f"{phase_name}_probe.json").write_text(
+            json.dumps(dict(frames=stamps, status=setting.status), indent=2)
+        )
+        if setting.status != "ok":
+            raise RuntimeError(
+                "exposure search failed; all frames retained"
+            )
+        reference = float(get_camera_exposure_ms(cam))
+        for index, fraction in enumerate(FRACTIONS):
+            requested = max(floor, reference * fraction)
+            if requested > ceiling:
+                raise ValueError(
+                    "exposure outside current device/environment bounds"
+                )
+            cam.reset_exposure_time(requested)
+            time.sleep(0.15)
+            frames, clocks = [], []
+            for _ in range(args.frames):
+                started = clock()
+                frames.append(
+                    np.asarray(
+                        cam.get_numpy_image(n_sample=1, skip_first=False)
+                    ).copy()
+                )
+                clocks.append(
+                    dict(
+                        **started,
+                        end_monotonic_ns=time.monotonic_ns(),
+                        exposure_ms=float(get_camera_exposure_ms(cam)),
+                    )
+                )
+            raw = np.stack(frames)
+            file = f"{phase_name}_{index:02d}.npz"
+            np.savez_compressed(args.out / file, raw_frames=raw)
+            row = dict(
+                phase=phase_name,
+                index=index,
+                fraction=fraction,
+                file=file,
+                exposure_ms=float(get_camera_exposure_ms(cam)),
+                reference_ms=reference,
+                peak=int(raw.max()),
+                frames=clocks,
+                **clock(),
+            )
+            rows.append(row)
+            (args.out / "manifest.json").write_text(
+                json.dumps(rows, indent=2)
+            )
+            with (args.out / "capture_records.pkl").open("wb") as stream:
+                pickle.dump(rows, stream, protocol=5)
+            logger.info(json.dumps(row))
+            if raw.max() >= 250:
+                raise RuntimeError(
+                    "saturated group retained; ending exposure comparison"
+                )
+
+
+
 def capture(args, *, on_frame=None):
     from .hardware import opened_device, prepare_camera_sdk
     prepare_camera_sdk(args.camera)
@@ -85,110 +195,7 @@ def capture(args, *, on_frame=None):
                 )
                 if limit > 0:
                     ceiling = min(ceiling, limit)
-                for phase_name, phase in (
-                    ("flat", np.zeros_like(shape_phase)),
-                    (args.shape, shape_phase),
-                ):
-                    panel = to_panel(phase)
-                    gray = slm.create_phase_from_array(panel)
-                    slm.display_data(gray)
-                    time.sleep(0.6)
-                    reads, stamps = [], []
-
-                    def read_probe(_reads=reads, _stamps=stamps, _phase=phase_name):
-                        start = clock()
-                        frame = np.asarray(
-                            cam.get_numpy_image(n_sample=1, skip_first=False)
-                        ).copy()
-                        _reads.append(frame)
-                        # 标定采集同样逐帧上屏; 这里是 adapt_exposure 的取图漏斗,
-                        # 一次 12 档阶梯就是 12 次读出。
-                        notify_frame(observer, frame_payload(
-                            frame=frame, label=f"{_phase} · 曝光标定",
-                            phase="exposure", frame_index=len(_reads)))
-                        _stamps.append(
-                            dict(
-                                **start,
-                                end_monotonic_ns=time.monotonic_ns(),
-                                exposure_ms=float(get_camera_exposure_ms(cam)),
-                            )
-                        )
-                        return frame
-
-                    setting = adapt_exposure(
-                        cam.reset_exposure_time,
-                        read_probe,
-                        start_ms=floor,
-                        floor_ms=floor,
-                        ceiling_ms=ceiling,
-                        full_scale=255,
-                        max_steps=12,
-                    )
-                    np.savez_compressed(
-                        args.out / f"{phase_name}_probe.npz",
-                        raw_frames=np.stack(reads),
-                        panel_gray=gray,
-                        panel_phase=panel,
-                        model_phase=phase,
-                        camera_xy=xy,
-                        target=target,
-                    )
-                    (args.out / f"{phase_name}_probe.json").write_text(
-                        json.dumps(dict(frames=stamps, status=setting.status), indent=2)
-                    )
-                    if setting.status != "ok":
-                        raise RuntimeError(
-                            "exposure search failed; all frames retained"
-                        )
-                    reference = float(get_camera_exposure_ms(cam))
-                    for index, fraction in enumerate(FRACTIONS):
-                        requested = max(floor, reference * fraction)
-                        if requested > ceiling:
-                            raise ValueError(
-                                "exposure outside current device/environment bounds"
-                            )
-                        cam.reset_exposure_time(requested)
-                        time.sleep(0.15)
-                        frames, clocks = [], []
-                        for _ in range(args.frames):
-                            started = clock()
-                            frames.append(
-                                np.asarray(
-                                    cam.get_numpy_image(n_sample=1, skip_first=False)
-                                ).copy()
-                            )
-                            clocks.append(
-                                dict(
-                                    **started,
-                                    end_monotonic_ns=time.monotonic_ns(),
-                                    exposure_ms=float(get_camera_exposure_ms(cam)),
-                                )
-                            )
-                        raw = np.stack(frames)
-                        file = f"{phase_name}_{index:02d}.npz"
-                        np.savez_compressed(args.out / file, raw_frames=raw)
-                        row = dict(
-                            phase=phase_name,
-                            index=index,
-                            fraction=fraction,
-                            file=file,
-                            exposure_ms=float(get_camera_exposure_ms(cam)),
-                            reference_ms=reference,
-                            peak=int(raw.max()),
-                            frames=clocks,
-                            **clock(),
-                        )
-                        rows.append(row)
-                        (args.out / "manifest.json").write_text(
-                            json.dumps(rows, indent=2)
-                        )
-                        with (args.out / "capture_records.pkl").open("wb") as stream:
-                            pickle.dump(rows, stream, protocol=5)
-                        logger.info(json.dumps(row))
-                        if raw.max() >= 250:
-                            raise RuntimeError(
-                                "saturated group retained; ending exposure comparison"
-                            )
+                _capresp_pattern_loop(adapt_exposure, args, cam, ceiling, floor, get_camera_exposure_ms, observer, rows, shape_phase, slm, target, xy)
             finally:
                 slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
                 time.sleep(0.3)

@@ -5623,6 +5623,11 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 新增 `_ABBA_PROBE` 常量 + 五行; conventions 72 passed (无 wiki 引用漂移)
 - 载体: `test_slm_abba_probe` + 形状 + conventions 合计 **612 passed**; ruff/term/modsize 绿
 
+**2026-11-18 · 7c508658 之后 · 第 154 批: `capture_response.capture` 162→59 行 (`transfer/capture_response.py`)**
+- 提取 `_capresp_pattern_loop` 106 行 (12 参数 0 回传, 逐 pattern 曝光阶梯采集环整体; `capture_once` 计时闭包随环迁; 裸 return 剥离)
+- 新增 `_CAPRESP` 常量 + 两行 (70/5/59、117/4/106)
+- 载体: `test_transfer_workflow` + transfer/ 子包 + 形状 **1011 passed / 3 skipped**; conventions 72; ruff/term/modsize 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
