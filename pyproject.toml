@@ -58,7 +58,7 @@ dependencies = [
     "zernike>=0.0.33",
     "streamlit>=1.40.0",
     "scipy>=1.15.0",
-    "pillow>=11.0.0,<13",  # 13 rejects Image.fromarray(..., mode="I;16") used by micro_dm_image_collect
+    "pillow>=11.0.0,<13",  # 13 not yet exercised here; the mode="I;16" breakage is already fixed at the call site
     "aotools>=1.0.7",
     "numba>=0.65.1",
     "h5py>=3.14.0",

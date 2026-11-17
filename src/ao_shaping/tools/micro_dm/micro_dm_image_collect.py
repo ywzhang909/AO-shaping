@@ -209,7 +209,9 @@ def _save_frame(
     png_path = ip_dir / filename
 
     if frame.dtype == np.uint16:
-        img = Image.fromarray(frame, mode="I;16")
+        # uint16 auto-detects mode I;16; passing mode="I;16" explicitly is a
+        # ValueError from Pillow 13 on (and deprecated already on 12.3).
+        img = Image.fromarray(frame)
     else:
         img = Image.fromarray(frame, mode="L")
     img.save(png_path)
