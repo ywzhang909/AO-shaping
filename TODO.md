@@ -5458,6 +5458,13 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - wfless 域: 聚合跑在 32% 处 OOM (exit 137, 6g/16g 同) — 逐文件跑 **55/55 文件全绿**, 唯一 rc=5 是 `test_slm_zernike_pib_online` 的 `AO_RUN_HARDWARE` 门; 聚合 OOM 属既有内存压力, 与本改动无关
 - 门禁: `_run_heuristic` 新增行 84/1/73 + `_run_heuristic_with_progress` 93/2/81; ruff/term 绿; `test_conventions` 72 passed
 
+**2026-11-17 · 2ebc3463 之后 · 第 128 批: `_run_combined_session` 188→77 行 (`optimizer/combined_optimizer.py`)**
+- 提取 `_comb_run_epochs` 115 行 (19 参数 3 回传 `delta/r_bucket/window`, 覆盖 epoch 准备 + `_saturate_epoch` 闭包 + tqdm 进化环)
+- ⚠️ 教训 (新 ㊱): **本地重跑 wiki 生成管线会"瘦身"整个图** — 容器缺 `PySide6`, `build_call_graph.py` 的 import 遍历丢模块, final nodes 215→177、edges 290→232; 若照单全收会**删改无关页面**。正确做法: 回滚全部生成产物, 只**手工把该页 `source:` 引用的 def 行号改成新值** (本批 `optimize-pib-combined.md` 421→429), 再全量跑 conventions 验证。生成管线只在 CI/依赖完整的机器上整跑
+- 叶差分: 8 同 / 消失 0 / 新增 1; ⑳ 审计 0 命中; 模块 408→520 (低于 modsize 阈值, 基线不变)
+- 载体: `test_combined_optimizer_voltage_reset` + `test_combined_dm_factory` + 形状门禁 **443 passed**; optimizer 顶层域 60 passed; `test_conventions` 72 passed
+- 门禁: `_run_combined_session` 收紧 217/7/188→85/3/77 + 新增 `_comb_run_epochs` 127/4/115; ruff/term 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
