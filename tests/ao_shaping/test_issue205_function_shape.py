@@ -92,6 +92,7 @@ _SQ = "src/ao_shaping/optimizer/wfless/slm_square_shaping.py"
 _SCRIPT = "scripts/slm/generate_diffraction_efficiency_sim_report.py"
 _SECTIONS = "scripts/slm/_hw_gs_square_scans_sections.py"
 _WORKFLOW = "src/ao_shaping/tools/slm/transfer/workflow.py"
+_TABU = "src/ao_shaping/algorithm/tabu/tabu_search.py"
 _DIFFERENTIABLE_BEAM = "src/ao_shaping/optimizer/wfless/differentiable_beam.py"
 _ZERNIKE_RESPONSE_MATRIX_UI = "src/ao_shaping/gui/zernike/zernike_response_matrix_ui.py"
 _PHASE_CAPTURE = "src/ao_shaping/tools/slm/calibration/phase_capture.py"
@@ -406,6 +407,8 @@ TARGETS = [
     (_MIL, "_model_in_loop_round_probes", 110, 2, 81),
     (_WORKFLOW, "main", 191, 5, 165),
     (_WORKFLOW, "_add_session_commands", 157, 4, 136),
+    (_TABU, "run_search", 95, 1, 82),
+    (_TABU, "_evaluate_search_candidates", 88, 2, 74),
     (_DIFFERENTIABLE_BEAM, "optimize_beam_shaping", 200, 1, 153),
     (_DIFFERENTIABLE_BEAM, "_run_simulation_phase", 80, 3, 68),
     (_DIFFERENTIABLE_BEAM, "_run_hardware_phase", 100, 4, 88),

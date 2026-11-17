@@ -5402,6 +5402,14 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 门禁: 新增 `__post_init__` 50/2/38 与 `_validate_mil_scalars` 128/2/116; ruff/term 绿
 - CI: ci118 (b117 db8820c8) 0 失败、ci119 (b118 e765c8cd) 0 失败
 
+**2026-11-17 · da535a8c 之后 · 第 120 批: `tabu_search.run_search` 152→82 行 (`algorithm/tabu/tabu_search.py`)**
+- 提取: `_evaluate_search_candidates` 74 (候选生成 `if` 分支 + 评估 `for` 环整体提走, 7 参数 4 回传 `best_candidate/evaluated/safe_rejects/tabu_hits`; 环内 break 由内层环绑定, bound 后审通过)
+- 缝选择教训 (新 ㉜): ①区域起点必须落在**语句边界**——从 `if` 体内(419)起会混缩进层, 须含 `if` 头(418); ②区内含 `return`(491 的"无有效候选"早退)生成器**拒收**, 缩短区域至 488 把早退块留在父级(父级剩余 82 行中含该早退, 不再二次切)
+- 叶差分: 8 同 / 消失 0 / 新增 1; ⑳ 审计 0 命中; 模块行数不变 (baseline 无抬高)
+- 载体: `test_tabu_search` + 形状门禁 **431 passed**; algorithm 逐文件域 exit=0; `test_conventions` 72 passed
+- 门禁: 新增常量 `_TABU` + 行 `run_search` 95/1/82、`_evaluate_search_candidates` 88/2/74; ruff/term 绿
+- CI: ci120 已启动 (b119 da535a8c) 轮询中
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
