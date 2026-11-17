@@ -5613,6 +5613,11 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - wiki 重钉: `optimizer-rms-dm.md` source 50→51
 - 载体: **wf 域 + 形状 + conventions 合计 735 passed / 2 skipped**; ruff 全仓绿; term 0; modsize 绿
 
+**2026-11-18 · f77512a3 之后 · 第 152 批: `AOClosedLoop.run` 153→83 行 (`optimizer/wf/closed_loop.py`)**
+- 提取 `_closed_loop_control_iter` 74 行 (11 参数 4 回传, 控制迭代环整体; 3 处 break 自绑; `converged/diverged` 预绑于环前走 ⑳ 强制参数; run 是类方法, `self` 随参数流动)
+- 新增 `_CLOSED_LOOP` 常量 + 两行 (92/2/83、82/4/74); run def 116→194, 无 wiki 引用该页, conventions 无漂移
+- 载体: **wf 域 + 形状 665 passed**; ruff 全仓绿; term 0; modsize 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
