@@ -771,6 +771,37 @@ def _write_zernike(
     slm.display_data(_phase_to_gray(phase, slm))
 
 
+
+def _snr_measure_loop(deltas, measure_multi, measure_single, modes, n_frames, pairs, pattern, score, write, write_flat):
+# Single and multi delta measurement loop lifted verbatim
+    sigma, noise_values = measure_noise_floor(score, n_frames=n_frames)
+
+    single: dict[str, float] = {}
+    multi: dict[str, float] = {}
+    for delta in deltas:
+        key = str(delta)
+        if measure_single:
+            single[key] = abba_signal(
+                score,
+                lambda a, _d=delta: write({REFERENCE_MODE: a}),
+                write_flat,
+                delta,
+                pairs=pairs,
+            )
+        if measure_multi and pattern is not None:
+            multi[key] = abba_signal(
+                score,
+                lambda a, _d=delta, _p=pattern: write(
+                    {k: a * _d * float(v) for k, v in zip(modes, _p, strict=True)}
+                ),
+                write_flat,
+                delta,
+                pairs=pairs,
+            )
+    return multi, noise_values, sigma, single
+
+
+
 def snr_sweep(
     cam: Any,
     slm: Any,
@@ -878,30 +909,7 @@ def snr_sweep(
             )[0]
         )
 
-    sigma, noise_values = measure_noise_floor(score, n_frames=n_frames)
-
-    single: dict[str, float] = {}
-    multi: dict[str, float] = {}
-    for delta in deltas:
-        key = str(delta)
-        if measure_single:
-            single[key] = abba_signal(
-                score,
-                lambda a, _d=delta: write({REFERENCE_MODE: a}),
-                write_flat,
-                delta,
-                pairs=pairs,
-            )
-        if measure_multi and pattern is not None:
-            multi[key] = abba_signal(
-                score,
-                lambda a, _d=delta, _p=pattern: write(
-                    {k: a * _d * float(v) for k, v in zip(modes, _p, strict=True)}
-                ),
-                write_flat,
-                delta,
-                pairs=pairs,
-            )
+    multi, noise_values, sigma, single = _snr_measure_loop(deltas, measure_multi, measure_single, modes, n_frames, pairs, pattern, score, write, write_flat)
     write_flat()  # leave the bench flat, not on a perturbation
 
     # Diagnostic: what fraction of the frame's light does the scored ROI actually

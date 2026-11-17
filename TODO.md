@@ -5665,6 +5665,15 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 同 run 附带观察: ci156 还红过一次 `test_hw_forward_model_fidelity_ladder::test_signal_floor_spearman_…` (ci157 未复现) → 按 flake 观察, ci158/ci159 若再红再立案
 - 取证通道教训 (㊻): poll 日志 tsv 第一字段是 **run ID** 非 job ID; job logs/annotations 端点必须先用 `/actions/runs/{rid}/jobs` 换真 job ID (失败 step 名同在该响应, 可少一次往返)
 
+**2026-11-18 · c69331c5 之后 · 第 160 批追加修复: 登记表裸竖条**
+- b160 给 `slm_zernike_pib_gates.py` 登记行时引用判据原文 `` `|diff| <= k·sigma_hat` `` —— **markdown 表格单元里的裸 `|` 即使在行内 code span 内也会切 cell**, 打红 `test_conventions.py::test_markdown_table_rows_never_write_more_cells_than_declared` (㊼ 新教训: 表格单元内一律改写为"不超过/≤", 不引入任何字面竖条)
+- 改为 `diff 绝对值不超过 k·sigma_hat` 纯文本; 守卫复跑 conventions+形状 **583 passed**; ci159/ci160 若曾红在同一条, 本批 head 起消失
+
+**2026-11-18 · 第 161 批: `sweep_analysis.snr_sweep` 158→135 行 (`tools/kernels/sweep_analysis.py`)**
+- 提取 `_snr_measure_loop` 27 行 (10 参数 4 回传 `multi/noise_values/sigma/single`: 单/多 delta 测量累积装配 + For 环; 嵌套 `measure_single/measure_multi` 闭包以**函数对象作参数**随区流动)
+- 新增 `_SWEEP_ANALYSIS` 常量 + 两行 (142/3/135、31/3/27)
+- 载体: **tools/ 全域 `AO_TEST_PER_FILE=1` 逐文件** (snr probe 命中 `test_slm_snr_probe.py`) + 形状 + conventions 583 passed; ruff 全仓绿; term 0; modsize 基线 bump
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

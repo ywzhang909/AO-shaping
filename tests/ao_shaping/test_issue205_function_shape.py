@@ -111,6 +111,7 @@ _ABBA_PROBE = "src/ao_shaping/tools/zernike/abba_probe.py"
 _CAPRESP = "src/ao_shaping/tools/slm/transfer/capture_response.py"
 _OBJ = "src/ao_shaping/utils/image/target/objective.py"
 _DIFF_BEAM = "src/ao_shaping/optimizer/wfless/differentiable_beam.py"
+_SWEEP_ANALYSIS = "src/ao_shaping/tools/kernels/sweep_analysis.py"
 _PROBE_ACTIVE = "src/ml/sim2f/probe_active.py"
 _SIM_SPGD = "src/ao_shaping/optimizer/wfless/sim_spgd.py"
 _SAC_TRAIN = "src/ao_shaping/optimizer/rl/sac_train.py"
@@ -627,6 +628,8 @@ TARGETS = [
     (_DIFF_BEAM, "_db_prepare_run", 46, 2, 41),
     (_PIB, "optimize_pib", 136, 1, 126),
     (_PIB, "_pib_prepare_run", 36, 2, 31),
+    (_SWEEP_ANALYSIS, "snr_sweep", 142, 3, 135),
+    (_SWEEP_ANALYSIS, "_snr_measure_loop", 31, 3, 27),
     (_CALIBRATION, "main_shift_calib", 118, 3, 105),
     (_CALIBRATION, "_shift_eval_closures", 40, 3, 36),
     (_CALIBRATION, "_shift_axis_refine", 39, 3, 35),
