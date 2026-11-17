@@ -20,6 +20,7 @@ from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
     efficiency_loss,
     smoothness_regularization,
     total_loss,
+    total_loss_per_candidate,
     train_beam_shaping,
     uniformity_loss,
     zero_order_penalty,
@@ -309,6 +310,113 @@ class TestTrain:
         assert np.isfinite(r.phase).all()
 
 
+# ============================ 8X 模型内并行 ============================
+
+
+class TestCandidateParallelism:
+    """验证 8X (多候选) 模型内并行没有改变算法本身。
+
+    核心判据: 批量前向与逐候选串行前向**逐位一致**; 逐候选损失与单候选
+    ``total_loss`` 逐位一致; 结果取损失最小的候选。
+    """
+
+    K = 3
+    SMALL = (24, 24)
+
+    def _model(self, propagation: str = "fft"):
+        from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
+            _build_forward,
+        )
+
+        return _build_forward(propagation, 1e-5, 0.1, 5.32e-7)
+
+    @pytest.mark.parametrize("propagation", ["fft", "asm"])
+    def test_batched_forward_is_bitwise_serial(self, propagation):
+        # 批量 (K,H,W) 前向必须等于逐候选 (H,W) 前向 —— 本测试就是
+        # ``fftshift`` 未指定 dim 会在批量下环绕前导维那个 bug 的回归锁。
+        torch.manual_seed(0)
+        forward = self._model(propagation)
+        phase = 0.5 * torch.randn((self.K, *self.SMALL))
+        amp = torch.ones(self.SMALL)
+        batched = forward(phase, amp)
+        for i in range(self.K):
+            assert torch.equal(batched[i], forward(phase[i], amp))
+
+    def test_per_candidate_matches_individual_total_loss(self):
+        torch.manual_seed(1)
+        H, W = self.SMALL
+        intensity = torch.rand((self.K, H, W))
+        phase = torch.randn((self.K, H, W))
+        target = torch.rand((H, W))
+        per = total_loss_per_candidate(intensity, phase, target)
+        assert per.shape == (self.K,)
+        for i in range(self.K):
+            single = total_loss(intensity[i], phase[i], target)
+            # 逐候选损失与把该候选单独喂进单候选路径逐位一致。
+            assert torch.equal(per[i], single)
+
+    def test_k1_sum_matches_total_loss(self):
+        torch.manual_seed(2)
+        H, W = self.SMALL
+        intensity = torch.rand((1, H, W))
+        phase = torch.randn((1, H, W))
+        target = torch.rand((H, W))
+        per = total_loss_per_candidate(intensity, phase, target)
+        assert torch.equal(per.sum(), total_loss(intensity[0], phase[0], target))
+
+    def test_extract_picks_min_loss_candidate(self):
+        import ao_shaping.algorithm.signal_processing.differentiable_shaping as ds
+
+        torch.manual_seed(3)
+        H, W = self.SMALL
+        phase = torch.nn.Parameter(0.7 * torch.randn((self.K, H, W)))
+        amp = torch.ones(H, W)
+        target = np.random.RandomState(0).rand(H, W)
+        forward = self._model("fft")
+
+        with torch.no_grad():
+            intensity = forward(phase, amp)
+            per = ds.total_loss_per_candidate(
+                intensity, phase, torch.from_numpy(target)
+            )
+            idx = int(per.argmin())
+            expected_phase = (
+                (phase.detach()[idx] % (2.0 * np.pi)).numpy().astype(np.float64)
+            )
+            expected_intensity = (
+                intensity.detach()[idx].numpy().astype(np.float64)
+            )
+
+        result = ds._extract_shaping_result(
+            torch,
+            phase,
+            forward,
+            amp,
+            target,
+            [float(per[idx])],
+            True,
+        )
+        np.testing.assert_array_equal(result.phase, expected_phase)
+        np.testing.assert_array_equal(
+            result.simulated_intensity, expected_intensity
+        )
+
+    def test_default_n_candidates_is_eight(self):
+        import inspect
+
+        sig = inspect.signature(train_beam_shaping)
+        assert sig.parameters["n_candidates"].default == 8
+
+    def test_multi_candidate_runs_and_returns_2d(self):
+        target = create_target_mask("square", (32, 32), 10)
+        r = train_beam_shaping(
+            target, (32, 32), iterations=6, seed=0, n_candidates=4
+        )
+        assert r.phase.shape == (32, 32)
+        assert np.isfinite(r.phase).all()
+        assert len(r.loss_history) == 6
+
+
 # ============================ Validation ============================
 
 
@@ -339,6 +447,21 @@ class TestValidation:
         target = create_target_mask("square", GRID, SIZE)
         with pytest.raises(ValueError):
             train_beam_shaping(target, (0, 0), iterations=5)
+
+    def test_non_positive_n_candidates_raises(self):
+        target = create_target_mask("square", GRID, SIZE)
+        with pytest.raises(ValueError, match="n_candidates"):
+            train_beam_shaping(target, GRID, iterations=2, n_candidates=0)
+
+    def test_n_candidates_falls_back_for_non_adam(self):
+        # 非 Adam (L-BFGS 线搜索会混用 K 个候选的梯度) 必须回退到单候选,
+        # 且仍能正常返回 (K, H, W) 之外的 2D 结果。
+        target = create_target_mask("square", (32, 32), 10)
+        r = train_beam_shaping(
+            target, (32, 32), optimizer="lbfgs", iterations=3, seed=0, n_candidates=4
+        )
+        assert r.phase.shape == (32, 32)
+        assert np.isfinite(r.phase).all()
 
 
 # ============================ Step B debug recorder ============================
@@ -451,6 +574,9 @@ class TestLrSchedule:
             w_efficiency=0.6,
             seed=0,
             device="cpu",
+            # 本组测试锁定改动前单候选轨迹 (REF_LOSSES_NONE 等),
+            # 默认 8X 会改变起点与轨迹, 故显式回退为单候选。
+            n_candidates=1,
         )
         defaults.update(kw)
         return train_beam_shaping(self._target(), self.GRID_S, **defaults)

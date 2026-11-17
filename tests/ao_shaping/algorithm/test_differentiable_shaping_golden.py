@@ -87,6 +87,7 @@ def _trace() -> dict[str, Any]:
         device="cpu",
         propagation="fft",
         optimizer="adam",
+        n_candidates=1,
     )
     return {
         "loss_history": result.loss_history,

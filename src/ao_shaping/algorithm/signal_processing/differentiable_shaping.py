@@ -21,7 +21,6 @@ Example:
 
 from __future__ import annotations
 
-import functools
 import math
 import os
 import time
@@ -39,6 +38,7 @@ from ao_shaping.algorithm.signal_processing.differentiable_objective import (
     efficiency_loss as efficiency_loss,
     smoothness_regularization as smoothness_regularization,
     total_loss as total_loss,
+    total_loss_per_candidate as total_loss_per_candidate,
     uniformity_loss as uniformity_loss,
     zero_order_penalty as zero_order_penalty,
 )
@@ -178,138 +178,20 @@ def create_target_mask(
 # (800 行棘轮), 五个名字在文件顶部 import 块里显式 re-export, 因此
 # ``_run_shaping_loop`` 的闭包照旧裸调 ``total_loss``。
 
-
 # ---------------------------------------------------------------------------
-# 可微传播
-# ---------------------------------------------------------------------------
-
-
-@functools.lru_cache(maxsize=32)
-def _asm_propagator_torch(
-    grid_shape: tuple[int, int],
-    dx: float,
-    z: float,
-    wavelength: float,
-    device_str: str,
-    dtype_name: str,
-):
-    """为给定的 (shape, dx, z, λ, device, dtype) 缓存 ASM 传播子。
-
-    传播子只依赖光学几何, 与光场本身无关, 因此可以安全地在多次调用间共享。
-
-    Returns:
-        形状为 ``(H, W)`` 的复张量。
-    """
-    torch = _torch()
-    dtype = getattr(torch, dtype_name)
-    H, W = grid_shape
-    # 用 float64 计算以与 numpy 参考实现在数值上一致,
-    # 再转换到光场的 dtype。
-    fx = torch.fft.fftfreq(W, dx, device=device_str, dtype=torch.float64)
-    fy = torch.fft.fftfreq(H, dx, device=device_str, dtype=torch.float64)
-    FY, FX = torch.meshgrid(fy, fx, indexing="ij")
-    k = 2.0 * math.pi / wavelength
-    kx = 2.0 * math.pi * FX
-    ky = 2.0 * math.pi * FY
-    kz_sq = k**2 - kx**2 - ky**2
-    evanescent = kz_sq < 0
-    kz_sq = torch.where(evanescent, torch.zeros_like(kz_sq), kz_sq)
-    H_prop = torch.exp(1j * torch.sqrt(kz_sq) * z)
-    H_prop[evanescent] = 0.0
-    # ifftshift 让传播子与 fft2 的输出排序对齐, 与
-    # ao_shaping.algorithm.gerchberg_saxton 里的 numpy 参考实现一致
-    # (已验证: 在随机复光场上 torch 与 numpy 的 ASM 一致到 ~1e-11,
-    # 因此可以做直接交叉校验, 以及对称的 fft/asm 比较)。
-    return torch.fft.ifftshift(H_prop).to(dtype=dtype)
-
-
-def angular_spectrum_propagate_torch(
-    field: "Tensor",
-    dx: float,
-    z: float,
-    wavelength: float,
-) -> "Tensor":
-    """用 PyTorch FFT 实现的角谱法传播。
-
-    镜像 ``ao_shaping.algorithm.gerchberg_saxton`` 里的 numpy 版
-    ``angular_spectrum_propagate``, 但作用于带缓存传播子的 torch 张量。
-
-    Args:
-        field: 复光场张量 ``(H, W)``。
-        dx: 像素间距, 单位米。
-        z: 传播距离 (正 = 正向)。
-        wavelength: 波长, 单位米。
-
-    Returns:
-        传播后的复光场, 形状与 *field* 相同。
-    """
-    torch = _torch()
-    if field.ndim != NDIM_SINGLE_CHANNEL:
-        raise ValueError(f"Field must be 2D, got {field.ndim}D")
-    H, W = field.shape[-2:]
-    device_str = str(field.device)
-    dtype_name = str(field.dtype).split(".")[-1]  # 例如 "complex64"
-    H_prop = _asm_propagator_torch(
-        (H, W),
-        dx,
-        z,
-        wavelength,
-        device_str,
-        dtype_name,
-    )
-    F = torch.fft.fft2(field)
-    return torch.fft.ifft2(F * H_prop)
-
-
-# ---------------------------------------------------------------------------
-# 物理预测模型 (工厂 —— 避免导入期出现 nn.Module)
+# 可微传播 (2026-11-17 拆至 differentiable_propagation, 见该模块 docstring)
 # ---------------------------------------------------------------------------
 
 
-def _build_forward(
-    propagation: str,
-    cell_spacing: float,
-    distance: float,
-    wavelength: float,
-) -> Callable[["Tensor", "Tensor | None"], "Tensor"]:
-    """把可微物理预测模型构建成闭包。
-
-    这样既避免了导入期依赖 torch 的类定义, 又能让传播参数保持局部。
-
-    Returns:
-        可调用对象 ``(phase, source_amplitude=None) -> real_intensity``。
-    """
-    torch = _torch()
-
-    if propagation not in ("fft", "asm"):
-        raise ValueError(f"propagation must be 'fft' or 'asm', got {propagation!r}")
-
-    def forward(
-        phase: "Tensor",
-        source_amplitude: "Tensor | None" = None,
-    ) -> "Tensor":
-        H, W = phase.shape[-2:]
-        if source_amplitude is None:
-            amp = torch.ones((H, W), device=phase.device, dtype=phase.dtype)
-        else:
-            amp = source_amplitude
-
-        field = amp * torch.exp(1j * phase)
-
-        if propagation == "fft":
-            out_field = torch.fft.fftshift(torch.fft.fft2(field))
-        else:  # asm
-            out_field = angular_spectrum_propagate_torch(
-                field,
-                cell_spacing,
-                distance,
-                wavelength,
-            )
-
-        intensity = out_field.real**2 + out_field.imag**2
-        return intensity
-
-    return forward
+from ao_shaping.algorithm.signal_processing.differentiable_propagation import (  # noqa: E402
+    _asm_propagator_torch as _asm_propagator_torch,
+)
+from ao_shaping.algorithm.signal_processing.differentiable_propagation import (  # noqa: E402
+    _build_forward as _build_forward,
+)
+from ao_shaping.algorithm.signal_processing.differentiable_propagation import (  # noqa: E402
+    angular_spectrum_propagate_torch as angular_spectrum_propagate_torch,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -505,19 +387,40 @@ def _run_shaping_loop(
     """
     loss_history: list[float] = []
 
+    # ``phase`` 是 ``(H, W)`` (单候选) 或 ``(K, H, W)`` (模型内并行的 K 候选)。
+    # 批量模式下一次前向/反向同时算 K 个候选, 逐候选损失只用于挑最优候选与
+    # 记录; 逐候选损失由 :func:`total_loss_per_candidate` 逐候选调用
+    # :func:`total_loss` 得到, 与单候选路径逐位一致。
+    batched = phase.ndim == 3
+    per_holder: dict[str, Any] = {"per": None}
+
     def _closure():
         """Adam 与 L-BFGS 共用的单次前向 + 反向传播。"""
         opt.zero_grad()
         intensity = forward(phase, amp)
-        loss = total_loss(
-            intensity,
-            phase,
-            t_tensor,
-            w_uniformity=w_uniformity,
-            w_efficiency=w_efficiency,
-            w_zero_order=w_zero_order,
-            w_smoothness=w_smoothness,
-        )
+        if batched:
+            per = total_loss_per_candidate(
+                intensity,
+                phase,
+                t_tensor,
+                w_uniformity=w_uniformity,
+                w_efficiency=w_efficiency,
+                w_zero_order=w_zero_order,
+                w_smoothness=w_smoothness,
+            )
+            per_holder["per"] = per
+            # 各候选损失相互独立, 求和后的梯度与逐候选求和逐位一致。
+            loss = per.sum()
+        else:
+            loss = total_loss(
+                intensity,
+                phase,
+                t_tensor,
+                w_uniformity=w_uniformity,
+                w_efficiency=w_efficiency,
+                w_zero_order=w_zero_order,
+                w_smoothness=w_smoothness,
+            )
         loss.backward()
         return loss
 
@@ -559,22 +462,38 @@ def _run_shaping_loop(
                 break
         step_s = (time.perf_counter() - t0) - forward_s
 
-        loss_val = float(loss.item())
+        per = per_holder["per"]
+        if per is not None:
+            per_d = per.detach()
+            best_idx = int(per_d.argmin().item())
+            # 上报/记录最优候选的损失, 不是 K 个损失之和 (后者只是反向用的)。
+            loss_val = float(per_d[best_idx].item())
+        else:
+            best_idx = 0
+            loss_val = float(loss.item())
         # 记录在相位包裹之前: 包裹会把 (2π) 跳变写进 ‖phase_after-phase_before‖,
         # 让这一步的更新范数读起来像一次猛烈跳变, 而不是 Adam 的真实步长。
         # 张量在这里就转成 numpy: 记录器是纯 numpy 叶子模块, 且 CUDA 张量不能直接
-        # 交给 np.asarray。
+        # 交给 np.asarray。批量模式下记录器只跟踪当前最优候选 (2D)。
         if debug_recorder is not None:
+
+            def _slice(t, _best: int = best_idx):
+                return t[_best] if batched else t
+
             debug_recorder.record(
                 iteration=it,
                 loss=loss_val,
                 grad=(
                     None
                     if phase.grad is None
-                    else phase.grad.detach().float().cpu().numpy()
+                    else _slice(phase.grad.detach().float().cpu().numpy())
                 ),
-                phase_before=phase_before.detach().float().cpu().numpy(),
-                phase_after=phase.detach().float().cpu().numpy(),
+                phase_before=(
+                    None
+                    if phase_before is None
+                    else _slice(phase_before.detach().float().cpu().numpy())
+                ),
+                phase_after=_slice(phase.detach().float().cpu().numpy()),
                 forward_s=float(forward_s),
                 step_s=float(step_s),
             )
@@ -592,7 +511,7 @@ def _run_shaping_loop(
             progress_callback(it, loss_val)
 
         if phase_callback is not None:
-            phase_callback(phase.detach())
+            phase_callback(phase.detach()[best_idx] if batched else phase.detach())
 
         # 每个迭代输出一次进度日志 (library 层为 debug 级别, 由 DEBUG=1 控制;
         # runner 层通过 progress_callback 在 INFO 级别逐迭代输出)
@@ -612,12 +531,41 @@ def _extract_shaping_result(
     target: "npt.NDArray[np.floating] | Tensor",
     loss_history: list[float],
     converged: bool,
+    w_uniformity: float = 0.4,
+    w_efficiency: float = 0.6,
+    w_zero_order: float = 0.0,
+    w_smoothness: float = 0.0,
 ) -> DifferentiableShapingResult:
-    """Evaluate the final phase and assemble the result record."""
+    """Evaluate the final phase and assemble the result record.
+
+    ``phase`` 为 ``(H, W)`` 时按原样返回; 为 ``(K, H, W)`` (模型内并行) 时
+    以与优化时相同的目标函数逐候选评估, 返回损失最小的那个候选。
+    """
     with torch.no_grad():
         final_intensity = forward(phase, amp)
+        if phase.ndim == 3:
+            if isinstance(target, np.ndarray):
+                target_t = torch.from_numpy(target).to(
+                    device=phase.device, dtype=phase.dtype
+                )
+            else:
+                target_t = target.to(device=phase.device, dtype=phase.dtype)
+            per = total_loss_per_candidate(
+                final_intensity,
+                phase,
+                target_t,
+                w_uniformity=w_uniformity,
+                w_efficiency=w_efficiency,
+                w_zero_order=w_zero_order,
+                w_smoothness=w_smoothness,
+            )
+            best_idx = int(per.argmin().item())
+            selected = phase.detach()[best_idx]
+        else:
+            best_idx = 0
+            selected = phase.detach()
         final_phase = (
-            (phase.detach() % (2.0 * math.pi))
+            (selected % (2.0 * math.pi))
             .cpu()
             .numpy()
             .astype(
@@ -632,6 +580,8 @@ def _extract_shaping_result(
                 np.float64,
             )
         )
+        if phase.ndim == 3:
+            final_intensity_np = final_intensity_np[best_idx]
         if isinstance(target, np.ndarray):
             target_np = target.astype(np.float64)
         else:
@@ -676,6 +626,7 @@ def train_beam_shaping(
     progress_callback: Callable[[int, float], None] | None = None,
     phase_callback: Callable[["Tensor"], None] | None = None,
     debug: Any = None,
+    n_candidates: int = 8,
 ) -> DifferentiableShapingResult:
     """用梯度下降优化 SLM 相位图。
 
@@ -710,6 +661,12 @@ def train_beam_shaping(
             每次迭代记下正向传输的损失、相位梯度范数/最大值/RMS、参数更新范数,
             以及 ``forward+backward`` 与优化器步各自的耗时 —— 用来判断该提速的是
             物理预测模型还是优化器。
+        n_candidates: 模型内并行的候选数, 默认 8。每次迭代用**一次**批量前向/反向
+            同时优化 K 个候选, 每步报告最优候选的损失, 最终返回最优候选。
+            候选起点: ``initial_phase`` 为 *None* 时每候选独立 ``0.1·randn``;
+            显式给出时每候选在其上叠加 ``0.1·randn`` 微扰以保留候选多样性。
+            ``n_candidates=1`` 与历史单候选路径逐位一致; 该能力仅对
+            ``optimizer="adam"`` 生效, 其它优化器回退为 1。
 
     Returns:
         字段全部填好的 :class:`DifferentiableShapingResult`。
@@ -737,6 +694,17 @@ def train_beam_shaping(
         target, grid_size, propagation, optimizer, iterations
     )
 
+    if n_candidates < 1:
+        raise ValueError(f"n_candidates must be >= 1, got {n_candidates}")
+    if n_candidates > 1 and optimizer != "adam":
+        # L-BFGS 的线搜索会把 K 个候选的梯度混在一起, 模型内并行对它无意义。
+        logger.warning(
+            "n_candidates={} 仅对 Adam 优化器生效; 优化器 {!r} 回退到单候选",
+            n_candidates,
+            optimizer,
+        )
+        n_candidates = 1
+
     # -- 可复现性 ----------------------------------------------------
     if seed is not None:
         torch.manual_seed(seed)
@@ -755,7 +723,21 @@ def train_beam_shaping(
         torch, target, source_amplitude, initial_phase, H, W, dev, dtype
     )
 
-    phase = torch.nn.Parameter(phase_init.clone())
+    if n_candidates == 1:
+        phase = torch.nn.Parameter(phase_init.clone())
+    else:
+        if initial_phase is None:
+            # 每候选独立小噪声起点: 模型内并行的价值就是多个不同起点的候选,
+            # 跑完取最优。
+            phase_batch = 0.1 * torch.randn(
+                (n_candidates, H, W), device=dev, dtype=dtype
+            )
+        else:
+            # 显式初相位 + 逐候选微扰: 保留用户起点, 同时保留候选多样性。
+            phase_batch = phase_init.unsqueeze(0) + 0.1 * torch.randn(
+                (n_candidates, H, W), device=dev, dtype=dtype
+            )
+        phase = torch.nn.Parameter(phase_batch)
 
     # -- 物理预测模型 ----------------------------------------------------
     forward = _build_forward(propagation, cell_spacing, distance, wavelength)
@@ -795,5 +777,15 @@ def train_beam_shaping(
 
     # -- 提取结果 ----------------------------------------------------
     return _extract_shaping_result(
-        torch, phase, forward, amp, target, loss_history, converged
+        torch,
+        phase,
+        forward,
+        amp,
+        target,
+        loss_history,
+        converged,
+        w_uniformity=w_uniformity,
+        w_efficiency=w_efficiency,
+        w_zero_order=w_zero_order,
+        w_smoothness=w_smoothness,
     )

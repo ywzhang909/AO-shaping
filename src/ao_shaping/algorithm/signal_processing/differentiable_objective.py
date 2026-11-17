@@ -139,3 +139,53 @@ def total_loss(
         + w_zero_order * zero_order_penalty(intensity)
         + w_smoothness * smoothness_regularization(phase)
     )
+
+
+def total_loss_per_candidate(
+    intensity: "Tensor",
+    phase: "Tensor",
+    target: "Tensor",
+    *,
+    w_uniformity: float = 0.4,
+    w_efficiency: float = 0.6,
+    w_zero_order: float = 0.0,
+    w_smoothness: float = 0.0,
+) -> "Tensor":
+    """批量前导维 ``(K, H, W)`` 输入的逐候选总损失, 返回 ``(K,)``。
+
+    逐候选调用 :func:`total_loss`, 因此每个候选的损失与把该候选单独喂进
+    单候选路径**逐位一致**; ``K=1`` 时 ``per.sum()`` 与 :func:`total_loss`
+    逐位相同。损失分量的开销远小于前向/反向的 FFT, 这里的逐候选循环不影响
+    模型内并行收益。
+
+    2D ``(H, W)`` 输入按单候选处理, 返回长度 1 的张量。
+    """
+    torch = _torch()
+    if intensity.ndim == 2:
+        return torch.stack(
+            [
+                total_loss(
+                    intensity,
+                    phase,
+                    target,
+                    w_uniformity=w_uniformity,
+                    w_efficiency=w_efficiency,
+                    w_zero_order=w_zero_order,
+                    w_smoothness=w_smoothness,
+                )
+            ]
+        )
+    return torch.stack(
+        [
+            total_loss(
+                intensity[i],
+                phase[i],
+                target,
+                w_uniformity=w_uniformity,
+                w_efficiency=w_efficiency,
+                w_zero_order=w_zero_order,
+                w_smoothness=w_smoothness,
+            )
+            for i in range(intensity.shape[0])
+        ]
+    )
