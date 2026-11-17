@@ -53,6 +53,7 @@ from loguru import logger
 import importlib.util
 import json
 import math
+import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
@@ -90,12 +91,14 @@ from ao_shaping.utils.image.frame_analysis import (
     measure_spot,
     spot_fwhm,
 )
+from ao_shaping.utils.io.optical_path_record import build_optical_path_record
 from ao_shaping.utils.slm.bench_constants import (
     BEAM_CENTER_PANEL,
     BEAM_RADIUS_PANEL,
     SLM_PANEL_H,
     SLM_PANEL_W,
 )
+from ao_shaping.utils.slm.gray_scale import configured_max_grayscale
 from ao_shaping.utils.slm.phase_display import (
     display_phase as display_phase_on_slm,
 )
@@ -106,6 +109,11 @@ from ao_shaping.utils.wavefront.zernike_utils import (
 #: 采集驱动 (``scripts/slm/run_hw_sweep_groups.py``) —— 设备互斥的探针与分类
 #: 都在那里, 这里按路径加载复用, 不另写一份。
 SWEEP_SCRIPT = ROOT / "scripts" / "slm" / "run_hw_sweep_groups.py"
+
+#: 待落盘的标准光路记录 (SKILL §4): ``run_probe`` 只组装输入, ``main`` 在**放锁
+#: 之后**才补齐 ``occupancy.released_at`` 并写盘 —— 记录写完之后才释放设备,
+#: ``released_at`` 就只能永远是 null。
+_PENDING_RECORD: dict[str, Any] | None = None
 
 # ---------------------------------------------------------------------------
 # 四态判定与它的阈值: 只有一份实现 (``tools/slm/panel/probe_policy``)。
@@ -1227,6 +1235,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     """跑一次探测, 返回退出码 (0 = ok, 2 = low_snr / no_response)。"""
     args = build_parser().parse_args(argv)
+    global _PENDING_RECORD
+    _PENDING_RECORD = None
     # 🔴 设备锁**整段探测期间**都握在手里 (不是等到空闲就放掉): 只放到「空闲」
     # 就撒手, 另一个会话会在采集的中途拿走句柄。
     lock = acquire_devices(args)
@@ -1234,6 +1244,227 @@ def main(argv: list[str] | None = None) -> int:
         return run_probe(args)
     finally:
         lock.release()
+        # 放锁之后才写记录: occupancy.released_at 才是真的释放时刻。
+        _write_pending_record()
+
+
+def _utc_iso() -> str:
+    """当前 UTC 时刻 (秒级 ISO 8601)。"""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _git_short_sha() -> str | None:
+    """当前检出的短 sha; 不是 git 仓库 / 没有 git 时返回 ``None``。"""
+    try:
+        proc = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    sha = proc.stdout.strip()
+    return sha or None
+
+
+def _rel_to_root(path: Path) -> str:
+    """仓库内的路径写成相对形式 (记录要能跨机器读懂); 仓库外原样返回。"""
+    try:
+        return str(Path(path).resolve().relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _collect_record_devices(
+    slm: Any,
+    camera: Any,
+    config: ProbeConfig,
+    *,
+    full_scale: float | None,
+    exposure_used_ms: float,
+    device_info: dict[str, Any],
+    reasons: dict[str, str],
+) -> dict[str, Any]:
+    """标准记录 (SKILL §4) 的 ``devices`` 段; 拿不到的字段在 ``reasons`` 里说明原因。"""
+    try:
+        info: dict[str, Any] = dict(slm.get_device_info() or {})
+    except Exception:  # 设备信息拿不到不该让记录写不出来
+        info = {}
+
+    drive_board_id = info.get("driveboard_id")
+    if not drive_board_id:
+        reasons["devices.slm.drive_board_id"] = (
+            "驱动板 ID 读不到 (驱动板未应答时身份回退到选板 ID, 见 Santec.get_device_info)"
+        )
+    option_board_id = info.get("optionboard_id")
+    if option_board_id is None and info.get("serial_source") == "optionboard_fallback":
+        # 身份回退时 identity_id 就是选板 ID (静默回落的唯一线索)。
+        option_board_id = info.get("identity_id")
+
+    # ReadSU 状态码: 驱动只把「驱动板应答」暴露成 ok 布尔, 没有原始返回码,
+    # 所以这里记 0 = 应答、null = 不可读。
+    try:
+        status = slm.drive_board_status()
+    except Exception:  # 只读健康检查, 拿不到就不记状态码
+        status = None
+    readsu_status_at_open = 0 if status is not None and bool(status.ok) else None
+    if readsu_status_at_open is None:
+        reasons["devices.slm.readsu_status_at_open"] = (
+            "驱动板 ReadSU 没有可用状态码 (drive_board_status 不可读或驱动板未应答)"
+        )
+
+    pixel_size_um = getattr(camera, "pixel_size_um", None)
+    if not isinstance(pixel_size_um, (int, float)) or float(pixel_size_um) <= 0:
+        pixel_size_um = None
+        reasons["devices.camera.pixel_size_um"] = "该相机后端未登记像元尺寸"
+    reasons["devices.camera.averaging_frames"] = (
+        "探针不做帧平均: 每档取 N 帧峰值最大值 (N = --frames / --defocus-frames)"
+    )
+    reasons["devices.camera.discard_frames_after_exposure_change"] = (
+        "探针改曝光后不丢帧 (曝光阶梯的第一帧即新曝光)"
+    )
+
+    return {
+        "slm": {
+            "model": "Santec SLM-200",
+            "drive_board_id": drive_board_id,
+            "option_board_id": option_board_id,
+            "slm_number": int(config.slm_number),
+            "wavelength_nm": int(config.slm_wavelength_nm),
+            "two_pi_grayscale": int(configured_max_grayscale()),
+            "panel_res": [int(SLM_PANEL_W), int(SLM_PANEL_H)],
+            "readsu_status_at_open": readsu_status_at_open,
+            "open_mode": "memory",
+            "power_cycled_this_session": False,
+        },
+        "camera": {
+            "model": getattr(camera, "model_name", None) or str(config.cam_type),
+            "serial": device_info.get("cam_serial"),
+            "bit_depth": getattr(camera, "bit_depth", None),
+            "full_scale": full_scale,
+            "exposure_range_ms": device_info.get("cam_exposure_range_ms"),
+            "exposure_used_ms": float(exposure_used_ms),
+            "gain": getattr(camera, "gain", None),
+            "averaging_frames": None,
+            "discard_frames_after_exposure_change": None,
+            "pixel_size_um": pixel_size_um,
+        },
+        "wfs": "not used",
+        "dm": "not used",
+    }
+
+
+def _record_inputs(
+    *,
+    run_id: str,
+    config_id: str,
+    probe_report: Path,
+    config: ProbeConfig,
+    slm: Any,
+    camera: Any,
+    device_info: dict[str, Any],
+    exposure_used_ms: float,
+    full_scale: float | None,
+    ladder_summary: dict[str, Any],
+    response: dict[str, Any],
+    verdict: dict[str, Any],
+    acquired_at: str,
+) -> dict[str, Any]:
+    """把已经采到的读数整理成 ``build_optical_path_record`` 的输入。
+
+    只做搬运, 不碰设备: 设备相关的读取全在 :func:`_collect_record_devices` 里,
+    到了这一步已经全是普通数字/字符串。
+    """
+    reasons: dict[str, str] = {}
+    devices = _collect_record_devices(
+        slm,
+        camera,
+        config,
+        full_scale=full_scale,
+        exposure_used_ms=exposure_used_ms,
+        device_info=device_info,
+        reasons=reasons,
+    )
+
+    geometry = ROOT / "data" / "slm_geometry_calib.npz"
+    geometry_mtime: str | None = None
+    if geometry.exists():
+        geometry_mtime = datetime.fromtimestamp(
+            geometry.stat().st_mtime, tz=timezone.utc
+        ).isoformat(timespec="seconds")
+    reasons["optical_path.aperture"] = "探针不读光阑状态 (aperture 需现场填写)"
+    reasons["optical_path.fresnel_compensation_m_inv"] = (
+        "探针不做 Fresnel 补偿标定 (compensation 由焦面标定给出)"
+    )
+    reasons["exposure_check.settle_timeout"] = (
+        "探针用固定 settle 等待, 不检测 settle 超时"
+    )
+
+    saturation_counts = float(ladder_summary["saturation_counts"])
+    baseline_peak = float(response["baseline_peak_counts"])
+
+    return {
+        "run_id": run_id,
+        "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "operator_note": "",
+        "devices": devices,
+        "optical_path": {
+            "config_id": config_id,
+            "aperture": None,
+            "fresnel_compensation_m_inv": None,
+            "geometry_calib_file": (
+                _rel_to_root(geometry) if geometry.exists() else None
+            ),
+            "geometry_calib_mtime": geometry_mtime,
+            "probe_status": verdict["state"],
+            "probe_report": _rel_to_root(probe_report),
+        },
+        "exposure_check": {
+            "peak_counts_at_used_exposure": baseline_peak,
+            "saturation_threshold_counts": saturation_counts,
+            "saturated": bool(baseline_peak >= saturation_counts),
+            "settle_timeout": None,
+        },
+        # released_at / closed_normally 由 main() 在放锁之后填 (见 _write_pending_record)。
+        "occupancy": {
+            "acquired_at": acquired_at,
+            "released_at": None,
+            "closed_normally": None,
+        },
+        "git_commit": _git_short_sha(),
+        "probe_status": verdict["state"],
+        "reasons": reasons,
+    }
+
+
+def _write_pending_record() -> Path | None:
+    """落盘 ``optical_path_record.json`` (放锁之后, 这样 ``released_at`` 才是真时刻)。
+
+    写失败只告警, **不改退出码**: 记录是旁证, 探针的判定不能因为它丢了。
+    """
+    global _PENDING_RECORD
+    pending, _PENDING_RECORD = _PENDING_RECORD, None
+    if pending is None:
+        return None
+    inputs = dict(pending["inputs"])
+    occupancy = dict(inputs.get("occupancy") or {})
+    occupancy["released_at"] = _utc_iso()
+    occupancy["closed_normally"] = True
+    inputs["occupancy"] = occupancy
+    try:
+        record = build_optical_path_record(**inputs)
+        path = Path(pending["out_dir"]) / "optical_path_record.json"
+        path.write_text(
+            json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+    except Exception as exc:  # 记录写盘失败不得影响判定/退出码
+        logger.warning(f"标准光路记录写盘失败 (不影响判定): {exc}")
+        return None
+    logger.info(f"标准记录: {path}")
+    return path
 
 
 def run_probe(args: argparse.Namespace) -> int:
@@ -1249,6 +1480,11 @@ def run_probe(args: argparse.Namespace) -> int:
     session = str(getattr(args, "session", "") or "").strip()
     out_dir = Path(args.out_root) / session / stamp if session else Path(args.out_root) / stamp
     out_dir.mkdir(parents=True, exist_ok=True)
+    # 设备锁在进入 run_probe 之前(acquire_devices → run_probe)刚拿到, 这里就是
+    # 标准记录里 occupancy.acquired_at 的时刻。
+    acquired_at = _utc_iso()
+    run_tag = session or "probe"
+    run_id = f"{stamp[0:8]}_{stamp[9:15]}_{run_tag}"
 
     config = ProbeConfig(
         exposures_ms=[float(v) for v in exposures],
@@ -1268,6 +1504,11 @@ def run_probe(args: argparse.Namespace) -> int:
         cam_type=str(args.cam_type),
         cam_id=int(args.cam_id),
         wait_until_idle_s=float(args.wait_until_idle),
+    )
+    # 标准记录 (SKILL §4) 的 config_id: 有 lane 名就用 lane 名, 否则用相机+波长
+    # 拼一个能对出"这是哪条光路"的标识。
+    config_id = session or (
+        f"optical_path_probe_{config.cam_type}_{config.slm_wavelength_nm}nm"
     )
 
     from ao_shaping.drivers.slm.santec import Santec
@@ -1506,6 +1747,32 @@ def run_probe(args: argparse.Namespace) -> int:
                     f"  已重定基: 参考 = {saved['counts_per_ms']:.2f} counts/ms "
                     f"({saved['recorded_utc']}); 下一次探测起生效"
                 )
+
+            # 标准记录 (SKILL §4, ``ao-optical-path-record/v1``): 在这里只组装输入 ——
+            # 设备还开着 (设备标识要现场读), 而写盘要等 main() 放锁之后才能补上
+            # occupancy.released_at, 所以先挂到模块级的 _PENDING_RECORD 上。
+            global _PENDING_RECORD
+            _PENDING_RECORD = {
+                "out_dir": out_dir,
+                "inputs": _record_inputs(
+                    run_id=run_id,
+                    config_id=config_id,
+                    probe_report=out_dir / "optical_path_probe.json",
+                    config=config,
+                    slm=slm,
+                    camera=camera,
+                    device_info=device_info,
+                    exposure_used_ms=float(defocus_exposure),
+                    full_scale=(
+                        max(float(row.get("full_scale") or 0.0) for row in ladder)
+                        or None
+                    ),
+                    ladder_summary=ladder_summary,
+                    response=response,
+                    verdict=verdict,
+                    acquired_at=acquired_at,
+                ),
+            }
 
     thresholds = {
         "noise_floor_sigmas": NOISE_FLOOR_SIGMAS,

@@ -5,6 +5,7 @@
 ## 🔴 必读（所有 AI 工具）
 
 - **硬件设备纪律**：[docs/dev/hardware_discipline.md](docs/dev/hardware_discipline.md)（SLM/CCD/激光占用须在回复中明确报告；在飞保护与 `--wait-until-idle` 见该文件）。
+- **上机前光路与设备标定**：[libs/skills/ao-optical-path-calibration/SKILL.md](libs/skills/ao-optical-path-calibration/SKILL.md)（设备在线 / 光路有效 / 曝光不超量程 / SLM 真在调制的六步探测，以及 `optical_path_record.json` 标准记录；含未解冲突清单）。
 - **全局编码规范**：[docs/dev/coding_conventions.md](docs/dev/coding_conventions.md)（Python 3.12+、绝对导入、类型注解、日志等）。
 - **包/函数放置**：[docs/dev/module_inventory.md](docs/dev/module_inventory.md) §WHERE TO LOOK。
 - 术语：[docs/terminology_glossary.md](docs/terminology_glossary.md)（校验 `python3 scripts/_common/term_unify_20261016.py` dry-run `0 个文件`；新词 §3 登记）。
