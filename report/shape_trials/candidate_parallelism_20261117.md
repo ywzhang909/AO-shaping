@@ -1,5 +1,14 @@
 # 可微整形默认 8 候选并行：改动、验证与代价 2026-11-17
 
+<!-- provenance:start -->
+> **生成脚本**: 人工撰写，无生成脚本
+> **数据/关联脚本**: [`src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py`](../../src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py)
+> **数据/关联脚本**: [`src/ao_shaping/algorithm/signal_processing/differentiable_propagation.py`](../../src/ao_shaping/algorithm/signal_processing/differentiable_propagation.py)
+> **数据/关联脚本**: [`src/ao_shaping/algorithm/signal_processing/differentiable_objective.py`](../../src/ao_shaping/algorithm/signal_processing/differentiable_objective.py)
+> **运行环境**: 仅 GPU 离线（RTX 5080 Laptop，grid 256 cuda）；未占用 SLM / CCD / 激光，全程无上机动作
+> **说明**: 可微整形 8 候选模型内并行（train_beam_shaping n_candidates=8 默认值）的改动、验证与代价记录：单候选路径逐位不变（批量前向 absdiff=0、梯度相对差 6.6e-5、54+37+9 测试通过）；实测代价 300 迭代生产设置下 8 候选比单候选慢 4.6–5.8×，非凸目标最终损失改善 1.4–2.2%、单盆地目标（square）几乎无收益（0.07%）；并行相对 K 次串行重启稳定 1.4–2.6×（K=8 时 1.39×）。结论：这是「用时间换 1–2% 质量」的取舍而非免费加速；单盆地/规则目标建议 n_candidates=1（或 2–4），非凸/多瓣任意形状质量优先时 8 候选值得。仅 optimizer=adam 支持多候选，lbfgs 自动回退 1。人工撰写。
+<!-- provenance:end -->
+
 **结论先行**：模型内 8 候选并行已落地为 `train_beam_shaping` 的默认参数
 （`n_candidates=8`），单候选路径逐位不变、全部相关测试通过。但实测代价必须如实记录：
 在 300 次迭代的生产设置下，8 候选比单候选**慢 4.6–5.8 倍**，换来的是非凸目标上

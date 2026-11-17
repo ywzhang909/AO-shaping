@@ -2658,6 +2658,105 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py",
         ),
     ),
+    "report/shape_trials/ideal_path_static_test_20261117/README.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-17 实验采集；报告本体不占用设备）",
+        note=(
+            "静态整形页同源 generate_phase_radians 模型前向生成相位，SLM 下发 + CCD 全幅采集 5 个图案"
+            "（线性光栅 / 棋盘格 / 透镜聚焦 / 圆形光栅 / 达曼光栅），曝光 0.05 ms，观测来源 model_forward"
+            "（observed=false）。结论：相位与下发链路正确，但实测远场全部塌缩为中心暗弱小斑，模型前向假设"
+            "再次被证伪（透镜方形平顶 vs 实测点状聚焦的证伪结论成立）。"
+            "人工撰写。"
+        ),
+        extra_scripts=(
+            "scripts/slm/ideal_path_static_test_20261117.py",
+            "scripts/slm/render_ideal_path_compare_20261117.py",
+        ),
+    ),
+    "report/shape_trials/issue235_model_fill_diagnostic_20261117/issue235_model_fill_diagnostic_20261117.md": ReportProvenance(
+        # 人工撰写: 脚本只产出 summary.md 与 diagnostic.json, 中文分析正文不在任何
+        # 发射器里 (尾节"复现与产物"同理) —— 判 HANDWRITTEN 而非给脚本塞死代码。
+        script=HANDWRITTEN,
+        environment="离线（回放 2026-11-17 14:07–14:09 已采集的 14 帧会话；本次分析未占用 SLM/相机/激光）",
+        note=(
+            "#235 冻结模型整幅形态诊断（Q1–Q3）：在同一坐标系（整幅原生平面 1944×2592，实测帧与模型预测同公式）"
+            "量化冻结 model640 前向与实测的形态差。Q1 集中度不可预测（显示相位门禁 0 diff，模型预测满幅平顶、实测点状，"
+            "整幅 Pearson ≈ −0.010）；Q2 单参数扫描（phase_scale / amplitude_width / sigma_ccd / defocus / 像素尺度）"
+            "无一能同时复现实测的功率与半高像素数；Q3 反解表明实测光斑隐含有效照明口径 ~363 px，与冻结包络 (352, 133) px 同量级，"
+            "即问题不在口径量级，而在照明包络→远场的形态映射。数字全部由脚本读取 diagnostic.json 渲染。"
+        ),
+        extra_scripts=(
+            "scripts/slm/square_1000_model_diagnostic_20261030.py",
+        ),
+    ),
+    "report/shape_trials/issue235_model_fill_diagnostic_20261117/summary.md": ReportProvenance(
+        script="scripts/slm/issue235_model_fill_diagnostic_20261117.py",
+        command=(
+            "python scripts/slm/issue235_model_fill_diagnostic_20261117.py "
+            "--session data/debug/square1000_model_diag_20261117_140741 "
+            "--out data/debug/issue235_model_fill_20261117"
+        ),
+        environment="离线（回放 2026-11-17 14:07–14:09 已采集的 14 帧会话；本次分析未占用 SLM/相机/激光）",
+        note=(
+            "#235 诊断报告的可读摘要（脚本自动生成）：Q1–Q3 结论要点与关键数字，"
+            "数字全部来自同目录 diagnostic.json。与正式报告 issue235_model_fill_diagnostic_20261117.md 同源。"
+        ),
+        extra_scripts=(
+            "scripts/slm/square_1000_model_diagnostic_20261030.py",
+        ),
+    ),
+    "report/slm/differentiable_opt/status_20261117.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件",
+        note=(
+            "跨系列现状总结 (Q1 模型-实测一致性 / Q2 学习率与调度 / 2π 相位标度 / "
+            "原点陈旧根因 / 拟合参数落地)。全部数字可追到 data/debug/differentiable_opt/ 与 "
+            "report/slm/differentiable_opt/artifacts/ 下的落盘产物; 核心新证据是阶梯"
+            "误用存档几何 (data/slm_geometry_calib.npz, center y=962.63) 与同一晚现场"
+            "标定 (y=1104.84) 的 142 px 对照, 只读 pred/frames 的离线原点搜索复核, 以及"
+            "把现场标定写回 npz 的快照动作 (旧值存为 slm_geometry_calib_20261023.npz)"
+        ),
+        extra_scripts=(
+            "scripts/slm/persist_live_geometry.py",
+            "scripts/slm/hw_forward_model_fidelity_ladder.py",
+            "scripts/slm/hw_differentiable_phase_opt.py",
+            "scripts/slm/analyze_fwdmodel_fit.py",
+        ),
+    ),
+    "report/slm/differentiable_opt/artifacts/fwdmodel_fit_20261117/fwdmodel_fit_20261117.md": ReportProvenance(
+        script="scripts/slm/analyze_fwdmodel_fit_20261117.py",
+        command=(
+            "python scripts/slm/analyze_fwdmodel_fit_20261117.py "
+            "--out report/slm/differentiable_opt/artifacts/fwdmodel_fit_20261117/fwdmodel_fit_20261117.md"
+        ),
+        environment="离线 + CUDA GPU (RTX 5080 Laptop, torch 2.11.0+cu128); 不连接设备",
+        note=(
+            "物理预测模型参数拟合与可微共同优化的离线验证: 阶梯陈旧 y 原点 (存档 962.6 vs 现场 1104.8) 的四列对照, "
+            "gs_init 低相关归因 (GS 未收敛), 轴向口径择优与留一验证, 阶段 B 实测历史对照。"
+        ),
+        extra_scripts=(
+            "scripts/slm/analyze_fwdmodel_fit.py",
+            "scripts/slm/_hw_fidelity_ladder_sections.py",
+            "scripts/slm/hw_differentiable_phase_opt.py",
+        ),
+    ),
+    "report/shape_trials/candidate_parallelism_20261117.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="仅 GPU 离线（RTX 5080 Laptop，grid 256 cuda）；未占用 SLM / CCD / 激光，全程无上机动作",
+        note=(
+            "可微整形 8 候选模型内并行（train_beam_shaping n_candidates=8 默认值）的改动、验证与代价记录："
+            "单候选路径逐位不变（批量前向 absdiff=0、梯度相对差 6.6e-5、54+37+9 测试通过）；"
+            "实测代价 300 迭代生产设置下 8 候选比单候选慢 4.6–5.8×，非凸目标最终损失改善 1.4–2.2%、"
+            "单盆地目标（square）几乎无收益（0.07%）；并行相对 K 次串行重启稳定 1.4–2.6×（K=8 时 1.39×）。"
+            "结论：这是「用时间换 1–2% 质量」的取舍而非免费加速；单盆地/规则目标建议 n_candidates=1（或 2–4），"
+            "非凸/多瓣任意形状质量优先时 8 候选值得。仅 optimizer=adam 支持多候选，lbfgs 自动回退 1。人工撰写。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py",
+            "src/ao_shaping/algorithm/signal_processing/differentiable_propagation.py",
+            "src/ao_shaping/algorithm/signal_processing/differentiable_objective.py",
+        ),
+    ),
 }
 
 
@@ -2862,18 +2961,3 @@ def render_index() -> str:
     if pending:
         out.append("")
     return "\n".join(out)
-    "report/shape_trials/ideal_path_static_test_20261117/README.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-17 实验采集；报告本体不占用设备）",
-        note=(
-            "静态整形页同源 generate_phase_radians 模型前向生成相位，SLM 下发 + CCD 全幅采集 5 个图案"
-            "（线性光栅 / 棋盘格 / 透镜聚焦 / 圆形光栅 / 达曼光栅），曝光 0.05 ms，观测来源 model_forward"
-            "（observed=false）。结论：相位与下发链路正确，但实测远场全部塌缩为中心暗弱小斑，模型前向假设"
-            "再次被证伪（透镜方形平顶 vs 实测点状聚焦的证伪结论成立）。"
-            "人工撰写。"
-        ),
-        extra_scripts=(
-            "scripts/slm/ideal_path_static_test_20261117.py",
-            "scripts/slm/render_ideal_path_compare_20261117.py",
-        ),
-    ),

@@ -8,7 +8,7 @@
 > **数据/关联脚本**: [`scripts/slm/issue235_knife_baseline_fit_20261117.py`](../../../scripts/slm/issue235_knife_baseline_fit_20261117.py)
 > **数据/关联脚本**: [`scripts/slm/issue235_beam_centre_differential_20261117.py`](../../../scripts/slm/issue235_beam_centre_differential_20261117.py)
 > **数据/关联脚本**: [`scripts/slm/issue235_panel_gray_inversion_20261117.py`](../../../scripts/slm/issue235_panel_gray_inversion_20261117.py)
-> **运行环境**: 离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-17 实验采集；报告本体不占用设备）
+> **运行环境**: 离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-17 上机采集；报告本体不占用设备）
 > **说明**: 冻结模型 14 帧方向诊断（data/debug/square1000_model_diag_20261117_140741）、窗口对照（win0/win163）、M3 以实测峰为中心复核（m3_peak_centred_20261117.json）、刀口基线拟合（issue235_knife_baseline_fit_20261117.json）、差分刀口（diff_20261117_170647_v2/summary.json）与 panel_gray 反解前向一致性（issue235_panel_gray_inversion_20261117.json）、实测 panel 中心回灌的前向修正（m3_peak_centred_centerfix_20261117.json）。人工撰写。
 <!-- provenance:end -->
 
