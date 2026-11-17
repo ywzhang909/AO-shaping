@@ -75,6 +75,21 @@ def _gaussian_pred(spec, sigma: float) -> np.ndarray:
     return np.exp(-(xx**2 + yy**2) / (2.0 * float(sigma) ** 2))
 
 
+def _shifted_gaussian(spec, sigma: float, *, dx: int, dy: int) -> np.ndarray:
+    """A Gaussian whose peak sits ``(dx, dy)`` model samples from the DC cell.
+
+    ``xx`` is the column axis, ``yy`` the row axis (``indexing='ij'``), so the
+    peak lands at ``(row, col) = (centre + dy, centre + dx)``.
+    """
+    m = int(spec.m_grid)
+    c = int(spec.centre_index)
+    ax = np.arange(m, dtype=np.float64) - c
+    yy, xx = np.meshgrid(ax, ax, indexing="ij")
+    return np.exp(
+        -(((xx - float(dx)) ** 2 + (yy - float(dy)) ** 2) / (2.0 * float(sigma) ** 2))
+    )
+
+
 # ---------------------------------------------------------------------------
 # CLI / token parsing
 # ---------------------------------------------------------------------------
@@ -129,6 +144,23 @@ def test_noll_phase_block_is_finite_and_zero_outside_the_pupil(spec) -> None:
         assert block[0, 0] == 0.0 and block[-1, -1] == 0.0, name
         # And the pattern is not identically zero (the amplitude survived).
         assert float(np.abs(block).max()) > 0.0, name
+
+
+def test_model_far_field_matches_an_independent_fft(opt) -> None:
+    """``fftshift(fft2(A·e^{iφ}))`` intensity, reproduced with a different route.
+
+    The ladder's whole verdict rests on this prediction, so it is pinned against a
+    hand-written ``|fftshift(fft2())|**2`` rather than trusting the module's own
+    ``re**2 + im**2``.
+    """
+    rng = np.random.default_rng(20261117)
+    n = 32
+    amp = rng.uniform(0.2, 1.0, size=(n, n))
+    phase = rng.uniform(-np.pi, np.pi, size=(n, n))
+    got = opt.model_far_field(amp, phase)
+    want = np.abs(np.fft.fftshift(np.fft.fft2(amp * np.exp(1j * phase)))) ** 2
+    assert got.shape == want.shape
+    assert np.allclose(got, want, rtol=1e-10, atol=1e-12)
 
 
 def test_resample_model_grid_keeps_the_optical_axis_centred(spec) -> None:
@@ -215,6 +247,31 @@ def test_coverage_mask_excludes_exactly_the_zero_filled_cells(opt, spec) -> None
     interior[0, :] = interior[-1, :] = False
     interior[:, 0] = interior[:, -1] = False
     assert float((meas[interior] > 0).mean()) > 0.5
+
+
+def test_resample_ccd_to_model_zero_fills_off_sensor_cells(opt, spec) -> None:
+    """Grid indexing and the zero-fill: one hot pixel maps to its model cell exactly.
+
+    With the zero-order placed near a corner, most of the model far-field array runs
+    off the sensor. The cell that *is* on the hot pixel must read it verbatim, and
+    every cell whose coordinate leaves the sensor must be exactly ``0.0`` — those
+    zeros are fabrications the coverage mask flags, not measurements.
+    """
+    m = int(spec.m_grid)
+    c = int(spec.centre_index)
+    frame = np.zeros(SMALL_FRAME, dtype=np.float64)
+    corner = (5.0, 5.0)  # (x, y): the DC cell then sits on the sensor, the rest does not
+    frame[5, 5] = 1000.0
+
+    meas, cov = sec.resample_with_coverage(opt, frame, corner, K_MEAN, spec)
+    assert meas.shape == (m, m)
+    assert cov.any() and not cov.all()
+    # The DC cell's coordinate is the corner pixel, so it reads the hot pixel exactly.
+    assert float(meas[c, c]) == pytest.approx(1000.0, rel=1e-9)
+    # Every off-sensor cell is a fabricated 0, never a measurement.
+    assert np.count_nonzero(meas[~cov]) == 0
+    assert float(meas[0, 0]) == 0.0
+    assert float(meas[-1, -1]) == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +362,108 @@ def test_pattern_metrics_rejects_a_flat_prediction(opt, spec) -> None:
     assert row["signal_frac_of_coverage"] == 0.0
 
 
+def test_signal_mask_gate_comes_from_the_prediction_not_the_measurement(
+    opt, spec
+) -> None:
+    """Extra diffuse light in the *measurement* must not widen the signal mask.
+
+    ``spearman_signal`` is only meaningful because its gate is
+    ``pred >= floor · pred_peak``: the hardware always brings stray/diffuse light the
+    model has none of. If the gate were taken from the measurement, that light would
+    enlarge the signal set and let the noise floor back into the judge. Here the same
+    prediction is paired with a clean frame and with the same frame plus wide diffuse
+    light; the mask must be byte-identical while the judge itself may drop.
+    """
+    m = int(spec.m_grid)
+    pred = _gaussian_pred(spec, sigma=6.0)
+    cov = np.ones((m, m), dtype=bool)
+
+    clean = _gaussian_pred(spec, sigma=6.0) * 1800.0
+    rng = np.random.default_rng(5)
+    # Diffuse stray light everywhere, including inside the signal region.
+    diffuse = clean + rng.uniform(0.0, 400.0, size=(m, m))
+
+    r_clean = sec.pattern_metrics(
+        opt, pred=pred, meas=clean, coverage=cov, k_mean=K_MEAN, spec=spec
+    )
+    r_diffuse = sec.pattern_metrics(
+        opt, pred=pred, meas=diffuse, coverage=cov, k_mean=K_MEAN, spec=spec
+    )
+
+    # The gate is the prediction's own set, independent of which measurement is paired.
+    expected = int(
+        (cov & (pred >= sec.DEFAULT_SIGNAL_FLOOR * float(pred.max()))).sum()
+    )
+    assert expected > 0
+    assert r_clean["signal_pixels"] == expected
+    assert r_diffuse["signal_pixels"] == expected
+    # The mask is a proper subset: the floor really is clipping most of the coverage.
+    assert expected < int(cov.sum())
+
+    # The measurement side still moves the judge (diffuse light scrambles the ranks)...
+    assert r_clean["spearman_signal"] > 0.99
+    assert r_diffuse["spearman_signal"] < r_clean["spearman_signal"]
+
+
+def test_fwhm_ratio_peak_offset_and_radial_profile_on_a_known_blob(opt, spec) -> None:
+    """A wider, shifted blob must come out with the expected ratio and peak offset.
+
+    ``fwhm_ratio`` and ``peak_offset_ccd_px`` are the shape-alignment part of the
+    verdict (a missing defocus term widens and shifts the measurement), so they are
+    checked on a blob whose width and displacement are chosen, not measured.
+    """
+    m = int(spec.m_grid)
+    pred = _gaussian_pred(spec, sigma=4.0)
+    meas = _shifted_gaussian(spec, sigma=6.0, dx=3, dy=-2) * 1800.0
+    cov = np.ones((m, m), dtype=bool)
+
+    row = sec.pattern_metrics(
+        opt, pred=pred, meas=meas, coverage=cov, k_mean=K_MEAN, spec=spec
+    )
+
+    assert row["model_fwhm_px"] > 0.0
+    assert row["measured_fwhm_px"] > row["model_fwhm_px"]
+    # sigma 6 / sigma 4 => fwhm ratio ~1.5 (box smoothing loosens it slightly).
+    assert row["fwhm_ratio"] > 1.15
+    offset = float(np.hypot(3.0, 2.0))
+    # The offset magnitude is orientation-invariant (a flip only changes its sign).
+    assert row["peak_offset_model_px"] == pytest.approx(offset, abs=0.8)
+    scale = spec.far_field_sample_ccd_px(K_MEAN)
+    assert row["peak_offset_ccd_px"] == pytest.approx(offset * scale, rel=0.25)
+    # Same-shape radial profiles, only slightly displaced => strong radial agreement.
+    assert row["radial_correlation"] > 0.75
+
+
+def test_sweep_axis_convention_recovers_a_transposed_field(opt, spec) -> None:
+    """A field captured in the transposed panel↔camera convention must be picked.
+
+    The eight candidates are ranked by intensity correlation; on an asymmetric model
+    only ``transpose`` reaches ~1.0, so the sweep's winner *is* the orientation the
+    later ``apply_axis`` undoes.
+    """
+    m = int(spec.m_grid)
+    c = int(spec.centre_index)
+    ax = np.arange(m, dtype=np.float64) - c
+    yy, xx = np.meshgrid(ax, ax, indexing="ij")
+    model = np.exp(-(xx**2 + yy**2) / (2.0 * 5.0**2))
+    # An off-axis lobe breaks the transpose/mirror symmetries the centred Gaussian has.
+    model = model + 0.7 * np.exp(
+        -(((xx - 9.0) ** 2 + (yy - 3.0) ** 2) / (2.0 * 2.5**2))
+    )
+    measured = model.T.copy()
+
+    cmp = sec.sweep_axis_convention(opt, model, measured)
+    assert cmp["orientation_match"] == "transpose"
+    assert cmp["transpose"] is True
+    assert cmp["flip_rows"] is False and cmp["flip_cols"] is False
+
+    aligned = sec.apply_axis(measured, cmp)
+    assert float(np.corrcoef(model.ravel(), aligned.ravel())[0, 1]) > 0.999
+    # ...and the naive identity pairing really is worse, so the sweep is doing work.
+    identity_corr = float(np.corrcoef(model.ravel(), measured.ravel())[0, 1])
+    assert identity_corr < float(cmp["intensity_correlation"])
+
+
 # ---------------------------------------------------------------------------
 # End-to-end dry run (subprocess: a clean interpreter is the only honest way to
 # assert "no driver was ever imported").
@@ -387,3 +546,31 @@ def test_dry_run_is_the_default_mode() -> None:
     args = build_parser().parse_args([])
     assert args.execute is False
     assert args.dry_run is False
+
+
+def test_sections_module_stays_driver_free() -> None:
+    """Importing the numeric sections must not pull in ``ao_shaping.drivers.*``.
+
+    The ``--execute`` path imports drivers inside its own function, so the guarantee
+    that *this* module (shared by dry-run and hardware) is device-free has to hold on
+    its own. A clean interpreter is the only honest witness: an in-process import
+    could be masked by a sibling test that already loaded a driver.
+    """
+    code = (
+        "import sys\n"
+        "import scripts.slm._hw_fidelity_ladder_sections as sec\n"
+        "assert hasattr(sec, 'pattern_metrics') and hasattr(sec, 'sweep_axis_convention')\n"
+        "leaked = sorted(m for m in sys.modules if m.startswith('ao_shaping.drivers'))\n"
+        "assert not leaked, leaked\n"
+        "print('no-drivers-ok')\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        cwd=str(ROOT),
+        timeout=300,
+        check=False,
+    )
+    assert proc.returncode == 0, f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+    assert "no-drivers-ok" in proc.stdout
