@@ -41,15 +41,27 @@ Run::
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# 以文件形式启动时只有脚本自己的目录在 sys.path 上, 仓库根/src/scripts 都要
+# 自己补 (scripts/ 下 import scripts._common 的既定约定, 同 analyze_model_hw_fidelity)。
+_ROOT = Path(__file__).resolve().parents[2]
+for _entry in (_ROOT, _ROOT / "src", _ROOT / "scripts"):
+    if str(_entry) not in sys.path:
+        sys.path.insert(0, str(_entry))
+
 import argparse
 import json
 import math
+from functools import partial
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from scripts._common import fmt_fixed_or_text
 import torch
 
 from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
@@ -636,18 +648,11 @@ def diffraction_report(measured_fwhm_px: float) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Report assembly
 # ---------------------------------------------------------------------------
-def _fmt(value: Any, digits: int = 4) -> str:
-    if value is None:
-        return "n/a"
-    if isinstance(value, bool):
-        return "yes" if value else "no"
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, float):
-        if not math.isfinite(value):
-            return "n/a"
-        return f"{value:.{digits}g}"
-    return str(value)
+# R-25 反漂移 (issue #205 第 132 批): 逐字口径 = fmt_fixed_or_text(none_text/
+# nonfinite_text="n/a", spec="g", bool_labels=("yes", "no")); int/np.float32 走
+# str, np.float64 (float 子类) 走 g; 120 输入电池全等。
+_fmt = partial(fmt_fixed_or_text, none_text="n/a", nonfinite_text="n/a",
+               spec="g", bool_labels=("yes", "no"))
 
 
 def markdown_report(summary: dict[str, Any]) -> str:

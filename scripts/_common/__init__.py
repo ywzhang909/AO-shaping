@@ -443,6 +443,8 @@ def fmt_fixed_or_text(
     none_text: str = "—",
     include_np_float: bool = False,
     nonfinite_text: str | None = None,
+    spec: str = "f",
+    bool_labels: tuple[str, str] | None = None,
 ) -> str:
     """Fixed-point for floats, ``str(v)`` pass-through for everything else.
 
@@ -454,13 +456,22 @@ def fmt_fixed_or_text(
     sentinel or raw ``"nan"``/``"inf"``. Parameterised rather than folded into
     :func:`fmt_metric` so the extraction stays byte-identical -- see the module
     docstring.
+
+    ``spec`` (default ``"f"`` = today's behaviour) generalises the numeric
+    conversion for the ``issue235_model_fill_diagnostic_20261117.py`` copy
+    (R-25 lane, issue #205 batch 132), which spells significant digits
+    (``spec="g"``); ``bool_labels`` covers that copy's ``"yes"``/``"no"`` flag
+    cells. Both flags default off: the 2026-11-07 report generators keep
+    byte-identical output.
     """
     if v is None:
         return none_text
+    if bool_labels is not None and isinstance(v, bool):
+        return bool_labels[0] if v else bool_labels[1]
     if isinstance(v, float) or (include_np_float and isinstance(v, np.floating)):
         if nonfinite_text is not None and not np.isfinite(v):
             return nonfinite_text
-        return f"{v:.{digits}f}"
+        return f"{v:.{digits}{spec}}"
     return str(v)
 
 

@@ -2,6 +2,7 @@
 
 <!-- provenance:start -->
 > **生成脚本**: [`scripts/slm/issue235_model_fill_diagnostic_20261117.py`](../../../scripts/slm/issue235_model_fill_diagnostic_20261117.py)
+> **复现命令**: `python scripts/slm/issue235_model_fill_diagnostic_20261117.py --session data/debug/square1000_model_diag_20261117_140741 --out data/debug/issue235_model_fill_20261117`
 > **数据/关联脚本**: [`scripts/slm/square_1000_model_diagnostic_20261030.py`](../../../scripts/slm/square_1000_model_diagnostic_20261030.py)
 > **运行环境**: 离线（回放 2026-11-17 14:07–14:09 已采集的 14 帧会话；本次分析未占用 SLM/相机/激光）
 > **说明**: #235 诊断报告的可读摘要（脚本自动生成）：Q1–Q3 结论要点与关键数字，数字全部来自同目录 diagnostic.json。与正式报告 issue235_model_fill_diagnostic_20261117.md 同源。

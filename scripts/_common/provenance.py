@@ -221,7 +221,9 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
     ),
     "report/shape_trials/issue235_model_fill_diagnostic_20261117/issue235_model_fill_diagnostic_20261117.md": ReportProvenance(
-        script="scripts/slm/issue235_model_fill_diagnostic_20261117.py",
+        # 人工撰写: 脚本只产出 summary.md 与 diagnostic.json, 中文分析正文不在任何
+        # 发射器里 (尾节"复现与产物"同理) —— 判 HANDWRITTEN 而非给脚本塞死代码。
+        script=HANDWRITTEN,
         environment="离线（回放 2026-11-17 14:07–14:09 已采集的 14 帧会话；本次分析未占用 SLM/相机/激光）",
         note=(
             "#235 冻结模型整幅形态诊断（Q1–Q3）：在同一坐标系（整幅原生平面 1944×2592，实测帧与模型预测同公式）"
@@ -236,6 +238,11 @@ REPORTS: dict[str, ReportProvenance] = {
     ),
     "report/shape_trials/issue235_model_fill_diagnostic_20261117/summary.md": ReportProvenance(
         script="scripts/slm/issue235_model_fill_diagnostic_20261117.py",
+        command=(
+            "python scripts/slm/issue235_model_fill_diagnostic_20261117.py "
+            "--session data/debug/square1000_model_diag_20261117_140741 "
+            "--out data/debug/issue235_model_fill_20261117"
+        ),
         environment="离线（回放 2026-11-17 14:07–14:09 已采集的 14 帧会话；本次分析未占用 SLM/相机/激光）",
         note=(
             "#235 诊断报告的可读摘要（脚本自动生成）：Q1–Q3 结论要点与关键数字，"
