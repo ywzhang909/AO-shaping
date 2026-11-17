@@ -110,6 +110,7 @@ _CLOSED_LOOP = "src/ao_shaping/optimizer/wf/closed_loop.py"
 _ABBA_PROBE = "src/ao_shaping/tools/zernike/abba_probe.py"
 _CAPRESP = "src/ao_shaping/tools/slm/transfer/capture_response.py"
 _OBJ = "src/ao_shaping/utils/image/target/objective.py"
+_DIFF_BEAM = "src/ao_shaping/optimizer/wfless/differentiable_beam.py"
 _PROBE_ACTIVE = "src/ml/sim2f/probe_active.py"
 _SIM_SPGD = "src/ao_shaping/optimizer/wfless/sim_spgd.py"
 _SAC_TRAIN = "src/ao_shaping/optimizer/rl/sac_train.py"
@@ -623,6 +624,8 @@ TARGETS = [
     (_OBJ, "_raw_base", 96, 3, 88),
     (_OBJ, "_rawbase_pib_rms_terms", 28, 1, 24),
     (_OBJ, "_rawbase_shape_score", 52, 2, 46),
+    (_DIFF_BEAM, "optimize_beam_shaping", 126, 2, 116),
+    (_DIFF_BEAM, "_db_prepare_run", 46, 2, 41),
     (_CALIBRATION, "main_shift_calib", 118, 3, 105),
     (_CALIBRATION, "_shift_eval_closures", 40, 3, 36),
     (_CALIBRATION, "_shift_axis_refine", 39, 3, 35),

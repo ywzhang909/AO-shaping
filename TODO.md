@@ -5645,6 +5645,12 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - `_ABBA_PROBE` 追加三行 (90/2/82、55/3/49、34/1/30); wiki 无 dense 引用 (conventions 绿)
 - 载体: `test_slm_abba_probe` + 形状 + conventions **622 passed**; ruff/term/modsize 绿
 
+**2026-11-18 · 372f6a31 之后 · 第 158 批: `optimize_beam_shaping` 153→116 行 (`optimizer/wfless/differentiable_beam.py`)**
+- 提取 `_db_prepare_run` 41 行 (13 参数 11 回传含 6 个强制参数回显, 校验+优化器/recorder 装配; 阶段环 `_run_simulation_phase`/`_run_hardware_phase` 此前已在位)
+- **pin-only 登记**: `rms_by_zernike.optimizer_rms_slm` 155 = 签名 52 + docstring 48 + 纯转发 kwargs 调用 42, 无可提取执行体 (同 `calibrate_shared_aberration` 先例, 棘轮行 200/1/155 保持)
+- 新增 `_DIFF_BEAM` 常量 + 两行 (126/2/116、46/2/41)
+- 载体: **algorithm 全域 + 形状 + conventions 1497 passed / 27 skipped**; ruff 全仓绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
