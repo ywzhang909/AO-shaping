@@ -101,6 +101,7 @@ _CALIBRATE = "src/ml/sim2f/calibrate.py"
 _TRAIN_DATA_COLLECT = "src/ao_shaping/tools/slm/calibration/train_data_collect.py"
 _CCD_ANALYZER = "src/ao_shaping/gui/ccd/ccd_analyzer.py"
 _TSH = "src/ao_shaping/gui/ccd/target_shape_helper.py"
+_DIFFERENTIABLE_SHAPING = "src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py"
 _PROBE_ACTIVE = "src/ml/sim2f/probe_active.py"
 _SIM_SPGD = "src/ao_shaping/optimizer/wfless/sim_spgd.py"
 _SAC_TRAIN = "src/ao_shaping/optimizer/rl/sac_train.py"
@@ -573,6 +574,8 @@ TARGETS = [
     (_CALIBRATION, "_align_candidate_setup", 22, 3, 18),
     (_CALIBRATION, "_align_fov_probe", 63, 3, 57),
     (_CALIBRATION, "_align_report_finalize", 23, 1, 19),
+    (_DIFFERENTIABLE_SHAPING, "train_beam_shaping", 150, 3, 139),
+    (_DIFFERENTIABLE_SHAPING, "_tbs_prepare_candidates", 56, 3, 51),
     (_CALIBRATION, "main_shift_calib", 118, 3, 105),
     (_CALIBRATION, "_shift_eval_closures", 40, 3, 36),
     (_CALIBRATION, "_shift_axis_refine", 39, 3, 35),

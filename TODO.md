@@ -5560,6 +5560,11 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 叶差分: 五区 verbatim=True (62/66 与 33/32/41 行, 去尾 `return` 行后); 泄漏审计仅 5 个 helper 名
 - 验证: 形状守卫 + `test_slm_calibration_pure/windowed` + `test_target_shape_helper_offline` **491 passed**; `test_ccd_analyzer_offline` 7 passed; conventions 72 passed; ruff 全仓绿; term 0; modsize 抬高 +53 (三文件 helper 开销)
 
+**2026-11-18 · b13f8bba 之后 · 第 141 批: `train_beam_shaping` 186→139 行 (`algorithm/signal_processing/differentiable_shaping.py`)**
+- 提取 `_tbs_prepare_candidates` 51 行 (11 参数 4 回传 `amp/device/phase/t_tensor`, 候选归一与相位批装配); 尾段 Try 区双条件存储 (`converged/loss_history`) risk=2 不动, 单区已把跨度压到 <150
+- 新增守卫常量 `_DIFFERENTIABLE_SHAPING` + 两行 (150/3/139、56/3/51)
+- 载体: `test_differentiable_shaping` + `_quality` + **`_golden` (逐位一致训练)** + 形状门禁 **529 passed**; ruff 全仓绿; term 0; modsize 绿; conventions 72 passed
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

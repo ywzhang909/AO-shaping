@@ -603,6 +603,61 @@ def _extract_shaping_result(
     )
 
 
+
+def _tbs_prepare_candidates(device, grid_size, initial_phase, iterations, n_candidates, optimizer, propagation, seed, source_amplitude, target, torch):
+# Candidate normalization and phase batch setup lifted verbatim
+    H, W = _validate_shaping_inputs(
+        target, grid_size, propagation, optimizer, iterations
+    )
+
+    if n_candidates < 1:
+        raise ValueError(f"n_candidates must be >= 1, got {n_candidates}")
+    if n_candidates > 1 and optimizer != "adam":
+        # L-BFGS 的线搜索会把 K 个候选的梯度混在一起, 模型内并行对它无意义。
+        logger.warning(
+            "n_candidates={} 仅对 Adam 优化器生效; 优化器 {!r} 回退到单候选",
+            n_candidates,
+            optimizer,
+        )
+        n_candidates = 1
+
+    # -- 可复现性 ----------------------------------------------------
+    if seed is not None:
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+
+    # -- 设备 ---------------------------------------------------------
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    dev = torch.device(device)
+    dtype = torch.float32
+
+    # -- 准备张量 ----------------------------------------------------
+    t_tensor, amp, phase_init = _shaping_tensors(
+        torch, target, source_amplitude, initial_phase, H, W, dev, dtype
+    )
+
+    if n_candidates == 1:
+        phase = torch.nn.Parameter(phase_init.clone())
+    else:
+        if initial_phase is None:
+            # 每候选独立小噪声起点: 模型内并行的价值就是多个不同起点的候选,
+            # 跑完取最优。
+            phase_batch = 0.1 * torch.randn(
+                (n_candidates, H, W), device=dev, dtype=dtype
+            )
+        else:
+            # 显式初相位 + 逐候选微扰: 保留用户起点, 同时保留候选多样性。
+            phase_batch = phase_init.unsqueeze(0) + 0.1 * torch.randn(
+                (n_candidates, H, W), device=dev, dtype=dtype
+            )
+        phase = torch.nn.Parameter(phase_batch)
+    return amp, device, phase, t_tensor
+
+
+
 def train_beam_shaping(
     target: "npt.NDArray[np.floating] | Tensor",
     grid_size: tuple[int, int],
@@ -690,54 +745,7 @@ def train_beam_shaping(
     """
     torch = _torch()
 
-    H, W = _validate_shaping_inputs(
-        target, grid_size, propagation, optimizer, iterations
-    )
-
-    if n_candidates < 1:
-        raise ValueError(f"n_candidates must be >= 1, got {n_candidates}")
-    if n_candidates > 1 and optimizer != "adam":
-        # L-BFGS 的线搜索会把 K 个候选的梯度混在一起, 模型内并行对它无意义。
-        logger.warning(
-            "n_candidates={} 仅对 Adam 优化器生效; 优化器 {!r} 回退到单候选",
-            n_candidates,
-            optimizer,
-        )
-        n_candidates = 1
-
-    # -- 可复现性 ----------------------------------------------------
-    if seed is not None:
-        torch.manual_seed(seed)
-        np.random.seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
-
-    # -- 设备 ---------------------------------------------------------
-    if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    dev = torch.device(device)
-    dtype = torch.float32
-
-    # -- 准备张量 ----------------------------------------------------
-    t_tensor, amp, phase_init = _shaping_tensors(
-        torch, target, source_amplitude, initial_phase, H, W, dev, dtype
-    )
-
-    if n_candidates == 1:
-        phase = torch.nn.Parameter(phase_init.clone())
-    else:
-        if initial_phase is None:
-            # 每候选独立小噪声起点: 模型内并行的价值就是多个不同起点的候选,
-            # 跑完取最优。
-            phase_batch = 0.1 * torch.randn(
-                (n_candidates, H, W), device=dev, dtype=dtype
-            )
-        else:
-            # 显式初相位 + 逐候选微扰: 保留用户起点, 同时保留候选多样性。
-            phase_batch = phase_init.unsqueeze(0) + 0.1 * torch.randn(
-                (n_candidates, H, W), device=dev, dtype=dtype
-            )
-        phase = torch.nn.Parameter(phase_batch)
+    amp, device, phase, t_tensor = _tbs_prepare_candidates(device, grid_size, initial_phase, iterations, n_candidates, optimizer, propagation, seed, source_amplitude, target, torch)
 
     # -- 物理预测模型 ----------------------------------------------------
     forward = _build_forward(propagation, cell_spacing, distance, wavelength)
