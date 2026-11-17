@@ -90,7 +90,7 @@ AO-shaping/
 | `wfless/` | `pib_sim_eval.py` | PIB 仿真离线评估 (`eval_pib_hybrid_sim` / heuristic PIB 报告脚本消费) |
 | `wfless/` | `sim_spgd.py` | 基于 `ao_shaping.sim` 的 SPGD 仿真优化 |
 | `wfless/` | `slm_zernike_primitives.py` | SLM+Zernike 闭环共享原语 (`slm_zernike_pib` 与 `slm_zernike_shaping` 两目标族共用) |
-| `wfless/` | `slm_zernike_pib_gates.py` | SLM+Zernike PIB 闭环的环境鲁棒性门: 差分噪声统计 (`_rolling_sigma`) 与噪声门 (`_noise_gate`, `|diff| <= k·sigma_hat` 时置零更新使系数诚实停滞); 自 `slm_zernike_pib.py` 拆出的纯函数叶子 (上游 `7f1a4b5b`) |
+| `wfless/` | `slm_zernike_pib_gates.py` | SLM+Zernike PIB 闭环的环境鲁棒性门: 差分噪声统计 (`_rolling_sigma`) 与噪声门 (`_noise_gate`: diff 绝对值不超过 k·sigma_hat 时置零更新, 使系数诚实停滞); 自 `slm_zernike_pib.py` 拆出的纯函数叶子 (上游 `7f1a4b5b`) |
 | `wfless/` | `step_b_debug.py` | 可微 Step B 求解的逐迭代调试记录器 (梯度范数/max/RMS、参数更新范数、正向 vs 优化器耗时拆分; 崩溃安全 JSONL + 汇总 JSON + 可选梯度快照 npz; 纯 numpy 叶子模块, 鸭子类型注入) |
 | `wfless/` | `strehl_sim_eval.py` | DM 电压 Strehl 景观离线基准评估 (封装离线物理仿真) |
 
