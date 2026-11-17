@@ -5509,6 +5509,12 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 叶差分: 三区 verbatim=True (30/18/18 行); 新增名仅 3 个 helper
 - 载体: `test_transfer_*` 15 文件 + 形状门禁 **581 passed**; `test_conventions` 72 passed / 1 skipped; ruff/term 绿; modsize baseline 抬高 +24 (validate.py 1439→1463)
 
+**2026-11-17 · bc3a2e62 之后 · 第 134 批: `_run_spgd_session` 196→44 行 + 整环提取 (`wfless/slm_zernike_pib.py`)**
+- 提取 `_spgd_epoch_loop` 156 行 (32 参数 3 回传 `_n_fold_gated/_n_noise_gated/_n_peak_gated`, 逐 epoch ABBA 采样 + fold/peak 门 + 梯度更新整环; 环内 2 处 continue 与 1 处 break 均被环自身绑定, b117 豁免路径)
+- `_n_fold_gated` 本是父函数入参且环内条件自增 (risk=1), 走 ⑳ 型强制参数 (`_fp`) 重绑传回
+- 叶差分: verbatim=True (153 行); ⚠️ 校验教训: **逐字校验的 dedent 必须复刻生成器规则** (`ln.strip() and ln.startswith(" "*strip)`) — 原文件有 0 缩进的裸 `)` 续行, 校验脚本条件写松会把该行剥空成假差异; 区域 base 缩进要**实测** (本区 16, 目测 8 是错的)
+- 载体: `test_slm_zernike_pib_loop` + `production_sim` + `heuristic` + 形状门禁 **491 passed**; **wfless 域逐文件 55/55 全绿** (聚合 OOM 既有, 逐文件口径同 b127); ruff/term 绿; modsize baseline 抬高 (slm_zernike_pib.py +34)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
