@@ -1,0 +1,913 @@
+{
+  "generated_utc": "2026-11-17T11:55:21.843291+00:00",
+  "script": "scripts/slm/issue235_model_fill_diagnostic_20261117.py",
+  "session": "data\\debug\\square1000_model_diag_20261117_140741",
+  "reproduce": "python scripts/slm/issue235_model_fill_diagnostic_20261117.py --session data/debug/square1000_model_diag_20261117_140741 --out data/debug/issue235_model_fill_20261117",
+  "model": {
+    "seed_run": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\multishape_nogs_20261030\\square1000_bandlimit_live_20261030_v2",
+    "seed_key": "F_blur4_full",
+    "checkpoint": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\multishape_nogs_20261030\\p20261030_s1000_square_plane_formation\\model640\\frozen_parameters.json",
+    "exposure_ms": 0.1,
+    "grid_size": 640,
+    "fft_size": 2048,
+    "pixel_samples": 3,
+    "origin_xy": [
+      1265.6748046875,
+      941.1221923828125
+    ],
+    "amplitude_center_xy": [
+      965.0271606445312,
+      909.919189453125
+    ],
+    "amplitude_width_xy": [
+      352.2467041015625,
+      132.7224884033203
+    ],
+    "defocus_diopter": -0.024394165724515915,
+    "sigma_ccd_px": 0.0,
+    "phase_sign": 1.0,
+    "gain": 151.34001879768866,
+    "background": 0.20488380901047326,
+    "bias_counts": 0.5508316560205649,
+    "bias_over_exposure": 5.508316560205649,
+    "floor_counts": 5.713200369216122
+  },
+  "bbox": {
+    "rows": [
+      436,
+      1451
+    ],
+    "cols": [
+      1416,
+      2419
+    ],
+    "source": "half-max footprint of the frozen anchor prediction"
+  },
+  "q1": {
+    "target_frame": 0,
+    "gate": {
+      "anchor": {
+        "mean_abs_gray": 0.0,
+        "max_abs_gray": 0,
+        "fraction_exact": 1.0,
+        "mean_abs_phase_rad": 0.0,
+        "lsb_phase_rad": 0.00614192112138767
+      },
+      "N4+": {
+        "mean_abs_gray": 0.0,
+        "max_abs_gray": 0,
+        "fraction_exact": 1.0,
+        "mean_abs_phase_rad": 0.0,
+        "lsb_phase_rad": 0.00614192112138767
+      },
+      "N4-": {
+        "mean_abs_gray": 0.0,
+        "max_abs_gray": 0,
+        "fraction_exact": 1.0,
+        "mean_abs_phase_rad": 0.0,
+        "lsb_phase_rad": 0.00614192112138767
+      }
+    },
+    "frames": [
+      {
+        "index": 0,
+        "role": "A",
+        "measured": {
+          "peak_rc": [
+            1107,
+            1225
+          ],
+          "peak_counts_raw": 1814.6,
+          "peak_counts_signal": 1799.6,
+          "floor_counts": 15.0,
+          "signal_total": 2827609.1999999993,
+          "power_within_50px": 0.25706352914681424,
+          "power_within_100px": 0.27525175685522607,
+          "power_in_bbox": 0.12853501820548613,
+          "mean_inside_bbox": 15.238053720611575,
+          "mean_outside_bbox": 15.461385996777258,
+          "cv_inside_bbox": 0.03993685614097673,
+          "pixels_above_half_max": 194,
+          "fwhm_x_px": 18.455623186184766,
+          "fwhm_y_px": 14.592737482647408
+        },
+        "predicted": {
+          "peak_rc": [
+            1424,
+            1921
+          ],
+          "peak_counts_raw": 5.7608232498168945,
+          "peak_counts_signal": 0.047622880600772355,
+          "floor_counts": 5.713200369216122,
+          "signal_total": 46484.03580915005,
+          "power_within_50px": 0.007098550653039579,
+          "power_within_100px": 0.024323225415666283,
+          "power_in_bbox": 0.9898132841171324,
+          "mean_inside_bbox": 5.758395342074172,
+          "mean_outside_bbox": 5.713318136653591,
+          "cv_inside_bbox": 0.0010737353070676805,
+          "pixels_above_half_max": 990239,
+          "fwhm_x_px": 991.2828430184454,
+          "fwhm_y_px": 998.5531691220646
+        },
+        "comparison": {
+          "pearson": -0.010136830745933637,
+          "cosine": 0.016130402628771932,
+          "measured_signal_total": 2827609.1999999993,
+          "predicted_signal_total": 46484.03580915005
+        }
+      },
+      {
+        "index": 2,
+        "role": "N4+",
+        "measured": {
+          "peak_rc": [
+            1107,
+            1225
+          ],
+          "peak_counts_raw": 1865.4,
+          "peak_counts_signal": 1850.4,
+          "floor_counts": 15.0,
+          "signal_total": 2838986.9999999995,
+          "power_within_50px": 0.25911502941013825,
+          "power_within_100px": 0.27728637010313895,
+          "power_in_bbox": 0.12779290641344956,
+          "mean_inside_bbox": 15.236800730812492,
+          "mean_outside_bbox": 15.4628810712686,
+          "cv_inside_bbox": 0.04005743865735417,
+          "pixels_above_half_max": 193,
+          "fwhm_x_px": 18.426698481116773,
+          "fwhm_y_px": 14.50362057594316
+        },
+        "predicted": {
+          "peak_rc": [
+            1424,
+            1921
+          ],
+          "peak_counts_raw": 5.760763168334961,
+          "peak_counts_signal": 0.04756279911883876,
+          "floor_counts": 5.713200369216122,
+          "signal_total": 46484.03724586041,
+          "power_within_50px": 0.007105039748862054,
+          "power_within_100px": 0.02433278683946452,
+          "power_in_bbox": 0.9897389110047342,
+          "mean_inside_bbox": 5.758391947587237,
+          "mean_outside_bbox": 5.7133189964761595,
+          "cv_inside_bbox": 0.0010676533202005384,
+          "pixels_above_half_max": 990614,
+          "fwhm_x_px": 991.4043938350667,
+          "fwhm_y_px": 998.8150472367065
+        },
+        "comparison": {
+          "pearson": -0.01011078217635589,
+          "cosine": 0.01581918104108091,
+          "measured_signal_total": 2838986.9999999995,
+          "predicted_signal_total": 46484.03724586041
+        }
+      },
+      {
+        "index": 3,
+        "role": "N4-",
+        "measured": {
+          "peak_rc": [
+            1106,
+            1223
+          ],
+          "peak_counts_raw": 1685.8,
+          "peak_counts_signal": 1670.8,
+          "floor_counts": 15.0,
+          "signal_total": 2794666.1999999993,
+          "power_within_50px": 0.24831037066251424,
+          "power_within_100px": 0.26455596020734085,
+          "power_in_bbox": 0.12915431545992861,
+          "mean_inside_bbox": 15.235204141270769,
+          "mean_outside_bbox": 15.451733049343627,
+          "cv_inside_bbox": 0.03969909824161234,
+          "pixels_above_half_max": 202,
+          "fwhm_x_px": 19.669492881138922,
+          "fwhm_y_px": 13.901029645586505
+        },
+        "predicted": {
+          "peak_rc": [
+            1424,
+            1921
+          ],
+          "peak_counts_raw": 5.7608842849731445,
+          "peak_counts_signal": 0.047683915757022355,
+          "floor_counts": 5.713200369216122,
+          "signal_total": 46484.037162890745,
+          "power_within_50px": 0.007092059325654558,
+          "power_within_100px": 0.02431367099463958,
+          "power_in_bbox": 0.9898865185886233,
+          "mean_inside_bbox": 5.7583986872837105,
+          "mean_outside_bbox": 5.71331729000179,
+          "cv_inside_bbox": 0.0010798375724686477,
+          "pixels_above_half_max": 989842,
+          "fwhm_x_px": 991.1583379624553,
+          "fwhm_y_px": 998.2902059449049
+        },
+        "comparison": {
+          "pearson": -0.010443456035109752,
+          "cosine": 0.01684836705291456,
+          "measured_signal_total": 2794666.1999999993,
+          "predicted_signal_total": 46484.037162890745
+        }
+      }
+    ],
+    "verdict": "the frozen model does NOT predict the measured point-like concentration: it puts 0.007099 of its signal within +/-50 px and 990239 pixels above half max, versus 0.2571 and 194 measured; whole-plane Pearson is -0.0101."
+  },
+  "q2": {
+    "target": {
+      "power_within_50px": 0.25706352914681424,
+      "pixels_above_half_max": 194,
+      "fwhm_x_px": 18.455623186184766,
+      "fwhm_y_px": 14.592737482647408
+    },
+    "sweeps": [
+      {
+        "name": "phase_scale",
+        "frozen": 1.0,
+        "unit": "x frozen command phase",
+        "plausibility": "refit fitted 0.9992 (fwdmodel_fit_20261117.md, marginal dPearson 0.0019). The required value would sit outside the fitted [0.90, 1.10].",
+        "points": [
+          {
+            "value": 0.9,
+            "factor": 0.9,
+            "power_within_50px": 0.008478606549963515,
+            "pixels_above_half_max": 798830,
+            "peak_counts_signal": 0.0598828407753329,
+            "fwhm_x_px": 890.0768100874905,
+            "fwhm_y_px": 896.8776864461154,
+            "power_ratio": 0.03298253384330225,
+            "halfmax_ratio": 4117.680412371134,
+            "score": 11.734822412197861
+          },
+          {
+            "value": 0.95,
+            "factor": 0.95,
+            "power_within_50px": 0.007738003478369339,
+            "pixels_above_half_max": 891992,
+            "peak_counts_signal": 0.053221425675235245,
+            "fwhm_x_px": 940.7705486403356,
+            "fwhm_y_px": 947.7239656816425,
+            "power_ratio": 0.03010152200139603,
+            "halfmax_ratio": 4597.896907216495,
+            "score": 11.936533827523967
+          },
+          {
+            "value": 0.98,
+            "factor": 0.98,
+            "power_within_50px": 0.007258809109959423,
+            "pixels_above_half_max": 950283,
+            "peak_counts_signal": 0.04975481953509853,
+            "fwhm_x_px": 970.7397522407059,
+            "fwhm_y_px": 978.2215700562524,
+            "power_ratio": 0.02823741327309705,
+            "halfmax_ratio": 4898.365979381443,
+            "score": 12.063764423419006
+          },
+          {
+            "value": 1.0,
+            "factor": 1.0,
+            "power_within_50px": 0.007098550653039579,
+            "pixels_above_half_max": 990239,
+            "peak_counts_signal": 0.047622880600772355,
+            "fwhm_x_px": 991.2828430184454,
+            "fwhm_y_px": 998.5531691220646,
+            "power_ratio": 0.027613993617062075,
+            "halfmax_ratio": 5104.3247422680415,
+            "score": 12.127276067689975
+          },
+          {
+            "value": 1.03,
+            "factor": 1.03,
+            "power_within_50px": 0.00664616156815233,
+            "pixels_above_half_max": 1051288,
+            "peak_counts_signal": 0.04491778340228603,
+            "fwhm_x_px": 1021.3707879407559,
+            "fwhm_y_px": 1028.9619142162533,
+            "power_ratio": 0.025854159826602906,
+            "halfmax_ratio": 5419.01030927835,
+            "score": 12.252952247244943
+          },
+          {
+            "value": 1.05,
+            "factor": 1.05,
+            "power_within_50px": 0.006338649691879473,
+            "pixels_above_half_max": 1093047,
+            "peak_counts_signal": 0.04325505223163173,
+            "fwhm_x_px": 1040.9055947721304,
+            "fwhm_y_px": 1049.2278864897005,
+            "power_ratio": 0.024657911267760353,
+            "halfmax_ratio": 5634.262886597938,
+            "score": 12.3392790941453
+          },
+          {
+            "value": 1.1,
+            "factor": 1.1,
+            "power_within_50px": 0.005631127592246032,
+            "pixels_above_half_max": 1200717,
+            "peak_counts_signal": 0.03950568165668056,
+            "fwhm_x_px": 1070.139961416013,
+            "fwhm_y_px": 1099.8876310500561,
+            "power_ratio": 0.021905587350082554,
+            "halfmax_ratio": 6189.262886597938,
+            "score": 12.551584821821933
+          }
+        ],
+        "best_scanned": {
+          "value": 0.9,
+          "factor": 0.9,
+          "power_within_50px": 0.008478606549963515,
+          "pixels_above_half_max": 798830,
+          "peak_counts_signal": 0.0598828407753329,
+          "fwhm_x_px": 890.0768100874905,
+          "fwhm_y_px": 896.8776864461154,
+          "power_ratio": 0.03298253384330225,
+          "halfmax_ratio": 4117.680412371134,
+          "score": 11.734822412197861
+        },
+        "refined": null,
+        "reproducing_value": 0.9,
+        "reproducing_factor": 0.9,
+        "reproducing_power_ratio": 0.03298253384330225,
+        "reproducing_halfmax_ratio": 4117.680412371134,
+        "reproduces_measurement": false,
+        "at_scan_boundary": true
+      },
+      {
+        "name": "amplitude_width_x_px",
+        "frozen": 352.2467041015625,
+        "unit": "panel px (1/e amplitude radius, y keeps the frozen aspect)",
+        "plausibility": "not fitted by the refit (fixed at the checkpoint's (352.25, 132.72)). Values above 960 px no longer fit the panel's half span.",
+        "points": [
+          {
+            "value": 88.06167602539062,
+            "factor": 0.25,
+            "power_within_50px": 0.14445662548670066,
+            "pixels_above_half_max": 46842,
+            "peak_counts_signal": 0.04443284001239345,
+            "fwhm_x_px": 246.97082265481458,
+            "fwhm_y_px": 240.00797775592548,
+            "power_ratio": 0.5619491258295085,
+            "halfmax_ratio": 241.4536082474227,
+            "score": 6.063021312905995
+          },
+          {
+            "value": 176.12335205078125,
+            "factor": 0.5,
+            "power_within_50px": 0.040793526213469024,
+            "pixels_above_half_max": 201816,
+            "peak_counts_signal": 0.047246179245791886,
+            "fwhm_x_px": 494.17496320884266,
+            "fwhm_y_px": 502.0669353052217,
+            "power_ratio": 0.15869044647780825,
+            "halfmax_ratio": 1040.2886597938145,
+            "score": 8.788053363006846
+          },
+          {
+            "value": 352.2467041015625,
+            "factor": 1.0,
+            "power_within_50px": 0.007098550653039579,
+            "pixels_above_half_max": 990239,
+            "peak_counts_signal": 0.047622880600772355,
+            "fwhm_x_px": 991.2828430184454,
+            "fwhm_y_px": 998.5531691220646,
+            "power_ratio": 0.027613993617062075,
+            "halfmax_ratio": 5104.3247422680415,
+            "score": 12.127276067689975
+          },
+          {
+            "value": 704.493408203125,
+            "factor": 2.0,
+            "power_within_50px": 0.043951392613675234,
+            "pixels_above_half_max": 885,
+            "peak_counts_signal": 11.006919107102238,
+            "fwhm_x_px": 25.845673907761693,
+            "fwhm_y_px": 13.090208975526139,
+            "power_ratio": 0.17097482773829692,
+            "halfmax_ratio": 4.561855670103093,
+            "score": 3.2839684254687658
+          },
+          {
+            "value": 1408.98681640625,
+            "factor": 4.0,
+            "power_within_50px": 0.11886263872802773,
+            "pixels_above_half_max": 210,
+            "peak_counts_signal": 269.7898819061745,
+            "fwhm_x_px": 11.180456639830481,
+            "fwhm_y_px": 11.687282326072136,
+            "power_ratio": 0.4623862401738943,
+            "halfmax_ratio": 1.0824742268041236,
+            "score": 0.8506040911302685
+          },
+          {
+            "value": 2817.9736328125,
+            "factor": 8.0,
+            "power_within_50px": 0.18500271547050717,
+            "pixels_above_half_max": 161,
+            "peak_counts_signal": 1192.9568435760964,
+            "fwhm_x_px": 8.95300767534036,
+            "fwhm_y_px": 11.49109126846588,
+            "power_ratio": 0.719677023358877,
+            "halfmax_ratio": 0.8298969072164949,
+            "score": 0.5154065403606366
+          }
+        ],
+        "best_scanned": {
+          "value": 2817.9736328125,
+          "factor": 8.0,
+          "power_within_50px": 0.18500271547050717,
+          "pixels_above_half_max": 161,
+          "peak_counts_signal": 1192.9568435760964,
+          "fwhm_x_px": 8.95300767534036,
+          "fwhm_y_px": 11.49109126846588,
+          "power_ratio": 0.719677023358877,
+          "halfmax_ratio": 0.8298969072164949,
+          "score": 0.5154065403606366
+        },
+        "refined": null,
+        "reproducing_value": 2817.9736328125,
+        "reproducing_factor": 8.0,
+        "reproducing_power_ratio": 0.719677023358877,
+        "reproducing_halfmax_ratio": 0.8298969072164949,
+        "reproduces_measurement": false,
+        "at_scan_boundary": true
+      },
+      {
+        "name": "sigma_ccd_px",
+        "frozen": 0.0,
+        "unit": "CCD px (Gaussian blur sigma)",
+        "plausibility": "refit blur_ccd_px 2.15. Blur only spreads power, so it cannot turn a 1000 px square into a 16 px spot; a negative value is undefined.",
+        "points": [
+          {
+            "value": 0.0,
+            "factor": null,
+            "power_within_50px": 0.007098550653039579,
+            "pixels_above_half_max": 990239,
+            "peak_counts_signal": 0.047622880600772355,
+            "fwhm_x_px": 991.2828430184454,
+            "fwhm_y_px": 998.5531691220646,
+            "power_ratio": 0.027613993617062075,
+            "halfmax_ratio": 5104.3247422680415,
+            "score": 12.127276067689975
+          },
+          {
+            "value": 1.0,
+            "factor": null,
+            "power_within_50px": 0.007098549410032365,
+            "pixels_above_half_max": 990242,
+            "peak_counts_signal": 0.047620019577823136,
+            "fwhm_x_px": 991.2717084605038,
+            "fwhm_y_px": 998.5564852194705,
+            "power_ratio": 0.027613988781653418,
+            "halfmax_ratio": 5104.340206185567,
+            "score": 12.127279272364234
+          },
+          {
+            "value": 2.15,
+            "factor": null,
+            "power_within_50px": 0.007098544931317735,
+            "pixels_above_half_max": 990263,
+            "peak_counts_signal": 0.047607621811709855,
+            "fwhm_x_px": 991.2233486870764,
+            "fwhm_y_px": 998.5708565546438,
+            "power_ratio": 0.027613971359055023,
+            "halfmax_ratio": 5104.448453608247,
+            "score": 12.127301110010645
+          },
+          {
+            "value": 4.0,
+            "factor": null,
+            "power_within_50px": 0.0070985396065160414,
+            "pixels_above_half_max": 990319,
+            "peak_counts_signal": 0.0475685211647372,
+            "fwhm_x_px": 991.0816851296522,
+            "fwhm_y_px": 998.6125686289847,
+            "power_ratio": 0.027613950645102674,
+            "halfmax_ratio": 5104.737113402062,
+            "score": 12.127358409171318
+          },
+          {
+            "value": 8.0,
+            "factor": null,
+            "power_within_50px": 0.007303463557784816,
+            "pixels_above_half_max": 990528,
+            "peak_counts_signal": 0.04742499318011806,
+            "fwhm_x_px": 991.4474964992708,
+            "fwhm_y_px": 998.756079577935,
+            "power_ratio": 0.028411123048161603,
+            "halfmax_ratio": 5105.81443298969,
+            "score": 12.099109808076108
+          },
+          {
+            "value": 16.0,
+            "factor": null,
+            "power_within_50px": 0.010395013879981123,
+            "pixels_above_half_max": 990602,
+            "peak_counts_signal": 0.047389230393252824,
+            "fwhm_x_px": 992.6676384123982,
+            "fwhm_y_px": 998.9136252547588,
+            "power_ratio": 0.04043752886487572,
+            "halfmax_ratio": 5106.19587628866,
+            "score": 11.746206951956033
+          }
+        ],
+        "best_scanned": {
+          "value": 16.0,
+          "factor": null,
+          "power_within_50px": 0.010395013879981123,
+          "pixels_above_half_max": 990602,
+          "peak_counts_signal": 0.047389230393252824,
+          "fwhm_x_px": 992.6676384123982,
+          "fwhm_y_px": 998.9136252547588,
+          "power_ratio": 0.04043752886487572,
+          "halfmax_ratio": 5106.19587628866,
+          "score": 11.746206951956033
+        },
+        "refined": null,
+        "reproducing_value": 16.0,
+        "reproducing_factor": null,
+        "reproducing_power_ratio": 0.04043752886487572,
+        "reproducing_halfmax_ratio": 5106.19587628866,
+        "reproduces_measurement": false,
+        "at_scan_boundary": true
+      },
+      {
+        "name": "defocus_diopter",
+        "frozen": -0.024394165724515915,
+        "unit": "diopter",
+        "plausibility": "checkpoint value -0.0244 diopter (frozen_parameters.json). Extra defocus adds curvature/blur and cannot concentrate the square.",
+        "points": [
+          {
+            "value": 0.0,
+            "factor": null,
+            "power_within_50px": 0.010325449150263448,
+            "pixels_above_half_max": 1003216,
+            "peak_counts_signal": 0.04712315525897548,
+            "fwhm_x_px": 995.8003078405729,
+            "fwhm_y_px": 1008.5002175423108,
+            "power_ratio": 0.04016691587691684,
+            "halfmax_ratio": 5171.216494845361,
+            "score": 11.765574848967816
+          },
+          {
+            "value": -0.0244,
+            "factor": null,
+            "power_within_50px": 0.007098489355315233,
+            "pixels_above_half_max": 990235,
+            "peak_counts_signal": 0.04762383427508876,
+            "fwhm_x_px": 991.2812072461691,
+            "fwhm_y_px": 998.5504000936983,
+            "power_ratio": 0.02761375516346055,
+            "halfmax_ratio": 5104.30412371134,
+            "score": 12.127280663535279
+          },
+          {
+            "value": -0.05,
+            "factor": null,
+            "power_within_50px": 0.006749759902438724,
+            "pixels_above_half_max": 973034,
+            "peak_counts_signal": 0.051268300675235245,
+            "fwhm_x_px": 981.1136900231575,
+            "fwhm_y_px": 987.0136539282644,
+            "power_ratio": 0.026257166564393496,
+            "halfmax_ratio": 5015.639175257732,
+            "score": 12.160132460196694
+          },
+          {
+            "value": -0.1,
+            "factor": null,
+            "power_within_50px": 0.007192946543235129,
+            "pixels_above_half_max": 937344,
+            "peak_counts_signal": 0.061638078354678605,
+            "fwhm_x_px": 967.1461894825875,
+            "fwhm_y_px": 964.0474133430673,
+            "power_ratio": 0.027981202028573605,
+            "halfmax_ratio": 4831.670103092783,
+            "score": 12.0591698143071
+          },
+          {
+            "value": -0.25,
+            "factor": null,
+            "power_within_50px": 0.007408477502853078,
+            "pixels_above_half_max": 421279,
+            "peak_counts_signal": 0.10192223515399501,
+            "fwhm_x_px": 566.6239103147891,
+            "fwhm_y_px": 899.6893146438922,
+            "power_ratio": 0.028819636637844277,
+            "halfmax_ratio": 2171.541237113402,
+            "score": 11.229890738422014
+          },
+          {
+            "value": -0.5,
+            "factor": null,
+            "power_within_50px": 0.010408163863690343,
+            "pixels_above_half_max": 36229,
+            "peak_counts_signal": 0.17035361256488368,
+            "fwhm_x_px": 596.3940630313691,
+            "fwhm_y_px": 22.97203589021001,
+            "power_ratio": 0.04048868347149326,
+            "halfmax_ratio": 186.74742268041237,
+            "score": 8.436489787381364
+          },
+          {
+            "value": -1.0,
+            "factor": null,
+            "power_within_50px": 0.01794477167619965,
+            "pixels_above_half_max": 28278,
+            "peak_counts_signal": 0.3318411919105868,
+            "fwhm_x_px": 419.27902112669176,
+            "fwhm_y_px": 25.47916948565944,
+            "power_ratio": 0.06980675841399121,
+            "halfmax_ratio": 145.76288659793815,
+            "score": 7.644005685574198
+          }
+        ],
+        "best_scanned": {
+          "value": -1.0,
+          "factor": null,
+          "power_within_50px": 0.01794477167619965,
+          "pixels_above_half_max": 28278,
+          "peak_counts_signal": 0.3318411919105868,
+          "fwhm_x_px": 419.27902112669176,
+          "fwhm_y_px": 25.47916948565944,
+          "power_ratio": 0.06980675841399121,
+          "halfmax_ratio": 145.76288659793815,
+          "score": 7.644005685574198
+        },
+        "refined": null,
+        "reproducing_value": -1.0,
+        "reproducing_factor": null,
+        "reproducing_power_ratio": 0.06980675841399121,
+        "reproducing_halfmax_ratio": 145.76288659793815,
+        "reproduces_measurement": false,
+        "at_scan_boundary": true
+      },
+      {
+        "name": "far_field_pixel_scale",
+        "frozen": 1.0,
+        "unit": "x frozen CCD px per far-field sample",
+        "plausibility": "refit scale_px 2.009 CCD px/sample at 2x padding (geometric 1.9698); the frozen model samples 3.94 CCD px/sample at full-panel width. A required factor far below 1 means sub-CCD-pixel sampling.",
+        "points": [
+          {
+            "value": 1.0,
+            "factor": 1.0,
+            "power_within_50px": 0.007098550653039579,
+            "pixels_above_half_max": 990239,
+            "peak_counts_signal": 0.047622880600772355,
+            "fwhm_x_px": 991.2828430184454,
+            "fwhm_y_px": 998.5531691220646,
+            "power_ratio": 0.027613993617062075,
+            "halfmax_ratio": 5104.3247422680415,
+            "score": 12.127276067689975
+          },
+          {
+            "value": 0.7071067811865476,
+            "factor": 0.7071067811865476,
+            "power_within_50px": 0.012980252659935014,
+            "pixels_above_half_max": 495122,
+            "peak_counts_signal": 0.047624311112246964,
+            "fwhm_x_px": 700.7258472760375,
+            "fwhm_y_px": 706.0856341463254,
+            "power_ratio": 0.0504943377343961,
+            "halfmax_ratio": 2552.175257731959,
+            "score": 10.830595389825103
+          },
+          {
+            "value": 0.5,
+            "factor": 0.5,
+            "power_within_50px": 0.024369847827045807,
+            "pixels_above_half_max": 247568,
+            "peak_counts_signal": 0.04761906590350673,
+            "fwhm_x_px": 495.4109679584376,
+            "fwhm_y_px": 499.2805599825721,
+            "power_ratio": 0.09480087629672153,
+            "halfmax_ratio": 1276.1237113402062,
+            "score": 9.507559037793705
+          },
+          {
+            "value": 0.3535533905932738,
+            "factor": 0.3535533905932738,
+            "power_within_50px": 0.04670327625315058,
+            "pixels_above_half_max": 123782,
+            "peak_counts_signal": 0.0476142975319247,
+            "fwhm_x_px": 350.39146666341935,
+            "fwhm_y_px": 353.0494653757647,
+            "power_ratio": 0.1816798999381876,
+            "halfmax_ratio": 638.0515463917526,
+            "score": 8.163928005742164
+          },
+          {
+            "value": 0.25,
+            "factor": 0.25,
+            "power_within_50px": 0.09037031734377722,
+            "pixels_above_half_max": 61899,
+            "peak_counts_signal": 0.04760571446307704,
+            "fwhm_x_px": 247.72660694183446,
+            "fwhm_y_px": 249.65200829144385,
+            "power_ratio": 0.35154857495232195,
+            "halfmax_ratio": 319.0670103092784,
+            "score": 6.810808528348273
+          },
+          {
+            "value": 0.1767766952966369,
+            "factor": 0.1767766952966369,
+            "power_within_50px": 0.1749083003616955,
+            "pixels_above_half_max": 30950,
+            "peak_counts_signal": 0.04754229512103603,
+            "fwhm_x_px": 174.83903430009013,
+            "fwhm_y_px": 176.5209846363931,
+            "power_ratio": 0.6804088504589143,
+            "halfmax_ratio": 159.53608247422682,
+            "score": 5.457331529865294
+          },
+          {
+            "value": 0.125,
+            "factor": 0.125,
+            "power_within_50px": 0.343045869988531,
+            "pixels_above_half_max": 15474,
+            "peak_counts_signal": 0.04750271763690517,
+            "fwhm_x_px": 123.73026186230004,
+            "fwhm_y_px": 124.83051156991132,
+            "power_ratio": 1.3344789559494863,
+            "halfmax_ratio": 79.76288659793815,
+            "score": 4.667599236544377
+          },
+          {
+            "value": 0.08838834764831845,
+            "factor": 0.08838834764831845,
+            "power_within_50px": 0.5914092511697203,
+            "pixels_above_half_max": 7739,
+            "peak_counts_signal": 0.047482690476260636,
+            "fwhm_x_px": 87.67528911901331,
+            "fwhm_y_px": 88.24706769751651,
+            "power_ratio": 2.300634606288138,
+            "halfmax_ratio": 39.891752577319586,
+            "score": 4.519354600861929
+          },
+          {
+            "value": 0.0625,
+            "factor": 0.0625,
+            "power_within_50px": 0.9944843117736406,
+            "pixels_above_half_max": 3866,
+            "peak_counts_signal": 0.04740544285663173,
+            "fwhm_x_px": 62.04153049101046,
+            "fwhm_y_px": 62.42130613838356,
+            "power_ratio": 3.868632454686601,
+            "halfmax_ratio": 19.927835051546392,
+            "score": 4.3450185744144205
+          },
+          {
+            "value": 0.04419417382415922,
+            "factor": 0.04419417382415922,
+            "power_within_50px": 0.989039303168745,
+            "pixels_above_half_max": 1943,
+            "peak_counts_signal": 0.04739018406756923,
+            "fwhm_x_px": 43.8937001644058,
+            "fwhm_y_px": 44.14736383227955,
+            "power_ratio": 3.847450886756808,
+            "halfmax_ratio": 10.015463917525773,
+            "score": 3.651541111988048
+          },
+          {
+            "value": 0.03125,
+            "factor": 0.03125,
+            "power_within_50px": 0.9783292046313502,
+            "pixels_above_half_max": 963,
+            "peak_counts_signal": 0.04738684620746181,
+            "fwhm_x_px": 31.018592635309005,
+            "fwhm_y_px": 31.165602241618103,
+            "power_ratio": 3.805787650540682,
+            "halfmax_ratio": 4.963917525773196,
+            "score": 2.9387182267103364
+          },
+          {
+            "value": 0.02209708691207961,
+            "factor": 0.02209708691207961,
+            "power_within_50px": 0.9575855995871655,
+            "pixels_above_half_max": 481,
+            "peak_counts_signal": 0.04738827671893642,
+            "fwhm_x_px": 21.910451154805514,
+            "fwhm_y_px": 22.08616071280585,
+            "power_ratio": 3.725093181305656,
+            "halfmax_ratio": 2.479381443298969,
+            "score": 2.2231009776766957
+          },
+          {
+            "value": 0.015625,
+            "factor": 0.015625,
+            "power_within_50px": 0.9186021718287183,
+            "pixels_above_half_max": 230,
+            "peak_counts_signal": 0.047409257553897355,
+            "fwhm_x_px": 15.39400468863846,
+            "fwhm_y_px": 15.476516510444753,
+            "power_ratio": 3.573444178867107,
+            "halfmax_ratio": 1.1855670103092784,
+            "score": 1.443751036558644
+          },
+          {
+            "value": 0.011048543456039806,
+            "factor": 0.011048543456039806,
+            "power_within_50px": 0.849599919338359,
+            "pixels_above_half_max": 121,
+            "peak_counts_signal": 0.047410688065371964,
+            "fwhm_x_px": 10.957392210212674,
+            "fwhm_y_px": 11.037126957733108,
+            "power_ratio": 3.305019277367561,
+            "halfmax_ratio": 0.6237113402061856,
+            "score": 1.6675099195422007
+          },
+          {
+            "value": 0.0078125,
+            "factor": 0.0078125,
+            "power_within_50px": 0.7405203898238437,
+            "pixels_above_half_max": 62,
+            "peak_counts_signal": 0.04736395802386806,
+            "fwhm_x_px": 7.74714763876932,
+            "fwhm_y_px": 7.917146362777771,
+            "power_ratio": 2.8806902024632106,
+            "halfmax_ratio": 0.31958762886597936,
+            "score": 2.1987536930868057
+          }
+        ],
+        "best_scanned": {
+          "value": 0.015625,
+          "factor": 0.015625,
+          "power_within_50px": 0.9186021718287183,
+          "pixels_above_half_max": 230,
+          "peak_counts_signal": 0.047409257553897355,
+          "fwhm_x_px": 15.39400468863846,
+          "fwhm_y_px": 15.476516510444753,
+          "power_ratio": 3.573444178867107,
+          "halfmax_ratio": 1.1855670103092784,
+          "score": 1.443751036558644
+        },
+        "refined": {
+          "value": 0.01419505949437039,
+          "factor": 0.01419505949437039,
+          "power_within_50px": 0.9029989383140838,
+          "pixels_above_half_max": 202,
+          "power_ratio": 3.512746212234419,
+          "halfmax_ratio": 1.041237113402062,
+          "score": 1.2968076665509292
+        },
+        "reproducing_value": 0.01419505949437039,
+        "reproducing_factor": 0.01419505949437039,
+        "reproducing_power_ratio": 3.512746212234419,
+        "reproducing_halfmax_ratio": 1.041237113402062,
+        "reproduces_measurement": false,
+        "at_scan_boundary": false
+      }
+    ],
+    "verdict": "no single parameter reproduces the measured power within +/-50 px (0.2571) and half-max pixel count (194) inside the scanned ranges.  Closest near-misses, each moving one number but not both: amplitude_width_x_px at 2818 (8x) still gives power 0.185 (ratio 0.7197) and half-max 161 px (ratio 0.8299); far_field_pixel_scale at 0.0142 (0.0142x) still gives power 0.9186 (ratio 3.513) and half-max 230 px (ratio 1.041)."
+  },
+  "q3": {
+    "constants": {
+      "laser_wavelength_m": 1.064e-06,
+      "laser_wavelength_source": "src/ao_shaping/utils/slm/bench_constants.py:53",
+      "slm_pixel_pitch_m": 8e-06,
+      "slm_pixel_pitch_source": "src/ao_shaping/utils/slm/bench_constants.py:50",
+      "focal_length_m": 0.125,
+      "focal_length_source": "src/ao_shaping/tools/slm/panel/target_size.py:224 (DEFAULT_SYSTEM.focal_m)",
+      "ccd_pixel_pitch_m": 2.2e-06,
+      "ccd_pixel_pitch_source": "src/ao_shaping/tools/slm/panel/target_size.py:227 (DEFAULT_SYSTEM.camera_pixel_m)"
+    },
+    "far_field_sample_m": 8.658854166666668e-06,
+    "far_field_sample_ccd_px": 3.9358428030303036,
+    "k_theory_ccd_px_per_2pi_per_panel_px": 7556.818181818183,
+    "k_calib_x": 7551.141568012036,
+    "k_calib_y": 7576.669164768378,
+    "k_calib_mean": 7563.905366390207,
+    "k_theory_vs_calib_relative_error": 0.0009369742518878481,
+    "geometry_calib_source": "data\\slm_geometry_calib.npz",
+    "measured_fwhm_px": 18.455623186184766,
+    "measured_fwhm_um": 40.60237100960649,
+    "implied_gaussian_width_px": 153.45749843215543,
+    "implied_square_side_px": 362.739592141438,
+    "candidates": {
+      "full_panel_gaussian_width_960px": {
+        "fwhm_px": 2.950160173081667
+      },
+      "full_panel_square_side_1920px": {
+        "fwhm_px": 3.486763139204546
+      },
+      "amplitude_width_x_352px": {
+        "fwhm_px": 8.040256257893615
+      },
+      "amplitude_width_y_133px": {
+        "fwhm_px": 21.338914066758605
+      }
+    },
+    "implication": "Measured x-FWHM 18.46 px = 40.6 um.  A full 1920 px square pupil focuses to 3.49 px and a 960 px Gaussian (1/e^2 amplitude radius) to 2.95 px, i.e. 5.3x narrower than the measurement.  Inverting the same relation gives an effective square side of 363 px (Gaussian width 153 px), 19% of the panel -- not a full panel.  The frozen ``amplitude_width`` (352.2, 132.7) px predicts 8.04 px (x) and 21.34 px (y); the measured 18.46 px sits 2.30x above the x prediction and 1.16x below the y one, so the spot scale is that of a few-hundred-px pupil.  The analytic scale 7556.8 agrees with the stored calibration 7563.9 to 0.09%.",
+    "verdict": "the measured spot does NOT imply a full panel: a 1920 px square pupil would focus to 3.49 px FWHM, 5.3x narrower than the measured 18.46 px; the measured spot inverts to an effective square side of 362.7 px (19% of the panel) or a Gaussian width of 153.5 px, the scale of the frozen amplitude_width (352.2, 132.7) px rather than panel-sized illumination."
+  },
+  "assumed_constants": [
+    "lambda = 1064 nm: repo constant (bench_constants.py:53), not assumed.",
+    "SLM pixel pitch = 8 um: repo constant (bench_constants.py:50), not assumed.",
+    "f = 0.125 m: repo default (target_size.py:224), not assumed.",
+    "CCD pixel pitch = 2.2 um: repo default (target_size.py:227), not assumed.",
+    "The FWHM coefficients 0.3748 (Gaussian) and 0.8859 (square) are analytic, not fitted to this bench."
+  ],
+  "markdown": "# Issue #235 model-fill diagnostic (2026-11-17)\n\n- Session: `data\\debug\\square1000_model_diag_20261117_140741`\n- Script: `scripts/slm/issue235_model_fill_diagnostic_20261117.py`\n- Model floor at 0.1 ms: 5.713 counts (background 0.2049 + bias/exposure 5.508)\n- Predicted/measured planes: 1944x2592 native pixels\n\n## Q1 - does the frozen model predict the measured concentration?\n\nDisplayed-phase gate (rebuilt panel gray vs archived `panel_gray`): mean |diff| 0 gray levels, max 0; equivalent 0 rad (one LSB = 0.00614 rad).\n\n| frame | role | power within +/-50 px (meas / pred) | pixels above half max (meas / pred) | FWHM x,y meas (px) | FWHM x,y pred (px) | Pearson | cosine |\n|---|---|---:|---:|---:|---:|---:|---:|\n| 0 | A | 0.2571 / 0.007099 | 194 / 990239 | 18.46, 14.59 | 991.3, 998.6 | -0.0101 | 0.0161 |\n| 2 | N4+ | 0.2591 / 0.007105 | 193 / 990614 | 18.43, 14.5 | 991.4, 998.8 | -0.0101 | 0.0158 |\n| 3 | N4- | 0.2483 / 0.007092 | 202 / 989842 | 19.67, 13.9 | 991.2, 998.3 | -0.0104 | 0.0168 |\n\nDenominators: ``power_*`` is a fraction of each plane's own floor-subtracted signal (measured floor 15 counts, model floor 5.7132 counts).  The measured spot rides on a broad halo that extends past +/-50 px, so its fraction measures relative concentration rather than a compact energy budget, whereas the model's signal is the square itself: 0.9898 of it falls inside the 1015 x 1003 px predicted footprint.\n\nVerdict: **the frozen model does NOT predict the measured point-like concentration: it puts 0.007099 of its signal within +/-50 px and 990239 pixels above half max, versus 0.2571 and 194 measured; whole-plane Pearson is -0.0101.**\n\n## Q2 - which single parameter could reproduce the measurement?\n\nTarget (measured anchor 0): power within +/-50 px 0.2571, pixels above half max 194.\n\n| parameter | frozen | required value | factor | pred +/-50 px | pred half-max px | ratio (power, half-max) | reproduces? | plausibility |\n|---|---:|---:|---:|---:|---:|---:|---|---|\n| phase_scale | 1 x frozen command phase | 0.9 (scan bound) | 0.9 | 0.008479 | 798830 | 0.03298, 4118 | no | refit fitted 0.9992 (fwdmodel_fit_20261117.md, marginal dPearson 0.0019). The required value would sit outside the fitted [0.90, 1.10]. |\n| amplitude_width_x_px | 352.2 panel px | 2818 (scan bound) | 8 | 0.185 | 161 | 0.7197, 0.8299 | no | not fitted by the refit (fixed at the checkpoint's (352.25, 132.72)). Values above 960 px no longer fit the panel's half span. |\n| sigma_ccd_px | 0 CCD px | 16 (scan bound) | n/a | 0.0104 | 990602 | 0.04044, 5106 | no | refit blur_ccd_px 2.15. Blur only spreads power, so it cannot turn a 1000 px square into a 16 px spot; a negative value is undefined. |\n| defocus_diopter | -0.02439 diopter | -1 (scan bound) | n/a | 0.01794 | 28278 | 0.06981, 145.8 | no | checkpoint value -0.0244 diopter (frozen_parameters.json). Extra defocus adds curvature/blur and cannot concentrate the square. |\n| far_field_pixel_scale | 1 x frozen CCD px per far-field sample | 0.0142 | 0.0142 | 0.9186 | 230 | 3.513, 1.041 | no | refit scale_px 2.009 CCD px/sample at 2x padding (geometric 1.9698); the frozen model samples 3.94 CCD px/sample at full-panel width. A required factor far below 1 means sub-CCD-pixel sampling. |\n\nVerdict: **no single parameter reproduces the measured power within +/-50 px (0.2571) and half-max pixel count (194) inside the scanned ranges.  Closest near-misses, each moving one number but not both: amplitude_width_x_px at 2818 (8x) still gives power 0.185 (ratio 0.7197) and half-max 161 px (ratio 0.8299); far_field_pixel_scale at 0.0142 (0.0142x) still gives power 0.9186 (ratio 3.513) and half-max 230 px (ratio 1.041).**\n\n## Q3 - does the measured spot imply a full-panel pupil?\n\nMeasured spot FWHM: 18.46 px (40.6 um).\n\nOne full-panel DFT sample = lambda*f/(N*p) = 8.66e-06 m = 3.94 CCD px; K = lambda*f/(p*p_cam) = 7557 vs calibration 7564 (relative error 0.000937).\n\n| candidate pupil | predicted FWHM (px) |\n|---|---:|\n| full panel, Gaussian width 960 px | 2.95 |\n| full panel, square side 1920 px | 3.49 |\n| amplitude_width x = 352 px | 8.04 |\n| amplitude_width y = 133 px | 21.3 |\n\nInverted: Gaussian width 153.5 px, square side 362.7 px.\n\nMeasured x-FWHM 18.46 px = 40.6 um.  A full 1920 px square pupil focuses to 3.49 px and a 960 px Gaussian (1/e^2 amplitude radius) to 2.95 px, i.e. 5.3x narrower than the measurement.  Inverting the same relation gives an effective square side of 363 px (Gaussian width 153 px), 19% of the panel -- not a full panel.  The frozen ``amplitude_width`` (352.2, 132.7) px predicts 8.04 px (x) and 21.34 px (y); the measured 18.46 px sits 2.30x above the x prediction and 1.16x below the y one, so the spot scale is that of a few-hundred-px pupil.  The analytic scale 7556.8 agrees with the stored calibration 7563.9 to 0.09%.\n\nVerdict: **the measured spot does NOT imply a full panel: a 1920 px square pupil would focus to 3.49 px FWHM, 5.3x narrower than the measured 18.46 px; the measured spot inverts to an effective square side of 362.7 px (19% of the panel) or a Gaussian width of 153.5 px, the scale of the frozen amplitude_width (352.2, 132.7) px rather than panel-sized illumination.**\n\n## Provenance\n\n- Command: `python scripts/slm/issue235_model_fill_diagnostic_20261117.py --session data/debug/square1000_model_diag_20261117_140741 --out data/debug/issue235_model_fill_20261117`\n- Generated (UTC): 2026-11-17T11:55:21.843291+00:00\n- All numbers above are keys in the sibling JSON.\n"
+}

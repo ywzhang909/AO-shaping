@@ -202,7 +202,7 @@ REPORTS: dict[str, ReportProvenance] = {
     ),
     "report/shape_trials/model_direction_hw_20261117/model_direction_hw_20261117.md": ReportProvenance(
         script=HANDWRITTEN,
-        environment="离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-17 上机采集；报告本体不占用设备）",
+        environment="离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-17 实验采集；报告本体不占用设备）",
         note=(
             "冻结模型 14 帧方向诊断（data/debug/square1000_model_diag_20261117_140741）、"
             "窗口对照（win0/win163）、M3 以实测峰为中心复核（m3_peak_centred_20261117.json）、"
@@ -218,6 +218,31 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/issue235_knife_baseline_fit_20261117.py",
             "scripts/slm/issue235_beam_centre_differential_20261117.py",
             "scripts/slm/issue235_panel_gray_inversion_20261117.py",
+        ),
+    ),
+    "report/shape_trials/issue235_model_fill_diagnostic_20261117/issue235_model_fill_diagnostic_20261117.md": ReportProvenance(
+        script="scripts/slm/issue235_model_fill_diagnostic_20261117.py",
+        environment="离线（回放 2026-11-17 14:07–14:09 已采集的 14 帧会话；本次分析未占用 SLM/相机/激光）",
+        note=(
+            "#235 冻结模型整幅形态诊断（Q1–Q3）：在同一坐标系（整幅原生平面 1944×2592，实测帧与模型预测同公式）"
+            "量化冻结 model640 前向与实测的形态差。Q1 集中度不可预测（显示相位门禁 0 diff，模型预测满幅平顶、实测点状，"
+            "整幅 Pearson ≈ −0.010）；Q2 单参数扫描（phase_scale / amplitude_width / sigma_ccd / defocus / 像素尺度）"
+            "无一能同时复现实测的功率与半高像素数；Q3 反解表明实测光斑隐含有效照明口径 ~363 px，与冻结包络 (352, 133) px 同量级，"
+            "即问题不在口径量级，而在照明包络→远场的形态映射。数字全部由脚本读取 diagnostic.json 渲染。"
+        ),
+        extra_scripts=(
+            "scripts/slm/square_1000_model_diagnostic_20261030.py",
+        ),
+    ),
+    "report/shape_trials/issue235_model_fill_diagnostic_20261117/summary.md": ReportProvenance(
+        script="scripts/slm/issue235_model_fill_diagnostic_20261117.py",
+        environment="离线（回放 2026-11-17 14:07–14:09 已采集的 14 帧会话；本次分析未占用 SLM/相机/激光）",
+        note=(
+            "#235 诊断报告的可读摘要（脚本自动生成）：Q1–Q3 结论要点与关键数字，"
+            "数字全部来自同目录 diagnostic.json。与正式报告 issue235_model_fill_diagnostic_20261117.md 同源。"
+        ),
+        extra_scripts=(
+            "scripts/slm/square_1000_model_diagnostic_20261030.py",
         ),
     ),
     "report/shape_trials/model_optim_efficiency_20261116/model_optim_efficiency_20261116.md": ReportProvenance(
