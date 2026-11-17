@@ -5410,6 +5410,13 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 门禁: 新增常量 `_TABU` + 行 `run_search` 95/1/82、`_evaluate_search_candidates` 88/2/74; ruff/term 绿
 - CI: ci120 已启动 (b119 da535a8c) 轮询中
 
+**2026-11-17 · a4403883 之后 · 第 121 批: `render_sidebar` 289→37 行 (`gui/zernike/zernike_response_matrix_ui.py`)**
+- 提取: 四个 section 助手 `_render_calibration_params_section` 83 / `_render_wfs_params_section` 92 / `_render_slm_params_section` 47 / `_render_device_connection_section` 46 (全部 st.* 控件块逐区提取; 前三者 0 参数 0 回传, 第四个 1 参数 `col1`——区内先 `col1, col2 = st.columns(2)` 重绑后使用, 传入值不被读取, 语义逐字节保持)
+- 叶差分: 22 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中; 模块 1604→1636 baseline 抬高 +32
+- 载体: `test_zernike_response_matrix_ui` + 形状门禁 **442 passed**; `gui/zernike` 逐文件域 **22 passed**; `test_conventions` 72 passed
+- 环境限制: `gui` 全域 17 收集错误 = 容器无 `PySide6` (CI 有该依赖、master 全绿), 与本次改动无关
+- 门禁: `render_sidebar` 收紧 319/4/289→45/3/37 + 新增四条 section 行; ruff/term 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
