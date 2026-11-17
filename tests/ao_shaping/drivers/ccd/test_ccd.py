@@ -158,11 +158,18 @@ def test_exposure_time_difference_manual(cam_id=0):
     ratio = mean_500ms / mean_50ms if mean_50ms > 0 else float("inf")
     print(f"Brightness ratio: {ratio:.2f}x")
 
+    # 削顶时 imshow 只画白块: 打印削顶比例, 并让两帧共用按 50 ms 帧 p99.5 定的
+    # 显示窗, 结构才能在同一量纲下比较 (核心若仍是平的, 那是真实削顶, 不是显示问题).
+    sat_50 = _saturated_fraction(img_50ms)
+    sat_500 = _saturated_fraction(img_500ms)
+    print(f"Saturated fraction: 50ms={sat_50:.4%}, 500ms={sat_500:.4%}")
+    display_max = max(1.0, float(np.percentile(img_50ms, 99.5)))
+
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    axes[0].imshow(img_50ms, cmap="gray")
-    axes[0].set_title(f"50ms exposure (mean={mean_50ms:.1f})")
-    axes[1].imshow(img_500ms, cmap="gray")
-    axes[1].set_title(f"500ms exposure (mean={mean_500ms:.1f})")
+    axes[0].imshow(img_50ms, cmap="gray", vmin=0, vmax=display_max)
+    axes[0].set_title(f"50ms exposure (mean={mean_50ms:.1f}, sat={sat_50:.2%})")
+    axes[1].imshow(img_500ms, cmap="gray", vmin=0, vmax=display_max)
+    axes[1].set_title(f"500ms exposure (mean={mean_500ms:.1f}, sat={sat_500:.2%})")
     plt.tight_layout()
     plt.show()
 
