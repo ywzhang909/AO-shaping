@@ -298,65 +298,191 @@ def _calibration_worker(
         stop_event.set()
 
 
+
+def _slm_cal_render_device_connection(col1):
+# Device connection section lifted verbatim
+    st.divider()
+
+    # Device connection
+    st.subheader("设备连接")
+
+    # 两个连接按钮里「连接SLM」是唯一 primary：它是整页的起点（没它，标定
+    # 按钮根本不渲染）。「连接相机」是同级并列的第二步，降为描边 secondary，
+    # 避免同屏两个 primary 互相抢注意力（Issue #215 规则 6）。
+    st.write("**SLM**")
+    col1, col2 = st.columns(2)
+    with col1:
+        if not st.session_state.slm_cal_slm_connected:
+            if st.button("连接SLM", type="primary", key="slm_cal_connect_slm"):
+                connect_slm()
+        else:
+            st.success("SLM已连接")
+            if st.button("断开SLM", key="slm_cal_disconnect_slm"):
+                disconnect_slm()
+
+    st.write("**相机**")
+    col1, col2 = st.columns(2)
+    with col1:
+        if not st.session_state.slm_cal_camera_connected:
+            if st.button(
+                "连接相机",
+                type="secondary",
+                key="slm_cal_connect_cam",
+            ):
+                connect_camera()
+        else:
+            st.success("相机已连接")
+            if st.button("断开相机", key="slm_cal_disconnect_cam"):
+                disconnect_camera()
+    return 
+
+
+
+
+def _slm_cal_render_auto_exposure(col1, col2):
+# Auto exposure section lifted verbatim
+    st.subheader("自动曝光")
+    st.session_state.slm_cal_auto_exposure = st.checkbox(
+        "启用自动曝光",
+        value=st.session_state.slm_cal_auto_exposure,
+        help="在标定前自动调整相机曝光时间",
+    )
+
+    if st.session_state.slm_cal_auto_exposure:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.session_state.slm_cal_target_min = st.number_input(
+                "目标最小值",
+                min_value=10,
+                max_value=200,
+                value=st.session_state.slm_cal_target_min,
+                step=5,
+            )
+        with col2:
+            st.session_state.slm_cal_target_max = st.number_input(
+                "目标最大值",
+                min_value=10,
+                max_value=250,
+                value=st.session_state.slm_cal_target_max,
+                step=5,
+            )
+    return col1
+
+
+
+
+def _slm_cal_render_roi_section(col1, col2):
+# ROI section lifted verbatim
+    st.subheader("感兴趣区域 (ROI)")
+    roi_auto = st.checkbox(
+        "自动检测光斑中心",
+        value=widget_default("slm_cal_roi_auto", True),
+        key="slm_cal_roi_auto",
+        help="启用后自动寻找最亮点作为ROI中心",
+    )
+
+    if roi_auto:
+        st.caption("将自动检测光斑中心")
+    else:
+        col1, col2 = st.columns(2)
+        with col1:
+            roi_x = st.number_input(
+                "ROI中心 X",
+                min_value=0,
+                max_value=1920,
+                value=960,
+                step=10,
+                key="slm_cal_roi_x_input",
+            )
+        with col2:
+            roi_y = st.number_input(
+                "ROI中心 Y",
+                min_value=0,
+                max_value=1080,
+                value=540,
+                step=10,
+                key="slm_cal_roi_y_input",
+            )
+        st.session_state.slm_cal_roi_center = (roi_x, roi_y)
+
+    st.session_state.slm_cal_roi_size = st.number_input(
+        "ROI大小",
+        min_value=10,
+        max_value=500,
+        value=st.session_state.slm_cal_roi_size,
+        step=10,
+    )
+    return col2
+
+
+
+
+def _slm_cal_render_storage_and_method():
+# Storage and method section lifted verbatim
+    st.subheader("存储设置")
+    st.session_state.slm_cal_storage_dir = st.text_input(
+        "存储目录",
+        value=st.session_state.slm_cal_storage_dir,
+        help="标定结果保存目录",
+    )
+
+    # Calibration method selection
+    st.subheader("标定方法")
+    method_labels = {
+        CalibrationMethod.BLAZED_GRATING.value: "闪耀光栅法 (Blazed Grating)",
+        CalibrationMethod.INTERFEROMETER.value: "干涉法 (Interferometer)",
+        CalibrationMethod.DIFFRACTION_EFFICIENCY.value: "衍射效率法 (Diffraction Efficiency)",
+        CalibrationMethod.TWIN_BEAM.value: "双光束法 (Twin Beam)",
+    }
+    st.session_state.slm_cal_method = st.selectbox(
+        "标定方法",
+        options=[m.value for m in CalibrationMethod],
+        format_func=lambda x: method_labels.get(x, x) or x,
+        index=0,
+        help="选择SLM相位-灰度响应标定方法",
+    )
+
+    # 任务级分隔线 1/2：任务选择（存储 / 方法） → 设备与标定参数。
+    st.divider()
+
+    # SLM settings
+    st.subheader("SLM参数")
+    st.session_state.slm_cal_slm_number = st.number_input(
+        "SLM编号",
+        min_value=1,
+        max_value=8,
+        value=st.session_state.slm_cal_slm_number,
+        step=1,
+    )
+
+    st.session_state.slm_cal_wavelength = st.number_input(
+        "波长 (nm)",
+        min_value=450,
+        max_value=1600,
+        value=st.session_state.slm_cal_wavelength,
+        step=1,
+    )
+
+    # 相机参数与 SLM 参数同属「设备参数」区块，区块内不画线（靠小标题分层）。
+    st.subheader("相机参数")
+    st.session_state.slm_cal_exposure_time = st.number_input(
+        "曝光时间 (ms)",
+        min_value=1,
+        max_value=1000,
+        value=st.session_state.slm_cal_exposure_time,
+        step=1,
+    )
+    return 
+
+
+
 def render_sidebar() -> None:
     """Render sidebar configuration."""
     with st.sidebar:
         st.header("SLM LUT 标定")
 
         # Storage directory
-        st.subheader("存储设置")
-        st.session_state.slm_cal_storage_dir = st.text_input(
-            "存储目录",
-            value=st.session_state.slm_cal_storage_dir,
-            help="标定结果保存目录",
-        )
-
-        # Calibration method selection
-        st.subheader("标定方法")
-        method_labels = {
-            CalibrationMethod.BLAZED_GRATING.value: "闪耀光栅法 (Blazed Grating)",
-            CalibrationMethod.INTERFEROMETER.value: "干涉法 (Interferometer)",
-            CalibrationMethod.DIFFRACTION_EFFICIENCY.value: "衍射效率法 (Diffraction Efficiency)",
-            CalibrationMethod.TWIN_BEAM.value: "双光束法 (Twin Beam)",
-        }
-        st.session_state.slm_cal_method = st.selectbox(
-            "标定方法",
-            options=[m.value for m in CalibrationMethod],
-            format_func=lambda x: method_labels.get(x, x) or x,
-            index=0,
-            help="选择SLM相位-灰度响应标定方法",
-        )
-
-        # 任务级分隔线 1/2：任务选择（存储 / 方法） → 设备与标定参数。
-        st.divider()
-
-        # SLM settings
-        st.subheader("SLM参数")
-        st.session_state.slm_cal_slm_number = st.number_input(
-            "SLM编号",
-            min_value=1,
-            max_value=8,
-            value=st.session_state.slm_cal_slm_number,
-            step=1,
-        )
-
-        st.session_state.slm_cal_wavelength = st.number_input(
-            "波长 (nm)",
-            min_value=450,
-            max_value=1600,
-            value=st.session_state.slm_cal_wavelength,
-            step=1,
-        )
-
-        # 相机参数与 SLM 参数同属「设备参数」区块，区块内不画线（靠小标题分层）。
-        st.subheader("相机参数")
-        st.session_state.slm_cal_exposure_time = st.number_input(
-            "曝光时间 (ms)",
-            min_value=1,
-            max_value=1000,
-            value=st.session_state.slm_cal_exposure_time,
-            step=1,
-        )
+        _slm_cal_render_storage_and_method()
 
         # 标定参数与下面 ROI / 自动曝光同属「标定参数」区块，区块内不画线。
         st.subheader("标定参数")
@@ -421,107 +547,13 @@ def render_sidebar() -> None:
         )
 
         # ROI settings（「标定参数」区块内，不画线）
-        st.subheader("感兴趣区域 (ROI)")
-        roi_auto = st.checkbox(
-            "自动检测光斑中心",
-            value=widget_default("slm_cal_roi_auto", True),
-            key="slm_cal_roi_auto",
-            help="启用后自动寻找最亮点作为ROI中心",
-        )
-
-        if roi_auto:
-            st.caption("将自动检测光斑中心")
-        else:
-            col1, col2 = st.columns(2)
-            with col1:
-                roi_x = st.number_input(
-                    "ROI中心 X",
-                    min_value=0,
-                    max_value=1920,
-                    value=960,
-                    step=10,
-                    key="slm_cal_roi_x_input",
-                )
-            with col2:
-                roi_y = st.number_input(
-                    "ROI中心 Y",
-                    min_value=0,
-                    max_value=1080,
-                    value=540,
-                    step=10,
-                    key="slm_cal_roi_y_input",
-                )
-            st.session_state.slm_cal_roi_center = (roi_x, roi_y)
-
-        st.session_state.slm_cal_roi_size = st.number_input(
-            "ROI大小",
-            min_value=10,
-            max_value=500,
-            value=st.session_state.slm_cal_roi_size,
-            step=10,
-        )
+        col2 = _slm_cal_render_roi_section(col1, col2)
 
         # Auto-exposure settings（「标定参数」区块内，不画线）
-        st.subheader("自动曝光")
-        st.session_state.slm_cal_auto_exposure = st.checkbox(
-            "启用自动曝光",
-            value=st.session_state.slm_cal_auto_exposure,
-            help="在标定前自动调整相机曝光时间",
-        )
-
-        if st.session_state.slm_cal_auto_exposure:
-            col1, col2 = st.columns(2)
-            with col1:
-                st.session_state.slm_cal_target_min = st.number_input(
-                    "目标最小值",
-                    min_value=10,
-                    max_value=200,
-                    value=st.session_state.slm_cal_target_min,
-                    step=5,
-                )
-            with col2:
-                st.session_state.slm_cal_target_max = st.number_input(
-                    "目标最大值",
-                    min_value=10,
-                    max_value=250,
-                    value=st.session_state.slm_cal_target_max,
-                    step=5,
-                )
+        col1 = _slm_cal_render_auto_exposure(col1, col2)
 
         # 任务级分隔线 2/2：参数设置 → 设备连接（连不连得上，决定上面那些参数能不能用）
-        st.divider()
-
-        # Device connection
-        st.subheader("设备连接")
-
-        # 两个连接按钮里「连接SLM」是唯一 primary：它是整页的起点（没它，标定
-        # 按钮根本不渲染）。「连接相机」是同级并列的第二步，降为描边 secondary，
-        # 避免同屏两个 primary 互相抢注意力（Issue #215 规则 6）。
-        st.write("**SLM**")
-        col1, col2 = st.columns(2)
-        with col1:
-            if not st.session_state.slm_cal_slm_connected:
-                if st.button("连接SLM", type="primary", key="slm_cal_connect_slm"):
-                    connect_slm()
-            else:
-                st.success("SLM已连接")
-                if st.button("断开SLM", key="slm_cal_disconnect_slm"):
-                    disconnect_slm()
-
-        st.write("**相机**")
-        col1, col2 = st.columns(2)
-        with col1:
-            if not st.session_state.slm_cal_camera_connected:
-                if st.button(
-                    "连接相机",
-                    type="secondary",
-                    key="slm_cal_connect_cam",
-                ):
-                    connect_camera()
-            else:
-                st.success("相机已连接")
-                if st.button("断开相机", key="slm_cal_disconnect_cam"):
-                    disconnect_camera()
+        _slm_cal_render_device_connection(col1)
 
 
 @st.fragment(run_every=0.5)

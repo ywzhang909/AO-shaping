@@ -22,7 +22,7 @@
   "src/ao_shaping/gui/slm/multishape_campaign_ui.py": 946,
   "src/ao_shaping/gui/slm/pattern_controls.py": 1294,
   "src/ao_shaping/gui/slm/shaping_controls.py": 2823,
-  "src/ao_shaping/gui/slm/slm_calibration_ui.py": 849,
+  "src/ao_shaping/gui/slm/slm_calibration_ui.py": 881,
   "src/ao_shaping/gui/slm/transfer_desktop/archive_replay.py": 1833,
   "src/ao_shaping/gui/slm/transfer_desktop/page.py": 2941,
   "src/ao_shaping/gui/slm/transfer_progress.py": 1367,

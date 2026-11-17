@@ -5436,6 +5436,13 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: `test_micro_dm_threads` + 形状门禁 **442 passed**; `test_conventions` 72 passed
 - 门禁: `_tab1_fragment` 收紧 250/7/220→50/2/38 + 新增三条 helper 行; ruff/term 绿
 
+**2026-11-17 · 81a5d6bf 之后 · 第 125 批: `render_sidebar` 224→78 行 (`gui/slm/slm_calibration_ui.py`)**
+- 提取四区: `_slm_cal_render_storage_and_method` 56 / `_slm_cal_render_roi_section` 42 / `_slm_cal_render_auto_exposure` 28 / `_slm_cal_render_device_connection` 36
+- ⚠️ 教训 (新 ㉝): **多区一次 lift 不得跨越"绑定在下区、使用在后区"的名字链**。首轮五区同提把 `col1/col2` 的绑定区(标定参数 `st.columns(2)`)一起提走, 后区调用点变 F821; 回滚后改为**分步 lift + 每步 ruff 复核**, 并**保留绑定区在父级**(ROI/自动曝光助手以 `col1/col2` 入参、回传各自重绑值, 与原文条件分支语义逐字节一致)
+- 叶差分: 12 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中; 模块 849→881 baseline 抬高 +32
+- 载体: `test_slm_calibration_thread_boundary` + 形状门禁 **439 passed**; `test_conventions` 72 passed
+- 门禁: `render_sidebar` 收紧 254/4/224→90/2/78 + 新增四条 helper 行; ruff/term 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
