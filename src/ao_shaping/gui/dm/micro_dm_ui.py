@@ -490,74 +490,10 @@ def _render_waveform_preview(period: float, wave_type: str,
 # Tab 1: 单单元控制
 # =============================================================================
 
-@st.fragment(run_every=0.15)
-def _tab1_fragment():
-    """Tab 1 单单元控制 fragment — 按钮自动刷新 + run_every 实时电压可视化."""
-    _drain_bg_loop(
-        _SINGLE_RUNNING_KEY, _SINGLE_STOP_KEY, _SINGLE_Q_KEY,
-        set_tab1_feedback,
-        sample_sink=_record_single_sample,
-        bounds_ref=st.session_state.get(_SINGLE_BOUNDS_KEY),
-    )
 
-    # ---- 顶部状态栏 ----
-    col_status1, col_status2 = st.columns([1, 4])
-    with col_status1:
-        if st.session_state.mdm_single_connected:
-            st.success("✅ 已连接")
-        else:
-            st.error("❌ 未连接")
-    with col_status2:
-        if st.session_state.mdm_single_connection_error:
-            st.caption(f"错误: {st.session_state.mdm_single_connection_error}")
 
-    show_and_clear_feedback("tab1")
-
-    # ---- 连接配置 ----
-    with st.container(border=True):
-        st.markdown("##### 连接配置")
-        col_ip, col_port, col_test, col_conn = st.columns([3, 1, 1, 1])
-        with col_ip:
-            st.text_input("IP 地址", value=st.session_state.mdm_single_ip,
-                          key="mdm_single_ip")
-        with col_port:
-            st.number_input("端口", min_value=1, max_value=65535,
-                            value=st.session_state.mdm_single_port, step=1,
-                            key="mdm_single_port")
-        with col_test:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("📡 测试连通性", use_container_width=True, key="mdm_single_test_btn"):
-                test_single_connectivity()
-        with col_conn:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if not st.session_state.mdm_single_connected:
-                if st.button("🔌 连接", type="primary", use_container_width=True, key="mdm_single_connect"):
-                    with st.spinner("连接中..."):
-                        connect_single()
-                    st.rerun()
-            else:
-                if st.button("⏏ 断开", use_container_width=True, key="mdm_single_disconnect"):
-                    disconnect_single()
-                    st.rerun()
-
-    # ---- 电压上下限 (两个 Tab 共享) ----
-    with st.container(border=True):
-        # tab1 fragment 每 0.15s 轮询, 不写回共享状态 (由 tab2 负责写回)
-        render_voltage_limits("single", write_back=False)
-
-    # ---- 通道选择 ----
-    col_ch1, col_ch2 = st.columns([2, 2])
-    with col_ch1:
-        channel = st.number_input(
-            "通道号", min_value=0, max_value=SINGLE_CHANNELS - 1,
-            value=st.session_state.mdm_single_channel, step=1, key="mdm_single_channel",
-        )
-    with col_ch2:
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.checkbox("应用到全部通道 (50)", value=st.session_state.mdm_single_apply_all,
-                    key="mdm_single_apply_all")
-
-    # ---- 发送模式 ----
+def _mdm_tab1_voltage_control_block(channel):
+# Voltage control container lifted verbatim
     with st.container(border=True):
         st.markdown("##### 发送模式")
         mode = st.segmented_control(
@@ -703,6 +639,94 @@ def _tab1_fragment():
                              key="mdm_single_period_stop"):
                     _stop_bg_loop(_SINGLE_RUNNING_KEY, _SINGLE_STOP_KEY)
                     set_tab1_feedback("周期下发已停止", "info")
+    return 
+
+
+
+
+def _mdm_tab1_channel_columns():
+# Channel selection columns lifted verbatim
+    col_ch1, col_ch2 = st.columns([2, 2])
+    with col_ch1:
+        channel = st.number_input(
+            "通道号", min_value=0, max_value=SINGLE_CHANNELS - 1,
+            value=st.session_state.mdm_single_channel, step=1, key="mdm_single_channel",
+        )
+    with col_ch2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.checkbox("应用到全部通道 (50)", value=st.session_state.mdm_single_apply_all,
+                    key="mdm_single_apply_all")
+    return channel
+
+
+
+
+def _mdm_tab1_status_containers():
+# Status containers lifted verbatim
+    with st.container(border=True):
+        st.markdown("##### 连接配置")
+        col_ip, col_port, col_test, col_conn = st.columns([3, 1, 1, 1])
+        with col_ip:
+            st.text_input("IP 地址", value=st.session_state.mdm_single_ip,
+                          key="mdm_single_ip")
+        with col_port:
+            st.number_input("端口", min_value=1, max_value=65535,
+                            value=st.session_state.mdm_single_port, step=1,
+                            key="mdm_single_port")
+        with col_test:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("📡 测试连通性", use_container_width=True, key="mdm_single_test_btn"):
+                test_single_connectivity()
+        with col_conn:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if not st.session_state.mdm_single_connected:
+                if st.button("🔌 连接", type="primary", use_container_width=True, key="mdm_single_connect"):
+                    with st.spinner("连接中..."):
+                        connect_single()
+                    st.rerun()
+            else:
+                if st.button("⏏ 断开", use_container_width=True, key="mdm_single_disconnect"):
+                    disconnect_single()
+                    st.rerun()
+
+    # ---- 电压上下限 (两个 Tab 共享) ----
+    with st.container(border=True):
+        # tab1 fragment 每 0.15s 轮询, 不写回共享状态 (由 tab2 负责写回)
+        render_voltage_limits("single", write_back=False)
+    return 
+
+
+@st.fragment(run_every=0.15)
+def _tab1_fragment():
+    """Tab 1 单单元控制 fragment — 按钮自动刷新 + run_every 实时电压可视化."""
+    _drain_bg_loop(
+        _SINGLE_RUNNING_KEY, _SINGLE_STOP_KEY, _SINGLE_Q_KEY,
+        set_tab1_feedback,
+        sample_sink=_record_single_sample,
+        bounds_ref=st.session_state.get(_SINGLE_BOUNDS_KEY),
+    )
+
+    # ---- 顶部状态栏 ----
+    col_status1, col_status2 = st.columns([1, 4])
+    with col_status1:
+        if st.session_state.mdm_single_connected:
+            st.success("✅ 已连接")
+        else:
+            st.error("❌ 未连接")
+    with col_status2:
+        if st.session_state.mdm_single_connection_error:
+            st.caption(f"错误: {st.session_state.mdm_single_connection_error}")
+
+    show_and_clear_feedback("tab1")
+
+    # ---- 连接配置 ----
+    _mdm_tab1_status_containers()
+
+    # ---- 通道选择 ----
+    channel = _mdm_tab1_channel_columns()
+
+    # ---- 发送模式 ----
+    _mdm_tab1_voltage_control_block(channel)
 
     # ---- 实时电压可视化 ----
     st.divider()

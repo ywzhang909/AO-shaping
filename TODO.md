@@ -5430,6 +5430,12 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: `test_micro_dm_threads` + 形状门禁 **439 passed**; `test_conventions` 72 passed
 - 门禁: `_tab2_fragment` 收紧 309/7/279→160/7/141 + 新增四条 section 行; ruff/term 绿
 
+**2026-11-17 · 592fd051 之后 · 第 124 批: `_tab1_fragment` 220→38 行 (`gui/dm/micro_dm_ui.py`)**
+- 提取三段: `_mdm_tab1_voltage_control_block` 148 (电压控制大容器, 1 参数 `channel`) / `_mdm_tab1_status_containers` 33 (状态容器) / `_mdm_tab1_channel_columns` 13 (通道列, 1 回传 `channel`)
+- 叶差分: 33 同 / 消失 0 / 新增 3; ⑳ 审计 0 命中; 模块 1245→1269 baseline 抬高 +24
+- 载体: `test_micro_dm_threads` + 形状门禁 **442 passed**; `test_conventions` 72 passed
+- 门禁: `_tab1_fragment` 收紧 250/7/220→50/2/38 + 新增三条 helper 行; ruff/term 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
