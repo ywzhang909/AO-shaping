@@ -5687,6 +5687,11 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: square 域 4 测试 (objective_search_sim / zernike_basis / gui_vs_slm_square / convergence_diagnostics) + 形状 + conventions **627 passed**; ruff/term 绿; modsize bump
 - 同批取证: CI run 44178791169 (ci159, b158+b159 head) 第三红 = `scripts/test_hw_forward_model_fidelity_ladder.py::test_signal_floor_spearman_…` (ci156 同款、ci157/ci158 未复现、本地单测×2 + 整文件×1 全绿) → 立案为 shard 状态污染型 flake, 观察 ci160/161/163 是否再现
 
+**2026-11-18 · fd29db73 之后 · 第 164 批: `workflow.main` 165→111 行 (`tools/slm/transfer/workflow.py`)**
+- 提取 `_wf_build_parser` 58 行 (0 参数 1 回传 `parser`: argparse 子命令装配整体, replay/audit/record/doctor/simulate/pretrain 六支 subparser 局部变量不出区)
+- 棘轮: `(_WORKFLOW, "main", 191, 5, 165)` → 122/5/111 + helper 行 64/1/58 (该文件 `_WF`/`_WORKFLOW` 两常量并存, main 族钉在 `_WORKFLOW`)
+- 载体: `test_transfer_workflow` + 形状 + conventions **638 passed / 1 skipped**; ruff 全仓绿; term 0; modsize bump
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

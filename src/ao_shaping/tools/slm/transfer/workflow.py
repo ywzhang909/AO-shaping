@@ -1680,7 +1680,9 @@ def _add_session_commands(commands):
 
 
 
-def main():
+
+def _wf_build_parser():
+# Argparse subcommand parser assembly lifted verbatim
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     _add_session_commands(commands)
@@ -1736,6 +1738,12 @@ def main():
         help="ridge penalty; default is pretrain.DEFAULT_ALPHA",
     )
     pretrain.add_argument("--seed", type=int, default=102419)
+    return parser
+
+
+
+def main():
+    parser = _wf_build_parser()
     args = parser.parse_args()
 
     # The CLI owns its logging: the plan and every stage summary are program output that
