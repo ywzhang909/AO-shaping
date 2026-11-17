@@ -5503,6 +5503,12 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 教训 (新 ㊷): **`sys.modules` 类离线契约测试必须在独立解释器里跑** — pytest 同进程收集 N 个文件后, "本进程没 import 过 X" 的断言度量的是测试顺序而不是被测模块; 名字里带 clean process 的测试就该真起进程
 - 教训 (新 ㊸): **电池比对是收口 `_fmt` 族的硬前提** — 三处本地版与现有 6 规范的两两差异都藏在"不可达也要全等"的电池里 (int×spec / bool / np.float32 / 非数值); 无电池直接 alias 会静默改写报告单元格
 
+**2026-11-17 · 435a126c 之后 · 第 133 批: `validate.run` 212→149 行 (`tools/slm/transfer/validate.py`)**
+- 提取三区: `_validate_param_checks` 33 (1 参数 11 回传, 设备参数与 resume 校验 + 懒导入) / `_validate_runtime_imports` 21 (2 参数 9 回传, 运行时设备导入) / `_validate_recorder_setup` 21 (4 参数 5 回传, Recorder 装配与相机选项)
+- 懒导入回传形态 (b118 先例延伸): 区域内 `from X import Y` 绑定名若被后续区段使用, 按普通回传返回; `build_mod` 补模块 dunder (`__file__` 等) —— 区域里引用 `__file__` 曾被误判需入参 (helper 与父函数同文件, 语义恒等)
+- 叶差分: 三区 verbatim=True (30/18/18 行); 新增名仅 3 个 helper
+- 载体: `test_transfer_*` 15 文件 + 形状门禁 **581 passed**; `test_conventions` 72 passed / 1 skipped; ruff/term 绿; modsize baseline 抬高 +24 (validate.py 1439→1463)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

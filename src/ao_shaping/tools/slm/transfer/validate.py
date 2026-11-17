@@ -300,28 +300,59 @@ def _validate_prepare_shapes(args, aspect_ratio, centre, forward, prepared, seed
 
 
 
-def run(args, *, on_frame=None):
-    """Run the CCD blocks.
 
-    ``on_frame(payload)`` is an optional live observer. It fires **on every CCD
-    read** -- each frame of every anchored capture and every rung of an exposure
-    ladder -- with that frame plus whatever progress is known; see
-    :func:`~ao_shaping.tools.slm.transfer.live_frame.frame_payload`. The CLI /
-    offline path leaves it at ``None`` and is byte-for-byte unchanged.
-    ``workflow`` also passes it on the ``args`` namespace so callers that build a
-    SimpleNamespace need no new call signature.
-    """
-    observer = _resolve_observer(args, on_frame)
-    if getattr(args, "plan_only", False):
-        # Plan mode: no torch, no seed synthesis, no device -- only the derived
-        # work list. It writes plan.json into a *new* directory and returns the
-        # path, so a later reader cannot mistake it for a stage that ran, and a
-        # re-plan cannot silently overwrite an existing one.
-        args.out.mkdir(parents=True, exist_ok=False)
-        plan = session_plan(args)
-        (args.out/"plan.json").write_text(json.dumps(plan, indent=2), encoding="utf-8")
-        logger.info(json.dumps(plan, indent=2))
-        return args.out
+def _validate_recorder_setup(args, bit_depth, records, resume):
+# Recorder and camera option assembly lifted verbatim
+    from ao_shaping.utils.io.file import Recorder
+
+    from . import recording
+
+    recorder = Recorder(mark="cv", mode="min")
+    if resume and (args.out/"capture_records.pkl").is_file():
+        # The process recording is cumulative: a resumed stage appends its own
+        # blocks to the captures already archived instead of exporting a table
+        # that silently starts again from the resumed shape.
+        with (args.out/"capture_records.pkl").open("rb") as stream:
+            records.extend(pickle.load(stream))
+    last_phase: dict[str, np.ndarray] = {}
+    # Off by default: overlapping the npz write with the next capture's SLM
+    # settle changes when the bytes reach the disk, never what they contain --
+    # but a campaign compares lanes against each other, so the choice stays
+    # explicit at the call site instead of becoming an invisible default.
+    writer = _CaptureWriter() if getattr(args, "async_capture_write", False) else None
+    camera_options = {"bit_depth": bit_depth} if args.camera == "daheng" else {}
+    return camera_options, last_phase, recorder, recording, writer
+
+
+
+
+def _validate_runtime_imports(args, resume):
+# Runtime device imports lifted verbatim
+    blocks_for: dict[str, list[int]] = {}
+    if resume:
+        for shape in args.shapes:
+            # The runner gives each shape its own stage directory. Count only
+            # that directory's completed block rows; never use a stage-global
+            # offset or a sibling shape's checkpoint.
+            blocks_for[shape] = remaining_blocks(
+                args.out, int(getattr(args, "blocks", 0)), resume=True)
+    from .hardware import prepare_camera_sdk
+    prepare_camera_sdk(args.camera)
+    from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_ms, get_camera_exposure_range
+    from ao_shaping.drivers.slm.santec import Santec
+    from ao_shaping.tools.slm.panel.focus_probe import adapt_exposure
+    from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
+
+    args.out.mkdir(parents=True, exist_ok=resume)
+    import hashlib
+    abba = bool(getattr(args, "abba", False))
+    return Santec, abba, adapt_exposure, blocks_for, configured_daheng_exposure_limit, create_camera, get_camera_exposure_ms, get_camera_exposure_range, hashlib
+
+
+
+
+def _validate_param_checks(args):
+# Device params and resume validation lifted verbatim
     import torch
     from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
         DifferentiableUniformityOptimizer, FrozenDefocusForward, FrozenDefocusParameters, recentre_window,
@@ -352,6 +383,33 @@ def run(args, *, on_frame=None):
             raise ValueError(f"resume bit depth {bit_depth} differs from recorded {saved_depth}")
     full_scale = float(2**bit_depth - 1)
     counts_scale = float(2**(bit_depth-8))
+    return DifferentiableUniformityOptimizer, FrozenDefocusForward, bit_depth, counts_scale, device, explore_temperature, full_scale, params, recentre_window, resume, torch
+
+
+
+def run(args, *, on_frame=None):
+    """Run the CCD blocks.
+
+    ``on_frame(payload)`` is an optional live observer. It fires **on every CCD
+    read** -- each frame of every anchored capture and every rung of an exposure
+    ladder -- with that frame plus whatever progress is known; see
+    :func:`~ao_shaping.tools.slm.transfer.live_frame.frame_payload`. The CLI /
+    offline path leaves it at ``None`` and is byte-for-byte unchanged.
+    ``workflow`` also passes it on the ``args`` namespace so callers that build a
+    SimpleNamespace need no new call signature.
+    """
+    observer = _resolve_observer(args, on_frame)
+    if getattr(args, "plan_only", False):
+        # Plan mode: no torch, no seed synthesis, no device -- only the derived
+        # work list. It writes plan.json into a *new* directory and returns the
+        # path, so a later reader cannot mistake it for a stage that ran, and a
+        # re-plan cannot silently overwrite an existing one.
+        args.out.mkdir(parents=True, exist_ok=False)
+        plan = session_plan(args)
+        (args.out/"plan.json").write_text(json.dumps(plan, indent=2), encoding="utf-8")
+        logger.info(json.dumps(plan, indent=2))
+        return args.out
+    DifferentiableUniformityOptimizer, FrozenDefocusForward, bit_depth, counts_scale, device, explore_temperature, full_scale, params, recentre_window, resume, torch = _validate_param_checks(args)
     # Carrier displacement uses both camera axes. The target is kept away from zero order.
     # ``tilt`` (共享的 `--tilt`) switches that carrier ramped; with it off the target stays
     # on the zero order and the boundary check below is skipped (no target_xy given).
@@ -372,24 +430,7 @@ def run(args, *, on_frame=None):
         args, aspect_ratio, centre, forward, prepared, seed_provenance, tilt, xy)
     # Resume: slice this stage's block range to the groups it has not measured
     # yet; a fully measured stage measures nothing and only refreshes its record.
-    blocks_for: dict[str, list[int]] = {}
-    if resume:
-        for shape in args.shapes:
-            # The runner gives each shape its own stage directory. Count only
-            # that directory's completed block rows; never use a stage-global
-            # offset or a sibling shape's checkpoint.
-            blocks_for[shape] = remaining_blocks(
-                args.out, int(getattr(args, "blocks", 0)), resume=True)
-    from .hardware import prepare_camera_sdk
-    prepare_camera_sdk(args.camera)
-    from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_ms, get_camera_exposure_range
-    from ao_shaping.drivers.slm.santec import Santec
-    from ao_shaping.tools.slm.panel.focus_probe import adapt_exposure
-    from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
-
-    args.out.mkdir(parents=True, exist_ok=resume)
-    import hashlib
-    abba = bool(getattr(args, "abba", False))
+    Santec, abba, adapt_exposure, blocks_for, configured_daheng_exposure_limit, create_camera, get_camera_exposure_ms, get_camera_exposure_range, hashlib = _validate_runtime_imports(args, resume)
     # Resume: the run directory already exists, so its JSON logs are extended,
     # not replaced. An overwrite would erase the record of the blocks that made
     # the resume necessary.
@@ -444,24 +485,7 @@ def run(args, *, on_frame=None):
     # change since the previous capture of the same shape, and the numbers.
     # Exported after the devices are closed, so a slow GIF render cannot hold
     # the camera or the SLM.
-    from ao_shaping.utils.io.file import Recorder
-
-    from . import recording
-
-    recorder = Recorder(mark="cv", mode="min")
-    if resume and (args.out/"capture_records.pkl").is_file():
-        # The process recording is cumulative: a resumed stage appends its own
-        # blocks to the captures already archived instead of exporting a table
-        # that silently starts again from the resumed shape.
-        with (args.out/"capture_records.pkl").open("rb") as stream:
-            records.extend(pickle.load(stream))
-    last_phase: dict[str, np.ndarray] = {}
-    # Off by default: overlapping the npz write with the next capture's SLM
-    # settle changes when the bytes reach the disk, never what they contain --
-    # but a campaign compares lanes against each other, so the choice stays
-    # explicit at the call site instead of becoming an invisible default.
-    writer = _CaptureWriter() if getattr(args, "async_capture_write", False) else None
-    camera_options = {"bit_depth": bit_depth} if args.camera == "daheng" else {}
+    camera_options, last_phase, recorder, recording, writer = _validate_recorder_setup(args, bit_depth, records, resume)
     _run_validate_session(
         DifferentiableUniformityOptimizer=DifferentiableUniformityOptimizer,
         Santec=Santec,
