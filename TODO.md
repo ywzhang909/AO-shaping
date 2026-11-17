@@ -5465,6 +5465,14 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: `test_combined_optimizer_voltage_reset` + `test_combined_dm_factory` + 形状门禁 **443 passed**; optimizer 顶层域 60 passed; `test_conventions` 72 passed
 - 门禁: `_run_combined_session` 收紧 217/7/188→85/3/77 + 新增 `_comb_run_epochs` 127/4/115; ruff/term 绿
 
+**2026-11-17 · 7c1b2a31 之后 · 第 129 批: `main` 262→124 行 (`gui/ccd/ccd_analyzer.py`)**
+- 提取 `_ccd_render_realtime_panel` 78 行 (实时控件 + 帧预览) 与 `_ccd_render_connection_controls` 68 行 (连接/断开), 均 0 参数 0 回传
+- ⚠️ 教训 (新 ㊲): **区域末尾必须落在最后一条语句的 end_lineno, 空白行会让生成器的 `pristine` 断言炸** (`AssertionError: ('pristine', '_ccd_render_realtime_panel')`); 本批 931:1007 → 931:1005 才通过。另: 侧栏相机设置段 (780:861) 因引用**条件导入**的 `MIICamManager` (不在模块级绑定) 被生成器拒收, 放弃该段
+- 叶差分: 26 同 / 消失 0 / 新增 2; ⑳ 审计 0 命中; 模块 1031→1047 (baseline 抬高 +16, 属 helper 签名/空行开销)
+- 载体: `test_ccd_analyzer_offline` + 形状门禁 **446 passed**; ccd 可导入用例 15 passed; `test_conventions` 72 passed
+- 环境: `tests/ao_shaping/gui/ccd` 4 个收集错误全是容器缺 `PySide6` (既有)
+- 门禁: `main` 收紧 295/4/265→136/4/124 + 新增两 helper 行 88/3/78、78/3/68; ruff/term 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
