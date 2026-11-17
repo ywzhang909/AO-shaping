@@ -392,6 +392,8 @@ TARGETS = [
     (_MIL, "_session_measure_flat", 142, 2, 124),
     (_MIL, "_session_round_state_init", 84, 1, 73),
     (_MIL, "_run_model_in_loop_rounds", 208, 4, 181),
+    (_MIL, "__post_init__", 50, 2, 38),
+    (_MIL, "_validate_mil_scalars", 128, 2, 116),
     (_MIL, "_milr_round_probe_setup", 28, 2, 23),
     (_MIL, "_milr_round_score_after", 12, 1, 9),
     (_MIL, "_milr_step_b_measure", 111, 2, 96),

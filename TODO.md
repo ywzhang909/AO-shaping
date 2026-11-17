@@ -5395,6 +5395,13 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: `test_transfer_workflow` (validate.run fake e2e 驱动到 blocks 段) + 形状门禁 **464 passed**; tools/slm 逐文件域 exit=0; `test_conventions` 72 passed (lift 未移动任何被引用行)
 - 门禁: 棘轮收紧 200/5/181→55/0/45 + 新增 `_validate_block_loop` 160/5/147; ruff/term 绿
 
+**2026-11-17 · e765c8cd 之后 · 第 119 批: `ModelInLoopConfig.__post_init__` 150→38 行 (`wfless/slm_model_in_loop.py`)**
+- 提取: `_validate_mil_scalars` 116 (参数/载波前置校验 113 行 raise 链整体提走, 1 参数 0 回传, 调用点 `_validate_mil_scalars(self)`; helper 落在**类外**模块级——类内方法提取的既定形态, 见 b109 教训)
+- 叶差分: 56 同 / 消失 0 / 新增 1; ⑳ 审计 0 命中; 模块 4172→4180 baseline 抬高 +8
+- 载体: `test_slm_model_in_loop` + `test_model_in_loop_shaping` + `loop_invariants` + 形状门禁 **626 passed**; wfless 逐文件域 exit=0; `test_conventions` 72 passed
+- 门禁: 新增 `__post_init__` 50/2/38 与 `_validate_mil_scalars` 128/2/116; ruff/term 绿
+- CI: ci118 (b117 db8820c8) 0 失败、ci119 (b118 e765c8cd) 0 失败
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

@@ -471,6 +471,126 @@ def _resolve_probe_seeds(
 # ---------------------------------------------------------------------------
 
 
+
+
+def _validate_mil_scalars(self):
+# Scalar and carrier precondition raises lifted verbatim
+    if self.blaze_period_px < -1 or 0 < self.blaze_period_px < BLAZE_PERIOD_MIN_PX:
+        raise ValueError(
+            f"blaze_period_px must be -1 (off), 0 (auto), or >={BLAZE_PERIOD_MIN_PX}"
+        )
+    if self.blaze_direction not in ("vertical", "horizontal"):
+        raise ValueError("blaze_direction must be vertical or horizontal")
+    if self.blaze_period_px >= 0 and self.cam_type == "sim":
+        raise ValueError("blaze calibration requires a full-frame hardware CCD")
+    if self.focus_compensation and self.cam_type == "sim":
+        # The digital twin is in focus by construction (its forward model
+        # is a plain FFT), so a Fresnel focus phase would *defocus* it.
+        # Accepting the flag as a silent no-op would be worse than saying
+        # so.
+        raise ValueError(
+            "focus_compensation is a hardware-only stage: the simulated "
+            "bench is already in focus, so the focus phase would defocus it"
+        )
+    if self.n_rounds < 1:
+        raise ValueError(f"n_rounds must be >= 1, got {self.n_rounds}")
+    if self.probe_count < 2:
+        # One probe is not a degenerate case, it is a broken configuration:
+        # the non-convex fit has no phase diversity to escape local minima.
+        raise ValueError(
+            f"probe_count must be >= 2 (a single probe cannot identify the "
+            f"aberration), got {self.probe_count}"
+        )
+    if self.holdout_probe_count < 1:
+        raise ValueError("holdout_probe_count must be >= 1")
+    if self.freeform_holdout_count < 0:
+        raise ValueError("freeform_holdout_count must be >= 0")
+    if not -1 <= self.min_holdout_correlation <= 1:
+        raise ValueError("min_holdout_correlation must lie in [-1, 1]")
+    if self.probe_spread < 3.0:
+        raise ValueError(
+            f"probe_spread must be >= 3.0 rad for the fit to be identifiable "
+            f"(a near-flat pupil's focus barely responds to a smooth "
+            f"low-order aberration), got {self.probe_spread}"
+        )
+    if self.step_a_iterations < 0 or self.step_b_iterations < 1:
+        raise ValueError(
+            "step_a_iterations must be >= 0 and step_b_iterations must be >= 1"
+        )
+    if not math.isfinite(self.max_cv_regression) or self.max_cv_regression < 0:
+        raise ValueError("max_cv_regression must be finite and non-negative")
+    if not 0.0 < self.damp_lr_factor < 1.0:
+        raise ValueError(
+            f"damp_lr_factor must lie in (0, 1), got {self.damp_lr_factor}"
+        )
+    if self.target_side < 1:
+        raise ValueError(f"target_side must be >= 1, got {self.target_side}")
+    # Single vocabulary (issue #199 P1): the end-to-end supported set of this
+    # chain -- non-square targets are scored through
+    # ``differentiable_shaping.create_target_mask``, whose geometry mapping
+    # covers exactly DIFFERENTIABLE_SHAPE_CHOICES (a subset view of the
+    # canonical TARGET_SHAPE_CHOICES).
+    if self.target_shape not in DIFFERENTIABLE_SHAPE_CHOICES:
+        raise ValueError(
+            f"unsupported target_shape: {self.target_shape}; must be one of "
+            f"{DIFFERENTIABLE_SHAPE_CHOICES}"
+        )
+    if self.region < 2:
+        raise ValueError(f"region must be >= 2, got {self.region}")
+    if self.n_orders < 1:
+        raise ValueError(f"n_orders must be >= 1, got {self.n_orders}")
+    if self.far_field_padding < 1:
+        raise ValueError(
+            f"far_field_padding must be >= 1, got {self.far_field_padding}"
+        )
+    if self.pupil_oversampling not in (1, 2, 4):
+        raise ValueError("pupil_oversampling must be 1, 2 or 4")
+    if not math.isfinite(self.fourier_weight) or self.fourier_weight < 0.0:
+        raise ValueError("fourier_weight must be finite and non-negative")
+    if self.loss_kind not in ("mse", "l1"):
+        raise ValueError(f"loss_kind must be 'mse' or 'l1', got {self.loss_kind!r}")
+    if not math.isfinite(self.selfcal_lr) or self.selfcal_lr <= 0.0:
+        raise ValueError("selfcal_lr must be a positive finite float")
+    if not math.isfinite(self.selfcal_theta_step_max):
+        raise ValueError("selfcal_theta_step_max must be finite")
+    if not math.isfinite(self.selfcal_gamma_step_max):
+        raise ValueError("selfcal_gamma_step_max must be finite")
+    if self.panel_span_px <= 0:
+        raise ValueError(f"panel_span_px must be > 0, got {self.panel_span_px}")
+    if self.cam_type == "daheng" and (
+        not math.isfinite(self.max_exposure_ms)
+        or self.max_exposure_ms < 0
+        or not math.isfinite(self.exposure_time_ms)
+        or self.exposure_time_ms < 0
+        or (
+            self.max_exposure_ms > 0
+            and self.exposure_time_ms > self.max_exposure_ms
+        )
+    ):
+        raise ValueError(
+            "Daheng exposure_time_ms must be non-negative and may not exceed a "
+            "positive max_exposure_ms (0 = auto: AO_DAHENG_MAX_EXPOSURE_MS, "
+            "else probed from the CCD image)"
+        )
+    if self.forward_checkpoint is not None:
+        # Fail at config time, before any device opens: a typo in the seed
+        # path must not burn a hardware run to be discovered in Stage 2.
+        if not Path(self.forward_checkpoint).exists():
+            raise ValueError(
+                f"forward_checkpoint does not exist: {self.forward_checkpoint!r}"
+            )
+    if self.prior_run_dir is not None:
+        if self.forward_checkpoint is not None:
+            raise ValueError("prior_run_dir and forward_checkpoint are exclusive")
+        if not Path(self.prior_run_dir).is_dir():
+            raise ValueError(
+                f"prior_run_dir does not exist: {self.prior_run_dir!r}"
+            )
+    if self.geometry_file is not None and not Path(self.geometry_file).is_file():
+        raise ValueError(f"geometry_file does not exist: {self.geometry_file!r}")
+    return 
+
+
 @dataclass
 class SlmModelInLoopConfig:
     """Single-parameter config for :func:`optimize_slm_model_in_loop`.
@@ -1062,119 +1182,7 @@ class SlmModelInLoopConfig:
 
     def __post_init__(self) -> None:
         """Validate the budget, optical carrier and frozen-mode list."""
-        if self.blaze_period_px < -1 or 0 < self.blaze_period_px < BLAZE_PERIOD_MIN_PX:
-            raise ValueError(
-                f"blaze_period_px must be -1 (off), 0 (auto), or >={BLAZE_PERIOD_MIN_PX}"
-            )
-        if self.blaze_direction not in ("vertical", "horizontal"):
-            raise ValueError("blaze_direction must be vertical or horizontal")
-        if self.blaze_period_px >= 0 and self.cam_type == "sim":
-            raise ValueError("blaze calibration requires a full-frame hardware CCD")
-        if self.focus_compensation and self.cam_type == "sim":
-            # The digital twin is in focus by construction (its forward model
-            # is a plain FFT), so a Fresnel focus phase would *defocus* it.
-            # Accepting the flag as a silent no-op would be worse than saying
-            # so.
-            raise ValueError(
-                "focus_compensation is a hardware-only stage: the simulated "
-                "bench is already in focus, so the focus phase would defocus it"
-            )
-        if self.n_rounds < 1:
-            raise ValueError(f"n_rounds must be >= 1, got {self.n_rounds}")
-        if self.probe_count < 2:
-            # One probe is not a degenerate case, it is a broken configuration:
-            # the non-convex fit has no phase diversity to escape local minima.
-            raise ValueError(
-                f"probe_count must be >= 2 (a single probe cannot identify the "
-                f"aberration), got {self.probe_count}"
-            )
-        if self.holdout_probe_count < 1:
-            raise ValueError("holdout_probe_count must be >= 1")
-        if self.freeform_holdout_count < 0:
-            raise ValueError("freeform_holdout_count must be >= 0")
-        if not -1 <= self.min_holdout_correlation <= 1:
-            raise ValueError("min_holdout_correlation must lie in [-1, 1]")
-        if self.probe_spread < 3.0:
-            raise ValueError(
-                f"probe_spread must be >= 3.0 rad for the fit to be identifiable "
-                f"(a near-flat pupil's focus barely responds to a smooth "
-                f"low-order aberration), got {self.probe_spread}"
-            )
-        if self.step_a_iterations < 0 or self.step_b_iterations < 1:
-            raise ValueError(
-                "step_a_iterations must be >= 0 and step_b_iterations must be >= 1"
-            )
-        if not math.isfinite(self.max_cv_regression) or self.max_cv_regression < 0:
-            raise ValueError("max_cv_regression must be finite and non-negative")
-        if not 0.0 < self.damp_lr_factor < 1.0:
-            raise ValueError(
-                f"damp_lr_factor must lie in (0, 1), got {self.damp_lr_factor}"
-            )
-        if self.target_side < 1:
-            raise ValueError(f"target_side must be >= 1, got {self.target_side}")
-        # Single vocabulary (issue #199 P1): the end-to-end supported set of this
-        # chain -- non-square targets are scored through
-        # ``differentiable_shaping.create_target_mask``, whose geometry mapping
-        # covers exactly DIFFERENTIABLE_SHAPE_CHOICES (a subset view of the
-        # canonical TARGET_SHAPE_CHOICES).
-        if self.target_shape not in DIFFERENTIABLE_SHAPE_CHOICES:
-            raise ValueError(
-                f"unsupported target_shape: {self.target_shape}; must be one of "
-                f"{DIFFERENTIABLE_SHAPE_CHOICES}"
-            )
-        if self.region < 2:
-            raise ValueError(f"region must be >= 2, got {self.region}")
-        if self.n_orders < 1:
-            raise ValueError(f"n_orders must be >= 1, got {self.n_orders}")
-        if self.far_field_padding < 1:
-            raise ValueError(
-                f"far_field_padding must be >= 1, got {self.far_field_padding}"
-            )
-        if self.pupil_oversampling not in (1, 2, 4):
-            raise ValueError("pupil_oversampling must be 1, 2 or 4")
-        if not math.isfinite(self.fourier_weight) or self.fourier_weight < 0.0:
-            raise ValueError("fourier_weight must be finite and non-negative")
-        if self.loss_kind not in ("mse", "l1"):
-            raise ValueError(f"loss_kind must be 'mse' or 'l1', got {self.loss_kind!r}")
-        if not math.isfinite(self.selfcal_lr) or self.selfcal_lr <= 0.0:
-            raise ValueError("selfcal_lr must be a positive finite float")
-        if not math.isfinite(self.selfcal_theta_step_max):
-            raise ValueError("selfcal_theta_step_max must be finite")
-        if not math.isfinite(self.selfcal_gamma_step_max):
-            raise ValueError("selfcal_gamma_step_max must be finite")
-        if self.panel_span_px <= 0:
-            raise ValueError(f"panel_span_px must be > 0, got {self.panel_span_px}")
-        if self.cam_type == "daheng" and (
-            not math.isfinite(self.max_exposure_ms)
-            or self.max_exposure_ms < 0
-            or not math.isfinite(self.exposure_time_ms)
-            or self.exposure_time_ms < 0
-            or (
-                self.max_exposure_ms > 0
-                and self.exposure_time_ms > self.max_exposure_ms
-            )
-        ):
-            raise ValueError(
-                "Daheng exposure_time_ms must be non-negative and may not exceed a "
-                "positive max_exposure_ms (0 = auto: AO_DAHENG_MAX_EXPOSURE_MS, "
-                "else probed from the CCD image)"
-            )
-        if self.forward_checkpoint is not None:
-            # Fail at config time, before any device opens: a typo in the seed
-            # path must not burn a hardware run to be discovered in Stage 2.
-            if not Path(self.forward_checkpoint).exists():
-                raise ValueError(
-                    f"forward_checkpoint does not exist: {self.forward_checkpoint!r}"
-                )
-        if self.prior_run_dir is not None:
-            if self.forward_checkpoint is not None:
-                raise ValueError("prior_run_dir and forward_checkpoint are exclusive")
-            if not Path(self.prior_run_dir).is_dir():
-                raise ValueError(
-                    f"prior_run_dir does not exist: {self.prior_run_dir!r}"
-                )
-        if self.geometry_file is not None and not Path(self.geometry_file).is_file():
-            raise ValueError(f"geometry_file does not exist: {self.geometry_file!r}")
+        _validate_mil_scalars(self)
         self.frozen_modes = tuple(sorted({int(m) for m in self.frozen_modes}))
         # The pixel pitch is a device property: 0 means "ask the camera model".
         # Non-strict here on purpose -- a config must be constructible without a
