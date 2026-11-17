@@ -1317,6 +1317,88 @@ def _zmr_pupil_guidance(wfs, wfs_params):
 
 
 
+
+
+def _zmr_run_calibration(debug_cb, debug_dir, device_info, norm, params, ph, slm, slm_params, ui_display, wfs, wfs_driver):
+# Magnitude modes and calibration run lifted verbatim
+    magnitudes = _compute_calibration_magnitudes(
+        norm["magnitude"], params.n_magnitudes
+    )
+
+    # === 7. 标定循环 ===
+    mode_ids = _mode_ids(
+        norm["n_max"], params.excluded_piston, params.excluded_tip_tilt
+    )
+    results: list[tuple[float | None, ZernikeResponseMatrixResult]] = []
+    # 跟踪最后一次标定, 供步骤 8 的离线矫正测试 (用最后矩阵; 测试会恢复 WFS
+    # 内部参考, 若放在循环内会破坏后续标定的自定义参考基准)
+    last_cal: tuple[float, np.ndarray, str] | None = None
+
+    def _display_cb(i: int, n: int, resp: np.ndarray, var: np.ndarray) -> None:
+        """适配 ZernikeCalibrationDisplay.update 的进度回调 (失败不中断标定)."""
+        if ui_display is None:
+            return
+        try:
+            ui_display.update(
+                mode_index=i - 1,
+                mode_name=f"mode{i}",
+                response_col=resp,
+                variance_col=var,
+                current_cycle=0,
+                total_cycles=norm["n_cycles"],
+                mean_variance=float(np.mean(var)),
+            )
+        # policy: ui_display.update is an observer, not part of the calibration path
+        except Exception as e:
+            logger.debug("ui_display.update 失败: {}", e)
+
+    last_cal = _zmr_calibration_sweep(_display_cb, debug_cb, device_info, last_cal, magnitudes, mode_ids, norm, params, ph, results, slm, slm_params, wfs, wfs_driver)
+
+    # === 8. 离线矫正测试 (测完响应矩阵后自动执行) ===
+    #     恢复内部参考 → 平场基线 → pinv 反解当前像差 → ×2π 弧度加载
+    #     → 复测残差 + 模型自检 → export_correction_csv 保存施加的矫正相位。
+    #     ⚠️ 需要实验验证: 基线 RMS→残差 RMS 应有明显改善且模型自检比 ∈ 0.7~1.4;
+    #     失败多半是单位 (λ/rad) 或 zernike_radius 与标定不一致。
+    _zmr_finalize_calibration(device_info, last_cal, mode_ids, norm, params, ph, slm, wfs)
+
+    # === 9. 打印结果摘要 ===
+    _print_calibration_summary(results, params.output_path, debug_dir)
+
+
+
+
+def _zmr_setup_norm(ctx, params, wfs_driver):
+# Debug dir and display normalization lifted verbatim
+    norm = _normalize_run_options(
+        n_max=params.n_max,
+        magnitude=params.magnitude,
+        n_averages=params.n_averages,
+        n_cycles=params.n_cycles,
+        wait_time=params.wait_time,
+        output_path=params.output_path,
+        mla_index=wfs_driver.mla_index,
+        auto_exposure=wfs_driver.auto_exposure,
+        exp_time=wfs_driver.exp_time,
+        excluded_piston=params.excluded_piston,
+        excluded_tip_tilt=params.excluded_tip_tilt,
+        cancel_tile=params.cancel_tile,
+        debug=params.debug,
+        ctx=ctx,
+    )
+
+    # === 2. 设置调试回调 ===
+    debug_cb, debug_dir = _setup_debug_callback(params.output_path, norm["debug"])
+
+    # === 3. 条件创建显示 ===
+    ui_display = None
+    if params.display:
+        ui_display = ZernikeCalibrationDisplay(
+            n_wfs_terms=norm["n_wfs_terms"],
+            n_slm_terms=norm["n_slm_terms"],
+        )
+    return debug_cb, debug_dir, norm, ui_display
+
+
 @click.command("zernike-matrix")
 @click.pass_context
 @with_params(ZernikeMatrixParams, kw_name="params")
@@ -1365,33 +1447,7 @@ def run(
         [ ] --n-magnitudes N: 各幅度结果应线性 (系数 / 幅度 ≈ 常数)
     """
     # === 1. 归一化选项 ===
-    norm = _normalize_run_options(
-        n_max=params.n_max,
-        magnitude=params.magnitude,
-        n_averages=params.n_averages,
-        n_cycles=params.n_cycles,
-        wait_time=params.wait_time,
-        output_path=params.output_path,
-        mla_index=wfs_driver.mla_index,
-        auto_exposure=wfs_driver.auto_exposure,
-        exp_time=wfs_driver.exp_time,
-        excluded_piston=params.excluded_piston,
-        excluded_tip_tilt=params.excluded_tip_tilt,
-        cancel_tile=params.cancel_tile,
-        debug=params.debug,
-        ctx=ctx,
-    )
-
-    # === 2. 设置调试回调 ===
-    debug_cb, debug_dir = _setup_debug_callback(params.output_path, norm["debug"])
-
-    # === 3. 条件创建显示 ===
-    ui_display = None
-    if params.display:
-        ui_display = ZernikeCalibrationDisplay(
-            n_wfs_terms=norm["n_wfs_terms"],
-            n_slm_terms=norm["n_slm_terms"],
-        )
+    debug_cb, debug_dir, norm, ui_display = _zmr_setup_norm(ctx, params, wfs_driver)
 
     try:
         # 2026-09-16 重写: 原 ZernikeSLM 链路在实验出现原生崩溃 (0xC0000005/0xC000041C),
@@ -1440,48 +1496,7 @@ def run(
         _zmr_prepare_dither_reference(norm, params, slm, wfs, wfs_driver)
 
         # === 6. 计算标定幅度列表 (单位: **弧度**) ===
-        magnitudes = _compute_calibration_magnitudes(
-            norm["magnitude"], params.n_magnitudes
-        )
-
-        # === 7. 标定循环 ===
-        mode_ids = _mode_ids(
-            norm["n_max"], params.excluded_piston, params.excluded_tip_tilt
-        )
-        results: list[tuple[float | None, ZernikeResponseMatrixResult]] = []
-        # 跟踪最后一次标定, 供步骤 8 的离线矫正测试 (用最后矩阵; 测试会恢复 WFS
-        # 内部参考, 若放在循环内会破坏后续标定的自定义参考基准)
-        last_cal: tuple[float, np.ndarray, str] | None = None
-
-        def _display_cb(i: int, n: int, resp: np.ndarray, var: np.ndarray) -> None:
-            """适配 ZernikeCalibrationDisplay.update 的进度回调 (失败不中断标定)."""
-            if ui_display is None:
-                return
-            try:
-                ui_display.update(
-                    mode_index=i - 1,
-                    mode_name=f"mode{i}",
-                    response_col=resp,
-                    variance_col=var,
-                    current_cycle=0,
-                    total_cycles=norm["n_cycles"],
-                    mean_variance=float(np.mean(var)),
-                )
-            # policy: ui_display.update is an observer, not part of the calibration path
-            except Exception as e:
-                logger.debug("ui_display.update 失败: {}", e)
-
-        last_cal = _zmr_calibration_sweep(_display_cb, debug_cb, device_info, last_cal, magnitudes, mode_ids, norm, params, ph, results, slm, slm_params, wfs, wfs_driver)
-
-        # === 8. 离线矫正测试 (测完响应矩阵后自动执行) ===
-        #     恢复内部参考 → 平场基线 → pinv 反解当前像差 → ×2π 弧度加载
-        #     → 复测残差 + 模型自检 → export_correction_csv 保存施加的矫正相位。
-        #     ⚠️ 需要实验验证: 基线 RMS→残差 RMS 应有明显改善且模型自检比 ∈ 0.7~1.4;
-        #     失败多半是单位 (λ/rad) 或 zernike_radius 与标定不一致。
-        _zmr_finalize_calibration(device_info, last_cal, mode_ids, norm, params, ph, slm, wfs)
-
-        # === 9. 打印结果摘要 ===
-        _print_calibration_summary(results, params.output_path, debug_dir)
+        _zmr_run_calibration(debug_cb, debug_dir, device_info, norm, params, ph, slm, slm_params, ui_display, wfs, wfs_driver)
     finally:
         for dev in (wfs, slm):
             try:

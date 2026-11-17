@@ -5574,6 +5574,11 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - wiki 重钉 (㉞/㊱ 先例): `optimizer-greedy.md` `source:` 355→416 (helper 插入使 def 下移, 手工改该页单行, 不整跑生成管线)
 - 新增守卫常量 `_GREEDY_ZERNIKE` + 三行; 载体 `test_greedy_zernike_characterization` + 形状 **487 passed**; **wf 域 174 passed / 1 skipped** (与 b126 基线一致); conventions 72 passed; ruff/term/modsize 绿
 
+**2026-11-18 · b115752e 之后 · 第 144 批: `run` 168→101 行 (`runners/slm/zernike_matrix_runner.py`)**
+- 提取 `_zmr_setup_norm` 30 (3 参数 4 回传, debug 目录/显示归一) 与 `_zmr_run_calibration` 44 (11 参数 0 回传, 幅值模式表 + 标定执行 + UI 回调, 裸 return 剥离)
+- wiki 重钉 (㉞ 同型, 两页三处): `zernike-matrix.md` source 与正文内联 1326→1408, `closed-loop.md` 1818→**1833** (该 def 只被 setup 区抬升 15 行 —— 位移按 def 实况逐页核, 不能按"净增总行数"统一平移)
+- 载体: `test_zernike_matrix_runner` + `from_response_matrix_guard` + 形状 **479 passed**; conventions 72 passed; ruff 全仓绿; term 0; modsize 抬高后绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
