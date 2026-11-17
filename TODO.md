@@ -5607,6 +5607,12 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 新增 4 行钉到既有 `_SLM_GS_REFINE` 常量 (该文件另有旧常量 `_GS_REFINE`, 双常量并存系仓库现状, 不顺手改)
 - 载体: `test_slm_gs_refine` + `session_golden` + `target_shapes` + 形状 **614 passed**; ruff 全仓绿; term 0; conventions 72; modsize 绿
 
+**2026-11-18 · 0ac18f5f 之后 · 第 151 批: `optimizer_rms_dm` 158→99 行 (`optimizer/wf/rms.py`)**
+- 提取 `_rms_dm_epoch_loop` 62 行 (12 参数 0 回传, SPGD 逐 epoch 环整体; 环内 break 自绑; `_init_v` 仅环内消费无需回传; 裸 return 剥离)
+- 守卫行命名教训: `_RMS` 常量已被 `rms_by_zernike.py` 占用 → 新常量 `_RMS_DM`; 且锚定字符串要用行首 `\n` 防子串碰撞 (`_GS_REFINE` 是 `_SLM_GS_REFINE` 的子串, `str.count` 会数到 2)
+- wiki 重钉: `optimizer-rms-dm.md` source 50→51
+- 载体: **wf 域 + 形状 + conventions 合计 735 passed / 2 skipped**; ruff 全仓绿; term 0; modsize 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
