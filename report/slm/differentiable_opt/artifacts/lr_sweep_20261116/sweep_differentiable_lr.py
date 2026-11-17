@@ -1353,3 +1353,4 @@ def build_recommendation(
 
 if __name__ == "__main__":
     raise SystemExit(main())
+# ruff: noqa: E402  # 路径引导 (sys.path) 必须先于 import, 文件级豁免
