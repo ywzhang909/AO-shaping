@@ -5705,6 +5705,12 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
   3. **GUI 构建/视图层 (无有意义载体)**: `zernike_debug_viewer._render_main` 349 + `_compute_response_matrix_from_debug` 171; `ceramic_viewer.render_tab_grid` 257/250 (dm+r50 双胞胎); `r50_units.render_tab_single_unit` 190; `exposure_status.probe_session_exposure_ms` 174; `transfer_desktop/page._build_target` 173 + `archive_replay._build` 153 (PySide6, 载体 `test_transfer_desktop_archive_replay` 只测回放逻辑不测构建层); `zernike_response_matrix_ui` 167/155/154; `md_img_analysis_ui.run_pipeline` 162 (**全树零测试引用**, grep 已核); `optimizer/rl/sac_turbulence_train.main` 189 (**全树零引用**, b159 已登记) — 与 b150 先例一致
 - **结论: issue #205 的逐字提取范围自此完成**。126→165 批共 40 个函数落刀; 棘轮表覆盖全部已拆函数 (cap=实测+裕量); 残余 38 个逐项理由在上列, 若后续出现 sim 化载体 (如 focus_probe 数字孪生化) 可按 b163 nonlocal-`_fp`/`_fr` 或 b157 闭包工厂模式重评
 
+**2026-11-18 · 3cb7c56b 之后 · 第 166 批追加修复: 上游 `ac954b76` (ponytail 技能落库) 双债**
+- CI "CI" 快门红: `term_unify --check` 报 `libs/skills/ponytail/SKILL.md` 1 行 — 上游写"真机需要的标定"违反术语表 (T 表: 实机/真机→实验) → `--apply` 统一为"实验系统需要的标定"
+- 本地 conventions 红: `dead-code-audit.md` 引 `scripts/ponytail_lean_scan.py` 不在 git index (实际在 `libs/skills/ponytail/scripts/`) → 按守卫指示重钉两处 (31 行触发守卫, 5 行同错顺带修)
+- 载体: `test_quoted_source_paths_in_live_text_exist_in_the_git_index` + conventions 全量 **72 passed**; term 0; ruff 全仓绿
+- ㊺ 三连证实: 上游合入**新文件同样能带红** (不必改旧文件): 技能/文档类提交落库后必须复跑 term + conventions, 已在 rebase 检查清单内
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

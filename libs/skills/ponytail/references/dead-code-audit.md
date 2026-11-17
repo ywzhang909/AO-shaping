@@ -2,7 +2,7 @@
 
 来源：`ponytail` 的 lean 审计（correct > safe > load > tested > fast > lean）在本仓库的落地。
 本文件自包含——cron 子代理与扫描脚本不依赖 Hermes 技能库，按此协议独立复算即可。
-配套脚本：`scripts/ponytail_lean_scan.py <repo_root>`（全库 ~35s，输出 4 组**候选**，非结论）。
+配套脚本：`libs/skills/ponytail/scripts/ponytail_lean_scan.py <repo_root>`（全库 ~35s，输出 4 组**候选**，非结论）。
 
 > **本仓库最大的坑**：纯 import 图（`ponytail_lean_scan.py` 的 `unimported_candidates`）
 > 在 AO-shaping **大面积误报"死"**。原因见下"误报来源"。任何未过全树 grep 的清单
@@ -28,7 +28,7 @@
 
 1. **AST 候选**（脚本自动）：`src/` 顶层 `def`/`class`（排除 `__init__.py`）。
    候选条件 = 全树标识符计数（除本文件）= 0 且本文件额外使用 ≤ 1。
-   用 `scripts/ponytail_lean_scan.py`。
+   用 `libs/skills/ponytail/scripts/ponytail_lean_scan.py`。
 2. **全树 `grep -w` 复核**（用 ripgrep / `search_files`，**勿用 `grep -rn`**——
    含 `runs/data` 大数据目录的仓库会 >180s 超时）。必须覆盖以下字符串/惰性形态：
    - `register_*_lazy("name", ...)` 字符串注册
