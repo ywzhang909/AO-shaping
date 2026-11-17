@@ -6,6 +6,7 @@
 |----|------|------|
 | 0 | **光束质量分析**：实时画面 + 峰值趋势 + 剖面拟合 | `app.BeamQualityApp` |
 | 1 | **迁移学习闭环整形**：必设参数 → 校验 → 整场会话 → 分阶段进度 | `gui/slm/transfer_desktop/` |
+| 2 | **SLM 静态整形**：图案类型 → 参数 → 预览 → 下发到 SLM | `gui/slm/static_shaping_page.py` |
 
 窗口顶部有一条菜单栏，目前只有「帮助」一组，内含「关于」（自 2026-11-09 `deb43b3d` 起，`gui/utils/about.py`）：弹出模态对话框显示版本号（取短 git commit id，打包后的非 git 环境显示「未知」）与指向 GitHub 上用户手册的「帮助文档」链接（用系统浏览器打开，文档不进 exe）。外壳刻意不设自己的状态栏，避免与页 0 的状态栏叠两条。
 
@@ -13,6 +14,8 @@
 生命周期与后台作业，切页不打断正在跑的会话或相机流。
 
 页 1 的操作手册见 [docs/GUI/slm/transfer_desktop/transfer_desktop_user_manual.md](../../../../../docs/GUI/slm/transfer_desktop/transfer_desktop_user_manual.md)。
+
+页 2 的操作手册见 [docs/GUI/slm/static_shaping_page/static_shaping_page_user_manual.md](../../../../../docs/GUI/slm/static_shaping_page/static_shaping_page_user_manual.md)。
 
 ## 启动
 
