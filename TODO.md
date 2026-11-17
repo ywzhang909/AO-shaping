@@ -5424,6 +5424,12 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: `test_focus_probe` + 形状门禁 **456 passed**; tools/slm 逐文件域 exit=0; `test_conventions` 72 passed
 - 门禁: `sweep_focus` 收紧 176/5/153→105/1/93 + 新增两条 helper 行; ruff/term 绿
 
+**2026-11-17 · 453a97d3 之后 · 第 123 批: `_tab2_fragment` 279→141 行 (`gui/dm/micro_dm_ui.py`)**
+- 提取四个 GUI 区块: `_mdm_render_pattern_generation_section` 39 / `_mdm_render_io_section` 30 / `_mdm_render_hardware_ops_section` 38 / `_mdm_render_dynamic_voltage_section` 47 (参数仅 `vmin/vmax/fill_value` 等 session 值, 全 risk=0)
+- 叶差分: 29 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中; 模块 1213→1245 baseline 抬高 +32
+- 载体: `test_micro_dm_threads` + 形状门禁 **439 passed**; `test_conventions` 72 passed
+- 门禁: `_tab2_fragment` 收紧 309/7/279→160/7/141 + 新增四条 section 行; ruff/term 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
