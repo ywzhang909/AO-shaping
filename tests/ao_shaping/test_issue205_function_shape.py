@@ -523,6 +523,8 @@ TARGETS = [
     (_EXPOSURE_CONTROL, "_ecc_reset_fit_triplet", 14, 2, 11),
     (_EXPOSURE_CONTROL, "_ecc_final_bound", 23, 3, 19),
     (_SLM_ZERNIKE_PIB, "_prepare_geometry", 163, 3, 141),
+    (_SLM_ZERNIKE_PIB, "_run_heuristic", 84, 1, 73),
+    (_SLM_ZERNIKE_PIB, "_run_heuristic_with_progress", 93, 2, 81),
     (_SLM_ZERNIKE_PIB, "_pibg_window_estimate", 64, 2, 55),
     (_SLM_ZERNIKE_PIB, "_pibg_bucket_init", 37, 3, 32),
     (_MICRO_DM_UI, "_tab1_fragment", 50, 2, 38),

@@ -497,7 +497,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 🔴 **同一坑的第二次，且这次是机器拦住的**：我在动手前用 `grep -rn 'except AssertionError' src/ scripts/` 得到 **0 命中**，据此以为没有窄处理器；AST 守卫一跑就报出 3 条元组写法。⇒ 判"不存在某类引用"**不得依赖单次 grep**：文本匹配看不见 `except (A, B)` 这种同一语义的不同写法。本会话已两次踩中（前一次是漏看 `test_frame_averaging.py:69` 的 `pytest.raises(AssertionError)`），区别是这次把规则写成了测试而非靠人复查。
 
-> 🔴 **`--max_peak` 不要动。** 它在 **optimizer**（`slm_zernike_pib.py:2352-2362`（行号 2026-11-16 复核；原 `:1585-1605`，#44 三步闭包上提与 `# policy:` 标记逐次下移；2026-10-30 复核 `6b52f34c` #44 删除重复 `_init_c`/`_init_r` kwargs（净 −4 行，本块在两删除点之下）后整体上移 4 行；同日复核 `ff288621` #44 持有者权威刀（入口净 −5 行，本块在其下）整体再上移 5 行；同日复核 `ca0c7ea6` #44 值通道收口刀（调用点 −2 行与签名 −2 行均在本块之上）整体再上移 4 行；区间右界取该告警调用的闭合行；2026-10-31 复核 #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在其上）整体下移至 `:2072-2082`，区间右界仍取告警调用闭合行；2026-11-01 复核 `2a446813` #205 第十一批（324 行 With 会话提为 `_run_pib_session`，入口体下移）整体下移 120 行至 `:2192-2202`，区间右界仍取告警调用闭合行；2026-11-01 复核 #205 第十四批（350 行 tqdm With 会话提为 `_run_spgd_session`，区域体上移）整体上移 34 行至 `:2158-2168`，区间右界仍取告警调用闭合行；2026-11-12 复核 #205 第五十九批（`_run_spgd_session` 四缝提取，告警块随母函数下移）整体下移 151 行至 `:2365-2375`，区间右界仍取告警调用闭合行；2026-11-16 复核 #205 第一百批 `e10e9d73`（`_szp_resolve_targets`/`_szp_display_ctx` 两 helper 外提至模块尾 2534–2654，提取区 1598–1698 收缩 93→18 行，本块在提取区之下整体上移 −75）至 `:2290-2300`，区间右界仍取告警调用闭合行；2026-11-16 复核 #205 第一百零五批 `HEAD`（`_spgd_gradient_pipeline`/`_spgd_epoch_log_row` 两缝在提取区之内，本块之下无净移动、但两缝 helper 插于母函数之上使本块下移 53）至 `:2343-2353`，区间右界仍取告警调用闭合行；2026-11-16 复核 #205 第一百零九批 `HEAD`（`_pib_default_init_c`/`_pib_make_optimizer`/`_pib_seed_best_state` 三缝 helper 插于本块之上）整体下移 24 行至 `:2352-2362`，区间右界仍取告警调用闭合行）），不在驱动（行号 2026-10-20 复核，原 `:1456-1474`；`1ce4717a` 常量收敛后整体 −1）；
+> 🔴 **`--max_peak` 不要动。** 它在 **optimizer**（`slm_zernike_pib.py:2360-2370`（行号 2026-11-16 复核；原 `:1585-1605`，#44 三步闭包上提与 `# policy:` 标记逐次下移；2026-10-30 复核 `6b52f34c` #44 删除重复 `_init_c`/`_init_r` kwargs（净 −4 行，本块在两删除点之下）后整体上移 4 行；同日复核 `ff288621` #44 持有者权威刀（入口净 −5 行，本块在其下）整体再上移 5 行；同日复核 `ca0c7ea6` #44 值通道收口刀（调用点 −2 行与签名 −2 行均在本块之上）整体再上移 4 行；区间右界取该告警调用的闭合行；2026-10-31 复核 #186 采集入口守卫接线（factory 导入 +1、with 体首行守卫 +2，均在其上）整体下移至 `:2072-2082`，区间右界仍取告警调用闭合行；2026-11-01 复核 `2a446813` #205 第十一批（324 行 With 会话提为 `_run_pib_session`，入口体下移）整体下移 120 行至 `:2192-2202`，区间右界仍取告警调用闭合行；2026-11-01 复核 #205 第十四批（350 行 tqdm With 会话提为 `_run_spgd_session`，区域体上移）整体上移 34 行至 `:2158-2168`，区间右界仍取告警调用闭合行；2026-11-12 复核 #205 第五十九批（`_run_spgd_session` 四缝提取，告警块随母函数下移）整体下移 151 行至 `:2365-2375`，区间右界仍取告警调用闭合行；2026-11-16 复核 #205 第一百批 `e10e9d73`（`_szp_resolve_targets`/`_szp_display_ctx` 两 helper 外提至模块尾 2534–2654，提取区 1598–1698 收缩 93→18 行，本块在提取区之下整体上移 −75）至 `:2290-2300`，区间右界仍取告警调用闭合行；2026-11-16 复核 #205 第一百零五批 `HEAD`（`_spgd_gradient_pipeline`/`_spgd_epoch_log_row` 两缝在提取区之内，本块之下无净移动、但两缝 helper 插于母函数之上使本块下移 53）至 `:2343-2353`，区间右界仍取告警调用闭合行；2026-11-16 复核 #205 第一百零九批 `HEAD`（`_pib_default_init_c`/`_pib_make_optimizer`/`_pib_seed_best_state` 三缝 helper 插于本块之上）整体下移 24 行至 `:2352-2362`，区间右界仍取告警调用闭合行；2026-11-17 复核本批 #205 第一百二十七批（`_run_heuristic` 的 tqdm 会话外提 `_run_heuristic_with_progress`，helper 插于本块之上、模块净 +8）整体下移 8 行至 `:2360-2370`）），不在驱动（行号 2026-10-20 复核，原 `:1456-1474`；`1ce4717a` 常量收敛后整体 −1）；
 > 且其 CLI 帮助与 archive R-57 **明文声明它不是安全联锁**（"NOT a safety interlock"，
 > 只拒绝提交下一轮更新，光已出）。把它搬进驱动等于把**策略**伪装成**机制** ——
 > 与 TODO 里 R-57 的结论直接冲突。
@@ -5449,6 +5449,14 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 叶差分: 7 同 / 消失 0 / 新增 1; ⑳ 审计 0 命中
 - 载体: `test_ga_zernike` + 形状门禁 **451 passed**; wf 域 174 passed / 1 skipped (需 mock 设备); `test_conventions` 全绿
 - 门禁: `optimizer_ga` 收紧 206/6/188→104/2/93 + 新增 `_ga_run_evolution` 110/4/99; ruff/term 绿; 模块未入 modsize 基线 (413 行低于阈值)
+
+**2026-11-17 · 309772d7 之后 · 第 127 批: `_run_heuristic` 150→73 行 (`optimizer/wfless/slm_zernike_pib.py`)**
+- 提取 `_run_heuristic_with_progress` 81 行 (19 参数 1 回传 `result`, 覆盖 tqdm 会话 + `_on_evaluate` 回调闭包 + `run_heuristic_search` 调用)
+- ⚠️ 教训 (新 ㉟): **模块净位移会同时打红两类"文档行号锚点"守卫, 且修法不同** — `test_wiki_source_citations_land_on_definitions` 只看 `source:` 头 (b126 已解); 而 `test_live_doc_line_anchors_still_point_at_their_code` 解析**表格行内的 `file.py:NNNN` 引用**, 追加一句"重钉→`:新号`"**不生效** (解析器只认原引用), 必须把行内原引用数字直接改掉。本批同步重钉 `docs/slm/pre_run_characterization.md` (ABBA 探针 2075→2083) 与 `TODO.md` (`--max_peak` 块 2352-2362→2360-2370)
+- 叶差分: 39 同 / 消失 0 / 新增 1; ⑳ 审计 0 命中; 模块 2682→2690 (baseline 抬高 +8)
+- 载体: `test_slm_zernike_heuristic` + `_pib_loop` + `_pib_production_sim` + 形状门禁 **478 passed**
+- wfless 域: 聚合跑在 32% 处 OOM (exit 137, 6g/16g 同) — 逐文件跑 **55/55 文件全绿**, 唯一 rc=5 是 `test_slm_zernike_pib_online` 的 `AO_RUN_HARDWARE` 门; 聚合 OOM 属既有内存压力, 与本改动无关
+- 门禁: `_run_heuristic` 新增行 84/1/73 + `_run_heuristic_with_progress` 93/2/81; ruff/term 绿; `test_conventions` 72 passed
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
