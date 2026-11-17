@@ -1240,44 +1240,9 @@ def _dump_shape_history_and_timing(
                 fh.write(json.dumps(timing_row) + "\n")
 
 
-def _run_validate_blocks(
-    *,
-    DifferentiableUniformityOptimizer: object,
-    abba: object,
-    args: object,
-    best: object,
-    blocks: object,
-    capture: object,
-    champion: object,
-    device: object,
-    exposure: object,
-    forward: object,
-    guard: object,
-    iterations: object,
-    objective: object,
-    observer: object,
-    phase_lr: object,
-    policy: object,
-    save_summary: object,
-    shape: object,
-    spectral_mask: object,
-    spectral_weight: object,
-    summary_entries: object,
-    torch: object,
-    tune_exposure: object,
-    xy: object,
-) -> tuple:
-    """#205 batch-26: the per-block refinement stage of the shape loop.
 
-    The block loop moved line-exact at the same indent. best, champion
-    and exposure are rebound per block and read by the code that follows
-    the loop, so they leave through the returned tuple rather than by
-    closure. tune_exposure is passed in, and its nested read_exposure
-    binds objective from tune_exposure own parameter, so no cell is
-    left behind in the shape-loop scope.
-    Moved verbatim.
-    """
-    shape_start = time.monotonic()
+def _validate_block_loop(DifferentiableUniformityOptimizer, abba, args, best, blocks, capture, champion, device, exposure, forward, guard, iterations, objective, observer, phase_lr, policy, save_summary, shape, spectral_mask, spectral_weight, summary_entries, torch, tune_exposure, xy):
+# Per-block refinement loop lifted verbatim
     for block in blocks:
         # Staged objective weights (issue #213 item 4c). Only the
         # optimisation path moves; the acceptance criteria and the
@@ -1422,6 +1387,49 @@ def _run_validate_blocks(
         if len(iterations) > iterations_before:
             with (args.out/"iterations.pkl").open("wb") as stream:
                 pickle.dump(iterations, stream, protocol=5)
+    return best, champion, exposure
+
+
+
+def _run_validate_blocks(
+    *,
+    DifferentiableUniformityOptimizer: object,
+    abba: object,
+    args: object,
+    best: object,
+    blocks: object,
+    capture: object,
+    champion: object,
+    device: object,
+    exposure: object,
+    forward: object,
+    guard: object,
+    iterations: object,
+    objective: object,
+    observer: object,
+    phase_lr: object,
+    policy: object,
+    save_summary: object,
+    shape: object,
+    spectral_mask: object,
+    spectral_weight: object,
+    summary_entries: object,
+    torch: object,
+    tune_exposure: object,
+    xy: object,
+) -> tuple:
+    """#205 batch-26: the per-block refinement stage of the shape loop.
+
+    The block loop moved line-exact at the same indent. best, champion
+    and exposure are rebound per block and read by the code that follows
+    the loop, so they leave through the returned tuple rather than by
+    closure. tune_exposure is passed in, and its nested read_exposure
+    binds objective from tune_exposure own parameter, so no cell is
+    left behind in the shape-loop scope.
+    Moved verbatim.
+    """
+    shape_start = time.monotonic()
+    best, champion, exposure = _validate_block_loop(DifferentiableUniformityOptimizer, abba, args, best, blocks, capture, champion, device, exposure, forward, guard, iterations, objective, observer, phase_lr, policy, save_summary, shape, spectral_mask, spectral_weight, summary_entries, torch, tune_exposure, xy)
 
     _dump_shape_history_and_timing(args=args, shape=shape, iterations=iterations, best=best,
                                    forward=forward, torch=torch, objective=objective,

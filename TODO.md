@@ -5388,6 +5388,13 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: `test_pib_objective_columns` + `test_pib_objective_sign` + `test_spid_pib_path_characterization` + 形状门禁 **430 passed**; wfless 逐文件域 exit=0; `test_conventions` 72 passed
 - 门禁: 棘轮收紧 230/5/195→55/0/47 + 新增 `_spgd_epoch_loop` 170/5/152; 模块 1085→1093 baseline 抬高 +8; ruff/term 绿
 
+**2026-11-17 · db8820c8 之后 · 第 118 批: `_run_validate_blocks` 188→45 行 + 整环提取 (`transfer/validate.py`)**
+- 提取: `_validate_block_loop` 147 (逐块细化 for-block 环整体提走, 24 参数 3 回传 `best/champion/exposure`; 环体含 2 个内层环, 全程无 break/continue, 绑定后审通过 —— 与 b117 不同本批**无需豁免**, 常规路径)
+- 闭包参数照常入参 (`capture`/`save_summary`/`tune_exposure` 均为父级局部闭包, 沿 b111 工厂形态直接传引用)
+- 叶差分: 24 同 / 消失 0 / 新增 1; ⑳ 审计 0 命中; 模块 1431→1439 baseline 抬高 +8
+- 载体: `test_transfer_workflow` (validate.run fake e2e 驱动到 blocks 段) + 形状门禁 **464 passed**; tools/slm 逐文件域 exit=0; `test_conventions` 72 passed (lift 未移动任何被引用行)
+- 门禁: 棘轮收紧 200/5/181→55/0/45 + 新增 `_validate_block_loop` 160/5/147; ruff/term 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

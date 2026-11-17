@@ -60,7 +60,7 @@
   "src/ao_shaping/tools/slm/panel/target_size.py": 851,
   "src/ao_shaping/tools/slm/transfer/capture.py": 920,
   "src/ao_shaping/tools/slm/transfer/optical_probe.py": 1178,
-  "src/ao_shaping/tools/slm/transfer/validate.py": 1431,
+  "src/ao_shaping/tools/slm/transfer/validate.py": 1439,
   "src/ao_shaping/tools/slm/transfer/workflow.py": 1808,
   "src/ao_shaping/utils/image/beam_metrics.py": 1221,
   "src/ao_shaping/utils/image/target/metrics.py": 867,
